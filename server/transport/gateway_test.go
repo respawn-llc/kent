@@ -165,7 +165,8 @@ func (s gatewayChatAuthorizationService) Steer(
 		Session: &chatpb.ExistingSessionTarget{SessionId: s.sessionID},
 		Outcome: &chatpb.InputMutationSuccess_Accepted{
 			Accepted: &chatpb.InputAccepted{
-				QueueItem: &chatpb.QueueItemIdentity{Id: runtimeids.NewQueueItemID().String()},
+				QueueItem:   &chatpb.QueueItemIdentity{Id: runtimeids.NewQueueItemID().String()},
+				Disposition: chatpb.InputAdmissionDisposition_INPUT_ADMISSION_DISPOSITION_STARTED_TURN,
 			},
 		},
 	}, nil
@@ -270,8 +271,7 @@ func TestGatewayAuthorizesChatTargetModes(t *testing.T) {
 				conn,
 				"authorize-chat",
 				method,
-				&chatpb.SteerRequest{
-					Target: test.target,
+				&chatpb.SteerRequest{QueueItemId: runtimeids.NewQueueItemID().String(), Target: test.target,
 					Activation: &chatpb.Activation{
 						Input: &chatpb.Activation_Text{Text: "continue"},
 					},
@@ -339,6 +339,7 @@ func TestGatewayDisconnectStopsDeliveryWithoutCancelingChatOperation(t *testing.
 		t.Fatalf("resolve Chat operation: %v", err)
 	}
 	payload, err := protoapi.Marshal(&chatpb.SteerRequest{
+		QueueItemId: runtimeids.NewQueueItemID().String(),
 		Target: &chatpb.ChatTarget{Target: &chatpb.ChatTarget_Session{
 			Session: &chatpb.ExistingSessionRequestTarget{SessionId: requestfixture.Selector(t, sessionID.String())},
 		}},

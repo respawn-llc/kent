@@ -6,6 +6,7 @@ import (
 	"strings"
 
 	"core/shared/modelcontract"
+	"core/shared/runtimeids"
 	"core/shared/transcript"
 )
 
@@ -72,6 +73,7 @@ type MessageReasoningRecord struct {
 }
 
 type MessageRecord struct {
+	QueueItemIDs         []string                 `json:"queue_item_ids,omitempty"`
 	Role                 MessageRole              `json:"role"`
 	MessageType          *MessageType             `json:"message_type,omitempty"`
 	SourcePath           *string                  `json:"source_path,omitempty"`
@@ -97,6 +99,19 @@ func (m MessageRecord) validate() error {
 }
 
 func normalizeMessageRecord(message MessageRecord) (MessageRecord, error) {
+	if len(message.QueueItemIDs) > 0 && message.Role != MessageRoleUser {
+		return MessageRecord{}, fmt.Errorf("source queue items require a user message")
+	}
+	seenIDs := make(map[string]struct{}, len(message.QueueItemIDs))
+	for _, id := range message.QueueItemIDs {
+		if _, err := runtimeids.ParseCanonicalUUIDv4(id, "queue_item_id"); err != nil {
+			return MessageRecord{}, err
+		}
+		if _, exists := seenIDs[id]; exists {
+			return MessageRecord{}, fmt.Errorf("source queue item identity is repeated")
+		}
+		seenIDs[id] = struct{}{}
+	}
 	if err := validateMessageRole(message.Role); err != nil {
 		return MessageRecord{}, err
 	}

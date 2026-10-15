@@ -86,9 +86,6 @@ func (b responsesRequestPayloadBuilder) BuildResponse(request ResponsesRequest, 
 
 	out := responses.ResponseNewParams{
 		Model: request.Model,
-		ToolChoice: responses.ResponseNewParamsToolChoiceUnion{
-			OfToolChoiceMode: openai.Opt(toolControls.choice),
-		},
 	}
 	if cacheKey := strings.TrimSpace(request.PromptCacheKey); cacheKey != "" && SupportsPromptCacheKeyProvider(b.capabilities) {
 		out.PromptCacheKey = openai.String(cacheKey)
@@ -101,6 +98,9 @@ func (b responsesRequestPayloadBuilder) BuildResponse(request ResponsesRequest, 
 	}
 	if len(toolControls.tools) > 0 {
 		out.Tools = toolControls.tools
+		out.ToolChoice = responses.ResponseNewParamsToolChoiceUnion{
+			OfToolChoiceMode: openai.Opt(toolControls.choice),
+		}
 	}
 	if request.FastMode && SupportsFastModeProvider(b.capabilities) {
 		out.ServiceTier = responses.ResponseNewParamsServiceTierPriority

@@ -1,46 +1,38 @@
-# Terminology
-
 Use these terms consistently in specs and product surfaces. These terms extend common English for Kent's domain.
 
 ## Provider Access
 
 ### Provider Connection
 
-A named server-owned provider-access configuration containing provider implementation, endpoint, authentication selection, and connection/protocol capabilities. Agents and roles select it by its user-chosen configuration ID; model and context policy remain agent or role settings.
+A named server-owned provider-access configuration containing provider implementation, endpoint, authentication selection, and connection/protocol capabilities. Agents and roles select it by its user-chosen configuration ID. Agent or role settings determine model and context policy.
 
 ### Reasoning Type
 
-The provider-assigned compatibility type of retained reasoning or an encrypted native compaction checkpoint. Types are OpenAI, Anthropic, Grok, and unencrypted. A Reasoning Type is independent of a Provider Connection's user-chosen ID and the selected model. Matching types do not establish cross-account compatibility.
+The provider-assigned compatibility type of saved reasoning or an encrypted native compaction checkpoint. Types are OpenAI, Anthropic, Grok, and unencrypted. A Reasoning Type is independent of a Provider Connection's user-chosen ID and the selected model. Matching types do not establish cross-account compatibility.
 
 ## Session identity
 
 ### Session Short ID
 
-A positive incrementing number used to address a Session in CLI commands and agent-facing output. It is unique within a Kent persistence root and is never reassigned after deletion. It does not replace the Session's UUID identity.
+A positive incrementing number used to address a Session in CLI commands and agent-facing output. It is unique within a Kent persistence root and is never reassigned after deletion. The Session's UUID is its authoritative identity.
 
 ## Workflow
 
 ### Task
 
-A durable user-facing unit of work. A task owns its current workflow Nodes, task metadata, unresolved workflow interactions, comments, and Session associations. A Task may have several current Nodes while parallel work is active. Completed Node execution and workflow movement are not retained as separate history.
+A durable user-facing unit of work. A task owns its current workflow Nodes, task metadata, unresolved workflow interactions, comments, and Session associations. A Task may have several current Nodes while parallel work is active. Kent stores no separate history of completed Node execution or workflow movement.
 
 ### Task Dependency
 
-A Project-scoped directed planning relationship from one Blocker Task to one
-Blocked Task. The ordered Blocker Task and Blocked Task identities identify the
-relationship. A Task Dependency has no separate product identity. It is
-satisfied when its Blocker Task is done and is unsatisfied otherwise.
+A Project-scoped directed planning relationship from one Blocker Task to one Blocked Task. The ordered Blocker Task and Blocked Task identities identify the relationship. A Task Dependency has no separate product identity. It is satisfied when its Blocker Task is done and is unsatisfied otherwise.
 
 ### Blocker Task
 
-The source Task in a Task Dependency. A Blocker Task must be done for that
-dependency to be satisfied.
+The source Task in a Task Dependency. A Blocker Task must be done for that dependency to be satisfied.
 
 ### Blocked Task
 
-The target Task in a Task Dependency. Unsatisfied Task Dependencies warn before
-Kent starts or manually moves the Blocked Task into executable work, but they do
-not prohibit that work.
+The target Task in a Task Dependency. Unsatisfied Task Dependencies warn before Kent starts or manually moves the Blocked Task into executable work, but they do not prohibit that work.
 
 ### Task Short ID
 
@@ -52,7 +44,7 @@ A short, human-facing, uppercase project prefix applied to new task short IDs. U
 
 ### Workflow Version
 
-A monotonic counter for changes to a Workflow definition. A save that changes metadata, the graph, or both increments the counter once. A save that changes nothing does not increment it. Kent uses the value to identify the current definition and warn when a pending Approval refers to an older definition.
+A monotonic counter for changes to a Workflow definition. A save that changes metadata, the graph, or both increments the counter once. A save that changes nothing leaves the counter unchanged. Kent uses the value to identify the current definition and warn when a pending Approval refers to an older definition.
 
 ### Workflow
 
@@ -80,11 +72,11 @@ The directory Kent uses as the shell working directory and relative-path base fo
 
 ### Execution Target Root
 
-The Workspace root or current managed Worktree root that contains a Session's Working Directory. It is the Workspace root when the Session does not use a managed Worktree.
+The Workspace root or current managed Worktree root that contains a Session's Working Directory. It is the Workspace root when the Session uses no managed Worktree.
 
 ### Main Workspace
 
-The Workspace root a Session uses when it is not targeting another Worktree. Main Workspace identity belongs to Kent and does not indicate Git's main worktree.
+The Workspace root a Session uses when it is not targeting another Worktree. Main Workspace identity belongs to Kent and is independent of Git's main worktree.
 
 ### Git main worktree
 
@@ -108,15 +100,15 @@ A Project-owned user-defined organizational tag with an immutable UUID v4 identi
 
 ### Assignee
 
-The subagent role materialized for an Agent Current Node. An Agent Node configures the required fallback Assignee; an eligible incoming Transition Branch may select a different effective Assignee. There is no separate product Assignment entity.
+The subagent role materialized for an Agent Current Node. An Agent Node configures the required fallback Assignee. An eligible incoming Transition Branch may select a different effective Assignee. There is no separate product Assignment entity.
 
 ### Node
 
-A state in a Workflow. Start, Agent, Script, and Terminal Nodes can appear as workflow states or board columns. A Join combines parallel branches and does not appear as a board column.
+A state in a Workflow. Start, Agent, Script, and Terminal Nodes can appear as workflow states or board columns. A Join combines parallel branches and is excluded from board columns.
 
 ### Current Nodes
 
-The Node or Nodes that contain a Task at this moment. A Task usually has one Current Node. It can have several Current Nodes only while parallel branches are active. Current Nodes belong to the Task and have no independent identity. A non-Terminal Current Node entered through a Transition retains that Transition Branch so Kent can resolve its live prompt and context policy from the latest Workflow definition. A Terminal Current Node must not retain its incoming Transition Branch reference. Pending Approvals must retain their captured branch dependencies until applied, including branches targeting Terminal Nodes. Leaving a Node removes its current execution state.
+The Node or Nodes that contain a Task at this moment. A Task usually has one Current Node. It can have several Current Nodes only while parallel branches are active. Current Nodes belong to the Task and have no independent identity. A non-Terminal Current Node entered through a Transition stores that Transition Branch so Kent can resolve its live prompt and context policy from the latest Workflow definition. A Terminal Current Node must have no incoming Transition Branch reference. Pending Approvals must store their captured branch dependencies until applied, including branches targeting Terminal Nodes. Leaving a Node removes its current execution state.
 
 ### Node Group
 
@@ -128,7 +120,7 @@ The node where new tasks enter a workflow. A start node is non-executable and ha
 
 ### Task Start
 
-An explicit server-owned operation that prepares a newly created Task's first execution while the Task remains at start/backlog, then atomically applies the Start Node's outgoing Transition once preparation succeeds.
+An explicit server-owned operation that prepares a Task's first execution while the Task is at start/backlog, then atomically applies the Start Node's outgoing Transition once preparation succeeds.
 
 ### Terminal Node
 
@@ -156,7 +148,7 @@ A stable-key string fact produced by an agent source when it applies a Transitio
 
 ### Protected Parameter
 
-A Parameter with a Kent-owned semantic purpose tied to a Workflow control. Its purpose remains stable when its editable Key or description changes. It stays in the Transition Branch's ordered Parameter collection and can be renamed, redescribed, and reordered, but cannot be deleted while its owning control is enabled. Disabling the control or making it inapplicable may hide the Protected Parameter while retaining its saved settings. It is required only when Kent exposes it in the effective Runtime Parameter Contract; while exposed, its value has ordinary Parameter behavior.
+A Parameter with a Kent-owned semantic purpose tied to a Workflow control. Changes to its editable Key or description must not change its purpose. It belongs to the Transition Branch's ordered Parameter collection and can be renamed, redescribed, and reordered, but cannot be deleted while its owning control is enabled. Disabling the control or making it inapplicable may hide the Protected Parameter without changing its saved settings. It is required only when Kent exposes it in the effective Runtime Parameter Contract. While exposed, its value has ordinary Parameter behavior.
 
 ### Transition Prompt
 
@@ -180,7 +172,7 @@ A stable workflow-wide key for a transition. Agent nodes emit transition keys wh
 
 ### Transition Label
 
-The human-facing label for a transition. Labels are display text; transition keys are stable contract identifiers.
+The human-facing label for a transition. Labels are display text. Transition keys are stable contract identifiers.
 
 ### Transition Branch Key
 
@@ -192,15 +184,15 @@ Per-transition-branch policy for the next node's execution context:
 
 - `new_session`: start a blank Kent session and inject the previous transition result plus task metadata.
 - `continue_session`: continue a selected previous Kent session with a new prompt/goal and bound metadata.
-- `compact_and_continue_session`: ensure the selected previous session is compacted, then continue it under a fresh target-node Session Contract generation with a new prompt/goal and bound metadata. Kent may compact eagerly after the source assignment completes when future reuse is guaranteed; otherwise the existing lazy compaction runs when the selected target starts.
+- `compact_and_continue_session`: ensure the selected previous session is compacted, then continue it under a fresh target-node Session Contract generation with a new prompt/goal and bound metadata. Kent may compact eagerly after the source assignment completes when future reuse is guaranteed. Otherwise lazy compaction runs when the selected target starts.
 
 ### Context Source
 
-Per-Transition-Branch policy deciding which retained Session supplies context for continuation modes. `immediate_source` uses the Session bound to the source Current Node during normal completion; during Manual Move it falls back to the latest retained unscoped Session associated with the selected Transition's source Node. `node:<node_key>` selects the latest retained Session associated with a guaranteed-prior agent Node. `previous_target` selects the latest retained Session associated with the Transition Branch target and requires that one exists. `previous_target_or_new` selects that Session when one exists and otherwise starts a new Session. While parallel work is active, every selection is scoped to the same Transition Branch Key as the source Current Node.
+Per-Transition-Branch policy deciding which saved Session supplies context for continuation modes. `immediate_source` uses the Session bound to the source Current Node during normal completion. During Manual Move it falls back to the latest saved unscoped Session associated with the selected Transition's source Node. `node:<node_key>` selects the latest saved Session associated with a guaranteed-prior agent Node. `previous_target` selects the latest saved Session associated with the Transition Branch target and requires that one exists. `previous_target_or_new` selects that Session when one exists and otherwise starts a new Session. While parallel work is active, every selection is scoped to the same Transition Branch Key as the source Current Node.
 
 ### Workflow Pre-Compaction
 
-Post-completion compaction of a retained Workflow Session before it becomes dormant. Kent performs Workflow Pre-Compaction when future Workflow execution can reuse that Session and its context usage reaches the configured threshold. Guaranteed future `compact_and_continue_session` reuse also uses this boundary regardless of context usage.
+Post-completion compaction of a saved Workflow Session before it becomes dormant. Kent performs Workflow Pre-Compaction when future Workflow execution can reuse that Session and its context usage reaches the configured threshold. Guaranteed future `compact_and_continue_session` reuse also uses this boundary regardless of context usage.
 
 ### Eager Compaction
 
@@ -216,19 +208,19 @@ The version of the live Session resources used by an Exact Execution Scope. Repl
 
 ### Script Node
 
-A workflow executable node that runs a local executable on the Kent server instead of starting an agent session. It reads incoming workflow parameter values from JSON stdin, writes workflow completion JSON to stdout, and uses stderr only for diagnostics.
+A workflow executable node that runs a local executable on the Kent server without starting an agent session. It reads incoming workflow parameter values from JSON stdin, writes workflow completion JSON to stdout, and uses stderr only for diagnostics.
 
 ### Session Contract
 
-The generation-scoped snapshot of the model, provider, generation settings, enabled tools, native web-search mode, and system/reviewer prompts used by a Session. Committed compaction expires this snapshot; the next model request establishes a fresh generation. `compact_and_continue_session` establishes a fresh target-node generation when that target starts, including when the selected history was compacted eagerly after an earlier assignment completed. Developer context remains part of the transcript.
+The generation-scoped snapshot of the model, provider, generation settings, enabled tools, native web-search mode, and system/reviewer prompts used by a Session. Committed compaction expires this snapshot. The next model request establishes a fresh generation. `compact_and_continue_session` establishes a fresh target-node generation when that target starts, including when the selected history was compacted eagerly after an earlier assignment completed. Developer context is part of the transcript.
 
-The context window, automatic-compaction threshold, and Compaction Mode are activation policy, not Session Contract fields. A Session preserves its provider-capability facts across runs for continuity. These facts and the activation policy do not independently invalidate prompt caches or rotate cache lineage.
+The context window, automatic-compaction threshold, and Compaction Mode belong to activation policy and are excluded from the Session Contract. A Session's provider-capability facts must be unchanged across runs for continuity. These facts and the activation policy do not independently invalidate prompt caches or rotate cache lineage.
 
 Thinking effort is Session-owned state outside the Session Contract, as defined in [Model Requests And Cache Continuity](core-runtime-tools.md#model-requests-and-cache-continuity).
 
 ### Snapshot Policy
 
-A rule determining when a typed group of captured Session properties becomes eligible for refresh. Eligibility does not authorize changing established provider input; the owning product operation determines the permitted application boundary.
+A rule determining when a typed group of captured Session properties becomes eligible for refresh. Eligibility alone cannot authorize changing established provider input. The owning product operation determines the permitted application boundary.
 
 ### Workflow Snapshot
 
@@ -236,11 +228,11 @@ The Session-owned snapshot of effective Workflow completion mode. Its refresh bo
 
 ### Runtime Parameter Contract
 
-The possible and required Transition Parameters for an executable Current Node. Kent derives this contract from the latest Workflow definition when work starts or resumes. Kent does not retain an obsolete contract as execution history.
+The possible and required Transition Parameters for an executable Current Node. Kent derives this contract from the latest Workflow definition when work starts or resumes. Kent stores no obsolete contract as execution history.
 
 ### Session
 
-A durable Kent conversation associated with an Agent Node on a Task and, during parallel work, its Transition Branch Key. A Task can retain many Sessions because of loops, parallel branches, retries, or Context-Preservation choices. Script Nodes have no Session.
+A durable Kent conversation associated with an Agent Node on a Task and, during parallel work, its Transition Branch Key. A Task can have many saved Sessions because of loops, parallel branches, retries, or Context-Preservation choices. Script Nodes have no Session.
 
 ### Compaction Mode
 
@@ -252,7 +244,7 @@ The condition or request that initiates compaction, such as a manual request, au
 
 ### Node Transition
 
-An atomic Task state change through a Transition Branch. It removes completed source Nodes from Current Nodes, applies Parameter bindings and context preservation, and adds or blocks the target Nodes. Applied transitions are not retained as workflow movement history.
+An atomic Task state change through a Transition Branch. It removes completed source Nodes from Current Nodes, applies Parameter bindings and context preservation, and adds or blocks the target Nodes. Kent stores no applied transitions as workflow movement history.
 
 ### Join
 
@@ -260,11 +252,11 @@ A non-agent fan-in Node that waits for the required current parallel branches be
 
 ### Task Interrupt
 
-A resumable stop operation for one Session or every Exact Execution Scope on a Task. It waits for affected execution to stop and records the affected Current Nodes as interrupted. It does not delete the Task, Session, or worktree.
+A resumable stop operation for one Session or every Exact Execution Scope on a Task. It waits for affected execution to stop and records the affected Current Nodes as interrupted. It leaves the Task, Session, and worktree intact.
 
 ### Task Delete
 
-An operation that removes a Task. Kent offers deletion only when the Task appears quiescent and checks that condition again before making changes. Deletion safely removes reconstructible managed artifacts, preserves Session artifacts, and removes the Task only after cleanup succeeds. Repeating cleanup for an already-absent managed artifact succeeds. Task Delete is separate from deleting a whole Workflow.
+An operation that removes a Task. Kent offers deletion only when the Task appears quiescent and checks that condition again before making changes. Deletion safely removes reconstructible managed artifacts, leaves Session artifacts intact, and removes the Task only after cleanup succeeds. Repeating cleanup for an already-absent managed artifact succeeds. Task Delete is separate from deleting a whole Workflow.
 
 ### Quiescence
 
@@ -308,33 +300,27 @@ A transient or persistent global notification surfaced by the desktop app. Toast
 
 ### Streaming Message
 
-The temporary assistant message shown while a response is arriving. A Streaming Message is not committed transcript history. Committed assistant text replaces and finalizes it exactly once. If a completed response has no committed assistant text, Kent removes the Streaming Message with the typed `superseded` reason before the next model generation or before the response exits. This includes Question-only and tool-only continuation, Workflow preflight, external Workflow completion, reasoning-only or no-op retry, and final-answer-with-tools termination before final text is committed. A completed response with no active Streaming Message emits no stream-terminal event. Kent also removes the Streaming Message after interruption or abnormal termination. No assistant text can arrive after Kent finalizes or removes the Streaming Message.
+The temporary assistant message shown while a response is arriving. A Streaming Message is not committed transcript history. Committed assistant text finalizes it exactly once and takes its place. If a completed response has no committed assistant text, Kent removes the Streaming Message with the typed `superseded` reason before the next model generation or before the response exits. This includes Question-only and tool-only continuation, Workflow preflight, external Workflow completion, reasoning-only or no-op retry, and final-answer-with-tools termination before final text is committed. A completed response with no active Streaming Message emits no stream-terminal event. Kent also removes the Streaming Message after interruption or abnormal termination. No assistant text can arrive after Kent finalizes or removes the Streaming Message.
 
 ### Thinking Status
 
-The transient one-line description of a Session's current runtime work. While
-the main Agent works, the server may update Thinking Status with its current
-reasoning status. Thinking Status is live runtime presentation, not conversation
-content or durable transcript history.
+The transient one-line description of a Session's current runtime work. While the main Agent works, the server may update Thinking Status with its current reasoning status. Thinking Status is live runtime presentation. It is excluded from conversation content and durable transcript history.
 
 ### Reasoning Trace
 
-A provider-produced plain-text reasoning summary associated with an Agent Step.
-Kent may project a Reasoning Trace progressively while it arrives. A completed
-Reasoning Trace is durable transcript content. A Reasoning Trace is distinct
-from Thinking Status.
+A provider-produced plain-text reasoning summary associated with an Agent Step. Kent may project a Reasoning Trace progressively while it arrives. A completed Reasoning Trace is durable transcript content. A Reasoning Trace is distinct from Thinking Status.
 
 ### Ongoing Mode
 
-The primary long-running TUI transcript mode. Ongoing Mode writes committed history to terminal Scrollback and shows live content below it. It does not own a separate scrollable viewport. It never rewrites lines that it has emitted.
+The primary long-running TUI transcript mode. Ongoing Mode writes committed history to terminal Scrollback and shows live content below it. It has no separate scrollable viewport. It never rewrites lines that it has emitted.
 
 ### Detail Mode
 
 The TUI mode for inspecting a bounded transcript page with selection, expansion, and line scrolling. The page changes when Detail Mode opens, when the selected Session changes, or when the user loads an adjacent page. Live events do not change the open page.
 
-### Compaction-Preserved User Message
+### User message carried across compaction
 
-A user message retained in the model working set across a compaction boundary. Kent projects each preserved message into the transcript in provider order with detail-only visibility.
+A user message carried across a compaction boundary in the model working set. Kent projects each such message into the transcript in provider order with detail-only visibility.
 
 ### Transcript Mode
 
@@ -342,7 +328,7 @@ The rendering posture for transcript entries. Current modes are ongoing and deta
 
 ### Alternate Screen
 
-Terminal buffer separate from normal scrollback. Kent avoids alternate screen for ongoing mode so persistent history remains in native terminal scrollback.
+Terminal buffer separate from normal scrollback. Ongoing mode uses native terminal scrollback for persistent history and must not use Alternate Screen.
 
 ### Alternate Scroll
 
@@ -350,7 +336,7 @@ A terminal mode that converts wheel input into navigation events on Alternate Sc
 
 ### Mouse Capture
 
-Terminal mode where the app receives mouse events instead of leaving them to native terminal selection. Kent keeps mouse capture disabled in ongoing and detail modes.
+Terminal mode where the app receives mouse events, overriding native terminal selection. Kent keeps mouse capture disabled in ongoing and detail modes.
 
 ### Normal Buffer
 
@@ -358,7 +344,7 @@ Terminal buffer with native scrollback. Ongoing mode renders committed history h
 
 ### Scrollback
 
-Terminal-owned history of normal-buffer output. Kent does not replay, clear, or restyle committed ongoing scrollback after startup.
+Terminal-owned history of normal-buffer output. Kent must not replay, clear, or restyle committed ongoing scrollback after startup.
 
 ### Immutable Area
 
@@ -382,11 +368,11 @@ Appending content to the Immutable Area when equivalent content was already emit
 
 ### Reconciliation
 
-Comparing retained or received transcript data to emitted terminal content to decide what to render, suppress, reorder, or replace.
+Comparing saved or received transcript data to emitted terminal content to decide what to render, suppress, reorder, or replace.
 
 ### Scratch Rehydration
 
-Recovery that erases the Mutable Band, reopens the Session, and appends the active transcript segment below Scrollback. It does not inspect or change the Immutable Area.
+Recovery that erases the Mutable Band, reopens the Session, and appends the active transcript segment below Scrollback without inspecting or changing the Immutable Area.
 
 ## Runtime Steering And Goals
 
@@ -416,17 +402,13 @@ A typed request accepted by an Active Session Runtime to apply one Session mutat
 
 The process-local internal queue that serializes Engine intents and drains them during the Step Boundary window. It is not Steering or Pending Work, carries no Pending Work identity, and is not exposed to clients.
 
-### Engine Intent Queue
-
-The process-local internal queue that serializes Engine intents and drains them during the Step Boundary window. It is not Steering or Pending Work, carries no Pending Work identity, and is not exposed to clients.
-
 ### Append Certainty
 
-The result that tells Kent whether a Session change became durable. Kent never shows an uncommitted change as applied; the owning operation determines whether retry is permitted. Kent applies a committed change exactly once and never retries it, even when later notification fails.
+The result that tells Kent whether a Session change became durable. Kent never shows an uncommitted change as applied. The owning operation determines whether retry is permitted. Kent applies a committed change exactly once and never retries it, even when later notification fails.
 
 ### ReadModelVersion
 
-The increasing Session value that orders live status, prompts, main-view updates, and interruption results. Clients ignore updates older than the newest value they have accepted. A Read Model Version orders facts; it is not a transcript position.
+The increasing Session value that orders live status, prompts, main-view updates, and interruption results. Clients ignore updates older than the newest value they have accepted. A Read Model Version orders facts. It is not a transcript position.
 
 ### Forced Local Detach
 
@@ -434,15 +416,15 @@ The second-`Ctrl+C` exit path while an Interrupt is pending for the same Live Ex
 
 ### Live Execution
 
-The process-local live work in an Active Session Runtime, distinct from the durable Session and Workflow Task. Kent must identify this work with one Step ID, without a separate runtime Run identity. The Step ID must remain unchanged across the execution's provider requests and caused tool calls. The identity does not change the per-request Agent Step boundaries.
+The process-local live work in an Active Session Runtime, distinct from the durable Session and Workflow Task. Kent must identify this work with one Step ID, without a separate runtime Run identity. The Step ID must be unchanged across the execution's provider requests and caused tool calls. The identity must not change the per-request Agent Step boundaries.
 
 ### Agent Step
 
-The protected interval from one provider-request start through its response and every tool call and committed tool result caused by that response, ending when Kent is ready to make another provider request. Model context, tool surface, execution target, Working Directory, validation state, and already-steered input remain fixed during the Agent Step.
+The protected interval from one provider-request start through its response and every tool call and committed tool result caused by that response, ending when Kent is ready to make another provider request. Model context, tool surface, execution target, Working Directory, validation state, and already-steered input must not change during the Agent Step.
 
 ### Workflow-Completed Agent Step
 
-An Agent Step whose terminal Workflow completion has committed while caused tool calls or results are still finishing. It retains the originating Exact Execution Scope and Live Execution's Step ID. It permits only remaining caused tool/result handling and matching same-Step exact Goal admission. It is not interruptible and accepts no prompt answer, exact steer, or duplicate Workflow completion.
+An Agent Step whose terminal Workflow completion has committed while caused tool calls or results are finishing. It carries the originating Exact Execution Scope and Live Execution's Step ID. It permits only unfinished caused tool/result handling and matching same-Step exact Goal admission. It is not interruptible and accepts no prompt answer, exact steer, or duplicate Workflow completion.
 
 ### Result Group
 
@@ -462,7 +444,7 @@ A user-facing action that accepts one input into the server-owned post-turn Queu
 
 ### Steer
 
-A user-facing action that accepts one input into the Active Session Runtime's mutation order. During an Agent Step, steered input takes effect at the next eligible Step Boundary instead of waiting for the Agent Turn to finish. When the Active Session Runtime is idle, Steer starts ordinary work immediately.
+A user-facing action that accepts one input into the Active Session Runtime's mutation order. During an Agent Step, steered input takes effect at the next eligible Step Boundary without waiting for the Agent Turn to finish. When the Active Session Runtime is idle, Steer starts ordinary work immediately.
 
 ### Equal Full-Control Attach
 
@@ -476,4 +458,4 @@ A persistent self/user-declared objective with a continuation loop (nudges, susp
 
 ### Goal Continuation Loop
 
-The driver that repeats the step loop to keep working a goal across Agent Turns, injecting goal reminders. It does not operate while an Exact Execution Scope is driving the Session for Workflow Execution—the workflow turn loop is the single continuation driver there, and the Goal stays a passive objective folded into the workflow's continuation nudge.
+The driver that repeats the step loop to keep working a goal across Agent Turns, injecting goal reminders. While an Exact Execution Scope drives the Session for Workflow Execution, the Goal Continuation Loop must not operate. The workflow turn loop is the single continuation driver, and the Goal is a passive objective folded into the workflow's continuation nudge.

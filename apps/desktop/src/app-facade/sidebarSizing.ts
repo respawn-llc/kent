@@ -1,3 +1,5 @@
+import type { SidebarMode } from "./sidebarContext";
+
 export type SidebarResizeBounds = Readonly<{
   maxWidthPx: number;
   minWidthPx: number;
@@ -23,6 +25,14 @@ export const defaultSidebarSizePreference: SidebarSizePreference = {
   desiredWidthPx: 550,
   minWidthPx: sidebarMinWidthPx,
 };
+
+export function sidebarModeForAvailableWidth(
+  mainPaneWidthPx: number | null,
+  preference: SidebarSizePreference,
+): SidebarMode {
+  const requiredWidth = sidebarProtectedMainMinWidthPx + preference.desiredWidthPx + 8;
+  return mainPaneWidthPx !== null && mainPaneWidthPx >= requiredWidth ? "shift" : "overlay";
+}
 
 // normalizePx coerces a possibly non-finite (NaN/Infinity) width — e.g. from a
 // corrupted cached preference — to a finite integer so it can't propagate into

@@ -45,8 +45,9 @@ func (c *shellPreparationClient) Steer(_ context.Context, request *chatpb.SteerR
 	return &chatpb.InputMutationSuccess{
 		Session: &chatpb.ExistingSessionTarget{SessionId: id},
 		Outcome: &chatpb.InputMutationSuccess_Accepted{Accepted: &chatpb.InputAccepted{
-			QueueItem:  &chatpb.QueueItemIdentity{Id: runtimeids.NewQueueItemID().String()},
-			Diagnostic: c.diagnostic,
+			QueueItem:   &chatpb.QueueItemIdentity{Id: request.QueueItemId},
+			Disposition: chatpb.InputAdmissionDisposition_INPUT_ADMISSION_DISPOSITION_PENDING_STEER,
+			Diagnostic:  c.diagnostic,
 		}},
 	}, nil
 }

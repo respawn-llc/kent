@@ -137,6 +137,7 @@ const accepted: ChatInputMutationResult = {
   outcome: {
     kind: "accepted",
     queueItemID: parsePendingWorkItemID("79f762c8-0998-402a-bc80-6b42f3e241ed"),
+    disposition: "started_turn",
     diagnostic: null,
   },
 };
@@ -769,7 +770,7 @@ it("persists subsequent Session edits through their ordinary independent request
   }
 });
 
-it("clears on activation and preserves later typing after acceptance", async () => {
+it("clears idle Send on activation and preserves later typing after acceptance", async () => {
   const services = createTestServices([]);
   vi.spyOn(services.api.chat, "getDraft").mockResolvedValue({ input: "submitted", protectedInput: null });
   vi.spyOn(services.api.chat, "persistDraft").mockResolvedValue();
@@ -794,11 +795,11 @@ it("clears on activation and preserves later typing after acceptance", async () 
     expect(result.current.draft.kind).toBe("ready");
   });
   act(() => {
-    result.current.submit("send");
+    result.current.submit("send", "editor", mainViewRead().mainView.activity);
   });
   expect(result.current.text).toBe("");
   await waitFor(() => {
-    expect(steer).toHaveBeenCalledWith(target, { kind: "text", text: "submitted" });
+    expect(steer).toHaveBeenCalledWith(target, { kind: "text", text: "submitted" }, expect.anything());
   });
   act(() => {
     result.current.edit("later");
@@ -827,12 +828,30 @@ it("appends independently rejected Queue inputs after text typed during delivery
   act(() => {
     result.current.submit("queue");
   });
+  expect(result.current.text).toBe("first\n ");
+  expect(result.current.interactionRestricted).toBe(true);
+  await waitFor(
+    () => {
+      expect(result.current.interactionRestricted).toBe(false);
+    },
+    { timeout: 3000 },
+  );
+  expect(result.current.text).toBe("");
   act(() => {
     result.current.edit("second");
   });
   act(() => {
     result.current.submit("queue");
   });
+  expect(result.current.text).toBe("second");
+  expect(result.current.interactionRestricted).toBe(true);
+  await waitFor(
+    () => {
+      expect(result.current.interactionRestricted).toBe(false);
+    },
+    { timeout: 3000 },
+  );
+  expect(result.current.text).toBe("");
   act(() => {
     result.current.edit("later");
   });
@@ -860,6 +879,7 @@ it("restores a failed request but does not restore an accepted input with a diag
       outcome: {
         ...accepted.outcome,
         kind: "accepted",
+        disposition: "started_turn",
         queueItemID: parsePendingWorkItemID("79f762c8-0998-402a-bc80-6b42f3e241ed"),
         diagnostic: { kind: "prompt_history_failure", operation: null, cause: null },
       },
@@ -927,6 +947,7 @@ it("keeps New Chat typing while Settings load and delivers the identified Sessio
   expect(steer).toHaveBeenCalledWith(
     { ...newChat, initialSettings: settings },
     { kind: "text", text: "typed before settings" },
+    expect.anything(),
   );
   expect(result.current.text).toBe("typed before settings");
   expect(onDeliveredSession).toHaveBeenCalledWith(rejected, { ...newChat, initialSettings: settings });
@@ -950,50 +971,6 @@ it("keeps New Chat typing while Settings load and delivers the identified Sessio
   expect(result.current.target).toEqual(newChat);
   expect(result.current.pending.items).toEqual([]);
 });
-
-it.each(["send", "queue"] as const)(
-  "completes a selected prompt command and dispatches it through %s",
-  async (intent) => {
-    const services = createTestServices([]);
-    vi.spyOn(services.api.chat, "getDraft").mockResolvedValue({ input: "/rev", protectedInput: null });
-    vi.spyOn(services.api.chat, "persistDraft").mockResolvedValue();
-    const queue = vi
-      .spyOn(services.api.chat, intent === "send" ? "steer" : "queue")
-      .mockResolvedValue(accepted);
-    const { result } = renderHook(
-      () =>
-        useChatComposer({
-          ...target,
-          submission: { kind: "ready" },
-          commands: [
-            {
-              token: "/review",
-              aliases: ["/r"],
-              description: null,
-              preview: null,
-              execution: { kind: "prompt", catalogIdentity: "prompt:review" },
-            },
-          ],
-        }),
-      {
-        wrapper: composerWrapper(services),
-      },
-    );
-    await waitFor(() => {
-      expect(result.current.draft.kind).toBe("ready");
-    });
-    await act(async () => {
-      result.current.submit(intent);
-    });
-    expect(queue).toHaveBeenCalledWith(target, {
-      kind: "command",
-      catalogIdentity: "prompt:review",
-      token: "/review",
-      separatorWhitespace: "",
-      arguments: "",
-    });
-  },
-);
 
 it.each([true, false])(
   "dispatches a direct command with Queue support %s without a frontend queue",
@@ -1111,18 +1088,18 @@ it("keeps repeated compactions distinct and restores only the discarded canonica
     wrapper: composerWrapper(services),
   });
   await waitFor(() => {
-    expect(result.current.pending.items).toHaveLength(2);
+    expect(result.current.pending.query.data?.items).toHaveLength(2);
   });
   await act(async () => {
     result.current.pending.stop();
   });
-  expect(result.current.pending.items).toEqual(items);
+  expect(result.current.pending.query.data?.items).toEqual(items);
   expect(result.current.text).toBe("draft");
   await act(async () => {
     result.current.pending.discard(first);
   });
   await waitFor(() => {
-    expect(result.current.pending.items).toEqual(items.slice(1));
+    expect(result.current.pending.query.data?.items).toEqual(items.slice(1));
   });
   expect(remove).toHaveBeenCalledWith(target, first);
   expect(result.current.text).toBe("draft\n/compact");

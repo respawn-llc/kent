@@ -14,7 +14,14 @@ import (
 )
 
 type ConnectionRotation struct {
-	counters sync.Map
+	mu sync.Mutex
+	// Immutable published order lets data-only previews avoid waiting for allocations.
+	assignments atomic.Pointer[connectionAssignments]
+}
+
+type connectionAssignments struct {
+	lastAssigned map[config.ConnectionID]uint64
+	sequence     uint64
 }
 
 func ConnectionMembership(settings config.Settings) ([]config.ConnectionID, string, error) {
@@ -32,22 +39,52 @@ func ConnectionMembership(settings config.Settings) ([]config.ConnectionID, stri
 }
 
 func (r *ConnectionRotation) Prepare(settings config.Settings, allocate bool) (config.ConnectionID, error) {
-	members, key, err := ConnectionMembership(settings)
+	members, err := settings.ConnectionMembers()
 	if err != nil {
 		return "", err
 	}
-	if !allocate {
-		return members[0], nil
-	}
 	if r == nil {
-		if len(members) == 1 {
+		if !allocate || len(members) == 1 {
 			return members[0], nil
 		}
 		return "", fmt.Errorf("server connection rotation is required for allocating a connection set")
 	}
-	counter, _ := r.counters.LoadOrStore(key, new(atomic.Uint64))
-	index := counter.(*atomic.Uint64).Add(1) - 1
-	return members[index%uint64(len(members))], nil
+	if !allocate {
+		return r.assignments.Load().leastRecentlyAssigned(members), nil
+	}
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	next := &connectionAssignments{lastAssigned: make(map[config.ConnectionID]uint64)}
+	if current := r.assignments.Load(); current != nil {
+		next.lastAssigned = maps.Clone(current.lastAssigned)
+		next.sequence = current.sequence
+	}
+	maps.DeleteFunc(next.lastAssigned, func(id config.ConnectionID, _ uint64) bool {
+		_, configured := settings.Connections[id]
+		return !configured
+	})
+	selected := next.leastRecentlyAssigned(members)
+	next.sequence++
+	next.lastAssigned[selected] = next.sequence
+	r.assignments.Store(next)
+	return selected, nil
+}
+
+func (r *connectionAssignments) leastRecentlyAssigned(members []config.ConnectionID) config.ConnectionID {
+	selected := members[0]
+	if r == nil {
+		return selected
+	}
+	for _, member := range members {
+		sequence, assigned := r.lastAssigned[member]
+		if !assigned {
+			return member
+		}
+		if sequence < r.lastAssigned[selected] {
+			selected = member
+		}
+	}
+	return selected
 }
 
 func (p RunPromptPreparationContext) prepareConnection(settings *config.Settings, source config.SourceReport) error {
@@ -104,7 +141,7 @@ func BindSessionConnection(store *session.Store, settings *config.Settings, sour
 
 func (r *ConnectionRotation) BindSessionConnection(store *session.Store, settings *config.Settings, sources map[string]config.Origin) (*config.ConnectionReplacement, error) {
 	saved := store.Meta().ConnectionID
-	selected, replacement, err := r.ResolveSessionConnection(*settings, saved, settings.Connection != nil && len(*settings.Connection) > 1)
+	selected, replacement, err := r.ResolveSessionConnection(*settings, saved, true)
 	if err != nil {
 		return nil, err
 	}

@@ -399,7 +399,8 @@ func (c uiAskController) answer(resp clientui.PromptAnswer, err error) (bool, bo
 		resp.ToolCallID = clientui.ToolCallID(answerToolCallID)
 	}
 	if m.promptAnswers == nil || transcriptPromptSessionID(m.ask.current.prompt) == "" || currentToolCallID == "" {
-		return true, c.finishDeliveredPrompt(), nil
+		cmd := c.resolvePrompt(currentToolCallID)
+		return true, m.ask.hasCurrent(), cmd
 	}
 	active, cmd, deliveryErr := m.promptAnswers.delivery(m.ask.current.prompt, resp, err)
 	if deliveryErr != nil {
@@ -407,28 +408,6 @@ func (c uiAskController) answer(resp clientui.PromptAnswer, err error) (bool, bo
 	}
 	m.ask.activeDelivery = active
 	return true, false, cmd
-}
-
-func (c uiAskController) finishDeliveredPrompt() bool {
-	m := c.model
-	c.cancelActiveDelivery()
-	if len(m.ask.queue) == 0 {
-		m.ask.current = nil
-		m.ask.currentToken = nextNonZeroToken(m.ask.currentToken)
-		m.ask.activeProjection = nil
-		m.ask.latestDesiredProjection = nil
-		m.ask.cursor = 0
-		m.clearAskInput()
-		m.ask.freeform = false
-		m.ask.freeformMode = askFreeformModeGeneric
-		m.restorePrimaryInputMode()
-		return false
-	}
-	next := m.ask.queue[0]
-	m.ask.queue = m.ask.queue[1:]
-	c.setActiveAsk(next)
-	m.setInputMode(uiInputModeAsk)
-	return true
 }
 
 func (c uiAskController) setActiveAsk(evt askEvent) {
@@ -459,16 +438,7 @@ func (c uiAskController) applyDeliveryResult(result promptAnswerDeliveryResultMs
 		return nil
 	}
 	if result.err == nil {
-		c.cancelActiveDelivery()
-		hasNext := c.finishDeliveredPrompt()
-		if hasNext {
-			m.activity = uiActivityQuestion
-		} else if m.isBusy() {
-			m.activity = uiActivityRunning
-		} else {
-			m.activity = uiActivityIdle
-		}
-		return nil
+		return c.resolvePrompt(string(result.key.toolCallID))
 	}
 	c.cancelActiveDelivery()
 	m.activity = uiActivityQuestion

@@ -1,6 +1,4 @@
-# TUI Chat Core (Composer, History, Autocomplete, Queueing)
-
-## Composer Surface
+## Composer surface
 
 - The composer is part of the Ongoing Mode Mutable Band and uses the native terminal cursor.
 - All TUI text fields use the same editing behavior.
@@ -14,56 +12,56 @@
 - Reconnecting observation must not restore consumed launch choices or activate a Runtime.
 - While a dormant Session's transcript observation waits, the TUI must retry read-only Session state after transport loss. A successful read must clear the disconnected state without waiting for transcript hydration.
 
-## Editing Model
+## Editing model
 
-- Movement: `Left`/`Right` by grapheme cluster; `Ctrl+Left`/`Ctrl+Right` and `Option+Left`/`Option+Right` by word; `Home`/`Ctrl+A` to line start; `End`/`Ctrl+E`/`Ctrl+End` to line end. At the typed terminal-input boundary, an Alt-modified single-rune `b`/`f` event is a compatibility encoding for previous-word/next-word movement rather than inserted text. `Up`/`Down` move across wrapped/multiline content when the cursor is not at a whole-buffer boundary (boundary behavior is prompt history, below).
-- Deletion: `Backspace`/`Ctrl+H` deletes backward; `Delete` deletes forward; `Ctrl+W` deletes the previous word. `Option+Backspace`/`Alt+Backspace` must delete the previous word using the same word boundaries as `Ctrl+W`.
-- Kill/yank: `Ctrl+K` kills to line end; `Ctrl+U` kills to line start (macOS: `Ctrl+U` deletes the current line); `Ctrl+Y` yanks the last killed text. One editor-local kill buffer.
+- Movement: `Left`/`Right` by grapheme cluster. `Ctrl+Left`/`Ctrl+Right` and `Option+Left`/`Option+Right` by word. `Home`/`Ctrl+A` to line start. `End`/`Ctrl+E`/`Ctrl+End` to line end. At the typed terminal-input boundary, an Alt-modified single-rune `b`/`f` event is a compatibility encoding for previous-word/next-word movement rather than inserted text. `Up`/`Down` move across wrapped/multiline content when the cursor is not at a whole-buffer boundary (boundary behavior is prompt history, below).
+- Deletion: `Backspace`/`Ctrl+H` deletes backward. `Delete` deletes forward. `Ctrl+W` deletes the previous word. `Option+Backspace`/`Alt+Backspace` must delete the previous word using the same word boundaries as `Ctrl+W`.
+- Kill/yank: `Ctrl+K` kills to line end. `Ctrl+U` kills to line start (macOS: `Ctrl+U` deletes the current line). `Ctrl+Y` yanks the last killed text. One editor-local kill buffer.
 - `Shift+Enter` inserts a newline. `Alt+Enter` must insert a newline. Known Shift+Enter and Ctrl+Enter terminal encodings map to their canonical actions. `Ctrl+J` always inserts a newline.
-- If the terminal cannot report modified keys distinctly, Kent must keep ordinary input and existing shortcuts usable without a startup warning. Plain `Enter` must retain its existing action.
+- If the terminal cannot report modified keys distinctly, Kent must keep ordinary input and existing shortcuts usable without a startup warning. Plain `Enter` must use its ordinary action.
 - The input area grows with wrapped content. No other part of the TUI inserts content into the editor's rendered lines.
 
-## Prompt History
+## Prompt history
 
 - `Up` and `Down` recall prompt history only at whole-buffer boundaries. Failed navigation emits terminal BEL and no transient notice.
-- Recall replaces the whole buffer. Navigating below the newest entry restores the in-progress draft the user was typing before navigation began.
+- Recall sets the whole buffer to the chosen prompt. Navigating below the newest entry restores the in-progress draft the user was typing before navigation began.
 - Editing a recalled entry detaches it from history navigation: it becomes the live draft, and further `Up` starts from the newest entry again.
 - On every Session open and reopen, the TUI must request its 100 most recent recorded prompts through the same independent, read-only history request as Desktop, concurrently with other opening work. The history request must not activate Runtime work.
-- While history loads, the TUI must disable history navigation without a loading indication and keep editing and sending usable. A failed read must use the existing terminal error notice and retain any loaded history; reopening the Session must retry the read. Reads must not replace editor text or disturb an ongoing browse.
-- The TUI must retain only the bounded history and append locally accepted recorded prompts under the [bounded-state rules](ongoing-scrollback-buffer.md#bounded-tui-state). It must not add polling, live cross-client history synchronization, or a separate refresh control.
+- While history loads, the TUI must disable history navigation without a loading indication and keep editing and sending usable. A failed read must use the existing terminal error notice without clearing loaded history. Reopening the Session must retry the read. Reads must not replace editor text or disturb an ongoing browse.
+- The TUI must hold only the bounded history and append locally accepted recorded prompts under the [bounded-state rules](ongoing-scrollback-buffer.md#bounded-tui-state). It must not add polling, live cross-client history synchronization, or a separate refresh control.
 
-## Path Autocomplete
+## Path autocomplete
 
 - Kent prepares and caches a workspace-relative path list asynchronously. Typing never waits for a new filesystem scan.
 - The path list includes hidden paths, excludes `.git`, respects normal ignore files, and derives directories from included files.
 - A failed path-list load can be retried in the same workspace.
 - The picker appears when the cursor is in an `@` query made from Unicode letters or numbers plus `/`, `.`, `_`, and `-`. It disappears when the cursor leaves the query or the query is deleted. It has no separate modal state.
-- Candidates whose repo-relative path changes under terminal-safe projection are excluded before fuzzy matching and result limits. `Up`/`Down` navigate eligible candidates; `Tab` or `Enter` accepts the selection, replacing the query with the exact chosen repo-relative path; terminal controls are never inserted into the composer, and while the picker is visible these keys never submit or queue.
-- The picker renders between transcript and input, sized to available height; typing is never blocked by picker state or corpus readiness.
+- Candidates whose repo-relative path changes under terminal-safe projection are excluded before fuzzy matching and result limits. `Up`/`Down` navigate eligible candidates. `Tab` or `Enter` accepts the selection, replacing the query with the exact chosen repo-relative path. Terminal controls are never inserted into the composer, and while the picker is visible these keys never submit or queue.
+- The picker renders between transcript and input, sized to available height. Typing is never blocked by picker state or corpus readiness.
 
-## Queueing And Steering
+## Queueing and steering
 
 - `Tab` queues or sends, and `Ctrl+Enter` is an alias.
 - While the Agent Turn is busy, `Enter` adds another Steer without locking the composer.
 - Server acceptance, the separate post-turn Queue, Steering timing, Runtime-affecting slash commands, and process-loss behavior follow the [Runtime Steering And Model Loop](runtime-steering-loop.md) specification.
-- Each accepted human Steer remains a separate FIFO message. Each steer issued from another Session remains a separate message.
+- Each accepted human Steer is a separate FIFO message. Each steer issued from another Session is a separate message.
 - Pending messages survive only until delivery or process exit. The backend overload invariant is owned by the Runtime Steering specification.
 - Pending Work renders as a visible pane between transcript and input until drained. The pane shows Queue messages first in Queue order and then Steer items in server acceptance order.
-- There is no standalone per-item removal or reordering affordance. The only TUI removal action is the busy `Ctrl+C` interrupt, which drains pending human Send/Steer and post-turn Queue messages into the main input (see Interrupts And Exit). Operational Pending Work remains accepted and is not removed.
+- There is no standalone per-item removal or reordering affordance. The only TUI removal action is the busy `Ctrl+C` interrupt, which drains pending human Send/Steer and post-turn Queue messages into the main input (see Interrupts And Exit). Operational Pending Work is accepted and must not be removed by this action.
 - When the live TUI observes the server's interruption event, it best-effort restores the listed Queue and Steer messages to the composer verbatim in server acceptance order, followed by the composer draft.
-- When the live TUI observes a definitely-unapplied technical restoration, it restores the canonical presentation through the same composer merge behavior. Every observing TUI restores the same broadcast independently, and Kent does not replay it after reconnect.
+- When the live TUI observes a definitely-unapplied technical restoration, it restores the canonical presentation through the same composer merge behavior. Every observing TUI restores the same broadcast independently, and Kent must not replay it after reconnect.
 - Pending Queue and Steer messages are not persisted for restoration. Process exit before the TUI observes the interrupt loses them.
 - The following creation-failure behavior applies to every queued message or Steer.
-- If Kent cannot create the queued message or Steer, the failed message returns to the composer and requires an explicit user action to send again. The failed message does not remain pending or retry automatically.
+- If Kent cannot create the queued message or Steer, the failed message returns to the composer and requires an explicit user action to send again. The failed message must not be pending or retry automatically.
 - A terminal Runtime activation, authentication, metadata, target, filesystem, tool, validation, open, or publication failure uses this creation-failure behavior. Cancellation or disconnection ends a pending activation wait without creating a Queue Item.
 - The restored text is the exact message Kent attempted to submit. If the composer already contains a newer draft, Kent keeps that draft first, inserts one blank line, appends the failed message, and places the cursor at the end.
-- The failure appears as a transient status-line error using the ordinary submission failure detail. It does not change the activity indicator. The TUI does not create a transcript feedback row for this failure.
+- The failure appears as a transient status-line error using the ordinary submission failure detail. It must not change the activity indicator. The TUI must not create a transcript feedback row for this failure.
 
-## Interrupts And Exit
+## Interrupts and exit
 
-- The server-published Live Execution lifecycle and the current server-published pending Question or Approval are the TUI liveness authorities for `Ctrl+C`. While either identifies live work, the TUI sends Interrupt. A second `Ctrl+C` while Interrupt is still pending for that same execution exits locally; a different running Live Execution, identified by its Step ID, sends a new Interrupt.
+- The server-published Live Execution lifecycle and the current server-published pending Question or Approval are the TUI liveness authorities for `Ctrl+C`. While either identifies live work, the TUI sends Interrupt. A second `Ctrl+C` while Interrupt is pending for that same execution exits locally. A different running Live Execution, identified by its Step ID, sends a new Interrupt.
 - The server accepts Interrupt only for an active Agent execution, including one waiting for a Question or Approval. An accepted Interrupt stops its current Agent Step or prompt wait and active tool, keeps the Session available, adds the Detail Mode control message `User interrupted you`, returns to idle with input ready, and requires explicit user text to resume.
-- `Ctrl+C` does not cancel a submission before its Agent Turn starts.
+- `Ctrl+C` must not cancel a submission before its Agent Turn starts.
 - When the live TUI observes the interruption event, it restores the stopped execution's pending human messages into the main input so the user can edit or resend them.
 - `Ctrl+C` exits the TUI only when the Live Execution lifecycle is not Running and no current pending Question or Approval identifies live work. A submission already sent to the server may start or continue after the client detaches.
 - The TUI must save composer drafts asynchronously during editing. Stopping or exiting must never wait for draft saving. The final unsaved edit may be lost on exit.
@@ -71,9 +69,9 @@
 - Session-navigation commands must resolve the typed transition, stop the originating observation, and then plan or observe the destination without waiting for draft saving.
 - In the rollback picker, `Ctrl+C` closes the overlay before it applies the same busy-interrupt or idle-exit behavior as the main transcript.
 - `Shift+Tab` and `Ctrl+T` toggle between Ongoing Mode and Detail Mode. The selected mode is not saved.
-- Arming the rollback flow requires two consecutive `Esc` presses on empty idle input within a short window (Esc-Esc); a single `Esc` does nothing visible. Rollback behavior itself is owned by its own family spec.
+- Arming the rollback flow requires two consecutive `Esc` presses on empty idle input within a short window (Esc-Esc). A single `Esc` has no visible effect. Rollback behavior itself is owned by its own family spec.
 
-## Clipboard Paste
+## Clipboard paste
 
 - `Ctrl+V`, `Ctrl+D`, `Alt+V`, and `Alt+D` read the system clipboard. Images are saved as temporary PNG files and their path is inserted. Text is inserted unchanged at the cursor.
 - Terminal bracketed paste follows ordinary text-input handling and never causes a system clipboard read.

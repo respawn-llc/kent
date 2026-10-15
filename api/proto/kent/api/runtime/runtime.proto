@@ -291,6 +291,10 @@ message SubmitUserTurnRequest {
     }
   ];
   UserTurnInput input = 2 [(buf.validate.field).required = true];
+  string queue_item_id = 3 [
+    (buf.validate.field).string.uuid = true,
+    (buf.validate.field).string.(kent.api.shared.canonical_uuid_v4) = true
+  ];
 }
 
 message SubmitUserTurnQueued {
@@ -380,6 +384,10 @@ message LiveSteerRequest {
       message: "text must be non-blank"
       expression: "this.trim() != ''"
     }
+  ];
+  string queue_item_id = 4 [
+    (buf.validate.field).string.uuid = true,
+    (buf.validate.field).string.(kent.api.shared.canonical_uuid_v4) = true
   ];
 }
 

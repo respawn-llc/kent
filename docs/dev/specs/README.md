@@ -1,10 +1,6 @@
-# Product Specs
+These docs are the authoritative, searchable product-decision source for Kent agents. When product behavior and a specification disagree, the specification governs.
 
-These docs are the authoritative, searchable product-decision source for Kent agents.
-When product behavior and a specification disagree, the specification governs.
-
-Before writing, rewriting, reviewing, or validating a spec, follow the
-[spec-writing skill](../../../.kent/skills/spec-writing/SKILL.md).
+Before writing, rewriting, reviewing, or validating a spec, follow the [spec-writing skill](../../../.kent/skills/spec-writing/SKILL.md).
 
 Area specs:
 

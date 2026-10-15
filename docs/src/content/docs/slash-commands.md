@@ -44,4 +44,4 @@ The effective roots, in descending precedence, are:
 - `<persistence-root>/.generated/prompts`
 - `<persistence-root>/.generated/commands`
 
-Each exact `$ARGUMENTS` token expands to the trimmed trailing arguments. When the prompt has no `$ARGUMENTS` token, Kent appends non-empty trailing arguments after one blank line.
+If the exact `$ARGUMENTS` token appears in the body, Kent inserts the trimmed trailing arguments at every occurrence, consuming each token. Otherwise, Kent appends non-empty trailing arguments after one blank line.

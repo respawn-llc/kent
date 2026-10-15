@@ -758,7 +758,7 @@ func transcriptUserMessageFlushedMessages(evt runtime.Event) ([]*transcriptpb.Ev
 		return nil, nil
 	}
 	for index, item := range evt.UserMessageBatchQueuedItems {
-		if _, err := runtimeids.ParseQueueItemID(strings.TrimSpace(item.QueueItemID)); err != nil {
+		if _, err := runtimeids.ParseQueueItemID(item.QueueItemID); err != nil {
 			return nil, fmt.Errorf("flushed queued message %d: %w", index, err)
 		}
 	}
@@ -852,6 +852,7 @@ func transcriptRowFromFact(fact runtime.TranscriptCommittedRowFact, identities m
 			return nil, err
 		}
 		row.Row = &transcriptpb.CommittedRow_User{User: &transcriptpb.UserRow{
+			QueueItemIds:     append([]string(nil), fact.User.QueueItemIDs...),
 			StepId:           textutil.Pointer(fact.StepID),
 			Text:             fact.User.Text,
 			CondensedText:    optionalNonBlankString(fact.User.CondensedText),

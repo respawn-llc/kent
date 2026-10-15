@@ -193,7 +193,7 @@ func (l *headlessPromptLauncher) prepareActiveContinuation(ctx context.Context, 
 			if err != nil {
 				return false, err
 			}
-			_, observer, accepted, err := l.steering.SubmitLiveSteer(joinCtx, steer, engine, scope.observerCtx, func(commit func() (bool, error)) (bool, error) {
+			_, observer, accepted, err := l.steering.SubmitLiveSteer(joinCtx, runtimeids.NewQueueItemID().String(), steer, engine, scope.observerCtx, func(commit func() (bool, error)) (bool, error) {
 				return accept(func() (bool, error) {
 					accepted, err := commit()
 					if accepted && progress != nil {

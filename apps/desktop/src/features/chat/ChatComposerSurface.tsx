@@ -1,11 +1,12 @@
-import { createContext, useContext, type ReactNode } from "react";
+import { createContext, useContext, useLayoutEffect, type ReactNode } from "react";
 
-import type { ChatRuntimeActivity } from "@/api";
-import { useChatRuntimePresentation } from "@/app-facade";
+import { parsePendingWorkItemID, type ChatRuntimeActivity } from "@/api";
+import { useChatRuntimePresentation, useOptionalChatRuntimeSnapshot } from "@/app-facade";
 import { Island } from "@/ui";
 import { useComposerKeyboard } from "./useComposerKeyboard";
 import type { useChatComposer } from "./useChatComposer";
 import { useChatPromptPicker } from "./useChatPromptPicker";
+import { ChatMessageMotion } from "./ChatMessageMotion";
 
 type Composer = ReturnType<typeof useChatComposer>;
 type SurfaceProps = Readonly<{ composer: Composer; children: ReactNode; enabled?: boolean }>;
@@ -22,17 +23,35 @@ export function ChatComposerSurface({ composer, children, enabled = true }: Surf
   const promptPicker = useChatPromptPicker(composer.target, composer.interactionRestriction);
   const { activity, observationError } = useChatRuntimePresentation();
   const stoppable = activity?.activeStep !== null && activity?.activeStep !== undefined;
-  const keyboard = useComposerKeyboard(composer, stoppable, observationError, enabled);
+  const keyboard = useComposerKeyboard(composer, stoppable, observationError, {
+    enabled,
+    ...(activity === null ? {} : { activity }),
+  });
+  const snapshot = useOptionalChatRuntimeSnapshot();
+  const pending = composer.pending.query;
+  const observeOutgoing = composer.observeOutgoing;
+  useLayoutEffect(() => {
+    observeOutgoing({
+      committedIDs:
+        snapshot?.transcript.items.flatMap((item) =>
+          item.kind === "user" ? item.value.QueueItemIDs.map(parsePendingWorkItemID) : [],
+        ) ?? [],
+      pendingItems: pending.data?.items ?? [],
+      pendingFetching: pending.isFetching,
+    });
+  }, [observeOutgoing, snapshot?.transcript.items, pending.data, pending.isFetching]);
   return (
-    <ComposerSurfaceContext.Provider
-      value={{ composer, activity, stoppable, promptPicker, onEditorKeyDown: keyboard.onEditorKeyDown }}
-    >
-      <div className="h-full min-h-0 min-w-0 p-[var(--space-2)]" {...keyboard.surface}>
-        <Island className="h-full min-h-0 w-full min-w-0 overflow-hidden" unpadded>
-          {children}
-        </Island>
-      </div>
-    </ComposerSurfaceContext.Provider>
+    <ChatMessageMotion motion={composer.messageMotion}>
+      <ComposerSurfaceContext.Provider
+        value={{ composer, activity, stoppable, promptPicker, onEditorKeyDown: keyboard.onEditorKeyDown }}
+      >
+        <div className="h-full min-h-0 min-w-0 p-[var(--space-2)]" {...keyboard.surface}>
+          <Island className="h-full min-h-0 w-full min-w-0 overflow-hidden" unpadded>
+            {children}
+          </Island>
+        </div>
+      </ComposerSurfaceContext.Provider>
+    </ChatMessageMotion>
   );
 }
 

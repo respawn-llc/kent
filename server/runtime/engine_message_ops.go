@@ -633,6 +633,9 @@ func (e *Engine) appendPreparedModelInput(stepID *string, input steeringPrepared
 		if err != nil {
 			return session.CommitReceipt{}, err
 		}
+		if prepared.record.Role == session.MessageRoleUser {
+			prepared.record.QueueItemIDs = queuedUserMessageStatusItemIDs(group.queueItems)
+		}
 		projections = append(projections, prepared)
 		payloads = append(payloads, prepared.record)
 	}

@@ -112,6 +112,12 @@ export function useChatDestination({
   };
   const composer = useChatComposer({
     model: model.composer,
+    prepared: (id) => {
+      if (editorRef.current !== null) composer.messageMotion.capture(id.toJSONValue(), editorRef.current);
+    },
+    rejected: (id) => {
+      composer.messageMotion.reject(id.toJSONValue());
+    },
     commands: [
       ...promptCommands(catalog.data ?? [], t),
       ...worktreeCommands.commands,

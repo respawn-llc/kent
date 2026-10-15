@@ -1,4 +1,4 @@
-import { useCallback, useMemo, useState, type ReactNode } from "react";
+import { useCallback, useMemo, useState, type ReactNode, type RefObject } from "react";
 import { useAtomValue } from "@effect/atom-react";
 
 import {
@@ -6,6 +6,7 @@ import {
   SidebarShellContext,
   initialSidebarWidthForViewport,
   sidebarSizePreference,
+  sidebarModeForAvailableWidth,
   sidebarWidthProfile,
   sidebarWidthProfileEquals,
   type ResolvedSidebarWidth,
@@ -15,6 +16,7 @@ import {
   type SidebarWidthProfile,
 } from "@/app-facade";
 import { createSidebarStack } from "./sidebarStack";
+import { sidebarProtectedMain } from "./sidebarMainPane";
 import { SidebarCurrentPageContext, type SidebarCurrentPage } from "./sidebarPageContext";
 
 const defaultSidebarWidthProfile: SidebarWidthProfile = { kind: "custom", sizing: null };
@@ -23,7 +25,12 @@ type SidebarWidths = readonly SidebarWidthEntry[];
 export function SidebarProvider({
   children,
   policy,
-}: Readonly<{ children: ReactNode; policy: SidebarDestinationPolicy }>) {
+  mainPaneRef,
+}: Readonly<{
+  children: ReactNode;
+  policy: SidebarDestinationPolicy;
+  mainPaneRef?: RefObject<HTMLElement | null>;
+}>) {
   const [model] = useState(() => createSidebarStack(policy));
   const stack = useAtomValue(model.controls);
   const view = useAtomValue(model.view);
@@ -50,7 +57,23 @@ export function SidebarProvider({
   );
 
   const availability = current?.capability.availability;
-  const rootValue = useMemo(() => ({ open: stack.open, toggle: stack.toggle }), [stack]);
+  const rootValue = useMemo(() => {
+    const prepare = (destination: SidebarDestination): SidebarDestination => {
+      if (destination.mode !== undefined) return destination;
+      const protectedMain = sidebarProtectedMain(mainPaneRef?.current ?? null);
+      return {
+        ...destination,
+        mode: sidebarModeForAvailableWidth(
+          protectedMain?.getBoundingClientRect().width ?? null,
+          sidebarSizePreference(destination),
+        ),
+      };
+    };
+    return {
+      open: (destination: SidebarDestination) => stack.open(prepare(destination)),
+      toggle: (destination: SidebarDestination) => stack.toggle(prepare(destination)),
+    };
+  }, [mainPaneRef, stack]);
   const shellValue = useMemo(
     () => ({
       currentSurface: stack.currentSurface,

@@ -1,4 +1,5 @@
 import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
 import type { ChatTranscriptHandler } from "@/api";
 import { ChatRuntimeProvider, useChatRuntimeOwner } from "@/app-facade";
 import { appI18n } from "@/i18n";
@@ -59,7 +60,7 @@ it("presents admitted usage and policy updates from the ordinary observation", a
     }),
   );
   expect(await screen.findByRole("button", { name: "50%" })).toBeInTheDocument();
-  fireEvent.click(screen.getByRole("button", { name: "50%" }));
+  await userEvent.setup().hover(screen.getByRole("button", { name: "50%" }));
   await waitFor(() => {
     expect(
       screen.getByRole("button", {

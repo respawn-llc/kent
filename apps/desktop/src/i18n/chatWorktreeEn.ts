@@ -41,6 +41,7 @@ export const chatWorktreeEnglish = {
   empty: "No worktrees",
   external: "External",
   missing: "Missing",
+  inUse: "In Use",
   requestPending: "Waiting for the current request",
   internalFailure: "The worktree operation failed. Try again. If it keeps failing, report the issue.",
   selectorNotFound: "Worktree “{{target}}” was not found. Refresh the list and choose another worktree.",

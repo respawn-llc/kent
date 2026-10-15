@@ -207,7 +207,9 @@ func (c *sessionRuntimeClient) SubmitRuntimeInput(ctx context.Context, req clien
 	if err != nil {
 		return clientui.UserTurnSubmission{}, err
 	}
-	resp, err := c.chatMutations.Steer(ctx, &chatpb.SteerRequest{Target: target, Activation: activation})
+	resp, err := c.chatMutations.Steer(ctx, &chatpb.SteerRequest{
+		Target: target, Activation: activation, QueueItemId: runtimeids.NewQueueItemID().String(),
+	})
 	if err != nil {
 		return clientui.UserTurnSubmission{}, err
 	}

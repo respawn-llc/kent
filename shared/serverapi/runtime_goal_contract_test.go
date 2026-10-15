@@ -8,6 +8,7 @@ import (
 	chatshellpb "core/shared/protoapi/gen/kent/api/chat_shell"
 	runtimepb "core/shared/protoapi/gen/kent/api/runtime"
 	sharedpb "core/shared/protoapi/gen/kent/api/shared"
+	"core/shared/runtimeids"
 	"google.golang.org/protobuf/types/known/timestamppb"
 )
 
@@ -71,9 +72,8 @@ func TestRuntimeSubmitUserShellCommandRejectsBlankCommand(t *testing.T) {
 }
 
 func TestRuntimeSubmitUserTurnRequestUsesInputAndRejectsMissingInput(t *testing.T) {
-	req := &runtimepb.SubmitUserTurnRequest{
-		SessionId: "session-1",
-		Input:     &runtimepb.UserTurnInput{Input: &runtimepb.UserTurnInput_Text{Text: "hello"}},
+	req := &runtimepb.SubmitUserTurnRequest{QueueItemId: runtimeids.NewQueueItemID().String(), SessionId: "session-1",
+		Input: &runtimepb.UserTurnInput{Input: &runtimepb.UserTurnInput_Text{Text: "hello"}},
 	}
 	if err := protoapi.Validate(req); err != nil {
 		t.Fatalf("valid request: %v", err)

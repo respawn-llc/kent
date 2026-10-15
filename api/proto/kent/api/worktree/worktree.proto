@@ -183,6 +183,7 @@ message ListProjection {
   optional SwitchOperation switch = 3;
   optional DeletePreviewOperation delete_preview = 4;
   optional string fallback_identity = 5 [(buf.validate.field).string.(kent.api.shared.nonblank) = true];
+  bool is_in_use = 6;
 }
 
 message ListEntry {

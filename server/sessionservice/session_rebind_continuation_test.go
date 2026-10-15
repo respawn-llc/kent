@@ -19,6 +19,7 @@ import (
 	"core/shared/toolspec"
 	"core/shared/worktreecontract"
 
+	"core/shared/runtimeids"
 	"github.com/google/uuid"
 )
 
@@ -221,7 +222,7 @@ func TestHumanRebindPreservesExecutionAndQueuedInputAfterCallerDisconnects(t *te
 	err = fixture.authority.RunCurrentTurn(ctx, descriptor,
 		func(commit func() (bool, error)) (bool, error) { return commit() },
 		func(ctx context.Context, current *runtime.Engine, accept runtime.CommandAcceptance) error {
-			_, accepted, err := current.QueueUserMessageForActiveRunWithAcceptance(ctx, queuedInput, accept)
+			_, accepted, err := current.QueueUserMessageForActiveRunWithAcceptance(ctx, runtimeids.NewQueueItemID().String(), queuedInput, accept)
 			if err == nil && !accepted {
 				return errors.New("queued input was rejected")
 			}

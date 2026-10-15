@@ -29,10 +29,11 @@ import (
 	"core/shared/toolspec"
 )
 
-func TestCompactionRotationUsesActualDestinationCredentialsAndCompletion(t *testing.T) {
+func TestCompactAndContinuePreservesAccountDespiteChangedAssignmentOrder(t *testing.T) {
 	a, err := modelstub.StartScriptedResponsesStub(modelstub.Script{Steps: []modelstub.ScriptStep{
 		modelstub.FinalAnswer(`{"transition":"next","commentary":"done"}`),
 		modelstub.FinalAnswer("Outgoing summary."),
+		modelstub.FinalAnswer("Reviewed."),
 	}})
 	if err != nil {
 		t.Fatal(err)
@@ -84,10 +85,11 @@ func TestCompactionRotationUsesActualDestinationCredentialsAndCompletion(t *test
 	f := newCurrentNodeRunnerFixture(t)
 	cfg := &f.starter.cfg
 	cfg.Settings.Model = "gpt-6-sol"
-	cfg.Settings.CompactionMode = config.CompactionModeLocal
+	cfg.Settings.CompactionMode = config.CompactionModeNone
 	cfg.Settings.Workflow.CompletionMode = config.WorkflowCompletionModeAuto
 	selection := config.ConnectionSelection{"b", "a"}
 	cfg.Settings.Connection = &selection
+	cfg.Settings.ConnectionOrder = []config.ConnectionID{"a", "b"}
 	cfg.Settings.Connections = map[config.ConnectionID]config.ProviderConnection{}
 	for _, member := range []struct {
 		id        config.ConnectionID
@@ -111,14 +113,28 @@ func TestCompactionRotationUsesActualDestinationCredentialsAndCompletion(t *test
 	}
 	writeCurrentNodeConfig(t, *cfg)
 	f.starter.runtimeClientFactory = nil
-	workflowID := createCurrentNodeTwoStepWorkflow(t, f.store, "Connection rotation dispatch",
-		workflow.ContextModeCompactAndContinueSession,
+	workflowID := createCurrentNodeTwoStepWorkflowWithTransition(t, f.store, "Sticky Connection dispatch",
 		currentNodeWorkflowStep{kind: workflow.NodeKindAgent, role: "coder", prompt: "Complete.", completionMode: string(config.WorkflowCompletionModeUnstructured)},
-		currentNodeWorkflowStep{kind: workflow.NodeKindAgent, role: "reviewer", prompt: "Review."},
+		currentNodeWorkflowStep{kind: workflow.NodeKindAgent, role: "reviewer", prompt: "Review.", completionMode: string(config.WorkflowCompletionModeUnstructured)},
+		currentNodeLinearTransition{id: "next", mode: workflow.ContextModeCompactAndContinueSession, requiresApproval: true},
 	)
 	task := f.createTask(t, workflowID)
 	f.startTask(t, task)
-	for index, want := range []config.ConnectionID{"a", "a", "b"} {
+	approval := f.waitForPendingApproval(t, task.ID)
+	f.waitForTaskQuiescence(t, task.ID)
+	source := f.onlyProjectSessionMeta(t)
+	for _, member := range []config.ConnectionID{"b", "a"} {
+		selected, err := f.starter.connectionRotation.Prepare(cfg.Settings, true)
+		if err != nil || selected != member {
+			t.Fatalf("competing allocation = %s, %v, want %s", selected, err, member)
+		}
+	}
+	cfg.Settings.CompactionMode = config.CompactionModeLocal
+	writeCurrentNodeConfig(t, *cfg)
+	if _, err := f.controller.ApplyPendingApproval(t.Context(), approval.ID); err != nil {
+		t.Fatalf("apply compact-and-continue Approval: %v", err)
+	}
+	for index, want := range []config.ConnectionID{"a", "a", "a"} {
 		select {
 		case request := <-observed:
 			if request.Member != want || request.Auth != "Bearer credential-"+string(want) || request.Model != "gpt-6-sol" {
@@ -136,9 +152,13 @@ func TestCompactionRotationUsesActualDestinationCredentialsAndCompletion(t *test
 	}
 	f.waitForTaskQuiescence(t, task.ID)
 	meta := f.onlyProjectSessionMeta(t)
-	if meta.ConnectionID == nil || *meta.ConnectionID != "b" || meta.Locked == nil ||
-		meta.WorkflowSnapshot == nil || meta.WorkflowSnapshot.CompletionMode != workflowruntime.CompletionModeStructuredOutput {
-		t.Fatalf("target binding/completion did not use selected B: %+v", meta)
+	if meta.SessionID != source.SessionID || meta.ConnectionID == nil || *meta.ConnectionID != "a" || meta.Locked == nil ||
+		meta.WorkflowSnapshot == nil || meta.WorkflowSnapshot.CompletionMode != workflowruntime.CompletionModeUnstructuredOutput {
+		t.Fatalf("continuation did not preserve Session account and its completion capabilities: %+v", meta)
+	}
+	selected, err := f.starter.connectionRotation.Prepare(cfg.Settings, true)
+	if err != nil || selected != "b" {
+		t.Fatalf("continuation changed assignment order: next allocation = %s, %v, want b", selected, err)
 	}
 }
 
@@ -170,19 +190,19 @@ func TestLazyCompactAndContinueUsesOutgoingConfiguration(t *testing.T) {
 	factoryRequests := f.runtimeRequests()
 	var targetID *string
 	for _, request := range factoryRequests {
-		if request.Connection.ID == "reviewer" {
+		if request.ActiveSettings.Model == "workflow-reviewer" && request.Connection.ID == "coder" {
 			targetID = &request.SessionID
 		}
 	}
 	if targetID == nil {
-		t.Fatal("lazy continuation did not construct the target connection")
+		t.Fatal("lazy continuation did not use the target model with the saved connection")
 	}
 	record, err := f.metadata.ResolvePersistedSession(t.Context(), *targetID)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if record.Meta.ConnectionID == nil || *record.Meta.ConnectionID != "reviewer" {
-		t.Fatal("lazy continuation did not persist the target binding")
+	if record.Meta.ConnectionID == nil || *record.Meta.ConnectionID != "coder" {
+		t.Fatal("lazy continuation changed the saved binding")
 	}
 }
 

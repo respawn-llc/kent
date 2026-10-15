@@ -2,6 +2,7 @@ package app
 
 import (
 	"context"
+	"core/shared/client"
 	transcriptpb "core/shared/protoapi/gen/kent/api/transcript"
 	"core/shared/serverapi"
 	"errors"
@@ -11,6 +12,27 @@ import (
 	"testing"
 	"time"
 )
+
+func TestTranscriptProtocolMismatchSurfacesOnceWithoutRetry(t *testing.T) {
+	mismatch := &client.ProtocolVersionMismatchError{}
+	stream := startSessionTranscriptEvents(t.Context(), "session-1",
+		func(context.Context, *transcriptpb.SubscribeRequest) (serverapi.TranscriptSubscription, error) {
+			return nil, mismatch
+		}, nil)
+	defer stream.Stop()
+	event := nextTranscriptEvent(t, stream.Events)
+	if event.Kind != ongoingTranscriptEventFailure || !errors.Is(event.Err, mismatch) {
+		t.Fatalf("unexpected compatibility failure: %+v", event)
+	}
+	select {
+	case _, open := <-stream.Events:
+		if open {
+			t.Fatal("protocol mismatch retried the subscription")
+		}
+	case <-time.After(time.Second):
+		t.Fatal("incompatible subscription did not stop")
+	}
+}
 
 func TestStartSessionTranscriptEventsWaitsForExplicitRehydrationAfterLoss(t *testing.T) {
 	subscriber := &recordingTranscriptSubscriber{

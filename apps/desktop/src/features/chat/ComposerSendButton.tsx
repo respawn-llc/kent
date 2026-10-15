@@ -8,24 +8,28 @@ import type { useChatPromptPicker } from "./useChatPromptPicker";
 
 export function ComposerSendButton() {
   const { t } = useTranslation();
-  const { composer, promptPicker } = useComposerSurface();
+  const { composer, promptPicker, activity } = useComposerSurface();
   if (promptPicker !== null && promptPicker.state.current !== null) {
     return <PromptSendButton picker={promptPicker} restricted={composer.interactionRestricted} />;
   }
-  const reason = composer.interactionRestricted
-    ? t("chat.navigationPending")
-    : composer.draft.kind === "loading"
-      ? t("chatComposer.loadingDraft")
-      : composer.submission.kind !== "ready"
-        ? t("chatComposer.loadingSettings")
-        : t("chatComposer.empty");
+  const reason = composer.heldReadonly
+    ? t("chatComposer.awaitingConfirmation")
+    : !composer.canPrepare
+      ? t("chatComposer.rejections.pending_work_capacity")
+      : composer.interactionRestricted
+        ? t("chat.navigationPending")
+        : composer.draft.kind === "loading"
+          ? t("chatComposer.loadingDraft")
+          : composer.submission.kind !== "ready"
+            ? t("chatComposer.loadingSettings")
+            : t("chatComposer.empty");
   return (
     <SendButton
       enabled={composer.canSubmit}
       pending={composer.inputPending || composer.interactionRestricted}
       tooltip={composer.canSubmit ? t("chatComposer.send") : reason}
       onClick={() => {
-        composer.submit("send");
+        composer.submit("send", "editor", activity ?? undefined);
       }}
     />
   );

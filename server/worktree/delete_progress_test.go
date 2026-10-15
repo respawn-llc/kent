@@ -14,6 +14,7 @@ import (
 	"core/server/session"
 	runtimepb "core/shared/protoapi/gen/kent/api/runtime"
 	worktreepb "core/shared/protoapi/gen/kent/api/worktree"
+	"core/shared/runtimeids"
 	"core/shared/worktreecontract"
 )
 
@@ -79,8 +80,9 @@ func TestDeleteWorktreeRetainsAcceptedWorkAfterEarlierSessionMoveAndRetries(t *t
 			}
 			var submitErr error
 			acceptedTurn, submitErr = runtimecontrol.NewService(env.authority, nil).SubmitUserTurn(env.ctx, &runtimepb.SubmitUserTurnRequest{
-				SessionId: blockedSessionID,
-				Input:     &runtimepb.UserTurnInput{Input: &runtimepb.UserTurnInput_Text{Text: "accepted after the first Session moved"}},
+				QueueItemId: runtimeids.NewQueueItemID().String(),
+				SessionId:   blockedSessionID,
+				Input:       &runtimepb.UserTurnInput{Input: &runtimepb.UserTurnInput_Text{Text: "accepted after the first Session moved"}},
 			})
 			if submitErr != nil {
 				t.Fatalf("accept user turn on later Session: %v", submitErr)

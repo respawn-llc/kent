@@ -9,8 +9,7 @@ import {
   Dialog,
   compactDialogWidth,
   motionDurationFromCSSVar,
-  Popover,
-  PopoverContent,
+  HoverPopover,
   SegmentedControl,
 } from "@/ui";
 
@@ -100,155 +99,149 @@ export function ChatSettingsView(props: ChatSettingsViewProps) {
         }}
       />
       <LayoutGroup id={transitionName}>
-        <Popover
+        <HoverPopover
           open={view !== "closed"}
           onOpenChange={(open) => {
             setView(open ? "overview" : "closed");
           }}
+          trigger={(triggerProps) => <ChatSettingsChip {...summary} triggerProps={triggerProps} />}
+          align="start"
+          className="w-96 max-w-[var(--hover-popover-available-width)] max-h-[var(--hover-popover-available-height)] grid-cols-[minmax(0,1fr)] grid-rows-[minmax(0,1fr)] gap-0 overflow-hidden p-[var(--space-1)]"
         >
-          <ChatSettingsChip {...summary} />
-          <PopoverContent
-            align="start"
-            onCloseAutoFocus={(event) => {
-              if (agentSelection !== null) event.preventDefault();
-            }}
-            className="w-96 max-w-[var(--radix-popover-content-available-width)] max-h-[var(--radix-popover-content-available-height)] grid-cols-[minmax(0,1fr)] grid-rows-[minmax(0,1fr)] gap-0 overflow-hidden p-[var(--space-1)]"
+          <motion.div
+            layoutScroll
+            ref={scrollRef}
+            className="relative min-h-0 min-w-0 overflow-y-auto text-sm"
+            style={{ maxHeight }}
           >
-            <motion.div
-              layoutScroll
-              ref={scrollRef}
-              className="relative min-h-0 min-w-0 overflow-y-auto text-sm"
-              style={{ maxHeight }}
-            >
-              {view === "agents" ? (
-                <div>
-                  {agents.map((agent) => (
-                    <ChatSettingsAgentRow
-                      agent={agent.role === selectedAgent.role ? selectedAgent : agent}
-                      key={agent.role}
-                      onActivate={() => {
-                        selectAgent(agent.role);
-                      }}
-                      reason={agentReason}
-                      selected={agent.role === selectedAgent.role}
-                      transitionName={transitionName}
-                      contentRef={agent.role === selectedAgent.role ? selectedRef : undefined}
-                    />
-                  ))}
-                </div>
-              ) : null}
-              {/* Retain uncommitted input when returning through the already-selected Agent. */}
-              <div ref={overviewRef} hidden={view === "agents"}>
-                {view !== "agents" ? (
+            {view === "agents" ? (
+              <div>
+                {agents.map((agent) => (
                   <ChatSettingsAgentRow
-                    agent={selectedAgent}
-                    onActivate={showAgents}
+                    agent={agent.role === selectedAgent.role ? selectedAgent : agent}
+                    key={agent.role}
+                    onActivate={() => {
+                      selectAgent(agent.role);
+                    }}
                     reason={agentReason}
-                    selected
-                    contentRef={selectedRef}
+                    selected={agent.role === selectedAgent.role}
                     transitionName={transitionName}
+                    contentRef={agent.role === selectedAgent.role ? selectedRef : undefined}
+                  />
+                ))}
+              </div>
+            ) : null}
+            {/* Retain uncommitted input when returning through the already-selected Agent. */}
+            <div ref={overviewRef} hidden={view === "agents"}>
+              {view !== "agents" ? (
+                <ChatSettingsAgentRow
+                  agent={selectedAgent}
+                  onActivate={showAgents}
+                  reason={agentReason}
+                  selected
+                  contentRef={selectedRef}
+                  transitionName={transitionName}
+                />
+              ) : null}
+              <motion.div
+                animate={{ opacity: overviewOpacity }}
+                transition={{ duration: motionDurationFromCSSVar("--motion-fast", 140) / 1000 }}
+              >
+                {settings.fast.kind === "supported" ? (
+                  <SettingsSwitch
+                    checked={settings.fast.value}
+                    trailingIcon={<ComposerIcon kind="fast" />}
+                    label={t("chatSettings.fast")}
+                    onChange={(enabled) => {
+                      activate({ kind: "fast", enabled });
+                    }}
+                    reason={reason(settings.fast.editability)}
                   />
                 ) : null}
-                <motion.div
-                  animate={{ opacity: overviewOpacity }}
-                  transition={{ duration: motionDurationFromCSSVar("--motion-fast", 140) / 1000 }}
+                <SettingsSwitch
+                  checked={settings.questions.enabled}
+                  label={t("chatSettings.questions")}
+                  onChange={(enabled) => {
+                    activate({ kind: "questions", enabled });
+                  }}
+                  reason={reason(settings.questions.editability)}
+                />
+                <ChatAutoCompactionSwitch feature={feature} />
+                <SettingsRow
+                  onActivate={() => {
+                    activate({
+                      kind: "supervisor",
+                      value:
+                        supervisor.value === "off"
+                          ? supervisor.baseline === "off"
+                            ? "edits"
+                            : supervisor.baseline
+                          : "off",
+                    });
+                  }}
+                  reason={reason(supervisor.editability)}
                 >
-                  {settings.fast.kind === "supported" ? (
-                    <SettingsSwitch
-                      checked={settings.fast.value}
-                      trailingIcon={<ComposerIcon kind="fast" />}
-                      label={t("chatSettings.fast")}
-                      onChange={(enabled) => {
-                        activate({ kind: "fast", enabled });
-                      }}
-                      reason={reason(settings.fast.editability)}
-                    />
-                  ) : null}
-                  <SettingsSwitch
-                    checked={settings.questions.enabled}
-                    label={t("chatSettings.questions")}
-                    onChange={(enabled) => {
-                      activate({ kind: "questions", enabled });
+                  <span className="min-w-0 flex-1 truncate">{t("chatSettings.supervisor")}</span>
+                  <div
+                    onClick={(event) => {
+                      event.stopPropagation();
                     }}
-                    reason={reason(settings.questions.editability)}
-                  />
-                  <ChatAutoCompactionSwitch feature={feature} />
-                  <SettingsRow
-                    onActivate={() => {
-                      activate({
-                        kind: "supervisor",
-                        value:
-                          supervisor.value === "off"
-                            ? supervisor.baseline === "off"
-                              ? "edits"
-                              : supervisor.baseline
-                            : "off",
-                      });
-                    }}
-                    reason={reason(supervisor.editability)}
                   >
-                    <span className="min-w-0 flex-1 truncate">{t("chatSettings.supervisor")}</span>
-                    <div
-                      onClick={(event) => {
-                        event.stopPropagation();
+                    <SegmentedControl
+                      size="compact"
+                      ariaLabel={t("chatSettings.supervisor")}
+                      disabled={reason(supervisor.editability) !== undefined}
+                      onValueActivate={(value) => {
+                        if (value === supervisor.value) activate({ kind: "supervisor", value });
                       }}
-                    >
-                      <SegmentedControl
-                        size="compact"
-                        ariaLabel={t("chatSettings.supervisor")}
-                        disabled={reason(supervisor.editability) !== undefined}
-                        onValueActivate={(value) => {
-                          if (value === supervisor.value) activate({ kind: "supervisor", value });
+                      onValueChange={(value) => {
+                        activate({ kind: "supervisor", value });
+                      }}
+                      options={[
+                        { value: "all", label: t("chatSettings.supervisorAlways") },
+                        { value: "edits", label: t("chatSettings.supervisorEdits") },
+                        { value: "off", label: t("chatSettings.supervisorOff") },
+                      ]}
+                      value={supervisor.value}
+                    />
+                  </div>
+                </SettingsRow>
+                {settings.thinking.kind === "enumerated" && settings.thinking.values.length > 1 ? (
+                  <SettingsRow reason={reason(settings.thinking.editability)}>
+                    <div className="min-w-0 flex-1">
+                      <ThinkingSelector
+                        onCommit={(value) => {
+                          activate({ kind: "thinking", value });
                         }}
-                        onValueChange={(value) => {
-                          activate({ kind: "supervisor", value });
-                        }}
-                        options={[
-                          { value: "all", label: t("chatSettings.supervisorAlways") },
-                          { value: "edits", label: t("chatSettings.supervisorEdits") },
-                          { value: "off", label: t("chatSettings.supervisorOff") },
-                        ]}
-                        value={supervisor.value}
+                        thinking={settings.thinking}
                       />
                     </div>
                   </SettingsRow>
-                  {settings.thinking.kind === "enumerated" && settings.thinking.values.length > 1 ? (
-                    <SettingsRow reason={reason(settings.thinking.editability)}>
-                      <div className="min-w-0 flex-1">
-                        <ThinkingSelector
-                          onCommit={(value) => {
-                            activate({ kind: "thinking", value });
-                          }}
-                          thinking={settings.thinking}
-                        />
-                      </div>
-                    </SettingsRow>
-                  ) : null}
-                  {settings.thinking.kind === "custom" ? (
-                    <CustomThinkingEditor
-                      reason={reason(settings.thinking.editability)}
-                      feature={feature}
-                      key={settings.selectedAgent.role}
-                      thinking={settings.thinking}
-                    />
-                  ) : null}
-                  {"navigation" in props ? (
-                    <ChatSettingsSessionFacts
-                      facts={props.feature.session}
-                      navigation={props.navigation}
-                      closeAndNavigate={(action) => {
-                        flushSync(() => {
-                          setView("closed");
-                        });
-                        action();
-                      }}
-                    />
-                  ) : null}
-                </motion.div>
-              </div>
-            </motion.div>
-          </PopoverContent>
-        </Popover>
+                ) : null}
+                {settings.thinking.kind === "custom" ? (
+                  <CustomThinkingEditor
+                    reason={reason(settings.thinking.editability)}
+                    feature={feature}
+                    key={settings.selectedAgent.role}
+                    thinking={settings.thinking}
+                  />
+                ) : null}
+                {"navigation" in props ? (
+                  <ChatSettingsSessionFacts
+                    facts={props.feature.session}
+                    navigation={props.navigation}
+                    closeAndNavigate={(action) => {
+                      flushSync(() => {
+                        setView("closed");
+                      });
+                      action();
+                    }}
+                  />
+                ) : null}
+              </motion.div>
+            </div>
+          </motion.div>
+        </HoverPopover>
       </LayoutGroup>
     </>
   );

@@ -194,6 +194,7 @@ func TestServiceCarriesOneOperationContextAcrossChatLifecycle(t *testing.T) {
 			newChat: true,
 			admission: serverapi.ChatInputAdmissionResult{
 				QueueItemID:          runtimeids.NewQueueItemID(),
+				Disposition:          runtimeinput.InputAdmissionStartedTurn,
 				Accepted:             true,
 				PromptHistoryFailure: errors.New("prompt history unavailable"),
 			},
@@ -272,8 +273,7 @@ func TestServiceCarriesOneOperationContextAcrossChatLifecycle(t *testing.T) {
 				target.Target = &chatpb.ChatTarget_NewChat{NewChat: newChatTarget}
 			}
 
-			result, err := service.Steer(caller, &chatpb.SteerRequest{
-				Target: target,
+			result, err := service.Steer(caller, &chatpb.SteerRequest{QueueItemId: runtimeids.NewQueueItemID().String(), Target: target,
 				Activation: &chatpb.Activation{
 					Input: &chatpb.Activation_Text{Text: "continue"},
 				},
@@ -285,6 +285,9 @@ func TestServiceCarriesOneOperationContextAcrossChatLifecycle(t *testing.T) {
 				t.Fatalf("Steer Session = %+v, want %s", result.GetSession(), sessionID)
 			}
 			if test.admission.Accepted {
+				if result.GetAccepted().GetDisposition() != chatpb.InputAdmissionDisposition_INPUT_ADMISSION_DISPOSITION_STARTED_TURN {
+					t.Fatalf("Steer disposition = %v, want started turn", result.GetAccepted().GetDisposition())
+				}
 				if result.GetAccepted().GetDiagnostic().GetPromptHistoryFailure() == nil {
 					t.Fatalf("Steer result = %+v, want typed prompt-history diagnostic", result)
 				}
