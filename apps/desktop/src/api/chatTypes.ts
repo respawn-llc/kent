@@ -1,4 +1,5 @@
 import type { StreamFailureCode } from "@app/server-api-contract/gen/kent/api/shared/foundation_pb";
+import type { SessionCategory } from "./models";
 import type { ApiSubscription } from "./apiService";
 import type * as Stream from "effect/Stream";
 import type { PendingPrompt } from "./promptModels";
@@ -112,6 +113,8 @@ export type ChatMainView = Readonly<{
   status: ChatRuntimeStatus;
   sessionID: string;
   sessionName: string | null;
+  category: SessionCategory;
+  shortID: bigint | null;
   executionTarget: ChatExecutionTarget;
   activity: ChatRuntimeActivity;
 }>;

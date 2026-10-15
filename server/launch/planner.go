@@ -28,8 +28,6 @@ type Mode string
 const (
 	ModeInteractive Mode = "interactive"
 	ModeHeadless    Mode = "headless"
-
-	SubagentSessionSuffix = "subagent"
 )
 
 type SessionExecutionTargetResolver interface {
@@ -453,14 +451,6 @@ func (p Planner) planSessionWithExecutionContext(ctx context.Context, req Sessio
 				meta.SessionID,
 				sessionID,
 			)
-		}
-	}
-	if req.Mode == ModeHeadless && (store != nil || preparedContext != nil) {
-		if store != nil {
-			if err := EnsureSubagentSessionName(store); err != nil {
-				return SessionPlan{}, err
-			}
-			meta = store.Meta()
 		}
 	}
 	baseActive := EffectiveSettings(p.Config.Settings, meta.Locked)
@@ -1349,17 +1339,6 @@ func (p Planner) updateChildExecutionTarget(ctx context.Context, childSessionID 
 		return errors.New("Session execution-target mutation owner is required")
 	}
 	return p.ExecutionTargets.UpdateSessionExecutionTarget(ctx, metadata.SessionExecutionTargetUpdateFromReadModel(childSessionID, target))
-}
-
-func EnsureSubagentSessionName(store *session.Store) error {
-	if store == nil {
-		return errors.New("session store is required")
-	}
-	meta := store.Meta()
-	if meta.Name != nil {
-		return nil
-	}
-	return store.SetName(textutil.Value(store.Identity().String() + " " + SubagentSessionSuffix))
 }
 
 func EffectiveSettings(base config.Settings, locked *session.LockedContract) config.Settings {

@@ -545,6 +545,7 @@ func TestRemoteSessionAttachmentSurvivesUnaryControlReconnect(t *testing.T) {
 				ContextUsage: &runtimepb.ContextUsage{WindowTokens: 1000},
 			},
 			Session: &runtimepb.SessionView{
+				Category:              projectpb.SessionCategory_SESSION_CATEGORY_MAIN,
 				SessionId:             "11111111-1111-4111-8111-111111111111",
 				ConversationFreshness: runtimepb.ConversationFreshness_CONVERSATION_FRESHNESS_FRESH,
 				ExecutionTarget: &worktreepb.SessionExecutionTarget{

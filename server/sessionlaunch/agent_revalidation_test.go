@@ -50,7 +50,7 @@ func agentReplacementFixture(t *testing.T) (config.App, *Service, *metadata.Stor
 		PersistenceRoot: cfg.PersistenceRoot, StoreOptions: db.AuthoritativeSessionStoreOptions(), ConnectionRotation: rotation,
 	})
 	t.Cleanup(func() { _ = authority.Close(context.Background()) })
-	changes := NewSettingsBroadcaster()
+	changes := NewSettingsBroadcaster(func(runtimeids.SessionID) error { return nil })
 	t.Cleanup(func() { _ = changes.Close() })
 	service := NewService(launch.Planner{
 		Config: cfg, Rotation: rotation, ContainerDir: filepath.Join(cfg.PersistenceRoot, "projects", binding.ProjectID, "sessions"),

@@ -136,8 +136,9 @@ func TestNewWithContextCleansPersistenceOnAuthBundleFailure(t *testing.T) {
 	cfg := config.App{
 		PersistenceRoot: t.TempDir(),
 		Settings: config.Settings{
-			Shell:    config.ShellSettings{MaxConcurrent: config.DefaultMaxConcurrentShells, PostprocessingMode: config.ShellPostprocessingModeBuiltin},
-			Workflow: config.WorkflowSettings{Concurrency: 1},
+			NanoConcurrency: 5,
+			Shell:           config.ShellSettings{MaxConcurrent: config.DefaultMaxConcurrentShells, PostprocessingMode: config.ShellPostprocessingModeBuiltin},
+			Workflow:        config.WorkflowSettings{Concurrency: 1},
 		},
 	}
 	testsetup.PrepareMetadataPersistenceRoot(t, cfg.PersistenceRoot)

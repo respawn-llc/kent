@@ -245,6 +245,7 @@ func grokModelContract(model string, cutoff time.Month, proxyContext *ModelMetad
 func gpt6ModelContract(model string, cutoff time.Month, efforts []string) ModelCapabilityContract {
 	return ModelCapabilityContract{
 		Model:                         model,
+		DefaultReasoningEffort:        textutil.Value("medium"),
 		ContextWindowTokens:           272_000,
 		LargeContextWindowTokens:      textutil.Value(1_050_000),
 		VariantContexts:               map[string]*ModelMetadata{"chatgpt-codex": {ContextWindowTokens: 272_000, LargeContextWindowTokens: textutil.Value(872_000)}},

@@ -11,6 +11,7 @@ import (
 	"core/server/authservice"
 	"core/server/chatcontext"
 	"core/server/launch"
+	"core/server/llm"
 	shelltool "core/server/tools/shell"
 	"core/shared/config"
 	"core/shared/textutil"
@@ -95,6 +96,9 @@ func BuildShellManager(cfg config.App) (*shelltool.Manager, error) {
 func loadConfig(loadOpts config.LoadOptions, persistenceRoot string, plan launch.BootstrapPlan) (ConfigPlan, error) {
 	if strings.TrimSpace(plan.WorkspaceRoot) == "" {
 		app, err := config.LoadGlobal(loadOpts)
+		if err == nil {
+			_, err = llm.ResolveNanoTargets(app.Settings)
+		}
 		return ConfigPlan{Config: app}, err
 	}
 	mainRoot := plan.MainWorkspaceRoot
@@ -106,5 +110,8 @@ func loadConfig(loadOpts config.LoadOptions, persistenceRoot string, plan launch
 		mainRoot = &root
 	}
 	app, client, err := config.LoadInteractive(plan.WorkspaceRoot, *mainRoot, loadOpts)
+	if err == nil {
+		_, err = llm.ResolveNanoTargets(app.Settings)
+	}
 	return ConfigPlan{Config: app, Client: client}, err
 }

@@ -61,7 +61,7 @@ func (m *uiModel) Init() tea.Cmd {
 	cmds := []tea.Cmd{
 		m.eventDispatcher.wait(),
 		waitPathReferenceSearchEvent(m.pathReferenceEvents),
-		tea.SetWindowTitle(sessionTitle(m.sessionName)),
+		tea.SetWindowTitle(m.sessionTitle()),
 		tea.WindowSize(),
 		m.loadPromptHistoryCmd(),
 	}

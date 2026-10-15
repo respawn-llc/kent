@@ -141,10 +141,15 @@ func (s dormantSessionSnapshot) MainView(ctx context.Context) (*runtimepb.MainVi
 		Goal:            goal,
 		WorkflowSession: s.projection.workflow,
 	}
+	category, err := protoapi.SessionCategoryToProto(meta.EffectiveCategory())
+	if err != nil {
+		return nil, err
+	}
 	view := &runtimepb.MainView{
 		Version: version,
 		Status:  status,
 		Session: &runtimepb.SessionView{
+			Category:              category,
 			SessionId:             meta.SessionID,
 			ShortId:               protoapi.SessionShortIDToProto(s.view.Identity().ShortID),
 			SessionName:           textutil.Pointer(meta.Name),

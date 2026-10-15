@@ -142,8 +142,8 @@ func TestRunPromptCreatesSessionAndPersistsDurableTranscript(t *testing.T) {
 	if last == nil || last.Content != finalAnswer {
 		t.Fatalf("last progress event = %+v, want assistant result", progresses[len(progresses)-1])
 	}
-	if result.SessionName == nil || !strings.HasSuffix(*result.SessionName, " "+subagentSessionSuffix) {
-		t.Fatalf("expected subagent session name, got %v", result.SessionName)
+	if result.SessionName != nil {
+		t.Fatalf("unconfigured nano generated a headless name: %v", result.SessionName)
 	}
 
 	cfg := loadAppTestConfig(t, workspace, config.LoadOptions{})

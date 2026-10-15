@@ -11,7 +11,8 @@ import (
 )
 
 type AgentSteer struct {
-	message llm.Message
+	message       llm.Message
+	initialPrompt *string
 }
 
 func NewAgentSteer(source runtimeids.SessionIdentity, text string) (AgentSteer, error) {
@@ -27,7 +28,7 @@ func NewAgentSteer(source runtimeids.SessionIdentity, text string) (AgentSteer, 
 		source.String(),
 	)
 	messageType := llm.MessageTypeAgentSteer
-	return AgentSteer{message: llm.Message{
+	return AgentSteer{initialPrompt: textutil.Value(text), message: llm.Message{
 		Role:        llm.RoleDeveloper,
 		MessageType: &messageType,
 		Content:     textutil.Value(content),

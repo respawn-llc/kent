@@ -3,14 +3,16 @@ package clientui
 import (
 	"time"
 
+	attentionpb "core/shared/protoapi/gen/kent/api/attention"
 	"core/shared/runtimeids"
 )
 
 type AttentionNotificationEventType string
 
 const (
-	AttentionNotificationEventPending  AttentionNotificationEventType = "pending"
-	AttentionNotificationEventResolved AttentionNotificationEventType = "resolved"
+	AttentionNotificationEventPending              AttentionNotificationEventType = "pending"
+	AttentionNotificationEventResolved             AttentionNotificationEventType = "resolved"
+	AttentionNotificationEventSessionNamingFailure AttentionNotificationEventType = "session_naming_failure"
 )
 
 type AttentionNotificationKind string
@@ -38,12 +40,13 @@ const (
 )
 
 type AttentionNotificationEvent struct {
-	Sequence   uint64                         `json:"sequence"`
-	Type       AttentionNotificationEventType `json:"type"`
-	Pending    *AttentionNotification         `json:"pending,omitempty"`
-	ID         *AttentionNotificationID       `json:"id,omitempty"`
-	Kind       AttentionNotificationKind      `json:"kind,omitempty"`
-	OccurredAt *time.Time                     `json:"occurred_at,omitempty"`
+	SessionNamingFailure *attentionpb.SessionNamingFailure `json:"session_naming_failure,omitempty"`
+	Sequence             uint64                            `json:"sequence"`
+	Type                 AttentionNotificationEventType    `json:"type"`
+	Pending              *AttentionNotification            `json:"pending,omitempty"`
+	ID                   *AttentionNotificationID          `json:"id,omitempty"`
+	Kind                 AttentionNotificationKind         `json:"kind,omitempty"`
+	OccurredAt           *time.Time                        `json:"occurred_at,omitempty"`
 }
 
 type AttentionNotificationID struct {

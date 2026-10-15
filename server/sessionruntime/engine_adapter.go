@@ -117,6 +117,7 @@ func cloneStringPointer(value *string) *string {
 }
 
 type authorityRuntimeOptions struct {
+	submitSessionNaming           func(runtimeids.SessionID, string, runtime.SessionNamingInput)
 	connectionRotation            *launch.ConnectionRotation
 	environment                   func(string) (string, bool)
 	workspaceMembership           runtimewire.WorkspaceMembership
@@ -138,6 +139,7 @@ type runtimeStoreAdmission struct {
 
 func newAuthorityRuntimeOptions(options AuthorityOptions) authorityRuntimeOptions {
 	return authorityRuntimeOptions{
+		submitSessionNaming:           options.SubmitSessionNaming,
 		connectionRotation:            options.ConnectionRotation,
 		environment:                   options.Environment,
 		workspaceMembership:           options.WorkspaceMembership,
@@ -302,6 +304,12 @@ func (a *Authority) newRuntimeWiringFromPlan(resource *agentResource, store *ses
 		return nil, err
 	}
 	wiringOptions := runtimewire.RuntimeWiringOptions{
+		SubmitSessionNaming: func(input runtime.SessionNamingInput) {
+			resource.mu.Lock()
+			localTools := resource.localTools
+			resource.mu.Unlock()
+			a.options.submitSessionNaming(resource.ref.SessionID(), localTools.FilesystemContext().Access.ExecutionTargetRoot.RealPath, input)
+		},
 		Environment:                         a.options.environment,
 		WorkspaceMembership:                 a.options.workspaceMembership,
 		ProjectWorkspaceContextReader:       a.options.projectWorkspaceContextReader,
@@ -354,6 +362,9 @@ func (a *Authority) newRuntimeWiringFromPlan(resource *agentResource, store *ses
 			}
 			resource.publishObservedEvent(event)
 		},
+	}
+	if a.options.submitSessionNaming == nil {
+		wiringOptions.SubmitSessionNaming = nil
 	}
 	wiring, err := runtimewire.NewRuntimeWiringWithBackground(
 		store,

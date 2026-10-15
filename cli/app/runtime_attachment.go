@@ -28,16 +28,17 @@ type runtimeAttachmentSource interface {
 }
 
 type runtimeAttachmentClients struct {
-	ProcessControls   apicontract.ProcessControlService
-	ProcessViews      apicontract.ProcessViewService
-	PromptControl     apicontract.PromptControlService
-	RuntimeControls   apicontract.RuntimeControlService
-	GoalSet           goalSetClient
-	ChatSettings      apicontract.ChatSettingsService
-	SessionTranscript apicontract.SessionTranscriptService
-	SessionRuntime    apicontract.SessionRuntimeService
-	SessionViews      apicontract.SessionViewService
-	Worktrees         apicontract.WorktreeService
+	AttentionNotifications apicontract.AttentionNotificationService
+	ProcessControls        apicontract.ProcessControlService
+	ProcessViews           apicontract.ProcessViewService
+	PromptControl          apicontract.PromptControlService
+	RuntimeControls        apicontract.RuntimeControlService
+	GoalSet                goalSetClient
+	ChatSettings           apicontract.ChatSettingsService
+	SessionTranscript      apicontract.SessionTranscriptService
+	SessionRuntime         apicontract.SessionRuntimeService
+	SessionViews           apicontract.SessionViewService
+	Worktrees              apicontract.WorktreeService
 }
 
 func prepareSharedRuntime(ctx context.Context, source runtimeAttachmentSource, plan sessionLaunchPlan, diagnosticWriter io.Writer, startLogLine string) (*runtimeLaunchPlan, error) {
@@ -162,16 +163,17 @@ func prepareSharedRuntimeWiring(
 		queueHook = newTurnQueueHooks(notificationHooks, lifecycleProxy)
 	}
 	wiring := &runtimeWiring{
-		eventDispatcher:       eventDispatcher,
-		requestTranscriptOpen: requestTranscriptOpen,
-		promptAnswers:         newTranscriptPromptAnswerer(ctx, clients.PromptControl),
-		promptAttention:       notificationHooks,
-		turnQueueHook:         queueHook,
-		terminalFocus:         terminalFocus,
-		runtimeClient:         runtimeClient,
-		worktrees:             clients.Worktrees,
-		processControls:       clients.ProcessControls,
-		processViews:          clients.ProcessViews,
+		attentionNotifications: clients.AttentionNotifications,
+		eventDispatcher:        eventDispatcher,
+		requestTranscriptOpen:  requestTranscriptOpen,
+		promptAnswers:          newTranscriptPromptAnswerer(ctx, clients.PromptControl),
+		promptAttention:        notificationHooks,
+		turnQueueHook:          queueHook,
+		terminalFocus:          terminalFocus,
+		runtimeClient:          runtimeClient,
+		worktrees:              clients.Worktrees,
+		processControls:        clients.ProcessControls,
+		processViews:           clients.ProcessViews,
 	}
 	if lifecycleProxy != nil {
 		wiring.lifecycleHookIssues = lifecycleProxy.Issues()

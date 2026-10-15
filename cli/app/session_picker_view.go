@@ -170,10 +170,8 @@ func (m *sessionPickerModel) renderRow(tab *sessionPickerTab, index int, showPre
 }
 
 func sessionPickerTitle(item clientui.SessionSummary) string {
-	if title, present := textutil.OptionalTrimmed(item.Name); present {
-		return title
-	}
-	return (runtimeids.SessionIdentity{ID: item.SessionID, ShortID: item.ShortID}).String()
+	return sessionDisplayTitle(item.Name, &item.Category, item.ShortID,
+		(runtimeids.SessionIdentity{ID: item.SessionID, ShortID: item.ShortID}).String())
 }
 
 func (m *sessionPickerModel) hasPreview(tab *sessionPickerTab, index int) bool {

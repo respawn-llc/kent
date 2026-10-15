@@ -2,6 +2,7 @@ package chatcontext
 
 import (
 	"context"
+	"core/server/llm"
 	"core/server/metadata"
 	"errors"
 	"strings"
@@ -50,7 +51,11 @@ func (r FixedRootWorkspaceResolver) Resolve(workspaceRoot string) (config.App, e
 	if err != nil {
 		return config.App{}, err
 	}
-	return config.Load(workspaceRoot, mainRoot, loadOptions)
+	app, err := config.Load(workspaceRoot, mainRoot, loadOptions)
+	if err == nil {
+		_, err = llm.ResolveNanoTargets(app.Settings)
+	}
+	return app, err
 }
 
 // ResolveMainWorkspaceRoot uses workspace/worktree bindings, without registering

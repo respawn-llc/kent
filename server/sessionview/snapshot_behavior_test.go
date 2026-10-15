@@ -7,16 +7,46 @@ import (
 	"testing"
 	"time"
 
+	"core/internal/testharness/testsetup"
 	"core/server/sessionruntime"
 	"core/server/sessionstore"
+	"core/shared/config"
+	"core/shared/protoapi"
 	runtimepb "core/shared/protoapi/gen/kent/api/runtime"
 	sessionpb "core/shared/protoapi/gen/kent/api/session"
 	sharedpb "core/shared/protoapi/gen/kent/api/shared"
 	transcriptpb "core/shared/protoapi/gen/kent/api/transcript"
+	worktreepb "core/shared/protoapi/gen/kent/api/worktree"
 	"core/shared/rollbacktarget"
+	"core/shared/sessioncontract"
 
 	"google.golang.org/protobuf/proto"
 )
+
+func TestCategorylessSessionMainView(t *testing.T) {
+	dir := t.TempDir()
+	store, _ := newSessionViewParentAgentChild(t, dir, "ws", dir)
+	if err := store.EnsureDurable(); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := store.MaterializeEventLog(); err != nil {
+		t.Fatal(err)
+	}
+	meta := store.Meta()
+	meta.Category = nil
+	service := NewService(identityLocationRecord{record: session.PersistedSessionRecord{
+		SessionDir: store.Dir(), Meta: &meta, ContextFacts: store.ContextFacts(),
+	}}, nil, staticExecutionTargetResolver{target: &worktreepb.SessionExecutionTarget{
+		WorkspaceRoot: dir, EffectiveWorkdir: dir, CwdRelpath: ".",
+	}}, nil).WithChatContextWorkspaceResolver(&sessionChatContextWorkspaceResolver{
+		app: testsetup.ProgrammaticConfig(t, config.DefaultOnboardingSettings()),
+	})
+	view := mustMainView(t, service, meta.SessionID)
+	category, err := protoapi.SessionCategoryFromProto(view.Session.Category)
+	if err != nil || category != sessioncontract.SessionCategoryMain {
+		t.Fatalf("category = %v, %v", category, err)
+	}
+}
 
 func TestServiceDormantTranscriptPagesPreserveRollbackLocatorAcrossCandidateFreeCompactions(t *testing.T) {
 	const (
