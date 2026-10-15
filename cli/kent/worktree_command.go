@@ -274,10 +274,6 @@ func worktreeCreateSubcommand(args []string, stdout io.Writer, stderr io.Writer)
 		return writeWorktreeJSON(stdout, stderr, output, err)
 	}
 	registered := response.GetWorktree().GetTopology().GetRegistered()
-	if registered == nil {
-		fmt.Fprintln(stderr, "create returned a non-registered worktree")
-		return 1
-	}
 	fmt.Fprintln(stdout, registered.GetGit().GetCanonicalRoot())
 	if response.Session == nil {
 		return 0

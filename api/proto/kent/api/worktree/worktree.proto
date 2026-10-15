@@ -828,6 +828,12 @@ message CreateSuccess {
   kent.api.shared.SessionIdentity session = 3;
 
   option (buf.validate.message).cel = {
+    id: "kent.worktree.create_registered"
+    message: "created worktree must have registered topology"
+    expression: "has(this.worktree.topology.registered)"
+  };
+
+  option (buf.validate.message).cel = {
     id: "kent.worktree.create_projection"
     message: "created worktree must expose every eligible session operation"
     expression:
