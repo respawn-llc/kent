@@ -7,7 +7,7 @@ import {
 } from "@app/server-api-contract/gen/kent/api/worktree/worktree_pb";
 import type { ChatTranscriptMessage, ChatTranscriptPayloadByKind as Payloads } from "./chatTranscriptTypes";
 import type { ChatTranscriptPage } from "./chatTypes";
-import { enumValue, required, safeNumber } from "./chatWire";
+import { enumValue, safeNumber } from "./chatWire";
 import {
   activeKind,
   contextUsage,
@@ -185,10 +185,10 @@ function hydration(value: T.HydrationValid): Payloads["hydration"] {
   };
 }
 
-function worktreeOutcome(value: T.WorktreeTransitionOutcome): Payloads["worktree_transition_outcome"] {
+function worktreeOutcome(value: T.WorktreeTransitionOutcomeValid): Payloads["worktree_transition_outcome"] {
   const failure = value.failureDetail;
   const dirty =
-    value.deletePrecondition === undefined ? undefined : required(value.deletePrecondition.dirtyState);
+    value.deletePrecondition === undefined ? undefined : value.deletePrecondition.dirtyState;
   return {
     OperationID: value.operationId,
     Transition: enumValue(value.transition, {
@@ -353,7 +353,7 @@ const eventProjections: {
   }),
   pendingWorkChanged: (_, sequence) => ({ sequence, kind: "pending_work_changed", payload: {} }),
   pendingWorkRestored: (value, sequence) => {
-    const restoration = required(value.restoration);
+    const restoration = value.restoration;
     return {
       sequence,
       kind: "pending_work_restored",
@@ -462,8 +462,8 @@ const eventProjections: {
       WorkPerformed: value.workPerformed,
       FinalAnswer: value.finalAnswer ?? null,
       Failure: value.failure ?? null,
-      StartedAt: new Date(timestampMillis(required(value.startedAt))).toISOString(),
-      FinishedAt: new Date(timestampMillis(required(value.finishedAt))).toISOString(),
+      StartedAt: new Date(timestampMillis(value.startedAt)).toISOString(),
+      FinishedAt: new Date(timestampMillis(value.finishedAt)).toISOString(),
     },
   }),
 };

@@ -10,7 +10,7 @@ import type { ChatMainViewRead, ChatRuntimeStatus } from "./chatTypes";
 import { chatExecutionTarget, chatRuntimeActivity } from "./chatProjection";
 import { goalFactFromWire } from "./chatGoal";
 import { ContractError } from "./errors";
-import { enumValue, required, safeNumber } from "./chatWire";
+import { enumValue, safeNumber } from "./chatWire";
 import { projectAvailability } from "./clientProject";
 
 export function conversationFreshness(value: R.ConversationFreshness): 0 | 1 {
@@ -79,16 +79,16 @@ export function activityFacts(value: R.Activity): ChatActivityFacts {
 }
 
 export function readModelUpdate(
-  value: R.ReadModelUpdate,
+  value: R.ReadModelUpdateValid,
 ): ChatTranscriptPayloadByKind["runtime_read_model_update"] {
-  const version = required(value.version);
+  const version = value.version;
   return {
     Version: {
       Epoch: version.epoch,
       Generation: safeNumber(version.generation),
       Sequence: safeNumber(version.sequence),
     },
-    Activity: activityFacts(required(value.activity)),
+    Activity: activityFacts(value.activity),
   };
 }
 
