@@ -27,11 +27,7 @@ func taskWatchSubcommand(args []string, stdout io.Writer, stderr io.Writer) int 
 
 func taskObservationSubcommand(args []string, stdout io.Writer, stderr io.Writer, mode taskpb.ObservationMode) int {
 	var diagnostics bytes.Buffer
-	modeName, err := protoapi.TaskObservationMode.Decode(mode)
-	if err != nil {
-		fmt.Fprintln(stderr, err)
-		return 1
-	}
+	modeName := protoapi.TaskObservationMode.FromProto(mode)
 	fs := newCommandFlagSet(config.Command+" task "+modeName, &diagnostics, leafCommandUsage(
 		config.Command+" task "+modeName+" <task>",
 		"Wait for a Workflow Task outcome.",

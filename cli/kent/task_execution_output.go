@@ -32,9 +32,6 @@ type taskConfiguredTargetJSON struct {
 }
 
 func taskSelectionOutput(selection *taskpb.SelectionRequired) (*taskSelectionJSON, error) {
-	if selection == nil {
-		return nil, errors.New("execution target selection is required")
-	}
 	switch reason := selection.Reason.(type) {
 	case *taskpb.SelectionRequired_PolicyRequiresSelection:
 		return &taskSelectionJSON{Reason: "policy_requires_selection"}, nil
@@ -44,10 +41,7 @@ func taskSelectionOutput(selection *taskpb.SelectionRequired) (*taskSelectionJSO
 		return &taskSelectionJSON{Reason: "original_target_unavailable", OriginalTargetCause: &name}, nil
 	case *taskpb.SelectionRequired_ConfiguredTargetUnavailable:
 		detail := reason.ConfiguredTargetUnavailable
-		mode, err := protoapi.WorkflowExecutionTargetMode.Decode(detail.Mode)
-		if err != nil {
-			return nil, err
-		}
+		mode := protoapi.WorkflowExecutionTargetMode.FromProto(detail.Mode)
 		cause := serverapi.WorkflowUnavailableTargetCause(detail.Cause)
 		name := string(cause)
 		return &taskSelectionJSON{
