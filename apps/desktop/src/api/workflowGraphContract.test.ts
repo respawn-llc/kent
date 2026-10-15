@@ -38,14 +38,16 @@ describe("Workflow Save outcome blockers", () => {
         const response = create(GraphSaveSuccessSchema, {
           saved,
           impact: {},
-          definition: saved ? {
-            workflow: {
-              id: "11111111-1111-4111-8111-111111111111",
-              name: "Workflow",
-              executionTargetPolicy: { mode: ExecutionTargetMode.WORKFLOW_EXECUTION_TARGET_MODE_NONE },
-            },
-            derivedWiring: {},
-          } : undefined,
+          definition: saved
+            ? {
+                workflow: {
+                  id: "11111111-1111-4111-8111-111111111111",
+                  name: "Workflow",
+                  executionTargetPolicy: { mode: ExecutionTargetMode.WORKFLOW_EXECUTION_TARGET_MODE_NONE },
+                },
+                derivedWiring: {},
+              }
+            : undefined,
           blockers: blocked ? [{ code: "version_changed", message: "Version changed" }] : [],
         });
         if (saved !== blocked) {
@@ -78,9 +80,27 @@ describe("Workflow saved group identity", () => {
   });
   it("requires normalized IDs and keys to be unique only at Save and Preview", () => {
     for (const { nodeGroups, valid } of [
-      { nodeGroups: [{ id: " a ", key: " x " }, { id: "b", key: "y" }], valid: true },
-      { nodeGroups: [{ id: " a ", key: "x" }, { id: "a", key: "y" }], valid: false },
-      { nodeGroups: [{ id: "a", key: " x " }, { id: "b", key: "x" }], valid: false },
+      {
+        nodeGroups: [
+          { id: " a ", key: " x " },
+          { id: "b", key: "y" },
+        ],
+        valid: true,
+      },
+      {
+        nodeGroups: [
+          { id: " a ", key: "x" },
+          { id: "a", key: "y" },
+        ],
+        valid: false,
+      },
+      {
+        nodeGroups: [
+          { id: "a", key: " x " },
+          { id: "b", key: "x" },
+        ],
+        valid: false,
+      },
     ]) {
       const graph = create(GraphDraftSchema, { nodeGroups });
       expect(() => validate(GraphDraftSchema, graph)).not.toThrow();

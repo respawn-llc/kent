@@ -124,7 +124,9 @@ describe("Desktop Worktree client", () => {
             value: {
               retargetedSessions: 50n,
               diagnostic: "deletion blocked",
-              blocked: { activeSessions: { sessions: [{ sessionId: "11111111-1111-4111-8111-111111111111" }] } },
+              blocked: {
+                activeSessions: { sessions: [{ sessionId: "11111111-1111-4111-8111-111111111111" }] },
+              },
             },
           },
         },
@@ -141,7 +143,8 @@ describe("Desktop Worktree client", () => {
         error instanceof WorktreeError &&
         error.detail.kind === "delete_partial" &&
         error.detail.details.retargetedSessions === 50n &&
-        error.detail.details.blocked?.activeSessions?.sessions[0]?.sessionId === "11111111-1111-4111-8111-111111111111",
+        error.detail.details.blocked?.activeSessions?.sessions[0]?.sessionId ===
+          "11111111-1111-4111-8111-111111111111",
     );
   });
 
@@ -429,7 +432,7 @@ describe("Desktop Worktree client", () => {
     for (const { request } of mutations.slice(5)) {
       expect(request).not.toHaveProperty("operationId");
     }
-    if (branchless.worktree?.topology.case !== "registered") {
+    if (branchless.worktree.topology.case !== "registered") {
       throw new Error("fixture was not registered");
     }
     expect(Object.isFrozen(branchless.worktree.topology.value.git)).toBe(true);
@@ -596,7 +599,6 @@ async function resolveTarget(kind: CreateTargetResolutionKind, input: string, re
     sessionID: "33333333-3333-4333-8333-333333333333",
     method: operationName(CreateTargetService.method.resolve),
   });
-  if (resolution === undefined) throw new Error("fixture omitted Create target resolution");
   return resolution;
 }
 
@@ -611,7 +613,7 @@ async function resolveSwitch(value: ListEntry) {
   ]);
   const client = new ApiClient(transport, unexpectedProjectOverflow);
   const operation = (await client.resolveWorktreeSelector("33333333-3333-4333-8333-333333333333", "feature"))
-    .worktree?.projection?.switch;
+    .worktree.projection.switch;
   expect(transport.attachedSessionCalls).toContainEqual({
     sessionID: "33333333-3333-4333-8333-333333333333",
     method: operationName(SelectorService.method.resolve),

@@ -184,30 +184,32 @@ export async function switchWorktree(
 ): Promise<ScheduledAcknowledgement> {
   const selector = transitionSelector(operation);
   const operationID = crypto.randomUUID();
-  const enter = selector === null ? null : { selector, target: (await getWorktreeStatus(transport, sessionID)).target };
+  const enter =
+    selector === null ? null : { selector, target: (await getWorktreeStatus(transport, sessionID)).target };
   const method = enter !== null ? TransitionService.method.enter : TransitionService.method.leave;
-  const result = enter !== null
-    ? await transport.callDescriptorAttachedSession(
-        { sessionID },
-        TransitionService.method.enter,
-        create(TransitionService.method.enter.input, {
-          operationId: operationID,
-          sessionId: { value: { case: "sessionId", value: sessionID } },
-          selector: enter.selector,
-          targetWorkspace: {
-            workspaceId: required(enter.target.workspaceId),
-            workspaceRoot: enter.target.workspaceRoot,
-          },
-        }),
-      )
-    : await transport.callDescriptorAttachedSession(
-        { sessionID },
-        TransitionService.method.leave,
-        create(TransitionService.method.leave.input, {
-          operationId: operationID,
-          sessionId: { value: { case: "sessionId", value: sessionID } },
-        }),
-      );
+  const result =
+    enter !== null
+      ? await transport.callDescriptorAttachedSession(
+          { sessionID },
+          TransitionService.method.enter,
+          create(TransitionService.method.enter.input, {
+            operationId: operationID,
+            sessionId: { value: { case: "sessionId", value: sessionID } },
+            selector: enter.selector,
+            targetWorkspace: {
+              workspaceId: required(enter.target.workspaceId),
+              workspaceRoot: enter.target.workspaceRoot,
+            },
+          }),
+        )
+      : await transport.callDescriptorAttachedSession(
+          { sessionID },
+          TransitionService.method.leave,
+          create(TransitionService.method.leave.input, {
+            operationId: operationID,
+            sessionId: { value: { case: "sessionId", value: sessionID } },
+          }),
+        );
   const acknowledgement = requireWorktreeSuccess(method, result);
   if (acknowledgement.operationId !== operationID) {
     throw new ContractError("Server returned a different Worktree operation identity.");
@@ -219,9 +221,7 @@ function transitionSelector(operation: WorktreeTransition): string | null {
   if (operation.kind === "leave") return null;
   if (operation.kind === "resolved") {
     const entry = requireWorktreeAuthority(operation.resolution, "selector").worktree;
-    return entry.topology.topology.case === "mainWorkspace"
-      ? null
-      : entry.projection.selector;
+    return entry.topology.topology.case === "mainWorkspace" ? null : entry.projection.selector;
   }
   const authority = requireWorktreeAuthority(operation, "switch");
   return authority.kind === SwitchOperationKind.WORKTREE_SWITCH_OPERATION_ENTER

@@ -1,9 +1,8 @@
 import type { ChatExecutionTarget, WorktreeListEntry, WorktreeList } from "@/api";
 
 export function worktreeRow(entry: WorktreeListEntry, workspaceName: string) {
-  const topology = entry.topology?.topology;
+  const topology = entry.topology.topology;
   const projection = entry.projection;
-  if (topology === undefined || projection === undefined) throw new Error("Worktree topology is required");
   const facts = rowFacts(topology, workspaceName, projection.fallbackIdentity);
   const identity = worktreeIdentity(facts);
   const { git, indicator } = facts;
@@ -35,21 +34,21 @@ function rowFacts(
       return { title: workspaceName, git: topology.value.git, kent: undefined, indicator: undefined };
     case "external":
       return {
-        title: topology.value.git?.branchName ?? fallbackIdentity,
+        title: topology.value.git.branchName ?? fallbackIdentity,
         git: topology.value.git,
         kent: undefined,
         indicator: "external" as const,
       };
     case "registered":
       return {
-        title: topology.value.kent?.displayName,
+        title: topology.value.kent.displayName,
         git: topology.value.git,
         kent: topology.value.kent,
         indicator: undefined,
       };
     case "missing":
       return {
-        title: topology.value.kent?.displayName,
+        title: topology.value.kent.displayName,
         git: undefined,
         kent: topology.value.kent,
         indicator: "missing" as const,
@@ -66,14 +65,13 @@ export function worktreeTarget(target: ChatExecutionTarget, list: WorktreeList |
   }
   if (worktree.Availability !== "available") return { title: worktree.Name, warning: true };
   const match = list?.worktrees.find(({ topology }) => {
-    const facts = topology?.topology;
+    const facts = topology.topology;
     return (
-      (facts?.case === "registered" || facts?.case === "missing") &&
-      facts.value.kent?.worktreeId === worktree.ID
+      (facts.case === "registered" || facts.case === "missing") && facts.value.kent.worktreeId === worktree.ID
     );
-  })?.topology?.topology;
+  })?.topology.topology;
   return {
-    title: match?.case === "registered" ? (match.value.git?.branchName ?? worktree.Name) : undefined,
+    title: match?.case === "registered" ? (match.value.git.branchName ?? worktree.Name) : undefined,
     warning: false,
   };
 }
