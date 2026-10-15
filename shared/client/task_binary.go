@@ -66,10 +66,7 @@ func taskExecutionResolutionGeneratedError(detail *taskpb.ExecutionTargetResolut
 }
 
 func taskLockedTargetGeneratedError(detail *taskpb.LockedExecutionTargetDetails) error {
-	cause, err := serverapi.WorkflowLockedTargetCause(detail.Cause)
-	if err != nil {
-		return err
-	}
+	cause := serverapi.WorkflowLockedTargetCause(detail.Cause)
 	return &serverapi.WorkflowLockedExecutionTargetError{Cause: cause}
 }
 

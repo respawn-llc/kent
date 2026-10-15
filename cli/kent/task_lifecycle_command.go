@@ -425,23 +425,11 @@ func writeWorkflowExecutionTargetSelectionRequiredForCommand(
 		fmt.Fprintln(stderr, "Execution target selection is required: workflow policy requires selection.")
 	case requirement.GetConfiguredTargetUnavailable() != nil:
 		configured := requirement.GetConfiguredTargetUnavailable()
-		mode, err := protoapi.WorkflowExecutionTargetMode.Decode(configured.Mode)
-		if err != nil {
-			fmt.Fprintf(stderr, "Execution target selection response is invalid: %v.\n", err)
-			return
-		}
-		cause, err := serverapi.WorkflowUnavailableTargetCause(configured.Cause)
-		if err != nil {
-			fmt.Fprintf(stderr, "Execution target selection response is invalid: %v.\n", err)
-			return
-		}
+		mode := protoapi.WorkflowExecutionTargetMode.FromProto(configured.Mode)
+		cause := serverapi.WorkflowUnavailableTargetCause(configured.Cause)
 		fmt.Fprintf(stderr, "Execution target selection is required: configured target %s is unavailable (%s).\n", workflowConfiguredExecutionTargetSelector(taskConfiguredTargetJSON{Mode: mode, RequestedRef: configured.RequestedRef}), cause)
 	case requirement.GetOriginalTargetUnavailable() != nil:
-		cause, err := serverapi.WorkflowLockedTargetCause(requirement.GetOriginalTargetUnavailable().Cause)
-		if err != nil {
-			fmt.Fprintf(stderr, "Execution target selection response is invalid: %v.\n", err)
-			return
-		}
+		cause := serverapi.WorkflowLockedTargetCause(requirement.GetOriginalTargetUnavailable().Cause)
 		fmt.Fprintf(stderr, "The original execution target cannot be reused (%s). Choose a replacement to continue.\n", cause)
 	default:
 		fmt.Fprintln(stderr, "Execution target selection response is invalid.")

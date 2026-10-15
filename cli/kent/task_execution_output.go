@@ -39,10 +39,7 @@ func taskSelectionOutput(selection *taskpb.SelectionRequired) (*taskSelectionJSO
 	case *taskpb.SelectionRequired_PolicyRequiresSelection:
 		return &taskSelectionJSON{Reason: "policy_requires_selection"}, nil
 	case *taskpb.SelectionRequired_OriginalTargetUnavailable:
-		cause, err := serverapi.WorkflowLockedTargetCause(reason.OriginalTargetUnavailable.Cause)
-		if err != nil {
-			return nil, err
-		}
+		cause := serverapi.WorkflowLockedTargetCause(reason.OriginalTargetUnavailable.Cause)
 		name := string(cause)
 		return &taskSelectionJSON{Reason: "original_target_unavailable", OriginalTargetCause: &name}, nil
 	case *taskpb.SelectionRequired_ConfiguredTargetUnavailable:
@@ -51,10 +48,7 @@ func taskSelectionOutput(selection *taskpb.SelectionRequired) (*taskSelectionJSO
 		if err != nil {
 			return nil, err
 		}
-		cause, err := serverapi.WorkflowUnavailableTargetCause(detail.Cause)
-		if err != nil {
-			return nil, err
-		}
+		cause := serverapi.WorkflowUnavailableTargetCause(detail.Cause)
 		name := string(cause)
 		return &taskSelectionJSON{
 			Reason: "configured_target_unavailable", UnavailableCause: &name,
