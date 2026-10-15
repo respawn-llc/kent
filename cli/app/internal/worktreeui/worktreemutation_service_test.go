@@ -17,26 +17,27 @@ import (
 )
 
 type testWorktreeClient struct {
-	listResp         *worktreepb.ListSuccess
-	listErr          error
-	listCtx          context.Context
-	listRequests     []*worktreepb.ListRequest
-	selectorCtx      context.Context
-	selectorResp     *worktreepb.SelectorResolveSuccess
-	selectorRequests []*worktreepb.SelectorResolveRequest
-	resolveCtx       context.Context
-	resolveResp      *worktreepb.CreateTargetResolveSuccess
-	resolveRequests  []*worktreepb.CreateTargetResolveRequest
-	createCtx        context.Context
-	createResp       *worktreepb.CreateSuccess
-	createRequests   []*worktreepb.CreateRequest
-	enterCtx         context.Context
-	enterResp        *worktreepb.ScheduledAcknowledgement
-	enterRequests    []*worktreepb.EnterRequest
-	deleteCtx        context.Context
-	deleteResp       *worktreepb.DeleteSuccess
-	deleteRequests   []*worktreepb.DeleteRequest
-	errs             []error
+	workspaceRequests []*worktreepb.WorkspaceListRequest
+	listResp          *worktreepb.ListSuccess
+	listErr           error
+	listCtx           context.Context
+	listRequests      []*worktreepb.ListRequest
+	selectorCtx       context.Context
+	selectorResp      *worktreepb.SelectorResolveSuccess
+	selectorRequests  []*worktreepb.SelectorResolveRequest
+	resolveCtx        context.Context
+	resolveResp       *worktreepb.CreateTargetResolveSuccess
+	resolveRequests   []*worktreepb.CreateTargetResolveRequest
+	createCtx         context.Context
+	createResp        *worktreepb.CreateSuccess
+	createRequests    []*worktreepb.CreateRequest
+	enterCtx          context.Context
+	enterResp         *worktreepb.ScheduledAcknowledgement
+	enterRequests     []*worktreepb.EnterRequest
+	deleteCtx         context.Context
+	deleteResp        *worktreepb.DeleteSuccess
+	deleteRequests    []*worktreepb.DeleteRequest
+	errs              []error
 }
 
 func (c *testWorktreeClient) GetWorktreeStatus(context.Context, *worktreepb.StatusRequest) (*worktreepb.StatusSuccess, error) {
@@ -49,8 +50,29 @@ func (c *testWorktreeClient) ListWorktrees(ctx context.Context, req *worktreepb.
 	return c.listResp, c.listErr
 }
 
-func (c *testWorktreeClient) ListWorkspaceWorktrees(context.Context, *worktreepb.WorkspaceListRequest) (*worktreepb.WorkspaceListSuccess, error) {
-	return nil, c.nextErr()
+func (c *testWorktreeClient) ListWorkspaceWorktrees(_ context.Context, req *worktreepb.WorkspaceListRequest) (*worktreepb.WorkspaceListSuccess, error) {
+	c.workspaceRequests = append(c.workspaceRequests, req)
+	return &worktreepb.WorkspaceListSuccess{WorkspaceId: req.WorkspaceId}, c.nextErr()
+}
+
+func TestWorkspaceBrowseAndDeleteUseWorkspaceWithoutSession(t *testing.T) {
+	client := &testWorktreeClient{}
+	service := Service{Client: client, ProjectID: "project", WorkspaceID: "workspace"}
+	_, err := service.ListWorkspace()
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, err = service.Delete("target", false, worktreepb.BranchCleanupMode_WORKTREE_BRANCH_CLEANUP_MODE_RETAIN)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(client.listRequests) != 0 || len(client.workspaceRequests) != 1 {
+		t.Fatal("workspace browsing required a Session")
+	}
+	scope := client.deleteRequests[0].Scope.GetWorkspace()
+	if scope == nil || scope.SessionContext != nil || scope.Target.ProjectId != "project" || scope.Target.WorkspaceId != "workspace" {
+		t.Fatal("deletion did not retain workspace management authority")
+	}
 }
 
 func (c *testWorktreeClient) ResolveWorktreeSelector(ctx context.Context, req *worktreepb.SelectorResolveRequest) (*worktreepb.SelectorResolveSuccess, error) {

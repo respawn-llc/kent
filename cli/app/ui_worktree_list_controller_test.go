@@ -4,10 +4,54 @@ import (
 	"testing"
 
 	"core/cli/app/internal/worktreeui"
+	chatpb "core/shared/protoapi/gen/kent/api/chat"
 	worktreepb "core/shared/protoapi/gen/kent/api/worktree"
 
 	tea "github.com/charmbracelet/bubbletea"
 )
+
+func TestNewSessionWorktreeBrowseSelectLeaveAndDeleteStayUncreated(t *testing.T) {
+	entry := testRegisteredWorktreeListEntry("wt-feature", "feature", "/wt/feature", "feature", false, false, true, true)
+	entry.Projection.Switch = nil
+	entry.Projection.DeletePreview = nil
+	client := &worktreeCommandTestClient{
+		workspaceResp: &worktreepb.WorkspaceListSuccess{WorkspaceId: "workspace", Worktrees: []*worktreepb.ListEntry{entry}},
+		previewResp:   &worktreepb.DeletePreviewSuccess{Worktree: entry.Topology, DeletionSelector: "wt-feature"},
+		deleteResp:    &worktreepb.DeleteSuccess{},
+	}
+	model := newWorktreeTestModel(t, client)
+	model.engine = nil
+	model.presentationTarget = &uiNewSessionTarget{creation: &chatpb.NewChatTarget{ProjectId: "project", WorkspaceId: "workspace"}}
+	_, cmd := model.inputController().handleWorktreeCommand("")
+	model = applyWorktreeCmdMessages(t, model, cmd)
+	if len(model.worktrees.entries) != 1 || len(client.listRequests) != 0 || len(client.workspaceRequests) != 1 {
+		t.Fatal("New Session picker did not browse workspace scope")
+	}
+	model.worktrees.selection = 1
+	_, cmd = model.inputController().handleWorktreeOverlayKey(tea.KeyMsg{Type: tea.KeyEnter})
+	applyWorktreeCmdMessages(t, model, cmd)
+	if model.newChatTarget().GetWorktreeSelector() != "wt-feature" || len(client.enterRequests) != 0 {
+		t.Fatal("selection did not remain a future creation input")
+	}
+	_, cmd = model.inputController().handleWorktreeCommand("leave")
+	applyWorktreeCmdMessages(t, model, cmd)
+	if model.newChatTarget().WorktreeSelector != nil || len(client.leaveRequests) != 0 {
+		t.Fatal("leaving a future target mutated a Session")
+	}
+	_, cmd = model.inputController().handleWorktreeCommand("delete wt-feature")
+	model = applyWorktreeCmdMessages(t, model, cmd)
+	if len(client.previewRequests) != 1 || client.previewRequests[0].Scope.GetWorkspace() == nil {
+		t.Fatal("workspace deletion did not obtain an ordinary preview")
+	}
+	cmd = model.worktreeDeleteCmd(model.worktrees.deleteConfirm.target, false)
+	applyWorktreeCmdMessages(t, model, cmd)
+	if len(client.deleteRequests) != 1 || client.deleteRequests[0].Scope.GetWorkspace() == nil || model.newSessionTarget() == nil {
+		t.Fatal("workspace deletion required a Session")
+	}
+	if entry.Projection.Switch != nil || entry.Projection.DeletePreview != nil {
+		t.Fatal("workspace projection was changed into a Session projection")
+	}
+}
 
 type worktreeListFixture struct {
 	t     *testing.T
@@ -259,7 +303,7 @@ func TestWorktreeSlashDeleteResolvesSelectorsWithServer(t *testing.T) {
 			if len(client.selectorRequests) != 1 {
 				t.Fatalf("selector requests = %+v, want one authoritative resolution", client.selectorRequests)
 			}
-			if got := client.selectorRequests[0]; got.SessionId.GetSessionId() != "session-1" || got.Selector != selector {
+			if got := client.selectorRequests[0]; got.SessionId.GetSessionId() != model.currentRuntimeSessionID() || got.Selector != selector {
 				t.Fatalf("selector request = %+v, want session-scoped selector %q", got, selector)
 			}
 			if updated.worktrees.phase != uiWorktreeOverlayPhaseDeleteConfirm {

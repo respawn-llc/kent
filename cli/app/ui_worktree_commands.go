@@ -100,6 +100,15 @@ func (m *uiModel) worktreeTransitionCommand(transition runtimeinput.PendingWorkW
 	if m == nil {
 		return nil
 	}
+	if target := m.newChatTarget(); target != nil {
+		switch transition.Transition {
+		case runtimeinput.PendingWorkWorktreeTransitionEnter:
+			target.WorktreeSelector = transition.Selector
+		case runtimeinput.PendingWorkWorktreeTransitionLeave:
+			target.WorktreeSelector = nil
+		}
+		return m.inputController().stopWorktreeOverlayCmd()
+	}
 	service := m.worktreeMutationService()
 	m.worktrees.switchToken++
 	switchToken := m.worktrees.switchToken
