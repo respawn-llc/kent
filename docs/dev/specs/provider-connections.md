@@ -29,11 +29,26 @@
 - Connections without an assignment in the current server process must precede assigned connections. Ties must follow global connection declaration order. Assignment order must exist only in memory and reset on server restart.
 - Concurrent selections must update the shared assignment order under one owner.
 - Listing Agents, reading settings, and previewing selections must not change assignment order.
-- Selection must not check credentials, refresh tokens, or probe providers to choose a member. The selected connection must use the existing authentication flow or actionable error. Credential or provider failures must not automatically select another member.
-- The selected connection must be sticky for that Session. Ordinary turns, resume, and Workflow Continue reusing the same Session ID must use the saved connection without changing assignment order. A child with a new Session ID must select a fresh connection even when it copies conversation or continuation context from another Session. Workflow-internal copies follow the [Workflow context-preservation contract](workflow-orchestration.md#context-preservation-and-bindings). User-driven Edit/Fork follows the interactive Session creation contract in [Core Runtime Tools](core-runtime-tools.md).
-- Explicit Chat Settings Agent changes and replacement of a deleted saved connection must use the same assignment order for the applicable set under the Session Binding rules. These are the only forceful replacement cases. Existing valid bindings must be usable when the current configured set cannot select a member.
+- Selection must not check credentials, refresh tokens, or probe providers to choose a member. The selected connection must use the existing authentication flow or actionable error. Credential or provider failures must not automatically select another member except under Automatic usage fallback.
+- The selected connection must be sticky for that Session except under Automatic usage fallback. Ordinary turns, resume, and Workflow Continue reusing the same Session ID must otherwise use the saved connection without changing assignment order. A child with a new Session ID must select a fresh connection even when it copies conversation or continuation context from another Session. Workflow-internal copies follow the [Workflow context-preservation contract](workflow-orchestration.md#context-preservation-and-bindings). User-driven Edit/Fork follows the interactive Session creation contract in [Core Runtime Tools](core-runtime-tools.md).
+- Explicit Chat Settings Agent changes and replacement of a deleted saved connection must use the same assignment order for the applicable set under the Session Binding rules. Automatic usage fallback must also permit replacement as defined below. Existing valid bindings must be usable when the current configured set cannot select a member.
 - Connection sets must be configured through configuration files. Terminal connection management must continue to manage individual connections. Make default must select one connection without changing existing Session bindings.
 - Explicit Supervisor `reviewer.connection` must accept one connection ID. When the Supervisor inherits connection selection, it must use the main Session's selected connection rather than allocate separately from the configured set.
+
+## Automatic usage fallback
+
+- Global server configuration must expose `connection_usage_fallback_seconds` as a nonnegative integer with a default of `300`. Zero must disable automatic usage fallback. A positive value must enable fallback and define the exhausted connection's cooldown in seconds.
+- Confirmed usage allowance or credit exhaustion must make the affected connection unavailable during its server-wide cooldown. New Session allocations and subsequent model requests from already-bound Sessions must skip connections in cooldown.
+- Kent must identify exhaustion from provider-specific structured error codes or unambiguous provider-specific HTTP status semantics. A bare HTTP 429, temporary rate limit, authentication failure, overload, or unknown error must not trigger fallback.
+- Grok's exact WKE machine-tag format must be accepted as a provider error-code source. The `personal-team-blocked:spending-limit` code must identify exhaustion. English error wording must not determine exhaustion.
+- Kent must select replacements only from the effective connection set configured for the affected Agent or role. Kent must not use the global list of connection definitions as an alternative set. Including incompatible members must be treated as user configuration error.
+- Fallback must use the same server-wide assignment order as fresh Session allocation, selecting the eligible member with the oldest last assignment. Each replacement assignment must update that order.
+- Kent must retry the failed Agent Step automatically on the replacement connection without confirmation. Fallback must not require keeping incomplete output from the failed attempt.
+- Successfully completed steps, historical conversation, Session identity, Workflow associations, and the Agent's model, prompts, and settings must be unchanged. Connection changes must follow [Context compatibility](#context-compatibility).
+- After local setup and context checks succeed, Kent must save the replacement as the Session's connection before sending its request and append a transcript notice naming the previous and replacement connections. A failure from that request must not restore the exhausted connection.
+- Each fallback sequence must attempt each eligible member at most once. If a replacement fails for a reason other than confirmed exhaustion, Kent must use the existing failure and retry behavior without selecting further members.
+- If every eligible member is exhausted or cooling down, Kent must stop with an actionable error identifying the exhausted connections and cooldown availability. Kent must not schedule automatic resumption.
+- Fallback must apply to generation and compaction for interactive Agents, subagents, and Workflow execution. An inheriting Supervisor must follow the main Session's replacement. An explicitly configured single Supervisor connection must not select an alternative.
 
 ## Authentication
 
@@ -50,7 +65,7 @@
 - Setup must save the selected protocol. Different subscription routes must form distinct Provider Connections even when they use the same account.
 - Manual changes between the two Grok subscription protocols must apply when the runtime opens or resumes. Such changes must not reroute an in-flight request.
 - Grok API-key access must use the official public xAI API and the connection's referenced server environment variable.
-- Grok must not automatically switch between subscription routes or fall back to API-key access.
+- Grok must not automatically switch between subscription routes or fall back to API-key access except between explicitly configured members under Automatic usage fallback.
 - First-run setup, Add, and reference edits must require a nonempty environment-variable name for API-key access but must not check the variable's value or probe the provider before saving. Credential failures must be reported when the connection is used.
 - Kent must not persist API keys in configuration or the OAuth credential store. API-key authentication must read the explicitly referenced server environment value.
 - Kent must not automatically adopt `OPENAI_API_KEY` or borrow another connection's credentials. Auth-less requests must send no authentication credentials.
@@ -83,13 +98,13 @@
 
 ## Session Binding
 
-- Kent must persist a Session's resolved connection ID. Ordinary resume and direct continuation must use that binding unchanged.
+- Kent must persist a Session's resolved connection ID. Ordinary resume and direct continuation must use that binding unchanged except under Automatic usage fallback.
 - Existing-Session settings reads and non-Agent changes must use that binding even when current Agent/default connection references are unavailable. An explicit Agent change must validate the target Agent's current connection and leave the Session unchanged when it is unavailable.
 - When the user explicitly changes the Agent in an unlocked Session through Chat Settings, Kent must select and persist the chosen Agent's current connection. Locked Sessions must not change their Agent or connection.
-- Workflow Compact-and-Continue reusing the same Session ID must use its saved connection for compaction and target-role activation without changing assignment order. A child with a new Session ID must select a fresh connection, following the context-preservation and failure/interruption boundaries in [Workflow orchestration](workflow-orchestration.md).
+- Workflow Compact-and-Continue reusing the same Session ID must use its saved connection for compaction and target-role activation without changing assignment order except under Automatic usage fallback. A child with a new Session ID must select a fresh connection, following the context-preservation and failure/interruption boundaries in [Workflow orchestration](workflow-orchestration.md).
 - If the saved ID is absent from connection definitions, Kent must resolve the replacement from the Session's current role or the unroled default, persist it, and show a notice naming the old and new IDs before the next request. Confirmation must not be required.
 - Sessions without a saved ID must bind from their current role/default on first resume. Binding must not change their established model/request contract.
-- Invalid or missing replacement references must block dispatch. Expired credentials and network/provider failures must not cause automatic replacement.
+- Invalid or missing replacement references must block dispatch. Expired credentials and network/provider failures must not cause automatic replacement except for confirmed exhaustion under Automatic usage fallback.
 - Manual ID renaming may require re-authentication. Kent need not coordinate renaming.
 - Existing Sessions that change connections must follow [Context compatibility](#context-compatibility).
 
