@@ -23,19 +23,15 @@ type InitialChatCreation struct {
 func initialChatCreationFromGenerated(
 	settings *chatsettingspb.InitialChatSettings,
 	inputDraft *string,
-) (*InitialChatCreation, error) {
+) *InitialChatCreation {
 	if settings == nil {
-		return nil, nil
-	}
-	selection, err := protoapi.InitialChatSettingsFromProto(settings)
-	if err != nil {
-		return nil, err
+		return nil
 	}
 	creation := &InitialChatCreation{
-		Settings:   selection,
+		Settings:   protoapi.InitialChatSettingsFromProto(settings),
 		InputDraft: textutil.Pointer(inputDraft),
 	}
-	return creation, nil
+	return creation
 }
 
 func (c InitialChatCreation) Validate(mode launch.Mode, intent serverapi.SessionLaunchIntent) error {

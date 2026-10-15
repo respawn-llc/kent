@@ -533,13 +533,10 @@ func (s *Service) sessionPlanRequestFromGenerated(ctx context.Context, request *
 			return PlanRequest{}, err
 		}
 	}
-	initialChat, err := initialChatCreationFromGenerated(
+	initialChat := initialChatCreationFromGenerated(
 		request.InitialChatSettings,
 		request.InitialInputDraft,
 	)
-	if err != nil {
-		return PlanRequest{}, err
-	}
 	internal := PlanRequest{
 		Mode:            mode,
 		Intent:          intent,

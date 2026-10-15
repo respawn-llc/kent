@@ -7,7 +7,6 @@ import {
 } from "@app/server-api-contract/gen/kent/api/chat/chat_pb";
 import { StreamCompletionSchema } from "@app/server-api-contract/gen/kent/api/shared/foundation_pb";
 import { requireProjectAttachment } from "./chatAttachment";
-import { isValidChatSessionID, requireChatSessionID } from "./chatTarget";
 import { initialChatSettingsToWire } from "./chatSettings";
 import { enumValue, required } from "./chatWire";
 import { timestampMillis } from "./clientTime";
@@ -213,7 +212,7 @@ export function createChatGoalApi(
       | typeof R.GoalService.method.complete
       | typeof R.GoalService.method.clear,
   ) => {
-    const sessionId = requireChatSessionID(target);
+    const sessionId = target.sessionID;
     const result = await transport.callDescriptorAttachedSession(
       target,
       method,
@@ -228,7 +227,7 @@ export function createChatGoalApi(
   };
   return {
     async getGoal(target) {
-      const sessionId = requireChatSessionID(target);
+      const sessionId = target.sessionID;
       const method = R.GoalService.method.show;
       const result = await transport.callDescriptorAttachedSession(
         target,
@@ -240,7 +239,6 @@ export function createChatGoalApi(
     async setGoal(target, objective) {
       if (target.kind === "session") {
         const sessionID = target.sessionID.trim();
-        if (!isValidChatSessionID(sessionID)) throw new TypeError("Session ID is required.");
         const result = await transport.callDescriptorAttachedSession(
           { sessionID, ...(target.projectID === undefined ? {} : { projectID: target.projectID }) },
           R.GoalService.method.set,
@@ -295,7 +293,7 @@ export function createChatGoalApi(
     completeGoal: async (target) => mutate(target, R.GoalService.method.complete),
     clearGoal: async (target) => mutate(target, R.GoalService.method.clear),
     subscribeGoal(target, handler) {
-      const sessionID = requireChatSessionID(target);
+      const sessionID = target.sessionID;
       const method = R.GoalService.method.observe;
       return transport.subscribeDescriptor({
         method,

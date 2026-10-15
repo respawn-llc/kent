@@ -52,8 +52,12 @@ type PendingRequest = PendingRequestBase &
     complete(response: ReturnType<typeof decodeDescriptorResponse>): void;
   }>;
 
-export function createRpcTransport(endpoint: string, expectedRootId = ""): RpcTransport {
-  return new RpcWebSocketTransport(endpoint, expectedRootId);
+export function createRpcTransport(
+  endpoint: string,
+  reportInvalidResponse: (error: unknown) => void,
+  expectedRootId = "",
+): RpcTransport {
+  return new RpcWebSocketTransport(endpoint, reportInvalidResponse, expectedRootId);
 }
 
 class RpcWebSocketTransport implements RpcTransport {
@@ -64,9 +68,11 @@ class RpcWebSocketTransport implements RpcTransport {
   #nextID = 1;
   #pending = new Map<string, PendingRequest>();
   #runtimeOwner: RpcRuntimeOwner;
+  #reportInvalidResponse: (error: unknown) => void;
 
-  constructor(endpoint: string, expectedRootId: string) {
+  constructor(endpoint: string, reportInvalidResponse: (error: unknown) => void, expectedRootId: string) {
     this.#endpoint = endpoint;
+    this.#reportInvalidResponse = reportInvalidResponse;
     this.#expectedRootId = expectedRootId;
     this.#runtimeOwner = new RpcRuntimeOwner(endpoint, expectedRootId);
   }
@@ -306,6 +312,7 @@ class RpcWebSocketTransport implements RpcTransport {
     } catch (error) {
       const correlation = descriptorResponseCorrelation(bytes);
       if (correlation === undefined) {
+        this.#reportInvalidResponse(error);
         return;
       }
       const pending = this.#takePending(correlation);

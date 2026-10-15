@@ -2,7 +2,6 @@ import { create } from "@app/server-api-contract";
 import { SessionLifecycleService } from "@app/server-api-contract/gen/kent/api/session_launch/session_lifecycle_pb";
 
 import { requireChatSuccess } from "./chatErrors";
-import { requireChatSessionID } from "./chatTarget";
 import type { ChatApi } from "./chatTypes";
 import type { RpcTransport } from "./transport";
 
@@ -13,7 +12,7 @@ export function createChatDraftApi(transport: RpcTransport): Pick<ChatApi, "getD
       const result = await transport.callDescriptorAttachedSession(
         target,
         method,
-        create(method.input, { sessionId: requireChatSessionID(target) }),
+        create(method.input, { sessionId: target.sessionID }),
       );
       const draft = requireChatSuccess(method, result);
       return { input: draft.input, protectedInput: draft.protectedInput ?? null };
@@ -24,7 +23,7 @@ export function createChatDraftApi(transport: RpcTransport): Pick<ChatApi, "getD
         target,
         method,
         create(method.input, {
-          sessionId: requireChatSessionID(target),
+          sessionId: target.sessionID,
           input,
           protectedInput: protectedInput === undefined ? undefined : { text: protectedInput ?? undefined },
         }),

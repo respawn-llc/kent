@@ -23,7 +23,6 @@ import {
 import { requireProjectAttachment } from "./chatAttachment";
 import { requireChatSuccess } from "./chatErrors";
 import { initialChatSettingsToWire } from "./chatSettings";
-import { requireChatProjectTarget, requireChatSessionID } from "./chatTarget";
 import { required } from "./chatWire";
 import type { ChatActivation, ChatApi, ChatMutationTarget } from "./chatTypes";
 import { ContractError } from "./errors";
@@ -55,7 +54,7 @@ export function createChatMutationApi(transport: RpcTransport): ChatMutationApi 
               target: {
                 target: {
                   case: "session",
-                  value: { sessionId: { value: { case: "sessionId", value: requireChatSessionID(target) } } },
+                  value: { sessionId: { value: { case: "sessionId", value: target.sessionID } } },
                 },
               },
               activation: chatActivation(activation),
@@ -119,7 +118,7 @@ export function createChatMutationApi(transport: RpcTransport): ChatMutationApi 
                   target: {
                     case: "session",
                     value: {
-                      sessionId: { value: { case: "sessionId", value: requireChatSessionID(target) } },
+                      sessionId: { value: { case: "sessionId", value: target.sessionID } },
                     },
                   },
                 },
@@ -169,7 +168,7 @@ export function createChatMutationApi(transport: RpcTransport): ChatMutationApi 
       };
     },
     async stop(target) {
-      const requestedSessionID = requireChatSessionID(target);
+      const requestedSessionID = target.sessionID;
       const method = LiveService.method.stop;
       const result = await transport.callDescriptorAttachedSession(
         target,
@@ -187,7 +186,7 @@ export function createChatMutationApi(transport: RpcTransport): ChatMutationApi 
       }
     },
     async forkEdit(target, input) {
-      const requestedSessionID = requireChatSessionID(target);
+      const requestedSessionID = target.sessionID;
       const method = SessionLifecycleService.method.resolveTransition;
       const result = await transport.callDescriptorAttachedSession(
         target,
@@ -211,7 +210,7 @@ export function createChatMutationApi(transport: RpcTransport): ChatMutationApi 
       return directive.directive.value.intent.intent.value;
     },
     async listPendingWork(target) {
-      const requestedSessionID = requireChatSessionID(target);
+      const requestedSessionID = target.sessionID;
       const method = TurnService.method.listPendingWork;
       const result = await transport.callDescriptorAttachedSession(
         target,
@@ -222,7 +221,7 @@ export function createChatMutationApi(transport: RpcTransport): ChatMutationApi 
       return pendingWorkFromWire(success.pendingWork);
     },
     async removePendingWork(target, itemID) {
-      const requestedSessionID = requireChatSessionID(target);
+      const requestedSessionID = target.sessionID;
       const method = TurnService.method.removePendingWork;
       const result = await transport.callDescriptorAttachedSession(
         target,
@@ -254,7 +253,6 @@ function mutationTarget(
     };
   };
 } {
-  requireChatProjectTarget(target);
   return {
     target: {
       case: "newChat",

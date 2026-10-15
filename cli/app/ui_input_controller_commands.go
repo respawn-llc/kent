@@ -196,6 +196,9 @@ func (c uiInputController) handleSessionNameCommand(sessionName string) (tea.Mod
 	if m.hasRuntimeClient() {
 		return m, m.runtimeControlCommand(runtimeControlSetSessionName, mutation)
 	}
+	if err := protoapi.Validate(mutation); err != nil {
+		return m, m.sendTransientStatusWithNoticeID(err.Error(), uiStatusNoticeError, transientStatusDuration, uiStatusNoticeReplace, "")
+	}
 	name, err := protoapi.SessionNameFromMutation(mutation)
 	if err != nil {
 		return m, m.sendTransientStatusWithNoticeID(err.Error(), uiStatusNoticeError, transientStatusDuration, uiStatusNoticeReplace, "")

@@ -1,5 +1,5 @@
 import { unexpectedProjectOverflow } from "@/test-support/api";
-import { create } from "@app/server-api-contract";
+import { create, encode } from "@app/server-api-contract";
 import { AuthMethod } from "@app/server-api-contract/gen/kent/api/auth/auth_pb";
 import {
   AutoCompactionPolicy,
@@ -14,6 +14,8 @@ import {
   SettingsSchema,
   SupervisorValue,
   ThinkingKind,
+  NewChatAgentChoiceSchema,
+  AgentChoiceSchema,
 } from "@app/server-api-contract/gen/kent/api/chat_settings/chat_settings_pb";
 
 import { FakeRpcTransport } from "@/test-support/api";
@@ -104,6 +106,21 @@ function mutationResponse() {
 }
 
 describe("Chat Settings descriptor adapter", () => {
+  it.each(["model", "thinking"] as const)(
+    "requires New Chat Agent %s without changing shared choices",
+    (field) => {
+      const complete = create(NewChatAgentChoiceSchema, choice());
+      expect(() => encode(NewChatAgentChoiceSchema, complete)).not.toThrow();
+      const incomplete = create(NewChatAgentChoiceSchema, choice());
+      if (incomplete.agent === undefined) throw new Error("Fixture Agent is required.");
+      const agent = incomplete.agent;
+      if (field === "model") delete agent.model;
+      else delete agent.thinking;
+      expect(() => encode(AgentChoiceSchema, agent)).not.toThrow();
+      expect(() => encode(NewChatAgentChoiceSchema, incomplete)).toThrow();
+    },
+  );
+
   it("reads the ordered New Chat catalog separately from the exact creation selection", async () => {
     const first = choice();
     const second = choice("reviewer");

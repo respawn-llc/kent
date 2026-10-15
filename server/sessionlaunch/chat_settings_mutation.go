@@ -196,10 +196,7 @@ func transcriptSessionSettingFeedback(
 	case *chatsettingspb.MutationOperation_AgentRole:
 		return nil, false, nil
 	case *chatsettingspb.MutationOperation_Supervisor:
-		value, err := protoapi.ChatSettingsSupervisorFromProto(settings.Supervisor.Value)
-		if err != nil {
-			return nil, false, err
-		}
+		value := protoapi.ChatSettingsSupervisorFromProto(settings.Supervisor.Value)
 		feedback.Kind = transcriptpb.SessionSettingKind_SESSION_SETTING_KIND_SUPERVISOR
 		feedback.Value = &transcriptpb.SessionSettingFeedback_Supervisor{Supervisor: value}
 	case *chatsettingspb.MutationOperation_Thinking:

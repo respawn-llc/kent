@@ -1,4 +1,4 @@
-import { createRpcTransport } from "./rpc";
+import { createRpcTransport as createTransport } from "./rpc";
 import { ProtocolMismatchError, RpcError, ServerRootMismatchError } from "./errors";
 import { protocolVersion } from "./rpcSocket";
 import {
@@ -101,10 +101,16 @@ class MockWebSocket extends EventTarget {
 }
 
 const sockets: MockWebSocket[] = [];
+const reportInvalidResponse = vi.fn();
+
+function createRpcTransport(endpoint: string, expectedRootId?: string) {
+  return createTransport(endpoint, reportInvalidResponse, expectedRootId);
+}
 
 describe("RpcWebSocketTransport", () => {
   beforeEach(() => {
     sockets.length = 0;
+    reportInvalidResponse.mockClear();
     vi.stubGlobal("WebSocket", MockWebSocket);
   });
 
@@ -182,6 +188,7 @@ describe("RpcWebSocketTransport", () => {
     const malformedReadiness = callReadiness(transport);
     await waitForSent(socket, 5);
     socket.receive(new Uint8Array([0xff]).buffer);
+    expect(reportInvalidResponse.mock.calls[0]?.[0]).toBeInstanceOf(Error);
     malformedBinaryAck(socket, 4);
     await expect(malformedReadiness).rejects.toBeInstanceOf(Error);
     const next = callReadiness(transport);

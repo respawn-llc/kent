@@ -334,6 +334,12 @@ message NewChatAgentChoice {
   AutoCompaction auto_compaction = 7 [(buf.validate.field).required = true];
 
   option (buf.validate.message).cel = {
+    id: "kent.chat_settings.complete_agent_choice"
+    message: "New Chat Agent must specify model and thinking"
+    expression: "has(this.agent.model) && has(this.agent.thinking)"
+  };
+
+  option (buf.validate.message).cel = {
     id: "kent.chat_settings.complete_choice_baseline"
     message: "Agent baseline must agree with its capability and setting projections"
     expression:
