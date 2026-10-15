@@ -113,3 +113,12 @@ func TestCapabilityDefaultModelIdentity(t *testing.T) {
 		}
 	}
 }
+
+func TestCapabilityThinkingDefaultModes(t *testing.T) {
+	for _, mode := range []string{"default", "disabled", "level", "custom", "unsupported", " default "} {
+		valid := mode == "default" || mode == "disabled" || mode == "level" || mode == "custom"
+		if err := protoapi.Validate(&pb.ThinkingDefaultFact{Mode: mode}); (err == nil) != valid {
+			t.Errorf("mode %q acceptance = %v", mode, err)
+		}
+	}
+}

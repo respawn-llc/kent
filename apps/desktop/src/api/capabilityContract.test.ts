@@ -7,6 +7,7 @@ import {
   ImportItemRefSchema,
   ImportSourceKind,
   SkillEnablementProjectionFactSchema,
+  ThinkingDefaultFactSchema,
   ModelFactSchema,
   ModelFactsSchema,
   ModelVerbosityFactSchema,
@@ -14,6 +15,17 @@ import {
 import { SupervisorFrequency } from "@app/server-api-contract/gen/kent/api/onboarding/onboarding_pb";
 
 describe("Capability model facts", () => {
+  it("accepts exactly the supported default thinking modes without requiring optional payloads", () => {
+    for (const mode of ["default", "disabled", "level", "custom", "unsupported", " default "]) {
+      const fact = create(ThinkingDefaultFactSchema, { mode });
+      if (mode === "unsupported" || mode === " default ") {
+        expect(() => validate(ThinkingDefaultFactSchema, fact)).toThrow();
+      } else {
+        expect(() => validate(ThinkingDefaultFactSchema, fact)).not.toThrow();
+      }
+    }
+  });
+
   it("requires a substantive default model while preserving normalization", () => {
     for (const primaryModelId of [" \t", "\u0085", " model ", "\uFEFF"]) {
       const defaults = create(DefaultFactsSchema, {

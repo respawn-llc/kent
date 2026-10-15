@@ -59,10 +59,7 @@ func onboardingSelectionsFromFacts(local config.LocalPreferences, facts *capabil
 	if err != nil {
 		return onboardingSelections{}, err
 	}
-	thinking, err := seedThinkingFact(defaults.Thinking, modelFactForFacts(facts, model.value).SupportedThinkingLevels)
-	if err != nil {
-		return onboardingSelections{}, err
-	}
+	thinking := seedThinkingFact(defaults.Thinking, modelFactForFacts(facts, model.value).SupportedThinkingLevels)
 	verbosity, err := seedVerbositySelection(config.ModelVerbosity(defaults.GetVerbosity().GetLevel()))
 	if err != nil {
 		return onboardingSelections{}, err
@@ -143,21 +140,15 @@ func seedContextSelection(tokens int, model string, facts *capabilitypb.Facts) (
 	}
 }
 
-func seedThinkingSelection(value string, useDefault bool, supportedLevels []string) (onboardingThinkingSelection, error) {
+func seedThinkingSelection(value string, supportedLevels []string) onboardingThinkingSelection {
 	trimmed := strings.TrimSpace(value)
-	if useDefault {
-		if trimmed == "" {
-			return onboardingThinkingSelection{}, conversionError("thinking_level", value, "default thinking value must not be blank")
-		}
-		return onboardingThinkingSelection{kind: onboardingThinkingDefault}, nil
-	}
 	if trimmed == "" {
-		return onboardingThinkingSelection{kind: onboardingThinkingDisabled}, nil
+		return onboardingThinkingSelection{kind: onboardingThinkingDisabled}
 	}
 	if slices.Contains(supportedLevels, trimmed) {
-		return onboardingThinkingSelection{kind: onboardingThinkingLevel, value: trimmed}, nil
+		return onboardingThinkingSelection{kind: onboardingThinkingLevel, value: trimmed}
 	}
-	return onboardingThinkingSelection{kind: onboardingThinkingCustom, value: trimmed}, nil
+	return onboardingThinkingSelection{kind: onboardingThinkingCustom, value: trimmed}
 }
 
 func seedVerbositySelection(value config.ModelVerbosity) (onboardingVerbositySelection, error) {
@@ -212,10 +203,7 @@ func seedSupervisorSelection(choice *onboardingpb.SupervisorChoice, facts *capab
 		default:
 			return onboardingSupervisorSelection{}, conversionError("supervisor.thinking", choice.Thinking, "unsupported thinking choice")
 		}
-		override, err := seedThinkingFact(&thinkingFact, modelFactForFacts(facts, model).SupportedThinkingLevels)
-		if err != nil {
-			return onboardingSupervisorSelection{}, err
-		}
+		override := seedThinkingFact(&thinkingFact, modelFactForFacts(facts, model).SupportedThinkingLevels)
 		reviewerThinking = onboardingReviewerThinkingSelection{kind: onboardingReviewerThinkingOverridden, override: override}
 	}
 	return onboardingSupervisorSelection{
@@ -238,19 +226,15 @@ func seedCompactionSelection(value config.CompactionMode) (onboardingCompactionS
 	}
 }
 
-func seedThinkingFact(fact *capabilitypb.ThinkingDefaultFact, levels []string) (onboardingThinkingSelection, error) {
-	switch fact.Mode {
-	case "default":
-		return onboardingThinkingSelection{kind: onboardingThinkingDefault}, nil
-	case "disabled":
-		return onboardingThinkingSelection{kind: onboardingThinkingDisabled}, nil
-	case "level":
-		return seedThinkingSelection(fact.GetLevel(), false, levels)
-	case "custom":
-		return onboardingThinkingSelection{kind: onboardingThinkingCustom, value: fact.GetValue()}, nil
-	default:
-		return onboardingThinkingSelection{}, conversionError("thinking.mode", fact.Mode, "unsupported thinking mode")
+func seedThinkingFact(fact *capabilitypb.ThinkingDefaultFact, levels []string) onboardingThinkingSelection {
+	if fact.Mode == "level" {
+		return seedThinkingSelection(fact.GetLevel(), levels)
 	}
+	return map[string]onboardingThinkingSelection{
+		"default":  {kind: onboardingThinkingDefault},
+		"disabled": {kind: onboardingThinkingDisabled},
+		"custom":   {kind: onboardingThinkingCustom, value: fact.GetValue()},
+	}[fact.Mode]
 }
 
 func conversionError(field string, value any, reason string) error {

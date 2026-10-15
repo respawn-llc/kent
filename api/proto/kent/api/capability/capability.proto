@@ -258,7 +258,7 @@ message ImportFacts {
 }
 
 message ThinkingDefaultFact {
-  string mode = 1 [(buf.validate.field).string.min_len = 1];
+  string mode = 1 [(buf.validate.field).string = {in: ["default", "disabled", "level", "custom"]}];
   optional string level = 2 [(buf.validate.field).string.min_len = 1];
   optional string value = 3 [(buf.validate.field).string.min_len = 1];
 }
