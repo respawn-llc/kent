@@ -19,6 +19,7 @@ import (
 const ReleaseTimeout = 3 * time.Second
 
 type Request struct {
+	ConnectionScope          config.ConnectionScope
 	SessionID                string
 	ActiveSettings           config.Settings
 	EnabledTools             []toolspec.ID
@@ -105,6 +106,7 @@ func activateRequest(req Request, ownerID string) (serverapi.SessionRuntimeActiv
 		return serverapi.SessionRuntimeActivateRequest{}, err
 	}
 	return serverapi.SessionRuntimeActivateRequest{
+		ConnectionScope:          req.ConnectionScope,
 		SessionID:                id,
 		OwnerID:                  ownerID,
 		ActiveSettings:           req.ActiveSettings,

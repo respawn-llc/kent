@@ -417,7 +417,18 @@ message SessionRuntimeAgentSelection {
   SessionRuntimeChatSettings baseline = 2 [(buf.validate.field).required = true];
 }
 
+message ConnectionScope {
+  option (buf.validate.message).cel = {
+    id: "kent.session_launch.connection_scope"
+    message: "an unavailable role cannot also supply a connection selection"
+    expression: "!has(this.selection) || !has(this.unavailable_role)"
+  };
+  kent.api.auth.ConnectionSelection selection = 1;
+  optional string unavailable_role = 2 [(buf.validate.field).string.min_len = 1];
+}
+
 message SessionPlan {
+  ConnectionScope connection_scope = 15 [(buf.validate.field).required = true];
   optional int64 short_id = 14 [(buf.validate.field).int64 = {gt: 0 lte: 9007199254740991}];
   string session_id = 1 [
     (buf.validate.field).string.uuid = true,

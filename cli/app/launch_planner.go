@@ -42,6 +42,7 @@ type sessionLaunchRequest struct {
 }
 
 type sessionLaunchPlan struct {
+	ConnectionScope            config.ConnectionScope
 	Mode                       launchMode
 	SessionID                  string
 	ActiveSettings             config.Settings
@@ -256,7 +257,15 @@ func (p *launchPlanner) PlanSession(ctx context.Context, req sessionLaunchReques
 	if err != nil {
 		return sessionLaunchPlan{}, err
 	}
+	if resp.Plan.ConnectionScope == nil {
+		return sessionLaunchPlan{}, errors.New("Session connection scope is required")
+	}
+	scopeSelection, err := protoapi.ConnectionSelectionFromProto(resp.Plan.ConnectionScope.Selection)
+	if err != nil {
+		return sessionLaunchPlan{}, err
+	}
 	return sessionLaunchPlan{
+		ConnectionScope:          config.ConnectionScope{Selection: scopeSelection, UnavailableRole: resp.Plan.ConnectionScope.UnavailableRole},
 		Mode:                     req.Mode,
 		SessionID:                resp.Plan.SessionId,
 		ActiveSettings:           activeSettings,

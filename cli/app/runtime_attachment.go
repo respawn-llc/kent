@@ -85,6 +85,7 @@ func prepareSharedRuntime(ctx context.Context, source runtimeAttachmentSource, p
 
 func activateSharedRuntime(ctx context.Context, clients runtimeAttachmentClients, plan sessionLaunchPlan) (*runtimeReactivator, *runtimeattach.Activation, error) {
 	lease, err := runtimeattach.Activate(ctx, clients.SessionRuntime, runtimeattach.Request{
+		ConnectionScope:          plan.ConnectionScope,
 		SessionID:                plan.SessionID,
 		ActiveSettings:           plan.ActiveSettings,
 		EnabledTools:             plan.EnabledTools,
