@@ -2,8 +2,8 @@ import type * as pb from "@app/server-api-contract/gen/kent/api/workflow_task/re
 import type { AttentionCurrentNode } from "@app/server-api-contract/gen/kent/api/workflow_task/attention_pb";
 import type {
   SelectionRequired,
-  Comment as GeneratedComment,
-  ActivityItem as GeneratedActivity,
+  CommentValid as GeneratedComment,
+  ActivityItemValid as GeneratedActivity,
 } from "@app/server-api-contract/gen/kent/api/workflow_task/lifecycle_pb";
 import { ContractError } from "./errors";
 import { timestampMillis } from "./clientTime";
@@ -46,8 +46,7 @@ import type {
   WorkflowExecutionTargetSelectionRequirement,
 } from "./workflowExecutionTarget";
 
-export function taskStatus(value: pb.TaskStatus | undefined): TaskStatus {
-  if (value === undefined) throw new ContractError("Task status is required.");
+export function taskStatus(value: pb.TaskStatus): TaskStatus {
   return {
     kind: taskStatusKind.decode(value.kind),
     nativeState: taskNativeState.decode(value.nativeState),
@@ -98,8 +97,7 @@ export function projectTaskGroupCounts(value: pb.ProjectTaskGroupCountsSuccessVa
   };
 }
 
-export function taskActions(value: pb.TaskActions | undefined): TaskActions {
-  if (value === undefined) throw new ContractError("Task actions are required.");
+export function taskActions(value: pb.TaskActions): TaskActions {
   return {
     canStart: value.canStart,
     canInterrupt: value.canInterrupt,
@@ -108,8 +106,7 @@ export function taskActions(value: pb.TaskActions | undefined): TaskActions {
   };
 }
 
-export function taskSourceWorkspace(value: pb.TaskSourceWorkspace | undefined): WorkspaceSummary {
-  if (value === undefined) throw new ContractError("Task source Workspace is required.");
+export function taskSourceWorkspace(value: pb.TaskSourceWorkspace): WorkspaceSummary {
   return {
     id: value.workspaceId,
     name: value.displayName,
@@ -213,9 +210,7 @@ export function taskCurrentNode(value: AttentionCurrentNode): TaskCurrentNode {
   };
 }
 
-export function taskComment(value: GeneratedComment | undefined): TaskComment {
-  if (value?.createdAt === undefined || value.updatedAt === undefined)
-    throw new ContractError("Comment and its times are required.");
+export function taskComment(value: GeneratedComment): TaskComment {
   return {
     id: value.id,
     taskID: value.taskId,
@@ -228,8 +223,6 @@ export function taskComment(value: GeneratedComment | undefined): TaskComment {
 }
 
 export function taskActivity(value: GeneratedActivity): ActivityItem {
-  if (value.occurredAt === undefined || value.updatedAt === undefined)
-    throw new ContractError("Task activity times are required.");
   const common = {
     id: value.activityId,
     taskID: value.taskId,
@@ -300,7 +293,7 @@ export function taskExecutionTarget(value: pb.ExecutionTarget | undefined): Work
   };
 }
 
-export function taskDependencyItem(value: pb.DependencyItem): TaskDependencyItem {
+export function taskDependencyItem(value: pb.DependencyItemValid): TaskDependencyItem {
   return {
     taskID: value.taskId,
     shortID: value.shortId,
@@ -313,10 +306,10 @@ export function taskDependencyItem(value: pb.DependencyItem): TaskDependencyItem
 }
 
 function taskDependencyAvailability(
-  value: pb.DependencyAddAvailability | undefined,
+  value: pb.DependencyAddAvailability,
 ): TaskDependencyAddAvailability {
-  const availability = value?.availability;
-  switch (availability?.case) {
+  const availability = value.availability;
+  switch (availability.case) {
     case "available":
       return { kind: "available", remainingCapacity: availability.value.remainingCapacity };
     case "limitReached":
@@ -326,8 +319,7 @@ function taskDependencyAvailability(
   }
 }
 
-export function taskDependencies(value: pb.TaskDependencies | undefined): TaskDependencies {
-  if (value === undefined) throw new ContractError("Task dependencies are required.");
+export function taskDependencies(value: pb.TaskDependenciesValid): TaskDependencies {
   return {
     blockerCount: value.blockerCount,
     unsatisfiedBlockerCount: value.unsatisfiedBlockerCount,
@@ -342,15 +334,7 @@ export function taskDependencies(value: pb.TaskDependencies | undefined): TaskDe
   };
 }
 
-export function taskDetail(value: pb.TaskDetail | undefined): TaskDetail {
-  if (
-    value?.summary?.createdAt === undefined ||
-    value.summary.updatedAt === undefined ||
-    value.project === undefined ||
-    value.workflow === undefined
-  ) {
-    throw new ContractError("Task summary, times, Project, and Workflow are required.");
-  }
+export function taskDetail(value: pb.TaskDetailValid): TaskDetail {
   return {
     id: value.summary.id,
     shortID: value.summary.shortId,
@@ -382,7 +366,6 @@ export function taskDetail(value: pb.TaskDetail | undefined): TaskDetail {
       nodeDisplayName: session.nodeDisplayName,
     })),
     currentScripts: value.currentScripts.map((script) => {
-      if (script.currentNode === undefined) throw new ContractError("Current Script Node is required.");
       return {
         currentNode: {
           nodeID: script.currentNode.nodeId,
