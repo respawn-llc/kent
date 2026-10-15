@@ -91,9 +91,6 @@ type taskWorkflowRecoveryContext struct {
 }
 
 func taskListRecoveryForScopeError(scopeErr *taskpb.ListScopeErrorDetails, commandContext taskListCommandContext) (taskWorkflowRecovery, error) {
-	if scopeErr == nil {
-		return taskWorkflowRecovery{}, errors.New("task list scope error with project context is required")
-	}
 	kind, err := taskListRecoveryKind(scopeErr.Reason)
 	if err != nil {
 		return taskWorkflowRecovery{}, err
@@ -120,9 +117,6 @@ func taskListRecoveryForScopeError(scopeErr *taskpb.ListScopeErrorDetails, comma
 }
 
 func taskCreateRecoveryForSelectionError(createErr *taskpb.CreateSelectionDetails, commandContext taskCreateCommandContext) (taskWorkflowRecovery, error) {
-	if createErr == nil {
-		return taskWorkflowRecovery{}, errors.New("task create selection error is required")
-	}
 	kind, err := taskCreateRecoveryKind(createErr.Reason)
 	if err != nil {
 		return taskWorkflowRecovery{}, err

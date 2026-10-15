@@ -69,7 +69,7 @@ func (s *Service) observeWorkflowTask(ctx context.Context, req *taskpb.ObserveRe
 		return response, true, nil
 	}
 
-	workflowID, err := runtimeids.ParseWorkflowID(detail.Summary.WorkflowId)
+	workflowID, err := runtimeids.WorkflowIDFromProto(detail.Summary.WorkflowId)
 	if err != nil {
 		return nil, false, err
 	}
