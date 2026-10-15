@@ -1946,9 +1946,6 @@ func (s *Service) moveWorkflowTask(ctx context.Context, req *taskpb.MoveRequest)
 		)
 	}
 	moved := *coordinated.applied
-	if err := moved.Validate(); err != nil {
-		return nil, err
-	}
 	if moved.Outcome == workflowstore.ManualMoveResultOutcomeNoOp {
 		if targetPreflight.pendingBranchReplaced {
 			return nil, workflowexecution.ErrManualMoveLifecycleConflict

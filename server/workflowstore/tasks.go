@@ -141,28 +141,6 @@ type ManualMoveResult struct {
 	TaskAttentionResolution
 }
 
-func (r ManualMoveResult) Validate() error {
-	switch r.Outcome {
-	case ManualMoveResultOutcomeNoOp:
-		if len(r.CurrentNodes) == 0 {
-			return errors.New("manual move no-op must return current nodes")
-		}
-		if len(r.Mutation.Removed) != 0 || len(r.Mutation.Created) != 0 {
-			return errors.New("manual move no-op must not return a mutation")
-		}
-	case ManualMoveResultOutcomeApplied:
-		if len(r.CurrentNodes) != 0 {
-			return errors.New("applied manual move must not return no-op current nodes")
-		}
-		if len(r.Mutation.Removed) == 0 || len(r.Mutation.Created) == 0 {
-			return errors.New("applied manual move must return a non-empty replacement mutation")
-		}
-	default:
-		return fmt.Errorf("manual move result outcome %q is invalid", r.Outcome)
-	}
-	return nil
-}
-
 func (s *Store) CreateTask(ctx context.Context, req CreateTaskRequest) (TaskRecord, error) {
 	projectID := strings.TrimSpace(req.ProjectID)
 	var workflowID *runtimeids.WorkflowID
