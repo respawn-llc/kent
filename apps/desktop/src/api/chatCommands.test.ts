@@ -82,7 +82,7 @@ it("accepts a server-selected child for prompt Send and Queue but rejects text a
           case: "success",
           value: {
             session: { sessionId: child },
-            outcome: { case: "accepted", value: { request: { id: "323e4567-e89b-42d3-a456-426614174000" } } },
+            outcome: { case: "accepted", value: {} },
           },
         },
       }),

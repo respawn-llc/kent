@@ -29,7 +29,6 @@ import { isValidChatSessionID, requireChatProjectTarget, requireChatSessionID } 
 import type { ChatActivation, ChatApi, ChatMutationTarget } from "./chatTypes";
 import { ContractError } from "./errors";
 import {
-  parseCompactionRequestID,
   parsePendingWorkItemID,
   pendingWorkRestorationSchema,
   pendingWorkSchema,
@@ -168,14 +167,13 @@ export function createChatMutationApi(transport: RpcTransport): ChatMutationApi 
           },
         };
       }
-      if (success.outcome.case !== "accepted" || success.outcome.value.request === undefined) {
+      if (success.outcome.case !== "accepted") {
         throw new ContractError("Chat compaction response did not match the GUI contract.");
       }
       return {
         sessionID: returnedSessionID,
         outcome: {
           kind: "accepted",
-          requestID: parseCompactionRequestID(success.outcome.value.request.id),
           diagnostic: acceptedDiagnostic(success.outcome.value.diagnostic),
         },
       };

@@ -1,8 +1,10 @@
 package launch
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
+	"log"
 	"maps"
 	"slices"
 	"sync"
@@ -10,6 +12,7 @@ import (
 	"time"
 
 	"core/server/llm"
+	"core/server/metadata"
 	"core/server/session"
 	"core/shared/config"
 	"core/shared/llmerrors"
@@ -18,18 +21,35 @@ import (
 type ConnectionRotation struct {
 	mu       sync.Mutex
 	cooldown time.Duration
+	store    *metadata.Store
 	// Immutable published order lets data-only previews avoid waiting for allocations.
 	assignments atomic.Pointer[connectionAssignments]
+}
+
+func NewConnectionRotation(store *metadata.Store, cooldown time.Duration) *ConnectionRotation {
+	if store == nil {
+		panic("connection consumption store is required")
+	}
+	return &ConnectionRotation{store: store, cooldown: cooldown}
+}
+
+func (r *ConnectionRotation) RecordUsage(ctx context.Context, connection config.ConnectionID, model string, usage llm.Usage) {
+	score, err := llm.EstimateConsumption(model, usage)
+	if err == nil && score == 0 {
+		return
+	}
+	if err == nil {
+		err = r.store.RecordConnectionConsumption(ctx, connection, time.Now(), score)
+	}
+	if err != nil {
+		log.Printf("record connection consumption for connection %q model %q: %v", connection, model, err)
+	}
 }
 
 type connectionAssignments struct {
 	lastAssigned map[config.ConnectionID]uint64
 	cooldowns    map[config.ConnectionID]time.Time
 	sequence     uint64
-}
-
-func NewConnectionRotation(cooldown time.Duration) *ConnectionRotation {
-	return &ConnectionRotation{cooldown: cooldown}
 }
 
 func (r *ConnectionRotation) FallbackEnabled() bool { return r != nil && r.cooldown > 0 }
@@ -42,12 +62,12 @@ func (r *ConnectionRotation) CoolingDown(id config.ConnectionID) bool {
 	return snapshot != nil && snapshot.cooldowns[id].After(time.Now())
 }
 
-func (r *ConnectionRotation) SelectReplacement(settings config.Settings, scope config.ConnectionScope, visited map[config.ConnectionID]struct{}) (config.ConnectionID, error) {
+func (r *ConnectionRotation) SelectReplacement(ctx context.Context, settings config.Settings, scope config.ConnectionScope, visited map[config.ConnectionID]struct{}) (config.ConnectionID, error) {
 	if scope.UnavailableRole != nil {
 		return "", fmt.Errorf("configured Agent role %q is unavailable; restore it before replacing its connection", *scope.UnavailableRole)
 	}
 	settings.Connection = scope.Selection
-	return r.prepare(settings, true, visited)
+	return r.prepare(ctx, settings, true, visited)
 }
 
 func (r *ConnectionRotation) RecordExhaustion(id config.ConnectionID) {
@@ -115,11 +135,11 @@ func ConnectionMembership(settings config.Settings) ([]config.ConnectionID, stri
 	return members, string(key), nil
 }
 
-func (r *ConnectionRotation) Prepare(settings config.Settings, allocate bool) (config.ConnectionID, error) {
-	return r.prepare(settings, allocate, nil)
+func (r *ConnectionRotation) Prepare(ctx context.Context, settings config.Settings, allocate bool) (config.ConnectionID, error) {
+	return r.prepare(ctx, settings, allocate, nil)
 }
 
-func (r *ConnectionRotation) prepare(settings config.Settings, allocate bool, visited map[config.ConnectionID]struct{}) (config.ConnectionID, error) {
+func (r *ConnectionRotation) prepare(ctx context.Context, settings config.Settings, allocate bool, visited map[config.ConnectionID]struct{}) (config.ConnectionID, error) {
 	members, err := settings.ConnectionMembers()
 	if err != nil {
 		return "", err
@@ -130,13 +150,17 @@ func (r *ConnectionRotation) prepare(settings config.Settings, allocate bool, vi
 		}
 		return "", fmt.Errorf("server connection rotation is required for allocating a connection set")
 	}
+	scores, err := r.store.ConnectionConsumption(ctx, members, time.Now())
+	if err != nil {
+		log.Printf("read connection consumption for %v: %v; using assignment order", members, err)
+	}
 	if !allocate {
 		snapshot := r.assignments.Load()
 		members, err = snapshot.eligible(members, visited)
 		if err != nil {
 			return "", err
 		}
-		return snapshot.leastRecentlyAssigned(members), nil
+		return snapshot.leastConsumed(members, scores), nil
 	}
 	r.mu.Lock()
 	defer r.mu.Unlock()
@@ -153,31 +177,26 @@ func (r *ConnectionRotation) prepare(settings config.Settings, allocate bool, vi
 	if err != nil {
 		return "", err
 	}
-	selected := next.leastRecentlyAssigned(members)
+	selected := next.leastConsumed(members, scores)
 	next.sequence++
 	next.lastAssigned[selected] = next.sequence
 	r.assignments.Store(next)
 	return selected, nil
 }
 
-func (r *connectionAssignments) leastRecentlyAssigned(members []config.ConnectionID) config.ConnectionID {
+func (r *connectionAssignments) leastConsumed(members []config.ConnectionID, scores map[config.ConnectionID]int64) config.ConnectionID {
 	selected := members[0]
-	if r == nil {
-		return selected
-	}
-	for _, member := range members {
-		sequence, assigned := r.lastAssigned[member]
-		if !assigned {
-			return member
-		}
-		if sequence < r.lastAssigned[selected] {
+	for _, member := range members[1:] {
+		if scores[member] < scores[selected] {
+			selected = member
+		} else if scores[member] == scores[selected] && r != nil && r.lastAssigned[member] < r.lastAssigned[selected] {
 			selected = member
 		}
 	}
 	return selected
 }
 
-func (p RunPromptPreparationContext) prepareConnection(settings *config.Settings, source config.SourceReport) error {
+func (p RunPromptPreparationContext) prepareConnection(ctx context.Context, settings *config.Settings, source config.SourceReport) error {
 	saved := p.ConnectionID
 	if retained := p.RetainedConnectionSelection; retained != nil {
 		if saved != nil || p.AllocateConnection {
@@ -192,7 +211,7 @@ func (p RunPromptPreparationContext) prepareConnection(settings *config.Settings
 		}
 		saved = retained
 	}
-	id, _, err := p.Rotation.ResolveSessionConnection(*settings, saved, p.AllocateConnection)
+	id, _, err := p.Rotation.ResolveSessionConnection(ctx, *settings, saved, p.AllocateConnection)
 	if err != nil {
 		return err
 	}
@@ -203,10 +222,10 @@ func (p RunPromptPreparationContext) prepareConnection(settings *config.Settings
 // ResolveSessionConnection projects a binding without changing Session metadata.
 // Only a removed definition permits ordinary resume to select a replacement.
 func ResolveSessionConnection(settings config.Settings, saved *config.ConnectionID) (config.ConnectionID, *config.ConnectionReplacement, error) {
-	return (*ConnectionRotation)(nil).ResolveSessionConnection(settings, saved, false)
+	return (*ConnectionRotation)(nil).ResolveSessionConnection(context.Background(), settings, saved, false)
 }
 
-func (r *ConnectionRotation) ResolveSessionConnection(settings config.Settings, saved *config.ConnectionID, allocate bool) (config.ConnectionID, *config.ConnectionReplacement, error) {
+func (r *ConnectionRotation) ResolveSessionConnection(ctx context.Context, settings config.Settings, saved *config.ConnectionID, allocate bool) (config.ConnectionID, *config.ConnectionReplacement, error) {
 	if saved != nil {
 		if _, err := config.ParseConnectionID(string(*saved)); err != nil {
 			return "", nil, err
@@ -215,7 +234,7 @@ func (r *ConnectionRotation) ResolveSessionConnection(settings config.Settings, 
 			return *saved, nil, nil
 		}
 	}
-	selected, err := r.Prepare(settings, allocate)
+	selected, err := r.Prepare(ctx, settings, allocate)
 	if err != nil {
 		return "", nil, err
 	}
@@ -226,12 +245,12 @@ func (r *ConnectionRotation) ResolveSessionConnection(settings config.Settings, 
 }
 
 func BindSessionConnection(store *session.Store, settings *config.Settings, sources map[string]config.Origin) (*config.ConnectionReplacement, error) {
-	return (*ConnectionRotation)(nil).BindSessionConnection(store, settings, sources)
+	return (*ConnectionRotation)(nil).BindSessionConnection(context.Background(), store, settings, sources)
 }
 
-func (r *ConnectionRotation) BindSessionConnection(store *session.Store, settings *config.Settings, sources map[string]config.Origin) (*config.ConnectionReplacement, error) {
+func (r *ConnectionRotation) BindSessionConnection(ctx context.Context, store *session.Store, settings *config.Settings, sources map[string]config.Origin) (*config.ConnectionReplacement, error) {
 	saved := store.Meta().ConnectionID
-	selected, replacement, err := r.ResolveSessionConnection(*settings, saved, true)
+	selected, replacement, err := r.ResolveSessionConnection(ctx, *settings, saved, true)
 	if err != nil {
 		return nil, err
 	}

@@ -5,10 +5,11 @@ import "core/shared/runtimeids"
 type EventResource string
 
 const (
-	EventResourceWorkflow     EventResource = "workflow"
-	EventResourceWorkflowLink EventResource = "workflow_link"
-	EventResourceTask         EventResource = "task"
-	EventResourceLabel        EventResource = "label"
+	EventResourceWorkflow       EventResource = "workflow"
+	EventResourceWorkflowLink   EventResource = "workflow_link"
+	EventResourceTask           EventResource = "task"
+	EventResourceLabel          EventResource = "label"
+	EventResourceSessionCatalog EventResource = "session_catalog"
 )
 
 type EventAction string

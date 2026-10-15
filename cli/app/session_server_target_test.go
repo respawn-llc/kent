@@ -175,9 +175,7 @@ func closeRuntimeLaunchPlan(t *testing.T, plan *runtimeLaunchPlan) {
 	if plan == nil {
 		return
 	}
-	if err := plan.Close(); err != nil {
-		t.Errorf("runtime launch plan close: %v", err)
-	}
+	plan.Close()
 }
 
 func waitForConfiguredRemoteIdentity(t *testing.T, workspace string) protocol.ServerIdentity {
@@ -438,7 +436,7 @@ func TestRemoteInteractiveRuntimeAnswersPromptsFromAnyAttachedClientAcrossWorksp
 	if askPrompt.GetQuestion() == nil || transcriptPromptQuestion(askPrompt) != "Who answers first?" {
 		t.Fatalf("unexpected ask prompt: %+v", askPrompt)
 	}
-	runtimeClientsB := fixture.serverB.RuntimeAttachmentClients()
+	runtimeClientsB := fixture.serverB.SessionUIClients()
 
 	askAnswer := "answer from client B"
 	if _, err := runtimeClientsB.PromptControl.AnswerPromptBatch(context.Background(), &promptpb.AnswerBatchRequest{

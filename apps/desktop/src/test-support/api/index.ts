@@ -43,9 +43,6 @@ import {
   type ProjectAttachment,
   type RpcDedicatedCallOptions,
   type RpcSubscription,
-  type SessionAttachment,
-  type RuntimeOwnerContext,
-  type RuntimeOwnerOptions,
 } from "@/api/composition";
 
 export { worktreeCommandFixture, worktreeCommandFixtureRoutes } from "./worktreeCommandFixtures";
@@ -301,11 +298,9 @@ export class FakeRpcTransport implements RpcTransport {
     descriptor: DescMethod;
     request: Message;
   }>[] = [];
-  runtimeOwnerRuns = 0;
   #descriptorRoutes = new Map<string, FakeDescriptorRoute>();
   #descriptorSubscriptionRoutes = new Map<string, FakeDescriptorSubscriptionRoute>();
   #callCounts = new Map<string, number>();
-  #runtimeOwner: SessionAttachment | null = null;
   #descriptorSubscribers: Readonly<{
     descriptor: DescMethod;
     open(): void;
@@ -443,39 +438,6 @@ export class FakeRpcTransport implements RpcTransport {
               canonicalRoot: selector.workspaceRoot,
             },
     };
-  }
-
-  async runRuntimeOwner<Result>(
-    sessionID: string,
-    options: RuntimeOwnerOptions,
-    run: (context: RuntimeOwnerContext) => Promise<Result>,
-  ): Promise<Result> {
-    this.runtimeOwnerRuns += 1;
-    if (!options.createIfMissing && this.#runtimeOwner === null) {
-      throw new Error("Runtime owner connection is unavailable.");
-    }
-    if (this.#runtimeOwner !== null && this.#runtimeOwner.sessionID !== sessionID) {
-      throw new Error("Runtime owner connection is bound to another Session.");
-    }
-    this.#runtimeOwner ??= {
-      projectID: "project-1",
-      workspaceID: "workspace-1",
-      workspaceRoot: "/workspace",
-      sessionID,
-    };
-    const context: RuntimeOwnerContext = {
-      attachment: this.#runtimeOwner,
-      callDescriptor: async (descriptor, request) => this.callDescriptor(descriptor, request),
-      poison: () => {
-        this.#runtimeOwner = null;
-      },
-    };
-    return run(context).then((result) => {
-      if (options.closeAfter) {
-        this.#runtimeOwner = null;
-      }
-      return result;
-    });
   }
 
   openDescriptor(descriptor: DescMethod): void {

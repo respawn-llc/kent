@@ -10,47 +10,41 @@ import (
 	"sync"
 
 	"core/cli/app/internal/lifecyclehook"
-	"core/cli/app/internal/runtimeattach"
 	"core/shared/apicontract"
 	"core/shared/lifecyclecontract"
+	"core/shared/protoapi"
 	runtimepb "core/shared/protoapi/gen/kent/api/runtime"
 	"core/shared/serverapi"
 )
-
-const runtimeReleaseTimeout = runtimeattach.ReleaseTimeout
 
 type goalSetClient interface {
 	SetGoal(context.Context, *runtimepb.GoalSetRequest) (*runtimepb.GoalSetSuccess, error)
 }
 
-type runtimeAttachmentSource interface {
-	RuntimeAttachmentClients() runtimeAttachmentClients
+type sessionUISource interface {
+	SessionUIClients() sessionUIClients
 }
 
-type runtimeAttachmentClients struct {
-	ProcessControls   apicontract.ProcessControlService
-	ProcessViews      apicontract.ProcessViewService
-	PromptControl     apicontract.PromptControlService
-	RuntimeControls   apicontract.RuntimeControlService
-	GoalSet           goalSetClient
-	ChatSettings      apicontract.ChatSettingsService
-	SessionTranscript apicontract.SessionTranscriptService
-	SessionRuntime    apicontract.SessionRuntimeService
-	SessionViews      apicontract.SessionViewService
-	Worktrees         apicontract.WorktreeService
+type sessionUIClients struct {
+	AttentionNotifications apicontract.AttentionNotificationService
+	ProcessControls        apicontract.ProcessControlService
+	ProcessViews           apicontract.ProcessViewService
+	PromptControl          apicontract.PromptControlService
+	RuntimeControls        apicontract.RuntimeControlService
+	ChatMutations          apicontract.ChatMutationService
+	GoalSet                goalSetClient
+	ChatSettings           apicontract.ChatSettingsService
+	SessionTranscript      apicontract.SessionTranscriptService
+	SessionViews           apicontract.SessionViewService
+	Worktrees              apicontract.WorktreeService
 }
 
-func prepareSharedRuntime(ctx context.Context, source runtimeAttachmentSource, plan sessionLaunchPlan, diagnosticWriter io.Writer, startLogLine string) (*runtimeLaunchPlan, error) {
+func prepareSharedRuntime(ctx context.Context, source sessionUISource, plan sessionLaunchPlan, diagnosticWriter io.Writer, startLogLine string) (*runtimeLaunchPlan, error) {
 	if source == nil {
 		return nil, errors.New("server is required")
 	}
-	clients := source.RuntimeAttachmentClients()
-	reactivator, lease, err := activateSharedRuntime(ctx, clients, plan)
-	if err != nil {
-		return nil, err
-	}
+	clients := source.SessionUIClients()
 	if clients.SessionTranscript == nil {
-		_ = lease.Release()
 		return nil, errors.New("session transcript service is required")
 	}
 	_ = diagnosticWriter
@@ -59,10 +53,8 @@ func prepareSharedRuntime(ctx context.Context, source runtimeAttachmentSource, p
 		ctx,
 		clients,
 		plan,
-		reactivator,
 	)
 	if err != nil {
-		_ = lease.Release()
 		return nil, err
 	}
 	var stopStreamsOnce sync.Once
@@ -74,42 +66,29 @@ func prepareSharedRuntime(ctx context.Context, source runtimeAttachmentSource, p
 	return &runtimeLaunchPlan{
 		Wiring:           wiring,
 		stopEventStreams: stopStreams,
-		close: func() error {
-			return lease.Release()
-		},
-		detachClose: func() error {
-			return lease.ReleaseWithClosePolicy(serverapi.SessionRuntimeReleaseClosePolicyDetachOnly)
-		},
 	}, nil
-}
-
-func activateSharedRuntime(ctx context.Context, clients runtimeAttachmentClients, plan sessionLaunchPlan) (*runtimeReactivator, *runtimeattach.Activation, error) {
-	lease, err := runtimeattach.Activate(ctx, clients.SessionRuntime, runtimeattach.Request{
-		ConnectionScope:          plan.ConnectionScope,
-		SessionID:                plan.SessionID,
-		ActiveSettings:           plan.ActiveSettings,
-		EnabledTools:             plan.EnabledTools,
-		QuestionsEnabled:         plan.QuestionsEnabled,
-		AutoCompactionEnabled:    plan.AutoCompactionEnabled,
-		ThinkingOverrideExplicit: plan.ThinkingOverrideExplicit,
-		AgentSelection:           plan.ActivationAgentSelection,
-		ExplicitToolSelection:    plan.ExplicitToolSelection,
-		Source:                   plan.Source,
-	})
-	if err != nil {
-		return nil, nil, err
-	}
-	reactivator := newRuntimeReactivator()
-	reactivator.SetReactivateFunc(lease.Reactivate)
-	return reactivator, lease, nil
 }
 
 func prepareSharedRuntimeWiring(
 	ctx context.Context,
-	clients runtimeAttachmentClients,
+	clients sessionUIClients,
 	plan sessionLaunchPlan,
-	reactivator *runtimeReactivator,
 ) (*runtimeWiring, func(), error) {
+	toolIDs := make([]string, len(plan.EnabledTools))
+	for index, id := range plan.EnabledTools {
+		toolIDs[index] = string(id)
+	}
+	preparation, err := protoapi.SessionRuntimePreparationToProto(serverapi.SessionRuntimePreparationOptions{
+		ConnectionScope: plan.ConnectionScope,
+		ActiveSettings:  plan.ActiveSettings, EnabledToolIDs: toolIDs,
+		QuestionsEnabled: &plan.QuestionsEnabled, AutoCompactionEnabled: &plan.AutoCompactionEnabled,
+		ThinkingOverrideExplicit: plan.ThinkingOverrideExplicit,
+		AgentSelection:           plan.ActivationAgentSelection, ExplicitToolSelection: plan.ExplicitToolSelection,
+		Source: plan.Source,
+	})
+	if err != nil {
+		return nil, nil, err
+	}
 	runtimeClient := newUIRuntimeClientWithReads(
 		plan.SessionID,
 		clients.SessionViews,
@@ -117,9 +96,8 @@ func prepareSharedRuntimeWiring(
 		clients.GoalSet,
 		clients.ChatSettings,
 	).(*sessionRuntimeClient)
-	if reactivator != nil {
-		runtimeClient.SetRuntimeReactivator(reactivator)
-	}
+	runtimeClient.chatMutations = clients.ChatMutations
+	runtimeClient.preparation = preparation
 	terminalFocus := newTerminalFocusState()
 	initialLifecycleContext := lifecyclecontract.Context{}
 	if len(plan.ClientLifecycleCommand) > 0 {
@@ -140,9 +118,9 @@ func prepareSharedRuntimeWiring(
 	}
 	var transcriptStream ongoingTranscriptEventStream
 	if lifecycleProxy != nil {
-		transcriptStream = startSessionTranscriptEvents(ctx, plan.SessionID, subscribeTranscript, reactivator.Reactivate, lifecycleProxy.AcceptTranscript)
+		transcriptStream = startSessionTranscriptEvents(ctx, plan.SessionID, subscribeTranscript, lifecycleProxy.AcceptTranscript)
 	} else {
-		transcriptStream = startSessionTranscriptEvents(ctx, plan.SessionID, subscribeTranscript, reactivator.Reactivate)
+		transcriptStream = startSessionTranscriptEvents(ctx, plan.SessionID, subscribeTranscript)
 	}
 	transcriptEvents := transcriptStream.Events
 	eventDispatcher := newUIEventDispatcher(transcriptEvents)
@@ -163,16 +141,17 @@ func prepareSharedRuntimeWiring(
 		queueHook = newTurnQueueHooks(notificationHooks, lifecycleProxy)
 	}
 	wiring := &runtimeWiring{
-		eventDispatcher:       eventDispatcher,
-		requestTranscriptOpen: requestTranscriptOpen,
-		promptAnswers:         newTranscriptPromptAnswerer(ctx, clients.PromptControl),
-		promptAttention:       notificationHooks,
-		turnQueueHook:         queueHook,
-		terminalFocus:         terminalFocus,
-		runtimeClient:         runtimeClient,
-		worktrees:             clients.Worktrees,
-		processControls:       clients.ProcessControls,
-		processViews:          clients.ProcessViews,
+		attentionNotifications: clients.AttentionNotifications,
+		eventDispatcher:        eventDispatcher,
+		requestTranscriptOpen:  requestTranscriptOpen,
+		promptAnswers:          newTranscriptPromptAnswerer(ctx, clients.PromptControl),
+		promptAttention:        notificationHooks,
+		turnQueueHook:          queueHook,
+		terminalFocus:          terminalFocus,
+		runtimeClient:          runtimeClient,
+		worktrees:              clients.Worktrees,
+		processControls:        clients.ProcessControls,
+		processViews:           clients.ProcessViews,
 	}
 	if lifecycleProxy != nil {
 		wiring.lifecycleHookIssues = lifecycleProxy.Issues()

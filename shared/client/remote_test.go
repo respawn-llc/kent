@@ -1519,9 +1519,8 @@ func TestProtocolErrorMapsEquivalentRuntimeSentinel(t *testing.T) {
 func TestRemotePendingWorkContractsPreserveTypedResults(t *testing.T) {
 	guidance := "keep details"
 	exact := "/compact keep details"
-	requestID := runtimeids.NewCompactionRequestID()
 	wire, err := protoapi.Encode(&runtimepb.CompactContextRequest{
-		SessionId: "session-1", RequestId: requestID.String(),
+		SessionId: "session-1",
 		Admission: &runtimepb.ManualCompactionAdmission{Guidance: &guidance}})
 	if err != nil {
 		t.Fatal(err)
@@ -1530,8 +1529,7 @@ func TestRemotePendingWorkContractsPreserveTypedResults(t *testing.T) {
 	if err := protoapi.Decode(wire, &compactRequest); err != nil {
 		t.Fatal(err)
 	}
-	if compactRequest.RequestId != requestID.String() ||
-		compactRequest.Admission.Guidance == nil ||
+	if compactRequest.Admission.Guidance == nil ||
 		*compactRequest.Admission.Guidance != guidance {
 		t.Fatalf("compact request = %+v", &compactRequest)
 	}

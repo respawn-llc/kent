@@ -213,9 +213,9 @@ func (l uiViewLayout) queuedMessages() []queuedPaneEntry {
 	return entries
 }
 
-func (m *uiModel) injectedQueueItemNeedsLocalPane(item injectedRuntimeQueueItem) bool {
+func (m *uiModel) injectedQueueItemNeedsLocalPane(item *injectedRuntimeQueueItem) bool {
 	switch item.State {
-	case injectedRuntimeQueuePendingCreate, injectedRuntimeQueueCreateFailed, injectedRuntimeQueueDiscardFailed:
+	case injectedRuntimeQueuePendingCreate, injectedRuntimeQueueDiscardFailed:
 		return true
 	case injectedRuntimeQueueEnqueued:
 		return m != nil && !m.hasRuntimeClient()

@@ -8,7 +8,7 @@ import {
 } from "@tanstack/react-query";
 import * as Atom from "effect/reactivity/Atom";
 import * as Effect from "effect/Effect";
-import { isProjectMissingError } from "@/api";
+import { isProjectMissingError, type ProjectObservation } from "@/api";
 import {
   clearLastProjectRoute,
   mainSessionCatalogInfiniteQueryOptions,
@@ -17,6 +17,8 @@ import {
   infiniteQueryReadActions,
   queryKeys,
   useAppServices,
+  useProjectObservation,
+  ProjectObservationFailure,
   type AppServices,
 } from "@/app-facade";
 import { useStableCallback } from "@/ui";
@@ -54,6 +56,23 @@ export function useHomeProjectModel(projectID: string, returnHome: () => Promise
 export function useHomeSessionPages(projectID: string, category: "main" | "subagent", enabled: boolean) {
   const { api } = useAppServices();
   const client = useQueryClient();
+  const consume = useMemo(
+    () => (observation: ProjectObservation) => {
+      if (
+        observation.kind !== "open" &&
+        !(observation.kind === "event" && observation.event.resource === "session_catalog")
+      )
+        return Effect.void;
+      return Effect.tryPromise({
+        try: async () => {
+          await client.invalidateQueries({ queryKey: queryKeys.projectSessionCatalogs(projectID) });
+        },
+        catch: (error) => new ProjectObservationFailure(error),
+      });
+    },
+    [client, projectID],
+  );
+  const observation = useProjectObservation(enabled ? `${projectID}-${category}` : null, projectID, consume);
   const model = useMemo(() => {
     const observer = new InfiniteQueryObserver(client, {
       ...(category === "main"
@@ -66,9 +85,16 @@ export function useHomeSessionPages(projectID: string, category: "main" | "subag
       ...infiniteQueryReadActions(observer),
     };
   }, [api, client, projectID, category, enabled]);
+  const query = useAtomValue(model.request);
+  const retry = useAtomSet(model.retry);
   return {
-    ...useAtomValue(model.request),
+    ...query,
+    error: query.error ?? observation.error,
+    isError: query.isError || observation.error !== null,
     fetchNextPage: useAtomSet(model.nextPage),
-    refetch: useAtomSet(model.retry),
+    refetch: () => {
+      retry();
+      observation.retry();
+    },
   };
 }

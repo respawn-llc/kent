@@ -1,4 +1,5 @@
 import * as T from "@app/server-api-contract/gen/kent/api/transcript/transcript_pb";
+import { sessionCategoryFromGenerated } from "./clientCatalog";
 import { questionPrompt, approvalPrompt } from "./promptPresentation";
 import {
   DirtyStateKind,
@@ -26,6 +27,8 @@ function sessionIdentity(value: T.SessionIdentity): Payloads["session_identity"]
   return {
     SessionID: value.sessionId,
     SessionName: value.sessionName ?? null,
+    Category: sessionCategoryFromGenerated(value.category),
+    ShortID: value.shortId ?? null,
     ConversationFreshness: conversationFreshness(value.conversationFreshness),
     ExecutionTarget: value.executionTarget === undefined ? null : executionFacts(value.executionTarget),
   };
@@ -85,7 +88,6 @@ function step(value: T.StepState): Payloads["step_state"] {
 function compaction(value: T.CompactionStatus): Payloads["compaction_status"] {
   return {
     StepID: value.stepId,
-    RequestID: value.requestId ?? null,
     State: enumValue(value.state, {
       [T.CompactionState.STARTED]: "started",
       [T.CompactionState.COMPLETED]: "completed",

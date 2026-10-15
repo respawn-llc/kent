@@ -10,6 +10,10 @@ A named server-owned provider-access configuration containing provider implement
 
 The provider-assigned compatibility type of saved reasoning or an encrypted native compaction checkpoint. Types are OpenAI, Anthropic, Grok, and unencrypted. A Reasoning Type is independent of a Provider Connection's user-chosen ID and the selected model. Matching types do not establish cross-account compatibility.
 
+### Nano
+
+A specially configured inference role that performs one model Step and returns its completed result to a consumer. Nano is not an Agent or subagent. Consumers supply task instructions and input and own result interpretation.
+
 ## Session identity
 
 ### Session Short ID
@@ -378,11 +382,17 @@ Recovery that erases the Mutable Band, reopens the Session, and appends the acti
 
 ### Chat Operation
 
-A server-owned operation that resolves a Chat target, optionally creates a Session, prepares an Active Session Runtime when required, requests the selected Chat mutation, and finalizes its Runtime attachment. A client request may wait for and receive the result, but client connection and request lifecycles do not own or cancel the Chat Operation.
+A server-owned operation that resolves a Chat target, optionally creates a Session, prepares an Active Session Runtime when required, and requests the selected Chat mutation. A client request may wait for and receive the result, but client connection and request lifecycles do not own or cancel the Chat Operation.
 
 ### Active Session Runtime
 
 The shared process-local resource for one Session. Interactive clients, headless runs, and Workflow execution use the same resource as equal control surfaces. An Active Session Runtime may be Idle, with no live Exact Execution Scope, or Executing, with one live Exact Execution Scope and Live Execution. A durable Session may have no Active Session Runtime.
+
+The server-owned idle lifetime is defined in [Core Runtime And Tools](core-runtime-tools.md).
+
+### Session Watcher
+
+A Desktop Chat open and connected to a Session, a TUI Chat open and connected to a Session, or an active CLI wait/watch command on that Session. These are the only watching cases. A general server connection, Session list, or one-off read is not a Session Watcher.
 
 ### RuntimeActivity
 

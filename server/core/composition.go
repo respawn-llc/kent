@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"log/slog"
 	"os"
 	"path/filepath"
 	"strings"
@@ -18,6 +19,7 @@ import (
 	"core/server/chatmutation"
 	"core/server/launch"
 	"core/server/metadata"
+	"core/server/nano"
 
 	"core/server/processview"
 	"core/server/projectview"
@@ -28,6 +30,7 @@ import (
 	"core/server/runtimewire"
 	"core/server/serverstatus"
 	"core/server/sessionlaunch"
+	"core/server/sessionnaming"
 	"core/server/sessionruntime"
 	"core/server/sessionservice"
 	"core/server/sessionview"
@@ -43,10 +46,14 @@ import (
 	"core/server/worktree"
 	"core/shared/clientui"
 	"core/shared/config"
+	attentionpb "core/shared/protoapi/gen/kent/api/attention"
+	sharedpb "core/shared/protoapi/gen/kent/api/shared"
 	worktreepb "core/shared/protoapi/gen/kent/api/worktree"
 	"core/shared/runtimeids"
 	"core/shared/serverapi"
+	"core/shared/textutil"
 	"core/shared/toolspec"
+	"core/shared/workflowcontract"
 )
 
 func New(cfg config.App, authSupport serverbootstrap.AuthSupport, background *shelltool.Manager) (*Core, error) {
@@ -115,8 +122,20 @@ func NewWithContextOptions(ctx context.Context, cfg config.App, authSupport serv
 	runtimeRegistry := registry.NewRuntimeRegistry(metadataStore).WithAttentionNotifications(attentionBroker, metadataStore.ResolveSessionNavigationBinding)
 	runtimeRegistry.WithTranscriptContractViolationPanic(cfg.Settings.Debug)
 	var workflowController *workflowexecution.CurrentNodeController
-	connectionRotation := launch.NewConnectionRotation(time.Duration(cfg.Settings.ConnectionUsageFallbackSeconds) * time.Second)
+	connectionRotation := launch.NewConnectionRotation(metadataStore, time.Duration(cfg.Settings.ConnectionUsageFallbackSeconds)*time.Second)
+	connections := authservice.NewConnectionResolver(cfg.PersistenceRoot, authSupport.AuthManager, authSupport.Environment)
+	nanoInference, err := nano.NewService(cfg.Settings.NanoConcurrency, connectionRotation, connections, opts.RuntimeClientFactory)
+	if err != nil {
+		closeRootLeaseOnFailure()
+		_ = metadataStore.Close()
+		return nil, err
+	}
+	var namingConsumer *sessionnaming.Service
 	runtimeAuthority := sessionruntime.NewAuthority(sessionruntime.AuthorityOptions{
+		SubmitSessionNaming: func(id runtimeids.SessionID, root string, input runtime.SessionNamingInput) {
+			namingConsumer.Submit(id, root, input)
+		},
+		RecordUsage:                   connectionRotation.RecordUsage,
 		ConnectionRotation:            connectionRotation,
 		Environment:                   authSupport.Environment,
 		WorkspaceMembership:           metadataStore,
@@ -216,7 +235,6 @@ func NewWithContextOptions(ctx context.Context, cfg config.App, authSupport serv
 		},
 	})
 	projectViews := projectService
-	connections := authservice.NewConnectionResolver(cfg.PersistenceRoot, authSupport.AuthManager, authSupport.Environment)
 	authBootstrapService := authSupport.Connections
 	authStatusService := authservice.NewStatusService(connections, metadataStore)
 	updateStatusService := serverstatus.NewUpdateStatusService(config.Version, cfg.Settings.Debug)
@@ -230,18 +248,7 @@ func NewWithContextOptions(ctx context.Context, cfg config.App, authSupport serv
 		WithDebugMode(cfg.Settings.Debug).
 		WithWorkspaceRetargeter(sessionWorkspaceRetargeter).
 		WithNavigationTargetResolver(metadataStore)
-	chatOperationOwner, err := chatmutation.NewOperationOwner(
-		chatmutation.DefaultAttachmentFinalizationTimeout,
-	)
-	if err != nil {
-		sleepManager.Close()
-		_ = worktreeService.Close()
-		_ = runtimeAuthority.Close(context.Background())
-		closeRootLeaseOnFailure()
-		_ = metadataStore.Close()
-		_ = background.Close()
-		return nil, fmt.Errorf("Chat operation owner: %w", err)
-	}
+	chatOperationOwner := chatmutation.NewOperationOwner()
 	var workflowRuntimeStarter *workflowrunner.Starter
 	cleanupNewFailure := func() {
 		_ = chatOperationOwner.Close()
@@ -295,6 +302,7 @@ func NewWithContextOptions(ctx context.Context, cfg config.App, authSupport serv
 	workflowTaskMutations := workflowexecution.NewTaskMutationCoordinator()
 	workflowExecutionTargets := taskExecutionTargetInfrastructure{service: worktreeService, git: gitInspector}
 	workflowRuntimeStarter, err = workflowrunner.NewStarter(cfg, metadataStore, workflowStore, authSupport.AuthManager, runtimeRegistry, workflowrunner.StarterOptions{
+		RecordUsage:                connectionRotation.RecordUsage,
 		ConnectionRotation:         connectionRotation,
 		WorkspaceConfigLoadOptions: opts.WorkspaceConfigLoadOptions,
 		Environment:                authSupport.Environment,
@@ -380,7 +388,16 @@ func NewWithContextOptions(ctx context.Context, cfg config.App, authSupport serv
 		return nil, fmt.Errorf("workflow bundle: service: %w", err)
 	}
 	core := &Core{connectionRotation: connectionRotation, bundles: composeBundles(bundleCompositionInput{
-		settingsChanges:         sessionlaunch.NewSettingsBroadcaster(),
+		settingsChanges: sessionlaunch.NewSettingsBroadcaster(func(id runtimeids.SessionID) error {
+			projectID, err := metadataStore.ResolveSessionProjectID(context.Background(), id.String())
+			if err != nil {
+				return err
+			}
+			return workflowStore.PublishWorkflowEvent(context.Background(), workflowcontract.Event{
+				ProjectID: &projectID, Resource: workflowcontract.EventResourceSessionCatalog,
+				Action: workflowcontract.EventActionUpdated, PrimaryEntityID: projectID,
+			})
+		}),
 		cfg:                     cfg,
 		workspaceConfigResolver: workspaceConfigResolver,
 		authSupport:             authSupport,
@@ -412,6 +429,33 @@ func NewWithContextOptions(ctx context.Context, cfg config.App, authSupport serv
 		chatOperationOwner:      chatOperationOwner,
 	})}
 	runtimeControlService.WithSessionSettingsPublisher(chatSettingsService{core: core})
+	namingConsumer = sessionnaming.NewService(nanoInference, runtimeAuthority, workspaceConfigResolver.Resolve, chatSettingsService{core: core}.PublishSessionSettings,
+		func(ctx context.Context, id string, cause error) {
+			binding, err := metadataStore.ResolveSessionNavigationBinding(ctx, id)
+			if err == nil {
+				sessionID, identityErr := runtimeids.ParseSessionID(id)
+				if identityErr != nil {
+					slog.ErrorContext(ctx, "Session-naming failure identity parsing failed", "session_id", id, "error", identityErr)
+					return
+				}
+				identity, identityErr := metadataStore.SessionIdentity(ctx, sessionID)
+				if identityErr != nil {
+					slog.ErrorContext(ctx, "Session-naming failure identity resolution failed", "session_id", id, "error", identityErr)
+					return
+				}
+				var shortID *int64
+				if identity.ShortID != nil {
+					shortID = textutil.Value(identity.ShortID.Int64())
+				}
+				err = attentionBroker.PublishSessionNamingFailure(&attentionpb.SessionNamingFailure{
+					ProjectId: binding.ProjectId, SessionId: id, ShortId: shortID,
+					Error: &sharedpb.InternalFailureDetails{Cause: textutil.Value(cause.Error())},
+				})
+			}
+			if err != nil {
+				slog.ErrorContext(ctx, "Session-naming failure notification delivery failed", "session_id", id, "error", err)
+			}
+		})
 	sourceSessionLaunch := func(
 		ctx context.Context,
 		sessionID runtimeids.SessionID,

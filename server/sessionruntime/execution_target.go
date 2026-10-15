@@ -729,8 +729,6 @@ func (a *Authority) withMaintenanceResourceAdmission(
 	}
 	if retire {
 		err = errors.Join(err, a.retireExactResource(ctx, resource))
-	} else {
-		err = errors.Join(err, a.closeRetiringResource(context.Background(), resource))
 	}
 	return err
 }

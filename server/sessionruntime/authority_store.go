@@ -432,10 +432,7 @@ func (a *Authority) WithSessionStore(ctx context.Context, descriptor session.Ses
 		}
 		return callback(ctx, store)
 	}()
-	if resource == nil {
-		return callbackErr
-	}
-	return errors.Join(callbackErr, a.closeRetiringResource(context.Background(), resource))
+	return callbackErr
 }
 
 type DormantSessionStoreAdmission struct {

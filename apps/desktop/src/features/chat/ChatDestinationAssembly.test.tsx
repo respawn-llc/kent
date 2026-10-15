@@ -192,7 +192,7 @@ it("holds busy Send readonly until acceptance during compaction, then allows con
       kind: "hydration",
       payload: {
         ...hydration(),
-        ActiveCompaction: { StepID: "compact", State: "started", Mode: "manual", Count: 1, RequestID: null },
+        ActiveCompaction: { StepID: "compact", State: "started", Mode: "manual", Count: 1 },
       },
     });
   });

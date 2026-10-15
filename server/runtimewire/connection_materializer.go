@@ -64,7 +64,7 @@ func connectionMaterializer(
 	opts RuntimeWiringOptions,
 	newClient func(config.Settings, RuntimeClientPurpose, RuntimeClientFactory, llm.ProviderCapabilities) (llm.Client, error),
 ) runtime.ConnectionResolver {
-	return func(_ context.Context, request runtime.ConnectionSelectionRequest) (*runtime.PreparedConnection, error) {
+	return func(ctx context.Context, request runtime.ConnectionSelectionRequest) (*runtime.PreparedConnection, error) {
 		rotation := opts.ConnectionRotation
 		if !rotation.FallbackEnabled() {
 			return nil, nil
@@ -86,7 +86,7 @@ func connectionMaterializer(
 		default:
 			return nil, fmt.Errorf("invalid connection selection reason %d", request.Reason)
 		}
-		id, err := rotation.SelectReplacement(active, opts.ConnectionScope, request.Visited)
+		id, err := rotation.SelectReplacement(ctx, active, opts.ConnectionScope, request.Visited)
 		if err != nil {
 			return nil, err
 		}

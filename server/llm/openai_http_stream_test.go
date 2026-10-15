@@ -800,7 +800,7 @@ func TestGenerateAcceptsCompletedEmptyFinalAfterDoneOnlyStream(t *testing.T) {
 		`[DONE]`,
 	)
 
-	resp, err := NewResponsesClient(transport).Generate(context.Background(), Request{SessionID: textutil.Value("test-session"),
+	resp, err := NewResponsesClient(transport, nil).Generate(context.Background(), Request{SessionID: textutil.Value("test-session"),
 		Model:          "gpt-6-sol",
 		ToolChoiceMode: ToolChoiceModeAutomatic, ReasoningEffort: "high",
 	}, StreamCallbacks{})

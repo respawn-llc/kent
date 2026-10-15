@@ -12,6 +12,7 @@ import (
 	"core/server/session"
 	"core/server/tools"
 	"core/shared/protoapi"
+	projectpb "core/shared/protoapi/gen/kent/api/project"
 	runtimepb "core/shared/protoapi/gen/kent/api/runtime"
 	transcriptpb "core/shared/protoapi/gen/kent/api/transcript"
 	"core/shared/rollbacktarget"
@@ -157,30 +158,6 @@ func TestTranscriptCompactionProjectionCarriesTypedFactsWithoutServerPresentatio
 	}
 	if notice.CompactLabel != nil || notice.CondensedText != nil || notice.Diagnostic != nil {
 		t.Fatalf("server-authored compaction presentation leaked into client contract: %+v", notice)
-	}
-}
-
-func TestTranscriptCompactionStatusPreservesInitiatingRequestIdentity(t *testing.T) {
-	requestID := runtimeids.NewCompactionRequestID()
-	messages, err := TranscriptMessagesFromRuntimeEventChecked(runtime.Event{
-		Kind:   runtime.EventCompactionCompleted,
-		StepID: runtimeStepIDPointer(transcriptProjectionStepID),
-		Compaction: &runtime.CompactionStatus{
-			Mode:      "manual",
-			RequestID: &requestID,
-			Count:     1,
-		},
-	}, nil)
-
-	if err != nil {
-		t.Fatalf("project compaction status: %v", err)
-	}
-	if len(messages) != 1 {
-		t.Fatalf("compaction messages = %+v, want one", messages)
-	}
-	status := messages[0].GetCompactionStatus()
-	if status.RequestId == nil || *status.RequestId != requestID.String() {
-		t.Fatalf("projected request identity = %v, want %s", status.RequestId, requestID.String())
 	}
 }
 
@@ -706,6 +683,7 @@ func TestRuntimeScopedToolCompletionProjectsLiveAndHydratedWithoutExactStep(t *t
 		t.Fatalf("Runtime hydration rows = %+v, want user and tool", hydration.TailSegment.Entries)
 	}
 	hydration.SessionIdentity = &transcriptpb.SessionIdentity{
+		Category:              projectpb.SessionCategory_SESSION_CATEGORY_MAIN,
 		SessionId:             projectionWorkspaceID,
 		ConversationFreshness: runtimepb.ConversationFreshness_CONVERSATION_FRESHNESS_ESTABLISHED,
 	}

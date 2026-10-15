@@ -82,11 +82,20 @@ func (e *Engine) buildReviewerDispatchRequest(
 			llm.ErrInvalidRequest,
 		)
 	}
+	lifetime, ok := e.stepLifecycle.TurnStateLifetimeForStep(stepID)
+	if !ok {
+		return llm.Request{}, fmt.Errorf(
+			"%w: enclosing Agent Turn routing lifetime is required for Reviewer dispatch",
+			llm.ErrInvalidRequest,
+		)
+	}
 	factory, err := newDispatchRequestFactory(dispatchRequestIdentity{
-		SessionID:            reviewerSessionID(e.store.Meta().SessionID),
-		StepID:               active.StepID,
-		CompactionGeneration: e.compactionRuntimeState().Count(),
-		RequestKind:          llm.CodexRequestKindTurn.Optional(),
+		SessionID:               reviewerSessionID(e.store.Meta().SessionID),
+		StepID:                  active.StepID,
+		CompactionGeneration:    e.compactionRuntimeState().Count(),
+		RequestKind:             llm.CodexRequestKindTurn.Optional(),
+		TurnStateLifetime:       llm.NewCodexTurnStateLifetime(),
+		SharedTurnStateLifetime: lifetime,
 	})
 	if err != nil {
 		return llm.Request{}, err

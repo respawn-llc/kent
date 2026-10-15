@@ -21,7 +21,6 @@ export function thinkingShowcaseServices(writeText: (value: string) => Promise<v
     callDescriptorAttachedSession: unavailable,
     callDescriptor: unavailable,
     callDescriptorAttachedProject: unavailable,
-    runRuntimeOwner: unavailable,
     subscribeDescriptor: unavailable,
   };
   return {

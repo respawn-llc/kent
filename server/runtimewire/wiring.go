@@ -41,6 +41,8 @@ func (w *RuntimeWiring) Close() error {
 type RuntimeWiringOptions struct {
 	ConnectionScope                     config.ConnectionScope
 	ConnectionRotation                  *launch.ConnectionRotation
+	SubmitSessionNaming                 func(runtime.SessionNamingInput)
+	RecordUsage                         ConnectionUsageRecorder
 	Environment                         func(string) (string, bool)
 	WorkspaceMembership                 WorkspaceMembership
 	ProjectWorkspaceContextReader       runtime.ProjectWorkspaceContextReader
@@ -62,7 +64,8 @@ type RuntimeWiringOptions struct {
 	ProviderCapabilitiesOverride        *llm.ProviderCapabilities
 	SkipContinuationAgentRoleValidation bool
 	StepLifecycle                       runtime.StepLifecycleSink
-	LifecycleTaskFinished               func() error
+	LifecycleTaskFinished               func()
+	RuntimeWriteAccepted                func()
 	LifecycleRuntimeAbort               func() error
 	SubmitAgentSteer                    func(context.Context, runtime.AgentSteer) error
 	DurabilityObserver                  runtime.ResultGroupDurabilityObserver
@@ -120,6 +123,7 @@ func NewRuntimeWiringWithBackground(
 			Purpose: purpose, SessionID: store.Meta().SessionID, ActiveSettings: settings,
 			EnabledTools: enabledTools, Sources: opts.Sources, Connection: connection,
 			RequestCapabilities: capabilities,
+			RecordUsage:         opts.RecordUsage,
 		})
 	}
 	preparedConnection, err := materializeConnection(store, active, opts, newClient)
@@ -220,9 +224,21 @@ func NewRuntimeWiringWithBackground(
 	if len(opts.RequiredTools) != 0 {
 		promptReloader = requiredToolsSnapshotReloader{base: promptReloader, required: append([]toolspec.ID(nil), opts.RequiredTools...)}
 	}
+	var namingConfig *runtime.SessionNamingConfig
+	meta := store.Meta()
+	if opts.SubmitSessionNaming != nil && meta.Name == nil &&
+		(meta.ModelRequestCount == 0 || strings.TrimSpace(meta.FirstPromptPreview) != "") {
+		// Capture stays bounded independently of settings, which can change on
+		// Worktree enter/leave before the first Step. The consumer budgets again.
+		namingConfig = &runtime.SessionNamingConfig{MaxInputRunes: 10_000, Submit: opts.SubmitSessionNaming}
+		if strings.TrimSpace(meta.FirstPromptPreview) != "" {
+			namingConfig.ResumeTask = textutil.Value(meta.FirstPromptPreview)
+		}
+	}
 	eng, err = runtime.New(store, eventLog, preparedConnection.Client, toolRegistry, runtime.Config{
 		InitialConnection:               preparedConnection,
 		ResolveConnection:               connectionMaterializer(store, active, opts, newClient),
+		SessionNaming:                   namingConfig,
 		Model:                           active.Model,
 		Debug:                           active.Debug,
 		Temperature:                     1,
@@ -275,6 +291,7 @@ func NewRuntimeWiringWithBackground(
 		OnEvent:               opts.OnEvent,
 		StepLifecycle:         opts.StepLifecycle,
 		LifecycleTaskFinished: opts.LifecycleTaskFinished,
+		RuntimeWriteAccepted:  opts.RuntimeWriteAccepted,
 		LifecycleRuntimeAbort: opts.LifecycleRuntimeAbort,
 		SubmitAgentSteer:      opts.SubmitAgentSteer,
 		DurabilityObserver:    opts.DurabilityObserver,

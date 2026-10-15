@@ -59,16 +59,16 @@ func TestPendingWorkRefreshTriggersUseCapturedSession(t *testing.T) {
 			m.applyAdmittedTranscriptMessageState(transcriptTestMessage(2, &transcriptpb.PendingWorkChanged{}),
 				runtimeTupleMergeResult{})
 		}},
-		{"Send/Steer", true, func(m *uiModel, id runtimeids.SessionID) {
+		{"Send/Steer", false, func(m *uiModel, _ runtimeids.SessionID) {
 			m.activeSubmit = activeSubmitState{token: 1}
-			m.inputController().handleSubmitDone(submitDoneMsg{token: 1, sessionID: id})
+			m.inputController().handleSubmitDone(submitDoneMsg{token: 1})
 		}},
-		{"Queue", true, func(m *uiModel, id runtimeids.SessionID) {
-			m.injectedQueue = []injectedRuntimeQueueItem{{LocalID: "local", State: injectedRuntimeQueuePendingCreate, CreateToken: 1}}
-			m.inputController().handleInjectedQueueCreateDone(injectedQueueCreateDoneMsg{token: 1, sessionID: id, localID: "local", completed: true})
+		{"Queue", false, func(m *uiModel, _ runtimeids.SessionID) {
+			m.injectedQueue = []*injectedRuntimeQueueItem{{State: injectedRuntimeQueuePendingCreate}}
+			m.inputController().handleInjectedQueueCreateDone(injectedQueueCreateDoneMsg{pending: m.injectedQueue[0], completed: true})
 		}},
 		{"compact", true, func(m *uiModel, id runtimeids.SessionID) {
-			m.inputController().handleCompactDone(compactDoneMsg{requestID: runtimeids.NewCompactionRequestID(), sessionID: id})
+			m.inputController().handleCompactDone(compactDoneMsg{sessionID: id})
 		}},
 		{"active Worktree", true, func(m *uiModel, id runtimeids.SessionID) {
 			m.worktrees.switchToken = 1
@@ -78,9 +78,9 @@ func TestPendingWorkRefreshTriggersUseCapturedSession(t *testing.T) {
 				ack:        &worktreepb.ScheduledAcknowledgement{OperationId: runtimeids.NewQueueItemID().String()},
 			})
 		}},
-		{"remove", true, func(m *uiModel, id runtimeids.SessionID) {
-			m.injectedQueue = []injectedRuntimeQueueItem{{LocalID: "local", State: injectedRuntimeQueueDiscardPending, DiscardToken: 1}}
-			m.inputController().handleInjectedQueueDiscardDone(injectedQueueDiscardDoneMsg{token: 1, sessionID: id, localID: "local", discarded: true})
+		{"remove", false, func(m *uiModel, _ runtimeids.SessionID) {
+			m.injectedQueue = []*injectedRuntimeQueueItem{{State: injectedRuntimeQueueDiscardPending}}
+			m.inputController().handleInjectedQueueDiscardDone(injectedQueueDiscardDoneMsg{item: m.injectedQueue[0], discarded: true})
 		}}}
 	for _, trigger := range triggers {
 		for _, captured := range []runtimeids.SessionID{sessionID, runtimeids.NewSessionID()} {

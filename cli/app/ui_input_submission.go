@@ -10,7 +10,6 @@ import (
 
 	"core/cli/app/internal/runtimeattach"
 	"core/shared/clientui"
-	"core/shared/runtimeids"
 	"core/shared/runtimeinput"
 	"core/shared/serverapi"
 
@@ -110,9 +109,7 @@ func (c uiInputController) submitCmd(text string, input runtimeinput.Input, queu
 	sessionID := m.pendingWorkRefresh.sessionID
 	return func() tea.Msg {
 		doneMessage := func(message string, err error) submitDoneMsg {
-			done := newSubmitDoneMsg(token, message, text, err)
-			done.sessionID = sessionID
-			return done
+			return newSubmitDoneMsg(token, message, text, err)
 		}
 		if client == nil {
 			return doneMessage("", errors.New("runtime engine is not configured"))
@@ -120,6 +117,12 @@ func (c uiInputController) submitCmd(text string, input runtimeinput.Input, queu
 		submission, err := m.submitRuntimeInput(context.Background(), clientui.RuntimeSubmitRequest{
 			Input: input,
 		})
+		if submission.SessionID != nil && *submission.SessionID != sessionID.String() {
+			done := doneMessage("", err)
+			done.diagnostic = submission.Diagnostic
+			done.selectedSessionID = submission.SessionID
+			return done
+		}
 		if err != nil {
 			if !errors.Is(err, serverapi.ErrRuntimeCommandNotAccepted) && errors.Is(err, context.Canceled) {
 				return doneMessage("", runtimeattach.ErrSubmissionInterrupted)
@@ -131,6 +134,8 @@ func (c uiInputController) submitCmd(text string, input runtimeinput.Input, queu
 			message = *submission.Message
 		}
 		done := doneMessage(message, nil)
+		done.diagnostic = submission.Diagnostic
+		done.selectedSessionID = submission.SessionID
 		done.queued = submission.Queued
 		resultKind := submission.ResultKind
 		done.resultKind = &resultKind
@@ -191,19 +196,16 @@ func (c uiInputController) startCompaction(submittedText, args string) tea.Cmd {
 	if m.isCompacting() {
 		return nil
 	}
-	requestID := runtimeids.NewCompactionRequestID()
-	m.registerPendingCompactionRequest(requestID)
 	c.startRuntimeOperationAffordance()
 	m.logf("compaction.start args_chars=%d", len(strings.TrimSpace(args)))
 	m.layout().syncViewport()
 	return tea.Batch(
-		c.compactCmd(requestID, submittedText, optionalCompactionGuidance(args)),
+		c.compactCmd(submittedText, optionalCompactionGuidance(args)),
 		m.reconcileSpinnerTicking(false),
 	)
 }
 
 func (c uiInputController) compactCmd(
-	requestID runtimeids.CompactionRequestID,
 	submittedText string,
 	guidance *string,
 ) tea.Cmd {
@@ -213,22 +215,19 @@ func (c uiInputController) compactCmd(
 	return func() tea.Msg {
 		if client == nil {
 			return compactDoneMsg{
-				requestID:     requestID,
 				sessionID:     sessionID,
 				submittedText: submittedText,
 				err:           errors.New("runtime engine is not configured"),
 			}
 		}
+		result, err := m.compactRuntimeInput(context.Background(), clientui.RuntimeCompactRequest{
+			Admission: runtimeinput.ManualCompactionAdmission{
+				Guidance: guidance,
+			},
+		})
 		return compactDoneMsg{
-			requestID:     requestID,
-			sessionID:     sessionID,
-			submittedText: submittedText,
-			err: m.compactRuntimeInput(context.Background(), clientui.RuntimeCompactRequest{
-				RequestID: requestID,
-				Admission: runtimeinput.ManualCompactionAdmission{
-					Guidance: guidance,
-				},
-			}),
+			sessionID: sessionID, submittedText: submittedText,
+			diagnostic: result.Diagnostic, err: err,
 		}
 	}
 }
@@ -274,14 +273,23 @@ func (c uiInputController) turnQueueDrained() bool {
 
 func (c uiInputController) handleSubmitDone(msg submitDoneMsg) (tea.Model, tea.Cmd) {
 	m := c.model
-	pendingWorkRefreshCmd := m.requestPendingWorkRefreshIfSuccessful(msg.sessionID, msg.err == nil)
 	if msg.token == 0 && m.activeSubmit.token != 0 && strings.TrimSpace(msg.submittedText) != "" {
-		return m, pendingWorkRefreshCmd
+		return m, nil
 	}
 	if msg.token != 0 && msg.token != m.activeSubmit.token {
-		return m, pendingWorkRefreshCmd
+		return m, nil
 	}
+	pendingWorkRefreshCmd := m.requestPendingWorkRefreshIfSuccessful(m.pendingWorkRefresh.sessionID, msg.err == nil)
 	submitOrigin := m.activeSubmit.origin
+	if msg.selectedSessionID != nil && *msg.selectedSessionID != m.sessionID {
+		m.nextSessionID = *msg.selectedSessionID
+		m.exitAction = UIActionOpenSession
+		if msg.diagnostic != nil {
+			return m, tea.Sequence(m.appendLocalEntryWithNoticeID("error", msg.diagnostic.Error(), ""), tea.Quit)
+		}
+		return m, tea.Quit
+	}
+	pendingWorkRefreshCmd = tea.Batch(pendingWorkRefreshCmd, m.acceptedSubmissionDiagnosticCmd(msg.diagnostic))
 	m.observeRuntimeRequestResult(msg.err)
 	restoreSubmittedText := msg.err != nil && (msg.token == 0 || m.shouldRestoreSubmittedTextOnSubmitError(msg.err))
 	activeQueuedID := m.activeSubmit.queuedID
@@ -362,6 +370,14 @@ func (c uiInputController) handleSubmitDone(msg submitDoneMsg) (tea.Model, tea.C
 	return m, tea.Batch(queuedStateCmd, pendingWorkRefreshCmd)
 }
 
+func (m *uiModel) acceptedSubmissionDiagnosticCmd(diagnostic error) tea.Cmd {
+	if diagnostic == nil {
+		return nil
+	}
+	m.logf("submission.accepted diagnostic=%q", diagnostic.Error())
+	return m.sendTransientStatusWithNoticeID(diagnostic.Error(), uiStatusNoticeError, transientStatusDuration, uiStatusNoticeReplace, "")
+}
+
 func (c uiInputController) handleSpinnerTick(msg spinnerTickMsg) (tea.Model, tea.Cmd) {
 	m := c.model
 	if msg.token == 0 || msg.token != m.spinnerTickToken {
@@ -394,7 +410,6 @@ func (c uiInputController) handleCompactDone(msg compactDoneMsg) (tea.Model, tea
 	m.observeRuntimeRequestResult(msg.err)
 	c.finishRuntimeOperationAffordance()
 	if msg.err != nil {
-		m.clearPendingCompactionRequest(msg.requestID)
 		restoreInjectedCmd := c.restoreInjectedInputsIntoComposer()
 		if errors.Is(msg.err, serverapi.ErrPendingWorkCapacity) {
 			c.restoreSubmittedTextIntoInput(msg.submittedText)
@@ -413,7 +428,7 @@ func (c uiInputController) handleCompactDone(msg compactDoneMsg) (tea.Model, tea
 		m.layout().syncViewport()
 		return m, tea.Batch(restoreInjectedCmd, appendCmd)
 	}
-	pendingWorkRefreshCmd := m.requestPendingWorkRefresh(msg.sessionID)
+	pendingWorkRefreshCmd := tea.Batch(m.requestPendingWorkRefresh(msg.sessionID), m.acceptedSubmissionDiagnosticCmd(msg.diagnostic))
 
 	if !serverActiveBeforeCompletion {
 		m.activity = uiActivityIdle
@@ -430,27 +445,6 @@ func (c uiInputController) handleCompactDone(msg compactDoneMsg) (tea.Model, tea
 	}
 	m.layout().syncViewport()
 	return m, pendingWorkRefreshCmd
-}
-
-func (m *uiModel) clearPendingCompactionRequest(requestID runtimeids.CompactionRequestID) bool {
-	if m == nil {
-		return false
-	}
-	if _, exists := m.pendingCompactionRequestIDs[requestID]; !exists {
-		return false
-	}
-	delete(m.pendingCompactionRequestIDs, requestID)
-	if len(m.pendingCompactionRequestIDs) == 0 {
-		m.pendingCompactionRequestIDs = nil
-	}
-	return true
-}
-
-func (m *uiModel) registerPendingCompactionRequest(requestID runtimeids.CompactionRequestID) {
-	if m.pendingCompactionRequestIDs == nil {
-		m.pendingCompactionRequestIDs = make(map[runtimeids.CompactionRequestID]struct{})
-	}
-	m.pendingCompactionRequestIDs[requestID] = struct{}{}
 }
 
 func (m *uiModel) shouldRestoreSubmittedTextOnSubmitError(err error) bool {

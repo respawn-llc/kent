@@ -25,10 +25,12 @@ func (k CodexRequestKind) Optional() *CodexRequestKind {
 }
 
 type CodexDispatchFacts struct {
-	SessionID            string
-	StepID               string
-	CompactionGeneration int
-	RequestKind          *CodexRequestKind
+	SessionID               string
+	StepID                  string
+	CompactionGeneration    int
+	RequestKind             *CodexRequestKind
+	TurnStateLifetime       *CodexTurnStateLifetime
+	SharedTurnStateLifetime *CodexTurnStateLifetime
 }
 
 type CodexDispatchContext struct {
@@ -37,10 +39,26 @@ type CodexDispatchContext struct {
 }
 
 type CodexDispatchState struct {
-	mu           sync.Mutex
-	turnState    string
-	hasTurnState bool
-	diagnostics  map[CodexTurnStateDiagnosticCategory]struct{}
+	mu          sync.Mutex
+	turnState   *CodexTurnState
+	diagnostics map[CodexTurnStateDiagnosticCategory]struct{}
+}
+
+type CodexTurnStateLifetime struct {
+	mu    sync.Mutex
+	route *codexTurnStateRoute
+	state *CodexTurnState
+}
+
+type CodexTurnState struct {
+	mu       sync.Mutex
+	value    string
+	hasValue bool
+}
+
+type codexTurnStateRoute struct {
+	accountID string
+	endpoint  string
 }
 
 type CodexTurnStateDiagnosticCategory string
@@ -72,10 +90,19 @@ func NewCodexDispatchContext(facts CodexDispatchFacts) (*CodexDispatchContext, e
 	if err := facts.validate(); err != nil {
 		return nil, err
 	}
+	lifetime := facts.TurnStateLifetime
+	if lifetime == nil {
+		lifetime = NewCodexTurnStateLifetime()
+		facts.TurnStateLifetime = lifetime
+	}
 	return &CodexDispatchContext{
 		facts: facts,
-		state: &CodexDispatchState{},
+		state: &CodexDispatchState{turnState: lifetime.currentState()},
 	}, nil
+}
+
+func NewCodexTurnStateLifetime() *CodexTurnStateLifetime {
+	return &CodexTurnStateLifetime{state: &CodexTurnState{}}
 }
 
 func (c *CodexDispatchContext) TurnMetadataJSON() (string, error) {
@@ -113,7 +140,7 @@ func (c *CodexDispatchContext) outboundProjection(
 	}, nil
 }
 
-func (c *CodexDispatchContext) turnStateForRetry() (string, bool) {
+func (c *CodexDispatchContext) turnStateForRequest() (string, bool) {
 	return c.currentTurnState()
 }
 
@@ -122,8 +149,31 @@ func (c *CodexDispatchContext) currentTurnState() (string, bool) {
 		return "", false
 	}
 	c.state.mu.Lock()
-	defer c.state.mu.Unlock()
-	return c.state.turnState, c.state.hasTurnState
+	state := c.state.turnState
+	c.state.mu.Unlock()
+	return state.current()
+}
+
+func (c *CodexDispatchContext) bindTurnState(accountID *string, endpoint string) {
+	if c == nil || c.state == nil || c.facts.TurnStateLifetime == nil {
+		return
+	}
+	lifetime := c.facts.TurnStateLifetime
+	var state *CodexTurnState
+	if c.facts.SharedTurnStateLifetime != nil {
+		var shared bool
+		state, shared = c.facts.SharedTurnStateLifetime.bindRouteIfUnboundOrMatches(accountID, endpoint)
+		if shared {
+			lifetime.clear()
+		} else {
+			state = lifetime.bindRoute(accountID, endpoint)
+		}
+	} else {
+		state = lifetime.bindRoute(accountID, endpoint)
+	}
+	c.state.mu.Lock()
+	c.state.turnState = state
+	c.state.mu.Unlock()
 }
 
 func (c *CodexDispatchContext) observeTurnStateCandidate(value string, source codexTurnStateSource) {
@@ -131,21 +181,87 @@ func (c *CodexDispatchContext) observeTurnStateCandidate(value string, source co
 		return
 	}
 	c.state.mu.Lock()
-	switch {
-	case validateCodexHeaderValue(value) != nil:
+	turnState := c.state.turnState
+	c.state.mu.Unlock()
+	if validateCodexHeaderValue(value) != nil {
+		c.state.mu.Lock()
 		shouldWarn := c.state.recordDiagnosticLocked(CodexTurnStateDiagnosticInvalid)
 		requestKind := c.facts.RequestKind
 		c.state.mu.Unlock()
 		c.warnUnusableTurnState(shouldWarn, CodexTurnStateDiagnosticInvalid, source, requestKind)
 		return
-	case !c.state.hasTurnState:
-		c.state.turnState = value
-		c.state.hasTurnState = true
-		c.state.mu.Unlock()
+	}
+	if turnState == nil {
 		return
-	default:
-		c.state.mu.Unlock()
+	}
+	turnState.accept(value)
+}
+
+func (l *CodexTurnStateLifetime) currentState() *CodexTurnState {
+	if l == nil {
+		return nil
+	}
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	return l.state
+}
+
+func (l *CodexTurnStateLifetime) bindRoute(accountID *string, endpoint string) *CodexTurnState {
+	if l == nil || accountID == nil {
+		return nil
+	}
+	route := codexTurnStateRoute{accountID: *accountID, endpoint: endpoint}
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	if l.route == nil || *l.route != route {
+		l.route = &route
+		l.state = &CodexTurnState{}
+	}
+	return l.state
+}
+
+func (l *CodexTurnStateLifetime) bindRouteIfUnboundOrMatches(accountID *string, endpoint string) (*CodexTurnState, bool) {
+	if l == nil || accountID == nil {
+		return nil, false
+	}
+	route := codexTurnStateRoute{accountID: *accountID, endpoint: endpoint}
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	if l.route != nil && *l.route != route {
+		return nil, false
+	}
+	if l.route == nil {
+		l.route = &route
+		l.state = &CodexTurnState{}
+	}
+	return l.state, true
+}
+
+func (l *CodexTurnStateLifetime) clear() {
+	if l == nil {
 		return
+	}
+	l.mu.Lock()
+	l.route = nil
+	l.state = &CodexTurnState{}
+	l.mu.Unlock()
+}
+
+func (s *CodexTurnState) current() (string, bool) {
+	if s == nil {
+		return "", false
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.value, s.hasValue
+}
+
+func (s *CodexTurnState) accept(value string) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if !s.hasValue {
+		s.value = value
+		s.hasValue = true
 	}
 }
 

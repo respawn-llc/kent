@@ -625,7 +625,7 @@ func TestResponsesTransport_UsesExpectedSessionHeadersAndPromptCacheKeysAcrossCo
 		SupportsPromptCacheKey: true,
 		IsOpenAIFirstParty:     true,
 	}
-	openAIClient := llm.NewResponsesClient(transport)
+	openAIClient := llm.NewResponsesClient(transport, nil)
 
 	store := mustCreateTestSession(t)
 	engineClient := &fakeClient{caps: llm.ProviderCapabilities{ProviderID: "openai", SupportsResponsesAPI: true, SupportsPromptCacheKey: true, IsOpenAIFirstParty: true}}

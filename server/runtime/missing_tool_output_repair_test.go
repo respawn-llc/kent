@@ -373,20 +373,15 @@ func TestCompactionMissingToolOutputRepairAppendsAndRetries(t *testing.T) {
 	}
 	eng := mustNewTestEngine(t, store, client, tools.NewRegistry(), Config{Model: "gpt-6-sol"})
 	steerDanglingToolCall(t, eng, "step", llm.ToolCall{ID: "missing", Name: "exec_command", Input: json.RawMessage(`{}`)})
-	request := llm.CompactionRequest{
-		Model:          "gpt-6-sol",
-		SessionID:      textutil.Value(store.Meta().SessionID),
-		ToolChoiceMode: llm.ToolChoiceModeAutomatic,
-		Items:          eng.transcriptRuntimeState().SnapshotItems(), ReasoningEffort: "high",
-	}
-
-	restoreStep := setTestActiveStep(eng, "step")
-	defer restoreStep()
-	dispatchFactory, err := eng.activeDispatchRequestFactory(runtimeTestStepID("step"), nil)
+	err := withActiveTestRun(t, eng, ActiveKindCompaction, func(ctx context.Context, stepID string) error {
+		dispatchFactory, factoryErr := eng.activeDispatchRequestFactory(stepID, nil)
+		if factoryErr != nil {
+			return factoryErr
+		}
+		_, _, _, compactErr := eng.compactWithContextRepairRetry(ctx, stepID, eng.transcriptRuntimeState().SnapshotItems(), "", dispatchFactory, modelRequestSingleAttempt)
+		return compactErr
+	})
 	if err != nil {
-		t.Fatalf("create compaction dispatch: %v", err)
-	}
-	if _, _, _, err := eng.compactWithContextRepairRetry(context.Background(), runtimeTestStepID("step"), request.Items, "", dispatchFactory, modelRequestSingleAttempt); err != nil {
 		t.Fatalf("compact with repair retry: %v", err)
 	}
 	if len(client.compactionCalls) != 2 {

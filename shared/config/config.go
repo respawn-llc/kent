@@ -180,6 +180,8 @@ func (p SkillPolicy) Equivalent(other SkillPolicy) bool {
 }
 
 type Settings struct {
+	Nano                             *NanoSettings
+	NanoConcurrency                  int
 	Connection                       *ConnectionSelection
 	Connections                      map[ConnectionID]ProviderConnection
 	ConnectionOrder                  []ConnectionID

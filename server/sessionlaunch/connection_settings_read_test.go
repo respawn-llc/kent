@@ -4,6 +4,7 @@ import (
 	"errors"
 	"testing"
 
+	"core/internal/testharness/testsetup"
 	"core/server/launch"
 	"core/server/session"
 	"core/server/session/sessiontest"
@@ -95,10 +96,10 @@ func TestSessionChatSettingsReplacementMatchesInteractiveResumeAgentConnection(t
 	if err := store.SetContinuationContext(session.ContinuationContext{AgentRole: textutil.Value("worker")}); err != nil {
 		t.Fatal(err)
 	}
-	rotation := new(launch.ConnectionRotation)
+	rotation := launch.NewConnectionRotation(testsetup.OpenStore(t, t.TempDir()), 0)
 	workerSettings := cfg.Settings
 	workerSettings.Connection = &workerConnections
-	if selected, err := rotation.Prepare(workerSettings, true); err != nil || selected != "worker" {
+	if selected, err := rotation.Prepare(t.Context(), workerSettings, true); err != nil || selected != "worker" {
 		t.Fatalf("initial assignment = %s, %v", selected, err)
 	}
 	svc := NewService(launch.Planner{

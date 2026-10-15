@@ -9,7 +9,6 @@ import (
 	"reflect"
 	"strings"
 	"sync"
-	"time"
 
 	"core/server/auth"
 	"core/server/chatcontext"
@@ -21,8 +20,6 @@ import (
 	"core/shared/rpcwire"
 	"core/shared/runtimeids"
 	"core/shared/serverapi"
-
-	"github.com/google/uuid"
 )
 
 // ErrGatewayDependenciesRequired is returned by NewGateway when the supplied
@@ -161,9 +158,6 @@ type connectionState struct {
 	attachedWorkspaceID   string
 	attachedWorkspaceRoot string
 	attachedSession       *runtimeids.SessionID
-	runtimeOwnerID        string
-	ownedRuntimesMu       sync.Mutex
-	ownedRuntimes         map[serverapi.SessionRuntimeAttachment]struct{}
 }
 
 func NewGateway(deps GatewayDependencies, identity protocol.ServerIdentity) (*Gateway, error) {
@@ -276,14 +270,13 @@ func (g *Gateway) handleConn(ctx context.Context, conn rpcwire.Conn) {
 			stop()
 		}
 	}()
-	state := &connectionState{runtimeOwnerID: uuid.NewString()}
+	state := &connectionState{}
 	const ordinaryAdmissionLimit = 16
 	admission := make(chan struct{}, ordinaryAdmissionLimit)
 	var ordinary sync.WaitGroup
 	defer func() {
 		stop()
 		ordinary.Wait()
-		g.cleanupConnectionRuntimes(state)
 	}()
 	for {
 		if !state.handshakeDone {
@@ -385,30 +378,6 @@ func (g *Gateway) requireCoreActive() error {
 		return nil
 	}
 	return lifecycle.RequireCoreActive()
-}
-
-const gatewayRuntimeCleanupTimeout = 3 * time.Second
-
-func (g *Gateway) cleanupConnectionRuntimes(state *connectionState) {
-	owned := state.takeOwnedRuntimes()
-	if len(owned) == 0 || g == nil || isNilGatewayDependencies(g.deps) {
-		return
-	}
-	client := g.deps.SessionRuntimeClient()
-	if client == nil {
-		return
-	}
-	ownerID := strings.TrimSpace(state.runtimeOwnerID)
-	for _, attachment := range owned {
-		ctx, cancel := context.WithTimeout(context.Background(), gatewayRuntimeCleanupTimeout)
-		_, _ = client.ReleaseSessionRuntime(ctx, serverapi.SessionRuntimeReleaseRequest{
-			Attachment:  attachment,
-			DropOwner:   true,
-			ClosePolicy: serverapi.SessionRuntimeReleaseClosePolicyDetachOnly,
-			OwnerID:     ownerID,
-		})
-		cancel()
-	}
 }
 
 func (g *Gateway) receiveEstablishedRequest(ctx context.Context, conn rpcwire.Conn) (gatewayEstablishedRequest, error) {

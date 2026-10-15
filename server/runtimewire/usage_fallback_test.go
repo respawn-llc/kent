@@ -17,6 +17,7 @@ import (
 	"core/internal/testharness/httpclient"
 	"core/internal/testharness/pty/blackbox"
 	"core/internal/testharness/scriptedllm"
+	"core/internal/testharness/testsetup"
 	"core/server/launch"
 	"core/server/llm"
 	"core/server/runtime"
@@ -41,7 +42,7 @@ func TestUsageFallbackContinuesAndSavesReplacement(t *testing.T) {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { _ = healthy.Stop() })
-	wiring, store := newUsageFallbackRuntime(t, launch.NewConnectionRotation(time.Minute), exhausted, healthy.URL(), config.CompactionModeLocal)
+	wiring, store := newUsageFallbackRuntime(t, launch.NewConnectionRotation(testsetup.OpenStore(t, t.TempDir()), time.Minute), exhausted, healthy.URL(), config.CompactionModeLocal)
 	if _, err := wiring.Engine.SubmitUserMessage(t.Context(), "hello"); err != nil {
 		t.Fatal(err)
 	}
@@ -130,7 +131,7 @@ func testUsageFallbackReviewer(t *testing.T, explicit, unavailable, preparationF
 	if explicit {
 		reviewer.Connection = config.SingleConnection("a")
 	}
-	rotation := launch.NewConnectionRotation(time.Minute)
+	rotation := launch.NewConnectionRotation(testsetup.OpenStore(t, t.TempDir()), time.Minute)
 	b := healthy.URL()
 	if unavailable {
 		b, _ = usageFailureEndpoint(t, 429, fault)
@@ -310,7 +311,7 @@ func TestUsageFallbackUnavailableIsBoundedAfterCooldownExpires(t *testing.T) {
 	fault := usageExhaustionFixture(t)
 	a, aCalls := usageFailureEndpoint(t, 429, fault)
 	b, bCalls := usageFailureEndpoint(t, 429, fault)
-	wiring, store := newUsageFallbackRuntime(t, launch.NewConnectionRotation(time.Nanosecond), a, b, config.CompactionModeLocal)
+	wiring, store := newUsageFallbackRuntime(t, launch.NewConnectionRotation(testsetup.OpenStore(t, t.TempDir()), time.Nanosecond), a, b, config.CompactionModeLocal)
 	_, err := wiring.Engine.SubmitUserMessage(t.Context(), "hello")
 	var unavailable *llmerrors.ConnectionsUnavailableError
 	if !errors.As(err, &unavailable) || len(unavailable.Members) != 2 || len(unavailable.Causes) != 2 {
@@ -354,7 +355,7 @@ func TestUsageFallbackCooldownExpiryKeepsCurrentConnection(t *testing.T) {
 			"a": {Protocol: config.ConnectionResponses, Endpoint: textutil.Value("http://127.0.0.1:1")},
 		},
 	}
-	rotation := launch.NewConnectionRotation(time.Microsecond)
+	rotation := launch.NewConnectionRotation(testsetup.OpenStore(t, t.TempDir()), time.Microsecond)
 	resolve := connectionMaterializer(store, settings, RuntimeWiringOptions{
 		ConnectionRotation: rotation,
 		ConnectionScope:    config.ConnectionScope{Selection: settings.Connection},
@@ -382,7 +383,7 @@ func TestUsageFallbackZeroRetainsOriginalFailure(t *testing.T) {
 	fault := usageExhaustionFixture(t)
 	a, aCalls := usageFailureEndpoint(t, 429, fault)
 	b, bCalls := usageFailureEndpoint(t, 401, []byte(`{"error":{"code":"invalid_api_key","message":"fixture"}}`))
-	wiring, store := newUsageFallbackRuntime(t, launch.NewConnectionRotation(0), a, b, config.CompactionModeLocal)
+	wiring, store := newUsageFallbackRuntime(t, launch.NewConnectionRotation(testsetup.OpenStore(t, t.TempDir()), 0), a, b, config.CompactionModeLocal)
 	_, err := wiring.Engine.SubmitUserMessage(t.Context(), "hello")
 	if !llm.IsUsageExhaustionError(err) || aCalls.Load() != 1 || bCalls.Load() != 0 || *store.Meta().ConnectionID != "a" {
 		t.Fatalf("disabled fallback = %v; a %d, b %d", err, aCalls.Load(), bCalls.Load())
@@ -393,7 +394,7 @@ func TestUsageFallbackSavesReplacementBeforeOrdinaryFailure(t *testing.T) {
 	fault := usageExhaustionFixture(t)
 	a, aCalls := usageFailureEndpoint(t, 429, fault)
 	b, bCalls := usageFailureEndpoint(t, 401, []byte(`{"error":{"code":"invalid_api_key","message":"fixture"}}`))
-	wiring, store := newUsageFallbackRuntime(t, launch.NewConnectionRotation(time.Minute), a, b, config.CompactionModeLocal)
+	wiring, store := newUsageFallbackRuntime(t, launch.NewConnectionRotation(testsetup.OpenStore(t, t.TempDir()), time.Minute), a, b, config.CompactionModeLocal)
 	_, err := wiring.Engine.SubmitUserMessage(t.Context(), "hello")
 	if !llm.IsAuthenticationError(err) || aCalls.Load() != 1 || bCalls.Load() != 1 {
 		t.Fatalf("ordinary failure = %v; a %d, b %d", err, aCalls.Load(), bCalls.Load())
@@ -424,7 +425,7 @@ func TestUsageFallbackKeepsCompletedToolWork(t *testing.T) {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { _ = b.Stop() })
-	wiring, store := newUsageFallbackRuntime(t, launch.NewConnectionRotation(time.Minute), a, b.URL(), config.CompactionModeLocal, toolspec.ToolExecCommand)
+	wiring, store := newUsageFallbackRuntime(t, launch.NewConnectionRotation(testsetup.OpenStore(t, t.TempDir()), time.Minute), a, b.URL(), config.CompactionModeLocal, toolspec.ToolExecCommand)
 	if _, err := wiring.Engine.SubmitUserMessage(t.Context(), "hello"); err != nil {
 		t.Fatal(err)
 	}
@@ -451,7 +452,7 @@ func TestUsageFallbackSkipsSharedCooldownInBoundSession(t *testing.T) {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { _ = b.Stop() })
-	rotation := launch.NewConnectionRotation(time.Minute)
+	rotation := launch.NewConnectionRotation(testsetup.OpenStore(t, t.TempDir()), time.Minute)
 	first, _ := newUsageFallbackRuntime(t, rotation, a, b.URL(), config.CompactionModeLocal)
 	second, secondStore := newUsageFallbackRuntime(t, rotation, a, b.URL(), config.CompactionModeLocal)
 	for _, wiring := range []*RuntimeWiring{first, second} {
@@ -516,7 +517,7 @@ func testUsageFallbackCompaction(t *testing.T, mode config.CompactionMode) {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { _ = b.Stop() })
-	wiring, store := newUsageFallbackRuntime(t, launch.NewConnectionRotation(time.Minute), a, b.URL(), mode)
+	wiring, store := newUsageFallbackRuntime(t, launch.NewConnectionRotation(testsetup.OpenStore(t, t.TempDir()), time.Minute), a, b.URL(), mode)
 	if _, err := wiring.Engine.SubmitUserMessage(t.Context(), "hello"); err != nil {
 		t.Fatal(err)
 	}

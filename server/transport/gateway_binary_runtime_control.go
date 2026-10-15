@@ -78,14 +78,6 @@ func registerRuntimeControlGatewayBinaryBindings(bindings map[string]gatewayBina
 		registerRuntimeControlUnary(bindings, GatewayDependencies.RuntimeControlClient, runtimepb.File_kent_api_runtime_runtime_proto.Services().ByName("TurnService"), "SubmitUserTurn",
 			func() *runtimepb.SubmitUserTurnRequest { return &runtimepb.SubmitUserTurnRequest{} },
 			apicontract.RuntimeControlService.SubmitUserTurn),
-		registerRuntimeControlUnary(bindings, GatewayDependencies.RuntimeControlClient, runtimepb.File_kent_api_runtime_runtime_proto.Services().ByName("TurnService"), "SubmitUserShellCommand",
-			func() *runtimepb.ShellCommandRequest { return &runtimepb.ShellCommandRequest{} },
-			func(client apicontract.RuntimeControlService, ctx context.Context, request *runtimepb.ShellCommandRequest) (*emptypb.Empty, error) {
-				if err := client.SubmitUserShellCommand(ctx, request); err != nil {
-					return nil, err
-				}
-				return &emptypb.Empty{}, nil
-			}),
 		registerRuntimeControlUnary(bindings, GatewayDependencies.RuntimeControlClient, runtimepb.File_kent_api_runtime_runtime_proto.Services().ByName("TurnService"), "CompactContext",
 			func() *runtimepb.CompactContextRequest { return &runtimepb.CompactContextRequest{} },
 			func(client apicontract.RuntimeControlService, ctx context.Context, request *runtimepb.CompactContextRequest) (*emptypb.Empty, error) {

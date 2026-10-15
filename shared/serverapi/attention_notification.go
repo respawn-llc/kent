@@ -14,8 +14,18 @@ type attentionFocusValidator func(clientui.AttentionNotificationTaskDetailFocus)
 type attentionPayloadValidator func(clientui.AttentionNotification) error
 
 var attentionEventValidators = map[clientui.AttentionNotificationEventType]attentionEventValidator{
-	clientui.AttentionNotificationEventPending:  validatePendingAttentionEvent,
-	clientui.AttentionNotificationEventResolved: validateResolvedAttentionEvent,
+	clientui.AttentionNotificationEventPending:              validatePendingAttentionEvent,
+	clientui.AttentionNotificationEventResolved:             validateResolvedAttentionEvent,
+	clientui.AttentionNotificationEventSessionNamingFailure: validateSessionNamingFailure,
+}
+
+func validateSessionNamingFailure(event clientui.AttentionNotificationEvent) error {
+	failure := event.SessionNamingFailure
+	if event.Pending != nil || event.ID != nil || event.OccurredAt != nil || event.Kind != "" ||
+		failure == nil {
+		return errors.New("Session-naming failure requires one transient Session target and error")
+	}
+	return nil
 }
 
 var attentionTargetValidators = map[clientui.AttentionNotificationTargetKind]attentionTargetValidator{
@@ -48,7 +58,7 @@ func ValidateAttentionNotificationEvent(event clientui.AttentionNotificationEven
 }
 
 func validatePendingAttentionEvent(event clientui.AttentionNotificationEvent) error {
-	if event.ID != nil || event.Kind != "" || event.OccurredAt != nil {
+	if event.ID != nil || event.Kind != "" || event.OccurredAt != nil || event.SessionNamingFailure != nil {
 		return errors.New("pending attention notification must not carry id, kind, or time envelope payload")
 	}
 	if event.Pending == nil {
@@ -58,7 +68,7 @@ func validatePendingAttentionEvent(event clientui.AttentionNotificationEvent) er
 }
 
 func validateResolvedAttentionEvent(event clientui.AttentionNotificationEvent) error {
-	if event.Pending != nil {
+	if event.Pending != nil || event.SessionNamingFailure != nil {
 		return errors.New("resolved attention notification must not carry pending payload")
 	}
 	if event.ID == nil {

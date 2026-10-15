@@ -29,6 +29,7 @@ type uiProgramComposition struct {
 }
 
 type uiLoopRequest struct {
+	sessionLifecycle             apicontract.SessionLifecycleService
 	ctx                          context.Context
 	wiring                       *runtimeWiring
 	projectID                    string
@@ -206,6 +207,7 @@ func composeUIProgram(request uiLoopRequest, output io.Writer) (*uiProgramCompos
 		return nil, errors.New("projected UI model has unexpected type")
 	}
 	model.keyboardReporting = keyboardReporting
+	model.drafts = newUIDraftPersistence(request.sessionLifecycle, sessionID, model.mainEditor.Text())
 	if request.initialTransientStatus != nil {
 		model.startupCmds = append(model.startupCmds, model.showTransientStatusNotice(uiStatusNotice{
 			Text:     *request.initialTransientStatus,
@@ -217,6 +219,11 @@ func composeUIProgram(request uiLoopRequest, output io.Writer) (*uiProgramCompos
 		enqueueRuntimeConnectionStateChange(model.runtimeConnectionEvents, err)
 	})
 	model.promptAttention = request.wiring.promptAttention
+	if request.wiring.attentionNotifications == nil {
+		return nil, errors.New("Session attention client is required")
+	}
+	attentionEvents, stopAttention := startSessionAttentionEvents(programContext, sessionID, request.wiring.attentionNotifications)
+	model.eventDispatcher.attentionEvents = attentionEvents
 	sessionClient, ok := runtimeClient.(*sessionRuntimeClient)
 	if !ok {
 		return nil, errors.New("projected UI model runtime client has unexpected type")
@@ -235,6 +242,7 @@ func composeUIProgram(request uiLoopRequest, output io.Writer) (*uiProgramCompos
 		terminalOutput:        nativeProgressOutput,
 		nativeProgressEnabled: nativeProgressEnabled,
 		close: func() {
+			stopAttention()
 			if err := keyboardReporting.Close(); err != nil && uiLogger != nil {
 				uiLogger.Logf("app.exit keyboard_reporting_reset_error=%q", err.Error())
 			}

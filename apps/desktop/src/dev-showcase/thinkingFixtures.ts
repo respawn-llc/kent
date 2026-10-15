@@ -99,6 +99,8 @@ export function fixtureHydration(
   return {
     ConnectionReplacement: null,
     SessionIdentity: {
+      Category: "main",
+      ShortID: null,
       SessionID: "fixture-session",
       SessionName: null,
       ConversationFreshness: 0,

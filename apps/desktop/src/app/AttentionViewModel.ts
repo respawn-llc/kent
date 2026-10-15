@@ -4,13 +4,19 @@ import * as Effect from "effect/Effect";
 import * as Stream from "effect/Stream";
 import * as Atom from "effect/reactivity/Atom";
 import type { NativeNotificationActivation, NativeNotificationTarget } from "@app/native-bridge";
-import { errorMessage, type AttentionNotification, type AttentionNotificationTarget } from "@/api";
+import {
+  errorMessage,
+  type AttentionNotification,
+  type AttentionNotificationTarget,
+  type AttentionNotificationEvent,
+} from "@/api";
 import {
   queryKeys,
   type AppServices,
   type AppNavigation,
   type SidebarRootController,
   type StatusController,
+  recoverOrThrowDebugFailure,
 } from "@/app-facade";
 import {
   advancesAttentionNotificationRevision,
@@ -230,6 +236,46 @@ export function createAttentionViewModel({
         setSurface(get, surfaces, id, { notification, state: current.state });
       }
     };
+    const namingFailure = Atom.fn<Extract<AttentionNotificationEvent, { type: "session_naming_failure" }>>()(
+      (event) =>
+        Effect.gen(function* () {
+          const notification = {
+            id: `session-naming-${event.sequence.toString()}`,
+            title: t("app.attention.sessionNamingFailed"),
+            body: t("app.attention.sessionNamingFailureHelp"),
+            target: event.target,
+          };
+          const showFailure = () => {
+            status.push({ ...notification, tone: "danger" });
+          };
+          if (inputs().focused === true || !bridge.capabilities.notifications.basic) {
+            showFailure();
+          } else {
+            yield* Effect.tryPromise(async () => {
+              if ((await bridge.notifications.permissionState()) !== "granted") {
+                showFailure();
+                return;
+              }
+              await bridge.notifications.notify(notification);
+            }).pipe(
+              Effect.catch((error) =>
+                Effect.promise(async () =>
+                  recoverOrThrowDebugFailure({
+                    context: { sessionID: event.target.sessionID },
+                    error: error.cause,
+                    logger,
+                    message: "Delivering Session-naming notification failed.",
+                    recover: showFailure,
+                  }),
+                ),
+              ),
+            );
+          }
+          return null;
+        }),
+      { concurrent: true, initialValue: null },
+    );
+    get.mount(namingFailure);
     const inbox = Atom.make(
       (observation) =>
         services.api
@@ -238,6 +284,10 @@ export function createAttentionViewModel({
             Stream.runForEach((value) =>
               Effect.sync(() => {
                 if (value.kind === "event") {
+                  if (value.event.type === "session_naming_failure") {
+                    get.set(namingFailure, value.event);
+                    return;
+                  }
                   get.set(refresh, undefined);
                   if (value.event.type === "pending") pending(get, value.event.pending);
                   else {

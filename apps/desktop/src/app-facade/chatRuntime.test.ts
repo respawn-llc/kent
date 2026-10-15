@@ -213,6 +213,8 @@ describe("Chat Main View admission", () => {
         sequence: 2,
         kind: "session_identity",
         payload: {
+          Category: "main",
+          ShortID: null,
           SessionID: view.sessionID,
           SessionName: "newer",
           ConversationFreshness: 1,
@@ -348,8 +350,7 @@ describe("mounted Chat Runtime owner", () => {
       pages: [Promise.resolve(transcriptPage(null))],
     });
     const activateRuntime = vi.fn();
-    const releaseRuntime = vi.fn();
-    const api = { ...fixture.api, activateRuntime, releaseRuntime };
+    const api = { ...fixture.api, activateRuntime };
     const queryClient = new QueryClient();
     const owner = new ChatRuntimeOwner(api, target, queryClient, runtimeHost());
 
@@ -363,7 +364,6 @@ describe("mounted Chat Runtime owner", () => {
       expect(owner.snapshot.transcript.opening.kind).toBe("ready");
     });
     expect(activateRuntime).not.toHaveBeenCalled();
-    expect(releaseRuntime).not.toHaveBeenCalled();
 
     await owner.retryMainView();
     expect(fixture.getMainView).toHaveBeenCalledTimes(2);

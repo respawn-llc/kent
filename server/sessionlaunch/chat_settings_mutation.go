@@ -47,7 +47,7 @@ func (s *Service) MutateChatSettings(ctx context.Context, sessionID runtimeids.S
 			var selectedAgent launch.PreparedChatAgentCatalogEntry
 			var selectionErr error
 			if selectedConnection == nil {
-				selectedAgent, selectionErr = launch.PrepareChatAgentSelection(input.Configuration, projected.State.AgentSelector(), store.Meta(), s.planner.Rotation)
+				selectedAgent, selectionErr = launch.PrepareChatAgentSelection(ctx, input.Configuration, projected.State.AgentSelector(), store.Meta(), s.planner.Rotation)
 			} else {
 				selectedAgent, selectionErr = launch.RevalidateChatAgentSelection(input.Configuration, projected.State.AgentSelector(), store.Meta(), *selectedConnection)
 			}

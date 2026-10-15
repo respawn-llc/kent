@@ -13,6 +13,7 @@ import {
 import * as R from "@app/server-api-contract/gen/kent/api/runtime/runtime_pb";
 import * as T from "@app/server-api-contract/gen/kent/api/transcript/transcript_pb";
 import { ProjectAvailability } from "@app/server-api-contract/gen/kent/api/project/project_pb";
+import { SessionCategory } from "@app/server-api-contract/gen/kent/api/project/session_catalog_pb";
 import { TranscriptCloseReason } from "@app/server-api-contract/gen/kent/api/shared/foundation_pb";
 import {
   ChatService,
@@ -22,7 +23,6 @@ import {
 import {
   SessionRuntimeService,
   SessionRuntimeActivateResultSchema,
-  SessionRuntimeReleaseResultSchema,
 } from "@app/server-api-contract/gen/kent/api/session_launch/session_lifecycle_pb";
 import {
   AgentPreparationCategory,
@@ -122,6 +122,7 @@ function runtimePlanResult(planSessionID: string) {
       value: {
         plan: {
           sessionId: planSessionID,
+          connectionScope: {},
           activeSettings: settings,
           enabledToolIds: [ToolID.TOOL_ID_EXEC_COMMAND],
           modelContractLocked: false,
@@ -138,7 +139,11 @@ function runtimePlanResult(planSessionID: string) {
 
 function transcriptHydrationPayload() {
   return create(T.HydrationSchema, {
-    sessionIdentity: { sessionId: sessionID, conversationFreshness: R.ConversationFreshness.FRESH },
+    sessionIdentity: {
+      category: SessionCategory.MAIN,
+      sessionId: sessionID,
+      conversationFreshness: R.ConversationFreshness.FRESH,
+    },
     sessionStatus: {
       reviewerFrequency: "off",
       autoCompactionEnabled: true,
@@ -192,6 +197,7 @@ function mainViewResult(state: R.ActivityState, withGoal: boolean) {
             ...(withGoal ? { goal: { availability: R.GoalAvailability.AVAILABLE } } : {}),
           },
           session: {
+            category: SessionCategory.MAIN,
             sessionId: sessionID,
             conversationFreshness: R.ConversationFreshness.FRESH,
             executionTarget: {
@@ -425,30 +431,19 @@ describe("Desktop Chat read client", () => {
         {
           descriptor: SessionRuntimeService.method.activate,
           result: create(SessionRuntimeActivateResultSchema, {
-            outcome: { case: "success", value: { attachment: { sessionId: sessionID, generation: 7n } } },
-          }),
-        },
-        {
-          descriptor: SessionRuntimeService.method.release,
-          result: create(SessionRuntimeReleaseResultSchema, {
-            outcome: { case: "success", value: { released: true, active: false } },
+            outcome: { case: "success", value: {} },
           }),
         },
       ]);
       const activationClient = new ApiClient(activationTransport, unexpectedProjectOverflow);
-      await expect(activationClient.chat.activateRuntime(target)).resolves.toEqual({
-        sessionID,
-        generation: 7,
-      });
+      await expect(activationClient.chat.activateRuntime(target)).resolves.toBeUndefined();
       if (selection === undefined) {
-        expect(activationTransport.descriptorCalls[1]?.request).not.toHaveProperty("agentSelection");
+        expect(activationTransport.descriptorCalls[1]?.request).not.toHaveProperty("options.agentSelection");
       } else {
-        expect(activationTransport.descriptorCalls[1]?.request).toMatchObject({ agentSelection: selection });
+        expect(activationTransport.descriptorCalls[1]?.request).toMatchObject({
+          options: { agentSelection: selection },
+        });
       }
-      await expect(activationClient.chat.releaseRuntime({ sessionID, generation: 7 })).resolves.toEqual({
-        released: true,
-        active: false,
-      });
     }
 
     const mismatchedPlanClient = new ApiClient(
@@ -702,7 +697,11 @@ describe("Desktop Chat read client", () => {
           event: {
             payload: {
               case: "sessionIdentity",
-              value: { sessionId: identity, conversationFreshness: R.ConversationFreshness.FRESH },
+              value: {
+                category: SessionCategory.MAIN,
+                sessionId: identity,
+                conversationFreshness: R.ConversationFreshness.FRESH,
+              },
             },
           },
         }),
@@ -760,7 +759,6 @@ describe("Desktop Chat read client", () => {
 
 describe("Desktop Chat mutation adapter", () => {
   const queueItemID = "223e4567-e89b-42d3-a456-426614174000";
-  const compactionRequestID = "323e4567-e89b-42d3-a456-426614174000";
   const sessionTarget = {
     kind: "session",
     projectID: "project-1",
@@ -966,7 +964,7 @@ describe("Desktop Chat mutation adapter", () => {
               session: { sessionId: sessionID },
               outcome: {
                 case: "accepted",
-                value: { request: { id: compactionRequestID } },
+                value: {},
               },
             },
           },
@@ -990,7 +988,6 @@ describe("Desktop Chat mutation adapter", () => {
       rawGuidance: "",
     });
     if (compacted.outcome.kind !== "accepted") throw new Error("Expected accepted compaction fixture.");
-    expect(compacted.outcome.requestID.toJSONValue()).toBe(compactionRequestID);
 
     const failingChat = new ApiClient(
       new FakeRpcTransport([

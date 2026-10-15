@@ -63,18 +63,12 @@ func (m *uiModel) applyAdmittedTranscriptMessageState(
 		// RuntimeActivity is the authoritative compaction lifecycle. This event
 		// carries lifecycle notification facts, not live-session state.
 		status := message.Event.GetCompactionStatus()
-		if status.Mode == transcriptpb.CompactionMode_COMPACTION_MODE_MANUAL && status.RequestId != nil {
-			requestID, err := runtimeids.ParseCompactionRequestID(*status.RequestId)
-			if err != nil {
-				panic(err)
-			}
+		if status.Mode == transcriptpb.CompactionMode_COMPACTION_MODE_MANUAL {
 			switch status.State {
 			case transcriptpb.CompactionState_COMPACTION_STATE_COMPLETED:
-				if m.clearPendingCompactionRequest(requestID) && m.turnQueueHook != nil {
+				if m.turnQueueHook != nil {
 					m.turnQueueHook.OnUserCompactionCompleted(m.inputController().turnQueueDrained())
 				}
-			case transcriptpb.CompactionState_COMPACTION_STATE_FAILED:
-				m.clearPendingCompactionRequest(requestID)
 			}
 		}
 	case *transcriptpb.Event_ContextUsage:
@@ -278,8 +272,17 @@ func (m *uiModel) applyTranscriptSessionIdentity(identity *transcriptpb.SessionI
 	m.sessionID = nextSessionID
 	m.reconcileMissingPromptRecoveryScope()
 	m.sessionName = identity.SessionName
+	category, err := protoapi.SessionCategoryFromProto(identity.Category)
+	if err != nil {
+		return m.handleFatalUIError("Session identity could not be displayed", err)
+	}
+	m.sessionCategory = &category
+	m.sessionShortID, err = protoapi.SessionShortIDFromProto(identity.ShortId)
+	if err != nil {
+		return m.handleFatalUIError("Session identity could not be displayed", err)
+	}
 	m.conversationFreshness = identity.ConversationFreshness
-	titleCmd := tea.SetWindowTitle(sessionTitle(m.sessionName))
+	titleCmd := tea.SetWindowTitle(m.sessionTitle())
 	if previousTarget != nil && m.sessionExecutionTarget != nil &&
 		(!textutil.EqualOptional(previousTarget.WorkspaceId, m.sessionExecutionTarget.WorkspaceId) ||
 			previousTarget.WorkspaceRoot != m.sessionExecutionTarget.WorkspaceRoot) {
@@ -291,7 +294,6 @@ func (m *uiModel) applyTranscriptSessionIdentity(identity *transcriptpb.SessionI
 	if previousSessionID == "" || previousSessionID == nextSessionID {
 		return titleCmd
 	}
-	m.pendingCompactionRequestIDs = nil
 	m.askController().cancelActiveDelivery()
 	promptCmd := m.reconcileTranscriptPrompts(nil)
 	rollbackCmd := m.discardRollbackStateForSessionReplacement()
@@ -324,7 +326,7 @@ func (m *uiModel) applyTranscriptQueuedMessageState(state *transcriptpb.QueuedMe
 		return nil
 	}
 	ids := []string{state.QueueItemId}
-	index := m.injectedQueueIndexByAnyID(state.QueueItemId)
+	index := m.injectedQueueIndexByServerID(state.QueueItemId)
 	if index < 0 {
 		m.retainUnownedQueuedTerminalState(state)
 		return nil
@@ -349,7 +351,7 @@ func (m *uiModel) applyTranscriptHumanInputInterrupted(event *transcriptpb.Human
 	texts := make([]string, 0, len(event.Items))
 	for _, item := range event.Items {
 		id := item.QueueItemId
-		if m.injectedQueueIndexByAnyID(id) < 0 {
+		if m.injectedQueueIndexByServerID(id) < 0 {
 			m.retainUnownedQueuedTerminalState(&transcriptpb.QueuedMessageState{
 				QueueItemId: item.QueueItemId,
 				Status:      transcriptpb.QueuedMessageStatus_QUEUED_MESSAGE_STATUS_DISCARDED,

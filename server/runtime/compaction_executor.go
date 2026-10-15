@@ -267,7 +267,7 @@ func (e *Engine) localCompactionSummary(ctx context.Context, input []llm.Respons
 	if run == nil {
 		return "", fmt.Errorf("%w: active Step identity is required for local compaction", llm.ErrInvalidRequest)
 	}
-	factory, err := e.activeDispatchRequestFactory(run.StepID, nil)
+	factory, err := e.localCompactionDispatchRequestFactory(run.StepID)
 	if err != nil {
 		return "", err
 	}

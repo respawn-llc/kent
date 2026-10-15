@@ -1,4 +1,5 @@
 import type { PromptUpdate } from "./promptModels";
+import type { SessionCategory } from "./models";
 export type ChatWebSearchDetail = Readonly<{
   action:
     | Readonly<{ kind: "search"; queries: readonly string[] }>
@@ -298,6 +299,8 @@ export interface ChatTranscriptPayloadByKind {
     Workflow: Readonly<{ TaskID: string; WorkflowID: string }> | null;
   }>;
   session_identity: Readonly<{
+    Category: SessionCategory;
+    ShortID: bigint | null;
     SessionID: string;
     SessionName: string | null;
     ConversationFreshness: 0 | 1;
@@ -305,7 +308,6 @@ export interface ChatTranscriptPayloadByKind {
   }>;
   compaction_status: Readonly<{
     StepID: string;
-    RequestID?: string | null;
     State: "started" | "completed" | "failed";
     Mode: "auto" | "handoff" | "manual" | "workflow_post_completion";
     Count: number;

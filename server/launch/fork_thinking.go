@@ -1,6 +1,7 @@
 package launch
 
 import (
+	"context"
 	"core/server/llm"
 	"core/server/session"
 	"core/shared/config"
@@ -23,7 +24,7 @@ type InteractiveForkTarget struct {
 
 // PrepareInteractiveFork allocates the child's fresh binding before projecting
 // copied Thinking updates. The source contract does not select that binding.
-func PrepareInteractiveFork(app config.App, meta session.Meta, rotation *ConnectionRotation) (InteractiveForkTarget, error) {
+func PrepareInteractiveFork(ctx context.Context, app config.App, meta session.Meta, rotation *ConnectionRotation) (InteractiveForkTarget, error) {
 	var thinking *string
 	if meta.ChatSettings != nil {
 		thinking = meta.ChatSettings.Thinking
@@ -35,7 +36,7 @@ func PrepareInteractiveFork(app config.App, meta session.Meta, rotation *Connect
 		}
 		thinking = &current.Settings.ThinkingLevel
 	}
-	settings, _, _, _, err := resolveSessionContextSettings(app, session.Meta{
+	settings, _, _, _, err := resolveSessionContextSettings(ctx, app, session.Meta{
 		ChatSettings: &session.ChatSettingsOverrides{Thinking: thinking},
 	}, false, rotation, true)
 	if err != nil {
