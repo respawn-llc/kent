@@ -232,7 +232,28 @@ func TestNewSessionBackUsesNavigationOnlyOrigin(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer func() { _ = server.Close() }()
-	previous := runtimeids.NewSessionID()
+	createIntent, err := protoapi.SessionLaunchRequestIntentToProto(serverapi.CreateNewSessionLaunchIntent(serverapi.IndependentSessionCreateOrigin()))
+	if err != nil {
+		t.Fatal(err)
+	}
+	created, err := server.SessionLaunchClient().PlanSession(t.Context(), &sessionlaunchpb.SessionPlanRequest{
+		Mode:   sessionlaunchpb.SessionLaunchMode_SESSION_LAUNCH_MODE_INTERACTIVE,
+		Intent: createIntent,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	previous, err := runtimeids.ParseSessionID(created.Plan.SessionId)
+	if err != nil {
+		t.Fatal(err)
+	}
+	draft := "saved origin\n draft "
+	_, err = server.SessionLifecycleClient().PersistInputDraft(t.Context(), &sessionlaunchpb.SessionPersistInputDraftRequest{
+		SessionId: previous.String(), Input: draft,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
 	intent, err := protoapi.SessionLaunchRequestIntentToProto(serverapi.CreateNewSessionLaunchIntent(serverapi.PreviousSessionCreateOrigin(previous)))
 	if err != nil {
 		t.Fatal(err)
@@ -258,6 +279,21 @@ func TestNewSessionBackUsesNavigationOnlyOrigin(t *testing.T) {
 	model.Update(tea.KeyMsg{Type: tea.KeyEnter})
 	if model.nextSessionID != previous.String() || model.exitAction != UIActionOpenSession {
 		t.Fatal("New Session back did not open its originating Session")
+	}
+	resolved, err := resolveSessionAction(t.Context(), server, newHeadlessAuthInteractor(), "", model.Transition())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if resolved.GetLaunch().GetIntent().GetOpenExistingSessionId() != previous.String() {
+		t.Fatalf("back transition = %v", resolved)
+	}
+	_, _, input, override, err := sessionLaunchPreparationValues(resolved.GetLaunch().Preparation)
+	if err != nil {
+		t.Fatal(err)
+	}
+	initial, err := sessionLaunchInitialStateFromServer(t.Context(), server, previous.String(), input, override)
+	if err != nil || initial.Input != draft {
+		t.Fatalf("origin draft = %v, error = %v", initial.Input, err)
 	}
 }
 

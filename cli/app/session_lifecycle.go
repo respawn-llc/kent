@@ -544,7 +544,7 @@ func resolveSessionAction(ctx context.Context, server sessionTransitionServer, i
 func sessionTransitionInitialInput(transition UITransition) *string {
 	switch transition.Action {
 	case UIActionForkRollback, UIActionOpenSession:
-		return textutil.Pointer(transition.InitialInput)
+		return transition.InitialInput
 	default:
 		return nil
 	}

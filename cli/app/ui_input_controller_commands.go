@@ -188,6 +188,7 @@ func (c uiInputController) handleBackCommand() (tea.Model, tea.Cmd) {
 		if previous := target.GetOrigin().GetNavigationOnlySessionId(); previous != nil {
 			m.nextSessionID = previous.GetSessionId()
 			m.exitAction = UIActionOpenSession
+			m.nextSessionInitialInput = nil
 			return m, tea.Quit
 		}
 	}
