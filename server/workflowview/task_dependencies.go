@@ -101,16 +101,6 @@ func (d *TaskDependencies) ListTaskDependencies(ctx context.Context, taskID stri
 		return nil, errors.New("task dependencies are required")
 	}
 	trimmedTaskID := strings.TrimSpace(taskID)
-	if trimmedTaskID == "" {
-		return nil, errors.New("task id is required")
-	}
-	if requestedDirection != nil {
-		switch *requestedDirection {
-		case taskpb.DependencyDirection_DEPENDENCY_DIRECTION_BLOCKED_BY, taskpb.DependencyDirection_DEPENDENCY_DIRECTION_BLOCKS:
-		default:
-			return nil, fmt.Errorf("invalid dependency direction %v", *requestedDirection)
-		}
-	}
 	subject, err := d.queries.GetTask(ctx, trimmedTaskID)
 	if err != nil {
 		return nil, err

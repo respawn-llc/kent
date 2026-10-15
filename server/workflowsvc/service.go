@@ -762,9 +762,6 @@ func (s *Service) CreateWorkflowTask(ctx context.Context, req *taskpb.CreateRequ
 }
 
 func (s *Service) AddWorkflowTaskDependency(ctx context.Context, req *taskpb.DependencyAddRequest) (*taskpb.DependencyMutationSuccess, error) {
-	if err := protoapi.Validate(req); err != nil {
-		return nil, err
-	}
 	result, err := s.store.AddTaskDependency(ctx, workflowstore.TaskDependencyAddRequest{
 		BlockerTaskID: workflow.TaskID(req.BlockerTaskId),
 		BlockedTaskID: workflow.TaskID(req.BlockedTaskId),
@@ -779,9 +776,6 @@ func (s *Service) AddWorkflowTaskDependency(ctx context.Context, req *taskpb.Dep
 }
 
 func (s *Service) RemoveWorkflowTaskDependency(ctx context.Context, req *taskpb.DependencyRemoveRequest) (*taskpb.DependencyMutationSuccess, error) {
-	if err := protoapi.Validate(req); err != nil {
-		return nil, err
-	}
 	result, err := s.store.RemoveTaskDependency(ctx, workflowstore.TaskDependencyRemoveRequest{
 		BlockerTaskID: workflow.TaskID(req.BlockerTaskId),
 		BlockedTaskID: workflow.TaskID(req.BlockedTaskId),
@@ -811,9 +805,6 @@ func workflowDependencyMutationSuccess(
 }
 
 func (s *Service) ListWorkflowTaskDependencies(ctx context.Context, req *taskpb.DependencyListRequest) (*taskpb.DependencyListSuccess, error) {
-	if err := protoapi.Validate(req); err != nil {
-		return nil, err
-	}
 	return s.readModels.TaskDependencies.ListTaskDependencies(ctx, req.TaskId, req.Direction)
 }
 
