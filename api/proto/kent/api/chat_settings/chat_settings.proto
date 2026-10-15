@@ -6,6 +6,7 @@ import "buf/validate/validate.proto";
 import "google/protobuf/empty.proto";
 import "kent/api/auth/auth.proto";
 import "kent/api/chat_context/chat_context.proto";
+import "kent/api/invocation/invocation.proto";
 import "kent/api/server/server.proto";
 import "kent/api/shared/foundation.proto";
 import "kent/api/shared/validation.proto";
@@ -50,6 +51,7 @@ message NewChatTarget {
     (buf.validate.field).string.(kent.api.shared.nonblank) = true,
     (buf.validate.field).string.(kent.api.shared.trimmed) = true
   ];
+  optional kent.api.invocation.RunPromptOverrides invocation = 3;
 }
 
 message SessionTarget {
@@ -338,6 +340,11 @@ message NewChatAgentChoice {
   optional Fast fast = 5;
   Questions questions = 6 [(buf.validate.field).required = true];
   AutoCompaction auto_compaction = 7 [(buf.validate.field).required = true];
+  optional string connection_id = 8 [
+    (buf.validate.field).string.min_len = 1,
+    (buf.validate.field).string.(kent.api.shared.nonblank) = true
+  ];
+  kent.api.auth.ConnectionSelection connection_selection = 9;
 
   option (buf.validate.message).cel = {
     id: "kent.chat_settings.complete_choice_baseline"

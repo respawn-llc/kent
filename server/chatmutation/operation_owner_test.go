@@ -6,8 +6,11 @@ import (
 	"testing"
 
 	"core/internal/testharness/requestfixture"
+	"core/internal/testharness/testsetup"
 	"core/server/runtimecontrol"
 	"core/server/session"
+	"core/shared/config"
+	"core/shared/protoapi"
 	chatpb "core/shared/protoapi/gen/kent/api/chat"
 	chatsettingspb "core/shared/protoapi/gen/kent/api/chat_settings"
 	runtimepb "core/shared/protoapi/gen/kent/api/runtime"
@@ -129,9 +132,21 @@ func (s lifecycleCreation) PlanSession(
 			request.InitialInputDraft,
 		)
 	}
-	return &sessionlaunchpb.SessionPlanSuccess{
-		Plan: &sessionlaunchpb.SessionPlan{SessionId: s.sessionID.String()},
-	}, nil
+	configured := testsetup.ProviderSettings(config.DefaultOnboardingSettings())
+	config.InheritReviewerSettings(&configured, nil)
+	settings, err := protoapi.SessionSettingsToProto(configured)
+	if err != nil {
+		return nil, err
+	}
+	source, err := protoapi.SessionSourceReportToProto(config.SourceReport{})
+	if err != nil {
+		return nil, err
+	}
+	return &sessionlaunchpb.SessionPlanSuccess{Plan: &sessionlaunchpb.SessionPlan{
+		SessionId: s.sessionID.String(), ActiveSettings: settings, Source: source,
+		QuestionsEnabled:      request.InitialChatSettings.GetQuestionsEnabled(),
+		AutoCompactionEnabled: request.InitialChatSettings.GetAutoCompactionEnabled(),
+	}}, nil
 }
 
 type lifecyclePlanner struct {
@@ -251,7 +266,7 @@ func TestServiceCarriesOneOperationContextAcrossChatLifecycle(t *testing.T) {
 					}, nil
 				},
 				nil,
-				nil, nil,
+				nil, nil, nil, nil,
 			)
 			service := NewService(
 				owner,

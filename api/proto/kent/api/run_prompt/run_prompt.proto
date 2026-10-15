@@ -10,6 +10,7 @@ import "kent/api/chat_settings/chat_settings.proto";
 import "kent/api/prompt/prompt.proto";
 import "kent/api/server/server.proto";
 import "kent/api/session_launch/session_launch.proto";
+import "kent/api/invocation/invocation.proto";
 import "kent/api/session_launch/session_lifecycle.proto";
 import "kent/api/shared/foundation.proto";
 import "kent/api/shared/validation.proto";
@@ -55,7 +56,7 @@ message Request {
     }
   ];
   google.protobuf.Duration timeout = 4;
-  kent.api.session_launch.RunPromptOverrides overrides = 5;
+  kent.api.invocation.RunPromptOverrides overrides = 5;
 }
 
 message Success {

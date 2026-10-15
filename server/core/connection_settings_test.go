@@ -14,6 +14,7 @@ import (
 	"core/shared/config"
 	chatsettingspb "core/shared/protoapi/gen/kent/api/chat_settings"
 	sharedpb "core/shared/protoapi/gen/kent/api/shared"
+	"core/shared/serverapi"
 	"core/shared/textutil"
 )
 
@@ -98,7 +99,7 @@ connection = "missing"
 				if !found {
 					t.Fatal("unavailable alternative was hidden")
 				}
-				if _, err := launch.PrepareChatAgentCatalog(cfg, false); err == nil {
+				if _, err := launch.PrepareChatAgentCatalog(cfg, false, serverapi.RunPromptOverrides{}); err == nil {
 					t.Fatal("New Chat accepted unavailable current selections")
 				}
 				mutated, err := app.ChatSettingsClient().MutateChatSettings(t.Context(), &chatsettingspb.MutationRequest{

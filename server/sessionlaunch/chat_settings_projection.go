@@ -23,7 +23,7 @@ type ChatSettingsProjectionInput struct {
 	Locked         *session.LockedContract
 }
 
-func projectNewChatCatalog(catalog launch.PreparedChatAgentCatalog, mode config.CompactionMode) (*chatsettingspb.NewChatCatalog, error) {
+func projectNewChatCatalog(catalog launch.PreparedChatAgentCatalog, mode config.CompactionMode, selected string) (*chatsettingspb.NewChatCatalog, error) {
 	entries := catalog.Entries()
 	choices := catalog.Choices()
 	result := &chatsettingspb.NewChatCatalog{Choices: make([]*chatsettingspb.NewChatAgentChoice, 0, len(entries))}
@@ -47,8 +47,10 @@ func projectNewChatCatalog(catalog launch.PreparedChatAgentCatalog, mode config.
 		result.Choices = append(result.Choices, &chatsettingspb.NewChatAgentChoice{
 			Agent: entry.Choice, Baseline: baseline, Supervisor: settings.Supervisor,
 			Thinking: settings.Thinking, Fast: settings.Fast, Questions: settings.Questions, AutoCompaction: settings.AutoCompaction,
+			ConnectionId:        (*string)(entry.ConnectionID),
+			ConnectionSelection: protoapi.ConnectionSelectionToProto(entry.ConnectionSelection),
 		})
-		if entry.Choice.Role == config.DefaultSubagentRole {
+		if entry.Choice.Role == selected {
 			result.InitialSettings = baseline
 		}
 	}

@@ -58,7 +58,7 @@ func TestChatAgentMutationAllocatesActualMemberAndPreservesUnchangedBinding(t *t
 	}
 	id := initial.Plan.Descriptor.SessionID()
 	for range 2 {
-		if _, err := service.NewChatSettings(t.Context()); err != nil {
+		if _, err := service.NewChatSettings(t.Context(), serverapi.RunPromptOverrides{}); err != nil {
 			t.Fatal(err)
 		}
 		read, err := service.SessionChatSettings(t.Context(), id)

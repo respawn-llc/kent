@@ -11,10 +11,13 @@ import (
 	"core/server/runtimecontrol"
 	"core/server/session"
 	"core/server/sessionlaunch"
+	"core/shared/clientui"
 	"core/shared/protoapi"
 	chatpb "core/shared/protoapi/gen/kent/api/chat"
 	chatsettingspb "core/shared/protoapi/gen/kent/api/chat_settings"
+	runtimepb "core/shared/protoapi/gen/kent/api/runtime"
 	sessionlaunchpb "core/shared/protoapi/gen/kent/api/session_launch"
+	worktreepb "core/shared/protoapi/gen/kent/api/worktree"
 	"core/shared/runtimeids"
 	"core/shared/serverapi"
 
@@ -23,6 +26,14 @@ import (
 
 type SessionCreationService interface {
 	PlanSession(context.Context, *sessionlaunchpb.SessionPlanRequest) (*sessionlaunchpb.SessionPlanSuccess, error)
+}
+
+type SessionNamingService interface {
+	SetSessionName(context.Context, *runtimepb.SetSessionNameRequest) error
+}
+
+type WorktreeEnteringService interface {
+	EnterWorktree(context.Context, *worktreepb.EnterRequest) (*worktreepb.ScheduledAcknowledgement, error)
 }
 
 type SessionLaunchServiceResolver func(
@@ -49,6 +60,8 @@ type TargetResolver struct {
 	sessionLaunch     SessionLaunchServiceResolver
 	sourceLaunch      SessionRuntimePlannerResolver
 	activity          runtimecontrol.RuntimeActivityResolver
+	names             SessionNamingService
+	worktrees         WorktreeEnteringService
 }
 
 func NewTargetResolver(
@@ -57,6 +70,8 @@ func NewTargetResolver(
 	sourceLaunch SessionRuntimePlannerResolver,
 	activity runtimecontrol.RuntimeActivityResolver,
 	store *metadata.Store,
+	names SessionNamingService,
+	worktrees WorktreeEnteringService,
 ) *TargetResolver {
 	return &TargetResolver{
 		metadata:          store,
@@ -64,6 +79,8 @@ func NewTargetResolver(
 		sessionLaunch:     sessionLaunch,
 		sourceLaunch:      sourceLaunch,
 		activity:          activity,
+		names:             names,
+		worktrees:         worktrees,
 	}
 }
 
@@ -169,12 +186,16 @@ func (r *TargetResolver) Resolve(
 	if err != nil {
 		return ResolvedTarget{}, err
 	}
+	if newChat.Origin != nil {
+		intent = &sessionlaunchpb.SessionLaunchRequestIntent{Intent: &sessionlaunchpb.SessionLaunchRequestIntent_CreateNew{CreateNew: newChat.Origin}}
+	}
 	settings := proto.Clone(newChat.InitialSettings).(*chatsettingspb.InitialChatSettings)
 	response, err := service.PlanSession(ctx, &sessionlaunchpb.SessionPlanRequest{
 		Mode:                sessionlaunchpb.SessionLaunchMode_SESSION_LAUNCH_MODE_INTERACTIVE,
 		Intent:              intent,
 		InitialChatSettings: settings,
 		InitialInputDraft:   request.InitialDraft,
+		Overrides:           newChat.Invocation,
 	})
 	if err != nil {
 		return ResolvedTarget{}, err
@@ -187,9 +208,54 @@ func (r *TargetResolver) Resolve(
 		return ResolvedTarget{}, fmt.Errorf("ordinary Session creation result: %w", err)
 	}
 	captured = serverapi.CanonicalSessionTarget{ID: sessionID}
+	resolved = ResolvedTarget{SessionID: sessionID, Created: true}
 	shortID, err := protoapi.SessionShortIDFromProto(response.Plan.ShortId)
 	if err != nil {
-		return ResolvedTarget{}, err
+		return resolved, err
 	}
-	return ResolvedTarget{SessionID: sessionID, ShortID: shortID, Created: true}, nil
+	resolved.ShortID = shortID
+	if newChat.Name != nil {
+		if r.names == nil {
+			return resolved, errors.New("Session naming service is required")
+		}
+		if err := r.names.SetSessionName(ctx, &runtimepb.SetSessionNameRequest{
+			SessionId: sessionID.String(),
+			Mutation:  &runtimepb.SessionNameMutation{Action: &runtimepb.SessionNameMutation_Set{Set: *newChat.Name}},
+		}); err != nil {
+			return resolved, err
+		}
+	}
+	if newChat.WorktreeSelector != nil {
+		if r.worktrees == nil {
+			return resolved, errors.New("Worktree management service is required")
+		}
+		binding, err := r.metadata.LookupWorkspaceBindingByID(ctx, newChat.WorkspaceId)
+		if err != nil {
+			return resolved, err
+		}
+		if _, err := r.worktrees.EnterWorktree(ctx, &worktreepb.EnterRequest{
+			OperationId: clientui.NewWorktreeTransitionID().String(),
+			SessionId:   protoapi.SessionSelectorToProto(sessionID), Selector: *newChat.WorktreeSelector,
+			TargetWorkspace: &worktreepb.TransitionWorkspace{
+				WorkspaceId: binding.WorkspaceID, WorkspaceRoot: binding.CanonicalRoot,
+			},
+		}); err != nil {
+			return resolved, err
+		}
+	}
+	resolved.Preparation, err = preparationFromPlan(response.Plan)
+	return resolved, err
+}
+
+func preparationFromPlan(plan *sessionlaunchpb.SessionPlan) (*serverapi.SessionRuntimePreparationOptions, error) {
+	options, err := protoapi.SessionRuntimePreparationFromProto(&sessionlaunchpb.SessionRuntimePreparationOptions{
+		ActiveSettings: plan.ActiveSettings, EnabledToolIds: plan.EnabledToolIds,
+		QuestionsEnabled: &plan.QuestionsEnabled, AutoCompactionEnabled: &plan.AutoCompactionEnabled,
+		ThinkingOverrideExplicit: plan.ThinkingOverrideExplicit, Source: plan.Source,
+		AgentSelection: plan.ActivationAgentSelection, ExplicitToolSelection: plan.ExplicitToolSelection,
+	})
+	if err != nil {
+		return nil, err
+	}
+	return &options, nil
 }

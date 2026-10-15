@@ -6,6 +6,7 @@ import (
 	"strings"
 
 	authpb "core/shared/protoapi/gen/kent/api/auth"
+	invocationpb "core/shared/protoapi/gen/kent/api/invocation"
 	projectpb "core/shared/protoapi/gen/kent/api/project"
 	sessionlaunchpb "core/shared/protoapi/gen/kent/api/session_launch"
 	"core/shared/protocol"
@@ -256,11 +257,11 @@ func sessionCreateOriginFromProto(message *sessionlaunchpb.SessionCreateOrigin) 
 	}
 }
 
-func RunPromptOverridesToProto(overrides serverapi.RunPromptOverrides) (*sessionlaunchpb.RunPromptOverrides, error) {
+func RunPromptOverridesToProto(overrides serverapi.RunPromptOverrides) (*invocationpb.RunPromptOverrides, error) {
 	if err := overrides.ValidateAgentRoleOverride(); err != nil {
 		return nil, err
 	}
-	message := &sessionlaunchpb.RunPromptOverrides{AgentRole: clonePointer(overrides.AgentRole)}
+	message := &invocationpb.RunPromptOverrides{AgentRole: clonePointer(overrides.AgentRole)}
 	setOptionalNonblank(&message.Model, overrides.Model)
 	setOptionalNonblank(&message.ThinkingLevel, overrides.ThinkingLevel)
 	setOptionalNonblank(&message.Theme, overrides.Theme)
@@ -275,7 +276,7 @@ func RunPromptOverridesToProto(overrides serverapi.RunPromptOverrides) (*session
 	return message, Validate(message)
 }
 
-func RunPromptOverridesFromProto(message *sessionlaunchpb.RunPromptOverrides) (serverapi.RunPromptOverrides, error) {
+func RunPromptOverridesFromProto(message *invocationpb.RunPromptOverrides) (serverapi.RunPromptOverrides, error) {
 	if message == nil {
 		return serverapi.RunPromptOverrides{}, errors.New("generated Run Prompt overrides are required")
 	}

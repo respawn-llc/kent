@@ -262,10 +262,20 @@ func (c *sessionRuntimeClient) RunUserShell(ctx context.Context, req clientui.Ru
 	if err != nil {
 		return err
 	}
-	return c.chatMutations.SubmitUserShellCommand(ctx, &chatshellpb.ShellCommandRequest{
+	result, err := c.chatMutations.SubmitUserShellCommand(ctx, &chatshellpb.ShellCommandRequest{
 		Target:  target,
 		Command: req.Command,
 	})
+	if err != nil {
+		return err
+	}
+	if err := protoapi.Validate(result); err != nil {
+		return err
+	}
+	if rejected := result.GetFailed(); rejected != nil {
+		return protoapi.ChatNotAcceptedFromProto(rejected)
+	}
+	return nil
 }
 
 func (c *sessionRuntimeClient) CompactRuntime(ctx context.Context, req clientui.RuntimeCompactRequest) (clientui.RuntimeCompactResult, error) {

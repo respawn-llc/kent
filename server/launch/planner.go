@@ -865,11 +865,11 @@ func prepareAgent(app config.App, overrides serverapi.RunPromptOverrides, prepar
 				return agentPreparation{}, err
 			}
 			target := PreparedBaseTarget{Settings: resolved, Source: source, EnabledTools: tools}
+			target, err = preparePreparedBaseTarget(target, overrideConfig, overrides, preparation.ModelLock, preparation.ToolLock, applyBudget)
+			if err != nil {
+				return agentPreparation{}, err
+			}
 			if !preparation.SkipProviderReadinessValidation {
-				target, err = preparePreparedBaseTarget(target, overrideConfig, overrides, preparation.ModelLock, preparation.ToolLock, applyBudget)
-				if err != nil {
-					return agentPreparation{}, err
-				}
 				prepared.ProviderCapabilities = &capabilities
 			}
 			prepared.BaseTarget = &target
