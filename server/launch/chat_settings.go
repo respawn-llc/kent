@@ -63,7 +63,7 @@ func RevalidateChatAgentSelection(app config.App, selector string, meta session.
 	}, false)
 }
 
-func PrepareSessionChatAgentCatalog(app config.App, meta session.Meta) (PreparedChatAgentCatalog, error) {
+func PrepareSessionChatAgentCatalog(app config.App, meta session.Meta, rotation *ConnectionRotation) (PreparedChatAgentCatalog, error) {
 	state, err := session.ChatSettingsStateFromMeta(meta)
 	if err != nil {
 		return PreparedChatAgentCatalog{}, err
@@ -75,7 +75,7 @@ func PrepareSessionChatAgentCatalog(app config.App, meta session.Meta) (Prepared
 	}
 	// Baselines use configured settings, retaining only the Session's role and
 	// binding. Persisted controls and locks are applied by the settings owner.
-	target, err := (Planner{Config: app}).SelectedSessionPromptFacingTargetFromMeta(session.Meta{
+	target, err := (Planner{Config: app, Rotation: rotation}).SelectedSessionPromptFacingTargetFromMeta(session.Meta{
 		ConnectionID: meta.ConnectionID, Continuation: continuation,
 	}, false)
 	if err != nil {

@@ -9,6 +9,7 @@ import {
   shift,
   size,
   useDismiss,
+  useClick,
   useFloating,
   useFloatingNodeId,
   useHover,
@@ -77,7 +78,8 @@ function HoverPopoverNode({
     handleClose: safePolygon({ requireIntent: false }),
   });
   const dismiss = useDismiss(context);
-  const { getReferenceProps, getFloatingProps } = useInteractions([hover, dismiss]);
+  const click = useClick(context);
+  const { getReferenceProps, getFloatingProps } = useInteractions([hover, click, dismiss]);
   const { isMounted } = useTransitionStatus(context, {
     duration: motionDurationFromCSSVar("--motion-fast", 140),
   });

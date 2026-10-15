@@ -1,4 +1,5 @@
 import { act, fireEvent, render, screen } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
 import { useState } from "react";
 import { HoverPopover } from "./HoverPopover";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "./radix/tooltip";
@@ -16,6 +17,46 @@ async function advanceTime(duration: number) {
     await vi.advanceTimersByTimeAsync(duration);
   });
 }
+
+it.each(["click", "enter", "space", "touch"] as const)("opens without hover using %s", async (activation) => {
+  function Example() {
+    const [open, setOpen] = useState(false);
+    return (
+      <HoverPopover
+        open={open}
+        onOpenChange={setOpen}
+        trigger={(props) => <button {...props}>Trigger</button>}
+      >
+        <button>Popup action</button>
+      </HoverPopover>
+    );
+  }
+  const user = userEvent.setup({
+    skipHover: true,
+    delay: null,
+    advanceTimers: vi.advanceTimersByTime,
+  });
+  render(<Example />);
+  const trigger = screen.getByRole("button", { name: "Trigger" });
+  if (activation === "click") await Promise.all([user.click(trigger), advanceTime(0)]);
+  else if (activation === "touch")
+    await Promise.all([
+      user.pointer([
+        { keys: "[TouchA>]", target: trigger },
+        { keys: "[/TouchA]", target: trigger },
+      ]),
+      advanceTime(0),
+    ]);
+  else {
+    act(() => {
+      trigger.focus();
+    });
+    await Promise.all([user.keyboard(activation === "enter" ? "{Enter}" : " "), advanceTime(0)]);
+  }
+  expect(screen.getByRole("button", { name: "Popup action" })).toBeVisible();
+  await Promise.all([user.keyboard("{Escape}"), advanceTime(140)]);
+  expect(screen.queryByRole("button", { name: "Popup action" })).not.toBeInTheDocument();
+});
 
 it("opens on hover, keeps interactive content open on click, and closes on leaving", async () => {
   function Example() {

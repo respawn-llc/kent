@@ -17,6 +17,46 @@ import (
 	"core/shared/textutil"
 )
 
+func TestGrokToollessRequestOmitsToolChoice(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var payload map[string]json.RawMessage
+		if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
+			t.Error(err)
+			w.WriteHeader(http.StatusBadRequest)
+			return
+		}
+		if _, present := payload["tool_choice"]; present {
+			t.Error("toolless request contains tool_choice")
+			w.WriteHeader(http.StatusBadRequest)
+			return
+		}
+		if _, present := payload["tools"]; present {
+			t.Error("toolless request contains tools")
+		}
+		w.Header().Set("Content-Type", "text/event-stream")
+		_, _ = io.WriteString(w, "data: {\"type\":\"response.completed\",\"response\":{\"id\":\"review\",\"status\":\"completed\",\"output\":[]}}\n\n")
+	}))
+	defer server.Close()
+	selected, err := ResolveConnectionVariant(config.ProviderConnection{Protocol: config.ConnectionGrokOAuthAPI})
+	if err != nil {
+		t.Fatal(err)
+	}
+	client, err := NewProviderClient(ProviderClientOptions{
+		Registration: selected, Auth: oauthStaticAuth{},
+		HTTPClient: newRewritingHTTPClient(t, server), ContextWindowTokens: 256_000,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, err = client.Generate(t.Context(), Request{
+		Model: "grok-4.7", SessionID: textutil.Value("fixture"),
+		ToolChoiceMode: ToolChoiceModeAutomatic, ReasoningEffort: "xhigh",
+	}, StreamCallbacks{})
+	if err != nil {
+		t.Fatal(err)
+	}
+}
+
 func TestGrokFailedStreamRetainsEmittedTraceAndTypedFailure(t *testing.T) {
 	const trace = "provider trace before failure"
 	requests := 0

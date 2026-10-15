@@ -1067,6 +1067,113 @@ func TestSessionWorkspaceRetargeterSharedRootRemainsPersistable(t *testing.T) {
 	}
 }
 
+func TestSessionWorkspaceRetargeterReconcilesOwnExistingArtifact(t *testing.T) {
+	for _, failCommit := range []bool{false, true} {
+		t.Run(fmt.Sprintf("commit-failure-%t", failCommit), func(t *testing.T) {
+			fixture := newRealSessionRetargetFixture(t, false)
+			goal, _, err := fixture.child.SetGoal("preserve the rebind goal", session.GoalActorUser)
+			if err != nil {
+				t.Fatal(err)
+			}
+			targetID := fixture.targetProject.ProjectID
+			req := metadata.SessionWorkspaceRetargetRequest{
+				SessionID: fixture.childID.String(), WorkspaceRoot: fixture.targetWorkspaceRoot, ProjectID: &targetID,
+			}
+			plan, err := fixture.metadata.PlanSessionWorkspaceRetarget(t.Context(), req)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if err := os.MkdirAll(filepath.Dir(plan.TargetSessionDir), 0o755); err != nil {
+				t.Fatal(err)
+			}
+			if err := os.Rename(plan.SourceSessionDir, plan.TargetSessionDir); err != nil {
+				t.Fatal(err)
+			}
+			// Seed only the reported historical mismatch in this disposable store.
+			if _, err := fixture.metadata.DB().ExecContext(t.Context(),
+				"UPDATE sessions SET artifact_relpath = ? WHERE id = ?", plan.TargetArtifactRelpath, req.SessionID); err != nil {
+				t.Fatal(err)
+			}
+			before, err := os.ReadFile(filepath.Join(plan.TargetSessionDir, "events.jsonl"))
+			if err != nil {
+				t.Fatal(err)
+			}
+			var source sessionRetargetMetadata = fixture.metadata
+			commitError := errors.New("fixture commit failure")
+			if failCommit {
+				source = failingSessionRetargetCommit{Store: fixture.metadata, err: commitError}
+			}
+			_, err = fixture.retargeter(source, retargetProcessSource{}).RetargetWorkspace(t.Context(), req)
+			if failCommit {
+				if !errors.Is(err, commitError) {
+					t.Fatalf("retarget error = %v", err)
+				}
+			} else if err != nil {
+				t.Fatal(err)
+			}
+			record, err := fixture.metadata.ResolvePersistedSession(t.Context(), req.SessionID)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if record.Meta.Goal == nil || record.Meta.Goal.ID != goal.ID || record.Meta.Goal.Objective != goal.Objective {
+				t.Fatalf("goal changed: %+v", record.Meta.Goal)
+			}
+			wantProject := targetID
+			if failCommit {
+				wantProject = fixture.sourceBinding.ProjectID
+			}
+			project, err := fixture.metadata.ResolveSessionProjectID(t.Context(), req.SessionID)
+			if err != nil || project != wantProject {
+				t.Fatalf("project = %s, %v; want %s", project, err, wantProject)
+			}
+			if canonicalRetargetTestPath(t, record.SessionDir) != canonicalRetargetTestPath(t, plan.TargetSessionDir) {
+				t.Fatalf("artifact authority changed: %s", record.SessionDir)
+			}
+			after, err := os.ReadFile(filepath.Join(plan.TargetSessionDir, "events.jsonl"))
+			if err != nil || string(before) != string(after) {
+				t.Fatalf("history changed: %v", err)
+			}
+		})
+	}
+}
+
+func TestSessionWorkspaceRetargeterRejectsUnrelatedOccupiedArtifact(t *testing.T) {
+	fixture := newRealSessionRetargetFixture(t, false)
+	targetID := fixture.targetProject.ProjectID
+	req := metadata.SessionWorkspaceRetargetRequest{
+		SessionID: fixture.childID.String(), WorkspaceRoot: fixture.targetWorkspaceRoot, ProjectID: &targetID,
+	}
+	plan, err := fixture.metadata.PlanSessionWorkspaceRetarget(t.Context(), req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(plan.TargetSessionDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	marker := filepath.Join(plan.TargetSessionDir, "unrelated")
+	if err := os.WriteFile(marker, []byte("occupied"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	_, err = fixture.retargeter(fixture.metadata, retargetProcessSource{}).RetargetWorkspace(t.Context(), req)
+	if err == nil {
+		t.Fatal("unrelated occupied target accepted")
+	}
+	if content, err := os.ReadFile(marker); err != nil || string(content) != "occupied" {
+		t.Fatalf("unrelated artifact changed: %v", err)
+	}
+	record, err := fixture.metadata.ResolvePersistedSession(t.Context(), req.SessionID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if canonicalRetargetTestPath(t, record.SessionDir) != canonicalRetargetTestPath(t, plan.SourceSessionDir) {
+		t.Fatal("source artifact authority changed")
+	}
+	project, err := fixture.metadata.ResolveSessionProjectID(t.Context(), req.SessionID)
+	if err != nil || project != fixture.sourceBinding.ProjectID {
+		t.Fatalf("source project changed: %s, %v", project, err)
+	}
+}
+
 func TestSessionWorkspaceRetargeterMovesDormantSessionWithoutRuntimeRebind(t *testing.T) {
 	fixture := newRealSessionRetargetFixture(t, false)
 	targetProjectID := fixture.targetProject.ProjectID

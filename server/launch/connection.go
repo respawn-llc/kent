@@ -6,6 +6,7 @@ import (
 	"maps"
 	"slices"
 	"sync"
+	"sync/atomic"
 
 	"core/server/llm"
 	"core/server/sessionstore"
@@ -13,7 +14,12 @@ import (
 )
 
 type ConnectionRotation struct {
-	mu           sync.Mutex
+	mu sync.Mutex
+	// Immutable published order lets data-only previews avoid waiting for allocations.
+	assignments atomic.Pointer[connectionAssignments]
+}
+
+type connectionAssignments struct {
 	lastAssigned map[config.ConnectionID]uint64
 	sequence     uint64
 }
@@ -37,32 +43,38 @@ func (r *ConnectionRotation) Prepare(settings config.Settings, allocate bool) (c
 	if err != nil {
 		return "", err
 	}
-	if !allocate {
-		return members[0], nil
-	}
 	if r == nil {
-		if len(members) == 1 {
+		if !allocate || len(members) == 1 {
 			return members[0], nil
 		}
 		return "", fmt.Errorf("server connection rotation is required for allocating a connection set")
 	}
+	if !allocate {
+		return r.assignments.Load().leastRecentlyAssigned(members), nil
+	}
 	r.mu.Lock()
 	defer r.mu.Unlock()
-	if r.lastAssigned == nil {
-		r.lastAssigned = make(map[config.ConnectionID]uint64)
+	next := &connectionAssignments{lastAssigned: make(map[config.ConnectionID]uint64)}
+	if current := r.assignments.Load(); current != nil {
+		next.lastAssigned = maps.Clone(current.lastAssigned)
+		next.sequence = current.sequence
 	}
-	maps.DeleteFunc(r.lastAssigned, func(id config.ConnectionID, _ uint64) bool {
+	maps.DeleteFunc(next.lastAssigned, func(id config.ConnectionID, _ uint64) bool {
 		_, configured := settings.Connections[id]
 		return !configured
 	})
-	selected := r.leastRecentlyAssigned(members)
-	r.sequence++
-	r.lastAssigned[selected] = r.sequence
+	selected := next.leastRecentlyAssigned(members)
+	next.sequence++
+	next.lastAssigned[selected] = next.sequence
+	r.assignments.Store(next)
 	return selected, nil
 }
 
-func (r *ConnectionRotation) leastRecentlyAssigned(members []config.ConnectionID) config.ConnectionID {
+func (r *connectionAssignments) leastRecentlyAssigned(members []config.ConnectionID) config.ConnectionID {
 	selected := members[0]
+	if r == nil {
+		return selected
+	}
 	for _, member := range members {
 		sequence, assigned := r.lastAssigned[member]
 		if !assigned {

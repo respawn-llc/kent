@@ -540,7 +540,7 @@ it("preserves focus, selection and continued typing across successive deliveries
   }, opening);
   const user = userEvent.setup({ delay: null });
   const send = () => screen.getByRole("button", { name: appI18n.t("chatComposer.send") });
-  for (const value of ["/review one", "/init two"]) {
+  for (const [index, value] of ["/review one", "/init two"].entries()) {
     fireEvent.change(screen.getByRole("textbox"), { target: { value } });
     await waitFor(() => {
       expect(send()).toBeEnabled();
@@ -552,6 +552,7 @@ it("preserves focus, selection and continued typing across successive deliveries
       await act(async () => {
         await vi.advanceTimersByTimeAsync(2000);
       });
+      expect(view.services.api.chat.steer).toHaveBeenCalledTimes(index + 1);
       expect(screen.getByRole("textbox")).not.toHaveAttribute("readonly");
     } finally {
       vi.useRealTimers();
