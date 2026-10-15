@@ -396,7 +396,7 @@ message MoveRequest {
   string target_node_id = 3 [(buf.validate.field).string.min_len = 1];
   optional string transition_key = 4 [(buf.validate.field).string.min_len = 1];
   repeated NodeOutputValues values = 5;
-  optional string commentary = 6;
+  optional string commentary = 6 [(buf.validate.field).string.max_bytes = 65536];
   optional ExecutionTargetSelection execution_target = 7;
   optional string branch_name = 8 [(buf.validate.field).string.min_len = 1];
   bool proceed_despite_dependencies = 9;

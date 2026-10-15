@@ -23,3 +23,15 @@ func TestTaskCompletionCommentaryByteLimit(t *testing.T) {
 		}
 	}
 }
+
+func TestTaskMoveCommentaryByteLimit(t *testing.T) {
+	for _, size := range []int{65536, 65537} {
+		commentary := strings.Repeat("é", size/2) + strings.Repeat("x", size%2)
+		request := &taskpb.MoveRequest{
+			TaskId: "task-1", TargetNodeId: "node-1", Commentary: &commentary,
+		}
+		if err := protoapi.Validate(request); (err == nil) != (size == 65536) {
+			t.Errorf("commentary bytes %d acceptance = %v", size, err)
+		}
+	}
+}
