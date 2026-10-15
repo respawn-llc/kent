@@ -4,6 +4,7 @@ import (
 	"context"
 	"core/cli/app/commands"
 	"io"
+	"os/exec"
 	"testing"
 	"time"
 
@@ -19,6 +20,93 @@ import (
 	"core/shared/serverapi"
 	tea "github.com/charmbracelet/bubbletea"
 )
+
+func TestNewSessionConfirmedWorktreeEntersBeforeObservation(t *testing.T) {
+	newAppTestHome(t)
+	workspace := initStatusLineGitRepo(t, "main")
+	commit := exec.Command("git", "-C", workspace, "-c", "user.name=Kent", "-c", "user.email=kent@example.com", "commit", "--allow-empty", "-m", "initial")
+	if output, err := commit.CombinedOutput(); err != nil {
+		t.Fatalf("initial commit: %v: %s", err, output)
+	}
+	registerAppWorkspace(t, workspace)
+	writeAppTestSettings(t)
+	t.Setenv("REMOTE_TEST_KEY", "ready-key")
+	fixture := startRemoteAuthTestFixture(t, workspace)
+	server, err := ensureInteractiveProjectBinding(t.Context(), fixture.server)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = server.Close() }()
+	request, err := prepareNewSessionUIRun(t.Context(), server, nil, serverapi.RunPromptOverrides{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	composition, err := composeUIProgram(request, io.Discard)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer composition.close()
+	model := composition.model
+	model.Update(model.loadNewSessionSettingsCmd(nil)())
+	// The observation command is intentionally not executed.
+	model.observeSession = nil
+	model.worktrees.open = true
+	model.worktrees.phase = uiWorktreeOverlayPhaseCreate
+	branch, base := "created-before-observation", "HEAD"
+	cmd := model.worktreeCreateCmd(&worktreepb.CreateRequest{Spec: &worktreepb.CreateSpec{
+		CreateBranch: true, BranchName: &branch, BaseRef: &base,
+	}})
+	var created worktreeCreateDoneMsg
+	results := make(chan tea.Msg, 16)
+	for _, child := range cmd().(tea.BatchMsg) {
+		go func() { results <- child() }()
+	}
+	wait := time.NewTimer(5 * time.Second)
+	defer wait.Stop()
+creation:
+	for {
+		select {
+		case msg := <-results:
+			if result, ok := msg.(worktreeCreateDoneMsg); ok {
+				created = result
+				break creation
+			}
+		case <-wait.C:
+			t.Fatal("confirmed Worktree creation did not complete")
+		}
+	}
+	if created.err != nil || created.session == nil {
+		t.Fatalf("create: %v", created.err)
+	}
+	_, followup := model.Update(created)
+	for _, msg := range collectCmdMessages(t, followup) {
+		if result, ok := msg.(worktreeSwitchDoneMsg); ok && result.err != nil {
+			t.Fatalf("Enter: %v", result.err)
+		}
+		model.Update(msg)
+	}
+	deadline := time.After(3 * time.Second)
+	id, err := runtimeids.ParseSessionID(created.session.SessionId)
+	if err != nil {
+		t.Fatal(err)
+	}
+	tick := time.NewTicker(10 * time.Millisecond)
+	defer tick.Stop()
+	for {
+		view, err := server.SessionViewClient().GetSessionMainView(t.Context(), &sessionpb.MainViewRequest{SessionId: protoapi.SessionSelectorToProto(id)})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if view.MainView.Session.ExecutionTarget.GetWorktree().GetId() == created.resp.Worktree.Topology.GetRegistered().Kent.WorktreeId {
+			return
+		}
+		select {
+		case <-deadline:
+			t.Fatal("created Session did not enter its Worktree")
+		case <-tick.C:
+		}
+	}
+}
 
 type sessionPromptHistoryClient struct{ apicontract.SessionViewService }
 

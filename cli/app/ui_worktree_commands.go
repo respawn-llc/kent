@@ -3,6 +3,7 @@ package app
 import runtimepb "core/shared/protoapi/gen/kent/api/runtime"
 
 import (
+	"core/cli/app/internal/worktreeui"
 	"strings"
 
 	worktreepb "core/shared/protoapi/gen/kent/api/worktree"
@@ -110,6 +111,10 @@ func (m *uiModel) worktreeTransitionCommand(transition runtimeinput.PendingWorkW
 		return m.inputController().stopWorktreeOverlayCmd()
 	}
 	service := m.worktreeMutationService()
+	return m.worktreeTransitionCommandWithService(transition, service)
+}
+
+func (m *uiModel) worktreeTransitionCommandWithService(transition runtimeinput.PendingWorkWorktreeTransition, service worktreeui.Service) tea.Cmd {
 	m.worktrees.switchToken++
 	switchToken := m.worktrees.switchToken
 	m.worktrees.switchPending = true

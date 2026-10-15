@@ -154,6 +154,7 @@ type worktreeDeleteTargetResolvedMsg struct {
 }
 
 type worktreeCreateDoneMsg struct {
+	workspace      *worktreepb.TransitionWorkspace
 	token          uint64
 	resp           *worktreepb.CreateSuccess
 	err            error
@@ -565,6 +566,10 @@ func (m *uiModel) worktreeCreateCmd(req *worktreepb.CreateRequest) tea.Cmd {
 			return result
 		}
 		if target != nil {
+			result.workspace = &worktreepb.TransitionWorkspace{WorkspaceId: service.WorkspaceID, WorkspaceRoot: service.WorkspaceRoot}
+			if result.err = protoapi.Validate(result.workspace); result.err != nil {
+				return result
+			}
 			result.session, result.err = createSession(context.Background(), target, draft)
 			if result.err != nil {
 				return result
@@ -706,6 +711,7 @@ func (m *uiModel) worktreeMutationService() worktreeui.Service {
 	} else {
 		service.ProjectID = m.newChatTarget().ProjectId
 		service.WorkspaceID = m.newChatTarget().WorkspaceId
+		service.WorkspaceRoot = m.statusConfig.WorkspaceRoot
 	}
 	if client, ok := m.runtimeClient().(*sessionRuntimeClient); ok && client != nil {
 		service.Runtime = worktreeui.RuntimeControl{

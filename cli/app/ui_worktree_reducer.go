@@ -201,7 +201,17 @@ func (m *uiModel) reduceWorktreeMessage(msg tea.Msg) uiFeatureUpdateResult {
 			m.layout().syncViewport()
 			return handledUIFeatureUpdate(m, tea.Batch(adoption, overlayCmd, feedbackCmd, m.startRuntimeMainViewRefresh(nil), m.reconcileSpinnerTicking(false)))
 		}
-		enterCmd := m.worktreeSwitchCommandForTarget(targetToken)
+		var enterCmd tea.Cmd
+		if msg.createdSession {
+			service := m.worktreeMutationService()
+			service.WorkspaceID = msg.workspace.WorkspaceId
+			service.WorkspaceRoot = msg.workspace.WorkspaceRoot
+			enterCmd = m.worktreeTransitionCommandWithService(runtimeinput.PendingWorkWorktreeTransition{
+				Transition: runtimeinput.PendingWorkWorktreeTransitionEnter, Selector: &targetToken,
+			}, service)
+		} else {
+			enterCmd = m.worktreeSwitchCommandForTarget(targetToken)
+		}
 		m.layout().syncViewport()
 		return handledUIFeatureUpdate(m, tea.Batch(adoption, overlayCmd, feedbackCmd, enterCmd, m.startRuntimeMainViewRefresh(nil), m.reconcileSpinnerTicking(false)))
 	case worktreeSetupEventMsg:
