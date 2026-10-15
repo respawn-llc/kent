@@ -53,6 +53,12 @@ message ModelFact {
 message ModelFacts {
   repeated ModelFact known_models = 1;
   ModelFact unknown_fallback = 2 [(buf.validate.field).required = true];
+
+  option (buf.validate.message).cel = {
+    id: "kent.capability.known_model_identity"
+    message: "catalog models must have a substantive identity and be marked known"
+    expression: "this.known_models.all(model, has(model.model_id) && model.model_id.trim() != '' && model.known)"
+  };
 }
 
 message ProviderFact {

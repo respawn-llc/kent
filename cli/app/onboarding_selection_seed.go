@@ -263,12 +263,6 @@ func seedThinkingFact(fact *capabilitypb.ThinkingDefaultFact, levels []string) (
 
 func validateOnboardingFacts(facts *capabilitypb.Facts) error {
 	for index, fact := range facts.GetModels().GetKnownModels() {
-		if fact.ModelId == nil || strings.TrimSpace(*fact.ModelId) == "" {
-			return conversionError(fmt.Sprintf("facts.models.known_models[%d].model_id", index), fact.ModelId, "known model id must be present")
-		}
-		if !fact.Known {
-			return conversionError(fmt.Sprintf("facts.models.known_models[%d].known", index), fact.Known, "catalog model must be marked known")
-		}
 		if err := validateModelFactDimensions(fmt.Sprintf("facts.models.known_models[%d]", index), fact); err != nil {
 			return err
 		}
