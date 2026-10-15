@@ -305,9 +305,7 @@ export function taskDependencyItem(value: pb.DependencyItemValid): TaskDependenc
   };
 }
 
-function taskDependencyAvailability(
-  value: pb.DependencyAddAvailability,
-): TaskDependencyAddAvailability {
+function taskDependencyAvailability(value: pb.DependencyAddAvailability): TaskDependencyAddAvailability {
   const availability = value.availability;
   switch (availability.case) {
     case "available":

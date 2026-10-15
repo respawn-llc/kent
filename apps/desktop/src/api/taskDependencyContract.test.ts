@@ -1,5 +1,8 @@
 import { create, validate } from "@app/server-api-contract";
-import { CreateRequestSchema, DependencyRole } from "@app/server-api-contract/gen/kent/api/workflow_task/lifecycle_pb";
+import {
+  CreateRequestSchema,
+  DependencyRole,
+} from "@app/server-api-contract/gen/kent/api/workflow_task/lifecycle_pb";
 
 describe("Task dependency intent limits", () => {
   it("limits each role independently while allowing fifty of each", () => {
@@ -13,11 +16,11 @@ describe("Task dependency intent limits", () => {
         title: "Task",
         dependencyIntents: [
           ...Array.from({ length: blockers }, (_, index) => ({
-            relatedTaskId: `blocker-${index}`,
+            relatedTaskId: `blocker-${String(index)}`,
             newTaskRole: DependencyRole.BLOCKER,
           })),
           ...Array.from({ length: blocked }, (_, index) => ({
-            relatedTaskId: `blocked-${index}`,
+            relatedTaskId: `blocked-${String(index)}`,
             newTaskRole: DependencyRole.BLOCKED,
           })),
         ],

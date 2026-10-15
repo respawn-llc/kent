@@ -1,5 +1,6 @@
 export type { ApiService, ApiSubscription } from "./apiService";
 export { projectUpdateViolations } from "./projectValidation";
+export { taskCreateTitleViolations } from "./taskValidation";
 export { sessionDisplayID } from "./sessionIdentity";
 export type { DesktopProcess } from "./processes";
 export type {

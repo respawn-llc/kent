@@ -43,7 +43,9 @@ describe("task lifecycle client", () => {
             value: {
               outcome: {
                 case: "applied",
-                value: { currentNodes: [{ nodeId: "node-1", sessionId: "11111111-1111-4111-8111-111111111111" }] },
+                value: {
+                  currentNodes: [{ nodeId: "node-1", sessionId: "11111111-1111-4111-8111-111111111111" }],
+                },
               },
             },
           },
@@ -165,7 +167,9 @@ describe("task lifecycle client", () => {
               value: {
                 outcome: {
                   case: "noOp",
-                  value: { currentNodes: [{ nodeId: "node-1", sessionId: "11111111-1111-4111-8111-111111111111" }] },
+                  value: {
+                    currentNodes: [{ nodeId: "node-1", sessionId: "11111111-1111-4111-8111-111111111111" }],
+                  },
                 },
               },
             },

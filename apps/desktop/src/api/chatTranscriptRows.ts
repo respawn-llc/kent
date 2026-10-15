@@ -141,8 +141,7 @@ function noticeDiagnostics(
   "ToolOutputRepair" | "ProviderModelMismatch" | "ReasoningOmission" | "Diagnostic" | "Background"
 > {
   return {
-    ToolOutputRepair:
-      value.toolOutputRepair === undefined ? null : toolOutputRepair(value.toolOutputRepair),
+    ToolOutputRepair: value.toolOutputRepair === undefined ? null : toolOutputRepair(value.toolOutputRepair),
     ProviderModelMismatch:
       value.providerModelMismatch === undefined
         ? null

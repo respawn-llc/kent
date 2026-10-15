@@ -419,8 +419,6 @@ func writeWorkflowExecutionTargetSelectionRequiredForCommand(
 	command string,
 ) {
 	switch {
-	case requirement == nil:
-		fmt.Fprintln(stderr, "Execution target selection is required.")
 	case requirement.GetPolicyRequiresSelection() != nil:
 		fmt.Fprintln(stderr, "Execution target selection is required: workflow policy requires selection.")
 	case requirement.GetConfiguredTargetUnavailable() != nil:
@@ -431,8 +429,6 @@ func writeWorkflowExecutionTargetSelectionRequiredForCommand(
 	case requirement.GetOriginalTargetUnavailable() != nil:
 		cause := serverapi.WorkflowLockedTargetCause(requirement.GetOriginalTargetUnavailable().Cause)
 		fmt.Fprintf(stderr, "The original execution target cannot be reused (%s). Choose a replacement to continue.\n", cause)
-	default:
-		fmt.Fprintln(stderr, "Execution target selection response is invalid.")
 	}
 	fmt.Fprintln(stderr, "Rerun with one of:")
 	for _, selection := range []string{"none", "head", "default-branch", "ref:<revision>"} {
@@ -441,12 +437,12 @@ func writeWorkflowExecutionTargetSelectionRequiredForCommand(
 			prefix += " "
 		}
 		branch := ""
-		if requirement != nil && requirement.GetOriginalTargetUnavailable() != nil && selection != "none" {
+		if requirement.GetOriginalTargetUnavailable() != nil && selection != "none" {
 			branch = " --branch-name <new-branch-name>"
 		}
 		fmt.Fprintf(stderr, "  %s--execution-target %s%s\n", prefix, selection, branch)
 	}
-	if requirement != nil && requirement.GetOriginalTargetUnavailable() != nil {
+	if requirement.GetOriginalTargetUnavailable() != nil {
 		fmt.Fprintln(stderr, "Managed replacements default to the Task Short ID when --branch-name is omitted. Existing branches are retained; choose another name if it collides.")
 	}
 }

@@ -5,7 +5,9 @@ describe("Task comment body contract", () => {
   it("requires substantive bodies for Add and Replace using Go whitespace rules", () => {
     for (const body of [" \t\n", "\u0085", "  comment\n", "\uFEFF"]) {
       const add = create(T.CommentAddRequestSchema, {
-        taskId: "task-1", body, author: T.CommentAuthorKind.USER,
+        taskId: "task-1",
+        body,
+        author: T.CommentAuthorKind.USER,
       });
       const replace = create(T.CommentReplaceRequestSchema, { commentId: "comment-1", body });
       if (body === "  comment\n" || body === "\uFEFF") {

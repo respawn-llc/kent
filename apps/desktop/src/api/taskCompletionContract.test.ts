@@ -1,5 +1,9 @@
 import { create, validate } from "@app/server-api-contract";
-import { CompleteRequestSchema, CompleteActorKind, MoveRequestSchema } from "@app/server-api-contract/gen/kent/api/workflow_task/lifecycle_pb";
+import {
+  CompleteRequestSchema,
+  CompleteActorKind,
+  MoveRequestSchema,
+} from "@app/server-api-contract/gen/kent/api/workflow_task/lifecycle_pb";
 
 describe("Task completion commentary", () => {
   it("limits UTF-8 bytes rather than UTF-16 units", () => {

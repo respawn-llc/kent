@@ -208,7 +208,6 @@ export async function createTask(
     });
   }
   const { task } = requireUnarySuccess(method, result);
-  if (task === undefined) throw new ContractError("Created Task summary is required.");
   return { id: task.id, shortID: task.shortId, title: task.title, workflowID: task.workflowId };
 }
 

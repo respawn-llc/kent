@@ -191,7 +191,7 @@ func TestServiceListWorkflowTasksValidatesAndDelegates(t *testing.T) {
 	ctx, service, projectID, workflowID, taskID := newWorkflowServiceOrdinaryTaskFixture(t)
 
 	blankProjectID := " "
-	if _, err := service.ListWorkflowTasks(ctx, &taskpb.ListRequest{
+	if err := protoapi.Validate(&taskpb.ListRequest{
 		LabelFilter: noLabelFilter(), ProjectId: &blankProjectID}); !isWorkflowServiceRequestFieldError(err, "project_id") {
 		t.Fatalf("blank project error = %#v, want project_id validation", err)
 	}
@@ -2080,13 +2080,11 @@ func TestServiceMapsWorkflowTaskLabelScopeFailures(t *testing.T) {
 	for index := range raw101 {
 		raw101[index] = "not-a-uuid"
 	}
-	_, err = service.UpdateWorkflowTaskLabels(ctx, &taskpb.LabelsUpdateRequest{
+	err = protoapi.Validate(&taskpb.LabelsUpdateRequest{
 		TaskId:      task.Task.Id,
 		AddLabelIds: raw101,
 	})
-	mutationErr := protoapi.WorkflowTaskLabelValidationDetail(task.Task.Id, err)
-	if mutationErr == nil || mutationErr.Reason != taskpb.LabelErrorReason_LABEL_ERROR_REASON_INVALID_MUTATION ||
-		mutationErr.GetField() != "add_label_ids" {
+	if !isWorkflowServiceRequestFieldError(err, "add_label_ids") {
 		t.Fatalf("invalid mutation error = %T %+v", err, err)
 	}
 }

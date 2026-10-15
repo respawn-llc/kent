@@ -13,15 +13,25 @@ describe("Optional Session display number", () => {
     ]) {
       const question = create(T.ObserveQuestionSchema, {
         ...pair,
-        question: { question: { case: "ask", value: {
-          sessionId: id, stepId: id, toolCallId: "call-1", question: "Continue?",
-          createdAt: { seconds: 1n, nanos: 0 },
-        } } },
+        question: {
+          question: {
+            case: "ask",
+            value: {
+              sessionId: id,
+              stepId: id,
+              toolCallId: "call-1",
+              question: "Continue?",
+              createdAt: { seconds: 1n, nanos: 0 },
+            },
+          },
+        },
       });
       const failure = create(T.ObserveFailureSchema, { ...pair, failure: { reason: "failed" } });
       const history = create(S.QuestionHistoryQuestionSchema, {
-        answeredBySessionId: pair.sessionId, answeredBySessionShortId: pair.shortId,
-        question: "Continue?", answer: "Yes",
+        answeredBySessionId: pair.sessionId,
+        answeredBySessionShortId: pair.shortId,
+        question: "Continue?",
+        answer: "Yes",
       });
       if (pair.sessionId === undefined && pair.shortId !== undefined) {
         expect(() => validate(T.ObserveQuestionSchema, question)).toThrow();

@@ -187,8 +187,7 @@ function hydration(value: T.HydrationValid): Payloads["hydration"] {
 
 function worktreeOutcome(value: T.WorktreeTransitionOutcomeValid): Payloads["worktree_transition_outcome"] {
   const failure = value.failureDetail;
-  const dirty =
-    value.deletePrecondition === undefined ? undefined : value.deletePrecondition.dirtyState;
+  const dirty = value.deletePrecondition === undefined ? undefined : value.deletePrecondition.dirtyState;
   return {
     OperationID: value.operationId,
     Transition: enumValue(value.transition, {
