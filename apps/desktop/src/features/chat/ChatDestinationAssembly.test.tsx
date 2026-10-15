@@ -531,7 +531,9 @@ it("keeps the parent draft when child creation succeeds but departure saving fai
 });
 
 it("preserves focus, selection and continued typing across successive deliveries with Worktree commands", async () => {
-  onTestFinished(() => vi.useRealTimers());
+  onTestFinished(() => {
+    vi.useRealTimers();
+  });
   const first = deferred<ChatInputMutationResult>();
   const second = deferred<ChatInputMutationResult>();
   const view = sessionWithPrompts((services) => {
@@ -557,7 +559,7 @@ it("preserves focus, selection and continued typing across successive deliveries
   });
   vi.useFakeTimers();
   fireEvent.click(send());
-  await act(() => vi.advanceTimersByTimeAsync(2000));
+  await act(async () => vi.advanceTimersByTimeAsync(2000));
   vi.useRealTimers();
   expect(view.services.api.chat.steer).toHaveBeenCalledTimes(1);
   expect(screen.getByRole("textbox")).not.toHaveAttribute("readonly");
@@ -565,7 +567,7 @@ it("preserves focus, selection and continued typing across successive deliveries
   await user.paste("/init two");
   vi.useFakeTimers();
   fireEvent.click(send());
-  await act(() => vi.advanceTimersByTimeAsync(2000));
+  await act(async () => vi.advanceTimersByTimeAsync(2000));
   vi.useRealTimers();
   expect(view.services.api.chat.steer).toHaveBeenCalledTimes(2);
   expect(screen.getByRole("textbox")).not.toHaveAttribute("readonly");
@@ -585,7 +587,9 @@ it("preserves focus, selection and continued typing across successive deliveries
   await act(async () => {
     first.resolve(accepted("33333333-3333-4333-8333-333333333333"));
   });
-  await waitFor(() => expect(view.services.api.chat.persistDraft).toHaveBeenCalled());
+  await waitFor(() => {
+    expect(view.services.api.chat.persistDraft).toHaveBeenCalled();
+  });
   expect(screen.getByRole("textbox")).toHaveFocus();
   expect(editor.selectionStart).toBe(2);
   expect(editor.selectionEnd).toBe(5);

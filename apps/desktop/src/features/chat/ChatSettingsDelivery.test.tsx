@@ -45,8 +45,11 @@ it.each(["unavailable", "registered_idle"] as const)(
       }
     });
     const editors = await screen.findAllByRole("textbox");
-    for (const [index, editor] of editors.entries())
-      await userEvent.setup().type(editor, `independent draft ${index.toString()}`);
+    const user = userEvent.setup();
+    for (const [index, editor] of editors.entries()) {
+      await user.click(editor);
+      await user.paste(`independent draft ${index.toString()}`);
+    }
     const deliver = async (questions: boolean) => {
       await act(async () => {
         for (const view of views)
@@ -61,13 +64,13 @@ it.each(["unavailable", "registered_idle"] as const)(
     });
     await deliver(false);
     for (const button of screen.getAllByRole("button", { name: appI18n.t("chatSettings.open") })) {
-      await userEvent.setup().hover(button);
+      await user.hover(button);
       expect(
         within(screen.getByRole("dialog")).getByRole("switch", {
           name: appI18n.t("chatSettings.questions"),
         }),
       ).not.toBeChecked();
-      await userEvent.setup().keyboard("{Escape}");
+      await user.keyboard("{Escape}");
       await waitFor(() => {
         expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
       });
