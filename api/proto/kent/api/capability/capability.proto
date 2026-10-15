@@ -264,7 +264,7 @@ message ThinkingDefaultFact {
 }
 
 message VerbosityDefaultFact {
-  string level = 1 [(buf.validate.field).string.min_len = 1];
+  string level = 1 [(buf.validate.field).string = {in: ["low", "medium", "high"]}];
 }
 
 message DefaultFacts {

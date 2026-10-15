@@ -122,3 +122,12 @@ func TestCapabilityThinkingDefaultModes(t *testing.T) {
 		}
 	}
 }
+
+func TestCapabilityDefaultVerbosityLevels(t *testing.T) {
+	for _, level := range []string{"low", "medium", "high", " medium ", "custom"} {
+		valid := level == "low" || level == "medium" || level == "high"
+		if err := protoapi.Validate(&pb.VerbosityDefaultFact{Level: level}); (err == nil) != valid {
+			t.Errorf("level %q acceptance = %v", level, err)
+		}
+	}
+}

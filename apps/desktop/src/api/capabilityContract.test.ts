@@ -8,6 +8,7 @@ import {
   ImportSourceKind,
   SkillEnablementProjectionFactSchema,
   ThinkingDefaultFactSchema,
+  VerbosityDefaultFactSchema,
   ModelFactSchema,
   ModelFactsSchema,
   ModelVerbosityFactSchema,
@@ -15,6 +16,17 @@ import {
 import { SupervisorFrequency } from "@app/server-api-contract/gen/kent/api/onboarding/onboarding_pb";
 
 describe("Capability model facts", () => {
+  it("accepts only exact supported default verbosity levels", () => {
+    for (const level of ["low", "medium", "high", " medium ", "custom"]) {
+      const fact = create(VerbosityDefaultFactSchema, { level });
+      if (level === " medium " || level === "custom") {
+        expect(() => validate(VerbosityDefaultFactSchema, fact)).toThrow();
+      } else {
+        expect(() => validate(VerbosityDefaultFactSchema, fact)).not.toThrow();
+      }
+    }
+  });
+
   it("accepts exactly the supported default thinking modes without requiring optional payloads", () => {
     for (const mode of ["default", "disabled", "level", "custom", "unsupported", " default "]) {
       const fact = create(ThinkingDefaultFactSchema, { mode });
@@ -29,7 +41,9 @@ describe("Capability model facts", () => {
   it("requires a substantive default model while preserving normalization", () => {
     for (const primaryModelId of [" \t", "\u0085", " model ", "\uFEFF"]) {
       const defaults = create(DefaultFactsSchema, {
-        primaryModelId, thinking: { mode: "default" }, compactionMode: "native",
+        primaryModelId,
+        thinking: { mode: "default" },
+        compactionMode: "native",
         supervisor: { frequency: SupervisorFrequency.OFF },
       });
       if (primaryModelId === " model " || primaryModelId === "\uFEFF") {

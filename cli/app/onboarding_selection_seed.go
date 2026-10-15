@@ -60,10 +60,7 @@ func onboardingSelectionsFromFacts(local config.LocalPreferences, facts *capabil
 		return onboardingSelections{}, err
 	}
 	thinking := seedThinkingFact(defaults.Thinking, modelFactForFacts(facts, model.value).SupportedThinkingLevels)
-	verbosity, err := seedVerbositySelection(config.ModelVerbosity(defaults.GetVerbosity().GetLevel()))
-	if err != nil {
-		return onboardingSelections{}, err
-	}
+	verbosity := seedVerbositySelection(defaults.Verbosity)
 	supervisor, err := seedSupervisorSelection(defaults.Supervisor, facts)
 	if err != nil {
 		return onboardingSelections{}, err
@@ -151,15 +148,11 @@ func seedThinkingSelection(value string, supportedLevels []string) onboardingThi
 	return onboardingThinkingSelection{kind: onboardingThinkingCustom, value: trimmed}
 }
 
-func seedVerbositySelection(value config.ModelVerbosity) (onboardingVerbositySelection, error) {
-	switch value {
-	case "":
-		return onboardingVerbositySelection{kind: onboardingVerbosityOmitted}, nil
-	case config.ModelVerbosityLow, config.ModelVerbosityMedium, config.ModelVerbosityHigh:
-		return onboardingVerbositySelection{kind: onboardingVerbosityLevel, value: string(value)}, nil
-	default:
-		return onboardingVerbositySelection{}, conversionError("model_verbosity", value, "unsupported verbosity")
+func seedVerbositySelection(value *capabilitypb.VerbosityDefaultFact) onboardingVerbositySelection {
+	if value == nil {
+		return onboardingVerbositySelection{kind: onboardingVerbosityOmitted}
 	}
+	return onboardingVerbositySelection{kind: onboardingVerbosityLevel, value: value.Level}
 }
 
 func seedSupervisorSelection(choice *onboardingpb.SupervisorChoice, facts *capabilitypb.Facts) (onboardingSupervisorSelection, error) {
