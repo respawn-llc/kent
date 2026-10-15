@@ -223,13 +223,17 @@ function ViewItemContent({
     case "status":
       return slots.thinkingStatus(thinkingStatus);
     case "user":
+      return slots.user(item);
     case "assistant":
+      return slots.assistant(item);
     case "tool":
+      return slots.tool(item);
     case "reasoning_trace":
+      return slots.reasoning(item);
     case "notice":
     case "reviewer_feedback":
     case "reviewer_error":
-      return <TranscriptFamilySlot item={item} slots={slots} />;
+      return slots.notice(item);
   }
 }
 
@@ -249,6 +253,16 @@ type TranscriptEndInput = Readonly<{
   newerAvailable: boolean;
   localMessages: NonNullable<TranscriptWindowViewProps["localMessages"]>;
 }>;
+
+function sameLocalMessageMembership(
+  previous: TranscriptEndInput["localMessages"],
+  current: TranscriptEndInput["localMessages"],
+): boolean {
+  return (
+    previous.length === current.length &&
+    previous.every((message, index) => message.inputID === current[index]?.inputID)
+  );
+}
 
 function transcriptViewItems(
   snapshot: TranscriptWindowSnapshot | null,
@@ -291,7 +305,7 @@ function useTranscriptEndRequest(
     previous.opening === input.opening &&
     previous.bottomInset === input.bottomInset &&
     previous.newerAvailable === input.newerAvailable &&
-    previous.localMessages === input.localMessages
+    sameLocalMessageMembership(previous.localMessages, input.localMessages)
   ) {
     return request;
   }
@@ -308,7 +322,7 @@ function transcriptEndBehavior(
 ): "auto" | "smooth" | null {
   if (previous.opening !== "ready" && current.opening === "ready") return "auto";
   if (following && previous.bottomInset !== current.bottomInset) return "auto";
-  if (following && previous.localMessages !== current.localMessages) return "auto";
+  if (following && !sameLocalMessageMembership(previous.localMessages, current.localMessages)) return "auto";
   if (current.explicit != null && previous.explicit !== current.explicit) return "smooth";
   if (!following || previous.update === current.update || current.update === undefined) return null;
   const behavior: Record<ChatTranscriptPresentationUpdate["kind"], "auto" | "smooth" | null> = {
@@ -345,28 +359,5 @@ function transcriptBoundary(
           onInput({ kind: "retry", direction });
         },
       };
-  }
-}
-
-function TranscriptFamilySlot({
-  item,
-  slots,
-}: Readonly<{
-  item: TranscriptRenderItem;
-  slots: TranscriptRenderSlots<ReactElement | null>;
-}>): ReactElement | null {
-  switch (item.kind) {
-    case "user":
-      return slots.user(item);
-    case "assistant":
-      return slots.assistant(item);
-    case "tool":
-      return slots.tool(item);
-    case "reasoning_trace":
-      return slots.reasoning(item);
-    case "notice":
-    case "reviewer_feedback":
-    case "reviewer_error":
-      return slots.notice(item);
   }
 }

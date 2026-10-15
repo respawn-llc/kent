@@ -1,6 +1,6 @@
 import { animate, type AnimationPlaybackControls } from "motion/react";
 import { prefersReducedMotion } from "./motion";
-import { textMotionSnapshot, type TextMotionSnapshot } from "./textMotionSnapshot";
+import { measuredFontSize, textMotionSnapshot, type TextMotionSnapshot } from "./textMotionSnapshot";
 
 interface Source {
   snapshot: TextMotionSnapshot | null;
@@ -14,7 +14,13 @@ export class SharedTextMotion {
   private readonly sources = new Map<string, Source>();
   private readonly handoffs = new Map<
     HTMLElement,
-    Readonly<{ finish(): void; visual: HTMLElement; deadline: number }>
+    Readonly<{
+      finish(): void;
+      freeze(): void;
+      visual: HTMLElement;
+      fontSize: number | null;
+      deadline: number;
+    }>
   >();
   private readonly consumedElements = new WeakSet<HTMLElement>();
 
@@ -99,8 +105,15 @@ export class SharedTextMotion {
 
   private snapshot(element: HTMLElement): TextMotionSnapshot | null {
     const handoff = this.handoffs.get(element);
-    const snapshot = textMotionSnapshot(handoff?.visual ?? element);
-    handoff?.finish();
+    if (handoff === undefined) return textMotionSnapshot(element);
+    handoff.freeze();
+    // The owned visual is already bounded; adopting it preserves its frozen crossfade.
+    const snapshot: TextMotionSnapshot = {
+      element: handoff.visual,
+      rect: handoff.visual.getBoundingClientRect(),
+      fontSize: handoff.fontSize,
+    };
+    handoff.finish();
     return snapshot;
   }
 
@@ -149,15 +162,33 @@ export class SharedTextMotion {
       return { element, previous };
     });
     const controls: AnimationPlaybackControls[] = [];
+    const stop = () => {
+      for (const control of controls.splice(0)) control.stop();
+    };
+    const freeze = () => {
+      // Motion samples wall-clock time on stop, which can differ from the rendered WAAPI frame.
+      const snapshots = [source.element, destination.element, visual].map((element) => {
+        const style = getComputedStyle(element);
+        return {
+          element,
+          opacity: style.opacity,
+          transform: style.transform,
+          scale: style.scale,
+          filter: style.filter,
+        };
+      });
+      stop();
+      for (const { element, ...style } of snapshots) Object.assign(element.style, style);
+    };
     const finish = () => {
       if (!this.handoffs.delete(target)) return;
-      for (const control of controls) control.stop();
+      stop();
       target.style.visibility = previous;
       for (const { element, previous } of originVisibility) element.style.visibility = previous;
       layer.remove();
       window.removeEventListener("resize", finish);
     };
-    this.handoffs.set(target, { finish, visual, deadline: end });
+    this.handoffs.set(target, { finish, freeze, visual, fontSize: measuredFontSize(visual), deadline: end });
     window.addEventListener("resize", finish);
     // Capture the full destination layout, not its temporarily clipped entrance.
     // Motion owns the clock. Geometry follows ordinary scrolling without driving it.

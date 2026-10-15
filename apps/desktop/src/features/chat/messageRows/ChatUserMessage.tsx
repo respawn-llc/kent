@@ -1,6 +1,6 @@
 import { useTranslation } from "react-i18next";
 import { Pencil } from "lucide-react";
-import { useLayoutEffect, useMemo, useRef } from "react";
+import { useEffectEvent, useLayoutEffect, useMemo, useRef } from "react";
 
 import type { TranscriptRenderItem } from "@/app-facade";
 import { AnimatedSize, IconTooltipButton, Island, Spinner, StaticMarkdown } from "@/ui";
@@ -40,8 +40,15 @@ export function ChatUserMessage(
   useLayoutEffect(() => {
     if (text.current === null) return;
     motion.arrive(sources, text.current);
+  }, [motion, sources]);
+  const registerPreview = useEffectEvent(() => {
+    if (text.current === null) return;
     if (previewID !== null) return motion.register(previewID, text.current);
-  }, [motion, sources, previewID]);
+  });
+  useLayoutEffect(() => {
+    // Commitment keeps this text mounted; only leaving the row releases its source.
+    return registerPreview();
+  }, [motion]);
   return (
     <div
       ref={row}

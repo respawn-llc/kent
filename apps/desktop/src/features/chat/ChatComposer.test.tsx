@@ -830,7 +830,12 @@ it("appends independently rejected Queue inputs after text typed during delivery
   });
   expect(result.current.text).toBe("first\n ");
   expect(result.current.interactionRestricted).toBe(true);
-  await waitFor(() => { expect(result.current.interactionRestricted).toBe(false); }, { timeout: 3000 });
+  await waitFor(
+    () => {
+      expect(result.current.interactionRestricted).toBe(false);
+    },
+    { timeout: 3000 },
+  );
   expect(result.current.text).toBe("");
   act(() => {
     result.current.edit("second");
@@ -840,7 +845,12 @@ it("appends independently rejected Queue inputs after text typed during delivery
   });
   expect(result.current.text).toBe("second");
   expect(result.current.interactionRestricted).toBe(true);
-  await waitFor(() => { expect(result.current.interactionRestricted).toBe(false); }, { timeout: 3000 });
+  await waitFor(
+    () => {
+      expect(result.current.interactionRestricted).toBe(false);
+    },
+    { timeout: 3000 },
+  );
   expect(result.current.text).toBe("");
   act(() => {
     result.current.edit("later");
