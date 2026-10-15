@@ -219,7 +219,8 @@ func (i *interactiveAuthInteractor) collectRemoteBrowserAuto(ctx context.Context
 		return nil, err
 	}
 	session := start.GetContinuation().GetBrowser()
-	if session == nil || start.GetAuthorizationUrl() == "" {
+	_, browserInstructions := start.Instructions.(*authpb.BootstrapStart_AuthorizationUrl)
+	if session == nil || !browserInstructions {
 		return nil, errors.New("server returned no browser sign-in instructions")
 	}
 	openErr := openBrowser(start.GetAuthorizationUrl())
