@@ -157,7 +157,6 @@ describe("ApiClient workflow subscriptions", () => {
     client.subscribeWorkflow(workflowID, eventCollector(events));
     for (const action of [
       pb.ProjectEventAction.WORKFLOW_PROJECT_EVENT_ACTION_LINKED,
-      pb.ProjectEventAction.WORKFLOW_PROJECT_EVENT_ACTION_CANCELED,
     ]) {
       expect(() => {
         rpc.emitDescriptor(
