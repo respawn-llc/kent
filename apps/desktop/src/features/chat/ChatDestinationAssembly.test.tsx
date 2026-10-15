@@ -375,8 +375,9 @@ it("keeps transcript and composer usable through a sidebar-owned Worktree refres
   const calls = list.mock.calls.length;
   fireEvent.click(screen.getByRole("button", { name: appI18n.t("app.retry") }));
   await waitFor(() => {
-    expect(screen.queryByTestId("error-state")).not.toBeInTheDocument();
+    expect(screen.queryByTestId("error-state") === null).toBe(true);
   });
+  expect(screen.queryByTestId("error-state")).not.toBeInTheDocument();
   expect(list).toHaveBeenCalledTimes(calls + 1);
   list.mockRejectedValueOnce(new Error("sidebar failed again"));
   fireEvent.click(screen.getByRole("button", { name: appI18n.t("chat.worktree.refresh") }));

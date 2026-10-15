@@ -25,6 +25,7 @@ USAGE
 target="default"
 timeout_seconds=180
 workers=""
+desktop_workers=8
 native_timeout_args=()
 inherit_env=0
 tool_args=()
@@ -45,6 +46,7 @@ while [ "$#" -gt 0 ]; do
 	--workers)
 		[ "$#" -ge 2 ] || { echo "--workers requires a count" >&2; exit 2; }
 		workers="$2"
+		desktop_workers="$2"
 		shift 2
 		;;
 	--inherit-env)
@@ -222,7 +224,7 @@ run_server() {
 
 run_desktop() {
 	just --quiet _gen-typescript
-	run_suite desktop bun run --cwd apps/desktop tooling/run-tests.ts "--workers=$workers" "${native_timeout_args[@]}" "${tool_args[@]}"
+	run_suite desktop bun run --cwd apps/desktop tooling/run-tests.ts "--workers=$desktop_workers" "${native_timeout_args[@]}" "${tool_args[@]}"
 }
 
 run_tui() {
