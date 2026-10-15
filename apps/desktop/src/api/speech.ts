@@ -21,7 +21,7 @@ export type SpeechResult = Readonly<{ kind: "transcript"; text: string }> | Read
 export type SpeechFailureKind = "unavailable" | "input" | "size-limit" | "connection" | "provider";
 
 export class SpeechOperationError extends Error {
-  constructor(readonly reason: "format" | "size" | "closed" | "unavailable" | "recording") {
+  constructor(readonly reason: "format" | "size" | "closed" | "unavailable" | "recording" | "originalPath") {
     super(reason);
   }
 }

@@ -1,5 +1,5 @@
 import type { NativeBridge } from "@app/native-bridge";
-import { SpeechTransportError, type SpeechResult } from "@/api";
+import { SpeechOperationError, SpeechTransportError, type SpeechResult } from "@/api";
 import { assertSpeechSize, decodeSpeechResult, speechUploadURL, uploadSpeechBlob } from "@/api/composition";
 import { speechSourceBytes, type SpeechRequest, type SpeechSource, type SpeechTransfer } from "@/app-facade";
 
@@ -93,7 +93,8 @@ export function createSpeechTransfer(bridge: NativeBridge, endpoint: string): Sp
       if (source.kind === "browser") download(source);
       else {
         if (native === null) throw new Error("Native speech is unavailable.");
-        await native.saveCopy(source.original.path, title);
+        const outcome = await native.saveCopy(source.original.path, title);
+        if (outcome.kind === "original-path") throw new SpeechOperationError("originalPath");
       }
     },
     limitSound: async () => native?.limitSound() ?? false,

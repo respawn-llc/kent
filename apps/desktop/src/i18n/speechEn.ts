@@ -1,6 +1,7 @@
 export const speechEnglish = {
   connection: "Connection: {{connection}}",
   errors: {
+    originalPath: "Choose a different location for the recording copy.",
     format: "This device cannot record an accepted audio format.",
     size: "The complete recording exceeds the provider upload limit.",
     closed: "The recording destination was closed.",

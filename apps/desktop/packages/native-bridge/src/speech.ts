@@ -24,7 +24,7 @@ export type NativeSpeechBridge = Readonly<{
   cancel(handle: number): Promise<void>;
   uploadOriginal(original: NativeSpeechOriginal, uploadUrl: string, maxBytes: number): Promise<number>;
   discard(path: string): Promise<void>;
-  saveCopy(path: string, title: string): Promise<string | null>;
+  saveCopy(path: string, title: string): Promise<Readonly<{ kind: "saved" | "canceled" | "original-path" }>>;
   limitSound(): Promise<boolean>;
 }>;
 

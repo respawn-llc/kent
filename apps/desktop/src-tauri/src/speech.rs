@@ -383,12 +383,20 @@ pub async fn speech_discard(path: PathBuf) -> Result<(), String> {
     std::fs::remove_file(path).map_err(|e| e.to_string())
 }
 
+#[derive(serde::Serialize)]
+#[serde(tag = "kind", rename_all = "kebab-case")]
+pub enum SaveCopyOutcome {
+    Saved,
+    Canceled,
+    OriginalPath,
+}
+
 #[tauri::command]
 pub async fn speech_save_copy(
     app: tauri::AppHandle,
     path: PathBuf,
     title: String,
-) -> Result<Option<PathBuf>, String> {
+) -> Result<SaveCopyOutcome, String> {
     let filename = path
         .file_name()
         .ok_or("Recording filename is missing")?
@@ -404,11 +412,11 @@ pub async fn speech_save_copy(
         });
     let chosen = receiver.await.map_err(|e| e.to_string())?;
     let Some(chosen) = chosen else {
-        return Ok(None);
+        return Ok(SaveCopyOutcome::Canceled);
     };
     let target = chosen.into_path().map_err(|e| e.to_string())?;
     if target == path {
-        return Err("Choose a different location for the recording copy".into());
+        return Ok(SaveCopyOutcome::OriginalPath);
     }
     let parent = target
         .parent()
@@ -416,7 +424,7 @@ pub async fn speech_save_copy(
     let temporary = tempfile::NamedTempFile::new_in(parent).map_err(|e| e.to_string())?;
     std::fs::copy(path, temporary.path()).map_err(|e| e.to_string())?;
     temporary.persist(&target).map_err(|e| e.to_string())?;
-    Ok(Some(target))
+    Ok(SaveCopyOutcome::Saved)
 }
 
 #[tauri::command]
