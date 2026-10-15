@@ -199,19 +199,43 @@ func deleteActivityRuntimePlan(
 	onEvent ...func(runtime.Event),
 ) sessionruntime.AgentRuntimePlan {
 	t.Helper()
+	var eventObserver func(runtime.Event)
+	if len(onEvent) > 0 {
+		eventObserver = onEvent[0]
+	}
+	return deleteActivityRuntimePlanWithTools(
+		t,
+		env,
+		workdir,
+		client,
+		reviewerFrequency,
+		reviewerClientFactory,
+		nil,
+		eventObserver,
+	)
+}
+
+func deleteActivityRuntimePlanWithTools(
+	t *testing.T,
+	env *serviceTestEnv,
+	workdir string,
+	client llm.Client,
+	reviewerFrequency string,
+	reviewerClientFactory runtimewire.RuntimeClientFactory,
+	enabledTools []toolspec.ID,
+	eventObserver func(runtime.Event),
+) sessionruntime.AgentRuntimePlan {
+	t.Helper()
 	settings := env.cfg.Settings
 	settings.Model = "gpt-6-sol"
 	settings.ModelContextWindow = 200000
 	settings.Reviewer.Frequency = reviewerFrequency
 	settings.Reviewer.Model = "gpt-6-sol"
 	settings.Reviewer.ThinkingLevel = "low"
-	var eventObserver func(runtime.Event)
-	if len(onEvent) > 0 {
-		eventObserver = onEvent[0]
-	}
 	plan, err := sessionruntime.NewAgentRuntimePlan(sessionruntime.AgentRuntimePlanOptions{
 		MainWorkspaceRoot:     workdir,
 		Settings:              settings,
+		EnabledTools:          enabledTools,
 		QuestionsEnabled:      textutil.Value(true),
 		AutoCompactionEnabled: textutil.Value(true),
 		FilesystemContext: func() tools.FilesystemContext {

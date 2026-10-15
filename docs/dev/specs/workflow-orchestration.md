@@ -663,6 +663,12 @@
 - After creation, an initiating request may repeat the exact branch recorded in managed Worktree metadata as an idempotent assertion, except when reopening a completed Task with a usable original Execution Target. That reopening must reject every explicit branch name, including the recorded branch. Outside the unavailable-original-target replacement flow, a different branch is rejected as an attempted rename. The idempotent assertion also applies when an overlapping request supplied a post-snapshot replacement before the Worktree bound and encounters that Worktree afterward.
 - Automatic managed Worktree root naming must use the Task Short ID regardless of a custom branch name.
 - Task Worktree creation uses ordinary managed-root collision behavior. Its initial branch follows the Task-specific collision rules above.
+- Desktop and the active Go TUI Worktree lists must display `In Use` on a Kent-registered Worktree, including externally created Worktrees and Missing records, when at least one associated Task is non-terminal or at least one targeting Session has live activity. Non-terminal Tasks must count even when they are not executing.
+- For this status, live Session activity must use Kent's existing live activity definition, including starting, executing, awaiting an answer, finishing accepted work, and closing. Terminal Tasks and Idle historical Sessions alone must not make a Worktree `In Use`.
+- Main Workspace and unregistered External rows must not display `In Use`.
+- The `In Use` indicator must use the existing compact neutral badge treatment after the current and topology indicators. It must coexist with existing status information. Worktree selection and switch/delete actions must stay available.
+- The status must update through existing Worktree list refreshes, without polling or activity-triggered refresh.
+- The status must be informational only. It must not change Worktree deletion admission.
 - Non-terminal Task ownership alone must not block ordinary Worktree deletion. Deletion must leave the ongoing Task's managed binding and recovery evidence intact.
 - Worktree deletion fails immediately if any targeting Active Session Runtime is Executing, processing or holding pending Steering, or has selected/begun exact execution. It must not wait for or stop that work.
 - A targeting Idle Active Session Runtime is retired before its Session is retargeted as dormant. Durable target/reminder state changes before physical deletion.

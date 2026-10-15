@@ -3,6 +3,7 @@ package worktree
 import (
 	"context"
 	"core/server/metadata"
+	"core/server/registry"
 	"core/server/session"
 	"core/server/sessionruntime"
 	shelltool "core/server/tools/shell"
@@ -87,19 +88,20 @@ func (s *serviceTestProcessSource) CurrentSnapshots() []shelltool.Snapshot {
 }
 
 type serviceTestEnv struct {
-	t             *testing.T
-	ctx           context.Context
-	store         *metadata.Store
-	cfg           config.App
-	binding       metadata.Binding
-	session       *session.Store
-	authority     *sessionruntime.Authority
-	publisher     *serviceTestPublisher
-	processes     *serviceTestProcessSource
-	service       *Service
-	leaseID       string
-	workspaceRoot string
-	baseDir       string
+	t               *testing.T
+	ctx             context.Context
+	store           *metadata.Store
+	cfg             config.App
+	binding         metadata.Binding
+	session         *session.Store
+	authority       *sessionruntime.Authority
+	runtimeRegistry *registry.RuntimeRegistry
+	publisher       *serviceTestPublisher
+	processes       *serviceTestProcessSource
+	service         *Service
+	leaseID         string
+	workspaceRoot   string
+	baseDir         string
 }
 
 func TestCreateWorktreeMarksProvenanceAndRunsSetupScriptWithProjectID(t *testing.T) {
