@@ -21,6 +21,7 @@ func (m *uiModel) installInitialCommandCatalog(msg initialCommandCatalogDoneMsg)
 	if msg.owner != m || m.observationContext.Err() != nil {
 		return nil
 	}
+	m.observeRuntimeRequestResult(msg.catalog.err)
 	m.commandRegistry = msg.catalog.registry
 	m.promptCatalog = msg.catalog.client
 	m.promptCatalogEntries = msg.catalog.entries
@@ -80,6 +81,7 @@ func (m *uiModel) handlePromptCatalogRefreshDone(msg promptCatalogRefreshDoneMsg
 	if m == nil {
 		return nil
 	}
+	m.observeRuntimeRequestResult(msg.err)
 	if msg.err != nil {
 		return m.sendTransientStatusWithNoticeID("Custom prompt commands are unavailable for this session.", uiStatusNoticeError, transientStatusDuration, uiStatusNoticeReplace, "")
 	}

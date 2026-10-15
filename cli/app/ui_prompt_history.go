@@ -14,6 +14,7 @@ import (
 )
 
 type promptHistoryLoadedMsg struct {
+	scope   context.Context
 	prompts []string
 	err     error
 }
@@ -25,12 +26,17 @@ func (m *uiModel) loadPromptHistoryCmd() tea.Cmd {
 		return nil
 	}
 	m.promptHistoryLoading = true
+	scope := m.observationScope
+	ctx := scope
+	if ctx == nil {
+		ctx = context.Background()
+	}
 	return func() tea.Msg {
-		result, err := client.GetPromptHistory(context.Background(), &sessionpb.PromptHistoryRequest{SessionId: &sharedpb.SessionSelector{Value: &sharedpb.SessionSelector_SessionId{SessionId: sessionID}}})
+		result, err := client.GetPromptHistory(ctx, &sessionpb.PromptHistoryRequest{SessionId: &sharedpb.SessionSelector{Value: &sharedpb.SessionSelector_SessionId{SessionId: sessionID}}})
 		if err != nil {
-			return promptHistoryLoadedMsg{err: err}
+			return promptHistoryLoadedMsg{scope: scope, err: err}
 		}
-		return promptHistoryLoadedMsg{prompts: result.Prompts}
+		return promptHistoryLoadedMsg{scope: scope, prompts: result.Prompts}
 	}
 }
 

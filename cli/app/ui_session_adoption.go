@@ -25,6 +25,7 @@ func (m *uiModel) applyNewSessionActionDone(msg newSessionActionDoneMsg) tea.Cmd
 	if m.exitAction != UIActionNone {
 		return nil
 	}
+	m.observeRuntimeRequestResult(msg.err)
 	var cmds []tea.Cmd
 	if msg.err != nil {
 		if msg.submittedText != nil {
@@ -73,6 +74,10 @@ func (m *uiModel) stopSessionObservation() {
 	}
 }
 
+func (m *uiModel) isCurrentObservation(scope context.Context) bool {
+	return scope == m.observationScope && (scope == nil || scope.Err() == nil)
+}
+
 func (m *uiModel) observeAdoptedSessionCmd() tea.Cmd {
 	if m.observeSession == nil {
 		return nil
@@ -83,6 +88,7 @@ func (m *uiModel) observeAdoptedSessionCmd() tea.Cmd {
 		parent = context.Background()
 	}
 	scope, cancel := context.WithCancel(parent)
+	m.observationScope = scope
 	m.cancelObservation = cancel
 	observe := m.observeSession
 	return func() tea.Msg {
@@ -94,7 +100,7 @@ func (m *uiModel) observeAdoptedSessionCmd() tea.Cmd {
 }
 
 func (m *uiModel) sessionObservationLoading() bool {
-	return m.cancelObservation != nil && m.sessionObservation == nil
+	return m.cancelObservation != nil && m.engine == nil
 }
 
 func (m *uiModel) applySessionObservationLoaded(msg sessionObservationLoadedMsg) tea.Cmd {
@@ -105,9 +111,11 @@ func (m *uiModel) applySessionObservationLoaded(msg sessionObservationLoadedMsg)
 	if msg.err != nil {
 		msg.observation.Close()
 		m.stopSessionObservation()
+		m.observeRuntimeRequestResult(msg.err)
 		return m.sendTransientStatusWithNoticeID(msg.err.Error(), uiStatusNoticeError, transientStatusDuration, uiStatusNoticeReplace, "")
 	}
 	m.sessionObservation = msg.observation
+	m.observeRuntimeRequestResult(nil)
 	return m.installSessionObservation(msg.observation.Wiring, msg.plan)
 }
 
@@ -115,6 +123,8 @@ func (m *uiModel) installSessionObservation(wiring *runtimeWiring, plan sessionL
 	m.engine = wiring.runtimeClient
 	m.bindRuntimeConnectionObserver()
 	m.eventDispatcher = wiring.eventDispatcher
+	m.eventDispatcher.lifecycleHookIssues = wiring.lifecycleHookIssues
+	m.eventDispatcher.lifecycleHookDone = wiring.lifecycleHookDone
 	m.requestOngoingOpen = wiring.requestTranscriptOpen
 	m.turnQueueHook = wiring.turnQueueHook
 	m.worktreeClient = wiring.worktrees
@@ -134,5 +144,21 @@ func (m *uiModel) installSessionObservation(wiring *runtimeWiring, plan sessionL
 	m.statusConfig = plan.StatusConfig
 	client := wiring.runtimeClient.(*sessionRuntimeClient)
 	m.ongoingTranscript = newOngoingTranscriptController(m.ongoingSurface, m.ongoingFrameInput, client.admitTranscriptMessageState, m.applyAdmittedTranscriptMessageState)
-	return tea.Batch(m.eventDispatcher.wait(), waitRuntimeConnectionStateChange(events), m.loadPromptHistoryCmd())
+	return m.startSessionObservationLoads()
+}
+
+func (m *uiModel) startSessionObservationLoads() tea.Cmd {
+	return tea.Batch(
+		m.eventDispatcher.wait(),
+		waitRuntimeConnectionStateChange(m.runtimeConnectionEvents, m.observationScope),
+		m.loadPromptHistoryCmd(),
+		m.startRuntimeMainViewRefresh(nil),
+	)
+}
+
+func withUISessionObservation(wiring *runtimeWiring, plan sessionLaunchPlan, parent context.Context) UIOption {
+	return func(m *uiModel) {
+		m.observationScope, m.cancelObservation = context.WithCancel(parent)
+		m.startupCmds = append(m.startupCmds, m.installSessionObservation(wiring, plan))
+	}
 }

@@ -97,6 +97,7 @@ func (m *uiModel) applyNewSessionSettingsLoaded(msg newSessionSettingsLoadedMsg)
 	if target == nil || target.creation != msg.target {
 		return nil
 	}
+	m.observeRuntimeRequestResult(msg.err)
 	if msg.err != nil {
 		target.settingsLoad = uiNewSettingsFailed{err: msg.err}
 		m.restoreNavigationPrompt()

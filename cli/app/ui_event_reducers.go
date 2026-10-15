@@ -76,6 +76,9 @@ func (m *uiModel) reduceNoticeMessage(msg tea.Msg) uiFeatureUpdateResult {
 func (m *uiModel) reduceInputAsyncMessage(msg tea.Msg) uiFeatureUpdateResult {
 	switch msg := msg.(type) {
 	case promptHistoryLoadedMsg:
+		if !m.isCurrentObservation(msg.scope) {
+			return handledUIFeatureUpdate(m, nil)
+		}
 		m.promptHistoryLoading = false
 		m.observeRuntimeRequestResult(msg.err)
 		if msg.err != nil {

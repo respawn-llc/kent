@@ -47,6 +47,7 @@ type uiRuntimeFeatureState struct {
 	observeSession     func(context.Context, runtimeids.SessionID) (sessionLaunchPlan, *runtimeLaunchPlan, error)
 	sessionObservation *runtimeLaunchPlan
 	observationContext context.Context
+	observationScope   context.Context
 	cancelObservation  context.CancelFunc
 	engine             clientui.RuntimeClient
 	view               tui.Model

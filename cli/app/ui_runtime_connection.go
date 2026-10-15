@@ -18,7 +18,7 @@ func (m *uiModel) bindRuntimeConnectionObserver() {
 }
 
 func (m *uiModel) observeRuntimeRequestResult(err error) {
-	if m == nil || !m.hasRuntimeClient() {
+	if m == nil {
 		return
 	}
 	if err == nil {
@@ -35,7 +35,7 @@ func (m *uiModel) observeRuntimeRequestResult(err error) {
 }
 
 func (m *uiModel) runtimeDisconnectStatusVisible() bool {
-	return m != nil && m.hasRuntimeClient() && m.runtimeDisconnectedState()
+	return m != nil && m.runtimeDisconnectedState()
 }
 
 func (m *uiModel) runtimeDisconnectStatusText() string {

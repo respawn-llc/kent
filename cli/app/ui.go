@@ -26,7 +26,9 @@ func NewProjectedUIModel(runtimeClient clientui.RuntimeClient, opts ...UIOption)
 		m.pathReferenceEvents = m.pathReferenceSearch.Events()
 	}
 	m.refreshAutocompleteFromInput()
-	m.bindRuntimeConnectionObserver()
+	if m.observationScope == nil {
+		m.bindRuntimeConnectionObserver()
+	}
 	if gitStartupCmd := m.statusLineGitRefreshCmd(); gitStartupCmd != nil {
 		m.statusGitBackgroundInFlight = true
 		m.startupCmds = append(m.startupCmds, gitStartupCmd)
@@ -43,18 +45,15 @@ func NewProjectedUIModel(runtimeClient clientui.RuntimeClient, opts ...UIOption)
 
 func (m *uiModel) Init() tea.Cmd {
 	cmds := []tea.Cmd{
-		m.eventDispatcher.wait(),
 		waitPathReferenceSearchEvent(m.pathReferenceEvents),
 		tea.SetWindowTitle(sessionTitle(m.sessionName)),
 		tea.WindowSize(),
-		m.loadPromptHistoryCmd(),
-		m.startRuntimeMainViewRefresh(nil),
+	}
+	if m.observationScope == nil {
+		cmds = append(cmds, m.startSessionObservationLoads())
 	}
 	if cmd := m.reconcileOngoingOwnership(); cmd != nil {
 		cmds = append(cmds, cmd)
-	}
-	if m.runtimeConnectionEvents != nil {
-		cmds = append(cmds, waitRuntimeConnectionStateChange(m.runtimeConnectionEvents))
 	}
 	cmds = append([]tea.Cmd{tea.ClearScreen}, cmds...)
 	if startupSubmitCmd := m.startupSubmitCmd(); startupSubmitCmd != nil {

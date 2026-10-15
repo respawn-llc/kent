@@ -5,16 +5,131 @@ import (
 	"core/cli/app/commands"
 	"io"
 	"testing"
+	"time"
 
 	"core/shared/apicontract"
 	"core/shared/protoapi"
 	chatpb "core/shared/protoapi/gen/kent/api/chat"
+	runtimepb "core/shared/protoapi/gen/kent/api/runtime"
+	sessionpb "core/shared/protoapi/gen/kent/api/session"
 	sessionlaunchpb "core/shared/protoapi/gen/kent/api/session_launch"
 	worktreepb "core/shared/protoapi/gen/kent/api/worktree"
 	"core/shared/runtimeids"
 	"core/shared/runtimeinput"
 	"core/shared/serverapi"
+	tea "github.com/charmbracelet/bubbletea"
 )
+
+type sessionPromptHistoryClient struct{ apicontract.SessionViewService }
+
+func (sessionPromptHistoryClient) GetPromptHistory(_ context.Context, request *sessionpb.PromptHistoryRequest) (*sessionpb.PromptHistorySuccess, error) {
+	return &sessionpb.PromptHistorySuccess{Prompts: []string{request.SessionId.GetSessionId()}}, nil
+}
+
+func TestNewSessionAdoptionLoadsMetadataWithoutTranscriptHydration(t *testing.T) {
+	model := newProjectedStaticUIModel()
+	defer model.Close()
+	id := runtimeids.NewSessionID()
+	name := "Dormant adopted Session"
+	reads := &countingSessionViewClient{view: &runtimepb.MainView{
+		Session: &runtimepb.SessionView{SessionId: id.String(), SessionName: &name},
+		Status:  &runtimepb.Status{},
+	}}
+	client := newUIRuntimeClientWithReads(id.String(), reads, &reconnectRetryRuntimeControlClient{}, nil, nil)
+	model.setKnownSessionTarget(id.String())
+	withUISessionObservation(&runtimeWiring{
+		runtimeClient: client, eventDispatcher: newUIEventDispatcher(nil), terminalFocus: newTerminalFocusState(),
+	}, sessionLaunchPlan{}, t.Context())(model)
+	results := make(chan tea.Msg, 16)
+	var dispatch func(tea.Cmd)
+	dispatch = func(cmd tea.Cmd) {
+		if cmd == nil {
+			return
+		}
+		go func() {
+			message := cmd()
+			if batch, ok := message.(tea.BatchMsg); ok {
+				for _, nested := range batch {
+					dispatch(nested)
+				}
+			} else if message != nil {
+				results <- message
+			}
+		}()
+	}
+	for _, cmd := range model.startupCmds {
+		dispatch(cmd)
+	}
+	for {
+		select {
+		case msg := <-results:
+			if _, ok := msg.(runtimeMainViewRefreshedMsg); !ok {
+				continue
+			}
+			model.Update(msg)
+			if model.sessionName == nil || *model.sessionName != name {
+				t.Fatal("adopted Session metadata was not loaded independently")
+			}
+			return
+		case <-time.After(3 * time.Second):
+			t.Fatal("adoption waited for transcript hydration before loading metadata")
+		}
+	}
+}
+
+func TestNewSessionOldObservationHistoryCannotReplaceCurrentRecall(t *testing.T) {
+	model := newProjectedStaticUIModel()
+	model.statusConfig.SessionViews = sessionPromptHistoryClient{}
+	model.observeSession = func(context.Context, runtimeids.SessionID) (sessionLaunchPlan, *runtimeLaunchPlan, error) {
+		return sessionLaunchPlan{}, nil, io.ErrUnexpectedEOF
+	}
+	first, second := runtimeids.NewSessionID(), runtimeids.NewSessionID()
+	model.setKnownSessionTarget(first.String())
+	model.observeAdoptedSessionCmd()
+	oldHistory := model.loadPromptHistoryCmd()()
+	model.stopSessionObservation()
+	model.setKnownSessionTarget(second.String())
+	model.observeAdoptedSessionCmd()
+	currentHistory := model.loadPromptHistoryCmd()()
+	model.Update(currentHistory)
+	model.Update(oldHistory)
+	if len(model.promptHistory) != 1 || model.promptHistory[0] != second.String() {
+		t.Fatalf("current prompt recall replaced by old observation: %v", model.promptHistory)
+	}
+	model.stopSessionObservation()
+}
+
+func TestNewSessionDisconnectIsVisibleWithoutObservation(t *testing.T) {
+	model := newProjectedStaticUIModel()
+	model.observeRuntimeRequestResult(io.EOF)
+	if !model.runtimeDisconnectStatusVisible() {
+		t.Fatal("disconnect was hidden without an observation")
+	}
+	model.observeRuntimeRequestResult(nil)
+	if model.runtimeDisconnectStatusVisible() {
+		t.Fatal("successful request did not clear disconnect")
+	}
+}
+
+func TestNewSessionOldConnectionFailureDoesNotAffectCurrentObservation(t *testing.T) {
+	model := newProjectedStaticUIModel()
+	model.observeSession = func(context.Context, runtimeids.SessionID) (sessionLaunchPlan, *runtimeLaunchPlan, error) {
+		return sessionLaunchPlan{}, nil, io.ErrUnexpectedEOF
+	}
+	model.setKnownSessionTarget(runtimeids.NewSessionID().String())
+	model.observeAdoptedSessionCmd()
+	events := make(chan runtimeConnectionStateChangedMsg, 1)
+	events <- runtimeConnectionStateChangedMsg{err: io.EOF}
+	old := waitRuntimeConnectionStateChange(events, model.observationScope)()
+	model.stopSessionObservation()
+	model.setKnownSessionTarget(runtimeids.NewSessionID().String())
+	model.observeAdoptedSessionCmd()
+	model.Update(old)
+	if model.runtimeDisconnectedState() {
+		t.Fatal("old observation marked current Session disconnected")
+	}
+	model.stopSessionObservation()
+}
 
 func TestNewSessionGoalUsesOrdinaryRemoteAdmission(t *testing.T) {
 	_, workspace := newRegisteredAppWorkspace(t)

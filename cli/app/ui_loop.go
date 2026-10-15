@@ -176,10 +176,6 @@ func composeUIProgram(request uiLoopRequest, output io.Writer) (*uiProgramCompos
 		sessionID = runtimeClient.MainView().Session.SessionId
 	}
 
-	var transcriptEvents <-chan ongoingTranscriptEvent
-	if request.wiring.eventDispatcher != nil {
-		transcriptEvents = request.wiring.eventDispatcher.transcriptEvents
-	}
 	uiOptions := []UIOption{
 		WithUILogger(uiLogger),
 		WithUIModelName(request.active.Model),
@@ -194,28 +190,23 @@ func composeUIProgram(request uiLoopRequest, output io.Writer) (*uiProgramCompos
 		WithUICommandRegistry(request.commandRegistry),
 		WithUIPromptCommandCatalog(request.promptCatalog),
 		WithUIPromptCommandCatalogEntries(request.promptCatalogEntries),
-		WithUITurnQueueHook(request.wiring.turnQueueHook),
 		WithUIProcessClient(newUIProcessClientWithReads(request.projectID, request.wiring.processViews, request.wiring.processControls)),
-		WithUIWorktreeClient(request.wiring.worktrees),
 		WithUIStartupSubmit(request.initialPrompt),
 		WithUIStartupSubmitPromptHistoryRecorded(request.initialPromptHistoryRecorded),
 		WithUIInitialInput(request.initialInput),
-		WithUIStatusConfig(request.statusConfig),
 		WithUITerminalCursorState(terminalCursor),
 		WithUIRendererOutputGateState(rendererOutputGate),
 		WithUIOngoingSurface(ongoingSurface),
-		WithUIOngoingTranscriptEvents(transcriptEvents),
-		WithUIClientLifecycleIssues(request.wiring.lifecycleHookIssues, request.wiring.lifecycleHookDone),
-		WithUIOngoingTranscriptReopen(request.wiring.requestTranscriptOpen),
-		WithUITerminalFocusState(request.wiring.terminalFocus),
 	}
 	if runtimeClient != nil {
-		uiOptions = append(uiOptions, WithUISessionID(sessionID))
+		uiOptions = append(uiOptions, WithUISessionID(sessionID), withUISessionObservation(request.wiring, sessionLaunchPlan{StatusConfig: request.statusConfig}, programContext))
+	} else {
+		uiOptions = append(uiOptions, WithUIWorktreeClient(request.wiring.worktrees), WithUIStatusConfig(request.statusConfig))
 	}
 	if request.sessionTitle != nil {
 		uiOptions = append(uiOptions, WithUISessionName(request.sessionTitle))
 	}
-	rawModel := NewProjectedUIModel(runtimeClient, uiOptions...)
+	rawModel := NewProjectedUIModel(nil, uiOptions...)
 	model, ok := rawModel.(*uiModel)
 	if !ok {
 		if tuiLogger != nil {
@@ -257,22 +248,6 @@ func composeUIProgram(request uiLoopRequest, output io.Writer) (*uiProgramCompos
 			Kind:     uiStatusNoticeError,
 			Duration: transientStatusDuration,
 		}))
-	}
-	model.promptAnswers = request.wiring.promptAnswers.withConnectionOutcomeSink(func(err error) {
-		enqueueRuntimeConnectionStateChange(model.runtimeConnectionEvents, err)
-	})
-	model.promptAttention = request.wiring.promptAttention
-	if runtimeClient != nil {
-		sessionClient, ok := runtimeClient.(*sessionRuntimeClient)
-		if !ok {
-			return nil, errors.New("projected UI model runtime client has unexpected type")
-		}
-		model.ongoingTranscript = newOngoingTranscriptController(
-			ongoingSurface,
-			model.ongoingFrameInput,
-			sessionClient.admitTranscriptMessageState,
-			model.applyAdmittedTranscriptMessageState,
-		)
 	}
 	return &uiProgramComposition{
 		model:                 model,

@@ -226,20 +226,6 @@ func WithUIWorktreeClient(client apicontract.WorktreeService) UIOption {
 	}
 }
 
-func WithUITurnQueueHook(hook turnQueueHook) UIOption {
-	return func(m *uiModel) {
-		m.turnQueueHook = hook
-	}
-}
-
-func WithUITerminalFocusState(state *terminalFocusState) UIOption {
-	return func(m *uiModel) {
-		if state != nil {
-			m.terminalFocus = state
-		}
-	}
-}
-
 func WithUIClipboardPaster(paster uiClipboardPaster) UIOption {
 	return func(m *uiModel) {
 		m.clipboardPaster = paster

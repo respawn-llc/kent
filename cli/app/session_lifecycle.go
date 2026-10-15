@@ -379,6 +379,7 @@ func prepareSessionObservation(ctx context.Context, server interactiveSessionSer
 }
 
 type uiCommandCatalog struct {
+	err      error
 	registry *commands.Registry
 	client   apicontract.PromptCommandCatalogService
 	entries  []commands.PromptCommandCatalogEntry
@@ -390,6 +391,7 @@ func prepareUICommandCatalog(ctx context.Context, server interactiveSessionServe
 	if catalogServer, ok := server.(promptCommandCatalogServer); ok {
 		catalogClient, catalogErr := catalogServer.PromptCommandCatalogClient(ctx, id)
 		if catalogErr != nil {
+			catalog.err = catalogErr
 			notice := "Custom prompt commands are unavailable for this session."
 			catalog.status = &notice
 		} else if catalogClient != nil {
@@ -404,6 +406,7 @@ func prepareUICommandCatalog(ctx context.Context, server interactiveSessionServe
 				}
 			}
 			if catalogErr != nil {
+				catalog.err = catalogErr
 				notice := "Custom prompt commands are unavailable for this session."
 				catalog.status = &notice
 			}
