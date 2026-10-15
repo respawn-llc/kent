@@ -198,9 +198,6 @@ func (c *sessionRuntimeClient) SubmitRuntimeInput(ctx context.Context, req clien
 		return clientui.UserTurnSubmission{}, err
 	}
 	result := (chatActionTransport{actions: c.chatMutations}).execute(ctx, target, nil, chatInputAction{input: activation, queueItemID: runtimeids.NewQueueItemID()})
-	if result.err != nil {
-		return clientui.UserTurnSubmission{}, result.err
-	}
 	return result.submission(runtimeSubmitInputText(req))
 }
 

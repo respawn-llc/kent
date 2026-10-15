@@ -554,11 +554,12 @@ func (m *uiModel) worktreeCreateCmd(req *worktreepb.CreateRequest) tea.Cmd {
 	m.worktrees.create.setupProgress = &uiWorktreeSetupProgressState{cancel: cancel}
 	setupReady := make(chan error, 1)
 	setupEvents := make(chan worktreeSetupEventMsg, 8)
+	service := m.worktreeMutationService()
+	worktreeClient := service.Client
 	subscribeCmd := func() tea.Msg {
-		go subscribeWorktreeSetupEvents(setupCtx, m.worktreeClient, token, req.SetupOperationId, setupReady, setupEvents)
+		go subscribeWorktreeSetupEvents(setupCtx, worktreeClient, token, req.SetupOperationId, setupReady, setupEvents)
 		return nil
 	}
-	service := m.worktreeMutationService()
 	createCmd := func() tea.Msg {
 		result := worktreeCreateDoneMsg{token: token, createdSession: target != nil}
 		if err := <-setupReady; err != nil {

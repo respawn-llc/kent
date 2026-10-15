@@ -3,7 +3,6 @@ package app
 import (
 	"context"
 
-	"core/shared/protoapi"
 	chatpb "core/shared/protoapi/gen/kent/api/chat"
 	"core/shared/runtimeids"
 	"core/shared/runtimeinput"
@@ -48,9 +47,7 @@ func (m *uiModel) newSessionActionCmd(action chatAction, submittedText *string) 
 			NewChat: proto.Clone(presentation.creation).(*chatpb.NewChatTarget),
 		}}
 	case uiKnownSessionTarget:
-		target = &chatpb.ChatTarget{Target: &chatpb.ChatTarget_Session{Session: &chatpb.ExistingSessionRequestTarget{
-			SessionId: protoapi.SessionSelectorToProto(presentation.id),
-		}}}
+		target = m.knownChatTarget()
 	default:
 		panic("Chat action requires a presentation target")
 	}
