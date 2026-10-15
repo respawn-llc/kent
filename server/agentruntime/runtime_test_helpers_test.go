@@ -12,7 +12,6 @@ import (
 	"time"
 
 	"core/internal/testharness/filemode"
-	"core/internal/testharness/testsetup"
 	"core/internal/testharness/toolfixture"
 	"core/server/llm"
 	"core/server/metadata"
@@ -288,28 +287,28 @@ func mustCreateTestSession(t *testing.T, workspaceRoot ...string) *session.Store
 var runtimeTestSessionPersistence = sessiontest.NewPersistence()
 
 type runtimeTestProjectWorkspaceContextReader struct {
-	sessionID     string
-	metadataStore *metadata.Store
+	sessionID string
 }
 
 func newRuntimeTestProjectWorkspaceContextReader(t *testing.T, sessionStore *session.Store) *runtimeTestProjectWorkspaceContextReader {
 	t.Helper()
-	metadataStore := testsetup.OpenStore(t, filepath.Dir(sessionStore.Dir()))
-	testsetup.ImportSessionProjectWorkspaceContext(t, metadataStore, sessionStore)
 	return &runtimeTestProjectWorkspaceContextReader{
-		sessionID:     sessionStore.Meta().SessionID,
-		metadataStore: metadataStore,
+		sessionID: sessionStore.Meta().SessionID,
 	}
 }
 
 func (r *runtimeTestProjectWorkspaceContextReader) ReadSessionProjectWorkspaceContext(
-	ctx context.Context,
+	_ context.Context,
 	sessionID string,
 ) (metadata.SessionProjectWorkspaceContext, error) {
 	if sessionID != r.sessionID {
 		return metadata.SessionProjectWorkspaceContext{}, errors.New("test Workspace context requested for a different Session")
 	}
-	return r.metadataStore.ReadSessionProjectWorkspaceContext(ctx, sessionID)
+	// Workspace-context behavior uses explicit metadata stores in its own tests.
+	return metadata.SessionProjectWorkspaceContext{
+		ProjectName:    "Runtime test project",
+		WorkspaceCount: 1,
+	}, nil
 }
 
 type testPersistenceObserver struct {
