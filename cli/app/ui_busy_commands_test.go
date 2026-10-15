@@ -304,7 +304,7 @@ func TestRejectedCompactionAtPendingWorkCapacityRestoresVerbatimInput(t *testing
 
 func busyCommandTestModel() *uiModel {
 	model := newProjectedStaticUIModel(WithUIConversationFreshness(runtimepb.ConversationFreshness_CONVERSATION_FRESHNESS_ESTABLISHED))
-	model.sessionID = "busy-navigation-session"
+	model.sessionID = "11111111-1111-4111-8111-111111111111"
 	model.setRuntimeActivityBusyForTest(true)
 	model.activity = uiActivityRunning
 	return model

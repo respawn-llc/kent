@@ -18,7 +18,7 @@ import (
 func TestPlannerReadsOlderAncestryAsMetadataWithoutOpeningTranscript(t *testing.T) {
 	planner, containerDir, persistence := newMetadataOnlyAncestryPlanner(t)
 	caller := createMetadataOnlyAncestryCaller(t, containerDir, persistence)
-	syntheticAncestorID := mustMetadataOnlyAncestrySessionID(t, "metadata-only-ancestor")
+	syntheticAncestorID := mustMetadataOnlyAncestrySessionID(t, "11111111-1111-4111-8111-111111111111")
 	callerRecord, err := persistence.ResolvePersistedSession(context.Background(), caller.Meta().SessionID)
 	if err != nil {
 		t.Fatalf("resolve caller persisted session: %v", err)

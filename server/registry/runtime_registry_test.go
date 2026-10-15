@@ -985,22 +985,24 @@ func TestRuntimeRegistryAggregatesSleepObserverAcrossAuthorityResources(t *testi
 	registry := NewRuntimeRegistry(nil)
 	engineA := &runtime.Engine{}
 	engineB := &runtime.Engine{}
-	registerReady(t, registry, "session-a", engineA)
-	registerReady(t, registry, "session-b", engineB)
-	t.Cleanup(func() { closeRuntime(registry, "session-a", engineA) })
-	t.Cleanup(func() { closeRuntime(registry, "session-b", engineB) })
+	const sessionA = "11111111-1111-4111-8111-111111111111"
+	const sessionB = "22222222-2222-4222-8222-222222222222"
+	registerReady(t, registry, sessionA, engineA)
+	registerReady(t, registry, sessionB, engineB)
+	t.Cleanup(func() { closeRuntime(registry, sessionA, engineA) })
+	t.Cleanup(func() { closeRuntime(registry, sessionB, engineB) })
 	notifications := make(chan bool, 2)
 	registry.SetSleepObserver(func(active bool) { notifications <- active })
 	defer registry.SetSleepObserver(nil)
 
-	publishRunState(registry, "session-a", true)
-	publishRunState(registry, "session-b", true)
-	publishRunState(registry, "session-a", false)
+	publishRunState(registry, sessionA, true)
+	publishRunState(registry, sessionB, true)
+	publishRunState(registry, sessionA, false)
 	if active := receiveSleepObserverState(t, notifications); !active {
 		t.Fatal("expected aggregate active notification")
 	}
 	assertNoSleepObserverState(t, notifications)
-	publishRunState(registry, "session-b", false)
+	publishRunState(registry, sessionB, false)
 	if active := receiveSleepObserverState(t, notifications); active {
 		t.Fatal("expected aggregate idle notification")
 	}
