@@ -28,10 +28,9 @@ import { answerPromptBatch } from "./clientPromptAnswers";
 import { ContractError, RpcError, TransportError } from "./errors";
 import { mainView } from "./chatReadModel";
 import { transcriptMessage, transcriptPage } from "./chatTranscript";
-import { enumValue, required } from "./chatWire";
+import { enumValue } from "./chatWire";
 import { requireSessionAttachment } from "./rpcSocket";
 import { InvalidTranscriptEventError } from "./subscriptionErrors";
-import { isValidChatSessionID } from "./chatTarget";
 import type { ChatApi, ChatTranscriptMessage } from "./chatTypes";
 import type { RpcTransport } from "./transport";
 export type {
@@ -129,7 +128,7 @@ export function createChatApi(transport: RpcTransport): ChatApi {
         method,
         create(method.input, { sessionId: { value: { case: "sessionId", value: sessionId } } }),
       );
-      return mainView(required(requireUnarySuccess(method, result).mainView), sessionId);
+      return mainView(requireUnarySuccess(method, result).mainView, sessionId);
     },
     async getContext(target) {
       const sessionId = target.sessionID;
@@ -146,7 +145,7 @@ export function createChatApi(transport: RpcTransport): ChatApi {
           },
         }),
       );
-      return context(required(requireUnarySuccess(method, result).context));
+      return context(requireUnarySuccess(method, result).context);
     },
     async getTranscriptPage(target, cursor) {
       const sessionId = target.sessionID;
@@ -166,7 +165,7 @@ export function createChatApi(transport: RpcTransport): ChatApi {
               }),
         }),
       );
-      return transcriptPage(required(requireUnarySuccess(method, result).transcript), sessionId);
+      return transcriptPage(requireUnarySuccess(method, result).transcript, sessionId);
     },
     async activateRuntime(target) {
       const requestedSessionID = target.sessionID;
@@ -179,12 +178,6 @@ export function createChatApi(transport: RpcTransport): ChatApi {
       });
     },
     async releaseRuntime(attachment) {
-      if (
-        !isValidChatSessionID(attachment.sessionID) ||
-        !Number.isInteger(attachment.generation) ||
-        attachment.generation <= 0
-      )
-        throw new TypeError("Runtime attachment is invalid.");
       const requestedSessionID = attachment.sessionID;
       return transport.runRuntimeOwner(
         requestedSessionID,

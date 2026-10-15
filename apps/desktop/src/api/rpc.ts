@@ -310,9 +310,9 @@ class RpcWebSocketTransport implements RpcTransport {
         );
       }
     } catch (error) {
+      this.#reportInvalidResponse(error);
       const correlation = descriptorResponseCorrelation(bytes);
       if (correlation === undefined) {
-        this.#reportInvalidResponse(error);
         return;
       }
       const pending = this.#takePending(correlation);

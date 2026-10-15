@@ -191,6 +191,10 @@ describe("RpcWebSocketTransport", () => {
     expect(reportInvalidResponse.mock.calls[0]?.[0]).toBeInstanceOf(Error);
     malformedBinaryAck(socket, 4);
     await expect(malformedReadiness).rejects.toBeInstanceOf(Error);
+    const reportedCount = reportInvalidResponse.mock.calls.length;
+    malformedBinaryAck(socket, 4);
+    expect(reportInvalidResponse.mock.calls).toHaveLength(reportedCount + 1);
+    expect(reportInvalidResponse.mock.lastCall?.[0]).toBeInstanceOf(Error);
     const next = callReadiness(transport);
     await waitForSent(socket, 6);
     ack(socket, 5);
