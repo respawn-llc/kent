@@ -155,10 +155,7 @@ func worktreeStatusJSON(success *worktreepb.StatusSuccess) (worktreeStatusJSONOu
 	}
 	problems := make([]worktreeStatusProblemJSON, len(success.Problems))
 	for i, problem := range success.Problems {
-		kind, err := worktreeStatusProblemKindJSON(problem.Kind)
-		if err != nil {
-			return worktreeStatusJSONOutput{}, err
-		}
+		kind := worktreeStatusProblemKindJSON(problem.Kind)
 		problems[i] = worktreeStatusProblemJSON{Kind: kind, Root: problem.Root, Ref: problem.Ref}
 	}
 	worktree := success.Worktree
@@ -201,10 +198,7 @@ func worktreeCreateJSON(success *worktreepb.CreateSuccess) (worktreeCreateJSONOu
 }
 
 func worktreeDeleteJSON(success *worktreepb.DeleteSuccess) (worktreeDeleteJSONOutput, error) {
-	kind, err := worktreeBranchCleanupKindJSON(success.GetCleanup().GetKind())
-	if err != nil {
-		return worktreeDeleteJSONOutput{}, err
-	}
+	kind := worktreeBranchCleanupKindJSON(success.GetCleanup().GetKind())
 	return worktreeDeleteJSONOutput{
 		Cleanup: worktreeBranchCleanupJSON{
 			Kind: kind, BranchName: success.Cleanup.BranchName, Diagnostic: success.Cleanup.Diagnostic,
@@ -262,10 +256,7 @@ func worktreeListEntryJSONFromProto(entry *worktreepb.ListEntry) (worktreeListEn
 		Selector: projection.Selector, IsCurrent: projection.IsCurrent, FallbackIdentity: projection.FallbackIdentity,
 	}}
 	if value := projection.Switch; value != nil {
-		kind, err := worktreeSwitchKindJSON(value.Kind)
-		if err != nil {
-			return worktreeListEntryJSON{}, err
-		}
+		kind := worktreeSwitchKindJSON(value.Kind)
 		result.Projection.Switch = &worktreeSwitchOperationJSON{Kind: kind, Selector: value.Selector}
 	}
 	if value := projection.DeletePreview; value != nil {
@@ -290,28 +281,18 @@ func worktreeKentFactsJSONFromProto(facts *worktreepb.KentFacts) worktreeKentFac
 	}
 }
 
-func worktreeSwitchKindJSON(kind worktreepb.SwitchOperationKind) (string, error) {
-	switch kind {
-	case worktreepb.SwitchOperationKind_WORKTREE_SWITCH_OPERATION_ENTER:
-		return "enter", nil
-	case worktreepb.SwitchOperationKind_WORKTREE_SWITCH_OPERATION_LEAVE_MAIN:
-		return "leave", nil
-	default:
-		return "", fmt.Errorf("unsupported worktree switch operation %s", kind)
-	}
+func worktreeSwitchKindJSON(kind worktreepb.SwitchOperationKind) string {
+	return map[worktreepb.SwitchOperationKind]string{
+		worktreepb.SwitchOperationKind_WORKTREE_SWITCH_OPERATION_ENTER:      "enter",
+		worktreepb.SwitchOperationKind_WORKTREE_SWITCH_OPERATION_LEAVE_MAIN: "leave",
+	}[kind]
 }
 
-func worktreeBranchCleanupKindJSON(kind worktreepb.BranchCleanupOutcomeKind) (string, error) {
-	switch kind {
-	case worktreepb.BranchCleanupOutcomeKind_WORKTREE_BRANCH_CLEANUP_OUTCOME_NOT_REQUESTED:
-		return "not_requested", nil
-	case worktreepb.BranchCleanupOutcomeKind_WORKTREE_BRANCH_CLEANUP_OUTCOME_NOT_APPLICABLE:
-		return "not_applicable", nil
-	case worktreepb.BranchCleanupOutcomeKind_WORKTREE_BRANCH_CLEANUP_OUTCOME_DELETED:
-		return "deleted", nil
-	case worktreepb.BranchCleanupOutcomeKind_WORKTREE_BRANCH_CLEANUP_OUTCOME_RETAINED:
-		return "retained", nil
-	default:
-		return "", fmt.Errorf("unsupported worktree branch cleanup outcome %s", kind)
-	}
+func worktreeBranchCleanupKindJSON(kind worktreepb.BranchCleanupOutcomeKind) string {
+	return map[worktreepb.BranchCleanupOutcomeKind]string{
+		worktreepb.BranchCleanupOutcomeKind_WORKTREE_BRANCH_CLEANUP_OUTCOME_NOT_REQUESTED:  "not_requested",
+		worktreepb.BranchCleanupOutcomeKind_WORKTREE_BRANCH_CLEANUP_OUTCOME_NOT_APPLICABLE: "not_applicable",
+		worktreepb.BranchCleanupOutcomeKind_WORKTREE_BRANCH_CLEANUP_OUTCOME_DELETED:        "deleted",
+		worktreepb.BranchCleanupOutcomeKind_WORKTREE_BRANCH_CLEANUP_OUTCOME_RETAINED:       "retained",
+	}[kind]
 }

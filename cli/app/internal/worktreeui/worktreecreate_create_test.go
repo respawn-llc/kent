@@ -38,8 +38,10 @@ func TestRequestForNewBranchRequiresBaseRef(t *testing.T) {
 }
 
 func TestRequestRejectsBlankTarget(t *testing.T) {
-	if _, err := Request(" ", "HEAD", worktreepb.CreateTargetResolutionKind_WORKTREE_CREATE_TARGET_RESOLUTION_KIND_EXISTING_BRANCH); err == nil || !errors.Is(err, ErrBranchTargetRequired) {
-		t.Fatalf("error = %v, want target required", err)
+	_, err := Request(" ", "HEAD", worktreepb.CreateTargetResolutionKind_WORKTREE_CREATE_TARGET_RESOLUTION_KIND_EXISTING_BRANCH)
+	var typed *worktreecontract.CreateError
+	if !errors.As(err, &typed) || typed.Owner != worktreecontract.CreateErrorOwnerForm {
+		t.Fatalf("error = %T %v, want form-owned create error", err, err)
 	}
 }
 
