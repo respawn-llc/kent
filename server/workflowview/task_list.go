@@ -45,16 +45,13 @@ func (l *TaskList) List(ctx context.Context, req *taskpb.ListRequest) (*taskpb.L
 	if l == nil {
 		return nil, errors.New("task list is required")
 	}
-	if err := protoapi.Validate(req); err != nil {
-		return nil, err
-	}
 	window := serverapi.OffsetWindow{Offset: int(req.GetOffset()), Limit: serverapi.OffsetPaginationMaxLimit}
 	if req.Limit != nil {
 		window.Limit = int(*req.Limit)
 	}
 	var workflowSelector *runtimeids.WorkflowID
 	if req.WorkflowId != nil {
-		value, err := runtimeids.ParseWorkflowID(*req.WorkflowId)
+		value, err := runtimeids.WorkflowIDFromProto(*req.WorkflowId)
 		if err != nil {
 			return nil, err
 		}

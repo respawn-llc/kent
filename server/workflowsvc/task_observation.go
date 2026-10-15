@@ -21,9 +21,6 @@ import (
 )
 
 func (s *Service) ObserveWorkflowTask(ctx context.Context, req *taskpb.ObserveRequest) (*taskpb.ObserveSuccess, error) {
-	if err := protoapi.Validate(req); err != nil {
-		return nil, err
-	}
 	sub, err := s.events.subscribe(&req.ProjectId, nil)
 	if err != nil {
 		return nil, err

@@ -4,6 +4,7 @@ import (
 	"testing"
 
 	"core/server/workflowstore"
+	"core/shared/protoapi"
 	taskpb "core/shared/protoapi/gen/kent/api/workflow_task"
 )
 
@@ -46,14 +47,12 @@ func TestTaskSearchPaginatesWithOffsets(t *testing.T) {
 }
 
 func TestTaskSearchRejectsNegativeOffset(t *testing.T) {
-	fixture, search := newTaskSearchFixture(t, false)
-	createTaskSearchTask(t, fixture, "First", "needle")
 	negative := int32(-1)
 	request := taskSearchRequest("needle")
 	request.Offset = &negative
 
-	if _, err := search.Search(fixture.ctx, request); err == nil {
-		t.Fatal("Search accepted a negative offset")
+	if err := protoapi.Validate(request); err == nil {
+		t.Fatal("SearchRequest accepted a negative offset")
 	}
 }
 

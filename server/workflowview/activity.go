@@ -9,7 +9,6 @@ import (
 	"core/server/metadata"
 	"core/server/metadata/sqlitegen"
 	"core/server/workflowstore"
-	"core/shared/protoapi"
 	taskpb "core/shared/protoapi/gen/kent/api/workflow_task"
 	"core/shared/serverapi"
 
@@ -58,9 +57,6 @@ func (a *Activity) List(ctx context.Context, req *taskpb.TaskOffsetPageRequest) 
 func (a *Activity) loadPage(ctx context.Context, req *taskpb.TaskOffsetPageRequest) (activityPage, error) {
 	if a == nil {
 		return activityPage{}, errors.New("activity is required")
-	}
-	if err := protoapi.Validate(req); err != nil {
-		return activityPage{}, err
 	}
 	task, err := a.queries.GetTask(ctx, strings.TrimSpace(req.TaskId))
 	if err != nil {
