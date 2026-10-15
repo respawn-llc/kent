@@ -369,10 +369,7 @@ func (s *Service) GetWorkflow(ctx context.Context, req *pb.GetRequest) (*pb.GetS
 }
 
 func (s *Service) LinkWorkflowToProject(ctx context.Context, request *pb.LinkProjectRequest) (*pb.LinkProjectSuccess, error) {
-	if err := protoapi.Validate(request); err != nil {
-		return nil, err
-	}
-	workflowID, err := runtimeids.ParseWorkflowID(request.WorkflowId)
+	workflowID, err := runtimeids.WorkflowIDFromProto(request.WorkflowId)
 	if err != nil {
 		return nil, err
 	}
@@ -385,9 +382,6 @@ func (s *Service) LinkWorkflowToProject(ctx context.Context, request *pb.LinkPro
 }
 
 func (s *Service) ListProjectWorkflowLinks(ctx context.Context, req *pb.ListProjectLinksRequest) (*pb.ListProjectLinksSuccess, error) {
-	if err := protoapi.Validate(req); err != nil {
-		return nil, err
-	}
 	links, err := s.store.ListProjectWorkflowLinks(ctx, req.ProjectId)
 	if err != nil {
 		return nil, err
@@ -400,10 +394,7 @@ func (s *Service) ListProjectWorkflowLinks(ctx context.Context, req *pb.ListProj
 }
 
 func (s *Service) SetDefaultProjectWorkflowLink(ctx context.Context, req *pb.SetDefaultProjectLinkRequest) (*pb.SetDefaultProjectLinkSuccess, error) {
-	if err := protoapi.Validate(req); err != nil {
-		return nil, err
-	}
-	workflowID, err := runtimeids.ParseWorkflowID(req.WorkflowId)
+	workflowID, err := runtimeids.WorkflowIDFromProto(req.WorkflowId)
 	if err != nil {
 		return nil, err
 	}
@@ -416,9 +407,6 @@ func (s *Service) SetDefaultProjectWorkflowLink(ctx context.Context, req *pb.Set
 }
 
 func (s *Service) UnlinkWorkflowFromProject(ctx context.Context, req *pb.UnlinkProjectRequest) (*pb.UnlinkProjectSuccess, error) {
-	if err := protoapi.Validate(req); err != nil {
-		return nil, err
-	}
 	result, err := s.store.UnlinkProjectWorkflow(ctx, req.LinkId, req.GetReplacementDefaultLinkId())
 	resp := workflowUnlinkProjectResponse(result)
 	if err != nil {
