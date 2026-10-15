@@ -10,6 +10,54 @@ import (
 	"core/shared/config"
 )
 
+func materializeConnection(
+	store *session.Store,
+	settings config.Settings,
+	opts RuntimeWiringOptions,
+	newClient func(config.Settings, RuntimeClientPurpose, RuntimeClientFactory, llm.ProviderCapabilities) (llm.Client, error),
+) (*runtime.PreparedConnection, error) {
+	capabilities, err := llm.ResolveEffectiveProviderCapabilities(store.Meta().Locked, settings)
+	if err != nil {
+		return nil, err
+	}
+	if opts.ProviderCapabilitiesOverride != nil {
+		capabilities = *opts.ProviderCapabilitiesOverride
+	}
+	definition, err := settings.SelectedConnection()
+	if err != nil {
+		return nil, err
+	}
+	id, err := settings.Connection.ConcreteID()
+	if err != nil {
+		return nil, err
+	}
+	transportCapabilities, err := llm.ResolveConnectionCapabilities(definition)
+	if err != nil {
+		return nil, err
+	}
+	capabilities = llm.EffectiveProviderCapabilities(&capabilities, transportCapabilities)
+	estimator, err := llm.ResolveConnectionTokenEstimator(definition)
+	if err != nil {
+		return nil, err
+	}
+	variant, err := llm.ResolveConnectionVariant(definition)
+	if err != nil {
+		return nil, err
+	}
+	client := opts.Client
+	if client == nil {
+		client, err = newClient(settings, RuntimeClientPurposeMain, opts.ClientFactory, capabilities)
+		if err != nil {
+			return nil, err
+		}
+	}
+	return &runtime.PreparedConnection{
+		ID: id, Client: client, TokenEstimator: estimator,
+		RequestCapabilities: capabilities, TransportCapabilities: transportCapabilities,
+		RawImageOriginalDetail: variant.Variant.Capabilities.IsOpenAIFirstParty,
+	}, nil
+}
+
 func connectionMaterializer(
 	store *session.Store,
 	active config.Settings,
@@ -44,34 +92,8 @@ func connectionMaterializer(
 		}
 		settings := active
 		settings.Connection = config.SingleConnection(id)
-		capabilities, err := llm.ResolveEffectiveProviderCapabilities(store.Meta().Locked, settings)
-		if err != nil {
-			return nil, err
-		}
-		definition, err := settings.SelectedConnection()
-		if err != nil {
-			return nil, err
-		}
-		transportCapabilities, err := llm.ResolveConnectionCapabilities(definition)
-		if err != nil {
-			return nil, err
-		}
-		estimator, err := llm.ResolveConnectionTokenEstimator(definition)
-		if err != nil {
-			return nil, err
-		}
-		variant, err := llm.ResolveConnectionVariant(definition)
-		if err != nil {
-			return nil, err
-		}
-		client, err := newClient(settings, RuntimeClientPurposeMain, opts.ClientFactory, capabilities)
-		if err != nil {
-			return nil, err
-		}
-		return &runtime.PreparedConnection{
-			ID: id, Client: client, TokenEstimator: estimator,
-			RequestCapabilities: capabilities, TransportCapabilities: transportCapabilities,
-			RawImageOriginalDetail: variant.Variant.Capabilities.IsOpenAIFirstParty,
-		}, nil
+		replacementOptions := opts
+		replacementOptions.Client = nil
+		return materializeConnection(store, settings, replacementOptions, newClient)
 	}
 }

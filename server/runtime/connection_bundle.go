@@ -27,7 +27,7 @@ type ConnectionSelectionRequest struct {
 }
 
 type PreparedConnection struct {
-	ID                     config.ConnectionID
+	ID                     *config.ConnectionID
 	Client                 llm.Client
 	TokenEstimator         llm.TokenEstimator
 	RequestCapabilities    llm.ProviderCapabilities
@@ -42,6 +42,16 @@ type connectionBundle struct {
 	requestCapabilities    llm.ProviderCapabilities
 	transportCapabilities  llm.ProviderCapabilities
 	rawImageOriginalDetail bool
+}
+
+func newConnectionBundle(prepared PreparedConnection) *connectionBundle {
+	return &connectionBundle{
+		id: textutil.Pointer(prepared.ID), client: newObservedModelClient(prepared.Client),
+		estimator:              prepared.TokenEstimator,
+		requestCapabilities:    prepared.RequestCapabilities,
+		transportCapabilities:  prepared.TransportCapabilities,
+		rawImageOriginalDetail: prepared.RawImageOriginalDetail,
+	}
 }
 
 func (e *Engine) connectionSnapshot() *connectionBundle {
@@ -80,26 +90,20 @@ func (e *Engine) selectConnectionWithPreparation(ctx context.Context, stepID str
 	if err := ValidateSessionProviderChange(e.eventLog, replacement.TransportCapabilities); err != nil {
 		return nil, err
 	}
-	next := &connectionBundle{
-		id: &replacement.ID, client: newObservedModelClient(replacement.Client),
-		estimator:              replacement.TokenEstimator,
-		requestCapabilities:    replacement.RequestCapabilities,
-		transportCapabilities:  replacement.TransportCapabilities,
-		rawImageOriginalDetail: replacement.RawImageOriginalDetail,
-	}
+	next := newConnectionBundle(*replacement)
 	if prepare != nil {
 		if err := prepare(next); err != nil {
 			return nil, err
 		}
 	}
-	if err := e.store.SetConnectionID(replacement.ID); err != nil {
+	if err := e.store.SetConnectionID(*replacement.ID); err != nil {
 		return nil, err
 	}
 	e.mu.Lock()
 	e.connection = next
 	e.transcriptState.chatProjection().bindTokenEstimator(next.estimator)
 	e.mu.Unlock()
-	notice := config.ConnectionReplacement{Previous: *current.id, Current: replacement.ID}
+	notice := config.ConnectionReplacement{Previous: *current.id, Current: *replacement.ID}
 	if err := e.steer(stepID, steerLocalEntryIntent(storedLocalEntry{
 		Visibility: transcript.EntryVisibilityOngoing, Role: string(transcript.EntryRoleSystem),
 		ConnectionFallback: &notice,

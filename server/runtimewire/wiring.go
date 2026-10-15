@@ -122,38 +122,11 @@ func NewRuntimeWiringWithBackground(
 			RequestCapabilities: capabilities,
 		})
 	}
-	providerCapabilities, err := llm.ResolveEffectiveProviderCapabilities(store.Meta().Locked, active)
+	preparedConnection, err := materializeConnection(store, active, opts, newClient)
 	if err != nil {
 		return nil, err
 	}
-	if opts.ProviderCapabilitiesOverride != nil {
-		providerCapabilities = *opts.ProviderCapabilitiesOverride
-	}
-	connection, err := active.SelectedConnection()
-	if err != nil {
-		return nil, err
-	}
-	connectionID, err := active.Connection.ConcreteID()
-	if err != nil {
-		return nil, err
-	}
-	connectionVariant, err := llm.ResolveConnectionVariant(connection)
-	if err != nil {
-		return nil, err
-	}
-	tokenEstimator, err := llm.ResolveConnectionTokenEstimator(connection)
-	if err != nil {
-		return nil, err
-	}
-	var client llm.Client
-	if opts.Client != nil {
-		client = opts.Client
-	} else {
-		client, err = newClient(active, RuntimeClientPurposeMain, opts.ClientFactory, providerCapabilities)
-		if err != nil {
-			return nil, err
-		}
-	}
+	providerCapabilities := preparedConnection.RequestCapabilities
 
 	newReviewerConnectionClient := func(selection *config.ConnectionSelection) (llm.Client, error) {
 		factory := opts.ClientFactory
@@ -247,12 +220,10 @@ func NewRuntimeWiringWithBackground(
 	if len(opts.RequiredTools) != 0 {
 		promptReloader = requiredToolsSnapshotReloader{base: promptReloader, required: append([]toolspec.ID(nil), opts.RequiredTools...)}
 	}
-	eng, err = runtime.New(store, eventLog, client, toolRegistry, runtime.Config{
-		ConnectionID:                    connectionID,
+	eng, err = runtime.New(store, eventLog, preparedConnection.Client, toolRegistry, runtime.Config{
+		InitialConnection:               preparedConnection,
 		ResolveConnection:               connectionMaterializer(store, active, opts, newClient),
-		RawImageOriginalDetail:          connectionVariant.Variant.Capabilities.IsOpenAIFirstParty,
 		Model:                           active.Model,
-		TokenEstimator:                  tokenEstimator,
 		Debug:                           active.Debug,
 		Temperature:                     1,
 		MaxTokens:                       0,
@@ -262,7 +233,6 @@ func NewRuntimeWiringWithBackground(
 		FastModeEnabled:                 active.PriorityRequestMode,
 		WebSearchMode:                   active.WebSearch,
 		PromptFacingSnapshotReloader:    promptReloader,
-		ProviderCapabilitiesOverride:    &providerCapabilities,
 		EnabledTools:                    enabledTools,
 		SkillPolicy:                     config.ResolveSkillPolicy(active),
 		SubagentCatalog:                 config.App{Settings: active, Source: config.SourceReport{Sources: opts.Sources}},

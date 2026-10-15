@@ -72,6 +72,7 @@ func normalizeCacheWarningMode(mode config.CacheWarningMode) (config.CacheWarnin
 }
 
 type Config struct {
+	InitialConnection               *PreparedConnection
 	ConnectionID                    *config.ConnectionID
 	ResolveConnection               ConnectionResolver
 	RawImageOriginalDetail          bool
@@ -274,24 +275,27 @@ func New(
 	reviewerState := newReviewerRuntimeState(cfg.Reviewer.Client, cfg.Reviewer.ClientFactory)
 	cfg.Reviewer.Client = nil
 	cfg.Reviewer.ClientFactory = nil
-	observedClient := newObservedModelClient(client)
-	transportCapabilities, err := observedClient.capabilities(context.Background())
-	if err != nil {
-		return nil, fmt.Errorf("resolve destination provider capabilities: %w", err)
+	prepared := cfg.InitialConnection
+	if prepared == nil {
+		transportCapabilities, err := newObservedModelClient(client).capabilities(context.Background())
+		if err != nil {
+			return nil, fmt.Errorf("resolve destination provider capabilities: %w", err)
+		}
+		requestCapabilities := transportCapabilities
+		if historical, present := llm.ProviderCapabilitiesFromLocked(store.Meta().Locked); present {
+			requestCapabilities = historical
+		}
+		if cfg.ProviderCapabilitiesOverride != nil {
+			requestCapabilities = *cfg.ProviderCapabilitiesOverride
+		}
+		prepared = &PreparedConnection{
+			ID: cfg.ConnectionID, Client: client, TokenEstimator: cfg.TokenEstimator,
+			RequestCapabilities:   llm.EffectiveProviderCapabilities(&requestCapabilities, transportCapabilities),
+			TransportCapabilities: transportCapabilities, RawImageOriginalDetail: cfg.RawImageOriginalDetail,
+		}
 	}
-	requestCapabilities := transportCapabilities
-	if historical, present := llm.ProviderCapabilitiesFromLocked(store.Meta().Locked); present {
-		requestCapabilities = historical
-	}
-	if cfg.ProviderCapabilitiesOverride != nil {
-		requestCapabilities = *cfg.ProviderCapabilitiesOverride
-	}
-	requestCapabilities = llm.EffectiveProviderCapabilities(&requestCapabilities, transportCapabilities)
-	connection := &connectionBundle{
-		id: textutil.Pointer(cfg.ConnectionID), client: observedClient, estimator: cfg.TokenEstimator,
-		requestCapabilities: requestCapabilities, transportCapabilities: transportCapabilities,
-		rawImageOriginalDetail: cfg.RawImageOriginalDetail,
-	}
+	connection := newConnectionBundle(*prepared)
+	cfg.InitialConnection = nil
 	if cfg.Reviewer.InheritsConnection && reviewerState.client != nil {
 		reviewerState.connection = connection
 	}
