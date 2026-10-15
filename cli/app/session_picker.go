@@ -208,6 +208,8 @@ func (m *sessionPickerModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.header.Notice = &startupPickerNotice{Text: "Session updates stopped", Kind: startupPickerNoticeError, Diagnostic: message.err}
 			return m, nil
 		}
+		m.main.refreshPending = true
+		m.subagents.refreshPending = true
 		return m, tea.Batch(
 			m.startBodyRequest(sessioncontract.SessionCategoryMain, sessionPickerBodyRequestRetry),
 			m.startBodyRequest(sessioncontract.SessionCategorySubagent, sessionPickerBodyRequestRetry),
@@ -215,6 +217,10 @@ func (m *sessionPickerModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		)
 	case sessionPickerPageLoadedMsg:
 		cmd := m.applyPageLoaded(message)
+		tab := m.tab(message.category)
+		if tab.refreshPending {
+			cmd = tea.Batch(cmd, m.startBodyRequest(message.category, sessionPickerBodyRequestRetry))
+		}
 		return m, tea.Batch(cmd, m.reconcileSpinnerTick())
 	case sessionPickerSpinnerTickMsg:
 		if m.scheduledSpinnerGeneration == nil || message.generation != *m.scheduledSpinnerGeneration {
@@ -432,6 +438,7 @@ func (m *sessionPickerModel) startBodyRequest(category sessioncontract.SessionCa
 		return nil
 	}
 	if kind == sessionPickerBodyRequestRetry {
+		tab.refreshPending = false
 		m.clearPickerFailureForTab(tab, sessionPickerOperationDirectionalPage, tab.generation)
 		tab.resetForFreshLoad()
 	}

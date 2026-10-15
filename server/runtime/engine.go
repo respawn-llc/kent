@@ -718,12 +718,16 @@ func (e *Engine) acceptPendingMessage(item QueuedUserMessage, lane runtimeinput.
 		e.lifecycleMu.Unlock()
 		return QueuedUserMessage{}, fmt.Errorf("invalid pending message lane %q", lane)
 	}
+	if item.Message.Role == llm.RoleUser && item.Message.Content != nil {
+		if err := e.store.CaptureInitialPromptPreview(*item.Message.Content); err != nil {
+			e.outputMutationMu.Unlock()
+			e.lifecycleMu.Unlock()
+			return QueuedUserMessage{}, err
+		}
+	}
 	queued, err := e.messageFlow.QueueUserMessageWithID(item, association)
 	e.lifecycleMu.Unlock()
 	if err == nil {
-		if queued.Message.Role == llm.RoleUser && queued.Message.Content != nil {
-			err = e.store.CaptureInitialPromptPreview(*queued.Message.Content)
-		}
 		if queued.Message.Content != nil && (queued.Message.Role == llm.RoleUser ||
 			queued.Message.MessageType != nil && *queued.Message.MessageType == llm.MessageTypeAgentSteer) {
 			e.captureSessionNamingRaw(*queued.Message.Content)
@@ -834,14 +838,14 @@ func (e *Engine) SubmitAgentSteerWithHooks(ctx context.Context, steer AgentSteer
 		if message.Content == nil {
 			return errInvalidQueuedUserMessage
 		}
-		item, err := e.queueMessage(stepCtx, message, *message.Content, true, false, nil)
-		if err != nil {
-			return err
-		}
 		if steer.initialPrompt != nil {
 			if err := e.store.CaptureInitialPromptPreview(*steer.initialPrompt); err != nil {
 				return err
 			}
+		}
+		item, err := e.queueMessage(stepCtx, message, *message.Content, true, false, nil)
+		if err != nil {
+			return err
 		}
 		result, runErr := e.runStepLoopWithPendingUserInjectionOutcomeObserver(stepCtx, stepID, ownedInputFlushObserver(item.ID, onFlushed), steerUserInjections(map[string]struct{}{item.ID: {}}))
 		if result.FinalAnswer != nil {

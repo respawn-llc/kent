@@ -294,7 +294,7 @@ func (a *Authority) newRuntimeWiringFromPlan(resource *agentResource, store *ses
 	}
 	options := plan.options
 	if a.options.submitSessionNaming != nil {
-		workspaceConfig, err := a.options.resolveWorkspaceConfig(options.MainWorkspaceRoot)
+		workspaceConfig, err := a.options.resolveWorkspaceConfig(options.FilesystemContext.Access.ExecutionTargetRoot.RealPath)
 		if err != nil {
 			return nil, err
 		}

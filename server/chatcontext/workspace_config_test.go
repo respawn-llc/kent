@@ -81,8 +81,9 @@ func TestFixedRootWorkspaceResolverUsesMainWorkspacePrivateConfigForManagedWorkt
 		}
 	}
 	for path, contents := range map[string]string{
-		filepath.Join(main, ".kent", "config.local.toml"):     "model = \"private-main\"\n",
-		filepath.Join(worktree, ".kent", "config.toml"):       "thinking_level = \"high\"\n",
+		filepath.Join(root, "config.toml"):                    "[connections.local]\nprotocol = \"responses\"\nendpoint = \"http://localhost:1234\"\n",
+		filepath.Join(main, ".kent", "config.local.toml"):     "model = \"private-main\"\n[nano]\nconnection = \"local\"\nmodel = \"gpt-6-luna\"\n",
+		filepath.Join(worktree, ".kent", "config.toml"):       "thinking_level = \"high\"\n[nano.features]\nsession_naming = false\n",
 		filepath.Join(worktree, ".kent", "config.local.toml"): "this file must not be decoded",
 	} {
 		if err := os.WriteFile(path, []byte(contents), 0o600); err != nil {
@@ -95,6 +96,9 @@ func TestFixedRootWorkspaceResolverUsesMainWorkspacePrivateConfigForManagedWorkt
 	}
 	if app.Settings.Model != "private-main" || app.Settings.ThinkingLevel != "high" {
 		t.Fatalf("workspace private/shared selection = %s / %s", app.Settings.Model, app.Settings.ThinkingLevel)
+	}
+	if app.Settings.Nano == nil || app.Settings.Nano.SessionNaming {
+		t.Fatal("worktree nano opt-out did not override main private configuration")
 	}
 	private := app.Source.File(config.FilePrivate)
 	if private == nil || private.Path != filepath.Join(binding.CanonicalRoot, ".kent", "config.local.toml") {

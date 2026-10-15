@@ -3,16 +3,35 @@ package runtime
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"testing"
 
 	"core/server/llm"
 	"core/server/session"
+	"core/server/session/sessiontest"
 	"core/server/tools"
 	"core/shared/config"
 	"core/shared/runtimeids"
 	"core/shared/textutil"
 	"core/shared/toolspec"
 )
+
+func TestNamingPreviewFailureRejectsWithoutPendingInput(t *testing.T) {
+	gate := sessiontest.NewPersistenceGate(runtimeTestSessionPersistence)
+	store := mustCreateTestSessionAt(t, t.TempDir(), session.WithPersistenceObserver(gate))
+	engine := mustNewExecTestEngine(t, store, &fakeClient{}, Config{Model: "gpt-6-sol"})
+	gate.FailNext(errors.New("preview persistence failed"))
+	if _, err := engine.QueueUserMessage(t.Context(), "Original task"); err == nil {
+		t.Fatal("expected preview persistence failure")
+	}
+	pending, err := engine.PendingWorkSnapshot()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(pending.Items) != 0 {
+		t.Fatalf("rejected input remains pending: %+v", pending)
+	}
+}
 
 func TestNamingAfterFullFirstStep(t *testing.T) {
 	started := make(chan string, 1)
