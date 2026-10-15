@@ -241,7 +241,7 @@ func decodeResponsesErrorPayload(data []byte) (responsesErrorPayload, bool) {
 		Param:   strings.TrimSpace(envelope.Param),
 		Message: strings.TrimSpace(envelope.Message),
 	}
-	if strings.TrimSpace(envelope.Error.Code) != "" || strings.TrimSpace(envelope.Error.Message) != "" {
+	if strings.TrimSpace(envelope.Error.Code) != "" || strings.TrimSpace(envelope.Error.Message) != "" || strings.TrimSpace(envelope.Error.Type) != "" {
 		payload = responsesErrorPayload{
 			Type:    strings.TrimSpace(envelope.Error.Type),
 			Code:    strings.TrimSpace(envelope.Error.Code),
@@ -249,7 +249,7 @@ func decodeResponsesErrorPayload(data []byte) (responsesErrorPayload, bool) {
 			Message: strings.TrimSpace(envelope.Error.Message),
 		}
 	}
-	if strings.TrimSpace(envelope.Response.Error.Code) != "" || strings.TrimSpace(envelope.Response.Error.Message) != "" {
+	if strings.TrimSpace(envelope.Response.Error.Code) != "" || strings.TrimSpace(envelope.Response.Error.Message) != "" || strings.TrimSpace(envelope.Response.Error.Type) != "" {
 		payload = responsesErrorPayload{
 			Type:    strings.TrimSpace(envelope.Response.Error.Type),
 			Code:    strings.TrimSpace(envelope.Response.Error.Code),
@@ -268,7 +268,7 @@ func decodeResponsesErrorPayload(data []byte) (responsesErrorPayload, bool) {
 			}
 		}
 	}
-	if payload.Code == "" && payload.Message == "" {
+	if payload.Code == "" && payload.Message == "" && payload.Type == "" {
 		return responsesErrorPayload{}, false
 	}
 	return payload, true

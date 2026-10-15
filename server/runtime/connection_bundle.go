@@ -61,6 +61,10 @@ func (e *Engine) RawImageOriginalDetail() bool {
 type ConnectionResolver func(context.Context, ConnectionSelectionRequest) (*PreparedConnection, error)
 
 func (e *Engine) selectConnection(ctx context.Context, stepID string, request ConnectionSelectionRequest) (*connectionBundle, error) {
+	return e.selectConnectionWithPreparation(ctx, stepID, request, nil)
+}
+
+func (e *Engine) selectConnectionWithPreparation(ctx context.Context, stepID string, request ConnectionSelectionRequest, prepare func(*connectionBundle) error) (*connectionBundle, error) {
 	current := e.connectionSnapshot()
 	if e.cfg.ResolveConnection == nil || current.id == nil {
 		return current, nil
@@ -76,15 +80,20 @@ func (e *Engine) selectConnection(ctx context.Context, stepID string, request Co
 	if err := ValidateSessionProviderChange(e.eventLog, replacement.TransportCapabilities); err != nil {
 		return nil, err
 	}
-	if err := e.store.SetConnectionID(replacement.ID); err != nil {
-		return nil, err
-	}
 	next := &connectionBundle{
 		id: &replacement.ID, client: newObservedModelClient(replacement.Client),
 		estimator:              replacement.TokenEstimator,
 		requestCapabilities:    replacement.RequestCapabilities,
 		transportCapabilities:  replacement.TransportCapabilities,
 		rawImageOriginalDetail: replacement.RawImageOriginalDetail,
+	}
+	if prepare != nil {
+		if err := prepare(next); err != nil {
+			return nil, err
+		}
+	}
+	if err := e.store.SetConnectionID(replacement.ID); err != nil {
+		return nil, err
 	}
 	e.mu.Lock()
 	e.connection = next

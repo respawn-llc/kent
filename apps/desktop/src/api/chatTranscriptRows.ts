@@ -173,13 +173,15 @@ function noticeDiagnostics(
             current_id: value.connectionFallback.currentId,
           },
     ConnectionsUnavailable:
-      value.connectionsUnavailable === undefined ? null : {
-        members: value.connectionsUnavailable.members.map(member => ({
-          id: member.id,
-          available_at: member.availableAt === undefined ? null : timestampMillis(member.availableAt),
-        })),
-        diagnostics: value.connectionsUnavailable.diagnostics,
-      },
+      value.connectionsUnavailable === undefined
+        ? null
+        : {
+            members: value.connectionsUnavailable.members.map((member) => ({
+              id: member.id,
+              available_at: member.availableAt === undefined ? null : timestampMillis(member.availableAt),
+            })),
+            diagnostics: value.connectionsUnavailable.diagnostics,
+          },
     Diagnostic: diagnostic(value.diagnostic),
     Background:
       value.background === undefined

@@ -37,7 +37,7 @@ func newPersistedSteeringEngine(store *session.Store) (*Engine, error) {
 		return nil, err
 	}
 	return &Engine{
-		connection:        &connectionBundle{estimator: llm.DefaultTokenEstimator{}},
+		connection:         &connectionBundle{estimator: llm.DefaultTokenEstimator{}},
 		generationContext:  freshGenerationContext{},
 		store:              store,
 		eventLog:           eventLog,

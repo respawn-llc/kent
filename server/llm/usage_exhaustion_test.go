@@ -17,24 +17,28 @@ func TestResponsesHTTPUsageExhaustion(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
-		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(http.StatusTooManyRequests)
-		_, _ = w.Write(body)
-	}))
-	defer server.Close()
-	registration, err := ResolveConnectionVariant(config.ProviderConnection{Protocol: config.ConnectionResponses, Endpoint: textutil.Value(server.URL)})
-	if err != nil {
-		t.Fatal(err)
-	}
-	client, err := NewProviderClient(ProviderClientOptions{Registration: registration, Auth: &countingAuth{}, ConnectionID: textutil.Value(config.ConnectionID("fixture")), ContextWindowTokens: 256_000})
-	if err != nil {
-		t.Fatal(err)
-	}
-	_, err = client.Generate(t.Context(), Request{Model: "gpt-6-sol", SessionID: textutil.Value("fixture"), ToolChoiceMode: ToolChoiceModeAutomatic, ReasoningEffort: "high"}, StreamCallbacks{})
-	var failure *ProviderAPIError
-	if !errors.As(err, &failure) || !IsUsageExhaustionError(err) || !IsNonRetriableModelError(err) || failure.ConnectionID == nil || *failure.ConnectionID != "fixture" {
-		t.Fatalf("quota failure = %v", err)
+	for _, body := range [][]byte{body, []byte(`{"error":{"type":"insufficient_quota"}}`)} {
+		t.Run(string(body), func(t *testing.T) {
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+				w.Header().Set("Content-Type", "application/json")
+				w.WriteHeader(http.StatusTooManyRequests)
+				_, _ = w.Write(body)
+			}))
+			defer server.Close()
+			registration, err := ResolveConnectionVariant(config.ProviderConnection{Protocol: config.ConnectionResponses, Endpoint: textutil.Value(server.URL)})
+			if err != nil {
+				t.Fatal(err)
+			}
+			client, err := NewProviderClient(ProviderClientOptions{Registration: registration, Auth: &countingAuth{}, ConnectionID: textutil.Value(config.ConnectionID("fixture")), ContextWindowTokens: 256_000})
+			if err != nil {
+				t.Fatal(err)
+			}
+			_, err = client.Generate(t.Context(), Request{Model: "gpt-6-sol", SessionID: textutil.Value("fixture"), ToolChoiceMode: ToolChoiceModeAutomatic, ReasoningEffort: "high"}, StreamCallbacks{})
+			var failure *ProviderAPIError
+			if !errors.As(err, &failure) || !IsUsageExhaustionError(err) || !IsNonRetriableModelError(err) || failure.ConnectionID == nil || *failure.ConnectionID != "fixture" {
+				t.Fatalf("quota failure = %v", err)
+			}
+		})
 	}
 }
 
@@ -169,6 +173,7 @@ func TestResponsesStructuredUsageExhaustion(t *testing.T) {
 func TestResponsesStreamUsageExhaustion(t *testing.T) {
 	for _, event := range []string{
 		`{"type":"error","error":{"type":"insufficient_quota","message":"fixture"}}`,
+		`{"type":"error","error":{"type":"insufficient_quota"}}`,
 		`{"type":"response.failed","response":{"error":{"code":"credit_balance_exhausted","message":"fixture"}}}`,
 	} {
 		transport := newOpenAIStreamTestTransport(t, event)

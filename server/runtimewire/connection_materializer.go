@@ -64,11 +64,7 @@ func connectionMaterializer(
 		if err != nil {
 			return nil, err
 		}
-		factory := opts.ClientFactory
-		if factory == nil {
-			factory = opts.ReviewerClientFactory
-		}
-		client, err := newClient(settings, RuntimeClientPurposeMain, factory, capabilities)
+		client, err := newClient(settings, RuntimeClientPurposeMain, opts.ClientFactory, capabilities)
 		if err != nil {
 			return nil, err
 		}

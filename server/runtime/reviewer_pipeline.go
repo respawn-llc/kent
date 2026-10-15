@@ -138,7 +138,13 @@ func (r *defaultReviewerPipeline) runPrepared(ctx context.Context, prepared prep
 			return prepared.connection, nil
 		}
 		deferred := submitEngineRuntimeOperation(e, func(ctx context.Context) (*connectionBundle, error) {
-			return e.selectConnection(ctx, prepared.originStepID.String(), request)
+			return e.selectConnectionWithPreparation(ctx, prepared.originStepID.String(), request, func(next *connectionBundle) error {
+				if _, _, err := prepareRetainedContext(llm.CloneResponseItems(prepared.source.Items), next.transportCapabilities); err != nil {
+					return err
+				}
+				_, err := e.reviewerClientForConnection(next)
+				return err
+			})
 		})
 		return deferred.Await(ctx)
 	}, func(bundle *connectionBundle) (llm.Response, error) {

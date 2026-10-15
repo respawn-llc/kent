@@ -103,7 +103,8 @@ export const englishResources = {
         providerModelMismatch: "The provider served the request with {{served}} instead of {{requested}}",
         connectionFallback:
           "Switched connection from {{previous}} to {{current}} because usage was exhausted",
-        connectionsUnavailable: "Configured connections are unavailable. Retry after cooldown or update the configured connections.",
+        connectionsUnavailable:
+          "Configured connections are unavailable. Retry after cooldown or update the configured connections.",
         connectionAvailableAfter: "{{id}}: available after {{time}}",
         connectionAlreadyAttempted: "{{id}}: already attempted",
         reasoningOmission:
