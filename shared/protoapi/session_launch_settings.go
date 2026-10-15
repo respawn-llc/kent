@@ -446,10 +446,7 @@ func subagentRolesFromProto(values []*sessionlaunchpb.NamedSubagentRole) (map[st
 		if err != nil {
 			return nil, fmt.Errorf("subagent %q settings: %w", value.Name, err)
 		}
-		settings.Connection, err = ConnectionSelectionFromProto(value.Role.ConnectionSelection)
-		if err != nil {
-			return nil, fmt.Errorf("subagent %q connection selection: %w", value.Name, err)
-		}
+		settings.Connection = ConnectionSelectionFromProto(value.Role.ConnectionSelection)
 		sources, err := sourceFactsFromProto(value.Role.Sources)
 		if err != nil {
 			return nil, fmt.Errorf("subagent %q sources: %w", value.Name, err)

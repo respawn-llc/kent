@@ -556,7 +556,11 @@ message GetConnectionsRequest {
 }
 
 message ConnectionSelection {
-  repeated string ids = 1 [(buf.validate.field).repeated = {min_items: 1, unique: true, items: {string: {min_len: 1}}}];
+  repeated string ids = 1 [(buf.validate.field).repeated = {
+    min_items: 1
+    unique: true
+    items: {string: {[kent.api.shared.connection_id]: true}}
+  }];
 }
 
 message ConnectionCatalog {

@@ -19,27 +19,15 @@ func ConnectionSelectionToProto(selection *config.ConnectionSelection) *authpb.C
 	return &authpb.ConnectionSelection{Ids: ids}
 }
 
-func ConnectionSelectionFromProto(value *authpb.ConnectionSelection) (*config.ConnectionSelection, error) {
+func ConnectionSelectionFromProto(value *authpb.ConnectionSelection) *config.ConnectionSelection {
 	if value == nil {
-		return nil, nil
-	}
-	if len(value.Ids) == 0 {
-		return nil, errors.New("connection selection must contain at least one ID")
+		return nil
 	}
 	selection := make(config.ConnectionSelection, 0, len(value.Ids))
-	seen := make(map[config.ConnectionID]bool, len(value.Ids))
 	for _, raw := range value.Ids {
-		id, err := config.ParseConnectionID(raw)
-		if err != nil {
-			return nil, err
-		}
-		if seen[id] {
-			return nil, fmt.Errorf("duplicate connection ID %q", id)
-		}
-		seen[id] = true
-		selection = append(selection, id)
+		selection = append(selection, config.ConnectionID(raw))
 	}
-	return &selection, nil
+	return &selection
 }
 
 func ConnectionToProto(id config.ConnectionID, definition config.ProviderConnection) *authpb.ConnectionDefinition {
