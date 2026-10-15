@@ -1446,16 +1446,13 @@ func managedTaskSetupMaterialization(materialized TaskWorktreeMaterialization, r
 				errors.New("failed setup result is missing typed setup script identity"),
 			)
 		}
-		retainedErr, validationErr := worktreecontract.NewSetupRetainedError(
+		retainedErr := worktreecontract.NewSetupRetainedError(
 			materialized.Worktree.GetRegistered(),
 			scriptPath,
 			result.Result.Failed.Diagnostic,
 			result.Result.Failed.RetainedPreviousWorktree,
 			result.Err,
 		)
-		if validationErr != nil {
-			return materialized, errors.Join(result.Err, validationErr)
-		}
 		return materialized, retainedErr
 	}
 	return materialized, nil
@@ -2044,16 +2041,13 @@ func (s *Service) CreateWorktree(ctx context.Context, req *worktreepb.CreateRequ
 		if !ok {
 			return nil, err
 		}
-		retainedErr, validationErr := worktreecontract.NewSetupRetainedError(
+		retainedErr := worktreecontract.NewSetupRetainedError(
 			retainedWorktree.GetRegistered(),
 			scriptPath,
 			err.Error(),
 			nil,
 			err,
 		)
-		if validationErr != nil {
-			return nil, errors.Join(err, validationErr)
-		}
 		return nil, retainedErr
 	}
 	createdEntry, err := s.createdWorktreeListEntry(ctx, management, created.record.ID)

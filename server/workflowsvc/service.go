@@ -1278,13 +1278,10 @@ func (s *Service) materializeInitiatingActionTarget(
 					return prepared, materializationErr
 				}
 				if failed.RetainedWorktree != nil && failed.ScriptPath != nil {
-					retained, err := worktreecontract.NewSetupRetainedError(
+					retained := worktreecontract.NewSetupRetainedError(
 						failed.RetainedWorktree, *failed.ScriptPath, failed.Diagnostic,
 						failed.RetainedPreviousWorktree, errors.New(failed.Diagnostic),
 					)
-					if err != nil {
-						return prepared, err
-					}
 					retained.Details.RecoveryDisposition = failed.RecoveryDisposition
 					return prepared, retained
 				}

@@ -88,16 +88,7 @@ func NewSetupRetainedError(
 	diagnostic string,
 	retainedPreviousWorktree *worktreepb.RetainedPreviousWorktree,
 	cause error,
-) (*SetupRetainedError, error) {
-	if worktree == nil {
-		return nil, errors.New("retained setup error requires a registered worktree")
-	}
-	if strings.TrimSpace(scriptPath) == "" {
-		return nil, errors.New("retained setup error script_path is required")
-	}
-	if strings.TrimSpace(diagnostic) == "" {
-		return nil, errors.New("retained setup error diagnostic is required")
-	}
+) *SetupRetainedError {
 	return &SetupRetainedError{
 		Details: &worktreepb.SetupRetainedDetails{
 			Worktree:                 worktree,
@@ -107,7 +98,7 @@ func NewSetupRetainedError(
 			RecoveryDisposition:      worktreepb.SetupRecoveryDisposition_SETUP_RECOVERY_DISPOSITION_RETRY_EXISTING,
 		},
 		cause: cause,
-	}, nil
+	}
 }
 
 func (e *SetupRetainedError) Error() string {

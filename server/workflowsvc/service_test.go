@@ -483,13 +483,10 @@ func TestServiceCompletedReopenRequestsReplacementWithoutMovingTask(t *testing.T
 					t.Fatal("target resolution failure applied Move")
 				}
 				infrastructure.resolveErr = nil
-				retained, err := worktreecontract.NewSetupRetainedError(&worktreepb.RegisteredFacts{
+				retained := worktreecontract.NewSetupRetainedError(&worktreepb.RegisteredFacts{
 					Git:  &worktreepb.GitFacts{CanonicalRoot: replacementRoot, HeadObject: commit},
 					Kent: &worktreepb.KentFacts{WorktreeId: replacementID, CanonicalRoot: replacementRoot, DisplayName: branch},
 				}, "/setup.sh", "setup failed", nil, errors.New("setup process failed"))
-				if err != nil {
-					t.Fatal(err)
-				}
 				retained.Details.RecoveryDisposition = worktreepb.SetupRecoveryDisposition_SETUP_RECOVERY_DISPOSITION_FRESH_REPLACEMENT
 				infrastructure.materializeErr = retained
 				var failure *worktreecontract.SetupRetainedError
