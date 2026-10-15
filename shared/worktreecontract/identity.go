@@ -20,6 +20,11 @@ type SetupOperationID uuid.UUID
 
 func NewSetupOperationID() SetupOperationID { return SetupOperationID(uuid.New()) }
 
+func SetupOperationIDFromProto(value string) (SetupOperationID, error) {
+	parsed, err := uuid.Parse(value)
+	return SetupOperationID(parsed), err
+}
+
 func ParseSetupOperationID(value string) (SetupOperationID, error) {
 	parsed, err := parseUUIDv4(value, "setup_operation_id")
 	if err != nil {

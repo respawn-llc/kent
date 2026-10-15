@@ -911,7 +911,7 @@ func (s *Service) startWorkflowTask(ctx context.Context, req *taskpb.StartReques
 			Outcome: &taskpb.StartSuccess_SelectionRequired{SelectionRequired: serverapi.NewWorkflowPolicyTargetSelectionRequirement()},
 		}, nil
 	}
-	setupOperationID, err := worktreecontract.ParseSetupOperationID(req.SetupOperationId)
+	setupOperationID, err := worktreecontract.SetupOperationIDFromProto(req.SetupOperationId)
 	if err != nil {
 		return nil, err
 	}
@@ -1621,7 +1621,7 @@ func (s *Service) resumeWorkflowTaskAuthorized(
 			return nil, err
 		}
 	}
-	setupOperationID, err := worktreecontract.ParseSetupOperationID(req.SetupOperationId)
+	setupOperationID, err := worktreecontract.SetupOperationIDFromProto(req.SetupOperationId)
 	if err != nil {
 		return nil, err
 	}
@@ -2013,10 +2013,7 @@ func (s *Service) authorizeWorkflowTaskMutation(
 	if invokingSessionID == nil {
 		return nil
 	}
-	sessionID, err := runtimeids.ParseSessionID(*invokingSessionID)
-	if err != nil {
-		return err
-	}
+	sessionID := runtimeids.SessionIDFromProto(*invokingSessionID)
 	invokingTaskID, err := s.store.TaskIDForSession(ctx, sessionID)
 	if err != nil {
 		return err

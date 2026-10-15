@@ -22,9 +22,6 @@ type taskSetupObservation struct {
 }
 
 func newTaskSetupObservation(setupOperationID worktreecontract.SetupOperationID, executionTarget workflow.ExecutionTargetSelection, publisher workflowTaskSetupEventPublisher) (*taskSetupObservation, error) {
-	if err := setupOperationID.Validate(); err != nil {
-		return nil, err
-	}
 	if publisher == nil {
 		return nil, errors.New("Workflow Task setup event publisher is required")
 	}
