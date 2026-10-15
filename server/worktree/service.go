@@ -34,7 +34,6 @@ import (
 	worktreepb "core/shared/protoapi/gen/kent/api/worktree"
 
 	"github.com/google/uuid"
-	"google.golang.org/protobuf/proto"
 	"google.golang.org/protobuf/types/known/emptypb"
 )
 
@@ -1213,14 +1212,6 @@ func (s *Service) bindCreatedTaskWorktree(ctx context.Context, req managedTaskWo
 }
 
 func (s *Service) createAndRegisterManagedTaskWorktree(ctx context.Context, req managedTaskWorktreeCreationRequest) (resp boundManagedTaskWorktree, err error) {
-	generatedSpec := &worktreepb.CreateSpec{
-		BaseRef:      proto.String(req.CreateSpec.BaseRef),
-		CreateBranch: req.CreateSpec.CreateBranch,
-		BranchName:   proto.String(req.CreateSpec.BranchName),
-	}
-	if err := protoapi.Validate(generatedSpec); err != nil {
-		return boundManagedTaskWorktree{}, err
-	}
 	createSpec := normalizeCreateSpec(req.CreateSpec)
 	var worktreeRoot string
 	rootKind := managedRootKindExplicit
