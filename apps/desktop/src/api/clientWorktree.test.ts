@@ -124,7 +124,7 @@ describe("Desktop Worktree client", () => {
             value: {
               retargetedSessions: 50n,
               diagnostic: "deletion blocked",
-              blocked: { activeSessions: { sessions: [{ sessionId: "active-session" }] } },
+              blocked: { activeSessions: { sessions: [{ sessionId: "11111111-1111-4111-8111-111111111111" }] } },
             },
           },
         },
@@ -141,7 +141,7 @@ describe("Desktop Worktree client", () => {
         error instanceof WorktreeError &&
         error.detail.kind === "delete_partial" &&
         error.detail.details.retargetedSessions === 50n &&
-        error.detail.details.blocked?.activeSessions?.sessions[0]?.sessionId === "active-session",
+        error.detail.details.blocked?.activeSessions?.sessions[0]?.sessionId === "11111111-1111-4111-8111-111111111111",
     );
   });
 

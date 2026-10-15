@@ -90,7 +90,7 @@ export async function resolveWorktreeSelector(
       create(method.input, { sessionId: { value: { case: "sessionId", value: sessionID } }, selector }),
     ),
   );
-  if (success.worktree !== undefined) authorizeWorktreeListEntry(success.worktree);
+  authorizeWorktreeListEntry(success.worktree);
   authorizeWorktreeSelectorResolution(success);
   return success;
 }
@@ -173,7 +173,7 @@ export async function createWorktree(
   if (success.target === undefined) {
     throw new ContractError("Session Worktree creation returned no caller location.");
   }
-  if (success.worktree !== undefined) authorizeWorktreeListEntry(success.worktree);
+  authorizeWorktreeListEntry(success.worktree);
   return success;
 }
 
