@@ -13,7 +13,7 @@ import (
 	serverbootstrap "core/server/bootstrap"
 	"core/server/core"
 	"core/server/metadata"
-	"core/server/session"
+	"core/server/sessionstore"
 	shelltool "core/server/tools/shell"
 	"core/server/tools/shell/postprocess"
 	"core/shared/config"
@@ -686,18 +686,12 @@ func newRoutePolicyFixture(t *testing.T) routePolicyFixture {
 	if err != nil {
 		t.Fatalf("ResolveConfig A: %v", err)
 	}
-	bindingA, err := metadata.RegisterBinding(context.Background(), resolvedA.Config.PersistenceRoot, resolvedA.Config.WorkspaceRoot)
-	if err != nil {
-		t.Fatalf("RegisterBinding A: %v", err)
-	}
+	bindingA := registerGatewayTestBinding(t, resolvedA.Config)
 	resolvedB, err := serverbootstrap.ResolveConfig(serverbootstrap.Request{WorkspaceRoot: workspaceB})
 	if err != nil {
 		t.Fatalf("ResolveConfig B: %v", err)
 	}
-	bindingB, err := metadata.RegisterBinding(context.Background(), resolvedB.Config.PersistenceRoot, resolvedB.Config.WorkspaceRoot)
-	if err != nil {
-		t.Fatalf("RegisterBinding B: %v", err)
-	}
+	bindingB := registerGatewayTestBinding(t, resolvedB.Config)
 	metadataStore, err := metadata.Open(resolvedA.Config.PersistenceRoot)
 	if err != nil {
 		t.Fatalf("metadata.Open: %v", err)

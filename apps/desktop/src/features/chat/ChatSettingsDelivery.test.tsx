@@ -1,4 +1,4 @@
-import { act, screen, waitFor, within } from "@testing-library/react";
+import { act, fireEvent, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { useCurrentWindowChromeTitle } from "@/app-facade";
 import { appI18n } from "@/i18n";
@@ -17,6 +17,7 @@ function TitleProbe() {
 it.each(["unavailable", "registered_idle"] as const)(
   "updates two %s Chats from real settings messages without resetting drafts or transcript observation",
   async (state) => {
+    const user = userEvent.setup({ delay: null });
     let name: string | null = null;
     let sequence = 1;
     const views = [0, 1].map(() =>
@@ -42,14 +43,12 @@ it.each(["unavailable", "registered_idle"] as const)(
       for (const view of views) {
         expect(view.handlers).toHaveLength(1);
         expect(hasSessionSettingsSubscription(view.services.transport)).toBe(true);
+        expect(view.client.isFetching()).toBe(0);
       }
     });
-    const editors = await screen.findAllByRole("textbox");
-    const user = userEvent.setup();
-    for (const [index, editor] of editors.entries()) {
-      await user.click(editor);
-      await user.paste(`independent draft ${index.toString()}`);
-    }
+    const editors = views.map((view) => within(view.container).getByRole("textbox"));
+    for (const [index, editor] of editors.entries())
+      fireEvent.change(editor, { target: { value: `independent draft ${index.toString()}` } });
     const deliver = async (questions: boolean) => {
       await act(async () => {
         for (const view of views)
@@ -63,8 +62,8 @@ it.each(["unavailable", "registered_idle"] as const)(
         expect(title.textContent).toBe("Delivered name");
     });
     await deliver(false);
-    for (const button of screen.getAllByRole("button", { name: appI18n.t("chatSettings.open") })) {
-      await user.hover(button);
+    for (const view of views) {
+      await user.hover(within(view.container).getByRole("button", { name: appI18n.t("chatSettings.open") }));
       expect(
         within(screen.getByRole("dialog")).getByRole("switch", {
           name: appI18n.t("chatSettings.questions"),

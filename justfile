@@ -48,7 +48,24 @@ gen:
 
 # Run active tests, or select server, desktop, docs, tui, or explicit frozen rust.
 test *args:
-    @bash scripts/quiet-on-success.sh --success pass bash scripts/test.sh {{ args }}
+    @bash scripts/test.sh "$@"
+
+[private]
+_prepare-go-tests workers="10":
+    @just --quiet _gen-go
+    mkdir -p .generated/test-binaries
+    # Native test output names require globally unique package directory basenames.
+    go test -c -ldflags="-s -w" -o .generated/test-binaries/ -p {{workers}} ./...
+    @just --quiet _prepare-pty-kent
+
+[private]
+_prepare-pty-kent:
+    mkdir -p .generated/test-binaries/pty
+    bash scripts/build.sh server --output .generated/test-binaries/pty/kent
+
+[private]
+_ci-test-storage:
+    sudo mount -o remount,exec /dev/shm
 
 # Apply safe lint fixes, or pass --dry-run for read-only validation.
 lint *args:

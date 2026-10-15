@@ -3,7 +3,8 @@ import { useTranslation } from "react-i18next";
 import { useAnimate } from "motion/react";
 
 import { useTextFieldSubmitShortcutPolicy } from "@/app-facade";
-import { CollapsibleMarkdownField, motionDurationFromCSSVar, type MarkdownFieldSubmitIntent } from "@/ui";
+import { motionDurationFromCSSVar } from "@/ui";
+import { CollapsibleMarkdownField, type MarkdownFieldSubmitIntent } from "@/ui/markdown";
 
 const editorHeight = 220;
 

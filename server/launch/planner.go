@@ -12,7 +12,7 @@ import (
 	"core/server/chatcontext"
 	"core/server/llm"
 	"core/server/metadata"
-	"core/server/session"
+	"core/server/sessionstore"
 	"core/server/workflow"
 	"core/shared/clientui"
 	"core/shared/config"

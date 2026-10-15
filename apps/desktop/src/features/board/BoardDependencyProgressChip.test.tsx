@@ -1,14 +1,15 @@
-import { render, screen } from "@testing-library/react";
-import userEvent from "@testing-library/user-event";
+import { act, fireEvent, render, screen } from "@testing-library/react";
 import { vi } from "vitest";
 
 import { BoardDependencyProgressChip } from "./BoardDependencyProgressChip";
 
 describe("BoardDependencyProgressChip", () => {
+  beforeEach(() => vi.useFakeTimers());
+  afterEach(() => vi.useRealTimers());
+
   it("isolates chip activation from its card and exposes server progress", async () => {
     const onActivate = vi.fn();
     const onCardActivate = vi.fn();
-    const user = userEvent.setup();
 
     render(
       <div onClick={onCardActivate}>
@@ -20,14 +21,17 @@ describe("BoardDependencyProgressChip", () => {
     );
 
     const chip = screen.getByRole("button");
-    await user.tab();
+    chip.focus();
     expect(chip).toHaveFocus();
     expect(screen.queryByRole("tooltip")).not.toBeInTheDocument();
-    await user.hover(chip);
-    const tooltip = await screen.findByRole("tooltip");
+    fireEvent.mouseEnter(chip);
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(0);
+    });
+    const tooltip = screen.getByRole("tooltip");
     expect(tooltip).not.toBeEmptyDOMElement();
 
-    await user.click(chip);
+    fireEvent.click(chip);
 
     expect(onActivate).toHaveBeenCalledOnce();
     expect(onCardActivate).not.toHaveBeenCalled();

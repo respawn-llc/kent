@@ -8,14 +8,13 @@ import (
 	"sync"
 	"sync/atomic"
 	"testing"
-	"time"
 
 	"core/internal/testharness/testsetup"
+	"core/server/agentruntime"
 	"core/server/llm"
-	"core/server/runtime"
 	"core/server/runtimewire"
-	"core/server/session"
 	"core/server/sessionruntime"
+	"core/server/sessionstore"
 	"core/server/tools"
 	"core/shared/clientui"
 	"core/shared/config"
@@ -223,10 +222,8 @@ func exerciseQuestionResolution(t *testing.T, answer, delayedSupervisor bool) {
 		release()
 	}
 	var pendingToolCallID clientui.ToolCallID
-	promptCtx, cancelPrompt := context.WithTimeout(t.Context(), 10*time.Second)
-	defer cancelPrompt()
 	for {
-		message, err := subscription.Next(promptCtx)
+		message, err := subscription.Next(t.Context())
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -338,6 +335,25 @@ func exerciseQuestionResolution(t *testing.T, answer, delayedSupervisor bool) {
 		t.Fatalf("execution: %v", err)
 	}
 	if delayedSupervisor {
+		// Execution completion does not join the Supervisor that submitted its
+		// follow-up turn. Observe that Supervisor's completed activity publication.
+		completionSub, err := registry.SubscribeSessionTranscript(t.Context(), &transcriptpb.SubscribeRequest{SessionId: &sharedpb.SessionSelector{Value: &sharedpb.SessionSelector_SessionId{SessionId: id.String()}}})
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer completionSub.Close()
+		for {
+			event := nextTranscriptMessage(t, completionSub).Event
+			update := event.GetRuntimeReadModelUpdate()
+			if hydration := event.GetHydration(); hydration != nil {
+				update = hydration.RuntimeReadModelUpdate
+			}
+			if update != nil &&
+				update.Activity.Reviewer == runtimepb.ReviewerActivity_REVIEWER_ACTIVITY_INACTIVE &&
+				update.Activity.State == runtimepb.ActivityState_RUNTIME_ACTIVITY_REGISTERED_IDLE {
+				break
+			}
+		}
 		view, available := registry.RuntimeMainViewSnapshot(id.String())
 		if !available || view.Activity.Reviewer != runtimepb.ReviewerActivity_REVIEWER_ACTIVITY_INACTIVE ||
 			view.Activity.State != runtimepb.ActivityState_RUNTIME_ACTIVITY_REGISTERED_IDLE {

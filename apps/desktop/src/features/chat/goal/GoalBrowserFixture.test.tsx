@@ -36,14 +36,14 @@ function GoalBrowserFixtureHarness() {
 }
 
 async function selectFixture(label: string, value: string) {
-  await userEvent.setup().selectOptions(screen.getByRole("combobox", { name: label }), value);
+  await userEvent.setup({ delay: null }).selectOptions(screen.getByRole("combobox", { name: label }), value);
 }
 
 describe("Goal browser fixture", () => {
   it("closes the Goal sidebar on repeated chip activation and opens it again", async () => {
     renderFixture();
     await screen.findByRole("textbox", { name: "Goal" });
-    const user = userEvent.setup();
+    const user = userEvent.setup({ delay: null });
     const chip = within(screen.getByTestId("goal-browser-fixture")).getByRole("button", { name: "Goal" });
     await user.click(chip);
     await waitFor(() => {
@@ -65,11 +65,13 @@ describe("Goal browser fixture", () => {
       await selectFixture("Goal mutation outcome", "pending");
 
       await userEvent
-        .setup()
+        .setup({ delay: null })
         .click(await screen.findByRole("button", { name: appI18n.t(`chat.goal.${action}`) }));
       expect(screen.queryByTestId("goal-mutation-pending")).not.toBeInTheDocument();
       expect(screen.getByRole("button", { name: appI18n.t(`chat.goal.${next}`) })).toBeDisabled();
-      await userEvent.setup().click(screen.getByRole("button", { name: "Resolve pending Goal action" }));
+      await userEvent
+        .setup({ delay: null })
+        .click(screen.getByRole("button", { name: "Resolve pending Goal action" }));
 
       expect(await screen.findByRole("button", { name: appI18n.t(`chat.goal.${next}`) })).toBeInTheDocument();
       await waitFor(() => {
@@ -82,7 +84,7 @@ describe("Goal browser fixture", () => {
     renderFixture();
     await selectFixture("Goal fixture state", "active");
     await selectFixture("Goal mutation outcome", "pending");
-    const user = userEvent.setup();
+    const user = userEvent.setup({ delay: null });
     await user.click(await screen.findByRole("button", { name: "Clear" }));
     expect(screen.getByTestId("goal-mutation-pending")).toBeInTheDocument();
     expect(screen.getByRole("textbox", { name: "Goal" })).toHaveValue("");
@@ -98,12 +100,12 @@ describe("Goal browser fixture", () => {
     renderFixture();
     await selectFixture("Goal fixture state", "loading");
     expect(await screen.findByTestId("loading-state")).toBeInTheDocument();
-    await userEvent.setup().click(screen.getByRole("button", { name: "Hydrate Goal" }));
+    await userEvent.setup({ delay: null }).click(screen.getByRole("button", { name: "Hydrate Goal" }));
     expect(await screen.findByText("Deterministic Goal fixture")).toBeInTheDocument();
 
     await selectFixture("Goal fixture state", "error-retry");
-    await userEvent.setup().click(await screen.findByRole("button", { name: "Try again" }));
-    await userEvent.setup().click(screen.getByRole("button", { name: "Hydrate Goal" }));
+    await userEvent.setup({ delay: null }).click(await screen.findByRole("button", { name: "Try again" }));
+    await userEvent.setup({ delay: null }).click(screen.getByRole("button", { name: "Hydrate Goal" }));
     expect(await screen.findByText("Deterministic Goal fixture")).toBeInTheDocument();
   });
 
@@ -112,7 +114,7 @@ describe("Goal browser fixture", () => {
     await selectFixture("Goal fixture state", "new-chat");
     await selectFixture("New Chat Set outcome", "rejection");
 
-    const user = userEvent.setup();
+    const user = userEvent.setup({ delay: null });
     const objective = "Preserve this New Chat draft";
     await user.type(await screen.findByRole("textbox", { name: "Goal" }), objective);
     await user.click(screen.getByTestId("goal-save"));

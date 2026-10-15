@@ -18,11 +18,11 @@ import (
 	"time"
 
 	"core/internal/testharness/testsetup"
-	"core/server/auth"
+	"core/server/authmanager"
 	"core/server/bootstrap"
 	"core/server/core"
 	"core/server/metadata"
-	"core/server/session"
+	"core/server/sessionstore"
 	"core/server/transport"
 	"core/shared/client"
 	"core/shared/config"
@@ -53,6 +53,7 @@ func newWorktreeCommandFixture(t *testing.T) worktreeCommandFixture {
 	if err != nil {
 		t.Fatal(err)
 	}
+	testsetup.PrepareMetadataPersistenceRoot(t, cfg.PersistenceRoot)
 	authSupport, err := bootstrap.BuildAuthSupport(t.Context(), cfg.PersistenceRoot, auth.NewMemoryStore(auth.EmptyState()), nil, nil)
 	if err != nil {
 		t.Fatal(err)

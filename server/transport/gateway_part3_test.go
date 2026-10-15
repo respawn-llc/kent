@@ -6,7 +6,7 @@ import (
 	"core/internal/testharness/testsetup"
 	serverbootstrap "core/server/bootstrap"
 	"core/server/core"
-	"core/server/session"
+	"core/server/sessionstore"
 	remoteclient "core/shared/client"
 	"core/shared/config"
 	"core/shared/protoapi"
@@ -129,6 +129,7 @@ func newGatewayTestCore(t *testing.T, bindWorkspace bool, ready bool) (*core.Cor
 	if err != nil {
 		t.Fatalf("ResolveConfig: %v", err)
 	}
+	testsetup.PrepareMetadataPersistenceRoot(t, resolved.Config.PersistenceRoot)
 	authSupport := newGatewayTestAuthSupport(t, resolved.Config.PersistenceRoot, ready)
 	resolved.Config.Settings = testsetup.ProviderSettings(resolved.Config.Settings)
 	if !ready {

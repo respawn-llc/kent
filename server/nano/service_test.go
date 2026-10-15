@@ -17,7 +17,7 @@ import (
 	"time"
 
 	"core/internal/testharness/httpclient"
-	"core/server/auth"
+	"core/server/authmanager"
 	"core/server/authservice"
 	"core/server/launch"
 	"core/server/llm"

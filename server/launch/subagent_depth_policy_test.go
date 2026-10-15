@@ -7,8 +7,8 @@ import (
 	"testing"
 
 	"core/internal/testharness/testsetup"
-	"core/server/session"
-	"core/server/session/sessiontest"
+	"core/server/sessionstore"
+	"core/server/sessionstore/sessiontest"
 	"core/shared/config"
 	"core/shared/runtimeids"
 	"core/shared/serverapi"

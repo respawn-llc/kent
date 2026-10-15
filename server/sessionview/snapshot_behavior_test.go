@@ -8,8 +8,8 @@ import (
 	"time"
 
 	"core/internal/testharness/testsetup"
-	"core/server/session"
 	"core/server/sessionruntime"
+	"core/server/sessionstore"
 	"core/shared/config"
 	"core/shared/protoapi"
 	runtimepb "core/shared/protoapi/gen/kent/api/runtime"

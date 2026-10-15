@@ -7,8 +7,8 @@ import (
 	"testing"
 	"time"
 
+	"core/server/agentruntime"
 	"core/server/llm"
-	"core/server/runtime"
 )
 
 type interruptReplacementLLMClient struct {

@@ -9,7 +9,7 @@ import (
 	"core/shared/clientui"
 	transcriptpb "core/shared/protoapi/gen/kent/api/transcript"
 	"core/shared/textutil"
-	"core/shared/transcript"
+	"core/shared/transcriptmodel"
 
 	"github.com/charmbracelet/lipgloss"
 	"github.com/rivo/uniseg"

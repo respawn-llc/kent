@@ -37,7 +37,7 @@ describe("BoardSortChrome", () => {
   });
 
   it("shows the neutral default, exact field order, and both directions", async () => {
-    const user = userEvent.setup();
+    const user = userEvent.setup({ delay: null });
     render(<BoardSortChrome />);
 
     const trigger = screen.getByRole("button");
@@ -56,7 +56,7 @@ describe("BoardSortChrome", () => {
   });
 
   it("applies field and direction changes immediately while retaining the popover", async () => {
-    const user = userEvent.setup();
+    const user = userEvent.setup({ delay: null });
     const view = render(<BoardSortChrome />);
     await user.click(screen.getByRole("button"));
 

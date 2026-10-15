@@ -10,7 +10,7 @@ import (
 
 	"core/internal/testharness/databaseseed"
 	"core/server/metadata"
-	"core/server/session"
+	"core/server/sessionstore"
 )
 
 type metadataPersistenceRootLock struct {

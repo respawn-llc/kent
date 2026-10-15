@@ -8,13 +8,13 @@ import (
 	"strings"
 	"sync"
 
+	"core/server/agentruntime"
 	"core/server/metadata"
 	"core/server/promptcommands"
 	"core/server/promptcontrol"
-	"core/server/runtime"
 	"core/server/runtimeactivity"
-	"core/server/session"
 	"core/server/sessionruntime"
+	"core/server/sessionstore"
 	servicecontract "core/shared/apicontract"
 	"core/shared/protoapi"
 	promptpb "core/shared/protoapi/gen/kent/api/prompt"
@@ -23,7 +23,7 @@ import (
 	"core/shared/runtimeids"
 	"core/shared/runtimeinput"
 	"core/shared/serverapi"
-	"core/shared/transcript"
+	"core/shared/transcriptmodel"
 )
 
 type RuntimeActivityResolver interface {

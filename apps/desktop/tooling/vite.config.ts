@@ -57,8 +57,16 @@ export default defineConfig({
   test: {
     exclude: testExclude,
     globals: true,
-    pool: "threads",
-    maxWorkers: 2,
+    pool: "forks",
+    maxWorkers: 8,
+    deps: {
+      optimizer: {
+        client: {
+          enabled: true,
+          include: ["lucide-react", "motion/react", "@floating-ui/react"],
+        },
+      },
+    },
     setupFiles: ["./test/setup.ts"],
     // Logic/transport tests do not need a browser. Hook tests in .test.ts
     // explicitly opt into jsdom with @vitest-environment.

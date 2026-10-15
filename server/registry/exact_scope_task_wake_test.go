@@ -10,9 +10,9 @@ import (
 
 	"core/server/llm"
 	"core/server/runtimewire"
-	"core/server/session"
-	"core/server/session/sessiontest"
 	"core/server/sessionruntime"
+	"core/server/sessionstore"
+	"core/server/sessionstore/sessiontest"
 	askquestion "core/server/tools"
 	"core/server/workflow"
 	"core/server/workflowruntime"
@@ -206,9 +206,7 @@ func TestPromptPendingScopePublishesTaskWakeOnlyFromWorkflowScope(t *testing.T) 
 		cleared.RelatedIDs[1] != request.ToolCallID {
 		t.Fatalf("workflow cleared event = %+v", cleared)
 	}
-	stopCtx, cancelStop := context.WithTimeout(context.Background(), 3*time.Second)
-	defer cancelStop()
-	if err := workflowHandle.Stop(stopCtx); err != nil {
+	if err := workflowHandle.Stop(t.Context()); err != nil {
 		t.Fatalf("stop workflow execution: %v", err)
 	}
 	if _, err := attachment.Release(context.Background(), sessionruntime.RuntimeReleaseClose); err != nil {
@@ -254,9 +252,7 @@ func TestPromptPendingScopePublishesTaskWakeOnlyFromWorkflowScope(t *testing.T) 
 	); !errors.Is(err, serverapi.ErrStreamUnavailable) {
 		t.Fatalf("prompt publication after feed drain = %v, want stream unavailable", err)
 	}
-	nonWorkflowStopCtx, cancelNonWorkflowStop := context.WithTimeout(context.Background(), 3*time.Second)
-	defer cancelNonWorkflowStop()
-	if err := nonWorkflowHandle.Stop(nonWorkflowStopCtx); err != nil {
+	if err := nonWorkflowHandle.Stop(t.Context()); err != nil {
 		t.Fatalf("stop non-workflow execution: %v", err)
 	}
 }

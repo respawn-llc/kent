@@ -1,4 +1,4 @@
-import { act, screen, waitFor, within } from "@testing-library/react";
+import { act, fireEvent, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import type { ChatInputMutationResult } from "@/api";
 import { appI18n } from "@/i18n";
@@ -84,9 +84,8 @@ it("shows an idle submission before its response and adopts commitment once with
         },
       });
     });
-    const user = userEvent.setup();
-    await user.type(editor, "Optimistic message");
-    await user.click(screen.getByRole("button", { name: appI18n.t("chatComposer.send") }));
+    fireEvent.change(editor, { target: { value: "Optimistic message" } });
+    fireEvent.click(screen.getByRole("button", { name: appI18n.t("chatComposer.send") }));
     act(() => {
       geometry.resize(80);
     });
@@ -94,7 +93,7 @@ it("shows an idle submission before its response and adopts commitment once with
     expect(await within(list).findByText("Optimistic message")).toBeInTheDocument();
     expect(editor).toHaveValue("");
     expect(editor).not.toHaveAttribute("readonly");
-    await user.type(editor, "next draft");
+    fireEvent.change(editor, { target: { value: "next draft" } });
     const inputID = vi.mocked(view.services.api.chat.steer).mock.calls[0]?.[2];
     if (inputID === undefined) throw new Error("Missing submitted identity");
     await act(async () => {

@@ -7,8 +7,8 @@ import (
 	"testing"
 
 	"core/internal/testharness/testsetup"
-	"core/server/session"
-	"core/server/session/sessiontest"
+	"core/server/sessionstore"
+	"core/server/sessionstore/sessiontest"
 	"core/shared/config"
 	contextpb "core/shared/protoapi/gen/kent/api/chat_context"
 	"core/shared/runtimeids"

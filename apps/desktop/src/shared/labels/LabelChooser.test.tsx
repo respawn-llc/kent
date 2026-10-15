@@ -149,7 +149,7 @@ afterEach(() => {
 
 describe("LabelChooser", () => {
   it("reports controlled open-state changes", async () => {
-    const user = userEvent.setup();
+    const user = userEvent.setup({ delay: null });
     const onOpenChange = vi.fn();
     const view = render(
       <LabelChooser
@@ -176,7 +176,7 @@ describe("LabelChooser", () => {
   });
 
   it("creates a filter label without changing the active filter", async () => {
-    const user = userEvent.setup();
+    const user = userEvent.setup({ delay: null });
     const actions: LabelFilterAction[] = [];
     render(
       <LabelChooser
@@ -201,7 +201,7 @@ describe("LabelChooser", () => {
   });
 
   it("shows handle-only reorder controls in catalog order and hides them during search", async () => {
-    const user = userEvent.setup();
+    const user = userEvent.setup({ delay: null });
     render(
       <LabelChooser
         invocation={{ kind: "filter", onAction: vi.fn(), state: createLabelFilterState() }}
@@ -223,7 +223,7 @@ describe("LabelChooser", () => {
   });
 
   it("keeps selection available while local reorder controls are pending", async () => {
-    const user = userEvent.setup();
+    const user = userEvent.setup({ delay: null });
     hooks.reorderPending = true;
     const onAction = vi.fn();
     render(
@@ -247,7 +247,7 @@ describe("LabelChooser", () => {
   });
 
   it("keeps the keyboard highlight aligned with the fixed unlabeled row", async () => {
-    const user = userEvent.setup();
+    const user = userEvent.setup({ delay: null });
     const onAction = vi.fn();
     render(
       <LabelChooser
@@ -265,7 +265,7 @@ describe("LabelChooser", () => {
   });
 
   it("selects an assignment-created label only after creation succeeds", async () => {
-    const user = userEvent.setup();
+    const user = userEvent.setup({ delay: null });
     const onSelectionChange = vi.fn();
     render(
       <LabelChooser
@@ -283,7 +283,7 @@ describe("LabelChooser", () => {
   });
 
   it("disables assignment choices while the assignment is unavailable", async () => {
-    const user = userEvent.setup();
+    const user = userEvent.setup({ delay: null });
     const onSelectionChange = vi.fn();
     render(
       <LabelChooser
@@ -304,7 +304,6 @@ describe("LabelChooser", () => {
   });
 
   it("keeps selection and search available while disabling creation at the 100-Label bound", async () => {
-    const user = userEvent.setup();
     hooks.catalog.data = {
       projectID: "project-1",
       labels: Array.from({ length: 100 }, (_, index) => ({
@@ -319,15 +318,17 @@ describe("LabelChooser", () => {
       />,
     );
 
-    await user.click(screen.getByRole("button", { name: "Open assignment chooser" }));
-    await user.type(screen.getByRole("textbox", { name: "Search or create labels" }), "New label");
+    fireEvent.click(screen.getByRole("button", { name: "Open assignment chooser" }));
+    fireEvent.change(screen.getByRole("textbox", { name: "Search or create labels" }), {
+      target: { value: "New label" },
+    });
 
     expect(screen.getByRole("button", { name: "labels.catalogLimit" })).toBeDisabled();
     expect(screen.getByRole("textbox", { name: "Search or create labels" })).toBeEnabled();
   });
 
   it("omits reorder handles outside an eligible filter catalog", async () => {
-    const user = userEvent.setup();
+    const user = userEvent.setup({ delay: null });
     const view = render(
       <LabelChooser
         invocation={{ kind: "assignment", onSelectionChange: vi.fn(), selectedLabelIDs: [] }}
@@ -352,7 +353,7 @@ describe("LabelChooser", () => {
   });
 
   it("commits a keyboard reorder through the Label handle", async () => {
-    const user = userEvent.setup();
+    const user = userEvent.setup({ delay: null });
     render(
       <LabelChooser
         invocation={{ kind: "filter", onAction: vi.fn(), state: createLabelFilterState() }}
@@ -378,7 +379,7 @@ describe("LabelChooser", () => {
   });
 
   it("surfaces a reorder failure through the status controller", async () => {
-    const user = userEvent.setup();
+    const user = userEvent.setup({ delay: null });
     hooks.reorder.mockRejectedValueOnce(new Error("save failed"));
     render(
       <LabelChooser
@@ -403,7 +404,7 @@ describe("LabelChooser", () => {
   });
 
   it("commits a pointer reorder from the Label handle", async () => {
-    const user = userEvent.setup();
+    const user = userEvent.setup({ delay: null });
     render(
       <LabelChooser
         invocation={{ kind: "filter", onAction: vi.fn(), state: createLabelFilterState() }}

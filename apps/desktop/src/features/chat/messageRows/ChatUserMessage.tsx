@@ -3,7 +3,8 @@ import { Pencil } from "lucide-react";
 import { useEffectEvent, useLayoutEffect, useMemo, useRef } from "react";
 
 import type { TranscriptRenderItem } from "@/app-facade";
-import { AnimatedSize, IconTooltipButton, Island, Spinner, StaticMarkdown } from "@/ui";
+import { AnimatedSize, IconTooltipButton, Island, Spinner } from "@/ui";
+import { StaticMarkdown } from "@/ui/markdown";
 import type { OutgoingInput } from "../OutgoingInputPresentation";
 
 import "./messageRows.css";

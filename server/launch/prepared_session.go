@@ -5,7 +5,7 @@ import (
 	"errors"
 	"path/filepath"
 
-	"core/server/session"
+	"core/server/sessionstore"
 	"core/shared/clientui"
 	worktreepb "core/shared/protoapi/gen/kent/api/worktree"
 	"core/shared/runtimeids"

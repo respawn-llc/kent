@@ -8,9 +8,9 @@ import (
 	"strings"
 
 	"core/cli/app/internal/authui"
-	serverauth "core/server/auth"
+	serverauth "core/server/authmanager"
 	"core/shared/apicontract"
-	sharedauth "core/shared/auth"
+	sharedauth "core/shared/authmodel"
 	"core/shared/config"
 	"core/shared/protoapi"
 	authpb "core/shared/protoapi/gen/kent/api/auth"

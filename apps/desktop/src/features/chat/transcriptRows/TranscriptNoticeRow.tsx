@@ -1,5 +1,6 @@
 import { useTranslation } from "react-i18next";
-import { cx, StaticMarkdown } from "@/ui";
+import { cx } from "@/ui";
+import { StaticMarkdown } from "@/ui/markdown";
 
 import type { ChatTranscriptCommittedRow } from "@/api";
 import { basename, usePathFormatter } from "@/app-facade";

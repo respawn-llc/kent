@@ -1,7 +1,7 @@
-import { fireEvent, render, screen, within } from "@testing-library/react";
+import { act, fireEvent, render, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { I18nextProvider } from "react-i18next";
-import { beforeAll, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 
 import {
   defaultWorkflowExecutionTargetPolicy,
@@ -55,6 +55,14 @@ const edge: DraftWorkflowEdge = {
 
 beforeAll(async () => {
   await initializeI18n();
+});
+
+beforeEach(() => {
+  vi.useFakeTimers();
+});
+
+afterEach(() => {
+  vi.useRealTimers();
 });
 
 describe("EditableEdgeParameters", () => {
@@ -126,12 +134,12 @@ describe("EditableEdgeParameters", () => {
       throw new Error("reorder activator is missing");
     }
     fireEvent.keyDown(firstActivator, { code: "Space", key: " " });
-    await new Promise<void>((resolve) => {
-      setTimeout(resolve, 0);
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(0);
     });
     fireEvent.keyDown(firstActivator, { code: "ArrowDown", key: "ArrowDown" });
-    await new Promise<void>((resolve) => {
-      setTimeout(resolve, 0);
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(0);
     });
     fireEvent.keyDown(firstActivator, { code: "Space", key: " " });
     expect(dispatchMock).toHaveBeenCalledWith({
@@ -303,7 +311,7 @@ describe("PromptTemplateEditor", () => {
   });
 
   it("disables the Session ID placeholder for a known non-agent source and explains why", async () => {
-    const user = userEvent.setup();
+    const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
     const onPromptChange = vi.fn();
     render(
       <I18nextProvider i18n={appI18n}>
@@ -319,8 +327,12 @@ describe("PromptTemplateEditor", () => {
     const sessionChip = screen.getByRole("button", { name: ".SessionId" });
     expect(sessionChip).toBeDisabled();
     fireEvent.click(sessionChip);
-    await user.hover(sessionChip);
-    expect(await screen.findByRole("tooltip")).toBeVisible();
+    const hover = user.hover(sessionChip);
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(100);
+    });
+    await hover;
+    expect(screen.getByRole("tooltip")).not.toBeEmptyDOMElement();
     expect(onPromptChange).not.toHaveBeenCalled();
   });
 });

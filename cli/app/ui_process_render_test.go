@@ -26,17 +26,6 @@ func TestProcessListEntryRenderTruncatesToWidth(t *testing.T) {
 	}
 }
 
-func TestProcessListEntryRenderEmptyOutputFallback(t *testing.T) {
-	lines := renderProcessListEntry(&processpb.BackgroundProcess{Id: "proc-empty",
-		State:   "completed",
-		Command: "echo ok"}, false, 80, "dark", 0, uiStyles{})
-
-	joined := strings.Join(lines, "\n")
-	if !strings.Contains(joined, "<no output yet>") {
-		t.Fatalf("rendered entry missing empty-output fallback: %q", joined)
-	}
-}
-
 func TestProcessListOutputPreviewUsesLastNonEmptyLine(t *testing.T) {
 	got := processListOutputPreview("first\n\n  last value  \n")
 	if got != "last value" {

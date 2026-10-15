@@ -4,11 +4,10 @@ import (
 	"context"
 	"errors"
 	"testing"
-	"time"
 
-	"core/server/runtime"
-	"core/server/session"
+	"core/server/agentruntime"
 	"core/server/sessionruntime"
+	"core/server/sessionstore"
 	"core/shared/runtimeids"
 	"core/shared/runtimeinput"
 	"core/shared/serverapi"
@@ -24,13 +23,8 @@ func TestChatInputAdmissionDoesNotEnterRetiringAgent(t *testing.T) {
 	done := make(chan error, 1)
 	t.Cleanup(func() {
 		close(release)
-		select {
-		case err := <-done:
-			if err != nil {
-				t.Error(err)
-			}
-		case <-time.After(3 * time.Second):
-			t.Error("Agent replacement did not finish")
+		if err := <-done; err != nil {
+			t.Error(err)
 		}
 	})
 	go func() {
@@ -44,8 +38,6 @@ func TestChatInputAdmissionDoesNotEnterRetiringAgent(t *testing.T) {
 	}()
 	select {
 	case <-committing:
-	case <-time.After(3 * time.Second):
-		t.Fatal("Agent replacement did not reach commit")
 	}
 	prepared, err := service.PrepareUserTurn(t.Context(), id.String(), runtimeinput.Text("concurrent input"))
 	if err != nil {

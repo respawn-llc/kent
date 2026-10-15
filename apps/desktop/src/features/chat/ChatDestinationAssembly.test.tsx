@@ -1,5 +1,5 @@
 import { createChatStorageFixture } from "./chatStorageFixture";
-import { act, fireEvent, screen, waitFor, within } from "@testing-library/react";
+import { act, fireEvent, isInaccessible, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { QueryClient } from "@tanstack/react-query";
 import { useState } from "react";
@@ -54,8 +54,7 @@ it.each([question(), approval()])(
       screen.queryByText(appI18n.t("chat.picker.position", { current: 1, count: 1 })),
     ).not.toBeInTheDocument();
     expect(screen.queryByRole("button", { name: appI18n.t("chatComposer.stop") })).not.toBeInTheDocument();
-    const user = userEvent.setup();
-    await user.click(screen.getByRole("button", { name: appI18n.t("chat.picker.decline") }));
+    fireEvent.click(screen.getByRole("button", { name: appI18n.t("chat.picker.decline") }));
     await waitFor(() => {
       expect(view.answer).toHaveBeenCalledOnce();
     });
@@ -90,7 +89,7 @@ it("shows original batch navigation while the remaining questions are still arri
   expect(screen.getByRole("button", { name: appI18n.t("chat.picker.next") })).toBeDisabled();
   const first = screen.getAllByRole("radio")[0];
   if (first === undefined) throw new Error("Question must offer an answer.");
-  await userEvent.setup().click(first);
+  fireEvent.click(first, { detail: 1 });
   expect(view.answer).not.toHaveBeenCalled();
   view.unmount();
 });
@@ -109,20 +108,19 @@ it("keeps navigation for a five-question batch when four questions are answered"
       payload: { ...hydration(), PendingPrompts: prompts.map((prompt) => ({ state: "pending", prompt })) },
     }),
   );
-  const user = userEvent.setup();
   for (let index = 0; index < 4; index += 1) {
     expect(
       await screen.findByText(appI18n.t("chat.picker.position", { current: index + 1, count: 5 })),
     ).toBeInTheDocument();
     const first = screen.getAllByRole("radio")[0];
     if (first === undefined) throw new Error("Question must offer an answer.");
-    await user.click(first);
+    fireEvent.click(first, { detail: 1 });
   }
   expect(screen.getByText(appI18n.t("chat.picker.position", { current: 5, count: 5 }))).toBeInTheDocument();
   expect(screen.getByRole("button", { name: appI18n.t("chat.picker.previous") })).toBeInTheDocument();
   expect(screen.getByRole("button", { name: appI18n.t("chat.picker.next") })).toBeInTheDocument();
   expect(view.answer).not.toHaveBeenCalled();
-  await user.click(screen.getByRole("button", { name: appI18n.t("chat.picker.previous") }));
+  fireEvent.click(screen.getByRole("button", { name: appI18n.t("chat.picker.previous") }));
   expect(screen.getByText(appI18n.t("chat.picker.position", { current: 4, count: 5 }))).toBeInTheDocument();
   view.unmount();
 });
@@ -142,18 +140,17 @@ it("declines the current prompt from composer actions without stopping the run a
       payload: { ...hydration(), PendingPrompts: prompts.map((prompt) => ({ state: "pending", prompt })) },
     }),
   );
-  const user = userEvent.setup();
   const decline = await screen.findByRole("button", { name: appI18n.t("chat.picker.decline") });
   expect(screen.getAllByRole("button", { name: appI18n.t("chat.picker.decline") })).toHaveLength(1);
   expect(screen.queryByRole("button", { name: appI18n.t("chatComposer.stop") })).not.toBeInTheDocument();
   expect(screen.getByText(appI18n.t("chat.picker.position", { current: 1, count: 2 }))).toBeInTheDocument();
-  await user.click(decline);
+  fireEvent.click(decline);
   expect(view.answer).not.toHaveBeenCalled();
   expect(screen.getByText(appI18n.t("chat.picker.position", { current: 2, count: 2 }))).toBeInTheDocument();
-  await user.click(screen.getByRole("button", { name: appI18n.t("chat.picker.previous") }));
+  fireEvent.click(screen.getByRole("button", { name: appI18n.t("chat.picker.previous") }));
   expect(screen.getByRole("button", { name: appI18n.t("chat.picker.decline") })).toBeDisabled();
-  await user.click(screen.getByRole("button", { name: appI18n.t("chat.picker.next") }));
-  await user.click(screen.getByRole("button", { name: appI18n.t("chat.picker.decline") }));
+  fireEvent.click(screen.getByRole("button", { name: appI18n.t("chat.picker.next") }));
+  fireEvent.click(screen.getByRole("button", { name: appI18n.t("chat.picker.decline") }));
   await waitFor(() => {
     expect(view.answer).toHaveBeenCalledOnce();
   });
@@ -171,7 +168,7 @@ it("declines the current prompt from composer actions without stopping the run a
   });
   const stop = await screen.findByRole("button", { name: appI18n.t("chatComposer.stop") });
   expect(screen.queryByRole("button", { name: appI18n.t("chat.picker.decline") })).not.toBeInTheDocument();
-  await user.click(stop);
+  fireEvent.click(stop);
   await waitFor(() => {
     expect(view.services.api.chat.stop).toHaveBeenCalledOnce();
   });
@@ -196,9 +193,9 @@ it("holds busy Send readonly until acceptance during compaction, then allows con
       },
     });
   });
-  const user = userEvent.setup();
+  const user = userEvent.setup({ delay: null });
   const editor = await screen.findByRole("textbox");
-  await user.type(editor, "steer during compaction");
+  fireEvent.change(editor, { target: { value: "steer during compaction" } });
   await user.click(screen.getByRole("button", { name: appI18n.t("chatComposer.send") }));
   await waitFor(() => {
     expect(view.services.api.chat.steer).toHaveBeenCalledOnce();
@@ -234,8 +231,7 @@ it("keeps streamed output and drafts usable when reviewer suggestions are follow
       expect(view.client.isFetching()).toBe(0);
     });
     const editor = await screen.findByRole("textbox");
-    const user = userEvent.setup();
-    await user.type(editor, "Keep this draft");
+    fireEvent.change(editor, { target: { value: "Keep this draft" } });
     await act(async () => {
       view.handlers[0]?.onEvent({
         sequence: 1,
@@ -273,7 +269,7 @@ it("keeps streamed output and drafts usable when reviewer suggestions are follow
         },
       });
     });
-    await user.click(within(list).getByRole("button", { expanded: false }));
+    fireEvent.click(within(list).getByRole("button", { expanded: false }));
     expect(await screen.findByText("Check the result")).toBeInTheDocument();
     // Deliver native-style notifications between React's synchronous commits,
     // without act draining the lower-priority work after every notification.
@@ -351,8 +347,7 @@ function ContextualWorktrees() {
 it("keeps transcript and composer usable through a sidebar-owned Worktree refresh failure", async () => {
   const view = sessionWithPrompts(undefined, { kind: "session", ...sessionTarget }, <ContextualWorktrees />);
   const list = vi.spyOn(view.services.api, "listWorktrees");
-  const user = userEvent.setup();
-  await user.type(screen.getByRole("textbox"), "retained input");
+  fireEvent.change(screen.getByRole("textbox"), { target: { value: "retained input" } });
   await waitFor(() => {
     expect(view.client.isFetching()).toBe(0);
   });
@@ -366,25 +361,25 @@ it("keeps transcript and composer usable through a sidebar-owned Worktree refres
       },
     }),
   );
-  await user.click(screen.getByRole("button", { name: "Toggle contextual Worktrees" }));
+  fireEvent.click(screen.getByRole("button", { name: "Toggle contextual Worktrees" }));
   await waitFor(() => {
     expect(view.client.isFetching()).toBe(0);
   });
   list.mockRejectedValueOnce(new Error("sidebar read unavailable"));
-  await user.click(screen.getByRole("button", { name: appI18n.t("chat.worktree.refresh") }));
+  fireEvent.click(screen.getByRole("button", { name: appI18n.t("chat.worktree.refresh") }));
   expect(await screen.findByTestId("error-state")).toBeInTheDocument();
   expect(screen.getByRole("textbox")).toHaveValue("retained input");
   expect(screen.getByText("Message 1")).toBeInTheDocument();
   const calls = list.mock.calls.length;
-  await user.click(screen.getByRole("button", { name: appI18n.t("app.retry") }));
+  fireEvent.click(screen.getByRole("button", { name: appI18n.t("app.retry") }));
   await waitFor(() => {
     expect(screen.queryByTestId("error-state")).not.toBeInTheDocument();
   });
   expect(list).toHaveBeenCalledTimes(calls + 1);
   list.mockRejectedValueOnce(new Error("sidebar failed again"));
-  await user.click(screen.getByRole("button", { name: appI18n.t("chat.worktree.refresh") }));
+  fireEvent.click(screen.getByRole("button", { name: appI18n.t("chat.worktree.refresh") }));
   expect(await screen.findByTestId("error-state")).toBeInTheDocument();
-  await user.click(screen.getByRole("button", { name: "Toggle contextual Worktrees" }));
+  fireEvent.click(screen.getByRole("button", { name: "Toggle contextual Worktrees" }));
   expect(screen.getByRole("textbox")).toHaveValue("retained input");
   expect(screen.queryByTestId("error-state")).not.toBeInTheDocument();
 });
@@ -392,8 +387,7 @@ it("keeps transcript and composer usable through a sidebar-owned Worktree refres
 it("keeps a failed Chat Worktree-label read owned by Chat through targeted Retry", async () => {
   const view = sessionWithPrompts();
   const list = vi.spyOn(view.services.api, "listWorktrees");
-  const user = userEvent.setup();
-  await user.type(screen.getByRole("textbox"), "preserved label draft");
+  fireEvent.change(screen.getByRole("textbox"), { target: { value: "preserved label draft" } });
   await waitFor(() => {
     expect(view.client.isFetching()).toBe(0);
   });
@@ -408,7 +402,7 @@ it("keeps a failed Chat Worktree-label read owned by Chat through targeted Retry
   expect(await screen.findByTestId("error-state")).toBeInTheDocument();
   expect(screen.queryByRole("textbox")).not.toBeInTheDocument();
   const reads = list.mock.calls.length;
-  await user.click(screen.getByRole("button", { name: appI18n.t("app.retry") }));
+  fireEvent.click(screen.getByRole("button", { name: appI18n.t("app.retry") }));
   expect(await screen.findByRole("textbox")).toHaveValue("preserved label draft");
   expect(list).toHaveBeenCalledTimes(reads + 1);
   expect(view.services.api.chat.getMainView).toHaveBeenCalledOnce();
@@ -466,8 +460,7 @@ it("opens Session editing independently of settings and merges the late saved dr
     vi.mocked(services.api.chat.getDraft).mockReturnValue(draft.promise);
     vi.mocked(services.api.chat.getSettings).mockReturnValue(deferred<ChatSettingsRead>().promise);
   });
-  const user = userEvent.setup();
-  await user.type(screen.getByRole("textbox"), "new typing");
+  fireEvent.change(screen.getByRole("textbox"), { target: { value: "new typing" } });
   expect(screen.getByRole("button", { name: appI18n.t("chatComposer.send") })).toBeDisabled();
   await act(async () => {
     draft.resolve({ input: "saved", protectedInput: null });
@@ -488,12 +481,13 @@ it("blocks parent interaction while Edit is pending and restores its draft after
       ],
     });
   });
-  const user = userEvent.setup();
-  await user.type(screen.getByRole("textbox"), "parent draft");
-  await user.click(await screen.findByRole("button", { name: appI18n.t("chatTranscript.edit") }));
-  expect(view.services.api.chat.forkEdit).toHaveBeenCalledWith(expect.objectContaining(sessionTarget), {
-    rollbackTargetID: "rollback",
-    initialInput: "original message\n\nparent draft",
+  fireEvent.change(screen.getByRole("textbox"), { target: { value: "parent draft" } });
+  fireEvent.click(await screen.findByRole("button", { name: appI18n.t("chatTranscript.edit") }));
+  await waitFor(() => {
+    expect(view.services.api.chat.forkEdit).toHaveBeenCalledWith(expect.objectContaining(sessionTarget), {
+      rollbackTargetID: "rollback",
+      initialInput: "original message\n\nparent draft",
+    });
   });
   expect(screen.queryByRole("textbox")).not.toBeInTheDocument();
   await act(async () => {
@@ -517,10 +511,9 @@ it("keeps the parent draft when child creation succeeds but departure saving fai
       params: { projectId: sessionTarget.projectID, sessionId: sessionID },
     }),
   );
-  const user = userEvent.setup();
-  await user.type(screen.getByRole("textbox"), "preserve parent");
+  fireEvent.change(screen.getByRole("textbox"), { target: { value: "preserve parent" } });
   vi.mocked(view.services.api.chat.persistDraft).mockRejectedValue(new Error("save unavailable"));
-  await user.click(await screen.findByRole("button", { name: appI18n.t("chatTranscript.edit") }));
+  fireEvent.click(await screen.findByRole("button", { name: appI18n.t("chatTranscript.edit") }));
   await waitFor(() => {
     expect(view.services.api.chat.persistDraft).toHaveBeenCalled();
   });
@@ -531,9 +524,6 @@ it("keeps the parent draft when child creation succeeds but departure saving fai
 });
 
 it("preserves focus, selection and continued typing across successive deliveries with Worktree commands", async () => {
-  onTestFinished(() => {
-    vi.useRealTimers();
-  });
   const first = deferred<ChatInputMutationResult>();
   const second = deferred<ChatInputMutationResult>();
   const view = sessionWithPrompts((services) => {
@@ -548,32 +538,31 @@ it("preserves focus, selection and continued typing across successive deliveries
       deferred<Awaited<ReturnType<typeof services.api.chat.getTranscriptPage>>>().promise,
     );
   }, opening);
-  const user = userEvent.setup();
+  const user = userEvent.setup({ delay: null });
   const send = () => screen.getByRole("button", { name: appI18n.t("chatComposer.send") });
-  // Populate setup drafts in one input operation; only the final keystroke
-  // exercises selection replacement after the asynchronous deliveries.
-  await user.click(screen.getByRole("textbox"));
-  await user.paste("/review one");
-  await waitFor(() => {
-    expect(send()).toBeEnabled();
-  });
-  vi.useFakeTimers();
-  fireEvent.click(send());
-  await act(async () => vi.advanceTimersByTimeAsync(2000));
-  vi.useRealTimers();
-  expect(view.services.api.chat.steer).toHaveBeenCalledTimes(1);
-  expect(screen.getByRole("textbox")).not.toHaveAttribute("readonly");
-  await user.click(screen.getByRole("textbox"));
-  await user.paste("/init two");
-  vi.useFakeTimers();
-  fireEvent.click(send());
-  await act(async () => vi.advanceTimersByTimeAsync(2000));
-  vi.useRealTimers();
-  expect(view.services.api.chat.steer).toHaveBeenCalledTimes(2);
-  expect(screen.getByRole("textbox")).not.toHaveAttribute("readonly");
-  await user.click(screen.getByRole("textbox"));
-  await user.paste("continuing");
+  for (const [index, value] of ["/review one", "/init two"].entries()) {
+    fireEvent.change(screen.getByRole("textbox"), { target: { value } });
+    await waitFor(() => {
+      expect(send()).toBeEnabled();
+    });
+    vi.useFakeTimers();
+    try {
+      fireEvent.click(send());
+      expect(screen.getByRole("textbox")).toHaveAttribute("readonly");
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(2000);
+      });
+      expect(view.services.api.chat.steer).toHaveBeenCalledTimes(index + 1);
+      expect(screen.getByRole("textbox")).not.toHaveAttribute("readonly");
+    } finally {
+      vi.useRealTimers();
+    }
+  }
+  fireEvent.change(screen.getByRole("textbox"), { target: { value: "continuing" } });
   const editor = screen.getByRole<HTMLTextAreaElement>("textbox");
+  act(() => {
+    editor.focus();
+  });
   editor.setSelectionRange(2, 5);
   const accepted = (sessionID: string): ChatInputMutationResult => ({
     sessionID,
@@ -610,11 +599,11 @@ it("preserves focus, selection and continued typing across successive deliveries
 
 it("retains committed history and input during explicit observation Retry without replay", async () => {
   const view = sessionWithPrompts();
-  const user = userEvent.setup();
-  await user.type(screen.getByRole("textbox"), "unsent");
   await waitFor(() => {
     expect(view.handlers).toHaveLength(1);
+    expect(view.client.isFetching()).toBe(0);
   });
+  fireEvent.change(screen.getByRole("textbox"), { target: { value: "unsent" } });
   act(() =>
     view.handlers[0]?.onEvent({
       sequence: 1,
@@ -634,8 +623,11 @@ it("retains committed history and input during explicit observation Retry withou
   expect(screen.getAllByText(failure.message)).toHaveLength(1);
   expect(screen.getByRole("textbox")).toHaveValue("unsent");
   expect(screen.getAllByText("Message 1")).toHaveLength(priorRows.length);
-  await user.click(screen.getByRole("button", { name: appI18n.t("app.retry") }));
-  expect(view.handlers).toHaveLength(2);
+  fireEvent.click(screen.getByRole("button", { name: appI18n.t("app.retry") }));
+  await waitFor(() => {
+    expect(view.handlers).toHaveLength(2);
+    expect(view.client.isFetching()).toBe(0);
+  });
   expect(screen.getAllByText("Message 1")).toHaveLength(priorRows.length);
   expect(screen.getByRole("textbox")).toHaveValue("unsent");
   expect(view.services.api.chat.getMainView).toHaveBeenCalledOnce();
@@ -656,9 +648,8 @@ it("retries the failed opening page and observation independently once per activ
   await waitFor(() => {
     expect(pageRetry).toBeEnabled();
   });
-  const user = userEvent.setup();
-  await user.type(screen.getByRole("textbox"), "keep input");
-  await user.click(pageRetry);
+  fireEvent.change(screen.getByRole("textbox"), { target: { value: "keep input" } });
+  fireEvent.click(pageRetry);
   await waitFor(() => {
     expect(view.services.api.chat.getTranscriptPage).toHaveBeenCalledTimes(2);
   });
@@ -708,8 +699,8 @@ it.each(["page-first", "hydration-first"] as const)(
         await admitPage();
       }
       const list = await screen.findByRole("list");
-      expect(list.scrollHeight).toBeGreaterThan(list.clientHeight);
       await waitFor(() => {
+        expect(list.scrollHeight).toBeGreaterThan(list.clientHeight);
         expect(list.scrollTop).toBe(list.scrollHeight - list.clientHeight);
       });
       const latestText = entries.at(-1)?.User?.Text;
@@ -731,8 +722,7 @@ it("shows a newly arriving question in the open Chat without a notification clic
     view.handlers[0]?.onEvent({ sequence: 1, kind: "hydration", payload: hydration() });
   });
   const editor = screen.getByRole("textbox");
-  const user = userEvent.setup();
-  await user.type(editor, "unsent draft");
+  fireEvent.change(editor, { target: { value: "unsent draft" } });
   await act(async () => {
     view.handlers[0]?.onEvent({
       sequence: 2,
@@ -772,19 +762,21 @@ it("shows every accepted Pending Work item and restores only a discarded item", 
       return { kind: "message", canonicalInput: item.canonicalInput };
     });
   });
-  const discard = await screen.findAllByRole("button", { name: appI18n.t("chatComposer.discard") });
+  const editor = screen.getByRole("textbox");
+  const discard = await screen.findAllByLabelText(appI18n.t("chatComposer.discard"));
   expect(discard).toHaveLength(accepted.length);
   const last = accepted.at(-1);
   const button = discard.at(-1);
   if (last === undefined || button === undefined) throw new Error("Missing accepted item.");
-  await userEvent.setup().click(button);
+  expect(isInaccessible(button)).toBe(false);
+  fireEvent.click(button);
   await waitFor(() => {
-    expect(screen.getByRole("textbox")).toHaveValue(last.canonicalInput);
+    expect(editor).toHaveValue(last.canonicalInput);
   });
   await waitFor(() => {
     expect(button).not.toBeInTheDocument();
   });
-  expect(screen.getAllByRole("button", { name: appI18n.t("chatComposer.discard") })).toHaveLength(104);
+  expect(screen.getAllByLabelText(appI18n.t("chatComposer.discard"))).toHaveLength(104);
   view.unmount();
 });
 
@@ -804,7 +796,7 @@ it.each(["radio", "label"] as const)(
       });
     });
     const option = await screen.findByRole("radio", { name: "one" });
-    await userEvent.setup().click(surface === "radio" ? option : screen.getByText("one"));
+    fireEvent.click(surface === "radio" ? option : screen.getByText("one"), { detail: 1 });
     await waitFor(() => {
       expect(view.answer).toHaveBeenCalledOnce();
     });
@@ -819,8 +811,8 @@ it.each(["enter", "send"] as const)(
   "Neither focuses commentary and waits for explicit %s",
   async (method) => {
     const view = sessionWithPrompts();
-    const user = userEvent.setup();
-    await user.type(screen.getByRole("textbox"), "unsent message draft");
+    const user = userEvent.setup({ delay: null });
+    fireEvent.change(screen.getByRole("textbox"), { target: { value: "unsent message draft" } });
     const prompt = question("neither-test");
     await waitFor(() => {
       expect(view.handlers).toHaveLength(1);
@@ -833,15 +825,15 @@ it.each(["enter", "send"] as const)(
       });
     });
     const commentary = await screen.findByRole("textbox", { name: appI18n.t("task.commentary") });
-    await user.type(commentary, "unfinished");
+    fireEvent.change(commentary, { target: { value: "unfinished" } });
     const neither = screen.getByRole("radio", { name: appI18n.t("task.neitherOption") });
-    await user.click(neither);
+    fireEvent.click(neither, { detail: 1 });
     expect(commentary).toHaveFocus();
-    await user.click(neither);
+    fireEvent.click(neither, { detail: 1 });
     expect(view.answer).not.toHaveBeenCalled();
-    await user.type(commentary, " answer");
+    fireEvent.change(commentary, { target: { value: "unfinished answer" } });
     if (method === "enter") await user.keyboard("{Enter}");
-    else await user.click(screen.getByRole("button", { name: appI18n.t("chatComposer.send") }));
+    else fireEvent.click(screen.getByRole("button", { name: appI18n.t("chatComposer.send") }));
     await waitFor(() => {
       expect(view.answer).toHaveBeenCalledOnce();
     });
@@ -874,16 +866,15 @@ it("protects typed commentary even for the preselected recommendation and resets
       payload: { ...hydration(), PendingPrompts: [{ state: "pending", prompt }] },
     });
   });
-  const user = userEvent.setup();
   const field = await screen.findByRole("textbox", { name: appI18n.t("task.commentary") });
   const option = screen.getByRole("radio", { name: "one" });
-  await user.type(field, "still writing");
-  await user.click(option);
+  fireEvent.change(field, { target: { value: "still writing" } });
+  fireEvent.click(option, { detail: 1 });
   expect(view.answer).not.toHaveBeenCalled();
-  await user.type(field, " commentary");
-  await user.click(option);
+  fireEvent.change(field, { target: { value: "still writing commentary" } });
+  fireEvent.click(option, { detail: 1 });
   expect(view.answer).not.toHaveBeenCalled();
-  await user.click(option);
+  fireEvent.click(option, { detail: 1 });
   await waitFor(() => {
     expect(view.answer).toHaveBeenCalledOnce();
   });
@@ -911,14 +902,12 @@ it("preserves failed answer diagnostics separately while retaining answers for e
       payload: { ...hydration(), PendingPrompts: [{ state: "pending", prompt }] },
     }),
   );
-  const user = userEvent.setup();
-  await user.type(
-    await screen.findByRole("textbox", { name: appI18n.t("task.commentary") }),
-    "retained answer",
-  );
-  await user.click(screen.getByRole("radio", { name: "one" }));
+  fireEvent.change(await screen.findByRole("textbox", { name: appI18n.t("task.commentary") }), {
+    target: { value: "retained answer" },
+  });
+  fireEvent.click(screen.getByRole("radio", { name: "one" }), { detail: 1 });
   expect(view.answer).not.toHaveBeenCalled();
-  await user.click(screen.getByRole("radio", { name: "one" }));
+  fireEvent.click(screen.getByRole("radio", { name: "one" }), { detail: 1 });
   await waitFor(() => {
     expect(view.answer).toHaveBeenCalledOnce();
   });
@@ -936,7 +925,7 @@ it("preserves failed answer diagnostics separately while retaining answers for e
   expect(screen.getByDisplayValue("retained answer")).toBeInTheDocument();
   expect(view.answer).toHaveBeenCalledOnce();
   view.answer.mockResolvedValue({ results: [{ toolCallID: prompt.toolCallID, outcome: "resolved" }] });
-  await user.click(screen.getByRole("button", { name: appI18n.t("chatComposer.send") }));
+  fireEvent.click(screen.getByRole("button", { name: appI18n.t("chatComposer.send") }));
   await waitFor(() => {
     expect(view.answer).toHaveBeenCalledTimes(2);
   });
@@ -956,22 +945,25 @@ it("retains pending prompt answers and commentary through a Settings read failur
       payload: { ...hydration(), PendingPrompts: prompts.map((prompt) => ({ state: "pending", prompt })) },
     }),
   );
-  const user = userEvent.setup();
-  await user.type(await screen.findByRole("textbox", { name: appI18n.t("task.commentary") }), "first answer");
-  await user.click(screen.getByRole("radio", { name: "one" }));
-  await user.click(screen.getByRole("radio", { name: "one" }));
-  await user.click(screen.getByRole("button", { name: appI18n.t("chat.picker.decline") }));
-  await user.type(screen.getByRole("textbox", { name: appI18n.t("task.commentary") }), "last draft");
+  fireEvent.change(await screen.findByRole("textbox", { name: appI18n.t("task.commentary") }), {
+    target: { value: "first answer" },
+  });
+  fireEvent.click(screen.getByRole("radio", { name: "one" }), { detail: 1 });
+  fireEvent.click(screen.getByRole("radio", { name: "one" }), { detail: 1 });
+  fireEvent.click(screen.getByRole("button", { name: appI18n.t("chat.picker.decline") }));
+  fireEvent.change(screen.getByRole("textbox", { name: appI18n.t("task.commentary") }), {
+    target: { value: "last draft" },
+  });
   view.settings.mockRejectedValueOnce(new Error("offline"));
   await act(async () => {
     await view.client.refetchQueries({ queryKey: ["chat-settings"] });
   });
   expect(await screen.findByTestId("error-state")).toBeInTheDocument();
-  await user.click(screen.getByRole("button", { name: appI18n.t("app.retry") }));
+  fireEvent.click(screen.getByRole("button", { name: appI18n.t("app.retry") }));
   expect(await screen.findByDisplayValue("last draft")).toBeInTheDocument();
   expect(view.answer).not.toHaveBeenCalled();
-  await user.click(screen.getByRole("radio", { name: "two" }));
-  await user.click(screen.getByRole("radio", { name: "two" }));
+  fireEvent.click(screen.getByRole("radio", { name: "two" }), { detail: 1 });
+  fireEvent.click(screen.getByRole("radio", { name: "two" }), { detail: 1 });
   await waitFor(() => {
     expect(view.answer).toHaveBeenCalledOnce();
   });
@@ -1000,14 +992,12 @@ it("keeps an admitted prompt submission pending through Pending Work read recove
       payload: { ...hydration(), PendingPrompts: [{ state: "pending", prompt }] },
     }),
   );
-  const user = userEvent.setup();
-  await user.type(
-    await screen.findByRole("textbox", { name: appI18n.t("task.commentary") }),
-    "approval commentary",
-  );
+  fireEvent.change(await screen.findByRole("textbox", { name: appI18n.t("task.commentary") }), {
+    target: { value: "approval commentary" },
+  });
   const option = approvalDecisionLabel("allow_once", appI18n.t);
-  await user.click(screen.getByRole("radio", { name: option }));
-  await user.click(screen.getByRole("radio", { name: option }));
+  fireEvent.click(screen.getByRole("radio", { name: option }), { detail: 1 });
+  fireEvent.click(screen.getByRole("radio", { name: option }), { detail: 1 });
   await waitFor(() => {
     expect(view.answer).toHaveBeenCalledOnce();
   });
@@ -1017,7 +1007,7 @@ it("keeps an admitted prompt submission pending through Pending Work read recove
     await view.client.refetchQueries({ queryKey: ["chat-composer-pending"], type: "active" });
   });
   expect(await screen.findByTestId("error-state")).toBeInTheDocument();
-  await user.click(screen.getByRole("button", { name: appI18n.t("app.retry") }));
+  fireEvent.click(screen.getByRole("button", { name: appI18n.t("app.retry") }));
   expect(await screen.findByRole("radio", { name: option })).toBeDisabled();
   expect(screen.getByDisplayValue("approval commentary")).toHaveAttribute("readonly");
   expect(view.pending).toHaveBeenCalledTimes(reads + 2);

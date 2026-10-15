@@ -11,10 +11,10 @@ import (
 	"slices"
 	"testing"
 
-	"core/server/auth"
+	"core/server/authmanager"
 	serverbootstrap "core/server/bootstrap"
 	"core/server/metadata"
-	"core/server/session"
+	"core/server/sessionstore"
 	"core/shared/clientui"
 	brand "core/shared/config"
 	"core/shared/protoapi"

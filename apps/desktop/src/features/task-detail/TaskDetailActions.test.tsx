@@ -49,7 +49,7 @@ it("opens the only Session directly without a picker", async () => {
     ]),
     { openSessionChat },
   );
-  const user = userEvent.setup();
+  const user = userEvent.setup({ delay: null });
   await user.click(await screen.findByRole("button", { name: appI18n.t("task.openInChat") }));
   expect(openSessionChat).toHaveBeenCalledExactlyOnceWith({ projectID: "project-1", sessionID });
   expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
@@ -74,7 +74,7 @@ it("offers a CLI Session picker and keeps Task-wide Interrupt generic", async ()
   const open = within(flow).getByRole("button", { name: appI18n.t("task.openInCli") });
   const interrupt = within(flow).getByRole("button", { name: appI18n.t("board.interrupt") });
   expect(within(flow).getAllByRole("button")).toEqual([open, interrupt]);
-  await userEvent.setup().click(open);
+  await userEvent.setup({ delay: null }).click(open);
   const popup = within(screen.getByRole("dialog"));
   expect(popup.getByRole("button", { name: "33333333-3333-4333-8333-333333333333" })).toBeInTheDocument();
   expect(popup.getByRole("button", { name: "Review" })).toBeInTheDocument();
@@ -108,7 +108,7 @@ it("selects one Session from the Open in Chat popup without opening the others",
       name: appI18n.t("task.openInCli", { name: "Implementation" }),
     }),
   ).not.toBeInTheDocument();
-  const user = userEvent.setup();
+  const user = userEvent.setup({ delay: null });
   await user.click(openChat);
   expect(targets).toEqual([]);
   const popup = within(screen.getByRole("dialog"));
@@ -133,7 +133,7 @@ it("shows Start loading, prevents duplicate requests, and permits it after an in
       ],
     },
   );
-  const user = userEvent.setup();
+  const user = userEvent.setup({ delay: null });
   const startTask = vi.spyOn(services.api, "startTask");
   const start = await screen.findByTestId("task-detail-start");
 

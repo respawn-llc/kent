@@ -114,7 +114,7 @@ describe("Task description checklist", () => {
 
   it("enters editing from plain pointer activation", async () => {
     mountTaskDetailSurface(taskDetailResponse);
-    const user = userEvent.setup();
+    const user = userEvent.setup({ delay: null });
     const description = await screen.findByRole("textbox", { name: appI18n.t("task.description") });
 
     await user.click(description);
@@ -175,7 +175,7 @@ describe("Task description checklist", () => {
 
   it("returns to rendered Markdown on blur without losing the Draft", async () => {
     mountTaskDetailSurface(taskDetailResponse);
-    const user = userEvent.setup();
+    const user = userEvent.setup({ delay: null });
     await user.click(await screen.findByRole("textbox", { name: appI18n.t("task.description") }));
     const editor = screen.getByRole("textbox", { name: appI18n.t("task.description") });
 
@@ -192,7 +192,7 @@ describe("Task description checklist", () => {
 
   it("returns to rendered Markdown when focus moves to the Task title", async () => {
     mountTaskDetailSurface(taskDetailResponse);
-    const user = userEvent.setup();
+    const user = userEvent.setup({ delay: null });
     await user.click(await screen.findByRole("textbox", { name: appI18n.t("task.description") }));
     const editor = screen.getByRole("textbox", { name: appI18n.t("task.description") });
 
@@ -240,7 +240,7 @@ describe("Task description checklist", () => {
       nativeBridge: createBrowserNativeBridge({ platform: "macos" }),
     });
     const updateTask = vi.spyOn(services.api, "updateTask");
-    const user = userEvent.setup();
+    const user = userEvent.setup({ delay: null });
     await user.click(await screen.findByRole("textbox", { name: appI18n.t("task.description") }));
     const editor = screen.getByRole("textbox", { name: appI18n.t("task.description") });
 
@@ -261,7 +261,7 @@ describe("Task description checklist", () => {
       routes: [taskUpdateRoute(async () => pending.promise)],
     });
     const updateTask = vi.spyOn(services.api, "updateTask");
-    const user = userEvent.setup();
+    const user = userEvent.setup({ delay: null });
     await user.click(await screen.findByRole("textbox", { name: appI18n.t("task.description") }));
     const editor = screen.getByRole("textbox", { name: appI18n.t("task.description") });
     await user.clear(editor);
@@ -293,7 +293,7 @@ describe("Task description checklist", () => {
       routes: [taskUpdateRoute(async () => pending.promise)],
     });
     const updateTask = vi.spyOn(services.api, "updateTask");
-    const user = userEvent.setup();
+    const user = userEvent.setup({ delay: null });
     await user.click(await screen.findByRole("textbox", { name: appI18n.t("task.description") }));
     const editor = screen.getByRole("textbox", { name: appI18n.t("task.description") });
     await user.clear(editor);

@@ -5,7 +5,7 @@ import (
 
 	"core/server/tools"
 	"core/shared/textutil"
-	"core/shared/transcript"
+	"core/shared/transcriptmodel"
 )
 
 const oversizedOutputMessageTemplate = "Command was executed but the output you requested exceeded 0.5 of your memory size. It was forcibly truncated still to prevent your memory overload, and the output written to %s . Next time be more careful with larger outputs."

@@ -5,7 +5,7 @@ import (
 	"errors"
 	"fmt"
 
-	"core/server/session"
+	"core/server/sessionstore"
 	"core/shared/config"
 	"core/shared/protocol"
 	"core/shared/runtimeids"

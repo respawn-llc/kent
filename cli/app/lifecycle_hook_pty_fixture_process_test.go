@@ -11,7 +11,7 @@ import (
 	"core/internal/testharness/pty/appfixture"
 	"core/internal/testharness/requestfixture"
 	"core/server/metadata"
-	"core/server/session"
+	"core/server/sessionstore"
 	"core/shared/lifecyclecontract"
 	"core/shared/runtimeids"
 	"core/shared/serverapi"

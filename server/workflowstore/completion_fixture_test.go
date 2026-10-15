@@ -4,7 +4,7 @@ import (
 	"context"
 	"testing"
 
-	"core/server/session"
+	"core/server/sessionstore"
 	"core/server/workflow"
 )
 

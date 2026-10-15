@@ -5,8 +5,8 @@ import (
 	"slices"
 
 	transcriptpb "core/shared/protoapi/gen/kent/api/transcript"
-	"core/shared/transcript"
-	"core/shared/transcript/patchformat"
+	"core/shared/transcriptmodel"
+	"core/shared/transcriptmodel/patchformat"
 )
 
 // ToolPresentationFromProto restores native rendering facts using the tool

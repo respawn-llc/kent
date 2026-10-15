@@ -4,13 +4,13 @@ import (
 	"fmt"
 	"strings"
 
+	"core/server/agentruntime"
 	"core/server/llm"
-	"core/server/runtime"
 	"core/shared/protoapi"
 	transcriptpb "core/shared/protoapi/gen/kent/api/transcript"
 	"core/shared/runtimeids"
 	"core/shared/runtimeinput"
-	"core/shared/transcript"
+	"core/shared/transcriptmodel"
 
 	"github.com/google/uuid"
 )

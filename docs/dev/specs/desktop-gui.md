@@ -166,7 +166,7 @@
 - The dependency-progress chip uses a circular progress indicator and `satisfied blockers / total blockers` text.
 - The chip uses the primary tone while any direct dependency is unsatisfied and the success tone when every direct dependency is satisfied.
 - The chip's accessible name is `Dependencies: N of M complete.`.
-- Hovering or focusing the chip shows `N of M dependencies satisfied`.
+- Hovering the chip shows `N of M dependencies satisfied`.
 - When every direct dependency is satisfied, the tooltip appends `. Time to cook!`.
 - A Task card with no direct Blocker Tasks omits the chip.
 - The server supplies both dependency-progress counts. Desktop never derives them from loaded relationship rows.

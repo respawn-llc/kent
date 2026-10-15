@@ -4,8 +4,8 @@ import (
 	"context"
 	"testing"
 
+	"core/server/agentruntime"
 	"core/server/llm"
-	"core/server/runtime"
 	"core/shared/config"
 	"core/shared/runtimeids"
 	"core/shared/textutil"

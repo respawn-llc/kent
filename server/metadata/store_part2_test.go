@@ -3,8 +3,8 @@ package metadata
 import (
 	"context"
 	"core/server/metadata/sqlitegen"
-	"core/server/session"
-	"core/server/session/sessiontest"
+	"core/server/sessionstore"
+	"core/server/sessionstore/sessiontest"
 	"core/shared/clientui"
 	"core/shared/config"
 	"core/shared/sessioncontract"

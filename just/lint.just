@@ -17,7 +17,7 @@ server mode="":
         exit 2
     fi
     just _lint-protobuf
-    go run ./cmd/architectureguard .
+    go run ./cmd/checkarchitecture .
     go vet ./...
 
 desktop mode="":
@@ -25,7 +25,7 @@ desktop mode="":
     set -euo pipefail
     bun apps/scripts/check-dependency-policy.mjs
     bun apps/scripts/check-typescript-policy.mjs
-    bun test apps/scripts/check-eslint-architecture.test.mjs
+    node --test apps/scripts/check-eslint-architecture.test.mjs
     if [ "{{mode}}" = "--dry-run" ]; then
         [ -d apps/desktop/packages/server-api-contract/src/gen ] || {
             echo "Generated TypeScript sources are required. Run 'just gen' first." >&2

@@ -10,10 +10,10 @@ import (
 	"time"
 
 	"core/internal/testharness/requestfixture"
+	"core/server/agentruntime"
 	"core/server/llm"
 	"core/server/metadata"
-	"core/server/runtime"
-	"core/server/session"
+	"core/server/sessionstore"
 	sessionlaunchpb "core/shared/protoapi/gen/kent/api/session_launch"
 	"core/shared/textutil"
 	"core/shared/toolspec"

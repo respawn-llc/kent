@@ -17,15 +17,15 @@ import (
 
 	"core/internal/testharness/requestfixture"
 	"core/internal/testharness/testsetup"
-	"core/server/auth"
+	"core/server/authmanager"
 	serverbootstrap "core/server/bootstrap"
 	"core/server/chatmutation"
 	"core/server/core"
 	"core/server/metadata"
 	"core/server/promptcommands"
 	"core/server/runtimecontrol"
-	"core/server/session"
 	"core/server/sessionruntime"
+	"core/server/sessionstore"
 
 	"core/shared/apicontract"
 	remoteclient "core/shared/client"
@@ -763,10 +763,11 @@ func TestGatewayConnectionCloseDetachesOwnedRuntime(t *testing.T) {
 	case <-time.After(time.Second):
 		t.Fatal("timed out waiting for disconnect runtime release")
 	}
+	gateway.Close()
 	select {
 	case request := <-counter.releaseRequests:
 		t.Fatalf("disconnect released stale attachment too: %+v", request.Attachment)
-	case <-time.After(100 * time.Millisecond):
+	default:
 	}
 }
 
@@ -818,7 +819,7 @@ func TestGatewayDetachOnlyReleaseInjectsOwnerAndSkipsDisconnectRelease(t *testin
 	if err := conn.Close(); err != nil {
 		t.Fatalf("close gateway connection: %v", err)
 	}
-	time.Sleep(100 * time.Millisecond)
+	gateway.Close()
 	if got := counter.releaseCount.Load(); got != 1 {
 		t.Fatalf("runtime release call count = %d, want only explicit detach-only release", got)
 	}
@@ -945,7 +946,7 @@ func TestGatewayMissingActivationAttachmentDoesNotRecordRuntimeOwnership(t *test
 	if err := conn.Close(); err != nil {
 		t.Fatalf("close gateway connection: %v", err)
 	}
-	time.Sleep(100 * time.Millisecond)
+	gateway.Close()
 	if got := counter.releaseCount.Load(); got != 0 {
 		t.Fatalf("runtime release call count after invalid activation response = %d, want 0", got)
 	}

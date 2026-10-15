@@ -1,9 +1,9 @@
 package runtimeview
 
 import (
+	"core/server/agentruntime"
 	"core/server/goalview"
-	"core/server/runtime"
-	"core/server/session"
+	"core/server/sessionstore"
 	"core/shared/protoapi"
 	runtimepb "core/shared/protoapi/gen/kent/api/runtime"
 	transcriptpb "core/shared/protoapi/gen/kent/api/transcript"

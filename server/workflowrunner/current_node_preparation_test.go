@@ -11,7 +11,7 @@ import (
 
 	"core/server/launch"
 	"core/server/llm"
-	"core/server/session"
+	"core/server/sessionstore"
 	"core/server/workflow"
 	"core/server/workflowexecution"
 	"core/server/workflowruntime"

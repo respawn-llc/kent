@@ -7,9 +7,9 @@ import (
 	"time"
 
 	"core/internal/testharness/scriptedllm"
+	"core/server/agentruntime"
 	"core/server/llm"
-	"core/server/runtime"
-	"core/server/session"
+	"core/server/sessionstore"
 	"core/server/tools"
 	"core/shared/protoapi"
 	projectpb "core/shared/protoapi/gen/kent/api/project"
@@ -20,8 +20,8 @@ import (
 	"core/shared/runtimeinput"
 	"core/shared/textutil"
 	"core/shared/toolspec"
-	"core/shared/transcript"
-	patchformat "core/shared/transcript/patchformat"
+	"core/shared/transcriptmodel"
+	patchformat "core/shared/transcriptmodel/patchformat"
 
 	"github.com/google/uuid"
 	"google.golang.org/protobuf/proto"

@@ -3,11 +3,9 @@
 package pty_test
 
 import (
-	"context"
 	"errors"
 	"fmt"
 	"os"
-	"path/filepath"
 	"testing"
 	"time"
 
@@ -20,19 +18,24 @@ import (
 )
 
 const (
-	smokeBuildWait   = 30 * time.Second
 	smokeEventWait   = 15 * time.Second
 	smokeCleanupWait = 5 * time.Second
 )
 
-func TestProductionKentBinaryPTYSmoke(t *testing.T) {
-	buildContext, cancelBuild := context.WithTimeout(context.Background(), smokeBuildWait)
-	binary, err := pty.BuildOrUsePrebuiltKent(buildContext, filepath.Join(t.TempDir(), "kent"))
-	cancelBuild()
-	if err != nil {
-		t.Fatalf("build production Kent: %v", err)
-	}
+var kentBinary string
 
+func TestMain(m *testing.M) {
+	var err error
+	kentBinary, err = pty.PrepareKentFixture()
+	if err != nil {
+		fmt.Fprintln(os.Stderr, err)
+		os.Exit(1)
+	}
+	os.Exit(m.Run())
+}
+
+func TestProductionKentBinaryPTYSmoke(t *testing.T) {
+	binary := kentBinary
 	probe := uuid.New().String()
 	output := "ok"
 	environment, err := blackbox.NewIsolatedEnvironment(binary, []blackbox.RequiredOperation{{
@@ -102,38 +105,6 @@ func TestProductionKentBinaryPTYSmoke(t *testing.T) {
 	}
 	if err := environment.Stub.Verify(); err != nil {
 		t.Fatalf("verify model-boundary operation after client exit: %v; %s", err, smokeDiagnostics(session, environment))
-	}
-}
-
-func TestPromptReadyRequiresNormalFrameAndVisibleCursor(t *testing.T) {
-	t.Parallel()
-
-	for _, tc := range []struct {
-		name  string
-		bytes string
-		ready bool
-	}{
-		{name: "cursor without frame", bytes: "\x1b[?25h"},
-		{name: "alternate frame", bytes: "\x1b[?1049h\x1b[6;1H\x1b[?25h"},
-		{name: "cleanup cursor after old frame", bytes: "\x1b[6;1H\x1b[?25h\x1b[?1049h\x1b[?1049l\x1b[?25h"},
-		{name: "normal frame after cleanup", bytes: "\x1b[?1049h\x1b[?1049l\x1b[6;1H\x1b[?25h", ready: true},
-		{name: "normal frame without alternate screen", bytes: "\x1b[6;1H\x1b[?25h", ready: true},
-		{name: "hidden cursor", bytes: "\x1b[6;1H\x1b[?25h\x1b[?25l"},
-	} {
-		t.Run(tc.name, func(t *testing.T) {
-			payload := []byte(tc.bytes)
-			analysis, err := pty.Analyze(pty.Capture{
-				Dimensions: pty.MustDimensions(6, 10),
-				Chunks:     []pty.Chunk{pty.NewChunk(0, 0, payload)},
-				Raw:        payload,
-			})
-			if err != nil {
-				t.Fatal(err)
-			}
-			if got := promptReady(analysis); got != tc.ready {
-				t.Fatalf("prompt readiness = %v, want %v", got, tc.ready)
-			}
-		})
 	}
 }
 

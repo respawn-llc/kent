@@ -26,7 +26,6 @@ import (
 )
 
 const cleanupRetryWait = 500 * time.Millisecond
-const controlRequestWait = 500 * time.Millisecond
 const scenarioActionWait = 5 * time.Second
 const cleanupWait = 10 * time.Second
 const readinessWait = cleanupWait
@@ -192,7 +191,7 @@ func (e *IsolatedEnvironment) WaitReady() error {
 }
 
 func (e *IsolatedEnvironment) BindProject() (returnErr error) {
-	dialContext, cancelDial := context.WithTimeout(context.Background(), controlRequestWait)
+	dialContext, cancelDial := context.WithTimeout(context.Background(), scenarioActionWait)
 	remote, err := client.DialRemoteURL(dialContext, "ws://"+net.JoinHostPort(e.Host, strconv.Itoa(e.Port))+"/rpc")
 	cancelDial()
 	if err != nil {
@@ -203,7 +202,7 @@ func (e *IsolatedEnvironment) BindProject() (returnErr error) {
 			returnErr = fmt.Errorf("close standalone project API: %w", err)
 		}
 	}()
-	createContext, cancelCreate := context.WithTimeout(context.Background(), controlRequestWait)
+	createContext, cancelCreate := context.WithTimeout(context.Background(), scenarioActionWait)
 	created, err := remote.CreateProject(createContext, &projectpb.CreateProjectRequest{
 		DisplayName:   "PTY Harness",
 		WorkspaceRoot: e.Workspace,
@@ -212,7 +211,7 @@ func (e *IsolatedEnvironment) BindProject() (returnErr error) {
 	if err != nil {
 		return fmt.Errorf("create isolated project: %w", err)
 	}
-	planContext, cancelPlan := context.WithTimeout(context.Background(), controlRequestWait)
+	planContext, cancelPlan := context.WithTimeout(context.Background(), scenarioActionWait)
 	plan, err := remote.PlanWorkspaceBinding(planContext, &projectpb.PlanWorkspaceBindingRequest{
 		Path: e.Workspace,
 		Mode: projectpb.WorkspaceBindingPlanMode_WORKSPACE_BINDING_PLAN_MODE_INTERACTIVE,

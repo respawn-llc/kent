@@ -1,0 +1,147 @@
+package runtime
+
+import (
+	"context"
+	"testing"
+
+	"core/server/llm"
+	"core/server/sessionstore"
+	"core/server/tools"
+	"core/shared/textutil"
+)
+
+func TestAutoCompactionRecomputesUsageFromReplacementHistory(t *testing.T) {
+	t.Parallel()
+	const autoCompactLimit = 190_000
+
+	client := &fakeCompactionClient{compactionResponses: []llm.CompactionResponse{
+		remoteCompactionReplacement(autoCompactLimit, 1_000, 200_000),
+	}}
+	engine := mustNewTestEngine(t, mustCreateTestSession(t), client, tools.NewRegistry(), Config{
+		Model:                 "gpt-6-sol",
+		GlobalConfigDir:       t.TempDir(),
+		ContextWindowTokens:   200_000,
+		AutoCompactTokenLimit: autoCompactLimit,
+	})
+	if _, err := engine.SetGoal(t.Context(), "goal", session.GoalActorUser); err != nil {
+		t.Fatalf("set active goal: %v", err)
+	}
+	// Goal metadata commits before its queued notice; finish setup before
+	// compacting directly outside the runtime operation queue.
+	if err := engine.drainRuntimeOperations(t.Context()); err != nil {
+		t.Fatalf("persist active goal notice: %v", err)
+	}
+	if err := steerTestActiveStep(engine, "input", steerMessagesWithPersistenceIntent(steeringPriorityNormal, steeringMessageEventNone, true, []llm.Message{{Role: llm.RoleUser, Content: textutil.Value("input")}})); err != nil {
+		t.Fatalf("persist compaction input: %v", err)
+	}
+	engine.setLastUsage(llm.Usage{InputTokens: textutil.Value(autoCompactLimit), WindowTokens: 200_000, ContextUsage: &llm.ContextUsage{Tokens: autoCompactLimit, MeasurementPoint: llm.ContextMeasurementInput}})
+
+	stepID := runtimeTestStepID("compact")
+	if err := runTestActiveStep(engine, stepID, func() error {
+		return engine.autoCompactIfNeeded(context.Background(), stepID, compactionModeAuto)
+	}); err != nil {
+		t.Fatalf("auto compact: %v", err)
+	}
+	request := buildActiveTurnRequestForTest(t, engine, nil, true)
+	usage := engine.ContextUsage()
+	activeGoalContinuations := 0
+	preservedUserMessages := 0
+	for _, item := range engine.transcriptRuntimeState().SnapshotItems() {
+		if item.Type == llm.ResponseItemTypeMessage &&
+			item.MessageType != nil &&
+			*item.MessageType == llm.MessageTypeActiveGoalContinuation {
+			activeGoalContinuations++
+		}
+		if item.Type == llm.ResponseItemTypeMessage &&
+			item.MessageType != nil &&
+			*item.MessageType == llm.MessageTypeCompactionPreservedUserMessage {
+			preservedUserMessages++
+		}
+	}
+	shouldCompactAgain := engine.shouldAutoCompactWithContext(context.Background())
+	if usage.UsedTokens >= autoCompactLimit ||
+		shouldCompactAgain ||
+		activeGoalContinuations != 1 ||
+		preservedUserMessages != 1 ||
+		len(client.compactionCalls) != 1 {
+		t.Fatalf(
+			"post-auto-compaction usage=%+v repeats=%t active-goal-continuations=%d preserved-user-messages=%d remote-calls=%d",
+			usage,
+			shouldCompactAgain,
+			activeGoalContinuations,
+			preservedUserMessages,
+			len(client.compactionCalls),
+		)
+	}
+	if got := codexTurnIDForDispatch(t, client.compactionCalls[0].CodexDispatch); got != stepID {
+		t.Fatalf("inline compaction dispatch identity = %q, want enclosing Step %q", got, stepID)
+	}
+	assertCompactionReplacementOrder(t, engine.transcriptRuntimeState().SnapshotItems(), false)
+	if got, want := request.PromptCacheKey, engine.SessionID(); got != want {
+		t.Fatalf("automatic compaction prompt cache key = %q, want stable Session ID %q", got, want)
+	}
+}
+
+func TestAutoCompactionLocalCarriesPreservedUserMessageInOrder(t *testing.T) {
+	t.Parallel()
+	client := &fakeClient{
+		caps: llm.ProviderCapabilities{
+			ProviderID:           "local",
+			SupportsResponsesAPI: true,
+		},
+		responses: []llm.Response{{
+			Assistant: llm.Message{
+				Role:    llm.RoleAssistant,
+				Content: textutil.Value("local summary"),
+			},
+			Usage: llm.Usage{InputTokens: textutil.Value(1_000), OutputTokens: textutil.Value(100), WindowTokens: 200_000, ContextUsage: &llm.ContextUsage{Tokens: 1_000, MeasurementPoint: llm.ContextMeasurementInput}},
+		}},
+	}
+	engine := mustNewTestEngine(t, mustCreateTestSession(t), client, newTestToolRegistry(t), Config{
+		Model:                 "gpt-6-sol",
+		GlobalConfigDir:       t.TempDir(),
+		CompactionMode:        "local",
+		ContextWindowTokens:   200_000,
+		AutoCompactTokenLimit: 190_000,
+	})
+	if err := steerTestActiveStep(engine, "input", steerMessagesWithPersistenceIntent(
+		steeringPriorityNormal,
+		steeringMessageEventNone,
+		true,
+		[]llm.Message{{Role: llm.RoleUser, Content: textutil.Value("local automatic carryover")}},
+	)); err != nil {
+		t.Fatalf("persist compaction input: %v", err)
+	}
+	engine.setLastUsage(llm.Usage{InputTokens: textutil.Value(190_000), WindowTokens: 200_000, ContextUsage: &llm.ContextUsage{Tokens: 190_000, MeasurementPoint: llm.ContextMeasurementInput}})
+
+	err := withActiveTestRun(t, engine, ActiveKindUserTurn, func(ctx context.Context, stepID string) error {
+		return engine.autoCompactIfNeeded(ctx, stepID, compactionModeAuto)
+	})
+	if err != nil {
+		t.Fatalf("auto compact locally: %v", err)
+	}
+	if len(client.calls) != 1 {
+		t.Fatalf("local Generate calls = %d, want one", len(client.calls))
+	}
+	buildActiveTurnRequestForTest(t, engine, nil, true)
+	assertCompactionReplacementOrder(t, engine.transcriptRuntimeState().SnapshotItems(), false)
+}
+
+func remoteCompactionReplacement(
+	inputTokens int,
+	outputTokens int,
+	windowTokens int,
+) llm.CompactionResponse {
+	return llm.CompactionResponse{
+		OutputItems: []llm.ResponseItem{llm.ResponseItem{
+			Type:             llm.ResponseItemTypeCompaction,
+			ID:               textutil.Value("compaction-checkpoint"),
+			EncryptedContent: textutil.Value("encrypted"),
+		}},
+		Usage: llm.Usage{
+			InputTokens:  textutil.Value(inputTokens),
+			OutputTokens: textutil.Value(outputTokens),
+			WindowTokens: windowTokens, ContextUsage: &llm.ContextUsage{Tokens: inputTokens, MeasurementPoint: llm.ContextMeasurementInput},
+		},
+	}
+}

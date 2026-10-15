@@ -567,7 +567,7 @@ it.each(["settings", "workspace"] as const)(
     const send = vi.spyOn(services.api.chat, "steer");
     const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
     renderDestination(services, client, opening);
-    const user = userEvent.setup();
+    const user = userEvent.setup({ delay: null });
     await user.type(await screen.findByRole("textbox"), "unsent input");
     if (source === "workspace") {
       await user.click(screen.getByRole("button", { name: opening.workspace.name }));
@@ -715,7 +715,7 @@ it.each(["registered", "compact"])("adopts the identified rejection of a %s comm
   });
   expect(view.result.current.composer.text).toBe(text);
   if (kind === "registered")
-    expect(view.steer).toHaveBeenCalledWith(
+    expect(view.steer.mock.calls.map(([target, input]) => [target, input])).toContainEqual([
       expect.objectContaining({ kind: "new_chat" }),
       {
         kind: "command",
@@ -724,8 +724,7 @@ it.each(["registered", "compact"])("adopts the identified rejection of a %s comm
         separatorWhitespace: "\t",
         arguments: "changes",
       },
-      expect.anything(),
-    );
+    ]);
   else
     expect(view.compact).toHaveBeenCalledWith(expect.objectContaining({ kind: "new_chat" }), {
       token: "/compact",
@@ -1044,7 +1043,7 @@ it("keeps text but replaces edited settings when selecting another workspace bef
     view.result.current.composer.submit("send");
   });
   await waitFor(() => {
-    expect(view.steer).toHaveBeenCalledWith(
+    expect(view.steer.mock.calls.map(([target, input]) => [target, input])).toContainEqual([
       {
         kind: "new_chat",
         projectID: opening.projectID,
@@ -1052,8 +1051,7 @@ it("keeps text but replaces edited settings when selecting another workspace bef
         initialSettings: changed,
       },
       { kind: "text", text: "keep me" },
-      expect.anything(),
-    );
+    ]);
   });
 });
 

@@ -8,9 +8,9 @@ import (
 	"path/filepath"
 	"testing"
 
-	"core/server/auth"
+	"core/server/authmanager"
 	"core/server/authservice"
-	"core/server/onboarding"
+	"core/server/onboardingservice"
 	"core/server/promptcommands"
 	"core/shared/config"
 	"core/shared/protoapi"

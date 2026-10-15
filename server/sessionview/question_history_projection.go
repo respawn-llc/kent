@@ -5,9 +5,9 @@ import (
 	"fmt"
 	"strings"
 
-	"core/server/session"
+	"core/server/sessionstore"
 	"core/shared/runtimeids"
-	"core/shared/transcript"
+	"core/shared/transcriptmodel"
 )
 
 type questionHistoryRecord struct {

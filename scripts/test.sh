@@ -14,17 +14,17 @@ esac
 
 usage() {
 	cat <<'USAGE'
-Usage: just test [server|desktop|docs|tui|rust] [--timeout SECONDS] [--workers COUNT] [--no-wall-clock-cap] [--inherit-env] [-- TOOL-ARGS...]
+Usage: just test [server|desktop|docs|tui|rust] [--timeout SECONDS] [--workers COUNT] [--inherit-env] [-- TOOL-ARGS...]
 
-The timeout covers the complete command, including every selected test process.
-Bare `just test` runs server and desktop tests under one timeout.
+The timeout controls Go test execution. Go's emergency process deadline also covers TestMain preparation.
+Other test runners use their native timeout settings.
+Bare `just test` runs server and desktop tests concurrently.
 USAGE
 }
 
 target="default"
-timeout_seconds=300
+timeout_seconds=180
 workers=""
-wall_clock_cap=1
 inherit_env=0
 tool_args=()
 
@@ -44,10 +44,6 @@ while [ "$#" -gt 0 ]; do
 		[ "$#" -ge 2 ] || { echo "--workers requires a count" >&2; exit 2; }
 		workers="$2"
 		shift 2
-		;;
-	--no-wall-clock-cap)
-		wall_clock_cap=0
-		shift
 		;;
 	--inherit-env)
 		inherit_env=1
@@ -102,130 +98,124 @@ fi
 	exit 2
 }
 
-case "$target" in
-default | desktop | docs) just _node ;;
-esac
-
 started="$SECONDS"
 failure_labels=()
 failure_logs=()
 failure_statuses=()
 logs=()
-pty_fixture_root=""
-go_test_timeout_args=()
-if [ "$wall_clock_cap" -eq 1 ]; then
-	go_test_timeout_args=(-timeout "${timeout_seconds}s")
-fi
+suite_labels=()
+suite_pids=()
+next_suite=0
+test_temp_root=""
+go_test_timeout_args=(-timeout "${timeout_seconds}s")
+
+finish_suites() {
+	local status label log
+	while [ "$next_suite" -lt "${#suite_pids[@]}" ]; do
+		label="${suite_labels[$next_suite]}"
+		log="${logs[$next_suite]}"
+		if wait "${suite_pids[$next_suite]}"; then
+			status=0
+		else
+			status=$?
+		fi
+		next_suite=$((next_suite + 1))
+		if [ "$status" -eq 0 ]; then
+			if [ -n "${JUST_VERBOSE:-}" ]; then
+				cat "$log"
+			fi
+			printf '✓ %s tests passed\n' "$label"
+		else
+			failure_labels+=("$label")
+			failure_logs+=("$log")
+			failure_statuses+=("$status")
+		fi
+	done
+}
 
 cleanup() {
-	local log
+	local status=$?
+	local log index label
+	trap - EXIT
+	finish_suites
+	for index in "${!failure_labels[@]}"; do
+		label="${failure_labels[$index]}"
+		printf '\n✗ %s tests failed (exit %s)\n' "$label" "${failure_statuses[$index]}" >&2
+		printf '──── %s test output ────\n' "$label" >&2
+		cat "${failure_logs[$index]}" >&2
+		printf '──── end %s test output ────\n' "$label" >&2
+	done
 	for log in "${logs[@]}"; do
 		unlink "$log" 2>/dev/null || true
 	done
-	if [ -n "$pty_fixture_root" ]; then
-		find "$pty_fixture_root" -depth -delete 2>/dev/null || true
+	if [ -n "$test_temp_root" ]; then
+		if ! find "$test_temp_root" -mindepth 1 -depth -delete; then
+			status=1
+		fi
+		rmdir "$test_temp_root" || status=1
 	fi
+	exit "$status"
 }
 trap cleanup EXIT
+trap 'exit 130' INT
+trap 'exit 143' TERM
+
+case "$target" in
+default | desktop | docs) just _node ;;
+esac
+
+prepare_test_storage() {
+	# Keep compiler workspaces separate from test fixtures, including on noexec tmpfs.
+	export GOTMPDIR="${GOTMPDIR:-${TMPDIR:-/tmp}}"
+	case "$(uname -s)" in
+	Darwin)
+		test_temp_root="$(python3 "$repo_root/scripts/test-storage.py")"
+		;;
+	Linux)
+		[ "$(stat -f -c %T /dev/shm)" = "tmpfs" ] || {
+			echo "Tests require a memory-backed /dev/shm for filesystem fixtures." >&2
+			exit 2
+		}
+		python3 -c 'import os,sys; sys.exit(bool(os.statvfs("/dev/shm").f_flag & os.ST_NOEXEC))' || {
+			echo "Tests require executable RAM storage: /dev/shm is mounted noexec. Configure its mount with exec enabled." >&2
+			exit 2
+		}
+		test_temp_root="$(mktemp -d /dev/shm/kent-tests.XXXXXX)"
+		;;
+	*)
+		echo "Memory-backed test storage is not configured for this platform." >&2
+		exit 2
+		;;
+	esac
+	mkdir "$test_temp_root/tmp" "$test_temp_root/outside"
+	export TMPDIR="$test_temp_root/tmp"
+	export TMP="$TMPDIR"
+	export TEMP="$TMPDIR"
+	export KENT_TEST_NON_TEMPORARY_ROOT="$test_temp_root/outside"
+}
+case "$target" in
+default | server | tui) prepare_test_storage ;;
+esac
 
 run_suite() {
 	local label="$1"
 	shift
-	local suite_started="$SECONDS"
-	local log remaining status
-	log="$(mktemp -t "kent-${label}-tests.XXXXXX.log")"
+	local log
+	log="$(mktemp "${TMPDIR:-/tmp}/kent-${label}-tests.XXXXXX")"
 	logs+=("$log")
-
-	if [ "$wall_clock_cap" -eq 1 ]; then
-		remaining=$((timeout_seconds - (SECONDS - started)))
-		if [ "$remaining" -le 0 ]; then
-			status=124
-		else
-			set +e
-			python3 - "$remaining" "$log" "$@" <<'PY'
-import os
-import signal
-import subprocess
-import sys
-
-timeout = int(sys.argv[1])
-with open(sys.argv[2], "wb") as output:
-    process = None
-
-    def terminate(signum):
-        if process is not None and process.poll() is None:
-            os.killpg(process.pid, signal.SIGTERM)
-            try:
-                process.wait(timeout=2)
-            except subprocess.TimeoutExpired:
-                os.killpg(process.pid, signal.SIGKILL)
-                process.wait()
-        raise SystemExit(128 + signum)
-
-    signal.signal(signal.SIGINT, lambda signum, _frame: terminate(signum))
-    signal.signal(signal.SIGTERM, lambda signum, _frame: terminate(signum))
-    try:
-        process = subprocess.Popen(
-            sys.argv[3:],
-            stdout=output,
-            stderr=subprocess.STDOUT,
-            start_new_session=True,
-        )
-    except OSError as error:
-        print(error, file=output)
-        raise SystemExit(127)
-    try:
-        raise SystemExit(process.wait(timeout=timeout))
-    except subprocess.TimeoutExpired:
-        os.killpg(process.pid, signal.SIGTERM)
-        try:
-            process.wait(timeout=2)
-        except subprocess.TimeoutExpired:
-            os.killpg(process.pid, signal.SIGKILL)
-            process.wait()
-        raise SystemExit(124)
-PY
-			status=$?
-			set -e
-		fi
-	else
-		set +e
-		"$@" >"$log" 2>&1
-		status=$?
-		set -e
-	fi
-
-	if [ "$status" -eq 0 ]; then
-		printf '✓ %s tests passed in %ds\n' "$label" "$((SECONDS - suite_started))"
-		return
-	fi
-	failure_labels+=("$label")
-	failure_logs+=("$log")
-	failure_statuses+=("$status")
-}
-
-prepare_pty_fixtures() {
-	pty_fixture_root="$(mktemp -d -t kent-pty-fixtures.XXXXXX)"
-	go test -c -o "$pty_fixture_root/kent-pty-fixture.test" core/cli/app
-	just --quiet build _go --output "$pty_fixture_root/kent"
-	go build -o "$pty_fixture_root/ansi-writer" core/internal/testharness/pty/testdata/cmd/ansi-writer
-	go build -o "$pty_fixture_root/phase-input-writer" core/internal/testharness/pty/testdata/cmd/phase-input-writer
-	go build -o "$pty_fixture_root/phase-writer" core/internal/testharness/pty/testdata/cmd/phase-writer
-	export KENT_PTY_FIXTURE_BINARY="$pty_fixture_root/kent-pty-fixture.test"
-	export KENT_PTY_KENT_BINARY="$pty_fixture_root/kent"
-	export KENT_PTY_ANSI_WRITER_BINARY="$pty_fixture_root/ansi-writer"
-	export KENT_PTY_PHASE_INPUT_WRITER_BINARY="$pty_fixture_root/phase-input-writer"
-	export KENT_PTY_PHASE_WRITER_BINARY="$pty_fixture_root/phase-writer"
+	suite_labels+=("$label")
+	"$@" >"$log" 2>&1 &
+	suite_pids+=("$!")
 }
 
 run_server() {
 	local args=("${tool_args[@]}")
 	just --quiet _gen-go
 	if [ "${#args[@]}" -eq 0 ]; then
-		prepare_pty_fixtures
 		args=(./...)
 	fi
-	run_suite server go test -p "$workers" "${go_test_timeout_args[@]}" "${args[@]}"
+	mkdir -p "$repo_root/.generated/test-binaries"
+	run_suite server go test -count=1 -ldflags="-s -w" -o "$repo_root/.generated/test-binaries/" -exec "bash \"$repo_root/scripts/test-exec.sh\"" -p "$workers" "${go_test_timeout_args[@]}" "${args[@]}"
 }
 
 run_desktop() {
@@ -234,7 +224,8 @@ run_desktop() {
 }
 
 run_tui() {
-	run_suite tui go test -p "$workers" "${go_test_timeout_args[@]}" ./cli/tui/... "${tool_args[@]}"
+	mkdir -p "$repo_root/.generated/test-binaries"
+	run_suite tui go test -count=1 -ldflags="-s -w" -o "$repo_root/.generated/test-binaries/" -exec "bash \"$repo_root/scripts/test-exec.sh\"" -p "$workers" "${go_test_timeout_args[@]}" ./cli/tui/... "${tool_args[@]}"
 }
 
 run_docs() {
@@ -256,23 +247,12 @@ docs) run_docs ;;
 tui) run_tui ;;
 rust) run_rust ;;
 esac
+finish_suites
 
 if [ "${#failure_labels[@]}" -eq 0 ]; then
-	[ "$target" != "default" ] || printf '✓ all tests passed in %ds\n' "$((SECONDS - started))"
+	printf '✓ test command passed in %ds\n' "$((SECONDS - started))"
 	exit 0
 fi
-
-for index in "${!failure_labels[@]}"; do
-	label="${failure_labels[$index]}"
-	status="${failure_statuses[$index]}"
-	printf '\n✗ %s tests %s in %ds\n' \
-		"$label" \
-		"$([ "$status" -eq 124 ] && printf 'timed out' || printf 'failed')" \
-		"$((SECONDS - started))" >&2
-	printf '──── %s test output ────\n' "$label" >&2
-	cat "${failure_logs[$index]}" >&2
-	printf '──── end %s test output ────\n' "$label" >&2
-done
 
 printf '\n✗ %d test runner(s) failed in %ds\n' "${#failure_labels[@]}" "$((SECONDS - started))" >&2
 if [ "$target" != "default" ] && [ "${#failure_statuses[@]}" -eq 1 ] && [ "${failure_statuses[0]}" -ne 124 ]; then

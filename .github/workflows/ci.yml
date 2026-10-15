@@ -97,8 +97,11 @@ jobs:
       - name: Install GUI dependencies
         run: just install _apps-dependencies
 
+      - name: Configure executable test RAM
+        run: just _ci-test-storage
+
       - name: Test
-        run: just test server --no-wall-clock-cap
+        run: just test server
 
   windows-installer:
     runs-on: windows-latest

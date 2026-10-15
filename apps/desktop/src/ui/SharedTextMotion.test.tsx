@@ -1,11 +1,20 @@
-import { afterEach, expect, it, vi } from "vitest";
+import { afterAll, afterEach, expect, it, vi } from "vitest";
 import { SharedTextMotion } from "./SharedTextMotion";
 
-afterEach(() => {
+// Motion captures requestAnimationFrame when its module loads.
+vi.hoisted(() => {
+  vi.useFakeTimers();
+});
+
+afterAll(() => {
+  vi.useRealTimers();
+});
+
+afterEach(async () => {
+  await vi.advanceTimersByTimeAsync(32);
   document.body.replaceChildren();
   document.documentElement.style.removeProperty("--motion-text-handoff");
   vi.unstubAllGlobals();
-  vi.useRealTimers();
 });
 
 function textElement(top: number) {
@@ -17,8 +26,7 @@ function textElement(top: number) {
 }
 
 async function layoutSettled() {
-  await new Promise(requestAnimationFrame);
-  await new Promise(requestAnimationFrame);
+  await vi.advanceTimersByTimeAsync(32);
 }
 
 it.each([50, 900])("keeps a tall-chat flight at 350ms with a %ims theme duration", async (duration) => {
@@ -30,9 +38,9 @@ it.each([50, 900])("keeps a tall-chat flight at 350ms with a %ims theme duration
   source.remove();
   expect(motion.arrive(["first"], target)).toBe(true);
   expect(target).not.toBeVisible();
-  await new Promise((resolve) => setTimeout(resolve, 250));
+  await vi.advanceTimersByTimeAsync(250);
   expect(target).not.toBeVisible();
-  await new Promise((resolve) => setTimeout(resolve, 150));
+  await vi.advanceTimersByTimeAsync(150);
   expect(target).toBeVisible();
   expect(document.body.children).toHaveLength(1);
   motion.dispose();
@@ -132,16 +140,17 @@ it("reveals the live destination without freezing its opening layout", async () 
   vi.spyOn(target, "getBoundingClientRect").mockReturnValue(new DOMRect(20, 100, 240, 30));
   await layoutSettled();
   expect(target).not.toBeVisible();
-  target.append(document.createTextNode(" with newly laid out content"));
-  await new Promise((resolve) => setTimeout(resolve, 350));
+  const newContent = document.createElement("span");
+  newContent.textContent = "Newly laid out content";
+  target.append(newContent);
+  await vi.advanceTimersByTimeAsync(350);
   expect(target).toBeVisible();
-  expect(target).toHaveTextContent("A message with newly laid out content");
+  expect(newContent).toBeVisible();
   expect(document.body.children).toHaveLength(2);
   motion.dispose();
 });
 
 it("expires composer snapshots and bounds the retained source count", () => {
-  vi.useFakeTimers();
   const motion = new SharedTextMotion();
   const source = textElement(300);
   const target = textElement(100);

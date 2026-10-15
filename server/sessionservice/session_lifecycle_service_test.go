@@ -12,11 +12,11 @@ import (
 
 	"core/internal/testharness/requestfixture"
 	"core/internal/testharness/testsetup"
-	"core/server/auth"
+	"core/server/authmanager"
 	"core/server/launch"
 	"core/server/metadata"
-	"core/server/session"
 	sessionruntime "core/server/sessionruntime"
+	"core/server/sessionstore"
 	"core/shared/config"
 	sessionlaunchpb "core/shared/protoapi/gen/kent/api/session_launch"
 	worktreepb "core/shared/protoapi/gen/kent/api/worktree"

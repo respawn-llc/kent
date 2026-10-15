@@ -91,7 +91,7 @@ const resolvedCreateTarget = {
 } as const;
 
 it("keeps an invalid typed Worktree name editable and resumes resolution after correction", async () => {
-  const user = userEvent.setup();
+  const user = userEvent.setup({ delay: null });
   const services = createTestServices([worktreeBrowserFixtureRoute()]);
   const client = new QueryClient();
   vi.spyOn(services.api, "resolveWorktreeCreateTarget").mockImplementation(async (_sessionID, target) => ({
@@ -172,7 +172,7 @@ it.each(["list", "target"] as const)(
         </QueryClientProvider>
       </BrowserProviders>,
     );
-    const user = userEvent.setup();
+    const user = userEvent.setup({ delay: null });
     const targetInput = await screen.findByRole("textbox", { name: appI18n.t("chat.worktree.targetLabel") });
     await user.clear(targetInput);
     await user.type(targetInput, "topic");
@@ -290,7 +290,7 @@ function WorktreeBrowser({
 it.each(["33333333-3333-4333-8333-333333333333", "44444444-4444-4444-8444-444444444444"])(
   "opens origin Session %s without navigating to itself",
   async (originSessionID) => {
-    const user = userEvent.setup();
+    const user = userEvent.setup({ delay: null });
     const entry = worktreeBrowserFixtureEntry("registered", false);
     if (entry.topology?.topology.case !== "registered" || entry.topology.topology.value.kent === undefined)
       throw new Error("Expected registered fixture");
@@ -319,7 +319,7 @@ it.each(["33333333-3333-4333-8333-333333333333", "44444444-4444-4444-8444-444444
 );
 
 it.each(["registered", "missing"] as const)("copies the full %s path from its subtitle", async (kind) => {
-  const user = userEvent.setup();
+  const user = userEvent.setup({ delay: null });
   const entry = worktreeBrowserFixtureEntry(kind, true);
   const topology = entry.topology?.topology;
   if (topology?.case === "registered" && topology.value.kent !== undefined) {
@@ -603,7 +603,7 @@ it("Refresh retains cached data but replaces the visible list on failure until R
     expect(client.getQueryData(key)).toBeDefined();
   });
   const completed = client.getQueryData(key);
-  const user = userEvent.setup();
+  const user = userEvent.setup({ delay: null });
   await user.click(screen.getByRole("button", { name: appI18n.t("chat.worktree.refresh") }));
   expect(client.getQueryState(key)?.fetchStatus).toBe("fetching");
   expect(client.getQueryData(key)).toBe(completed);
@@ -637,7 +637,7 @@ it("owns failed deletion preview at the Worktrees page and restores its popup on
       <WorktreeBrowser sessionID="33333333-3333-4333-8333-333333333333" />
     </BrowserProviders>,
   );
-  const user = userEvent.setup();
+  const user = userEvent.setup({ delay: null });
   await user.click(await screen.findByRole("button", { name: appI18n.t("chat.worktree.delete") }));
   expect(await screen.findByTestId("error-state")).toBeInTheDocument();
   expect(screen.queryByRole("button", { name: appI18n.t("chat.worktree.switch") })).not.toBeInTheDocument();
@@ -675,7 +675,7 @@ it.each(["operational", "precondition"] as const)(
         <WorktreeBrowser sessionID="33333333-3333-4333-8333-333333333333" />
       </BrowserProviders>,
     );
-    const user = userEvent.setup();
+    const user = userEvent.setup({ delay: null });
     await user.click(await screen.findByRole("button", { name: appI18n.t("chat.worktree.delete") }));
     await user.click(await screen.findByRole("button", { name: appI18n.t("chat.worktree.confirm") }));
     await waitFor(() => {

@@ -17,11 +17,11 @@ import (
 
 	"core/internal/testharness/testsetup"
 	"core/internal/testharness/workflowfixture"
-	"core/server/auth"
+	"core/server/authmanager"
 	corepkg "core/server/core"
 	"core/server/metadata"
 	metadatamigrations "core/server/metadata/migrations"
-	"core/server/session"
+	"core/server/sessionstore"
 	"core/server/transport"
 	"core/server/workflow"
 	"core/server/workflowstore"
@@ -58,6 +58,7 @@ func registerServeWorkspace(t *testing.T, workspace string) {
 	if _, _, err := config.WriteDefaultSettingsFileAt(cfg.Source.File(config.FileGlobal).Path); err != nil {
 		t.Fatalf("write test settings: %v", err)
 	}
+	testsetup.PrepareMetadataPersistenceRoot(t, cfg.PersistenceRoot)
 	if _, err := metadata.RegisterBinding(context.Background(), cfg.PersistenceRoot, cfg.WorkspaceRoot); err != nil {
 		t.Fatalf("RegisterBinding: %v", err)
 	}
@@ -795,6 +796,7 @@ endpoint = "http://127.0.0.1:11434/v1"
 	if err != nil {
 		t.Fatalf("config.Load for binding: %v", err)
 	}
+	testsetup.PrepareMetadataPersistenceRoot(t, cfg.PersistenceRoot)
 	if _, err := metadata.RegisterBinding(context.Background(), cfg.PersistenceRoot, workspace); err != nil {
 		t.Fatalf("RegisterBinding: %v", err)
 	}
