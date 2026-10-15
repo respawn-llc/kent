@@ -425,8 +425,8 @@ func ValidateInitialChatCreationTarget(mode Mode, intent serverapi.SessionLaunch
 		return errors.New("initial Chat creation requires a new Session")
 	}
 	origin, ok := intent.CreateOrigin()
-	if !ok || origin.Kind() != serverapi.SessionCreateOriginIndependent {
-		return errors.New("initial Chat creation requires an independent Session")
+	if !ok || (origin.Kind() != serverapi.SessionCreateOriginIndependent && origin.Kind() != serverapi.SessionCreateOriginNavigationOnly) {
+		return errors.New("initial Chat creation requires an independent or navigation-only Session")
 	}
 	return nil
 }
@@ -1302,7 +1302,7 @@ func (p Planner) createSession(
 		return nil, err
 	}
 	var target *worktreepb.SessionExecutionTarget
-	if sourceID, present := origin.SessionID(); present {
+	if sourceID, present := origin.SessionID(); present && origin.Kind() != serverapi.SessionCreateOriginNavigationOnly {
 		resolved, hasTarget, err := p.resolveParentExecutionTarget(ctx, sourceID.String())
 		if err != nil {
 			return nil, err

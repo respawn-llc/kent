@@ -21,6 +21,7 @@ const (
 	SessionCreateOriginIndependent     SessionCreateOriginKind = "independent"
 	SessionCreateOriginPreviousSession SessionCreateOriginKind = "previous_session"
 	SessionCreateOriginParentAgent     SessionCreateOriginKind = "parent_agent"
+	SessionCreateOriginNavigationOnly  SessionCreateOriginKind = "navigation_only"
 )
 
 type SessionCreateOrigin struct {
@@ -34,6 +35,10 @@ func IndependentSessionCreateOrigin() SessionCreateOrigin {
 
 func PreviousSessionCreateOrigin(sessionID runtimeids.SessionID) SessionCreateOrigin {
 	return sessionCreateOriginWithID(SessionCreateOriginPreviousSession, sessionID)
+}
+
+func NavigationOnlySessionCreateOrigin(sessionID runtimeids.SessionID) SessionCreateOrigin {
+	return sessionCreateOriginWithID(SessionCreateOriginNavigationOnly, sessionID)
 }
 
 func ParentAgentSessionCreateOrigin(sessionID runtimeids.SessionID) SessionCreateOrigin {
@@ -71,7 +76,7 @@ func (o SessionCreateOrigin) Validate() error {
 		if o.sessionID != nil {
 			return errors.New("independent session create origin cannot contain session_id")
 		}
-	case SessionCreateOriginPreviousSession, SessionCreateOriginParentAgent:
+	case SessionCreateOriginPreviousSession, SessionCreateOriginParentAgent, SessionCreateOriginNavigationOnly:
 		if o.sessionID == nil || o.sessionID.IsZero() {
 			return fmt.Errorf("%s session create origin requires session_id", o.kind)
 		}

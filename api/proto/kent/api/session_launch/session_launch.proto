@@ -47,6 +47,10 @@ message SessionCreateOrigin {
       (buf.validate.field).string.uuid = true,
     (buf.validate.field).string.(kent.api.shared.canonical_uuid_v4) = true
     ];
+    string navigation_only_session_id = 4 [
+      (buf.validate.field).string.uuid = true,
+      (buf.validate.field).string.(kent.api.shared.canonical_uuid_v4) = true
+    ];
   }
 }
 
@@ -68,6 +72,7 @@ message SessionCreateRequestOrigin {
     google.protobuf.Empty independent = 1;
     kent.api.shared.SessionSelector previous_session_id = 2;
     kent.api.shared.SessionSelector parent_agent_session_id = 3;
+    kent.api.shared.SessionSelector navigation_only_session_id = 4;
   }
 }
 

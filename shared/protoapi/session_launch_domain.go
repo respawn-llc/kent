@@ -210,6 +210,9 @@ func sessionCreateOriginToProto(origin serverapi.SessionCreateOrigin) (*sessionl
 	switch origin.Kind() {
 	case serverapi.SessionCreateOriginIndependent:
 		message.Origin = &sessionlaunchpb.SessionCreateOrigin_Independent{Independent: &emptypb.Empty{}}
+	case serverapi.SessionCreateOriginNavigationOnly:
+		id, _ := origin.SessionID()
+		message.Origin = &sessionlaunchpb.SessionCreateOrigin_NavigationOnlySessionId{NavigationOnlySessionId: id.String()}
 	case serverapi.SessionCreateOriginPreviousSession, serverapi.SessionCreateOriginParentAgent:
 		sessionID, present := origin.SessionID()
 		if !present {
@@ -230,6 +233,12 @@ func sessionCreateOriginFromProto(message *sessionlaunchpb.SessionCreateOrigin) 
 	switch origin := message.Origin.(type) {
 	case *sessionlaunchpb.SessionCreateOrigin_Independent:
 		return serverapi.IndependentSessionCreateOrigin(), nil
+	case *sessionlaunchpb.SessionCreateOrigin_NavigationOnlySessionId:
+		id, err := runtimeids.ParseSessionID(origin.NavigationOnlySessionId)
+		if err != nil {
+			return serverapi.SessionCreateOrigin{}, err
+		}
+		return serverapi.NavigationOnlySessionCreateOrigin(id), nil
 	case *sessionlaunchpb.SessionCreateOrigin_PreviousSessionId:
 		sessionID, err := runtimeids.ParseSessionID(origin.PreviousSessionId)
 		if err != nil {
