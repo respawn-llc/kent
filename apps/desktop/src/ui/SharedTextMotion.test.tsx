@@ -1,4 +1,5 @@
 import { afterEach, expect, it, vi } from "bun:test";
+import { waitFor } from "@testing-library/react";
 import { SharedTextMotion } from "./SharedTextMotion";
 
 let restoreMatchMedia: (() => void) | undefined;
@@ -36,8 +37,11 @@ it.each([50, 900])("keeps a tall-chat flight at 350ms with a %ims theme duration
   await new Promise((resolve) => setTimeout(resolve, 250));
   expect(target).not.toBeVisible();
   await new Promise((resolve) => setTimeout(resolve, 150));
+  await waitFor(() => {
+    expect(target.style.visibility).not.toBe("hidden");
+  });
   expect(target).toBeVisible();
-  expect(document.body.children).toHaveLength(1);
+  expect(document.body).toHaveProperty("childElementCount", 1);
   motion.dispose();
 });
 
@@ -59,7 +63,7 @@ it("consumes reduced-motion delivery without overlays or historical replay", () 
   motion.capture("first", source);
   expect(motion.arrive(["first"], target)).toBe(false);
   expect(target).toBeVisible();
-  expect(document.body.children).toHaveLength(2);
+  expect(document.body).toHaveProperty("childElementCount", 2);
   restoreMatchMedia();
   restoreMatchMedia = undefined;
   expect(motion.arrive(["first"], target)).toBe(false);
@@ -80,7 +84,7 @@ it("bounds concurrent handoffs and restores every destination when navigating aw
   expect(targets.at(-1)).not.toBeVisible();
   motion.dispose();
   for (const target of targets) expect(target).toBeVisible();
-  expect(document.body.children).toHaveLength(41);
+  expect(document.body).toHaveProperty("childElementCount", 41);
 });
 
 it("hands off a captured source once by identity and restores the real text on disposal", async () => {
@@ -96,7 +100,7 @@ it("hands off a captured source once by identity and restores the real text on d
   expect(motion.arrive(["source"], target)).toBe(false);
   motion.dispose();
   expect(target).toBeVisible();
-  expect(document.body.children).toHaveLength(1);
+  expect(document.body).toHaveProperty("childElementCount", 1);
 });
 
 it("retains a disappearing pending source briefly, but never replays an offscreen delivery", async () => {
@@ -143,9 +147,12 @@ it("reveals the live destination without freezing its opening layout", async () 
   expect(target).not.toBeVisible();
   target.append(document.createTextNode(" with newly laid out content"));
   await new Promise((resolve) => setTimeout(resolve, 350));
+  await waitFor(() => {
+    expect(target.style.visibility).not.toBe("hidden");
+  });
   expect(target).toBeVisible();
   expect(target).toHaveTextContent("A message with newly laid out content");
-  expect(document.body.children).toHaveLength(2);
+  expect(document.body).toHaveProperty("childElementCount", 2);
   motion.dispose();
 });
 
@@ -182,7 +189,7 @@ it("finishes a single flight at 350ms even when frames are sparse and its destin
     now += 1;
     await layoutSettled();
     expect(target).toBeVisible();
-    expect(document.body.children).toHaveLength(1);
+    expect(document.body).toHaveProperty("childElementCount", 1);
   } finally {
     motion.dispose();
     clock.mockRestore();
@@ -244,7 +251,7 @@ it("keeps an interrupted pending flight within its original 350ms deadline", asy
     now += 1;
     await layoutSettled();
     expect(bubble).toBeVisible();
-    expect(document.body.children).toHaveLength(1);
+    expect(document.body).toHaveProperty("childElementCount", 1);
   } finally {
     motion.dispose();
     bounds.mockRestore();

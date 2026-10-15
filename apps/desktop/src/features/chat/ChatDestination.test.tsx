@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, expect, it, vi } from "bun:test";
 import { installChatStorageFixture } from "./chatStorageFixture";
-import { act, renderHook, screen, waitFor } from "@testing-library/react";
+import { act, fireEvent, renderHook, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { QueryClient } from "@tanstack/react-query";
 import { RegistryProvider } from "@effect/atom-react";
@@ -575,7 +575,7 @@ it.each(["settings", "workspace"] as const)(
     const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
     renderDestination(services, client, opening);
     const user = userEvent.setup({ delay: null });
-    await user.type(await screen.findByRole("textbox"), "unsent input");
+    fireEvent.change(await screen.findByRole("textbox"), { target: { value: "unsent input" } });
     if (source === "workspace") {
       await user.click(screen.getByRole("button", { name: opening.workspace.name }));
       await waitFor(() => {
@@ -722,7 +722,7 @@ it.each(["registered", "compact"])("adopts the identified rejection of a %s comm
   });
   expect(view.result.current.composer.text).toBe(text);
   if (kind === "registered")
-    expect(view.steer.mock.calls.map(([target, input]) => [target, input])).toContainEqual([
+    expect(view.steer).toHaveBeenCalledWith(
       expect.objectContaining({ kind: "new_chat" }),
       {
         kind: "command",
@@ -731,7 +731,8 @@ it.each(["registered", "compact"])("adopts the identified rejection of a %s comm
         separatorWhitespace: "\t",
         arguments: "changes",
       },
-    ]);
+      expect.anything(),
+    );
   else
     expect(view.compact).toHaveBeenCalledWith(expect.objectContaining({ kind: "new_chat" }), {
       token: "/compact",

@@ -33,11 +33,7 @@ function TestAppProviders(props: Parameters<typeof AppProviders>[0]) {
 }
 
 const sessionID = "123e4567-e89b-42d3-a456-426614174000";
-const target = {
-  kind: "session",
-  projectID: "project-1",
-  sessionID,
-} as const;
+const target = { kind: "session", projectID: "project-1", sessionID } as const;
 const navigation = {
   openTask: vi.fn<(taskID: string) => void>(),
   openParentSession: vi.fn<(previousSessionID: string) => void>(),

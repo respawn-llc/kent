@@ -1,4 +1,4 @@
-import { afterEach, beforeEach, expect, it, onTestFinished, vi } from "bun:test";
+import { afterEach, beforeEach, expect, it, vi } from "bun:test";
 import { installChatStorageFixture } from "./chatStorageFixture";
 import { act, fireEvent, isInaccessible, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";

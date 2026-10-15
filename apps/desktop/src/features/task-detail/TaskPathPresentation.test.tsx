@@ -57,12 +57,8 @@ it("collapses structured approval targets without changing their values", () => 
       <PromptAccessTargets targets={[target]} formatPath={formatPath} />
     </TestAppProviders>,
   );
-  expect(formattedPaths).toEqual(
-    expect.arrayContaining([
-      { absolute: target.requestedPath, display: "~/input" },
-      { absolute: target.resolvedPath, display: "~/resolved" },
-    ]),
-  );
+  expect(formattedPaths).toContainEqual({ absolute: target.requestedPath, display: "~/input" });
+  expect(formattedPaths).toContainEqual({ absolute: target.resolvedPath, display: "~/resolved" });
   expect(target).toEqual({
     requestedPath: "/Users/engineer/input",
     resolvedPath: "/Users/engineer/resolved",
