@@ -7,7 +7,6 @@ import (
 	"net/http"
 	"time"
 
-	"core/shared/config"
 	"core/shared/textutil"
 	"github.com/google/uuid"
 	"github.com/openai/openai-go/v3/responses"
@@ -33,21 +32,23 @@ type providerAttemptDiagnostic struct {
 	reasoningTokens *int64
 }
 
-func startProviderAttempt(
+func (t *HTTPTransport) startProviderAttempt(
 	ctx context.Context,
-	connectionID *config.ConnectionID,
 	request ResponsesRequest,
 	preparation responsesDispatchPreparation,
 	requestedTier *string,
 	operation providerAttemptOperation,
 ) *providerAttemptDiagnostic {
+	if !t.Debug {
+		return nil
+	}
 	attempt := &providerAttemptDiagnostic{
 		started: time.Now(),
 		logger: slog.Default().With(
 			"attempt_id", uuid.NewString(),
 			"operation", operation,
 			"session_id", diagnosticOptional(request.SessionID),
-			"connection_id", diagnosticOptional(connectionID),
+			"connection_id", diagnosticOptional(t.ConnectionID),
 			"account_id", diagnosticOptional(textutil.OptionalTrimmedString(preparation.mode.AccountID)),
 			"provider_id", preparation.variant.ProviderID,
 			"model", request.Model,
@@ -86,6 +87,9 @@ func (a *providerAttemptDiagnostic) observeResponse(response responses.Response,
 }
 
 func (a *providerAttemptDiagnostic) finish(ctx context.Context, response *http.Response, err error) {
+	if a == nil {
+		return
+	}
 	outcome := "completed"
 	if err != nil {
 		outcome = "failed"

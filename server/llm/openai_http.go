@@ -55,6 +55,7 @@ type responsesDispatchPreparation struct {
 }
 
 type HTTPTransport struct {
+	Debug                        bool
 	Client                       *http.Client
 	Auth                         DispatchAuthProvider
 	registration                 ProviderVariantRegistration
@@ -122,7 +123,7 @@ func (t *HTTPTransport) Generate(ctx context.Context, request ResponsesRequest, 
 	reqOpts = append(reqOpts, option.WithResponseInto(&rawResp))
 
 	requestEvidence := t.providerUsageRequestEvidence(request, preparation, payload)
-	attempt := startProviderAttempt(ctx, t.ConnectionID, request, preparation, requestEvidence.RequestedServiceTier, providerAttemptGenerate)
+	attempt := t.startProviderAttempt(ctx, request, preparation, requestEvidence.RequestedServiceTier, providerAttemptGenerate)
 	stream := service.NewStreaming(ctx, payload, reqOpts...)
 	defer func() { _ = stream.Close() }()
 
@@ -412,7 +413,7 @@ func (t *HTTPTransport) compactResponsesTriggerV2(ctx context.Context, request R
 		responsesDispatchPreparation{mode: mode, variant: variant, providerCaps: providerCaps},
 		payload,
 	)
-	attempt := startProviderAttempt(ctx, t.ConnectionID, request, responsesDispatchPreparation{
+	attempt := t.startProviderAttempt(ctx, request, responsesDispatchPreparation{
 		mode: mode, variant: variant, projection: projection,
 	}, requestEvidence.RequestedServiceTier, providerAttemptCompact)
 	defer func() { attempt.finish(ctx, rawResp, err) }()
