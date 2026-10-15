@@ -318,16 +318,13 @@ func (s *Service) UpdateWorkflow(ctx context.Context, req *pb.UpdateRequest) (*p
 }
 
 func (s *Service) ListWorkflows(ctx context.Context, req *pb.ListRequest) (*pb.ListSuccess, error) {
-	if err := protoapi.Validate(req); err != nil {
-		return nil, err
-	}
 	limit := serverapi.OffsetPaginationMaxLimit
 	if req.Limit != nil {
 		limit = int(*req.Limit)
 	}
 	var workflowID *runtimeids.WorkflowID
 	if req.WorkflowId != nil {
-		id, err := runtimeids.ParseWorkflowID(*req.WorkflowId)
+		id, err := runtimeids.WorkflowIDFromProto(*req.WorkflowId)
 		if err != nil {
 			return nil, err
 		}

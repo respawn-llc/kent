@@ -428,9 +428,6 @@ func (s *Store) ListWorkflows(ctx context.Context, req ListWorkflowsRequest) (Li
 	projectID := req.ProjectID
 	workflowID := req.WorkflowID
 	query := sqliteLowerASCII(strings.TrimSpace(req.Query))
-	if err := validateWorkflowListScopes(projectID, workflowID); err != nil {
-		return ListWorkflowsResult{}, err
-	}
 	rows, err := s.queries.ListWorkflowRecordsPage(ctx, sqlitegen.ListWorkflowRecordsPageParams{
 		PageLimit:   int64(req.Limit + 1),
 		PageOffset:  int64(req.Offset),
@@ -473,17 +470,6 @@ func (s *Store) ListWorkflows(ctx context.Context, req ListWorkflowsRequest) (Li
 		responseProjectID = &value
 	}
 	return ListWorkflowsResult{Workflows: out, ProjectID: responseProjectID, NextOffset: nextOffset}, nil
-}
-
-func validateWorkflowListScopes(projectID *string, workflowID *runtimeids.WorkflowID) error {
-	if projectID != nil &&
-		(strings.TrimSpace(*projectID) == "" || strings.TrimSpace(*projectID) != *projectID) {
-		return errors.New("workflow list project scope must be non-blank and unpadded")
-	}
-	if workflowID != nil && workflowID.IsZero() {
-		return errors.New("invalid workflow list workflow scope")
-	}
-	return nil
 }
 
 func validateNodeCompletionMode(kind workflow.NodeKind, mode string) error {
