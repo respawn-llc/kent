@@ -50,13 +50,7 @@ func newOnboardingFlowState(local config.LocalPreferences, facts *capabilitypb.F
 
 func onboardingSelectionsFromFacts(local config.LocalPreferences, facts *capabilitypb.Facts) (onboardingSelections, error) {
 	defaults := facts.GetDefaults()
-	if defaults == nil || defaults.Thinking == nil || defaults.Supervisor == nil {
-		return onboardingSelections{}, conversionError("facts.defaults", defaults, "visible defaults are required")
-	}
-	model, err := onboardingModelSelectionFromValue(defaults.PrimaryModelId, facts)
-	if err != nil {
-		return onboardingSelections{}, err
-	}
+	model := onboardingModelSelectionForModel(strings.TrimSpace(defaults.PrimaryModelId), facts)
 	themeSelection, err := seedThemeSelection(local.Theme)
 	if err != nil {
 		return onboardingSelections{}, err
@@ -122,11 +116,15 @@ func onboardingModelSelectionFromValue(value string, facts *capabilitypb.Facts) 
 	if model == "" {
 		return onboardingModelSelection{}, conversionError("model", value, "must not be blank")
 	}
+	return onboardingModelSelectionForModel(model, facts), nil
+}
+
+func onboardingModelSelectionForModel(model string, facts *capabilitypb.Facts) onboardingModelSelection {
 	kind := onboardingModelCustom
 	if modelFactForFacts(facts, model).Known {
 		kind = onboardingModelKnown
 	}
-	return onboardingModelSelection{kind: kind, value: model}, nil
+	return onboardingModelSelection{kind: kind, value: model}
 }
 
 func seedContextSelection(tokens int, model string, facts *capabilitypb.Facts) (onboardingContextSelection, error) {
@@ -196,10 +194,7 @@ func seedSupervisorSelection(choice *onboardingpb.SupervisorChoice, facts *capab
 		default:
 			return onboardingSupervisorSelection{}, conversionError("supervisor.model", choice.Model, "unsupported model choice")
 		}
-		override, err := onboardingModelSelectionFromValue(model, facts)
-		if err != nil {
-			return onboardingSupervisorSelection{}, err
-		}
+		override := onboardingModelSelectionForModel(strings.TrimSpace(model), facts)
 		reviewerModel = onboardingReviewerModelSelection{kind: onboardingReviewerModelOverridden, override: override}
 	}
 	reviewerThinking := onboardingReviewerThinkingSelection{kind: onboardingReviewerThinkingInherited}

@@ -5,6 +5,7 @@ import (
 
 	"core/shared/protoapi"
 	pb "core/shared/protoapi/gen/kent/api/capability"
+	onboardingpb "core/shared/protoapi/gen/kent/api/onboarding"
 	"google.golang.org/protobuf/proto"
 )
 
@@ -95,6 +96,20 @@ func TestCapabilitySkillEnablementCandidateName(t *testing.T) {
 		}
 		if err := protoapi.Validate(projection); (err == nil) != valid {
 			t.Errorf("candidate %q acceptance = %v", name, err)
+		}
+	}
+}
+
+func TestCapabilityDefaultModelIdentity(t *testing.T) {
+	for _, model := range []string{" \t", "\u0085", " model ", "\uFEFF"} {
+		valid := model == " model " || model == "\uFEFF"
+		defaults := &pb.DefaultFacts{
+			PrimaryModelId: model, Thinking: &pb.ThinkingDefaultFact{Mode: "default"},
+			CompactionMode: "native",
+			Supervisor:     &onboardingpb.SupervisorChoice{Frequency: onboardingpb.SupervisorFrequency_SUPERVISOR_FREQUENCY_OFF},
+		}
+		if err := protoapi.Validate(defaults); (err == nil) != valid {
+			t.Errorf("model %q acceptance = %v", model, err)
 		}
 	}
 }

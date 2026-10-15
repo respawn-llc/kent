@@ -1,5 +1,6 @@
 import { create, validate } from "@app/server-api-contract";
 import {
+  DefaultFactsSchema,
   ImportChoiceMode,
   ImportChoiceRefSchema,
   ImportItemKind,
@@ -10,8 +11,23 @@ import {
   ModelFactsSchema,
   ModelVerbosityFactSchema,
 } from "@app/server-api-contract/gen/kent/api/capability/capability_pb";
+import { SupervisorFrequency } from "@app/server-api-contract/gen/kent/api/onboarding/onboarding_pb";
 
 describe("Capability model facts", () => {
+  it("requires a substantive default model while preserving normalization", () => {
+    for (const primaryModelId of [" \t", "\u0085", " model ", "\uFEFF"]) {
+      const defaults = create(DefaultFactsSchema, {
+        primaryModelId, thinking: { mode: "default" }, compactionMode: "native",
+        supervisor: { frequency: SupervisorFrequency.OFF },
+      });
+      if (primaryModelId === " model " || primaryModelId === "\uFEFF") {
+        expect(() => validate(DefaultFactsSchema, defaults)).not.toThrow();
+      } else {
+        expect(() => validate(DefaultFactsSchema, defaults)).toThrow();
+      }
+    }
+  });
+
   it("requires substantive candidate names only in Skill Enablement projections", () => {
     for (const targetName of [" \t", "\u0085", " skill ", "\uFEFF"]) {
       const ref = create(ImportItemRefSchema, {
