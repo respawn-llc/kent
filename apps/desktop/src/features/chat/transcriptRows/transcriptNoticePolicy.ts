@@ -51,6 +51,7 @@ const markdownMessageTypes = new Set([
   "agents.md",
   "skills",
   "subagents",
+  "workspaces",
   "environment",
   "compaction_summary",
   "headless_mode",
@@ -170,7 +171,7 @@ function noticeRawText(notice: TranscriptNotice): string | undefined {
 }
 
 function noticeCompactText(notice: TranscriptNotice, compactText: string): string {
-  if (notice.MessageType === "agent_steer") return compactText;
+  if (notice.MessageType === "agent_steer" || notice.MessageType === "workspaces") return compactText;
   const typedText = firstPresent(
     notice.CompactLabel,
     notice.CondensedText,

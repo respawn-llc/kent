@@ -317,6 +317,7 @@ func TestDeveloperContextTranscriptRowsRespectVisibilityMatrix(t *testing.T) {
 		visibility  transcript.EntryVisibility
 	}{
 		{llm.MessageTypeSubagents, transcript.EntryVisibilityDetail},
+		{llm.MessageTypeWorkspaces, transcript.EntryVisibilityDetail},
 		{llm.MessageTypeWorkflowMode, transcript.EntryVisibilityOngoingCollapsed},
 		{llm.MessageTypeWorktreeMode, transcript.EntryVisibilityOngoing},
 		{llm.MessageTypeWorktreeModeExit, transcript.EntryVisibilityOngoing},

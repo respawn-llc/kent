@@ -70,7 +70,6 @@ function reasoning(value: T.ReasoningTraceUpdate): Payloads["reasoning_trace_upd
 
 function step(value: T.StepState): Payloads["step_state"] {
   return {
-    RunID: value.runId,
     StepID: value.stepId,
     Lifecycle: enumValue(value.lifecycle, {
       [T.StepLifecycle.STARTED]: "started",
@@ -119,7 +118,6 @@ function background(value: T.BackgroundActivity): Payloads["background_activity"
   return {
     ActivityID: value.activityId,
     ProcessID: value.processId,
-    OwnerRunID: value.ownerRunId,
     OwnerStepID: value.ownerStepId,
     Lifecycle: enumValue(value.lifecycle, {
       [T.BackgroundLifecycle.BACKGROUNDED]: "backgrounded",

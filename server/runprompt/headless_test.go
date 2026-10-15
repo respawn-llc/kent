@@ -56,12 +56,105 @@ import (
 )
 
 type recordingPromptHistoryStore struct {
-	entries []metadata.PromptHistoryEntry
+	entries  []metadata.PromptHistoryEntry
+	mu       sync.Mutex
+	recorded chan metadata.PromptHistoryEntry
 }
 
 func (s *recordingPromptHistoryStore) RecordPromptHistoryEntry(_ context.Context, entry metadata.PromptHistoryEntry) (metadata.PromptHistoryRecord, error) {
+	s.mu.Lock()
 	s.entries = append(s.entries, entry)
+	s.mu.Unlock()
+	if s.recorded != nil {
+		s.recorded <- entry
+	}
 	return metadata.PromptHistoryRecord{}, nil
+}
+
+func TestRunPromptActiveContinuationWaitsForAcceptingExecution(t *testing.T) {
+	started, release := make(chan struct{}), make(chan struct{})
+	var first sync.Once
+	var calls atomic.Int32
+	provider := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		calls.Add(1)
+		first.Do(func() { close(started); <-release })
+		modelstub.WriteCompletedResponseStream(w, "done", 1, 1)
+	}))
+	defer provider.Close()
+	var releaseOnce sync.Once
+	unblock := func() { releaseOnce.Do(func() { close(release) }) }
+	defer unblock()
+	history := &recordingPromptHistoryStore{recorded: make(chan metadata.PromptHistoryEntry, 2)}
+	fixture := newSelectedRunPromptFixture(t, provider.URL, history)
+	id := mustRunPromptSessionID(t, fixture.store.Meta().SessionID)
+	type outcome struct {
+		response *runpromptpb.Success
+		err      error
+	}
+	run := func(prompt string, done chan<- outcome) {
+		response, err := fixture.client.RunPrompt(t.Context(), requestfixture.RunPrompt(t, serverapi.RunPromptRequest{
+			Intent: serverapi.OpenExistingSessionLaunchIntent(id), Prompt: prompt,
+		}), nil)
+		done <- outcome{response, err}
+	}
+	original, continued := make(chan outcome, 1), make(chan outcome, 1)
+	progressEvents := make(chan *runpromptpb.ProgressEvent, 8)
+	progress := serverapi.RunPromptProgressFunc(func(event *runpromptpb.ProgressEvent) { progressEvents <- event })
+	go run("start", original)
+	<-started
+	<-history.recorded
+	self := id.String()
+	_, err := fixture.client.RunPrompt(t.Context(), requestfixture.RunPrompt(t, serverapi.RunPromptRequest{
+		Intent: serverapi.OpenExistingSessionLaunchIntent(id), CallerSessionID: &self, Prompt: "self target",
+	}), nil)
+	var selfTarget *serverapi.SessionSelfTargetError
+	if !errors.As(err, &selfTarget) {
+		t.Fatalf("self-target error = %v", err)
+	}
+	_, err = fixture.client.RunPrompt(t.Context(), requestfixture.RunPrompt(t, serverapi.RunPromptRequest{
+		Intent: serverapi.OpenExistingSessionLaunchIntent(runtimeids.NewSessionID()), Prompt: "missing target",
+	}), nil)
+	if !errors.Is(err, session.ErrSessionNotFound) {
+		t.Fatalf("missing-target error = %v", err)
+	}
+	go func() {
+		response, err := fixture.client.RunPrompt(t.Context(), requestfixture.RunPrompt(t, serverapi.RunPromptRequest{
+			Intent: serverapi.OpenExistingSessionLaunchIntent(id), Prompt: "redirect",
+		}), progress)
+		continued <- outcome{response, err}
+	}()
+	select {
+	case got := <-continued:
+		t.Fatalf("continuation finished before acceptance/outcome: %+v", got)
+	case <-history.recorded:
+	case <-time.After(10 * time.Second):
+		t.Fatal("continuation not accepted")
+	}
+	select {
+	case got := <-continued:
+		t.Fatalf("continuation finished before the execution: %+v", got)
+	default:
+	}
+	unblock()
+	for _, done := range []<-chan outcome{original, continued} {
+		got := <-done
+		if got.err != nil || got.response.SessionId != id.String() || got.response.GetFinalAnswer() != "done" {
+			t.Fatalf("outcome = %+v", got)
+		}
+	}
+	if calls.Load() != 2 {
+		t.Fatalf("provider calls = %d, want initial and one steered turn", calls.Load())
+	}
+	close(progressEvents)
+	finals := 0
+	for event := range progressEvents {
+		if message := event.GetAssistantMessage(); message != nil && message.Phase == runpromptpb.MessagePhase_MESSAGE_PHASE_FINAL {
+			finals++
+		}
+	}
+	if finals != 2 {
+		t.Fatalf("subsequent Final progress messages = %d, want both accepting-run steps", finals)
+	}
 }
 
 type gatedPromptHistoryStore struct {
@@ -311,11 +404,13 @@ func newTestHeadlessRuntimeAuthority(root string, authManager *auth.Manager, bac
 func newObservedTestHeadlessRuntimeAuthority(
 	t *testing.T,
 	root string,
+	sessionStore *session.Store,
+	metadataStore *metadata.Store,
 	authManager *auth.Manager,
 	background *shelltool.Manager,
 	storeOptions ...session.StoreOption,
 ) (*sessionruntime.Authority, *runtimecontrol.Service) {
-	observed := newObservedTestHeadlessRuntime(t, root, authManager, background, storeOptions...)
+	observed := newObservedTestHeadlessRuntime(t, root, sessionStore, metadataStore, authManager, background, storeOptions...)
 	return observed.authority, observed.observer
 }
 
@@ -332,29 +427,42 @@ func (emptyRunPromptWorkspaceMembership) FindContainingProjectWorkspace(
 type observedHeadlessTestRuntime struct {
 	authority         *sessionruntime.Authority
 	observer          *runtimecontrol.Service
+	metadataStore     *metadata.Store
 	initialPromptRead <-chan struct{}
 }
 
 func newObservedTestHeadlessRuntime(
 	t *testing.T,
 	root string,
+	sessionStore *session.Store,
+	metadataStore *metadata.Store,
 	authManager *auth.Manager,
 	background *shelltool.Manager,
 	storeOptions ...session.StoreOption,
 ) observedHeadlessTestRuntime {
-	db := testsetup.OpenStore(t, root)
-	runtimeRegistry := registry.NewRuntimeRegistry(db).WithAttentionNotifications(
+	if metadataStore == nil {
+		metadataRoot := root
+		if sessionStore != nil {
+			metadataRoot = filepath.Dir(sessionStore.Dir())
+		}
+		metadataStore = testsetup.OpenStore(t, metadataRoot)
+	}
+	if sessionStore != nil {
+		testsetup.ImportSessionProjectWorkspaceContext(t, metadataStore, sessionStore)
+	}
+	runtimeRegistry := registry.NewRuntimeRegistry(metadataStore).WithAttentionNotifications(
 		attentionnotify.NewBroker(),
 		testsetup.SessionNavigationBinding,
 	)
 	authority := sessionruntime.NewAuthority(sessionruntime.AuthorityOptions{
-		PersistenceRoot:     root,
-		AuthManager:         authManager,
-		Background:          background,
-		StoreOptions:        storeOptions,
-		WorkspaceMembership: emptyRunPromptWorkspaceMembership{},
-		ResourceLifecycle:   runtimeRegistry,
-		PromptFeed:          runtimeRegistry,
+		PersistenceRoot:               root,
+		AuthManager:                   authManager,
+		Background:                    background,
+		StoreOptions:                  storeOptions,
+		WorkspaceMembership:           emptyRunPromptWorkspaceMembership{},
+		ProjectWorkspaceContextReader: metadataStore,
+		ResourceLifecycle:             runtimeRegistry,
+		PromptFeed:                    runtimeRegistry,
 		EventFeed: func(ref runtimeids.SessionResourceRef, event runtime.Event) {
 			if err := runtimeRegistry.PublishAuthorityRuntimeEvent(ref, event); err != nil {
 				panic(err)
@@ -365,11 +473,12 @@ func newObservedTestHeadlessRuntime(
 		registry:    runtimeRegistry,
 		initialRead: make(chan struct{}),
 	}
-	observer := runtimecontrol.NewService(authority, db).
+	observer := runtimecontrol.NewService(authority, metadataStore).
 		WithLiveWatchPromptSources(pendingPrompts, runtimeRegistry)
 	return observedHeadlessTestRuntime{
 		authority:         authority,
 		observer:          observer,
+		metadataStore:     metadataStore,
 		initialPromptRead: pendingPrompts.initialRead,
 	}
 }
@@ -477,7 +586,7 @@ func newSelectedRunPromptFixture(
 		t.Fatalf("EnsureDurable: %v", err)
 	}
 	authManager := auth.NewManager(auth.NewMemoryStore(auth.EmptyState()), nil)
-	observed := newObservedTestHeadlessRuntime(t, root, authManager, nil, persistence.Options()...)
+	observed := newObservedTestHeadlessRuntime(t, root, store, nil, authManager, nil, persistence.Options()...)
 
 	if len(enabledTools) == 0 {
 		enabledTools = []toolspec.ID{toolspec.ToolAskQuestion}
@@ -564,10 +673,11 @@ func TestHeadlessSiblingWorkspacePatchUsesProjectBoundary(t *testing.T) {
 		Settings: testsetup.WriteProviderSettings(t, root, testsetup.WithResponsesProvider(config.Settings{
 			Model:        "gpt-6-sol",
 			EnabledTools: map[toolspec.ID]bool{toolspec.ToolPatch: true},
+			Reviewer:     config.ReviewerSettings{Frequency: "off"},
 			Shell:        config.ShellSettings{PostprocessingMode: config.ShellPostprocessingModeBuiltin},
 		}, provider.URL)),
 	}
-	authority, liveRunObserver := newObservedTestHeadlessRuntimeAuthority(t, root, authManager, nil, meta.AuthoritativeSessionStoreOptions()...)
+	authority, liveRunObserver := newObservedTestHeadlessRuntimeAuthority(t, root, store, meta, authManager, nil, meta.AuthoritativeSessionStoreOptions()...)
 	client := NewInProcessRunPromptClient(HeadlessBootstrap{
 		SessionLaunch: sessionlaunch.NewService(launch.Planner{
 			Config:            cfg,
@@ -726,7 +836,7 @@ func TestHeadlessChildUsesInheritedExecutionTargetAfterWorktreeReminderWasConsum
 	cfg.Settings.Worktrees = config.WorktreeSettings{BaseDir: managedBase}
 	cfg.Settings.ShellOutputMaxChars = 16_000
 	cfg.Settings.Shell.PostprocessingMode = config.ShellPostprocessingModeBuiltin
-	authority, liveRunObserver := newObservedTestHeadlessRuntimeAuthority(t, root, authManager, nil, meta.AuthoritativeSessionStoreOptions()...)
+	authority, liveRunObserver := newObservedTestHeadlessRuntimeAuthority(t, root, parent, meta, authManager, nil, meta.AuthoritativeSessionStoreOptions()...)
 	client := NewInProcessRunPromptClient(HeadlessBootstrap{
 		SessionLaunch: sessionlaunch.NewService(launch.Planner{
 			Config:            cfg,
@@ -1114,7 +1224,7 @@ func TestWorkflowCallerLaunchesDefaultAndCustomHeadlessSubagents(t *testing.T) {
 			AgentCallable: true,
 		},
 	}
-	authority, liveRunObserver := newObservedTestHeadlessRuntimeAuthority(t, root, authManager, nil, meta.AuthoritativeSessionStoreOptions()...)
+	authority, liveRunObserver := newObservedTestHeadlessRuntimeAuthority(t, root, parent, meta, authManager, nil, meta.AuthoritativeSessionStoreOptions()...)
 	client := NewInProcessRunPromptClient(HeadlessBootstrap{
 		SessionLaunch: sessionlaunch.NewService(launch.Planner{
 			Config:            cfg,
@@ -1310,7 +1420,7 @@ func TestInProcessRunPromptClientUsesSelectedSessionConnection(t *testing.T) {
 	}
 	testsetup.WriteProviderSettings(t, root, cfg.Settings)
 	history := &recordingPromptHistoryStore{}
-	authority, liveRunObserver := newObservedTestHeadlessRuntimeAuthority(t, root, authManager, nil, persistence.Options()...)
+	authority, liveRunObserver := newObservedTestHeadlessRuntimeAuthority(t, root, store, nil, authManager, nil, persistence.Options()...)
 	client := NewInProcessRunPromptClient(HeadlessBootstrap{
 		SessionLaunch:    newTestHeadlessSessionLaunch(t, cfg, containerDir, authManager, persistence),
 		RuntimeAuthority: authority,
@@ -1380,6 +1490,72 @@ func TestInProcessRunPromptClientUsesSelectedSessionConnection(t *testing.T) {
 }
 
 func TestInProcessRunPromptTimeoutCoversHistoryAndRunCleanup(t *testing.T) {
+	t.Run("post-final queued model work", func(t *testing.T) {
+		firstStarted, releaseFirst := make(chan struct{}), make(chan struct{})
+		queuedStarted, releaseQueued := make(chan struct{}), make(chan struct{})
+		var calls atomic.Int32
+		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			if calls.Add(1) == 1 {
+				close(firstStarted)
+				<-releaseFirst
+			} else {
+				close(queuedStarted)
+				<-releaseQueued
+			}
+			modelstub.WriteCompletedResponseStream(w, "done", 1, 1)
+		}))
+		var firstOnce sync.Once
+		unblockFirst := func() { firstOnce.Do(func() { close(releaseFirst) }) }
+		defer func() {
+			unblockFirst()
+			close(releaseQueued)
+			server.Close()
+		}()
+		fixture := newSelectedRunPromptFixture(t, server.URL, nil)
+		id := mustRunPromptSessionID(t, fixture.store.Meta().SessionID)
+		done := make(chan error, 1)
+		go func() {
+			_, err := fixture.client.RunPrompt(t.Context(), requestfixture.RunPrompt(t, serverapi.RunPromptRequest{
+				Intent: serverapi.OpenExistingSessionLaunchIntent(id), Prompt: "start", Timeout: 2 * time.Second,
+			}), nil)
+			done <- err
+		}()
+		select {
+		case <-firstStarted:
+		case <-time.After(10 * time.Second):
+			t.Fatal("first provider request did not start")
+		}
+		descriptor, err := session.NewScopedOpenSessionDescriptor(id, filepath.Dir(fixture.store.Dir()))
+		if err != nil {
+			t.Fatal(err)
+		}
+		err = fixture.authority.RunCurrentTurn(t.Context(), descriptor,
+			func(commit func() (bool, error)) (bool, error) { return commit() },
+			func(ctx context.Context, engine *runtime.Engine, accept runtime.CommandAcceptance) error {
+				_, err := engine.QueueUserInputWithAcceptance(ctx, runtime.QueuedUserInput{
+					ExecutionText: "later", CanonicalPresentation: "later",
+				}, accept)
+				return err
+			})
+		if err != nil {
+			t.Fatal(err)
+		}
+		unblockFirst()
+		select {
+		case <-queuedStarted:
+		case <-time.After(10 * time.Second):
+			t.Fatal("queued provider request did not start")
+		}
+		select {
+		case err := <-done:
+			if !errors.Is(err, context.DeadlineExceeded) {
+				t.Fatalf("RunPrompt error = %v, want deadline exceeded", err)
+			}
+		case <-time.After(4 * time.Second):
+			t.Fatal("RunPrompt lost its completion timeout while waiting for queued model work")
+		}
+	})
+
 	t.Run("prompt history", func(t *testing.T) {
 		var providerCalls atomic.Int32
 		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -1966,7 +2142,7 @@ func TestInProcessRunPromptClientUsesActiveShellPostprocessorWithSuppliedBackgro
 			},
 		}, server.URL)),
 	}
-	authority, liveRunObserver := newObservedTestHeadlessRuntimeAuthority(t, root, authManager, background, persistence.Options()...)
+	authority, liveRunObserver := newObservedTestHeadlessRuntimeAuthority(t, root, store, nil, authManager, background, persistence.Options()...)
 	client := NewInProcessRunPromptClient(HeadlessBootstrap{
 		SessionLaunch:    newTestHeadlessSessionLaunch(t, cfg, containerDir, authManager, persistence),
 		RuntimeAuthority: authority,
@@ -2130,7 +2306,7 @@ func TestInProcessRunPromptClientRejectsSelectedSessionWithGoal(t *testing.T) {
 		Settings:        testsetup.WriteProviderSettings(t, root, config.Settings{Model: "gpt-6-sol"}),
 	}
 	authManager := auth.NewManager(auth.NewMemoryStore(auth.EmptyState()), nil)
-	authority, liveRunObserver := newObservedTestHeadlessRuntimeAuthority(t, root, authManager, nil, persistence.Options()...)
+	authority, liveRunObserver := newObservedTestHeadlessRuntimeAuthority(t, root, store, nil, authManager, nil, persistence.Options()...)
 	client := NewInProcessRunPromptClient(HeadlessBootstrap{
 		SessionLaunch:    newTestHeadlessSessionLaunch(t, cfg, containerDir, authManager, persistence),
 		RuntimeAuthority: authority,
@@ -2185,7 +2361,7 @@ func TestInProcessRunPromptClientUnregistersRuntimeAfterCompletion(t *testing.T)
 			Shell:         config.ShellSettings{PostprocessingMode: config.ShellPostprocessingModeBuiltin},
 		}, server.URL)),
 	}
-	authority, liveRunObserver := newObservedTestHeadlessRuntimeAuthority(t, root, authManager, nil, persistence.Options()...)
+	authority, liveRunObserver := newObservedTestHeadlessRuntimeAuthority(t, root, store, nil, authManager, nil, persistence.Options()...)
 	client := NewInProcessRunPromptClient(HeadlessBootstrap{
 		SessionLaunch:    newTestHeadlessSessionLaunch(t, cfg, containerDir, authManager, persistence),
 		RuntimeAuthority: authority,
@@ -2266,7 +2442,7 @@ func TestHeadlessRunPromptOverridesRespectLockedModelContract(t *testing.T) {
 	cfg.Settings.Model = "base-model"
 	cfg.Settings = testsetup.WriteProviderSettings(t, cfg.PersistenceRoot, testsetup.WithResponsesProvider(cfg.Settings, server.URL))
 	cfg.Settings.EnabledTools = map[toolspec.ID]bool{toolspec.ToolPatch: true}
-	authority, liveRunObserver := newObservedTestHeadlessRuntimeAuthority(t, root, authManager, nil, persistence.Options()...)
+	authority, liveRunObserver := newObservedTestHeadlessRuntimeAuthority(t, root, store, nil, authManager, nil, persistence.Options()...)
 	client := NewInProcessRunPromptClient(HeadlessBootstrap{
 		SessionLaunch:    newTestHeadlessSessionLaunch(t, cfg, containerDir, authManager, persistence),
 		RuntimeAuthority: authority,

@@ -120,7 +120,7 @@ func (s *Service) generate(ctx context.Context, target llm.NanoTarget, prepare P
 	request.CodexDispatch = nil
 	if connection.Definition.Protocol == config.ConnectionChatGPT {
 		request.CodexDispatch, err = llm.NewCodexDispatchContext(llm.CodexDispatchFacts{
-			SessionID: identity, RunID: identity, CompactionGeneration: 0, RequestKind: llm.CodexRequestKindTurn.Optional(),
+			SessionID: identity, StepID: identity, CompactionGeneration: 0, RequestKind: llm.CodexRequestKindTurn.Optional(),
 		})
 		if err != nil {
 			return llm.Response{}, err

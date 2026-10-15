@@ -452,7 +452,6 @@ func transcriptGoalStatus(update runtime.GoalStatusUpdate) (*runtimepb.GoalView,
 type transcriptBackgroundActivityFacts struct {
 	activityID        runtimeids.BackgroundActivityID
 	processID         string
-	ownerRunID        runtimeids.RunID
 	ownerStepID       runtimeids.StepID
 	lifecycle         transcriptpb.BackgroundLifecycle
 	command           string
@@ -473,7 +472,6 @@ func transcriptBackgroundActivityFromFacts(facts transcriptBackgroundActivityFac
 	projected := &transcriptpb.BackgroundActivity{
 		ActivityId:        facts.activityID.String(),
 		ProcessId:         facts.processID,
-		OwnerRunId:        facts.ownerRunID.String(),
 		OwnerStepId:       facts.ownerStepID.String(),
 		Lifecycle:         facts.lifecycle,
 		Command:           facts.command,
@@ -503,10 +501,6 @@ func transcriptBackgroundActivity(evt runtime.BackgroundShellEvent) (*transcript
 	if err != nil {
 		return nil, err
 	}
-	runID, err := runtimeids.ParseRunID(strings.TrimSpace(evt.OwnerRunID))
-	if err != nil {
-		return nil, err
-	}
 	stepID, err := runtimeids.ParseStepID(strings.TrimSpace(evt.OwnerStepID))
 	if err != nil {
 		return nil, err
@@ -514,7 +508,6 @@ func transcriptBackgroundActivity(evt runtime.BackgroundShellEvent) (*transcript
 	return transcriptBackgroundActivityFromFacts(transcriptBackgroundActivityFacts{
 		activityID:        activityID,
 		processID:         strings.TrimSpace(evt.ID),
-		ownerRunID:        runID,
 		ownerStepID:       stepID,
 		lifecycle:         lifecycle,
 		command:           evt.Command,
@@ -541,10 +534,6 @@ func TranscriptBackgroundActivitiesFromProcessSnapshots(
 		if err != nil {
 			return nil, fmt.Errorf("background process %q activity id: %w", snapshot.ID, err)
 		}
-		runID, err := runtimeids.ParseRunID(snapshot.OwnerRunID)
-		if err != nil {
-			return nil, fmt.Errorf("background process %q owner run id: %w", snapshot.ID, err)
-		}
 		stepID, err := runtimeids.ParseStepID(snapshot.OwnerStepID)
 		if err != nil {
 			return nil, fmt.Errorf("background process %q owner step id: %w", snapshot.ID, err)
@@ -552,7 +541,6 @@ func TranscriptBackgroundActivitiesFromProcessSnapshots(
 		projected, err := transcriptBackgroundActivityFromFacts(transcriptBackgroundActivityFacts{
 			activityID:  activityID,
 			processID:   strings.TrimSpace(snapshot.ID),
-			ownerRunID:  runID,
 			ownerStepID: stepID,
 			lifecycle:   transcriptpb.BackgroundLifecycle_BACKGROUND_LIFECYCLE_BACKGROUNDED,
 			command:     snapshot.Command,
@@ -803,7 +791,6 @@ func transcriptStepStateMessages(evt runtime.Event) ([]*transcriptpb.Event, erro
 		return nil, err
 	}
 	state := &transcriptpb.StepState{
-		RunId:      strings.TrimSpace(evt.RunState.RunID),
 		StepId:     stepID,
 		ActiveKind: activeKind,
 	}

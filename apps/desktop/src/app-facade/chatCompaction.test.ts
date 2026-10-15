@@ -14,7 +14,7 @@ function activeHydration(count = 2): ChatTranscriptPayloadByKind["hydration"] {
       ...initial.RuntimeReadModelUpdate,
       Activity: {
         ...initial.RuntimeReadModelUpdate.Activity,
-        ActiveStep: { RunID: "run", StepID: "compact-step", ActiveKind: "compaction" },
+        ActiveStep: { StepID: "compact-step", ActiveKind: "compaction" },
       },
     },
   };

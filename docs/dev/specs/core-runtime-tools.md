@@ -28,6 +28,20 @@
 - Active Session Runtime mutation and model-loop ownership follow the [Runtime Steering And Model Loop](runtime-steering-loop.md) specification. Dormant Session mutations and long-running operations remain with their concrete domain owners.
 - Transport may correlate one request with one response, sequence connection setup, bound concurrent handling on one connection, apply socket backpressure, and stop connection-bound waiting and delivery when that connection closes. It never cancels a Chat Operation, rolls back a committed Session, or changes accepted work. Transport correlation is not a product identity, replay key, domain order, or server-work owner.
 
+## Workspaces Reminder
+
+- When a Project has more than one attached Workspace, Kent must include a typed Workspaces reminder in fresh Session context and in fresh post-compaction context before model work. This requirement includes Workflow Sessions and Sessions targeting Worktrees.
+- Reopening a Session, retrying a prepared request, or changing attachments during the current context must not add another Workspaces reminder or rewrite historical context.
+- The reminder must use the Project Workspace catalog order defined in [Projects And Workspaces](project-workspaces.md#api).
+- The reminder must consider only the first five catalog rows. Kent must check only those paths for availability and omit a row when its path is missing, is not a directory, or its directory lookup fails. Kent must not backfill omitted rows or inspect directory contents, Git, or read/write access.
+- The reminder must report the total attached Workspace count even when it omits unavailable paths. Availability filtering must not change the Workspace catalog or command listings.
+- The reminder heading must be `This project <ProjectName> has <WorkspaceCount> workspaces:`.
+- Each included Workspace must appear as a path bullet. The Project default Workspace must have the suffix ` (default)`, independently of the Session's Main Workspace or Worktree.
+- Reminder paths under home must use `~` shortening. Reminder paths must not use Working Directory-relative shortening. Paths outside home must be absolute.
+- When more than five Workspaces are attached, the reminder must end with the bullet ``<WorkspaceCount minus 5> more. `kent project workspaces` to list all``. Otherwise it must omit that bullet.
+- A Project or catalog read failure must prevent request preparation and surface the failure for explicit retry. An individual directory lookup failure must only omit that Workspace.
+- Client presentation is defined in [TUI Transcript](tui-transcript.md) and [Desktop Chat](desktop-chat.md).
+
 ## Skills And Generated Assets
 
 - Kent must inject each `AGENTS.md` as Markdown with the H1 header `# Authoritative instructions, rules, and important context from the <path> file:`, a blank line, and the full unmodified file content. Kent must not wrap that content in a code fence or add a separate `source:` line.
@@ -484,7 +498,7 @@ You can use `kent run steer <source-session-id> "message"` to respond.
 - A Goal mutation response is exactly one of authoritative Goal or authoritative Clear. Each result carries Goal availability independently and may omit it.
 - Set, Pause, Resume, and Complete return the authoritative durable Goal. Clear returns authoritative durable Goal absence.
 - Goal Set requests must carry an explicit execution policy. `start_or_continue` resolves and prepares the target Session when required before invoking ordinary Goal Set behavior, while `preserve_runtime_state` invokes the live or dormant Goal mutation owner without preparing a Runtime.
-- New Chat Goal Set uses `start_or_continue`, and exact-Session Desktop Goal Set uses `start_or_continue`. Exact-Session CLI and model-shell Goal Set uses `preserve_runtime_state`; an agent request additionally carries the exact Run and Agent Step identity required by the existing Goal admission authority.
+- New Chat Goal Set uses `start_or_continue`, and exact-Session Desktop Goal Set uses `start_or_continue`. Exact-Session CLI and model-shell Goal Set uses `preserve_runtime_state`; an agent request additionally carries the exact Live Execution's Step ID required by the existing Goal admission authority.
 - A target-aware Goal Set operation returns the exact resolved Session whenever Session creation succeeded, including when later Goal validation or admission rejects the mutation. A failure after committed Goal work must remain a diagnostic on the successful Session-bearing result and must not be reported as an uncreated Session or replayed.
 - `kent goal clear` prints `Goal cleared` after a successful authoritative Clear response.
 - The public Goal mutation protocol uses only that closed result. It never reuses the read-only Goal response, never combines variants, and has no response-shape negotiation or fallback.
@@ -504,9 +518,9 @@ You can use `kent run steer <source-session-id> "message"` to respond.
 - A same-Step Goal mutation that leaves an active Goal after terminal Workflow completion does not start Goal continuation from that completion boundary. The Goal remains active and idle until later explicit human input starts ordinary work.
 - With an Active Session Runtime, Goal mutations must persist immediately and atomically in Goal admission order. Their model-facing notices must enter the Engine Intent Queue in the same order and wait for the next Step Boundary.
 - Without an Active Session Runtime, the dormant Goal owner persists the durable Goal update and corresponding model-facing notice without starting a Runtime.
-- Goal mutation requests from every client must return the persisted Goal result without waiting for a Step Boundary or model-visible reminder delivery. An allowed agent `goal set` or confirmed `goal complete` must validate the current Exact Execution Scope, Run, and Agent Step and persist the mutation within that admission.
+- Goal mutation requests from every client must return the persisted Goal result without waiting for a Step Boundary or model-visible reminder delivery. An allowed agent `goal set` or confirmed `goal complete` must validate the current Exact Execution Scope and Live Execution's Step ID and persist the mutation within that admission.
 - If the originating Agent Step ends first, the agent Goal mutation must reject without changing the Goal. If admission completes first, it must return the committed Goal, including its identity and timestamps. Terminal Workflow completion earlier in that still-open Step does not by itself reject or revoke the Goal admission.
-- After terminal Workflow completion commits, exact Goal admission remains available only for that same still-open Scope, Run, and Agent Step. Stop, prompt answers, exact steer, and duplicate Workflow completion remain unavailable while caused tool/results finish.
+- After terminal Workflow completion commits, exact Goal admission remains available only for that same still-open Scope and Agent Step, identified by the Live Execution's Step ID. Stop, prompt answers, exact steer, and duplicate Workflow completion remain unavailable while caused tool/results finish.
 - Goal validation must use the durable Goal, including every earlier committed Goal mutation, rather than a scheduled projection.
 - A stale agent execution must reject before persistence. While the current Runtime remains available, a later notice-delivery failure must appear as Runtime/model-visible failure feedback; Kent must not undo the committed Goal, rewrite the completed shell result, or replay the mutation.
 - Graceful Core shutdown gives pending Goal notices and Goal failure feedback no Goal-specific handling or delivery guarantee. Shutdown does not wait for a final attempt or add Goal-specific validation, error handling, logging, atomicity, persistence, retry, replay, or fallback for that work.

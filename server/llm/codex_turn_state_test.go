@@ -66,7 +66,7 @@ func newTestCodexDispatch(t *testing.T) *CodexDispatchContext {
 	t.Helper()
 	dispatch, err := NewCodexDispatchContext(CodexDispatchFacts{
 		SessionID:            "session-1",
-		RunID:                "run-1",
+		StepID:               "step-1",
 		CompactionGeneration: 1,
 		RequestKind:          CodexRequestKindTurn.Optional(),
 	})

@@ -5,6 +5,21 @@ import type { ChatTranscriptCommittedRow } from "@/api";
 import { projectNotice } from "./transcriptNoticePolicy";
 
 describe("Chat notice policy", () => {
+  it("uses client prose for the Workspaces collapsed summary", () => {
+    const policy = projectNotice(
+      noticeRow({
+        MessageType: "workspaces",
+        CompactLabel: "server label",
+        CondensedText: "server condensed text",
+        Diagnostic: { Code: "workspaces", Detail: "Workspace context" },
+      }),
+      prose,
+    );
+    expect(policy?.kind).toBe("disclosure");
+    if (policy?.kind !== "disclosure") throw new Error("Expected Workspaces disclosure.");
+    expect(policy.summary).toBe(prose.compact);
+  });
+
   it("uses client prose for agent steer summaries and preserves the message body", () => {
     const detail = "message from the sending Session";
     const policy = projectNotice(
@@ -78,6 +93,15 @@ describe("Chat notice policy", () => {
         row: noticeRow({
           MessageType: "agents.md",
           Diagnostic: { Code: "agents.md", Detail: "Markdown context" },
+        }),
+        bodyKind: "markdown",
+        defaultExpanded: false,
+      },
+      {
+        name: "Workspaces context",
+        row: noticeRow({
+          MessageType: "workspaces",
+          Diagnostic: { Code: "workspaces", Detail: "Workspace context" },
         }),
         bodyKind: "markdown",
         defaultExpanded: false,

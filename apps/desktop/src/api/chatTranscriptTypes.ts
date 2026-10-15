@@ -30,7 +30,7 @@ export type ChatActiveKind =
 export type ChatActivityFacts = Readonly<{
   State:
     "unavailable" | "registered_idle" | "starting" | "running" | "awaiting_prompt" | "draining" | "closing";
-  ActiveStep: Readonly<{ RunID: string; StepID: string; ActiveKind: ChatActiveKind }> | null;
+  ActiveStep: Readonly<{ StepID: string; ActiveKind: ChatActiveKind }> | null;
   Reviewer: "inactive" | "invoking" | "addressing_feedback";
   QueueAccepting: boolean;
   DiagnosticRecovery: boolean;
@@ -266,7 +266,6 @@ export interface ChatTranscriptPayloadByKind {
   }>;
   human_input_interrupted: Readonly<{ Items: readonly Readonly<{ QueueItemID: string; Text: string }>[] }>;
   step_state: Readonly<{
-    RunID: string;
     StepID: string;
     Lifecycle: "started" | "finished";
     ActiveKind: ChatActiveKind;
@@ -312,7 +311,6 @@ export interface ChatTranscriptPayloadByKind {
   background_activity: Readonly<{
     ActivityID: string;
     ProcessID: string;
-    OwnerRunID: string;
     OwnerStepID: string;
     Lifecycle: "backgrounded" | "completed" | "killed";
     Command: string;

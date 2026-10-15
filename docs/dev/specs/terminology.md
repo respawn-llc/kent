@@ -400,7 +400,7 @@ A server-owned operation that resolves a Chat target, optionally creates a Sessi
 
 ### Active Session Runtime
 
-The shared process-local resource for one Session. Interactive clients, headless runs, and Workflow execution use the same resource as equal control surfaces. An Active Session Runtime may be Idle, with no live Exact Execution Scope, or Executing, with one live Exact Execution Scope and Run. A durable Session may have no Active Session Runtime.
+The shared process-local resource for one Session. Interactive clients, headless runs, and Workflow execution use the same resource as equal control surfaces. An Active Session Runtime may be Idle, with no live Exact Execution Scope, or Executing, with one live Exact Execution Scope and Live Execution. A durable Session may have no Active Session Runtime.
 
 ### RuntimeActivity
 
@@ -428,11 +428,11 @@ The increasing Session value that orders live status, prompts, main-view updates
 
 ### Forced Local Detach
 
-The second-`Ctrl+C` exit path while an Interrupt is pending for the same Run and Step. The TUI exits and detaches without force-closing the shared Active Session Runtime. A different Running Run or Step sends its own Interrupt instead.
+The second-`Ctrl+C` exit path while an Interrupt is pending for the same Live Execution, identified by its Step ID. The TUI exits and detaches without force-closing the shared Active Session Runtime. A different running Live Execution sends its own Interrupt instead.
 
-### Run
+### Live Execution
 
-The process-local identity of one live model-loop run inside an Exact Execution Scope. A Run contains one or more Agent Steps and remains distinct from the durable Session and Workflow Task.
+The process-local live work in an Active Session Runtime, distinct from the durable Session and Workflow Task. Kent must identify this work with one Step ID, without a separate runtime Run identity. The Step ID must remain unchanged across the execution's provider requests and caused tool calls. The identity does not change the per-request Agent Step boundaries.
 
 ### Agent Step
 
@@ -440,7 +440,7 @@ The protected interval from one provider-request start through its response and 
 
 ### Workflow-Completed Agent Step
 
-An Agent Step whose terminal Workflow completion has committed while caused tool calls or results are still finishing. It retains the originating Exact Execution Scope, Run, and Agent Step provenance. It permits only remaining caused tool/result handling and matching same-Step exact Goal admission. It is not interruptible and accepts no prompt answer, exact steer, or duplicate Workflow completion.
+An Agent Step whose terminal Workflow completion has committed while caused tool calls or results are still finishing. It retains the originating Exact Execution Scope and Live Execution's Step ID. It permits only remaining caused tool/result handling and matching same-Step exact Goal admission. It is not interruptible and accepts no prompt answer, exact steer, or duplicate Workflow completion.
 
 ### Result Group
 

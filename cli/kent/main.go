@@ -375,12 +375,19 @@ func runSubcommand(args []string) int {
 		Tools:                     flags.Tools,
 		ConfigRoot:                strings.TrimSpace(flags.PersistenceRoot),
 	}
+	if *fastRole {
+		opts.RunAgentFlag = app.RunAgentFlagFast
+	}
 
 	var progress serverapi.RunPromptProgressSink
 	var progressRenderer *runProgressRenderer
-	if progressMode == runProgressModeStderr {
-		progressRenderer = newRunProgressRenderer(os.Stdout, os.Stderr)
-		progress = progressRenderer
+	if outputMode != runOutputModeJSON {
+		renderer := newRunProgressRenderer(os.Stdout, os.Stderr)
+		renderer.mode, renderer.agentFlag = progressMode, opts.RunAgentFlag
+		progress = renderer
+		if progressMode == runProgressModeStderr {
+			progressRenderer = renderer
+		}
 	}
 	result, runErr := runPromptApp(ctx, opts, prompt, timeout, progress)
 	continueRoot := continueCommandPersistenceRoot(flags.PersistenceRoot)
@@ -401,7 +408,7 @@ func runSubcommand(args []string) int {
 				SessionName: result.SessionName,
 				ContinueID:  continueID,
 				ContinueCmd: continueCmd,
-				Warnings:    append([]string(nil), result.Warnings...),
+				Warnings:    result.AllWarnings(),
 				DurationMS:  result.Duration.Milliseconds(),
 				Error:       newRunJSONError(runErr),
 			})
@@ -425,7 +432,7 @@ func runSubcommand(args []string) int {
 			SessionName: result.SessionName,
 			ContinueID:  continueID,
 			ContinueCmd: continueCmd,
-			Warnings:    append([]string(nil), result.Warnings...),
+			Warnings:    result.AllWarnings(),
 			DurationMS:  result.Duration.Milliseconds(),
 		}
 		switch outcome := result.Outcome.(type) {

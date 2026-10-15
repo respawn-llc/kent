@@ -18,11 +18,16 @@ import (
 )
 
 type RunPromptResult struct {
-	Identity    *runtimeids.SessionIdentity
-	SessionName *string
-	Outcome     RunPromptOutcome
-	Duration    time.Duration
-	Warnings    []string
+	Identity          *runtimeids.SessionIdentity
+	SessionName       *string
+	Outcome           RunPromptOutcome
+	Duration          time.Duration
+	Warnings          []string
+	AdmissionWarnings []string
+}
+
+func (r RunPromptResult) AllWarnings() []string {
+	return append(append([]string(nil), r.Warnings...), r.AdmissionWarnings...)
 }
 
 type RunPromptOutcome interface {
@@ -41,7 +46,13 @@ type RunPromptPendingQuestion struct {
 
 func (RunPromptPendingQuestion) runPromptOutcome() {}
 
-func runPrompt(ctx context.Context, client apicontract.RunPromptService, opts Options, initialSessionID, prompt string, timeout time.Duration, progress serverapi.RunPromptProgressSink) (RunPromptResult, error) {
+func runPrompt(ctx context.Context, client apicontract.RunPromptService, opts Options, initialSessionID, prompt string, timeout time.Duration, progress serverapi.RunPromptProgressSink) (result RunPromptResult, err error) {
+	collector := &runAdmissionCollector{progress: progress}
+	defer func() {
+		var warningErr error
+		result.AdmissionWarnings, warningErr = collector.warnings(opts.RunAgentFlag)
+		err = errors.Join(err, warningErr)
+	}()
 	intent, err := runPromptLaunchIntent(opts, initialSessionID)
 	if err != nil {
 		return RunPromptResult{}, err
@@ -60,7 +71,7 @@ func runPrompt(ctx context.Context, client apicontract.RunPromptService, opts Op
 	if timeout != 0 {
 		request.Timeout = durationpb.New(timeout)
 	}
-	response, err := client.RunPrompt(ctx, request, progress)
+	response, err := client.RunPrompt(ctx, request, collector)
 	var denied *serverapi.SubagentLaunchDeniedError
 	if callerSessionID != nil && errors.As(err, &denied) && denied.Kind == serverapi.SubagentLaunchDenialCallerMissing {
 		err = startupconfig.WorkspaceContextSessionError(*callerSessionID, err)
@@ -97,7 +108,7 @@ func runPrompt(ctx context.Context, client apicontract.RunPromptService, opts Op
 	default:
 		return RunPromptResult{}, errors.Join(err, errors.New("Run response has no outcome"))
 	}
-	result := RunPromptResult{
+	result = RunPromptResult{
 		Identity:    &identity,
 		SessionName: response.SessionName,
 		Outcome:     outcome,

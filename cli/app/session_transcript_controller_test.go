@@ -510,7 +510,7 @@ func ongoingTranscriptMessage(sequence uint64, kind reflect.Type) *transcriptpb.
 			CreatedAt: timestamppb.New(time.Unix(1, 0).UTC()), UpdatedAt: timestamppb.New(time.Unix(1, 0).UTC())}}
 	case reflect.TypeFor[*transcriptpb.Event_BackgroundActivity]():
 		preview := "running tests"
-		payload = &transcriptpb.BackgroundActivity{ActivityId: ongoingTestBackgroundActivityID().String(), ProcessId: "process-1", OwnerRunId: ongoingTestRunID().String(), OwnerStepId: ongoingTestStepID().String(),
+		payload = &transcriptpb.BackgroundActivity{ActivityId: ongoingTestBackgroundActivityID().String(), ProcessId: "process-1", OwnerStepId: ongoingTestStepID().String(),
 			Lifecycle: transcriptpb.BackgroundLifecycle_BACKGROUND_LIFECYCLE_BACKGROUNDED,
 			Command:   "go test ./...",
 			Workdir:   "/tmp",
@@ -529,14 +529,6 @@ func ongoingTranscriptMessage(sequence uint64, kind reflect.Type) *transcriptpb.
 
 func ongoingTestSessionID() runtimeids.SessionID {
 	id, err := runtimeids.ParseSessionID("aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa")
-	if err != nil {
-		panic(err)
-	}
-	return id
-}
-
-func ongoingTestRunID() runtimeids.RunID {
-	id, err := runtimeids.ParseRunID("bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb")
 	if err != nil {
 		panic(err)
 	}

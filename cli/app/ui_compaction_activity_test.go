@@ -14,7 +14,7 @@ func TestRuntimeActivityOwnsCompactionStatus(t *testing.T) {
 			if err := model.applyRuntimeActivityProjection(&runtimepb.Activity{
 				State:    runtimepb.ActivityState_RUNTIME_ACTIVITY_RUNNING,
 				Reviewer: runtimepb.ReviewerActivity_REVIEWER_ACTIVITY_INACTIVE,
-				ActiveStep: &runtimepb.ActiveStep{RunId: ongoingTestRunID().String(), StepId: ongoingTestStepID().String(),
+				ActiveStep: &runtimepb.ActiveStep{StepId: ongoingTestStepID().String(),
 					ActiveKind: kind}}); err != nil {
 				t.Fatalf("apply running compaction activity: %v", err)
 			}

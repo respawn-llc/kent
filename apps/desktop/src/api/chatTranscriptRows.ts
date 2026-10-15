@@ -53,6 +53,7 @@ function messageType(value: T.NoticeMessageType): string {
     [T.NoticeMessageType.AGENTS_MD]: "agents.md",
     [T.NoticeMessageType.SKILLS]: "skills",
     [T.NoticeMessageType.SUBAGENTS]: "subagents",
+    [T.NoticeMessageType.WORKSPACES]: "workspaces",
     [T.NoticeMessageType.ENVIRONMENT]: "environment",
     [T.NoticeMessageType.COMPACTION_SUMMARY]: "compaction_summary",
     [T.NoticeMessageType.INTERRUPTION]: "interruption",

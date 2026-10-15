@@ -28,7 +28,7 @@ it.each([false, true])(
           ...initial.RuntimeReadModelUpdate,
           Activity: {
             ...initial.RuntimeReadModelUpdate.Activity,
-            ActiveStep: { RunID: "run", StepID: "step", ActiveKind: "compaction" },
+            ActiveStep: { StepID: "step", ActiveKind: "compaction" },
           },
         },
       },

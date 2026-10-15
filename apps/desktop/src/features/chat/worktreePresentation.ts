@@ -1,5 +1,10 @@
 import type { ChatExecutionTarget, WorktreeListEntry, WorktreeList } from "@/api";
 
+interface WorktreeBadge {
+  label: "external" | "missing" | "inUse";
+  tone: "danger" | "neutral" | "warning";
+}
+
 export function worktreeRow(entry: WorktreeListEntry, workspaceName: string) {
   const topology = entry.topology?.topology;
   const projection = entry.projection;
@@ -8,15 +13,28 @@ export function worktreeRow(entry: WorktreeListEntry, workspaceName: string) {
   const identity = worktreeIdentity(facts);
   const { git, indicator } = facts;
   const ref = git?.branchName ?? git?.headObject;
+  const topologyIndicator = git?.pathAvailable === false ? ("missing" as const) : indicator;
   return {
     key: projection.selector,
     ...identity,
     ref: ref === identity.title ? undefined : ref,
-    indicator: git?.pathAvailable === false ? ("missing" as const) : indicator,
+    badges: worktreeBadges(topologyIndicator, projection.isInUse),
     selected: projection.isCurrent,
     switch: projection.switch,
     delete: projection.deletePreview,
   };
+}
+
+function worktreeBadges(indicator: "external" | "missing" | undefined, isInUse: boolean): WorktreeBadge[] {
+  const badges: WorktreeBadge[] = [];
+  if (indicator !== undefined) {
+    badges.push({
+      label: indicator,
+      tone: indicator === "missing" ? "danger" : "warning",
+    });
+  }
+  if (isInUse) badges.push({ label: "inUse", tone: "neutral" });
+  return badges;
 }
 
 function worktreeIdentity({ title, git, kent }: ReturnType<typeof rowFacts>) {

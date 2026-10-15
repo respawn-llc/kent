@@ -130,7 +130,7 @@ func TestNanoChatGPTDispatchIdentityAndRetry(t *testing.T) {
 		request, err := nanoTestRequest(target)
 		request.SessionID = &parentID
 		request.CodexDispatch, _ = llm.NewCodexDispatchContext(llm.CodexDispatchFacts{
-			SessionID: parentID, RunID: uuid.NewString(), CompactionGeneration: 9, RequestKind: llm.CodexRequestKindTurn.Optional(),
+			SessionID: parentID, StepID: uuid.NewString(), CompactionGeneration: 9, RequestKind: llm.CodexRequestKindTurn.Optional(),
 		})
 		return request, err
 	})

@@ -270,10 +270,6 @@ func taskSessionRuntimeActivity(t *testing.T, state runtimepb.ActivityState) *ru
 			QueueAccepting: state == runtimepb.ActivityState_RUNTIME_ACTIVITY_REGISTERED_IDLE,
 		}
 	}
-	runID, err := runtimeids.ParseRunID("11111111-1111-4111-8111-111111111111")
-	if err != nil {
-		t.Fatalf("ParseRunID: %v", err)
-	}
 	stepID, err := runtimeids.ParseStepID("22222222-2222-4222-8222-222222222222")
 	if err != nil {
 		t.Fatalf("ParseStepID: %v", err)
@@ -282,7 +278,7 @@ func taskSessionRuntimeActivity(t *testing.T, state runtimepb.ActivityState) *ru
 		State:    state,
 		Reviewer: runtimepb.ReviewerActivity_REVIEWER_ACTIVITY_INACTIVE,
 		ActiveStep: &runtimepb.ActiveStep{
-			RunId: runID.String(), StepId: stepID.String(), ActiveKind: runtimepb.ActivityActiveKind_RUNTIME_ACTIVITY_ACTIVE_KIND_WORKFLOW_TURN,
+			StepId: stepID.String(), ActiveKind: runtimepb.ActivityActiveKind_RUNTIME_ACTIVITY_ACTIVE_KIND_WORKFLOW_TURN,
 		},
 		QueueAccepting: true,
 	}

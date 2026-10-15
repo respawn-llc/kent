@@ -641,7 +641,6 @@ func (s *defaultStepExecutor) prepareCompletedResponse(ctx context.Context, step
 	preparedLocalCalls, err := prepareExecutorToolCalls(
 		e,
 		stepID,
-		activeRunIDForStep(e, stepID),
 		e.currentNodeExecutionActive(),
 		acceptedCalls.local,
 	)

@@ -100,6 +100,9 @@ func newRuntimeViewEngine(t *testing.T, store *session.Store, client llm.Client,
 	if len(cfg) > 0 {
 		engineConfig = cfg[0]
 	}
+	if engineConfig.ProjectWorkspaceContextReader == nil {
+		engineConfig.ProjectWorkspaceContextReader = testsetup.OpenSessionProjectWorkspaceContextReader(t, store)
+	}
 	eventLog, err := store.MaterializeEventLog()
 	if err != nil {
 		t.Fatalf("materialize event log: %v", err)

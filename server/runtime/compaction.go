@@ -457,7 +457,17 @@ func (e *Engine) maybeReserveEagerCompaction(activeKind ActiveKind, resultKind L
 			if !planner.autoCompactionAvailable(planningSnapshot) || !planner.eagerCompactionEligible(planningSnapshot) {
 				return nil
 			}
-			_, receipt, compactErr := e.compactNowWithAcceptance(stepCtx, stepID, ActiveKindCompaction, nil, compactionModeAuto, compactionInstructionsInput{}, false, nil, modelRequestSingleAttempt)
+			_, receipt, compactErr := e.compactNowWithAcceptance(
+				stepCtx,
+				stepID,
+				ActiveKindCompaction,
+				nil,
+				compactionModeAuto,
+				compactionInstructionsInput{},
+				false,
+				nil,
+				modelRequestSingleAttempt,
+			)
 			if compactErr == nil || receipt.Committed {
 				e.handoffRuntimeState().ClearRequest()
 			}

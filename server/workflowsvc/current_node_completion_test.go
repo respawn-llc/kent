@@ -44,7 +44,6 @@ func TestCompleteWorkflowTaskReturnsPendingApprovalWithoutReplacingCurrentNode(t
 	response, err := service.CompleteWorkflowTask(context.Background(), &taskpb.CompleteRequest{
 		ActorKind:      taskpb.CompleteActorKind_COMPLETE_ACTOR_KIND_AGENT,
 		AgentSessionId: proto.String(sessionID.String()),
-		RunId:          proto.String(currentNodeCompletionRunID(t).String()),
 		StepId:         proto.String(currentNodeCompletionStepID(t).String()),
 		TransitionId:   proto.String("done"),
 	})
@@ -85,7 +84,6 @@ func TestCompleteWorkflowTaskReturnsResultDespitePostCommitDiagnostic(t *testing
 		context.Background(), &taskpb.CompleteRequest{
 			ActorKind:      taskpb.CompleteActorKind_COMPLETE_ACTOR_KIND_AGENT,
 			AgentSessionId: proto.String(runtimeids.NewSessionID().String()),
-			RunId:          proto.String(currentNodeCompletionRunID(t).String()),
 			StepId:         proto.String(currentNodeCompletionStepID(t).String()),
 			TransitionId:   proto.String("done"),
 		},
@@ -355,7 +353,6 @@ func TestCompleteWorkflowTaskMapsMissingLiveSourceFailure(t *testing.T) {
 	_, err := currentNodeCompletionService(execution).CompleteWorkflowTask(context.Background(), &taskpb.CompleteRequest{
 		ActorKind:      taskpb.CompleteActorKind_COMPLETE_ACTOR_KIND_AGENT,
 		AgentSessionId: proto.String(sessionID.String()),
-		RunId:          proto.String(currentNodeCompletionRunID(t).String()),
 		StepId:         proto.String(currentNodeCompletionStepID(t).String()),
 		TransitionId:   proto.String("done"),
 	})
@@ -369,15 +366,6 @@ func currentNodeCompletionService(execution *currentNodeCompletionExecutionStub)
 		readModels:           ReadModels{TaskDetail: currentNodeCompletionUnavailableTaskDetail{}},
 		currentNodeExecution: execution,
 	}
-}
-
-func currentNodeCompletionRunID(t *testing.T) *runtimeids.RunID {
-	t.Helper()
-	value, err := runtimeids.ParseRunID("11111111-1111-4111-8111-111111111111")
-	if err != nil {
-		t.Fatalf("parse Run ID: %v", err)
-	}
-	return &value
 }
 
 func currentNodeCompletionStepID(t *testing.T) *runtimeids.StepID {
@@ -594,7 +582,6 @@ func (*currentNodeCompletionExecutionStub) EnsureTaskQuiescent(workflow.TaskID) 
 func (s *currentNodeCompletionExecutionStub) CompleteSessionCurrentNode(
 	_ context.Context,
 	sessionID runtimeids.SessionID,
-	_ runtimeids.RunID,
 	_ runtimeids.StepID,
 	_ string,
 	_ map[string]string,

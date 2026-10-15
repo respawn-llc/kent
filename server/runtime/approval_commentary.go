@@ -52,7 +52,7 @@ func (e *Engine) validateExactApprovalCommentary(identity tools.ExecutionIdentit
 		return err
 	}
 	snapshot := e.ActiveStepSnapshot()
-	if snapshot == nil || snapshot.RunID != identity.RunID || snapshot.StepID != identity.StepID {
+	if snapshot == nil || snapshot.StepID != identity.StepID {
 		return ErrActiveStepInactive
 	}
 	_, exists, err := e.transcriptRuntimeState().ToolCallSnapshot(string(identity.ToolCallID))

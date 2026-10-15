@@ -104,6 +104,7 @@ type Config struct {
 	ToolPreambles                   bool
 	CurrentNodeExecution            *workflowruntime.CurrentNodeExecutionConfig
 	WorkflowPrompt                  *workflowruntime.PromptContract
+	ProjectWorkspaceContextReader   ProjectWorkspaceContextReader
 	BackgroundShellManager          *shelltool.Manager
 	AskQuestionBatchSkipped         func(tools.AskQuestionBatchMetadata)
 	TranscriptWorkingDir            string
@@ -984,7 +985,7 @@ func (e *Engine) runUserShellCommand(ctx context.Context, command string, onActi
 		var completed bool
 		var execErr error
 		result, completed, execErr = e.executePreparedToolCall(
-			stepCtx, stepID, activeRunIDForStep(e, stepID), call,
+			stepCtx, stepID, call,
 			toolspec.ToolExecCommand, true, nil, nil,
 		)
 		if !completed {
@@ -1287,7 +1288,6 @@ func (e *Engine) executeAcceptedToolCallsCoordinated(
 	prepared, err := prepareExecutorToolCalls(
 		e,
 		stepID,
-		activeRunIDForStep(e, stepID),
 		e.currentNodeExecutionActive(),
 		calls.local,
 	)

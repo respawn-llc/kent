@@ -986,8 +986,9 @@ func newProjectViewRuntimeAuthority(
 		t.Fatalf("parse session ID: %v", err)
 	}
 	authority := sessionruntime.NewAuthority(sessionruntime.AuthorityOptions{
-		PersistenceRoot: cfg.PersistenceRoot,
-		StoreOptions:    store.AuthoritativeSessionStoreOptions(),
+		PersistenceRoot:               cfg.PersistenceRoot,
+		ProjectWorkspaceContextReader: store,
+		StoreOptions:                  store.AuthoritativeSessionStoreOptions(),
 	})
 	t.Cleanup(func() {
 		if err := authority.Close(context.Background()); err != nil {

@@ -65,7 +65,7 @@ func TestEnterWorktreeSchedulesCrossWorkspaceResolutionBeforeSelectorExists(t *t
 	retargeter := &scheduledSessionRetargeterStub{}
 	env.service.sessionRetargeter = retargeter
 	operationID := clientui.NewWorktreeTransitionID()
-	runID, stepID := uuid.NewString(), uuid.NewString()
+	stepID := uuid.NewString()
 	requestCtx, cancelRequest := context.WithCancel(t.Context())
 
 	ack, err := env.service.EnterWorktree(requestCtx, &worktreepb.EnterRequest{
@@ -76,7 +76,7 @@ func TestEnterWorktreeSchedulesCrossWorkspaceResolutionBeforeSelectorExists(t *t
 			WorkspaceId:   env.binding.WorkspaceID,
 			WorkspaceRoot: env.workspaceRoot,
 		},
-		Origin: &worktreepb.TransitionRuntimeStepOrigin{SessionId: sourceSession.Meta().SessionID, RunId: runID, StepId: stepID},
+		Origin: &worktreepb.TransitionRuntimeStepOrigin{SessionId: sourceSession.Meta().SessionID, StepId: stepID},
 	})
 	if err != nil {
 		t.Fatalf("EnterWorktree before selector exists: %v", err)
@@ -107,7 +107,7 @@ func TestEnterWorktreeSchedulesCrossProjectRetargetFromNonGitWorkspace(t *testin
 	retargeter := &scheduledSessionRetargeterStub{}
 	env.service.sessionRetargeter = retargeter
 	operationID := clientui.NewWorktreeTransitionID()
-	runID, stepID := uuid.NewString(), uuid.NewString()
+	stepID := uuid.NewString()
 
 	ack, err := env.service.EnterWorktree(t.Context(), &worktreepb.EnterRequest{
 		OperationId: operationID.String(),
@@ -117,7 +117,7 @@ func TestEnterWorktreeSchedulesCrossProjectRetargetFromNonGitWorkspace(t *testin
 			WorkspaceId:   env.binding.WorkspaceID,
 			WorkspaceRoot: env.workspaceRoot,
 		},
-		Origin: &worktreepb.TransitionRuntimeStepOrigin{SessionId: sourceSession.Meta().SessionID, RunId: runID, StepId: stepID},
+		Origin: &worktreepb.TransitionRuntimeStepOrigin{SessionId: sourceSession.Meta().SessionID, StepId: stepID},
 	})
 	if err != nil {
 		t.Fatalf("EnterWorktree: %v", err)
@@ -140,8 +140,7 @@ func TestEnterWorktreeSchedulesCrossProjectRetargetFromNonGitWorkspace(t *testin
 		*retargeter.request.TargetWorktreeID != next.WorktreeID {
 		t.Fatalf("scheduled Session retarget = %+v", retargeter.request)
 	}
-	if retargeter.origin.RunId != runID ||
-		retargeter.origin.StepId != stepID ||
+	if retargeter.origin.StepId != stepID ||
 		retargeter.operation.String() != operationID.String() ||
 		retargeter.completion == nil {
 		t.Fatalf("scheduled transition context = origin:%+v operation:%s completion:%t", retargeter.origin, retargeter.operation.String(), retargeter.completion != nil)

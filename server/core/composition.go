@@ -134,15 +134,16 @@ func NewWithContextOptions(ctx context.Context, cfg config.App, authSupport serv
 		SubmitSessionNaming: func(id runtimeids.SessionID, root string, input runtime.SessionNamingInput) {
 			namingConsumer.Submit(id, root, input)
 		},
-		ConnectionRotation:  connectionRotation,
-		Environment:         authSupport.Environment,
-		WorkspaceMembership: metadataStore,
-		Debug:               cfg.Settings.Debug,
-		PersistenceRoot:     cfg.PersistenceRoot,
-		AuthManager:         authSupport.AuthManager,
-		Background:          background,
-		StoreOptions:        storeOptions,
-		PromptFeed:          runtimeRegistry,
+		ConnectionRotation:            connectionRotation,
+		Environment:                   authSupport.Environment,
+		WorkspaceMembership:           metadataStore,
+		ProjectWorkspaceContextReader: metadataStore,
+		Debug:                         cfg.Settings.Debug,
+		PersistenceRoot:               cfg.PersistenceRoot,
+		AuthManager:                   authSupport.AuthManager,
+		Background:                    background,
+		StoreOptions:                  storeOptions,
+		PromptFeed:                    runtimeRegistry,
 		EventFeed: func(resource runtimeids.SessionResourceRef, event runtime.Event) {
 			if err := runtimeRegistry.PublishAuthorityRuntimeEvent(resource, event); err != nil {
 				if cfg.Settings.Debug {
@@ -223,9 +224,10 @@ func NewWithContextOptions(ctx context.Context, cfg config.App, authSupport serv
 	gitInspector := worktree.NewGitInspector(nil)
 	sessionWorkspaceRetargeter := sessionservice.NewSessionWorkspaceRetargeter(metadataStore, runtimeAuthority, runtimeRegistry, background)
 	worktreeService := worktree.NewService(metadataStore, gitInspector, runtimeAuthority, runtimeRegistry, background, worktree.ServiceOptions{
-		PersistenceRoot:   cfg.PersistenceRoot,
-		BaseDir:           cfg.Settings.Worktrees.BaseDir,
-		SessionRetargeter: sessionWorkspaceRetargeter,
+		PersistenceRoot:               cfg.PersistenceRoot,
+		BaseDir:                       cfg.Settings.Worktrees.BaseDir,
+		SessionRetargeter:             sessionWorkspaceRetargeter,
+		RuntimeActivitySnapshotReader: runtimeRegistry,
 		ResolveSetup: func(sourceWorkspaceRoot string) (config.WorktreeSettings, error) {
 			return config.LoadWorktreeSetupSettings(sourceWorkspaceRoot, cfg.PersistenceRoot)
 		},

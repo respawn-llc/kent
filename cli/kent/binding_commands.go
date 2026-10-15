@@ -41,6 +41,8 @@ func projectSubcommand(args []string, stdout io.Writer, stderr io.Writer) int {
 			return detachSubcommand(args[1:], stdout, stderr)
 		case "delete":
 			return projectDeleteSubcommand(args[1:], stdout, stderr)
+		case "workspaces":
+			return projectWorkspacesSubcommand(args[1:], stdout, stderr)
 		}
 	}
 	fs := newCommandFlagSet(config.Command+" project", stderr, projectUsage)
@@ -266,11 +268,11 @@ func sessionRetargetRuntimeOrigin() (*sessionlaunchpb.RuntimeStepOrigin, error) 
 	if !ok {
 		return nil, nil
 	}
-	runID, stepID := sessionenv.LookupRunStepID(os.LookupEnv)
-	if runID == "" && stepID == "" {
+	stepID, _ := sessionenv.LookupStepID(os.LookupEnv)
+	if stepID == "" {
 		return nil, nil
 	}
-	origin := &sessionlaunchpb.RuntimeStepOrigin{SessionId: currentSessionID, RunId: runID, StepId: stepID}
+	origin := &sessionlaunchpb.RuntimeStepOrigin{SessionId: currentSessionID, StepId: stepID}
 	return origin, protoapi.Validate(origin)
 }
 

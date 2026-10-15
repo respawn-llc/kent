@@ -40,6 +40,37 @@ func TestGoalSetSuccessRejectsDiagnosticWithoutCommittedMutation(t *testing.T) {
 	}
 }
 
+func TestGoalMutationContractRequiresStepOnlyForAgentActor(t *testing.T) {
+	sessionID := uuid.NewString()
+	selector := &sharedpb.SessionSelector{
+		Value: &sharedpb.SessionSelector_SessionId{SessionId: sessionID},
+	}
+	stepID := uuid.NewString()
+	for _, tc := range []struct {
+		name    string
+		actor   string
+		stepID  *string
+		isValid bool
+	}{
+		{name: "agent without Step", actor: "agent"},
+		{name: "agent with Step", actor: "agent", stepID: &stepID, isValid: true},
+		{name: "user without Step", actor: "user", isValid: true},
+		{name: "user with Step", actor: "user", stepID: &stepID},
+		{name: "system without Step", actor: "system", isValid: true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			request := &runtimepb.GoalMutationRequest{
+				SessionId: selector,
+				Actor:     tc.actor,
+				StepId:    tc.stepID,
+			}
+			if err := Validate(request); (err == nil) != tc.isValid {
+				t.Fatalf("Goal Mutation validation = %v, want valid=%t", err, tc.isValid)
+			}
+		})
+	}
+}
+
 func TestGoalSetSuccessRejectsRuntimeUnavailableDiagnostic(t *testing.T) {
 	sessionID := uuid.NewString()
 	now := timestamppb.Now()

@@ -208,7 +208,7 @@ jobs:
         run: just lint desktop --dry-run
 
       - name: Test GUI
-        run: just test desktop
+        run: just test desktop --timeout 600
 
       - name: Build GUI web assets
         run: just build _desktop-web

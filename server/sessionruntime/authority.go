@@ -27,18 +27,19 @@ var ErrAgentRuntimePlanRequired = errors.New("agent runtime plan is required")
 
 type AuthorityOptions struct {
 	SubmitSessionNaming func(runtimeids.SessionID, string, runtime.SessionNamingInput)
-	ConnectionRotation  *launch.ConnectionRotation
-	Environment         func(string) (string, bool)
-	WorkspaceMembership runtimewire.WorkspaceMembership
-	Debug               bool
-	PersistenceRoot     string
-	AuthManager         *auth.Manager
-	Background          *shelltool.Manager
-	StoreOptions        []session.StoreOption
-	EventFeed           AgentResourceEventFeed
-	ResourceLifecycle   AgentResourceLifecycle
-	StepLifecycle       AgentResourceStepLifecycle
-	PromptFeed          ExecutionPromptFeed
+	ConnectionRotation            *launch.ConnectionRotation
+	Environment                   func(string) (string, bool)
+	WorkspaceMembership           runtimewire.WorkspaceMembership
+	ProjectWorkspaceContextReader runtime.ProjectWorkspaceContextReader
+	Debug                         bool
+	PersistenceRoot               string
+	AuthManager                   *auth.Manager
+	Background                    *shelltool.Manager
+	StoreOptions                  []session.StoreOption
+	EventFeed                     AgentResourceEventFeed
+	ResourceLifecycle             AgentResourceLifecycle
+	StepLifecycle                 AgentResourceStepLifecycle
+	PromptFeed                    ExecutionPromptFeed
 }
 
 type Authority struct {
@@ -355,7 +356,6 @@ func (a *Authority) WithExactExecutions(handles []ExecutionHandle, operation fun
 func (a *Authority) CompleteAgentStep(
 	ctx context.Context,
 	scopeID runtimeids.ExecutionScopeID,
-	runID runtimeids.RunID,
 	stepID runtimeids.StepID,
 	operation func() (workflowruntime.CompletionResult, error),
 ) (workflowruntime.CompletionResult, error) {
@@ -376,7 +376,7 @@ func (a *Authority) CompleteAgentStep(
 			exact.resource.ref,
 			func(_ context.Context, engine *runtime.Engine) error {
 				var completionErr error
-				result, completionErr = engine.ApplyWorkflowAgentCompletion(scopeID, runID, stepID, operation)
+				result, completionErr = engine.ApplyWorkflowAgentCompletion(scopeID, stepID, operation)
 				return completionErr
 			},
 		)

@@ -24,6 +24,12 @@ Continue an existing headless session:
 kent run --continue <session-id> "<follow-up>"
 ```
 
+`--session` is an alias for `--continue`. If the session is active, the command steers that work and waits for a final answer or pending question. Use `kent run steer` for an immediate acceptance acknowledgement.
+
+For an active session, a supported `--thinking-level` selection is saved. Agent, model, tools, theme, and model-request timeout overrides are ignored and listed in warnings. Start a new session to apply those overrides while the original session is running.
+
+Text mode prints these acceptance warnings to `stderr` immediately, including with `--quiet`. JSON mode includes them in the final `warnings` array, including when the command ends with an error.
+
 For a new session, the initial agent, model, and thinking selections are saved with the session.
 
 Control an active shared run from another shell or agent:
@@ -109,7 +115,7 @@ Project deletion never deletes or moves workspace files.
 
 ## Output modes
 
-By default, `kent run` writes each finalized assistant commentary or final response to `stdout` as it is committed. Use `--quiet` to suppress live output. Pending questions and approvals are shown. For scripting, use JSON mode:
+By default, `kent run` writes each finalized assistant commentary or final response to `stdout` as it is committed. Use `--quiet` to suppress live assistant output. Pending questions and approvals are shown. For scripting, use JSON mode:
 
 ```bash
 kent run --output-mode=json "summarize the repo" | jq
@@ -153,7 +159,7 @@ When a question or approval is pending, JSON omits `result` and includes an `out
 
 For an access approval, `outcome` also includes `access_targets` when target details are available.
 
-On failure, JSON mode emits `status: "error"` and an `error` object instead of `result`.
+On failure, JSON mode omits `result` and emits `status: "error"` with an `error` object.
 
 An over-limit child launch uses the stable `subagent_max_depth_exceeded` code and includes the attempted depth and active maximum:
 

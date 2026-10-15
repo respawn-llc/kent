@@ -127,6 +127,70 @@ func TestLiveRunWaitIdleReturnsNoActive(t *testing.T) {
 	}
 }
 
+func TestActiveSteeringObservesAcceptingRun(t *testing.T) {
+	for _, attributed := range []bool{false, true} {
+		t.Run(fmt.Sprintf("agent=%t", attributed), func(t *testing.T) {
+			started, release := make(chan struct{}), make(chan struct{})
+			var first sync.Once
+			client := &hookClient{
+				response: finalTextResponse("done"),
+				beforeReturn: func() error {
+					first.Do(func() { close(started); <-release })
+					return nil
+				},
+			}
+			engine := mustNewTestEngine(t, mustCreateTestSession(t), client, tools.NewRegistry(), Config{Model: "gpt-6-sol"})
+			done := make(chan error, 1)
+			go func() {
+				_, err := engine.SubmitUserMessage(t.Context(), "start")
+				done <- err
+			}()
+			pendingWorkTestWait(t, started, "held provider")
+			var handle *LiveRunWaitHandle
+			var accepted bool
+			var err error
+			var message llm.Message
+			if attributed {
+				source := mustCreateTestSession(t)
+				steer, steerErr := NewAgentSteer(source.Identity(), "redirect")
+				if steerErr != nil {
+					t.Fatal(steerErr)
+				}
+				message = steer.Message()
+				_, handle, accepted, err = engine.QueueAgentSteerForActiveRunWithObservation(t.Context(), steer, t.Context(), nil)
+			} else {
+				message = llm.Message{Role: llm.RoleUser, Content: textutil.Value("redirect")}
+				_, handle, accepted, err = engine.QueueUserMessageForActiveRunWithObservation(t.Context(), "redirect", t.Context(), nil)
+			}
+			if err != nil || !accepted || handle == nil {
+				t.Fatalf("steer: accepted=%t handle=%v err=%v", accepted, handle, err)
+			}
+			close(release)
+			pendingWorkTestNoError(t, <-done)
+			result, err := handle.Wait()
+			pendingWorkTestNoError(t, err)
+			if result.Status != RunStatusCompleted || messageContent(result.AssistantMessage) != "done" {
+				t.Fatalf("outcome = %+v", result)
+			}
+			client.mu.Lock()
+			calls := slices.Clone(client.calls)
+			client.mu.Unlock()
+			if len(calls) != 2 {
+				t.Fatalf("provider calls = %d", len(calls))
+			}
+			deliveries := 0
+			for _, got := range requestMessages(calls[1]) {
+				if got.Role == message.Role && messageContent(got) == messageContent(message) {
+					deliveries++
+				}
+			}
+			if deliveries != 1 {
+				t.Fatalf("steering deliveries = %d", deliveries)
+			}
+		})
+	}
+}
+
 func TestCapturedActiveRunResultSurvivesFastCompletion(t *testing.T) {
 	store := mustCreateTestSession(t)
 	client := &fakeClient{responses: []llm.Response{{
@@ -165,7 +229,6 @@ func TestTryInterruptActiveRunRecoversOrphanedRunningGroup(t *testing.T) {
 		Usage:     llm.Usage{WindowTokens: 200000},
 	}}}, tools.NewRegistry(), Config{Model: "gpt-6-sol"})
 	eng.liveRun.beginStep(&RunSnapshot{
-		RunID:      "018fdd67-89ab-4cde-8123-456789abc001",
 		StepID:     "018fdd67-89ab-4cde-8123-456789abc002",
 		Status:     RunStatusRunning,
 		ActiveKind: ActiveKindUserTurn,
@@ -197,8 +260,7 @@ func TestTryInterruptActiveRunRecoversOrphanedRunningGroup(t *testing.T) {
 func TestTryInterruptActiveRunPanicsForOrphanedRunningGroupInDebug(t *testing.T) {
 	eng := mustNewTestEngine(t, mustCreateTestSession(t), &fakeClient{}, tools.NewRegistry(), Config{Model: "gpt-6-sol", Debug: true})
 	eng.liveRun.beginStep(&RunSnapshot{
-		RunID: uuid.NewString(), StepID: uuid.NewString(),
-		Status: RunStatusRunning, ActiveKind: ActiveKindUserTurn, StartedAt: time.Now().UTC(),
+		StepID: uuid.NewString(), Status: RunStatusRunning, ActiveKind: ActiveKindUserTurn, StartedAt: time.Now().UTC(),
 	})
 	defer func() {
 		if recover() == nil {
@@ -211,7 +273,6 @@ func TestTryInterruptActiveRunPanicsForOrphanedRunningGroupInDebug(t *testing.T)
 func TestQueueMessageForActiveRunCancellationPreventsAcceptance(t *testing.T) {
 	eng := mustNewTestEngine(t, mustCreateTestSession(t), &fakeClient{}, tools.NewRegistry(), Config{Model: "gpt-6-sol"})
 	eng.liveRun.beginStep(&RunSnapshot{
-		RunID:      "018fdd67-89ab-4cde-8123-456789abc001",
 		StepID:     "018fdd67-89ab-4cde-8123-456789abc002",
 		Status:     RunStatusRunning,
 		ActiveKind: ActiveKindUserTurn,
@@ -719,11 +780,10 @@ func TestTryInterruptActiveRunPreservesGoalLoopInterruptBookkeeping(t *testing.T
 	}
 }
 
-func TestTryInterruptActiveRunPreservesDifferentlyIdentifiedGroupDuringActiveStep(t *testing.T) {
+func TestTryInterruptActiveRunPreservesDifferentLiveGroupDuringActiveStep(t *testing.T) {
 	store := mustCreateTestSession(t)
 	eng := mustNewTestEngine(t, store, &fakeClient{}, tools.NewRegistry(), Config{Model: "gpt-6-sol"})
 	eng.ensureOrchestrationCollaborators()
-	activeRunID := uuid.NewString()
 	activeStepID := uuid.NewString()
 	canceled := false
 	eng.stepLifecycle = &defaultExclusiveStepLifecycle{
@@ -734,13 +794,11 @@ func TestTryInterruptActiveRunPreservesDifferentlyIdentifiedGroupDuringActiveSte
 			cancel: func() {
 				canceled = true
 			},
-			runID:     activeRunID,
 			stepID:    activeStepID,
 			startedAt: time.Now().UTC(),
 		},
 	}
 	eng.liveRun.beginStep(&RunSnapshot{
-		RunID:      uuid.NewString(),
 		StepID:     uuid.NewString(),
 		Status:     RunStatusRunning,
 		ActiveKind: ActiveKindGoalLoop,

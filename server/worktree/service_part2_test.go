@@ -4,12 +4,16 @@ import (
 	"context"
 	"core/internal/testharness/testsetup"
 	"core/server/metadata"
+	"core/server/registry"
+	"core/server/runtime"
+	"core/server/runtimewire"
 	"core/server/session"
 	"core/server/sessionruntime"
 	shelltool "core/server/tools/shell"
 	"core/shared/config"
 	sharedpb "core/shared/protoapi/gen/kent/api/shared"
 	worktreepb "core/shared/protoapi/gen/kent/api/worktree"
+	"core/shared/runtimeids"
 	"core/shared/sessioncontract"
 	"core/shared/worktreecontract"
 	"encoding/json"
@@ -189,6 +193,54 @@ func TestBeginMutationReacquiresWorkspaceLaneWhenSessionWorkspaceChanges(t *test
 	}
 }
 
+type serviceTestResourceLifecycle struct {
+	delegate sessionruntime.AgentResourceLifecycle
+	registry *registry.RuntimeRegistry
+}
+
+func (l serviceTestResourceLifecycle) ResourceReady(
+	ctx context.Context,
+	resource sessionruntime.AgentResourceDescriptor,
+	engine *runtime.Engine,
+	retain sessionruntime.AgentResourceRetainer,
+) error {
+	if l.delegate != nil {
+		if err := l.delegate.ResourceReady(ctx, resource, engine, retain); err != nil {
+			return err
+		}
+	}
+	return l.registry.ResourceReady(ctx, resource, engine, retain)
+}
+
+func (l serviceTestResourceLifecycle) ResourceDraining(ctx context.Context, resource sessionruntime.AgentResourceDescriptor) error {
+	if l.delegate != nil {
+		if err := l.delegate.ResourceDraining(ctx, resource); err != nil {
+			return err
+		}
+	}
+	return l.registry.ResourceDraining(ctx, resource)
+}
+
+type serviceTestStepLifecycle struct {
+	registry *registry.RuntimeRegistry
+}
+
+func (l serviceTestStepLifecycle) StepBegan(
+	ctx context.Context,
+	resource sessionruntime.AgentResourceDescriptor,
+	snapshot runtime.StepLifecycleSnapshot,
+) error {
+	return runtimewire.NewStepLifecycleSink(resource.Ref.SessionID().String(), l.registry).StepBegan(ctx, snapshot)
+}
+
+func (l serviceTestStepLifecycle) StepEnded(
+	ctx context.Context,
+	resource sessionruntime.AgentResourceDescriptor,
+	snapshot runtime.StepLifecycleSnapshot,
+) error {
+	return runtimewire.NewStepLifecycleSink(resource.Ref.SessionID().String(), l.registry).StepEnded(ctx, snapshot)
+}
+
 func newServiceTestEnv(t *testing.T) *serviceTestEnv {
 	return newServiceTestEnvWithResourceLifecycle(t, nil)
 }
@@ -216,10 +268,19 @@ func newServiceTestEnvWithResourceLifecycle(t *testing.T, lifecycle sessionrunti
 		t.Fatalf("CanonicalWorkspaceRoot: %v", err)
 	}
 	sess := createServiceTestSession(t, store, cfg, binding)
+	runtimeRegistry := registry.NewRuntimeRegistry(store).WithExecutionTargetResolver(store.ResolveOptionalSessionExecutionTarget)
 	authority := sessionruntime.NewAuthority(sessionruntime.AuthorityOptions{
-		PersistenceRoot:   cfg.PersistenceRoot,
-		StoreOptions:      store.AuthoritativeSessionStoreOptions(),
-		ResourceLifecycle: lifecycle,
+		PersistenceRoot:               cfg.PersistenceRoot,
+		ProjectWorkspaceContextReader: store,
+		StoreOptions:                  store.AuthoritativeSessionStoreOptions(),
+		PromptFeed:                    runtimeRegistry,
+		EventFeed: func(resource runtimeids.SessionResourceRef, event runtime.Event) {
+			if err := runtimeRegistry.PublishAuthorityRuntimeEvent(resource, event); err != nil {
+				t.Errorf("publish authority runtime event: %v", err)
+			}
+		},
+		ResourceLifecycle: serviceTestResourceLifecycle{delegate: lifecycle, registry: runtimeRegistry},
+		StepLifecycle:     serviceTestStepLifecycle{registry: runtimeRegistry},
 	})
 	t.Cleanup(func() {
 		if err := authority.Close(context.Background()); err != nil {
@@ -228,21 +289,26 @@ func newServiceTestEnvWithResourceLifecycle(t *testing.T, lifecycle sessionrunti
 	})
 	publisher := &serviceTestPublisher{}
 	processes := &serviceTestProcessSource{}
-	service := NewService(store, nil, authority, publisher, processes, ServiceOptions{PersistenceRoot: cfg.PersistenceRoot, BaseDir: cfg.Settings.Worktrees.BaseDir})
+	service := NewService(store, nil, authority, publisher, processes, ServiceOptions{
+		PersistenceRoot:               cfg.PersistenceRoot,
+		BaseDir:                       cfg.Settings.Worktrees.BaseDir,
+		RuntimeActivitySnapshotReader: runtimeRegistry,
+	})
 	return &serviceTestEnv{
-		t:             t,
-		ctx:           ctx,
-		store:         store,
-		cfg:           cfg,
-		binding:       binding,
-		session:       sess,
-		authority:     authority,
-		publisher:     publisher,
-		processes:     processes,
-		service:       service,
-		leaseID:       "lease-1",
-		workspaceRoot: canonicalWorkspaceRoot,
-		baseDir:       cfg.Settings.Worktrees.BaseDir,
+		t:               t,
+		ctx:             ctx,
+		store:           store,
+		cfg:             cfg,
+		binding:         binding,
+		session:         sess,
+		authority:       authority,
+		runtimeRegistry: runtimeRegistry,
+		publisher:       publisher,
+		processes:       processes,
+		service:         service,
+		leaseID:         "lease-1",
+		workspaceRoot:   canonicalWorkspaceRoot,
+		baseDir:         cfg.Settings.Worktrees.BaseDir,
 	}
 }
 

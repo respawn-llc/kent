@@ -112,6 +112,7 @@ export const englishResources = {
         worktree: "worktree",
         sessionRebind: "Session rebound",
         agentSteer: "Message from another agent",
+        projectWorkspaces: "Project workspaces",
       },
     },
     labels: {

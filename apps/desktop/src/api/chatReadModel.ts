@@ -65,7 +65,6 @@ export function activityFacts(value: R.Activity): ChatActivityFacts {
       value.activeStep === undefined
         ? null
         : {
-            RunID: value.activeStep.runId,
             StepID: value.activeStep.stepId,
             ActiveKind: activeKind(value.activeStep.activeKind),
           },

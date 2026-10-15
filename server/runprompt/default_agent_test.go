@@ -47,6 +47,8 @@ func TestHeadlessDefaultSelectionSurvivesRuntimeActivation(t *testing.T) {
 		authority, liveRunObserver := newObservedTestHeadlessRuntimeAuthority(
 			t,
 			root,
+			store,
+			nil,
 			authManager,
 			nil,
 			persistence.Options()...,

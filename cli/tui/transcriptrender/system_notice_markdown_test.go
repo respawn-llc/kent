@@ -6,7 +6,7 @@ import (
 )
 
 func TestTypedSystemNoticesUseMarkdown(t *testing.T) {
-	for _, messageType := range []transcriptpb.NoticeMessageType{transcriptpb.NoticeMessageType_NOTICE_MESSAGE_TYPE_AGENTS_MD, transcriptpb.NoticeMessageType_NOTICE_MESSAGE_TYPE_SKILLS, transcriptpb.NoticeMessageType_NOTICE_MESSAGE_TYPE_SUBAGENTS, transcriptpb.NoticeMessageType_NOTICE_MESSAGE_TYPE_ENVIRONMENT, transcriptpb.NoticeMessageType_NOTICE_MESSAGE_TYPE_COMPACTION_SUMMARY, transcriptpb.NoticeMessageType_NOTICE_MESSAGE_TYPE_HEADLESS_MODE, transcriptpb.NoticeMessageType_NOTICE_MESSAGE_TYPE_HEADLESS_MODE_EXIT, transcriptpb.NoticeMessageType_NOTICE_MESSAGE_TYPE_ACTIVE_GOAL_CONTINUATION, transcriptpb.NoticeMessageType_NOTICE_MESSAGE_TYPE_WORKFLOW_MODE} {
+	for _, messageType := range []transcriptpb.NoticeMessageType{transcriptpb.NoticeMessageType_NOTICE_MESSAGE_TYPE_AGENTS_MD, transcriptpb.NoticeMessageType_NOTICE_MESSAGE_TYPE_SKILLS, transcriptpb.NoticeMessageType_NOTICE_MESSAGE_TYPE_SUBAGENTS, transcriptpb.NoticeMessageType_NOTICE_MESSAGE_TYPE_WORKSPACES, transcriptpb.NoticeMessageType_NOTICE_MESSAGE_TYPE_ENVIRONMENT, transcriptpb.NoticeMessageType_NOTICE_MESSAGE_TYPE_COMPACTION_SUMMARY, transcriptpb.NoticeMessageType_NOTICE_MESSAGE_TYPE_HEADLESS_MODE, transcriptpb.NoticeMessageType_NOTICE_MESSAGE_TYPE_HEADLESS_MODE_EXIT, transcriptpb.NoticeMessageType_NOTICE_MESSAGE_TYPE_ACTIVE_GOAL_CONTINUATION, transcriptpb.NoticeMessageType_NOTICE_MESSAGE_TYPE_WORKFLOW_MODE} {
 		t.Run(string(messageType), func(t *testing.T) {
 			if !noticeUsesMarkdown(systemNoticeRow(messageType).GetNotice()) {
 				t.Fatalf("message type %q does not use Markdown", messageType)

@@ -239,7 +239,7 @@ func (a *Authority) RunSessionMaintenanceAtStepBoundary(
 		}
 		if origin != nil {
 			activeStep := runtimeactivity.ActiveStepFromProvider(engine)
-			if activeStep == nil || activeStep.RunID != origin.RunId || activeStep.StepID != origin.StepId {
+			if activeStep == nil || activeStep.StepID != origin.StepId {
 				return false, runtime.ErrActiveStepInactive
 			}
 		}
@@ -614,7 +614,6 @@ func runtimeBackgroundShellEvent(resource *agentResource, event shelltool.Event)
 		Type:              eventType,
 		ID:                event.Snapshot.ID,
 		ActivityID:        event.Snapshot.ActivityID,
-		OwnerRunID:        event.Snapshot.OwnerRunID,
 		OwnerStepID:       event.Snapshot.OwnerStepID,
 		State:             event.Snapshot.State,
 		Command:           event.Snapshot.Command,

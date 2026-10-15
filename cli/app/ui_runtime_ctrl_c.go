@@ -12,7 +12,6 @@ func (c uiInputController) handleRuntimeCtrlC(closeSurface func() tea.Cmd) (tea.
 	}
 	if m.runtimeLifecycle.Run.IsRunning() || m.ask.hasCurrent() {
 		if m.hasPendingInterrupt() &&
-			m.interruptRunID == m.currentRunID &&
 			m.interruptStepID == m.currentStepID {
 			m.exitAction = UIActionExit
 			m.forcedLocalExit = true

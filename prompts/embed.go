@@ -310,6 +310,7 @@ var (
 	SkillsPrompt                                     = mustPrompt("skills_prompt.md")
 	HeadlessModePrompt                               = mustPrompt("headless_mode_prompt.md")
 	HeadlessModeExitPrompt                           = mustPrompt("headless_mode_exit_prompt.md")
+	ProjectWorkspacesReminderPrompt                  = mustPrompt("project_workspaces_reminder.md")
 	WorkflowTaskInstructionsPrompt                   = mustPrompt("workflow/workflow_task_instructions.md")
 	WorkflowTaskReassignmentPrompt                   = mustPrompt("workflow/workflow_task_reassignment.md")
 	WorkflowTaskCompactionReminderPrompt             = mustPrompt("workflow/workflow_task_compaction_reminder.md")
@@ -401,6 +402,18 @@ type compactionRunningShellsReminderTemplateData struct {
 	ActiveShells string
 }
 
+type ProjectWorkspacesReminderPath struct {
+	Path      string
+	IsDefault bool
+}
+
+type ProjectWorkspacesReminderArgs struct {
+	ProjectName             string
+	WorkspaceCount          int64
+	Workspaces              []ProjectWorkspacesReminderPath
+	RemainingWorkspaceCount int64
+}
+
 func RenderCompactionRunningShellsReminder(activeShells string) string {
 	rendered, err := renderNamedTemplate("compaction running shells reminder", CompactionRunningShellsReminder, compactionRunningShellsReminderTemplateData{
 		ActiveShells: activeShells,
@@ -409,6 +422,14 @@ func RenderCompactionRunningShellsReminder(activeShells string) string {
 		panic(err)
 	}
 	return rendered
+}
+
+func RenderProjectWorkspacesReminder(args ProjectWorkspacesReminderArgs) (string, error) {
+	return renderNamedTemplate(
+		"Project Workspaces reminder",
+		ProjectWorkspacesReminderPrompt,
+		args,
+	)
 }
 
 // goalPromptData is the template data shared by every goal prompt. Goal

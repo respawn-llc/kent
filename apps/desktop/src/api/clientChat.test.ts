@@ -153,7 +153,6 @@ function transcriptHydrationPayload() {
         reviewer: R.ReviewerActivity.INACTIVE,
         queueAccepting: true,
         activeStep: {
-          runId: sessionID,
           stepId: sessionID,
           activeKind: R.ActivityActiveKind.RUNTIME_ACTIVITY_ACTIVE_KIND_USER_TURN,
         },
@@ -167,7 +166,6 @@ function transcriptHydrationPayload() {
       phase: T.AssistantPhase.COMMENTARY,
     },
     activeStep: {
-      runId: sessionID,
       stepId: sessionID,
       activeKind: R.ActivityActiveKind.RUNTIME_ACTIVITY_ACTIVE_KIND_USER_TURN,
       lifecycle: T.StepLifecycle.STARTED,

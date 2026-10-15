@@ -16,7 +16,7 @@ export const fixtureIdle: FixtureActivity = {
 export const fixtureRunning: FixtureActivity = {
   ...fixtureIdle,
   State: "running",
-  ActiveStep: { RunID: "fixture-run", StepID: "fixture-step", ActiveKind: "user_turn" },
+  ActiveStep: { StepID: "fixture-step", ActiveKind: "user_turn" },
 };
 export const fixtureKindControls: readonly FixtureActiveKind[] = [
   "user_turn",

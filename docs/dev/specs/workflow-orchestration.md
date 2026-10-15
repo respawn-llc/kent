@@ -17,6 +17,8 @@
 - An executable current Node owns only its current execution state and optional Session binding. Script Nodes have no Session.
 - Leaving a Node removes that current execution state. Kent does not retain completed Node execution, execution-attempt, or workflow-movement records as hidden history.
 - Task creation creates a durable Task at the Workflow's Start Node.
+- Task description previews must contain at most the first 96 Unicode code points after trimming surrounding whitespace.
+- Preview generation must leave the full Task description unchanged.
 - Automation must start only through explicit Task Start, which applies the Start Node's outgoing Transition and adds every selected executable Current Node.
 - Task Start must be idempotent. Concurrent Start requests must wait for the accepted Start to finish. If the Task has already left its Start Node, Start must succeed with its existing Current Nodes without preparing an Execution Target, starting execution again, or changing the Task. An unsuccessful Start must not make another Start report success.
 - Automation continues through automatic Nodes until terminal or blocked by a Question, Approval/manual gate, error, capacity, interruption, or validation.
@@ -306,15 +308,15 @@
 - Each required Transition Parameter must become a non-empty string after leading and trailing whitespace is removed.
 - Size limits: Parameter Key `<= 64` chars, Parameter description `<= 1000`, Parameter value `<= 64 KiB`, commentary `<= 64 KiB`, task comment body `<= 256 KiB`.
 - Completion-contract changes in `structured_output` and `tool` modes can change prompt-cache continuity. `shell_command` and `unstructured_output` preserve the completion contract in appended instructions instead.
-- Kent accepts live Agent completion only when it identifies the matching Exact Execution Scope, Run, and Agent Step.
-- Agent completion and Script completion use distinct typed operations. Agent completion requires Exact Execution Scope, Run, and Agent Step provenance and is valid only for a matching running Agent Step.
-- Script completion requires the matching Script Exact Execution Scope and Script kind and requires no Session Runtime, Run, or Agent Step.
+- Kent accepts live Agent completion only when it identifies the matching Exact Execution Scope and Live Execution's Step ID.
+- Agent completion and Script completion use distinct typed operations. Agent completion requires Exact Execution Scope and Live Execution's Step ID provenance and is valid only for a matching running Agent Step.
+- Script completion requires the matching Script Exact Execution Scope and Script kind and requires no Session Runtime, Live Execution, or Agent Step.
 - Agent completion cannot target a Script Exact Execution Scope. Script completion cannot target an Agent Exact Execution Scope.
 - After their distinct exact-kind and lifecycle validation, Agent and Script completion apply the same Current Node transition rules through the Workflow mutation owner. Human force-complete remains a separate Interrupt and Manual Move composition.
-- Agent `kent task complete` obtains the current Run and Step from its Kent execution environment. Missing or invalid live completion identity fails before Kent requests a Workflow change. Other live completion modes use the identity of the Agent Step that produced the completion.
+- Agent `kent task complete` obtains the current Live Execution's Step ID from its Kent execution environment. Missing or invalid live completion identity fails before Kent requests a Workflow change. Other live completion modes use the Live Execution's Step ID associated with the Agent Step that produced the completion.
 - Workflow completion is a direct exact-execution operation inside the protected Agent Step, not a Steering Intent. Tool completion returns synchronously without waiting for the Step Boundary.
-- A stale or mismatched Exact Execution Scope, Run, or Agent Step changes no Workflow state.
-- After terminal completion commits, the originating Agent Step remains open only for its caused tool/results and same-Step exact Goal admission. Kent retains that Scope, Run, and Agent Step provenance until the protected Step closes, while Stop, prompt answers, exact steer, and duplicate completion are unavailable.
+- A stale or mismatched Exact Execution Scope or Live Execution's Step ID changes no Workflow state.
+- After terminal completion commits, the originating Agent Step remains open only for its caused tool/results and same-Step exact Goal admission. Kent retains that Scope and Live Execution's Step ID provenance until the protected Step closes, while Stop, prompt answers, exact steer, and duplicate completion are unavailable.
 - Human Steering accepted while that Agent Step is open applies after the Step but does not invalidate a valid completion or force that completed Workflow execution to continue. The text remains with the source Session and never transfers to a successor Session.
 - Human input accepted after completion has made the old exact execution non-live may activate fresh interactive work in the source Session.
 - After five invalid completion attempts, Kent interrupts the Current Node. `[workflow].max_invalid_completion_attempts` configures this limit and defaults to `5`.
@@ -597,7 +599,7 @@
 - State without matching exact live execution is not interruptible.
 - Clients offer Interrupt only while Kent reports matching active execution. Kent checks again before interrupting and makes no change if execution has already stopped.
 - Saved state without matching live execution never becomes interruptible or completion-authoritative as a fallback.
-- Live completion can change a Task only from the matching Exact Execution Scope, Run, and Agent Step. A stopped scope and a non-current Node cannot change Task state. Human forced completion is the Interrupt-then-Manual-Move composition defined above.
+- Live completion can change a Task only from the matching Exact Execution Scope and Live Execution's Step ID during a running Agent Step. A stopped scope and a non-current Node cannot change Task state. Human forced completion is the Interrupt-then-Manual-Move composition defined above.
 - Completion replaces source Current Nodes, materializes target inputs, and adds target Current Nodes as one atomic change.
 - Runtime failures, crashes, interruptions, and fixable start-validation blockers leave the affected Current Node interrupted with a reason.
 - `failed` is reserved for unrecoverable corrupted Workflow state.
@@ -707,6 +709,12 @@
 - After creation, an initiating request may repeat the exact branch recorded in managed Worktree metadata as an idempotent assertion, except when reopening a completed Task with a usable original Execution Target. That reopening must reject every explicit branch name, including the recorded branch. Outside the unavailable-original-target replacement flow, a different branch is rejected as an attempted rename. The idempotent assertion also applies when an overlapping request supplied a post-snapshot replacement before the Worktree bound and encounters that Worktree afterward.
 - A custom branch name does not change automatic managed Worktree root naming, which remains based on the Task Short ID.
 - Task Worktree creation uses ordinary managed-root collision behavior; its initial branch follows the Task-specific collision rules above.
+- Desktop and the active Go TUI Worktree lists must display `In Use` on a Kent-registered Worktree, including externally created Worktrees and Missing records, when at least one associated Task is non-terminal or at least one targeting Session has live activity. Non-terminal Tasks must count even when they are not executing.
+- For this status, live Session activity must use Kent's existing live activity definition, including starting, executing, awaiting an answer, finishing accepted work, and closing. Terminal Tasks and Idle historical Sessions alone must not make a Worktree `In Use`.
+- Main Workspace and unregistered External rows must not display `In Use`.
+- The `In Use` indicator must use the existing compact neutral badge treatment after the current and topology indicators. It must coexist with existing status information and preserve Worktree selection and switch/delete actions.
+- The status must update through existing Worktree list refreshes, without polling or activity-triggered refresh.
+- The status must be informational only. It must not change Worktree deletion admission.
 - Non-terminal Task ownership alone must not block ordinary Worktree deletion. Deletion must preserve the ongoing Task's managed binding and evidence for recovery.
 - Worktree deletion fails immediately if any targeting Active Session Runtime is Executing, processing or holding pending Steering, or has selected/begun exact execution. It does not wait for or stop that work.
 - A targeting Idle Active Session Runtime is retired before its Session is retargeted as dormant. Durable target/reminder state changes before physical deletion.
