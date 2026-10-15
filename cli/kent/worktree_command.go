@@ -299,11 +299,7 @@ func worktreeEnterSubcommand(args []string, stdout io.Writer, stderr io.Writer) 
 		fmt.Fprintln(stderr, err)
 		return 1
 	}
-	origin, err := sessionRetargetRuntimeOrigin()
-	if err != nil {
-		fmt.Fprintln(stderr, err)
-		return 1
-	}
+	origin := sessionRetargetRuntimeOrigin()
 	var transitionOrigin *worktreepb.TransitionRuntimeStepOrigin
 	if origin != nil {
 		transitionOrigin = &worktreepb.TransitionRuntimeStepOrigin{

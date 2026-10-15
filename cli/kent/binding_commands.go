@@ -249,10 +249,7 @@ func retargetSessionWorkspace(ctx context.Context, remote apicontract.SessionLif
 	if err != nil {
 		return nil, err
 	}
-	origin, err := sessionRetargetRuntimeOrigin()
-	if err != nil {
-		return &sessionlaunchpb.SessionRetargetWorkspaceSuccess{}, err
-	}
+	origin := sessionRetargetRuntimeOrigin()
 	return remote.RetargetSessionWorkspace(ctx, &sessionlaunchpb.SessionRetargetWorkspaceRequest{
 		SessionId:     protoapi.SessionSelectorToProto(selector),
 		WorkspaceRoot: workspaceRoot,
@@ -261,17 +258,16 @@ func retargetSessionWorkspace(ctx context.Context, remote apicontract.SessionLif
 	})
 }
 
-func sessionRetargetRuntimeOrigin() (*sessionlaunchpb.RuntimeStepOrigin, error) {
+func sessionRetargetRuntimeOrigin() *sessionlaunchpb.RuntimeStepOrigin {
 	currentSessionID, ok := sessionenv.LookupSessionID(os.LookupEnv)
 	if !ok {
-		return nil, nil
+		return nil
 	}
 	runID, stepID := sessionenv.LookupRunStepID(os.LookupEnv)
 	if runID == "" && stepID == "" {
-		return nil, nil
+		return nil
 	}
-	origin := &sessionlaunchpb.RuntimeStepOrigin{SessionId: currentSessionID, RunId: runID, StepId: stepID}
-	return origin, protoapi.Validate(origin)
+	return &sessionlaunchpb.RuntimeStepOrigin{SessionId: currentSessionID, RunId: runID, StepId: stepID}
 }
 
 func listProjects(ctx context.Context) ([]clientui.ProjectSummary, error) {
