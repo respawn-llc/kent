@@ -84,10 +84,7 @@ func taskShowSubcommand(args []string, stdout io.Writer, stderr io.Writer) int {
 }
 
 func taskShowOutputFromDetail(task *taskpb.TaskDetail) (taskShowOutput, error) {
-	status, err := taskStatusOutput(task.Status)
-	if err != nil {
-		return taskShowOutput{}, err
-	}
+	status := taskStatusOutput(task.Status)
 	source, err := taskSourceWorkspaceOutput(task.SourceWorkspace)
 	if err != nil {
 		return taskShowOutput{}, err

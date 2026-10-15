@@ -58,10 +58,7 @@ func taskDependencyListOutput(value *taskpb.DependencyListSuccess) (taskDependen
 			Items: make([]taskDependencyItemJSON, 0, len(direction.Items)),
 		}
 		for _, item := range direction.Items {
-			status, err := taskStatusOutput(item.Status)
-			if err != nil {
-				return taskDependencyListJSON{}, err
-			}
+			status := taskStatusOutput(item.Status)
 			row := taskDependencyItemJSON{
 				TaskID: item.TaskId, ShortID: item.ShortId, Title: item.Title, WorkflowID: item.WorkflowId, Status: status,
 			}

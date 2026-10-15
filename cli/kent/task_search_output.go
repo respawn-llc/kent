@@ -50,10 +50,7 @@ func taskSearchOutput(response *taskpb.SearchSuccess) (taskSearchJSON, error) {
 	}
 	out := taskSearchJSON{Mode: mode, Groups: make([]taskSearchGroupJSON, 0, len(response.Groups)), NextOffset: response.NextOffset}
 	for _, group := range response.Groups {
-		status, err := taskStatusOutput(group.Status)
-		if err != nil {
-			return taskSearchJSON{}, err
-		}
+		status := taskStatusOutput(group.Status)
 		projected := taskSearchGroupJSON{
 			ProjectID: group.ProjectId, ProjectKey: group.ProjectKey, TaskID: group.TaskId, ShortID: group.ShortId,
 			WorkflowID: group.WorkflowId, Title: group.Title, Status: status, TotalHitCount: group.TotalHitCount,
