@@ -838,9 +838,6 @@ func (s *Service) UpdateWorkflowTask(ctx context.Context, req *taskpb.UpdateRequ
 }
 
 func (s *Service) StartWorkflowTask(ctx context.Context, req *taskpb.StartRequest) (*taskpb.StartSuccess, error) {
-	if err := protoapi.Validate(req); err != nil {
-		return nil, err
-	}
 	if err := s.authorizeWorkflowTaskMutation(ctx, workflow.TaskID(req.TaskId), req.InvokingSessionId); err != nil {
 		return nil, err
 	}
@@ -1498,9 +1495,6 @@ func explicitExecutionTargetResolutionError(err error) (*serverapi.WorkflowExecu
 }
 
 func (s *Service) InterruptWorkflowTask(ctx context.Context, req *taskpb.InterruptRequest) (*emptypb.Empty, error) {
-	if err := protoapi.Validate(req); err != nil {
-		return nil, err
-	}
 	selector := workflowexecution.InterruptSelector{TaskID: workflow.TaskID(req.TaskId)}
 	if req.SessionId != nil {
 		sessionID, err := s.metadata.ResolveSessionTarget(ctx, req.SessionId)
@@ -1522,9 +1516,6 @@ func (s *Service) InterruptWorkflowTask(ctx context.Context, req *taskpb.Interru
 }
 
 func (s *Service) ResumeWorkflowTask(ctx context.Context, req *taskpb.ResumeRequest) (*taskpb.ResumeSuccess, error) {
-	if err := protoapi.Validate(req); err != nil {
-		return nil, err
-	}
 	if err := s.authorizeWorkflowTaskMutation(ctx, workflow.TaskID(req.TaskId), req.InvokingSessionId); err != nil {
 		return nil, err
 	}
@@ -1709,9 +1700,6 @@ func workflowContextSelectionError(err error) error {
 }
 
 func (s *Service) approveWorkflowTask(ctx context.Context, req *taskpb.ApproveRequest) (*taskpb.ApproveSuccess, error) {
-	if err := protoapi.Validate(req); err != nil {
-		return nil, err
-	}
 	if s.currentNodeExecution == nil {
 		return nil, errors.New("current node workflow execution is required")
 	}
@@ -1754,9 +1742,6 @@ func (s *Service) approveWorkflowTask(ctx context.Context, req *taskpb.ApproveRe
 }
 
 func (s *Service) MoveWorkflowTask(ctx context.Context, req *taskpb.MoveRequest) (*taskpb.MoveSuccess, error) {
-	if err := protoapi.Validate(req); err != nil {
-		return nil, err
-	}
 	if err := s.authorizeWorkflowTaskMutation(ctx, workflow.TaskID(req.TaskId), req.InvokingSessionId); err != nil {
 		return nil, err
 	}
@@ -1773,9 +1758,6 @@ func (s *Service) MoveWorkflowTask(ctx context.Context, req *taskpb.MoveRequest)
 }
 
 func (s *Service) PreviewWorkflowTaskMove(ctx context.Context, req *taskpb.MovePreviewRequest) (*taskpb.MovePreviewSuccess, error) {
-	if err := protoapi.Validate(req); err != nil {
-		return nil, err
-	}
 	preview, err := s.store.PreviewManualMove(ctx, workflowstore.ManualMoveRequest{
 		TaskID:       workflow.TaskID(req.TaskId),
 		TargetNodeID: workflow.NodeID(req.TargetNodeId),
@@ -2415,9 +2397,6 @@ func (s *Service) SubscribeWorkflow(ctx context.Context, req *pb.WorkflowSubscri
 }
 
 func (s *Service) GetWorkflowTask(ctx context.Context, req *taskpb.GetRequest) (*taskpb.GetSuccess, error) {
-	if err := protoapi.Validate(req); err != nil {
-		return nil, err
-	}
 	var (
 		detail *taskpb.TaskDetail
 		err    error
