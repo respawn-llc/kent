@@ -14,10 +14,10 @@ Kent ships built-in multi-account with load balancing and sticky sessions. Suppo
 Anthropic and Gemini will not be supported as they forbid usage of third party harnesses.
 
 - Each sign-in is called a connection.
-- Use `/login` in TUI to add a connection. Repeat for each account.
+- Use `/login` in TUI to add connections (sign in on Desktop is in development). Call it multiple time to populate account credentials.
 - Edit the `config.toml` to assign connection rotation and usage of connection by your Agent Roles.
 - You can specify a connection for Supervisor requests (rotation is not supported there as supervisor requests are bound to the Session)
-- Kent uses one connection throughout a session to support cache reuse. Connection rotation happens at session creation, so sessions with different token usage can produce uneven account usage.
+- Kent will try to preserve cache by reusing the same connection for a given session. Kent rotates on new sessions only, so the usage will likely not be perfectly even if part of your sessions are token-hungry.
 
 ## API keys and background services
 
@@ -39,7 +39,7 @@ The OpenAI and Grok API-key choices use their official endpoints. Choose Generic
 
 ## Grok support
 
-Grok subscriptions have two semi-official sign-in modes: CLI Proxy and OAuth API. CLI Proxy emulates the official CLI. OAuth API is the official path and requires a paid plan.
+There are 2, both semi-official, modes of using your subscription in Grok: CLI Proxy and OAuth API. First emulates the official CLI, used by e.g. OpenClaw. OAuth API is the official path, but does not have a Free Plan.
 
 The `/status` Auth section shows quota status for ChatGPT subscriptions and Grok subscription connections that use `grok-oauth-api` or `grok-cli-proxy`. Grok API-key connections show their authentication details without a subscription-quota row. If a Grok billing request returns HTTP 404, 403, or 401, Kent shows `Quota unavailable for this sign-in method` with the provider diagnostic. Treat a 403 as a permission or safety refusal unless the diagnostic provides separate authentication evidence. Use `/login` only when the provider diagnostic identifies an authentication problem.
 
@@ -82,7 +82,8 @@ connection = "api"
 
 :::tip
 
-For load balancing, choose a model and settings supported by every selected connection. Kent uses your configured model even when a connection cannot serve it.
+Kent won't replace your model just because a connector doesn't offer it, so it's your responsibility to declare a model and settings that are supported by all the connections you use when load-balancing.
+i
 
 :::
 
@@ -100,8 +101,6 @@ protocol = "chatgpt-codex"
 protocol = "chatgpt-codex"
 ```
 
-Each new session selects the connection with the oldest last assignment allowed by its role's `connection` setting, or by the inherited selector when the role omits it. All session types and roles share this assignment order, including roles with overlapping sets or a single allowed connection. The selected connection is sticky for that session.
-
-Server restart resets the assignment order. Connections without an assignment take priority, in global declaration order. Array order has no effect. Assignment counts balance session starts, not token usage or account quotas.
+New sessions alternate between the defined members in their global declaration order, regardless of array order. The same member set shares one rotation across roles and workspaces.
 
 `reviewer.connection` is an exclusion - it only accepts one connection. When omitted, the supervisor uses the main session's connection.
