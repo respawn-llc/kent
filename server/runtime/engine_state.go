@@ -764,11 +764,7 @@ func (e *Engine) SessionIdentity() runtimeids.SessionIdentity {
 }
 
 func (e *Engine) SessionCategory() (sessioncontract.SessionCategory, error) {
-	category := e.store.Meta().Category
-	if category == nil {
-		return "", errors.New("Session category is required")
-	}
-	return *category, nil
+	return e.store.Meta().EffectiveCategory(), nil
 }
 
 func (e *Engine) ContinuationAgentRole() *string {

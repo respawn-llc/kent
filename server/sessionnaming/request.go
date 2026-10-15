@@ -57,12 +57,15 @@ func PrepareRequest(target llm.NanoTarget, task string, commentary *string) (llm
 	return *best, nil
 }
 
-func InterpretTitle(result string, category sessioncontract.SessionCategory, shortID runtimeids.SessionShortID) (string, error) {
+func InterpretTitle(result string, category sessioncontract.SessionCategory, shortID *runtimeids.SessionShortID) (string, error) {
 	title := strings.TrimSpace(result)
 	if title == "" || strings.ContainsAny(title, "\r\n") {
 		return "", errors.New("session-naming result must be a nonblank single line")
 	}
 	if category == sessioncontract.SessionCategorySubagent {
+		if shortID == nil {
+			return "", errors.New("subagent naming requires a Short ID")
+		}
 		return fmt.Sprintf("Subagent %s: %s", shortID.String(), title), nil
 	}
 	return title, nil

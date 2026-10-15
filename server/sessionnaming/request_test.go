@@ -55,20 +55,30 @@ func TestNamingTitleInterpretation(t *testing.T) {
 		t.Fatal(err)
 	}
 	for _, value := range []string{"", " \n\t", "First\nSecond", "First\rSecond"} {
-		if _, err := InterpretTitle(value, sessioncontract.SessionCategoryMain, shortID); err == nil {
+		if _, err := InterpretTitle(value, sessioncontract.SessionCategoryMain, &shortID); err == nil {
 			t.Fatalf("invalid title accepted: %q", value)
 		}
 	}
-	title, err := InterpretTitle("  Fix totals  ", sessioncontract.SessionCategorySubagent, shortID)
+	title, err := InterpretTitle("  Fix totals  ", sessioncontract.SessionCategorySubagent, &shortID)
 	if err != nil || title != "Subagent 7: Fix totals" {
 		t.Fatalf("subagent title = %q, %v", title, err)
 	}
 	long := strings.Repeat("word ", 10)
-	title, err = InterpretTitle(long, sessioncontract.SessionCategoryMain, shortID)
+	title, err = InterpretTitle(long, sessioncontract.SessionCategoryMain, &shortID)
 	if err != nil || title != strings.TrimSpace(long) {
 		t.Fatal("prompt style was enforced by rewriting the result")
 	}
 	if excerpt := textutil.MiddleTruncate("始abcdef終", 5); excerpt != "始a…f終" {
 		t.Fatalf("middle excerpt = %q", excerpt)
+	}
+}
+
+func TestNamingMainWithoutShortID(t *testing.T) {
+	title, err := InterpretTitle("Fix totals", sessioncontract.SessionCategoryMain, nil)
+	if err != nil || title != "Fix totals" {
+		t.Fatalf("main title = %q, %v", title, err)
+	}
+	if _, err := InterpretTitle("Fix totals", sessioncontract.SessionCategorySubagent, nil); err == nil {
+		t.Fatal("subagent without a prefix identity was named")
 	}
 }

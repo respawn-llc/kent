@@ -76,12 +76,12 @@ func TestNamingSilentToolStep(t *testing.T) {
 		{Assistant: llm.Message{Role: llm.RoleAssistant, Content: textutil.Value("Done"), Phase: textutil.Value(llm.MessagePhaseFinal)}},
 	}}
 	engine := mustNewFakeToolEngine(t, mustCreateTestSession(t), client,
-		Config{Model: "gpt-6-sol", SessionNaming: &SessionNamingConfig{MaxInputRunes: 1000, Submit: func(input SessionNamingInput) { submitted <- input }}}, toolspec.ToolExecCommand)
+		Config{Model: "gpt-6-sol", HeadlessMode: true, SessionNaming: &SessionNamingConfig{MaxInputRunes: 1000, Submit: func(input SessionNamingInput) { submitted <- input }}}, toolspec.ToolExecCommand)
 	if _, err := engine.SubmitUserMessage(t.Context(), "Fix invoices"); err != nil {
 		t.Fatal(err)
 	}
 	input := <-submitted
-	if input.Task != "Fix invoices" || input.Commentary != nil {
+	if input.Task != "Fix invoices" || input.Commentary != nil || !input.Headless {
 		t.Fatalf("silent first Step = %+v", input)
 	}
 }

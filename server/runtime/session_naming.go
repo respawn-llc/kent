@@ -10,6 +10,7 @@ import (
 type SessionNamingInput struct {
 	Task       string
 	Commentary *string
+	Headless   bool
 }
 
 type SessionNamingConfig struct {
@@ -58,5 +59,5 @@ func (e *Engine) submitSessionNaming(response llm.Response) {
 	if commentary == nil && response.Assistant.Content != nil && strings.TrimSpace(*response.Assistant.Content) != "" {
 		commentary = textutil.Value(textutil.MiddleTruncate(*response.Assistant.Content, pending.config.MaxInputRunes))
 	}
-	pending.config.Submit(SessionNamingInput{Task: *pending.task, Commentary: commentary})
+	pending.config.Submit(SessionNamingInput{Task: *pending.task, Commentary: commentary, Headless: e.cfg.HeadlessMode})
 }

@@ -319,7 +319,7 @@ You can use `kent run steer <source-session-id> "message"` to respond.
 - Naming must use text input and text output through one nano Step. Its work must have a server-wide lifetime with the nano inference timeout.
 - Naming must use at most 85% of the configured nano context window for its input, including prompt overhead, leaving room for output. Kent must middle-truncate the initial input and optional commentary as necessary, retaining their beginning and ending without changing Session history.
 - If the minimal naming prompt cannot fit, Kent must report a naming failure.
-- The naming prompt must be a template under `prompts/`, with initial user-turn or Goal text in one placeholder and optional model commentary in an `{{-if }}` block.
+- The naming prompt must include initial user-turn or Goal text and include model commentary only when available.
 - The prompt must request a specific problem or question in two to six words, in the input's language. It must exclude generic phrases such as “Discussion about”, “Exploring”, and “Understanding”, and adjectives such as “comprehensive”, “detailed”, and “interesting”.
 - Kent must reject blank or multiline titles. The prompt must instruct word count and style without result rewriting or additional model Steps.
 - Kent must save a generated title only if the Session is unnamed at save time. Manual names must win, including when entered during inference. Kent must not automatically replace an existing generated title.

@@ -141,10 +141,7 @@ func (s dormantSessionSnapshot) MainView(ctx context.Context) (*runtimepb.MainVi
 		Goal:            goal,
 		WorkflowSession: s.projection.workflow,
 	}
-	if meta.Category == nil {
-		return nil, errors.New("Session category is required")
-	}
-	category, err := protoapi.SessionCategoryToProto(*meta.Category)
+	category, err := protoapi.SessionCategoryToProto(meta.EffectiveCategory())
 	if err != nil {
 		return nil, err
 	}
