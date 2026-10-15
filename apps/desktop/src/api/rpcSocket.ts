@@ -173,7 +173,9 @@ export async function runSocketDescriptorSubscription<
           decoded = decode(eventDescriptor, notification.payload);
         } catch (cause) {
           if (input.transcriptRejection === undefined) throw cause;
-          throw new InvalidTranscriptEventError(new ContractError("Transcript event is invalid."));
+          throw new InvalidTranscriptEventError(
+            new ContractError("Transcript event is invalid.", [], 0, { cause }),
+          );
         }
         handler.onEvent(decoded);
         return;
