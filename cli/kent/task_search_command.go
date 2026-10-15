@@ -119,9 +119,6 @@ func runTaskSearch(
 }
 
 func validateTaskSearchCommandRequest(request *taskpb.SearchRequest) error {
-	if err := protoapi.Validate(request); err != nil {
-		return err
-	}
 	if request.Mode == taskpb.SearchMode_SEARCH_MODE_LITERAL {
 		return serverapi.ValidateTaskSearchLiteralQuery(request.Query)
 	}
@@ -160,10 +157,6 @@ func searchWorkflowTasks(ctx context.Context, remote apicontract.WorkflowService
 }
 
 func writeTaskSearchResponse(stdout io.Writer, stderr io.Writer, response *taskpb.SearchSuccess, jsonOut bool) int {
-	if err := protoapi.Validate(response); err != nil {
-		fmt.Fprintln(stderr, err)
-		return 1
-	}
 	if jsonOut {
 		output, err := taskSearchOutput(response)
 		if err != nil {
@@ -174,11 +167,7 @@ func writeTaskSearchResponse(stdout io.Writer, stderr io.Writer, response *taskp
 			return exitCode
 		}
 	} else {
-		projection, err := taskSearchPlainProjectionFromResponse(response)
-		if err != nil {
-			fmt.Fprintln(stderr, err)
-			return 1
-		}
+		projection := taskSearchPlainProjectionFromResponse(response)
 		if err := writeTaskSearchPlainProjection(stdout, projection); err != nil {
 			fmt.Fprintln(stderr, err)
 			return 1

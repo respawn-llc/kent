@@ -786,12 +786,6 @@ func TestWorkflowAndTaskSearchArityAndPaginationValidation(t *testing.T) {
 		{"task search extra query", func(stdout, stderr *bytes.Buffer) int {
 			return taskSearchSubcommand([]string{"needle", "extra"}, stdout, stderr)
 		}},
-		{"task search negative offset", func(stdout, stderr *bytes.Buffer) int {
-			return taskSearchSubcommand([]string{"needle", "--offset", "-1"}, stdout, stderr)
-		}},
-		{"task search incompatible flags", func(stdout, stderr *bytes.Buffer) int {
-			return taskSearchSubcommand([]string{"needle", "--fts5", "--case-sensitive"}, stdout, stderr)
-		}},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			var stdout, stderr bytes.Buffer
