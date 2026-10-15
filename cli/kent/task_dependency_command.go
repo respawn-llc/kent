@@ -104,11 +104,7 @@ func taskDependencyMutationSubcommand(kind taskDependencyMutationKind, args []st
 			panic(fmt.Sprintf("unsupported task dependency mutation %q", kind))
 		}
 		if *jsonOut {
-			output, err := taskDependencyMutationOutput(response)
-			if err != nil {
-				fmt.Fprintln(stderr, err)
-				return 1
-			}
+			output := taskDependencyMutationOutput(response)
 			return writeCommandJSON(stdout, stderr, output)
 		}
 		fmt.Fprintln(stdout, "done")
@@ -156,11 +152,7 @@ func taskDependencyListSubcommand(args []string, stdout io.Writer, stderr io.Wri
 			return 1
 		}
 		if *jsonOut {
-			output, err := taskDependencyListOutput(response)
-			if err != nil {
-				fmt.Fprintln(stderr, err)
-				return 1
-			}
+			output := taskDependencyListOutput(response)
 			return writeCommandJSON(stdout, stderr, output)
 		}
 		if err := writeTaskDependencyDirections(stdout, response.Directions); err != nil {
