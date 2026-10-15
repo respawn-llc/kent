@@ -3,9 +3,12 @@ package app
 import (
 	"bytes"
 	"io"
+	"net/http"
+	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"strings"
+	"sync/atomic"
 	"testing"
 
 	"core/cli/app/commands"
@@ -18,6 +21,7 @@ import (
 	chatsettingspb "core/shared/protoapi/gen/kent/api/chat_settings"
 	sessionlaunchpb "core/shared/protoapi/gen/kent/api/session_launch"
 	"core/shared/runtimeids"
+	"core/shared/runtimeinput"
 	"core/shared/serverapi"
 	"core/shared/sessioncontract"
 	tea "github.com/charmbracelet/bubbletea"
@@ -97,11 +101,19 @@ func TestNewSessionPresentationLeavesArtifactsAndCatalogUnchanged(t *testing.T) 
 	_, workspace := newRegisteredAppWorkspace(t)
 	t.Setenv("REMOTE_TEST_KEY", "ready-key")
 	fixture := startRemoteAuthTestFixture(t, workspace)
+	var providerCalls atomic.Int32
+	provider := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		providerCalls.Add(1)
+		w.WriteHeader(http.StatusInternalServerError)
+	}))
+	defer provider.Close()
 	original, err := fixture.config.Settings.Connection.ConcreteID()
 	if err != nil {
 		t.Fatal(err)
 	}
 	definition := fixture.config.Settings.Connections[*original]
+	providerURL := provider.URL + "/v1"
+	definition.Endpoint = &providerURL
 	fixture.config.Settings.Connections = map[config.ConnectionID]config.ProviderConnection{"account-a": definition, "account-b": definition}
 	selection := config.ConnectionSelection{"account-a", "account-b"}
 	fixture.config.Settings.Connection = &selection
@@ -194,9 +206,15 @@ func TestNewSessionPresentationLeavesArtifactsAndCatalogUnchanged(t *testing.T) 
 	}
 	for index, want := range []string{"account-a", "account-b", "account-a"} {
 		composition := newComposer()
-		result := composition.model.newSessionActionCmd(chatShellAction{command: "true"}, nil)().(newSessionActionDoneMsg)
+		result := composition.model.newSessionInputCmd("$ true", runtimeinput.Text("$ true"), newSessionInputEnter)().(newSessionActionDoneMsg)
 		if result.err != nil || result.session == nil {
 			t.Fatalf("first action: %v", result.err)
+		}
+		if _, shell := result.action.(chatShellAction); !shell {
+			t.Fatal("supported shell input did not execute the shell action")
+		}
+		if providerCalls.Load() != 0 {
+			t.Fatalf("shell first action contacted provider %d times", providerCalls.Load())
 		}
 		id, err := runtimeids.ParseSessionID(result.session.SessionId)
 		if err != nil {
