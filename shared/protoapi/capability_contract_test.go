@@ -77,3 +77,24 @@ func TestCapabilitySymlinkChoiceIdentity(t *testing.T) {
 		t.Fatal(err)
 	}
 }
+
+func TestCapabilitySkillEnablementCandidateName(t *testing.T) {
+	for _, name := range []string{" \t", "\u0085", " skill ", "\uFEFF"} {
+		valid := name == " skill " || name == "\uFEFF"
+		ref := &pb.ImportItemRef{
+			ItemKind:   pb.ImportItemKind_IMPORT_ITEM_KIND_SKILL,
+			SourceKind: pb.ImportSourceKind_IMPORT_SOURCE_KIND_GLOBAL,
+			TargetName: name,
+		}
+		if err := protoapi.Validate(ref); err != nil {
+			t.Fatalf("shared import ref rejected %q: %v", name, err)
+		}
+		projection := &pb.SkillEnablementProjectionFact{
+			ChoiceRef:  &pb.ImportChoiceRef{Mode: pb.ImportChoiceMode_IMPORT_CHOICE_MODE_NONE},
+			Candidates: []*pb.ImportItemFact{{Ref: ref}},
+		}
+		if err := protoapi.Validate(projection); (err == nil) != valid {
+			t.Errorf("candidate %q acceptance = %v", name, err)
+		}
+	}
+}

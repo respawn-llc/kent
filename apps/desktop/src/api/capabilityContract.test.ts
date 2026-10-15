@@ -2,16 +2,45 @@ import { create, validate } from "@app/server-api-contract";
 import {
   ImportChoiceMode,
   ImportChoiceRefSchema,
+  ImportItemKind,
+  ImportItemRefSchema,
+  ImportSourceKind,
+  SkillEnablementProjectionFactSchema,
   ModelFactSchema,
   ModelFactsSchema,
   ModelVerbosityFactSchema,
 } from "@app/server-api-contract/gen/kent/api/capability/capability_pb";
 
 describe("Capability model facts", () => {
+  it("requires substantive candidate names only in Skill Enablement projections", () => {
+    for (const targetName of [" \t", "\u0085", " skill ", "\uFEFF"]) {
+      const ref = create(ImportItemRefSchema, {
+        targetName,
+        itemKind: ImportItemKind.SKILL,
+        sourceKind: ImportSourceKind.GLOBAL,
+      });
+      expect(() => validate(ImportItemRefSchema, ref)).not.toThrow();
+      const projection = create(SkillEnablementProjectionFactSchema, {
+        choiceRef: { mode: ImportChoiceMode.NONE },
+        candidates: [{ ref }],
+      });
+      if (targetName === " skill " || targetName === "\uFEFF") {
+        expect(() => validate(SkillEnablementProjectionFactSchema, projection)).not.toThrow();
+      } else {
+        expect(() => validate(SkillEnablementProjectionFactSchema, projection)).toThrow();
+      }
+    }
+  });
+
   it("requires a substantive provider and root only for symlink choices", () => {
-    expect(() => validate(ImportChoiceRefSchema, create(ImportChoiceRefSchema, {
-      mode: ImportChoiceMode.NONE,
-    }))).not.toThrow();
+    expect(() =>
+      validate(
+        ImportChoiceRefSchema,
+        create(ImportChoiceRefSchema, {
+          mode: ImportChoiceMode.NONE,
+        }),
+      ),
+    ).not.toThrow();
     for (const [importProviderId, sourceRootPath, valid] of [
       [undefined, "/source", false],
       ["provider", undefined, false],
@@ -21,7 +50,9 @@ describe("Capability model facts", () => {
       ["\uFEFF", "\uFEFF", true],
     ] as const) {
       const ref = create(ImportChoiceRefSchema, {
-        mode: ImportChoiceMode.SYMLINK_SOURCE, importProviderId, sourceRootPath,
+        mode: ImportChoiceMode.SYMLINK_SOURCE,
+        importProviderId,
+        sourceRootPath,
       });
       if (valid) {
         expect(() => validate(ImportChoiceRefSchema, ref)).not.toThrow();

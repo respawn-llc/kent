@@ -49,9 +49,6 @@ func newOnboardingFlowState(local config.LocalPreferences, facts *capabilitypb.F
 }
 
 func onboardingSelectionsFromFacts(local config.LocalPreferences, facts *capabilitypb.Facts) (onboardingSelections, error) {
-	if err := validateOnboardingFacts(facts); err != nil {
-		return onboardingSelections{}, err
-	}
 	defaults := facts.GetDefaults()
 	if defaults == nil || defaults.Thinking == nil || defaults.Supervisor == nil {
 		return onboardingSelections{}, conversionError("facts.defaults", defaults, "visible defaults are required")
@@ -259,26 +256,6 @@ func seedThinkingFact(fact *capabilitypb.ThinkingDefaultFact, levels []string) (
 	default:
 		return onboardingThinkingSelection{}, conversionError("thinking.mode", fact.Mode, "unsupported thinking mode")
 	}
-}
-
-func validateOnboardingFacts(facts *capabilitypb.Facts) error {
-	return validateOnboardingImportFacts(facts.GetImports())
-}
-
-func validateOnboardingImportFacts(facts *capabilitypb.ImportFacts) error {
-	for index, projection := range facts.GetSkillEnablement() {
-		field := fmt.Sprintf("facts.imports.skill_enablement[%d]", index)
-		for candidateIndex, candidate := range projection.Candidates {
-			if strings.TrimSpace(candidate.GetRef().GetTargetName()) == "" {
-				return conversionError(
-					fmt.Sprintf("%s.candidates[%d].ref.target_name", field, candidateIndex),
-					candidate.GetRef().GetTargetName(),
-					"must not be blank",
-				)
-			}
-		}
-	}
-	return nil
 }
 
 func conversionError(field string, value any, reason string) error {

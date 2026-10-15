@@ -210,6 +210,12 @@ message ImportItemGroupFact {
 message SkillEnablementProjectionFact {
   ImportChoiceRef choice_ref = 1 [(buf.validate.field).required = true];
   repeated ImportItemFact candidates = 2;
+
+  option (buf.validate.message).cel = {
+    id: "kent.capability.skill_candidate_name"
+    message: "skill enablement candidates must have substantive target names"
+    expression: "this.candidates.all(candidate, candidate.ref.target_name.trim() != '')"
+  };
 }
 
 message ImportErrorFact {
