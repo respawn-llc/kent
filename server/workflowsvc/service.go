@@ -231,9 +231,6 @@ func New(store *workflowstore.Store, metadataStore *metadata.Store, readModels R
 }
 
 func (s *Service) CreateWorkflow(ctx context.Context, req *pb.CreateRequest) (*pb.CreateSuccess, error) {
-	if err := protoapi.Validate(req); err != nil {
-		return nil, err
-	}
 	created, err := s.store.CreateWorkflow(ctx, workflowstore.CreateWorkflowRequest{Name: req.Name, Description: req.Description})
 	if err != nil {
 		return nil, err
@@ -246,9 +243,6 @@ func (s *Service) CreateWorkflow(ctx context.Context, req *pb.CreateRequest) (*p
 }
 
 func (s *Service) CreateAndLinkWorkflowToProject(ctx context.Context, request *pb.CreateAndLinkProjectRequest) (*pb.CreateAndLinkProjectSuccess, error) {
-	if err := protoapi.Validate(request); err != nil {
-		return nil, err
-	}
 	created, link, err := s.store.CreateAndLinkWorkflow(ctx, workflowstore.CreateAndLinkWorkflowRequest{
 		Name:          request.Name,
 		Description:   request.Description,
@@ -312,10 +306,7 @@ func (s *Service) publishLinkedWorkflowEvent(ctx context.Context, workflowID run
 }
 
 func (s *Service) UpdateWorkflow(ctx context.Context, req *pb.UpdateRequest) (*pb.GetSuccess, error) {
-	if err := protoapi.Validate(req); err != nil {
-		return nil, err
-	}
-	workflowID, err := runtimeids.ParseWorkflowID(req.WorkflowId)
+	workflowID, err := runtimeids.WorkflowIDFromProto(req.WorkflowId)
 	if err != nil {
 		return nil, err
 	}
@@ -369,10 +360,7 @@ func (s *Service) ListWorkflows(ctx context.Context, req *pb.ListRequest) (*pb.L
 }
 
 func (s *Service) GetWorkflow(ctx context.Context, req *pb.GetRequest) (*pb.GetSuccess, error) {
-	if err := protoapi.Validate(req); err != nil {
-		return nil, err
-	}
-	workflowID, err := runtimeids.ParseWorkflowID(req.WorkflowId)
+	workflowID, err := runtimeids.WorkflowIDFromProto(req.WorkflowId)
 	if err != nil {
 		return nil, err
 	}
