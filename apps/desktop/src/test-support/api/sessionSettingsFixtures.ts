@@ -20,6 +20,10 @@ export function hasSessionSettingsSubscription(transport: FakeRpcTransport): boo
   return transport.descriptorSubscriptions.includes(ChatSettingsService.method.subscribe);
 }
 
+export function openSessionSettingsSubscription(transport: FakeRpcTransport): void {
+  transport.openDescriptor(ChatSettingsService.method.subscribe);
+}
+
 export function emitSessionSettingsSnapshot(
   transport: FakeRpcTransport,
   sessionID: string,

@@ -17,3 +17,15 @@ export function createChatStorageFixture(): Storage {
     key: (index) => Array.from(values.keys())[index] ?? null,
   };
 }
+
+export function installChatStorageFixture(): () => void {
+  const previousDescriptor = Object.getOwnPropertyDescriptor(globalThis, "localStorage");
+  Object.defineProperty(globalThis, "localStorage", {
+    configurable: true,
+    value: createChatStorageFixture(),
+  });
+  return () => {
+    if (previousDescriptor === undefined) Reflect.deleteProperty(globalThis, "localStorage");
+    else Object.defineProperty(globalThis, "localStorage", previousDescriptor);
+  };
+}

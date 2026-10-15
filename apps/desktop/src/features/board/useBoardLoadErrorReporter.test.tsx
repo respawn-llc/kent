@@ -1,22 +1,23 @@
 import { CancelledError } from "@tanstack/react-query";
 import { act, renderHook } from "@testing-library/react";
-import { beforeEach, vi } from "vitest";
+import { beforeEach, describe, expect, it, mock, vi } from "bun:test";
+import type * as ReactI18next from "react-i18next";
 
 const push = vi.fn();
 
-vi.mock("@/app-facade", async (importOriginal) => {
-  const actual = await importOriginal<Record<string, unknown>>();
-  return {
-    ...actual,
-    useStatusController: () => ({ push }),
-  };
-});
+const actualAppFacade = await import("@/app-facade");
+const actualReactI18next: typeof ReactI18next = await import("react-i18next");
+await mock.module("@/app-facade", () => ({
+  ...actualAppFacade,
+  useStatusController: () => ({ push }),
+}));
 
-vi.mock("react-i18next", () => ({
+await mock.module("react-i18next", () => ({
+  ...actualReactI18next,
   useTranslation: () => ({ t: (key: string) => key }),
 }));
 
-import { useBoardLoadErrorReporter } from "./useBoardLoadErrorReporter";
+const { useBoardLoadErrorReporter } = await import("./useBoardLoadErrorReporter");
 
 describe("useBoardLoadErrorReporter", () => {
   beforeEach(() => {

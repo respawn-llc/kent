@@ -1,6 +1,7 @@
 import { RegistryProvider, useAtomMount, useAtomValue, useAtomSet } from "@effect/atom-react";
 import { QueryClient } from "@tanstack/react-query";
 import { act, renderHook, waitFor } from "@testing-library/react";
+import { expect, it, vi } from "bun:test";
 import type { ReactNode } from "react";
 
 import { createTestServices } from "@/test-support/app-services";

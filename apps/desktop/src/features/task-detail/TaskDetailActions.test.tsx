@@ -1,3 +1,4 @@
+import { expect, it, vi } from "bun:test";
 import { act, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 
@@ -51,7 +52,8 @@ it("opens the only Session directly without a picker", async () => {
   );
   const user = userEvent.setup();
   await user.click(await screen.findByRole("button", { name: appI18n.t("task.openInChat") }));
-  expect(openSessionChat).toHaveBeenCalledExactlyOnceWith({ projectID: "project-1", sessionID });
+  expect(openSessionChat).toHaveBeenCalledTimes(1);
+  expect(openSessionChat).toHaveBeenCalledWith({ projectID: "project-1", sessionID });
   expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
 });
 
@@ -143,7 +145,7 @@ it("shows Start loading, prevents duplicate requests, and permits it after an in
   });
   expect(start).toBeEnabled();
   await user.click(start);
-  expect(startTask).toHaveBeenCalledOnce();
+  expect(startTask).toHaveBeenCalledTimes(1);
   resolveStart?.(taskStartApplied());
   await waitFor(() => {
     expect(start).toHaveAttribute("aria-busy", "false");

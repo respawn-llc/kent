@@ -2,6 +2,7 @@ import { RegistryProvider, useAtomValue } from "@effect/atom-react";
 import { QueryClient } from "@tanstack/react-query";
 import { act, renderHook, waitFor } from "@testing-library/react";
 import type { ReactNode } from "react";
+import { expect, it, vi } from "bun:test";
 import { createTestServices } from "@/test-support/app-services";
 import { createTestSidebarController } from "@/test-support/sidebar";
 import { deferred } from "@/test-support/chat-runtime";
@@ -47,7 +48,7 @@ it("admits Link Workflow once while its owned sidebar remains open", async () =>
     view.result.current.linkWorkflow({ open });
     view.result.current.linkWorkflow({ open });
   });
-  expect(open).toHaveBeenCalledOnce();
+  expect(open).toHaveBeenCalledTimes(1);
   await act(async () => {
     completion.resolve("closed");
   });
@@ -91,7 +92,7 @@ it("admits New Task once while its owned sidebar remains open", async () => {
     view.result.current.newTask({ open });
     view.result.current.newTask({ open });
   });
-  expect(open).toHaveBeenCalledOnce();
+  expect(open).toHaveBeenCalledTimes(1);
   await act(async () => {
     completion.resolve("closed");
   });

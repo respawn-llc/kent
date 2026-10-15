@@ -1,14 +1,23 @@
 import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { beforeAll, expect, it } from "vitest";
+import { beforeAll, expect, it } from "bun:test";
+import { MotionConfig } from "motion/react";
 
 import type { ChatTranscriptCommittedRow } from "@/api";
 import { appI18n, initializeI18n } from "@/i18n";
-import { createTestServices, TestAppProviders } from "@/test-support/app-services";
+import { createTestServices, TestAppProviders as AppProviders } from "@/test-support/app-services";
 
 import { TranscriptNoticeRow } from "./TranscriptNoticeRow";
 
 beforeAll(initializeI18n);
+
+function TestAppProviders(props: Parameters<typeof AppProviders>[0]) {
+  return (
+    <MotionConfig skipAnimations>
+      <AppProviders {...props} />
+    </MotionConfig>
+  );
+}
 
 it("collapses structured worktree summaries without touching model-visible details", async () => {
   const user = userEvent.setup();

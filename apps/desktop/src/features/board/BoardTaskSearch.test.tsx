@@ -1,5 +1,5 @@
 import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "bun:test";
 import type { ReactElement } from "react";
 import {
   createSearchTestServices,
@@ -49,13 +49,13 @@ describe("Board Task Search", () => {
     expect(input).toHaveFocus();
     fireEvent.change(input, { target: { value: "search" } });
 
-    await act(async () => {
-      await vi.advanceTimersByTimeAsync(299);
+    act(() => {
+      vi.advanceTimersByTime(299);
     });
     expect(services.searches).not.toHaveBeenCalled();
 
-    await act(async () => {
-      await vi.advanceTimersByTimeAsync(1);
+    act(() => {
+      vi.advanceTimersByTime(1);
     });
 
     expect(services.searches.mock.calls.map(([request]) => request)).toMatchObject([
@@ -82,8 +82,8 @@ describe("Board Task Search", () => {
     expect(input).toHaveFocus();
     fireEvent.change(input, { target: { value: "search" } });
 
-    await act(async () => {
-      await vi.advanceTimersByTimeAsync(300);
+    act(() => {
+      vi.advanceTimersByTime(300);
     });
 
     expect(services.searches.mock.calls.map(([request]) => request)).toMatchObject([
@@ -221,7 +221,7 @@ describe("Board Task Search", () => {
     const input = screen.getByRole("searchbox", { name: appI18n.t("taskSearch.input") });
     fireEvent.change(input, { target: { value: "search" } });
     await waitFor(() => {
-      expect(services.searches).toHaveBeenCalledOnce();
+      expect(services.searches).toHaveBeenCalledTimes(1);
     });
 
     view.rerender(renderProjectSearchTree(services, "project-second"));
@@ -296,10 +296,15 @@ describe("Board Task Search", () => {
     fireEvent.keyDown(input, { key: "ArrowDown" });
     expect(screen.getAllByRole("option")[1]).toHaveAttribute("aria-selected", "true");
 
+    vi.useFakeTimers();
     fireEvent.keyDown(document, { key: "Escape" });
+    act(() => {
+      vi.runOnlyPendingTimers();
+    });
     await waitFor(() => {
       expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
     });
+    vi.useRealTimers();
     fireEvent.click(screen.getByRole("button", { name: appI18n.t("taskSearch.open") }));
 
     await waitFor(() => {
@@ -310,7 +315,6 @@ describe("Board Task Search", () => {
   });
 
   it("cancels a pending Task activation when Search reopens during exit", async () => {
-    vi.useRealTimers();
     const services = createSearchTestServices([searchRoute(() => searchResponse)]);
     const onOpenTask = vi.fn();
 
@@ -318,6 +322,9 @@ describe("Board Task Search", () => {
     fireEvent.keyDown(window, { code: "KeyS", metaKey: true });
     const input = screen.getByRole("searchbox", { name: appI18n.t("taskSearch.input") });
     fireEvent.change(input, { target: { value: "search" } });
+    act(() => {
+      vi.advanceTimersByTime(300);
+    });
     expect(await screen.findAllByRole("option")).toHaveLength(2);
 
     fireEvent.keyDown(input, { key: "Enter" });
@@ -325,6 +332,9 @@ describe("Board Task Search", () => {
     expect(screen.getByRole("dialog")).toBeInTheDocument();
 
     fireEvent.keyDown(document, { key: "Escape" });
+    act(() => {
+      vi.runOnlyPendingTimers();
+    });
     await waitFor(() => {
       expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
     });

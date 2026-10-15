@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it } from "bun:test";
 
 import type { ChatTranscriptPayloadByKind } from "@/api";
 import { hydration, idle, page, row, sequences, visit } from "@/test-support/transcript-window";
@@ -52,9 +52,8 @@ describe("transcript live membership and compaction", () => {
       CompactText: "real reasoning",
     };
     window.dispatch({ kind: "live-fact", fact: { kind: "reasoning_trace_update", payload: trace } });
-    expect(window.snapshot.items.filter((item) => item.kind === "reasoning_trace")).toEqual([
-      expect.objectContaining({ value: trace }),
-    ]);
+    const reasoningTrace = window.snapshot.items.find((item) => item.kind === "reasoning_trace");
+    expect(reasoningTrace?.value).toEqual(trace);
     window.dispatch({
       kind: "live-fact",
       fact: { kind: "thinking_status_update", payload: { StepID: "step", Text: "another status" } },

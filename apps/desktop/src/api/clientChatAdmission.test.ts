@@ -1,5 +1,11 @@
+import { describe, expect, it } from "bun:test";
+import { fromJson } from "@bufbuild/protobuf";
 import { create } from "@app/server-api-contract";
-import { ChatService, InputAdmissionDisposition } from "@app/server-api-contract/gen/kent/api/chat/chat_pb";
+import {
+  ChatService,
+  InputAcceptedSchema,
+  InputAdmissionDisposition,
+} from "@app/server-api-contract/gen/kent/api/chat/chat_pb";
 import { FakeRpcTransport, unexpectedProjectOverflow } from "@/test-support/api";
 import { ApiClient } from "./client";
 import { parsePendingWorkItemID } from "./pendingWork";
@@ -8,7 +14,11 @@ const sessionID = "123e4567-e89b-42d3-a456-426614174000";
 const queueItemID = parsePendingWorkItemID("223e4567-e89b-42d3-a456-426614174000");
 const target = { kind: "session", projectID: "project-1", sessionID } as const;
 
-async function admit(disposition: InputAdmissionDisposition) {
+async function admit(disposition: number) {
+  const accepted = fromJson(InputAcceptedSchema, {
+    queueItem: { id: queueItemID.toJSONValue() },
+    disposition,
+  });
   const transport = new FakeRpcTransport([
     {
       descriptor: ChatService.method.steer,
@@ -19,10 +29,7 @@ async function admit(disposition: InputAdmissionDisposition) {
             session: { sessionId: sessionID },
             outcome: {
               case: "accepted",
-              value: {
-                queueItem: { id: queueItemID.toJSONValue() },
-                disposition,
-              },
+              value: accepted,
             },
           },
         },
@@ -49,7 +56,13 @@ describe("Desktop Chat admission disposition", () => {
   it.each([InputAdmissionDisposition.UNSPECIFIED, 99])(
     "rejects missing or unknown disposition %s",
     async (disposition) => {
-      await expect(admit(disposition)).rejects.toBeInstanceOf(Error);
+      const rejected = await admit(disposition).then(
+        () => {
+          throw new Error("Expected an unknown disposition to be rejected.");
+        },
+        (error: unknown) => error,
+      );
+      expect(rejected).toBeInstanceOf(Error);
     },
   );
 });

@@ -1,7 +1,6 @@
-// @vitest-environment jsdom
+import { describe, expect, it } from "bun:test";
 import { InfiniteQueryObserver, QueryClient } from "@tanstack/react-query";
 import { waitFor } from "@testing-library/react";
-import { describe, expect, it } from "vitest";
 import type { ApiService, SessionCatalogPage, SessionCategory, WorkspaceCatalogPage } from "@/api";
 import {
   mainSessionCatalogInfiniteQueryOptions,

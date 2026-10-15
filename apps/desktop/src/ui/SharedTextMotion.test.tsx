@@ -1,10 +1,13 @@
-import { afterEach, expect, it, vi } from "vitest";
+import { afterEach, expect, it, vi } from "bun:test";
 import { SharedTextMotion } from "./SharedTextMotion";
+
+let restoreMatchMedia: (() => void) | undefined;
 
 afterEach(() => {
   document.body.replaceChildren();
   document.documentElement.style.removeProperty("--motion-text-handoff");
-  vi.unstubAllGlobals();
+  restoreMatchMedia?.();
+  restoreMatchMedia = undefined;
   vi.useRealTimers();
 });
 
@@ -39,12 +42,17 @@ it.each([50, 900])("keeps a tall-chat flight at 350ms with a %ims theme duration
 });
 
 it("consumes reduced-motion delivery without overlays or historical replay", () => {
-  vi.stubGlobal(
-    "matchMedia",
-    vi.fn((query: string) => ({
+  const previousMatchMedia = Object.getOwnPropertyDescriptor(globalThis, "matchMedia");
+  Object.defineProperty(globalThis, "matchMedia", {
+    configurable: true,
+    value: vi.fn((query: string) => ({
       matches: query === "(prefers-reduced-motion: reduce)",
     })),
-  );
+  });
+  restoreMatchMedia = () => {
+    if (previousMatchMedia === undefined) Reflect.deleteProperty(globalThis, "matchMedia");
+    else Object.defineProperty(globalThis, "matchMedia", previousMatchMedia);
+  };
   const motion = new SharedTextMotion();
   const source = textElement(300);
   const target = textElement(100);
@@ -52,7 +60,8 @@ it("consumes reduced-motion delivery without overlays or historical replay", () 
   expect(motion.arrive(["first"], target)).toBe(false);
   expect(target).toBeVisible();
   expect(document.body.children).toHaveLength(2);
-  vi.unstubAllGlobals();
+  restoreMatchMedia();
+  restoreMatchMedia = undefined;
   expect(motion.arrive(["first"], target)).toBe(false);
   motion.dispose();
 });

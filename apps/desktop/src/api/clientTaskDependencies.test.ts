@@ -1,3 +1,4 @@
+import { describe, expect, it } from "bun:test";
 import { create } from "@app/server-api-contract";
 import * as read from "@app/server-api-contract/gen/kent/api/workflow_task/read_pb";
 import * as lifecycle from "@app/server-api-contract/gen/kent/api/workflow_task/lifecycle_pb";
@@ -63,7 +64,7 @@ describe("task dependency client contract", () => {
             ],
       );
       const client = new ApiClient(transport, unexpectedProjectOverflow);
-      await expect(
+      expect(
         add ? client.addTaskDependency("task-1", "task-2") : client.removeTaskDependency("task-1", "task-2"),
       ).rejects.toThrow();
     }
@@ -89,7 +90,7 @@ describe("task dependency client contract", () => {
         ],
       }),
     );
-    await expect(client.getTask("task-1")).resolves.toMatchObject({
+    expect(client.getTask("task-1")).resolves.toMatchObject({
       dependencies: {
         blockerCount: 1,
         unsatisfiedBlockerCount: 1,
@@ -127,7 +128,7 @@ describe("task dependency client contract", () => {
         create(read.DependencyDirectionProjectionSchema, { direction: read.DependencyDirection.BLOCKS }),
       ],
     ]) {
-      await expect(
+      expect(
         detailClient(create(read.TaskDependenciesSchema, { directions })).getTask("task-1"),
       ).rejects.toThrow();
     }
@@ -182,15 +183,15 @@ describe("task dependency client contract", () => {
       },
     ]);
     const client = new ApiClient(transport, unexpectedProjectOverflow);
-    await expect(client.addTaskDependency("task-1", "task-2")).resolves.toMatchObject({
+    expect(client.addTaskDependency("task-1", "task-2")).resolves.toMatchObject({
       outcome: "added",
       blockerTaskID: "task-1",
       blockedTaskID: "task-2",
     });
-    await expect(client.removeTaskDependency("task-1", "task-2")).resolves.toMatchObject({
+    expect(client.removeTaskDependency("task-1", "task-2")).resolves.toMatchObject({
       outcome: "removed",
     });
-    await expect(client.listTaskDependencies("task-2", "blocked-by")).resolves.toMatchObject({
+    expect(client.listTaskDependencies("task-2", "blocked-by")).resolves.toMatchObject({
       taskID: "task-2",
       shortID: "KENT-2",
       directions: [

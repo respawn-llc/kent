@@ -1,4 +1,4 @@
-import { afterEach, expect, it, vi } from "vitest";
+import { afterEach, expect, it, vi } from "bun:test";
 import { focusManager, MutationObserver, onlineManager, QueryObserver } from "@tanstack/react-query";
 
 import { createAppQueryClient } from "./queryClient";
@@ -38,15 +38,15 @@ it("settles a failed read after one attempt and permits an explicit subsequent r
   vi.useFakeTimers();
   const client = createAppQueryClient();
   const failure = new Error("unavailable");
-  const read = vi.fn().mockRejectedValueOnce(failure).mockResolvedValue("fresh");
+  const read = vi.fn<() => Promise<string>>().mockRejectedValueOnce(failure).mockResolvedValue("fresh");
   const options = { queryKey: ["policy"], queryFn: read };
-  const result = client.fetchQuery(options).catch((error: unknown) => error);
+  const result = client.fetchQuery<string>(options).catch((error: unknown) => error);
 
-  await vi.runAllTimersAsync();
+  vi.runAllTimers();
 
   expect(await result).toBe(failure);
   expect(read).toHaveBeenCalledTimes(1);
-  expect(await client.fetchQuery(options)).toBe("fresh");
+  expect(await client.fetchQuery<string>(options)).toBe("fresh");
   expect(read).toHaveBeenCalledTimes(2);
   client.clear();
 });

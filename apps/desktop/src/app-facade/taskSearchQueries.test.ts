@@ -1,3 +1,4 @@
+import { describe, expect, it } from "bun:test";
 import { QueryClient } from "@tanstack/react-query";
 
 import { queryKeys } from "./queryKeys";

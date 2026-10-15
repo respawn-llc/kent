@@ -1,6 +1,6 @@
 import { render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { vi } from "vitest";
+import { describe, expect, it, vi } from "bun:test";
 
 import { BoardDependencyProgressChip } from "./BoardDependencyProgressChip";
 
@@ -29,7 +29,7 @@ describe("BoardDependencyProgressChip", () => {
 
     await user.click(chip);
 
-    expect(onActivate).toHaveBeenCalledOnce();
+    expect(onActivate).toHaveBeenCalledTimes(1);
     expect(onCardActivate).not.toHaveBeenCalled();
     expect(screen.getByRole("progressbar")).toHaveAttribute("aria-valuenow", "1");
     expect(screen.getByRole("progressbar")).toHaveAttribute("aria-valuemax", "2");

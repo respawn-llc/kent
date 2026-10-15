@@ -1,3 +1,5 @@
+import { describe, expect, it } from "bun:test";
+
 import type { TaskDetail, WorkflowProjectEvent } from "@/api";
 import {
   optimisticTaskDependencyRemoval,
@@ -27,7 +29,9 @@ describe("task dependency presentation authority", () => {
   it("provides the canonical required direction projection", () => {
     const dependencies = detailFixture().dependencies;
 
-    expect(requiredTaskDependencyDirection(dependencies, "blocked-by")).toBe(dependencies.directions[0]);
+    const blockedBy = dependencies.directions[0];
+    if (blockedBy === undefined) throw new Error("Expected required dependency direction.");
+    expect(requiredTaskDependencyDirection(dependencies, "blocked-by")).toBe(blockedBy);
     expect(() =>
       requiredTaskDependencyDirection(
         { ...dependencies, directions: dependencies.directions.slice(1) },

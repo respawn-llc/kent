@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it } from "bun:test";
 
 import type { ChatTranscriptPage, ChatTranscriptPayloadByKind } from "@/api";
 import { hydration, page, row, sequences, visit } from "@/test-support/transcript-window";

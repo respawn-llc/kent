@@ -1,7 +1,7 @@
 import { QueryClient } from "@tanstack/react-query";
 import { act, renderHook } from "@testing-library/react";
 import type { ReactNode } from "react";
-import { vi } from "vitest";
+import { describe, expect, it, vi } from "bun:test";
 
 import type { TaskDetail } from "@/api";
 import { queryKeys } from "@/app-facade";

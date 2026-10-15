@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it } from "bun:test";
 
 import type { ChatTranscriptCommittedRow } from "@/api";
 
@@ -38,12 +38,15 @@ describe("Chat notice policy", () => {
   });
 
   it("keeps notice inclusion, source, and expansion decisions typed", () => {
-    const cases: readonly {
-      name: string;
-      row: ChatTranscriptCommittedRow;
-      bodyKind: "markdown" | "plain_text" | null;
-      defaultExpanded?: boolean;
-    }[] = [
+    const cases: readonly (
+      | Readonly<{ name: string; row: ChatTranscriptCommittedRow; bodyKind: null }>
+      | Readonly<{
+          name: string;
+          row: ChatTranscriptCommittedRow;
+          bodyKind: "markdown" | "plain_text";
+          defaultExpanded: boolean;
+        }>
+    )[] = [
       { name: "hidden", row: noticeRow({ Visibility: "hidden" }), bodyKind: null },
       { name: "interruption", row: noticeRow({ MessageType: "interruption" }), bodyKind: null },
       {

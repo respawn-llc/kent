@@ -1,3 +1,4 @@
+import { expect, it, vi } from "bun:test";
 import { RegistryProvider, useAtomSet, useAtomValue } from "@effect/atom-react";
 import { act, render, screen, waitFor } from "@testing-library/react";
 import { useCallback } from "react";
@@ -8,17 +9,19 @@ import {
 } from "./BoardCardVisibilityRegistry";
 
 it("releases card observations and disconnects visibility observation when its rail leaves", async () => {
+  const originalIntersectionObserver = Object.getOwnPropertyDescriptor(globalThis, "IntersectionObserver");
   const observe = vi.fn();
   const unobserve = vi.fn();
   const disconnect = vi.fn();
-  vi.stubGlobal(
-    "IntersectionObserver",
-    class {
+  Object.defineProperty(globalThis, "IntersectionObserver", {
+    configurable: true,
+    value: class {
       observe = observe;
       unobserve = unobserve;
       disconnect = disconnect;
     },
-  );
+    writable: true,
+  });
   const model = createBoardCardVisibility();
   function Card() {
     const register = useAtomSet(model.register, { mode: "value" });
@@ -64,9 +67,13 @@ it("releases card observations and disconnects visibility observation when its r
       view.unmount();
     });
     await waitFor(() => {
-      expect(disconnect).toHaveBeenCalledOnce();
+      expect(disconnect).toHaveBeenCalledTimes(1);
     });
   } finally {
-    vi.unstubAllGlobals();
+    if (originalIntersectionObserver === undefined) {
+      Reflect.deleteProperty(globalThis, "IntersectionObserver");
+    } else {
+      Object.defineProperty(globalThis, "IntersectionObserver", originalIntersectionObserver);
+    }
   }
 });

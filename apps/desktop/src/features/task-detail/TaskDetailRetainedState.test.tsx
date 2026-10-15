@@ -1,8 +1,10 @@
+import { describe, expect, it, vi } from "bun:test";
 import { fireEvent, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 
 import { appI18n } from "@/i18n";
 import type { SidebarDestination } from "@/app-facade";
+import { installVirtualizedScrollGeometry } from "@/test-support/resize-observer";
 import { createTestSidebarController, createTestSidebarNavigator } from "@/test-support/sidebar";
 import {
   commentListResponse,
@@ -21,6 +23,7 @@ import {
 
 describe("Task Detail retained sidebar state", () => {
   it("restores the selected Activity feed but opens back at the top after visiting another Task", async () => {
+    const geometry = installVirtualizedScrollGeometry(600);
     const pageNavigator = createTestSidebarNavigator();
     const taskB = taskIdentityFixture(taskDetailResponse, "task-2", "Dependency target", "T-2");
     const services = mountTaskDetailSurface(taskDetailResponse, {
@@ -33,41 +36,47 @@ describe("Task Detail retained sidebar state", () => {
         taskActivityRoute((taskID) => taskActivityPage(taskID, 50)),
       ],
     });
-    const user = userEvent.setup();
+    try {
+      const user = userEvent.setup();
 
-    const activityTab = await screen.findByRole("tab", { name: appI18n.t("task.activity") });
-    await user.click(activityTab);
-    await waitFor(() => {
-      expect(activityTab).toHaveAttribute("aria-selected", "true");
-    });
-    const list = await screen.findByTestId("task-detail-island-stack");
-    list.scrollTop = 1200;
-    fireEvent.scroll(list);
+      const activityTab = await screen.findByRole("tab", { name: appI18n.t("task.activity") });
+      await user.click(activityTab);
+      await waitFor(() => {
+        expect(activityTab).toHaveAttribute("aria-selected", "true");
+      });
+      const list = await screen.findByTestId("task-detail-island-stack");
+      list.scrollTop = 1200;
+      fireEvent.scroll(list);
 
-    await waitFor(() => {
-      expect(pageNavigator.registerCapture).toHaveBeenCalled();
-    });
-    const capture = vi.mocked(pageNavigator.registerCapture).mock.lastCall?.[0];
-    if (capture === undefined) throw new Error("Expected Task Detail retained-state capture.");
-    const retainedState = capture();
-    expect(retainedState).toEqual(
-      expect.objectContaining({
-        selectedTab: "activity",
-      }),
-    );
-    expect(retainedState).not.toHaveProperty("scrollOffsetPx");
+      await waitFor(() => {
+        expect(pageNavigator.registerCapture).toHaveBeenCalled();
+      });
+      const registerCapture = vi.spyOn(pageNavigator, "registerCapture");
+      const capture = registerCapture.mock.lastCall?.[0];
+      if (capture === undefined) throw new Error("Expected Task Detail retained-state capture.");
+      const retainedState = capture();
+      expect(retainedState).toEqual(
+        expect.objectContaining({
+          selectedTab: "activity",
+        }),
+      );
+      expect(retainedState).not.toHaveProperty("scrollOffsetPx");
 
-    services.rerenderTaskDetail("task-2");
-    await screen.findByDisplayValue("Dependency target");
+      services.rerenderTaskDetail("task-2");
+      await screen.findByDisplayValue("Dependency target");
 
-    services.rerenderTaskDetail("task-1", retainedState);
-    const restoredActivityTab = await screen.findByRole("tab", {
-      name: appI18n.t("task.activity"),
-    });
-    await waitFor(() => {
-      expect(restoredActivityTab).toHaveAttribute("aria-selected", "true");
-      expect(screen.getByTestId("task-detail-island-stack").scrollTop).toBe(0);
-    });
+      services.rerenderTaskDetail("task-1", retainedState);
+      const restoredActivityTab = await screen.findByRole("tab", {
+        name: appI18n.t("task.activity"),
+      });
+      await waitFor(() => {
+        expect(restoredActivityTab).toHaveAttribute("aria-selected", "true");
+        expect(screen.getByTestId("task-detail-island-stack").scrollTop).toBe(0);
+      });
+    } finally {
+      services.unmountTaskDetail();
+      geometry.restore();
+    }
   });
 
   it("lets an attention deep-link override retained Task Detail state", async () => {
@@ -122,7 +131,8 @@ describe("Task Detail retained sidebar state", () => {
     await waitFor(() => {
       expect(pageNavigator.registerCapture).toHaveBeenCalled();
     });
-    const calls = vi.mocked(pageNavigator.registerCapture).mock.calls;
+    const registerCapture = vi.spyOn(pageNavigator, "registerCapture");
+    const calls = registerCapture.mock.calls;
     const latest = calls.at(-1)?.[0];
     if (latest === undefined) throw new Error("Expected Task Detail retained-state capture.");
     expect(latest()).toEqual(
@@ -184,7 +194,8 @@ describe("Task Detail retained sidebar state", () => {
     await waitFor(() => {
       expect(navigator.registerCapture).toHaveBeenCalled();
     });
-    const capture = vi.mocked(navigator.registerCapture).mock.lastCall?.[0];
+    const registerCapture = vi.spyOn(navigator, "registerCapture");
+    const capture = registerCapture.mock.lastCall?.[0];
     if (capture === undefined) throw new Error("Expected fallback-state capture.");
     expect(capture()).toEqual(
       expect.objectContaining({

@@ -10,13 +10,26 @@ export type ResizeObserverGeometryHarness = Readonly<{
   setGeometry(element: HTMLElement, geometry: ResizeObserverGeometry): void;
 }>;
 
+export function installHTMLElementOffsetHeight(getHeight: (this: HTMLElement) => number) {
+  const originalOffsetHeight = Object.getOwnPropertyDescriptor(HTMLElement.prototype, "offsetHeight");
+  Object.defineProperty(HTMLElement.prototype, "offsetHeight", {
+    configurable: true,
+    get: getHeight,
+  });
+  return {
+    restore() {
+      restoreDescriptor(HTMLElement.prototype, "offsetHeight", originalOffsetHeight);
+    },
+  };
+}
+
 export function installAnimatedHeightGeometry(initialHeight: number, scale = 1) {
   const observer = installResizeObserverGeometry();
   const originalOffsetHeight = Object.getOwnPropertyDescriptor(HTMLElement.prototype, "offsetHeight");
   const originalOffsetWidth = Object.getOwnPropertyDescriptor(HTMLElement.prototype, "offsetWidth");
   let naturalHeight = initialHeight;
   let naturalWidth = 320;
-  // jsdom has no layout. Resolve the rendered height through actual Motion
+  // Happy DOM has no layout. Resolve the rendered height through actual Motion
   // output while supplying the natural content height at the leaf nodes.
   const height = (element: HTMLElement): number => {
     if (element.style.height.endsWith("px")) return Number.parseFloat(element.style.height);
@@ -96,7 +109,7 @@ export function installVirtualizedScrollGeometry(viewportHeight: number): Readon
     scrollHeight: {
       configurable: true,
       get(this: HTMLElement) {
-        // The list's size container supplies geometry that jsdom cannot lay out.
+        // The list's size container supplies geometry that Happy DOM cannot lay out.
         const content = this.firstElementChild;
         return content instanceof HTMLElement ? Number.parseFloat(content.style.height) || 0 : 0;
       },

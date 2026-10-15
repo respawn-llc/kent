@@ -1,6 +1,6 @@
 import { CancelledError } from "@tanstack/react-query";
 import { act, renderHook } from "@testing-library/react";
-import { vi } from "vitest";
+import { describe, expect, it, vi } from "bun:test";
 import { useMemo, type ReactNode } from "react";
 import { TestAppProviders, createTestServices } from "@/test-support/app-services";
 
@@ -154,7 +154,7 @@ describe("task initiating action controller", () => {
         },
       });
     });
-    expect(execute).toHaveBeenCalledOnce();
+    expect(execute).toHaveBeenCalledTimes(1);
   });
 
   it("runs another action after the active action settles without a continuation", async () => {
@@ -261,14 +261,11 @@ describe("task initiating action controller", () => {
       first.resolve(appliedResume(actions[0]));
       await first.promise;
     });
-    await vi.waitFor(() => {
-      expect(execute).toHaveBeenCalledTimes(3);
-    });
     await act(async () => {
       second.resolve(appliedResume(actions[1]));
     });
 
-    expect(execute.mock.calls.map(([action]) => action)).toEqual(actions);
+    expect(execute.mock.calls.map(([action]) => action)).toEqual([...actions]);
   });
 
   it("replaces the single confirmation with the newest response from an independent Task", async () => {

@@ -1,5 +1,5 @@
 import { QueryClient } from "@tanstack/react-query";
-import { describe, expect, it, vi } from "vitest";
+import { describe, expect, it, vi } from "bun:test";
 import type { ChatMainView, ChatTranscriptPayloadByKind } from "@/api";
 import { hydration, mainViewRead, runtimeApi, runtimeHost, target } from "@/test-support/chat-runtime";
 import { ChatRuntimeOwner } from "./chatRuntime";
@@ -87,7 +87,7 @@ describe("admitted compaction facts", () => {
         },
       },
     });
-    expect(completed).toHaveBeenCalledOnce();
+    expect(completed).toHaveBeenCalledTimes(1);
     await owner.dispose();
   });
   it("coalesces successes through busy replacement hydration until a later idle event", async () => {
@@ -130,7 +130,7 @@ describe("admitted compaction facts", () => {
         Activity: { ...initial.RuntimeReadModelUpdate.Activity, State: "registered_idle", ActiveStep: null },
       },
     });
-    expect(completed).toHaveBeenCalledOnce();
+    expect(completed).toHaveBeenCalledTimes(1);
     fixture.handlers[2]?.onEvent({
       sequence: 3,
       kind: "runtime_read_model_update",
@@ -139,7 +139,7 @@ describe("admitted compaction facts", () => {
         Activity: { ...initial.RuntimeReadModelUpdate.Activity, State: "registered_idle", ActiveStep: null },
       },
     });
-    expect(completed).toHaveBeenCalledOnce();
+    expect(completed).toHaveBeenCalledTimes(1);
     await owner.dispose();
   });
   it.each([
@@ -252,7 +252,8 @@ describe("admitted compaction facts", () => {
         Diagnostic: diagnostic,
       },
     });
-    expect(failed).toHaveBeenCalledExactlyOnceWith(diagnostic);
+    expect(failed).toHaveBeenCalledTimes(1);
+    expect(failed).toHaveBeenCalledWith(diagnostic);
     expect(completed).not.toHaveBeenCalled();
     await owner.dispose();
   });

@@ -1,6 +1,7 @@
 import { act, fireEvent, render, renderHook, screen, within } from "@testing-library/react";
 import { StrictMode, useEffect, useLayoutEffect, useState, type ReactNode } from "react";
 import { RegistryProvider } from "@effect/atom-react";
+import { describe, expect, it, vi } from "bun:test";
 
 import {
   useSidebarRoots,
@@ -278,7 +279,7 @@ describe("SidebarProvider stack", () => {
       expect(d.back()).toBe("accepted");
     });
     expect(result.current.shell.phase).toBe("closing");
-    await expect(lifecycle).resolves.toBe("closed");
+    expect(lifecycle).resolves.toBe("closed");
   });
 
   it("rejects append Push without capture while leaving the page capability active", () => {
@@ -383,13 +384,13 @@ describe("SidebarProvider stack", () => {
       staleClose = oldPage.close();
       firstRoot?.release();
     });
-    await expect(firstRoot?.lifecycle).resolves.toBe("replaced");
+    expect(firstRoot?.lifecycle).resolves.toBe("replaced");
     expect(staleClose).toBe("stale");
     expect(view.result.current.shell.activeDestination).toMatchObject(destination("B"));
     act(() => {
       secondRoot?.release();
     });
-    await expect(secondRoot?.lifecycle).resolves.toBe("released");
+    expect(secondRoot?.lifecycle).resolves.toBe("released");
     expect(view.result.current.shell.activeDestination).toBeNull();
 
     let teardownRoot: ReturnType<typeof view.result.current.roots.open> | undefined;
@@ -398,7 +399,7 @@ describe("SidebarProvider stack", () => {
     });
     const teardownPage = requireNavigator(view.result.current);
     view.unmount();
-    await expect(teardownRoot?.lifecycle).resolves.toBe("released");
+    expect(teardownRoot?.lifecycle).resolves.toBe("released");
     expect(teardownPage.close()).toBe("stale");
     teardownRoot?.release();
   });
@@ -437,7 +438,7 @@ describe("SidebarProvider stack", () => {
       expect(a.push(destination("B"))).toBe("accepted");
     });
     expect(firstCapture).not.toHaveBeenCalled();
-    expect(secondCapture).toHaveBeenCalledOnce();
+    expect(secondCapture).toHaveBeenCalledTimes(1);
 
     const b = requireNavigator(result.current);
     let detachAvailability: (() => void) | undefined;
@@ -497,7 +498,7 @@ describe("SidebarProvider stack", () => {
         "accepted",
       );
     });
-    expect(capture).toHaveBeenCalledOnce();
+    expect(capture).toHaveBeenCalledTimes(1);
     act(() => {
       expect(requireNavigator(result.current).back()).toBe("accepted");
     });

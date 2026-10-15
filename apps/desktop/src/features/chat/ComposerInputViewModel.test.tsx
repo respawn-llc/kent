@@ -1,3 +1,4 @@
+import { expect, it, vi } from "bun:test";
 import { act, renderHook, waitFor } from "@testing-library/react";
 import { useState } from "react";
 import { useQueryClient } from "@tanstack/react-query";
@@ -120,7 +121,7 @@ it.each(["accepted", "not_accepted", "error"] as const)(
         execution: { kind: "direct", send: local },
       },
     ]);
-    expect(local).toHaveBeenCalledOnce();
+    expect(local).toHaveBeenCalledTimes(1);
     await act(async () => {
       result.current.edit("/prompt:missing");
     });

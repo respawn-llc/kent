@@ -1,13 +1,11 @@
 import { fireEvent, render, screen } from "@testing-library/react";
 import type { ButtonHTMLAttributes, ReactElement, ReactNode } from "react";
-import { vi } from "vitest";
+import { beforeEach, describe, expect, it, mock, vi } from "bun:test";
 
 import type * as SharedLabelsModule from "@/shared/labels";
-import { TaskDetailLabels } from "./TaskDetailLabels";
-
-const ids = vi.hoisted(() => ({
+const ids = {
   alpha: "38bf0da7-a3f7-4c15-bc5f-c8fca538e667",
-}));
+};
 interface AssignmentFixture {
   error: Error | null;
   failures: Readonly<
@@ -24,7 +22,7 @@ interface AssignmentFixture {
   selectedLabelIDs: string[];
   setSelected: ReturnType<typeof vi.fn>;
 }
-const assignment = vi.hoisted<AssignmentFixture>(() => ({
+const assignment: AssignmentFixture = {
   error: null,
   failures: [],
   isPending: false,
@@ -33,16 +31,16 @@ const assignment = vi.hoisted<AssignmentFixture>(() => ({
   retryLoad: vi.fn(),
   selectedLabelIDs: [ids.alpha],
   setSelected: vi.fn(),
-}));
+};
 
 interface LabelChooserInvocation {
   onSelectionChange(labelID: string, selected: boolean): void;
 }
 
-vi.mock("@/shared/labels", async (importOriginal) => {
-  const actual = await importOriginal<typeof SharedLabelsModule>();
+const actualSharedLabels: typeof SharedLabelsModule = await import("@/shared/labels");
+await mock.module("@/shared/labels", () => {
   return {
-    ...actual,
+    ...actualSharedLabels,
     LabelChooser: ({
       invocation,
       trigger,
@@ -73,11 +71,11 @@ vi.mock("@/shared/labels", async (importOriginal) => {
   };
 });
 
-vi.mock("./TaskPropertyLine", () => ({
+await mock.module("./TaskPropertyLine", () => ({
   TaskPropertyLine: ({ value }: Readonly<{ value: ReactElement }>) => value,
 }));
 
-vi.mock("@/ui", () => ({
+await mock.module("@/ui", () => ({
   Badge: ({ children }: Readonly<{ children: ReactNode }>) => <>{children}</>,
   Button: ({ children, ...props }: Readonly<ButtonHTMLAttributes<HTMLButtonElement>>) => (
     <button {...props}>{children}</button>
@@ -85,11 +83,13 @@ vi.mock("@/ui", () => ({
   Spinner: () => <span role="status">Loading</span>,
 }));
 
-vi.mock("react-i18next", () => ({
+await mock.module("react-i18next", () => ({
   useTranslation: () => ({
     t: (key: string) => key,
   }),
 }));
+
+const { TaskDetailLabels } = await import("./TaskDetailLabels");
 
 describe("TaskDetailLabels", () => {
   beforeEach(() => {
@@ -116,7 +116,7 @@ describe("TaskDetailLabels", () => {
     fireEvent.click(screen.getByRole("button", { name: "app.retry" }));
 
     expect(screen.getByText("assignment unavailable")).toBeInTheDocument();
-    expect(assignment.retryLoad).toHaveBeenCalledOnce();
+    expect(assignment.retryLoad).toHaveBeenCalledTimes(1);
   });
 
   it("renders pending chips and sends chooser changes through the direct command", () => {

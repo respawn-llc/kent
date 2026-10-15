@@ -1,3 +1,4 @@
+import { afterEach, expect, it, vi } from "bun:test";
 import { act, renderHook, waitFor } from "@testing-library/react";
 import { useState } from "react";
 import { useQueryClient } from "@tanstack/react-query";
@@ -107,9 +108,13 @@ it("holds unknown-activity source readonly, then unlocks after two seconds witho
     result.current.edit("replacement");
   });
   expect(result.current.text).toBe("original");
-  await act(async () => vi.advanceTimersByTimeAsync(1_999));
+  await act(async () => {
+    vi.advanceTimersByTime(1_999);
+  });
   expect(result.current.text).toBe("original");
-  await act(async () => vi.advanceTimersByTimeAsync(1));
+  await act(async () => {
+    vi.advanceTimersByTime(1);
+  });
   expect(result.current.text).toBe("");
   expect(result.current.interactionRestricted).toBe(false);
   expect(result.current.outgoing).toHaveLength(1);
@@ -122,7 +127,7 @@ it("holds unknown-activity source readonly, then unlocks after two seconds witho
     result.current.edit("newer");
   });
   expect(result.current.text).toBe("newer");
-  expect(steer).toHaveBeenCalledOnce();
+  expect(steer).toHaveBeenCalledTimes(1);
 });
 
 it.each(["accepted", "not_accepted", "error"] as const)(
@@ -206,7 +211,9 @@ it.each(["send", "queue"] as const)(
     expect(result.current.text).toBe(intent === "send" ? "" : "original");
     expect(result.current.heldReadonly).toBe(intent === "queue");
     expect(result.current.outgoing[0]?.placement).toBe(intent === "send" ? "bubble" : "held");
-    await act(async () => vi.advanceTimersByTimeAsync(2_000));
+    await act(async () => {
+      vi.advanceTimersByTime(2_000);
+    });
     await act(async () => {
       result.current.edit("newer");
     });
@@ -245,7 +252,9 @@ it.each(["started_turn", "pending_steer", "pending_queue"] as const)(
     await act(async () => {
       result.current.edit("newer");
     });
-    await act(async () => vi.advanceTimersByTimeAsync(2_000));
+    await act(async () => {
+      vi.advanceTimersByTime(2_000);
+    });
     expect(result.current.text).toBe("newer");
   },
 );
@@ -315,7 +324,9 @@ it.each(["accepted", "not_accepted", "error"] as const)(
   "an older %s cannot consume a newer held submission",
   async (outcome) => {
     const { result, send, inputID, accept, fail } = await setup();
-    await act(async () => vi.advanceTimersByTimeAsync(2_000));
+    await act(async () => {
+      vi.advanceTimersByTime(2_000);
+    });
     let acceptSecond!: (result: ChatInputMutationResult) => void;
     send.mockImplementationOnce(
       async () =>
@@ -358,7 +369,9 @@ it.each(["not_accepted", "error"] as const)(
   "late %s appends the original once without replacing newer typing",
   async (outcome) => {
     const { result, inputID, accept, fail, rejected } = await setup();
-    await act(async () => vi.advanceTimersByTimeAsync(2_000));
+    await act(async () => {
+      vi.advanceTimersByTime(2_000);
+    });
     await act(async () => {
       result.current.edit("newer");
     });
@@ -372,8 +385,11 @@ it.each(["not_accepted", "error"] as const)(
     });
     expect(result.current.text).toBe("newer\noriginal");
     expect(result.current.outgoing).toEqual([]);
-    expect(rejected).toHaveBeenCalledExactlyOnceWith(inputID);
-    await act(async () => vi.advanceTimersByTimeAsync(2_000));
+    expect(rejected).toHaveBeenCalledTimes(1);
+    expect(rejected).toHaveBeenCalledWith(inputID);
+    await act(async () => {
+      vi.advanceTimersByTime(2_000);
+    });
     expect(result.current.text).toBe("newer\noriginal");
   },
 );
@@ -431,7 +447,9 @@ it.each(["not_accepted", "error"] as const)(
     await act(async () => {
       result.current.edit("newer");
     });
-    await act(async () => vi.advanceTimersByTimeAsync(2_000));
+    await act(async () => {
+      vi.advanceTimersByTime(2_000);
+    });
     expect(result.current.text).toBe("newer");
   },
 );

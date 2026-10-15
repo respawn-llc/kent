@@ -1,6 +1,7 @@
 export {
   sessionSettingsSubscriptionRoute,
   hasSessionSettingsSubscription,
+  openSessionSettingsSubscription,
   emitSessionSettingsSnapshot,
 } from "./sessionSettingsFixtures";
 import {

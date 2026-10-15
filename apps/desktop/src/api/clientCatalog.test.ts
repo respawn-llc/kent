@@ -1,5 +1,5 @@
 import { unexpectedProjectOverflow } from "@/test-support/api";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it } from "bun:test";
 import { create } from "@app/server-api-contract";
 import {
   ProjectAvailability,
@@ -23,7 +23,7 @@ describe("ApiClient catalog boundary", () => {
       sessionResult({ category, nextOffset: 100 }),
     );
 
-    await expect(client.listSessionPage("project-1", expected, 50)).resolves.toMatchObject({
+    expect(client.listSessionPage("project-1", expected, 50)).resolves.toMatchObject({
       projectID: "project-1",
       category: expected,
       sessions: [],
@@ -34,7 +34,7 @@ describe("ApiClient catalog boundary", () => {
   it("rejects a Session page for another Project", async () => {
     const client = clientWith(SessionCatalogService.method.page, sessionResult({ projectId: "project-2" }));
 
-    await expect(client.listSessionPage("project-1", "main", 0)).rejects.toMatchObject({
+    expect(client.listSessionPage("project-1", "main", 0)).rejects.toMatchObject({
       reason: "project_mismatch",
       expectedProjectID: "project-1",
       actualProjectID: "project-2",
@@ -69,7 +69,7 @@ describe("ApiClient catalog boundary", () => {
         },
       }),
     );
-    await expect(terminalProjectPage.listProjects(null)).resolves.toMatchObject({
+    expect(terminalProjectPage.listProjects(null)).resolves.toMatchObject({
       projects: [{ defaultWorkflowID: null, defaultWorkflowName: null }],
       nextPageToken: null,
     });
@@ -94,7 +94,7 @@ describe("ApiClient catalog boundary", () => {
   ])("rejects a malformed Workspace continuation %#", async (response) => {
     const client = clientWith(ProjectCatalogService.method.listWorkspaces, workspaceResult(response));
 
-    await expect(client.listWorkspaces("project-1", 0)).rejects.toMatchObject({
+    expect(client.listWorkspaces("project-1", 0)).rejects.toMatchObject({
       reason: "malformed_response",
     });
   });
@@ -139,7 +139,7 @@ describe("ApiClient catalog boundary", () => {
         },
       }),
     );
-    await expect(malformedClient.listWorkspaces("project-1", 0)).rejects.toBeInstanceOf(ContractError);
+    expect(malformedClient.listWorkspaces("project-1", 0)).rejects.toBeInstanceOf(ContractError);
   });
 });
 

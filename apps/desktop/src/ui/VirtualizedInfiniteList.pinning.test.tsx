@@ -1,15 +1,17 @@
+import { expect, it, vi } from "bun:test";
 import { fireEvent, render, screen } from "@testing-library/react";
 
-import { installVirtualizedScrollGeometry } from "@/test-support/resize-observer";
+import {
+  installHTMLElementOffsetHeight,
+  installVirtualizedScrollGeometry,
+} from "@/test-support/resize-observer";
 import { VirtualizedInfiniteList } from "./VirtualizedInfiniteList";
 
 it.each(["loading", "error"] as const)(
   "keeps the first message in view when an older page replaces its %s boundary",
   (state) => {
     const geometry = installVirtualizedScrollGeometry(600);
-    const rowHeight = vi.spyOn(HTMLElement.prototype, "offsetHeight", "get").mockImplementation(function (
-      this: HTMLElement,
-    ) {
+    const offsetHeight = installHTMLElementOffsetHeight(function (this: HTMLElement) {
       return this.getAttribute("role") === "list" ? 600 : 40;
     });
     const initial = Array.from({ length: 50 }, (_, index) => String(index + 50));
@@ -48,7 +50,7 @@ it.each(["loading", "error"] as const)(
       expect(screen.getByText("50")).toBeInTheDocument();
     } finally {
       view.unmount();
-      rowHeight.mockRestore();
+      offsetHeight.restore();
       geometry.restore();
     }
   },
@@ -58,9 +60,7 @@ it.each([false, true])(
   "retains an offscreen row without treating it as a visible pagination edge (end anchoring: %s)",
   (anchored) => {
     const geometry = installVirtualizedScrollGeometry(600);
-    const rowHeight = vi.spyOn(HTMLElement.prototype, "offsetHeight", "get").mockImplementation(function (
-      this: HTMLElement,
-    ) {
+    const offsetHeight = installHTMLElementOffsetHeight(function (this: HTMLElement) {
       return this.getAttribute("role") === "list" ? 600 : 40;
     });
     const onLoadMore = vi.fn();
@@ -107,11 +107,11 @@ it.each([false, true])(
       list.scrollTop = list.scrollHeight - list.clientHeight;
       fireEvent.scroll(list);
       expect(screen.getByText("99")).toBe(retained);
-      expect(onLoadMore).toHaveBeenCalledOnce();
-      expect(onVisible).toHaveBeenCalledOnce();
+      expect(onLoadMore).toHaveBeenCalledTimes(1);
+      expect(onVisible).toHaveBeenCalledTimes(1);
     } finally {
       view.unmount();
-      rowHeight.mockRestore();
+      offsetHeight.restore();
       geometry.restore();
     }
   },

@@ -5,5 +5,6 @@ export {
   catalog,
   navigation,
   renderDestination,
+  sessionSettingsRead,
   sessionWithPrompts,
 } from "./fixture";

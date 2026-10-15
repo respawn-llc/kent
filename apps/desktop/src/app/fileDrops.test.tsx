@@ -1,6 +1,6 @@
 import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { useState } from "react";
-import { describe, expect, it, vi } from "vitest";
+import { describe, expect, it, vi } from "bun:test";
 import * as Effect from "effect/Effect";
 import * as Queue from "effect/Queue";
 import * as Stream from "effect/Stream";
@@ -45,13 +45,16 @@ describe("window file drops", () => {
       expect(drop).toBeDefined();
     });
     const input = screen.getByRole<HTMLTextAreaElement>("textbox");
+    installBrowserSetRangeText(input);
     input.focus();
     input.setSelectionRange(7, 14);
     await act(async () => {
       drop?.(["/tmp/my image.png"]);
     });
-    expect(input.value).toBe("before /tmp/my image.png after");
-    expect(screen.getByTestId("draft")).toHaveTextContent("before /tmp/my image.png after");
+    await waitFor(() => {
+      expect(input.value).toBe("before /tmp/my image.png after");
+      expect(screen.getByTestId("draft")).toHaveTextContent("before /tmp/my image.png after");
+    });
     expect(input.selectionStart).toBe(24);
     expect(input.selectionEnd).toBe(24);
     fireEvent.change(input, { target: { value: `${input.value}!` } });
@@ -126,10 +129,36 @@ describe("window file drops", () => {
     }
     unmount();
     await waitFor(() => {
-      expect(unlisten).toHaveBeenCalledOnce();
+      expect(unlisten).toHaveBeenCalledTimes(1);
     });
     const fileEvent = new Event("drop", { bubbles: true, cancelable: true });
     Object.defineProperty(fileEvent, "dataTransfer", { value: { types: ["Files"] } });
     expect(fireEvent(document, fileEvent)).toBe(true);
   });
 });
+
+function installBrowserSetRangeText(input: HTMLTextAreaElement): void {
+  const trackedValue = Object.getOwnPropertyDescriptor(input, "value");
+  if (trackedValue === undefined) throw new Error("Expected React to track the controlled textarea value.");
+  const setRangeText = input.setRangeText.bind(input);
+  Object.defineProperty(input, "setRangeText", {
+    configurable: true,
+    value: (...args: Parameters<HTMLTextAreaElement["setRangeText"]>) => {
+      const [replacement, start, , selectionMode] = args;
+      const selectionStart = start;
+      // Browsers update the native value internally; Happy DOM routes through React's tracked setter.
+      if (!Reflect.deleteProperty(input, "value"))
+        throw new Error("Could not restore the native textarea value setter.");
+      try {
+        setRangeText(...args);
+        if (selectionMode === "end") {
+          // Happy DOM computes "end" from the whole value, not the inserted text.
+          const caret = selectionStart + replacement.length;
+          input.setSelectionRange(caret, caret);
+        }
+      } finally {
+        Object.defineProperty(input, "value", trackedValue);
+      }
+    },
+  });
+}
