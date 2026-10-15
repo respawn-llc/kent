@@ -177,6 +177,13 @@ func runSessionLifecycleWithOptions(ctx context.Context, server interactiveSessi
 			}
 			nextSessionOverrides = serverapi.RunPromptOverrides{}
 			transition := extractUITransition(finalModel)
+			if model, ok := finalModel.(*uiModel); ok && model.currentRuntimeSessionID() != "" {
+				next, err = resolveSessionAction(ctx, server, interactor, model.currentRuntimeSessionID(), transition)
+				if err != nil {
+					return err
+				}
+				continue
+			}
 			switch transition.Action {
 			case UIActionNewSession:
 				next, err = defaultSessionLaunchDirective(serverapi.CreateNewSessionLaunchIntent(serverapi.IndependentSessionCreateOrigin()))
@@ -319,15 +326,13 @@ func prepareSessionUIRun(
 	transitionInput string,
 	overrideStoredDraft bool,
 ) (*runtimeLaunchPlan, uiLoopRequest, error) {
+	runtimePlan, err := prepareSessionObservation(ctx, server, planner, plan)
+	if err != nil {
+		return nil, uiLoopRequest{}, err
+	}
 	id, err := runtimeids.ParseSessionID(plan.SessionID)
 	if err != nil {
-		return nil, uiLoopRequest{}, err
-	}
-	if _, err := server.SessionLifecycleClient().Promote(ctx, &sessionlaunchpb.SessionPromoteRequest{SessionId: protoapi.SessionSelectorToProto(id)}); err != nil {
-		return nil, uiLoopRequest{}, err
-	}
-	runtimePlan, err := planner.PrepareRuntime(ctx, plan, os.Stderr, "app.start session_id="+plan.SessionID+" workspace="+plan.ExecutionTarget.EffectiveWorkdir+" model="+plan.ActiveSettings.Model)
-	if err != nil {
+		runtimePlan.Close()
 		return nil, uiLoopRequest{}, err
 	}
 	catalog := prepareUICommandCatalog(ctx, server, &id)
@@ -360,6 +365,17 @@ func prepareSessionUIRun(
 		promptCatalog:                catalog.client,
 		promptCatalogEntries:         catalog.entries,
 	}, nil
+}
+
+func prepareSessionObservation(ctx context.Context, server interactiveSessionServer, planner *launchPlanner, plan sessionLaunchPlan) (*runtimeLaunchPlan, error) {
+	id, err := runtimeids.ParseSessionID(plan.SessionID)
+	if err != nil {
+		return nil, err
+	}
+	if _, err := server.SessionLifecycleClient().Promote(ctx, &sessionlaunchpb.SessionPromoteRequest{SessionId: protoapi.SessionSelectorToProto(id)}); err != nil {
+		return nil, err
+	}
+	return planner.PrepareRuntime(ctx, plan, os.Stderr, "app.start session_id="+plan.SessionID+" workspace="+plan.ExecutionTarget.EffectiveWorkdir+" model="+plan.ActiveSettings.Model)
 }
 
 type uiCommandCatalog struct {

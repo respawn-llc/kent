@@ -7,6 +7,16 @@ import (
 
 const runtimeDisconnectedStatusMessage = "server connection lost"
 
+func (m *uiModel) bindRuntimeConnectionObserver() {
+	if configurable, ok := m.engine.(interface{ SetConnectionStateObserver(func(error)) }); ok {
+		events := make(chan runtimeConnectionStateChangedMsg, 1)
+		m.runtimeConnectionEvents = events
+		configurable.SetConnectionStateObserver(func(err error) {
+			enqueueRuntimeConnectionStateChange(events, err)
+		})
+	}
+}
+
 func (m *uiModel) observeRuntimeRequestResult(err error) {
 	if m == nil || !m.hasRuntimeClient() {
 		return

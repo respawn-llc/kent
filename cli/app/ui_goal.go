@@ -224,7 +224,7 @@ func (m *uiModel) goalRuntimeCommand(operation goalRuntimeOperation, objective s
 	if m == nil {
 		return nil
 	}
-	if m.newSessionTarget() != nil && (operation == goalRuntimeCheckSet || operation == goalRuntimeSet) {
+	if m.usesDirectChatActions() && (operation == goalRuntimeCheckSet || operation == goalRuntimeSet) {
 		return m.newSessionActionCmd(newSessionGoalAction{objective: objective}, nil)
 	}
 	return m.goalRuntimeCommandFor(m.runtimeClient(), strings.TrimSpace(m.currentRuntimeSessionID()), operation, objective)

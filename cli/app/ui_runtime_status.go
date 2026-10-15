@@ -132,7 +132,7 @@ func (m *uiModel) statusLineSpinning() bool {
 	if m == nil {
 		return false
 	}
-	return (m.runtimeActivityBusy() && m.activity != uiActivityQuestion) ||
+	return m.pendingNewChatActions > 0 || m.sessionObservationLoading() || (m.runtimeActivityBusy() && m.activity != uiActivityQuestion) ||
 		m.isReviewerActive()
 }
 

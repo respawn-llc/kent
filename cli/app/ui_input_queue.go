@@ -202,7 +202,7 @@ func (m *uiModel) queueInjectedInput(text string) tea.Cmd {
 
 func (c uiInputController) queueOrStartSubmission(text string) (tea.Model, tea.Cmd) {
 	m := c.model
-	if m.newSessionTarget() != nil {
+	if m.usesDirectChatActions() {
 		if blocked, cmd := m.gateNewSessionInput(text, newSessionInputQueue); blocked {
 			return m, cmd
 		}

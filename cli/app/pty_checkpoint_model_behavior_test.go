@@ -162,7 +162,7 @@ func TestPTYCheckpointModelEmitsScenarioFinalAppliedAfterTerminalTransaction(t *
 	scenario := newPTYCheckpointScenarioState(appfixture.ScriptFinalAssistantOrdinal(1))
 	scenario.markScenarioComplete()
 	wrapped := newPTYCheckpointModel(model, writer, scenario)
-	wrapped.Update(dispatchPTYCheckpointTranscriptEvent(ongoingTranscriptEvent{
+	wrapped.Update(dispatchPTYCheckpointTranscriptEvent(wrapped, ongoingTranscriptEvent{
 		Kind: ongoingTranscriptEventMessage,
 		Message: transcriptTestMessage(2, &transcriptpb.CommittedRow{
 			Visibility: transcriptpb.EntryVisibility_ENTRY_VISIBILITY_ONGOING,
@@ -195,7 +195,7 @@ func TestPTYCheckpointModelEmitsToolStartedOnceAfterAcceptedToolStart(t *testing
 		rejectedModel,
 		writer,
 		newPTYCheckpointScenarioState(appfixture.ScriptFinalAssistantOrdinal(1)))
-	wrapped.Update(dispatchPTYCheckpointTranscriptEvent(ongoingTranscriptEvent{
+	wrapped.Update(dispatchPTYCheckpointTranscriptEvent(wrapped, ongoingTranscriptEvent{
 		Kind: ongoingTranscriptEventMessage,
 		Message: transcriptTestMessage(3, &transcriptpb.ToolStart{StepId: ptyCheckpointStepID().String(), ToolCallId: "66666666-6666-4666-8666-666666666666",
 			ToolName: "exec_command"})}))
@@ -209,11 +209,11 @@ func TestPTYCheckpointModelEmitsToolStartedOnceAfterAcceptedToolStart(t *testing
 		model,
 		writer,
 		newPTYCheckpointScenarioState(appfixture.ScriptFinalAssistantOrdinal(1)))
-	wrapped.Update(dispatchPTYCheckpointTranscriptEvent(ongoingTranscriptEvent{
+	wrapped.Update(dispatchPTYCheckpointTranscriptEvent(wrapped, ongoingTranscriptEvent{
 		Kind: ongoingTranscriptEventMessage,
 		Message: transcriptTestMessage(2, &transcriptpb.ToolStart{StepId: ptyCheckpointStepID().String(), ToolCallId: "77777777-7777-4777-8777-777777777777",
 			ToolName: "exec_command"})}))
-	wrapped.Update(dispatchPTYCheckpointTranscriptEvent(ongoingTranscriptEvent{
+	wrapped.Update(dispatchPTYCheckpointTranscriptEvent(wrapped, ongoingTranscriptEvent{
 		Kind: ongoingTranscriptEventMessage,
 		Message: transcriptTestMessage(3, &transcriptpb.ToolStart{StepId: ptyCheckpointStepID().String(), ToolCallId: "88888888-8888-4888-8888-888888888888",
 			ToolName: "exec_command"})}))
@@ -229,8 +229,8 @@ func TestPTYCheckpointModelEmitsToolStartedOnceAfterAcceptedToolStart(t *testing
 }
 
 func TestPTYCheckpointModelIgnoresUninitializedToolStartMessage(t *testing.T) {
-	message := dispatchPTYCheckpointTranscriptEvent(ongoingTranscriptEvent{
-		Kind: ongoingTranscriptEventMessage})
+	message := uiDispatchedEventMsg{event: ongoingTranscriptEvent{
+		Kind: ongoingTranscriptEventMessage}}
 
 	got := ongoingToolStartCandidate(nil, message)
 	if got.valid {
@@ -338,7 +338,7 @@ func ptyLastTerminalOperationEnd(analysis analyzer.Analysis) int64 {
 }
 
 func applyPTYCheckpointAssistantFinal(model *ptyCheckpointModel, sequence uint64, text string) {
-	model.Update(dispatchPTYCheckpointTranscriptEvent(ongoingTranscriptEvent{
+	model.Update(dispatchPTYCheckpointTranscriptEvent(model, ongoingTranscriptEvent{
 		Kind: ongoingTranscriptEventMessage,
 		Message: transcriptTestMessage(sequence, &transcriptpb.CommittedRow{
 			Visibility: transcriptpb.EntryVisibility_ENTRY_VISIBILITY_ONGOING,

@@ -285,6 +285,10 @@ func (m *uiModel) applyTranscriptSessionIdentity(identity *transcriptpb.SessionI
 	if previousSessionID == "" || previousSessionID == nextSessionID {
 		return titleCmd
 	}
+	return tea.Batch(titleCmd, m.resetSessionTranscriptPresentation())
+}
+
+func (m *uiModel) resetSessionTranscriptPresentation() tea.Cmd {
 	m.askController().cancelActiveDelivery()
 	promptCmd := m.reconcileTranscriptPrompts(nil)
 	rollbackCmd := m.discardRollbackStateForSessionReplacement()
@@ -294,7 +298,7 @@ func (m *uiModel) applyTranscriptSessionIdentity(identity *transcriptpb.SessionI
 	loadCmd := m.loadDetailTranscriptPageCmd(m.detailTranscript.requestedPageForDetailEntry())
 	return tea.Batch(
 		promptCmd,
-		sequenceCmds(titleCmd, rollbackCmd, cancelCmd, resetCmd, loadCmd),
+		sequenceCmds(rollbackCmd, cancelCmd, resetCmd, loadCmd),
 	)
 }
 

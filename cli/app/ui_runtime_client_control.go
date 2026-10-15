@@ -46,10 +46,19 @@ func (c *sessionRuntimeClient) ReadChatSettings() (*chatsettingspb.Settings, err
 	if err != nil {
 		return nil, err
 	}
+	return (sessionChatSettingsClient{service: c.chatSettings, sessionID: sessionID}).ReadChatSettings()
+}
+
+type sessionChatSettingsClient struct {
+	service   apicontract.ChatSettingsService
+	sessionID runtimeids.SessionID
+}
+
+func (c sessionChatSettingsClient) ReadChatSettings() (*chatsettingspb.Settings, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), uiChatSettingsTimeout)
 	defer cancel()
-	response, err := c.chatSettings.ReadChatSettings(ctx, &chatsettingspb.ReadRequest{
-		Target: &chatsettingspb.ReadRequest_Session{Session: &chatsettingspb.SessionTarget{SessionId: &sharedpb.SessionSelector{Value: &sharedpb.SessionSelector_SessionId{SessionId: sessionID.String()}}}},
+	response, err := c.service.ReadChatSettings(ctx, &chatsettingspb.ReadRequest{
+		Target: &chatsettingspb.ReadRequest_Session{Session: &chatsettingspb.SessionTarget{SessionId: protoapi.SessionSelectorToProto(c.sessionID)}},
 	})
 	if err != nil {
 		return nil, err
@@ -62,10 +71,14 @@ func (c *sessionRuntimeClient) MutateChatSettings(operation *chatsettingspb.Muta
 	if err != nil {
 		return nil, err
 	}
+	return (sessionChatSettingsClient{service: c.chatSettings, sessionID: sessionID}).MutateChatSettings(operation)
+}
+
+func (c sessionChatSettingsClient) MutateChatSettings(operation *chatsettingspb.MutationOperation) (*chatsettingspb.MutationSuccess, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), uiChatSettingsTimeout)
 	defer cancel()
-	response, err := c.chatSettings.MutateChatSettings(ctx, &chatsettingspb.MutationRequest{
-		Session:   &chatsettingspb.SessionTarget{SessionId: &sharedpb.SessionSelector{Value: &sharedpb.SessionSelector_SessionId{SessionId: sessionID.String()}}},
+	response, err := c.service.MutateChatSettings(ctx, &chatsettingspb.MutationRequest{
+		Session:   &chatsettingspb.SessionTarget{SessionId: protoapi.SessionSelectorToProto(c.sessionID)},
 		Operation: operation,
 	})
 	if err != nil {

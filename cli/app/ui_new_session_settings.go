@@ -51,6 +51,7 @@ func (m *uiModel) loadNewSessionSettingsCmd(retry *newSessionSettingsRetry) tea.
 	target.settingsLoad = uiNewSettingsLoading{}
 	m.showTransientStatusNotice(uiStatusNotice{Text: "Loading settings…", Kind: uiStatusNoticeInfo})
 	creation := target.creation
+	settings := m.chatSettings
 	request := &settingspb.ReadRequest{Target: &settingspb.ReadRequest_NewChat{NewChat: &settingspb.NewChatTarget{
 		ProjectId: creation.ProjectId, WorkspaceId: creation.WorkspaceId,
 	}}}
@@ -66,7 +67,7 @@ func (m *uiModel) loadNewSessionSettingsCmd(retry *newSessionSettingsRetry) tea.
 	}
 	return func() tea.Msg {
 		result := newSessionSettingsLoadedMsg{target: creation, retry: retry}
-		response, err := target.settings.ReadChatSettings(context.Background(), request)
+		response, err := settings.ReadChatSettings(context.Background(), request)
 		if err != nil {
 			result.err = err
 			return result

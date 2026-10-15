@@ -7,6 +7,7 @@ import transcriptpb "core/shared/protoapi/gen/kent/api/transcript"
 import runtimepb "core/shared/protoapi/gen/kent/api/runtime"
 
 import (
+	"context"
 	"time"
 
 	"core/cli/app/commands"
@@ -22,7 +23,7 @@ import (
 )
 
 type uiModel struct {
-	drafts          *uiDraftPersistence
+	drafts             *uiDraftPersistence
 	presentationTarget uiPresentationTarget
 	eventDispatcher    *uiEventDispatcher
 	uiRuntimeFeatureState
@@ -38,8 +39,14 @@ type uiModel struct {
 }
 
 type uiRuntimeFeatureState struct {
-	engine clientui.RuntimeClient
-	view   tui.Model
+	chatMutations      apicontract.ChatMutationService
+	chatSettings       apicontract.ChatSettingsService
+	observeSession     func(context.Context, runtimeids.SessionID) (sessionLaunchPlan, *runtimeLaunchPlan, error)
+	sessionObservation *runtimeLaunchPlan
+	observationContext context.Context
+	cancelObservation  context.CancelFunc
+	engine             clientui.RuntimeClient
+	view               tui.Model
 
 	processClient         clientui.ProcessClient
 	processClientExplicit bool

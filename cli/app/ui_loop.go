@@ -13,6 +13,7 @@ import (
 	"core/shared/apicontract"
 	"core/shared/config"
 	chatpb "core/shared/protoapi/gen/kent/api/chat"
+	"core/shared/runtimeids"
 
 	tea "github.com/charmbracelet/bubbletea"
 	xansi "github.com/charmbracelet/x/ansi"
@@ -36,6 +37,7 @@ type uiLoopRequest struct {
 	newChatAuth                  apicontract.AuthBootstrapService
 	newChatMutations             apicontract.ChatMutationService
 	newChatLogin                 func(context.Context) error
+	observeSession               func(context.Context, runtimeids.SessionID) (sessionLaunchPlan, *runtimeLaunchPlan, error)
 	ctx                          context.Context
 	wiring                       *runtimeWiring
 	projectID                    string
@@ -219,16 +221,20 @@ func composeUIProgram(request uiLoopRequest, output io.Writer) (*uiProgramCompos
 		return nil, errors.New("projected UI model has unexpected type")
 	}
 	model.keyboardReporting = keyboardReporting
-	if runtimeClient != nil {
-		model.drafts = newUIDraftPersistence(request.sessionLifecycle, sessionID, model.mainEditor.Text())
+	model.chatMutations = request.newChatMutations
+	model.chatSettings = request.newChatSettings
+	var initialDraft *draftContent
+	if target, known := model.presentationTarget.(uiKnownSessionTarget); known {
+		initialDraft = &draftContent{sessionID: target.id, input: model.mainEditor.Text()}
 	}
+	model.drafts = newUIDraftPersistence(request.sessionLifecycle, initialDraft)
+	model.observeSession = request.observeSession
+	model.observationContext = programContext
 	if request.newChat != nil {
 		model.presentationTarget = &uiNewSessionTarget{
-			creation:  request.newChat,
-			settings:  request.newChatSettings,
-			auth:      request.newChatAuth,
-			mutations: request.newChatMutations,
-			login:     request.newChatLogin,
+			creation: request.newChat,
+			auth:     request.newChatAuth,
+			login:    request.newChatLogin,
 		}
 		if request.newChatSettings != nil {
 			model.startupCmds = append(model.startupCmds, model.loadNewSessionSettingsCmd(nil))

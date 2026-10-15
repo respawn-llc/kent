@@ -15,7 +15,7 @@
 - Workflow preparation must use completed connection and default edits without requiring a server restart. Saved Session bindings take precedence as defined by Session Binding.
 - The server must own credentials. Requests must use only the selected connection's credentials.
 - The server must own provider sign-in initiation, device polling, token exchange, and refresh. Clients must receive sign-in instructions without access or refresh credentials. Clients must own browser launch and callback or pasted-input collection.
-- Setup completion must apply server-wide. Credential readiness must be checked for the actual Session/role connection, with no default-connection gate before Session selection. A broken default must not block working connections. If credentials are missing when an interactive Session opens, Kent must open the affected connection's authentication flow. Headless credential failures must return actionable errors.
+- Setup completion must remain server-wide. Credential readiness must be checked for the actual Session/role connection, not as a default-connection gate before Session selection. A broken default must not block working connections. Interactive terminal authentication and connection-setup gating must follow [TUI Startup](tui-startup.md#auth-gate). Headless credential failures must return actionable errors.
 
 ## Connection Sets
 
@@ -113,7 +113,7 @@
 
 ## Terminal Setup And Login
 
-- When no Provider Connections are defined, every interactive terminal open must enter connection setup. This includes terminal startup and subsequent Session opens. Headless agent launches must return an actionable setup error.
+- When no Provider Connections are defined, headless agent launches must return an actionable setup error.
 - First sign-in must be part of onboarding before provider-dependent choices. Kent must defer saving the connection, credentials, and settings until Finish. Slash commands must be unavailable before onboarding.
 - Explicitly canceling setup or restarting the server before Finish must discard the unsaved sign-in. Finish must write configuration last. A failed configuration write must leave onboarding incomplete and report the failure. Unused saved credentials are acceptable.
 - Kent must own one shared pending first-run connection per server. Opening another TUI must not reset it. Explicit setup changes or discard, Finish, and server restart must control its lifetime. An OAuth result arriving after explicit discard must not persist the discarded sign-in.

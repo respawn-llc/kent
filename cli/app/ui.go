@@ -26,13 +26,7 @@ func NewProjectedUIModel(runtimeClient clientui.RuntimeClient, opts ...UIOption)
 		m.pathReferenceEvents = m.pathReferenceSearch.Events()
 	}
 	m.refreshAutocompleteFromInput()
-	if configurable, ok := m.engine.(interface{ SetConnectionStateObserver(func(error)) }); ok {
-		runtimeConnectionEvents := make(chan runtimeConnectionStateChangedMsg, 1)
-		m.runtimeConnectionEvents = runtimeConnectionEvents
-		configurable.SetConnectionStateObserver(func(err error) {
-			enqueueRuntimeConnectionStateChange(runtimeConnectionEvents, err)
-		})
-	}
+	m.bindRuntimeConnectionObserver()
 	if gitStartupCmd := m.statusLineGitRefreshCmd(); gitStartupCmd != nil {
 		m.statusGitBackgroundInFlight = true
 		m.startupCmds = append(m.startupCmds, gitStartupCmd)
@@ -180,6 +174,7 @@ func (m *uiModel) Close() {
 	if m == nil {
 		return
 	}
+	m.stopSessionObservation()
 	m.dropNativeSurface()
 	m.syncRendererOutputGate()
 	if m.pathReferenceSearch != nil {

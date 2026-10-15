@@ -21,6 +21,18 @@
 - `/status` must not show server ownership because the TUI is always a client.
 - The Config section must show a tree of contributing configuration-file paths in global → shared workspace → Main Workspace private precedence order. It must omit files that did not contribute settings and show the environment and command-line override summary. It must not add a per-property source list.
 
+## Pre-Session Controls
+
+- Before New Session creates a Session, `/status` must derive its information from defaults. Context usage and completed compaction count must be zero.
+- `/name` must retain the future Session name in client memory until creation. Navigation must discard that name.
+- `/ps` must use the ordinary Project-wide process list and selected-process controls without creating a Session.
+- `/copy` must use its ordinary nothing-to-copy outcome.
+- `/back` must return to the originating Session when New Session has one. That Session must restore its ordinary saved draft. Without an originating Session, `/back` must use its ordinary no-parent outcome.
+- An uncreated New Session has no Goal. Goal show, pause, resume, and clear must not create a Session.
+- Opening the Worktree picker must not create a Session. Selecting an existing Worktree must select only the future Session's execution target. Leave must clear that selection.
+- Confirmed Worktree creation must first create the ordinary Session, then perform ordinary Worktree creation, setup, and enter. Existing Worktree failure behavior must remain unchanged.
+- Worktree deletion must use workspace-scoped management without creating a Session and must preserve ordinary deletion protections.
+
 ## /goal
 
 - `/goal` and `/goal show` open the overlay. `set <objective>`, `pause`, `resume`, and `clear` act directly.

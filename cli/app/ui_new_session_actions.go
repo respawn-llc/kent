@@ -55,17 +55,26 @@ func (m *uiModel) newSessionInputCmd(text string, input runtimeinput.Input, inte
 }
 
 func (m *uiModel) newSessionActionCmd(action newSessionAction, submittedText *string) tea.Cmd {
-	newTarget := m.newSessionTarget()
-	if !m.newSessionConnectionReady() {
+	if m.newSessionTarget() != nil && !m.newSessionConnectionReady() {
 		if submittedText != nil {
 			m.inputController().restoreSubmittedTextIntoInput(*submittedText)
 		}
 		return nil
 	}
-	target := &chatpb.ChatTarget{Target: &chatpb.ChatTarget_NewChat{
-		NewChat: proto.Clone(newTarget.creation).(*chatpb.NewChatTarget),
-	}}
-	service := newTarget.mutations
+	var target *chatpb.ChatTarget
+	switch presentation := m.presentationTarget.(type) {
+	case *uiNewSessionTarget:
+		target = &chatpb.ChatTarget{Target: &chatpb.ChatTarget_NewChat{
+			NewChat: proto.Clone(presentation.creation).(*chatpb.NewChatTarget),
+		}}
+	case uiKnownSessionTarget:
+		target = &chatpb.ChatTarget{Target: &chatpb.ChatTarget_Session{Session: &chatpb.ExistingSessionRequestTarget{
+			SessionId: protoapi.SessionSelectorToProto(presentation.id),
+		}}}
+	default:
+		panic("Chat action requires a presentation target")
+	}
+	service := m.chatMutations
 	draft := m.mainEditor.Text()
 	m.submitToken++
 	m.pendingNewChatActions++
@@ -75,6 +84,10 @@ func (m *uiModel) newSessionActionCmd(action newSessionAction, submittedText *st
 	return func() tea.Msg {
 		return executeNewSessionAction(context.Background(), service, target, draft, result)
 	}
+}
+
+func (m *uiModel) usesDirectChatActions() bool {
+	return m.newSessionTarget() != nil || (!m.hasRuntimeClient() && m.chatMutations != nil)
 }
 
 func executeNewSessionAction(ctx context.Context, service apicontract.ChatMutationService, target *chatpb.ChatTarget, draft string, result newSessionActionDoneMsg) newSessionActionDoneMsg {

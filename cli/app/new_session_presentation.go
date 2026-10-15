@@ -5,9 +5,11 @@ import (
 	"errors"
 
 	"core/shared/config"
+	"core/shared/lifecyclecontract"
 	"core/shared/protoapi"
 	chatpb "core/shared/protoapi/gen/kent/api/chat"
 	sessionlaunchpb "core/shared/protoapi/gen/kent/api/session_launch"
+	"core/shared/runtimeids"
 	"core/shared/serverapi"
 )
 
@@ -25,19 +27,40 @@ func prepareNewSessionUIRun(ctx context.Context, server interactiveSessionServer
 	if !ok {
 		return uiLoopRequest{}, errors.New("Session UI services are required")
 	}
+	clients := source.SessionUIClients()
 	return uiLoopRequest{
 		ctx:              ctx,
 		newChatSettings:  server.ChatSettingsClient(),
 		newChatAuth:      server.AuthBootstrapClient(),
-		newChatMutations: source.SessionUIClients().ChatMutations,
+		newChatMutations: clients.ChatMutations,
 		newChatLogin:     server.Reauthenticate,
+		sessionLifecycle: server.SessionLifecycleClient(),
+		observeSession: func(ctx context.Context, id runtimeids.SessionID) (sessionLaunchPlan, *runtimeLaunchPlan, error) {
+			planner := newSessionLaunchPlanner(server)
+			intent, err := protoapi.SessionLaunchRequestIntentToProto(serverapi.OpenExistingSessionLaunchIntent(id))
+			if err != nil {
+				return sessionLaunchPlan{}, nil, err
+			}
+			plan, err := planner.PlanSession(ctx, sessionLaunchRequest{Mode: launchModeInteractive, Intent: intent})
+			if err != nil {
+				return sessionLaunchPlan{}, nil, err
+			}
+			plan.ClientLifecycleCommand = clientSettingsForInteractiveServer(server).Hooks.LifecycleCommand()
+			plan.ClientLifecycleOpeningKind = lifecyclecontract.OpeningKindNew
+			observation, err := prepareSessionObservation(ctx, server, planner, plan)
+			return plan, observation, err
+		},
 		newChat: &chatpb.NewChatTarget{
 			ProjectId:   binding.ProjectID,
 			WorkspaceId: binding.WorkspaceID,
 			Origin:      origin,
 			Invocation:  options,
 		},
-		wiring:                 &runtimeWiring{},
+		wiring: &runtimeWiring{
+			processViews:    clients.ProcessViews,
+			processControls: clients.ProcessControls,
+			worktrees:       clients.Worktrees,
+		},
 		projectID:              binding.ProjectID,
 		active:                 interactivePresentationSettings(server, config.Settings{}),
 		commandRegistry:        catalog.registry,

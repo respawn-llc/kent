@@ -65,7 +65,7 @@ func (c uiInputController) startTypedSubmissionWithPreSubmitQueuePositionAndOrde
 	submissionOrder *inputSubmissionOrder,
 ) tea.Cmd {
 	m := c.model
-	if m.newSessionTarget() != nil {
+	if m.usesDirectChatActions() {
 		cmd := c.submitCmd(text, input, queuedID, origin, submissionOrder)
 		return tea.Batch(cmd, m.reconcileSpinnerTicking(false))
 	}
@@ -109,7 +109,7 @@ func (c uiInputController) startSubmissionWithPromptHistoryAndQueuePositionAndID
 
 func (c uiInputController) submitCmd(text string, input runtimeinput.Input, queuedID string, origin activeSubmitOrigin, submissionOrder *inputSubmissionOrder) tea.Cmd {
 	m := c.model
-	if m.newSessionTarget() != nil {
+	if m.usesDirectChatActions() {
 		intent := newSessionInputEnter
 		if origin == activeSubmitOriginQueued {
 			intent = newSessionInputQueue
@@ -157,7 +157,7 @@ func (c uiInputController) submitCmd(text string, input runtimeinput.Input, queu
 
 func (c uiInputController) submitUserShellCmd(originalText, command string, origin activeSubmitOrigin, submissionOrder *inputSubmissionOrder) tea.Cmd {
 	m := c.model
-	if m.newSessionTarget() != nil {
+	if m.usesDirectChatActions() {
 		return m.newSessionActionCmd(newSessionShellAction{command: command}, &originalText)
 	}
 	token := m.beginSubmitAttempt(originalText, "", origin, submissionOrder)
@@ -208,7 +208,7 @@ func (m *uiModel) beginSubmitAttempt(
 
 func (c uiInputController) startCompaction(submittedText, args string) tea.Cmd {
 	m := c.model
-	if m.newSessionTarget() != nil {
+	if m.usesDirectChatActions() {
 		invocation := &chatpb.CompactionInvocation{Token: "/compact"}
 		if guidance := optionalCompactionGuidance(args); guidance != nil {
 			invocation.SeparatorWhitespace = " "

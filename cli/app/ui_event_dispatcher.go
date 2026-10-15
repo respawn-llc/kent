@@ -9,8 +9,9 @@ import (
 )
 
 type uiDispatchedEventMsg struct {
-	event ongoingTranscriptEvent
-	issue *lifecycleHookIssue
+	source *uiEventDispatcher
+	event  ongoingTranscriptEvent
+	issue  *lifecycleHookIssue
 }
 
 type uiEventDispatcher struct {
@@ -39,9 +40,9 @@ func (d *uiEventDispatcher) wait() tea.Cmd {
 					transcriptEvents = nil
 					continue
 				}
-				return uiDispatchedEventMsg{event: event}
+				return uiDispatchedEventMsg{source: d, event: event}
 			case issue := <-issues:
-				return uiDispatchedEventMsg{issue: &issue}
+				return uiDispatchedEventMsg{source: d, issue: &issue}
 			}
 		}
 		return nil
@@ -52,6 +53,9 @@ func (m *uiModel) reduceDispatchedEvent(message tea.Msg) uiFeatureUpdateResult {
 	dispatched, ok := message.(uiDispatchedEventMsg)
 	if !ok {
 		return uiFeatureUpdateResult{}
+	}
+	if dispatched.source != m.eventDispatcher {
+		return handledUIFeatureUpdate(m, nil)
 	}
 	if dispatched.issue != nil {
 		issue := *dispatched.issue

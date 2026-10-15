@@ -29,6 +29,14 @@ type chatSettingsRuntimeClient interface {
 	MutateChatSettings(*chatsettingspb.MutationOperation) (*chatsettingspb.MutationSuccess, error)
 }
 
+func (m *uiModel) selectedSessionSettingsClient() chatSettingsRuntimeClient {
+	if client, ok := m.runtimeClient().(chatSettingsRuntimeClient); ok {
+		return client
+	}
+	target := m.presentationTarget.(uiKnownSessionTarget)
+	return sessionChatSettingsClient{service: m.chatSettings, sessionID: target.id}
+}
+
 func (m *uiModel) runtimeClient() clientui.RuntimeClient {
 	if m == nil {
 		return nil
@@ -44,7 +52,7 @@ func (m *uiModel) chatSettingsMutationCommand(operation *chatsettingspb.Mutation
 	if m.newSessionTarget() != nil {
 		return m.mutateNewSessionSettings(operation)
 	}
-	client := m.runtimeClient().(chatSettingsRuntimeClient)
+	client := m.selectedSessionSettingsClient()
 	return func() tea.Msg {
 		response, err := client.MutateChatSettings(operation)
 		return chatSettingsDoneMsg{operation: operation, response: response, err: err}
@@ -66,7 +74,7 @@ func (m *uiModel) chatSettingsToggleCommand(
 		}
 		return m.mutateNewSessionSettings(resolved)
 	}
-	client := m.runtimeClient().(chatSettingsRuntimeClient)
+	client := m.selectedSessionSettingsClient()
 	return func() tea.Msg {
 		settings, err := client.ReadChatSettings()
 		if err != nil {
