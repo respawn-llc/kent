@@ -206,12 +206,7 @@ func (s *Store) ReorderProjectLabels(ctx context.Context, projectID string, ids 
 		for _, record := range current {
 			recordsByID[record.ID] = record
 		}
-		seen := make(map[label.ID]struct{}, len(ids))
 		for _, id := range ids {
-			if _, ok := seen[id]; ok {
-				return ProjectLabelReorderResult{}, ProjectLabelOrderError{ProjectID: trimmedProjectID}
-			}
-			seen[id] = struct{}{}
 			if _, ok := recordsByID[id]; !ok {
 				return ProjectLabelReorderResult{}, ProjectLabelOrderError{ProjectID: trimmedProjectID}
 			}
@@ -303,9 +298,6 @@ func projectLabelRecord(id string, projectID string, name string, ordinal int64)
 }
 
 func requireProjectForLabels(ctx context.Context, q *sqlitegen.Queries, projectID string) error {
-	if projectID == "" {
-		return errors.New("project id is required")
-	}
 	if _, err := q.GetProjectDisplayName(ctx, projectID); err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
 			return fmt.Errorf("%w: %q", serverapi.ErrProjectNotFound, projectID)

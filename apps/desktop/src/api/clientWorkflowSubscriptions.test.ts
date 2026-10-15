@@ -155,9 +155,7 @@ describe("ApiClient workflow subscriptions", () => {
     const client = new ApiClient(rpc, unexpectedProjectOverflow);
     const events: WorkflowProjectEvent[] = [];
     client.subscribeWorkflow(workflowID, eventCollector(events));
-    for (const action of [
-      pb.ProjectEventAction.WORKFLOW_PROJECT_EVENT_ACTION_LINKED,
-    ]) {
+    for (const action of [pb.ProjectEventAction.WORKFLOW_PROJECT_EVENT_ACTION_LINKED]) {
       expect(() => {
         rpc.emitDescriptor(
           workflowService.subscribe,

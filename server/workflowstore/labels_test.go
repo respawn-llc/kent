@@ -155,10 +155,9 @@ func TestProjectLabelReorderRejectsNonPermutationWithoutChangingCatalog(t *testi
 	}
 
 	for name, requested := range map[string][]label.ID{
-		"missing":   {first.ID},
-		"duplicate": {first.ID, first.ID},
-		"unknown":   {first.ID, label.NewID()},
-		"foreign":   {first.ID, foreign.ID},
+		"missing": {first.ID},
+		"unknown": {first.ID, label.NewID()},
+		"foreign": {first.ID, foreign.ID},
 	} {
 		t.Run(name, func(t *testing.T) {
 			if _, err := store.ReorderProjectLabels(ctx, binding.ProjectID, requested); err == nil {

@@ -157,8 +157,7 @@ export async function updateTaskLabels(
   return taskLabelAssignment(requireUnarySuccess(method, result).assignment, taskID);
 }
 
-function projectLabel(value: GeneratedLabel | undefined): ProjectLabel {
-  if (value === undefined) throw new ContractError("Project label is required.");
+function projectLabel(value: GeneratedLabel): ProjectLabel {
   return { id: value.id, name: value.name };
 }
 

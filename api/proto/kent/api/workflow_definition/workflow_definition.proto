@@ -1236,7 +1236,7 @@ message ProjectLabelCatalog {
 }
 
 message ProjectLabelCatalogRequest {
-  string project_id = 1 [(buf.validate.field).string.min_len = 1];
+  string project_id = 1 [(buf.validate.field).string.(kent.api.shared.nonblank) = true];
 }
 
 message ProjectLabelCatalogSuccess {
@@ -1244,7 +1244,7 @@ message ProjectLabelCatalogSuccess {
 }
 
 message ProjectLabelCreateRequest {
-  string project_id = 1 [(buf.validate.field).string.min_len = 1];
+  string project_id = 1 [(buf.validate.field).string.(kent.api.shared.nonblank) = true];
   string name = 2 [
     (buf.validate.field).string.min_len = 1,
     (buf.validate.field).cel = {
@@ -1260,7 +1260,7 @@ message ProjectLabelCreateSuccess {
 }
 
 message ProjectLabelRenameRequest {
-  string project_id = 1 [(buf.validate.field).string.min_len = 1];
+  string project_id = 1 [(buf.validate.field).string.(kent.api.shared.nonblank) = true];
   string label_id = 2 [
     (buf.validate.field).string.uuid = true,
     (buf.validate.field).string.(kent.api.shared.canonical_uuid_v4) = true
@@ -1280,7 +1280,7 @@ message ProjectLabelRenameSuccess {
 }
 
 message ProjectLabelDeleteRequest {
-  string project_id = 1 [(buf.validate.field).string.min_len = 1];
+  string project_id = 1 [(buf.validate.field).string.(kent.api.shared.nonblank) = true];
   string label_id = 2 [
     (buf.validate.field).string.uuid = true,
     (buf.validate.field).string.(kent.api.shared.canonical_uuid_v4) = true
@@ -1295,7 +1295,7 @@ message ProjectLabelDeleteSuccess {
 }
 
 message ProjectLabelReorderRequest {
-  string project_id = 1 [(buf.validate.field).string.min_len = 1];
+  string project_id = 1 [(buf.validate.field).string.(kent.api.shared.nonblank) = true];
   repeated string label_ids = 2 [
     (buf.validate.field).repeated = {
       max_items: 100
