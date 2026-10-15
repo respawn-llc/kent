@@ -165,20 +165,10 @@ func (r ManualMoveResult) Validate() error {
 
 func (s *Store) CreateTask(ctx context.Context, req CreateTaskRequest) (TaskRecord, error) {
 	projectID := strings.TrimSpace(req.ProjectID)
-	if projectID == "" {
-		return TaskRecord{}, errors.New("project id is required")
-	}
 	var workflowID *runtimeids.WorkflowID
 	if req.WorkflowID != nil {
-		if req.WorkflowID.IsZero() {
-			return TaskRecord{}, errors.New("workflow id is required when provided")
-		}
 		value := *req.WorkflowID
 		workflowID = &value
-	}
-	if len(req.LabelIDs) > label.MaxProjectLabels {
-		limit := label.MaxProjectLabels
-		return TaskRecord{}, TaskLabelMutationError{Reason: TaskLabelMutationTooManyAdd, Field: "label_ids", Limit: &limit}
 	}
 	dependencyIntents := append([]workflow.TaskDependencyCreateIntent(nil), req.DependencyIntents...)
 	labelIDs, _, err := parseUniqueLabelIDs(req.LabelIDs, "label_ids", TaskLabelMutationDuplicateAdd)
@@ -190,9 +180,6 @@ func (s *Store) CreateTask(ctx context.Context, req CreateTaskRequest) (TaskReco
 		body: strings.TrimSpace(req.Body), sourceURL: strings.TrimSpace(req.SourceURL),
 		sourceWorkspaceID: strings.TrimSpace(req.SourceWorkspaceID), taskID: prefixedID("task"),
 		labelIDs: labelIDs, dependencyIntents: dependencyIntents, nowUnixMs: s.now().UnixMilli(),
-	}
-	if prepared.title == "" {
-		return TaskRecord{}, errors.New("task title is required")
 	}
 	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
@@ -293,12 +280,6 @@ func createTaskWithQueries(ctx context.Context, q *sqlitegen.Queries, prepared p
 }
 
 func (s *Store) UpdateTask(ctx context.Context, req UpdateTaskRequest) (TaskRecord, error) {
-	if strings.TrimSpace(string(req.TaskID)) == "" {
-		return TaskRecord{}, errors.New("task id is required")
-	}
-	if req.Title != nil && strings.TrimSpace(*req.Title) == "" {
-		return TaskRecord{}, errors.New("task title is required")
-	}
 	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
 		return TaskRecord{}, err
@@ -366,9 +347,6 @@ func (s *Store) UpdateTask(ctx context.Context, req UpdateTaskRequest) (TaskReco
 }
 
 func (s *Store) DeleteTask(ctx context.Context, taskID workflow.TaskID) (DeleteTaskResult, error) {
-	if strings.TrimSpace(string(taskID)) == "" {
-		return DeleteTaskResult{}, errors.New("task id is required")
-	}
 	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
 		return DeleteTaskResult{}, err

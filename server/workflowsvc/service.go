@@ -713,12 +713,9 @@ func (s *Service) SaveWorkflowGraph(ctx context.Context, req *pb.GraphSaveReques
 }
 
 func (s *Service) CreateWorkflowTask(ctx context.Context, req *taskpb.CreateRequest) (*taskpb.CreateSuccess, error) {
-	if err := protoapi.Validate(req); err != nil {
-		return nil, err
-	}
 	var workflowID *runtimeids.WorkflowID
 	if req.WorkflowId != nil {
-		id, err := runtimeids.ParseWorkflowID(*req.WorkflowId)
+		id, err := runtimeids.WorkflowIDFromProto(*req.WorkflowId)
 		if err != nil {
 			return nil, err
 		}
@@ -837,9 +834,6 @@ func workflowTaskStartError(err error) error {
 }
 
 func (s *Service) UpdateWorkflowTask(ctx context.Context, req *taskpb.UpdateRequest) (*taskpb.UpdateSuccess, error) {
-	if err := protoapi.Validate(req); err != nil {
-		return nil, err
-	}
 	task, err := s.store.UpdateTask(ctx, workflowstore.UpdateTaskRequest{TaskID: workflow.TaskID(req.TaskId), Title: req.Title, Body: req.Body, SourceWorkspaceID: req.GetSourceWorkspaceId()})
 	if err != nil {
 		return nil, err
@@ -2247,9 +2241,6 @@ func workflowNodeByID(definition workflow.Definition, nodeID workflow.NodeID) (w
 }
 
 func (s *Service) DeleteWorkflowTask(ctx context.Context, req *taskpb.DeleteRequest) (*emptypb.Empty, error) {
-	if err := protoapi.Validate(req); err != nil {
-		return nil, err
-	}
 	if s.taskWorktreeCleanup != nil {
 		if err := s.taskWorktreeCleanup.EnsureTaskWorktreeDeletable(ctx, req.TaskId); err != nil {
 			return nil, err
