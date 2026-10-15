@@ -1,5 +1,5 @@
 import { createChatStorageFixture } from "./chatStorageFixture";
-import { act, screen, waitFor, within } from "@testing-library/react";
+import { act, fireEvent, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { QueryClient } from "@tanstack/react-query";
 import { useState } from "react";
@@ -531,6 +531,7 @@ it("keeps the parent draft when child creation succeeds but departure saving fai
 });
 
 it("preserves focus, selection and continued typing across successive deliveries with Worktree commands", async () => {
+  onTestFinished(() => vi.useRealTimers());
   const first = deferred<ChatInputMutationResult>();
   const second = deferred<ChatInputMutationResult>();
   const view = sessionWithPrompts((services) => {
@@ -547,32 +548,29 @@ it("preserves focus, selection and continued typing across successive deliveries
   }, opening);
   const user = userEvent.setup();
   const send = () => screen.getByRole("button", { name: appI18n.t("chatComposer.send") });
-  await user.type(screen.getByRole("textbox"), "/review one");
+  // Populate setup drafts in one input operation; only the final keystroke
+  // exercises selection replacement after the asynchronous deliveries.
+  await user.click(screen.getByRole("textbox"));
+  await user.paste("/review one");
   await waitFor(() => {
     expect(send()).toBeEnabled();
   });
-  await user.click(send());
-  expect(screen.getByRole("textbox")).toHaveAttribute("readonly");
-  await waitFor(
-    () => {
-      expect(screen.getByRole("textbox")).not.toHaveAttribute("readonly");
-    },
-    {
-      timeout: 3000,
-    },
-  );
-  await user.type(screen.getByRole("textbox"), "/init two");
-  await user.click(send());
-  expect(screen.getByRole("textbox")).toHaveAttribute("readonly");
-  await waitFor(
-    () => {
-      expect(screen.getByRole("textbox")).not.toHaveAttribute("readonly");
-    },
-    {
-      timeout: 3000,
-    },
-  );
-  await user.type(screen.getByRole("textbox"), "continuing");
+  vi.useFakeTimers();
+  fireEvent.click(send());
+  await act(() => vi.advanceTimersByTimeAsync(2000));
+  vi.useRealTimers();
+  expect(view.services.api.chat.steer).toHaveBeenCalledTimes(1);
+  expect(screen.getByRole("textbox")).not.toHaveAttribute("readonly");
+  await user.click(screen.getByRole("textbox"));
+  await user.paste("/init two");
+  vi.useFakeTimers();
+  fireEvent.click(send());
+  await act(() => vi.advanceTimersByTimeAsync(2000));
+  vi.useRealTimers();
+  expect(view.services.api.chat.steer).toHaveBeenCalledTimes(2);
+  expect(screen.getByRole("textbox")).not.toHaveAttribute("readonly");
+  await user.click(screen.getByRole("textbox"));
+  await user.paste("continuing");
   const editor = screen.getByRole<HTMLTextAreaElement>("textbox");
   editor.setSelectionRange(2, 5);
   const accepted = (sessionID: string): ChatInputMutationResult => ({
@@ -587,9 +585,7 @@ it("preserves focus, selection and continued typing across successive deliveries
   await act(async () => {
     first.resolve(accepted("33333333-3333-4333-8333-333333333333"));
   });
-  await waitFor(() => {
-    expect(view.services.api.chat.persistDraft).toHaveBeenCalled();
-  });
+  await waitFor(() => expect(view.services.api.chat.persistDraft).toHaveBeenCalled());
   expect(screen.getByRole("textbox")).toHaveFocus();
   expect(editor.selectionStart).toBe(2);
   expect(editor.selectionEnd).toBe(5);
