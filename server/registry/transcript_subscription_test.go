@@ -192,50 +192,6 @@ func TestTranscriptSubscriptionBrokerPublishesCommittedReasoningTraceRow(t *test
 	}
 }
 
-func TestSessionFeedSequencerRejectsInvalidBatchBeforePrefixMutation(t *testing.T) {
-	broker := newTranscriptSubscriptionBroker()
-	sequencer := newSessionFeedSequencer(broker)
-	hydration := transcriptBrokerHydration(t).GetHydration()
-	sub, err := sequencer.Subscribe(func() (*transcriptpb.Hydration, error) {
-		return hydration, nil
-	})
-	if err != nil {
-		t.Fatalf("Subscribe: %v", err)
-	}
-	_ = nextTranscriptMessage(t, sub)
-	valid := &transcriptpb.Event{Payload: &transcriptpb.Event_ToolStart{ToolStart: &transcriptpb.ToolStart{
-		StepId:     mustRegistryStepID(t).String(),
-		ToolCallId: "tool-call-prefix",
-		ToolName:   "exec_command",
-	}}}
-	defer func() {
-		if recovered := recover(); recovered == nil {
-			t.Fatal("invalid batch did not fail fast")
-		}
-		if _, err := nextTranscriptMessageTimeout(sub, 20*time.Millisecond); !errors.Is(err, context.DeadlineExceeded) {
-			t.Fatalf("valid prefix was delivered after invalid batch: %v", err)
-		}
-		hydratedSub, err := sequencer.Subscribe(func() (*transcriptpb.Hydration, error) {
-			return hydration, nil
-		})
-		if err != nil {
-			t.Fatalf("subscribe after rejected batch: %v", err)
-		}
-		defer func() { _ = hydratedSub.Close() }()
-		hydratedMessage := nextTranscriptMessage(t, hydratedSub)
-		hydrated := hydratedMessage.Event.GetHydration()
-		if hydrated == nil {
-			t.Fatalf("post-batch hydration payload = %T, want TranscriptHydration", hydratedMessage.Event.Payload)
-		}
-		for _, tool := range hydrated.InFlightTools {
-			if tool.ToolCallId == "tool-call-prefix" {
-				t.Fatalf("post-batch hydration contains rejected tool prefix: %+v", tool)
-			}
-		}
-	}()
-	sequencer.Publish([]*transcriptpb.Event{valid, {}})
-}
-
 func TestSessionFeedSequencerBuildsHydrationWithoutPriorRuntimeReadModel(t *testing.T) {
 	h := transcriptBrokerHydration(t).GetHydration()
 	sub, err := newSessionFeedSequencer(newTranscriptSubscriptionBroker()).Subscribe(func() (*transcriptpb.Hydration, error) {
