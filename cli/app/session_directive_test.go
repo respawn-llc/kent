@@ -69,11 +69,7 @@ func sessionLaunchRequestFromLifecycleResult(t *testing.T, result *sessionlaunch
 	t.Helper()
 	result = requireSessionLifecycleResult(t, result)
 	intent := protoapi.SessionLaunchIntentFromProto(result.GetLaunch().GetIntent())
-	request, err := sessionLaunchRequestFromIntent(requestfixture.LaunchIntent(t, intent), overrides)
-	if err != nil {
-		t.Fatalf("build launch request: %v", err)
-	}
-	return request
+	return sessionLaunchRequest{Mode: launchModeInteractive, Intent: requestfixture.LaunchIntent(t, intent), Overrides: overrides}
 }
 
 func sessionLifecycleSessionIDForTest(t *testing.T, raw string) runtimeids.SessionID {

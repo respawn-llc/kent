@@ -18,9 +18,6 @@ func writeSessionIdentity(ctx context.Context, remote apicontract.SessionViewSer
 	if err != nil {
 		return err
 	}
-	if err := protoapi.Validate(result); err != nil {
-		return err
-	}
 	shortID := "unassigned"
 	if result.ShortId != nil {
 		number := protoapi.SessionShortIDFromProto(result.ShortId)

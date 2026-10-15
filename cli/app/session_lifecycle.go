@@ -136,9 +136,6 @@ func runSessionLifecycleWithOptions(ctx context.Context, server interactiveSessi
 			}
 			preparation = next.GetLaunch().Preparation
 		}
-		if preparation == nil {
-			return errors.New("launch directive is missing preparation")
-		}
 		reboundServer, rebound, err := bindNavigationSessionContext(ctx, server, preparation)
 		if err != nil {
 			return err
@@ -150,9 +147,10 @@ func runSessionLifecycleWithOptions(ctx context.Context, server interactiveSessi
 			server = reboundServer
 			planner = newSessionLaunchPlanner(server)
 		}
-		launchRequest, err := sessionLaunchRequestFromIntent(intent, mergeSessionPlanOverrides(opts.InvocationOverrides, nextSessionOverrides))
-		if err != nil {
-			return err
+		launchRequest := sessionLaunchRequest{
+			Mode:      launchModeInteractive,
+			Intent:    intent,
+			Overrides: mergeSessionPlanOverrides(opts.InvocationOverrides, nextSessionOverrides),
 		}
 		if err := server.EnsureConnectionSetup(ctx); err != nil {
 			if errors.Is(err, ErrAuthCanceledByUser) {
@@ -427,18 +425,6 @@ func persistSessionDraftToServer(ctx context.Context, server sessionLifecycleCli
 		Input:     ui.mainEditor.Text(),
 	})
 	return err
-}
-
-func sessionLaunchRequestFromIntent(intent *sessionlaunchpb.SessionLaunchRequestIntent, overrides serverapi.RunPromptOverrides) (sessionLaunchRequest, error) {
-	if err := protoapi.Validate(intent); err != nil {
-		return sessionLaunchRequest{}, err
-	}
-	request := sessionLaunchRequest{
-		Mode:      launchModeInteractive,
-		Intent:    intent,
-		Overrides: overrides,
-	}
-	return request, nil
 }
 
 func sessionLaunchPreparationValues(preparation *sessionlaunchpb.SessionLaunchPreparation) (string, bool, string, bool, error) {

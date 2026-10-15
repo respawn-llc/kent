@@ -181,9 +181,6 @@ func (p *launchPlanner) PlanSession(ctx context.Context, req sessionLaunchReques
 	if p == nil || p.server == nil || p.server.SessionLaunchClient() == nil {
 		return sessionLaunchPlan{}, errors.New("launch planner bootstrap is required")
 	}
-	if err := protoapi.Validate(req.Intent); err != nil {
-		return sessionLaunchPlan{}, err
-	}
 	var mode sessionlaunchpb.SessionLaunchMode
 	switch req.Mode {
 	case launchModeInteractive:
@@ -205,9 +202,6 @@ func (p *launchPlanner) PlanSession(ctx context.Context, req sessionLaunchReques
 	resp, err := p.server.SessionLaunchClient().PlanSession(ctx, generatedRequest)
 	if err != nil {
 		return sessionLaunchPlan{}, err
-	}
-	if resp == nil || resp.Plan == nil {
-		return sessionLaunchPlan{}, errors.New("Session launch plan is required")
 	}
 	settings, err := protoapi.SessionSettingsFromProto(resp.Plan.ActiveSettings)
 	if err != nil {
