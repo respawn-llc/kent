@@ -85,10 +85,6 @@ var (
 	ErrSourceWorkspaceAfterAutomation = errors.New("cannot edit source workspace after automation starts")
 	ErrSourceWorkspaceNotInProject    = errors.New("source workspace does not belong to project")
 
-	// ErrApprovalIDRequired is returned when an approval id is required but
-	// blank.
-	ErrApprovalIDRequired = errors.New("approval id is required")
-
 	// ErrCurrentNodePendingApproval is returned when an operation tries to
 	// execute a current node that is awaiting its Approval.
 	ErrCurrentNodePendingApproval = errors.New("current node has a pending approval")
