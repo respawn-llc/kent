@@ -1,3 +1,4 @@
+export { assertSpeechSize, decodeSpeechResult, speechUploadURL, uploadSpeechBlob } from "../speech";
 export { ApiClient } from "../client";
 export { createRpcTransport } from "../rpc";
 export { protocolVersion } from "../rpcSocket";

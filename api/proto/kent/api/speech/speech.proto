@@ -1,0 +1,82 @@
+syntax = "proto3";
+
+package kent.api.speech;
+
+import "buf/validate/validate.proto";
+import "google/protobuf/empty.proto";
+import "kent/api/shared/foundation.proto";
+
+option go_package = "core/shared/protoapi/gen/kent/api/speech;speechpb";
+
+message Encoding {
+  string mime_type = 1 [(buf.validate.field).string.in = "audio/mp4", (buf.validate.field).string.in = "audio/webm", (buf.validate.field).string.in = "audio/ogg"];
+  string extension = 2 [(buf.validate.field).string.min_len = 1];
+}
+
+message Available {
+  string upload_url = 1 [(buf.validate.field).string.min_len = 1];
+  repeated Encoding encodings = 2 [(buf.validate.field).repeated.min_items = 1];
+  uint32 max_duration_seconds = 3 [(buf.validate.field).uint32.gt = 0];
+  uint32 max_bytes = 4 [(buf.validate.field).uint32.gt = 0];
+}
+
+message Availability {
+  oneof state {
+    option (buf.validate.oneof).required = true;
+    Available available = 1;
+    google.protobuf.Empty unavailable = 2;
+  }
+}
+
+message AvailabilityError {
+  string code = 1 [(kent.api.shared.kent_result_field).role = RESULT_FIELD_ROLE_ERROR_CODE];
+  oneof detail {
+    kent.api.shared.InternalFailureDetails internal_failure = 2 [
+      (kent.api.shared.kent_result_field) = {role: RESULT_FIELD_ROLE_ERROR_DETAIL, error_code: "internal_failure"}
+    ];
+  }
+}
+
+message AvailabilityResult {
+  oneof outcome {
+    option (buf.validate.oneof).required = true;
+    Availability success = 1 [(kent.api.shared.kent_result_field).role = RESULT_FIELD_ROLE_SUCCESS];
+    AvailabilityError error = 2 [(kent.api.shared.kent_result_field).role = RESULT_FIELD_ROLE_ERROR];
+  }
+}
+
+enum FailureKind {
+  FAILURE_KIND_UNSPECIFIED = 0;
+  FAILURE_KIND_UNAVAILABLE = 1;
+  FAILURE_KIND_INPUT = 2;
+  FAILURE_KIND_SIZE_LIMIT = 3;
+  FAILURE_KIND_CONNECTION = 4;
+  FAILURE_KIND_PROVIDER = 5;
+}
+
+message Failure {
+  FailureKind kind = 1 [(buf.validate.field).enum = {defined_only: true, not_in: [0]}];
+  string diagnostic = 2 [(buf.validate.field).string.min_len = 1];
+  optional string connection_id = 3 [(buf.validate.field).string.min_len = 1];
+}
+
+message UploadResult {
+  oneof outcome {
+    option (buf.validate.oneof).required = true;
+    string transcript = 1 [(buf.validate.field).string.min_len = 1];
+    google.protobuf.Empty no_op = 2;
+    Failure failure = 3;
+  }
+}
+
+service SpeechService {
+  rpc GetAvailability(google.protobuf.Empty) returns (AvailabilityResult) {
+    option (kent.api.shared.kent_method) = {
+      kind: OPERATION_KIND_UNARY
+      authentication_stage: AUTHENTICATION_STAGE_SERVER
+      scope_policy: SCOPE_POLICY_NONE
+      direction: DIRECTION_CLIENT_TO_SERVER
+      unary_connection: UNARY_CONNECTION_MULTIPLEXED
+    };
+  }
+}

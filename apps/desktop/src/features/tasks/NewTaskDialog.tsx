@@ -1,7 +1,7 @@
 import { zodResolver } from "@hookform/resolvers/zod";
 import { Plus } from "lucide-react";
-import { useCallback, useEffect, useId, useMemo, useState } from "react";
-import { useForm, useWatch } from "react-hook-form";
+import { useCallback, useEffect, useId, useImperativeHandle, useMemo, useState } from "react";
+import { useController, useForm, useWatch } from "react-hook-form";
 import { useTranslation } from "react-i18next";
 import { z } from "zod";
 
@@ -27,6 +27,7 @@ import {
   type PreparedTaskDependency,
 } from "@/shared/task-dependencies";
 import { useCreateTask } from "@/shared/task-mutations";
+import { SpeechDestinationProvider, useSpeechField } from "@/shared/speech-input";
 import {
   Badge,
   Button,
@@ -36,6 +37,7 @@ import {
   Spinner,
   TextArea,
   TextInput,
+  ControlTooltip,
 } from "@/ui";
 import { cx } from "@/ui";
 import { useNewTaskWorkspaceCatalog } from "./NewTaskWorkspaceModel";
@@ -136,7 +138,9 @@ export function NewTaskForm(props: NewTaskFormProps) {
   );
   return (
     <ProjectLabelsProvider onBackgroundError={reportLabelError} projectID={projectID}>
-      <NewTaskFormContent {...props} />
+      <SpeechDestinationProvider>
+        <NewTaskFormContent {...props} />
+      </SpeechDestinationProvider>
     </ProjectLabelsProvider>
   );
 }
@@ -197,6 +201,19 @@ function NewTaskFormContent({
     },
   });
   const selectedWorkspaceID = useWatch({ control: form.control, name: "sourceWorkspaceID" });
+  const { field: bodyField } = useController({ control: form.control, name: "body" });
+  const { editorRef: bodyEditor, ...speech } = useSpeechField({
+    value: bodyField.value,
+    onChange: bodyField.onChange,
+  });
+  useImperativeHandle(
+    bodyField.ref,
+    () => {
+      if (bodyEditor.current === null) throw new Error("Task body editor is not mounted.");
+      return bodyEditor.current;
+    },
+    [bodyEditor],
+  );
   useEffect(() => {
     if (selectedWorkspace !== undefined && selectedWorkspaceID !== selectedWorkspace.id) {
       form.setValue("sourceWorkspaceID", selectedWorkspace.id, {
@@ -215,9 +232,12 @@ function NewTaskFormContent({
       })),
     [effectiveSelectedLabelIDs, form, navigator, preparedDependencies],
   );
-  const canSubmit = [!labelCreatePending, catalog.data !== undefined, selectedWorkspace !== undefined].every(
-    Boolean,
-  );
+  const canSubmit = [
+    !speech.busy,
+    !labelCreatePending,
+    catalog.data !== undefined,
+    selectedWorkspace !== undefined,
+  ].every(Boolean);
   function submit(values: NewTaskFormValues): void {
     if (!canSubmit) {
       return;
@@ -297,7 +317,9 @@ function NewTaskFormContent({
         label={t("task.body")}
         placeholder={t("task.bodyPlaceholder")}
         rows={6}
-        {...form.register("body")}
+        {...bodyField}
+        ref={bodyEditor}
+        floatingAction={speech.control}
       />
       <NewTaskLabels
         onCreatePendingChange={setLabelCreatePending}
@@ -409,16 +431,30 @@ function NewTaskFormContent({
       {workspaceItems.length > 0 && workspacePaging.initialBoundary !== undefined ? (
         <InfiniteListBoundary direction="initial" state={workspacePaging.initialBoundary} />
       ) : null}
-      <Button
-        className="mx-auto w-full max-w-[400px]"
-        disabled={!canSubmit}
-        aria-busy={createTask.isPending}
-        type="submit"
-        variant="primary"
-      >
-        {createTask.isPending ? <Spinner /> : t("task.create")}
-      </Button>
+      <NewTaskSubmitButton enabled={canSubmit} pending={createTask.isPending} speech={speech} />
     </form>
+  );
+}
+
+function NewTaskSubmitButton({
+  enabled,
+  pending,
+  speech,
+}: Readonly<{
+  enabled: boolean;
+  pending: boolean;
+  speech: Readonly<{ busy: boolean; busyReason: string }>;
+}>) {
+  const { t } = useTranslation();
+  return (
+    <ControlTooltip
+      label={speech.busy ? speech.busyReason : t("task.create")}
+      className="mx-auto inline-flex w-full max-w-[400px]"
+    >
+      <Button className="w-full" disabled={!enabled} aria-busy={pending} type="submit" variant="primary">
+        {pending ? <Spinner /> : t("task.create")}
+      </Button>
+    </ControlTooltip>
   );
 }
 

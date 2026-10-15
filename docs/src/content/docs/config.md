@@ -29,7 +29,7 @@ The default and session-producing roles accept a connection name or an array of 
 ### Persistence root
 
 - Workspace settings live at: `<workspace-root>/.kent/config.toml`. Note that workspace root is not necessarily the same as where you might have started the TUI - it's where the agent will actually do the work.
-- Private settings live at `<main-workspace-root>/.kent/config.local.toml`. The file is optional and accepts workspace-allowed settings. Keep personal overrides uncommitted using your own Git ignore configuration. Kent leaves Git rules untouched and reads this file from the main workspace instead of copying it into worktrees.
+- Private settings live at `<main-workspace-root>/.kent/config.local.toml`. The file is optional and accepts workspace-allowed settings. Keep personal overrides uncommitted using your own Git ignore configuration. Kent leaves Git rules untouched and reads this file from the main workspace.
 - Global settings live at: `~/.kent/config.toml`, and this location (along with all other data storage) is overridable via `--persistence-root`. The flag also relocates the root's model-visible global context — global `AGENTS.md`, the global system-prompt file, global skills, and generated assets.
   `kent service` is also root-aware. Each `--persistence-root` install bakes the root into the registration. The OS holds a single service, so install with the root you want managed.
 
@@ -209,6 +209,12 @@ Use these fields to override Kent's default capability selection for a model.
 | ---------------------------------------------- | ---- | ---------------------- | --------------------------------------------------- | -------------------------------------------------------------------- |
 | `model_capabilities.supports_reasoning_effort` | bool | `false`                | `KENT_MODEL_CAPABILITIES_SUPPORTS_REASONING_EFFORT` | Allows Kent to send reasoning-effort settings to the selected model. |
 | `model_capabilities.supports_vision_inputs`    | bool | model/provider default | `KENT_MODEL_CAPABILITIES_SUPPORTS_VISION_INPUTS`    | Allows Kent to send image and PDF inputs to the selected model.      |
+
+### Speech input
+
+Desktop speech uses speech-capable connections selected by the top-level `connection` setting in global `~/.kent/config.toml`. Select multiple connections there to rotate transcription requests among them.
+
+Set `speech_to_text_model` inside `[connections.<id>]` in that global file to choose a transcription model for OpenAI API or Grok. Codex subscriptions ignore this setting and use their fixed transcription endpoint.
 
 ### Provider capability overrides
 

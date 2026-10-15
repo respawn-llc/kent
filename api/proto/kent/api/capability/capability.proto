@@ -67,6 +67,7 @@ message ProviderFact {
   bool is_openai_first_party = 9;
   bool supports_provider_verbosity = 10;
   bool supports_fast_mode = 11;
+  bool supports_speech_to_text = 12;
 }
 
 message ProviderFacts {

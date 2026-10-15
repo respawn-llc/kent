@@ -83,6 +83,7 @@ type ProviderConnection struct {
 	Protocol            ConnectionProtocol
 	Endpoint            *string
 	EnvironmentVariable *string
+	SpeechToTextModel   *string
 	Capabilities        ProviderCapabilitiesOverride
 }
 
@@ -125,6 +126,9 @@ func (s Settings) SelectedConnection() (ProviderConnection, error) {
 }
 
 func (c ProviderConnection) Validate() error {
+	if c.SpeechToTextModel != nil && strings.TrimSpace(*c.SpeechToTextModel) == "" {
+		return fmt.Errorf("speech_to_text_model cannot be blank; omit it for the built-in model")
+	}
 	switch c.Protocol {
 	case ConnectionChatGPT, ConnectionGrokCLIProxy, ConnectionGrokOAuthAPI:
 		if c.Endpoint != nil || c.EnvironmentVariable != nil {
@@ -226,7 +230,7 @@ func (connectionsSetting) applyDefault(state *settingsState) {
 
 func (connectionsSetting) registerFileKeys(tree *fileKeyTree) {
 	template := newFileKeyTree()
-	for _, key := range []string{"protocol", "endpoint", "environment_variable"} {
+	for _, key := range []string{"protocol", "endpoint", "environment_variable", "speech_to_text_model"} {
 		template.allowPath([]string{key})
 	}
 	for _, key := range providerCapabilityKeys {
@@ -257,7 +261,7 @@ func (connectionsSetting) applyFile(raw settingsFile, file SourceFile, state *se
 		for _, field := range []struct {
 			key string
 			to  **string
-		}{{"endpoint", &connection.Endpoint}, {"environment_variable", &connection.EnvironmentVariable}} {
+		}{{"endpoint", &connection.Endpoint}, {"environment_variable", &connection.EnvironmentVariable}, {"speech_to_text_model", &connection.SpeechToTextModel}} {
 			value, present, err := lookupFileStringAllowEmpty(definition, []string{field.key})
 			if err != nil {
 				return err

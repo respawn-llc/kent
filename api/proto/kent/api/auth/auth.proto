@@ -526,6 +526,14 @@ message ConnectionDefinition {
   optional string endpoint = 3 [(buf.validate.field).string.min_len = 1];
   optional string environment_variable = 4 [(buf.validate.field).string.min_len = 1];
   ProviderCapabilitiesOverride capabilities = 5;
+  optional string speech_to_text_model = 6 [
+    (buf.validate.field).string.min_len = 1,
+    (buf.validate.field).cel = {
+      id: "kent.auth.connection.speech_model_nonblank"
+      message: "speech_to_text_model must be non-blank"
+      expression: "this.trim() != ''"
+    }
+  ];
 
   option (buf.validate.message).cel = {
     id: "kent.auth.connection.protocol_fields"

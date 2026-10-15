@@ -52,12 +52,14 @@ name = "app-desktop"
 version = "0.0.0"
 dependencies = [
  "arboard",
+ "futures-util",
  "image",
  "mac-usernotifications",
  "notify-rust",
  "objc2",
  "objc2-app-kit",
  "objc2-foundation",
+ "reqwest",
  "serde",
  "serde_json",
  "sha2",
@@ -72,6 +74,7 @@ dependencies = [
  "tauri-plugin-updater",
  "tempfile",
  "tokio",
+ "tokio-util",
  "toml 0.9.12+spec-1.1.0",
  "windows",
 ]
@@ -4449,6 +4452,7 @@ dependencies = [
  "bytes",
  "futures-core",
  "futures-sink",
+ "futures-util",
  "pin-project-lite",
  "tokio",
 ]

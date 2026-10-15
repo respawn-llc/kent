@@ -51,6 +51,7 @@ const worktreeOperationKey = (
 ) => ["worktree", worktreeFact(sessionID), kind, worktreeFact(value, requireTrimmed)] as const;
 
 export const queryKeys = {
+  speechAvailability: ["speech", "availability"],
   startup: ["startup"],
   readiness: ["startup", "readiness"],
   projects: ["projects"],

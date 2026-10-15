@@ -34,6 +34,7 @@ import {
   type AppServices,
 } from "@/app-facade";
 import { appI18n, initializeI18n } from "@/i18n";
+import { SpeechRecoveryProvider } from "@/shared/speech-input";
 import { FakeRpcTransport, type FakeRoute } from "../api";
 
 void initializeI18n();
@@ -95,7 +96,9 @@ export function TestAppProviders({
           children: createElement(WindowFocusProvider, {
             children: createElement(WindowChromeTitleProvider, {
               children: createElement(StatusProvider, {
-                children: createElement(TaskSearchMemoryProvider, { children }),
+                children: createElement(TaskSearchMemoryProvider, {
+                  children: createElement(SpeechRecoveryProvider, { children }),
+                }),
               }),
             }),
           }),
@@ -112,11 +115,22 @@ export function createTestServices(
 ): TestAppServices {
   const transport = new FakeRpcTransport(routes);
   const logger = createTestLogger();
+  const speechUnavailable = async (): Promise<never> => {
+    throw new Error("This fixture has no speech transfer.");
+  };
   const resolvedNativeBridge =
     nativeBridge ??
     createBrowserNativeBridge(options.platform === undefined ? {} : { platform: options.platform });
   return {
     api: new ApiClient(transport, projectEventDiagnostics(logger)),
+    speech: {
+      begin: speechUnavailable,
+      retry: speechUnavailable,
+      discard: speechUnavailable,
+      reveal: speechUnavailable,
+      saveCopy: speechUnavailable,
+      limitSound: speechUnavailable,
+    },
     debugThemeOverrideEnabled: options.debugThemeOverrideEnabled ?? false,
     endpoint: "ws://127.0.0.1:53082/rpc",
     homePath: options.homePath ?? "",

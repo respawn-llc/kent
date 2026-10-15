@@ -18,6 +18,12 @@ import {
   withOrdinaryQuestionOption,
 } from "./TaskDetailQuestionState";
 import { QuestionFormView } from "./TaskDetailQuestionFormView";
+vi.mock("@/shared/speech-input", () => ({
+  useSpeechField: () => ({ control: undefined, busy: false, busyReason: "Speech pending" }),
+}));
+vi.mock("./TaskDetailSpeech", () => ({
+  useTaskSpeech: () => ({ questionDraft: () => ({ read: () => null, write: () => undefined }) }),
+}));
 
 type QuestionAnswerMutation = ComponentProps<typeof QuestionFormView>["answerQuestion"];
 type FixtureQuestionAttention = QuestionAttentionItem &

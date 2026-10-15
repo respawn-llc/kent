@@ -13,6 +13,7 @@ use tauri_plugin_dialog::DialogExt;
 
 mod clipboard;
 mod native_glass;
+mod speech;
 
 const CONFIG_FILE_NAME: &str = "config.toml";
 const DEFAULT_PERSISTENCE_ROOT: &str = "~/.kent";
@@ -638,6 +639,17 @@ pub fn run() {
         .plugin(tauri_plugin_store::Builder::new().build())
         .plugin(tauri_plugin_updater::Builder::new().build())
         .manage(AttentionNotificationState::default())
+        .manage(speech::SpeechState::default())
+        .on_window_event(|window, event| {
+            if matches!(event, tauri::WindowEvent::Destroyed) {
+                speech::close_window(window);
+            }
+        })
+        .on_page_load(|webview, payload| {
+            if matches!(payload.event(), tauri::webview::PageLoadEvent::Started) {
+                speech::close_window(&webview.window());
+            }
+        })
         .setup(|app| {
             #[cfg(any(target_os = "macos", windows))]
             if let Some(window) = app.get_webview_window("main") {
@@ -649,6 +661,15 @@ pub fn run() {
         })
         .invoke_handler(tauri::generate_handler![
             clipboard::paste_clipboard,
+            speech::speech_create,
+            speech::speech_append,
+            speech::speech_finalize,
+            speech::speech_finish,
+            speech::speech_cancel,
+            speech::speech_upload_original,
+            speech::speech_discard,
+            speech::speech_save_copy,
+            speech::speech_limit_sound,
             resolve_native_context,
             resolve_native_platform,
             self_update_supported,

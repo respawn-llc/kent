@@ -101,6 +101,9 @@ func productionGatewayBinaryBindings() (map[string]gatewayBinaryBinding, error) 
 	if err := registerBootstrapGatewayBinaryBindings(bindings); err != nil {
 		return nil, err
 	}
+	if err := registerSpeechGatewayBinaryBindings(bindings); err != nil {
+		return nil, err
+	}
 	if err := registerProjectReadGatewayBinaryBindings(bindings); err != nil {
 		return nil, err
 	}

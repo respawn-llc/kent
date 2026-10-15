@@ -1,11 +1,13 @@
 import {
   useEffect,
+  useImperativeHandle,
   useId,
   useRef,
   useState,
   type KeyboardEvent,
   type PointerEvent,
   type ReactNode,
+  type Ref,
 } from "react";
 
 import { CollapsibleMarkdownViewport, type MarkdownHeightClamp } from "./CollapsibleMarkdownViewport";
@@ -32,6 +34,7 @@ export type MarkdownFieldSubmitIntent = Readonly<{
 export type MarkdownFieldHeightClamp = MarkdownHeightClamp;
 
 type MarkdownFieldCommonProps = Readonly<{
+  editorRef?: Ref<HTMLTextAreaElement> | undefined;
   disabled?: boolean;
   editorMinHeight: number;
   error?: string | undefined;
@@ -99,6 +102,7 @@ export function CollapsibleMarkdownField({
 }
 
 function MarkdownFieldCore({
+  editorRef,
   disabled = false,
   editorMinHeight,
   error,
@@ -132,6 +136,7 @@ function MarkdownFieldCore({
       <div className="relative min-h-0 min-w-0 max-w-full">
         {showEditor ? (
           <MarkdownFieldEditor
+            externalEditorRef={editorRef}
             describedBy={errorText === undefined ? undefined : errorID}
             editorMinHeight={editorMinHeight}
             error={errorText !== undefined}
@@ -237,6 +242,7 @@ function MarkdownFieldFloatingAction({ action }: Readonly<{ action: MarkdownFloa
 }
 
 function MarkdownFieldEditor({
+  externalEditorRef,
   describedBy,
   editorMinHeight,
   error,
@@ -250,6 +256,7 @@ function MarkdownFieldEditor({
   surfaceRadius,
   value,
 }: Readonly<{
+  externalEditorRef?: Ref<HTMLTextAreaElement> | undefined;
   describedBy?: string | undefined;
   editorMinHeight: number;
   error: boolean;
@@ -264,6 +271,10 @@ function MarkdownFieldEditor({
   value: string;
 }>) {
   const editorRef = useRef<HTMLTextAreaElement | null>(null);
+  useImperativeHandle(externalEditorRef, () => {
+    if (editorRef.current === null) throw new Error("Markdown editor is not mounted.");
+    return editorRef.current;
+  }, []);
   const onBlurRef = useRef(onBlur);
 
   // Attach to the editor node so browser-native focus loss always returns the

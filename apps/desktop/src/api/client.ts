@@ -1,4 +1,5 @@
 import type { AttentionNotificationLifecycle } from "./attentionNotifications";
+import { speechAvailability } from "./speech";
 import type * as Stream from "effect/Stream";
 import { attentionNotifications } from "./attentionNotificationSubscription";
 import { create, operationName } from "@app/server-api-contract";
@@ -115,6 +116,7 @@ export class ApiClient implements ApiService {
   }
 
   readonly chat: ChatApi;
+  speechAvailability = async () => speechAvailability(this.#transport);
 
   observeProcesses = (target: ChatSessionTarget) => processes.observeProcesses(this.#transport, target);
   killProcess = async (processID: string) => processes.killProcess(this.#transport, processID);

@@ -1,4 +1,5 @@
 import type { AttentionNotificationLifecycle } from "./attentionNotifications";
+import type { SpeechAvailable } from "./speech";
 import type * as Stream from "effect/Stream";
 import type { ProjectObservation } from "./projectEvents";
 import type {
@@ -99,6 +100,7 @@ export type ApiSubscription = Readonly<{
 }>;
 
 export interface ApiService {
+  speechAvailability(): Promise<SpeechAvailable | null>;
   readonly chat: ChatApi;
 
   observeProcesses(

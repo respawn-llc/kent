@@ -56,7 +56,7 @@ func ConnectionToProto(id config.ConnectionID, definition config.ProviderConnect
 	case config.ConnectionGrokAPIKey:
 		protocol = authpb.ConnectionProtocol_CONNECTION_PROTOCOL_GROK_API_KEY
 	}
-	result := &authpb.ConnectionDefinition{Id: string(id), Protocol: protocol, Endpoint: definition.Endpoint, EnvironmentVariable: definition.EnvironmentVariable}
+	result := &authpb.ConnectionDefinition{Id: string(id), Protocol: protocol, Endpoint: definition.Endpoint, EnvironmentVariable: definition.EnvironmentVariable, SpeechToTextModel: definition.SpeechToTextModel}
 	if definition.Capabilities != (config.ProviderCapabilitiesOverride{}) {
 		result.Capabilities = providerCapabilitiesToProto(definition.Capabilities)
 	}
@@ -71,7 +71,7 @@ func ConnectionFromProto(value *authpb.ConnectionDefinition) (config.ConnectionI
 	if err != nil {
 		return "", config.ProviderConnection{}, err
 	}
-	definition := config.ProviderConnection{Endpoint: value.Endpoint, EnvironmentVariable: value.EnvironmentVariable}
+	definition := config.ProviderConnection{Endpoint: value.Endpoint, EnvironmentVariable: value.EnvironmentVariable, SpeechToTextModel: value.SpeechToTextModel}
 	switch value.Protocol {
 	case authpb.ConnectionProtocol_CONNECTION_PROTOCOL_RESPONSES:
 		definition.Protocol = config.ConnectionResponses

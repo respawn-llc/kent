@@ -50,6 +50,7 @@ type GatewayDependencies interface {
 	GatewayServerStatusDependencies
 	GatewayAuthDependencies
 	GatewayCapabilityFactsDependencies
+	GatewaySpeechDependencies
 	GatewayOnboardingDependencies
 	GatewayProjectDependencies
 	GatewaySessionDependencies
@@ -78,6 +79,10 @@ type GatewayAuthDependencies interface {
 
 type GatewayCapabilityFactsDependencies interface {
 	CapabilityFactsClient() apicontract.CapabilityFactsService
+}
+
+type GatewaySpeechDependencies interface {
+	SpeechClient() apicontract.SpeechService
 }
 
 type GatewayOnboardingDependencies interface {

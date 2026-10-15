@@ -2,6 +2,7 @@ package apicontract
 
 import (
 	"context"
+	"io"
 
 	attentionpb "core/shared/protoapi/gen/kent/api/attention"
 	authpb "core/shared/protoapi/gen/kent/api/auth"
@@ -19,6 +20,7 @@ import (
 	serverpb "core/shared/protoapi/gen/kent/api/server"
 	sessionpb "core/shared/protoapi/gen/kent/api/session"
 	sessionlaunchpb "core/shared/protoapi/gen/kent/api/session_launch"
+	speechpb "core/shared/protoapi/gen/kent/api/speech"
 	transcriptpb "core/shared/protoapi/gen/kent/api/transcript"
 	workflowpb "core/shared/protoapi/gen/kent/api/workflow_definition"
 	taskpb "core/shared/protoapi/gen/kent/api/workflow_task"
@@ -56,6 +58,11 @@ type AuthStatusService interface {
 
 type CapabilityFactsService interface {
 	GetFacts(ctx context.Context, req *capabilitypb.GetFactsRequest) (*capabilitypb.Facts, error)
+}
+
+type SpeechService interface {
+	GetAvailability(context.Context, *emptypb.Empty) (*speechpb.Availability, error)
+	Transcribe(context.Context, string, io.ReadCloser) *speechpb.UploadResult
 }
 
 type ChatContextService interface {

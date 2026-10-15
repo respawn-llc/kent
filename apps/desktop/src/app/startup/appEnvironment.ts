@@ -6,6 +6,7 @@ import { ApiClient, createRpcTransport, protocolVersion, type RpcTransport } fro
 import { projectEventDiagnostics, type AppServices, type AppStorageNamespace } from "@/app-facade";
 import { readEffectiveTheme, type AppTheme } from "@/ui";
 import { createGuiLogger } from "../logging";
+import { createSpeechTransfer } from "./speechTransfer";
 
 const defaultServerEndpoint = "ws://127.0.0.1:53082/rpc";
 const browserRpcEndpointSearchParam = "appRpcEndpoint";
@@ -33,6 +34,7 @@ export async function createDefaultAppServices(): Promise<AppServices> {
     });
     return {
       api: new ApiClient(new BootstrapErrorTransport(context), projectEventDiagnostics(logger)),
+      speech: createSpeechTransfer(nativeBridge, defaultServerEndpoint),
       debugThemeOverrideEnabled: import.meta.env.DEV,
       endpoint: defaultServerEndpoint,
       homePath: "",
@@ -51,6 +53,7 @@ export async function createDefaultAppServices(): Promise<AppServices> {
     });
     return {
       api: new ApiClient(new BootstrapErrorTransport(browserEndpoint), projectEventDiagnostics(logger)),
+      speech: createSpeechTransfer(nativeBridge, defaultServerEndpoint),
       debugThemeOverrideEnabled: import.meta.env.DEV,
       endpoint: defaultServerEndpoint,
       homePath: context.homePath,
@@ -69,6 +72,7 @@ export async function createDefaultAppServices(): Promise<AppServices> {
   const api = new ApiClient(createRpcTransport(endpoint, expectedRootId), projectEventDiagnostics(logger));
   return {
     api,
+    speech: createSpeechTransfer(nativeBridge, endpoint),
     debugThemeOverrideEnabled: import.meta.env.DEV,
     endpoint,
     homePath: context.homePath,

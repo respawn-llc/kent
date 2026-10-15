@@ -1,3 +1,6 @@
+export { RecordingControl, type RecordingControlProps } from "./RecordingControl";
+export { fieldActions } from "./fieldActions";
+export { ControlTooltip } from "./ControlTooltip";
 export { Badge } from "./Badge";
 export { PromptOptionRow } from "./PromptOptionRow";
 export { PromptAccessTargets } from "./PromptAccessTargets";

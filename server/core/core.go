@@ -471,6 +471,13 @@ func (s *Core) CapabilityFactsClient() apicontract.CapabilityFactsService {
 	return capability
 }
 
+func (s *Core) SpeechClient() apicontract.SpeechService {
+	if s == nil {
+		return nil
+	}
+	return s.safeBundles().Speech
+}
+
 func (s *Core) OnboardingFinalizeClient() apicontract.OnboardingFinalizeService {
 	if s == nil {
 		return nil

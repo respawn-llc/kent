@@ -1,3 +1,12 @@
+export {
+  assertSpeechSize,
+  SpeechFailure,
+  SpeechTransportError,
+  type SpeechAvailable,
+  type SpeechEncoding,
+  type SpeechResult,
+  type SpeechFailureKind,
+} from "./speech";
 export type { ApiService, ApiSubscription } from "./apiService";
 export { sessionDisplayID } from "./sessionIdentity";
 export type { DesktopProcess } from "./processes";
