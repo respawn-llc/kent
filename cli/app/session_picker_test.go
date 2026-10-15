@@ -316,6 +316,7 @@ func TestSessionPickerHeaderIdentifiesWorkingDirectory(t *testing.T) {
 				want = "~/" + filepath.Base(workdir)
 			}
 			t.Setenv("HOME", home)
+			t.Setenv("USERPROFILE", home)
 			t.Chdir(workdir)
 			model := newUninitializedTestSessionPickerModel(t, nil, sessionPickerHeaderInfo{
 				StatusRequest: uiStatusRequest{WorkspaceRoot: workdir},
