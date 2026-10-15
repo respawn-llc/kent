@@ -304,7 +304,6 @@ describe("LabelChooser", () => {
   });
 
   it("keeps selection and search available while disabling creation at the 100-Label bound", async () => {
-    const user = userEvent.setup({ delay: null });
     hooks.catalog.data = {
       projectID: "project-1",
       labels: Array.from({ length: 100 }, (_, index) => ({
@@ -319,8 +318,10 @@ describe("LabelChooser", () => {
       />,
     );
 
-    await user.click(screen.getByRole("button", { name: "Open assignment chooser" }));
-    await user.type(screen.getByRole("textbox", { name: "Search or create labels" }), "New label");
+    fireEvent.click(screen.getByRole("button", { name: "Open assignment chooser" }));
+    fireEvent.change(screen.getByRole("textbox", { name: "Search or create labels" }), {
+      target: { value: "New label" },
+    });
 
     expect(screen.getByRole("button", { name: "labels.catalogLimit" })).toBeDisabled();
     expect(screen.getByRole("textbox", { name: "Search or create labels" })).toBeEnabled();
