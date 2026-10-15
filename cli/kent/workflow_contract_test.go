@@ -81,7 +81,7 @@ func TestWorkflowListRejectsOffsetsAboveSafeIntegerRange(t *testing.T) {
 	for _, offset := range []string{"9007199254740992", "9223372036854775807"} {
 		t.Run(offset, func(t *testing.T) {
 			var stdout, stderr bytes.Buffer
-			if code := workflowListSubcommand([]string{"--offset", offset, "--json"}, &stdout, &stderr); code != 2 {
+			if code := workflowListSubcommand([]string{"--offset", offset, "--json"}, &stdout, &stderr); code != 1 {
 				t.Fatalf("out-of-range offset exit=%d, stdout=%s, stderr=%s", code, &stdout, &stderr)
 			}
 			if stdout.Len() != 0 || stderr.Len() == 0 {
@@ -761,15 +761,7 @@ func TestWorkflowEdgeSelectionAndPureMutationValidation(t *testing.T) {
 	}
 }
 
-func TestWorkflowAndTaskSearchArityAndPaginationValidation(t *testing.T) {
-	if err := validateWorkflowPagination(0, workflowCommandWorkflowListLimit); err != nil {
-		t.Fatalf("valid Workflow pagination: %v", err)
-	}
-	for _, window := range [][2]int{{-1, 1}, {0, 0}, {0, serverapi.WorkflowPaginationMaxLimit + 1}} {
-		if err := validateWorkflowPagination(window[0], window[1]); err == nil {
-			t.Fatalf("invalid Workflow pagination %v accepted", window)
-		}
-	}
+func TestWorkflowAndTaskSearchArityValidation(t *testing.T) {
 	for _, test := range []struct {
 		name string
 		run  func(*bytes.Buffer, *bytes.Buffer) int

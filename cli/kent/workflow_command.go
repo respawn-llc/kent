@@ -292,17 +292,13 @@ func workflowListSubcommand(args []string, stdout io.Writer, stderr io.Writer) i
 		fmt.Fprintln(stderr, "workflow list --project requires a non-blank value")
 		return 2
 	}
-	if err := validateWorkflowPagination(*offset, *limit); err != nil {
+	limitValue, err := protoapi.Int32(*limit, "limit")
+	if err != nil {
 		fmt.Fprintln(stderr, err)
 		return 2
 	}
 	offsetValue := int64(*offset)
-	limitValue := int32(*limit)
 	request := &pb.ListRequest{Offset: &offsetValue, Limit: &limitValue}
-	if err := protoapi.Validate(request); err != nil {
-		fmt.Fprintln(stderr, err)
-		return 2
-	}
 	return runWorkflowCommandSession(stderr, func(cfg config.Connection, remote *client.Remote) int {
 		var projectID *string
 		if projectProvided {
@@ -365,11 +361,6 @@ func writeWorkflowListResponse(
 		}
 	}
 	return 0
-}
-
-func validateWorkflowPagination(offset int, limit int) error {
-	_, err := serverapi.ResolveOffsetWindow(&offset, &limit)
-	return err
 }
 
 type workflowListExpectedScope struct {

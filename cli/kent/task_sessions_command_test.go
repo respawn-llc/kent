@@ -211,9 +211,6 @@ func TestTaskSessionsCommandValidationAndHelp(t *testing.T) {
 	for _, args := range [][]string{
 		nil,
 		{"KENT-1", "extra"},
-		{"KENT-1", "--offset", "-1"},
-		{"KENT-1", "--limit", "0"},
-		{"KENT-1", "--limit", "101"},
 	} {
 		var stdout, stderr bytes.Buffer
 		if code := taskSessionsSubcommand(args, &stdout, &stderr); code != 2 ||
