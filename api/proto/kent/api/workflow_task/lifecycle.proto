@@ -169,6 +169,11 @@ message CreateRequest {
   repeated DependencyCreateIntent dependency_intents = 8 [
     (buf.validate.field).repeated.max_items = 100
   ];
+  option (buf.validate.message).cel = {
+    id: "kent.workflow_task.create_dependency_role_limits"
+    message: "dependency intents must not exceed 50 per role"
+    expression: "this.dependency_intents.filter(intent, intent.new_task_role == 1).size() <= 50 && this.dependency_intents.filter(intent, intent.new_task_role == 2).size() <= 50"
+  };
 }
 
 message CreateSuccess {

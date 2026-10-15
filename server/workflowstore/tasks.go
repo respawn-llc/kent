@@ -180,22 +180,7 @@ func (s *Store) CreateTask(ctx context.Context, req CreateTaskRequest) (TaskReco
 		limit := label.MaxProjectLabels
 		return TaskRecord{}, TaskLabelMutationError{Reason: TaskLabelMutationTooManyAdd, Field: "label_ids", Limit: &limit}
 	}
-	roleCounts := map[workflow.TaskDependencyRole]int{}
 	dependencyIntents := append([]workflow.TaskDependencyCreateIntent(nil), req.DependencyIntents...)
-	for _, intent := range dependencyIntents {
-		if strings.TrimSpace(string(intent.RelatedTaskID)) == "" {
-			return TaskRecord{}, errors.New("dependency related task id is required")
-		}
-		switch intent.NewTaskRole {
-		case workflow.TaskDependencyRoleBlocker, workflow.TaskDependencyRoleBlocked:
-		default:
-			return TaskRecord{}, errors.New("dependency new task role is invalid")
-		}
-		roleCounts[intent.NewTaskRole]++
-		if roleCounts[intent.NewTaskRole] > workflow.MaxTaskDependencies {
-			return TaskRecord{}, fmt.Errorf("dependency intents exceed the %d per-role limit", workflow.MaxTaskDependencies)
-		}
-	}
 	labelIDs, _, err := parseUniqueLabelIDs(req.LabelIDs, "label_ids", TaskLabelMutationDuplicateAdd)
 	if err != nil {
 		return TaskRecord{}, err
