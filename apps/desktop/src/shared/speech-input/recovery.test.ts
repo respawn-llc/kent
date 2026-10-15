@@ -5,6 +5,31 @@ import { deliverSpeech } from "./recovery";
 
 const source: SpeechSource = { kind: "browser", blob: new Blob(["audio"]), durationMs: 2000 };
 
+it("retains the completed delivery when original cleanup fails", async () => {
+  let draft = "";
+  const target = createSpeechTarget({
+    read: () => draft,
+    write: (text) => {
+      draft = text;
+    },
+    editor: () => null,
+  });
+  const error = new Error("delete failed");
+  const outcome = await deliverSpeech(
+    source,
+    target,
+    { kind: "transcript", text: "once" },
+    {
+      discard: async () => {
+        throw error;
+      },
+      copy: vi.fn(),
+    },
+  );
+  expect(draft).toBe("once");
+  expect(outcome).toEqual({ kind: "cleanup-failed", error });
+});
+
 it("delivers into the surviving current draft and releases the original", async () => {
   let draft = "edited";
   const target = createSpeechTarget({

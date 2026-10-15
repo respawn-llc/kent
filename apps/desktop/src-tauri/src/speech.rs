@@ -410,7 +410,12 @@ pub async fn speech_save_copy(
     if target == path {
         return Err("Choose a different location for the recording copy".into());
     }
-    std::fs::copy(path, &target).map_err(|e| e.to_string())?;
+    let parent = target
+        .parent()
+        .ok_or("Recording copy needs a parent directory")?;
+    let temporary = tempfile::NamedTempFile::new_in(parent).map_err(|e| e.to_string())?;
+    std::fs::copy(path, temporary.path()).map_err(|e| e.to_string())?;
+    temporary.persist(&target).map_err(|e| e.to_string())?;
     Ok(Some(target))
 }
 

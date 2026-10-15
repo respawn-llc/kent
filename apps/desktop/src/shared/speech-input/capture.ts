@@ -1,6 +1,6 @@
 import * as Effect from "effect/Effect";
 import * as Stream from "effect/Stream";
-import { errorMessage, type SpeechAvailable } from "@/api";
+import { errorMessage, SpeechOperationError, type SpeechAvailable } from "@/api";
 import { nativeObservation, type AppServices, type SpeechSource } from "@/app-facade";
 
 export type CompletedClip = Readonly<{ source: SpeechSource; hasSignal: boolean; error: Error | null }>;
@@ -29,7 +29,7 @@ export const captureMicrophone = Effect.fn("captureMicrophone")(function* (
     available.encodings.find((candidate) => MediaRecorder.isTypeSupported(candidate.mimeType)),
   );
   if (encoding === undefined)
-    return yield* Effect.fail(new SpeechActionError("This device cannot record an accepted audio format."));
+    return yield* Effect.fail(new SpeechActionError(new SpeechOperationError("format")));
   const stream = yield* Effect.acquireRelease(
     speechAttempt(async () =>
       navigator.mediaDevices.getUserMedia({ audio: { channelCount: 1 }, video: false }),
@@ -117,7 +117,7 @@ export const captureMicrophone = Effect.fn("captureMicrophone")(function* (
         emit({ kind: "stop" });
       };
       const failed = () => {
-        emit({ kind: "error", error: new Error("Microphone recording failed.") });
+        emit({ kind: "error", error: new SpeechOperationError("recording") });
       };
       recorder.addEventListener("dataavailable", chunk);
       recorder.addEventListener("stop", stopped);

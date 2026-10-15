@@ -1,4 +1,13 @@
 export const speechEnglish = {
+  connection: "Connection: {{connection}}",
+  errors: {
+    format: "This device cannot record an accepted audio format.",
+    size: "The complete recording exceeds the provider upload limit.",
+    closed: "The recording destination was closed.",
+    unavailable: "No speech-capable default connection is available.",
+    recording: "Microphone recording failed.",
+    transfer: "Unable to transfer the recording to Kent.",
+  },
   record: "Record speech",
   stop: "Stop recording",
   preparing: "Preparing microphone…",

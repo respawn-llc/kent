@@ -3,7 +3,7 @@ import * as Effect from "effect/Effect";
 import * as Fiber from "effect/Fiber";
 import { useAtomMount, useAtomSet } from "@effect/atom-react";
 import type { TFunction } from "i18next";
-import { errorMessage, SpeechFailure, type SpeechResult } from "@/api";
+import { SpeechOperationError, type SpeechResult } from "@/api";
 import {
   recoverOrThrowDebugFailure,
   type AppServices,
@@ -14,6 +14,7 @@ import { writeClipboardText } from "@/shared/native-clipboard";
 import { speechAttempt, SpeechActionError } from "./capture";
 import { deliverSpeech, type Delivery } from "./recovery";
 import type { SpeechTarget } from "./insertion";
+import { speechFailureMessage } from "./failure";
 
 export type RecoveryEntry = Readonly<{
   source: SpeechSource;
@@ -42,7 +43,7 @@ export function createSpeechRecovery({
       id: "speech-recovery-action",
       tone: "danger",
       title: t("speech.failed"),
-      body: errorMessage(error),
+      body: speechFailureMessage(error, t),
     });
   };
   const offer = Atom.fnSync<RecoveryEntry>()((incoming, get) => {
@@ -79,13 +80,16 @@ export function createSpeechRecovery({
       source: input.source,
       target: input.target,
       delivery,
-      error: new Error(t("speech.copied")),
+      error:
+        delivery.kind === "cleanup-failed"
+          ? new SpeechActionError(delivery.error)
+          : new Error(t("speech.copied")),
     };
     if ((yield* Atom.get(entry))?.source === input.source) yield* Atom.set(entry, retained);
     else yield* Atom.set(offer, retained);
     if (delivery.kind === "copied") {
       push({ id: "speech-copied", tone: "info", title: t("speech.copied"), durationMs: Infinity });
-    } else {
+    } else if (delivery.kind === "copy-failed") {
       yield* Effect.promise(async () =>
         recoverOrThrowDebugFailure({
           context: { feature: "speech" },
@@ -103,14 +107,13 @@ export function createSpeechRecovery({
         if ((yield* Atom.get(work)).kind !== "idle") return;
         const current = yield* Atom.get(entry);
         if (current === null) return;
+        if (current.delivery?.kind === "cleanup-failed") return;
         const scope = yield* Atom.getResult(lifetime);
         const attempt = Effect.scoped(
           Effect.gen(function* () {
             const available = yield* speechAttempt(async () => services.api.speechAvailability());
             if (available === null)
-              return yield* Effect.fail(
-                new SpeechActionError(new SpeechFailure("unavailable", t("speech.unavailable"))),
-              );
+              return yield* Effect.fail(new SpeechActionError(new SpeechOperationError("unavailable")));
             const request = yield* Effect.acquireRelease(
               speechAttempt(async () => services.speech.retry(current.source, available)),
               (request) =>

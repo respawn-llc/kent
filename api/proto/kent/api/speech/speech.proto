@@ -4,6 +4,7 @@ package kent.api.speech;
 
 import "buf/validate/validate.proto";
 import "google/protobuf/empty.proto";
+import "google/protobuf/duration.proto";
 import "kent/api/shared/foundation.proto";
 
 option go_package = "core/shared/protoapi/gen/kent/api/speech;speechpb";
@@ -16,7 +17,7 @@ message Encoding {
 message Available {
   string upload_url = 1 [(buf.validate.field).string.min_len = 1];
   repeated Encoding encodings = 2 [(buf.validate.field).repeated.min_items = 1];
-  uint32 max_duration_seconds = 3 [(buf.validate.field).uint32.gt = 0];
+  google.protobuf.Duration max_duration = 3 [(buf.validate.field).required = true, (buf.validate.field).duration.gt = {}];
   uint32 max_bytes = 4 [(buf.validate.field).uint32.gt = 0];
 }
 

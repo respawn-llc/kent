@@ -3,7 +3,7 @@ import * as Atom from "effect/reactivity/Atom";
 import * as Effect from "effect/Effect";
 import * as Exit from "effect/Exit";
 import { useAtomSet } from "@effect/atom-react";
-import { SpeechFailure, SpeechTransportError, assertSpeechSize, type SpeechResult } from "@/api";
+import { SpeechOperationError, SpeechTransportError, assertSpeechSize, type SpeechResult } from "@/api";
 import { queryAtom, queryKeys, speechSourceBytes, type AppServices, type SpeechSource } from "@/app-facade";
 import {
   captureMicrophone,
@@ -54,6 +54,7 @@ export function createSpeechDestination({
     return {
       phase: current.kind,
       available: get(availability).data ?? null,
+      availability: get(availability),
       busy: current.kind !== "idle",
       origin: current.kind === "idle" ? null : current.field,
       recording:
@@ -97,12 +98,7 @@ export function createSpeechDestination({
                     report(new SpeechActionError(cause));
                   });
                   if (discardable(clip)) await services.speech.discard(clip.source);
-                  else
-                    recover(
-                      clip.source,
-                      clip.error ?? new Error("The recording destination was closed."),
-                      target,
-                    );
+                  else recover(clip.source, clip.error ?? new SpeechOperationError("closed"), target);
                 }
               }).pipe(
                 Effect.catch((error) =>
@@ -133,12 +129,7 @@ export function createSpeechDestination({
                     const fresh = yield* speechAttempt(async () => services.api.speechAvailability());
                     if (fresh === null)
                       return yield* Effect.fail(
-                        new SpeechActionError(
-                          new SpeechFailure(
-                            "unavailable",
-                            "No speech-capable default connection is available.",
-                          ),
-                        ),
+                        new SpeechActionError(new SpeechOperationError("unavailable")),
                       );
                     const request = yield* Effect.acquireRelease(
                       speechAttempt(async () => services.speech.retry(clip.source, fresh)),
@@ -183,7 +174,10 @@ export function createSpeechDestination({
       yield* Atom.set(phase, { ...current, kind: "transcribing" });
     }),
   );
-  return { state, start, stop } as const;
+  const refresh = Atom.fn(() =>
+    speechAttempt(async () => client.refetchQueries({ queryKey: queryKeys.speechAvailability })),
+  );
+  return { state, start, stop, refresh } as const;
 }
 
 export type SpeechDestination = ReturnType<typeof createSpeechDestination>;

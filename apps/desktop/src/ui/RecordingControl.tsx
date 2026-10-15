@@ -136,7 +136,7 @@ function RadialRecordingMeter({
   return createPortal(
     <canvas
       ref={canvas}
-      className="pointer-events-none fixed z-40 size-[calc(var(--space-7)*2)] -translate-x-1/2 -translate-y-1/2 text-[var(--color-primary)]"
+      className="pointer-events-none fixed z-[60] size-[calc(var(--space-7)*2)] -translate-x-1/2 -translate-y-1/2 text-[var(--color-primary)]"
     />,
     document.body,
   );

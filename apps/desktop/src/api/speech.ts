@@ -11,13 +11,20 @@ import { requireUnarySuccess } from "./protobufRpc";
 import type { RpcTransport } from "./transport";
 
 export type SpeechAvailable = Readonly<
-  Pick<Available, "uploadUrl" | "maxBytes" | "maxDurationSeconds"> & {
+  Pick<Available, "uploadUrl" | "maxBytes"> & {
+    maxDurationSeconds: number;
     encodings: readonly SpeechEncoding[];
   }
 >;
 export type SpeechEncoding = Readonly<Pick<Encoding, "mimeType" | "extension">>;
 export type SpeechResult = Readonly<{ kind: "transcript"; text: string }> | Readonly<{ kind: "noop" }>;
 export type SpeechFailureKind = "unavailable" | "input" | "size-limit" | "connection" | "provider";
+
+export class SpeechOperationError extends Error {
+  constructor(readonly reason: "format" | "size" | "closed" | "unavailable" | "recording") {
+    super(reason);
+  }
+}
 
 export class SpeechFailure extends Error {
   constructor(
@@ -41,8 +48,16 @@ export async function speechAvailability(transport: RpcTransport): Promise<Speec
   const method = SpeechService.method.getAvailability;
   const result = requireUnarySuccess(method, await transport.callDescriptor(method, create(method.input)));
   switch (result.state.case) {
-    case "available":
-      return result.state.value;
+    case "available": {
+      const value = result.state.value;
+      if (value.maxDuration === undefined) throw new ContractError("Speech duration is required.");
+      return {
+        uploadUrl: value.uploadUrl,
+        maxBytes: value.maxBytes,
+        encodings: value.encodings,
+        maxDurationSeconds: Number(value.maxDuration.seconds) + value.maxDuration.nanos / 1e9,
+      };
+    }
     case "unavailable":
       return null;
     case undefined:
@@ -93,7 +108,7 @@ export function speechUploadURL(endpoint: string, relative: string): string {
 
 export function assertSpeechSize(bytes: number, available: SpeechAvailable): void {
   if (bytes > available.maxBytes) {
-    throw new SpeechFailure("size-limit", "The complete recording exceeds the provider upload limit.");
+    throw new SpeechOperationError("size");
   }
 }
 
@@ -110,7 +125,7 @@ export async function uploadSpeechBlob(url: string, blob: Blob, signal: AbortSig
     });
     body = await response.arrayBuffer();
   } catch (cause) {
-    throw new SpeechTransportError("Unable to transfer the recording to Kent.", { cause });
+    throw new SpeechTransportError(cause instanceof Error ? cause.message : String(cause), { cause });
   }
   return decodeSpeechResult(response.status, new Uint8Array(body));
 }

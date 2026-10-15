@@ -21,7 +21,7 @@ export function ChatPromptPicker({
       isPending={request.isPending}
       editorRef={promptEditor}
       dispatch={(action, focusField) => {
-        if (speech.busy && action.kind === "confirm") return;
+        if (speech.busy && (action.kind === "confirm" || action.kind === "decline")) return;
         dispatch({
           action: speech.busy && action.kind === "activate" ? { ...action, kind: "select" } : action,
           focusField,

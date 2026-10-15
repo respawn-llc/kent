@@ -157,3 +157,64 @@ it("retains the same original after a failed Retry so the operator can try again
   expect(discard).not.toHaveBeenCalled();
   view.unmount();
 });
+
+it("does not repeat delivered text when original cleanup needs another attempt", async () => {
+  const services = createTestServices([]);
+  vi.spyOn(services.api, "speechAvailability").mockResolvedValue({
+    uploadUrl: "/speech",
+    maxBytes: 10000,
+    maxDurationSeconds: 600,
+    encodings: [{ mimeType: "audio/webm", extension: "webm" }],
+  });
+  const source: SpeechSource = { kind: "browser", blob: new Blob(["audio"]), durationMs: 2000 };
+  const upload = vi.spyOn(services.speech, "retry").mockResolvedValue({
+    result: async () => ({ kind: "transcript", text: "once" }),
+    cancel: async () => undefined,
+  });
+  const discard = vi
+    .spyOn(services.speech, "discard")
+    .mockRejectedValueOnce(new Error("delete failed"))
+    .mockResolvedValue();
+  let draft = "";
+  const target = createSpeechTarget({
+    read: () => draft,
+    write: (text) => {
+      draft = text;
+    },
+    editor: () => null,
+  });
+  const model = createSpeechRecovery({ services, t: appI18n.t, push: vi.fn() });
+  const view = renderHook(
+    () => ({
+      state: useAtomValue(model.state),
+      actions: useRecoveryActions(model),
+    }),
+    { wrapper: ({ children }: { children: ReactNode }) => <RegistryProvider>{children}</RegistryProvider> },
+  );
+  act(() => {
+    view.result.current.actions.offer({ source, target, error: new Error("upload failed") });
+  });
+  act(() => {
+    view.result.current.actions.retry();
+  });
+  await waitFor(() => {
+    expect(view.result.current.state.entry?.delivery?.kind).toBe("cleanup-failed");
+  });
+  await waitFor(() => {
+    expect(view.result.current.state.work).toBe("idle");
+  });
+  act(() => {
+    view.result.current.actions.retry();
+  });
+  expect(upload).toHaveBeenCalledTimes(1);
+  expect(draft).toBe("once");
+  act(() => {
+    view.result.current.actions.discard();
+  });
+  await waitFor(() => {
+    expect(view.result.current.state.entry).toBeNull();
+  });
+  expect(discard).toHaveBeenCalledTimes(2);
+  expect(draft).toBe("once");
+  view.unmount();
+});

@@ -13,6 +13,7 @@ import {
   TextArea,
 } from "@/ui";
 import { createSpeechRecovery, useRecoveryActions } from "./RecoveryModel";
+import { speechFailureMessage } from "./failure";
 
 const RecoveryContext = createContext<ReturnType<typeof createSpeechRecovery> | null>(null);
 
@@ -52,7 +53,9 @@ function SpeechRecoveryDialog({ model }: Readonly<{ model: ReturnType<typeof cre
       chrome="title-only"
     >
       <div className="grid gap-[var(--space-3)]">
-        <p>{copyFailed === null ? entry.error.message : t("speech.copyFailed")}</p>
+        <p className="whitespace-pre-wrap">
+          {copyFailed === null ? speechFailureMessage(entry.error, t) : t("speech.copyFailed")}
+        </p>
         <p>{t(entry.source.kind === "native" ? "speech.temporary" : "speech.browserTemporary")}</p>
         {entry.source.kind === "native" && (
           <code className="select-text break-all">{entry.source.original.path}</code>
@@ -109,22 +112,24 @@ function RecoveryControls({
             {t(native ? "speech.saveCopy" : "speech.download")}
           </Button>
         </ControlTooltip>
-        <Tooltip>
-          <TooltipTrigger asChild>
-            <span>
-              <Button
-                disabled={busy}
-                loading={state.work === "retrying"}
-                onClick={() => {
-                  actions.retry();
-                }}
-              >
-                {t("speech.retry")}
-              </Button>
-            </span>
-          </TooltipTrigger>
-          <TooltipContent>{busy ? t("speech.working") : t("speech.retry")}</TooltipContent>
-        </Tooltip>
+        {state.entry?.delivery?.kind !== "cleanup-failed" && (
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <span>
+                <Button
+                  disabled={busy}
+                  loading={state.work === "retrying"}
+                  onClick={() => {
+                    actions.retry();
+                  }}
+                >
+                  {t("speech.retry")}
+                </Button>
+              </span>
+            </TooltipTrigger>
+            <TooltipContent>{busy ? t("speech.working") : t("speech.retry")}</TooltipContent>
+          </Tooltip>
+        )}
         <Tooltip>
           <TooltipTrigger asChild>
             <span>

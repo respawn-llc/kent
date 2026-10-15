@@ -13,6 +13,7 @@ import (
 	"core/server/llm"
 	"core/shared/config"
 	speechpb "core/shared/protoapi/gen/kent/api/speech"
+	"google.golang.org/protobuf/types/known/durationpb"
 	"google.golang.org/protobuf/types/known/emptypb"
 )
 
@@ -87,6 +88,6 @@ func (s *Service) GetAvailability(_ context.Context, _ *emptypb.Empty) (*speechp
 		encodings = append(encodings, &speechpb.Encoding{MimeType: encoding.MIMEType, Extension: encoding.Extension})
 	}
 	return &speechpb.Availability{State: &speechpb.Availability_Available{Available: &speechpb.Available{
-		Encodings: encodings, MaxBytes: uint32(limits.MaxBytes), MaxDurationSeconds: uint32(limits.MaxDuration.Seconds()),
+		Encodings: encodings, MaxBytes: uint32(limits.MaxBytes), MaxDuration: durationpb.New(limits.MaxDuration),
 	}}}, nil
 }

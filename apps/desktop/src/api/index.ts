@@ -1,6 +1,7 @@
 export {
   assertSpeechSize,
   SpeechFailure,
+  SpeechOperationError,
   SpeechTransportError,
   type SpeechAvailable,
   type SpeechEncoding,

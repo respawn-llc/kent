@@ -10,11 +10,13 @@ import {
 import { useQueryClient } from "@tanstack/react-query";
 import { useAtomMount, useAtomSet, useAtomValue } from "@effect/atom-react";
 import { useTranslation } from "react-i18next";
+import { errorMessage } from "@/api";
 import { useAppServices, useStatusController } from "@/app-facade";
-import { RecordingControl } from "@/ui";
+import { ErrorState, RecordingControl } from "@/ui";
 import { createSpeechDestination, useSpeechActions, type SpeechDestination } from "./model";
 import { createSpeechTarget, type SpeechDraft } from "./insertion";
 import { useSpeechRecovery } from "./RecoveryProvider";
+import { speechFailureMessage } from "./failure";
 
 const DestinationContext = createContext<Readonly<{
   model: SpeechDestination;
@@ -30,7 +32,12 @@ export function SpeechDestinationProvider({ children }: Readonly<{ children: Rea
   const { push } = useStatusController();
   const [destination] = useState(() => {
     const report = (error: Error) => {
-      push({ id: "speech-failed", title: t("speech.failed"), body: error.message, tone: "danger" });
+      push({
+        id: "speech-failed",
+        title: t("speech.failed"),
+        body: speechFailureMessage(error, t),
+        tone: "danger",
+      });
     };
     return createSpeechDestination({
       services,
@@ -47,6 +54,8 @@ export function SpeechDestinationProvider({ children }: Readonly<{ children: Rea
     });
   });
   useAtomMount(destination.start);
+  const state = useAtomValue(destination.state);
+  const refresh = useAtomSet(destination.refresh);
   const open = useRef(true);
   useLayoutEffect(() => {
     open.current = true;
@@ -55,7 +64,20 @@ export function SpeechDestinationProvider({ children }: Readonly<{ children: Rea
     };
   }, []);
   const [context] = useState(() => ({ model: destination, isOpen: () => open.current }));
-  return <DestinationContext.Provider value={context}>{children}</DestinationContext.Provider>;
+  return (
+    <DestinationContext.Provider value={context}>
+      {state.availability.isError && (
+        <ErrorState
+          fullPage={false}
+          title={t("speech.failed")}
+          body={errorMessage(state.availability.error)}
+          retryLabel={t("app.retry")}
+          onRetry={refresh}
+        />
+      )}
+      {children}
+    </DestinationContext.Provider>
+  );
 }
 
 type FieldBinding = Readonly<{
