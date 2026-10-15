@@ -662,12 +662,8 @@ func TestSessionTranscriptSubscriptionWaitStopsWithContext(t *testing.T) {
 	}
 }
 
-func TestSessionTranscriptSubscriptionRejectsMissingSession(t *testing.T) {
-	registry := NewRuntimeRegistry(nil)
-	_, err := registry.SubscribeSessionTranscript(
-		context.Background(),
-		&transcriptpb.SubscribeRequest{},
-	)
+func TestSessionTranscriptSubscriptionBoundaryRejectsMissingSession(t *testing.T) {
+	err := protoapi.Validate(&transcriptpb.SubscribeRequest{})
 	if err == nil {
 		t.Fatal("missing Session subscription did not fail")
 	}

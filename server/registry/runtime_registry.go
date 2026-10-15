@@ -687,9 +687,6 @@ func (r *RuntimeRegistry) SubscribeSessionTranscript(ctx context.Context, req *t
 	if r == nil {
 		return nil, fmt.Errorf("runtime registry is required")
 	}
-	if err := protoapi.Validate(req); err != nil {
-		return nil, err
-	}
 	if ctx == nil {
 		ctx = context.Background()
 	}
