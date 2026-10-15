@@ -2065,79 +2065,70 @@ func (s *Service) CompleteWorkflowTask(ctx context.Context, req *taskpb.Complete
 }
 
 func (s *Service) completeWorkflowTask(ctx context.Context, req *taskpb.CompleteRequest) (*taskpb.CompleteSuccess, error) {
-	if err := protoapi.Validate(req); err != nil {
-		return nil, err
-	}
 	if s.currentNodeExecution == nil {
 		return nil, errors.New("current node workflow execution is required")
 	}
 	if req.ActorKind == taskpb.CompleteActorKind_COMPLETE_ACTOR_KIND_USER {
 		return s.forceCompleteWorkflowTask(ctx, req)
 	}
-	if req.ActorKind == taskpb.CompleteActorKind_COMPLETE_ACTOR_KIND_AGENT {
-		sessionID, parseErr := runtimeids.ParseSessionID(req.GetAgentSessionId())
-		if parseErr != nil {
-			return nil, parseErr
-		}
-		runID, err := runtimeids.ParseRunID(req.GetRunId())
-		if err != nil {
-			return nil, err
-		}
-		stepID, err := runtimeids.ParseStepID(req.GetStepId())
-		if err != nil {
-			return nil, err
-		}
-		values := make(map[string]string, len(req.OutputValues))
-		for _, output := range req.OutputValues {
-			values[output.Name] = output.Value
-		}
-		outcome, err := s.currentNodeExecution.CompleteSessionCurrentNode(
-			ctx, sessionID, runID, stepID,
-			req.GetTransitionId(), values, req.GetCommentary(),
-		)
-		if err != nil {
-			if errors.Is(err, sql.ErrNoRows) || errors.Is(err, sessionruntime.ErrExecutionNoLongerLive) {
-				return nil, serverapi.ErrWorkflowTaskCompleteTargetNotFound
-			}
-			return nil, err
-		}
-		if !outcome.IsApplied() {
-			return nil, errors.New("current node completion returned no applied result")
-		}
-		completed := outcome.CommittedResult
-		var taskID workflow.TaskID
-		if completed.PendingApproval != nil {
-			taskID = completed.PendingApproval.Source.TaskID
-		} else {
-			if len(completed.Mutation.Removed) != 1 {
-				return nil, errors.New("current node completion did not remove exactly one source")
-			}
-			taskID = completed.Mutation.Removed[0].TaskID
-		}
-		nodes, err := workflowview.ProjectCurrentNodes(ctx, s.metadata, completed.Mutation.Created)
-		if err != nil {
-			return nil, err
-		}
-		completion := &taskpb.AgentCompletion{
-			TaskId:       string(taskID),
-			CurrentNodes: nodes,
-			Handoff: &taskpb.CompletionHandoff{
-				SourceNodeDisplayName:  completed.Handoff.SourceNodeDisplayName,
-				DestinationDisplayName: completed.Handoff.DestinationDisplayName,
-			},
-		}
-		if completed.PendingApproval != nil {
-			approvalID := completed.PendingApproval.ID.String()
-			completion.PendingApprovalId = &approvalID
-			if s.attentionFinalizer != nil {
-				finalizeCtx, cancel := workflowAttentionContext(ctx)
-				defer cancel()
-				s.attentionFinalizer.PublishPendingApproval(finalizeCtx, completed.PendingApproval.ID)
-			}
-		}
-		return &taskpb.CompleteSuccess{Outcome: &taskpb.CompleteSuccess_AgentCompletion{AgentCompletion: completion}}, nil
+	sessionID := runtimeids.SessionIDFromProto(req.GetAgentSessionId())
+	runID, err := runtimeids.RunIDFromProto(req.GetRunId())
+	if err != nil {
+		return nil, err
 	}
-	return nil, errors.New("workflow task completion actor is invalid")
+	stepID, err := runtimeids.StepIDFromProto(req.GetStepId())
+	if err != nil {
+		return nil, err
+	}
+	values := make(map[string]string, len(req.OutputValues))
+	for _, output := range req.OutputValues {
+		values[output.Name] = output.Value
+	}
+	outcome, err := s.currentNodeExecution.CompleteSessionCurrentNode(
+		ctx, sessionID, runID, stepID,
+		req.GetTransitionId(), values, req.GetCommentary(),
+	)
+	if err != nil {
+		if errors.Is(err, sql.ErrNoRows) || errors.Is(err, sessionruntime.ErrExecutionNoLongerLive) {
+			return nil, serverapi.ErrWorkflowTaskCompleteTargetNotFound
+		}
+		return nil, err
+	}
+	if !outcome.IsApplied() {
+		return nil, errors.New("current node completion returned no applied result")
+	}
+	completed := outcome.CommittedResult
+	var taskID workflow.TaskID
+	if completed.PendingApproval != nil {
+		taskID = completed.PendingApproval.Source.TaskID
+	} else {
+		if len(completed.Mutation.Removed) != 1 {
+			return nil, errors.New("current node completion did not remove exactly one source")
+		}
+		taskID = completed.Mutation.Removed[0].TaskID
+	}
+	nodes, err := workflowview.ProjectCurrentNodes(ctx, s.metadata, completed.Mutation.Created)
+	if err != nil {
+		return nil, err
+	}
+	completion := &taskpb.AgentCompletion{
+		TaskId:       string(taskID),
+		CurrentNodes: nodes,
+		Handoff: &taskpb.CompletionHandoff{
+			SourceNodeDisplayName:  completed.Handoff.SourceNodeDisplayName,
+			DestinationDisplayName: completed.Handoff.DestinationDisplayName,
+		},
+	}
+	if completed.PendingApproval != nil {
+		approvalID := completed.PendingApproval.ID.String()
+		completion.PendingApprovalId = &approvalID
+		if s.attentionFinalizer != nil {
+			finalizeCtx, cancel := workflowAttentionContext(ctx)
+			defer cancel()
+			s.attentionFinalizer.PublishPendingApproval(finalizeCtx, completed.PendingApproval.ID)
+		}
+	}
+	return &taskpb.CompleteSuccess{Outcome: &taskpb.CompleteSuccess_AgentCompletion{AgentCompletion: completion}}, nil
 }
 
 func (s *Service) forceCompleteWorkflowTask(
