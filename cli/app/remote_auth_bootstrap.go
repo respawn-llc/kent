@@ -170,9 +170,6 @@ type remoteBootstrapAttempt struct {
 }
 
 func (i *interactiveAuthInteractor) collectRemoteBootstrapRequest(ctx context.Context, remote apicontract.AuthBootstrapService, target *authpb.ConnectionTarget, theme string, choice authMethodChoice, status *authpb.BootstrapStatus) (*remoteBootstrapAttempt, error) {
-	if status == nil {
-		return nil, errors.New("auth bootstrap status is required")
-	}
 	if !supportsBootstrapMode(status.SupportedModes, choice) {
 		return nil, fmt.Errorf("auth method %q is not supported by this server", choice)
 	}
