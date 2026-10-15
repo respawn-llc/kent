@@ -74,9 +74,6 @@ func NewFinalizer(options Options) (*Finalizer, error) {
 }
 
 func (f *Finalizer) Finalize(_ context.Context, req *onboardingpb.FinalizeRequest) (*onboardingpb.FinalizeSuccess, error) {
-	if req == nil {
-		return nil, invalidRequest("request", "required")
-	}
 	settingsPath := strings.TrimSpace(f.settingsPath)
 	if exists, err := pathExists(settingsPath); err != nil {
 		return nil, configWriteFailed(settingsPath, "validate", err)
