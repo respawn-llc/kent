@@ -13,7 +13,6 @@ import (
 
 	"core/shared/apicontract"
 	"core/shared/config"
-	protoapi "core/shared/protoapi"
 	pb "core/shared/protoapi/gen/kent/api/workflow_definition"
 	"core/shared/runtimeids"
 	"core/shared/workflowcontract"
@@ -172,14 +171,6 @@ func saveWorkflowGraphApply(
 			workflowID,
 			workflowGraphApplyPointer(expectedVersion),
 			err,
-		)
-	}
-	if err := protoapi.Validate(response); err != nil {
-		return workflowGraphApplyFailure(
-			workflowGraphApplyRequestFailed,
-			workflowID,
-			workflowGraphApplyPointer(response.CurrentVersion),
-			fmt.Errorf("validate Workflow graph save response: %w", err),
 		)
 	}
 	validation, validationErr := workflowValidationResultsForCLI(response.ValidationResults)

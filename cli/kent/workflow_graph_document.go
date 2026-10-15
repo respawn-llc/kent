@@ -209,12 +209,5 @@ func (d workflowGraphDocument) WorkflowGraphDraft() (*pb.GraphDraft, error) {
 		}
 		graph.Edges = append(graph.Edges, value)
 	}
-	if err := protoapi.Validate(&pb.GraphValidateDraftRequest{
-		WorkflowId: d.WorkflowID.String(),
-		Graph:      graph,
-		Modes:      []pb.ValidationMode{pb.ValidationMode_WORKFLOW_VALIDATION_MODE_DRAFT},
-	}); err != nil {
-		return nil, err
-	}
 	return graph, nil
 }
