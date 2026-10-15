@@ -142,18 +142,17 @@ it("declines the current prompt from composer actions without stopping the run a
       payload: { ...hydration(), PendingPrompts: prompts.map((prompt) => ({ state: "pending", prompt })) },
     }),
   );
-  const user = userEvent.setup({ delay: null });
   const decline = await screen.findByRole("button", { name: appI18n.t("chat.picker.decline") });
   expect(screen.getAllByRole("button", { name: appI18n.t("chat.picker.decline") })).toHaveLength(1);
   expect(screen.queryByRole("button", { name: appI18n.t("chatComposer.stop") })).not.toBeInTheDocument();
   expect(screen.getByText(appI18n.t("chat.picker.position", { current: 1, count: 2 }))).toBeInTheDocument();
-  await user.click(decline);
+  fireEvent.click(decline);
   expect(view.answer).not.toHaveBeenCalled();
   expect(screen.getByText(appI18n.t("chat.picker.position", { current: 2, count: 2 }))).toBeInTheDocument();
-  await user.click(screen.getByRole("button", { name: appI18n.t("chat.picker.previous") }));
+  fireEvent.click(screen.getByRole("button", { name: appI18n.t("chat.picker.previous") }));
   expect(screen.getByRole("button", { name: appI18n.t("chat.picker.decline") })).toBeDisabled();
-  await user.click(screen.getByRole("button", { name: appI18n.t("chat.picker.next") }));
-  await user.click(screen.getByRole("button", { name: appI18n.t("chat.picker.decline") }));
+  fireEvent.click(screen.getByRole("button", { name: appI18n.t("chat.picker.next") }));
+  fireEvent.click(screen.getByRole("button", { name: appI18n.t("chat.picker.decline") }));
   await waitFor(() => {
     expect(view.answer).toHaveBeenCalledOnce();
   });
@@ -171,7 +170,7 @@ it("declines the current prompt from composer actions without stopping the run a
   });
   const stop = await screen.findByRole("button", { name: appI18n.t("chatComposer.stop") });
   expect(screen.queryByRole("button", { name: appI18n.t("chat.picker.decline") })).not.toBeInTheDocument();
-  await user.click(stop);
+  fireEvent.click(stop);
   await waitFor(() => {
     expect(view.services.api.chat.stop).toHaveBeenCalledOnce();
   });
@@ -234,7 +233,6 @@ it("keeps streamed output and drafts usable when reviewer suggestions are follow
       expect(view.client.isFetching()).toBe(0);
     });
     const editor = await screen.findByRole("textbox");
-    const user = userEvent.setup({ delay: null });
     fireEvent.change(editor, { target: { value: "Keep this draft" } });
     await act(async () => {
       view.handlers[0]?.onEvent({
@@ -273,7 +271,7 @@ it("keeps streamed output and drafts usable when reviewer suggestions are follow
         },
       });
     });
-    await user.click(within(list).getByRole("button", { expanded: false }));
+    fireEvent.click(within(list).getByRole("button", { expanded: false }));
     expect(await screen.findByText("Check the result")).toBeInTheDocument();
     // Deliver native-style notifications between React's synchronous commits,
     // without act draining the lower-priority work after every notification.

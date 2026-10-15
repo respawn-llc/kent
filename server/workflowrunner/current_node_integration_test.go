@@ -3481,13 +3481,13 @@ func TestCompactAndContinueResumeRestoresAssignmentAfterPreActivationCompaction(
 		t.Fatal("pre-activation Workflow target Agent Node is missing")
 	}
 	task := f.createTask(t, workflowID)
-	f.startTask(t, task)
 	targetReference, err := workflow.NewCurrentNodeReference(task.ID, *targetNodeID, nil)
 	if err != nil {
 		t.Fatalf("create target Current Node reference: %v", err)
 	}
 	identity := workflowruntime.CurrentNodePromptIdentity(targetReference)
 	failureMatched := f.failWhenWorkflowAssignmentPersists(t, identity, cause)
+	f.startTask(t, task)
 
 	target := f.waitForCurrentNode(t, task.ID, func(nodes []workflow.CurrentNode) bool {
 		return len(nodes) == 1 &&
@@ -3522,6 +3522,8 @@ func TestCompactAndContinueResumeRestoresAssignmentAfterPreActivationCompaction(
 	if requests[1].SessionID == nil || *requests[1].SessionID != target.SessionID.String() {
 		t.Fatalf("pre-activation resumed Session = %v, want %s", requests[1].SessionID, *target.SessionID)
 	}
+	// Opening a second store for recovery must not race the resumed writer.
+	f.waitForTaskQuiescence(t, task.ID)
 	if got := f.workflowAssignmentRecordCount(t, *target.SessionID); got != 2 {
 		t.Fatalf("pre-activation Workflow assignment records = %d, want source and target assignments", got)
 	}

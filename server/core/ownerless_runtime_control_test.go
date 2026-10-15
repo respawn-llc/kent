@@ -25,60 +25,30 @@ import (
 
 func TestSecondClientLiveControlsActiveRun(t *testing.T) {
 	t.Run("live steer", func(t *testing.T) {
-		runSecondClientLiveControlsActiveRun(t, "steered final answer", func(t *testing.T, appCore *Core, sessionID string) func() {
-			type result struct {
-				response *runtimepb.LiveSteerSuccess
-				err      error
+		runSecondClientLiveControlsActiveRun(t, "steered final answer", func(t *testing.T, appCore *Core, sessionID string) {
+			response, err := appCore.RuntimeLiveControlClient().LiveSteer(context.Background(), &runtimepb.LiveSteerRequest{
+				QueueItemId: runtimeids.NewQueueItemID().String(),
+				SessionId:   requestfixture.Selector(t, sessionID),
+				Text:        "steer me",
+			})
+			if err != nil {
+				t.Fatalf("LiveSteer during active run: %v", err)
 			}
-			done := make(chan result, 1)
-			go func() {
-				response, err := appCore.RuntimeLiveControlClient().LiveSteer(context.Background(), &runtimepb.LiveSteerRequest{
-					QueueItemId: runtimeids.NewQueueItemID().String(),
-					SessionId:   requestfixture.Selector(t, sessionID),
-					Text:        "steer me",
-				})
-				done <- result{response: response, err: err}
-			}()
-			return func() {
-				select {
-				case result := <-done:
-					if result.err != nil {
-						t.Fatalf("LiveSteer during active run: %v", result.err)
-					}
-					if result.response.QueueItemId == "" {
-						t.Fatal("LiveSteer during active run returned no queue item id")
-					}
-				case <-time.After(5 * time.Second):
-					t.Fatal("timed out waiting for queued live Steering")
-				}
+			if response.QueueItemId == "" {
+				t.Fatal("LiveSteer during active run returned no queue item id")
 			}
 		})
 	})
 	t.Run("runtime control submit user turn", func(t *testing.T) {
-		runSecondClientLiveControlsActiveRun(t, "steered final answer", func(t *testing.T, appCore *Core, sessionID string) func() {
-			type result struct {
-				response *runtimepb.SubmitUserTurnSuccess
-				err      error
+		runSecondClientLiveControlsActiveRun(t, "steered final answer", func(t *testing.T, appCore *Core, sessionID string) {
+			response, err := appCore.RuntimeControlClient().SubmitUserTurn(context.Background(), &runtimepb.SubmitUserTurnRequest{QueueItemId: runtimeids.NewQueueItemID().String(), SessionId: sessionID,
+				Input: &runtimepb.UserTurnInput{Input: &runtimepb.UserTurnInput_Text{Text: "steer me"}},
+			})
+			if err != nil {
+				t.Fatalf("SubmitUserTurn during active run: %v", err)
 			}
-			done := make(chan result, 1)
-			go func() {
-				response, err := appCore.RuntimeControlClient().SubmitUserTurn(context.Background(), &runtimepb.SubmitUserTurnRequest{QueueItemId: runtimeids.NewQueueItemID().String(), SessionId: sessionID,
-					Input: &runtimepb.UserTurnInput{Input: &runtimepb.UserTurnInput_Text{Text: "steer me"}},
-				})
-				done <- result{response: response, err: err}
-			}()
-			return func() {
-				select {
-				case result := <-done:
-					if result.err != nil {
-						t.Fatalf("SubmitUserTurn during active run: %v", result.err)
-					}
-					if queued := result.response.GetQueued(); queued == nil || !queued.Steered || queued.QueueItemId == "" {
-						t.Fatalf("SubmitUserTurn response = %+v, want steered queue item", result.response)
-					}
-				case <-time.After(5 * time.Second):
-					t.Fatal("timed out waiting for queued Runtime Control submission")
-				}
+			if queued := response.GetQueued(); queued == nil || !queued.Steered || queued.QueueItemId == "" {
+				t.Fatalf("SubmitUserTurn response = %+v, want steered queue item", response)
 			}
 		})
 	})
@@ -87,7 +57,7 @@ func TestSecondClientLiveControlsActiveRun(t *testing.T) {
 func runSecondClientLiveControlsActiveRun(
 	t *testing.T,
 	wantCurrentResult string,
-	steer func(*testing.T, *Core, string) func(),
+	steer func(*testing.T, *Core, string),
 ) {
 	t.Helper()
 	home := t.TempDir()
@@ -103,7 +73,6 @@ func runSecondClientLiveControlsActiveRun(
 	var requestMu sync.Mutex
 	requestIndex := 0
 	releaseRun := func() { releaseOnce.Do(func() { close(release) }) }
-	defer releaseRun()
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path != "/responses" {
 			t.Errorf("unexpected path %q", r.URL.Path)
@@ -125,6 +94,7 @@ func runSecondClientLiveControlsActiveRun(
 		modelstub.WriteCompletedResponseStream(w, "steered final answer", 1, 1)
 	}))
 	defer server.Close()
+	defer releaseRun()
 
 	resolved, err := serverbootstrap.ResolveConfig(serverbootstrap.Request{WorkspaceRoot: workspace})
 	if err != nil {
@@ -204,7 +174,8 @@ func runSecondClientLiveControlsActiveRun(
 		t.Fatal("timed out waiting for run to reach model request")
 	}
 
-	finishSteer := steer(t, appCore, sessionID)
+	// Queue acceptance must precede releasing the model, which can finish the run.
+	steer(t, appCore, sessionID)
 
 	waitDone := make(chan error, 1)
 	waitResult := make(chan *runtimepb.LiveWaitSuccess, 1)
@@ -215,9 +186,6 @@ func runSecondClientLiveControlsActiveRun(
 	}()
 
 	releaseRun()
-	if finishSteer != nil {
-		finishSteer()
-	}
 	select {
 	case runErr := <-runDone:
 		if runErr != nil {
