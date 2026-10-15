@@ -4,10 +4,10 @@ import (
 	"context"
 	"database/sql"
 	"encoding/json"
-	"errors"
 	"slices"
 
 	"core/server/metadata/sqlitegen"
+	"core/shared/protoapi"
 	taskpb "core/shared/protoapi/gen/kent/api/workflow_task"
 	"core/shared/serverapi"
 )
@@ -38,14 +38,7 @@ func resolveWorkflowTaskLabelFilter(
 		args.kind = "unlabeled"
 	case *taskpb.LabelFilter_Named:
 		args.kind = "named"
-		switch selected.Named.GetMode() {
-		case taskpb.NamedLabelFilterMode_NAMED_LABEL_FILTER_MODE_ANY:
-			args.mode = sql.NullString{String: "any", Valid: true}
-		case taskpb.NamedLabelFilterMode_NAMED_LABEL_FILTER_MODE_ALL:
-			args.mode = sql.NullString{String: "all", Valid: true}
-		default:
-			return workflowTaskLabelFilterQueryArgs{}, errors.New("named task label filter mode is invalid")
-		}
+		args.mode = sql.NullString{String: protoapi.TaskLabelFilterMode.FromProto(selected.Named.Mode), Valid: true}
 		labelIDs = append(labelIDs, selected.Named.LabelIds...)
 		excludedLabelIDs = append(excludedLabelIDs, selected.Named.ExcludedLabelIds...)
 		slices.Sort(labelIDs)
@@ -73,8 +66,6 @@ func resolveWorkflowTaskLabelFilter(
 				}
 			}
 		}
-	default:
-		return workflowTaskLabelFilterQueryArgs{}, errors.New("task label filter is required")
 	}
 	included, err := json.Marshal(labelIDs)
 	if err != nil {
