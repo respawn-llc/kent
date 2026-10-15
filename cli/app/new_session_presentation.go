@@ -26,7 +26,6 @@ func prepareNewSessionUIRun(ctx context.Context, server interactiveSessionServer
 	if err != nil {
 		return uiLoopRequest{}, err
 	}
-	catalog := prepareUICommandCatalog(ctx, server, nil)
 	source, ok := server.(sessionUISource)
 	if !ok {
 		return uiLoopRequest{}, errors.New("Session UI services are required")
@@ -80,12 +79,11 @@ func prepareNewSessionUIRun(ctx context.Context, server interactiveSessionServer
 			processControls: clients.ProcessControls,
 			worktrees:       clients.Worktrees,
 		},
-		projectID:              binding.ProjectID,
-		active:                 interactivePresentationSettings(server, config.Settings{}),
-		commandRegistry:        catalog.registry,
-		promptCatalog:          catalog.client,
-		promptCatalogEntries:   catalog.entries,
-		initialTransientStatus: catalog.status,
+		projectID: binding.ProjectID,
+		active:    interactivePresentationSettings(server, config.Settings{}),
+		loadCommandCatalog: func(ctx context.Context) uiCommandCatalog {
+			return prepareUICommandCatalog(ctx, server, nil)
+		},
 		statusConfig: uiStatusConfig{
 			WorkspaceRoot:   binding.WorkspaceRoot,
 			PersistenceRoot: server.Connection().PersistenceRoot,

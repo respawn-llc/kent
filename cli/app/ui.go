@@ -94,6 +94,9 @@ func (m *uiModel) startupSubmitCmd() tea.Cmd {
 
 func (m *uiModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	defer m.enterUIMainThread("Update")()
+	if done, ok := msg.(initialCommandCatalogDoneMsg); ok {
+		return finalizeUIUpdate(m, m.installInitialCommandCatalog(done))
+	}
 	if done, ok := msg.(draftSaveDoneMsg); ok {
 		return finalizeUIUpdate(m, m.finishDraftSave(done))
 	}

@@ -45,6 +45,7 @@ type uiLoopRequest struct {
 	projectID                    string
 	active                       config.Settings
 	commandRegistry              *commands.Registry
+	loadCommandCatalog           func(context.Context) uiCommandCatalog
 	initialPrompt                string
 	initialPromptHistoryRecorded bool
 	initialInput                 string
@@ -234,6 +235,12 @@ func composeUIProgram(request uiLoopRequest, output io.Writer) (*uiProgramCompos
 	model.drafts = newUIDraftPersistence(request.sessionLifecycle, initialDraft)
 	model.observeSession = request.observeSession
 	model.observationContext = programContext
+	if request.loadCommandCatalog != nil {
+		load := request.loadCommandCatalog
+		model.startupCmds = append(model.startupCmds, func() tea.Msg {
+			return initialCommandCatalogDoneMsg{owner: model, catalog: load(programContext)}
+		})
+	}
 	if request.newChat != nil {
 		model.presentationTarget = &uiNewSessionTarget{
 			creation: request.newChat,

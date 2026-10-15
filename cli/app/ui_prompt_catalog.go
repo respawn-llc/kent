@@ -12,6 +12,25 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 )
 
+type initialCommandCatalogDoneMsg struct {
+	owner   *uiModel
+	catalog uiCommandCatalog
+}
+
+func (m *uiModel) installInitialCommandCatalog(msg initialCommandCatalogDoneMsg) tea.Cmd {
+	if msg.owner != m || m.observationContext.Err() != nil {
+		return nil
+	}
+	m.commandRegistry = msg.catalog.registry
+	m.promptCatalog = msg.catalog.client
+	m.promptCatalogEntries = msg.catalog.entries
+	m.refreshAutocompleteFromInput()
+	if msg.catalog.status != nil {
+		return m.sendTransientStatusWithNoticeID(*msg.catalog.status, uiStatusNoticeError, transientStatusDuration, uiStatusNoticeReplace, "")
+	}
+	return nil
+}
+
 func promptCatalogSnapshot(response *promptcommandpb.Catalog) ([]commands.PromptCommandCatalogEntry, error) {
 	if err := protoapi.Validate(response); err != nil {
 		return nil, err
