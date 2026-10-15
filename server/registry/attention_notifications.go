@@ -54,10 +54,7 @@ func (r *RuntimeRegistry) SubscribeSessionAttentionNotifications(_ context.Conte
 }
 
 func (r *RuntimeRegistry) attentionSessionShortID(ctx context.Context, raw string) (*int64, error) {
-	id, err := runtimeids.ParseSessionID(raw)
-	if err != nil {
-		return nil, err
-	}
+	id := runtimeids.SessionIDFromProto(raw)
 	identity, err := r.metadata.SessionIdentity(ctx, id)
 	if err != nil {
 		return nil, err
