@@ -380,13 +380,15 @@ func TestCompactionMissingToolOutputRepairAppendsAndRetries(t *testing.T) {
 		Items:          eng.transcriptRuntimeState().SnapshotItems(), ReasoningEffort: "high",
 	}
 
-	restoreStep := setTestActiveStep(eng, "step")
-	defer restoreStep()
-	dispatchFactory, err := eng.activeDispatchRequestFactory(runtimeTestStepID("step"), nil)
+	err := withActiveTestRun(t, eng, ActiveKindCompaction, func(ctx context.Context, stepID string) error {
+		dispatchFactory, factoryErr := eng.activeDispatchRequestFactory(stepID, nil)
+		if factoryErr != nil {
+			return factoryErr
+		}
+		_, _, _, compactErr := eng.compactWithContextRepairRetry(ctx, stepID, newObservedModelClient(client), request, request.Items, "", dispatchFactory, modelRequestSingleAttempt)
+		return compactErr
+	})
 	if err != nil {
-		t.Fatalf("create compaction dispatch: %v", err)
-	}
-	if _, _, _, err := eng.compactWithContextRepairRetry(context.Background(), runtimeTestStepID("step"), newObservedModelClient(client), request, request.Items, "", dispatchFactory, modelRequestSingleAttempt); err != nil {
 		t.Fatalf("compact with repair retry: %v", err)
 	}
 	if len(client.compactionCalls) != 2 {

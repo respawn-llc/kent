@@ -615,7 +615,12 @@ func (e *Engine) compactNowWithAcceptance(
 	if enginePlan.engineKind == compactionEngineRemote {
 		requestKind = llm.CodexRequestKindCompaction.Optional()
 	}
-	dispatchFactory, err := e.activeDispatchRequestFactory(stepID, requestKind)
+	var dispatchFactory dispatchRequestFactory
+	if enginePlan.engineKind == compactionEngineRemote {
+		dispatchFactory, err = e.activeDispatchRequestFactory(stepID, requestKind)
+	} else {
+		dispatchFactory, err = e.localCompactionDispatchRequestFactory(stepID)
+	}
 	if err != nil {
 		return compactionResult{}, session.CommitReceipt{}, compactionFailure(result, err)
 	}
@@ -658,7 +663,7 @@ func (e *Engine) compactNowWithAcceptance(
 			slog.LogAttrs(ctx, slog.LevelError, "remote compaction returned a malformed checkpoint", attrs...)
 
 			if retryPolicy == modelRequestRetriesAllowed {
-				localFactory, factoryErr := e.activeDispatchRequestFactory(stepID, nil)
+				localFactory, factoryErr := e.localCompactionDispatchRequestFactory(stepID)
 				if factoryErr != nil {
 					err = errors.Join(err, factoryErr)
 				} else {
