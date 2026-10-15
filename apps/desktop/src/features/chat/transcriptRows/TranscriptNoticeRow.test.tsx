@@ -1,23 +1,14 @@
 import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeAll, expect, it } from "bun:test";
-import { MotionConfig } from "motion/react";
 
 import type { ChatTranscriptCommittedRow } from "@/api";
 import { appI18n, initializeI18n } from "@/i18n";
-import { createTestServices, TestAppProviders as AppProviders } from "@/test-support/app-services";
+import { createTestServices, TestAppProviders } from "@/test-support/app-services";
 
 import { TranscriptNoticeRow } from "./TranscriptNoticeRow";
 
 beforeAll(initializeI18n);
-
-function TestAppProviders(props: Parameters<typeof AppProviders>[0]) {
-  return (
-    <MotionConfig skipAnimations>
-      <AppProviders {...props} />
-    </MotionConfig>
-  );
-}
 
 it("collapses structured worktree summaries without touching model-visible details", async () => {
   const user = userEvent.setup();
@@ -49,6 +40,7 @@ it("collapses structured worktree summaries without touching model-visible detai
   } satisfies ChatTranscriptCommittedRow;
   render(
     <TestAppProviders
+      skipAnimations
       services={createTestServices([], undefined, { homePath: "/Users/engineer", platform: "macos" })}
     >
       <TranscriptNoticeRow row={row} />
@@ -96,7 +88,7 @@ it.each(["runtime_diagnostic", "cache_warning"] as const)(
       },
     } satisfies ChatTranscriptCommittedRow;
     render(
-      <TestAppProviders services={createTestServices([])}>
+      <TestAppProviders skipAnimations services={createTestServices([])}>
         <TranscriptNoticeRow row={row} />
       </TestAppProviders>,
     );
@@ -136,7 +128,7 @@ it("keeps user shell output hidden until expanded and displays it as unparsed te
     ReviewerError: null,
   } satisfies ChatTranscriptCommittedRow;
   render(
-    <TestAppProviders services={services}>
+    <TestAppProviders skipAnimations services={services}>
       <TranscriptNoticeRow row={row} />
     </TestAppProviders>,
   );
@@ -169,7 +161,7 @@ it("shows a detail-visible Thinking update once without disclosure or actions", 
     ReviewerError: null,
   } satisfies ChatTranscriptCommittedRow;
   const view = render(
-    <TestAppProviders services={services}>
+    <TestAppProviders skipAnimations services={services}>
       <TranscriptNoticeRow row={row} />
     </TestAppProviders>,
   );
@@ -179,7 +171,7 @@ it("shows a detail-visible Thinking update once without disclosure or actions", 
   expect(screen.queryByRole("button")).not.toBeInTheDocument();
 
   view.rerender(
-    <TestAppProviders services={services}>
+    <TestAppProviders skipAnimations services={services}>
       <TranscriptNoticeRow row={{ ...row, Visibility: "hidden" }} />
     </TestAppProviders>,
   );

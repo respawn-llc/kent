@@ -1,5 +1,4 @@
 import { describe, expect, it, vi } from "bun:test";
-import { MotionConfig } from "motion/react";
 import { useState } from "react";
 import userEvent from "@testing-library/user-event";
 import { act, render, screen, waitFor, waitForElementToBeRemoved, within } from "@testing-library/react";
@@ -9,23 +8,15 @@ import { appI18n } from "@/i18n";
 import {
   createTestServices,
   startupRoutes,
-  TestAppProviders as AppProviders,
+  TestAppProviders,
 } from "@/test-support/app-services";
 import { TestSidebar } from "@/test-support/sidebar-rendering";
 import { GoalBrowserFixture, type GoalBrowserPendingPrompt } from "./GoalBrowserFixture";
 
-function TestAppProviders(props: Parameters<typeof AppProviders>[0]) {
-  return (
-    <MotionConfig skipAnimations>
-      <AppProviders {...props} />
-    </MotionConfig>
-  );
-}
-
 function renderFixture() {
   const services = createTestServices(startupRoutes);
   render(
-    <TestAppProviders services={services}>
+    <TestAppProviders skipAnimations services={services}>
       <ChatPromptPresenceProvider>
         <TestSidebar>
           <GoalBrowserFixtureHarness />
