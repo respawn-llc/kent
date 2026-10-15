@@ -71,6 +71,7 @@ func (s *Service) Admit() (Invocation, error) {
 		if settings.Nano == nil {
 			return llm.Response{}, ErrUnavailable
 		}
+		lifetimeContext := ctx
 		ctx, cancel := context.WithTimeout(ctx, time.Duration(settings.Nano.TimeoutSeconds)*time.Second)
 		defer cancel()
 		targets, err := llm.ResolveNanoTargets(settings)
@@ -89,20 +90,20 @@ func (s *Service) Admit() (Invocation, error) {
 				return llm.Response{}, err
 			}
 			if *targetID == id {
-				return s.generate(ctx, target, prepare)
+				return s.generate(ctx, lifetimeContext, target, prepare)
 			}
 		}
 		return llm.Response{}, fmt.Errorf("selected nano connection %q is not resolved", id)
 	}, nil
 }
 
-func (s *Service) generate(ctx context.Context, target llm.NanoTarget, prepare PrepareRequest) (llm.Response, error) {
+func (s *Service) generate(ctx, lifetimeContext context.Context, target llm.NanoTarget, prepare PrepareRequest) (llm.Response, error) {
 	connection, err := s.connections.Resolve(target.Settings)
 	if err != nil {
 		return llm.Response{}, err
 	}
 	identity := uuid.NewString()
-	client, err := runtimewire.NewRuntimeClient(ctx, s.factory, runtimewire.RuntimeClientRequest{
+	client, err := runtimewire.NewRuntimeClient(lifetimeContext, s.factory, runtimewire.RuntimeClientRequest{
 		RecordUsage: s.rotation.RecordUsage,
 		Purpose:     runtimewire.RuntimeClientPurposeNano, SessionID: identity,
 		ActiveSettings: target.Settings, Connection: connection, RequestCapabilities: target.Capabilities,

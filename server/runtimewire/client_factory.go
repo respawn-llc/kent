@@ -55,8 +55,9 @@ func NewRuntimeClient(ctx context.Context, factory RuntimeClientFactory, request
 	request.Sources = maps.Clone(request.Sources)
 	if record := request.RecordUsage; record != nil {
 		connectionID := request.Connection.ID
-		request.UsageObserver = func(ctx context.Context, model string, usage llm.Usage) {
-			record(ctx, connectionID, model, usage)
+		request.UsageObserver = func(_ context.Context, model string, usage llm.Usage) {
+			// Bookkeeping belongs to the client's server-owned scope, not a model turn.
+			go record(ctx, connectionID, model, usage)
 		}
 	}
 	if factory != nil {

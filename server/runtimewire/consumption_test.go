@@ -9,18 +9,25 @@ import (
 	"core/server/launch"
 	"core/server/llm"
 	"core/shared/config"
+	"core/shared/modelcontract"
 	"core/shared/textutil"
 )
 
-type consumptionTransport struct{}
+type consumptionTransport struct {
+	cancelRequest context.CancelFunc
+}
 
-func (consumptionTransport) Generate(context.Context, llm.ResponsesRequest, llm.StreamCallbacks) (llm.ResponsesResponse, error) {
+func (transport consumptionTransport) Generate(context.Context, llm.ResponsesRequest, llm.StreamCallbacks) (llm.ResponsesResponse, error) {
+	transport.cancelRequest()
 	return llm.ResponsesResponse{Usage: llm.Usage{InputTokens: textutil.Value(100), CachedInputTokens: textutil.Value(80), OutputTokens: textutil.Value(3)},
-		ProviderPhase: llm.AbsentProviderPhase()}, nil
+		ServedModel: textutil.Value("gpt-5.6-luna"), ProviderPhase: llm.AbsentProviderPhase()}, nil
 }
 
 func (consumptionTransport) Compact(context.Context, llm.ResponsesRequest) (llm.ResponsesCompactionResponse, error) {
-	return llm.ResponsesCompactionResponse{Usage: llm.Usage{InputTokens: textutil.Value(20), OutputTokens: textutil.Value(1)}}, nil
+	return llm.ResponsesCompactionResponse{
+		Usage:            llm.Usage{InputTokens: textutil.Value(20), OutputTokens: textutil.Value(1)},
+		ProviderEvidence: modelcontract.ProviderUsageEvidence{ServedModel: textutil.Value("gpt-5.6-luna")},
+	}, nil
 }
 
 func TestConsumptionFollowsServingConnection(t *testing.T) {
@@ -39,15 +46,18 @@ func TestConsumptionFollowsServingConnection(t *testing.T) {
 		Timeouts: config.Timeouts{ModelRequestSeconds: 1},
 		Shell:    config.ShellSettings{PostprocessingMode: config.ShellPostprocessingModeBuiltin},
 	}
+	requestContext, cancelRequest := context.WithCancel(t.Context())
+	defer cancelRequest()
 	clients := make(map[config.ConnectionID]llm.Client)
 	factory := RuntimeClientFactoryFunc(func(_ context.Context, request RuntimeClientRequest) (llm.Client, error) {
-		client := llm.NewResponsesClient(consumptionTransport{}, request.UsageObserver)
+		client := llm.NewResponsesClient(consumptionTransport{cancelRequest: cancelRequest}, request.UsageObserver)
 		clients[request.Connection.ID] = client
 		return client, nil
 	})
 	wiring, err := newTestRuntimeWiringWithBackground(t, sessionStore, materializedRuntimeWireEventLog(t, sessionStore),
 		settings, nil, nil, nil, nil,
 		requiredRuntimeWireTestOptions(RuntimeWiringOptions{
+			Context:           t.Context(),
 			FilesystemContext: runtimeWireFilesystemContext(t, root), ClientFactory: factory,
 			RecordUsage: rotation.RecordUsage,
 		}))
@@ -62,27 +72,37 @@ func TestConsumptionFollowsServingConnection(t *testing.T) {
 	if main == nil || reviewer == nil {
 		t.Fatalf("resolved clients = %v", clients)
 	}
-	if _, err := main.Generate(t.Context(), request, llm.StreamCallbacks{}); err != nil {
+	if _, err := main.Generate(requestContext, request, llm.StreamCallbacks{}); err != nil {
 		t.Fatal(err)
 	}
 	assertConsumption := func(wantMain, wantReviewer int64) {
 		t.Helper()
-		totals, err := store.ConnectionConsumption(t.Context(), []config.ConnectionID{"main", "reviewer"}, time.Now())
-		if err != nil || totals["main"] != wantMain || totals["reviewer"] != wantReviewer {
-			t.Fatalf("totals = %v, want main %d reviewer %d, error %v", totals, wantMain, wantReviewer, err)
+		deadline := time.Now().Add(5 * time.Second)
+		for {
+			totals, err := store.ConnectionConsumption(t.Context(), []config.ConnectionID{"main", "reviewer"}, time.Now())
+			if err != nil {
+				t.Fatal(err)
+			}
+			if totals["main"] == wantMain && totals["reviewer"] == wantReviewer {
+				return
+			}
+			if time.Now().After(deadline) {
+				t.Fatalf("totals = %v, want main %d reviewer %d", totals, wantMain, wantReviewer)
+			}
+			time.Sleep(time.Millisecond)
 		}
 	}
-	assertConsumption(58_000, 0)
-	if _, err := reviewer.Generate(t.Context(), request, llm.StreamCallbacks{}); err != nil {
+	assertConsumption(9_200, 0)
+	if _, err := reviewer.Generate(requestContext, request, llm.StreamCallbacks{}); err != nil {
 		t.Fatal(err)
 	}
-	assertConsumption(58_000, 58_000)
+	assertConsumption(9_200, 9_200)
 	compactor, ok := reviewer.(llm.CompactionClient)
 	if !ok {
 		t.Fatal("reviewer must support compaction")
 	}
-	if _, err := compactor.Compact(t.Context(), request); err != nil {
+	if _, err := compactor.Compact(requestContext, request); err != nil {
 		t.Fatal(err)
 	}
-	assertConsumption(58_000, 88_000)
+	assertConsumption(9_200, 14_400)
 }

@@ -41,11 +41,13 @@
 - Kent must attribute reported usage to the Provider Connection that served the operation. Copied conversation context and restored Session usage totals must not count as new consumption.
 - Kent must calculate consumption from uncached input, cached input, and output tokens. Cached input must count once as part of input, not as additional input.
 - For models with known pricing, Kent must use standard short-context API prices from official provider sources. Subscription connections must use the same API-price estimate. The estimate must exclude speed-tier premiums, long-context premiums, cache-write charges, and other surcharges.
+- Kent must price the provider-reported served model when available. Otherwise, Kent must price the requested model.
 - For models without known pricing, Kent must use estimated prices of $1 per million uncached input tokens, $0.10 per million cached input tokens, and $10 per million output tokens.
 - Kent must treat missing usage fields as zero for this estimate. Missing cached input must leave reported input priced as uncached input. Kent must not estimate entirely missing usage or retry provider operations to obtain it.
 - Kent must persist recent consumption history across server restarts and expire consumption older than roughly seven days. Collection must begin without historical backfill. Existing Sessions must contribute only new usage.
 - Selection must use observed consumption without reserving or predicting the cost of unfinished work. Several new Sessions may select the same lower-consumption connection before usage arrives.
 - A failure to persist consumption history must not interrupt chat. Kent must log the failure. Unsaved estimates may be lost on restart. Kent must not replay requests or reconstruct history to recover those estimates.
+- Separate consumption-history writes must run asynchronously without delaying the next agent turn. They must use the available server-owned Session, Workflow, or Nano parent lifetime rather than the individual model request lifetime.
 - If consumption history cannot be read for an allocation, Kent must log the error and select using assignment order alone for that allocation. This must not replace ordinary validation, authentication, or provider error handling.
 - Consumption estimates must guide routing only. They must not represent provider invoices or promise equal subscription-allowance drain.
 

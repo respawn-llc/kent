@@ -115,12 +115,15 @@ func (c *ResponsesClient) Generate(ctx context.Context, request Request, callbac
 		return Response{}, fmt.Errorf("responses generate: %w", err)
 	}
 	// Runtime acceptance can still fail; the provider has already consumed these tokens.
-	c.observeUsage(ctx, request.Model, providerResp.Usage)
+	c.observeUsage(ctx, request.Model, providerResp.ServedModel, providerResp.Usage)
 	return responseFromResponses(providerResp)
 }
 
-func (c *ResponsesClient) observeUsage(ctx context.Context, model string, usage Usage) {
+func (c *ResponsesClient) observeUsage(ctx context.Context, model string, servedModel *string, usage Usage) {
 	if c.usageObserver != nil {
+		if servedModel != nil {
+			model = *servedModel
+		}
 		c.usageObserver(ctx, model, usage)
 	}
 }
@@ -182,7 +185,7 @@ func (c *ResponsesClient) Compact(ctx context.Context, request CompactionRequest
 	if err != nil {
 		return CompactionResponse{}, fmt.Errorf("responses compact: %w", err)
 	}
-	c.observeUsage(ctx, request.Model, providerResp.Usage)
+	c.observeUsage(ctx, request.Model, providerResp.ProviderEvidence.ServedModel, providerResp.Usage)
 	return CompactionResponse{
 		OutputItems:      CloneResponseItems(providerResp.OutputItems),
 		Usage:            providerResp.Usage,
