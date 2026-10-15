@@ -424,8 +424,10 @@ func runBackParentPrefillScenario(t *testing.T, server backParentPrefillScenario
 			}
 			next, editCmd := parentModel.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'x'}})
 			edited := next.(*uiModel)
-			if editCmd != nil {
-				t.Fatal("normal parent composer edit created a runtime command")
+			for _, msg := range collectCmdMessages(t, editCmd) {
+				if done, ok := msg.(draftSaveDoneMsg); ok && done.err != nil {
+					t.Fatalf("save edited parent draft: %v", done.err)
+				}
 			}
 			if testMainInput(edited) != wantInput+"x" {
 				t.Fatalf("edited parent input = %q, want %q", testMainInput(edited), wantInput+"x")

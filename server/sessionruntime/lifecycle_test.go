@@ -131,7 +131,7 @@ func TestRejectedProvisionalTurnPreservesIdleDeadline(t *testing.T) {
 				return false, rejected
 			},
 			func(ctx context.Context, engine *runtime.Engine, accept runtime.CommandAcceptance) error {
-				_, err := engine.QueueUserInputWithAcceptance(ctx, runtime.QueuedUserInput{ExecutionText: "rejected", CanonicalPresentation: "rejected"}, accept)
+				_, err := engine.QueueUserInputWithAcceptance(ctx, runtime.QueuedUserInput{ID: runtimeids.NewQueueItemID().String(), ExecutionText: "rejected", CanonicalPresentation: "rejected"}, accept)
 				return err
 			})
 		if !errors.Is(err, rejected) {

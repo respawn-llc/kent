@@ -226,8 +226,9 @@ func TestRunThinkingPreparedActivationUsesPersistedSelection(t *testing.T) {
 		t.Fatalf("activation did not consume saved selection: %+v", activation)
 	}
 	result, err := app.ChatMutationClient().Steer(t.Context(), &chatpb.SteerRequest{
-		Target:     chatCommandTarget(id.String()),
-		Activation: &chatpb.Activation{Input: &chatpb.Activation_Text{Text: "use saved choices"}},
+		QueueItemId: runtimeids.NewQueueItemID().String(),
+		Target:      chatCommandTarget(id.String()),
+		Activation:  &chatpb.Activation{Input: &chatpb.Activation_Text{Text: "use saved choices"}},
 	})
 	if err != nil || result.GetAccepted() == nil {
 		t.Fatalf("Chat admission = %v, %v", result, err)
@@ -289,8 +290,9 @@ func testChatActionInvocationSelection(t *testing.T, alreadyLoaded bool) {
 	target := chatCommandTarget(id.String())
 	target.GetSession().Preparation = preparation
 	result, err := app.ChatMutationClient().Steer(t.Context(), &chatpb.SteerRequest{
-		Target:     target,
-		Activation: &chatpb.Activation{Input: &chatpb.Activation_Text{Text: "use invocation choices"}},
+		QueueItemId: runtimeids.NewQueueItemID().String(),
+		Target:      target,
+		Activation:  &chatpb.Activation{Input: &chatpb.Activation_Text{Text: "use invocation choices"}},
 	})
 	if err != nil || result.GetAccepted() == nil {
 		t.Fatalf("Chat admission = %v, %v", result, err)
