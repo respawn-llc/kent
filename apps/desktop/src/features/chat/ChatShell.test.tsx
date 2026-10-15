@@ -1,3 +1,4 @@
+import { expect, it, vi } from "bun:test";
 import { render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import type { ComponentProps } from "react";
@@ -68,7 +69,7 @@ it("suppresses both slots and invokes the supplied Retry operation in the error 
   expect(screen.queryByTestId("composer-slot")).not.toBeInTheDocument();
 
   await userEvent.setup().click(screen.getByRole("button", { name: appI18n.t("app.retry") }));
-  expect(retry).toHaveBeenCalledOnce();
+  expect(retry).toHaveBeenCalledTimes(1);
 });
 
 function WindowTitleProbe() {

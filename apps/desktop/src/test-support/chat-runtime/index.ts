@@ -1,4 +1,4 @@
-import { vi, type Mock } from "vitest";
+import { vi, type Mock } from "bun:test";
 
 import type {
   ChatMainViewRead,

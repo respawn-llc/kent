@@ -1,4 +1,5 @@
 import { render } from "@testing-library/react";
+import { expect, it, vi } from "bun:test";
 import { Component, type ReactElement } from "react";
 
 import { createTestServices } from "@/test-support/app-services";
@@ -7,7 +8,12 @@ import { createDevelopmentReactErrorHandlers } from "./reactDiagnostics";
 it("preserves a caught render exception and its component stack after boundary recovery", async () => {
   const { logger } = createTestServices([]);
   const report = vi.fn();
-  vi.stubGlobal("reportError", report);
+  const reportErrorDescriptor = Object.getOwnPropertyDescriptor(globalThis, "reportError");
+  Object.defineProperty(globalThis, "reportError", {
+    configurable: true,
+    value: report,
+    writable: true,
+  });
   const failure = new Error("Render failure");
   let recovered = false;
   class Boundary extends Component<{ content: ReactElement }, { failed: boolean }> {
@@ -41,6 +47,7 @@ it("preserves a caught render exception and its component stack after boundary r
     expect(report).toHaveBeenCalledWith(failure);
   } finally {
     view.unmount();
-    vi.unstubAllGlobals();
+    if (reportErrorDescriptor === undefined) Reflect.deleteProperty(globalThis, "reportError");
+    else Object.defineProperty(globalThis, "reportError", reportErrorDescriptor);
   }
 });

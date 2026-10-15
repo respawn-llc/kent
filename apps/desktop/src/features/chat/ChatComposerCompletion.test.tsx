@@ -1,13 +1,20 @@
+import { afterEach, beforeEach, expect, it, vi } from "bun:test";
 import { act, fireEvent, render, renderHook, screen, waitFor } from "@testing-library/react";
 import { parsePendingWorkItemID } from "@/api";
 import { createTestServices } from "@/test-support/app-services";
 import { TestAppProviders, composerWrapper } from "@/test-support/composer";
 import { useChatComposer, target } from "./chatComposerTestFixture";
-import { createChatStorageFixture } from "./chatStorageFixture";
+import { installChatStorageFixture } from "./chatStorageFixture";
 import { useComposerKeyboard } from "./useComposerKeyboard";
 
-beforeEach(() => vi.stubGlobal("localStorage", createChatStorageFixture()));
-afterEach(() => vi.unstubAllGlobals());
+let restoreStorage: (() => void) | undefined;
+beforeEach(() => {
+  restoreStorage = installChatStorageFixture();
+});
+afterEach(() => {
+  restoreStorage?.();
+  restoreStorage = undefined;
+});
 
 it.each(["send", "queue"] as const)(
   "completes a selected prompt command and dispatches it through %s",

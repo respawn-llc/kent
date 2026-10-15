@@ -1,3 +1,4 @@
+import { expect, it } from "bun:test";
 import { unexpectedProjectOverflow } from "@/test-support/api";
 import { create, operationName } from "@app/server-api-contract";
 import {
@@ -70,7 +71,7 @@ it("attaches the Session for Session-scoped pending prompt reads", async () => {
   ]);
   const client = new ApiClient(transport, unexpectedProjectOverflow);
 
-  await expect(client.listPendingAsks("33333333-3333-4333-8333-333333333333")).resolves.toEqual([]);
+  expect(client.listPendingAsks("33333333-3333-4333-8333-333333333333")).resolves.toEqual([]);
   expect(transport.attachedSessionCalls).toEqual([
     {
       sessionID: "33333333-3333-4333-8333-333333333333",
@@ -109,11 +110,9 @@ it("preserves pending-ask recommendation presence and rejects invalid indexes", 
       "33333333-3333-4333-8333-333333333333",
     );
     if (recommendedOptionIndex === 3) {
-      await expect(result).rejects.toThrow();
+      expect(result).rejects.toThrow();
     } else {
-      await expect(result).resolves.toMatchObject([
-        { recommendedOptionIndex: recommendedOptionIndex ?? null },
-      ]);
+      expect(result).resolves.toMatchObject([{ recommendedOptionIndex: recommendedOptionIndex ?? null }]);
     }
   }
 });

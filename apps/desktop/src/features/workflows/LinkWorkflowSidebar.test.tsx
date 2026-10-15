@@ -1,22 +1,22 @@
 import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { expect, it, mock, vi } from "bun:test";
 import type { ProjectWorkflowLink, WorkflowRecord } from "@/api";
 import { createTestServices, TestAppProviders } from "@/test-support/app-services";
 import { deferred } from "@/test-support/chat-runtime";
 import { appI18n } from "@/i18n";
-import type * as UiModule from "@/ui";
-import type * as WorkflowLibrary from "@/shared/workflow-library";
-import { LinkWorkflowSidebar } from "./LinkWorkflowSidebar";
+import { WorkflowActionsContextMenuStub, WorkflowListStub } from "@/test-support/workflow-rendering";
 
-vi.mock("@/shared/workflow-library", async (original) => ({
-  ...(await original<typeof WorkflowLibrary>()),
-  WorkflowActionsContextMenu: (await import("@/test-support/workflow-rendering"))
-    .WorkflowActionsContextMenuStub,
+const actualWorkflowLibrary = await import("@/shared/workflow-library");
+const actualUi = await import("@/ui");
+await mock.module("@/shared/workflow-library", () => ({
+  ...actualWorkflowLibrary,
+  WorkflowActionsContextMenu: WorkflowActionsContextMenuStub,
 }));
-
-vi.mock("@/ui", async (original) => ({
-  ...(await original<typeof UiModule>()),
-  VirtualizedInfiniteList: (await import("@/test-support/workflow-rendering")).WorkflowListStub,
+await mock.module("@/ui", () => ({
+  ...actualUi,
+  VirtualizedInfiniteList: WorkflowListStub,
 }));
+const { LinkWorkflowSidebar } = await import("./LinkWorkflowSidebar");
 
 it("lets another Workflow link while the first mounted row is pending", async () => {
   const services = createTestServices([]);

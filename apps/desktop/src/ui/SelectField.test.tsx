@@ -1,5 +1,6 @@
 import { fireEvent, render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
+import { describe, expect, it, vi } from "bun:test";
 
 import { SelectField, type SelectFieldPaging } from "./SelectField";
 
@@ -42,7 +43,7 @@ describe("SelectField paging", () => {
     menu.scrollTop = 200;
     fireEvent.scroll(menu);
     fireEvent.scroll(menu);
-    expect(onLoadNext).toHaveBeenCalledOnce();
+    expect(onLoadNext).toHaveBeenCalledTimes(1);
   });
 
   it("retains options and delegates page-edge Retry without auto-loading", async () => {
@@ -67,7 +68,7 @@ describe("SelectField paging", () => {
     fireEvent.scroll(menu);
     expect(onLoadNext).not.toHaveBeenCalled();
     await userEvent.click(screen.getByRole("button", { name: "Retry" }));
-    expect(onRetry).toHaveBeenCalledOnce();
+    expect(onRetry).toHaveBeenCalledTimes(1);
   });
 
   it("preserves ordinary static selection", async () => {

@@ -1,5 +1,5 @@
 import { StreamFailureCode } from "@/test-support/api";
-import { expect, it, vi } from "vitest";
+import { expect, it, vi } from "bun:test";
 
 import type {
   ApiSubscription,
@@ -71,7 +71,7 @@ it("reopens one physical subscription after terminal Runtime unavailable and nor
   expect(handlers).toHaveLength(2);
 
   observation.close();
-  expect(closes[1]).toHaveBeenCalledOnce();
+  expect(closes[1]).toHaveBeenCalledTimes(1);
   handlers[1]?.onEvent(unavailableActivity());
   expect(events).toHaveLength(1);
 });
@@ -93,13 +93,13 @@ it("ends a sequence gap locally and opens one observation on explicit Retry", ()
   handlers[0]?.onEvent(hydrationMessage());
   handlers[0]?.onEvent({ ...unavailableActivity(), sequence: 3 });
   expect(handlers).toHaveLength(1);
-  expect(integrityFailures).toHaveBeenCalledOnce();
+  expect(integrityFailures).toHaveBeenCalledTimes(1);
   expect(observation.state.kind).toBe("error");
   handlers[0]?.onEvent(unavailableActivity());
   handlers[0]?.onComplete({ code: null, message: null, reason: null });
   expect(handlers).toHaveLength(1);
   expect(errors).toHaveLength(1);
-  expect(integrityFailures).toHaveBeenCalledOnce();
+  expect(integrityFailures).toHaveBeenCalledTimes(1);
   observation.retry();
   expect(handlers).toHaveLength(2);
   handlers[1]?.onOpen?.();
@@ -113,12 +113,12 @@ it("closes malformed-event observation and closes an explicit Retry on disposal"
 
   handlers[0]?.onError(new ContractError("Malformed transcript event."));
 
-  expect(closes[0]).toHaveBeenCalledOnce();
+  expect(closes[0]).toHaveBeenCalledTimes(1);
   expect(handlers).toHaveLength(1);
   observation.retry();
   expect(handlers).toHaveLength(2);
   observation.close();
-  expect(closes[1]).toHaveBeenCalledOnce();
+  expect(closes[1]).toHaveBeenCalledTimes(1);
 });
 
 it("does not replace a pending explicit Retry", () => {
@@ -132,7 +132,7 @@ it("does not replace a pending explicit Retry", () => {
   observation.retry();
   observation.retry();
 
-  expect(closes[0]).toHaveBeenCalledOnce();
+  expect(closes[0]).toHaveBeenCalledTimes(1);
   expect(closes[1]).not.toHaveBeenCalled();
   expect(handlers).toHaveLength(2);
   expect(observation.state.kind).toBe("loading");
@@ -154,7 +154,7 @@ it("rejects a live committed event that does not advance beyond hydration", () =
     },
   });
 
-  expect(failure).toHaveBeenCalledOnce();
+  expect(failure).toHaveBeenCalledTimes(1);
   expect(handlers).toHaveLength(1);
   expect(observation.state.kind).toBe("error");
 });
@@ -206,7 +206,7 @@ it.each([
     });
   });
 
-  expect(failure).toHaveBeenCalledOnce();
+  expect(failure).toHaveBeenCalledTimes(1);
   expect(handlers).toHaveLength(1);
 });
 
@@ -280,7 +280,7 @@ it.each([
   testCase.trigger(first);
 
   expect(handlers).toHaveLength(1);
-  expect(failure).toHaveBeenCalledOnce();
+  expect(failure).toHaveBeenCalledTimes(1);
   expect(observation.state.kind).toBe("error");
 });
 

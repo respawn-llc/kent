@@ -1,3 +1,4 @@
+import { expect, it } from "bun:test";
 import { appI18n } from "@/i18n";
 import { composerSuggestions, resolveComposerCommand } from "./composerCommands";
 import { promptCommands } from "./promptCommands";

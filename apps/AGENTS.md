@@ -8,7 +8,7 @@ GUI workspace for Kent desktop/web client surfaces.
 
 ## Stack
 
-- Use React, TypeScript, Vite, Vitest, Bun workspaces, and Tauri v2.
+- Use React, TypeScript, Vite, Bun's native test runner, Bun workspaces, and Tauri v2.
 - Keep Kent.s Go server authoritative for runtime, worktrees, DB, orchestration, validation, approvals, asks, and workflow state.
 - Treat GUI as a remote-control client over Kent API/read-model contracts.
 
@@ -26,7 +26,7 @@ GUI workspace for Kent desktop/web client surfaces.
 
 Cross-owner imports use the target owner's public `@/…` entrypoint. Relative imports stay within one owner. The native package uses `@app/native-bridge`. Vendor aliases must match their declared adapter paths exactly. Entrypoints stay narrow, declarative, and side-effect free.
 
-Architecture lint applies to production, tests, type imports, re-exports, dynamic imports, CommonJS calls, and literal Vitest module APIs. Tests receive no general ownership exemption. Categorized tests may use relative imports only for `src-tauri/tauri.conf.json` and `src-tauri/capabilities/default.json`.
+Architecture lint applies to production, tests, type imports, re-exports, dynamic imports, CommonJS calls, and literal Bun module-mocking APIs. Tests receive no general ownership exemption. Categorized tests may use relative imports only for `src-tauri/tauri.conf.json` and `src-tauri/capabilities/default.json`.
 
 Boundary enforcement is fail-closed: every desktop TypeScript file and local dependency must be classified. Do not add grandfather lists, inline suppressions, deep-import shortcuts, or compatibility barrels. Any exception requires explicit approval, an adjacent configuration rationale, and focused policy-fixture coverage.
 

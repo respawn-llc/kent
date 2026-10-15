@@ -1,7 +1,7 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { act, render, screen, waitFor } from "@testing-library/react";
 import { StrictMode } from "react";
-import { expect, it, vi } from "vitest";
+import { expect, it, vi } from "bun:test";
 
 import type { ChatSessionTarget, ChatTranscriptHandler } from "@/api";
 import { mainViewRead, runtimeHost, target, transcriptPage } from "@/test-support/chat-runtime";
@@ -37,11 +37,11 @@ it("shares one mounted query authority across provider consumers", async () => {
     expect(screen.getByTestId("first")).toHaveTextContent("current:observed");
   });
   expect(screen.getByTestId("second")).toHaveTextContent("current:observed");
-  expect(getMainView).toHaveBeenCalledOnce();
+  expect(getMainView).toHaveBeenCalledTimes(1);
 
   view.unmount();
   await waitFor(() => {
-    expect(subscriptionClose).toHaveBeenCalledOnce();
+    expect(subscriptionClose).toHaveBeenCalledTimes(1);
   });
 });
 
@@ -69,17 +69,17 @@ it("keeps transcript failure local without another Main View or newest-page read
     </QueryClientProvider>,
   );
   await waitFor(() => {
-    expect(getMainView).toHaveBeenCalledOnce();
+    expect(getMainView).toHaveBeenCalledTimes(1);
   });
   expect(handlers).toHaveLength(1);
-  expect(getTranscriptPage).toHaveBeenCalledOnce();
+  expect(getTranscriptPage).toHaveBeenCalledTimes(1);
 
   act(() => handlers[0]?.onTransportLoss?.());
   await Promise.resolve();
-  expect(getMainView).toHaveBeenCalledOnce();
+  expect(getMainView).toHaveBeenCalledTimes(1);
   expect(handlers).toHaveLength(1);
 
-  expect(getTranscriptPage).toHaveBeenCalledOnce();
+  expect(getTranscriptPage).toHaveBeenCalledTimes(1);
   view.unmount();
 });
 
@@ -109,12 +109,12 @@ it("keeps the mounted owner active through StrictMode effect replay", async () =
   await waitFor(() => {
     expect(screen.getByTestId("strict")).toHaveTextContent("strict:observed");
   });
-  expect(getMainView).toHaveBeenCalledOnce();
+  expect(getMainView).toHaveBeenCalledTimes(1);
   expect(subscriptionClose).not.toHaveBeenCalled();
 
   view.unmount();
   await waitFor(() => {
-    expect(subscriptionClose).toHaveBeenCalledOnce();
+    expect(subscriptionClose).toHaveBeenCalledTimes(1);
   });
 });
 

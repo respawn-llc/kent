@@ -1,3 +1,4 @@
+import { expect, it, vi } from "bun:test";
 import { render, screen } from "@testing-library/react";
 
 import { ChatAssistantMessage } from "./ChatAssistantMessage";

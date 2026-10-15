@@ -1,28 +1,31 @@
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { expect, it, mock, vi } from "bun:test";
 import { useState } from "react";
 import { RegistryProvider } from "@effect/atom-react";
-import { useSidebarShell } from "@/app-facade";
 import type { ChatSettingsOptions } from "@/features/chat";
-import { ChatRoute, NewChatRoute } from "./routeComponents";
 import { SidebarProvider } from "./sidebarProvider";
 import { sidebarDestinationPolicy } from "./sidebarDestinationPolicy";
 
-const openTask = vi.hoisted(() => vi.fn());
-vi.mock("@tanstack/react-router", async (importOriginal) => ({
-  ...(await importOriginal()),
+const openTask = vi.fn();
+const actualRouter = await import("@tanstack/react-router");
+const actualAppFacade = await import("@/app-facade");
+const actualChat = await import("@/features/chat");
+const { useSidebarShell } = actualAppFacade;
+await mock.module("@tanstack/react-router", () => ({
+  ...actualRouter,
   getRouteApi: () => ({
     useParams: () => ({ projectId: "project-1", sessionId: "session-1" }),
   }),
 }));
-vi.mock("@/app-facade", async (importOriginal) => ({
-  ...(await importOriginal()),
+await mock.module("@/app-facade", () => ({
+  ...actualAppFacade,
   useAppNavigation: () => ({ openTask }),
   useChatHistoryBookmark: (_projectID: string, sessionID: string | null) => ({
     sessionID,
     delivered: vi.fn(),
   }),
 }));
-vi.mock("@/features/chat", () => {
+await mock.module("@/features/chat", () => {
   function Chat({ navigation }: Readonly<{ navigation: Pick<ChatSettingsOptions, "openTask"> }>) {
     const [draft, setDraft] = useState("");
     return (
@@ -44,8 +47,10 @@ vi.mock("@/features/chat", () => {
       </>
     );
   }
-  return { ChatDestination: Chat };
+  return { ...actualChat, ChatDestination: Chat };
 });
+
+const { ChatRoute, NewChatRoute } = await import("./routeComponents");
 
 function SidebarState() {
   const { activeDestination, close } = useSidebarShell();

@@ -1,5 +1,6 @@
 import { RegistryProvider, useAtomValue } from "@effect/atom-react";
 import { act, renderHook, waitFor } from "@testing-library/react";
+import { expect, it, vi } from "bun:test";
 import * as Effect from "effect/Effect";
 import * as Stream from "effect/Stream";
 import * as Atom from "effect/reactivity/Atom";

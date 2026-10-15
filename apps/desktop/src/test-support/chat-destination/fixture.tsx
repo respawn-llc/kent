@@ -1,4 +1,5 @@
 import { render } from "@testing-library/react";
+import { vi } from "bun:test";
 import { MotionConfig } from "motion/react";
 import type { ReactNode } from "react";
 import { QueryClient } from "@tanstack/react-query";
@@ -71,6 +72,27 @@ const catalog: Extract<ChatSettingsRead, { kind: "new_chat" }> = {
     ],
   },
 };
+function sessionSettingsRead(): Extract<ChatSettingsRead, { kind: "session" }> {
+  const choice = catalog.catalog.choices[0];
+  if (choice === undefined) throw new Error("Missing settings choice");
+  return {
+    kind: "session",
+    session: { sessionID: sessionTarget.sessionID, shortID: null, previousSessionID: null, task: null },
+    settings: {
+      selectedAgent: { role: choice.agent.role, model: choice.agent.model, thinking: choice.agent.thinking },
+      agentChoices: [choice.agent],
+      agentEditability: { kind: "editable" },
+      agentLocked: false,
+      cachingLocked: false,
+      workflowLocked: false,
+      supervisor: choice.supervisor,
+      thinking: choice.thinking,
+      fast: choice.fast,
+      questions: choice.questions,
+      autoCompaction: choice.autoCompaction,
+    },
+  };
+}
 const openSession = vi.fn<(sessionID: string) => void | Promise<void>>();
 const navigation = {
   openTask: vi.fn<(taskID: string) => void>(),
@@ -121,25 +143,7 @@ function sessionWithPrompts(
   skipAnimations = true,
 ) {
   const services = createTestServices([worktreeBrowserFixtureRoute(), sessionSettingsSubscriptionRoute()]);
-  const choice = catalog.catalog.choices[0];
-  if (choice === undefined) throw new Error("Missing settings choice");
-  const settings = vi.spyOn(services.api.chat, "getSettings").mockResolvedValue({
-    kind: "session",
-    session: { sessionID: sessionTarget.sessionID, shortID: null, previousSessionID: null, task: null },
-    settings: {
-      selectedAgent: { role: choice.agent.role, model: choice.agent.model, thinking: choice.agent.thinking },
-      agentChoices: [choice.agent],
-      agentEditability: { kind: "editable" },
-      agentLocked: false,
-      cachingLocked: false,
-      workflowLocked: false,
-      supervisor: choice.supervisor,
-      thinking: choice.thinking,
-      fast: choice.fast,
-      questions: choice.questions,
-      autoCompaction: choice.autoCompaction,
-    },
-  });
+  const settings = vi.spyOn(services.api.chat, "getSettings").mockResolvedValue(sessionSettingsRead());
   vi.spyOn(services.api.chat, "getDraft").mockResolvedValue({ input: "", protectedInput: null });
   vi.spyOn(services.api.chat, "persistDraft").mockResolvedValue();
   vi.spyOn(services.api.chat, "getMainView").mockResolvedValue(mainViewRead());
@@ -158,4 +162,13 @@ function sessionWithPrompts(
   return { ...view, services, handlers, settings, pending, answer, client, response };
 }
 
-export { opening, newChatTarget, baseline, catalog, navigation, renderDestination, sessionWithPrompts };
+export {
+  opening,
+  newChatTarget,
+  baseline,
+  catalog,
+  navigation,
+  renderDestination,
+  sessionSettingsRead,
+  sessionWithPrompts,
+};

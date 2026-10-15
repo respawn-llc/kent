@@ -1,4 +1,4 @@
-// @vitest-environment jsdom
+import { beforeEach, describe, expect, it, vi } from "bun:test";
 import { QueryClient } from "@tanstack/react-query";
 import { RegistryProvider, useAtomMount } from "@effect/atom-react";
 import { act, renderHook, waitFor } from "@testing-library/react";
@@ -8,16 +8,12 @@ import type { WorkflowProjectEvent, WorkflowProjectEventHandler } from "@/api";
 import { createTestServices } from "@/test-support/app-services";
 import { appI18n } from "@/i18n";
 import { workflowEditorObservations } from "./workflowEditorObservation";
-
-const fixture = vi.hoisted(() => {
-  const noHandler = (): WorkflowProjectEventHandler | null => null;
-  return {
-    push: vi.fn(),
-    workflowHandler: noHandler(),
-  };
-});
-
 import { shouldNotifyWorkflowEditorRefresh, shouldRefreshWorkflowEditor } from "./workflowEditorEvents";
+
+const fixture = {
+  push: vi.fn<Parameters<typeof workflowEditorObservations>[0]["push"]>(),
+};
+let workflowHandler: WorkflowProjectEventHandler | null = null;
 
 function workflowEvent(
   action: WorkflowProjectEvent["action"],
@@ -37,7 +33,7 @@ function workflowEvent(
 describe("Workflow Editor event effects", () => {
   beforeEach(() => {
     fixture.push.mockClear();
-    fixture.workflowHandler = null;
+    workflowHandler = null;
   });
 
   it("refreshes and notifies for a matching graph save only", () => {
@@ -55,7 +51,7 @@ describe("Workflow Editor event effects", () => {
     const invalidation = vi.spyOn(queryClient, "invalidateQueries");
     const services = createTestServices([]);
     vi.spyOn(services.api, "subscribeWorkflow").mockImplementation((_id, handler) => {
-      fixture.workflowHandler = handler;
+      workflowHandler = handler;
       return { close: vi.fn() };
     });
     const observations = workflowEditorObservations({
@@ -76,16 +72,16 @@ describe("Workflow Editor event effects", () => {
       },
     );
     await waitFor(() => {
-      expect(fixture.workflowHandler).not.toBeNull();
+      expect(workflowHandler).not.toBeNull();
     });
     invalidation.mockClear();
 
     act(() => {
-      fixture.workflowHandler?.onEvent(workflowEvent("graph_saved"));
+      workflowHandler?.onEvent(workflowEvent("graph_saved"));
     });
     await waitFor(() => {
       expect(invalidation).toHaveBeenCalledTimes(5);
-      expect(fixture.push).toHaveBeenCalledOnce();
+      expect(fixture.push).toHaveBeenCalledTimes(1);
     });
     const invalidatedQueryKeys = invalidation.mock.calls.map((call) => {
       const [request] = call;
@@ -94,20 +90,16 @@ describe("Workflow Editor event effects", () => {
       }
       return request.queryKey;
     });
-    expect(invalidatedQueryKeys).toEqual(
-      expect.arrayContaining([
-        ["project-workflow-links", "project-1"],
-        ["board", "project-1", "workflow-1"],
-        ["board-node-cards", "project-1", "workflow-1"],
-        ["workflow-definition", "workflow-1"],
-        ["workflow-validation", "workflow-1", "execution"],
-      ]),
-    );
+    expect(invalidatedQueryKeys).toContainEqual(["project-workflow-links", "project-1"]);
+    expect(invalidatedQueryKeys).toContainEqual(["board", "project-1", "workflow-1"]);
+    expect(invalidatedQueryKeys).toContainEqual(["board-node-cards", "project-1", "workflow-1"]);
+    expect(invalidatedQueryKeys).toContainEqual(["workflow-definition", "workflow-1"]);
+    expect(invalidatedQueryKeys).toContainEqual(["workflow-validation", "workflow-1", "execution"]);
 
     invalidation.mockClear();
     fixture.push.mockClear();
     act(() => {
-      fixture.workflowHandler?.onEvent(workflowEvent("graph_saved", "workflow-2"));
+      workflowHandler?.onEvent(workflowEvent("graph_saved", "workflow-2"));
     });
     await act(async () => {
       await Promise.resolve();
@@ -116,7 +108,7 @@ describe("Workflow Editor event effects", () => {
     expect(fixture.push).not.toHaveBeenCalled();
 
     act(() => {
-      fixture.workflowHandler?.onEvent(workflowEvent("deleted"));
+      workflowHandler?.onEvent(workflowEvent("deleted"));
     });
     await waitFor(() => {
       expect(invalidation).toHaveBeenCalledTimes(5);

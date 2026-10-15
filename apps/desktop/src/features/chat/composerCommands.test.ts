@@ -1,3 +1,4 @@
+import { expect, it, vi } from "bun:test";
 import { composerSuggestions, dispatchComposerCommand, resolveComposerCommand } from "./composerCommands";
 import { createTestServices } from "@/test-support/app-services";
 import { createNameCommand } from "./nameCommand";

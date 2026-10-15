@@ -1,5 +1,5 @@
 import { act, render, screen, within } from "@testing-library/react";
-import { expect, it, vi } from "vitest";
+import { expect, it, vi } from "bun:test";
 
 import { parsePendingWorkItemID } from "@/api";
 import { createTestServices, TestAppProviders } from "@/test-support/app-services";

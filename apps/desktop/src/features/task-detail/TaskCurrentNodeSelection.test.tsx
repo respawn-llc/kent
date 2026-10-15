@@ -1,6 +1,6 @@
 import { render, screen } from "@testing-library/react";
 import { I18nextProvider } from "react-i18next";
-import { beforeAll, describe, expect, it } from "vitest";
+import { beforeAll, describe, expect, it } from "bun:test";
 
 import { appI18n, initializeI18n } from "@/i18n";
 import { TaskCurrentNodeSelectionProperties } from "./TaskDetailRows";

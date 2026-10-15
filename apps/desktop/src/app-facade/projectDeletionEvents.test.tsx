@@ -1,4 +1,4 @@
-// @vitest-environment jsdom
+import { describe, expect, it, vi } from "bun:test";
 import { createBrowserNativeBridge } from "@app/native-bridge";
 import { QueryClient, QueryObserver } from "@tanstack/react-query";
 import { act, renderHook, waitFor } from "@testing-library/react";
@@ -54,11 +54,11 @@ describe("Project deletion owner refresh", () => {
       await bridge.projectDeletion.notifyDeleted({ projectID: "project-1" });
     });
     await waitFor(() => {
-      expect(handler).toHaveBeenCalledOnce();
+      expect(handler).toHaveBeenCalledTimes(1);
     });
     await refresh;
 
-    expect(handler).toHaveBeenCalledOnce();
+    expect(handler).toHaveBeenCalledTimes(1);
     expect(requests).toBe(2);
     expect(isProjectMissingError(observer.getCurrentResult().error)).toBe(true);
     view.unmount();

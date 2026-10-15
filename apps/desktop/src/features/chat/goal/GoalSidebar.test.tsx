@@ -1,10 +1,12 @@
+import { afterEach, describe, expect, it, vi } from "bun:test";
+import { MotionConfig } from "motion/react";
 import { act, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { StrictMode } from "react";
 
 import type { ChatGoalObservationHandler, ChatSessionTarget } from "@/api";
 import { ChatOperationError, RpcError } from "@/api";
-import { createTestServices, TestAppProviders } from "@/test-support/app-services";
+import { createTestServices, TestAppProviders as AppProviders } from "@/test-support/app-services";
 import * as ui from "@/ui";
 import type { NewChatGoalHostDelivery } from "./goalBinding";
 import { createGoalFixtureOwner, GoalFixturePage } from "./goalBindingFixtures";
@@ -19,6 +21,23 @@ const target = {
   projectID: "project-1",
   sessionID,
 } as const;
+
+function TestAppProviders(props: Parameters<typeof AppProviders>[0]) {
+  return (
+    <MotionConfig skipAnimations>
+      <AppProviders {...props} />
+    </MotionConfig>
+  );
+}
+
+async function enterGoalEditor(user: ReturnType<typeof userEvent.setup>) {
+  await user.click(await screen.findByRole("textbox", { name: "Goal" }));
+  return waitFor(() => {
+    const editor = screen.getByRole("textbox", { name: "Goal" });
+    expect(editor).not.toHaveAttribute("aria-readonly");
+    return editor;
+  });
+}
 
 afterEach(() => {
   vi.restoreAllMocks();
@@ -110,9 +129,9 @@ describe("Goal sidebar", () => {
       handlers[0]?.onEvent(hydration({ objective: "saved objective", status: "active" }));
     });
     const user = userEvent.setup();
-    await user.click(await screen.findByRole("textbox", { name: "Goal" }));
-    await user.clear(screen.getByRole("textbox", { name: "Goal" }));
-    await user.type(screen.getByRole("textbox", { name: "Goal" }), "unsaved objective");
+    const editor = await enterGoalEditor(user);
+    await user.clear(editor);
+    await user.type(editor, "unsaved objective");
     act(() => {
       handlers[0]?.onError(new Error("Goal connection lost."));
     });
@@ -120,7 +139,7 @@ describe("Goal sidebar", () => {
     expect(await screen.findByTestId("error-state")).toBeInTheDocument();
     expect(await screen.findByRole("button", { name: "Try again" })).toBeInTheDocument();
     expect(handlers).toHaveLength(1);
-    expect(closes[0]).toHaveBeenCalledOnce();
+    expect(closes[0]).toHaveBeenCalledTimes(1);
 
     await userEvent.setup().click(screen.getByRole("button", { name: "Try again" }));
     await waitFor(() => {
@@ -199,15 +218,15 @@ describe("Goal sidebar", () => {
     );
 
     const user = userEvent.setup();
-    await user.click(await screen.findByRole("textbox", { name: "Goal" }));
-    await user.clear(screen.getByRole("textbox", { name: "Goal" }));
-    await user.type(screen.getByRole("textbox", { name: "Goal" }), "submitted objective");
+    const editor = await enterGoalEditor(user);
+    await user.clear(editor);
+    await user.type(editor, "submitted objective");
     await user.click(screen.getByTestId("goal-save"));
 
-    await user.click(await screen.findByRole("textbox", { name: "Goal" }));
+    const laterEditor = await enterGoalEditor(user);
     const postSubmitDraft = "new unsaved objective";
-    await user.clear(screen.getByRole("textbox", { name: "Goal" }));
-    await user.type(screen.getByRole("textbox", { name: "Goal" }), postSubmitDraft);
+    await user.clear(laterEditor);
+    await user.type(laterEditor, postSubmitDraft);
     await act(async () => {
       saveResult.resolve({
         sessionID,
@@ -250,10 +269,10 @@ describe("Goal sidebar", () => {
     );
 
     const user = userEvent.setup();
-    await user.click(await screen.findByRole("textbox", { name: "Goal" }));
+    const editor = await enterGoalEditor(user);
     const draft = "restore this draft";
-    await user.clear(screen.getByRole("textbox", { name: "Goal" }));
-    await user.type(screen.getByRole("textbox", { name: "Goal" }), draft);
+    await user.clear(editor);
+    await user.type(editor, draft);
     await user.click(screen.getByTestId("goal-save"));
     act(() => {
       handlers[0]?.onEvent({
@@ -300,7 +319,8 @@ describe("Goal sidebar", () => {
 
     expect(await screen.findByDisplayValue(objective)).toBeInTheDocument();
     expect(screen.getByTestId("goal-save")).toBeInTheDocument();
-    expect(hostDelivery).toHaveBeenCalledExactlyOnceWith({
+    expect(hostDelivery).toHaveBeenCalledTimes(1);
+    expect(hostDelivery).toHaveBeenCalledWith({
       target: exactTarget(),
       origin: newChatTarget(),
       goal: null,
@@ -413,9 +433,10 @@ describe("Goal sidebar", () => {
     });
 
     await waitFor(() => {
-      expect(notice).toHaveBeenCalledOnce();
+      expect(notice).toHaveBeenCalledTimes(1);
     });
-    expect(hostDelivery).toHaveBeenCalledExactlyOnceWith({
+    expect(hostDelivery).toHaveBeenCalledTimes(1);
+    expect(hostDelivery).toHaveBeenCalledWith({
       target: exactTarget(),
       origin: newChatTarget(),
       goal: goalValue("close-safe success", "active", "goal-close-safe"),

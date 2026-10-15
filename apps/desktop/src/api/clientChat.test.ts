@@ -1,3 +1,4 @@
+import { describe, expect, it } from "bun:test";
 import { StreamFailureCode } from "@app/server-api-contract/gen/kent/api/shared/foundation_pb";
 import { unexpectedProjectOverflow } from "@/test-support/api";
 import { ApiClient } from "./client";
@@ -253,11 +254,11 @@ describe("Desktop Chat read client", () => {
     ]);
     const client = new ApiClient(transport, unexpectedProjectOverflow);
 
-    await expect(client.chat.setGoal({ kind: "session", sessionID }, "exact Goal")).resolves.toMatchObject({
+    expect(client.chat.setGoal({ kind: "session", sessionID }, "exact Goal")).resolves.toMatchObject({
       sessionID,
       outcome: { kind: "mutation", mutation: { kind: "authoritative_goal" } },
     });
-    await expect(
+    expect(
       client.chat.setGoal(
         {
           kind: "new_chat",
@@ -343,11 +344,9 @@ describe("Desktop Chat read client", () => {
     ]);
     const client = new ApiClient(transport, unexpectedProjectOverflow);
 
-    await expect(client.chat.setGoal({ kind: "session", sessionID }, "ship")).rejects.toBeInstanceOf(
-      ContractError,
-    );
-    await expect(client.chat.pauseGoal(target)).rejects.toBeInstanceOf(ContractError);
-    await expect(client.chat.clearGoal(target)).rejects.toBeInstanceOf(ContractError);
+    expect(client.chat.setGoal({ kind: "session", sessionID }, "ship")).rejects.toBeInstanceOf(ContractError);
+    expect(client.chat.pauseGoal(target)).rejects.toBeInstanceOf(ContractError);
+    expect(client.chat.clearGoal(target)).rejects.toBeInstanceOf(ContractError);
   });
 
   it("accepts a dormant Main View with authoritative Goal absence", async () => {
@@ -358,7 +357,7 @@ describe("Desktop Chat read client", () => {
       },
     ]);
 
-    await expect(
+    expect(
       new ApiClient(transport, unexpectedProjectOverflow).chat.getMainView(target),
     ).resolves.toMatchObject({
       mainView: { sessionID, activity: { state: "unavailable" } },
@@ -394,7 +393,7 @@ describe("Desktop Chat read client", () => {
     ]);
     const client = new ApiClient(transport, unexpectedProjectOverflow);
 
-    await expect(client.chat.getMainView(target)).resolves.toMatchObject({
+    expect(client.chat.getMainView(target)).resolves.toMatchObject({
       mainView: {
         sessionID,
         sessionName: null,
@@ -402,7 +401,7 @@ describe("Desktop Chat read client", () => {
       },
       goal: { goal: null, availability: null },
     });
-    await expect(client.chat.getContext(target)).resolves.toMatchObject({
+    expect(client.chat.getContext(target)).resolves.toMatchObject({
       contextWindowTokens: 100,
       remainingTokens: 96,
     });
@@ -504,11 +503,11 @@ describe("Desktop Chat read client", () => {
     ]);
     const client = new ApiClient(transport, unexpectedProjectOverflow);
 
-    await expect(client.chat.getGoal(target)).resolves.toEqual({
+    expect(client.chat.getGoal(target)).resolves.toEqual({
       goal: { id: sessionID, objective: "ship", status: "active", createdAt: now, updatedAt: now },
       availability: "available",
     });
-    await expect(client.chat.pauseGoal(target)).resolves.toEqual({
+    expect(client.chat.pauseGoal(target)).resolves.toEqual({
       kind: "authoritative_goal",
       fact: {
         goal: {
@@ -642,9 +641,8 @@ describe("Desktop Chat read client", () => {
       "223e4567-e89b-42d3-a456-426614174000",
       "323e4567-e89b-42d3-a456-426614174000",
     ]);
-    await expect(
-      client.chat.getTranscriptPage(target, { direction: "newer", value: 29 }),
-    ).resolves.toMatchObject({
+    const newer = await client.chat.getTranscriptPage(target, { direction: "newer", value: 29 });
+    expect(newer).toMatchObject({
       sessionID,
       conversationFreshness: 1,
       hasMoreBelow: false,
@@ -1065,16 +1063,22 @@ describe("Desktop Chat mutation adapter", () => {
           }),
         },
       ]);
-      await expect(
-        new ApiClient(transport, unexpectedProjectOverflow).chat.steer(
+      const rejected = await new ApiClient(transport, unexpectedProjectOverflow).chat
+        .steer(
           sessionTarget,
           {
             kind: "text",
             text: "continue",
           },
           parsePendingWorkItemID(queueItemID),
-        ),
-      ).rejects.toBeInstanceOf(Error);
+        )
+        .then(
+          () => {
+            throw new Error("Expected the invalid admission response to be rejected.");
+          },
+          (error: unknown) => error,
+        );
+      expect(rejected).toBeInstanceOf(Error);
     }
   });
 });

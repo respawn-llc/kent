@@ -1,18 +1,12 @@
 import { render, screen } from "@testing-library/react";
 import { RouterProvider } from "@tanstack/react-router";
-import { afterAll, expect, it, vi } from "vitest";
+import { expect, it, mock } from "bun:test";
 
 import { newChatRoutePath, sessionChatRoutePath } from "@/app-facade";
-import { createAppRouter } from "./routes";
 
-vi.hoisted(() => {
-  vi.stubEnv("DEV", false);
-});
+globalThis.__KENT_TEST_ENV__.DEV = false;
 
-afterAll(() => {
-  vi.unstubAllEnvs();
-});
-vi.mock("./routeComponents", async () => {
+await mock.module("./routeComponents", async () => {
   const { Outlet } = await import("@tanstack/react-router");
   return {
     ChatRoute: () => <div data-testid="chat-route" />,
@@ -26,6 +20,8 @@ vi.mock("./routeComponents", async () => {
     WorkflowLibraryShellRoute: () => null,
   };
 });
+
+const { createAppRouter } = await import("./routes");
 
 it("opens Session Chat in production", async () => {
   const router = createAppRouter();

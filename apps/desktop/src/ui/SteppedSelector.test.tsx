@@ -1,10 +1,15 @@
 import { act, fireEvent, render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
+import { expect, it, vi } from "bun:test";
 import { useState } from "react";
 
 import { SteppedSelector } from "./SteppedSelector";
 
 const values = ["low", "medium", "high"] as const;
+const dragCases = [
+  { end: 200, expected: "high", commits: ["high"] },
+  { end: 0, expected: "low", commits: [] },
+] satisfies readonly Readonly<{ end: number; expected: string; commits: readonly string[] }>[];
 
 function Selector({
   onCommit,
@@ -37,44 +42,53 @@ function capturePointer(element: HTMLElement) {
 }
 
 it("commits changed keyboard selections and leaves repeated boundary selections alone", async () => {
-  const onCommit = vi.fn();
+  const committedValues: string[] = [];
   const user = userEvent.setup();
-  render(<Selector onCommit={onCommit} />);
+  render(
+    <Selector
+      onCommit={(value) => {
+        committedValues.push(value);
+      }}
+    />,
+  );
   act(() => {
     screen.getByRole("slider").focus();
   });
   await user.keyboard("{ArrowRight}");
-  expect(onCommit).toHaveBeenLastCalledWith("medium");
+  expect(committedValues.at(-1)).toBe("medium");
   expect(screen.getByTestId("selection")).toHaveTextContent("medium");
   await user.keyboard("{End}{End}");
-  expect(onCommit.mock.calls).toEqual([["medium"], ["high"]]);
+  expect(committedValues).toEqual(["medium", "high"]);
   expect(screen.getByTestId("selection")).toHaveTextContent("high");
 });
 
-it.each([
-  { end: 200, expected: "high", commits: [["high"]] },
-  { end: 0, expected: "low", commits: [] },
-])(
+it.each(dragCases)(
   "previews a drag ending at $expected and commits only a changed selection",
   async ({ end, expected, commits }) => {
     const bounds = vi
       .spyOn(HTMLElement.prototype, "getBoundingClientRect")
       .mockReturnValue(new DOMRect(0, 0, 200, 24));
     try {
-      const onCommit = vi.fn();
+      const committedValues: string[] = [];
       const user = userEvent.setup();
-      render(<Selector onCommit={onCommit} />);
+      render(
+        <Selector
+          onCommit={(value) => {
+            committedValues.push(value);
+          }}
+        />,
+      );
       const slider = screen.getByRole("slider");
       capturePointer(slider);
       await user.pointer({ target: slider, keys: "[MouseLeft>]", coords: { x: 0, y: 12 } });
       await user.pointer({ target: slider, coords: { x: 100, y: 12 } });
       expect(screen.getByTestId("selection")).toHaveTextContent("medium");
-      expect(onCommit).not.toHaveBeenCalled();
+      expect(committedValues).toEqual([]);
       await user.pointer({ target: slider, coords: { x: end, y: 12 } });
       expect(screen.getByTestId("selection")).toHaveTextContent(expected);
-      expect(onCommit).not.toHaveBeenCalled();
+      expect(committedValues).toEqual([]);
       await user.pointer({ target: slider, keys: "[/MouseLeft]" });
-      expect(onCommit.mock.calls).toEqual(commits);
+      expect(committedValues).toEqual(commits);
     } finally {
       bounds.mockRestore();
     }
