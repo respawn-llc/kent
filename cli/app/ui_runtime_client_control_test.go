@@ -62,7 +62,7 @@ func TestRuntimeGoalCallsHaveGoalBudgetAndPresentTimeout(t *testing.T) {
 	for _, action := range []string{"show", "set", "pause", "resume", "complete", "clear"} {
 		t.Run(action, func(t *testing.T) {
 			controls := &goalRuntimeControlClient{t: t, cause: context.DeadlineExceeded}
-			runtimeClient := newUIRuntimeClientWithReads("session-1", &countingSessionViewClient{}, controls, controls, nil)
+			runtimeClient := newUIRuntimeClientWithReads("11111111-1111-4111-8111-111111111111", &countingSessionViewClient{}, controls, controls, nil)
 			var err error
 			switch action {
 			case "show":

@@ -315,12 +315,9 @@ func prepareSessionUIRun(
 			promptCatalog = catalogClient
 			response, catalogErr := catalogClient.GetPromptCommandCatalog(ctx, &promptcommandpb.GetCatalogRequest{})
 			if catalogErr == nil {
-				var entries []commands.PromptCommandCatalogEntry
-				entries, catalogErr = promptCatalogSnapshot(response)
+				entries := promptCatalogSnapshot(response)
 				catalogEntries = entries
-				if catalogErr == nil {
-					commandRegistry = commands.NewDefaultRegistryWithPromptCatalog(entries)
-				}
+				commandRegistry = commands.NewDefaultRegistryWithPromptCatalog(entries)
 			}
 			if catalogErr != nil {
 				notice := "Custom prompt commands are unavailable for this session."
