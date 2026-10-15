@@ -419,10 +419,7 @@ func (s *Service) UnlinkWorkflowFromProject(ctx context.Context, req *pb.UnlinkP
 }
 
 func (s *Service) PreviewWorkflowDelete(ctx context.Context, req *pb.DeletePreviewRequest) (*pb.DeletePreviewSuccess, error) {
-	if err := protoapi.Validate(req); err != nil {
-		return nil, err
-	}
-	workflowID, err := runtimeids.ParseWorkflowID(req.WorkflowId)
+	workflowID, err := runtimeids.WorkflowIDFromProto(req.WorkflowId)
 	if err != nil {
 		return nil, err
 	}
@@ -434,10 +431,7 @@ func (s *Service) PreviewWorkflowDelete(ctx context.Context, req *pb.DeletePrevi
 }
 
 func (s *Service) DeleteWorkflow(ctx context.Context, req *pb.DeleteRequest) (*pb.DeleteSuccess, error) {
-	if err := protoapi.Validate(req); err != nil {
-		return nil, err
-	}
-	workflowID, err := runtimeids.ParseWorkflowID(req.WorkflowId)
+	workflowID, err := runtimeids.WorkflowIDFromProto(req.WorkflowId)
 	if err != nil {
 		return nil, err
 	}
@@ -491,10 +485,7 @@ func runWorkflowGraphMutation[T any](ctx context.Context, service *Service, work
 }
 
 func (s *Service) deleteWorkflow(ctx context.Context, req *pb.DeleteRequest) (*pb.DeleteSuccess, error) {
-	if err := protoapi.Validate(req); err != nil {
-		return nil, err
-	}
-	workflowID, err := runtimeids.ParseWorkflowID(req.WorkflowId)
+	workflowID, err := runtimeids.WorkflowIDFromProto(req.WorkflowId)
 	if err != nil {
 		return nil, err
 	}
