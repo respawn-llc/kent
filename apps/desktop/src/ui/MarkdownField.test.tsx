@@ -1,4 +1,6 @@
 import { fireEvent, render, screen } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
+import { useState } from "react";
 
 import { CollapsibleMarkdownField } from "./MarkdownField";
 
@@ -16,6 +18,39 @@ const baseProps = {
 };
 
 describe("MarkdownField presentation options", () => {
+  it("keeps the editor mounted while pressing its action and exits when focus leaves the field", async () => {
+    const save = vi.fn();
+    function Example() {
+      const [editing, setEditing] = useState(true);
+      return (
+        <>
+          <CollapsibleMarkdownField
+            {...baseProps}
+            editing={editing}
+            onEditingChange={setEditing}
+            onEdit={() => { setEditing(true); }}
+            expanded
+            expandLabel="Expand"
+            collapsedHeightClamp={{ kind: "pixels", maximumPixels: 300 }}
+            floatingAction={<button onClick={save}>Save</button>}
+          />
+          <button>Outside</button>
+        </>
+      );
+    }
+    render(<Example />);
+    const user = userEvent.setup();
+    const editor = screen.getByRole("textbox", { name: "Description" });
+    const button = screen.getByRole("button", { name: "Save" });
+    await user.pointer({ target: button, keys: "[MouseLeft>]" });
+    expect(editor).toBeInTheDocument();
+    expect(save).not.toHaveBeenCalled();
+    await user.pointer({ target: button, keys: "[/MouseLeft]" });
+    expect(save).toHaveBeenCalledOnce();
+    await user.click(screen.getByRole("button", { name: "Outside" }));
+    expect(editor).not.toBeInTheDocument();
+  });
+
   it("keeps only the latest floating action as an inert exit presentation", () => {
     const firstAction = vi.fn();
     const latestAction = vi.fn();
