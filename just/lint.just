@@ -25,7 +25,7 @@ desktop mode="":
     set -euo pipefail
     bun apps/scripts/check-dependency-policy.mjs
     bun apps/scripts/check-typescript-policy.mjs
-    bun test --timeout 30000 apps/scripts/check-eslint-architecture.test.mjs
+    bun test apps/scripts/check-eslint-architecture.test.mjs
     if [ "{{mode}}" = "--dry-run" ]; then
         [ -d apps/desktop/packages/server-api-contract/src/gen ] || {
             echo "Generated TypeScript sources are required. Run 'just gen' first." >&2
