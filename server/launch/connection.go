@@ -41,7 +41,11 @@ func (r *ConnectionRotation) CoolingDown(id config.ConnectionID) bool {
 	return snapshot != nil && snapshot.cooldowns[id].After(time.Now())
 }
 
-func (r *ConnectionRotation) SelectReplacement(settings config.Settings, visited map[config.ConnectionID]struct{}) (config.ConnectionID, error) {
+func (r *ConnectionRotation) SelectReplacement(settings config.Settings, scope config.ConnectionScope, visited map[config.ConnectionID]struct{}) (config.ConnectionID, error) {
+	if scope.UnavailableRole != nil {
+		return "", fmt.Errorf("configured Agent role %q is unavailable; restore it before replacing its connection", *scope.UnavailableRole)
+	}
+	settings.Connection = scope.Selection
 	return r.prepare(settings, true, visited)
 }
 

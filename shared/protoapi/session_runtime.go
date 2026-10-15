@@ -3,6 +3,7 @@ package protoapi
 import (
 	"fmt"
 
+	"core/shared/config"
 	sessionlaunchpb "core/shared/protoapi/gen/kent/api/session_launch"
 	"core/shared/serverapi"
 	"core/shared/toolspec"
@@ -18,6 +19,10 @@ func SessionRuntimeActivateToProto(request serverapi.SessionRuntimeActivateReque
 		return nil, err
 	}
 	result := &sessionlaunchpb.SessionRuntimeActivateRequest{
+		ConnectionScope: &sessionlaunchpb.ConnectionScope{
+			Selection:       ConnectionSelectionToProto(request.ConnectionScope.Selection),
+			UnavailableRole: request.ConnectionScope.UnavailableRole,
+		},
 		SessionId: SessionSelectorToProto(request.SessionID), ActiveSettings: settings, Source: source,
 		QuestionsEnabled: request.QuestionsEnabled, AutoCompactionEnabled: request.AutoCompactionEnabled,
 		ThinkingOverrideExplicit: request.ThinkingOverrideExplicit,
@@ -59,6 +64,14 @@ func SessionRuntimeActivateFromProto(request *sessionlaunchpb.SessionRuntimeActi
 		QuestionsEnabled: request.QuestionsEnabled, AutoCompactionEnabled: request.AutoCompactionEnabled,
 		ThinkingOverrideExplicit: request.ThinkingOverrideExplicit, AgentSelection: selection,
 	}
+	if request.ConnectionScope == nil {
+		return serverapi.SessionRuntimeActivateRequest{}, fmt.Errorf("connection scope is required")
+	}
+	scopeSelection, err := ConnectionSelectionFromProto(request.ConnectionScope.Selection)
+	if err != nil {
+		return serverapi.SessionRuntimeActivateRequest{}, err
+	}
+	result.ConnectionScope = config.ConnectionScope{Selection: scopeSelection, UnavailableRole: request.ConnectionScope.UnavailableRole}
 	result.ExplicitToolSelection, err = ToolSelectionFromProto(request.ExplicitToolSelection)
 	if err != nil {
 		return serverapi.SessionRuntimeActivateRequest{}, err

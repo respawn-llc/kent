@@ -70,6 +70,13 @@ type ConnectionReplacement struct {
 	Current  ConnectionID
 }
 
+// ConnectionScope retains the configured selector independently of a Session's
+// concrete binding. An unavailable role is reported only if replacement is needed.
+type ConnectionScope struct {
+	Selection       *ConnectionSelection
+	UnavailableRole *string
+}
+
 const (
 	ConnectionResponses            ConnectionProtocol = "responses"
 	ConnectionChatGPT              ConnectionProtocol = "chatgpt-codex"

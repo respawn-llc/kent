@@ -71,11 +71,12 @@ func TestConnectionUsageSelectionExcludesVisitedMembers(t *testing.T) {
 		},
 	}
 	rotation := NewConnectionRotation(time.Minute)
-	selected, err := rotation.SelectReplacement(settings, map[config.ConnectionID]struct{}{"a": {}})
+	scope := config.ConnectionScope{Selection: settings.Connection}
+	selected, err := rotation.SelectReplacement(settings, scope, map[config.ConnectionID]struct{}{"a": {}})
 	if err != nil || selected != "b" {
 		t.Fatalf("replacement = %s, %v", selected, err)
 	}
-	_, err = rotation.SelectReplacement(settings, map[config.ConnectionID]struct{}{"a": {}, "b": {}})
+	_, err = rotation.SelectReplacement(settings, scope, map[config.ConnectionID]struct{}{"a": {}, "b": {}})
 	var unavailable *ConnectionsUnavailableError
 	if !errors.As(err, &unavailable) {
 		t.Fatalf("visited error = %v", err)
@@ -334,6 +335,12 @@ func TestSavedConnectionPrecedesCurrentRoleProviderPreparation(t *testing.T) {
 			if err == nil && !reflect.DeepEqual(snapshot.ActiveSettings.Connection, config.SingleConnection("work")) {
 				t.Fatalf("prompt-facing connection = %v", snapshot.ActiveSettings.Connection)
 			}
+			if err == nil && test.roleConnection != nil {
+				_, err := NewConnectionRotation(time.Minute).SelectReplacement(snapshot.ActiveSettings, snapshot.ConnectionScope, nil)
+				if err == nil {
+					t.Fatal("undefined role selection borrowed the saved/global connection")
+				}
+			}
 			if !reflect.DeepEqual(before, store.Meta()) {
 				t.Fatal("read projection mutated Session metadata")
 			}
@@ -353,6 +360,33 @@ func TestSavedConnectionPrecedesCurrentRoleProviderPreparation(t *testing.T) {
 			}
 			if saved := store.Meta().ConnectionID; saved == nil || *saved != test.saved {
 				t.Fatalf("planning changed stored binding: %v", saved)
+			}
+		})
+	}
+}
+
+func TestPreparedAgentReplacementStaysInsideConfiguredSelection(t *testing.T) {
+	app := loadLaunchConfig(t, t.TempDir(),
+		`connection = ["outside", "a", "b"]`,
+		`[connections.outside]`, `protocol = "chatgpt-codex"`,
+		`[connections.a]`, `protocol = "chatgpt-codex"`,
+		`[connections.b]`, `protocol = "chatgpt-codex"`,
+		`[subagents.worker]`, `connection = ["a", "b"]`,
+		`[subagents.default]`, `connection = ["a", "b"]`,
+	)
+	for _, role := range []string{"worker", "default"} {
+		t.Run(role, func(t *testing.T) {
+			rotation := NewConnectionRotation(time.Minute)
+			prepared, err := PrepareRunPromptOverridesWithContext(app, serverapi.RunPromptOverrides{AgentRole: &role}, RunPromptPreparationContext{
+				Mode: ModeHeadless, Rotation: rotation, AllocateConnection: true,
+			})
+			if err != nil {
+				t.Fatal(err)
+			}
+			target := prepared.PromptFacingTarget()
+			selected, err := rotation.SelectReplacement(target.Settings, target.ConnectionScope, map[config.ConnectionID]struct{}{"a": {}})
+			if err != nil || selected != "b" {
+				t.Fatalf("role fallback = %s, %v", selected, err)
 			}
 		})
 	}

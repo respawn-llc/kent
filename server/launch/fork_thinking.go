@@ -35,7 +35,7 @@ func PrepareInteractiveFork(app config.App, meta session.Meta, rotation *Connect
 		}
 		thinking = &current.Settings.ThinkingLevel
 	}
-	settings, _, _, err := resolveSessionContextSettings(app, session.Meta{
+	settings, _, _, _, err := resolveSessionContextSettings(app, session.Meta{
 		ChatSettings: &session.ChatSettingsOverrides{Thinking: thinking},
 	}, false, rotation, true)
 	if err != nil {

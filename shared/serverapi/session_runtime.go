@@ -10,6 +10,7 @@ import (
 )
 
 type SessionRuntimeActivateRequest struct {
+	ConnectionScope          config.ConnectionScope
 	SessionID                runtimeids.SessionSelector
 	OwnerID                  string
 	ActiveSettings           config.Settings

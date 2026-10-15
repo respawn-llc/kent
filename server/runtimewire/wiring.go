@@ -39,6 +39,8 @@ func (w *RuntimeWiring) Close() error {
 }
 
 type RuntimeWiringOptions struct {
+	ConnectionScope                     config.ConnectionScope
+	ConnectionRotation                  *launch.ConnectionRotation
 	Environment                         func(string) (string, bool)
 	WorkspaceMembership                 WorkspaceMembership
 	ProjectWorkspaceContextReader       runtime.ProjectWorkspaceContextReader

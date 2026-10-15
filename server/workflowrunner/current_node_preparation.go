@@ -230,7 +230,7 @@ func (s *Starter) PrepareCurrentNode(
 			overridesPlan, err = launch.PrepareRunPromptOverridesWithContext(cfg, overrides, launch.RunPromptPreparationContext{
 				Mode: launch.ModeHeadless, ModelLock: meta.Locked, ToolLock: meta.Locked,
 				Rotation: s.connectionRotation, ConnectionID: meta.ConnectionID,
-				OmittedTarget: &launch.PreparedBaseTarget{Settings: plan.ActiveSettings, Source: plan.Source, EnabledTools: plan.EnabledTools},
+				OmittedTarget: &launch.PreparedBaseTarget{ConnectionScope: plan.ConnectionScope, Settings: plan.ActiveSettings, Source: plan.Source, EnabledTools: plan.EnabledTools},
 			})
 			if err != nil {
 				return preparedCurrentNodeAgentSession{}, runtime.WorkflowAssignment{}, err

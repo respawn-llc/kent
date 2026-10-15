@@ -24,6 +24,7 @@ import (
 )
 
 type AgentRuntimePlanOptions struct {
+	ConnectionScope                     config.ConnectionScope
 	MainWorkspaceRoot                   string
 	Settings                            config.Settings
 	EnabledTools                        []toolspec.ID
@@ -302,6 +303,8 @@ func (a *Authority) newRuntimeWiringFromPlan(resource *agentResource, store *ses
 		return nil, err
 	}
 	wiringOptions := runtimewire.RuntimeWiringOptions{
+		ConnectionScope:                     options.ConnectionScope,
+		ConnectionRotation:                  a.options.connectionRotation,
 		Environment:                         a.options.environment,
 		WorkspaceMembership:                 a.options.workspaceMembership,
 		ProjectWorkspaceContextReader:       a.options.projectWorkspaceContextReader,
