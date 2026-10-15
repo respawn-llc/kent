@@ -86,7 +86,7 @@ func worktreeDeleteActionsAvailableForSelection(m *uiModel) bool {
 		return false
 	}
 	target, ok := m.selectedWorktreeRow()
-	return ok && (worktreeui.CanDelete(target) || m.newSessionTarget() != nil && !target.IsMainWorkspace)
+	return ok && worktreeui.DeletionTopologyEligible(target) && (worktreeui.CanDelete(target) || m.newSessionTarget() != nil)
 }
 
 func worktreeOverlaySummary(target *worktreepb.SessionExecutionTarget) string {

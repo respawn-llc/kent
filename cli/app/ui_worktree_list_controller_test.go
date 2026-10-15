@@ -10,6 +10,32 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 )
 
+func TestNewSessionWorktreeDeletionExcludesDistinctGitMainWorktree(t *testing.T) {
+	entry := &worktreepb.ListEntry{
+		Topology: &worktreepb.TopologyEntry{Topology: &worktreepb.TopologyEntry_External{External: &worktreepb.ExternalFacts{
+			Git: &worktreepb.GitFacts{CanonicalRoot: "/repo/main", IsMainWorktree: true, PathAvailable: true},
+		}}},
+		Projection: &worktreepb.ListProjection{Selector: "/repo/main"},
+	}
+	client := &worktreeCommandTestClient{
+		workspaceResp: &worktreepb.WorkspaceListSuccess{WorkspaceId: "workspace", Worktrees: []*worktreepb.ListEntry{entry}},
+	}
+	model := newWorktreeTestModel(t, client)
+	model.engine = nil
+	model.presentationTarget = &uiNewSessionTarget{creation: &chatpb.NewChatTarget{ProjectId: "project", WorkspaceId: "workspace"}}
+	_, cmd := model.inputController().handleWorktreeCommand("")
+	model = applyWorktreeCmdMessages(t, model, cmd)
+	model.worktrees.selection = 1
+	if worktreeDeleteActionsAvailableForSelection(model) {
+		t.Fatal("Git main worktree offered deletion")
+	}
+	_, cmd = model.inputController().startSelectedWorktreeDelete(false)
+	applyWorktreeCmdMessages(t, model, cmd)
+	if len(client.previewRequests) != 0 || len(client.deleteRequests) != 0 {
+		t.Fatal("Git main worktree keyboard action requested deletion")
+	}
+}
+
 func TestNewSessionWorktreeBrowseSelectLeaveAndDeleteStayUncreated(t *testing.T) {
 	entry := testRegisteredWorktreeListEntry("wt-feature", "feature", "/wt/feature", "feature", false, false, true, true)
 	entry.Projection.Switch = nil

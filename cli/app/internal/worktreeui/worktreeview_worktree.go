@@ -13,18 +13,19 @@ import (
 var ErrMainWorkspaceNotDeletable = errors.New("main workspace is not deletable")
 
 type Item struct {
-	Entry           *worktreepb.ListEntry
-	DeletePreview   *worktreepb.DeletePreviewSuccess
-	DisplayName     string
-	CanonicalRoot   string
-	WorktreeID      *string
-	BranchName      *string
-	Detached        bool
-	IsMainWorkspace bool
-	IsCurrent       bool
-	IsInUse         bool
-	Managed         bool
-	CreatedBranch   bool
+	Entry             *worktreepb.ListEntry
+	DeletePreview     *worktreepb.DeletePreviewSuccess
+	DisplayName       string
+	CanonicalRoot     string
+	WorktreeID        *string
+	BranchName        *string
+	Detached          bool
+	IsMainWorkspace   bool
+	IsGitMainWorktree bool
+	IsCurrent         bool
+	IsInUse           bool
+	Managed           bool
+	CreatedBranch     bool
 }
 
 func ProjectItems(entries []*worktreepb.ListEntry) ([]Item, error) {
@@ -68,6 +69,7 @@ func projectTopology(topology *worktreepb.TopologyEntry) (Item, error) {
 		item.CanonicalRoot = git.CanonicalRoot
 		item.BranchName = git.BranchName
 		item.Detached = git.Detached
+		item.IsGitMainWorktree = git.IsMainWorktree
 		item.IsMainWorkspace = true
 	case topology.GetRegistered() != nil:
 		git := topology.GetRegistered().Git
@@ -77,6 +79,7 @@ func projectTopology(topology *worktreepb.TopologyEntry) (Item, error) {
 		item.WorktreeID = textutil.OptionalTrimmedString(kent.WorktreeId)
 		item.BranchName = git.BranchName
 		item.Detached = git.Detached
+		item.IsGitMainWorktree = git.IsMainWorktree
 		item.Managed = kent.Managed
 		item.CreatedBranch = kent.CreatedBranch
 	case topology.GetExternal() != nil:
@@ -85,6 +88,7 @@ func projectTopology(topology *worktreepb.TopologyEntry) (Item, error) {
 		item.CanonicalRoot = git.CanonicalRoot
 		item.BranchName = git.BranchName
 		item.Detached = git.Detached
+		item.IsGitMainWorktree = git.IsMainWorktree
 	case topology.GetMissing() != nil:
 		kent := topology.GetMissing().Kent
 		item.DisplayName = kent.DisplayName
@@ -128,9 +132,13 @@ func DeleteCanAutoDeleteBranch(item Item) bool {
 }
 
 func CanDelete(item Item) bool {
-	return item.DeletePreview != nil || item.Entry != nil &&
+	return DeletionTopologyEligible(item) && (item.DeletePreview != nil || item.Entry != nil &&
 		item.Entry.Projection != nil &&
-		item.Entry.Projection.DeletePreview != nil
+		item.Entry.Projection.DeletePreview != nil)
+}
+
+func DeletionTopologyEligible(item Item) bool {
+	return !item.IsMainWorkspace && !item.IsGitMainWorktree
 }
 
 func ValidateDeletionTarget(item Item) error {

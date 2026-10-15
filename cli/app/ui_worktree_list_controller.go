@@ -174,7 +174,8 @@ func (c uiInputController) startSelectedWorktreeDelete(preferDeleteBranch bool) 
 	if !ok {
 		return m, c.model.sendTransientStatusWithNoticeID("Select a worktree to delete", uiStatusNoticeError, transientStatusDuration, uiStatusNoticeReplace, "")
 	}
-	if err := worktreeui.ValidateDeletionTarget(target); err != nil && m.newSessionTarget() == nil {
+	if !worktreeDeleteActionsAvailableForSelection(m) {
+		err := worktreeui.ValidateDeletionTarget(target)
 		if errors.Is(err, worktreeui.ErrMainWorkspaceNotDeletable) {
 			return m, c.model.sendTransientStatusWithNoticeID("Main workspace is not deletable", uiStatusNoticeError, transientStatusDuration, uiStatusNoticeReplace, "")
 		}
