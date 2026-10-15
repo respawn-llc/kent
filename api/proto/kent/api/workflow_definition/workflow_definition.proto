@@ -635,6 +635,14 @@ message GraphDraft {
   repeated GraphDraftNode nodes = 2 [(buf.validate.field).repeated.max_items = 200];
   repeated GraphDraftTransitionGroup transition_groups = 3 [(buf.validate.field).repeated.max_items = 1000];
   repeated GraphDraftEdge edges = 4 [(buf.validate.field).repeated.max_items = 1000];
+
+  option (buf.validate.message).cel = {
+    id: "kent.workflow_definition.draft_node_group_key_membership"
+    message: "node group keys must identify a group when no explicit group ID is supplied"
+    expression:
+      "this.nodes.all(node, has(node.group_id) || node.group_key.trim() == '' || "
+      "this.node_groups.exists(group, group.key.trim() == node.group_key.trim()))"
+  };
 }
 
 message GraphMetadata {

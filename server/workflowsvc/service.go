@@ -2483,14 +2483,7 @@ func workflowDefinitionFromGraphDraft(workflowID runtimeids.WorkflowID, graph *p
 		groupID := optionalStringValue(node.GroupId)
 		if groupID == "" && strings.TrimSpace(node.GroupKey) != "" {
 			groupKey := workflow.ModelKey(strings.TrimSpace(node.GroupKey))
-			var ok bool
-			groupID, ok = groupIDByKey[groupKey]
-			if !ok {
-				return workflow.Definition{}, fmt.Errorf(
-					"workflow node group key %q is not in the saved graph",
-					groupKey,
-				)
-			}
+			groupID = groupIDByKey[groupKey]
 		}
 		if groupID != "" {
 			groupMemberIDs[groupID] = append(groupMemberIDs[groupID], workflow.NodeID(node.Id))
