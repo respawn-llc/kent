@@ -192,10 +192,7 @@ func writeTaskDependencyDirections[T taskDependencyDirection](stdout io.Writer, 
 			fmt.Fprintln(stdout, "Blocked by:")
 		}
 		for _, item := range direction.GetItems() {
-			status, err := taskStatusText(item.Status)
-			if err != nil {
-				return err
-			}
+			status := taskStatusText(item.Status)
 			fmt.Fprintf(stdout, "%s: %s (%s)\n", item.ShortId, item.Title, status)
 		}
 	}

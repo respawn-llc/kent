@@ -166,10 +166,7 @@ func writeTaskDetail(stdout io.Writer, task *taskpb.TaskDetail) error {
 }
 
 func writeTaskDetailWithLabelNames(stdout io.Writer, task *taskpb.TaskDetail, labelNames []string) error {
-	statusText, err := taskStatusText(task.Status)
-	if err != nil {
-		return err
-	}
+	statusText := taskStatusText(task.Status)
 	fmt.Fprintf(stdout, "%s: %s\n", task.Summary.ShortId, task.Summary.Title)
 	fmt.Fprintln(stdout, "Body:")
 	fmt.Fprintln(stdout, "```md")
@@ -231,10 +228,7 @@ func taskLabelNamesForHumanOutput(ctx context.Context, remote apicontract.Workfl
 }
 
 func writeTaskExecutionTarget(stdout io.Writer, target *taskpb.ExecutionTarget) error {
-	mode, err := protoapi.WorkflowExecutionTargetMode.Decode(target.Mode)
-	if err != nil {
-		return err
-	}
+	mode := protoapi.WorkflowExecutionTargetMode.FromProto(target.Mode)
 	fmt.Fprintf(stdout, "Execution target: %s\n", mode)
 	if target.RequestedRef != nil {
 		fmt.Fprintf(stdout, "Requested revision: %s\n", *target.RequestedRef)
@@ -261,6 +255,6 @@ func shortCommitOID(commitOID string) string {
 	return trimmed[:displayLength]
 }
 
-func taskStatusText(status *taskpb.TaskStatus) (string, error) {
-	return protoapi.TaskStatusKind.Decode(status.Kind)
+func taskStatusText(status *taskpb.TaskStatus) string {
+	return protoapi.TaskStatusKind.FromProto(status.Kind)
 }
