@@ -45,7 +45,7 @@ func agentReplacementFixture(t *testing.T) (config.App, *Service, *metadata.Stor
 	if err != nil {
 		t.Fatal(err)
 	}
-	rotation := new(launch.ConnectionRotation)
+	rotation := launch.NewConnectionRotation(testsetup.OpenStore(t, t.TempDir()))
 	authority := sessionruntime.NewAuthority(sessionruntime.AuthorityOptions{
 		PersistenceRoot: cfg.PersistenceRoot, StoreOptions: db.AuthoritativeSessionStoreOptions(), ConnectionRotation: rotation,
 	})
@@ -179,7 +179,7 @@ func TestAgentReplacementRevalidatesBaselineAfterStop(t *testing.T) {
 	if err != nil || read.GetSession().Settings.SelectedAgent.Model != "gpt-6-sol" {
 		t.Fatalf("replacement model = %v, %v", read, err)
 	}
-	next, err := service.planner.Rotation.Prepare(cfg.Settings, true)
+	next, err := service.planner.Rotation.Prepare(t.Context(), cfg.Settings, true)
 	if err != nil || next != "a" {
 		t.Fatalf("revalidation consumed a second rotation slot: %v, %v", next, err)
 	}
@@ -232,7 +232,7 @@ func TestAgentReplacementRejectsInvalidRetainedConnectionBeforePersistence(t *te
 			if err != nil || !beforeSettings.Equal(afterSettings) || !reflect.DeepEqual(before.Meta.Locked, after.Meta.Locked) {
 				t.Fatalf("failed revalidation persisted replacement: %+v, %v", afterSettings, err)
 			}
-			next, err := service.planner.Rotation.Prepare(service.planner.Config.Settings, true)
+			next, err := service.planner.Rotation.Prepare(t.Context(), service.planner.Config.Settings, true)
 			if err != nil || next != "a" {
 				t.Fatalf("failed revalidation consumed a second slot: %v, %v", next, err)
 			}

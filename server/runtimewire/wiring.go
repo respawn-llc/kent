@@ -40,6 +40,7 @@ func (w *RuntimeWiring) Close() error {
 
 type RuntimeWiringOptions struct {
 	SubmitSessionNaming                 func(runtime.SessionNamingInput)
+	RecordUsage                         ConnectionUsageRecorder
 	Environment                         func(string) (string, bool)
 	WorkspaceMembership                 WorkspaceMembership
 	ProjectWorkspaceContextReader       runtime.ProjectWorkspaceContextReader
@@ -119,6 +120,7 @@ func NewRuntimeWiringWithBackground(
 			Purpose: purpose, SessionID: store.Meta().SessionID, ActiveSettings: settings,
 			EnabledTools: enabledTools, Sources: opts.Sources, Connection: connection,
 			RequestCapabilities: capabilities,
+			RecordUsage:         opts.RecordUsage,
 		})
 	}
 	providerCapabilities, err := llm.ResolveEffectiveProviderCapabilities(store.Meta().Locked, active)

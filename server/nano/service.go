@@ -79,7 +79,7 @@ func (s *Service) Admit() (Invocation, error) {
 		}
 		selected := settings
 		selected.Connection = settings.Nano.Connection
-		id, err := s.rotation.Prepare(selected, true)
+		id, err := s.rotation.Prepare(ctx, selected, true)
 		if err != nil {
 			return llm.Response{}, err
 		}
@@ -103,7 +103,8 @@ func (s *Service) generate(ctx context.Context, target llm.NanoTarget, prepare P
 	}
 	identity := uuid.NewString()
 	client, err := runtimewire.NewRuntimeClient(ctx, s.factory, runtimewire.RuntimeClientRequest{
-		Purpose: runtimewire.RuntimeClientPurposeNano, SessionID: identity,
+		RecordUsage: s.rotation.RecordUsage,
+		Purpose:     runtimewire.RuntimeClientPurposeNano, SessionID: identity,
 		ActiveSettings: target.Settings, Connection: connection, RequestCapabilities: target.Capabilities,
 	})
 	if err != nil {

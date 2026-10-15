@@ -199,7 +199,7 @@ func TestLaunchRetainsFirstExplicitToolListAcrossReopening(t *testing.T) {
 		t.Fatal(err)
 	}
 	override := serverapi.RunPromptOverrides{Tools: "exec_command"}
-	prepared, err := launch.PrepareRunPromptOverridesWithContext(cfg, override, launch.RunPromptPreparationContext{Mode: launch.ModeInteractive})
+	prepared, err := launch.PrepareRunPromptOverridesWithContext(t.Context(), cfg, override, launch.RunPromptPreparationContext{Mode: launch.ModeInteractive})
 	if err != nil {
 		t.Fatal(err)
 	}

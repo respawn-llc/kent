@@ -121,7 +121,7 @@ func NewWithContextOptions(ctx context.Context, cfg config.App, authSupport serv
 	runtimeRegistry := registry.NewRuntimeRegistry(metadataStore).WithAttentionNotifications(attentionBroker, metadataStore.ResolveSessionNavigationBinding)
 	runtimeRegistry.WithTranscriptContractViolationPanic(cfg.Settings.Debug)
 	var workflowController *workflowexecution.CurrentNodeController
-	connectionRotation := new(launch.ConnectionRotation)
+	connectionRotation := launch.NewConnectionRotation(metadataStore)
 	connections := authservice.NewConnectionResolver(cfg.PersistenceRoot, authSupport.AuthManager, authSupport.Environment)
 	nanoInference, err := nano.NewService(cfg.Settings.NanoConcurrency, connectionRotation, connections, opts.RuntimeClientFactory)
 	if err != nil {
@@ -134,6 +134,7 @@ func NewWithContextOptions(ctx context.Context, cfg config.App, authSupport serv
 		SubmitSessionNaming: func(id runtimeids.SessionID, root string, input runtime.SessionNamingInput) {
 			namingConsumer.Submit(id, root, input)
 		},
+		RecordUsage:                   connectionRotation.RecordUsage,
 		ConnectionRotation:            connectionRotation,
 		Environment:                   authSupport.Environment,
 		WorkspaceMembership:           metadataStore,
@@ -311,6 +312,7 @@ func NewWithContextOptions(ctx context.Context, cfg config.App, authSupport serv
 	workflowTaskMutations := workflowexecution.NewTaskMutationCoordinator()
 	workflowExecutionTargets := taskExecutionTargetInfrastructure{service: worktreeService, git: gitInspector}
 	workflowRuntimeStarter, err = workflowrunner.NewStarter(cfg, metadataStore, workflowStore, authSupport.AuthManager, runtimeRegistry, workflowrunner.StarterOptions{
+		RecordUsage:                connectionRotation.RecordUsage,
 		ConnectionRotation:         connectionRotation,
 		WorkspaceConfigLoadOptions: opts.WorkspaceConfigLoadOptions,
 		Environment:                authSupport.Environment,

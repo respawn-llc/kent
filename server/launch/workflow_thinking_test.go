@@ -78,7 +78,7 @@ func TestPreparedOverridesApplyWorkflowThinkingWithoutWritingRetainedSession(t *
 	}
 	store := testStoreForPlanForOverride(plan)
 	before := store.Meta()
-	prepared, err := PrepareRunPromptOverridesWithContext(loaded, serverapi.RunPromptOverrides{}, RunPromptPreparationContext{
+	prepared, err := PrepareRunPromptOverridesWithContext(t.Context(), loaded, serverapi.RunPromptOverrides{}, RunPromptPreparationContext{
 		Mode: ModeHeadless, SkipProviderReadinessValidation: true,
 	})
 	if err != nil {

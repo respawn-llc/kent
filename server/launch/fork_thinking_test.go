@@ -3,6 +3,7 @@ package launch
 import (
 	"testing"
 
+	"core/internal/testharness/testsetup"
 	"core/server/session"
 	"core/shared/config"
 	"core/shared/textutil"
@@ -77,7 +78,7 @@ func TestPrepareInteractiveForkUsesFreshTargetAndCurrentDesiredSelection(t *test
 				WorkflowSnapshot: &session.WorkflowSnapshot{},
 				ChatSettings:     &session.ChatSettingsOverrides{Thinking: new("low")},
 			}
-			target, err := PrepareInteractiveFork(config.App{Settings: settings}, meta, nil)
+			target, err := PrepareInteractiveFork(t.Context(), config.App{Settings: settings}, meta, nil)
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -87,7 +88,7 @@ func TestPrepareInteractiveForkUsesFreshTargetAndCurrentDesiredSelection(t *test
 			}
 			meta.ChatSettings = nil
 			meta.ConnectionID = &id
-			target, err = PrepareInteractiveFork(config.App{Settings: settings}, meta, nil)
+			target, err = PrepareInteractiveFork(t.Context(), config.App{Settings: settings}, meta, nil)
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -113,12 +114,12 @@ func TestPrepareInteractiveForkUsesAllocatedConnectionInsteadOfFirstMember(t *te
 		ConnectionID: new(config.ConnectionID("official")),
 		ChatSettings: &session.ChatSettingsOverrides{Thinking: new("low")},
 	}
-	rotation := new(ConnectionRotation)
+	rotation := NewConnectionRotation(testsetup.OpenStore(t, t.TempDir()))
 	for _, expected := range []struct {
 		id     config.ConnectionID
 		native bool
 	}{{"official", true}, {"custom", false}, {"official", true}} {
-		target, err := PrepareInteractiveFork(config.App{Settings: settings}, source, rotation)
+		target, err := PrepareInteractiveFork(t.Context(), config.App{Settings: settings}, source, rotation)
 		if err != nil {
 			t.Fatal(err)
 		}

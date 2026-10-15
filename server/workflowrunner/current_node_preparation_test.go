@@ -9,6 +9,7 @@ import (
 	"testing"
 	"time"
 
+	"core/internal/testharness/testsetup"
 	"core/server/launch"
 	"core/server/llm"
 	"core/server/session"
@@ -40,7 +41,7 @@ func TestCompactionTargetDoesNotPrepareProviderBeforeCompaction(t *testing.T) {
 		t.Fatal(err)
 	}
 	input.CurrentNode.SessionID, input.SourceSessionID = &id, &id
-	f.starter.connectionRotation = new(launch.ConnectionRotation)
+	f.starter.connectionRotation = launch.NewConnectionRotation(testsetup.OpenStore(t, t.TempDir()))
 	before := len(f.runtimeRequests())
 	if _, err := f.starter.PrepareCurrentNode(t.Context(), input, workflowruntime.TaskPromptDeliveryAssignment); err != nil {
 		t.Fatal(err)
