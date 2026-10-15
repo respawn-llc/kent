@@ -417,9 +417,6 @@ func (d *TaskDependencies) addAvailability(count int) (*taskpb.DependencyAddAvai
 	}
 	switch availability.Kind {
 	case workflow.TaskDependencyAddAvailable:
-		if availability.RemainingCapacity == nil {
-			return nil, errors.New("task dependency availability omitted remaining capacity")
-		}
 		return &taskpb.DependencyAddAvailability{
 			Availability: &taskpb.DependencyAddAvailability_Available{
 				Available: &taskpb.DependencyAvailable{RemainingCapacity: int32(*availability.RemainingCapacity)},

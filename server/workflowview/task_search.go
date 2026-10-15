@@ -311,8 +311,6 @@ func taskSearchMaterializeHit(
 			return nil, err
 		}
 		hit.Match = &taskpb.SearchHit_Fts5{Fts5: &taskpb.SearchFts5Hit{Snippet: snippet}}
-	default:
-		return nil, errors.New("task search mode is invalid")
 	}
 	return hit, nil
 }
