@@ -1,7 +1,9 @@
 package transcript
 
 import (
+	"core/shared/config"
 	"core/shared/llmerrors"
+	"errors"
 	"strings"
 )
 
@@ -46,6 +48,31 @@ type ReasoningOmissionNotice struct {
 type ConnectionsUnavailableNotice struct {
 	Members     []llmerrors.UnavailableConnection `json:"members"`
 	Diagnostics []string                          `json:"diagnostics"`
+}
+
+type ConnectionNoticeFacts struct {
+	Fallback              *config.ConnectionReplacement
+	Unavailable           *ConnectionsUnavailableNotice
+	ToolOutputRepair      *ToolOutputRepairNotice
+	ProviderModelMismatch *ProviderModelMismatchNotice
+	ReasoningOmission     *ReasoningOmissionNotice
+}
+
+func (facts ConnectionNoticeFacts) Validate() error {
+	if facts.Fallback == nil && facts.Unavailable == nil {
+		return nil
+	}
+	if facts.Fallback != nil && !facts.Fallback.Valid() {
+		return errors.New("connection fallback identities are invalid")
+	}
+	if facts.Unavailable != nil && !facts.Unavailable.Valid() {
+		return errors.New("unavailable connection facts are invalid")
+	}
+	if facts.Fallback != nil && facts.Unavailable != nil ||
+		facts.ToolOutputRepair != nil || facts.ProviderModelMismatch != nil || facts.ReasoningOmission != nil {
+		return errors.New("local entry cannot carry multiple typed notice facts")
+	}
+	return nil
 }
 
 func (n ConnectionsUnavailableNotice) Valid() bool {

@@ -371,21 +371,11 @@ func normalizeStoredLocalEntry(entry storedLocalEntry) (storedLocalEntry, error)
 	if entry.ReasoningOmission != nil && !entry.ReasoningOmission.Valid() {
 		return storedLocalEntry{}, errors.New("reasoning omission facts are invalid")
 	}
-	if entry.ConnectionFallback != nil {
-		if !entry.ConnectionFallback.Valid() {
-			return storedLocalEntry{}, errors.New("connection fallback identities are invalid")
-		}
-		if entry.ToolOutputRepair != nil || entry.ProviderModelMismatch != nil || entry.ReasoningOmission != nil {
-			return storedLocalEntry{}, errors.New("local entry cannot carry multiple typed notice facts")
-		}
-	}
-	if entry.ConnectionsUnavailable != nil {
-		if !entry.ConnectionsUnavailable.Valid() {
-			return storedLocalEntry{}, errors.New("unavailable connection facts are invalid")
-		}
-		if entry.ToolOutputRepair != nil || entry.ProviderModelMismatch != nil || entry.ReasoningOmission != nil || entry.ConnectionFallback != nil {
-			return storedLocalEntry{}, errors.New("local entry cannot carry multiple typed notice facts")
-		}
+	if err := (transcript.ConnectionNoticeFacts{
+		Fallback: entry.ConnectionFallback, Unavailable: entry.ConnectionsUnavailable,
+		ToolOutputRepair: entry.ToolOutputRepair, ProviderModelMismatch: entry.ProviderModelMismatch, ReasoningOmission: entry.ReasoningOmission,
+	}).Validate(); err != nil {
+		return storedLocalEntry{}, err
 	}
 	if entry.ToolOutputRepair != nil && entry.ProviderModelMismatch != nil ||
 		entry.ReasoningOmission != nil && (entry.ToolOutputRepair != nil || entry.ProviderModelMismatch != nil) {

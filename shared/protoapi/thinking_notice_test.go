@@ -46,6 +46,12 @@ func TestThinkingNoticeValidation(t *testing.T) {
 		{"model mismatch", func(row *transcriptpb.NoticeRow) {
 			row.ProviderModelMismatch = &transcriptpb.ProviderModelMismatch{RequestedModel: "requested", ServedModel: "served"}
 		}},
+		{"connection fallback", func(row *transcriptpb.NoticeRow) {
+			row.ConnectionFallback = &transcriptpb.ConnectionReplacement{PreviousId: "a", CurrentId: "b"}
+		}},
+		{"connections unavailable", func(row *transcriptpb.NoticeRow) {
+			row.ConnectionsUnavailable = &transcriptpb.ConnectionsUnavailable{Members: []*transcriptpb.UnavailableConnection{{Id: "a"}}}
+		}},
 		{"diagnostic", func(row *transcriptpb.NoticeRow) {
 			row.Diagnostic = &transcriptpb.Diagnostic{Code: "failure", Detail: "details"}
 		}},
@@ -65,6 +71,36 @@ func TestThinkingNoticeValidation(t *testing.T) {
 			test.mutate(row)
 			if err := Validate(row); err == nil {
 				t.Fatal("invalid notice accepted")
+			}
+		})
+	}
+}
+
+func TestConnectionNoticeValidation(t *testing.T) {
+	for _, valid := range []*transcriptpb.NoticeRow{
+		{Reason: transcriptpb.NoticeReason_NOTICE_REASON_CONNECTION_FALLBACK, Severity: transcriptpb.NoticeSeverity_NOTICE_SEVERITY_INFO, ConnectionFallback: &transcriptpb.ConnectionReplacement{PreviousId: "a", CurrentId: "b"}},
+		{Reason: transcriptpb.NoticeReason_NOTICE_REASON_CONNECTIONS_UNAVAILABLE, Severity: transcriptpb.NoticeSeverity_NOTICE_SEVERITY_ERROR, ConnectionsUnavailable: &transcriptpb.ConnectionsUnavailable{Members: []*transcriptpb.UnavailableConnection{{Id: "a"}}}},
+	} {
+		t.Run(valid.Reason.String(), func(t *testing.T) {
+			if err := Validate(valid); err != nil {
+				t.Fatalf("valid connection notice rejected: %v", err)
+			}
+			for _, mutate := range []func(*transcriptpb.NoticeRow){
+				func(row *transcriptpb.NoticeRow) { row.ConnectionFallback = nil; row.ConnectionsUnavailable = nil },
+				func(row *transcriptpb.NoticeRow) { row.LegacyText = proto.String("unrelated") },
+				func(row *transcriptpb.NoticeRow) {
+					row.ToolOutputRepair = &transcriptpb.ToolOutputRepair{Kind: "fresh_resource", Count: 1}
+				},
+				func(row *transcriptpb.NoticeRow) {
+					row.ConnectionFallback = &transcriptpb.ConnectionReplacement{PreviousId: "a", CurrentId: "b"}
+					row.ConnectionsUnavailable = &transcriptpb.ConnectionsUnavailable{Members: []*transcriptpb.UnavailableConnection{{Id: "a"}}}
+				},
+			} {
+				row := proto.Clone(valid).(*transcriptpb.NoticeRow)
+				mutate(row)
+				if err := Validate(row); err == nil {
+					t.Fatal("invalid connection notice accepted")
+				}
 			}
 		})
 	}

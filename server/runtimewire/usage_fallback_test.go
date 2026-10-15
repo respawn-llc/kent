@@ -20,6 +20,7 @@ import (
 	"core/server/launch"
 	"core/server/llm"
 	"core/server/runtime"
+	"core/server/runtimeview"
 	"core/server/session"
 	"core/shared/config"
 	"core/shared/llmerrors"
@@ -54,6 +55,9 @@ func TestUsageFallbackContinuesAndSavesReplacement(t *testing.T) {
 	page, err := runtime.TranscriptNewestSegmentPageFromEventLog(materializedRuntimeWireEventLog(t, reopened), config.CacheWarningModeDefault)
 	if err != nil {
 		t.Fatal(err)
+	}
+	if _, err := runtimeview.TranscriptTailSegmentFromSegment(page, nil); err != nil {
+		t.Fatalf("project reopened fallback through generated validation: %v", err)
 	}
 	var notices []config.ConnectionReplacement
 	for _, entry := range page.Snapshot.Entries {
@@ -306,7 +310,7 @@ func TestUsageFallbackUnavailableIsBoundedAfterCooldownExpires(t *testing.T) {
 	fault := usageExhaustionFixture(t)
 	a, aCalls := usageFailureEndpoint(t, 429, fault)
 	b, bCalls := usageFailureEndpoint(t, 429, fault)
-	wiring, _ := newUsageFallbackRuntime(t, launch.NewConnectionRotation(time.Nanosecond), a, b, config.CompactionModeLocal)
+	wiring, store := newUsageFallbackRuntime(t, launch.NewConnectionRotation(time.Nanosecond), a, b, config.CompactionModeLocal)
 	_, err := wiring.Engine.SubmitUserMessage(t.Context(), "hello")
 	var unavailable *llmerrors.ConnectionsUnavailableError
 	if !errors.As(err, &unavailable) || len(unavailable.Members) != 2 || len(unavailable.Causes) != 2 {
@@ -328,6 +332,17 @@ func TestUsageFallbackUnavailableIsBoundedAfterCooldownExpires(t *testing.T) {
 	}
 	if facts == nil || len(facts.Members) != 2 || len(facts.Diagnostics) != 2 {
 		t.Fatalf("unavailable notice facts = %+v", facts)
+	}
+	reopened, err := session.Open(store.Dir(), runtimeWireTestSessionPersistence.Options()...)
+	if err != nil {
+		t.Fatal(err)
+	}
+	page, err := runtime.TranscriptNewestSegmentPageFromEventLog(materializedRuntimeWireEventLog(t, reopened), config.CacheWarningModeDefault)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := runtimeview.TranscriptTailSegmentFromSegment(page, nil); err != nil {
+		t.Fatalf("project reopened unavailable through generated validation: %v", err)
 	}
 }
 
