@@ -21,11 +21,16 @@ func prepareNewSessionUIRun(ctx context.Context, server interactiveSessionServer
 		return uiLoopRequest{}, err
 	}
 	catalog := prepareUICommandCatalog(ctx, server, nil)
+	source, ok := server.(sessionUISource)
+	if !ok {
+		return uiLoopRequest{}, errors.New("Session UI services are required")
+	}
 	return uiLoopRequest{
-		ctx:             ctx,
-		newChatSettings: server.ChatSettingsClient(),
-		newChatAuth:     server.AuthBootstrapClient(),
-		newChatLogin:    server.Reauthenticate,
+		ctx:              ctx,
+		newChatSettings:  server.ChatSettingsClient(),
+		newChatAuth:      server.AuthBootstrapClient(),
+		newChatMutations: source.SessionUIClients().ChatMutations,
+		newChatLogin:     server.Reauthenticate,
 		newChat: &chatpb.NewChatTarget{
 			ProjectId:   binding.ProjectID,
 			WorkspaceId: binding.WorkspaceID,

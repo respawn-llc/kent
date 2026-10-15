@@ -10,6 +10,7 @@ import (
 
 	"core/cli/app/internal/runtimeattach"
 	"core/shared/clientui"
+	chatpb "core/shared/protoapi/gen/kent/api/chat"
 	"core/shared/runtimeinput"
 	"core/shared/serverapi"
 
@@ -64,6 +65,10 @@ func (c uiInputController) startTypedSubmissionWithPreSubmitQueuePositionAndOrde
 	submissionOrder *inputSubmissionOrder,
 ) tea.Cmd {
 	m := c.model
+	if m.newSessionTarget() != nil {
+		cmd := c.submitCmd(text, input, queuedID, origin, submissionOrder)
+		return tea.Batch(cmd, m.reconcileSpinnerTicking(false))
+	}
 	if blocked, disconnectCmd := c.blockDisconnectedSubmission(true, text); blocked {
 		return disconnectCmd
 	}
@@ -104,6 +109,13 @@ func (c uiInputController) startSubmissionWithPromptHistoryAndQueuePositionAndID
 
 func (c uiInputController) submitCmd(text string, input runtimeinput.Input, queuedID string, origin activeSubmitOrigin, submissionOrder *inputSubmissionOrder) tea.Cmd {
 	m := c.model
+	if m.newSessionTarget() != nil {
+		intent := newSessionInputEnter
+		if origin == activeSubmitOriginQueued {
+			intent = newSessionInputQueue
+		}
+		return m.newSessionInputCmd(text, input, intent)
+	}
 	token := m.beginSubmitAttempt(text, queuedID, origin, submissionOrder)
 	client := m.runtimeClient()
 	sessionID := m.pendingWorkRefresh.sessionID
@@ -145,6 +157,9 @@ func (c uiInputController) submitCmd(text string, input runtimeinput.Input, queu
 
 func (c uiInputController) submitUserShellCmd(originalText, command string, origin activeSubmitOrigin, submissionOrder *inputSubmissionOrder) tea.Cmd {
 	m := c.model
+	if m.newSessionTarget() != nil {
+		return m.newSessionActionCmd(newSessionShellAction{command: command}, &originalText)
+	}
 	token := m.beginSubmitAttempt(originalText, "", origin, submissionOrder)
 	client := m.runtimeClient()
 	return func() tea.Msg {
@@ -193,6 +208,14 @@ func (m *uiModel) beginSubmitAttempt(
 
 func (c uiInputController) startCompaction(submittedText, args string) tea.Cmd {
 	m := c.model
+	if m.newSessionTarget() != nil {
+		invocation := &chatpb.CompactionInvocation{Token: "/compact"}
+		if guidance := optionalCompactionGuidance(args); guidance != nil {
+			invocation.SeparatorWhitespace = " "
+			invocation.RawGuidance = *guidance
+		}
+		return m.newSessionActionCmd(newSessionCompactionAction{invocation: invocation}, &submittedText)
+	}
 	if m.isCompacting() {
 		return nil
 	}

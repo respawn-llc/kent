@@ -60,6 +60,7 @@ type missingPromptRecoveryScope struct {
 }
 
 type uiInputFeatureState struct {
+	pendingNewChatActions  int
 	mainEditor             tuiinput.Editor
 	mainInputDraftToken    uint64
 	promptHistory          []string

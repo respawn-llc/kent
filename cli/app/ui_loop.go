@@ -34,6 +34,7 @@ type uiLoopRequest struct {
 	newChat                      *chatpb.NewChatTarget
 	newChatSettings              apicontract.ChatSettingsService
 	newChatAuth                  apicontract.AuthBootstrapService
+	newChatMutations             apicontract.ChatMutationService
 	newChatLogin                 func(context.Context) error
 	ctx                          context.Context
 	wiring                       *runtimeWiring
@@ -223,10 +224,11 @@ func composeUIProgram(request uiLoopRequest, output io.Writer) (*uiProgramCompos
 	}
 	if request.newChat != nil {
 		model.presentationTarget = &uiNewSessionTarget{
-			creation: request.newChat,
-			settings: request.newChatSettings,
-			auth:     request.newChatAuth,
-			login:    request.newChatLogin,
+			creation:  request.newChat,
+			settings:  request.newChatSettings,
+			auth:      request.newChatAuth,
+			mutations: request.newChatMutations,
+			login:     request.newChatLogin,
 		}
 		if request.newChatSettings != nil {
 			model.startupCmds = append(model.startupCmds, model.loadNewSessionSettingsCmd(nil))

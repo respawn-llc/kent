@@ -15,6 +15,7 @@ type uiNewSessionTarget struct {
 	creation     *chatpb.NewChatTarget
 	settings     apicontract.ChatSettingsService
 	auth         apicontract.AuthBootstrapService
+	mutations    apicontract.ChatMutationService
 	login        func(context.Context) error
 	settingsLoad uiNewSessionSettingsLoad
 }
