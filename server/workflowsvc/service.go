@@ -2334,20 +2334,14 @@ func (s *Service) ListWorkflowBoardNodeCards(ctx context.Context, req *taskpb.Bo
 }
 
 func (s *Service) SubscribeWorkflowProject(ctx context.Context, req *pb.ProjectSubscribeRequest) (apicontract.WorkflowEventSubscription, error) {
-	if err := protoapi.Validate(req); err != nil {
-		return nil, err
-	}
 	return s.events.subscribe(req.ProjectId, nil)
 }
 
 func (s *Service) SubscribeWorkflow(ctx context.Context, req *pb.WorkflowSubscribeRequest) (apicontract.WorkflowEventSubscription, error) {
-	if err := protoapi.Validate(req); err != nil {
-		return nil, err
-	}
 	if _, err := s.GetWorkflow(ctx, &pb.GetRequest{WorkflowId: req.WorkflowId}); err != nil {
 		return nil, err
 	}
-	workflowID, err := runtimeids.ParseWorkflowID(req.WorkflowId)
+	workflowID, err := runtimeids.WorkflowIDFromProto(req.WorkflowId)
 	if err != nil {
 		return nil, err
 	}
