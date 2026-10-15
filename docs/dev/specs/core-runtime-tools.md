@@ -599,6 +599,7 @@ You can use `kent run steer <source-session-id> "message"` to respond.
 - A live Session rebind must allow Session-owned background commands. Existing commands must continue in the directories where they started, and commands started after the move must use the new Working Directory.
 - A Session rebind sets the Working Directory to the target Workspace root.
 - A Session rebind either applies its Project, Workspace, artifact location, Working Directory, and successful reminder together or leaves the previous location unchanged.
+- When the target Project's artifact directory is already the Session's recorded artifact directory, rebind must reconcile Project and Workspace ownership without moving or deleting that directory. Rebind must reject a distinct occupied target without changing the Session's history or ownership.
 - A successful Session rebind or its authoritative failure notice must be included in the next naturally occurring model step. Rebind must not start a model step.
 
 ## Provider Stream Completion
