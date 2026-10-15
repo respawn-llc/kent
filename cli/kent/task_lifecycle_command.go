@@ -146,11 +146,7 @@ func taskCreateSubcommand(args []string, stdout io.Writer, stderr io.Writer) int
 			return 1
 		}
 		if *jsonOut {
-			output, err := taskShowOutputFromDetail(task)
-			if err != nil {
-				fmt.Fprintln(stderr, err)
-				return 1
-			}
+			output := taskShowOutputFromDetail(task)
 			return writeCommandJSON(stdout, stderr, output)
 		}
 		labelNames, err := taskLabelNamesForHumanOutput(context.Background(), remote, task.Summary.ProjectId, task.LabelIds)

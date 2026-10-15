@@ -54,7 +54,7 @@ type taskSourceWorkspaceJSON struct {
 	UpdatedAtUnixMs int64  `json:"updated_at_unix_ms"`
 }
 
-func taskSourceWorkspaceOutput(value *taskpb.TaskSourceWorkspace) (taskSourceWorkspaceJSON, error) {
+func taskSourceWorkspaceOutput(value *taskpb.TaskSourceWorkspace) taskSourceWorkspaceJSON {
 	availability := protoapi.ProjectAvailabilityFromProto(value.Availability)
 	out := taskSourceWorkspaceJSON{
 		WorkspaceID: value.WorkspaceId, DisplayName: value.DisplayName, RootPath: value.RootPath,
@@ -63,7 +63,7 @@ func taskSourceWorkspaceOutput(value *taskpb.TaskSourceWorkspace) (taskSourceWor
 	if value.UpdatedAt != nil {
 		out.UpdatedAtUnixMs = value.UpdatedAt.AsTime().UnixMilli()
 	}
-	return out, nil
+	return out
 }
 
 type taskExecutionTargetJSON struct {
@@ -74,20 +74,14 @@ type taskExecutionTargetJSON struct {
 	Provenance   string  `json:"provenance"`
 }
 
-func taskExecutionTargetOutput(value *taskpb.ExecutionTarget) (*taskExecutionTargetJSON, error) {
+func taskExecutionTargetOutput(value *taskpb.ExecutionTarget) *taskExecutionTargetJSON {
 	if value == nil {
-		return nil, nil
+		return nil
 	}
-	mode, err := protoapi.WorkflowExecutionTargetMode.Decode(value.Mode)
-	if err != nil {
-		return nil, err
-	}
-	provenance, err := protoapi.TaskExecutionTargetProvenance.Decode(value.Provenance)
-	if err != nil {
-		return nil, err
-	}
+	mode := protoapi.WorkflowExecutionTargetMode.FromProto(value.Mode)
+	provenance := protoapi.TaskExecutionTargetProvenance.FromProto(value.Provenance)
 	return &taskExecutionTargetJSON{
 		Mode: mode, RequestedRef: value.RequestedRef, ResolvedRef: value.ResolvedRef,
 		CommitOID: value.CommitOid, Provenance: provenance,
-	}, nil
+	}
 }

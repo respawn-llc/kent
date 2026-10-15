@@ -63,11 +63,7 @@ func taskShowSubcommand(args []string, stdout io.Writer, stderr io.Writer) int {
 			fmt.Fprintf(stderr, "Note: This task belongs to another project %s\n", task.Project.ProjectKey)
 		}
 		if *jsonOut {
-			output, err := taskShowOutputFromDetail(task)
-			if err != nil {
-				fmt.Fprintln(stderr, err)
-				return 1
-			}
+			output := taskShowOutputFromDetail(task)
 			return writeCommandJSON(stdout, stderr, output)
 		}
 		labelNames, err := taskLabelNamesForHumanOutput(context.Background(), remote, task.Summary.ProjectId, task.LabelIds)
@@ -83,16 +79,10 @@ func taskShowSubcommand(args []string, stdout io.Writer, stderr io.Writer) int {
 	})
 }
 
-func taskShowOutputFromDetail(task *taskpb.TaskDetail) (taskShowOutput, error) {
+func taskShowOutputFromDetail(task *taskpb.TaskDetail) taskShowOutput {
 	status := taskStatusOutput(task.Status)
-	source, err := taskSourceWorkspaceOutput(task.SourceWorkspace)
-	if err != nil {
-		return taskShowOutput{}, err
-	}
-	target, err := taskExecutionTargetOutput(task.ExecutionTarget)
-	if err != nil {
-		return taskShowOutput{}, err
-	}
+	source := taskSourceWorkspaceOutput(task.SourceWorkspace)
+	target := taskExecutionTargetOutput(task.ExecutionTarget)
 	output := taskShowOutput{
 		Summary:              taskSummaryOutput(task.Summary),
 		Body:                 task.Body,
@@ -120,7 +110,7 @@ func taskShowOutputFromDetail(task *taskpb.TaskDetail) (taskShowOutput, error) {
 			BlockedTaskCount:        task.Dependencies.DirectlyBlockedTaskCount,
 		}
 	}
-	return output, nil
+	return output
 }
 
 func normalizedLabelIDs(ids []string) []string {
