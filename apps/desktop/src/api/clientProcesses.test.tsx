@@ -15,7 +15,10 @@ function fixture(startResult = processObservationFixtureRoute.startResult) {
   const services = createTestServices([{ ...processObservationFixtureRoute, startResult }]);
   const received: (readonly DesktopProcess[])[] = [];
   const failed = vi.fn();
-  const stream = services.api.observeProcesses({ projectID: "project-1", sessionID: "session-1" });
+  const stream = services.api.observeProcesses({
+    projectID: "project-1",
+    sessionID: "11111111-1111-4111-8111-111111111111",
+  });
   const observation = Atom.make(
     Stream.runForEach(stream, (list) =>
       Effect.sync(() => {
@@ -78,7 +81,7 @@ it.each([-1n, 0n, 255n, 2147483648n, 3221225477n, 4294967295n])(
           processes: [
             {
               id: "process-status",
-              ownerSessionId: "session-1",
+              ownerSessionId: "11111111-1111-4111-8111-111111111111",
               state: "completed",
               command: "child",
               workdir: "/tmp",

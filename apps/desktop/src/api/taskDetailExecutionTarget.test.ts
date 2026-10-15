@@ -85,7 +85,7 @@ describe("task detail execution target contract", () => {
       create(AttentionCurrentNodeSchema, {
         nodeId: `node-${id}`,
         nodeDisplayName: `Review ${id}`,
-        sessionId: `session-${id}`,
+        sessionId: `00000000-0000-4000-8000-${id.padStart(12, "0")}`,
       }),
     );
     const currentScripts = executionIDs.map((id) =>
@@ -122,7 +122,10 @@ describe("task detail execution target contract", () => {
           ...taskDetailResponse.task,
           currentScripts: [
             create(pb.CurrentScriptSchema, {
-              currentNode: { nodeId: "node-script", sessionId: "session-1" },
+              currentNode: {
+                nodeId: "node-script",
+                sessionId: "11111111-1111-4111-8111-111111111111",
+              },
               path: "scripts/run",
             }),
           ],
