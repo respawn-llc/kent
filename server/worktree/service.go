@@ -1354,10 +1354,7 @@ func (s *Service) runManagedTaskWorktreeSetupRecoveryWithSettings(
 	recreateBeforeFirstAttempt bool,
 	settings config.WorktreeSettings,
 ) (TaskWorktreeMaterialization, error) {
-	observer, err := s.taskSetupAttemptObserver(setupOperationID)
-	if err != nil {
-		return bound.materialization, err
-	}
+	observer := s.taskSetupAttemptObserver(setupOperationID)
 	attempt, err := bound.setupExecution(&settings)
 	if err != nil {
 		return bound.materialization, err
@@ -1406,10 +1403,7 @@ func (s *Service) runReplacementTaskWorktreeSetup(
 			retained.Details.RecoveryDisposition = worktreepb.SetupRecoveryDisposition_SETUP_RECOVERY_DISPOSITION_FRESH_REPLACEMENT
 		}
 	}()
-	observer, err := s.taskSetupAttemptObserver(setupOperationID)
-	if err != nil {
-		return created.materialization, err
-	}
+	observer := s.taskSetupAttemptObserver(setupOperationID)
 	request, err := created.setupExecution(&settings)
 	if err != nil {
 		return created.materialization, err
@@ -1901,7 +1895,7 @@ func (s *Service) CreateWorktree(ctx context.Context, req *worktreepb.CreateRequ
 		CreateBranch: req.GetSpec().GetCreateBranch(),
 		BranchName:   req.GetSpec().GetBranchName(),
 	})
-	setupOperationID, err := worktreecontract.ParseSetupOperationID(req.SetupOperationId)
+	setupOperationID, err := worktreecontract.SetupOperationIDFromProto(req.SetupOperationId)
 	if err != nil {
 		return nil, err
 	}
@@ -2341,20 +2335,17 @@ type preparedSetupAttempt struct {
 	recreation     *setupRecreationFacts
 }
 
-func (s *Service) taskSetupAttemptObserver(setupOperationID *worktreecontract.SetupOperationID) (setupAttemptObserver, error) {
+func (s *Service) taskSetupAttemptObserver(setupOperationID *worktreecontract.SetupOperationID) setupAttemptObserver {
 	if setupOperationID == nil {
-		return setupAttemptObserverFunc(func(*worktreepb.SetupStarted) {}), nil
+		return setupAttemptObserverFunc(func(*worktreepb.SetupStarted) {})
 	}
 	operationID := *setupOperationID
-	if err := operationID.Validate(); err != nil {
-		return nil, err
-	}
 	return setupAttemptObserverFunc(func(started *worktreepb.SetupStarted) {
 		s.publishSetupEvent(&worktreepb.SetupEvent{
 			SetupOperationId: operationID.String(),
 			Phase:            &worktreepb.SetupEvent_Started{Started: started},
 		})
-	}), nil
+	})
 }
 
 func (s *Service) runSetupRecovery(ctx context.Context, req setupRecoveryRequest) (setupRecoveryResult, error) {
@@ -2606,9 +2597,6 @@ func setupFailureFromError(err error, retained *worktreepb.TopologyEntry) *workt
 }
 
 func (s *Service) runSetupForWorktree(ctx context.Context, operationID worktreecontract.SetupOperationID, req setupExecutionRequest) error {
-	if err := operationID.Validate(); err != nil {
-		return err
-	}
 	attempt, err := s.prepareSetupAttempt(req)
 	if err != nil {
 		s.publishSetupEvent(&worktreepb.SetupEvent{
