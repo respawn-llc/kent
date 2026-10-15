@@ -23,7 +23,8 @@ import (
 
 type uiModel struct {
 	drafts          *uiDraftPersistence
-	eventDispatcher *uiEventDispatcher
+	presentationTarget uiPresentationTarget
+	eventDispatcher    *uiEventDispatcher
 	uiRuntimeFeatureState
 	uiInputFeatureState
 	uiPresentationFeatureState
@@ -161,7 +162,6 @@ type uiSessionTransitionFeatureState struct {
 	sessionExecutionTarget                  *worktreepb.SessionExecutionTarget
 	sessionRetargeted                       bool
 	sessionName                             *string
-	sessionID                               string
 	forcedLocalExit                         bool
 }
 

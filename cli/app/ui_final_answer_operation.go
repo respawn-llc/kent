@@ -54,7 +54,7 @@ func (m *uiModel) startFinalAnswerOperation(purpose uiFinalAnswerOperationPurpos
 	if m == nil || m.finalAnswerOperation != nil {
 		return nil
 	}
-	sessionID := strings.TrimSpace(m.sessionID)
+	sessionID := strings.TrimSpace(m.currentRuntimeSessionID())
 	if sessionID == "" {
 		return m.sendTransientStatusWithNoticeID("session id is required", uiStatusNoticeError, transientStatusDuration, uiStatusNoticeReplace, "")
 	}
@@ -86,7 +86,7 @@ func (m *uiModel) startFinalAnswerOperation(purpose uiFinalAnswerOperationPurpos
 
 func (m *uiModel) finalAnswerOperationMatches(token uint64, purpose uiFinalAnswerOperationPurpose, sessionID, parentSessionID string, phase uiFinalAnswerOperationPhase) bool {
 	op := m.finalAnswerOperation
-	return op != nil && op.token == token && op.purpose == purpose && op.sessionID == sessionID && op.parentSessionID == parentSessionID && op.phase == phase && m.exitAction == UIActionNone && m.sessionID == sessionID
+	return op != nil && op.token == token && op.purpose == purpose && op.sessionID == sessionID && op.parentSessionID == parentSessionID && op.phase == phase && m.exitAction == UIActionNone && m.currentRuntimeSessionID() == sessionID
 }
 
 func (m *uiModel) handleLatestFinalAnswerDone(msg latestFinalAnswerDoneMsg) tea.Cmd {

@@ -20,7 +20,7 @@ type promptHistoryLoadedMsg struct {
 
 func (m *uiModel) loadPromptHistoryCmd() tea.Cmd {
 	client := m.statusConfig.SessionViews
-	sessionID := m.sessionID
+	sessionID := m.currentRuntimeSessionID()
 	if client == nil || sessionID == "" {
 		return nil
 	}

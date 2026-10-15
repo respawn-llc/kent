@@ -605,7 +605,7 @@ func (m *uiModel) worktreeMutationService() worktreeui.Service {
 	}
 	service := worktreeui.Service{
 		Client:        m.worktreeClient,
-		SessionTarget: &sharedpb.SessionSelector{Value: &sharedpb.SessionSelector_SessionId{SessionId: m.sessionID}},
+		SessionTarget: &sharedpb.SessionSelector{Value: &sharedpb.SessionSelector_SessionId{SessionId: m.currentRuntimeSessionID()}},
 		WorkspaceID:   target.GetWorkspaceId(),
 		WorkspaceRoot: target.GetWorkspaceRoot(),
 		ResolveContext: func() (context.Context, context.CancelFunc) {

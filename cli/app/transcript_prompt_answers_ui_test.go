@@ -221,7 +221,7 @@ func TestAskCtrlCInterruptsRuntimeWithoutSubmittingPromptCancellation(t *testing
 	runtimeClient := &runtimeControlFakeClient{}
 	model := newProjectedTestUIModel(runtimeClient)
 	model.promptAnswers = newTranscriptPromptAnswerer(context.Background(), control)
-	model.sessionID = ongoingTestSessionID().String()
+	model.setKnownSessionTarget(ongoingTestSessionID().String())
 	model.setRuntimeActivityBusyForTest(true)
 	model = updateUIModel(t, model, askEventMsg{event: model.transcriptPromptEvent(
 		testQuestionPrompt("ask-interrupt-order", "Proceed?", "Yes", "No"),
@@ -353,7 +353,7 @@ func TestAskSessionReplacementCancelsDeliveryAndClearsOldPrompt(t *testing.T) {
 	model := newProjectedStaticUIModel()
 	model.promptAnswers = newTranscriptPromptAnswerer(ctx, control)
 	prompt := testQuestionPrompt("ask-old-session", "Proceed?", "Yes", "No")
-	model.sessionID = transcriptPromptSessionID(prompt)
+	model.setKnownSessionTarget(transcriptPromptSessionID(prompt))
 	model = updateUIModel(t, model, askEventMsg{event: model.transcriptPromptEvent(prompt)})
 
 	next, delivery := model.Update(tea.KeyMsg{Type: tea.KeyEnter})
@@ -377,7 +377,7 @@ func TestAskSessionReplacementCancelsDeliveryAndClearsOldPrompt(t *testing.T) {
 
 func TestAskSessionReplacementRunsQueuedProjectionBeforeReplacementPrompt(t *testing.T) {
 	model := sizedTestUIModel(newProjectedStaticUIModel(), 64, 20)
-	model.sessionID = runtimeids.NewSessionID().String()
+	model.setKnownSessionTarget(runtimeids.NewSessionID().String())
 	next, firstProjection := model.Update(askEventMsg{event: testQuestionAskEvent(
 		"ask-old-current",
 		"Old current?",

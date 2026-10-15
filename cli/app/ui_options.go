@@ -209,7 +209,7 @@ func WithUISessionName(name *string) UIOption {
 
 func WithUISessionID(sessionID string) UIOption {
 	return func(m *uiModel) {
-		m.sessionID = strings.TrimSpace(sessionID)
+		m.setKnownSessionTarget(sessionID)
 	}
 }
 

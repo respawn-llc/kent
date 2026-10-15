@@ -224,7 +224,7 @@ func (m *uiModel) goalRuntimeCommand(operation goalRuntimeOperation, objective s
 	if m == nil {
 		return nil
 	}
-	return m.goalRuntimeCommandFor(m.runtimeClient(), strings.TrimSpace(m.sessionID), operation, objective)
+	return m.goalRuntimeCommandFor(m.runtimeClient(), strings.TrimSpace(m.currentRuntimeSessionID()), operation, objective)
 }
 
 func (m *uiModel) goalRuntimeCommandFor(
@@ -305,7 +305,7 @@ func (m *uiModel) applyGoalRuntimeDone(msg goalRuntimeDoneMsg) tea.Cmd {
 	} else if msg.token != m.goalRuntimeToken {
 		return nil
 	}
-	if msg.sessionID != "" && strings.TrimSpace(m.sessionID) != "" && msg.sessionID != strings.TrimSpace(m.sessionID) {
+	if msg.sessionID != "" && strings.TrimSpace(m.currentRuntimeSessionID()) != "" && msg.sessionID != strings.TrimSpace(m.currentRuntimeSessionID()) {
 		return nil
 	}
 	m.observeRuntimeRequestResult(msg.err)

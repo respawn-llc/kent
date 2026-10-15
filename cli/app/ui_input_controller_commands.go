@@ -48,7 +48,7 @@ func (c uiInputController) applyCommandResultWithPreSubmitQueuePositionAndOrigin
 			return m, m.sendTransientStatusWithNoticeID(err.Error(), uiStatusNoticeError, transientStatusDuration, uiStatusNoticeReplace, "")
 		}
 		if commandResult.FreshConversation && (m.isBusy() || m.currentConversationFreshness() != runtimepb.ConversationFreshness_CONVERSATION_FRESHNESS_FRESH) {
-			previousSessionID, err := runtimeids.ParseSessionID(m.sessionID)
+			previousSessionID, err := runtimeids.ParseSessionID(m.currentRuntimeSessionID())
 			if err != nil {
 				return m, c.model.appendLocalEntryWithNoticeID("error", "Current session identity is invalid: "+err.Error(), "")
 			}
@@ -77,7 +77,7 @@ func (c uiInputController) applyCommandResultWithPreSubmitQueuePositionAndOrigin
 		}
 	}
 	if commandResult.SubmitUser && commandResult.FreshConversation && (m.isBusy() || m.currentConversationFreshness() != runtimepb.ConversationFreshness_CONVERSATION_FRESHNESS_FRESH) {
-		previousSessionID, err := runtimeids.ParseSessionID(m.sessionID)
+		previousSessionID, err := runtimeids.ParseSessionID(m.currentRuntimeSessionID())
 		if err != nil {
 			return m, c.model.appendLocalEntryWithNoticeID("error", "Current session identity is invalid: "+err.Error(), "")
 		}
@@ -106,7 +106,11 @@ func (c uiInputController) applyCommandResultWithPreSubmitQueuePositionAndOrigin
 		m.exitAction = UIActionExit
 		return m, sequenceCmds(prefixCmd, tea.Quit)
 	case commands.ActionNew:
-		previousSessionID, err := runtimeids.ParseSessionID(m.sessionID)
+		if m.newChatTarget() != nil {
+			m.exitAction = UIActionNewSession
+			return m, sequenceCmds(prefixCmd, tea.Quit)
+		}
+		previousSessionID, err := runtimeids.ParseSessionID(m.currentRuntimeSessionID())
 		if err != nil {
 			return m, sequenceCmds(prefixCmd, c.model.appendLocalEntryWithNoticeID("error", "Current session identity is invalid: "+err.Error(), ""))
 		}

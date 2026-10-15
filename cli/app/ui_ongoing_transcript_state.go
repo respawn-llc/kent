@@ -134,7 +134,7 @@ func (m *uiModel) applyTranscriptHydration(
 
 	cmds = append(cmds, m.reconcileTranscriptPrompts(hydration.PendingPrompts))
 	cmds = append(cmds, m.missingPromptRehydrationCmd(hydration.SessionIdentity.SessionId))
-	currentSessionID := strings.TrimSpace(m.sessionID)
+	currentSessionID := strings.TrimSpace(m.currentRuntimeSessionID())
 	preserved := m.processList.entries[:0]
 	for _, entry := range m.processList.entries {
 		if strings.TrimSpace(entry.OwnerSessionId) != currentSessionID {
@@ -261,7 +261,7 @@ func (m *uiModel) applyTranscriptSessionStatus(status *transcriptpb.SessionStatu
 }
 
 func (m *uiModel) applyTranscriptSessionIdentity(identity *transcriptpb.SessionIdentity) tea.Cmd {
-	previousSessionID := strings.TrimSpace(m.sessionID)
+	previousSessionID := strings.TrimSpace(m.currentRuntimeSessionID())
 	nextSessionID := identity.SessionId
 	previousTarget := m.sessionExecutionTarget
 	m.sessionExecutionTarget = nil
@@ -269,7 +269,7 @@ func (m *uiModel) applyTranscriptSessionIdentity(identity *transcriptpb.SessionI
 		normalized := clientui.NormalizeSessionExecutionTarget(identity.ExecutionTarget)
 		m.sessionExecutionTarget = normalized
 	}
-	m.sessionID = nextSessionID
+	m.setKnownSessionTarget(nextSessionID)
 	m.reconcileMissingPromptRecoveryScope()
 	m.sessionName = identity.SessionName
 	m.conversationFreshness = identity.ConversationFreshness

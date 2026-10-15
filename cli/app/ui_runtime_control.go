@@ -449,7 +449,7 @@ func (m *uiModel) runtimeControlCommand(operation runtimeControlOperation, mutat
 	if operation == runtimeControlInterrupt {
 		interruptReq = runtimeInterruptRequestFromModel(m)
 	}
-	sessionID := strings.TrimSpace(m.sessionID)
+	sessionID := strings.TrimSpace(m.currentRuntimeSessionID())
 	token, shouldStart := m.beginRuntimeControlMutation(operation, sessionID, mutation)
 	if !shouldStart {
 		return nil
@@ -470,7 +470,7 @@ func (m *uiModel) applyRuntimeControlDone(msg runtimeControlDoneMsg) tea.Cmd {
 	if m == nil || msg.token != m.runtimeControlTokenFor(msg.operation) {
 		return nil
 	}
-	if msg.sessionID != "" && strings.TrimSpace(m.sessionID) != "" && msg.sessionID != strings.TrimSpace(m.sessionID) {
+	if msg.sessionID != "" && strings.TrimSpace(m.currentRuntimeSessionID()) != "" && msg.sessionID != strings.TrimSpace(m.currentRuntimeSessionID()) {
 		m.clearRuntimeControlPending(msg.operation)
 		return nil
 	}

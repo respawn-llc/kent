@@ -219,12 +219,7 @@ func (p *launchPlanner) PlanSession(ctx context.Context, req sessionLaunchReques
 		enabledTools = append(enabledTools, id)
 	}
 	cfg := p.server.Connection()
-	activeSettings := settings
-	local := p.server.LocalPreferences()
-	activeSettings.Theme = p.server.PresentationTheme()
-	activeSettings.Debug = local.Debug
-	activeSettings.NotificationMethod = local.NotificationMethod
-	activeSettings.TUINativeProgressBar = local.TUINativeProgressBar
+	activeSettings := interactivePresentationSettings(p.server, settings)
 	sessionTitle, err := validateLaunchSessionTitle(resp.Plan.SessionName)
 	if err != nil {
 		return sessionLaunchPlan{}, err

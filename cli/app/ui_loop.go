@@ -12,6 +12,7 @@ import (
 	"core/cli/tui/ongoing"
 	"core/shared/apicontract"
 	"core/shared/config"
+	chatpb "core/shared/protoapi/gen/kent/api/chat"
 
 	tea "github.com/charmbracelet/bubbletea"
 	xansi "github.com/charmbracelet/x/ansi"
@@ -30,6 +31,7 @@ type uiProgramComposition struct {
 
 type uiLoopRequest struct {
 	sessionLifecycle             apicontract.SessionLifecycleService
+	newChat                      *chatpb.NewChatTarget
 	ctx                          context.Context
 	wiring                       *runtimeWiring
 	projectID                    string
@@ -138,13 +140,13 @@ func composeUIProgram(request uiLoopRequest, output io.Writer) (*uiProgramCompos
 	tuiLogger, _ := newRollingTUILogger(request.statusConfig.PersistenceRoot)
 	uiLogger := newMultiUILogger(tuiLogger)
 	runtimeClient := request.wiring.runtimeClient
-	if runtimeClient == nil {
+	if runtimeClient == nil && request.newChat == nil {
 		if tuiLogger != nil {
 			_ = tuiLogger.Close()
 		}
 		return nil, errors.New("runtime client is required")
 	}
-	if request.wiring.eventDispatcher == nil || request.wiring.eventDispatcher.transcriptEvents == nil {
+	if runtimeClient != nil && (request.wiring.eventDispatcher == nil || request.wiring.eventDispatcher.transcriptEvents == nil) {
 		if tuiLogger != nil {
 			_ = tuiLogger.Close()
 		}
@@ -165,6 +167,10 @@ func composeUIProgram(request uiLoopRequest, output io.Writer) (*uiProgramCompos
 		sessionID = runtimeClient.MainView().Session.SessionId
 	}
 
+	var transcriptEvents <-chan ongoingTranscriptEvent
+	if request.wiring.eventDispatcher != nil {
+		transcriptEvents = request.wiring.eventDispatcher.transcriptEvents
+	}
 	uiOptions := []UIOption{
 		WithUILogger(uiLogger),
 		WithUIModelName(request.active.Model),
@@ -185,15 +191,17 @@ func composeUIProgram(request uiLoopRequest, output io.Writer) (*uiProgramCompos
 		WithUIStartupSubmit(request.initialPrompt),
 		WithUIStartupSubmitPromptHistoryRecorded(request.initialPromptHistoryRecorded),
 		WithUIInitialInput(request.initialInput),
-		WithUISessionID(sessionID),
 		WithUIStatusConfig(request.statusConfig),
 		WithUITerminalCursorState(terminalCursor),
 		WithUIRendererOutputGateState(rendererOutputGate),
 		WithUIOngoingSurface(ongoingSurface),
-		WithUIOngoingTranscriptEvents(request.wiring.eventDispatcher.transcriptEvents),
+		WithUIOngoingTranscriptEvents(transcriptEvents),
 		WithUIClientLifecycleIssues(request.wiring.lifecycleHookIssues, request.wiring.lifecycleHookDone),
 		WithUIOngoingTranscriptReopen(request.wiring.requestTranscriptOpen),
 		WithUITerminalFocusState(request.wiring.terminalFocus),
+	}
+	if runtimeClient != nil {
+		uiOptions = append(uiOptions, WithUISessionID(sessionID))
 	}
 	if request.sessionTitle != nil {
 		uiOptions = append(uiOptions, WithUISessionName(request.sessionTitle))
@@ -207,7 +215,12 @@ func composeUIProgram(request uiLoopRequest, output io.Writer) (*uiProgramCompos
 		return nil, errors.New("projected UI model has unexpected type")
 	}
 	model.keyboardReporting = keyboardReporting
-	model.drafts = newUIDraftPersistence(request.sessionLifecycle, sessionID, model.mainEditor.Text())
+	if runtimeClient != nil {
+		model.drafts = newUIDraftPersistence(request.sessionLifecycle, sessionID, model.mainEditor.Text())
+	}
+	if request.newChat != nil {
+		model.presentationTarget = uiNewSessionTarget{creation: request.newChat}
+	}
 	if request.initialTransientStatus != nil {
 		model.startupCmds = append(model.startupCmds, model.showTransientStatusNotice(uiStatusNotice{
 			Text:     *request.initialTransientStatus,
@@ -219,16 +232,18 @@ func composeUIProgram(request uiLoopRequest, output io.Writer) (*uiProgramCompos
 		enqueueRuntimeConnectionStateChange(model.runtimeConnectionEvents, err)
 	})
 	model.promptAttention = request.wiring.promptAttention
-	sessionClient, ok := runtimeClient.(*sessionRuntimeClient)
-	if !ok {
-		return nil, errors.New("projected UI model runtime client has unexpected type")
+	if runtimeClient != nil {
+		sessionClient, ok := runtimeClient.(*sessionRuntimeClient)
+		if !ok {
+			return nil, errors.New("projected UI model runtime client has unexpected type")
+		}
+		model.ongoingTranscript = newOngoingTranscriptController(
+			ongoingSurface,
+			model.ongoingFrameInput,
+			sessionClient.admitTranscriptMessageState,
+			model.applyAdmittedTranscriptMessageState,
+		)
 	}
-	model.ongoingTranscript = newOngoingTranscriptController(
-		ongoingSurface,
-		model.ongoingFrameInput,
-		sessionClient.admitTranscriptMessageState,
-		model.applyAdmittedTranscriptMessageState,
-	)
 	return &uiProgramComposition{
 		model:                 model,
 		options:               options,

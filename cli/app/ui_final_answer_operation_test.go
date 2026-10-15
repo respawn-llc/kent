@@ -48,7 +48,7 @@ func TestCopyFinalAnswerOperationBlocksInputUntilClipboardCompletes(t *testing.T
 	answer := "exact durable answer"
 	views := &countingSessionViewClient{finalAnswer: &answer}
 	copier := &stubClipboardTextCopier{}
-	m := newProjectedStaticUIModel(WithUISessionID("session-1"), WithUIClipboardTextCopier(copier))
+	m := newProjectedStaticUIModel(WithUISessionID(detailTestSessionID), WithUIClipboardTextCopier(copier))
 	m.statusConfig.SessionViews = views
 
 	_, cmd := m.inputController().handleCopyCommand()
@@ -78,7 +78,7 @@ func TestCopyFinalAnswerOperationBlocksInputUntilClipboardCompletes(t *testing.T
 }
 
 func TestFinalAnswerLookupTimeoutAndStaleResultDoNotNavigate(t *testing.T) {
-	m := newProjectedStaticUIModel(WithUISessionID("child-1"))
+	m := newProjectedStaticUIModel(WithUISessionID("11111111-1111-4111-8111-111111111111"))
 	m.statusConfig.SessionViews = &countingSessionViewClient{}
 	testSetMainInput(m, "editable child draft")
 	_ = m.startFinalAnswerOperation(uiFinalAnswerOperationBack, "parent-1")
@@ -107,7 +107,7 @@ func TestFinalAnswerLookupTimeoutAndStaleResultDoNotNavigate(t *testing.T) {
 
 func TestFinalAnswerOperationRejectsEveryStaleLookupCorrelation(t *testing.T) {
 	answer := "answer"
-	m := newProjectedStaticUIModel(WithUISessionID("child-1"))
+	m := newProjectedStaticUIModel(WithUISessionID("11111111-1111-4111-8111-111111111111"))
 	m.statusConfig.SessionViews = &countingSessionViewClient{}
 	_ = m.startFinalAnswerOperation(uiFinalAnswerOperationBack, "parent-1")
 	op := *m.finalAnswerOperation
@@ -129,7 +129,7 @@ func TestFinalAnswerOperationRejectsEveryStaleLookupCorrelation(t *testing.T) {
 
 func TestBackFinalAnswerOperationOpensParentWithExactPrefill(t *testing.T) {
 	answer := "child final"
-	m := newProjectedStaticUIModel(WithUISessionID("child-1"))
+	m := newProjectedStaticUIModel(WithUISessionID("11111111-1111-4111-8111-111111111111"))
 	m.statusConfig.SessionViews = &countingSessionViewClient{}
 	_ = m.startFinalAnswerOperation(uiFinalAnswerOperationBack, "parent-1")
 	op := *m.finalAnswerOperation
@@ -143,7 +143,7 @@ func TestBackFinalAnswerOperationOpensParentWithExactPrefill(t *testing.T) {
 }
 
 func TestBackFinalAnswerOperationAbsenceOpensParentWithoutPrefill(t *testing.T) {
-	m := newProjectedStaticUIModel(WithUISessionID("child-1"))
+	m := newProjectedStaticUIModel(WithUISessionID("11111111-1111-4111-8111-111111111111"))
 	m.statusConfig.SessionViews = &countingSessionViewClient{}
 	m.nextSessionInitialInput = textutil.Value("must not survive")
 	_ = m.startFinalAnswerOperation(uiFinalAnswerOperationBack, "parent-1")
@@ -158,7 +158,7 @@ func TestBackFinalAnswerOperationAbsenceOpensParentWithoutPrefill(t *testing.T) 
 }
 
 func TestBackCommandMissingParentPreservesEditableChildWithoutLookupOrTransition(t *testing.T) {
-	m := newProjectedStaticUIModel(WithUISessionID("child-1"))
+	m := newProjectedStaticUIModel(WithUISessionID("11111111-1111-4111-8111-111111111111"))
 	testSetMainInput(m, "editable child draft")
 
 	next, errorCmd := m.inputController().handleBackCommand()
@@ -188,7 +188,7 @@ func TestBackCommandMissingParentPreservesEditableChildWithoutLookupOrTransition
 
 func TestFinalAnswerLookupErrorRestoresInputWithoutNavigation(t *testing.T) {
 	lookupErr := errors.New("durable lookup failed")
-	m := newProjectedStaticUIModel(WithUISessionID("child-1"))
+	m := newProjectedStaticUIModel(WithUISessionID("11111111-1111-4111-8111-111111111111"))
 	m.statusConfig.SessionViews = &countingSessionViewClient{}
 	testSetMainInput(m, "editable child draft")
 	_ = m.startFinalAnswerOperation(uiFinalAnswerOperationBack, "parent-1")
@@ -211,7 +211,7 @@ func TestFinalAnswerLookupErrorRestoresInputWithoutNavigation(t *testing.T) {
 
 func TestFinalAnswerOperationRejectsWrongCorrelationAndBlocksNavigation(t *testing.T) {
 	answer := "answer"
-	m := newProjectedStaticUIModel(WithUISessionID("session-1"))
+	m := newProjectedStaticUIModel(WithUISessionID(detailTestSessionID))
 	m.statusConfig.SessionViews = &countingSessionViewClient{}
 	_ = m.startFinalAnswerOperation(uiFinalAnswerOperationCopy, "")
 	op := *m.finalAnswerOperation
@@ -243,7 +243,7 @@ func TestClipboardOwnershipSerializesCopies(t *testing.T) {
 	answerA := "A"
 	answerB := "B"
 	copier := &blockingClipboardCopier{started: make(chan struct{}, 2), release: make(chan struct{}, 2)}
-	m := newProjectedStaticUIModel(WithUISessionID("session-1"), WithUIClipboardTextCopier(copier))
+	m := newProjectedStaticUIModel(WithUISessionID(detailTestSessionID), WithUIClipboardTextCopier(copier))
 	m.statusConfig.SessionViews = &countingSessionViewClient{}
 
 	_ = m.startFinalAnswerOperation(uiFinalAnswerOperationCopy, "")
@@ -295,7 +295,7 @@ func TestClipboardOwnershipSerializesCopies(t *testing.T) {
 func TestFinalAnswerOperationRejectsDuplicateStartsAndStaleLookupAfterRetry(t *testing.T) {
 	answerA := "A"
 	answerB := "B"
-	m := newProjectedStaticUIModel(WithUISessionID("session-1"))
+	m := newProjectedStaticUIModel(WithUISessionID(detailTestSessionID))
 	m.statusConfig.SessionViews = &countingSessionViewClient{}
 
 	_ = m.startFinalAnswerOperation(uiFinalAnswerOperationCopy, "")
@@ -327,7 +327,7 @@ func TestClipboardFailureAndTimeoutReleaseOwnershipOnlyWhenCopyReturns(t *testin
 	t.Run("failure", func(t *testing.T) {
 		answer := "answer"
 		copyErr := errors.New("clipboard failed")
-		m := newProjectedStaticUIModel(WithUISessionID("session-1"), WithUIClipboardTextCopier(&stubClipboardTextCopier{err: copyErr}))
+		m := newProjectedStaticUIModel(WithUISessionID(detailTestSessionID), WithUIClipboardTextCopier(&stubClipboardTextCopier{err: copyErr}))
 		m.statusConfig.SessionViews = &countingSessionViewClient{}
 		_ = m.startFinalAnswerOperation(uiFinalAnswerOperationCopy, "")
 		op := *m.finalAnswerOperation
@@ -350,7 +350,7 @@ func TestClipboardFailureAndTimeoutReleaseOwnershipOnlyWhenCopyReturns(t *testin
 
 		answer := "answer"
 		copier := &blockingClipboardCopier{started: make(chan struct{}, 1), release: make(chan struct{})}
-		m := newProjectedStaticUIModel(WithUISessionID("session-1"), WithUIClipboardTextCopier(copier))
+		m := newProjectedStaticUIModel(WithUISessionID(detailTestSessionID), WithUIClipboardTextCopier(copier))
 		m.statusConfig.SessionViews = &countingSessionViewClient{}
 		_ = m.startFinalAnswerOperation(uiFinalAnswerOperationCopy, "")
 		op := *m.finalAnswerOperation

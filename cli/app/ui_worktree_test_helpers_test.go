@@ -147,11 +147,11 @@ func newWorktreeTestModel(t *testing.T, client *worktreeCommandTestClient, opts 
 	worktreeCreateResolveDebounce = time.Millisecond
 	t.Cleanup(func() { worktreeCreateResolveDebounce = originalDebounce })
 
-	allOpts := []UIOption{WithUIWorktreeClient(client), WithUISessionID("session-1")}
+	allOpts := []UIOption{WithUIWorktreeClient(client), WithUISessionID(detailTestSessionID)}
 	allOpts = append(allOpts, opts...)
-	model := newProjectedTestUIModel(newWorktreeTestRuntimeClient("session-1"), allOpts...)
+	model := newProjectedTestUIModel(newWorktreeTestRuntimeClient(detailTestSessionID), allOpts...)
 	if runtimeClient, ok := model.runtimeClient().(*sessionRuntimeClient); ok && model.sessionName != nil {
-		runtimeClient.storeMainView(&runtimepb.MainView{Session: &runtimepb.SessionView{SessionId: model.sessionID, SessionName: model.sessionName}})
+		runtimeClient.storeMainView(&runtimepb.MainView{Session: &runtimepb.SessionView{SessionId: model.currentRuntimeSessionID(), SessionName: model.sessionName}})
 	}
 	return model
 }
@@ -216,7 +216,7 @@ func testRegisteredWorktreeListEntry(id, name, root, branch string, main, curren
 			Projection: &worktreepb.ListProjection{Selector: branch, IsCurrent: current},
 		}
 	}
-	originSessionID := "session-1"
+	originSessionID := detailTestSessionID
 	kent := &worktreepb.KentFacts{
 		WorktreeId:    id,
 		CanonicalRoot: root,

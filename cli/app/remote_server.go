@@ -7,7 +7,7 @@ import (
 	"core/shared/client"
 	"core/shared/config"
 	authpb "core/shared/protoapi/gen/kent/api/auth"
-	worktreepb "core/shared/protoapi/gen/kent/api/worktree"
+	"core/shared/runtimeids"
 	"errors"
 
 	"core/shared/protocol"
@@ -48,11 +48,14 @@ func (s *remoteAppServer) PresentationTheme() string {
 	return s.presentation.Theme
 }
 
-func (s *remoteAppServer) PromptCommandCatalogClient(_ context.Context, sessionID string, _ *worktreepb.SessionExecutionTarget) (apicontract.PromptCommandCatalogService, error) {
+func (s *remoteAppServer) PromptCommandCatalogClient(_ context.Context, sessionID *runtimeids.SessionID) (apicontract.PromptCommandCatalogService, error) {
 	if s == nil {
 		return nil, errors.New("remote server is required")
 	}
-	return s.remote.PromptCommandCatalogClientForSession(sessionID)
+	if sessionID == nil {
+		return s.remote, nil
+	}
+	return s.remote.PromptCommandCatalogClientForSession(sessionID.String())
 }
 
 func (s *remoteAppServer) Close() error {

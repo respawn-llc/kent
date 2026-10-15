@@ -281,7 +281,7 @@ func (c uiInputController) handleSubmitDone(msg submitDoneMsg) (tea.Model, tea.C
 	}
 	pendingWorkRefreshCmd := m.requestPendingWorkRefreshIfSuccessful(m.pendingWorkRefresh.sessionID, msg.err == nil)
 	submitOrigin := m.activeSubmit.origin
-	if msg.selectedSessionID != nil && *msg.selectedSessionID != m.sessionID {
+	if msg.selectedSessionID != nil && *msg.selectedSessionID != m.currentRuntimeSessionID() {
 		m.nextSessionID = *msg.selectedSessionID
 		m.exitAction = UIActionOpenSession
 		if msg.diagnostic != nil {
