@@ -206,9 +206,6 @@ func projectSettings(req *onboardingpb.FinalizeRequest, settings config.Settings
 		settings.SkillToggles = map[string]bool{}
 		for index, name := range req.DisabledSkillNames {
 			normalized := config.NormalizeSkillName(name)
-			if normalized == "" {
-				return config.Settings{}, nil, invalidRequest(fmt.Sprintf("disabled_skill_names.%d", index), "required")
-			}
 			if _, exists := settings.SkillToggles[normalized]; exists {
 				return config.Settings{}, nil, invalidRequest(fmt.Sprintf("disabled_skill_names.%d", index), "duplicate")
 			}
