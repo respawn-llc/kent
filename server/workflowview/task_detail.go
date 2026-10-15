@@ -58,9 +58,6 @@ func (d *TaskDetail) ListCurrentNodes(ctx context.Context, taskID string) ([]wor
 	if d == nil || d.queries == nil {
 		return nil, errors.New("task detail is required")
 	}
-	if strings.TrimSpace(taskID) == "" {
-		return nil, ErrTaskIDRequired
-	}
 	nodesByTask, err := d.projection.workflowStore.ListCurrentNodesByTaskWithQueries(ctx, d.queries, []workflow.TaskID{workflow.TaskID(taskID)})
 	if err != nil {
 		return nil, err

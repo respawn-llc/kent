@@ -75,9 +75,6 @@ func (d *TaskDependencies) GetTaskDependencies(ctx context.Context, taskID strin
 		return nil, errors.New("task dependencies are required")
 	}
 	trimmedTaskID := strings.TrimSpace(taskID)
-	if trimmedTaskID == "" {
-		return nil, errors.New("task id is required")
-	}
 	facts, err := d.loadFacts(ctx, trimmedTaskID, false)
 	if err != nil {
 		return nil, err
@@ -90,9 +87,6 @@ func (d *TaskDependencies) CountUnsatisfiedBlockers(ctx context.Context, taskID 
 		return 0, errors.New("task dependencies are required")
 	}
 	trimmedTaskID := strings.TrimSpace(taskID)
-	if trimmedTaskID == "" {
-		return 0, errors.New("task id is required")
-	}
 	return d.counter.CountUnsatisfiedBlockers(ctx, trimmedTaskID)
 }
 

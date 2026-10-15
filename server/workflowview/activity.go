@@ -85,9 +85,6 @@ func (a *Activity) loadPage(ctx context.Context, req *taskpb.TaskOffsetPageReque
 }
 
 func (a *Activity) activityRows(ctx context.Context, taskID string, offset int, limit int) ([]taskActivityRow, error) {
-	if limit <= 0 {
-		return []taskActivityRow{}, nil
-	}
 	rows, err := a.queries.ListWorkflowTaskActivityRows(ctx, sqlitegen.ListWorkflowTaskActivityRowsParams{
 		PageLimit:  int64(limit),
 		PageOffset: int64(offset),
