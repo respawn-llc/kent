@@ -1,9 +1,6 @@
 package protoapi
 
 import (
-	"errors"
-	"fmt"
-
 	"core/shared/config"
 	authpb "core/shared/protoapi/gen/kent/api/auth"
 )
@@ -52,32 +49,24 @@ func ConnectionToProto(id config.ConnectionID, definition config.ProviderConnect
 }
 
 func ConnectionFromProto(value *authpb.ConnectionDefinition) (config.ConnectionID, config.ProviderConnection, error) {
-	if value == nil {
-		return "", config.ProviderConnection{}, errors.New("connection definition is required")
-	}
-	id, err := config.ParseConnectionID(value.Id)
-	if err != nil {
-		return "", config.ProviderConnection{}, err
-	}
+	id := config.ConnectionID(value.Id)
 	definition := config.ProviderConnection{Endpoint: value.Endpoint, EnvironmentVariable: value.EnvironmentVariable}
-	switch value.Protocol {
-	case authpb.ConnectionProtocol_CONNECTION_PROTOCOL_RESPONSES:
-		definition.Protocol = config.ConnectionResponses
-	case authpb.ConnectionProtocol_CONNECTION_PROTOCOL_CHATGPT:
-		definition.Protocol = config.ConnectionChatGPT
-	case authpb.ConnectionProtocol_CONNECTION_PROTOCOL_GROK_CLI_PROXY:
-		definition.Protocol = config.ConnectionGrokCLIProxy
-	case authpb.ConnectionProtocol_CONNECTION_PROTOCOL_GROK_OAUTH_API:
-		definition.Protocol = config.ConnectionGrokOAuthAPI
-	case authpb.ConnectionProtocol_CONNECTION_PROTOCOL_GROK_API_KEY:
-		definition.Protocol = config.ConnectionGrokAPIKey
-	default:
-		return "", config.ProviderConnection{}, fmt.Errorf("unsupported connection protocol %v", value.Protocol)
+	definition.Protocol = map[authpb.ConnectionProtocol]config.ConnectionProtocol{
+		authpb.ConnectionProtocol_CONNECTION_PROTOCOL_RESPONSES:      config.ConnectionResponses,
+		authpb.ConnectionProtocol_CONNECTION_PROTOCOL_CHATGPT:        config.ConnectionChatGPT,
+		authpb.ConnectionProtocol_CONNECTION_PROTOCOL_GROK_CLI_PROXY: config.ConnectionGrokCLIProxy,
+		authpb.ConnectionProtocol_CONNECTION_PROTOCOL_GROK_OAUTH_API: config.ConnectionGrokOAuthAPI,
+		authpb.ConnectionProtocol_CONNECTION_PROTOCOL_GROK_API_KEY:   config.ConnectionGrokAPIKey,
+	}[value.Protocol]
+	if definition.Protocol == config.ConnectionResponses {
+		if err := config.ValidateResponsesEndpoint(*definition.Endpoint); err != nil {
+			return "", config.ProviderConnection{}, err
+		}
 	}
 	if value.Capabilities != nil {
 		definition.Capabilities = providerCapabilitiesFromProto(value.Capabilities)
 	}
-	return id, definition, definition.Validate()
+	return id, definition, nil
 }
 
 func ExistingConnectionTarget(id config.ConnectionID) *authpb.ConnectionTarget {

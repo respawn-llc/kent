@@ -141,15 +141,22 @@ func (c ProviderConnection) Validate() error {
 		if c.Endpoint == nil {
 			return fmt.Errorf("Responses connections require an endpoint")
 		}
-		endpoint, err := url.Parse(*c.Endpoint)
-		if err != nil || endpoint.Host == "" || endpoint.Scheme != "http" && endpoint.Scheme != "https" {
-			return fmt.Errorf("connection endpoint must be an absolute HTTP or HTTPS URL")
+		if err := ValidateResponsesEndpoint(*c.Endpoint); err != nil {
+			return err
 		}
 		if c.EnvironmentVariable != nil && strings.TrimSpace(*c.EnvironmentVariable) == "" {
 			return fmt.Errorf("environment_variable cannot be empty; omit it for auth-less access")
 		}
 	default:
 		return fmt.Errorf("unsupported connection protocol %q", c.Protocol)
+	}
+	return nil
+}
+
+func ValidateResponsesEndpoint(value string) error {
+	endpoint, err := url.Parse(value)
+	if err != nil || endpoint.Host == "" || endpoint.Scheme != "http" && endpoint.Scheme != "https" {
+		return fmt.Errorf("connection endpoint must be an absolute HTTP or HTTPS URL")
 	}
 	return nil
 }

@@ -206,7 +206,7 @@ message CompleteBootstrapResult {
 }
 
 message ProviderSelection {
-  string connection_id = 1 [(buf.validate.field).string.min_len = 1];
+  string connection_id = 1 [(buf.validate.field).string.(kent.api.shared.connection_id) = true];
 }
 
 message GetStatusRequest {
@@ -521,7 +521,7 @@ message ProviderCapabilitiesOverride {
 }
 
 message ConnectionDefinition {
-  string id = 1 [(buf.validate.field).string.min_len = 1];
+  string id = 1 [(buf.validate.field).string.(kent.api.shared.connection_id) = true];
   ConnectionProtocol protocol = 2 [(buf.validate.field).enum = {defined_only: true, not_in: [0]}];
   optional string endpoint = 3 [(buf.validate.field).string.min_len = 1];
   optional string environment_variable = 4 [(buf.validate.field).string.min_len = 1];
@@ -545,7 +545,7 @@ message ConnectionDefinition {
 message ConnectionTarget {
   oneof target {
     option (buf.validate.oneof).required = true;
-    string connection_id = 1 [(buf.validate.field).string.min_len = 1];
+    string connection_id = 1 [(buf.validate.field).string.(kent.api.shared.connection_id) = true];
     google.protobuf.Empty pending_setup = 2;
     ConnectionDefinition add_connection = 3;
   }
@@ -579,7 +579,7 @@ message GetConnectionsResult {
 }
 
 message ConnectionReferenceEdit {
-  string connection_id = 1 [(buf.validate.field).string.min_len = 1];
+  string connection_id = 1 [(buf.validate.field).string.(kent.api.shared.connection_id) = true];
   string environment_variable = 2 [(buf.validate.field).string.min_len = 1];
 
   option (buf.validate.message).cel = {
@@ -596,7 +596,7 @@ message ConfigureConnectionRequest {
     google.protobuf.Empty discard_setup = 2;
     ConnectionDefinition add = 3;
     ConnectionReferenceEdit reference = 4;
-    string default_connection_id = 5 [(buf.validate.field).string.min_len = 1];
+    string default_connection_id = 5 [(buf.validate.field).string.(kent.api.shared.connection_id) = true];
   }
 }
 
