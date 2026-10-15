@@ -123,6 +123,14 @@ message ImportChoiceRef {
   ];
   optional string import_provider_id = 3 [(buf.validate.field).string.min_len = 1];
   optional string source_root_path = 4 [(buf.validate.field).string.min_len = 1];
+
+  option (buf.validate.message).cel = {
+    id: "kent.capability.symlink_choice_identity"
+    message: "symlink source choices require a substantive provider and source root"
+    expression:
+      "this.mode != 2 || (has(this.import_provider_id) && this.import_provider_id.trim() != '' && "
+      "has(this.source_root_path) && this.source_root_path.trim() != '')"
+  };
 }
 
 message ImportConflictFact {

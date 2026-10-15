@@ -266,39 +266,8 @@ func validateOnboardingFacts(facts *capabilitypb.Facts) error {
 }
 
 func validateOnboardingImportFacts(facts *capabilitypb.ImportFacts) error {
-	validateRef := func(field string, ref *capabilitypb.ImportChoiceRef) error {
-		switch onboardingImportModeFromProto(ref.GetMode()) {
-		case onboardingImportModeNone:
-			return nil
-		case onboardingImportModeSymlinkSource:
-			if ref.ImportProviderId == nil || strings.TrimSpace(*ref.ImportProviderId) == "" {
-				return conversionError(field+".import_provider_id", ref.ImportProviderId, "must be present and non-blank")
-			}
-			if ref.SourceRootPath == nil || strings.TrimSpace(*ref.SourceRootPath) == "" {
-				return conversionError(field+".source_root_path", ref.SourceRootPath, "must be present and non-blank")
-			}
-			return nil
-		default:
-			return conversionError(field+".mode", ref.GetMode(), "unsupported import mode")
-		}
-	}
-	for index, choice := range facts.GetSkills().GetChoices() {
-		field := fmt.Sprintf("facts.imports.skills.choices[%d]", index)
-		if err := validateImportChoice(field, choice, validateRef); err != nil {
-			return err
-		}
-	}
-	for index, choice := range facts.GetCommands().GetChoices() {
-		field := fmt.Sprintf("facts.imports.commands.choices[%d]", index)
-		if err := validateImportChoice(field, choice, validateRef); err != nil {
-			return err
-		}
-	}
 	for index, projection := range facts.GetSkillEnablement() {
 		field := fmt.Sprintf("facts.imports.skill_enablement[%d]", index)
-		if err := validateRef(field+".choice_ref", projection.GetChoiceRef()); err != nil {
-			return err
-		}
 		for candidateIndex, candidate := range projection.Candidates {
 			if strings.TrimSpace(candidate.GetRef().GetTargetName()) == "" {
 				return conversionError(
@@ -308,13 +277,6 @@ func validateOnboardingImportFacts(facts *capabilitypb.ImportFacts) error {
 				)
 			}
 		}
-	}
-	return nil
-}
-
-func validateImportChoice(field string, choice *capabilitypb.ImportChoiceFact, validateRef func(string, *capabilitypb.ImportChoiceRef) error) error {
-	if err := validateRef(field+".ref", choice.GetRef()); err != nil {
-		return err
 	}
 	return nil
 }

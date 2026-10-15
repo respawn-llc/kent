@@ -1,11 +1,36 @@
 import { create, validate } from "@app/server-api-contract";
 import {
+  ImportChoiceMode,
+  ImportChoiceRefSchema,
   ModelFactSchema,
   ModelFactsSchema,
   ModelVerbosityFactSchema,
 } from "@app/server-api-contract/gen/kent/api/capability/capability_pb";
 
 describe("Capability model facts", () => {
+  it("requires a substantive provider and root only for symlink choices", () => {
+    expect(() => validate(ImportChoiceRefSchema, create(ImportChoiceRefSchema, {
+      mode: ImportChoiceMode.NONE,
+    }))).not.toThrow();
+    for (const [importProviderId, sourceRootPath, valid] of [
+      [undefined, "/source", false],
+      ["provider", undefined, false],
+      [" \t", "/source", false],
+      ["provider", " \t", false],
+      [" provider ", " /source ", true],
+      ["\uFEFF", "\uFEFF", true],
+    ] as const) {
+      const ref = create(ImportChoiceRefSchema, {
+        mode: ImportChoiceMode.SYMLINK_SOURCE, importProviderId, sourceRootPath,
+      });
+      if (valid) {
+        expect(() => validate(ImportChoiceRefSchema, ref)).not.toThrow();
+      } else {
+        expect(() => validate(ImportChoiceRefSchema, ref)).toThrow();
+      }
+    }
+  });
+
   it("accepts only the existing trimmed verbosity levels", () => {
     for (const level of ["low", " medium ", "high", " \t", "custom"]) {
       const fact = create(ModelVerbosityFactSchema, { source: "catalog", levels: [level] });

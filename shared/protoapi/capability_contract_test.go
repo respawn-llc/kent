@@ -51,3 +51,29 @@ func TestCapabilityVerbosityLevels(t *testing.T) {
 		}
 	}
 }
+
+func TestCapabilitySymlinkChoiceIdentity(t *testing.T) {
+	for _, tc := range []struct {
+		provider *string
+		root     *string
+		valid    bool
+	}{
+		{nil, proto.String("/source"), false},
+		{proto.String("provider"), nil, false},
+		{proto.String(" \t"), proto.String("/source"), false},
+		{proto.String("provider"), proto.String(" \t"), false},
+		{proto.String(" provider "), proto.String(" /source "), true},
+		{proto.String("\uFEFF"), proto.String("\uFEFF"), true},
+	} {
+		ref := &pb.ImportChoiceRef{
+			Mode:             pb.ImportChoiceMode_IMPORT_CHOICE_MODE_SYMLINK_SOURCE,
+			ImportProviderId: tc.provider, SourceRootPath: tc.root,
+		}
+		if err := protoapi.Validate(ref); (err == nil) != tc.valid {
+			t.Errorf("provider=%v root=%v acceptance = %v", tc.provider, tc.root, err)
+		}
+	}
+	if err := protoapi.Validate(&pb.ImportChoiceRef{Mode: pb.ImportChoiceMode_IMPORT_CHOICE_MODE_NONE}); err != nil {
+		t.Fatal(err)
+	}
+}
