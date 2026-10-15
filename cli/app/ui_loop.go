@@ -36,6 +36,8 @@ type uiLoopRequest struct {
 	newChatSettings              apicontract.ChatSettingsService
 	newChatAuth                  apicontract.AuthBootstrapService
 	newChatMutations             apicontract.ChatMutationService
+	sessionControls              apicontract.RuntimeControlService
+	createSession                func(context.Context, *chatpb.NewChatTarget, string) (*chatpb.ExistingSessionTarget, error)
 	newChatLogin                 func(context.Context) error
 	observeSession               func(context.Context, runtimeids.SessionID) (sessionLaunchPlan, *runtimeLaunchPlan, error)
 	ctx                          context.Context
@@ -223,6 +225,8 @@ func composeUIProgram(request uiLoopRequest, output io.Writer) (*uiProgramCompos
 	model.keyboardReporting = keyboardReporting
 	model.chatMutations = request.newChatMutations
 	model.chatSettings = request.newChatSettings
+	model.sessionControls = request.sessionControls
+	model.createSession = request.createSession
 	var initialDraft *draftContent
 	if target, known := model.presentationTarget.(uiKnownSessionTarget); known {
 		initialDraft = &draftContent{sessionID: target.id, input: model.mainEditor.Text()}

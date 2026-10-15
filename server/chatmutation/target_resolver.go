@@ -14,14 +14,11 @@ import (
 	"core/shared/clientui"
 	"core/shared/protoapi"
 	chatpb "core/shared/protoapi/gen/kent/api/chat"
-	chatsettingspb "core/shared/protoapi/gen/kent/api/chat_settings"
 	runtimepb "core/shared/protoapi/gen/kent/api/runtime"
 	sessionlaunchpb "core/shared/protoapi/gen/kent/api/session_launch"
 	worktreepb "core/shared/protoapi/gen/kent/api/worktree"
 	"core/shared/runtimeids"
 	"core/shared/serverapi"
-
-	"google.golang.org/protobuf/proto"
 )
 
 type SessionCreationService interface {
@@ -180,23 +177,7 @@ func (r *TargetResolver) Resolve(
 	if service == nil {
 		return ResolvedTarget{}, errors.New("Session launch service is required")
 	}
-	intent, err := protoapi.SessionLaunchRequestIntentToProto(
-		serverapi.CreateNewSessionLaunchIntent(serverapi.IndependentSessionCreateOrigin()),
-	)
-	if err != nil {
-		return ResolvedTarget{}, err
-	}
-	if newChat.Origin != nil {
-		intent = &sessionlaunchpb.SessionLaunchRequestIntent{Intent: &sessionlaunchpb.SessionLaunchRequestIntent_CreateNew{CreateNew: newChat.Origin}}
-	}
-	settings := proto.Clone(newChat.InitialSettings).(*chatsettingspb.InitialChatSettings)
-	response, err := service.PlanSession(ctx, &sessionlaunchpb.SessionPlanRequest{
-		Mode:                sessionlaunchpb.SessionLaunchMode_SESSION_LAUNCH_MODE_INTERACTIVE,
-		Intent:              intent,
-		InitialChatSettings: settings,
-		InitialInputDraft:   request.InitialDraft,
-		Overrides:           newChat.Invocation,
-	})
+	response, err := service.PlanSession(ctx, protoapi.NewChatSessionPlanRequest(newChat, request.InitialDraft))
 	if err != nil {
 		return ResolvedTarget{}, err
 	}

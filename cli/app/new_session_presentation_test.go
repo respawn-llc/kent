@@ -8,7 +8,9 @@ import (
 
 	"core/cli/app/commands"
 	"core/shared/config"
+	"core/shared/protoapi"
 	chatsettingspb "core/shared/protoapi/gen/kent/api/chat_settings"
+	"core/shared/runtimeids"
 	"core/shared/serverapi"
 	"core/shared/sessioncontract"
 )
@@ -59,6 +61,9 @@ func TestNewSessionPresentationLeavesArtifactsAndCatalogUnchanged(t *testing.T) 
 			t.Fatalf("fresh New composer retained draft %q", got)
 		}
 		composition.model.mainEditor.SetText("abandoned\nunsent draft")
+		_, _ = composition.model.inputController().handleSessionNameCommand("temporary name")
+		_, _ = composition.model.inputController().handleCopyCommand()
+		_, _ = composition.model.inputController().handleBackCommand()
 		_, _ = composition.model.inputController().applyCommandResultWithPreSubmitQueuePosition(commands.Result{
 			Action: commands.ActionNew,
 		}, preSubmitQueueBack)
@@ -72,6 +77,38 @@ func TestNewSessionPresentationLeavesArtifactsAndCatalogUnchanged(t *testing.T) 
 	}
 	if got := readCatalog(); got != catalog {
 		t.Fatalf("Session catalog entries = %d, want %d", got, catalog)
+	}
+}
+
+func TestNewSessionBackUsesNavigationOnlyOrigin(t *testing.T) {
+	_, workspace := newRegisteredAppWorkspace(t)
+	fixture := startRemoteAuthTestFixture(t, workspace)
+	server, err := ensureInteractiveProjectBinding(t.Context(), fixture.server)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = server.Close() }()
+	previous := runtimeids.NewSessionID()
+	intent, err := protoapi.SessionLaunchRequestIntentToProto(serverapi.CreateNewSessionLaunchIntent(serverapi.PreviousSessionCreateOrigin(previous)))
+	if err != nil {
+		t.Fatal(err)
+	}
+	request, err := prepareNewSessionUIRun(t.Context(), server, intent.GetCreateNew(), serverapi.RunPromptOverrides{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	composition, err := composeUIProgram(request, io.Discard)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer composition.close()
+	model := composition.model
+	if request.newChat.Origin.GetNavigationOnlySessionId().GetSessionId() != previous.String() {
+		t.Fatal("TUI New retained context-inheriting creation")
+	}
+	model.inputController().handleBackCommand()
+	if model.nextSessionID != previous.String() || model.exitAction != UIActionOpenSession {
+		t.Fatal("New Session back did not open its originating Session")
 	}
 }
 

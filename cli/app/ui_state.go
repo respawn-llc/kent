@@ -17,6 +17,7 @@ import (
 	"core/cli/tui/transcriptrender"
 	"core/shared/apicontract"
 	"core/shared/clientui"
+	chatpb "core/shared/protoapi/gen/kent/api/chat"
 	"core/shared/runtimeids"
 
 	tea "github.com/charmbracelet/bubbletea"
@@ -41,6 +42,8 @@ type uiModel struct {
 type uiRuntimeFeatureState struct {
 	chatMutations      apicontract.ChatMutationService
 	chatSettings       apicontract.ChatSettingsService
+	sessionControls    apicontract.RuntimeControlService
+	createSession      func(context.Context, *chatpb.NewChatTarget, string) (*chatpb.ExistingSessionTarget, error)
 	observeSession     func(context.Context, runtimeids.SessionID) (sessionLaunchPlan, *runtimeLaunchPlan, error)
 	sessionObservation *runtimeLaunchPlan
 	observationContext context.Context

@@ -184,7 +184,6 @@ func TestNewChatCompactionRetainsCreatedSessionOnOrdinaryRejection(t *testing.T)
 	app, _, binding, _ := newChatCommandCore(t, nil)
 	result, err := app.ChatMutationClient().Compact(t.Context(), &chatpb.CompactRequest{
 		Target:     newChatCommandTarget(t, app, binding.ProjectID, binding.WorkspaceID),
-		RequestId:  runtimeids.NewCompactionRequestID().String(),
 		Invocation: &chatpb.CompactionInvocation{Token: "/compact"},
 	})
 	if err != nil || result.GetSession() == nil || result.GetNotAccepted().GetTooSoon() == nil {

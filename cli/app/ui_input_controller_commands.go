@@ -184,6 +184,13 @@ func (c uiInputController) handleResumeCommand() (tea.Model, tea.Cmd) {
 
 func (c uiInputController) handleBackCommand() (tea.Model, tea.Cmd) {
 	m := c.model
+	if target := m.newChatTarget(); target != nil {
+		if previous := target.GetOrigin().GetNavigationOnlySessionId(); previous != nil {
+			m.nextSessionID = previous.GetSessionId()
+			m.exitAction = UIActionOpenSession
+			return m, tea.Quit
+		}
+	}
 	status := m.cachedRuntimeStatus()
 	if status.NavigationTargetSessionId == nil {
 		return m, c.model.appendLocalEntryWithNoticeID("system", "No parent session available", "")
@@ -196,6 +203,9 @@ func (c uiInputController) handleBackCommand() (tea.Model, tea.Cmd) {
 
 func (c uiInputController) handleCopyCommand() (tea.Model, tea.Cmd) {
 	m := c.model
+	if m.newSessionTarget() != nil {
+		return m, m.noFinalAnswerToCopyCmd()
+	}
 	if m.finalAnswerOperation != nil {
 		return m, nil
 	}
@@ -206,7 +216,7 @@ func (c uiInputController) handleSessionNameCommand(sessionName string) (tea.Mod
 	m := c.model
 	sessionName = strings.TrimSpace(sessionName)
 	mutation := sessionNameCommandMutation(sessionName)
-	if m.hasRuntimeClient() {
+	if m.newSessionTarget() == nil {
 		return m, m.runtimeControlCommand(runtimeControlSetSessionName, mutation)
 	}
 	name, err := protoapi.SessionNameFromMutation(mutation)

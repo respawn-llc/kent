@@ -11,6 +11,8 @@ import (
 	tuiinput "core/cli/tui/input"
 	"core/shared/apicontract"
 	"core/shared/clientui"
+	"core/shared/protoapi"
+	chatpb "core/shared/protoapi/gen/kent/api/chat"
 	sharedpb "core/shared/protoapi/gen/kent/api/shared"
 	worktreepb "core/shared/protoapi/gen/kent/api/worktree"
 	"core/shared/runtimeids"
@@ -18,6 +20,7 @@ import (
 	"core/shared/worktreecontract"
 
 	tea "github.com/charmbracelet/bubbletea"
+	"google.golang.org/protobuf/proto"
 )
 
 const (
@@ -151,9 +154,11 @@ type worktreeDeleteTargetResolvedMsg struct {
 }
 
 type worktreeCreateDoneMsg struct {
-	token uint64
-	resp  *worktreepb.CreateSuccess
-	err   error
+	token          uint64
+	resp           *worktreepb.CreateSuccess
+	err            error
+	session        *chatpb.ExistingSessionTarget
+	createdSession bool
 }
 
 type worktreeSetupEventMsg struct {
@@ -525,6 +530,16 @@ func (m *uiModel) worktreeCreateCmd(req *worktreepb.CreateRequest) tea.Cmd {
 	if m == nil {
 		return nil
 	}
+	if m.newSessionTarget() != nil && !m.newSessionConnectionReady() {
+		return nil
+	}
+	var target *chatpb.NewChatTarget
+	if m.newChatTarget() != nil {
+		target = proto.Clone(m.newChatTarget()).(*chatpb.NewChatTarget)
+		m.pendingNewChatActions++
+	}
+	draft := m.mainEditor.Text()
+	createSession := m.createSession
 	m.worktrees.mutationToken++
 	token := m.worktrees.mutationToken
 	if _, err := worktreecontract.ParseSetupOperationID(req.SetupOperationId); err != nil {
@@ -544,11 +559,25 @@ func (m *uiModel) worktreeCreateCmd(req *worktreepb.CreateRequest) tea.Cmd {
 	}
 	service := m.worktreeMutationService()
 	createCmd := func() tea.Msg {
+		result := worktreeCreateDoneMsg{token: token, createdSession: target != nil}
 		if err := <-setupReady; err != nil {
-			return worktreeCreateDoneMsg{token: token, err: err}
+			result.err = err
+			return result
 		}
-		resp, err := service.Create(req)
-		return worktreeCreateDoneMsg{token: token, resp: resp, err: err}
+		if target != nil {
+			result.session, result.err = createSession(context.Background(), target, draft)
+			if result.err != nil {
+				return result
+			}
+			id, err := runtimeids.ParseSessionID(result.session.SessionId)
+			if err != nil {
+				result.err = err
+				return result
+			}
+			service.SessionTarget = protoapi.SessionSelectorToProto(id)
+		}
+		result.resp, result.err = service.Create(req)
+		return result
 	}
 	return tea.Batch(subscribeCmd, createCmd, worktreeSetupEventCmd(setupEvents))
 }
@@ -598,6 +627,9 @@ func worktreeSetupEventCmd(events <-chan worktreeSetupEventMsg) tea.Cmd {
 func (m *uiModel) worktreeSwitchCmd(target worktreeui.Item) tea.Cmd {
 	if m == nil {
 		return nil
+	}
+	if m.newSessionTarget() != nil && target.IsMainWorkspace {
+		return m.worktreeTransitionCommand(runtimeinput.PendingWorkWorktreeTransition{Transition: runtimeinput.PendingWorkWorktreeTransitionLeave})
 	}
 	selector, err := worktreeui.StableMutationSelector(target)
 	if err != nil {

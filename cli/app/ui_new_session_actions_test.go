@@ -2,6 +2,7 @@ package app
 
 import (
 	"context"
+	"core/cli/app/commands"
 	"io"
 	"testing"
 
@@ -9,10 +10,64 @@ import (
 	"core/shared/protoapi"
 	chatpb "core/shared/protoapi/gen/kent/api/chat"
 	sessionlaunchpb "core/shared/protoapi/gen/kent/api/session_launch"
+	worktreepb "core/shared/protoapi/gen/kent/api/worktree"
 	"core/shared/runtimeids"
 	"core/shared/runtimeinput"
 	"core/shared/serverapi"
 )
+
+func TestNewSessionConfirmedWorktreeCreateKeepsSessionOnSetupFailure(t *testing.T) {
+	_, workspace := newRegisteredAppWorkspace(t)
+	t.Setenv("REMOTE_TEST_KEY", "ready-key")
+	fixture := startRemoteAuthTestFixture(t, workspace)
+	server, err := ensureInteractiveProjectBinding(t.Context(), fixture.server)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = server.Close() }()
+	request, err := prepareNewSessionUIRun(t.Context(), server, nil, serverapi.RunPromptOverrides{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	composition, err := composeUIProgram(request, io.Discard)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer composition.close()
+	model := composition.model
+	model.Update(model.loadNewSessionSettingsCmd(nil)())
+	model.mainEditor.SetText("draft across setup failure")
+	model.newChatTarget().Name = appStringPointer("future Worktree Session")
+	model.observeSession = nil
+	worktrees := &worktreeCommandTestClient{createErr: io.ErrUnexpectedEOF}
+	model.worktreeClient = worktrees
+	model.worktrees.open = true
+	model.worktrees.phase = uiWorktreeOverlayPhaseCreate
+	cmd := model.worktreeCreateCmd(&worktreepb.CreateRequest{})
+	var result *worktreeCreateDoneMsg
+	for _, msg := range collectCmdMessages(t, cmd) {
+		if done, ok := msg.(worktreeCreateDoneMsg); ok {
+			result = &done
+		}
+	}
+	if result == nil || result.session == nil || result.err == nil {
+		t.Fatal("setup failure did not deliver its created Session")
+	}
+	model.Update(*result)
+	if model.currentRuntimeSessionID() != result.session.SessionId || model.mainEditor.Text() != "draft across setup failure" {
+		t.Fatal("setup failure lost the created Session or visible draft")
+	}
+	if len(worktrees.createRequests) != 1 || worktrees.createRequests[0].Scope.GetSessionId().GetSessionId() != result.session.SessionId {
+		t.Fatal("Worktree create did not run once against the ordinary Session")
+	}
+	stored, err := sessionLaunchInitialStateFromServer(t.Context(), server, result.session.SessionId, "", false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if stored.Input != model.mainEditor.Text() {
+		t.Fatal("ordinary creation lost the initial visible draft")
+	}
+}
 
 func TestNewSessionAdoptionPersistsVisibleDraftWithoutMergingStoredInput(t *testing.T) {
 	_, workspace := newRegisteredAppWorkspace(t)
@@ -200,7 +255,7 @@ func TestNewSessionFirstRequestsCaptureIndependentInputs(t *testing.T) {
 	model.newChatTarget().Name = appStringPointer("second name")
 	second := model.inputController().submitCmd("second", runtimeinput.Text("second"), "", activeSubmitOriginDirect, nil)
 	second()
-	first()
+	firstResult := first()
 	if len(client.requests) != 2 {
 		t.Fatalf("first requests = %d, want 2", len(client.requests))
 	}
@@ -212,5 +267,20 @@ func TestNewSessionFirstRequestsCaptureIndependentInputs(t *testing.T) {
 	}
 	if model.activeSubmit.token != 0 {
 		t.Fatal("independent New requests replaced the singleton submission")
+	}
+	_, fresh := model.inputController().applyCommandResultWithPreSubmitQueuePosition(commands.Result{
+		SubmitUser: true, FreshConversation: true, User: "fresh prompt",
+	}, preSubmitQueueBack)
+	for _, msg := range collectCmdMessages(t, fresh) {
+		if _, done := msg.(newSessionActionDoneMsg); done {
+			break
+		}
+	}
+	if len(client.requests) != 3 || model.exitAction != UIActionNone {
+		t.Fatal("fresh prompt navigated away from New instead of dispatching its first action")
+	}
+	model.Update(firstResult)
+	if model.newSessionTarget() == nil || len(client.requests) != 3 || model.mainEditor.Text() != "first" {
+		t.Fatal("identityless failure lost New, replayed a request, or failed to restore rejected input")
 	}
 }

@@ -107,13 +107,17 @@ func (m *uiModel) handleLatestFinalAnswerDone(msg latestFinalAnswerDoneMsg) tea.
 	case uiFinalAnswerOperationCopy:
 		if msg.answer == nil {
 			m.finalAnswerOperation = nil
-			return m.sendTransientStatusWithNoticeID("No final answer available to copy", uiStatusNoticeError, transientStatusDuration, uiStatusNoticeReplace, "")
+			return m.noFinalAnswerToCopyCmd()
 		}
 		m.finalAnswerOperation.phase = uiFinalAnswerOperationClipboard
 		return m.copyClipboardTextCmdForOperation(msg.token, *msg.answer)
 	default:
 		return nil
 	}
+}
+
+func (m *uiModel) noFinalAnswerToCopyCmd() tea.Cmd {
+	return m.sendTransientStatusWithNoticeID("No final answer available to copy", uiStatusNoticeError, transientStatusDuration, uiStatusNoticeReplace, "")
 }
 
 func (m *uiModel) handleLatestFinalAnswerTimeout(msg latestFinalAnswerTimeoutMsg) tea.Cmd {

@@ -468,7 +468,7 @@ func (m *uiModel) runtimeControlCommand(operation runtimeControlOperation, mutat
 		return nil
 	}
 	client := m.runtimeClient()
-	if client == nil {
+	if client == nil && (operation != runtimeControlSetSessionName || m.sessionControls == nil || m.newSessionTarget() != nil) {
 		return nil
 	}
 	interruptReq := runtimeInterruptRequest{}
@@ -484,7 +484,13 @@ func (m *uiModel) runtimeControlCommand(operation runtimeControlOperation, mutat
 		msg := runtimeControlDoneMsg{token: token, sessionID: sessionID, operation: operation, name: mutation}
 		switch operation {
 		case runtimeControlSetSessionName:
-			msg.err = client.SetSessionName(mutation)
+			if client != nil {
+				msg.err = client.SetSessionName(mutation)
+			} else {
+				msg.err = runtimeControlCallNoResult(func(ctx context.Context) error {
+					return m.sessionControls.SetSessionName(ctx, &runtimepb.SetSessionNameRequest{SessionId: sessionID, Mutation: mutation})
+				})
+			}
 		case runtimeControlInterrupt:
 			msg.runtimeTuple, msg.err = executeRuntimeInterrupt(interruptReq)
 		}
