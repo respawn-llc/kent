@@ -1,6 +1,7 @@
 ## Authority And Client Boundaries
 
 - Worktree entry, exit, startup, and post-compaction reminders must shorten their CWD relative to the formatting Working Directory when contained within it, relative to home otherwise, and use an absolute path outside both. General environment CWD and Session rebind target-directory context must use absolute paths. Existing conversation content is never rewritten to apply path presentation.
+- Main Workspace roots in Worktree reminders must use home-relative paths when inside the user's home directory and absolute paths otherwise. Their display must not depend on the current Working Directory.
 - Patch presentation uses an absolute path supplied by the model exactly as its display label while resolving its canonical filesystem target separately. Image-tool clients collapse structured path labels without changing tool arguments, persisted results, or model-visible arbitrary text. Errors and diagnostics may use absolute paths.
 
 - Kent executes commands without virtualization or sandboxing. Isolation requires running Kent on a remote machine or in Docker.

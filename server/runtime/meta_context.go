@@ -681,7 +681,7 @@ func workflowInstructionTransitions(in []workflowruntime.TransitionInstruction) 
 func worktreeModeMetaMessage(state session.WorktreeReminderState, home string, kind prompts.WorktreePromptKind) (llm.Message, bool) {
 	content := prompts.RenderWorktreeModePrompt(kind, worktreeBranchPromptValue(state.Branch), state.EffectiveCwd,
 		pathutil.Compact(state.WorktreePath, &home, &state.EffectiveCwd),
-		pathutil.Compact(state.WorkspaceRoot, &home, &state.EffectiveCwd))
+		pathutil.CompactHome(state.WorkspaceRoot, &home))
 	if strings.TrimSpace(content) == "" {
 		return llm.Message{}, false
 	}
@@ -699,7 +699,7 @@ func worktreeModeExitMetaMessage(state session.WorktreeReminderState, home strin
 	}
 	content := prompts.RenderWorktreeModeExitPrompt(worktreeBranchPromptValue(state.Branch), state.EffectiveCwd,
 		pathutil.Compact(state.WorktreePath, &home, &state.EffectiveCwd),
-		pathutil.Compact(state.WorkspaceRoot, &home, &state.EffectiveCwd))
+		pathutil.CompactHome(state.WorkspaceRoot, &home))
 	if strings.TrimSpace(content) == "" {
 		return llm.Message{}, false
 	}
