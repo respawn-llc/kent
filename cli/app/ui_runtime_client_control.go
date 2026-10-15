@@ -120,14 +120,8 @@ func (c *sessionRuntimeClient) SetGoal(objective string) (*runtimepb.GoalSetSucc
 	if err != nil {
 		return nil, err
 	}
-	if err := protoapi.Validate(resp); err != nil {
-		return nil, err
-	}
 	if rejected := resp.GetRejected(); rejected != nil {
 		return nil, client.GoalSetErrorAsError(rejected)
-	}
-	if resp.GetMutation() == nil {
-		return nil, errors.New("Goal Set response did not contain a committed mutation")
 	}
 	return resp, nil
 }
@@ -201,9 +195,6 @@ func (c *sessionRuntimeClient) SubmitRuntimeInput(ctx context.Context, req clien
 		})
 	})
 	if err != nil {
-		return clientui.UserTurnSubmission{}, err
-	}
-	if err := protoapi.Validate(resp); err != nil {
 		return clientui.UserTurnSubmission{}, err
 	}
 	return userTurnSubmissionFromResponse(resp, runtimeSubmitInputText(req)), nil
@@ -308,9 +299,6 @@ func (c *sessionRuntimeClient) ListPendingWork(sessionID runtimeids.SessionID) (
 	})
 	if err != nil {
 		return runtimeinput.PendingWork{}, err
-	}
-	if err := protoapi.Validate(resp); err != nil {
-		return runtimeinput.PendingWork{}, fmt.Errorf("validate Pending Work list response: %w", err)
 	}
 	return protoapi.PendingWorkFromProto(resp.PendingWork)
 }

@@ -396,13 +396,8 @@ func writeGoalSetResult(stdout io.Writer, stderr io.Writer, result *runtimepb.Go
 		fmt.Fprintln(stderr, goalMutationCommandError(requestedSessionID, client.GoalSetErrorAsError(rejected)))
 		return 1
 	}
-	if mutation := result.GetMutation(); mutation != nil {
-		if code := writeGoalMutationResult(stdout, stderr, mutation); code != 0 {
-			return code
-		}
-	} else {
-		fmt.Fprintln(stderr, "Goal Set response did not contain a committed mutation")
-		return 1
+	if code := writeGoalMutationResult(stdout, stderr, result.GetMutation()); code != 0 {
+		return code
 	}
 	if diagnostic := result.GetDiagnostic(); diagnostic != nil {
 		fmt.Fprintf(stderr, "Warning: %s\n", client.GoalSetErrorAsError(diagnostic))
