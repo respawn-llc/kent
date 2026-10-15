@@ -9,7 +9,6 @@ import (
 
 	"core/shared/client"
 	"core/shared/config"
-	"core/shared/protoapi"
 	taskpb "core/shared/protoapi/gen/kent/api/workflow_task"
 )
 
@@ -90,10 +89,6 @@ func taskDependencyMutationSubcommand(kind taskDependencyMutationKind, args []st
 				fmt.Fprintln(stderr, err)
 				return 1
 			}
-			if err := protoapi.Validate(result); err != nil {
-				fmt.Fprintln(stderr, err)
-				return 1
-			}
 			response = result
 		case taskDependencyMutationRemove:
 			result, err := remote.RemoveWorkflowTaskDependency(ctx, &taskpb.DependencyRemoveRequest{
@@ -101,10 +96,6 @@ func taskDependencyMutationSubcommand(kind taskDependencyMutationKind, args []st
 				BlockedTaskId: blockedTaskID,
 			})
 			if err != nil {
-				fmt.Fprintln(stderr, err)
-				return 1
-			}
-			if err := protoapi.Validate(result); err != nil {
 				fmt.Fprintln(stderr, err)
 				return 1
 			}
@@ -161,10 +152,6 @@ func taskDependencyListSubcommand(args []string, stdout io.Writer, stderr io.Wri
 			Direction: direction,
 		})
 		if err != nil {
-			fmt.Fprintln(stderr, err)
-			return 1
-		}
-		if err := protoapi.Validate(response); err != nil {
 			fmt.Fprintln(stderr, err)
 			return 1
 		}

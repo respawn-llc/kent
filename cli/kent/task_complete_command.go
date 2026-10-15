@@ -72,19 +72,11 @@ func taskCompleteSubcommand(args []string, stdout io.Writer, stderr io.Writer) i
 			fmt.Fprintln(stderr, err)
 			return 1
 		}
-		if err := protoapi.Validate(req); err != nil {
-			fmt.Fprintln(stderr, err)
-			return 2
-		}
 		ctx, cancel := context.WithTimeout(context.Background(), workflowCommandTimeout)
 		defer cancel()
 		resp, err := remote.CompleteWorkflowTask(ctx, req)
 		if err != nil {
 			fmt.Fprintln(stderr, taskCompleteErrorMessage(err))
-			return 1
-		}
-		if err := protoapi.Validate(resp); err != nil {
-			fmt.Fprintln(stderr, err)
 			return 1
 		}
 		if moved := resp.GetForcedMove(); moved != nil {
