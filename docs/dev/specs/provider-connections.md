@@ -15,7 +15,7 @@
 - Workflow preparation must use completed connection and default edits without requiring a server restart. Saved Session bindings take precedence as defined by Session Binding.
 - The server must own credentials. Requests must use only the selected connection's credentials.
 - The server must own provider sign-in initiation, device polling, token exchange, and refresh. Clients must receive sign-in instructions without access or refresh credentials. Clients must own browser launch and callback or pasted-input collection.
-- Setup completion must remain server-wide. Credential readiness must be checked for the actual Session/role connection, not as a default-connection gate before Session selection. A broken default must not block working connections. Interactive terminal authentication and connection-setup gating must follow [TUI Startup](tui-startup.md#auth-gate). Headless credential failures must return actionable errors.
+- Setup completion must apply server-wide. Credential readiness must be checked for the actual Session/role connection, not as a default-connection gate before Session selection. A broken default must not block working connections. Interactive terminal authentication and connection-setup gating must follow [TUI Startup](tui-startup.md#auth-gate). Headless credential failures must return actionable errors.
 
 ## Connection Sets
 

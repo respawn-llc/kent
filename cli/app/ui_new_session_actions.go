@@ -10,6 +10,7 @@ import (
 	chatpb "core/shared/protoapi/gen/kent/api/chat"
 	chatshellpb "core/shared/protoapi/gen/kent/api/chat_shell"
 	runtimepb "core/shared/protoapi/gen/kent/api/runtime"
+	"core/shared/runtimeids"
 	"core/shared/runtimeinput"
 	"core/shared/textutil"
 
@@ -19,8 +20,9 @@ import (
 
 type newSessionAction interface{ isNewSessionAction() }
 type newSessionInputAction struct {
-	input  *chatpb.Activation
-	intent newSessionInputIntent
+	input       *chatpb.Activation
+	intent      newSessionInputIntent
+	queueItemID runtimeids.QueueItemID
 }
 type newSessionShellAction struct{ command string }
 type newSessionGoalAction struct{ objective string }
@@ -51,7 +53,7 @@ func (m *uiModel) newSessionInputCmd(text string, input runtimeinput.Input, inte
 	if err != nil {
 		return m.sendTransientStatusWithNoticeID(err.Error(), uiStatusNoticeError, transientStatusDuration, uiStatusNoticeReplace, "")
 	}
-	return m.newSessionActionCmd(newSessionInputAction{input: activation, intent: intent}, &text)
+	return m.newSessionActionCmd(newSessionInputAction{input: activation, intent: intent, queueItemID: runtimeids.NewQueueItemID()}, &text)
 }
 
 func (m *uiModel) newSessionActionCmd(action newSessionAction, submittedText *string) tea.Cmd {
@@ -95,9 +97,9 @@ func executeNewSessionAction(ctx context.Context, service apicontract.ChatMutati
 	case newSessionInputAction:
 		var response *chatpb.InputMutationSuccess
 		if action.intent == newSessionInputQueue {
-			response, result.err = service.Queue(ctx, &chatpb.QueueRequest{Target: target, Activation: action.input})
+			response, result.err = service.Queue(ctx, &chatpb.QueueRequest{Target: target, Activation: action.input, QueueItemId: action.queueItemID.String()})
 		} else {
-			response, result.err = service.Steer(ctx, &chatpb.SteerRequest{Target: target, Activation: action.input})
+			response, result.err = service.Steer(ctx, &chatpb.SteerRequest{Target: target, Activation: action.input, QueueItemId: action.queueItemID.String()})
 		}
 		if result.err == nil {
 			result.err = protoapi.Validate(response)

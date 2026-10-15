@@ -141,6 +141,42 @@ type concurrentNewChatClient struct {
 	requests []*chatpb.SteerRequest
 }
 
+func TestNewSessionNavigationPromptWaitsForSettingsThenDispatchesOnce(t *testing.T) {
+	_, workspace := newRegisteredAppWorkspace(t)
+	t.Setenv("REMOTE_TEST_KEY", "ready-key")
+	fixture := startRemoteAuthTestFixture(t, workspace)
+	server, err := ensureInteractiveProjectBinding(t.Context(), fixture.server)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = server.Close() }()
+	request, err := prepareNewSessionUIRun(t.Context(), server, nil, serverapi.RunPromptOverrides{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	request.initialPrompt = "navigation prompt"
+	composition, err := composeUIProgram(request, io.Discard)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer composition.close()
+	model := composition.model
+	client := &concurrentNewChatClient{}
+	model.chatMutations = client
+	model.mainEditor.SetText("typing after navigation")
+	if model.startupSubmitCmd() != nil || len(client.requests) != 0 {
+		t.Fatal("navigation prompt dispatched before settings were ready")
+	}
+	_, cmd := model.Update(model.loadNewSessionSettingsCmd(nil)())
+	collectCmdMessages(t, cmd)
+	if len(client.requests) != 1 || client.requests[0].Activation.GetText() != request.initialPrompt {
+		t.Fatal("settings readiness did not dispatch the explicit navigation prompt once")
+	}
+	if model.mainEditor.Text() != "typing after navigation" || model.startupSubmitCmd() != nil {
+		t.Fatal("navigation prompt replaced newer text or remained eligible for replay")
+	}
+}
+
 func TestNewSessionKnownFailureRetainsIdentityAndVisibleDraft(t *testing.T) {
 	model := newProjectedStaticUIModel()
 	model.presentationTarget = &uiNewSessionTarget{creation: &chatpb.NewChatTarget{}}

@@ -98,6 +98,7 @@ func (m *uiModel) applyNewSessionSettingsLoaded(msg newSessionSettingsLoadedMsg)
 	}
 	if msg.err != nil {
 		target.settingsLoad = uiNewSettingsFailed{err: msg.err}
+		m.restoreNavigationPrompt()
 		return m.showTransientStatusNotice(uiStatusNotice{Text: msg.err.Error(), Kind: uiStatusNoticeError})
 	}
 	target.settingsLoad = uiNewSettingsReady{choices: msg.catalog.Choices, readiness: msg.readiness}
@@ -113,13 +114,14 @@ func (m *uiModel) applyNewSessionSettingsLoaded(msg newSessionSettingsLoadedMsg)
 	if msg.readiness != nil && msg.readiness.AuthRequired && !msg.readiness.AuthReady {
 		clear = m.showTransientStatusNotice(uiStatusNotice{Text: "Sign in with /login to send a message.", Kind: uiStatusNoticeInfo})
 		if !m.newSessionConnectionReady() {
+			m.restoreNavigationPrompt()
 			return clear
 		}
 	} else {
 		clear = m.advanceTransientStatusQueue()
 	}
 	if msg.retry == nil {
-		return clear
+		return tea.Batch(clear, m.startupSubmitCmd())
 	}
 	if m.mainInputDraftToken == msg.retry.draftToken {
 		m.clearInput()
@@ -129,6 +131,13 @@ func (m *uiModel) applyNewSessionSettingsLoaded(msg newSessionSettingsLoadedMsg)
 		return tea.Batch(clear, action)
 	}
 	return tea.Batch(clear, m.inputController().startSubmissionWithPromptHistoryAndQueuePositionAndID(msg.retry.text, preSubmitQueueBack, ""))
+}
+
+func (m *uiModel) restoreNavigationPrompt() {
+	if text := strings.TrimSpace(m.startupSubmit); text != "" {
+		m.startupSubmit = ""
+		m.inputController().restoreSubmittedTextIntoInput(text)
+	}
 }
 
 type newSessionInputIntent uint8

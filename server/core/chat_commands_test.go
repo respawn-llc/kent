@@ -139,9 +139,9 @@ func TestNewChatTextInputCreatesOneSessionAndAcceptsAction(t *testing.T) {
 			var result *chatpb.InputMutationSuccess
 			var err error
 			if queued {
-				result, err = app.ChatMutationClient().Queue(t.Context(), &chatpb.QueueRequest{Target: target, Activation: activation})
+				result, err = app.ChatMutationClient().Queue(t.Context(), &chatpb.QueueRequest{Target: target, Activation: activation, QueueItemId: runtimeids.NewQueueItemID().String()})
 			} else {
-				result, err = app.ChatMutationClient().Steer(t.Context(), &chatpb.SteerRequest{Target: target, Activation: activation})
+				result, err = app.ChatMutationClient().Steer(t.Context(), &chatpb.SteerRequest{Target: target, Activation: activation, QueueItemId: runtimeids.NewQueueItemID().String()})
 			}
 			if err != nil || result.GetAccepted() == nil {
 				t.Fatalf("first Send = %v, %v", result, err)
@@ -205,8 +205,9 @@ func TestNewChatTargetFailureReturnsCreatedSessionWithoutReplay(t *testing.T) {
 	target.GetNewChat().Name = textutil.Value("future name")
 	target.GetNewChat().WorktreeSelector = textutil.Value("unavailable-worktree")
 	result, err := app.ChatMutationClient().Steer(t.Context(), &chatpb.SteerRequest{
-		Target:     target,
-		Activation: &chatpb.Activation{Input: &chatpb.Activation_Text{Text: "retained draft"}},
+		QueueItemId: runtimeids.NewQueueItemID().String(),
+		Target:      target,
+		Activation:  &chatpb.Activation{Input: &chatpb.Activation_Text{Text: "retained draft"}},
 	})
 	if err != nil || result.GetNotAccepted() == nil {
 		t.Fatalf("target failure = %v, %v", result, err)

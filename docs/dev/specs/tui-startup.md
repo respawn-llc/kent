@@ -27,18 +27,19 @@ Kent must process the following gates in order. It must skip a gate only when it
 ## New Session
 
 - Opening, typing in, changing settings in, abandoning, or reopening New Session must create neither a durable Session nor a Session catalog row.
-- The open New Session must retain its selected workspace, configuration inputs, settings, optional name, and optional Worktree target only in client memory until creation.
-- New Session must read settings defaults and choices from the server. Thinking, Fast, Supervisor, Questions, and Auto-compaction edits must remain temporary before creation. Creation must receive the selected settings. After creation, edits must use ordinary server-owned Session settings mutations.
+- The open New Session must store its selected workspace, configuration inputs, settings, optional name, and optional Worktree target only in client memory until creation.
+- New Session must read settings defaults and choices from the server. Thinking, Fast, Supervisor, Questions, and Auto-compaction edits must be temporary before creation. Creation must receive the selected settings. After creation, edits must use ordinary server-owned Session settings mutations.
 - New Session must show its editable composer immediately and resolve selected-role settings and connection readiness in the background. If the selected connection requires authentication, Kent must show a notice directing the user to `/login` without automatically opening authentication. This applies both before first sign-in on that connection and after authentication is lost. Returning from login must not resend an earlier action.
-- For connection sets, New Session readiness must be advisory. Settings reads must not allocate or reserve a connection. The explicit first action must allocate and validate its actual connection through ordinary server selection without requiring every member to be ready. A delivered Session identity and its ordinary draft must remain available after failure.
-- While settings load or their read has failed, editing and navigation must remain usable. Initial loading must keep creation-triggering actions unavailable until settings are ready. Loading must appear immediately. Read failure must show an error. Enter after a read failure must retry the read and send the explicitly requested input when that read succeeds. Kent must not guess defaults or retry an already-issued creation or action without another user action.
+- For connection sets, New Session readiness must be advisory. Settings reads must not allocate or reserve a connection. The explicit first action must allocate and validate its actual connection through ordinary server selection without requiring every member to be ready. A delivered Session identity and its ordinary draft must be available after failure.
+- While settings load or their read has failed, editing and navigation must be usable. Initial loading must keep creation-triggering actions unavailable until settings are ready. Loading must appear immediately. Read failure must show an error. Enter after a read failure must retry the read and send the explicitly requested input when that read succeeds. Kent must not guess defaults or retry an already-issued creation or action without another user action.
 - Each successful explicit creation-triggering request must create one ordinary Session and invoke its ordinary action once. Concurrent requests issued before a Session result arrives may create separate Sessions.
+- An explicit prompt action supplied by navigation must wait for settings and dispatch once when ready without requiring another Enter. Settings-read or authentication failure must leave that prompt unsent for another explicit action.
 - Each delivered Session result must adopt that Session in the same composer. Visible unsent text must follow the delivered Session. A result from a New Session the user has left must not navigate the current view.
 - If a delivered result identifies a created Session but later activation or action fails, the TUI must keep that Session and its ordinary server-owned draft. If no Session identity was delivered, the TUI must keep New Session without searching for or inferring the result.
 - Submission failure must use the restoration behavior in [TUI Chat Core](tui-chat-core.md#queueing-and-steering). Goal Set must leave composer text unchanged. Kent must not automatically retry, replay, or reconcile failed or disconnected creation or actions.
 - Navigation or exit must discard uncreated New Session text, name, settings, and Worktree selection without confirmation. `/new` must navigate to a fresh Chat presentation, dispose the prior presentation's in-memory state, and recreate it with ordinary startup defaults.
-- Ordinary TUI `/new` must retain only the originating Session's navigation relationship. It must use the chosen Project and workspace's fresh defaults and explicit temporary selections without inheriting the originating Session's model, provider setup, ancestry, or Worktree. Rollback and agent-child inheritance must remain unchanged.
-- Existing Session drafts must remain server-owned and retain their ordinary save and restore behavior.
+- Ordinary TUI `/new` must copy only the originating Session's navigation relationship. It must use the chosen Project and workspace's fresh defaults and explicit temporary selections without inheriting the originating Session's model, provider setup, ancestry, or Worktree. Rollback and agent-child inheritance must follow their respective creation contracts.
+- The server must own existing Session drafts and their ordinary save and restore behavior.
 - Pre-Session controls must follow [TUI Slash Overlays](tui-slash-overlays.md#pre-session-controls).
 
 ## Auth gate
@@ -46,7 +47,7 @@ Kent must process the following gates in order. It must skip a gate only when it
 - The picker and credential selection must follow [Provider Connections](provider-connections.md). Onboarding must own first-run sign-in, and slash commands must be unavailable before onboarding completes.
 - Successful auth shows a brief confirmation state on the auth surface before advancing to the next gate.
 - While the authentication surface is open, authentication failures and 401 responses must appear there with retry or method-selection actions. Outside that surface, missing or lost authentication must show a notice directing the user to `/login` without an automatic redirect or silent exit.
-- Automatic authentication must remain limited to first-time onboarding and Session listing with no usable configured connections. Usability must come from server readiness without refreshing credentials or contacting providers.
+- Automatic authentication must be limited to first-time onboarding and Session listing with no usable configured connections. Usability must come from server readiness without refreshing credentials or contacting providers.
 
 ## Session picker
 

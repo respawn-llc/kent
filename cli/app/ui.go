@@ -79,6 +79,10 @@ func (m *uiModel) startupSubmitCmd() tea.Cmd {
 	if startupText == "" {
 		return nil
 	}
+	if m.newSessionTarget() != nil && !m.newSessionConnectionReady() {
+		return nil
+	}
+	m.startupSubmit = ""
 	if m.startupSubmitPromptHistoryRecorded {
 		if input, ok := promptCommandInput(startupText); ok {
 			return m.inputController().startTypedSubmissionWithPreSubmitQueuePosition(startupText, input, preSubmitQueueBack, "", activeSubmitOriginDirect)
