@@ -106,7 +106,9 @@ export function TestAppProviders({
       }),
     ),
   );
-  return skipAnimations ? createElement(MotionConfig, { skipAnimations: true, children: providers }) : providers;
+  return skipAnimations
+    ? createElement(MotionConfig, { skipAnimations: true, children: providers })
+    : providers;
 }
 
 export function createTestServices(

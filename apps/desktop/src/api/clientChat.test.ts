@@ -434,7 +434,7 @@ describe("Desktop Chat read client", () => {
         },
       ]);
       const activationClient = new ApiClient(activationTransport, unexpectedProjectOverflow);
-      await expect(activationClient.chat.activateRuntime(target)).resolves.toBeUndefined();
+      await activationClient.chat.activateRuntime(target);
       if (selection === undefined) {
         expect(activationTransport.descriptorCalls[1]?.request).not.toHaveProperty("options.agentSelection");
       } else {
@@ -453,7 +453,8 @@ describe("Desktop Chat read client", () => {
       ]),
       unexpectedProjectOverflow,
     );
-    await expect(mismatchedPlanClient.chat.activateRuntime(target)).rejects.toBeInstanceOf(ContractError);
+    const failure = await mismatchedPlanClient.chat.activateRuntime(target).catch((error: unknown) => error);
+    expect(failure).toBeInstanceOf(ContractError);
   });
 
   it("converts Goal inspection, authoritative mutation, and ordered observation", async () => {

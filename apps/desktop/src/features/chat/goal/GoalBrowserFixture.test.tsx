@@ -5,11 +5,7 @@ import { act, render, screen, waitFor, waitForElementToBeRemoved, within } from 
 
 import { ChatPromptPresenceProvider } from "@/app-facade";
 import { appI18n } from "@/i18n";
-import {
-  createTestServices,
-  startupRoutes,
-  TestAppProviders,
-} from "@/test-support/app-services";
+import { createTestServices, startupRoutes, TestAppProviders } from "@/test-support/app-services";
 import { TestSidebar } from "@/test-support/sidebar-rendering";
 import { GoalBrowserFixture, type GoalBrowserPendingPrompt } from "./GoalBrowserFixture";
 

@@ -1,7 +1,7 @@
 import { afterEach, expect, it, vi } from "bun:test";
 import { act, render, renderHook, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import type { ReactNode } from "react";
+import { createElement } from "react";
 
 import {
   ChatOperationError,
@@ -176,7 +176,8 @@ it.each(["subscription", "api_key", "no_auth"] as const)(
       session: { ...initialRead.session, connection },
     });
     render(<SessionSettingsChipHost />, {
-      wrapper: ({ children }) => <TestAppProviders skipAnimations services={services}>{children}</TestAppProviders>,
+      wrapper: ({ children }) =>
+        createElement(TestAppProviders, { services, skipAnimations: true, children }),
     });
     const user = userEvent.setup({ skipHover: true });
     await user.hover(await screen.findByRole("button", { name: appI18n.t("chatSettings.open") }));
@@ -195,7 +196,7 @@ it("omits the Session Connection row when the server does not project it", async
   const services = createTestServices([]);
   vi.spyOn(services.api.chat, "getSettings").mockResolvedValue(initialRead);
   render(<SessionSettingsChipHost />, {
-    wrapper: ({ children }) => <TestAppProviders skipAnimations services={services}>{children}</TestAppProviders>,
+    wrapper: ({ children }) => createElement(TestAppProviders, { services, skipAnimations: true, children }),
   });
   await userEvent.setup().hover(await screen.findByRole("button", { name: appI18n.t("chatSettings.open") }));
   expect(
@@ -402,9 +403,7 @@ it("surfaces typed Chat operation diagnostics for an ordinary mutation failure",
   vi.spyOn(services.api.chat, "mutateSettings").mockRejectedValue(failure);
   const notice = vi.spyOn(ui, "showStatusToast").mockImplementation(() => undefined);
   const { result } = renderHook(() => useChatSettings({ ...connected, target, onContextChange: vi.fn() }), {
-    wrapper: ({ children }: Readonly<{ children: ReactNode }>) => (
-      <TestAppProviders skipAnimations services={services}>{children}</TestAppProviders>
-    ),
+    wrapper: ({ children }) => createElement(TestAppProviders, { services, skipAnimations: true, children }),
   });
   await waitFor(() => {
     expect(result.current.kind).toBe("ready-session");
@@ -425,9 +424,7 @@ it("loads ordinary Session Settings through the same feature boundary", async ()
   const read = deferred<ChatSettingsRead>();
   const getSettings = vi.spyOn(services.api.chat, "getSettings").mockReturnValue(read.promise);
   const { result } = renderHook(() => useChatSettings({ ...connected, target, onContextChange: vi.fn() }), {
-    wrapper: ({ children }: Readonly<{ children: ReactNode }>) => (
-      <TestAppProviders skipAnimations services={services}>{children}</TestAppProviders>
-    ),
+    wrapper: ({ children }) => createElement(TestAppProviders, { services, skipAnimations: true, children }),
   });
   expect(result.current).toMatchObject({ kind: "loading-session" });
   await act(async () => {
@@ -449,9 +446,7 @@ it("keeps the current Agent until the server completes the switch and exposes re
   const pending = deferred<ChatSettingsMutationResponse>();
   const mutate = vi.spyOn(services.api.chat, "mutateSettings").mockReturnValue(pending.promise);
   const { result } = renderHook(() => useChatSettings({ ...connected, target, onContextChange: vi.fn() }), {
-    wrapper: ({ children }: Readonly<{ children: ReactNode }>) => (
-      <TestAppProviders skipAnimations services={services}>{children}</TestAppProviders>
-    ),
+    wrapper: ({ children }) => createElement(TestAppProviders, { services, skipAnimations: true, children }),
   });
   await waitFor(() => {
     expect(result.current.kind).toBe("ready-session");
@@ -495,9 +490,7 @@ it("applies overlapping successes in delivery order and reports each mutation Co
     .mockReturnValueOnce(second.promise);
   const onContextChange = vi.fn<(value: ChatContext) => void>();
   const { result } = renderHook(() => useChatSettings({ ...connected, target, onContextChange }), {
-    wrapper: ({ children }: Readonly<{ children: ReactNode }>) => (
-      <TestAppProviders skipAnimations services={services}>{children}</TestAppProviders>
-    ),
+    wrapper: ({ children }) => createElement(TestAppProviders, { services, skipAnimations: true, children }),
   });
   await waitFor(() => {
     expect(result.current.kind).toBe("ready-session");
@@ -545,9 +538,7 @@ it("applies a late typed rejection as complete authoritative state and reports i
   const notice = vi.spyOn(ui, "showStatusToast").mockImplementation(() => undefined);
   const onContextChange = vi.fn<(value: ChatContext) => void>();
   const { result } = renderHook(() => useChatSettings({ ...connected, target, onContextChange }), {
-    wrapper: ({ children }: Readonly<{ children: ReactNode }>) => (
-      <TestAppProviders skipAnimations services={services}>{children}</TestAppProviders>
-    ),
+    wrapper: ({ children }) => createElement(TestAppProviders, { services, skipAnimations: true, children }),
   });
   await waitFor(() => {
     expect(result.current.kind).toBe("ready-session");
@@ -592,9 +583,8 @@ it.each(["applied", "rejected"] as const)(
     const notice = vi.spyOn(ui, "showStatusToast").mockImplementation(() => undefined);
     const onContextChange = vi.fn<(value: ChatContext) => void>();
     const { result } = renderHook(() => useChatSettings({ ...connected, target, onContextChange }), {
-      wrapper: ({ children }: Readonly<{ children: ReactNode }>) => (
-        <TestAppProviders skipAnimations services={services}>{children}</TestAppProviders>
-      ),
+      wrapper: ({ children }) =>
+        createElement(TestAppProviders, { services, skipAnimations: true, children }),
     });
     await waitFor(() => {
       expect(result.current.kind).toBe("ready-session");
@@ -654,9 +644,8 @@ it("drops old Session completions after target replacement and installs the newl
     (options) => useChatSettings(options),
     {
       initialProps: { ...connected, target, onContextChange },
-      wrapper: ({ children }: Readonly<{ children: ReactNode }>) => (
-        <TestAppProviders skipAnimations services={services}>{children}</TestAppProviders>
-      ),
+      wrapper: ({ children }) =>
+        createElement(TestAppProviders, { services, skipAnimations: true, children }),
     },
   );
   await waitFor(() => {
@@ -741,9 +730,8 @@ it("replaces New Chat selection with ordinary Session loading before installing 
         target: { kind: "new_chat", projectID: target.projectID, workspace: { workspaceID: "workspace-1" } },
         onInitialSettingsChange: vi.fn(),
       },
-      wrapper: ({ children }: Readonly<{ children: ReactNode }>) => (
-        <TestAppProviders skipAnimations services={services}>{children}</TestAppProviders>
-      ),
+      wrapper: ({ children }) =>
+        createElement(TestAppProviders, { services, skipAnimations: true, children }),
     },
   );
   await waitFor(() => {
@@ -785,9 +773,7 @@ it("exposes whole-Chat Session read failure without retained Settings", async ()
   const read = deferred<ChatSettingsRead>();
   vi.spyOn(services.api.chat, "getSettings").mockReturnValue(read.promise);
   const { result } = renderHook(() => useChatSettings({ ...connected, target, onContextChange: vi.fn() }), {
-    wrapper: ({ children }: Readonly<{ children: ReactNode }>) => (
-      <TestAppProviders skipAnimations services={services}>{children}</TestAppProviders>
-    ),
+    wrapper: ({ children }) => createElement(TestAppProviders, { services, skipAnimations: true, children }),
   });
   const failure = new Error("Session unavailable");
   await act(async () => {
@@ -810,9 +796,7 @@ it("preserves exact custom Thinking input and returns distinct completions for t
     .mockRejectedValueOnce(error);
   const notice = vi.spyOn(ui, "showStatusToast").mockImplementation(() => undefined);
   const { result } = renderHook(() => useChatSettings({ ...connected, target, onContextChange: vi.fn() }), {
-    wrapper: ({ children }: Readonly<{ children: ReactNode }>) => (
-      <TestAppProviders skipAnimations services={services}>{children}</TestAppProviders>
-    ),
+    wrapper: ({ children }) => createElement(TestAppProviders, { services, skipAnimations: true, children }),
   });
   await waitFor(() => {
     expect(result.current.kind).toBe("ready-session");
@@ -903,9 +887,8 @@ it("starts one read per changed host input and keeps mutations available during 
         ...navigation,
         authoritativeRefreshGeneration: initialGeneration,
       },
-      wrapper: ({ children }: Readonly<{ children: ReactNode }>) => (
-        <TestAppProviders skipAnimations services={services}>{children}</TestAppProviders>
-      ),
+      wrapper: ({ children }) =>
+        createElement(TestAppProviders, { services, skipAnimations: true, children }),
     },
   );
   await waitFor(() => {
@@ -951,9 +934,8 @@ it("exposes cached refresh failure and retries only the read without replaying a
     (options) => useChatSettings(options),
     {
       initialProps: { ...connected, target, onContextChange: vi.fn() },
-      wrapper: ({ children }: Readonly<{ children: ReactNode }>) => (
-        <TestAppProviders skipAnimations services={services}>{children}</TestAppProviders>
-      ),
+      wrapper: ({ children }) =>
+        createElement(TestAppProviders, { services, skipAnimations: true, children }),
     },
   );
   await waitFor(() => {
@@ -1009,9 +991,8 @@ it.each(["refresh-first", "mutation-first"] as const)(
       (options) => useChatSettings(options),
       {
         initialProps: { ...connected, target, onContextChange },
-        wrapper: ({ children }: Readonly<{ children: ReactNode }>) => (
-          <TestAppProviders skipAnimations services={services}>{children}</TestAppProviders>
-        ),
+        wrapper: ({ children }) =>
+          createElement(TestAppProviders, { services, skipAnimations: true, children }),
       },
     );
     await waitFor(() => {
@@ -1070,9 +1051,8 @@ it("discards old reads and mutations through A to B to A target replacement", as
     (options) => useChatSettings(options),
     {
       initialProps: { ...connected, target, onContextChange },
-      wrapper: ({ children }: Readonly<{ children: ReactNode }>) => (
-        <TestAppProviders skipAnimations services={services}>{children}</TestAppProviders>
-      ),
+      wrapper: ({ children }) =>
+        createElement(TestAppProviders, { services, skipAnimations: true, children }),
     },
   );
   await waitFor(() => {

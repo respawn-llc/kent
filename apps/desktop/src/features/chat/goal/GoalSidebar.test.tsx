@@ -411,7 +411,11 @@ describe("Goal sidebar", () => {
     await user.type(screen.getByRole("textbox", { name: "Goal" }), "close-safe success");
     await user.click(screen.getByTestId("goal-save"));
     // Closing a sidebar does not close its window or replace the window's Atom registry.
-    view.rerender(<TestAppProviders skipAnimations services={services}>{null}</TestAppProviders>);
+    view.rerender(
+      <TestAppProviders skipAnimations services={services}>
+        {null}
+      </TestAppProviders>,
+    );
 
     view.rerender(
       <TestAppProviders skipAnimations services={services}>
