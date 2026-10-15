@@ -18,6 +18,11 @@ func NewWorktreeTransitionID() WorktreeTransitionID {
 	return WorktreeTransitionID(uuid.New())
 }
 
+func WorktreeTransitionIDFromProto(value string) (WorktreeTransitionID, error) {
+	parsed, err := uuid.Parse(value)
+	return WorktreeTransitionID(parsed), err
+}
+
 func ParseWorktreeTransitionID(value string) (WorktreeTransitionID, error) {
 	parsed, err := uuid.Parse(strings.TrimSpace(value))
 	if err != nil {
