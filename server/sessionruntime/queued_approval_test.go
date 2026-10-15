@@ -15,6 +15,7 @@ import (
 	"core/server/runtime"
 	"core/server/tools"
 	"core/shared/clientui"
+	"core/shared/runtimeids"
 	"core/shared/textutil"
 	"core/shared/toolspec"
 )
@@ -56,7 +57,7 @@ func TestQueuedImageApprovalKeepsOwnerWhileCompactionIsBusy(t *testing.T) {
 	err = h.authority.RunCurrentTurn(h.ctx, mustOpenSessionDescriptor(t, h.sessionID),
 		func(commit func() (bool, error)) (bool, error) { return commit() },
 		func(ctx context.Context, engine *runtime.Engine, accept runtime.CommandAcceptance) error {
-			_, err := engine.QueueUserInputWithAcceptance(ctx, runtime.QueuedUserInput{ExecutionText: "Read the image", CanonicalPresentation: "Read the image"}, accept)
+			_, err := engine.QueueUserInputWithAcceptance(ctx, runtime.QueuedUserInput{ID: runtimeids.NewQueueItemID().String(), ExecutionText: "Read the image", CanonicalPresentation: "Read the image"}, accept)
 			return err
 		})
 	if err != nil {

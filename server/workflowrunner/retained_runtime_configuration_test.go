@@ -87,6 +87,10 @@ func runRetainedRuntimeConfiguration(t *testing.T, mode workflow.ContextMode, re
 		}
 	}
 	f.waitForTaskQuiescence(t, task.ID)
+	meta := f.onlyProjectSessionMeta(t)
+	if meta.ConnectionID == nil || *meta.ConnectionID != "coder" {
+		t.Fatalf("retained Session changed its Connection: %v", meta.ConnectionID)
+	}
 	if resume {
 		role := f.starter.cfg.Settings.Subagents["reviewer"]
 		role.Settings.Model = "changed-reviewer"

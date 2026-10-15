@@ -136,9 +136,19 @@ message AcceptedDiagnostic {
   }
 }
 
+enum InputAdmissionDisposition {
+  INPUT_ADMISSION_DISPOSITION_UNSPECIFIED = 0;
+  INPUT_ADMISSION_DISPOSITION_STARTED_TURN = 1;
+  INPUT_ADMISSION_DISPOSITION_PENDING_STEER = 2;
+  INPUT_ADMISSION_DISPOSITION_PENDING_QUEUE = 3;
+}
+
 message InputAccepted {
   QueueItemIdentity queue_item = 1 [(buf.validate.field).required = true];
   optional AcceptedDiagnostic diagnostic = 2;
+  InputAdmissionDisposition disposition = 3 [
+    (buf.validate.field).enum = {defined_only: true, not_in: [0]}
+  ];
 }
 
 message InputNotAccepted {
@@ -239,11 +249,19 @@ message QueueResult {
 message SteerRequest {
   ChatTarget target = 1 [(buf.validate.field).required = true];
   Activation activation = 2 [(buf.validate.field).required = true];
+  string queue_item_id = 3 [
+    (buf.validate.field).string.uuid = true,
+    (buf.validate.field).string.(kent.api.shared.canonical_uuid_v4) = true
+  ];
 }
 
 message QueueRequest {
   ChatTarget target = 1 [(buf.validate.field).required = true];
   Activation activation = 2 [(buf.validate.field).required = true];
+  string queue_item_id = 3 [
+    (buf.validate.field).string.uuid = true,
+    (buf.validate.field).string.(kent.api.shared.canonical_uuid_v4) = true
+  ];
 }
 
 message ManualCompactionTooSoonDetails {}

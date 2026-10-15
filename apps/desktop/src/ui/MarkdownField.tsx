@@ -1,5 +1,6 @@
 import {
   useEffect,
+  useEffectEvent,
   useId,
   useRef,
   useState,
@@ -115,6 +116,21 @@ function MarkdownFieldCore({
   value,
   editing,
 }: MarkdownFieldCoreProps) {
+  const fieldRef = useRef<HTMLDivElement | null>(null);
+  const leaveField = useEffectEvent((event: FocusEvent) => {
+    if (event.relatedTarget instanceof Node && fieldRef.current?.contains(event.relatedTarget)) return;
+    onEditingChange(false);
+  });
+  useEffect(() => {
+    const field = fieldRef.current;
+    if (field === null) return;
+    // The editor and its action share one focus boundary. Switching to the
+    // preview on pointer-down would move the action before pointer-up.
+    field.addEventListener("blur", leaveField, true);
+    return () => {
+      field.removeEventListener("blur", leaveField, true);
+    };
+  }, []);
   const fieldID = useId();
   const errorID = `${fieldID}-error`;
   const errorText = error === undefined || error.length === 0 ? undefined : error;
@@ -122,6 +138,7 @@ function MarkdownFieldCore({
 
   return (
     <div
+      ref={fieldRef}
       className={cx(
         "grid h-full w-full min-h-0 min-w-0 max-w-full",
         errorText === undefined
@@ -138,9 +155,6 @@ function MarkdownFieldCore({
             fieldID={fieldID}
             hasFloatingAction={floatingAction !== undefined}
             label={label}
-            onBlur={() => {
-              onEditingChange(false);
-            }}
             onChange={onChange}
             onKeyDown={(event) => {
               if (submitIntent === undefined) {
@@ -243,7 +257,6 @@ function MarkdownFieldEditor({
   fieldID,
   hasFloatingAction,
   label,
-  onBlur,
   onChange,
   onKeyDown,
   placeholder,
@@ -256,36 +269,12 @@ function MarkdownFieldEditor({
   fieldID: string;
   hasFloatingAction: boolean;
   label: string;
-  onBlur: () => void;
   onChange: (value: string) => void;
   onKeyDown: (event: KeyboardEvent<HTMLTextAreaElement>) => void;
   placeholder: string;
   surfaceRadius: FieldIslandRadius | undefined;
   value: string;
 }>) {
-  const editorRef = useRef<HTMLTextAreaElement | null>(null);
-  const onBlurRef = useRef(onBlur);
-
-  // Attach to the editor node so browser-native focus loss always returns the
-  // controlled field to its rendered Markdown presentation.
-  useEffect(() => {
-    onBlurRef.current = onBlur;
-  }, [onBlur]);
-
-  useEffect(() => {
-    const editor = editorRef.current;
-    if (editor === null) {
-      return;
-    }
-    const handleBlur = () => {
-      onBlurRef.current();
-    };
-    editor.addEventListener("blur", handleBlur);
-    return () => {
-      editor.removeEventListener("blur", handleBlur);
-    };
-  }, []);
-
   return (
     <textarea
       aria-describedby={describedBy}
@@ -298,7 +287,6 @@ function MarkdownFieldEditor({
         hasFloatingAction && "pb-12",
       )}
       id={fieldID}
-      ref={editorRef}
       onChange={(event) => {
         onChange(event.target.value);
       }}

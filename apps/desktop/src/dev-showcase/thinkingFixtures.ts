@@ -47,6 +47,7 @@ function fixtureUserRow(sequence: number): ChatTranscriptPayloadByKind["committe
     Visibility: "ongoing",
     Integrity: 0,
     User: {
+      QueueItemIDs: [],
       Text: `Bounded history fixture ${String(sequence)}. Scroll past the reasoning row to unmount it.`,
     },
     Assistant: null,

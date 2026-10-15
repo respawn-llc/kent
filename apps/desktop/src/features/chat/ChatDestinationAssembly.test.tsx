@@ -1,5 +1,5 @@
 import { createChatStorageFixture } from "./chatStorageFixture";
-import { act, screen, waitFor, within } from "@testing-library/react";
+import { act, fireEvent, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { QueryClient } from "@tanstack/react-query";
 import { useState } from "react";
@@ -178,7 +178,7 @@ it("declines the current prompt from composer actions without stopping the run a
   view.unmount();
 });
 
-it("clears submitted text immediately while compaction and steering delivery remain pending", async () => {
+it("holds busy Send readonly until acceptance during compaction, then allows continued typing", async () => {
   const accepted = deferred<ChatInputMutationResult>();
   const view = sessionWithPrompts((services) => {
     vi.spyOn(services.api.chat, "steer").mockReturnValue(accepted.promise);
@@ -203,19 +203,24 @@ it("clears submitted text immediately while compaction and steering delivery rem
   await waitFor(() => {
     expect(view.services.api.chat.steer).toHaveBeenCalledOnce();
   });
-  expect(editor).toHaveValue("");
+  expect(editor).toHaveValue("steer during compaction");
+  expect(editor).toHaveAttribute("readonly");
   await user.type(editor, "next draft");
-  expect(editor).toHaveValue("next draft");
+  expect(editor).toHaveValue("steer during compaction");
   await act(async () => {
     accepted.resolve({
       sessionID: sessionTarget.sessionID,
       outcome: {
         kind: "accepted",
+        disposition: "pending_steer",
         queueItemID: parsePendingWorkItemID(crypto.randomUUID()),
         diagnostic: null,
       },
     });
   });
+  expect(editor).toHaveValue("");
+  expect(editor).not.toHaveAttribute("readonly");
+  await user.type(editor, "next draft");
   expect(editor).toHaveValue("next draft");
 });
 
@@ -478,7 +483,9 @@ it("blocks parent interaction while Edit is pending and restores its draft after
     vi.spyOn(services.api.chat, "forkEdit").mockReturnValue(response.promise);
     vi.mocked(services.api.chat.getTranscriptPage).mockResolvedValue({
       ...transcriptPage(null),
-      entries: [{ ...row(1), User: { Text: "original message", RollbackTargetID: "rollback" } }],
+      entries: [
+        { ...row(1), User: { Text: "original message", RollbackTargetID: "rollback", QueueItemIDs: [] } },
+      ],
     });
   });
   const user = userEvent.setup();
@@ -501,7 +508,7 @@ it("keeps the parent draft when child creation succeeds but departure saving fai
     vi.spyOn(services.api.chat, "forkEdit").mockResolvedValue("child-session");
     vi.mocked(services.api.chat.getTranscriptPage).mockResolvedValue({
       ...transcriptPage(null),
-      entries: [{ ...row(1), User: { Text: "original", RollbackTargetID: "rollback" } }],
+      entries: [{ ...row(1), User: { Text: "original", RollbackTargetID: "rollback", QueueItemIDs: [] } }],
     });
   });
   navigation.openParentSession.mockImplementationOnce(async (sessionID: string) =>
@@ -524,6 +531,9 @@ it("keeps the parent draft when child creation succeeds but departure saving fai
 });
 
 it("preserves focus, selection and continued typing across successive deliveries with Worktree commands", async () => {
+  onTestFinished(() => {
+    vi.useRealTimers();
+  });
   const first = deferred<ChatInputMutationResult>();
   const second = deferred<ChatInputMutationResult>();
   const view = sessionWithPrompts((services) => {
@@ -540,20 +550,36 @@ it("preserves focus, selection and continued typing across successive deliveries
   }, opening);
   const user = userEvent.setup();
   const send = () => screen.getByRole("button", { name: appI18n.t("chatComposer.send") });
-  await user.type(screen.getByRole("textbox"), "/review one");
+  // Populate setup drafts in one input operation; only the final keystroke
+  // exercises selection replacement after the asynchronous deliveries.
+  await user.click(screen.getByRole("textbox"));
+  await user.paste("/review one");
   await waitFor(() => {
     expect(send()).toBeEnabled();
   });
-  await user.click(send());
-  await user.type(screen.getByRole("textbox"), "/init two");
-  await user.click(send());
-  await user.type(screen.getByRole("textbox"), "continuing");
+  vi.useFakeTimers();
+  fireEvent.click(send());
+  await act(async () => vi.advanceTimersByTimeAsync(2000));
+  vi.useRealTimers();
+  expect(view.services.api.chat.steer).toHaveBeenCalledTimes(1);
+  expect(screen.getByRole("textbox")).not.toHaveAttribute("readonly");
+  await user.click(screen.getByRole("textbox"));
+  await user.paste("/init two");
+  vi.useFakeTimers();
+  fireEvent.click(send());
+  await act(async () => vi.advanceTimersByTimeAsync(2000));
+  vi.useRealTimers();
+  expect(view.services.api.chat.steer).toHaveBeenCalledTimes(2);
+  expect(screen.getByRole("textbox")).not.toHaveAttribute("readonly");
+  await user.click(screen.getByRole("textbox"));
+  await user.paste("continuing");
   const editor = screen.getByRole<HTMLTextAreaElement>("textbox");
   editor.setSelectionRange(2, 5);
   const accepted = (sessionID: string): ChatInputMutationResult => ({
     sessionID,
     outcome: {
       kind: "accepted",
+      disposition: "started_turn",
       queueItemID: parsePendingWorkItemID("99999999-9999-4999-8999-999999999999"),
       diagnostic: null,
     },
@@ -624,12 +650,15 @@ it("retries the failed opening page and observation independently once per activ
     expect(view.handlers).toHaveLength(1);
   });
   act(() => view.handlers[0]?.onError(new Error("observation unavailable")));
+  const pageRetry = await within(screen.getByTestId("error-state")).findByRole("button", {
+    name: appI18n.t("app.retry"),
+  });
   await waitFor(() => {
-    expect(screen.getByRole("button", { name: appI18n.t("app.retry") })).toBeEnabled();
+    expect(pageRetry).toBeEnabled();
   });
   const user = userEvent.setup();
   await user.type(screen.getByRole("textbox"), "keep input");
-  await user.click(screen.getByRole("button", { name: appI18n.t("app.retry") }));
+  await user.click(pageRetry);
   await waitFor(() => {
     expect(view.services.api.chat.getTranscriptPage).toHaveBeenCalledTimes(2);
   });

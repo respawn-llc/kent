@@ -42,6 +42,9 @@ export const chatSettingsEnglish = {
   policyDisabled: "Disabled by Session policy",
   thinking: "Thinking",
   operationFailed: "Could not change Chat settings",
+  connectionReplaced: "Session Connection is no longer configured",
+  connectionReplacement:
+    "Chat settings use {{current}} because {{previous}} is missing from configuration. This does not change a running Agent's Connection.",
   rejections: {
     agent_locked: "The Agent is locked for this Session.",
     agent_unavailable: "This Agent is no longer available.",

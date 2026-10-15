@@ -17,7 +17,13 @@ it("shows the model tooltip only while its text is truncated", async () => {
   const view = render(
     <I18nextProvider i18n={appI18n}>
       <Popover>
-        <ChatSettingsChip role="default" model="full-model-name" thinking="medium" fast={false} />
+        <ChatSettingsChip
+          role="default"
+          model="full-model-name"
+          thinking="medium"
+          fast={false}
+          triggerProps={{}}
+        />
       </Popover>
     </I18nextProvider>,
   );

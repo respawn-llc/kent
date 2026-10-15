@@ -44,7 +44,7 @@ vi.mock("@/features/chat", () => {
       </>
     );
   }
-  return { ChatDestination: Chat, NewChatDestination: Chat };
+  return { ChatDestination: Chat };
 });
 
 function SidebarState() {

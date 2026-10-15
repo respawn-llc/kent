@@ -18,6 +18,7 @@ import {
 
 import { FakeRpcTransport } from "@/test-support/api";
 import { ApiClient } from "./client";
+import { parsePendingWorkItemID } from "./pendingWork";
 import { ChatOperationError } from "./chatErrors";
 import type { ChatError } from "./chatErrors";
 import { ContractError } from "./errors";
@@ -78,6 +79,34 @@ function settings() {
     autoCompaction: baseline.autoCompaction,
   });
 }
+
+it("preserves the server-selected Connection replacement notice", async () => {
+  const transport = new FakeRpcTransport([
+    {
+      descriptor: ChatSettingsService.method.read,
+      result: create(ReadResultSchema, {
+        outcome: {
+          case: "success",
+          value: {
+            target: {
+              case: "session",
+              value: {
+                settings: settings(),
+                session: { sessionId: sessionID },
+                connectionReplacement: { previous: "removed", current: "work" },
+              },
+            },
+          },
+        },
+      }),
+    },
+  ]);
+  const read = await new ApiClient(transport, unexpectedProjectOverflow).chat.getSettings(sessionTarget);
+  expect(read).toMatchObject({
+    kind: "session",
+    connectionReplacement: { previous: "removed", current: "work" },
+  });
+});
 
 function mutationResponse() {
   return create(MutationResponseSchema, {
@@ -904,6 +933,7 @@ describe("Chat Settings descriptor adapter", () => {
     await chat.queue(
       { ...newChatTarget, initialSettings: result.initialSettings },
       { kind: "text", text: "start" },
+      parsePendingWorkItemID("223e4567-e89b-42d3-a456-426614174000"),
     );
     expect(transport.attachedProjectDescriptorCalls[1]?.request).toEqual(
       create(ChatService.method.queue.input, {
@@ -918,6 +948,7 @@ describe("Chat Settings descriptor adapter", () => {
           },
         },
         activation: { input: { case: "text", value: "start" } },
+        queueItemId: "223e4567-e89b-42d3-a456-426614174000",
       }),
     );
   });

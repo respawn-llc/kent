@@ -44,6 +44,7 @@ export type ChatRuntimeHost = Readonly<{
   onPendingWorkHydrated?(sessionID: string): void;
   onPendingWorkChanged?(): void;
   onPendingWorkRestored?(restoration: ChatTranscriptPayloadByKind["pending_work_restored"]): void;
+  onUserInputCommitted?(inputIDs: readonly string[]): void;
   onWorktreeTransitionOutcome?(outcome: ChatTranscriptPayloadByKind["worktree_transition_outcome"]): void;
   onTranscriptError?(error: Error): void;
   onManualCompactionCompleted?(): void;
@@ -150,6 +151,10 @@ export class ChatRuntimeOwner {
         const admission = this.transcript.hydration(kind, hydration);
         if (admission.kind === "rejected") throw admission.error;
         this.#admitProjection({ kind: "hydration", hydration });
+        for (const row of hydration.TailSegment.Entries) {
+          if (row.Kind === "user" && row.User !== null)
+            this.#host.onUserInputCommitted?.(row.User.QueueItemIDs);
+        }
       },
       onEvent: (event) => {
         this.#admitTranscriptEvent(event);
@@ -266,6 +271,8 @@ export class ChatRuntimeOwner {
     const admission = this.transcript.event(event);
     if (admission.kind === "rejected") throw admission.error;
     this.#admitProjection({ kind: "event", event });
+    if (event.kind === "committed_row" && event.payload.Kind === "user" && event.payload.User !== null)
+      this.#host.onUserInputCommitted?.(event.payload.User.QueueItemIDs);
   }
 
   #admitProjection(input: Exclude<ChatProjectionInput, { kind: "authoritative-read" }>): void {

@@ -7,7 +7,6 @@ import {
   taskDetailInitialFocusFromAttentionItem,
   type AppServices,
   type StatusController,
-  type SidebarMode,
   type SidebarRootController,
   type SessionChatTarget,
 } from "@/app-facade";
@@ -64,10 +63,10 @@ export function createHomeViewModel(
       ),
     { concurrent: true },
   );
-  const createWorkflow = Atom.fn<Readonly<{ open: SidebarRootController["open"]; mode: SidebarMode }>>()(
+  const createWorkflow = Atom.fn<Readonly<{ open: SidebarRootController["open"] }>>()(
     (input) =>
       Effect.sync(() => {
-        input.open({ kind: "workflowCreate", mode: input.mode });
+        input.open({ kind: "workflowCreate" });
       }),
     { concurrent: true },
   );
@@ -75,7 +74,6 @@ export function createHomeViewModel(
     Readonly<{
       item: AttentionItem;
       open: SidebarRootController["open"];
-      mode: SidebarMode;
     }>
   >()(
     (input) =>
@@ -84,7 +82,6 @@ export function createHomeViewModel(
           kind: "taskDetail",
           initialFocus: taskDetailInitialFocusFromAttentionItem(input.item),
           inboxNav: true,
-          mode: input.mode,
           onMutated: undefined,
           taskID: input.item.taskID,
         });

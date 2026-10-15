@@ -123,7 +123,7 @@ it("hides aliases from discovery and ends discovery when arguments begin", () =>
   expect(composerSuggestions("/visible ", commands)).toEqual([]);
 });
 
-it("does not expand an exact hidden alias into a visible prefix match", () => {
+it("keeps matching canonical commands visible when the query is also an alias", () => {
   const commands = [
     {
       token: "/review",
@@ -133,7 +133,7 @@ it("does not expand an exact hidden alias into a visible prefix match", () => {
       execution: { kind: "prompt", catalogIdentity: "prompt:review" } as const,
     },
   ];
-  expect(composerSuggestions("/r", commands)).toEqual([]);
+  expect(composerSuggestions("/r", commands)).toEqual(commands);
   expect(resolveComposerCommand("/r", commands)).toEqual({
     kind: "input",
     activation: {
@@ -144,4 +144,23 @@ it("does not expand an exact hidden alias into a visible prefix match", () => {
       arguments: "",
     },
   });
+});
+
+it("matches names case-insensitively and ranks by position, length, then name like the TUI", () => {
+  const commands = ["prompt:review", "review-long", "areview", "review-b", "review-a"].map((name) => ({
+    token: `/${name}`,
+    aliases: name === "prompt:review" ? ["/review"] : [],
+    description: null,
+    preview: null,
+    execution: { kind: "prompt", catalogIdentity: name } as const,
+  }));
+  expect(composerSuggestions("/REVIEW", commands).map((command) => command.token)).toEqual([
+    "/review-a",
+    "/review-b",
+    "/review-long",
+    "/areview",
+    "/prompt:review",
+  ]);
+  const review = commands.slice(0, 1);
+  expect(composerSuggestions("/review", review)).toEqual(review);
 });

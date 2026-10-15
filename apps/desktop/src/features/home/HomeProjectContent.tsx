@@ -11,7 +11,6 @@ import {
   useAppNavigation,
   readLastProjectRoute,
   writeLastProjectContentTab,
-  type SidebarMode,
 } from "@/app-facade";
 import {
   directionalBoundary,
@@ -30,10 +29,8 @@ import { useHomeProjectModel, useHomeSessionPages } from "./HomeProjectModel";
 
 export function HomeProjectContent({
   projectID,
-  sidebarMode,
 }: Readonly<{
   projectID: string;
-  sidebarMode: SidebarMode;
 }>) {
   const navigation = useAppNavigation();
   const catalogReturn = useSessionChatCatalogReturn(projectID);
@@ -46,7 +43,7 @@ export function HomeProjectContent({
     <ProjectContentTabs
       catalogReturn={catalogReturn?.category ?? null}
       projectID={projectID}
-      sidebarMode={sidebarMode}
+
       taskListViewMemory={taskListViewMemory}
     />
   );
@@ -55,12 +52,10 @@ export function HomeProjectContent({
 function ProjectContentTabs({
   catalogReturn,
   projectID,
-  sidebarMode,
   taskListViewMemory,
 }: Readonly<{
   catalogReturn: SessionCategory | null;
   projectID: string;
-  sidebarMode: SidebarMode;
   taskListViewMemory: ReturnType<typeof createProjectTasksViewMemory>;
 }>) {
   const navigation = useAppNavigation();
@@ -112,7 +107,7 @@ function ProjectContentTabs({
           {tab === "tasks" ? (
             <ProjectTasksSurface
               projectID={projectID}
-              sidebarMode={sidebarMode}
+
               viewMemory={taskListViewMemory}
             />
           ) : (

@@ -8,6 +8,7 @@ import (
 	"net/url"
 	"testing"
 
+	"core/shared/client"
 	"core/shared/serverapi"
 )
 
@@ -52,6 +53,7 @@ func TestConfirmsRuntimeReachability(t *testing.T) {
 	}{
 		{name: "nil", err: nil, want: true},
 		{name: "server rejected request", err: errors.New("request rejected"), want: true},
+		{name: "protocol mismatch", err: &client.ProtocolVersionMismatchError{}, want: false},
 		{name: "stream gap", err: serverapi.ErrStreamGap, want: false},
 		{name: "stream unavailable", err: serverapi.ErrStreamUnavailable, want: false},
 		{name: "stream failed", err: serverapi.ErrStreamFailed, want: false},

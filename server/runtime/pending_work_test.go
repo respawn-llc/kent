@@ -130,8 +130,7 @@ func TestRemovePendingWorkRestoresTypedMessageAndCompactionInput(t *testing.T) {
 	releaseMaintenance := pendingWorkTestHoldMaintenance(t, engine)
 
 	message := pendingWorkTestMust(t, func() (QueuedUserMessage, error) {
-		return engine.SteerInput(context.Background(), QueuedUserInput{
-			ExecutionText:         "expanded restore message",
+		return engine.SteerInput(context.Background(), QueuedUserInput{ID: runtimeids.NewQueueItemID().String(), ExecutionText: "expanded restore message",
 			CanonicalPresentation: "/review restore message",
 		}, nil)
 	})

@@ -1,6 +1,7 @@
 import { StreamFailureCode } from "@app/server-api-contract/gen/kent/api/shared/foundation_pb";
 import { unexpectedProjectOverflow } from "@/test-support/api";
 import { ApiClient } from "./client";
+import { parsePendingWorkItemID } from "./pendingWork";
 import { ContractError, RpcError, TransportError } from "./errors";
 import { FakeRpcTransport } from "@/test-support/api";
 import { create, encode } from "@app/server-api-contract";
@@ -13,7 +14,11 @@ import * as R from "@app/server-api-contract/gen/kent/api/runtime/runtime_pb";
 import * as T from "@app/server-api-contract/gen/kent/api/transcript/transcript_pb";
 import { ProjectAvailability } from "@app/server-api-contract/gen/kent/api/project/project_pb";
 import { TranscriptCloseReason } from "@app/server-api-contract/gen/kent/api/shared/foundation_pb";
-import { ChatService, QueueRequestSchema } from "@app/server-api-contract/gen/kent/api/chat/chat_pb";
+import {
+  ChatService,
+  InputAdmissionDisposition,
+  QueueRequestSchema,
+} from "@app/server-api-contract/gen/kent/api/chat/chat_pb";
 import {
   SessionRuntimeService,
   SessionRuntimeActivateResultSchema,
@@ -591,6 +596,24 @@ describe("Desktop Chat read client", () => {
                           },
                         },
                       },
+                      {
+                        visibility: T.EntryVisibility.ONGOING,
+                        integrity: T.RowIntegrity.VALID,
+                        locator: { eventSequence: 8n, rowOrdinal: 1 },
+                        row: {
+                          case: "user",
+                          value: {
+                            text: "batched input",
+                            queueItemIds:
+                              callIndex === 0
+                                ? [
+                                    "223e4567-e89b-42d3-a456-426614174000",
+                                    "323e4567-e89b-42d3-a456-426614174000",
+                                  ]
+                                : [],
+                          },
+                        },
+                      },
                     ],
                   },
                 },
@@ -601,9 +624,8 @@ describe("Desktop Chat read client", () => {
       unexpectedProjectOverflow,
     );
 
-    await expect(
-      client.chat.getTranscriptPage(target, { direction: "older", value: 41 }),
-    ).resolves.toMatchObject({
+    const older = await client.chat.getTranscriptPage(target, { direction: "older", value: 41 });
+    expect(older).toMatchObject({
       sessionID,
       sessionName: null,
       olderCursor: 11,
@@ -614,14 +636,25 @@ describe("Desktop Chat read client", () => {
           Locator: { event_sequence: 7, row_ordinal: 1 },
           Assistant: { Text: "done", CondensedText: "summary", committed_at_unix_ms: 0 },
         },
+        {
+          Kind: "user",
+          User: {
+            QueueItemIDs: ["223e4567-e89b-42d3-a456-426614174000", "323e4567-e89b-42d3-a456-426614174000"],
+          },
+        },
       ],
     });
+    expect(older.entries[1]?.User?.QueueItemIDs).toEqual([
+      "223e4567-e89b-42d3-a456-426614174000",
+      "323e4567-e89b-42d3-a456-426614174000",
+    ]);
     await expect(
       client.chat.getTranscriptPage(target, { direction: "newer", value: 29 }),
     ).resolves.toMatchObject({
       sessionID,
       conversationFreshness: 1,
       hasMoreBelow: false,
+      entries: [{ Kind: "assistant" }, { Kind: "user", User: { QueueItemIDs: [] } }],
     });
   });
 
@@ -756,7 +789,13 @@ describe("Desktop Chat mutation adapter", () => {
             case: "success",
             value: {
               session: { sessionId: sessionID },
-              outcome: { case: "accepted", value: { queueItem: { id: queueItemID } } },
+              outcome: {
+                case: "accepted",
+                value: {
+                  queueItem: { id: queueItemID },
+                  disposition: InputAdmissionDisposition.STARTED_TURN,
+                },
+              },
             },
           },
         }),
@@ -768,7 +807,13 @@ describe("Desktop Chat mutation adapter", () => {
             case: "success",
             value: {
               session: { sessionId: sessionID },
-              outcome: { case: "accepted", value: { queueItem: { id: queueItemID } } },
+              outcome: {
+                case: "accepted",
+                value: {
+                  queueItem: { id: queueItemID },
+                  disposition: InputAdmissionDisposition.PENDING_QUEUE,
+                },
+              },
             },
           },
         }),
@@ -788,14 +833,18 @@ describe("Desktop Chat mutation adapter", () => {
     ]);
     const chat = new ApiClient(transport, unexpectedProjectOverflow).chat;
 
-    await chat.steer(sessionTarget, { kind: "text", text: "continue" });
-    await chat.queue(newChatTarget, {
-      kind: "command",
-      catalogIdentity: "prompt:review",
-      token: "/review",
-      separatorWhitespace: "\t",
-      arguments: "working tree",
-    });
+    await chat.steer(sessionTarget, { kind: "text", text: "continue" }, parsePendingWorkItemID(queueItemID));
+    await chat.queue(
+      newChatTarget,
+      {
+        kind: "command",
+        catalogIdentity: "prompt:review",
+        token: "/review",
+        separatorWhitespace: "\t",
+        arguments: "working tree",
+      },
+      parsePendingWorkItemID(queueItemID),
+    );
     const rejected = await chat.compact(newChatTarget, {
       token: "/compact",
       separatorWhitespace: " \t",
@@ -815,6 +864,7 @@ describe("Desktop Chat mutation adapter", () => {
           },
         },
         activation: { input: { case: "text", value: "continue" } },
+        queueItemId: queueItemID,
       },
       {
         target: {
@@ -848,6 +898,7 @@ describe("Desktop Chat mutation adapter", () => {
     ]);
     expect(transport.attachedProjectDescriptorCalls.map(({ request }) => request)).toContainEqual(
       create(QueueRequestSchema, {
+        queueItemId: queueItemID,
         target: {
           target: {
             case: "newChat",
@@ -893,6 +944,7 @@ describe("Desktop Chat mutation adapter", () => {
                 case: "accepted",
                 value: {
                   queueItem: { id: queueItemID },
+                  disposition: InputAdmissionDisposition.PENDING_QUEUE,
                   diagnostic: {
                     detail: {
                       case: "promptHistoryFailure",
@@ -923,7 +975,11 @@ describe("Desktop Chat mutation adapter", () => {
     ]);
     const chat = new ApiClient(transport, unexpectedProjectOverflow).chat;
 
-    const queued = await chat.queue(sessionTarget, { kind: "text", text: "continue" });
+    const queued = await chat.queue(
+      sessionTarget,
+      { kind: "text", text: "continue" },
+      parsePendingWorkItemID(queueItemID),
+    );
     if (queued.outcome.kind !== "accepted") throw new Error("Expected accepted Queue fixture.");
     expect(queued.outcome.queueItemID.toJSONValue()).toBe(queueItemID);
     expect(queued.outcome.diagnostic).toMatchObject({ kind: "prompt_history_failure" });
@@ -960,7 +1016,7 @@ describe("Desktop Chat mutation adapter", () => {
       unexpectedProjectOverflow,
     ).chat;
     const error = await failingChat
-      .queue(sessionTarget, { kind: "text", text: "continue" })
+      .queue(sessionTarget, { kind: "text", text: "continue" }, parsePendingWorkItemID(queueItemID))
       .catch((cause: unknown) => cause);
     expect(error).toBeInstanceOf(ChatOperationError);
     expect(error).toMatchObject({
@@ -991,6 +1047,7 @@ describe("Desktop Chat mutation adapter", () => {
         returnedQueueItemID: queueItemID,
       },
       { returnedSessionID: sessionID, returnedQueueItemID: "not-a-queue-item-id" },
+      { returnedSessionID: sessionID, returnedQueueItemID: "33333333-3333-4333-8333-333333333333" },
     ]) {
       const transport = new FakeRpcTransport([
         {
@@ -1002,7 +1059,10 @@ describe("Desktop Chat mutation adapter", () => {
                 session: { sessionId: testCase.returnedSessionID },
                 outcome: {
                   case: "accepted",
-                  value: { queueItem: { id: testCase.returnedQueueItemID } },
+                  value: {
+                    queueItem: { id: testCase.returnedQueueItemID },
+                    disposition: InputAdmissionDisposition.STARTED_TURN,
+                  },
                 },
               },
             },
@@ -1010,10 +1070,14 @@ describe("Desktop Chat mutation adapter", () => {
         },
       ]);
       await expect(
-        new ApiClient(transport, unexpectedProjectOverflow).chat.steer(sessionTarget, {
-          kind: "text",
-          text: "continue",
-        }),
+        new ApiClient(transport, unexpectedProjectOverflow).chat.steer(
+          sessionTarget,
+          {
+            kind: "text",
+            text: "continue",
+          },
+          parsePendingWorkItemID(queueItemID),
+        ),
       ).rejects.toBeInstanceOf(Error);
     }
   });

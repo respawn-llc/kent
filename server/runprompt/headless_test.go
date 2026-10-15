@@ -473,6 +473,13 @@ func newObservedTestHeadlessRuntime(
 		registry:    runtimeRegistry,
 		initialRead: make(chan struct{}),
 	}
+	t.Cleanup(func() {
+		ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+		defer cancel()
+		if err := authority.Close(ctx); err != nil {
+			t.Errorf("close fixture runtime authority: %v", err)
+		}
+	})
 	observer := runtimecontrol.NewService(authority, metadataStore).
 		WithLiveWatchPromptSources(pendingPrompts, runtimeRegistry)
 	return observedHeadlessTestRuntime{
@@ -1533,7 +1540,7 @@ func TestInProcessRunPromptTimeoutCoversHistoryAndRunCleanup(t *testing.T) {
 			func(commit func() (bool, error)) (bool, error) { return commit() },
 			func(ctx context.Context, engine *runtime.Engine, accept runtime.CommandAcceptance) error {
 				_, err := engine.QueueUserInputWithAcceptance(ctx, runtime.QueuedUserInput{
-					ExecutionText: "later", CanonicalPresentation: "later",
+					ID: runtimeids.NewQueueItemID().String(), ExecutionText: "later", CanonicalPresentation: "later",
 				}, accept)
 				return err
 			})
@@ -1831,11 +1838,6 @@ func TestInProcessRunPromptReturnsPendingQuestionAndExecutionContinues(t *testin
 	defer server.Close()
 
 	fixture := newSelectedRunPromptFixture(t, server.URL, nil)
-	t.Cleanup(func() {
-		ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
-		defer cancel()
-		_ = fixture.authority.Close(ctx)
-	})
 	responseCh := make(chan struct {
 		response *runpromptpb.Success
 		err      error
@@ -1958,11 +1960,6 @@ func TestInProcessRunPromptReturnsPendingApprovalAndExecutionContinues(t *testin
 	defer server.Close()
 
 	fixture := newSelectedRunPromptFixture(t, server.URL, nil, toolspec.ToolPatch)
-	t.Cleanup(func() {
-		ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
-		defer cancel()
-		_ = fixture.authority.Close(ctx)
-	})
 	responseCh := make(chan struct {
 		response *runpromptpb.Success
 		err      error

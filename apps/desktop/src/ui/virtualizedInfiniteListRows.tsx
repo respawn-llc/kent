@@ -4,6 +4,7 @@ import { type VirtualItem } from "@tanstack/react-virtual";
 import { cx } from "./classes";
 import { InfiniteListBoundary, type VirtualizedInfiniteListBoundaryState } from "./InfiniteListBoundary";
 import { Spinner } from "./Spinner";
+import type { VirtualizedFlowBlock } from "./virtualizedPinnedRange";
 
 export type VirtualizedInfiniteListLayout = Readonly<{
   count: number;
@@ -178,7 +179,7 @@ export function renderVirtualizedInfiniteListRow<TItem>({
   rowSpacing,
   stickyItemKeys,
   virtualItem,
-  directDomUpdates,
+  flowBlock,
 }: Readonly<{
   getItemKey: (item: TItem) => string;
   getItemWrapperProps: ((item: TItem, itemIndex: number) => HTMLAttributes<HTMLDivElement>) | undefined;
@@ -192,9 +193,11 @@ export function renderVirtualizedInfiniteListRow<TItem>({
   rowSpacing: "default" | "compact" | "tight";
   stickyItemKeys: ReadonlySet<string> | undefined;
   virtualItem: VirtualItem;
-  directDomUpdates: boolean;
+  flowBlock: VirtualizedFlowBlock | undefined;
 }>): ReactNode {
   const virtualIndex = virtualItem.index;
+  const inFlow =
+    flowBlock !== undefined && virtualIndex >= flowBlock.first.index && virtualIndex <= flowBlock.last.index;
   const { item, itemKey, wrapperProps } = resolveVirtualizedRowItem({
     getItemKey,
     getItemWrapperProps,
@@ -216,6 +219,7 @@ export function renderVirtualizedInfiniteListRow<TItem>({
         virtualizedRowPositionClassName({
           orientation,
           sticky,
+          flow: inFlow,
         }),
         virtualizedRowClassName({
           count: layout.count,
@@ -236,7 +240,8 @@ export function renderVirtualizedInfiniteListRow<TItem>({
         sticky,
         virtualItem,
         wrapperStyle: wrapperProps?.style,
-        directDomUpdates,
+        inFlow,
+        positionOrigin: flowBlock?.first.start ?? 0,
       })}
     >
       {renderContent(item, virtualIndex)}
@@ -305,9 +310,7 @@ export function resolveVirtualizedInnerClassName(
 export function resolveVirtualizedInnerStyle(
   horizontal: boolean,
   totalSize: number,
-  directDomUpdates: boolean,
-): Readonly<{ height?: string; width?: string }> | undefined {
-  if (directDomUpdates) return undefined;
+): Readonly<{ height?: string; width?: string }> {
   return horizontal ? { width: `${totalSize.toString()}px` } : { height: `${totalSize.toString()}px` };
 }
 
@@ -316,27 +319,46 @@ export function renderVirtualizedRowsContent({
   hasItems,
   empty,
   loadingLabel,
+  flowBlock,
 }: Readonly<{
   renderedRows: readonly ReactNode[];
   hasItems: boolean;
   empty: ReactNode;
   loadingLabel: string;
+  flowBlock: VirtualizedFlowBlock | undefined;
 }>): ReactNode {
   if (renderedRows.length === 0)
     return hasItems ? renderVirtualizedPlaceholder({ loading: true, loadingLabel }) : empty;
+  if (flowBlock !== undefined) {
+    // Smooth scrolling skips distant measurements. Keep rendered rows in
+    // normal flow so estimates cannot make adjacent messages overlap.
+    // Distant pinned rows stay positioned outside that flow, but share its
+    // parent so entering the visible block preserves their mounted state.
+    return (
+      <div
+        className="absolute top-0 left-0 flex w-full flex-col"
+        style={{ transform: `translateY(${flowBlock.first.start.toString()}px)` }}
+      >
+        {renderedRows}
+      </div>
+    );
+  }
   return renderedRows;
 }
 
 function virtualizedRowPositionClassName({
   orientation,
   sticky,
+  flow,
 }: Readonly<{
   orientation: "vertical" | "horizontal";
   sticky: boolean;
+  flow: boolean;
 }>): string | undefined {
   if (sticky) {
     return orientation === "horizontal" ? "sticky z-[1] w-max" : "sticky top-0 z-[1] w-full";
   }
+  if (flow) return "relative w-full shrink-0";
   return orientation === "horizontal" ? "absolute top-0 left-0 w-max" : "absolute top-0 left-0 w-full";
 }
 
@@ -370,16 +392,18 @@ function resolveVirtualizedRowStyle({
   sticky,
   virtualItem,
   wrapperStyle,
-  directDomUpdates,
+  inFlow,
+  positionOrigin,
 }: Readonly<{
   orientation: "vertical" | "horizontal";
   paddingStart: number;
   sticky: boolean;
   virtualItem: VirtualItem;
   wrapperStyle: CSSProperties | undefined;
-  directDomUpdates: boolean;
+  inFlow: boolean;
+  positionOrigin: number;
 }>): CSSProperties | undefined {
-  if (directDomUpdates) return wrapperStyle;
+  if (inFlow) return wrapperStyle;
   if (sticky) {
     return {
       ...wrapperStyle,
@@ -391,7 +415,7 @@ function resolveVirtualizedRowStyle({
     transform:
       orientation === "horizontal"
         ? `translateX(${virtualItem.start.toString()}px)`
-        : `translateY(${virtualItem.start.toString()}px)`,
+        : `translateY(${(virtualItem.start - positionOrigin).toString()}px)`,
   };
 }
 

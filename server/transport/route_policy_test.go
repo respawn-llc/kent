@@ -77,8 +77,7 @@ func TestChatTargetSemanticUnion(t *testing.T) {
 		},
 	} {
 		t.Run(test.name, func(t *testing.T) {
-			_, err := protoapi.ChatTargetFromRequest(&chatpb.SteerRequest{
-				Target: test.target,
+			_, err := protoapi.ChatTargetFromRequest(&chatpb.SteerRequest{QueueItemId: runtimeids.NewQueueItemID().String(), Target: test.target,
 				Activation: &chatpb.Activation{
 					Input: &chatpb.Activation_Text{Text: "continue"},
 				},
@@ -205,7 +204,8 @@ func chatSteerSuccessResult(
 	if accepted {
 		success.Outcome = &chatpb.InputMutationSuccess_Accepted{
 			Accepted: &chatpb.InputAccepted{
-				QueueItem: &chatpb.QueueItemIdentity{Id: queueItemID},
+				QueueItem:   &chatpb.QueueItemIdentity{Id: queueItemID},
+				Disposition: chatpb.InputAdmissionDisposition_INPUT_ADMISSION_DISPOSITION_STARTED_TURN,
 			},
 		}
 	} else {
