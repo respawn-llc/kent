@@ -19,7 +19,6 @@ import (
 	pb "core/shared/protoapi/gen/kent/api/workflow_definition"
 	"core/shared/runtimeids"
 	"core/shared/serverapi"
-	"core/shared/workflowkey"
 
 	"github.com/google/uuid"
 	proto "google.golang.org/protobuf/proto"
@@ -1255,9 +1254,6 @@ func parseWorkflowContextSourceSelector(raw string) (*pb.ContextSource, error) {
 	prefix := "node:"
 	if strings.HasPrefix(trimmed, prefix) {
 		nodeKey := strings.TrimSpace(strings.TrimPrefix(trimmed, prefix))
-		if nodeKey == "" {
-			return &pb.ContextSource{}, errors.New("context source selector node key is required")
-		}
 		return &pb.ContextSource{Kind: pb.ContextSourceKind_WORKFLOW_CONTEXT_SOURCE_KIND_SELECTED_NODE, NodeKey: proto.String(nodeKey)}, nil
 	}
 	return &pb.ContextSource{}, fmt.Errorf("context source selector must be immediate_source, previous_target, previous_target_or_new, or node:<node-key>")
@@ -1279,24 +1275,13 @@ func (f *repeatedStringFlag) Set(value string) error {
 // reference guaranteed-prior transitions as {{.Params.<transition_id>.<key>}}.
 func parseWorkflowParameters(raw []string) ([]*pb.Parameter, error) {
 	parameters := make([]*pb.Parameter, 0, len(raw))
-	seen := make(map[string]bool, len(raw))
 	for _, entry := range raw {
 		key, description, found := strings.Cut(entry, "=")
 		key = strings.TrimSpace(key)
 		description = strings.TrimSpace(description)
-		if !found || key == "" || description == "" {
+		if !found {
 			return nil, fmt.Errorf("parameter %q must be key=description with a non-empty key and description", entry)
 		}
-		if !workflowkey.Valid(key) {
-			return nil, fmt.Errorf("parameter key %q is invalid; it must %s", key, workflowkey.Description)
-		}
-		if workflowkey.ReservedParameter(key) {
-			return nil, fmt.Errorf("parameter key %q is reserved and cannot be declared", key)
-		}
-		if seen[key] {
-			return nil, fmt.Errorf("parameter key %q is declared more than once", key)
-		}
-		seen[key] = true
 		parameters = append(parameters, &pb.Parameter{Key: key, Description: description, Purpose: pb.ParameterPurpose_WORKFLOW_PARAMETER_PURPOSE_ORDINARY})
 	}
 	return parameters, nil
@@ -1319,14 +1304,8 @@ func parseWorkflowProtectedParameterFlag(fs *flag.FlagSet, name, raw string, pur
 	key, description, found := strings.Cut(raw, "=")
 	key = strings.TrimSpace(key)
 	description = strings.TrimSpace(description)
-	if !found || key == "" {
+	if !found {
 		return nil, fmt.Errorf("--%s must be key=description with a non-empty key", name)
-	}
-	if !workflowkey.Valid(key) {
-		return nil, fmt.Errorf("parameter key %q is invalid; it must %s", key, workflowkey.Description)
-	}
-	if workflowkey.ReservedParameter(key) {
-		return nil, fmt.Errorf("parameter key %q is reserved and cannot be declared", key)
 	}
 	return &pb.Parameter{Key: key, Description: description, Purpose: purpose}, nil
 }
@@ -1390,11 +1369,6 @@ func workflowParametersWithProtectedDefaults(parameters []*pb.Parameter, assigne
 		parameter := &pb.Parameter{Key: item.key, Purpose: item.purpose}
 		if item.custom != nil {
 			parameter = item.custom
-		}
-		for _, existing := range result {
-			if existing.Key == parameter.Key {
-				return nil, fmt.Errorf("parameter key %q is declared more than once", parameter.Key)
-			}
 		}
 		result = append(result, parameter)
 	}
