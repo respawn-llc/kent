@@ -3,6 +3,7 @@ package sessionlaunch
 import (
 	"context"
 	"core/server/sessionruntime"
+	configurationpb "core/shared/protoapi/gen/kent/api/configuration"
 	"errors"
 	"fmt"
 	"strings"
@@ -604,7 +605,7 @@ func sessionPlanSuccessFromResult(result PlanResult) (*sessionlaunchpb.SessionPl
 	if err != nil {
 		return nil, err
 	}
-	enabledToolIDs := make([]sessionlaunchpb.ToolID, 0, len(result.Plan.EnabledTools))
+	enabledToolIDs := make([]configurationpb.ToolID, 0, len(result.Plan.EnabledTools))
 	for _, id := range result.Plan.EnabledTools {
 		generated, err := protoapi.SessionToolIDToProto(id)
 		if err != nil {

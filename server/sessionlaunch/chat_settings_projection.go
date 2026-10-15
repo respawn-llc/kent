@@ -28,6 +28,14 @@ func projectNewChatCatalog(catalog launch.PreparedChatAgentCatalog, mode config.
 	choices := catalog.Choices()
 	result := &chatsettingspb.NewChatCatalog{Choices: make([]*chatsettingspb.NewChatAgentChoice, 0, len(entries))}
 	for _, entry := range entries {
+		defaults, err := protoapi.SessionSettingsToProto(entry.Defaults.Settings)
+		if err != nil {
+			return nil, err
+		}
+		source, err := protoapi.SessionSourceReportToProto(entry.Defaults.Source)
+		if err != nil {
+			return nil, err
+		}
 		settings, err := projectSelectedChatSettings(ChatSettingsProjectionInput{
 			Agent: entry.Choice.Role, Settings: entry.Settings.Baseline, CompactionMode: mode,
 		}, entry, choices)
@@ -49,6 +57,8 @@ func projectNewChatCatalog(catalog launch.PreparedChatAgentCatalog, mode config.
 			Thinking: settings.Thinking, Fast: settings.Fast, Questions: settings.Questions, AutoCompaction: settings.AutoCompaction,
 			ConnectionId:        (*string)(entry.ConnectionID),
 			ConnectionSelection: protoapi.ConnectionSelectionToProto(entry.ConnectionSelection),
+			Defaults:            defaults,
+			Source:              source,
 		})
 		if entry.Choice.Role == selected {
 			result.InitialSettings = baseline

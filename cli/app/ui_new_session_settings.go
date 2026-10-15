@@ -7,6 +7,7 @@ import (
 	"strings"
 
 	"core/cli/app/commands"
+	"core/shared/protoapi"
 	authpb "core/shared/protoapi/gen/kent/api/auth"
 	chatpb "core/shared/protoapi/gen/kent/api/chat"
 	settingspb "core/shared/protoapi/gen/kent/api/chat_settings"
@@ -109,6 +110,19 @@ func (m *uiModel) applyNewSessionSettingsLoaded(msg newSessionSettingsLoadedMsg)
 		invocation.AgentRole = nil
 		invocation.ThinkingLevel = nil
 	}
+	choice := m.selectedNewSessionChoice()
+	defaults, err := protoapi.SessionSettingsFromProto(choice.Defaults)
+	if err != nil {
+		target.settingsLoad = uiNewSettingsFailed{err: err}
+		return m.showTransientStatusNotice(uiStatusNotice{Text: err.Error(), Kind: uiStatusNoticeError})
+	}
+	source, err := protoapi.SessionSourceReportFromProto(choice.Source)
+	if err != nil {
+		target.settingsLoad = uiNewSettingsFailed{err: err}
+		return m.showTransientStatusNotice(uiStatusNotice{Text: err.Error(), Kind: uiStatusNoticeError})
+	}
+	m.statusConfig.Settings = defaults
+	m.statusConfig.Source = source
 	m.projectNewSessionSettings()
 	var clear tea.Cmd
 	if msg.readiness != nil && msg.readiness.AuthRequired && !msg.readiness.AuthReady {
@@ -238,6 +252,12 @@ func (m *uiModel) projectedNewSessionSettings() *settingspb.Settings {
 	settings.Questions.Enabled = selected.GetQuestionsEnabled()
 	settings.AutoCompaction.Stored = selected.GetAutoCompactionEnabled()
 	settings.AutoCompaction.Effective = selected.GetAutoCompactionEnabled()
+	switch settings.AutoCompaction.Policy {
+	case settingspb.AutoCompactionPolicy_AUTO_COMPACTION_POLICY_DISABLED:
+		settings.AutoCompaction.Effective = false
+	case settingspb.AutoCompactionPolicy_AUTO_COMPACTION_POLICY_REQUIRED:
+		settings.AutoCompaction.Effective = true
+	}
 	if choice.Thinking != nil {
 		settings.Thinking = proto.Clone(choice.Thinking).(*settingspb.Thinking)
 		settings.Thinking.Value = selected.GetThinking()

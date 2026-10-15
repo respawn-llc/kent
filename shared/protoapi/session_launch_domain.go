@@ -1,6 +1,7 @@
 package protoapi
 
 import (
+	configurationpb "core/shared/protoapi/gen/kent/api/configuration"
 	"errors"
 	"fmt"
 	"strings"
@@ -338,50 +339,50 @@ func SessionRuntimeAgentSelectionToProto(selection *serverapi.SessionRuntimeAgen
 	}
 }
 
-func SessionToolIDToProto(toolID toolspec.ID) (sessionlaunchpb.ToolID, error) {
+func SessionToolIDToProto(toolID toolspec.ID) (configurationpb.ToolID, error) {
 	switch toolID {
 	case toolspec.ToolExecCommand:
-		return sessionlaunchpb.ToolID_TOOL_ID_EXEC_COMMAND, nil
+		return configurationpb.ToolID_TOOL_ID_EXEC_COMMAND, nil
 	case toolspec.ToolWriteStdin:
-		return sessionlaunchpb.ToolID_TOOL_ID_WRITE_STDIN, nil
+		return configurationpb.ToolID_TOOL_ID_WRITE_STDIN, nil
 	case toolspec.ToolViewImage:
-		return sessionlaunchpb.ToolID_TOOL_ID_VIEW_IMAGE, nil
+		return configurationpb.ToolID_TOOL_ID_VIEW_IMAGE, nil
 	case toolspec.ToolPatch:
-		return sessionlaunchpb.ToolID_TOOL_ID_PATCH, nil
+		return configurationpb.ToolID_TOOL_ID_PATCH, nil
 	case toolspec.ToolEdit:
-		return sessionlaunchpb.ToolID_TOOL_ID_EDIT, nil
+		return configurationpb.ToolID_TOOL_ID_EDIT, nil
 	case toolspec.ToolAskQuestion:
-		return sessionlaunchpb.ToolID_TOOL_ID_ASK_QUESTION, nil
+		return configurationpb.ToolID_TOOL_ID_ASK_QUESTION, nil
 	case toolspec.ToolCompleteNode:
-		return sessionlaunchpb.ToolID_TOOL_ID_COMPLETE_NODE, nil
+		return configurationpb.ToolID_TOOL_ID_COMPLETE_NODE, nil
 	case toolspec.ToolTriggerHandoff:
-		return sessionlaunchpb.ToolID_TOOL_ID_TRIGGER_HANDOFF, nil
+		return configurationpb.ToolID_TOOL_ID_TRIGGER_HANDOFF, nil
 	case toolspec.ToolWebSearch:
-		return sessionlaunchpb.ToolID_TOOL_ID_WEB_SEARCH, nil
+		return configurationpb.ToolID_TOOL_ID_WEB_SEARCH, nil
 	default:
 		return 0, fmt.Errorf("tool id %q is unsupported", toolID)
 	}
 }
 
-func SessionToolIDFromProto(toolID sessionlaunchpb.ToolID) (toolspec.ID, error) {
+func SessionToolIDFromProto(toolID configurationpb.ToolID) (toolspec.ID, error) {
 	switch toolID {
-	case sessionlaunchpb.ToolID_TOOL_ID_EXEC_COMMAND:
+	case configurationpb.ToolID_TOOL_ID_EXEC_COMMAND:
 		return toolspec.ToolExecCommand, nil
-	case sessionlaunchpb.ToolID_TOOL_ID_WRITE_STDIN:
+	case configurationpb.ToolID_TOOL_ID_WRITE_STDIN:
 		return toolspec.ToolWriteStdin, nil
-	case sessionlaunchpb.ToolID_TOOL_ID_VIEW_IMAGE:
+	case configurationpb.ToolID_TOOL_ID_VIEW_IMAGE:
 		return toolspec.ToolViewImage, nil
-	case sessionlaunchpb.ToolID_TOOL_ID_PATCH:
+	case configurationpb.ToolID_TOOL_ID_PATCH:
 		return toolspec.ToolPatch, nil
-	case sessionlaunchpb.ToolID_TOOL_ID_EDIT:
+	case configurationpb.ToolID_TOOL_ID_EDIT:
 		return toolspec.ToolEdit, nil
-	case sessionlaunchpb.ToolID_TOOL_ID_ASK_QUESTION:
+	case configurationpb.ToolID_TOOL_ID_ASK_QUESTION:
 		return toolspec.ToolAskQuestion, nil
-	case sessionlaunchpb.ToolID_TOOL_ID_COMPLETE_NODE:
+	case configurationpb.ToolID_TOOL_ID_COMPLETE_NODE:
 		return toolspec.ToolCompleteNode, nil
-	case sessionlaunchpb.ToolID_TOOL_ID_TRIGGER_HANDOFF:
+	case configurationpb.ToolID_TOOL_ID_TRIGGER_HANDOFF:
 		return toolspec.ToolTriggerHandoff, nil
-	case sessionlaunchpb.ToolID_TOOL_ID_WEB_SEARCH:
+	case configurationpb.ToolID_TOOL_ID_WEB_SEARCH:
 		return toolspec.ToolWebSearch, nil
 	default:
 		return "", fmt.Errorf("protobuf tool id %v is unsupported", toolID)

@@ -9,11 +9,43 @@ import (
 	"core/cli/app/commands"
 	"core/shared/config"
 	"core/shared/protoapi"
+	chatpb "core/shared/protoapi/gen/kent/api/chat"
 	chatsettingspb "core/shared/protoapi/gen/kent/api/chat_settings"
 	"core/shared/runtimeids"
 	"core/shared/serverapi"
 	"core/shared/sessioncontract"
 )
+
+func TestNewSessionSelectedCompactionRespectsServerPolicy(t *testing.T) {
+	for _, test := range []struct {
+		policy    chatsettingspb.AutoCompactionPolicy
+		stored    bool
+		effective bool
+	}{
+		{chatsettingspb.AutoCompactionPolicy_AUTO_COMPACTION_POLICY_DISABLED, true, false},
+		{chatsettingspb.AutoCompactionPolicy_AUTO_COMPACTION_POLICY_REQUIRED, false, true},
+		{chatsettingspb.AutoCompactionPolicy_AUTO_COMPACTION_POLICY_OPTIONAL, true, true},
+		{chatsettingspb.AutoCompactionPolicy_AUTO_COMPACTION_POLICY_OPTIONAL, false, false},
+	} {
+		model := newUIModelDefaults(nil)
+		choice := &chatsettingspb.NewChatAgentChoice{
+			Agent:          &chatsettingspb.AgentChoice{Role: "default"},
+			Supervisor:     &chatsettingspb.Supervisor{},
+			Questions:      &chatsettingspb.Questions{},
+			AutoCompaction: &chatsettingspb.AutoCompaction{Policy: test.policy},
+		}
+		model.presentationTarget = &uiNewSessionTarget{
+			creation: &chatpb.NewChatTarget{InitialSettings: &chatsettingspb.InitialChatSettings{
+				AgentRole: "default", AutoCompactionEnabled: &test.stored,
+			}},
+			settingsLoad: uiNewSettingsReady{choices: []*chatsettingspb.NewChatAgentChoice{choice}},
+		}
+		settings := model.projectedNewSessionSettings()
+		if settings.AutoCompaction.Stored != test.stored || settings.AutoCompaction.Effective != test.effective {
+			t.Fatalf("policy %v: stored=%t effective=%t", test.policy, settings.AutoCompaction.Stored, settings.AutoCompaction.Effective)
+		}
+	}
+}
 
 func TestNewSessionPresentationLeavesArtifactsAndCatalogUnchanged(t *testing.T) {
 	_, workspace := newRegisteredAppWorkspace(t)
@@ -135,6 +167,9 @@ func TestNewSessionSettingsEditsStayLocal(t *testing.T) {
 	initial := model.newChatTarget().InitialSettings
 	if initial == nil {
 		t.Fatal("New Session settings did not load")
+	}
+	if model.statusConfig.Settings.ModelContextWindow != fixture.config.Settings.ModelContextWindow {
+		t.Fatalf("New status context window = %d, want %d", model.statusConfig.Settings.ModelContextWindow, fixture.config.Settings.ModelContextWindow)
 	}
 	selected := !*initial.QuestionsEnabled
 	model.chatSettingsMutationCommand(&chatsettingspb.MutationOperation{

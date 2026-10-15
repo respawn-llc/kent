@@ -7,6 +7,7 @@ import "google/protobuf/empty.proto";
 import "kent/api/auth/auth.proto";
 import "kent/api/chat_context/chat_context.proto";
 import "kent/api/invocation/invocation.proto";
+import "kent/api/configuration/configuration.proto";
 import "kent/api/server/server.proto";
 import "kent/api/shared/foundation.proto";
 import "kent/api/shared/validation.proto";
@@ -345,6 +346,8 @@ message NewChatAgentChoice {
     (buf.validate.field).string.(kent.api.shared.nonblank) = true
   ];
   kent.api.auth.ConnectionSelection connection_selection = 9;
+  kent.api.configuration.Settings defaults = 10 [(buf.validate.field).required = true];
+  kent.api.configuration.SourceReport source = 11 [(buf.validate.field).required = true];
 
   option (buf.validate.message).cel = {
     id: "kent.chat_settings.complete_choice_baseline"

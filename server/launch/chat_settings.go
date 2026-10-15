@@ -24,6 +24,7 @@ type PreparedChatSettings struct {
 }
 
 type PreparedChatAgentCatalogEntry struct {
+	Defaults             PreparedBaseTarget
 	ConnectionID         *config.ConnectionID
 	ConnectionSelection  *config.ConnectionSelection
 	Choice               *chatsettingspb.AgentChoice
@@ -244,6 +245,7 @@ func chatAgentCatalogEntry(app config.App, selector string, target PreparedBaseT
 		return PreparedChatAgentCatalogEntry{}, err
 	}
 	entry := PreparedChatAgentCatalogEntry{
+		Defaults:     target,
 		ConnectionID: connection,
 		Choice: &chatsettingspb.AgentChoice{
 			Role:               selector,
