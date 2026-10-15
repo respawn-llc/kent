@@ -187,14 +187,6 @@ func saveWorkflowGraphApply(
 		Blockers:          blockers,
 	}
 	if !response.Saved {
-		if len(response.Blockers) == 0 {
-			return workflowGraphApplyFailure(
-				workflowGraphApplyRequestFailed,
-				workflowID,
-				outcome.CurrentVersion,
-				errors.New("Workflow graph save returned blocked without a blocker"),
-			)
-		}
 		if response.ConfirmationRequired && workflowGraphApplyHasBlocker(outcome.Blockers, true) &&
 			!workflowGraphApplyHasBlocker(outcome.Blockers, false) {
 			outcome.Outcome = workflowGraphApplyConfirmationRequired
@@ -203,25 +195,9 @@ func saveWorkflowGraphApply(
 		outcome.Outcome = workflowGraphApplyBlocked
 		return outcome
 	}
-	if len(response.Blockers) != 0 {
-		return workflowGraphApplyFailure(
-			workflowGraphApplyRequestFailed,
-			workflowID,
-			outcome.CurrentVersion,
-			errors.New("Workflow graph save returned saved with blockers"),
-		)
-	}
 	if !response.Changed {
 		outcome.Outcome = workflowGraphApplyUnchanged
 		return outcome
-	}
-	if response.Definition == nil {
-		return workflowGraphApplyFailure(
-			workflowGraphApplyRequestFailed,
-			workflowID,
-			outcome.CurrentVersion,
-			errors.New("Workflow graph save returned changed without a definition"),
-		)
 	}
 	outcome.Outcome = workflowGraphApplySaved
 	definition, err := workflowDefinitionForCLI(response.Definition)

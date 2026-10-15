@@ -106,3 +106,26 @@ func TestWorkflowSavedNodeGroupMembershipUsesNormalizedIdentity(t *testing.T) {
 		}
 	}
 }
+
+func TestWorkflowSaveOutcomeHasBlockersExactlyWhenUnsaved(t *testing.T) {
+	for _, saved := range []bool{false, true} {
+		for _, blocked := range []bool{false, true} {
+			response := &pb.GraphSaveSuccess{Saved: saved, Impact: &pb.GraphSaveImpact{}}
+			if saved {
+				response.Definition = &pb.WorkflowDefinition{
+					Workflow: &pb.WorkflowRecord{
+						Id: "11111111-1111-4111-8111-111111111111", Name: "Workflow",
+						ExecutionTargetPolicy: &pb.ExecutionTargetConfiguration{Mode: pb.ExecutionTargetMode_WORKFLOW_EXECUTION_TARGET_MODE_NONE},
+					},
+					DerivedWiring: &pb.DerivedWiring{},
+				}
+			}
+			if blocked {
+				response.Blockers = []*pb.GraphSaveBlocker{{Code: "version_changed", Message: "Version changed"}}
+			}
+			if err := protoapi.Validate(response); (err == nil) != (saved != blocked) {
+				t.Errorf("saved=%v blocked=%v acceptance=%v", saved, blocked, err)
+			}
+		}
+	}
+}

@@ -1225,6 +1225,11 @@ message GraphSavePreviewSuccess {
 }
 
 message GraphSaveSuccess {
+  option (buf.validate.message).cel = {
+    id: "kent.workflow_definition.graph_save_blockers"
+    message: "saved graphs forbid blockers and unsaved graphs require blockers"
+    expression: "this.saved == (size(this.blockers) == 0)"
+  };
   bool saved = 1;
   bool changed = 2;
   optional WorkflowDefinition definition = 3;

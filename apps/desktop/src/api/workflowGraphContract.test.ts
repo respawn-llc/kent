@@ -3,6 +3,8 @@ import {
   GraphDraftSchema,
   GraphSaveRequestSchema,
   GraphSavePreviewRequestSchema,
+  GraphSaveSuccessSchema,
+  ExecutionTargetMode,
   NodeKind,
 } from "@app/server-api-contract/gen/kent/api/workflow_definition/workflow_definition_pb";
 
@@ -24,6 +26,33 @@ describe("Workflow draft group-key resolution", () => {
         expect(() => validate(GraphDraftSchema, graph)).not.toThrow();
       } else {
         expect(() => validate(GraphDraftSchema, graph)).toThrow();
+      }
+    }
+  });
+});
+
+describe("Workflow Save outcome blockers", () => {
+  it("requires blockers exactly when not saved", () => {
+    for (const saved of [false, true]) {
+      for (const blocked of [false, true]) {
+        const response = create(GraphSaveSuccessSchema, {
+          saved,
+          impact: {},
+          definition: saved ? {
+            workflow: {
+              id: "11111111-1111-4111-8111-111111111111",
+              name: "Workflow",
+              executionTargetPolicy: { mode: ExecutionTargetMode.WORKFLOW_EXECUTION_TARGET_MODE_NONE },
+            },
+            derivedWiring: {},
+          } : undefined,
+          blockers: blocked ? [{ code: "version_changed", message: "Version changed" }] : [],
+        });
+        if (saved !== blocked) {
+          expect(() => validate(GraphSaveSuccessSchema, response)).not.toThrow();
+        } else {
+          expect(() => validate(GraphSaveSuccessSchema, response)).toThrow();
+        }
       }
     }
   });
