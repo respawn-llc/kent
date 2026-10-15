@@ -34,8 +34,6 @@ import (
 	"core/shared/serverapi"
 	"core/shared/textutil"
 	"core/shared/toolspec"
-
-	"github.com/google/uuid"
 )
 
 const (
@@ -593,19 +591,15 @@ func (s *Starter) compactOutgoingCurrentNodeSession(ctx context.Context, input w
 	if err != nil {
 		return err
 	}
-	attachment, err := s.runtimeAuthority.OpenRuntime(ctx, sessionruntime.RuntimeOpenRequest{
-		SessionID: plan.Descriptor.SessionID(), OwnerID: uuid.NewString(), Runtime: &runtimePlan,
+	ref, err := s.runtimeAuthority.OpenRuntime(ctx, sessionruntime.RuntimeOpenRequest{
+		SessionID: plan.Descriptor.SessionID(), Runtime: &runtimePlan,
 	})
 	if err != nil {
 		return err
 	}
-	defer func() {
-		_, releaseErr := attachment.Release(context.WithoutCancel(ctx), sessionruntime.RuntimeReleaseCloseIfIdle)
-		resultErr = errors.Join(resultErr, releaseErr)
-	}()
 	required = false
 	var resource sessionruntime.AgentResourceSelection = sessionruntime.CurrentAgentResource{}
-	err = s.runtimeAuthority.WithRuntime(ctx, attachment.Resource(), func(_ context.Context, engine *runtime.Engine) error {
+	err = s.runtimeAuthority.WithRuntime(ctx, ref, func(_ context.Context, engine *runtime.Engine) error {
 		required = engine.WorkflowContinuationCompactionRequired()
 		if engine.CompactionMode() != string(plan.ActiveSettings.CompactionMode) {
 			resource = sessionruntime.ReplaceAgentResource{}

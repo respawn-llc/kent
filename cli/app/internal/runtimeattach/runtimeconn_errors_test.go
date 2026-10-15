@@ -32,6 +32,8 @@ func TestIsRuntimeConnectionError(t *testing.T) {
 		{name: "context deadline", err: context.DeadlineExceeded, want: false},
 		{name: "net timeout", err: timeoutError{}, want: false},
 		{name: "eof", err: io.EOF, want: true},
+		{name: "subscription disconnected before hydration", err: errors.Join(serverapi.ErrStreamFailed, io.EOF), want: true},
+		{name: "subscription transport failed", err: serverapi.NormalizeStreamError(&net.OpError{Op: "read", Net: "tcp", Err: errors.New("reset")}), want: true},
 		{name: "url", err: &url.Error{Op: "Get", URL: "http://127.0.0.1", Err: io.EOF}, want: true},
 		{name: "op", err: &net.OpError{Op: "read", Net: "tcp", Err: errors.New("reset")}, want: true},
 	}

@@ -390,6 +390,7 @@ func (e *Engine) AcceptPreparedChatSettings(settings session.ChatSettings) error
 	if !accepted {
 		return ErrEngineClosed
 	}
+	e.runtimeWriteAccepted()
 	return nil
 }
 

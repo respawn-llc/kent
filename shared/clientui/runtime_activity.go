@@ -4,7 +4,6 @@ import (
 	"fmt"
 	"strings"
 
-	"core/shared/runtimeids"
 	"core/shared/runtimeinput"
 )
 
@@ -28,13 +27,13 @@ func (r RuntimeShellRequest) Validate() error {
 }
 
 type RuntimeCompactRequest struct {
-	RequestID runtimeids.CompactionRequestID
 	Admission runtimeinput.ManualCompactionAdmission
 }
 
+type RuntimeCompactResult struct {
+	Diagnostic error
+}
+
 func (r RuntimeCompactRequest) Validate() error {
-	if r.RequestID.IsZero() {
-		return fmt.Errorf("compaction request id is required")
-	}
 	return r.Admission.Validate()
 }

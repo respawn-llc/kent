@@ -4,12 +4,10 @@ import (
 	"context"
 	"errors"
 	"testing"
-	"time"
 
 	"core/internal/testharness/requestfixture"
 	"core/server/runtimecontrol"
 	"core/server/session"
-	"core/server/sessionruntime"
 	chatpb "core/shared/protoapi/gen/kent/api/chat"
 	chatsettingspb "core/shared/protoapi/gen/kent/api/chat_settings"
 	runtimepb "core/shared/protoapi/gen/kent/api/runtime"
@@ -60,33 +58,11 @@ func TestOperationOwnerShutdownRejectsCancelsAndJoins(t *testing.T) {
 	}
 }
 
-func TestOperationOwnerBoundsAttachmentFinalization(t *testing.T) {
-	const timeout = 20 * time.Millisecond
-	owner, err := NewOperationOwner(timeout)
-	if err != nil {
-		t.Fatalf("NewOperationOwner: %v", err)
-	}
-	finalizing := make(chan struct{})
-	operation, err := owner.Start(t.Context(), func(scope OperationScope) error {
-		return scope.FinalizeAttachment(func(ctx context.Context) error {
-			close(finalizing)
-			<-ctx.Done()
-			return context.Cause(ctx)
-		})
-	})
-	if err != nil {
-		t.Fatalf("Start: %v", err)
-	}
-	<-finalizing
-	if err := owner.Close(); !errors.Is(err, context.DeadlineExceeded) {
-		t.Fatalf("Close error = %v, want bounded finalization timeout", err)
-	}
-	if err := operation.Await(t.Context()); !errors.Is(err, context.DeadlineExceeded) {
-		t.Fatalf("operation result = %v, want deadline exceeded", err)
-	}
-}
-
 type lifecycleContextKey struct{}
+
+func (lifecycleAdmission) AdmitUserShellCommand(context.Context, runtimeids.SessionID, string) error {
+	return errors.New("unexpected shell command")
+}
 
 type lifecycleRecorder struct {
 	t         *testing.T
@@ -107,16 +83,6 @@ func (r *lifecycleRecorder) operationStage(stage string, ctx context.Context) {
 		r.t.Fatalf("%s received a different operation context", stage)
 	}
 	r.stages[stage] = struct{}{}
-}
-
-func (r *lifecycleRecorder) finalizationStage(ctx context.Context) {
-	r.t.Helper()
-	if _, bounded := ctx.Deadline(); !bounded ||
-		context.Cause(ctx) != nil ||
-		ctx.Value(lifecycleContextKey{}) != r.marker {
-		r.t.Fatal("attachment finalization did not receive the bounded operation context")
-	}
-	r.stages["attachment finalization"] = struct{}{}
 }
 
 type lifecyclePersistedSessions struct {
@@ -169,16 +135,16 @@ func (s lifecycleCreation) PlanSession(
 }
 
 type lifecyclePlanner struct {
-	recorder   *lifecycleRecorder
-	attachment RuntimeAttachment
+	recorder *lifecycleRecorder
 }
 
 func (p lifecyclePlanner) Open(
 	ctx context.Context,
 	_ runtimeids.SessionID,
-) (RuntimeAttachment, error) {
+	_ *serverapi.SessionRuntimePreparationOptions,
+) error {
 	p.recorder.operationStage("Runtime opening", ctx)
-	return p.attachment, nil
+	return nil
 }
 
 type lifecycleAdmission struct {
@@ -215,32 +181,12 @@ func (lifecycleAdmission) AdmitManualCompaction(
 	panic("unexpected compaction admission")
 }
 
-type lifecycleAttachment struct {
-	recorder  *lifecycleRecorder
-	sessionID runtimeids.SessionID
-	policy    sessionruntime.RuntimeReleasePolicy
-}
-
-func (a *lifecycleAttachment) SessionID() runtimeids.SessionID {
-	return a.sessionID
-}
-
-func (a *lifecycleAttachment) Release(
-	ctx context.Context,
-	policy sessionruntime.RuntimeReleasePolicy,
-) error {
-	a.policy = policy
-	a.recorder.finalizationStage(ctx)
-	return nil
-}
-
 func TestServiceCarriesOneOperationContextAcrossChatLifecycle(t *testing.T) {
 	tests := []struct {
 		name         string
 		newChat      bool
 		admission    serverapi.ChatInputAdmissionResult
 		admissionErr error
-		wantPolicy   sessionruntime.RuntimeReleasePolicy
 		wantStages   []string
 	}{
 		{
@@ -252,24 +198,20 @@ func TestServiceCarriesOneOperationContextAcrossChatLifecycle(t *testing.T) {
 				Accepted:             true,
 				PromptHistoryFailure: errors.New("prompt history unavailable"),
 			},
-			wantPolicy: sessionruntime.RuntimeReleaseDetach,
 			wantStages: []string{
 				"target resolution",
 				"Session creation",
 				"Runtime opening",
 				"admission",
-				"attachment finalization",
 			},
 		},
 		{
 			name:         "existing Session rejected before acceptance",
 			admissionErr: &serverapi.PendingWorkCapacityError{},
-			wantPolicy:   sessionruntime.RuntimeReleaseCloseIfIdle,
 			wantStages: []string{
 				"target resolution",
 				"Runtime opening",
 				"admission",
-				"attachment finalization",
 			},
 		},
 	}
@@ -311,11 +253,10 @@ func TestServiceCarriesOneOperationContextAcrossChatLifecycle(t *testing.T) {
 				nil,
 				nil, nil,
 			)
-			attachment := &lifecycleAttachment{recorder: recorder, sessionID: sessionID}
 			service := NewService(
 				owner,
 				targets,
-				lifecyclePlanner{recorder: recorder, attachment: attachment},
+				lifecyclePlanner{recorder: recorder},
 				lifecycleAdmission{
 					recorder: recorder,
 					result:   test.admission,
@@ -353,9 +294,6 @@ func TestServiceCarriesOneOperationContextAcrossChatLifecycle(t *testing.T) {
 			} else if result.GetNotAccepted().GetPendingWorkCapacity() == nil {
 				t.Fatalf("Steer result = %+v, want capacity rejection", result)
 			}
-			if attachment.policy != test.wantPolicy {
-				t.Fatalf("release policy = %v, want %v", attachment.policy, test.wantPolicy)
-			}
 			for _, stage := range test.wantStages {
 				if _, observed := recorder.stages[stage]; !observed {
 					t.Errorf("%s did not receive the operation context", stage)
@@ -366,11 +304,7 @@ func TestServiceCarriesOneOperationContextAcrossChatLifecycle(t *testing.T) {
 }
 
 func newTestOperationOwner() *OperationOwner {
-	owner, err := NewOperationOwner(time.Second)
-	if err != nil {
-		panic(err)
-	}
-	return owner
+	return NewOperationOwner()
 }
 
 func validNewChatTarget() *chatpb.NewChatTarget {

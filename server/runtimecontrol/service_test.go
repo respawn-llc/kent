@@ -12,6 +12,7 @@ import (
 	"sync"
 	"sync/atomic"
 	"testing"
+	"testing/synctest"
 	"time"
 
 	"core/server/llm"
@@ -40,6 +41,56 @@ import (
 	"google.golang.org/protobuf/proto"
 	"google.golang.org/protobuf/types/known/emptypb"
 )
+
+func TestRejectedRuntimeCompactionPreservesIdleLifetime(t *testing.T) {
+	synctest.Test(t, func(t *testing.T) {
+		store, _, service := newRuntimeControlTestService(t, nil, nil, runtime.Config{})
+		sessionID, err := runtimeids.ParseSessionID(store.Meta().SessionID)
+		if err != nil {
+			t.Fatal(err)
+		}
+		time.Sleep(2 * time.Minute)
+		err = service.CompactContext(t.Context(), &runtimepb.CompactContextRequest{
+			SessionId: sessionID.String(),
+			Admission: &runtimepb.ManualCompactionAdmission{},
+		})
+		if err == nil {
+			t.Fatal("compaction without eligible context was accepted")
+		}
+		time.Sleep(time.Minute)
+		synctest.Wait()
+		err = service.authority.WithCurrentRuntime(t.Context(), sessionID, func(context.Context, *runtime.Engine) error { return nil })
+		if !errors.Is(err, serverapi.ErrRuntimeUnavailable) {
+			t.Fatalf("Runtime after original deadline = %v, want unavailable", err)
+		}
+	})
+}
+
+func TestCommittedRuntimeWriteRefreshesIdleLifetime(t *testing.T) {
+	synctest.Test(t, func(t *testing.T) {
+		store, _, service := newRuntimeControlTestService(t, nil, nil, runtime.Config{})
+		sessionID, err := runtimeids.ParseSessionID(store.Meta().SessionID)
+		if err != nil {
+			t.Fatal(err)
+		}
+		time.Sleep(2 * time.Minute)
+		if err := service.AppendSessionEntry(t.Context(), sessionID.String(), "system", "accepted"); err != nil {
+			t.Fatal(err)
+		}
+		time.Sleep(2 * time.Minute)
+		read := func() error {
+			return service.authority.WithCurrentRuntime(t.Context(), sessionID, func(context.Context, *runtime.Engine) error { return nil })
+		}
+		if err := read(); err != nil {
+			t.Fatalf("Runtime retired after accepted write: %v", err)
+		}
+		time.Sleep(time.Minute)
+		synctest.Wait()
+		if err := read(); !errors.Is(err, serverapi.ErrRuntimeUnavailable) {
+			t.Fatalf("Runtime after new idle interval = %v, want unavailable", err)
+		}
+	})
+}
 
 var runtimeControlOpenAICapabilities = llm.ProviderCapabilities{
 	ProviderID:               "openai",
@@ -761,8 +812,8 @@ func newRuntimeControlTestServiceWithFeeds(
 	}
 	if _, err := authority.OpenRuntime(context.Background(), sessionruntime.RuntimeOpenRequest{
 		SessionID: sessionID,
-		OwnerID:   "runtimecontrol-test",
-		Runtime:   &plan,
+
+		Runtime: &plan,
 	}); err != nil {
 		t.Fatalf("open authority runtime: %v", err)
 	}
@@ -2899,11 +2950,9 @@ func TestServiceAdmitManualCompactionAcceptsEligibleIdleRuntime(t *testing.T) {
 	}
 	waitForRuntimeControlAssistantFinal(t, engine, "seeded")
 	waitForRuntimeControlIdle(t, engine)
-	requestID := runtimeids.NewCompactionRequestID()
 
 	accepted, err := service.AdmitManualCompaction(t.Context(), &runtimepb.CompactContextRequest{
 		SessionId: store.Meta().SessionID,
-		RequestId: requestID.String(),
 		Admission: &runtimepb.ManualCompactionAdmission{},
 	})
 	if err != nil {
@@ -2926,11 +2975,9 @@ func TestServiceAdmitManualCompactionQueuesBehindActiveAgentStep(t *testing.T) {
 		t.Fatalf("start user turn: %v", err)
 	}
 	waitForRuntimeControlActiveRun(t, engine)
-	requestID := runtimeids.NewCompactionRequestID()
 
 	accepted, err := service.AdmitManualCompaction(t.Context(), &runtimepb.CompactContextRequest{
 		SessionId: store.Meta().SessionID,
-		RequestId: requestID.String(),
 		Admission: &runtimepb.ManualCompactionAdmission{},
 	})
 	if err != nil {
@@ -2939,16 +2986,18 @@ func TestServiceAdmitManualCompactionQueuesBehindActiveAgentStep(t *testing.T) {
 	if !accepted {
 		t.Fatal("manual compaction behind an active Agent Step was not accepted")
 	}
-	itemID, err := serverapi.PendingWorkItemIDFromCompactionRequest(requestID)
-	if err != nil {
-		t.Fatalf("Pending Work identity: %v", err)
-	}
 	pending, err := engine.PendingWorkSnapshot()
 	if err != nil {
 		t.Fatalf("Pending Work: %v", err)
 	}
-	if !runtimeControlPendingWorkContains(pending, itemID) {
-		t.Fatalf("manual compaction %s is absent from Pending Work: %+v", requestID, pending.Items)
+	compactions := 0
+	for _, item := range pending.Items {
+		if item.Kind == runtimeinput.PendingWorkItemKindManualCompaction {
+			compactions++
+		}
+	}
+	if compactions != 1 {
+		t.Fatalf("manual compaction is absent from Pending Work: %+v", pending.Items)
 	}
 	// Stop the intentionally queued operation before Authority fixture cleanup.
 	if err := engine.Close(); err != nil {
@@ -3149,7 +3198,12 @@ func TestServiceInterruptForegroundShellAllowsNextTurn(t *testing.T) {
 		})
 	shellDone := make(chan error, 1)
 	go func() {
-		shellDone <- service.SubmitUserShellCommand(t.Context(), runtimeControlShellCommandRequest(store, "shell", "sleep 120"))
+		id, err := runtimeids.ParseSessionID(store.Meta().SessionID)
+		if err != nil {
+			shellDone <- err
+			return
+		}
+		shellDone <- service.AdmitUserShellCommand(t.Context(), id, "sleep 120")
 	}()
 	select {
 	case <-started:
@@ -3176,13 +3230,15 @@ func TestServiceInterruptForegroundShellAllowsNextTurn(t *testing.T) {
 
 func TestServiceSubmitUserShellCommandDoesNotRecordPromptHistory(t *testing.T) {
 	store, _, service := newRuntimeControlTestService(t, nil, newTestToolRegistry(t, tools.HandlerRegistration{ID: toolspec.ToolExecCommand, Handler: fakeShellHandler{}}), runtime.Config{})
-	req := runtimeControlShellCommandRequest(store, "req-1", "pwd")
-
-	if err := service.SubmitUserShellCommand(context.Background(), req); err != nil {
+	id, err := runtimeids.ParseSessionID(store.Meta().SessionID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := service.AdmitUserShellCommand(context.Background(), id, "pwd"); err != nil {
 		t.Fatalf("SubmitUserShellCommand: %v", err)
 	}
 	history := service.promptStore.(*runtimeControlPromptHistoryStore)
-	if err := service.SubmitUserShellCommand(context.Background(), req); err != nil {
+	if err := service.AdmitUserShellCommand(context.Background(), id, "pwd"); err != nil {
 		t.Fatalf("SubmitUserShellCommand second: %v", err)
 	}
 	if got := history.CountText("$ pwd"); got != 0 {
@@ -3529,7 +3585,6 @@ func TestServiceInterruptCompactionAllowsNextTurnWithoutRestart(t *testing.T) {
 
 	if err := service.CompactContext(context.Background(), &runtimepb.CompactContextRequest{
 		SessionId: store.Meta().SessionID,
-		RequestId: runtimeids.NewCompactionRequestID().String(),
 		Admission: &runtimepb.ManualCompactionAdmission{},
 	}); err != nil {
 		t.Fatalf("CompactContext scheduling: %v", err)
@@ -3790,12 +3845,5 @@ func countUserMessagesWithContent(t *testing.T, store *session.Store, content st
 func runtimeControlUserTurnRequest(store *session.Store, _ string, text string) *runtimepb.SubmitUserTurnRequest {
 	return &runtimepb.SubmitUserTurnRequest{QueueItemId: runtimeids.NewQueueItemID().String(), SessionId: store.Meta().SessionID,
 		Input: &runtimepb.UserTurnInput{Input: &runtimepb.UserTurnInput_Text{Text: text}},
-	}
-}
-
-func runtimeControlShellCommandRequest(store *session.Store, _ string, command string) *runtimepb.ShellCommandRequest {
-	return &runtimepb.ShellCommandRequest{
-		SessionId: store.Meta().SessionID,
-		Command:   command,
 	}
 }

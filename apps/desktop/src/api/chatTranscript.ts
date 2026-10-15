@@ -88,7 +88,6 @@ function step(value: T.StepState): Payloads["step_state"] {
 function compaction(value: T.CompactionStatus): Payloads["compaction_status"] {
   return {
     StepID: value.stepId,
-    RequestID: value.requestId ?? null,
     State: enumValue(value.state, {
       [T.CompactionState.STARTED]: "started",
       [T.CompactionState.COMPLETED]: "completed",

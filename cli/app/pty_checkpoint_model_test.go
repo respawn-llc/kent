@@ -402,7 +402,7 @@ func initialDetailLoadCandidate(model tea.Model, msg tea.Msg) ptyInitialDetailLo
 	appModel, ok := model.(*uiModel)
 	if !ok ||
 		appModel.pendingDetailTranscript == nil ||
-		appModel.pendingDetailTranscript.id != load.requestID ||
+		appModel.pendingDetailTranscript != load.pending ||
 		appModel.detailTranscript.loaded {
 		return ptyInitialDetailLoadCandidate{}
 	}

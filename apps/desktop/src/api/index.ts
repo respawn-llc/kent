@@ -39,8 +39,6 @@ export type {
   ChatNotAcceptedReason,
   ChatProjectTarget,
   ChatRuntimeActivity,
-  ChatRuntimeAttachment,
-  ChatRuntimeRelease,
   ChatSessionTarget,
   ChatSessionNameMutation,
   ChatSettingsSnapshot,
@@ -141,7 +139,6 @@ export type { ChatError } from "./chatErrors";
 export { guiTaskCommentAuthor } from "./client";
 export { newSetupOperationID, parseSetupOperationID, SetupOperationID } from "./setupOperationID";
 export {
-  parseCompactionRequestID,
   parsePendingWorkItemID,
   parseWorktreeOperationID,
   pendingWorkItemSchema,
@@ -152,7 +149,6 @@ export {
   sessionSettingFeedbackSchema,
 } from "./pendingWork";
 export type {
-  CompactionRequestID,
   PendingWork,
   PendingWorkIdentity,
   PendingWorkItem,

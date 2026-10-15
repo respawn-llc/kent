@@ -13,27 +13,14 @@ func sessionRuntimeMethod(name protoreflect.Name) protoreflect.MethodDescriptor 
 	return bootstrapMethod(sessionlaunchpb.File_kent_api_session_launch_session_lifecycle_proto, "SessionRuntimeService", name)
 }
 
-func (c *Remote) ActivateSessionRuntime(ctx context.Context, request serverapi.SessionRuntimeActivateRequest) (serverapi.SessionRuntimeAttachment, error) {
+func (c *Remote) ActivateSessionRuntime(ctx context.Context, request serverapi.SessionRuntimeActivateRequest) error {
 	generated, err := protoapi.SessionRuntimeActivateToProto(request)
 	if err != nil {
-		return serverapi.SessionRuntimeAttachment{}, err
+		return err
 	}
-	success, err := callGeneratedBinary(c, ctx, sessionRuntimeMethod("Activate"), generated,
+	_, err = callGeneratedBinary(c, ctx, sessionRuntimeMethod("Activate"), generated,
 		&sessionlaunchpb.SessionRuntimeActivateResult{}, sessionRuntimeError[*sessionlaunchpb.SessionRuntimeActivateError])
-	if err != nil {
-		return serverapi.SessionRuntimeAttachment{}, err
-	}
-	attachment := protoapi.SessionRuntimeAttachmentFromProto(success.Attachment)
-	return attachment, attachment.Validate()
-}
-
-func (c *Remote) ReleaseSessionRuntime(ctx context.Context, request serverapi.SessionRuntimeReleaseRequest) (*sessionlaunchpb.SessionRuntimeReleaseSuccess, error) {
-	generated, err := protoapi.SessionRuntimeReleaseToProto(request)
-	if err != nil {
-		return nil, err
-	}
-	return callGeneratedBinary(c, ctx, sessionRuntimeMethod("Release"), generated,
-		&sessionlaunchpb.SessionRuntimeReleaseResult{}, sessionRuntimeError[*sessionlaunchpb.SessionRuntimeReleaseError])
+	return err
 }
 
 func sessionRuntimeError[Failure interface {

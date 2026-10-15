@@ -37,7 +37,8 @@
 - Connection-local correlation values must not reach service or domain code, persistence, replay, memoization, or reconciliation.
 - Notifications and events must not carry connection-local correlation values.
 - Every unary method must declare either multiplexed or dedicated connection policy. An unspecified policy is invalid.
-- Server Update Status, Workflow Task Search, Runtime Submit User Turn, Runtime Submit User Shell Command, Runtime Compact Context, Runtime Interrupt, Runtime Live Stop, Runtime Live Wait, and Runtime Live Watch use dedicated unary connections.
+- Server Update Status, Workflow Task Search, Runtime Submit User Turn, Chat Submit User Shell Command, Runtime Compact Context, Runtime Interrupt, Runtime Live Stop, Runtime Live Wait, and Runtime Live Watch use dedicated unary connections.
+- Interactive Session opening must promote a Subagent Session through an explicit Session mutation without loading a Runtime. Session planning is data-only.
 - Subscription, progress, and notification connection behavior derives from operation kind.
 - A dedicated unary call owns one WebSocket and performs the applicable handshake, authentication, and attachment steps on that connection.
 - Caller cancellation closes a dedicated unary connection and stops that caller's waiting and delivery.
@@ -65,7 +66,8 @@
 - Missing repeated and map fields represent empty collections.
 - Optional wrapper messages are reserved for semantics where absence differs from present-empty.
 - Operations with no request content or no success data must use `google.protobuf.Empty`.
-- Successful Runtime activation returns the Session ID and Runtime generation used by Runtime Release. Clients observe Runtime state through server-owned reads and subscriptions.
+- Successful Runtime activation must return an empty success payload. Clients observe Runtime state through server-owned reads and subscriptions.
+- Chat actions must share one typed representation for invocation preparation choices. Foreground user shell must be a separate Chat request using the same Session target and server-owned preparation rather than a second public preparation approach.
 - API instants must use `google.protobuf.Timestamp`.
 - API elapsed amounts must use `google.protobuf.Duration`.
 - Raw numeric time representations are permitted only when an external system owns that representation.

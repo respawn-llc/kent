@@ -50,7 +50,11 @@ func TestRuntimeMainViewRefreshCoalescesAndDrainsAfterCompletion(t *testing.T) {
 			if next == nil {
 				t.Fatal("completion did not schedule the pending refresh")
 			}
-			lastResult := next().(runtimeMainViewRefreshedMsg)
+			completion := next()
+			if retry, ok := completion.(runtimeMainViewRetryMsg); ok {
+				completion = m.reduceRuntimeMessage(retry).cmd()
+			}
+			lastResult := completion.(runtimeMainViewRefreshedMsg)
 			if cmd := m.handleRuntimeMainViewRefreshed(lastResult); cmd != nil {
 				t.Fatal("coalesced requests scheduled more than one follow-up")
 			}

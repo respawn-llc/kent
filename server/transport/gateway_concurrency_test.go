@@ -232,16 +232,10 @@ func (s *gatewayCloseWorkflowService) GetWorkflowTask(ctx context.Context, _ *ta
 
 type gatewayCloseRuntimeService struct {
 	apicontract.SessionRuntimeService
-	tracker        *gatewayCloseTracker
-	releaseStarted chan gatewayCloseRelease
+	tracker *gatewayCloseTracker
 }
 
-type gatewayCloseRelease struct {
-	request serverapi.SessionRuntimeReleaseRequest
-	active  int32
-}
-
-func (s *gatewayCloseRuntimeService) ActivateSessionRuntime(ctx context.Context, req serverapi.SessionRuntimeActivateRequest) (serverapi.SessionRuntimeAttachment, error) {
+func (s *gatewayCloseRuntimeService) ActivateSessionRuntime(ctx context.Context, _ serverapi.SessionRuntimeActivateRequest) error {
 	s.tracker.active.Add(1)
 	s.tracker.entered <- struct{}{}
 	defer func() {
@@ -251,13 +245,7 @@ func (s *gatewayCloseRuntimeService) ActivateSessionRuntime(ctx context.Context,
 	<-ctx.Done()
 	s.tracker.canceled <- "runtime"
 	<-s.tracker.allowActivationEnd
-	return serverapi.SessionRuntimeAttachment{SessionID: req.SessionID.String(), Generation: 1},
-		nil
-}
-
-func (s *gatewayCloseRuntimeService) ReleaseSessionRuntime(_ context.Context, req serverapi.SessionRuntimeReleaseRequest) (*sessionlaunchpb.SessionRuntimeReleaseSuccess, error) {
-	s.releaseStarted <- gatewayCloseRelease{request: req, active: s.tracker.active.Load()}
-	return &sessionlaunchpb.SessionRuntimeReleaseSuccess{Released: true}, nil
+	return nil
 }
 
 type gatewayCloseDependencies struct {
@@ -536,7 +524,7 @@ func TestGatewayExplicitAdmissionInterruptionPersistenceFailureRemainsNonFatal(t
 	}
 }
 
-func TestGatewayCloseCancelsAndDrainsHandlersBeforeRuntimeCleanup(t *testing.T) {
+func TestGatewayCloseCancelsAndDrainsHandlers(t *testing.T) {
 	appCore, _ := newGatewayTestCore(t, true, true)
 	defer func() { _ = appCore.Close() }()
 	store := createGatewayAuthoritativeSession(t, appCore)
@@ -554,7 +542,6 @@ func TestGatewayCloseCancelsAndDrainsHandlersBeforeRuntimeCleanup(t *testing.T) 
 	runtime := &gatewayCloseRuntimeService{
 		SessionRuntimeService: appCore.SessionRuntimeClient(),
 		tracker:               tracker,
-		releaseStarted:        make(chan gatewayCloseRelease, 1),
 	}
 	workflow := &gatewayCloseWorkflowService{
 		WorkflowService: appCore.WorkflowClient(),
@@ -620,20 +607,6 @@ func TestGatewayCloseCancelsAndDrainsHandlersBeforeRuntimeCleanup(t *testing.T) 
 
 	allowActivationEnd()
 	waitForGatewayCloseEvent(t, tracker.exited, "runtime")
-	select {
-	case release := <-runtime.releaseStarted:
-		if release.request.Attachment.SessionID != store.Meta().SessionID || release.request.Attachment.Generation != 1 {
-			t.Fatalf("cleanup attachment = %+v, want session %q generation 1", release.request.Attachment, store.Meta().SessionID)
-		}
-		if !release.request.DropOwner || release.request.ClosePolicy != serverapi.SessionRuntimeReleaseClosePolicyDetachOnly {
-			t.Fatalf("cleanup release request = %+v, want owner drop detach-only", release.request)
-		}
-		if release.active != 0 {
-			t.Fatalf("cleanup started with %d active handler(s), want 0", release.active)
-		}
-	case <-time.After(time.Second):
-		t.Fatal("timed out waiting for runtime cleanup")
-	}
 	if got := tracker.active.Load(); got != 0 {
 		t.Fatalf("active handler count after cleanup started = %d, want 0", got)
 	}

@@ -20,16 +20,13 @@ import (
 	projectpb "core/shared/protoapi/gen/kent/api/project"
 	runtimepb "core/shared/protoapi/gen/kent/api/runtime"
 	sessionpb "core/shared/protoapi/gen/kent/api/session"
-	sessionlaunchpb "core/shared/protoapi/gen/kent/api/session_launch"
 	worktreepb "core/shared/protoapi/gen/kent/api/worktree"
 	"core/shared/protocol"
 	"core/shared/rpcwire"
-	"core/shared/serverapi"
 
 	serverpb "core/shared/protoapi/gen/kent/api/server"
 	sharedpb "core/shared/protoapi/gen/kent/api/shared"
 
-	"golang.org/x/net/websocket"
 	"google.golang.org/protobuf/proto"
 	"google.golang.org/protobuf/types/known/emptypb"
 )
@@ -98,51 +95,6 @@ func TestDialConfiguredRemoteCancellationIsNotServerUnavailable(t *testing.T) {
 	var unavailable *ServerUnavailableError
 	if !errors.Is(err, context.Canceled) || errors.As(err, &unavailable) {
 		t.Fatalf("cancellation was classified as a missing server: %v", err)
-	}
-}
-
-func TestRemoteReleaseSessionRuntimePropagatesClosePolicy(t *testing.T) {
-	const sessionID = "123e4567-e89b-42d3-a456-426614174000"
-	releaseRequests := make(chan *sessionlaunchpb.SessionRuntimeReleaseRequest, 1)
-	server := newRemoteTestServer(t, func(ws *websocket.Conn) {
-		acceptRemoteHandshake(t, ws)
-		request := &sessionlaunchpb.SessionRuntimeReleaseRequest{}
-		call := receiveRemoteGeneratedCall(t, ws, "SessionRuntimeService", "Release", request)
-		releaseRequests <- request
-		sendRemoteGeneratedResult(t, ws, call, &sessionlaunchpb.SessionRuntimeReleaseResult{
-			Outcome: &sessionlaunchpb.SessionRuntimeReleaseResult_Success{Success: &sessionlaunchpb.SessionRuntimeReleaseSuccess{Released: true}},
-		})
-	})
-	defer server.Close()
-
-	remote, err := DialRemoteURL(context.Background(), "ws"+server.URL[len("http"):])
-	if err != nil {
-		t.Fatalf("DialRemoteURL: %v", err)
-	}
-	defer func() { _ = remote.Close() }()
-
-	resp, err := remote.ReleaseSessionRuntime(context.Background(), serverapi.SessionRuntimeReleaseRequest{
-		Attachment: serverapi.SessionRuntimeAttachment{
-			SessionID:  sessionID,
-			Generation: 7,
-		},
-		DropOwner:   true,
-		ClosePolicy: serverapi.SessionRuntimeReleaseClosePolicyDetachOnly,
-	})
-	if err != nil {
-		t.Fatalf("ReleaseSessionRuntime: %v", err)
-	}
-	if !resp.Released {
-		t.Fatalf("release response = %+v, want released", resp)
-	}
-	select {
-	case req := <-releaseRequests:
-		if req.Attachment.SessionId != sessionID || req.Attachment.Generation != 7 || !req.DropOwner ||
-			req.GetClosePolicy() != sessionlaunchpb.SessionRuntimeReleaseClosePolicy_SESSION_RUNTIME_RELEASE_CLOSE_POLICY_DETACH_ONLY {
-			t.Fatalf("release request = %+v, want exact attachment and detach-only owner drop", req)
-		}
-	case <-time.After(time.Second):
-		t.Fatal("timed out waiting for release request")
 	}
 }
 

@@ -152,7 +152,7 @@ func TestGatewayProjectRemoteContinuesAfterActiveStepScheduledCrossProjectMove(t
 		}),
 	})
 	movedSession := createGatewayAuthoritativeSession(t, appCore)
-	_ = activateGatewayController(t, appCore, movedSession.Meta().SessionID)
+	activateGatewayController(t, appCore, movedSession.Meta().SessionID)
 	foreignSession, err := session.Create(
 		filepath.Join(targetConfig.Config.PersistenceRoot, "projects", targetBinding.ProjectID, "sessions"),
 		"target",

@@ -9,6 +9,13 @@ import (
 	"google.golang.org/protobuf/types/known/emptypb"
 )
 
+func (c *Remote) Promote(ctx context.Context, request *sessionlaunchpb.SessionPromoteRequest) (*emptypb.Empty, error) {
+	return callGeneratedBinary(c, ctx, sessionLifecycleMethod("Promote"), request,
+		&sessionlaunchpb.SessionPromoteResult{}, func(failure *sessionlaunchpb.SessionPromoteError) error {
+			return generatedOperationFailure(failure.Code)
+		})
+}
+
 func (c *Remote) ResolveTransition(ctx context.Context, request *sessionlaunchpb.SessionResolveTransitionRequest) (*sessionlaunchpb.SessionDirective, error) {
 	return callGeneratedBinary(c, ctx, sessionLifecycleMethod("ResolveTransition"), request,
 		&sessionlaunchpb.SessionResolveTransitionResult{}, func(failure *sessionlaunchpb.SessionResolveTransitionError) error {

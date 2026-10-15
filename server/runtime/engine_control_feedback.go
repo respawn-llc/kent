@@ -20,5 +20,15 @@ func (e *Engine) appendCommittedEntryWithCommitReceiptRaw(entry storedLocalEntry
 	if entry.Role == "" || entry.Text == "" {
 		return session.CommitReceipt{}, nil
 	}
-	return e.steerWithCommitReceiptRaw(sessionSteeringProvenance(), steerLocalEntryIntent(entry))
+	receipt, err := e.steerWithCommitReceiptRaw(sessionSteeringProvenance(), steerLocalEntryIntent(entry))
+	if receipt.Committed {
+		e.runtimeWriteAccepted()
+	}
+	return receipt, err
+}
+
+func (e *Engine) runtimeWriteAccepted() {
+	if e.cfg.RuntimeWriteAccepted != nil {
+		e.cfg.RuntimeWriteAccepted()
+	}
 }

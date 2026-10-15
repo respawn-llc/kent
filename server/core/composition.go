@@ -247,18 +247,7 @@ func NewWithContextOptions(ctx context.Context, cfg config.App, authSupport serv
 		WithDebugMode(cfg.Settings.Debug).
 		WithWorkspaceRetargeter(sessionWorkspaceRetargeter).
 		WithNavigationTargetResolver(metadataStore)
-	chatOperationOwner, err := chatmutation.NewOperationOwner(
-		chatmutation.DefaultAttachmentFinalizationTimeout,
-	)
-	if err != nil {
-		sleepManager.Close()
-		_ = worktreeService.Close()
-		_ = runtimeAuthority.Close(context.Background())
-		closeRootLeaseOnFailure()
-		_ = metadataStore.Close()
-		_ = background.Close()
-		return nil, fmt.Errorf("Chat operation owner: %w", err)
-	}
+	chatOperationOwner := chatmutation.NewOperationOwner()
 	var workflowRuntimeStarter *workflowrunner.Starter
 	cleanupNewFailure := func() {
 		_ = chatOperationOwner.Close()

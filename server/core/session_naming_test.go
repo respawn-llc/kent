@@ -113,9 +113,12 @@ func testNamingAfterExecutionTargetChange(t *testing.T, optOut bool) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	_, err = app.SessionRuntimeClient().ActivateSessionRuntime(t.Context(), serverapi.SessionRuntimeActivateRequest{
-		SessionID: requestfixture.SessionID(t, id), OwnerID: "naming-test", ActiveSettings: clientSettings, Source: resolved.Config.Source,
-		QuestionsEnabled: textutil.Value(true), AutoCompactionEnabled: textutil.Value(false),
+	err = app.SessionRuntimeClient().ActivateSessionRuntime(t.Context(), serverapi.SessionRuntimeActivateRequest{
+		SessionID: requestfixture.SessionID(t, id),
+		SessionRuntimePreparationOptions: serverapi.SessionRuntimePreparationOptions{
+			ActiveSettings: clientSettings, Source: resolved.Config.Source,
+			QuestionsEnabled: textutil.Value(true), AutoCompactionEnabled: textutil.Value(false),
+		},
 	})
 	if err != nil {
 		t.Fatal(err)

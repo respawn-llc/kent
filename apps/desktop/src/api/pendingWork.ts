@@ -13,16 +13,13 @@ const normalizedArgument = z
   });
 
 export type PendingWorkItemID = UUIDv4Value<"pending_work_item">;
-export type CompactionRequestID = UUIDv4Value<"compaction_request">;
 export type WorktreeOperationID = UUIDv4Value<"worktree_operation">;
 
 const uuidParser = createUUIDv4ValueParser;
 export const parsePendingWorkItemID = uuidParser<"pending_work_item">("UUID v4 required.");
-export const parseCompactionRequestID = uuidParser<"compaction_request">("UUID v4 required.");
 export const parseWorktreeOperationID = uuidParser<"worktree_operation">("UUID v4 required.");
 
 export const pendingWorkItemIDSchema = uuidSchema(parsePendingWorkItemID);
-const compactionRequestIDSchema = uuidSchema(parseCompactionRequestID);
 const worktreeOperationIDSchema = uuidSchema(parseWorktreeOperationID);
 const itemBase = {
   state: z.literal("pending"),
@@ -45,7 +42,7 @@ export const pendingWorkItemSchema = z
     }),
     strict({
       ...itemBase,
-      id: compactionRequestIDSchema,
+      id: pendingWorkItemIDSchema,
       lane: z.literal("steer"),
       kind: z.literal("manual_compaction"),
       manual_compaction: strict({ guidance: normalizedArgument.optional() }),
@@ -124,7 +121,7 @@ export const pendingWorkSchema = strict({
 });
 export type PendingWork = Readonly<z.output<typeof pendingWorkSchema>>;
 
-export type PendingWorkIdentity = PendingWorkItemID | CompactionRequestID | WorktreeOperationID;
+export type PendingWorkIdentity = PendingWorkItemID | WorktreeOperationID;
 
 const pendingWorkItemKindSchema = z.enum(["message", "manual_compaction", "worktree_transition"]);
 

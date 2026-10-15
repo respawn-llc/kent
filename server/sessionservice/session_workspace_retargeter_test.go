@@ -324,8 +324,8 @@ func (f realSessionRetargetFixture) openRuntimeWithClient(t *testing.T, client l
 	plan := f.runtimePlan(t, client, enabled...)
 	_, err := f.authority.OpenRuntime(context.Background(), sessionruntime.RuntimeOpenRequest{
 		SessionID: f.childID,
-		OwnerID:   "retarget-test",
-		Runtime:   &plan,
+
+		Runtime: &plan,
 	})
 	if err != nil {
 		t.Fatalf("OpenRuntime: %v", err)

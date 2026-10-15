@@ -398,6 +398,25 @@ func (s *transcriptSubscription) Close() error {
 	return nil
 }
 
+func (s *transcriptSubscription) bindObservation(ctx context.Context, release func()) {
+	s.mu.Lock()
+	if s.done {
+		s.mu.Unlock()
+		release()
+		return
+	}
+	previous := s.onClose
+	stop := context.AfterFunc(ctx, func() { s.closeWithError(context.Cause(ctx)) })
+	s.onClose = func() {
+		stop()
+		if previous != nil {
+			previous()
+		}
+		release()
+	}
+	s.mu.Unlock()
+}
+
 func (s *transcriptSubscription) closeWithError(err error) {
 	if s == nil {
 		return

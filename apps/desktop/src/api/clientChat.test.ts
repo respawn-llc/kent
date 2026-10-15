@@ -23,7 +23,6 @@ import {
 import {
   SessionRuntimeService,
   SessionRuntimeActivateResultSchema,
-  SessionRuntimeReleaseResultSchema,
 } from "@app/server-api-contract/gen/kent/api/session_launch/session_lifecycle_pb";
 import {
   AgentPreparationCategory,
@@ -431,30 +430,19 @@ describe("Desktop Chat read client", () => {
         {
           descriptor: SessionRuntimeService.method.activate,
           result: create(SessionRuntimeActivateResultSchema, {
-            outcome: { case: "success", value: { attachment: { sessionId: sessionID, generation: 7n } } },
-          }),
-        },
-        {
-          descriptor: SessionRuntimeService.method.release,
-          result: create(SessionRuntimeReleaseResultSchema, {
-            outcome: { case: "success", value: { released: true, active: false } },
+            outcome: { case: "success", value: {} },
           }),
         },
       ]);
       const activationClient = new ApiClient(activationTransport, unexpectedProjectOverflow);
-      await expect(activationClient.chat.activateRuntime(target)).resolves.toEqual({
-        sessionID,
-        generation: 7,
-      });
+      await expect(activationClient.chat.activateRuntime(target)).resolves.toBeUndefined();
       if (selection === undefined) {
-        expect(activationTransport.descriptorCalls[1]?.request).not.toHaveProperty("agentSelection");
+        expect(activationTransport.descriptorCalls[1]?.request).not.toHaveProperty("options.agentSelection");
       } else {
-        expect(activationTransport.descriptorCalls[1]?.request).toMatchObject({ agentSelection: selection });
+        expect(activationTransport.descriptorCalls[1]?.request).toMatchObject({
+          options: { agentSelection: selection },
+        });
       }
-      await expect(activationClient.chat.releaseRuntime({ sessionID, generation: 7 })).resolves.toEqual({
-        released: true,
-        active: false,
-      });
     }
 
     const mismatchedPlanClient = new ApiClient(
@@ -770,7 +758,6 @@ describe("Desktop Chat read client", () => {
 
 describe("Desktop Chat mutation adapter", () => {
   const queueItemID = "223e4567-e89b-42d3-a456-426614174000";
-  const compactionRequestID = "323e4567-e89b-42d3-a456-426614174000";
   const sessionTarget = {
     kind: "session",
     projectID: "project-1",
@@ -976,7 +963,7 @@ describe("Desktop Chat mutation adapter", () => {
               session: { sessionId: sessionID },
               outcome: {
                 case: "accepted",
-                value: { request: { id: compactionRequestID } },
+                value: {},
               },
             },
           },
@@ -1000,7 +987,6 @@ describe("Desktop Chat mutation adapter", () => {
       rawGuidance: "",
     });
     if (compacted.outcome.kind !== "accepted") throw new Error("Expected accepted compaction fixture.");
-    expect(compacted.outcome.requestID.toJSONValue()).toBe(compactionRequestID);
 
     const failingChat = new ApiClient(
       new FakeRpcTransport([

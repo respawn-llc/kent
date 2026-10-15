@@ -60,26 +60,7 @@ export type AttachedProjectDescriptorCall<Method extends DescMethod> = Readonly<
   createRequest(attachment: ProjectAttachment): MessageShape<Method["input"]>;
 }>;
 
-export type RuntimeOwnerContext = Readonly<{
-  attachment: SessionAttachment;
-  callDescriptor<Method extends DescMethod>(
-    method: Method,
-    request: MessageShape<Method["input"]>,
-  ): Promise<MessageShape<Method["output"]>>;
-  poison(): void;
-}>;
-
-export type RuntimeOwnerOptions = Readonly<{
-  createIfMissing: boolean;
-  closeAfter?: boolean;
-}>;
-
 export type RpcTransport = Readonly<{
-  runRuntimeOwner<Result>(
-    sessionID: string,
-    options: RuntimeOwnerOptions,
-    run: (context: RuntimeOwnerContext) => Promise<Result>,
-  ): Promise<Result>;
   callDescriptorAttachedSession<Method extends DescMethod>(
     target: SessionAttachmentTarget,
     method: Method,

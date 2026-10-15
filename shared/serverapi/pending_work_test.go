@@ -5,7 +5,6 @@ import (
 	"testing"
 
 	"core/shared/clientui"
-	"core/shared/runtimeids"
 	"core/shared/runtimeinput"
 )
 
@@ -26,13 +25,8 @@ func TestPendingWorkCapacityDirectAndNested(t *testing.T) {
 
 func TestPendingWorkIdentityViewsReuseDomainUUID(t *testing.T) {
 	t.Parallel()
-	compactionID := runtimeids.NewCompactionRequestID()
-	got, err := PendingWorkItemIDFromCompactionRequest(compactionID)
-	if err != nil || got.String() != compactionID.String() {
-		t.Fatalf("compaction Pending Work id = %q, %v", got, err)
-	}
 	worktreeID := clientui.NewWorktreeTransitionID()
-	got, err = PendingWorkItemIDFromWorktreeOperation(worktreeID)
+	got, err := PendingWorkItemIDFromWorktreeOperation(worktreeID)
 	if err != nil || got.String() != worktreeID.String() {
 		t.Fatalf("Worktree Pending Work id = %q, %v", got, err)
 	}

@@ -197,26 +197,25 @@ func runSessionLifecycleWithOptions(ctx context.Context, server interactiveSessi
 		}
 		finalModel, runErr := runUILoop(request)
 		if runErr != nil {
-			return releaseRuntimePlanAfterUIResult(runtimePlan, finalModel, runErr)
+			runtimePlan.Close()
+			return runErr
 		}
 		transition := extractUITransition(finalModel)
 		if transition.SessionRetargeted {
 			reattacher, ok := server.(sessionReattachServer)
 			if !ok {
-				return releaseRuntimePlanAfterUIResult(runtimePlan, finalModel, errors.New("Session rebind requires a Remote server"))
+				runtimePlan.Close()
+				return errors.New("Session rebind requires a Remote server")
 			}
-			next, err = reopenRetargetedSession(ctx, reattacher, runtimePlan, plan.SessionID, finalModel)
+			next, err = reopenRetargetedSession(ctx, reattacher, runtimePlan, plan.SessionID)
 			if err != nil {
 				return err
 			}
 			continue
 		}
-		if err := persistSessionDraftToServer(ctx, server, plan.SessionID, finalModel); err != nil {
-			return releaseRuntimePlanAfterUIResult(runtimePlan, finalModel, err)
-		}
-
 		if transition.Exit {
-			return releaseRuntimePlanAfterUIResult(runtimePlan, finalModel, nil)
+			runtimePlan.Close()
+			return nil
 		}
 		resolved, err := resolveAndReleaseSessionAction(ctx, server, interactor, plan.SessionID, transition, runtimePlan, finalModel)
 		if err != nil {
@@ -231,21 +230,13 @@ func reopenRetargetedSession(
 	server sessionReattachServer,
 	runtimePlan *runtimeLaunchPlan,
 	rawSessionID string,
-	finalModel any,
 ) (*sessionlaunchpb.SessionDirective, error) {
+	defer runtimePlan.Close()
 	sessionID, err := runtimeids.ParseSessionID(rawSessionID)
 	if err != nil {
-		return &sessionlaunchpb.SessionDirective{}, releaseRuntimePlanAfterUIResult(runtimePlan, finalModel, err)
-	}
-	if err := persistSessionDraftToServer(ctx, server, rawSessionID, finalModel); err != nil {
-		return &sessionlaunchpb.SessionDirective{}, releaseRuntimePlanAfterUIResult(runtimePlan, finalModel, err)
-	}
-	if runtimePlan.stopEventStreams != nil {
-		runtimePlan.stopEventStreams()
-	}
-	if err := runtimePlan.Close(); err != nil {
 		return &sessionlaunchpb.SessionDirective{}, err
 	}
+	runtimePlan.Close()
 	if err := server.ReattachSession(ctx, rawSessionID); err != nil {
 		return &sessionlaunchpb.SessionDirective{}, err
 	}
@@ -285,8 +276,9 @@ func resolveAndReleaseSessionAction(
 	finalModel any,
 ) (*sessionlaunchpb.SessionDirective, error) {
 	resolved, err := resolveSessionAction(ctx, server, interactor, sessionID, transition)
-	if releaseErr := releaseRuntimePlanAfterUIResult(runtimePlan, finalModel, err); releaseErr != nil {
-		return &sessionlaunchpb.SessionDirective{}, releaseErr
+	runtimePlan.Close()
+	if err != nil {
+		return &sessionlaunchpb.SessionDirective{}, err
 	}
 	return resolved, nil
 }
@@ -301,6 +293,13 @@ func prepareSessionUIRun(
 	transitionInput string,
 	overrideStoredDraft bool,
 ) (*runtimeLaunchPlan, uiLoopRequest, error) {
+	id, err := runtimeids.ParseSessionID(plan.SessionID)
+	if err != nil {
+		return nil, uiLoopRequest{}, err
+	}
+	if _, err := server.SessionLifecycleClient().Promote(ctx, &sessionlaunchpb.SessionPromoteRequest{SessionId: protoapi.SessionSelectorToProto(id)}); err != nil {
+		return nil, uiLoopRequest{}, err
+	}
 	runtimePlan, err := planner.PrepareRuntime(ctx, plan, os.Stderr, "app.start session_id="+plan.SessionID+" workspace="+plan.ExecutionTarget.EffectiveWorkdir+" model="+plan.ActiveSettings.Model)
 	if err != nil {
 		return nil, uiLoopRequest{}, err
@@ -339,9 +338,11 @@ func prepareSessionUIRun(
 		overrideStoredDraft,
 	)
 	if err != nil {
-		return nil, uiLoopRequest{}, closeRuntimePlanAfterPreparationFailure(runtimePlan, err)
+		runtimePlan.Close()
+		return nil, uiLoopRequest{}, err
 	}
 	return runtimePlan, uiLoopRequest{
+		sessionLifecycle:             server.SessionLifecycleClient(),
 		ctx:                          ctx,
 		wiring:                       runtimePlan.Wiring,
 		projectID:                    strings.TrimSpace(server.ProjectID()),
@@ -360,30 +361,6 @@ func prepareSessionUIRun(
 	}, nil
 }
 
-func closeRuntimePlanAfterPreparationFailure(runtimePlan *runtimeLaunchPlan, preparationErr error) error {
-	if closeErr := runtimePlan.Close(); closeErr != nil {
-		return errors.Join(preparationErr, closeErr)
-	}
-	return preparationErr
-}
-
-func closeRuntimePlanAfterUIExit(runtimePlan *runtimeLaunchPlan, finalModel any) error {
-	if ui, ok := finalModel.(*uiModel); ok && ui != nil && ui.forcedLocalExit {
-		return runtimePlan.DetachOnlyClose()
-	}
-	return runtimePlan.Close()
-}
-
-func releaseRuntimePlanAfterUIResult(runtimePlan *runtimeLaunchPlan, finalModel any, primaryErr error) error {
-	releaseErr := closeRuntimePlanAfterUIExit(runtimePlan, finalModel)
-	if primaryErr != nil && releaseErr != nil {
-		return errors.Join(primaryErr, releaseErr)
-	}
-	if primaryErr != nil {
-		return primaryErr
-	}
-	return releaseErr
-}
 func shouldCloseReboundServer(original, rebound interactiveSessionServer) bool {
 	return original != nil && rebound != nil && original != rebound
 }
@@ -415,24 +392,6 @@ func sessionLaunchInitialStateFromServer(
 		return sessionLaunchInitialState{}, err
 	}
 	return sessionLaunchInitialState{Input: resp.Input}, nil
-}
-
-func persistSessionDraftToServer(ctx context.Context, server sessionLifecycleClientProvider, sessionID string, model any) error {
-	if strings.TrimSpace(sessionID) == "" {
-		return nil
-	}
-	ui, ok := model.(*uiModel)
-	if !ok || ui == nil {
-		return nil
-	}
-	if server == nil || server.SessionLifecycleClient() == nil {
-		return nil
-	}
-	_, err := server.SessionLifecycleClient().PersistInputDraft(ctx, &sessionlaunchpb.SessionPersistInputDraftRequest{
-		SessionId: strings.TrimSpace(sessionID),
-		Input:     ui.mainEditor.Text(),
-	})
-	return err
 }
 
 func sessionLaunchRequestFromIntent(intent *sessionlaunchpb.SessionLaunchRequestIntent, overrides serverapi.RunPromptOverrides) (sessionLaunchRequest, error) {

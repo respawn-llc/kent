@@ -114,7 +114,8 @@ type Config struct {
 	GlobalConfigDir       string
 	OnEvent               func(Event)
 	StepLifecycle         StepLifecycleSink
-	LifecycleTaskFinished func() error
+	LifecycleTaskFinished func()
+	RuntimeWriteAccepted  func()
 	LifecycleRuntimeAbort func() error
 	SubmitAgentSteer      func(context.Context, AgentSteer) error
 	DurabilityObserver    ResultGroupDurabilityObserver
@@ -538,7 +539,7 @@ func (e *Engine) launchLifecycleTaskWithCompletion(
 			// tasks, so this task must leave the wait group before callbacks run.
 			e.lifecycleWG.Done()
 			if e.cfg.LifecycleTaskFinished != nil {
-				e.surfaceRunError(e.cfg.LifecycleTaskFinished())
+				e.cfg.LifecycleTaskFinished()
 			}
 			if runtimeAbort != nil && e.cfg.LifecycleRuntimeAbort != nil {
 				e.surfaceRunError(e.cfg.LifecycleRuntimeAbort())
@@ -758,6 +759,7 @@ func (e *Engine) acceptPendingMessage(item QueuedUserMessage, lane runtimeinput.
 	}
 	e.outputMutationMu.Unlock()
 	if err == nil {
+		e.runtimeWriteAccepted()
 		e.publishPendingWorkChanged()
 	}
 	return queued, err

@@ -239,15 +239,14 @@ func (a *Authority) buildAgentResource(
 	}
 	resourceContext, cancel := context.WithCancel(context.Background())
 	resource := &agentResource{
-		authority:            a,
-		ref:                  ref,
-		ctx:                  resourceContext,
-		cancel:               cancel,
-		changed:              make(chan struct{}),
-		state:                AgentResourceBuilding,
-		owners:               make(map[string]struct{}),
-		ownerlessDisposition: agentResourceRemainAvailable,
-		store:                store,
+		authority:          a,
+		ref:                ref,
+		ctx:                resourceContext,
+		cancel:             cancel,
+		changed:            make(chan struct{}),
+		pendingWorkChanged: make(chan struct{}, 1),
+		state:              AgentResourceBuilding,
+		store:              store,
 	}
 	logger, err := runlog.NewRunLogger(store.Dir(), func(diag runlog.RunLoggerDiagnostic) {
 		if plan.options.OnLoggingFailure != nil {
@@ -333,9 +332,12 @@ func (a *Authority) newRuntimeWiringFromPlan(ctx context.Context, resource *agen
 		GlobalConfigDir:                     a.options.persistenceRoot,
 		FilesystemContext:                   options.FilesystemContext,
 		StepLifecycle:                       resource,
+		RuntimeWriteAccepted:                resource.acceptRuntimeWrite,
 		DurabilityObserver:                  durabilityObserver,
-		LifecycleTaskFinished: func() error {
-			return a.closeRetiringResource(context.Background(), resource)
+		LifecycleTaskFinished: func() {
+			resource.mu.Lock()
+			resource.signalLocked()
+			resource.mu.Unlock()
 		},
 		LifecycleRuntimeAbort: func() error {
 			return a.retireRuntimeAbortResource(context.Background(), resource)
@@ -353,6 +355,12 @@ func (a *Authority) newRuntimeWiringFromPlan(ctx context.Context, resource *agen
 			})
 		},
 		OnEvent: func(event runtime.Event) {
+			if event.Kind == runtime.EventPendingWorkChanged {
+				select {
+				case resource.pendingWorkChanged <- struct{}{}:
+				default:
+				}
+			}
 			logger.Logf("%s", runlog.FormatRuntimeEvent(event))
 			if transcriptdiag.Enabled(options.Settings.Debug, os.Getenv) {
 				logger.Logf("%s", runlog.FormatTranscriptRuntimeEventDiagnostic(resource.ref.SessionID().String(), event))

@@ -301,7 +301,6 @@ export interface ChatTranscriptPayloadByKind {
   }>;
   compaction_status: Readonly<{
     StepID: string;
-    RequestID?: string | null;
     State: "started" | "completed" | "failed";
     Mode: "auto" | "handoff" | "manual" | "workflow_post_completion";
     Count: number;
