@@ -2,9 +2,9 @@ package app
 
 import (
 	"context"
+	"core/server/agentruntime"
 	"core/server/llm"
 	"core/server/registry"
-	"core/server/runtime"
 	"core/server/sessionruntime"
 	runtimepb "core/shared/protoapi/gen/kent/api/runtime"
 	sharedpb "core/shared/protoapi/gen/kent/api/shared"

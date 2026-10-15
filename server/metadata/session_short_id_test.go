@@ -6,7 +6,7 @@ import (
 	"sync"
 	"testing"
 
-	"core/server/session"
+	"core/server/sessionstore"
 	"core/shared/runtimeids"
 	"core/shared/sessioncontract"
 	"core/shared/textutil"

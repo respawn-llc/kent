@@ -8,7 +8,7 @@ import (
 	"strings"
 
 	"core/server/metadata/sqlitegen"
-	"core/server/session"
+	"core/server/sessionstore"
 	worktreepb "core/shared/protoapi/gen/kent/api/worktree"
 	"core/shared/runtimeids"
 )

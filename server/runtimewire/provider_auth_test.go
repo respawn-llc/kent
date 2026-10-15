@@ -12,16 +12,16 @@ import (
 	"time"
 
 	"core/internal/testharness/httpclient"
-	"core/server/auth"
+	"core/server/agentruntime"
+	"core/server/authmanager"
 	"core/server/authservice"
 	"core/server/llm"
-	"core/server/runtime"
-	"core/server/session"
+	"core/server/sessionstore"
 	"core/shared/config"
 	"core/shared/protoapi"
 	authpb "core/shared/protoapi/gen/kent/api/auth"
 	"core/shared/textutil"
-	"core/shared/transcript"
+	"core/shared/transcriptmodel"
 )
 
 type expiredConnectionRuntime struct {

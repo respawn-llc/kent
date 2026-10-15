@@ -17,15 +17,15 @@ import (
 
 	"core/internal/testharness/requestfixture"
 	"core/internal/testharness/testsetup"
-	"core/server/auth"
+	"core/server/authmanager"
 	serverbootstrap "core/server/bootstrap"
 	"core/server/chatmutation"
 	"core/server/core"
 	"core/server/metadata"
 	"core/server/promptcommands"
 	"core/server/runtimecontrol"
-	"core/server/session"
 	"core/server/sessionruntime"
+	"core/server/sessionstore"
 
 	"core/shared/apicontract"
 	remoteclient "core/shared/client"

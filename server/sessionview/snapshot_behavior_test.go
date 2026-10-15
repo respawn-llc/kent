@@ -7,8 +7,8 @@ import (
 	"testing"
 	"time"
 
-	"core/server/session"
 	"core/server/sessionruntime"
+	"core/server/sessionstore"
 	runtimepb "core/shared/protoapi/gen/kent/api/runtime"
 	sessionpb "core/shared/protoapi/gen/kent/api/session"
 	sharedpb "core/shared/protoapi/gen/kent/api/shared"

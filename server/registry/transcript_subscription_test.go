@@ -6,7 +6,7 @@ import (
 	"io"
 	"testing"
 
-	"core/server/runtime"
+	"core/server/agentruntime"
 	"core/shared/protoapi"
 	runtimepb "core/shared/protoapi/gen/kent/api/runtime"
 	transcriptpb "core/shared/protoapi/gen/kent/api/transcript"

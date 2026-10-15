@@ -6,8 +6,8 @@ import (
 	"testing"
 
 	"core/internal/testharness/testsetup"
-	"core/server/session"
 	"core/server/sessionruntime"
+	"core/server/sessionstore"
 	"core/shared/protoapi"
 	promptpb "core/shared/protoapi/gen/kent/api/prompt"
 	runtimepb "core/shared/protoapi/gen/kent/api/runtime"

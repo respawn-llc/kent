@@ -9,7 +9,7 @@ import (
 	"time"
 
 	"core/internal/testharness/requestfixture"
-	"core/server/session"
+	"core/server/sessionstore"
 	runtimepb "core/shared/protoapi/gen/kent/api/runtime"
 	"core/shared/serverapi"
 	"core/shared/sessioncontract"

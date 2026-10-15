@@ -14,20 +14,19 @@ esac
 
 usage() {
 	cat <<'USAGE'
-Usage: just test [server|desktop|docs|tui|rust] [--timeout SECONDS] [--workers COUNT] [--no-wall-clock-cap] [--inherit-env] [-- TOOL-ARGS...]
+Usage: just test [server|desktop|docs|tui|rust] [--timeout SECONDS] [--workers COUNT] [--inherit-env] [-- TOOL-ARGS...]
 
-The timeout covers the complete command, including every selected test process.
-Bare `just test` runs server and desktop tests under one timeout.
+The timeout controls Go test execution. Go's emergency process deadline also covers TestMain preparation.
+Other test runners use their native timeout settings.
+Bare `just test` runs server and desktop tests concurrently.
 USAGE
 }
 
 target="default"
 timeout_seconds=180
 workers=""
-wall_clock_cap=1
 inherit_env=0
 tool_args=()
-invocation_args=("$@")
 
 while [ "$#" -gt 0 ]; do
 	case "$1" in
@@ -45,10 +44,6 @@ while [ "$#" -gt 0 ]; do
 		[ "$#" -ge 2 ] || { echo "--workers requires a count" >&2; exit 2; }
 		workers="$2"
 		shift 2
-		;;
-	--no-wall-clock-cap)
-		wall_clock_cap=0
-		shift
 		;;
 	--inherit-env)
 		inherit_env=1
@@ -90,11 +85,6 @@ case "$workers" in
 esac
 [ "$workers" -gt 0 ] || { echo "--workers must be a positive integer" >&2; exit 2; }
 
-if [ "${_KENT_TEST_SUPERVISED:-}" != "$$" ]; then
-	exec python3 "$repo_root/scripts/test-supervisor.py" "$wall_clock_cap" "$timeout_seconds" "$repo_root/scripts/test.sh" "${invocation_args[@]}"
-fi
-unset _KENT_TEST_SUPERVISED
-
 if [ "$inherit_env" -eq 0 ]; then
 	while IFS= read -r name; do
 		case "$name" in
@@ -117,10 +107,7 @@ suite_labels=()
 suite_pids=()
 next_suite=0
 test_temp_root=""
-go_test_timeout_args=()
-if [ "$wall_clock_cap" -eq 1 ]; then
-	go_test_timeout_args=(-timeout "${timeout_seconds}s")
-fi
+go_test_timeout_args=(-timeout "${timeout_seconds}s")
 
 finish_suites() {
 	local status label log
@@ -206,13 +193,15 @@ prepare_test_storage() {
 	export TEMP="$TMPDIR"
 	export KENT_TEST_NON_TEMPORARY_ROOT="$test_temp_root/outside"
 }
-prepare_test_storage
+case "$target" in
+default | server | tui) prepare_test_storage ;;
+esac
 
 run_suite() {
 	local label="$1"
 	shift
 	local log
-	log="$(mktemp "$TMPDIR/kent-${label}-tests.XXXXXX")"
+	log="$(mktemp "${TMPDIR:-/tmp}/kent-${label}-tests.XXXXXX")"
 	logs+=("$log")
 	suite_labels+=("$label")
 	"$@" >"$log" 2>&1 &
@@ -223,14 +212,10 @@ run_server() {
 	local args=("${tool_args[@]}")
 	just --quiet _gen-go
 	if [ "${#args[@]}" -eq 0 ]; then
-		local timeout_args=()
-		if [ "$wall_clock_cap" -eq 1 ]; then
-			timeout_args=(--timeout "${timeout_seconds}s")
-		fi
-		run_suite server python3 "$repo_root/scripts/test-go.py" --workers "$workers" "${timeout_args[@]}"
-		return
+		args=(./...)
 	fi
-	run_suite server go test -exec "bash \"$repo_root/scripts/test-exec.sh\"" -p "$workers" "${go_test_timeout_args[@]}" "${args[@]}"
+	mkdir -p "$repo_root/.generated/test-binaries"
+	run_suite server go test -count=1 -ldflags="-s -w" -o "$repo_root/.generated/test-binaries/" -exec "bash \"$repo_root/scripts/test-exec.sh\"" -p "$workers" "${go_test_timeout_args[@]}" "${args[@]}"
 }
 
 run_desktop() {
@@ -239,7 +224,8 @@ run_desktop() {
 }
 
 run_tui() {
-	run_suite tui go test -exec "bash \"$repo_root/scripts/test-exec.sh\"" -p "$workers" "${go_test_timeout_args[@]}" ./cli/tui/... "${tool_args[@]}"
+	mkdir -p "$repo_root/.generated/test-binaries"
+	run_suite tui go test -count=1 -ldflags="-s -w" -o "$repo_root/.generated/test-binaries/" -exec "bash \"$repo_root/scripts/test-exec.sh\"" -p "$workers" "${go_test_timeout_args[@]}" ./cli/tui/... "${tool_args[@]}"
 }
 
 run_docs() {

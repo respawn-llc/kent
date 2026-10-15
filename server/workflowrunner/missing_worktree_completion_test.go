@@ -12,7 +12,7 @@ import (
 	"core/internal/testharness/testsetup"
 	"core/server/workflow"
 	"core/server/workflowstore"
-	"core/server/worktree"
+	"core/server/worktreeservice"
 	"core/shared/serverapi"
 )
 

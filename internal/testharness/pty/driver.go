@@ -27,11 +27,3 @@ type TimeoutError = driver.TimeoutError
 func RunCommand(ctx context.Context, spec CommandSpec) (Capture, error) {
 	return driver.RunCommand(ctx, spec)
 }
-
-func BuildPackage(ctx context.Context, packagePath, outputPath string) error {
-	return driver.BuildPackage(ctx, packagePath, outputPath)
-}
-
-func BuildTestBinary(ctx context.Context, packagePath, outputPath string) error {
-	return driver.BuildTestBinary(ctx, packagePath, outputPath)
-}

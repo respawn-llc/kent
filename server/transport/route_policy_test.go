@@ -13,7 +13,7 @@ import (
 	serverbootstrap "core/server/bootstrap"
 	"core/server/core"
 	"core/server/metadata"
-	"core/server/session"
+	"core/server/sessionstore"
 	shelltool "core/server/tools/shell"
 	"core/server/tools/shell/postprocess"
 	"core/shared/config"

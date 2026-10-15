@@ -8,7 +8,7 @@ import (
 	"sync"
 
 	"core/server/goalview"
-	"core/server/session"
+	"core/server/sessionstore"
 	"core/shared/protoapi"
 	runtimepb "core/shared/protoapi/gen/kent/api/runtime"
 	"core/shared/serverapi"

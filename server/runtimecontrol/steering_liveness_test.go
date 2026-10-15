@@ -7,8 +7,8 @@ import (
 	"slices"
 	"testing"
 
+	"core/server/agentruntime"
 	"core/server/llm"
-	"core/server/runtime"
 	"core/server/tools"
 	runtimepb "core/shared/protoapi/gen/kent/api/runtime"
 	"core/shared/textutil"

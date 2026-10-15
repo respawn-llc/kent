@@ -10,11 +10,11 @@ import (
 	"testing"
 
 	"core/internal/testharness/testsetup"
+	"core/server/agentruntime"
 	"core/server/llm"
-	"core/server/runtime"
 	"core/server/runtimewire"
-	"core/server/session"
 	"core/server/sessionruntime"
+	"core/server/sessionstore"
 	"core/server/tools"
 	"core/shared/clientui"
 	"core/shared/config"

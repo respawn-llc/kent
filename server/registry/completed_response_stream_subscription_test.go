@@ -7,8 +7,8 @@ import (
 	"testing"
 
 	"core/internal/testharness/scriptedllm"
+	"core/server/agentruntime"
 	"core/server/llm"
-	"core/server/runtime"
 	"core/server/tools"
 	transcriptpb "core/shared/protoapi/gen/kent/api/transcript"
 	"core/shared/runtimeids"

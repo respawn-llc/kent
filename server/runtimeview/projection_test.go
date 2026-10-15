@@ -6,9 +6,9 @@ import (
 	"testing"
 
 	"core/internal/testharness/testsetup"
+	"core/server/agentruntime"
 	"core/server/llm"
-	"core/server/runtime"
-	"core/server/session"
+	"core/server/sessionstore"
 	"core/server/tools"
 	"core/server/workflow"
 	"core/server/workflowruntime"

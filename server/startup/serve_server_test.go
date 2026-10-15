@@ -17,11 +17,11 @@ import (
 
 	"core/internal/testharness/testsetup"
 	"core/internal/testharness/workflowfixture"
-	"core/server/auth"
+	"core/server/authmanager"
 	corepkg "core/server/core"
 	"core/server/metadata"
 	metadatamigrations "core/server/metadata/migrations"
-	"core/server/session"
+	"core/server/sessionstore"
 	"core/server/transport"
 	"core/server/workflow"
 	"core/server/workflowstore"

@@ -23,10 +23,7 @@ const (
 )
 
 func TestOngoingNativeScrollbackPTYScenarios(t *testing.T) {
-	buildCtx, cancel := context.WithTimeout(context.Background(), ptyFixtureTestTimeout)
-	defer cancel()
-
-	bin := buildPTYFixtureBinary(t, buildCtx)
+	bin := ptyFixtureBinary
 	modelMismatchCompletionDrain := time.Second
 
 	for _, tc := range []struct {

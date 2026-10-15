@@ -53,7 +53,15 @@ test *args:
 [private]
 _prepare-go-tests workers="10":
     @just --quiet _gen-go
-    @python3 scripts/test-go.py --workers {{workers}} --prepare-only
+    mkdir -p .generated/test-binaries
+    # Native test output names require globally unique package directory basenames.
+    go test -c -ldflags="-s -w" -o .generated/test-binaries/ -p {{workers}} ./...
+    @just --quiet _prepare-pty-kent
+
+[private]
+_prepare-pty-kent:
+    mkdir -p .generated/test-binaries/pty
+    bash scripts/build.sh server --output .generated/test-binaries/pty/kent
 
 [private]
 _ci-test-storage:

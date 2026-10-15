@@ -8,10 +8,10 @@ import (
 	"testing"
 
 	"core/internal/testharness/requestfixture"
+	"core/server/agentruntime"
 	"core/server/llm"
 	"core/server/promptcontrol"
-	"core/server/runtime"
-	"core/server/session"
+	"core/server/sessionstore"
 	promptpb "core/shared/protoapi/gen/kent/api/prompt"
 	runtimepb "core/shared/protoapi/gen/kent/api/runtime"
 	"core/shared/runtimeids"

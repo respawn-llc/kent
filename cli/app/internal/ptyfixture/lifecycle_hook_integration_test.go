@@ -61,7 +61,7 @@ func TestLifecycleHooksLocalConfiguredPTYRunsRepresentativeFlow(t *testing.T) {
 	}
 
 	capture, err := pty.RunCommand(ctx, pty.CommandSpec{
-		Path: buildPTYFixtureBinary(t, ctx),
+		Path: ptyFixtureBinary,
 		Args: []string{appfixture.LifecycleProcessTestRunArgument},
 		Env: []string{
 			"TERM=xterm-256color",
@@ -107,7 +107,7 @@ func TestLifecycleHooksRemotePTYRunsInControllingClient(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), ptyFixtureTestTimeout)
 	defer cancel()
 
-	bin := buildPTYFixtureBinary(t, ctx)
+	bin := ptyFixtureBinary
 	root := t.TempDir()
 	workspace := filepath.Join(root, "workspace")
 	persistenceRoot := filepath.Join(root, "persistence")
@@ -226,7 +226,7 @@ func TestLifecycleHookFailureIsVisibleAndDoesNotBlockPTYRuntime(t *testing.T) {
 		},
 	}
 	capture, err := pty.RunCommand(ctx, pty.CommandSpec{
-		Path:       buildPTYFixtureBinary(t, ctx),
+		Path:       ptyFixtureBinary,
 		Args:       []string{appfixture.LifecycleProcessTestRunArgument},
 		Env:        []string{lifecyclePTYProcessEnv(t, root, processConfig)},
 		Dimensions: pty.MustDimensions(24, 80),

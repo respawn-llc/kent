@@ -7,9 +7,9 @@ import (
 	"slices"
 	"strings"
 
+	"core/server/agentruntime"
 	"core/server/llm"
-	"core/server/runtime"
-	"core/server/session"
+	"core/server/sessionstore"
 	"core/shared/config"
 	chatsettingspb "core/shared/protoapi/gen/kent/api/chat_settings"
 	"core/shared/serverapi"

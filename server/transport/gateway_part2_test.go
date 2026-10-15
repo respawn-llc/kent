@@ -21,7 +21,7 @@ import (
 	"core/server/llm"
 	"core/server/metadata"
 	"core/server/runtimewire"
-	"core/server/session"
+	"core/server/sessionstore"
 	shelltool "core/server/tools/shell"
 	"core/server/tools/shell/postprocess"
 	remoteclient "core/shared/client"

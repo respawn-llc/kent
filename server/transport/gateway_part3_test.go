@@ -6,7 +6,7 @@ import (
 	"core/internal/testharness/testsetup"
 	serverbootstrap "core/server/bootstrap"
 	"core/server/core"
-	"core/server/session"
+	"core/server/sessionstore"
 	remoteclient "core/shared/client"
 	"core/shared/config"
 	"core/shared/protoapi"

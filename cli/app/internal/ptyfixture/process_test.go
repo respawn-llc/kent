@@ -1,11 +1,9 @@
 package ptyfixture
 
 import (
-	"context"
 	"fmt"
 	"os"
 	"path/filepath"
-	"sync"
 	"testing"
 	"time"
 
@@ -14,95 +12,21 @@ import (
 	"core/internal/testharness/testsetup"
 )
 
-type ptyFixtureBinaryBuild struct {
-	root   *string
-	binary *string
-	err    error
-}
-
 const (
 	ptyFixtureCommandTimeout = 30 * time.Second
 	ptyFixtureTestTimeout    = 45 * time.Second
-	ptyFixtureBinaryEnv      = "KENT_PTY_FIXTURE_BINARY"
 )
 
-var (
-	ptyFixtureBinaryBuildOnce sync.Once
-	ptyFixtureCachedBuild     ptyFixtureBinaryBuild
-)
-
-func buildPTYFixtureBinary(t *testing.T, ctx context.Context) string {
-	t.Helper()
-
-	binary, err := pty.PrebuiltExecutable(ptyFixtureBinaryEnv)
-	if err != nil {
-		t.Fatalf("resolve configured PTY fixture binary: %v", err)
-	}
-	if binary != nil {
-		return *binary
-	}
-
-	ptyFixtureBinaryBuildOnce.Do(func() {
-		root, err := os.MkdirTemp("", "kent-pty-fixture-")
-		if err != nil {
-			ptyFixtureCachedBuild.err = fmt.Errorf("create fixture build root: %w", err)
-			return
-		}
-		ptyFixtureCachedBuild.root = &root
-
-		binary := filepath.Join(root, "kent-pty-fixture.test")
-		ptyFixtureCachedBuild.binary = &binary
-
-		buildCtx, cancel := context.WithTimeout(ctx, ptyFixtureTestTimeout)
-		defer cancel()
-		ptyFixtureCachedBuild.err = pty.BuildTestBinary(buildCtx, "core/cli/app", binary)
-	})
-
-	if err := ptyFixtureCachedBuild.err; err != nil {
-		t.Fatalf("build app test fixture: %v", err)
-	}
-	if ptyFixtureCachedBuild.binary == nil {
-		t.Fatal("PTY fixture build succeeded without a binary path")
-	}
-	return *ptyFixtureCachedBuild.binary
-}
+var ptyFixtureBinary string
 
 func TestMain(m *testing.M) {
-	code := m.Run()
-	if err := cleanupPTYFixtureBinaryBuild(); err != nil {
-		fmt.Fprintf(os.Stderr, "clean up PTY fixture binary cache: %v\n", err)
-		if code == 0 {
-			code = 1
-		}
-	}
-	os.Exit(code)
-}
-
-func cleanupPTYFixtureBinaryBuild() error {
-	if ptyFixtureCachedBuild.root == nil {
-		return nil
-	}
-	if err := os.RemoveAll(*ptyFixtureCachedBuild.root); err != nil {
-		return fmt.Errorf("remove fixture build root %q: %w", *ptyFixtureCachedBuild.root, err)
-	}
-	return nil
-}
-
-func TestBuildPTYFixtureBinaryUsesConfiguredBinary(t *testing.T) {
-	binary := filepath.Join(t.TempDir(), "fixture")
-	if err := os.WriteFile(binary, []byte("#!/bin/sh\n"), 0o755); err != nil {
-		t.Fatalf("write fixture binary: %v", err)
-	}
-	t.Setenv(ptyFixtureBinaryEnv, binary)
-
-	got := buildPTYFixtureBinary(t, context.Background())
-	want, err := filepath.Abs(binary)
+	var err error
+	ptyFixtureBinary, err = pty.PrepareAppFixture()
 	if err != nil {
-		t.Fatalf("resolve fixture binary path: %v", err)
+		fmt.Fprintln(os.Stderr, err)
+		os.Exit(1)
 	}
-	if got != want {
-		t.Fatalf("fixture binary mismatch: got %q, want %q", got, want)
-	}
+	os.Exit(m.Run())
 }
 
 func ptyFixtureProcessEnv(

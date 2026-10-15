@@ -10,9 +10,9 @@ import (
 
 	"core/server/llm"
 	"core/server/runtimewire"
-	"core/server/session"
-	"core/server/session/sessiontest"
 	"core/server/sessionruntime"
+	"core/server/sessionstore"
+	"core/server/sessionstore/sessiontest"
 	askquestion "core/server/tools"
 	"core/server/workflow"
 	"core/server/workflowruntime"

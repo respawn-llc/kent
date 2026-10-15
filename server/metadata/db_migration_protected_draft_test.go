@@ -1,7 +1,7 @@
 package metadata
 
 import (
-	"core/server/session"
+	"core/server/sessionstore"
 	"testing"
 )
 

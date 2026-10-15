@@ -6,7 +6,7 @@ import (
 	"reflect"
 	"testing"
 
-	"core/server/session"
+	"core/server/sessionstore"
 )
 
 func TestSessionContextBudgetCutoverPreservesOtherSessionFacts(t *testing.T) {

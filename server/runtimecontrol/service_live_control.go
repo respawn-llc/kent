@@ -7,9 +7,9 @@ import (
 	"strings"
 	"sync"
 
+	"core/server/agentruntime"
 	"core/server/registry"
-	"core/server/runtime"
-	"core/server/session"
+	"core/server/sessionstore"
 	servicecontract "core/shared/apicontract"
 	"core/shared/clientui"
 	"core/shared/protoapi"

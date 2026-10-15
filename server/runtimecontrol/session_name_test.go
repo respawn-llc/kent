@@ -7,9 +7,9 @@ import (
 	"testing"
 
 	"core/internal/testharness/testsetup"
-	"core/server/runtime"
-	"core/server/session"
+	"core/server/agentruntime"
 	"core/server/sessionruntime"
+	"core/server/sessionstore"
 	runtimepb "core/shared/protoapi/gen/kent/api/runtime"
 	"core/shared/runtimeids"
 	"core/shared/serverapi"

@@ -11,7 +11,7 @@ import (
 	"time"
 
 	modelstub "core/internal/testharness/pty/blackbox"
-	"core/server/auth"
+	"core/server/authmanager"
 	serverbootstrap "core/server/bootstrap"
 	"core/server/metadata"
 	"core/shared/config"

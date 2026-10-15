@@ -8,7 +8,7 @@ import (
 	"sync"
 
 	"core/server/llm"
-	"core/server/session"
+	"core/server/sessionstore"
 	"core/shared/config"
 )
 

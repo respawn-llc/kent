@@ -8,9 +8,9 @@ import (
 	"core/internal/testharness/runtimewirefixture"
 	"core/internal/testharness/scriptedllm"
 	"core/internal/testharness/toolfixture"
+	"core/server/agentruntime"
 	"core/server/llm"
-	"core/server/runtime"
-	"core/server/session"
+	"core/server/sessionstore"
 	"core/server/tools"
 	patchtool "core/server/tools/patch"
 	shelltool "core/server/tools/shell"
@@ -22,7 +22,7 @@ import (
 	"core/shared/rollbacktarget"
 	"core/shared/textutil"
 	"core/shared/toolspec"
-	"core/shared/transcript"
+	"core/shared/transcriptmodel"
 	"google.golang.org/protobuf/proto"
 )
 

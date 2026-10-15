@@ -11,10 +11,10 @@ import (
 
 	"core/internal/testharness/requestfixture"
 	testharness "core/internal/testharness/testsetup"
+	"core/server/agentruntime"
 	"core/server/attentionnotify"
 	"core/server/llm"
 	"core/server/registry"
-	"core/server/runtime"
 	"core/server/tools"
 	servicecontract "core/shared/apicontract"
 	"core/shared/clientui"

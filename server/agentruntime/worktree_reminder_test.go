@@ -1,0 +1,1039 @@
+package runtime
+
+import (
+	"context"
+	"os"
+	"path/filepath"
+	"reflect"
+	"strings"
+	"testing"
+	"time"
+
+	"core/prompts"
+	"core/server/llm"
+	"core/server/sessionstore"
+	"core/server/tools"
+	"core/shared/textutil"
+	"core/shared/toolspec"
+	"core/shared/transcriptmodel"
+
+	"github.com/google/uuid"
+)
+
+func TestMainWorkspaceReminderOnlyOnExplicitSwitch(t *testing.T) {
+	state := testWorktreeReminderState(session.WorktreeReminderModeExit, "main", "/tmp/worktree", "/tmp/workspace", "/tmp/workspace")
+	for _, kind := range []prompts.WorktreePromptKind{prompts.WorktreePromptInitial, prompts.WorktreePromptPostCompaction} {
+		if _, emitted := worktreeModeExitMetaMessage(state, t.TempDir(), kind); emitted {
+			t.Fatal("main Workspace startup or compaction emitted a reminder")
+		}
+	}
+	if _, emitted := worktreeModeExitMetaMessage(state, t.TempDir(), prompts.WorktreePromptSwitch); !emitted {
+		t.Fatal("explicit Worktree exit lost its reminder")
+	}
+}
+
+func TestWorktreeReminderCWDIsIndependentOfServerWorkingDirectory(t *testing.T) {
+	t.Chdir(string(filepath.Separator))
+	home := t.TempDir()
+	worktree := filepath.Join(home, ".kent", "worktrees", "kent", "803")
+	workspace := filepath.Join(home, "Dev", "kent")
+	previousEnter, previousExit := prompts.WorktreeModePrompt, prompts.WorktreeModeExitPrompt
+	prompts.WorktreeModePrompt, prompts.WorktreeModeExitPrompt = "{{cwd}}", "{{cwd}}"
+	t.Cleanup(func() {
+		prompts.WorktreeModePrompt, prompts.WorktreeModeExitPrompt = previousEnter, previousExit
+	})
+	for _, mode := range []session.WorktreeReminderMode{session.WorktreeReminderModeEnter, session.WorktreeReminderModeExit} {
+		cwd := worktree
+		render := worktreeModeMetaMessage
+		if mode == session.WorktreeReminderModeExit {
+			cwd, render = workspace, worktreeModeExitMetaMessage
+		}
+		state := testWorktreeReminderState(mode, "feature", worktree, workspace, cwd)
+		message, ok := render(state, home, prompts.WorktreePromptSwitch)
+		if !ok || message.Content == nil || !filepath.IsAbs(*message.Content) || filepath.Clean(*message.Content) != cwd {
+			t.Fatalf("reminder did not identify the absolute working directory: %+v", message)
+		}
+		if message.WorktreeContext.EffectiveCwd != cwd {
+			t.Fatal("presentation changed the canonical working directory")
+		}
+	}
+}
+
+func TestPersistedWorktreeContextRejectsDuplicateSourcePath(t *testing.T) {
+	t.Parallel()
+	store := mustCreateTestSession(t)
+	target := mustSetWorktreeReminderState(t, store, testWorktreeReminderState(
+		session.WorktreeReminderModeEnter,
+		"feature/typed-only",
+		"/tmp/worktree",
+		"/tmp/workspace",
+		"/tmp/worktree",
+	))
+	eng := mustNewTestEngine(t, store, &fakeClient{}, tools.NewRegistry(), Config{})
+	err := eng.steerRuntime(steerMessagesWithPersistenceIntent(steeringPriorityNormal, steeringMessageEventDefault, true, []llm.Message{{
+		Role:            llm.RoleDeveloper,
+		MessageType:     textutil.Value(llm.MessageTypeWorktreeMode),
+		SourcePath:      textutil.Value(target.EffectiveCwd),
+		WorktreeContext: &target.WorktreeContext,
+		Content:         textutil.Value("typed worktree context"),
+	}}))
+	if err == nil {
+		t.Fatal("expected duplicate worktree source path to be rejected")
+	}
+}
+
+func TestFirstMetaInjectionUsesPendingWorktreeCWD(t *testing.T) {
+	prevPrompt := prompts.WorktreeModePrompt
+	prompts.WorktreeModePrompt = "enter {{branch}} {{cwd}}"
+	defer func() { prompts.WorktreeModePrompt = prevPrompt }()
+
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	workspace := t.TempDir()
+	worktree := t.TempDir()
+	worktreeSubdir := filepath.Join(worktree, "pkg")
+	if err := os.MkdirAll(worktreeSubdir, 0o755); err != nil {
+		t.Fatalf("MkdirAll worktree subdir: %v", err)
+	}
+	writeTestFile(t, filepath.Join(workspace, agentsFileName), "stale workspace instruction")
+	writeTestFile(t, filepath.Join(worktree, agentsFileName), "active worktree instruction")
+	store := mustCreateTestSession(t, workspace)
+	mustSetWorktreeReminderState(t, store, testWorktreeReminderState(
+		session.WorktreeReminderModeEnter,
+		"feature/new",
+		worktree,
+		workspace,
+		worktreeSubdir,
+	))
+
+	client := &fakeClient{responses: []llm.Response{finalOutputItemResponse("ok")}}
+	eng := mustNewTestEngine(t, store, client, newTestToolRegistry(t, tools.HandlerRegistration{ID: toolspec.ToolExecCommand, Handler: fakeTool{name: toolspec.ToolExecCommand}}), Config{})
+
+	if _, err := eng.SubmitUserMessage(context.Background(), "start in the new worktree"); err != nil {
+		t.Fatalf("submit: %v", err)
+	}
+
+	messages := requestMessages(client.calls[0])
+	if len(messages) < 3 {
+		t.Fatalf("expected environment, agents, and user messages, got %+v", messages)
+	}
+	worktreeMsg := messages[0]
+	if worktreeMsg.Role != llm.RoleDeveloper || worktreeMsg.MessageType == nil || *worktreeMsg.MessageType != llm.MessageTypeWorktreeMode {
+		t.Fatalf("expected active worktree reminder first, got %+v", worktreeMsg)
+	}
+	envMsg := messages[2]
+	if envMsg.Role != llm.RoleDeveloper || envMsg.MessageType == nil || *envMsg.MessageType != llm.MessageTypeEnvironment {
+		t.Fatalf("expected environment context after stable context, got %+v", envMsg)
+	}
+	if !strings.Contains(messageContent(envMsg), "\nCWD: "+worktreeSubdir+"\n") {
+		t.Fatalf("expected environment cwd to use pending worktree subdir %q, got %q", worktreeSubdir, messageContent(envMsg))
+	}
+	if strings.Contains(messageContent(envMsg), "\nCWD: "+workspace+"\n") {
+		t.Fatalf("expected environment cwd not to use stale workspace %q, got %q", workspace, messageContent(envMsg))
+	}
+	agentsMsg := messages[1]
+	if agentsMsg.Role != llm.RoleDeveloper || agentsMsg.MessageType == nil || *agentsMsg.MessageType != llm.MessageTypeAgentsMD || agentsMsg.SourcePath == nil || *agentsMsg.SourcePath != filepath.Join(worktree, agentsFileName) {
+		t.Fatalf("expected active worktree AGENTS context second, got %+v", agentsMsg)
+	}
+	if strings.Contains(messageContent(agentsMsg), "stale workspace instruction") {
+		t.Fatalf("expected stale workspace AGENTS context to be excluded, got %q", messageContent(agentsMsg))
+	}
+}
+
+func TestSubmitUserMessageInjectsPendingWorktreeEnterReminder(t *testing.T) {
+	prevPrompt := prompts.WorktreeModePrompt
+	prompts.WorktreeModePrompt = "enter {{branch}} {{cwd}} {{worktree_path}} {{workspace_root}}"
+	defer func() { prompts.WorktreeModePrompt = prevPrompt }()
+
+	store := mustCreateTestSession(t)
+	target := mustSetWorktreeReminderState(t, store, testWorktreeReminderState(
+		session.WorktreeReminderModeEnter,
+		"feature/enter",
+		"/tmp/wt-enter",
+		"/tmp/workspace",
+		"/tmp/wt-enter/pkg",
+	))
+
+	client := &fakeClient{responses: []llm.Response{finalOutputItemResponse("ok")}}
+	eng := mustNewTestEngine(t, store, client, newTestToolRegistry(t, tools.HandlerRegistration{ID: toolspec.ToolExecCommand, Handler: fakeTool{name: toolspec.ToolExecCommand}}), Config{})
+
+	if _, err := eng.SubmitUserMessage(context.Background(), "continue"); err != nil {
+		t.Fatalf("submit: %v", err)
+	}
+	assertModelCallCount(t, client, 1)
+	messages := requestMessages(client.calls[0])
+	reminderIdx := -1
+	for i, msg := range messages {
+		if msg.Role == llm.RoleDeveloper && msg.MessageType != nil && *msg.MessageType == llm.MessageTypeWorktreeMode {
+			reminderIdx = i
+			if msg.WorktreeContext == nil || !session.WorktreeContextEqual(*msg.WorktreeContext, target.WorktreeContext) {
+				t.Fatalf("worktree context = %+v, want %+v", msg.WorktreeContext, target)
+			}
+		}
+	}
+	if reminderIdx < 0 {
+		t.Fatalf("expected worktree enter reminder, messages=%+v", messages)
+	}
+	state := store.Meta().WorktreeReminder
+	if state == nil || !session.WorktreeReminderStateEqual(*state, target) {
+		t.Fatalf("unexpected persisted reminder state after submit: %+v", state)
+	}
+	var entry *ChatEntry
+	for idx := range eng.ChatSnapshot().Entries {
+		if eng.ChatSnapshot().Entries[idx].MessageType == llm.MessageTypeWorktreeMode {
+			entry = &eng.ChatSnapshot().Entries[idx]
+			break
+		}
+	}
+	if entry == nil {
+		t.Fatal("expected worktree reminder transcript entry")
+	}
+	if entry.Visibility != transcript.EntryVisibilityOngoing {
+		t.Fatalf("worktree reminder visibility = %q, want ongoing", entry.Visibility)
+	}
+	if entry.WorktreeContext == nil || !session.WorktreeContextEqual(*entry.WorktreeContext, target.WorktreeContext) {
+		t.Fatalf("transcript worktree context = %+v, want %+v", entry.WorktreeContext, target)
+	}
+	if entry.CondensedText != "" || entry.CompactLabel != "" {
+		t.Fatalf("server-authored worktree presentation leaked into transcript: ongoing=%q compact=%q", entry.CondensedText, entry.CompactLabel)
+	}
+	if entry.SourcePath != "" {
+		t.Fatalf("worktree source path = %q, want typed context only", entry.SourcePath)
+	}
+}
+
+func TestRunStepLoopMaterializesPendingWorktreeReminder(t *testing.T) {
+	prevPrompt := prompts.WorktreeModePrompt
+	prompts.WorktreeModePrompt = "enter {{branch}}"
+	defer func() { prompts.WorktreeModePrompt = prevPrompt }()
+
+	store := mustCreateTestSession(t)
+	target := mustSetWorktreeReminderState(t, store, testWorktreeReminderState(
+		session.WorktreeReminderModeEnter,
+		"feature/direct",
+		"/tmp/wt-direct",
+		"/tmp/workspace",
+		"/tmp/wt-direct",
+	))
+	client := &fakeClient{responses: []llm.Response{finalOutputItemResponse("ok")}}
+	eng := mustNewTestEngine(t, store, client, newTestToolRegistry(t, tools.HandlerRegistration{ID: toolspec.ToolExecCommand, Handler: fakeTool{name: toolspec.ToolExecCommand}}), Config{})
+
+	if err := eng.stepLifecycle.Run(context.Background(), exclusiveStepOptions{ActiveKind: ActiveKindUserTurn}, func(ctx context.Context, stepID string) error {
+		_, err := eng.runStepLoop(ctx, runtimeTestStepID(stepID))
+		return err
+	}); err != nil {
+		t.Fatalf("runStepLoop: %v", err)
+	}
+
+	messages := requestMessages(client.calls[0])
+	reminderCount := 0
+	for _, msg := range messages {
+		if msg.Role == llm.RoleDeveloper && msg.MessageType != nil && *msg.MessageType == llm.MessageTypeWorktreeMode {
+			reminderCount++
+			if msg.WorktreeContext == nil || !session.WorktreeContextEqual(*msg.WorktreeContext, target.WorktreeContext) {
+				t.Fatalf("worktree context = %+v, want %+v", msg.WorktreeContext, target)
+			}
+			if msg.CompactContent != nil {
+				t.Fatalf("server-authored worktree compact content = %v, want absent", msg.CompactContent)
+			}
+		}
+	}
+	if reminderCount != 1 {
+		t.Fatalf("expected one worktree reminder, got %d messages=%+v", reminderCount, messages)
+	}
+	state := store.Meta().WorktreeReminder
+	if state == nil || !session.WorktreeReminderStateEqual(*state, target) {
+		t.Fatalf("unexpected reminder target state: %+v", state)
+	}
+}
+
+func TestRunStepLoopCountsPendingWorktreeReminderBeforeAutoCompaction(t *testing.T) {
+	prevPrompt := prompts.WorktreeModePrompt
+	prompts.WorktreeModePrompt = "enter {{branch}}"
+	defer func() { prompts.WorktreeModePrompt = prevPrompt }()
+
+	store := mustCreateTestSession(t)
+	target := mustSetWorktreeReminderState(t, store, testWorktreeReminderState(
+		session.WorktreeReminderModeEnter,
+		"feature/compact",
+		"/tmp/wt-compact",
+		"/tmp/workspace",
+		"/tmp/wt-compact",
+	))
+
+	client := &fakeCompactionClient{
+		responses: []llm.Response{{
+			Assistant:   llm.Message{Role: llm.RoleAssistant, Phase: textutil.Value(llm.MessagePhaseFinal), Content: textutil.Value("ok")},
+			OutputItems: []llm.ResponseItem{{Type: llm.ResponseItemTypeMessage, Role: textutil.Value(llm.RoleAssistant), Phase: textutil.Value(llm.MessagePhaseFinal), Content: textutil.Value("ok")}},
+			Usage:       llm.Usage{WindowTokens: 20_000},
+		},
+		},
+		compactionResponses: []llm.CompactionResponse{{
+			OutputItems: []llm.ResponseItem{llm.ResponseItem{
+				Type:             llm.ResponseItemTypeCompaction,
+				ID:               textutil.Value("cmp_1"),
+				EncryptedContent: textutil.Value("enc_1"),
+			}},
+			Usage: llm.Usage{InputTokens: textutil.Value(100), WindowTokens: 20_000, ContextUsage: &llm.ContextUsage{Tokens: 100, MeasurementPoint: llm.ContextMeasurementInput}},
+		}},
+	}
+	eng := mustNewTestEngine(t, store, client, newTestToolRegistry(t, tools.HandlerRegistration{ID: toolspec.ToolExecCommand, Handler: fakeTool{name: toolspec.ToolExecCommand}}), Config{
+		ContextWindowTokens:   20_000,
+		AutoCompactTokenLimit: 10_000,
+		CompactionMode:        "native",
+	})
+	if err := steerTestActiveStep(eng, "seed", steerMessagesWithPersistenceIntent(steeringPriorityNormal, steeringMessageEventDefault, true, []llm.Message{{Role: llm.RoleUser, Content: textutil.Value("seed")}})); err != nil {
+		t.Fatalf("append seed: %v", err)
+	}
+	eng.setLastUsage(llm.Usage{InputTokens: textutil.Value(9_999), WindowTokens: 20_000, ContextUsage: &llm.ContextUsage{Tokens: 9_999, MeasurementPoint: llm.ContextMeasurementInput}})
+
+	if _, err := runStepLoopInActiveTestRun(t, context.Background(), eng); err != nil {
+		t.Fatalf("runStepLoop: %v", err)
+	}
+	if len(client.compactionCalls) != 1 {
+		t.Fatalf("expected one auto-compaction call, got %d", len(client.compactionCalls))
+	}
+	if !requestHasWorktreeReminder(client.calls[0]) {
+		t.Fatalf("expected post-compaction model request to include worktree reminder, messages=%+v", requestMessages(client.calls[0]))
+	}
+	state := store.Meta().WorktreeReminder
+	if state == nil || !session.WorktreeReminderStateEqual(*state, target) {
+		t.Fatalf("unexpected reminder target after compaction: %+v", state)
+	}
+}
+
+func TestManualCompactionReinjectsWorktreeReminderExactlyOnce(t *testing.T) {
+	prevPrompt := prompts.WorktreePostCompactionPrompt
+	prompts.WorktreePostCompactionPrompt = "{{cwd}}"
+	defer func() { prompts.WorktreePostCompactionPrompt = prevPrompt }()
+	compactionDone := make(chan EventKind, 1)
+
+	store := mustCreateTestSession(t)
+	target := mustSetWorktreeReminderState(t, store, testWorktreeReminderState(
+		session.WorktreeReminderModeEnter,
+		"feature/manual-compact",
+		"/tmp/wt-manual-compact",
+		"/tmp/workspace",
+		"/tmp/wt-manual-compact",
+	))
+	client := &fakeCompactionClient{responses: []llm.Response{
+		finalOutputItemResponse("before compaction"),
+		{
+			Assistant: llm.Message{Role: llm.RoleAssistant, Content: textutil.Value("compacted summary")},
+			Usage:     llm.Usage{InputTokens: textutil.Value(1_000), OutputTokens: textutil.Value(100), WindowTokens: 200_000, ContextUsage: &llm.ContextUsage{Tokens: 1_000, MeasurementPoint: llm.ContextMeasurementInput}},
+		},
+		finalOutputItemResponse("after compaction"),
+	}}
+	eng := mustNewTestEngine(t, store, client, newTestToolRegistry(t, tools.HandlerRegistration{ID: toolspec.ToolExecCommand, Handler: fakeTool{name: toolspec.ToolExecCommand}}), Config{
+		Model:          "gpt-6-sol",
+		CompactionMode: "local",
+		OnEvent: func(event Event) {
+			if event.Kind == EventCompactionCompleted || event.Kind == EventCompactionFailed {
+				compactionDone <- event.Kind
+			}
+		},
+	})
+
+	if _, err := eng.SubmitUserMessage(context.Background(), "start"); err != nil {
+		t.Fatalf("submit before compaction: %v", err)
+	}
+	if err := eng.CompactContext(context.Background(), ""); err != nil {
+		t.Fatalf("compact: %v", err)
+	}
+	select {
+	case kind := <-compactionDone:
+		if kind != EventCompactionCompleted {
+			t.Fatalf("compaction failed: %s", kind)
+		}
+	case <-time.After(runtimeTestSynchronizationTimeout):
+		t.Fatal("timed out waiting for compaction")
+	}
+
+	if _, err := eng.SubmitUserMessage(t.Context(), "continue after compaction"); err != nil {
+		t.Fatalf("submit post-compaction request: %v", err)
+	}
+	if len(client.calls) != 3 {
+		t.Fatalf("provider calls = %d, want initial turn, summary, and continuation", len(client.calls))
+	}
+	compactedMessages := requestMessages(client.calls[2])
+	if got := worktreeReminderMessageCount(compactedMessages); got != 1 {
+		t.Fatalf("worktree reminders after compaction = %d, want 1 messages=%+v", got, compactedMessages)
+	}
+	assertLatestWorktreeContext(t, compactedMessages, target)
+	for _, message := range compactedMessages {
+		if message.WorktreeContext != nil && (message.Content == nil || *message.Content != target.EffectiveCwd) {
+			content, _ := textutil.OptionalValue(message.Content)
+			t.Fatalf("compaction did not use the post-compaction Worktree template: content=%q", content)
+		}
+	}
+	if err := eng.Close(); err != nil {
+		t.Fatalf("close compacted engine: %v", err)
+	}
+
+	reopenedStore, err := runtimeTestSessionPersistence.Open(store.Dir())
+	if err != nil {
+		t.Fatalf("reopen compacted session: %v", err)
+	}
+	resumedClient := &fakeClient{responses: []llm.Response{finalOutputItemResponse("after compaction")}}
+	resumedEngine := mustNewTestEngine(t, reopenedStore, resumedClient, newTestToolRegistry(t, tools.HandlerRegistration{ID: toolspec.ToolExecCommand, Handler: fakeTool{name: toolspec.ToolExecCommand}}), Config{
+		Model:          "gpt-6-sol",
+		CompactionMode: "local",
+	})
+	if _, err := resumedEngine.SubmitUserMessage(context.Background(), "continue"); err != nil {
+		t.Fatalf("submit after compaction resume: %v", err)
+	}
+	if len(resumedClient.calls) != 1 {
+		t.Fatalf("resumed model calls = %d, want 1", len(resumedClient.calls))
+	}
+	resumedMessages := requestMessages(resumedClient.calls[0])
+	if got := worktreeReminderMessageCount(resumedMessages); got != 1 {
+		t.Fatalf("worktree reminders in resumed post-compaction request = %d, want 1 messages=%+v", got, resumedMessages)
+	}
+	assertLatestWorktreeContext(t, resumedMessages, target)
+}
+
+func TestWorktreeSwitchAfterManualCompactionUsesSwitchTemplate(t *testing.T) {
+	previousSwitch, previousCompaction := prompts.WorktreeModePrompt, prompts.WorktreePostCompactionPrompt
+	prompts.WorktreeModePrompt, prompts.WorktreePostCompactionPrompt = "{{branch}}", "{{cwd}}"
+	t.Cleanup(func() {
+		prompts.WorktreeModePrompt, prompts.WorktreePostCompactionPrompt = previousSwitch, previousCompaction
+	})
+	store := mustCreateTestSession(t)
+	initial := mustSetWorktreeReminderState(t, store, testWorktreeReminderState(
+		session.WorktreeReminderModeEnter, "feature/before-compaction",
+		"/tmp/worktree-before-compaction", "/tmp/workspace", "/tmp/worktree-before-compaction",
+	))
+	client := &fakeCompactionClient{responses: []llm.Response{
+		finalOutputItemResponse("initial turn"),
+		finalOutputItemResponse("compacted summary"),
+		finalOutputItemResponse("new target turn"),
+	}}
+	engine := mustNewTestEngine(t, store, client, tools.NewRegistry(), Config{
+		Model: "gpt-6-sol", CompactionMode: "local",
+	})
+	if _, err := engine.SubmitUserMessage(t.Context(), "start"); err != nil {
+		t.Fatal(err)
+	}
+	assertLatestWorktreeContext(t, requestMessages(client.calls[0]), initial)
+	if err := engine.CompactContext(t.Context(), ""); err != nil {
+		t.Fatal(err)
+	}
+	waitEngineLifecycleTasks(t, engine)
+	if engine.CompactionCount() != 1 {
+		t.Fatal("manual compaction did not complete before switching worktrees")
+	}
+	target := testWorktreeReminderState(
+		session.WorktreeReminderModeEnter, "feature/after-compaction",
+		"/tmp/worktree-after-compaction", "/tmp/workspace", "/tmp/worktree-after-compaction",
+	)
+	if err := engine.RunExecutionTargetTransition(t.Context(), nil, func() error {
+		return engine.ApplyWorktreeTransitionTerminal(t.Context(), func(context.Context) error {
+			return engine.SetWorktreeReminderState(&target)
+		})
+	}); err != nil {
+		t.Fatal(err)
+	}
+	target = *store.Meta().WorktreeReminder
+	if _, err := engine.SubmitUserMessage(t.Context(), "continue in the new worktree"); err != nil {
+		t.Fatal(err)
+	}
+	if len(client.calls) != 3 {
+		t.Fatalf("provider calls = %d, want initial turn, summary, and target turn", len(client.calls))
+	}
+	messages := requestMessages(client.calls[2])
+	if got := worktreeReminderMessageCount(messages); got != 1 {
+		t.Fatalf("target worktree reminders = %d, want one", got)
+	}
+	assertLatestWorktreeContext(t, messages, target)
+	for _, message := range messages {
+		if message.WorktreeContext != nil &&
+			(message.Content == nil || target.Branch == nil || *message.Content != *target.Branch) {
+			content, _ := textutil.OptionalValue(message.Content)
+			t.Fatalf("post-compaction target change rendered %q, want switch-template branch %q", content, *target.Branch)
+		}
+	}
+}
+
+func TestResumePreparesCompactedWorktreeContextOnce(t *testing.T) {
+	t.Parallel()
+	for _, mode := range []string{"local", "native"} {
+		t.Run(mode, func(t *testing.T) {
+			t.Parallel()
+			store := mustCreateTestSession(t)
+			target := mustSetWorktreeReminderState(t, store, testWorktreeReminderState(
+				session.WorktreeReminderModeEnter, "feature/resume-compaction",
+				"/tmp/resume-worktree", "/tmp/workspace", "/tmp/resume-worktree",
+			))
+			client := &fakeCompactionClient{
+				responses: []llm.Response{finalOutputItemResponse("summary")},
+				compactionResponses: []llm.CompactionResponse{
+					remoteCompactionReplacement(1_000, 100, 200_000),
+				},
+			}
+			engine := mustNewTestEngine(t, store, client, tools.NewRegistry(), Config{
+				Model: "gpt-6-sol", CompactionMode: mode,
+			})
+			if err := steerTestActiveStep(engine, "seed", steerMessagesWithPersistenceIntent(
+				steeringPriorityNormal, steeringMessageEventNone, true,
+				[]llm.Message{{Role: llm.RoleUser, Content: new("seed")}},
+			)); err != nil {
+				t.Fatal(err)
+			}
+			if err := engine.CompactContext(t.Context(), ""); err != nil {
+				t.Fatal(err)
+			}
+			waitEngineLifecycleTasks(t, engine)
+			if engine.CompactionCount() != 1 {
+				t.Fatal("compaction did not complete before resume")
+			}
+			if err := engine.Close(); err != nil {
+				t.Fatal(err)
+			}
+			resumedClient := &fakeClient{responses: []llm.Response{finalOutputItemResponse("done")}}
+			resumed := mustNewTestEngine(t, mustOpenTestSession(t, store.Dir()), resumedClient, tools.NewRegistry(), Config{
+				Model: "gpt-6-sol", CompactionMode: mode,
+			})
+			if _, err := resumed.SubmitUserMessage(t.Context(), "continue"); err != nil {
+				t.Fatal(err)
+			}
+			messages := requestMessages(resumedClient.calls[0])
+			if count := worktreeReminderMessageCount(messages); count != 1 {
+				t.Fatalf("resumed generation worktree contexts = %d, want one", count)
+			}
+			assertLatestWorktreeContext(t, messages, target)
+		})
+	}
+}
+
+func worktreeReminderMessageCount(messages []llm.Message) int {
+	count := 0
+	for _, message := range messages {
+		if message.Role == llm.RoleDeveloper &&
+			message.MessageType != nil &&
+			(*message.MessageType == llm.MessageTypeWorktreeMode || *message.MessageType == llm.MessageTypeWorktreeModeExit) {
+			count++
+		}
+	}
+	return count
+}
+
+func requestHasWorktreeReminder(req llm.Request) bool {
+	return worktreeReminderMessageCount(requestMessages(req)) > 0
+}
+
+func assertLatestWorktreeContext(t *testing.T, messages []llm.Message, want session.WorktreeReminderState) {
+	t.Helper()
+	var latest *session.WorktreeContext
+	for _, message := range messages {
+		if message.MessageType == nil || (*message.MessageType != llm.MessageTypeWorktreeMode && *message.MessageType != llm.MessageTypeWorktreeModeExit) {
+			continue
+		}
+		latest = message.WorktreeContext
+	}
+	if latest == nil || !session.WorktreeContextEqual(*latest, want.WorktreeContext) {
+		t.Fatalf("latest worktree context = %+v, want %+v messages=%+v", latest, want, messages)
+	}
+}
+
+func requestHasCompactionCheckpoint(req llm.Request) bool {
+	for _, item := range req.Items {
+		if item.Type == llm.ResponseItemTypeCompaction || (item.MessageType != nil && *item.MessageType == llm.MessageTypeCompactionSummary) {
+			return true
+		}
+	}
+	return false
+}
+
+func TestRepeatedSubmissionsDoNotDuplicateMaterializedWorktreeReminder(t *testing.T) {
+	prevPrompt := prompts.WorktreeModePrompt
+	prompts.WorktreeModePrompt = "enter {{branch}}"
+	defer func() { prompts.WorktreeModePrompt = prevPrompt }()
+
+	store := mustCreateNamedTestSession(t, "ws", t.TempDir())
+	mustSetWorktreeReminderState(t, store, testWorktreeReminderState(
+		session.WorktreeReminderModeEnter,
+		"feature/stable",
+		"/tmp/wt-stable",
+		"/tmp/workspace",
+		"/tmp/wt-stable",
+	))
+	client := &fakeClient{responses: []llm.Response{
+		finalOutputItemResponse("ok-1"),
+		finalOutputItemResponse("ok-2"),
+	}}
+	eng := mustNewTestEngine(t, store, client, newTestToolRegistry(t, tools.HandlerRegistration{ID: toolspec.ToolExecCommand, Handler: fakeTool{name: toolspec.ToolExecCommand}}), Config{})
+
+	if _, err := eng.SubmitUserMessage(context.Background(), "continue"); err != nil {
+		t.Fatalf("first submit: %v", err)
+	}
+	if _, err := eng.SubmitUserMessage(context.Background(), "continue again"); err != nil {
+		t.Fatalf("second submit: %v", err)
+	}
+	assertModelCallCount(t, client, 2)
+	assertWorktreeReminderEntryCount(t, eng.ChatSnapshot(), 1)
+	if got := worktreeReminderMessageCount(requestMessages(client.calls[1])); got != 1 {
+		t.Fatalf("worktree reminders in second request = %d, want 1", got)
+	}
+}
+
+func TestSameCWDChangedWorktreeTargetMaterializesNewContext(t *testing.T) {
+	prevPrompt := prompts.WorktreeModePrompt
+	prompts.WorktreeModePrompt = "{{cwd}}"
+	defer func() { prompts.WorktreeModePrompt = prevPrompt }()
+
+	const sharedCWD = "/tmp/shared-cwd"
+	store := mustCreateNamedTestSession(t, "ws", t.TempDir())
+	mustSetWorktreeReminderState(t, store, testWorktreeReminderState(
+		session.WorktreeReminderModeEnter,
+		"feature/first",
+		"/tmp/worktree-first",
+		"/tmp/workspace",
+		sharedCWD,
+	))
+	client := &fakeClient{responses: []llm.Response{
+		finalOutputItemResponse("ok-1"),
+		finalOutputItemResponse("ok-2"),
+	}}
+	eng := mustNewTestEngine(t, store, client, newTestToolRegistry(t, tools.HandlerRegistration{ID: toolspec.ToolExecCommand, Handler: fakeTool{name: toolspec.ToolExecCommand}}), Config{})
+
+	if _, err := eng.SubmitUserMessage(context.Background(), "first target"); err != nil {
+		t.Fatalf("first submit: %v", err)
+	}
+	secondTarget := mustSetWorktreeReminderState(t, store, testWorktreeReminderState(
+		session.WorktreeReminderModeEnter,
+		"feature/second",
+		"/tmp/worktree-second",
+		"/tmp/workspace",
+		sharedCWD,
+	))
+	if _, err := eng.SubmitUserMessage(context.Background(), "second target"); err != nil {
+		t.Fatalf("second submit: %v", err)
+	}
+
+	messages := requestMessages(client.calls[1])
+	if got := worktreeReminderMessageCount(messages); got != 2 {
+		t.Fatalf("worktree contexts in second request = %d, want 2 messages=%+v", got, messages)
+	}
+	var latest *llm.Message
+	for idx := range messages {
+		if messages[idx].MessageType != nil && *messages[idx].MessageType == llm.MessageTypeWorktreeMode {
+			latest = &messages[idx]
+		}
+	}
+	if latest == nil ||
+		latest.WorktreeContext == nil ||
+		!session.WorktreeContextEqual(*latest.WorktreeContext, secondTarget.WorktreeContext) {
+		t.Fatalf("latest worktree context = %+v, want %+v", latest, secondTarget)
+	}
+	assertWorktreeReminderEntryCount(t, eng.ChatSnapshot(), 2)
+	if latest.Content == nil || *latest.Content != secondTarget.EffectiveCwd {
+		t.Fatal("target change did not use the switch Worktree template")
+	}
+}
+
+func TestConfirmedSameCWDTargetChangeBypassesLegacyFallback(t *testing.T) {
+	prevPrompt := prompts.WorktreeModePrompt
+	prompts.WorktreeModePrompt = "enter {{branch}}"
+	defer func() { prompts.WorktreeModePrompt = prevPrompt }()
+
+	const sharedCWD = "/tmp/legacy-shared-cwd"
+	store := mustCreateNamedTestSession(t, "ws", t.TempDir())
+	mustSetWorktreeReminderState(t, store, testWorktreeReminderState(
+		session.WorktreeReminderModeEnter,
+		"feature/legacy",
+		"/tmp/worktree-legacy",
+		"/tmp/workspace",
+		sharedCWD,
+	))
+	if _, _, err := appendTestEvent(t, store, "legacy-worktree", llm.Message{
+		Role:        llm.RoleDeveloper,
+		MessageType: textutil.Value(llm.MessageTypeWorktreeMode),
+		SourcePath:  textutil.Value(sharedCWD),
+		Content:     textutil.Value("legacy worktree context"),
+	}); err != nil {
+		t.Fatalf("persist legacy worktree context: %v", err)
+	}
+	client := &fakeClient{responses: []llm.Response{finalOutputItemResponse("ok")}}
+	eng := mustNewTestEngine(t, store, client, newTestToolRegistry(t, tools.HandlerRegistration{ID: toolspec.ToolExecCommand, Handler: fakeTool{name: toolspec.ToolExecCommand}}), Config{})
+
+	changedTarget := testWorktreeReminderState(
+		session.WorktreeReminderModeEnter,
+		"feature/changed",
+		"/tmp/worktree-changed",
+		"/tmp/workspace",
+		sharedCWD,
+	)
+	if err := eng.SetWorktreeReminderState(&changedTarget); err != nil {
+		t.Fatalf("set confirmed target change: %v", err)
+	}
+	persistedChangedTarget := store.Meta().WorktreeReminder
+	if persistedChangedTarget == nil || persistedChangedTarget.ContextID == nil {
+		t.Fatalf("confirmed target change has no context id: %+v", persistedChangedTarget)
+	}
+	if _, err := eng.SubmitUserMessage(context.Background(), "continue after target change"); err != nil {
+		t.Fatalf("submit: %v", err)
+	}
+
+	messages := requestMessages(client.calls[0])
+	if got := worktreeReminderMessageCount(messages); got != 2 {
+		t.Fatalf("worktree contexts after confirmed legacy target change = %d, want 2 messages=%+v", got, messages)
+	}
+	assertLatestWorktreeContext(t, messages, *persistedChangedTarget)
+}
+
+func TestLegacyWorktreeFallbackOnlyMatchesUnversionedTarget(t *testing.T) {
+	t.Parallel()
+	const sharedCWD = "/tmp/legacy-fallback-cwd"
+	legacyItems := []llm.ResponseItem{{
+		Type:        llm.ResponseItemTypeMessage,
+		Role:        textutil.Value(llm.RoleDeveloper),
+		MessageType: textutil.Value(llm.MessageTypeWorktreeMode),
+		SourcePath:  textutil.Value(sharedCWD),
+		Content:     textutil.Value("legacy worktree context"),
+	}}
+	desired := llm.Message{
+		Role:        llm.RoleDeveloper,
+		MessageType: textutil.Value(llm.MessageTypeWorktreeMode),
+		WorktreeContext: &session.WorktreeContext{
+			Branch:        session.OptionalWorktreeBranch("feature/legacy"),
+			WorktreePath:  "/tmp/worktree-legacy",
+			WorkspaceRoot: "/tmp/workspace",
+			EffectiveCwd:  sharedCWD,
+		},
+		Content: textutil.Value("current worktree context"),
+	}
+	if !latestActiveMetaContextMatches(legacyItems, desired) {
+		t.Fatal("unversioned target did not match legacy same-cwd context")
+	}
+
+	contextID := uuid.New()
+	desired.WorktreeContext.ContextID = &contextID
+	if latestActiveMetaContextMatches(legacyItems, desired) {
+		t.Fatal("versioned target change was suppressed by legacy same-cwd fallback")
+	}
+}
+
+func TestLegacyCompactionWithoutWorktreeReminderSelfHealsOnceAcrossResume(t *testing.T) {
+	prevPrompt := prompts.WorktreeModePrompt
+	prompts.WorktreeModePrompt = "enter {{branch}}"
+	defer func() { prompts.WorktreeModePrompt = prevPrompt }()
+
+	store := mustCreateNamedTestSession(t, "ws", t.TempDir())
+	target := mustSetWorktreeReminderState(t, store, testWorktreeReminderState(
+		session.WorktreeReminderModeEnter,
+		"feature/resume",
+		"/tmp/wt-resume",
+		"/tmp/workspace",
+		"/tmp/wt-resume",
+	))
+	legacyItems := llm.ItemsFromMessages([]llm.Message{
+		{
+			Role:        llm.RoleDeveloper,
+			MessageType: textutil.Value(llm.MessageTypeCompactionSummary),
+			Content:     textutil.Value("legacy compacted summary"),
+		},
+		{
+			Role:        llm.RoleDeveloper,
+			MessageType: textutil.Value(llm.MessageTypeEnvironment),
+			Content:     textutil.Value("legacy environment context"),
+		},
+		{
+			Role:        llm.RoleDeveloper,
+			MessageType: textutil.Value(llm.MessageTypeSkills),
+			Content:     textutil.Value("legacy skills context"),
+		},
+		{
+			Role:        llm.RoleDeveloper,
+			MessageType: textutil.Value(llm.MessageTypeAgentsMD),
+			SourcePath:  textutil.Value("/tmp/workspace/AGENTS.md"),
+			Content:     textutil.Value("legacy AGENTS context"),
+		},
+	})
+	if _, _, err := appendTestEvent(t, store, "legacy-compact", historyReplacementPayload{
+		Engine:           "local",
+		Mode:             string(compactionModeManual),
+		CompactionNumber: textutil.Value(1),
+		Items:            legacyItems,
+	}); err != nil {
+		t.Fatalf("append legacy history replacement: %v", err)
+	}
+	firstClient := &fakeClient{responses: []llm.Response{finalOutputItemResponse("before resume")}}
+	firstEngine := mustNewTestEngine(t, store, firstClient, newTestToolRegistry(t, tools.HandlerRegistration{ID: toolspec.ToolExecCommand, Handler: fakeTool{name: toolspec.ToolExecCommand}}), Config{})
+	if _, err := firstEngine.SubmitUserMessage(context.Background(), "resume legacy generation"); err != nil {
+		t.Fatalf("legacy resume submit: %v", err)
+	}
+	assertMessageTypesInOrder(t, requestMessages(firstClient.calls[0]),
+		llm.MessageTypeCompactionSummary,
+		llm.MessageTypeEnvironment,
+		llm.MessageTypeSkills,
+		llm.MessageTypeAgentsMD,
+		llm.MessageTypeWorktreeMode,
+	)
+	assertWorktreeReminderEntryCount(t, firstEngine.ChatSnapshot(), 1)
+	if err := firstEngine.Close(); err != nil {
+		t.Fatalf("close initial engine: %v", err)
+	}
+	prompts.WorktreeModePrompt = "updated enter {{branch}}"
+
+	reopenedStore, err := runtimeTestSessionPersistence.Open(store.Dir())
+	if err != nil {
+		t.Fatalf("reopen session: %v", err)
+	}
+	if err := reopenedStore.SetWorktreeReminderState(&target); err != nil {
+		t.Fatalf("reapply unchanged worktree target: %v", err)
+	}
+	resumedClient := &fakeClient{responses: []llm.Response{finalOutputItemResponse("after resume")}}
+	resumedEngine := mustNewTestEngine(t, reopenedStore, resumedClient, newTestToolRegistry(t, tools.HandlerRegistration{ID: toolspec.ToolExecCommand, Handler: fakeTool{name: toolspec.ToolExecCommand}}), Config{})
+	if _, err := resumedEngine.SubmitUserMessage(context.Background(), "resume"); err != nil {
+		t.Fatalf("resumed submit: %v", err)
+	}
+
+	assertModelCallCount(t, resumedClient, 1)
+	if got := worktreeReminderMessageCount(requestMessages(resumedClient.calls[0])); got != 1 {
+		t.Fatalf("worktree reminders after resume = %d, want 1 messages=%+v", got, requestMessages(resumedClient.calls[0]))
+	}
+	assertMessageTypesInOrder(t, requestMessages(resumedClient.calls[0]),
+		llm.MessageTypeCompactionSummary,
+		llm.MessageTypeEnvironment,
+		llm.MessageTypeSkills,
+		llm.MessageTypeAgentsMD,
+		llm.MessageTypeWorktreeMode,
+	)
+	assertWorktreeReminderEntryCount(t, resumedEngine.ChatSnapshot(), 1)
+}
+
+func assertMessageTypesInOrder(t *testing.T, messages []llm.Message, expected ...llm.MessageType) {
+	t.Helper()
+	previousIndex := -1
+	for _, messageType := range expected {
+		foundIndex := -1
+		count := 0
+		for idx, message := range messages {
+			if message.Role != llm.RoleDeveloper || message.MessageType == nil || *message.MessageType != messageType {
+				continue
+			}
+			count++
+			foundIndex = idx
+		}
+		if count != 1 {
+			t.Fatalf("message type %q count = %d, want 1 messages=%+v", messageType, count, messages)
+		}
+		if foundIndex <= previousIndex {
+			t.Fatalf("message type %q index = %d after previous index %d, want canonical order", messageType, foundIndex, previousIndex)
+		}
+		previousIndex = foundIndex
+	}
+}
+
+func assertWorktreeReminderEntryCount(t *testing.T, snapshot ChatSnapshot, want int) {
+	t.Helper()
+	got := 0
+	for _, entry := range snapshot.Entries {
+		if entry.MessageType == llm.MessageTypeWorktreeMode || entry.MessageType == llm.MessageTypeWorktreeModeExit {
+			got++
+		}
+	}
+	if got != want {
+		t.Fatalf("worktree reminder entry count = %d, want %d entries=%+v", got, want, snapshot.Entries)
+	}
+}
+
+func TestSubmitUserMessageInjectsPendingWorktreeExitReminder(t *testing.T) {
+	prevPrompt := prompts.WorktreeModeExitPrompt
+	prompts.WorktreeModeExitPrompt = "exit {{branch}} {{cwd}} {{worktree_path}} {{workspace_root}}"
+	defer func() { prompts.WorktreeModeExitPrompt = prevPrompt }()
+
+	store := mustCreateTestSession(t)
+	target := mustSetWorktreeReminderState(t, store, testWorktreeReminderState(
+		session.WorktreeReminderModeExit,
+		"feature/exit",
+		"/tmp/wt-exit",
+		"/tmp/workspace",
+		"/tmp/workspace/pkg",
+	))
+
+	client := &fakeClient{responses: []llm.Response{finalOutputItemResponse("ok")}}
+	eng := mustNewTestEngine(t, store, client, newTestToolRegistry(t, tools.HandlerRegistration{ID: toolspec.ToolExecCommand, Handler: fakeTool{name: toolspec.ToolExecCommand}}), Config{})
+
+	if _, err := eng.SubmitUserMessage(context.Background(), "continue"); err != nil {
+		t.Fatalf("submit: %v", err)
+	}
+	messages := requestMessages(client.calls[0])
+	found := false
+	for _, msg := range messages {
+		if msg.Role == llm.RoleDeveloper && msg.MessageType != nil && *msg.MessageType == llm.MessageTypeWorktreeModeExit {
+			found = true
+			if msg.WorktreeContext == nil || !session.WorktreeContextEqual(*msg.WorktreeContext, target.WorktreeContext) {
+				t.Fatalf("worktree exit context = %+v, want %+v", msg.WorktreeContext, target)
+			}
+		}
+	}
+	if !found {
+		t.Fatalf("expected worktree exit reminder, messages=%+v", messages)
+	}
+}
+
+func TestSubmitUserMessageMaterializesWorktreeReminderBeforeModelFailure(t *testing.T) {
+	withGenerateRetryDelays(t, nil)
+
+	prevPrompt := prompts.WorktreeModePrompt
+	prompts.WorktreeModePrompt = "enter {{branch}}"
+	defer func() { prompts.WorktreeModePrompt = prevPrompt }()
+
+	store := mustCreateTestSession(t)
+	mustSetWorktreeReminderState(t, store, testWorktreeReminderState(
+		session.WorktreeReminderModeEnter,
+		"feature/retry",
+		"/tmp/wt-retry",
+		"/tmp/workspace",
+		"/tmp/wt-retry",
+	))
+
+	failingClient := &hookClient{beforeReturn: func() error { return context.DeadlineExceeded }}
+	eng := mustNewTestEngine(t, store, failingClient, newTestToolRegistry(t, tools.HandlerRegistration{ID: toolspec.ToolExecCommand, Handler: fakeTool{name: toolspec.ToolExecCommand}}), Config{})
+
+	if _, err := eng.SubmitUserMessage(context.Background(), "continue"); err == nil {
+		t.Fatal("expected submit failure")
+	}
+	assertWorktreeReminderEntryCount(t, eng.ChatSnapshot(), 1)
+
+	successClient := &fakeClient{responses: []llm.Response{finalOutputItemResponse("ok")}}
+	eng.llm = newObservedModelClient(successClient)
+
+	if _, err := eng.SubmitUserMessage(context.Background(), "continue again"); err != nil {
+		t.Fatalf("submit retry: %v", err)
+	}
+	assertModelCallCount(t, successClient, 1)
+	reminderCount := 0
+	for _, msg := range requestMessages(successClient.calls[0]) {
+		if msg.Role == llm.RoleDeveloper && msg.MessageType != nil && *msg.MessageType == llm.MessageTypeWorktreeMode {
+			reminderCount++
+		}
+	}
+	if reminderCount != 1 {
+		t.Fatalf("expected materialized reminder after failed submit, got %d messages=%+v", reminderCount, requestMessages(successClient.calls[0]))
+	}
+}
+
+func TestSubmitUserMessageUsesLatestPendingWorktreeReminder(t *testing.T) {
+	prevPrompt := prompts.WorktreeModePrompt
+	prompts.WorktreeModePrompt = "enter {{branch}}"
+	defer func() { prompts.WorktreeModePrompt = prevPrompt }()
+
+	store := mustCreateTestSession(t)
+	mustSetWorktreeReminderState(t, store, testWorktreeReminderState(
+		session.WorktreeReminderModeEnter,
+		"feature/old",
+		"/tmp/wt-old",
+		"/tmp/workspace",
+		"/tmp/wt-old",
+	))
+	latestTarget := mustSetWorktreeReminderState(t, store, testWorktreeReminderState(
+		session.WorktreeReminderModeEnter,
+		"feature/new",
+		"/tmp/wt-new",
+		"/tmp/workspace",
+		"/tmp/wt-new",
+	))
+
+	client := &fakeClient{responses: []llm.Response{finalOutputItemResponse("ok")}}
+	eng := mustNewTestEngine(t, store, client, newTestToolRegistry(t, tools.HandlerRegistration{ID: toolspec.ToolExecCommand, Handler: fakeTool{name: toolspec.ToolExecCommand}}), Config{})
+
+	if _, err := eng.SubmitUserMessage(context.Background(), "continue"); err != nil {
+		t.Fatalf("submit: %v", err)
+	}
+	messages := requestMessages(client.calls[0])
+	for _, msg := range messages {
+		if msg.Role != llm.RoleDeveloper || msg.MessageType == nil || *msg.MessageType != llm.MessageTypeWorktreeMode {
+			continue
+		}
+		if msg.WorktreeContext == nil || !session.WorktreeContextEqual(*msg.WorktreeContext, latestTarget.WorktreeContext) {
+			t.Fatalf("latest worktree context = %+v, want %+v", msg.WorktreeContext, latestTarget)
+		}
+		return
+	}
+	t.Fatalf("expected worktree reminder, messages=%+v", messages)
+}
+
+func TestSubmitUserMessagePreservesHistoricalWorktreeRemindersInRequest(t *testing.T) {
+	prevEnterPrompt := prompts.WorktreeModePrompt
+	prevExitPrompt := prompts.WorktreeModeExitPrompt
+	prompts.WorktreeModePrompt = "enter {{branch}}"
+	prompts.WorktreeModeExitPrompt = "exit {{branch}}"
+	defer func() {
+		prompts.WorktreeModePrompt = prevEnterPrompt
+		prompts.WorktreeModeExitPrompt = prevExitPrompt
+	}()
+
+	store := mustCreateTestSession(t)
+	firstOutput := llm.ResponseItem{Type: llm.ResponseItemTypeMessage, Role: textutil.Value(llm.RoleAssistant), Phase: textutil.Value(llm.MessagePhaseFinal), Content: textutil.Value("ok-1")}
+	secondOutput := llm.ResponseItem{Type: llm.ResponseItemTypeMessage, Role: textutil.Value(llm.RoleAssistant), Phase: textutil.Value(llm.MessagePhaseFinal), Content: textutil.Value("ok-2")}
+	client := &fakeClient{responses: []llm.Response{
+		{Assistant: llm.Message{Role: llm.RoleAssistant, Phase: textutil.Value(llm.MessagePhaseFinal), Content: textutil.Value("ok-1")}, OutputItems: []llm.ResponseItem{firstOutput}, Usage: llm.Usage{WindowTokens: 200000}},
+		{Assistant: llm.Message{Role: llm.RoleAssistant, Phase: textutil.Value(llm.MessagePhaseFinal), Content: textutil.Value("ok-2")}, OutputItems: []llm.ResponseItem{secondOutput}, Usage: llm.Usage{WindowTokens: 200000}},
+	}}
+	eng := mustNewTestEngine(t, store, client, newTestToolRegistry(t, tools.HandlerRegistration{ID: toolspec.ToolExecCommand, Handler: fakeTool{name: toolspec.ToolExecCommand}}), Config{})
+
+	enterTarget := mustSetWorktreeReminderState(t, store, testWorktreeReminderState(session.WorktreeReminderModeEnter, "feature/enter", "/tmp/wt-enter", "/tmp/workspace", "/tmp/wt-enter"))
+	if _, err := eng.SubmitUserMessage(context.Background(), "first"); err != nil {
+		t.Fatalf("submit first: %v", err)
+	}
+	exitTarget := mustSetWorktreeReminderState(t, store, testWorktreeReminderState(session.WorktreeReminderModeExit, "feature/exit", "/tmp/wt-exit", "/tmp/workspace", "/tmp/workspace"))
+	if _, err := eng.SubmitUserMessage(context.Background(), "second"); err != nil {
+		t.Fatalf("submit second: %v", err)
+	}
+
+	assertModelCallCount(t, client, 2)
+	exitMessage, ok := worktreeModeExitMetaMessage(exitTarget, t.TempDir(), prompts.WorktreePromptSwitch)
+	if !ok {
+		t.Fatal("expected exit reminder message")
+	}
+	expectedSecondItems := llm.CloneResponseItems(client.calls[0].Items)
+	expectedSecondItems = append(expectedSecondItems, llm.PrepareResponsesInputItems([]llm.ResponseItem{firstOutput})...)
+	expectedSecondItems = append(expectedSecondItems, llm.ItemsFromMessages([]llm.Message{
+		exitMessage,
+		{Role: llm.RoleUser, Content: textutil.Value("second")},
+	})...)
+	if !reflect.DeepEqual(client.calls[1].Items, expectedSecondItems) {
+		t.Fatalf("second request items changed historical order/content\nwant=%+v\n got=%+v", expectedSecondItems, client.calls[1].Items)
+	}
+	firstMessages := requestMessages(client.calls[0])
+	firstCount := 0
+	for _, msg := range firstMessages {
+		if msg.Role == llm.RoleDeveloper && msg.MessageType != nil && *msg.MessageType == llm.MessageTypeWorktreeMode {
+			firstCount++
+		}
+	}
+	if firstCount != 1 {
+		t.Fatalf("expected one enter reminder in first request, got %d messages=%+v", firstCount, firstMessages)
+	}
+	secondMessages := requestMessages(client.calls[1])
+	enterCount := 0
+	exitCount := 0
+	for _, msg := range secondMessages {
+		switch {
+		case msg.Role == llm.RoleDeveloper && msg.MessageType != nil && *msg.MessageType == llm.MessageTypeWorktreeMode:
+			enterCount++
+		case msg.Role == llm.RoleDeveloper && msg.MessageType != nil && *msg.MessageType == llm.MessageTypeWorktreeModeExit:
+			exitCount++
+		}
+	}
+	if enterCount != 1 || exitCount != 1 {
+		t.Fatalf("expected historical enter and latest exit reminders in second request, got enter=%d exit=%d messages=%+v", enterCount, exitCount, secondMessages)
+	}
+	snapshot := eng.ChatSnapshot()
+	detailEntries := 0
+	for _, entry := range snapshot.Entries {
+		if entry.Role != string(transcript.EntryRoleDeveloperContext) {
+			continue
+		}
+		if entry.WorktreeContext != nil &&
+			(session.WorktreeContextEqual(*entry.WorktreeContext, enterTarget.WorktreeContext) ||
+				session.WorktreeContextEqual(*entry.WorktreeContext, exitTarget.WorktreeContext)) {
+			detailEntries++
+		}
+	}
+	if detailEntries != 2 {
+		t.Fatalf("expected detail transcript to retain both reminder rows, got %d entries=%+v", detailEntries, snapshot.Entries)
+	}
+}

@@ -6,7 +6,7 @@ import (
 	"testing"
 
 	"core/internal/testharness/testsetup"
-	"core/server/auth"
+	"core/server/authmanager"
 	serverbootstrap "core/server/bootstrap"
 	"core/shared/config"
 )

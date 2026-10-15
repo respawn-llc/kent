@@ -6,9 +6,9 @@ import (
 	"errors"
 	"testing"
 
+	"core/server/agentruntime"
 	"core/server/llm"
-	"core/server/runtime"
-	"core/server/session"
+	"core/server/sessionstore"
 	runtimepb "core/shared/protoapi/gen/kent/api/runtime"
 	"core/shared/runtimeids"
 	"core/shared/textutil"

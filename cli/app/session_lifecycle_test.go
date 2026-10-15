@@ -3,7 +3,7 @@ package app
 import (
 	"context"
 	"core/server/metadata"
-	"core/server/session"
+	"core/server/sessionstore"
 	"core/shared/apicontract"
 	"core/shared/config"
 	projectpb "core/shared/protoapi/gen/kent/api/project"

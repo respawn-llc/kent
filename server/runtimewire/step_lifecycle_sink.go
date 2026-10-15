@@ -6,7 +6,7 @@ import (
 	"fmt"
 	"strings"
 
-	"core/server/runtime"
+	"core/server/agentruntime"
 	"core/server/runtimeactivity"
 	"core/shared/invariant"
 	runtimepb "core/shared/protoapi/gen/kent/api/runtime"

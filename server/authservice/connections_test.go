@@ -17,7 +17,7 @@ import (
 	"testing"
 
 	"core/internal/testharness/httpclient"
-	"core/server/auth"
+	"core/server/authmanager"
 	"core/server/launch"
 	"core/server/llm"
 	"core/shared/config"

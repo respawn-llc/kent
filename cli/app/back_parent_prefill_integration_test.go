@@ -3,7 +3,7 @@ package app
 import (
 	"context"
 	"core/internal/testharness/requestfixture"
-	"core/server/session"
+	"core/server/sessionstore"
 	serverstartup "core/server/startup"
 	"core/shared/apicontract"
 	"core/shared/config"

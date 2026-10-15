@@ -15,7 +15,7 @@ import (
 	"core/server/tools/shell/postprocess"
 	"core/shared/runtimeids"
 	"core/shared/toolspec"
-	"core/shared/transcript"
+	"core/shared/transcriptmodel"
 )
 
 type execCommandInput struct {

@@ -16,6 +16,7 @@ import (
 
 	"core/internal/testharness/testsetup"
 	"core/server/metadata"
+	"core/server/metadata/sqlitegen"
 	"core/server/workflow"
 	"core/shared/runtimeids"
 
@@ -552,12 +553,8 @@ INSERT INTO task_runs (
 
 func openLegacyCurrentStateMigrationDatabase(t *testing.T, root string, databasePath string) *sql.DB {
 	t.Helper()
-	bootstrap, err := metadata.Open(t.TempDir())
-	if err != nil {
+	if err := sqlitegen.RegisterSQLiteExtensions(); err != nil {
 		t.Fatalf("initialize metadata SQLite extensions: %v", err)
-	}
-	if err := bootstrap.Close(); err != nil {
-		t.Fatalf("close metadata SQLite extension bootstrap: %v", err)
 	}
 	if err := os.MkdirAll(filepath.Dir(databasePath), 0o755); err != nil {
 		t.Fatalf("create migration database directory: %v", err)

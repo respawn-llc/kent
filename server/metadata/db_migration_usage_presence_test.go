@@ -3,7 +3,7 @@ package metadata
 import (
 	"testing"
 
-	"core/server/session"
+	"core/server/sessionstore"
 )
 
 func TestUsagePresenceCutoverPreservesHistoricalFactsAndNewZero(t *testing.T) {

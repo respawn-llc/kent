@@ -9,7 +9,7 @@ import (
 	"core/server/metadata"
 	"core/server/runlog"
 	"core/server/runtimewire"
-	"core/server/session"
+	"core/server/sessionstore"
 	"core/server/tools"
 	servicecontract "core/shared/apicontract"
 	sessionlaunchpb "core/shared/protoapi/gen/kent/api/session_launch"

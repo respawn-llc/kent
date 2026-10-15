@@ -12,10 +12,10 @@ import (
 
 	"core/internal/testharness/scriptedllm"
 	"core/internal/testharness/testsetup"
+	"core/server/agentruntime"
 	"core/server/llm"
-	"core/server/runtime"
-	"core/server/session"
-	"core/server/session/sessiontest"
+	"core/server/sessionstore"
+	"core/server/sessionstore/sessiontest"
 	"core/server/tools"
 	"core/shared/clientui"
 	"core/shared/runtimeids"

@@ -12,7 +12,7 @@ import (
 	"testing"
 
 	"core/internal/testharness/httpclient"
-	"core/server/auth"
+	"core/server/authmanager"
 	"core/shared/config"
 	authpb "core/shared/protoapi/gen/kent/api/auth"
 	"core/shared/textutil"

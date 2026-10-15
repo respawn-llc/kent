@@ -10,7 +10,7 @@ import (
 	"testing"
 	"time"
 
-	"core/server/auth"
+	"core/server/authmanager"
 	"core/shared/config"
 	"core/shared/textutil"
 )

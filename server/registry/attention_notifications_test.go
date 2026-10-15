@@ -9,8 +9,8 @@ import (
 	"time"
 
 	testharness "core/internal/testharness/testsetup"
+	"core/server/agentruntime"
 	"core/server/attentionnotify"
-	"core/server/runtime"
 	askquestion "core/server/tools"
 	"core/shared/clientui"
 	attentionpb "core/shared/protoapi/gen/kent/api/attention"

@@ -5,9 +5,9 @@ import (
 	"errors"
 	"testing"
 
-	"core/server/runtime"
-	"core/server/session"
+	"core/server/agentruntime"
 	"core/server/sessionruntime"
+	"core/server/sessionstore"
 	"core/shared/runtimeids"
 	"core/shared/runtimeinput"
 	"core/shared/serverapi"

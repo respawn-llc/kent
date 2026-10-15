@@ -5,7 +5,7 @@ import (
 	"core/shared/jsoncontract"
 	"core/shared/runtimeids"
 	"core/shared/toolspec"
-	"core/shared/transcript"
+	"core/shared/transcriptmodel"
 	"encoding/json"
 	"fmt"
 	"sync"

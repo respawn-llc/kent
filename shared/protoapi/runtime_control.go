@@ -4,7 +4,7 @@ import (
 	"fmt"
 
 	transcriptpb "core/shared/protoapi/gen/kent/api/transcript"
-	"core/shared/transcript"
+	"core/shared/transcriptmodel"
 )
 
 func AppendVisibilityFromProto(value *transcriptpb.AppendVisibility) (transcript.EntryVisibility, error) {

@@ -11,7 +11,7 @@ import (
 	"sync"
 	"time"
 
-	"core/server/auth"
+	"core/server/authmanager"
 	"core/server/chatcontext"
 	"core/server/metadata"
 	"core/shared/apicontract"

@@ -18,11 +18,11 @@ import (
 	"time"
 
 	"core/internal/testharness/testsetup"
-	"core/server/auth"
+	"core/server/authmanager"
 	"core/server/bootstrap"
 	"core/server/core"
 	"core/server/metadata"
-	"core/server/session"
+	"core/server/sessionstore"
 	"core/server/transport"
 	"core/shared/client"
 	"core/shared/config"

@@ -12,15 +12,15 @@ import (
 
 	"core/internal/testharness/pty/blackbox"
 	"core/internal/testharness/scriptedllm"
+	serverruntime "core/server/agentruntime"
 	"core/server/llm"
 	"core/server/metadata"
-	serverruntime "core/server/runtime"
-	"core/server/session"
+	"core/server/sessionstore"
 	"core/server/tools"
 	"core/shared/sessioncontract"
 	"core/shared/textutil"
-	"core/shared/transcript"
-	patchformat "core/shared/transcript/patchformat"
+	"core/shared/transcriptmodel"
+	patchformat "core/shared/transcriptmodel/patchformat"
 
 	"github.com/google/uuid"
 )

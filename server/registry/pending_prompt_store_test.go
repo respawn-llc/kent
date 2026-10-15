@@ -5,7 +5,7 @@ import (
 	"testing"
 	"time"
 
-	"core/server/runtime"
+	"core/server/agentruntime"
 	askquestion "core/server/tools"
 	"core/shared/clientui"
 	transcriptpb "core/shared/protoapi/gen/kent/api/transcript"

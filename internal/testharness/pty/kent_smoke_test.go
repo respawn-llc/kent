@@ -3,11 +3,9 @@
 package pty_test
 
 import (
-	"context"
 	"errors"
 	"fmt"
 	"os"
-	"path/filepath"
 	"testing"
 	"time"
 
@@ -20,19 +18,24 @@ import (
 )
 
 const (
-	smokeBuildWait   = 30 * time.Second
 	smokeEventWait   = 15 * time.Second
 	smokeCleanupWait = 5 * time.Second
 )
 
-func TestProductionKentBinaryPTYSmoke(t *testing.T) {
-	buildContext, cancelBuild := context.WithTimeout(context.Background(), smokeBuildWait)
-	binary, err := pty.BuildOrUsePrebuiltKent(buildContext, filepath.Join(t.TempDir(), "kent"))
-	cancelBuild()
-	if err != nil {
-		t.Fatalf("build production Kent: %v", err)
-	}
+var kentBinary string
 
+func TestMain(m *testing.M) {
+	var err error
+	kentBinary, err = pty.PrepareKentFixture()
+	if err != nil {
+		fmt.Fprintln(os.Stderr, err)
+		os.Exit(1)
+	}
+	os.Exit(m.Run())
+}
+
+func TestProductionKentBinaryPTYSmoke(t *testing.T) {
+	binary := kentBinary
 	probe := uuid.New().String()
 	output := "ok"
 	environment, err := blackbox.NewIsolatedEnvironment(binary, []blackbox.RequiredOperation{{
