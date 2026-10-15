@@ -17,6 +17,7 @@ import (
 	"core/shared/apicontract"
 	"core/shared/clientui"
 	"core/shared/runtimeids"
+	"core/shared/sessioncontract"
 
 	tea "github.com/charmbracelet/bubbletea"
 )
@@ -161,6 +162,8 @@ type uiSessionTransitionFeatureState struct {
 	sessionExecutionTarget                  *worktreepb.SessionExecutionTarget
 	sessionRetargeted                       bool
 	sessionName                             *string
+	sessionCategory                         *sessioncontract.SessionCategory
+	sessionShortID                          *runtimeids.SessionShortID
 	sessionID                               string
 	forcedLocalExit                         bool
 }

@@ -7,6 +7,7 @@ import (
 	"reflect"
 	"testing"
 
+	"core/internal/testharness/testsetup"
 	"core/server/metadata"
 	"core/server/session"
 	"core/shared/config"
@@ -36,7 +37,7 @@ func TestPreparePreviousSessionChildAllocatesFreshRoleConnection(t *testing.T) {
 			},
 		},
 	}
-	planner.Rotation = new(ConnectionRotation)
+	planner.Rotation = NewConnectionRotation(testsetup.OpenStore(t, t.TempDir()))
 	parent, err := planner.PlanSession(t.Context(), SessionRequest{
 		Mode: ModeInteractive, Intent: serverapi.CreateNewSessionLaunchIntent(serverapi.IndependentSessionCreateOrigin()),
 	})
@@ -69,7 +70,7 @@ func TestPreparePreviousSessionChildAllocatesFreshRoleConnection(t *testing.T) {
 	if err != nil || record.Meta.ConnectionID == nil || *record.Meta.ConnectionID != "a" {
 		t.Fatalf("parent binding changed: %+v, %v", record.Meta, err)
 	}
-	next, err := planner.Rotation.Prepare(planner.Config.Settings, true)
+	next, err := planner.Rotation.Prepare(t.Context(), planner.Config.Settings, true)
 	if err != nil || next != "c" {
 		t.Fatalf("next connection = %s, %v; want c after one child allocation", next, err)
 	}
@@ -126,7 +127,7 @@ func TestPlanPreparedRetainedSessionLeavesMetadataUnchanged(t *testing.T) {
 	}
 }
 
-func TestHeadlessNameUsesCommittedNumberAndPreservesAuthoredName(t *testing.T) {
+func TestSubagentCreationLeavesNameAbsentAndAllowsAuthoredName(t *testing.T) {
 	root, workspace := t.TempDir(), t.TempDir()
 	persistence, err := metadata.Open(root)
 	if err != nil {
@@ -144,16 +145,10 @@ func TestHeadlessNameUsesCommittedNumberAndPreservesAuthoredName(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := EnsureSubagentSessionName(store); err != nil {
-		t.Fatal(err)
-	}
-	if store.Meta().Name == nil || *store.Meta().Name != store.Identity().String()+" "+SubagentSessionSuffix || store.Identity().ShortID == nil {
-		t.Fatalf("generated name did not use committed number: %v", store.Meta().Name)
+	if store.Meta().Name != nil || store.Identity().ShortID == nil {
+		t.Fatalf("new subagent name/identity = %v, %v", store.Meta().Name, store.Identity())
 	}
 	if err := store.SetName(textutil.Value("authored name")); err != nil {
-		t.Fatal(err)
-	}
-	if err := EnsureSubagentSessionName(store); err != nil {
 		t.Fatal(err)
 	}
 	if store.Meta().Name == nil || *store.Meta().Name != "authored name" {

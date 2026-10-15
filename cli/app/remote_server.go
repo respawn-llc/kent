@@ -7,12 +7,17 @@ import (
 	"core/shared/client"
 	"core/shared/config"
 	authpb "core/shared/protoapi/gen/kent/api/auth"
+	workflowpb "core/shared/protoapi/gen/kent/api/workflow_definition"
 	worktreepb "core/shared/protoapi/gen/kent/api/worktree"
 	"errors"
 
 	"core/shared/protocol"
 	"core/shared/theme"
 )
+
+func (s *remoteAppServer) SubscribeWorkflowProject(ctx context.Context, req *workflowpb.ProjectSubscribeRequest) (apicontract.WorkflowEventSubscription, error) {
+	return s.remote.SubscribeWorkflowProject(ctx, req)
+}
 
 type remoteAppServer struct {
 	remote       *client.Remote
@@ -158,16 +163,17 @@ func (s *remoteAppServer) SessionUIClients() sessionUIClients {
 		return sessionUIClients{}
 	}
 	return sessionUIClients{
-		ChatMutations:     s.remote,
-		ProcessControls:   s.remote,
-		ProcessViews:      s.remote,
-		PromptControl:     s.remote,
-		RuntimeControls:   s.remote,
-		GoalSet:           s.remote,
-		ChatSettings:      s.remote,
-		SessionTranscript: s.remote,
-		SessionViews:      s.remote,
-		Worktrees:         s.remote,
+		AttentionNotifications: s.remote,
+		ChatMutations:          s.remote,
+		ProcessControls:        s.remote,
+		ProcessViews:           s.remote,
+		PromptControl:          s.remote,
+		RuntimeControls:        s.remote,
+		GoalSet:                s.remote,
+		ChatSettings:           s.remote,
+		SessionTranscript:      s.remote,
+		SessionViews:           s.remote,
+		Worktrees:              s.remote,
 	}
 }
 

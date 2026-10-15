@@ -1,5 +1,5 @@
 export type { ApiService, ApiSubscription } from "./apiService";
-export { sessionDisplayID } from "./sessionIdentity";
+export { sessionDisplayID, sessionDisplayTitle } from "./sessionIdentity";
 export type { DesktopProcess } from "./processes";
 export type {
   ChatSettingsAgent,

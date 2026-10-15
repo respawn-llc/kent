@@ -39,6 +39,8 @@ func (w *RuntimeWiring) Close() error {
 }
 
 type RuntimeWiringOptions struct {
+	SubmitSessionNaming                 func(runtime.SessionNamingInput)
+	RecordUsage                         ConnectionUsageRecorder
 	Environment                         func(string) (string, bool)
 	WorkspaceMembership                 WorkspaceMembership
 	ProjectWorkspaceContextReader       runtime.ProjectWorkspaceContextReader
@@ -119,6 +121,7 @@ func NewRuntimeWiringWithBackground(
 			Purpose: purpose, SessionID: store.Meta().SessionID, ActiveSettings: settings,
 			EnabledTools: enabledTools, Sources: opts.Sources, Connection: connection,
 			RequestCapabilities: capabilities,
+			RecordUsage:         opts.RecordUsage,
 		})
 	}
 	providerCapabilities, err := llm.ResolveEffectiveProviderCapabilities(store.Meta().Locked, active)
@@ -228,7 +231,19 @@ func NewRuntimeWiringWithBackground(
 	if len(opts.RequiredTools) != 0 {
 		promptReloader = requiredToolsSnapshotReloader{base: promptReloader, required: append([]toolspec.ID(nil), opts.RequiredTools...)}
 	}
+	var namingConfig *runtime.SessionNamingConfig
+	meta := store.Meta()
+	if opts.SubmitSessionNaming != nil && meta.Name == nil &&
+		(meta.ModelRequestCount == 0 || strings.TrimSpace(meta.FirstPromptPreview) != "") {
+		// Capture stays bounded independently of settings, which can change on
+		// Worktree enter/leave before the first Step. The consumer budgets again.
+		namingConfig = &runtime.SessionNamingConfig{MaxInputRunes: 10_000, Submit: opts.SubmitSessionNaming}
+		if strings.TrimSpace(meta.FirstPromptPreview) != "" {
+			namingConfig.ResumeTask = textutil.Value(meta.FirstPromptPreview)
+		}
+	}
 	eng, err = runtime.New(store, eventLog, client, toolRegistry, runtime.Config{
+		SessionNaming:                   namingConfig,
 		Model:                           active.Model,
 		TokenEstimator:                  tokenEstimator,
 		Debug:                           active.Debug,

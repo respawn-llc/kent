@@ -959,6 +959,13 @@ func renderNamedTemplate(name string, text string, data any) (string, error) {
 	return out.String(), nil
 }
 
+func RenderSessionNamingPrompt(task string, commentary *string) (string, error) {
+	return renderNamedTemplate("session naming", mustPrompt("session_naming.md"), struct {
+		Task       string
+		Commentary *string
+	}{task, commentary})
+}
+
 func renderTemplatePlaceholders(template string, replacements map[string]string) string {
 	text := strings.TrimSpace(template)
 	if text == "" {

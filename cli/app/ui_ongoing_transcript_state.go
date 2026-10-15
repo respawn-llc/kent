@@ -272,8 +272,17 @@ func (m *uiModel) applyTranscriptSessionIdentity(identity *transcriptpb.SessionI
 	m.sessionID = nextSessionID
 	m.reconcileMissingPromptRecoveryScope()
 	m.sessionName = identity.SessionName
+	category, err := protoapi.SessionCategoryFromProto(identity.Category)
+	if err != nil {
+		return m.handleFatalUIError("Session identity could not be displayed", err)
+	}
+	m.sessionCategory = &category
+	m.sessionShortID, err = protoapi.SessionShortIDFromProto(identity.ShortId)
+	if err != nil {
+		return m.handleFatalUIError("Session identity could not be displayed", err)
+	}
 	m.conversationFreshness = identity.ConversationFreshness
-	titleCmd := tea.SetWindowTitle(sessionTitle(m.sessionName))
+	titleCmd := tea.SetWindowTitle(m.sessionTitle())
 	if previousTarget != nil && m.sessionExecutionTarget != nil &&
 		(!textutil.EqualOptional(previousTarget.WorkspaceId, m.sessionExecutionTarget.WorkspaceId) ||
 			previousTarget.WorkspaceRoot != m.sessionExecutionTarget.WorkspaceRoot) {

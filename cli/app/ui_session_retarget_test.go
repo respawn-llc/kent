@@ -24,6 +24,7 @@ func TestSessionWorkspaceIdentityChangeReopensMovedSession(t *testing.T) {
 			CwdRelpath:            ".",
 			EffectiveWorkdir:      root}
 		model.applyAdmittedTranscriptMessageState(transcriptTestMessage(sequence, &transcriptpb.SessionIdentity{SessionId: sessionID.String(),
+			Category:              projectpb.SessionCategory_SESSION_CATEGORY_MAIN,
 			ConversationFreshness: runtimepb.ConversationFreshness_CONVERSATION_FRESHNESS_ESTABLISHED,
 			ExecutionTarget:       target}),
 			runtimeTupleMergeResult{})

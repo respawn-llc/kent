@@ -93,6 +93,10 @@ export default defineConfig({
           link: "/config/",
         },
         {
+          label: "Nano, Supervisor, and Decision models",
+          link: "/auxiliary-models/",
+        },
+        {
           label: "Contributing",
           link: docsConfig.contributingPath,
         },

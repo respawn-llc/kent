@@ -152,7 +152,16 @@ func SessionViewFromRuntime(engine *runtime.Engine) (*runtimepb.SessionView, err
 	if err != nil {
 		return &runtimepb.SessionView{}, err
 	}
+	category, err := engine.SessionCategory()
+	if err != nil {
+		return nil, err
+	}
+	wireCategory, err := protoapi.SessionCategoryToProto(category)
+	if err != nil {
+		return nil, err
+	}
 	return &runtimepb.SessionView{
+		Category:              wireCategory,
 		SessionId:             engine.SessionID(),
 		ShortId:               protoapi.SessionShortIDToProto(engine.SessionIdentity().ShortID),
 		SessionName:           engine.SessionName(),

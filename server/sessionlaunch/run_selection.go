@@ -86,7 +86,7 @@ func (s *Service) prepareRunSelection(
 	}
 	baselineMeta := meta
 	baselineMeta.ChatSettings = nil
-	prepared, role, err := prepareExistingSelection(planner, req, baselineMeta, role)
+	prepared, role, err := prepareExistingSelection(ctx, planner, req, baselineMeta, role)
 	if err != nil {
 		return runSelection{}, err
 	}
