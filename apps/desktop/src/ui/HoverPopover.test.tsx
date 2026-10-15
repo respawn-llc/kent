@@ -4,6 +4,39 @@ import { useState } from "react";
 import { HoverPopover } from "./HoverPopover";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "./radix/tooltip";
 
+it.each(["click", "enter", "space", "touch"] as const)("opens without hover using %s", async (activation) => {
+  function Example() {
+    const [open, setOpen] = useState(false);
+    return (
+      <HoverPopover
+        open={open}
+        onOpenChange={setOpen}
+        trigger={(props) => <button {...props}>Trigger</button>}
+      >
+        <button>Popup action</button>
+      </HoverPopover>
+    );
+  }
+  const user = userEvent.setup({ skipHover: true });
+  render(<Example />);
+  const trigger = screen.getByRole("button", { name: "Trigger" });
+  if (activation === "click") await user.click(trigger);
+  else if (activation === "touch")
+    await user.pointer([
+      { keys: "[TouchA>]", target: trigger },
+      { keys: "[/TouchA]", target: trigger },
+    ]);
+  else {
+    trigger.focus();
+    await user.keyboard(activation === "enter" ? "{Enter}" : " ");
+  }
+  expect(await screen.findByRole("button", { name: "Popup action" })).toBeVisible();
+  await user.keyboard("{Escape}");
+  await waitFor(() => {
+    expect(screen.queryByRole("button", { name: "Popup action" })).not.toBeInTheDocument();
+  });
+});
+
 it("opens on hover, keeps interactive content open on click, and closes on leaving", async () => {
   function Example() {
     const [open, setOpen] = useState(false);
