@@ -2294,13 +2294,7 @@ func (s *Service) ListWorkflowTaskSessions(ctx context.Context, req *taskpb.Task
 }
 
 func (s *Service) AddWorkflowTaskComment(ctx context.Context, req *taskpb.CommentAddRequest) (*taskpb.CommentAddSuccess, error) {
-	if err := protoapi.Validate(req); err != nil {
-		return nil, err
-	}
-	author, err := protoapi.TaskCommentAuthor.Decode(req.Author)
-	if err != nil {
-		return nil, err
-	}
+	author := protoapi.TaskCommentAuthor.FromProto(req.Author)
 	comment, err := s.store.AddComment(ctx, workflow.TaskID(req.TaskId), req.Body, author, req.GetAuthorId())
 	if err != nil {
 		return nil, err
@@ -2320,9 +2314,6 @@ func (s *Service) AddWorkflowTaskComment(ctx context.Context, req *taskpb.Commen
 }
 
 func (s *Service) ListWorkflowTaskComments(ctx context.Context, req *taskpb.TaskOffsetPageRequest) (*taskpb.CommentListSuccess, error) {
-	if err := protoapi.Validate(req); err != nil {
-		return nil, err
-	}
 	window := workflowview.TaskPageWindow(req)
 	totalCount, err := s.store.CountTaskComments(ctx, workflow.TaskID(req.TaskId))
 	if err != nil {
@@ -2351,9 +2342,6 @@ func (s *Service) ListWorkflowTaskComments(ctx context.Context, req *taskpb.Task
 }
 
 func (s *Service) ReplaceWorkflowTaskComment(ctx context.Context, req *taskpb.CommentReplaceRequest) (*emptypb.Empty, error) {
-	if err := protoapi.Validate(req); err != nil {
-		return nil, err
-	}
 	taskID, projectID, workflowID, err := s.store.TaskIdentityForComment(ctx, strings.TrimSpace(req.CommentId))
 	if err != nil {
 		return nil, err
@@ -2366,9 +2354,6 @@ func (s *Service) ReplaceWorkflowTaskComment(ctx context.Context, req *taskpb.Co
 }
 
 func (s *Service) DeleteWorkflowTaskComment(ctx context.Context, req *taskpb.CommentDeleteRequest) (*emptypb.Empty, error) {
-	if err := protoapi.Validate(req); err != nil {
-		return nil, err
-	}
 	taskID, projectID, workflowID, err := s.store.TaskIdentityForComment(ctx, strings.TrimSpace(req.CommentId))
 	if err != nil {
 		return nil, err

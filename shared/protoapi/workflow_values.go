@@ -37,6 +37,10 @@ func (v workflowValues[T]) Decode(code T) (string, error) {
 	return name, nil
 }
 
+func (v workflowValues[T]) FromProto(code T) string {
+	return v.names[code]
+}
+
 var WorkflowNodeKind = workflowValueNames(map[pb.NodeKind]string{
 	pb.NodeKind_WORKFLOW_NODE_KIND_START:    "start",
 	pb.NodeKind_WORKFLOW_NODE_KIND_AGENT:    "agent",

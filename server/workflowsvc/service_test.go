@@ -311,13 +311,13 @@ func TestServiceTaskCommentListPaginatesOffsetWindows(t *testing.T) {
 		{name: "limit above maximum", offset: &offset, limit: &aboveLimit, field: "limit"},
 	} {
 		t.Run(tt.name, func(t *testing.T) {
-			_, err := service.ListWorkflowTaskComments(ctx, &taskpb.TaskOffsetPageRequest{
+			err := protoapi.Validate(&taskpb.TaskOffsetPageRequest{
 				TaskId: taskID,
 				Offset: tt.offset,
 				Limit:  tt.limit,
 			})
 			if !isWorkflowServiceRequestFieldError(err, tt.field) {
-				t.Fatalf("ListWorkflowTaskComments error = %T %v, want %s validation", err, err, tt.field)
+				t.Fatalf("TaskOffsetPageRequest error = %T %v, want %s validation", err, err, tt.field)
 			}
 		})
 	}
