@@ -368,7 +368,7 @@ func steerPersistedWorkflowAssignment(
 			return WorkflowAssignmentSteer{}, err
 		}
 		builder := newActiveMetaContextBuilder(
-			engine.store.Meta(),
+			engine.store,
 			deliveryContext.Workdir,
 			deliveryContext.Model,
 			deliveryContext.ThinkingLevel,

@@ -4,7 +4,7 @@ import { useTranslation } from "react-i18next";
 
 import type { ProjectSummary } from "@/api";
 import { errorMessage } from "@/api";
-import { useAppNavigation, useOwnedSidebarRoots, type SidebarMode } from "@/app-facade";
+import { useAppNavigation, useOwnedSidebarRoots } from "@/app-facade";
 import { WorkflowRow, useWorkflowPages } from "@/shared/workflow-library";
 import { cx, directionalBoundary, EmptyState, InfiniteListBoundary, VirtualizedInfiniteList } from "@/ui";
 import { OverlappingCrossfade } from "./OverlappingCrossfade";
@@ -20,7 +20,6 @@ export function HomeSidebar({
   onProjectSelect,
   projectItems,
   projectsQuery,
-  sidebarMode,
   selectedCategory,
   selectedProjectID,
 }: Readonly<{
@@ -30,7 +29,6 @@ export function HomeSidebar({
   onProjectSelect: (projectID: string) => void;
   projectItems: readonly ProjectSummary[];
   projectsQuery: ReturnType<typeof useProjectPages>;
-  sidebarMode: SidebarMode;
   selectedCategory: HomeSidebarCategory;
   selectedProjectID: string | null;
 }>) {
@@ -112,7 +110,6 @@ export function HomeSidebar({
                   }}
                   project={project}
                   selected={project.id === selectedProjectID}
-                  sidebarMode={sidebarMode}
                 />
               )}
             />
@@ -136,7 +133,7 @@ export function HomeSidebar({
                 <WorkflowRow
                   contextActions={{
                     onEdit: () => {
-                      open({ kind: "workflowSettings", mode: sidebarMode, workflowID: workflow.id });
+                      open({ kind: "workflowSettings", workflowID: workflow.id });
                     },
                   }}
                   onOpen={() => {

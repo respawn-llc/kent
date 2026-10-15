@@ -41,7 +41,16 @@ func TestProviderAttemptDiagnosticsPreserveIdentityAndReportedUsage(t *testing.T
 		hasUsage bool
 		canceled bool
 		compact  bool
+		debugOff bool
 	}{
+		{
+			name: "generation without debug", status: http.StatusOK, debugOff: true,
+			event: `{"type":"response.completed","response":{"id":"response-1","model":"gpt-6-sol","output":[]}}`,
+		},
+		{
+			name: "compaction without debug", status: http.StatusOK, debugOff: true, compact: true,
+			event: `{"type":"response.completed","response":{"id":"response-1","model":"gpt-6-sol","output":[{"type":"compaction","id":"compaction-1","encrypted_content":"encrypted-checkpoint"}]}}`,
+		},
 		{
 			name: "completed with known zero cache", status: http.StatusOK, hasUsage: true,
 			event: `{"type":"response.completed","response":{"id":"response-1","model":"gpt-6-sol","usage":{"input_tokens":10,"input_tokens_details":{"cached_tokens":0},"output_tokens":4,"total_tokens":14},"output":[]}}`,
@@ -85,6 +94,7 @@ func TestProviderAttemptDiagnosticsPreserveIdentityAndReportedUsage(t *testing.T
 			}))
 			t.Cleanup(server.Close)
 			transport := newCanonicalOAuthTestTransport(t, server)
+			transport.Debug = !test.debugOff
 			transport.ConnectionID = textutil.Value(config.ConnectionID("personal"))
 			request := testCodexResponsesRequest(newTestCodexDispatch(t))
 			request.PromptCacheKey = *request.SessionID
@@ -115,6 +125,12 @@ func TestProviderAttemptDiagnosticsPreserveIdentityAndReportedUsage(t *testing.T
 				if record.AttemptID != "" {
 					attempts[record.AttemptID] = append(attempts[record.AttemptID], record)
 				}
+			}
+			if test.debugOff {
+				if len(attempts) != 0 {
+					t.Fatalf("diagnostics emitted with debug disabled: %d attempts", len(attempts))
+				}
+				return
 			}
 			if len(attempts) != 2 {
 				t.Fatalf("observed physical attempts = %d, want 2", len(attempts))

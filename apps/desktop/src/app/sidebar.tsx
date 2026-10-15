@@ -1,4 +1,5 @@
 import { ArrowLeft, X } from "lucide-react";
+import { sidebarProtectedMain } from "./sidebarMainPane";
 import {
   useCallback,
   useEffect,
@@ -416,7 +417,9 @@ function sidebarShiftResizeBounds(
   shellWidth: number,
   sizePreference: ReturnType<typeof sidebarSizePreference>,
 ): SidebarResizeBounds | null {
-  const protectedMain = shellElement?.querySelector<HTMLElement>("[data-sidebar-protected-main]") ?? null;
+  const protectedMain = sidebarProtectedMain(
+    shellElement?.querySelector('[data-testid="app-main-content"]') ?? null,
+  );
   const protectedMainWidth = positiveElementWidth(protectedMain);
   const currentSidebarWidth = positiveElementWidth(sidebarElement);
   if (protectedMainWidth === null || currentSidebarWidth === null) {

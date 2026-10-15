@@ -1,5 +1,7 @@
 ## Authority, connection, and shared behavior
 
+- Across all destinations, the global sidebar owner selects shifting only when the measured main pane can retain at least 400 pixels after reserving the sidebar's preferred width and inset, and selects overlay otherwise. Destinations may explicitly require a mode. Home measures its inner main pane, excluding the Project catalog. A shifted sidebar cannot be widened far enough to reduce the main pane below 400 pixels. Any sidebar closes when its available width falls below 400 pixels. An open sidebar keeps its chosen mode until it closes.
+
 - Read-only filesystem paths projected from structured data are home-relative when inside the user's home directory. This applies to labels, tooltips, execution-target facts, approvals, and image-tool labels. Editable path fields, clipboard values, and action/link targets must use their canonical values.
 - Model-visible arbitrary text, conversation bodies, errors, and diagnostics are not path-rewritten. Patch labels must show absolute paths supplied by the model exactly. General environment CWD and Session rebind target-directory context must be absolute.
 
@@ -66,9 +68,8 @@
 - A Project workspace has no repeated Project identity header or header action.
 - A Project workspace has `Tasks`, `Sessions`, and `Subagents` tabs. `Tasks` is the default. The mounted Project workspace owns the selected tab, which resets when that workspace remounts.
 - Switching among a Project workspace's `Tasks`, `Sessions`, and `Subagents` tabs crossfades overlapping outgoing and incoming content and respects reduced-motion preference.
-- Selecting an Inbox item leaves Inbox visible and opens Task Detail as an overlay without replacing Home content or navigating away from Home.
+- Selecting an Inbox item opens Task Detail using the global adaptive sidebar presentation without replacing Home content or navigating away from Home.
 - An Inbox item shows at most five lines of its detail message before truncation. Selecting the item opens its complete Task Detail.
-- Home opens sidebars by shifting content only when the measured main pane can provide at least 400 pixels after reserving the sidebar's preferred width, and as an overlay otherwise. A shifted sidebar cannot be widened far enough to reduce the main pane below 400 pixels. Any sidebar closes when its available width falls below 400 pixels. An open sidebar keeps its chosen mode until it closes.
 - The Project workspace Workflow strip uses infinite scroll. The visible content of each Workflow chip is its name. Selecting one opens that Project's Workflow board.
 - `Manage workflows` is available from `Link workflow` for reusable Workflows, including those not linked to the selected Project. Project Task and board destinations are Project-scoped.
 - Board actions belong in board chrome. Workflow selection uses a click-controlled non-modal popover that closes after selection or outside activation. Desktop has no default browser-style hover effects beyond explicitly designed interaction feedback.
@@ -143,7 +144,7 @@
 - Every Interrupted status icon offers Resume through the board operation, including its pending, error, dependency-confirmation, and Execution Target continuation behavior. The server is authoritative, and an unavailable Resume uses the ordinary failure treatment. Other status icons are informational. Activating Dependencies, ID, Title, or Workflow opens the Task's general Task Detail. The Dependencies chip must not focus the Dependencies section from this list.
 - Activating Labels opens the Task Label assignment chooser without opening Task Detail. Successful assignment updates the row. Pending and failure behavior follows the assignment flow.
 - An open Task Detail or Label chooser gives its Task row the selected treatment. Only the last-opened interaction shows selection. Closing a Label chooser restores an already-open Task Detail's selection when its row is visible.
-- Task Detail uses the containing destination's sidebar mode.
+- Task Detail uses the global sidebar presentation policy.
 - Opening Task Detail adds no route or browser-history entry. Closing it clears its selected treatment.
 - The Task table exposes accessible grid, row, grid-cell, disclosure, selection, tooltip, and loading/error labels. Its hidden column-header presentation provides accessible labels. It uses ordinary browser focus and activation behavior and adds no table-specific keyboard-navigation model.
 - Leaving and returning to the Tasks tab while the same Project workspace is mounted restores its vertical pixel offset. It must not load special pages or reconcile the former position by Task identity. Remounting resets this state.

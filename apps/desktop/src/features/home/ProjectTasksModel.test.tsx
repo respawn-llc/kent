@@ -27,7 +27,7 @@ it("rejects New Task when the current Workflow result does not permit creation",
     expect(view.result.current.request.isSuccess).toBe(true);
   });
   await act(async () => {
-    view.result.current.newTask({ open, mode: "shift" });
+    view.result.current.newTask({ open });
   });
   expect(open).not.toHaveBeenCalled();
 });
@@ -44,15 +44,15 @@ it("admits Link Workflow once while its owned sidebar remains open", async () =>
     wrapper: ({ children }: { children: ReactNode }) => <RegistryProvider>{children}</RegistryProvider>,
   });
   await act(async () => {
-    view.result.current.linkWorkflow({ open, mode: "shift" });
-    view.result.current.linkWorkflow({ open, mode: "shift" });
+    view.result.current.linkWorkflow({ open });
+    view.result.current.linkWorkflow({ open });
   });
   expect(open).toHaveBeenCalledOnce();
   await act(async () => {
     completion.resolve("closed");
   });
   await act(async () => {
-    view.result.current.linkWorkflow({ open, mode: "shift" });
+    view.result.current.linkWorkflow({ open });
   });
   expect(open).toHaveBeenCalledTimes(2);
 });
@@ -88,8 +88,8 @@ it("admits New Task once while its owned sidebar remains open", async () => {
     expect(view.result.current.available).toBe(true);
   });
   await act(async () => {
-    view.result.current.newTask({ open, mode: "shift" });
-    view.result.current.newTask({ open, mode: "shift" });
+    view.result.current.newTask({ open });
+    view.result.current.newTask({ open });
   });
   expect(open).toHaveBeenCalledOnce();
   await act(async () => {

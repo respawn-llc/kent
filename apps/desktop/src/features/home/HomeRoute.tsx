@@ -6,7 +6,7 @@ import { useTranslation } from "react-i18next";
 import type { AttentionItem } from "@/api";
 import { errorMessage } from "@/api";
 import { useAppNavigation } from "@/app-facade";
-import { SidebarRootOwner, useOwnedSidebarRoots, type SidebarMode } from "@/app-facade";
+import { SidebarRootOwner, useOwnedSidebarRoots } from "@/app-facade";
 import { useAppServices } from "@/app-facade";
 import { useStatusController } from "@/app-facade";
 import { ErrorState, LoadingState, VirtualizedInfiniteList, useStableCallback } from "@/ui";
@@ -15,7 +15,6 @@ import { createHomeViewModel, type HomeViewModel } from "./HomeViewModel";
 import { HomeProjectContent } from "./HomeProjectContent";
 import { OverlappingCrossfade } from "./OverlappingCrossfade";
 import { ProjectCreateDialog, type ProjectDraft } from "./ProjectCreateForm";
-import { useHomeSidebarMode } from "./useHomeSidebarMode";
 import { useGlobalAttentionPages, useProjectPages } from "./useHomeData";
 import { AttentionRow } from "./AttentionRow";
 import { useProjectCreationActions } from "./ProjectCreationModel";
@@ -32,7 +31,6 @@ function HomeRouteContent({ selectedProjectID }: Readonly<{ selectedProjectID: s
   const { t } = useTranslation();
   const services = useAppServices();
   const { push } = useStatusController();
-  const { mainPaneRef, sidebarMode } = useHomeSidebarMode();
   const navigation = useAppNavigation();
   const { open } = useOwnedSidebarRoots();
   const queryClient = useQueryClient();
@@ -90,7 +88,7 @@ function HomeRouteContent({ selectedProjectID }: Readonly<{ selectedProjectID: s
             });
           }}
           onCreateWorkflow={() => {
-            createWorkflow({ open, mode: sidebarMode });
+            createWorkflow({ open });
           }}
           onProjectSelect={(projectID) => {
             selectProject({ projectID, selectedProjectID, selectProject: navigation.selectHomeProject });
@@ -105,28 +103,18 @@ function HomeRouteContent({ selectedProjectID }: Readonly<{ selectedProjectID: s
           selectedCategory={selectedCategory}
           projectItems={projectItems}
           projectsQuery={projects}
-          sidebarMode={sidebarMode}
+
           selectedProjectID={selectedProjectID}
         />
         <section
           className="island-glass my-[var(--space-2)] mr-[var(--space-2)] min-h-0 overflow-hidden rounded-[var(--radius-xl)]"
           data-sidebar-protected-main
-          ref={mainPaneRef}
         >
           <OverlappingCrossfade contentKey={detailKey}>
             {selectedProjectID !== null ? (
-              <HomeProjectContent
-                key={selectedProjectID}
-                projectID={selectedProjectID}
-                sidebarMode={sidebarMode}
-              />
+              <HomeProjectContent key={selectedProjectID} projectID={selectedProjectID} />
             ) : (
-              <AttentionList
-                items={attentionItems}
-                model={model}
-                query={attention}
-                sidebarMode={sidebarMode}
-              />
+              <AttentionList items={attentionItems} model={model} query={attention} />
             )}
           </OverlappingCrossfade>
         </section>
@@ -138,18 +126,17 @@ function HomeRouteContent({ selectedProjectID }: Readonly<{ selectedProjectID: s
 type AttentionListProps = Readonly<{
   items: readonly AttentionItem[];
   query: ReturnType<typeof useGlobalAttentionPages>;
-  sidebarMode: SidebarMode;
   model: HomeViewModel;
 }>;
 
-function AttentionList({ items, query, sidebarMode, model }: AttentionListProps) {
+function AttentionList({ items, query, model }: AttentionListProps) {
   const { t } = useTranslation();
   const { open } = useOwnedSidebarRoots();
   const navigation = useAppNavigation();
   const openTask = useAtomSet(model.attentionTask);
   const openChat = useAtomSet(model.attentionChat);
   const onTaskDetail = useStableCallback((item: AttentionItem) => {
-    openTask({ item, open, mode: sidebarMode });
+    openTask({ item, open });
   });
   const onSessionChat = useStableCallback((target: Parameters<typeof navigation.openSessionChat>[0]) => {
     openChat({ target, open: navigation.openSessionChat });

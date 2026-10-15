@@ -25,6 +25,7 @@ const (
 )
 
 type ProviderClientOptions struct {
+	Debug        bool
 	Registration ProviderVariantRegistration
 	Model        string
 	ConnectionID *config.ConnectionID
@@ -351,6 +352,7 @@ func newResponsesHTTPTransport(opts ProviderClientOptions) (*HTTPTransport, erro
 		return nil, err
 	}
 	transport.ConnectionID = opts.ConnectionID
+	transport.Debug = opts.Debug
 	if opts.HTTPClient != nil {
 		transport.Client = opts.HTTPClient
 	}

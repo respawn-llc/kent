@@ -75,6 +75,7 @@ func NewRuntimeClient(ctx context.Context, factory RuntimeClientFactory, request
 		return nil, err
 	}
 	return llm.NewProviderClient(llm.ProviderClientOptions{
+		Debug:        active.Debug,
 		Registration: selected, Model: active.Model, Auth: connection.Auth,
 		ConnectionID:       &connection.ID,
 		HTTPClient:         llm.NewProviderHTTPClient(endpoint, time.Duration(active.Timeouts.ModelRequestSeconds)*time.Second),
