@@ -15,17 +15,24 @@ import (
 )
 
 type Service struct {
-	nano      *nano.Service
-	authority *sessionruntime.Authority
-	publish   func(context.Context, string)
-	failure   func(context.Context, string, error)
+	nano          *nano.Service
+	authority     *sessionruntime.Authority
+	publish       func(context.Context, string)
+	failure       func(context.Context, string, error)
+	resolveConfig func(string) (config.App, error)
 }
 
-func NewService(inference *nano.Service, authority *sessionruntime.Authority, publish func(context.Context, string), failure func(context.Context, string, error)) *Service {
-	return &Service{nano: inference, authority: authority, publish: publish, failure: failure}
+func NewService(inference *nano.Service, authority *sessionruntime.Authority, resolveConfig func(string) (config.App, error), publish func(context.Context, string), failure func(context.Context, string, error)) *Service {
+	return &Service{nano: inference, authority: authority, resolveConfig: resolveConfig, publish: publish, failure: failure}
 }
 
-func (s *Service) Submit(id runtimeids.SessionID, settings config.Settings, input runtime.SessionNamingInput) {
+func (s *Service) Submit(id runtimeids.SessionID, root string, input runtime.SessionNamingInput) {
+	app, err := s.resolveConfig(root)
+	if err != nil {
+		s.report(context.Background(), id.String(), err)
+		return
+	}
+	settings := app.Settings
 	if settings.Nano == nil || !settings.Nano.SessionNaming {
 		return
 	}

@@ -16,6 +16,7 @@ import (
 	"core/internal/testharness/testsetup"
 	"core/server/auth"
 	serverbootstrap "core/server/bootstrap"
+	"core/server/metadata"
 	"core/shared/config"
 	"core/shared/protoapi"
 	chatsettingspb "core/shared/protoapi/gen/kent/api/chat_settings"
@@ -24,11 +25,22 @@ import (
 	"core/shared/runtimeinput"
 	"core/shared/serverapi"
 	"core/shared/textutil"
+	"github.com/google/uuid"
 )
 
 func TestNamingContinuesAfterTurnAndCallerEnd(t *testing.T) {
+	testNamingAfterExecutionTargetChange(t, false)
+}
+
+func TestNamingOptOutAfterExecutionTargetChange(t *testing.T) {
+	testNamingAfterExecutionTargetChange(t, true)
+}
+
+func testNamingAfterExecutionTargetChange(t *testing.T, optOut bool) {
+	t.Helper()
 	nanoStarted := make(chan struct{})
 	releaseNano := make(chan struct{})
+	requests := make(chan string, 10)
 	endpoint := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		var request struct {
 			Model string `json:"model"`
@@ -36,6 +48,7 @@ func TestNamingContinuesAfterTurnAndCallerEnd(t *testing.T) {
 		if err := json.NewDecoder(r.Body).Decode(&request); err != nil {
 			t.Error(err)
 		}
+		requests <- request.Model
 		if request.Model == "gpt-6-luna" {
 			close(nanoStarted)
 			select {
@@ -50,7 +63,7 @@ func TestNamingContinuesAfterTurnAndCallerEnd(t *testing.T) {
 	}))
 	defer endpoint.Close()
 	root, workspace := t.TempDir(), t.TempDir()
-	body := fmt.Sprintf("model = \"gpt-6-sol\"\nconnection = \"local\"\n[connections.local]\nprotocol = \"responses\"\nendpoint = %q\n[nano]\nconnection = \"local\"\nmodel = \"gpt-6-luna\"\n", endpoint.URL)
+	body := fmt.Sprintf("model = \"gpt-6-sol\"\nconnection = \"local\"\n[connections.local]\nprotocol = \"responses\"\nendpoint = %q\n[nano]\nconnection = \"local\"\nmodel = \"gpt-6-sol\"\n[nano.features]\nsession_naming = %t\n", endpoint.URL, optOut)
 	if err := os.WriteFile(filepath.Join(root, "config.toml"), []byte(body), 0o600); err != nil {
 		t.Fatal(err)
 	}
@@ -61,6 +74,19 @@ func TestNamingContinuesAfterTurnAndCallerEnd(t *testing.T) {
 	meta := testsetup.OpenStore(t, root)
 	binding, err := meta.RegisterWorkspaceBinding(t.Context(), workspace)
 	if err != nil {
+		t.Fatal(err)
+	}
+	worktree, worktreeID := filepath.Join(root, "worktrees", "naming"), uuid.NewString()
+	if err := meta.UpsertWorktreeRecord(t.Context(), metadata.WorktreeRecord{
+		ID: worktreeID, WorkspaceID: binding.WorkspaceID, CanonicalRoot: worktree, Managed: true,
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(filepath.Join(worktree, ".kent"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	nanoConfig := fmt.Sprintf("[nano]\nmodel = \"gpt-6-luna\"\n[nano.features]\nsession_naming = %t\n", !optOut)
+	if err := os.WriteFile(filepath.Join(worktree, ".kent", "config.toml"), []byte(nanoConfig), 0o600); err != nil {
 		t.Fatal(err)
 	}
 	app := newCoreTestAppWithOptions(t, resolved.Config, auth.EmptyState(), Options{MetadataStore: meta})
@@ -93,6 +119,19 @@ func TestNamingContinuesAfterTurnAndCallerEnd(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	if err := meta.UpdateSessionExecutionTarget(t.Context(), metadata.SessionExecutionTargetUpdate{
+		SessionID: id, Workspace: &metadata.SessionExecutionTargetUpdateWorkspace{ID: binding.WorkspaceID},
+		Worktree: &metadata.SessionExecutionTargetUpdateWorktree{ID: worktreeID},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	target, err := meta.ResolveSessionExecutionTarget(t.Context(), id)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := app.bundles.Runtime.runtimeAuthority.SyncExecutionTarget(t.Context(), id, target, nil); err != nil {
+		t.Fatal(err)
+	}
 	input, err := protoapi.UserTurnInputToProto(runtimeinput.Text("Fix invoice totals"))
 	if err != nil {
 		t.Fatal(err)
@@ -102,6 +141,26 @@ func TestNamingContinuesAfterTurnAndCallerEnd(t *testing.T) {
 		SessionId: id, Input: input,
 	}); err != nil {
 		t.Fatal(err)
+	}
+	if optOut {
+		defer endCaller()
+		close(releaseNano)
+		if first := <-requests; first != "gpt-6-sol" {
+			t.Fatalf("main model = %s", first)
+		}
+		select {
+		case model := <-requests:
+			t.Fatalf("opted-out naming requested model %s", model)
+		case <-time.After(250 * time.Millisecond):
+		}
+		record, err := meta.ResolvePersistedSession(ctx, id)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if record.Meta.Name != nil {
+			t.Fatal("opted-out Session was named")
+		}
+		return
 	}
 	select {
 	case <-nanoStarted:

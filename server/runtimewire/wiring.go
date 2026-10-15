@@ -229,17 +229,11 @@ func NewRuntimeWiringWithBackground(
 	}
 	var namingConfig *runtime.SessionNamingConfig
 	meta := store.Meta()
-	if opts.SubmitSessionNaming != nil && meta.Name == nil && active.Nano != nil && active.Nano.SessionNaming &&
+	if opts.SubmitSessionNaming != nil && meta.Name == nil &&
 		(meta.ModelRequestCount == 0 || strings.TrimSpace(meta.FirstPromptPreview) != "") {
-		targets, err := llm.ResolveNanoTargets(active)
-		if err != nil {
-			return nil, err
-		}
-		window := 0
-		for _, target := range targets {
-			window = max(window, target.Settings.ModelContextWindow)
-		}
-		namingConfig = &runtime.SessionNamingConfig{MaxInputRunes: window * 4, Submit: opts.SubmitSessionNaming}
+		// Capture stays bounded independently of settings, which can change on
+		// Worktree enter/leave before the first Step. The consumer budgets again.
+		namingConfig = &runtime.SessionNamingConfig{MaxInputRunes: 10_000, Submit: opts.SubmitSessionNaming}
 		if strings.TrimSpace(meta.FirstPromptPreview) != "" {
 			namingConfig.ResumeTask = textutil.Value(meta.FirstPromptPreview)
 		}

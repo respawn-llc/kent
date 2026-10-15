@@ -17,7 +17,6 @@ import (
 	shelltool "core/server/tools/shell"
 	"core/server/workflow"
 	"core/server/workflowruntime"
-	"core/shared/config"
 	"core/shared/invariant"
 	"core/shared/runtimeids"
 )
@@ -27,20 +26,19 @@ var ErrExecutionNoLongerLive = errors.New("exact execution scope is no longer li
 var ErrAgentRuntimePlanRequired = errors.New("agent runtime plan is required")
 
 type AuthorityOptions struct {
-	ResolveWorkspaceConfig func(string) (config.App, error)
-	SubmitSessionNaming    func(runtimeids.SessionID, config.Settings, runtime.SessionNamingInput)
-	ConnectionRotation     *launch.ConnectionRotation
-	Environment            func(string) (string, bool)
-	WorkspaceMembership    runtimewire.WorkspaceMembership
-	Debug                  bool
-	PersistenceRoot        string
-	AuthManager            *auth.Manager
-	Background             *shelltool.Manager
-	StoreOptions           []session.StoreOption
-	EventFeed              AgentResourceEventFeed
-	ResourceLifecycle      AgentResourceLifecycle
-	StepLifecycle          AgentResourceStepLifecycle
-	PromptFeed             ExecutionPromptFeed
+	SubmitSessionNaming func(runtimeids.SessionID, string, runtime.SessionNamingInput)
+	ConnectionRotation  *launch.ConnectionRotation
+	Environment         func(string) (string, bool)
+	WorkspaceMembership runtimewire.WorkspaceMembership
+	Debug               bool
+	PersistenceRoot     string
+	AuthManager         *auth.Manager
+	Background          *shelltool.Manager
+	StoreOptions        []session.StoreOption
+	EventFeed           AgentResourceEventFeed
+	ResourceLifecycle   AgentResourceLifecycle
+	StepLifecycle       AgentResourceStepLifecycle
+	PromptFeed          ExecutionPromptFeed
 }
 
 type Authority struct {

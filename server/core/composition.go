@@ -131,9 +131,8 @@ func NewWithContextOptions(ctx context.Context, cfg config.App, authSupport serv
 	}
 	var namingConsumer *sessionnaming.Service
 	runtimeAuthority := sessionruntime.NewAuthority(sessionruntime.AuthorityOptions{
-		ResolveWorkspaceConfig: workspaceConfigResolver.Resolve,
-		SubmitSessionNaming: func(id runtimeids.SessionID, settings config.Settings, input runtime.SessionNamingInput) {
-			namingConsumer.Submit(id, settings, input)
+		SubmitSessionNaming: func(id runtimeids.SessionID, root string, input runtime.SessionNamingInput) {
+			namingConsumer.Submit(id, root, input)
 		},
 		ConnectionRotation:  connectionRotation,
 		Environment:         authSupport.Environment,
@@ -436,7 +435,7 @@ func NewWithContextOptions(ctx context.Context, cfg config.App, authSupport serv
 		chatOperationOwner:      chatOperationOwner,
 	})}
 	runtimeControlService.WithSessionSettingsPublisher(chatSettingsService{core: core})
-	namingConsumer = sessionnaming.NewService(nanoInference, runtimeAuthority, chatSettingsService{core: core}.PublishSessionSettings,
+	namingConsumer = sessionnaming.NewService(nanoInference, runtimeAuthority, workspaceConfigResolver.Resolve, chatSettingsService{core: core}.PublishSessionSettings,
 		func(ctx context.Context, id string, cause error) {
 			binding, err := metadataStore.ResolveSessionNavigationBinding(ctx, id)
 			if err == nil {

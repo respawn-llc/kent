@@ -50,6 +50,9 @@ func TestNamingSubagentResumeContext(t *testing.T) {
 			if err := initial.Close(); err != nil {
 				t.Fatal(err)
 			}
+			// Wiring captures the first Step independently of the current nano
+			// availability; the server consumer resolves settings at submission.
+			<-submitted
 			if missingPreview {
 				if err := store.SetListingMetadata(nil, ""); err != nil {
 					t.Fatal(err)
