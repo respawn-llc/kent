@@ -476,11 +476,7 @@ func workflowNodeAddSubcommand(args []string, stdout io.Writer, stderr io.Writer
 			fmt.Fprintln(stderr, err)
 			return 1
 		}
-		projected, err := workflowDocumentNode(added)
-		if err != nil {
-			fmt.Fprintln(stderr, err)
-			return 1
-		}
+		projected := workflowDocumentNode(added)
 		if *jsonOut {
 			return writeCommandJSON(stdout, stderr, workflowNodeOutput{WorkflowID: selector, NodeID: added.Id, Key: added.Key, Kind: projected.Kind, ScriptPath: added.ScriptPath, Version: result.Version})
 		}
@@ -540,11 +536,7 @@ func workflowNodeUpdateSubcommand(args []string, stdout io.Writer, stderr io.Wri
 			fmt.Fprintln(stderr, err)
 			return 1
 		}
-		projected, err := workflowDocumentNode(updated)
-		if err != nil {
-			fmt.Fprintln(stderr, err)
-			return 1
-		}
+		projected := workflowDocumentNode(updated)
 		if *jsonOut {
 			return writeCommandJSON(stdout, stderr, workflowNodeOutput{WorkflowID: selector, NodeID: updated.Id, Key: updated.Key, Kind: projected.Kind, ScriptPath: updated.ScriptPath, Version: result.Version})
 		}
@@ -694,11 +686,7 @@ func workflowEdgeAddSubcommand(args []string, stdout io.Writer, stderr io.Writer
 		if *jsonOut {
 			return writeCommandJSON(stdout, stderr, workflowEdgeOutput{WorkflowID: selector, EdgeID: added.Edge.Id, TransitionGroupID: added.Group.Id, Key: added.Edge.Key, TransitionID: added.Group.TransitionId, Version: result.Version})
 		}
-		projected, err := workflowDocumentEdge(added.Edge)
-		if err != nil {
-			fmt.Fprintln(stderr, err)
-			return 1
-		}
+		projected := workflowDocumentEdge(added.Edge)
 		fmt.Fprintf(stdout, "Added edge `%s` (%s) on transition `%s`: `%s` → `%s` (%s).\n", added.Edge.Key, added.Edge.Id, added.Group.TransitionId, *fromKey, *toKey, workflowEdgeContextDetail(projected.ContextMode, added.Edge.RequiresApproval, projected.ContextSource))
 		return 0
 	})
@@ -839,11 +827,7 @@ func workflowEdgeUpdateSubcommand(args []string, stdout io.Writer, stderr io.Wri
 		if *jsonOut {
 			return writeCommandJSON(stdout, stderr, workflowEdgeOutput{WorkflowID: selector, EdgeID: updated.Edge.Id, TransitionGroupID: updated.Group.Id, Key: updated.Edge.Key, TransitionID: updated.Group.TransitionId, Version: result.Version})
 		}
-		projected, err := workflowDocumentEdge(updated.Edge)
-		if err != nil {
-			fmt.Fprintln(stderr, err)
-			return 1
-		}
+		projected := workflowDocumentEdge(updated.Edge)
 		fmt.Fprintf(stdout, "Updated edge `%s`: `%s` → `%s` (%s).\n", updated.Edge.Key, updated.Group.TransitionId, updated.TargetNodeKey, workflowEdgeContextDetail(projected.ContextMode, updated.Edge.RequiresApproval, projected.ContextSource))
 		return 0
 	})

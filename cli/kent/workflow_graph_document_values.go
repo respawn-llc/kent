@@ -9,17 +9,11 @@ import (
 	"core/shared/textutil"
 )
 
-func workflowDocumentNode(node *pb.GraphDraftNode) (workflowGraphDocumentNode, error) {
-	kind, err := protoapi.WorkflowNodeKind.Decode(node.Kind)
-	if err != nil {
-		return workflowGraphDocumentNode{}, err
-	}
+func workflowDocumentNode(node *pb.GraphDraftNode) workflowGraphDocumentNode {
+	kind := protoapi.WorkflowNodeKind.FromProto(node.Kind)
 	var completion string
 	if node.CompletionMode != nil {
-		completion, err = protoapi.WorkflowCompletionMode.Decode(*node.CompletionMode)
-		if err != nil {
-			return workflowGraphDocumentNode{}, err
-		}
+		completion = protoapi.WorkflowCompletionMode.FromProto(*node.CompletionMode)
 	}
 	providers := make([]workflowJoinInputProviderJSON, 0, len(node.JoinInputProviders))
 	for _, provider := range node.JoinInputProviders {
@@ -29,23 +23,17 @@ func workflowDocumentNode(node *pb.GraphDraftNode) (workflowGraphDocumentNode, e
 		ID: node.Id, Key: node.Key, Kind: kind, DisplayName: node.DisplayName,
 		GroupID: node.GroupId, SubagentRole: node.GetSubagentRole(), CompletionMode: completion,
 		ScriptPath: node.ScriptPath, JoinInputProviders: providers,
-	}, nil
+	}
 }
 
-func workflowDocumentEdge(edge *pb.GraphDraftEdge) (workflowGraphDocumentEdge, error) {
-	assignee, assigneeErr := protoapi.WorkflowAssigneeSelection.Decode(edge.AssigneeSelection)
-	thinking, thinkingErr := protoapi.WorkflowThinkingSelection.Decode(edge.ThinkingSelection)
-	mode, modeErr := protoapi.WorkflowContextMode.Decode(edge.ContextMode)
-	source, sourceErr := protoapi.WorkflowContextSourceKind.Decode(edge.ContextSource.GetKind())
-	if err := errors.Join(assigneeErr, thinkingErr, modeErr, sourceErr); err != nil {
-		return workflowGraphDocumentEdge{}, err
-	}
+func workflowDocumentEdge(edge *pb.GraphDraftEdge) workflowGraphDocumentEdge {
+	assignee := protoapi.WorkflowAssigneeSelection.FromProto(edge.AssigneeSelection)
+	thinking := protoapi.WorkflowThinkingSelection.FromProto(edge.ThinkingSelection)
+	mode := protoapi.WorkflowContextMode.FromProto(edge.ContextMode)
+	source := protoapi.WorkflowContextSourceKind.FromProto(edge.ContextSource.Kind)
 	parameters := make([]workflowParameterJSON, 0, len(edge.Parameters))
 	for _, parameter := range edge.Parameters {
-		purpose, err := protoapi.WorkflowParameterPurpose.Decode(parameter.Purpose)
-		if err != nil {
-			return workflowGraphDocumentEdge{}, err
-		}
+		purpose := protoapi.WorkflowParameterPurpose.FromProto(parameter.Purpose)
 		parameters = append(parameters, workflowParameterJSON{Key: parameter.Key, Description: parameter.Description, Purpose: purpose})
 	}
 	return workflowGraphDocumentEdge{
@@ -53,7 +41,7 @@ func workflowDocumentEdge(edge *pb.GraphDraftEdge) (workflowGraphDocumentEdge, e
 		AssigneeSelection: assignee, ThinkingSelection: thinking, RequiresApproval: edge.RequiresApproval,
 		ContextMode: mode, ContextSource: workflowContextSourceJSON{Kind: source, NodeKey: edge.ContextSource.GetNodeKey()},
 		PromptTemplate: edge.PromptTemplate, Parameters: parameters,
-	}, nil
+	}
 }
 
 func workflowDocumentEdgeToProto(edge workflowGraphDocumentEdge) (*pb.GraphDraftEdge, error) {
