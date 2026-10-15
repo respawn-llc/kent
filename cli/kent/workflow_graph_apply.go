@@ -174,9 +174,9 @@ func saveWorkflowGraphApply(
 		)
 	}
 	validation, validationErr := workflowValidationResultsForCLI(response.ValidationResults)
-	impact, impactErr := workflowGraphImpactForCLI(response.Impact)
-	blockers, blockersErr := workflowGraphBlockersForCLI(response.Blockers)
-	if err := errors.Join(validationErr, impactErr, blockersErr); err != nil {
+	impact := workflowGraphImpactForCLI(response.Impact)
+	blockers := workflowGraphBlockersForCLI(response.Blockers)
+	if err := validationErr; err != nil {
 		return workflowGraphApplyFailure(workflowGraphApplyRequestFailed, workflowID, workflowGraphApplyPointer(response.CurrentVersion), err)
 	}
 	outcome := workflowGraphApplyOutcome{
