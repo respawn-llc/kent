@@ -591,10 +591,6 @@ func taskResumeSubcommand(args []string, stdout io.Writer, stderr io.Writer) int
 			fmt.Fprintln(stderr, err)
 			return 1
 		}
-		if err := protoapi.Validate(resp); err != nil {
-			fmt.Fprintln(stderr, err)
-			return 1
-		}
 		if selection := resp.GetSelectionRequired(); selection != nil {
 			writeWorkflowExecutionTargetSelectionRequired(stderr, selection)
 			return 1
@@ -714,10 +710,6 @@ func taskApproveSubcommand(args []string, stdout io.Writer, stderr io.Writer) in
 			}
 			return 1
 		}
-		if err := protoapi.Validate(resp); err != nil {
-			fmt.Fprintln(stderr, err)
-			return 1
-		}
 		applied := resp.GetApplied()
 		detail, err := getWorkflowTaskByID(context.Background(), remote, applied.TaskId)
 		if err != nil {
@@ -777,10 +769,6 @@ func taskMoveSubcommand(args []string, stdout io.Writer, stderr io.Writer) int {
 			TaskId: taskID, TargetNodeId: positionals[1],
 		})
 		if err != nil {
-			fmt.Fprintln(stderr, err)
-			return 1
-		}
-		if err := protoapi.Validate(preview); err != nil {
 			fmt.Fprintln(stderr, err)
 			return 1
 		}
@@ -863,12 +851,8 @@ func taskMoveSubcommand(args []string, stdout io.Writer, stderr io.Writer) int {
 			var setupErr *worktreecontract.SetupRetainedError
 			if errors.As(err, &setupErr) {
 				if *jsonOut {
-					output, err := taskSetupRetainedOutput(setupErr.Details)
-					if err != nil {
-						fmt.Fprintln(stderr, err)
-					} else {
-						_ = writeCommandJSON(stdout, stderr, output)
-					}
+					output := taskSetupRetainedOutput(setupErr.Details)
+					_ = writeCommandJSON(stdout, stderr, output)
 					return 1
 				}
 				guidance, projectionErr := projectRetainedSetupGuidance(recoveryArgs, executionTarget, setupErr)
@@ -899,10 +883,6 @@ func writeTaskMoveOutcome(
 	jsonOut bool,
 	recoveryCommand string,
 ) int {
-	if err := protoapi.Validate(resp); err != nil {
-		fmt.Fprintln(stderr, err)
-		return 1
-	}
 	output, err := taskMoveOutput(resp)
 	if err != nil {
 		fmt.Fprintln(stderr, err)
@@ -1246,9 +1226,6 @@ func taskMoveRecoveryArgs(taskRef, targetNode string, project, commentary, trans
 }
 
 func projectRetainedSetupGuidance(base []string, target *taskpb.ExecutionTargetSelection, setupErr *worktreecontract.SetupRetainedError) (taskSetupGuidance, error) {
-	if err := protoapi.Validate(setupErr.Details); err != nil {
-		return taskSetupGuidance{}, err
-	}
 	var selector *string
 	if target != nil {
 		value, err := taskExecutionTargetSelector(target)

@@ -652,17 +652,17 @@ func TestTaskMoveSetupRecoveryPreservesStructuredInput(t *testing.T) {
 		t.Fatalf("move setup guidance=%+v err=%v", guidance, err)
 	}
 	decoded.Details.Diagnostic = " "
-	if _, err := projectRetainedSetupGuidance(base, target, decoded); err == nil {
+	if err := protoapi.Validate(decoded.Details); err == nil {
 		t.Fatal("missing retained setup diagnostic accepted")
 	}
 	decoded.Details.Diagnostic = setupErr.Details.Diagnostic
 	decoded.Details.Worktree.Kent.CanonicalRoot = "/tmp/different"
-	if _, err := projectRetainedSetupGuidance(base, target, decoded); err == nil {
+	if err := protoapi.Validate(decoded.Details); err == nil {
 		t.Fatal("mismatched retained setup root accepted")
 	}
 	decoded.Details.Worktree.Kent.CanonicalRoot = decoded.Details.Worktree.Git.CanonicalRoot
 	decoded.Details.RetainedPreviousWorktree.Worktree.Kent.CanonicalRoot = "/tmp/different"
-	if _, err := projectRetainedSetupGuidance(base, target, decoded); err == nil {
+	if err := protoapi.Validate(decoded.Details); err == nil {
 		t.Fatal("mismatched previous retained setup root accepted")
 	}
 }
@@ -692,10 +692,7 @@ func TestTaskMoveReplacementSetupFailureRequiresFreshBranch(t *testing.T) {
 		}
 	}
 	var stdout, stderr bytes.Buffer
-	output, err := taskSetupRetainedOutput(setupErr.Details)
-	if err != nil {
-		t.Fatal(err)
-	}
+	output := taskSetupRetainedOutput(setupErr.Details)
 	if code := writeCommandJSON(&stdout, &stderr, output); code != 0 {
 		t.Fatalf("structured failure serialization = %d: %s", code, stderr.String())
 	}
