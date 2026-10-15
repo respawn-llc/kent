@@ -124,14 +124,18 @@ type Config struct {
 }
 
 type ReviewerConfig struct {
-	Frequency         string
-	Model             string
-	ThinkingLevel     string
-	ModelCapabilities session.LockedModelCapabilities
-	SystemPromptFile  *string
-	VerboseOutput     bool
-	Client            llm.Client
-	ClientFactory     func() (llm.Client, error)
+	Frequency               string
+	Model                   string
+	ThinkingLevel           string
+	ModelCapabilities       session.LockedModelCapabilities
+	SystemPromptFile        *string
+	VerboseOutput           bool
+	Client                  llm.Client
+	ClientFactory           func() (llm.Client, error)
+	InheritsConnection      bool
+	ConnectionClientFactory func(config.ConnectionID) (llm.Client, error)
+	ConnectionID            *config.ConnectionID
+	ResolveConnection       ConnectionResolver
 }
 
 type ContextUsage struct {
@@ -287,6 +291,9 @@ func New(
 		id: textutil.Pointer(cfg.ConnectionID), client: observedClient, estimator: cfg.TokenEstimator,
 		requestCapabilities: requestCapabilities, transportCapabilities: transportCapabilities,
 		rawImageOriginalDetail: cfg.RawImageOriginalDetail,
+	}
+	if cfg.Reviewer.InheritsConnection && reviewerState.client != nil {
+		reviewerState.connection = connection
 	}
 	cfg.ConnectionID = nil
 	cfg.TokenEstimator = nil

@@ -155,13 +155,13 @@ func NewRuntimeWiringWithBackground(
 		}
 	}
 
-	newReviewerClient := func() (llm.Client, error) {
+	newReviewerConnectionClient := func(selection *config.ConnectionSelection) (llm.Client, error) {
 		factory := opts.ClientFactory
 		if factory == nil {
 			factory = opts.ReviewerClientFactory
 		}
 		settings := active
-		settings.Connection = active.Reviewer.Connection
+		settings.Connection = selection
 		settings.Model = active.Reviewer.Model
 		settings.ThinkingLevel = active.Reviewer.ThinkingLevel
 		settings.ModelVerbosity = active.Reviewer.ModelVerbosity
@@ -175,6 +175,20 @@ func NewRuntimeWiringWithBackground(
 		}
 		return newClient(settings, RuntimeClientPurposeReviewer, factory, capabilities)
 	}
+	newReviewerClient := func() (llm.Client, error) {
+		return newReviewerConnectionClient(active.Reviewer.Connection)
+	}
+	var reviewerConnectionID *config.ConnectionID
+	if active.Reviewer.Connection != nil {
+		reviewerConnectionID, err = active.Reviewer.Connection.ConcreteID()
+		if err != nil {
+			return nil, err
+		}
+	}
+	reviewerOptions := opts
+	reviewerOptions.ConnectionScope = config.ConnectionScope{Selection: active.Reviewer.Connection}
+	reviewerSettings := active
+	reviewerSettings.Connection = active.Reviewer.Connection
 
 	var reviewerClient llm.Client
 	if strings.ToLower(strings.TrimSpace(active.Reviewer.Frequency)) != "off" {
@@ -273,14 +287,20 @@ func NewRuntimeWiringWithBackground(
 		GlobalConfigDir:                 opts.GlobalConfigDir,
 		WorkflowPreCompactionTokenLimit: config.ResolveWorkflowPreCompactionTokens(active),
 		Reviewer: runtime.ReviewerConfig{
-			Frequency:         active.Reviewer.Frequency,
-			Model:             active.Reviewer.Model,
-			ThinkingLevel:     active.Reviewer.ThinkingLevel,
-			ModelCapabilities: lockedModelCapabilitiesForConfig(active.Reviewer.Model, active.Reviewer.ModelCapabilities, llm.ProviderCapabilities{}, opts.Sources, "reviewer.model_capabilities.supports_reasoning_effort", "reviewer.model_capabilities.supports_vision_inputs"),
-			SystemPromptFile:  active.Reviewer.SystemPromptFile,
-			VerboseOutput:     active.Reviewer.VerboseOutput,
-			Client:            reviewerClient,
-			ClientFactory:     newReviewerClient,
+			Frequency:          active.Reviewer.Frequency,
+			Model:              active.Reviewer.Model,
+			ThinkingLevel:      active.Reviewer.ThinkingLevel,
+			ModelCapabilities:  lockedModelCapabilitiesForConfig(active.Reviewer.Model, active.Reviewer.ModelCapabilities, llm.ProviderCapabilities{}, opts.Sources, "reviewer.model_capabilities.supports_reasoning_effort", "reviewer.model_capabilities.supports_vision_inputs"),
+			SystemPromptFile:   active.Reviewer.SystemPromptFile,
+			VerboseOutput:      active.Reviewer.VerboseOutput,
+			Client:             reviewerClient,
+			ClientFactory:      newReviewerClient,
+			ConnectionID:       reviewerConnectionID,
+			ResolveConnection:  connectionMaterializer(store, reviewerSettings, reviewerOptions, newClient),
+			InheritsConnection: !opts.Sources["reviewer.connection"].Declares("reviewer.connection"),
+			ConnectionClientFactory: func(id config.ConnectionID) (llm.Client, error) {
+				return newReviewerConnectionClient(config.SingleConnection(id))
+			},
 		},
 		OnEvent:               opts.OnEvent,
 		StepLifecycle:         opts.StepLifecycle,

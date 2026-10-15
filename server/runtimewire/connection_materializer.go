@@ -31,7 +31,8 @@ func connectionMaterializer(
 				return nil, fmt.Errorf("exhausted connection identity is required")
 			}
 			rotation.RecordExhaustion(*request.Failed)
-			if *request.Failed != request.Current && !rotation.CoolingDown(request.Current) {
+			_, visited := request.Visited[request.Current]
+			if *request.Failed != request.Current && !visited && !rotation.CoolingDown(request.Current) {
 				return nil, nil
 			}
 		default:

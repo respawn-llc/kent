@@ -19,6 +19,7 @@ import (
 	"core/internal/testharness/scriptedllm"
 	"core/server/launch"
 	"core/server/llm"
+	"core/server/runtime"
 	"core/server/session"
 	"core/shared/config"
 	"core/shared/llmerrors"
@@ -65,7 +66,81 @@ func TestUsageFallbackContinuesAndSavesReplacement(t *testing.T) {
 	}
 }
 
+func TestUsageFallbackInheritedReviewerContinues(t *testing.T) {
+	testUsageFallbackReviewer(t, false)
+}
+
+func TestUsageFallbackExplicitReviewerStaysIsolated(t *testing.T) {
+	testUsageFallbackReviewer(t, true)
+}
+
+func testUsageFallbackReviewer(t *testing.T, explicit bool) {
+	healthy, err := blackbox.StartResponsesStub([]blackbox.RequiredOperation{
+		{ID: uuid.New(), Route: blackbox.RouteResponses, Outcome: blackbox.OutcomeStream, Output: textutil.Value("done"), ResponsePhase: blackbox.NewResponsePhase(blackbox.ResponsePhaseFinal)},
+		{ID: uuid.New(), Route: blackbox.RouteResponses, Outcome: blackbox.OutcomeStream, Output: textutil.Value(`{"suggestions":[]}`), ResponsePhase: blackbox.NewResponsePhase(blackbox.ResponsePhaseFinal)},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = healthy.Stop() })
+	target, err := url.Parse(healthy.URL())
+	if err != nil {
+		t.Fatal(err)
+	}
+	proxy := httputil.NewSingleHostReverseProxy(target)
+	var calls atomic.Int32
+	fault := usageExhaustionFixture(t)
+	a := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
+		if calls.Add(1) == 2 {
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusTooManyRequests)
+			_, _ = w.Write(fault)
+			return
+		}
+		proxy.ServeHTTP(w, req)
+	}))
+	t.Cleanup(a.Close)
+	reviewer := config.ReviewerSettings{Frequency: "all", Model: "operator-alias"}
+	if explicit {
+		reviewer.Connection = config.SingleConnection("a")
+	}
+	rotation := launch.NewConnectionRotation(time.Minute)
+	wiring, store := newUsageFallbackRuntimeWithReviewer(t, rotation, a.URL, healthy.URL(), config.CompactionModeLocal, reviewer)
+	if _, err := wiring.Engine.SubmitUserMessage(t.Context(), "hello"); err != nil {
+		t.Fatal(err)
+	}
+	deadline := time.NewTimer(10 * time.Second)
+	defer deadline.Stop()
+	tick := time.NewTicker(10 * time.Millisecond)
+	defer tick.Stop()
+	for wiring.Engine.ReviewerActive() {
+		select {
+		case <-deadline.C:
+			t.Fatal("Reviewer did not complete")
+		case <-tick.C:
+		}
+	}
+	wantID, wantRequests := config.ConnectionID("b"), 2
+	if explicit {
+		wantID, wantRequests = "a", 1
+	}
+	if got := store.Meta().ConnectionID; got == nil || *got != wantID {
+		_ = wiring.Engine.WithTranscriptHydrationSnapshot(func(value runtime.TranscriptHydrationSnapshot) error {
+			t.Logf("transcript %+v", value)
+			return nil
+		})
+		t.Fatalf("Reviewer replacement = %v, calls %d", got, calls.Load())
+	}
+	if !rotation.CoolingDown("a") || calls.Load() != 2 || len(healthy.Snapshot().Observed) != wantRequests {
+		t.Fatalf("requests = a %d, healthy %+v", calls.Load(), healthy.Snapshot().Observed)
+	}
+}
+
 func newUsageFallbackRuntime(t *testing.T, rotation *launch.ConnectionRotation, a, b string, mode config.CompactionMode, enabled ...toolspec.ID) (*RuntimeWiring, *session.Store) {
+	return newUsageFallbackRuntimeWithReviewer(t, rotation, a, b, mode, config.ReviewerSettings{Frequency: "off"}, enabled...)
+}
+
+func newUsageFallbackRuntimeWithReviewer(t *testing.T, rotation *launch.ConnectionRotation, a, b string, mode config.CompactionMode, reviewer config.ReviewerSettings, enabled ...toolspec.ID) (*RuntimeWiring, *session.Store) {
 	t.Helper()
 	root := t.TempDir()
 	store := newRuntimeWireSession(t, root, "usage-fallback")
@@ -92,7 +167,7 @@ func newUsageFallbackRuntime(t *testing.T, rotation *launch.ConnectionRotation, 
 		Model: "operator-alias", ModelContextWindow: 200000,
 		ModelVerbosity: config.ModelVerbosityHigh,
 		CompactionMode: mode,
-		Reviewer:       config.ReviewerSettings{Frequency: "off"},
+		Reviewer:       reviewer,
 		Timeouts:       config.Timeouts{ModelRequestSeconds: 5},
 		Shell:          config.ShellSettings{PostprocessingMode: config.ShellPostprocessingModeBuiltin},
 	}
@@ -101,6 +176,11 @@ func newUsageFallbackRuntime(t *testing.T, rotation *launch.ConnectionRotation, 
 		ConnectionRotation: rotation,
 		ConnectionScope:    config.ConnectionScope{Selection: &scope},
 	})
+	if reviewer.Connection != nil {
+		options.Sources = map[string]config.Origin{
+			"reviewer.connection": {Kind: config.SourceInput, Property: config.PropertyAddress{Key: "reviewer.connection"}},
+		}
+	}
 	if mode == config.CompactionModeNative {
 		t.Setenv("KENT_FALLBACK_TEST_KEY", "fixture-key")
 		for id := range settings.Connections {

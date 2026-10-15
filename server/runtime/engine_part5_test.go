@@ -174,6 +174,9 @@ func TestReviewerSuggestionsRequestInheritsFastMode(t *testing.T) {
 		Assistant: llm.Message{Role: llm.RoleAssistant, Content: textutil.Value("done"), Phase: textutil.Value(llm.MessagePhaseFinal)},
 		Usage:     llm.Usage{WindowTokens: 200000},
 	}}}
+	mainClient.caps = llm.ProviderCapabilities{
+		ProviderID: "openai", SupportsResponsesAPI: true, SupportsFastMode: true, IsOpenAIFirstParty: true,
+	}
 	reviewerClient := &fakeClient{responses: []llm.Response{{
 		Assistant: llm.Message{Role: llm.RoleAssistant, Content: textutil.Value(`{"suggestions":[]}`)},
 		Usage:     llm.Usage{WindowTokens: 200000},
