@@ -1,6 +1,6 @@
 ---
 title: Configuration
-description: Settings locations, precedence, CLI and environment overrides, and the full Kent config reference.
+description: Settings locations, precedence, CLI and environment overrides, and core configuration reference.
 ---
 
 ## Precedence
@@ -80,16 +80,6 @@ subagents = false # disables all workflow-agent delegation
 
 [skills]
 "skill name" = true
-
-[reviewer] # aka supervisor
-frequency = "edits"
-# model = "gpt-6-astra"
-# model_verbosity = "low"
-# connection = "local"
-# model_context_window = 64000
-timeout_seconds = 120
-verbose_output = false # set true to show complete supervisor suggestions in ongoing transcript
-# system_prompt_file = "~/.kent/reviewer_system_prompt.md"
 
 # Headless default role; new interactive TUI and Desktop Sessions use the top-level settings.
 [subagents.default]
@@ -177,50 +167,9 @@ A session's Thinking override takes precedence over its agent configuration and 
 | `workflow.use_required_tool_calls`         | bool   | `true`                                                       |                                                 | Uses provider-required tool selection for `tool` and `shell_command` workflow completion modes. Set to `false` to use automatic tool selection while preserving Kent's workflow completion validation. |
 | `workflow.subagents`                       | bool   | `false`                                                      |                                                 | Allows workflow agents to delegate to eligible roles, including `default` and `fast`.                                                                                                                  |
 
-### Nano inference
+### Nano and supervisor models
 
-Configure `[nano]` to enable automatic session naming. Set an explicit connection and model. Nano uses the selected connection's endpoint and authentication, with independent model controls.
-
-```toml
-[nano]
-connection = ["subscription"]
-model = "gpt-6-luna"
-timeout_seconds = 120
-concurrency = 5
-
-[nano.features]
-session_naming = true # Set false to disable automatic naming.
-```
-
-`connection` accepts one connection ID or an array of equivalent connections. Arrays share the normal connection rotation. Put `nano.concurrency` in the global configuration only. It limits simultaneous nano calls across all workspaces. Calls wait for a slot, with at most 100 waiting calls. `timeout_seconds` starts after admission and includes retries.
-
-For models with an unknown context window, set `nano.model_context_window` to the provider's actual token limit. The minimum is 2,500 tokens. An unknown window without an override is a configuration error.
-
-Optional controls are `nano.thinking_level`, `nano.model_verbosity`, and `nano.model_capabilities.supports_reasoning_effort` / `supports_vision_inputs`. Omitted thinking uses the model catalog default, or `medium` when the catalog has none. Omitted verbosity uses the provider default.
-
-### Supervisor
-
-Configure the supervisor agent that reviews model changes.
-
-| Key                             | Type            | Default                         | Env                                  | Description                                                                                                                                                 |
-| ------------------------------- | --------------- | ------------------------------- | ------------------------------------ | ----------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `reviewer.frequency`            | string          | `edits`                         | `KENT_REVIEWER_FREQUENCY`            | Allowed: `off`, `all`, `edits`. `all` runs the reviewer after every completed assistant turn. `edits` runs it only after successful first-class file edits. |
-| `reviewer.model`                | string          | inherits `model`                | `KENT_REVIEWER_MODEL`                | Separate model for the reviewer pass. If unset, Kent uses main `model`.                                                                                     |
-| `reviewer.thinking_level`       | string          | inherits `thinking_level`       | `KENT_REVIEWER_THINKING_LEVEL`       |                                                                                                                                                             | Thinking level override for supervisor, provider/model-dependent. |
-| `reviewer.model_verbosity`      | string          | inherits `model_verbosity`      | `KENT_REVIEWER_MODEL_VERBOSITY`      | Text verbosity hint for supported reviewer models. Allowed: `""`, `low`, `medium`, `high`.                                                                  |
-| `reviewer.model_context_window` | int             | inherits `model_context_window` | `KENT_REVIEWER_MODEL_CONTEXT_WINDOW` | Explicit reviewer context-window size sent to the reviewer provider. The effective value must be at least `40000`.                                          |
-| `reviewer.system_prompt_file`   | optional string | unset                           |                                      | Selected custom Supervisor prompt file, resolved relative to its supplying configuration file. Omission inherits the main setting. Empty paths are invalid. |
-| `reviewer.timeout_seconds`      | int             | `120`                           | `KENT_REVIEWER_TIMEOUT_SECONDS`      | Reviewer HTTP timeout. Must be `> 0`.                                                                                                                       |
-| `reviewer.verbose_output`       | bool            | `false`                         | `KENT_REVIEWER_VERBOSE_OUTPUT`       | Controls only whether the TUI shows you full Reviewer feedback.                                                                                             |
-
-### Supervisor model capabilities
-
-Use `reviewer.model_capabilities` for custom supervisor models. Provider capability overrides belong to the supervisor's selected connection.
-
-| Key (inside `reviewer.model_capabilities.*`) | Type | Default                                                 | Env                                                          | Description                                                          |
-| -------------------------------------------- | ---- | ------------------------------------------------------- | ------------------------------------------------------------ | -------------------------------------------------------------------- |
-| `supports_reasoning_effort`                  | bool | inherits `model_capabilities.supports_reasoning_effort` | `KENT_REVIEWER_MODEL_CAPABILITIES_SUPPORTS_REASONING_EFFORT` | Allows Kent to send reasoning-effort settings to the reviewer model. |
-| `supports_vision_inputs`                     | bool | inherits `model_capabilities.supports_vision_inputs`    | `KENT_REVIEWER_MODEL_CAPABILITIES_SUPPORTS_VISION_INPUTS`    | Allows Kent to send image and PDF inputs to the reviewer model.      |
+See [Nano, Supervisor, and Decision models](../auxiliary-models/) for usage and the `[nano]` and `[reviewer]` configuration reference.
 
 ### Model capability overrides
 
