@@ -253,6 +253,33 @@ func TestNewSessionGoalUsesOrdinaryRemoteAdmission(t *testing.T) {
 	if known.err != nil || known.setResult == nil || known.setResult.GetMutation() == nil {
 		t.Fatalf("known unobserved Goal: result=%v error=%v", known.setResult, known.err)
 	}
+	model.Update(known)
+	for _, step := range []struct {
+		operation goalRuntimeOperation
+		status    runtimepb.GoalStatus
+	}{
+		{goalRuntimePause, runtimepb.GoalStatus_RUNTIME_GOAL_STATUS_PAUSED},
+		{goalRuntimeResume, runtimepb.GoalStatus_RUNTIME_GOAL_STATUS_ACTIVE},
+	} {
+		result := model.goalRuntimeCommand(step.operation, "")().(goalRuntimeDoneMsg)
+		if result.err != nil || result.mutation == nil {
+			t.Fatalf("unobserved operation %v: mutation=%v error=%v", step.operation, result.mutation, result.err)
+		}
+		model.Update(result)
+		shown := model.goalRuntimeCommand(goalRuntimeShow, "")().(goalRuntimeDoneMsg)
+		if shown.err != nil || shown.goal.GetGoal().GetStatus() != step.status {
+			t.Fatalf("unobserved persisted Goal: goal=%v error=%v", shown.goal, shown.err)
+		}
+	}
+	cleared := model.goalRuntimeCommand(goalRuntimeClear, "")().(goalRuntimeDoneMsg)
+	if cleared.err != nil || cleared.mutation == nil {
+		t.Fatalf("unobserved clear: mutation=%v error=%v", cleared.mutation, cleared.err)
+	}
+	model.Update(cleared)
+	shown := model.goalRuntimeCommand(goalRuntimeShow, "")().(goalRuntimeDoneMsg)
+	if shown.err != nil || goalIsPresent(shown.goal) {
+		t.Fatalf("cleared Goal still present: goal=%v error=%v", shown.goal, shown.err)
+	}
 }
 
 func TestNewSessionConfirmedWorktreeCreateKeepsSessionOnSetupFailure(t *testing.T) {

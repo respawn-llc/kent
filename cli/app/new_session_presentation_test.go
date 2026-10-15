@@ -239,6 +239,13 @@ func TestNewSessionSettingsEditsStayLocal(t *testing.T) {
 	if model.statusConfig.Settings.ModelContextWindow != fixture.config.Settings.ModelContextWindow {
 		t.Fatalf("New status context window = %d, want %d", model.statusConfig.Settings.ModelContextWindow, fixture.config.Settings.ModelContextWindow)
 	}
+	model.statusRefreshCmd()
+	snapshot := model.status.snapshot
+	capacity := fixture.config.Settings.ModelContextWindow
+	if snapshot.Context.WindowTokens != capacity || snapshot.Context.AvailableTokens != capacity ||
+		snapshot.Context.UsedTokens != 0 || snapshot.CompactionCount != 0 {
+		t.Fatalf("New status context = %+v, compactions = %d; want unused capacity %d", snapshot.Context, snapshot.CompactionCount, capacity)
+	}
 	selected := !*initial.QuestionsEnabled
 	model.chatSettingsMutationCommand(&chatsettingspb.MutationOperation{
 		Operation: &chatsettingspb.MutationOperation_QuestionsEnabled{QuestionsEnabled: selected},

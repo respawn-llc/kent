@@ -3,7 +3,6 @@ package app
 import runtimepb "core/shared/protoapi/gen/kent/api/runtime"
 
 import (
-	"context"
 	"strings"
 
 	"core/cli/app/commands"
@@ -249,24 +248,11 @@ func (m *uiModel) goalRuntimeCommandFor(
 	mutationSerial := m.goalRuntimeMutationSerial
 	if client == nil {
 		if _, known := m.presentationTarget.(uiKnownSessionTarget); known {
-			target := m.knownChatTarget()
-			transport := chatActionTransport{actions: m.chatMutations, goals: m.chatMutations}
-			controls := m.sessionControls
-			return func() tea.Msg {
-				msg := goalRuntimeDoneMsg{token: token, sessionID: sessionID, mutationSerial: mutationSerial, operation: operation, objective: objective}
-				if operation == goalRuntimeSet {
-					result := transport.execute(context.Background(), target, nil, chatGoalAction{objective: objective})
-					msg.setResult, msg.err = result.goal, result.err
-				} else if operation == goalRuntimeCheckSet {
-					response, err := runtimeGoalCall(func(ctx context.Context) (*runtimepb.GoalShowSuccess, error) {
-						return controls.ShowGoal(ctx, &runtimepb.GoalShowRequest{SessionId: target.GetSession().SessionId})
-					})
-					msg.err = err
-					if err == nil {
-						msg.goal = runtimeGoalFromResponse(response)
-					}
-				}
-				return msg
+			client = &sessionRuntimeClient{
+				sessionID:     sessionID,
+				controls:      m.sessionControls,
+				chatMutations: m.chatMutations,
+				goalSet:       m.chatMutations,
 			}
 		}
 	}
