@@ -23,7 +23,6 @@ import (
 	"core/shared/boundedio"
 	"core/shared/clientui"
 	"core/shared/config"
-	"core/shared/invariant"
 	"core/shared/protoapi"
 	"core/shared/runtimeids"
 	"core/shared/serverapi"
@@ -1871,10 +1870,6 @@ func nonblankPointer(value string) *string {
 func (s *Service) CreateWorktree(ctx context.Context, req *worktreepb.CreateRequest) (resp *worktreepb.CreateSuccess, err error) {
 	defer func() {
 		if err == nil {
-			return
-		}
-		if contractErr := protoapi.ValidateWorktreeCreateErrorBoundary(err, "worktree.create", invariant.NewPolicy()); contractErr != nil {
-			err = contractErr
 			return
 		}
 		if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {

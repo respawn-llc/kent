@@ -236,20 +236,3 @@ func (e *CreateContractError) Unwrap() error {
 }
 
 func (e *CreateContractError) Is(target error) bool { return target == ErrWorktreeCreateContract }
-
-func ValidateCreateError(err error, operation string) error {
-	var typed *CreateError
-	if !errors.As(err, &typed) {
-		return nil
-	}
-	if validationErr := typed.Validate(); validationErr != nil {
-		var owner *CreateErrorOwner
-		if typed != nil {
-			owner = &typed.Owner
-		}
-		return &CreateContractError{
-			Operation: strings.TrimSpace(operation), Owner: owner, Cause: validationErr,
-		}
-	}
-	return nil
-}
