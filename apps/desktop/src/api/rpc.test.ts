@@ -47,6 +47,7 @@ import { WorktreeError } from "./clientWorktree";
 import { ApiClient } from "./client";
 import { unexpectedProjectOverflow } from "@/test-support/api";
 import { searchTasks } from "./clientTaskSearch";
+import { deferred } from "@/test-support/chat-runtime";
 
 class MockWebSocket extends EventTarget {
   static readonly CONNECTING = 0;
@@ -1113,14 +1114,6 @@ function malformedBinaryAck(socket: MockWebSocket, sentIndex: number): void {
 async function flushPromises(): Promise<void> {
   await Promise.resolve();
   await Promise.resolve();
-}
-
-function deferred<Value>() {
-  let resolve!: (value: Value) => void;
-  const promise = new Promise<Value>((resolvePromise) => {
-    resolve = resolvePromise;
-  });
-  return { promise, resolve };
 }
 
 async function waitForSent(socket: MockWebSocket, count: number): Promise<void> {

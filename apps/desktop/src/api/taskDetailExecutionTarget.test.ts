@@ -5,6 +5,7 @@ import { AttentionCurrentNodeSchema } from "@app/server-api-contract/gen/kent/ap
 import { ExecutionTargetMode } from "@app/server-api-contract/gen/kent/api/workflow_definition/workflow_definition_pb";
 import { taskDetailResponse } from "@/test-support/task-detail";
 import { FakeRpcTransport, unexpectedProjectOverflow } from "@/test-support/api";
+import { requireValue } from "@/test-support/chat-runtime";
 import { ApiClient } from "./client";
 
 async function getTask(task: pb.TaskDetail) {
@@ -136,8 +137,3 @@ describe("task detail execution target contract", () => {
     ).rejects.toThrow();
   });
 });
-
-function requireValue<Value>(value: Value | undefined): Value {
-  if (value === undefined) throw new Error("Expected test fixture value is missing.");
-  return value;
-}

@@ -1,7 +1,7 @@
-import { readdir, mkdtemp, rmdir, stat, unlink, writeFile } from "node:fs/promises";
+import { mkdtemp, rmdir, unlink, writeFile } from "node:fs/promises";
 import { spawn } from "node:child_process";
 import { tmpdir } from "node:os";
-import { basename, isAbsolute, join, relative, resolve, sep } from "node:path";
+import { format, join, parse } from "node:path";
 import { runtimeTypeScriptPaths, protocolVersion } from "./runtimeConfiguration";
 
 const desktopRoot = process.cwd();
@@ -13,11 +13,30 @@ if (workerCount === undefined || !Number.isSafeInteger(workerCount) || workerCou
   throw new Error("Desktop test launch requires a positive Just worker count.");
 }
 
-const testRoots = ["src", "packages", "tooling"];
-const plainTests = await discoverTests(testRoots, ".test.ts");
-const browserTests = await discoverTests(testRoots, ".test.tsx");
-const { selectors, runnerArguments } = splitTestArguments(testArguments);
-const selectedTests = await selectTests([...plainTests, ...browserTests], selectors);
+const commonPathIgnorePatterns = [
+  "test/**",
+  "eslint-fixtures/**",
+  "**/node_modules/**",
+  "**/dist/**",
+  "**/gen/**",
+  "**/*.spec.*",
+  "**/*_spec.*",
+  "**/*_test.*",
+  "**/*.test.js",
+  "**/*.test.jsx",
+  "**/*.test.mjs",
+  "**/*.test.cjs",
+  "**/*.test.mts",
+  "**/*.test.cts",
+] as const;
+const environments = [
+  { name: "plain", preloads: ["./test/commonSetup.ts"], excludedPatterns: ["**/*.test.tsx"] },
+  {
+    name: "browser",
+    preloads: ["./test/commonSetup.ts", "./test/setup.ts"],
+    excludedPatterns: ["**/*.test.ts"],
+  },
+] as const;
 const temporaryDirectory = await mkdtemp(join(tmpdir(), "kent-desktop-tests-"));
 const tsconfigPath = join(temporaryDirectory, "tsconfig.json");
 const tsconfig = {
@@ -33,20 +52,7 @@ let configCreated = false;
 try {
   await writeFile(tsconfigPath, JSON.stringify(tsconfig));
   configCreated = true;
-  for (const environment of [
-    {
-      tests: selectedTests.filter((path) => path.endsWith(".test.ts")),
-      preloads: ["./test/commonSetup.ts"],
-    },
-    {
-      tests: selectedTests.filter((path) => path.endsWith(".test.tsx")),
-      preloads: ["./test/commonSetup.ts", "./test/setup.ts"],
-    },
-  ]) {
-    if (environment.tests.length === 0) continue;
-    const testFiles = environment.tests.map(
-      (path) => `./${relative(desktopRoot, path).split(sep).join("/")}`,
-    );
+  for (const environment of environments) {
     const exitCode = await runBunTest([
       `--parallel=${workerCount.toString()}`,
       "--isolate",
@@ -54,8 +60,10 @@ try {
       ...environment.preloads.map((preload) => `--preload=${preload}`),
       `--define=__KENT_PROTOCOL_VERSION__=${JSON.stringify(protocolVersion)}`,
       "--define=import.meta.env=globalThis.__KENT_TEST_ENV__",
-      ...runnerArguments,
-      ...testFiles,
+      ...commonPathIgnorePatterns.map((pattern) => `--path-ignore-patterns=${pattern}`),
+      ...environment.excludedPatterns.map((pattern) => `--path-ignore-patterns=${pattern}`),
+      "--pass-with-no-tests",
+      ...callerArgumentsForEnvironment(testArguments, environment.name),
     ]);
     if (exitCode !== 0 && failureCode === 0) {
       failureCode = exitCode;
@@ -68,127 +76,45 @@ try {
 
 process.exitCode = failureCode;
 
-async function discoverTests(roots: readonly string[], suffix: string): Promise<string[]> {
-  const files: string[] = [];
-  async function visit(directory: string): Promise<void> {
-    const entries = await readdir(directory, { withFileTypes: true });
-    for (const entry of entries) {
-      const path = join(directory, entry.name);
-      if (entry.isDirectory()) {
-        if (entry.name !== "dist" && entry.name !== "gen" && entry.name !== "node_modules") {
-          await visit(path);
-        }
-      } else if (entry.isFile() && entry.name.endsWith(suffix)) {
-        files.push(path);
-      }
-    }
-  }
-
-  for (const root of roots) {
-    await visit(join(desktopRoot, root));
-  }
-  return files.sort();
-}
-
-function splitTestArguments(arguments_: readonly string[]): Readonly<{
-  runnerArguments: string[];
-  selectors: string[];
-}> {
-  const optionsWithValues = new Set([
-    "-t",
-    "--bail",
-    "--coverage-dir",
-    "--coverage-reporter",
-    "--max-concurrency",
-    "--parallel",
-    "--parallel-delay",
-    "--path-ignore-patterns",
-    "--reporter",
-    "--reporter-outfile",
-    "--rerun-each",
-    "--retry",
-    "--seed",
-    "--shard",
-    "--test-name-pattern",
-    "--timeout",
-    "--timings",
-  ]);
-  const runnerArguments: string[] = [];
-  const selectors: string[] = [];
+function callerArgumentsForEnvironment(
+  arguments_: readonly string[],
+  environment: (typeof environments)[number]["name"],
+): string[] {
+  const result: string[] = [];
   for (let index = 0; index < arguments_.length; index += 1) {
     const argument = arguments_[index];
-    if (argument === undefined) {
+    if (argument === undefined) continue;
+    if (argument === "--reporter-outfile") {
+      const path = arguments_[index + 1];
+      if (path === undefined) {
+        result.push(argument);
+        continue;
+      }
+      result.push(argument, environmentReportPath(path, environment));
+      index += 1;
       continue;
     }
-    if (!argument.startsWith("-")) {
-      selectors.push(argument);
+    const reporterOutfilePrefix = "--reporter-outfile=";
+    if (argument.startsWith(reporterOutfilePrefix)) {
+      const path = argument.slice(reporterOutfilePrefix.length);
+      result.push(
+        path.length === 0 ? argument : `${reporterOutfilePrefix}${environmentReportPath(path, environment)}`,
+      );
       continue;
     }
-    runnerArguments.push(argument);
-    if (argument.includes("=") || !optionsWithValues.has(argument)) continue;
-    const value = arguments_[index + 1];
-    if (value === undefined) {
-      throw new Error(`Desktop test option ${argument} requires a value.`);
-    }
-    runnerArguments.push(value);
-    index += 1;
+    result.push(argument);
   }
-  return { runnerArguments, selectors };
+  return result;
 }
 
-async function selectTests(allTests: readonly string[], selectors: readonly string[]): Promise<string[]> {
-  if (selectors.length === 0) return [...allTests];
-  const selectedTests = new Set<string>();
-  for (const selector of selectors) {
-    await addSelectorMatches(allTests, selectedTests, selector);
-  }
-  if (selectedTests.size === 0) {
-    throw new Error(`No Desktop test files matched: ${selectors.join(", ")}`);
-  }
-  return [...selectedTests].sort();
-}
-
-async function addSelectorMatches(
-  allTests: readonly string[],
-  selectedTests: Set<string>,
-  selector: string,
-): Promise<void> {
-  const absoluteSelector = resolve(desktopRoot, selector);
-  const selectorInfo = await readPathInfo(absoluteSelector);
-  if (selectorInfo?.isDirectory()) {
-    addDirectoryTests(allTests, selectedTests, absoluteSelector);
-  } else if (selectorInfo?.isFile()) {
-    if (allTests.includes(absoluteSelector)) selectedTests.add(absoluteSelector);
-  } else if (basename(selector) === selector) {
-    for (const testPath of allTests) {
-      if (basename(testPath) === selector) selectedTests.add(testPath);
-    }
-  }
-}
-
-async function readPathInfo(path: string) {
-  try {
-    return await stat(path);
-  } catch (error) {
-    if (error instanceof Error && "code" in error && error.code === "ENOENT") return undefined;
-    throw error;
-  }
-}
-
-function addDirectoryTests(allTests: readonly string[], selectedTests: Set<string>, directory: string): void {
-  for (const testPath of allTests) {
-    const pathFromDirectory = relative(directory, testPath);
-    if (isWithinDirectory(pathFromDirectory)) selectedTests.add(testPath);
-  }
-}
-
-function isWithinDirectory(pathFromDirectory: string): boolean {
-  return (
-    pathFromDirectory.length > 0 &&
-    pathFromDirectory !== ".." &&
-    !pathFromDirectory.startsWith(`..${sep}`) &&
-    !isAbsolute(pathFromDirectory)
-  );
+function environmentReportPath(path: string, environment: (typeof environments)[number]["name"]): string {
+  const parsedPath = parse(path);
+  return format({
+    root: parsedPath.root,
+    dir: parsedPath.dir,
+    name: `${parsedPath.name}.${environment}`,
+    ext: parsedPath.ext,
+  });
 }
 
 async function runBunTest(arguments_: readonly string[]): Promise<number> {
