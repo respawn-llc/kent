@@ -9,6 +9,7 @@ import (
 	"core/shared/config"
 	"core/shared/llmerrors"
 	"core/shared/textutil"
+	"core/shared/transcript"
 )
 
 type ConnectionSelectionReason uint8
@@ -90,6 +91,12 @@ func (e *Engine) selectConnection(ctx context.Context, stepID string, request Co
 	e.transcriptState.chatProjection().bindTokenEstimator(next.estimator)
 	e.mu.Unlock()
 	notice := config.ConnectionReplacement{Previous: *current.id, Current: replacement.ID}
+	if err := e.steer(stepID, steerLocalEntryIntent(storedLocalEntry{
+		Visibility: transcript.EntryVisibilityOngoing, Role: string(transcript.EntryRoleSystem),
+		ConnectionFallback: &notice,
+	})); err != nil {
+		return nil, err
+	}
 	event := Event{Kind: EventConnectionReplaced, ConnectionReplacement: &notice}
 	if err := e.steer(stepID, steeringIntent{
 		priority: steeringPriorityRuntimeEvent,

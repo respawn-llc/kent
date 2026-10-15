@@ -7,6 +7,7 @@ import (
 	"strings"
 
 	"core/server/llm"
+	"core/shared/llmerrors"
 	"core/shared/modelcontract"
 	"core/shared/runtimeids"
 	"core/shared/transcript"
@@ -243,6 +244,11 @@ func (e *Engine) applyReviewerProviderResult(
 ) error {
 	originProvenance := steeringProvenance{exactStep: &prepared.originStepID}
 	if result.err != nil {
+		var unavailable *llmerrors.ConnectionsUnavailableError
+		if errors.As(result.err, &unavailable) {
+			_, feedback := runtimeErrorFeedback(result.err)
+			return e.steerOrdered(originProvenance, feedback)
+		}
 		return e.steerOrdered(
 			originProvenance,
 			steerReviewerErrorIntent(result.err.Error()),

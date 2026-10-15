@@ -143,6 +143,8 @@ enum NoticeReason {
   NOTICE_REASON_PROVIDER_MODEL_MISMATCH = 6;
   NOTICE_REASON_THINKING_UPDATE = 7;
   NOTICE_REASON_REASONING_OMISSION = 8;
+  NOTICE_REASON_CONNECTION_FALLBACK = 9;
+  NOTICE_REASON_CONNECTIONS_UNAVAILABLE = 10;
 }
 
 enum NoticeSeverity {
@@ -459,6 +461,16 @@ message ReasoningOmission {
   int32 count = 1 [(buf.validate.field).int32.gte = 1];
 }
 
+message UnavailableConnection {
+  string id = 1 [(buf.validate.field).string.min_len = 1];
+  optional google.protobuf.Timestamp available_at = 2;
+}
+
+message ConnectionsUnavailable {
+  repeated UnavailableConnection members = 1 [(buf.validate.field).repeated.min_items = 1];
+  repeated string diagnostics = 2;
+}
+
 message BackgroundNoticeIdentity {
   string activity_id = 1 [
     (buf.validate.field).string.uuid = true,
@@ -505,6 +517,8 @@ message NoticeRow {
   optional string compact_label = 15 [(buf.validate.field).string.min_len = 1];
   optional ProviderModelMismatch provider_model_mismatch = 16;
   optional ReasoningOmission reasoning_omission = 19;
+  optional ConnectionReplacement connection_fallback = 20;
+  optional ConnectionsUnavailable connections_unavailable = 21;
   optional string thinking_effort = 18 [
     (buf.validate.field).string.min_len = 1,
     (buf.validate.field).cel = {

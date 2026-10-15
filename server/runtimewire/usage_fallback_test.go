@@ -25,6 +25,7 @@ import (
 	"core/shared/llmerrors"
 	"core/shared/textutil"
 	"core/shared/toolspec"
+	"core/shared/transcript"
 
 	"github.com/google/uuid"
 )
@@ -49,6 +50,19 @@ func TestUsageFallbackContinuesAndSavesReplacement(t *testing.T) {
 	}
 	if got := reopened.Meta().ConnectionID; got == nil || *got != "b" {
 		t.Fatalf("saved connection = %v", got)
+	}
+	page, err := runtime.TranscriptNewestSegmentPageFromEventLog(materializedRuntimeWireEventLog(t, reopened), config.CacheWarningModeDefault)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var notices []config.ConnectionReplacement
+	for _, entry := range page.Snapshot.Entries {
+		if entry.ConnectionFallback != nil {
+			notices = append(notices, *entry.ConnectionFallback)
+		}
+	}
+	if len(notices) != 1 || notices[0].Previous != "a" || notices[0].Current != "b" {
+		t.Fatalf("reopened fallback notices = %+v", notices)
 	}
 	if exhaustedCalls.Load() != 1 || len(healthy.Snapshot().Observed) != 1 {
 		t.Fatalf("requests = exhausted %d, healthy %+v", exhaustedCalls.Load(), healthy.Snapshot().Observed)
@@ -250,6 +264,20 @@ func TestUsageFallbackUnavailableIsBoundedAfterCooldownExpires(t *testing.T) {
 	}
 	if aCalls.Load() != 1 || bCalls.Load() != 1 {
 		t.Fatalf("attempts = a %d, b %d", aCalls.Load(), bCalls.Load())
+	}
+	var facts *transcript.ConnectionsUnavailableNotice
+	if err := wiring.Engine.WithTranscriptHydrationSnapshot(func(snapshot runtime.TranscriptHydrationSnapshot) error {
+		for _, row := range snapshot.CommittedRows {
+			if row.Notice != nil && row.Notice.ConnectionsUnavailable != nil {
+				facts = row.Notice.ConnectionsUnavailable
+			}
+		}
+		return nil
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if facts == nil || len(facts.Members) != 2 || len(facts.Diagnostics) != 2 {
+		t.Fatalf("unavailable notice facts = %+v", facts)
 	}
 }
 

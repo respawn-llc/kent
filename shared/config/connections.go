@@ -70,6 +70,10 @@ type ConnectionReplacement struct {
 	Current  ConnectionID
 }
 
+func (r ConnectionReplacement) Valid() bool {
+	return r.Previous != "" && r.Current != "" && r.Previous != r.Current
+}
+
 // ConnectionScope retains the configured selector independently of a Session's
 // concrete binding. An unavailable role is reported only if replacement is needed.
 type ConnectionScope struct {

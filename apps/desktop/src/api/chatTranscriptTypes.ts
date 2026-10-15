@@ -112,6 +112,8 @@ export type ChatNotice = Readonly<{
     | "tool_output_repair"
     | "provider_model_mismatch"
     | "reasoning_omission"
+    | "connection_fallback"
+    | "connections_unavailable"
     | "thinking_update";
   Severity: "info" | "warning" | "error";
   MessageType?: string | null;
@@ -135,6 +137,11 @@ export type ChatNotice = Readonly<{
   ToolOutputRepair?: Readonly<{ kind: "fresh_resource" | "live_provider_rejection"; count: number }> | null;
   ProviderModelMismatch?: Readonly<{ requested_model: string; served_model: string }> | null;
   ReasoningOmission?: Readonly<{ count: number }> | null;
+  ConnectionFallback?: Readonly<{ previous_id: string; current_id: string }> | null;
+  ConnectionsUnavailable?: Readonly<{
+    members: readonly Readonly<{ id: string; available_at: number | null }>[];
+    diagnostics: readonly string[];
+  }> | null;
   Diagnostic?: ChatDiagnostic | null;
   Background?: Readonly<{ ActivityID: string; ProcessID: string; ExitCode?: number | null }> | null;
   CondensedText?: string | null;

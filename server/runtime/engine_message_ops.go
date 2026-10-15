@@ -359,7 +359,7 @@ func normalizeStoredLocalEntry(entry storedLocalEntry) (storedLocalEntry, error)
 	if entry.Role == "" {
 		return storedLocalEntry{}, errors.New("role is required")
 	}
-	if entry.Text == "" && entry.ToolOutputRepair == nil && entry.ProviderModelMismatch == nil && entry.ReasoningOmission == nil {
+	if entry.Text == "" && entry.ToolOutputRepair == nil && entry.ProviderModelMismatch == nil && entry.ReasoningOmission == nil && entry.ConnectionFallback == nil && entry.ConnectionsUnavailable == nil {
 		return storedLocalEntry{}, errors.New("text or typed notice facts are required")
 	}
 	if entry.ToolOutputRepair != nil && !entry.ToolOutputRepair.Valid() {
@@ -370,6 +370,22 @@ func normalizeStoredLocalEntry(entry storedLocalEntry) (storedLocalEntry, error)
 	}
 	if entry.ReasoningOmission != nil && !entry.ReasoningOmission.Valid() {
 		return storedLocalEntry{}, errors.New("reasoning omission facts are invalid")
+	}
+	if entry.ConnectionFallback != nil {
+		if !entry.ConnectionFallback.Valid() {
+			return storedLocalEntry{}, errors.New("connection fallback identities are invalid")
+		}
+		if entry.ToolOutputRepair != nil || entry.ProviderModelMismatch != nil || entry.ReasoningOmission != nil {
+			return storedLocalEntry{}, errors.New("local entry cannot carry multiple typed notice facts")
+		}
+	}
+	if entry.ConnectionsUnavailable != nil {
+		if !entry.ConnectionsUnavailable.Valid() {
+			return storedLocalEntry{}, errors.New("unavailable connection facts are invalid")
+		}
+		if entry.ToolOutputRepair != nil || entry.ProviderModelMismatch != nil || entry.ReasoningOmission != nil || entry.ConnectionFallback != nil {
+			return storedLocalEntry{}, errors.New("local entry cannot carry multiple typed notice facts")
+		}
 	}
 	if entry.ToolOutputRepair != nil && entry.ProviderModelMismatch != nil ||
 		entry.ReasoningOmission != nil && (entry.ToolOutputRepair != nil || entry.ProviderModelMismatch != nil) {
@@ -382,15 +398,17 @@ func localEntryChatEntry(entry storedLocalEntry) *ChatEntry {
 	condensedText, _ := textutil.OptionalExact(entry.CondensedText)
 	noticeID, _ := textutil.OptionalExact(entry.NoticeID)
 	return &ChatEntry{
-		Visibility:            normalizeRuntimeEntryVisibility(entry.Visibility),
-		Role:                  strings.TrimSpace(entry.Role),
-		Text:                  strings.TrimSpace(entry.Text),
-		DurationMs:            textutil.Pointer(entry.DurationMs),
-		CondensedText:         condensedText,
-		NoticeID:              noticeID,
-		ToolOutputRepair:      textutil.Pointer(entry.ToolOutputRepair),
-		ProviderModelMismatch: textutil.Pointer(entry.ProviderModelMismatch),
-		ReasoningOmission:     textutil.Pointer(entry.ReasoningOmission),
+		Visibility:             normalizeRuntimeEntryVisibility(entry.Visibility),
+		Role:                   strings.TrimSpace(entry.Role),
+		Text:                   strings.TrimSpace(entry.Text),
+		DurationMs:             textutil.Pointer(entry.DurationMs),
+		CondensedText:          condensedText,
+		NoticeID:               noticeID,
+		ToolOutputRepair:       textutil.Pointer(entry.ToolOutputRepair),
+		ProviderModelMismatch:  textutil.Pointer(entry.ProviderModelMismatch),
+		ReasoningOmission:      textutil.Pointer(entry.ReasoningOmission),
+		ConnectionFallback:     textutil.Pointer(entry.ConnectionFallback),
+		ConnectionsUnavailable: textutil.Pointer(entry.ConnectionsUnavailable),
 	}
 }
 

@@ -1,16 +1,21 @@
 package transcript
 
-import "strings"
+import (
+	"core/shared/llmerrors"
+	"strings"
+)
 
 const (
-	NoticeReasonCacheWarning          = "cache_warning"
-	NoticeReasonCompaction            = "compaction"
-	NoticeReasonLegacyUntypedNotice   = "legacy_untyped_notice"
-	NoticeReasonRuntimeDiagnostic     = "runtime_diagnostic"
-	NoticeReasonToolOutputRepair      = "tool_output_repair"
-	NoticeReasonProviderModelMismatch = "provider_model_mismatch"
-	NoticeReasonThinkingUpdate        = "thinking_update"
-	NoticeReasonReasoningOmission     = "reasoning_omission"
+	NoticeReasonCacheWarning           = "cache_warning"
+	NoticeReasonCompaction             = "compaction"
+	NoticeReasonLegacyUntypedNotice    = "legacy_untyped_notice"
+	NoticeReasonRuntimeDiagnostic      = "runtime_diagnostic"
+	NoticeReasonToolOutputRepair       = "tool_output_repair"
+	NoticeReasonProviderModelMismatch  = "provider_model_mismatch"
+	NoticeReasonThinkingUpdate         = "thinking_update"
+	NoticeReasonReasoningOmission      = "reasoning_omission"
+	NoticeReasonConnectionFallback     = "connection_fallback"
+	NoticeReasonConnectionsUnavailable = "connections_unavailable"
 
 	NoticeSeverityInfo    = "info"
 	NoticeSeverityWarning = "warning"
@@ -36,6 +41,23 @@ type ProviderModelMismatchNotice struct {
 
 type ReasoningOmissionNotice struct {
 	Count int `json:"count"`
+}
+
+type ConnectionsUnavailableNotice struct {
+	Members     []llmerrors.UnavailableConnection `json:"members"`
+	Diagnostics []string                          `json:"diagnostics"`
+}
+
+func (n ConnectionsUnavailableNotice) Valid() bool {
+	if len(n.Members) == 0 {
+		return false
+	}
+	for _, member := range n.Members {
+		if member.ID == "" {
+			return false
+		}
+	}
+	return true
 }
 
 func (n ReasoningOmissionNotice) Valid() bool {

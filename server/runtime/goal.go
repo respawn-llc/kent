@@ -10,6 +10,7 @@ import (
 	"core/prompts"
 	"core/server/llm"
 	"core/server/session"
+	"core/shared/llmerrors"
 	"core/shared/runtimeids"
 	"core/shared/toolspec"
 	"core/shared/transcript"
@@ -643,6 +644,17 @@ func (e *Engine) steerRuntimeErrorFeedback(err error) (string, error) {
 }
 
 func runtimeErrorFeedback(err error) (string, steeringIntent) {
+	var unavailable *llmerrors.ConnectionsUnavailableError
+	if errors.As(err, &unavailable) {
+		notice := &transcript.ConnectionsUnavailableNotice{Members: unavailable.Members}
+		for _, cause := range unavailable.Causes {
+			notice.Diagnostics = append(notice.Diagnostics, cause.Error())
+		}
+		return err.Error(), steerLocalEntryIntent(storedLocalEntry{
+			Visibility: transcript.EntryVisibilityAuto, Role: string(transcript.EntryRoleDeveloperErrorFeedback),
+			ConnectionsUnavailable: notice,
+		})
+	}
 	message := strings.TrimSpace(llm.UserFacingError(err))
 	if message == "" {
 		message = err.Error()
