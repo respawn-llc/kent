@@ -262,26 +262,7 @@ func seedThinkingFact(fact *capabilitypb.ThinkingDefaultFact, levels []string) (
 }
 
 func validateOnboardingFacts(facts *capabilitypb.Facts) error {
-	for index, fact := range facts.GetModels().GetKnownModels() {
-		if err := validateModelFactDimensions(fmt.Sprintf("facts.models.known_models[%d]", index), fact); err != nil {
-			return err
-		}
-	}
-	if err := validateModelFactDimensions("facts.models.unknown_fallback", facts.GetModels().GetUnknownFallback()); err != nil {
-		return err
-	}
 	return validateOnboardingImportFacts(facts.GetImports())
-}
-
-func validateModelFactDimensions(field string, fact *capabilitypb.ModelFact) error {
-	for index, level := range fact.GetVerbosity().GetLevels() {
-		switch strings.TrimSpace(level) {
-		case string(config.ModelVerbosityLow), string(config.ModelVerbosityMedium), string(config.ModelVerbosityHigh):
-		default:
-			return conversionError(fmt.Sprintf("%s.verbosity.levels[%d]", field, index), level, "unsupported verbosity")
-		}
-	}
-	return nil
 }
 
 func validateOnboardingImportFacts(facts *capabilitypb.ImportFacts) error {

@@ -42,3 +42,12 @@ func TestCapabilityThinkingLevelsAreSubstantive(t *testing.T) {
 		}
 	}
 }
+
+func TestCapabilityVerbosityLevels(t *testing.T) {
+	for _, level := range []string{"low", " medium ", "high", " \t", "custom"} {
+		valid := level == "low" || level == " medium " || level == "high"
+		if err := protoapi.Validate(&pb.ModelVerbosityFact{Source: "catalog", Levels: []string{level}}); (err == nil) != valid {
+			t.Errorf("level %q acceptance = %v", level, err)
+		}
+	}
+}

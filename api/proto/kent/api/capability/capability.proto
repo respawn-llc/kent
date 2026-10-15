@@ -35,7 +35,14 @@ message ModelLargeWindowFact {
 message ModelVerbosityFact {
   bool supported = 1;
   string source = 2 [(buf.validate.field).string.min_len = 1];
-  repeated string levels = 3 [(buf.validate.field).repeated.items.string.min_len = 1];
+  repeated string levels = 3 [
+    (buf.validate.field).repeated.items.string.min_len = 1,
+    (buf.validate.field).cel = {
+      id: "kent.capability.verbosity_levels"
+      message: "verbosity levels must be low, medium or high"
+      expression: "this.all(level, level.trim() in ['low', 'medium', 'high'])"
+    }
+  ];
 }
 
 message ModelFact {

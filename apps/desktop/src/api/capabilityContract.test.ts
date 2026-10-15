@@ -1,11 +1,27 @@
 import { create, validate } from "@app/server-api-contract";
-import { ModelFactSchema, ModelFactsSchema } from "@app/server-api-contract/gen/kent/api/capability/capability_pb";
+import {
+  ModelFactSchema,
+  ModelFactsSchema,
+  ModelVerbosityFactSchema,
+} from "@app/server-api-contract/gen/kent/api/capability/capability_pb";
 
 describe("Capability model facts", () => {
+  it("accepts only the existing trimmed verbosity levels", () => {
+    for (const level of ["low", " medium ", "high", " \t", "custom"]) {
+      const fact = create(ModelVerbosityFactSchema, { source: "catalog", levels: [level] });
+      if (level === "low" || level === " medium " || level === "high") {
+        expect(() => validate(ModelVerbosityFactSchema, fact)).not.toThrow();
+      } else {
+        expect(() => validate(ModelVerbosityFactSchema, fact)).toThrow();
+      }
+    }
+  });
+
   it("requires substantive thinking levels without changing whitespace normalization", () => {
     for (const level of [" \t", "\u0085", " high ", "\uFEFF"]) {
       const fact = create(ModelFactSchema, {
-        supportedThinkingLevels: [level], verbosity: { source: "catalog" },
+        supportedThinkingLevels: [level],
+        verbosity: { source: "catalog" },
       });
       if (level === " high " || level === "\uFEFF") {
         expect(() => validate(ModelFactSchema, fact)).not.toThrow();
