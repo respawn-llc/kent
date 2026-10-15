@@ -623,7 +623,7 @@ func (r *RuntimeRegistry) PublishWorktreeTransitionOutcome(sessionID string, out
 	if r == nil {
 		return
 	}
-	if err := outcome.Validate(); err != nil {
+	if err := outcome.ValidateSourceDiagnostic(); err != nil {
 		panic(fmt.Sprintf("publish invalid worktree transition outcome for session %q: %v", strings.TrimSpace(sessionID), err))
 	}
 	entry := r.authorityEntryBySession(sessionID)
