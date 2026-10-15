@@ -110,6 +110,11 @@ func NewLiveRunGroupID() LiveRunGroupID {
 
 type RunID struct{ uuidv4Value }
 
+func RunIDFromProto(raw string) (RunID, error) {
+	id, err := uuidv4ValueFromProto(raw)
+	return RunID{uuidv4Value: id}, err
+}
+
 func ParseRunID(raw string) (RunID, error) {
 	id, err := parseUUIDv4Value(raw, "run_id")
 	return RunID{uuidv4Value: id}, err
@@ -150,6 +155,11 @@ func NewAssistantStreamID() AssistantStreamID {
 }
 
 type BackgroundActivityID struct{ uuidv4Value }
+
+func BackgroundActivityIDFromProto(raw string) (BackgroundActivityID, error) {
+	id, err := uuidv4ValueFromProto(raw)
+	return BackgroundActivityID{uuidv4Value: id}, err
+}
 
 func ParseBackgroundActivityID(raw string) (BackgroundActivityID, error) {
 	id, err := parseUUIDv4Value(raw, "background_activity_id")

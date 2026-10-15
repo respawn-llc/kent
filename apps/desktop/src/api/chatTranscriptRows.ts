@@ -6,7 +6,7 @@ import type {
   ChatReasoningIdentity,
   ChatWebSearchDetail,
 } from "./chatTranscriptTypes";
-import { enumValue, required, safeNumber } from "./chatWire";
+import { enumValue, safeNumber } from "./chatWire";
 import { timestampMillis } from "./clientTime";
 import { toolPresentation } from "./chatToolPresentation";
 import { ContractError } from "./errors";
@@ -140,12 +140,9 @@ function noticeDiagnostics(
   ChatNotice,
   "ToolOutputRepair" | "ProviderModelMismatch" | "ReasoningOmission" | "Diagnostic" | "Background"
 > {
-  const repairKind = value.toolOutputRepair?.kind;
-  if (repairKind !== undefined && repairKind !== "fresh_resource" && repairKind !== "live_provider_rejection")
-    throw new ContractError("Tool output repair kind is invalid.");
   return {
     ToolOutputRepair:
-      repairKind === undefined ? null : { kind: repairKind, count: required(value.toolOutputRepair).count },
+      value.toolOutputRepair === undefined ? null : toolOutputRepair(value.toolOutputRepair),
     ProviderModelMismatch:
       value.providerModelMismatch === undefined
         ? null
@@ -165,6 +162,13 @@ function noticeDiagnostics(
             ExitCode: value.background.exitCode === undefined ? null : safeNumber(value.background.exitCode),
           },
   };
+}
+
+function toolOutputRepair(value: T.ToolOutputRepair): NonNullable<ChatNotice["ToolOutputRepair"]> {
+  const kind = value.kind;
+  if (kind !== "fresh_resource" && kind !== "live_provider_rejection")
+    throw new ContractError("Tool output repair kind is invalid.");
+  return { kind, count: value.count };
 }
 
 export function committedRow(value: T.CommittedRowValid): ChatCommittedRow {

@@ -451,15 +451,15 @@ func transcriptBackgroundActivity(evt runtime.BackgroundShellEvent) (*transcript
 	default:
 		return nil, fmt.Errorf("runtime background activity has unknown lifecycle %q: process_id=%q activity_id=%q", evt.Type, evt.ID, evt.ActivityID)
 	}
-	activityID, err := runtimeids.ParseBackgroundActivityID(evt.ActivityID.String())
+	activityID, err := runtimeids.BackgroundActivityIDFromProto(evt.ActivityID.String())
 	if err != nil {
 		return nil, err
 	}
-	runID, err := runtimeids.ParseRunID(strings.TrimSpace(evt.OwnerRunID))
+	runID, err := runtimeids.RunIDFromProto(strings.TrimSpace(evt.OwnerRunID))
 	if err != nil {
 		return nil, err
 	}
-	stepID, err := runtimeids.ParseStepID(strings.TrimSpace(evt.OwnerStepID))
+	stepID, err := runtimeids.StepIDFromProto(strings.TrimSpace(evt.OwnerStepID))
 	if err != nil {
 		return nil, err
 	}
@@ -489,15 +489,15 @@ func TranscriptBackgroundActivitiesFromProcessSnapshots(
 		if !snapshot.Running || !snapshot.Backgrounded || strings.TrimSpace(snapshot.OwnerSessionID) != sessionID {
 			continue
 		}
-		activityID, err := runtimeids.ParseBackgroundActivityID(snapshot.ActivityID.String())
+		activityID, err := runtimeids.BackgroundActivityIDFromProto(snapshot.ActivityID.String())
 		if err != nil {
 			return nil, fmt.Errorf("background process %q activity id: %w", snapshot.ID, err)
 		}
-		runID, err := runtimeids.ParseRunID(snapshot.OwnerRunID)
+		runID, err := runtimeids.RunIDFromProto(snapshot.OwnerRunID)
 		if err != nil {
 			return nil, fmt.Errorf("background process %q owner run id: %w", snapshot.ID, err)
 		}
-		stepID, err := runtimeids.ParseStepID(snapshot.OwnerStepID)
+		stepID, err := runtimeids.StepIDFromProto(snapshot.OwnerStepID)
 		if err != nil {
 			return nil, fmt.Errorf("background process %q owner step id: %w", snapshot.ID, err)
 		}
