@@ -222,18 +222,14 @@ func projectSettings(req *onboardingpb.FinalizeRequest, settings config.Settings
 }
 
 func modelChoiceValue(choice *onboardingpb.ModelChoice) (string, error) {
-	switch choice.Kind {
-	case onboardingpb.ModelKind_MODEL_KIND_KNOWN:
+	if choice.Kind == onboardingpb.ModelKind_MODEL_KIND_KNOWN {
 		model := strings.TrimSpace(choice.GetModelId())
 		if _, ok := llm.LookupModelCapabilityContract(model); !ok {
 			return "", invalidRequest("model.model_id", "unknown_model")
 		}
 		return model, nil
-	case onboardingpb.ModelKind_MODEL_KIND_CUSTOM:
-		return strings.TrimSpace(choice.GetAlias()), nil
-	default:
-		return "", invalidRequest("model.kind", "unsupported_value")
 	}
+	return strings.TrimSpace(choice.GetAlias()), nil
 }
 
 func applyContextWindow(settings *config.Settings, model string, choice *onboardingpb.ContextWindowChoice) error {
@@ -254,8 +250,6 @@ func applyContextWindow(settings *config.Settings, model string, choice *onboard
 		settings.ModelContextWindow = *meta.LargeContextWindowTokens
 	case onboardingpb.ContextWindowKind_CONTEXT_WINDOW_KIND_CUSTOM:
 		settings.ModelContextWindow = int(choice.GetTokens())
-	default:
-		return invalidRequest("context_window.kind", "unsupported_value")
 	}
 	settings.ContextCompactionThresholdTokens = settings.ModelContextWindow * 95 / 100
 	return nil
@@ -276,11 +270,8 @@ func thinkingChoiceValue(choice *onboardingpb.ThinkingChoice, model, defaultEffo
 			return "", invalidRequest(field+".level", "unsupported_for_model")
 		}
 		return level, nil
-	case onboardingpb.ThinkingKind_THINKING_KIND_CUSTOM:
-		return strings.TrimSpace(choice.GetValue()), nil
-	default:
-		return "", invalidRequest(field+".kind", "unsupported_value")
 	}
+	return strings.TrimSpace(choice.GetValue()), nil
 }
 
 func applySupervisor(settings *config.Settings, preserved map[string]bool, choice *onboardingpb.SupervisorChoice) error {
@@ -429,9 +420,6 @@ func executeSelection(ctx context.Context, ledger *mutationLedger, choices []onb
 	if selection == nil || selection.Mode == onboardingpb.ImportMode_IMPORT_MODE_NONE {
 		return nil
 	}
-	if selection.Mode != onboardingpb.ImportMode_IMPORT_MODE_SYMLINK_SOURCE {
-		return invalidRequest(string(kind)+"_import.mode", "unsupported_value")
-	}
 	choice, err := selectedImportChoice(choices, discoveryErrors, selection, kind)
 	if err != nil {
 		return err
@@ -444,7 +432,10 @@ func executeSelection(ctx context.Context, ledger *mutationLedger, choices []onb
 		return serverapi.NewOnboardingCanceledError(serverapi.OnboardingCancelImporting)
 	}
 	if err := executeSymlink(ledger, target, sourceRoot); err != nil {
-		providerUUID, _ := selectionProviderUUID(selection)
+		providerUUID, conversionErr := selectionProviderUUID(selection)
+		if conversionErr != nil {
+			return errors.Join(err, conversionErr)
+		}
 		return serverapi.NewOnboardingFinalizeError(serverapi.OnboardingFinalizeImportFailed, serverapi.OnboardingImportFailedDetails{
 			ImportKind: kind, ProviderUUID: providerUUID, ImportProviderID: selection.ImportProviderId, SourceRootPath: selection.SourceRootPath, Operation: serverapi.OnboardingImportOperationCreateSymlink, Cause: err.Error(),
 		}, err)
@@ -455,8 +446,8 @@ func executeSelection(ctx context.Context, ledger *mutationLedger, choices []onb
 func selectedImportChoice(choices []onboardingimports.Choice, discoveryErrors []onboardingimports.Error, selection *onboardingpb.ImportSelection, kind serverapi.OnboardingImportKind) (onboardingimports.Choice, error) {
 	if selection.ProviderUuid != nil {
 		providerUUID, err := uuid.Parse(*selection.ProviderUuid)
-		if err != nil || providerUUID.Version() != 4 {
-			return onboardingimports.Choice{}, invalidRequest(string(kind)+"_import.provider_uuid", "uuid_v4_required")
+		if err != nil {
+			return onboardingimports.Choice{}, err
 		}
 		providerID, ok := importProviderIDForUUID(providerUUID)
 		if !ok {
@@ -563,7 +554,10 @@ func discoveryError(discoveryErr onboardingimports.Error) error {
 }
 
 func importDiscoveryFailed(selection *onboardingpb.ImportSelection, kind serverapi.OnboardingImportKind, err error) error {
-	providerUUID, _ := selectionProviderUUID(selection)
+	providerUUID, conversionErr := selectionProviderUUID(selection)
+	if conversionErr != nil {
+		return errors.Join(err, conversionErr)
+	}
 	return serverapi.NewOnboardingFinalizeError(serverapi.OnboardingFinalizeImportFailed, serverapi.OnboardingImportFailedDetails{
 		ImportKind: kind, ProviderUUID: providerUUID, ImportProviderID: selection.ImportProviderId, SourceRootPath: selection.SourceRootPath, Operation: serverapi.OnboardingImportOperationDiscover, Cause: err.Error(),
 	}, err)
@@ -575,7 +569,11 @@ func importUnavailable(selection *onboardingpb.ImportSelection, kind serverapi.O
 		if selection.Mode == onboardingpb.ImportMode_IMPORT_MODE_NONE {
 			details.Mode = serverapi.OnboardingImportModeNone
 		}
-		details.ProviderUUID, _ = selectionProviderUUID(selection)
+		providerUUID, err := selectionProviderUUID(selection)
+		if err != nil {
+			return err
+		}
+		details.ProviderUUID = providerUUID
 		details.ImportProviderID = selection.ImportProviderId
 		details.SourceRootPath = selection.SourceRootPath
 	}
