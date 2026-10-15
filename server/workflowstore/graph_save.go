@@ -498,12 +498,6 @@ func prepareWorkflowGraphSave(workflowID runtimeids.WorkflowID, displayName stri
 		group.Key = workflow.ModelKey(strings.TrimSpace(string(group.Key)))
 		group.DisplayName = strings.TrimSpace(group.DisplayName)
 		group.SortOrder = int64(i * 100)
-		if groupsByID[group.ID] {
-			return preparedWorkflowGraphSave{}, workflow.Definition{}, fmt.Errorf("duplicate workflow node group id %q", group.ID)
-		}
-		if existingID, exists := groupsByKey[group.Key]; exists {
-			return preparedWorkflowGraphSave{}, workflow.Definition{}, fmt.Errorf("duplicate workflow node group key %q between %q and %q", group.Key, existingID, group.ID)
-		}
 		groupsByID[group.ID] = true
 		groupsByKey[group.Key] = group.ID
 		prepared.nodeGroups[i] = group

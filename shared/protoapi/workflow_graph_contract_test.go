@@ -53,3 +53,27 @@ func TestWorkflowSaveGroupsRequireSubstantiveIdentity(t *testing.T) {
 		}
 	}
 }
+
+func TestWorkflowSavedGroupIdentitiesAreUniqueAfterNormalization(t *testing.T) {
+	for _, test := range []struct {
+		groups []*pb.GraphDraftNodeGroup
+		valid bool
+	}{
+		{groups: []*pb.GraphDraftNodeGroup{{Id: " a ", Key: " x "}, {Id: "b", Key: "y"}}, valid: true},
+		{groups: []*pb.GraphDraftNodeGroup{{Id: " a ", Key: "x"}, {Id: "a", Key: "y"}}},
+		{groups: []*pb.GraphDraftNodeGroup{{Id: "a", Key: " x "}, {Id: "b", Key: "x"}}},
+	} {
+		graph := &pb.GraphDraft{NodeGroups: test.groups}
+		if err := protoapi.Validate(graph); err != nil {
+			t.Fatalf("reportable draft rejected: %v", err)
+		}
+		for _, request := range []proto.Message{
+			&pb.GraphSaveRequest{WorkflowId: "11111111-1111-4111-8111-111111111111", Graph: graph},
+			&pb.GraphSavePreviewRequest{WorkflowId: "11111111-1111-4111-8111-111111111111", Graph: graph},
+		} {
+			if err := protoapi.Validate(request); (err == nil) != test.valid {
+				t.Errorf("%T groups %+v acceptance = %v", request, test.groups, err)
+			}
+		}
+	}
+}

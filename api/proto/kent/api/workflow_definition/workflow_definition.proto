@@ -1142,6 +1142,13 @@ message GraphDeriveWiringSuccess {
 
 message GraphSavePreviewRequest {
   option (buf.validate.message).cel = {
+    id: "kent.workflow_definition.save_preview_group_identity_unique"
+    message: "saved node group IDs and keys must be unique after normalization"
+    expression:
+      "this.graph.node_groups.map(group, group.id.trim()).unique() && "
+      "this.graph.node_groups.map(group, group.key.trim()).unique()"
+  };
+  option (buf.validate.message).cel = {
     id: "kent.workflow_definition.save_preview_group_identity"
     message: "saved node groups require substantive IDs and keys"
     expression: "this.graph.node_groups.all(group, group.id.trim() != '' && group.key.trim() != '')"
@@ -1159,6 +1166,13 @@ message GraphSavePreviewRequest {
 }
 
 message GraphSaveRequest {
+  option (buf.validate.message).cel = {
+    id: "kent.workflow_definition.save_group_identity_unique"
+    message: "saved node group IDs and keys must be unique after normalization"
+    expression:
+      "this.graph.node_groups.map(group, group.id.trim()).unique() && "
+      "this.graph.node_groups.map(group, group.key.trim()).unique()"
+  };
   option (buf.validate.message).cel = {
     id: "kent.workflow_definition.save_group_identity"
     message: "saved node groups require substantive IDs and keys"

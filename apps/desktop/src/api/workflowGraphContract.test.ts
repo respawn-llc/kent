@@ -30,6 +30,24 @@ describe("Workflow draft group-key resolution", () => {
 });
 
 describe("Workflow saved group identity", () => {
+  it("requires normalized IDs and keys to be unique only at Save and Preview", () => {
+    for (const { nodeGroups, valid } of [
+      { nodeGroups: [{ id: " a ", key: " x " }, { id: "b", key: "y" }], valid: true },
+      { nodeGroups: [{ id: " a ", key: "x" }, { id: "a", key: "y" }], valid: false },
+      { nodeGroups: [{ id: "a", key: " x " }, { id: "b", key: "x" }], valid: false },
+    ]) {
+      const graph = create(GraphDraftSchema, { nodeGroups });
+      expect(() => validate(GraphDraftSchema, graph)).not.toThrow();
+      for (const schema of [GraphSaveRequestSchema, GraphSavePreviewRequestSchema]) {
+        const request = create(schema, { workflowId: "11111111-1111-4111-8111-111111111111", graph });
+        if (valid) {
+          expect(() => validate(schema, request)).not.toThrow();
+        } else {
+          expect(() => validate(schema, request)).toThrow();
+        }
+      }
+    }
+  });
   it("requires substantive normalized IDs and keys only at Save and Preview", () => {
     for (const { id, key, valid } of [
       { id: " group-id ", key: " group-key ", valid: true },
