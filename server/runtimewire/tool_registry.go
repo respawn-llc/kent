@@ -41,7 +41,7 @@ type LocalToolRuntimeContext struct {
 	EstimateText                    func(string) int
 	AllowNonCwdEdits                bool
 	SupportsVision                  func() bool
-	RawImageOriginalDetail          bool
+	RawImageOriginalDetail          func() bool
 	AskQuestionBroker               *askquestion.AskQuestionBroker
 	QuestionsEnabledGetter          func() bool
 	BackgroundShellManager          *shelltool.Manager
@@ -121,8 +121,8 @@ func BuildLocalRuntimeHandler(def tools.Definition, ctx LocalToolRuntimeContext)
 		if ctx.ViewImageOutsideWorkspaceLogger != nil {
 			opts = append(opts, readimagetool.WithOutsideWorkspaceAuditLogger(ctx.ViewImageOutsideWorkspaceLogger))
 		}
-		if ctx.RawImageOriginalDetail {
-			opts = append(opts, readimagetool.WithRawImageOriginalDetail())
+		if ctx.RawImageOriginalDetail != nil {
+			opts = append(opts, readimagetool.WithRawImageOriginalDetail(ctx.RawImageOriginalDetail))
 		}
 		return readimagetool.New(ctx.FilesystemContext, ctx.SupportsVision, opts...)
 	default:
@@ -259,7 +259,7 @@ type LocalToolRegistryOptions struct {
 	EstimateText             func(string) int
 	AllowNonCwdEdits         bool
 	SupportsVision           func() bool
-	RawImageOriginalDetail   bool
+	RawImageOriginalDetail   func() bool
 	Logger                   Logger
 	Background               *shelltool.Manager
 	ShellPostprocessor       *postprocess.Runner

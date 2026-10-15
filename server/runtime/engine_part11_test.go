@@ -429,7 +429,7 @@ func TestContextUsageUsesEstimatedTokensWhenLastUsageIsStale(t *testing.T) {
 		t.Fatalf("append message: %v", err)
 	}
 
-	estimated := llm.EstimateItemsTokens(eng.cfg.TokenEstimator, eng.transcriptRuntimeState().SnapshotItems())
+	estimated := llm.EstimateItemsTokens(eng.connectionSnapshot().estimator, eng.transcriptRuntimeState().SnapshotItems())
 	if estimated <= 100 {
 		t.Fatalf("expected estimated tokens above stale usage baseline, got %d", estimated)
 	}
@@ -447,13 +447,13 @@ func TestContextUsageAddsOnlyPostCheckpointEstimateDelta(t *testing.T) {
 	if err := eng.steerRuntime(steerMessagesWithPersistenceIntent(steeringPriorityNormal, steeringMessageEventDefault, true, []llm.Message{{Role: llm.RoleUser, Content: textutil.Value(strings.Repeat("seed-", 100))}})); err != nil {
 		t.Fatalf("append seed message: %v", err)
 	}
-	checkpointEstimate := llm.EstimateItemsTokens(eng.cfg.TokenEstimator, eng.transcriptRuntimeState().SnapshotItems())
+	checkpointEstimate := llm.EstimateItemsTokens(eng.connectionSnapshot().estimator, eng.transcriptRuntimeState().SnapshotItems())
 	eng.setLastUsage(llm.Usage{InputTokens: textutil.Value(900), OutputTokens: textutil.Value(120), WindowTokens: 410_000, ContextUsage: &llm.ContextUsage{Tokens: 900, MeasurementPoint: llm.ContextMeasurementInput}})
 	if err := eng.steerRuntime(steerMessagesWithPersistenceIntent(steeringPriorityNormal, steeringMessageEventDefault, true, []llm.Message{{Role: llm.RoleUser, Content: textutil.Value(strings.Repeat("delta-", 40))}})); err != nil {
 		t.Fatalf("append delta message: %v", err)
 	}
 
-	currentEstimate := llm.EstimateItemsTokens(eng.cfg.TokenEstimator, eng.transcriptRuntimeState().SnapshotItems())
+	currentEstimate := llm.EstimateItemsTokens(eng.connectionSnapshot().estimator, eng.transcriptRuntimeState().SnapshotItems())
 	deltaEstimate := currentEstimate - checkpointEstimate
 	if deltaEstimate <= 0 {
 		t.Fatalf("expected positive estimated delta, got checkpoint=%d current=%d", checkpointEstimate, currentEstimate)

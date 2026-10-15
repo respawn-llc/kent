@@ -679,11 +679,7 @@ func (e *Engine) FastModeEnabled() bool {
 }
 
 func (e *Engine) FastModeAvailable() bool {
-	caps := e.cfg.ProviderCapabilitiesOverride
-	if caps == nil {
-		return false
-	}
-	return llm.SupportsFastModeProvider(*caps)
+	return llm.SupportsFastModeProvider(e.connectionSnapshot().transportCapabilities)
 }
 
 func (e *Engine) ReviewerFrequency() string {
@@ -994,9 +990,7 @@ func (e *Engine) transcriptRuntimeState() *transcriptRuntimeState {
 	defer e.mu.Unlock()
 	if e.transcriptState == nil {
 		e.transcriptState = newTranscriptRuntimeState(transcriptWorkingDir(e.cfg.TranscriptWorkingDir, e.store.Meta().WorkspaceRoot))
-		if e.cfg.TokenEstimator != nil {
-			e.transcriptState.chatProjection().bindTokenEstimator(e.cfg.TokenEstimator)
-		}
+		e.transcriptState.chatProjection().bindTokenEstimator(e.connection.estimator)
 	}
 	return e.transcriptState
 }

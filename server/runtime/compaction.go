@@ -554,7 +554,7 @@ func (e *Engine) estimatedCurrentTokenUsage(preview ...llm.ResponseItem) int {
 	if e != nil {
 		estimated = e.estimatedProviderHistoryTokens()
 	}
-	estimated += llm.EstimateItemsTokens(e.cfg.TokenEstimator, preview)
+	estimated += llm.EstimateItemsTokens(e.connectionSnapshot().estimator, preview)
 	if e.modelRequests().TokenUsage() != nil {
 		if baseline, ok := e.modelRequests().TokenUsage().estimateCurrentContextTokens(estimated); ok {
 			return baseline

@@ -133,6 +133,10 @@ func NewRuntimeWiringWithBackground(
 	if err != nil {
 		return nil, err
 	}
+	connectionID, err := active.Connection.ConcreteID()
+	if err != nil {
+		return nil, err
+	}
 	connectionVariant, err := llm.ResolveConnectionVariant(connection)
 	if err != nil {
 		return nil, err
@@ -190,9 +194,9 @@ func NewRuntimeWiringWithBackground(
 		MinimumExecToBgTime:    time.Duration(active.MinimumExecToBgSeconds) * time.Second,
 		ShellOutputMaxChars:    active.ShellOutputMaxChars,
 		ModelContextWindow:     active.ModelContextWindow,
-		EstimateText:           tokenEstimator.EstimateText,
+		EstimateText:           func(text string) int { return eng.EstimateText(text) },
 		AllowNonCwdEdits:       active.AllowNonCwdEdits,
-		RawImageOriginalDetail: connectionVariant.Variant.Capabilities.IsOpenAIFirstParty,
+		RawImageOriginalDetail: func() bool { return eng.RawImageOriginalDetail() },
 		SupportsVision: func() bool {
 			if locked := store.Meta().Locked; locked != nil {
 				return llm.LockedContractSupportsVisionInputs(locked, active.Model)
@@ -230,6 +234,9 @@ func NewRuntimeWiringWithBackground(
 		promptReloader = requiredToolsSnapshotReloader{base: promptReloader, required: append([]toolspec.ID(nil), opts.RequiredTools...)}
 	}
 	eng, err = runtime.New(store, eventLog, client, toolRegistry, runtime.Config{
+		ConnectionID:                    connectionID,
+		ResolveConnection:               connectionMaterializer(store, active, opts, newClient),
+		RawImageOriginalDetail:          connectionVariant.Variant.Capabilities.IsOpenAIFirstParty,
 		Model:                           active.Model,
 		TokenEstimator:                  tokenEstimator,
 		Debug:                           active.Debug,

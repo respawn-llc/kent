@@ -12,6 +12,7 @@ import (
 	"core/server/llm"
 	"core/server/session"
 	"core/shared/config"
+	"core/shared/llmerrors"
 )
 
 type ConnectionRotation struct {
@@ -74,21 +75,8 @@ func (r *connectionAssignments) clone() *connectionAssignments {
 	}
 }
 
-type UnavailableConnection struct {
-	ID          config.ConnectionID
-	AvailableAt *time.Time
-}
-
-type ConnectionsUnavailableError struct {
-	Members []UnavailableConnection
-	Causes  []error
-}
-
-func (e *ConnectionsUnavailableError) Error() string {
-	return fmt.Sprintf("configured connections unavailable: %v; retry after cooldown or update the configured connections", e.Members)
-}
-
-func (e *ConnectionsUnavailableError) Unwrap() []error { return e.Causes }
+type UnavailableConnection = llmerrors.UnavailableConnection
+type ConnectionsUnavailableError = llmerrors.ConnectionsUnavailableError
 
 func (r *connectionAssignments) eligible(members []config.ConnectionID, visited map[config.ConnectionID]struct{}) ([]config.ConnectionID, error) {
 	now := time.Now()

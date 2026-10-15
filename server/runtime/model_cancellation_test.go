@@ -27,7 +27,7 @@ func TestGenerateWithRetryPropagatesContextCancellation(t *testing.T) {
 		_, err := engine.generateWithRetryClient(
 			ctx,
 			"step",
-			engine.llm,
+			engine.connectionSnapshot().client,
 			llm.Request{ToolChoiceMode: llm.ToolChoiceModeAutomatic, Model: "gpt-6-sol", ReasoningEffort: "high"},
 			nil,
 			nil,
