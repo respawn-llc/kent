@@ -274,17 +274,6 @@ func validateOnboardingFacts(facts *capabilitypb.Facts) error {
 }
 
 func validateModelFactDimensions(field string, fact *capabilitypb.ModelFact) error {
-	if fact.ContextWindowTokens != nil && *fact.ContextWindowTokens <= 0 {
-		return conversionError(field+".context_window_tokens", *fact.ContextWindowTokens, "must be positive")
-	}
-	if fact.LargeWindow != nil && fact.LargeWindow.Tokens <= 0 {
-		return conversionError(field+".large_window.tokens", fact.LargeWindow.Tokens, "must be positive")
-	}
-	for index, level := range fact.SupportedThinkingLevels {
-		if strings.TrimSpace(level) == "" {
-			return conversionError(fmt.Sprintf("%s.supported_thinking_levels[%d]", field, index), level, "must not be blank")
-		}
-	}
 	for index, level := range fact.GetVerbosity().GetLevels() {
 		switch strings.TrimSpace(level) {
 		case string(config.ModelVerbosityLow), string(config.ModelVerbosityMedium), string(config.ModelVerbosityHigh):

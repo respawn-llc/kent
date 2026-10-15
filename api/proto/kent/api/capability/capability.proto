@@ -5,6 +5,7 @@ package kent.api.capability;
 import "buf/validate/validate.proto";
 import "kent/api/onboarding/onboarding.proto";
 import "kent/api/shared/foundation.proto";
+import "kent/api/shared/validation.proto";
 
 option go_package = "core/shared/protoapi/gen/kent/api/capability;capabilitypb";
 
@@ -44,7 +45,7 @@ message ModelFact {
   ModelLargeWindowFact large_window = 4;
   optional string default_context_window_mode = 5 [(buf.validate.field).string.min_len = 1];
   bool supports_thinking = 6;
-  repeated string supported_thinking_levels = 7 [(buf.validate.field).repeated.items.string.min_len = 1];
+  repeated string supported_thinking_levels = 7 [(buf.validate.field).repeated.items.string.(kent.api.shared.nonblank) = true];
   bool supports_reasoning_summary = 8;
   bool supports_vision_inputs = 9;
   ModelVerbosityFact verbosity = 10 [(buf.validate.field).required = true];

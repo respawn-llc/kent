@@ -29,3 +29,16 @@ func TestCapabilityKnownModelIdentity(t *testing.T) {
 		}
 	}
 }
+
+func TestCapabilityThinkingLevelsAreSubstantive(t *testing.T) {
+	for _, level := range []string{" \t", "\u0085", " high ", "\uFEFF"} {
+		valid := level == " high " || level == "\uFEFF"
+		fact := &pb.ModelFact{
+			SupportedThinkingLevels: []string{level},
+			Verbosity:               &pb.ModelVerbosityFact{Source: "catalog"},
+		}
+		if err := protoapi.Validate(fact); (err == nil) != valid {
+			t.Errorf("level %q acceptance = %v", level, err)
+		}
+	}
+}

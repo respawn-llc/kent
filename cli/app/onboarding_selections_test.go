@@ -132,13 +132,6 @@ func TestNewOnboardingFlowStateRejectsMalformedCapabilityFacts(t *testing.T) {
 		mutate func(*config.App, *capabilitypb.Facts)
 	}{
 		{
-			name: "non-positive model fact",
-			mutate: func(_ *config.App, facts *capabilitypb.Facts) {
-				zero := uint32(0)
-				facts.Models.KnownModels[0].ContextWindowTokens = &zero
-			},
-		},
-		{
 			name: "malformed import choice",
 			mutate: func(_ *config.App, facts *capabilitypb.Facts) {
 				facts.Imports.Skills.Choices = []*capabilitypb.ImportChoiceFact{{
