@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
+import { copyFile, mkdtemp, rm } from "node:fs/promises";
 import { createRequire } from "node:module";
 import { join } from "node:path";
 import test from "node:test";
@@ -30,7 +31,7 @@ const justRejectionFixtures = [
 const effectFixturePaths = [
   "tooling/../tooling/forbidden-effect.html",
   "tooling/../tooling/forbidden-effect.astro",
-  'tooling/quoted"path/component.astro',
+  "tooling/escaped path#fragment/component.astro",
   "tooling/allowed-effect-script-data.html",
   "src/app-facade/allowed-effect-integration.ts",
   "src/app-facade/allowed-pre-effect-subscription.ts",
@@ -312,17 +313,31 @@ test("the repository policy checks HTML scripts and Astro frontmatter, scripts a
   }
 });
 
-test("Astro policy checks escape filenames in compiler metadata", () => {
-  const [result] = effectResultsFor([
-    'tooling/quoted"path/component.astro.tsx',
-  ]);
-  assert.ok(result.errorCount > 0);
-  assert.equal(result.fatalErrorCount, 0);
-  assert.ok(
-    result.messages.some(
-      (message) => message.ruleId === "app/no-unowned-effect",
+test("Astro policy checks escape filenames in compiler metadata", async () => {
+  // Windows separators require encoding; other platforms need a quoted component.
+  const directory = await mkdtemp(
+    join(
+      fixtureRoot,
+      process.platform === "win32" ? "escaped-path-" : 'quoted"path-',
     ),
   );
+  try {
+    const path = join(directory, "component.astro");
+    await copyFile(
+      join(fixtureRoot, "tooling/escaped path#fragment/component.astro"),
+      path,
+    );
+    const [result] = await checkEffectPolicy([path]);
+    assert.ok(result.errorCount > 0);
+    assert.equal(result.fatalErrorCount, 0);
+    assert.ok(
+      result.messages.some(
+        (message) => message.ruleId === "app/no-unowned-effect",
+      ),
+    );
+  } finally {
+    await rm(directory, { recursive: true });
+  }
 });
 
 test("HTML script data remains data while JavaScript scripts are checked", () => {
