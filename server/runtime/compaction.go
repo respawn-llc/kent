@@ -599,22 +599,19 @@ func (e *Engine) compactNowWithAcceptance(
 		return compactionResult{}, session.CommitReceipt{}, nil
 	}
 
-	providerID := "unknown"
+	providerID := e.connectionSnapshot().transportCapabilities.ProviderID
 	persistence := newCompactionPersistence(e)
 	compactionFailure := func(result compactionResult, err error) error {
 		feedbackErr := e.emitLocalCompactionToolCallFeedback(stepID, result.localToolCallRejectionCount)
 		if accept != nil {
 			return errors.Join(err, feedbackErr)
 		}
-		return errors.Join(err, feedbackErr, persistence.emitStatus(stepID, requestID, EventCompactionFailed, mode, result.engine, providerID, result.trimmedItemsCount, 0, err.Error()))
+		return errors.Join(err, feedbackErr, persistence.emitStatus(stepID, requestID, EventCompactionFailed, mode, result.engine, e.connectionSnapshot().transportCapabilities.ProviderID, result.trimmedItemsCount, 0, err.Error()))
 	}
 
 	caps, err := e.providerCapabilities(ctx)
 	if err != nil {
 		return compactionResult{}, session.CommitReceipt{}, compactionFailure(compactionResult{}, err)
-	}
-	if resolvedProviderID := strings.TrimSpace(caps.ProviderID); resolvedProviderID != "" {
-		providerID = resolvedProviderID
 	}
 
 	if err := persistence.setActivity(stepID, requestID, mode, e.compactionRuntimeState().Count()+1, activeKind, true); err != nil {
