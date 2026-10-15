@@ -435,21 +435,21 @@ func prepareWorkflowGraphSaveMetadata(currentName string, currentDescription str
 		policy = normalizeWorkflowExecutionTargetPolicy(*metadata.ExecutionTargetPolicy)
 	}
 	prepared := WorkflowGraphSaveMetadata{Name: strings.TrimSpace(metadata.Name), Description: strings.TrimSpace(metadata.Description), ExecutionTargetPolicy: &policy}
-	if prepared.Name == "" {
-		return nil, false, ErrWorkflowNameRequired
-	}
-	if policy.Mode != workflow.ExecutionTargetModeCustomRef && policy.CustomRef != nil {
-		return nil, false, errors.New("execution target custom ref is only valid for custom_ref policy")
-	}
-	if policy.Mode == workflow.ExecutionTargetModeCustomRef && policy.CustomRef != nil && strings.TrimSpace(*policy.CustomRef) == "" {
-		return nil, false, errors.New("execution target custom ref must be non-blank when present")
-	}
-	if policy.Mode != workflow.ExecutionTargetModeNone &&
-		policy.Mode != workflow.ExecutionTargetModeHead &&
-		policy.Mode != workflow.ExecutionTargetModeDefaultBranch &&
-		policy.Mode != workflow.ExecutionTargetModeCustomRef &&
-		policy.Mode != workflow.ExecutionTargetModeAskOnFirstExecution {
-		return nil, false, errors.New("execution target policy mode is invalid")
+	if metadata.ExecutionTargetPolicy == nil {
+		// Inherited policy comes from SQLite rather than the accepted request.
+		if policy.Mode != workflow.ExecutionTargetModeCustomRef && policy.CustomRef != nil {
+			return nil, false, errors.New("execution target custom ref is only valid for custom_ref policy")
+		}
+		if policy.Mode == workflow.ExecutionTargetModeCustomRef && policy.CustomRef != nil && strings.TrimSpace(*policy.CustomRef) == "" {
+			return nil, false, errors.New("execution target custom ref must be non-blank when present")
+		}
+		if policy.Mode != workflow.ExecutionTargetModeNone &&
+			policy.Mode != workflow.ExecutionTargetModeHead &&
+			policy.Mode != workflow.ExecutionTargetModeDefaultBranch &&
+			policy.Mode != workflow.ExecutionTargetModeCustomRef &&
+			policy.Mode != workflow.ExecutionTargetModeAskOnFirstExecution {
+			return nil, false, errors.New("execution target policy mode is invalid")
+		}
 	}
 	changed := prepared.Name != currentName || prepared.Description != currentDescription || !workflowExecutionTargetPoliciesEqual(*prepared.ExecutionTargetPolicy, currentPolicy)
 	return &prepared, changed, nil
@@ -486,9 +486,6 @@ func prepareWorkflowGraphSave(workflowID runtimeids.WorkflowID, displayName stri
 			node.GroupID = &trimmed
 		}
 		node.GroupKey = strings.TrimSpace(node.GroupKey)
-		if err := validateNodeCompletionMode(node.Kind, node.CompletionMode); err != nil {
-			return preparedWorkflowGraphSave{}, workflow.Definition{}, err
-		}
 		node.CompletionMode = nodeCompletionMode(node)
 		prepared.nodes[i] = node
 	}

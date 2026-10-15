@@ -73,9 +73,6 @@ var (
 	// but missing.
 	ErrWorkflowIDRequired = errors.New("workflow id is required")
 
-	// ErrWorkflowNameRequired is returned when a workflow name is blank.
-	ErrWorkflowNameRequired = errors.New("workflow name is required")
-
 	// ErrBelongsToOtherWorkflow is returned when a graph element references a
 	// workflow it does not belong to.
 	ErrBelongsToOtherWorkflow = errors.New("workflow graph element belongs to a different workflow")
