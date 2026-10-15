@@ -21,6 +21,7 @@ import (
 	"sync"
 
 	projectpb "core/shared/protoapi/gen/kent/api/project"
+	workflowpb "core/shared/protoapi/gen/kent/api/workflow_definition"
 
 	sessionlaunchpb "core/shared/protoapi/gen/kent/api/session_launch"
 	"core/shared/serverapi"
@@ -113,6 +114,7 @@ type sessionViewReader interface {
 }
 
 type launchPlannerServer interface {
+	SubscribeWorkflowProject(context.Context, *workflowpb.ProjectSubscribeRequest) (apicontract.WorkflowEventSubscription, error)
 	Connection() config.Connection
 	LocalPreferences() config.LocalPreferences
 	ProjectBinding() (client.ProjectAttachment, bool)
@@ -139,6 +141,11 @@ func newSessionLaunchPlanner(server launchPlannerServer) *launchPlanner {
 type projectScopedSessionPageLoader struct {
 	projectID string
 	client    apicontract.ProjectViewService
+	subscribe func(context.Context, *workflowpb.ProjectSubscribeRequest) (apicontract.WorkflowEventSubscription, error)
+}
+
+func (l projectScopedSessionPageLoader) Subscribe(ctx context.Context) (apicontract.WorkflowEventSubscription, error) {
+	return l.subscribe(ctx, &workflowpb.ProjectSubscribeRequest{ProjectId: &l.projectID})
 }
 
 func (l projectScopedSessionPageLoader) ProjectID() string {
@@ -319,6 +326,7 @@ func (p *launchPlanner) selectSession(ctx context.Context, notice *startupPicker
 	loader := projectScopedSessionPageLoader{
 		projectID: projectID,
 		client:    p.server.ProjectViewClient(),
+		subscribe: p.server.SubscribeWorkflowProject,
 	}
 	header, err := p.sessionPickerHeaderInfo()
 	if err != nil {

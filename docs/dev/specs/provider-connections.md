@@ -34,6 +34,7 @@
 - Explicit Chat Settings Agent changes and replacement of a deleted saved connection must use the same assignment order for the applicable set under the Session Binding rules. These are the only forceful replacement cases. Existing valid bindings must be usable when the current configured set cannot select a member.
 - Connection sets must be configured through configuration files. Terminal connection management must continue to manage individual connections. Make default must select one connection without changing existing Session bindings.
 - Explicit Supervisor `reviewer.connection` must accept one connection ID. When the Supervisor inherits connection selection, it must use the main Session's selected connection rather than allocate separately from the configured set.
+- Nano `nano.connection` must accept one connection ID or an array. Each nano invocation must select once through the same shared server-wide rotation for its effective member set and use that connection throughout the invocation.
 
 ## Authentication
 

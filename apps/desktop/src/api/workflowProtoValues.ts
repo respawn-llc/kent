@@ -76,6 +76,7 @@ export const workflowEventResource = workflowEnum([
   [ProjectEventResource.WORKFLOW_PROJECT_EVENT_RESOURCE_WORKFLOW_LINK, "workflow_link"],
   [ProjectEventResource.WORKFLOW_PROJECT_EVENT_RESOURCE_TASK, "task"],
   [ProjectEventResource.WORKFLOW_PROJECT_EVENT_RESOURCE_LABEL, "label"],
+  [ProjectEventResource.WORKFLOW_PROJECT_EVENT_RESOURCE_SESSION_CATALOG, "session_catalog"],
 ]);
 
 export const workflowEventAction = workflowEnum([

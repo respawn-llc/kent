@@ -316,6 +316,8 @@ function applyPendingMetadata(view: ChatMainView, metadata: PendingMetadata): Ch
       ...next,
       sessionID: identity.SessionID,
       sessionName: identity.SessionName,
+      category: identity.Category,
+      shortID: identity.ShortID,
       executionTarget:
         identity.ExecutionTarget === null
           ? next.executionTarget

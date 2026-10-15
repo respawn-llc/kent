@@ -32,6 +32,7 @@ enum AttentionNotificationEventType {
   ATTENTION_NOTIFICATION_EVENT_UNSPECIFIED = 0;
   ATTENTION_NOTIFICATION_EVENT_PENDING = 1;
   ATTENTION_NOTIFICATION_EVENT_RESOLVED = 2;
+  ATTENTION_NOTIFICATION_EVENT_SESSION_NAMING_FAILURE = 3;
 }
 
 enum AttentionNotificationKind {
@@ -688,6 +689,7 @@ message AttentionNotificationEvent {
     option (buf.validate.oneof).required = true;
     AttentionNotification pending = 4;
     ResolvedAttentionNotification resolved = 5;
+    kent.api.attention.SessionNamingFailure session_naming_failure = 6;
   }
 
   option (buf.validate.message).cel = {
@@ -695,7 +697,8 @@ message AttentionNotificationEvent {
     message: "attention event type must match its payload"
     expression:
       "(this.type == 1 && has(this.pending)) || "
-      "(this.type == 2 && has(this.resolved))"
+      "(this.type == 2 && has(this.resolved)) || "
+      "(this.type == 3 && has(this.session_naming_failure))"
   };
 }
 

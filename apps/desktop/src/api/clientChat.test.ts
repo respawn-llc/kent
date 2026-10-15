@@ -13,6 +13,7 @@ import {
 import * as R from "@app/server-api-contract/gen/kent/api/runtime/runtime_pb";
 import * as T from "@app/server-api-contract/gen/kent/api/transcript/transcript_pb";
 import { ProjectAvailability } from "@app/server-api-contract/gen/kent/api/project/project_pb";
+import { SessionCategory } from "@app/server-api-contract/gen/kent/api/project/session_catalog_pb";
 import { TranscriptCloseReason } from "@app/server-api-contract/gen/kent/api/shared/foundation_pb";
 import {
   ChatService,
@@ -138,7 +139,11 @@ function runtimePlanResult(planSessionID: string) {
 
 function transcriptHydrationPayload() {
   return create(T.HydrationSchema, {
-    sessionIdentity: { sessionId: sessionID, conversationFreshness: R.ConversationFreshness.FRESH },
+    sessionIdentity: {
+      category: SessionCategory.MAIN,
+      sessionId: sessionID,
+      conversationFreshness: R.ConversationFreshness.FRESH,
+    },
     sessionStatus: {
       reviewerFrequency: "off",
       autoCompactionEnabled: true,
@@ -192,6 +197,7 @@ function mainViewResult(state: R.ActivityState, withGoal: boolean) {
             ...(withGoal ? { goal: { availability: R.GoalAvailability.AVAILABLE } } : {}),
           },
           session: {
+            category: SessionCategory.MAIN,
             sessionId: sessionID,
             conversationFreshness: R.ConversationFreshness.FRESH,
             executionTarget: {
@@ -702,7 +708,11 @@ describe("Desktop Chat read client", () => {
           event: {
             payload: {
               case: "sessionIdentity",
-              value: { sessionId: identity, conversationFreshness: R.ConversationFreshness.FRESH },
+              value: {
+                category: SessionCategory.MAIN,
+                sessionId: identity,
+                conversationFreshness: R.ConversationFreshness.FRESH,
+              },
             },
           },
         }),

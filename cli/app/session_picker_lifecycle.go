@@ -84,12 +84,16 @@ func (l *sessionPickerLifecycle) Result() sessionPickerResult {
 	return l.result
 }
 
-func (l *sessionPickerLifecycle) Close() {
+func (l *sessionPickerLifecycle) Close() error {
 	if l == nil || l.closed {
-		return
+		return nil
 	}
 	l.cancel()
 	l.closed = true
+	if l.picker.subscription != nil {
+		return l.picker.subscription.Close()
+	}
+	return nil
 }
 
 func validateSessionPickerLifecycleResult(result sessionPickerResult) error {

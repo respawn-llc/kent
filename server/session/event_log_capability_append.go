@@ -517,9 +517,8 @@ func (s *Store) captureFirstPromptPreviewFromRecordsLocked(records []EventRecord
 		) {
 			continue
 		}
-		preview := normalizeFirstPromptPreview(*message.Content)
-		if preview != "" {
-			s.meta.FirstPromptPreview = preview
+		s.captureFirstPromptPreviewLocked(*message.Content)
+		if s.meta.FirstPromptPreview != "" {
 			return nil
 		}
 	}

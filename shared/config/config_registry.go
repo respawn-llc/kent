@@ -225,6 +225,11 @@ var configRegistry = newSettingsRegistry()
 
 func newSettingsRegistry() settingsRegistry {
 	settings := []registrySetting{
+		newNanoSectionSetting(),
+		globalOnlySetting[int]{rootOnlySetting[int]{newIntSetting("nano.concurrency", 5,
+			func(state *settingsState, value int) { state.Settings.NanoConcurrency = value },
+			func(state settingsState) int { return state.Settings.NanoConcurrency },
+			"", nil, settingDocOptions{omitInTOML: true})}},
 		connectionsSetting{},
 		newConnectionReference("connection", true,
 			func(state *settingsState, value *ConnectionSelection) { state.Settings.Connection = value },
@@ -576,6 +581,7 @@ func newSettingsRegistry() settingsRegistry {
 			{validateCacheWarningMode, []string{"cache_warning_mode"}},
 			{validateCompactionMode, []string{"compaction_mode"}},
 			{validateReviewer, nil},
+			{validateNano, nil},
 			{validateWorkflowSettings, []string{"workflow.completion_mode", "workflow.concurrency", "workflow.max_invalid_completion_attempts", "workflow.pre_compaction_tokens", "context_compaction_threshold_tokens"}},
 			{validateMaxSubagentDepth, []string{"max_subagent_depth"}},
 			{validateSleepPreventionMode, []string{"prevent_sleep"}},

@@ -10,6 +10,7 @@ import "kent/api/auth/auth.proto";
 import "kent/api/chat/chat.proto";
 import "kent/api/prompt_command/prompt_command.proto";
 import "kent/api/prompt_command/validation.proto";
+import "kent/api/project/session_catalog.proto";
 import "kent/api/server/server.proto";
 import "kent/api/shared/foundation.proto";
 import "kent/api/shared/session_selector.proto";
@@ -206,6 +207,10 @@ message Status {
 }
 
 message SessionView {
+  kent.api.project.SessionCategory category = 7 [(buf.validate.field).enum = {
+    defined_only: true
+    not_in: [0]
+  }];
   string session_id = 1 [(buf.validate.field).string.min_len = 1];
   optional string session_name = 2 [(buf.validate.field).string.min_len = 1];
   optional string agent_role = 3 [(buf.validate.field).string.min_len = 1];

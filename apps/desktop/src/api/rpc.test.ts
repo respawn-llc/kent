@@ -1,4 +1,5 @@
 import { createRpcTransport } from "./rpc";
+import { SessionCategory } from "@app/server-api-contract/gen/kent/api/project/session_catalog_pb";
 import { ProtocolMismatchError, RpcError, ServerRootMismatchError } from "./errors";
 import { protocolVersion } from "./rpcSocket";
 import {
@@ -698,6 +699,7 @@ describe("RpcWebSocketTransport", () => {
               case: "sessionIdentity",
               value: {
                 sessionId: "223e4567-e89b-42d3-a456-426614174000",
+                category: SessionCategory.MAIN,
                 conversationFreshness: ConversationFreshness.FRESH,
               },
             },
@@ -715,7 +717,11 @@ describe("RpcWebSocketTransport", () => {
           event: {
             payload: {
               case: "sessionIdentity",
-              value: { sessionId: sessionID, conversationFreshness: ConversationFreshness.FRESH },
+              value: {
+                category: SessionCategory.MAIN,
+                sessionId: sessionID,
+                conversationFreshness: ConversationFreshness.FRESH,
+              },
             },
           },
         }),

@@ -64,6 +64,8 @@ export function hydration(
   return {
     ConnectionReplacement: null,
     SessionIdentity: {
+      Category: "main",
+      ShortID: null,
       SessionID: "session",
       SessionName: null,
       ConversationFreshness: 0,
