@@ -1141,6 +1141,11 @@ message GraphDeriveWiringSuccess {
 }
 
 message GraphSavePreviewRequest {
+  option (buf.validate.message).cel = {
+    id: "kent.workflow_definition.save_preview_group_identity"
+    message: "saved node groups require substantive IDs and keys"
+    expression: "this.graph.node_groups.all(group, group.id.trim() != '' && group.key.trim() != '')"
+  };
   string workflow_id = 1 [
     (buf.validate.field).string.uuid = true,
     (buf.validate.field).string.(kent.api.shared.canonical_uuid_v4) = true
@@ -1154,6 +1159,11 @@ message GraphSavePreviewRequest {
 }
 
 message GraphSaveRequest {
+  option (buf.validate.message).cel = {
+    id: "kent.workflow_definition.save_group_identity"
+    message: "saved node groups require substantive IDs and keys"
+    expression: "this.graph.node_groups.all(group, group.id.trim() != '' && group.key.trim() != '')"
+  };
   string workflow_id = 1 [
     (buf.validate.field).string.uuid = true,
     (buf.validate.field).string.(kent.api.shared.canonical_uuid_v4) = true

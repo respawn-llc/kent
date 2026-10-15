@@ -495,13 +495,7 @@ func prepareWorkflowGraphSave(workflowID runtimeids.WorkflowID, displayName stri
 			return preparedWorkflowGraphSave{}, workflow.Definition{}, err
 		}
 		group.ID = strings.TrimSpace(group.ID)
-		if group.ID == "" {
-			return preparedWorkflowGraphSave{}, workflow.Definition{}, errors.New("workflow node group id is required")
-		}
 		group.Key = workflow.ModelKey(strings.TrimSpace(string(group.Key)))
-		if group.Key == "" {
-			return preparedWorkflowGraphSave{}, workflow.Definition{}, errors.New("workflow node group key is required")
-		}
 		group.DisplayName = strings.TrimSpace(group.DisplayName)
 		group.SortOrder = int64(i * 100)
 		if groupsByID[group.ID] {

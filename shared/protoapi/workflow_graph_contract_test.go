@@ -30,3 +30,26 @@ func TestWorkflowDraftNodeGroupKeyResolvesUnlessExplicitIDOverrides(t *testing.T
 		}
 	}
 }
+
+func TestWorkflowSaveGroupsRequireSubstantiveIdentity(t *testing.T) {
+	for _, group := range []*pb.GraphDraftNodeGroup{
+		{Id: " group-id ", Key: " group-key "},
+		{Id: "\uFEFF", Key: "\uFEFF"},
+		{Id: " \u0085", Key: "key"},
+		{Id: "id", Key: " \t"},
+	} {
+		graph := &pb.GraphDraft{NodeGroups: []*pb.GraphDraftNodeGroup{group}}
+		if err := protoapi.Validate(graph); err != nil {
+			t.Fatalf("reportable draft rejected: %v", err)
+		}
+		valid := group.Id == " group-id " || group.Id == "\uFEFF"
+		for _, request := range []proto.Message{
+			&pb.GraphSaveRequest{WorkflowId: "11111111-1111-4111-8111-111111111111", Graph: graph},
+			&pb.GraphSavePreviewRequest{WorkflowId: "11111111-1111-4111-8111-111111111111", Graph: graph},
+		} {
+			if err := protoapi.Validate(request); (err == nil) != valid {
+				t.Errorf("%T group %+v acceptance = %v", request, group, err)
+			}
+		}
+	}
+}
