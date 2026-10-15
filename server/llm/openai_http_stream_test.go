@@ -895,7 +895,7 @@ func TestGenerate_MapsProviderOverloadCodeWithoutMessageMatching(t *testing.T) {
 	if providerErr.Code != UnifiedErrorCodeProviderOverload || providerErr.ProviderCode != "server_is_overloaded" || providerErr.StatusCode != http.StatusOK {
 		t.Fatalf("unexpected provider overload: %+v", providerErr)
 	}
-	if got := classifyOpenAIUnifiedErrorCode(http.StatusUnauthorized, "server_is_overloaded"); got != UnifiedErrorCodeAuthentication || classifyOpenAIUnifiedErrorCode(http.StatusOK, "SERVER_IS_OVERLOADED") != UnifiedErrorCodeUnknown {
+	if got := classifyOpenAIUnifiedErrorCode(http.StatusUnauthorized, "server_is_overloaded", ""); got != UnifiedErrorCodeAuthentication || classifyOpenAIUnifiedErrorCode(http.StatusOK, "SERVER_IS_OVERLOADED", "") != UnifiedErrorCodeUnknown {
 		t.Fatalf("terminal HTTP status classification = %q, want %q", got, UnifiedErrorCodeAuthentication)
 	}
 }

@@ -7,6 +7,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"time"
 
 	"core/prompts"
 	"core/server/attentionnotify"
@@ -114,7 +115,7 @@ func NewWithContextOptions(ctx context.Context, cfg config.App, authSupport serv
 	runtimeRegistry := registry.NewRuntimeRegistry(metadataStore).WithAttentionNotifications(attentionBroker, metadataStore.ResolveSessionNavigationBinding)
 	runtimeRegistry.WithTranscriptContractViolationPanic(cfg.Settings.Debug)
 	var workflowController *workflowexecution.CurrentNodeController
-	connectionRotation := new(launch.ConnectionRotation)
+	connectionRotation := launch.NewConnectionRotation(time.Duration(cfg.Settings.ConnectionUsageFallbackSeconds) * time.Second)
 	runtimeAuthority := sessionruntime.NewAuthority(sessionruntime.AuthorityOptions{
 		ConnectionRotation:            connectionRotation,
 		Environment:                   authSupport.Environment,

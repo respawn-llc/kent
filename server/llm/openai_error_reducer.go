@@ -8,6 +8,8 @@ import (
 	"net/http"
 	"strings"
 
+	"core/shared/llmerrors"
+
 	openai "github.com/openai/openai-go/v3"
 	"github.com/openai/openai-go/v3/packages/ssestream"
 )
@@ -15,7 +17,7 @@ import (
 type responsesErrorReducer struct {
 	providerID string
 	decode     func([]byte) (responsesErrorPayload, bool)
-	classify   func(int, string) UnifiedErrorCode
+	classify   func(int, string, string) UnifiedErrorCode
 }
 
 type opaqueProviderErrorReducer struct {
@@ -26,6 +28,19 @@ func newOpenAICompatibleErrorReducer(providerID string) ProviderErrorReducer {
 	return responsesErrorReducer{
 		providerID: strings.TrimSpace(providerID),
 		decode:     decodeResponsesErrorPayload, classify: classifyOpenAIUnifiedErrorCode,
+	}
+}
+
+func newChatGPTErrorReducer(providerID string) ProviderErrorReducer {
+	return responsesErrorReducer{
+		providerID: providerID, decode: decodeResponsesErrorPayload,
+		classify: func(status int, code, typ string) UnifiedErrorCode {
+			category := classifyOpenAIUnifiedErrorCode(status, code, typ)
+			if category == UnifiedErrorCodeUnknown && (code == "usage_limit_reached" || typ == "usage_limit_reached") {
+				return UnifiedErrorCodeUsageExhausted
+			}
+			return category
+		},
 	}
 }
 
@@ -93,7 +108,7 @@ func (r responsesErrorReducer) reducePayload(data []byte, cause error, status in
 
 func (r responsesErrorReducer) providerError(status int, payload responsesErrorPayload, raw string, cause error) *ProviderAPIError {
 	return &ProviderAPIError{
-		ProviderID: r.providerID, StatusCode: status, Code: r.classify(status, payload.Code),
+		ProviderID: r.providerID, StatusCode: status, Code: r.classify(status, payload.Code, payload.Type),
 		ProviderCode: payload.Code, ProviderType: payload.Type, ProviderParam: payload.Param,
 		Message: payload.Message, Raw: raw, Err: cause,
 	}
@@ -106,6 +121,9 @@ func (r responsesErrorReducer) reduceFromSDK(err error) (*ProviderAPIError, bool
 	var sdkErr *openai.Error
 	if !errors.As(err, &sdkErr) {
 		return nil, false
+	}
+	if reduced, ok := r.reducePayload([]byte(sdkErr.RawJSON()), err, sdkErr.StatusCode); ok {
+		return reduced, true
 	}
 	return r.providerError(sdkErr.StatusCode, responsesErrorPayload{
 		Code: sdkErr.Code, Type: sdkErr.Type, Param: sdkErr.Param, Message: sdkErr.Message,
@@ -120,7 +138,7 @@ func (r responsesErrorReducer) reduceFromResponse(rawResp *http.Response) (*Prov
 		return &ProviderAPIError{
 			ProviderID: r.providerID,
 			StatusCode: rawResp.StatusCode,
-			Code:       r.classify(rawResp.StatusCode, ""),
+			Code:       r.classify(rawResp.StatusCode, "", ""),
 			Message:    http.StatusText(rawResp.StatusCode),
 			Raw:        "<empty error body>",
 		}, true
@@ -139,7 +157,7 @@ func (r responsesErrorReducer) reduceFromResponse(rawResp *http.Response) (*Prov
 	return &ProviderAPIError{
 		ProviderID: r.providerID,
 		StatusCode: rawResp.StatusCode,
-		Code:       r.classify(rawResp.StatusCode, ""),
+		Code:       r.classify(rawResp.StatusCode, "", ""),
 		Message:    raw,
 		Raw:        raw,
 	}, true
@@ -256,9 +274,26 @@ func decodeResponsesErrorPayload(data []byte) (responsesErrorPayload, bool) {
 	return payload, true
 }
 
-func classifyOpenAIUnifiedErrorCode(statusCode int, providerCode string) UnifiedErrorCode {
+func classifyOpenAIUnifiedErrorCode(statusCode int, providerCode, providerType string) UnifiedErrorCode {
+	if category := classifyResponsesErrorCode(statusCode, providerCode); category != UnifiedErrorCodeUnknown {
+		return category
+	}
+	for _, value := range []string{providerCode, providerType} {
+		switch value {
+		case "insufficient_quota", "credit_balance_exhausted", "organization_spend_limit_exceeded",
+			"project_spend_limit_exceeded", "organization_usage_limit_exceeded":
+			return UnifiedErrorCodeUsageExhausted
+		}
+	}
+	return UnifiedErrorCodeUnknown
+}
+
+func classifyResponsesErrorCode(statusCode int, providerCode string) UnifiedErrorCode {
 	if statusCode == 401 {
 		return UnifiedErrorCodeAuthentication
+	}
+	if statusCode == 426 {
+		return llmerrors.UnifiedErrorCodeProtocolVersion
 	}
 	switch strings.ToLower(strings.TrimSpace(providerCode)) {
 	case "context_length_exceeded",

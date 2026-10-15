@@ -17,6 +17,7 @@ const (
 	UnifiedErrorCodeUnknown               UnifiedErrorCode = "unknown"
 	UnifiedErrorCodeAuthentication        UnifiedErrorCode = "authentication"
 	UnifiedErrorCodeEntitlement           UnifiedErrorCode = "entitlement"
+	UnifiedErrorCodeUsageExhausted        UnifiedErrorCode = "usage_exhausted"
 	UnifiedErrorCodeProtocolVersion       UnifiedErrorCode = "protocol_version"
 	UnifiedErrorCodeContextLengthOverflow UnifiedErrorCode = "context_length_overflow"
 	UnifiedErrorCodeProviderContract      UnifiedErrorCode = "provider_contract_error"
@@ -144,6 +145,11 @@ func IsAuthenticationError(err error) bool {
 	return false
 }
 
+func IsUsageExhaustionError(err error) bool {
+	var providerErr *ProviderAPIError
+	return errors.As(err, &providerErr) && providerErr.Code == UnifiedErrorCodeUsageExhausted
+}
+
 func IsNonRetriableModelError(err error) bool {
 	if err == nil {
 		return false
@@ -160,7 +166,7 @@ func IsNonRetriableModelError(err error) bool {
 		if providerErr.ProviderType == providerTypeResponseIncomplete {
 			return true
 		}
-		if providerErr.Code == UnifiedErrorCodeProviderContract || providerErr.Code == UnifiedErrorCodeEntitlement || providerErr.Code == UnifiedErrorCodeProtocolVersion {
+		if providerErr.Code == UnifiedErrorCodeProviderContract || providerErr.Code == UnifiedErrorCodeEntitlement || providerErr.Code == UnifiedErrorCodeProtocolVersion || providerErr.Code == UnifiedErrorCodeUsageExhausted {
 			return true
 		}
 		switch providerErr.StatusCode {

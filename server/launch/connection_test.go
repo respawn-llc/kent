@@ -1,11 +1,13 @@
 package launch
 
 import (
+	"errors"
 	"fmt"
 	"path/filepath"
 	"reflect"
 	"sync"
 	"testing"
+	"time"
 
 	"core/server/session"
 	"core/server/session/sessiontest"
@@ -13,6 +15,72 @@ import (
 	"core/shared/runtimeids"
 	"core/shared/serverapi"
 )
+
+func TestConnectionUsageCooldownSkipsExhaustedMember(t *testing.T) {
+	settings := config.Settings{
+		Connection:      &config.ConnectionSelection{"a", "b"},
+		ConnectionOrder: []config.ConnectionID{"a", "b"},
+		Connections: map[config.ConnectionID]config.ProviderConnection{
+			"a": {Protocol: config.ConnectionChatGPT},
+			"b": {Protocol: config.ConnectionChatGPT},
+		},
+	}
+	rotation := NewConnectionRotation(time.Minute)
+	first, err := rotation.Prepare(settings, true)
+	if err != nil || first != "a" {
+		t.Fatalf("first allocation = %v, %v", first, err)
+	}
+	rotation.RecordExhaustion(first)
+	for range 2 {
+		next, err := rotation.Prepare(settings, true)
+		if err != nil || next != "b" {
+			t.Fatalf("cooldown allocation = %v, %v", next, err)
+		}
+	}
+}
+
+func TestConnectionUsageFallbackDisabledAndExpiry(t *testing.T) {
+	settings := config.Settings{
+		Connection:  config.SingleConnection("a"),
+		Connections: map[config.ConnectionID]config.ProviderConnection{"a": {Protocol: config.ConnectionChatGPT}},
+	}
+	disabled := NewConnectionRotation(0)
+	disabled.RecordExhaustion("a")
+	if _, err := disabled.Prepare(settings, true); err != nil {
+		t.Fatal(err)
+	}
+	rotation := NewConnectionRotation(10 * time.Millisecond)
+	rotation.RecordExhaustion("a")
+	_, err := rotation.Prepare(settings, true)
+	var unavailable *ConnectionsUnavailableError
+	if !errors.As(err, &unavailable) || len(unavailable.Members) != 1 || unavailable.Members[0].AvailableAt == nil {
+		t.Fatalf("unavailable = %v", err)
+	}
+	time.Sleep(time.Until(*unavailable.Members[0].AvailableAt))
+	if selected, err := rotation.Prepare(settings, true); err != nil || selected != "a" {
+		t.Fatalf("after expiry = %s, %v", selected, err)
+	}
+}
+
+func TestConnectionUsageSelectionExcludesVisitedMembers(t *testing.T) {
+	settings := config.Settings{
+		ConnectionOrder: []config.ConnectionID{"a", "b"},
+		Connection:      &config.ConnectionSelection{"a", "b"},
+		Connections: map[config.ConnectionID]config.ProviderConnection{
+			"a": {Protocol: config.ConnectionChatGPT}, "b": {Protocol: config.ConnectionChatGPT},
+		},
+	}
+	rotation := NewConnectionRotation(time.Minute)
+	selected, err := rotation.SelectReplacement(settings, map[config.ConnectionID]struct{}{"a": {}})
+	if err != nil || selected != "b" {
+		t.Fatalf("replacement = %s, %v", selected, err)
+	}
+	_, err = rotation.SelectReplacement(settings, map[config.ConnectionID]struct{}{"a": {}, "b": {}})
+	var unavailable *ConnectionsUnavailableError
+	if !errors.As(err, &unavailable) {
+		t.Fatalf("visited error = %v", err)
+	}
+}
 
 func TestConnectionRotationSharesSetsWithoutAllocatingPreviews(t *testing.T) {
 	app := loadLaunchConfig(t, t.TempDir(),

@@ -119,6 +119,13 @@ func validateShellOutputMaxChars(state settingsState, _ map[string]Origin) error
 	return nil
 }
 
+func validateConnectionUsageFallbackSeconds(state settingsState, _ map[string]Origin) error {
+	if state.Settings.ConnectionUsageFallbackSeconds < 0 {
+		return fmt.Errorf("connection_usage_fallback_seconds must be >= 0")
+	}
+	return nil
+}
+
 func validateMinimumExecToBgSeconds(state settingsState, _ map[string]Origin) error {
 	if state.Settings.MinimumExecToBgSeconds <= 0 {
 		return fmt.Errorf("minimum_exec_to_bg_seconds must be > 0")
