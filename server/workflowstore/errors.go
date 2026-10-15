@@ -76,10 +76,6 @@ var (
 	// ErrWorkflowNameRequired is returned when a workflow name is blank.
 	ErrWorkflowNameRequired = errors.New("workflow name is required")
 
-	// ErrCommentAuthorKindInvalid is returned when a comment author kind is not
-	// one of the accepted values.
-	ErrCommentAuthorKindInvalid = errors.New("comment author kind must be user or agent")
-
 	// ErrBelongsToOtherWorkflow is returned when a graph element references a
 	// workflow it does not belong to.
 	ErrBelongsToOtherWorkflow = errors.New("workflow graph element belongs to a different workflow")

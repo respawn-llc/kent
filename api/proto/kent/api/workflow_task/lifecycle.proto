@@ -569,7 +569,7 @@ message Comment {
 
 message CommentAddRequest {
   string task_id = 1 [(buf.validate.field).string.(kent.api.shared.nonblank) = true];
-  string body = 2 [(buf.validate.field).string.min_len = 1];
+  string body = 2 [(buf.validate.field).string.min_len = 1, (buf.validate.field).string.(kent.api.shared.nonblank) = true];
   CommentAuthorKind author = 3 [(buf.validate.field).enum = {
     defined_only: true
     not_in: [0]
@@ -598,7 +598,7 @@ message CommentListSuccess {
 
 message CommentReplaceRequest {
   string comment_id = 1 [(buf.validate.field).string.min_len = 1];
-  string body = 2 [(buf.validate.field).string.min_len = 1];
+  string body = 2 [(buf.validate.field).string.min_len = 1, (buf.validate.field).string.(kent.api.shared.nonblank) = true];
 }
 
 message CommentDeleteRequest {
