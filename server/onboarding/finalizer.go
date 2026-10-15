@@ -156,10 +156,7 @@ func projectSettings(req *onboardingpb.FinalizeRequest, settings config.Settings
 		preserved["model"] = true
 	}
 	if req.Theme != nil {
-		themeValue, err := onboardingTheme(*req.Theme)
-		if err != nil {
-			return config.Settings{}, nil, err
-		}
+		themeValue := onboardingTheme(*req.Theme)
 		settings.Theme = theme.Normalize(themeValue)
 	}
 	if req.ContextWindow != nil {
@@ -184,10 +181,7 @@ func projectSettings(req *onboardingpb.FinalizeRequest, settings config.Settings
 		if !supportsVerbosity(settings, effectiveModel) {
 			return config.Settings{}, nil, invalidRequest("verbosity", "unsupported_for_model")
 		}
-		value, err := onboardingVerbosity(*req.Verbosity)
-		if err != nil {
-			return config.Settings{}, nil, err
-		}
+		value := onboardingVerbosity(*req.Verbosity)
 		settings.ModelVerbosity = config.ModelVerbosity(value)
 	}
 	if req.AskQuestion != nil {
@@ -205,10 +199,7 @@ func projectSettings(req *onboardingpb.FinalizeRequest, settings config.Settings
 		if *req.Compaction == onboardingpb.CompactionMode_COMPACTION_MODE_NATIVE && !supportsNativeCompaction(settings, effectiveModel) {
 			return config.Settings{}, nil, invalidRequest("compaction", "unsupported_for_provider")
 		}
-		value, err := onboardingCompaction(*req.Compaction)
-		if err != nil {
-			return config.Settings{}, nil, err
-		}
+		value := onboardingCompaction(*req.Compaction)
 		settings.CompactionMode = config.CompactionMode(value)
 	}
 	if len(req.DisabledSkillNames) > 0 {
@@ -293,11 +284,7 @@ func thinkingChoiceValue(choice *onboardingpb.ThinkingChoice, model, defaultEffo
 }
 
 func applySupervisor(settings *config.Settings, preserved map[string]bool, choice *onboardingpb.SupervisorChoice) error {
-	frequency, err := onboardingSupervisorFrequency(choice.Frequency)
-	if err != nil {
-		return err
-	}
-	settings.Reviewer.Frequency = frequency
+	settings.Reviewer.Frequency = onboardingSupervisorFrequency(choice.Frequency)
 	// A submitted Supervisor choice describes the whole visible selection:
 	// absent overrides mean inheritance. An absent Supervisor preserves baseline.
 	if choice.Model == nil {
@@ -332,56 +319,36 @@ func applySupervisor(settings *config.Settings, preserved map[string]bool, choic
 	return nil
 }
 
-func onboardingTheme(value onboardingpb.Theme) (string, error) {
-	switch value {
-	case onboardingpb.Theme_THEME_AUTO:
-		return "auto", nil
-	case onboardingpb.Theme_THEME_LIGHT:
-		return "light", nil
-	case onboardingpb.Theme_THEME_DARK:
-		return "dark", nil
-	default:
-		return "", invalidRequest("theme", "unsupported_value")
-	}
+func onboardingTheme(value onboardingpb.Theme) string {
+	return map[onboardingpb.Theme]string{
+		onboardingpb.Theme_THEME_AUTO:  "auto",
+		onboardingpb.Theme_THEME_LIGHT: "light",
+		onboardingpb.Theme_THEME_DARK:  "dark",
+	}[value]
 }
 
-func onboardingVerbosity(value onboardingpb.Verbosity) (string, error) {
-	switch value {
-	case onboardingpb.Verbosity_VERBOSITY_LOW:
-		return "low", nil
-	case onboardingpb.Verbosity_VERBOSITY_MEDIUM:
-		return "medium", nil
-	case onboardingpb.Verbosity_VERBOSITY_HIGH:
-		return "high", nil
-	default:
-		return "", invalidRequest("verbosity", "unsupported_value")
-	}
+func onboardingVerbosity(value onboardingpb.Verbosity) string {
+	return map[onboardingpb.Verbosity]string{
+		onboardingpb.Verbosity_VERBOSITY_LOW:    "low",
+		onboardingpb.Verbosity_VERBOSITY_MEDIUM: "medium",
+		onboardingpb.Verbosity_VERBOSITY_HIGH:   "high",
+	}[value]
 }
 
-func onboardingSupervisorFrequency(value onboardingpb.SupervisorFrequency) (string, error) {
-	switch value {
-	case onboardingpb.SupervisorFrequency_SUPERVISOR_FREQUENCY_OFF:
-		return "off", nil
-	case onboardingpb.SupervisorFrequency_SUPERVISOR_FREQUENCY_EDITS:
-		return "edits", nil
-	case onboardingpb.SupervisorFrequency_SUPERVISOR_FREQUENCY_ALL:
-		return "all", nil
-	default:
-		return "", invalidRequest("supervisor.frequency", "unsupported_value")
-	}
+func onboardingSupervisorFrequency(value onboardingpb.SupervisorFrequency) string {
+	return map[onboardingpb.SupervisorFrequency]string{
+		onboardingpb.SupervisorFrequency_SUPERVISOR_FREQUENCY_OFF:   "off",
+		onboardingpb.SupervisorFrequency_SUPERVISOR_FREQUENCY_EDITS: "edits",
+		onboardingpb.SupervisorFrequency_SUPERVISOR_FREQUENCY_ALL:   "all",
+	}[value]
 }
 
-func onboardingCompaction(value onboardingpb.CompactionMode) (string, error) {
-	switch value {
-	case onboardingpb.CompactionMode_COMPACTION_MODE_NATIVE:
-		return "native", nil
-	case onboardingpb.CompactionMode_COMPACTION_MODE_LOCAL:
-		return "local", nil
-	case onboardingpb.CompactionMode_COMPACTION_MODE_NONE:
-		return "none", nil
-	default:
-		return "", invalidRequest("compaction", "unsupported_value")
-	}
+func onboardingCompaction(value onboardingpb.CompactionMode) string {
+	return map[onboardingpb.CompactionMode]string{
+		onboardingpb.CompactionMode_COMPACTION_MODE_NATIVE: "native",
+		onboardingpb.CompactionMode_COMPACTION_MODE_LOCAL:  "local",
+		onboardingpb.CompactionMode_COMPACTION_MODE_NONE:   "none",
+	}[value]
 }
 
 func supportsNativeCompaction(settings config.Settings, model string) bool {
