@@ -26,7 +26,7 @@ var ErrExecutionNoLongerLive = errors.New("exact execution scope is no longer li
 var ErrAgentRuntimePlanRequired = errors.New("agent runtime plan is required")
 
 type AuthorityOptions struct {
-	SubmitSessionNaming func(runtimeids.SessionID, string, runtime.SessionNamingInput)
+	SubmitSessionNaming           func(runtimeids.SessionID, string, runtime.SessionNamingInput)
 	ConnectionRotation            *launch.ConnectionRotation
 	Environment                   func(string) (string, bool)
 	WorkspaceMembership           runtimewire.WorkspaceMembership

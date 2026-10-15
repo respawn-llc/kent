@@ -117,7 +117,7 @@ func cloneStringPointer(value *string) *string {
 }
 
 type authorityRuntimeOptions struct {
-	submitSessionNaming func(runtimeids.SessionID, string, runtime.SessionNamingInput)
+	submitSessionNaming           func(runtimeids.SessionID, string, runtime.SessionNamingInput)
 	connectionRotation            *launch.ConnectionRotation
 	environment                   func(string) (string, bool)
 	workspaceMembership           runtimewire.WorkspaceMembership
@@ -139,7 +139,7 @@ type runtimeStoreAdmission struct {
 
 func newAuthorityRuntimeOptions(options AuthorityOptions) authorityRuntimeOptions {
 	return authorityRuntimeOptions{
-		submitSessionNaming: options.SubmitSessionNaming,
+		submitSessionNaming:           options.SubmitSessionNaming,
 		connectionRotation:            options.ConnectionRotation,
 		environment:                   options.Environment,
 		workspaceMembership:           options.WorkspaceMembership,
