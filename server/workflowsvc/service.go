@@ -1393,7 +1393,7 @@ func configuredTargetSelectionRequirementFromUnavailable(
 	)
 }
 
-func configuredTargetResumeSelection(nodes []workflow.CurrentNode) (*taskpb.SelectionRequired, error) {
+func configuredTargetResumeSelection(nodes []workflow.CurrentNode) *taskpb.SelectionRequired {
 	for _, node := range nodes {
 		if node.Scheduling == nil || node.Scheduling.Interruption == nil {
 			continue
@@ -1402,12 +1402,9 @@ func configuredTargetResumeSelection(nodes []workflow.CurrentNode) (*taskpb.Sele
 		if unavailable == nil {
 			continue
 		}
-		if err := unavailable.Validate(); err != nil {
-			return nil, fmt.Errorf("invalid configured execution target interruption: %w", err)
-		}
-		return configuredTargetSelectionRequirementFromUnavailable(*unavailable), nil
+		return configuredTargetSelectionRequirementFromUnavailable(*unavailable)
 	}
-	return nil, nil
+	return nil
 }
 
 func executionTargetUnavailableCause(err error) (workflow.ExecutionTargetUnavailableCause, bool) {
@@ -1555,10 +1552,7 @@ func (s *Service) resumeWorkflowTaskAuthorized(
 	}
 	interrupted := preflight.CurrentNodes
 	if req.ExecutionTarget == nil {
-		selectionRequired, err := configuredTargetResumeSelection(interrupted)
-		if err != nil {
-			return nil, err
-		}
+		selectionRequired := configuredTargetResumeSelection(interrupted)
 		if selectionRequired != nil {
 			return &taskpb.ResumeSuccess{
 				Outcome: &taskpb.ResumeSuccess_SelectionRequired{SelectionRequired: selectionRequired},
