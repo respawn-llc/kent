@@ -630,11 +630,12 @@ func (m *defaultMessageLifecycle) HasPendingUserSteers() bool {
 	return m != nil && m.queue != nil && m.queue.HasPendingSteers()
 }
 
-func newActiveMetaContextBuilder(meta session.Meta, executionRoot, model, thinkingLevel, globalConfigDir string, skillPolicy config.SkillPolicy, now time.Time) metaContextBuilder {
-	roots := activeMetaContextRootsForMeta(meta, executionRoot)
+func newActiveMetaContextBuilder(store *session.Store, executionRoot, model, thinkingLevel, globalConfigDir string, skillPolicy config.SkillPolicy, now time.Time) metaContextBuilder {
+	roots := activeMetaContextRootsForMeta(store.Meta(), executionRoot)
 	builder := newMetaContextBuilder(roots.discoveryRoot, model, thinkingLevel, skillPolicy, now).
 		withEnvironmentCWD(roots.environmentCWD).
 		withGlobalConfigDir(globalConfigDir)
+	builder.sessionShortID = store.Identity().ShortID
 	return builder
 }
 

@@ -141,6 +141,7 @@ func (r metaContextBuildResult) StablePrefixMessages() []llm.Message {
 }
 
 type metaContextBuilder struct {
+	sessionShortID  *runtimeids.SessionShortID
 	workspaceRoot   string
 	environmentCWD  string
 	globalConfigDir string
@@ -261,6 +262,9 @@ func (b metaContextBuilder) Build(opts metaContextBuildOptions) (metaContextBuil
 		environmentMessage, err := environmentContextMessage(b.environmentCWD, b.model, b.now)
 		if err != nil {
 			return metaContextBuildResult{}, err
+		}
+		if b.sessionShortID != nil {
+			environmentMessage += "\nSession ID: " + b.sessionShortID.String()
 		}
 		collector.addMessages([]llm.Message{{
 			Role:        llm.RoleDeveloper,
