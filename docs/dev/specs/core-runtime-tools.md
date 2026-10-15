@@ -260,8 +260,9 @@ You can use `kent run steer <source-session-id> "message"` to respond.
 
 - When nano is configured and `nano.features.session_naming` is true, Kent must automatically name unnamed interactive main Sessions, headless Sessions, and subagent Sessions, including subagents launched by Workflow agents.
 - Kent must not automatically rename the Workflow agent Session whose execution was started by the Workflow.
-- Unnamed subagents must display as `Subagent <short_id>`, using the existing Session Short ID. When nano returns a subagent summary, Kent must construct and save the complete name as `Subagent <short_id>: <summary>`.
+- Unnamed subagents must display as `Subagent <short_id>`, using the existing Session Short ID. When a generated title is saved while the Session is a subagent, Kent must save the complete name as `Subagent <short_id>: <summary>`. If it has already been promoted to an interactive Session, Kent must save the summary without the prefix.
 - Clients must display saved names exactly as saved, including manually entered names. They must not add generated-title prefixes at display time. The server may use the fixed prefix when creating persisted generated names.
+- Promotion must not change a saved name. Open Session lists must reflect asynchronous saved-name changes without manual refresh.
 - New subagents must not save synthetic placeholder names. Kent must treat every existing saved name as named, including synthetic names, without migration or text-based classification.
 - For a new Session, naming must start in parallel after the first completed Agent Step following its first contentful input, including that Step's caused tools and committed results. Kent must not wait for the Turn to finish.
 - Contentful input must mean the first nonblank user input or initial subagent assignment or Goal. Tool output, reminders, and other server-generated context must not qualify.

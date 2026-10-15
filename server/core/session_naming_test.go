@@ -20,6 +20,7 @@ import (
 	"core/shared/protoapi"
 	chatsettingspb "core/shared/protoapi/gen/kent/api/chat_settings"
 	runtimepb "core/shared/protoapi/gen/kent/api/runtime"
+	workflowpb "core/shared/protoapi/gen/kent/api/workflow_definition"
 	"core/shared/runtimeinput"
 	"core/shared/serverapi"
 	"core/shared/textutil"
@@ -70,10 +71,23 @@ func TestNamingContinuesAfterTurnAndCallerEnd(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer subscription.Close()
+	catalogChanges, err := app.WorkflowClient().SubscribeWorkflowProject(t.Context(), &workflowpb.ProjectSubscribeRequest{ProjectId: &binding.ProjectID})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer catalogChanges.Close()
 	ctx, cancel := context.WithTimeout(t.Context(), 10*time.Second)
 	defer cancel()
+	wireSettings, err := protoapi.SessionSettingsToProto(resolved.Config.Settings)
+	if err != nil {
+		t.Fatal(err)
+	}
+	clientSettings, err := protoapi.SessionSettingsFromProto(wireSettings)
+	if err != nil {
+		t.Fatal(err)
+	}
 	_, err = app.SessionRuntimeClient().ActivateSessionRuntime(t.Context(), serverapi.SessionRuntimeActivateRequest{
-		SessionID: requestfixture.SessionID(t, id), OwnerID: "naming-test", ActiveSettings: resolved.Config.Settings, Source: resolved.Config.Source,
+		SessionID: requestfixture.SessionID(t, id), OwnerID: "naming-test", ActiveSettings: clientSettings, Source: resolved.Config.Source,
 		QuestionsEnabled: textutil.Value(true), AutoCompactionEnabled: textutil.Value(false),
 	})
 	if err != nil {
@@ -96,6 +110,13 @@ func TestNamingContinuesAfterTurnAndCallerEnd(t *testing.T) {
 	}
 	endCaller()
 	close(releaseNano)
+	record, err := meta.ResolvePersistedSession(ctx, id)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if preview := record.Meta.FirstPromptPreview; preview != "Fix invoice totals" {
+		t.Fatalf("initial user preview = %q", preview)
+	}
 	for {
 		snapshot, err := subscription.Next(ctx)
 		if err != nil {
@@ -107,5 +128,12 @@ func TestNamingContinuesAfterTurnAndCallerEnd(t *testing.T) {
 			}
 			break
 		}
+	}
+	change, err := catalogChanges.Next(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if change.Resource != workflowpb.ProjectEventResource_WORKFLOW_PROJECT_EVENT_RESOURCE_SESSION_CATALOG {
+		t.Fatalf("saved name did not invalidate Session catalog: %v", change.Resource)
 	}
 }

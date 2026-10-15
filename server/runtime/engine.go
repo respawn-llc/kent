@@ -721,6 +721,9 @@ func (e *Engine) acceptPendingMessage(item QueuedUserMessage, lane runtimeinput.
 	queued, err := e.messageFlow.QueueUserMessageWithID(item, association)
 	e.lifecycleMu.Unlock()
 	if err == nil {
+		if queued.Message.Role == llm.RoleUser && queued.Message.Content != nil {
+			err = e.store.CaptureInitialPromptPreview(*queued.Message.Content)
+		}
 		if queued.Message.Content != nil && (queued.Message.Role == llm.RoleUser ||
 			queued.Message.MessageType != nil && *queued.Message.MessageType == llm.MessageTypeAgentSteer) {
 			e.captureSessionNamingRaw(*queued.Message.Content)

@@ -117,18 +117,19 @@ func cloneStringPointer(value *string) *string {
 }
 
 type authorityRuntimeOptions struct {
-	submitSessionNaming func(runtimeids.SessionID, config.Settings, runtime.SessionNamingInput)
-	connectionRotation  *launch.ConnectionRotation
-	environment         func(string) (string, bool)
-	workspaceMembership runtimewire.WorkspaceMembership
-	debug               bool
-	persistenceRoot     string
-	authManager         *auth.Manager
-	background          *shelltool.Manager
-	storeOptions        []session.StoreOption
-	eventFeed           AgentResourceEventFeed
-	resourceLifecycle   AgentResourceLifecycle
-	stepLifecycle       AgentResourceStepLifecycle
+	resolveWorkspaceConfig func(string) (config.App, error)
+	submitSessionNaming    func(runtimeids.SessionID, config.Settings, runtime.SessionNamingInput)
+	connectionRotation     *launch.ConnectionRotation
+	environment            func(string) (string, bool)
+	workspaceMembership    runtimewire.WorkspaceMembership
+	debug                  bool
+	persistenceRoot        string
+	authManager            *auth.Manager
+	background             *shelltool.Manager
+	storeOptions           []session.StoreOption
+	eventFeed              AgentResourceEventFeed
+	resourceLifecycle      AgentResourceLifecycle
+	stepLifecycle          AgentResourceStepLifecycle
 }
 
 type runtimeStoreAdmission struct {
@@ -138,18 +139,19 @@ type runtimeStoreAdmission struct {
 
 func newAuthorityRuntimeOptions(options AuthorityOptions) authorityRuntimeOptions {
 	return authorityRuntimeOptions{
-		submitSessionNaming: options.SubmitSessionNaming,
-		connectionRotation:  options.ConnectionRotation,
-		environment:         options.Environment,
-		workspaceMembership: options.WorkspaceMembership,
-		debug:               options.Debug,
-		persistenceRoot:     options.PersistenceRoot,
-		authManager:         options.AuthManager,
-		background:          options.Background,
-		storeOptions:        append([]session.StoreOption(nil), options.StoreOptions...),
-		eventFeed:           options.EventFeed,
-		resourceLifecycle:   options.ResourceLifecycle,
-		stepLifecycle:       options.StepLifecycle,
+		resolveWorkspaceConfig: options.ResolveWorkspaceConfig,
+		submitSessionNaming:    options.SubmitSessionNaming,
+		connectionRotation:     options.ConnectionRotation,
+		environment:            options.Environment,
+		workspaceMembership:    options.WorkspaceMembership,
+		debug:                  options.Debug,
+		persistenceRoot:        options.PersistenceRoot,
+		authManager:            options.AuthManager,
+		background:             options.Background,
+		storeOptions:           append([]session.StoreOption(nil), options.StoreOptions...),
+		eventFeed:              options.EventFeed,
+		resourceLifecycle:      options.ResourceLifecycle,
+		stepLifecycle:          options.StepLifecycle,
 	}
 }
 
@@ -291,6 +293,14 @@ func (a *Authority) newRuntimeWiringFromPlan(resource *agentResource, store *ses
 		return nil, err
 	}
 	options := plan.options
+	if a.options.submitSessionNaming != nil {
+		workspaceConfig, err := a.options.resolveWorkspaceConfig(options.MainWorkspaceRoot)
+		if err != nil {
+			return nil, err
+		}
+		options.Settings.Nano = workspaceConfig.Settings.Nano
+		options.Settings.NanoConcurrency = workspaceConfig.Settings.NanoConcurrency
+	}
 	catalog, err := config.LoadGlobal(config.LoadOptions{ConfigRoot: a.options.persistenceRoot})
 	if err != nil {
 		return nil, err

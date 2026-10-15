@@ -221,7 +221,7 @@ func composeUIProgram(request uiLoopRequest, output io.Writer) (*uiProgramCompos
 		return nil, errors.New("Session attention client is required")
 	}
 	attentionEvents, stopAttention := startSessionAttentionEvents(programContext, sessionID, request.wiring.attentionNotifications)
-	request.wiring.eventDispatcher.attentionEvents = attentionEvents
+	model.eventDispatcher.attentionEvents = attentionEvents
 	sessionClient, ok := runtimeClient.(*sessionRuntimeClient)
 	if !ok {
 		return nil, errors.New("projected UI model runtime client has unexpected type")

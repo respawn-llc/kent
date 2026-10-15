@@ -27,19 +27,20 @@ var ErrExecutionNoLongerLive = errors.New("exact execution scope is no longer li
 var ErrAgentRuntimePlanRequired = errors.New("agent runtime plan is required")
 
 type AuthorityOptions struct {
-	SubmitSessionNaming func(runtimeids.SessionID, config.Settings, runtime.SessionNamingInput)
-	ConnectionRotation  *launch.ConnectionRotation
-	Environment         func(string) (string, bool)
-	WorkspaceMembership runtimewire.WorkspaceMembership
-	Debug               bool
-	PersistenceRoot     string
-	AuthManager         *auth.Manager
-	Background          *shelltool.Manager
-	StoreOptions        []session.StoreOption
-	EventFeed           AgentResourceEventFeed
-	ResourceLifecycle   AgentResourceLifecycle
-	StepLifecycle       AgentResourceStepLifecycle
-	PromptFeed          ExecutionPromptFeed
+	ResolveWorkspaceConfig func(string) (config.App, error)
+	SubmitSessionNaming    func(runtimeids.SessionID, config.Settings, runtime.SessionNamingInput)
+	ConnectionRotation     *launch.ConnectionRotation
+	Environment            func(string) (string, bool)
+	WorkspaceMembership    runtimewire.WorkspaceMembership
+	Debug                  bool
+	PersistenceRoot        string
+	AuthManager            *auth.Manager
+	Background             *shelltool.Manager
+	StoreOptions           []session.StoreOption
+	EventFeed              AgentResourceEventFeed
+	ResourceLifecycle      AgentResourceLifecycle
+	StepLifecycle          AgentResourceStepLifecycle
+	PromptFeed             ExecutionPromptFeed
 }
 
 type Authority struct {

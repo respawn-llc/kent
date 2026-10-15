@@ -52,6 +52,7 @@ import (
 	"core/shared/serverapi"
 	"core/shared/textutil"
 	"core/shared/toolspec"
+	"core/shared/workflowcontract"
 )
 
 func New(cfg config.App, authSupport serverbootstrap.AuthSupport, background *shelltool.Manager) (*Core, error) {
@@ -130,6 +131,7 @@ func NewWithContextOptions(ctx context.Context, cfg config.App, authSupport serv
 	}
 	var namingConsumer *sessionnaming.Service
 	runtimeAuthority := sessionruntime.NewAuthority(sessionruntime.AuthorityOptions{
+		ResolveWorkspaceConfig: workspaceConfigResolver.Resolve,
 		SubmitSessionNaming: func(id runtimeids.SessionID, settings config.Settings, input runtime.SessionNamingInput) {
 			namingConsumer.Submit(id, settings, input)
 		},
@@ -393,7 +395,16 @@ func NewWithContextOptions(ctx context.Context, cfg config.App, authSupport serv
 		return nil, fmt.Errorf("workflow bundle: service: %w", err)
 	}
 	core := &Core{connectionRotation: connectionRotation, bundles: composeBundles(bundleCompositionInput{
-		settingsChanges:         sessionlaunch.NewSettingsBroadcaster(),
+		settingsChanges: sessionlaunch.NewSettingsBroadcaster(func(id runtimeids.SessionID) error {
+			projectID, err := metadataStore.ResolveSessionProjectID(context.Background(), id.String())
+			if err != nil {
+				return err
+			}
+			return workflowStore.PublishWorkflowEvent(context.Background(), workflowcontract.Event{
+				ProjectID: &projectID, Resource: workflowcontract.EventResourceSessionCatalog,
+				Action: workflowcontract.EventActionUpdated, PrimaryEntityID: projectID,
+			})
+		}),
 		cfg:                     cfg,
 		workspaceConfigResolver: workspaceConfigResolver,
 		authSupport:             authSupport,

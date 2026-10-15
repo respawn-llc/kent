@@ -20,7 +20,7 @@ func ResolveNanoTargets(settings config.Settings) ([]NanoTarget, error) {
 	if n == nil {
 		return nil, nil
 	}
-	if err := config.ValidateSettingsWithSources(settings, nil); err != nil {
+	if err := config.ValidateNanoSettings(settings); err != nil {
 		return nil, err
 	}
 	selected := settings

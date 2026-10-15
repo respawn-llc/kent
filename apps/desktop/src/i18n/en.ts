@@ -49,6 +49,7 @@ export const englishResources = {
       loadingMore: "Loading more",
       attention: {
         sessionNamingFailed: "Session naming failed",
+        sessionNamingFailureHelp: "You can name this session manually. Check the server logs for details.",
         listenerFailed: "Live attention updates stopped",
         open: "Open",
         questionTitle: "Question",

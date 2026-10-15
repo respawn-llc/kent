@@ -242,7 +242,7 @@ export function createAttentionViewModel({
           const notification = {
             id: `session-naming-${event.sequence.toString()}`,
             title: t("app.attention.sessionNamingFailed"),
-            body: event.error.cause ?? t("app.attention.sessionNamingFailed"),
+            body: t("app.attention.sessionNamingFailureHelp"),
             target: event.target,
           };
           const showFailure = () => {

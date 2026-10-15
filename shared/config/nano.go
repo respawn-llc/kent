@@ -128,6 +128,10 @@ func (n nanoSectionSetting) appendDefaultLines(lines *[]defaultConfigLine, state
 	}
 }
 
+func ValidateNanoSettings(settings Settings) error {
+	return validateNano(settingsState{Settings: settings}, nil)
+}
+
 func validateNano(state settingsState, sources map[string]Origin) error {
 	if state.Settings.NanoConcurrency < 1 {
 		return configurationValidationError(fmt.Errorf("nano.concurrency must be positive"), sources, "nano.concurrency")
