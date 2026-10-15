@@ -49,7 +49,9 @@ it("collapses structured approval targets without changing their values", () => 
       <ApprovalTargets target={target} />
     </TestAppProviders>,
   );
-  expect(screen.getByText("- ~/input → ~/resolved")).toBeInTheDocument();
+  expect(
+    screen.getByText(appI18n.t("task.accessApprovalSingle", { path: "~/input → ~/resolved" })),
+  ).toBeInTheDocument();
   expect(target.resolvedPath).toBe("/Users/engineer/resolved");
 });
 

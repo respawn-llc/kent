@@ -228,9 +228,8 @@ func TestGatewayProjectRemoteContinuesAfterActiveStepScheduledCrossProjectMove(t
 		}
 		return nil
 	})
-	submission, err := remote.SubmitUserTurn(context.Background(), &runtimepb.SubmitUserTurnRequest{
-		SessionId: movedSession.Meta().SessionID,
-		Input:     &runtimepb.UserTurnInput{Input: &runtimepb.UserTurnInput_Text{Text: "move this Session"}},
+	submission, err := remote.SubmitUserTurn(context.Background(), &runtimepb.SubmitUserTurnRequest{QueueItemId: runtimeids.NewQueueItemID().String(), SessionId: movedSession.Meta().SessionID,
+		Input: &runtimepb.UserTurnInput{Input: &runtimepb.UserTurnInput_Text{Text: "move this Session"}},
 	})
 	if err != nil {
 		t.Fatalf("SubmitUserTurn with self-rebind: %v", err)

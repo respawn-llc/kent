@@ -5,6 +5,7 @@ import (
 
 	"core/shared/protoapi"
 	runtimepb "core/shared/protoapi/gen/kent/api/runtime"
+	"core/shared/runtimeids"
 	"google.golang.org/protobuf/types/known/timestamppb"
 )
 
@@ -65,9 +66,8 @@ func TestRuntimeSubmitUserShellCommandRejectsBlankCommand(t *testing.T) {
 }
 
 func TestRuntimeSubmitUserTurnRequestUsesInputAndRejectsMissingInput(t *testing.T) {
-	req := &runtimepb.SubmitUserTurnRequest{
-		SessionId: "session-1",
-		Input:     &runtimepb.UserTurnInput{Input: &runtimepb.UserTurnInput_Text{Text: "hello"}},
+	req := &runtimepb.SubmitUserTurnRequest{QueueItemId: runtimeids.NewQueueItemID().String(), SessionId: "session-1",
+		Input: &runtimepb.UserTurnInput{Input: &runtimepb.UserTurnInput_Text{Text: "hello"}},
 	}
 	if err := protoapi.Validate(req); err != nil {
 		t.Fatalf("valid request: %v", err)

@@ -9,6 +9,7 @@ import (
 
 	"core/server/llm"
 	"core/server/runtime"
+	"core/shared/runtimeids"
 	"core/shared/textutil"
 )
 
@@ -61,7 +62,7 @@ func TestContinuationWakesWhenStartingLiveGroupBecomesReady(t *testing.T) {
 		joined, changed, err := fixture.authority.ContinueAgentExecution(t.Context(), ActiveContinuation{
 			Descriptor: mustOpenSessionDescriptor(t, id),
 			Resource:   ref, Join: func(ctx context.Context, engine *runtime.Engine, accept runtime.CommandAcceptance) (bool, error) {
-				_, handle, accepted, err := engine.QueueUserMessageForActiveRunWithObservation(ctx, "redirect", t.Context(), accept)
+				_, handle, accepted, err := engine.QueueUserMessageForActiveRunWithObservation(ctx, runtimeids.NewQueueItemID().String(), "redirect", t.Context(), accept)
 				if errors.Is(err, runtime.ErrNoActiveLiveRun) {
 					attemptedOnce.Do(func() { close(attempted) })
 				}
@@ -132,7 +133,7 @@ func TestContinuationReservationPrecedesExecutionFinalization(t *testing.T) {
 	joined, changed, err := fixture.authority.ContinueAgentExecution(t.Context(), ActiveContinuation{
 		Descriptor: mustOpenSessionDescriptor(t, id),
 		Resource:   ref, Join: func(ctx context.Context, engine *runtime.Engine, accept runtime.CommandAcceptance) (bool, error) {
-			_, handle, accepted, err := engine.QueueUserMessageForActiveRunWithObservation(ctx, "redirect", t.Context(),
+			_, handle, accepted, err := engine.QueueUserMessageForActiveRunWithObservation(ctx, runtimeids.NewQueueItemID().String(), "redirect", t.Context(),
 				func(commit func() (bool, error)) (bool, error) {
 					// Reservation is held while the original worker attempts cleanup.
 					close(client.releaseFirst)
@@ -247,7 +248,7 @@ func TestContinuationCompetingStartRetainsAcceptingResource(t *testing.T) {
 	var observer *runtime.LiveRunWaitHandle
 	joined, changed, err := fixture.authority.ContinueAgentExecution(t.Context(), ActiveContinuation{Descriptor: request.Descriptor, Resource: ref,
 		Join: func(ctx context.Context, engine *runtime.Engine, accept runtime.CommandAcceptance) (bool, error) {
-			_, handle, accepted, err := engine.QueueUserMessageForActiveRunWithObservation(ctx, "redirect", t.Context(), accept)
+			_, handle, accepted, err := engine.QueueUserMessageForActiveRunWithObservation(ctx, runtimeids.NewQueueItemID().String(), "redirect", t.Context(), accept)
 			observer = handle
 			return accepted, err
 		}})

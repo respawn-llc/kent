@@ -67,6 +67,7 @@ export type ChatInputMutationResult = Readonly<{
     | Readonly<{
         kind: "accepted";
         queueItemID: PendingWorkItemID;
+        disposition: "started_turn" | "pending_steer" | "pending_queue";
         diagnostic: ChatAcceptedDiagnostic | null;
       }>
     | Readonly<{
@@ -232,8 +233,16 @@ export type ChatApi = Readonly<{
   persistDraft(target: ChatSessionTarget, input: string, protectedInput?: string | null): Promise<void>;
   listPendingPrompts(target: ChatSessionTarget): Promise<readonly PendingPrompt[]>;
   answerPromptBatch(input: PromptAnswerBatchInput): Promise<PromptAnswerBatchResponse>;
-  steer(target: ChatMutationTarget, activation: ChatActivation): Promise<ChatInputMutationResult>;
-  queue(target: ChatMutationTarget, activation: ChatActivation): Promise<ChatInputMutationResult>;
+  steer(
+    target: ChatMutationTarget,
+    activation: ChatActivation,
+    queueItemID: PendingWorkItemID,
+  ): Promise<ChatInputMutationResult>;
+  queue(
+    target: ChatMutationTarget,
+    activation: ChatActivation,
+    queueItemID: PendingWorkItemID,
+  ): Promise<ChatInputMutationResult>;
   compact(target: ChatMutationTarget, invocation: ChatCompactionInvocation): Promise<ChatCompactionResult>;
   stop(target: ChatSessionTarget): Promise<"stopped" | "idle">;
   forkEdit(target: ChatSessionTarget, input: ChatForkEditInput): Promise<string>;

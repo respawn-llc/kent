@@ -74,6 +74,12 @@ func (m *uiModel) handleOngoingTranscriptEvent(event ongoingTranscriptEvent) tea
 	case ongoingTranscriptEventFailure:
 		err = fmt.Errorf("open transcript subscription: %w", event.Err)
 		m.logf("ongoing.transcript.open.error err=%q", err.Error())
+		if runtimeattach.IsRuntimeProtocolMismatch(event.Err) {
+			m.observeRuntimeRequestResult(event.Err)
+			notice := m.sendTransientStatusWithNoticeID(event.Err.Error(), uiStatusNoticeError, transientStatusDuration, uiStatusNoticeReplace, "")
+			m.layout().syncViewport()
+			return m.batchWithNativeOngoingRepaint(notice)
+		}
 		if runtimeattach.IsRuntimeConnectionError(event.Err) {
 			m.observeRuntimeRequestResult(event.Err)
 			m.layout().syncViewport()

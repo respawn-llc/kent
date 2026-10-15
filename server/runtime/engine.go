@@ -556,14 +556,19 @@ type QueuedUserMessage struct {
 	ID                    string
 	Message               llm.Message
 	CanonicalPresentation string
+	Disposition           runtimeinput.InputAdmissionDisposition
 }
 
 type QueuedUserInput struct {
+	ID                    string
 	ExecutionText         string
 	CanonicalPresentation string
 }
 
 func (i QueuedUserInput) Validate() error {
+	if _, err := runtimeids.ParseCanonicalUUIDv4(i.ID, "queue_item_id"); err != nil {
+		return err
+	}
 	if strings.TrimSpace(i.ExecutionText) == "" {
 		return errors.New("queued user input requires execution text")
 	}
@@ -574,7 +579,7 @@ func (i QueuedUserInput) Validate() error {
 }
 
 func plainQueuedUserInput(text string) QueuedUserInput {
-	return QueuedUserInput{ExecutionText: text, CanonicalPresentation: text}
+	return QueuedUserInput{ID: runtimeids.NewQueueItemID().String(), ExecutionText: text, CanonicalPresentation: text}
 }
 
 func (e *Engine) QueueUserMessage(ctx context.Context, text string) (QueuedUserMessage, error) {
@@ -603,7 +608,7 @@ func (e *Engine) queueUserInput(
 	if err := input.Validate(); err != nil {
 		return QueuedUserMessage{}, err
 	}
-	return e.queueMessage(ctx, llm.Message{Role: llm.RoleUser, Content: textutil.Value(input.ExecutionText)}, input.CanonicalPresentation, forceAutoDrain, autoStart, accept)
+	return e.queueMessage(ctx, input.ID, llm.Message{Role: llm.RoleUser, Content: textutil.Value(input.ExecutionText)}, input.CanonicalPresentation, forceAutoDrain, autoStart, accept)
 }
 
 func (e *Engine) QueueAgentSteer(ctx context.Context, steer AgentSteer, accept CommandAcceptance) (QueuedUserMessage, error) {
@@ -611,10 +616,13 @@ func (e *Engine) QueueAgentSteer(ctx context.Context, steer AgentSteer, accept C
 	if message.Content == nil {
 		return QueuedUserMessage{}, errInvalidQueuedUserMessage
 	}
-	return e.queueMessage(ctx, message, *message.Content, true, true, accept)
+	return e.queueMessage(ctx, runtimeids.NewQueueItemID().String(), message, *message.Content, true, true, accept)
 }
 
-func (e *Engine) queueMessage(ctx context.Context, message llm.Message, presentation string, forceAutoDrain, autoStart bool, accept CommandAcceptance) (QueuedUserMessage, error) {
+func (e *Engine) queueMessage(ctx context.Context, id string, message llm.Message, presentation string, forceAutoDrain, autoStart bool, accept CommandAcceptance) (QueuedUserMessage, error) {
+	if _, err := runtimeids.ParseCanonicalUUIDv4(id, "queue_item_id"); err != nil {
+		return QueuedUserMessage{}, err
+	}
 	if e == nil || e.closed.Load() {
 		return QueuedUserMessage{}, ErrEngineClosed
 	}
@@ -623,16 +631,16 @@ func (e *Engine) queueMessage(ctx context.Context, message llm.Message, presenta
 			return QueuedUserMessage{}, err
 		}
 	}
-	return e.queueMessageRaw(message, presentation, forceAutoDrain, autoStart, accept)
+	return e.queueMessageRaw(id, message, presentation, forceAutoDrain, autoStart, accept)
 }
 
-func (e *Engine) queueMessageRaw(message llm.Message, presentation string, forceAutoDrain, autoStart bool, accept CommandAcceptance) (QueuedUserMessage, error) {
+func (e *Engine) queueMessageRaw(id string, message llm.Message, presentation string, forceAutoDrain, autoStart bool, accept CommandAcceptance) (QueuedUserMessage, error) {
 	e.ensureOrchestrationCollaborators()
 	if err := e.requirePendingWorkCapacity(); err != nil {
 		return QueuedUserMessage{}, err
 	}
 	liveItem := QueuedUserMessage{
-		ID:                    runtimeids.NewQueueItemID().String(),
+		ID:                    id,
 		Message:               message,
 		CanonicalPresentation: presentation,
 	}
@@ -644,7 +652,11 @@ func (e *Engine) queueMessageRaw(message llm.Message, presentation string, force
 		var item QueuedUserMessage
 		livePublication := false
 		committed, err := runCommandAcceptance(accept, func() (bool, error) {
-			if !e.liveRun.beginQueueItemPublication(mustQueueItemID(liveItem.ID), lane) {
+			publishing, publicationErr := e.liveRun.beginQueueItemPublication(mustQueueItemID(liveItem.ID), lane, nil)
+			if publicationErr != nil {
+				return false, publicationErr
+			}
+			if !publishing {
 				return false, nil
 			}
 			livePublication = true
@@ -709,9 +721,11 @@ func (e *Engine) acceptPendingMessage(item QueuedUserMessage, lane runtimeinput.
 	}
 	e.outputMutationMu.Lock()
 	association := queuedUserMessageAssociation{autoStart: autoStart}
+	disposition := runtimeinput.InputAdmissionPendingQueue
 	switch lane {
 	case runtimeinput.PendingWorkLaneQueue:
 	case runtimeinput.PendingWorkLaneSteer:
+		disposition = runtimeinput.InputAdmissionPendingSteer
 		// Pending Work order and delivery order share this admission boundary.
 		association.steerAdmission = e.nextPendingWorkSteerAdmission()
 	default:
@@ -726,7 +740,11 @@ func (e *Engine) acceptPendingMessage(item QueuedUserMessage, lane runtimeinput.
 			return QueuedUserMessage{}, err
 		}
 	}
+	if autoStart && !e.stepLifecycle.IsBusy() && !e.HasScheduledQueuedUserWork() {
+		disposition = runtimeinput.InputAdmissionStartedTurn
+	}
 	queued, err := e.messageFlow.QueueUserMessageWithID(item, association)
+	queued.Disposition = disposition
 	e.lifecycleMu.Unlock()
 	if err == nil {
 		if queued.Message.Content != nil && (queued.Message.Role == llm.RoleUser ||
@@ -844,7 +862,7 @@ func (e *Engine) SubmitAgentSteerWithHooks(ctx context.Context, steer AgentSteer
 				return err
 			}
 		}
-		item, err := e.queueMessage(stepCtx, message, *message.Content, true, false, nil)
+		item, err := e.queueMessage(stepCtx, runtimeids.NewQueueItemID().String(), message, *message.Content, true, false, nil)
 		if err != nil {
 			return err
 		}

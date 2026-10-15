@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { useAtomValue } from "@effect/atom-react";
+import { useAtomValue, useAtomSet } from "@effect/atom-react";
+import * as Atom from "effect/reactivity/Atom";
 import { useQueryClient } from "@tanstack/react-query";
 import { useTranslation } from "react-i18next";
 
@@ -19,13 +20,22 @@ import { useComposerHistoryActions } from "./ComposerHistoryViewModel";
 import type { ChatComposerViewModel } from "./ChatComposerViewModel";
 import type { QuerySnapshot } from "@/app-facade";
 import type { QueryObserverResult } from "@tanstack/react-query";
-import type { ChatApi, ChatMutationTarget, ChatTranscriptPayloadByKind } from "@/api";
-import { showStatusToast } from "@/ui";
+import type {
+  ChatApi,
+  ChatMutationTarget,
+  ChatTranscriptPayloadByKind,
+  PendingWorkItemID,
+  ChatRuntimeActivity,
+} from "@/api";
+import { parsePendingWorkItemID } from "@/api";
+import { SharedTextMotion, showStatusToast } from "@/ui";
 
 export type { ComposerSubmission } from "./ComposerInputViewModel";
 type DraftState = Readonly<{ kind: "loading" | "ready" }> | Readonly<{ kind: "failed"; error: unknown }>;
 export type ChatComposerOptions = Readonly<{
   model: ChatComposerViewModel;
+  prepared?(queueItemID: PendingWorkItemID): void;
+  rejected?(queueItemID: PendingWorkItemID): void;
   onDeliveredSession?(
     result: Exclude<ComposerCommandResult, { kind: "local" }>,
     target: ChatMutationTarget,
@@ -37,6 +47,13 @@ export type ChatComposerOptions = Readonly<{
 const noCommands: readonly ComposerCommand[] = [];
 
 export function useChatComposer(options: ChatComposerOptions) {
+  const [messageMotion] = useState(() => new SharedTextMotion());
+  useEffect(
+    () => () => {
+      messageMotion.dispose();
+    },
+    [messageMotion],
+  );
   const { model, onDeliveredSession, commands: additionalCommands = noCommands } = options;
   const services = useAppServices();
   const client = useQueryClient();
@@ -58,7 +75,17 @@ export function useChatComposer(options: ChatComposerOptions) {
   const inputActions = useComposerInputActions(model.input);
   const historyActions = useComposerHistoryActions(model.history);
   const inputPending = useAtomValue(model.input.pending);
-  const interactionRestricted = useAtomValue(model.draft.interactionRestricted);
+  const outgoing = useAtomValue(model.outgoing.items);
+  const heldReadonly = useAtomValue(model.outgoing.heldReadonly);
+  const canPrepare = useAtomValue(model.outgoing.canPrepare);
+  const observeOutgoing = useAtomSet(model.outgoing.observe);
+  const observeCommits = useAtomSet(model.outgoing.observeCommits);
+  const authoritativePendingItems = useAtomValue(model.outgoing.pendingItems);
+  const restriction = useMemo(
+    () => Atom.make((get) => get(model.draft.interactionRestricted) || get(model.outgoing.heldReadonly)),
+    [model],
+  );
+  const interactionRestricted = useAtomValue(restriction);
   const text = useAtomValue(model.draft.text);
   const draftValue = useAtomValue(model.draft.value);
   const historySelection = useAtomValue(model.draft.selection);
@@ -77,11 +104,16 @@ export function useChatComposer(options: ChatComposerOptions) {
     },
     [restoreAction, interactionRestricted],
   );
-  const flushDraft = useCallback(async () => draftActions.flush(undefined), [draftActions.flush]);
-  const pending = useComposerPendingWork(model.pending, restoreAction);
+  const flush = draftActions.flush;
+  const flushDraft = useCallback(async () => flush(undefined), [flush]);
+  const pendingWork = useComposerPendingWork(model.pending, restoreAction);
+  const pending = { ...pendingWork, items: authoritativePendingItems };
   const observation = useMemo(
     () => ({
       ...pending.observation,
+      onUserInputCommitted: (inputIDs: readonly string[]) => {
+        observeCommits(inputIDs.map(parsePendingWorkItemID));
+      },
       onConnectionReplaced: (replacement: ChatTranscriptPayloadByKind["connection_replaced"]) => {
         showStatusToast({
           id: "connection-replaced",
@@ -95,7 +127,7 @@ export function useChatComposer(options: ChatComposerOptions) {
       },
       ...(target?.kind === "session" ? chatCompactionFeedback(services, target) : {}),
     }),
-    [pending.observation, services, target, t],
+    [pending.observation, services, target, t, observeCommits],
   );
   const [picker, setPicker] = useState<
     Readonly<{ kind: "dismissed" }> | Readonly<{ kind: "selecting"; token: string | null }>
@@ -119,15 +151,21 @@ export function useChatComposer(options: ChatComposerOptions) {
       clearTimeout(timer);
     };
   }, [saveDraft, draft.kind, draftValue]);
-  const canSubmit =
-    !interactionRestricted && draft.kind === "ready" && submission.kind === "ready" && text.trim().length > 0;
-  function submit(intent: "send" | "queue", source: "editor" | "compact-button" = "editor") {
+  const canSubmit = submissionEnabled({ interactionRestricted, canPrepare, draft, submission, text });
+  function submit(
+    intent: "send" | "queue",
+    source: "editor" | "compact-button" = "editor",
+    activity?: ChatRuntimeActivity,
+  ) {
     if (interactionRestricted) return;
     inputActions.submit({
+      ...(options.prepared === undefined ? {} : { prepared: options.prepared }),
+      ...(options.rejected === undefined ? {} : { rejected: options.rejected }),
       intent,
       source,
       commands,
       selectedToken: selectedCommand?.token ?? null,
+      ...(activity === undefined ? {} : { activity }),
       restore: (input) => {
         if (mounted.current) restoreAction(input);
       },
@@ -154,14 +192,19 @@ export function useChatComposer(options: ChatComposerOptions) {
     if (source === "editor") setPicker({ kind: "selecting", token: null });
   }
   return {
+    messageMotion,
     target,
     text,
     draft,
     submission,
     canSubmit,
     inputPending,
+    outgoing,
+    heldReadonly,
+    canPrepare,
+    observeOutgoing,
     interactionRestricted,
-    interactionRestriction: model.draft.interactionRestricted,
+    interactionRestriction: restriction,
     navigateHistory: historyActions.navigate,
     submit,
     compact: () => {
@@ -197,6 +240,24 @@ export function useChatComposer(options: ChatComposerOptions) {
     flushDraft,
     restore,
   };
+}
+
+function submissionEnabled(
+  input: Readonly<{
+    interactionRestricted: boolean;
+    canPrepare: boolean;
+    draft: DraftState;
+    submission: { kind: string };
+    text: string;
+  }>,
+) {
+  return (
+    !input.interactionRestricted &&
+    input.canPrepare &&
+    input.draft.kind === "ready" &&
+    input.submission.kind === "ready" &&
+    input.text.trim().length > 0
+  );
 }
 
 function commandPickerOpen(

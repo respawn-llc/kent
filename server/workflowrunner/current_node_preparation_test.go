@@ -50,6 +50,54 @@ func TestCompactionTargetDoesNotPrepareProviderBeforeCompaction(t *testing.T) {
 	}
 }
 
+func TestCompactAndContinueChildSessionsAllocateFreshConnections(t *testing.T) {
+	client := NewCompactingScriptedClient(
+		llm.ProviderCapabilities{ProviderID: "test", SupportsResponsesAPI: true, SupportsResponsesCompact: true},
+		[]llm.CompactionResponse{
+			workflowPostCompletionCompactionResponse("source"),
+			workflowPostCompletionCompactionResponse("branch a"),
+			workflowPostCompletionCompactionResponse("branch b"),
+		},
+		ScriptedFinalAnswer(`{"transition":"split","commentary":"source"}`),
+		ScriptedFinalAnswer(`{"commentary":"branch a"}`),
+		ScriptedFinalAnswer(`{"commentary":"branch b"}`),
+	)
+	f := newCurrentNodeRunnerFixtureWithClient(t, client)
+	f.starter.cfg.Settings.CompactionMode = config.CompactionModeNative
+	f.starter.cfg.Settings.Connections["other"] = f.starter.cfg.Settings.Connections["test"]
+	selection := config.ConnectionSelection{"test", "other"}
+	f.starter.cfg.Settings.Connection = &selection
+	writeCurrentNodeConfig(t, f.starter.cfg)
+	workflowID, _ := createCurrentNodeFanoutWorkflow(t, f.store, true, workflow.ContextModeCompactAndContinueSession)
+	task := f.createTask(t, workflowID)
+	f.startTask(t, task)
+	approval := f.waitForPendingApproval(t, task.ID)
+	f.waitForTaskQuiescence(t, task.ID)
+	if _, err := f.controller.ApplyPendingApproval(t.Context(), approval.ID); err != nil {
+		t.Fatal(err)
+	}
+	f.waitForModelRequests(t, 3)
+	f.waitForTaskQuiescence(t, task.ID)
+	requests := f.runtimeRequests()
+	bindings := make(map[string]config.ConnectionID)
+	for _, request := range requests {
+		bindings[request.SessionID] = request.Connection.ID
+	}
+	if len(bindings) != 3 {
+		t.Fatalf("Session bindings = %+v, want source and two fresh children", bindings)
+	}
+	source := requests[0]
+	counts := make(map[config.ConnectionID]int)
+	for id, connection := range bindings {
+		if id != source.SessionID {
+			counts[connection]++
+		}
+	}
+	if counts["test"] != 1 || counts["other"] != 1 {
+		t.Fatalf("child allocations = %+v, want one assignment per Connection", counts)
+	}
+}
+
 func TestApprovalCloneStartupWaitsForSourcePostTurnCompaction(t *testing.T) {
 	client := &heldLazyCompactionClient{
 		compactingScriptedClient: NewCompactingScriptedClient(

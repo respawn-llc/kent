@@ -19,11 +19,17 @@ export function useOptionalChatRuntimeOwner(): ChatRuntimeOwner | null {
 }
 
 export function useChatRuntimeSnapshot(): ChatRuntimeOwnerSnapshot {
-  const owner = useChatRuntimeOwner();
+  const snapshot = useOptionalChatRuntimeSnapshot();
+  if (snapshot === null) throw new Error("Chat Runtime hooks require ChatRuntimeProvider.");
+  return snapshot;
+}
+
+export function useOptionalChatRuntimeSnapshot(): ChatRuntimeOwnerSnapshot | null {
+  const owner = useOptionalChatRuntimeOwner();
   return useSyncExternalStore(
-    (listener) => owner.subscribe(listener),
-    () => owner.snapshot,
-    () => owner.snapshot,
+    (listener) => owner?.subscribe(listener) ?? (() => undefined),
+    () => owner?.snapshot ?? null,
+    () => owner?.snapshot ?? null,
   );
 }
 

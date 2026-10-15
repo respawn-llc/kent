@@ -5,15 +5,17 @@ import { promptCommands } from "./promptCommands";
 it("registers canonical built-ins once and invokes their hidden aliases without a catalog", () => {
   const commands = promptCommands([], appI18n.t);
   expect(composerSuggestions("/", commands).map((command) => command.token)).toEqual([
-    "/prompt:review",
     "/prompt:init",
+    "/prompt:review",
   ]);
   for (const name of ["review", "init"]) {
     expect(resolveComposerCommand(`/${name} src`, commands)).toMatchObject({
       kind: "input",
       activation: { kind: "command", catalogIdentity: `prompt:${name}`, token: `/${name}`, arguments: "src" },
     });
-    expect(composerSuggestions(`/${name}`, commands)).toEqual([]);
+    expect(composerSuggestions(`/${name}`, commands).map((command) => command.token)).toEqual([
+      `/prompt:${name}`,
+    ]);
   }
 });
 

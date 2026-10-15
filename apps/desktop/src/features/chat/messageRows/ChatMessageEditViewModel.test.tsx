@@ -14,7 +14,7 @@ import type { ChatUserMessageItem } from "./ChatUserMessage";
 
 function userItem(rollbackTargetID: string | null = "rollback-token"): ChatUserMessageItem {
   const committed = row(1);
-  const value = { Text: "**Original**\n", RollbackTargetID: rollbackTargetID };
+  const value = { Text: "**Original**\n", RollbackTargetID: rollbackTargetID, QueueItemIDs: [] };
   return { kind: "user", state: "committed", key: "1:1", row: { ...committed, User: value }, value };
 }
 

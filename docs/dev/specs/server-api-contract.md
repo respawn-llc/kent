@@ -1,10 +1,8 @@
-# Server API Contract
-
 ## Authority And Compatibility
 
 - Protobuf schemas are the sole editable authority for the Kent server API.
 - Generated Protobuf messages are the API-boundary contract for official Go and TypeScript clients.
-- Kent carries serialized Protobuf API messages in typed binary WebSocket envelopes. It does not expose gRPC or Connect transport semantics.
+- Kent carries serialized Protobuf API messages in typed binary WebSocket envelopes. gRPC and Connect transport semantics are outside this contract.
 - Viewed-image original bodies may use authenticated streaming HTTP delivery with the same Session access checks and protocol-version gating. Normal API messages must use their existing transport.
 - Kent's protocol version is the sole compatibility authority for API schema changes.
 - Every contract change must increment the protocol version.
@@ -12,8 +10,8 @@
 - Protobuf packages must not introduce an independent `v1` or `v2` compatibility authority.
 - Kent promises no source, wire, or backward schema compatibility across protocol versions.
 - Protocol capability flags must not negotiate route or schema availability.
-- Onboarding model, provider, and import capability facts remain ordinary product data rather than protocol compatibility gates.
-- The Protobuf schema must remain suitable for standard code generation without changing API ownership.
+- Onboarding model, provider, and import capability facts are ordinary product data, with no protocol compatibility role.
+- The Protobuf schema must support standard code generation without changing API ownership.
 - The Protobuf schema is platform-neutral. No client or server owns it.
 - Applications compile generated contract code into their artifacts and never load `.proto` files at runtime.
 
@@ -31,7 +29,7 @@
 - Active operation names use strict lower-snake `<package>.<service>.<method>` form with no service elision and no `kent` prefix.
 - Each nonempty package segment must start with an ASCII lowercase letter and contain only ASCII lowercase letters, digits, or underscores.
 - Service and method identifiers convert from PascalCase to lower snake case by splitting before an uppercase letter when a lowercase letter or digit precedes it, and before the final uppercase letter of an uppercase run when a lowercase letter follows it.
-- Digits remain in their surrounding token.
+- Digits belong to their surrounding token.
 - `APIStatus` becomes `api_status`, `UUID` becomes `uuid`, `HTTP2Server` becomes `http2_server`, and `SubmitUserTurn` becomes `submit_user_turn`.
 - Both Go and TypeScript must apply the same operation-name validation and conversion.
 - The generated request and response contract must not contain a generic application request ID.
@@ -45,7 +43,7 @@
 - Caller cancellation closes a dedicated unary connection and stops that caller's waiting and delivery.
 - Caller cancellation never terminates a Chat Operation, rolls back a committed Session, changes accepted work, changes the client's multiplexed control connection, or changes another operation.
 - The transport must not add a cancel-frame variant for server-owned work.
-- Call, notification, subscription, progress, authentication, attachment, and cancellation semantics remain owned by their operation specifications.
+- Their operation specifications own call, notification, subscription, progress, authentication, attachment, and cancellation semantics.
 - Subscription and progress operations use the terminal completion and failure behavior defined by their owning operation specifications. Transport framing adds no generic terminal product outcome.
 
 ## Message Design
@@ -53,7 +51,7 @@
 - Every route-reachable named scalar must be classified as open or validated text, identifier, or closed enum.
 - Closed enums must declare every supported value.
 - Message-local rules must be declared in the Protobuf contract and enforced through generated validation.
-- Rules that require server state must remain with their server-owned domain boundary.
+- The server-owned domain boundary must own rules that require server state.
 - Unclassified scalars and validators are invalid API contract state.
 - Kent-owned variant payloads must use typed Protobuf messages or explicit `oneof` branches.
 - Transcript events, handshake outcomes, workspace selections, API error details, and Attention variants must not use generic dynamic payloads.
@@ -71,17 +69,17 @@
 - API instants must use `google.protobuf.Timestamp`.
 - API elapsed amounts must use `google.protobuf.Duration`.
 - Raw numeric time representations are permitted only when an external system owns that representation.
-- Existing first-party identifiers retain their owning domain format. The Protobuf API does not migrate the persistence or domain identity model.
-- First-party UUID v4 identifiers retain canonical textual wire form.
+- First-party identifiers use their owning domain format. The Protobuf API must not migrate the persistence or domain identity model.
+- First-party UUID v4 identifiers use canonical textual wire form.
 - Session target inputs must accept a full UUID or a Session Short ID. The server must resolve the target to its UUID before target authorization, self-target checks, and execution.
 - Clients must not perform a separate preflight identity lookup for a Session selector.
 - Session subscriptions must use the server's operation-specific Project authorization after target resolution. Clients must not restrict those subscriptions to the Session attached to their connection.
 - Responses that present a Session identifier must include its assigned Session Short ID alongside its UUID when a Short ID exists.
 - Returned Session identities and caller Session identities must use canonical UUIDs. Internal Session operations must use UUID identity rather than distinguish selector forms.
 - Workspace-scoped Worktree operations must treat the selected Session context as a Session target, not as the invoking Session identity.
-- Third-party and provider identifiers remain validated string fields unless their owning contract defines another representation.
+- Third-party and provider identifiers use validated string fields unless their owning contract defines another representation.
 - Generated TypeScript uses the standard Protobuf `bigint` representation for `int64` and `uint64`.
-- JavaScript-facing 64-bit values must remain within the JavaScript safe-integer range.
+- JavaScript-facing 64-bit values must be within the JavaScript safe-integer range.
 
 ### Task requests
 
@@ -98,21 +96,21 @@
 - Known error codes must declare and validate their required detail variant.
 - A missing outcome, empty error code, or known code with missing or incorrect detail is malformed.
 - A client must surface an unknown nonempty error code as a generic error while preserving available unknown fields.
-- Subscription-start failure occurs before acknowledgement and remains distinct from later events and terminal completion.
-- Subscription terminal failures must use generated Protobuf error codes, including Worktree setup completion. Clients must preserve the owning operation's terminal outcome and typed failure facts.
+- Subscription-start failure occurs before acknowledgement and is distinct from later events and terminal completion.
+- Subscription terminal failures must use generated Protobuf error codes, including Worktree setup completion. Clients must report the owning operation's terminal outcome and typed failure facts unchanged.
 - Client-visible wording is client-owned and derived from stable codes and typed details.
 - The shared `internal_failure` code represents otherwise-unclassified operational failures.
 - Onboarding rollback errors use one typed primary failure plus structured rollback facts containing operation and cause.
-- `background_process_active` remains a public error because Session workspace retargeting exposes that blocker.
+- Session workspace retargeting exposes its background-process blocker through the public `background_process_active` error.
 - Clients must not stringify errors or depend on server-authored human-readable messages.
 
 ## Validation And Decoding
 
 - External request values must be validated once at the earliest server request boundary before downstream server logic consumes them.
-- Validation owned by another shared authority, such as a database constraint used by several writers, must remain with that authority.
+- A shared authority, such as a database constraint used by several writers, must own its validation.
 - Clients must run generated Protobuf constraints on server responses and events.
 - Platforms must centralize generated validation at their transport boundary.
-- Generated clients must preserve unknown Protobuf fields.
+- Generated clients must carry unknown Protobuf fields unchanged.
 - Generated clients must reject unknown enum values.
 - Except for the Desktop transcript subscription rule below, malformed Protobuf bytes, unknown operations, wrong frame direction, invalid envelopes, and known-operation validation failures must reject only the affected frame after a connection is established.
 - Kent must keep the established connection available for unrelated valid traffic after a rejected frame.
@@ -126,6 +124,6 @@
 
 ## Startup Availability
 
-- Handshake, authentication, readiness, onboarding capability facts, and onboarding finalization remain available before server activation completes.
+- Handshake, authentication, readiness, onboarding capability facts, and onboarding finalization are available before server activation completes.
 - Operations that require activation must fail with a typed onboarding-required or activation-failed result while activation is unavailable.
 - Handshake messages must not contain route capability flags.

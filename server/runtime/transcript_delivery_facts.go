@@ -44,6 +44,7 @@ type TranscriptCommittedRowFact struct {
 }
 
 type TranscriptUserRowFact struct {
+	QueueItemIDs      []string
 	Text              string
 	CondensedText     string
 	RollbackTargetID  *string
@@ -150,7 +151,7 @@ func TranscriptCommittedRowFactsFromEvent(evt Event) []TranscriptCommittedRowFac
 		if evt.CacheWarning == nil {
 			return nil
 		}
-		facts = []TranscriptCommittedRowFact{transcriptCacheWarningFact(*evt.CacheWarning, evt.CacheWarningVisibility)}
+		facts = []TranscriptCommittedRowFact{transcriptCacheWarningFact(evt.StepID, *evt.CacheWarning, evt.CacheWarningVisibility)}
 	case EventLocalEntryAdded:
 		if evt.LocalEntry == nil {
 			return nil
@@ -248,6 +249,9 @@ func locateTranscriptCommittedRowFacts(facts []TranscriptCommittedRowFact) []Tra
 		}
 		facts[index].Provenance = cloneTranscriptCommittedRowProvenance(provenance)
 		facts[index].Provenance.ProjectedOrdinal = nil
+		if facts[index].User != nil {
+			facts[index].User.QueueItemIDs = append([]string(nil), provenance.QueueItemIDs...)
+		}
 	}
 	return facts
 }
@@ -569,7 +573,7 @@ func transcriptNoticeRowFactFromChatEntryUnlocated(entry ChatEntry) (TranscriptC
 		return TranscriptCommittedRowFact{}, false
 	}
 	if entry.CacheWarning != nil {
-		return transcriptCacheWarningFact(*entry.CacheWarning, visibility), true
+		return transcriptCacheWarningFact(entry.StepID, *entry.CacheWarning, visibility), true
 	}
 	role := transcript.EntryRole(strings.TrimSpace(entry.Role))
 	if role == transcript.EntryRoleReviewerSuggestions || role == transcript.EntryRoleReviewerError {
@@ -885,9 +889,9 @@ func cloneAskQuestionAnswer(answer *tools.AskQuestionAnswer) *tools.AskQuestionA
 	}
 }
 
-func transcriptCacheWarningFact(warning transcript.CacheWarning, visibility transcript.EntryVisibility) TranscriptCommittedRowFact {
+func transcriptCacheWarningFact(stepID *string, warning transcript.CacheWarning, visibility transcript.EntryVisibility) TranscriptCommittedRowFact {
 	normalized := resolveTranscriptVisibility(visibility, transcript.EntryVisibilityOngoing)
-	return TranscriptCommittedRowFact{Kind: TranscriptCommittedRowFactNotice, Visibility: normalized, Notice: &TranscriptNoticeRowFact{
+	return TranscriptCommittedRowFact{StepID: cloneOptionalStepID(stepID), Kind: TranscriptCommittedRowFactNotice, Visibility: normalized, Notice: &TranscriptNoticeRowFact{
 		Reason:   transcript.NoticeReasonCacheWarning,
 		Severity: transcript.NoticeSeverityWarning,
 		CacheWarning: &TranscriptCacheWarningFact{

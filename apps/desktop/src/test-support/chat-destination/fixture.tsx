@@ -81,7 +81,10 @@ function renderDestination(
   services: TestAppServices,
   client: QueryClient,
   opening: ChatDestinationOpening,
-  contextualContent?: ReactNode,
+  {
+    contextualContent,
+    skipAnimations = true,
+  }: Readonly<{ contextualContent?: ReactNode; skipAnimations?: boolean }> = {},
 ) {
   const root = createRootRoute();
   const session = createRoute({
@@ -96,7 +99,7 @@ function renderDestination(
           <SidebarShellContext.Provider value={createTestSidebarShell()}>
             <SidebarRootOwner>
               <ChatPromptPresenceProvider>
-                <MotionConfig skipAnimations>
+                <MotionConfig skipAnimations={skipAnimations}>
                   <ChatDestination opening={opening} navigation={navigation} />
                   {contextualContent}
                 </MotionConfig>
@@ -115,6 +118,7 @@ function sessionWithPrompts(
   configure?: (services: TestAppServices) => void,
   selected: ChatDestinationOpening = { kind: "session", ...sessionTarget },
   contextualContent?: ReactNode,
+  skipAnimations = true,
 ) {
   const services = createTestServices([worktreeBrowserFixtureRoute(), sessionSettingsSubscriptionRoute()]);
   const choice = catalog.catalog.choices[0];
@@ -150,7 +154,7 @@ function sessionWithPrompts(
   const answer = vi.spyOn(services.api.chat, "answerPromptBatch").mockReturnValue(response.promise);
   const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   configure?.(services);
-  const view = renderDestination(services, client, selected, contextualContent);
+  const view = renderDestination(services, client, selected, { contextualContent, skipAnimations });
   return { ...view, services, handlers, settings, pending, answer, client, response };
 }
 

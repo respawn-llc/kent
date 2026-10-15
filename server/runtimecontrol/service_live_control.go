@@ -81,7 +81,7 @@ func (s *Service) LiveSteer(ctx context.Context, req *runtimepb.LiveSteerRequest
 	}
 	defer retainLiveTargetFailure(prepared.Identity, &err)
 	err = s.withLiveExecutionRuntime(ctx, prepared.Identity.ID, func(callbackCtx context.Context, engine *runtime.Engine) error {
-		item, _, accepted, submitErr := s.SubmitLiveSteer(callbackCtx, prepared, engine, nil, nil)
+		item, _, accepted, submitErr := s.SubmitLiveSteer(callbackCtx, req.QueueItemId, prepared, engine, nil, nil)
 		err = submitErr
 		if errors.Is(err, runtime.ErrNoActiveLiveRun) {
 			return serverapi.ErrRuntimeNoActiveRun
@@ -159,15 +159,15 @@ func (s *Service) PrepareSessionSteer(ctx context.Context, identity runtimeids.S
 
 // SubmitLiveSteer records the accepted representation once for both live control
 // and Run continuation. A nil observer leaves live control acknowledgement-only.
-func (s *Service) SubmitLiveSteer(ctx context.Context, prepared PreparedLiveSteer, engine *runtime.Engine, observerCtx context.Context, accept runtime.CommandAcceptance) (runtime.QueuedUserMessage, *runtime.LiveRunWaitHandle, bool, error) {
+func (s *Service) SubmitLiveSteer(ctx context.Context, queueItemID string, prepared PreparedLiveSteer, engine *runtime.Engine, observerCtx context.Context, accept runtime.CommandAcceptance) (runtime.QueuedUserMessage, *runtime.LiveRunWaitHandle, bool, error) {
 	var item runtime.QueuedUserMessage
 	var handle *runtime.LiveRunWaitHandle
 	var accepted bool
 	var err error
 	if prepared.AgentSteer != nil {
-		item, handle, accepted, err = engine.QueueAgentSteerForActiveRunWithObservation(ctx, *prepared.AgentSteer, observerCtx, accept)
+		item, handle, accepted, err = engine.QueueAgentSteerForActiveRunWithObservation(ctx, queueItemID, *prepared.AgentSteer, observerCtx, accept)
 	} else {
-		item, handle, accepted, err = engine.QueueUserMessageForActiveRunWithObservation(ctx, prepared.Text, observerCtx, accept)
+		item, handle, accepted, err = engine.QueueUserMessageForActiveRunWithObservation(ctx, queueItemID, prepared.Text, observerCtx, accept)
 	}
 	if accepted {
 		if _, historyErr := s.recordPromptHistory(ctx, prepared.Identity.ID.String(), prepared.HistoryText()); historyErr != nil {

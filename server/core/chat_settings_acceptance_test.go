@@ -180,9 +180,8 @@ func testChatSettingsRuntimeMutation(t *testing.T, switchAgent bool) {
 		t.Fatal(err)
 	}
 	go func() {
-		_, submitErr := appCore.RuntimeControlClient().SubmitUserTurn(t.Context(), &runtimepb.SubmitUserTurnRequest{
-			SessionId: sessionID.String(),
-			Input:     input,
+		_, submitErr := appCore.RuntimeControlClient().SubmitUserTurn(t.Context(), &runtimepb.SubmitUserTurnRequest{QueueItemId: runtimeids.NewQueueItemID().String(), SessionId: sessionID.String(),
+			Input: input,
 		})
 		turnDone <- submitErr
 	}()
@@ -236,8 +235,7 @@ func testChatSettingsRuntimeMutation(t *testing.T, switchAgent bool) {
 			t.Fatalf("persisted Agent replacement: %+v", record.Meta)
 		}
 		model.unblock()
-		sent, err := appCore.ChatMutationClient().Steer(t.Context(), &chatpb.SteerRequest{
-			Target:     chatCommandTarget(sessionID.String()),
+		sent, err := appCore.ChatMutationClient().Steer(t.Context(), &chatpb.SteerRequest{QueueItemId: runtimeids.NewQueueItemID().String(), Target: chatCommandTarget(sessionID.String()),
 			Activation: &chatpb.Activation{Input: &chatpb.Activation_Text{Text: "continue with the new Agent"}},
 		})
 		if err != nil || sent.GetAccepted() == nil {

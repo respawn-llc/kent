@@ -141,6 +141,7 @@ func (r metaContextBuildResult) StablePrefixMessages() []llm.Message {
 }
 
 type metaContextBuilder struct {
+	sessionShortID  *runtimeids.SessionShortID
 	workspaceRoot   string
 	environmentCWD  string
 	globalConfigDir string
@@ -261,6 +262,9 @@ func (b metaContextBuilder) Build(opts metaContextBuildOptions) (metaContextBuil
 		environmentMessage, err := environmentContextMessage(b.environmentCWD, b.model, b.now)
 		if err != nil {
 			return metaContextBuildResult{}, err
+		}
+		if b.sessionShortID != nil {
+			environmentMessage += "\nSession ID: " + b.sessionShortID.String()
 		}
 		collector.addMessages([]llm.Message{{
 			Role:        llm.RoleDeveloper,
@@ -468,7 +472,7 @@ func (b metaContextBuilder) renderableSubagentRoles(context config.SubagentInvoc
 	for _, name := range names {
 		role := settings.Subagents[name]
 		caller := b.subagentCaller(context)
-		if subagentpolicy.Authorize(settings, caller, subagentpolicy.Target{Kind: subagentpolicy.TargetNamed, Selector: name}) != nil || !config.SubagentRoleHasMeaningfulDiff(settings, role) {
+		if subagentpolicy.Authorize(settings, caller, subagentpolicy.Target{Kind: subagentpolicy.TargetNamed, Selector: name}) != nil {
 			continue
 		}
 		effective, _, err := config.OverlaySubagentRoleSettings(b.subagentConfig, role, true)
@@ -681,7 +685,7 @@ func workflowInstructionTransitions(in []workflowruntime.TransitionInstruction) 
 func worktreeModeMetaMessage(state session.WorktreeReminderState, home string, kind prompts.WorktreePromptKind) (llm.Message, bool) {
 	content := prompts.RenderWorktreeModePrompt(kind, worktreeBranchPromptValue(state.Branch), state.EffectiveCwd,
 		pathutil.Compact(state.WorktreePath, &home, &state.EffectiveCwd),
-		pathutil.Compact(state.WorkspaceRoot, &home, &state.EffectiveCwd))
+		pathutil.CompactHome(state.WorkspaceRoot, &home))
 	if strings.TrimSpace(content) == "" {
 		return llm.Message{}, false
 	}
@@ -699,7 +703,7 @@ func worktreeModeExitMetaMessage(state session.WorktreeReminderState, home strin
 	}
 	content := prompts.RenderWorktreeModeExitPrompt(worktreeBranchPromptValue(state.Branch), state.EffectiveCwd,
 		pathutil.Compact(state.WorktreePath, &home, &state.EffectiveCwd),
-		pathutil.Compact(state.WorkspaceRoot, &home, &state.EffectiveCwd))
+		pathutil.CompactHome(state.WorkspaceRoot, &home))
 	if strings.TrimSpace(content) == "" {
 		return llm.Message{}, false
 	}

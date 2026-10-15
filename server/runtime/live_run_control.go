@@ -240,34 +240,34 @@ func (t *goalLoopInterruptTracker) resolve(err error, snapshot *RunSnapshot) {
 	t.engine.goalLoopState().ClearInterruptPending()
 }
 
-func (e *Engine) QueueUserMessageForActiveRun(ctx context.Context, text string, beforeQueue func() error) (QueuedUserMessage, bool, error) {
-	return e.queueMessageForActiveRun(ctx, llm.Message{Role: llm.RoleUser, Content: textutil.Value(text)}, nil, beforeQueue, nil, nil)
+func (e *Engine) QueueUserMessageForActiveRun(ctx context.Context, id string, text string, beforeQueue func() error) (QueuedUserMessage, bool, error) {
+	return e.queueMessageForActiveRun(ctx, id, llm.Message{Role: llm.RoleUser, Content: textutil.Value(text)}, nil, beforeQueue, nil, nil)
 }
 
-func (e *Engine) QueueUserMessageForActiveRunWithAcceptance(ctx context.Context, text string, accept CommandAcceptance) (QueuedUserMessage, bool, error) {
-	return e.queueMessageForActiveRun(ctx, llm.Message{Role: llm.RoleUser, Content: textutil.Value(text)}, nil, nil, accept, nil)
+func (e *Engine) QueueUserMessageForActiveRunWithAcceptance(ctx context.Context, id string, text string, accept CommandAcceptance) (QueuedUserMessage, bool, error) {
+	return e.queueMessageForActiveRun(ctx, id, llm.Message{Role: llm.RoleUser, Content: textutil.Value(text)}, nil, nil, accept, nil)
 }
 
-func (e *Engine) QueueAgentSteerForActiveRun(ctx context.Context, steer AgentSteer, beforeQueue func() error) (QueuedUserMessage, bool, error) {
-	return e.queueMessageForActiveRun(ctx, steer.Message(), nil, beforeQueue, nil, nil)
+func (e *Engine) QueueAgentSteerForActiveRun(ctx context.Context, id string, steer AgentSteer, beforeQueue func() error) (QueuedUserMessage, bool, error) {
+	return e.queueMessageForActiveRun(ctx, id, steer.Message(), nil, beforeQueue, nil, nil)
 }
 
-func (e *Engine) QueueUserMessageForActiveRunWithObservation(ctx context.Context, text string, observerCtx context.Context, accept CommandAcceptance) (QueuedUserMessage, *LiveRunWaitHandle, bool, error) {
-	return e.queueMessageWithObservation(ctx, llm.Message{Role: llm.RoleUser, Content: textutil.Value(text)}, observerCtx, accept)
+func (e *Engine) QueueUserMessageForActiveRunWithObservation(ctx context.Context, id string, text string, observerCtx context.Context, accept CommandAcceptance) (QueuedUserMessage, *LiveRunWaitHandle, bool, error) {
+	return e.queueMessageWithObservation(ctx, id, llm.Message{Role: llm.RoleUser, Content: textutil.Value(text)}, observerCtx, accept)
 }
 
-func (e *Engine) QueueAgentSteerForActiveRunWithObservation(ctx context.Context, steer AgentSteer, observerCtx context.Context, accept CommandAcceptance) (QueuedUserMessage, *LiveRunWaitHandle, bool, error) {
-	return e.queueMessageWithObservation(ctx, steer.Message(), observerCtx, accept)
+func (e *Engine) QueueAgentSteerForActiveRunWithObservation(ctx context.Context, id string, steer AgentSteer, observerCtx context.Context, accept CommandAcceptance) (QueuedUserMessage, *LiveRunWaitHandle, bool, error) {
+	return e.queueMessageWithObservation(ctx, id, steer.Message(), observerCtx, accept)
 }
 
-func (e *Engine) queueMessageWithObservation(ctx context.Context, message llm.Message, observerCtx context.Context, accept CommandAcceptance) (QueuedUserMessage, *LiveRunWaitHandle, bool, error) {
+func (e *Engine) queueMessageWithObservation(ctx context.Context, id string, message llm.Message, observerCtx context.Context, accept CommandAcceptance) (QueuedUserMessage, *LiveRunWaitHandle, bool, error) {
 	if observerCtx == nil {
-		item, accepted, err := e.queueMessageForActiveRun(ctx, message, nil, nil, accept, nil)
+		item, accepted, err := e.queueMessageForActiveRun(ctx, id, message, nil, nil, accept, nil)
 		return item, nil, accepted, err
 	}
 	waitCtx, cancel := context.WithCancel(observerCtx)
 	var handle *LiveRunWaitHandle
-	item, accepted, err := e.queueMessageForActiveRun(ctx, message, nil, nil, accept, func(admission liveRunAdmission) {
+	item, accepted, err := e.queueMessageForActiveRun(ctx, id, message, nil, nil, accept, func(admission liveRunAdmission) {
 		handle = e.liveRun.captureGroupWait(waitCtx, admission.group)
 		handle.cancel = cancel
 	})
@@ -281,7 +281,10 @@ func (e *Engine) queueMessageWithObservation(ctx context.Context, message llm.Me
 	return item, handle, true, err
 }
 
-func (e *Engine) queueMessageForActiveRun(ctx context.Context, message llm.Message, onActive func(), beforeQueue func() error, accept CommandAcceptance, observe func(liveRunAdmission)) (QueuedUserMessage, bool, error) {
+func (e *Engine) queueMessageForActiveRun(ctx context.Context, id string, message llm.Message, onActive func(), beforeQueue func() error, accept CommandAcceptance, observe func(liveRunAdmission)) (QueuedUserMessage, bool, error) {
+	if _, err := runtimeids.ParseCanonicalUUIDv4(id, "queue_item_id"); err != nil {
+		return QueuedUserMessage{}, false, err
+	}
 	if e == nil {
 		return QueuedUserMessage{}, false, ErrNoActiveLiveRun
 	}
@@ -321,7 +324,7 @@ func (e *Engine) queueMessageForActiveRun(ctx context.Context, message llm.Messa
 		return QueuedUserMessage{}, false, err
 	}
 	item := QueuedUserMessage{
-		ID:                    runtimeids.NewQueueItemID().String(),
+		ID:                    id,
 		Message:               message,
 		CanonicalPresentation: *message.Content,
 	}
@@ -334,7 +337,10 @@ func (e *Engine) queueMessageForActiveRun(ctx context.Context, message llm.Messa
 		if err := context.Cause(ctx); err != nil {
 			return false, err
 		}
-		finalized := e.liveRun.finishAdmission(admission, mustQueueItemID(item.ID))
+		finalized, admissionErr := e.liveRun.finishAdmission(admission, mustQueueItemID(item.ID))
+		if admissionErr != nil {
+			return false, admissionErr
+		}
 		if !finalized {
 			return false, context.Canceled
 		}
@@ -624,27 +630,36 @@ func (c *liveRunCoordinator) beginAdmission() (liveRunAdmission, <-chan struct{}
 	return liveRunAdmission{group: c.current}, nil, true
 }
 
-func (c *liveRunCoordinator) finishAdmission(admission liveRunAdmission, queueItemID runtimeids.QueueItemID) bool {
+func (c *liveRunCoordinator) finishAdmission(admission liveRunAdmission, queueItemID runtimeids.QueueItemID) (bool, error) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	if c.current == nil || c.current != admission.group || c.current.status == RunStatusFailed || c.current.status == RunStatusInterrupted {
-		return false
+		return false, nil
+	}
+	if _, exists := c.current.taggedQueueItems[queueItemID]; exists {
+		return false, errDuplicateQueuedUserMessageID
 	}
 	if c.current.reservations > 0 {
 		c.current.reservations--
 	}
 	c.current.trackQueuedItemForLiveRun(queueItemID, runtimeinput.PendingWorkLaneSteer)
-	return true
+	return true, nil
 }
 
-func (c *liveRunCoordinator) beginQueueItemPublication(queueItemID runtimeids.QueueItemID, lane runtimeinput.PendingWorkLane) bool {
+func (c *liveRunCoordinator) beginQueueItemPublication(queueItemID runtimeids.QueueItemID, lane runtimeinput.PendingWorkLane, claim *queuedUserMessageClaim) (bool, error) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	if c.current == nil || (c.current.status != RunStatusRunning && c.current.status != RunStatusCompleted) {
-		return false
+		return false, nil
+	}
+	if _, exists := c.current.taggedQueueItems[queueItemID]; exists {
+		if claim != nil {
+			return false, nil
+		}
+		return false, errDuplicateQueuedUserMessageID
 	}
 	c.current.trackQueuedItemForLiveRun(queueItemID, lane)
-	return true
+	return true, nil
 }
 
 func (c *liveRunCoordinator) finishQueueItemPublication(queueItemID runtimeids.QueueItemID) bool {

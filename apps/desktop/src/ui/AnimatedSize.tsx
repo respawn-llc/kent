@@ -6,7 +6,7 @@ import {
   type AnimationPlaybackControls,
   type Transition,
 } from "motion/react";
-import { useEffectEvent, useLayoutEffect, useRef, type ReactNode } from "react";
+import { useEffect, useEffectEvent, useLayoutEffect, useRef, type ReactNode, type RefObject } from "react";
 
 import { cn } from "./classes";
 import { motionDurationFromCSSVar } from "./motion";
@@ -15,11 +15,13 @@ export function AnimatedSize({
   children,
   className,
   contentClassName,
+  reflowRef,
   transition,
 }: Readonly<{
   children: ReactNode;
   className?: string;
   contentClassName?: string;
+  reflowRef?: RefObject<HTMLElement | null>;
   transition?: Transition;
 }>) {
   const content = useRef<HTMLDivElement>(null);
@@ -45,25 +47,32 @@ export function AnimatedSize({
     if (element === null) return;
     // Initialize the unscaled layout height without animating from "auto".
     // The popup owns entrance motion; only later content resizes animate here.
+    height.set(element.offsetHeight);
+  }, [height]);
+  useEffect(() => {
+    const element = content.current;
+    if (element === null) return;
+    // Ancestor refs attach after descendant layout effects.
+    const reflowElement = reflowRef?.current ?? element;
     let measuredHeight = element.offsetHeight;
-    let measuredWidth = element.offsetWidth;
-    height.set(measuredHeight);
+    let measuredWidth = reflowElement.offsetWidth;
     const observer = new ResizeObserver(() => {
       const nextHeight = element.offsetHeight;
-      const nextWidth = element.offsetWidth;
+      const nextWidth = reflowElement.offsetWidth;
       if (nextHeight === measuredHeight && nextWidth === measuredWidth) return;
-      // Width reflow already follows the containing layout's motion. Animating
-      // height again makes wrapped text lag behind that layout.
+      // Fit-content bubbles grow horizontally as text arrives. Only changes to
+      // their available layout width should bypass the content-height animation.
       resize(nextHeight, nextWidth !== measuredWidth);
       measuredHeight = nextHeight;
       measuredWidth = nextWidth;
     });
     observer.observe(element);
+    if (reflowElement !== element) observer.observe(reflowElement);
     return () => {
       observer.disconnect();
       animation.current?.stop();
     };
-  }, [height]);
+  }, [height, reflowRef]);
   return (
     <motion.div
       className={cn("flex min-h-0 flex-col justify-end overflow-hidden", className)}

@@ -202,8 +202,8 @@ func TestDistinctConnectionSetInitialSelectionAndUnavailableAgentRepair(t *testi
 		}
 	}
 	next, err := service.planner.Rotation.Prepare(cfg.Settings, true)
-	if err != nil || next != "a" {
-		t.Fatalf("role launch consumed default rotation: %v, %v", next, err)
+	if err != nil || next != "b" {
+		t.Fatalf("next global allocation = %v, %v; want unused connection b", next, err)
 	}
 }
 

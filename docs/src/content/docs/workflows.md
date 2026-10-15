@@ -166,7 +166,7 @@ A previous-transition parameter is valid only when every path to the prompt pass
 
 ### Script nodes
 
-Use a script node when a workflow step should run a deterministic local executable instead of an agent. Script nodes can be used anywhere an agent node can.
+Use a script node to run a deterministic local executable. Script nodes can be used anywhere an agent node can.
 
 Set the script path on the script node. **All paths are resolved on the server machine.** Relative paths resolve against the task's execution root.
 

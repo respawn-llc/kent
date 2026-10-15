@@ -473,6 +473,13 @@ func newObservedTestHeadlessRuntime(
 		registry:    runtimeRegistry,
 		initialRead: make(chan struct{}),
 	}
+	t.Cleanup(func() {
+		ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+		defer cancel()
+		if err := authority.Close(ctx); err != nil {
+			t.Errorf("close fixture runtime authority: %v", err)
+		}
+	})
 	observer := runtimecontrol.NewService(authority, metadataStore).
 		WithLiveWatchPromptSources(pendingPrompts, runtimeRegistry)
 	return observedHeadlessTestRuntime{
@@ -587,13 +594,6 @@ func newSelectedRunPromptFixture(
 	}
 	authManager := auth.NewManager(auth.NewMemoryStore(auth.EmptyState()), nil)
 	observed := newObservedTestHeadlessRuntime(t, root, store, nil, authManager, nil, persistence.Options()...)
-	t.Cleanup(func() {
-		ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
-		defer cancel()
-		if err := observed.authority.Close(ctx); err != nil {
-			t.Errorf("close fixture runtime authority: %v", err)
-		}
-	})
 
 	if len(enabledTools) == 0 {
 		enabledTools = []toolspec.ID{toolspec.ToolAskQuestion}
@@ -1540,7 +1540,7 @@ func TestInProcessRunPromptTimeoutCoversHistoryAndRunCleanup(t *testing.T) {
 			func(commit func() (bool, error)) (bool, error) { return commit() },
 			func(ctx context.Context, engine *runtime.Engine, accept runtime.CommandAcceptance) error {
 				_, err := engine.QueueUserInputWithAcceptance(ctx, runtime.QueuedUserInput{
-					ExecutionText: "later", CanonicalPresentation: "later",
+					ID: runtimeids.NewQueueItemID().String(), ExecutionText: "later", CanonicalPresentation: "later",
 				}, accept)
 				return err
 			})

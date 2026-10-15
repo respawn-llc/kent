@@ -151,6 +151,7 @@ export type ChatCommittedRow = Readonly<{
     Text: string;
     CondensedText?: string | null;
     RollbackTargetID?: string | null;
+    QueueItemIDs: readonly string[];
     committed_at_unix_ms?: number | null;
   }> | null;
   Assistant: Readonly<{

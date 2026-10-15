@@ -226,14 +226,10 @@ func (s *Starter) PrepareCurrentNode(
 		if freshOverrides != nil {
 			overridesPlan = *freshOverrides
 		} else {
-			saved := meta.ConnectionID
-			if preparation.outgoing != nil {
-				saved = nil
-			}
 			var err error
 			overridesPlan, err = launch.PrepareRunPromptOverridesWithContext(cfg, overrides, launch.RunPromptPreparationContext{
 				Mode: launch.ModeHeadless, ModelLock: meta.Locked, ToolLock: meta.Locked,
-				Rotation: s.connectionRotation, AllocateConnection: preparation.outgoing != nil, ConnectionID: saved,
+				Rotation: s.connectionRotation, ConnectionID: meta.ConnectionID,
 				OmittedTarget: &launch.PreparedBaseTarget{Settings: plan.ActiveSettings, Source: plan.Source, EnabledTools: plan.EnabledTools},
 			})
 			if err != nil {

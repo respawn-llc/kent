@@ -13,10 +13,12 @@ import (
 	"core/server/llm"
 	"core/server/session"
 	"core/server/tools"
+	"core/shared/runtimeinput"
 	"core/shared/textutil"
 	"core/shared/toolspec"
 	"core/shared/transcript"
 
+	"core/shared/runtimeids"
 	"github.com/google/uuid"
 )
 
@@ -65,7 +67,7 @@ func TestConcurrentLiveSteerPendingOrderMatchesDeliveryAndStop(t *testing.T) {
 			for i := range count {
 				go func() {
 					<-gate
-					_, accepted, err := engine.QueueUserMessageForActiveRun(t.Context(), fmt.Sprintf("input-%d", i), nil)
+					_, accepted, err := engine.QueueUserMessageForActiveRun(t.Context(), runtimeids.NewQueueItemID().String(), fmt.Sprintf("input-%d", i), nil)
 					if err == nil && !accepted {
 						err = errors.New("live steer was not accepted")
 					}
@@ -150,6 +152,8 @@ func TestActiveSteeringObservesAcceptingRun(t *testing.T) {
 			var accepted bool
 			var err error
 			var message llm.Message
+			var item QueuedUserMessage
+			queueItemID := runtimeids.NewQueueItemID().String()
 			if attributed {
 				source := mustCreateTestSession(t)
 				steer, steerErr := NewAgentSteer(source.Identity(), "redirect")
@@ -157,13 +161,16 @@ func TestActiveSteeringObservesAcceptingRun(t *testing.T) {
 					t.Fatal(steerErr)
 				}
 				message = steer.Message()
-				_, handle, accepted, err = engine.QueueAgentSteerForActiveRunWithObservation(t.Context(), steer, t.Context(), nil)
+				item, handle, accepted, err = engine.QueueAgentSteerForActiveRunWithObservation(t.Context(), queueItemID, steer, t.Context(), nil)
 			} else {
 				message = llm.Message{Role: llm.RoleUser, Content: textutil.Value("redirect")}
-				_, handle, accepted, err = engine.QueueUserMessageForActiveRunWithObservation(t.Context(), "redirect", t.Context(), nil)
+				item, handle, accepted, err = engine.QueueUserMessageForActiveRunWithObservation(t.Context(), queueItemID, "redirect", t.Context(), nil)
 			}
 			if err != nil || !accepted || handle == nil {
 				t.Fatalf("steer: accepted=%t handle=%v err=%v", accepted, handle, err)
+			}
+			if item.ID != queueItemID || item.Disposition != runtimeinput.InputAdmissionPendingSteer {
+				t.Fatalf("steering admission = %+v", item)
 			}
 			close(release)
 			pendingWorkTestNoError(t, <-done)
@@ -288,7 +295,7 @@ func TestQueueMessageForActiveRunCancellationPreventsAcceptance(t *testing.T) {
 	caller, cancel := context.WithCancel(t.Context())
 	defer cancel()
 	go func() {
-		_, accepted, err := eng.QueueUserMessageForActiveRun(caller, "queued", func() error {
+		_, accepted, err := eng.QueueUserMessageForActiveRun(caller, runtimeids.NewQueueItemID().String(), "queued", func() error {
 			close(entered)
 			<-release
 			return nil
@@ -672,7 +679,7 @@ func TestInstantStopBroadcastsRemovedHumanInputInAcceptanceOrder(t *testing.T) {
 	releaseFirstApplication := make(chan struct{})
 	firstDone := make(chan queuedResult, 1)
 	go func() {
-		item, accepted, err := eng.QueueUserMessageForActiveRun(t.Context(), "first", func() error {
+		item, accepted, err := eng.QueueUserMessageForActiveRun(t.Context(), runtimeids.NewQueueItemID().String(), "first", func() error {
 			close(firstApplying)
 			<-releaseFirstApplication
 			return nil
@@ -692,7 +699,7 @@ func TestInstantStopBroadcastsRemovedHumanInputInAcceptanceOrder(t *testing.T) {
 	}
 	secondDone := make(chan queuedResult, 1)
 	go func() {
-		item, accepted, err := eng.QueueUserMessageForActiveRun(t.Context(), "second", nil)
+		item, accepted, err := eng.QueueUserMessageForActiveRun(t.Context(), runtimeids.NewQueueItemID().String(), "second", nil)
 		secondDone <- queuedResult{item: item, accepted: accepted, err: err}
 	}()
 	transitionStarted := make(chan struct{})

@@ -35,7 +35,7 @@ function renderAttention(item: AttentionItem) {
       <AttentionRow
         item={item}
         onTaskDetail={(item) => {
-          task({ item, open: openSidebar, mode: "shift" });
+          task({ item, open: openSidebar });
         }}
         onSessionChat={(target) => {
           chat({ target, open: fixture.openSessionChat });

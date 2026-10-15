@@ -1,9 +1,12 @@
 import { fireEvent, render, screen, within } from "@testing-library/react";
-import type { ReactElement } from "react";
+import type { ComponentProps, ReactElement } from "react";
 
 import { TranscriptWindow, type TranscriptCommittedItem, type TranscriptRenderSlots } from "@/app-facade";
-import { hydration } from "@/test-support/transcript-window";
-import { installResizeObserverGeometry } from "@/test-support/resize-observer";
+import { hydration, row } from "@/test-support/transcript-window";
+import {
+  installResizeObserverGeometry,
+  installVirtualizedScrollGeometry,
+} from "@/test-support/resize-observer";
 
 import { TranscriptWindowView } from "./index";
 
@@ -105,6 +108,110 @@ describe("TranscriptWindowView", () => {
   afterEach(() => {
     geometry.restore();
     vi.restoreAllMocks();
+  });
+
+  it("keeps local user content mounted when the same input is committed", () => {
+    const window = new TranscriptWindow();
+    window.dispatch({ kind: "initial-hydration", hydration: hydration([]) });
+    const inputID = crypto.randomUUID();
+    const text = "A submitted message";
+    const committed = { ...row(1), User: { Text: text, QueueItemIDs: [inputID] } };
+    const content = (local: boolean) => (
+      <TranscriptWindowView
+        boundaryErrorMessage={(error) => error.message}
+        estimateSize={() => 60}
+        loadingLabel="Loading"
+        localMessages={local ? [{ inputID, content: <div data-testid="family-user">{text}</div> }] : []}
+        onInput={vi.fn()}
+        retryLabel="Retry"
+        slots={slots}
+        snapshot={window.snapshot}
+      />
+    );
+    const view = render(content(true));
+    const preview = screen.getByTestId("family-user");
+    window.dispatch({ kind: "committed-row", row: committed });
+    view.rerender(content(false));
+
+    expect(screen.getByTestId("family-user")).toBe(preview);
+    expect(preview).toBeInTheDocument();
+  });
+
+  it.each([
+    "confirmation",
+    "addition",
+    "removal",
+    "reordering",
+    "replacement",
+    "inset",
+    "jump",
+    "update",
+  ] as const)("preserves tail request semantics during submitted input %s", (change) => {
+    const scrollGeometry = installVirtualizedScrollGeometry(600);
+    const transcript = new TranscriptWindow();
+    transcript.dispatch({
+      kind: "initial-hydration",
+      hydration: hydration(Array.from({ length: 20 }, (_, index) => row(index + 1))),
+    });
+    const inputIDs = [crypto.randomUUID(), crypto.randomUUID()] as const;
+    const nextIDs = {
+      confirmation: inputIDs,
+      addition: [...inputIDs, crypto.randomUUID()],
+      removal: inputIDs.slice(0, 1),
+      reordering: [...inputIDs].reverse(),
+      replacement: [inputIDs[0], crypto.randomUUID()],
+      inset: inputIDs,
+      jump: inputIDs,
+      update: inputIDs,
+    }[change];
+    const content = (
+      ids: readonly string[],
+      overrides: Partial<ComponentProps<typeof TranscriptWindowView>> = {},
+    ) => (
+      <TranscriptWindowView
+        boundaryErrorMessage={(error) => error.message}
+        estimateSize={() => 600}
+        loadingLabel="Loading"
+        localMessages={ids.map((inputID) => ({ inputID, content: <div /> }))}
+        onInput={vi.fn()}
+        overlay={(following) => <input type="checkbox" checked={following} readOnly />}
+        retryLabel="Retry"
+        slots={slots}
+        snapshot={transcript.snapshot}
+        {...overrides}
+      />
+    );
+    const view = render(content(inputIDs));
+    try {
+      const list = screen.getByRole("list");
+      list.scrollTop = list.scrollHeight - list.clientHeight;
+      fireEvent.scroll(list);
+      list.scrollTop = list.scrollHeight - list.clientHeight - 20;
+      fireEvent.scroll(list);
+      expect(screen.getByRole("checkbox")).toBeChecked();
+      const before = list.scrollTop;
+      expect(before).toBeGreaterThan(0);
+      expect(before).toBeLessThan(list.scrollHeight - list.clientHeight);
+      const scrolling = vi.spyOn(list, "scrollTo");
+      view.rerender(
+        content(nextIDs, {
+          ...(change === "inset" ? { bottomInset: 40 } : {}),
+          ...(change === "jump" ? { scrollRequest: Symbol() } : {}),
+          ...(change === "update" ? { presentationUpdate: { kind: "replacement" } } : {}),
+        }),
+      );
+      if (change === "confirmation" || change === "jump") {
+        expect(list.scrollTop).toBe(before);
+        if (change === "jump") {
+          expect(scrolling).toHaveBeenCalledWith(expect.objectContaining({ behavior: "smooth" }));
+        }
+      } else {
+        expect(list.scrollTop).toBe(list.scrollHeight - list.clientHeight);
+      }
+    } finally {
+      view.unmount();
+      scrollGeometry.restore();
+    }
   });
 
   it("keeps typed family presentations mounted through committed promotion", () => {

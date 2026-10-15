@@ -145,7 +145,7 @@ connection = "missing"
 	}
 }
 
-func TestEquivalentSessionAgentRepairsCompleteDefaultSettings(t *testing.T) {
+func TestEquivalentSessionAgentPreservesRoleAndSettings(t *testing.T) {
 	for _, scenario := range []struct {
 		name               string
 		locked             bool
@@ -156,12 +156,12 @@ func TestEquivalentSessionAgentRepairsCompleteDefaultSettings(t *testing.T) {
 		{name: "distinct saved connection", distinctConnection: true},
 	} {
 		t.Run(scenario.name, func(t *testing.T) {
-			testSessionAgentDefaultRepair(t, scenario.locked, scenario.distinctConnection)
+			testSessionAgentIdentityPreserved(t, scenario.locked, scenario.distinctConnection)
 		})
 	}
 }
 
-func testSessionAgentDefaultRepair(t *testing.T, locked, distinctConnection bool) {
+func testSessionAgentIdentityPreserved(t *testing.T, locked, distinctConnection bool) {
 	root, workspace := t.TempDir(), t.TempDir()
 	path := filepath.Join(root, "config.toml")
 	writeConfig := func(model string) {
@@ -196,7 +196,7 @@ model = %q
 	}
 	store := createCoreSettingsSession(t, app, cfg, binding.ProjectID)
 	state, err := session.ChatSettingsStateFromCompleteSettings("worker", session.ChatSettings{
-		Supervisor: "edits", Thinking: "high", Fast: true, Questions: false, AutoCompaction: false,
+		Supervisor: "edits", Thinking: "high", Questions: false, AutoCompaction: false,
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -234,21 +234,10 @@ model = %q
 		return response.GetSession().Settings
 	}
 	projected := read()
-	if locked || distinctConnection {
-		if projected.SelectedAgent.Role != "worker" || projected.SelectedAgent.Thinking != "high" ||
-			projected.Questions.Enabled || projected.AutoCompaction.Stored {
-			t.Fatalf("non-equivalent or locked selection was repaired: %+v", projected)
-		}
-		persisted, err := app.MetadataStore().ResolvePersistedSession(t.Context(), before.SessionID)
-		if err != nil || !reflect.DeepEqual(storedBefore.Meta, persisted.Meta) {
-			t.Fatalf("read changed stored selection: %v", err)
-		}
-		return
-	}
-	if projected.SelectedAgent.Role != "default" || projected.SelectedAgent.Thinking != "medium" ||
-		!projected.Questions.Enabled || !projected.AutoCompaction.Stored ||
-		projected.Supervisor.Value != projected.Supervisor.Baseline {
-		t.Fatalf("complete default baseline not projected: %+v", projected)
+	if projected.SelectedAgent.Role != "worker" || projected.SelectedAgent.Thinking != "high" ||
+		projected.Questions.Enabled || projected.AutoCompaction.Stored ||
+		projected.Supervisor.Value != chatsettingspb.SupervisorValue_SUPERVISOR_VALUE_AFTER_EDITS {
+		t.Fatalf("equivalent role lost identity or settings: %+v", projected)
 	}
 	persisted, err := app.MetadataStore().ResolvePersistedSession(t.Context(), before.SessionID)
 	if err != nil || !reflect.DeepEqual(storedBefore.Meta, persisted.Meta) {
@@ -260,28 +249,28 @@ model = %q
 		},
 	})
 	if err != nil || result.GetResult().GetApplied() == nil {
-		t.Fatalf("repair mutation: %+v %v", result, err)
+		t.Fatalf("settings mutation: %+v %v", result, err)
 	}
 	persisted, err = app.MetadataStore().ResolvePersistedSession(t.Context(), before.SessionID)
 	if err != nil {
 		t.Fatal(err)
 	}
-	repaired, err := session.ChatSettingsStateFromMeta(*persisted.Meta)
+	persistedState, err := session.ChatSettingsStateFromMeta(*persisted.Meta)
 	if err != nil {
 		t.Fatal(err)
 	}
-	want, err := session.ChatSettingsStateFromCompleteSettings("default", session.ChatSettings{
-		Supervisor: "off", Thinking: "medium", Questions: true, AutoCompaction: true,
+	want, err := session.ChatSettingsStateFromCompleteSettings("worker", session.ChatSettings{
+		Supervisor: "edits", Thinking: "high", Questions: false, AutoCompaction: false,
 	})
 	if err != nil {
 		t.Fatal(err)
 	}
 	want.ConnectionID = state.ConnectionID
-	if !reflect.DeepEqual(repaired, want) {
-		t.Fatalf("repair = %+v, want %+v", repaired, want)
+	if !reflect.DeepEqual(persistedState, want) {
+		t.Fatalf("settings = %+v (%+v), want %+v (%+v)", persistedState, persistedState.Settings, want, want.Settings)
 	}
-	if got := read(); got.SelectedAgent.Role != "default" || !got.Questions.Enabled || !got.AutoCompaction.Stored {
-		t.Fatalf("reread lost repair: %+v", got)
+	if got := read(); got.SelectedAgent.Role != "worker" || got.Questions.Enabled || got.AutoCompaction.Stored {
+		t.Fatalf("reread lost selected role or settings: %+v", got)
 	}
 	reopened, err := session.Open(store.Dir(), app.MetadataStore().AuthoritativeSessionStoreOptions()...)
 	if err != nil {
@@ -289,6 +278,6 @@ model = %q
 	}
 	reopenedState, err := session.ChatSettingsStateFromMeta(reopened.Meta())
 	if err != nil || !reflect.DeepEqual(reopenedState, want) {
-		t.Fatalf("reopen lost complete repair: %+v %v", reopenedState, err)
+		t.Fatalf("reopen lost selected role or settings: %+v %v", reopenedState, err)
 	}
 }

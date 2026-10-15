@@ -27,6 +27,7 @@ import (
 	"core/shared/serverapi"
 	"core/shared/textutil"
 
+	"core/shared/runtimeids"
 	"github.com/google/uuid"
 )
 
@@ -174,9 +175,8 @@ func TestRemotePromptCommandStartupCatalogAndInvocationUseImportedServerContent(
 	if err != nil {
 		t.Fatalf("ActivateSessionRuntime: %v", err)
 	}
-	if _, err := remote.SubmitUserTurn(context.Background(), &runtimepb.SubmitUserTurnRequest{
-		SessionId: plan.Plan.SessionId,
-		Input:     &runtimepb.UserTurnInput{Input: &runtimepb.UserTurnInput_PromptCommand{PromptCommand: &runtimepb.PromptCommandInput{Name: "prompt:remote_demo", Arguments: "hello world"}}},
+	if _, err := remote.SubmitUserTurn(context.Background(), &runtimepb.SubmitUserTurnRequest{QueueItemId: runtimeids.NewQueueItemID().String(), SessionId: plan.Plan.SessionId,
+		Input: &runtimepb.UserTurnInput{Input: &runtimepb.UserTurnInput_PromptCommand{PromptCommand: &runtimepb.PromptCommandInput{Name: "prompt:remote_demo", Arguments: "hello world"}}},
 	}); err != nil {
 		t.Fatalf("SubmitUserTurn: %v", err)
 	}

@@ -102,7 +102,7 @@ func (s *Service) prepareSessionChatSettings(
 			return PreparedChatSettingsOperationInput{}, nil, err
 		}
 	}
-	catalog, err := launch.PrepareSessionChatAgentCatalog(planner.Config, meta)
+	catalog, err := launch.PrepareSessionChatAgentCatalog(planner.Config, meta, planner.Rotation)
 	if err != nil {
 		return PreparedChatSettingsOperationInput{}, nil, err
 	}
@@ -214,7 +214,24 @@ func (s *Service) SessionChatSettings(
 		SessionId: sessionID.String(),
 		ShortId:   protoapi.SessionShortIDToProto(record.ShortID),
 	}
-	facts.Connection, err = authstatus.SessionConnection(input.Configuration.Settings, record.Meta.ConnectionID)
+	binding := record.Meta.ConnectionID
+	var replacement *chatsettingspb.ConnectionReplacement
+	if binding != nil {
+		if _, present := input.Configuration.Settings.Connections[*binding]; !present {
+			selected, ok := input.Catalog.Lookup(input.EffectiveAgent)
+			if !ok {
+				selected, ok = input.Catalog.Lookup(config.DefaultSubagentRole)
+			}
+			if !ok || selected.ConnectionID == nil {
+				return nil, errors.New("effective Chat Agent Connection is unavailable")
+			}
+			replacement = &chatsettingspb.ConnectionReplacement{
+				Previous: string(*binding), Current: string(*selected.ConnectionID),
+			}
+			binding = selected.ConnectionID
+		}
+	}
+	facts.Connection, err = authstatus.SessionConnection(input.Configuration.Settings, binding)
 	if err != nil {
 		return nil, err
 	}
@@ -226,7 +243,9 @@ func (s *Service) SessionChatSettings(
 		facts.TaskShortId = &taskIdentity.TaskShortID
 	}
 	return &chatsettingspb.ReadSuccess{
-		Target: &chatsettingspb.ReadSuccess_Session{Session: &chatsettingspb.SessionSettings{Settings: settings, Session: facts}},
+		Target: &chatsettingspb.ReadSuccess_Session{Session: &chatsettingspb.SessionSettings{
+			Settings: settings, Session: facts, ConnectionReplacement: replacement,
+		}},
 	}, nil
 }
 
@@ -341,14 +360,6 @@ func (s *Service) PlanLaunchSession(ctx context.Context, req PlanRequest) (PlanR
 		return PlanResult{}, err
 	}
 	preparation := launch.RunPromptPreparationContext{Mode: req.Mode, Rotation: planner.Rotation, AllocateConnection: true}
-	if origin, present := req.Intent.CreateOrigin(); present && origin.Kind() == serverapi.SessionCreateOriginPreviousSession {
-		sourceID, _ := origin.SessionID()
-		record, err := session.ResolvePersistedSessionRecord(ctx, planner.PersistedSessions, sourceID.String())
-		if err != nil {
-			return PlanResult{}, err
-		}
-		preparation.ConnectionID = record.Meta.ConnectionID
-	}
 	preparedOverrides, err := launch.PrepareRunPromptOverridesWithContext(planner.Config, req.Overrides, preparation)
 	if err != nil {
 		return PlanResult{}, err

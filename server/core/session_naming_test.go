@@ -22,6 +22,7 @@ import (
 	chatsettingspb "core/shared/protoapi/gen/kent/api/chat_settings"
 	runtimepb "core/shared/protoapi/gen/kent/api/runtime"
 	workflowpb "core/shared/protoapi/gen/kent/api/workflow_definition"
+	"core/shared/runtimeids"
 	"core/shared/runtimeinput"
 	"core/shared/serverapi"
 	"core/shared/textutil"
@@ -138,7 +139,7 @@ func testNamingAfterExecutionTargetChange(t *testing.T, optOut bool) {
 	}
 	caller, endCaller := context.WithCancel(ctx)
 	if _, err := app.RuntimeControlClient().SubmitUserTurn(caller, &runtimepb.SubmitUserTurnRequest{
-		SessionId: id, Input: input,
+		QueueItemId: runtimeids.NewQueueItemID().String(), SessionId: id, Input: input,
 	}); err != nil {
 		t.Fatal(err)
 	}

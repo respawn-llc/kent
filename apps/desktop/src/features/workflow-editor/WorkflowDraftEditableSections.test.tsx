@@ -1,4 +1,5 @@
 import { fireEvent, render, screen, within } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
 import { I18nextProvider } from "react-i18next";
 import { beforeAll, describe, expect, it, vi } from "vitest";
 
@@ -302,6 +303,7 @@ describe("PromptTemplateEditor", () => {
   });
 
   it("disables the Session ID placeholder for a known non-agent source and explains why", async () => {
+    const user = userEvent.setup();
     const onPromptChange = vi.fn();
     render(
       <I18nextProvider i18n={appI18n}>
@@ -317,7 +319,7 @@ describe("PromptTemplateEditor", () => {
     const sessionChip = screen.getByRole("button", { name: ".SessionId" });
     expect(sessionChip).toBeDisabled();
     fireEvent.click(sessionChip);
-    fireEvent.pointerMove(sessionChip);
+    await user.hover(sessionChip);
     expect(await screen.findByRole("tooltip")).toBeVisible();
     expect(onPromptChange).not.toHaveBeenCalled();
   });
