@@ -20,13 +20,15 @@ import (
 )
 
 type stubExclusiveStepLifecycle struct {
-	mu           sync.Mutex
-	busy         bool
-	runCalls     int
-	runFn        func(ctx context.Context, options exclusiveStepOptions, fn func(stepCtx context.Context, stepID string) error) error
-	snapshot     *RunSnapshot
-	snapshotFn   func() *RunSnapshot
-	activeStepID string
+	mu                       sync.Mutex
+	busy                     bool
+	runCalls                 int
+	runFn                    func(ctx context.Context, options exclusiveStepOptions, fn func(stepCtx context.Context, stepID string) error) error
+	snapshot                 *RunSnapshot
+	snapshotFn               func() *RunSnapshot
+	activeStepID             string
+	turnStateLifetime        *llm.CodexTurnStateLifetime
+	turnStateLifetimeForStep func(string) (*llm.CodexTurnStateLifetime, bool)
 }
 
 type stubBackgroundNoticeScheduler struct {
@@ -531,6 +533,25 @@ func (s *stubExclusiveStepLifecycle) WithActiveStep(fn func(stepID string) error
 		return false, nil
 	}
 	return true, fn(runtimeTestStepID(stepID))
+}
+
+func (s *stubExclusiveStepLifecycle) TurnStateLifetimeForStep(stepID string) (*llm.CodexTurnStateLifetime, bool) {
+	s.mu.Lock()
+	resolve := s.turnStateLifetimeForStep
+	if resolve != nil {
+		s.mu.Unlock()
+		return resolve(stepID)
+	}
+	if s.activeStepID == "" || runtimeTestStepID(s.activeStepID) != stepID {
+		s.mu.Unlock()
+		return nil, false
+	}
+	if s.turnStateLifetime == nil {
+		s.turnStateLifetime = llm.NewCodexTurnStateLifetime()
+	}
+	lifetime := s.turnStateLifetime
+	s.mu.Unlock()
+	return lifetime, true
 }
 
 func (s *stubExclusiveStepLifecycle) ResolveActiveOutputStep(expectedStepID *string) (*string, error) {

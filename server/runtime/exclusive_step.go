@@ -8,6 +8,8 @@ import (
 	"sync"
 	"time"
 
+	"core/server/llm"
+
 	"github.com/google/uuid"
 )
 
@@ -42,15 +44,16 @@ type exclusiveStepWaiter struct {
 }
 
 type exclusiveRunState struct {
-	sequence    uint64
-	mode        RunMode
-	activeKind  ActiveKind
-	cancel      context.CancelFunc
-	stepID      string
-	startedAt   time.Time
-	closing     bool
-	interrupted bool
-	reservation *exclusiveStepReservation
+	sequence          uint64
+	mode              RunMode
+	activeKind        ActiveKind
+	cancel            context.CancelFunc
+	stepID            string
+	startedAt         time.Time
+	closing           bool
+	interrupted       bool
+	reservation       *exclusiveStepReservation
+	turnStateLifetime *llm.CodexTurnStateLifetime
 }
 
 func (s *defaultExclusiveStepLifecycle) Run(ctx context.Context, options exclusiveStepOptions, fn func(stepCtx context.Context, stepID string) error) (err error) {
@@ -425,6 +428,15 @@ func (s *defaultExclusiveStepLifecycle) WithActiveStep(fn func(stepID string) er
 	return true, fn(s.active.stepID)
 }
 
+func (s *defaultExclusiveStepLifecycle) TurnStateLifetimeForStep(stepID string) (*llm.CodexTurnStateLifetime, bool) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.active == nil || s.active.stepID != stepID || s.active.turnStateLifetime == nil {
+		return nil, false
+	}
+	return s.active.turnStateLifetime, true
+}
+
 func (s *defaultExclusiveStepLifecycle) ApplyForActiveStep(stepID string, apply func() error) error {
 	if s == nil || apply == nil {
 		return errors.New("active step authority action is required")
@@ -602,14 +614,16 @@ func (s *defaultExclusiveStepLifecycle) activateLocked(ctx context.Context, opti
 	s.runSeq++
 	stepID := uuid.NewString()
 	startedAt := time.Now().UTC()
+	turnStateLifetime := llm.NewCodexTurnStateLifetime()
 	s.active = &exclusiveRunState{
-		sequence:    s.runSeq,
-		mode:        runModeFromActiveKind(options.ActiveKind),
-		activeKind:  options.ActiveKind,
-		cancel:      cancel,
-		stepID:      stepID,
-		startedAt:   startedAt,
-		reservation: options.Reservation,
+		sequence:          s.runSeq,
+		mode:              runModeFromActiveKind(options.ActiveKind),
+		activeKind:        options.ActiveKind,
+		cancel:            cancel,
+		stepID:            stepID,
+		startedAt:         startedAt,
+		reservation:       options.Reservation,
+		turnStateLifetime: turnStateLifetime,
 	}
 	return stepCtx, stepID
 }

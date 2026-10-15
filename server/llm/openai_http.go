@@ -381,6 +381,13 @@ func (t *HTTPTransport) prepareDispatch(
 	if err != nil {
 		return responsesDispatchPreparation{}, err
 	}
+	if projection != nil {
+		var accountID *string
+		if mode.IsOAuth && mode.AccountID != "" {
+			accountID = &mode.AccountID
+		}
+		dispatch.bindTurnState(accountID, t.serviceBaseURL())
+	}
 	return responsesDispatchPreparation{
 		authHeader:   authHeader,
 		mode:         mode,

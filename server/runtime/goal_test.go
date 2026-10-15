@@ -1059,7 +1059,7 @@ func TestGoalLoopRetriesWhenExclusiveStepIsBusy(t *testing.T) {
 			return ErrAgentBusy
 		}
 		return baseLifecycle.Run(ctx, options, fn)
-	}, snapshotFn: baseLifecycle.Snapshot}
+	}, snapshotFn: baseLifecycle.Snapshot, turnStateLifetimeForStep: baseLifecycle.TurnStateLifetimeForStep}
 	engine.stepLifecycle = wrappedLifecycle
 	t.Cleanup(func() {
 		engine.stepLifecycle = baseLifecycle
