@@ -764,8 +764,8 @@ Blocked by:
 - A literal query must contain at least one searchable trigram after search normalization.
 - A raw expression follows FTS5 behavior for shorter terms.
 - Command-local validation failures use exit code 2.
-- These include missing or extra positional queries, malformed or unknown flags, integer conversion failures, invalid `--status`, invalid flag combinations, and normalized-too-short literal queries.
-- Request values rejected by the generated API contract, including blank raw expressions, overlong queries, and out-of-range `--context`, `--page-size`, and `--offset`, use exit code 1.
+- These include missing or extra positional queries, malformed or unknown flags, integer conversion failures, invalid `--status`, and normalized-too-short literal queries.
+- Request values rejected by the generated API contract, including blank raw expressions, overlong queries, combining `--case-sensitive` with `--fts5`, and out-of-range `--context`, `--page-size`, and `--offset`, use exit code 1.
 - An unresolved Project selector, transport failure, schema or index failure, database busy or interruption, and every raw FTS5 evaluation failure use exit code 1.
 - SQLite reports malformed raw FTS5 syntax and some FTS schema or configuration failures through the same runtime error class.
 - Kent reports every raw FTS5 SQLite evaluation error as one generic operational failure with exit code 1.
