@@ -68,7 +68,7 @@
 - A Project workspace has no repeated Project identity header or header action.
 - A Project workspace has `Tasks`, `Sessions`, and `Subagents` tabs. `Tasks` is the default. The mounted Project workspace owns the selected tab, which resets when that workspace remounts.
 - Switching among a Project workspace's `Tasks`, `Sessions`, and `Subagents` tabs crossfades overlapping outgoing and incoming content and respects reduced-motion preference.
-- Selecting an Inbox item leaves Inbox visible and opens Task Detail as an overlay without replacing Home content or navigating away from Home.
+- Selecting an Inbox item opens Task Detail using the global adaptive sidebar presentation without replacing Home content or navigating away from Home.
 - An Inbox item shows at most five lines of its detail message before truncation. Selecting the item opens its complete Task Detail.
 - The Project workspace Workflow strip uses infinite scroll. The visible content of each Workflow chip is its name. Selecting one opens that Project's Workflow board.
 - `Manage workflows` is available from `Link workflow` for reusable Workflows, including those not linked to the selected Project. Project Task and board destinations are Project-scoped.

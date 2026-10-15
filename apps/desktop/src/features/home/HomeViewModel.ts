@@ -82,7 +82,6 @@ export function createHomeViewModel(
           kind: "taskDetail",
           initialFocus: taskDetailInitialFocusFromAttentionItem(input.item),
           inboxNav: true,
-          mode: "overlay",
           onMutated: undefined,
           taskID: input.item.taskID,
         });
