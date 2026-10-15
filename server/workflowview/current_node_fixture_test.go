@@ -126,7 +126,7 @@ func newCurrentNodeViewFixture(t *testing.T, requiresApproval bool) currentNodeV
 		t.Fatalf("workflowstore.New: %v", err)
 	}
 	workflowID := currentNodeViewWorkflow(t, store, requiresApproval)
-	if _, err := store.LinkWorkflow(t.Context(), binding.ProjectID, workflowID, true); err != nil {
+	if _, err := store.LinkWorkflowWithDefaultPolicy(t.Context(), binding.ProjectID, workflowID, workflowstore.WorkflowLinkDefaultAlways); err != nil {
 		t.Fatalf("LinkWorkflow: %v", err)
 	}
 	definitions, err := NewDefinitionProjection(store)

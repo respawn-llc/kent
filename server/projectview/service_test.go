@@ -71,7 +71,7 @@ func TestServiceDeletesProjectWithBacklogTasks(t *testing.T) {
 	if err != nil {
 		t.Fatalf("CreateWorkflow: %v", err)
 	}
-	if _, err := workflowStore.LinkWorkflow(ctx, binding.ProjectID, workflow.ID, true); err != nil {
+	if _, err := workflowStore.LinkWorkflowWithDefaultPolicy(ctx, binding.ProjectID, workflow.ID, workflowstore.WorkflowLinkDefaultAlways); err != nil {
 		t.Fatalf("LinkWorkflow: %v", err)
 	}
 	if _, err := workflowStore.CreateTask(ctx, workflowstore.CreateTaskRequest{ProjectID: binding.ProjectID, Title: "Backlog", Body: "Body"}); err != nil {
@@ -102,7 +102,7 @@ func TestServiceProjectDeleteRevalidatesWorkflowTasksAtCommit(t *testing.T) {
 	if err != nil {
 		t.Fatalf("CreateWorkflow: %v", err)
 	}
-	if _, err := workflowStore.LinkWorkflow(ctx, binding.ProjectID, workflowRecord.ID, true); err != nil {
+	if _, err := workflowStore.LinkWorkflowWithDefaultPolicy(ctx, binding.ProjectID, workflowRecord.ID, workflowstore.WorkflowLinkDefaultAlways); err != nil {
 		t.Fatalf("LinkWorkflow: %v", err)
 	}
 	if _, err := workflowStore.CreateTask(ctx, workflowstore.CreateTaskRequest{ProjectID: binding.ProjectID, Title: "Blocked", Body: "Body"}); err != nil {
@@ -688,7 +688,7 @@ func TestMetadataServiceListsProjectHomeForGUI(t *testing.T) {
 	if err != nil {
 		t.Fatalf("CreateWorkflow: %v", err)
 	}
-	if _, err := workflowStore.LinkWorkflow(context.Background(), created.Binding.ProjectId, workflow.ID, true); err != nil {
+	if _, err := workflowStore.LinkWorkflowWithDefaultPolicy(context.Background(), created.Binding.ProjectId, workflow.ID, workflowstore.WorkflowLinkDefaultAlways); err != nil {
 		t.Fatalf("LinkWorkflow: %v", err)
 	}
 
