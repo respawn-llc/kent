@@ -287,7 +287,7 @@ describe("ProjectTasksSurface", () => {
     expect(getSortRadio(screen.getByRole("dialog"), "desc")).toBeChecked();
   });
 
-  it("opens the server-defined Status legend on hover", async () => {
+  it("opens the server-defined Status legend from hover, not keyboard focus", async () => {
     vi.useFakeTimers();
     try {
       renderSurface();
@@ -298,6 +298,8 @@ describe("ProjectTasksSurface", () => {
       if (statusLegendTrigger === undefined) {
         throw new Error("Expected a Task Status legend trigger.");
       }
+      fireEvent.focus(statusLegendTrigger);
+      expect(screen.queryByRole("tooltip")).not.toBeInTheDocument();
       fireEvent.mouseEnter(statusLegendTrigger);
       await act(async () => {
         await vi.advanceTimersByTimeAsync(0);

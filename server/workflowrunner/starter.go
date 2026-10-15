@@ -147,14 +147,14 @@ func (s *currentNodeAgentAssignmentSteer) Prepare(ctx context.Context) error {
 	var steer runtime.WorkflowAssignmentSteer
 	var admission sessionruntime.DormantSessionStoreAdmission
 	if err == nil {
-		admission, err = s.starter.runtimeAuthority.WithDormantSessionStore(ctx, s.prepared.plan.Descriptor, func(_ context.Context, store *session.Store) error {
+		admission, err = s.starter.runtimeAuthority.WithDormantSessionStore(ctx, s.prepared.plan.Descriptor, func(operationCtx context.Context, store *session.Store) error {
 			var steerErr error
 			persistenceContext := s.starter.workflowAssignmentPersistenceContext(s.prepared)
 			persistenceContext.ThinkingMutation = thinkingMutation
 			if s.delivery == workflowruntime.TaskPromptDeliveryResume {
-				steer, steerErr = runtime.SteerPersistedWorkflowAssignmentForResume(store, s.assignment, persistenceContext)
+				steer, steerErr = runtime.SteerPersistedWorkflowAssignmentForResume(operationCtx, store, s.assignment, persistenceContext)
 			} else {
-				steer, steerErr = runtime.SteerPersistedWorkflowAssignment(store, s.assignment, persistenceContext)
+				steer, steerErr = runtime.SteerPersistedWorkflowAssignment(operationCtx, store, s.assignment, persistenceContext)
 			}
 			return steerErr
 		})
@@ -192,13 +192,14 @@ func (s *Starter) workflowAssignmentPersistenceContext(
 	prepared preparedCurrentNodeAgentSession,
 ) runtime.PersistedWorkflowAssignmentContext {
 	return runtime.PersistedWorkflowAssignmentContext{
-		Workdir:         prepared.root.EffectiveRoot(),
-		GlobalConfigDir: s.cfg.PersistenceRoot,
-		Model:           prepared.plan.ActiveSettings.Model,
-		ThinkingLevel:   prepared.plan.ActiveSettings.ThinkingLevel,
-		SkillPolicy:     config.ResolveSkillPolicy(prepared.plan.ActiveSettings),
-		SubagentCatalog: config.App{Settings: prepared.plan.ActiveSettings, Source: prepared.plan.Source},
-		EnabledTools:    workflowRuntimeEnabledTools(prepared.plan.EnabledTools),
+		Workdir:                       prepared.root.EffectiveRoot(),
+		GlobalConfigDir:               s.cfg.PersistenceRoot,
+		Model:                         prepared.plan.ActiveSettings.Model,
+		ThinkingLevel:                 prepared.plan.ActiveSettings.ThinkingLevel,
+		ProjectWorkspaceContextReader: s.metadata,
+		SkillPolicy:                   config.ResolveSkillPolicy(prepared.plan.ActiveSettings),
+		SubagentCatalog:               config.App{Settings: prepared.plan.ActiveSettings, Source: prepared.plan.Source},
+		EnabledTools:                  workflowRuntimeEnabledTools(prepared.plan.EnabledTools),
 	}
 }
 

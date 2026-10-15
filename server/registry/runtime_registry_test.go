@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"path/filepath"
 	"slices"
 	"sync"
 	"testing"
@@ -67,7 +68,6 @@ func (retention registryRetention) Close() error {
 }
 
 const (
-	registryTestRunID  = "11111111-1111-4111-8111-111111111111"
 	registryTestStepID = "22222222-2222-4222-8222-222222222222"
 )
 
@@ -320,6 +320,11 @@ func newRegistryTestRuntime(t *testing.T, onEvent func(runtime.Event)) *runtime.
 func newRegistryRuntime(t *testing.T, client llm.Client, toolRegistry *askquestion.Registry, cfg runtime.Config, onEvent func(*runtime.Engine, runtime.Event)) *runtime.Engine {
 	t.Helper()
 	store := newRegistryTestSession(t, t.TempDir(), "workspace", t.TempDir())
+	if cfg.ProjectWorkspaceContextReader == nil {
+		metadataStore := testharness.OpenStore(t, filepath.Dir(store.Dir()))
+		testharness.ImportSessionProjectWorkspaceContext(t, metadataStore, store)
+		cfg.ProjectWorkspaceContextReader = metadataStore
+	}
 	eventLog, err := store.MaterializeEventLog()
 	if err != nil {
 		t.Fatalf("materialize event log: %v", err)
@@ -760,7 +765,6 @@ func TestTranscriptHydrationRetiresStepOwnedStateWhenCanonicalRuntimeBecomesIdle
 		StepID: textutil.Value(registryTestStepID),
 		RunState: &runtime.RunState{
 			Lifecycle:  runtime.RunningRunLifecycle(runtime.RunModeTurn),
-			RunID:      registryTestRunID,
 			ActiveKind: runtime.ActiveKindUserTurn,
 			Status:     runtime.RunStatusRunning,
 			StartedAt:  time.Now().UTC(),
@@ -1005,10 +1009,6 @@ func publishRunState(registry *RuntimeRegistry, sessionID string, running bool) 
 		QueueAccepting: true,
 	}
 	if running {
-		runID, err := runtimeids.ParseRunID(registryTestRunID)
-		if err != nil {
-			panic(err)
-		}
 		stepID, err := runtimeids.ParseStepID(registryTestStepID)
 		if err != nil {
 			panic(err)
@@ -1017,7 +1017,6 @@ func publishRunState(registry *RuntimeRegistry, sessionID string, running bool) 
 			State:    runtimepb.ActivityState_RUNTIME_ACTIVITY_RUNNING,
 			Reviewer: runtimepb.ReviewerActivity_REVIEWER_ACTIVITY_INACTIVE,
 			ActiveStep: &runtimepb.ActiveStep{
-				RunId:      runID.String(),
 				StepId:     stepID.String(),
 				ActiveKind: runtimepb.ActivityActiveKind_RUNTIME_ACTIVITY_ACTIVE_KIND_USER_TURN,
 			},
@@ -1115,7 +1114,8 @@ func TestRuntimeActivitySnapshotsDoNotShareActiveStep(t *testing.T) {
 	registry.PublishRuntimeReadModelUpdate(engine.SessionID(), update)
 
 	view, ok := registry.RuntimeMainViewSnapshot(engine.SessionID())
-	if !ok || view.Activity.ActiveStep == nil {
+	if !ok || view.Activity.ActiveStep == nil ||
+		view.Activity.ActiveStep.StepId != registryTestStepID {
 		t.Fatalf("Runtime Main View = %+v, %t; want active step", view, ok)
 	}
 	view.Activity.ActiveStep.ActiveKind = runtimepb.ActivityActiveKind_RUNTIME_ACTIVITY_ACTIVE_KIND_BACKGROUND
@@ -1129,7 +1129,8 @@ func TestRuntimeActivitySnapshotsDoNotShareActiveStep(t *testing.T) {
 	if err != nil {
 		t.Fatalf("ActiveRuntimeActivitySnapshots: %v", err)
 	}
-	if len(snapshots) != 1 || snapshots[0].Activity.ActiveStep == nil {
+	if len(snapshots) != 1 || snapshots[0].Activity.ActiveStep == nil ||
+		snapshots[0].Activity.ActiveStep.StepId != registryTestStepID {
 		t.Fatalf("active snapshots = %+v, want one active step", snapshots)
 	}
 	snapshots[0].Activity.ActiveStep.ActiveKind = runtimepb.ActivityActiveKind_RUNTIME_ACTIVITY_ACTIVE_KIND_BACKGROUND
@@ -1159,16 +1160,11 @@ func registryTestReadModelUpdate(
 		QueueAccepting: true,
 	}
 	if state == runtimepb.ActivityState_RUNTIME_ACTIVITY_RUNNING {
-		runID, err := runtimeids.ParseRunID(registryTestRunID)
-		if err != nil {
-			t.Fatalf("ParseRunID: %v", err)
-		}
 		stepID, err := runtimeids.ParseStepID(registryTestStepID)
 		if err != nil {
 			t.Fatalf("ParseStepID: %v", err)
 		}
 		activity.ActiveStep = &runtimepb.ActiveStep{
-			RunId:      runID.String(),
 			StepId:     stepID.String(),
 			ActiveKind: runtimepb.ActivityActiveKind_RUNTIME_ACTIVITY_ACTIVE_KIND_USER_TURN,
 		}

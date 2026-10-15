@@ -21,6 +21,7 @@
 - A user message carried across compaction must not become a new user turn in Ongoing Mode.
 - Transcript display reads bounded pages or a recent tail. Neither the TUI nor Kent keeps the complete transcript in memory for display.
 - Detail Mode can page across compaction boundaries.
+- Workspace reminders appear only in Detail Mode.
 - Rollback/fork immediately materializes and opens a durable child Session whose copied history ends before the selected user message. The selected message becomes the child composer draft. Rollback must not change the parent Session or mutate its transcript.
 - **Assistant streaming in ongoing mode uses source-backed Markdown promotion. Stable rendered assistant lines append during streaming after being styled as Markdown. The volatile tail that cannot be styled deterministically stays in the mutable area until it can be promoted into immutable scrollback.**
 - Kent commits every control-feedback transcript row. The TUI must not show an optimistic copy or create a local fallback row.
@@ -55,6 +56,7 @@
 - A backgrounded shell invocation stays compact while Detail is collapsed. Expanding it reveals its full command input and any tool output committed by the server.
 - Ask-question entries show only the question when collapsed.
 - Known developer/context reminders, including worktree reminders, use typed compact labels when collapsed.
+- Workspace reminders use the Subagents context presentation with the collapsed label `Project workspaces`.
 - A successful Session rebind appears as a typed, collapsed developer/context row labeled `Session moved`. The client derives this label from the typed message without server-authored display copy.
 - Expanding a known developer/context reminder reveals its full model-visible entry content verbatim.
 - Expanding must not change the current camera position. New entry content grows below its collapsed preview.
@@ -221,7 +223,7 @@
 - The TUI has no standalone per-item discard affordance for operational Pending Work.
 - Pending queues are lost on process exit. The backend overload invariant is owned by the Runtime Steering specification.
 - A mid-turn message becomes durable only when Kent delivers it.
-- The server-published Run lifecycle and the current server-published pending Question or Approval are the TUI liveness authorities for `Ctrl+C`. While either identifies live work, the TUI sends Interrupt. Otherwise it exits. A second `Ctrl+C` while Interrupt is pending for that same execution exits locally. A later Running lifecycle with a different Run or Step identity sends a new Interrupt. The server revalidates interruption through the Runtime Steering Stop contract. A submission already sent to the server may start or continue after the client detaches.
+- The server-published Live Execution lifecycle and the current server-published pending Question or Approval are the TUI liveness authorities for `Ctrl+C`. While either identifies live work, the TUI sends Interrupt. Otherwise it exits. A second `Ctrl+C` while Interrupt is pending for that same execution exits locally. A later Running lifecycle with a different Live Execution's Step ID sends a new Interrupt. The server revalidates interruption through the Runtime Steering Stop contract. A submission already sent to the server may start or continue after the client detaches.
 - If Interrupt fails, the TUI must refresh authoritative Runtime state and replace its stale activity projection. The refresh must not report idle while the server reports active work.
 - When a live Runtime projection reports a prompt wait but the corresponding pending prompt is absent, Ongoing Mode requests Scratch Rehydration to recover the authoritative prompt. The execution is interruptible while that projection is being recovered.
 - Interrupt injects detail-only developer-role control message `User interrupted you`.

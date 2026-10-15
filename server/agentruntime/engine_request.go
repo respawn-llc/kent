@@ -82,7 +82,7 @@ func prepareNativeThinking(items []llm.ResponseItem, replacementEnd *int, desire
 
 type dispatchRequestIdentity struct {
 	SessionID            string
-	RunID                string
+	StepID               string
 	CompactionGeneration int
 	RequestKind          *llm.CodexRequestKind
 }
@@ -272,13 +272,13 @@ func newDispatchRequestFactory(identity dispatchRequestIdentity) (dispatchReques
 }
 
 func (e *Engine) activeDispatchRequestFactory(stepID string, requestKind *llm.CodexRequestKind) (dispatchRequestFactory, error) {
-	runID := activeRunIDForStep(e, stepID)
-	if runID == "" {
-		return dispatchRequestFactory{}, fmt.Errorf("%w: active Run identity is required for dispatch", llm.ErrInvalidRequest)
+	active := e.ActiveRun()
+	if active == nil || active.StepID != stepID {
+		return dispatchRequestFactory{}, fmt.Errorf("%w: active Step identity is required for dispatch", llm.ErrInvalidRequest)
 	}
 	return newDispatchRequestFactory(dispatchRequestIdentity{
 		SessionID:            e.SessionID(),
-		RunID:                runID,
+		StepID:               stepID,
 		CompactionGeneration: e.compactionRuntimeState().Count(),
 		RequestKind:          requestKind,
 	})
@@ -312,7 +312,7 @@ func (f dispatchRequestFactory) compaction(base llm.CompactionRequest) (llm.Comp
 func (i dispatchRequestIdentity) newDispatchContext() (*llm.CodexDispatchContext, error) {
 	return llm.NewCodexDispatchContext(llm.CodexDispatchFacts{
 		SessionID:            i.SessionID,
-		RunID:                i.RunID,
+		StepID:               i.StepID,
 		CompactionGeneration: i.CompactionGeneration,
 		RequestKind:          i.RequestKind,
 	})

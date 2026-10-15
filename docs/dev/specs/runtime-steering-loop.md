@@ -68,6 +68,9 @@
 - A validation failure before acceptance creates no Pending Work or Queue Item.
 - A typed domain failure after acceptance completes only that operation and leaves unrelated later mutations accepted.
 - Interactive submission is accepted against one current Active Session Runtime.
+- Accepted Chat Send and Queue must return the input identity and a typed admission disposition: started turn, pending Steer, or pending Queue.
+- The Runtime must determine this disposition at admission, including work already scheduled but not yet executing. The response must not infer it from a later activity read or wait for model output or client transcript hydration.
+- Queue accepted while idle must report a started turn while retaining its explicit Queue intent.
 - If an interactive Chat mutation, including submission, Queue, or manual compaction, targets a Session without an Active Session Runtime, the server prepares and opens one before admission.
 - The server owns Runtime preparation. Clients never activate or release it.
 - If Chat admission definitely accepts no work, Kent releases its preparation attachment through the close-if-idle policy.
@@ -153,7 +156,8 @@
 - Post-turn Queue must use post-turn delivery. Inter-agent developer messages must use ordinary boundary delivery.
 - Kent must assume submitted native steers arrived and must use existing error-to-composer restoration behavior on errors.
 - Native steering must not add delivery reconciliation, automatic replay, or steering-specific recovery.
-- Native steering must not introduce special ordering, concurrency, race, or atomicity guarantees.
+- Ordinary native steering must not introduce special ordering, concurrency, race, or atomicity guarantees.
+- Active-target headless continuation must use the combined submission and observation contract in [CLI Commands](cli-commands.md#headless-run-and-shared-control). Start/finish-race coordination applies only to that operation.
 
 ## Step Boundaries And Next Work
 

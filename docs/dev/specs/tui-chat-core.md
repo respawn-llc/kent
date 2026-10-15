@@ -8,9 +8,10 @@
 ## Editing model
 
 - Movement: `Left`/`Right` by grapheme cluster. `Ctrl+Left`/`Ctrl+Right` and `Option+Left`/`Option+Right` by word. `Home`/`Ctrl+A` to line start. `End`/`Ctrl+E`/`Ctrl+End` to line end. At the typed terminal-input boundary, an Alt-modified single-rune `b`/`f` event is a compatibility encoding for previous-word/next-word movement rather than inserted text. `Up`/`Down` move across wrapped/multiline content when the cursor is not at a whole-buffer boundary (boundary behavior is prompt history, below).
-- Deletion: `Backspace`/`Ctrl+H` deletes backward. `Delete` deletes forward. `Ctrl+W` deletes the previous word.
+- Deletion: `Backspace`/`Ctrl+H` deletes backward. `Delete` deletes forward. `Ctrl+W` deletes the previous word. `Option+Backspace`/`Alt+Backspace` must delete the previous word using the same word boundaries as `Ctrl+W`.
 - Kill/yank: `Ctrl+K` kills to line end. `Ctrl+U` kills to line start (macOS: `Ctrl+U` deletes the current line). `Ctrl+Y` yanks the last killed text. One editor-local kill buffer.
-- `Shift+Enter` inserts a newline. Known Shift+Enter and Ctrl+Enter terminal encodings map to their canonical actions. `Ctrl+J` always inserts a newline.
+- `Shift+Enter` inserts a newline. `Alt+Enter` must insert a newline. Known Shift+Enter and Ctrl+Enter terminal encodings map to their canonical actions. `Ctrl+J` always inserts a newline.
+- If the terminal cannot report modified keys distinctly, Kent must keep ordinary input and existing shortcuts usable without a startup warning. Plain `Enter` must use its ordinary action.
 - The input area grows with wrapped content. No other part of the TUI inserts content into the editor's rendered lines.
 
 ## Prompt history
@@ -51,11 +52,11 @@
 
 ## Interrupts and exit
 
-- The server-published Run lifecycle and the current server-published pending Question or Approval are the TUI liveness authorities for `Ctrl+C`. While either identifies live work, the TUI sends Interrupt. A second `Ctrl+C` while Interrupt is pending for that same execution exits locally. A different Running Run or Step sends a new Interrupt.
+- The server-published Live Execution lifecycle and the current server-published pending Question or Approval are the TUI liveness authorities for `Ctrl+C`. While either identifies live work, the TUI sends Interrupt. A second `Ctrl+C` while Interrupt is pending for that same execution exits locally. A different running Live Execution, identified by its Step ID, sends a new Interrupt.
 - The server accepts Interrupt only for an active Agent execution, including one waiting for a Question or Approval. An accepted Interrupt stops its current Agent Step or prompt wait and active tool, keeps the Session available, adds the Detail Mode control message `User interrupted you`, returns to idle with input ready, and requires explicit user text to resume.
 - `Ctrl+C` must not cancel a submission before its Agent Turn starts.
 - When the live TUI observes the interruption event, it restores the stopped execution's pending human messages into the main input so the user can edit or resend them.
-- `Ctrl+C` exits the TUI only when the Run lifecycle is not Running and no current pending Question or Approval identifies live work. A submission already sent to the server may start or continue after the client detaches.
+- `Ctrl+C` exits the TUI only when the Live Execution lifecycle is not Running and no current pending Question or Approval identifies live work. A submission already sent to the server may start or continue after the client detaches.
 - Graceful exit through `Ctrl+C` or `/exit` saves the current composer draft before releasing the Session attachment.
 - `/exit` detaches the client without interrupting the Active Session Runtime. Active work runs independently of this TUI's attachment.
 - Session-navigation commands persist the outgoing draft, resolve the typed transition, release the originating attachment, and only then plan or attach the destination. A release failure aborts navigation before destination attachment. An `/exit` release failure is reported after terminal teardown and exits nonzero.

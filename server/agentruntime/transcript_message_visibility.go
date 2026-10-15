@@ -71,6 +71,7 @@ func visibleDeveloperChatEntry(msg llm.Message) (ChatEntry, bool) {
 	switch messageType {
 	case llm.MessageTypeAgentsMD,
 		llm.MessageTypeSkills,
+		llm.MessageTypeWorkspaces,
 		llm.MessageTypeEnvironment,
 		llm.MessageTypeHeadlessMode,
 		llm.MessageTypeHeadlessModeExit,
@@ -126,6 +127,7 @@ func isUnknownDeveloperMessageType(messageType *llm.MessageType) bool {
 	case llm.MessageTypeAgentsMD,
 		llm.MessageTypeSkills,
 		llm.MessageTypeSubagents,
+		llm.MessageTypeWorkspaces,
 		llm.MessageTypeEnvironment,
 		llm.MessageTypeCompactionSummary,
 		llm.MessageTypeInterruption,
@@ -180,6 +182,7 @@ func messageTypeTranscriptVisibility(messageType *llm.MessageType) transcript.En
 		llm.MessageTypeSkills,
 		llm.MessageTypeEnvironment,
 		llm.MessageTypeSubagents,
+		llm.MessageTypeWorkspaces,
 		llm.MessageTypeCompactionSoonReminder,
 		llm.MessageTypeHandoffFutureMessage,
 		llm.MessageTypeCompactionPreservedUserMessage,

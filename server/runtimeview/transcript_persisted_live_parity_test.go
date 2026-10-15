@@ -7,6 +7,7 @@ import (
 
 	"core/internal/testharness/runtimewirefixture"
 	"core/internal/testharness/scriptedllm"
+	"core/internal/testharness/testsetup"
 	"core/internal/testharness/toolfixture"
 	"core/server/agentruntime"
 	"core/server/llm"
@@ -329,6 +330,7 @@ func TestPersistedTranscriptParityAtIntermediateToolCommits(t *testing.T) {
 	}
 	engine, err := runtime.New(store, eventLog, client, registry, runtime.Config{
 		Model: "gpt-6-sol", EnabledTools: []toolspec.ID{toolspec.ToolExecCommand, toolspec.ToolPatch},
+		ProjectWorkspaceContextReader: testsetup.OpenSessionProjectWorkspaceContextReader(t, store),
 		OnEvent: func(event runtime.Event) {
 			if !event.CommittedTranscriptChanged {
 				return
@@ -437,7 +439,8 @@ func TestPersistedHistoryReplacementMatchesActualEngineLiveDelivery(t *testing.T
 			var events []runtime.Event
 			engine, err := runtime.New(store, eventLog, client, newParityToolRegistry(t, store), runtime.Config{
 				Model: "gpt-6-sol", CompactionMode: mode,
-				EnabledTools: []toolspec.ID{toolspec.ToolExecCommand, toolspec.ToolPatch},
+				EnabledTools:                  []toolspec.ID{toolspec.ToolExecCommand, toolspec.ToolPatch},
+				ProjectWorkspaceContextReader: testsetup.OpenSessionProjectWorkspaceContextReader(t, store),
 				OnEvent: func(event runtime.Event) {
 					if event.CommittedTranscriptChanged {
 						events = append(events, event)

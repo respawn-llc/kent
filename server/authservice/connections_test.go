@@ -245,7 +245,7 @@ endpoint = "https://compatible.example/v1"
 		if id == "work" || id == "personal" {
 			var err error
 			request.CodexDispatch, err = llm.NewCodexDispatchContext(llm.CodexDispatchFacts{
-				SessionID: string(id), RunID: "run", RequestKind: llm.CodexRequestKindTurn.Optional(),
+				SessionID: string(id), StepID: "step", RequestKind: llm.CodexRequestKindTurn.Optional(),
 			})
 			if err != nil {
 				return err

@@ -65,6 +65,73 @@ func TestTaskCreateSerializationConflictRoundTrip(t *testing.T) {
 	}
 }
 
+func TestWorkflowBinaryTaskUnicodeBodyCreateReadEditRoundTrip(t *testing.T) {
+	app, server := newGatewayTestServer(t)
+	defer server.Close()
+	defer func() { _ = app.Close() }()
+	remote, err := remoteclient.DialRemoteURL(t.Context(), "ws"+server.URL[len("http"):])
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = remote.Close() }()
+
+	_, err = app.WorkflowClient().CreateAndLinkWorkflowToProject(t.Context(), &pb.CreateAndLinkProjectRequest{
+		Name:          "Unicode preview Workflow",
+		ProjectId:     app.ProjectID(),
+		DefaultPolicy: pb.ProjectLinkDefaultMode_WORKFLOW_PROJECT_LINK_DEFAULT_MODE_IF_PROJECT_HAS_NONE.Enum(),
+	})
+	if err != nil {
+		t.Fatalf("CreateAndLinkWorkflowToProject: %v", err)
+	}
+
+	body := "a" + strings.Repeat("я", 60)
+	created, err := remote.CreateWorkflowTask(t.Context(), &taskpb.CreateRequest{
+		ProjectId: app.ProjectID(),
+		Title:     "Unicode body preview",
+		Body:      proto.String(body),
+	})
+	if err != nil {
+		t.Fatalf("CreateWorkflowTask: %v", err)
+	}
+	taskID := created.GetTask().GetId()
+	if got := created.GetTask().GetBodyPreview(); got != body {
+		t.Fatalf("created Task preview = %q, want %q", got, body)
+	}
+
+	initialDetail, err := remote.GetWorkflowTask(t.Context(), &taskpb.GetRequest{TaskId: proto.String(taskID)})
+	if err != nil {
+		t.Fatalf("GetWorkflowTask after create: %v", err)
+	}
+	if initialDetail.GetTask().GetBody() != body ||
+		initialDetail.GetTask().GetSummary().GetId() != taskID ||
+		initialDetail.GetTask().GetSummary().GetBodyPreview() != body {
+		t.Fatalf("created Task detail = %+v, want ID %q and full body %q", initialDetail.GetTask(), taskID, body)
+	}
+
+	updatedBody := "😀" + strings.Repeat("я", 96)
+	updatedPreview := "😀" + strings.Repeat("я", 95)
+	updated, err := remote.UpdateWorkflowTask(t.Context(), &taskpb.UpdateRequest{
+		TaskId: taskID,
+		Body:   proto.String(updatedBody),
+	})
+	if err != nil {
+		t.Fatalf("UpdateWorkflowTask: %v", err)
+	}
+	if updated.GetTask().GetId() != taskID || updated.GetTask().GetBodyPreview() != updatedPreview {
+		t.Fatalf("updated Task summary = %+v, want ID %q and preview %q", updated.GetTask(), taskID, updatedPreview)
+	}
+
+	updatedDetail, err := remote.GetWorkflowTask(t.Context(), &taskpb.GetRequest{TaskId: proto.String(taskID)})
+	if err != nil {
+		t.Fatalf("GetWorkflowTask after update: %v", err)
+	}
+	if updatedDetail.GetTask().GetBody() != updatedBody ||
+		updatedDetail.GetTask().GetSummary().GetId() != taskID ||
+		updatedDetail.GetTask().GetSummary().GetBodyPreview() != updatedPreview {
+		t.Fatalf("updated Task detail = %+v, want ID %q and full body %q", updatedDetail.GetTask(), taskID, updatedBody)
+	}
+}
+
 func TestTaskDeleteBlockedWorktreeRoundTrip(t *testing.T) {
 	app, server := newGatewayTestServer(t)
 	first := createGatewaySearchableTask(t, app)

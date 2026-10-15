@@ -1,7 +1,7 @@
-import { createContext, useContext, type ReactNode } from "react";
+import { createContext, useContext, useLayoutEffect, type ReactNode } from "react";
 
-import type { ChatRuntimeActivity } from "@/api";
-import { useChatRuntimePresentation } from "@/app-facade";
+import { parsePendingWorkItemID, type ChatRuntimeActivity } from "@/api";
+import { useChatRuntimePresentation, useOptionalChatRuntimeSnapshot } from "@/app-facade";
 import { Island } from "@/ui";
 import { useComposerKeyboard } from "./useComposerKeyboard";
 import type { useChatComposer } from "./useChatComposer";
@@ -23,7 +23,23 @@ export function ChatComposerSurface({ composer, children, enabled = true }: Surf
   const promptPicker = useChatPromptPicker(composer.target, composer.interactionRestriction);
   const { activity, observationError } = useChatRuntimePresentation();
   const stoppable = activity?.activeStep !== null && activity?.activeStep !== undefined;
-  const keyboard = useComposerKeyboard(composer, stoppable, observationError, enabled);
+  const keyboard = useComposerKeyboard(composer, stoppable, observationError, {
+    enabled,
+    ...(activity === null ? {} : { activity }),
+  });
+  const snapshot = useOptionalChatRuntimeSnapshot();
+  const pending = composer.pending.query;
+  const observeOutgoing = composer.observeOutgoing;
+  useLayoutEffect(() => {
+    observeOutgoing({
+      committedIDs:
+        snapshot?.transcript.items.flatMap((item) =>
+          item.kind === "user" ? item.value.QueueItemIDs.map(parsePendingWorkItemID) : [],
+        ) ?? [],
+      pendingItems: pending.data?.items ?? [],
+      pendingFetching: pending.isFetching,
+    });
+  }, [observeOutgoing, snapshot?.transcript.items, pending.data, pending.isFetching]);
   return (
     <ChatMessageMotion motion={composer.messageMotion}>
       <ComposerSurfaceContext.Provider

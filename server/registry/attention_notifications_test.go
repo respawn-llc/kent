@@ -354,7 +354,6 @@ func taskBatchAskRequest(id string) askquestion.AskQuestionRequest {
 		Question:   "Proceed?",
 		QuestionBatch: &askquestion.AskQuestionBatchMetadata{
 			Origin:              askquestion.AskQuestionOriginModelTool,
-			RunID:               "run-1",
 			StepID:              registryTestStepID,
 			ToolCallID:          id,
 			BatchToolCallIDs:    []string{"ask-1", "ask-2"},

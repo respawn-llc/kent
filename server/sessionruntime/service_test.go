@@ -1379,10 +1379,11 @@ func TestActivateSessionRuntimeUsesActiveShellPostprocessingWithSuppliedManager(
 	}
 	t.Cleanup(func() { _ = background.Close() })
 	authority := NewAuthority(AuthorityOptions{
-		PersistenceRoot:     fixture.config.PersistenceRoot,
-		WorkspaceMembership: fixture.metadata,
-		Background:          background,
-		StoreOptions:        fixture.metadata.AuthoritativeSessionStoreOptions(),
+		PersistenceRoot:               fixture.config.PersistenceRoot,
+		WorkspaceMembership:           fixture.metadata,
+		ProjectWorkspaceContextReader: fixture.metadata,
+		Background:                    background,
+		StoreOptions:                  fixture.metadata.AuthoritativeSessionStoreOptions(),
 	})
 	t.Cleanup(func() {
 		if err := authority.Close(context.Background()); err != nil {
@@ -1564,9 +1565,10 @@ func newSessionRuntimeFixture(t *testing.T) sessionRuntimeFixture {
 		t.Fatalf("SetName: %v", err)
 	}
 	authority := NewAuthority(AuthorityOptions{
-		PersistenceRoot:     appCfg.PersistenceRoot,
-		WorkspaceMembership: metadataStore,
-		StoreOptions:        metadataStore.AuthoritativeSessionStoreOptions(),
+		PersistenceRoot:               appCfg.PersistenceRoot,
+		WorkspaceMembership:           metadataStore,
+		ProjectWorkspaceContextReader: metadataStore,
+		StoreOptions:                  metadataStore.AuthoritativeSessionStoreOptions(),
 	})
 	t.Cleanup(func() {
 		if err := authority.Close(context.Background()); err != nil {

@@ -83,7 +83,6 @@ func TestCompleteNodeBarrierCommitsReadySiblingBeforeWorkflowMutation(t *testing
 	publishTestWorkflowExecution(t, engine, workflowConfig)
 	engine.stepLifecycle = &stubExclusiveStepLifecycle{
 		snapshot: &RunSnapshot{
-			RunID:  "11111111-1111-4111-8111-111111111111",
 			StepID: "22222222-2222-4222-8222-222222222222",
 		},
 		activeStepID: "22222222-2222-4222-8222-222222222222",

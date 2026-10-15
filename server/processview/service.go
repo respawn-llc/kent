@@ -52,7 +52,7 @@ func (s *ProcessViewService) ListProcesses(ctx context.Context, req *processpb.L
 		if req.OwnerSessionId != nil && snapshot.OwnerSessionID != *req.OwnerSessionId {
 			continue
 		}
-		if req.OwnerRunId != nil && snapshot.OwnerRunID != *req.OwnerRunId {
+		if req.OwnerStepId != nil && snapshot.OwnerStepID != *req.OwnerStepId {
 			continue
 		}
 		process, err := ProcessFromSnapshot(snapshot)

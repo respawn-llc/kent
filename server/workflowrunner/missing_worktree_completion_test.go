@@ -20,7 +20,10 @@ func prepareMissingWorktreeCompletion(t *testing.T, f *currentNodeRunnerFixture,
 	t.Helper()
 	testsetup.InitializeGitRepository(t, f.workspace)
 	git := worktree.NewGitInspector(nil)
-	service := worktree.NewService(f.metadata, git, f.authority, f.runtimes, nil, worktree.ServiceOptions{BaseDir: f.cfg.Settings.Worktrees.BaseDir})
+	service := worktree.NewService(f.metadata, git, f.authority, f.runtimes, nil, worktree.ServiceOptions{
+		BaseDir:                       f.cfg.Settings.Worktrees.BaseDir,
+		RuntimeActivitySnapshotReader: f.runtimes,
+	})
 	f.executionTargets = service
 	t.Cleanup(func() { _ = service.Close() })
 	revision, err := git.ResolveHEAD(context.Background(), f.workspace)

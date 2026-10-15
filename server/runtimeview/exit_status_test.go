@@ -85,7 +85,7 @@ func TestBackgroundExitStatusRoundTrips(t *testing.T) {
 					Kind: runtime.EventBackgroundUpdated,
 					Background: &runtime.BackgroundShellEvent{
 						Type: runtime.BackgroundShellEventCompleted, ID: "process-status",
-						ActivityID: activityID, OwnerRunID: transcriptProjectionRunID,
+						ActivityID:  activityID,
 						OwnerStepID: transcriptProjectionStepID, Command: "child",
 						Workdir: "/tmp", ExitCode: &status,
 					},

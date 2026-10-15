@@ -152,6 +152,7 @@ it("hides Processes discovery until adoption while rejecting typed activation wi
     sessionID: "created-session",
     outcome: {
       kind: "accepted",
+      disposition: "started_turn",
       queueItemID: parsePendingWorkItemID("99999999-9999-4999-8999-999999999999"),
       diagnostic: null,
     },
@@ -316,6 +317,7 @@ it("keeps the current catalog and ready settings on same-Session prompt success"
     sessionID: selected.sessionID,
     outcome: {
       kind: "accepted",
+      disposition: "started_turn",
       queueItemID: parsePendingWorkItemID("99999999-9999-4999-8999-999999999999"),
       diagnostic: null,
     },
@@ -375,6 +377,16 @@ it("opens an accepted child with new typing and preserves an independently saved
   await act(async () => {
     view.result.current.composer.submit("send");
   });
+  expect(view.result.current.composer.text).toBe("/review args");
+  expect(view.result.current.composer.interactionRestricted).toBe(true);
+  await waitFor(
+    () => {
+      expect(view.result.current.composer.interactionRestricted).toBe(false);
+    },
+    {
+      timeout: 3000,
+    },
+  );
   act(() => {
     view.result.current.composer.edit("new typing");
   });
@@ -383,6 +395,7 @@ it("opens an accepted child with new typing and preserves an independently saved
       sessionID: "child-session",
       outcome: {
         kind: "accepted",
+        disposition: "started_turn",
         queueItemID: parsePendingWorkItemID("99999999-9999-4999-8999-999999999999"),
         diagnostic: null,
       },
@@ -419,6 +432,16 @@ it("opens a rejected child after restoring exact command text and preserves the 
   await act(async () => {
     view.result.current.composer.submit("queue");
   });
+  expect(view.result.current.composer.text).toBe(command);
+  expect(view.result.current.composer.interactionRestricted).toBe(true);
+  await waitFor(
+    () => {
+      expect(view.result.current.composer.interactionRestricted).toBe(false);
+    },
+    {
+      timeout: 3000,
+    },
+  );
   act(() => {
     view.result.current.composer.edit("new typing");
   });
@@ -496,11 +519,20 @@ it("applies an existing-Session command's late result against the currently disp
     await act(async () => {
       view.result.current.composer.submit("send");
     });
+    await waitFor(
+      () => {
+        expect(view.result.current.composer.interactionRestricted).toBe(false);
+      },
+      {
+        timeout: 3000,
+      },
+    );
   }
   const accepted = (sessionID: string): ChatInputMutationResult => ({
     sessionID,
     outcome: {
       kind: "accepted",
+      disposition: "started_turn",
       queueItemID: parsePendingWorkItemID("99999999-9999-4999-8999-999999999999"),
       diagnostic: null,
     },
@@ -717,6 +749,16 @@ it("adopts accepted Send in place and saves only the visible unsent editor to it
   act(() => {
     view.result.current.composer.submit("send");
   });
+  expect(view.result.current.composer.text).toBe("submitted");
+  expect(view.result.current.composer.interactionRestricted).toBe(true);
+  await waitFor(
+    () => {
+      expect(view.result.current.composer.interactionRestricted).toBe(false);
+    },
+    {
+      timeout: 3000,
+    },
+  );
   expect(view.result.current.composer.text).toBe("");
   act(() => {
     view.result.current.composer.edit("later typing");
@@ -726,6 +768,7 @@ it("adopts accepted Send in place and saves only the visible unsent editor to it
       sessionID: "session-created",
       outcome: {
         kind: "accepted",
+        disposition: "started_turn",
         queueItemID: parsePendingWorkItemID("79f762c8-0998-402a-bc80-6b42f3e241ed"),
         diagnostic: null,
       },
@@ -760,6 +803,16 @@ it("adopts an identified rejection and restores submitted text once without comp
   act(() => {
     view.result.current.composer.submit("queue");
   });
+  expect(view.result.current.composer.text).toBe("repeat");
+  expect(view.result.current.composer.interactionRestricted).toBe(true);
+  await waitFor(
+    () => {
+      expect(view.result.current.composer.interactionRestricted).toBe(false);
+    },
+    {
+      timeout: 3000,
+    },
+  );
   act(() => {
     view.result.current.composer.edit("repeat");
   });
@@ -797,6 +850,15 @@ it.each(["creation failed", "response lost"])(
       view.result.current.composer.submit("send");
     });
     expect(readBrowserStorage("local", "desktop.newChatDraft")).toEqual({ ok: true, value: "original" });
+    expect(view.result.current.composer.interactionRestricted).toBe(true);
+    await waitFor(
+      () => {
+        expect(view.result.current.composer.interactionRestricted).toBe(false);
+      },
+      {
+        timeout: 3000,
+      },
+    );
     act(() => {
       view.result.current.composer.edit("later");
     });
@@ -832,12 +894,28 @@ it("applies concurrent results in delivery order while draft writes retain captu
   act(() => {
     view.result.current.composer.submit("send");
   });
+  await waitFor(
+    () => {
+      expect(view.result.current.composer.interactionRestricted).toBe(false);
+    },
+    {
+      timeout: 3000,
+    },
+  );
   act(() => {
     view.result.current.composer.edit("second");
   });
   act(() => {
     view.result.current.composer.submit("queue");
   });
+  await waitFor(
+    () => {
+      expect(view.result.current.composer.interactionRestricted).toBe(false);
+    },
+    {
+      timeout: 3000,
+    },
+  );
   act(() => {
     view.result.current.composer.edit("during");
   });
@@ -890,6 +968,14 @@ it("restores a late creation failure into the Session already adopted by another
   act(() => {
     view.result.current.composer.submit("send");
   });
+  await waitFor(
+    () => {
+      expect(view.result.current.composer.interactionRestricted).toBe(false);
+    },
+    {
+      timeout: 3000,
+    },
+  );
   act(() => {
     view.result.current.composer.edit("second");
   });
@@ -901,6 +987,7 @@ it("restores a late creation failure into the Session already adopted by another
       sessionID: "second",
       outcome: {
         kind: "accepted",
+        disposition: "started_turn",
         queueItemID: parsePendingWorkItemID("79f762c8-0998-402a-bc80-6b42f3e241ed"),
         diagnostic: null,
       },

@@ -210,7 +210,6 @@ func TestGatewayProjectRemoteContinuesAfterActiveStepScheduledCrossProjectMove(t
 			ProjectId:     &targetBinding.ProjectID,
 			Origin: &sessionlaunchpb.RuntimeStepOrigin{
 				SessionId: movedSession.Meta().SessionID,
-				RunId:     active.RunId,
 				StepId:    active.StepId,
 			},
 		})
@@ -538,7 +537,6 @@ func TestGatewayScopesProcessViewsAndAllowsGlobalKill(t *testing.T) {
 		Command:        []string{"/bin/sh", "-lc", "printf own\\n; sleep 1"},
 		DisplayCommand: "printf own; sleep 1",
 		OwnerSessionID: storeA.Meta().SessionID,
-		OwnerRunID:     "run-a",
 		OwnerStepID:    "step-a",
 		Workdir:        appCore.Config().WorkspaceRoot,
 		YieldTime:      time.Millisecond,
@@ -551,7 +549,6 @@ func TestGatewayScopesProcessViewsAndAllowsGlobalKill(t *testing.T) {
 		Command:        []string{"/bin/sh", "-lc", "printf foreign\\n; sleep 1"},
 		DisplayCommand: "printf foreign; sleep 1",
 		OwnerSessionID: storeB.Meta().SessionID,
-		OwnerRunID:     "run-b",
 		OwnerStepID:    "step-b",
 		Workdir:        resolvedB.Config.WorkspaceRoot,
 		YieldTime:      time.Millisecond,

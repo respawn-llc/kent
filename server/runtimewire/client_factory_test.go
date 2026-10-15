@@ -258,7 +258,7 @@ func TestResumedMainClientPreservesLockedGenerationCapabilities(t *testing.T) {
 	}
 	request.CodexDispatch, err = llm.NewCodexDispatchContext(llm.CodexDispatchFacts{
 		SessionID:   *request.SessionID,
-		RunID:       uuid.NewString(),
+		StepID:      uuid.NewString(),
 		RequestKind: llm.CodexRequestKindTurn.Optional(),
 	})
 	if err != nil {

@@ -13,6 +13,7 @@ func transcriptNoticeMessageType(value llm.MessageType) (transcriptpb.NoticeMess
 		llm.MessageTypeAgentsMD:                       transcriptpb.NoticeMessageType_NOTICE_MESSAGE_TYPE_AGENTS_MD,
 		llm.MessageTypeSkills:                         transcriptpb.NoticeMessageType_NOTICE_MESSAGE_TYPE_SKILLS,
 		llm.MessageTypeSubagents:                      transcriptpb.NoticeMessageType_NOTICE_MESSAGE_TYPE_SUBAGENTS,
+		llm.MessageTypeWorkspaces:                     transcriptpb.NoticeMessageType_NOTICE_MESSAGE_TYPE_WORKSPACES,
 		llm.MessageTypeEnvironment:                    transcriptpb.NoticeMessageType_NOTICE_MESSAGE_TYPE_ENVIRONMENT,
 		llm.MessageTypeCompactionSummary:              transcriptpb.NoticeMessageType_NOTICE_MESSAGE_TYPE_COMPACTION_SUMMARY,
 		llm.MessageTypeInterruption:                   transcriptpb.NoticeMessageType_NOTICE_MESSAGE_TYPE_INTERRUPTION,

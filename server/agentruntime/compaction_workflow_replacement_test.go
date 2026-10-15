@@ -698,6 +698,7 @@ func TestWorkflowPostCompletionActivityPolicyPreservesMetaAndConsumesActivity(t 
 		llm.MessageTypeAgentsMD,
 		llm.MessageTypeSkills,
 		llm.MessageTypeSubagents,
+		llm.MessageTypeWorkspaces,
 		llm.MessageTypeEnvironment,
 		llm.MessageTypeHeadlessMode,
 		llm.MessageTypeHeadlessModeExit,

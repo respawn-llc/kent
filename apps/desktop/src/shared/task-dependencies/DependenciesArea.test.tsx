@@ -224,6 +224,9 @@ describe("TaskDependenciesArea", () => {
     const chip = screen.getByLabelText(progress.getAttribute("aria-label") ?? "", {
       selector: "span[tabindex]",
     });
+    await user.tab();
+    expect(chip).toHaveFocus();
+    expect(screen.queryByRole("tooltip")).not.toBeInTheDocument();
     vi.useFakeTimers();
     try {
       fireEvent.mouseEnter(chip);

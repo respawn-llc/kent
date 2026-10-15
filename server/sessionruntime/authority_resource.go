@@ -195,6 +195,8 @@ type agentResource struct {
 	backgroundLimit      int
 	backgroundMode       shelltool.BackgroundOutputMode
 	current              *execution
+	eventMu              sync.Mutex
+	eventObservers       []*resourceEventObserver
 	pins                 int
 	callbacks            int
 	steps                int
@@ -918,6 +920,165 @@ func validateWorkflowAgentExecution(request *WorkflowAgentExecution) error {
 	return nil
 }
 
+type turnAdmission struct {
+	gate     *sessionAdmissionGate
+	resource *agentResource
+	release  func()
+}
+
+func (a *turnAdmission) acceptance(accept runtime.CommandAcceptance, onAccepted func()) runtime.CommandAcceptance {
+	return func(commit func() (bool, error)) (bool, error) {
+		committed, err := accept(commit)
+		if committed {
+			a.release()
+			if onAccepted != nil {
+				onAccepted()
+			}
+		}
+		return committed, err
+	}
+}
+
+// Turn joining and execution removal share the turn lock, inside the Session gate.
+func (a *Authority) admitCurrentTurn(ctx context.Context, sessionID runtimeids.SessionID) (*turnAdmission, error) {
+	gate, releaseReference := a.gateFor(sessionID)
+	if err := gate.lock.LockContext(ctx); err != nil {
+		releaseReference()
+		return nil, err
+	}
+	if len(gate.blocks) != 0 {
+		gate.lock.Unlock()
+		releaseReference()
+		return nil, sessionStartsBlockedError(sessionID)
+	}
+	a.mu.Lock()
+	resource := a.resources[sessionID]
+	a.mu.Unlock()
+	if resource != nil {
+		resource.turnMu.Lock()
+	}
+	return &turnAdmission{gate: gate, resource: resource, release: sync.OnceFunc(func() {
+		if resource != nil {
+			resource.turnMu.Unlock()
+		}
+		gate.lock.Unlock()
+		releaseReference()
+	})}, nil
+}
+
+// ContinueAgentExecution chooses active steering or idle launch at the same
+// boundary as RunCurrentTurn. changed asks the caller to refresh preparation
+// outside the joining locks; no input has been accepted in that case.
+type ContinuationCandidate interface {
+	continuationCandidate()
+}
+
+type ActiveContinuation struct {
+	Descriptor session.SessionDescriptor
+	Resource   runtimeids.SessionResourceRef
+	Join       func(context.Context, *runtime.Engine, runtime.CommandAcceptance) (bool, error)
+}
+
+func (ActiveContinuation) continuationCandidate() {}
+
+type IdleContinuation struct{ Request AgentExecutionRequest }
+
+func (IdleContinuation) continuationCandidate() {}
+
+func (a *Authority) ContinueAgentExecution(ctx context.Context, candidate ContinuationCandidate) (handle ExecutionHandle, changed bool, err error) {
+	if a == nil {
+		return nil, false, errors.New("session runtime authority is required")
+	}
+	var request AgentExecutionRequest
+	var preparedResource *runtimeids.SessionResourceRef
+	var join func(context.Context, *runtime.Engine, runtime.CommandAcceptance) (bool, error)
+	switch candidate := candidate.(type) {
+	case ActiveContinuation:
+		request.Descriptor, preparedResource, join = candidate.Descriptor, &candidate.Resource, candidate.Join
+	case IdleContinuation:
+		request = candidate.Request
+	default:
+		return nil, false, errors.New("continuation candidate is required")
+	}
+	if err := request.Descriptor.Validate(); err != nil {
+		return nil, false, err
+	}
+	if preparedResource != nil {
+		if err := preparedResource.Validate(); err != nil {
+			return nil, false, err
+		}
+		if join == nil {
+			return nil, false, errors.New("continuation join callback is required")
+		}
+	} else if request.Resource == nil || request.Runner == nil {
+		return nil, false, errors.New("idle continuation execution request is required")
+	}
+	for {
+		admission, err := a.admitCurrentTurn(ctx, request.Descriptor.SessionID())
+		if err != nil {
+			return nil, false, err
+		}
+		resource := admission.resource
+		var current *execution
+		if resource != nil {
+			resource.mu.Lock()
+			current = resource.current
+			resource.mu.Unlock()
+		}
+		if current == nil {
+			if preparedResource != nil {
+				admission.release()
+				return nil, true, nil
+			}
+			handle, err := a.startAgentExecutionUnderAdmission(ctx, admission.gate, request)
+			admission.release()
+			return handle, false, err
+		}
+		if preparedResource == nil || *preparedResource != resource.ref {
+			admission.release()
+			return nil, true, nil
+		}
+		if context.Cause(current.ctx) != nil {
+			admission.release()
+			if err := current.awaitDone(ctx); err != nil {
+				return nil, false, err
+			}
+			continue
+		}
+		accepted := false
+		err = resource.withEngineUnderAdmission(ctx, func(runCtx context.Context, engine *runtime.Engine) error {
+			var joinErr error
+			accepted, joinErr = join(runCtx, engine, admission.acceptance(
+				func(commit func() (bool, error)) (bool, error) { return commit() }, nil))
+			return joinErr
+		})
+		if accepted {
+			admission.release()
+			return executionHandle{execution: current}, false, err
+		}
+		if err != nil && !errors.Is(err, runtime.ErrNoActiveLiveRun) {
+			admission.release()
+			return nil, false, err
+		}
+		resource.mu.Lock()
+		notification := resource.changed
+		resource.mu.Unlock()
+		var unavailable *runtime.LiveRunAdmissionUnavailable
+		var ready <-chan struct{}
+		if errors.As(err, &unavailable) {
+			ready = unavailable.Ready
+		}
+		admission.release()
+		select {
+		case <-ready:
+		case <-notification:
+		case <-current.done:
+		case <-ctx.Done():
+			return nil, false, context.Cause(ctx)
+		}
+	}
+}
+
 func (a *Authority) RunCurrentTurn(
 	ctx context.Context,
 	descriptor session.SessionDescriptor,
@@ -940,44 +1101,21 @@ func (a *Authority) RunCurrentTurn(
 		return errors.New("turn callback is required")
 	}
 	sessionID := descriptor.SessionID()
-	gate, releaseGateReference := a.gateFor(sessionID)
-	defer releaseGateReference()
-	if err := gate.lock.LockContext(ctx); err != nil {
+	admission, err := a.admitCurrentTurn(ctx, sessionID)
+	if err != nil {
 		return err
 	}
-	var releaseGateOnce sync.Once
-	releaseGate := func() {
-		releaseGateOnce.Do(gate.lock.Unlock)
-	}
-	defer releaseGate()
-	if len(gate.blocks) != 0 {
-		return sessionStartsBlockedError(sessionID)
-	}
-
-	a.mu.Lock()
-	resource := a.resources[sessionID]
-	a.mu.Unlock()
+	defer admission.release()
+	gate, resource := admission.gate, admission.resource
 	if resource == nil {
 		return runtimeUnavailableErr(sessionID.String())
 	}
-	resource.turnMu.Lock()
-	releaseAdmission := sync.OnceFunc(func() {
-		resource.turnMu.Unlock()
-		releaseGate()
-	})
-	defer releaseAdmission()
+	releaseAdmission := admission.release
 
 	accepted := make(chan struct{})
 	var acceptedOnce sync.Once
-	admit := runtime.CommandAcceptance(func(commit func() (bool, error)) (bool, error) {
-		committed, err := accept(commit)
-		if committed {
-			acceptedOnce.Do(func() {
-				releaseAdmission()
-				close(accepted)
-			})
-		}
-		return committed, err
+	admit := admission.acceptance(accept, func() {
+		acceptedOnce.Do(func() { close(accepted) })
 	})
 
 	resource.mu.Lock()

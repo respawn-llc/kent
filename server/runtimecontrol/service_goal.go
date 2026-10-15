@@ -70,7 +70,7 @@ func (s *Service) SetResolvedGoal(
 		Actor:     session.GoalActor(strings.TrimSpace(req.Actor)),
 		StartLoop: req.ExecutionPolicy == runtimepb.GoalExecutionPolicy_GOAL_EXECUTION_POLICY_START_OR_CONTINUE,
 	}
-	result, operationErr := s.mutateGoal(ctx, sessionID, req.GetRunId(), req.GetStepId(), mutation)
+	result, operationErr := s.mutateGoal(ctx, sessionID, req.GetStepId(), mutation)
 	if operationErr != nil &&
 		(!goalResultAccepted(result) || errors.Is(operationErr, serverapi.ErrRuntimeUnavailable)) {
 		return serverapi.ResolvedGoalSetCommit{}, goalMutationError(operationErr)
@@ -115,7 +115,7 @@ func (s *Service) setGoalStatus(
 		Actor:     session.GoalActor(strings.TrimSpace(req.Actor)),
 		StartLoop: status == session.GoalStatusActive,
 	}
-	result, err := s.mutateGoal(ctx, sessionID, req.GetRunId(), req.GetStepId(), mutation)
+	result, err := s.mutateGoal(ctx, sessionID, req.GetStepId(), mutation)
 	if err != nil {
 		return nil, err
 	}
@@ -134,7 +134,7 @@ func (s *Service) ClearGoal(ctx context.Context, req *runtimepb.GoalClearRequest
 		kind:  goalMutationClear,
 		Actor: session.GoalActor(strings.TrimSpace(req.Actor)),
 	}
-	result, err := s.mutateGoal(ctx, sessionID, "", "", mutation)
+	result, err := s.mutateGoal(ctx, sessionID, "", mutation)
 	if err != nil {
 		return nil, err
 	}
@@ -160,30 +160,25 @@ type goalMutation struct {
 func (s *Service) mutateGoal(
 	ctx context.Context,
 	sessionID runtimeids.SessionID,
-	rawRunID string,
 	rawStepID string,
 	mutation goalMutation,
 ) (runtime.GoalCommandResult, error) {
 	if s == nil || s.authority == nil {
 		return runtime.GoalCommandResult{}, errors.New("session runtime authority is required")
 	}
-	runText, stepText := strings.TrimSpace(rawRunID), strings.TrimSpace(rawStepID)
-	if mutation.Actor == session.GoalActorAgent && stepText != "" {
-		if runText == "" {
+	stepText := strings.TrimSpace(rawStepID)
+	if mutation.Actor == session.GoalActorAgent {
+		if stepText == "" {
 			return runtime.GoalCommandResult{}, runtime.ErrAgentGoalStepInactive
-		}
-		runID, err := runtimeids.ParseRunID(runText)
-		if err != nil {
-			return runtime.GoalCommandResult{}, err
 		}
 		stepID, err := runtimeids.ParseStepID(stepText)
 		if err != nil {
 			return runtime.GoalCommandResult{}, err
 		}
-		result, err := s.applyExactAgentGoalMutation(ctx, sessionID, runID, stepID, mutation)
+		result, err := s.applyExactAgentGoalMutation(ctx, sessionID, stepID, mutation)
 		return result, goalMutationError(err)
 	}
-	if runText != "" || stepText != "" {
+	if stepText != "" {
 		return runtime.GoalCommandResult{}, errors.New("Goal execution identity requires an agent Step")
 	}
 	descriptor, err := session.NewOpenSessionDescriptor(sessionID)
@@ -247,14 +242,13 @@ func (s *Service) applyLiveGoalMutation(
 func (s *Service) applyExactAgentGoalMutation(
 	ctx context.Context,
 	sessionID runtimeids.SessionID,
-	runID runtimeids.RunID,
 	stepID runtimeids.StepID,
 	mutation goalMutation,
 ) (runtime.GoalCommandResult, error) {
 	var result runtime.GoalCommandResult
 	err := s.authority.WithCurrentRuntime(ctx, sessionID, func(_ context.Context, engine *runtime.Engine) error {
 		active := engine.ActiveRun()
-		if active == nil || active.RunID != runID.String() || active.StepID != stepID.String() {
+		if active == nil || active.StepID != stepID.String() {
 			return runtime.ErrAgentGoalStepInactive
 		}
 		var operation runtime.CurrentGoalOperation

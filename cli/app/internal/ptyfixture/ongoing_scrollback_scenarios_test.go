@@ -338,6 +338,13 @@ func runPTYFixtureScenarioWithInputPlan(t *testing.T, ctx context.Context, bin s
 	if err != nil {
 		t.Fatalf("run fixture: %v raw=%q", err, string(capture.Raw))
 	}
+	diagnostics, err := os.Stat(appfixture.ProcessDiagnosticLogPath(filepath.Join(root, "process.json")))
+	if err != nil {
+		t.Fatalf("stat fixture diagnostics: %v", err)
+	}
+	if diagnostics.Size() == 0 {
+		t.Fatal("fixture completed provider requests without retaining diagnostics")
+	}
 	return capture, observationsPath
 }
 

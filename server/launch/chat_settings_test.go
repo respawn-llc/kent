@@ -44,8 +44,47 @@ func TestChatAgentCatalogDistinguishesConnectionSets(t *testing.T) {
 	if _, present := catalog.Lookup("distinct"); !present {
 		t.Fatal("Agent with a distinct effective set was omitted")
 	}
-	if _, present := catalog.Lookup("equivalent"); present {
-		t.Fatal("equivalent Agent was not omitted")
+	if _, present := catalog.Lookup("equivalent"); !present {
+		t.Fatal("Agent with an equivalent effective set was omitted")
+	}
+}
+
+func TestSessionChatAgentCatalogPreservesWorkerMatchingHeadlessDefault(t *testing.T) {
+	app := loadLaunchConfig(t, t.TempDir(),
+		`connection = "work"`,
+		`model = "gpt-6-astra"`,
+		`[connections.work]`,
+		`protocol = "responses"`,
+		`endpoint = "http://127.0.0.1:1/v1"`,
+		`[subagents.default]`,
+		`model = "gpt-6-sol"`,
+		`[subagents.worker]`,
+		`model = "gpt-6-sol"`,
+	)
+	for _, headless := range []bool{false, true} {
+		meta := session.Meta{ConnectionID: textutil.Value(config.ConnectionID("work"))}
+		model := "gpt-6-astra"
+		if headless {
+			meta.Continuation = &session.ContinuationContext{AgentRole: textutil.Value(config.DefaultSubagentRole)}
+			model = "gpt-6-sol"
+		}
+		catalog, err := PrepareSessionChatAgentCatalog(app, meta)
+		if err != nil {
+			t.Fatal(err)
+		}
+		defaultCount := 0
+		for _, choice := range catalog.Choices() {
+			if choice.Role == config.DefaultSubagentRole {
+				defaultCount++
+				if choice.GetModel() != model {
+					t.Fatalf("headless %v: default model = %q, want %q", headless, choice.GetModel(), model)
+				}
+			}
+		}
+		worker, available := catalog.Lookup("worker")
+		if defaultCount != 1 || !available || worker.Choice.GetModel() != "gpt-6-sol" {
+			t.Fatalf("headless %v: default count = %d, worker = %+v", headless, defaultCount, worker)
+		}
 	}
 }
 
@@ -131,7 +170,7 @@ func TestSupportedChatThinkingValuesPreservesConfiguredUnknownModelValue(t *test
 	}
 }
 
-func TestPrepareChatAgentCatalogProjectsChoicesAndOmitsEquivalentAgents(t *testing.T) {
+func TestPrepareChatAgentCatalogProjectsChoicesAndPreservesNamedAgents(t *testing.T) {
 	settings := config.DefaultOnboardingSettings()
 	settings.Model = "gpt-6-sol"
 	settings.ThinkingLevel = "medium"
@@ -175,10 +214,10 @@ func TestPrepareChatAgentCatalogProjectsChoicesAndOmitsEquivalentAgents(t *testi
 		t.Fatalf("PrepareChatAgentCatalog: %v", err)
 	}
 	choices := catalog.Choices()
-	if len(choices) != 3 || choices[0].Role != "default" || choices[1].Role != "fast" || choices[2].Role != "worker" {
+	if len(choices) != 4 || choices[0].Role != "default" || choices[1].Role != "fast" || choices[2].Role != "equivalent" || choices[3].Role != "worker" {
 		t.Fatalf("choices = %+v", choices)
 	}
-	worker := choices[2]
+	worker := choices[3]
 	if worker.GetModel() != "worker-model" || worker.GetThinking() != "high" ||
 		!worker.CustomSystemPrompt || !worker.CustomCapabilities || worker.AgentCallable ||
 		!slices.Equal(worker.Tools, []string{"exec_command", "view_image"}) {

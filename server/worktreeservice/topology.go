@@ -2,12 +2,14 @@ package worktree
 
 import (
 	"context"
+	"database/sql"
 	"errors"
 	"fmt"
 	"path/filepath"
 	"strings"
 
 	"core/server/metadata"
+	"core/server/sessionstore"
 	worktreepb "core/shared/protoapi/gen/kent/api/worktree"
 	"core/shared/worktreecontract"
 )
@@ -96,6 +98,51 @@ func projectWorktreeList(entries []*worktreepb.TopologyEntry, target *worktreepb
 	return out, nil
 }
 
+func (s *Service) projectWorktreeList(ctx context.Context, entries []*worktreepb.TopologyEntry, target *worktreepb.SessionExecutionTarget) ([]*worktreepb.ListEntry, error) {
+	projected, err := projectWorktreeList(entries, target)
+	if err != nil {
+		return nil, err
+	}
+	if s.runtimeActivitySnapshotReader == nil {
+		return nil, errors.New("worktree Runtime activity snapshot reader is required")
+	}
+	activeSessions, err := s.runtimeActivitySnapshotReader.ActiveRuntimeActivitySnapshots(ctx)
+	if err != nil {
+		return nil, err
+	}
+	activeWorktrees := make(map[string]struct{}, len(activeSessions))
+	for _, snapshot := range activeSessions {
+		target, err := s.metadata.ResolveOptionalSessionExecutionTarget(ctx, snapshot.SessionID)
+		if errors.Is(err, session.ErrSessionNotFound) {
+			// Runtime activity and persisted Session targets are read independently.
+			continue
+		}
+		if err != nil {
+			return nil, err
+		}
+		if target == nil || target.GetWorktree() == nil {
+			continue
+		}
+		activeWorktrees[target.GetWorktree().GetId()] = struct{}{}
+	}
+	for _, entry := range projected {
+		worktreeID := topologyWorktreeID(entry.Topology)
+		if worktreeID == nil {
+			continue
+		}
+		taskCount, err := s.metadata.Queries().CountNonTerminalTasksByManagedWorktree(ctx, sql.NullString{
+			String: *worktreeID,
+			Valid:  true,
+		})
+		if err != nil {
+			return nil, err
+		}
+		_, hasActiveSession := activeWorktrees[*worktreeID]
+		entry.Projection.IsInUse = taskCount > 0 || hasActiveSession
+	}
+	return projected, nil
+}
+
 func projectListEntry(topology *worktreepb.TopologyEntry, selector string, isCurrent bool, sessionScoped bool) (*worktreepb.ListEntry, error) {
 	projection := &worktreepb.ListProjection{Selector: selector, IsCurrent: isCurrent}
 	var git *worktreepb.GitFacts
@@ -153,7 +200,7 @@ func (s *Service) ResolveWorktreeSelector(ctx context.Context, req *worktreepb.S
 	if err != nil {
 		return nil, err
 	}
-	projected, err := projectWorktreeList(resolution.entries, selected.target())
+	projected, err := s.projectWorktreeList(ctx, resolution.entries, selected.target())
 	if err != nil {
 		return nil, err
 	}

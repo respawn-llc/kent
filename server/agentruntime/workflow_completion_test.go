@@ -78,7 +78,6 @@ func applyWorkflowCompletionForTest(
 	}
 	return engine.ApplyWorkflowAgentCompletion(
 		req.Provenance.ScopeID,
-		req.Provenance.RunID,
 		req.Provenance.StepID,
 		func() (workflowruntime.CompletionResult, error) {
 			return result, nil
@@ -333,19 +332,14 @@ func bindExternalAgentCompletion(
 		if run == nil {
 			return errors.New("test Agent completion has no active Run")
 		}
-		runID, err := runtimeids.ParseRunID(run.RunID)
-		if err != nil {
-			return err
-		}
 		stepID, err := runtimeids.ParseStepID(run.StepID)
 		if err != nil {
 			return err
 		}
-		_, completionErr := engine.ApplyWorkflowAgentCompletion(scopeID, runID, stepID, func() (workflowruntime.CompletionResult, error) {
+		_, completionErr := engine.ApplyWorkflowAgentCompletion(scopeID, stepID, func() (workflowruntime.CompletionResult, error) {
 			return controller.acceptCompletionForTest(workflowruntime.AgentCompletionRequest{
 				Provenance: workflowruntime.AgentCompletionProvenance{
 					ScopeID: scopeID,
-					RunID:   runID,
 					StepID:  stepID,
 				},
 				SessionID: runtimeids.NewSessionID(),

@@ -20,6 +20,10 @@ type ProcessConfig struct {
 	ObservationPath string `json:"observation_path"`
 }
 
+func ProcessDiagnosticLogPath(configPath string) string {
+	return configPath + ".log"
+}
+
 func (config ProcessConfig) Validate() error {
 	var missing []string
 	if strings.TrimSpace(config.WorkspaceRoot) == "" {

@@ -154,8 +154,9 @@ func TestDormantWorkflowAssignmentPersistsThinkingMutation(t *testing.T) {
 		}); err != nil {
 			t.Fatal(err)
 		}
-		steer, err := SteerPersistedWorkflowAssignment(store, workflowAssignmentForCompactionTest(), PersistedWorkflowAssignmentContext{
-			ThinkingMutation: mutation,
+		steer, err := SteerPersistedWorkflowAssignment(t.Context(), store, workflowAssignmentForCompactionTest(), PersistedWorkflowAssignmentContext{
+			ThinkingMutation:              mutation,
+			ProjectWorkspaceContextReader: newRuntimeTestProjectWorkspaceContextReader(t, store),
 		})
 		if err != nil {
 			t.Fatal(err)
@@ -202,10 +203,12 @@ func TestDormantWorkflowAssignmentResumeUsesPersistedAssignmentIdentity(t *testi
 			before := workflowModeRecordCount(t, store)
 
 			steer, err := SteerPersistedWorkflowAssignmentForResume(
+				t.Context(),
 				store,
 				assignment,
 				PersistedWorkflowAssignmentContext{
-					Model: "workflow-thinking-model",
+					Model:                         "workflow-thinking-model",
+					ProjectWorkspaceContextReader: newRuntimeTestProjectWorkspaceContextReader(t, store),
 				},
 			)
 			if err != nil {

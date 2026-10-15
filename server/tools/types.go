@@ -15,7 +15,6 @@ type Call struct {
 	ID                        string
 	Name                      toolspec.ID
 	Input                     json.RawMessage
-	RunID                     string
 	StepID                    string
 	AskQuestionBatch          *AskQuestionBatchMetadata
 	OnAskQuestionBatchSkipped func(AskQuestionBatchMetadata)
@@ -29,7 +28,6 @@ const (
 
 type AskQuestionBatchMetadata struct {
 	Origin              AskQuestionOrigin
-	RunID               string
 	StepID              string
 	ToolCallID          string
 	BatchToolCallIDs    []string

@@ -778,6 +778,14 @@ func noticeRoleAndText(row *transcriptpb.NoticeRow, visibility transcriptpb.Entr
 		}
 		return role, clientui.SessionRebindCompactLabel
 	}
+	if row.MessageType != nil && *row.MessageType == transcriptpb.NoticeMessageType_NOTICE_MESSAGE_TYPE_WORKSPACES {
+		if mode == ModeDetailCollapsed {
+			return role, clientui.ProjectWorkspacesCompactLabel
+		}
+		if mode == ModeDetailExpanded && row.Diagnostic != nil {
+			return role, row.Diagnostic.Detail
+		}
+	}
 	cacheWarningText := cacheWarningNoticeText(row.CacheWarning)
 	if isError {
 		switch row.Reason {
@@ -914,7 +922,7 @@ func noticeStyleRole(row *transcriptpb.NoticeRow) StyleRole {
 		return StyleRoleWarning
 	case transcriptpb.NoticeMessageType_NOTICE_MESSAGE_TYPE_COMPACTION_SUMMARY, transcriptpb.NoticeMessageType_NOTICE_MESSAGE_TYPE_COMPACTION_PRESERVED_USER_MESSAGE:
 		return StyleRoleNoticeSecondary
-	case transcriptpb.NoticeMessageType_NOTICE_MESSAGE_TYPE_HANDOFF_FUTURE_MESSAGE, transcriptpb.NoticeMessageType_NOTICE_MESSAGE_TYPE_WORKTREE_MODE, transcriptpb.NoticeMessageType_NOTICE_MESSAGE_TYPE_SESSION_REBIND, transcriptpb.NoticeMessageType_NOTICE_MESSAGE_TYPE_SUBAGENTS:
+	case transcriptpb.NoticeMessageType_NOTICE_MESSAGE_TYPE_HANDOFF_FUTURE_MESSAGE, transcriptpb.NoticeMessageType_NOTICE_MESSAGE_TYPE_WORKTREE_MODE, transcriptpb.NoticeMessageType_NOTICE_MESSAGE_TYPE_SESSION_REBIND, transcriptpb.NoticeMessageType_NOTICE_MESSAGE_TYPE_SUBAGENTS, transcriptpb.NoticeMessageType_NOTICE_MESSAGE_TYPE_WORKSPACES:
 		return StyleRoleNotice
 	case transcriptpb.NoticeMessageType_NOTICE_MESSAGE_TYPE_GOAL, transcriptpb.NoticeMessageType_NOTICE_MESSAGE_TYPE_WORKFLOW_MODE:
 		return StyleRoleNoticePrimary
@@ -970,7 +978,7 @@ func noticeUsesMarkdown(row *transcriptpb.NoticeRow) bool {
 		return false
 	}
 	switch *row.MessageType {
-	case transcriptpb.NoticeMessageType_NOTICE_MESSAGE_TYPE_AGENTS_MD, transcriptpb.NoticeMessageType_NOTICE_MESSAGE_TYPE_SKILLS, transcriptpb.NoticeMessageType_NOTICE_MESSAGE_TYPE_SUBAGENTS, transcriptpb.NoticeMessageType_NOTICE_MESSAGE_TYPE_ENVIRONMENT, transcriptpb.NoticeMessageType_NOTICE_MESSAGE_TYPE_COMPACTION_SUMMARY, transcriptpb.NoticeMessageType_NOTICE_MESSAGE_TYPE_HEADLESS_MODE, transcriptpb.NoticeMessageType_NOTICE_MESSAGE_TYPE_HEADLESS_MODE_EXIT, transcriptpb.NoticeMessageType_NOTICE_MESSAGE_TYPE_WORKFLOW_MODE, transcriptpb.NoticeMessageType_NOTICE_MESSAGE_TYPE_ACTIVE_GOAL_CONTINUATION, transcriptpb.NoticeMessageType_NOTICE_MESSAGE_TYPE_AGENT_STEER:
+	case transcriptpb.NoticeMessageType_NOTICE_MESSAGE_TYPE_AGENTS_MD, transcriptpb.NoticeMessageType_NOTICE_MESSAGE_TYPE_SKILLS, transcriptpb.NoticeMessageType_NOTICE_MESSAGE_TYPE_SUBAGENTS, transcriptpb.NoticeMessageType_NOTICE_MESSAGE_TYPE_WORKSPACES, transcriptpb.NoticeMessageType_NOTICE_MESSAGE_TYPE_ENVIRONMENT, transcriptpb.NoticeMessageType_NOTICE_MESSAGE_TYPE_COMPACTION_SUMMARY, transcriptpb.NoticeMessageType_NOTICE_MESSAGE_TYPE_HEADLESS_MODE, transcriptpb.NoticeMessageType_NOTICE_MESSAGE_TYPE_HEADLESS_MODE_EXIT, transcriptpb.NoticeMessageType_NOTICE_MESSAGE_TYPE_WORKFLOW_MODE, transcriptpb.NoticeMessageType_NOTICE_MESSAGE_TYPE_ACTIVE_GOAL_CONTINUATION, transcriptpb.NoticeMessageType_NOTICE_MESSAGE_TYPE_AGENT_STEER:
 		return true
 	default:
 		return false

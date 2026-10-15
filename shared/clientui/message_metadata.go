@@ -32,6 +32,7 @@ const (
 	MessageTypeHeadlessModeExit               MessageType = "headless_mode_exit"
 	MessageTypeWorkflowMode                   MessageType = "workflow_mode"
 	MessageTypeWorkflowModeExit               MessageType = "workflow_mode_exit"
+	MessageTypeWorkspaces                     MessageType = "workspaces"
 	MessageTypeWorktreeMode                   MessageType = "worktree_mode"
 	MessageTypeWorktreeModeExit               MessageType = "worktree_mode_exit"
 	MessageTypeSessionRebind                  MessageType = "session_rebind"
@@ -41,5 +42,6 @@ const (
 )
 
 const GoalNudgeCompactLabel = "Goal nudge"
+const ProjectWorkspacesCompactLabel = "Project workspaces"
 const SessionRebindCompactLabel = "Session moved"
 const RunningShellsCompactLabel = "Running shells reminder"

@@ -5,6 +5,9 @@ import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/ui";
 
 import { TranscriptCopyAction } from "../transcriptRows/TranscriptCopyAction";
 
+const messageTime = new Intl.DateTimeFormat(undefined, { hour: "numeric", minute: "2-digit" });
+const messageDate = new Intl.DateTimeFormat(undefined, { dateStyle: "full", timeStyle: "medium" });
+
 export function MessageFooter({
   text,
   committedAt,
@@ -23,12 +26,10 @@ export function MessageFooter({
           <Tooltip>
             <TooltipTrigger asChild>
               <time dateTime={time.toISOString()} tabIndex={0}>
-                {time.toLocaleTimeString(undefined, { hour: "numeric", minute: "2-digit" })}
+                {messageTime.format(time)}
               </time>
             </TooltipTrigger>
-            <TooltipContent>
-              {time.toLocaleString(undefined, { dateStyle: "full", timeStyle: "medium" })}
-            </TooltipContent>
+            <TooltipContent>{messageDate.format(time)}</TooltipContent>
           </Tooltip>
         </TooltipProvider>
       )}

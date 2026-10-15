@@ -29,7 +29,7 @@ async function layoutSettled() {
   await vi.advanceTimersByTimeAsync(32);
 }
 
-it.each([300, 900])("caps a tall-chat handoff at 350ms with a %ims theme duration", async (duration) => {
+it.each([50, 900])("keeps a tall-chat flight at 350ms with a %ims theme duration", async (duration) => {
   document.documentElement.style.setProperty("--motion-text-handoff", `${String(duration)}ms`);
   const motion = new SharedTextMotion();
   const source = textElement(window.innerHeight - 60);
@@ -38,7 +38,9 @@ it.each([300, 900])("caps a tall-chat handoff at 350ms with a %ims theme duratio
   source.remove();
   expect(motion.arrive(["first"], target)).toBe(true);
   expect(target).not.toBeVisible();
-  await vi.advanceTimersByTimeAsync(380);
+  await vi.advanceTimersByTimeAsync(250);
+  expect(target).not.toBeVisible();
+  await vi.advanceTimersByTimeAsync(150);
   expect(target).toBeVisible();
   expect(document.body.children).toHaveLength(1);
   motion.dispose();
@@ -160,6 +162,143 @@ it("expires composer snapshots and bounds the retained source count", () => {
   vi.advanceTimersByTime(15_001);
   expect(motion.arrive(["expired"], target)).toBe(false);
   motion.dispose();
+});
+
+it("finishes a single flight at 350ms even when frames are sparse and its destination moves", async () => {
+  let now = Math.ceil(performance.now());
+  const clock = vi.spyOn(performance, "now").mockImplementation(() => now);
+  const motion = new SharedTextMotion();
+  try {
+    const composer = textElement(600);
+    const target = textElement(20);
+    motion.capture("input", composer);
+    composer.remove();
+    expect(motion.arrive(["input"], target)).toBe(true);
+    await layoutSettled();
+    now += 349;
+    vi.spyOn(target, "getBoundingClientRect").mockReturnValue(new DOMRect(20, 200, 240, 30));
+    await layoutSettled();
+    expect(target).not.toBeVisible();
+    now += 1;
+    await layoutSettled();
+    expect(target).toBeVisible();
+    expect(document.body.children).toHaveLength(1);
+  } finally {
+    motion.dispose();
+    clock.mockRestore();
+  }
+});
+
+it("starts a new delivery flight after text has settled in pending work", async () => {
+  let now = Math.ceil(performance.now());
+  const clock = vi.spyOn(performance, "now").mockImplementation(() => now);
+  const motion = new SharedTextMotion();
+  try {
+    const composer = textElement(600);
+    const pending = textElement(500);
+    motion.capture("input", composer);
+    composer.remove();
+    const unregister = motion.register("input", pending);
+    await layoutSettled();
+    now += 400;
+    await layoutSettled();
+    expect(pending).toBeVisible();
+
+    const bubble = textElement(20);
+    expect(motion.arrive(["input"], bubble)).toBe(true);
+    expect(bubble).not.toBeVisible();
+    now += 350;
+    await layoutSettled();
+    expect(bubble).toBeVisible();
+    unregister();
+  } finally {
+    motion.dispose();
+    clock.mockRestore();
+  }
+});
+
+it("keeps an interrupted pending flight within its original 350ms deadline", async () => {
+  let now = Math.ceil(performance.now());
+  const clock = vi.spyOn(performance, "now").mockImplementation(() => now);
+  const bounds = vi
+    .spyOn(HTMLElement.prototype, "getBoundingClientRect")
+    .mockReturnValue(new DOMRect(20, 100, 240, 30));
+  const motion = new SharedTextMotion();
+  try {
+    const composer = textElement(600);
+    const pending = textElement(500);
+    motion.capture("input", composer);
+    composer.remove();
+    const unregister = motion.register("input", pending);
+    await layoutSettled();
+    now += 100;
+    await layoutSettled();
+    const bubble = textElement(20);
+    expect(motion.arrive(["input"], bubble)).toBe(true);
+    pending.remove();
+    unregister();
+    expect(bubble).not.toBeVisible();
+    now += 249;
+    await layoutSettled();
+    expect(bubble).not.toBeVisible();
+    now += 1;
+    await layoutSettled();
+    expect(bubble).toBeVisible();
+    expect(document.body.children).toHaveLength(1);
+  } finally {
+    motion.dispose();
+    bounds.mockRestore();
+    clock.mockRestore();
+  }
+});
+
+it("continues a rich-text flight through pending removal under deep CSS ancestry", async () => {
+  let now = Math.ceil(performance.now());
+  const clock = vi.spyOn(performance, "now").mockImplementation(() => now);
+  const bounds = vi
+    .spyOn(HTMLElement.prototype, "getBoundingClientRect")
+    .mockReturnValue(new DOMRect(20, 100, 240, 30));
+  const motion = new SharedTextMotion();
+  try {
+    const composer = textElement(600);
+    const pending = textElement(500);
+    for (let index = 0; index < 100; index++) {
+      const part = document.createElement("span");
+      part.textContent = " rich text";
+      pending.append(part);
+    }
+    let context = pending;
+    for (let index = 0; index < 24; index++) {
+      const ancestor = document.createElement("div");
+      context.replaceWith(ancestor);
+      ancestor.append(context);
+      context = ancestor;
+    }
+    pending.before(composer);
+    motion.capture("input", composer);
+    composer.remove();
+    const unregister = motion.register("input", pending);
+    await layoutSettled();
+    expect(pending).not.toBeVisible();
+    now += 120;
+    await layoutSettled();
+    expect(pending).not.toBeVisible();
+    unregister();
+    context.remove();
+    const bubble = textElement(20);
+    expect(motion.arrive(["input"], bubble)).toBe(true);
+    expect(bubble).not.toBeVisible();
+    now += 229;
+    await layoutSettled();
+    expect(bubble).not.toBeVisible();
+    now += 1;
+    await layoutSettled();
+    expect(bubble).toBeVisible();
+  } finally {
+    motion.dispose();
+    bounds.mockRestore();
+    clock.mockRestore();
+  }
 });
 
 it("consumes only the supplied source identity, once, and forgets rejected sources", () => {

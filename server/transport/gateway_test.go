@@ -172,7 +172,8 @@ func (s gatewayChatAuthorizationService) Steer(
 		Session: &chatpb.ExistingSessionTarget{SessionId: s.sessionID},
 		Outcome: &chatpb.InputMutationSuccess_Accepted{
 			Accepted: &chatpb.InputAccepted{
-				QueueItem: &chatpb.QueueItemIdentity{Id: runtimeids.NewQueueItemID().String()},
+				QueueItem:   &chatpb.QueueItemIdentity{Id: runtimeids.NewQueueItemID().String()},
+				Disposition: chatpb.InputAdmissionDisposition_INPUT_ADMISSION_DISPOSITION_STARTED_TURN,
 			},
 		},
 	}, nil

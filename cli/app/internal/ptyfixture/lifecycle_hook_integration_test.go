@@ -119,6 +119,7 @@ func TestLifecycleHooksRemotePTYRunsInControllingClient(t *testing.T) {
 		t.Fatalf("write remote lifecycle script: %v", err)
 	}
 	serverConfigPath := filepath.Join(root, "server-process.json")
+	reportFixtureDiagnosticsOnFailure(t, serverConfigPath)
 	if err := appfixture.WriteLifecycleServerProcessConfig(serverConfigPath, appfixture.LifecycleServerProcessConfig{
 		WorkspaceRoot:   workspace,
 		PersistenceRoot: persistenceRoot,
@@ -264,6 +265,7 @@ func lifecyclePTYProcessEnv(t *testing.T, root string, config appfixture.Lifecyc
 		testsetup.PrepareMetadataPersistenceRoot(t, config.PersistenceRoot)
 	}
 	path := filepath.Join(root, "lifecycle-process.json")
+	reportFixtureDiagnosticsOnFailure(t, path)
 	if err := appfixture.WriteLifecycleProcessConfig(path, config); err != nil {
 		t.Fatalf("write lifecycle PTY process config: %v", err)
 	}

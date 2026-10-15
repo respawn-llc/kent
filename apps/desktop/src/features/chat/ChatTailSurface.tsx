@@ -3,7 +3,11 @@ import { useTranslation } from "react-i18next";
 import { ArrowDown, Loader2 } from "lucide-react";
 
 import { errorMessage } from "@/api";
-import { useChatRuntimeOwner, useChatRuntimeSnapshot, useStatusController } from "@/app-facade";
+import {
+  useOptionalChatRuntimeOwner,
+  useOptionalChatRuntimeSnapshot,
+  useStatusController,
+} from "@/app-facade";
 import { TranscriptWindowView, type TranscriptWindowViewProps } from "@/shared/transcript-window";
 import { ErrorState, IconTooltipButton, InfiniteListBoundary, LoadingState, useOpacityExit } from "@/ui";
 
@@ -16,15 +20,20 @@ export function ChatTranscriptTail({
   estimateSize,
   openingVisible = true,
   bottomInset,
-}: Pick<TranscriptWindowViewProps, "slots" | "estimateSize" | "bottomInset"> &
+  localMessages,
+}: Pick<TranscriptWindowViewProps, "slots" | "estimateSize" | "bottomInset" | "localMessages"> &
   Readonly<{ openingVisible?: boolean }>) {
   const { t } = useTranslation();
-  const owner = useChatRuntimeOwner();
-  const { transcript, transcriptPresentationUpdate, jumpPending, observation } = useChatRuntimeSnapshot();
+  const owner = useOptionalChatRuntimeOwner();
+  const snapshot = useOptionalChatRuntimeSnapshot();
+  const transcript = snapshot?.transcript ?? null;
+  const jumpPending = snapshot?.jumpPending ?? false;
+  const { failure, error, showOpening } = useTranscriptFeedback(openingVisible, localMessages);
   const status = useStatusController();
   const motion = useChatMessageMotion();
   const [scrollRequest, setScrollRequest] = useState<symbol | null>(null);
   const jump = async () => {
+    if (owner === null) return;
     motion.dispose();
     const outcome = await owner.transcript.jumpToLatest();
     switch (outcome.kind) {
@@ -43,31 +52,7 @@ export function ChatTranscriptTail({
         break;
     }
   };
-  if (transcript.opening.kind === "disposed") return null;
-  const failure =
-    transcript.opening.kind === "error"
-      ? transcript.opening.error
-      : observation.kind === "error"
-        ? observation.error
-        : null;
-  const error =
-    failure === null ? null : (
-      <ErrorState
-        fullPage={transcript.opening.kind !== "ready"}
-        title={t("chat.tail.failed")}
-        body={chatOperationFailureMessage(t, failure, "opening")}
-        details={errorMessage(failure)}
-        retryLabel={t("app.retry")}
-        onRetry={() => {
-          if (transcript.opening.kind === "error") owner.transcript.dispatch({ kind: "opening-retry" });
-          if (observation.kind === "error") owner.retryTranscriptObservation();
-        }}
-      />
-    );
-  if (transcript.opening.kind !== "ready")
-    return (
-      error ?? (openingVisible ? <LoadingState title={t("chat.tail.loading")} appearanceDelayMs={0} /> : null)
-    );
+  if (transcript?.opening.kind === "disposed") return null;
   return (
     <div
       className="chat-transcript flex h-full min-h-0 flex-col"
@@ -85,7 +70,8 @@ export function ChatTranscriptTail({
           motion.dispose();
       }}
     >
-      <div className="min-h-0 flex-1">
+      <div className="relative min-h-0 flex-1">
+        {showOpening && <div className="absolute inset-0">{error}</div>}
         <TranscriptWindowView
           tailFailure={
             failure === null ? undefined : (
@@ -96,7 +82,7 @@ export function ChatTranscriptTail({
                   message: errorMessage(failure),
                   retryLabel: t("app.retry"),
                   onRetry: () => {
-                    owner.retryTranscriptObservation();
+                    owner?.retryTranscriptObservation();
                   },
                 }}
               />
@@ -104,7 +90,8 @@ export function ChatTranscriptTail({
           }
           bottomInset={bottomInset}
           snapshot={transcript}
-          presentationUpdate={transcriptPresentationUpdate}
+          presentationUpdate={snapshot?.transcriptPresentationUpdate}
+          localMessages={localMessages}
           scrollRequest={scrollRequest}
           slots={slots}
           estimateSize={estimateSize}
@@ -112,22 +99,74 @@ export function ChatTranscriptTail({
           retryLabel={t("app.retry")}
           boundaryErrorMessage={errorMessage}
           onInput={(input) => {
+            if (owner === null) throw new Error("Transcript pagination requires a Session.");
             owner.transcript.dispatch(input);
           }}
-          overlay={(following) => (
-            <JumpToLatest
-              bottomInset={bottomInset ?? 0}
-              visible={!following || jumpPending}
-              pending={jumpPending}
-              onClick={() => {
-                void jump();
-              }}
-            />
-          )}
+          overlay={(following) =>
+            owner === null ? null : (
+              <JumpToLatest
+                bottomInset={bottomInset ?? 0}
+                visible={!following || jumpPending}
+                pending={jumpPending}
+                onClick={() => {
+                  void jump();
+                }}
+              />
+            )
+          }
         />
       </div>
     </div>
   );
+}
+
+function useTranscriptFeedback(
+  openingVisible: boolean,
+  localMessages: TranscriptWindowViewProps["localMessages"],
+) {
+  const { t } = useTranslation();
+  const owner = useOptionalChatRuntimeOwner();
+  const snapshot = useOptionalChatRuntimeSnapshot();
+  const { transcript, observation } = feedbackSources(snapshot);
+  const retry = () => {
+    if (transcript?.opening.kind === "error") owner?.transcript.dispatch({ kind: "opening-retry" });
+    if (observation?.kind === "error") owner?.retryTranscriptObservation();
+  };
+  const failure =
+    transcript?.opening.kind === "error"
+      ? transcript.opening.error
+      : observation?.kind === "error"
+        ? observation.error
+        : null;
+  const error =
+    failure === null ? null : (
+      <ErrorState
+        fullPage={transcript?.opening.kind !== "ready"}
+        title={t("chat.tail.failed")}
+        body={chatOperationFailureMessage(t, failure, "opening")}
+        details={errorMessage(failure)}
+        retryLabel={t("app.retry")}
+        onRetry={retry}
+      />
+    );
+  return {
+    failure,
+    error:
+      error ??
+      (openingVisible ? <LoadingState title={t("chat.tail.loading")} appearanceDelayMs={0} /> : null),
+    showOpening: openingNeedsFeedback(transcript, localMessages),
+  };
+}
+
+function feedbackSources(snapshot: ReturnType<typeof useOptionalChatRuntimeSnapshot>) {
+  return { transcript: snapshot?.transcript ?? null, observation: snapshot?.observation ?? null };
+}
+
+function openingNeedsFeedback(
+  transcript: TranscriptWindowViewProps["snapshot"],
+  localMessages: TranscriptWindowViewProps["localMessages"],
+) {
+  return transcript !== null && transcript.opening.kind !== "ready" && (localMessages?.length ?? 0) === 0;
 }
 
 function JumpToLatest({

@@ -422,7 +422,6 @@ func TestUnstructuredWorkflowCompletionRecordsParsedRequest(t *testing.T) {
 	if request.TransitionID != "done" ||
 		request.OutputValues["summary"] != "done" ||
 		request.Provenance.ScopeID != scopeID ||
-		request.Provenance.RunID.IsZero() ||
 		request.Provenance.StepID.IsZero() {
 		t.Fatalf("unstructured workflow completion request = %+v", request)
 	}

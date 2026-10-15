@@ -121,11 +121,12 @@ func (t *HTTPTransport) Generate(ctx context.Context, request ResponsesRequest, 
 	var rawResp *http.Response
 	reqOpts = append(reqOpts, option.WithResponseInto(&rawResp))
 
+	requestEvidence := t.providerUsageRequestEvidence(request, preparation, payload)
+	attempt := startProviderAttempt(ctx, t.ConnectionID, request, preparation, requestEvidence.RequestedServiceTier, providerAttemptGenerate)
 	stream := service.NewStreaming(ctx, payload, reqOpts...)
 	defer func() { _ = stream.Close() }()
 
 	turnStateObserver := codexTurnStateObserver(preparation.projection, request.CodexDispatch)
-	requestEvidence := t.providerUsageRequestEvidence(request, preparation, payload)
 	return consumeResponsesStream(
 		ctx,
 		stream,
@@ -135,6 +136,7 @@ func (t *HTTPTransport) Generate(ctx context.Context, request ResponsesRequest, 
 		windowTokens,
 		callbacks,
 		requestEvidence,
+		attempt,
 	)
 }
 
@@ -147,9 +149,12 @@ func consumeResponsesStream(
 	windowTokens int,
 	callbacks StreamCallbacks,
 	requestEvidence modelcontract.ProviderUsageEvidence,
-) (ResponsesResponse, error) {
+	attempt *providerAttemptDiagnostic,
+) (result ResponsesResponse, err error) {
+	defer func() { attempt.finish(ctx, rawResp, err) }()
 	providerID := variant.ProviderID
 	accumulator := newResponseStreamAccumulator(callbacks, windowTokens, variant.ResponsesPolicy)
+	accumulator.attempt = attempt
 	headersObserved := false
 	observeCodexTurnStateResponseHeader(dispatch, rawResp, &headersObserved)
 	for stream.Next() {
@@ -384,7 +389,7 @@ func (t *HTTPTransport) prepareDispatch(
 	}, nil
 }
 
-func (t *HTTPTransport) compactResponsesTriggerV2(ctx context.Context, request ResponsesRequest, authHeader string, mode OpenAIAuthMode, variant ProviderVariantContract, providerCaps ProviderCapabilities, windowTokens int, projection *codexDispatchProjection) (ResponsesCompactionResponse, error) {
+func (t *HTTPTransport) compactResponsesTriggerV2(ctx context.Context, request ResponsesRequest, authHeader string, mode OpenAIAuthMode, variant ProviderVariantContract, providerCaps ProviderCapabilities, windowTokens int, projection *codexDispatchProjection) (result ResponsesCompactionResponse, err error) {
 	payload, err := t.requestPayloadBuilder(providerCaps, variant.ResponsesPolicy).BuildCompactV2(request, mode)
 	if err != nil {
 		return ResponsesCompactionResponse{}, err
@@ -402,17 +407,22 @@ func (t *HTTPTransport) compactResponsesTriggerV2(ctx context.Context, request R
 	reqOpts = append(reqOpts, option.WithResponseInto(&rawResp))
 	watchdog := newStreamIdleWatchdog(ctx, t.Client.Timeout)
 	defer watchdog.stop()
-	stream := service.NewStreaming(watchdog.ctx, payload, reqOpts...)
-	defer func() { _ = stream.Close() }()
-
-	accumulator := newResponseStreamAccumulator(StreamCallbacks{}, windowTokens, variant.ResponsesPolicy)
-	turnStateObserver := codexTurnStateObserver(projection, request.CodexDispatch)
-	headersObserved := false
 	requestEvidence := t.providerUsageRequestEvidence(
 		request,
 		responsesDispatchPreparation{mode: mode, variant: variant, providerCaps: providerCaps},
 		payload,
 	)
+	attempt := startProviderAttempt(ctx, t.ConnectionID, request, responsesDispatchPreparation{
+		mode: mode, variant: variant, projection: projection,
+	}, requestEvidence.RequestedServiceTier, providerAttemptCompact)
+	defer func() { attempt.finish(ctx, rawResp, err) }()
+	stream := service.NewStreaming(watchdog.ctx, payload, reqOpts...)
+	defer func() { _ = stream.Close() }()
+
+	accumulator := newResponseStreamAccumulator(StreamCallbacks{}, windowTokens, variant.ResponsesPolicy)
+	accumulator.attempt = attempt
+	turnStateObserver := codexTurnStateObserver(projection, request.CodexDispatch)
+	headersObserved := false
 	observeCodexTurnStateResponseHeader(turnStateObserver, rawResp, &headersObserved)
 	for stream.Next() {
 		observeCodexTurnStateResponseHeader(turnStateObserver, rawResp, &headersObserved)

@@ -88,11 +88,33 @@ func testSupervisorFeedbackAfterSpeculativeCompaction(t *testing.T, compactionEr
 		done <- err
 	}()
 	original := next(main)
+	active := engine.ActiveRun()
+	if active == nil {
+		t.Fatal("main execution was not active at dispatch")
+	}
+	executionStepID := active.StepID
+	if got := codexTurnIDForDispatch(t, original.request.CodexDispatch); got != executionStepID {
+		t.Fatalf("main dispatch identity = %q, want active Step %q", got, executionStepID)
+	}
 	answer := final("completed uncompacted answer")
 	answer.Usage.ContextUsage = &llm.ContextUsage{Tokens: 176_000, MeasurementPoint: llm.ContextMeasurementCompletedResponse}
 	original.reply <- reviewerCompactionReply{response: answer}
 	review := next(reviewer)
+	if got := codexTurnIDForDispatch(t, review.request.CodexDispatch); got != executionStepID {
+		t.Fatalf("Reviewer dispatch identity = %q, want enclosing Step %q", got, executionStepID)
+	}
 	compaction := next(main)
+	activeCompaction := engine.ActiveRun()
+	if activeCompaction == nil || activeCompaction.ActiveKind != ActiveKindCompaction {
+		t.Fatal("standalone eager compaction was not the active execution at dispatch")
+	}
+	compactionStepID := activeCompaction.StepID
+	if compactionStepID == executionStepID {
+		t.Fatal("standalone eager compaction reused the completed execution identity")
+	}
+	if got := codexTurnIDForDispatch(t, compaction.request.CodexDispatch); got != compactionStepID {
+		t.Fatalf("standalone eager compaction dispatch identity = %q, want its active Step %q", got, compactionStepID)
+	}
 	if err := <-done; err != nil {
 		t.Fatalf("completed answer: %v", err)
 	}
@@ -124,6 +146,17 @@ func testSupervisorFeedbackAfterSpeculativeCompaction(t *testing.T, compactionEr
 	summary := "compacted completed task"
 	compaction.reply <- reviewerCompactionReply{response: final(summary), err: compactionErr}
 	followup := next(main)
+	active = engine.ActiveRun()
+	if active == nil {
+		t.Fatal("follow-up execution was not active at dispatch")
+	}
+	followupStepID := active.StepID
+	if followupStepID == executionStepID {
+		t.Fatal("follow-up execution reused the completed Step identity")
+	}
+	if got := codexTurnIDForDispatch(t, followup.request.CodexDispatch); got != followupStepID {
+		t.Fatalf("follow-up dispatch identity = %q, want active Step %q", got, followupStepID)
+	}
 	wantContext := summary
 	if compactionErr != nil {
 		wantContext = *answer.Assistant.Content
@@ -139,6 +172,36 @@ func testSupervisorFeedbackAfterSpeculativeCompaction(t *testing.T, compactionEr
 	followup.reply <- reviewerCompactionReply{response: final("feedback addressed")}
 	if err := engine.WaitForScheduledQueuedUserWork(ctx); err != nil {
 		t.Fatalf("process Supervisor feedback: %v", err)
+	}
+	waitEngineLifecycleTasks(t, engine)
+
+	nextDone := make(chan error, 1)
+	go func() {
+		_, err := engine.SubmitUserMessage(ctx, "subsequent input")
+		nextDone <- err
+	}()
+	nextExecution := next(main)
+	active = engine.ActiveRun()
+	if active == nil {
+		t.Fatal("subsequent execution was not active at dispatch")
+	}
+	nextStepID := active.StepID
+	if nextStepID == followupStepID {
+		t.Fatal("subsequent execution reused the completed Step identity")
+	}
+	if got := codexTurnIDForDispatch(t, nextExecution.request.CodexDispatch); got != nextStepID {
+		t.Fatalf("subsequent dispatch identity = %q, want active Step %q", got, nextStepID)
+	}
+	nextAnswer := final("subsequent answer")
+	nextAnswer.Usage.ContextUsage = &llm.ContextUsage{Tokens: 1_000, MeasurementPoint: llm.ContextMeasurementCompletedResponse}
+	nextExecution.reply <- reviewerCompactionReply{response: nextAnswer}
+	nextReview := next(reviewer)
+	if got := codexTurnIDForDispatch(t, nextReview.request.CodexDispatch); got != nextStepID {
+		t.Fatalf("subsequent Reviewer dispatch identity = %q, want enclosing Step %q", got, nextStepID)
+	}
+	nextReview.reply <- reviewerCompactionReply{response: final(`{"suggestions":[]}`)}
+	if err := <-nextDone; err != nil {
+		t.Fatalf("subsequent execution: %v", err)
 	}
 	waitEngineLifecycleTasks(t, engine)
 	select {

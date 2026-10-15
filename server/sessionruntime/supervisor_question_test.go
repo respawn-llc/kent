@@ -96,9 +96,10 @@ func TestSupervisorQuestionAfterOriginalExecutionRetires(t *testing.T) {
 	}
 	feed := make(authorityPromptFeed, 4)
 	authority := NewAuthority(AuthorityOptions{
-		PersistenceRoot: fixture.config.PersistenceRoot,
-		StoreOptions:    fixture.metadata.AuthoritativeSessionStoreOptions(),
-		PromptFeed:      feed,
+		PersistenceRoot:               fixture.config.PersistenceRoot,
+		ProjectWorkspaceContextReader: fixture.metadata,
+		StoreOptions:                  fixture.metadata.AuthoritativeSessionStoreOptions(),
+		PromptFeed:                    feed,
 	})
 	var engine *runtime.Engine
 	t.Cleanup(func() {

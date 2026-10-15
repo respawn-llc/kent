@@ -204,7 +204,8 @@ func chatSteerSuccessResult(
 	if accepted {
 		success.Outcome = &chatpb.InputMutationSuccess_Accepted{
 			Accepted: &chatpb.InputAccepted{
-				QueueItem: &chatpb.QueueItemIdentity{Id: queueItemID},
+				QueueItem:   &chatpb.QueueItemIdentity{Id: queueItemID},
+				Disposition: chatpb.InputAdmissionDisposition_INPUT_ADMISSION_DISPOSITION_STARTED_TURN,
 			},
 		}
 	} else {

@@ -77,16 +77,16 @@ func (e *Engine) buildReviewerDispatchRequest(
 	if err != nil {
 		return llm.Request{}, err
 	}
-	runID := activeRunIDForStep(e, stepID)
-	if runID == "" {
+	active := e.ActiveRun()
+	if active == nil || active.StepID != stepID {
 		return llm.Request{}, fmt.Errorf(
-			"%w: enclosing Agent Turn Run identity is required for Reviewer dispatch",
+			"%w: enclosing Agent Turn Step identity is required for Reviewer dispatch",
 			llm.ErrInvalidRequest,
 		)
 	}
 	factory, err := newDispatchRequestFactory(dispatchRequestIdentity{
 		SessionID:            reviewerSessionID(e.store.Meta().SessionID),
-		RunID:                runID,
+		StepID:               active.StepID,
 		CompactionGeneration: e.compactionRuntimeState().Count(),
 		RequestKind:          llm.CodexRequestKindTurn.Optional(),
 	})

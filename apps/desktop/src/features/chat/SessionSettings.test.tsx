@@ -178,8 +178,7 @@ it.each(["subscription", "api_key", "no_auth"] as const)(
     render(<SessionSettingsChipHost />, {
       wrapper: ({ children }) => <TestAppProviders services={services}>{children}</TestAppProviders>,
     });
-    const user = userEvent.setup({ delay: null });
-    await user.click(await screen.findByRole("button", { name: appI18n.t("chatSettings.open") }));
+    fireEvent.mouseEnter(await screen.findByRole("button", { name: appI18n.t("chatSettings.open") }));
     expect(
       await screen.findByText(
         appI18n.t("chatSettings.sessionConnection", {
@@ -197,9 +196,7 @@ it("omits the Session Connection row when the server does not project it", async
   render(<SessionSettingsChipHost />, {
     wrapper: ({ children }) => <TestAppProviders services={services}>{children}</TestAppProviders>,
   });
-  await userEvent
-    .setup({ delay: null })
-    .click(await screen.findByRole("button", { name: appI18n.t("chatSettings.open") }));
+  fireEvent.mouseEnter(await screen.findByRole("button", { name: appI18n.t("chatSettings.open") }));
   expect(
     screen.queryByText(
       appI18n.t("chatSettings.sessionConnection", {
@@ -318,13 +315,13 @@ it.each([
     ...initialRead,
     settings: { ...settings, autoCompaction },
   });
-  const user = userEvent.setup({ delay: null });
+  const user = userEvent.setup({ delay: null, skipHover: true });
   render(
     <TestAppProviders services={services}>
       <SessionSettingsChipHost />
     </TestAppProviders>,
   );
-  await user.click(await screen.findByRole("button", { name: appI18n.t("chatSettings.open") }));
+  await user.hover(await screen.findByRole("button", { name: appI18n.t("chatSettings.open") }));
   const control = within(screen.getByRole("dialog")).getByRole("switch", {
     name: appI18n.t("chatSettings.autoCompaction"),
   });
@@ -387,13 +384,13 @@ it("omits Thinking when the Agent offers only one level", async () => {
   const mutate = vi
     .spyOn(services.api.chat, "mutateSettings")
     .mockResolvedValue(response(singleValueThinking));
-  const user = userEvent.setup({ delay: null });
+  const user = userEvent.setup({ delay: null, skipHover: true });
   render(
     <TestAppProviders services={services}>
       <SessionSettingsChipHost />
     </TestAppProviders>,
   );
-  await user.click(await screen.findByRole("button", { name: appI18n.t("chatSettings.open") }));
+  await user.hover(await screen.findByRole("button", { name: appI18n.t("chatSettings.open") }));
   const popover = screen.getByRole("dialog");
   expect(within(popover).queryByRole("slider")).not.toBeInTheDocument();
   expect(within(popover).queryByText(appI18n.t("chatSettings.thinking"))).not.toBeInTheDocument();

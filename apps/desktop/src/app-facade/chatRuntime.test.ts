@@ -39,7 +39,6 @@ describe("Chat Main View admission", () => {
     const process = {
       ActivityID: "activity-1",
       ProcessID: "process-1",
-      OwnerRunID: "run-1",
       OwnerStepID: "step-1",
       Lifecycle: "backgrounded" as const,
       Command: "sleep 10",

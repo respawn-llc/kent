@@ -46,7 +46,6 @@ type exclusiveRunState struct {
 	mode        RunMode
 	activeKind  ActiveKind
 	cancel      context.CancelFunc
-	runID       string
 	stepID      string
 	startedAt   time.Time
 	closing     bool
@@ -173,7 +172,6 @@ func (s *defaultExclusiveStepLifecycle) run(ctx context.Context, options exclusi
 			mode := runModeFromActiveKind(snapshot.ActiveKind)
 			_ = s.engine.steer(stepID, steerEventIntent(Event{Kind: EventRunStateChanged, StepID: exactStepIDPointer(stepID), RunState: &RunState{
 				Lifecycle:  RunningRunLifecycle(mode),
-				RunID:      snapshot.RunID,
 				ActiveKind: snapshot.ActiveKind,
 				Status:     snapshot.Status,
 				StartedAt:  snapshot.StartedAt,
@@ -277,7 +275,6 @@ func (s *defaultExclusiveStepLifecycle) publishTerminalStep(
 		if snapshot != nil {
 			mode := runModeFromActiveKind(snapshot.ActiveKind)
 			state.Lifecycle = FinishedRunLifecycle(mode)
-			state.RunID = snapshot.RunID
 			state.ActiveKind = snapshot.ActiveKind
 			state.Status = snapshot.Status
 			state.StartedAt = snapshot.StartedAt
@@ -603,7 +600,6 @@ func (kind exclusiveStepReservationKind) valid() bool {
 func (s *defaultExclusiveStepLifecycle) activateLocked(ctx context.Context, options exclusiveStepOptions) (context.Context, string) {
 	stepCtx, cancel := context.WithCancel(ctx)
 	s.runSeq++
-	runID := uuid.NewString()
 	stepID := uuid.NewString()
 	startedAt := time.Now().UTC()
 	s.active = &exclusiveRunState{
@@ -611,7 +607,6 @@ func (s *defaultExclusiveStepLifecycle) activateLocked(ctx context.Context, opti
 		mode:        runModeFromActiveKind(options.ActiveKind),
 		activeKind:  options.ActiveKind,
 		cancel:      cancel,
-		runID:       runID,
 		stepID:      stepID,
 		startedAt:   startedAt,
 		reservation: options.Reservation,
@@ -629,7 +624,6 @@ func (s *defaultExclusiveStepLifecycle) publishStepBegan(options exclusiveStepOp
 				if finished != nil {
 					mode := runModeFromActiveKind(finished.ActiveKind)
 					state.Lifecycle = FinishedRunLifecycle(mode)
-					state.RunID = finished.RunID
 					state.ActiveKind = finished.ActiveKind
 					state.Status = finished.Status
 					state.StartedAt = finished.StartedAt
@@ -891,11 +885,10 @@ func (s *defaultExclusiveStepLifecycle) snapshotLocked() *RunSnapshot {
 	if active == nil {
 		active = s.suspended
 	}
-	if active == nil || active.runID == "" {
+	if active == nil {
 		return nil
 	}
 	return &RunSnapshot{
-		RunID:      active.runID,
 		StepID:     active.stepID,
 		Status:     RunStatusRunning,
 		ActiveKind: active.activeKind,
@@ -907,11 +900,10 @@ func (s *defaultExclusiveStepLifecycle) snapshotLocked() *RunSnapshot {
 func (s *defaultExclusiveStepLifecycle) snapshotWithFinishedAt(finishedAt time.Time, status RunStatus) *RunSnapshot {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	if s.active == nil || s.active.runID == "" {
+	if s.active == nil {
 		return nil
 	}
 	return &RunSnapshot{
-		RunID:      s.active.runID,
 		StepID:     s.active.stepID,
 		Status:     status,
 		ActiveKind: s.active.activeKind,
@@ -924,7 +916,6 @@ func (s *defaultExclusiveStepLifecycle) snapshotWithFinishedAt(finishedAt time.T
 func stepLifecycleSnapshot(sessionID string, transition StepLifecycleTransition, snapshot RunSnapshot) StepLifecycleSnapshot {
 	return StepLifecycleSnapshot{
 		SessionID:   sessionID,
-		RunID:       snapshot.RunID,
 		StepID:      snapshot.StepID,
 		ActiveKind:  snapshot.ActiveKind,
 		Transition:  transition,

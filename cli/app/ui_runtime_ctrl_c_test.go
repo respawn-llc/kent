@@ -24,10 +24,6 @@ func TestRuntimeCtrlCInterruptsRestartedAgentLoopInsteadOfQuitting(t *testing.T)
 		)
 	}
 
-	restartedRunID, err := runtimeids.ParseRunID("dddddddd-dddd-4ddd-8ddd-dddddddddddd")
-	if err != nil {
-		t.Fatalf("parse restarted Run id: %v", err)
-	}
 	restartedStepID, err := runtimeids.ParseStepID("eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee")
 	if err != nil {
 		t.Fatalf("parse restarted Step id: %v", err)
@@ -36,7 +32,7 @@ func TestRuntimeCtrlCInterruptsRestartedAgentLoopInsteadOfQuitting(t *testing.T)
 		State:    runtimepb.ActivityState_RUNTIME_ACTIVITY_RUNNING,
 		Reviewer: runtimepb.ReviewerActivity_REVIEWER_ACTIVITY_INACTIVE,
 		ActiveStep: &runtimepb.ActiveStep{
-			ActiveKind: runtimepb.ActivityActiveKind_RUNTIME_ACTIVITY_ACTIVE_KIND_USER_TURN, RunId: restartedRunID.String(), StepId: restartedStepID.String()}}); err != nil {
+			ActiveKind: runtimepb.ActivityActiveKind_RUNTIME_ACTIVITY_ACTIVE_KIND_USER_TURN, StepId: restartedStepID.String()}}); err != nil {
 		t.Fatalf("apply restarted runtime activity: %v", err)
 	}
 
@@ -49,12 +45,10 @@ func TestRuntimeCtrlCInterruptsRestartedAgentLoopInsteadOfQuitting(t *testing.T)
 	if client.interruptCalls != 2 {
 		t.Fatalf("interrupt calls after second-run Ctrl+C = %d, want 2", client.interruptCalls)
 	}
-	if model.interruptRunID != restartedRunID.String() || model.interruptStepID != restartedStepID.String() {
+	if model.interruptStepID != restartedStepID.String() {
 		t.Fatalf(
-			"pending interrupt target = run %q step %q, want restarted run %q step %q",
-			model.interruptRunID,
+			"pending interrupt target Step = %q, want restarted Step %q",
 			model.interruptStepID,
-			restartedRunID,
 			restartedStepID,
 		)
 	}
@@ -100,7 +94,7 @@ func TestRuntimeCtrlCUsesServerRunningLifecycleWithoutActiveKindPolicy(t *testin
 				State:    runtimepb.ActivityState_RUNTIME_ACTIVITY_RUNNING,
 				Reviewer: runtimepb.ReviewerActivity_REVIEWER_ACTIVITY_INACTIVE,
 				ActiveStep: &runtimepb.ActiveStep{
-					ActiveKind: kind, RunId: ongoingTestRunID().String(), StepId: ongoingTestStepID().String()}}); err != nil {
+					ActiveKind: kind, StepId: ongoingTestStepID().String()}}); err != nil {
 				t.Fatalf("apply running %s activity: %v", kind, err)
 			}
 			if !model.runtimeLifecycle.Run.IsRunning() {
@@ -145,10 +139,6 @@ func TestRuntimeCtrlCExitsWheneverServerRuntimeIsNotRunning(t *testing.T) {
 func TestRuntimeCtrlCInterruptsAwaitingQuestionInsteadOfQuitting(t *testing.T) {
 	client := &runtimeControlFakeClient{}
 	model := newProjectedClosedUIModel(client)
-	runID, err := runtimeids.ParseRunID("aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa")
-	if err != nil {
-		t.Fatalf("parse Run id: %v", err)
-	}
 	stepID, err := runtimeids.ParseStepID("bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb")
 	if err != nil {
 		t.Fatalf("parse Step id: %v", err)
@@ -157,7 +147,7 @@ func TestRuntimeCtrlCInterruptsAwaitingQuestionInsteadOfQuitting(t *testing.T) {
 		State:    runtimepb.ActivityState_RUNTIME_ACTIVITY_AWAITING_PROMPT,
 		Reviewer: runtimepb.ReviewerActivity_REVIEWER_ACTIVITY_INACTIVE,
 		ActiveStep: &runtimepb.ActiveStep{
-			ActiveKind: runtimepb.ActivityActiveKind_RUNTIME_ACTIVITY_ACTIVE_KIND_USER_TURN, RunId: runID.String(), StepId: stepID.String()}}); err != nil {
+			ActiveKind: runtimepb.ActivityActiveKind_RUNTIME_ACTIVITY_ACTIVE_KIND_USER_TURN, StepId: stepID.String()}}); err != nil {
 		t.Fatalf("apply awaiting-Question activity: %v", err)
 	}
 

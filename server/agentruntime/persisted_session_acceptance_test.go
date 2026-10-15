@@ -536,7 +536,6 @@ func newPersistedEffectFixture(
 		response, err := broker.Ask(ctx, tools.AskQuestionRequest{
 			Question:   "Approve outside-workspace access?",
 			Approval:   true,
-			RunID:      identity.RunID,
 			StepID:     identity.StepID,
 			ToolCallID: string(identity.ToolCallID),
 			ApprovalOptions: []tools.AskQuestionApprovalOption{{

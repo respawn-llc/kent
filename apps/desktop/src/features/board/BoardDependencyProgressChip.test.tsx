@@ -21,6 +21,9 @@ describe("BoardDependencyProgressChip", () => {
     );
 
     const chip = screen.getByRole("button");
+    chip.focus();
+    expect(chip).toHaveFocus();
+    expect(screen.queryByRole("tooltip")).not.toBeInTheDocument();
     fireEvent.mouseEnter(chip);
     await act(async () => {
       await vi.advanceTimersByTimeAsync(0);

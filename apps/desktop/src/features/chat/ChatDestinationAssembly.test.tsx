@@ -178,7 +178,7 @@ it("declines the current prompt from composer actions without stopping the run a
   view.unmount();
 });
 
-it("clears submitted text immediately while compaction and steering delivery remain pending", async () => {
+it("holds busy Send readonly until acceptance during compaction, then allows continued typing", async () => {
   const accepted = deferred<ChatInputMutationResult>();
   const view = sessionWithPrompts((services) => {
     vi.spyOn(services.api.chat, "steer").mockReturnValue(accepted.promise);
@@ -203,19 +203,24 @@ it("clears submitted text immediately while compaction and steering delivery rem
   await waitFor(() => {
     expect(view.services.api.chat.steer).toHaveBeenCalledOnce();
   });
-  expect(editor).toHaveValue("");
-  fireEvent.change(editor, { target: { value: "next draft" } });
-  expect(editor).toHaveValue("next draft");
+  expect(editor).toHaveValue("steer during compaction");
+  expect(editor).toHaveAttribute("readonly");
+  await user.type(editor, "next draft");
+  expect(editor).toHaveValue("steer during compaction");
   await act(async () => {
     accepted.resolve({
       sessionID: sessionTarget.sessionID,
       outcome: {
         kind: "accepted",
+        disposition: "pending_steer",
         queueItemID: parsePendingWorkItemID(crypto.randomUUID()),
         diagnostic: null,
       },
     });
   });
+  expect(editor).toHaveValue("");
+  expect(editor).not.toHaveAttribute("readonly");
+  await user.type(editor, "next draft");
   expect(editor).toHaveValue("next draft");
 });
 
@@ -542,20 +547,34 @@ it("preserves focus, selection and continued typing across successive deliveries
   }, opening);
   const user = userEvent.setup({ delay: null });
   const send = () => screen.getByRole("button", { name: appI18n.t("chatComposer.send") });
-  await user.type(screen.getByRole("textbox"), "/review one");
-  await waitFor(() => {
-    expect(send()).toBeEnabled();
-  });
-  await user.click(send());
-  await user.type(screen.getByRole("textbox"), "/init two");
-  await user.click(send());
-  await user.type(screen.getByRole("textbox"), "continuing");
+  for (const value of ["/review one", "/init two"]) {
+    fireEvent.change(screen.getByRole("textbox"), { target: { value } });
+    await waitFor(() => {
+      expect(send()).toBeEnabled();
+    });
+    vi.useFakeTimers();
+    try {
+      fireEvent.click(send());
+      expect(screen.getByRole("textbox")).toHaveAttribute("readonly");
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(2000);
+      });
+      expect(screen.getByRole("textbox")).not.toHaveAttribute("readonly");
+    } finally {
+      vi.useRealTimers();
+    }
+  }
+  fireEvent.change(screen.getByRole("textbox"), { target: { value: "continuing" } });
   const editor = screen.getByRole<HTMLTextAreaElement>("textbox");
+  act(() => {
+    editor.focus();
+  });
   editor.setSelectionRange(2, 5);
   const accepted = (sessionID: string): ChatInputMutationResult => ({
     sessionID,
     outcome: {
       kind: "accepted",
+      disposition: "started_turn",
       queueItemID: parsePendingWorkItemID("99999999-9999-4999-8999-999999999999"),
       diagnostic: null,
     },
@@ -587,10 +606,11 @@ it("preserves focus, selection and continued typing across successive deliveries
 it("retains committed history and input during explicit observation Retry without replay", async () => {
   const view = sessionWithPrompts();
   const user = userEvent.setup({ delay: null });
-  fireEvent.change(screen.getByRole("textbox"), { target: { value: "unsent" } });
   await waitFor(() => {
     expect(view.handlers).toHaveLength(1);
+    expect(view.client.isFetching()).toBe(0);
   });
+  fireEvent.change(screen.getByRole("textbox"), { target: { value: "unsent" } });
   act(() =>
     view.handlers[0]?.onEvent({
       sequence: 1,
@@ -626,12 +646,15 @@ it("retries the failed opening page and observation independently once per activ
     expect(view.handlers).toHaveLength(1);
   });
   act(() => view.handlers[0]?.onError(new Error("observation unavailable")));
+  const pageRetry = await within(screen.getByTestId("error-state")).findByRole("button", {
+    name: appI18n.t("app.retry"),
+  });
   await waitFor(() => {
-    expect(screen.getByRole("button", { name: appI18n.t("app.retry") })).toBeEnabled();
+    expect(pageRetry).toBeEnabled();
   });
   const user = userEvent.setup({ delay: null });
   fireEvent.change(screen.getByRole("textbox"), { target: { value: "keep input" } });
-  await user.click(screen.getByRole("button", { name: appI18n.t("app.retry") }));
+  await user.click(pageRetry);
   await waitFor(() => {
     expect(view.services.api.chat.getTranscriptPage).toHaveBeenCalledTimes(2);
   });

@@ -226,7 +226,6 @@ func (a *Authority) resolveExactApproval(
 			return nil
 		}
 		identity := tools.ExecutionIdentity{
-			RunID:      answer.entry.snapshot.Request.RunID,
 			StepID:     answer.entry.snapshot.Request.StepID,
 			ToolCallID: answer.command.ToolCallID,
 		}

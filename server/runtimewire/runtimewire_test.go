@@ -69,6 +69,9 @@ func newTestRuntimeWiringWithBackground(t *testing.T, store *session.Store, even
 	if options.GlobalConfigDir == "" {
 		options.GlobalConfigDir = t.TempDir()
 	}
+	if store != nil && options.ProjectWorkspaceContextReader == nil {
+		options.ProjectWorkspaceContextReader = testsetup.OpenSessionProjectWorkspaceContextReader(t, store)
+	}
 	active = testsetup.WriteProviderSettings(t, options.GlobalConfigDir, active)
 	config.InheritReviewerSettings(&active, options.Sources)
 	return NewRuntimeWiringWithBackground(store, eventLog, active, enabled, manager, logger, background, options)
@@ -662,7 +665,6 @@ func TestOutsideWorkspaceToolsInheritTypedApprovalBarrierFromCallContext(t *test
 				},
 			)
 			ctx = tools.WithExecutionIdentity(ctx, tools.ExecutionIdentity{
-				RunID:      "11111111-1111-4111-8111-111111111111",
 				StepID:     "22222222-2222-4222-8222-222222222222",
 				ToolCallID: clientui.ToolCallID(toolCallID),
 			})
@@ -1111,7 +1113,6 @@ func callRuntimeWireTool(t *testing.T, registry *tools.Registry, id toolspec.ID,
 	}
 	toolCallID := "runtimewire-" + string(id)
 	ctx := tools.WithExecutionIdentity(context.Background(), tools.ExecutionIdentity{
-		RunID:      "11111111-1111-4111-8111-111111111111",
 		StepID:     "22222222-2222-4222-8222-222222222222",
 		ToolCallID: clientui.ToolCallID(toolCallID),
 	})

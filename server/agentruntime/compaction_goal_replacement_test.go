@@ -24,7 +24,7 @@ func TestCompactionOmitsActiveGoalContinuationWhenGoalIsNotActive(t *testing.T) 
 	inputStepID := runtimeTestStepID("inactive-goal-compaction-input")
 	engine.stepLifecycle = &stubExclusiveStepLifecycle{
 		activeStepID: inputStepID,
-		snapshot:     &RunSnapshot{RunID: "11111111-1111-4111-8111-111111111111", StepID: inputStepID},
+		snapshot:     &RunSnapshot{StepID: inputStepID},
 	}
 
 	t.Run("inactive goal transition sequence", func(t *testing.T) {
@@ -72,7 +72,7 @@ func TestCompactionOmitsActiveGoalContinuationWhenGoalIsNotActive(t *testing.T) 
 		workflowInputStepID := runtimeTestStepID("inactive-workflow-goal-compaction-input")
 		workflowEngine.stepLifecycle = &stubExclusiveStepLifecycle{
 			activeStepID: workflowInputStepID,
-			snapshot:     &RunSnapshot{RunID: "11111111-1111-4111-8111-111111111111", StepID: workflowInputStepID},
+			snapshot:     &RunSnapshot{StepID: workflowInputStepID},
 		}
 		if _, err := workflowEngine.SetGoal(t.Context(), "goal", session.GoalActorUser); err != nil {
 			t.Fatalf("set workflow goal: %v", err)

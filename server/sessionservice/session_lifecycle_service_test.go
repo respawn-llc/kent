@@ -81,8 +81,9 @@ func userMessageSeqAt(t *testing.T, store *session.Store, n int) int64 {
 
 func newTestSessionLifecycleService(root string, authManager *auth.Manager, owner *metadata.Store) *SessionLifecycleService {
 	authority := sessionruntime.NewAuthority(sessionruntime.AuthorityOptions{
-		PersistenceRoot: root,
-		StoreOptions:    owner.AuthoritativeSessionStoreOptions(),
+		PersistenceRoot:               root,
+		ProjectWorkspaceContextReader: owner,
+		StoreOptions:                  owner.AuthoritativeSessionStoreOptions(),
 	})
 	return NewGlobalSessionLifecycleService(root, authority, authManager, owner)
 }
@@ -358,7 +359,6 @@ func TestServiceRetargetSessionWorkspacePreservesRuntimeOrigin(t *testing.T) {
 	service := fixture.service.WithWorkspaceRetargeter(retargeter)
 	origin := &sessionlaunchpb.RuntimeStepOrigin{
 		SessionId: "33333333-3333-4333-8333-333333333333",
-		RunId:     "11111111-1111-4111-8111-111111111111",
 		StepId:    "22222222-2222-4222-8222-222222222222",
 	}
 	response, err := service.RetargetSessionWorkspace(t.Context(), &sessionlaunchpb.SessionRetargetWorkspaceRequest{

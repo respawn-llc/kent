@@ -46,7 +46,7 @@ func TestRuntimeRoleProjectionUsesEnvironmentModelAboveDeclaration(t *testing.T)
 	}
 }
 
-func TestSubagentsMetaMessageRendersCallableNonNoopRoles(t *testing.T) {
+func TestSubagentCatalogPreservesEquivalentCallableRoles(t *testing.T) {
 	t.Parallel()
 	settings := config.Settings{
 		Model:         "gpt-6-sol",
@@ -85,32 +85,15 @@ func TestSubagentsMetaMessageRendersCallableNonNoopRoles(t *testing.T) {
 	}
 	builder := newMetaContextBuilder("/tmp/work", "gpt-6-sol", "medium", config.SkillPolicy{}, time.Unix(0, 0)).
 		withSubagents(testsetup.ProgrammaticConfig(t, settings), []toolspec.ID{toolspec.ToolExecCommand})
-	result, err := builder.Build(metaContextBuildOptions{
-		IncludeSubagents:          true,
-		SubagentInvocationContext: config.SubagentInvocationContextOrdinary,
-	})
+	roles, err := builder.renderableSubagentRoles(config.SubagentInvocationContextOrdinary)
 	if err != nil {
-		t.Fatalf("Build: %v", err)
+		t.Fatal(err)
 	}
-	if len(result.Subagents) != 1 {
-		t.Fatalf("subagent messages = %d, want 1", len(result.Subagents))
+	if len(roles) != 2 || roles[0].Name != "placebo" || roles[1].Name != "research" {
+		t.Fatalf("callable roles = %+v, want placebo and research", roles)
 	}
-	content := messageContent(result.Subagents[0])
-	for _, want := range []string{
-		"Available subagent roles:",
-		"- `default`: not specifying any role will invoke the default general-purpose agent",
-		"- `research`: Repo research specialist.",
-		"Invoke with `",
-		"--agent=<role> \"<prompt>\"`.",
-	} {
-		if !strings.Contains(content, want) {
-			t.Fatalf("content missing %q:\n%s", want, content)
-		}
-	}
-	for _, unwanted := range []string{"placebo", "blocked", "fast:"} {
-		if strings.Contains(content, unwanted) {
-			t.Fatalf("content should not include %q:\n%s", unwanted, content)
-		}
+	if roles[0].Settings.Model != settings.Model || roles[0].Settings.ThinkingLevel != settings.ThinkingLevel {
+		t.Fatalf("equivalent role lost inherited settings: %+v", roles[0])
 	}
 }
 

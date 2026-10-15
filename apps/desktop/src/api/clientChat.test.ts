@@ -14,7 +14,11 @@ import * as R from "@app/server-api-contract/gen/kent/api/runtime/runtime_pb";
 import * as T from "@app/server-api-contract/gen/kent/api/transcript/transcript_pb";
 import { ProjectAvailability } from "@app/server-api-contract/gen/kent/api/project/project_pb";
 import { TranscriptCloseReason } from "@app/server-api-contract/gen/kent/api/shared/foundation_pb";
-import { ChatService, QueueRequestSchema } from "@app/server-api-contract/gen/kent/api/chat/chat_pb";
+import {
+  ChatService,
+  InputAdmissionDisposition,
+  QueueRequestSchema,
+} from "@app/server-api-contract/gen/kent/api/chat/chat_pb";
 import {
   SessionRuntimeService,
   SessionRuntimeActivateResultSchema,
@@ -149,7 +153,6 @@ function transcriptHydrationPayload() {
         reviewer: R.ReviewerActivity.INACTIVE,
         queueAccepting: true,
         activeStep: {
-          runId: sessionID,
           stepId: sessionID,
           activeKind: R.ActivityActiveKind.RUNTIME_ACTIVITY_ACTIVE_KIND_USER_TURN,
         },
@@ -163,7 +166,6 @@ function transcriptHydrationPayload() {
       phase: T.AssistantPhase.COMMENTARY,
     },
     activeStep: {
-      runId: sessionID,
       stepId: sessionID,
       activeKind: R.ActivityActiveKind.RUNTIME_ACTIVITY_ACTIVE_KIND_USER_TURN,
       lifecycle: T.StepLifecycle.STARTED,
@@ -787,7 +789,13 @@ describe("Desktop Chat mutation adapter", () => {
             case: "success",
             value: {
               session: { sessionId: sessionID },
-              outcome: { case: "accepted", value: { queueItem: { id: queueItemID } } },
+              outcome: {
+                case: "accepted",
+                value: {
+                  queueItem: { id: queueItemID },
+                  disposition: InputAdmissionDisposition.STARTED_TURN,
+                },
+              },
             },
           },
         }),
@@ -799,7 +807,13 @@ describe("Desktop Chat mutation adapter", () => {
             case: "success",
             value: {
               session: { sessionId: sessionID },
-              outcome: { case: "accepted", value: { queueItem: { id: queueItemID } } },
+              outcome: {
+                case: "accepted",
+                value: {
+                  queueItem: { id: queueItemID },
+                  disposition: InputAdmissionDisposition.PENDING_QUEUE,
+                },
+              },
             },
           },
         }),
@@ -930,6 +944,7 @@ describe("Desktop Chat mutation adapter", () => {
                 case: "accepted",
                 value: {
                   queueItem: { id: queueItemID },
+                  disposition: InputAdmissionDisposition.PENDING_QUEUE,
                   diagnostic: {
                     detail: {
                       case: "promptHistoryFailure",
@@ -1044,7 +1059,10 @@ describe("Desktop Chat mutation adapter", () => {
                 session: { sessionId: testCase.returnedSessionID },
                 outcome: {
                   case: "accepted",
-                  value: { queueItem: { id: testCase.returnedQueueItemID } },
+                  value: {
+                    queueItem: { id: testCase.returnedQueueItemID },
+                    disposition: InputAdmissionDisposition.STARTED_TURN,
+                  },
                 },
               },
             },

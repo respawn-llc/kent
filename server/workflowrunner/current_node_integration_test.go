@@ -264,11 +264,12 @@ func newCurrentNodeRunnerFixtureWithClientAndPersistence(
 	connectionRotation := new(launch.ConnectionRotation)
 	var controller *workflowexecution.CurrentNodeController
 	fixture.authority = sessionruntime.NewAuthority(sessionruntime.AuthorityOptions{
-		ConnectionRotation:  connectionRotation,
-		WorkspaceMembership: fixture.metadata,
-		PersistenceRoot:     cfg.PersistenceRoot,
-		StoreOptions:        storeOptions,
-		PromptFeed:          fixture.runtimes,
+		ConnectionRotation:            connectionRotation,
+		WorkspaceMembership:           fixture.metadata,
+		ProjectWorkspaceContextReader: fixture.metadata,
+		PersistenceRoot:               cfg.PersistenceRoot,
+		StoreOptions:                  storeOptions,
+		PromptFeed:                    fixture.runtimes,
 		EventFeed: func(resource runtimeids.SessionResourceRef, event agentruntime.Event) {
 			fixture.runtimes.PublishAuthorityRuntimeEvent(resource, event)
 			fixture.events.publish()
@@ -525,10 +526,11 @@ func (f *currentNodeRunnerFixture) restartRuntime(t *testing.T) {
 	f.runtimes = registry.NewRuntimeRegistry(nil)
 	storeOptions := f.metadata.AuthoritativeSessionStoreOptions()
 	f.authority = sessionruntime.NewAuthority(sessionruntime.AuthorityOptions{
-		WorkspaceMembership: f.metadata,
-		PersistenceRoot:     f.cfg.PersistenceRoot,
-		StoreOptions:        storeOptions,
-		PromptFeed:          f.runtimes,
+		WorkspaceMembership:           f.metadata,
+		ProjectWorkspaceContextReader: f.metadata,
+		PersistenceRoot:               f.cfg.PersistenceRoot,
+		StoreOptions:                  storeOptions,
+		PromptFeed:                    f.runtimes,
 		EventFeed: func(resource runtimeids.SessionResourceRef, event agentruntime.Event) {
 			f.runtimes.PublishAuthorityRuntimeEvent(resource, event)
 			f.events.publish()
@@ -1201,6 +1203,53 @@ func TestCurrentNodeAgentStartsFreshSessionWithLatestRoleAndCompletionContract(t
 	meta := f.onlyProjectSessionMeta(t)
 	if meta.Continuation == nil || meta.Continuation.AgentRole == nil || *meta.Continuation.AgentRole != "coder" {
 		t.Fatalf("fresh workflow Session continuation = %+v, want persisted coder identity", meta.Continuation)
+	}
+}
+
+func TestCurrentNodeAgentSeedsProjectWorkspacesBeforeFirstRestoredRequest(t *testing.T) {
+	f := newCurrentNodeRunnerFixture(t, ScriptedFinalAnswer(`{"commentary":"done"}`))
+	if _, err := f.metadata.AttachWorkspaceToProject(context.Background(), f.projectID, t.TempDir()); err != nil {
+		t.Fatalf("attach second Project Workspace: %v", err)
+	}
+	workflowID := createCurrentNodeAgentWorkflow(t, f.store)
+	task := f.createTask(t, workflowID)
+	f.startTask(t, task)
+
+	f.waitForCurrentNode(t, task.ID, func(nodes []workflow.CurrentNode) bool {
+		return len(nodes) == 1 && nodes[0].Scheduling == nil
+	})
+	requests := f.client.Requests()
+	if len(requests) != 1 {
+		t.Fatalf("model requests = %d, want one Workflow turn", len(requests))
+	}
+	var workspaceReminderCount int
+	var workspaceReminderIndex, assignmentIndex int
+	var hasWorkspaceReminder, hasAssignment bool
+	for index, item := range requests[0].Items {
+		if item.Type != llm.ResponseItemTypeMessage ||
+			item.Role == nil ||
+			*item.Role != llm.RoleDeveloper ||
+			item.MessageType == nil {
+			continue
+		}
+		switch *item.MessageType {
+		case llm.MessageTypeWorkspaces:
+			workspaceReminderCount++
+			workspaceReminderIndex = index
+			hasWorkspaceReminder = true
+		case llm.MessageTypeWorkflowMode:
+			assignmentIndex = index
+			hasAssignment = true
+		}
+	}
+	if workspaceReminderCount != 1 || !hasAssignment || !hasWorkspaceReminder ||
+		assignmentIndex <= workspaceReminderIndex {
+		t.Fatalf(
+			"first Workflow request Workspaces reminder/assignment = %d/%d/%d, want one reminder before assignment",
+			workspaceReminderCount,
+			workspaceReminderIndex,
+			assignmentIndex,
+		)
 	}
 }
 
@@ -2235,12 +2284,12 @@ func TestCompactAndContinueSessionEstablishesTargetRoleGeneration(t *testing.T) 
 	if len(requests) != 2 || requests[0].ActiveSettings.Model != "workflow-coder" || requests[1].ActiveSettings.Model != "workflow-reviewer" {
 		t.Fatalf("runtime role models = %+v, want coder then reviewer", requests)
 	}
-	if requests[0].Connection.ID != "coder" || requests[1].Connection.ID != "reviewer" {
+	if requests[0].Connection.ID != "coder" || requests[1].Connection.ID != "coder" {
 		t.Fatalf("compact-and-continue connection selection = %v then %v", requests[0].Connection.ID, requests[1].Connection.ID)
 	}
 	meta := f.onlyProjectSessionMeta(t)
-	if meta.ConnectionID == nil || *meta.ConnectionID != "reviewer" {
-		t.Fatalf("target connection was not persisted: %v", meta.ConnectionID)
+	if meta.ConnectionID == nil || *meta.ConnectionID != "coder" {
+		t.Fatalf("compaction changed the saved connection: %v", meta.ConnectionID)
 	}
 	if meta.Continuation == nil || meta.Continuation.AgentRole == nil || *meta.Continuation.AgentRole != "reviewer" {
 		t.Fatalf("compacted workflow Session continuation = %+v, want persisted reviewer identity", meta.Continuation)

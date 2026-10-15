@@ -30,14 +30,15 @@ type WorkflowAssignmentSnapshot struct {
 // PersistedWorkflowAssignmentContext supplies the runtime-owned context needed
 // to seed a fresh dormant Session before its first workflow assignment.
 type PersistedWorkflowAssignmentContext struct {
-	Workdir          string
-	GlobalConfigDir  string
-	Model            string
-	ThinkingLevel    string
-	ThinkingMutation workflow.ThinkingMutation
-	SkillPolicy      config.SkillPolicy
-	SubagentCatalog  config.App
-	EnabledTools     []toolspec.ID
+	Workdir                       string
+	GlobalConfigDir               string
+	Model                         string
+	ThinkingLevel                 string
+	ThinkingMutation              workflow.ThinkingMutation
+	ProjectWorkspaceContextReader ProjectWorkspaceContextReader
+	SkillPolicy                   config.SkillPolicy
+	SubagentCatalog               config.App
+	EnabledTools                  []toolspec.ID
 }
 
 type WorkflowAssignmentSteer struct {
@@ -285,6 +286,7 @@ func (s WorkflowAssignmentSnapshot) restorationMessage() llm.Message {
 }
 
 func SteerPersistedWorkflowAssignment(
+	ctx context.Context,
 	store *session.Store,
 	assignment WorkflowAssignment,
 	deliveryContext PersistedWorkflowAssignmentContext,
@@ -293,10 +295,11 @@ func SteerPersistedWorkflowAssignment(
 	if err != nil {
 		return WorkflowAssignmentSteer{}, err
 	}
-	return steerPersistedWorkflowAssignment(store, assignment, deliveryContext, kind, true)
+	return steerPersistedWorkflowAssignment(ctx, store, assignment, deliveryContext, kind, true)
 }
 
 func SteerPersistedWorkflowAssignmentForResume(
+	ctx context.Context,
 	store *session.Store,
 	assignment WorkflowAssignment,
 	deliveryContext PersistedWorkflowAssignmentContext,
@@ -316,10 +319,11 @@ func SteerPersistedWorkflowAssignmentForResume(
 	if err != nil {
 		return WorkflowAssignmentSteer{}, err
 	}
-	return steerPersistedWorkflowAssignment(store, assignment, deliveryContext, kind, inject)
+	return steerPersistedWorkflowAssignment(ctx, store, assignment, deliveryContext, kind, inject)
 }
 
 func steerPersistedWorkflowAssignment(
+	ctx context.Context,
 	store *session.Store,
 	assignment WorkflowAssignment,
 	deliveryContext PersistedWorkflowAssignmentContext,
@@ -355,6 +359,14 @@ func steerPersistedWorkflowAssignment(
 	// already been seeded; unrelated callback writes would invalidate that
 	// freshness test.
 	if len(recent.Records) == 0 {
+		projectWorkspaces, err := loadProjectWorkspacesContext(
+			ctx,
+			deliveryContext.ProjectWorkspaceContextReader,
+			engine.store.Meta().SessionID,
+		)
+		if err != nil {
+			return WorkflowAssignmentSteer{}, err
+		}
 		builder := newActiveMetaContextBuilder(
 			engine.store.Meta(),
 			deliveryContext.Workdir,
@@ -364,7 +376,11 @@ func steerPersistedWorkflowAssignment(
 			deliveryContext.SkillPolicy,
 			time.Now(),
 		).withSubagents(deliveryContext.SubagentCatalog, deliveryContext.EnabledTools)
-		if err := engine.steerDormantBaseMetaContext(builder, config.SubagentInvocationContextWorkflow); err != nil {
+		if err := engine.steerDormantBaseMetaContext(
+			builder,
+			config.SubagentInvocationContextWorkflow,
+			&projectWorkspaces,
+		); err != nil {
 			return WorkflowAssignmentSteer{}, err
 		}
 	}

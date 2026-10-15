@@ -2,9 +2,15 @@
 const maximumTextLength = 32_768;
 const maximumElements = 128;
 
-export function textMotionSnapshot(element: HTMLElement): HTMLElement | null {
-  const rect = visibleTextRect(element);
+export type TextMotionSnapshot = Readonly<{ element: HTMLElement; rect: DOMRect; fontSize: number | null }>;
+
+export function textMotionSnapshot(
+  element: HTMLElement,
+  extent: "visible" | "full" = "visible",
+): TextMotionSnapshot | null {
+  const rect = extent === "visible" ? visibleTextRect(element) : element.getBoundingClientRect();
   if (rect === null) return null;
+  if (rect.width <= 0 || rect.height <= 0) return null;
   const textarea = element instanceof HTMLTextAreaElement;
   const text = textarea ? element.value : element.textContent;
   if (text.length > maximumTextLength || element.querySelectorAll("*").length > maximumElements) return null;
@@ -17,9 +23,9 @@ export function textMotionSnapshot(element: HTMLElement): HTMLElement | null {
     height: `${String(rect.height)}px`,
   });
   copy.inert = true;
-  const layout = document.createElement("div");
+  const layout = textarea ? document.createElement("div") : cloneSnapshotElement(element, true);
   const bounds = element.getBoundingClientRect();
-  copyStyles(element, layout);
+  if (textarea) copyStyles(element, layout);
   Object.assign(layout.style, {
     position: "absolute",
     margin: "0",
@@ -29,27 +35,66 @@ export function textMotionSnapshot(element: HTMLElement): HTMLElement | null {
     height: "auto",
     maxHeight: "none",
     transform: "none",
+    opacity: "1",
+    filter: "none",
     visibility: "visible",
   });
   if (textarea) {
     Object.assign(layout.style, { background: "transparent", boxShadow: "none", borderColor: "transparent" });
     layout.textContent = text;
-  } else {
-    for (const child of element.childNodes) layout.append(child.cloneNode(true));
-    const originals = element.querySelectorAll("*");
-    layout.querySelectorAll("*").forEach((node, index) => {
-      const original = originals[index];
-      if (node instanceof HTMLElement && original instanceof HTMLElement) copyStyles(original, node);
-    });
   }
-  copy.append(layout);
-  return copy;
+  copy.append(snapshotContext(element, layout));
+  return {
+    element: copy,
+    rect,
+    fontSize: measuredFontSize(element),
+  };
+}
+
+export function measuredFontSize(element: HTMLElement): number | null {
+  const size = Number.parseFloat(getComputedStyle(element).fontSize);
+  return Number.isFinite(size) && size > 0 ? size : null;
 }
 
 function copyStyles(source: HTMLElement, target: HTMLElement) {
   const style = getComputedStyle(source);
-  for (const property of style) target.style.setProperty(property, style.getPropertyValue(property));
-  target.removeAttribute("id");
+  target.style.cssText = Array.from(
+    style,
+    (property) => `${property}:${style.getPropertyValue(property)};`,
+  ).join("");
+}
+
+function cloneSnapshotElement(source: HTMLElement, deep: boolean): HTMLElement {
+  const clone = source.cloneNode(deep);
+  if (!(clone instanceof HTMLElement)) throw new Error("Expected an HTML text snapshot clone.");
+  clone.removeAttribute("id");
+  for (const element of clone.querySelectorAll("[id]")) element.removeAttribute("id");
+  return clone;
+}
+
+function snapshotContext(source: HTMLElement, layout: HTMLElement): HTMLElement {
+  let context = layout;
+  for (
+    let ancestor = source.parentElement;
+    ancestor !== null && ancestor !== document.body && ancestor !== document.documentElement;
+    ancestor = ancestor.parentElement
+  ) {
+    const shell = cloneSnapshotElement(ancestor, false);
+    Object.assign(shell.style, {
+      display: "contents",
+      position: "static",
+      transform: "none",
+      filter: "none",
+      opacity: "1",
+      visibility: "visible",
+      overflow: "visible",
+      animation: "none",
+      transition: "none",
+    });
+    shell.append(context);
+    context = shell;
+  }
+  return context;
 }
 
 function visibleTextRect(element: HTMLElement): DOMRect | null {

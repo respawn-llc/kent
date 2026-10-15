@@ -11,7 +11,6 @@ import (
 )
 
 type ExecutionIdentity struct {
-	RunID      string
 	StepID     string
 	ToolCallID clientui.ToolCallID
 }
@@ -42,9 +41,6 @@ func ExecutionIdentityFromContext(ctx context.Context) (ExecutionIdentity, error
 	identity, ok := ctx.Value(executionIdentityContextKey{}).(ExecutionIdentity)
 	if !ok {
 		return ExecutionIdentity{}, errors.New("tool execution identity is required")
-	}
-	if err := runtimeids.ValidateUUIDv4(identity.RunID, "run_id"); err != nil {
-		return ExecutionIdentity{}, fmt.Errorf("tool execution identity: %w", err)
 	}
 	if err := runtimeids.ValidateUUIDv4(identity.StepID, "step_id"); err != nil {
 		return ExecutionIdentity{}, fmt.Errorf("tool execution identity: %w", err)

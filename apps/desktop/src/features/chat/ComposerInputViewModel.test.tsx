@@ -27,7 +27,7 @@ it.each(["accepted", "not_accepted", "error"] as const)(
         sessionID: target.sessionID,
         outcome:
           outcome === "accepted"
-            ? { kind: "accepted", queueItemID, diagnostic: null }
+            ? { kind: "accepted", queueItemID, disposition: "started_turn", diagnostic: null }
             : { kind: "not_accepted", reason: { kind: "runtime_unavailable" } },
       };
     });
@@ -104,7 +104,7 @@ it.each(["accepted", "not_accepted", "error"] as const)(
       expect(result.current.text).toBe("");
     } else {
       expect(rejected.mock.calls.map(([id]) => id)).toEqual(ids);
-      expect(restore).toHaveBeenCalledTimes(2);
+      expect(restore).not.toHaveBeenCalled();
       expect(result.current.text).toBe("same");
     }
     const local = vi.fn(async () => ({ kind: "local" as const }));

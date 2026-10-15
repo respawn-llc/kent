@@ -20,7 +20,6 @@ export function chatRuntimeActivity(input: ChatActivityFacts): ChatRuntimeActivi
       input.ActiveStep === null
         ? null
         : {
-            runID: input.ActiveStep.RunID,
             stepID: input.ActiveStep.StepID,
             activeKind: input.ActiveStep.ActiveKind,
           },

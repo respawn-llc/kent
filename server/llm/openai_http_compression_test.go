@@ -22,7 +22,7 @@ func compressionDispatch(t *testing.T, kind CodexRequestKind) (*string, *CodexDi
 	t.Helper()
 	dispatch, err := NewCodexDispatchContext(CodexDispatchFacts{
 		SessionID:   "session-1",
-		RunID:       "run-1",
+		StepID:      "step-1",
 		RequestKind: kind.Optional(),
 	})
 	if err != nil {

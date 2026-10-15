@@ -22,6 +22,7 @@
 - Ongoing Mode must not use Alternate Scroll (`?1007`).
 - Alternate Screen surfaces enable Alternate Scroll while active and disable it on exit. The rollback picker is the exception.
 - No surface enables Mouse Capture.
+- Kent must release modified-key reporting while an external editor owns the terminal. When the editor returns, Kent must restore that reporting after the terminal returns to Kent, whether the editor succeeds or fails. Kent must restore ordinary terminal input on exit.
 
 ## Native progress
 

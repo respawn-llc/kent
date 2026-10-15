@@ -196,13 +196,13 @@ func TestExplicitUIProcessClientWinsOverBackgroundManagerOptionOrder(t *testing.
 
 func TestUIProcessClientUsesSharedReadsWhenAvailable(t *testing.T) {
 	reads := &stubProcessViewService{
-		listResp: &processpb.ListSuccess{Processes: []*processpb.BackgroundProcess{{Id: "proc-1", OwnerRunId: proto.String("run-1"), OwnerStepId: proto.String("step-1")}}}}
+		listResp: &processpb.ListSuccess{Processes: []*processpb.BackgroundProcess{{Id: "proc-1", OwnerStepId: proto.String("step-1")}}}}
 	processClient := newUIProcessClientWithReads(uiProcessTestProjectID, reads, nil)
 	got, err := processClient.ListProcesses(context.Background())
 	if err != nil {
 		t.Fatalf("ListProcesses: %v", err)
 	}
-	if len(got) != 1 || got[0].Id != "proc-1" || got[0].GetOwnerRunId() != "run-1" || got[0].GetOwnerStepId() != "step-1" {
+	if len(got) != 1 || got[0].Id != "proc-1" || got[0].GetOwnerStepId() != "step-1" {
 		t.Fatalf("unexpected loopback process payload: %+v", got)
 	}
 }
@@ -216,7 +216,6 @@ func TestUIProcessClientDoesNotBypassSharedReadBoundaryOnError(t *testing.T) {
 		Command:        []string{"sh", "-c", "printf 'done\n'; sleep 0.05; exit 0"},
 		DisplayCommand: "fallback-process",
 		OwnerSessionID: "session-1",
-		OwnerRunID:     "run-1",
 		OwnerStepID:    "step-1",
 		Workdir:        workdir,
 		YieldTime:      fastBackgroundTestYield})

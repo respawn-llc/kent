@@ -110,7 +110,6 @@ func (s *Service) enterWorktreeAcrossWorkspace(
 	if origin != nil && origin.SessionId == request.sessionID {
 		runtimeOrigin = &sessionlaunchpb.RuntimeStepOrigin{
 			SessionId: origin.SessionId,
-			RunId:     strings.TrimSpace(origin.RunId),
 			StepId:    strings.TrimSpace(origin.StepId),
 		}
 	}

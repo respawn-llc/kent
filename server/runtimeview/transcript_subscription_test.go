@@ -323,7 +323,6 @@ func TestTranscriptHydrationPreservesDeletionDispositionPresence(t *testing.T) {
 }
 
 const (
-	transcriptProjectionRunID  = "10000000-0000-4000-8000-000000000011"
 	transcriptProjectionStepID = "10000000-0000-4000-8000-000000000012"
 )
 
@@ -1259,7 +1258,6 @@ func TestTranscriptBackgroundActivityUsesRuntimeActivityID(t *testing.T) {
 			Type:        runtime.BackgroundShellEventBackgrounded,
 			ID:          uuid.NewString(),
 			ActivityID:  activityID,
-			OwnerRunID:  transcriptProjectionRunID,
 			OwnerStepID: transcriptProjectionStepID,
 			State:       "running",
 			Command:     "go test ./...",
@@ -1277,6 +1275,9 @@ func TestTranscriptBackgroundActivityUsesRuntimeActivityID(t *testing.T) {
 	background := messages[0].GetBackgroundActivity()
 	if got := background.ActivityId; got != activityID.String() {
 		t.Fatalf("background transcript id = %q, want activity id %q", got, activityID)
+	}
+	if background.OwnerStepId != transcriptProjectionStepID {
+		t.Fatalf("background owner Step = %q, want %q", background.OwnerStepId, transcriptProjectionStepID)
 	}
 }
 
@@ -1301,7 +1302,6 @@ func TestTranscriptBackgroundActivityLifecycleIgnoresPreviewTruncation(t *testin
 					Type:              tt.eventType,
 					ID:                uuid.NewString(),
 					ActivityID:        uuid.New(),
-					OwnerRunID:        transcriptProjectionRunID,
 					OwnerStepID:       transcriptProjectionStepID,
 					State:             string(tt.eventType),
 					Command:           "sleep 2",
@@ -1449,6 +1449,32 @@ func TestTranscriptWorktreeNoticeKeepsMissingBranchNullable(t *testing.T) {
 	}
 }
 
+func TestTranscriptWorkspacesNoticePreservesTypedMessageAndVisibility(t *testing.T) {
+	messages, err := TranscriptMessagesFromRuntimeEventChecked(runtime.Event{
+		Kind: runtime.EventConversationUpdated,
+		CommittedProvenance: &runtime.TranscriptCommittedRowProvenance{
+			EventSequence: 3,
+		},
+		Message: llm.Message{
+			Role:        llm.RoleDeveloper,
+			MessageType: textutil.Value(llm.MessageTypeWorkspaces),
+			Content:     textutil.Value("project workspace context"),
+		},
+	}, nil)
+	if err != nil {
+		t.Fatalf("project Workspaces notice: %v", err)
+	}
+	if len(messages) != 1 {
+		t.Fatalf("messages = %d, want one Workspaces notice", len(messages))
+	}
+	row := messages[0].GetCommittedRow()
+	if row.GetNotice() == nil ||
+		row.GetNotice().GetMessageType() != transcriptpb.NoticeMessageType_NOTICE_MESSAGE_TYPE_WORKSPACES ||
+		row.Visibility != transcriptpb.EntryVisibility_ENTRY_VISIBILITY_DETAIL {
+		t.Fatalf("Workspaces notice projection = %+v, want typed detail notice", row)
+	}
+}
+
 func TestTranscriptBackgroundActivityRejectsMissingRuntimeActivityID(t *testing.T) {
 	_, err := TranscriptMessagesFromRuntimeEventChecked(runtime.Event{
 		Kind:   runtime.EventBackgroundUpdated,
@@ -1456,7 +1482,6 @@ func TestTranscriptBackgroundActivityRejectsMissingRuntimeActivityID(t *testing.
 		Background: &runtime.BackgroundShellEvent{
 			Type:        runtime.BackgroundShellEventBackgrounded,
 			ID:          uuid.NewString(),
-			OwnerRunID:  transcriptProjectionRunID,
 			OwnerStepID: transcriptProjectionStepID,
 			State:       "running",
 			Command:     "go test ./...",

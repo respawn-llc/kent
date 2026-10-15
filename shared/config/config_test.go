@@ -9,6 +9,7 @@ import (
 	"path/filepath"
 	"reflect"
 	"runtime"
+	"slices"
 	"strings"
 	"testing"
 )
@@ -1437,10 +1438,31 @@ func TestSkillOnlyRoleAffectsCatalogWithoutChangingCallability(t *testing.T) {
 		t.Fatal("callability metadata must remain authoritative")
 	}
 	if got := strings.Join(AvailableSubagentRoleNames(settings, false), ","); got != "fast,blocked,visible,worker" {
-		t.Fatalf("available roles = %q, want all meaningful roles", got)
+		t.Fatalf("available roles = %q, want all configured roles", got)
 	}
 	if got := strings.Join(AvailableSubagentRoleNames(settings, true), ","); got != "fast,visible,worker" {
 		t.Fatalf("callable roles = %q, want skill-only role and independent visible role", got)
+	}
+}
+
+func TestRoleCatalogPreservesEquivalentAndInheritedRoles(t *testing.T) {
+	_, _, app := loadConfigTestFileApp(t, `
+model = "gpt-6-sol"
+[subagents.default]
+model = "gpt-6-sol"
+[subagents.worker]
+model = "gpt-6-sol"
+[subagents.inherited]
+description = "Uses inherited settings."
+[subagents.blocked]
+model = "gpt-6-sol"
+agent_callable = false
+`, LoadOptions{})
+	if got := AvailableSubagentRoleNames(app.Settings, false); !slices.Equal(got, []string{"fast", "blocked", "inherited", "worker"}) {
+		t.Fatalf("human role catalog = %v", got)
+	}
+	if got := AvailableSubagentRoleNames(app.Settings, true); !slices.Equal(got, []string{"fast", "inherited", "worker"}) {
+		t.Fatalf("model-callable role catalog = %v", got)
 	}
 }
 

@@ -124,10 +124,6 @@ func (e *Engine) completeWorkflowCurrentNode(
 	if run == nil || run.StepID != stepID {
 		return workflowruntime.CompletionResult{}, ErrActiveStepInactive
 	}
-	runID, err := runtimeids.ParseRunID(run.RunID)
-	if err != nil {
-		return workflowruntime.CompletionResult{}, fmt.Errorf("active Workflow run identity: %w", err)
-	}
 	parsedStepID, err := runtimeids.ParseStepID(stepID)
 	if err != nil {
 		return workflowruntime.CompletionResult{}, fmt.Errorf("active Workflow step identity: %w", err)
@@ -135,7 +131,6 @@ func (e *Engine) completeWorkflowCurrentNode(
 	return execution.Controller.CompleteAgentCurrentNode(ctx, workflowruntime.AgentCompletionRequest{
 		Provenance: workflowruntime.AgentCompletionProvenance{
 			ScopeID: execution.ScopeID,
-			RunID:   runID,
 			StepID:  parsedStepID,
 		},
 		SessionID:    sessionID,
@@ -147,7 +142,6 @@ func (e *Engine) completeWorkflowCurrentNode(
 
 func (e *Engine) ApplyWorkflowAgentCompletion(
 	scopeID runtimeids.ExecutionScopeID,
-	runID runtimeids.RunID,
 	stepID runtimeids.StepID,
 	commit func() (workflowruntime.CompletionResult, error),
 ) (workflowruntime.CompletionResult, error) {
@@ -159,7 +153,7 @@ func (e *Engine) ApplyWorkflowAgentCompletion(
 		return workflowruntime.CompletionResult{}, ErrActiveStepInactive
 	}
 	snapshot := e.ActiveRun()
-	if snapshot == nil || snapshot.RunID != runID.String() || snapshot.StepID != stepID.String() {
+	if snapshot == nil || snapshot.StepID != stepID.String() {
 		return workflowruntime.CompletionResult{}, ErrActiveStepInactive
 	}
 	var result workflowruntime.CompletionResult

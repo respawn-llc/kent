@@ -92,7 +92,6 @@ func exerciseGoalQuestion(t *testing.T, resume bool, action goalQuestionAction) 
 			"ask before proceeding",
 			"user",
 			nil,
-			nil,
 		)
 	}
 	if err != nil {

@@ -43,7 +43,6 @@ type stepLifecycleSink struct {
 
 func (s stepLifecycleSink) StepBegan(_ context.Context, snapshot runtime.StepLifecycleSnapshot) error {
 	active := &runtimeactivity.ActiveStepSnapshot{
-		RunID:      snapshot.RunID,
 		StepID:     snapshot.StepID,
 		ActiveKind: runtimeactivity.MustClientActiveKindFromRuntime(snapshot.ActiveKind),
 	}

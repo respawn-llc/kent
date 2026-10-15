@@ -214,7 +214,24 @@ func (s *Service) SessionChatSettings(
 		SessionId: sessionID.String(),
 		ShortId:   protoapi.SessionShortIDToProto(record.ShortID),
 	}
-	facts.Connection, err = authstatus.SessionConnection(input.Configuration.Settings, record.Meta.ConnectionID)
+	binding := record.Meta.ConnectionID
+	var replacement *chatsettingspb.ConnectionReplacement
+	if binding != nil {
+		if _, present := input.Configuration.Settings.Connections[*binding]; !present {
+			selected, ok := input.Catalog.Lookup(input.EffectiveAgent)
+			if !ok {
+				selected, ok = input.Catalog.Lookup(config.DefaultSubagentRole)
+			}
+			if !ok || selected.ConnectionID == nil {
+				return nil, errors.New("effective Chat Agent Connection is unavailable")
+			}
+			replacement = &chatsettingspb.ConnectionReplacement{
+				Previous: string(*binding), Current: string(*selected.ConnectionID),
+			}
+			binding = selected.ConnectionID
+		}
+	}
+	facts.Connection, err = authstatus.SessionConnection(input.Configuration.Settings, binding)
 	if err != nil {
 		return nil, err
 	}
@@ -226,7 +243,9 @@ func (s *Service) SessionChatSettings(
 		facts.TaskShortId = &taskIdentity.TaskShortID
 	}
 	return &chatsettingspb.ReadSuccess{
-		Target: &chatsettingspb.ReadSuccess_Session{Session: &chatsettingspb.SessionSettings{Settings: settings, Session: facts}},
+		Target: &chatsettingspb.ReadSuccess_Session{Session: &chatsettingspb.SessionSettings{
+			Settings: settings, Session: facts, ConnectionReplacement: replacement,
+		}},
 	}, nil
 }
 
@@ -308,14 +327,11 @@ func (s *Service) PlanLaunchSession(ctx context.Context, req PlanRequest) (PlanR
 	var caller *subagentpolicy.Caller
 	if req.Mode == launch.ModeHeadless {
 		if req.CallerSessionID != nil {
-			resolved, callerErr := launch.ResolveSessionCaller(ctx, planner.CallerSessions, *req.CallerSessionID)
+			resolved, callerErr := s.resolveRunCaller(ctx, req.CallerSessionID)
 			if callerErr != nil {
-				if errors.Is(callerErr, session.ErrSessionNotFound) {
-					return PlanResult{}, &serverapi.SubagentLaunchDeniedError{Kind: serverapi.SubagentLaunchDenialCallerMissing}
-				}
 				return PlanResult{}, callerErr
 			}
-			caller = &resolved
+			caller = resolved
 			if parentAgentSessionID != nil {
 				callerSessionID, parseErr := runtimeids.ParseSessionID(*req.CallerSessionID)
 				if parseErr != nil || *parentAgentSessionID != callerSessionID {

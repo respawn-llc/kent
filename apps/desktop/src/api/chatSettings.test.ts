@@ -80,6 +80,34 @@ function settings() {
   });
 }
 
+it("preserves the server-selected Connection replacement notice", async () => {
+  const transport = new FakeRpcTransport([
+    {
+      descriptor: ChatSettingsService.method.read,
+      result: create(ReadResultSchema, {
+        outcome: {
+          case: "success",
+          value: {
+            target: {
+              case: "session",
+              value: {
+                settings: settings(),
+                session: { sessionId: sessionID },
+                connectionReplacement: { previous: "removed", current: "work" },
+              },
+            },
+          },
+        },
+      }),
+    },
+  ]);
+  const read = await new ApiClient(transport, unexpectedProjectOverflow).chat.getSettings(sessionTarget);
+  expect(read).toMatchObject({
+    kind: "session",
+    connectionReplacement: { previous: "removed", current: "work" },
+  });
+});
+
 function mutationResponse() {
   return create(MutationResponseSchema, {
     outcome: {

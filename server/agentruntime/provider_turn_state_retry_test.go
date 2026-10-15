@@ -44,7 +44,7 @@ func TestGenerateWithRetryReplaysExactProviderTurnState(t *testing.T) {
 	t.Cleanup(server.Close)
 
 	dispatch, err := llm.NewCodexDispatchContext(llm.CodexDispatchFacts{
-		SessionID: "session-1", RunID: "run-1",
+		SessionID: "session-1", StepID: "step-1",
 		CompactionGeneration: 1, RequestKind: llm.CodexRequestKindTurn.Optional(),
 	})
 	if err != nil {

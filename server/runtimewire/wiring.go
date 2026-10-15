@@ -41,6 +41,7 @@ func (w *RuntimeWiring) Close() error {
 type RuntimeWiringOptions struct {
 	Environment                         func(string) (string, bool)
 	WorkspaceMembership                 WorkspaceMembership
+	ProjectWorkspaceContextReader       runtime.ProjectWorkspaceContextReader
 	MainWorkspaceRoot                   string
 	RequiredTools                       []toolspec.ID
 	FilesystemContext                   tools.FilesystemContext
@@ -256,6 +257,7 @@ func NewRuntimeWiringWithBackground(
 		HeadlessMode:                    opts.Headless,
 		ToolPreambles:                   active.ToolPreambles,
 		WorkflowPrompt:                  opts.WorkflowPrompt,
+		ProjectWorkspaceContextReader:   opts.ProjectWorkspaceContextReader,
 		BackgroundShellManager:          background,
 		AskQuestionBatchSkipped:         opts.AskQuestionBatchSkipped,
 		TranscriptWorkingDir:            workingDirectory,

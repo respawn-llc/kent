@@ -88,17 +88,13 @@ func TestQueuedAgentSteerStartsNewMismatchWarningStep(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewAgentSteer: %v", err)
 	}
-	queued := make(chan error, 1)
-	go func() {
-		_, accepted, err := engine.QueueAgentSteerForActiveRun(context.Background(), runtimeids.NewQueueItemID().String(), steer, nil)
-		if err == nil && !accepted {
-			err = errors.New("queue Agent Steer was not accepted")
-		}
-		queued <- err
-	}()
+	_, accepted, err := engine.QueueAgentSteerForActiveRun(context.Background(), runtimeids.NewQueueItemID().String(), steer, nil)
 	release()
-	if err := <-queued; err != nil {
+	if err != nil {
 		t.Fatal(err)
+	}
+	if !accepted {
+		t.Fatal("queue Agent Steer was not accepted")
 	}
 	if err := <-done; err != nil {
 		t.Fatal(err)

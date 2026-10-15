@@ -28,6 +28,21 @@ enum RunSelectionWarning {
   RUN_SELECTION_WARNING_MODEL_IGNORED_TO_PRESERVE_CACHE = 2;
 }
 
+enum IgnoredRunSetting {
+  IGNORED_RUN_SETTING_UNSPECIFIED = 0;
+  IGNORED_RUN_SETTING_AGENT = 1;
+  IGNORED_RUN_SETTING_MODEL = 2;
+  IGNORED_RUN_SETTING_TOOLS = 3;
+  IGNORED_RUN_SETTING_THEME = 4;
+  IGNORED_RUN_SETTING_MODEL_TIMEOUT = 5;
+}
+
+message ActiveSteerAccepted {
+  repeated IgnoredRunSetting ignored_settings = 1 [
+    (buf.validate.field).repeated.items.enum = {defined_only: true not_in: [0]}
+  ];
+}
+
 message Request {
   kent.api.session_launch.SessionLaunchRequestIntent intent = 1 [(buf.validate.field).required = true];
   optional string caller_session_id = 2 [(buf.validate.field).string.min_len = 1];
@@ -136,6 +151,7 @@ message ProgressEvent {
     ProgressFailure compaction_failed = 5;
     ProgressFailure run_logging_failed = 6;
     ProgressFailure run_cleanup_failed = 7;
+    ActiveSteerAccepted active_steer_accepted = 8;
   }
 }
 

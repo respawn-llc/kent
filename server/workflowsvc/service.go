@@ -57,7 +57,7 @@ type taskExecution interface {
 	InterruptForManualMove(context.Context, workflow.TaskID, func() error) error
 	Interrupt(context.Context, workflowexecution.InterruptSelector) error
 	EnsureTaskQuiescent(workflow.TaskID) error
-	CompleteSessionCurrentNode(context.Context, runtimeids.SessionID, runtimeids.RunID, runtimeids.StepID, string, map[string]string, string) (workflowruntime.CompletionResult, error)
+	CompleteSessionCurrentNode(context.Context, runtimeids.SessionID, runtimeids.StepID, string, map[string]string, string) (workflowruntime.CompletionResult, error)
 }
 
 type initiatingActionTargetDecision struct {
@@ -2079,10 +2079,6 @@ func (s *Service) completeWorkflowTask(ctx context.Context, req *taskpb.Complete
 		if parseErr != nil {
 			return nil, parseErr
 		}
-		runID, err := runtimeids.ParseRunID(req.GetRunId())
-		if err != nil {
-			return nil, err
-		}
 		stepID, err := runtimeids.ParseStepID(req.GetStepId())
 		if err != nil {
 			return nil, err
@@ -2092,7 +2088,7 @@ func (s *Service) completeWorkflowTask(ctx context.Context, req *taskpb.Complete
 			values[output.Name] = output.Value
 		}
 		outcome, err := s.currentNodeExecution.CompleteSessionCurrentNode(
-			ctx, sessionID, runID, stepID,
+			ctx, sessionID, stepID,
 			req.GetTransitionId(), values, req.GetCommentary(),
 		)
 		if err != nil {

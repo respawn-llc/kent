@@ -355,10 +355,6 @@ func TestCurrentNodeControllerAgentCompletionRequiresMatchingActiveProvenance(t 
 			value.ScopeID = runtimeids.NewExecutionScopeID()
 			return value
 		}},
-		{name: "stale run", mutate: func(value workflowruntime.AgentCompletionProvenance) workflowruntime.AgentCompletionProvenance {
-			value.RunID = mustAgentCompletionRunID(t, "11111111-1111-4111-8111-111111111111")
-			return value
-		}},
 		{name: "stale step", mutate: func(value workflowruntime.AgentCompletionProvenance) workflowruntime.AgentCompletionProvenance {
 			value.StepID = mustAgentCompletionStepID(t, "22222222-2222-4222-8222-222222222222")
 			return value
@@ -421,7 +417,6 @@ func TestCurrentNodeControllerAgentCompletionRequiresMatchingActiveProvenance(t 
 				}
 				provenance := test.mutate(workflowruntime.AgentCompletionProvenance{
 					ScopeID: scopeID,
-					RunID:   mustAgentCompletionRunID(t, active.RunID),
 					StepID:  mustAgentCompletionStepID(t, active.StepID),
 				})
 				_, err := fixture.controller.CompleteAgentCurrentNode(context.Background(), workflowruntime.AgentCompletionRequest{
@@ -493,15 +488,6 @@ func TestCurrentNodeControllerAgentCompletionRequiresMatchingActiveProvenance(t 
 			}
 		})
 	}
-}
-
-func mustAgentCompletionRunID(t *testing.T, raw string) runtimeids.RunID {
-	t.Helper()
-	value, err := runtimeids.ParseRunID(raw)
-	if err != nil {
-		t.Fatalf("parse Run ID: %v", err)
-	}
-	return value
 }
 
 func mustAgentCompletionStepID(t *testing.T, raw string) runtimeids.StepID {

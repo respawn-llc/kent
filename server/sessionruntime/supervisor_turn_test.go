@@ -85,10 +85,11 @@ func newSupervisorTurnHarness(t *testing.T, additionalTools ...toolspec.ID) *sup
 		t.Fatal(err)
 	}
 	h.authority = NewAuthority(AuthorityOptions{
-		PersistenceRoot:     fixture.config.PersistenceRoot,
-		WorkspaceMembership: fixture.metadata,
-		StoreOptions:        fixture.metadata.AuthoritativeSessionStoreOptions(),
-		PromptFeed:          h.prompts,
+		PersistenceRoot:               fixture.config.PersistenceRoot,
+		WorkspaceMembership:           fixture.metadata,
+		ProjectWorkspaceContextReader: fixture.metadata,
+		StoreOptions:                  fixture.metadata.AuthoritativeSessionStoreOptions(),
+		PromptFeed:                    h.prompts,
 	})
 	t.Cleanup(func() {
 		cancel()

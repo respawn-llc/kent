@@ -58,6 +58,7 @@ const (
 	MessageTypeHeadlessModeExit               = clientui.MessageTypeHeadlessModeExit
 	MessageTypeWorkflowMode                   = clientui.MessageTypeWorkflowMode
 	MessageTypeWorkflowModeExit               = clientui.MessageTypeWorkflowModeExit
+	MessageTypeWorkspaces                     = clientui.MessageTypeWorkspaces
 	MessageTypeWorktreeMode                   = clientui.MessageTypeWorktreeMode
 	MessageTypeWorktreeModeExit               = clientui.MessageTypeWorktreeModeExit
 	MessageTypeSessionRebind                  = clientui.MessageTypeSessionRebind

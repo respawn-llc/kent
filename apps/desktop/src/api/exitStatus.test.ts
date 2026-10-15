@@ -49,7 +49,6 @@ it.each([-1n, 0n, 255n, 2147483648n, 3221225477n, 4294967295n])(
           value: {
             activityId: id,
             processId: "process-status",
-            ownerRunId: id,
             ownerStepId: id,
             lifecycle: R.BackgroundLifecycle.COMPLETED,
             command: "child",

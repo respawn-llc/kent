@@ -106,7 +106,9 @@ function noticeProse(
     compact:
       notice.MessageType === "agent_steer"
         ? t("chatTranscript.notice.agentSteer")
-        : structuredNoticeText(notice, t, false, formatPath),
+        : notice.MessageType === "workspaces"
+          ? t("chatTranscript.notice.projectWorkspaces")
+          : structuredNoticeText(notice, t, false, formatPath),
   };
 }
 

@@ -559,6 +559,7 @@ func promptCacheChunks(req llm.Request) ([][]byte, error) {
 		}
 	}
 	metadata, err := json.Marshal(promptCacheMetadata{
+		Model:            req.Model,
 		SystemPrompt:     req.SystemPrompt,
 		Tools:            promptCacheTools(req.Tools),
 		StructuredOutput: structuredOutput,
@@ -579,6 +580,7 @@ func promptCacheChunks(req llm.Request) ([][]byte, error) {
 }
 
 type promptCacheMetadata struct {
+	Model            string                       `json:"model"`
 	SystemPrompt     string                       `json:"system_prompt,omitempty"`
 	Tools            []promptCacheTool            `json:"tools,omitempty"`
 	StructuredOutput *promptCacheStructuredOutput `json:"structured_output,omitempty"`

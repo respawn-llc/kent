@@ -199,7 +199,6 @@ type GoalStatusUpdate struct {
 
 type RunState struct {
 	Lifecycle  RunLifecycle
-	RunID      string
 	ActiveKind ActiveKind
 	Status     RunStatus
 	StartedAt  time.Time
@@ -210,7 +209,6 @@ type BackgroundShellEvent struct {
 	Type              BackgroundShellEventType
 	ID                string
 	ActivityID        uuid.UUID
-	OwnerRunID        string
 	OwnerStepID       string
 	State             string
 	Command           string

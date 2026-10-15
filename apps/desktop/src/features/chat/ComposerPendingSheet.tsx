@@ -8,13 +8,16 @@ import type { PendingWorkItem } from "@/api";
 import { AnimatedReveal, IconTooltipButton, ScrollRegion, Spinner } from "@/ui";
 import type { useComposerPendingWork } from "./useComposerPendingWork";
 import { useChatMessageMotion } from "./ChatMessageMotion";
+import type { OutgoingInput } from "./OutgoingInputPresentation";
 
 export function ComposerPendingSheet({
   pending,
   visible,
+  outgoing = [],
 }: Readonly<{
   pending: ReturnType<typeof useComposerPendingWork>;
   visible: boolean;
+  outgoing?: readonly OutgoingInput[];
 }>) {
   const container = useRef<HTMLDivElement>(null);
   const content = useRef<HTMLDivElement>(null);
@@ -48,10 +51,34 @@ export function ComposerPendingSheet({
                 <PendingRow item={item} pending={pending} visible={visible} />
               </AnimatedReveal>
             ))}
+            {outgoing.map((input) => (
+              <AnimatedReveal key={input.inputID.toJSONValue()} variant="collapse-center">
+                <PendingText input={input} visible={visible} />
+              </AnimatedReveal>
+            ))}
           </AnimatePresence>
         </div>
       </ScrollRegion>
     </div>
+  );
+}
+
+function PendingText({ input, visible }: Readonly<{ input: OutgoingInput; visible: boolean }>) {
+  const { t } = useTranslation();
+  return (
+    <PendingRowSurface
+      id={input.inputID.toJSONValue()}
+      value={input.text}
+      visible={visible}
+      icon={input.intent === "queue" ? <ClockArrowRight size={16} /> : <CornerDownRight size={16} />}
+      action={
+        input.confirmation === "awaiting" ? (
+          <span title={t("chatComposer.awaitingConfirmation")}>
+            <Spinner size="sm" />
+          </span>
+        ) : null
+      }
+    />
   );
 }
 
@@ -65,13 +92,6 @@ function PendingRow({
   visible: boolean;
 }>) {
   const { t } = useTranslation();
-  const motion = useChatMessageMotion();
-  const text = useRef<HTMLSpanElement>(null);
-  const id = item.id.toJSONValue();
-  const present = useIsPresent();
-  useLayoutEffect(() => {
-    if (visible && present && text.current !== null) return motion.register(id, text.current);
-  }, [motion, id, visible, present]);
   const loading = useAtomValue(pending.discardPending(item.id.toJSONValue()));
   const Icon =
     item.kind === "manual_compaction"
@@ -82,22 +102,54 @@ function PendingRow({
           ? ClockArrowRight
           : CornerDownRight;
   return (
+    <PendingRowSurface
+      id={item.id.toJSONValue()}
+      value={item.canonicalInput}
+      visible={visible}
+      icon={<Icon size={16} />}
+      action={
+        <IconTooltipButton
+          label={t("chatComposer.discard")}
+          disabled={loading || pending.interactionRestricted}
+          tooltip={pending.interactionRestricted ? t("chat.navigationPending") : t("chatComposer.discard")}
+          onClick={() => {
+            pending.discard(item.id);
+          }}
+          size="icon-sm"
+        >
+          {loading ? <Spinner size="sm" /> : <X size={14} />}
+        </IconTooltipButton>
+      }
+    />
+  );
+}
+
+function PendingRowSurface({
+  id,
+  value,
+  visible,
+  icon,
+  action,
+}: Readonly<{
+  id: string;
+  value: string;
+  visible: boolean;
+  icon: React.ReactNode;
+  action: React.ReactNode;
+}>) {
+  const motion = useChatMessageMotion();
+  const text = useRef<HTMLSpanElement>(null);
+  const present = useIsPresent();
+  useLayoutEffect(() => {
+    if (visible && present && text.current !== null) return motion.register(id, text.current);
+  }, [motion, id, visible, present]);
+  return (
     <div className="chat-composer-pending-row">
-      <Icon size={16} className="shrink-0 text-[var(--color-muted)]" />
+      <span className="shrink-0 text-[var(--color-muted)]">{icon}</span>
       <span ref={text} className="min-w-0 flex-1 line-clamp-2 whitespace-pre-wrap break-words">
-        {item.canonicalInput}
+        {value}
       </span>
-      <IconTooltipButton
-        label={t("chatComposer.discard")}
-        disabled={loading || pending.interactionRestricted}
-        tooltip={pending.interactionRestricted ? t("chat.navigationPending") : t("chatComposer.discard")}
-        onClick={() => {
-          pending.discard(item.id);
-        }}
-        size="icon-sm"
-      >
-        {loading ? <Spinner size="sm" /> : <X size={14} />}
-      </IconTooltipButton>
+      {action}
     </div>
   );
 }

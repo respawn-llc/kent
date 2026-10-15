@@ -174,6 +174,9 @@ func renderWorktreeBadges(item worktreeui.Item, selected bool, theme string) []s
 	if !item.Managed && !item.IsMainWorkspace {
 		badges = append(badges, badge("external", p.muted))
 	}
+	if item.IsInUse {
+		badges = append(badges, badge("In Use", p.muted))
+	}
 	return badges
 }
 

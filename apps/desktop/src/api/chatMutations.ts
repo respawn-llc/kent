@@ -1,6 +1,7 @@
 import { create } from "@app/server-api-contract";
 import {
   ChatService,
+  InputAdmissionDisposition,
   type AcceptedDiagnostic,
   type CompactionNotAccepted,
   type InputNotAccepted,
@@ -107,6 +108,7 @@ export function createChatMutationApi(transport: RpcTransport): ChatMutationApi 
       outcome: {
         kind: "accepted" as const,
         queueItemID: acceptedID,
+        disposition: inputAdmissionDisposition(success.outcome.value.disposition),
         diagnostic: acceptedDiagnostic(success.outcome.value.diagnostic),
       },
     };
@@ -259,6 +261,20 @@ export function createChatMutationApi(transport: RpcTransport): ChatMutationApi 
       });
     },
   };
+}
+
+function inputAdmissionDisposition(value: InputAdmissionDisposition) {
+  switch (value) {
+    case InputAdmissionDisposition.STARTED_TURN:
+      return "started_turn" as const;
+    case InputAdmissionDisposition.PENDING_STEER:
+      return "pending_steer" as const;
+    case InputAdmissionDisposition.PENDING_QUEUE:
+      return "pending_queue" as const;
+    case InputAdmissionDisposition.UNSPECIFIED:
+    default:
+      throw new ContractError("Chat mutation admission disposition is invalid.");
+  }
 }
 
 function mutationTarget(

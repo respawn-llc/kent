@@ -2,6 +2,7 @@ import { useEffect, useLayoutEffect, useRef, useState, type KeyboardEvent } from
 import { useTranslation } from "react-i18next";
 
 import { useAppServices, useWindowFocus } from "@/app-facade";
+import type { ChatRuntimeActivity } from "@/api";
 import { showStatusToast, motionDurationFromCSSVar, prefersReducedMotion } from "@/ui";
 import { advanceComposerStop, type ComposerStopEvent } from "./composerStop";
 import type { useChatComposer } from "./useChatComposer";
@@ -10,7 +11,7 @@ export function useComposerKeyboard(
   composer: ReturnType<typeof useChatComposer>,
   stoppable: boolean,
   observationError: Error | null,
-  enabled = true,
+  { enabled = true, activity }: Readonly<{ enabled?: boolean; activity?: ChatRuntimeActivity }> = {},
 ) {
   const { nativeBridge } = useAppServices();
   const { t } = useTranslation();
@@ -119,7 +120,11 @@ export function useComposerKeyboard(
       const unsupportedModifier = platform === "macos" ? event.ctrlKey : event.metaKey;
       if (event.key === "Enter" && !event.shiftKey && !event.altKey && !unsupportedModifier) {
         event.preventDefault();
-        composer.submit((platform === "macos" ? event.metaKey : event.ctrlKey) ? "queue" : "send");
+        composer.submit(
+          (platform === "macos" ? event.metaKey : event.ctrlKey) ? "queue" : "send",
+          "editor",
+          activity,
+        );
       }
     },
   };

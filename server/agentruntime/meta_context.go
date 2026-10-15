@@ -11,6 +11,7 @@ import (
 
 	"core/prompts"
 	"core/server/llm"
+	"core/server/metadata"
 	"core/server/sessionstore"
 	"core/server/skillcatalog"
 	"core/server/subagentpolicy"
@@ -30,6 +31,7 @@ const (
 	metaContextKindUnknown metaContextKind = iota
 	metaContextKindAgents
 	metaContextKindSkills
+	metaContextKindWorkspaces
 	metaContextKindSubagents
 	metaContextKindEnvironment
 	metaContextKindHeadless
@@ -62,6 +64,7 @@ type metaContextBuildOptions struct {
 	ActiveGoal                *session.GoalState
 	IncludeWorkflow           bool
 	WorkflowMessage           *llm.Message
+	ProjectWorkspacesContext  *projectWorkspacesContext
 	WorktreeReminder          *session.WorktreeReminderState
 	WorktreePromptKind        prompts.WorktreePromptKind
 	SessionRebindReminder     *session.SessionRebindReminder
@@ -73,6 +76,7 @@ type metaContextBuildResult struct {
 	Agents                 []llm.Message
 	SkillWarnings          []string
 	Skills                 []llm.Message
+	Workspaces             []llm.Message
 	Subagents              []llm.Message
 	Environment            []llm.Message
 	Headless               []llm.Message
@@ -112,11 +116,12 @@ func (p metaContextProjection) Messages() []llm.Message {
 	return out
 }
 func (r metaContextBuildResult) StablePrefixMessages() []llm.Message {
-	out := make([]llm.Message, 0, len(r.Agents)+len(r.Skills)+len(r.Subagents)+len(r.Headless)+len(r.HeadlessExit)+len(r.ActiveGoalContinuation)+len(r.Workflow)+len(r.WorkflowExit)+len(r.Worktree)+len(r.WorktreeExit)+len(r.SessionRebind))
+	out := make([]llm.Message, 0, len(r.Agents)+len(r.Skills)+len(r.Workspaces)+len(r.Subagents)+len(r.Headless)+len(r.HeadlessExit)+len(r.ActiveGoalContinuation)+len(r.Workflow)+len(r.WorkflowExit)+len(r.Worktree)+len(r.WorktreeExit)+len(r.SessionRebind))
 	out = append(out, r.Headless...)
 	out = append(out, r.HeadlessExit...)
 	out = append(out, r.Subagents...)
 	out = append(out, r.Skills...)
+	out = append(out, r.Workspaces...)
 	out = append(out, r.Worktree...)
 	out = append(out, r.WorktreeExit...)
 	out = append(out, r.SessionRebind...)
@@ -229,6 +234,16 @@ func (b metaContextBuilder) Build(opts metaContextBuildOptions) (metaContextBuil
 				MessageType: textutil.Value(llm.MessageTypeSkills),
 				Content:     textutil.Value(renderSkillsContext(result.Skills, b.environmentCWD, home)),
 			}})
+		}
+	}
+
+	if opts.ProjectWorkspacesContext != nil {
+		message, ok, err := projectWorkspacesMetaMessage(*opts.ProjectWorkspacesContext, home)
+		if err != nil {
+			return metaContextBuildResult{}, err
+		}
+		if ok {
+			collector.addMessages([]llm.Message{message})
 		}
 	}
 
@@ -453,7 +468,7 @@ func (b metaContextBuilder) renderableSubagentRoles(context config.SubagentInvoc
 	for _, name := range names {
 		role := settings.Subagents[name]
 		caller := b.subagentCaller(context)
-		if subagentpolicy.Authorize(settings, caller, subagentpolicy.Target{Kind: subagentpolicy.TargetNamed, Selector: name}) != nil || !config.SubagentRoleHasMeaningfulDiff(settings, role) {
+		if subagentpolicy.Authorize(settings, caller, subagentpolicy.Target{Kind: subagentpolicy.TargetNamed, Selector: name}) != nil {
 			continue
 		}
 		effective, _, err := config.OverlaySubagentRoleSettings(b.subagentConfig, role, true)
@@ -666,7 +681,7 @@ func workflowInstructionTransitions(in []workflowruntime.TransitionInstruction) 
 func worktreeModeMetaMessage(state session.WorktreeReminderState, home string, kind prompts.WorktreePromptKind) (llm.Message, bool) {
 	content := prompts.RenderWorktreeModePrompt(kind, worktreeBranchPromptValue(state.Branch), state.EffectiveCwd,
 		pathutil.Compact(state.WorktreePath, &home, &state.EffectiveCwd),
-		pathutil.Compact(state.WorkspaceRoot, &home, &state.EffectiveCwd))
+		pathutil.CompactHome(state.WorkspaceRoot, &home))
 	if strings.TrimSpace(content) == "" {
 		return llm.Message{}, false
 	}
@@ -684,7 +699,7 @@ func worktreeModeExitMetaMessage(state session.WorktreeReminderState, home strin
 	}
 	content := prompts.RenderWorktreeModeExitPrompt(worktreeBranchPromptValue(state.Branch), state.EffectiveCwd,
 		pathutil.Compact(state.WorktreePath, &home, &state.EffectiveCwd),
-		pathutil.Compact(state.WorkspaceRoot, &home, &state.EffectiveCwd))
+		pathutil.CompactHome(state.WorkspaceRoot, &home))
 	if strings.TrimSpace(content) == "" {
 		return llm.Message{}, false
 	}
@@ -744,6 +759,41 @@ func skillDiscoveryWarningTexts(issues []skillcatalog.Issue, cwd, home string) [
 	return out
 }
 
+func projectWorkspacesMetaMessage(
+	context projectWorkspacesContext,
+	home string,
+) (llm.Message, bool, error) {
+	if context.WorkspaceCount <= 1 {
+		return llm.Message{}, false, nil
+	}
+	args := prompts.ProjectWorkspacesReminderArgs{
+		ProjectName:    context.ProjectName,
+		WorkspaceCount: context.WorkspaceCount,
+		Workspaces:     make([]prompts.ProjectWorkspacesReminderPath, 0, len(context.Workspaces)),
+	}
+	for _, workspace := range context.Workspaces {
+		args.Workspaces = append(args.Workspaces, prompts.ProjectWorkspacesReminderPath{
+			Path:      pathutil.CompactHome(workspace.CanonicalRoot, &home),
+			IsDefault: workspace.IsDefault,
+		})
+	}
+	if context.WorkspaceCount > metadata.ProjectWorkspaceContextLimit {
+		args.RemainingWorkspaceCount = context.WorkspaceCount - metadata.ProjectWorkspaceContextLimit
+	}
+	content, err := prompts.RenderProjectWorkspacesReminder(args)
+	if err != nil {
+		return llm.Message{}, false, err
+	}
+	if strings.TrimSpace(content) == "" {
+		return llm.Message{}, false, nil
+	}
+	return llm.Message{
+		Role:        llm.RoleDeveloper,
+		MessageType: textutil.Value(llm.MessageTypeWorkspaces),
+		Content:     textutil.Value(content),
+	}, true, nil
+}
+
 type metaContextAgentMessage struct {
 	rank    int
 	seq     int
@@ -757,6 +807,7 @@ type metaContextCollector struct {
 	seenWarningMessages    map[string]bool
 	agents                 []metaContextAgentMessage
 	skills                 *llm.Message
+	workspaces             *llm.Message
 	subagents              *llm.Message
 	environment            *llm.Message
 	headless               *llm.Message
@@ -832,6 +883,8 @@ func (c *metaContextCollector) slot(kind metaContextKind) **llm.Message {
 	switch kind {
 	case metaContextKindSkills:
 		return &c.skills
+	case metaContextKindWorkspaces:
+		return &c.workspaces
 	case metaContextKindSubagents:
 		return &c.subagents
 	case metaContextKindEnvironment:
@@ -871,6 +924,9 @@ func (c *metaContextCollector) result() metaContextBuildResult {
 	}
 	if c.skills != nil {
 		result.Skills = []llm.Message{*c.skills}
+	}
+	if c.workspaces != nil {
+		result.Workspaces = []llm.Message{*c.workspaces}
 	}
 	if c.subagents != nil {
 		result.Subagents = []llm.Message{*c.subagents}
@@ -921,6 +977,8 @@ func classifyMetaContextMessage(message llm.Message) (metaContextClassification,
 		}, true
 	case llm.MessageTypeSkills:
 		return metaContextClassification{kind: metaContextKindSkills, key: "skills", messageType: llm.MessageTypeSkills}, true
+	case llm.MessageTypeWorkspaces:
+		return metaContextClassification{kind: metaContextKindWorkspaces, key: "workspaces", messageType: llm.MessageTypeWorkspaces}, true
 	case llm.MessageTypeSubagents:
 		return metaContextClassification{kind: metaContextKindSubagents, key: "subagents", messageType: llm.MessageTypeSubagents}, true
 	case llm.MessageTypeEnvironment:
