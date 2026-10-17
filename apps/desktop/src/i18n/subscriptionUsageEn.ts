@@ -7,4 +7,5 @@ export const subscriptionUsageEnglish = {
   additional: "Additional · {{duration}}",
   breakdown: "Build {{build}}% · Chat {{chat}}%",
   reset: "Resets in {{duration}}",
+  quotaUnavailableForSignInMethod: "Quota is unavailable for this sign-in method.",
 };

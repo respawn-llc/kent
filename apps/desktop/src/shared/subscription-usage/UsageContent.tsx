@@ -6,7 +6,7 @@ import * as Stream from "effect/Stream";
 import * as Clock from "effect/Clock";
 import { RotateCw } from "lucide-react";
 import { useTranslation } from "react-i18next";
-import { errorMessage, type SubscriptionUsage, type SubscriptionWindow } from "@/api";
+import { errorMessage, SubscriptionReadError, type SubscriptionUsage, type SubscriptionWindow } from "@/api";
 import { ErrorState, IconTooltipButton, LinearBar, Spinner, VirtualizedInfiniteList } from "@/ui";
 import type { createSubscriptionUsageModel } from "./model";
 import { presentUsageWindow } from "./presentation";
@@ -75,6 +75,7 @@ export function UsageContent({
 type UsageRow = Readonly<{ id: string; data: SubscriptionUsage | null | undefined; error: unknown }>;
 
 function ConnectionUsage({ row }: Readonly<{ row: UsageRow }>) {
+  const { t } = useTranslation();
   return (
     <div className="subscription-usage-connection">
       <div className="subscription-usage-name">
@@ -82,7 +83,15 @@ function ConnectionUsage({ row }: Readonly<{ row: UsageRow }>) {
         {row.data?.plan != null && <span title={row.data.plan}>{row.data.plan}</span>}
       </div>
       {row.data !== undefined && row.data !== null && <UsageWindows usage={row.data} />}
-      {row.error !== null && <p className="subscription-usage-error">{errorMessage(row.error)}</p>}
+      {row.error !== null && (
+        <p className="subscription-usage-error">
+          {row.error instanceof SubscriptionReadError &&
+            row.error.classification === "unavailable-for-sign-in-method" && (
+              <span className="block">{t("subscriptionUsage.quotaUnavailableForSignInMethod")}</span>
+            )}
+          <span>{errorMessage(row.error)}</span>
+        </p>
+      )}
     </div>
   );
 }
