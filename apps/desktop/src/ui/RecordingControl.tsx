@@ -27,7 +27,7 @@ export function RecordingControl({
   return (
     <span className="relative inline-flex shrink-0 items-center gap-[var(--space-2)]">
       {recording !== null && <RecordingElapsed startedAt={recording.startedAt} />}
-      <span className={recording === null ? "inline-flex" : "inline-flex px-[var(--space-2)]"}>
+      <span className={recording === null ? "inline-flex" : "inline-flex px-[var(--space-4)]"}>
         <span ref={anchor} className="relative inline-grid place-items-center text-[var(--color-primary)]">
           {recording !== null && <RadialRecordingMeter analyser={recording.analyser} anchor={anchor} />}
           <IconTooltipButton
@@ -126,7 +126,7 @@ function RadialRecordingMeter({
       const radius = bounds.width / 2 + 1;
       for (const [index, value] of bars.entries()) {
         const angle = (index / count) * Math.PI * 2 - Math.PI / 2;
-        const amplitude = ((value / 255) * padding) / 2;
+        const amplitude = (value / 255) * padding * 0.75;
         const outer = radius + size / 48 + amplitude;
         context.moveTo(size / 2 + Math.cos(angle) * radius, size / 2 + Math.sin(angle) * radius);
         context.lineTo(size / 2 + Math.cos(angle) * outer, size / 2 + Math.sin(angle) * outer);

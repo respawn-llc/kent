@@ -12,6 +12,7 @@ import (
 	"net/textproto"
 
 	"core/server/llm"
+	"core/shared/config"
 )
 
 // transcribe owns both sides of the multipart pipe. Closing input interrupts a
@@ -29,6 +30,7 @@ func transcribe(ctx context.Context, invocation Invocation, credential *llm.Disp
 		return "", err
 	}
 	request.Header.Set("Content-Type", multipartWriter.FormDataContentType())
+	request.Header.Set("User-Agent", llm.ProviderUserAgent(config.Command))
 	if credential != nil {
 		request.Header.Set("Authorization", credential.Header)
 		if credential.Mode.AccountID != "" {
