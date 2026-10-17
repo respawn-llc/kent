@@ -1,5 +1,5 @@
 import { expect, it } from "bun:test";
-import { create, decode, encode } from "@app/server-api-contract";
+import { create, decode, encode, validate } from "@app/server-api-contract";
 import * as T from "@app/server-api-contract/gen/kent/api/transcript/tool_presentation_pb";
 import * as R from "@app/server-api-contract/gen/kent/api/transcript/transcript_pb";
 import { toolPresentation } from "./chatToolPresentation";
@@ -15,7 +15,9 @@ it.each([-1n, 0n, 255n, 2147483648n, 3221225477n, 4294967295n])(
       isShell: true,
       shellExitCode,
     });
-    expect(toolPresentation(value, "exec_command")?.ShellExitCode).toBe(Number(shellExitCode));
+    expect(toolPresentation(validate(T.ToolPresentationSchema, value), "exec_command")?.ShellExitCode).toBe(
+      Number(shellExitCode),
+    );
   },
 );
 
@@ -70,11 +72,14 @@ it.each([-1n, 0n, 255n, 2147483648n, 3221225477n, 4294967295n])(
 it("keeps absent shell exit status absent", () => {
   expect(
     toolPresentation(
-      create(T.ToolPresentationSchema, {
-        presentation: T.ToolPresentationKind.SHELL,
-        renderBehavior: T.ToolPresentationKind.SHELL,
-        isShell: true,
-      }),
+      validate(
+        T.ToolPresentationSchema,
+        create(T.ToolPresentationSchema, {
+          presentation: T.ToolPresentationKind.SHELL,
+          renderBehavior: T.ToolPresentationKind.SHELL,
+          isShell: true,
+        }),
+      ),
       "exec_command",
     )?.ShellExitCode,
   ).toBeNull();
@@ -83,12 +88,15 @@ it("keeps absent shell exit status absent", () => {
 it("rejects shell statuses outside the exact desktop integer range", () => {
   expect(() =>
     toolPresentation(
-      create(T.ToolPresentationSchema, {
-        presentation: T.ToolPresentationKind.SHELL,
-        renderBehavior: T.ToolPresentationKind.SHELL,
-        isShell: true,
-        shellExitCode: 9007199254740992n,
-      }),
+      validate(
+        T.ToolPresentationSchema,
+        create(T.ToolPresentationSchema, {
+          presentation: T.ToolPresentationKind.SHELL,
+          renderBehavior: T.ToolPresentationKind.SHELL,
+          isShell: true,
+          shellExitCode: 9007199254740992n,
+        }),
+      ),
       "exec_command",
     ),
   ).toThrow();
