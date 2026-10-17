@@ -1,3 +1,4 @@
+import { expect, it, vi } from "bun:test";
 import { act, renderHook, waitFor } from "@testing-library/react";
 import * as Effect from "effect/Effect";
 import * as Stream from "effect/Stream";

@@ -10,6 +10,7 @@ func sessionRuntimeTestProviderCapabilities() llm.ProviderCapabilities {
 	return llm.ProviderCapabilities{
 		ProviderID:           "openai",
 		SupportsResponsesAPI: true,
+		SupportsFastMode:     true,
 		IsOpenAIFirstParty:   true,
 	}
 }

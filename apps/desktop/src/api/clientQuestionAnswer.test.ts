@@ -1,3 +1,4 @@
+import { describe, expect, it } from "bun:test";
 import { unexpectedProjectOverflow } from "@/test-support/api";
 import { create, operationName } from "@app/server-api-contract";
 import {
@@ -82,7 +83,7 @@ describe("ApiClient prompt answer batches", () => {
       },
     ]);
     const client = new ApiClient(transport, unexpectedProjectOverflow);
-    await expect(client.answerPromptBatch(batchRequest)).rejects.toThrow();
+    expect(client.answerPromptBatch(batchRequest)).rejects.toThrow();
     expect(transport.attachedSessionCalls).toHaveLength(1);
   });
 });

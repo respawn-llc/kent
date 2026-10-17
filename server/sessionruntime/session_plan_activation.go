@@ -20,6 +20,7 @@ func ActivationRequestFromSessionPlan(
 	}
 	request := serverapi.SessionRuntimeActivateRequest{
 		SessionID: plan.Descriptor.SessionID(), SessionRuntimePreparationOptions: serverapi.SessionRuntimePreparationOptions{ActiveSettings: plan.ActiveSettings,
+			ConnectionScope:          plan.ConnectionScope,
 			EnabledToolIDs:           toolspec.IDStrings(plan.EnabledTools),
 			QuestionsEnabled:         textutil.Value(plan.QuestionsEnabled),
 			AutoCompactionEnabled:    textutil.Value(plan.AutoCompactionEnabled),

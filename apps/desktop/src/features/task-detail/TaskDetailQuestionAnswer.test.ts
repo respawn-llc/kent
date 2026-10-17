@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it } from "bun:test";
 import { questionAnswerBatchInput } from "./TaskDetailQuestionAnswer";
 describe("questionAnswerBatchInput", () => {
   it("encodes whitespace-only optional text as absent while preserving commentary", () => {

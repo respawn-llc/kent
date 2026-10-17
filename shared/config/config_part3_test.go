@@ -2,11 +2,31 @@ package config
 
 import (
 	"errors"
+	"fmt"
 	"net"
 	"path/filepath"
 	"strconv"
 	"testing"
 )
+
+func TestLoadConnectionUsageFallbackPolicy(t *testing.T) {
+	home, workspace := newConfigTestEnv(t)
+	if got := loadConfigTestApp(t, workspace, LoadOptions{}).Settings.ConnectionUsageFallbackSeconds; got != 300 {
+		t.Fatalf("default cooldown = %d", got)
+	}
+	path := filepath.Join(home, ConfigDirName, "config.toml")
+	for _, seconds := range []int{0, 20, -1} {
+		writeConfigTestFile(t, path, fmt.Sprintf("connection_usage_fallback_seconds = %d\n", seconds))
+		cfg, err := Load(workspace, workspace, LoadOptions{})
+		if seconds < 0 {
+			if err == nil {
+				t.Fatal("negative cooldown accepted")
+			}
+		} else if err != nil || cfg.Settings.ConnectionUsageFallbackSeconds != seconds {
+			t.Fatalf("cooldown %d = %v, %v", seconds, cfg, err)
+		}
+	}
+}
 
 func TestLoadRejectsUnknownLegacyTimeoutSettingNames(t *testing.T) {
 	if err := loadConfigTestFileError(t, `[timeouts]

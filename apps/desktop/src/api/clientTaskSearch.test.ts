@@ -1,3 +1,4 @@
+import { describe, expect, it } from "bun:test";
 import { create } from "@app/server-api-contract";
 import * as pb from "@app/server-api-contract/gen/kent/api/workflow_task/read_pb";
 import { FakeRpcTransport, unexpectedProjectOverflow } from "@/test-support/api";
@@ -65,7 +66,7 @@ describe("ApiClient task search", () => {
   it("sends literal filters and maps grouped content without changing text", async () => {
     const { client, transport } = searchClient(success(response));
     const controller = new AbortController();
-    await expect(client.searchTasks(input, controller.signal)).resolves.toEqual({
+    expect(client.searchTasks(input, controller.signal)).resolves.toEqual({
       mode: "literal",
       nextOffset: 25,
       groups: [
@@ -126,7 +127,7 @@ describe("ApiClient task search", () => {
     const { client } = searchClient(
       success(create(pb.SearchSuccessSchema, { ...response, nextOffset: undefined })),
     );
-    await expect(client.searchTasks(input)).resolves.toMatchObject({ mode: "literal", nextOffset: null });
+    expect(client.searchTasks(input)).resolves.toMatchObject({ mode: "literal", nextOffset: null });
   });
 
   it("decodes a literal Short ID hit", async () => {
@@ -143,7 +144,7 @@ describe("ApiClient task search", () => {
         }),
       ),
     );
-    await expect(client.searchTasks(input)).resolves.toMatchObject({
+    expect(client.searchTasks(input)).resolves.toMatchObject({
       groups: [{ hits: [{ source: { kind: "short_id" }, literal: { match: "345" } }] }],
     });
   });
@@ -163,7 +164,7 @@ describe("ApiClient task search", () => {
         }),
       ),
     );
-    await expect(client.searchTasks({ ...input, mode: "fts5" })).rejects.toThrow();
+    expect(client.searchTasks({ ...input, mode: "fts5" })).rejects.toThrow();
   });
 
   it.each([
@@ -198,7 +199,7 @@ describe("ApiClient task search", () => {
     const { client } = searchClient(
       success(create(pb.SearchSuccessSchema, { ...response, groups: [group] })),
     );
-    await expect(client.searchTasks(input)).rejects.toThrow();
+    expect(client.searchTasks(input)).rejects.toThrow();
   });
 
   it("surfaces normalized-too-short as a typed outcome", async () => {

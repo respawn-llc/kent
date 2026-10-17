@@ -1,21 +1,13 @@
 import react from "@vitejs/plugin-react";
 import tailwindcss from "@tailwindcss/vite";
-import { readFileSync } from "node:fs";
-import { fileURLToPath } from "node:url";
-import { configDefaults, defineConfig } from "vitest/config";
-import { z } from "zod";
-
-const protocolVersionDefinition = z
-  .object({ version: z.string().min(1) })
-  .parse(JSON.parse(readFileSync(new URL("../../../shared/protocol/version.json", import.meta.url), "utf8")));
-
-const testExclude = [...configDefaults.exclude, "eslint-fixtures/**", "**/dist/**"];
+import { defineConfig } from "vite";
+import { protocolVersion, viteRuntimeAliases } from "./runtimeConfiguration";
 
 export default defineConfig({
   plugins: [tailwindcss(), react()],
   clearScreen: false,
   define: {
-    __KENT_PROTOCOL_VERSION__: JSON.stringify(protocolVersionDefinition.version),
+    __KENT_PROTOCOL_VERSION__: JSON.stringify(protocolVersion),
   },
   build: {
     // Desktop bundle loads from local disk; keep warning for real growth without treating current MVP size as web risk.
@@ -25,27 +17,7 @@ export default defineConfig({
     // source). Matches Vite's default; pinned explicitly to prevent regressions.
     sourcemap: false,
   },
-  resolve: {
-    alias: [
-      {
-        find: "@app/server-api-contract/gen",
-        replacement: fileURLToPath(new URL("../packages/server-api-contract/src/gen", import.meta.url)),
-      },
-      {
-        find: "@app/server-api-contract",
-        replacement: fileURLToPath(new URL("../packages/server-api-contract/src/index.ts", import.meta.url)),
-      },
-      { find: "@", replacement: fileURLToPath(new URL("../src", import.meta.url)) },
-      {
-        find: "@app/native-bridge",
-        replacement: fileURLToPath(new URL("../packages/native-bridge/src/index.ts", import.meta.url)),
-      },
-      {
-        find: "@app/ui-kit",
-        replacement: fileURLToPath(new URL("../packages/ui-kit/src/index.ts", import.meta.url)),
-      },
-    ],
-  },
+  resolve: { alias: viteRuntimeAliases },
   server: {
     host: "127.0.0.1",
     port: 1420,
@@ -53,28 +25,5 @@ export default defineConfig({
     watch: {
       ignored: ["**/src-tauri/**"],
     },
-  },
-  test: {
-    exclude: testExclude,
-    globals: true,
-    pool: "threads",
-    maxWorkers: 2,
-    setupFiles: ["./test/setup.ts"],
-    // Logic/transport tests do not need a browser. Hook tests in .test.ts
-    // explicitly opt into jsdom with @vitest-environment.
-    projects: [
-      {
-        extends: true,
-        test: { name: "node", include: ["**/*.test.ts"], environment: "node" },
-      },
-      {
-        extends: true,
-        test: {
-          name: "dom",
-          exclude: [...testExclude, "**/*.test.ts"],
-          environment: "jsdom",
-        },
-      },
-    ],
   },
 });

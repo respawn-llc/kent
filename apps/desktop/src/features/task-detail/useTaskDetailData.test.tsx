@@ -1,3 +1,4 @@
+import { describe, expect, it } from "bun:test";
 import { act, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import type { PromptAnswerBatchResponse } from "@/api";
@@ -192,14 +193,22 @@ describe("Task Detail live refresh", () => {
 
   it("does not move focus when the intended next prompt disappears and the earlier prompt restores", async () => {
     let attention = taskAttentionWithOneOption("ask-1", "ask-2", "ask-3");
+    let attentionReadCount = 0;
     const answer = deferred<PromptAnswerBatchResponse>();
     const services = mountTaskDetailSurface(taskDetailResponse, {
-      routes: [attentionRoute(() => attention), promptAnswerBatchRoute(async () => answer.promise)],
+      routes: [
+        attentionRoute(() => {
+          attentionReadCount += 1;
+          return attention;
+        }),
+        promptAnswerBatchRoute(async () => answer.promise),
+      ],
     });
     const user = userEvent.setup();
     await waitFor(() => {
       expect(screen.getAllByRole("radio")).toHaveLength(6);
     });
+    await waitForProjectSubscription(services.transport);
     const submits = screen.getAllByRole("button", { name: appI18n.t("task.submitAnswer") });
     await user.click(submits.reduce((first) => first));
     await waitFor(() => {
@@ -207,9 +216,13 @@ describe("Task Detail live refresh", () => {
       expect(screen.getByText("ask-2")).toBeInTheDocument();
       expect(screen.getAllByRole("radio")[0]).toHaveFocus();
     });
+    const attentionReadsBeforeEvent = attentionReadCount;
     attention = taskAttentionWithOneOption("ask-1", "ask-3");
     act(() => {
       projectEventsFixture(services.transport).emit({ action: "question_waiting" });
+    });
+    await waitFor(() => {
+      expect(attentionReadCount).toBeGreaterThan(attentionReadsBeforeEvent);
     });
     await waitFor(() => {
       expect(screen.queryByText("ask-2")).not.toBeInTheDocument();

@@ -1,40 +1,42 @@
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { beforeAll, beforeEach, describe, expect, it, mock, vi } from "bun:test";
 import type { ReactNode } from "react";
 
 import { RpcError } from "@/api";
-import { NewTaskForm } from "@/features/tasks";
-import { LinkWorkflowSidebar } from "@/features/workflows";
 import { appI18n, initializeI18n } from "@/i18n";
-import type * as TaskDependenciesModule from "@/shared/task-dependencies";
 import { createTestSidebarNavigator } from "@/test-support/sidebar";
 import { createTestServices, TestAppProviders } from "@/test-support/app-services";
-import type * as UiModule from "@/ui";
-import type * as WorkflowLibrary from "@/shared/workflow-library";
-const fixture = vi.hoisted<{
+const fixture: {
   createError: Error | null;
-}>(() => ({ createError: null }));
-vi.mock("@/shared/labels", () => ({
+} = { createError: null };
+const actualTaskDependencies = await import("@/shared/task-dependencies");
+const actualWorkflowLibrary = await import("@/shared/workflow-library");
+const actualUi = await import("@/ui");
+const workflowRendering = await import("@/test-support/workflow-rendering");
+
+await mock.module("@/shared/labels", () => ({
   LabelChooser: () => null,
   orderedAssignedLabels: () => [],
   ProjectLabelsProvider: ({ children }: Readonly<{ children: ReactNode }>) => <>{children}</>,
   useProjectLabelCatalog: () => ({ data: { labels: [] } }),
 }));
-vi.mock("@/shared/task-mutations", () => ({
+await mock.module("@/shared/task-mutations", () => ({
   useCreateTask: () => ({ error: fixture.createError, isPending: false, submit: vi.fn() }),
 }));
-vi.mock("@/shared/task-dependencies", async (importOriginal) => ({
-  ...(await importOriginal<typeof TaskDependenciesModule>()),
+await mock.module("@/shared/task-dependencies", () => ({
+  ...actualTaskDependencies,
   DependenciesArea: () => null,
 }));
-vi.mock("@/shared/workflow-library", async (original) => ({
-  ...(await original<typeof WorkflowLibrary>()),
-  WorkflowActionsContextMenu: (await import("@/test-support/workflow-rendering"))
-    .WorkflowActionsContextMenuStub,
+await mock.module("@/shared/workflow-library", () => ({
+  ...actualWorkflowLibrary,
+  WorkflowActionsContextMenu: workflowRendering.WorkflowActionsContextMenuStub,
 }));
-vi.mock("@/ui", async (original) => ({
-  ...(await original<typeof UiModule>()),
-  VirtualizedInfiniteList: (await import("@/test-support/workflow-rendering")).WorkflowListStub,
+await mock.module("@/ui", () => ({
+  ...actualUi,
+  VirtualizedInfiniteList: workflowRendering.WorkflowListStub,
 }));
+const { NewTaskForm } = await import("@/features/tasks");
+const { LinkWorkflowSidebar } = await import("@/features/workflows");
 
 const missing = new RpcError({ code: "project_not_found", message: "gone", method: "mutation" });
 
@@ -62,7 +64,7 @@ describe("Project-missing mutation seams", () => {
         />
       </TestAppProviders>,
     );
-    expect(navigator.back).toHaveBeenCalledOnce();
+    expect(navigator.back).toHaveBeenCalledTimes(1);
   });
 
   it("backs out of Link Workflow when linking reports the Project missing", async () => {
@@ -95,7 +97,7 @@ describe("Project-missing mutation seams", () => {
     );
     fireEvent.click(await screen.findByRole("button", { name: appI18n.t("workflowLibrary.link") }));
     await waitFor(() => {
-      expect(navigator.back).toHaveBeenCalledOnce();
+      expect(navigator.back).toHaveBeenCalledTimes(1);
     });
   });
 });

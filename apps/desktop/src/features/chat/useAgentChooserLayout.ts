@@ -32,6 +32,6 @@ export function useAgentChooserLayout(choosing: boolean) {
 }
 
 function chooserMaxHeight(height: number | undefined): string {
-  const available = "calc(var(--radix-popover-content-available-height) - 2 * var(--space-1))";
+  const available = "calc(var(--hover-popover-available-height) - 2 * var(--space-1))";
   return height === undefined ? available : `min(${height.toString()}px, ${available})`;
 }

@@ -227,6 +227,13 @@ type Meta struct {
 	ActiveWorkflowAssignmentState   *ActiveWorkflowAssignmentState   `json:"active_workflow_assignment_state,omitempty"`
 }
 
+func (m Meta) EffectiveCategory() sessioncontract.SessionCategory {
+	if m.Category == nil {
+		return sessioncontract.SessionCategoryMain
+	}
+	return *m.Category
+}
+
 // ActiveWorkflowAssignmentState marks an authoritative projection, including
 // the valid state where no executable Workflow assignment is active.
 type ActiveWorkflowAssignmentState struct{}

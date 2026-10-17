@@ -1,5 +1,6 @@
 import { fireEvent, render, screen, within } from "@testing-library/react";
 import type { ComponentProps, ReactElement } from "react";
+import { afterEach, beforeEach, describe, expect, it, vi } from "bun:test";
 
 import { TranscriptWindow, type TranscriptCommittedItem, type TranscriptRenderSlots } from "@/app-facade";
 import { hydration, row } from "@/test-support/transcript-window";
@@ -11,6 +12,8 @@ import {
 import { TranscriptWindowView } from "./index";
 
 let geometry: ReturnType<typeof installResizeObserverGeometry>;
+const originalOffsetHeight = Object.getOwnPropertyDescriptor(HTMLElement.prototype, "offsetHeight");
+const originalOffsetWidth = Object.getOwnPropertyDescriptor(HTMLElement.prototype, "offsetWidth");
 
 const reasoningIdentity = {
   Provider: { ItemID: "reasoning-item", SummaryIndex: 0 },
@@ -101,13 +104,16 @@ const slots: TranscriptRenderSlots<ReactElement | null> = {
 describe("TranscriptWindowView", () => {
   beforeEach(() => {
     geometry = installResizeObserverGeometry();
-    vi.spyOn(HTMLElement.prototype, "offsetHeight", "get").mockReturnValue(600);
-    vi.spyOn(HTMLElement.prototype, "offsetWidth", "get").mockReturnValue(800);
+    Object.defineProperty(HTMLElement.prototype, "offsetHeight", { configurable: true, get: () => 600 });
+    Object.defineProperty(HTMLElement.prototype, "offsetWidth", { configurable: true, get: () => 800 });
   });
 
   afterEach(() => {
     geometry.restore();
-    vi.restoreAllMocks();
+    if (originalOffsetHeight === undefined) Reflect.deleteProperty(HTMLElement.prototype, "offsetHeight");
+    else Object.defineProperty(HTMLElement.prototype, "offsetHeight", originalOffsetHeight);
+    if (originalOffsetWidth === undefined) Reflect.deleteProperty(HTMLElement.prototype, "offsetWidth");
+    else Object.defineProperty(HTMLElement.prototype, "offsetWidth", originalOffsetWidth);
   });
 
   it("keeps local user content mounted when the same input is committed", () => {
@@ -280,7 +286,9 @@ describe("TranscriptWindowView", () => {
 
     for (const family of ["assistant", "tool", "reasoning_trace"]) {
       const presentation = screen.getByTestId(`family-${family}`);
-      expect(presentation).toBe(before.get(family));
+      const previous = before.get(family);
+      if (previous === undefined) throw new Error(`Missing initial presentation for ${family}.`);
+      expect(presentation).toBe(previous);
       expect(presentation).toHaveTextContent("committed");
     }
   });
@@ -333,7 +341,7 @@ describe("TranscriptWindowView", () => {
 
     expect(boundaryErrorMessage).toHaveBeenCalledWith(error);
     fireEvent.click(within(screen.getByRole("alert")).getByRole("button"));
-    expect(onInput).toHaveBeenCalledOnce();
+    expect(onInput).toHaveBeenCalledTimes(1);
     expect(onInput).toHaveBeenCalledWith({ kind: "retry", direction: "older" });
   });
 });

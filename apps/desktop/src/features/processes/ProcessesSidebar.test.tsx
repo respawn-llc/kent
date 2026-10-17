@@ -1,16 +1,18 @@
 import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { expect, it, vi } from "bun:test";
 
 import { appI18n } from "@/i18n";
 import { TestAppProviders, createTestServices } from "@/test-support/app-services";
 import { processObservationFixture, processObservationFixtureRoute } from "@/test-support/api";
-import { installVirtualizedScrollGeometry } from "@/test-support/resize-observer";
+import {
+  installHTMLElementOffsetHeight,
+  installVirtualizedScrollGeometry,
+} from "@/test-support/resize-observer";
 import { ProcessesSidebar } from "./ProcessesSidebar";
 
 it("keeps the viewport in place when Stop moves the leading process below running processes", async () => {
   const geometry = installVirtualizedScrollGeometry(600);
-  const rowHeight = vi.spyOn(HTMLElement.prototype, "offsetHeight", "get").mockImplementation(function (
-    this: HTMLElement,
-  ) {
+  const offsetHeight = installHTMLElementOffsetHeight(function (this: HTMLElement) {
     return this.getAttribute("role") === "list" ? 600 : 80;
   });
   const services = createTestServices([processObservationFixtureRoute]);
@@ -55,7 +57,7 @@ it("keeps the viewport in place when Stop moves the leading process below runnin
     expect(list.scrollTop).toBe(160);
   } finally {
     view.unmount();
-    rowHeight.mockRestore();
+    offsetHeight.restore();
     geometry.restore();
   }
 });

@@ -232,6 +232,7 @@ func (s *API) interactiveRuntimePlan(ctx context.Context, req serverapi.SessionR
 		}
 	}
 	return NewAgentRuntimePlan(AgentRuntimePlanOptions{
+		ConnectionScope:          req.ConnectionScope,
 		MainWorkspaceRoot:        target.WorkspaceRoot,
 		Settings:                 req.ActiveSettings,
 		EnabledTools:             enabledTools,

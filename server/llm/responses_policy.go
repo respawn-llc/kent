@@ -61,7 +61,7 @@ func (openAIResponsesPolicy) requestOptions(identifier string, request Responses
 	}
 	if projection := preparation.projection; projection != nil {
 		opts = append(opts, option.WithHeader("x-codex-routing-hint", projection.RoutingHint))
-		if turnState, present := request.CodexDispatch.turnStateForRetry(); present {
+		if turnState, present := request.CodexDispatch.turnStateForRequest(); present {
 			opts = append(opts, option.WithHeader(codexTurnStateHeader, turnState))
 		}
 	}

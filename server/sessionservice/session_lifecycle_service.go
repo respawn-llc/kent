@@ -259,7 +259,7 @@ func (s *SessionLifecycleService) resolveForkRollbackTransition(ctx context.Cont
 	if err != nil {
 		return nil, err
 	}
-	targetSettings, err := launch.PrepareInteractiveFork(app, store.Meta(), s.rotation)
+	targetSettings, err := launch.PrepareInteractiveFork(ctx, app, store.Meta(), s.rotation)
 	if err != nil {
 		return nil, err
 	}

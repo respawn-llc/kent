@@ -10,6 +10,7 @@ import (
 	"core/prompts"
 	"core/server/llm"
 	"core/server/session"
+	"core/shared/llmerrors"
 	"core/shared/runtimeids"
 	"core/shared/toolspec"
 	"core/shared/transcript"
@@ -178,6 +179,7 @@ func (e *Engine) setGoalRaw(objective string, actor session.GoalActor, startLoop
 	noticeAccepted, noticeErr := e.enqueueGoalNotice(
 		msg,
 		goalStatusUpdateFromState(goal, &availability),
+		&objective,
 	)
 	if !startLoop {
 		return result, errors.Join(metadataErr, noticeErr)
@@ -246,6 +248,7 @@ func (e *Engine) setGoalStatusRaw(status session.GoalStatus, actor session.GoalA
 	noticeAccepted, noticeErr := e.enqueueGoalNotice(
 		msg,
 		goalStatusUpdateFromState(goal, &availability),
+		nil,
 	)
 	if !startLoop || status != session.GoalStatusActive {
 		return result, noticeErr
@@ -325,7 +328,7 @@ func (e *Engine) clearGoalRaw(actor session.GoalActor) (GoalCommandResult, error
 	if err != nil {
 		return result, err
 	}
-	_, noticeErr := e.enqueueGoalNotice(msg, goalStatusClearUpdate(&availability))
+	_, noticeErr := e.enqueueGoalNotice(msg, goalStatusClearUpdate(&availability), nil)
 	return result, noticeErr
 }
 
@@ -334,8 +337,14 @@ func (e *Engine) clearGoalRaw(actor session.GoalActor) (GoalCommandResult, error
 func (e *Engine) enqueueGoalNotice(
 	message llm.Message,
 	update GoalStatusUpdate,
+	namingTask *string,
 ) (bool, error) {
 	_, accepted := trySubmitEngineRuntimeOperation(e, func(context.Context) (struct{}, error) {
+		if namingTask != nil {
+			e.outputMutationMu.Lock()
+			e.captureSessionNamingRaw(*namingTask)
+			e.outputMutationMu.Unlock()
+		}
 		message = normalizeMessageForTranscript(message, e.transcriptWorkingDir())
 		_, err := e.steerGoalNoticeAndStatusRaw(sessionSteeringProvenance(), message, update)
 		if err != nil {
@@ -387,7 +396,7 @@ func (e *Engine) cascadeCompleteActiveGoalOnWorkflowCompletion(stepID string) {
 		reportErr(err)
 		return
 	}
-	if _, err := e.enqueueGoalNotice(msg, goalStatusUpdateFromState(completed, &availability)); err != nil {
+	if _, err := e.enqueueGoalNotice(msg, goalStatusUpdateFromState(completed, &availability), nil); err != nil {
 		reportErr(err)
 	}
 }
@@ -643,6 +652,17 @@ func (e *Engine) steerRuntimeErrorFeedback(err error) (string, error) {
 }
 
 func runtimeErrorFeedback(err error) (string, steeringIntent) {
+	var unavailable *llmerrors.ConnectionsUnavailableError
+	if errors.As(err, &unavailable) {
+		notice := &transcript.ConnectionsUnavailableNotice{Members: unavailable.Members}
+		for _, cause := range unavailable.Causes {
+			notice.Diagnostics = append(notice.Diagnostics, cause.Error())
+		}
+		return err.Error(), steerLocalEntryIntent(storedLocalEntry{
+			Visibility: transcript.EntryVisibilityAuto, Role: string(transcript.EntryRoleDeveloperErrorFeedback),
+			ConnectionsUnavailable: notice,
+		})
+	}
 	message := strings.TrimSpace(llm.UserFacingError(err))
 	if message == "" {
 		message = err.Error()

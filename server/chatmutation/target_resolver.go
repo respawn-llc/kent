@@ -230,7 +230,8 @@ func (r *TargetResolver) Resolve(
 
 func preparationFromPlan(plan *sessionlaunchpb.SessionPlan) (*serverapi.SessionRuntimePreparationOptions, error) {
 	options, err := protoapi.SessionRuntimePreparationFromProto(&sessionlaunchpb.SessionRuntimePreparationOptions{
-		ActiveSettings: plan.ActiveSettings, EnabledToolIds: plan.EnabledToolIds,
+		ConnectionScope: plan.ConnectionScope,
+		ActiveSettings:  plan.ActiveSettings, EnabledToolIds: plan.EnabledToolIds,
 		QuestionsEnabled: &plan.QuestionsEnabled, AutoCompactionEnabled: &plan.AutoCompactionEnabled,
 		ThinkingOverrideExplicit: plan.ThinkingOverrideExplicit, Source: plan.Source,
 		AgentSelection: plan.ActivationAgentSelection, ExplicitToolSelection: plan.ExplicitToolSelection,

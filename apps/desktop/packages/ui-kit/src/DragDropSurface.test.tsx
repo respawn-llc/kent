@@ -1,27 +1,27 @@
 import { render } from "@testing-library/react";
 import type { DndContextProps, DragEndEvent } from "@dnd-kit/core";
 import type * as DndKit from "@dnd-kit/core";
-import { afterEach, expect, it, vi } from "vitest";
-import { DragDropSurface } from "./DragDropSurface";
+import { afterEach, expect, it, mock, vi } from "bun:test";
 
-const context = vi.hoisted((): { props: DndContextProps | null } => ({ props: null }));
+const context: { props: DndContextProps | null } = { props: null };
+const actualDndKit: typeof DndKit = await import("@dnd-kit/core");
 
-vi.mock("@dnd-kit/core", async (importOriginal) => ({
-  ...(await importOriginal<typeof DndKit>()),
+await mock.module("@dnd-kit/core", () => ({
+  ...actualDndKit,
   DndContext: (props: DndContextProps) => {
     context.props = props;
     return null;
   },
 }));
+const { DragDropSurface } = await import("./DragDropSurface");
 
 afterEach(() => {
-  vi.unstubAllEnvs();
   vi.restoreAllMocks();
   context.props = null;
 });
 
 it.each(["development", "production"])("cancels an unmeasured drop in %s", (mode) => {
-  vi.stubEnv("DEV", mode === "development");
+  globalThis.__KENT_TEST_ENV__.DEV = mode === "development";
   const onCancel = vi.fn();
   const onDrop = vi.fn();
   render(
@@ -42,7 +42,7 @@ it.each(["development", "production"])("cancels an unmeasured drop in %s", (mode
   };
   if (mode === "development") expect(drop).toThrow(Error);
   else expect(drop).not.toThrow();
-  expect(onCancel).toHaveBeenCalledOnce();
+  expect(onCancel).toHaveBeenCalledTimes(1);
   expect(onCancel.mock.calls[0]?.[0]).toBeInstanceOf(Error);
   expect(onDrop).not.toHaveBeenCalled();
 });

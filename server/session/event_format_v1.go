@@ -9,6 +9,7 @@ import (
 	"strings"
 	"time"
 
+	"core/shared/config"
 	"core/shared/invariant"
 	"core/shared/modelcontract"
 	"core/shared/runtimeids"
@@ -382,17 +383,19 @@ const (
 )
 
 type LocalEntryRecord struct {
-	Visibility            EntryVisibility                         `json:"visibility"`
-	Role                  string                                  `json:"role"`
-	Text                  *string                                 `json:"text"`
-	DurationMs            *int64                                  `json:"duration_ms,omitempty"`
-	CondensedText         *string                                 `json:"condensed_text,omitempty"`
-	DiagnosticKey         *string                                 `json:"diagnostic_key,omitempty"`
-	NoticeID              *string                                 `json:"notice_id,omitempty"`
-	AfterToolCallID       *string                                 `json:"after_tool_call_id,omitempty"`
-	ToolOutputRepair      *transcript.ToolOutputRepairNotice      `json:"tool_output_repair,omitempty"`
-	ProviderModelMismatch *transcript.ProviderModelMismatchNotice `json:"provider_model_mismatch,omitempty"`
-	ReasoningOmission     *transcript.ReasoningOmissionNotice     `json:"reasoning_omission,omitempty"`
+	Visibility             EntryVisibility                          `json:"visibility"`
+	Role                   string                                   `json:"role"`
+	Text                   *string                                  `json:"text"`
+	DurationMs             *int64                                   `json:"duration_ms,omitempty"`
+	CondensedText          *string                                  `json:"condensed_text,omitempty"`
+	DiagnosticKey          *string                                  `json:"diagnostic_key,omitempty"`
+	NoticeID               *string                                  `json:"notice_id,omitempty"`
+	AfterToolCallID        *string                                  `json:"after_tool_call_id,omitempty"`
+	ToolOutputRepair       *transcript.ToolOutputRepairNotice       `json:"tool_output_repair,omitempty"`
+	ProviderModelMismatch  *transcript.ProviderModelMismatchNotice  `json:"provider_model_mismatch,omitempty"`
+	ReasoningOmission      *transcript.ReasoningOmissionNotice      `json:"reasoning_omission,omitempty"`
+	ConnectionFallback     *config.ConnectionReplacement            `json:"connection_fallback,omitempty"`
+	ConnectionsUnavailable *transcript.ConnectionsUnavailableNotice `json:"connections_unavailable,omitempty"`
 }
 
 type ReviewerFeedbackRecord struct {
@@ -619,7 +622,7 @@ func (r LocalEntryRecord) validate() error {
 	if strings.TrimSpace(r.Role) == "" {
 		return fmt.Errorf("role is required")
 	}
-	if r.Text == nil && r.ToolOutputRepair == nil && r.ProviderModelMismatch == nil && r.ReasoningOmission == nil {
+	if r.Text == nil && r.ToolOutputRepair == nil && r.ProviderModelMismatch == nil && r.ReasoningOmission == nil && r.ConnectionFallback == nil && r.ConnectionsUnavailable == nil {
 		return fmt.Errorf("text or typed notice facts are required")
 	}
 	if r.Text != nil && strings.TrimSpace(*r.Text) == "" {
@@ -633,6 +636,12 @@ func (r LocalEntryRecord) validate() error {
 	}
 	if r.ReasoningOmission != nil && !r.ReasoningOmission.Valid() {
 		return fmt.Errorf("reasoning omission facts are invalid")
+	}
+	if err := (transcript.ConnectionNoticeFacts{
+		Fallback: r.ConnectionFallback, Unavailable: r.ConnectionsUnavailable,
+		ToolOutputRepair: r.ToolOutputRepair, ProviderModelMismatch: r.ProviderModelMismatch, ReasoningOmission: r.ReasoningOmission,
+	}).Validate(); err != nil {
+		return err
 	}
 	if r.ToolOutputRepair != nil && r.ProviderModelMismatch != nil ||
 		r.ReasoningOmission != nil && (r.ToolOutputRepair != nil || r.ProviderModelMismatch != nil) {

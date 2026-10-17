@@ -1,6 +1,7 @@
 import { act, render, screen, waitFor } from "@testing-library/react";
-import { afterEach, beforeEach, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "bun:test";
 import { toast } from "sonner";
+import { createBrowserNativeBridge } from "@app/native-bridge";
 import {
   attentionEventsFixture,
   globalAttentionPage,
@@ -13,15 +14,17 @@ import { createTestServices, startupRoutes } from "@/test-support/app-services";
 import { installAnimationFrameTestSupport } from "@/test-support/scheduling";
 import { AppRoot } from "./AppRoot";
 
+let restoreAnimationFrameTestSupport: () => void;
+
 describe("open Inbox attention refresh", () => {
   beforeEach(() => {
     window.history.replaceState(null, "", "/");
     clearRoutePersistence();
-    installAnimationFrameTestSupport();
+    restoreAnimationFrameTestSupport = installAnimationFrameTestSupport();
   });
 
   afterEach(() => {
-    vi.unstubAllGlobals();
+    restoreAnimationFrameTestSupport();
     window.history.replaceState(null, "", "/");
     clearRoutePersistence();
   });
@@ -70,10 +73,12 @@ describe("open Inbox attention refresh", () => {
   });
 
   it("delivers Session Chat questions to native notifications", async () => {
-    const services = createTestServices([
-      ...startupRoutes,
-      globalAttentionRoute(() => globalAttentionPage([])),
-    ]);
+    const nativeBridge = createBrowserNativeBridge();
+    vi.spyOn(nativeBridge.window, "isFocused").mockResolvedValue(false);
+    const services = createTestServices(
+      [...startupRoutes, globalAttentionRoute(() => globalAttentionPage([]))],
+      nativeBridge,
+    );
     const notify = vi.spyOn(services.nativeBridge.notifications, "notify").mockResolvedValue(undefined);
     render(<AppRoot services={services} />);
     await waitFor(() => {
@@ -82,10 +87,15 @@ describe("open Inbox attention refresh", () => {
     });
     const notices = toast.getToasts();
     await act(async () => {
+      window.dispatchEvent(new Event("blur"));
+    });
+    await act(async () => {
       attentionEventsFixture(services.transport).pendingSessionQuestion();
     });
+    await waitFor(() => {
+      expect(notify).toHaveBeenCalledTimes(1);
+    });
     expect(toast.getToasts()).toEqual(notices);
-    expect(notify).toHaveBeenCalledOnce();
     expect(screen.queryByTestId("attention-row")).not.toBeInTheDocument();
   });
 });

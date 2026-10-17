@@ -2,25 +2,25 @@ import type { ReactElement } from "react";
 import { cloneElement } from "react";
 import { render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { vi } from "vitest";
+import { beforeEach, describe, expect, it, mock, vi } from "bun:test";
 
 import type { BoardFilter, BoardNodeCardsSort } from "@/api";
+import type * as SharedLabelsModule from "@/shared/labels";
+import type * as ReactI18next from "react-i18next";
 
 type LabelRuntimeState =
   | Readonly<{ filter: { kind: "none" } }>
   | Readonly<{ filter: { kind: "named"; mode: "all"; labelIDs: string[] } }>;
 
-const labelRuntime = vi.hoisted(
-  (): {
-    state: LabelRuntimeState;
-    dispatch: ReturnType<typeof vi.fn>;
-  } => ({
-    state: {
-      filter: { kind: "named", mode: "all", labelIDs: ["label-1"] },
-    },
-    dispatch: vi.fn(),
-  }),
-);
+const labelRuntime: {
+  state: LabelRuntimeState;
+  dispatch: ReturnType<typeof vi.fn>;
+} = {
+  state: {
+    filter: { kind: "named", mode: "all", labelIDs: ["label-1"] },
+  },
+  dispatch: vi.fn(),
+};
 
 interface BoardQueryRuntime {
   filter: BoardFilter;
@@ -29,7 +29,7 @@ interface BoardQueryRuntime {
   setSort: ReturnType<typeof vi.fn>;
 }
 
-const boardQueryRuntime = vi.hoisted((): BoardQueryRuntime => ({
+const boardQueryRuntime: BoardQueryRuntime = {
   filter: {
     labelFilter: {
       kind: "named",
@@ -42,9 +42,15 @@ const boardQueryRuntime = vi.hoisted((): BoardQueryRuntime => ({
   setDependencyFilter: vi.fn(),
   sort: { field: "updated", direction: "desc" },
   setSort: vi.fn(),
-}));
+};
 
-vi.mock("@/shared/labels", () => ({
+const actualSharedLabels: typeof SharedLabelsModule = await import("@/shared/labels");
+const actualReactI18next: typeof ReactI18next = await import("react-i18next");
+const actualBoardQueryRuntime = await import("./BoardQueryRuntime");
+const actualTaskSearchChrome = await import("./TaskSearchChrome");
+
+await mock.module("@/shared/labels", () => ({
+  ...actualSharedLabels,
   LabelChooser: ({
     invocation,
     trigger,
@@ -61,22 +67,25 @@ vi.mock("@/shared/labels", () => ({
   useProjectLabelFilter: () => labelRuntime,
 }));
 
-vi.mock("react-i18next", () => ({
+await mock.module("react-i18next", () => ({
+  ...actualReactI18next,
   useTranslation: () => ({
     t: (key: string) => key,
   }),
 }));
 
-vi.mock("./BoardQueryRuntime", () => ({
+await mock.module("./BoardQueryRuntime", () => ({
+  ...actualBoardQueryRuntime,
   useBoardQuery: () => boardQueryRuntime,
 }));
 
-vi.mock("./TaskSearchChrome", () => ({
+await mock.module("./TaskSearchChrome", () => ({
+  ...actualTaskSearchChrome,
   TaskSearchProjectTrigger: () => <button type="button" />,
 }));
 
-import { BoardFilterChrome } from "./BoardLabelFilter";
-import { BoardFilterRow } from "./BoardFilterRow";
+const { BoardFilterChrome } = await import("./BoardLabelFilter");
+const { BoardFilterRow } = await import("./BoardFilterRow");
 
 describe("BoardFilterChrome", () => {
   beforeEach(() => {

@@ -26,16 +26,17 @@ type sessionUISource interface {
 }
 
 type sessionUIClients struct {
-	ProcessControls   apicontract.ProcessControlService
-	ProcessViews      apicontract.ProcessViewService
-	PromptControl     apicontract.PromptControlService
-	RuntimeControls   apicontract.RuntimeControlService
-	ChatMutations     apicontract.ChatMutationService
-	GoalSet           goalSetClient
-	ChatSettings      apicontract.ChatSettingsService
-	SessionTranscript apicontract.SessionTranscriptService
-	SessionViews      apicontract.SessionViewService
-	Worktrees         apicontract.WorktreeService
+	AttentionNotifications apicontract.AttentionNotificationService
+	ProcessControls        apicontract.ProcessControlService
+	ProcessViews           apicontract.ProcessViewService
+	PromptControl          apicontract.PromptControlService
+	RuntimeControls        apicontract.RuntimeControlService
+	ChatMutations          apicontract.ChatMutationService
+	GoalSet                goalSetClient
+	ChatSettings           apicontract.ChatSettingsService
+	SessionTranscript      apicontract.SessionTranscriptService
+	SessionViews           apicontract.SessionViewService
+	Worktrees              apicontract.WorktreeService
 }
 
 func prepareSharedRuntime(ctx context.Context, source sessionUISource, plan sessionLaunchPlan, diagnosticWriter io.Writer, startLogLine string) (*runtimeLaunchPlan, error) {
@@ -78,7 +79,8 @@ func prepareSharedRuntimeWiring(
 		toolIDs[index] = string(id)
 	}
 	preparation, err := protoapi.SessionRuntimePreparationToProto(serverapi.SessionRuntimePreparationOptions{
-		ActiveSettings: plan.ActiveSettings, EnabledToolIDs: toolIDs,
+		ConnectionScope: plan.ConnectionScope,
+		ActiveSettings:  plan.ActiveSettings, EnabledToolIDs: toolIDs,
 		QuestionsEnabled: &plan.QuestionsEnabled, AutoCompactionEnabled: &plan.AutoCompactionEnabled,
 		ThinkingOverrideExplicit: plan.ThinkingOverrideExplicit,
 		AgentSelection:           plan.ActivationAgentSelection, ExplicitToolSelection: plan.ExplicitToolSelection,
@@ -139,16 +141,17 @@ func prepareSharedRuntimeWiring(
 		queueHook = newTurnQueueHooks(notificationHooks, lifecycleProxy)
 	}
 	wiring := &runtimeWiring{
-		eventDispatcher:       eventDispatcher,
-		requestTranscriptOpen: requestTranscriptOpen,
-		promptAnswers:         newTranscriptPromptAnswerer(ctx, clients.PromptControl),
-		promptAttention:       notificationHooks,
-		turnQueueHook:         queueHook,
-		terminalFocus:         terminalFocus,
-		runtimeClient:         runtimeClient,
-		worktrees:             clients.Worktrees,
-		processControls:       clients.ProcessControls,
-		processViews:          clients.ProcessViews,
+		attentionNotifications: clients.AttentionNotifications,
+		eventDispatcher:        eventDispatcher,
+		requestTranscriptOpen:  requestTranscriptOpen,
+		promptAnswers:          newTranscriptPromptAnswerer(ctx, clients.PromptControl),
+		promptAttention:        notificationHooks,
+		turnQueueHook:          queueHook,
+		terminalFocus:          terminalFocus,
+		runtimeClient:          runtimeClient,
+		worktrees:              clients.Worktrees,
+		processControls:        clients.ProcessControls,
+		processViews:           clients.ProcessViews,
 	}
 	if lifecycleProxy != nil {
 		wiring.lifecycleHookIssues = lifecycleProxy.Issues()

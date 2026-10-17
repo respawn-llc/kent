@@ -228,7 +228,7 @@ func (c uiInputController) handleSessionNameCommand(sessionName string) (tea.Mod
 	if target := m.newChatTarget(); target != nil {
 		target.Name = name
 	}
-	return m, tea.SetWindowTitle(sessionTitle(m.sessionName))
+	return m, tea.SetWindowTitle(m.sessionTitle())
 }
 
 func (c uiInputController) handleThinkingLevelCommand(requested string) (tea.Model, tea.Cmd) {

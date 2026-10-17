@@ -4,6 +4,7 @@ import (
 	"context"
 	"core/shared/clientui"
 	"core/shared/protoapi"
+	projectpb "core/shared/protoapi/gen/kent/api/project"
 	promptpb "core/shared/protoapi/gen/kent/api/prompt"
 	runtimepb "core/shared/protoapi/gen/kent/api/runtime"
 	transcriptpb "core/shared/protoapi/gen/kent/api/transcript"
@@ -365,6 +366,7 @@ func TestAskSessionReplacementCancelsDeliveryAndClearsOldPrompt(t *testing.T) {
 	<-control.firstStarted
 
 	model.applyTranscriptSessionIdentity(&transcriptpb.SessionIdentity{SessionId: runtimeids.NewSessionID().String(),
+		Category:              projectpb.SessionCategory_SESSION_CATEGORY_MAIN,
 		ConversationFreshness: runtimepb.ConversationFreshness_CONVERSATION_FRESHNESS_FRESH})
 	if testActiveAsk(model) != nil || testPromptAnswerDeliveryActive(model) {
 		t.Fatal("session replacement retained the old prompt delivery")
@@ -398,6 +400,7 @@ func TestAskSessionReplacementRunsQueuedProjectionBeforeReplacementPrompt(t *tes
 
 	replacementSessionID := runtimeids.NewSessionID()
 	replacementCmd := model.applyTranscriptSessionIdentity(&transcriptpb.SessionIdentity{SessionId: replacementSessionID.String(),
+		Category:              projectpb.SessionCategory_SESSION_CATEGORY_MAIN,
 		ConversationFreshness: runtimepb.ConversationFreshness_CONVERSATION_FRESHNESS_FRESH})
 	if replacementCmd == nil {
 		t.Fatal("session replacement dropped prompt reconciliation projection work")

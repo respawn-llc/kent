@@ -1,3 +1,4 @@
+import { expect, it, vi } from "bun:test";
 import { act, renderHook, waitFor } from "@testing-library/react";
 import { RegistryProvider, useAtomValue } from "@effect/atom-react";
 import { QueryClient } from "@tanstack/react-query";
@@ -146,7 +147,7 @@ it.each(["resolveWorktreeSelector", "switchWorktree"] as const)(
         first = model.execute({ kind: "switch", selector: "topic" });
       });
       await waitFor(() => {
-        expect(held).toHaveBeenCalledOnce();
+        expect(held).toHaveBeenCalledTimes(1);
       });
       await act(async () => {
         await model.execute({ kind: "leave" });
@@ -231,13 +232,13 @@ it.each([null, "topic"])(
         first = model.prepare("topic");
       });
       await waitFor(() => {
-        expect(held).toHaveBeenCalledOnce();
+        expect(held).toHaveBeenCalledTimes(1);
       });
       await act(async () => {
         await model.prepare(nextTarget);
       });
       expect(held).toHaveBeenCalledTimes(2);
-      expect(present).toHaveBeenCalledOnce();
+      expect(present).toHaveBeenCalledTimes(1);
       expect(pending.current).toBe(true);
       expect(push).not.toHaveBeenCalled();
     } finally {
@@ -272,7 +273,7 @@ it.each([
     await model.prepare(selector);
   });
   expect(push).not.toHaveBeenCalled();
-  expect(present).toHaveBeenCalledOnce();
+  expect(present).toHaveBeenCalledTimes(1);
   const preview = present.mock.calls[0]?.[0];
   if (preview === undefined) throw new Error("Expected preview");
   await act(async () => {
@@ -338,7 +339,7 @@ it("dispatches a confirmed Delete independently of an earlier pending deletion",
       first = model.deletion.submit({ preview, choice: "confirm" });
     });
     await waitFor(() => {
-      expect(held).toHaveBeenCalledOnce();
+      expect(held).toHaveBeenCalledTimes(1);
     });
     await act(async () => {
       await model.prepare(null);

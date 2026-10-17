@@ -14,6 +14,7 @@ type SessionRuntimeActivateRequest struct {
 }
 
 type SessionRuntimePreparationOptions struct {
+	ConnectionScope          config.ConnectionScope
 	ActiveSettings           config.Settings
 	EnabledToolIDs           []string
 	QuestionsEnabled         *bool

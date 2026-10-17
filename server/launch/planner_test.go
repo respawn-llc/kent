@@ -154,11 +154,8 @@ func TestPlannerHeadlessCreatesNewSessionAndAppliesContinuationContext(t *testin
 	if meta.SessionID == "" {
 		t.Fatal("expected session id")
 	}
-	if meta.Name == nil || !strings.HasSuffix(*meta.Name, " "+SubagentSessionSuffix) {
-		t.Fatalf("expected subagent session name, got %v", meta.Name)
-	}
-	if plan.SessionName == nil || meta.Name == nil || *plan.SessionName != *meta.Name {
-		t.Fatalf("expected plan session name %v, got %v", meta.Name, plan.SessionName)
+	if meta.Name != nil || plan.SessionName != nil {
+		t.Fatalf("new headless Session was synthetically named: %v, %v", meta.Name, plan.SessionName)
 	}
 	if plan.WorkspaceRoot != "/tmp/workspace-a" {
 		t.Fatalf("expected workspace root passthrough, got %q", plan.WorkspaceRoot)
@@ -942,7 +939,7 @@ func TestPlannerInitializesChildFromSourceMetadataWithoutOpeningSessionDirectory
 				"a":    {Protocol: config.ConnectionChatGPT},
 				"test": {Protocol: config.ConnectionChatGPT},
 			}
-			planner.Rotation = new(ConnectionRotation)
+			planner.Rotation = NewConnectionRotation(testsetup.OpenStore(t, t.TempDir()), 0)
 			sourceID := mustTypedIntentSessionID(t, source.Meta().SessionID)
 
 			plan, err := planner.PlanSession(context.Background(), SessionRequest{
@@ -957,7 +954,7 @@ func TestPlannerInitializesChildFromSourceMetadataWithoutOpeningSessionDirectory
 				t.Fatalf("child workspace = root %q container %q, want source metadata", childMeta.WorkspaceRoot, childMeta.WorkspaceContainer)
 			}
 			test.assertMeta(t, childMeta, sourceID)
-			next, err := planner.Rotation.Prepare(planner.Config.Settings, true)
+			next, err := planner.Rotation.Prepare(t.Context(), planner.Config.Settings, true)
 			want := config.ConnectionID("test")
 			if err != nil || next != want {
 				t.Fatalf("next allocation = %v, %v; want %v", next, err, want)

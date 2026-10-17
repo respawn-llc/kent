@@ -10,6 +10,10 @@ A named server-owned provider-access configuration containing provider implement
 
 The provider-assigned compatibility type of saved reasoning or an encrypted native compaction checkpoint. Types are OpenAI, Anthropic, Grok, and unencrypted. A Reasoning Type is independent of a Provider Connection's user-chosen ID and the selected model. Matching types do not establish cross-account compatibility.
 
+### Nano
+
+A specially configured inference role that performs one model Step and returns its completed result to a consumer. Nano is not an Agent or subagent. Consumers supply task instructions and input and own result interpretation.
+
 ## Session identity
 
 ### Session Short ID

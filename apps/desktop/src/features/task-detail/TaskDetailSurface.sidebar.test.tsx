@@ -1,3 +1,4 @@
+import { describe, expect, it } from "bun:test";
 import { screen, waitFor } from "@testing-library/react";
 
 import { createTestSidebarNavigator } from "@/test-support/sidebar";
@@ -17,7 +18,7 @@ describe("TaskDetailSurface sidebar ownership", () => {
       routes: [taskMissingRoute("task-1")],
     });
     await waitFor(() => {
-      expect(page.back).toHaveBeenCalledOnce();
+      expect(page.back).toHaveBeenCalledTimes(1);
     });
     expect(page.registerCapture).not.toHaveBeenCalled();
   });

@@ -39,6 +39,7 @@ type exclusiveStepLifecycle interface {
 	Snapshot() *RunSnapshot
 	WithActiveStep(fn func(stepID string) error) (bool, error)
 	ApplyForActiveStep(stepID string, apply func() error) error
+	TurnStateLifetimeForStep(stepID string) (*llm.CodexTurnStateLifetime, bool)
 	BeginAgentStepBoundary(ctx context.Context) error
 	CompleteAgentStepBoundary(ctx context.Context) error
 	DrainAgentStepBoundary(ctx context.Context) error
@@ -157,7 +158,8 @@ type reviewerPipeline interface {
 type preparedReviewerRequest struct {
 	originStepID runtimeids.StepID
 	client       *observedModelClient
-	request      cacheObservedRequest
+	source       llm.Request
+	connection   *connectionBundle
 }
 
 type reviewerProviderResult struct {

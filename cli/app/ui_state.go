@@ -19,6 +19,7 @@ import (
 	"core/shared/clientui"
 	chatpb "core/shared/protoapi/gen/kent/api/chat"
 	"core/shared/runtimeids"
+	"core/shared/sessioncontract"
 
 	tea "github.com/charmbracelet/bubbletea"
 )
@@ -174,6 +175,9 @@ type uiSessionTransitionFeatureState struct {
 	sessionExecutionTarget                  *worktreepb.SessionExecutionTarget
 	sessionRetargeted                       bool
 	sessionName                             *string
+	sessionCategory                         *sessioncontract.SessionCategory
+	sessionShortID                          *runtimeids.SessionShortID
+	stopAttention                           func()
 	forcedLocalExit                         bool
 }
 

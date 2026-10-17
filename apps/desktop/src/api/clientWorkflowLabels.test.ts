@@ -1,3 +1,4 @@
+import { describe, expect, it } from "bun:test";
 import * as wf from "@app/server-api-contract/gen/kent/api/workflow_definition/workflow_definition_pb";
 import * as taskRead from "@app/server-api-contract/gen/kent/api/workflow_task/read_pb";
 import * as taskLifecycle from "@app/server-api-contract/gen/kent/api/workflow_task/lifecycle_pb";
@@ -86,7 +87,7 @@ describe("ApiClient workflow labels", () => {
         ]),
         unexpectedProjectOverflow,
       ).getProjectTaskGroupCounts({ projectID: "project-1" });
-    await expect(getCounts(result)).resolves.toMatchObject({
+    expect(getCounts(result)).resolves.toMatchObject({
       definitions: [
         { group: "active", statusKinds: ["running", "active"] },
         { group: "backlog", statusKinds: ["backlog"] },
@@ -94,7 +95,7 @@ describe("ApiClient workflow labels", () => {
       ],
       counts: { active: 3, backlog: 2, done: 1 },
     });
-    await expect(getCounts({ ...result, definitions: [first, first, third] })).rejects.toThrow();
+    expect(getCounts({ ...result, definitions: [first, first, third] })).rejects.toThrow();
   });
   it("reorders a Project label catalog and preserves the authoritative response order", async () => {
     const transport = new FakeRpcTransport([
@@ -123,7 +124,7 @@ describe("ApiClient workflow labels", () => {
       },
     ]);
     const client = new ApiClient(transport, unexpectedProjectOverflow);
-    await expect(client.reorderProjectLabels("project-1", [urgentID, priorityID])).resolves.toEqual({
+    expect(client.reorderProjectLabels("project-1", [urgentID, priorityID])).resolves.toEqual({
       projectID: "project-1",
       labels: [
         { id: urgentID, name: "Urgent" },
@@ -148,7 +149,7 @@ describe("ApiClient workflow labels", () => {
       },
     ]);
     const client = new ApiClient(transport, unexpectedProjectOverflow);
-    await expect(
+    expect(
       client.createTask({
         projectID: "project-1",
         workflowID: smallID,
@@ -208,7 +209,7 @@ describe("ApiClient workflow labels", () => {
       },
     ]);
     const client = new ApiClient(transport, unexpectedProjectOverflow);
-    await expect(client.listProjectLabels("project-1")).resolves.toEqual({
+    expect(client.listProjectLabels("project-1")).resolves.toEqual({
       projectID: "project-1",
       labels: [{ id: priorityID, name: "Priority" }],
     });
@@ -241,7 +242,7 @@ describe("ApiClient workflow labels", () => {
       },
     ]);
     const client = new ApiClient(transport, unexpectedProjectOverflow);
-    await expect(client.createProjectLabel("project-1", rawName)).resolves.toEqual({
+    expect(client.createProjectLabel("project-1", rawName)).resolves.toEqual({
       id: priorityID,
       name: normalizedName,
     });
@@ -273,7 +274,7 @@ describe("ApiClient workflow labels", () => {
       },
     ]);
     const client = new ApiClient(transport, unexpectedProjectOverflow);
-    await expect(client.renameProjectLabel("project-1", priorityID, "Urgent")).resolves.toEqual({
+    expect(client.renameProjectLabel("project-1", priorityID, "Urgent")).resolves.toEqual({
       id: priorityID,
       name: "Urgent",
     });
@@ -303,7 +304,7 @@ describe("ApiClient workflow labels", () => {
       },
     ]);
     const client = new ApiClient(transport, unexpectedProjectOverflow);
-    await expect(client.deleteProjectLabel("project-1", priorityID)).resolves.toBe(priorityID);
+    expect(client.deleteProjectLabel("project-1", priorityID)).resolves.toBe(priorityID);
     expect(transport.descriptorCalls).toEqual([
       {
         descriptor: wf.ProjectLabelService.method.delete,
@@ -346,11 +347,11 @@ describe("ApiClient workflow labels", () => {
       },
     ]);
     const client = new ApiClient(transport, unexpectedProjectOverflow);
-    await expect(client.getTaskLabels("task-1")).resolves.toEqual({
+    expect(client.getTaskLabels("task-1")).resolves.toEqual({
       taskID: "task-1",
       labelIDs: [priorityID],
     });
-    await expect(client.updateTaskLabels("task-1", [urgentID], [priorityID])).resolves.toEqual({
+    expect(client.updateTaskLabels("task-1", [urgentID], [priorityID])).resolves.toEqual({
       taskID: "task-1",
       labelIDs: [urgentID],
     });
@@ -379,7 +380,7 @@ describe("ApiClient workflow labels", () => {
       },
     ]);
     const client = new ApiClient(transport, unexpectedProjectOverflow);
-    await expect(
+    expect(
       client.createTask({
         projectID: "project-1",
         workflowID: "11111111-1111-4111-8111-111111111111",
@@ -413,7 +414,7 @@ describe("ApiClient workflow labels", () => {
   it("rejects malformed and prefixed Workflow IDs before task RPCs", async () => {
     const transport = new FakeRpcTransport([]);
     const client = new ApiClient(transport, unexpectedProjectOverflow);
-    await expect(
+    expect(
       client.createTask({
         projectID: "project-1",
         workflowID: "not-a-workflow-id",
@@ -424,7 +425,7 @@ describe("ApiClient workflow labels", () => {
         dependencyIntents: [],
       }),
     ).rejects.toThrow();
-    await expect(
+    expect(
       client.listTasks({
         projectID: "project-1",
         workflowID: "workflow-11111111-1111-4111-8111-111111111111",
@@ -470,7 +471,7 @@ describe("ApiClient workflow labels", () => {
       },
     ]);
     const client = new ApiClient(transport, unexpectedProjectOverflow);
-    await expect(
+    expect(
       client.listTasks({
         projectID: "project-1",
         workflowID: "11111111-1111-4111-8111-111111111111",
@@ -539,7 +540,7 @@ describe("ApiClient workflow labels", () => {
       ]),
       unexpectedProjectOverflow,
     );
-    await expect(
+    expect(
       client.listTasks({
         projectID: "project-1",
         labelFilter: { kind: "none" },

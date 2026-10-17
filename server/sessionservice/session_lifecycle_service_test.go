@@ -729,8 +729,8 @@ func TestServiceForkAndCloneLeaveSourceBindingUnchanged(t *testing.T) {
 		t.Fatal(err)
 	}
 	target := appendSessionMessage(t, source, "step-2", session.MessageRoleUser, "edit this")
-	rotation := new(launch.ConnectionRotation)
-	if allocated, err := rotation.Prepare(cfg.Settings, true); err != nil || allocated != "a" {
+	rotation := launch.NewConnectionRotation(testsetup.OpenStore(t, t.TempDir()), 0)
+	if allocated, err := rotation.Prepare(t.Context(), cfg.Settings, true); err != nil || allocated != "a" {
 		t.Fatalf("initial allocation = %s, %v", allocated, err)
 	}
 	authority := sessionruntime.NewAuthority(sessionruntime.AuthorityOptions{

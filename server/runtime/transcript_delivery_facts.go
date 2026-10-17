@@ -7,6 +7,7 @@ import (
 	"core/server/llm"
 	"core/server/session"
 	"core/server/tools"
+	"core/shared/config"
 	"core/shared/rollbacktarget"
 	"core/shared/runtimeids"
 	"core/shared/textutil"
@@ -81,26 +82,28 @@ type TranscriptReasoningTraceRowFact struct {
 }
 
 type TranscriptNoticeRowFact struct {
-	Reason                string
-	Severity              string
-	LegacyText            *string
-	NoticeID              *string
-	MessageType           llm.MessageType
-	SourcePath            string
-	WorktreeContext       *session.WorktreeContext
-	CondensedText         string
-	CompactLabel          string
-	BackgroundActivityID  string
-	BackgroundProcessID   string
-	BackgroundExitCode    *int
-	DiagnosticCode        string
-	DiagnosticDetail      string
-	CacheWarning          *TranscriptCacheWarningFact
-	Compaction            *TranscriptCompactionNoticeFact
-	ToolOutputRepair      *transcript.ToolOutputRepairNotice
-	ProviderModelMismatch *transcript.ProviderModelMismatchNotice
-	ReasoningOmission     *transcript.ReasoningOmissionNotice
-	ThinkingEffort        *string
+	Reason                 string
+	Severity               string
+	LegacyText             *string
+	NoticeID               *string
+	MessageType            llm.MessageType
+	SourcePath             string
+	WorktreeContext        *session.WorktreeContext
+	CondensedText          string
+	CompactLabel           string
+	BackgroundActivityID   string
+	BackgroundProcessID    string
+	BackgroundExitCode     *int
+	DiagnosticCode         string
+	DiagnosticDetail       string
+	CacheWarning           *TranscriptCacheWarningFact
+	Compaction             *TranscriptCompactionNoticeFact
+	ToolOutputRepair       *transcript.ToolOutputRepairNotice
+	ProviderModelMismatch  *transcript.ProviderModelMismatchNotice
+	ReasoningOmission      *transcript.ReasoningOmissionNotice
+	ConnectionFallback     *config.ConnectionReplacement
+	ConnectionsUnavailable *transcript.ConnectionsUnavailableNotice
+	ThinkingEffort         *string
 }
 
 type TranscriptReviewerFeedbackRowFact struct {
@@ -682,6 +685,18 @@ func transcriptToolEntryHasRecoverableText(entry ChatEntry) bool {
 }
 
 func transcriptNoticeEntryIntegrity(entry ChatEntry) transcript.RowIntegrity {
+	if entry.ConnectionsUnavailable != nil {
+		if entry.ConnectionsUnavailable.Valid() {
+			return transcript.RowIntegrityValid
+		}
+		return transcript.RowIntegrityUnrecoverableMalformed
+	}
+	if entry.ConnectionFallback != nil {
+		if entry.ConnectionFallback.Valid() {
+			return transcript.RowIntegrityValid
+		}
+		return transcript.RowIntegrityUnrecoverableMalformed
+	}
 	if entry.ReasoningOmission != nil {
 		if entry.ReasoningOmission.Valid() {
 			return transcript.RowIntegrityValid
@@ -807,6 +822,24 @@ func firstNonBlankTranscriptValue(values ...string) string {
 }
 
 func localEntryNoticeFact(entry ChatEntry) TranscriptCommittedRowFact {
+	if entry.ConnectionsUnavailable != nil {
+		return TranscriptCommittedRowFact{
+			Kind: TranscriptCommittedRowFactNotice, Visibility: entry.Visibility,
+			Notice: &TranscriptNoticeRowFact{
+				Reason: transcript.NoticeReasonConnectionsUnavailable, Severity: transcript.NoticeSeverityError,
+				ConnectionsUnavailable: entry.ConnectionsUnavailable,
+			},
+		}
+	}
+	if entry.ConnectionFallback != nil {
+		return TranscriptCommittedRowFact{
+			Kind: TranscriptCommittedRowFactNotice, Visibility: entry.Visibility,
+			Notice: &TranscriptNoticeRowFact{
+				Reason: transcript.NoticeReasonConnectionFallback, Severity: transcript.NoticeSeverityInfo,
+				ConnectionFallback: textutil.Pointer(entry.ConnectionFallback),
+			},
+		}
+	}
 	if entry.ThinkingEffort != nil {
 		return TranscriptCommittedRowFact{
 			Kind: TranscriptCommittedRowFactNotice, Visibility: entry.Visibility,

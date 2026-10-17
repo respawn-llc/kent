@@ -20,9 +20,10 @@ const settingsSubscriptionBufferSize = 64
 // SettingsBroadcaster delivers committed Session projections independently of
 // Agent runtime and client lifetimes. It retains only bounded delivery queues.
 type SettingsBroadcaster struct {
-	mu          sync.Mutex
-	closed      bool
-	subscribers map[runtimeids.SessionID]map[*settingsSubscription]struct{}
+	catalogChanged func(runtimeids.SessionID) error
+	mu             sync.Mutex
+	closed         bool
+	subscribers    map[runtimeids.SessionID]map[*settingsSubscription]struct{}
 }
 
 type settingsSubscription struct {
@@ -32,8 +33,8 @@ type settingsSubscription struct {
 	err       error
 }
 
-func NewSettingsBroadcaster() *SettingsBroadcaster {
-	return &SettingsBroadcaster{subscribers: make(map[runtimeids.SessionID]map[*settingsSubscription]struct{})}
+func NewSettingsBroadcaster(catalogChanged func(runtimeids.SessionID) error) *SettingsBroadcaster {
+	return &SettingsBroadcaster{catalogChanged: catalogChanged, subscribers: make(map[runtimeids.SessionID]map[*settingsSubscription]struct{})}
 }
 
 func (b *SettingsBroadcaster) Subscribe(sessionID runtimeids.SessionID) (apicontract.ChatSettingsSubscription, error) {
@@ -50,7 +51,7 @@ func (b *SettingsBroadcaster) Subscribe(sessionID runtimeids.SessionID) (apicont
 	return sub, nil
 }
 
-func (b *SettingsBroadcaster) Publish(snapshot *chatsettingspb.SettingsSnapshot) error {
+func (b *SettingsBroadcaster) Publish(snapshot *chatsettingspb.SettingsSnapshot) (err error) {
 	if err := protoapi.Validate(snapshot); err != nil {
 		return err
 	}
@@ -58,6 +59,7 @@ func (b *SettingsBroadcaster) Publish(snapshot *chatsettingspb.SettingsSnapshot)
 	if err != nil {
 		return err
 	}
+	defer func() { err = errors.Join(err, b.catalogChanged(sessionID)) }()
 	b.mu.Lock()
 	defer b.mu.Unlock()
 	if b.closed {

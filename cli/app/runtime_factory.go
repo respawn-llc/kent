@@ -6,16 +6,17 @@ import (
 )
 
 type runtimeWiring struct {
-	turnQueueHook         turnQueueHook
-	terminalFocus         *terminalFocusState
-	eventDispatcher       *uiEventDispatcher
-	requestTranscriptOpen func()
-	promptAnswers         *transcriptPromptAnswerer
-	promptAttention       promptAttentionSink
-	runtimeClient         clientui.RuntimeClient
-	worktrees             apicontract.WorktreeService
-	processControls       apicontract.ProcessControlService
-	processViews          apicontract.ProcessViewService
-	lifecycleHookIssues   <-chan lifecycleHookIssue
-	lifecycleHookDone     <-chan struct{}
+	attentionNotifications apicontract.AttentionNotificationService
+	turnQueueHook          turnQueueHook
+	terminalFocus          *terminalFocusState
+	eventDispatcher        *uiEventDispatcher
+	requestTranscriptOpen  func()
+	promptAnswers          *transcriptPromptAnswerer
+	promptAttention        promptAttentionSink
+	runtimeClient          clientui.RuntimeClient
+	worktrees              apicontract.WorktreeService
+	processControls        apicontract.ProcessControlService
+	processViews           apicontract.ProcessViewService
+	lifecycleHookIssues    <-chan lifecycleHookIssue
+	lifecycleHookDone      <-chan struct{}
 }

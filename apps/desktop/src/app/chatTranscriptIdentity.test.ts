@@ -1,3 +1,4 @@
+import { expect, it } from "bun:test";
 import { TranscriptWindow } from "@/app-facade";
 import { page, readWireUser } from "@/test-support/transcript-window";
 

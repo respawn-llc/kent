@@ -1,4 +1,4 @@
-import { expect, it, vi } from "vitest";
+import { expect, it, vi } from "bun:test";
 
 import type { ChatApi, ChatSessionTarget, ChatTranscriptPage } from "@/api";
 import { hydration, page, row } from "@/test-support/transcript-window";
@@ -25,17 +25,13 @@ it("keeps replacement hydration authoritative after a delayed newest result", as
   });
   host.hydration("initial", hydration([row(30)]));
   host.dispatch({ kind: "edge-visit", direction: "older", older: true, newer: false });
-  await vi.waitFor(() => {
-    expect(host.snapshot.older).toEqual({ kind: "idle", cursor: 200 });
-  });
+  await waitForHost(host, (snapshot) => snapshot.older.kind === "idle" && snapshot.older.cursor === 200);
   host.dispatch({ kind: "edge-visit", direction: "older", older: true, newer: false });
-  await vi.waitFor(() => {
-    expect(host.snapshot.older).toEqual({ kind: "idle", cursor: 100 });
-  });
+  await waitForHost(host, (snapshot) => snapshot.older.kind === "idle" && snapshot.older.cursor === 100);
 
   const jump = host.jumpToLatest();
   host.hydration("scratch", hydration([row(50)], 1));
-  await expect(jump).resolves.toEqual({ kind: "tail-ready" });
+  expect(jump).resolves.toEqual({ kind: "tail-ready" });
   delayed.resolve(page([row(40)], 400));
   await delayed.promise;
   expect(
@@ -46,7 +42,7 @@ it("keeps replacement hydration authoritative after a delayed newest result", as
 
 it("executes opening and directional TranscriptWindow page requests", async () => {
   const pages = [page([row(30)], 300), page([row(20)], 200, 300)];
-  const getTranscriptPage = vi.fn(async (): Promise<ChatTranscriptPage> => {
+  const getTranscriptPage = vi.fn<ChatApi["getTranscriptPage"]>(async (): Promise<ChatTranscriptPage> => {
     const next = pages.shift();
     if (next === undefined) throw new Error("Unexpected transcript page request.");
     return next;
@@ -62,13 +58,9 @@ it("executes opening and directional TranscriptWindow page requests", async () =
   );
 
   host.open();
-  await vi.waitFor(() => {
-    expect(host.snapshot.opening.kind).toBe("ready");
-  });
+  await waitForHost(host, (snapshot) => snapshot.opening.kind === "ready");
   host.dispatch({ kind: "edge-visit", direction: "older", older: true, newer: false });
-  await vi.waitFor(() => {
-    expect(host.snapshot.older).toEqual({ kind: "idle", cursor: 200 });
-  });
+  await waitForHost(host, (snapshot) => snapshot.older.kind === "idle" && snapshot.older.cursor === 200);
 
   expect(getTranscriptPage.mock.calls).toEqual([[target], [target, { direction: "older", value: 300 }]]);
   expect(
@@ -82,7 +74,7 @@ it("keeps a failed directional boundary retryable with the same opaque cursor", 
     async () => Promise.reject(new Error("Page unavailable")),
     async () => page([row(20)], 200, 300),
   ];
-  const getTranscriptPage = vi.fn(async (): Promise<ChatTranscriptPage> => {
+  const getTranscriptPage = vi.fn<ChatApi["getTranscriptPage"]>(async (): Promise<ChatTranscriptPage> => {
     const next = pages.shift();
     if (next === undefined) throw new Error("Unexpected transcript page request.");
     return next();
@@ -97,21 +89,29 @@ it("keeps a failed directional boundary retryable with the same opaque cursor", 
     },
   );
   host.open();
-  await vi.waitFor(() => {
-    expect(host.snapshot.opening.kind).toBe("ready");
-  });
+  await waitForHost(host, (snapshot) => snapshot.opening.kind === "ready");
 
   host.dispatch({ kind: "edge-visit", direction: "older", older: true, newer: false });
-  await vi.waitFor(() => {
-    expect(host.snapshot.older.kind).toBe("error");
-  });
+  await waitForHost(host, (snapshot) => snapshot.older.kind === "error");
   host.dispatch({ kind: "retry", direction: "older" });
-  await vi.waitFor(() => {
-    expect(host.snapshot.older).toEqual({ kind: "idle", cursor: 200 });
-  });
+  await waitForHost(host, (snapshot) => snapshot.older.kind === "idle" && snapshot.older.cursor === 200);
 
   expect(getTranscriptPage.mock.calls.slice(1)).toEqual([
     [target, { direction: "older", value: 300 }],
     [target, { direction: "older", value: 300 }],
   ]);
 });
+
+async function waitForHost(
+  host: ChatTranscriptHost,
+  matches: (snapshot: ChatTranscriptHost["snapshot"]) => boolean,
+): Promise<void> {
+  if (matches(host.snapshot)) return Promise.resolve();
+  return new Promise<void>((resolve) => {
+    const unsubscribe = host.subscribe(() => {
+      if (!matches(host.snapshot)) return;
+      unsubscribe();
+      resolve();
+    });
+  });
+}

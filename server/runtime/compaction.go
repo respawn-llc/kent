@@ -531,7 +531,7 @@ func (e *Engine) estimatedCurrentTokenUsage(preview ...llm.ResponseItem) int {
 	if e != nil {
 		estimated = e.estimatedProviderHistoryTokens()
 	}
-	estimated += llm.EstimateItemsTokens(e.cfg.TokenEstimator, preview)
+	estimated += llm.EstimateItemsTokens(e.connectionSnapshot().estimator, preview)
 	if e.modelRequests().TokenUsage() != nil {
 		if baseline, ok := e.modelRequests().TokenUsage().estimateCurrentContextTokens(estimated); ok {
 			return baseline
@@ -576,22 +576,19 @@ func (e *Engine) compactNowWithAcceptance(
 		return compactionResult{}, session.CommitReceipt{}, nil
 	}
 
-	providerID := "unknown"
+	providerID := e.connectionSnapshot().transportCapabilities.ProviderID
 	persistence := newCompactionPersistence(e)
 	compactionFailure := func(result compactionResult, err error) error {
 		feedbackErr := e.emitLocalCompactionToolCallFeedback(stepID, result.localToolCallRejectionCount)
 		if accept != nil {
 			return errors.Join(err, feedbackErr)
 		}
-		return errors.Join(err, feedbackErr, persistence.emitStatus(stepID, EventCompactionFailed, mode, result.engine, providerID, result.trimmedItemsCount, 0, err.Error()))
+		return errors.Join(err, feedbackErr, persistence.emitStatus(stepID, EventCompactionFailed, mode, result.engine, e.connectionSnapshot().transportCapabilities.ProviderID, result.trimmedItemsCount, 0, err.Error()))
 	}
 
 	caps, err := e.providerCapabilities(ctx)
 	if err != nil {
 		return compactionResult{}, session.CommitReceipt{}, compactionFailure(compactionResult{}, err)
-	}
-	if resolvedProviderID := strings.TrimSpace(caps.ProviderID); resolvedProviderID != "" {
-		providerID = resolvedProviderID
 	}
 
 	if err := persistence.setActivity(stepID, mode, e.compactionRuntimeState().Count()+1, activeKind, true); err != nil {
@@ -615,7 +612,12 @@ func (e *Engine) compactNowWithAcceptance(
 	if enginePlan.engineKind == compactionEngineRemote {
 		requestKind = llm.CodexRequestKindCompaction.Optional()
 	}
-	dispatchFactory, err := e.activeDispatchRequestFactory(stepID, requestKind)
+	var dispatchFactory dispatchRequestFactory
+	if enginePlan.engineKind == compactionEngineRemote {
+		dispatchFactory, err = e.activeDispatchRequestFactory(stepID, requestKind)
+	} else {
+		dispatchFactory, err = e.localCompactionDispatchRequestFactory(stepID)
+	}
 	if err != nil {
 		return compactionResult{}, session.CommitReceipt{}, compactionFailure(result, err)
 	}
@@ -658,7 +660,7 @@ func (e *Engine) compactNowWithAcceptance(
 			slog.LogAttrs(ctx, slog.LevelError, "remote compaction returned a malformed checkpoint", attrs...)
 
 			if retryPolicy == modelRequestRetriesAllowed {
-				localFactory, factoryErr := e.activeDispatchRequestFactory(stepID, nil)
+				localFactory, factoryErr := e.localCompactionDispatchRequestFactory(stepID)
 				if factoryErr != nil {
 					err = errors.Join(err, factoryErr)
 				} else {

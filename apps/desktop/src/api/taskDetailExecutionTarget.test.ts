@@ -1,9 +1,11 @@
+import { describe, expect, it } from "bun:test";
 import { create } from "@app/server-api-contract";
 import * as pb from "@app/server-api-contract/gen/kent/api/workflow_task/read_pb";
 import { AttentionCurrentNodeSchema } from "@app/server-api-contract/gen/kent/api/workflow_task/attention_pb";
 import { ExecutionTargetMode } from "@app/server-api-contract/gen/kent/api/workflow_definition/workflow_definition_pb";
 import { taskDetailResponse } from "@/test-support/task-detail";
 import { FakeRpcTransport, unexpectedProjectOverflow } from "@/test-support/api";
+import { requireValue } from "@/test-support/chat-runtime";
 import { ApiClient } from "./client";
 
 async function getTask(task: pb.TaskDetail) {
@@ -102,21 +104,25 @@ describe("task detail execution target contract", () => {
         effectiveAssignee: null,
         effectiveThinking: null,
         nodeID: node.nodeId,
-        displayName: node.nodeDisplayName,
+        displayName: requireValue(node.nodeDisplayName),
         transitionBranchKey: null,
-        sessionID: node.sessionId,
+        sessionID: node.sessionId ?? null,
       })),
     );
     expect(detail.currentScripts).toEqual(
       currentScripts.map((script) => ({
-        currentNode: { nodeID: script.currentNode?.nodeId, transitionBranchKey: null, sessionID: null },
+        currentNode: {
+          nodeID: requireValue(script.currentNode?.nodeId),
+          transitionBranchKey: null,
+          sessionID: null,
+        },
         path: script.path,
       })),
     );
   });
 
   it("rejects a Current Script with a Session", async () => {
-    await expect(
+    expect(
       getTask(
         create(pb.TaskDetailSchema, {
           ...taskDetailResponse.task,

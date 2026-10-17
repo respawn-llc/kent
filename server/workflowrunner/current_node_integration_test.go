@@ -227,7 +227,7 @@ func newCurrentNodeRunnerFixtureWithClientAndPersistence(
 		}
 	}
 	fixture.runtimes = registry.NewRuntimeRegistry(nil)
-	connectionRotation := new(launch.ConnectionRotation)
+	connectionRotation := launch.NewConnectionRotation(testsetup.OpenStore(t, t.TempDir()), 0)
 	var controller *workflowexecution.CurrentNodeController
 	fixture.authority = sessionruntime.NewAuthority(sessionruntime.AuthorityOptions{
 		ConnectionRotation:            connectionRotation,

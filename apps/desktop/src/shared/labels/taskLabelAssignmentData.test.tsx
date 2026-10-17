@@ -1,25 +1,32 @@
 import { QueryClient, QueryClientProvider, QueryObserver, useQueryClient } from "@tanstack/react-query";
 import { RegistryProvider } from "@effect/atom-react";
 import { act, renderHook, waitFor } from "@testing-library/react";
+import { beforeEach, describe, expect, it, mock, vi } from "bun:test";
 import { useMemo, type ReactNode } from "react";
-import { vi } from "vitest";
 
 import type { ApiService, ProjectLabelCatalog, TaskLabelAssignment } from "@/api";
-import { queryAtom, queryKeys } from "@/app-facade";
 import { useStableCallback } from "@/ui";
 import { pruneDeletedLabelFromExistingCaches, removeDeletedTaskFromExistingCaches } from "./taskLabelCache";
-import { createTaskLabelAssignmentModel, useTaskLabelAssignmentModel } from "./taskLabelAssignmentData";
 
 const taskID = "task-1";
 const projectID = "project-1";
 const alphaID = "38bf0da7-a3f7-4c15-bc5f-c8fca538e667";
 const betaID = "942495c2-5958-4959-8445-94046ad74fbd";
 const remoteID = "2d6d42a1-461d-4a31-b8ad-858e98ea4058";
+type CachedTask = Readonly<{ id: string; labelIDs: readonly string[] }>;
 
-const appServiceMocks = vi.hoisted(() => ({
+const actualAppFacade = await import("@/app-facade");
+const { queryAtom, queryKeys } = actualAppFacade;
+const appServiceMocks = {
   getTaskLabels: vi.fn<ApiService["getTaskLabels"]>(),
   updateTaskLabels: vi.fn<ApiService["updateTaskLabels"]>(),
+};
+await mock.module("@/app-facade", () => ({
+  ...actualAppFacade,
+  useAppServices: () => ({ api: appServiceMocks }),
 }));
+const { createTaskLabelAssignmentModel, useTaskLabelAssignmentModel } =
+  await import("./taskLabelAssignmentData");
 
 describe("Task Label assignments", () => {
   beforeEach(() => {
@@ -69,8 +76,10 @@ describe("Task Label assignments", () => {
       { queryKey: queryKeys.taskLabels(taskID), exact: true },
       { revert: false, silent: true },
     );
-    expect(queryClient.getQueryData(queryKeys.taskLabels(taskID))).toEqual(assignment([alphaID, betaID]));
-    expect(queryClient.getQueryData(queryKeys.task(taskID))).toMatchObject({
+    expect(queryClient.getQueryData<TaskLabelAssignment>(queryKeys.taskLabels(taskID))).toEqual(
+      assignment([alphaID, betaID]),
+    );
+    expect(queryClient.getQueryData<CachedTask>(queryKeys.task(taskID))).toMatchObject({
       labelIDs: [alphaID, betaID],
     });
     expect(scheduleCatalogRefresh).not.toHaveBeenCalled();
@@ -127,7 +136,7 @@ describe("Task Label assignments", () => {
       await beta.promise;
     });
     await waitFor(() => {
-      expect(scheduleCatalogRefresh).toHaveBeenCalledOnce();
+      expect(scheduleCatalogRefresh).toHaveBeenCalledTimes(1);
       expect(scheduleTaskAssignmentRefresh).toHaveBeenCalledWith(taskID);
     });
     expect(invalidate).toHaveBeenCalledWith({
@@ -267,7 +276,9 @@ describe("Task Label assignments", () => {
     await waitFor(() => {
       expect(appServiceMocks.updateTaskLabels).toHaveBeenCalledTimes(2);
     });
-    expect(queryClient.getQueryData(queryKeys.taskLabels(taskID))).toEqual(assignment([alphaID]));
+    expect(queryClient.getQueryData<TaskLabelAssignment>(queryKeys.taskLabels(taskID))).toEqual(
+      assignment([alphaID]),
+    );
     await waitFor(() => {
       expect(appServiceMocks.updateTaskLabels).toHaveBeenLastCalledWith(taskID, [betaID], []);
     });
@@ -363,7 +374,9 @@ describe("Task Label assignments", () => {
       expect(result.current[0].failures).toHaveLength(1);
     });
     expect(result.current[1].failures).toEqual([]);
-    expect(queryClient.getQueryData(queryKeys.taskLabels(taskID))).toEqual(assignment([]));
+    expect(queryClient.getQueryData<TaskLabelAssignment>(queryKeys.taskLabels(taskID))).toEqual(
+      assignment([]),
+    );
   });
 
   it("refreshes the authoritative assignment after out-of-order destination responses", async () => {
@@ -418,7 +431,9 @@ describe("Task Label assignments", () => {
     });
 
     expect(scheduleTaskAssignmentRefresh).toHaveBeenCalledTimes(2);
-    expect(queryClient.getQueryData(queryKeys.taskLabels(taskID))).toEqual(authoritative);
+    expect(queryClient.getQueryData<TaskLabelAssignment>(queryKeys.taskLabels(taskID))).toEqual(
+      authoritative,
+    );
   });
 
   it("does not restore a Label deleted while an assignment response is late", async () => {
@@ -454,8 +469,12 @@ describe("Task Label assignments", () => {
     await waitFor(() => {
       expect(result.current.pendingLabelIDs).toEqual([]);
     });
-    expect(queryClient.getQueryData(queryKeys.taskLabels(taskID))).toEqual(assignment([]));
-    expect(queryClient.getQueryData(queryKeys.task(taskID))).toMatchObject({ labelIDs: [] });
+    expect(queryClient.getQueryData<TaskLabelAssignment>(queryKeys.taskLabels(taskID))).toEqual(
+      assignment([]),
+    );
+    expect(queryClient.getQueryData<CachedTask>(queryKeys.task(taskID))).toMatchObject({
+      labelIDs: [],
+    });
   });
 
   it("stops a queued assignment when the Task is deleted during the in-flight request", async () => {
@@ -494,8 +513,10 @@ describe("Task Label assignments", () => {
     await waitFor(() => {
       expect(appServiceMocks.updateTaskLabels).toHaveBeenCalledTimes(1);
     });
-    expect(queryClient.getQueryData(queryKeys.taskLabels(taskID))).toBeUndefined();
-    expect(queryClient.getQueryData(queryKeys.task(taskID))).toBeUndefined();
+    const deletedAssignment = queryClient.getQueryData(queryKeys.taskLabels(taskID));
+    const deletedTask = queryClient.getQueryData(queryKeys.task(taskID));
+    expect(deletedAssignment).toBeUndefined();
+    expect(deletedTask).toBeUndefined();
   });
 
   it("retries a mounted row owner without cached Task data", async () => {
@@ -579,10 +600,10 @@ describe("Task Label assignments", () => {
         setTimeout(resolve, 0);
       });
 
-      expect(queryClient.getQueryData(queryKeys.taskLabels(taskID))).toEqual(
+      expect(queryClient.getQueryData<TaskLabelAssignment>(queryKeys.taskLabels(taskID))).toEqual(
         assignment(succeeds ? [alphaID] : []),
       );
-      expect(queryClient.getQueryData(queryKeys.task(taskID))).toMatchObject({
+      expect(queryClient.getQueryData<CachedTask>(queryKeys.task(taskID))).toMatchObject({
         labelIDs: succeeds ? [alphaID] : [],
       });
       expect(scheduleCatalogRefresh).not.toHaveBeenCalled();

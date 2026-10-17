@@ -2,7 +2,7 @@ import { create } from "@app/server-api-contract";
 import * as pb from "@app/server-api-contract/gen/kent/api/workflow_task/read_pb";
 import type { FakeRoute } from "../api";
 import { createTestServices } from "../app-services";
-import { vi } from "vitest";
+import { vi } from "bun:test";
 
 export function createSearchTestServices(routes: readonly FakeRoute[]) {
   const services = createTestServices(routes);

@@ -446,6 +446,7 @@
 - Task Detail moves focus to the next unresolved prompt's first answer control.
 - The next prompt accepts edits and submission while earlier answer deliveries are in progress. Answer deliveries may finish in a different order.
 - Task Detail must apply ordinary server broadcasts and answer results to its available attention state. Successful answers may refresh attention through the ordinary domain refresh path.
+- When a Question starts waiting on an open Task, Task Detail must refresh its reads and apply the updated attention.
 - If delivery fails while the same Task Detail is present, Task Detail must restore the submitted selection and commentary for the exact Session, Step, and Tool Call ID in its latest available server order unless that state identifies the prompt as resolved. It must surface the failure and permit resubmission without moving focus away from another prompt being edited.
 - A failed answer must not trigger an additional pending-prompt read. If delivery and observation both fail, an already-resolved prompt may be visible until a later broadcast, independent read, or explicit resubmission supplies its authoritative outcome.
 - Task Detail must not replay a failed answer automatically.

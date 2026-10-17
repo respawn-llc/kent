@@ -46,7 +46,7 @@ func NewProjectedUIModel(runtimeClient clientui.RuntimeClient, opts ...UIOption)
 func (m *uiModel) Init() tea.Cmd {
 	cmds := []tea.Cmd{
 		waitPathReferenceSearchEvent(m.pathReferenceEvents),
-		tea.SetWindowTitle(sessionTitle(m.sessionName)),
+		tea.SetWindowTitle(m.sessionTitle()),
 		tea.WindowSize(),
 	}
 	if m.observationScope == nil {

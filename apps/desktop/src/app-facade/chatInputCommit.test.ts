@@ -1,5 +1,5 @@
 import { QueryClient } from "@tanstack/react-query";
-import { expect, it, vi } from "vitest";
+import { expect, it, vi } from "bun:test";
 import { hydration, runtimeApi, runtimeHost, target } from "@/test-support/chat-runtime";
 import { row } from "@/test-support/transcript-window";
 import { ChatRuntimeOwner } from "./chatRuntime";

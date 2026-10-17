@@ -103,7 +103,7 @@ func (s *Service) prepareSessionChatSettings(
 			return PreparedChatSettingsOperationInput{}, nil, err
 		}
 	}
-	catalog, err := launch.PrepareSessionChatAgentCatalog(planner.Config, meta, planner.Rotation)
+	catalog, err := launch.PrepareSessionChatAgentCatalog(ctx, planner.Config, meta, planner.Rotation)
 	if err != nil {
 		return PreparedChatSettingsOperationInput{}, nil, err
 	}
@@ -366,7 +366,7 @@ func (s *Service) PlanLaunchSession(ctx context.Context, req PlanRequest) (PlanR
 		return PlanResult{}, err
 	}
 	preparation := launch.RunPromptPreparationContext{Mode: req.Mode, Rotation: planner.Rotation, AllocateConnection: true}
-	preparedOverrides, err := launch.PrepareRunPromptOverridesWithContext(planner.Config, req.Overrides, preparation)
+	preparedOverrides, err := launch.PrepareRunPromptOverridesWithContext(ctx, planner.Config, req.Overrides, preparation)
 	if err != nil {
 		return PlanResult{}, err
 	}
@@ -407,7 +407,7 @@ func (s *Service) planExistingSession(ctx context.Context, planner launch.Planne
 	if err != nil {
 		return PlanResult{}, err
 	}
-	preparedOverrides, roleOverride, err := prepareExistingSelection(planner, req, meta, roleOverride)
+	preparedOverrides, roleOverride, err := prepareExistingSelection(ctx, planner, req, meta, roleOverride)
 	if err != nil {
 		return PlanResult{}, err
 	}
@@ -433,7 +433,7 @@ func (s *Service) planExistingSession(ctx context.Context, planner launch.Planne
 	return s.finalizeLaunchPlan(ctx, plan, warnings, req.selectionWarnings, err)
 }
 
-func prepareExistingSelection(planner launch.Planner, req PlanRequest, meta session.Meta, roleOverride serverapi.RunPromptAgentRoleOverride) (launch.PreparedRunPromptOverrides, serverapi.RunPromptAgentRoleOverride, error) {
+func prepareExistingSelection(ctx context.Context, planner launch.Planner, req PlanRequest, meta session.Meta, roleOverride serverapi.RunPromptAgentRoleOverride) (launch.PreparedRunPromptOverrides, serverapi.RunPromptAgentRoleOverride, error) {
 	if req.Mode != launch.ModeHeadless && meta.Locked != nil && roleOverride.Present {
 		req.Overrides.AgentRole = nil
 		roleOverride = serverapi.RunPromptAgentRoleOverride{}
@@ -441,13 +441,13 @@ func prepareExistingSelection(planner launch.Planner, req PlanRequest, meta sess
 	preparation := launch.RunPromptPreparationContext{Mode: req.Mode, ModelLock: meta.Locked, ToolLock: meta.Locked,
 		Rotation: planner.Rotation, ConnectionID: meta.ConnectionID, AllocateConnection: true}
 	if !roleOverride.Present {
-		target, err := planner.SelectedSessionPromptFacingTargetFromMeta(meta, true)
+		target, err := planner.SelectedSessionPromptFacingTargetFromMeta(ctx, meta, true)
 		if err != nil {
 			return launch.PreparedRunPromptOverrides{}, roleOverride, err
 		}
 		preparation.OmittedTarget = &target
 	}
-	preparedOverrides, err := launch.PrepareRunPromptOverridesWithContext(planner.Config, req.Overrides, preparation)
+	preparedOverrides, err := launch.PrepareRunPromptOverridesWithContext(ctx, planner.Config, req.Overrides, preparation)
 	return preparedOverrides, roleOverride, err
 }
 
@@ -614,6 +614,10 @@ func sessionPlanSuccessFromResult(result PlanResult) (*sessionlaunchpb.SessionPl
 		enabledToolIDs = append(enabledToolIDs, generated)
 	}
 	plan := &sessionlaunchpb.SessionPlan{
+		ConnectionScope: &sessionlaunchpb.ConnectionScope{
+			Selection:       protoapi.ConnectionSelectionToProto(result.Plan.ConnectionScope.Selection),
+			UnavailableRole: result.Plan.ConnectionScope.UnavailableRole,
+		},
 		ShortId:                  protoapi.SessionShortIDToProto(result.Identity.ShortID),
 		SessionId:                result.Plan.Descriptor.SessionID().String(),
 		ActiveSettings:           settings,

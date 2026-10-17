@@ -36,6 +36,7 @@ export async function activateRuntime(transport: RpcTransport, target: ChatSessi
       create(method.input, {
         sessionId: { value: { case: "sessionId", value: sessionID } },
         options: {
+          connectionScope: plan.connectionScope,
           activeSettings: plan.activeSettings,
           enabledToolIds: plan.enabledToolIds,
           questionsEnabled: plan.questionsEnabled,

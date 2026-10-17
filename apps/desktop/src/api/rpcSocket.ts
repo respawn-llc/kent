@@ -371,9 +371,6 @@ export function requireSessionAttachment(
   if (attachment.sessionID !== target.sessionID) {
     throw new ContractError("Session attachment does not match the requested Session.");
   }
-  if (target.projectID !== undefined && attachment.projectID !== target.projectID) {
-    throw new ContractError("Session attachment does not match the requested Project.");
-  }
   return attachment;
 }
 

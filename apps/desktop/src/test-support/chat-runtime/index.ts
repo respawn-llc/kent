@@ -1,4 +1,4 @@
-import { vi, type Mock } from "vitest";
+import { vi, type Mock } from "bun:test";
 
 import type {
   ChatMainViewRead,
@@ -27,6 +27,8 @@ export function mainViewRead(sequence = 1): ChatMainViewRead {
       version: { epoch: "epoch-1", generation: 1, sequence },
       sessionID: target.sessionID,
       sessionName: "Session",
+      category: "main",
+      shortID: null,
       executionTarget: {
         workspaceID: "workspace-1",
         workspaceName: "Workspace",
@@ -68,6 +70,8 @@ export function hydration(): ChatTranscriptPayloadByKind["hydration"] {
   return {
     ConnectionReplacement: null,
     SessionIdentity: {
+      Category: "main",
+      ShortID: null,
       SessionID: target.sessionID,
       SessionName: null,
       ConversationFreshness: 1,
@@ -193,6 +197,8 @@ export function runtimeUnavailablePayload(): ChatTranscriptPayloadByKind["runtim
 
 export function changedIdentity(): ChatTranscriptPayloadByKind["session_identity"] {
   return {
+    Category: "main",
+    ShortID: null,
     SessionID: target.sessionID,
     SessionName: null,
     ConversationFreshness: 1,

@@ -8,6 +8,7 @@ import "google/protobuf/empty.proto";
 import "google/protobuf/timestamp.proto";
 import "kent/api/auth/auth.proto";
 import "kent/api/prompt/prompt.proto";
+import "kent/api/project/session_catalog.proto";
 import "kent/api/runtime/runtime.proto";
 import "kent/api/server/server.proto";
 import "kent/api/shared/foundation.proto";
@@ -143,6 +144,8 @@ enum NoticeReason {
   NOTICE_REASON_PROVIDER_MODEL_MISMATCH = 6;
   NOTICE_REASON_THINKING_UPDATE = 7;
   NOTICE_REASON_REASONING_OMISSION = 8;
+  NOTICE_REASON_CONNECTION_FALLBACK = 9;
+  NOTICE_REASON_CONNECTIONS_UNAVAILABLE = 10;
 }
 
 enum NoticeSeverity {
@@ -459,6 +462,16 @@ message ReasoningOmission {
   int32 count = 1 [(buf.validate.field).int32.gte = 1];
 }
 
+message UnavailableConnection {
+  string id = 1 [(buf.validate.field).string.min_len = 1];
+  optional google.protobuf.Timestamp available_at = 2;
+}
+
+message ConnectionsUnavailable {
+  repeated UnavailableConnection members = 1 [(buf.validate.field).repeated.min_items = 1];
+  repeated string diagnostics = 2;
+}
+
 message BackgroundNoticeIdentity {
   string activity_id = 1 [
     (buf.validate.field).string.uuid = true,
@@ -505,6 +518,8 @@ message NoticeRow {
   optional string compact_label = 15 [(buf.validate.field).string.min_len = 1];
   optional ProviderModelMismatch provider_model_mismatch = 16;
   optional ReasoningOmission reasoning_omission = 19;
+  optional ConnectionReplacement connection_fallback = 20;
+  optional ConnectionsUnavailable connections_unavailable = 21;
   optional string thinking_effort = 18 [
     (buf.validate.field).string.min_len = 1,
     (buf.validate.field).cel = {
@@ -524,6 +539,11 @@ message NoticeRow {
     expression: "this.reason != 3 || this.severity != 3 || has(this.legacy_text) || (has(this.worktree) && has(this.message_type) && this.message_type in [17, 18])"
   };
   option (buf.validate.message).cel = {
+    id: "kent.transcript.connection_notice_payload"
+    message: "connection payloads require their matching reason"
+    expression: "has(this.connection_fallback) == (this.reason == 9) && has(this.connections_unavailable) == (this.reason == 10)"
+  };
+  option (buf.validate.message).cel = {
     id: "kent.transcript.notice_reason_payload"
     message: "notice payload must match reason"
     expression:
@@ -534,7 +554,8 @@ message NoticeRow {
       "(this.reason == 5 && has(this.tool_output_repair) && !has(this.legacy_text) && !has(this.cache_warning) && !has(this.compaction) && !has(this.provider_model_mismatch) && !has(this.reasoning_omission) && !has(this.diagnostic) && !has(this.background)) || "
       "(this.reason == 6 && has(this.provider_model_mismatch) && !has(this.legacy_text) && !has(this.cache_warning) && !has(this.compaction) && !has(this.tool_output_repair) && !has(this.reasoning_omission) && !has(this.diagnostic) && !has(this.background)) || "
       "(this.reason == 7 && this.severity == 1 && !has(this.message_type) && !has(this.legacy_text) && !has(this.cache_warning) && !has(this.compaction) && !has(this.tool_output_repair) && !has(this.provider_model_mismatch) && !has(this.reasoning_omission) && !has(this.diagnostic) && !has(this.background)) || "
-      "(this.reason == 8 && this.severity == 2 && has(this.reasoning_omission) && !has(this.message_type) && !has(this.legacy_text) && !has(this.cache_warning) && !has(this.compaction) && !has(this.tool_output_repair) && !has(this.provider_model_mismatch) && !has(this.diagnostic) && !has(this.background))"
+      "(this.reason == 8 && this.severity == 2 && has(this.reasoning_omission) && !has(this.message_type) && !has(this.legacy_text) && !has(this.cache_warning) && !has(this.compaction) && !has(this.tool_output_repair) && !has(this.provider_model_mismatch) && !has(this.diagnostic) && !has(this.background)) || "
+      "(this.reason in [9, 10] && !has(this.message_type) && !has(this.legacy_text) && !has(this.cache_warning) && !has(this.compaction) && !has(this.tool_output_repair) && !has(this.provider_model_mismatch) && !has(this.reasoning_omission) && !has(this.diagnostic) && !has(this.background))"
   };
 }
 
@@ -571,6 +592,11 @@ message CommittedRow {
 }
 
 message SessionIdentity {
+  kent.api.project.SessionCategory category = 5 [(buf.validate.field).enum = {
+    defined_only: true
+    not_in: [0]
+  }];
+  optional int64 short_id = 6 [(buf.validate.field).int64 = {gt: 0 lte: 9007199254740991}];
   string session_id = 1 [(buf.validate.field).string.min_len = 1];
   optional string session_name = 2 [(buf.validate.field).string.min_len = 1];
   kent.api.runtime.ConversationFreshness conversation_freshness = 3 [(buf.validate.field).enum = {

@@ -64,6 +64,10 @@ func (m *uiModel) applyNewSessionActionDone(msg newSessionActionDoneMsg) tea.Cmd
 }
 
 func (m *uiModel) stopSessionObservation() {
+	if m.stopAttention != nil {
+		m.stopAttention()
+		m.stopAttention = nil
+	}
 	if m.cancelObservation != nil {
 		m.cancelObservation()
 		m.cancelObservation = nil
@@ -125,6 +129,9 @@ func (m *uiModel) installSessionObservation(wiring *runtimeWiring, plan sessionL
 	m.eventDispatcher = wiring.eventDispatcher
 	m.eventDispatcher.lifecycleHookIssues = wiring.lifecycleHookIssues
 	m.eventDispatcher.lifecycleHookDone = wiring.lifecycleHookDone
+	if wiring.attentionNotifications != nil {
+		m.eventDispatcher.attentionEvents, m.stopAttention = startSessionAttentionEvents(m.observationScope, m.currentRuntimeSessionID(), wiring.attentionNotifications)
+	}
 	m.requestOngoingOpen = wiring.requestTranscriptOpen
 	m.turnQueueHook = wiring.turnQueueHook
 	m.worktreeClient = wiring.worktrees

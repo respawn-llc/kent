@@ -1,3 +1,4 @@
+import { afterEach, beforeEach, expect, it, vi } from "bun:test";
 import { act, fireEvent, render, renderHook, screen, waitFor } from "@testing-library/react";
 import type { ReactNode } from "react";
 import type { ChatInputMutationResult, ChatTranscriptHandler, InitialChatSettings } from "@/api";
@@ -15,38 +16,48 @@ import { useChatComposer, target } from "./chatComposerTestFixture";
 import { TestAppProviders, composerWrapper } from "@/test-support/composer";
 import { useQueryClient } from "@tanstack/react-query";
 
-import { createChatStorageFixture } from "./chatStorageFixture";
+import { installChatStorageFixture } from "./chatStorageFixture";
 import * as ui from "@/ui";
 
-beforeEach(() => vi.stubGlobal("localStorage", createChatStorageFixture()));
-afterEach(() => vi.unstubAllGlobals());
+let restoreStorage: (() => void) | undefined;
+beforeEach(() => {
+  restoreStorage = installChatStorageFixture();
+});
+afterEach(() => {
+  restoreStorage?.();
+  restoreStorage = undefined;
+});
 
 it.each([
   ["older", "prompt B"],
   ["prompt B", "prompt B"],
-])("keeps browsing and draft restoration when replacement adds older prompts: %j", async (...entries) => {
-  const services = createTestServices([]);
-  vi.spyOn(services.api.chat, "getDraft").mockResolvedValue({ input: "draft A", protectedInput: null });
-  vi.spyOn(services.api.chat, "persistDraft").mockResolvedValue();
-  const { result } = renderHook(() => useChatComposer(target), {
-    wrapper: composerWrapper(services),
-  });
-  await waitFor(() => {
-    expect(result.current.draft.kind).toBe("ready");
-  });
-  const previous = ["prompt B"];
-  await act(async () => {
-    await result.current.navigateDraft({ direction: -1, entries: previous });
-  });
-  act(() => {
-    result.current.replaceHistory({ kind: "replace", entries, previous });
-  });
-  expect(result.current.draftPair).toEqual({ text: "prompt B", protectedInput: "draft A" });
-  await act(async () => {
-    await result.current.navigateDraft({ direction: 1, entries });
-  });
-  expect(result.current.draftPair).toEqual({ text: "draft A", protectedInput: null });
-});
+])(
+  "keeps browsing and draft restoration when replacement adds older prompts: %j",
+  async (olderPrompt: string, selectedPrompt: string) => {
+    const services = createTestServices([]);
+    vi.spyOn(services.api.chat, "getDraft").mockResolvedValue({ input: "draft A", protectedInput: null });
+    vi.spyOn(services.api.chat, "persistDraft").mockResolvedValue();
+    const { result } = renderHook(() => useChatComposer(target), {
+      wrapper: composerWrapper(services),
+    });
+    await waitFor(() => {
+      expect(result.current.draft.kind).toBe("ready");
+    });
+    const previous = ["prompt B"];
+    const entries = [olderPrompt, selectedPrompt];
+    await act(async () => {
+      await result.current.navigateDraft({ direction: -1, entries: previous });
+    });
+    act(() => {
+      result.current.replaceHistory({ kind: "replace", entries, previous });
+    });
+    expect(result.current.draftPair).toEqual({ text: "prompt B", protectedInput: "draft A" });
+    await act(async () => {
+      await result.current.navigateDraft({ direction: 1, entries });
+    });
+    expect(result.current.draftPair).toEqual({ text: "draft A", protectedInput: null });
+  },
+);
 
 it("keeps the original draft when a recalled prompt is edited and restores it after clearing", async () => {
   const services = createTestServices([]);
@@ -159,7 +170,7 @@ it("exposes Pending Work read failure and recovers without replaying input or lo
     ),
   });
   await waitFor(() => {
-    expect(read).toHaveBeenCalledOnce();
+    expect(read).toHaveBeenCalledTimes(1);
   });
   await waitFor(() => {
     expect(result.current.draft.kind).toBe("ready");
@@ -497,7 +508,8 @@ it("delivers a rejected New Chat compaction's Session while preserving its exact
     initialSettings,
   });
   expect(result.current.text).toBe("/compact \n keep decisions");
-  expect(compact).toHaveBeenCalledExactlyOnceWith(
+  expect(compact).toHaveBeenCalledTimes(1);
+  expect(compact).toHaveBeenCalledWith(
     {
       kind: "new_chat",
       projectID: target.projectID,
@@ -584,14 +596,14 @@ it.each([
     expect(editor).toHaveValue("");
   });
   if (!newChat && text !== "/wt ls") {
-    expect(execute).toHaveBeenCalledOnce();
+    expect(execute).toHaveBeenCalledTimes(1);
     await act(async () => {
       finish();
     });
     expect(push).not.toHaveBeenCalled();
   } else {
     expect(execute).not.toHaveBeenCalled();
-    expect(push).toHaveBeenCalledOnce();
+    expect(push).toHaveBeenCalledTimes(1);
   }
   expect(steer).not.toHaveBeenCalled();
   expect(queue).not.toHaveBeenCalled();
@@ -658,7 +670,7 @@ it.each(["idle", "stopped", "failed"] as const)(
     });
     fireEvent.click(button);
     await waitFor(() => {
-      expect(stop).toHaveBeenCalledOnce();
+      expect(stop).toHaveBeenCalledTimes(1);
     });
     if (result === "failed") {
       await waitFor(() => {
@@ -735,35 +747,40 @@ it("clears an armed Stop on transcript loss while allowing a subsequent independ
   expect(stop).not.toHaveBeenCalled();
   fireEvent.keyDown(keyboard, { key: "Escape" });
   await waitFor(() => {
-    expect(stop).toHaveBeenCalledOnce();
+    expect(stop).toHaveBeenCalledTimes(1);
   });
   expect(handlers).toHaveLength(1);
   view.unmount();
 });
 
 it("persists subsequent Session edits through their ordinary independent request", async () => {
-  const services = createTestServices([]);
-  vi.spyOn(services.api.chat, "getDraft").mockResolvedValue({ input: "saved", protectedInput: null });
-  const persist = vi.spyOn(services.api.chat, "persistDraft").mockResolvedValue();
-  const { result } = renderHook(() => useChatComposer({ ...target }), {
-    wrapper: composerWrapper(services),
-  });
-  await waitFor(() => {
-    expect(result.current.draft.kind).toBe("ready");
-  });
   vi.useFakeTimers();
   try {
+    const services = createTestServices([]);
+    vi.spyOn(services.api.chat, "getDraft").mockResolvedValue({ input: "saved", protectedInput: null });
+    const persist = vi.spyOn(services.api.chat, "persistDraft").mockResolvedValue();
+    const { result } = renderHook(() => useChatComposer({ ...target }), {
+      wrapper: composerWrapper(services),
+    });
+    await waitFor(() => {
+      expect(result.current.draft.kind).toBe("ready");
+    });
     await act(async () => {
-      await vi.advanceTimersByTimeAsync(350);
+      vi.advanceTimersByTime(350);
+    });
+    await waitFor(() => {
+      expect(persist).toHaveBeenCalledTimes(1);
     });
     persist.mockClear();
     act(() => {
       result.current.edit("offline edits");
     });
     await act(async () => {
-      await vi.advanceTimersByTimeAsync(350);
+      vi.advanceTimersByTime(350);
     });
-    expect(persist).toHaveBeenCalledOnce();
+    await waitFor(() => {
+      expect(persist).toHaveBeenCalledTimes(1);
+    });
     expect(result.current.text).toBe("offline edits");
   } finally {
     vi.useRealTimers();

@@ -1,7 +1,7 @@
 import { StrictMode } from "react";
 import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { describe, expect, it, vi } from "vitest";
+import { describe, expect, it, vi } from "bun:test";
 
 import { StaticMarkdown, StreamingMarkdown, TaskBodyMarkdown } from "@/ui";
 import { createTestServices, TestAppProviders } from "@/test-support/app-services";
@@ -105,7 +105,8 @@ describe("Markdown adapters", () => {
 
       await user.click(link);
 
-      expect(open).toHaveBeenCalledExactlyOnceWith("https://github.com/vercel/streamdown/issues/592");
+      expect(open).toHaveBeenCalledTimes(1);
+      expect(open).toHaveBeenCalledWith("https://github.com/vercel/streamdown/issues/592");
       expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
     },
   );
@@ -123,7 +124,8 @@ describe("Markdown adapters", () => {
         </TestAppProviders>,
       );
       await user.pointer({ keys: "[MouseMiddle]", target: await screen.findByRole("link") });
-      expect(open).toHaveBeenCalledExactlyOnceWith(url);
+      expect(open).toHaveBeenCalledTimes(1);
+      expect(open).toHaveBeenCalledWith(url);
     },
   );
 
@@ -143,7 +145,8 @@ describe("Markdown adapters", () => {
     view.rerender(content("[Upstream issue](https://github.com/vercel/streamdown/issues/592)"));
     await user.click(await screen.findByRole("link"));
 
-    expect(open).toHaveBeenCalledExactlyOnceWith("https://github.com/vercel/streamdown/issues/592");
+    expect(open).toHaveBeenCalledTimes(1);
+    expect(open).toHaveBeenCalledWith("https://github.com/vercel/streamdown/issues/592");
   });
 
   it("reports a failed native browser-opening action through app diagnostics", async () => {
@@ -159,11 +162,11 @@ describe("Markdown adapters", () => {
 
     await user.click(screen.getByRole("link"));
 
-    expect(services.logger.entries()).toEqual(
-      expect.arrayContaining([
-        expect.objectContaining({ level: "warn", context: { error: failure.message } }),
-      ]),
-    );
+    expect(
+      services.logger
+        .entries()
+        .some(({ level, context }) => level === "warn" && context.error === failure.message),
+    ).toBe(true);
     expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
   });
 

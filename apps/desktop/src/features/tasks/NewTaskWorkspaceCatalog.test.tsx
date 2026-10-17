@@ -1,5 +1,6 @@
 import { act, fireEvent, render as renderUI, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
+import { beforeEach, describe, expect, it, mock, vi } from "bun:test";
 import type { ComponentProps, ReactElement, ReactNode } from "react";
 import { QueryClient } from "@tanstack/react-query";
 
@@ -11,13 +12,12 @@ import {
   type WorkspaceCatalogPage,
   type WorkspaceCatalogRow,
 } from "@/api";
-import { queryKeys, type AppLogger, type TaskSearchResult } from "@/app-facade";
+import { queryKeys, type AppLogger, type SidebarPageNavigator, type TaskSearchResult } from "@/app-facade";
 import type { PreparedTaskDependency } from "@/shared/task-dependencies";
 import { createTestSidebarNavigator } from "@/test-support/sidebar";
 import { createTestServices, TestAppProviders } from "@/test-support/app-services";
 import { deferred } from "@/test-support/chat-runtime";
 import type { SelectFieldPaging } from "@/ui";
-import type * as UiModule from "@/ui";
 
 interface TestSelectProps {
   onValueChange(value: string): void;
@@ -37,7 +37,7 @@ interface TestState {
   statusPush: ReturnType<typeof vi.fn>;
 }
 
-const state = vi.hoisted((): TestState => ({
+const state: TestState = {
   select: undefined,
   create: vi.fn(async () => ({
     id: "task-created",
@@ -50,14 +50,18 @@ const state = vi.hoisted((): TestState => ({
   searchResults: [],
   statusDismiss: vi.fn(),
   statusPush: vi.fn(),
-}));
+};
 
-vi.mock("react-i18next", async (original) => ({
-  ...(await original()),
+const actualReactI18next = await import("react-i18next");
+const actualAppFacade = await import("@/app-facade");
+const actualUi = await import("@/ui");
+
+await mock.module("react-i18next", () => ({
+  ...actualReactI18next,
   useTranslation: () => ({ t: (key: string) => key }),
 }));
-vi.mock("@/app-facade", async (original) => ({
-  ...(await original()),
+await mock.module("@/app-facade", () => ({
+  ...actualAppFacade,
   useStatusController: () => ({ dismiss: state.statusDismiss, push: state.statusPush }),
   useTaskSearch: () => ({
     displayedQuery: null,
@@ -79,17 +83,17 @@ vi.mock("@/app-facade", async (original) => ({
   }),
   useTextFieldSubmitShortcut: () => undefined,
 }));
-vi.mock("@/shared/labels", () => ({
+await mock.module("@/shared/labels", () => ({
   LabelChooser: () => null,
   ProjectLabelsProvider: ({ children }: Readonly<{ children: ReactNode }>) => <>{children}</>,
   orderedAssignedLabels: () => [],
   useProjectLabelCatalog: () => ({ data: state.labels }),
 }));
-vi.mock("@/shared/native-dialog", () => ({
+await mock.module("@/shared/native-dialog", () => ({
   NativeDialogWindow: ({ children }: Readonly<{ children: ReactNode }>) => <>{children}</>,
 }));
-vi.mock("@/ui", async (importOriginal) => ({
-  ...(await importOriginal<typeof UiModule>()),
+await mock.module("@/ui", () => ({
+  ...actualUi,
   Badge: ({ children }: Readonly<{ children: ReactNode }>) => <>{children}</>,
   Button: ({ children, ...props }: ComponentProps<"button">) => <button {...props}>{children}</button>,
   Dialog: ({ children }: Readonly<{ children: ReactNode }>) => <>{children}</>,
@@ -136,7 +140,7 @@ vi.mock("@/ui", async (importOriginal) => ({
   cx: (...values: readonly (string | undefined)[]) => values.filter(Boolean).join(" "),
 }));
 
-import { NewTaskForm } from "./NewTaskDialog";
+const { NewTaskForm } = await import("./NewTaskDialog");
 
 const row = (id: string, isDefault = false): WorkspaceCatalogRow => ({
   id,
@@ -289,7 +293,8 @@ describe("New Task Workspace catalog integration", () => {
     await waitFor(() => {
       expect(state.select?.value).toBe("default");
     });
-    expect(listWorkspaces).toHaveBeenCalledExactlyOnceWith("project-1", 0);
+    expect(listWorkspaces).toHaveBeenCalledTimes(1);
+    expect(listWorkspaces).toHaveBeenCalledWith("project-1", 0);
   });
 
   it("keeps attached exact selection usable through first-page failure and Retry", async () => {
@@ -386,7 +391,7 @@ describe("New Task Workspace catalog integration", () => {
     fireEvent.click(screen.getByRole("button", { name: "other" }));
     fireEvent.change(screen.getByRole("textbox", { name: "task.name" }), { target: { value: "Task" } });
     fireEvent.click(screen.getByRole("button", { name: "task.create" }));
-    await vi.waitFor(() => {
+    await waitFor(() => {
       expect(state.create).toHaveBeenCalledWith(expect.objectContaining({ sourceWorkspaceID: "other" }));
     });
     view.unmount();
@@ -399,7 +404,7 @@ describe("New Task Workspace catalog integration", () => {
       }),
     );
     render(<NewTaskForm {...props} navigator={navigator} />);
-    await vi.waitFor(() => {
+    await waitFor(() => {
       expect(navigator.back).toHaveBeenCalled();
     });
   });
@@ -426,7 +431,8 @@ describe("New Task Workspace catalog integration", () => {
 
   it("pushes a stacked child without an unsaved-parent relationship and captures the complete Draft", () => {
     loadAttachedCatalog();
-    const navigator = createTestSidebarNavigator();
+    const registerCapture = vi.fn<SidebarPageNavigator["registerCapture"]>(() => () => undefined);
+    const navigator = createTestSidebarNavigator({ registerCapture });
     render(<NewTaskForm {...props} navigator={navigator} />);
     fireEvent.change(screen.getByRole("textbox", { name: "task.name" }), {
       target: { value: "Parent title" },
@@ -445,7 +451,7 @@ describe("New Task Workspace catalog integration", () => {
       projectID: "project-1",
       workflowID: "workflow-1",
     });
-    const capture = vi.mocked(navigator.registerCapture).mock.lastCall?.[0];
+    const capture = registerCapture.mock.lastCall?.[0];
     if (capture === undefined) throw new Error("Expected New Task Draft capture.");
     expect(capture()).toEqual({
       formValues: {
@@ -478,7 +484,7 @@ describe("New Task Workspace catalog integration", () => {
     expect(await screen.findByText("form.required")).toBeInTheDocument();
     fireEvent.change(screen.getByRole("textbox", { name: "task.name" }), { target: { value: "Task" } });
     fireEvent.click(screen.getByRole("button", { name: "task.create" }));
-    await vi.waitFor(() => {
+    await waitFor(() => {
       expect(state.create).toHaveBeenCalledWith(
         expect.objectContaining({
           labelIDs: ["label-restored"],
@@ -508,7 +514,7 @@ describe("New Task Workspace catalog integration", () => {
       target: { value: "Task" },
     });
     fireEvent.click(screen.getByRole("button", { name: "task.create" }));
-    await vi.waitFor(() => {
+    await waitFor(() => {
       expect(state.create).toHaveBeenCalledWith(
         expect.objectContaining({
           dependencyIntents: [
@@ -518,7 +524,7 @@ describe("New Task Workspace catalog integration", () => {
         }),
       );
     });
-    expect(navigator.back).toHaveBeenCalledOnce();
+    expect(navigator.back).toHaveBeenCalledTimes(1);
     expect(navigator.close).not.toHaveBeenCalled();
     expect(navigator.replace).not.toHaveBeenCalled();
   });
@@ -557,7 +563,7 @@ describe("New Task Workspace catalog integration", () => {
       target: { value: "Child" },
     });
     fireEvent.click(screen.getByRole("button", { name: "task.create" }));
-    await vi.waitFor(() => {
+    await waitFor(() => {
       expect(navigator.back).toHaveBeenCalledWith({
         kind: "newTaskCreated",
         direction: "blocked-by",
@@ -581,7 +587,8 @@ describe("New Task Workspace catalog integration", () => {
     loadAttachedCatalog();
     const response = deferred<Awaited<ReturnType<ApiService["createTask"]>>>();
     state.create.mockReturnValueOnce(response.promise);
-    const navigator = createTestSidebarNavigator();
+    const back = vi.fn<SidebarPageNavigator["back"]>(() => "accepted");
+    const navigator = createTestSidebarNavigator({ back });
     const onCreated = vi.fn();
     const view = render(
       <NewTaskForm
@@ -594,15 +601,15 @@ describe("New Task Workspace catalog integration", () => {
     fireEvent.change(screen.getByRole("textbox", { name: "task.name" }), { target: { value: "Child" } });
     fireEvent.click(screen.getByRole("button", { name: "task.create" }));
     await waitFor(() => {
-      expect(state.create).toHaveBeenCalledOnce();
+      expect(state.create).toHaveBeenCalledTimes(1);
     });
     view.unmount();
-    vi.mocked(navigator.back).mockReturnValue("stale");
+    back.mockReturnValue("stale");
     await act(async () => {
       response.resolve({ id: "task-created", shortID: "KENT-42", title: "Child", workflowID: "workflow-1" });
     });
     await waitFor(() => {
-      expect(navigator.back).toHaveBeenCalledOnce();
+      expect(navigator.back).toHaveBeenCalledTimes(1);
     });
     expect(onCreated).not.toHaveBeenCalled();
   });
@@ -642,8 +649,8 @@ describe("New Task Workspace catalog integration", () => {
     await user.click(addDependency);
     await user.click(screen.getByTestId("dependency-candidate-task-related"));
     fireEvent.submit(addDependency);
-    await vi.waitFor(() => {
-      expect(state.statusPush).toHaveBeenCalledOnce();
+    await waitFor(() => {
+      expect(state.statusPush).toHaveBeenCalledTimes(1);
     });
     expect(state.loggerAppend.mock.lastCall?.[2]).toHaveProperty("error");
     expect(state.loggerAppend.mock.lastCall?.[2]).toHaveProperty("reason", "reciprocal_dependency");
@@ -652,7 +659,7 @@ describe("New Task Workspace catalog integration", () => {
     if (removeDependency === undefined) throw new Error("Expected a removable prepared dependency.");
     await user.click(removeDependency);
     fireEvent.submit(addDependency);
-    await vi.waitFor(() => {
+    await waitFor(() => {
       expect(state.statusDismiss).toHaveBeenCalledTimes(2);
     });
   });
@@ -667,7 +674,7 @@ describe("New Task Workspace catalog integration", () => {
     });
     fireEvent.click(screen.getByRole("button", { name: "task.create" }));
 
-    await vi.waitFor(() => {
+    await waitFor(() => {
       expect(state.create).toHaveBeenCalledWith({
         body: "",
         dependencyIntents: [],

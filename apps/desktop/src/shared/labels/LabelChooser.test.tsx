@@ -1,11 +1,9 @@
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, mock, vi } from "bun:test";
 
-import type * as AppFacade from "@/app-facade";
 import type { ProjectLabelCatalog } from "@/api";
 import { createLabelFilterState, type LabelFilterAction } from "./labelFilterState";
-import { LabelChooser } from "./LabelChooser";
 import type * as ProjectLabelHooks from "./projectLabelHooks";
 
 const createdLabelID = "f74ce532-9e6e-4cf6-b3c1-d67d5a3eedcf";
@@ -33,7 +31,7 @@ Object.defineProperty(window, "matchMedia", {
   })),
 });
 
-const hooks = vi.hoisted(() => ({
+const hooks = {
   catalog: {
     data: {
       projectID: "project-1",
@@ -53,60 +51,56 @@ const hooks = vi.hoisted(() => ({
   ),
   reorderPending: false,
   reset: vi.fn(),
+};
+const statusPush = vi.fn();
+const actualAppFacade = await import("@/app-facade");
+const actualProjectLabelHooks = await import("./projectLabelHooks");
+
+await mock.module("@/app-facade", () => ({
+  ...actualAppFacade,
+  useAppServices: () => ({ nativeBridge: { capabilities: { platform: "macos" } } }),
+  useStatusController: () => ({ dismiss: vi.fn(), push: statusPush }),
 }));
-const statusPush = vi.hoisted(() => vi.fn());
 
-vi.mock("@/app-facade", async (importOriginal) => {
-  const actual = await importOriginal<typeof AppFacade>();
-  return {
-    ...actual,
-    useAppServices: () => ({ nativeBridge: { capabilities: { platform: "macos" } } }),
-    useStatusController: () => ({ dismiss: vi.fn(), push: statusPush }),
-  };
-});
-
-vi.mock("./projectLabelHooks", async (importOriginal) => {
-  const actual = await importOriginal<typeof ProjectLabelHooks>();
-  return {
-    ...actual,
-    useProjectLabelCatalog: () => hooks.catalog,
-    useProjectLabelCatalogMutations: () => ({
-      create: {
-        error: null,
-        isError: false,
-        isPending: hooks.createPending,
-        submit(
-          input: SubmittedInput<
-            ReturnType<typeof ProjectLabelHooks.useProjectLabelCatalogMutations>["create"]["submit"]
-          >,
-        ) {
-          input.onStart?.();
-          void hooks.create().then(input.onSuccess).catch(input.onError).finally(input.onSettled);
-        },
-        reset: hooks.reset,
+await mock.module("./projectLabelHooks", () => ({
+  ...actualProjectLabelHooks,
+  useProjectLabelCatalog: () => hooks.catalog,
+  useProjectLabelCatalogMutations: () => ({
+    create: {
+      error: null,
+      isError: false,
+      isPending: hooks.createPending,
+      submit(
+        input: SubmittedInput<
+          ReturnType<typeof ProjectLabelHooks.useProjectLabelCatalogMutations>["create"]["submit"]
+        >,
+      ) {
+        input.onStart?.();
+        void hooks.create().then(input.onSuccess).catch(input.onError).finally(input.onSettled);
       },
-      reorder: {
-        error: null,
-        isError: false,
-        isPending: hooks.reorderPending,
-        submit(
-          input: SubmittedInput<
-            ReturnType<typeof ProjectLabelHooks.useProjectLabelCatalogMutations>["reorder"]["submit"]
-          >,
-        ) {
-          void hooks.reorder(input.labelIDs).catch(input.onError);
-        },
-        reset: hooks.reset,
+      reset: hooks.reset,
+    },
+    reorder: {
+      error: null,
+      isError: false,
+      isPending: hooks.reorderPending,
+      submit(
+        input: SubmittedInput<
+          ReturnType<typeof ProjectLabelHooks.useProjectLabelCatalogMutations>["reorder"]["submit"]
+        >,
+      ) {
+        void hooks.reorder(input.labelIDs).catch(input.onError);
       },
-    }),
-    useProjectLabelActions: () => ({
-      rename: { isError: false, isPending: false, error: null, submit: vi.fn(), reset: hooks.reset },
-      delete: { isError: false, isPending: false, error: null, submit: vi.fn(), reset: hooks.reset },
-    }),
-  };
-});
+      reset: hooks.reset,
+    },
+  }),
+  useProjectLabelActions: () => ({
+    rename: { isError: false, isPending: false, error: null, submit: vi.fn(), reset: hooks.reset },
+    delete: { isError: false, isPending: false, error: null, submit: vi.fn(), reset: hooks.reset },
+  }),
+}));
 
-vi.mock("react-i18next", () => {
+await mock.module("react-i18next", () => {
   const translations: Readonly<Record<string, (values?: Readonly<Record<string, string>>) => string>> = {
     "labels.create": (values) => `Create “${values?.name ?? ""}”`,
     "labels.delete": (values) => `Delete ${values?.name ?? ""}`.trim(),
@@ -126,6 +120,8 @@ vi.mock("react-i18next", () => {
     }),
   };
 });
+
+const { LabelChooser } = await import("./LabelChooser");
 
 beforeEach(() => {
   hooks.catalog.data = {

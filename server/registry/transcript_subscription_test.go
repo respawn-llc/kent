@@ -9,6 +9,7 @@ import (
 
 	"core/server/runtime"
 	"core/shared/protoapi"
+	projectpb "core/shared/protoapi/gen/kent/api/project"
 	runtimepb "core/shared/protoapi/gen/kent/api/runtime"
 	transcriptpb "core/shared/protoapi/gen/kent/api/transcript"
 	"core/shared/runtimeids"
@@ -33,6 +34,7 @@ func transcriptBrokerHydration(t *testing.T) *transcriptpb.Event {
 	}
 	hydration := &transcriptpb.Hydration{
 		SessionIdentity: &transcriptpb.SessionIdentity{
+			Category:              projectpb.SessionCategory_SESSION_CATEGORY_MAIN,
 			SessionId:             sessionID.String(),
 			ConversationFreshness: runtimepb.ConversationFreshness_CONVERSATION_FRESHNESS_FRESH,
 		},

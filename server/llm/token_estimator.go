@@ -220,3 +220,25 @@ func EstimateItemsTokens(estimator TokenEstimator, items []ResponseItem) int {
 	}
 	return total
 }
+
+func EstimateRequestTokens(estimator TokenEstimator, request Request) (int, error) {
+	total := estimator.EstimateText(request.SystemPrompt) + EstimateItemsTokens(estimator, request.Items)
+	// Advertised schemas consume the same input window as conversation content.
+	schemas, err := json.Marshal(struct {
+		Tools  []Tool
+		Output *StructuredOutput
+	}{request.Tools, request.StructuredOutput})
+	if err != nil {
+		return 0, err
+	}
+	total += estimator.EstimateText(string(schemas))
+	for _, tool := range request.Tools {
+		if tool.Custom == nil {
+			total += estimator.EstimateText(string(tool.Schema.JSON()))
+		}
+	}
+	if request.StructuredOutput != nil {
+		total += estimator.EstimateText(string(request.StructuredOutput.Schema.JSON()))
+	}
+	return total, nil
+}

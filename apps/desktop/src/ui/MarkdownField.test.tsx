@@ -1,4 +1,5 @@
 import { fireEvent, render, screen } from "@testing-library/react";
+import { describe, expect, it, vi } from "bun:test";
 import userEvent from "@testing-library/user-event";
 import { useState } from "react";
 
@@ -48,7 +49,7 @@ describe("MarkdownField presentation options", () => {
     expect(editor).toBeInTheDocument();
     expect(save).not.toHaveBeenCalled();
     await user.pointer({ target: button, keys: "[/MouseLeft]" });
-    expect(save).toHaveBeenCalledOnce();
+    expect(save).toHaveBeenCalledTimes(1);
     await user.click(screen.getByRole("button", { name: "Outside" }));
     expect(editor).not.toBeInTheDocument();
   });
