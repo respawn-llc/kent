@@ -676,11 +676,17 @@ func (e *Engine) queueMessageRaw(id string, message llm.Message, presentation st
 	for {
 		var item QueuedUserMessage
 		livePublication := false
+		var liveRunReady <-chan struct{}
 		committed, err := runCommandAcceptance(accept, func() (bool, error) {
-			publishing, publicationErr := e.liveRun.beginQueueItemPublication(mustQueueItemID(liveItem.ID), lane, nil)
+			publishing, ready, publicationErr := e.liveRun.beginQueueItemPublication(
+				mustQueueItemID(liveItem.ID),
+				lane,
+				nil,
+			)
 			if publicationErr != nil {
 				return false, publicationErr
 			}
+			liveRunReady = ready
 			if !publishing {
 				return false, nil
 			}
@@ -714,7 +720,10 @@ func (e *Engine) queueMessageRaw(id string, message llm.Message, presentation st
 		}
 		if forceAutoDrain && e.waitingForLiveRunStepStart() {
 			if accept != nil {
-				return QueuedUserMessage{}, context.Canceled
+				if liveRunReady == nil {
+					return QueuedUserMessage{}, errors.New("live run admission is unavailable without a readiness notification")
+				}
+				return QueuedUserMessage{}, &LiveRunAdmissionUnavailable{Ready: liveRunReady}
 			}
 			e.outputMutationMu.Lock()
 			e.emitInterruptedHumanInputs([]QueuedUserMessage{liveItem})
