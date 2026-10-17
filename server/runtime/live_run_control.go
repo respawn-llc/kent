@@ -26,6 +26,35 @@ type LiveRunAdmissionUnavailable struct {
 func (*LiveRunAdmissionUnavailable) Error() string { return ErrNoActiveLiveRun.Error() }
 func (*LiveRunAdmissionUnavailable) Unwrap() error { return ErrNoActiveLiveRun }
 
+func (e *LiveRunAdmissionUnavailable) Wait(
+	ctx context.Context,
+	executionDone <-chan struct{},
+) error {
+	if e == nil {
+		return errors.New("live run admission unavailable is required")
+	}
+	if e.Ready == nil && executionDone == nil {
+		return errors.New("live run admission has no readiness or execution-completion signal")
+	}
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	select {
+	case <-e.Ready:
+		return nil
+	case <-executionDone:
+		return nil
+	case <-ctx.Done():
+		if err := context.Cause(ctx); err != nil {
+			return err
+		}
+		if err := ctx.Err(); err != nil {
+			return err
+		}
+		return errors.New("wait context completed without a cancellation error")
+	}
+}
+
 var ErrLiveRunNoFinalAnswer = errors.New("live run completed without a final answer")
 
 type LiveRunResultKind string

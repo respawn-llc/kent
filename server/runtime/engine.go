@@ -720,6 +720,9 @@ func (e *Engine) queueMessageRaw(id string, message llm.Message, presentation st
 		}
 		if forceAutoDrain && e.waitingForLiveRunStepStart() {
 			if accept != nil {
+				if liveRunReady == nil {
+					return QueuedUserMessage{}, errors.New("live run admission is unavailable without a readiness notification")
+				}
 				return QueuedUserMessage{}, &LiveRunAdmissionUnavailable{Ready: liveRunReady}
 			}
 			e.outputMutationMu.Lock()
