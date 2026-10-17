@@ -102,6 +102,18 @@
 - Provider authentication failure must not automatically retry or replay the failed request or select another connection.
 - Re-authentication must be allowed during execution. Already-sent requests must continue. Subsequent requests must use the credentials saved by re-authentication without reopening the terminal Session. Re-authentication must not cancel, replay, or reroute work or change unrelated connections.
 
+## Desktop subscription usage
+
+- Desktop must present subscription usage as read-only Provider Connection information. It must omit API-key, no-auth, and other connections without subscription usage support.
+- Desktop may load the complete configured connection catalog for subscription-usage inspection. The popup must render its connection rows lazily.
+- Each connection's usage display must show its name and supplied plan, all supplied quota windows, and each supplied reset countdown. Ordinary subscription windows must show allowance remaining. Grok must show its supplied Build and Chat consumption breakdown.
+- Desktop must fetch quota when a subscription-usage popup opens and refresh it on reopening. Opening the navigation Chrome popup must fetch all supported subscription connections with a small fixed limit on simultaneous requests. Chat and navigation Chrome must share cached usage results for the same connection. Desktop must not poll quota periodically.
+- During refresh, Desktop must show cached values and only a small header activity indicator. Successful connection results must appear progressively.
+- Desktop must show supported subscription connections with missing credentials or failed quota lookups, including readable connection-specific failure diagnostics.
+- A subscription-usage popup must offer one Retry icon in its header with a tooltip when lookups fail. Retry must request only failed lookups, and its icon must spin during retry. A connection-catalog failure must use the popup's full Error state with Retry.
+- Subscription lookup failure must not block Chat context inspection or compaction.
+- Loading and retry must not close a subscription-usage popup.
+
 ## Server Environment
 
 - Kent must load `.env` from its server persistence root at startup, including when installed as a service. The default path must be `~/.kent/.env`. Kent must not load repository `.env` files for this purpose.

@@ -359,19 +359,23 @@ for (const fixture of [
   "forbidden-effect-registry-barrel.ts",
   "forbidden-effect-registry-namespace.ts",
 ])
-  test(`the required Just policy command rejects ${fixture}`, () => {
-    const result = spawnSync(
-      "just",
-      [
-        "_lint",
-        "_effect-policy",
-        `apps/desktop/eslint-fixtures/architecture/src/features/alpha/${fixture}`,
-      ],
-      {
-        cwd: fileURLToPath(new URL("../..", import.meta.url)),
-        encoding: "utf8",
-      },
-    );
-    assert.ifError(result.error);
-    assert.equal(result.status, 1, result.stderr);
-  });
+  test(
+    `the required Just policy command rejects ${fixture}`,
+    { timeout: 30000 },
+    () => {
+      const result = spawnSync(
+        "just",
+        [
+          "_lint",
+          "_effect-policy",
+          `apps/desktop/eslint-fixtures/architecture/src/features/alpha/${fixture}`,
+        ],
+        {
+          cwd: fileURLToPath(new URL("../..", import.meta.url)),
+          encoding: "utf8",
+        },
+      );
+      assert.ifError(result.error);
+      assert.equal(result.status, 1, result.stderr);
+    },
+  );

@@ -1,3 +1,13 @@
+.chat-context-popover {
+  max-height: var(--hover-popover-available-height);
+  overflow-y: auto;
+}
+
+.chat-context-popover .subscription-usage {
+  border-top: 1px solid var(--color-outline);
+  padding-top: var(--space-3);
+}
+
 @property --chat-context-angle {
   syntax: "<angle>";
   inherits: false;

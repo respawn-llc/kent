@@ -1,4 +1,4 @@
-import { useState, type CSSProperties } from "react";
+import { useState, type CSSProperties, type ReactNode } from "react";
 import { useTranslation } from "react-i18next";
 import { Button, DisabledInteractionGuard, InteractiveChip, HoverPopover } from "@/ui";
 import { contextPresentation } from "./chatContextPresentation";
@@ -11,6 +11,8 @@ type Props = Readonly<{
   policyDisabled: boolean;
   compacting: boolean;
   compact(): void;
+  onOpenChange?(open: boolean): void;
+  subscriptionUsage?: ReactNode;
 }>;
 
 export function ChatContextControl(props: Props) {
@@ -28,6 +30,7 @@ export function ChatContextControl(props: Props) {
       open={open && available}
       onOpenChange={(value) => {
         setOpen(value && available);
+        props.onOpenChange?.(value && available);
       }}
       side="top"
       align="end"
@@ -63,6 +66,7 @@ export function ChatContextControl(props: Props) {
               {t("chatComposer.context.compact")}
             </Button>
           </DisabledInteractionGuard>
+          {props.subscriptionUsage}
         </>
       )}
     </HoverPopover>

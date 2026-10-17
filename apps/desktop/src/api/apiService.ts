@@ -93,12 +93,16 @@ import type { ChatApi } from "./chat";
 import type { ChatSessionTarget } from "./chatTypes";
 import type { PendingPrompt } from "./promptModels";
 import type { DesktopProcess, ProcessObservationError } from "./processes";
+import type { SubscriptionConnection, SubscriptionBinding, SubscriptionUsage } from "./subscriptionUsage";
 
 export type ApiSubscription = Readonly<{
   close(): void;
 }>;
 
 export interface ApiService {
+  getSubscriptionConnections(): Promise<readonly SubscriptionConnection[]>;
+  getSubscriptionBinding(sessionID: string): Promise<SubscriptionBinding>;
+  getSubscriptionUsage(connectionID: string): Promise<SubscriptionUsage | null>;
   readonly chat: ChatApi;
 
   observeProcesses(

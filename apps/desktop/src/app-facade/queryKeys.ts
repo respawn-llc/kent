@@ -51,6 +51,9 @@ const worktreeOperationKey = (
 ) => ["worktree", worktreeFact(sessionID), kind, worktreeFact(value, requireTrimmed)] as const;
 
 export const queryKeys = {
+  subscriptionCatalog: () => ["subscription", "catalog"] as const,
+  subscriptionBinding: (sessionID: string) => ["subscription", "binding", sessionID] as const,
+  subscriptionUsage: (connectionID: string) => ["subscription", "usage", connectionID] as const,
   startup: ["startup"],
   readiness: ["startup", "readiness"],
   projects: ["projects"],
