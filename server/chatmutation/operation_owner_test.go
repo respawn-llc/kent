@@ -144,6 +144,7 @@ func (s lifecycleCreation) PlanSession(
 	}
 	return &sessionlaunchpb.SessionPlanSuccess{Plan: &sessionlaunchpb.SessionPlan{
 		SessionId: s.sessionID.String(), ActiveSettings: settings, Source: source,
+		ConnectionScope:       &sessionlaunchpb.ConnectionScope{Selection: protoapi.ConnectionSelectionToProto(configured.Connection)},
 		QuestionsEnabled:      request.InitialChatSettings.GetQuestionsEnabled(),
 		AutoCompactionEnabled: request.InitialChatSettings.GetAutoCompactionEnabled(),
 	}}, nil
