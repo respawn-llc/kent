@@ -51,6 +51,7 @@ export { worktreeCommandFixture, worktreeCommandFixtureRoutes } from "./worktree
 export { StreamFailureCode } from "@app/server-api-contract/gen/kent/api/shared/foundation_pb";
 export { partialWorktreeDeletionError } from "./worktreeErrorFixtures";
 export { processObservationFixture, processObservationFixtureRoute } from "./processFixtures";
+export { binaryAck } from "./rpcFrames";
 
 export async function unexpectedProjectOverflow(): Promise<never> {
   throw new Error("Unexpected Project event overflow in API fixture.");

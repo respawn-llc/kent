@@ -45,7 +45,7 @@ import { TaskReadService, SearchMode } from "@app/server-api-contract/gen/kent/a
 import { TaskLifecycleService } from "@app/server-api-contract/gen/kent/api/workflow_task/lifecycle_pb";
 import { WorktreeError } from "./clientWorktree";
 import { ApiClient } from "./client";
-import { unexpectedProjectOverflow } from "@/test-support/api";
+import { binaryAck, unexpectedProjectOverflow } from "@/test-support/api";
 import { searchTasks } from "./clientTaskSearch";
 import { deferred } from "@/test-support/chat-runtime";
 
@@ -1143,54 +1143,6 @@ function descriptorCall(
 
 function descriptorOperation(socket: MockWebSocket, sentIndex: number): string {
   return descriptorCall(socket, sentIndex).operation;
-}
-
-function binaryAck<
-  Method extends
-    | typeof ServerService.method.getReadiness
-    | typeof ConnectionService.method.handshake
-    | typeof ConnectionService.method.attachSession
-    | typeof QuestionService.method.listPending
-    | typeof StreamService.method.subscribe
-    | typeof TaskLifecycleService.method.delete
-    | typeof ProjectSubscriptionService.method.subscribe
-    | typeof TaskReadService.method.search,
->(
-  socket: MockWebSocket,
-  sentIndex: number,
-  method: Method,
-  response: Readonly<{
-    result: ReturnType<typeof create<Method["output"]>>;
-    operation?: string;
-  }>,
-): void {
-  const raw = socket.sent[sentIndex] ?? failTest(`sent frame ${sentIndex.toString()} missing`);
-  const binary = z.instanceof(Uint8Array).safeParse(raw);
-  if (!binary.success) {
-    throw new Error("Mock WebSocket frame is text.");
-  }
-  const call = decodeEnvelope(binary.data).frame;
-  if (call.case !== "call") {
-    throw new Error("Mock WebSocket binary frame is not a call.");
-  }
-  const operation = operationName(method);
-  if (call.value.operation !== operation || call.value.correlation === undefined) {
-    throw new Error("Mock WebSocket binary call has the wrong operation or correlation.");
-  }
-  const payload = encode(method.output, response.result);
-  const encodedResponse = encodeEnvelope({
-    frame: {
-      case: "result",
-      value: {
-        operation: response.operation ?? operation,
-        correlation: call.value.correlation,
-        payload,
-      },
-    },
-  });
-  const responseBuffer = new ArrayBuffer(encodedResponse.byteLength);
-  new Uint8Array(responseBuffer).set(encodedResponse);
-  socket.receive(responseBuffer);
 }
 
 function malformedBinaryAck(socket: MockWebSocket, sentIndex: number): void {
