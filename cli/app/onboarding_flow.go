@@ -63,6 +63,8 @@ const (
 	onboardingImportProviderClaudeCode onboardingImportProviderID = "claude_code"
 	onboardingImportProviderCodex      onboardingImportProviderID = "codex"
 	onboardingImportProviderAgents     onboardingImportProviderID = "agents"
+	onboardingImportProviderGrok       onboardingImportProviderID = "grok"
+	onboardingImportProviderCursor     onboardingImportProviderID = "cursor"
 )
 
 type onboardingImportMode string
