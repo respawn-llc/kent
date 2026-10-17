@@ -69,7 +69,7 @@ func TestProcessObservationGatewayInitialAndClose(t *testing.T) {
 	service := processpb.File_kent_api_process_process_proto.Services().ByName("ViewService")
 	var started processpb.ObserveResult
 	callGatewayDescriptor(t, conn, "observe", service.Methods().ByName("Observe"),
-		&processpb.ObserveRequest{ProjectId: app.ProjectID(), SessionId: store.Meta().SessionID}, &started)
+		&processpb.ObserveRequest{SessionId: store.Meta().SessionID}, &started)
 	if started.GetSuccess() == nil {
 		t.Fatalf("observe failed: %v", &started)
 	}

@@ -55,6 +55,7 @@
 - Desktop invokes no separate Session-create, runtime-activate, runtime-attach, or runtime-release prerequisite.
 - Each Chat mutation starts one server-owned Chat Operation. Closing or canceling Desktop's request stops only Desktop waiting and result delivery. The Chat Operation runs until it completes or server shutdown cancels it.
 - Before service execution, one target-aware policy authorizes New Chat against the exact active Project/workspace binding. An authenticated existing-Session request may be projectless. When its connection has an attached Project, the Session must belong to that Project.
+- Moving an open Session to another Project must not close Chat, prevent further interaction, or change the selected Project.
 - Goal Set and `/compact` use the same server-owned New Chat target resolution before their ordinary domain mutation.
 - Once creation succeeds, the Session must be ordinarily discoverable even when the following operation fails or its response is lost. Desktop never rolls it back, infers the later outcome, replays it, or reconciles it.
 - If concurrent first actions create several Sessions, Desktop applies delivered creation results in delivery order. Each delivered Session becomes the current state of the same Chat destination. Desktop must show the last delivered result, and every created Session must be discoverable.
