@@ -10,6 +10,7 @@ import {
   useOwnedSidebarRoots,
   useSidebarShell,
   useStatusController,
+  type SessionChatOpeningIntent,
   worktreeTransitionOutcomeHandler,
 } from "@/app-facade";
 import { Spinner, useStableCallback } from "@/ui";
@@ -28,7 +29,7 @@ type WorktreeCommandModel = Readonly<{
 export function useWorktreeCommands(
   sessionID: string | null,
   focusComposer: () => void,
-  openSession: (sessionID: string) => void | Promise<void>,
+  openSession: (sessionID: string, intent?: SessionChatOpeningIntent) => void | Promise<void>,
 ) {
   const { api } = useAppServices();
   const client = useQueryClient();

@@ -19,6 +19,7 @@ import {
   worktreeCreateTargetResolutionQueryOptions,
   queryAtom,
   type SidebarPageNavigator,
+  type SessionChatOpeningIntent,
   type StatusController,
 } from "@/app-facade";
 import { worktreeErrorMessage } from "./worktreeErrorMessage";
@@ -38,7 +39,7 @@ export function createWorktreeCreate({
   client: QueryClient;
   api: ApiService;
   sessionID: string;
-  openSession(sessionID: string): void | Promise<void>;
+  openSession(sessionID: string, intent?: SessionChatOpeningIntent): void | Promise<void>;
   suggestion: string | undefined;
   navigator: SidebarPageNavigator;
   refreshOpenWorktreeList(sessionID: string): void;

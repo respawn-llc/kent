@@ -15,6 +15,11 @@ export { useProjectObservation, ProjectObservationFailure } from "./useProjectOb
 export * from "./formatters";
 export * from "./nativeHooks";
 export { nativeChatRoutePath, openNativeChat } from "./nativeChat";
+export {
+  createNativeChatOpening,
+  NativeChatOpeningProvider,
+  useNativeChatOpening,
+} from "./nativeChatOpening";
 export * from "./navigation";
 export * from "./navigationTransitions";
 export * from "./projectDeletionEvents";

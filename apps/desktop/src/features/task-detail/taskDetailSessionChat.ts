@@ -1,3 +1,6 @@
-import type { SessionChatTarget } from "@/app-facade";
+import type { SessionChatOpeningIntent, SessionChatTarget } from "@/app-facade";
 
-export type TaskDetailSessionChatEntry = (target: SessionChatTarget) => Promise<void>;
+export type TaskDetailSessionChatEntry = (
+  target: SessionChatTarget,
+  intent?: SessionChatOpeningIntent,
+) => Promise<void>;

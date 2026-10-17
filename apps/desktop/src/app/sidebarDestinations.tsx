@@ -19,6 +19,7 @@ import {
   sidebarTitle,
   useAppNavigation,
   useAppServices,
+  useNativeChatOpening,
   usePublishSidebarHeaderAction,
   useStatusController,
   type SidebarDestination,
@@ -89,7 +90,12 @@ function TaskDetailDestination({
   retainedState?: unknown;
 }>): ReactElement {
   const navigation = useAppNavigation();
-  const openSessionChat: TaskDetailSessionChatEntry = async (target) => {
+  const { open: openNativeChat } = useNativeChatOpening();
+  const openSessionChat: TaskDetailSessionChatEntry = async (target, intent) => {
+    if (intent === "native_window") {
+      openNativeChat(target);
+      return;
+    }
     if (navigator.close() !== "accepted") {
       return;
     }

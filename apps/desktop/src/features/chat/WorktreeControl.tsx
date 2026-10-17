@@ -1,6 +1,6 @@
 import { ComposerIcon } from "./ComposerIcon";
 import type { ChatExecutionTarget } from "@/api";
-import { useOwnedSidebarRoots } from "@/app-facade";
+import { useOwnedSidebarRoots, type SessionChatOpeningIntent } from "@/app-facade";
 import { InteractiveChip } from "@/ui";
 import type { useWorktreeList } from "./useWorktreeList";
 import { worktreeTarget } from "./worktreePresentation";
@@ -12,7 +12,7 @@ export function WorktreeControl({
   openSession,
 }: Readonly<{
   sessionID: string;
-  openSession(sessionID: string): void | Promise<void>;
+  openSession(sessionID: string, intent?: SessionChatOpeningIntent): void | Promise<void>;
   target: ChatExecutionTarget | null;
   query: ReturnType<typeof useWorktreeList>;
 }>) {

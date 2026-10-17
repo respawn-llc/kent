@@ -16,7 +16,9 @@ import {
   newChatRoutePath,
   useAppNavigation,
   useChatHistoryBookmark,
+  useNativeChatOpening,
   SidebarRootOwner,
+  type SessionChatOpeningIntent,
   useOwnedSidebarRoots,
   writeBrowserStorage,
   writeLastProjectRoute,
@@ -233,12 +235,17 @@ function ChatRouteContent({
 }: Readonly<{ projectID: string; sessionID: string | null }>) {
   const bookmark = useChatHistoryBookmark(projectID, sessionID);
   const appNavigation = useAppNavigation();
+  const { open: openNativeChat } = useNativeChatOpening();
   const { open } = useOwnedSidebarRoots();
   const navigation = {
     openTask: (taskID: string) => {
       open({ kind: "taskDetail", taskID });
     },
-    openParentSession: async (previousSessionID: string) => {
+    openParentSession: async (previousSessionID: string, intent?: SessionChatOpeningIntent) => {
+      if (intent === "native_window") {
+        openNativeChat({ projectID, sessionID: previousSessionID });
+        return;
+      }
       return appNavigation.openSessionChat({ projectID, sessionID: previousSessionID });
     },
     openEditedSession: async (editedSessionID: string) =>

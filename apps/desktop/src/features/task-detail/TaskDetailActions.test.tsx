@@ -1,5 +1,5 @@
 import { expect, it, vi } from "bun:test";
-import { act, screen, waitFor, within } from "@testing-library/react";
+import { act, fireEvent, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 
 import type { TaskDetailSessionChatEntry } from "@/features/task-detail";
@@ -13,6 +13,15 @@ import {
   taskStartApplied,
 } from "@/test-support/task-detail";
 import { projectEventsFixture } from "@/test-support/project-events";
+import { createBrowserNativeBridge } from "@/test-support/native-bridge";
+
+function nativeDesktopBridge() {
+  const bridge = createBrowserNativeBridge();
+  return {
+    ...bridge,
+    capabilities: { ...bridge.capabilities, dialogWindows: true },
+  };
+}
 
 it("orders Start, Open, and Task-wide Interrupt in one wrapping action flow", async () => {
   const sessionName = `${"👨‍👩‍👧‍👦".repeat(31)}e\u0301x`;
@@ -54,6 +63,76 @@ it("opens the only Session directly without a picker", async () => {
   await user.click(await screen.findByRole("button", { name: appI18n.t("task.openInChat") }));
   expect(openSessionChat).toHaveBeenCalledTimes(1);
   expect(openSessionChat).toHaveBeenCalledWith({ projectID: "project-1", sessionID });
+  expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+});
+
+it("Shift-clicks the only Session into its native Chat window", async () => {
+  const openSessionChat = vi.fn(async () => undefined);
+  const sessionID = "33333333-3333-4333-8333-333333333333";
+  mountTaskDetailSurface(
+    taskActionFixture(taskDetailResponse, {}, [
+      {
+        sessionID,
+        sessionName: "Review",
+        nodeDisplayName: "Review",
+      },
+    ]),
+    {
+      nativeBridge: nativeDesktopBridge(),
+      openSessionChat,
+    },
+  );
+
+  fireEvent.click(await screen.findByRole("button", { name: appI18n.t("task.openInChat") }), {
+    shiftKey: true,
+  });
+
+  await waitFor(() => {
+    expect(openSessionChat).toHaveBeenCalledWith({ projectID: "project-1", sessionID }, "native_window");
+  });
+  expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+});
+
+it("Shift-clicks Open Chat then opens the ordinary picker selection natively", async () => {
+  const openings: Readonly<{ sessionID: string; intent: Parameters<TaskDetailSessionChatEntry>[1] }>[] = [];
+  mountTaskDetailSurface(taskDetailResponse, {
+    nativeBridge: nativeDesktopBridge(),
+    openSessionChat: async (target, intent) => {
+      openings.push({ sessionID: target.sessionID, intent });
+    },
+  });
+
+  fireEvent.click(await screen.findByRole("button", { name: appI18n.t("task.openInChat") }), {
+    shiftKey: true,
+  });
+  const picker = within(screen.getByRole("dialog"));
+  const user = userEvent.setup();
+  await user.click(picker.getByRole("button", { name: "Review chat" }));
+  await user.click(screen.getByRole("button", { name: appI18n.t("task.openInChat") }));
+  const ordinaryPicker = within(screen.getByRole("dialog"));
+  await user.click(ordinaryPicker.getByRole("button", { name: "44444444-4444-4444-8444-444444444444" }));
+
+  expect(openings).toEqual([
+    { sessionID: "33333333-3333-4333-8333-333333333333", intent: "native_window" },
+    { sessionID: "44444444-4444-4444-8444-444444444444", intent: undefined },
+  ]);
+  expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+});
+
+it("Shift-clicks a Session in the ordinary Open Chat picker natively", async () => {
+  const openings: Readonly<{ sessionID: string; intent: Parameters<TaskDetailSessionChatEntry>[1] }>[] = [];
+  mountTaskDetailSurface(taskDetailResponse, {
+    nativeBridge: nativeDesktopBridge(),
+    openSessionChat: async (target, intent) => {
+      openings.push({ sessionID: target.sessionID, intent });
+    },
+  });
+  const user = userEvent.setup();
+  await user.click(await screen.findByRole("button", { name: appI18n.t("task.openInChat") }));
+  const picker = within(screen.getByRole("dialog"));
+  fireEvent.click(picker.getByRole("button", { name: "Review chat" }), { shiftKey: true });
+
+  expect(openings).toEqual([{ sessionID: "33333333-3333-4333-8333-333333333333", intent: "native_window" }]);
   expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
 });
 
