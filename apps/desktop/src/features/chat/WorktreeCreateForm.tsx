@@ -13,6 +13,7 @@ import {
   useTextFieldSubmitShortcut,
   worktreeListQueryOptions,
   type SidebarPageNavigator,
+  type SessionChatOpeningIntent,
 } from "@/app-facade";
 import {
   Button,
@@ -33,7 +34,7 @@ import type { createWorktreeActions } from "./WorktreeActions";
 
 type Props = Readonly<{
   sessionID: string;
-  openSession(sessionID: string): void | Promise<void>;
+  openSession(sessionID: string, intent?: SessionChatOpeningIntent): void | Promise<void>;
   navigator: SidebarPageNavigator;
   actions: ReturnType<typeof createWorktreeActions>;
 }>;

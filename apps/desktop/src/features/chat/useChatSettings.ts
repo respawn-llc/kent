@@ -4,10 +4,11 @@ import type { ChatContext, ChatSettingsMutation, ChatSettingsMutationResponse } 
 import { ChatSettingsView, type ChatSettingsViewProps } from "./ChatSettingsView";
 import type { ChatSettingsViewModel } from "./ChatSettingsViewModel";
 import type { ReadyNewChat, ReadySession, SettingsState } from "./chatSettingsState";
+import type { SessionChatOpeningIntent } from "@/app-facade";
 
 export type ChatSettingsNavigation = Readonly<{
   openTask(taskID: string): void;
-  openParentSession(previousSessionID: string): void | Promise<void>;
+  openParentSession(previousSessionID: string, intent?: SessionChatOpeningIntent): void | Promise<void>;
 }>;
 export type ChatDestinationNavigation = ChatSettingsNavigation &
   Readonly<{

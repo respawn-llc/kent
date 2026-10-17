@@ -1,6 +1,4 @@
-import { useContext, useState } from "react";
-import { TaskDetailChatOpeningContext } from "./TaskDetailChatOpening";
-import * as Atom from "effect/reactivity/Atom";
+import { useState, type MouseEvent } from "react";
 import { useAtomValue } from "@effect/atom-react";
 import { Save } from "lucide-react";
 import { useTranslation } from "react-i18next";
@@ -9,9 +7,11 @@ import type { TaskDetail } from "@/api";
 import { errorMessage, sessionDisplayID } from "@/api";
 import {
   useAppServices,
+  useNativeChatOpening,
   usePathFormatter,
   useTextFieldSubmitShortcut,
   useTextFieldSubmitShortcutPolicy,
+  type SessionChatOpeningIntent,
 } from "@/app-facade";
 import { useOpenExternalLink } from "@/app-facade";
 import { writeClipboardText } from "@/shared/native-clipboard";
@@ -46,24 +46,29 @@ export type TaskDraft = Readonly<{
 }>;
 export type SaveTaskDraft = (draft?: TaskDraft, onSaved?: () => void) => void;
 
-const idleChatOpening = Atom.make(false);
-
 function TaskSessionOpenButton({
   sessionID,
   label,
+  tooltip,
   className,
   onClick,
-}: Readonly<{ sessionID: string; label: string; className?: string; onClick(): void }>) {
+}: Readonly<{
+  sessionID: string;
+  label: string;
+  tooltip: string;
+  className?: string;
+  onClick(event: MouseEvent<HTMLButtonElement>): void;
+}>) {
   const { t } = useTranslation();
-  const opening = useContext(TaskDetailChatOpeningContext);
-  const pending = useAtomValue(opening?.pending(sessionID) ?? idleChatOpening);
+  const opening = useNativeChatOpening();
+  const pending = useAtomValue(opening.pending(sessionID));
   return (
     <Button
       aria-label={label}
       className={className}
       disabled={pending}
       onClick={onClick}
-      title={pending ? t("states.loading") : label}
+      title={pending ? t("app.openingChatWindow") : tooltip}
       variant="secondary"
     >
       {pending && <Spinner size="sm" />}
@@ -76,28 +81,54 @@ function TaskSessionOpenAction({
   sessions,
   onOpen,
   label,
+  defaultIntent,
+  nativeWindowsAvailable,
 }: Readonly<{
   sessions: TaskDetail["liveSessions"];
-  onOpen(sessionID: string): void;
+  onOpen(sessionID: string, intent: SessionChatOpeningIntent): void;
   label: string;
+  defaultIntent: SessionChatOpeningIntent;
+  nativeWindowsAvailable: boolean;
 }>) {
+  const { t } = useTranslation();
+  const opening = useNativeChatOpening();
   const [open, setOpen] = useState(false);
+  const [pickerIntent, setPickerIntent] = useState(defaultIntent);
+  const [nativeRequestSessionID, setNativeRequestSessionID] = useState<string | null>(null);
+  const triggerPending = useAtomValue(opening.pending(nativeRequestSessionID));
+  const actionTooltip = (action: string) =>
+    nativeWindowsAvailable ? t("app.shiftClickToOpenInNewWindow", { action }) : action;
+  const clickIntent = (event: MouseEvent<HTMLButtonElement>) =>
+    event.shiftKey && nativeWindowsAvailable ? "native_window" : defaultIntent;
   const only = sessions.length === 1 ? sessions[0] : undefined;
-  if (only !== undefined)
+  if (only !== undefined) {
+    const tooltip = actionTooltip(label);
     return (
       <TaskSessionOpenButton
         sessionID={only.sessionID}
         label={label}
-        onClick={() => {
-          onOpen(only.sessionID);
+        tooltip={tooltip}
+        onClick={(event) => {
+          onOpen(only.sessionID, clickIntent(event));
         }}
       />
     );
+  }
   if (sessions.length === 0) return null;
+  const tooltip = actionTooltip(label);
   return (
     <Popover open={open} onOpenChange={setOpen}>
       <PopoverTrigger asChild>
-        <Button>{label}</Button>
+        <Button
+          disabled={triggerPending}
+          onClick={(event) => {
+            setPickerIntent(clickIntent(event));
+          }}
+          title={triggerPending ? t("app.openingChatWindow") : tooltip}
+        >
+          {triggerPending && <Spinner size="sm" />}
+          <span className="min-w-0 truncate">{label}</span>
+        </Button>
       </PopoverTrigger>
       <PopoverContent
         align="start"
@@ -106,18 +137,25 @@ function TaskSessionOpenAction({
         className="w-[min(26rem,calc(100vw-24px))] gap-0 p-[var(--space-2)]"
       >
         <div className="grid max-h-[min(20rem,var(--radix-popover-content-available-height))] min-w-0 gap-[var(--space-1)] overflow-y-auto">
-          {sessions.map((session) => (
-            <TaskSessionOpenButton
-              key={session.sessionID}
-              sessionID={session.sessionID}
-              label={session.sessionName ?? sessionDisplayID(session.sessionID, session.shortID)}
-              className="w-full justify-start rounded-[var(--radius-s)] border-0 bg-transparent text-left font-sans text-sm hover:bg-[var(--color-island-2)]"
-              onClick={() => {
-                setOpen(false);
-                onOpen(session.sessionID);
-              }}
-            />
-          ))}
+          {sessions.map((session) => {
+            const sessionLabel = session.sessionName ?? sessionDisplayID(session.sessionID, session.shortID);
+            const sessionAction = t("task.openChat", { name: sessionLabel });
+            return (
+              <TaskSessionOpenButton
+                key={session.sessionID}
+                sessionID={session.sessionID}
+                label={sessionLabel}
+                tooltip={actionTooltip(sessionAction)}
+                className="w-full justify-start rounded-[var(--radius-s)] border-0 bg-transparent text-left font-sans text-sm hover:bg-[var(--color-island-2)]"
+                onClick={(event) => {
+                  const intent = event.shiftKey && nativeWindowsAvailable ? "native_window" : pickerIntent;
+                  setOpen(false);
+                  if (intent === "native_window") setNativeRequestSessionID(session.sessionID);
+                  onOpen(session.sessionID, intent);
+                }}
+              />
+            );
+          })}
         </div>
       </PopoverContent>
     </Popover>
@@ -284,10 +322,12 @@ export function PropertiesIsland({
   detail,
   mutations,
   openSessionChat,
+  sessionChatDefaultIntent,
 }: Readonly<{
   detail: TaskDetail;
   mutations: TaskDetailLifecycle;
   openSessionChat?: TaskDetailSessionChatEntry | undefined;
+  sessionChatDefaultIntent: SessionChatOpeningIntent;
 }>) {
   const { t } = useTranslation();
   const openExternalLink = useOpenExternalLink();
@@ -323,7 +363,12 @@ export function PropertiesIsland({
           <TaskCurrentNodeSelectionProperties key={node.nodeID} node={node} />
         ))}
       </dl>
-      <TaskActionPanel detail={detail} mutations={mutations} openSessionChat={openSessionChat} />
+      <TaskActionPanel
+        detail={detail}
+        mutations={mutations}
+        openSessionChat={openSessionChat}
+        sessionChatDefaultIntent={sessionChatDefaultIntent}
+      />
     </Island>
   );
 }
@@ -354,10 +399,12 @@ function TaskActionPanel({
   detail,
   mutations,
   openSessionChat,
+  sessionChatDefaultIntent,
 }: Readonly<{
   detail: TaskDetail;
   mutations: TaskDetailLifecycle;
   openSessionChat?: TaskDetailSessionChatEntry | undefined;
+  sessionChatDefaultIntent: SessionChatOpeningIntent;
 }>) {
   const { t } = useTranslation();
   const interruptFullLabel = t("board.interrupt");
@@ -372,7 +419,11 @@ function TaskActionPanel({
         ) : detail.actions.canResume ? (
           <TaskResumeButton />
         ) : null}
-        <TaskOpenButtons detail={detail} openSessionChat={openSessionChat} />
+        <TaskOpenButtons
+          detail={detail}
+          openSessionChat={openSessionChat}
+          sessionChatDefaultIntent={sessionChatDefaultIntent}
+        />
         {detail.actions.canInterrupt ? (
           <Button
             aria-label={interruptFullLabel}
@@ -394,9 +445,11 @@ function TaskActionPanel({
 function TaskOpenButtons({
   detail,
   openSessionChat,
+  sessionChatDefaultIntent,
 }: Readonly<{
   detail: TaskDetail;
   openSessionChat?: TaskDetailSessionChatEntry | undefined;
+  sessionChatDefaultIntent: SessionChatOpeningIntent;
 }>) {
   const { t } = useTranslation();
   const { nativeBridge } = useAppServices();
@@ -404,6 +457,7 @@ function TaskOpenButtons({
   const [openError, setOpenError] = useState("");
   const executionRoot = taskExecutionRoot(detail);
   const canOpenScript = nativeBridge.capabilities.files.open;
+  const nativeWindowsAvailable = openSessionChat !== undefined && nativeBridge.capabilities.dialogWindows;
 
   async function openInCli(sessionID: string): Promise<void> {
     await writeClipboardText(`kent --session=${sessionID}`, nativeBridge);
@@ -423,12 +477,16 @@ function TaskOpenButtons({
       <TaskSessionOpenAction
         sessions={detail.liveSessions}
         label={t(openSessionChat === undefined ? "task.openInCli" : "task.openInChat")}
-        onOpen={(sessionID) => {
+        defaultIntent={sessionChatDefaultIntent}
+        nativeWindowsAvailable={nativeWindowsAvailable}
+        onOpen={(sessionID, intent) => {
           setOpenError("");
           const action =
             openSessionChat === undefined
               ? openInCli(sessionID)
-              : openSessionChat({ projectID: detail.projectID, sessionID });
+              : intent === "ordinary"
+                ? openSessionChat({ projectID: detail.projectID, sessionID })
+                : openSessionChat({ projectID: detail.projectID, sessionID }, intent);
           void action.catch((cause: unknown) => {
             setOpenError(errorMessage(cause));
           });

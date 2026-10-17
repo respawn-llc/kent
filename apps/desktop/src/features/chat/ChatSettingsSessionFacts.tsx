@@ -1,10 +1,11 @@
 import { ChevronRight } from "lucide-react";
+import { useAtomValue } from "@effect/atom-react";
 import { useTranslation } from "react-i18next";
 
 import { errorMessage, sessionDisplayID, type ChatSettingsSessionFacts as SessionFacts } from "@/api";
-import { useAppServices } from "@/app-facade";
+import { useAppServices, useNativeChatOpening } from "@/app-facade";
 import { writeClipboardText } from "@/shared/native-clipboard";
-import { showStatusToast, Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/ui";
+import { showStatusToast, Spinner, Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/ui";
 
 import { SettingsRow } from "./ChatSettingsRows";
 import type { ChatSettingsNavigation } from "./useChatSettings";
@@ -20,8 +21,14 @@ export function ChatSettingsSessionFacts({
 }>) {
   const { t } = useTranslation();
   const { nativeBridge } = useAppServices();
+  const nativeChat = useNativeChatOpening();
   const { sessionID, previousSessionID, task, connection } = facts;
+  const parentPending = useAtomValue(nativeChat.pending(previousSessionID));
   const displayID = sessionDisplayID(sessionID, facts.shortID);
+  const parentLabel = t("chatSettings.toParentChat");
+  const parentTooltip = nativeBridge.capabilities.dialogWindows
+    ? t("app.shiftClickToOpenInNewWindow", { action: parentLabel })
+    : parentLabel;
   async function copySessionID() {
     try {
       await writeClipboardText(displayID, nativeBridge);
@@ -45,15 +52,25 @@ export function ChatSettingsSessionFacts({
       {previousSessionID === null ? null : (
         <SettingsRow
           as="button"
-          onActivate={() => {
+          title={parentPending ? t("app.openingChatWindow") : parentTooltip}
+          onActivate={(event) => {
+            if (parentPending) return;
+            if (event.shiftKey && nativeBridge.capabilities.dialogWindows) {
+              void navigation.openParentSession(previousSessionID, "native_window");
+              return;
+            }
             closeAndNavigate(() => {
               void navigation.openParentSession(previousSessionID);
             });
           }}
           reason={undefined}
         >
-          <span className="min-w-0 flex-1 truncate">{t("chatSettings.toParentChat")}</span>
-          <ChevronRight className="shrink-0 text-[var(--color-muted)]" size={14} />
+          <span className="min-w-0 flex-1 truncate">{parentLabel}</span>
+          {parentPending ? (
+            <Spinner size="sm" />
+          ) : (
+            <ChevronRight className="shrink-0 text-[var(--color-muted)]" size={14} />
+          )}
         </SettingsRow>
       )}
       {task === null ? null : (

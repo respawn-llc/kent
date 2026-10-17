@@ -3,6 +3,7 @@ import { useAtomValue } from "@effect/atom-react";
 import * as Atom from "effect/reactivity/Atom";
 import type { CreatedTaskSummary, TaskDependencyDirection, TaskStatus } from "@/api";
 import type { ResolvedSidebarWidth, SidebarSizePreference } from "./sidebarSizing";
+import type { SessionChatOpeningIntent } from "./navigation";
 
 export type SidebarMode = "overlay" | "shift";
 export type SidebarPhase = "closing" | "open";
@@ -45,7 +46,7 @@ export type LinkWorkflowCompletion =
 export type SidebarDestination =
   | Readonly<{
       kind: "worktree";
-      openSession(sessionID: string): void | Promise<void>;
+      openSession(sessionID: string, intent?: SessionChatOpeningIntent): void | Promise<void>;
       mode?: SidebarMode;
       sessionID: string;
       page: "list" | "create";

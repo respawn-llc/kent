@@ -9,9 +9,11 @@ import { errorMessage, type WorktreeDeletePreviewOperation, type WorktreeSwitch 
 import { CopyableValue } from "@/shared/copyable-value";
 import {
   useAppServices,
-  useStatusController,
+  useNativeChatOpening,
   usePublishSidebarHeaderAction,
+  useStatusController,
   type SidebarPageNavigator,
+  type SessionChatOpeningIntent,
 } from "@/app-facade";
 import {
   ActionableListRow,
@@ -41,7 +43,7 @@ export function WorktreeBrowser({
   onOpenSession,
 }: Readonly<{
   sessionID: string;
-  onOpenSession(sessionID: string): void | Promise<void>;
+  onOpenSession(sessionID: string, intent?: SessionChatOpeningIntent): void | Promise<void>;
   onCreate(): void;
   onSwitch(operation: WorktreeSwitch): void;
   navigator: SidebarPageNavigator;
@@ -49,6 +51,8 @@ export function WorktreeBrowser({
   refreshOpenWorktreeList(sessionID: string): void;
 }>) {
   const { t } = useTranslation();
+  const { nativeBridge } = useAppServices();
+  const nativeWindowsAvailable = nativeBridge.capabilities.dialogWindows;
   const query = useWorktreeList(sessionID);
   const [selected, setSelected] = useState<WorktreeDeletePreviewOperation | null>(null);
   const rows = useRef<HTMLDivElement>(null);
@@ -190,24 +194,12 @@ export function WorktreeBrowser({
               actions={
                 <>
                   {row.originSessionID === undefined ? null : (
-                    <IconTooltipButton
-                      size="icon-sm"
-                      label={t(
-                        row.originSessionID === sessionID
-                          ? "chat.worktree.currentOriginSession"
-                          : "chat.worktree.openOriginSession",
-                        { sessionID: row.originSessionID },
-                      )}
-                      className={
-                        row.originSessionID === sessionID ? "text-[var(--color-primary)]" : undefined
-                      }
-                      onClick={() => {
-                        if (row.originSessionID !== undefined && row.originSessionID !== sessionID)
-                          void onOpenSession(row.originSessionID);
-                      }}
-                    >
-                      <MessageCircle size={16} />
-                    </IconTooltipButton>
+                    <WorktreeOriginSessionAction
+                      currentSessionID={sessionID}
+                      nativeWindowsAvailable={nativeWindowsAvailable}
+                      onOpenSession={onOpenSession}
+                      originSessionID={row.originSessionID}
+                    />
                   )}
                   {row.switch === undefined ? null : (
                     <IconTooltipButton
@@ -243,6 +235,54 @@ export function WorktreeBrowser({
       refreshOpenWorktreeList={refreshOpenWorktreeList}
       content={content}
     />
+  );
+}
+
+function WorktreeOriginSessionAction({
+  currentSessionID,
+  nativeWindowsAvailable,
+  onOpenSession,
+  originSessionID,
+}: Readonly<{
+  currentSessionID: string;
+  nativeWindowsAvailable: boolean;
+  onOpenSession(sessionID: string, intent?: SessionChatOpeningIntent): void | Promise<void>;
+  originSessionID: string;
+}>) {
+  const { t } = useTranslation();
+  const nativeChat = useNativeChatOpening();
+  const pending = useAtomValue(nativeChat.pending(originSessionID));
+  const isCurrentSession = originSessionID === currentSessionID;
+  const label = t(
+    isCurrentSession ? "chat.worktree.currentOriginSession" : "chat.worktree.openOriginSession",
+    { sessionID: originSessionID },
+  );
+  const tooltip = pending
+    ? t("app.openingChatWindow")
+    : nativeWindowsAvailable
+      ? t("app.shiftClickToOpenInNewWindow", { action: label })
+      : label;
+  return (
+    <IconTooltipButton
+      size="icon-sm"
+      label={label}
+      tooltip={tooltip}
+      loading={pending}
+      disabled={pending}
+      className={isCurrentSession ? "text-[var(--color-primary)]" : undefined}
+      onClick={(event) => {
+        const intent: SessionChatOpeningIntent =
+          event.shiftKey && nativeWindowsAvailable ? "native_window" : "ordinary";
+        if (intent === "ordinary") {
+          if (isCurrentSession) return;
+          void onOpenSession(originSessionID);
+          return;
+        }
+        void onOpenSession(originSessionID, intent);
+      }}
+    >
+      <MessageCircle size={16} />
+    </IconTooltipButton>
   );
 }
 
