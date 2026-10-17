@@ -11,8 +11,9 @@ import {
   TooltipProvider,
   TooltipTrigger,
   TextArea,
+  useOpacityExit,
 } from "@/ui";
-import { createSpeechRecovery, useRecoveryActions } from "./RecoveryModel";
+import { createSpeechRecovery, useRecoveryActions, type RecoveryEntry } from "./RecoveryModel";
 import { speechFailureMessage } from "./failure";
 
 const RecoveryContext = createContext<ReturnType<typeof createSpeechRecovery> | null>(null);
@@ -40,37 +41,55 @@ function SpeechRecoveryDialog({ model }: Readonly<{ model: ReturnType<typeof cre
   const { t } = useTranslation();
   const state = useAtomValue(model.state);
   useRecoveryActions(model);
-  const entry = state.entry;
-  if (entry === null) return null;
-  const copyFailed = entry.delivery?.kind === "copy-failed" ? entry.delivery : null;
+  const phase = useOpacityExit(state.entry !== null);
+  const [retained, setRetained] = useState(state.entry);
+  if (state.entry !== null && state.entry !== retained) setRetained(state.entry);
+  if (phase === "hidden" && retained !== null) setRetained(null);
+  const entry = state.entry ?? retained;
+  if (entry === null || phase === "hidden") return null;
   return (
     <Dialog
       open
+      motionPhase={phase}
       closeDisabled
       onClose={() => undefined}
       title={t("speech.recoveryTitle")}
       closeLabel={t("app.close")}
       chrome="title-only"
     >
-      <div className="grid gap-[var(--space-3)]">
-        <p className="whitespace-pre-wrap">
-          {copyFailed === null ? speechFailureMessage(entry.error, t) : t("speech.copyFailed")}
-        </p>
-        <p>{t(entry.source.kind === "native" ? "speech.temporary" : "speech.browserTemporary")}</p>
-        {entry.source.kind === "native" && (
-          <code className="select-text break-all">{entry.source.original.path}</code>
-        )}
-        {copyFailed !== null && (
-          <TextArea
-            readOnly
-            label={t("speech.transcript")}
-            value={copyFailed.text}
-            className="max-h-64 min-h-32 w-full resize-y overflow-auto"
-          />
-        )}
-        <RecoveryControls model={model} native={entry.source.kind === "native"} />
-      </div>
+      <RecoveryContent entry={entry} model={model} />
     </Dialog>
+  );
+}
+
+function RecoveryContent({
+  entry,
+  model,
+}: Readonly<{
+  entry: RecoveryEntry;
+  model: ReturnType<typeof createSpeechRecovery>;
+}>) {
+  const { t } = useTranslation();
+  const copyFailed = entry.delivery?.kind === "copy-failed" ? entry.delivery : null;
+  return (
+    <div className="grid gap-[var(--space-3)]">
+      <p className="whitespace-pre-wrap">
+        {copyFailed === null ? speechFailureMessage(entry.error, t) : t("speech.copyFailed")}
+      </p>
+      {entry.source.kind === "browser" && <p>{t("speech.browserTemporary")}</p>}
+      {entry.source.kind === "native" && (
+        <code className="select-text break-all">{entry.source.original.path}</code>
+      )}
+      {copyFailed !== null && (
+        <TextArea
+          readOnly
+          label={t("speech.transcript")}
+          value={copyFailed.text}
+          className="max-h-64 min-h-32 w-full resize-y overflow-auto"
+        />
+      )}
+      <RecoveryControls model={model} native={entry.source.kind === "native"} />
+    </div>
   );
 }
 

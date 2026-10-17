@@ -1,6 +1,7 @@
 package speech
 
 import (
+	"errors"
 	"unicode"
 
 	"core/shared/config"
@@ -19,6 +20,11 @@ func Normalize(text string) *speechpb.UploadResult {
 
 func Failure(kind speechpb.FailureKind, connection *config.ConnectionID, err error) *speechpb.UploadResult {
 	failure := &speechpb.Failure{Kind: kind, Diagnostic: err.Error()}
+	var rejection *providerRejection
+	if errors.As(err, &rejection) {
+		status := uint32(rejection.status)
+		failure.HttpStatus = &status
+	}
 	if connection != nil {
 		id := string(*connection)
 		failure.ConnectionId = &id

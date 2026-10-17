@@ -63,11 +63,15 @@ func transcribe(ctx context.Context, invocation Invocation, credential *llm.Disp
 		if resolveErr != nil {
 			return "", errors.Join(resolveErr, producerErr, closeErr)
 		}
+		mediaType, _, _ := mime.ParseMediaType(response.Header.Get("Content-Type"))
+		if mediaType != "application/json" {
+			return "", errors.Join(&providerRejection{status: response.StatusCode}, producerErr, closeErr)
+		}
 		// Reuse the provider's diagnostic decoder, bounding only the JSON/error
 		// response; audio is never buffered here.
 		response.Body = &boundedResponse{Reader: io.LimitReader(response.Body, 1<<20), Closer: response.Body}
 		providerErr, _ := variant.Variant.NewErrorReducer(variant.Variant.ProviderID).Reduce(nil, response)
-		return "", errors.Join(providerErr, producerErr, closeErr)
+		return "", errors.Join(&providerRejection{status: response.StatusCode, cause: providerErr}, producerErr, closeErr)
 	}
 	var payload struct {
 		Text *string `json:"text"`
@@ -86,6 +90,20 @@ func transcribe(ctx context.Context, invocation Invocation, credential *llm.Disp
 	}
 	return *payload.Text, nil
 }
+
+type providerRejection struct {
+	status int
+	cause  error
+}
+
+func (e *providerRejection) Error() string {
+	if e.cause != nil {
+		return e.cause.Error()
+	}
+	return fmt.Sprintf("speech provider returned HTTP %d without a JSON diagnostic", e.status)
+}
+
+func (e *providerRejection) Unwrap() error { return e.cause }
 
 type boundedResponse struct {
 	io.Reader

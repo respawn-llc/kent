@@ -27,17 +27,19 @@ export function RecordingControl({
   return (
     <span className="relative inline-flex shrink-0 items-center gap-[var(--space-2)]">
       {recording !== null && <RecordingElapsed startedAt={recording.startedAt} />}
-      <span ref={anchor} className="relative inline-grid place-items-center text-[var(--color-primary)]">
-        {recording !== null && <RadialRecordingMeter analyser={recording.analyser} anchor={anchor} />}
-        <IconTooltipButton
-          label={label}
-          tooltip={tooltip}
-          disabled={disabled}
-          loading={phase === "preparing" || phase === "transcribing"}
-          onClick={phase === "recording" ? onStop : onStart}
-        >
-          {phase === "recording" ? <Square size={16} fill="currentColor" /> : <Mic size={18} />}
-        </IconTooltipButton>
+      <span className={recording === null ? "inline-flex" : "inline-flex p-[var(--space-2)]"}>
+        <span ref={anchor} className="relative inline-grid place-items-center text-[var(--color-primary)]">
+          {recording !== null && <RadialRecordingMeter analyser={recording.analyser} anchor={anchor} />}
+          <IconTooltipButton
+            label={label}
+            tooltip={tooltip}
+            disabled={disabled}
+            loading={phase === "preparing" || phase === "transcribing"}
+            onClick={phase === "recording" ? onStop : onStart}
+          >
+            {phase === "recording" ? <Square size={16} fill="currentColor" /> : <Mic size={18} />}
+          </IconTooltipButton>
+        </span>
       </span>
     </span>
   );
@@ -98,10 +100,14 @@ function RadialRecordingMeter({
     analyser.getByteFrequencyData(data);
     let frame: number | undefined;
     const draw = () => {
-      const bounds = anchor.current?.getBoundingClientRect();
-      if (bounds === undefined) return;
+      const button = anchor.current;
+      const container = button?.parentElement;
+      if (button == null || container == null) return;
+      const bounds = button.getBoundingClientRect();
       element.style.left = `${String(bounds.left + bounds.width / 2)}px`;
       element.style.top = `${String(bounds.top + bounds.height / 2)}px`;
+      const padding = Number.parseFloat(getComputedStyle(container).paddingLeft);
+      element.style.width = `${String(bounds.width + padding * 2)}px`;
       const size = element.getBoundingClientRect().width;
       const scale = window.devicePixelRatio;
       if (element.width !== Math.round(size * scale)) {
@@ -117,10 +123,10 @@ function RadialRecordingMeter({
       context.beginPath();
       const bars = data.subarray(0, 56);
       const count = bars.length;
-      const radius = size * 0.3125;
+      const radius = bounds.width / 2 + 1;
       for (const [index, value] of bars.entries()) {
         const angle = (index / count) * Math.PI * 2 - Math.PI / 2;
-        const amplitude = (value / 255) * size * 0.16;
+        const amplitude = ((value / 255) * padding) / 2;
         const outer = radius + size / 48 + amplitude;
         context.moveTo(size / 2 + Math.cos(angle) * radius, size / 2 + Math.sin(angle) * radius);
         context.lineTo(size / 2 + Math.cos(angle) * outer, size / 2 + Math.sin(angle) * outer);
@@ -136,7 +142,7 @@ function RadialRecordingMeter({
   return createPortal(
     <canvas
       ref={canvas}
-      className="pointer-events-none fixed z-[60] size-[calc(var(--space-7)*2)] -translate-x-1/2 -translate-y-1/2 text-[var(--color-primary)]"
+      className="pointer-events-none fixed z-[60] aspect-square -translate-x-1/2 -translate-y-1/2 text-[var(--color-primary)]"
     />,
     document.body,
   );

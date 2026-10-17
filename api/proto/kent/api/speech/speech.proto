@@ -59,6 +59,7 @@ message Failure {
   FailureKind kind = 1 [(buf.validate.field).enum = {defined_only: true, not_in: [0]}];
   string diagnostic = 2 [(buf.validate.field).string.min_len = 1];
   optional string connection_id = 3 [(buf.validate.field).string.min_len = 1];
+  optional uint32 http_status = 4 [(buf.validate.field).uint32 = {gte: 300, lte: 599}];
 }
 
 message UploadResult {

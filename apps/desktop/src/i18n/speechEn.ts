@@ -1,5 +1,7 @@
 export const speechEnglish = {
   connection: "Connection: {{connection}}",
+  providerRejected:
+    "The provider rejected this recording (HTTP {{status}}). Check this connection’s access, or retry using another speech-capable global default. You can save your recording.",
   errors: {
     originalPath: "Choose a different location for the recording copy.",
     format: "This device cannot record an accepted audio format.",
@@ -20,7 +22,6 @@ export const speechEnglish = {
   limit: "Recording limit reached",
   limitBody: "Recording stopped. Kent will transcribe it if the complete file fits the upload limit.",
   recoveryTitle: "Your recording is preserved",
-  temporary: "This is a temporary recording. Save a copy to keep it after closing Kent or OS cleanup.",
   browserTemporary: "This recording is kept only in this browser page. Download it before closing the page.",
   additionalRecording: "Another recording needs attention",
   retry: "Retry transcription",

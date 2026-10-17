@@ -31,6 +31,7 @@ export class SpeechFailure extends Error {
     readonly kind: SpeechFailureKind,
     message: string,
     readonly connectionID: string | null = null,
+    readonly httpStatus: number | null = null,
   ) {
     super(message);
     this.name = "SpeechFailure";
@@ -79,7 +80,12 @@ export function decodeSpeechResult(status: number, body: Uint8Array): SpeechResu
       };
       const kind = kinds[failure.kind];
       if (kind === undefined) throw new ContractError("Unknown speech failure kind.");
-      throw new SpeechFailure(kind, failure.diagnostic, failure.connectionId ?? null);
+      throw new SpeechFailure(
+        kind,
+        failure.diagnostic,
+        failure.connectionId ?? null,
+        failure.httpStatus ?? null,
+      );
     }
     case "transcript":
       if (status < 200 || status >= 300) throw new ContractError("Failed upload returned a transcript.");
