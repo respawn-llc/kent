@@ -1,3 +1,4 @@
+import { expect, it } from "bun:test";
 import type { VirtualItem } from "@tanstack/react-virtual";
 import { resolveVirtualizedFlowBlock } from "./virtualizedPinnedRange";
 

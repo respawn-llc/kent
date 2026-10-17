@@ -1,6 +1,7 @@
+import { describe, expect, it, vi } from "bun:test";
 import { useState } from "react";
 import userEvent from "@testing-library/user-event";
-import { render, screen, waitFor, within } from "@testing-library/react";
+import { act, render, screen, waitFor, waitForElementToBeRemoved, within } from "@testing-library/react";
 
 import { ChatPromptPresenceProvider } from "@/app-facade";
 import { appI18n } from "@/i18n";
@@ -11,7 +12,7 @@ import { GoalBrowserFixture, type GoalBrowserPendingPrompt } from "./GoalBrowser
 function renderFixture() {
   const services = createTestServices(startupRoutes);
   render(
-    <TestAppProviders services={services}>
+    <TestAppProviders skipAnimations services={services}>
       <ChatPromptPresenceProvider>
         <TestSidebar>
           <GoalBrowserFixtureHarness />
@@ -43,14 +44,22 @@ describe("Goal browser fixture", () => {
   it("closes the Goal sidebar on repeated chip activation and opens it again", async () => {
     renderFixture();
     await screen.findByRole("textbox", { name: "Goal" });
-    const user = userEvent.setup();
-    const chip = within(screen.getByTestId("goal-browser-fixture")).getByRole("button", { name: "Goal" });
-    await user.click(chip);
-    await waitFor(() => {
+    vi.useFakeTimers();
+    try {
+      const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
+      const goalChip = () =>
+        within(screen.getByTestId("goal-browser-fixture")).getByRole("button", { name: "Goal" });
+      await user.click(goalChip());
+      act(() => {
+        vi.advanceTimersByTime(200);
+      });
       expect(screen.queryByRole("complementary")).not.toBeInTheDocument();
-    });
-    await user.click(chip);
-    expect(await screen.findByRole("textbox", { name: "Goal" })).toBeInTheDocument();
+      vi.useRealTimers();
+      await userEvent.setup().click(goalChip());
+      expect(await screen.findByRole("textbox", { name: "Goal" })).toBeInTheDocument();
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it.each([
@@ -84,14 +93,14 @@ describe("Goal browser fixture", () => {
     await selectFixture("Goal mutation outcome", "pending");
     const user = userEvent.setup();
     await user.click(await screen.findByRole("button", { name: "Clear" }));
-    expect(screen.getByTestId("goal-mutation-pending")).toBeInTheDocument();
+    const pendingSpinner = screen.getByTestId("goal-mutation-pending");
+    expect(pendingSpinner).toBeInTheDocument();
     expect(screen.getByRole("textbox", { name: "Goal" })).toHaveValue("");
+    const spinnerRemoved = waitForElementToBeRemoved(pendingSpinner);
     await user.click(screen.getByRole("button", { name: "Fail pending Goal action" }));
     expect(await screen.findByText("Deterministic Goal fixture")).toBeInTheDocument();
     expect(await screen.findByRole("button", { name: "Clear" })).toBeEnabled();
-    await waitFor(() => {
-      expect(screen.queryByTestId("goal-mutation-pending")).not.toBeInTheDocument();
-    });
+    await spinnerRemoved;
   });
 
   it("exercises hydration hold and observation retry through the destination", async () => {

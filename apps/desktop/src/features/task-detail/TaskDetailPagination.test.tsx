@@ -1,3 +1,4 @@
+import { describe, expect, it } from "bun:test";
 import { act, screen, waitFor } from "@testing-library/react";
 import { appI18n } from "@/i18n";
 import { projectEventsFixture } from "@/test-support/project-events";

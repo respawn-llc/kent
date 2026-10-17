@@ -1,4 +1,5 @@
 import { act, renderHook } from "@testing-library/react";
+import { expect, it, vi } from "bun:test";
 import type { TaskDependencyMutationResponse } from "@/api";
 import { createTestServices, TestAppProviders } from "@/test-support/app-services";
 import { deferred } from "@/test-support/chat-runtime";

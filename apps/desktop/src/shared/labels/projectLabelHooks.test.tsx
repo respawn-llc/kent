@@ -2,36 +2,38 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { RegistryProvider } from "@effect/atom-react";
 import { act, renderHook, waitFor } from "@testing-library/react";
 import { createElement, type ReactNode } from "react";
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { beforeEach, describe, expect, it, mock, vi } from "bun:test";
 
-import type { ProjectLabel, ProjectLabelCatalog } from "@/api";
-import { queryKeys } from "@/app-facade";
+import type { ProjectLabel, ProjectLabelCatalog, TaskLabelAssignment } from "@/api";
 import { LabelActionScopeContext, ProjectLabelDataContext } from "./projectLabelContext";
 import type { ProjectLabelEffects } from "./labelEventEffects";
 import { createTestServices } from "@/test-support/app-services";
 import { createProjectLabelsModel } from "./ProjectLabelsModel";
-import { useProjectLabelCatalogMutations, useProjectLabelActions } from "./projectLabelHooks";
 
-const api = vi.hoisted(() => ({
+const actualAppFacade = await import("@/app-facade");
+const { queryKeys } = actualAppFacade;
+const api = {
   createProjectLabel: vi.fn(),
   deleteProjectLabel: vi.fn(),
   renameProjectLabel: vi.fn(),
   reorderProjectLabels: vi.fn(),
-}));
+};
 
-vi.mock("@/app-facade", async (importOriginal) => ({
-  ...(await importOriginal()),
+await mock.module("@/app-facade", () => ({
+  ...actualAppFacade,
   useAppServices: () => ({ api }),
 }));
 
+const { useProjectLabelCatalogMutations, useProjectLabelActions } = await import("./projectLabelHooks");
+
 const alphaID = "f74ce532-9e6e-4cf6-b3c1-d67d5a3eedcf";
 const betaID = "b74ce532-9e6e-4cf6-b3c1-d67d5a3eedcf";
+type CachedTask = Readonly<{ id: string; labelIDs: readonly string[] }>;
+const originalAlpha: ProjectLabel = { id: alphaID, name: "Alpha" };
+const originalBeta: ProjectLabel = { id: betaID, name: "Beta" };
 const original: ProjectLabelCatalog = {
   projectID: "project-1",
-  labels: [
-    { id: alphaID, name: "Alpha" },
-    { id: betaID, name: "Beta" },
-  ],
+  labels: [originalAlpha, originalBeta],
 };
 
 describe("project label mutations", () => {
@@ -79,7 +81,7 @@ describe("project label mutations", () => {
       { queryKey: queryKeys.projectLabels("project-1"), exact: true },
       { revert: false, silent: true },
     );
-    expect(catalog(view.queryClient).labels).toEqual([created, original.labels[0], renamed]);
+    expect(catalog(view.queryClient).labels).toEqual([created, originalAlpha, renamed]);
     expect(view.effects.scheduleCatalogRefresh).toHaveBeenCalledTimes(2);
   });
 
@@ -99,16 +101,16 @@ describe("project label mutations", () => {
       view.result.current.delete.submit({});
     });
 
-    expect(catalog(view.queryClient).labels).toEqual([original.labels[1]]);
-    expect(view.queryClient.getQueryData(queryKeys.taskLabels("task-1"))).toEqual({
+    expect(catalog(view.queryClient).labels).toEqual([originalBeta]);
+    expect(view.queryClient.getQueryData<TaskLabelAssignment>(queryKeys.taskLabels("task-1"))).toEqual({
       taskID: "task-1",
       labelIDs: [betaID],
     });
-    expect(view.queryClient.getQueryData(queryKeys.task("task-1"))).toEqual({
+    expect(view.queryClient.getQueryData<CachedTask>(queryKeys.task("task-1"))).toEqual({
       id: "task-1",
       labelIDs: [betaID],
     });
-    expect(view.effects.scheduleDeleteRefresh).toHaveBeenCalledOnce();
+    expect(view.effects.scheduleDeleteRefresh).toHaveBeenCalledTimes(1);
   });
 
   it("projects an exact reorder, adopts the validated server catalog, and schedules dependent refreshes", async () => {
@@ -134,7 +136,7 @@ describe("project label mutations", () => {
     });
 
     expect(catalog(view.queryClient)).toEqual(authoritative);
-    expect(view.effects.scheduleReorderRefresh).toHaveBeenCalledOnce();
+    expect(view.effects.scheduleReorderRefresh).toHaveBeenCalledTimes(1);
   });
 
   it("restores a failed reorder only while its own projection is still installed", async () => {

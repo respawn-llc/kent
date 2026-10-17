@@ -1,14 +1,21 @@
+import { afterEach, beforeEach, expect, it, vi } from "bun:test";
 import { act, renderHook, waitFor } from "@testing-library/react";
 import { createTestServices } from "@/test-support/app-services";
 import { composerWrapper } from "@/test-support/composer";
 import { useChatComposer, target } from "./chatComposerTestFixture";
-import { createChatStorageFixture } from "./chatStorageFixture";
+import { installChatStorageFixture } from "./chatStorageFixture";
 import { createNameCommand } from "./nameCommand";
 import { deferred } from "@/test-support/chat-runtime";
 import { ChatOperationError, RpcError } from "@/api";
 
-beforeEach(() => vi.stubGlobal("localStorage", createChatStorageFixture()));
-afterEach(() => vi.unstubAllGlobals());
+let restoreStorage: (() => void) | undefined;
+beforeEach(() => {
+  restoreStorage = installChatStorageFixture();
+});
+afterEach(() => {
+  restoreStorage?.();
+  restoreStorage = undefined;
+});
 
 it("restores a failed name command after new typing without model delivery", async () => {
   const services = createTestServices([]);

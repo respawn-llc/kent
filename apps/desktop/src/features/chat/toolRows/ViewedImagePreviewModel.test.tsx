@@ -1,3 +1,4 @@
+import { expect, it, vi } from "bun:test";
 import { QueryClient } from "@tanstack/react-query";
 import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { StrictMode } from "react";
@@ -64,7 +65,7 @@ function renderPreview(context: ReturnType<typeof fixture>, strict = false) {
     {
       wrapper: ({ children }) => {
         const providers = (
-          <TestAppProviders services={context.services} queryClient={context.client}>
+          <TestAppProviders skipAnimations services={context.services} queryClient={context.client}>
             {children}
           </TestAppProviders>
         );
@@ -170,7 +171,7 @@ it("offers native Open for an available absolute PDF without a working directory
     />,
     {
       wrapper: ({ children }) => (
-        <TestAppProviders services={services} queryClient={context.client}>
+        <TestAppProviders skipAnimations services={services} queryClient={context.client}>
           {children}
         </TestAppProviders>
       ),

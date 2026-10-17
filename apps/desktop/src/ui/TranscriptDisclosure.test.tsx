@@ -1,7 +1,8 @@
-import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { act, fireEvent, render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
+import { MotionConfig } from "motion/react";
 import type { ReactNode } from "react";
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, it, vi } from "bun:test";
 
 import { TranscriptDisclosure, type TranscriptDisclosureIconTone } from "./index";
 
@@ -45,8 +46,11 @@ function DisclosureFixture({
   );
 }
 
-function renderDisclosure(props: FixtureProps = {}) {
-  return render(<DisclosureFixture {...props} />);
+function renderDisclosure(props: FixtureProps = {}, options: Readonly<{ skipAnimations?: boolean }> = {}) {
+  const disclosure = <DisclosureFixture {...props} />;
+  return render(
+    options.skipAnimations === false ? disclosure : <MotionConfig skipAnimations>{disclosure}</MotionConfig>,
+  );
 }
 
 function RemountFixture({ mounted }: Readonly<{ mounted: boolean }>) {
@@ -129,8 +133,8 @@ describe("TranscriptDisclosure", () => {
     await user.click(screen.getByRole("button", { name: "Streaming" }));
     await user.click(screen.getByRole("button", { name: "Copy" }));
 
-    expect(onStatus).toHaveBeenCalledOnce();
-    expect(onAction).toHaveBeenCalledOnce();
+    expect(onStatus).toHaveBeenCalledTimes(1);
+    expect(onAction).toHaveBeenCalledTimes(1);
     expect(disclosure).toHaveAttribute("aria-expanded", "true");
   });
 
@@ -149,20 +153,22 @@ describe("TranscriptDisclosure", () => {
     const iconTones = ["neutral", "warning", "error", "success"] satisfies TranscriptDisclosureIconTone[];
 
     render(
-      <div>
-        {iconTones.map((iconTone) => (
-          <TranscriptDisclosure
-            body={`${iconTone} body`}
-            collapseLabel={`Collapse ${iconTone}`}
-            defaultExpanded={false}
-            expandLabel={`Expand ${iconTone}`}
-            icon={<span>{`${iconTone} leading icon`}</span>}
-            iconTone={iconTone}
-            key={iconTone}
-            summary={`${iconTone} summary`}
-          />
-        ))}
-      </div>,
+      <MotionConfig skipAnimations>
+        <div>
+          {iconTones.map((iconTone) => (
+            <TranscriptDisclosure
+              body={`${iconTone} body`}
+              collapseLabel={`Collapse ${iconTone}`}
+              defaultExpanded={false}
+              expandLabel={`Expand ${iconTone}`}
+              icon={<span>{`${iconTone} leading icon`}</span>}
+              iconTone={iconTone}
+              key={iconTone}
+              summary={`${iconTone} summary`}
+            />
+          ))}
+        </div>
+      </MotionConfig>,
     );
 
     for (const iconTone of iconTones) {
@@ -187,27 +193,31 @@ describe("TranscriptDisclosure", () => {
 
   it("removes the closed body after its exit completes", async () => {
     renderDisclosure({ defaultExpanded: true });
-
     const disclosure = screen.getByRole("button", { name: "Collapse transcript item" });
     fireEvent.click(disclosure);
-
-    const body = getControlledBody(disclosure);
-    expect(body).toHaveAttribute("aria-hidden", "true");
-
-    await waitFor(() => {
-      expect(screen.queryByText("Full transcript content")).not.toBeInTheDocument();
+    expect(getControlledBody(disclosure)).toHaveAttribute("aria-hidden", "true");
+    await act(async () => {
+      await new Promise<void>((resolve) => window.setTimeout(resolve, 0));
     });
+    expect(screen.queryByText("Full transcript content")).not.toBeInTheDocument();
   });
 
-  it("cancels pending body removal when the row is reopened", () => {
+  it("cancels pending body removal when the row is reopened", async () => {
     vi.useFakeTimers();
-    renderDisclosure({ defaultExpanded: true });
+    const view = renderDisclosure({ defaultExpanded: true }, { skipAnimations: false });
+    const openingAnimations = animationsWithin(view.container).map(async (animation) =>
+      animation.finished.catch(ignoreExpectedAnimationCancellation),
+    );
 
     fireEvent.click(screen.getByRole("button", { name: "Collapse transcript item" }));
+    const closingAnimations = animationsWithin(view.container).map(async (animation) =>
+      animation.finished.catch(ignoreExpectedAnimationCancellation),
+    );
     fireEvent.click(screen.getByRole("button", { name: "Expand transcript item" }));
     act(() => {
       vi.advanceTimersByTime(140);
     });
+    await Promise.all([...openingAnimations, ...closingAnimations]);
 
     expect(screen.getByText("Full transcript content")).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Collapse transcript item" })).toHaveAttribute(
@@ -218,10 +228,14 @@ describe("TranscriptDisclosure", () => {
 
   it("does not treat content updates as a new expansion command", async () => {
     const user = userEvent.setup();
-    const { rerender } = render(<DisclosureFixture />);
+    const { rerender } = renderDisclosure();
 
     await user.click(screen.getByRole("button", { name: "Expand transcript item" }));
-    rerender(<DisclosureFixture body="Updated transcript content" summary="Updated compact summary" />);
+    rerender(
+      <MotionConfig skipAnimations>
+        <DisclosureFixture body="Updated transcript content" summary="Updated compact summary" />
+      </MotionConfig>,
+    );
 
     expect(screen.getByRole("button", { name: "Collapse transcript item" })).toHaveAttribute(
       "aria-expanded",
@@ -232,13 +246,25 @@ describe("TranscriptDisclosure", () => {
 
   it("resets local expansion when a keyed visible row unmounts and mounts again", async () => {
     const user = userEvent.setup();
-    const { rerender } = render(<RemountFixture mounted />);
+    const { rerender } = render(
+      <MotionConfig skipAnimations>
+        <RemountFixture mounted />
+      </MotionConfig>,
+    );
 
     await user.click(screen.getByRole("button", { name: "Expand transcript item" }));
     expect(screen.getByRole("button", { name: "Collapse transcript item" })).toBeInTheDocument();
 
-    rerender(<RemountFixture mounted={false} />);
-    rerender(<RemountFixture mounted />);
+    rerender(
+      <MotionConfig skipAnimations>
+        <RemountFixture mounted={false} />
+      </MotionConfig>,
+    );
+    rerender(
+      <MotionConfig skipAnimations>
+        <RemountFixture mounted />
+      </MotionConfig>,
+    );
 
     expect(screen.getByRole("button", { name: "Expand transcript item" })).toHaveAttribute(
       "aria-expanded",
@@ -264,7 +290,7 @@ describe("TranscriptDisclosure", () => {
         })),
       });
       const user = userEvent.setup();
-      renderDisclosure({ defaultExpanded: true });
+      renderDisclosure({ defaultExpanded: true }, { skipAnimations: false });
 
       await user.click(screen.getByRole("button", { name: "Collapse transcript item" }));
 
@@ -287,3 +313,14 @@ describe("TranscriptDisclosure", () => {
     expect(screen.getByText("Stable compact identity")).toBeInTheDocument();
   });
 });
+
+function animationsWithin(container: HTMLElement): Animation[] {
+  return [container, ...container.querySelectorAll<HTMLElement>("*")].flatMap((element) =>
+    element.getAnimations(),
+  );
+}
+
+function ignoreExpectedAnimationCancellation(error: unknown): void {
+  if (error instanceof DOMException && error.name === "AbortError") return;
+  throw error;
+}

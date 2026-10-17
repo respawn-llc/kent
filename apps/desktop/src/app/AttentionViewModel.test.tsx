@@ -1,6 +1,7 @@
 import { act, renderHook, waitFor } from "@testing-library/react";
 import { useAtomMount, useAtomSet, useAtomSuspense, useAtomValue } from "@effect/atom-react";
 import { useQueryClient } from "@tanstack/react-query";
+import { expect, it, vi } from "bun:test";
 import { useMemo, type ReactNode } from "react";
 import { SidebarRootOwner, useOwnedSidebarRoots, useSidebarShell } from "@/app-facade";
 import { createTestServices, TestAppProviders } from "@/test-support/app-services";

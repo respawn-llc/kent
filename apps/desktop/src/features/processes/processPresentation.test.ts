@@ -1,3 +1,5 @@
+import { expect, it } from "bun:test";
+
 import type { DesktopProcess } from "@/api";
 import { projectProcessPresentation } from "./processPresentation";
 

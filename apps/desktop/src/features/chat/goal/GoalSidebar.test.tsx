@@ -1,3 +1,4 @@
+import { afterEach, describe, expect, it, vi } from "bun:test";
 import { act, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { StrictMode } from "react";
@@ -20,6 +21,15 @@ const target = {
   sessionID,
 } as const;
 
+async function enterGoalEditor(user: ReturnType<typeof userEvent.setup>) {
+  await user.click(await screen.findByRole("textbox", { name: "Goal" }));
+  return waitFor(() => {
+    const editor = screen.getByRole("textbox", { name: "Goal" });
+    expect(editor).not.toHaveAttribute("aria-readonly");
+    return editor;
+  });
+}
+
 afterEach(() => {
   vi.restoreAllMocks();
 });
@@ -37,7 +47,7 @@ describe("Goal sidebar", () => {
     };
     const api = createGoalSidebarApi({ goal: null, subscribeGoal });
     const view = render(
-      <TestAppProviders services={services}>
+      <TestAppProviders skipAnimations services={services}>
         <StrictMode>
           <GoalSidebarPage input={{ kind: "session", api, target }} />
         </StrictMode>
@@ -62,7 +72,7 @@ describe("Goal sidebar", () => {
     expect(closes.slice(0, firstOpeningCount).every((close) => close.mock.calls.length === 1)).toBe(true);
 
     const { unmount: unmountReopened } = render(
-      <TestAppProviders services={services}>
+      <TestAppProviders skipAnimations services={services}>
         <StrictMode>
           <GoalSidebarPage input={{ kind: "session", api, target }} />
         </StrictMode>
@@ -98,7 +108,7 @@ describe("Goal sidebar", () => {
       subscribeGoal,
     });
     render(
-      <TestAppProviders services={services}>
+      <TestAppProviders skipAnimations services={services}>
         <GoalSidebarPage input={{ kind: "session", api, target }} />
       </TestAppProviders>,
     );
@@ -110,9 +120,9 @@ describe("Goal sidebar", () => {
       handlers[0]?.onEvent(hydration({ objective: "saved objective", status: "active" }));
     });
     const user = userEvent.setup();
-    await user.click(await screen.findByRole("textbox", { name: "Goal" }));
-    await user.clear(screen.getByRole("textbox", { name: "Goal" }));
-    await user.type(screen.getByRole("textbox", { name: "Goal" }), "unsaved objective");
+    const editor = await enterGoalEditor(user);
+    await user.clear(editor);
+    await user.type(editor, "unsaved objective");
     act(() => {
       handlers[0]?.onError(new Error("Goal connection lost."));
     });
@@ -120,7 +130,7 @@ describe("Goal sidebar", () => {
     expect(await screen.findByTestId("error-state")).toBeInTheDocument();
     expect(await screen.findByRole("button", { name: "Try again" })).toBeInTheDocument();
     expect(handlers).toHaveLength(1);
-    expect(closes[0]).toHaveBeenCalledOnce();
+    expect(closes[0]).toHaveBeenCalledTimes(1);
 
     await userEvent.setup().click(screen.getByRole("button", { name: "Try again" }));
     await waitFor(() => {
@@ -151,7 +161,7 @@ describe("Goal sidebar", () => {
       subscribeGoal,
     });
     render(
-      <TestAppProviders services={services}>
+      <TestAppProviders skipAnimations services={services}>
         <GoalSidebarPage input={{ kind: "session", api, target }} />
       </TestAppProviders>,
     );
@@ -193,21 +203,21 @@ describe("Goal sidebar", () => {
       subscribeGoal,
     });
     render(
-      <TestAppProviders services={services}>
+      <TestAppProviders skipAnimations services={services}>
         <GoalSidebarPage input={{ kind: "session", api, target }} />
       </TestAppProviders>,
     );
 
     const user = userEvent.setup();
-    await user.click(await screen.findByRole("textbox", { name: "Goal" }));
-    await user.clear(screen.getByRole("textbox", { name: "Goal" }));
-    await user.type(screen.getByRole("textbox", { name: "Goal" }), "submitted objective");
+    const editor = await enterGoalEditor(user);
+    await user.clear(editor);
+    await user.type(editor, "submitted objective");
     await user.click(screen.getByTestId("goal-save"));
 
-    await user.click(await screen.findByRole("textbox", { name: "Goal" }));
+    const laterEditor = await enterGoalEditor(user);
     const postSubmitDraft = "new unsaved objective";
-    await user.clear(screen.getByRole("textbox", { name: "Goal" }));
-    await user.type(screen.getByRole("textbox", { name: "Goal" }), postSubmitDraft);
+    await user.clear(laterEditor);
+    await user.type(laterEditor, postSubmitDraft);
     await act(async () => {
       saveResult.resolve({
         sessionID,
@@ -244,16 +254,16 @@ describe("Goal sidebar", () => {
       subscribeGoal,
     });
     render(
-      <TestAppProviders services={services}>
+      <TestAppProviders skipAnimations services={services}>
         <GoalSidebarPage input={{ kind: "session", api, target }} />
       </TestAppProviders>,
     );
 
     const user = userEvent.setup();
-    await user.click(await screen.findByRole("textbox", { name: "Goal" }));
+    const editor = await enterGoalEditor(user);
     const draft = "restore this draft";
-    await user.clear(screen.getByRole("textbox", { name: "Goal" }));
-    await user.type(screen.getByRole("textbox", { name: "Goal" }), draft);
+    await user.clear(editor);
+    await user.type(editor, draft);
     await user.click(screen.getByTestId("goal-save"));
     act(() => {
       handlers[0]?.onEvent({
@@ -288,7 +298,7 @@ describe("Goal sidebar", () => {
       target: newChatTarget(),
     });
     render(
-      <TestAppProviders services={services}>
+      <TestAppProviders skipAnimations services={services}>
         <GoalFixturePage api={api} owner={owner} delivered={hostDelivery} />
       </TestAppProviders>,
     );
@@ -300,7 +310,8 @@ describe("Goal sidebar", () => {
 
     expect(await screen.findByDisplayValue(objective)).toBeInTheDocument();
     expect(screen.getByTestId("goal-save")).toBeInTheDocument();
-    expect(hostDelivery).toHaveBeenCalledExactlyOnceWith({
+    expect(hostDelivery).toHaveBeenCalledTimes(1);
+    expect(hostDelivery).toHaveBeenCalledWith({
       target: exactTarget(),
       origin: newChatTarget(),
       goal: null,
@@ -319,7 +330,7 @@ describe("Goal sidebar", () => {
       unsupported: true,
     });
     render(
-      <TestAppProviders services={services}>
+      <TestAppProviders skipAnimations services={services}>
         <GoalFixturePage api={api} owner={owner} delivered={() => undefined} />
       </TestAppProviders>,
     );
@@ -353,7 +364,7 @@ describe("Goal sidebar", () => {
       target: newChatTarget(),
     });
     render(
-      <TestAppProviders services={services}>
+      <TestAppProviders skipAnimations services={services}>
         <GoalFixturePage api={api} owner={owner} delivered={hostDelivery} />
       </TestAppProviders>,
     );
@@ -392,7 +403,7 @@ describe("Goal sidebar", () => {
       target: newChatTarget(),
     });
     const view = render(
-      <TestAppProviders services={services}>
+      <TestAppProviders skipAnimations services={services}>
         <GoalFixturePage api={api} owner={owner} delivered={hostDelivery} />
       </TestAppProviders>,
     );
@@ -400,10 +411,14 @@ describe("Goal sidebar", () => {
     await user.type(screen.getByRole("textbox", { name: "Goal" }), "close-safe success");
     await user.click(screen.getByTestId("goal-save"));
     // Closing a sidebar does not close its window or replace the window's Atom registry.
-    view.rerender(<TestAppProviders services={services}>{null}</TestAppProviders>);
+    view.rerender(
+      <TestAppProviders skipAnimations services={services}>
+        {null}
+      </TestAppProviders>,
+    );
 
     view.rerender(
-      <TestAppProviders services={services}>
+      <TestAppProviders skipAnimations services={services}>
         <GoalFixturePage api={api} owner={owner} delivered={hostDelivery} />
       </TestAppProviders>,
     );
@@ -413,9 +428,10 @@ describe("Goal sidebar", () => {
     });
 
     await waitFor(() => {
-      expect(notice).toHaveBeenCalledOnce();
+      expect(notice).toHaveBeenCalledTimes(1);
     });
-    expect(hostDelivery).toHaveBeenCalledExactlyOnceWith({
+    expect(hostDelivery).toHaveBeenCalledTimes(1);
+    expect(hostDelivery).toHaveBeenCalledWith({
       target: exactTarget(),
       origin: newChatTarget(),
       goal: goalValue("close-safe success", "active", "goal-close-safe"),

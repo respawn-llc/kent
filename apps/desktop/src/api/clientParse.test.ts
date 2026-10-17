@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it } from "bun:test";
 
 import { ContractError, errorMessage } from "./errors";
 import { parseRpcResponse } from "./clientParse";

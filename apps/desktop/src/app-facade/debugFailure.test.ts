@@ -1,18 +1,14 @@
-import { afterEach, expect, it, vi } from "vitest";
+import { expect, it, vi } from "bun:test";
 
 import { recoverOrThrowDebugFailure } from "./debugFailure";
 import type { AppLogger } from "./logging";
 
-afterEach(() => {
-  vi.unstubAllEnvs();
-});
-
 it("fails after recording diagnostics in development without running production recovery", async () => {
-  vi.stubEnv("KENT_DEBUG", "true");
+  globalThis.__KENT_TEST_ENV__.KENT_DEBUG = "true";
   const logger = { append: vi.fn().mockResolvedValue(undefined) };
   const recover = vi.fn();
 
-  await expect(
+  expect(
     recoverOrThrowDebugFailure({
       context: { owner: "transcript" },
       error: new Error("broken invariant"),
@@ -22,12 +18,12 @@ it("fails after recording diagnostics in development without running production 
     }),
   ).rejects.toBeInstanceOf(Error);
 
-  expect(logger.append).toHaveBeenCalledOnce();
+  expect(logger.append).toHaveBeenCalledTimes(1);
   expect(recover).not.toHaveBeenCalled();
 });
 
 it("retains the original failure stack and cause when surfacing a debug invariant", async () => {
-  vi.stubEnv("KENT_DEBUG", "true");
+  globalThis.__KENT_TEST_ENV__.KENT_DEBUG = "true";
   const original = new Error("broken invariant");
   const logger = { append: vi.fn().mockResolvedValue(undefined) };
   const failure = recoverOrThrowDebugFailure({
@@ -37,7 +33,7 @@ it("retains the original failure stack and cause when surfacing a debug invarian
     message: "Invariant failure.",
     recover: vi.fn(),
   });
-  await expect(failure).rejects.toHaveProperty("cause", original);
+  expect(failure).rejects.toHaveProperty("cause", original);
   expect(logger.append.mock.calls[0]?.[2]).toMatchObject({ stack: original.stack });
 });
 
@@ -54,7 +50,7 @@ it("starts production recovery without waiting for diagnostic persistence", asyn
     recover,
   });
 
-  expect(recover).toHaveBeenCalledOnce();
+  expect(recover).toHaveBeenCalledTimes(1);
   diagnostic.resolve(undefined);
   await pending;
 });
@@ -62,7 +58,7 @@ it("starts production recovery without waiting for diagnostic persistence", asyn
 it.each(["true", "false"])(
   "records structured failure evidence only with explicit debug=%s",
   async (debug) => {
-    vi.stubEnv("KENT_DEBUG", debug);
+    globalThis.__KENT_TEST_ENV__.KENT_DEBUG = debug;
     const evidence = {
       locator: { event_sequence: 42, row_ordinal: 1 },
       resident: { Text: "before" },
@@ -76,7 +72,7 @@ it.each(["true", "false"])(
       message: "Invariant failure.",
       recover: vi.fn(),
     });
-    if (debug === "true") await expect(pending).rejects.toBeInstanceOf(Error);
+    if (debug === "true") expect(pending).rejects.toBeInstanceOf(Error);
     else await pending;
     const context = logger.append.mock.calls[0]?.[2];
     if (debug === "true") {
@@ -89,13 +85,13 @@ it.each(["true", "false"])(
       });
     } else {
       expect(context).not.toHaveProperty("evidenceID");
-      expect(logger.append).toHaveBeenCalledOnce();
+      expect(logger.append).toHaveBeenCalledTimes(1);
     }
   },
 );
 
 it("records large debug evidence in bounded local log entries", async () => {
-  vi.stubEnv("KENT_DEBUG", "true");
+  globalThis.__KENT_TEST_ENV__.KENT_DEBUG = "true";
   const evidence = { Text: "\u0000".repeat(40_000) };
   const logger = {
     append: vi.fn<AppLogger["append"]>().mockImplementation(async (_level, message, context) => {
@@ -104,7 +100,7 @@ it("records large debug evidence in bounded local log entries", async () => {
       }
     }),
   };
-  await expect(
+  expect(
     recoverOrThrowDebugFailure({
       context: { sessionID: "session" },
       error: new Error("payload conflict", { cause: evidence }),

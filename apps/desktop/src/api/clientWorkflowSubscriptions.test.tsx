@@ -1,5 +1,5 @@
 import { StreamFailureCode } from "@app/server-api-contract/gen/kent/api/shared/foundation_pb";
-// @vitest-environment jsdom
+import { describe, expect, it, vi } from "bun:test";
 import { create } from "@app/server-api-contract";
 import * as pb from "@app/server-api-contract/gen/kent/api/workflow_definition/workflow_definition_pb";
 import { StreamCompletionSchema } from "@app/server-api-contract/gen/kent/api/shared/foundation_pb";
@@ -199,7 +199,7 @@ describe("ApiClient workflow subscriptions", () => {
       onComplete: completed,
     });
     success.openDescriptor(workflowService.subscribe);
-    expect(opened).toHaveBeenCalledOnce();
+    expect(opened).toHaveBeenCalledTimes(1);
     success.completeDescriptor(
       workflowService.subscribe,
       workflowService.complete,

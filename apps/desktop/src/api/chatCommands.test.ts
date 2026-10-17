@@ -1,3 +1,4 @@
+import { expect, it } from "bun:test";
 import { create } from "@app/server-api-contract";
 import { PromptCommandService } from "@app/server-api-contract/gen/kent/api/prompt_command/prompt_command_pb";
 import { FakeRpcTransport, unexpectedProjectOverflow } from "@/test-support/api";
@@ -40,7 +41,7 @@ it("preserves typed catalog failure for the localized Retry surface", async () =
       }),
     },
   ]);
-  await expect(
+  expect(
     new ApiClient(transport, unexpectedProjectOverflow).chat.getCommandCatalog({
       kind: "new_chat",
       projectID: "project-1",
@@ -98,15 +99,26 @@ it("accepts a server-selected child for prompt Send and Queue but rejects text a
   } as const;
   const queueItemID = parsePendingWorkItemID("323e4567-e89b-42d3-a456-426614174000");
   for (const method of [api.steer, api.queue]) {
-    await expect(method(target, command, queueItemID)).resolves.toMatchObject({
+    const accepted = await method(target, command, queueItemID);
+    expect(accepted).toMatchObject({
       sessionID: child,
       outcome: { kind: "accepted" },
     });
-    await expect(method(target, { kind: "text", text: "ordinary text" }, queueItemID)).rejects.toBeInstanceOf(
-      ContractError,
+    const invalidCommand = await method(target, { kind: "text", text: "ordinary text" }, queueItemID).then(
+      () => {
+        throw new Error("Expected plain text to be rejected as a command.");
+      },
+      (error: unknown) => error,
     );
+    expect(invalidCommand).toBeInstanceOf(ContractError);
   }
-  await expect(
-    api.compact(target, { token: "/compact", separatorWhitespace: "", rawGuidance: "" }),
-  ).rejects.toBeInstanceOf(ContractError);
+  const invalidCompact = await api
+    .compact(target, { token: "/compact", separatorWhitespace: "", rawGuidance: "" })
+    .then(
+      () => {
+        throw new Error("Expected an empty compact command to be rejected.");
+      },
+      (error: unknown) => error,
+    );
+  expect(invalidCompact).toBeInstanceOf(ContractError);
 });

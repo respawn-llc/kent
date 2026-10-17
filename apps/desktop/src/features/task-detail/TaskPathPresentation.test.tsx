@@ -1,6 +1,6 @@
 import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { beforeAll, expect, it } from "vitest";
+import { beforeAll, expect, it } from "bun:test";
 
 import { appI18n, initializeI18n } from "@/i18n";
 import { usePathFormatter } from "@/app-facade";

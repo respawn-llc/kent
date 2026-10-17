@@ -1,3 +1,4 @@
+import { expect, it, vi } from "bun:test";
 import { resolveComposerCommand } from "./composerCommands";
 import { createWorktreeCommand } from "./worktreeCommand";
 import { appI18n } from "@/i18n";
@@ -8,7 +9,7 @@ it.each(["/worktree", "/wt", "/wt StAtUs"])("opens the ordinary list for %s", as
   const command = resolveComposerCommand(text, [createWorktreeCommand({ execute, push, t: appI18n.t })]);
   expect(command.kind).toBe("direct");
   if (command.kind !== "direct") throw new Error("Expected direct command");
-  await expect(
+  expect(
     command.execution.send(
       {
         kind: "session",
@@ -40,7 +41,7 @@ it.each([
     createWorktreeCommand({ execute, push, t: appI18n.t }),
   ]);
   if (command.kind !== "direct") throw new Error("Expected direct command");
-  await expect(
+  expect(
     command.execution.send(
       {
         kind: "session",
@@ -51,7 +52,7 @@ it.each([
     ),
   ).resolves.toEqual({ kind: "local" });
   expect(execute).not.toHaveBeenCalled();
-  expect(push).toHaveBeenCalledOnce();
+  expect(push).toHaveBeenCalledTimes(1);
   expect(push).toHaveBeenCalledWith(expect.objectContaining({ tone: "danger" }));
 });
 

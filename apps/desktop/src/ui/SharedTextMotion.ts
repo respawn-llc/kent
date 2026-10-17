@@ -9,6 +9,13 @@ interface Source {
   deadline: number | null;
 }
 
+function observeExpectedCancellation(animation: Animation) {
+  void animation.finished.catch((error: unknown) => {
+    if (error instanceof DOMException && error.name === "AbortError") return;
+    throw error;
+  });
+}
+
 /** Destination-owned visual continuity, never an authority for submitted or pending work. */
 export class SharedTextMotion {
   private readonly sources = new Map<string, Source>();
@@ -163,6 +170,10 @@ export class SharedTextMotion {
     });
     const controls: AnimationPlaybackControls[] = [];
     const stop = () => {
+      // Motion's controls cancel WAAPI animations, which rejects their native `finished` promises.
+      for (const element of [source.element, destination.element, visual]) {
+        for (const animation of element.getAnimations()) observeExpectedCancellation(animation);
+      }
       for (const control of controls.splice(0)) control.stop();
     };
     const freeze = () => {

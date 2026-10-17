@@ -1,3 +1,4 @@
+import { afterEach, beforeEach, expect, it, vi } from "bun:test";
 import { act, fireEvent, render, renderHook, screen, waitFor } from "@testing-library/react";
 import { createTestServices } from "@/test-support/app-services";
 import { composerWrapper } from "@/test-support/composer";
@@ -10,10 +11,16 @@ import { TestAppProviders } from "@/test-support/composer";
 import { ChatComposer } from "./ChatComposer";
 import { ChatComposerSurface } from "./ChatComposerSurface";
 import { useChatComposer, target } from "./chatComposerTestFixture";
-import { createChatStorageFixture } from "./chatStorageFixture";
+import { installChatStorageFixture } from "./chatStorageFixture";
 
-beforeEach(() => vi.stubGlobal("localStorage", createChatStorageFixture()));
-afterEach(() => vi.unstubAllGlobals());
+let restoreStorage: (() => void) | undefined;
+beforeEach(() => {
+  restoreStorage = installChatStorageFixture();
+});
+afterEach(() => {
+  restoreStorage?.();
+  restoreStorage = undefined;
+});
 
 function clipboardServices(paste: () => Promise<string | null>) {
   const services = createTestServices([]);
@@ -72,7 +79,7 @@ it.each(["macos", "windows", "linux", "menu"] as const)(
     await waitFor(() => {
       expect(editor).toHaveValue("before /tmp/kent-clipboard-image.png after");
     });
-    expect(paste).toHaveBeenCalledOnce();
+    expect(paste).toHaveBeenCalledTimes(1);
   },
 );
 
@@ -91,7 +98,7 @@ it("replaces the selected composer text with the clipboard image path", async ()
   await waitFor(() => {
     expect(input.value).toBe("before /tmp/kent-clipboard-image.png after");
   });
-  expect(changed).toHaveBeenCalledOnce();
+  expect(changed).toHaveBeenCalledTimes(1);
   input.remove();
 });
 
@@ -139,7 +146,7 @@ it("admits one pending paste and does not insert into a departed composer", asyn
   await waitFor(() => {
     expect(result.current.pending).toBe(false);
   });
-  expect(paste).toHaveBeenCalledOnce();
+  expect(paste).toHaveBeenCalledTimes(1);
   expect(input.value).toBe("draft");
 });
 
@@ -156,7 +163,7 @@ it("preserves the draft and reports clipboard failures", async () => {
     result.current.paste(input);
   });
   await waitFor(() => {
-    expect(report).toHaveBeenCalledOnce();
+    expect(report).toHaveBeenCalledTimes(1);
   });
   expect(input.value).toBe("draft");
   expect(result.current.pending).toBe(false);

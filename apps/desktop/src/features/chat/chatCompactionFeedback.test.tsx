@@ -1,4 +1,4 @@
-// @vitest-environment jsdom
+import { expect, it, vi } from "bun:test";
 import { QueryClient } from "@tanstack/react-query";
 import { waitFor } from "@testing-library/react";
 import { ChatRuntimeOwner } from "@/app-facade";
@@ -62,17 +62,20 @@ it.each([false, true])(
       },
     });
     await waitFor(() => {
-      expect(services.nativeBridge.window.isFocused).toHaveBeenCalledOnce();
+      expect(services.nativeBridge.window.isFocused).toHaveBeenCalledTimes(1);
     });
-    if (focused) expect(notify).not.toHaveBeenCalled();
-    else
-      await waitFor(() => {
-        expect(notify).toHaveBeenCalledExactlyOnceWith(
-          expect.objectContaining({
-            target: { kind: "session_prompt", projectID: target.projectID, sessionID: target.sessionID },
-          }),
-        );
-      });
+    if (focused) {
+      expect(notify).not.toHaveBeenCalled();
+      return;
+    }
+    await waitFor(() => {
+      expect(notify).toHaveBeenCalledTimes(1);
+    });
+    expect(notify).toHaveBeenCalledWith(
+      expect.objectContaining({
+        target: { kind: "session_prompt", projectID: target.projectID, sessionID: target.sessionID },
+      }),
+    );
     await owner.dispose();
   },
 );

@@ -1,14 +1,16 @@
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { isValidElement } from "react";
+import { expect, it, mock, vi } from "bun:test";
 import { createTestServices, TestAppProviders } from "@/test-support/app-services";
 import { createBrowserNativeBridge } from "@/test-support/native-bridge";
-import { WorkflowInspectorHeader } from "./WorkflowInspectorHeader";
 
-const headerAction = vi.hoisted(() => vi.fn<(action: unknown) => void>());
-vi.mock("@/app-facade", async (importOriginal) => ({
-  ...(await importOriginal()),
+const headerAction = vi.fn<(action: unknown) => void>();
+const actualAppFacade = await import("@/app-facade");
+await mock.module("@/app-facade", () => ({
+  ...actualAppFacade,
   usePublishSidebarHeaderAction: headerAction,
 }));
+const { WorkflowInspectorHeader } = await import("./WorkflowInspectorHeader");
 
 it("copies Workflow Inspector Node and Transition IDs", async () => {
   const bridge = createBrowserNativeBridge();

@@ -1,11 +1,10 @@
 import { render, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { vi } from "vitest";
+import { beforeEach, describe, expect, it, mock, vi } from "bun:test";
 import type { ComponentProps, ReactElement } from "react";
 
 import type { TaskDependencies } from "@/api";
 import type { TaskSearchResult } from "@/app-facade";
-import { DependenciesArea } from "./DependenciesArea";
 import { dependencyRelatedTaskIDs } from "./dependencyCache";
 import { createTestServices, TestAppProviders } from "@/test-support/app-services";
 
@@ -25,14 +24,16 @@ function renderArea(element: ReactElement) {
   return render(<TestAppProviders services={services}>{element}</TestAppProviders>);
 }
 
-const searchFixture = vi.hoisted<{ results: readonly TaskSearchResult[] }>(() => ({ results: [] }));
-vi.mock("react-i18next", async (importOriginal) => ({
-  ...(await importOriginal()),
+const searchFixture: { results: readonly TaskSearchResult[] } = { results: [] };
+const actualI18next = await import("react-i18next");
+const actualAppFacade = await import("@/app-facade");
+await mock.module("react-i18next", () => ({
+  ...actualI18next,
   useTranslation: () => ({ t: (key: string) => key }),
 }));
 
-vi.mock("@/app-facade", async (importOriginal) => ({
-  ...(await importOriginal()),
+await mock.module("@/app-facade", () => ({
+  ...actualAppFacade,
   useTaskSearch: () => ({
     displayedQuery: null,
     normalizedTooShort: false,
@@ -52,6 +53,8 @@ vi.mock("@/app-facade", async (importOriginal) => ({
     searchable: searchFixture.results.length > 0,
   }),
 }));
+
+const { DependenciesArea } = await import("./DependenciesArea");
 
 const dependencies: TaskDependencies = {
   blockerCount: 1,
@@ -334,7 +337,7 @@ describe("TaskDependenciesArea", () => {
     expect(screen.getByTestId("dependency-remove-task-2")).toBeEnabled();
 
     await user.click(screen.getByTestId("dependency-remove-task-2"));
-    expect(onRemove).toHaveBeenCalledOnce();
+    expect(onRemove).toHaveBeenCalledTimes(1);
     expect(onAdd).not.toHaveBeenCalled();
     expect(onSelectTask).not.toHaveBeenCalled();
   });

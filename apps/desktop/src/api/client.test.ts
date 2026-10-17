@@ -1,3 +1,4 @@
+import { describe, expect, it } from "bun:test";
 import * as wf from "@app/server-api-contract/gen/kent/api/workflow_definition/workflow_definition_pb";
 import * as taskRead from "@app/server-api-contract/gen/kent/api/workflow_task/read_pb";
 import * as taskLifecycle from "@app/server-api-contract/gen/kent/api/workflow_task/lifecycle_pb";
@@ -102,7 +103,7 @@ describe("ApiClient", () => {
     });
     expect(readiness.causes[0]).not.toHaveProperty("diagnosticID");
     expect(transport.descriptorCalls[0]?.descriptor).toBe(ServerService.method.getReadiness);
-    await expect(client.startTask({ taskID: "task-1" })).resolves.toMatchObject({
+    expect(client.startTask({ taskID: "task-1" })).resolves.toMatchObject({
       outcome: "applied",
       applied: {
         currentNodes: [{ nodeID: "node-1", transitionBranchKey: null, sessionID: null }],
@@ -120,7 +121,7 @@ describe("ApiClient", () => {
       { descriptor: taskRead.BoardReadService.method.listNodeCards, result: emptyBoardNodeCardsResponse },
     ]);
     const client = new ApiClient(transport, unexpectedProjectOverflow);
-    await expect(
+    expect(
       client.getBoard(
         "project-1",
         undefined,
@@ -143,7 +144,7 @@ describe("ApiClient", () => {
       },
     ]);
     const labelID = "f74ce532-9e6e-4cf6-b3c1-d67d5a3eedcf";
-    await expect(
+    expect(
       client.listBoardNodeCards({
         projectID: "project-1",
         workflowID: "11111111-1111-4111-8111-111111111111",
@@ -199,8 +200,8 @@ describe("ApiClient", () => {
     const transport = new FakeRpcTransport([]);
     const client = new ApiClient(transport, unexpectedProjectOverflow);
     const prefixedID = "workflow-11111111-1111-4111-8111-111111111111";
-    await expect(client.getWorkflow(prefixedID)).rejects.toThrow();
-    await expect(client.previewWorkflowDelete("not-a-workflow-id")).rejects.toThrow();
+    expect(client.getWorkflow(prefixedID)).rejects.toThrow();
+    expect(client.previewWorkflowDelete("not-a-workflow-id")).rejects.toThrow();
     expect(() =>
       client.subscribeWorkflow(prefixedID, {
         onEvent: () => undefined,
@@ -216,7 +217,7 @@ describe("ApiClient", () => {
       ]),
       unexpectedProjectOverflow,
     );
-    await expect(
+    expect(
       client.getBoard(
         "project-1",
         "11111111-1111-4111-8111-111111111111",
@@ -234,7 +235,7 @@ describe("ApiClient", () => {
       ]),
       unexpectedProjectOverflow,
     );
-    await expect(client.getTask("task-1")).resolves.toMatchObject({
+    expect(client.getTask("task-1")).resolves.toMatchObject({
       id: "task-1",
       labelIDs: ["f74ce532-9e6e-4cf6-b3c1-d67d5a3eedcf"],
       currentNodes: [],
@@ -272,8 +273,8 @@ describe("ApiClient", () => {
       },
     ]);
     const client = new ApiClient(transport, unexpectedProjectOverflow);
-    await expect(client.listAttention("cursor-1")).resolves.toMatchObject({ items: [], nextPageToken: null });
-    await expect(client.listTaskAttention("task-1")).resolves.toMatchObject({ items: [], generatedAt: 2 });
+    expect(client.listAttention("cursor-1")).resolves.toMatchObject({ items: [], nextPageToken: null });
+    expect(client.listTaskAttention("task-1")).resolves.toMatchObject({ items: [], generatedAt: 2 });
     expect(transport.descriptorCalls).toEqual([
       {
         descriptor: attention.AttentionReadService.method.list,
@@ -305,7 +306,7 @@ describe("ApiClient", () => {
       ]),
       unexpectedProjectOverflow,
     );
-    await expect(client.getTask("task-1")).resolves.toMatchObject({
+    expect(client.getTask("task-1")).resolves.toMatchObject({
       sourceURL: "https://github.com/respawn-llc/kent/issues/1",
     });
   });
@@ -376,18 +377,15 @@ describe("ApiClient", () => {
         },
       ],
     });
-    expect(definition.nodes).toEqual(
-      expect.arrayContaining([
-        expect.objectContaining({
-          groupID: boundaryGraphIDs.nodeGroup,
-          id: boundaryGraphIDs.node,
-          name: "Implement",
-          subagentRole: "coder",
-        }),
-        expect.objectContaining({ groupID: null, id: boundaryGraphIDs.doneNode, name: "Done" }),
-      ]),
-    );
-    await expect(
+    const implementationNode = definition.nodes.find(({ id }) => id === boundaryGraphIDs.node);
+    expect(implementationNode).toMatchObject({
+      groupID: boundaryGraphIDs.nodeGroup,
+      name: "Implement",
+      subagentRole: "coder",
+    });
+    const doneNode = definition.nodes.find(({ id }) => id === boundaryGraphIDs.doneNode);
+    expect(doneNode).toMatchObject({ groupID: null, name: "Done" });
+    expect(
       client.validateWorkflow("11111111-1111-4111-8111-111111111111", "execution"),
     ).resolves.toMatchObject({
       valid: false,
@@ -409,7 +407,7 @@ describe("ApiClient", () => {
         },
       ],
     });
-    await expect(client.listProjectWorkflowLinks("project-1")).resolves.toEqual([
+    expect(client.listProjectWorkflowLinks("project-1")).resolves.toEqual([
       {
         id: "link-1",
         projectID: "project-1",
@@ -459,7 +457,7 @@ describe("ApiClient", () => {
       },
     ]);
     const client = new ApiClient(transport, unexpectedProjectOverflow);
-    await expect(client.getWorkflow("11111111-1111-4111-8111-111111111111")).resolves.toMatchObject({
+    expect(client.getWorkflow("11111111-1111-4111-8111-111111111111")).resolves.toMatchObject({
       edges: [
         {
           contextSource: { kind: "previous_target_or_new", nodeKey: "" },
@@ -559,7 +557,7 @@ describe("ApiClient", () => {
       },
     ]);
     const client = new ApiClient(transport, unexpectedProjectOverflow);
-    await expect(
+    expect(
       client.listWorkflows({ offset: 0n, limit: 10, projectID: "project-1", query: "ship" }),
     ).resolves.toMatchObject({
       nextOffset: 10n,
@@ -573,12 +571,12 @@ describe("ApiClient", () => {
         },
       ],
     });
-    await expect(client.createWorkflow({ name: "Ops", description: "" })).resolves.toMatchObject({
+    expect(client.createWorkflow({ name: "Ops", description: "" })).resolves.toMatchObject({
       id: "22222222-2222-4222-8222-222222222222",
       name: "Ops",
       executionTargetPolicy: { mode: "ask_on_first_execution", customRef: null },
     });
-    await expect(
+    expect(
       client.createAndLinkWorkflowToProject({
         projectID: "project-1",
         name: "Project workflow",
@@ -588,7 +586,7 @@ describe("ApiClient", () => {
       link: { isDefault: true, projectID: "project-1", workflowID: "33333333-3333-4333-8333-333333333333" },
       workflow: { id: "33333333-3333-4333-8333-333333333333" },
     });
-    await expect(
+    expect(
       client.linkWorkflowToProject({
         projectID: "project-1",
         workflowID: "11111111-1111-4111-8111-111111111111",
@@ -646,20 +644,18 @@ describe("ApiClient", () => {
       },
     ]);
     const client = new ApiClient(transport, unexpectedProjectOverflow);
-    await expect(client.previewWorkflowDelete("11111111-1111-4111-8111-111111111111")).resolves.toMatchObject(
-      {
-        workflowID: "11111111-1111-4111-8111-111111111111",
-        version: 7,
-        projectCount: 1,
-        linkCount: 1,
-        defaultReplacementProjectCount: 0,
-        taskCount: 2,
-        currentNodeCount: 0,
-        pendingApprovalCount: 1,
-        blockedTaskCount: 1,
-      },
-    );
-    await expect(
+    expect(client.previewWorkflowDelete("11111111-1111-4111-8111-111111111111")).resolves.toMatchObject({
+      workflowID: "11111111-1111-4111-8111-111111111111",
+      version: 7,
+      projectCount: 1,
+      linkCount: 1,
+      defaultReplacementProjectCount: 0,
+      taskCount: 2,
+      currentNodeCount: 0,
+      pendingApprovalCount: 1,
+      blockedTaskCount: 1,
+    });
+    expect(
       client.deleteWorkflow({
         workflowID: "11111111-1111-4111-8111-111111111111",
         confirmed: true,
@@ -803,7 +799,7 @@ describe("ApiClient", () => {
       },
     ]);
     const client = new ApiClient(transport, unexpectedProjectOverflow);
-    await expect(
+    expect(
       client.validateWorkflowGraphDraft({
         workflowID: "11111111-1111-4111-8111-111111111111",
         metadata: {
@@ -827,7 +823,7 @@ describe("ApiClient", () => {
         ],
       },
     });
-    await expect(
+    expect(
       client.previewWorkflowGraphSave({
         workflowID: "11111111-1111-4111-8111-111111111111",
         expectedVersion: 11,
@@ -845,7 +841,7 @@ describe("ApiClient", () => {
       impact: { removedEdgeCount: 1 },
       blockers: [{ code: "confirmation_required" }],
     });
-    await expect(
+    expect(
       client.saveWorkflowGraph({
         workflowID: "11111111-1111-4111-8111-111111111111",
         expectedVersion: 11,

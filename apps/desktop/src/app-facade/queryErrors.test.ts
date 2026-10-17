@@ -1,5 +1,5 @@
 import { CancelledError } from "@tanstack/react-query";
-import { vi } from "vitest";
+import { describe, expect, it, vi } from "bun:test";
 
 import { reportNonCancelledError } from "./queryErrors";
 

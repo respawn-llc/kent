@@ -1,4 +1,5 @@
 import { act, render, waitFor } from "@testing-library/react";
+import { expect, it, vi } from "bun:test";
 import { createTestServices, TestAppProviders } from "@/test-support/app-services";
 import { createBrowserNativeBridge } from "@/test-support/native-bridge";
 import { useNativeWindowGlassTintSync } from "./nativeWindowGlassTint";

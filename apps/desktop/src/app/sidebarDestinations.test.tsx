@@ -1,15 +1,16 @@
 import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+import { beforeEach, describe, expect, it, mock, vi } from "bun:test";
 import { isValidElement, type ReactElement } from "react";
 import type { SidebarDestination } from "@/app-facade";
-import { SidebarRootContext } from "@/app-facade";
 import { createBrowserNativeBridge } from "@/test-support/native-bridge";
 import { TestAppProviders, type TestAppServices } from "@/test-support/app-services";
 import { createTaskDetailTestServices, taskDetailResponse } from "@/test-support/task-detail";
 import { createTestSidebarNavigator } from "@/test-support/sidebar";
 import { appI18n } from "@/i18n";
-import { SidebarDestinationView } from "./sidebarDestinations";
 import { sidebarDestinationPolicy } from "./sidebarDestinationPolicy";
-const headerAction = vi.hoisted(() => vi.fn<(action: unknown) => void>());
+const actualAppFacade = await import("@/app-facade");
+const { SidebarRootContext } = actualAppFacade;
+const headerAction = vi.fn<(action: unknown) => void>();
 type AsyncMock<Arguments extends unknown[]> = ReturnType<typeof vi.fn<(...args: Arguments) => Promise<void>>>;
 type SyncMock<Arguments extends unknown[]> = ReturnType<typeof vi.fn<(...args: Arguments) => void>>;
 interface SidebarFixture {
@@ -23,7 +24,7 @@ interface SidebarFixture {
   workflowEditorProps: SyncMock<[unknown]>;
   newTaskProps: SyncMock<[unknown]>;
 }
-const fixture = vi.hoisted((): SidebarFixture => ({
+const fixture: SidebarFixture = {
   copyText: vi.fn(async () => undefined),
   openWindow: vi.fn(async () => "created" as const),
   openProject: vi.fn(async () => undefined),
@@ -33,9 +34,9 @@ const fixture = vi.hoisted((): SidebarFixture => ({
   services: undefined,
   workflowEditorProps: vi.fn<(props: unknown) => void>(),
   newTaskProps: vi.fn<(props: unknown) => void>(),
-}));
-vi.mock("@/app-facade", async (importOriginal) => ({
-  ...(await importOriginal()),
+};
+await mock.module("@/app-facade", () => ({
+  ...actualAppFacade,
   sidebarTitle: () => "",
   useAppNavigation: () => ({
     openProject: fixture.openProject,
@@ -49,14 +50,14 @@ vi.mock("@/app-facade", async (importOriginal) => ({
   usePublishSidebarHeaderAction: headerAction,
   useStatusController: () => ({ push: fixture.push }),
 }));
-vi.mock("@/features/project-edit", () => ({
+await mock.module("@/features/project-edit", () => ({
   ProjectDeleteButton: () => <div />,
   ProjectEditRoute: () => <div />,
 }));
-vi.mock("@/features/home", () => ({
+await mock.module("@/features/home", () => ({
   SidebarInboxNav: () => <div />,
 }));
-vi.mock("@/features/tasks", () => ({
+await mock.module("@/features/tasks", () => ({
   NewTaskForm: (
     props: Readonly<{
       navigator: ReturnType<typeof createTestSidebarNavigator>;
@@ -90,7 +91,7 @@ vi.mock("@/features/tasks", () => ({
   },
 }));
 
-vi.mock("@/features/workflows", () => ({
+await mock.module("@/features/workflows", () => ({
   LinkWorkflowSidebar: (
     props: Readonly<{
       onCreated: (workflowID: string) => void;
@@ -126,7 +127,7 @@ vi.mock("@/features/workflows", () => ({
   ),
 }));
 
-vi.mock("@/features/workflow-editor", () => ({
+await mock.module("@/features/workflow-editor", () => ({
   WorkflowEditorRoute: (props: unknown) => {
     fixture.workflowEditorProps(props);
     return <div />;
@@ -147,6 +148,8 @@ vi.mock("@/features/workflow-editor", () => ({
     <button data-testid="workflow-inspector-missing" onClick={onMissingSelectedNode} />
   ),
 }));
+
+const { SidebarDestinationView } = await import("./sidebarDestinations");
 
 function mountDestination(destination: SidebarDestination, pageNavigator = createTestSidebarNavigator()) {
   const browserBridge = createBrowserNativeBridge();
@@ -272,7 +275,7 @@ describe("Sidebar destination completion ownership", () => {
     );
     expect(fixture.newTaskProps.mock.lastCall?.[0]).not.toHaveProperty("workflowID");
     fireEvent.click(screen.getByTestId("new-task-success"));
-    expect(pageNavigator.back).toHaveBeenCalledOnce();
+    expect(pageNavigator.back).toHaveBeenCalledTimes(1);
     expect(onCreated).toHaveBeenCalledWith("task-created");
   });
   it("publishes Link Workflow creation through scoped replace", () => {
@@ -299,7 +302,7 @@ describe("Sidebar destination completion ownership", () => {
     );
     fireEvent.click(within(screen.getByRole("dialog")).getByRole("button", { name: "Review chat" }));
     await waitFor(() => {
-      expect(navigator.close).toHaveBeenCalledOnce();
+      expect(navigator.close).toHaveBeenCalledTimes(1);
       expect(fixture.openSessionChat).toHaveBeenCalledWith({
         projectID: "project-1",
         sessionID: "33333333-3333-4333-8333-333333333333",
@@ -320,8 +323,8 @@ describe("Sidebar destination completion ownership", () => {
       }),
     );
     fireEvent.click(within(screen.getByRole("dialog")).getByRole("button", { name: "Review chat" }));
-    expect(stale.close).toHaveBeenCalledOnce();
-    expect(fixture.openSessionChat).toHaveBeenCalledOnce();
+    expect(stale.close).toHaveBeenCalledTimes(1);
+    expect(fixture.openSessionChat).toHaveBeenCalledTimes(1);
   });
   it.each([
     {
@@ -353,16 +356,16 @@ describe("Sidebar destination completion ownership", () => {
   ])("runs $trigger follow-up only after accepted scoped close", ({ destination, follow, trigger }) => {
     const acceptedNavigator = mountDestination(destination);
     fireEvent.click(screen.getByTestId(trigger));
-    expect(acceptedNavigator.close).toHaveBeenCalledOnce();
-    expect(follow()).toHaveBeenCalledOnce();
+    expect(acceptedNavigator.close).toHaveBeenCalledTimes(1);
+    expect(follow()).toHaveBeenCalledTimes(1);
 
     const stale = createTestSidebarNavigator({ close: vi.fn(() => "stale" as const) });
     mountDestination(destination, stale);
     const staleTrigger = screen.getAllByTestId(trigger)[1];
     if (staleTrigger === undefined) throw new Error("Expected the stale destination trigger.");
     fireEvent.click(staleTrigger);
-    expect(stale.close).toHaveBeenCalledOnce();
-    expect(follow()).toHaveBeenCalledOnce();
+    expect(stale.close).toHaveBeenCalledTimes(1);
+    expect(follow()).toHaveBeenCalledTimes(1);
   });
 
   it("runs caller-owned Link Workflow completion without global navigation and reports failure", async () => {
@@ -376,7 +379,7 @@ describe("Sidebar destination completion ownership", () => {
 
     fireEvent.click(screen.getByTestId("workflow-linked"));
 
-    expect(navigator.close).toHaveBeenCalledOnce();
+    expect(navigator.close).toHaveBeenCalledTimes(1);
     expect(onCompleted).toHaveBeenCalledWith({ kind: "linked", workflowID: "workflow-linked" });
     expect(fixture.openProject).not.toHaveBeenCalled();
     await waitFor(() => {
@@ -391,7 +394,7 @@ describe("Sidebar destination completion ownership", () => {
       workflowID: "workflow-1",
     });
     fireEvent.click(screen.getByTestId("workflow-inspector-missing"));
-    expect(navigator.close).toHaveBeenCalledOnce();
+    expect(navigator.close).toHaveBeenCalledTimes(1);
   });
   it.each<Readonly<{ outcome: "accepted" | "stale" }>>([{ outcome: "accepted" }, { outcome: "stale" }])(
     "scopes Workflow Inspector deletion completion when close is $outcome",
@@ -402,7 +405,7 @@ describe("Sidebar destination completion ownership", () => {
         navigator,
       );
       fireEvent.click(screen.getByTestId("workflow-inspector-delete-workflow-1"));
-      expect(navigator.close).toHaveBeenCalledOnce();
+      expect(navigator.close).toHaveBeenCalledTimes(1);
     },
   );
 
@@ -416,13 +419,13 @@ describe("Sidebar destination completion ownership", () => {
       renderHeaderAction(action);
       fireEvent.click(screen.getByRole("button", { name: appI18n.t("app.popOut") }));
       await waitFor(() => {
-        expect(fixture.openWindow).toHaveBeenCalledOnce();
+        expect(fixture.openWindow).toHaveBeenCalledTimes(1);
       });
 
       expect(fixture.openWindow).toHaveBeenCalledWith(
         expect.objectContaining({ params: { taskID: "task-1" }, route: "/native-dialog/task-detail" }),
       );
-      expect(navigator.close).toHaveBeenCalledOnce();
+      expect(navigator.close).toHaveBeenCalledTimes(1);
     },
   );
 });

@@ -1,4 +1,5 @@
-import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { expect, it, vi } from "bun:test";
+import { act, fireEvent, render, screen, waitForElementToBeRemoved } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { useState } from "react";
 import { HoverPopover } from "./HoverPopover";
@@ -30,11 +31,11 @@ it.each(["click", "enter", "space", "touch"] as const)("opens without hover usin
     trigger.focus();
     await user.keyboard(activation === "enter" ? "{Enter}" : " ");
   }
-  expect(await screen.findByRole("button", { name: "Popup action" })).toBeVisible();
+  const action = await screen.findByRole("button", { name: "Popup action" });
+  expect(action).toBeVisible();
   await user.keyboard("{Escape}");
-  await waitFor(() => {
-    expect(screen.queryByRole("button", { name: "Popup action" })).not.toBeInTheDocument();
-  });
+  await waitForElementToBeRemoved(action);
+  expect(screen.queryByRole("button", { name: "Popup action" })).not.toBeInTheDocument();
 });
 
 it("opens on hover, keeps interactive content open on click, and closes on leaving", async () => {
@@ -71,9 +72,8 @@ it("opens on hover, keeps interactive content open on click, and closes on leavi
   await user.click(action);
   expect(action).toBeInTheDocument();
   fireEvent.mouseLeave(document.documentElement);
-  await waitFor(() => {
-    expect(action).not.toBeInTheDocument();
-  });
+  await waitForElementToBeRemoved(action);
+  expect(action).not.toBeInTheDocument();
   referenceBounds.mockRestore();
   popupBounds.mockRestore();
 });
@@ -143,10 +143,9 @@ it("keeps the parent popup open through a nested portalled tooltip and closes af
   expect(tooltip).toBeInTheDocument();
   fireEvent.mouseLeave(tooltip, { clientX: 450, clientY: 120 });
   fireEvent.mouseMove(document, { clientX: 600, clientY: 450 });
-  await waitFor(() => {
-    expect(popup).not.toBeInTheDocument();
-    expect(tooltip).not.toBeInTheDocument();
-  });
+  await waitForElementToBeRemoved([popup, tooltip]);
+  expect(popup).not.toBeInTheDocument();
+  expect(tooltip).not.toBeInTheDocument();
 });
 
 it("keeps slow leftward movement inside the context popup safe area open", async () => {
@@ -180,17 +179,17 @@ it("keeps slow leftward movement inside the context popup safe area open", async
     fireEvent.mouseLeave(trigger, { clientX: 400, clientY: 410 });
     fireEvent.mouseMove(document, { clientX: 350, clientY: 403 });
     await act(async () => {
-      await vi.advanceTimersByTimeAsync(250);
+      vi.advanceTimersByTime(250);
     });
     expect(popup).toBeInTheDocument();
     fireEvent.mouseMove(document, { clientX: 349, clientY: 402 });
     await act(async () => {
-      await vi.advanceTimersByTimeAsync(250);
+      vi.advanceTimersByTime(250);
     });
     expect(popup).toBeInTheDocument();
     fireEvent.mouseMove(document, { clientX: 100, clientY: 450 });
     await act(async () => {
-      await vi.advanceTimersByTimeAsync(250);
+      vi.advanceTimersByTime(250);
     });
     expect(popup).not.toBeInTheDocument();
   } finally {
@@ -215,24 +214,22 @@ it("preserves asChild click behavior and dismisses standalone tooltips with Esca
   );
   const trigger = screen.getByRole("button", { name: "Copy" });
   await user.hover(trigger);
-  await screen.findByRole("tooltip");
+  const tooltip = await screen.findByRole("tooltip");
   const action = screen.getByRole("button", { name: "Tooltip action" });
   fireEvent.pointerDown(action);
   fireEvent.click(action);
   expect(screen.getByRole("tooltip")).toBeInTheDocument();
   await user.keyboard("{Escape}");
-  await waitFor(() => {
-    expect(screen.queryByRole("tooltip")).not.toBeInTheDocument();
-  });
+  await waitForElementToBeRemoved(tooltip);
+  expect(screen.queryByRole("tooltip")).not.toBeInTheDocument();
   await user.unhover(trigger);
   await user.hover(trigger);
-  await screen.findByRole("tooltip");
+  const reopenedTooltip = await screen.findByRole("tooltip");
   await user.click(document.body);
-  await waitFor(() => {
-    expect(screen.queryByRole("tooltip")).not.toBeInTheDocument();
-  });
+  await waitForElementToBeRemoved(reopenedTooltip);
+  expect(screen.queryByRole("tooltip")).not.toBeInTheDocument();
   await user.click(trigger);
-  expect(click).toHaveBeenCalledOnce();
+  expect(click).toHaveBeenCalledTimes(1);
 });
 
 it("respects controlled open state and the provider hover delay", async () => {

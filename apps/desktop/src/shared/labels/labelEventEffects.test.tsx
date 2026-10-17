@@ -1,15 +1,15 @@
-// @vitest-environment jsdom
+import { describe, expect, it, vi } from "bun:test";
 import { CancelledError, QueryClient, QueryObserver } from "@tanstack/react-query";
 import { waitFor } from "@testing-library/react";
-import { describe, expect, it, vi } from "vitest";
 
-import type { ProjectLabelCatalog, WorkflowProjectEvent } from "@/api";
+import type { ProjectLabelCatalog, TaskLabelAssignment, WorkflowProjectEvent } from "@/api";
 import { queryKeys } from "@/app-facade";
 import { createProjectLabelEffects } from "./labelEventEffects";
 import type { LabelFilterAction } from "./labelFilterState";
 
 const alphaID = "38bf0da7-a3f7-4c15-bc5f-c8fca538e667";
 const betaID = "942495c2-5958-4959-8445-94046ad74fbd";
+type CachedTask = Readonly<{ id: string; labelIDs: readonly string[] }>;
 
 describe("Project label event effects", () => {
   it("invalidates the exact retained catalog while only requesting active refetches", async () => {
@@ -49,7 +49,7 @@ describe("Project label event effects", () => {
     });
     const unsubscribe = observer.subscribe(() => undefined);
     await waitFor(() => {
-      expect(queryClient.getQueryData(queryKeys.projectLabels("project-1"))).toEqual({
+      expect(queryClient.getQueryData<ProjectLabelCatalog>(queryKeys.projectLabels("project-1"))).toEqual({
         projectID: "project-1",
         labels: [],
       });
@@ -93,7 +93,7 @@ describe("Project label event effects", () => {
     await waitFor(() => {
       expect(onBackgroundError).toHaveBeenCalledWith(failure);
     });
-    expect(onBackgroundError).toHaveBeenCalledOnce();
+    expect(onBackgroundError).toHaveBeenCalledTimes(1);
   });
 
   it("reports active Task assignment refresh failures", async () => {
@@ -113,7 +113,7 @@ describe("Project label event effects", () => {
     });
     const unsubscribe = observer.subscribe(() => undefined);
     await waitFor(() => {
-      expect(queryClient.getQueryData(queryKeys.taskLabels("task-1"))).toEqual({
+      expect(queryClient.getQueryData<TaskLabelAssignment>(queryKeys.taskLabels("task-1"))).toEqual({
         taskID: "task-1",
         labelIDs: [],
       });
@@ -167,11 +167,11 @@ describe("Project label event effects", () => {
     expect(
       queryClient.getQueryData<ProjectLabelCatalog>(queryKeys.projectLabels("project-1"))?.labels,
     ).toEqual([{ id: betaID, name: "Beta" }]);
-    expect(queryClient.getQueryData(queryKeys.taskLabels("task-1"))).toEqual({
+    expect(queryClient.getQueryData<TaskLabelAssignment>(queryKeys.taskLabels("task-1"))).toEqual({
       taskID: "task-1",
       labelIDs: [betaID],
     });
-    expect(queryClient.getQueryData(queryKeys.task("task-1"))).toEqual({
+    expect(queryClient.getQueryData<CachedTask>(queryKeys.task("task-1"))).toEqual({
       id: "task-1",
       labelIDs: [betaID],
     });
@@ -240,8 +240,8 @@ describe("Project label event effects", () => {
     const unsubscribeFirst = firstObserver.subscribe(() => undefined);
     const unsubscribeSecond = secondObserver.subscribe(() => undefined);
     await waitFor(() => {
-      expect(first.getQueryData(key)).toEqual(serverCatalog);
-      expect(second.getQueryData(key)).toEqual(serverCatalog);
+      expect(first.getQueryData<ProjectLabelCatalog>(key)).toEqual(serverCatalog);
+      expect(second.getQueryData<ProjectLabelCatalog>(key)).toEqual(serverCatalog);
     });
 
     serverCatalog = {
@@ -253,8 +253,8 @@ describe("Project label event effects", () => {
       createEffects(second).consumeProjectEvent(labelEvent("renamed", alphaID)),
     ]);
 
-    expect(first.getQueryData(key)).toEqual(serverCatalog);
-    expect(second.getQueryData(key)).toEqual(serverCatalog);
+    expect(first.getQueryData<ProjectLabelCatalog>(key)).toEqual(serverCatalog);
+    expect(second.getQueryData<ProjectLabelCatalog>(key)).toEqual(serverCatalog);
     unsubscribeFirst();
     unsubscribeSecond();
   });
@@ -273,8 +273,8 @@ describe("Project label event effects", () => {
 
     const failure = new Error("event refresh failed");
     refresh.reject(failure);
-    await expect(consumed).rejects.toBe(failure);
-    expect(settled).toHaveBeenCalledOnce();
+    expect(consumed).rejects.toBe(failure);
+    expect(settled).toHaveBeenCalledTimes(1);
   });
 
   it("invalidates exact assignment and Project membership without duplicating Task detail refresh", async () => {
@@ -313,8 +313,10 @@ describe("Project label event effects", () => {
 
     const consumed = effects.consumeProjectEvent(taskEvent("deleted", "task-1"));
 
-    expect(queryClient.getQueryData(queryKeys.taskLabels("task-1"))).toBeUndefined();
-    expect(queryClient.getQueryData(queryKeys.task("task-1"))).toBeUndefined();
+    const deletedAssignment = queryClient.getQueryData(queryKeys.taskLabels("task-1"));
+    const deletedTask = queryClient.getQueryData(queryKeys.task("task-1"));
+    expect(deletedAssignment).toBeUndefined();
+    expect(deletedTask).toBeUndefined();
     await consumed;
     await waitFor(() => {
       expectInvalidated(queryClient, queryKeys.projectBoardsRoot("project-1"));
@@ -374,7 +376,9 @@ describe("Project label event effects", () => {
       expectInvalidated(queryClient, queryKeys.projectBoardNodeCardsRoot("project-1"));
       expectInvalidated(queryClient, queryKeys.projectTaskListsRoot("project-1"));
     });
-    expect(queryClient.getQueryData(queryKeys.projectLabels("project-1"))).toEqual(projectedCatalog);
+    expect(queryClient.getQueryData<ProjectLabelCatalog>(queryKeys.projectLabels("project-1"))).toEqual(
+      projectedCatalog,
+    );
     expectInvalidated(queryClient, queryKeys.projectLabels("project-1"), false);
     expectInvalidated(queryClient, queryKeys.task("task-1"), false);
     expectInvalidated(queryClient, queryKeys.taskLabels("task-2"), false);

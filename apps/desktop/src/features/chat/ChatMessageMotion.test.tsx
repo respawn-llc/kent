@@ -1,7 +1,8 @@
+import { expect, it, vi } from "bun:test";
 import { act, fireEvent, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { hydration, target, transcriptPage } from "@/test-support/chat-runtime";
-import { catalog, opening, sessionWithPrompts } from "@/test-support/chat-destination";
+import { catalog, opening, sessionSettingsRead, sessionWithPrompts } from "@/test-support/chat-destination";
 import { installAnimatedHeightGeometry } from "@/test-support/resize-observer";
 import { row } from "@/test-support/transcript-window";
 
@@ -16,11 +17,11 @@ it.each([
     let committed: ReturnType<typeof row> | null = null;
     const view = sessionWithPrompts(
       (services) => {
-        const sessionSettings = vi.mocked(services.api.chat.getSettings).getMockImplementation();
-        vi.mocked(services.api.chat.getSettings).mockImplementation(async (selection) => {
+        const settingsRead = vi.spyOn(services.api.chat, "getSettings");
+        const sessionSettings = sessionSettingsRead();
+        settingsRead.mockImplementation(async (selection) => {
           if (selection.kind === "new_chat") return catalog;
-          if (sessionSettings === undefined) throw new Error("Missing Session settings fixture.");
-          return sessionSettings(selection);
+          return sessionSettings;
         });
         vi.spyOn(services.api.chat, "getCommandCatalog").mockResolvedValue([]);
         vi.spyOn(services.api.chat, "steer").mockImplementation(async (_, __, id) => {
@@ -33,7 +34,7 @@ it.each([
             outcome: { kind: "accepted", queueItemID: id, diagnostic: null, disposition: "started_turn" },
           };
         });
-        vi.mocked(services.api.chat.getTranscriptPage).mockImplementation(async () => ({
+        vi.spyOn(services.api.chat, "getTranscriptPage").mockImplementation(async () => ({
           ...transcriptPage(null),
           entries: committed === null ? [] : [committed],
         }));
@@ -57,7 +58,7 @@ it.each([
       await user.type(editor, "First message");
       await user.keyboard("{Enter}");
       await waitFor(() => {
-        expect(view.handlers).toHaveLength(1);
+        expect(view.services.api.chat.steer).toHaveBeenCalledTimes(1);
       });
       await act(async () => {
         if (committed === null) throw new Error("Input was not committed.");

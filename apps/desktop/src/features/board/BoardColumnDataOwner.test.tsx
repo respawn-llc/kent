@@ -1,36 +1,42 @@
 import { render, waitFor } from "@testing-library/react";
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, it, mock, vi } from "bun:test";
 
 import type { BoardColumn } from "@/api";
+import type { BoardColumnDataView } from "./BoardColumnDataOwner";
 
 type LogContext = Readonly<Record<string, string>>;
-
-const { loggerAppend } = vi.hoisted(() => ({
-  loggerAppend: vi.fn(async (...args: ["warn", string, LogContext]): Promise<void> => {
-    await Promise.resolve(args);
-  }),
-}));
+const actualAppFacade = await import("@/app-facade");
+const actualSharedLabels = await import("@/shared/labels");
+const actualReactI18next = await import("react-i18next");
+const logEntries: { context: LogContext; level: "warn"; message: string }[] = [];
+const loggerAppend = vi.fn(async (...args: ["warn", string, LogContext]): Promise<void> => {
+  const [level, message, context] = args;
+  logEntries.push({ context, level, message });
+});
 
 const queryByColumn = new Map<string, Record<string, unknown>>();
 
-vi.mock("@/app-facade", () => ({
+await mock.module("@/app-facade", () => ({
+  ...actualAppFacade,
   useAppServices: () => ({ logger: { append: loggerAppend } }),
 }));
 
-vi.mock("@/shared/labels", () => ({
+await mock.module("@/shared/labels", () => ({
+  ...actualSharedLabels,
   useProjectLabelCatalog: () => ({ data: { labels: [] } }),
 }));
 
-vi.mock("react-i18next", () => ({
+await mock.module("react-i18next", () => ({
+  ...actualReactI18next,
   useTranslation: () => ({ t: (key: string) => key }),
 }));
 
-vi.mock("./useBoardData", () => ({
+await mock.module("./useBoardData", () => ({
   useBoardNodeCards: (_projectID: string, _workflowID: string, columnID: string) =>
     queryByColumn.get(columnID),
 }));
 
-import { BoardColumnDataOwner, type BoardColumnDataView } from "./BoardColumnDataOwner";
+const { BoardColumnDataOwner } = await import("./BoardColumnDataOwner");
 
 const board = {
   attachedWorkspaceCount: 0,
@@ -55,6 +61,7 @@ const column: BoardColumn = {
 afterEach(() => {
   queryByColumn.clear();
   loggerAppend.mockClear();
+  logEntries.length = 0;
 });
 
 describe("BoardColumnDataOwner retained replacement boundary", () => {
@@ -89,21 +96,18 @@ describe("BoardColumnDataOwner retained replacement boundary", () => {
     await waitFor(() => {
       expect(latestView?.replacementBoundary?.state).toBe("error");
     });
-    const logCall = loggerAppend.mock.calls[0];
-    expect(typeof logCall?.[1]).toBe("string");
-    const diagnostic = logCall?.[2];
-    expect(diagnostic).toEqual(
-      expect.objectContaining({
-        columnID: "column-1",
-        projectID: "project-1",
-        workflowID: "workflow-1",
-      }),
-    );
-    expect(typeof diagnostic?.error).toBe("string");
+    const logEntry = logEntries[0];
+    if (logEntry === undefined) throw new Error("Expected the replacement failure to be logged.");
+    expect(logEntry.context).toMatchObject({
+      columnID: "column-1",
+      projectID: "project-1",
+      workflowID: "workflow-1",
+    });
+    expect(typeof logEntry.context.error).toBe("string");
     if (latestView?.replacementBoundary?.state === "error") {
       latestView.replacementBoundary.onRetry();
     }
-    expect(refetch).toHaveBeenCalledOnce();
+    expect(refetch).toHaveBeenCalledTimes(1);
 
     queryByColumn.set("column-1", queryState({ refetch }));
     view.rerender(
@@ -118,7 +122,7 @@ describe("BoardColumnDataOwner retained replacement boundary", () => {
       expect(latestView?.replacementBoundary).toBeUndefined();
     });
     view.unmount();
-    expect(onViewRelease).toHaveBeenCalledOnce();
+    expect(onViewRelease).toHaveBeenCalledTimes(1);
   });
 
   it("keeps retained replacement failures independent across visible columns", async () => {
@@ -179,7 +183,7 @@ describe("BoardColumnDataOwner retained replacement boundary", () => {
     if (firstBoundary?.state === "error") {
       firstBoundary.onRetry();
     }
-    expect(firstRefetch).toHaveBeenCalledOnce();
+    expect(firstRefetch).toHaveBeenCalledTimes(1);
     expect(secondRefetch).not.toHaveBeenCalled();
     expect(views.get("column-2")?.replacementBoundary?.state).toBe("error");
   });

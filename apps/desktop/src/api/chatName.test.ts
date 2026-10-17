@@ -1,3 +1,4 @@
+import { expect, it } from "bun:test";
 import { create } from "@app/server-api-contract";
 import { SettingsService } from "@app/server-api-contract/gen/kent/api/runtime/runtime_pb";
 import { FakeRpcTransport, unexpectedProjectOverflow } from "@/test-support/api";

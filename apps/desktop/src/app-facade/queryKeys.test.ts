@@ -1,3 +1,4 @@
+import { describe, expect, it } from "bun:test";
 import { QueryClient } from "@tanstack/react-query";
 
 import { canonicalBoardFilter } from "@/api";
@@ -14,8 +15,9 @@ describe("board query identities", () => {
     const cached = { owner: "session-1" };
     client.setQueryData(queryKeys.chatMainView("session-1"), cached);
 
-    expect(client.getQueryData(queryKeys.chatMainView("session-1"))).toBe(cached);
-    expect(client.getQueryData(queryKeys.chatMainView("session-2"))).toBeUndefined();
+    expect(client.getQueryData<typeof cached>(queryKeys.chatMainView("session-1"))).toBe(cached);
+    const absentSession = client.getQueryData(queryKeys.chatMainView("session-2"));
+    expect(absentSession).toBeUndefined();
   });
 
   it("canonicalizes equivalent Label filters and keeps board/card scopes distinct", () => {

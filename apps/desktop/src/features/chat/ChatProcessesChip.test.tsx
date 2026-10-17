@@ -1,3 +1,4 @@
+import { expect, it, vi } from "bun:test";
 import { act, fireEvent, render, screen } from "@testing-library/react";
 import { ChatProcessesChip } from "./ChatProcessesChip";
 import { TestAppProviders, createTestServices } from "@/test-support/app-services";
@@ -23,20 +24,29 @@ it("reveals only after sustained active processes and hides at zero without poll
     );
     const view = render(renderChip(1));
     expect(screen.queryByRole("button")).not.toBeInTheDocument();
-    await act(async () => vi.advanceTimersByTimeAsync(2999));
+    await act(async () => {
+      vi.advanceTimersByTime(2999);
+    });
     expect(screen.queryByRole("button")).not.toBeInTheDocument();
     view.rerender(renderChip(3));
-    await act(async () => vi.advanceTimersByTimeAsync(1));
+    await act(async () => {
+      vi.advanceTimersByTime(1);
+    });
     expect(screen.getByRole("button")).toBeInTheDocument();
     fireEvent.click(screen.getByRole("button"));
-    expect(open).toHaveBeenCalledExactlyOnceWith({ kind: "processes", ...target });
+    expect(open).toHaveBeenCalledTimes(1);
+    expect(open).toHaveBeenCalledWith({ kind: "processes", ...target });
     view.rerender(renderChip(0));
     expect(screen.queryByRole("button")).not.toBeInTheDocument();
     view.rerender(renderChip(1));
-    await act(async () => vi.advanceTimersByTimeAsync(1500));
+    await act(async () => {
+      vi.advanceTimersByTime(1500);
+    });
     view.rerender(renderChip(0));
     view.rerender(renderChip(1));
-    await act(async () => vi.advanceTimersByTimeAsync(1500));
+    await act(async () => {
+      vi.advanceTimersByTime(1500);
+    });
     expect(screen.queryByRole("button")).not.toBeInTheDocument();
     expect(services.transport.descriptorCalls).toHaveLength(0);
     view.unmount();

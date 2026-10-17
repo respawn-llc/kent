@@ -1,8 +1,8 @@
 import type { InfiniteData } from "@tanstack/react-query";
 import { QueryClient } from "@tanstack/react-query";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it } from "bun:test";
 
-import type { BoardCard, BoardNodeCardsPage } from "@/api";
+import type { BoardCard, BoardNodeCardsPage, ProjectLabelCatalog, TaskLabelAssignment } from "@/api";
 import { queryKeys } from "@/app-facade";
 import {
   patchExistingTaskLabelProjections,
@@ -13,6 +13,7 @@ import {
 const boardCacheKey = [...queryKeys.allBoardNodeCards, "project-1", "workflow-1", "node-1"];
 const alphaID = "38bf0da7-a3f7-4c15-bc5f-c8fca538e667";
 const betaID = "942495c2-5958-4959-8445-94046ad74fbd";
+type CachedTask = Readonly<{ id: string; labelIDs: readonly string[] }>;
 
 describe("task label board-cache projections", () => {
   it("preserves numeric board offsets when projecting changed labels", () => {
@@ -37,8 +38,10 @@ describe("task label board-cache projections", () => {
     const data = queryClient.getQueryData<InfiniteData<BoardNodeCardsPage, number>>(boardCacheKey);
     expect(data?.pageParams).toEqual([25]);
     expect(data?.pages[0]?.cards.map((card) => card.id)).toEqual(["task-2"]);
-    expect(queryClient.getQueryData(queryKeys.task("task-1"))).toBeUndefined();
-    expect(queryClient.getQueryData(queryKeys.taskLabels("task-1"))).toBeUndefined();
+    const deletedTask = queryClient.getQueryData(queryKeys.task("task-1"));
+    const deletedAssignment = queryClient.getQueryData(queryKeys.taskLabels("task-1"));
+    expect(deletedTask).toBeUndefined();
+    expect(deletedAssignment).toBeUndefined();
   });
 
   it("prunes a deleted Label from every retained Label projection", () => {
@@ -63,15 +66,15 @@ describe("task label board-cache projections", () => {
 
     pruneDeletedLabelFromExistingCaches(queryClient, "project-1", alphaID);
 
-    expect(queryClient.getQueryData(queryKeys.projectLabels("project-1"))).toEqual({
+    expect(queryClient.getQueryData<ProjectLabelCatalog>(queryKeys.projectLabels("project-1"))).toEqual({
       projectID: "project-1",
       labels: [{ id: betaID, name: "Beta" }],
     });
-    expect(queryClient.getQueryData(queryKeys.taskLabels("task-1"))).toEqual({
+    expect(queryClient.getQueryData<TaskLabelAssignment>(queryKeys.taskLabels("task-1"))).toEqual({
       taskID: "task-1",
       labelIDs: [betaID],
     });
-    expect(queryClient.getQueryData(queryKeys.task("task-1"))).toMatchObject({
+    expect(queryClient.getQueryData<CachedTask>(queryKeys.task("task-1"))).toMatchObject({
       labelIDs: [betaID],
     });
     expect(
