@@ -36,6 +36,9 @@ func SelectionIdentityForItem(item Item) (SelectionIdentity, error) {
 }
 
 func StableMutationSelector(item Item) (string, error) {
+	if item.DeletePreview != nil {
+		return item.DeletePreview.DeletionSelector, nil
+	}
 	identity, err := SelectionIdentityForItem(item)
 	if err != nil {
 		return "", err

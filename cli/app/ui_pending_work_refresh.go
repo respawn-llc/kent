@@ -34,6 +34,11 @@ func (m *uiModel) advancePendingWorkRefreshScope(sessionID runtimeids.SessionID)
 	if m == nil || sessionID.IsZero() {
 		return nil
 	}
+	m.resetPendingWorkRefreshScope(sessionID)
+	return m.startPendingWorkRefresh()
+}
+
+func (m *uiModel) resetPendingWorkRefreshScope(sessionID runtimeids.SessionID) {
 	generation := m.pendingWorkRefresh.generation + 1
 	if generation == 0 {
 		panic("Pending Work hydration generation overflow")
@@ -42,7 +47,6 @@ func (m *uiModel) advancePendingWorkRefreshScope(sessionID runtimeids.SessionID)
 		sessionID:  sessionID,
 		generation: generation,
 	}
-	return m.startPendingWorkRefresh()
 }
 
 func (m *uiModel) requestPendingWorkRefresh(sessionID runtimeids.SessionID) tea.Cmd {

@@ -1,11 +1,13 @@
 package protoapi
 
 import (
+	configurationpb "core/shared/protoapi/gen/kent/api/configuration"
 	"errors"
 	"fmt"
 	"strings"
 
 	authpb "core/shared/protoapi/gen/kent/api/auth"
+	invocationpb "core/shared/protoapi/gen/kent/api/invocation"
 	projectpb "core/shared/protoapi/gen/kent/api/project"
 	sessionlaunchpb "core/shared/protoapi/gen/kent/api/session_launch"
 	"core/shared/protocol"
@@ -210,6 +212,9 @@ func sessionCreateOriginToProto(origin serverapi.SessionCreateOrigin) (*sessionl
 	switch origin.Kind() {
 	case serverapi.SessionCreateOriginIndependent:
 		message.Origin = &sessionlaunchpb.SessionCreateOrigin_Independent{Independent: &emptypb.Empty{}}
+	case serverapi.SessionCreateOriginNavigationOnly:
+		id, _ := origin.SessionID()
+		message.Origin = &sessionlaunchpb.SessionCreateOrigin_NavigationOnlySessionId{NavigationOnlySessionId: id.String()}
 	case serverapi.SessionCreateOriginPreviousSession, serverapi.SessionCreateOriginParentAgent:
 		sessionID, present := origin.SessionID()
 		if !present {
@@ -230,6 +235,12 @@ func sessionCreateOriginFromProto(message *sessionlaunchpb.SessionCreateOrigin) 
 	switch origin := message.Origin.(type) {
 	case *sessionlaunchpb.SessionCreateOrigin_Independent:
 		return serverapi.IndependentSessionCreateOrigin(), nil
+	case *sessionlaunchpb.SessionCreateOrigin_NavigationOnlySessionId:
+		id, err := runtimeids.ParseSessionID(origin.NavigationOnlySessionId)
+		if err != nil {
+			return serverapi.SessionCreateOrigin{}, err
+		}
+		return serverapi.NavigationOnlySessionCreateOrigin(id), nil
 	case *sessionlaunchpb.SessionCreateOrigin_PreviousSessionId:
 		sessionID, err := runtimeids.ParseSessionID(origin.PreviousSessionId)
 		if err != nil {
@@ -247,11 +258,11 @@ func sessionCreateOriginFromProto(message *sessionlaunchpb.SessionCreateOrigin) 
 	}
 }
 
-func RunPromptOverridesToProto(overrides serverapi.RunPromptOverrides) (*sessionlaunchpb.RunPromptOverrides, error) {
+func RunPromptOverridesToProto(overrides serverapi.RunPromptOverrides) (*invocationpb.RunPromptOverrides, error) {
 	if err := overrides.ValidateAgentRoleOverride(); err != nil {
 		return nil, err
 	}
-	message := &sessionlaunchpb.RunPromptOverrides{AgentRole: clonePointer(overrides.AgentRole)}
+	message := &invocationpb.RunPromptOverrides{AgentRole: clonePointer(overrides.AgentRole)}
 	setOptionalNonblank(&message.Model, overrides.Model)
 	setOptionalNonblank(&message.ThinkingLevel, overrides.ThinkingLevel)
 	setOptionalNonblank(&message.Theme, overrides.Theme)
@@ -266,7 +277,7 @@ func RunPromptOverridesToProto(overrides serverapi.RunPromptOverrides) (*session
 	return message, Validate(message)
 }
 
-func RunPromptOverridesFromProto(message *sessionlaunchpb.RunPromptOverrides) (serverapi.RunPromptOverrides, error) {
+func RunPromptOverridesFromProto(message *invocationpb.RunPromptOverrides) (serverapi.RunPromptOverrides, error) {
 	if message == nil {
 		return serverapi.RunPromptOverrides{}, errors.New("generated Run Prompt overrides are required")
 	}
@@ -328,50 +339,50 @@ func SessionRuntimeAgentSelectionToProto(selection *serverapi.SessionRuntimeAgen
 	}
 }
 
-func SessionToolIDToProto(toolID toolspec.ID) (sessionlaunchpb.ToolID, error) {
+func SessionToolIDToProto(toolID toolspec.ID) (configurationpb.ToolID, error) {
 	switch toolID {
 	case toolspec.ToolExecCommand:
-		return sessionlaunchpb.ToolID_TOOL_ID_EXEC_COMMAND, nil
+		return configurationpb.ToolID_TOOL_ID_EXEC_COMMAND, nil
 	case toolspec.ToolWriteStdin:
-		return sessionlaunchpb.ToolID_TOOL_ID_WRITE_STDIN, nil
+		return configurationpb.ToolID_TOOL_ID_WRITE_STDIN, nil
 	case toolspec.ToolViewImage:
-		return sessionlaunchpb.ToolID_TOOL_ID_VIEW_IMAGE, nil
+		return configurationpb.ToolID_TOOL_ID_VIEW_IMAGE, nil
 	case toolspec.ToolPatch:
-		return sessionlaunchpb.ToolID_TOOL_ID_PATCH, nil
+		return configurationpb.ToolID_TOOL_ID_PATCH, nil
 	case toolspec.ToolEdit:
-		return sessionlaunchpb.ToolID_TOOL_ID_EDIT, nil
+		return configurationpb.ToolID_TOOL_ID_EDIT, nil
 	case toolspec.ToolAskQuestion:
-		return sessionlaunchpb.ToolID_TOOL_ID_ASK_QUESTION, nil
+		return configurationpb.ToolID_TOOL_ID_ASK_QUESTION, nil
 	case toolspec.ToolCompleteNode:
-		return sessionlaunchpb.ToolID_TOOL_ID_COMPLETE_NODE, nil
+		return configurationpb.ToolID_TOOL_ID_COMPLETE_NODE, nil
 	case toolspec.ToolTriggerHandoff:
-		return sessionlaunchpb.ToolID_TOOL_ID_TRIGGER_HANDOFF, nil
+		return configurationpb.ToolID_TOOL_ID_TRIGGER_HANDOFF, nil
 	case toolspec.ToolWebSearch:
-		return sessionlaunchpb.ToolID_TOOL_ID_WEB_SEARCH, nil
+		return configurationpb.ToolID_TOOL_ID_WEB_SEARCH, nil
 	default:
 		return 0, fmt.Errorf("tool id %q is unsupported", toolID)
 	}
 }
 
-func SessionToolIDFromProto(toolID sessionlaunchpb.ToolID) (toolspec.ID, error) {
+func SessionToolIDFromProto(toolID configurationpb.ToolID) (toolspec.ID, error) {
 	switch toolID {
-	case sessionlaunchpb.ToolID_TOOL_ID_EXEC_COMMAND:
+	case configurationpb.ToolID_TOOL_ID_EXEC_COMMAND:
 		return toolspec.ToolExecCommand, nil
-	case sessionlaunchpb.ToolID_TOOL_ID_WRITE_STDIN:
+	case configurationpb.ToolID_TOOL_ID_WRITE_STDIN:
 		return toolspec.ToolWriteStdin, nil
-	case sessionlaunchpb.ToolID_TOOL_ID_VIEW_IMAGE:
+	case configurationpb.ToolID_TOOL_ID_VIEW_IMAGE:
 		return toolspec.ToolViewImage, nil
-	case sessionlaunchpb.ToolID_TOOL_ID_PATCH:
+	case configurationpb.ToolID_TOOL_ID_PATCH:
 		return toolspec.ToolPatch, nil
-	case sessionlaunchpb.ToolID_TOOL_ID_EDIT:
+	case configurationpb.ToolID_TOOL_ID_EDIT:
 		return toolspec.ToolEdit, nil
-	case sessionlaunchpb.ToolID_TOOL_ID_ASK_QUESTION:
+	case configurationpb.ToolID_TOOL_ID_ASK_QUESTION:
 		return toolspec.ToolAskQuestion, nil
-	case sessionlaunchpb.ToolID_TOOL_ID_COMPLETE_NODE:
+	case configurationpb.ToolID_TOOL_ID_COMPLETE_NODE:
 		return toolspec.ToolCompleteNode, nil
-	case sessionlaunchpb.ToolID_TOOL_ID_TRIGGER_HANDOFF:
+	case configurationpb.ToolID_TOOL_ID_TRIGGER_HANDOFF:
 		return toolspec.ToolTriggerHandoff, nil
-	case sessionlaunchpb.ToolID_TOOL_ID_WEB_SEARCH:
+	case configurationpb.ToolID_TOOL_ID_WEB_SEARCH:
 		return toolspec.ToolWebSearch, nil
 	default:
 		return "", fmt.Errorf("protobuf tool id %v is unsupported", toolID)

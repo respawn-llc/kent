@@ -17,6 +17,7 @@ import (
 	"core/shared/runtimeids"
 	"core/shared/runtimeinput"
 	"core/shared/serverapi"
+	"google.golang.org/protobuf/types/known/emptypb"
 )
 
 type shellPreparationClient struct {
@@ -52,12 +53,15 @@ func (c *shellPreparationClient) Steer(_ context.Context, request *chatpb.SteerR
 	}, nil
 }
 
-func (c *shellPreparationClient) SubmitUserShellCommand(_ context.Context, request *chatshellpb.ShellCommandRequest) error {
+func (c *shellPreparationClient) SubmitUserShellCommand(_ context.Context, request *chatshellpb.ShellCommandRequest) (*chatshellpb.ShellCommandSuccess, error) {
 	c.requests = append(c.requests, request)
 	if len(c.requests) == 1 {
-		return serverapi.ErrRuntimeUnavailable
+		return nil, serverapi.ErrRuntimeUnavailable
 	}
-	return nil
+	return &chatshellpb.ShellCommandSuccess{
+		Session: &chatpb.ExistingSessionTarget{SessionId: request.Target.GetSession().SessionId.GetSessionId()},
+		Outcome: &chatshellpb.ShellCommandSuccess_Completed{Completed: &emptypb.Empty{}},
+	}, nil
 }
 
 func TestRuntimeClientConsumesLaunchIntentOnFailedFirstDispatch(t *testing.T) {

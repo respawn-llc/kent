@@ -175,7 +175,7 @@ func (c *strictWorktreeClient) EnterWorktree(_ context.Context, request *worktre
 
 func TestTUIStrictIOWorktreeSwitchRunsAsCommand(t *testing.T) {
 	client := &strictWorktreeClient{}
-	m := newStrictUIModel(nil, WithUIWorktreeClient(client), WithUISessionID("session-1"))
+	m := newStrictUIModel(nil, WithUIWorktreeClient(client), WithUISessionID(detailTestSessionID))
 
 	_, cmd := m.inputController().handleWorktreeCommand("switch feature")
 	if cmd == nil {

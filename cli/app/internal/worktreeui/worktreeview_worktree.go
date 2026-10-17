@@ -13,17 +13,19 @@ import (
 var ErrMainWorkspaceNotDeletable = errors.New("main workspace is not deletable")
 
 type Item struct {
-	Entry           *worktreepb.ListEntry
-	DisplayName     string
-	CanonicalRoot   string
-	WorktreeID      *string
-	BranchName      *string
-	Detached        bool
-	IsMainWorkspace bool
-	IsCurrent       bool
-	IsInUse         bool
-	Managed         bool
-	CreatedBranch   bool
+	Entry             *worktreepb.ListEntry
+	DeletePreview     *worktreepb.DeletePreviewSuccess
+	DisplayName       string
+	CanonicalRoot     string
+	WorktreeID        *string
+	BranchName        *string
+	Detached          bool
+	IsMainWorkspace   bool
+	IsGitMainWorktree bool
+	IsCurrent         bool
+	IsInUse           bool
+	Managed           bool
+	CreatedBranch     bool
 }
 
 func ProjectItems(entries []*worktreepb.ListEntry) ([]Item, error) {
@@ -42,37 +44,53 @@ func ProjectItem(entry *worktreepb.ListEntry) (Item, error) {
 	if entry == nil || entry.Topology == nil || entry.Projection == nil {
 		return Item{}, errors.New("worktree list entry is incomplete")
 	}
-	item := Item{
-		Entry:     entry,
-		IsCurrent: entry.Projection.IsCurrent,
-		IsInUse:   entry.Projection.IsInUse,
+	item, err := projectTopology(entry.Topology)
+	item.Entry = entry
+	item.IsCurrent = entry.Projection.IsCurrent
+	item.IsInUse = entry.Projection.IsInUse
+	return item, err
+}
+
+func ProjectDeletePreview(preview *worktreepb.DeletePreviewSuccess) (Item, error) {
+	if preview == nil || preview.Worktree == nil {
+		return Item{}, errors.New("worktree delete preview is incomplete")
 	}
+	item, err := projectTopology(preview.Worktree)
+	item.DeletePreview = preview
+	return item, err
+}
+
+func projectTopology(topology *worktreepb.TopologyEntry) (Item, error) {
+	item := Item{}
 	switch {
-	case entry.Topology.GetMainWorkspace() != nil:
-		git := entry.Topology.GetMainWorkspace().Git
+	case topology.GetMainWorkspace() != nil:
+		git := topology.GetMainWorkspace().Git
 		item.DisplayName = "main"
 		item.CanonicalRoot = git.CanonicalRoot
 		item.BranchName = git.BranchName
 		item.Detached = git.Detached
+		item.IsGitMainWorktree = git.IsMainWorktree
 		item.IsMainWorkspace = true
-	case entry.Topology.GetRegistered() != nil:
-		git := entry.Topology.GetRegistered().Git
-		kent := entry.Topology.GetRegistered().Kent
+	case topology.GetRegistered() != nil:
+		git := topology.GetRegistered().Git
+		kent := topology.GetRegistered().Kent
 		item.DisplayName = kent.DisplayName
 		item.CanonicalRoot = git.CanonicalRoot
 		item.WorktreeID = textutil.OptionalTrimmedString(kent.WorktreeId)
 		item.BranchName = git.BranchName
 		item.Detached = git.Detached
+		item.IsGitMainWorktree = git.IsMainWorktree
 		item.Managed = kent.Managed
 		item.CreatedBranch = kent.CreatedBranch
-	case entry.Topology.GetExternal() != nil:
-		git := entry.Topology.GetExternal().Git
+	case topology.GetExternal() != nil:
+		git := topology.GetExternal().Git
 		item.DisplayName = filepath.Base(git.CanonicalRoot)
 		item.CanonicalRoot = git.CanonicalRoot
 		item.BranchName = git.BranchName
 		item.Detached = git.Detached
-	case entry.Topology.GetMissing() != nil:
-		kent := entry.Topology.GetMissing().Kent
+		item.IsGitMainWorktree = git.IsMainWorktree
+	case topology.GetMissing() != nil:
+		kent := topology.GetMissing().Kent
 		item.DisplayName = kent.DisplayName
 		item.CanonicalRoot = kent.CanonicalRoot
 		item.WorktreeID = textutil.OptionalTrimmedString(kent.WorktreeId)
@@ -114,16 +132,20 @@ func DeleteCanAutoDeleteBranch(item Item) bool {
 }
 
 func CanDelete(item Item) bool {
-	return item.Entry != nil &&
+	return DeletionTopologyEligible(item) && (item.DeletePreview != nil || item.Entry != nil &&
 		item.Entry.Projection != nil &&
-		item.Entry.Projection.DeletePreview != nil
+		item.Entry.Projection.DeletePreview != nil)
+}
+
+func DeletionTopologyEligible(item Item) bool {
+	return !item.IsMainWorkspace && !item.IsGitMainWorktree
 }
 
 func ValidateDeletionTarget(item Item) error {
 	if CanDelete(item) {
 		return nil
 	}
-	if item.Entry != nil && item.Entry.Topology != nil && item.Entry.Topology.GetMainWorkspace() != nil {
+	if item.IsMainWorkspace {
 		return ErrMainWorkspaceNotDeletable
 	}
 	return worktreecontract.ErrWorktreeBlocked

@@ -45,7 +45,7 @@ func TestBusyEnterOpensReadOverlays(t *testing.T) {
 	} {
 		t.Run(input, func(t *testing.T) {
 			model := busyCommandTestModel()
-			model.sessionID = "busy-navigation-session"
+			model.setKnownSessionTarget(detailTestSessionID)
 			testSetMainInput(model, input)
 			next, _ := model.Update(tea.KeyMsg{Type: tea.KeyEnter})
 			updated := next.(*uiModel)
@@ -298,7 +298,7 @@ func TestRejectedCompactionAtPendingWorkCapacityRestoresVerbatimInput(t *testing
 
 func busyCommandTestModel() *uiModel {
 	model := newProjectedStaticUIModel(WithUIConversationFreshness(runtimepb.ConversationFreshness_CONVERSATION_FRESHNESS_ESTABLISHED))
-	model.sessionID = "busy-navigation-session"
+	model.setKnownSessionTarget(detailTestSessionID)
 	model.setRuntimeActivityBusyForTest(true)
 	model.activity = uiActivityRunning
 	return model

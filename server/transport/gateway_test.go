@@ -149,7 +149,7 @@ type gatewayChatAuthorizationService struct {
 	sessionID string
 }
 
-func (gatewayChatAuthorizationService) SubmitUserShellCommand(context.Context, *chatshellpb.ShellCommandRequest) error {
+func (gatewayChatAuthorizationService) SubmitUserShellCommand(context.Context, *chatshellpb.ShellCommandRequest) (*chatshellpb.ShellCommandSuccess, error) {
 	panic("unexpected shell command")
 }
 

@@ -1,7 +1,6 @@
 package sessionlaunch
 
 import (
-	"context"
 	"errors"
 	"slices"
 
@@ -48,40 +47,40 @@ func (c InitialChatCreation) Validate(mode launch.Mode, intent serverapi.Session
 	return c.Settings.Validate()
 }
 
-func (s *Service) prepareInitialChatCreation(
-	ctx context.Context,
-	app config.App,
+func prepareInitialChatCreation(
 	creation InitialChatCreation,
+	prepared launch.PreparedRunPromptOverrides,
 ) (*session.ChatDraftState, error) {
-	catalog, err := launch.PrepareChatAgentCatalog(app, false)
+	target := prepared.PromptFacingTarget()
+	if target == nil || prepared.ProviderCapabilities == nil {
+		return nil, errors.New("prepared initial Chat target and capabilities are required")
+	}
+	capabilities, err := launch.PrepareChatSettingsForPreparedTarget(*target, llm.SupportsFastModeProvider(*prepared.ProviderCapabilities))
 	if err != nil {
 		return nil, err
 	}
-	entry, available := catalog.Lookup(creation.Settings.AgentRole)
-	if !available {
-		entry, available = catalog.Lookup(config.DefaultSubagentRole)
-		if !available {
-			return nil, errors.New("default Chat Agent baseline is missing")
-		}
+	settings := capabilities.Baseline
+	agent := config.DefaultSubagentRole
+	if prepared.NamedTarget != nil {
+		agent = prepared.NamedTarget.Selector
 	}
-	settings := entry.Settings.Baseline
-	if available && entry.Choice.Role == creation.Settings.AgentRole {
+	if creation.Settings.AgentRole == agent {
 		settings.Supervisor = creation.Settings.Supervisor
 		if creation.Settings.Thinking != nil {
 			thinking := *creation.Settings.Thinking
-			_, enumerated := llm.LookupModelCapabilityContract(entry.Choice.GetModel())
-			if len(entry.Settings.SupportedThinkingValues) > 0 &&
-				(!enumerated || slices.Contains(entry.Settings.SupportedThinkingValues, thinking)) {
+			_, enumerated := llm.LookupModelCapabilityContract(target.Settings.Model)
+			if len(capabilities.SupportedThinkingValues) > 0 &&
+				(!enumerated || slices.Contains(capabilities.SupportedThinkingValues, thinking)) {
 				settings.Thinking = thinking
 			}
 		}
-		if creation.Settings.Fast != nil && entry.Settings.FastAvailable {
+		if creation.Settings.Fast != nil && capabilities.FastAvailable {
 			settings.Fast = *creation.Settings.Fast
 		}
 		settings.Questions = creation.Settings.QuestionsEnabled
 		settings.AutoCompaction = creation.Settings.AutoCompactionEnabled
 	}
-	state, err := session.ChatSettingsStateFromCompleteSettings(entry.Choice.Role, settings)
+	state, err := session.ChatSettingsStateFromCompleteSettings(agent, settings)
 	if err != nil {
 		return nil, err
 	}

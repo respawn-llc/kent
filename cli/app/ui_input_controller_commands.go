@@ -48,7 +48,7 @@ func (c uiInputController) applyCommandResultWithPreSubmitQueuePositionAndOrigin
 			return m, m.sendTransientStatusWithNoticeID(err.Error(), uiStatusNoticeError, transientStatusDuration, uiStatusNoticeReplace, "")
 		}
 		if commandResult.FreshConversation && (m.isBusy() || m.currentConversationFreshness() != runtimepb.ConversationFreshness_CONVERSATION_FRESHNESS_FRESH) {
-			previousSessionID, err := runtimeids.ParseSessionID(m.sessionID)
+			previousSessionID, err := runtimeids.ParseSessionID(m.currentRuntimeSessionID())
 			if err != nil {
 				return m, c.model.appendLocalEntryWithNoticeID("error", "Current session identity is invalid: "+err.Error(), "")
 			}
@@ -77,7 +77,7 @@ func (c uiInputController) applyCommandResultWithPreSubmitQueuePositionAndOrigin
 		}
 	}
 	if commandResult.SubmitUser && commandResult.FreshConversation && (m.isBusy() || m.currentConversationFreshness() != runtimepb.ConversationFreshness_CONVERSATION_FRESHNESS_FRESH) {
-		previousSessionID, err := runtimeids.ParseSessionID(m.sessionID)
+		previousSessionID, err := runtimeids.ParseSessionID(m.currentRuntimeSessionID())
 		if err != nil {
 			return m, c.model.appendLocalEntryWithNoticeID("error", "Current session identity is invalid: "+err.Error(), "")
 		}
@@ -106,7 +106,11 @@ func (c uiInputController) applyCommandResultWithPreSubmitQueuePositionAndOrigin
 		m.exitAction = UIActionExit
 		return m, sequenceCmds(prefixCmd, tea.Quit)
 	case commands.ActionNew:
-		previousSessionID, err := runtimeids.ParseSessionID(m.sessionID)
+		if m.newChatTarget() != nil {
+			m.exitAction = UIActionNewSession
+			return m, sequenceCmds(prefixCmd, tea.Quit)
+		}
+		previousSessionID, err := runtimeids.ParseSessionID(m.currentRuntimeSessionID())
 		if err != nil {
 			return m, sequenceCmds(prefixCmd, c.model.appendLocalEntryWithNoticeID("error", "Current session identity is invalid: "+err.Error(), ""))
 		}
@@ -120,6 +124,9 @@ func (c uiInputController) applyCommandResultWithPreSubmitQueuePositionAndOrigin
 		next, cmd := c.handleBackCommand()
 		return next, sequenceCmds(prefixCmd, cmd)
 	case commands.ActionLogout:
+		if m.newSessionTarget() != nil {
+			return m, sequenceCmds(prefixCmd, m.loginNewSessionCmd())
+		}
 		m.exitAction = UIActionLogout
 		return m, sequenceCmds(prefixCmd, tea.Quit)
 	case commands.ActionSetName:
@@ -177,6 +184,14 @@ func (c uiInputController) handleResumeCommand() (tea.Model, tea.Cmd) {
 
 func (c uiInputController) handleBackCommand() (tea.Model, tea.Cmd) {
 	m := c.model
+	if target := m.newChatTarget(); target != nil {
+		if previous := target.GetOrigin().GetNavigationOnlySessionId(); previous != nil {
+			m.nextSessionID = previous.GetSessionId()
+			m.exitAction = UIActionOpenSession
+			m.nextSessionInitialInput = nil
+			return m, tea.Quit
+		}
+	}
 	status := m.cachedRuntimeStatus()
 	if status.NavigationTargetSessionId == nil {
 		return m, c.model.appendLocalEntryWithNoticeID("system", "No parent session available", "")
@@ -189,6 +204,9 @@ func (c uiInputController) handleBackCommand() (tea.Model, tea.Cmd) {
 
 func (c uiInputController) handleCopyCommand() (tea.Model, tea.Cmd) {
 	m := c.model
+	if m.newSessionTarget() != nil {
+		return m, m.noFinalAnswerToCopyCmd()
+	}
 	if m.finalAnswerOperation != nil {
 		return m, nil
 	}
@@ -199,7 +217,7 @@ func (c uiInputController) handleSessionNameCommand(sessionName string) (tea.Mod
 	m := c.model
 	sessionName = strings.TrimSpace(sessionName)
 	mutation := sessionNameCommandMutation(sessionName)
-	if m.hasRuntimeClient() {
+	if m.newSessionTarget() == nil {
 		return m, m.runtimeControlCommand(runtimeControlSetSessionName, mutation)
 	}
 	name, err := protoapi.SessionNameFromMutation(mutation)
@@ -207,6 +225,9 @@ func (c uiInputController) handleSessionNameCommand(sessionName string) (tea.Mod
 		return m, m.sendTransientStatusWithNoticeID(err.Error(), uiStatusNoticeError, transientStatusDuration, uiStatusNoticeReplace, "")
 	}
 	m.sessionName = name
+	if target := m.newChatTarget(); target != nil {
+		target.Name = name
+	}
 	return m, tea.SetWindowTitle(m.sessionTitle())
 }
 

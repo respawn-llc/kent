@@ -28,11 +28,30 @@ type RuntimeControl struct {
 type Service struct {
 	Client         apicontract.WorktreeService
 	SessionTarget  *sharedpb.SessionSelector
+	ProjectID      string
 	WorkspaceID    string
 	WorkspaceRoot  string
 	Runtime        RuntimeControl
 	ResolveContext func() (context.Context, context.CancelFunc)
 	NewOperationID func() worktreecontract.OperationID
+}
+
+func (s Service) managementScope() *worktreepb.ManagementScope {
+	if s.SessionTarget != nil {
+		return worktreecontract.SessionManagementScope(s.SessionTarget)
+	}
+	return worktreecontract.WorkspaceManagementScope(s.ProjectID, s.WorkspaceID, nil)
+}
+
+func (s Service) ListWorkspace() (*worktreepb.WorkspaceListSuccess, error) {
+	ctx, cancel, err := s.resolveMutationContext(false)
+	if err != nil {
+		return nil, err
+	}
+	defer cancel()
+	return s.Client.ListWorkspaceWorktrees(ctx, &worktreepb.WorkspaceListRequest{
+		ProjectId: s.ProjectID, WorkspaceId: s.WorkspaceID,
+	})
 }
 
 func (s Service) List() (*worktreepb.ListSuccess, error) {
@@ -53,7 +72,7 @@ func (s Service) ResolveCreateTarget(target string) (*worktreepb.CreateTargetRes
 	ctx, cancel := s.resolveContext()
 	defer cancel()
 	return s.Client.ResolveWorktreeCreateTarget(ctx, &worktreepb.CreateTargetResolveRequest{
-		Scope:  worktreecontract.SessionManagementScope(s.SessionTarget),
+		Scope:  s.managementScope(),
 		Target: target,
 	})
 }
@@ -70,12 +89,23 @@ func (s Service) ResolveSelector(selector string) (*worktreepb.SelectorResolveSu
 	})
 }
 
+func (s Service) PreviewDelete(selector string) (*worktreepb.DeletePreviewSuccess, error) {
+	if s.Client == nil {
+		return nil, ErrClientUnavailable
+	}
+	ctx, cancel := s.resolveContext()
+	defer cancel()
+	return s.Client.PreviewWorktreeDelete(ctx, &worktreepb.DeletePreviewRequest{
+		Scope: s.managementScope(), Selector: selector,
+	})
+}
+
 func (s Service) Create(req *worktreepb.CreateRequest) (*worktreepb.CreateSuccess, error) {
 	if _, err := worktreecontract.ParseSetupOperationID(req.SetupOperationId); err != nil {
 		req.SetupOperationId = worktreecontract.NewSetupOperationID().String()
 	}
 	return runCreateMutation(s, func(ctx context.Context) (*worktreepb.CreateSuccess, error) {
-		req.Scope = worktreecontract.SessionManagementScope(s.SessionTarget)
+		req.Scope = s.managementScope()
 		return s.Client.CreateWorktree(ctx, req)
 	})
 }
@@ -112,7 +142,7 @@ func (s Service) Delete(
 ) (*worktreepb.DeleteSuccess, error) {
 	return runMutation(s, func(ctx context.Context) (*worktreepb.DeleteSuccess, error) {
 		return s.Client.DeleteWorktree(ctx, &worktreepb.DeleteRequest{
-			Scope:               worktreecontract.SessionManagementScope(s.SessionTarget),
+			Scope:               s.managementScope(),
 			Selector:            strings.TrimSpace(selector),
 			ForceFolderRemoval:  forceFolderRemoval,
 			BranchCleanupPolicy: cleanupPolicy,

@@ -9,7 +9,6 @@ import (
 
 	worktreepb "core/shared/protoapi/gen/kent/api/worktree"
 	"core/shared/serverapi"
-	"errors"
 
 	tea "github.com/charmbracelet/bubbletea"
 	"io"
@@ -19,6 +18,10 @@ import (
 )
 
 type worktreeCommandTestClient struct {
+	workspaceResp     *worktreepb.WorkspaceListSuccess
+	workspaceRequests []*worktreepb.WorkspaceListRequest
+	previewResp       *worktreepb.DeletePreviewSuccess
+	previewRequests   []*worktreepb.DeletePreviewRequest
 	listResp          *worktreepb.ListSuccess
 	listErr           error
 	listCtx           context.Context
@@ -55,8 +58,9 @@ func (c *worktreeCommandTestClient) ListWorktrees(ctx context.Context, req *work
 	return c.listResp, c.listErr
 }
 
-func (c *worktreeCommandTestClient) ListWorkspaceWorktrees(context.Context, *worktreepb.WorkspaceListRequest) (*worktreepb.WorkspaceListSuccess, error) {
-	return nil, errors.New("unexpected workspace worktree list request")
+func (c *worktreeCommandTestClient) ListWorkspaceWorktrees(_ context.Context, req *worktreepb.WorkspaceListRequest) (*worktreepb.WorkspaceListSuccess, error) {
+	c.workspaceRequests = append(c.workspaceRequests, req)
+	return c.workspaceResp, nil
 }
 
 func (c *worktreeCommandTestClient) ResolveWorktreeSelector(ctx context.Context, req *worktreepb.SelectorResolveRequest) (*worktreepb.SelectorResolveSuccess, error) {
@@ -65,8 +69,9 @@ func (c *worktreeCommandTestClient) ResolveWorktreeSelector(ctx context.Context,
 	return c.selectorResp, c.selectorErr
 }
 
-func (c *worktreeCommandTestClient) PreviewWorktreeDelete(context.Context, *worktreepb.DeletePreviewRequest) (*worktreepb.DeletePreviewSuccess, error) {
-	return nil, errors.New("unexpected worktree delete preview request")
+func (c *worktreeCommandTestClient) PreviewWorktreeDelete(_ context.Context, req *worktreepb.DeletePreviewRequest) (*worktreepb.DeletePreviewSuccess, error) {
+	c.previewRequests = append(c.previewRequests, req)
+	return c.previewResp, nil
 }
 
 func (c *worktreeCommandTestClient) ResolveWorktreeCreateTarget(ctx context.Context, req *worktreepb.CreateTargetResolveRequest) (*worktreepb.CreateTargetResolveSuccess, error) {
@@ -147,11 +152,11 @@ func newWorktreeTestModel(t *testing.T, client *worktreeCommandTestClient, opts 
 	worktreeCreateResolveDebounce = time.Millisecond
 	t.Cleanup(func() { worktreeCreateResolveDebounce = originalDebounce })
 
-	allOpts := []UIOption{WithUIWorktreeClient(client), WithUISessionID("session-1")}
+	allOpts := []UIOption{WithUIWorktreeClient(client), WithUISessionID(detailTestSessionID)}
 	allOpts = append(allOpts, opts...)
-	model := newProjectedTestUIModel(newWorktreeTestRuntimeClient("session-1"), allOpts...)
+	model := newProjectedTestUIModel(newWorktreeTestRuntimeClient(detailTestSessionID), allOpts...)
 	if runtimeClient, ok := model.runtimeClient().(*sessionRuntimeClient); ok && model.sessionName != nil {
-		runtimeClient.storeMainView(&runtimepb.MainView{Session: &runtimepb.SessionView{SessionId: model.sessionID, SessionName: model.sessionName}})
+		runtimeClient.storeMainView(&runtimepb.MainView{Session: &runtimepb.SessionView{SessionId: model.currentRuntimeSessionID(), SessionName: model.sessionName}})
 	}
 	return model
 }
@@ -216,7 +221,7 @@ func testRegisteredWorktreeListEntry(id, name, root, branch string, main, curren
 			Projection: &worktreepb.ListProjection{Selector: branch, IsCurrent: current},
 		}
 	}
-	originSessionID := "session-1"
+	originSessionID := detailTestSessionID
 	kent := &worktreepb.KentFacts{
 		WorktreeId:    id,
 		CanonicalRoot: root,

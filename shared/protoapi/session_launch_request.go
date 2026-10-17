@@ -28,6 +28,9 @@ func SessionLaunchRequestIntentToProto(intent serverapi.SessionLaunchIntent) (*s
 	case serverapi.SessionCreateOriginParentAgent:
 		id, _ := origin.SessionID()
 		requestOrigin.Origin = &sessionlaunchpb.SessionCreateRequestOrigin_ParentAgentSessionId{ParentAgentSessionId: SessionSelectorToProto(id)}
+	case serverapi.SessionCreateOriginNavigationOnly:
+		id, _ := origin.SessionID()
+		requestOrigin.Origin = &sessionlaunchpb.SessionCreateRequestOrigin_NavigationOnlySessionId{NavigationOnlySessionId: SessionSelectorToProto(id)}
 	default:
 		return nil, fmt.Errorf("invalid Session creation origin")
 	}

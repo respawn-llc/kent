@@ -11,6 +11,8 @@ import (
 	tuiinput "core/cli/tui/input"
 	"core/shared/apicontract"
 	"core/shared/clientui"
+	"core/shared/protoapi"
+	chatpb "core/shared/protoapi/gen/kent/api/chat"
 	sharedpb "core/shared/protoapi/gen/kent/api/shared"
 	worktreepb "core/shared/protoapi/gen/kent/api/worktree"
 	"core/shared/runtimeids"
@@ -18,6 +20,7 @@ import (
 	"core/shared/worktreecontract"
 
 	tea "github.com/charmbracelet/bubbletea"
+	"google.golang.org/protobuf/proto"
 )
 
 const (
@@ -136,22 +139,27 @@ type uiWorktreeOverlayState struct {
 }
 
 type worktreeListDoneMsg struct {
-	token uint64
-	resp  *worktreepb.ListSuccess
-	err   error
+	token     uint64
+	resp      *worktreepb.ListSuccess
+	workspace *worktreepb.WorkspaceListSuccess
+	err       error
 }
 
 type worktreeDeleteTargetResolvedMsg struct {
 	generation         uint64
 	resp               *worktreepb.SelectorResolveSuccess
+	preview            *worktreepb.DeletePreviewSuccess
 	preferDeleteBranch bool
 	err                error
 }
 
 type worktreeCreateDoneMsg struct {
-	token uint64
-	resp  *worktreepb.CreateSuccess
-	err   error
+	workspace      *worktreepb.TransitionWorkspace
+	token          uint64
+	resp           *worktreepb.CreateSuccess
+	err            error
+	session        *chatpb.ExistingSessionTarget
+	createdSession bool
 }
 
 type worktreeSetupEventMsg struct {
@@ -250,6 +258,10 @@ func (m *uiModel) requestWorktreeListCmd() tea.Cmd {
 	m.worktrees.errorText = ""
 	service := m.worktreeMutationService()
 	return func() tea.Msg {
+		if service.SessionTarget == nil {
+			resp, err := service.ListWorkspace()
+			return worktreeListDoneMsg{token: token, workspace: resp, err: err}
+		}
 		resp, err := service.List()
 		return worktreeListDoneMsg{token: token, resp: resp, err: err}
 	}
@@ -309,12 +321,29 @@ func (m *uiModel) applyWorktreeListResponse(resp *worktreepb.ListSuccess) error 
 		return err
 	}
 	m.worktrees.target = resp.Target
-	entries, err := worktreeui.ProjectItems(resp.Worktrees)
+	return m.applyWorktreeEntries(resp.Worktrees)
+}
+
+func (m *uiModel) applyWorktreeEntries(worktrees []*worktreepb.ListEntry) error {
+	entries, err := worktreeui.ProjectItems(worktrees)
 	if err != nil {
 		m.worktrees.entries = nil
 		return err
 	}
 	m.worktrees.entries = entries
+	if target := m.newChatTarget(); target != nil {
+		for i := range m.worktrees.entries {
+			item := &m.worktrees.entries[i]
+			item.IsCurrent = item.IsMainWorkspace && target.WorktreeSelector == nil
+			if target.WorktreeSelector != nil {
+				selector, err := worktreeui.StableMutationSelector(*item)
+				if err != nil {
+					return err
+				}
+				item.IsCurrent = selector == *target.WorktreeSelector
+			}
+		}
+	}
 	if err := m.restoreWorktreeSelection(); err != nil {
 		return err
 	}
@@ -332,7 +361,9 @@ func (m *uiModel) applyWorktreeListResponse(resp *worktreepb.ListSuccess) error 
 			if m.worktrees.deleteConfirm.targetAuthority == uiWorktreeDeleteTargetAuthorityResolvedSelector {
 				target := m.worktrees.deleteConfirm.target
 				target.IsCurrent = item.IsCurrent
-				target.Entry.Projection.IsCurrent = item.Entry.Projection.IsCurrent
+				if target.Entry != nil {
+					target.Entry.Projection.IsCurrent = item.Entry.Projection.IsCurrent
+				}
 				m.worktrees.entries[idx] = target
 				m.worktrees.deleteConfirm.target = target
 			} else {
@@ -363,6 +394,35 @@ func (m *uiModel) applyWorktreeIntent() tea.Cmd {
 	}
 	if intent.DeleteTarget.kind == uiWorktreeDeleteIntentTargetSelector {
 		return m.worktreeDeleteTargetResolveCmd(intent.DeleteTarget.selector, intent.PreferDeleteBranch)
+	}
+	if m.newSessionTarget() != nil {
+		var target worktreeui.Item
+		var found bool
+		if intent.DeleteTarget.kind == uiWorktreeDeleteIntentTargetIdentity {
+			var err error
+			target, _, found, err = worktreeui.FindByIdentity(m.worktrees.entries, intent.DeleteTarget.identity)
+			if err != nil {
+				m.worktrees.errorText = err.Error()
+				return nil
+			}
+		} else if intent.DeleteTarget.kind == uiWorktreeDeleteIntentTargetCurrent {
+			for _, item := range m.worktrees.entries {
+				if item.IsCurrent {
+					target, found = item, true
+					break
+				}
+			}
+		}
+		if !found {
+			m.worktrees.errorText = worktreecontract.ErrWorktreeNotFound.Error()
+			return nil
+		}
+		selector, err := worktreeui.StableMutationSelector(target)
+		if err != nil {
+			m.worktrees.errorText = err.Error()
+			return nil
+		}
+		return m.worktreeDeleteTargetResolveCmd(selector, intent.PreferDeleteBranch)
 	}
 	target, err := resolveWorktreeDeleteIntentTarget(m.worktrees.entries, intent.DeleteTarget)
 	if err != nil {
@@ -425,6 +485,10 @@ func (m *uiModel) worktreeDeleteTargetResolveCmd(selector string, preferDeleteBr
 	m.worktrees.errorText = ""
 	service := m.worktreeMutationService()
 	return func() tea.Msg {
+		if service.SessionTarget == nil {
+			preview, err := service.PreviewDelete(selector)
+			return worktreeDeleteTargetResolvedMsg{generation: generation, preview: preview, preferDeleteBranch: preferDeleteBranch, err: err}
+		}
 		resp, err := service.ResolveSelector(selector)
 		return worktreeDeleteTargetResolvedMsg{
 			generation:         generation,
@@ -467,6 +531,16 @@ func (m *uiModel) worktreeCreateCmd(req *worktreepb.CreateRequest) tea.Cmd {
 	if m == nil {
 		return nil
 	}
+	if m.newSessionTarget() != nil && !m.newSessionConnectionReady() {
+		return nil
+	}
+	var target *chatpb.NewChatTarget
+	if m.newChatTarget() != nil {
+		target = proto.Clone(m.newChatTarget()).(*chatpb.NewChatTarget)
+		m.pendingNewChatActions++
+	}
+	draft := m.mainEditor.Text()
+	createSession := m.createSession
 	m.worktrees.mutationToken++
 	token := m.worktrees.mutationToken
 	if _, err := worktreecontract.ParseSetupOperationID(req.SetupOperationId); err != nil {
@@ -480,17 +554,36 @@ func (m *uiModel) worktreeCreateCmd(req *worktreepb.CreateRequest) tea.Cmd {
 	m.worktrees.create.setupProgress = &uiWorktreeSetupProgressState{cancel: cancel}
 	setupReady := make(chan error, 1)
 	setupEvents := make(chan worktreeSetupEventMsg, 8)
+	service := m.worktreeMutationService()
+	worktreeClient := service.Client
 	subscribeCmd := func() tea.Msg {
-		go subscribeWorktreeSetupEvents(setupCtx, m.worktreeClient, token, req.SetupOperationId, setupReady, setupEvents)
+		go subscribeWorktreeSetupEvents(setupCtx, worktreeClient, token, req.SetupOperationId, setupReady, setupEvents)
 		return nil
 	}
-	service := m.worktreeMutationService()
 	createCmd := func() tea.Msg {
+		result := worktreeCreateDoneMsg{token: token, createdSession: target != nil}
 		if err := <-setupReady; err != nil {
-			return worktreeCreateDoneMsg{token: token, err: err}
+			result.err = err
+			return result
 		}
-		resp, err := service.Create(req)
-		return worktreeCreateDoneMsg{token: token, resp: resp, err: err}
+		if target != nil {
+			result.workspace = &worktreepb.TransitionWorkspace{WorkspaceId: service.WorkspaceID, WorkspaceRoot: service.WorkspaceRoot}
+			if result.err = protoapi.Validate(result.workspace); result.err != nil {
+				return result
+			}
+			result.session, result.err = createSession(context.Background(), target, draft)
+			if result.err != nil {
+				return result
+			}
+			id, err := runtimeids.ParseSessionID(result.session.SessionId)
+			if err != nil {
+				result.err = err
+				return result
+			}
+			service.SessionTarget = protoapi.SessionSelectorToProto(id)
+		}
+		result.resp, result.err = service.Create(req)
+		return result
 	}
 	return tea.Batch(subscribeCmd, createCmd, worktreeSetupEventCmd(setupEvents))
 }
@@ -540,6 +633,9 @@ func worktreeSetupEventCmd(events <-chan worktreeSetupEventMsg) tea.Cmd {
 func (m *uiModel) worktreeSwitchCmd(target worktreeui.Item) tea.Cmd {
 	if m == nil {
 		return nil
+	}
+	if m.newSessionTarget() != nil && target.IsMainWorkspace {
+		return m.worktreeTransitionCommand(runtimeinput.PendingWorkWorktreeTransition{Transition: runtimeinput.PendingWorkWorktreeTransitionLeave})
 	}
 	selector, err := worktreeui.StableMutationSelector(target)
 	if err != nil {
@@ -605,12 +701,18 @@ func (m *uiModel) worktreeMutationService() worktreeui.Service {
 	}
 	service := worktreeui.Service{
 		Client:        m.worktreeClient,
-		SessionTarget: &sharedpb.SessionSelector{Value: &sharedpb.SessionSelector_SessionId{SessionId: m.sessionID}},
 		WorkspaceID:   target.GetWorkspaceId(),
 		WorkspaceRoot: target.GetWorkspaceRoot(),
 		ResolveContext: func() (context.Context, context.CancelFunc) {
 			return context.WithTimeout(context.Background(), uiRuntimeControlTimeout)
 		},
+	}
+	if m.newSessionTarget() == nil {
+		service.SessionTarget = &sharedpb.SessionSelector{Value: &sharedpb.SessionSelector_SessionId{SessionId: m.currentRuntimeSessionID()}}
+	} else {
+		service.ProjectID = m.newChatTarget().ProjectId
+		service.WorkspaceID = m.newChatTarget().WorkspaceId
+		service.WorkspaceRoot = m.statusConfig.WorkspaceRoot
 	}
 	if client, ok := m.runtimeClient().(*sessionRuntimeClient); ok && client != nil {
 		service.Runtime = worktreeui.RuntimeControl{

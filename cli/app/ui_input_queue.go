@@ -202,6 +202,15 @@ func (m *uiModel) queueInjectedInput(text string) tea.Cmd {
 
 func (c uiInputController) queueOrStartSubmission(text string) (tea.Model, tea.Cmd) {
 	m := c.model
+	if m.newSessionTarget() != nil {
+		if blocked, cmd := m.gateNewSessionInput(text, newSessionInputQueue); blocked {
+			return m, cmd
+		}
+		m.clearInput()
+		return m, c.dispatchQueuedInput(queuedInputItem{
+			Text: text, submissionOrder: m.nextPendingInputSubmissionOrder(),
+		})
+	}
 	if blocked, blockCmd := c.blockInjectedQueueSubmission(); blocked {
 		return m, blockCmd
 	}

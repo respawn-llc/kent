@@ -1,13 +1,13 @@
 package protoapi_test
 
 import (
+	configurationpb "core/shared/protoapi/gen/kent/api/configuration"
 	"os"
 	"path/filepath"
 	"testing"
 
 	"core/shared/config"
 	"core/shared/protoapi"
-	sessionlaunchpb "core/shared/protoapi/gen/kent/api/session_launch"
 
 	"google.golang.org/protobuf/proto"
 )
@@ -41,7 +41,7 @@ func TestNativeProgressSettingSurvivesSessionSettingsTransport(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			received := new(sessionlaunchpb.Settings)
+			received := new(configurationpb.Settings)
 			if err := proto.Unmarshal(payload, received); err != nil {
 				t.Fatal(err)
 			}

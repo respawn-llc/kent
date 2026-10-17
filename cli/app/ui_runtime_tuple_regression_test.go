@@ -82,7 +82,7 @@ func TestInterruptRefreshRestoresOnlyCapturedSubmissionAfterCoalescing(t *testin
 		t.Run(tc.name, func(t *testing.T) {
 			view := runtimeTupleTestView(10, runtimeTupleTestIdleActivity())
 			m := newProjectedClosedUIModel(&runtimeControlFakeClient{mainView: view})
-			m.sessionID = view.Session.SessionId
+			m.setKnownSessionTarget(view.Session.SessionId)
 			m.activeSubmit = activeSubmitState{token: 1, text: "interrupted"}
 			token := m.activeSubmit.token
 			if tc.queued {
@@ -317,7 +317,7 @@ func runtimeTupleTestView(
 ) *runtimepb.MainView {
 	return &runtimepb.MainView{
 		Version:  &runtimepb.ReadModelVersion{Epoch: "runtime-tuple-test", Generation: 1, Sequence: sequence},
-		Session:  &runtimepb.SessionView{SessionId: "session-1"},
+		Session:  &runtimepb.SessionView{SessionId: detailTestSessionID},
 		Status:   &runtimepb.Status{},
 		Activity: activity,
 	}

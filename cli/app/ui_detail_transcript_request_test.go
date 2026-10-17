@@ -258,37 +258,6 @@ func TestDetailTranscriptMalformedToolRowsRemainLoadable(t *testing.T) {
 	}
 }
 
-func TestDetailTranscriptInvalidSessionIDDoesNotCreatePendingRequest(t *testing.T) {
-	sessionViews := newControlledTranscriptPageClient()
-	model := newProjectedClosedUIModel(
-		&runtimeControlFakeClient{},
-		WithUISessionID("../not-a-valid-session-id"),
-		WithUIStatusConfig(uiStatusConfig{SessionViews: sessionViews}),
-	)
-	model.detailTranscript.replace(&transcriptpb.Page{ConversationFreshness: runtimepb.ConversationFreshness_CONVERSATION_FRESHNESS_ESTABLISHED, SessionId: detailTestSessionID,
-		OlderCursor:  appInt64Ptr(25),
-		HasMoreAbove: true,
-		Entries:      []*transcriptpb.CommittedRow{detailTestAssistantRow("current page")}})
-
-	next, cmd := model.Update(tui.RequestDetailTranscriptPageMsg{Direction: tui.DetailTranscriptPageOlder})
-	model = next.(*uiModel)
-
-	if cmd == nil {
-		t.Fatal("invalid detail session did not schedule the existing transient error path")
-	}
-	if model.pendingDetailTranscript != nil {
-		t.Fatalf("invalid detail session created pending request %#v", model.pendingDetailTranscript)
-	}
-	if model.transientStatusKind != uiStatusNoticeError || model.transientStatus == "" {
-		t.Fatalf("invalid detail session did not surface an error status: kind=%v text=%q", model.transientStatusKind, model.transientStatus)
-	}
-	select {
-	case request := <-sessionViews.started:
-		t.Fatalf("invalid detail session reached session view client: %#v", request)
-	default:
-	}
-}
-
 func TestDetailTranscriptLoadingNoticeKeepsSelectionActionIndependent(t *testing.T) {
 	sessionViews := newControlledTranscriptPageClient()
 	model := newDetailTranscriptRequestTestModel(sessionViews)

@@ -67,13 +67,13 @@ func TestTranscriptSessionIdentityUpdatesStatusExecutionTarget(t *testing.T) {
 		CwdRelpath:            ".",
 		EffectiveWorkdir:      "/repo/feature"}
 	runtimeClient := &sessionRuntimeClient{
-		sessionID:   "session-1",
-		mainView:    &runtimepb.MainView{Session: &runtimepb.SessionView{SessionId: "session-1"}, Status: &runtimepb.Status{}},
+		sessionID:   detailTestSessionID,
+		mainView:    &runtimepb.MainView{Session: &runtimepb.SessionView{SessionId: detailTestSessionID}, Status: &runtimepb.Status{}},
 		hasMainView: true}
 	model := newProjectedTestUIModel(runtimeClient, WithUIStatusConfig(uiStatusConfig{
 		WorkspaceRoot:   initial.EffectiveWorkdir,
 		ExecutionTarget: initial}))
-	sessionID, err := runtimeids.ParseSessionID("session-1")
+	sessionID, err := runtimeids.ParseSessionID(detailTestSessionID)
 	if err != nil {
 		t.Fatalf("ParseSessionId: %v", err)
 	}
@@ -94,14 +94,14 @@ func TestTranscriptSessionIdentityUpdatesStatusExecutionTarget(t *testing.T) {
 }
 
 func TestTranscriptSessionIdentityReplacesConflictingConversationFreshnessCaches(t *testing.T) {
-	sessionID, err := runtimeids.ParseSessionID("session-1")
+	sessionID, err := runtimeids.ParseSessionID(detailTestSessionID)
 	if err != nil {
 		t.Fatalf("ParseSessionId: %v", err)
 	}
 	runtimeClient := &sessionRuntimeClient{
-		sessionID: "session-1",
+		sessionID: detailTestSessionID,
 		mainView: &runtimepb.MainView{
-			Session: &runtimepb.SessionView{SessionId: "session-1",
+			Session: &runtimepb.SessionView{SessionId: detailTestSessionID,
 				ConversationFreshness: runtimepb.ConversationFreshness_CONVERSATION_FRESHNESS_ESTABLISHED},
 			Status: &runtimepb.Status{
 				ConversationFreshness: runtimepb.ConversationFreshness_CONVERSATION_FRESHNESS_ESTABLISHED}},
@@ -140,19 +140,19 @@ func TestStatusRefreshUsesCurrentSessionAgentRoleWhenRuntimeCacheIsCold(t *testi
 	role := "qa_tester"
 	sessionViews := stubSessionViewClient{
 		getSessionMainView: func(_ context.Context, request *sessionpb.MainViewRequest) (*sessionpb.MainViewSuccess, error) {
-			if request.SessionId.GetSessionId() != "session-1" {
+			if request.SessionId.GetSessionId() != detailTestSessionID {
 				t.Fatalf("current session view request = %+v, want session-1", request)
 			}
 			return &sessionpb.MainViewSuccess{
 				MainView: &runtimepb.MainView{
-					Session: &runtimepb.SessionView{SessionId: "session-1", AgentRole: &role}, Status: &runtimepb.Status{}}}, nil
+					Session: &runtimepb.SessionView{SessionId: detailTestSessionID, AgentRole: &role}, Status: &runtimepb.Status{}}}, nil
 		}}
 	runtimeClient := &sessionRuntimeClient{
-		sessionID: "session-1",
-		mainView:  &runtimepb.MainView{Session: &runtimepb.SessionView{SessionId: "session-1"}, Status: &runtimepb.Status{}}}
+		sessionID: detailTestSessionID,
+		mainView:  &runtimepb.MainView{Session: &runtimepb.SessionView{SessionId: detailTestSessionID}, Status: &runtimepb.Status{}}}
 	model := newProjectedTestUIModel(
 		runtimeClient,
-		WithUISessionID("session-1"),
+		WithUISessionID(detailTestSessionID),
 		WithUIStatusConfig(uiStatusConfig{WorkspaceRoot: t.TempDir(), SessionViews: sessionViews}))
 
 	messages := collectCmdMessages(t, model.statusRefreshCmd())

@@ -12,7 +12,6 @@ import (
 	"core/shared/protoapi"
 	chatpb "core/shared/protoapi/gen/kent/api/chat"
 	chatsettingspb "core/shared/protoapi/gen/kent/api/chat_settings"
-	chatshellpb "core/shared/protoapi/gen/kent/api/chat_shell"
 	promptpb "core/shared/protoapi/gen/kent/api/prompt"
 	runtimepb "core/shared/protoapi/gen/kent/api/runtime"
 	sharedpb "core/shared/protoapi/gen/kent/api/shared"
@@ -46,10 +45,19 @@ func (c *sessionRuntimeClient) ReadChatSettings() (*chatsettingspb.Settings, err
 	if err != nil {
 		return nil, err
 	}
+	return (sessionChatSettingsClient{service: c.chatSettings, sessionID: sessionID}).ReadChatSettings()
+}
+
+type sessionChatSettingsClient struct {
+	service   apicontract.ChatSettingsService
+	sessionID runtimeids.SessionID
+}
+
+func (c sessionChatSettingsClient) ReadChatSettings() (*chatsettingspb.Settings, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), uiChatSettingsTimeout)
 	defer cancel()
-	response, err := c.chatSettings.ReadChatSettings(ctx, &chatsettingspb.ReadRequest{
-		Target: &chatsettingspb.ReadRequest_Session{Session: &chatsettingspb.SessionTarget{SessionId: &sharedpb.SessionSelector{Value: &sharedpb.SessionSelector_SessionId{SessionId: sessionID.String()}}}},
+	response, err := c.service.ReadChatSettings(ctx, &chatsettingspb.ReadRequest{
+		Target: &chatsettingspb.ReadRequest_Session{Session: &chatsettingspb.SessionTarget{SessionId: protoapi.SessionSelectorToProto(c.sessionID)}},
 	})
 	if err != nil {
 		return nil, err
@@ -62,10 +70,14 @@ func (c *sessionRuntimeClient) MutateChatSettings(operation *chatsettingspb.Muta
 	if err != nil {
 		return nil, err
 	}
+	return (sessionChatSettingsClient{service: c.chatSettings, sessionID: sessionID}).MutateChatSettings(operation)
+}
+
+func (c sessionChatSettingsClient) MutateChatSettings(operation *chatsettingspb.MutationOperation) (*chatsettingspb.MutationSuccess, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), uiChatSettingsTimeout)
 	defer cancel()
-	response, err := c.chatSettings.MutateChatSettings(ctx, &chatsettingspb.MutationRequest{
-		Session:   &chatsettingspb.SessionTarget{SessionId: &sharedpb.SessionSelector{Value: &sharedpb.SessionSelector_SessionId{SessionId: sessionID.String()}}},
+	response, err := c.service.MutateChatSettings(ctx, &chatsettingspb.MutationRequest{
+		Session:   &chatsettingspb.SessionTarget{SessionId: protoapi.SessionSelectorToProto(c.sessionID)},
 		Operation: operation,
 	})
 	if err != nil {
@@ -108,34 +120,12 @@ func (c *sessionRuntimeClient) ShowGoal() (*runtimepb.GoalView, error) {
 }
 
 func (c *sessionRuntimeClient) SetGoal(objective string) (*runtimepb.GoalSetSuccess, error) {
-	resp, err := runtimeGoalCall(func(ctx context.Context) (*runtimepb.GoalSetSuccess, error) {
-		if c.goalSet == nil {
-			return nil, errors.New("Goal Set service is required")
-		}
-		target, err := c.takeChatTarget()
-		if err != nil {
-			return nil, err
-		}
-		return c.goalSet.SetGoal(ctx, &runtimepb.GoalSetRequest{
-			Target:          target,
-			Objective:       objective,
-			Actor:           "user",
-			ExecutionPolicy: runtimepb.GoalExecutionPolicy_GOAL_EXECUTION_POLICY_PRESERVE_RUNTIME_STATE,
-		})
-	})
+	target, err := c.takeChatTarget()
 	if err != nil {
 		return nil, err
 	}
-	if err := protoapi.Validate(resp); err != nil {
-		return nil, err
-	}
-	if rejected := resp.GetRejected(); rejected != nil {
-		return nil, client.GoalSetErrorAsError(rejected)
-	}
-	if resp.GetMutation() == nil {
-		return nil, errors.New("Goal Set response did not contain a committed mutation")
-	}
-	return resp, nil
+	result := (chatActionTransport{actions: c.chatMutations, goals: c.goalSet}).execute(context.Background(), target, nil, chatGoalAction{objective: objective})
+	return result.goal, result.err
 }
 
 func (c *sessionRuntimeClient) PauseGoal() (*runtimepb.GoalMutationSuccess, error) {
@@ -207,25 +197,8 @@ func (c *sessionRuntimeClient) SubmitRuntimeInput(ctx context.Context, req clien
 	if err != nil {
 		return clientui.UserTurnSubmission{}, err
 	}
-	resp, err := c.chatMutations.Steer(ctx, &chatpb.SteerRequest{
-		Target: target, Activation: activation, QueueItemId: runtimeids.NewQueueItemID().String(),
-	})
-	if err != nil {
-		return clientui.UserTurnSubmission{}, err
-	}
-	if err := protoapi.Validate(resp); err != nil {
-		return clientui.UserTurnSubmission{}, err
-	}
-	if rejected := resp.GetNotAccepted(); rejected != nil {
-		return clientui.UserTurnSubmission{}, protoapi.ChatNotAcceptedFromProto(rejected)
-	}
-	accepted := resp.GetAccepted()
-	return clientui.UserTurnSubmission{
-		Diagnostic: protoapi.ChatAcceptedDiagnosticFromProto(accepted.Diagnostic),
-		SessionID:  &resp.Session.SessionId,
-		ResultKind: clientui.UserTurnResultKindQueued,
-		Queued:     clientui.QueuedUserMessage{ID: accepted.QueueItem.Id, Text: runtimeSubmitInputText(req)},
-	}, nil
+	result := (chatActionTransport{actions: c.chatMutations}).execute(ctx, target, nil, chatInputAction{input: activation, queueItemID: runtimeids.NewQueueItemID()})
+	return result.submission(runtimeSubmitInputText(req))
 }
 
 func chatActivationFromInput(input runtimeinput.Input) (*chatpb.Activation, error) {
@@ -262,38 +235,20 @@ func (c *sessionRuntimeClient) RunUserShell(ctx context.Context, req clientui.Ru
 	if err != nil {
 		return err
 	}
-	return c.chatMutations.SubmitUserShellCommand(ctx, &chatshellpb.ShellCommandRequest{
-		Target:  target,
-		Command: req.Command,
-	})
+	result := (chatActionTransport{actions: c.chatMutations}).execute(ctx, target, nil, chatShellAction{command: req.Command})
+	return result.err
 }
 
 func (c *sessionRuntimeClient) CompactRuntime(ctx context.Context, req clientui.RuntimeCompactRequest) (clientui.RuntimeCompactResult, error) {
 	if err := req.Validate(); err != nil {
 		return clientui.RuntimeCompactResult{}, err
 	}
-	invocation := &chatpb.CompactionInvocation{Token: "/compact"}
-	if req.Admission.Guidance != nil {
-		invocation.SeparatorWhitespace = " "
-		invocation.RawGuidance = *req.Admission.Guidance
-	}
 	target, err := c.takeChatTarget()
 	if err != nil {
 		return clientui.RuntimeCompactResult{}, err
 	}
-	result, err := c.chatMutations.Compact(ctx, &chatpb.CompactRequest{
-		Target: target, Invocation: invocation,
-	})
-	if err != nil {
-		return clientui.RuntimeCompactResult{}, err
-	}
-	if err := protoapi.Validate(result); err != nil {
-		return clientui.RuntimeCompactResult{}, err
-	}
-	if rejected := result.GetNotAccepted(); rejected != nil {
-		return clientui.RuntimeCompactResult{}, protoapi.ChatNotAcceptedFromProto(rejected)
-	}
-	return clientui.RuntimeCompactResult{Diagnostic: protoapi.ChatAcceptedDiagnosticFromProto(result.GetAccepted().Diagnostic)}, nil
+	result := (chatActionTransport{actions: c.chatMutations}).execute(ctx, target, nil, chatCompactionAction{invocation: chatCompactionInvocation(req.Admission.Guidance)})
+	return clientui.RuntimeCompactResult{Diagnostic: result.diagnostic}, result.err
 }
 
 func (c *sessionRuntimeClient) Interrupt() error {

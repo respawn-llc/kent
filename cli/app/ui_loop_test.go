@@ -7,11 +7,32 @@ import (
 	"strings"
 	"testing"
 
+	"core/cli/app/commands"
+	"core/shared/config"
+	chatpb "core/shared/protoapi/gen/kent/api/chat"
 	"core/shared/textutil"
 
 	tea "github.com/charmbracelet/bubbletea"
 	xansi "github.com/charmbracelet/x/ansi"
 )
+
+func TestComposeNewSessionAllowsEditingWithoutRuntime(t *testing.T) {
+	composition, err := composeUIProgram(uiLoopRequest{
+		newChat:         &chatpb.NewChatTarget{},
+		wiring:          &runtimeWiring{},
+		active:          config.Settings{},
+		commandRegistry: commands.NewDefaultRegistry(),
+	}, io.Discard)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer composition.close()
+	model := composition.model
+	model.mainEditor.SetText("unsent\nlocal draft")
+	if got := model.mainEditor.Text(); got != "unsent\nlocal draft" {
+		t.Fatalf("draft = %q", got)
+	}
+}
 
 func TestExtractUITransitionIncludesInitialPrompt(t *testing.T) {
 	model := &uiModel{

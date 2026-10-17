@@ -65,7 +65,14 @@ func (s chatSettingsService) ReadChatSettings(
 		if err != nil {
 			return nil, err
 		}
-		return s.core.sessionLaunchServiceForProjectContext(projectCtx).NewChatSettings(ctx)
+		invocation := serverapi.RunPromptOverrides{}
+		if target.NewChat.Invocation != nil {
+			invocation, err = protoapi.RunPromptOverridesFromProto(target.NewChat.Invocation)
+			if err != nil {
+				return nil, err
+			}
+		}
+		return s.core.sessionLaunchServiceForProjectContext(projectCtx).NewChatSettings(ctx, invocation)
 	case *chatsettingspb.ReadRequest_Session:
 		identity, resolveErr := s.sessionSettingsTarget(ctx, target.Session.SessionId)
 		if resolveErr != nil {

@@ -224,7 +224,10 @@ func (m *uiModel) goalRuntimeCommand(operation goalRuntimeOperation, objective s
 	if m == nil {
 		return nil
 	}
-	return m.goalRuntimeCommandFor(m.runtimeClient(), strings.TrimSpace(m.sessionID), operation, objective)
+	if m.newSessionTarget() != nil && (operation == goalRuntimeCheckSet || operation == goalRuntimeSet) {
+		return m.newSessionActionCmd(chatGoalAction{objective: objective}, nil)
+	}
+	return m.goalRuntimeCommandFor(m.runtimeClient(), strings.TrimSpace(m.currentRuntimeSessionID()), operation, objective)
 }
 
 func (m *uiModel) goalRuntimeCommandFor(
@@ -243,6 +246,16 @@ func (m *uiModel) goalRuntimeCommandFor(
 		return nil
 	}
 	mutationSerial := m.goalRuntimeMutationSerial
+	if client == nil {
+		if _, known := m.presentationTarget.(uiKnownSessionTarget); known {
+			client = &sessionRuntimeClient{
+				sessionID:     sessionID,
+				controls:      m.sessionControls,
+				chatMutations: m.chatMutations,
+				goalSet:       m.chatMutations,
+			}
+		}
+	}
 	return goalRuntimeRequestCommand(client, sessionID, operation, objective, token, mutationSerial)
 }
 
@@ -305,7 +318,7 @@ func (m *uiModel) applyGoalRuntimeDone(msg goalRuntimeDoneMsg) tea.Cmd {
 	} else if msg.token != m.goalRuntimeToken {
 		return nil
 	}
-	if msg.sessionID != "" && strings.TrimSpace(m.sessionID) != "" && msg.sessionID != strings.TrimSpace(m.sessionID) {
+	if msg.sessionID != "" && strings.TrimSpace(m.currentRuntimeSessionID()) != "" && msg.sessionID != strings.TrimSpace(m.currentRuntimeSessionID()) {
 		return nil
 	}
 	m.observeRuntimeRequestResult(msg.err)

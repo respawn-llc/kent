@@ -287,7 +287,7 @@ func (f *runtimeControlFakeClient) RecordPromptHistory(text string) error {
 
 func TestGoalShowSupersededByMutationDoesNotOverwriteMutationResult(t *testing.T) {
 	m := newProjectedClosedUIModel(&runtimeControlFakeClient{})
-	m.sessionID = "session-1"
+	m.setKnownSessionTarget(detailTestSessionID)
 
 	if cmd := m.goalRuntimeCommand(goalRuntimePause, ""); cmd == nil {
 		t.Fatal("initial Goal mutation did not start")
@@ -306,7 +306,7 @@ func TestGoalShowSupersededByMutationDoesNotOverwriteMutationResult(t *testing.T
 		Goal: &runtimepb.Goal{Id: "goal-1", Objective: "latest", Status: runtimepb.GoalStatus_RUNTIME_GOAL_STATUS_PAUSED}}
 	m.applyGoalRuntimeDone(goalRuntimeDoneMsg{
 		token:          mutationToken,
-		sessionID:      m.sessionID,
+		sessionID:      m.currentRuntimeSessionID(),
 		mutationSerial: m.goalRuntimePending.inFlightMutationSerial,
 		operation:      goalRuntimePause,
 		mutation: &runtimepb.GoalMutationSuccess{
@@ -316,7 +316,7 @@ func TestGoalShowSupersededByMutationDoesNotOverwriteMutationResult(t *testing.T
 		Goal: &runtimepb.Goal{Id: "goal-1", Objective: "stale", Status: runtimepb.GoalStatus_RUNTIME_GOAL_STATUS_ACTIVE}}
 	m.applyGoalRuntimeDone(goalRuntimeDoneMsg{
 		token:          showToken,
-		sessionID:      m.sessionID,
+		sessionID:      m.currentRuntimeSessionID(),
 		mutationSerial: showMutationSerial,
 		operation:      goalRuntimeShow,
 		goal:           stale})
@@ -338,7 +338,7 @@ func TestGoalSetSettlesWarningBeforePendingFollowUp(t *testing.T) {
 
 	client := &runtimeControlFakeClient{goalCallEvents: &events}
 	m := newProjectedClosedUIModel(client)
-	m.sessionID = "session-1"
+	m.setKnownSessionTarget(detailTestSessionID)
 	if cmd := m.goalRuntimeCommand(goalRuntimeSet, "first"); cmd == nil {
 		t.Fatal("initial Goal Set did not start")
 	}
@@ -370,7 +370,7 @@ func TestGoalSetSettlesWarningBeforePendingFollowUp(t *testing.T) {
 	}
 	cmd := m.applyGoalRuntimeDone(goalRuntimeDoneMsg{
 		token:          pending.token,
-		sessionID:      m.sessionID,
+		sessionID:      m.currentRuntimeSessionID(),
 		mutationSerial: mutationSerial,
 		operation:      goalRuntimeSet,
 		objective:      "first",
@@ -400,7 +400,7 @@ func TestGoalFollowUpRetainsCapturedSessionAndClient(t *testing.T) {
 	clientA := &runtimeControlFakeClient{goalCallEvents: &eventsA}
 	clientB := &runtimeControlFakeClient{goalCallEvents: &eventsB}
 	m := newProjectedClosedUIModel(clientA)
-	m.sessionID = "session-a"
+	m.setKnownSessionTarget(detailTestSessionID)
 
 	setCmd := m.goalRuntimeCommand(goalRuntimeSet, "first")
 	if setCmd == nil {
@@ -428,18 +428,18 @@ func TestGoalFollowUpRetainsCapturedSessionAndClient(t *testing.T) {
 	if followUp == nil {
 		t.Fatal("Goal Set did not return its pending follow-up")
 	}
-	if !m.goalRuntimePending.inFlight || m.goalRuntimePending.sessionID != "session-a" {
+	if !m.goalRuntimePending.inFlight || m.goalRuntimePending.sessionID != detailTestSessionID {
 		t.Fatalf("follow-up admission = %+v, want captured session-a request", m.goalRuntimePending)
 	}
 
-	m.sessionID = "session-b"
+	m.setKnownSessionTarget(runtimeids.NewSessionID().String())
 	m.engine = clientB
 	rawMessage := followUp()
 	msg, ok := rawMessage.(goalRuntimeDoneMsg)
 	if !ok {
 		t.Fatalf("follow-up message = %T, want goalRuntimeDoneMsg", rawMessage)
 	}
-	if msg.sessionID != "session-a" {
+	if msg.sessionID != detailTestSessionID {
 		t.Fatalf("follow-up session = %q, want session-a", msg.sessionID)
 	}
 	if len(eventsA) != 1 || eventsA[0] != "pause-started" {
@@ -454,7 +454,7 @@ func TestRuntimeInterruptNotAcceptedClearsPendingAttempt(t *testing.T) {
 	client := &runtimeControlFakeClient{
 		interruptErr: serverapi.NewRuntimeCommandNotAcceptedError(errors.New("no active Agent Turn"))}
 	m := newProjectedClosedUIModel(client)
-	m.sessionID = "session-1"
+	m.setKnownSessionTarget(detailTestSessionID)
 	m.setRuntimeActivityBusyForTest(true)
 	m.activeSubmit = activeSubmitState{
 		token: 1,
@@ -497,14 +497,14 @@ func TestRuntimeInterruptNotAcceptedClearsPendingAttempt(t *testing.T) {
 
 func TestInterruptRecoveryPreservesNewerSubmission(t *testing.T) {
 	m := newProjectedClosedUIModel(&runtimeControlFakeClient{})
-	m.sessionID = "session-1"
+	m.setKnownSessionTarget(detailTestSessionID)
 	m.setRuntimeActivityBusyForTest(true)
 	m.activeSubmit = activeSubmitState{token: 1, text: "old"}
 	m.setPendingInterrupt(true)
 	m.applyRuntimeControlDone(runtimeControlDoneMsg{
 		operation: runtimeControlInterrupt,
 		token:     m.runtimeControlTokenFor(runtimeControlInterrupt),
-		sessionID: m.sessionID,
+		sessionID: m.currentRuntimeSessionID(),
 		err:       errors.New("interruption response lost"),
 	})
 	m.activeSubmit = activeSubmitState{token: 2, text: "new"}
@@ -513,7 +513,7 @@ func TestInterruptRecoveryPreservesNewerSubmission(t *testing.T) {
 		interruptedSubmitToken: textutil.Value(uint64(1)),
 		view: &runtimepb.MainView{
 			Status:  &runtimepb.Status{},
-			Session: &runtimepb.SessionView{SessionId: m.sessionID},
+			Session: &runtimepb.SessionView{SessionId: m.currentRuntimeSessionID()},
 			Activity: &runtimepb.Activity{
 				State:          runtimepb.ActivityState_RUNTIME_ACTIVITY_REGISTERED_IDLE,
 				Reviewer:       runtimepb.ReviewerActivity_REVIEWER_ACTIVITY_INACTIVE,
