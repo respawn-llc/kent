@@ -22,7 +22,7 @@ export function chatSettingsObservation(
     return transport.subscribeDescriptor({
       method,
       request: create(method.input, { sessionId: sessionID }),
-      attachment: { projectID: target.projectID, sessionID },
+      attachment: { sessionID },
       eventDescriptor: SettingsSnapshotSchema,
       completionDescriptor: StreamCompletionSchema,
       onStart: (response) => {

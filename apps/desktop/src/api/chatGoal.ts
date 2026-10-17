@@ -240,7 +240,7 @@ export function createChatGoalApi(
       if (target.kind === "session") {
         const sessionID = target.sessionID.trim();
         const result = await transport.callDescriptorAttachedSession(
-          { sessionID, ...(target.projectID === undefined ? {} : { projectID: target.projectID }) },
+          { sessionID },
           R.GoalService.method.set,
           create(R.GoalSetRequestSchema, {
             target: create(ChatTargetSchema, {
@@ -298,7 +298,7 @@ export function createChatGoalApi(
       return transport.subscribeDescriptor({
         method,
         request: create(method.input, { sessionId: { value: { case: "sessionId", value: sessionID } } }),
-        attachment: { projectID: target.projectID, sessionID },
+        attachment: { sessionID },
         establishmentTimeoutMs: 30_000,
         eventDescriptor: R.GoalObservationSchema,
         completionDescriptor: StreamCompletionSchema,

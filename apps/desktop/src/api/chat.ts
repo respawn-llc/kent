@@ -82,7 +82,6 @@ export function createChatApi(transport: RpcTransport): ChatApi {
     subscribeSettings: (target, reportOverflow) => chatSettingsObservation(transport, target, reportOverflow),
     listPendingPrompts: async (target) =>
       listPendingPrompts(transport, {
-        projectID: target.projectID,
         sessionID: target.sessionID,
       }),
     answerPromptBatch: async (input) => answerPromptBatch(transport, input),
@@ -169,7 +168,7 @@ export function createChatApi(transport: RpcTransport): ChatApi {
       return transport.subscribeDescriptor({
         method,
         request: create(method.input, { sessionId: { value: { case: "sessionId", value: sessionID } } }),
-        attachment: { projectID: target.projectID, sessionID },
+        attachment: { sessionID },
         establishmentTimeoutMs: null,
         eventDescriptor: MessageSchema,
         completionDescriptor: StreamCompletionSchema,

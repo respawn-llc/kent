@@ -25,7 +25,7 @@ export type DescriptorSubscriptionInput<
     MessageValidType<EventDescriptor>,
     MessageValidType<CompletionDescriptor>
   >;
-  attachment?: Readonly<{ projectID: string; sessionID: string }>;
+  attachment?: SessionAttachmentTarget;
   establishmentTimeoutMs?: number | null;
   transcriptRejection?: Readonly<{ onInvalidEvent(error: Error): void }>;
 }>;
@@ -54,7 +54,7 @@ export type SessionAttachment = Readonly<{
   workspaceRoot: string;
   sessionID: string;
 }>;
-export type SessionAttachmentTarget = Readonly<{ sessionID: string; projectID?: string }>;
+export type SessionAttachmentTarget = Readonly<{ sessionID: string }>;
 
 export type AttachedProjectDescriptorCall<Method extends DescMethod> = Readonly<{
   projectID: string;

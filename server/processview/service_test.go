@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"strings"
+	"sync"
 	"testing"
 	"testing/synctest"
 	"time"
@@ -81,7 +82,7 @@ func TestServiceListProcessesIncludesStepOwnership(t *testing.T) {
 func TestServiceListExcludesForegroundProcesses(t *testing.T) {
 	fixture := newProcessViewFixture(t)
 	sub, err := fixture.service.ObserveProcesses(context.Background(), &processpb.ObserveRequest{
-		ProjectId: processViewTestProjectID, SessionId: "session-1",
+		SessionId: "session-1",
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -114,7 +115,7 @@ func TestServiceListExcludesForegroundProcesses(t *testing.T) {
 func TestObservationReplacesWithLatestCompletedListInServerOrder(t *testing.T) {
 	fixture := newProcessViewFixture(t)
 	sub, err := fixture.service.ObserveProcesses(context.Background(), &processpb.ObserveRequest{
-		ProjectId: processViewTestProjectID, SessionId: "session-1",
+		SessionId: "session-1",
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -165,7 +166,7 @@ func TestObservationInitialSessionScopeAndClose(t *testing.T) {
 	fixture.startCommand(t, "background", "sleep 30", "step-1")
 	for _, sessionID := range []string{"session-1", "session-2"} {
 		sub, err := fixture.service.ObserveProcesses(context.Background(), &processpb.ObserveRequest{
-			ProjectId: processViewTestProjectID, SessionId: sessionID,
+			SessionId: sessionID,
 		})
 		if err != nil {
 			t.Fatal(err)
@@ -190,11 +191,71 @@ func TestObservationInitialSessionScopeAndClose(t *testing.T) {
 	}
 }
 
+func TestObservationFollowsSessionAfterProjectMembershipChanges(t *testing.T) {
+	sessionID := "session-1"
+	membership := &mutableProjectSessionMembership{
+		byProject: map[string][]string{
+			processViewTestProjectID: {sessionID},
+		},
+	}
+	fixture := newProcessViewFixtureWithMembership(t, membership)
+	if result := fixture.startCommand(t, "moved-session", "sleep 30", "step-1"); result.IsError {
+		t.Fatalf("expected successful tool result, got %+v", result)
+	}
+	process := waitForProcessSnapshot(t, processViewTestWaitTimeout, func() (shelltool.Snapshot, bool) {
+		snapshots := fixture.manager.List()
+		if len(snapshots) != 1 || !snapshots[0].Backgrounded {
+			return shelltool.Snapshot{}, false
+		}
+		return snapshots[0], true
+	})
+
+	ctx, cancel := context.WithTimeout(context.Background(), processViewTestWaitTimeout)
+	defer cancel()
+	openedBeforeMove, err := fixture.service.ObserveProcesses(ctx, &processpb.ObserveRequest{
+		SessionId: sessionID,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer openedBeforeMove.Close()
+	initial, err := openedBeforeMove.Next(ctx)
+	if err != nil || len(initial.Processes) != 1 || initial.Processes[0].Id != process.ID {
+		t.Fatalf("initial observation: %+v (%v)", initial, err)
+	}
+
+	membership.setProject(processViewTestProjectID)
+	membership.setProject("project-2", sessionID)
+	fixture.service.BackgroundListChanged(sessionID)
+	updated, err := openedBeforeMove.Next(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(updated.Processes) != 1 || updated.Processes[0].Id != process.ID {
+		t.Errorf("open observation after Project move: %+v", updated.Processes)
+	}
+
+	openedAfterMove, err := fixture.service.ObserveProcesses(ctx, &processpb.ObserveRequest{
+		SessionId: sessionID,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer openedAfterMove.Close()
+	current, err := openedAfterMove.Next(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(current.Processes) != 1 || current.Processes[0].Id != process.ID {
+		t.Errorf("new observation after Project move: %+v", current.Processes)
+	}
+}
+
 func TestObservationBatchesOnlyMatchingChanges(t *testing.T) {
 	fixture := newProcessViewFixture(t)
 	synctest.Test(t, func(t *testing.T) {
 		sub, err := fixture.service.ObserveProcesses(context.Background(), &processpb.ObserveRequest{
-			ProjectId: processViewTestProjectID, SessionId: "session-1",
+			SessionId: "session-1",
 		})
 		if err != nil {
 			t.Fatal(err)
@@ -258,7 +319,7 @@ func TestObservationFailsWhenReplacementCannotBeDelivered(t *testing.T) {
 	fixture := newProcessViewFixture(t)
 	synctest.Test(t, func(t *testing.T) {
 		sub, err := fixture.service.ObserveProcesses(context.Background(), &processpb.ObserveRequest{
-			ProjectId: processViewTestProjectID, SessionId: "session-1",
+			SessionId: "session-1",
 		})
 		if err != nil {
 			t.Fatal(err)
@@ -282,6 +343,13 @@ type processViewFixture struct {
 }
 
 func newProcessViewFixture(t *testing.T) processViewFixture {
+	return newProcessViewFixtureWithMembership(t, allProjectSessionMembership{})
+}
+
+func newProcessViewFixtureWithMembership(
+	t *testing.T,
+	membership ProjectSessionMembership,
+) processViewFixture {
 	t.Helper()
 	manager, err := shelltool.NewManager(t.TempDir(), shelltool.WithMinimumExecToBgTime(250*time.Millisecond))
 	if err != nil {
@@ -291,7 +359,7 @@ func newProcessViewFixture(t *testing.T) processViewFixture {
 
 	workspace := t.TempDir()
 	tool := shelltool.NewExecCommandToolWithPostprocessor(workspace, 16_000, 200_000, manager, "session-1", postprocessfixture.NewRunner(t, postprocess.Settings{Mode: config.ShellPostprocessingModeBuiltin}))
-	service := NewProcessViewService(manager, allProjectSessionMembership{})
+	service := NewProcessViewService(manager, membership)
 	manager.SetBackgroundListChangeHandler(service.BackgroundListChanged)
 	return processViewFixture{
 		manager: manager,
@@ -403,6 +471,26 @@ func (allProjectSessionMembership) ListProjectSessionIDs(
 	_ string,
 ) ([]string, error) {
 	return []string{"session-1"}, nil
+}
+
+type mutableProjectSessionMembership struct {
+	mu        sync.RWMutex
+	byProject map[string][]string
+}
+
+func (m *mutableProjectSessionMembership) ListProjectSessionIDs(
+	_ context.Context,
+	projectID string,
+) ([]string, error) {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	return append([]string{}, m.byProject[projectID]...), nil
+}
+
+func (m *mutableProjectSessionMembership) setProject(projectID string, sessionIDs ...string) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.byProject[projectID] = append([]string{}, sessionIDs...)
 }
 
 func waitForProcessCount(t *testing.T, manager *shelltool.Manager, count int) {
