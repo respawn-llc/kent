@@ -4,12 +4,14 @@ import (
 	"testing"
 
 	"core/shared/protoapi"
+	projectpb "core/shared/protoapi/gen/kent/api/project"
 	runtimepb "core/shared/protoapi/gen/kent/api/runtime"
 	transcriptpb "core/shared/protoapi/gen/kent/api/transcript"
 )
 
 func TestTranscriptSessionNameMustBeNonblankWhenPresent(t *testing.T) {
 	if err := protoapi.Validate(&transcriptpb.SessionIdentity{
+		Category:              projectpb.SessionCategory_SESSION_CATEGORY_MAIN,
 		SessionId:             "11111111-1111-4111-8111-111111111111",
 		ConversationFreshness: runtimepb.ConversationFreshness_CONVERSATION_FRESHNESS_FRESH,
 	}); err != nil {
@@ -17,6 +19,7 @@ func TestTranscriptSessionNameMustBeNonblankWhenPresent(t *testing.T) {
 	}
 	for _, name := range []string{" \t", "session"} {
 		message := &transcriptpb.SessionIdentity{
+			Category:              projectpb.SessionCategory_SESSION_CATEGORY_MAIN,
 			SessionId:             "11111111-1111-4111-8111-111111111111",
 			SessionName:           &name,
 			ConversationFreshness: runtimepb.ConversationFreshness_CONVERSATION_FRESHNESS_FRESH,
