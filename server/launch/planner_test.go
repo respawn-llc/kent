@@ -939,7 +939,7 @@ func TestPlannerInitializesChildFromSourceMetadataWithoutOpeningSessionDirectory
 				"a":    {Protocol: config.ConnectionChatGPT},
 				"test": {Protocol: config.ConnectionChatGPT},
 			}
-			planner.Rotation = NewConnectionRotation(testsetup.OpenStore(t, t.TempDir()))
+			planner.Rotation = NewConnectionRotation(testsetup.OpenStore(t, t.TempDir()), 0)
 			sourceID := mustTypedIntentSessionID(t, source.Meta().SessionID)
 
 			plan, err := planner.PlanSession(context.Background(), SessionRequest{

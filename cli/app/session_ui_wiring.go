@@ -79,7 +79,8 @@ func prepareSharedRuntimeWiring(
 		toolIDs[index] = string(id)
 	}
 	preparation, err := protoapi.SessionRuntimePreparationToProto(serverapi.SessionRuntimePreparationOptions{
-		ActiveSettings: plan.ActiveSettings, EnabledToolIDs: toolIDs,
+		ConnectionScope: plan.ConnectionScope,
+		ActiveSettings:  plan.ActiveSettings, EnabledToolIDs: toolIDs,
 		QuestionsEnabled: &plan.QuestionsEnabled, AutoCompactionEnabled: &plan.AutoCompactionEnabled,
 		ThinkingOverrideExplicit: plan.ThinkingOverrideExplicit,
 		AgentSelection:           plan.ActivationAgentSelection, ExplicitToolSelection: plan.ExplicitToolSelection,

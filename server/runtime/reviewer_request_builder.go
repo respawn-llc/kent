@@ -26,7 +26,7 @@ func reviewerSuggestionsStructuredOutput(contract jsoncontract.Structured) *llm.
 	}
 }
 
-func (e *Engine) buildReviewerRequest(ctx context.Context, reviewerClient *observedModelClient) (llm.Request, error) {
+func (e *Engine) buildReviewerRequest(ctx context.Context) (llm.Request, error) {
 	if _, err := e.ensureLocked(); err != nil {
 		return llm.Request{}, err
 	}
@@ -43,11 +43,14 @@ func (e *Engine) buildReviewerRequest(ctx context.Context, reviewerClient *obser
 	if err != nil {
 		return llm.Request{}, err
 	}
+	e.mu.Lock()
+	fastMode := e.cfg.FastModeEnabled
+	e.mu.Unlock()
 	req := llm.Request{
 		Model:                   reviewerCfg.Model,
 		Temperature:             1,
 		MaxTokens:               0,
-		FastMode:                e.FastModeEnabled(),
+		FastMode:                fastMode,
 		ReasoningEffort:         effort,
 		SupportsReasoningEffort: reviewerCfg.ModelCapabilities.SupportsReasoningEffort,
 		SystemPrompt:            systemPrompt,
@@ -55,12 +58,8 @@ func (e *Engine) buildReviewerRequest(ctx context.Context, reviewerClient *obser
 		Tools:                   []llm.Tool{},
 		ToolChoiceMode:          llm.ToolChoiceModeAutomatic,
 		StructuredOutput:        reviewerSuggestionsStructuredOutput(e.reviewerSuggestionsContract),
-	}
-	if supportsPromptCacheKeyForClient(ctx, reviewerClient) {
-		if cacheKey := e.conversationPromptCacheKey(reviewerSessionID(e.store.Meta().SessionID)); cacheKey != "" {
-			req.PromptCacheKey = cacheKey
-			req.PromptCacheScope = transcript.CacheWarningScopeReviewer
-		}
+		PromptCacheKey:          e.conversationPromptCacheKey(reviewerSessionID(e.store.Meta().SessionID)),
+		PromptCacheScope:        transcript.CacheWarningScopeReviewer,
 	}
 	if err := req.Validate(); err != nil {
 		return llm.Request{}, err
@@ -71,9 +70,8 @@ func (e *Engine) buildReviewerRequest(ctx context.Context, reviewerClient *obser
 func (e *Engine) buildReviewerDispatchRequest(
 	ctx context.Context,
 	stepID string,
-	reviewerClient *observedModelClient,
 ) (llm.Request, error) {
-	req, err := e.buildReviewerRequest(ctx, reviewerClient)
+	req, err := e.buildReviewerRequest(ctx)
 	if err != nil {
 		return llm.Request{}, err
 	}

@@ -37,7 +37,7 @@ func TestPreparePreviousSessionChildAllocatesFreshRoleConnection(t *testing.T) {
 			},
 		},
 	}
-	planner.Rotation = NewConnectionRotation(testsetup.OpenStore(t, t.TempDir()))
+	planner.Rotation = NewConnectionRotation(testsetup.OpenStore(t, t.TempDir()), 0)
 	parent, err := planner.PlanSession(t.Context(), SessionRequest{
 		Mode: ModeInteractive, Intent: serverapi.CreateNewSessionLaunchIntent(serverapi.IndependentSessionCreateOrigin()),
 	})

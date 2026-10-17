@@ -41,7 +41,7 @@ func TestCompactionTargetDoesNotPrepareProviderBeforeCompaction(t *testing.T) {
 		t.Fatal(err)
 	}
 	input.CurrentNode.SessionID, input.SourceSessionID = &id, &id
-	f.starter.connectionRotation = launch.NewConnectionRotation(testsetup.OpenStore(t, t.TempDir()))
+	f.starter.connectionRotation = launch.NewConnectionRotation(testsetup.OpenStore(t, t.TempDir()), 0)
 	before := len(f.runtimeRequests())
 	if _, err := f.starter.PrepareCurrentNode(t.Context(), input, workflowruntime.TaskPromptDeliveryAssignment); err != nil {
 		t.Fatal(err)

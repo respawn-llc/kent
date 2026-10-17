@@ -429,6 +429,7 @@ func (s *Starter) buildCurrentNodeAgentRuntimePlan(
 		return sessionruntime.AgentRuntimePlan{}, err
 	}
 	return sessionruntime.NewAgentRuntimePlan(sessionruntime.AgentRuntimePlanOptions{
+		ConnectionScope:       prepared.plan.ConnectionScope,
 		MainWorkspaceRoot:     prepared.plan.ExecutionTarget.WorkspaceRoot,
 		ExplicitToolSelection: prepared.plan.ExplicitToolSelection,
 		RequiredTools:         prepared.plan.RequiredTools,

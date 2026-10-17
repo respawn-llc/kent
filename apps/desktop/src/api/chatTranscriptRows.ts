@@ -91,6 +91,8 @@ function notice(value: T.NoticeRow): ChatNotice {
       [T.NoticeReason.PROVIDER_MODEL_MISMATCH]: "provider_model_mismatch",
       [T.NoticeReason.THINKING_UPDATE]: "thinking_update",
       [T.NoticeReason.REASONING_OMISSION]: "reasoning_omission",
+      [T.NoticeReason.CONNECTION_FALLBACK]: "connection_fallback",
+      [T.NoticeReason.CONNECTIONS_UNAVAILABLE]: "connections_unavailable",
     }),
     Severity: enumValue(value.severity, {
       [T.NoticeSeverity.INFO]: "info",
@@ -140,7 +142,13 @@ function noticeDiagnostics(
   value: T.NoticeRow,
 ): Pick<
   ChatNotice,
-  "ToolOutputRepair" | "ProviderModelMismatch" | "ReasoningOmission" | "Diagnostic" | "Background"
+  | "ToolOutputRepair"
+  | "ProviderModelMismatch"
+  | "ReasoningOmission"
+  | "ConnectionFallback"
+  | "ConnectionsUnavailable"
+  | "Diagnostic"
+  | "Background"
 > {
   const repairKind = value.toolOutputRepair?.kind;
   if (repairKind !== undefined && repairKind !== "fresh_resource" && repairKind !== "live_provider_rejection")
@@ -157,6 +165,23 @@ function noticeDiagnostics(
           },
     ReasoningOmission:
       value.reasoningOmission === undefined ? null : { count: value.reasoningOmission.count },
+    ConnectionFallback:
+      value.connectionFallback === undefined
+        ? null
+        : {
+            previous_id: value.connectionFallback.previousId,
+            current_id: value.connectionFallback.currentId,
+          },
+    ConnectionsUnavailable:
+      value.connectionsUnavailable === undefined
+        ? null
+        : {
+            members: value.connectionsUnavailable.members.map((member) => ({
+              id: member.id,
+              available_at: member.availableAt === undefined ? null : timestampMillis(member.availableAt),
+            })),
+            diagnostics: value.connectionsUnavailable.diagnostics,
+          },
     Diagnostic: diagnostic(value.diagnostic),
     Background:
       value.background === undefined

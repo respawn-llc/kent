@@ -1038,14 +1038,16 @@ func transcriptNoticeFromFact(stepID *string, fact *runtime.TranscriptNoticeRowF
 		return nil, fmt.Errorf("runtime transcript notice row fact is missing its notice payload")
 	}
 	reasons := map[string]transcriptpb.NoticeReason{
-		transcript.NoticeReasonCacheWarning:          transcriptpb.NoticeReason_NOTICE_REASON_CACHE_WARNING,
-		transcript.NoticeReasonCompaction:            transcriptpb.NoticeReason_NOTICE_REASON_COMPACTION,
-		transcript.NoticeReasonLegacyUntypedNotice:   transcriptpb.NoticeReason_NOTICE_REASON_LEGACY_UNTYPED_NOTICE,
-		transcript.NoticeReasonRuntimeDiagnostic:     transcriptpb.NoticeReason_NOTICE_REASON_RUNTIME_DIAGNOSTIC,
-		transcript.NoticeReasonToolOutputRepair:      transcriptpb.NoticeReason_NOTICE_REASON_TOOL_OUTPUT_REPAIR,
-		transcript.NoticeReasonProviderModelMismatch: transcriptpb.NoticeReason_NOTICE_REASON_PROVIDER_MODEL_MISMATCH,
-		transcript.NoticeReasonThinkingUpdate:        transcriptpb.NoticeReason_NOTICE_REASON_THINKING_UPDATE,
-		transcript.NoticeReasonReasoningOmission:     transcriptpb.NoticeReason_NOTICE_REASON_REASONING_OMISSION,
+		transcript.NoticeReasonCacheWarning:           transcriptpb.NoticeReason_NOTICE_REASON_CACHE_WARNING,
+		transcript.NoticeReasonCompaction:             transcriptpb.NoticeReason_NOTICE_REASON_COMPACTION,
+		transcript.NoticeReasonLegacyUntypedNotice:    transcriptpb.NoticeReason_NOTICE_REASON_LEGACY_UNTYPED_NOTICE,
+		transcript.NoticeReasonRuntimeDiagnostic:      transcriptpb.NoticeReason_NOTICE_REASON_RUNTIME_DIAGNOSTIC,
+		transcript.NoticeReasonToolOutputRepair:       transcriptpb.NoticeReason_NOTICE_REASON_TOOL_OUTPUT_REPAIR,
+		transcript.NoticeReasonProviderModelMismatch:  transcriptpb.NoticeReason_NOTICE_REASON_PROVIDER_MODEL_MISMATCH,
+		transcript.NoticeReasonThinkingUpdate:         transcriptpb.NoticeReason_NOTICE_REASON_THINKING_UPDATE,
+		transcript.NoticeReasonReasoningOmission:      transcriptpb.NoticeReason_NOTICE_REASON_REASONING_OMISSION,
+		transcript.NoticeReasonConnectionFallback:     transcriptpb.NoticeReason_NOTICE_REASON_CONNECTION_FALLBACK,
+		transcript.NoticeReasonConnectionsUnavailable: transcriptpb.NoticeReason_NOTICE_REASON_CONNECTIONS_UNAVAILABLE,
 	}
 	reason, ok := reasons[strings.TrimSpace(fact.Reason)]
 	if !ok {
@@ -1134,6 +1136,21 @@ func transcriptNoticeFromFact(stepID *string, fact *runtime.TranscriptNoticeRowF
 			return nil, err
 		}
 		notice.ReasoningOmission = &transcriptpb.ReasoningOmission{Count: count}
+	}
+	if fact.ConnectionFallback != nil {
+		notice.ConnectionFallback = &transcriptpb.ConnectionReplacement{
+			PreviousId: string(fact.ConnectionFallback.Previous), CurrentId: string(fact.ConnectionFallback.Current),
+		}
+	}
+	if fact.ConnectionsUnavailable != nil {
+		notice.ConnectionsUnavailable = &transcriptpb.ConnectionsUnavailable{Diagnostics: fact.ConnectionsUnavailable.Diagnostics}
+		for _, member := range fact.ConnectionsUnavailable.Members {
+			projected := &transcriptpb.UnavailableConnection{Id: string(member.ID)}
+			if member.AvailableAt != nil {
+				projected.AvailableAt = timestamppb.New(*member.AvailableAt)
+			}
+			notice.ConnectionsUnavailable.Members = append(notice.ConnectionsUnavailable.Members, projected)
+		}
 	}
 	diagnosticCode := strings.TrimSpace(fact.DiagnosticCode)
 	diagnosticDetail := fact.DiagnosticDetail

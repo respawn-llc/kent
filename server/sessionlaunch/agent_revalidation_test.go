@@ -114,7 +114,7 @@ func agentReplacementFixture(t *testing.T) (config.App, *Service, *metadata.Stor
 	if err != nil {
 		t.Fatal(err)
 	}
-	rotation := launch.NewConnectionRotation(testsetup.OpenStore(t, t.TempDir()))
+	rotation := launch.NewConnectionRotation(testsetup.OpenStore(t, t.TempDir()), 0)
 	authority := sessionruntime.NewAuthority(sessionruntime.AuthorityOptions{
 		PersistenceRoot: cfg.PersistenceRoot, StoreOptions: db.AuthoritativeSessionStoreOptions(), ConnectionRotation: rotation,
 	})

@@ -379,7 +379,7 @@ func TestReviewerSharesMainAgentTurnProviderTurnState(t *testing.T) {
 				return err
 			}
 			sendReviewer := func() error {
-				request, err := engine.buildReviewerDispatchRequest(ctx, stepID, newObservedModelClient(reviewerClient))
+				request, err := engine.buildReviewerDispatchRequest(ctx, stepID)
 				if err != nil {
 					return err
 				}
@@ -506,7 +506,7 @@ func TestReviewerMismatchedRouteKeepsInvocationStateIsolated(t *testing.T) {
 				if _, err := mainClient.Generate(ctx, mainRequest, llm.StreamCallbacks{}); err != nil {
 					return err
 				}
-				reviewerRequest, err := engine.buildReviewerDispatchRequest(ctx, stepID, newObservedModelClient(reviewerClient))
+				reviewerRequest, err := engine.buildReviewerDispatchRequest(ctx, stepID)
 				if err != nil {
 					return err
 				}

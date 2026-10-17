@@ -8,6 +8,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"time"
 
 	"core/prompts"
 	"core/server/attentionnotify"
@@ -121,7 +122,7 @@ func NewWithContextOptions(ctx context.Context, cfg config.App, authSupport serv
 	runtimeRegistry := registry.NewRuntimeRegistry(metadataStore).WithAttentionNotifications(attentionBroker, metadataStore.ResolveSessionNavigationBinding)
 	runtimeRegistry.WithTranscriptContractViolationPanic(cfg.Settings.Debug)
 	var workflowController *workflowexecution.CurrentNodeController
-	connectionRotation := launch.NewConnectionRotation(metadataStore)
+	connectionRotation := launch.NewConnectionRotation(metadataStore, time.Duration(cfg.Settings.ConnectionUsageFallbackSeconds)*time.Second)
 	connections := authservice.NewConnectionResolver(cfg.PersistenceRoot, authSupport.AuthManager, authSupport.Environment)
 	nanoInference, err := nano.NewService(cfg.Settings.NanoConcurrency, connectionRotation, connections, opts.RuntimeClientFactory)
 	if err != nil {

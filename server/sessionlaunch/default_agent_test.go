@@ -40,7 +40,7 @@ func TestChatAgentMutationAllocatesActualMemberAndPreservesUnchangedBinding(t *t
 	if err != nil {
 		t.Fatal(err)
 	}
-	rotation := launch.NewConnectionRotation(testsetup.OpenStore(t, t.TempDir()))
+	rotation := launch.NewConnectionRotation(testsetup.OpenStore(t, t.TempDir()), 0)
 	authority := sessionruntime.NewAuthority(sessionruntime.AuthorityOptions{
 		PersistenceRoot: cfg.PersistenceRoot, StoreOptions: db.AuthoritativeSessionStoreOptions(), ConnectionRotation: rotation,
 	})
@@ -168,7 +168,7 @@ func TestDistinctConnectionSetInitialSelectionAndUnavailableAgentRepair(t *testi
 	}
 	service := newSessionLaunchTestService(cfg, t.TempDir())
 	service.planner.Config = cfg
-	service.planner.Rotation = launch.NewConnectionRotation(testsetup.OpenStore(t, t.TempDir()))
+	service.planner.Rotation = launch.NewConnectionRotation(testsetup.OpenStore(t, t.TempDir()), 0)
 	for _, want := range []config.ConnectionID{"a", "c"} {
 		result, err := service.PlanLaunchSession(t.Context(), PlanRequest{
 			Mode:   launch.ModeInteractive,

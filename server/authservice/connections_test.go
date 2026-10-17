@@ -328,7 +328,7 @@ endpoint = "http://127.0.0.1:1/v1"
 		t.Fatal(err)
 	}
 	for _, present := range []bool{false, true} {
-		rotation := launch.NewConnectionRotation(testsetup.OpenStore(t, t.TempDir()))
+		rotation := launch.NewConnectionRotation(testsetup.OpenStore(t, t.TempDir()), 0)
 		id, err := rotation.Prepare(t.Context(), app.Settings, true)
 		if err != nil || id != "api" {
 			t.Fatalf("selected member = %v, %v", id, err)
@@ -401,7 +401,7 @@ endpoint = %q
 			"b": {Protocol: config.ConnectionResponses, Endpoint: &endpoint.URL},
 		},
 	}
-	rotation := launch.NewConnectionRotation(testsetup.OpenStore(t, t.TempDir()))
+	rotation := launch.NewConnectionRotation(testsetup.OpenStore(t, t.TempDir()), 0)
 	id, err := rotation.Prepare(t.Context(), settings, true)
 	if err != nil || id != "a" {
 		t.Fatalf("selected member = %v, %v", id, err)

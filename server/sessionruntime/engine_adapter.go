@@ -24,6 +24,7 @@ import (
 )
 
 type AgentRuntimePlanOptions struct {
+	ConnectionScope                     config.ConnectionScope
 	MainWorkspaceRoot                   string
 	Settings                            config.Settings
 	EnabledTools                        []toolspec.ID
@@ -305,6 +306,8 @@ func (a *Authority) newRuntimeWiringFromPlan(ctx context.Context, resource *agen
 		return nil, err
 	}
 	wiringOptions := runtimewire.RuntimeWiringOptions{
+		ConnectionScope:    options.ConnectionScope,
+		ConnectionRotation: a.options.connectionRotation,
 		SubmitSessionNaming: func(input runtime.SessionNamingInput) {
 			resource.mu.Lock()
 			localTools := resource.localTools

@@ -12,11 +12,31 @@ import (
 )
 
 type reviewerRuntimeState struct {
-	mu      sync.Mutex
-	client  *observedModelClient
-	factory func() (*observedModelClient, error)
-	active  *runtimeids.StepID
-	phase   runtimepb.ReviewerActivity
+	mu         sync.Mutex
+	client     *observedModelClient
+	factory    func() (*observedModelClient, error)
+	active     *runtimeids.StepID
+	phase      runtimepb.ReviewerActivity
+	connection *connectionBundle
+}
+
+func (s *reviewerRuntimeState) clientForConnection(bundle *connectionBundle, factory func() (llm.Client, error)) (*observedModelClient, error) {
+	s.mu.Lock()
+	if s.connection == bundle {
+		client := s.client
+		s.mu.Unlock()
+		return client, nil
+	}
+	s.mu.Unlock()
+	client, err := factory()
+	if err != nil {
+		return nil, err
+	}
+	observed := newObservedModelClient(client)
+	s.mu.Lock()
+	s.client, s.connection = observed, bundle
+	s.mu.Unlock()
+	return observed, nil
 }
 
 func newReviewerRuntimeState(client llm.Client, factory func() (llm.Client, error)) *reviewerRuntimeState {

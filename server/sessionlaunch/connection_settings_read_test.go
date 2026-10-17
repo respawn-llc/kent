@@ -96,7 +96,7 @@ func TestSessionChatSettingsReplacementMatchesInteractiveResumeAgentConnection(t
 	if err := store.SetContinuationContext(session.ContinuationContext{AgentRole: textutil.Value("worker")}); err != nil {
 		t.Fatal(err)
 	}
-	rotation := launch.NewConnectionRotation(testsetup.OpenStore(t, t.TempDir()))
+	rotation := launch.NewConnectionRotation(testsetup.OpenStore(t, t.TempDir()), 0)
 	workerSettings := cfg.Settings
 	workerSettings.Connection = &workerConnections
 	if selected, err := rotation.Prepare(t.Context(), workerSettings, true); err != nil || selected != "worker" {

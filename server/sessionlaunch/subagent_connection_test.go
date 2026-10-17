@@ -25,7 +25,7 @@ func TestParentAgentChildrenAllocateFreshConnectionsAndResumeSticky(t *testing.T
 		AgentCallable: true,
 	}
 	service := newSessionLaunchTestService(cfg, t.TempDir())
-	service.planner.Rotation = launch.NewConnectionRotation(testsetup.OpenStore(t, t.TempDir()))
+	service.planner.Rotation = launch.NewConnectionRotation(testsetup.OpenStore(t, t.TempDir()), 0)
 	service.planner.CallerSessions = serviceTestPersistence
 	parent, err := service.PlanLaunchSession(t.Context(), PlanRequest{
 		Mode: launch.ModeInteractive,

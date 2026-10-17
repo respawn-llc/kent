@@ -114,7 +114,7 @@ func TestPrepareInteractiveForkUsesAllocatedConnectionInsteadOfFirstMember(t *te
 		ConnectionID: new(config.ConnectionID("official")),
 		ChatSettings: &session.ChatSettingsOverrides{Thinking: new("low")},
 	}
-	rotation := NewConnectionRotation(testsetup.OpenStore(t, t.TempDir()))
+	rotation := NewConnectionRotation(testsetup.OpenStore(t, t.TempDir()), 0)
 	for _, expected := range []struct {
 		id     config.ConnectionID
 		native bool

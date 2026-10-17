@@ -601,6 +601,10 @@ func sessionPlanSuccessFromResult(result PlanResult) (*sessionlaunchpb.SessionPl
 		enabledToolIDs = append(enabledToolIDs, generated)
 	}
 	plan := &sessionlaunchpb.SessionPlan{
+		ConnectionScope: &sessionlaunchpb.ConnectionScope{
+			Selection:       protoapi.ConnectionSelectionToProto(result.Plan.ConnectionScope.Selection),
+			UnavailableRole: result.Plan.ConnectionScope.UnavailableRole,
+		},
 		ShortId:                  protoapi.SessionShortIDToProto(result.Identity.ShortID),
 		SessionId:                result.Plan.Descriptor.SessionID().String(),
 		ActiveSettings:           settings,

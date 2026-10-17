@@ -122,6 +122,7 @@ function runtimePlanResult(planSessionID: string) {
       value: {
         plan: {
           sessionId: planSessionID,
+          connectionScope: {},
           activeSettings: settings,
           enabledToolIds: [ToolID.TOOL_ID_EXEC_COMMAND],
           modelContractLocked: false,

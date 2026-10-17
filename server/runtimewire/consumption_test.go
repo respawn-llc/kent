@@ -33,7 +33,7 @@ func (consumptionTransport) Compact(context.Context, llm.ResponsesRequest) (llm.
 func TestConsumptionFollowsServingConnection(t *testing.T) {
 	root := t.TempDir()
 	store := testsetup.OpenStore(t, root)
-	rotation := launch.NewConnectionRotation(store)
+	rotation := launch.NewConnectionRotation(store, 0)
 	sessionStore := newRuntimeWireSession(t, root, "consumption")
 	settings := config.Settings{
 		Model: "unpriced-local-model", Connection: config.SingleConnection("main"),

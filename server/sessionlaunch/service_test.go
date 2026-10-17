@@ -58,7 +58,7 @@ func TestSessionLaunchSharesRotationAcrossDefaultAndRolesAndRetainsBinding(t *te
 		},
 	}
 	service := newSessionLaunchTestService(cfg, t.TempDir())
-	service.planner.Rotation = launch.NewConnectionRotation(testsetup.OpenStore(t, t.TempDir()))
+	service.planner.Rotation = launch.NewConnectionRotation(testsetup.OpenStore(t, t.TempDir()), 0)
 	for index, want := range []config.ConnectionID{"a", "b", "a", "b"} {
 		overrides := serverapi.RunPromptOverrides{}
 		if index%2 == 1 {
@@ -101,7 +101,7 @@ func TestDeletedSessionBindingAllocatesNextMember(t *testing.T) {
 		"a": cfg.Settings.Connections["test"], "b": cfg.Settings.Connections["test"],
 	}
 	service := newSessionLaunchTestService(cfg, t.TempDir())
-	service.planner.Rotation = launch.NewConnectionRotation(testsetup.OpenStore(t, t.TempDir()))
+	service.planner.Rotation = launch.NewConnectionRotation(testsetup.OpenStore(t, t.TempDir()), 0)
 	fresh, err := service.PlanLaunchSession(t.Context(), PlanRequest{
 		Mode: launch.ModeInteractive, Intent: serverapi.CreateNewSessionLaunchIntent(serverapi.IndependentSessionCreateOrigin()),
 	})
@@ -155,7 +155,7 @@ func TestPreviousSessionChildrenAllocateFreshConnectionsAndResumeSticky(t *testi
 					},
 				}
 				service := newSessionLaunchTestService(cfg, t.TempDir())
-				service.planner.Rotation = launch.NewConnectionRotation(testsetup.OpenStore(t, t.TempDir()))
+				service.planner.Rotation = launch.NewConnectionRotation(testsetup.OpenStore(t, t.TempDir()), 0)
 				overrides := serverapi.RunPromptOverrides{AgentRole: role}
 				parent, err := service.PlanLaunchSession(t.Context(), PlanRequest{
 					Mode: mode, Intent: serverapi.CreateNewSessionLaunchIntent(serverapi.IndependentSessionCreateOrigin()),
@@ -225,7 +225,7 @@ func TestExplicitUnchangedAgentReplacesDeletedBindingOnce(t *testing.T) {
 		Sources:  map[string]config.Origin{"model": {Kind: config.SourceInput, Property: config.PropertyAddress{Key: "model"}}},
 	}
 	service := newSessionLaunchTestService(cfg, t.TempDir())
-	service.planner.Rotation = launch.NewConnectionRotation(testsetup.OpenStore(t, t.TempDir()))
+	service.planner.Rotation = launch.NewConnectionRotation(testsetup.OpenStore(t, t.TempDir()), 0)
 	store := createLaunchTestSession(t, service.planner.ContainerDir, "retained", cfg.WorkspaceRoot)
 	if err := store.SetContinuationContext(session.ContinuationContext{AgentRole: textutil.Value("worker")}); err != nil {
 		t.Fatal(err)

@@ -348,6 +348,7 @@ func (l *headlessPromptLauncher) runtimeLaunchRequest(plan launch.SessionPlan, p
 		startLogLines = append(startLogLines, "config.source "+line)
 	}
 	runtimePlan, err := sessionruntime.NewAgentRuntimePlan(sessionruntime.AgentRuntimePlanOptions{
+		ConnectionScope:       plan.ConnectionScope,
 		MainWorkspaceRoot:     executionTarget.WorkspaceRoot,
 		Settings:              plan.ActiveSettings,
 		EnabledTools:          plan.EnabledTools,

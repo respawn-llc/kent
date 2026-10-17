@@ -4,9 +4,13 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io"
+	"net/http"
+	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"reflect"
+	"sync/atomic"
 	"testing"
 
 	"core/cli/app/internal/startupconfig"
@@ -23,6 +27,65 @@ import (
 	"core/shared/serverapi"
 	"core/shared/sessioncontract"
 )
+
+func TestInteractiveConnectionFallbackAndSharedCooldown(t *testing.T) {
+	_, workspace := newRegisteredAppWorkspace(t)
+	quota, err := os.ReadFile("../../server/llm/testdata/usage-exhaustion/openai-quota.json")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var exhaustedCalls atomic.Int32
+	exhausted := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost {
+			w.WriteHeader(http.StatusNotFound)
+			return
+		}
+		exhaustedCalls.Add(1)
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusTooManyRequests)
+		_, _ = w.Write(quota)
+	}))
+	defer exhausted.Close()
+	healthy, healthyCalls := newFakeResponsesServer(t, []string{"continued", "continued"})
+	defer healthy.Close()
+	cfg := loadAppTestConfig(t, workspace, config.LoadOptions{})
+	selection := config.ConnectionSelection{"a", "b"}
+	cfg.Settings.Connection = &selection
+	cfg.Settings.Connections = map[config.ConnectionID]config.ProviderConnection{
+		"a": {Protocol: config.ConnectionResponses, Endpoint: &exhausted.URL},
+		"b": {Protocol: config.ConnectionResponses, Endpoint: &healthy.URL},
+	}
+	testsetup.WriteProviderSettings(t, cfg.PersistenceRoot, cfg.Settings)
+	fixture := startConfiguredDaemonFixture(t, workspace, serverstartup.Request{WorkspaceRoot: workspace, WorkspaceRootExplicit: true})
+	server := fixture.attachRemoteSessionServer(t, Options{WorkspaceRoot: workspace}, newHeadlessAuthInteractor())
+	var plans []sessionLaunchPlan
+	var runtimes []*runtimeLaunchPlan
+	for range 3 {
+		plan, runtimePlan := prepareAppRuntimePlan(t, server, sessionLaunchRequest{
+			Mode:   launchModeInteractive,
+			Intent: requestfixture.LaunchIntent(t, serverapi.CreateNewSessionLaunchIntent(serverapi.IndependentSessionCreateOrigin())),
+		}, io.Discard, "fallback")
+		t.Cleanup(func() { closeRuntimeLaunchPlan(t, runtimePlan) })
+		plans = append(plans, plan)
+		runtimes = append(runtimes, runtimePlan)
+	}
+	for _, index := range []int{0, 2} {
+		store := openAuthoritativeWorkspaceSessionStore(t, workspace, plans[index].SessionID)
+		if id := store.Meta().ConnectionID; id == nil || *id != "a" {
+			t.Fatalf("initial binding = %v, want A", id)
+		}
+		submission, err := submitRuntimeClientForTest(t, runtimes[index].Wiring.runtimeClient, "hello")
+		requireQueuedAppTestUserTurn(t, submission, err)
+		waitForRemoteTranscriptAssistantFinal(t, runtimes[index].Wiring.eventDispatcher.transcriptEvents, "continued")
+		store = openAuthoritativeWorkspaceSessionStore(t, workspace, plans[index].SessionID)
+		if id := store.Meta().ConnectionID; id == nil || *id != "b" {
+			t.Fatalf("saved replacement = %v, want B", id)
+		}
+	}
+	if exhaustedCalls.Load() != 1 || healthyCalls.Load() != 2 {
+		t.Fatalf("provider requests: A=%d, B=%d", exhaustedCalls.Load(), healthyCalls.Load())
+	}
+}
 
 func TestStartupAndHeadlessUseSelectedConnectionDespiteUnavailableDefault(t *testing.T) {
 	_, workspace := newRegisteredAppWorkspace(t)

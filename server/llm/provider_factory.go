@@ -198,7 +198,7 @@ func providerContracts() []ProviderContract {
 						SupportsProviderVerbosity:     true,
 						IsOpenAIFirstParty:            true,
 					},
-					NewErrorReducer: newOpenAICompatibleErrorReducer,
+					NewErrorReducer: newChatGPTErrorReducer,
 				},
 			},
 			ModelContracts: []ModelCapabilityContract{

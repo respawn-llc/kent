@@ -158,7 +158,8 @@ type reviewerPipeline interface {
 type preparedReviewerRequest struct {
 	originStepID runtimeids.StepID
 	client       *observedModelClient
-	request      cacheObservedRequest
+	source       llm.Request
+	connection   *connectionBundle
 }
 
 type reviewerProviderResult struct {
