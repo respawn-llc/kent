@@ -17,7 +17,7 @@ tauri-build = { version = "2", features = [] }
 arboard = { version = "3.6.1", features = ["wayland-data-control"] }
 image = { version = "0.25", default-features = false, features = ["png"] }
 futures-util = "0.3"
-reqwest = { version = "0.13", default-features = false, features = ["rustls-no-provider", "stream"] }
+reqwest = { version = "0.13", default-features = false, features = ["rustls", "stream"] }
 tokio-util = { version = "0.7", features = ["io", "rt"] }
 tempfile = "3"
 serde = { version = "1", features = ["derive"] }
