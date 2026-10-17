@@ -646,20 +646,24 @@ func (c *liveRunCoordinator) finishAdmission(admission liveRunAdmission, queueIt
 	return true, nil
 }
 
-func (c *liveRunCoordinator) beginQueueItemPublication(queueItemID runtimeids.QueueItemID, lane runtimeinput.PendingWorkLane, claim *queuedUserMessageClaim) (bool, error) {
+func (c *liveRunCoordinator) beginQueueItemPublication(
+	queueItemID runtimeids.QueueItemID,
+	lane runtimeinput.PendingWorkLane,
+	claim *queuedUserMessageClaim,
+) (bool, <-chan struct{}, error) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	if c.current == nil || (c.current.status != RunStatusRunning && c.current.status != RunStatusCompleted) {
-		return false, nil
+		return false, c.readinessChanged, nil
 	}
 	if _, exists := c.current.taggedQueueItems[queueItemID]; exists {
 		if claim != nil {
-			return false, nil
+			return false, c.readinessChanged, nil
 		}
-		return false, errDuplicateQueuedUserMessageID
+		return false, nil, errDuplicateQueuedUserMessageID
 	}
 	c.current.trackQueuedItemForLiveRun(queueItemID, lane)
-	return true, nil
+	return true, nil, nil
 }
 
 func (c *liveRunCoordinator) finishQueueItemPublication(queueItemID runtimeids.QueueItemID) bool {

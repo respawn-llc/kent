@@ -453,6 +453,13 @@ func (a *Authority) RunCurrentTurn(
 			return run(runCtx, engine, admit)
 		})
 		releaseAdmission()
+		var unavailable *runtime.LiveRunAdmissionUnavailable
+		if errors.As(runErr, &unavailable) {
+			if err := waitForLiveRunAdmission(ctx, unavailable, current.done); err != nil {
+				return err
+			}
+			return a.RunCurrentTurn(ctx, descriptor, accept, run)
+		}
 		return runErr
 	}
 
@@ -512,10 +519,34 @@ func (a *Authority) RunCurrentTurn(
 		acceptedFresh = true
 	default:
 	}
-	if !acceptedFresh && context.Cause(ctx) == nil && errors.Is(err, context.Canceled) {
-		return a.RunCurrentTurn(ctx, descriptor, accept, run)
+	if !acceptedFresh && context.Cause(ctx) == nil {
+		var unavailable *runtime.LiveRunAdmissionUnavailable
+		if errors.As(err, &unavailable) {
+			if err := waitForLiveRunAdmission(ctx, unavailable, nil); err != nil {
+				return err
+			}
+			return a.RunCurrentTurn(ctx, descriptor, accept, run)
+		}
+		if errors.Is(err, context.Canceled) {
+			return a.RunCurrentTurn(ctx, descriptor, accept, run)
+		}
 	}
 	return err
+}
+
+func waitForLiveRunAdmission(
+	ctx context.Context,
+	unavailable *runtime.LiveRunAdmissionUnavailable,
+	executionDone <-chan struct{},
+) error {
+	select {
+	case <-unavailable.Ready:
+		return nil
+	case <-executionDone:
+		return nil
+	case <-ctx.Done():
+		return context.Cause(ctx)
+	}
 }
 
 func (a *Authority) RunCurrentAgentExecution(

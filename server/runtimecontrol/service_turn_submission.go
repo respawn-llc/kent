@@ -206,9 +206,12 @@ func (s *Service) submitUserTurn(
 					workflowState.CurrentNode,
 				)
 				if err == nil {
-					err = s.withRuntime(attempt.Context(), request.SessionID, func(runCtx context.Context, engine *runtime.Engine) error {
-						return runTurn(runCtx, engine, attempt.Accept)
-					})
+					err = s.authority.RunCurrentTurn(
+						attempt.Context(),
+						descriptor,
+						attempt.Accept,
+						runTurn,
+					)
 				}
 			}
 		}

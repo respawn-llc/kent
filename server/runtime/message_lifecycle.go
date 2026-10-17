@@ -437,7 +437,7 @@ func (m *defaultMessageLifecycle) PreparePendingUserInjections(selection userInj
 		if pending.steerAdmission != nil {
 			lane = runtimeinput.PendingWorkLaneSteer
 		}
-		publishing, err := m.engine.liveRun.beginQueueItemPublication(id, lane, claim)
+		publishing, _, err := m.engine.liveRun.beginQueueItemPublication(id, lane, claim)
 		if err != nil {
 			return nil, err
 		}
