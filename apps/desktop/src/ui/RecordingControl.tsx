@@ -27,7 +27,7 @@ export function RecordingControl({
   return (
     <span className="relative inline-flex shrink-0 items-center gap-[var(--space-2)]">
       {recording !== null && <RecordingElapsed startedAt={recording.startedAt} />}
-      <span className={recording === null ? "inline-flex" : "inline-flex p-[var(--space-2)]"}>
+      <span className={recording === null ? "inline-flex" : "inline-flex px-[var(--space-2)]"}>
         <span ref={anchor} className="relative inline-grid place-items-center text-[var(--color-primary)]">
           {recording !== null && <RadialRecordingMeter analyser={recording.analyser} anchor={anchor} />}
           <IconTooltipButton
