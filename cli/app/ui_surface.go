@@ -13,6 +13,7 @@ const (
 	uiSurfaceTranscriptDetail  uiSurface = "transcript_detail"
 	uiSurfaceStatus            uiSurface = "status"
 	uiSurfaceGoal              uiSurface = "goal"
+	uiSurfaceConnectionRemoval uiSurface = "connection_removal"
 	uiSurfaceWorktree          uiSurface = "worktree"
 	uiSurfaceProcessList       uiSurface = "process_list"
 	uiSurfaceRollbackSelection uiSurface = "rollback_selection"
@@ -45,7 +46,7 @@ func (surface uiSurface) isTranscript() bool {
 
 func (surface uiSurface) wantsAltScreen() bool {
 	switch surface {
-	case uiSurfaceTranscriptDetail, uiSurfaceStatus, uiSurfaceGoal, uiSurfaceWorktree, uiSurfaceProcessList, uiSurfaceRollbackSelection:
+	case uiSurfaceTranscriptDetail, uiSurfaceStatus, uiSurfaceGoal, uiSurfaceConnectionRemoval, uiSurfaceWorktree, uiSurfaceProcessList, uiSurfaceRollbackSelection:
 		return true
 	default:
 		return false
@@ -62,7 +63,7 @@ func isOngoingNormalBufferRestoreTransition(prev, next uiSurface) bool {
 // renders inside alt-screen but ignores mouse and keeps alt-scroll off).
 func (surface uiSurface) wantsAlternateScroll() bool {
 	switch surface {
-	case uiSurfaceTranscriptDetail, uiSurfaceStatus, uiSurfaceGoal, uiSurfaceWorktree, uiSurfaceProcessList:
+	case uiSurfaceTranscriptDetail, uiSurfaceStatus, uiSurfaceGoal, uiSurfaceConnectionRemoval, uiSurfaceWorktree, uiSurfaceProcessList:
 		return true
 	default:
 		return false

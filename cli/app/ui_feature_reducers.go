@@ -34,6 +34,7 @@ func (m *uiModel) reduceFeatureMessage(msg tea.Msg) uiFeatureUpdateResult {
 		m.reduceInputAsyncMessage,
 		m.reduceProcessMessage,
 		m.reduceClipboardMessage,
+		m.reduceConnectionRemovalMessage,
 	}
 	for _, reducer := range reducers {
 		if result := reducer(msg); result.handled {

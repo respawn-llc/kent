@@ -42,6 +42,7 @@ type uiLoopRequest struct {
 	modelContractLocked          bool
 	configuredModelName          *string
 	statusConfig                 uiStatusConfig
+	connectionManagement         apicontract.ConnectionManagementService
 	initialTransientStatus       *string
 	promptCatalog                apicontract.PromptCommandCatalogService
 	promptCatalogEntries         []commands.PromptCommandCatalogEntry
@@ -182,6 +183,7 @@ func composeUIProgram(request uiLoopRequest, output io.Writer) (*uiProgramCompos
 		WithUITurnQueueHook(request.wiring.turnQueueHook),
 		WithUIProcessClient(newUIProcessClientWithReads(request.projectID, request.wiring.processViews, request.wiring.processControls)),
 		WithUIWorktreeClient(request.wiring.worktrees),
+		WithUIConnectionManagementClient(request.connectionManagement),
 		WithUIStartupSubmit(request.initialPrompt),
 		WithUIStartupSubmitPromptHistoryRecorded(request.initialPromptHistoryRecorded),
 		WithUIInitialInput(request.initialInput),

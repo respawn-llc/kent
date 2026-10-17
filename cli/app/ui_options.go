@@ -226,6 +226,12 @@ func WithUIWorktreeClient(client apicontract.WorktreeService) UIOption {
 	}
 }
 
+func WithUIConnectionManagementClient(client apicontract.ConnectionManagementService) UIOption {
+	return func(m *uiModel) {
+		m.connectionManagement = client
+	}
+}
+
 func WithUITurnQueueHook(hook turnQueueHook) UIOption {
 	return func(m *uiModel) {
 		m.turnQueueHook = hook

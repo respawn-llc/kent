@@ -228,6 +228,66 @@ model = 'gpt-4o' # retain this authored setting
 	}
 }
 
+func TestRemoveProviderConnectionPreservesOtherDefinitionsAndReferences(t *testing.T) {
+	_, workspace, path := newConfigTestFile(t)
+	source := `# Keep unrelated settings and stale references authored.
+connection = ["work", "local"]
+model = "gpt-4o"
+
+[subagents.coder]
+connection = ["work"]
+
+[connections.work]
+protocol = "chatgpt-codex"
+
+[connections.local]
+protocol = "responses"
+endpoint = "http://localhost:1234/v1"
+environment_variable = "LOCAL_KEY"
+
+[shell]
+max_concurrent = 3
+`
+	writeConfigTestFile(t, path, source)
+
+	if err := RemoveProviderConnection(path, "work"); err != nil {
+		t.Fatal(err)
+	}
+	got, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := `# Keep unrelated settings and stale references authored.
+connection = ["work", "local"]
+model = "gpt-4o"
+
+[subagents.coder]
+connection = ["work"]
+
+[connections.local]
+protocol = "responses"
+endpoint = "http://localhost:1234/v1"
+environment_variable = "LOCAL_KEY"
+
+[shell]
+max_concurrent = 3
+`
+	if string(got) != want {
+		t.Fatalf("saved TOML differs from the authored source outside the removed definition:\n got: %q\nwant: %q", got, want)
+	}
+
+	app := loadConfigTestApp(t, workspace, LoadOptions{})
+	if _, present := app.Settings.Connections["work"]; present {
+		t.Fatal("removed connection remains defined")
+	}
+	if connection := app.Settings.Connections["local"]; connection.EnvironmentVariable == nil || *connection.EnvironmentVariable != "LOCAL_KEY" {
+		t.Fatalf("unrelated connection changed: %+v", connection)
+	}
+	if app.Settings.Model != "gpt-4o" || app.Settings.Shell.MaxConcurrent != 3 {
+		t.Fatalf("unrelated settings changed: model=%q shell=%+v", app.Settings.Model, app.Settings.Shell)
+	}
+}
+
 func TestAddProviderConnectionAlongsideExistingDefinitionsPreservesAuthoredSource(t *testing.T) {
 	_, workspace, path := newConfigTestFile(t)
 	source := strings.ReplaceAll(`# Existing connection uses authored dotted keys.
