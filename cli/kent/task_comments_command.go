@@ -2,13 +2,13 @@ package main
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"os"
 	"strings"
 	"time"
 
-	"core/shared/apicontract"
 	"core/shared/client"
 	"core/shared/config"
 	"core/shared/protoapi"
@@ -60,7 +60,7 @@ func taskCommentAddSubcommand(args []string, stdout io.Writer, stderr io.Writer)
 			fmt.Fprintln(stderr, err)
 			return 1
 		}
-		commentAuthor, err := taskCommentAuthorForAdd(context.Background(), remote, *author, flagExplicit(fs, "author"))
+		commentAuthor, err := taskCommentAuthorForAdd(context.Background(), *author, flagExplicit(fs, "author"))
 		if err != nil {
 			fmt.Fprintln(stderr, err)
 			return 1
@@ -94,10 +94,10 @@ type taskCommentAuthor struct {
 	ID   string
 }
 
-func taskCommentAuthorForAdd(ctx context.Context, remote apicontract.SessionViewService, explicitAuthor string, explicit bool) (taskCommentAuthor, error) {
+func taskCommentAuthorForAdd(ctx context.Context, explicitAuthor string, explicit bool) (taskCommentAuthor, error) {
 	sessionID, ok := sessionenv.LookupSessionID(os.LookupEnv)
 	if ok {
-		id, err := sessionAgentAuthorID(ctx, remote, sessionID)
+		id, err := sessionAgentAuthorID(ctx, sessionID)
 		return taskCommentAuthor{Kind: "agent", ID: id}, err
 	}
 	if explicit {
@@ -106,9 +106,14 @@ func taskCommentAuthorForAdd(ctx context.Context, remote apicontract.SessionView
 	return taskCommentAuthor{Kind: "user"}, nil
 }
 
-func sessionAgentAuthorID(ctx context.Context, remote apicontract.SessionViewService, sessionID string) (string, error) {
+func sessionAgentAuthorID(ctx context.Context, sessionID string) (authorID string, err error) {
 	rpcCtx, cancel := context.WithTimeout(ctx, workflowCommandTimeout)
 	defer cancel()
+	remote, err := openConfiguredSessionRemote(rpcCtx, sessionID)
+	if err != nil {
+		return "", err
+	}
+	defer func() { err = errors.Join(err, remote.Close()) }()
 	resp, err := remote.GetSessionMainView(rpcCtx, &sessionpb.MainViewRequest{SessionId: &sharedpb.SessionSelector{Value: &sharedpb.SessionSelector_SessionId{SessionId: sessionID}}})
 	if err != nil {
 		return "", err

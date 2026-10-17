@@ -3,23 +3,14 @@ import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { type ComponentProps, useState } from "react";
 import { I18nextProvider } from "react-i18next";
-import { beforeAll, describe, expect, it, vi } from "vitest";
+import { beforeAll, describe, expect, it, mock } from "bun:test";
 
 import type { PendingAsk, QuestionAnswerInput, QuestionAttentionItem } from "@/api";
-import { AppServicesProvider } from "@/app-facade";
 import { appI18n, initializeI18n } from "@/i18n";
 import { createTestServices } from "@/test-support/app-services";
-import { QuestionBox } from "./TaskDetailQuestionForm";
-import {
-  anchorQuestionSelection,
-  emptyQuestionSelection,
-  questionPresentation,
-  withApprovalQuestionDecision,
-  withOrdinaryQuestionOption,
-} from "./TaskDetailQuestionState";
-import { QuestionFormView } from "./TaskDetailQuestionFormView";
+import type { QuestionFormView as QuestionFormViewComponent } from "./TaskDetailQuestionFormView";
 
-type QuestionAnswerMutation = ComponentProps<typeof QuestionFormView>["answerQuestion"];
+type QuestionAnswerMutation = ComponentProps<typeof QuestionFormViewComponent>["answerQuestion"];
 type FixtureQuestionAttention = QuestionAttentionItem &
   Readonly<{
     questionID: string;
@@ -33,20 +24,30 @@ type FixtureApprovalAttention = FixtureQuestionAttention &
 let questionAnswerMutation: QuestionAnswerMutation;
 let listPendingAsks: (sessionID: string) => Promise<readonly PendingAsk[]>;
 
-vi.mock("@/app-facade", async (importOriginal) => {
-  const actual = await importOriginal<Record<string, unknown>>();
-  return {
-    ...actual,
-    queryKeys: {
-      pendingAsks: (sessionID: string | null) => ["pending-asks", sessionID],
-    },
-    useAppServices: () => ({
-      api: { listPendingAsks },
-    }),
-  };
-});
-
 const shortcutServices = createTestServices([], undefined, { platform: "macos" });
+const actualAppFacade = await import("@/app-facade");
+const { AppServicesProvider } = actualAppFacade;
+await mock.module("@/app-facade", () => ({
+  ...actualAppFacade,
+  queryKeys: {
+    ...actualAppFacade.queryKeys,
+    pendingAsks: (sessionID: string | null) => ["pending-asks", sessionID],
+  },
+  useAppServices: () => ({
+    ...shortcutServices,
+    api: { listPendingAsks },
+  }),
+}));
+
+const { QuestionBox } = await import("./TaskDetailQuestionForm");
+const { QuestionFormView } = await import("./TaskDetailQuestionFormView");
+const {
+  anchorQuestionSelection,
+  emptyQuestionSelection,
+  questionPresentation,
+  withApprovalQuestionDecision,
+  withOrdinaryQuestionOption,
+} = await import("./TaskDetailQuestionState");
 
 beforeAll(async () => {
   await initializeI18n();
@@ -329,18 +330,21 @@ describe("questionPresentation", () => {
       expect(inputs).toHaveLength(2);
     });
 
-    expect(inputs).toEqual([
-      expect.objectContaining({
-        freeformAnswer: "commentary",
-        kind: "ordinary",
-        selectedOptionNumber: 2,
-      }),
-      expect.objectContaining({
-        freeformAnswer: "commentary",
-        kind: "ordinary",
-        selectedOptionNumber: 2,
-      }),
-    ]);
+    const firstAnswer = inputs[0];
+    const secondAnswer = inputs[1];
+    if (firstAnswer === undefined || secondAnswer === undefined) {
+      throw new Error("Expected both Question answers.");
+    }
+    expect(firstAnswer).toMatchObject({
+      freeformAnswer: "commentary",
+      kind: "ordinary",
+      selectedOptionNumber: 2,
+    });
+    expect(secondAnswer).toMatchObject({
+      freeformAnswer: "commentary",
+      kind: "ordinary",
+      selectedOptionNumber: 2,
+    });
   });
 
   it("preserves an Approval selection while updating commentary between deliberate submissions", async () => {

@@ -11,9 +11,51 @@ import (
 	serverstartup "core/server/startup"
 	"core/shared/clientui"
 	"core/shared/config"
+	runtimepb "core/shared/protoapi/gen/kent/api/runtime"
+	"core/shared/runtimeids"
 	"core/shared/serverapi"
 	"core/shared/toolspec"
 )
+
+func TestTUIOpeningDormantSessionReadsStateWithoutHydration(t *testing.T) {
+	_, workspace := newRegisteredAppWorkspace(t)
+	provider, hits := newFakeResponsesServer(t, nil)
+	defer provider.Close()
+	cfg := loadAppTestConfig(t, workspace, config.LoadOptions{})
+	testsetup.WriteProviderSettings(t, cfg.PersistenceRoot, testsetup.WithResponsesProvider(cfg.Settings, provider.URL))
+	fixture := startConfiguredDaemonFixture(t, workspace, serverstartup.Request{
+		WorkspaceRoot: workspace, WorkspaceRootExplicit: true, Model: "gpt-6-sol",
+	})
+	server := fixture.attachRemoteSessionServer(t, Options{WorkspaceRoot: workspace}, newHeadlessAuthInteractor())
+	created, opening := prepareAppRuntimePlan(t, server, sessionLaunchRequest{
+		Mode:   launchModeInteractive,
+		Intent: requestfixture.LaunchIntent(t, serverapi.CreateNewSessionLaunchIntent(serverapi.IndependentSessionCreateOrigin())),
+	}, io.Discard, "create dormant fixture")
+	closeRuntimeLaunchPlan(t, opening)
+	id, err := runtimeids.ParseSessionID(created.SessionID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, reopened := prepareAppRuntimePlan(t, server, sessionLaunchRequest{
+		Mode: launchModeInteractive, Intent: requestfixture.LaunchIntent(t, serverapi.OpenExistingSessionLaunchIntent(id)),
+	}, io.Discard, "open dormant fixture")
+	defer closeRuntimeLaunchPlan(t, reopened)
+	view, err := reopened.Wiring.runtimeClient.RefreshMainView()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if view.Session.SessionId != id.String() || view.Activity.State != runtimepb.ActivityState_RUNTIME_ACTIVITY_UNAVAILABLE {
+		t.Fatalf("dormant Main View = %+v", view)
+	}
+	select {
+	case event := <-reopened.Wiring.eventDispatcher.transcriptEvents:
+		t.Fatalf("dormant Ongoing emitted transcript event: %+v", event)
+	default:
+	}
+	if hits.Load() != 0 {
+		t.Fatal("opening invoked the model")
+	}
+}
 
 func TestRemoteNoAuthUnregisteredWorkspaceBindingCanPrepareRuntime(t *testing.T) {
 	useStartupTestTerminal(t)

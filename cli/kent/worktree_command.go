@@ -304,7 +304,6 @@ func worktreeEnterSubcommand(args []string, stdout io.Writer, stderr io.Writer) 
 	if origin != nil {
 		transitionOrigin = &worktreepb.TransitionRuntimeStepOrigin{
 			SessionId: origin.SessionId,
-			RunId:     origin.RunId,
 			StepId:    origin.StepId,
 		}
 	}

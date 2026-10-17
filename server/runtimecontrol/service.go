@@ -90,16 +90,12 @@ type goalSetRequest struct {
 	SessionID string
 	Objective string
 	Actor     string
-	RunID     string
-	StepID    string
 }
 
 type goalStatusRequest struct {
 	SessionID string
 	Status    string
 	Actor     string
-	RunID     string
-	StepID    string
 }
 
 type goalClearRequest struct {
@@ -386,12 +382,12 @@ func (s *Service) AppendSessionEntry(ctx context.Context, sessionID string, role
 	})
 }
 
-func (s *Service) SubmitUserShellCommand(ctx context.Context, req *runtimepb.ShellCommandRequest) error {
+func (s *Service) AdmitUserShellCommand(ctx context.Context, sessionID runtimeids.SessionID, command string) error {
 	_, err := runRuntimeCommand(ctx, func(ctx context.Context) (struct{}, bool, error) {
 		attempt := newRuntimeCommandAttempt(ctx)
 		defer attempt.Finish()
-		commandErr := s.runAgentExecution(attempt.Context(), req.SessionId, func(runCtx context.Context, engine *runtime.Engine) error {
-			_, err := engine.SubmitUserShellCommandWithAcceptance(runCtx, req.Command, attempt.Accept)
+		commandErr := s.runAgentExecution(attempt.Context(), sessionID.String(), func(runCtx context.Context, engine *runtime.Engine) error {
+			_, err := engine.SubmitUserShellCommandWithAcceptance(runCtx, command, attempt.Accept)
 			return err
 		})
 		return struct{}{}, attempt.Accepted(), commandErr
@@ -437,13 +433,9 @@ func admitManualCompaction(
 	req *runtimepb.CompactContextRequest,
 	accept runtime.CommandAcceptance,
 ) error {
-	requestID, err := runtimeids.ParseCompactionRequestID(req.RequestId)
-	if err != nil {
-		return err
-	}
-	_, err = engine.CompactContextAdmissionForRequestWithAcceptance(
+	_, err := engine.CompactContextAdmissionWithAcceptance(
 		ctx,
-		requestID,
+
 		protoapi.ManualCompactionAdmissionFromProto(req.Admission),
 		accept,
 	)

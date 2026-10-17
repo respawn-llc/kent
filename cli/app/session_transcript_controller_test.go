@@ -3,6 +3,7 @@ package app
 import (
 	"core/cli/tui/ongoing"
 	"core/cli/tui/transcriptrender"
+	projectpb "core/shared/protoapi/gen/kent/api/project"
 	runtimepb "core/shared/protoapi/gen/kent/api/runtime"
 	transcriptpb "core/shared/protoapi/gen/kent/api/transcript"
 	"core/shared/runtimeids"
@@ -443,6 +444,7 @@ func assertTerminalSafeFrameLines(t *testing.T, lines []string) {
 func ongoingHydrationMessage(sequence uint64) *transcriptpb.Message {
 	return transcriptTestMessage(sequence, &transcriptpb.Hydration{
 		SessionIdentity: &transcriptpb.SessionIdentity{SessionId: ongoingTestSessionID().String(),
+			Category:              projectpb.SessionCategory_SESSION_CATEGORY_MAIN,
 			ConversationFreshness: runtimepb.ConversationFreshness_CONVERSATION_FRESHNESS_FRESH},
 		SessionStatus: &transcriptpb.SessionStatus{
 			ReviewerFrequency: "off",
@@ -490,6 +492,7 @@ func ongoingTranscriptMessage(sequence uint64, kind reflect.Type) *transcriptpb.
 	case reflect.TypeFor[*transcriptpb.Event_SessionIdentity]():
 		sessionName := "KENT-196"
 		payload = &transcriptpb.SessionIdentity{SessionId: ongoingTestSessionID().String(),
+			Category:              projectpb.SessionCategory_SESSION_CATEGORY_MAIN,
 			SessionName:           &sessionName,
 			ConversationFreshness: runtimepb.ConversationFreshness_CONVERSATION_FRESHNESS_ESTABLISHED}
 	case reflect.TypeFor[*transcriptpb.Event_CompactionStatus]():
@@ -507,7 +510,7 @@ func ongoingTranscriptMessage(sequence uint64, kind reflect.Type) *transcriptpb.
 			CreatedAt: timestamppb.New(time.Unix(1, 0).UTC()), UpdatedAt: timestamppb.New(time.Unix(1, 0).UTC())}}
 	case reflect.TypeFor[*transcriptpb.Event_BackgroundActivity]():
 		preview := "running tests"
-		payload = &transcriptpb.BackgroundActivity{ActivityId: ongoingTestBackgroundActivityID().String(), ProcessId: "process-1", OwnerRunId: ongoingTestRunID().String(), OwnerStepId: ongoingTestStepID().String(),
+		payload = &transcriptpb.BackgroundActivity{ActivityId: ongoingTestBackgroundActivityID().String(), ProcessId: "process-1", OwnerStepId: ongoingTestStepID().String(),
 			Lifecycle: transcriptpb.BackgroundLifecycle_BACKGROUND_LIFECYCLE_BACKGROUNDED,
 			Command:   "go test ./...",
 			Workdir:   "/tmp",
@@ -526,14 +529,6 @@ func ongoingTranscriptMessage(sequence uint64, kind reflect.Type) *transcriptpb.
 
 func ongoingTestSessionID() runtimeids.SessionID {
 	id, err := runtimeids.ParseSessionID("aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa")
-	if err != nil {
-		panic(err)
-	}
-	return id
-}
-
-func ongoingTestRunID() runtimeids.RunID {
-	id, err := runtimeids.ParseRunID("bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb")
 	if err != nil {
 		panic(err)
 	}

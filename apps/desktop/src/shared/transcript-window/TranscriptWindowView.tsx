@@ -1,4 +1,4 @@
-import { useCallback, useMemo, useState, type ReactElement, type ReactNode } from "react";
+import { useMemo, useState, type ReactElement, type ReactNode } from "react";
 
 import {
   AnimatedReveal,
@@ -20,7 +20,8 @@ import "./transcriptWindow.css";
 type TranscriptWindowViewInput = Extract<TranscriptWindowInput, { kind: "edge-visit" | "retry" }>;
 
 export type TranscriptWindowViewProps = Readonly<{
-  snapshot: TranscriptWindowSnapshot;
+  snapshot: TranscriptWindowSnapshot | null;
+  localMessages?: readonly Readonly<{ inputID: string; content: ReactElement }>[] | undefined;
   slots: TranscriptRenderSlots<ReactElement | null>;
   estimateSize: () => number;
   loadingLabel: string;
@@ -36,14 +37,22 @@ export type TranscriptWindowViewProps = Readonly<{
 
 type ViewItem =
   | TranscriptRenderItem
+  | Readonly<{ kind: "local-message"; key: string; content: ReactElement }>
   | Readonly<{ kind: "status"; key: "thinking-status-tail" }>
   | Readonly<{ kind: "failure"; key: "transcript-failure-tail" }>;
 const statusItem = { kind: "status", key: "thinking-status-tail" } as const;
 const failureItem = { kind: "failure", key: "transcript-failure-tail" } as const;
 const transcriptContentClassName = "mx-auto w-full max-w-[var(--chat-content-max-width)]";
+const noLocalMessages: NonNullable<TranscriptWindowViewProps["localMessages"]> = [];
+
+function presentationKey(item: ViewItem): string {
+  const id = item.kind === "user" ? item.value.QueueItemIDs[0] : undefined;
+  return id === undefined ? item.key : `input:${id}`;
+}
 
 export function TranscriptWindowView({
   snapshot,
+  localMessages = noLocalMessages,
   slots,
   estimateSize,
   loadingLabel,
@@ -57,56 +66,41 @@ export function TranscriptWindowView({
   tailFailure,
 }: TranscriptWindowViewProps) {
   const [atEnd, setAtEnd] = useState(false);
-  const [arrivals, setArrivals] = useState(() => ({
-    update: presentationUpdate,
-    keys: new Set(snapshot.items.map((item) => item.key)),
-    entering: new Set<string>(),
-  }));
-  let entering = arrivals.entering;
-  if (arrivals.update !== presentationUpdate) {
-    const keys = new Set(snapshot.items.map((item) => item.key));
-    entering =
-      presentationUpdate?.kind === "content"
-        ? new Set([...keys].filter((key) => !arrivals.keys.has(key)))
-        : new Set<string>();
-    setArrivals({ update: presentationUpdate, keys, entering });
-  }
+  const items = transcriptViewItems(snapshot, tailFailure !== undefined, localMessages);
+  const entering = useArrivals(items, presentationUpdate, localMessages);
   const emitInput = useStableCallback(onInput);
-  const olderAvailable = snapshot.older.cursor !== null;
-  const newerAvailable = snapshot.newer.cursor !== null;
-  const olderPage = transcriptPagination(snapshot.older, tailFailure !== undefined);
-  const newerPage = transcriptPagination(snapshot.newer, tailFailure !== undefined);
+  const edges = windowEdges(snapshot);
+  const { olderAvailable, newerAvailable, older, newer, opening, thinkingStatus } = edges;
+  const olderPage = transcriptPagination(older, tailFailure !== undefined);
+  const newerPage = transcriptPagination(newer, tailFailure !== undefined);
   const following = atEnd && !newerAvailable;
   const nativeRequest = useTranscriptEndRequest(
     {
-      opening: snapshot.opening.kind,
+      opening,
       update: presentationUpdate,
       explicit: scrollRequest,
       bottomInset,
       newerAvailable,
+      localMessages,
     },
     following,
   );
-  const visit = useCallback(
-    (direction: TranscriptDirection) => {
-      emitInput({ kind: "edge-visit", direction, older: olderAvailable, newer: newerAvailable });
-    },
-    [emitInput, newerAvailable, olderAvailable],
-  );
+  const visit = useStableCallback((direction: TranscriptDirection) => {
+    emitInput({ kind: "edge-visit", direction, older: olderAvailable, newer: newerAvailable });
+  });
   const previousBoundary = transcriptBoundary(
-    snapshot.older,
+    older,
     "older",
     { loadingLabel, retryLabel, errorMessage: boundaryErrorMessage, suppressed: tailFailure !== undefined },
     emitInput,
   );
   const nextBoundary = transcriptBoundary(
-    snapshot.newer,
+    newer,
     "newer",
     { loadingLabel, retryLabel, errorMessage: boundaryErrorMessage, suppressed: tailFailure !== undefined },
     emitInput,
   );
-  const items = transcriptViewItems(snapshot, tailFailure !== undefined);
-  const activeAssistantKey = snapshot.activeAssistant?.key;
+  const activeAssistantKey = snapshot?.activeAssistant?.key;
   const pinnedItemKeys = useMemo(
     () => new Set(activeAssistantKey === undefined ? [] : [activeAssistantKey]),
     [activeAssistantKey],
@@ -125,20 +119,8 @@ export function TranscriptWindowView({
         estimateSize={estimateSize}
         paddingEnd={bottomInset}
         rowSpacing="tight"
-        getItemKey={(item) => item.key}
-        getItemWrapperProps={(item) => ({
-          // display:none would restart character animations when returning to live output.
-          style:
-            item.kind === "assistant" && item.state === "live" && !snapshot.showsLive
-              ? { height: 0, overflow: "hidden", padding: 0, visibility: "hidden" }
-              : undefined,
-          className:
-            item.kind === "tool" || item.kind === "notice"
-              ? "transcript-window-disclosure-row"
-              : item.kind === "user" || item.kind === "assistant"
-                ? "transcript-window-message-row"
-                : undefined,
-        })}
+        getItemKey={presentationKey}
+        getItemWrapperProps={(item) => itemWrapperProps(item, snapshot)}
         hasNextPage={newerPage.available}
         hasPreviousPage={olderPage.available}
         isFetchingNextPage={newerPage.fetching}
@@ -157,14 +139,13 @@ export function TranscriptWindowView({
         previousBoundary={previousBoundary}
         previousLoadKey={olderPage.key}
         renderItem={(item) => (
-          <AnimatedReveal className={transcriptContentClassName} enter={entering.has(item.key)}>
-            {item.kind === "failure" ? (
-              tailFailure
-            ) : item.kind === "status" ? (
-              slots.thinkingStatus(snapshot.thinkingStatus)
-            ) : (
-              <TranscriptFamilySlot item={item} slots={slots} />
-            )}
+          <AnimatedReveal className={transcriptContentClassName} enter={entering.has(presentationKey(item))}>
+            <ViewItemContent
+              item={item}
+              tailFailure={tailFailure}
+              slots={slots}
+              thinkingStatus={thinkingStatus}
+            />
           </AnimatedReveal>
         )}
       />
@@ -173,29 +154,141 @@ export function TranscriptWindowView({
   );
 }
 
-function transcriptPagination(boundary: TranscriptWindowSnapshot["older"], suppressed: boolean) {
+function windowEdges(snapshot: TranscriptWindowSnapshot | null) {
   return {
-    available: !suppressed && boundary.cursor !== null && boundary.kind !== "error",
-    fetching: boundary.kind === "loading",
-    key: boundary.cursor?.toString(),
+    olderAvailable: snapshot !== null && snapshot.older.cursor !== null,
+    newerAvailable: snapshot !== null && snapshot.newer.cursor !== null,
+    older: snapshot?.older ?? null,
+    newer: snapshot?.newer ?? null,
+    opening: snapshot?.opening.kind ?? "local",
+    thinkingStatus: snapshot?.thinkingStatus ?? null,
+  } as const;
+}
+
+function useArrivals(
+  items: readonly ViewItem[],
+  presentationUpdate: TranscriptWindowViewProps["presentationUpdate"],
+  localMessages: NonNullable<TranscriptWindowViewProps["localMessages"]>,
+) {
+  const [arrivals, setArrivals] = useState(() => ({
+    update: presentationUpdate,
+    localMessages,
+    keys: new Set(items.map(presentationKey)),
+    entering: new Set<string>(),
+  }));
+  let entering = arrivals.entering;
+  if (arrivals.update !== presentationUpdate || arrivals.localMessages !== localMessages) {
+    const keys = new Set(items.map(presentationKey));
+    entering =
+      presentationUpdate?.kind === "content" || arrivals.localMessages !== localMessages
+        ? new Set([...keys].filter((key) => !arrivals.keys.has(key)))
+        : new Set<string>();
+    setArrivals({ update: presentationUpdate, localMessages, keys, entering });
+  }
+  return entering;
+}
+
+function itemWrapperProps(item: ViewItem, snapshot: TranscriptWindowSnapshot | null) {
+  return {
+    // display:none would restart character animations when returning to live output.
+    style:
+      item.kind === "assistant" && item.state === "live" && snapshot?.showsLive === false
+        ? { height: 0, overflow: "hidden", padding: 0, visibility: "hidden" as const }
+        : undefined,
+    className:
+      item.kind === "tool" || item.kind === "notice"
+        ? "transcript-window-disclosure-row"
+        : item.kind === "user" || item.kind === "assistant" || item.kind === "local-message"
+          ? "transcript-window-message-row"
+          : undefined,
+  };
+}
+
+function ViewItemContent({
+  item,
+  tailFailure,
+  slots,
+  thinkingStatus,
+}: Readonly<{
+  item: ViewItem;
+  tailFailure: ReactElement | undefined;
+  slots: TranscriptWindowViewProps["slots"];
+  thinkingStatus: TranscriptWindowSnapshot["thinkingStatus"];
+}>) {
+  switch (item.kind) {
+    case "failure":
+      return tailFailure;
+    case "local-message":
+      return item.content;
+    case "status":
+      return slots.thinkingStatus(thinkingStatus);
+    case "user":
+      return slots.user(item);
+    case "assistant":
+      return slots.assistant(item);
+    case "tool":
+      return slots.tool(item);
+    case "reasoning_trace":
+      return slots.reasoning(item);
+    case "notice":
+    case "reviewer_feedback":
+    case "reviewer_error":
+      return slots.notice(item);
+  }
+}
+
+function transcriptPagination(boundary: TranscriptWindowSnapshot["older"] | null, suppressed: boolean) {
+  return {
+    available: !suppressed && boundary !== null && boundary.cursor !== null && boundary.kind !== "error",
+    fetching: boundary?.kind === "loading",
+    key: boundary?.cursor?.toString(),
   };
 }
 
 type TranscriptEndInput = Readonly<{
-  opening: TranscriptWindowSnapshot["opening"]["kind"];
+  opening: TranscriptWindowSnapshot["opening"]["kind"] | "local";
   update: ChatTranscriptPresentationUpdate | undefined;
   explicit: symbol | null | undefined;
   bottomInset: number;
   newerAvailable: boolean;
+  localMessages: NonNullable<TranscriptWindowViewProps["localMessages"]>;
 }>;
 
-function transcriptViewItems(snapshot: TranscriptWindowSnapshot, failed: boolean): readonly ViewItem[] {
+function sameLocalMessageMembership(
+  previous: TranscriptEndInput["localMessages"],
+  current: TranscriptEndInput["localMessages"],
+): boolean {
+  return (
+    previous.length === current.length &&
+    previous.every((message, index) => message.inputID === current[index]?.inputID)
+  );
+}
+
+function transcriptViewItems(
+  snapshot: TranscriptWindowSnapshot | null,
+  failed: boolean,
+  localMessages: NonNullable<TranscriptWindowViewProps["localMessages"]>,
+): readonly ViewItem[] {
+  const committedIDs = new Set(
+    snapshot?.items.flatMap((item) => (item.kind === "user" ? item.value.QueueItemIDs : [])) ?? [],
+  );
+  const previews: readonly ViewItem[] =
+    snapshot?.newer.cursor != null
+      ? []
+      : localMessages
+          .filter((message) => !committedIDs.has(message.inputID))
+          .map((message) => ({
+            kind: "local-message",
+            key: `input:${message.inputID}`,
+            content: message.content,
+          }));
+  if (snapshot === null) return failed ? [...previews, failureItem] : previews;
   const items =
     !snapshot.showsLive && snapshot.activeAssistant !== null
       ? [...snapshot.items, snapshot.activeAssistant]
       : snapshot.items;
-  if (failed) return [...items, failureItem];
-  return snapshot.showsLive ? [...items, statusItem] : items;
+  if (failed) return [...items, ...previews, failureItem];
+  return snapshot.showsLive ? [...items, ...previews, statusItem] : [...items, ...previews];
 }
 
 function useTranscriptEndRequest(
@@ -211,7 +304,8 @@ function useTranscriptEndRequest(
     previous.explicit === input.explicit &&
     previous.opening === input.opening &&
     previous.bottomInset === input.bottomInset &&
-    previous.newerAvailable === input.newerAvailable
+    previous.newerAvailable === input.newerAvailable &&
+    sameLocalMessageMembership(previous.localMessages, input.localMessages)
   ) {
     return request;
   }
@@ -228,6 +322,7 @@ function transcriptEndBehavior(
 ): "auto" | "smooth" | null {
   if (previous.opening !== "ready" && current.opening === "ready") return "auto";
   if (following && previous.bottomInset !== current.bottomInset) return "auto";
+  if (following && !sameLocalMessageMembership(previous.localMessages, current.localMessages)) return "auto";
   if (current.explicit != null && previous.explicit !== current.explicit) return "smooth";
   if (!following || previous.update === current.update || current.update === undefined) return null;
   const behavior: Record<ChatTranscriptPresentationUpdate["kind"], "auto" | "smooth" | null> = {
@@ -239,7 +334,7 @@ function transcriptEndBehavior(
 }
 
 function transcriptBoundary(
-  boundary: TranscriptWindowSnapshot[TranscriptDirection],
+  boundary: TranscriptWindowSnapshot[TranscriptDirection] | null,
   direction: TranscriptDirection,
   copy: Readonly<{
     loadingLabel: string;
@@ -249,7 +344,7 @@ function transcriptBoundary(
   }>,
   onInput: (input: TranscriptWindowViewInput) => void,
 ): VirtualizedInfiniteListBoundaryState | undefined {
-  if (copy.suppressed) return undefined;
+  if (copy.suppressed || boundary === null) return undefined;
   switch (boundary.kind) {
     case "idle":
       return undefined;
@@ -264,28 +359,5 @@ function transcriptBoundary(
           onInput({ kind: "retry", direction });
         },
       };
-  }
-}
-
-function TranscriptFamilySlot({
-  item,
-  slots,
-}: Readonly<{
-  item: TranscriptRenderItem;
-  slots: TranscriptRenderSlots<ReactElement | null>;
-}>): ReactElement | null {
-  switch (item.kind) {
-    case "user":
-      return slots.user(item);
-    case "assistant":
-      return slots.assistant(item);
-    case "tool":
-      return slots.tool(item);
-    case "reasoning_trace":
-      return slots.reasoning(item);
-    case "notice":
-    case "reviewer_feedback":
-    case "reviewer_error":
-      return slots.notice(item);
   }
 }

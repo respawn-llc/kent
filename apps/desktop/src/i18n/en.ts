@@ -48,6 +48,8 @@ export const englishResources = {
       expand: "Expand",
       loadingMore: "Loading more",
       attention: {
+        sessionNamingFailed: "Session naming failed",
+        sessionNamingFailureHelp: "You can name this session manually. Check the server logs for details.",
         listenerFailed: "Live attention updates stopped",
         open: "Open",
         questionTitle: "Question",
@@ -101,6 +103,12 @@ export const englishResources = {
         toolCall: "tool call",
         toolCalls: "tool calls",
         providerModelMismatch: "The provider served the request with {{served}} instead of {{requested}}",
+        connectionFallback:
+          "Switched connection from {{previous}} to {{current}} because usage was exhausted",
+        connectionsUnavailable:
+          "Configured connections are unavailable. Retry after cooldown or update the configured connections.",
+        connectionAvailableAfter: "{{id}}: available after {{time}}",
+        connectionAlreadyAttempted: "{{id}}: already attempted",
         reasoningOmission:
           "Conversation was switched to another provider/model - reasoning was lost, degrading output quality",
         worktreeEnter: "Switched worktree to {{name}}{{cwd}}",
@@ -110,6 +118,7 @@ export const englishResources = {
         worktree: "worktree",
         sessionRebind: "Session rebound",
         agentSteer: "Message from another agent",
+        projectWorkspaces: "Project workspaces",
       },
     },
     labels: {
@@ -180,6 +189,7 @@ export const englishResources = {
       detailLabel: "Connection error",
     },
     home: {
+      subagentTitle: "Subagent {{id}}",
       title: "Projects",
       emptyTitle: "No projects yet",
       emptyBody: "Create or attach a workspace to start tracking workflow tasks.",
@@ -423,6 +433,8 @@ export const englishResources = {
       contextSelectionRequired:
         "Move this Task and choose its context to continue. Move replaces all parallel positions and Join progress; existing conversations and files are preserved.",
       accessApprovalIntro: "Agent wants to access a batch of files, but {{count}} are outside workspace dir:",
+      accessApprovalSingle: "Agent wants to access a file {{path}}.",
+      accessApprovalSingleQuestion: "Allow?",
       accessApprovalQuestion: "Allow this access?",
       sessionStarted: "Session started",
       title: "Task",
@@ -527,7 +539,7 @@ export const englishResources = {
       recommendedByAgent: "Recommended by the agent",
       neitherOption: "Neither",
       approvalDecisionAllowOnce: "Allow once",
-      approvalDecisionAllowSession: "Allow for this session",
+      approvalDecisionAllowSession: "Allow all access for session",
       approvalDecisionDeny: "Deny",
       approval: "Approval",
       approve: "Approve",

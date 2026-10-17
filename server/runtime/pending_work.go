@@ -119,6 +119,7 @@ func (e *Engine) removePendingWork(id runtimeids.QueueItemID) (runtimeinput.Pend
 		if operational, removed := lifecycle.removePendingOperationalWork(id); removed {
 			restoration = operational.item.Restoration()
 			e.publishPendingWorkChanged()
+			e.runtimeWriteAccepted()
 			return restoration, nil
 		}
 	}
@@ -135,6 +136,7 @@ func (e *Engine) removePendingWork(id runtimeids.QueueItemID) (runtimeinput.Pend
 	restoration = item.Restoration()
 	e.emitQueuedUserMessageStatus(message.message, QueuedUserMessageDiscarded, "", false)
 	e.publishPendingWorkChanged()
+	e.runtimeWriteAccepted()
 	return restoration, nil
 }
 

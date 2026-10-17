@@ -112,7 +112,7 @@ func TestTUIStrictIOBusyEnterQueuesInjectedInputAsCommand(t *testing.T) {
 	if client.submitCalls != 1 {
 		t.Fatalf("SubmitRuntimeInput calls after command = %d, want 1", client.submitCalls)
 	}
-	if len(updated.injectedQueue) != 1 || updated.injectedQueue[0].ServerID != "server-queue-1" {
+	if len(updated.injectedQueue) != 1 || updated.injectedQueue[0].ServerID == nil || *updated.injectedQueue[0].ServerID != "server-queue-1" {
 		t.Fatalf("expected server queue item after command, got %+v", updated.injectedQueue)
 	}
 }
@@ -196,10 +196,6 @@ func newStrictUIModel(client clientui.RuntimeClient, options ...UIOption) *uiMod
 
 func setStrictTestRuntimeBusy(t *testing.T, m *uiModel) {
 	t.Helper()
-	runID, err := runtimeids.ParseRunID("00000000-0000-4000-8000-000000000001")
-	if err != nil {
-		t.Fatalf("parse run id: %v", err)
-	}
 	stepID, err := runtimeids.ParseStepID("00000000-0000-4000-8000-000000000002")
 	if err != nil {
 		t.Fatalf("parse step id: %v", err)
@@ -207,7 +203,7 @@ func setStrictTestRuntimeBusy(t *testing.T, m *uiModel) {
 	if err := m.applyRuntimeActivityProjection(&runtimepb.Activity{
 		State:      runtimepb.ActivityState_RUNTIME_ACTIVITY_RUNNING,
 		Reviewer:   runtimepb.ReviewerActivity_REVIEWER_ACTIVITY_INACTIVE,
-		ActiveStep: &runtimepb.ActiveStep{RunId: runID.String(), StepId: stepID.String(), ActiveKind: runtimepb.ActivityActiveKind_RUNTIME_ACTIVITY_ACTIVE_KIND_USER_TURN}}); err != nil {
+		ActiveStep: &runtimepb.ActiveStep{StepId: stepID.String(), ActiveKind: runtimepb.ActivityActiveKind_RUNTIME_ACTIVITY_ACTIVE_KIND_USER_TURN}}); err != nil {
 		t.Fatalf("set busy runtime activity: %v", err)
 	}
 }

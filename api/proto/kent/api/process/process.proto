@@ -16,7 +16,6 @@ message BackgroundProcess {
 
   string id = 1 [(buf.validate.field).string.min_len = 1];
   string owner_session_id = 2 [(buf.validate.field).string.uuid = true, (buf.validate.field).string.(kent.api.shared.canonical_uuid_v4) = true];
-  optional string owner_run_id = 3 [(buf.validate.field).string.min_len = 1];
   optional string owner_step_id = 4 [(buf.validate.field).string.min_len = 1];
   string state = 5 [(buf.validate.field).string.min_len = 1];
   string command = 6;
@@ -35,7 +34,7 @@ message BackgroundProcess {
 
 message ListRequest {
   optional string owner_session_id = 1 [(buf.validate.field).string.uuid = true, (buf.validate.field).string.(kent.api.shared.canonical_uuid_v4) = true];
-  optional string owner_run_id = 2 [(buf.validate.field).string.min_len = 1];
+  optional string owner_step_id = 2 [(buf.validate.field).string.min_len = 1];
   string project_id = 3 [
     (buf.validate.field).string.min_len = 1,
     (buf.validate.field).cel = {

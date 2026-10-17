@@ -127,8 +127,8 @@ func deletedTestAdmittedAssistantFinalWaitsForLocallyOwnedQueuedPromptDrain(t *t
 	hooks := newTurnQueueHooks(newUnfocusedBellHooks(&countRinger{}), completions)
 	model := newTurnQueueHookTestModel(hooks)
 	model.activeSubmit = activeSubmitState{token: 1, text: "current turn"}
-	model.injectedQueue = []injectedRuntimeQueueItem{{
-		LocalID:         "local-queued-prompt",
+	model.injectedQueue = []*injectedRuntimeQueueItem{{
+
 		Text:            "queued prompt",
 		State:           injectedRuntimeQueuePendingCreate,
 		submissionOrder: inputSubmissionOrder{sequence: 1},

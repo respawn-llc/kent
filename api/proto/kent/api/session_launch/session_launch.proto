@@ -14,6 +14,21 @@ import "kent/api/shared/validation.proto";
 
 option go_package = "core/shared/protoapi/gen/kent/api/session_launch;sessionlaunchpb";
 
+message SessionRuntimePreparationOptions {
+  ConnectionScope connection_scope = 11 [(buf.validate.field).required = true];
+  Settings active_settings = 3 [(buf.validate.field).required = true];
+  repeated ToolID enabled_tool_ids = 4 [(buf.validate.field).repeated.items.enum = {
+    defined_only: true
+    not_in: [0]
+  }];
+  optional bool questions_enabled = 5 [(buf.validate.field).required = true];
+  optional bool auto_compaction_enabled = 6 [(buf.validate.field).required = true];
+  bool thinking_override_explicit = 7;
+  SourceReport source = 8 [(buf.validate.field).required = true];
+  optional SessionRuntimeAgentSelection agent_selection = 9;
+  ToolSelection explicit_tool_selection = 10;
+}
+
 enum SessionLaunchMode {
   SESSION_LAUNCH_MODE_UNSPECIFIED = 0;
   SESSION_LAUNCH_MODE_INTERACTIVE = 1;
@@ -452,7 +467,18 @@ message SessionRuntimeAgentSelection {
   SessionRuntimeChatSettings baseline = 2 [(buf.validate.field).required = true];
 }
 
+message ConnectionScope {
+  option (buf.validate.message).cel = {
+    id: "kent.session_launch.connection_scope"
+    message: "an unavailable role cannot also supply a connection selection"
+    expression: "!has(this.selection) || !has(this.unavailable_role)"
+  };
+  kent.api.auth.ConnectionSelection selection = 1;
+  optional string unavailable_role = 2 [(buf.validate.field).string.min_len = 1];
+}
+
 message SessionPlan {
+  ConnectionScope connection_scope = 15 [(buf.validate.field).required = true];
   optional int64 short_id = 14 [(buf.validate.field).int64 = {gt: 0 lte: 9007199254740991}];
   string session_id = 1 [
     (buf.validate.field).string.uuid = true,

@@ -18,6 +18,7 @@ type Options struct {
 	SessionID                 string
 	WorkspaceContextSessionID string
 	AgentRole                 *string
+	RunAgentFlag              RunAgentFlag
 	Model                     string
 	ThinkingLevel             string
 	Theme                     string

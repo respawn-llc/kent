@@ -2,12 +2,12 @@ import type { QueryClient } from "@tanstack/react-query";
 import { useAtomMount, useAtomSet } from "@effect/atom-react";
 import * as Atom from "effect/reactivity/Atom";
 import * as Effect from "effect/Effect";
-import { queryKeys, type SidebarMode, type SidebarRootController } from "@/app-facade";
+import { queryKeys, type SidebarRootController } from "@/app-facade";
 import { createProjectTaskRefresh } from "./ProjectTaskRefresh";
 import { projectTaskGroups } from "./projectTaskListData";
 import { projectTaskSortsEqual, type ProjectTaskSort } from "./projectTaskSorting";
 
-type SidebarInput = Readonly<{ open: SidebarRootController["open"]; mode: SidebarMode }>;
+type SidebarInput = Readonly<{ open: SidebarRootController["open"] }>;
 
 export function createProjectTasksModel(
   client: QueryClient,
@@ -21,7 +21,6 @@ export function createProjectTasksModel(
         async () =>
           input.open({
             kind: "newTask",
-            mode: input.mode,
             projectID,
             boardQueryWorkflowID: undefined,
             onCreated: refresh.rows,
@@ -40,9 +39,7 @@ export function createProjectTasksModel(
   const linking = Atom.fn<SidebarInput>()(
     (input) =>
       Effect.promise(
-        async () =>
-          input.open({ kind: "linkWorkflow", mode: input.mode, projectID, onCompleted: refresh.linked })
-            .lifecycle,
+        async () => input.open({ kind: "linkWorkflow", projectID, onCompleted: refresh.linked }).lifecycle,
       ),
     { concurrent: true },
   );
@@ -59,7 +56,6 @@ export function createProjectTasksModel(
       Effect.sync(() => {
         input.open({
           kind: "taskDetail",
-          mode: input.mode,
           taskID: input.taskID,
           ...(input.dependencies ? { initialFocus: { kind: "dependencies" as const } } : {}),
         });

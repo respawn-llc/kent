@@ -2,10 +2,9 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { RegistryProvider } from "@effect/atom-react";
 import { act, renderHook, waitFor } from "@testing-library/react";
 import type { ReactNode } from "react";
-import { afterEach, vi } from "vitest";
+import { afterEach, describe, expect, it, vi } from "bun:test";
 import { projectEventsFixture, recordProjectObservers } from "@/test-support/project-events";
 
-import type * as AppFacade from "@/app-facade";
 import type { ProjectTaskGroupCounts, ProjectTaskGroupDefinition, TaskListInput, TaskListPage } from "@/api";
 import { AppServicesProvider, queryKeys } from "@/app-facade";
 import { createTestServices, startupRoutes } from "@/test-support/app-services";
@@ -43,29 +42,6 @@ const state: TestState = {
   listPage: async (input) => pageResponse(taskGroupForInput(input), input.offset ?? 0),
   listRequests: [],
 };
-
-const mockedApi = {
-  getProjectTaskGroupCounts: async () => {
-    state.countRequests += 1;
-    return state.getCounts();
-  },
-  listTasks: async (input: TaskListInput) => {
-    state.listRequests.push(input);
-    return state.listPage(input);
-  },
-};
-const mockedServices = {
-  api: mockedApi,
-  logger: { append: async () => undefined },
-};
-
-vi.mock("@/app-facade", async (importOriginal) => {
-  const actual = await importOriginal<typeof AppFacade>();
-  return {
-    ...actual,
-    useAppServices: () => mockedServices,
-  };
-});
 
 describe("Project Task-list data ownership", () => {
   afterEach(() => {
@@ -207,11 +183,10 @@ describe("Project Task-list data ownership", () => {
 
     rerender({ active: false, backlog: true, done: false });
     await waitFor(() => {
-      expect(
-        harness.queryClient.getQueryData(
-          queryKeys.projectTaskGroup("project-1", "active", defaultProjectTaskSort),
-        ),
-      ).toBeUndefined();
+      const collapsedGroup = harness.queryClient.getQueryData(
+        queryKeys.projectTaskGroup("project-1", "active", defaultProjectTaskSort),
+      );
+      expect(collapsedGroup).toBeUndefined();
     });
     expect(result.current.active.tasks).toEqual([]);
     expect(
@@ -277,11 +252,10 @@ describe("Project Task-list data ownership", () => {
     expect(result.current.active.tasks.at(0)?.id).toBe("active-0");
     expect(result.current.active.nextRequestGeneration).toBe("project-1:500");
     unmount();
-    expect(
-      harness.queryClient.getQueryData(
-        queryKeys.projectTaskGroup("project-1", "active", defaultProjectTaskSort),
-      ),
-    ).toBeDefined();
+    const retainedGroup = harness.queryClient.getQueryData(
+      queryKeys.projectTaskGroup("project-1", "active", defaultProjectTaskSort),
+    );
+    expect(retainedGroup).toBeDefined();
   });
 
   it("sends the selected sort to every expanded group and preserves server row order", async () => {
@@ -313,12 +287,18 @@ describe("Project Task-list data ownership", () => {
       expect(state.listRequests).toHaveLength(2);
       expect(result.current.active.tasks).toHaveLength(2);
     });
-    expect(state.listRequests).toEqual(
-      expect.arrayContaining([
-        expect.objectContaining({ group: "active", offset: 0, sort: [selectedSort] }),
-        expect.objectContaining({ group: "backlog", offset: 0, sort: [selectedSort] }),
-      ]),
-    );
+    const selectedSortRequests = state.listRequests.filter(({ offset, sort }) => {
+      return (
+        offset === 0 &&
+        sort?.length === 1 &&
+        sort.some(
+          ({ field, direction }) => field === selectedSort.field && direction === selectedSort.direction,
+        )
+      );
+    });
+    expect(selectedSortRequests).toHaveLength(2);
+    expect(selectedSortRequests.some(({ group }) => group === "active")).toBe(true);
+    expect(selectedSortRequests.some(({ group }) => group === "backlog")).toBe(true);
     expect(result.current.active.tasks.map((task) => task.id)).toEqual(["active-0-last", "active-0-first"]);
     expect(result.current.done.tasks).toEqual([]);
   });
@@ -464,11 +444,10 @@ describe("Project Task-list data ownership", () => {
     rerender({ expanded: false });
     expect(result.current.active.tasks).toEqual([]);
     await waitFor(() => {
-      expect(
-        harness.queryClient.getQueryData(
-          queryKeys.projectTaskGroup("project-1", "active", defaultProjectTaskSort),
-        ),
-      ).toBeUndefined();
+      const collapsedGroup = harness.queryClient.getQueryData(
+        queryKeys.projectTaskGroup("project-1", "active", defaultProjectTaskSort),
+      );
+      expect(collapsedGroup).toBeUndefined();
     });
     fail = true;
     rerender({ expanded: true });
@@ -767,6 +746,14 @@ describe("Project Task-list data ownership", () => {
 
 function createHarness() {
   const services = createTestServices(startupRoutes);
+  vi.spyOn(services.api, "getProjectTaskGroupCounts").mockImplementation(async () => {
+    state.countRequests += 1;
+    return state.getCounts();
+  });
+  vi.spyOn(services.api, "listTasks").mockImplementation(async (input) => {
+    state.listRequests.push(input);
+    return state.listPage(input);
+  });
   const close = vi.fn();
   recordProjectObservers(services.transport, (handler) => state.handlers.push(handler), close);
   const queryClient = new QueryClient({

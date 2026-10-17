@@ -78,6 +78,7 @@ func TestTranscriptSessionIdentityUpdatesStatusExecutionTarget(t *testing.T) {
 		t.Fatalf("ParseSessionId: %v", err)
 	}
 	if _, err := runtimeClient.admitTranscriptMessageState(transcriptTestMessage(0, &transcriptpb.SessionIdentity{SessionId: sessionID.String(),
+		Category:              projectpb.SessionCategory_SESSION_CATEGORY_MAIN,
 		ConversationFreshness: runtimepb.ConversationFreshness_CONVERSATION_FRESHNESS_ESTABLISHED,
 		ExecutionTarget:       entered})); err != nil {
 		t.Fatalf("admit transcript session identity: %v", err)
@@ -106,6 +107,7 @@ func TestTranscriptSessionIdentityReplacesConflictingConversationFreshnessCaches
 				ConversationFreshness: runtimepb.ConversationFreshness_CONVERSATION_FRESHNESS_ESTABLISHED}},
 		hasMainView: true}
 	_, err = runtimeClient.admitTranscriptMessageState(transcriptTestMessage(0, &transcriptpb.SessionIdentity{SessionId: sessionID.String(),
+		Category:              projectpb.SessionCategory_SESSION_CATEGORY_MAIN,
 		ConversationFreshness: runtimepb.ConversationFreshness_CONVERSATION_FRESHNESS_FRESH}))
 	if err != nil {
 		t.Fatalf("admit transcript session identity: %v", err)

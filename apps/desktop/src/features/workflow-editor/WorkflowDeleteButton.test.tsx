@@ -2,52 +2,51 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { RegistryProvider } from "@effect/atom-react";
 import { act, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
+import { beforeEach, describe, expect, it, mock, vi } from "bun:test";
 import type { StatusNotice } from "@/ui";
 import { deferred } from "@/test-support/chat-runtime";
 import type { ApiService } from "@/api";
 
-import { WorkflowDeleteButton } from "./WorkflowDeleteButton";
-
-const fixture = vi.hoisted(() => {
-  const impact = {
-    linkCount: 1,
-    projectCount: 1,
-    taskCount: 2,
-    version: 7,
-    workflowID: "workflow-1",
-    defaultReplacementProjectCount: 0,
-    currentNodeCount: 0,
-    pendingApprovalCount: 0,
-    blockedTaskCount: 0,
-  };
-  return {
+const impact = {
+  linkCount: 1,
+  projectCount: 1,
+  taskCount: 2,
+  version: 7,
+  workflowID: "workflow-1",
+  defaultReplacementProjectCount: 0,
+  currentNodeCount: 0,
+  pendingApprovalCount: 0,
+  blockedTaskCount: 0,
+};
+const fixture = {
+  impact,
+  deleteWorkflow: vi.fn<ApiService["deleteWorkflow"]>(async () => ({
+    blockers: [],
+    deleted: true,
     impact,
-    deleteWorkflow: vi.fn<ApiService["deleteWorkflow"]>(async () => ({
-      blockers: [],
-      deleted: true,
-      impact,
-    })),
-    previewWorkflowDelete: vi.fn(async () => impact),
-    push: vi.fn<(notice: StatusNotice) => void>(),
-    dismiss: vi.fn<(id: string) => void>(),
-    matchRoute: vi.fn(() => false),
-    openWorkflowLibrary: vi.fn(async () => "completed"),
-  };
-});
+  })),
+  previewWorkflowDelete: vi.fn(async () => impact),
+  push: vi.fn<(notice: StatusNotice) => void>(),
+  dismiss: vi.fn<(id: string) => void>(),
+  matchRoute: vi.fn(() => false),
+  openWorkflowLibrary: vi.fn(async () => "completed"),
+};
 
-vi.mock("@tanstack/react-router", async (importOriginal) => ({
-  ...(await importOriginal()),
+const actualRouter = await import("@tanstack/react-router");
+const actualAppFacade = await import("@/app-facade");
+await mock.module("@tanstack/react-router", () => ({
+  ...actualRouter,
   useMatchRoute: () => fixture.matchRoute,
 }));
-
-vi.mock("@/app-facade", async (importOriginal) => ({
-  ...(await importOriginal()),
+await mock.module("@/app-facade", () => ({
+  ...actualAppFacade,
   useAppNavigation: () => ({ openWorkflowLibrary: fixture.openWorkflowLibrary }),
   useAppServices: () => ({
     api: fixture,
   }),
   useStatusController: () => ({ push: fixture.push, dismiss: fixture.dismiss }),
 }));
+const { WorkflowDeleteButton } = await import("./WorkflowDeleteButton");
 
 describe("WorkflowDeleteButton completion", () => {
   beforeEach(() => {
@@ -81,18 +80,18 @@ describe("WorkflowDeleteButton completion", () => {
     await user.click(screen.getByRole("button", { name: "workflowEditor.workflowDelete" }));
     await user.click(await screen.findByRole("button", { name: "workflowEditor.workflowDeleteConfirm" }));
     await waitFor(() => {
-      expect(fixture.deleteWorkflow).toHaveBeenCalledOnce();
+      expect(fixture.deleteWorkflow).toHaveBeenCalledTimes(1);
       expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
     });
     expect(onDeleted).not.toHaveBeenCalled();
     await user.click(screen.getByRole("button", { name: "workflowEditor.workflowDelete" }));
     expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
-    expect(fixture.previewWorkflowDelete).toHaveBeenCalledOnce();
-    expect(fixture.deleteWorkflow).toHaveBeenCalledOnce();
+    expect(fixture.previewWorkflowDelete).toHaveBeenCalledTimes(1);
+    expect(fixture.deleteWorkflow).toHaveBeenCalledTimes(1);
 
     finishInvalidation();
     await waitFor(() => {
-      expect(onDeleted).toHaveBeenCalledOnce();
+      expect(onDeleted).toHaveBeenCalledTimes(1);
     });
     queryClient.clear();
   });
@@ -110,7 +109,7 @@ describe("WorkflowDeleteButton completion", () => {
     );
     await user.click(screen.getByRole("button", { name: "workflowEditor.workflowDelete" }));
     await waitFor(() => {
-      expect(fixture.push).toHaveBeenCalledOnce();
+      expect(fixture.push).toHaveBeenCalledTimes(1);
     });
     const notice = fixture.push.mock.calls[0]?.[0];
     if (notice === undefined) throw new Error("Missing preview failure");
@@ -120,7 +119,7 @@ describe("WorkflowDeleteButton completion", () => {
     expect(fixture.deleteWorkflow).not.toHaveBeenCalled();
     await user.click(await screen.findByRole("button", { name: "workflowEditor.workflowDeleteConfirm" }));
     await waitFor(() => {
-      expect(fixture.deleteWorkflow).toHaveBeenCalledOnce();
+      expect(fixture.deleteWorkflow).toHaveBeenCalledTimes(1);
     });
     view.unmount();
     queryClient.clear();
@@ -139,7 +138,7 @@ describe("WorkflowDeleteButton completion", () => {
     );
     await user.click(screen.getByRole("button", { name: "workflowEditor.workflowDelete" }));
     await waitFor(() => {
-      expect(fixture.push).toHaveBeenCalledOnce();
+      expect(fixture.push).toHaveBeenCalledTimes(1);
     });
     const notice = fixture.push.mock.calls[0]?.[0];
     if (notice === undefined) throw new Error("Missing preview failure");
@@ -154,7 +153,7 @@ describe("WorkflowDeleteButton completion", () => {
     });
     unsubscribe();
     await act(async () => notice.onAction?.());
-    expect(fixture.previewWorkflowDelete).toHaveBeenCalledOnce();
+    expect(fixture.previewWorkflowDelete).toHaveBeenCalledTimes(1);
     expect(fixture.deleteWorkflow).not.toHaveBeenCalled();
     queryClient.clear();
   });
@@ -182,7 +181,7 @@ describe("WorkflowDeleteButton completion", () => {
       response.resolve({ deleted: true, blockers: [], impact: fixture.impact });
     });
     await waitFor(() => {
-      expect(onDeleted).toHaveBeenCalledOnce();
+      expect(onDeleted).toHaveBeenCalledTimes(1);
     });
     expect(invalidated).toHaveBeenCalled();
     expect(fixture.openWorkflowLibrary).not.toHaveBeenCalled();

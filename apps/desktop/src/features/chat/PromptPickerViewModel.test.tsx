@@ -1,8 +1,8 @@
 import { RegistryProvider, useAtomSet, useAtomValue } from "@effect/atom-react";
 import { QueryClient } from "@tanstack/react-query";
-import { act, renderHook } from "@testing-library/react";
+import { act, renderHook, waitFor } from "@testing-library/react";
 import type { ReactNode } from "react";
-import { expect, it, vi } from "vitest";
+import { expect, it, vi } from "bun:test";
 import { ChatRuntimeOwner } from "@/app-facade";
 import { runtimeApi, runtimeHost, target, deferred, hydration } from "@/test-support/chat-runtime";
 import { question, approval, failedBatchWithFreeform } from "@/test-support/chat-prompts";
@@ -76,7 +76,7 @@ it("retains drafts on observation loss and discards them on departure without re
     });
     view.result.current.dispatch({ action: { kind: "confirm" } });
   });
-  expect(send).toHaveBeenCalledOnce();
+  expect(send).toHaveBeenCalledTimes(1);
   act(() => {
     fixture.handlers[0]?.onTransportLoss?.();
   });
@@ -91,10 +91,10 @@ it("retains drafts on observation loss and discards them on departure without re
     response.resolve({ results: [{ toolCallID: prompt.toolCallID, outcome: "resolved" }] });
     await response.promise;
   });
-  await vi.waitFor(() => {
+  await waitFor(() => {
     expect(owner.snapshot.pendingPrompts).toEqual([]);
   });
-  expect(send).toHaveBeenCalledOnce();
+  expect(send).toHaveBeenCalledTimes(1);
   act(() => {
     owner.replacePendingPrompts([question("next")]);
   });
@@ -105,7 +105,7 @@ it("retains drafts on observation loss and discards them on departure without re
   const utils = mountPicker(options);
   expect(utils.result.current.state.drafts.get("next")?.commentary).toBe("");
   expect(owner.snapshot.pendingPrompts).toEqual([question("next")]);
-  expect(send).toHaveBeenCalledOnce();
+  expect(send).toHaveBeenCalledTimes(1);
   utils.unmount();
   await owner.dispose();
 });
@@ -128,17 +128,17 @@ it("retains declines and pending facts after delivery failure, then explicitly r
   await act(async () => {
     view.result.current.dispatch({ action: { kind: "decline" } });
   });
-  await vi.waitFor(() => {
+  await waitFor(() => {
     expect(view.result.current.request.isError).toBe(true);
   });
   expect(onError).toHaveBeenCalledTimes(1);
   expect(owner.snapshot.pendingPrompts).toEqual([prompt]);
   expect(view.result.current.state.drafts.get(prompt.toolCallID)?.status).toBe("declined");
-  expect(send).toHaveBeenCalledOnce();
+  expect(send).toHaveBeenCalledTimes(1);
   await act(async () => {
     view.result.current.dispatch({ action: { kind: "confirm" } });
   });
-  await vi.waitFor(() => {
+  await waitFor(() => {
     expect(owner.snapshot.pendingPrompts).toEqual([]);
   });
   expect(send).toHaveBeenCalledTimes(2);
@@ -185,7 +185,7 @@ it("removes externally resolved drafts and ignores an earlier successful respons
       action: { kind: "activate", selection: { kind: "suggested", number: 1 } },
     });
   });
-  expect(send).toHaveBeenCalledOnce();
+  expect(send).toHaveBeenCalledTimes(1);
   await act(async () => {
     fixture.handlers[0]?.onEvent({
       sequence: 3,
@@ -200,7 +200,7 @@ it("removes externally resolved drafts and ignores an earlier successful respons
     response.resolve({ results: [{ toolCallID: first.toolCallID, outcome: "skipped" }] });
     await response.promise;
   });
-  await vi.waitFor(() => {
+  await waitFor(() => {
     expect(view.result.current.request.isPending).toBe(false);
   });
   expect(owner.snapshot.pendingPrompts).toEqual([later]);
@@ -229,8 +229,8 @@ it("keeps later Step authority when an earlier request fails", async () => {
   await act(async () => {
     view.result.current.dispatch({ action: { kind: "decline" } });
   });
-  await vi.waitFor(() => {
-    expect(send).toHaveBeenCalledOnce();
+  await waitFor(() => {
+    expect(send).toHaveBeenCalledTimes(1);
   });
   await act(async () => {
     fixture.handlers[0]?.onEvent({
@@ -245,12 +245,12 @@ it("keeps later Step authority when an earlier request fails", async () => {
     });
     response.reject(new Error("delivery failed"));
   });
-  await vi.waitFor(() => {
+  await waitFor(() => {
     expect(view.result.current.request.isError).toBe(true);
   });
   expect(owner.snapshot.pendingPrompts).toEqual([later]);
   expect(view.result.current.state.current).toBe(later.toolCallID);
-  expect(send).toHaveBeenCalledOnce();
+  expect(send).toHaveBeenCalledTimes(1);
   view.unmount();
   await owner.dispose();
 });
@@ -276,10 +276,10 @@ it("uses received partial acceptance after failed delivery without a repair read
     view.result.current.dispatch({ action: { kind: "commentary", text: "My explanation" } });
     view.result.current.dispatch({ action: { kind: "confirm" } });
   });
-  await vi.waitFor(() => {
+  await waitFor(() => {
     expect(view.result.current.request.isError).toBe(true);
   });
-  expect(onError).toHaveBeenCalledOnce();
+  expect(onError).toHaveBeenCalledTimes(1);
   expect(refresh).not.toHaveBeenCalled();
   expect(owner.snapshot.pendingPrompts).toHaveLength(2);
   act(() => {
@@ -290,16 +290,16 @@ it("uses received partial acceptance after failed delivery without a repair read
     commentary: "My explanation",
     status: "answered",
   });
-  expect(send).toHaveBeenCalledOnce();
+  expect(send).toHaveBeenCalledTimes(1);
   act(() => {
     view.result.current.dispatch({ action: { kind: "commentary", text: "Changed explanation" } });
   });
   expect(view.result.current.state.drafts.get("freeform")?.status).toBe("tentative");
-  expect(send).toHaveBeenCalledOnce();
+  expect(send).toHaveBeenCalledTimes(1);
   await act(async () => {
     view.result.current.dispatch({ action: { kind: "confirm" } });
   });
-  await vi.waitFor(() => {
+  await waitFor(() => {
     expect(send).toHaveBeenCalledTimes(2);
   });
   expect(send.mock.calls[1]?.[0].entries).toEqual([
@@ -339,7 +339,8 @@ it("sends one immutable batch only after every pending member is confirmed and r
       action: { kind: "activate", selection: { kind: "approval", decision: "deny" } },
     });
   });
-  expect(answerPromptBatch).toHaveBeenCalledExactlyOnceWith({
+  expect(answerPromptBatch).toHaveBeenCalledTimes(1);
+  expect(answerPromptBatch).toHaveBeenCalledWith({
     sessionID: target.sessionID,
     stepID: prompts[0]?.stepID,
     entries: [
@@ -358,7 +359,7 @@ it("sends one immutable batch only after every pending member is confirmed and r
     view.result.current.dispatch({ action: { kind: "confirm" } });
   });
   expect(view.result.current.state.drafts.get("question-1")?.commentary).toBe("");
-  expect(answerPromptBatch).toHaveBeenCalledOnce();
+  expect(answerPromptBatch).toHaveBeenCalledTimes(1);
   expect(answerPromptBatch.mock.calls[0]?.[0].entries).toEqual([
     { kind: "question", toolCallID: "question-1", selectedOptionNumber: 2, freeform: null },
     { kind: "approval", toolCallID: "approval-1", decision: "deny", commentary: null },
@@ -372,7 +373,7 @@ it("sends one immutable batch only after every pending member is confirmed and r
     });
     await response.promise;
   });
-  await vi.waitFor(() => {
+  await waitFor(() => {
     expect(owner.snapshot.pendingPrompts).toEqual([]);
   });
   expect(view.result.current.request.isPending).toBe(false);
@@ -396,13 +397,13 @@ it("reports a failed answer after navigation without restoring a disposed owner'
   await act(async () => {
     view.result.current.dispatch({ action: { kind: "decline" } });
   });
-  expect(send).toHaveBeenCalledOnce();
+  expect(send).toHaveBeenCalledTimes(1);
   view.unmount();
   await owner.dispose();
   response.reject(new Error("Send failed"));
-  await vi.waitFor(() => {
-    expect(onError).toHaveBeenCalledOnce();
+  await waitFor(() => {
+    expect(onError).toHaveBeenCalledTimes(1);
   });
-  expect(send).toHaveBeenCalledOnce();
+  expect(send).toHaveBeenCalledTimes(1);
   expect(owner.snapshot.disposed).toBe(true);
 });

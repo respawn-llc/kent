@@ -58,7 +58,7 @@ func TestSessionLaunchSharesRotationAcrossDefaultAndRolesAndRetainsBinding(t *te
 		},
 	}
 	service := newSessionLaunchTestService(cfg, t.TempDir())
-	service.planner.Rotation = new(launch.ConnectionRotation)
+	service.planner.Rotation = launch.NewConnectionRotation(testsetup.OpenStore(t, t.TempDir()), 0)
 	for index, want := range []config.ConnectionID{"a", "b", "a", "b"} {
 		overrides := serverapi.RunPromptOverrides{}
 		if index%2 == 1 {
@@ -101,7 +101,7 @@ func TestDeletedSessionBindingAllocatesNextMember(t *testing.T) {
 		"a": cfg.Settings.Connections["test"], "b": cfg.Settings.Connections["test"],
 	}
 	service := newSessionLaunchTestService(cfg, t.TempDir())
-	service.planner.Rotation = new(launch.ConnectionRotation)
+	service.planner.Rotation = launch.NewConnectionRotation(testsetup.OpenStore(t, t.TempDir()), 0)
 	fresh, err := service.PlanLaunchSession(t.Context(), PlanRequest{
 		Mode: launch.ModeInteractive, Intent: serverapi.CreateNewSessionLaunchIntent(serverapi.IndependentSessionCreateOrigin()),
 	})
@@ -130,6 +130,88 @@ func TestDeletedSessionBindingAllocatesNextMember(t *testing.T) {
 	}
 }
 
+func TestPreviousSessionChildrenAllocateFreshConnectionsAndResumeSticky(t *testing.T) {
+	for _, mode := range []launch.Mode{launch.ModeInteractive, launch.ModeHeadless} {
+		for _, role := range []*string{nil, textutil.Value("worker")} {
+			name := string(mode) + "/default"
+			if role != nil {
+				name = string(mode) + "/worker"
+			}
+			t.Run(name, func(t *testing.T) {
+				cfg := loadSessionLaunchTestConfig(t, t.TempDir(), t.TempDir())
+				selection := config.ConnectionSelection{"a", "b", "c", "d"}
+				cfg.Settings.Connection = &selection
+				cfg.Settings.ConnectionOrder = []config.ConnectionID{"a", "b", "c", "d"}
+				definition := cfg.Settings.Connections["test"]
+				cfg.Settings.Connections = map[config.ConnectionID]config.ProviderConnection{
+					"a": definition, "b": definition, "c": definition, "d": definition,
+				}
+				roleSelection := config.ConnectionSelection{"a", "b", "c"}
+				cfg.Settings.Subagents["worker"] = config.SubagentRole{
+					Settings: config.Settings{Connection: &roleSelection, Model: "gpt-6-luna"},
+					Sources: map[string]config.Origin{
+						"connection": {Kind: config.SourceInput, Property: config.PropertyAddress{Key: "connection"}},
+						"model":      {Kind: config.SourceInput, Property: config.PropertyAddress{Key: "model"}},
+					},
+				}
+				service := newSessionLaunchTestService(cfg, t.TempDir())
+				service.planner.Rotation = launch.NewConnectionRotation(testsetup.OpenStore(t, t.TempDir()), 0)
+				overrides := serverapi.RunPromptOverrides{AgentRole: role}
+				parent, err := service.PlanLaunchSession(t.Context(), PlanRequest{
+					Mode: mode, Intent: serverapi.CreateNewSessionLaunchIntent(serverapi.IndependentSessionCreateOrigin()),
+					Overrides: overrides,
+				})
+				if err != nil {
+					t.Fatal(err)
+				}
+				parentID := parent.Plan.Descriptor.SessionID()
+				parentRecord, err := serviceTestPersistence.ResolvePersistedSession(t.Context(), parentID.String())
+				if err != nil {
+					t.Fatal(err)
+				}
+				wantConnections := []config.ConnectionID{"b", "c", "d"}
+				if role != nil {
+					wantConnections = []config.ConnectionID{"b", "c", "a"}
+				}
+				for _, want := range wantConnections {
+					child, err := service.PlanLaunchSession(t.Context(), PlanRequest{
+						Mode: mode, Intent: serverapi.CreateNewSessionLaunchIntent(serverapi.PreviousSessionCreateOrigin(parentID)),
+						Overrides: overrides,
+					})
+					if err != nil {
+						t.Fatal(err)
+					}
+					childID := child.Plan.Descriptor.SessionID()
+					record, err := serviceTestPersistence.ResolvePersistedSession(t.Context(), childID.String())
+					if err != nil {
+						t.Fatal(err)
+					}
+					if !reflect.DeepEqual(child.Plan.ActiveSettings.Connection, config.SingleConnection(want)) ||
+						record.Meta.ConnectionID == nil || *record.Meta.ConnectionID != want {
+						t.Fatalf("child connection = %v, saved = %v; want %s", child.Plan.ActiveSettings.Connection, record.Meta.ConnectionID, want)
+					}
+					if record.Meta.PreviousSessionID == nil || *record.Meta.PreviousSessionID != parentID ||
+						!reflect.DeepEqual(record.Meta.Continuation, parentRecord.Meta.Continuation) {
+						t.Fatalf("child lost continuation or lineage: %+v", record.Meta)
+					}
+					for id, binding := range map[runtimeids.SessionID]config.ConnectionID{parentID: "a", childID: want} {
+						reopened, err := service.PlanLaunchSession(t.Context(), PlanRequest{
+							Mode: mode, Intent: serverapi.OpenExistingSessionLaunchIntent(id),
+						})
+						if err != nil || !reflect.DeepEqual(reopened.Plan.ActiveSettings.Connection, config.SingleConnection(binding)) {
+							t.Fatalf("resume binding = %v, %v; want %s", reopened.Plan.ActiveSettings.Connection, err, binding)
+						}
+					}
+				}
+				after, err := serviceTestPersistence.ResolvePersistedSession(t.Context(), parentID.String())
+				if err != nil || !reflect.DeepEqual(after.Meta.ConnectionID, parentRecord.Meta.ConnectionID) {
+					t.Fatalf("child launch changed parent binding: %+v, %v", after.Meta, err)
+				}
+			})
+		}
+	}
+}
+
 func TestExplicitUnchangedAgentReplacesDeletedBindingOnce(t *testing.T) {
 	cfg := loadSessionLaunchTestConfig(t, t.TempDir(), t.TempDir())
 	selection := config.ConnectionSelection{"a", "b"}
@@ -143,7 +225,7 @@ func TestExplicitUnchangedAgentReplacesDeletedBindingOnce(t *testing.T) {
 		Sources:  map[string]config.Origin{"model": {Kind: config.SourceInput, Property: config.PropertyAddress{Key: "model"}}},
 	}
 	service := newSessionLaunchTestService(cfg, t.TempDir())
-	service.planner.Rotation = new(launch.ConnectionRotation)
+	service.planner.Rotation = launch.NewConnectionRotation(testsetup.OpenStore(t, t.TempDir()), 0)
 	store := createLaunchTestSession(t, service.planner.ContainerDir, "retained", cfg.WorkspaceRoot)
 	if err := store.SetContinuationContext(session.ContinuationContext{AgentRole: textutil.Value("worker")}); err != nil {
 		t.Fatal(err)

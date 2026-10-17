@@ -13,6 +13,7 @@ import (
 	"core/internal/testharness/workflowfixture"
 	"core/server/metadata"
 	"core/server/metadata/sqlitegen"
+	"core/server/registry"
 	"core/server/session"
 	"core/server/sessionruntime"
 	"core/server/workflow"
@@ -160,9 +161,11 @@ func newStructuredTaskDeletionEnv(t *testing.T) *serviceTestEnv {
 		t.Fatalf("CanonicalWorkspaceRoot: %v", err)
 	}
 	sess := createServiceTestSession(t, store, cfg, binding)
+	runtimeRegistry := registry.NewRuntimeRegistry(store)
 	authority := sessionruntime.NewAuthority(sessionruntime.AuthorityOptions{
-		PersistenceRoot: cfg.PersistenceRoot,
-		StoreOptions:    store.AuthoritativeSessionStoreOptions(),
+		PersistenceRoot:               cfg.PersistenceRoot,
+		ProjectWorkspaceContextReader: store,
+		StoreOptions:                  store.AuthoritativeSessionStoreOptions(),
 	})
 	t.Cleanup(func() {
 		if err := authority.Close(context.Background()); err != nil {
@@ -172,16 +175,20 @@ func newStructuredTaskDeletionEnv(t *testing.T) *serviceTestEnv {
 	publisher := &serviceTestPublisher{}
 	processes := &serviceTestProcessSource{}
 	return &serviceTestEnv{
-		t:             t,
-		ctx:           ctx,
-		store:         store,
-		cfg:           cfg,
-		binding:       binding,
-		session:       sess,
-		authority:     authority,
-		publisher:     publisher,
-		processes:     processes,
-		service:       NewService(store, nil, authority, publisher, processes, ServiceOptions{PersistenceRoot: cfg.PersistenceRoot, BaseDir: cfg.Settings.Worktrees.BaseDir}),
+		t:         t,
+		ctx:       ctx,
+		store:     store,
+		cfg:       cfg,
+		binding:   binding,
+		session:   sess,
+		authority: authority,
+		publisher: publisher,
+		processes: processes,
+		service: NewService(store, nil, authority, publisher, processes, ServiceOptions{
+			PersistenceRoot:               cfg.PersistenceRoot,
+			BaseDir:                       cfg.Settings.Worktrees.BaseDir,
+			RuntimeActivitySnapshotReader: runtimeRegistry,
+		}),
 		leaseID:       "lease-1",
 		workspaceRoot: workspaceRoot,
 		baseDir:       cfg.Settings.Worktrees.BaseDir,

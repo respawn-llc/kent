@@ -226,10 +226,8 @@ func TestExecutionPromptStoreResolvePromptBatchDoesNotWaitForPreparedSuccessor(t
 	store, _ := newPromptBatchStore(t)
 	first := promptBatchQuestion("first", stepID, time.Unix(1, 0))
 	first.snapshot.Request.Origin = tools.AskQuestionOriginModelTool
-	first.snapshot.Request.RunID = "run-1"
 	first.snapshot.Request.QuestionBatch = &tools.AskQuestionBatchMetadata{
 		Origin:              tools.AskQuestionOriginModelTool,
-		RunID:               "run-1",
 		StepID:              stepID.String(),
 		ToolCallID:          "first",
 		BatchToolCallIDs:    []string{"first", "future"},
@@ -259,9 +257,8 @@ func TestExecutionPromptStoreResolvesModelQuestionsInOriginalCallOrder(t *testin
 	for index, id := range ids {
 		entry := promptBatchQuestion(id, stepID, time.Unix(int64(len(ids)-index), 0))
 		entry.snapshot.Request.Origin = tools.AskQuestionOriginModelTool
-		entry.snapshot.Request.RunID = "run-1"
 		entry.snapshot.Request.QuestionBatch = &tools.AskQuestionBatchMetadata{
-			Origin: tools.AskQuestionOriginModelTool, RunID: "run-1", StepID: stepID.String(),
+			Origin: tools.AskQuestionOriginModelTool, StepID: stepID.String(),
 			ToolCallID: id, BatchToolCallIDs: ids, CandidateOrdinal: index, PreparedPromptCount: len(ids),
 		}
 		entries[index] = entry

@@ -20,13 +20,15 @@ import (
 )
 
 type stubExclusiveStepLifecycle struct {
-	mu           sync.Mutex
-	busy         bool
-	runCalls     int
-	runFn        func(ctx context.Context, options exclusiveStepOptions, fn func(stepCtx context.Context, stepID string) error) error
-	snapshot     *RunSnapshot
-	snapshotFn   func() *RunSnapshot
-	activeStepID string
+	mu                       sync.Mutex
+	busy                     bool
+	runCalls                 int
+	runFn                    func(ctx context.Context, options exclusiveStepOptions, fn func(stepCtx context.Context, stepID string) error) error
+	snapshot                 *RunSnapshot
+	snapshotFn               func() *RunSnapshot
+	activeStepID             string
+	turnStateLifetime        *llm.CodexTurnStateLifetime
+	turnStateLifetimeForStep func(string) (*llm.CodexTurnStateLifetime, bool)
 }
 
 type stubBackgroundNoticeScheduler struct {
@@ -530,6 +532,25 @@ func (s *stubExclusiveStepLifecycle) WithActiveStep(fn func(stepID string) error
 	return true, fn(runtimeTestStepID(stepID))
 }
 
+func (s *stubExclusiveStepLifecycle) TurnStateLifetimeForStep(stepID string) (*llm.CodexTurnStateLifetime, bool) {
+	s.mu.Lock()
+	resolve := s.turnStateLifetimeForStep
+	if resolve != nil {
+		s.mu.Unlock()
+		return resolve(stepID)
+	}
+	if s.activeStepID == "" || runtimeTestStepID(s.activeStepID) != stepID {
+		s.mu.Unlock()
+		return nil, false
+	}
+	if s.turnStateLifetime == nil {
+		s.turnStateLifetime = llm.NewCodexTurnStateLifetime()
+	}
+	lifetime := s.turnStateLifetime
+	s.mu.Unlock()
+	return lifetime, true
+}
+
 func (s *stubExclusiveStepLifecycle) ResolveActiveOutputStep(expectedStepID *string) (*string, error) {
 	s.mu.Lock()
 	stepID := s.activeStepID
@@ -566,18 +587,6 @@ func (s *stubExclusiveStepLifecycle) DrainAgentStepBoundary(context.Context) err
 }
 
 func (s *stubExclusiveStepLifecycle) EndAgentStepBoundary() {}
-
-func (s *stubExclusiveStepLifecycle) ApplyForExactGoalStep(runID string, stepID string, apply func() error) error {
-	s.mu.Lock()
-	activeStepID := s.activeStepID
-	snapshot := cloneRunSnapshot(s.snapshot)
-	s.mu.Unlock()
-	if activeStepID == "" || activeStepID != stepID || snapshot == nil ||
-		snapshot.RunID != runID || snapshot.StepID != stepID || apply == nil {
-		return ErrActiveStepInactive
-	}
-	return apply()
-}
 
 func (s *stubExclusiveStepLifecycle) ValidateExactOutput(stepID string, _ bool) error {
 	s.mu.Lock()
@@ -714,8 +723,8 @@ func TestExclusiveStepLifecycleSnapshotTracksActiveRun(t *testing.T) {
 	if snapshot == nil {
 		t.Fatal("expected active run snapshot")
 	}
-	if snapshot.RunID == "" || snapshot.StepID == "" {
-		t.Fatalf("expected run and step ids, got %+v", snapshot)
+	if snapshot.StepID == "" {
+		t.Fatalf("expected active Step identity, got %+v", snapshot)
 	}
 	if snapshot.Status != RunStatusRunning {
 		t.Fatalf("run status = %q, want running", snapshot.Status)
@@ -763,8 +772,8 @@ func TestExclusiveStepLifecycleEmitsCompletedRunStatePayloads(t *testing.T) {
 	}
 	started := runEvents[0]
 	finished := runEvents[1]
-	if !started.Lifecycle.IsRunning() || started.RunID == "" {
-		t.Fatalf("expected busy start event with run id, got %+v", started)
+	if !started.Lifecycle.IsRunning() {
+		t.Fatalf("expected busy start event, got %+v", started)
 	}
 	if started.Status != RunStatusRunning || started.StartedAt.IsZero() || !started.FinishedAt.IsZero() {
 		t.Fatalf("unexpected start event payload: %+v", started)
@@ -772,8 +781,8 @@ func TestExclusiveStepLifecycleEmitsCompletedRunStatePayloads(t *testing.T) {
 	if finished.Lifecycle.IsRunning() {
 		t.Fatalf("expected final run-state event to clear busy, got %+v", finished)
 	}
-	if finished.RunID != started.RunID {
-		t.Fatalf("expected stable run id across lifecycle, started=%+v finished=%+v", started, finished)
+	if stepIDs := collectRunStateStepIDs(events); len(stepIDs) != 2 || stepIDs[0] == "" || stepIDs[0] != stepIDs[1] {
+		t.Fatalf("run-state event Step IDs = %v, want one stable execution identity", stepIDs)
 	}
 	if finished.Status != RunStatusCompleted || finished.StartedAt.IsZero() || finished.FinishedAt.IsZero() {
 		t.Fatalf("unexpected finished payload: %+v", finished)
@@ -833,11 +842,11 @@ func TestExclusiveStepLifecycleEmitsInterruptedRunStatePayloads(t *testing.T) {
 	}
 	startedEvent := runEvents[0]
 	finished := runEvents[1]
-	if startedEvent.RunID == "" || startedEvent.Status != RunStatusRunning {
+	if startedEvent.Status != RunStatusRunning {
 		t.Fatalf("unexpected start event payload: %+v", startedEvent)
 	}
-	if finished.RunID != startedEvent.RunID {
-		t.Fatalf("expected stable run id across interruption, started=%+v finished=%+v", startedEvent, finished)
+	if stepIDs := collectRunStateStepIDs(events); len(stepIDs) != 2 || stepIDs[0] == "" || stepIDs[0] != stepIDs[1] {
+		t.Fatalf("interrupted run-state event Step IDs = %v, want one stable execution identity", stepIDs)
 	}
 	if finished.Lifecycle.IsRunning() || finished.Status != RunStatusInterrupted {
 		t.Fatalf("expected interrupted final state, got %+v", finished)
@@ -873,7 +882,6 @@ func TestExclusiveStepLifecycleInterruptCancelsStoppableWork(t *testing.T) {
 					sequence:   1,
 					activeKind: test.kind,
 					cancel:     func() { canceled = true },
-					runID:      uuid.NewString(),
 					stepID:     uuid.NewString(),
 					startedAt:  time.Now().UTC(),
 					closing:    test.closing,
@@ -906,7 +914,6 @@ func TestExclusiveStepLifecycleInterruptCancelsDespitePersistenceFailure(t *test
 			sequence:   1,
 			activeKind: ActiveKindUserTurn,
 			cancel:     func() { canceled = true },
-			runID:      uuid.NewString(),
 			stepID:     uuid.NewString(),
 			startedAt:  time.Now().UTC(),
 		},
@@ -1259,6 +1266,21 @@ func collectRunStateEvents(events []Event) []RunState {
 	return runEvents
 }
 
+func collectRunStateStepIDs(events []Event) []string {
+	stepIDs := make([]string, 0, len(events))
+	for _, event := range events {
+		if event.Kind != EventRunStateChanged || event.RunState == nil {
+			continue
+		}
+		if event.StepID == nil {
+			stepIDs = append(stepIDs, "")
+			continue
+		}
+		stepIDs = append(stepIDs, *event.StepID)
+	}
+	return stepIDs
+}
+
 func TestContextCompactorUsesExclusiveStepLifecycle(t *testing.T) {
 	t.Parallel()
 	store := mustCreateTestSession(t)
@@ -1272,7 +1294,7 @@ func TestContextCompactorUsesExclusiveStepLifecycle(t *testing.T) {
 	}
 
 	eng.compactionRuntimeState().SetManualCompactionEligible(true)
-	if _, err := eng.compactionFlow.CompactContextWithAcceptance(context.Background(), runtimeids.NewCompactionRequestID(), "", nil, nil); err != nil {
+	if _, err := eng.compactionFlow.CompactContextWithAcceptance(context.Background(), "", nil, nil); err != nil {
 		t.Fatalf("compact context: %v", err)
 	}
 	waitEngineLifecycleTasks(t, eng)

@@ -1,9 +1,11 @@
+import { expect, it } from "bun:test";
 import { create } from "@app/server-api-contract";
 import { PromptCommandService } from "@app/server-api-contract/gen/kent/api/prompt_command/prompt_command_pb";
 import { FakeRpcTransport, unexpectedProjectOverflow } from "@/test-support/api";
 import { ApiClient } from "./client";
-import { ChatService } from "@app/server-api-contract/gen/kent/api/chat/chat_pb";
+import { ChatService, InputAdmissionDisposition } from "@app/server-api-contract/gen/kent/api/chat/chat_pb";
 import { ContractError } from "./errors";
+import { pendingWorkItemIDFromProto } from "./pendingWork";
 
 it("reads command names and previews from the selected workspace or exact Session", async () => {
   const method = PromptCommandService.method.getCatalog;
@@ -39,7 +41,7 @@ it("preserves typed catalog failure for the localized Retry surface", async () =
       }),
     },
   ]);
-  await expect(
+  expect(
     new ApiClient(transport, unexpectedProjectOverflow).chat.getCommandCatalog({
       kind: "new_chat",
       projectID: "project-1",
@@ -65,7 +67,10 @@ it("accepts a server-selected child for prompt Send and Queue but rejects text a
             session: { sessionId: child },
             outcome: {
               case: "accepted",
-              value: { queueItem: { id: "323e4567-e89b-42d3-a456-426614174000" } },
+              value: {
+                queueItem: { id: "323e4567-e89b-42d3-a456-426614174000" },
+                disposition: InputAdmissionDisposition.STARTED_TURN,
+              },
             },
           },
         },
@@ -78,7 +83,7 @@ it("accepts a server-selected child for prompt Send and Queue but rejects text a
           case: "success",
           value: {
             session: { sessionId: child },
-            outcome: { case: "accepted", value: { request: { id: "323e4567-e89b-42d3-a456-426614174000" } } },
+            outcome: { case: "accepted", value: {} },
           },
         },
       }),
@@ -92,16 +97,28 @@ it("accepts a server-selected child for prompt Send and Queue but rejects text a
     separatorWhitespace: " ",
     arguments: "src",
   } as const;
+  const queueItemID = pendingWorkItemIDFromProto("323e4567-e89b-42d3-a456-426614174000");
   for (const method of [api.steer, api.queue]) {
-    await expect(method(target, command)).resolves.toMatchObject({
+    const accepted = await method(target, command, queueItemID);
+    expect(accepted).toMatchObject({
       sessionID: child,
       outcome: { kind: "accepted" },
     });
-    await expect(method(target, { kind: "text", text: "ordinary text" })).rejects.toBeInstanceOf(
-      ContractError,
+    const invalidCommand = await method(target, { kind: "text", text: "ordinary text" }, queueItemID).then(
+      () => {
+        throw new Error("Expected plain text to be rejected as a command.");
+      },
+      (error: unknown) => error,
     );
+    expect(invalidCommand).toBeInstanceOf(ContractError);
   }
-  await expect(
-    api.compact(target, { token: "/compact", separatorWhitespace: "", rawGuidance: "" }),
-  ).rejects.toBeInstanceOf(ContractError);
+  const invalidCompact = await api
+    .compact(target, { token: "/compact", separatorWhitespace: "", rawGuidance: "" })
+    .then(
+      () => {
+        throw new Error("Expected an empty compact command to be rejected.");
+      },
+      (error: unknown) => error,
+    );
+  expect(invalidCompact).toBeInstanceOf(ContractError);
 });

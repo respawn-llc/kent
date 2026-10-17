@@ -78,18 +78,12 @@ func (s *Service) prepareRunSelection(
 	if err != nil {
 		return runSelection{}, err
 	}
-	if req.CallerSessionID != nil {
-		_, err := launch.ResolveSessionCaller(ctx, planner.CallerSessions, *req.CallerSessionID)
-		if err != nil {
-			if errors.Is(err, session.ErrSessionNotFound) {
-				return runSelection{}, &serverapi.SubagentLaunchDeniedError{Kind: serverapi.SubagentLaunchDenialCallerMissing}
-			}
-			return runSelection{}, err
-		}
+	if _, err := s.resolveRunCaller(ctx, req.CallerSessionID); err != nil {
+		return runSelection{}, err
 	}
 	baselineMeta := meta
 	baselineMeta.ChatSettings = nil
-	prepared, role, err := prepareExistingSelection(planner, req, baselineMeta, role)
+	prepared, role, err := prepareExistingSelection(ctx, planner, req, baselineMeta, role)
 	if err != nil {
 		return runSelection{}, err
 	}

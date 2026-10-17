@@ -1,4 +1,5 @@
 import { act, render, screen } from "@testing-library/react";
+import { describe, expect, it } from "bun:test";
 
 import { installOneLineOverflowGeometry, visibleOneLineOverflowText } from "@/test-support/one-line-overflow";
 import { OneLineOverflowRow } from "./index";

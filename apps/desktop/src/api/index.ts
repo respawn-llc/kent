@@ -1,7 +1,7 @@
 export type { ApiService, ApiSubscription } from "./apiService";
 export { projectUpdateViolations } from "./projectValidation";
 export { taskCreateTitleViolations } from "./taskValidation";
-export { sessionDisplayID } from "./sessionIdentity";
+export { sessionDisplayID, sessionDisplayTitle } from "./sessionIdentity";
 export type { DesktopProcess } from "./processes";
 export type {
   ChatSettingsAgent,
@@ -41,8 +41,6 @@ export type {
   ChatNotAcceptedReason,
   ChatProjectTarget,
   ChatRuntimeActivity,
-  ChatRuntimeAttachment,
-  ChatRuntimeRelease,
   ChatSessionTarget,
   ChatSessionNameMutation,
   ChatSettingsSnapshot,
@@ -142,13 +140,8 @@ export { ChatOperationError } from "./chatErrors";
 export type { ChatError } from "./chatErrors";
 export { guiTaskCommentAuthor } from "./client";
 export { newSetupOperationID, SetupOperationID } from "./setupOperationID";
-export {
-  compactionRequestIDFromProto,
-  pendingWorkItemIDFromProto,
-  worktreeOperationIDFromProto,
-} from "./pendingWork";
+export { pendingWorkItemIDFromProto, worktreeOperationIDFromProto } from "./pendingWork";
 export type {
-  CompactionRequestID,
   PendingWork,
   PendingWorkIdentity,
   PendingWorkItem,

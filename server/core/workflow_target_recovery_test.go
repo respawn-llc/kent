@@ -141,12 +141,10 @@ func (f *taskRecoveryFixture) interruptAndDelete(t *testing.T) {
 	}); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := f.app.WorktreeClient().DeleteWorktree(ctx, &worktreepb.DeleteRequest{
-		Scope:    worktreecontract.WorkspaceManagementScope(f.binding.ProjectID, f.binding.WorkspaceID, nil),
-		Selector: f.original.ID, BranchCleanupPolicy: worktreepb.BranchCleanupMode_WORKTREE_BRANCH_CLEANUP_MODE_RETAIN,
-	}); err != nil {
-		t.Fatal(err)
-	}
+	f.waitInterrupted(t)
+	// Simulate the external checkout loss this recovery fixture exercises.
+	// Kent-managed deletion has separate live-Runtime safety checks.
+	testsetup.RunGit(t, f.binding.CanonicalRoot, "worktree", "remove", f.original.CanonicalRoot)
 }
 
 func (f *taskRecoveryFixture) resume(t *testing.T, selection *taskpb.ExecutionTargetSelection, branch *string) *taskpb.ResumeSuccess {
@@ -265,24 +263,17 @@ func TestWorkflowRestoredOriginalAcceptsSessionMessageAfterSetupFailure(t *testi
 		t.Fatal("restoration failure lost the retained Session")
 	}
 	cfg := f.app.Config()
-	attachment, err := f.app.SessionRuntimeClient().ActivateSessionRuntime(context.Background(), serverapi.SessionRuntimeActivateRequest{
-		SessionID: requestfixture.SessionID(t, node.SessionID.String()), OwnerID: "recovery-test",
-		ActiveSettings: cfg.Settings, Source: cfg.Source,
-		QuestionsEnabled: textutil.Value(true), AutoCompactionEnabled: textutil.Value(false),
+	err := f.app.SessionRuntimeClient().ActivateSessionRuntime(context.Background(), serverapi.SessionRuntimeActivateRequest{
+		SessionID: requestfixture.SessionID(t, node.SessionID.String()), SessionRuntimePreparationOptions: serverapi.SessionRuntimePreparationOptions{ActiveSettings: cfg.Settings, Source: cfg.Source,
+			QuestionsEnabled: textutil.Value(true), AutoCompactionEnabled: textutil.Value(false)},
 	})
 	if err != nil {
 		t.Fatal(err)
 	}
-	t.Cleanup(func() {
-		_, _ = f.app.SessionRuntimeClient().ReleaseSessionRuntime(context.Background(), serverapi.SessionRuntimeReleaseRequest{
-			Attachment: attachment, OwnerID: "recovery-test", DropOwner: true, ClosePolicy: serverapi.SessionRuntimeReleaseClosePolicyDetachOnly,
-		})
-	})
+
 	const message = "Continue on the restored original checkout"
 	submitted := testsetup.Start(func() (*runtimepb.SubmitUserTurnSuccess, error) {
-		return f.app.RuntimeControlClient().SubmitUserTurn(context.Background(), &runtimepb.SubmitUserTurnRequest{
-			SessionId: node.SessionID.String(), Input: &runtimepb.UserTurnInput{Input: &runtimepb.UserTurnInput_Text{Text: message}},
-		})
+		return f.app.RuntimeControlClient().SubmitUserTurn(context.Background(), &runtimepb.SubmitUserTurnRequest{QueueItemId: runtimeids.NewQueueItemID().String(), SessionId: node.SessionID.String(), Input: &runtimepb.UserTurnInput{Input: &runtimepb.UserTurnInput_Text{Text: message}}})
 	})
 	waitRecoveryModel(t, f.second, f.store, f.task.ID)
 	delivered := false

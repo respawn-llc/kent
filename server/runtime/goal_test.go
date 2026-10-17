@@ -93,7 +93,7 @@ func TestAgentGoalPersistsBeforeReminderDrainsAfterToolCompletion(t *testing.T) 
 		CurrentNodeExecution: &workflowruntime.CurrentNodeExecutionConfig{ScopeID: runtimeids.NewExecutionScopeID()},
 	})
 	stepID := runtimeTestStepID("goal-shell-drain")
-	engine.stepLifecycle = &stubExclusiveStepLifecycle{activeStepID: stepID, snapshot: &RunSnapshot{RunID: "run-1", StepID: stepID}}
+	engine.stepLifecycle = &stubExclusiveStepLifecycle{activeStepID: stepID, snapshot: &RunSnapshot{StepID: stepID}}
 
 	if err := engine.pauseRuntimeOperations(t.Context()); err != nil {
 		t.Fatal(err)
@@ -159,7 +159,7 @@ func TestQueuedAgentShellGoalCompleteSeesQueuedSet(t *testing.T) {
 		EnabledTools: []toolspec.ID{toolspec.ToolAskQuestion},
 	})
 	stepID := runtimeTestStepID("goal-shell-complete")
-	engine.stepLifecycle = &stubExclusiveStepLifecycle{activeStepID: stepID, snapshot: &RunSnapshot{RunID: "run-1", StepID: stepID}}
+	engine.stepLifecycle = &stubExclusiveStepLifecycle{activeStepID: stepID, snapshot: &RunSnapshot{StepID: stepID}}
 
 	if _, err := engine.ApplyGoalForStep(goalStepIdentity(stepID), CurrentGoalSet{Objective: "queued goal", Actor: session.GoalActorAgent}); err != nil {
 		t.Fatal(err)
@@ -185,7 +185,7 @@ func TestQueuedAgentShellGoalSetRejectsPendingActiveGoal(t *testing.T) {
 		EnabledTools: []toolspec.ID{toolspec.ToolAskQuestion},
 	})
 	stepID := runtimeTestStepID("goal-shell-overwrite")
-	engine.stepLifecycle = &stubExclusiveStepLifecycle{activeStepID: stepID, snapshot: &RunSnapshot{RunID: "run-1", StepID: stepID}}
+	engine.stepLifecycle = &stubExclusiveStepLifecycle{activeStepID: stepID, snapshot: &RunSnapshot{StepID: stepID}}
 
 	if _, err := engine.ApplyGoalForStep(goalStepIdentity(stepID), CurrentGoalSet{Objective: "first goal", Actor: session.GoalActorAgent}); err != nil {
 		t.Fatal(err)
@@ -209,7 +209,7 @@ func TestAgentShellGoalSetForEndedStepIsRejected(t *testing.T) {
 	})
 	activeStepID := runtimeTestStepID("active-goal-shell-step")
 	endedStepID := runtimeTestStepID("ended-goal-shell-step")
-	engine.stepLifecycle = &stubExclusiveStepLifecycle{activeStepID: activeStepID, snapshot: &RunSnapshot{RunID: "run-2", StepID: activeStepID}}
+	engine.stepLifecycle = &stubExclusiveStepLifecycle{activeStepID: activeStepID, snapshot: &RunSnapshot{StepID: activeStepID}}
 
 	if _, err := engine.ApplyGoalForStep(goalStepIdentity(endedStepID), CurrentGoalSet{Objective: "stale background goal", Actor: session.GoalActorAgent}); !errors.Is(err, ErrAgentGoalStepInactive) {
 		t.Fatalf("ApplyGoalForStep = %v, want inactive originating step", err)
@@ -225,7 +225,7 @@ func TestUserGoalPersistsDuringActiveStep(t *testing.T) {
 		EnabledTools: []toolspec.ID{toolspec.ToolAskQuestion},
 	})
 	stepID := runtimeTestStepID("user-goal-mutation")
-	engine.stepLifecycle = &stubExclusiveStepLifecycle{activeStepID: stepID, snapshot: &RunSnapshot{RunID: "run-1", StepID: stepID}}
+	engine.stepLifecycle = &stubExclusiveStepLifecycle{activeStepID: stepID, snapshot: &RunSnapshot{StepID: stepID}}
 
 	accepted, err := engine.ApplyGoalForStep(goalStepIdentity(stepID), CurrentGoalSet{Objective: "queued user goal", Actor: session.GoalActorUser})
 	if err != nil || !accepted.MetadataReceipt.Committed {
@@ -251,7 +251,7 @@ func TestQueuedActiveGoalResumeRestartsSuspendedGoalLoop(t *testing.T) {
 		EnabledTools: []toolspec.ID{toolspec.ToolAskQuestion},
 	})
 	stepID := runtimeTestStepID("queued-goal-resume")
-	engine.stepLifecycle = &stubExclusiveStepLifecycle{activeStepID: stepID, snapshot: &RunSnapshot{RunID: "run-1", StepID: stepID}}
+	engine.stepLifecycle = &stubExclusiveStepLifecycle{activeStepID: stepID, snapshot: &RunSnapshot{StepID: stepID}}
 	if _, err := engine.SetGoal(context.Background(), "queued resume goal", session.GoalActorUser); err != nil {
 		t.Fatalf("SetGoal: %v", err)
 	}
@@ -1059,7 +1059,7 @@ func TestGoalLoopRetriesWhenExclusiveStepIsBusy(t *testing.T) {
 			return ErrAgentBusy
 		}
 		return baseLifecycle.Run(ctx, options, fn)
-	}, snapshotFn: baseLifecycle.Snapshot}
+	}, snapshotFn: baseLifecycle.Snapshot, turnStateLifetimeForStep: baseLifecycle.TurnStateLifetimeForStep}
 	engine.stepLifecycle = wrappedLifecycle
 	t.Cleanup(func() {
 		engine.stepLifecycle = baseLifecycle

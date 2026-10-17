@@ -1,3 +1,5 @@
+import { describe, expect, it, vi } from "bun:test";
+
 import { autoLoadAvailable, directionalBoundary } from "./InfiniteListBoundary";
 
 describe("InfiniteListBoundary directional state", () => {

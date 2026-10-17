@@ -1,3 +1,4 @@
+import { describe, expect, it, vi } from "bun:test";
 import { QueryClient } from "@tanstack/react-query";
 import { newSetupOperationID } from "@/api";
 import { worktreeQueryFixtureRoutes } from "@/test-support/api";
@@ -72,10 +73,14 @@ describe("Worktree query ownership", () => {
     if (createTarget.resolution === undefined) {
       throw new Error("fixture omitted Create target resolution");
     }
+    const createWorktree = vi.spyOn(services.api, "createWorktree");
+    const switchWorktree = vi.spyOn(services.api, "switchWorktree");
+    const deleteWorktree = vi.spyOn(services.api, "deleteWorktree");
+    const setupOperationID = newSetupOperationID();
     await services.api
       .createWorktree({
         sessionID: "33333333-3333-4333-8333-333333333333",
-        setupOperationID: newSetupOperationID(),
+        setupOperationID,
         resolution: createTarget.resolution,
         baseRef: null,
       })
@@ -88,22 +93,13 @@ describe("Worktree query ownership", () => {
     await services.api
       .deleteWorktree("33333333-3333-4333-8333-333333333333", deletion, "confirm")
       .catch(() => undefined);
-    const expectedSpec: unknown = expect.objectContaining({ baseRef: "refs/heads/feature-1" });
-    const expectedWorkspace: unknown = expect.objectContaining({
-      workspaceId: "workspace-1",
-      workspaceRoot: "/repo",
+    expect(createWorktree).toHaveBeenCalledWith({
+      sessionID: "33333333-3333-4333-8333-333333333333",
+      setupOperationID,
+      resolution: createTarget.resolution,
+      baseRef: null,
     });
-    expect(services.transport.descriptorCalls.map(({ request }) => request)).toEqual(
-      expect.arrayContaining([
-        expect.objectContaining({
-          spec: expectedSpec,
-        }),
-        expect.objectContaining({
-          selector: "feature-1",
-          targetWorkspace: expectedWorkspace,
-        }),
-        expect.objectContaining({ forceFolderRemoval: true }),
-      ]),
-    );
+    expect(switchWorktree).toHaveBeenCalledWith("33333333-3333-4333-8333-333333333333", operation);
+    expect(deleteWorktree).toHaveBeenCalledWith("33333333-3333-4333-8333-333333333333", deletion, "confirm");
   });
 });

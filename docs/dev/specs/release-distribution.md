@@ -1,5 +1,3 @@
-# Release And Distribution Spec
-
 ## Release Identity
 
 - Every artifact in one release uses the same Kent version.
@@ -9,25 +7,25 @@
 
 - Kent directly upgrades an existing Metadata database created by Kent v2.0.0 or newer.
 - Kent rejects an older existing Metadata database before changing its schema or data.
-- A missing Metadata database remains a supported fresh installation.
+- A missing Metadata database is a supported fresh installation.
 - Kent provides no fallback migration path or downgrade path.
 - A supported Metadata upgrade atomically normalizes an empty or whitespace-only Session parent-provenance value to absence.
-- A supported Metadata upgrade converts a canceled Workflow Task to its Workflow's `done` terminal Node when present. Without `done`, Kent preserves the Task's unique valid active terminal Node or otherwise chooses one terminal Node deterministically.
-- When a canceled Task's Workflow has no terminal Node, a supported Metadata upgrade removes the Task, makes its Sessions workflow-neutral, and preserves its worktrees and other external artifacts.
+- A supported Metadata upgrade converts a canceled Workflow Task to its Workflow's `done` terminal Node when present. Without `done`, Kent uses the Task's unique valid active terminal Node or otherwise chooses one terminal Node deterministically.
+- When a canceled Task's Workflow has no terminal Node, a supported Metadata upgrade removes the Task, makes its Sessions workflow-neutral, and leaves its worktrees and other external artifacts intact.
 - When serial Workflow state contains a pending Approval and a conflicting current position, a supported Metadata upgrade keeps the Approval source as the Task's sole Current Node.
 - When serial Workflow state has no pending Approval and has several active Start or Terminal Nodes, a supported Metadata upgrade keeps the position with the latest update time, then latest creation time, then greatest identifier.
 
 ## Targets
 
 - Supported release targets are `darwin/arm64`, `linux/amd64`, `linux/arm64`, `windows/amd64`, and `windows/arm64`.
-- Kent does not publish a macOS Intel release.
+- Kent publishes no macOS Intel release.
 - Linux CLI binaries are statically linked.
 
 ## GitHub Releases
 
 - GitHub releases publish `checksums.txt`.
 - The installer verifies an archive against `checksums.txt` when the file is available.
-- Kent does not publish GitHub artifact attestations.
+- Kent publishes no GitHub artifact attestations.
 
 ## TUI Update Discovery
 
@@ -37,7 +35,7 @@
 - A newer valid release produces structured update information for the client to present.
 - HTTP errors, invalid release information, malformed release versions, and unexpected update state appear as update-check failures with their cause.
 - Network failures and timeouts report no available update and show no user-facing error.
-- Kent releases advance the client/server protocol. The TUI does not reconcile application-version skew within one protocol version: its picker title remains the local client version while update discovery evaluates the attached server version.
+- Kent releases advance the client/server protocol. The TUI performs no application-version reconciliation within one protocol version. Its picker title shows the local client version while update discovery evaluates the attached server version.
 
 ## Installers
 
@@ -57,7 +55,7 @@
 - A Kent release includes the Homebrew `kent` formula.
 - A macOS desktop release also includes the `kent-desktop` cask.
 - Homebrew upgrades the server and desktop together for Homebrew installations.
-- A delayed Homebrew publication uses the same Kent version. It does not require a second application release.
+- A delayed Homebrew publication uses the same Kent version without requiring a second application release.
 
 ## Desktop Bundle Artifacts
 
@@ -75,13 +73,11 @@
 
 ## Desktop App Updates
 
-The desktop app controls a separately installed Kent server. The server is not bundled with the app and does not update itself. The client and server must remain version-compatible.
+The desktop app controls a separately installed Kent server. The server is not bundled with the app and must not update itself. The client and server must be version-compatible.
 
 ### Install-source-aware update channel
 
-The update channel is a property of how the app was installed, not a user setting.
-Each install has exactly **one** update channel; the channels are mutually
-exclusive so brew and the in-app updater never fight over the same bundle.
+The installation source determines the update channel. Users cannot select it through a setting. Each installation must have exactly **one** update channel. Homebrew and the in-app updater must never manage the same bundle.
 
 - **Direct download** (`.dmg`, AppImage, or Windows installer): the in-app updater is the channel. The app checks on startup and shows an update indicator. Windows desktop is available only through this channel.
 - **Linux `.deb` or plain binary**: the system package manager or manual installation is the channel. The in-app updater is available only for AppImage installations.
@@ -90,7 +86,7 @@ exclusive so brew and the in-app updater never fight over the same bundle.
 ### Update-channel lock
 
 - Each desktop installation has one device-local `selfUpdate` setting whose value is `enabled` or `disabled`.
-- This setting controls only client update behavior. It does not contain server state and does not sync.
+- This setting controls only client update behavior. It must contain no server state and must not sync.
 - Homebrew installation writes `selfUpdate: "disabled"`, and the desktop reads that value at startup to disable in-app updates.
 - Direct-download installation enables in-app updates when the package format supports them.
 - The same macOS application bundle can serve direct-download and Homebrew channels.

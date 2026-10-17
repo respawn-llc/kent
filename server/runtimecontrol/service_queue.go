@@ -45,6 +45,7 @@ func (s *Service) AdmitChatQueuedUserInput(
 	historyErr := s.recordAcceptedUserTurnHistory(canonicalUserTurnRequest(sessionIDText, projection.Input), projection)
 	return serverapi.ChatInputAdmissionResult{
 		QueueItemID:          queueItemID,
+		Disposition:          queued.Disposition,
 		Accepted:             true,
 		PromptHistoryFailure: historyErr,
 	}, err

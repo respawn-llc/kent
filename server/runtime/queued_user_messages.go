@@ -7,8 +7,6 @@ import (
 
 	"core/server/llm"
 	"core/shared/textutil"
-
-	"github.com/google/uuid"
 )
 
 var errInvalidQueuedUserMessage = errors.New("queued message requires a role and content")
@@ -44,7 +42,7 @@ func (s *queuedUserMessageStore) Queue(input QueuedUserInput, association ...que
 		return QueuedUserMessage{}, err
 	}
 	return s.QueueItem(QueuedUserMessage{
-		ID:                    uuid.NewString(),
+		ID:                    input.ID,
 		Message:               llm.Message{Role: llm.RoleUser, Content: textutil.Value(input.ExecutionText)},
 		CanonicalPresentation: input.CanonicalPresentation,
 	}, association...)

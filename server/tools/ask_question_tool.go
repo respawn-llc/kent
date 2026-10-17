@@ -29,7 +29,6 @@ type AskQuestionRequest struct {
 	ApprovalConsumer       func(AskQuestionApproval) error       `json:"-"`
 	AccessTargets          []FileAccessTarget                    `json:"-"`
 	Origin                 AskQuestionOrigin                     `json:"-"`
-	RunID                  string                                `json:"-"`
 	StepID                 string                                `json:"-"`
 	ToolCallID             string                                `json:"-"`
 	QuestionBatch          *AskQuestionBatchMetadata             `json:"-"`
@@ -357,13 +356,11 @@ func (t *AskQuestionTool) Call(ctx context.Context, c Call) (Result, error) {
 		return ErrorResult(c, prepareErr.Error()), nil
 	}
 	req.Origin = AskQuestionOriginModelTool
-	req.RunID = c.RunID
 	req.StepID = c.StepID
 	if c.AskQuestionBatch != nil {
 		batch := *c.AskQuestionBatch
 		batch.BatchToolCallIDs = append([]string(nil), c.AskQuestionBatch.BatchToolCallIDs...)
 		req.Origin = batch.Origin
-		req.RunID = batch.RunID
 		req.StepID = batch.StepID
 		req.QuestionBatch = &batch
 	}
@@ -376,7 +373,7 @@ func (t *AskQuestionTool) Call(ctx context.Context, c Call) (Result, error) {
 		message := err.Error()
 		if errors.Is(err, context.Canceled) {
 			message = fmt.Sprintf(
-				"You were interrupted while waiting for an answer to this question after %s. This does not mean you're authorized to go with your own decision or that any of the proposed options was chosen. Consider re-asking this question when appropriate.",
+				"You were interrupted while waiting for an answer to this question after %s. The interruption grants no authorization to make your own decision or treat any of the proposed options as chosen. Consider re-asking this question when appropriate.",
 				formatDurationShort(time.Since(askStartedAt)),
 			)
 		}

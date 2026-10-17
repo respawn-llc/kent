@@ -32,6 +32,19 @@ func Compact(path string, home, cwd *string) string {
 			return "./" + filepath.ToSlash(relative)
 		}
 	}
+	return compactHome(path, home)
+}
+
+// CompactHome renders paths relative to home and leaves paths outside home absolute.
+// Relative inputs remain unchanged. It never reads the process working directory.
+func CompactHome(path string, home *string) string {
+	if !filepath.IsAbs(path) {
+		return filepath.ToSlash(path)
+	}
+	return compactHome(path, home)
+}
+
+func compactHome(path string, home *string) string {
 	if home != nil {
 		if relative, err := filepath.Rel(*home, path); err == nil && filepath.IsLocal(relative) {
 			if relative == "." {

@@ -15,9 +15,11 @@ import (
 	"core/server/auth"
 	"core/server/launch"
 	"core/server/metadata"
+	"core/server/runtime"
 	"core/server/session"
 	sessionruntime "core/server/sessionruntime"
 	"core/shared/config"
+	"core/shared/protoapi"
 	sessionlaunchpb "core/shared/protoapi/gen/kent/api/session_launch"
 	worktreepb "core/shared/protoapi/gen/kent/api/worktree"
 	"core/shared/rollbacktarget"
@@ -81,8 +83,9 @@ func userMessageSeqAt(t *testing.T, store *session.Store, n int) int64 {
 
 func newTestSessionLifecycleService(root string, authManager *auth.Manager, owner *metadata.Store) *SessionLifecycleService {
 	authority := sessionruntime.NewAuthority(sessionruntime.AuthorityOptions{
-		PersistenceRoot: root,
-		StoreOptions:    owner.AuthoritativeSessionStoreOptions(),
+		PersistenceRoot:               root,
+		ProjectWorkspaceContextReader: owner,
+		StoreOptions:                  owner.AuthoritativeSessionStoreOptions(),
 	})
 	return NewGlobalSessionLifecycleService(root, authority, authManager, owner)
 }
@@ -284,6 +287,41 @@ func TestServicePersistInputDraftWritesBySessionID(t *testing.T) {
 	}
 }
 
+func TestPromoteDormantSubagentWithoutRuntime(t *testing.T) {
+	root, container, parent, persistence := createPersistedSession(t)
+	child, err := session.Create(container, "child", parent.Meta().WorkspaceRoot, sessioncontract.SessionCategorySubagent, persistence.AuthoritativeSessionStoreOptions()...)
+	if err != nil {
+		t.Fatal(err)
+	}
+	service := newTestSessionLifecycleService(root, nil, persistence)
+	id, err := runtimeids.ParseSessionID(child.Meta().SessionID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	identity, err := persistence.SessionIdentity(t.Context(), id)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if identity.ShortID == nil {
+		t.Fatal("persisted Session has no Short ID")
+	}
+	for _, selector := range []runtimeids.SessionSelector{*identity.ShortID, id} {
+		if _, err := service.Promote(t.Context(), &sessionlaunchpb.SessionPromoteRequest{SessionId: protoapi.SessionSelectorToProto(selector)}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	reopened, err := session.Open(child.Dir(), persistence.AuthoritativeSessionStoreOptions()...)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if reopened.Meta().Category == nil || *reopened.Meta().Category != sessioncontract.SessionCategoryMain {
+		t.Fatal("Subagent was not permanently promoted")
+	}
+	if err := service.authority.WithCurrentRuntime(t.Context(), id, func(context.Context, *runtime.Engine) error { return nil }); !errors.Is(err, serverapi.ErrRuntimeUnavailable) {
+		t.Fatalf("promotion loaded Runtime: %v", err)
+	}
+}
+
 func TestServiceRestoresAndClearsProtectedDraft(t *testing.T) {
 	_, containerDir, store, sessionServiceTestPersistence := createPersistedSession(t)
 	service := newTestSessionLifecycleService(containerDir, nil, sessionServiceTestPersistence)
@@ -358,7 +396,6 @@ func TestServiceRetargetSessionWorkspacePreservesRuntimeOrigin(t *testing.T) {
 	service := fixture.service.WithWorkspaceRetargeter(retargeter)
 	origin := &sessionlaunchpb.RuntimeStepOrigin{
 		SessionId: "33333333-3333-4333-8333-333333333333",
-		RunId:     "11111111-1111-4111-8111-111111111111",
 		StepId:    "22222222-2222-4222-8222-222222222222",
 	}
 	response, err := service.RetargetSessionWorkspace(t.Context(), &sessionlaunchpb.SessionRetargetWorkspaceRequest{
@@ -692,8 +729,8 @@ func TestServiceForkAndCloneLeaveSourceBindingUnchanged(t *testing.T) {
 		t.Fatal(err)
 	}
 	target := appendSessionMessage(t, source, "step-2", session.MessageRoleUser, "edit this")
-	rotation := new(launch.ConnectionRotation)
-	if allocated, err := rotation.Prepare(cfg.Settings, true); err != nil || allocated != "a" {
+	rotation := launch.NewConnectionRotation(testsetup.OpenStore(t, t.TempDir()), 0)
+	if allocated, err := rotation.Prepare(t.Context(), cfg.Settings, true); err != nil || allocated != "a" {
 		t.Fatalf("initial allocation = %s, %v", allocated, err)
 	}
 	authority := sessionruntime.NewAuthority(sessionruntime.AuthorityOptions{
@@ -881,22 +918,17 @@ func TestServiceResolveTransitionForkRollbackActivatesChildInPreservedWorktree(t
 	activateSettings.Reviewer.Frequency = "off"
 	activateSettings = testsetup.WithResponsesProvider(activateSettings, "http://127.0.0.1:1/v1")
 	activateSettings.Shell.PostprocessingMode = config.ShellPostprocessingModeBuiltin
-	activation, err := runtimeService.ActivateSessionRuntime(context.Background(), serverapi.SessionRuntimeActivateRequest{
-		SessionID:             requestfixture.SessionID(t, forkID.String()),
-		OwnerID:               "test-owner",
-		ActiveSettings:        activateSettings,
-		QuestionsEnabled:      textutil.Value(true),
-		AutoCompactionEnabled: textutil.Value(true),
-		Source:                config.SourceReport{},
+	err = runtimeService.ActivateSessionRuntime(context.Background(), serverapi.SessionRuntimeActivateRequest{
+		SessionID: requestfixture.SessionID(t, forkID.String()), SessionRuntimePreparationOptions: serverapi.SessionRuntimePreparationOptions{ActiveSettings: activateSettings,
+			QuestionsEnabled:      textutil.Value(true),
+			AutoCompactionEnabled: textutil.Value(true),
+			Source:                config.SourceReport{}},
 	})
 	if err != nil {
 		t.Fatalf("ActivateSessionRuntime: %v", err)
 	}
-	if _, err := runtimeService.ReleaseSessionRuntime(context.Background(), serverapi.SessionRuntimeReleaseRequest{
-		Attachment: activation,
-		OwnerID:    "test-owner",
-	}); err != nil {
-		t.Fatalf("ReleaseSessionRuntime: %v", err)
+	if err := runtimeAuthority.Close(context.Background()); err != nil {
+		t.Fatalf("close Runtime: %v", err)
 	}
 
 	childStore, err := session.OpenByID(cfg.PersistenceRoot, forkID.String(), metadataStore.AuthoritativeSessionStoreOptions()...)

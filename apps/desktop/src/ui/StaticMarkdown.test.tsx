@@ -1,8 +1,27 @@
 import { render, screen } from "@testing-library/react";
+import { describe, expect, it, vi } from "bun:test";
 import userEvent from "@testing-library/user-event";
-import { vi } from "vitest";
+import { Streamdown } from "streamdown";
 
 import { StaticMarkdown } from "./MarkdownText";
+
+it("parses each static Markdown value once without a hydration reparse", () => {
+  const parsed = vi.fn();
+  const plugins = [() => parsed];
+  const content = (value: string) => (
+    <Streamdown mode="static" remarkPlugins={plugins}>
+      {value}
+    </Streamdown>
+  );
+  const view = render(content("First **message**"));
+  expect(parsed).toHaveBeenCalledTimes(1);
+
+  view.rerender(content("First **message**"));
+  expect(parsed).toHaveBeenCalledTimes(1);
+
+  view.rerender(content("Second **message**"));
+  expect(parsed).toHaveBeenCalledTimes(2);
+});
 
 describe("StaticMarkdown task lists", () => {
   it("replaces an editable checklist without using stale source offsets", async () => {

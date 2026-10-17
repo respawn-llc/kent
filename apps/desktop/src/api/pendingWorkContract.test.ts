@@ -1,3 +1,4 @@
+import { expect, it } from "bun:test";
 import { create, decode, encode } from "@app/server-api-contract";
 import {
   ManualCompactionAdmissionSchema,

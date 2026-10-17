@@ -189,6 +189,10 @@ func TestRemotePreviewWorktreeDeleteSendsRouteAndDecodesEveryCleanlinessVariant(
 				sendRemoteGeneratedResult(t, ws, call, &worktreepb.DeletePreviewResult{
 					Outcome: &worktreepb.DeletePreviewResult_Success{Success: response},
 				})
+				var frame []byte
+				if err := websocket.Message.Receive(ws, &frame); !errors.Is(err, io.EOF) {
+					t.Errorf("remote close after response = %v, want EOF", err)
+				}
 			})
 			remote, err := DialRemoteURL(context.Background(), "ws"+server.URL[len("http"):])
 			if err != nil {
@@ -348,7 +352,6 @@ func TestRemoteLiveResponsesRejectMismatchedSessionIDs(t *testing.T) {
 				Result:         &runtimepb.LiveWaitSuccess_AssistantFinalAnswer{AssistantFinalAnswer: &runtimepb.LiveWaitAssistantFinalAnswer{Result: "done"}},
 				Duration:       durationpb.New(time.Millisecond),
 				LiveRunGroupId: "018fdd67-89ab-4cde-8123-456789abcdef",
-				TerminalRunId:  "018fdd67-89ab-4cde-8123-456789abcdef",
 				TerminalStepId: "018fdd67-89ab-4cde-8123-456789abcdef", TerminalStatus: "completed",
 			},
 			call: func(ctx context.Context, remote *Remote) error {
@@ -1516,9 +1519,8 @@ func TestProtocolErrorMapsEquivalentRuntimeSentinel(t *testing.T) {
 func TestRemotePendingWorkContractsPreserveTypedResults(t *testing.T) {
 	guidance := "keep details"
 	exact := "/compact keep details"
-	requestID := runtimeids.NewCompactionRequestID()
 	wire, err := protoapi.Encode(&runtimepb.CompactContextRequest{
-		SessionId: "11111111-1111-4111-8111-111111111111", RequestId: requestID.String(),
+		SessionId: "11111111-1111-4111-8111-111111111111",
 		Admission: &runtimepb.ManualCompactionAdmission{Guidance: &guidance}})
 	if err != nil {
 		t.Fatal(err)
@@ -1527,8 +1529,7 @@ func TestRemotePendingWorkContractsPreserveTypedResults(t *testing.T) {
 	if err := protoapi.Decode(wire, &compactRequest); err != nil {
 		t.Fatal(err)
 	}
-	if compactRequest.RequestId != requestID.String() ||
-		compactRequest.Admission.Guidance == nil ||
+	if compactRequest.Admission.Guidance == nil ||
 		*compactRequest.Admission.Guidance != guidance {
 		t.Fatalf("compact request = %+v", &compactRequest)
 	}

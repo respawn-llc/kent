@@ -54,7 +54,7 @@ func newPacedStreamTransport(t *testing.T, events ...pacedStreamEvent) *HTTPTran
 
 func newPacedWatchdogClient(t *testing.T, idle time.Duration, events ...pacedStreamEvent) *idleWatchdogClient {
 	t.Helper()
-	return newIdleWatchdogClient(NewResponsesClient(newPacedStreamTransport(t, events...)), idle)
+	return newIdleWatchdogClient(NewResponsesClient(newPacedStreamTransport(t, events...), nil), idle)
 }
 
 func completedStreamEvent(delay time.Duration) pacedStreamEvent {
@@ -66,7 +66,7 @@ func TestOAuthGenerateSurvivesConfiguredHTTPClientTimeout(t *testing.T) {
 	transport.Auth = oauthStaticAuth{}
 	transport.Client.Timeout = 50 * time.Millisecond
 	dispatch, err := NewCodexDispatchContext(CodexDispatchFacts{
-		SessionID: "session-1", RunID: "run-1", RequestKind: CodexRequestKindTurn.Optional(),
+		SessionID: "session-1", StepID: "step-1", RequestKind: CodexRequestKindTurn.Optional(),
 	})
 	if err != nil {
 		t.Fatalf("dispatch context: %v", err)

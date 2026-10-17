@@ -67,6 +67,9 @@ func TestAutoCompactionRecomputesUsageFromReplacementHistory(t *testing.T) {
 			len(client.compactionCalls),
 		)
 	}
+	if got := codexTurnIDForDispatch(t, client.compactionCalls[0].CodexDispatch); got != stepID {
+		t.Fatalf("inline compaction dispatch identity = %q, want enclosing Step %q", got, stepID)
+	}
 	assertCompactionReplacementOrder(t, engine.transcriptRuntimeState().SnapshotItems(), false)
 	if got, want := request.PromptCacheKey, engine.SessionID(); got != want {
 		t.Fatalf("automatic compaction prompt cache key = %q, want stable Session ID %q", got, want)

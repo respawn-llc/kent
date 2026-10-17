@@ -32,18 +32,14 @@ func TestLookupSessionIDNilLookup(t *testing.T) {
 	}
 }
 
-func TestLookupRunStepID(t *testing.T) {
-	runID, stepID := LookupRunStepID(func(key string) (string, bool) {
-		switch key {
-		case RunIDEnv:
-			return " run-1 ", true
-		case StepIDEnv:
+func TestLookupStepID(t *testing.T) {
+	stepID, ok := LookupStepID(func(key string) (string, bool) {
+		if key == StepIDEnv {
 			return " step-1 ", true
-		default:
-			return "", false
 		}
+		return "", false
 	})
-	if runID != "run-1" || stepID != "step-1" {
-		t.Fatalf("LookupRunStepID = (%q, %q), want run-1 step-1", runID, stepID)
+	if !ok || stepID != "step-1" {
+		t.Fatalf("LookupStepID = (%q, %t), want step-1 true", stepID, ok)
 	}
 }

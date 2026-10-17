@@ -5,6 +5,7 @@ import (
 	"io"
 	"strings"
 
+	"core/cli/app"
 	"core/prompts"
 	"core/shared/protoapi"
 	runpromptpb "core/shared/protoapi/gen/kent/api/run_prompt"
@@ -15,14 +16,28 @@ type runProgressRenderer struct {
 	stderr               io.Writer
 	wroteStdoutBlock     bool
 	finalResponseEmitted bool
+	mode                 runProgressMode
+	agentFlag            app.RunAgentFlag
 }
 
 func newRunProgressRenderer(stdout io.Writer, stderr io.Writer) *runProgressRenderer {
-	return &runProgressRenderer{stdout: stdout, stderr: stderr}
+	return &runProgressRenderer{stdout: stdout, stderr: stderr, mode: runProgressModeStderr}
 }
 
 func (r *runProgressRenderer) PublishRunPromptProgress(progress *runpromptpb.ProgressEvent) {
 	if r == nil {
+		return
+	}
+	if accepted := progress.GetActiveSteerAccepted(); accepted != nil {
+		warnings, err := app.RunAdmissionWarnings(accepted, r.agentFlag)
+		if err != nil {
+			fmt.Fprintln(r.stderr, err)
+			return
+		}
+		emitWarnings(r.stderr, warnings)
+		return
+	}
+	if r.mode == runProgressModeQuiet {
 		return
 	}
 	switch event := progress.GetPayload().(type) {

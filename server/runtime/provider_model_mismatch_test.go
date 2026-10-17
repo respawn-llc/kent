@@ -87,7 +87,7 @@ func TestQueuedAgentSteerStartsNewMismatchWarningStep(t *testing.T) {
 	steer := NewAgentSteer(runtimeids.SessionIdentity{ID: runtimeids.NewSessionID()}, "new instructions")
 	queued := make(chan error, 1)
 	go func() {
-		_, accepted, err := engine.QueueAgentSteerForActiveRun(context.Background(), steer, nil)
+		_, accepted, err := engine.QueueAgentSteerForActiveRun(context.Background(), runtimeids.NewQueueItemID().String(), steer, nil)
 		if err == nil && !accepted {
 			err = errors.New("queue Agent Steer was not accepted")
 		}

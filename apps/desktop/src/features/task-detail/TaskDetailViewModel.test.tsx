@@ -1,3 +1,4 @@
+import { expect, it, vi } from "bun:test";
 import { RegistryProvider, useAtomValue } from "@effect/atom-react";
 import { QueryClient } from "@tanstack/react-query";
 import { act, renderHook, waitFor } from "@testing-library/react";
@@ -139,7 +140,7 @@ it("completes an accepted comment for its originating Task without clearing the 
     });
   });
   await waitFor(() => {
-    expect(onChanged).toHaveBeenCalledOnce();
+    expect(onChanged).toHaveBeenCalledTimes(1);
   });
   expect(view.result.current.body).toBe("Task B draft");
 });

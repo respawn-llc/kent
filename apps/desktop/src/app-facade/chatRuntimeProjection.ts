@@ -203,7 +203,7 @@ function admitCompaction(
   status: ChatTranscriptPayloadByKind["compaction_status"],
 ): ChatProjectionResult {
   const next = status.State === "completed" ? admitMetadata(state, { compactionCount: status.Count }) : state;
-  if (status.Mode !== "manual" || status.RequestID == null || status.State === "started") return result(next);
+  if (status.Mode !== "manual" || status.State === "started") return result(next);
   const feedback: CompactionFeedback =
     status.State === "completed" ? { kind: "completed" } : { kind: "failed", diagnostic: status.Diagnostic };
   return result(next, { effects: [{ kind: "compaction", feedback }] });
@@ -316,6 +316,8 @@ function applyPendingMetadata(view: ChatMainView, metadata: PendingMetadata): Ch
       ...next,
       sessionID: identity.SessionID,
       sessionName: identity.SessionName,
+      category: identity.Category,
+      shortID: identity.ShortID,
       executionTarget:
         identity.ExecutionTarget === null
           ? next.executionTarget

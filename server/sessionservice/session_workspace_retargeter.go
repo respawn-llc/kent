@@ -336,7 +336,8 @@ func (s *SessionWorkspaceRetargeter) applyWorkspaceRetarget(
 	if err != nil {
 		return metadata.SessionWorkspaceRetargetResult{}, err
 	}
-	if currentPlan.CrossProject() {
+	artifactMoves := currentPlan.SourceSessionDir != currentPlan.TargetSessionDir
+	if artifactMoves {
 		if err := prepareSessionArtifactTarget(currentPlan.TargetSessionDir); err != nil {
 			return metadata.SessionWorkspaceRetargetResult{}, err
 		}
@@ -377,7 +378,7 @@ func (s *SessionWorkspaceRetargeter) applyWorkspaceRetarget(
 			return activeRuntime.Replace(activeRuntime.PreviousFilesystemContext)
 		}
 		moved := false
-		if currentPlan.CrossProject() {
+		if artifactMoves {
 			if err := os.Rename(currentPlan.SourceSessionDir, currentPlan.TargetSessionDir); err != nil {
 				return errors.Join(fmt.Errorf("move session artifact: %w", err), rollbackRuntime())
 			}

@@ -21,6 +21,7 @@ type Item struct {
 	Detached        bool
 	IsMainWorkspace bool
 	IsCurrent       bool
+	IsInUse         bool
 	Managed         bool
 	CreatedBranch   bool
 }
@@ -41,7 +42,11 @@ func ProjectItem(entry *worktreepb.ListEntry) (Item, error) {
 	if entry == nil || entry.Topology == nil || entry.Projection == nil {
 		return Item{}, errors.New("worktree list entry is incomplete")
 	}
-	item := Item{Entry: entry, IsCurrent: entry.Projection.IsCurrent}
+	item := Item{
+		Entry:     entry,
+		IsCurrent: entry.Projection.IsCurrent,
+		IsInUse:   entry.Projection.IsInUse,
+	}
 	switch {
 	case entry.Topology.GetMainWorkspace() != nil:
 		git := entry.Topology.GetMainWorkspace().Git

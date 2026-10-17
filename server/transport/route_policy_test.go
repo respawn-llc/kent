@@ -78,7 +78,8 @@ func TestChatTargetSemanticUnion(t *testing.T) {
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			err := protoapi.Validate(&chatpb.SteerRequest{
-				Target: test.target,
+				QueueItemId: runtimeids.NewQueueItemID().String(),
+				Target:      test.target,
 				Activation: &chatpb.Activation{
 					Input: &chatpb.Activation_Text{Text: "continue"},
 				},
@@ -216,7 +217,8 @@ func chatSteerSuccessResult(
 	if accepted {
 		success.Outcome = &chatpb.InputMutationSuccess_Accepted{
 			Accepted: &chatpb.InputAccepted{
-				QueueItem: &chatpb.QueueItemIdentity{Id: queueItemID},
+				QueueItem:   &chatpb.QueueItemIdentity{Id: queueItemID},
+				Disposition: chatpb.InputAdmissionDisposition_INPUT_ADMISSION_DISPOSITION_STARTED_TURN,
 			},
 		}
 	} else {
@@ -247,6 +249,7 @@ func TestRoutePolicyAuthorizesSessionScopesWithoutWebSocket(t *testing.T) {
 	}
 
 	for _, method := range []protoreflect.MethodDescriptor{
+		sessionlaunchpb.File_kent_api_session_launch_session_lifecycle_proto.Services().ByName("SessionLifecycleService").Methods().ByName("Promote"),
 		sessionpb.File_kent_api_session_session_proto.Services().ByName("ReadService").Methods().ByName("GetMainView"),
 		transcriptpb.File_kent_api_transcript_transcript_proto.Services().ByName("ReadService").Methods().ByName("GetPage"),
 		transcriptpb.File_kent_api_transcript_transcript_proto.Services().ByName("ReadService").Methods().ByName("GetLatestFinalAnswer"),
@@ -422,26 +425,6 @@ func TestRoutePolicyFailuresRetainEstablishedSessionFacts(t *testing.T) {
 	if !errors.As(decoded, &target) || target.SessionID() == nil ||
 		*target.SessionID() != id || target.Projection() != nil {
 		t.Fatalf("failure conversion lost canonical-only target: %v", decoded)
-	}
-}
-
-func TestRoutePolicyAllowsRuntimeReleaseAfterSessionMovesProjects(t *testing.T) {
-	fixture := newRoutePolicyFixture(t)
-	operation, err := protoapi.OperationFromDescriptor(sessionlaunchpb.File_kent_api_session_launch_session_lifecycle_proto.Services().ByName("SessionRuntimeService").Methods().ByName("Release"))
-	if err != nil {
-		t.Fatal(err)
-	}
-	// The handler injects the connection-owned runtime owner ID; Project scope
-	// must not reject the release before Runtime authority validates that owner.
-	err = newRoutePolicyExecutor(fixture.gateway).authorizeScopeFacts(
-		context.Background(),
-		&connectionState{attachedProject: fixture.bindingA.ProjectID},
-		operation.Options.ScopePolicy,
-		operation.Name,
-		routeScopeParams{sessionID: fixture.foreignSessionID},
-	)
-	if err != nil {
-		t.Fatalf("authorize moved Session runtime release: %v", err)
 	}
 }
 

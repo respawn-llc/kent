@@ -1,13 +1,6 @@
-import { useRef, useState, type CSSProperties } from "react";
+import { useState, type CSSProperties } from "react";
 import { useTranslation } from "react-i18next";
-import {
-  Button,
-  DisabledInteractionGuard,
-  InteractiveChip,
-  Popover,
-  PopoverContent,
-  PopoverTrigger,
-} from "@/ui";
+import { Button, DisabledInteractionGuard, InteractiveChip, HoverPopover } from "@/ui";
 import { contextPresentation } from "./chatContextPresentation";
 import "./chatContext.css";
 import { ComposerIcon } from "./ComposerIcon";
@@ -23,7 +16,6 @@ type Props = Readonly<{
 export function ChatContextControl(props: Props) {
   const { t } = useTranslation();
   const [open, setOpen] = useState(false);
-  const hoverOpened = useRef(false);
   const presentation = contextPresentation(props.used, props.window);
   const available = presentation !== null;
   const disabledReason = props.policyDisabled
@@ -32,44 +24,22 @@ export function ChatContextControl(props: Props) {
       ? t("chatComposer.context.compacting")
       : undefined;
   return (
-    <Popover
+    <HoverPopover
       open={open && available}
       onOpenChange={(value) => {
-        if (value) hoverOpened.current = false;
         setOpen(value && available);
       }}
-    >
-      <PopoverTrigger asChild>
-        <InteractiveChip
-          variant="ghost"
-          className="chat-context-trigger"
-          onClick={(event) => {
-            if (open && hoverOpened.current) {
-              hoverOpened.current = false;
-              event.preventDefault();
-            }
-          }}
-          onPointerEnter={(event) => {
-            if (event.pointerType !== "mouse" || !available || open) return;
-            hoverOpened.current = true;
-            setOpen(true);
-          }}
-        >
+      side="top"
+      align="end"
+      className="chat-context-popover w-80 text-sm text-[var(--color-muted)]"
+      trigger={(triggerProps) => (
+        <InteractiveChip {...triggerProps} variant="ghost" className="chat-context-trigger">
           <ContextMeter compacting={props.compacting} presentation={presentation} />
         </InteractiveChip>
-      </PopoverTrigger>
+      )}
+    >
       {presentation !== null && (
-        <PopoverContent
-          side="top"
-          align="end"
-          className="chat-context-popover w-80 text-sm text-[var(--color-muted)]"
-          onOpenAutoFocus={(event) => {
-            if (hoverOpened.current) event.preventDefault();
-          }}
-          onCloseAutoFocus={(event) => {
-            if (hoverOpened.current) event.preventDefault();
-          }}
-        >
+        <>
           <div className="chat-context-progress">
             <strong className="chat-context-percent">{presentation.usedPercent}%</strong>
             <span className="chat-context-used">{presentation.used}</span>
@@ -93,9 +63,9 @@ export function ChatContextControl(props: Props) {
               {t("chatComposer.context.compact")}
             </Button>
           </DisabledInteractionGuard>
-        </PopoverContent>
+        </>
       )}
-    </Popover>
+    </HoverPopover>
   );
 }
 

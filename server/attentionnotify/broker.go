@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"core/shared/clientui"
+	attentionpb "core/shared/protoapi/gen/kent/api/attention"
 	"core/shared/runtimeids"
 	"core/shared/serverapi"
 )
@@ -129,6 +130,11 @@ func (b *Broker) PublishResolved(scope RoutingScope, id clientui.AttentionNotifi
 		OccurredAt: &resolvedAt,
 	}
 	return b.publish(scope, event)
+}
+
+func (b *Broker) PublishSessionNamingFailure(failure *attentionpb.SessionNamingFailure) error {
+	event := clientui.AttentionNotificationEvent{Type: clientui.AttentionNotificationEventSessionNamingFailure, SessionNamingFailure: failure}
+	return b.publish(RoutingScope{Kind: RoutingSessionPrompt, ProjectID: failure.ProjectId, SessionID: failure.SessionId}, event)
 }
 
 func (b *Broker) publish(scope RoutingScope, event clientui.AttentionNotificationEvent) error {

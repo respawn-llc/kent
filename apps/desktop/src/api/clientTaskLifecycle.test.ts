@@ -1,3 +1,4 @@
+import { describe, expect, it } from "bun:test";
 import { create } from "@app/server-api-contract";
 import * as lifecycle from "@app/server-api-contract/gen/kent/api/workflow_task/lifecycle_pb";
 import { ExecutionTargetMode } from "@app/server-api-contract/gen/kent/api/workflow_definition/workflow_definition_pb";
@@ -81,17 +82,17 @@ describe("task lifecycle client", () => {
       },
     ]);
     const client = new ApiClient(transport, unexpectedProjectOverflow);
-    await expect(client.startTask({ taskID: "task-1" })).resolves.toMatchObject({
+    expect(client.startTask({ taskID: "task-1" })).resolves.toMatchObject({
       outcome: "applied",
       applied: { currentNodes: [{ nodeID: "node-1" }] },
     });
-    await expect(
+    expect(
       client.moveTask({ taskID: "task-1", targetNodeID: "node-2", branchName: "task-reopened" }),
     ).resolves.toMatchObject({
       outcome: "applied",
       applied: { currentNodes: [{ nodeID: "node-2" }] },
     });
-    await expect(client.approveApproval("approval-1")).resolves.toMatchObject({
+    expect(client.approveApproval("approval-1")).resolves.toMatchObject({
       outcome: "applied",
       applied: { taskID: "task-1", currentNodes: [{ nodeID: "node-3" }] },
     });
@@ -124,7 +125,7 @@ describe("task lifecycle client", () => {
           },
         }),
       );
-      await expect(client.moveTask({ taskID: "task-1", targetNodeID: "node-2" })).resolves.toMatchObject({
+      expect(client.moveTask({ taskID: "task-1", targetNodeID: "node-2" })).resolves.toMatchObject({
         selectionRequired: { configuredTarget: { requestedRef: null }, unavailableCause: "git_failure" },
       });
     }
@@ -141,7 +142,7 @@ describe("task lifecycle client", () => {
         },
       }),
     );
-    await expect(original.moveTask({ taskID: "task-1", targetNodeID: "node-2" })).resolves.toEqual({
+    expect(original.moveTask({ taskID: "task-1", targetNodeID: "node-2" })).resolves.toEqual({
       outcome: "selection_required",
       selectionRequired: { reason: "original_target_unavailable", originalTargetCause: "missing_branch" },
     });
@@ -150,7 +151,7 @@ describe("task lifecycle client", () => {
         outcome: { case: "dependencyConfirmationRequired", value: { unsatisfiedDependencyCount: 2 } },
       }),
     );
-    await expect(confirmation.moveTask({ taskID: "task-1", targetNodeID: "node-2" })).resolves.toEqual({
+    expect(confirmation.moveTask({ taskID: "task-1", targetNodeID: "node-2" })).resolves.toEqual({
       outcome: "dependency_confirmation_required",
       unsatisfiedDependencyCount: 2,
     });
@@ -178,7 +179,7 @@ describe("task lifecycle client", () => {
       ]),
       unexpectedProjectOverflow,
     );
-    await expect(client.resumeTask({ taskID: "task-1" })).resolves.toMatchObject({
+    expect(client.resumeTask({ taskID: "task-1" })).resolves.toMatchObject({
       outcome: "no_op",
       noOp: { currentNodes: [{ nodeID: "node-1", sessionID: "11111111-1111-4111-8111-111111111111" }] },
     });
@@ -190,18 +191,25 @@ describe("task lifecycle client", () => {
         outcome: { case: "noOp", value: { currentNodes: [{ nodeId: "node-1" }] } },
       }),
     );
-    await expect(unchanged.moveTask({ taskID: "task-1", targetNodeID: "node-1" })).resolves.toMatchObject({
+    expect(unchanged.moveTask({ taskID: "task-1", targetNodeID: "node-1" })).resolves.toMatchObject({
       outcome: "no_op",
       noOp: { currentNodes: [{ nodeID: "node-1" }] },
     });
-    for (const response of [
-      create(lifecycle.MovePreviewSuccessSchema, { outcome: { case: "direct", value: {} } }),
-      create(lifecycle.MovePreviewSuccessSchema, {
-        outcome: { case: "blocked", value: { reason: lifecycle.MovePreviewBlocker.LIFECYCLE_CONFLICT } },
-      }),
-    ]) {
+    const previews = [
+      {
+        response: create(lifecycle.MovePreviewSuccessSchema, { outcome: { case: "direct", value: {} } }),
+        expected: "direct",
+      },
+      {
+        response: create(lifecycle.MovePreviewSuccessSchema, {
+          outcome: { case: "blocked", value: { reason: lifecycle.MovePreviewBlocker.LIFECYCLE_CONFLICT } },
+        }),
+        expected: "blocked",
+      },
+    ] as const;
+    for (const { response, expected } of previews) {
       const result = await previewClient(response).previewMoveTask("task-1", "node-2");
-      expect(result.outcome).toBe(response.outcome.case);
+      expect(result.outcome).toBe(expected);
     }
   });
 
@@ -226,7 +234,7 @@ describe("task lifecycle client", () => {
         },
       }),
     );
-    await expect(client.previewMoveTask("task-1", "node-2")).resolves.toMatchObject({
+    expect(client.previewMoveTask("task-1", "node-2")).resolves.toMatchObject({
       transition: { choices: [{ requiredValues: [{ resolvedValue }] }] },
     });
   });
@@ -249,13 +257,13 @@ describe("task lifecycle client", () => {
         },
       }),
     );
-    await expect(client.previewMoveTask("task-1", "node-2")).rejects.toThrow();
+    expect(client.previewMoveTask("task-1", "node-2")).rejects.toThrow();
   });
 
   it("rejects empty applied Current Nodes", async () => {
     const client = moveClient(
       create(lifecycle.MoveSuccessSchema, { outcome: { case: "applied", value: {} } }),
     );
-    await expect(client.moveTask({ taskID: "task-1", targetNodeID: "node-2" })).rejects.toThrow();
+    expect(client.moveTask({ taskID: "task-1", targetNodeID: "node-2" })).rejects.toThrow();
   });
 });

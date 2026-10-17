@@ -118,6 +118,15 @@ func settingsTOMLWithRenderingOptions(settings Settings, includeToolSection bool
 		out.WriteString("\n[reviewer.model_capabilities]\n")
 		writeDefaultLines(&out, reviewerModelCapabilityLines)
 	}
+	if settings.Nano != nil {
+		for _, section := range []string{"nano", "nano.model_capabilities", "nano.features"} {
+			sectionLines := filterExactSectionLines(lines, section)
+			if len(sectionLines) > 0 {
+				out.WriteString("\n[" + section + "]\n")
+				writeDefaultLines(&out, sectionLines)
+			}
+		}
+	}
 	writeBuiltInSubagentSections(&out, settings.Model, settings.ModelContextWindow)
 	writeSkillTogglesSection(&out, state.Settings.SkillToggles)
 	return out.String()

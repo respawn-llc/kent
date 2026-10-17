@@ -4,6 +4,7 @@ import * as Effect from "effect/Effect";
 import * as Stream from "effect/Stream";
 import * as Atom from "effect/reactivity/Atom";
 import { Component, type ReactElement } from "react";
+import { expect, it, vi } from "bun:test";
 
 import { createTestServices, startupRoutes } from "@/test-support/app-services";
 import { create } from "@app/server-api-contract";
@@ -107,7 +108,7 @@ function wireEvent(index: number) {
 }
 
 it("surfaces debug overflow at the mounted React boundary and closes observation", async () => {
-  vi.stubEnv("KENT_DEBUG", "true");
+  globalThis.__KENT_TEST_ENV__.KENT_DEBUG = "true";
   const consoleError = vi.spyOn(console, "error").mockImplementation(() => undefined);
   try {
     const { api, transport, logger } = createTestServices(startupRoutes);
@@ -160,7 +161,6 @@ it("surfaces debug overflow at the mounted React boundary and closes observation
       expect(close).toHaveBeenCalledTimes(1);
     });
   } finally {
-    vi.unstubAllEnvs();
     consoleError.mockRestore();
   }
 });

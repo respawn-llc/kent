@@ -1,3 +1,4 @@
+import { expect, it } from "bun:test";
 import { advanceComposerStop } from "./composerStop";
 
 it("stops only on the second unhandled Escape inside two seconds", () => {

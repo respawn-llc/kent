@@ -1,4 +1,5 @@
 import * as R from "@app/server-api-contract/gen/kent/api/runtime/runtime_pb";
+import { sessionCategoryFromGenerated } from "./clientCatalog";
 import type { SessionExecutionTarget } from "@app/server-api-contract/gen/kent/api/worktree/worktree_pb";
 import type {
   ChatActivityFacts,
@@ -64,7 +65,6 @@ export function activityFacts(value: R.Activity): ChatActivityFacts {
       value.activeStep === undefined
         ? null
         : {
-            RunID: value.activeStep.runId,
             StepID: value.activeStep.stepId,
             ActiveKind: activeKind(value.activeStep.activeKind),
           },
@@ -148,6 +148,8 @@ export function mainView(value: R.MainViewValid, sessionID: string): ChatMainVie
       status: runtimeStatus(status),
       sessionID: session.sessionId,
       sessionName: session.sessionName ?? null,
+      category: sessionCategoryFromGenerated(session.category),
+      shortID: session.shortId ?? null,
       executionTarget: chatExecutionTarget(executionFacts(session.executionTarget)),
       activity: chatRuntimeActivity(activityFacts(value.activity)),
     },

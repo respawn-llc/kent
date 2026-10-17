@@ -1,3 +1,4 @@
+import { expect, it } from "bun:test";
 import { create } from "@app/server-api-contract";
 import * as pb from "@app/server-api-contract/gen/kent/api/workflow_task/attention_pb";
 import { ApprovalDecision } from "@app/server-api-contract/gen/kent/api/prompt/prompt_pb";
@@ -57,7 +58,7 @@ it("allows absent attention text only for a structured access Approval", async (
       },
     },
   });
-  await expect(client(question).listTaskAttention("task-1")).resolves.toMatchObject({
+  expect(client(question).listTaskAttention("task-1")).resolves.toMatchObject({
     items: [
       {
         message: null,
@@ -79,8 +80,8 @@ it("allows absent attention text only for a structured access Approval", async (
       prompt: { case: "approval", value: { approvalDecisions: [ApprovalDecision.DENY] } },
     },
   });
-  await expect(client(withoutTargets).listTaskAttention("task-1")).rejects.toThrow();
-  await expect(
+  expect(client(withoutTargets).listTaskAttention("task-1")).rejects.toThrow();
+  expect(
     client(create(pb.QuestionAttentionSchema, { ...question, message: "" })).listTaskAttention("task-1"),
   ).rejects.toThrow();
 });

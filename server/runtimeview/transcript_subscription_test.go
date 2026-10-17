@@ -12,6 +12,7 @@ import (
 	"core/server/session"
 	"core/server/tools"
 	"core/shared/protoapi"
+	projectpb "core/shared/protoapi/gen/kent/api/project"
 	runtimepb "core/shared/protoapi/gen/kent/api/runtime"
 	transcriptpb "core/shared/protoapi/gen/kent/api/transcript"
 	"core/shared/rollbacktarget"
@@ -160,30 +161,6 @@ func TestTranscriptCompactionProjectionCarriesTypedFactsWithoutServerPresentatio
 	}
 }
 
-func TestTranscriptCompactionStatusPreservesInitiatingRequestIdentity(t *testing.T) {
-	requestID := runtimeids.NewCompactionRequestID()
-	messages, err := TranscriptMessagesFromRuntimeEventChecked(runtime.Event{
-		Kind:   runtime.EventCompactionCompleted,
-		StepID: runtimeStepIDPointer(transcriptProjectionStepID),
-		Compaction: &runtime.CompactionStatus{
-			Mode:      "manual",
-			RequestID: &requestID,
-			Count:     1,
-		},
-	}, nil)
-
-	if err != nil {
-		t.Fatalf("project compaction status: %v", err)
-	}
-	if len(messages) != 1 {
-		t.Fatalf("compaction messages = %+v, want one", messages)
-	}
-	status := messages[0].GetCompactionStatus()
-	if status.RequestId == nil || *status.RequestId != requestID.String() {
-		t.Fatalf("projected request identity = %v, want %s", status.RequestId, requestID.String())
-	}
-}
-
 func TestTranscriptPendingWorkTechnicalRestorationProjection(t *testing.T) {
 	itemID := runtimeids.NewQueueItemID()
 	restoration := runtimeinput.PendingWorkTechnicalRestoration{
@@ -323,7 +300,6 @@ func TestTranscriptHydrationPreservesDeletionDispositionPresence(t *testing.T) {
 }
 
 const (
-	transcriptProjectionRunID  = "10000000-0000-4000-8000-000000000011"
 	transcriptProjectionStepID = "10000000-0000-4000-8000-000000000012"
 )
 
@@ -627,9 +603,8 @@ func TestRuntimeScopedUserFlushProjectsWithoutExactStep(t *testing.T) {
 		UserMessageBatchQueuedItems: []runtime.QueuedUserMessageIdentity{{
 			QueueItemID: "10000000-0000-4000-8000-000000000020",
 		}},
-		CommittedProvenance: &runtime.TranscriptCommittedRowProvenance{EventSequence: 1},
+		CommittedProvenance: &runtime.TranscriptCommittedRowProvenance{EventSequence: 1, QueueItemIDs: []string{"10000000-0000-4000-8000-000000000020"}},
 	}, nil)
-
 	if err != nil {
 		t.Fatalf("project Runtime user flush: %v", err)
 	}
@@ -649,6 +624,9 @@ func TestRuntimeScopedUserFlushProjectsWithoutExactStep(t *testing.T) {
 	}
 	if userRow == nil || userRow.StepId != nil || flushed == nil || flushed.StepId != nil {
 		t.Fatalf("Runtime user/flush Step provenance = user:%+v flush:%+v, want absent", userRow, flushed)
+	}
+	if len(userRow.QueueItemIds) != 1 || userRow.QueueItemIds[0] != "10000000-0000-4000-8000-000000000020" {
+		t.Fatalf("delivery identity = %+v", userRow)
 	}
 }
 
@@ -705,6 +683,7 @@ func TestRuntimeScopedToolCompletionProjectsLiveAndHydratedWithoutExactStep(t *t
 		t.Fatalf("Runtime hydration rows = %+v, want user and tool", hydration.TailSegment.Entries)
 	}
 	hydration.SessionIdentity = &transcriptpb.SessionIdentity{
+		Category:              projectpb.SessionCategory_SESSION_CATEGORY_MAIN,
 		SessionId:             projectionWorkspaceID,
 		ConversationFreshness: runtimepb.ConversationFreshness_CONVERSATION_FRESHNESS_ESTABLISHED,
 	}
@@ -1257,7 +1236,6 @@ func TestTranscriptBackgroundActivityUsesRuntimeActivityID(t *testing.T) {
 			Type:        runtime.BackgroundShellEventBackgrounded,
 			ID:          uuid.NewString(),
 			ActivityID:  activityID,
-			OwnerRunID:  transcriptProjectionRunID,
 			OwnerStepID: transcriptProjectionStepID,
 			State:       "running",
 			Command:     "go test ./...",
@@ -1275,6 +1253,9 @@ func TestTranscriptBackgroundActivityUsesRuntimeActivityID(t *testing.T) {
 	background := messages[0].GetBackgroundActivity()
 	if got := background.ActivityId; got != activityID.String() {
 		t.Fatalf("background transcript id = %q, want activity id %q", got, activityID)
+	}
+	if background.OwnerStepId != transcriptProjectionStepID {
+		t.Fatalf("background owner Step = %q, want %q", background.OwnerStepId, transcriptProjectionStepID)
 	}
 }
 
@@ -1299,7 +1280,6 @@ func TestTranscriptBackgroundActivityLifecycleIgnoresPreviewTruncation(t *testin
 					Type:              tt.eventType,
 					ID:                uuid.NewString(),
 					ActivityID:        uuid.New(),
-					OwnerRunID:        transcriptProjectionRunID,
 					OwnerStepID:       transcriptProjectionStepID,
 					State:             string(tt.eventType),
 					Command:           "sleep 2",
@@ -1444,6 +1424,32 @@ func TestTranscriptWorktreeNoticeKeepsMissingBranchNullable(t *testing.T) {
 	}
 	if branch := row.GetNotice().Worktree.Branch; branch != nil {
 		t.Fatalf("projected detached worktree branch = %v, want null", branch)
+	}
+}
+
+func TestTranscriptWorkspacesNoticePreservesTypedMessageAndVisibility(t *testing.T) {
+	messages, err := TranscriptMessagesFromRuntimeEventChecked(runtime.Event{
+		Kind: runtime.EventConversationUpdated,
+		CommittedProvenance: &runtime.TranscriptCommittedRowProvenance{
+			EventSequence: 3,
+		},
+		Message: llm.Message{
+			Role:        llm.RoleDeveloper,
+			MessageType: textutil.Value(llm.MessageTypeWorkspaces),
+			Content:     textutil.Value("project workspace context"),
+		},
+	}, nil)
+	if err != nil {
+		t.Fatalf("project Workspaces notice: %v", err)
+	}
+	if len(messages) != 1 {
+		t.Fatalf("messages = %d, want one Workspaces notice", len(messages))
+	}
+	row := messages[0].GetCommittedRow()
+	if row.GetNotice() == nil ||
+		row.GetNotice().GetMessageType() != transcriptpb.NoticeMessageType_NOTICE_MESSAGE_TYPE_WORKSPACES ||
+		row.Visibility != transcriptpb.EntryVisibility_ENTRY_VISIBILITY_DETAIL {
+		t.Fatalf("Workspaces notice projection = %+v, want typed detail notice", row)
 	}
 }
 

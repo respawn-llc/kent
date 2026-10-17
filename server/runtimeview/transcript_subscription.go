@@ -105,7 +105,7 @@ func transcriptCompactionStateFromRuntime(state *runtime.TranscriptCompactionSta
 	if state == nil {
 		return nil, nil
 	}
-	return transcriptCompactionProjection(&state.StepID, state.RequestID, state.Mode, state.Count, transcriptpb.CompactionState_COMPACTION_STATE_STARTED, nil)
+	return transcriptCompactionProjection(&state.StepID, state.Mode, state.Count, transcriptpb.CompactionState_COMPACTION_STATE_STARTED, nil)
 }
 
 func transcriptContextUsageFromRuntime(usage *runtime.ContextUsage) (*runtimepb.ContextUsage, error) {
@@ -391,7 +391,7 @@ func transcriptCompactionStatus(evt runtime.Event) (*transcriptpb.CompactionStat
 	default:
 		return nil, fmt.Errorf("runtime event %q carries compaction facts outside the compaction lifecycle", evt.Kind)
 	}
-	return transcriptCompactionProjection(evt.StepID, evt.Compaction.RequestID, evt.Compaction.Mode, evt.Compaction.Count, state, diagnostic)
+	return transcriptCompactionProjection(evt.StepID, evt.Compaction.Mode, evt.Compaction.Count, state, diagnostic)
 }
 
 func transcriptGoalStatus(update runtime.GoalStatusUpdate) (*runtimepb.GoalView, error) {
@@ -404,7 +404,6 @@ func transcriptGoalStatus(update runtime.GoalStatusUpdate) (*runtimepb.GoalView,
 type transcriptBackgroundActivityFacts struct {
 	activityID        runtimeids.BackgroundActivityID
 	processID         string
-	ownerRunID        runtimeids.RunID
 	ownerStepID       runtimeids.StepID
 	lifecycle         transcriptpb.BackgroundLifecycle
 	command           string
@@ -425,7 +424,6 @@ func transcriptBackgroundActivityFromFacts(facts transcriptBackgroundActivityFac
 	projected := &transcriptpb.BackgroundActivity{
 		ActivityId:        facts.activityID.String(),
 		ProcessId:         facts.processID,
-		OwnerRunId:        facts.ownerRunID.String(),
 		OwnerStepId:       facts.ownerStepID.String(),
 		Lifecycle:         facts.lifecycle,
 		Command:           facts.command,
@@ -455,10 +453,6 @@ func transcriptBackgroundActivity(evt runtime.BackgroundShellEvent) (*transcript
 	if err != nil {
 		return nil, err
 	}
-	runID, err := runtimeids.RunIDFromProto(strings.TrimSpace(evt.OwnerRunID))
-	if err != nil {
-		return nil, err
-	}
 	stepID, err := runtimeids.StepIDFromProto(strings.TrimSpace(evt.OwnerStepID))
 	if err != nil {
 		return nil, err
@@ -466,7 +460,6 @@ func transcriptBackgroundActivity(evt runtime.BackgroundShellEvent) (*transcript
 	return transcriptBackgroundActivityFromFacts(transcriptBackgroundActivityFacts{
 		activityID:        activityID,
 		processID:         strings.TrimSpace(evt.ID),
-		ownerRunID:        runID,
 		ownerStepID:       stepID,
 		lifecycle:         lifecycle,
 		command:           evt.Command,
@@ -493,10 +486,6 @@ func TranscriptBackgroundActivitiesFromProcessSnapshots(
 		if err != nil {
 			return nil, fmt.Errorf("background process %q activity id: %w", snapshot.ID, err)
 		}
-		runID, err := runtimeids.RunIDFromProto(snapshot.OwnerRunID)
-		if err != nil {
-			return nil, fmt.Errorf("background process %q owner run id: %w", snapshot.ID, err)
-		}
 		stepID, err := runtimeids.StepIDFromProto(snapshot.OwnerStepID)
 		if err != nil {
 			return nil, fmt.Errorf("background process %q owner step id: %w", snapshot.ID, err)
@@ -504,7 +493,6 @@ func TranscriptBackgroundActivitiesFromProcessSnapshots(
 		projected, err := transcriptBackgroundActivityFromFacts(transcriptBackgroundActivityFacts{
 			activityID:  activityID,
 			processID:   strings.TrimSpace(snapshot.ID),
-			ownerRunID:  runID,
 			ownerStepID: stepID,
 			lifecycle:   transcriptpb.BackgroundLifecycle_BACKGROUND_LIFECYCLE_BACKGROUNDED,
 			command:     snapshot.Command,
@@ -530,7 +518,17 @@ func TranscriptSessionIdentityFromRuntime(
 		return nil, err
 	}
 	sessionID := runtimeids.SessionIDFromProto(engine.SessionID())
+	category, err := engine.SessionCategory()
+	if err != nil {
+		return nil, err
+	}
+	wireCategory, err := protoapi.SessionCategoryToProto(category)
+	if err != nil {
+		return nil, err
+	}
 	return &transcriptpb.SessionIdentity{
+		Category:              wireCategory,
+		ShortId:               protoapi.SessionShortIDToProto(engine.SessionIdentity().ShortID),
 		SessionId:             sessionID.String(),
 		SessionName:           engine.SessionName(),
 		ConversationFreshness: ConversationFreshnessFromSession(freshness),
@@ -698,7 +696,6 @@ func transcriptStepStateMessages(evt runtime.Event) ([]*transcriptpb.Event, erro
 		return nil, err
 	}
 	state := &transcriptpb.StepState{
-		RunId:      strings.TrimSpace(evt.RunState.RunID),
 		StepId:     stepID,
 		ActiveKind: activeKind,
 	}
@@ -761,6 +758,7 @@ func transcriptRowFromFact(fact runtime.TranscriptCommittedRowFact, identities m
 			return nil, err
 		}
 		row.Row = &transcriptpb.CommittedRow_User{User: &transcriptpb.UserRow{
+			QueueItemIds:     append([]string(nil), fact.User.QueueItemIDs...),
 			StepId:           textutil.Pointer(fact.StepID),
 			Text:             fact.User.Text,
 			CondensedText:    optionalNonBlankString(fact.User.CondensedText),
@@ -928,14 +926,16 @@ func transcriptReasoningTraceIdentityProjection(identity *runtime.TranscriptReas
 
 func transcriptNoticeFromFact(stepID *string, fact *runtime.TranscriptNoticeRowFact) (*transcriptpb.NoticeRow, error) {
 	reasons := map[string]transcriptpb.NoticeReason{
-		transcript.NoticeReasonCacheWarning:          transcriptpb.NoticeReason_NOTICE_REASON_CACHE_WARNING,
-		transcript.NoticeReasonCompaction:            transcriptpb.NoticeReason_NOTICE_REASON_COMPACTION,
-		transcript.NoticeReasonLegacyUntypedNotice:   transcriptpb.NoticeReason_NOTICE_REASON_LEGACY_UNTYPED_NOTICE,
-		transcript.NoticeReasonRuntimeDiagnostic:     transcriptpb.NoticeReason_NOTICE_REASON_RUNTIME_DIAGNOSTIC,
-		transcript.NoticeReasonToolOutputRepair:      transcriptpb.NoticeReason_NOTICE_REASON_TOOL_OUTPUT_REPAIR,
-		transcript.NoticeReasonProviderModelMismatch: transcriptpb.NoticeReason_NOTICE_REASON_PROVIDER_MODEL_MISMATCH,
-		transcript.NoticeReasonThinkingUpdate:        transcriptpb.NoticeReason_NOTICE_REASON_THINKING_UPDATE,
-		transcript.NoticeReasonReasoningOmission:     transcriptpb.NoticeReason_NOTICE_REASON_REASONING_OMISSION,
+		transcript.NoticeReasonCacheWarning:           transcriptpb.NoticeReason_NOTICE_REASON_CACHE_WARNING,
+		transcript.NoticeReasonCompaction:             transcriptpb.NoticeReason_NOTICE_REASON_COMPACTION,
+		transcript.NoticeReasonLegacyUntypedNotice:    transcriptpb.NoticeReason_NOTICE_REASON_LEGACY_UNTYPED_NOTICE,
+		transcript.NoticeReasonRuntimeDiagnostic:      transcriptpb.NoticeReason_NOTICE_REASON_RUNTIME_DIAGNOSTIC,
+		transcript.NoticeReasonToolOutputRepair:       transcriptpb.NoticeReason_NOTICE_REASON_TOOL_OUTPUT_REPAIR,
+		transcript.NoticeReasonProviderModelMismatch:  transcriptpb.NoticeReason_NOTICE_REASON_PROVIDER_MODEL_MISMATCH,
+		transcript.NoticeReasonThinkingUpdate:         transcriptpb.NoticeReason_NOTICE_REASON_THINKING_UPDATE,
+		transcript.NoticeReasonReasoningOmission:      transcriptpb.NoticeReason_NOTICE_REASON_REASONING_OMISSION,
+		transcript.NoticeReasonConnectionFallback:     transcriptpb.NoticeReason_NOTICE_REASON_CONNECTION_FALLBACK,
+		transcript.NoticeReasonConnectionsUnavailable: transcriptpb.NoticeReason_NOTICE_REASON_CONNECTIONS_UNAVAILABLE,
 	}
 	reason := reasons[strings.TrimSpace(fact.Reason)]
 	severities := map[string]transcriptpb.NoticeSeverity{
@@ -1018,6 +1018,21 @@ func transcriptNoticeFromFact(stepID *string, fact *runtime.TranscriptNoticeRowF
 			return nil, err
 		}
 		notice.ReasoningOmission = &transcriptpb.ReasoningOmission{Count: count}
+	}
+	if fact.ConnectionFallback != nil {
+		notice.ConnectionFallback = &transcriptpb.ConnectionReplacement{
+			PreviousId: string(fact.ConnectionFallback.Previous), CurrentId: string(fact.ConnectionFallback.Current),
+		}
+	}
+	if fact.ConnectionsUnavailable != nil {
+		notice.ConnectionsUnavailable = &transcriptpb.ConnectionsUnavailable{Diagnostics: fact.ConnectionsUnavailable.Diagnostics}
+		for _, member := range fact.ConnectionsUnavailable.Members {
+			projected := &transcriptpb.UnavailableConnection{Id: string(member.ID)}
+			if member.AvailableAt != nil {
+				projected.AvailableAt = timestamppb.New(*member.AvailableAt)
+			}
+			notice.ConnectionsUnavailable.Members = append(notice.ConnectionsUnavailable.Members, projected)
+		}
 	}
 	diagnosticCode := strings.TrimSpace(fact.DiagnosticCode)
 	diagnosticDetail := fact.DiagnosticDetail

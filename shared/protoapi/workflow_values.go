@@ -50,10 +50,11 @@ var WorkflowNodeKind = workflowValueNames(map[pb.NodeKind]string{
 })
 
 var WorkflowEventResource = workflowValueNames(map[pb.ProjectEventResource]string{
-	pb.ProjectEventResource_WORKFLOW_PROJECT_EVENT_RESOURCE_WORKFLOW:      "workflow",
-	pb.ProjectEventResource_WORKFLOW_PROJECT_EVENT_RESOURCE_WORKFLOW_LINK: "workflow_link",
-	pb.ProjectEventResource_WORKFLOW_PROJECT_EVENT_RESOURCE_TASK:          "task",
-	pb.ProjectEventResource_WORKFLOW_PROJECT_EVENT_RESOURCE_LABEL:         "label",
+	pb.ProjectEventResource_WORKFLOW_PROJECT_EVENT_RESOURCE_WORKFLOW:        "workflow",
+	pb.ProjectEventResource_WORKFLOW_PROJECT_EVENT_RESOURCE_WORKFLOW_LINK:   "workflow_link",
+	pb.ProjectEventResource_WORKFLOW_PROJECT_EVENT_RESOURCE_TASK:            "task",
+	pb.ProjectEventResource_WORKFLOW_PROJECT_EVENT_RESOURCE_LABEL:           "label",
+	pb.ProjectEventResource_WORKFLOW_PROJECT_EVENT_RESOURCE_SESSION_CATALOG: "session_catalog",
 })
 
 var WorkflowEventAction = workflowValueNames(map[pb.ProjectEventAction]string{

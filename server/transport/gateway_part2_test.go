@@ -152,7 +152,7 @@ func TestGatewayProjectRemoteContinuesAfterActiveStepScheduledCrossProjectMove(t
 		}),
 	})
 	movedSession := createGatewayAuthoritativeSession(t, appCore)
-	_ = activateGatewayController(t, appCore, movedSession.Meta().SessionID)
+	activateGatewayController(t, appCore, movedSession.Meta().SessionID)
 	foreignSession, err := session.Create(
 		filepath.Join(targetConfig.Config.PersistenceRoot, "projects", targetBinding.ProjectID, "sessions"),
 		"target",
@@ -208,7 +208,6 @@ func TestGatewayProjectRemoteContinuesAfterActiveStepScheduledCrossProjectMove(t
 			ProjectId:     &targetBinding.ProjectID,
 			Origin: &sessionlaunchpb.RuntimeStepOrigin{
 				SessionId: movedSession.Meta().SessionID,
-				RunId:     active.RunId,
 				StepId:    active.StepId,
 			},
 		})
@@ -229,9 +228,8 @@ func TestGatewayProjectRemoteContinuesAfterActiveStepScheduledCrossProjectMove(t
 		}
 		return nil
 	})
-	submission, err := remote.SubmitUserTurn(context.Background(), &runtimepb.SubmitUserTurnRequest{
-		SessionId: movedSession.Meta().SessionID,
-		Input:     &runtimepb.UserTurnInput{Input: &runtimepb.UserTurnInput_Text{Text: "move this Session"}},
+	submission, err := remote.SubmitUserTurn(context.Background(), &runtimepb.SubmitUserTurnRequest{QueueItemId: runtimeids.NewQueueItemID().String(), SessionId: movedSession.Meta().SessionID,
+		Input: &runtimepb.UserTurnInput{Input: &runtimepb.UserTurnInput_Text{Text: "move this Session"}},
 	})
 	if err != nil {
 		t.Fatalf("SubmitUserTurn with self-rebind: %v", err)
@@ -537,7 +535,6 @@ func TestGatewayScopesProcessViewsAndAllowsGlobalKill(t *testing.T) {
 		Command:        []string{"/bin/sh", "-lc", "printf own\\n; sleep 1"},
 		DisplayCommand: "printf own; sleep 1",
 		OwnerSessionID: storeA.Meta().SessionID,
-		OwnerRunID:     "run-a",
 		OwnerStepID:    "step-a",
 		Workdir:        appCore.Config().WorkspaceRoot,
 		YieldTime:      time.Millisecond,
@@ -550,7 +547,6 @@ func TestGatewayScopesProcessViewsAndAllowsGlobalKill(t *testing.T) {
 		Command:        []string{"/bin/sh", "-lc", "printf foreign\\n; sleep 1"},
 		DisplayCommand: "printf foreign; sleep 1",
 		OwnerSessionID: storeB.Meta().SessionID,
-		OwnerRunID:     "run-b",
 		OwnerStepID:    "step-b",
 		Workdir:        resolvedB.Config.WorkspaceRoot,
 		YieldTime:      time.Millisecond,

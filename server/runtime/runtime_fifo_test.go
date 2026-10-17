@@ -140,7 +140,7 @@ func TestAgentStepBoundaryDrainsEveryAcceptedSteerBeforeNextRequest(t *testing.T
 		steer := NewAgentSteer(runtimeids.SessionIdentity{ID: runtimeids.NewSessionID()}, text)
 		expectedMessages = append(expectedMessages, messageContent(steer.Message()))
 		go func() {
-			_, accepted, err := engine.QueueAgentSteerForActiveRun(t.Context(), steer, nil)
+			_, accepted, err := engine.QueueAgentSteerForActiveRun(t.Context(), runtimeids.NewQueueItemID().String(), steer, nil)
 			if err == nil && !accepted {
 				err = errors.New("Agent Steer was not accepted")
 			}
@@ -255,7 +255,7 @@ func TestAgentStepBoundaryDrainsSteersAcceptedWhileFollowingRequestIsPreparing(t
 		done := make(chan error, 1)
 		steer := NewAgentSteer(runtimeids.SessionIdentity{ID: runtimeids.NewSessionID()}, text)
 		go func() {
-			_, accepted, queueErr := engine.QueueAgentSteerForActiveRun(t.Context(), steer, beforeQueue)
+			_, accepted, queueErr := engine.QueueAgentSteerForActiveRun(t.Context(), runtimeids.NewQueueItemID().String(), steer, beforeQueue)
 			if queueErr == nil && !accepted {
 				queueErr = errors.New("Agent Steer was not accepted")
 			}
@@ -448,8 +448,7 @@ func TestWorktreeTransitionRunsBeforeQueuedHumanProviderTurn(t *testing.T) {
 	humanDone := make(chan error, 1)
 	go func() {
 		_, accepted, err := engine.QueueUserMessageForActiveRun(
-			t.Context(),
-			"queued human turn",
+			t.Context(), runtimeids.NewQueueItemID().String(), "queued human turn",
 			func() error {
 				close(humanApplying)
 				<-releaseHumanApplication

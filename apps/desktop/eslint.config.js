@@ -117,8 +117,8 @@ export default tseslint.config(
     },
   },
   {
-    // Declaration merging requires interfaces; remove with the upstream Vitest 5 adapter.
-    files: ["test/jest-dom.d.ts"],
+    // Matcher declaration merging requires interfaces.
+    files: ["test/bun-test-dom.d.ts"],
     rules: {
       "@typescript-eslint/no-empty-object-type": ["error", { allowInterfaces: "always" }],
     },

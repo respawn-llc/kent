@@ -359,6 +359,7 @@ func (s *defaultStepExecutor) runStepLoopWithOptions(ctx context.Context, stepID
 			if err != nil {
 				return stepLoopResult{}, err
 			}
+			e.submitSessionNaming(prepared.response)
 			e.cascadeCompleteActiveGoalOnWorkflowCompletion(stepID)
 			return stepLoopResult{FinalAnswer: textutil.Value(prepared.assistant), ExecutedToolCall: true}, nil
 		case completedResponseNextAccepted:
@@ -400,6 +401,7 @@ func (s *defaultStepExecutor) runStepLoopWithOptions(ctx context.Context, stepID
 			if err := e.stepLifecycle.CompleteAgentStepBoundary(ctx); err != nil {
 				return stepLoopResult{}, err
 			}
+			e.submitSessionNaming(resp)
 			patchEditsApplied = patchEditsApplied || applied
 			if terminal {
 				e.cascadeCompleteActiveGoalOnWorkflowCompletion(stepID)
@@ -408,6 +410,7 @@ func (s *defaultStepExecutor) runStepLoopWithOptions(ctx context.Context, stepID
 			continue
 		}
 
+		e.submitSessionNaming(resp)
 		if assistantMsg.Content == nil && responseContainsProgress(resp) {
 			if err := e.stepLifecycle.CompleteAgentStepBoundary(ctx); err != nil {
 				return stepLoopResult{}, err
@@ -638,7 +641,6 @@ func (s *defaultStepExecutor) prepareCompletedResponse(ctx context.Context, step
 	preparedLocalCalls, err := prepareExecutorToolCalls(
 		e,
 		stepID,
-		activeRunIDForStep(e, stepID),
 		e.currentNodeExecutionActive(),
 		acceptedCalls.local,
 	)

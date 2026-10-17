@@ -94,10 +94,6 @@ func QueueItemIDFromProto(raw string) (QueueItemID, error) {
 	return QueueItemID{uuidv4Value: id}, err
 }
 
-func QueueItemIDFromCompactionRequest(id CompactionRequestID) QueueItemID {
-	return QueueItemID{uuidv4Value: id.uuidv4Value}
-}
-
 func NewQueueItemID() QueueItemID {
 	return QueueItemID{uuidv4Value: newUUIDv4Value()}
 }
@@ -106,18 +102,6 @@ type LiveRunGroupID struct{ uuidv4Value }
 
 func NewLiveRunGroupID() LiveRunGroupID {
 	return LiveRunGroupID{uuidv4Value: newUUIDv4Value()}
-}
-
-type RunID struct{ uuidv4Value }
-
-func RunIDFromProto(raw string) (RunID, error) {
-	id, err := uuidv4ValueFromProto(raw)
-	return RunID{uuidv4Value: id}, err
-}
-
-func ParseRunID(raw string) (RunID, error) {
-	id, err := parseUUIDv4Value(raw, "run_id")
-	return RunID{uuidv4Value: id}, err
 }
 
 type StepID struct{ uuidv4Value }
@@ -130,17 +114,6 @@ func StepIDFromProto(raw string) (StepID, error) {
 func ParseStepID(raw string) (StepID, error) {
 	id, err := parseUUIDv4Value(raw, "step_id")
 	return StepID{uuidv4Value: id}, err
-}
-
-type CompactionRequestID struct{ uuidv4Value }
-
-func NewCompactionRequestID() CompactionRequestID {
-	return CompactionRequestID{uuidv4Value: newUUIDv4Value()}
-}
-
-func ParseCompactionRequestID(raw string) (CompactionRequestID, error) {
-	id, err := parseUUIDv4Value(raw, "compaction_request_id")
-	return CompactionRequestID{uuidv4Value: id}, err
 }
 
 type AssistantStreamID struct{ uuidv4Value }

@@ -44,6 +44,7 @@ func TestCodexTurnStateInvalidWarningIsRedacted(t *testing.T) {
 	t.Cleanup(func() { slog.SetDefault(previous) })
 
 	dispatch := newTestCodexDispatch(t)
+	dispatch.bindTurnState(nil, "https://chatgpt.invalid/backend-api/codex/responses")
 	const secret = "secret\nstate"
 	dispatch.observeTurnStateCandidate(secret, codexTurnStateSourceHTTPHeader)
 
@@ -66,7 +67,7 @@ func newTestCodexDispatch(t *testing.T) *CodexDispatchContext {
 	t.Helper()
 	dispatch, err := NewCodexDispatchContext(CodexDispatchFacts{
 		SessionID:            "session-1",
-		RunID:                "run-1",
+		StepID:               "step-1",
 		CompactionGeneration: 1,
 		RequestKind:          CodexRequestKindTurn.Optional(),
 	})

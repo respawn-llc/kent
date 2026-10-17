@@ -305,6 +305,12 @@ message ReadSuccess {
 message SessionSettings {
   Settings settings = 1 [(buf.validate.field).required = true];
   SessionFacts session = 2 [(buf.validate.field).required = true];
+  ConnectionReplacement connection_replacement = 3;
+}
+
+message ConnectionReplacement {
+  string previous = 1 [(buf.validate.field).string.min_len = 1];
+  string current = 2 [(buf.validate.field).string.min_len = 1];
 }
 
 message NewChatCatalog {

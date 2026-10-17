@@ -51,6 +51,7 @@ func TestChatInputAdmissionDoesNotEnterRetiringAgent(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	prepared.QueueItemID = runtimeids.NewQueueItemID().String()
 	for _, admission := range []struct {
 		name string
 		run  func(*Service, context.Context, string, PreparedUserTurn) (serverapi.ChatInputAdmissionResult, error)

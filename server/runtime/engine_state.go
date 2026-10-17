@@ -15,6 +15,7 @@ import (
 	"core/shared/config"
 	"core/shared/rollbacktarget"
 	"core/shared/runtimeids"
+	"core/shared/sessioncontract"
 	"core/shared/textutil"
 	"core/shared/transcript"
 )
@@ -389,6 +390,7 @@ func (e *Engine) AcceptPreparedChatSettings(settings session.ChatSettings) error
 	if !accepted {
 		return ErrEngineClosed
 	}
+	e.runtimeWriteAccepted()
 	return nil
 }
 
@@ -679,11 +681,7 @@ func (e *Engine) FastModeEnabled() bool {
 }
 
 func (e *Engine) FastModeAvailable() bool {
-	caps := e.cfg.ProviderCapabilitiesOverride
-	if caps == nil {
-		return false
-	}
-	return llm.SupportsFastModeProvider(*caps)
+	return llm.SupportsFastModeProvider(e.connectionSnapshot().transportCapabilities)
 }
 
 func (e *Engine) ReviewerFrequency() string {
@@ -760,6 +758,10 @@ func (e *Engine) SessionID() string {
 
 func (e *Engine) SessionIdentity() runtimeids.SessionIdentity {
 	return e.store.Identity()
+}
+
+func (e *Engine) SessionCategory() (sessioncontract.SessionCategory, error) {
+	return e.store.Meta().EffectiveCategory(), nil
 }
 
 func (e *Engine) ContinuationAgentRole() *string {
@@ -863,16 +865,18 @@ func mustJSON(v any) json.RawMessage {
 }
 
 type storedLocalEntry struct {
-	Visibility            transcript.EntryVisibility              `json:"visibility,omitempty"`
-	Role                  string                                  `json:"role"`
-	Text                  string                                  `json:"text"`
-	DurationMs            *int64                                  `json:"duration_ms,omitempty"`
-	CondensedText         *string                                 `json:"condensed_text,omitempty"`
-	DiagnosticKey         *string                                 `json:"diagnostic_key,omitempty"`
-	NoticeID              *string                                 `json:"notice_id,omitempty"`
-	ToolOutputRepair      *transcript.ToolOutputRepairNotice      `json:"tool_output_repair,omitempty"`
-	ProviderModelMismatch *transcript.ProviderModelMismatchNotice `json:"provider_model_mismatch,omitempty"`
-	ReasoningOmission     *transcript.ReasoningOmissionNotice     `json:"reasoning_omission,omitempty"`
+	Visibility             transcript.EntryVisibility               `json:"visibility,omitempty"`
+	Role                   string                                   `json:"role"`
+	Text                   string                                   `json:"text"`
+	DurationMs             *int64                                   `json:"duration_ms,omitempty"`
+	CondensedText          *string                                  `json:"condensed_text,omitempty"`
+	DiagnosticKey          *string                                  `json:"diagnostic_key,omitempty"`
+	NoticeID               *string                                  `json:"notice_id,omitempty"`
+	ToolOutputRepair       *transcript.ToolOutputRepairNotice       `json:"tool_output_repair,omitempty"`
+	ProviderModelMismatch  *transcript.ProviderModelMismatchNotice  `json:"provider_model_mismatch,omitempty"`
+	ReasoningOmission      *transcript.ReasoningOmissionNotice      `json:"reasoning_omission,omitempty"`
+	ConnectionFallback     *config.ConnectionReplacement            `json:"connection_fallback,omitempty"`
+	ConnectionsUnavailable *transcript.ConnectionsUnavailableNotice `json:"connections_unavailable,omitempty"`
 	// AfterToolCallID keeps atomically persisted operator feedback visually
 	// attached after the tool result that caused it.
 	AfterToolCallID *string `json:"after_tool_call_id,omitempty"`
@@ -994,9 +998,7 @@ func (e *Engine) transcriptRuntimeState() *transcriptRuntimeState {
 	defer e.mu.Unlock()
 	if e.transcriptState == nil {
 		e.transcriptState = newTranscriptRuntimeState(transcriptWorkingDir(e.cfg.TranscriptWorkingDir, e.store.Meta().WorkspaceRoot))
-		if e.cfg.TokenEstimator != nil {
-			e.transcriptState.chatProjection().bindTokenEstimator(e.cfg.TokenEstimator)
-		}
+		e.transcriptState.chatProjection().bindTokenEstimator(e.connection.estimator)
 	}
 	return e.transcriptState
 }

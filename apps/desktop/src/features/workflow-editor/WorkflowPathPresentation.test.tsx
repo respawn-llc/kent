@@ -1,5 +1,5 @@
 import { render, screen } from "@testing-library/react";
-import { beforeAll, expect, it } from "vitest";
+import { beforeAll, expect, it } from "bun:test";
 
 import { emptyWorkflowDerivedWiring, type WorkflowDefinition, type WorkflowNode } from "@/api";
 import { initializeI18n } from "@/i18n";

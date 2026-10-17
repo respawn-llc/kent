@@ -1,8 +1,4 @@
 import { create } from "@app/server-api-contract";
-import {
-  SessionRuntimeService,
-  SessionRuntimeReleaseClosePolicy,
-} from "@app/server-api-contract/gen/kent/api/session_launch/session_lifecycle_pb";
 import { ReadService as SessionReadService } from "@app/server-api-contract/gen/kent/api/session/session_pb";
 import { ChatContextService } from "@app/server-api-contract/gen/kent/api/chat_context/chat_context_pb";
 import {
@@ -29,7 +25,6 @@ import { ContractError, RpcError, TransportError } from "./errors";
 import { mainView } from "./chatReadModel";
 import { transcriptMessage, transcriptPage } from "./chatTranscript";
 import { enumValue } from "./chatWire";
-import { requireSessionAttachment } from "./rpcSocket";
 import { InvalidTranscriptEventError } from "./subscriptionErrors";
 import type { ChatApi, ChatTranscriptMessage } from "./chatTypes";
 import type { RpcTransport } from "./transport";
@@ -51,8 +46,6 @@ export type {
   ChatNotAcceptedReason,
   ChatProjectTarget,
   ChatRuntimeActivity,
-  ChatRuntimeAttachment,
-  ChatRuntimeRelease,
   ChatRuntimeStatus,
   ChatSessionTarget,
   ChatSessionNameMutation,
@@ -168,37 +161,7 @@ export function createChatApi(transport: RpcTransport): ChatApi {
       return transcriptPage(requireUnarySuccess(method, result).transcript, sessionId);
     },
     async activateRuntime(target) {
-      const requestedSessionID = target.sessionID;
-      return transport.runRuntimeOwner(requestedSessionID, { createIfMissing: true }, async (owner) => {
-        requireSessionAttachment(owner.attachment, {
-          projectID: target.projectID,
-          sessionID: requestedSessionID,
-        });
-        return activateRuntime(owner, requestedSessionID);
-      });
-    },
-    async releaseRuntime(attachment) {
-      const requestedSessionID = attachment.sessionID;
-      return transport.runRuntimeOwner(
-        requestedSessionID,
-        { createIfMissing: false, closeAfter: true },
-        async (owner) => {
-          requireSessionAttachment(owner.attachment, { sessionID: requestedSessionID });
-          const method = SessionRuntimeService.method.release;
-          const result = requireUnarySuccess(
-            method,
-            await owner.callDescriptor(
-              method,
-              create(method.input, {
-                attachment: { sessionId: requestedSessionID, generation: BigInt(attachment.generation) },
-                dropOwner: true,
-                closePolicy: SessionRuntimeReleaseClosePolicy.CLOSE_IF_IDLE,
-              }),
-            ),
-          );
-          return { released: result.released, active: result.active };
-        },
-      );
+      return activateRuntime(transport, target);
     },
     subscribeTranscript(target, handler) {
       const sessionID = target.sessionID;

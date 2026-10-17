@@ -73,7 +73,6 @@ func transcriptActiveStepFromRuntimeReadModel(
 		return nil
 	}
 	return &transcriptpb.StepState{
-		RunId:      active.RunId,
 		StepId:     active.StepId,
 		Lifecycle:  transcriptpb.StepLifecycle_STEP_LIFECYCLE_STARTED,
 		ActiveKind: active.ActiveKind,
@@ -111,8 +110,7 @@ func clearMismatchedActiveFacts(hydration *transcriptpb.Hydration) {
 		hydration.ActiveReasoningTraces = traces
 	}
 	if hydration.ActiveStep != nil &&
-		(hydration.ActiveStep.RunId != active.RunId ||
-			hydration.ActiveStep.StepId != active.StepId ||
+		(hydration.ActiveStep.StepId != active.StepId ||
 			hydration.ActiveStep.ActiveKind != active.ActiveKind) {
 		hydration.ActiveStep = nil
 	}

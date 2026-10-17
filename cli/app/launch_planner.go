@@ -21,6 +21,7 @@ import (
 	"sync"
 
 	projectpb "core/shared/protoapi/gen/kent/api/project"
+	workflowpb "core/shared/protoapi/gen/kent/api/workflow_definition"
 
 	sessionlaunchpb "core/shared/protoapi/gen/kent/api/session_launch"
 	"core/shared/serverapi"
@@ -42,6 +43,7 @@ type sessionLaunchRequest struct {
 }
 
 type sessionLaunchPlan struct {
+	ConnectionScope            config.ConnectionScope
 	Mode                       launchMode
 	SessionID                  string
 	ActiveSettings             config.Settings
@@ -64,10 +66,7 @@ type sessionLaunchPlan struct {
 type runtimeLaunchPlan struct {
 	Wiring           *runtimeWiring
 	stopEventStreams func()
-	close            func() error
-	detachClose      func() error
 	closeOnce        sync.Once
-	closeErr         error
 }
 
 func validateLaunchSessionTitle(value *string) (*string, error) {
@@ -81,29 +80,15 @@ func validateLaunchSessionTitle(value *string) (*string, error) {
 	return &title, nil
 }
 
-func (p *runtimeLaunchPlan) Close() error {
-	return p.closeWithPolicy(false)
-}
-
-func (p *runtimeLaunchPlan) DetachOnlyClose() error {
-	return p.closeWithPolicy(true)
-}
-
-func (p *runtimeLaunchPlan) closeWithPolicy(detachOnly bool) error {
+func (p *runtimeLaunchPlan) Close() {
 	if p == nil {
-		return nil
+		return
 	}
 	p.closeOnce.Do(func() {
 		if p.stopEventStreams != nil {
 			p.stopEventStreams()
 		}
-		if detachOnly && p.detachClose != nil {
-			p.closeErr = p.detachClose()
-		} else if p.close != nil {
-			p.closeErr = p.close()
-		}
 	})
-	return p.closeErr
 }
 
 type sessionPickerRunner func(context.Context, sessionPageLoader, string, sessionPickerHeaderInfo) (sessionPickerResult, error)
@@ -113,6 +98,7 @@ type sessionViewReader interface {
 }
 
 type launchPlannerServer interface {
+	SubscribeWorkflowProject(context.Context, *workflowpb.ProjectSubscribeRequest) (apicontract.WorkflowEventSubscription, error)
 	Connection() config.Connection
 	LocalPreferences() config.LocalPreferences
 	ProjectBinding() (client.ProjectAttachment, bool)
@@ -139,6 +125,11 @@ func newSessionLaunchPlanner(server launchPlannerServer) *launchPlanner {
 type projectScopedSessionPageLoader struct {
 	projectID string
 	client    apicontract.ProjectViewService
+	subscribe func(context.Context, *workflowpb.ProjectSubscribeRequest) (apicontract.WorkflowEventSubscription, error)
+}
+
+func (l projectScopedSessionPageLoader) Subscribe(ctx context.Context) (apicontract.WorkflowEventSubscription, error) {
+	return l.subscribe(ctx, &workflowpb.ProjectSubscribeRequest{ProjectId: &l.projectID})
 }
 
 func (l projectScopedSessionPageLoader) ProjectID() string {
@@ -241,7 +232,9 @@ func (p *launchPlanner) PlanSession(ctx context.Context, req sessionLaunchReques
 	if err != nil {
 		return sessionLaunchPlan{}, err
 	}
+	scopeSelection := protoapi.ConnectionSelectionFromProto(resp.Plan.ConnectionScope.Selection)
 	return sessionLaunchPlan{
+		ConnectionScope:          config.ConnectionScope{Selection: scopeSelection, UnavailableRole: resp.Plan.ConnectionScope.UnavailableRole},
 		Mode:                     req.Mode,
 		SessionID:                resp.Plan.SessionId,
 		ActiveSettings:           activeSettings,
@@ -283,7 +276,7 @@ func (p *launchPlanner) PrepareRuntime(ctx context.Context, plan sessionLaunchPl
 	if p == nil || p.server == nil {
 		return nil, io.ErrClosedPipe
 	}
-	runtimeServer, ok := p.server.(runtimeAttachmentSource)
+	runtimeServer, ok := p.server.(sessionUISource)
 	if !ok {
 		return nil, errors.New("runtime attachment server is required")
 	}
@@ -304,6 +297,7 @@ func (p *launchPlanner) selectSession(ctx context.Context, notice *startupPicker
 	loader := projectScopedSessionPageLoader{
 		projectID: projectID,
 		client:    p.server.ProjectViewClient(),
+		subscribe: p.server.SubscribeWorkflowProject,
 	}
 	header, err := p.sessionPickerHeaderInfo()
 	if err != nil {

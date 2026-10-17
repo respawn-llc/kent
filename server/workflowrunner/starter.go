@@ -34,8 +34,6 @@ import (
 	"core/shared/serverapi"
 	"core/shared/textutil"
 	"core/shared/toolspec"
-
-	"github.com/google/uuid"
 )
 
 const (
@@ -54,6 +52,7 @@ type WorkflowAttentionRegistry interface {
 }
 
 type Starter struct {
+	recordUsage          runtimewire.ConnectionUsageRecorder
 	connectionRotation   *launch.ConnectionRotation
 	environment          func(string) (string, bool)
 	cfg                  config.App
@@ -70,6 +69,7 @@ type Starter struct {
 }
 
 type StarterOptions struct {
+	RecordUsage                runtimewire.ConnectionUsageRecorder
 	ConnectionRotation         *launch.ConnectionRotation
 	WorkspaceConfigLoadOptions config.LoadOptions
 	Environment                func(string) (string, bool)
@@ -90,6 +90,7 @@ func NewStarter(cfg config.App, metadataStore *metadata.Store, store RuntimeStor
 		return nil, err
 	}
 	return &Starter{
+		recordUsage:          opts.RecordUsage,
 		connectionRotation:   opts.ConnectionRotation,
 		environment:          opts.Environment,
 		cfg:                  cfg,
@@ -147,14 +148,14 @@ func (s *currentNodeAgentAssignmentSteer) Prepare(ctx context.Context) error {
 	var steer runtime.WorkflowAssignmentSteer
 	var admission sessionruntime.DormantSessionStoreAdmission
 	if err == nil {
-		admission, err = s.starter.runtimeAuthority.WithDormantSessionStore(ctx, s.prepared.plan.Descriptor, func(_ context.Context, store *session.Store) error {
+		admission, err = s.starter.runtimeAuthority.WithDormantSessionStore(ctx, s.prepared.plan.Descriptor, func(operationCtx context.Context, store *session.Store) error {
 			var steerErr error
 			persistenceContext := s.starter.workflowAssignmentPersistenceContext(s.prepared)
 			persistenceContext.ThinkingMutation = thinkingMutation
 			if s.delivery == workflowruntime.TaskPromptDeliveryResume {
-				steer, steerErr = runtime.SteerPersistedWorkflowAssignmentForResume(store, s.assignment, persistenceContext)
+				steer, steerErr = runtime.SteerPersistedWorkflowAssignmentForResume(operationCtx, store, s.assignment, persistenceContext)
 			} else {
-				steer, steerErr = runtime.SteerPersistedWorkflowAssignment(store, s.assignment, persistenceContext)
+				steer, steerErr = runtime.SteerPersistedWorkflowAssignment(operationCtx, store, s.assignment, persistenceContext)
 			}
 			return steerErr
 		})
@@ -192,13 +193,14 @@ func (s *Starter) workflowAssignmentPersistenceContext(
 	prepared preparedCurrentNodeAgentSession,
 ) runtime.PersistedWorkflowAssignmentContext {
 	return runtime.PersistedWorkflowAssignmentContext{
-		Workdir:         prepared.root.EffectiveRoot(),
-		GlobalConfigDir: s.cfg.PersistenceRoot,
-		Model:           prepared.plan.ActiveSettings.Model,
-		ThinkingLevel:   prepared.plan.ActiveSettings.ThinkingLevel,
-		SkillPolicy:     config.ResolveSkillPolicy(prepared.plan.ActiveSettings),
-		SubagentCatalog: config.App{Settings: prepared.plan.ActiveSettings, Source: prepared.plan.Source},
-		EnabledTools:    workflowRuntimeEnabledTools(prepared.plan.EnabledTools),
+		Workdir:                       prepared.root.EffectiveRoot(),
+		GlobalConfigDir:               s.cfg.PersistenceRoot,
+		Model:                         prepared.plan.ActiveSettings.Model,
+		ThinkingLevel:                 prepared.plan.ActiveSettings.ThinkingLevel,
+		ProjectWorkspaceContextReader: s.metadata,
+		SkillPolicy:                   config.ResolveSkillPolicy(prepared.plan.ActiveSettings),
+		SubagentCatalog:               config.App{Settings: prepared.plan.ActiveSettings, Source: prepared.plan.Source},
+		EnabledTools:                  workflowRuntimeEnabledTools(prepared.plan.EnabledTools),
 	}
 }
 
@@ -427,6 +429,7 @@ func (s *Starter) buildCurrentNodeAgentRuntimePlan(
 		return sessionruntime.AgentRuntimePlan{}, err
 	}
 	return sessionruntime.NewAgentRuntimePlan(sessionruntime.AgentRuntimePlanOptions{
+		ConnectionScope:       prepared.plan.ConnectionScope,
 		MainWorkspaceRoot:     prepared.plan.ExecutionTarget.WorkspaceRoot,
 		ExplicitToolSelection: prepared.plan.ExplicitToolSelection,
 		RequiredTools:         prepared.plan.RequiredTools,
@@ -589,19 +592,15 @@ func (s *Starter) compactOutgoingCurrentNodeSession(ctx context.Context, input w
 	if err != nil {
 		return err
 	}
-	attachment, err := s.runtimeAuthority.OpenRuntime(ctx, sessionruntime.RuntimeOpenRequest{
-		SessionID: plan.Descriptor.SessionID(), OwnerID: uuid.NewString(), Runtime: &runtimePlan,
+	ref, err := s.runtimeAuthority.OpenRuntime(ctx, sessionruntime.RuntimeOpenRequest{
+		SessionID: plan.Descriptor.SessionID(), Runtime: &runtimePlan,
 	})
 	if err != nil {
 		return err
 	}
-	defer func() {
-		_, releaseErr := attachment.Release(context.WithoutCancel(ctx), sessionruntime.RuntimeReleaseCloseIfIdle)
-		resultErr = errors.Join(resultErr, releaseErr)
-	}()
 	required = false
 	var resource sessionruntime.AgentResourceSelection = sessionruntime.CurrentAgentResource{}
-	err = s.runtimeAuthority.WithRuntime(ctx, attachment.Resource(), func(_ context.Context, engine *runtime.Engine) error {
+	err = s.runtimeAuthority.WithRuntime(ctx, ref, func(_ context.Context, engine *runtime.Engine) error {
 		required = engine.WorkflowContinuationCompactionRequired()
 		if engine.CompactionMode() != string(plan.ActiveSettings.CompactionMode) {
 			resource = sessionruntime.ReplaceAgentResource{}
@@ -796,6 +795,7 @@ func (s *Starter) newWorkflowProviderClient(ctx context.Context, plan launch.Ses
 		ActiveSettings: active, EnabledTools: plan.EnabledTools,
 		Sources: plan.Source.Sources, Connection: connection,
 		RequestCapabilities: capabilities,
+		RecordUsage:         s.recordUsage,
 	})
 }
 

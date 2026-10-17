@@ -6,7 +6,6 @@ import (
 	"core/server/tools"
 	"core/shared/clientui"
 	"core/shared/config"
-	"core/shared/runtimeids"
 	"core/shared/runtimeinput"
 	"core/shared/transcript"
 	"fmt"
@@ -199,7 +198,6 @@ type GoalStatusUpdate struct {
 
 type RunState struct {
 	Lifecycle  RunLifecycle
-	RunID      string
 	ActiveKind ActiveKind
 	Status     RunStatus
 	StartedAt  time.Time
@@ -210,7 +208,6 @@ type BackgroundShellEvent struct {
 	Type              BackgroundShellEventType
 	ID                string
 	ActivityID        uuid.UUID
-	OwnerRunID        string
 	OwnerStepID       string
 	State             string
 	Command           string
@@ -235,7 +232,6 @@ type ModelResponseTrace struct {
 
 type CompactionStatus struct {
 	Mode              string
-	RequestID         *runtimeids.CompactionRequestID
 	Engine            string
 	Provider          string
 	TrimmedItemsCount *int

@@ -734,7 +734,7 @@ func testCodexDispatch(t *testing.T, sessionID string, requestKind llm.CodexRequ
 	t.Helper()
 	dispatch, err := llm.NewCodexDispatchContext(llm.CodexDispatchFacts{
 		SessionID:   sessionID,
-		RunID:       "run-1",
+		StepID:      "11111111-1111-4111-8111-111111111111",
 		RequestKind: requestKind.Optional(),
 	})
 	if err != nil {

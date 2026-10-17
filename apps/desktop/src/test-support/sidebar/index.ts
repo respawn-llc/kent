@@ -1,3 +1,4 @@
+import { vi } from "bun:test";
 import type {
   SidebarDestination,
   SidebarPageNavigator,

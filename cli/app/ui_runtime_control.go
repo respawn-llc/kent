@@ -304,14 +304,14 @@ func (m *uiModel) submitRuntimeShell(ctx context.Context, req clientui.RuntimeSh
 	return nil
 }
 
-func (m *uiModel) compactRuntimeInput(ctx context.Context, req clientui.RuntimeCompactRequest) error {
+func (m *uiModel) compactRuntimeInput(ctx context.Context, req clientui.RuntimeCompactRequest) (clientui.RuntimeCompactResult, error) {
 	m.checkTUIBlockingOperation("runtime control mutation", "compact")
 	if client := m.runtimeClient(); client != nil {
-		err := client.CompactRuntime(ctx, req)
+		result, err := client.CompactRuntime(ctx, req)
 		m.observeRuntimeRequestResult(err)
-		return err
+		return result, err
 	}
-	return nil
+	return clientui.RuntimeCompactResult{}, nil
 }
 
 func (m *uiModel) interruptRuntime() error {
@@ -511,7 +511,7 @@ func (m *uiModel) applyRuntimeControlDone(msg runtimeControlDoneMsg) tea.Cmd {
 			return m.sendTransientStatusWithNoticeID(err.Error(), uiStatusNoticeError, transientStatusDuration, uiStatusNoticeReplace, "")
 		}
 		m.sessionName = name
-		return sequenceCmds(tea.SetWindowTitle(sessionTitle(m.sessionName)), followUpCmd)
+		return sequenceCmds(tea.SetWindowTitle(m.sessionTitle()), followUpCmd)
 	case runtimeControlInterrupt:
 		var merge runtimeTupleMergeResult
 		if msg.runtimeTuple != nil {

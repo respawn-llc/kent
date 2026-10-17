@@ -1,7 +1,7 @@
 import { act, render, renderHook, screen, waitFor } from "@testing-library/react";
 import { useEffect, useState, type ReactNode } from "react";
 import { QueryClient, useQueryClient } from "@tanstack/react-query";
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "bun:test";
 import {
   globalAttentionPage as attentionResponse,
   globalAttentionRoute,
@@ -137,12 +137,15 @@ it("releases Projects only after the owning Home binding departs", async () => {
   await waitFor(() => {
     expect(view.result.current.catalog.isSuccess).toBe(true);
   });
-  expect(view.client.getQueryData(queryKeys.projects)).toBeDefined();
+  const cachedProjects = view.client.getQueryData(queryKeys.projects);
+  expect(cachedProjects).toBeDefined();
   view.rerender();
-  expect(view.client.getQueryData(queryKeys.projects)).toBeDefined();
+  const retainedProjects = view.client.getQueryData(queryKeys.projects);
+  expect(retainedProjects).toBeDefined();
   view.unmount();
   await waitFor(() => {
-    expect(view.client.getQueryData(queryKeys.projects)).toBeUndefined();
+    const releasedProjects = view.client.getQueryData(queryKeys.projects);
+    expect(releasedProjects).toBeUndefined();
   });
 });
 
@@ -215,12 +218,14 @@ it.each(["next", "retry"] as const)(
 );
 
 describe("Home global attention data", () => {
+  let restoreAnimationFrameTestSupport: () => void;
+
   beforeEach(() => {
-    installAnimationFrameTestSupport();
+    restoreAnimationFrameTestSupport = installAnimationFrameTestSupport();
   });
 
   afterEach(() => {
-    vi.unstubAllGlobals();
+    restoreAnimationFrameTestSupport();
   });
 
   it("does not refetch Sidebar navigation when Home already owns populated attention data", async () => {

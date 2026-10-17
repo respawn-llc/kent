@@ -179,15 +179,11 @@ export function WorktreeBrowser({
                       {t("chat.worktree.current")}
                     </Badge>
                   )}
-                  {row.indicator === undefined ? null : (
-                    <Badge
-                      className="shrink-0"
-                      size="compact"
-                      tone={row.indicator === "missing" ? "danger" : "warning"}
-                    >
-                      {t(`chat.worktree.${row.indicator}`)}
+                  {row.badges.map(({ label, tone }) => (
+                    <Badge key={label} className="shrink-0" size="compact" tone={tone}>
+                      {t(`chat.worktree.${label}`)}
                     </Badge>
-                  )}
+                  ))}
                 </div>
               }
               actions={

@@ -36,6 +36,13 @@ const (
 	executionPhaseFinalizing
 )
 
+type executionAdmission uint8
+
+const (
+	executionProvisional executionAdmission = iota + 1
+	executionAccepted
+)
+
 type workflowExecutionActivity uint8
 
 const (
@@ -72,12 +79,11 @@ type execution struct {
 	stopErr  error
 	prompts  executionPromptStore
 
-	phase executionPhase
+	phase     executionPhase
+	admission executionAdmission
 
 	protocolViolations int64
 	onRetire           func()
-
-	closeResource bool
 }
 
 func (e *execution) workflowActivity() (workflowExecutionActivity, error) {
@@ -217,9 +223,6 @@ func (e *execution) finish(result ExecutionResult, runErr error, stopErr error) 
 			} else {
 				e.resource.logger.Logf("runtime.execution.exit scope_id=%s ok", e.scope.ID())
 			}
-		}
-		if e.closeResource {
-			e.resource.requestRetirementIfOwnerless()
 		}
 		closeErr = e.resource.releasePin()
 		if abort {
@@ -363,6 +366,7 @@ func (e *execution) cleanup() error {
 		return errors.Join(promptErr, bindingErr)
 	}
 	resource := e.resource
+	pending, pendingErr := resource.engine.PendingWorkSnapshot()
 	resource.mu.Lock()
 	defer resource.mu.Unlock()
 	if resource.current != e {
@@ -376,14 +380,16 @@ func (e *execution) cleanup() error {
 			),
 		)
 	}
-	cleanupErr := errors.Join(promptErr, bindingErr)
+	cleanupErr := errors.Join(promptErr, bindingErr, pendingErr)
 	if resource.askBroker != nil {
 		resource.askBroker.SetAskHandler(nil)
 	}
 	if resource.localTools != nil {
 		cleanupErr = errors.Join(cleanupErr, resource.localTools.BindExecutionCorrelation(nil))
 	}
+	resource.removeExecutionEventObservers(e.scope.ID())
 	resource.current = nil
+	resource.updateIdleLocked(len(pending.Items) != 0)
 	resource.signalLocked()
 	return cleanupErr
 }

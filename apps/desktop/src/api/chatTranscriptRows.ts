@@ -10,6 +10,7 @@ import { enumValue, safeNumber } from "./chatWire";
 import { timestampMillis } from "./clientTime";
 import { toolPresentation } from "./chatToolPresentation";
 import { ContractError } from "./errors";
+import { pendingWorkItemIDFromProto } from "./pendingWork";
 
 export function diagnostic(value: T.Diagnostic | undefined): ChatDiagnostic | null {
   return value === undefined ? null : { Code: value.code, Detail: value.detail };
@@ -53,6 +54,7 @@ function messageType(value: T.NoticeMessageType): string {
     [T.NoticeMessageType.AGENTS_MD]: "agents.md",
     [T.NoticeMessageType.SKILLS]: "skills",
     [T.NoticeMessageType.SUBAGENTS]: "subagents",
+    [T.NoticeMessageType.WORKSPACES]: "workspaces",
     [T.NoticeMessageType.ENVIRONMENT]: "environment",
     [T.NoticeMessageType.COMPACTION_SUMMARY]: "compaction_summary",
     [T.NoticeMessageType.INTERRUPTION]: "interruption",
@@ -89,6 +91,8 @@ function notice(value: T.NoticeRow): ChatNotice {
       [T.NoticeReason.PROVIDER_MODEL_MISMATCH]: "provider_model_mismatch",
       [T.NoticeReason.THINKING_UPDATE]: "thinking_update",
       [T.NoticeReason.REASONING_OMISSION]: "reasoning_omission",
+      [T.NoticeReason.CONNECTION_FALLBACK]: "connection_fallback",
+      [T.NoticeReason.CONNECTIONS_UNAVAILABLE]: "connections_unavailable",
     }),
     Severity: enumValue(value.severity, {
       [T.NoticeSeverity.INFO]: "info",
@@ -138,7 +142,13 @@ function noticeDiagnostics(
   value: T.NoticeRow,
 ): Pick<
   ChatNotice,
-  "ToolOutputRepair" | "ProviderModelMismatch" | "ReasoningOmission" | "Diagnostic" | "Background"
+  | "ToolOutputRepair"
+  | "ProviderModelMismatch"
+  | "ReasoningOmission"
+  | "ConnectionFallback"
+  | "ConnectionsUnavailable"
+  | "Diagnostic"
+  | "Background"
 > {
   return {
     ToolOutputRepair: value.toolOutputRepair === undefined ? null : toolOutputRepair(value.toolOutputRepair),
@@ -151,6 +161,23 @@ function noticeDiagnostics(
           },
     ReasoningOmission:
       value.reasoningOmission === undefined ? null : { count: value.reasoningOmission.count },
+    ConnectionFallback:
+      value.connectionFallback === undefined
+        ? null
+        : {
+            previous_id: value.connectionFallback.previousId,
+            current_id: value.connectionFallback.currentId,
+          },
+    ConnectionsUnavailable:
+      value.connectionsUnavailable === undefined
+        ? null
+        : {
+            members: value.connectionsUnavailable.members.map((member) => ({
+              id: member.id,
+              available_at: member.availableAt === undefined ? null : timestampMillis(member.availableAt),
+            })),
+            diagnostics: value.connectionsUnavailable.diagnostics,
+          },
     Diagnostic: diagnostic(value.diagnostic),
     Background:
       value.background === undefined
@@ -248,6 +275,7 @@ function userRow(value: T.UserRow): NonNullable<ChatCommittedRow["User"]> {
     Text: value.text,
     CondensedText: value.condensedText ?? null,
     RollbackTargetID: value.rollbackTargetId ?? null,
+    QueueItemIDs: value.queueItemIds.map((id) => pendingWorkItemIDFromProto(id).toJSONValue()),
     committed_at_unix_ms: value.committedAt === undefined ? null : timestampMillis(value.committedAt),
   };
 }

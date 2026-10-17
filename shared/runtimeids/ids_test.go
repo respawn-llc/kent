@@ -96,10 +96,6 @@ func TestNewSessionIDIsCanonicalUUIDv4(t *testing.T) {
 }
 
 func TestRuntimeUUIDIDsRoundTripAsJSONString(t *testing.T) {
-	runID, err := ParseRunID("11111111-1111-4111-8111-111111111111")
-	if err != nil {
-		t.Fatalf("ParseRunID: %v", err)
-	}
 	stepID, err := ParseStepID("22222222-2222-4222-8222-222222222222")
 	if err != nil {
 		t.Fatalf("ParseStepID: %v", err)
@@ -114,9 +110,7 @@ func TestRuntimeUUIDIDsRoundTripAsJSONString(t *testing.T) {
 	}
 
 	assertRuntimeUUIDJSONRoundTrip(t, NewQueueItemID(), new(QueueItemID))
-	assertRuntimeUUIDJSONRoundTrip(t, NewCompactionRequestID(), new(CompactionRequestID))
 	assertRuntimeUUIDJSONRoundTrip(t, NewLiveRunGroupID(), new(LiveRunGroupID))
-	assertRuntimeUUIDJSONRoundTrip(t, runID, new(RunID))
 	assertRuntimeUUIDJSONRoundTrip(t, stepID, new(StepID))
 	assertRuntimeUUIDJSONRoundTrip(t, streamID, new(AssistantStreamID))
 	assertRuntimeUUIDJSONRoundTrip(t, activityID, new(BackgroundActivityID))

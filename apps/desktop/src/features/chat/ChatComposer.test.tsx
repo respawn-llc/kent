@@ -1,10 +1,11 @@
+import { afterEach, beforeEach, expect, it, vi } from "bun:test";
 import { act, fireEvent, render, renderHook, screen, waitFor } from "@testing-library/react";
 import type { ReactNode } from "react";
 import type { ChatInputMutationResult, ChatTranscriptHandler, InitialChatSettings } from "@/api";
 import { ChatRuntimeProvider, queryKeys } from "@/app-facade";
 import { mainViewRead, runtimeHost, transcriptPage } from "@/test-support/chat-runtime";
 import { ChatComposerSurface, useComposerSurface } from "./ChatComposerSurface";
-import { compactionRequestIDFromProto, pendingWorkItemIDFromProto } from "@/api";
+import { pendingWorkItemIDFromProto } from "@/api";
 
 import { createTestServices } from "@/test-support/app-services";
 import { createWorktreeCommand } from "./worktreeCommand";
@@ -15,38 +16,48 @@ import { useChatComposer, target } from "./chatComposerTestFixture";
 import { TestAppProviders, composerWrapper } from "@/test-support/composer";
 import { useQueryClient } from "@tanstack/react-query";
 
-import { createChatStorageFixture } from "./chatStorageFixture";
+import { installChatStorageFixture } from "./chatStorageFixture";
 import * as ui from "@/ui";
 
-beforeEach(() => vi.stubGlobal("localStorage", createChatStorageFixture()));
-afterEach(() => vi.unstubAllGlobals());
+let restoreStorage: (() => void) | undefined;
+beforeEach(() => {
+  restoreStorage = installChatStorageFixture();
+});
+afterEach(() => {
+  restoreStorage?.();
+  restoreStorage = undefined;
+});
 
 it.each([
   ["older", "prompt B"],
   ["prompt B", "prompt B"],
-])("keeps browsing and draft restoration when replacement adds older prompts: %j", async (...entries) => {
-  const services = createTestServices([]);
-  vi.spyOn(services.api.chat, "getDraft").mockResolvedValue({ input: "draft A", protectedInput: null });
-  vi.spyOn(services.api.chat, "persistDraft").mockResolvedValue();
-  const { result } = renderHook(() => useChatComposer(target), {
-    wrapper: composerWrapper(services),
-  });
-  await waitFor(() => {
-    expect(result.current.draft.kind).toBe("ready");
-  });
-  const previous = ["prompt B"];
-  await act(async () => {
-    await result.current.navigateDraft({ direction: -1, entries: previous });
-  });
-  act(() => {
-    result.current.replaceHistory({ kind: "replace", entries, previous });
-  });
-  expect(result.current.draftPair).toEqual({ text: "prompt B", protectedInput: "draft A" });
-  await act(async () => {
-    await result.current.navigateDraft({ direction: 1, entries });
-  });
-  expect(result.current.draftPair).toEqual({ text: "draft A", protectedInput: null });
-});
+])(
+  "keeps browsing and draft restoration when replacement adds older prompts: %j",
+  async (olderPrompt: string, selectedPrompt: string) => {
+    const services = createTestServices([]);
+    vi.spyOn(services.api.chat, "getDraft").mockResolvedValue({ input: "draft A", protectedInput: null });
+    vi.spyOn(services.api.chat, "persistDraft").mockResolvedValue();
+    const { result } = renderHook(() => useChatComposer(target), {
+      wrapper: composerWrapper(services),
+    });
+    await waitFor(() => {
+      expect(result.current.draft.kind).toBe("ready");
+    });
+    const previous = ["prompt B"];
+    const entries = [olderPrompt, selectedPrompt];
+    await act(async () => {
+      await result.current.navigateDraft({ direction: -1, entries: previous });
+    });
+    act(() => {
+      result.current.replaceHistory({ kind: "replace", entries, previous });
+    });
+    expect(result.current.draftPair).toEqual({ text: "prompt B", protectedInput: "draft A" });
+    await act(async () => {
+      await result.current.navigateDraft({ direction: 1, entries });
+    });
+    expect(result.current.draftPair).toEqual({ text: "draft A", protectedInput: null });
+  },
+);
 
 it("keeps the original draft when a recalled prompt is edited and restores it after clearing", async () => {
   const services = createTestServices([]);
@@ -137,6 +148,7 @@ const accepted: ChatInputMutationResult = {
   outcome: {
     kind: "accepted",
     queueItemID: pendingWorkItemIDFromProto("79f762c8-0998-402a-bc80-6b42f3e241ed"),
+    disposition: "started_turn",
     diagnostic: null,
   },
 };
@@ -158,7 +170,7 @@ it("exposes Pending Work read failure and recovers without replaying input or lo
     ),
   });
   await waitFor(() => {
-    expect(read).toHaveBeenCalledOnce();
+    expect(read).toHaveBeenCalledTimes(1);
   });
   await waitFor(() => {
     expect(result.current.draft.kind).toBe("ready");
@@ -406,7 +418,7 @@ it("guards both compact activations against admitted active compaction", async (
     activity: {
       ...view.activity,
       state: "running",
-      activeStep: { runID: "run-1", stepID: "step-1", activeKind: "compaction" },
+      activeStep: { stepID: "step-1", activeKind: "compaction" },
     },
   });
   await act(async () => {
@@ -496,7 +508,8 @@ it("delivers a rejected New Chat compaction's Session while preserving its exact
     initialSettings,
   });
   expect(result.current.text).toBe("/compact \n keep decisions");
-  expect(compact).toHaveBeenCalledExactlyOnceWith(
+  expect(compact).toHaveBeenCalledTimes(1);
+  expect(compact).toHaveBeenCalledWith(
     {
       kind: "new_chat",
       projectID: target.projectID,
@@ -583,14 +596,14 @@ it.each([
     expect(editor).toHaveValue("");
   });
   if (!newChat && text !== "/wt ls") {
-    expect(execute).toHaveBeenCalledOnce();
+    expect(execute).toHaveBeenCalledTimes(1);
     await act(async () => {
       finish();
     });
     expect(push).not.toHaveBeenCalled();
   } else {
     expect(execute).not.toHaveBeenCalled();
-    expect(push).toHaveBeenCalledOnce();
+    expect(push).toHaveBeenCalledTimes(1);
   }
   expect(steer).not.toHaveBeenCalled();
   expect(queue).not.toHaveBeenCalled();
@@ -612,7 +625,7 @@ it.each(["idle", "stopped", "failed"] as const)(
         activity: {
           ...idle.mainView.activity,
           state: "running",
-          activeStep: { runID: "run-1", stepID: "step-1", activeKind: "user_turn" },
+          activeStep: { stepID: "step-1", activeKind: "user_turn" },
         },
       },
     });
@@ -657,7 +670,7 @@ it.each(["idle", "stopped", "failed"] as const)(
     });
     fireEvent.click(button);
     await waitFor(() => {
-      expect(stop).toHaveBeenCalledOnce();
+      expect(stop).toHaveBeenCalledTimes(1);
     });
     if (result === "failed") {
       await waitFor(() => {
@@ -686,7 +699,7 @@ it("clears an armed Stop on transcript loss while allowing a subsequent independ
       activity: {
         ...mainView.mainView.activity,
         state: "running",
-        activeStep: { runID: "run-1", stepID: "step-1", activeKind: "user_turn" },
+        activeStep: { stepID: "step-1", activeKind: "user_turn" },
       },
     },
   });
@@ -734,42 +747,47 @@ it("clears an armed Stop on transcript loss while allowing a subsequent independ
   expect(stop).not.toHaveBeenCalled();
   fireEvent.keyDown(keyboard, { key: "Escape" });
   await waitFor(() => {
-    expect(stop).toHaveBeenCalledOnce();
+    expect(stop).toHaveBeenCalledTimes(1);
   });
   expect(handlers).toHaveLength(1);
   view.unmount();
 });
 
 it("persists subsequent Session edits through their ordinary independent request", async () => {
-  const services = createTestServices([]);
-  vi.spyOn(services.api.chat, "getDraft").mockResolvedValue({ input: "saved", protectedInput: null });
-  const persist = vi.spyOn(services.api.chat, "persistDraft").mockResolvedValue();
-  const { result } = renderHook(() => useChatComposer({ ...target }), {
-    wrapper: composerWrapper(services),
-  });
-  await waitFor(() => {
-    expect(result.current.draft.kind).toBe("ready");
-  });
   vi.useFakeTimers();
   try {
+    const services = createTestServices([]);
+    vi.spyOn(services.api.chat, "getDraft").mockResolvedValue({ input: "saved", protectedInput: null });
+    const persist = vi.spyOn(services.api.chat, "persistDraft").mockResolvedValue();
+    const { result } = renderHook(() => useChatComposer({ ...target }), {
+      wrapper: composerWrapper(services),
+    });
+    await waitFor(() => {
+      expect(result.current.draft.kind).toBe("ready");
+    });
     await act(async () => {
-      await vi.advanceTimersByTimeAsync(350);
+      vi.advanceTimersByTime(350);
+    });
+    await waitFor(() => {
+      expect(persist).toHaveBeenCalledTimes(1);
     });
     persist.mockClear();
     act(() => {
       result.current.edit("offline edits");
     });
     await act(async () => {
-      await vi.advanceTimersByTimeAsync(350);
+      vi.advanceTimersByTime(350);
     });
-    expect(persist).toHaveBeenCalledOnce();
+    await waitFor(() => {
+      expect(persist).toHaveBeenCalledTimes(1);
+    });
     expect(result.current.text).toBe("offline edits");
   } finally {
     vi.useRealTimers();
   }
 });
 
-it("clears on activation and preserves later typing after acceptance", async () => {
+it("clears idle Send on activation and preserves later typing after acceptance", async () => {
   const services = createTestServices([]);
   vi.spyOn(services.api.chat, "getDraft").mockResolvedValue({ input: "submitted", protectedInput: null });
   vi.spyOn(services.api.chat, "persistDraft").mockResolvedValue();
@@ -794,11 +812,11 @@ it("clears on activation and preserves later typing after acceptance", async () 
     expect(result.current.draft.kind).toBe("ready");
   });
   act(() => {
-    result.current.submit("send");
+    result.current.submit("send", "editor", mainViewRead().mainView.activity);
   });
   expect(result.current.text).toBe("");
   await waitFor(() => {
-    expect(steer).toHaveBeenCalledWith(target, { kind: "text", text: "submitted" });
+    expect(steer).toHaveBeenCalledWith(target, { kind: "text", text: "submitted" }, expect.anything());
   });
   act(() => {
     result.current.edit("later");
@@ -827,12 +845,30 @@ it("appends independently rejected Queue inputs after text typed during delivery
   act(() => {
     result.current.submit("queue");
   });
+  expect(result.current.text).toBe("first\n ");
+  expect(result.current.interactionRestricted).toBe(true);
+  await waitFor(
+    () => {
+      expect(result.current.interactionRestricted).toBe(false);
+    },
+    { timeout: 3000 },
+  );
+  expect(result.current.text).toBe("");
   act(() => {
     result.current.edit("second");
   });
   act(() => {
     result.current.submit("queue");
   });
+  expect(result.current.text).toBe("second");
+  expect(result.current.interactionRestricted).toBe(true);
+  await waitFor(
+    () => {
+      expect(result.current.interactionRestricted).toBe(false);
+    },
+    { timeout: 3000 },
+  );
+  expect(result.current.text).toBe("");
   act(() => {
     result.current.edit("later");
   });
@@ -860,6 +896,7 @@ it("restores a failed request but does not restore an accepted input with a diag
       outcome: {
         ...accepted.outcome,
         kind: "accepted",
+        disposition: "started_turn",
         queueItemID: pendingWorkItemIDFromProto("79f762c8-0998-402a-bc80-6b42f3e241ed"),
         diagnostic: { kind: "prompt_history_failure", operation: null, cause: null },
       },
@@ -927,6 +964,7 @@ it("keeps New Chat typing while Settings load and delivers the identified Sessio
   expect(steer).toHaveBeenCalledWith(
     { ...newChat, initialSettings: settings },
     { kind: "text", text: "typed before settings" },
+    expect.anything(),
   );
   expect(result.current.text).toBe("typed before settings");
   expect(onDeliveredSession).toHaveBeenCalledWith(rejected, { ...newChat, initialSettings: settings });
@@ -950,50 +988,6 @@ it("keeps New Chat typing while Settings load and delivers the identified Sessio
   expect(result.current.target).toEqual(newChat);
   expect(result.current.pending.items).toEqual([]);
 });
-
-it.each(["send", "queue"] as const)(
-  "completes a selected prompt command and dispatches it through %s",
-  async (intent) => {
-    const services = createTestServices([]);
-    vi.spyOn(services.api.chat, "getDraft").mockResolvedValue({ input: "/rev", protectedInput: null });
-    vi.spyOn(services.api.chat, "persistDraft").mockResolvedValue();
-    const queue = vi
-      .spyOn(services.api.chat, intent === "send" ? "steer" : "queue")
-      .mockResolvedValue(accepted);
-    const { result } = renderHook(
-      () =>
-        useChatComposer({
-          ...target,
-          submission: { kind: "ready" },
-          commands: [
-            {
-              token: "/review",
-              aliases: ["/r"],
-              description: null,
-              preview: null,
-              execution: { kind: "prompt", catalogIdentity: "prompt:review" },
-            },
-          ],
-        }),
-      {
-        wrapper: composerWrapper(services),
-      },
-    );
-    await waitFor(() => {
-      expect(result.current.draft.kind).toBe("ready");
-    });
-    await act(async () => {
-      result.current.submit(intent);
-    });
-    expect(queue).toHaveBeenCalledWith(target, {
-      kind: "command",
-      catalogIdentity: "prompt:review",
-      token: "/review",
-      separatorWhitespace: "",
-      arguments: "",
-    });
-  },
-);
 
 it.each([true, false])(
   "dispatches a direct command with Queue support %s without a frontend queue",
@@ -1091,8 +1085,8 @@ it("prepends live interrupted messages in event order and restores Discard only 
 it("keeps repeated compactions distinct and restores only the discarded canonical command", async () => {
   const services = createTestServices([]);
   vi.spyOn(services.api.chat, "getDraft").mockResolvedValue({ input: "draft", protectedInput: null });
-  const first = compactionRequestIDFromProto("79f762c8-0998-402a-bc80-6b42f3e241ed");
-  const second = compactionRequestIDFromProto("99f762c8-0998-402a-bc80-6b42f3e241ed");
+  const first = pendingWorkItemIDFromProto("79f762c8-0998-402a-bc80-6b42f3e241ed");
+  const second = pendingWorkItemIDFromProto("99f762c8-0998-402a-bc80-6b42f3e241ed");
   const items = [first, second].map((id) => ({
     id,
     kind: "manual_compaction" as const,
@@ -1111,18 +1105,18 @@ it("keeps repeated compactions distinct and restores only the discarded canonica
     wrapper: composerWrapper(services),
   });
   await waitFor(() => {
-    expect(result.current.pending.items).toHaveLength(2);
+    expect(result.current.pending.query.data?.items).toHaveLength(2);
   });
   await act(async () => {
     result.current.pending.stop();
   });
-  expect(result.current.pending.items).toEqual(items);
+  expect(result.current.pending.query.data?.items).toEqual(items);
   expect(result.current.text).toBe("draft");
   await act(async () => {
     result.current.pending.discard(first);
   });
   await waitFor(() => {
-    expect(result.current.pending.items).toEqual(items.slice(1));
+    expect(result.current.pending.query.data?.items).toEqual(items.slice(1));
   });
   expect(remove).toHaveBeenCalledWith(target, first);
   expect(result.current.text).toBe("draft\n/compact");

@@ -9,11 +9,13 @@ import (
 )
 
 type uiDispatchedEventMsg struct {
-	event ongoingTranscriptEvent
-	issue *lifecycleHookIssue
+	attention *sessionAttentionEvent
+	event     ongoingTranscriptEvent
+	issue     *lifecycleHookIssue
 }
 
 type uiEventDispatcher struct {
+	attentionEvents     <-chan sessionAttentionEvent
 	transcriptEvents    <-chan ongoingTranscriptEvent
 	lifecycleHookIssues <-chan lifecycleHookIssue
 	lifecycleHookDone   <-chan struct{}
@@ -24,14 +26,21 @@ func newUIEventDispatcher(transcriptEvents <-chan ongoingTranscriptEvent) *uiEve
 }
 
 func (d *uiEventDispatcher) wait() tea.Cmd {
-	if d == nil || (d.transcriptEvents == nil && d.lifecycleHookIssues == nil) {
+	if d == nil || (d.transcriptEvents == nil && d.lifecycleHookIssues == nil && d.attentionEvents == nil) {
 		return nil
 	}
 	return func() tea.Msg {
 		transcriptEvents := d.transcriptEvents
 		issues := d.lifecycleHookIssues
-		for transcriptEvents != nil || issues != nil {
+		attentionEvents := d.attentionEvents
+		for transcriptEvents != nil || issues != nil || attentionEvents != nil {
 			select {
+			case attention, ok := <-attentionEvents:
+				if !ok {
+					attentionEvents = nil
+					continue
+				}
+				return uiDispatchedEventMsg{attention: &attention}
 			case <-d.lifecycleHookDone:
 				return nil
 			case event, ok := <-transcriptEvents:
@@ -52,6 +61,18 @@ func (m *uiModel) reduceDispatchedEvent(message tea.Msg) uiFeatureUpdateResult {
 	dispatched, ok := message.(uiDispatchedEventMsg)
 	if !ok {
 		return uiFeatureUpdateResult{}
+	}
+	if dispatched.attention != nil {
+		event := dispatched.attention
+		message := "Session naming failed"
+		if event.err != nil {
+			m.logf("attention.subscription.failed err=%q", event.err.Error())
+			message = "Session notifications stopped"
+		} else if event.failure != nil {
+			m.logf("session.naming.failed session_id=%q cause=%q", event.failure.SessionId, event.failure.Error.GetCause())
+		}
+		cmd := m.sendTransientStatusWithNoticeID(message, uiStatusNoticeError, transientStatusDuration, uiStatusNoticeReplace, "")
+		return handledUIFeatureUpdate(m, tea.Batch(m.batchWithNativeOngoingRepaint(cmd), m.eventDispatcher.wait()))
 	}
 	if dispatched.issue != nil {
 		issue := *dispatched.issue

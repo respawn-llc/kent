@@ -1,3 +1,4 @@
+import { describe, expect, it } from "bun:test";
 import { create, decode } from "@app/server-api-contract";
 import {
   GoalMutationResultKind,
@@ -50,7 +51,7 @@ describe("Desktop Chat Goal Set contract", () => {
       },
     ]);
 
-    await expect(
+    expect(
       new ApiClient(transport, unexpectedProjectOverflow).chat.setGoal(
         { kind: "session", sessionID },
         "ship",

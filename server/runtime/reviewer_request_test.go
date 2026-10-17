@@ -109,7 +109,7 @@ func TestBuildReviewerRequestUsesReviewerModelCapabilities(t *testing.T) {
 				Model: settings.Model, ThinkingLevel: settings.ThinkingLevel,
 				Reviewer: ReviewerConfig{Model: settings.Reviewer.Model, ThinkingLevel: settings.Reviewer.ThinkingLevel},
 			})
-			request, err := engine.buildReviewerRequest(t.Context(), newObservedModelClient(&fakeClient{}))
+			request, err := engine.buildReviewerRequest(t.Context())
 			if authored {
 				if !errors.Is(err, llm.ErrInvalidRequest) {
 					t.Fatalf("authored disabled effort %q accepted: %v", request.ReasoningEffort, err)
@@ -130,7 +130,7 @@ func TestBuildReviewerRequestUsesReviewerModelCapabilities(t *testing.T) {
 		},
 	})
 
-	req, err := eng.buildReviewerRequest(context.Background(), newObservedModelClient(&fakeClient{}))
+	req, err := eng.buildReviewerRequest(context.Background())
 	if err != nil {
 		t.Fatalf("build reviewer request: %v", err)
 	}
@@ -151,7 +151,7 @@ func TestBuildReviewerRequestPreservesTranscriptBytes(t *testing.T) {
 		t.Fatalf("append seed message: %v", err)
 	}
 
-	req, err := eng.buildReviewerRequest(context.Background(), newObservedModelClient(&fakeClient{}))
+	req, err := eng.buildReviewerRequest(context.Background())
 	if err != nil {
 		t.Fatalf("build reviewer request: %v", err)
 	}

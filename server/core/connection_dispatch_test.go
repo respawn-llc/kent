@@ -16,6 +16,7 @@ import (
 	"core/shared/config"
 	"core/shared/protoapi"
 	runtimepb "core/shared/protoapi/gen/kent/api/runtime"
+	"core/shared/runtimeids"
 	"core/shared/runtimeinput"
 	"core/shared/serverapi"
 	"core/shared/textutil"
@@ -94,10 +95,9 @@ func TestConnectionDispatchPreservesEstablishedGenerationContract(t *testing.T) 
 			}); err != nil {
 				t.Fatal(err)
 			}
-			_, err = app.SessionRuntimeClient().ActivateSessionRuntime(t.Context(), serverapi.SessionRuntimeActivateRequest{
-				SessionID: requestfixture.SessionID(t, store.Meta().SessionID), OwnerID: "contract-test",
-				ActiveSettings: cfg.Settings, Source: cfg.Source,
-				QuestionsEnabled: textutil.Value(true), AutoCompactionEnabled: textutil.Value(false),
+			err = app.SessionRuntimeClient().ActivateSessionRuntime(t.Context(), serverapi.SessionRuntimeActivateRequest{
+				SessionID: requestfixture.SessionID(t, store.Meta().SessionID), SessionRuntimePreparationOptions: serverapi.SessionRuntimePreparationOptions{ActiveSettings: cfg.Settings, Source: cfg.Source,
+					QuestionsEnabled: textutil.Value(true), AutoCompactionEnabled: textutil.Value(false)},
 			})
 			if err != nil {
 				t.Fatal(err)
@@ -108,9 +108,7 @@ func TestConnectionDispatchPreservesEstablishedGenerationContract(t *testing.T) 
 			}
 			ctx, cancel := context.WithTimeout(t.Context(), 5*time.Second)
 			defer cancel()
-			if _, err := app.RuntimeControlClient().SubmitUserTurn(ctx, &runtimepb.SubmitUserTurnRequest{
-				SessionId: store.Meta().SessionID, Input: input,
-			}); err != nil {
+			if _, err := app.RuntimeControlClient().SubmitUserTurn(ctx, &runtimepb.SubmitUserTurnRequest{QueueItemId: runtimeids.NewQueueItemID().String(), SessionId: store.Meta().SessionID, Input: input}); err != nil {
 				t.Fatal(err)
 			}
 			select {

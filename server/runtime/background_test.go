@@ -56,6 +56,9 @@ func (s *blockingBackgroundStepLifecycle) Snapshot() *RunSnapshot {
 func (s *blockingBackgroundStepLifecycle) WithActiveStep(func(stepID string) error) (bool, error) {
 	return false, nil
 }
+func (s *blockingBackgroundStepLifecycle) TurnStateLifetimeForStep(string) (*llm.CodexTurnStateLifetime, bool) {
+	return nil, false
+}
 func (s *blockingBackgroundStepLifecycle) ApplyForActiveStep(string, func() error) error {
 	return ErrActiveStepInactive
 }
@@ -234,7 +237,6 @@ func TestTerminalBackgroundUpdateQueuesAcrossClosingOrInterruptedStep(t *testing
 					sequence:    1,
 					activeKind:  ActiveKindUserTurn,
 					cancel:      func() {},
-					runID:       "11111111-1111-4111-8111-111111111111",
 					stepID:      "22222222-2222-4222-8222-222222222222",
 					startedAt:   time.Now().UTC(),
 					closing:     test.closing,
@@ -414,7 +416,7 @@ func TestBackgroundNoticeOwnershipFollowsWriteStdinCompletionCommitReceipt(t *te
 			engine := mustNewTestEngine(t, store, &fakeClient{}, tools.NewRegistry(), Config{Model: "gpt-6-sol"})
 			steps := &stubExclusiveStepLifecycle{
 				busy:     true,
-				snapshot: &RunSnapshot{RunID: "11111111-1111-4111-8111-111111111111", StepID: "step"},
+				snapshot: &RunSnapshot{StepID: "step"},
 			}
 			scheduler := &defaultBackgroundNoticeScheduler{engine: engine, steps: steps}
 			engine.stepLifecycle = &stubExclusiveStepLifecycle{busy: true}
@@ -518,7 +520,7 @@ func TestFlushPendingUserInjectionsRestoresOnlyLaterNoticeAfterCommittedObserver
 	stepID := runtimeTestStepID("background-notice-observer-failure")
 	steps := &stubExclusiveStepLifecycle{
 		busy:         true,
-		snapshot:     &RunSnapshot{RunID: "11111111-1111-4111-8111-111111111111", StepID: stepID},
+		snapshot:     &RunSnapshot{StepID: stepID},
 		activeStepID: stepID,
 	}
 	scheduler := &defaultBackgroundNoticeScheduler{engine: engine, steps: steps}

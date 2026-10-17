@@ -538,8 +538,9 @@ func (s *transcriptRuntimeState) AppendCommittedEntryWithVisibility(role, text s
 	s.chatProjection().appendLocalEntryRecord(ChatEntry{Visibility: visibility, Role: role, Text: text}, nil, provenances...)
 }
 
-func (s *transcriptRuntimeState) AppendCommittedCacheWarning(warning transcript.CacheWarning, visibility transcript.EntryVisibility, provenances ...*TranscriptCommittedRowProvenance) {
+func (s *transcriptRuntimeState) AppendCommittedCacheWarning(stepID *string, warning transcript.CacheWarning, visibility transcript.EntryVisibility, provenances ...*TranscriptCommittedRowProvenance) {
 	s.chatProjection().appendLocalEntryRecord(ChatEntry{
+		StepID:       cloneOptionalStepID(stepID),
 		Visibility:   visibility,
 		Role:         cacheWarningTranscriptRole,
 		Text:         transcript.CacheWarningText(warning),
@@ -607,7 +608,7 @@ func (s *transcriptRuntimeState) ClearStreamingError() {
 	s.chatProjection().clearStreamingError()
 }
 
-func applyPersistedCacheWarningToTranscript(state *transcriptRuntimeState, record session.CacheWarningRecord, mode config.CacheWarningMode, provenance ...*TranscriptCommittedRowProvenance) {
+func applyPersistedCacheWarningToTranscript(state *transcriptRuntimeState, stepID *string, record session.CacheWarningRecord, mode config.CacheWarningMode, provenance ...*TranscriptCommittedRowProvenance) {
 	warning := cacheWarningFromSessionRecord(record)
-	state.AppendCommittedCacheWarning(warning, cacheWarningEntryVisibility(mode), provenance...)
+	state.AppendCommittedCacheWarning(stepID, warning, cacheWarningEntryVisibility(mode), provenance...)
 }

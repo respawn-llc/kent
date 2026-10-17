@@ -59,8 +59,17 @@ func (e *Engine) materializePendingExecutionTargetReminders(stepID string) error
 }
 
 func (e *Engine) steerFreshMetaContext(ctx context.Context, stepID string) error {
+	projectWorkspaces, err := loadProjectWorkspacesContext(
+		ctx,
+		e.cfg.ProjectWorkspaceContextReader,
+		e.store.Meta().SessionID,
+	)
+	if err != nil {
+		return err
+	}
 	builder := e.activeMetaContextBuilder(e.cfg.Model, e.cfg.SkillPolicy)
 	options := baseMetaContextBuildOptions(true)
+	options.ProjectWorkspacesContext = &projectWorkspaces
 	options.WorktreeReminder = session.CloneWorktreeReminderState(e.store.Meta().WorktreeReminder)
 	options.SessionRebindReminder = session.CloneSessionRebindReminder(e.store.Meta().RebindReminder)
 	steer := func(options metaContextBuildOptions) (session.CommitReceipt, error) {
@@ -117,7 +126,7 @@ func (e *Engine) ensureMetaContextForCompaction(ctx context.Context, stepID stri
 }
 
 func (e *Engine) activeMetaContextBuilder(model string, skillPolicy config.SkillPolicy) metaContextBuilder {
-	return newActiveMetaContextBuilder(e.store.Meta(), e.transcriptWorkingDir(), model, e.ThinkingLevel(), e.cfg.GlobalConfigDir, skillPolicy, time.Now()).
+	return newActiveMetaContextBuilder(e.store, e.transcriptWorkingDir(), model, e.ThinkingLevel(), e.cfg.GlobalConfigDir, skillPolicy, time.Now()).
 		withSubagents(e.cfg.SubagentCatalog, e.cfg.EnabledTools)
 }
 
@@ -412,7 +421,7 @@ func (e *Engine) steerRuntimeBaseMetaContext(
 	builder metaContextBuilder,
 	invocationContext config.SubagentInvocationContext,
 ) error {
-	metaResult, err := buildBaseMetaContext(builder, invocationContext, e.store.Meta().WorktreeReminder)
+	metaResult, err := buildBaseMetaContext(builder, invocationContext, e.store.Meta().WorktreeReminder, nil)
 	if err != nil {
 		return err
 	}
@@ -422,8 +431,9 @@ func (e *Engine) steerRuntimeBaseMetaContext(
 func (e *Engine) steerDormantBaseMetaContext(
 	builder metaContextBuilder,
 	invocationContext config.SubagentInvocationContext,
+	projectWorkspaces *projectWorkspacesContext,
 ) error {
-	metaResult, err := buildBaseMetaContext(builder, invocationContext, e.store.Meta().WorktreeReminder)
+	metaResult, err := buildBaseMetaContext(builder, invocationContext, e.store.Meta().WorktreeReminder, projectWorkspaces)
 	if err != nil {
 		return err
 	}
@@ -435,9 +445,11 @@ func buildBaseMetaContext(
 	builder metaContextBuilder,
 	invocationContext config.SubagentInvocationContext,
 	worktreeReminder *session.WorktreeReminderState,
+	projectWorkspaces *projectWorkspacesContext,
 ) (metaContextBuildResult, error) {
 	options := baseMetaContextBuildOptions(true)
 	options.SubagentInvocationContext = invocationContext
+	options.ProjectWorkspacesContext = projectWorkspaces
 	options.WorktreeReminder = session.CloneWorktreeReminderState(worktreeReminder)
 	return builder.Build(options)
 }
@@ -570,8 +582,17 @@ func (e *Engine) generationMetaContextProjection(ctx context.Context, trigger wo
 	if err != nil {
 		return metaContextProjection{}, err
 	}
+	projectWorkspaces, err := loadProjectWorkspacesContext(
+		ctx,
+		e.cfg.ProjectWorkspaceContextReader,
+		meta.SessionID,
+	)
+	if err != nil {
+		return metaContextProjection{}, err
+	}
 	builder := e.activeMetaContextBuilder(e.currentModel(), skillPolicy)
 	opts := baseMetaContextBuildOptions(false)
+	opts.ProjectWorkspacesContext = &projectWorkspaces
 	opts.IncludeHeadless = e.cfg.HeadlessMode
 	opts.WorktreePromptKind = prompts.WorktreePromptPostCompaction
 	opts.WorktreeReminder = session.CloneWorktreeReminderState(meta.WorktreeReminder)

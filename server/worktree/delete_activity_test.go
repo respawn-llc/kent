@@ -41,7 +41,7 @@ type deleteInFlightStartLifecycle struct {
 	*testsetup.StartBarrier
 }
 
-func (l *deleteInFlightStartLifecycle) ResourceReady(ctx context.Context, _ sessionruntime.AgentResourceDescriptor, _ *runtime.Engine, _ sessionruntime.AgentResourceRetainer) error {
+func (l *deleteInFlightStartLifecycle) ResourceReady(ctx context.Context, _ sessionruntime.AgentResourceDescriptor, _ *runtime.Engine, _ sessionruntime.AgentResourceObserver) error {
 	return l.ArriveAndWait(ctx)
 }
 
@@ -199,19 +199,43 @@ func deleteActivityRuntimePlan(
 	onEvent ...func(runtime.Event),
 ) sessionruntime.AgentRuntimePlan {
 	t.Helper()
+	var eventObserver func(runtime.Event)
+	if len(onEvent) > 0 {
+		eventObserver = onEvent[0]
+	}
+	return deleteActivityRuntimePlanWithTools(
+		t,
+		env,
+		workdir,
+		client,
+		reviewerFrequency,
+		reviewerClientFactory,
+		nil,
+		eventObserver,
+	)
+}
+
+func deleteActivityRuntimePlanWithTools(
+	t *testing.T,
+	env *serviceTestEnv,
+	workdir string,
+	client llm.Client,
+	reviewerFrequency string,
+	reviewerClientFactory runtimewire.RuntimeClientFactory,
+	enabledTools []toolspec.ID,
+	eventObserver func(runtime.Event),
+) sessionruntime.AgentRuntimePlan {
+	t.Helper()
 	settings := env.cfg.Settings
 	settings.Model = "gpt-6-sol"
 	settings.ModelContextWindow = 200000
 	settings.Reviewer.Frequency = reviewerFrequency
 	settings.Reviewer.Model = "gpt-6-sol"
 	settings.Reviewer.ThinkingLevel = "low"
-	var eventObserver func(runtime.Event)
-	if len(onEvent) > 0 {
-		eventObserver = onEvent[0]
-	}
 	plan, err := sessionruntime.NewAgentRuntimePlan(sessionruntime.AgentRuntimePlanOptions{
 		MainWorkspaceRoot:     workdir,
 		Settings:              settings,
+		EnabledTools:          enabledTools,
 		QuestionsEnabled:      textutil.Value(true),
 		AutoCompactionEnabled: textutil.Value(true),
 		FilesystemContext: func() tools.FilesystemContext {
@@ -460,20 +484,20 @@ func openDeleteActivityRuntime(
 	sessionID string,
 	ownerID string,
 	client llm.Client,
-) (sessionruntime.RuntimeAttachment, *runtime.Engine) {
+) (runtimeids.SessionResourceRef, *runtime.Engine) {
 	t.Helper()
 	descriptor := openDeleteActivitySessionDescriptor(t, sessionID)
 	plan := deleteActivityRuntimePlan(t, env, target.CanonicalRoot, client, "off", nil)
 	attachment, err := env.authority.OpenRuntime(context.Background(), sessionruntime.RuntimeOpenRequest{
 		SessionID: descriptor.SessionID(),
-		OwnerID:   ownerID,
-		Runtime:   &plan,
+
+		Runtime: &plan,
 	})
 	if err != nil {
 		t.Fatalf("OpenRuntime: %v", err)
 	}
 	var engine *runtime.Engine
-	if err := env.authority.WithRuntime(context.Background(), attachment.Resource(), func(_ context.Context, current *runtime.Engine) error {
+	if err := env.authority.WithRuntime(context.Background(), attachment, func(_ context.Context, current *runtime.Engine) error {
 		engine = current
 		return nil
 	}); err != nil {
@@ -583,10 +607,10 @@ func TestDeleteWorktreeRejectsLiveRunAndCompletesUnrelatedWorktree(t *testing.T)
 	state := captureDeleteTargetState(t, env, busySession.Meta().SessionID, busy)
 	plan := deleteActivityTestRuntimePlan(t, env, busy.CanonicalRoot)
 	descriptor := openDeleteActivitySessionDescriptor(t, busySession.Meta().SessionID)
-	attachment, err := env.authority.OpenRuntime(context.Background(), sessionruntime.RuntimeOpenRequest{
+	_, err := env.authority.OpenRuntime(context.Background(), sessionruntime.RuntimeOpenRequest{
 		SessionID: descriptor.SessionID(),
-		OwnerID:   "delete-live-run",
-		Runtime:   &plan,
+
+		Runtime: &plan,
 	})
 	if err != nil {
 		t.Fatalf("OpenRuntime: %v", err)
@@ -644,9 +668,6 @@ func TestDeleteWorktreeRejectsLiveRunAndCompletesUnrelatedWorktree(t *testing.T)
 	if _, err := handle.Wait(waitCtx); err != nil {
 		t.Fatalf("wait for live execution: %v", err)
 	}
-	if _, err := attachment.Release(waitCtx, sessionruntime.RuntimeReleaseClose); err != nil {
-		t.Fatalf("release runtime attachment: %v", err)
-	}
 }
 
 func TestDeleteWorktreeRejectsRunningReviewer(t *testing.T) {
@@ -668,20 +689,15 @@ func TestDeleteWorktreeRejectsRunningReviewer(t *testing.T) {
 			return reviewer, nil
 		}),
 	)
-	attachment, err := env.authority.OpenRuntime(context.Background(), sessionruntime.RuntimeOpenRequest{
+	_, err := env.authority.OpenRuntime(context.Background(), sessionruntime.RuntimeOpenRequest{
 		SessionID: descriptor.SessionID(),
-		OwnerID:   "delete-running-reviewer",
-		Runtime:   &plan,
+
+		Runtime: &plan,
 	})
 	if err != nil {
 		t.Fatalf("OpenRuntime: %v", err)
 	}
-	t.Cleanup(func() {
-		_, releaseErr := attachment.Release(context.Background(), sessionruntime.RuntimeReleaseClose)
-		if releaseErr != nil && !errors.Is(releaseErr, serverapi.ErrRuntimeUnavailable) {
-			t.Errorf("release Reviewer Runtime: %v", releaseErr)
-		}
-	})
+
 	handle, err := env.authority.StartAgentExecution(context.Background(), sessionruntime.AgentExecutionRequest{
 		Descriptor: descriptor,
 		Resource:   sessionruntime.CurrentAgentResource{},
@@ -736,7 +752,7 @@ func TestDeleteWorktreeRejectsAcceptedPendingTransitionBeforeMovingSessions(t *t
 	env := newServiceTestEnv(t)
 	target := mustCreateWorktree(t, env, "feature/delete-pending-transition")
 	idleSessionID, blockedSessionID, idleState, blockedState := createDeleteTargetSessionPair(t, env, target)
-	attachment, engine := openDeleteActivityRuntime(t, env, target, blockedSessionID, "delete-pending-transition", deleteActivityTestLLMClient{})
+	_, engine := openDeleteActivityRuntime(t, env, target, blockedSessionID, "delete-pending-transition", deleteActivityTestLLMClient{})
 
 	maintenanceStarted := make(chan struct{})
 	releaseMaintenance := make(chan struct{})
@@ -776,10 +792,6 @@ func TestDeleteWorktreeRejectsAcceptedPendingTransitionBeforeMovingSessions(t *t
 		if transitionScheduled {
 			gate.wait(t)
 		}
-		if _, err := attachment.Release(context.Background(), sessionruntime.RuntimeReleaseClose); err != nil &&
-			!errors.Is(err, serverapi.ErrRuntimeUnavailable) {
-			t.Errorf("release pending-transition Runtime: %v", err)
-		}
 	})
 	gate = scheduleDeleteActivityTransition(t, engine)
 	transitionScheduled = true
@@ -812,16 +824,12 @@ func TestDeleteWorktreeRejectsInProgressTransitionBeforeMovingSessions(t *testin
 	env := newServiceTestEnv(t)
 	target := mustCreateWorktree(t, env, "feature/delete-in-progress-transition")
 	idleSessionID, blockedSessionID, idleState, blockedState := createDeleteTargetSessionPair(t, env, target)
-	attachment, engine := openDeleteActivityRuntime(t, env, target, blockedSessionID, "delete-in-progress-transition", deleteActivityTestLLMClient{})
+	_, engine := openDeleteActivityRuntime(t, env, target, blockedSessionID, "delete-in-progress-transition", deleteActivityTestLLMClient{})
 	var gate *deleteActivityTransitionGate
 	t.Cleanup(func() {
 		if gate != nil {
 			gate.unblock()
 			gate.wait(t)
-		}
-		if _, err := attachment.Release(context.Background(), sessionruntime.RuntimeReleaseClose); err != nil &&
-			!errors.Is(err, serverapi.ErrRuntimeUnavailable) {
-			t.Errorf("release in-progress-transition Runtime: %v", err)
 		}
 	})
 	gate = scheduleDeleteActivityTransition(t, engine)
@@ -855,7 +863,7 @@ func TestDeleteWorktreeRejectsAcceptedQueuedInputBeforeMovingSessions(t *testing
 	target := mustCreateWorktree(t, env, "feature/delete-queued-input")
 	idleSessionID, blockedSessionID, idleState, blockedState := createDeleteTargetSessionPair(t, env, target)
 	client := deleteActivityObservedLLMClient{requests: make(chan struct{}, 1)}
-	attachment, engine := openDeleteActivityRuntime(t, env, target, blockedSessionID, "delete-queued-input", client)
+	_, engine := openDeleteActivityRuntime(t, env, target, blockedSessionID, "delete-queued-input", client)
 
 	maintenanceStarted := make(chan struct{})
 	releaseMaintenance := make(chan struct{})
@@ -895,14 +903,9 @@ func TestDeleteWorktreeRejectsAcceptedQueuedInputBeforeMovingSessions(t *testing
 			!errors.Is(err, runtime.ErrEngineClosed) {
 			t.Errorf("finish accepted queued input: %v", err)
 		}
-		if _, err := attachment.Release(context.Background(), sessionruntime.RuntimeReleaseClose); err != nil &&
-			!errors.Is(err, serverapi.ErrRuntimeUnavailable) {
-			t.Errorf("release queued-input Runtime: %v", err)
-		}
 	})
 
-	queued, err := engine.QueueUserInput(context.Background(), runtime.QueuedUserInput{
-		ExecutionText:         "accepted before Worktree deletion",
+	queued, err := engine.QueueUserInput(context.Background(), runtime.QueuedUserInput{ID: runtimeids.NewQueueItemID().String(), ExecutionText: "accepted before Worktree deletion",
 		CanonicalPresentation: "accepted before Worktree deletion",
 	})
 	if err != nil {
@@ -960,7 +963,7 @@ func TestDeleteWorktreeRejectsSelectedWorkflowBeforeProviderWork(t *testing.T) {
 	target := mustCreateWorktree(t, env, "feature/delete-selected-workflow")
 	idleSessionID, blockedSessionID, idleState, blockedState := createDeleteTargetSessionPair(t, env, target)
 	client := deleteActivityObservedLLMClient{requests: make(chan struct{}, 1)}
-	attachment, engine := openDeleteActivityRuntime(t, env, target, blockedSessionID, "delete-selected-workflow", client)
+	_, engine := openDeleteActivityRuntime(t, env, target, blockedSessionID, "delete-selected-workflow", client)
 
 	currentNode, err := workflow.NewCurrentNodeReference("task-delete-selected", "node-selected", nil)
 	if err != nil {
@@ -1003,10 +1006,6 @@ func TestDeleteWorktreeRejectsSelectedWorkflowBeforeProviderWork(t *testing.T) {
 		defer cancel()
 		if _, err := handle.Wait(waitCtx); err != nil {
 			t.Errorf("finish selected Workflow execution: %v", err)
-		}
-		if _, err := attachment.Release(waitCtx, sessionruntime.RuntimeReleaseClose); err != nil &&
-			!errors.Is(err, serverapi.ErrRuntimeUnavailable) {
-			t.Errorf("release selected-Workflow Runtime: %v", err)
 		}
 	})
 	select {
@@ -1057,18 +1056,12 @@ func TestDeleteWorktreeRetiresIdleRuntimeAndRetargetsSessionBeforePhysicalRemova
 	plan := deleteActivityTestRuntimePlan(t, env, target.CanonicalRoot)
 	attachment, err := env.authority.OpenRuntime(context.Background(), sessionruntime.RuntimeOpenRequest{
 		SessionID: descriptor.SessionID(),
-		OwnerID:   "delete-idle-runtime",
-		Runtime:   &plan,
+
+		Runtime: &plan,
 	})
 	if err != nil {
 		t.Fatalf("OpenRuntime: %v", err)
 	}
-	t.Cleanup(func() {
-		_, releaseErr := attachment.Release(context.Background(), sessionruntime.RuntimeReleaseClose)
-		if releaseErr != nil && !errors.Is(releaseErr, serverapi.ErrRuntimeUnavailable) {
-			t.Errorf("release idle Runtime: %v", releaseErr)
-		}
-	})
 
 	barrier := testsetup.NewStartBarrier()
 	env.service.git = NewGitInspector(&deleteRemovalBarrierRunner{
@@ -1087,7 +1080,7 @@ func TestDeleteWorktreeRetiresIdleRuntimeAndRetargetsSessionBeforePhysicalRemova
 	}
 	defer barrier.Unblock()
 
-	if err := env.authority.WithRuntime(context.Background(), attachment.Resource(), func(context.Context, *runtime.Engine) error {
+	if err := env.authority.WithRuntime(context.Background(), attachment, func(context.Context, *runtime.Engine) error {
 		return nil
 	}); !errors.Is(err, serverapi.ErrRuntimeUnavailable) {
 		t.Fatalf("idle Runtime remained available before physical Worktree removal: %v", err)
@@ -1152,27 +1145,17 @@ func TestDeleteWorktreeRetiresIdleRuntimeAndRetargetsSessionBeforePhysicalRemova
 	settings.Model = "gpt-6-sol"
 	settings.ModelContextWindow = 200000
 	settings.Reviewer.Frequency = "off"
-	ownerID := "delete-idle-runtime-retargeted"
-	activated, err := api.ActivateSessionRuntime(context.Background(), serverapi.SessionRuntimeActivateRequest{
-		SessionID:             requestfixture.SessionID(t, otherSession.Meta().SessionID),
-		OwnerID:               ownerID,
-		ActiveSettings:        settings,
-		EnabledToolIDs:        []string{string(toolspec.ToolEdit), string(toolspec.ToolExecCommand)},
-		QuestionsEnabled:      textutil.Value(true),
-		AutoCompactionEnabled: textutil.Value(true),
-		Source:                config.SourceReport{Sources: map[string]config.Origin{}},
+	err = api.ActivateSessionRuntime(context.Background(), serverapi.SessionRuntimeActivateRequest{
+		SessionID: requestfixture.SessionID(t, otherSession.Meta().SessionID), SessionRuntimePreparationOptions: serverapi.SessionRuntimePreparationOptions{ActiveSettings: settings,
+			EnabledToolIDs:        []string{string(toolspec.ToolEdit), string(toolspec.ToolExecCommand)},
+			QuestionsEnabled:      textutil.Value(true),
+			AutoCompactionEnabled: textutil.Value(true),
+			Source:                config.SourceReport{Sources: map[string]config.Origin{}}},
 	})
 	if err != nil {
 		t.Fatalf("activate retargeted Session Runtime: %v", err)
 	}
-	t.Cleanup(func() {
-		if _, err := api.ReleaseSessionRuntime(context.Background(), serverapi.SessionRuntimeReleaseRequest{
-			Attachment: activated, OwnerID: ownerID, DropOwner: true,
-			ClosePolicy: serverapi.SessionRuntimeReleaseClosePolicyCloseIfIdle,
-		}); err != nil {
-			t.Errorf("release retargeted Session Runtime: %v", err)
-		}
-	})
+
 	sessionID, err := runtimeids.ParseSessionID(otherSession.Meta().SessionID)
 	if err != nil {
 		t.Fatalf("ParseSessionID other Session: %v", err)

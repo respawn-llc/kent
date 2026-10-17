@@ -11,7 +11,7 @@ export async function openNativeChat(
     label: `chat-${target.sessionID}`,
     route: nativeChatRoutePath,
     params: { projectID: target.projectID, sessionID: target.sessionID },
-    title: "",
+    title: target.sessionID,
     initialWidth: 960,
     initialHeight: 540,
     maximizable: true,

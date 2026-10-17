@@ -34,7 +34,7 @@ func (projectionFastClient) Generate(context.Context, llm.Request, llm.StreamCal
 }
 
 func (projectionFastClient) ProviderCapabilities(context.Context) (llm.ProviderCapabilities, error) {
-	return llm.ProviderCapabilities{ProviderID: "openai", SupportsResponsesAPI: true, IsOpenAIFirstParty: true}, nil
+	return llm.ProviderCapabilities{ProviderID: "openai", SupportsResponsesAPI: true, SupportsFastMode: true, IsOpenAIFirstParty: true}, nil
 }
 
 type projectionUnavailableFastClient struct{}
@@ -99,6 +99,9 @@ func newRuntimeViewEngine(t *testing.T, store *session.Store, client llm.Client,
 	engineConfig := runtime.Config{Model: "gpt-6-sol"}
 	if len(cfg) > 0 {
 		engineConfig = cfg[0]
+	}
+	if engineConfig.ProjectWorkspaceContextReader == nil {
+		engineConfig.ProjectWorkspaceContextReader = testsetup.OpenSessionProjectWorkspaceContextReader(t, store)
 	}
 	eventLog, err := store.MaterializeEventLog()
 	if err != nil {

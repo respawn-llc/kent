@@ -254,10 +254,6 @@ class BootstrapErrorTransport implements RpcTransport {
   async callDescriptorAttachedSession(): Promise<never> {
     throw this.#error;
   }
-
-  async runRuntimeOwner(): Promise<never> {
-    throw this.#error;
-  }
 }
 
 function errorMessage(error: unknown): string {

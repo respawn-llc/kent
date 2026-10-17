@@ -1,3 +1,4 @@
+import { expect, it } from "bun:test";
 import { create, decode, encode } from "@app/server-api-contract";
 import * as T from "@app/server-api-contract/gen/kent/api/transcript/tool_presentation_pb";
 import * as R from "@app/server-api-contract/gen/kent/api/transcript/transcript_pb";
@@ -49,7 +50,6 @@ it.each([-1n, 0n, 255n, 2147483648n, 3221225477n, 4294967295n])(
           value: {
             activityId: id,
             processId: "process-status",
-            ownerRunId: id,
             ownerStepId: id,
             lifecycle: R.BackgroundLifecycle.COMPLETED,
             command: "child",

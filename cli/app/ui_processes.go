@@ -64,7 +64,6 @@ func (m *uiModel) applyTranscriptBackgroundActivity(activity *transcriptpb.Backg
 	update := &processpb.BackgroundProcess{
 		Id:             processID,
 		OwnerSessionId: m.sessionID,
-		OwnerRunId:     proto.String(activity.OwnerRunId),
 		OwnerStepId:    proto.String(activity.OwnerStepId),
 		State:          transcriptBackgroundState(activity.Lifecycle),
 		Command:        activity.Command,
@@ -92,9 +91,6 @@ func (m *uiModel) applyTranscriptBackgroundActivity(activity *transcriptpb.Backg
 
 func mergeBackgroundProcessCacheEntry(existing, update *processpb.BackgroundProcess) *processpb.BackgroundProcess {
 	next := proto.Clone(existing).(*processpb.BackgroundProcess)
-	if update.OwnerRunId != nil {
-		next.OwnerRunId = update.OwnerRunId
-	}
 	if update.OwnerStepId != nil {
 		next.OwnerStepId = update.OwnerStepId
 	}

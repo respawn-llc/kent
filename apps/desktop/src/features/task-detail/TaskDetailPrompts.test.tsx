@@ -1,3 +1,4 @@
+import { expect, it, vi } from "bun:test";
 import { RegistryProvider, useAtomValue } from "@effect/atom-react";
 import { QueryClient } from "@tanstack/react-query";
 import { act, renderHook, waitFor } from "@testing-library/react";
@@ -38,7 +39,7 @@ it("admits an exact prompt only once in a turn and restores its answer on delive
   });
   expect(view.result.current.state.selection(promptAnswerKey(attention))).toEqual(selection);
   expect(view.read).toHaveBeenCalledTimes(reads);
-  expect(view.push).toHaveBeenCalledOnce();
+  expect(view.push).toHaveBeenCalledTimes(1);
 });
 
 it.each(["step", "session"] as const)(
@@ -95,7 +96,7 @@ it("reports the originating Task after leaving without restoring its answer in a
     view.result.current.actions.answer(submission(attention));
   });
   await waitFor(() => {
-    expect(view.send).toHaveBeenCalledOnce();
+    expect(view.send).toHaveBeenCalledTimes(1);
   });
   const reopened = createTaskDetailViewModel({
     services: view.services,
@@ -109,7 +110,7 @@ it("reports the originating Task after leaving without restoring its answer in a
   expect(view.result.current.state.isMasked(promptAnswerKey(attention))).toBe(false);
   await act(async () => view.deliveries[0]?.reject(new Error("delivery failed")));
   await waitFor(() => {
-    expect(view.push).toHaveBeenCalledOnce();
+    expect(view.push).toHaveBeenCalledTimes(1);
   });
   expect(view.result.current.state.selection(promptAnswerKey(attention))).toBeUndefined();
   expect(view.push).toHaveBeenCalledWith(
@@ -136,14 +137,14 @@ it("does not restore an exact prompt removed by the latest attention projection"
     view.result.current.actions.answer(submission(attention));
   });
   await waitFor(() => {
-    expect(view.send).toHaveBeenCalledOnce();
+    expect(view.send).toHaveBeenCalledTimes(1);
   });
   act(() => {
     view.client.setQueryData(queryKeys.taskAttention("task-1"), { items: [], generatedAt: 2 });
   });
   await act(async () => view.deliveries[0]?.reject(new Error("delivery failed")));
   await waitFor(() => {
-    expect(view.push).toHaveBeenCalledOnce();
+    expect(view.push).toHaveBeenCalledTimes(1);
   });
   expect(view.result.current.state.selection(promptAnswerKey(attention))).toBeUndefined();
   expect(view.result.current.reads.attention.data?.items).toEqual([]);

@@ -15,6 +15,7 @@ import (
 	"core/server/metadata"
 	"core/server/metadata/sqlitegen"
 	"core/server/mutationlane"
+	"core/server/runtimeactivity"
 	"core/server/sessionruntime"
 	"core/server/tools"
 	shelltool "core/server/tools/shell"
@@ -53,29 +54,35 @@ type sessionWorkspaceRetargeter interface {
 	ScheduleWorkspaceRetargetResolutionWithCompletion(context.Context, metadata.SessionWorkspaceRetargetRequest, *sessionlaunchpb.RuntimeStepOrigin, worktreecontract.OperationID, func(context.Context) (metadata.SessionWorkspaceRetargetRequest, error), func(error)) (*worktreepb.ScheduledAcknowledgement, error)
 }
 
+type runtimeActivitySnapshotReader interface {
+	ActiveRuntimeActivitySnapshots(context.Context) ([]runtimeactivity.ActiveSessionSnapshot, error)
+}
+
 type ServiceOptions struct {
-	PersistenceRoot     string
-	BaseDir             string
-	SetupScript         string
-	SetupTimeoutSeconds int
-	ResolveSetup        func(sourceWorkspaceRoot string) (config.WorktreeSettings, error)
-	SessionRetargeter   sessionWorkspaceRetargeter
+	PersistenceRoot               string
+	BaseDir                       string
+	SetupScript                   string
+	SetupTimeoutSeconds           int
+	ResolveSetup                  func(sourceWorkspaceRoot string) (config.WorktreeSettings, error)
+	SessionRetargeter             sessionWorkspaceRetargeter
+	RuntimeActivitySnapshotReader runtimeActivitySnapshotReader
 }
 
 type Service struct {
-	persistenceRoot     string
-	metadata            *metadata.Store
-	git                 *GitInspector
-	authority           *sessionruntime.Authority
-	publisher           runtimePublisher
-	processes           processSource
-	managedRoots        *managedRootAllocator
-	setupScript         string
-	setupTimeoutSeconds int
-	resolveSetup        func(sourceWorkspaceRoot string) (config.WorktreeSettings, error)
-	setupBroker         *setupEventBroker
-	workspaceMutations  *mutationlane.MutationLaneRegistry[string]
-	sessionRetargeter   sessionWorkspaceRetargeter
+	persistenceRoot               string
+	metadata                      *metadata.Store
+	git                           *GitInspector
+	authority                     *sessionruntime.Authority
+	publisher                     runtimePublisher
+	processes                     processSource
+	managedRoots                  *managedRootAllocator
+	setupScript                   string
+	setupTimeoutSeconds           int
+	resolveSetup                  func(sourceWorkspaceRoot string) (config.WorktreeSettings, error)
+	setupBroker                   *setupEventBroker
+	workspaceMutations            *mutationlane.MutationLaneRegistry[string]
+	sessionRetargeter             sessionWorkspaceRetargeter
+	runtimeActivitySnapshotReader runtimeActivitySnapshotReader
 }
 
 type syncedWorktree struct {
@@ -338,19 +345,20 @@ func NewService(metadataStore *metadata.Store, gitInspector *GitInspector, autho
 		gitInspector = NewGitInspector(nil)
 	}
 	return &Service{
-		metadata:            metadataStore,
-		git:                 gitInspector,
-		authority:           authority,
-		publisher:           publisher,
-		processes:           processes,
-		managedRoots:        newManagedRootAllocator(opts.BaseDir, nil),
-		setupScript:         strings.TrimSpace(opts.SetupScript),
-		setupTimeoutSeconds: opts.SetupTimeoutSeconds,
-		resolveSetup:        opts.ResolveSetup,
-		persistenceRoot:     opts.PersistenceRoot,
-		setupBroker:         newSetupEventBroker(),
-		workspaceMutations:  mutationlane.NewMutationLaneRegistry[string](),
-		sessionRetargeter:   opts.SessionRetargeter,
+		metadata:                      metadataStore,
+		git:                           gitInspector,
+		authority:                     authority,
+		publisher:                     publisher,
+		processes:                     processes,
+		managedRoots:                  newManagedRootAllocator(opts.BaseDir, nil),
+		setupScript:                   strings.TrimSpace(opts.SetupScript),
+		setupTimeoutSeconds:           opts.SetupTimeoutSeconds,
+		resolveSetup:                  opts.ResolveSetup,
+		persistenceRoot:               opts.PersistenceRoot,
+		setupBroker:                   newSetupEventBroker(),
+		workspaceMutations:            mutationlane.NewMutationLaneRegistry[string](),
+		sessionRetargeter:             opts.SessionRetargeter,
+		runtimeActivitySnapshotReader: opts.RuntimeActivitySnapshotReader,
 	}
 }
 
@@ -1777,7 +1785,7 @@ func (s *Service) ListWorktrees(ctx context.Context, req *worktreepb.ListRequest
 	if err != nil {
 		return nil, err
 	}
-	worktrees, err := projectWorktreeList(topology, workspaceCtx.target)
+	worktrees, err := s.projectWorktreeList(ctx, topology, workspaceCtx.target)
 	if err != nil {
 		return nil, err
 	}
@@ -1808,7 +1816,7 @@ func (s *Service) ListWorkspaceWorktrees(ctx context.Context, req *worktreepb.Wo
 	if err != nil {
 		return nil, err
 	}
-	worktrees, err := projectWorktreeList(topology, nil)
+	worktrees, err := s.projectWorktreeList(ctx, topology, nil)
 	if err != nil {
 		return nil, err
 	}
@@ -2061,7 +2069,7 @@ func (s *Service) createdWorktreeListEntry(ctx context.Context, workspaceCtx man
 	if err != nil {
 		return nil, err
 	}
-	entries, err := projectWorktreeList(topology, workspaceCtx.target())
+	entries, err := s.projectWorktreeList(ctx, topology, workspaceCtx.target())
 	if err != nil {
 		return nil, err
 	}

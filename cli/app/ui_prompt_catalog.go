@@ -9,7 +9,6 @@ import (
 	"core/shared/serverapi"
 
 	tea "github.com/charmbracelet/bubbletea"
-	"github.com/google/uuid"
 )
 
 func promptCatalogSnapshot(response *promptcommandpb.Catalog) []commands.PromptCommandCatalogEntry {
@@ -40,21 +39,19 @@ func (m *uiModel) startPromptCatalogRefresh(name string) tea.Cmd {
 		return nil
 	}
 	m.removePromptCatalogEntry(name)
-	token := uuid.New()
-	m.promptCatalogRefreshToken = &token
 	catalog := m.promptCatalog
 	return func() tea.Msg {
 		response, err := catalog.GetPromptCommandCatalog(context.Background(), &promptcommandpb.GetCatalogRequest{})
 		if err != nil {
-			return promptCatalogRefreshDoneMsg{token: &token, err: err}
+			return promptCatalogRefreshDoneMsg{err: err}
 		}
 		entries := promptCatalogSnapshot(response)
-		return promptCatalogRefreshDoneMsg{token: &token, entries: entries}
+		return promptCatalogRefreshDoneMsg{entries: entries}
 	}
 }
 
 func (m *uiModel) handlePromptCatalogRefreshDone(msg promptCatalogRefreshDoneMsg) tea.Cmd {
-	if m == nil || msg.token == nil || m.promptCatalogRefreshToken == nil || *msg.token != *m.promptCatalogRefreshToken {
+	if m == nil {
 		return nil
 	}
 	if msg.err != nil {

@@ -1,4 +1,5 @@
 import * as T from "@app/server-api-contract/gen/kent/api/transcript/transcript_pb";
+import { sessionCategoryFromGenerated } from "./clientCatalog";
 import { questionPrompt, approvalPrompt } from "./promptPresentation";
 import {
   DirtyStateKind,
@@ -26,6 +27,8 @@ function sessionIdentity(value: T.SessionIdentity): Payloads["session_identity"]
   return {
     SessionID: value.sessionId,
     SessionName: value.sessionName ?? null,
+    Category: sessionCategoryFromGenerated(value.category),
+    ShortID: value.shortId ?? null,
     ConversationFreshness: conversationFreshness(value.conversationFreshness),
     ExecutionTarget: value.executionTarget === undefined ? null : executionFacts(value.executionTarget),
   };
@@ -67,7 +70,6 @@ function reasoning(value: T.ReasoningTraceUpdateValid): Payloads["reasoning_trac
 
 function step(value: T.StepState): Payloads["step_state"] {
   return {
-    RunID: value.runId,
     StepID: value.stepId,
     Lifecycle: enumValue(value.lifecycle, {
       [T.StepLifecycle.STARTED]: "started",
@@ -86,7 +88,6 @@ function step(value: T.StepState): Payloads["step_state"] {
 function compaction(value: T.CompactionStatus): Payloads["compaction_status"] {
   return {
     StepID: value.stepId,
-    RequestID: value.requestId ?? null,
     State: enumValue(value.state, {
       [T.CompactionState.STARTED]: "started",
       [T.CompactionState.COMPLETED]: "completed",
@@ -116,7 +117,6 @@ function background(value: T.BackgroundActivity): Payloads["background_activity"
   return {
     ActivityID: value.activityId,
     ProcessID: value.processId,
-    OwnerRunID: value.ownerRunId,
     OwnerStepID: value.ownerStepId,
     Lifecycle: enumValue(value.lifecycle, {
       [T.BackgroundLifecycle.BACKGROUNDED]: "backgrounded",

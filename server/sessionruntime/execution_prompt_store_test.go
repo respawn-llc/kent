@@ -169,11 +169,9 @@ func batchedPromptRequest(id string, ordinal int) tools.AskQuestionRequest {
 		ToolCallID: id,
 		Question:   id,
 		Origin:     tools.AskQuestionOriginModelTool,
-		RunID:      "run-1",
 		StepID:     "step-1",
 		QuestionBatch: &tools.AskQuestionBatchMetadata{
 			Origin:              tools.AskQuestionOriginModelTool,
-			RunID:               "run-1",
 			StepID:              "step-1",
 			ToolCallID:          id,
 			BatchToolCallIDs:    []string{"ask-1", "ask-2"},

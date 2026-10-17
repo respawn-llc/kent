@@ -1,7 +1,9 @@
+import { describe, expect, it } from "bun:test";
 import { create, validate } from "@app/server-api-contract";
 import * as P from "@app/server-api-contract/gen/kent/api/prompt/prompt_pb";
 import * as R from "@app/server-api-contract/gen/kent/api/runtime/runtime_pb";
 import * as T from "@app/server-api-contract/gen/kent/api/transcript/transcript_pb";
+import { SessionCategory } from "@app/server-api-contract/gen/kent/api/project/session_catalog_pb";
 
 describe("Lifecycle context and prompt history contract", () => {
   const sessionId = "11111111-1111-4111-8111-111111111111";
@@ -10,6 +12,7 @@ describe("Lifecycle context and prompt history contract", () => {
     for (const sessionName of [undefined, " \t", "session"]) {
       const message = create(T.SessionIdentitySchema, {
         sessionId,
+        category: SessionCategory.MAIN,
         sessionName,
         conversationFreshness: R.ConversationFreshness.FRESH,
       });

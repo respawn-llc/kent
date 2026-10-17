@@ -170,7 +170,7 @@ func (m *defaultMessageLifecycle) RestoreMessages() error {
 			if provenanceErr != nil {
 				return fmt.Errorf("restore session cache warning provenance: %w", provenanceErr)
 			}
-			applyPersistedCacheWarningToTranscript(e.transcriptRuntimeState(), payload, e.cfg.CacheWarningMode, &provenance)
+			applyPersistedCacheWarningToTranscript(e.transcriptRuntimeState(), stepIDPointer, payload, e.cfg.CacheWarningMode, &provenance)
 		case session.CacheRequestObservationRecord:
 			// Cache requests are observational. The following response record
 			// reconstructs the cache tracker state.
@@ -433,7 +433,11 @@ func (m *defaultMessageLifecycle) PreparePendingUserInjections(selection userInj
 		if pending.steerAdmission != nil {
 			lane = runtimeinput.PendingWorkLaneSteer
 		}
-		if m.engine.liveRun.beginQueueItemPublication(id, lane) && m.engine.liveRun.finishQueueItemPublication(id) {
+		publishing, err := m.engine.liveRun.beginQueueItemPublication(id, lane, claim)
+		if err != nil {
+			return nil, err
+		}
+		if publishing && m.engine.liveRun.finishQueueItemPublication(id) {
 			m.engine.failStoppedLiveRunQueueItems(typedQueueItemIDSet(map[string]struct{}{pending.message.ID: {}}))
 		}
 	}
@@ -589,11 +593,12 @@ func (m *defaultMessageLifecycle) HasPendingUserSteers() bool {
 	return m != nil && m.queue != nil && m.queue.HasPendingSteers()
 }
 
-func newActiveMetaContextBuilder(meta session.Meta, executionRoot, model, thinkingLevel, globalConfigDir string, skillPolicy config.SkillPolicy, now time.Time) metaContextBuilder {
-	roots := activeMetaContextRootsForMeta(meta, executionRoot)
+func newActiveMetaContextBuilder(store *session.Store, executionRoot, model, thinkingLevel, globalConfigDir string, skillPolicy config.SkillPolicy, now time.Time) metaContextBuilder {
+	roots := activeMetaContextRootsForMeta(store.Meta(), executionRoot)
 	builder := newMetaContextBuilder(roots.discoveryRoot, model, thinkingLevel, skillPolicy, now).
 		withEnvironmentCWD(roots.environmentCWD).
 		withGlobalConfigDir(globalConfigDir)
+	builder.sessionShortID = store.Identity().ShortID
 	return builder
 }
 

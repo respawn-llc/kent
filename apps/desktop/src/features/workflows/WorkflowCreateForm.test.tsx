@@ -1,3 +1,4 @@
+import { expect, it, vi } from "bun:test";
 import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { createTestServices, TestAppProviders } from "@/test-support/app-services";
 import { deferred } from "@/test-support/chat-runtime";
@@ -41,7 +42,7 @@ it("admits one creation and retains its original completion after the form leave
     });
   });
   await waitFor(() => {
-    expect(onCreated).toHaveBeenCalledOnce();
+    expect(onCreated).toHaveBeenCalledTimes(1);
   });
   expect(replacement).not.toHaveBeenCalled();
 });

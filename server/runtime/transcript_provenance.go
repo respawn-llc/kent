@@ -9,6 +9,7 @@ import (
 )
 
 type TranscriptCommittedRowProvenance struct {
+	QueueItemIDs      []string
 	EventSequence     int64
 	CommittedAtUnixMs *transcript.CommittedAtUnixMs
 	ToolCallID        string
@@ -45,6 +46,7 @@ func transcriptProvenanceFromRecord(record session.EventRecord) (TranscriptCommi
 	}
 	switch typed := payload.(type) {
 	case session.MessageRecord:
+		provenance.QueueItemIDs = append([]string(nil), typed.QueueItemIDs...)
 		if typed.ToolCallID != nil {
 			provenance.ToolCallID = strings.TrimSpace(*typed.ToolCallID)
 		}
@@ -63,6 +65,7 @@ func cloneTranscriptCommittedRowProvenance(value *TranscriptCommittedRowProvenan
 		return nil
 	}
 	copyValue := *value
+	copyValue.QueueItemIDs = append([]string(nil), value.QueueItemIDs...)
 	if value.CommittedAtUnixMs != nil {
 		committedAt := *value.CommittedAtUnixMs
 		copyValue.CommittedAtUnixMs = &committedAt

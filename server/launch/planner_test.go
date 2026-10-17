@@ -154,11 +154,8 @@ func TestPlannerHeadlessCreatesNewSessionAndAppliesContinuationContext(t *testin
 	if meta.SessionID == "" {
 		t.Fatal("expected session id")
 	}
-	if meta.Name == nil || !strings.HasSuffix(*meta.Name, " "+SubagentSessionSuffix) {
-		t.Fatalf("expected subagent session name, got %v", meta.Name)
-	}
-	if plan.SessionName == nil || meta.Name == nil || *plan.SessionName != *meta.Name {
-		t.Fatalf("expected plan session name %v, got %v", meta.Name, plan.SessionName)
+	if meta.Name != nil || plan.SessionName != nil {
+		t.Fatalf("new headless Session was synthetically named: %v, %v", meta.Name, plan.SessionName)
 	}
 	if plan.WorkspaceRoot != "/tmp/workspace-a" {
 		t.Fatalf("expected workspace root passthrough, got %q", plan.WorkspaceRoot)
@@ -638,7 +635,7 @@ func TestPlannerNewChildSessionPreservesParentWorktreeContext(t *testing.T) {
 		t.Fatalf("child reviewer prompt lock = %+v, want parent interactive reviewer prompt", childMeta.Locked)
 	}
 	if childMeta.ConnectionID == nil || *childMeta.ConnectionID != "test" || plan.ActiveSettings.Connection == nil || !reflect.DeepEqual(plan.ActiveSettings.Connection, config.SingleConnection("test")) {
-		t.Fatal("direct continuation did not retain the parent binding")
+		t.Fatal("direct continuation did not select the configured connection")
 	}
 	if plan.ActiveSettings.Model != "locked-parent-model" {
 		t.Fatalf("plan model = %q, want locked-parent-model", plan.ActiveSettings.Model)
@@ -849,7 +846,7 @@ func TestPlannerNewChildSessionResolvesPreviousSessionAcrossProjectContainers(t 
 		t.Fatalf("locked contract = %+v, want source session lock copied", childMeta.Locked)
 	}
 	if childMeta.ConnectionID == nil || *childMeta.ConnectionID != "test" {
-		t.Fatal("source Session connection binding was not copied")
+		t.Fatal("child Session did not select the configured connection")
 	}
 }
 
@@ -874,8 +871,8 @@ func TestPlannerInitializesChildFromSourceMetadataWithoutOpeningSessionDirectory
 				if meta.Locked == nil || meta.Locked.Model != "source-model" {
 					t.Fatalf("locked contract = %+v, want source model", meta.Locked)
 				}
-				if meta.ConnectionID == nil || *meta.ConnectionID != "test" {
-					t.Fatal("source connection binding was not retained")
+				if meta.ConnectionID == nil || *meta.ConnectionID != "a" {
+					t.Fatalf("fresh child binding = %v, want a", meta.ConnectionID)
 				}
 			},
 		},
@@ -942,7 +939,7 @@ func TestPlannerInitializesChildFromSourceMetadataWithoutOpeningSessionDirectory
 				"a":    {Protocol: config.ConnectionChatGPT},
 				"test": {Protocol: config.ConnectionChatGPT},
 			}
-			planner.Rotation = new(ConnectionRotation)
+			planner.Rotation = NewConnectionRotation(testsetup.OpenStore(t, t.TempDir()), 0)
 			sourceID := mustTypedIntentSessionID(t, source.Meta().SessionID)
 
 			plan, err := planner.PlanSession(context.Background(), SessionRequest{
@@ -957,11 +954,8 @@ func TestPlannerInitializesChildFromSourceMetadataWithoutOpeningSessionDirectory
 				t.Fatalf("child workspace = root %q container %q, want source metadata", childMeta.WorkspaceRoot, childMeta.WorkspaceContainer)
 			}
 			test.assertMeta(t, childMeta, sourceID)
-			next, err := planner.Rotation.Prepare(planner.Config.Settings, true)
-			want := config.ConnectionID("a")
-			if test.name == "parent agent" {
-				want = "test"
-			}
+			next, err := planner.Rotation.Prepare(t.Context(), planner.Config.Settings, true)
+			want := config.ConnectionID("test")
 			if err != nil || next != want {
 				t.Fatalf("next allocation = %v, %v; want %v", next, err, want)
 			}

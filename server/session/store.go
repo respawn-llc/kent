@@ -719,6 +719,14 @@ func (s *Store) SetName(name *string) error {
 }
 
 func (s *Store) MutateName(name *string) (NameMutationResult, error) {
+	return s.mutateName(name, false)
+}
+
+func (s *Store) MutateNameIfUnnamed(name string) (NameMutationResult, error) {
+	return s.mutateName(&name, true)
+}
+
+func (s *Store) mutateName(name *string, onlyUnnamed bool) (NameMutationResult, error) {
 	normalized, err := sessioncontract.NormalizeSessionName(name)
 	if err != nil {
 		return NameMutationResult{}, err
@@ -726,7 +734,7 @@ func (s *Store) MutateName(name *string) (NameMutationResult, error) {
 	s.mutationMu.Lock()
 	defer s.mutationMu.Unlock()
 	s.mu.Lock()
-	if textutil.EqualOptional(s.meta.Name, normalized) {
+	if onlyUnnamed && s.meta.Name != nil || textutil.EqualOptional(s.meta.Name, normalized) {
 		s.mu.Unlock()
 		return NameMutationResult{}, nil
 	}

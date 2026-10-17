@@ -81,7 +81,7 @@ func TestTranscriptRuntimeProgressStartsAndRearmsSpinner(t *testing.T) {
 	runningPayload.Activity = &runtimepb.Activity{
 		State:    runtimepb.ActivityState_RUNTIME_ACTIVITY_RUNNING,
 		Reviewer: runtimepb.ReviewerActivity_REVIEWER_ACTIVITY_INACTIVE,
-		ActiveStep: &runtimepb.ActiveStep{RunId: ongoingTestRunID().String(), StepId: ongoingTestStepID().String(),
+		ActiveStep: &runtimepb.ActiveStep{StepId: ongoingTestStepID().String(),
 			ActiveKind: runtimepb.ActivityActiveKind_RUNTIME_ACTIVITY_ACTIVE_KIND_USER_TURN}}
 	running = transcriptTestMessage(2, runningPayload)
 	next, cmd := m.Update(ongoingTranscriptEvent{Kind: ongoingTranscriptEventMessage, Message: running})

@@ -96,10 +96,16 @@ export function createChatSettingsApi(
               });
       const response = requireChatSuccess(method, result);
       if (target.kind === "session" && response.target.case === "session") {
+        const replacement = response.target.value.connectionReplacement;
+        if (replacement !== undefined && (!replacement.previous.trim() || !replacement.current.trim()))
+          throw new ContractError("Chat Settings Connection replacement is invalid.");
         return {
           kind: "session",
           settings: settings(response.target.value.settings),
           session: sessionFacts(response.target.value.session, target.sessionID),
+          ...(replacement === undefined
+            ? {}
+            : { connectionReplacement: { previous: replacement.previous, current: replacement.current } }),
         };
       }
       if (target.kind !== "new_chat" || response.target.case !== "newChat") {

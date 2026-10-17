@@ -2,6 +2,7 @@ package app
 
 import (
 	"core/cli/tui"
+	projectpb "core/shared/protoapi/gen/kent/api/project"
 	runtimepb "core/shared/protoapi/gen/kent/api/runtime"
 	transcriptpb "core/shared/protoapi/gen/kent/api/transcript"
 	worktreepb "core/shared/protoapi/gen/kent/api/worktree"
@@ -20,6 +21,7 @@ func TestTranscriptIdentityDoesNotRetargetForAnEqualWorkspaceID(t *testing.T) {
 		WorkspaceId: &firstID, WorkspaceRoot: "/workspace", EffectiveWorkdir: "/workspace",
 	}
 	model.applyTranscriptSessionIdentity(&transcriptpb.SessionIdentity{
+		Category:              projectpb.SessionCategory_SESSION_CATEGORY_MAIN,
 		SessionId:             detailTestSessionID,
 		ConversationFreshness: runtimepb.ConversationFreshness_CONVERSATION_FRESHNESS_ESTABLISHED,
 		ExecutionTarget: &worktreepb.SessionExecutionTarget{
@@ -124,8 +126,8 @@ func TestDetailTranscriptMatchingSuccessAllowsNextRequest(t *testing.T) {
 			HasMoreBelow: true,
 			Entries:      []*transcriptpb.CommittedRow{detailTestUserRow("older page")}}}}
 	model = updateUIModel(t, model, waitForDetailTranscriptCompletion(t, firstDone))
-	if model.transientStatus != "" || model.transientStatusRequestID != nil {
-		t.Fatalf("matching success retained loading notice: text=%q request=%v", model.transientStatus, model.transientStatusRequestID)
+	if model.transientStatus != "" || model.transientStatusDetailRequest != nil {
+		t.Fatalf("matching success retained loading notice: text=%q request=%v", model.transientStatus, model.transientStatusDetailRequest)
 	}
 
 	model, secondCmd := updateDetailTranscriptRequest(t, model, tui.DetailTranscriptPageOlder)
@@ -150,8 +152,8 @@ func TestDetailTranscriptMatchingErrorAllowsNextRequest(t *testing.T) {
 	if model.transientStatusKind != uiStatusNoticeError {
 		t.Fatalf("matching error notice kind = %v, want error", model.transientStatusKind)
 	}
-	if model.transientStatusRequestID != nil {
-		t.Fatalf("matching error retained loading request identity %v", *model.transientStatusRequestID)
+	if model.transientStatusDetailRequest != nil {
+		t.Fatalf("matching error retained loading request identity %v", *model.transientStatusDetailRequest)
 	}
 
 	_, secondCmd := updateDetailTranscriptRequest(t, model, tui.DetailTranscriptPageOlder)
@@ -201,8 +203,8 @@ func assertDetailTranscriptPageRejected(t *testing.T, page *transcriptpb.Page) {
 	if action := model.view.DetailSelectionAction(); action != tui.DetailSelectionActionNone {
 		t.Fatalf("invalid page mutated TUI detail selection action: %v", action)
 	}
-	if model.transientStatusKind != uiStatusNoticeError || model.transientStatusRequestID != nil {
-		t.Fatalf("invalid page did not use the matching request error path: kind=%v request=%v", model.transientStatusKind, model.transientStatusRequestID)
+	if model.transientStatusKind != uiStatusNoticeError || model.transientStatusDetailRequest != nil {
+		t.Fatalf("invalid page did not use the matching request error path: kind=%v request=%v", model.transientStatusKind, model.transientStatusDetailRequest)
 	}
 	_, nextCmd := updateDetailTranscriptRequest(t, model, tui.DetailTranscriptPageOlder)
 	if nextCmd == nil {
@@ -291,11 +293,8 @@ func TestDetailTranscriptLoadingNoticeKeepsSelectionActionIndependent(t *testing
 		t.Fatal("adjacent-page request did not start")
 	}
 	defer model.Close()
-	if model.transientStatusKind != uiStatusNoticeInfo || model.transientStatusRequestID == nil {
-		t.Fatalf("loading notice = kind:%v request:%v, want request-scoped info", model.transientStatusKind, model.transientStatusRequestID)
-	}
-	if version := model.transientStatusRequestID.Version(); version != 4 {
-		t.Fatalf("loading request UUID version = %d, want 4", version)
+	if model.transientStatusKind != uiStatusNoticeInfo || model.transientStatusDetailRequest == nil {
+		t.Fatalf("loading notice = kind:%v request:%v, want request-scoped info", model.transientStatusKind, model.transientStatusDetailRequest)
 	}
 	if action := model.view.DetailSelectionAction(); action != tui.DetailSelectionActionNone {
 		t.Fatalf("detail action while loading = %v, want independent no action", action)
@@ -321,8 +320,8 @@ func TestDetailTranscriptMatchingSuccessClearsOnlyItsLoadingNotice(t *testing.T)
 	if model.transientStatus != overtakingNotice || model.transientStatusKind != uiStatusNoticeWarning {
 		t.Fatalf("notice after matching success = %q kind %v, want overtaking warning", model.transientStatus, model.transientStatusKind)
 	}
-	if model.transientStatusRequestID != nil {
-		t.Fatalf("overtaking notice retained request identity %v", *model.transientStatusRequestID)
+	if model.transientStatusDetailRequest != nil {
+		t.Fatalf("overtaking notice retained request identity %v", *model.transientStatusDetailRequest)
 	}
 }
 
@@ -341,8 +340,8 @@ func TestDetailTranscriptCloseCancelsAndInvalidatesPendingRequest(t *testing.T) 
 	if !detailTestRowsEqual(model.detailTranscript.page().Entries, before.Entries) {
 		t.Fatalf("late completion after Close mutated detail membership: %#v", model.detailTranscript.page().Entries)
 	}
-	if model.transientStatusRequestID != nil || model.transientStatusKind == uiStatusNoticeError {
-		t.Fatalf("late completion after Close mutated notice state: request=%v kind=%v", model.transientStatusRequestID, model.transientStatusKind)
+	if model.transientStatusDetailRequest != nil || model.transientStatusKind == uiStatusNoticeError {
+		t.Fatalf("late completion after Close mutated notice state: request=%v kind=%v", model.transientStatusDetailRequest, model.transientStatusKind)
 	}
 	_, nextCmd := updateDetailTranscriptRequest(t, model, tui.DetailTranscriptPageOlder)
 	if nextCmd == nil {
@@ -439,6 +438,7 @@ func applyDetailTestSessionReplacement(t *testing.T, model *uiModel, rawSessionI
 		t.Fatalf("parse replacement session ID: %v", err)
 	}
 	return model.applyAdmittedTranscriptMessageState(transcriptTestMessage(0, &transcriptpb.SessionIdentity{SessionId: sessionID.String(),
+		Category:              projectpb.SessionCategory_SESSION_CATEGORY_MAIN,
 		ConversationFreshness: runtimepb.ConversationFreshness_CONVERSATION_FRESHNESS_ESTABLISHED}), runtimeTupleMergeResult{})
 }
 

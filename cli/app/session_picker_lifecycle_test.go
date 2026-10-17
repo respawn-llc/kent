@@ -4,10 +4,13 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io"
 	"testing"
 	"time"
 
+	"core/shared/apicontract"
 	"core/shared/clientui"
+	workflowpb "core/shared/protoapi/gen/kent/api/workflow_definition"
 	"core/shared/runtimeids"
 	"core/shared/sessioncontract"
 
@@ -29,6 +32,17 @@ type recordingSessionPageLoader struct {
 	responses func(sessionPageRequest) sessionPageLoadResult
 	started   chan sessionPageLoadCall
 }
+
+func (*recordingSessionPageLoader) Subscribe(context.Context) (apicontract.WorkflowEventSubscription, error) {
+	return quietPickerSubscription{}, nil
+}
+
+type quietPickerSubscription struct{}
+
+func (quietPickerSubscription) Next(context.Context) (*workflowpb.ProjectEvent, error) {
+	return nil, io.EOF
+}
+func (quietPickerSubscription) Close() error { return nil }
 
 func (*recordingSessionPageLoader) ProjectID() string {
 	return "picker-test-project"
@@ -446,7 +460,11 @@ func pickerUpdateCommand(t *testing.T, model *sessionPickerModel, message tea.Ms
 
 func newTestSessionPickerLifecycle(t *testing.T, loader sessionPageLoader) *sessionPickerLifecycle {
 	lifecycle := newSessionPickerLifecycle(sessionPickerLifecycleOptions{Loader: loader, Theme: "dark"})
-	t.Cleanup(lifecycle.Close)
+	t.Cleanup(func() {
+		if err := lifecycle.Close(); err != nil {
+			t.Error(err)
+		}
+	})
 	return lifecycle
 }
 

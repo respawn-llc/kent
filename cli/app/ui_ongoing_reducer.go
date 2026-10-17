@@ -35,8 +35,9 @@ func (m *uiModel) handleOngoingTranscriptEvent(event ongoingTranscriptEvent) tea
 		return nil
 	}
 	var (
-		result ongoing.Result
-		err    error
+		result   ongoing.Result
+		err      error
+		recovery tea.Cmd
 	)
 	switch event.Kind {
 	case ongoingTranscriptEventMessage:
@@ -63,9 +64,9 @@ func (m *uiModel) handleOngoingTranscriptEvent(event ongoingTranscriptEvent) tea
 		}
 		return tea.Batch(stateCmd, m.handleOngoingResult(result), m.reconcileSpinnerTicking(true), connectionStatusCmd)
 	case ongoingTranscriptEventLoss:
-		m.pendingCompactionRequestIDs = nil
 		if runtimeattach.IsRuntimeConnectionError(event.Err) {
 			m.observeRuntimeRequestResult(event.Err)
+			recovery = m.startRuntimeMainViewRefresh(nil)
 		}
 		if m.turnQueueHook != nil {
 			m.turnQueueHook.OnTurnQueueAborted()
@@ -74,10 +75,16 @@ func (m *uiModel) handleOngoingTranscriptEvent(event ongoingTranscriptEvent) tea
 	case ongoingTranscriptEventFailure:
 		err = fmt.Errorf("open transcript subscription: %w", event.Err)
 		m.logf("ongoing.transcript.open.error err=%q", err.Error())
+		if runtimeattach.IsRuntimeProtocolMismatch(event.Err) {
+			m.observeRuntimeRequestResult(event.Err)
+			notice := m.sendTransientStatusWithNoticeID(event.Err.Error(), uiStatusNoticeError, transientStatusDuration, uiStatusNoticeReplace, "")
+			m.layout().syncViewport()
+			return m.batchWithNativeOngoingRepaint(notice)
+		}
 		if runtimeattach.IsRuntimeConnectionError(event.Err) {
 			m.observeRuntimeRequestResult(event.Err)
 			m.layout().syncViewport()
-			return m.renderNativeOngoingSurface()
+			return tea.Batch(m.renderNativeOngoingSurface(), m.startRuntimeMainViewRefresh(nil))
 		}
 		return m.handleFatalUIError(fmt.Sprintf("ongoing transcript failed: %v", err), err)
 	default:
@@ -89,5 +96,5 @@ func (m *uiModel) handleOngoingTranscriptEvent(event ongoingTranscriptEvent) tea
 	if err != nil {
 		return m.handleOngoingSurfaceError(err)
 	}
-	return m.handleOngoingResult(result)
+	return tea.Batch(m.handleOngoingResult(result), recovery)
 }

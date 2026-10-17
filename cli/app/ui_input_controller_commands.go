@@ -204,7 +204,7 @@ func (c uiInputController) handleSessionNameCommand(sessionName string) (tea.Mod
 		return m, m.sendTransientStatusWithNoticeID(err.Error(), uiStatusNoticeError, transientStatusDuration, uiStatusNoticeReplace, "")
 	}
 	m.sessionName = name
-	return m, tea.SetWindowTitle(sessionTitle(m.sessionName))
+	return m, tea.SetWindowTitle(m.sessionTitle())
 }
 
 func (c uiInputController) handleThinkingLevelCommand(requested string) (tea.Model, tea.Cmd) {

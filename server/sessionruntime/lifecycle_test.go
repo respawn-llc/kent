@@ -9,6 +9,7 @@ import (
 	"sync"
 	"sync/atomic"
 	"testing"
+	"testing/synctest"
 	"time"
 
 	"core/internal/testharness/filemode"
@@ -19,9 +20,241 @@ import (
 	projectpb "core/shared/protoapi/gen/kent/api/project"
 	worktreepb "core/shared/protoapi/gen/kent/api/worktree"
 	"core/shared/runtimeids"
+	"core/shared/serverapi"
 	"core/shared/textutil"
 	"core/shared/toolspec"
 )
+
+func TestUnwatchedIdleRuntimeRetiresAfterThreeMinutes(t *testing.T) {
+	synctest.Test(t, func(t *testing.T) {
+		fixture := newSessionRuntimeFixture(t)
+		sessionID := lifecycleSessionID(t, fixture)
+		plan := authorityTestRuntimePlan(t, fixture, &sessionRuntimeTestLLMClient{})
+		openLifecycleRuntime(t, fixture.authority, sessionID, &plan)
+		read := func() error {
+			return fixture.authority.WithCurrentRuntime(t.Context(), sessionID, func(context.Context, *runtime.Engine) error {
+				return nil
+			})
+		}
+		time.Sleep(3*time.Minute - time.Second)
+		if err := read(); err != nil {
+			t.Fatalf("Runtime unavailable before idle deadline: %v", err)
+		}
+		time.Sleep(time.Second)
+		synctest.Wait()
+		if err := read(); !errors.Is(err, serverapi.ErrRuntimeUnavailable) {
+			t.Fatalf("Runtime after idle deadline = %v, want unavailable", err)
+		}
+	})
+}
+
+func TestAcceptedActivationRefreshesIdleRuntime(t *testing.T) {
+	synctest.Test(t, func(t *testing.T) {
+		fixture := newSessionRuntimeFixture(t)
+		sessionID := lifecycleSessionID(t, fixture)
+		plan := authorityTestRuntimePlan(t, fixture, &sessionRuntimeTestLLMClient{})
+		openLifecycleRuntime(t, fixture.authority, sessionID, &plan)
+		time.Sleep(2 * time.Minute)
+		openLifecycleRuntime(t, fixture.authority, sessionID, &plan)
+		time.Sleep(2 * time.Minute)
+		if err := fixture.authority.WithCurrentRuntime(t.Context(), sessionID, func(context.Context, *runtime.Engine) error {
+			return nil
+		}); err != nil {
+			t.Fatalf("accepted activation did not refresh Runtime: %v", err)
+		}
+		time.Sleep(time.Minute)
+		synctest.Wait()
+		if err := fixture.authority.WithCurrentRuntime(t.Context(), sessionID, func(context.Context, *runtime.Engine) error {
+			return nil
+		}); !errors.Is(err, serverapi.ErrRuntimeUnavailable) {
+			t.Fatalf("Runtime three minutes after activation = %v, want unavailable", err)
+		}
+	})
+}
+
+func TestAcceptedExecutionGetsFullIdleIntervalAfterCompletion(t *testing.T) {
+	synctest.Test(t, func(t *testing.T) {
+		fixture := newSessionRuntimeFixture(t)
+		sessionID := lifecycleSessionID(t, fixture)
+		plan := authorityTestRuntimePlan(t, fixture, &sessionRuntimeTestLLMClient{})
+		openLifecycleRuntime(t, fixture.authority, sessionID, &plan)
+		time.Sleep(2 * time.Minute)
+		finish := make(chan struct{})
+		handle, err := fixture.authority.StartAgentExecution(t.Context(), AgentExecutionRequest{
+			Descriptor: mustOpenSessionDescriptor(t, sessionID),
+			Resource:   CurrentAgentResource{},
+			Runner: func(context.Context, ExecutionScope, AgentRuntimeBridge) error {
+				<-finish
+				return nil
+			},
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+		time.Sleep(4 * time.Minute)
+		assertLifecycleRuntimeAvailable(t, fixture.authority, sessionID, true)
+		close(finish)
+		if _, err := handle.Wait(t.Context()); err != nil {
+			t.Fatal(err)
+		}
+		synctest.Wait()
+		time.Sleep(3*time.Minute - time.Second)
+		assertLifecycleRuntimeAvailable(t, fixture.authority, sessionID, true)
+		time.Sleep(time.Second)
+		synctest.Wait()
+		assertLifecycleRuntimeAvailable(t, fixture.authority, sessionID, false)
+	})
+}
+
+func assertLifecycleRuntimeAvailable(t *testing.T, authority *Authority, sessionID runtimeids.SessionID, available bool) {
+	t.Helper()
+	err := authority.WithCurrentRuntime(t.Context(), sessionID, func(context.Context, *runtime.Engine) error { return nil })
+	if available && err != nil {
+		t.Fatalf("Runtime unavailable: %v", err)
+	}
+	if !available && !errors.Is(err, serverapi.ErrRuntimeUnavailable) {
+		t.Fatalf("Runtime availability = %v, want unavailable", err)
+	}
+}
+
+func TestRejectedProvisionalTurnPreservesIdleDeadline(t *testing.T) {
+	synctest.Test(t, func(t *testing.T) {
+		fixture := newSessionRuntimeFixture(t)
+		sessionID := lifecycleSessionID(t, fixture)
+		plan := authorityTestRuntimePlan(t, fixture, &sessionRuntimeTestLLMClient{})
+		openLifecycleRuntime(t, fixture.authority, sessionID, &plan)
+		time.Sleep(2 * time.Minute)
+		rejected := errors.New("admission rejected")
+		err := fixture.authority.RunCurrentTurn(t.Context(), mustOpenSessionDescriptor(t, sessionID),
+			func(func() (bool, error)) (bool, error) {
+				time.Sleep(2 * time.Minute)
+				return false, rejected
+			},
+			func(ctx context.Context, engine *runtime.Engine, accept runtime.CommandAcceptance) error {
+				_, err := engine.QueueUserInputWithAcceptance(ctx, runtime.QueuedUserInput{ID: runtimeids.NewQueueItemID().String(), ExecutionText: "rejected", CanonicalPresentation: "rejected"}, accept)
+				return err
+			})
+		if !errors.Is(err, rejected) {
+			t.Fatalf("turn error = %v, want admission rejection", err)
+		}
+		synctest.Wait()
+		assertLifecycleRuntimeAvailable(t, fixture.authority, sessionID, false)
+	})
+}
+
+func TestUnscheduledAcceptedQueueDefersIdleRetirement(t *testing.T) {
+	synctest.Test(t, func(t *testing.T) {
+		fixture := newSessionRuntimeFixture(t)
+		sessionID := lifecycleSessionID(t, fixture)
+		plan := authorityTestRuntimePlan(t, fixture, &sessionRuntimeTestLLMClient{})
+		openLifecycleRuntime(t, fixture.authority, sessionID, &plan)
+		time.Sleep(2 * time.Minute)
+		var queued runtime.QueuedUserMessage
+		err := fixture.authority.RunCurrentTurn(t.Context(), mustOpenSessionDescriptor(t, sessionID),
+			func(commit func() (bool, error)) (bool, error) { return commit() },
+			func(ctx context.Context, engine *runtime.Engine, accept runtime.CommandAcceptance) error {
+				_, err := accept(func() (bool, error) {
+					var queueErr error
+					queued, queueErr = engine.QueueUserMessage(ctx, "queued")
+					return queueErr == nil, queueErr
+				})
+				return err
+			})
+		if err != nil {
+			t.Fatal(err)
+		}
+		time.Sleep(4 * time.Minute)
+		assertLifecycleRuntimeAvailable(t, fixture.authority, sessionID, true)
+		err = fixture.authority.WithCurrentRuntime(t.Context(), sessionID, func(ctx context.Context, engine *runtime.Engine) error {
+			id, err := runtimeids.ParseQueueItemID(queued.ID)
+			if err != nil {
+				return err
+			}
+			_, err = engine.RemovePendingWork(ctx, id)
+			return err
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+		synctest.Wait()
+		time.Sleep(3*time.Minute - time.Second)
+		assertLifecycleRuntimeAvailable(t, fixture.authority, sessionID, true)
+		time.Sleep(time.Second)
+		synctest.Wait()
+		assertLifecycleRuntimeAvailable(t, fixture.authority, sessionID, false)
+	})
+}
+
+func TestAcceptedStepBeforeRejectedInputRefreshesRuntime(t *testing.T) {
+	synctest.Test(t, func(t *testing.T) {
+		fixture := newSessionRuntimeFixture(t)
+		sessionID := lifecycleSessionID(t, fixture)
+		plan := authorityTestRuntimePlan(t, fixture, &sessionRuntimeTestLLMClient{})
+		openLifecycleRuntime(t, fixture.authority, sessionID, &plan)
+		time.Sleep(2 * time.Minute)
+		rejected := errors.New("input rejected after maintenance")
+		err := fixture.authority.RunCurrentTurn(t.Context(), mustOpenSessionDescriptor(t, sessionID),
+			func(func() (bool, error)) (bool, error) { return false, rejected },
+			func(ctx context.Context, engine *runtime.Engine, _ runtime.CommandAcceptance) error {
+				if err := engine.RunWhenIdle(ctx, runtime.ActiveKindCompaction, func() error { return nil }); err != nil {
+					return err
+				}
+				return rejected
+			})
+		if !errors.Is(err, rejected) {
+			t.Fatal(err)
+		}
+		time.Sleep(2 * time.Minute)
+		assertLifecycleRuntimeAvailable(t, fixture.authority, sessionID, true)
+		time.Sleep(time.Minute)
+		synctest.Wait()
+		assertLifecycleRuntimeAvailable(t, fixture.authority, sessionID, false)
+	})
+}
+
+func TestWatchingDefersRetirementUntilLastObserverLeaves(t *testing.T) {
+	synctest.Test(t, func(t *testing.T) {
+		fixture := newSessionRuntimeFixture(t)
+		sessionID := lifecycleSessionID(t, fixture)
+		lifecycle := &authorityLifecycleProbe{draining: make(chan struct{}, 1)}
+		authority := NewAuthority(AuthorityOptions{
+			PersistenceRoot:   fixture.config.PersistenceRoot,
+			StoreOptions:      fixture.metadata.AuthoritativeSessionStoreOptions(),
+			ResourceLifecycle: lifecycle,
+		})
+		t.Cleanup(func() {
+			if err := authority.Close(context.Background()); err != nil {
+				t.Error(err)
+			}
+		})
+		plan := authorityTestRuntimePlan(t, fixture, &sessionRuntimeTestLLMClient{})
+		openLifecycleRuntime(t, authority, sessionID, &plan)
+		first, err := lifecycle.retain()
+		if err != nil {
+			t.Fatal(err)
+		}
+		second, err := lifecycle.retain()
+		if err != nil {
+			t.Fatal(err)
+		}
+		time.Sleep(4 * time.Minute)
+		assertLifecycleRuntimeAvailable(t, authority, sessionID, true)
+		if err := first.Close(); err != nil {
+			t.Fatal(err)
+		}
+		time.Sleep(4 * time.Minute)
+		assertLifecycleRuntimeAvailable(t, authority, sessionID, true)
+		if err := second.Close(); err != nil {
+			t.Fatal(err)
+		}
+		synctest.Wait()
+		time.Sleep(3*time.Minute - time.Second)
+		assertLifecycleRuntimeAvailable(t, authority, sessionID, true)
+		time.Sleep(time.Second)
+		synctest.Wait()
+		assertLifecycleRuntimeAvailable(t, authority, sessionID, false)
+	})
+}
 
 func lifecycleSessionID(t *testing.T, fixture sessionRuntimeFixture) runtimeids.SessionID {
 	t.Helper()
@@ -59,12 +292,12 @@ func lifecycleReminder(workspaceRoot, worktreeRoot string) *session.WorktreeRemi
 	}
 }
 
-func openLifecycleRuntime(t *testing.T, authority *Authority, sessionID runtimeids.SessionID, ownerID string, plan *AgentRuntimePlan) RuntimeAttachment {
+func openLifecycleRuntime(t *testing.T, authority *Authority, sessionID runtimeids.SessionID, plan *AgentRuntimePlan) runtimeids.SessionResourceRef {
 	t.Helper()
 	attachment, err := authority.OpenRuntime(context.Background(), RuntimeOpenRequest{
 		SessionID: sessionID,
-		OwnerID:   ownerID,
-		Runtime:   plan,
+
+		Runtime: plan,
 	})
 	if err != nil {
 		t.Fatalf("open runtime: %v", err)
@@ -246,7 +479,7 @@ func TestRuntimeAbortRetiresCurrentOpenAndReplaceResourceGenerations(t *testing.
 			})
 			plan := authorityTestRuntimePlan(t, fixture, &sessionRuntimeTestLLMClient{})
 			if test.prepare {
-				openLifecycleRuntime(t, authority, sessionID, "owner-a", &plan)
+				openLifecycleRuntime(t, authority, sessionID, &plan)
 			}
 			cause := errors.New("result group durability failure")
 			abort := &lifecycleRuntimeAbort{committed: true, cause: cause}
@@ -313,9 +546,10 @@ func TestGoalLifecycleDurabilityAbortRetiresCurrentGeneration(t *testing.T) {
 	sessionID := lifecycleSessionID(t, fixture)
 	lifecycle := &authorityLifecycleProbe{draining: make(chan struct{}, 1)}
 	authority := NewAuthority(AuthorityOptions{
-		PersistenceRoot:   fixture.config.PersistenceRoot,
-		StoreOptions:      fixture.metadata.AuthoritativeSessionStoreOptions(),
-		ResourceLifecycle: lifecycle,
+		PersistenceRoot:               fixture.config.PersistenceRoot,
+		ProjectWorkspaceContextReader: fixture.metadata,
+		StoreOptions:                  fixture.metadata.AuthoritativeSessionStoreOptions(),
+		ResourceLifecycle:             lifecycle,
 	})
 	t.Cleanup(func() {
 		if err := authority.Close(context.Background()); err != nil {
@@ -357,7 +591,7 @@ func TestGoalLifecycleDurabilityAbortRetiresCurrentGeneration(t *testing.T) {
 		IsOpenAIFirstParty:            true,
 	}
 	plan.options.ProviderCapabilitiesOverride = &capabilities
-	attachment := openLifecycleRuntime(t, authority, sessionID, "owner-a", &plan)
+	attachment := openLifecycleRuntime(t, authority, sessionID, &plan)
 	authority.mu.Lock()
 	failedResource = authority.resources[sessionID]
 	authority.mu.Unlock()
@@ -446,8 +680,8 @@ func TestGoalLifecycleDurabilityAbortRetiresCurrentGeneration(t *testing.T) {
 	if state := failedResource.descriptor().State; state != AgentResourceClosed {
 		t.Fatalf("Goal lifecycle aborted resource state = %v, want closed", state)
 	}
-	reopened := openLifecycleRuntime(t, authority, sessionID, "owner-b", &plan)
-	if reopened.Resource() == attachment.Resource() {
+	reopened := openLifecycleRuntime(t, authority, sessionID, &plan)
+	if reopened == attachment {
 		t.Fatal("Goal lifecycle abort reused the failed resource generation")
 	}
 }
@@ -481,8 +715,8 @@ func assertRuntimeAbortResourceRetired(
 	if admitted == failedResource {
 		t.Fatal("failed resource generation remained admitted")
 	}
-	reopened := openLifecycleRuntime(t, authority, sessionID, "owner-b", plan)
-	if reopened.Resource() == failedRef {
+	reopened := openLifecycleRuntime(t, authority, sessionID, plan)
+	if reopened == failedRef {
 		t.Fatal("later open reused the failed resource generation")
 	}
 }
@@ -499,9 +733,10 @@ func TestOwnerlessRuntimeStepPublishesResourceLifecycle(t *testing.T) {
 		ended: make(chan runtime.StepLifecycleSnapshot, 1),
 	}
 	authority := NewAuthority(AuthorityOptions{
-		PersistenceRoot: fixture.config.PersistenceRoot,
-		StoreOptions:    fixture.metadata.AuthoritativeSessionStoreOptions(),
-		StepLifecycle:   probe,
+		PersistenceRoot:               fixture.config.PersistenceRoot,
+		ProjectWorkspaceContextReader: fixture.metadata,
+		StoreOptions:                  fixture.metadata.AuthoritativeSessionStoreOptions(),
+		StepLifecycle:                 probe,
 	})
 	t.Cleanup(func() {
 		if err := authority.Close(context.Background()); err != nil {
@@ -509,11 +744,11 @@ func TestOwnerlessRuntimeStepPublishesResourceLifecycle(t *testing.T) {
 		}
 	})
 	plan := authorityTestRuntimePlan(t, fixture, client)
-	attachment := openLifecycleRuntime(t, authority, sessionID, "owner-a", &plan)
+	attachment := openLifecycleRuntime(t, authority, sessionID, &plan)
 
 	done := make(chan error, 1)
 	go func() {
-		done <- authority.WithRuntime(context.Background(), attachment.Resource(), func(ctx context.Context, engine *runtime.Engine) error {
+		done <- authority.WithRuntime(context.Background(), attachment, func(ctx context.Context, engine *runtime.Engine) error {
 			_, err := engine.SubmitUserMessage(ctx, "ownerless step")
 			return err
 		})
@@ -572,7 +807,7 @@ func (p *startupRepairReadyProbe) ResourceReady(
 	_ context.Context,
 	_ AgentResourceDescriptor,
 	engine *runtime.Engine,
-	_ AgentResourceRetainer,
+	_ AgentResourceObserver,
 ) error {
 	if p.callID != "" {
 		if err := engine.WithTranscriptHydrationSnapshot(func(snapshot runtime.TranscriptHydrationSnapshot) error {
@@ -605,7 +840,7 @@ func (*startupRepairReadyProbe) ResourceDraining(
 	return nil
 }
 
-func (l *authorityStartBarrierLifecycle) ResourceReady(ctx context.Context, _ AgentResourceDescriptor, _ *runtime.Engine, _ AgentResourceRetainer) error {
+func (l *authorityStartBarrierLifecycle) ResourceReady(ctx context.Context, _ AgentResourceDescriptor, _ *runtime.Engine, _ AgentResourceObserver) error {
 	return l.ArriveAndWait(ctx)
 }
 
@@ -662,8 +897,8 @@ func TestFreshResourceRepairFailureDoesNotPublishResourceReady(t *testing.T) {
 	plan := authorityTestRuntimePlan(t, fixture, &sessionRuntimeTestLLMClient{})
 	if _, err := authority.OpenRuntime(context.Background(), RuntimeOpenRequest{
 		SessionID: sessionID,
-		OwnerID:   "owner-a",
-		Runtime:   &plan,
+
+		Runtime: &plan,
 	}); err == nil {
 		t.Fatal("fresh resource startup accepted a failed dangling-output repair")
 	}
@@ -712,8 +947,8 @@ func TestFreshResourceRepairCompletesBeforeResourceReady(t *testing.T) {
 	plan := authorityTestRuntimePlan(t, fixture, &sessionRuntimeTestLLMClient{})
 	if _, err := authority.OpenRuntime(context.Background(), RuntimeOpenRequest{
 		SessionID: sessionID,
-		OwnerID:   "owner-a",
-		Runtime:   &plan,
+
+		Runtime: &plan,
 	}); err != nil {
 		t.Fatalf("open repaired runtime: %v", err)
 	}
@@ -858,8 +1093,8 @@ func TestAuthorityBlocksSessionStartsDuringMaintenance(t *testing.T) {
 	}
 	if _, err := fixture.authority.OpenRuntime(context.Background(), RuntimeOpenRequest{
 		SessionID: sessionID,
-		OwnerID:   "owner-a",
-		Runtime:   &plan,
+
+		Runtime: &plan,
 	}); !errors.Is(err, ErrSessionStartsBlocked) {
 		t.Fatalf("open runtime while blocked error = %v, want ErrSessionStartsBlocked", err)
 	}
@@ -977,7 +1212,7 @@ func TestAuthorityBlockingRuntimeActivityDoesNotInventMaintenanceStep(t *testing
 	fixture := newSessionRuntimeFixture(t)
 	sessionID := lifecycleSessionID(t, fixture)
 	plan := authorityTestRuntimePlan(t, fixture, &sessionRuntimeTestLLMClient{})
-	openLifecycleRuntime(t, fixture.authority, sessionID, "owner-a", &plan)
+	openLifecycleRuntime(t, fixture.authority, sessionID, &plan)
 
 	started := make(chan struct{})
 	release := make(chan struct{})
@@ -1042,7 +1277,7 @@ func TestAuthorityBlockingRuntimeActivityIncludesDrainingResource(t *testing.T) 
 			t.Errorf("close authority: %v", err)
 		}
 	})
-	attachment := openLifecycleRuntime(t, authority, sessionID, "owner-a", &plan)
+	attachment := openLifecycleRuntime(t, authority, sessionID, &plan)
 
 	callbackStarted := make(chan struct{})
 	releaseCallback := make(chan struct{})
@@ -1055,7 +1290,7 @@ func TestAuthorityBlockingRuntimeActivityIncludesDrainingResource(t *testing.T) 
 	}()
 	callbackDone := make(chan error, 1)
 	go func() {
-		callbackDone <- authority.WithRuntime(context.Background(), attachment.Resource(), func(context.Context, *runtime.Engine) error {
+		callbackDone <- authority.WithRuntime(context.Background(), attachment, func(context.Context, *runtime.Engine) error {
 			close(callbackStarted)
 			<-releaseCallback
 			return nil
@@ -1069,8 +1304,7 @@ func TestAuthorityBlockingRuntimeActivityIncludesDrainingResource(t *testing.T) 
 
 	closeDone := make(chan error, 1)
 	go func() {
-		_, err := attachment.Release(context.Background(), RuntimeReleaseClose)
-		closeDone <- err
+		closeDone <- authority.Close(context.Background())
 	}()
 	select {
 	case <-lifecycle.draining:

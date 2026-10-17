@@ -59,6 +59,7 @@ func (e *Engine) scheduleOperationalPendingWork(ctx context.Context, request ope
 			return false, err
 		}
 		e.publishPendingWorkChanged()
+		e.runtimeWriteAccepted()
 		return true, nil
 	})
 	if err := commandAcceptanceResult(committed, acceptErr); err != nil {
@@ -95,15 +96,14 @@ func (e *Engine) scheduleOperationalPendingWork(ctx context.Context, request ope
 	return nil
 }
 
-func manualCompactionPendingWorkItem(id runtimeids.CompactionRequestID, payload runtimeinput.ManualCompactionAdmission) (runtimeinput.PendingWorkItem, error) {
-	itemID := runtimeids.QueueItemIDFromCompactionRequest(id)
+func manualCompactionPendingWorkItem(payload runtimeinput.ManualCompactionAdmission) (runtimeinput.PendingWorkItem, error) {
 	if payload.Guidance != nil {
 		guidance := *payload.Guidance
 		payload.Guidance = &guidance
 	}
 	canonical := payload.CanonicalInput()
 	item := runtimeinput.PendingWorkItem{
-		ID: itemID, Lane: runtimeinput.PendingWorkLaneSteer, Kind: runtimeinput.PendingWorkItemKindManualCompaction,
+		ID: runtimeids.NewQueueItemID(), Lane: runtimeinput.PendingWorkLaneSteer, Kind: runtimeinput.PendingWorkItemKindManualCompaction,
 		State: runtimeinput.PendingWorkItemStatePending, CanonicalInput: canonical, ManualCompaction: &payload,
 	}
 	return item, nil

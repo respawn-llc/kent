@@ -8,6 +8,7 @@ import (
 	"net/url"
 	"testing"
 
+	"core/shared/client"
 	"core/shared/serverapi"
 )
 
@@ -31,6 +32,8 @@ func TestIsRuntimeConnectionError(t *testing.T) {
 		{name: "context deadline", err: context.DeadlineExceeded, want: false},
 		{name: "net timeout", err: timeoutError{}, want: false},
 		{name: "eof", err: io.EOF, want: true},
+		{name: "subscription disconnected before hydration", err: errors.Join(serverapi.ErrStreamFailed, io.EOF), want: true},
+		{name: "subscription transport failed", err: serverapi.NormalizeStreamError(&net.OpError{Op: "read", Net: "tcp", Err: errors.New("reset")}), want: true},
 		{name: "url", err: &url.Error{Op: "Get", URL: "http://127.0.0.1", Err: io.EOF}, want: true},
 		{name: "op", err: &net.OpError{Op: "read", Net: "tcp", Err: errors.New("reset")}, want: true},
 	}
@@ -52,6 +55,7 @@ func TestConfirmsRuntimeReachability(t *testing.T) {
 	}{
 		{name: "nil", err: nil, want: true},
 		{name: "server rejected request", err: errors.New("request rejected"), want: true},
+		{name: "protocol mismatch", err: &client.ProtocolVersionMismatchError{}, want: false},
 		{name: "stream gap", err: serverapi.ErrStreamGap, want: false},
 		{name: "stream unavailable", err: serverapi.ErrStreamUnavailable, want: false},
 		{name: "stream failed", err: serverapi.ErrStreamFailed, want: false},

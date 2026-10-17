@@ -440,7 +440,7 @@ const (
 type ChildContextOptions struct {
 	LockedContract LockedContractInheritance
 	// InheritContinuation preserves workflow context, delegation ancestry,
-	// role, and provider binding for continuation children, not user-driven forks.
+	// and role for continuation children, not user-driven forks.
 	InheritContinuation bool
 	// InheritGoal preserves the parent's current goal for user-facing
 	// Edit/Fork children. Complete-history workflow clones leave this false.
@@ -554,9 +554,6 @@ func InitializeCreationContext(child *Store, source CreationContextSource, kind 
 	}
 	if opts.InheritContinuation {
 		child.meta.Continuation = cloneContinuationContext(sourceMeta.Continuation)
-		if kind == SessionCreationSourcePreviousSession {
-			child.meta.ConnectionID = textutil.Pointer(sourceMeta.ConnectionID)
-		}
 	} else {
 		child.meta.Continuation = nil
 	}

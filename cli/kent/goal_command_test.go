@@ -71,11 +71,9 @@ func TestGoalSetUsesPreserveRuntimeStateAndAvailableAgentIdentity(t *testing.T) 
 	tests := []struct {
 		name       string
 		sessionEnv string
-		runEnv     string
 		stepEnv    string
 		args       []string
 		actor      string
-		runID      string
 		stepID     string
 	}{
 		{
@@ -97,18 +95,15 @@ func TestGoalSetUsesPreserveRuntimeStateAndAvailableAgentIdentity(t *testing.T) 
 		{
 			name:       "agent with exact identity",
 			sessionEnv: goalSetTestSessionID,
-			runEnv:     "run-1",
 			stepEnv:    "step-1",
 			args:       []string{"set", "finish", "the", "task"},
 			actor:      "agent",
-			runID:      "run-1",
 			stepID:     "step-1",
 		},
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
 			t.Setenv(sessionenv.SessionIDEnv, test.sessionEnv)
-			t.Setenv(sessionenv.RunIDEnv, test.runEnv)
 			t.Setenv(sessionenv.StepIDEnv, test.stepEnv)
 			remote := &goalSetCaptureRemote{response: goalSetSuccessForTest(goalSetTestSessionID)}
 			previous := goalCommandRemoteOpener
@@ -138,8 +133,8 @@ func TestGoalSetUsesPreserveRuntimeStateAndAvailableAgentIdentity(t *testing.T) 
 			if remote.request.Actor != test.actor {
 				t.Fatalf("actor = %q, want %q", remote.request.Actor, test.actor)
 			}
-			if remote.request.GetRunId() != test.runID || remote.request.GetStepId() != test.stepID {
-				t.Fatalf("run/step identity = (%q, %q), want (%q, %q)", remote.request.GetRunId(), remote.request.GetStepId(), test.runID, test.stepID)
+			if remote.request.GetStepId() != test.stepID {
+				t.Fatalf("execution Step identity = %q, want %q", remote.request.GetStepId(), test.stepID)
 			}
 		})
 	}

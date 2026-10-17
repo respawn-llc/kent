@@ -21,7 +21,6 @@ import {
   setupSocket,
   requireSessionAttachment,
 } from "./rpcSocket";
-import { RpcRuntimeOwner } from "./rpcRuntimeOwner";
 import { TerminalSubscriptionError } from "./subscriptionErrors";
 import { requireProjectAttachment } from "./chatAttachment";
 import type {
@@ -34,8 +33,6 @@ import type {
   ProjectAttachment,
   SessionAttachment,
   SessionAttachmentTarget,
-  RuntimeOwnerContext,
-  RuntimeOwnerOptions,
 } from "./transport";
 
 const socketOpenTimeoutMs = 10_000;
@@ -67,14 +64,12 @@ class RpcWebSocketTransport implements RpcTransport {
   #opening: Promise<WebSocket> | null = null;
   #nextID = 1;
   #pending = new Map<string, PendingRequest>();
-  #runtimeOwner: RpcRuntimeOwner;
   #reportInvalidResponse: (error: unknown) => void;
 
   constructor(endpoint: string, reportInvalidResponse: (error: unknown) => void, expectedRootId: string) {
     this.#endpoint = endpoint;
     this.#reportInvalidResponse = reportInvalidResponse;
     this.#expectedRootId = expectedRootId;
-    this.#runtimeOwner = new RpcRuntimeOwner(endpoint, expectedRootId);
   }
 
   async callDescriptor<Method extends DescMethod>(
@@ -138,14 +133,6 @@ class RpcWebSocketTransport implements RpcTransport {
       },
       { sessionID: attachedSessionID },
     );
-  }
-
-  async runRuntimeOwner<Result>(
-    sessionID: string,
-    options: RuntimeOwnerOptions,
-    run: (context: RuntimeOwnerContext) => Promise<Result>,
-  ): Promise<Result> {
-    return this.#runtimeOwner.run(sessionID, options, run);
   }
 
   async #withDedicatedSocket<Result>(

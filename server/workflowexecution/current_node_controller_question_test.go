@@ -502,17 +502,14 @@ func TestCurrentNodeControllerReleasesTaskMutationLaneAfterAcceptingAnswer(t *te
 	reference := currentNodeReferenceForControllerTest(t, "task-question-permit", "node-question")
 	firstID := uuid.NewString()
 	secondID := uuid.NewString()
-	runID := uuid.NewString()
 	stepID := uuid.NewString()
 	first := askquestion.AskQuestionRequest{
 		ToolCallID: firstID,
 		StepID:     stepID,
-		RunID:      runID,
 		Origin:     askquestion.AskQuestionOriginModelTool,
 		Question:   "First?",
 		QuestionBatch: &askquestion.AskQuestionBatchMetadata{
 			Origin:              askquestion.AskQuestionOriginModelTool,
-			RunID:               runID,
 			StepID:              stepID,
 			ToolCallID:          firstID,
 			BatchToolCallIDs:    []string{firstID, secondID},
@@ -525,7 +522,6 @@ func TestCurrentNodeControllerReleasesTaskMutationLaneAfterAcceptingAnswer(t *te
 	second.Question = "Second?"
 	second.QuestionBatch = &askquestion.AskQuestionBatchMetadata{
 		Origin:              first.QuestionBatch.Origin,
-		RunID:               runID,
 		StepID:              stepID,
 		ToolCallID:          secondID,
 		BatchToolCallIDs:    []string{firstID, secondID},
@@ -652,12 +648,10 @@ func TestCurrentNodeControllerMalformedPreparedBatchResolvesAwaiterWithInvariant
 	request := askquestion.AskQuestionRequest{
 		ToolCallID: uuid.NewString(),
 		StepID:     uuid.NewString(),
-		RunID:      uuid.NewString(),
 		Origin:     askquestion.AskQuestionOriginModelTool,
 		Question:   "Proceed?",
 		QuestionBatch: &askquestion.AskQuestionBatchMetadata{
 			Origin:              askquestion.AskQuestionOriginModelTool,
-			RunID:               uuid.NewString(),
 			StepID:              uuid.NewString(),
 			ToolCallID:          uuid.NewString(),
 			BatchToolCallIDs:    []string{uuid.NewString()},

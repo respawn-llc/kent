@@ -1,8 +1,8 @@
 import { RegistryProvider } from "@effect/atom-react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { beforeEach, expect, it, mock, type Mock, vi } from "bun:test";
 import type { ReactNode } from "react";
-import type { MockInstance } from "vitest";
 
 import {
   RpcError,
@@ -21,20 +21,21 @@ import { appI18n } from "@/i18n";
 import { createTestServices } from "@/test-support/app-services";
 import { deferred } from "@/test-support/chat-runtime";
 import { createTestSidebarNavigator } from "@/test-support/sidebar";
-import { ProjectEditRoute } from "./ProjectEditRoute";
 
 const project = { displayName: "Kent", projectID: "project-1", projectKey: "KNT" };
 const workspace = { id: "workspace-1", isDefault: false, name: "One", rootPath: "/one" };
 let services: ReturnType<typeof createTestServices>;
 let client: QueryClient;
-let getMetadata: MockInstance<ApiService["getProjectEdit"]>;
-let listWorkspaces: MockInstance<ApiService["listWorkspaces"]>;
-const statusPush = vi.hoisted(() => vi.fn());
-const sidebarBackWhen = vi.hoisted(() => vi.fn());
-const navigation = vi.hoisted(() => ({ openHome: vi.fn(async () => undefined) }));
+let getMetadata: Mock<ApiService["getProjectEdit"]>;
+let listWorkspaces: Mock<ApiService["listWorkspaces"]>;
+const statusPush = vi.fn();
+const sidebarBackWhen = vi.fn();
+const navigation = { openHome: vi.fn(async () => undefined) };
 
-vi.mock("@/app-facade", async (importOriginal) => ({
-  ...(await importOriginal()),
+const actualAppFacade = await import("@/app-facade");
+const actualUi = await import("@/ui");
+await mock.module("@/app-facade", () => ({
+  ...actualAppFacade,
   useAppServices: () => services,
   useAppNavigation: () => navigation,
   useSidebarBackWhen: sidebarBackWhen,
@@ -44,8 +45,8 @@ vi.mock("@/app-facade", async (importOriginal) => ({
   useWindowChromeTitle: () => undefined,
 }));
 
-vi.mock("@/ui", async (importOriginal) => ({
-  ...(await importOriginal()),
+await mock.module("@/ui", () => ({
+  ...actualUi,
   VirtualizedInfiniteList: (
     props: Readonly<{
       empty?: ReactNode;
@@ -77,6 +78,7 @@ vi.mock("@/ui", async (importOriginal) => ({
     </>
   ),
 }));
+const { ProjectEditRoute } = await import("./ProjectEditRoute");
 
 function mount(navigator?: ReturnType<typeof createTestSidebarNavigator>) {
   return render(
@@ -143,7 +145,7 @@ it("confirms workspace detach above the destination and refreshes the sidebar li
   expect(nativeWindow).not.toHaveBeenCalled();
   fireEvent.click(screen.getByRole("button", { name: appI18n.t("projectEdit.unlinkConfirm") }));
   await waitFor(() => {
-    expect(unlink).toHaveBeenCalledOnce();
+    expect(unlink).toHaveBeenCalledTimes(1);
   });
   expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
   listWorkspaces.mockResolvedValue({
@@ -318,7 +320,7 @@ it("retains overlapping rows through a failed next edge and retries only that ed
 });
 
 it("traverses at most four retained pages and exposes the previous edge after eviction", async () => {
-  listWorkspaces.mockImplementation(async (_id, offset = 0) => ({
+  listWorkspaces.mockImplementation(async (_id, offset) => ({
     projectID: project.projectID,
     offset,
     nextOffset: offset + 100,

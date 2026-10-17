@@ -1,3 +1,5 @@
+import { describe, expect, it } from "bun:test";
+
 import { oneLineOverflowLayout } from "./oneLineOverflowGeometry";
 
 describe("one-line overflow geometry", () => {

@@ -2,6 +2,7 @@ package worktree
 
 import (
 	"context"
+	"core/shared/runtimeids"
 	"errors"
 	"os"
 	"path/filepath"
@@ -65,7 +66,7 @@ func TestEnterWorktreeSchedulesCrossWorkspaceResolutionBeforeSelectorExists(t *t
 	retargeter := &scheduledSessionRetargeterStub{}
 	env.service.sessionRetargeter = retargeter
 	operationID := clientui.NewWorktreeTransitionID()
-	runID, stepID := uuid.NewString(), uuid.NewString()
+	stepID := uuid.NewString()
 	requestCtx, cancelRequest := context.WithCancel(t.Context())
 
 	ack, err := env.service.EnterWorktree(requestCtx, &worktreepb.EnterRequest{
@@ -76,7 +77,7 @@ func TestEnterWorktreeSchedulesCrossWorkspaceResolutionBeforeSelectorExists(t *t
 			WorkspaceId:   env.binding.WorkspaceID,
 			WorkspaceRoot: env.workspaceRoot,
 		},
-		Origin: &worktreepb.TransitionRuntimeStepOrigin{SessionId: sourceSession.Meta().SessionID, RunId: runID, StepId: stepID},
+		Origin: &worktreepb.TransitionRuntimeStepOrigin{SessionId: sourceSession.Meta().SessionID, StepId: stepID},
 	})
 	if err != nil {
 		t.Fatalf("EnterWorktree before selector exists: %v", err)
@@ -107,7 +108,7 @@ func TestEnterWorktreeSchedulesCrossProjectRetargetFromNonGitWorkspace(t *testin
 	retargeter := &scheduledSessionRetargeterStub{}
 	env.service.sessionRetargeter = retargeter
 	operationID := clientui.NewWorktreeTransitionID()
-	runID, stepID := uuid.NewString(), uuid.NewString()
+	stepID := uuid.NewString()
 
 	ack, err := env.service.EnterWorktree(t.Context(), &worktreepb.EnterRequest{
 		OperationId: operationID.String(),
@@ -117,7 +118,7 @@ func TestEnterWorktreeSchedulesCrossProjectRetargetFromNonGitWorkspace(t *testin
 			WorkspaceId:   env.binding.WorkspaceID,
 			WorkspaceRoot: env.workspaceRoot,
 		},
-		Origin: &worktreepb.TransitionRuntimeStepOrigin{SessionId: sourceSession.Meta().SessionID, RunId: runID, StepId: stepID},
+		Origin: &worktreepb.TransitionRuntimeStepOrigin{SessionId: sourceSession.Meta().SessionID, StepId: stepID},
 	})
 	if err != nil {
 		t.Fatalf("EnterWorktree: %v", err)
@@ -140,8 +141,7 @@ func TestEnterWorktreeSchedulesCrossProjectRetargetFromNonGitWorkspace(t *testin
 		*retargeter.request.TargetWorktreeID != next.WorktreeID {
 		t.Fatalf("scheduled Session retarget = %+v", retargeter.request)
 	}
-	if retargeter.origin.RunId != runID ||
-		retargeter.origin.StepId != stepID ||
+	if retargeter.origin.StepId != stepID ||
 		retargeter.operation.String() != operationID.String() ||
 		retargeter.completion == nil {
 		t.Fatalf("scheduled transition context = origin:%+v operation:%s completion:%t", retargeter.origin, retargeter.operation.String(), retargeter.completion != nil)
@@ -272,15 +272,15 @@ func TestWorktreeTransitionTerminalCases(t *testing.T) {
 					unavailable <- status.QueueItemID
 				}
 			}
-			var attachment sessionruntime.RuntimeAttachment
+			var attachment runtimeids.SessionResourceRef
 			var engine *runtime.Engine
 			var release func()
 			if !test.dormant {
 				plan := deleteActivityRuntimePlan(t, env, env.workspaceRoot, deleteActivityTestLLMClient{}, "off", nil, observe)
 				var err error
-				attachment, err = env.authority.OpenRuntime(t.Context(), sessionruntime.RuntimeOpenRequest{SessionID: openDeleteActivitySessionDescriptor(t, env.session.Meta().SessionID).SessionID(), OwnerID: "worktree-terminal-table", Runtime: &plan})
+				attachment, err = env.authority.OpenRuntime(t.Context(), sessionruntime.RuntimeOpenRequest{SessionID: openDeleteActivitySessionDescriptor(t, env.session.Meta().SessionID).SessionID(), Runtime: &plan})
 				requireTerminal(t, err == nil, "open Runtime: %v", err)
-				err = env.authority.WithRuntime(t.Context(), attachment.Resource(), func(_ context.Context, current *runtime.Engine) error { engine = current; return nil })
+				err = env.authority.WithRuntime(t.Context(), attachment, func(_ context.Context, current *runtime.Engine) error { engine = current; return nil })
 				requireTerminal(t, err == nil, "capture Runtime: %v", err)
 				started, unblock, done := make(chan struct{}, 1), make(chan struct{}), make(chan error, 1)
 				go func() {
@@ -334,7 +334,7 @@ func TestWorktreeTransitionTerminalCases(t *testing.T) {
 						if test.rollback == nil {
 							return pageErr == nil && page.Snapshot.StreamingError == test.surface.Error()
 						}
-						retireErr = env.authority.WithRuntime(t.Context(), attachment.Resource(), func(context.Context, *runtime.Engine) error { return nil })
+						retireErr = env.authority.WithRuntime(t.Context(), attachment, func(context.Context, *runtime.Engine) error { return nil })
 						return pageErr == nil && page.Snapshot.StreamingError == test.surface.Error() && errors.Is(retireErr, serverapi.ErrRuntimeUnavailable)
 					}, "Runtime diagnostic/retirement = %q/%v/%v, want %q/unavailable", page.Snapshot.StreamingError, pageErr, retireErr, test.surface)
 				}

@@ -328,7 +328,7 @@ cask "${desktop_cask}" do
             File.rename(file.path, path)
           end
         RUBY
-        chdir:          "~/Library/Application Support/sh.kent",
+        chdir:          "~{{user}}/Library/Application Support/sh.kent",
         writable_paths: ["Library/Application Support/sh.kent"],
         writable_base:  :home
   end

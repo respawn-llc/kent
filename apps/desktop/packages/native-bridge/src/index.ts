@@ -126,6 +126,7 @@ export type NativeBridge = Readonly<{
     resolveContext(): Promise<NativeContext>;
   }>;
   window: Readonly<{
+    setTitle(title: string): Promise<void>;
     startDragging(): Promise<void>;
     closeCurrent(): Promise<void>;
     isFocused(): Promise<boolean>;
@@ -273,6 +274,9 @@ export function createBrowserNativeBridge(options: BrowserNativeBridgeOptions = 
       },
     },
     window: {
+      async setTitle(title): Promise<void> {
+        document.title = title;
+      },
       async startDragging(): Promise<void> {
         return Promise.resolve();
       },
@@ -371,6 +375,9 @@ export function createTauriNativeBridge(platform: NativePlatform = "unknown"): N
       },
     },
     window: {
+      async setTitle(title): Promise<void> {
+        await getCurrentWindow().setTitle(title);
+      },
       async startDragging(): Promise<void> {
         await getCurrentWindow().startDragging();
       },

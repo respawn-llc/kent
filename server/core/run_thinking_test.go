@@ -9,6 +9,7 @@ import (
 	"path/filepath"
 	"reflect"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -23,12 +24,16 @@ import (
 	"core/server/sessionruntime"
 	"core/shared/apicontract"
 	"core/shared/config"
+	"core/shared/protoapi"
+	chatpb "core/shared/protoapi/gen/kent/api/chat"
 	chatsettingspb "core/shared/protoapi/gen/kent/api/chat_settings"
+	chatshellpb "core/shared/protoapi/gen/kent/api/chat_shell"
 	runpromptpb "core/shared/protoapi/gen/kent/api/run_prompt"
 	sharedpb "core/shared/protoapi/gen/kent/api/shared"
 	"core/shared/runtimeids"
 	"core/shared/serverapi"
 	"core/shared/textutil"
+	"core/shared/toolspec"
 )
 
 func newRunThinkingSession(t *testing.T, handler http.HandlerFunc) (*Core, *session.Store, apicontract.RunPromptService) {
@@ -73,6 +78,26 @@ thinking_level = "medium"
 		t.Fatal(err)
 	}
 	return app, store, client
+}
+
+func TestChatShellPreparesDormantSessionWithoutModel(t *testing.T) {
+	app, store, _ := newRunThinkingSession(t, nil)
+	id, err := runtimeids.ParseSessionID(store.Meta().SessionID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	output := filepath.Join(store.Meta().WorkspaceRoot, "shell-first-action")
+	if err := app.ChatMutationClient().SubmitUserShellCommand(t.Context(), &chatshellpb.ShellCommandRequest{
+		Target: &chatpb.ChatTarget{Target: &chatpb.ChatTarget_Session{
+			Session: &chatpb.ExistingSessionRequestTarget{SessionId: protoapi.SessionSelectorToProto(id)},
+		}},
+		Command: "touch " + output,
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(output); err != nil {
+		t.Fatalf("shell returned before command completed: %v", err)
+	}
 }
 
 func TestRunThinkingExplicitDefaultSurvivesFailedContinuation(t *testing.T) {
@@ -162,7 +187,7 @@ func TestRunThinkingOnlySelectionReachesProvider(t *testing.T) {
 }
 
 func TestRunThinkingPreparedActivationUsesPersistedSelection(t *testing.T) {
-	app, store, _ := newRunThinkingSession(t, nil)
+	app, store, _, requests := newRunThinkingRecordingSession(t)
 	id, err := runtimeids.ParseSessionID(store.Meta().SessionID)
 	if err != nil {
 		t.Fatal(err)
@@ -192,13 +217,95 @@ func TestRunThinkingPreparedActivationUsesPersistedSelection(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	activation, err := sessionruntime.ActivationRequestFromSessionPlan(planned.Plan, "run-thinking-contract")
+	activation, err := sessionruntime.ActivationRequestFromSessionPlan(planned.Plan)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if activation.ThinkingOverrideExplicit || activation.AgentSelection != nil ||
 		activation.ActiveSettings.ThinkingLevel != "high" || activation.ActiveSettings.Model != "gpt-5.6-sol" {
 		t.Fatalf("activation did not consume saved selection: %+v", activation)
+	}
+	result, err := app.ChatMutationClient().Steer(t.Context(), &chatpb.SteerRequest{
+		QueueItemId: runtimeids.NewQueueItemID().String(),
+		Target:      chatCommandTarget(id.String()),
+		Activation:  &chatpb.Activation{Input: &chatpb.Activation_Text{Text: "use saved choices"}},
+	})
+	if err != nil || result.GetAccepted() == nil {
+		t.Fatalf("Chat admission = %v, %v", result, err)
+	}
+	if request := <-requests; request.Model != "gpt-5-mini" || request.Reasoning.Effort != "high" {
+		t.Fatalf("Chat ignored saved selection: %+v", request)
+	}
+}
+
+func TestChatActionAppliesInvocationSelection(t *testing.T) {
+	testChatActionInvocationSelection(t, false)
+}
+
+func TestChatActionAppliesInvocationSelectionToLoadedRuntime(t *testing.T) {
+	testChatActionInvocationSelection(t, true)
+}
+
+func testChatActionInvocationSelection(t *testing.T, alreadyLoaded bool) {
+	t.Helper()
+	app, store, _, requests := newRunThinkingRecordingSession(t)
+	id := store.Identity().ID
+	service, err := (chatSettingsService{core: app}).sessionSettingsService(t.Context(), id.String())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if alreadyLoaded {
+		planned, err := service.PlanLaunchSession(t.Context(), sessionlaunch.PlanRequest{
+			Mode: launch.ModeInteractive, Intent: serverapi.OpenExistingSessionLaunchIntent(id),
+			Overrides: serverapi.RunPromptOverrides{AgentRole: textutil.Value("worker"), ThinkingLevel: "low", Tools: "patch"},
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+		activation, err := sessionruntime.ActivationRequestFromSessionPlan(planned.Plan)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := app.SessionRuntimeClient().ActivateSessionRuntime(t.Context(), activation); err != nil {
+			t.Fatal(err)
+		}
+	}
+	planned, err := service.PlanLaunchSession(t.Context(), sessionlaunch.PlanRequest{
+		Mode: launch.ModeInteractive, Intent: serverapi.OpenExistingSessionLaunchIntent(id),
+		Overrides: serverapi.RunPromptOverrides{
+			AgentRole: textutil.Value("worker"), ThinkingLevel: "high", Tools: "patch",
+		},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	activation, err := sessionruntime.ActivationRequestFromSessionPlan(planned.Plan)
+	if err != nil {
+		t.Fatal(err)
+	}
+	preparation, err := protoapi.SessionRuntimePreparationToProto(activation.SessionRuntimePreparationOptions)
+	if err != nil {
+		t.Fatal(err)
+	}
+	target := chatCommandTarget(id.String())
+	target.GetSession().Preparation = preparation
+	result, err := app.ChatMutationClient().Steer(t.Context(), &chatpb.SteerRequest{
+		QueueItemId: runtimeids.NewQueueItemID().String(),
+		Target:      target,
+		Activation:  &chatpb.Activation{Input: &chatpb.Activation_Text{Text: "use invocation choices"}},
+	})
+	if err != nil || result.GetAccepted() == nil {
+		t.Fatalf("Chat admission = %v, %v", result, err)
+	}
+	if request := <-requests; request.Model != "gpt-5-mini" || request.Reasoning.Effort != "high" {
+		t.Fatalf("Chat ignored invocation selection: %+v", request)
+	}
+	record, err := app.MetadataStore().ResolvePersistedSession(t.Context(), id.String())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if record.Meta.RetainedToolSelection == nil || !reflect.DeepEqual(record.Meta.RetainedToolSelection.Tools, []toolspec.ID{toolspec.ToolPatch}) {
+		t.Fatalf("Chat discarded explicit tools: %+v", record.Meta.RetainedToolSelection)
 	}
 }
 
@@ -590,7 +697,9 @@ func TestRunThinkingRetainedSelectionAcceptsCustomValues(t *testing.T) {
 
 func TestRunThinkingPersistsWhileBusy(t *testing.T) {
 	started, release := make(chan struct{}, 1), make(chan struct{})
+	var calls atomic.Int32
 	app, store, client := newRunThinkingSession(t, func(w http.ResponseWriter, r *http.Request) {
+		calls.Add(1)
 		started <- struct{}{}
 		<-release
 		modelstub.WriteCompletedResponseStream(w, "done", 1, 1)
@@ -615,23 +724,75 @@ func TestRunThinkingPersistsWhileBusy(t *testing.T) {
 	case <-time.After(10 * time.Second):
 		t.Fatal("first Run did not dispatch")
 	}
-	_, err = client.RunPrompt(t.Context(), requestfixture.RunPrompt(t, serverapi.RunPromptRequest{
-		Intent: serverapi.OpenExistingSessionLaunchIntent(id), Prompt: "must not dispatch",
-		Overrides: serverapi.RunPromptOverrides{ThinkingLevel: "high"},
-	}), nil)
-	if !errors.Is(err, runprompt.ErrSessionRunning) {
-		t.Fatalf("busy continuation error = %v", err)
-	}
-	read, err := app.ChatSettingsClient().ReadChatSettings(t.Context(), &chatsettingspb.ReadRequest{
+	readRequest := &chatsettingspb.ReadRequest{
 		Target: &chatsettingspb.ReadRequest_Session{Session: &chatsettingspb.SessionTarget{SessionId: &sharedpb.SessionSelector{Value: &sharedpb.SessionSelector_SessionId{SessionId: id.String()}}}},
-	})
+	}
+	before, err := app.ChatSettingsClient().ReadChatSettings(t.Context(), readRequest)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, err = client.RunPrompt(t.Context(), requestfixture.RunPrompt(t, serverapi.RunPromptRequest{
+		Intent: serverapi.OpenExistingSessionLaunchIntent(id), Prompt: "reject without delivery",
+		Overrides: serverapi.RunPromptOverrides{ThinkingLevel: "unsupported"},
+	}), nil)
+	var rejected *serverapi.RunSelectionRejectedError
+	if !errors.As(err, &rejected) {
+		t.Fatalf("unsupported active Thinking = %v", err)
+	}
+	admitted := make(chan *runpromptpb.ActiveSteerAccepted, 1)
+	continued := make(chan error, 1)
+	go func() {
+		_, err := client.RunPrompt(t.Context(), requestfixture.RunPrompt(t, serverapi.RunPromptRequest{
+			Intent: serverapi.OpenExistingSessionLaunchIntent(id), Prompt: "redirect",
+			Overrides: serverapi.RunPromptOverrides{
+				ThinkingLevel: "high", AgentRole: textutil.Value("worker"),
+				Model: "unavailable-model", Tools: "unavailable-tool", Theme: "dark", ModelTimeoutSeconds: 1,
+			},
+		}), serverapi.RunPromptProgressFunc(func(event *runpromptpb.ProgressEvent) {
+			if accepted := event.GetActiveSteerAccepted(); accepted != nil {
+				admitted <- accepted
+			}
+		}))
+		continued <- err
+	}()
+	var acceptance *runpromptpb.ActiveSteerAccepted
+	select {
+	case acceptance = <-admitted:
+	case err := <-continued:
+		t.Fatalf("continuation finished before acceptance: %v", err)
+	case <-time.After(10 * time.Second):
+		t.Fatal("active continuation did not report acceptance")
+	}
+	ignored := map[runpromptpb.IgnoredRunSetting]struct{}{
+		runpromptpb.IgnoredRunSetting_IGNORED_RUN_SETTING_AGENT:         {},
+		runpromptpb.IgnoredRunSetting_IGNORED_RUN_SETTING_MODEL:         {},
+		runpromptpb.IgnoredRunSetting_IGNORED_RUN_SETTING_TOOLS:         {},
+		runpromptpb.IgnoredRunSetting_IGNORED_RUN_SETTING_THEME:         {},
+		runpromptpb.IgnoredRunSetting_IGNORED_RUN_SETTING_MODEL_TIMEOUT: {},
+	}
+	for _, setting := range acceptance.IgnoredSettings {
+		if _, exists := ignored[setting]; !exists {
+			t.Fatalf("unexpected ignored setting %v", setting)
+		}
+		delete(ignored, setting)
+	}
+	if len(ignored) != 0 {
+		t.Fatalf("missing ignored settings = %v", ignored)
+	}
+	read, err := app.ChatSettingsClient().ReadChatSettings(t.Context(), readRequest)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if got := read.GetSession().Settings.SelectedAgent.Thinking; got != "high" {
 		t.Fatalf("busy Session Thinking = %q, want high", got)
 	}
+	if got, retained := read.GetSession().Settings.SelectedAgent, before.GetSession().Settings.SelectedAgent; got.Role != retained.Role || got.Model != retained.Model {
+		t.Fatal("active launch overrides changed the retained selection")
+	}
 	unblock()
+	if err := <-continued; err != nil {
+		t.Fatalf("active continuation: %v", err)
+	}
 	select {
 	case err := <-done:
 		if err != nil {
@@ -639,5 +800,8 @@ func TestRunThinkingPersistsWhileBusy(t *testing.T) {
 		}
 	case <-time.After(10 * time.Second):
 		t.Fatal("first Run did not finish")
+	}
+	if calls.Load() != 2 {
+		t.Fatalf("provider calls = %d, want initial and accepted steer only", calls.Load())
 	}
 }

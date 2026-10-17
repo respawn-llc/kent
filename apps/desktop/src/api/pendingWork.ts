@@ -1,12 +1,10 @@
 import { UUIDv4Value } from "./setupOperationID";
 
 export type PendingWorkItemID = UUIDv4Value<"pending_work_item">;
-export type CompactionRequestID = UUIDv4Value<"compaction_request">;
 export type WorktreeOperationID = UUIDv4Value<"worktree_operation">;
-export type PendingWorkIdentity = PendingWorkItemID | CompactionRequestID | WorktreeOperationID;
+export type PendingWorkIdentity = PendingWorkItemID | WorktreeOperationID;
 
 export const pendingWorkItemIDFromProto = UUIDv4Value.fromProto<"pending_work_item">;
-export const compactionRequestIDFromProto = UUIDv4Value.fromProto<"compaction_request">;
 export const worktreeOperationIDFromProto = UUIDv4Value.fromProto<"worktree_operation">;
 
 type PendingWorkItemFacts = Readonly<{
@@ -24,7 +22,7 @@ export type PendingWorkItem =
       }>)
   | (PendingWorkItemFacts &
       Readonly<{
-        id: CompactionRequestID;
+        id: PendingWorkItemID;
         lane: "steer";
         kind: "manual_compaction";
         manualCompaction: Readonly<{ guidance: string | null }>;

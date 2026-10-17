@@ -1,6 +1,6 @@
 import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { beforeAll, expect, it } from "vitest";
+import { beforeAll, expect, it } from "bun:test";
 
 import type { ChatTranscriptCommittedRow } from "@/api";
 import { appI18n, initializeI18n } from "@/i18n";
@@ -40,6 +40,7 @@ it("collapses structured worktree summaries without touching model-visible detai
   } satisfies ChatTranscriptCommittedRow;
   render(
     <TestAppProviders
+      skipAnimations
       services={createTestServices([], undefined, { homePath: "/Users/engineer", platform: "macos" })}
     >
       <TranscriptNoticeRow row={row} />
@@ -87,7 +88,7 @@ it.each(["runtime_diagnostic", "cache_warning"] as const)(
       },
     } satisfies ChatTranscriptCommittedRow;
     render(
-      <TestAppProviders services={createTestServices([])}>
+      <TestAppProviders skipAnimations services={createTestServices([])}>
         <TranscriptNoticeRow row={row} />
       </TestAppProviders>,
     );
@@ -127,7 +128,7 @@ it("keeps user shell output hidden until expanded and displays it as unparsed te
     ReviewerError: null,
   } satisfies ChatTranscriptCommittedRow;
   render(
-    <TestAppProviders services={services}>
+    <TestAppProviders skipAnimations services={services}>
       <TranscriptNoticeRow row={row} />
     </TestAppProviders>,
   );
@@ -160,7 +161,7 @@ it("shows a detail-visible Thinking update once without disclosure or actions", 
     ReviewerError: null,
   } satisfies ChatTranscriptCommittedRow;
   const view = render(
-    <TestAppProviders services={services}>
+    <TestAppProviders skipAnimations services={services}>
       <TranscriptNoticeRow row={row} />
     </TestAppProviders>,
   );
@@ -170,7 +171,7 @@ it("shows a detail-visible Thinking update once without disclosure or actions", 
   expect(screen.queryByRole("button")).not.toBeInTheDocument();
 
   view.rerender(
-    <TestAppProviders services={services}>
+    <TestAppProviders skipAnimations services={services}>
       <TranscriptNoticeRow row={{ ...row, Visibility: "hidden" }} />
     </TestAppProviders>,
   );

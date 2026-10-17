@@ -78,7 +78,7 @@ function sessionCategoryToGenerated(category: SessionCategory): GeneratedSession
   }
 }
 
-function sessionCategoryFromGenerated(category: GeneratedSessionCategory): SessionCategory {
+export function sessionCategoryFromGenerated(category: GeneratedSessionCategory): SessionCategory {
   switch (category) {
     case GeneratedSessionCategory.MAIN:
       return "main";

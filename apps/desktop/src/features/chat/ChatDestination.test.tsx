@@ -1,4 +1,5 @@
-import { createChatStorageFixture } from "./chatStorageFixture";
+import { afterEach, beforeEach, expect, it, vi } from "bun:test";
+import { installChatStorageFixture } from "./chatStorageFixture";
 import { act, renderHook, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { QueryClient } from "@tanstack/react-query";
@@ -30,8 +31,14 @@ import {
   navigation,
   renderDestination,
 } from "@/test-support/chat-destination";
-beforeEach(() => vi.stubGlobal("localStorage", createChatStorageFixture()));
-afterEach(() => vi.unstubAllGlobals());
+let restoreStorage: (() => void) | undefined;
+beforeEach(() => {
+  restoreStorage = installChatStorageFixture();
+});
+afterEach(() => {
+  restoreStorage?.();
+  restoreStorage = undefined;
+});
 function setup(commands: readonly ComposerCommand[] = [], selected: ChatDestinationOpening = opening) {
   writeBrowserStorage("local", "desktop.newChatDraft", "");
   const services = createTestServices([]);
@@ -152,6 +159,7 @@ it("hides Processes discovery until adoption while rejecting typed activation wi
     sessionID: "created-session",
     outcome: {
       kind: "accepted",
+      disposition: "started_turn",
       queueItemID: pendingWorkItemIDFromProto("99999999-9999-4999-8999-999999999999"),
       diagnostic: null,
     },
@@ -316,6 +324,7 @@ it("keeps the current catalog and ready settings on same-Session prompt success"
     sessionID: selected.sessionID,
     outcome: {
       kind: "accepted",
+      disposition: "started_turn",
       queueItemID: pendingWorkItemIDFromProto("99999999-9999-4999-8999-999999999999"),
       diagnostic: null,
     },
@@ -375,6 +384,16 @@ it("opens an accepted child with new typing and preserves an independently saved
   await act(async () => {
     view.result.current.composer.submit("send");
   });
+  expect(view.result.current.composer.text).toBe("/review args");
+  expect(view.result.current.composer.interactionRestricted).toBe(true);
+  await waitFor(
+    () => {
+      expect(view.result.current.composer.interactionRestricted).toBe(false);
+    },
+    {
+      timeout: 3000,
+    },
+  );
   act(() => {
     view.result.current.composer.edit("new typing");
   });
@@ -383,6 +402,7 @@ it("opens an accepted child with new typing and preserves an independently saved
       sessionID: "child-session",
       outcome: {
         kind: "accepted",
+        disposition: "started_turn",
         queueItemID: pendingWorkItemIDFromProto("99999999-9999-4999-8999-999999999999"),
         diagnostic: null,
       },
@@ -419,6 +439,16 @@ it("opens a rejected child after restoring exact command text and preserves the 
   await act(async () => {
     view.result.current.composer.submit("queue");
   });
+  expect(view.result.current.composer.text).toBe(command);
+  expect(view.result.current.composer.interactionRestricted).toBe(true);
+  await waitFor(
+    () => {
+      expect(view.result.current.composer.interactionRestricted).toBe(false);
+    },
+    {
+      timeout: 3000,
+    },
+  );
   act(() => {
     view.result.current.composer.edit("new typing");
   });
@@ -496,11 +526,20 @@ it("applies an existing-Session command's late result against the currently disp
     await act(async () => {
       view.result.current.composer.submit("send");
     });
+    await waitFor(
+      () => {
+        expect(view.result.current.composer.interactionRestricted).toBe(false);
+      },
+      {
+        timeout: 3000,
+      },
+    );
   }
   const accepted = (sessionID: string): ChatInputMutationResult => ({
     sessionID,
     outcome: {
       kind: "accepted",
+      disposition: "started_turn",
       queueItemID: pendingWorkItemIDFromProto("99999999-9999-4999-8999-999999999999"),
       diagnostic: null,
     },
@@ -540,7 +579,7 @@ it.each(["settings", "workspace"] as const)(
     if (source === "workspace") {
       await user.click(screen.getByRole("button", { name: opening.workspace.name }));
       await waitFor(() => {
-        expect(workspaces).toHaveBeenCalledOnce();
+        expect(workspaces).toHaveBeenCalledTimes(1);
       });
     }
     read.mockRejectedValueOnce(new Error("offline"));
@@ -683,13 +722,17 @@ it.each(["registered", "compact"])("adopts the identified rejection of a %s comm
   });
   expect(view.result.current.composer.text).toBe(text);
   if (kind === "registered")
-    expect(view.steer).toHaveBeenCalledWith(expect.objectContaining({ kind: "new_chat" }), {
-      kind: "command",
-      catalogIdentity: "test:review",
-      token: "/custom-review",
-      separatorWhitespace: "\t",
-      arguments: "changes",
-    });
+    expect(view.steer).toHaveBeenCalledWith(
+      expect.objectContaining({ kind: "new_chat" }),
+      {
+        kind: "command",
+        catalogIdentity: "test:review",
+        token: "/custom-review",
+        separatorWhitespace: "\t",
+        arguments: "changes",
+      },
+      expect.anything(),
+    );
   else
     expect(view.compact).toHaveBeenCalledWith(expect.objectContaining({ kind: "new_chat" }), {
       token: "/compact",
@@ -714,6 +757,16 @@ it("adopts accepted Send in place and saves only the visible unsent editor to it
   act(() => {
     view.result.current.composer.submit("send");
   });
+  expect(view.result.current.composer.text).toBe("submitted");
+  expect(view.result.current.composer.interactionRestricted).toBe(true);
+  await waitFor(
+    () => {
+      expect(view.result.current.composer.interactionRestricted).toBe(false);
+    },
+    {
+      timeout: 3000,
+    },
+  );
   expect(view.result.current.composer.text).toBe("");
   act(() => {
     view.result.current.composer.edit("later typing");
@@ -723,6 +776,7 @@ it("adopts accepted Send in place and saves only the visible unsent editor to it
       sessionID: "session-created",
       outcome: {
         kind: "accepted",
+        disposition: "started_turn",
         queueItemID: pendingWorkItemIDFromProto("79f762c8-0998-402a-bc80-6b42f3e241ed"),
         diagnostic: null,
       },
@@ -757,6 +811,16 @@ it("adopts an identified rejection and restores submitted text once without comp
   act(() => {
     view.result.current.composer.submit("queue");
   });
+  expect(view.result.current.composer.text).toBe("repeat");
+  expect(view.result.current.composer.interactionRestricted).toBe(true);
+  await waitFor(
+    () => {
+      expect(view.result.current.composer.interactionRestricted).toBe(false);
+    },
+    {
+      timeout: 3000,
+    },
+  );
   act(() => {
     view.result.current.composer.edit("repeat");
   });
@@ -794,6 +858,15 @@ it.each(["creation failed", "response lost"])(
       view.result.current.composer.submit("send");
     });
     expect(readBrowserStorage("local", "desktop.newChatDraft")).toEqual({ ok: true, value: "original" });
+    expect(view.result.current.composer.interactionRestricted).toBe(true);
+    await waitFor(
+      () => {
+        expect(view.result.current.composer.interactionRestricted).toBe(false);
+      },
+      {
+        timeout: 3000,
+      },
+    );
     act(() => {
       view.result.current.composer.edit("later");
     });
@@ -806,7 +879,7 @@ it.each(["creation failed", "response lost"])(
       ok: true,
       value: "later\noriginal",
     });
-    expect(view.steer).toHaveBeenCalledOnce();
+    expect(view.steer).toHaveBeenCalledTimes(1);
     expect(view.draft).not.toHaveBeenCalled();
     expect(view.services.transport.descriptorCalls).toHaveLength(0);
   },
@@ -829,12 +902,28 @@ it("applies concurrent results in delivery order while draft writes retain captu
   act(() => {
     view.result.current.composer.submit("send");
   });
+  await waitFor(
+    () => {
+      expect(view.result.current.composer.interactionRestricted).toBe(false);
+    },
+    {
+      timeout: 3000,
+    },
+  );
   act(() => {
     view.result.current.composer.edit("second");
   });
   act(() => {
     view.result.current.composer.submit("queue");
   });
+  await waitFor(
+    () => {
+      expect(view.result.current.composer.interactionRestricted).toBe(false);
+    },
+    {
+      timeout: 3000,
+    },
+  );
   act(() => {
     view.result.current.composer.edit("during");
   });
@@ -887,6 +976,14 @@ it("restores a late creation failure into the Session already adopted by another
   act(() => {
     view.result.current.composer.submit("send");
   });
+  await waitFor(
+    () => {
+      expect(view.result.current.composer.interactionRestricted).toBe(false);
+    },
+    {
+      timeout: 3000,
+    },
+  );
   act(() => {
     view.result.current.composer.edit("second");
   });
@@ -898,6 +995,7 @@ it("restores a late creation failure into the Session already adopted by another
       sessionID: "second",
       outcome: {
         kind: "accepted",
+        disposition: "started_turn",
         queueItemID: pendingWorkItemIDFromProto("79f762c8-0998-402a-bc80-6b42f3e241ed"),
         diagnostic: null,
       },
@@ -926,7 +1024,7 @@ it("keeps text but replaces edited settings when selecting another workspace bef
   const choice = catalog.catalog.choices[0];
   if (choice === undefined) throw new Error("Missing choice");
   const loading = deferred<ChatSettingsRead>();
-  vi.mocked(view.services.api.chat.getSettings).mockReturnValueOnce(loading.promise);
+  vi.spyOn(view.services.api.chat, "getSettings").mockReturnValueOnce(loading.promise);
   act(() => {
     view.result.current.selectWorkspace({
       id: "workspace-2",
@@ -961,6 +1059,7 @@ it("keeps text but replaces edited settings when selecting another workspace bef
         initialSettings: changed,
       },
       { kind: "text", text: "keep me" },
+      expect.anything(),
     );
   });
 });
@@ -979,7 +1078,7 @@ it("rejects a previously rendered workspace action while any first input request
     view.result.current.composer.submit("send");
   });
   await waitFor(() => {
-    expect(view.steer).toHaveBeenCalledOnce();
+    expect(view.steer).toHaveBeenCalledTimes(1);
   });
   act(() => {
     selectWorkspace({ id: "workspace-2", name: "Second", rootPath: "/second", isDefault: false });

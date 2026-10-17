@@ -2,7 +2,7 @@ import { useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { Plus } from "lucide-react";
 
-import { sessionDisplayID, type SessionCatalogSummary, type SessionCategory } from "@/api";
+import { sessionDisplayTitle, type SessionCatalogSummary, type SessionCategory } from "@/api";
 import { errorMessage } from "@/api";
 import {
   formatRelativeTime,
@@ -11,7 +11,6 @@ import {
   useAppNavigation,
   readLastProjectRoute,
   writeLastProjectContentTab,
-  type SidebarMode,
 } from "@/app-facade";
 import {
   directionalBoundary,
@@ -30,10 +29,8 @@ import { useHomeProjectModel, useHomeSessionPages } from "./HomeProjectModel";
 
 export function HomeProjectContent({
   projectID,
-  sidebarMode,
 }: Readonly<{
   projectID: string;
-  sidebarMode: SidebarMode;
 }>) {
   const navigation = useAppNavigation();
   const catalogReturn = useSessionChatCatalogReturn(projectID);
@@ -46,7 +43,7 @@ export function HomeProjectContent({
     <ProjectContentTabs
       catalogReturn={catalogReturn?.category ?? null}
       projectID={projectID}
-      sidebarMode={sidebarMode}
+
       taskListViewMemory={taskListViewMemory}
     />
   );
@@ -55,12 +52,10 @@ export function HomeProjectContent({
 function ProjectContentTabs({
   catalogReturn,
   projectID,
-  sidebarMode,
   taskListViewMemory,
 }: Readonly<{
   catalogReturn: SessionCategory | null;
   projectID: string;
-  sidebarMode: SidebarMode;
   taskListViewMemory: ReturnType<typeof createProjectTasksViewMemory>;
 }>) {
   const navigation = useAppNavigation();
@@ -112,7 +107,7 @@ function ProjectContentTabs({
           {tab === "tasks" ? (
             <ProjectTasksSurface
               projectID={projectID}
-              sidebarMode={sidebarMode}
+
               viewMemory={taskListViewMemory}
             />
           ) : (
@@ -191,7 +186,7 @@ function SessionList({
       renderItem={(session) => (
         <Item
           className="min-w-0 px-[var(--space-2)] py-[var(--space-3)]"
-          aria-label={session.name ?? sessionDisplayID(session.id, session.shortID)}
+          aria-label={sessionDisplayTitle(session, (id) => t("home.subagentTitle", { id }))}
           onClick={() => {
             void navigation.openSessionChat({
               catalogOrigin: { category },
@@ -203,7 +198,7 @@ function SessionList({
           <ItemContent className="min-w-0 w-full">
             <ItemTitle className="w-full min-w-0">
               <strong className="min-w-0 flex-1 truncate">
-                {session.name ?? sessionDisplayID(session.id, session.shortID)}
+                {sessionDisplayTitle(session, (id) => t("home.subagentTitle", { id }))}
               </strong>
             </ItemTitle>
             {session.firstPromptPreview === null ? null : (

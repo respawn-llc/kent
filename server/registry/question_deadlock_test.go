@@ -171,8 +171,10 @@ func exerciseQuestionResolution(t *testing.T, answer, delayedSupervisor bool) {
 	}
 	registry := NewRuntimeRegistry(nil).WithExecutionTargetResolver(persistence.ResolveOptionalSessionExecutionTarget)
 	authority := sessionruntime.NewAuthority(sessionruntime.AuthorityOptions{
-		PersistenceRoot: root, StoreOptions: persistence.AuthoritativeSessionStoreOptions(),
-		ResourceLifecycle: registry, PromptFeed: registry,
+		PersistenceRoot:               root,
+		StoreOptions:                  persistence.AuthoritativeSessionStoreOptions(),
+		ProjectWorkspaceContextReader: persistence,
+		ResourceLifecycle:             registry, PromptFeed: registry,
 		StepLifecycle: questionDeadlockStepLifecycle{registry: registry},
 		EventFeed: func(ref runtimeids.SessionResourceRef, event runtime.Event) {
 			if event.LocalEntry != nil && event.LocalEntry.ReviewerError != nil {
@@ -188,8 +190,8 @@ func exerciseQuestionResolution(t *testing.T, answer, delayedSupervisor bool) {
 			t.Errorf("close authority: %v", err)
 		}
 	})
-	attachment, err := authority.OpenRuntime(t.Context(), sessionruntime.RuntimeOpenRequest{
-		SessionID: id, OwnerID: "original-client", Runtime: &plan,
+	_, err = authority.OpenRuntime(t.Context(), sessionruntime.RuntimeOpenRequest{
+		SessionID: id, Runtime: &plan,
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -264,11 +266,8 @@ func exerciseQuestionResolution(t *testing.T, answer, delayedSupervisor bool) {
 		if err := subscription.Close(); err != nil {
 			t.Fatal(err)
 		}
-		if _, err := attachment.Release(t.Context(), sessionruntime.RuntimeReleaseDetach); err != nil {
-			t.Fatal(err)
-		}
 		if _, err := authority.OpenRuntime(t.Context(), sessionruntime.RuntimeOpenRequest{
-			SessionID: id, OwnerID: "reopened-client", Runtime: &plan,
+			SessionID: id, Runtime: &plan,
 		}); err != nil {
 			t.Fatal(err)
 		}

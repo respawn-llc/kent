@@ -112,10 +112,10 @@ func TestPromptPendingScopePublishesTaskWakeOnlyFromWorkflowScope(t *testing.T) 
 			t.Errorf("close authority: %v", err)
 		}
 	})
-	attachment, err := authority.OpenRuntime(context.Background(), sessionruntime.RuntimeOpenRequest{
+	_, err = authority.OpenRuntime(context.Background(), sessionruntime.RuntimeOpenRequest{
 		SessionID: sessionID,
-		OwnerID:   "exact-scope-test",
-		Runtime:   &plan,
+
+		Runtime: &plan,
 	})
 	if err != nil {
 		t.Fatalf("open runtime: %v", err)
@@ -211,9 +211,6 @@ func TestPromptPendingScopePublishesTaskWakeOnlyFromWorkflowScope(t *testing.T) 
 	if err := workflowHandle.Stop(stopCtx); err != nil {
 		t.Fatalf("stop workflow execution: %v", err)
 	}
-	if _, err := attachment.Release(context.Background(), sessionruntime.RuntimeReleaseClose); err != nil {
-		t.Fatalf("close workflow runtime: %v", err)
-	}
 
 	nonWorkflowRequest := request
 	nonWorkflowRequest.AttentionTarget = nil
@@ -221,7 +218,7 @@ func TestPromptPendingScopePublishesTaskWakeOnlyFromWorkflowScope(t *testing.T) 
 	nonWorkflowHandle, err := authority.StartAgentExecution(context.Background(), sessionruntime.AgentExecutionRequest{
 		Descriptor: descriptor,
 		Runtime:    &plan,
-		Resource:   sessionruntime.OpenAgentResource{},
+		Resource:   sessionruntime.ReplaceAgentResource{},
 		Runner: func(ctx context.Context, scope sessionruntime.ExecutionScope, _ sessionruntime.AgentRuntimeBridge) error {
 			err := registry.PromptPendingScope(scope, nonWorkflowRequest, time.Now().UTC())
 			nonWorkflowPromptDone <- err

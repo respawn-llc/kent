@@ -59,6 +59,53 @@ func TestWorktreeReminderCWDIsIndependentOfServerWorkingDirectory(t *testing.T) 
 	}
 }
 
+func TestWorktreeReminderWorkspaceRootUsesHomeInsteadOfWorkingDirectory(t *testing.T) {
+	home := t.TempDir()
+	worktree := filepath.Join(home, ".kent", "worktrees", "kent", "803")
+	workspace := filepath.Join(home, "Dev", "kent")
+	templates := []*string{
+		&prompts.WorktreeInitialPrompt,
+		&prompts.WorktreePostCompactionPrompt,
+		&prompts.WorktreeModePrompt,
+		&prompts.WorktreeModeExitPrompt,
+	}
+	for _, template := range templates {
+		previous := *template
+		*template = "{{workspace_root}}"
+		t.Cleanup(func() { *template = previous })
+	}
+	for _, cwd := range []string{home, workspace, worktree} {
+		for _, test := range []struct {
+			name string
+			kind prompts.WorktreePromptKind
+			mode session.WorktreeReminderMode
+		}{
+			{"initial", prompts.WorktreePromptInitial, session.WorktreeReminderModeEnter},
+			{"compaction", prompts.WorktreePromptPostCompaction, session.WorktreeReminderModeEnter},
+			{"enter", prompts.WorktreePromptSwitch, session.WorktreeReminderModeEnter},
+			{"leave", prompts.WorktreePromptSwitch, session.WorktreeReminderModeExit},
+		} {
+			t.Run(test.name+"/"+filepath.Base(cwd), func(t *testing.T) {
+				state := testWorktreeReminderState(test.mode, "feature", worktree, workspace, cwd)
+				render := worktreeModeMetaMessage
+				if test.mode == session.WorktreeReminderModeExit {
+					render = worktreeModeExitMetaMessage
+				}
+				message, ok := render(state, home, test.kind)
+				if !ok || message.Content == nil {
+					t.Fatal("expected a workspace location reminder")
+				}
+				if *message.Content != "~/Dev/kent" {
+					t.Fatalf("main workspace root = %q, want home-relative path", *message.Content)
+				}
+				if message.WorktreeContext.WorkspaceRoot != workspace {
+					t.Fatal("presentation changed the canonical workspace root")
+				}
+			})
+		}
+	}
+}
+
 func TestPersistedWorktreeContextRejectsDuplicateSourcePath(t *testing.T) {
 	t.Parallel()
 	store := mustCreateTestSession(t)
@@ -348,6 +395,8 @@ func TestManualCompactionReinjectsWorktreeReminderExactlyOnce(t *testing.T) {
 	case <-time.After(runtimeTestSynchronizationTimeout):
 		t.Fatal("timed out waiting for compaction")
 	}
+	// The completion event precedes release of the compaction's active step.
+	waitEngineLifecycleTasks(t, eng)
 
 	if _, err := eng.SubmitUserMessage(t.Context(), "continue after compaction"); err != nil {
 		t.Fatalf("submit post-compaction request: %v", err)
@@ -898,7 +947,11 @@ func TestSubmitUserMessageMaterializesWorktreeReminderBeforeModelFailure(t *test
 	assertWorktreeReminderEntryCount(t, eng.ChatSnapshot(), 1)
 
 	successClient := &fakeClient{responses: []llm.Response{finalOutputItemResponse("ok")}}
-	eng.llm = newObservedModelClient(successClient)
+	connection := *eng.connectionSnapshot()
+	connection.client = newObservedModelClient(successClient)
+	eng.mu.Lock()
+	eng.connection = &connection
+	eng.mu.Unlock()
 
 	if _, err := eng.SubmitUserMessage(context.Background(), "continue again"); err != nil {
 		t.Fatalf("submit retry: %v", err)

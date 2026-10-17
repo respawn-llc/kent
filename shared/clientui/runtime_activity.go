@@ -1,7 +1,6 @@
 package clientui
 
 import (
-	"core/shared/runtimeids"
 	"core/shared/runtimeinput"
 )
 
@@ -14,6 +13,9 @@ type RuntimeShellRequest struct {
 }
 
 type RuntimeCompactRequest struct {
-	RequestID runtimeids.CompactionRequestID
 	Admission runtimeinput.ManualCompactionAdmission
+}
+
+type RuntimeCompactResult struct {
+	Diagnostic error
 }

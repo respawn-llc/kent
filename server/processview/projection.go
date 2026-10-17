@@ -18,7 +18,6 @@ func ProcessFromSnapshot(snapshot shelltool.Snapshot) *processpb.BackgroundProce
 	result := &processpb.BackgroundProcess{
 		Id:             snapshot.ID,
 		OwnerSessionId: snapshot.OwnerSessionID,
-		OwnerRunId:     textutil.OptionalExactString(snapshot.OwnerRunID),
 		OwnerStepId:    textutil.OptionalExactString(snapshot.OwnerStepID),
 		State:          snapshot.State,
 		Command:        snapshot.Command,

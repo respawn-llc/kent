@@ -153,7 +153,7 @@ When a question or approval is pending, JSON omits `result` and includes an `out
 
 For an access approval, `outcome` also includes `access_targets` when target details are available.
 
-On failure, JSON mode emits `status: "error"` and an `error` object instead of `result`.
+On failure, JSON mode emits `status: "error"` and an `error` object. The response omits `result`.
 
 An over-limit child launch uses the stable `subagent_max_depth_exceeded` code and includes the attempted depth and active maximum:
 

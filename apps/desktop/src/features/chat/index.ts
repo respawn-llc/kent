@@ -1,7 +1,6 @@
 export { WorktreeDestination } from "./WorktreeDestination";
 export { ChatShell } from "./ChatShell";
 export { ChatDestination } from "./ChatDestination";
-export { NewChatDestination } from "./NewChatDestination";
 export type { ChatDestinationOpening } from "./ChatDestinationViewModel";
 export { ChatUserMessage } from "./messageRows/ChatUserMessage";
 export type { ChatUserMessageItem, ChatMessageEditControl } from "./messageRows/ChatUserMessage";

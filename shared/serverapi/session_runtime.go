@@ -2,16 +2,18 @@ package serverapi
 
 import (
 	"errors"
-	"fmt"
-	"strings"
 
 	"core/shared/config"
 	"core/shared/runtimeids"
 )
 
 type SessionRuntimeActivateRequest struct {
-	SessionID                runtimeids.SessionSelector
-	OwnerID                  string
+	SessionID runtimeids.SessionSelector
+	SessionRuntimePreparationOptions
+}
+
+type SessionRuntimePreparationOptions struct {
+	ConnectionScope          config.ConnectionScope
 	ActiveSettings           config.Settings
 	EnabledToolIDs           []string
 	QuestionsEnabled         *bool
@@ -35,26 +37,11 @@ type SessionRuntimeChatSettings struct {
 	AutoCompaction bool
 }
 
-type SessionRuntimeAttachment struct {
-	SessionID  string
-	Generation uint64
-}
-
-type SessionRuntimeReleaseRequest struct {
-	Attachment  SessionRuntimeAttachment
-	DropOwner   bool
-	ClosePolicy SessionRuntimeReleaseClosePolicy
-	OwnerID     string
-}
-
-type SessionRuntimeReleaseClosePolicy string
-
-const (
-	SessionRuntimeReleaseClosePolicyCloseIfIdle SessionRuntimeReleaseClosePolicy = "close_if_idle"
-	SessionRuntimeReleaseClosePolicyDetachOnly  SessionRuntimeReleaseClosePolicy = "detach_only"
-)
-
 func (r SessionRuntimeActivateRequest) Validate() error {
+	return r.SessionRuntimePreparationOptions.Validate()
+}
+
+func (r SessionRuntimePreparationOptions) Validate() error {
 	if r.ExplicitToolSelection != nil {
 		if err := r.ExplicitToolSelection.Validate(); err != nil {
 			return err
@@ -66,33 +53,4 @@ func (r SessionRuntimeActivateRequest) Validate() error {
 		}
 	}
 	return nil
-}
-
-func (r SessionRuntimeAttachment) ValidateForSession(sessionID string) error {
-	expected := strings.TrimSpace(sessionID)
-	if r.SessionID != expected {
-		return fmt.Errorf(
-			"session runtime activation returned attachment for session %q, want %q",
-			r.SessionID,
-			expected,
-		)
-	}
-	return nil
-}
-
-func (r SessionRuntimeReleaseRequest) Validate() error {
-	switch r.ClosePolicy {
-	case "", SessionRuntimeReleaseClosePolicyCloseIfIdle:
-	case SessionRuntimeReleaseClosePolicyDetachOnly:
-		if !r.DropOwner {
-			return errors.New("detach_only release requires drop_owner")
-		}
-	default:
-		return errors.New("invalid session runtime release close_policy")
-	}
-	return nil
-}
-
-func (r SessionRuntimeReleaseRequest) EffectiveClosePolicy() SessionRuntimeReleaseClosePolicy {
-	return r.ClosePolicy
 }

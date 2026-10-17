@@ -1,5 +1,6 @@
 import { unexpectedProjectOverflow } from "@/test-support/api";
 import { FakeRpcTransport } from "@/test-support/api";
+import { afterEach, describe, expect, it, vi } from "bun:test";
 import { create, operationName, validate } from "@app/server-api-contract";
 import { ProjectAvailability } from "@app/server-api-contract/gen/kent/api/project/project_pb";
 import {
@@ -109,7 +110,9 @@ const entry = create(ListEntrySchema, {
   },
 });
 
-afterEach(() => vi.restoreAllMocks());
+afterEach(() => {
+  vi.restoreAllMocks();
+});
 
 describe("Desktop Worktree client", () => {
   it("preserves completed moves and blocking Sessions when deletion stops", async () => {
@@ -136,16 +139,18 @@ describe("Desktop Worktree client", () => {
       new FakeRpcTransport([{ descriptor: TransitionService.method.delete, result }]),
       unexpectedProjectOverflow,
     );
-    await expect(
-      client.deleteWorktree("33333333-3333-4333-8333-333333333333", clean, "confirm"),
-    ).rejects.toSatisfy(
-      (error: unknown) =>
-        error instanceof WorktreeError &&
-        error.detail.kind === "delete_partial" &&
-        error.detail.details.retargetedSessions === 50n &&
-        error.detail.details.blocked?.activeSessions?.sessions[0]?.sessionId ===
-          "11111111-1111-4111-8111-111111111111",
-    );
+    const failure = await client
+      .deleteWorktree("33333333-3333-4333-8333-333333333333", clean, "confirm")
+      .catch((error: unknown) => error);
+    expect(failure).toBeInstanceOf(WorktreeError);
+    if (!(failure instanceof WorktreeError)) throw new Error("Expected a partial-deletion Worktree error.");
+    expect(failure.detail).toMatchObject({
+      kind: "delete_partial",
+      details: {
+        retargetedSessions: 50n,
+        blocked: { activeSessions: { sessions: [{ sessionId: "11111111-1111-4111-8111-111111111111" }] } },
+      },
+    });
   });
 
   it("preserves the typed missing Workspace failure for a retained Session", async () => {
@@ -165,9 +170,12 @@ describe("Desktop Worktree client", () => {
       new FakeRpcTransport([{ descriptor: ListService.method.list, result }]),
       unexpectedProjectOverflow,
     );
-    await expect(client.listWorktrees("55555555-5555-4555-8555-555555555555")).rejects.toSatisfy(
-      (error: unknown) => error instanceof RpcError && error.code === "workspace_not_registered",
-    );
+    const failure = await client
+      .listWorktrees("55555555-5555-4555-8555-555555555555")
+      .catch((error: unknown) => error);
+    expect(failure).toBeInstanceOf(RpcError);
+    if (!(failure instanceof RpcError)) throw new Error("Expected a typed missing-Workspace RPC error.");
+    expect(failure.code).toBe("workspace_not_registered");
   });
 
   it("decodes exact Session reads and every topology/status fact", async () => {
@@ -219,11 +227,11 @@ describe("Desktop Worktree client", () => {
     expect(topologies[4]).toMatchObject({
       topology: { value: { git: { pathAvailable: false } } },
     });
-    await expect(client.getWorktreeStatus("33333333-3333-4333-8333-333333333333")).resolves.toMatchObject({
+    expect(client.getWorktreeStatus("33333333-3333-4333-8333-333333333333")).resolves.toMatchObject({
       worktree: { recordedRoot: "/repo" },
       problems,
     });
-    await expect(client.listWorktrees("33333333-3333-4333-8333-333333333333")).resolves.toMatchObject({
+    expect(client.listWorktrees("33333333-3333-4333-8333-333333333333")).resolves.toMatchObject({
       worktrees: [
         {
           projection: {
@@ -440,10 +448,10 @@ describe("Desktop Worktree client", () => {
       [newBranch, null],
       [existing, "HEAD"],
     ] as const) {
-      await expect(invokeCreate(authority, baseRef)).rejects.toThrow(TypeError);
+      expect(invokeCreate(authority, baseRef)).rejects.toThrow(TypeError);
     }
     const callsBeforeForgery = transport.descriptorCalls.length;
-    await expect(
+    expect(
       Reflect.apply(client.createWorktree, client, [
         {
           sessionID: "66666666-6666-4666-8666-666666666666",
@@ -453,7 +461,7 @@ describe("Desktop Worktree client", () => {
         },
       ]),
     ).rejects.toThrow("decoded authority");
-    await expect(
+    expect(
       client.deleteWorktree("66666666-6666-4666-8666-666666666666", branchless, "confirm_and_branch"),
     ).rejects.toThrow(TypeError);
     expect(transport.descriptorCalls).toHaveLength(callsBeforeForgery);
@@ -476,7 +484,7 @@ describe("Desktop Worktree client", () => {
         }),
       },
     ]);
-    await expect(
+    expect(
       new ApiClient(transport, unexpectedProjectOverflow).createWorktree({
         sessionID: "77777777-7777-4777-8777-777777777777",
         setupOperationID: newSetupOperationID(),
@@ -492,7 +500,7 @@ describe("Desktop Worktree client", () => {
       "Test WT",
     );
     const transport = new FakeRpcTransport([]);
-    await expect(
+    expect(
       new ApiClient(transport, unexpectedProjectOverflow).createWorktree({
         sessionID: "s",
         setupOperationID: newSetupOperationID(),
@@ -507,7 +515,7 @@ describe("Desktop Worktree client", () => {
     const operation = await resolveSwitch(entry);
     vi.spyOn(crypto, "randomUUID").mockReturnValue(ids[0]);
 
-    await expect(
+    expect(
       new ApiClient(
         new FakeRpcTransport([
           {

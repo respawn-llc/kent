@@ -23,6 +23,7 @@ import (
 	transcriptpb "core/shared/protoapi/gen/kent/api/transcript"
 	"core/shared/runtimeids"
 	"core/shared/textutil"
+	"path/filepath"
 	"testing"
 	"time"
 
@@ -240,6 +241,8 @@ func newProjectedAuthorityRuntime(
 	root := t.TempDir()
 	settings = testsetup.WriteProviderSettings(t, root, settings)
 	settings.Reviewer.Frequency = "off"
+	metadataStore := testsetup.OpenStore(t, filepath.Dir(store.Dir()))
+	testsetup.ImportSessionProjectWorkspaceContext(t, metadataStore, store)
 	if cfg.Model == "" {
 		settings.Model = "gpt-6-sol"
 	} else {
@@ -267,17 +270,18 @@ func newProjectedAuthorityRuntime(
 	}
 	activity := registry.NewRuntimeRegistry(nil)
 	authority := sessionruntime.NewAuthority(sessionruntime.AuthorityOptions{
-		PersistenceRoot:   root,
-		StoreOptions:      persistence.Options(),
-		ResourceLifecycle: activity,
+		PersistenceRoot:               root,
+		StoreOptions:                  persistence.Options(),
+		ProjectWorkspaceContextReader: metadataStore,
+		ResourceLifecycle:             activity,
 		EventFeed: func(resource runtimeids.SessionResourceRef, event runtime.Event) {
 			activity.PublishAuthorityRuntimeEvent(resource, event)
 		},
 	})
 	if _, err := authority.OpenRuntime(t.Context(), sessionruntime.RuntimeOpenRequest{
 		SessionID: sessionID,
-		OwnerID:   "projected-ui-test",
-		Runtime:   &plan,
+
+		Runtime: &plan,
 	}); err != nil {
 		t.Fatalf("open projected runtime: %v", err)
 	}

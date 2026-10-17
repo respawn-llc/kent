@@ -343,7 +343,10 @@ func TestSubmitUserShellCommandSurfacesPersistenceFailure(t *testing.T) {
 func TestSubmitUserShellCommandReturnsUnknownToolErrorWhenShellNotRegistered(t *testing.T) {
 	store := mustCreateTestSession(t)
 
-	eng, err := New(store, mustMaterializeTestEventLog(t, store), &fakeClient{}, tools.NewRegistry(), Config{Model: "gpt-6-sol"})
+	eng, err := New(store, mustMaterializeTestEventLog(t, store), &fakeClient{}, tools.NewRegistry(), Config{
+		Model:                         "gpt-6-sol",
+		ProjectWorkspaceContextReader: newRuntimeTestProjectWorkspaceContextReader(t, store),
+	})
 
 	result, err := eng.SubmitUserShellCommand(context.Background(), "pwd")
 	if !errors.Is(err, errUnknownTool) {
