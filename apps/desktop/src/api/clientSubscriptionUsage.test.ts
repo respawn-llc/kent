@@ -115,3 +115,38 @@ test("unsupported credential failures are omitted while signed-out subscriptions
     binding: { connectionID: "connection", supported: true },
   });
 });
+
+test.each([
+  {
+    method: AuthService.method.getStatus,
+    read: async (api: ApiClient) => api.getSubscriptionBinding("9a033091-f67a-4e1d-9a6a-05caec0c03b0"),
+  },
+  {
+    method: AuthService.method.getStatus,
+    read: async (api: ApiClient) => api.getSubscriptionUsage("connection"),
+  },
+  {
+    method: AuthService.method.getConnections,
+    read: async (api: ApiClient) => api.getSubscriptionConnections(),
+  },
+])("preserves supplied internal-failure diagnostics for Auth reads %#", async ({ method, read }) => {
+  const cause = crypto.randomUUID();
+  const transport = new FakeRpcTransport([
+    {
+      descriptor: method,
+      result: create(method.output, {
+        outcome: {
+          case: "error",
+          value: {
+            code: "internal_failure",
+            detail: { case: "internalFailure", value: { cause } },
+          },
+        },
+      }),
+    },
+  ]);
+  expect(read(new ApiClient(transport, unexpectedProjectOverflow))).rejects.toMatchObject({
+    code: "internal_failure",
+    message: cause,
+  });
+});

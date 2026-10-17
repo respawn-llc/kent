@@ -1,4 +1,4 @@
-import { create } from "@app/server-api-contract";
+import { create, type DescMethod } from "@app/server-api-contract";
 import {
   AuthService,
   AuthMethod,
@@ -7,16 +7,20 @@ import {
   SubscriptionWindowBucket,
   SubscriptionFailureClassification,
   type Status,
+  type GetStatusResult,
+  type GetConnectionsResult,
 } from "@app/server-api-contract/gen/kent/api/auth/auth_pb";
-import { requireUnarySuccess } from "./protobufRpc";
+import { protobufRpcError, requireUnarySuccess } from "./protobufRpc";
 import type { RpcTransport } from "./transport";
 import { timestampMillis } from "./clientTime";
-import { ContractError } from "./errors";
+import { ContractError, RpcError } from "./errors";
 import { SubscriptionReadError, type SubscriptionUsage, type SubscriptionBinding } from "./subscriptionUsage";
 
 export async function getSubscriptionConnections(transport: RpcTransport) {
   const method = AuthService.method.getConnections;
-  const catalog = requireUnarySuccess(method, await transport.callDescriptor(method, create(method.input)));
+  const result = await transport.callDescriptor(method, create(method.input));
+  throwAuthReadFailure(method, result.outcome);
+  const catalog = requireUnarySuccess(method, result);
   return catalog.connections.map((connection) => ({
     id: connection.id,
     supported:
@@ -31,7 +35,23 @@ async function status(
   target: { sessionId: string; skipSubscriptionUsage: true } | { provider: { connectionId: string } },
 ) {
   const method = AuthService.method.getStatus;
-  return requireUnarySuccess(method, await transport.callDescriptor(method, create(method.input, target)));
+  const result = await transport.callDescriptor(method, create(method.input, target));
+  throwAuthReadFailure(method, result.outcome);
+  return requireUnarySuccess(method, result);
+}
+
+function throwAuthReadFailure(
+  method: DescMethod,
+  outcome: (GetStatusResult | GetConnectionsResult)["outcome"],
+): void {
+  if (outcome.case !== "error" || outcome.value.detail.case !== "internalFailure") return;
+  const error = protobufRpcError(method, outcome.value);
+  throw new RpcError({
+    code: error.code,
+    method: error.method,
+    data: error.data,
+    message: outcome.value.detail.value.cause ?? error.message,
+  });
 }
 
 function binding(value: Status): SubscriptionBinding {

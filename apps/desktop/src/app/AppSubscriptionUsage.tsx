@@ -44,7 +44,10 @@ export function AppSubscriptionUsage() {
           <TooltipContent>{t("subscriptionUsage.title")}</TooltipContent>
         </Tooltip>
       </TooltipProvider>
-      <PopoverContent align="end" className="w-80 max-w-[calc(100vw_-_var(--space-5))] text-sm">
+      <PopoverContent
+        align="end"
+        className="max-h-[var(--radix-popover-content-available-height)] w-80 max-w-[calc(100vw_-_var(--space-5))] overflow-hidden text-sm"
+      >
         <UsageContent model={model} virtualized />
       </PopoverContent>
     </Popover>

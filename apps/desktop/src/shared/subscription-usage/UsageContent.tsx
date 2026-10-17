@@ -62,7 +62,7 @@ export function UsageContent({
             loadingLabel={t("subscriptionUsage.loading")}
             onLoadMore={() => undefined}
             rowSpacing="tight"
-            className="h-full"
+            className="h-full min-h-0 overflow-x-hidden overflow-y-auto overscroll-contain"
           />
         </div>
       ) : (
