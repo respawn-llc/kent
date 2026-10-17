@@ -211,18 +211,38 @@ describe("RpcWebSocketTransport", () => {
   it("attaches a dedicated Session before a Session-scoped call", async () => {
     const transport = createRpcTransport("ws://127.0.0.1:53082/rpc");
     const method = QuestionService.method.listPending;
+    const sessionID = "33333333-3333-4333-8333-333333333333";
+    const target = { projectID: "project-a", sessionID };
     const answer = transport.callDescriptorAttachedSession(
-      { sessionID: "33333333-3333-4333-8333-333333333333", projectID: "project-1" },
+      target,
       method,
       create(method.input, {
-        sessionId: { value: { case: "sessionId", value: "33333333-3333-4333-8333-333333333333" } },
+        sessionId: { value: { case: "sessionId", value: sessionID } },
       }),
     );
     const socket = sockets[0] ?? failTest("attached Session socket missing");
 
     await socket.setup();
     expect(descriptorOperation(socket, 1)).toBe(operationName(ConnectionService.method.attachSession));
-    ack(socket, 1);
+    binaryAck(socket, 1, ConnectionService.method.attachSession, {
+      result: create(AttachSessionResultSchema, {
+        outcome: {
+          case: "success",
+          value: {
+            attachment: {
+              case: "session",
+              value: {
+                projectId: "project-b",
+                workspaceId: "workspace-2",
+                workspaceRoot: "/workspace-2",
+                sessionId: sessionID,
+                reattachCapability: "reattach-capability-1",
+              },
+            },
+          },
+        },
+      }),
+    });
     await waitForSent(socket, 3);
     expect(descriptorOperation(socket, 2)).toBe(operationName(method));
     binaryAck(socket, 2, method, {
@@ -764,6 +784,47 @@ describe("RpcWebSocketTransport", () => {
     subscription.close();
   });
 
+  it("receives transcript events for a Session attached to its new Project", async () => {
+    const sessionID = "123e4567-e89b-42d3-a456-426614174000";
+    const transport = createRpcTransport("ws://127.0.0.1:53082/rpc");
+    const onEvent = vi.fn();
+    const onError = vi.fn();
+    const subscription = createChatApi(transport).subscribeTranscript(
+      { projectID: "project-a", sessionID },
+      { onEvent, onError, onComplete: vi.fn() },
+    );
+    const socket = sockets[0] ?? failTest("Transcript socket missing.");
+
+    await prepareTranscriptSocket(socket, sessionID, "project-b");
+    binaryAck(socket, 2, StreamService.method.subscribe, {
+      result: create(StreamService.method.subscribe.output, { outcome: { case: "success", value: {} } }),
+    });
+    binaryNotification(
+      socket,
+      StreamService.method.event,
+      encode(
+        MessageSchema,
+        create(MessageSchema, {
+          sequence: 2n,
+          event: {
+            payload: {
+              case: "sessionIdentity",
+              value: {
+                sessionId: sessionID,
+                category: SessionCategory.MAIN,
+                conversationFreshness: ConversationFreshness.FRESH,
+              },
+            },
+          },
+        }),
+      ),
+    );
+
+    expect(onEvent).toHaveBeenCalledWith(expect.objectContaining({ sequence: 2, kind: "session_identity" }));
+    expect(onError).not.toHaveBeenCalled();
+    subscription.close();
+  });
+
   it("ends each transcript attempt on loss or completion and permits explicit observation", async () => {
     vi.useFakeTimers();
     const sessionID = "123e4567-e89b-42d3-a456-426614174000";
@@ -848,7 +909,7 @@ describe("RpcWebSocketTransport", () => {
   });
 });
 
-async function prepareTranscriptSocket(socket: MockWebSocket, sessionID: string): Promise<void> {
+async function prepareTranscriptSocket(socket: MockWebSocket, sessionID: string, projectID = "project-1") {
   await socket.setup();
   binaryAck(socket, 1, ConnectionService.method.attachSession, {
     result: create(AttachSessionResultSchema, {
@@ -858,7 +919,7 @@ async function prepareTranscriptSocket(socket: MockWebSocket, sessionID: string)
           attachment: {
             case: "session",
             value: {
-              projectId: "project-1",
+              projectId: projectID,
               workspaceId: "workspace-1",
               workspaceRoot: "/workspace",
               sessionId: sessionID,

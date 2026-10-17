@@ -121,7 +121,7 @@ class RpcWebSocketTransport implements RpcTransport {
     return this.#withDedicatedSocket(
       options,
       async (socket, requestOptions, attachment) => {
-        requireSessionAttachment(attachment, { ...target, sessionID: attachedSessionID });
+        requireSessionAttachment(attachment, { sessionID: attachedSessionID });
         return sendSocketDescriptorRequest(socket, method, request, requestOptions);
       },
       { sessionID: attachedSessionID },
@@ -338,7 +338,7 @@ class RpcWebSocketTransport implements RpcTransport {
     run: (socket: WebSocket) => Promise<void>,
     onError: (error: Error) => void,
     signal: AbortSignal,
-    attachmentTarget?: Readonly<{ sessionID?: string; projectID?: string }>,
+    attachmentTarget?: SessionAttachmentTarget,
   ): Promise<void> {
     try {
       await this.#withSubscriptionSocket(signal, run, attachmentTarget);
@@ -353,7 +353,7 @@ class RpcWebSocketTransport implements RpcTransport {
   async #withSubscriptionSocket(
     signal: AbortSignal,
     run: (socket: WebSocket) => Promise<void>,
-    attachmentTarget?: Readonly<{ sessionID?: string; projectID?: string }>,
+    attachmentTarget?: SessionAttachmentTarget,
   ): Promise<void> {
     const socket = await openSocket(this.#endpoint, socketOpenTimeoutMs, signal);
     const abort = () => {
@@ -365,13 +365,10 @@ class RpcWebSocketTransport implements RpcTransport {
         timeoutMilliseconds: rpcRequestTimeoutMs,
         expectedRootId: this.#expectedRootId,
         signal,
-        ...(attachmentTarget?.sessionID === undefined ? {} : { sessionID: attachmentTarget.sessionID }),
+        ...(attachmentTarget === undefined ? {} : { sessionID: attachmentTarget.sessionID }),
       });
-      if (attachmentTarget?.sessionID !== undefined) {
-        requireSessionAttachment(attachment, {
-          ...(attachmentTarget.projectID === undefined ? {} : { projectID: attachmentTarget.projectID }),
-          sessionID: attachmentTarget.sessionID,
-        });
+      if (attachmentTarget !== undefined) {
+        requireSessionAttachment(attachment, attachmentTarget);
       }
       await run(socket);
     } finally {

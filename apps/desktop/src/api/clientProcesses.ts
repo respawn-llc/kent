@@ -30,8 +30,8 @@ export function observeProcesses(
             const method = ViewService.method.observe;
             return transport.subscribeDescriptor({
               method,
-              request: create(method.input, { projectId: target.projectID, sessionId: target.sessionID }),
-              attachment: target,
+              request: create(method.input, { sessionId: target.sessionID }),
+              attachment: { sessionID: target.sessionID },
               eventDescriptor: ListSuccessSchema,
               completionDescriptor: StreamCompletionSchema,
               onStart: (result) => {

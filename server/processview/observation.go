@@ -6,27 +6,25 @@ import (
 
 	processpb "core/shared/protoapi/gen/kent/api/process"
 	"core/shared/serverapi"
-	"google.golang.org/protobuf/proto"
 )
 
 type processObservation struct {
-	service *ProcessViewService
-	request *processpb.ListRequest
-	ctx     context.Context
-	cancel  context.CancelCauseFunc
-	results chan *processpb.ListSuccess
-	dirty   chan struct{}
+	service   *ProcessViewService
+	sessionID string
+	ctx       context.Context
+	cancel    context.CancelCauseFunc
+	results   chan *processpb.ListSuccess
+	dirty     chan struct{}
 }
 
 func (s *ProcessViewService) ObserveProcesses(ctx context.Context, request *processpb.ObserveRequest) (serverapi.ProcessObservationSubscription, error) {
-	listRequest := &processpb.ListRequest{ProjectId: request.ProjectId, OwnerSessionId: proto.String(request.SessionId)}
-	initial, err := s.ListProcesses(ctx, listRequest)
+	initial, err := s.listSessionProcesses(request.SessionId)
 	if err != nil {
 		return nil, err
 	}
 	lifetime, cancel := context.WithCancelCause(ctx)
 	sub := &processObservation{
-		service: s, request: listRequest, ctx: lifetime, cancel: cancel,
+		service: s, sessionID: request.SessionId, ctx: lifetime, cancel: cancel,
 		results: make(chan *processpb.ListSuccess, 1), dirty: make(chan struct{}, 1),
 	}
 	sub.results <- initial
@@ -58,7 +56,7 @@ func (s *processObservation) run() {
 		case <-s.dirty:
 		default:
 		}
-		list, err := s.service.ListProcesses(s.ctx, s.request)
+		list, err := s.service.listSessionProcesses(s.sessionID)
 		if err != nil {
 			s.cancel(err)
 			return
@@ -76,7 +74,7 @@ func (s *ProcessViewService) BackgroundListChanged(sessionID string) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	for sub := range s.observers {
-		if sub.request.GetOwnerSessionId() == sessionID {
+		if sub.sessionID == sessionID {
 			select {
 			case sub.dirty <- struct{}{}:
 			default:
