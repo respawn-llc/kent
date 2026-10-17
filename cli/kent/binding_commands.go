@@ -251,10 +251,7 @@ func retargetSessionWorkspace(ctx context.Context, remote apicontract.SessionLif
 	if err != nil {
 		return nil, err
 	}
-	origin, err := sessionRetargetRuntimeOrigin()
-	if err != nil {
-		return &sessionlaunchpb.SessionRetargetWorkspaceSuccess{}, err
-	}
+	origin := sessionRetargetRuntimeOrigin()
 	return remote.RetargetSessionWorkspace(ctx, &sessionlaunchpb.SessionRetargetWorkspaceRequest{
 		SessionId:     protoapi.SessionSelectorToProto(selector),
 		WorkspaceRoot: workspaceRoot,
@@ -263,17 +260,16 @@ func retargetSessionWorkspace(ctx context.Context, remote apicontract.SessionLif
 	})
 }
 
-func sessionRetargetRuntimeOrigin() (*sessionlaunchpb.RuntimeStepOrigin, error) {
+func sessionRetargetRuntimeOrigin() *sessionlaunchpb.RuntimeStepOrigin {
 	currentSessionID, ok := sessionenv.LookupSessionID(os.LookupEnv)
 	if !ok {
-		return nil, nil
+		return nil
 	}
 	stepID, _ := sessionenv.LookupStepID(os.LookupEnv)
 	if stepID == "" {
-		return nil, nil
+		return nil
 	}
-	origin := &sessionlaunchpb.RuntimeStepOrigin{SessionId: currentSessionID, StepId: stepID}
-	return origin, protoapi.Validate(origin)
+	return &sessionlaunchpb.RuntimeStepOrigin{SessionId: currentSessionID, StepId: stepID}
 }
 
 func listProjects(ctx context.Context) ([]clientui.ProjectSummary, error) {
@@ -288,10 +284,7 @@ func listProjects(ctx context.Context) ([]clientui.ProjectSummary, error) {
 	}
 	projects := make([]clientui.ProjectSummary, 0, len(resp.Projects))
 	for _, project := range resp.Projects {
-		summary, err := client.ProjectSummaryFromProto(project)
-		if err != nil {
-			return nil, err
-		}
+		summary := client.ProjectSummaryFromProto(project)
 		projects = append(projects, summary)
 	}
 	return projects, nil
@@ -299,9 +292,6 @@ func listProjects(ctx context.Context) ([]clientui.ProjectSummary, error) {
 
 func createProject(ctx context.Context, displayName string, workspaceRoot string) (*projectpb.ProjectMutationBinding, error) {
 	trimmedDisplayName := strings.TrimSpace(displayName)
-	if trimmedDisplayName == "" {
-		return nil, errors.New("project name is required")
-	}
 	normalizedWorkspaceRoot, err := normalizeBindingCommandPath(workspaceRoot)
 	if err != nil {
 		return nil, err
@@ -382,7 +372,7 @@ func resolveWorkspaceBinding(ctx context.Context, projectViews apicontract.Proje
 	if resp.Binding == nil {
 		return serverapi.ProjectBinding{}, errWorkspaceNotRegistered
 	}
-	return client.ProjectBindingFromProto(resp.Binding)
+	return client.ProjectBindingFromProto(resp.Binding), nil
 }
 
 func loadBindingCommandConfig(path string) (config.Connection, error) {

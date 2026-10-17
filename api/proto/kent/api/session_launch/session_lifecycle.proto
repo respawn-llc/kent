@@ -10,7 +10,6 @@ import "kent/api/project/project.proto";
 import "kent/api/shared/foundation.proto";
 import "kent/api/shared/session_selector.proto";
 import "kent/api/shared/validation.proto";
-import "kent/api/session_launch/validation.proto";
 import "kent/api/session_launch/session_launch.proto";
 import "kent/api/worktree/worktree.proto";
 import "kent/api/session_retarget/session_retarget.proto";
@@ -40,7 +39,8 @@ message SessionPromoteResult {
 
 message SessionInitialInputRequest {
   optional string session_id = 1 [
-    (buf.validate.field).string.(scoped_session_id) = true
+    (buf.validate.field).string.uuid = true,
+    (buf.validate.field).string.(kent.api.shared.canonical_uuid_v4) = true
   ];
   string transition_input = 2;
   bool override_stored_draft = 3;
@@ -81,7 +81,8 @@ message SessionInitialInputResult {
 
 message SessionPersistInputDraftRequest {
   string session_id = 1 [
-    (buf.validate.field).string.(scoped_session_id) = true
+    (buf.validate.field).string.uuid = true,
+    (buf.validate.field).string.(kent.api.shared.canonical_uuid_v4) = true
   ];
   string input = 2;
   ProtectedInputDraftUpdate protected_input = 3;
@@ -124,7 +125,7 @@ message SessionPersistInputDraftResult {
 }
 
 message RuntimeStepOrigin {
-  string session_id = 3 [(buf.validate.field).string.(scoped_session_id) = true];
+  string session_id = 3 [(buf.validate.field).string.uuid = true, (buf.validate.field).string.(kent.api.shared.canonical_uuid_v4) = true];
   string step_id = 2 [
     (buf.validate.field).string.uuid = true,
     (buf.validate.field).string.(kent.api.shared.canonical_uuid_v4) = true
@@ -192,9 +193,9 @@ message SessionTransition {
   string initial_prompt = 2;
   bool initial_prompt_history_recorded = 3;
   optional string initial_input = 4;
-  optional string target_session_id = 5 [(buf.validate.field).string.min_len = 1];
+  optional string target_session_id = 5 [(buf.validate.field).string.uuid = true, (buf.validate.field).string.(kent.api.shared.canonical_uuid_v4) = true];
   optional string fork_rollback_target_id = 6 [(buf.validate.field).string.min_len = 1];
-  optional string previous_session_id = 7 [(buf.validate.field).string.min_len = 1];
+  optional string previous_session_id = 7 [(buf.validate.field).string.uuid = true, (buf.validate.field).string.(kent.api.shared.canonical_uuid_v4) = true];
 
   option (buf.validate.message).cel = {
     id: "kent.session_launch.transition_targets"
@@ -206,7 +207,7 @@ message SessionTransition {
 }
 
 message SessionResolveTransitionRequest {
-  optional string session_id = 1 [(buf.validate.field).string.(scoped_session_id) = true];
+  optional string session_id = 1 [(buf.validate.field).string.uuid = true, (buf.validate.field).string.(kent.api.shared.canonical_uuid_v4) = true];
   SessionTransition transition = 2 [(buf.validate.field).required = true];
 }
 
@@ -366,7 +367,7 @@ message SessionRuntimeActivateResult {
 
 message SessionArchiveRequest {
   kent.api.shared.SessionSelector session_id = 1 [(buf.validate.field).required = true];
-  optional string caller_session_id = 3 [(buf.validate.field).string.(scoped_session_id) = true];
+  optional string caller_session_id = 3 [(buf.validate.field).string.uuid = true, (buf.validate.field).string.(kent.api.shared.canonical_uuid_v4) = true];
   string output_path = 2 [
     (buf.validate.field).string.min_len = 1,
     (buf.validate.field).cel = {
@@ -379,24 +380,24 @@ message SessionArchiveRequest {
 
 message SessionDeleteRequest {
   kent.api.shared.SessionSelector session_id = 1 [(buf.validate.field).required = true];
-  optional string caller_session_id = 2 [(buf.validate.field).string.(scoped_session_id) = true];
+  optional string caller_session_id = 2 [(buf.validate.field).string.uuid = true, (buf.validate.field).string.(kent.api.shared.canonical_uuid_v4) = true];
 }
 
 message SessionArchiveSuccess {
-  string session_id = 1 [(buf.validate.field).string.(scoped_session_id) = true];
+  string session_id = 1 [(buf.validate.field).string.uuid = true, (buf.validate.field).string.(kent.api.shared.canonical_uuid_v4) = true];
   string output_path = 2 [(buf.validate.field).string.min_len = 1];
 }
 
 message SessionDeleteSuccess {
-  string session_id = 1 [(buf.validate.field).string.(scoped_session_id) = true];
+  string session_id = 1 [(buf.validate.field).string.uuid = true, (buf.validate.field).string.(kent.api.shared.canonical_uuid_v4) = true];
 }
 
 message SessionNotFoundDetails {
-  optional string session_id = 1 [(buf.validate.field).string.(scoped_session_id) = true];
+  optional string session_id = 1 [(buf.validate.field).string.uuid = true, (buf.validate.field).string.(kent.api.shared.canonical_uuid_v4) = true];
 }
 
 message SessionInUseDetails {
-  string session_id = 1 [(buf.validate.field).string.(scoped_session_id) = true];
+  string session_id = 1 [(buf.validate.field).string.uuid = true, (buf.validate.field).string.(kent.api.shared.canonical_uuid_v4) = true];
   optional int64 short_id = 2 [(buf.validate.field).int64 = {gt: 0 lte: 9007199254740991}];
 }
 

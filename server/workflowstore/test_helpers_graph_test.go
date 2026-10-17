@@ -245,7 +245,11 @@ func applyManualMoveForStoreTestWithPreparation(
 
 func linkWorkflow(t *testing.T, ctx context.Context, store *Store, projectID string, workflowID runtimeids.WorkflowID, isDefault bool) ProjectWorkflowLinkRecord {
 	t.Helper()
-	link, err := store.LinkWorkflow(ctx, projectID, workflowID, isDefault)
+	policy := WorkflowLinkDefaultNever
+	if isDefault {
+		policy = WorkflowLinkDefaultAlways
+	}
+	link, err := store.LinkWorkflowWithDefaultPolicy(ctx, projectID, workflowID, policy)
 	if err != nil {
 		t.Fatalf("LinkWorkflow: %v", err)
 	}

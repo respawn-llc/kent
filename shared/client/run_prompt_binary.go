@@ -14,9 +14,6 @@ import (
 )
 
 func (c *Remote) RunPrompt(ctx context.Context, request *runpromptpb.Request, progress serverapi.RunPromptProgressSink) (*runpromptpb.Success, error) {
-	if err := protoapi.Validate(request); err != nil {
-		return nil, err
-	}
 	method := bootstrapMethod(runpromptpb.File_kent_api_run_prompt_run_prompt_proto, "RunService", "Prompt")
 	progressOperation, err := protoapi.ResolveProgressOperation(method)
 	if err != nil {

@@ -9,7 +9,6 @@ import (
 
 	"core/shared/client"
 	"core/shared/config"
-	"core/shared/protoapi"
 	taskpb "core/shared/protoapi/gen/kent/api/workflow_task"
 )
 
@@ -90,10 +89,6 @@ func taskDependencyMutationSubcommand(kind taskDependencyMutationKind, args []st
 				fmt.Fprintln(stderr, err)
 				return 1
 			}
-			if err := protoapi.Validate(result); err != nil {
-				fmt.Fprintln(stderr, err)
-				return 1
-			}
 			response = result
 		case taskDependencyMutationRemove:
 			result, err := remote.RemoveWorkflowTaskDependency(ctx, &taskpb.DependencyRemoveRequest{
@@ -104,20 +99,12 @@ func taskDependencyMutationSubcommand(kind taskDependencyMutationKind, args []st
 				fmt.Fprintln(stderr, err)
 				return 1
 			}
-			if err := protoapi.Validate(result); err != nil {
-				fmt.Fprintln(stderr, err)
-				return 1
-			}
 			response = result
 		default:
 			panic(fmt.Sprintf("unsupported task dependency mutation %q", kind))
 		}
 		if *jsonOut {
-			output, err := taskDependencyMutationOutput(response)
-			if err != nil {
-				fmt.Fprintln(stderr, err)
-				return 1
-			}
+			output := taskDependencyMutationOutput(response)
 			return writeCommandJSON(stdout, stderr, output)
 		}
 		fmt.Fprintln(stdout, "done")
@@ -164,16 +151,8 @@ func taskDependencyListSubcommand(args []string, stdout io.Writer, stderr io.Wri
 			fmt.Fprintln(stderr, err)
 			return 1
 		}
-		if err := protoapi.Validate(response); err != nil {
-			fmt.Fprintln(stderr, err)
-			return 1
-		}
 		if *jsonOut {
-			output, err := taskDependencyListOutput(response)
-			if err != nil {
-				fmt.Fprintln(stderr, err)
-				return 1
-			}
+			output := taskDependencyListOutput(response)
 			return writeCommandJSON(stdout, stderr, output)
 		}
 		if err := writeTaskDependencyDirections(stdout, response.Directions); err != nil {
@@ -213,10 +192,7 @@ func writeTaskDependencyDirections[T taskDependencyDirection](stdout io.Writer, 
 			fmt.Fprintln(stdout, "Blocked by:")
 		}
 		for _, item := range direction.GetItems() {
-			status, err := taskStatusText(item.Status)
-			if err != nil {
-				return err
-			}
+			status := taskStatusText(item.Status)
 			fmt.Fprintf(stdout, "%s: %s (%s)\n", item.ShortId, item.Title, status)
 		}
 	}

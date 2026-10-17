@@ -5,22 +5,18 @@ import (
 	"errors"
 
 	"core/cli/app/commands"
-	"core/shared/protoapi"
 	promptcommandpb "core/shared/protoapi/gen/kent/api/prompt_command"
 	"core/shared/serverapi"
 
 	tea "github.com/charmbracelet/bubbletea"
 )
 
-func promptCatalogSnapshot(response *promptcommandpb.Catalog) ([]commands.PromptCommandCatalogEntry, error) {
-	if err := protoapi.Validate(response); err != nil {
-		return nil, err
-	}
+func promptCatalogSnapshot(response *promptcommandpb.Catalog) []commands.PromptCommandCatalogEntry {
 	entries := make([]commands.PromptCommandCatalogEntry, 0, len(response.Commands))
 	for _, entry := range response.Commands {
 		entries = append(entries, commands.PromptCommandCatalogEntry{Name: entry.Name, Preview: entry.Preview})
 	}
-	return entries, nil
+	return entries
 }
 
 func (m *uiModel) removePromptCatalogEntry(name string) {
@@ -49,10 +45,7 @@ func (m *uiModel) startPromptCatalogRefresh(name string) tea.Cmd {
 		if err != nil {
 			return promptCatalogRefreshDoneMsg{err: err}
 		}
-		entries, err := promptCatalogSnapshot(response)
-		if err != nil {
-			return promptCatalogRefreshDoneMsg{err: err}
-		}
+		entries := promptCatalogSnapshot(response)
 		return promptCatalogRefreshDoneMsg{entries: entries}
 	}
 }

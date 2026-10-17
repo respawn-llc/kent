@@ -7,6 +7,27 @@ import "buf/validate/validate.proto";
 option go_package = "core/shared/protoapi/gen/kent/api/shared;sharedpb";
 
 extend buf.validate.StringRules {
+  optional bool pending_work_argument = 50008 [(buf.validate.predefined).cel = {
+    id: "kent.shared.pending_work_argument"
+    message: "Pending Work argument must have canonical single-space word separation"
+    expression:
+      "!rule || this.split(' ').all(word, word != '' && "
+      "word.split('').all(character, character != '\\uFEFF' && character.trim() != ''))"
+  }];
+  optional bool pending_work_nonblank = 50007 [(buf.validate.predefined).cel = {
+    id: "kent.shared.pending_work_nonblank"
+    message: "Pending Work text must not be blank"
+    expression: "!rule || this.split('').exists(character, character != '\\uFEFF' && character.trim() != '')"
+  }];
+  optional bool connection_id = 50006 [(buf.validate.predefined).cel = {
+    id: "kent.shared.connection_id"
+    message: "must start with a lowercase ASCII letter and contain only lowercase ASCII letters, digits, hyphens or underscores"
+    expression:
+      "!rule || (size(this) > 0 && this.charAt(0) >= 'a' && this.charAt(0) <= 'z' && "
+      "this.split('').all(character, "
+      "(character >= 'a' && character <= 'z') || (character >= '0' && character <= '9') || "
+      "character == '-' || character == '_'))"
+  }];
   optional bool canonical_uuid_v4 = 50002 [(buf.validate.predefined).cel = {
     id: "kent.shared.canonical_uuid_v4"
     message: "must be canonical lowercase UUID v4 text"

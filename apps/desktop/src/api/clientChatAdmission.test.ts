@@ -8,10 +8,10 @@ import {
 } from "@app/server-api-contract/gen/kent/api/chat/chat_pb";
 import { FakeRpcTransport, unexpectedProjectOverflow } from "@/test-support/api";
 import { ApiClient } from "./client";
-import { parsePendingWorkItemID } from "./pendingWork";
+import { pendingWorkItemIDFromProto } from "./pendingWork";
 
 const sessionID = "123e4567-e89b-42d3-a456-426614174000";
-const queueItemID = parsePendingWorkItemID("223e4567-e89b-42d3-a456-426614174000");
+const queueItemID = pendingWorkItemIDFromProto("223e4567-e89b-42d3-a456-426614174000");
 const target = { kind: "session", projectID: "project-1", sessionID } as const;
 
 async function admit(disposition: number) {

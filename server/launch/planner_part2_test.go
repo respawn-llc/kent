@@ -5,6 +5,7 @@ import (
 	"core/server/session"
 	"core/server/session/sessiontest"
 	"core/shared/config"
+	"core/shared/runtimeids"
 	"core/shared/serverapi"
 	"core/shared/textutil"
 	"core/shared/toolspec"
@@ -184,7 +185,8 @@ func TestPlannerSelectedSessionIDRejectsSymlinkOutsideActiveContainer(t *testing
 	}
 	persistence := sessiontest.NewPersistence()
 	escaped := createTestSessionInContainer(t, containerB, "sessions", "/tmp/workspace-b", persistence.Options()...)
-	if err := os.Symlink(escaped.Dir(), filepath.Join(containerA, "escaped-link")); err != nil {
+	escapedID := runtimeids.NewSessionID()
+	if err := os.Symlink(escaped.Dir(), filepath.Join(containerA, escapedID.String())); err != nil {
 		t.Fatalf("symlink escaped session: %v", err)
 	}
 	planner := newPersistenceBackedTestPlanner(
@@ -193,7 +195,7 @@ func TestPlannerSelectedSessionIDRejectsSymlinkOutsideActiveContainer(t *testing
 		persistence,
 	)
 
-	if _, err := planner.PlanSession(context.Background(), SessionRequest{Mode: ModeInteractive, Intent: serverapi.OpenExistingSessionLaunchIntent(mustTypedIntentSessionID(t, "escaped-link"))}); err == nil {
+	if _, err := planner.PlanSession(context.Background(), SessionRequest{Mode: ModeInteractive, Intent: serverapi.OpenExistingSessionLaunchIntent(escapedID)}); err == nil {
 		t.Fatal("expected planner to reject symlinked selected session outside active container")
 	}
 }

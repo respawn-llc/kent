@@ -6,16 +6,12 @@ import (
 	"core/server/workflow"
 	"core/server/workflow/label"
 	"core/server/workflowstore"
-	"core/shared/protoapi"
 	pb "core/shared/protoapi/gen/kent/api/workflow_definition"
 	taskpb "core/shared/protoapi/gen/kent/api/workflow_task"
 	"core/shared/workflowcontract"
 )
 
 func (s *Service) CreateWorkflowProjectLabel(ctx context.Context, req *pb.ProjectLabelCreateRequest) (*pb.ProjectLabelCreateSuccess, error) {
-	if err := protoapi.Validate(req); err != nil {
-		return nil, err
-	}
 	record, err := s.store.CreateProjectLabel(ctx, req.ProjectId, req.Name)
 	if err != nil {
 		return nil, err
@@ -26,9 +22,6 @@ func (s *Service) CreateWorkflowProjectLabel(ctx context.Context, req *pb.Projec
 }
 
 func (s *Service) ListWorkflowProjectLabels(ctx context.Context, req *pb.ProjectLabelCatalogRequest) (*pb.ProjectLabelCatalogSuccess, error) {
-	if err := protoapi.Validate(req); err != nil {
-		return nil, err
-	}
 	records, err := s.store.ListProjectLabels(ctx, req.ProjectId)
 	if err != nil {
 		return nil, err
@@ -46,10 +39,7 @@ func (s *Service) ListWorkflowProjectLabels(ctx context.Context, req *pb.Project
 }
 
 func (s *Service) RenameWorkflowProjectLabel(ctx context.Context, req *pb.ProjectLabelRenameRequest) (*pb.ProjectLabelRenameSuccess, error) {
-	if err := protoapi.Validate(req); err != nil {
-		return nil, err
-	}
-	id, err := label.ParseID(req.LabelId)
+	id, err := label.IDFromProto(req.LabelId)
 	if err != nil {
 		return nil, err
 	}
@@ -63,10 +53,7 @@ func (s *Service) RenameWorkflowProjectLabel(ctx context.Context, req *pb.Projec
 }
 
 func (s *Service) DeleteWorkflowProjectLabel(ctx context.Context, req *pb.ProjectLabelDeleteRequest) (*pb.ProjectLabelDeleteSuccess, error) {
-	if err := protoapi.Validate(req); err != nil {
-		return nil, err
-	}
-	id, err := label.ParseID(req.LabelId)
+	id, err := label.IDFromProto(req.LabelId)
 	if err != nil {
 		return nil, err
 	}
@@ -80,12 +67,9 @@ func (s *Service) DeleteWorkflowProjectLabel(ctx context.Context, req *pb.Projec
 }
 
 func (s *Service) ReorderWorkflowProjectLabels(ctx context.Context, req *pb.ProjectLabelReorderRequest) (*pb.ProjectLabelReorderSuccess, error) {
-	if err := protoapi.Validate(req); err != nil {
-		return nil, err
-	}
 	orderedIDs := make([]label.ID, 0, len(req.LabelIds))
 	for _, rawID := range req.LabelIds {
-		id, err := label.ParseID(rawID)
+		id, err := label.IDFromProto(rawID)
 		if err != nil {
 			return nil, err
 		}
@@ -118,9 +102,6 @@ func (s *Service) ReorderWorkflowProjectLabels(ctx context.Context, req *pb.Proj
 }
 
 func (s *Service) GetWorkflowTaskLabels(ctx context.Context, req *taskpb.LabelsGetRequest) (*taskpb.LabelsGetSuccess, error) {
-	if err := protoapi.Validate(req); err != nil {
-		return nil, err
-	}
 	ids, err := s.store.GetTaskLabelIDs(ctx, workflow.TaskID(req.TaskId))
 	if err != nil {
 		return nil, err
@@ -134,9 +115,6 @@ func (s *Service) GetWorkflowTaskLabels(ctx context.Context, req *taskpb.LabelsG
 }
 
 func (s *Service) UpdateWorkflowTaskLabels(ctx context.Context, req *taskpb.LabelsUpdateRequest) (*taskpb.LabelsUpdateSuccess, error) {
-	if err := protoapi.Validate(req); err != nil {
-		return nil, err
-	}
 	scope, err := s.store.GetTaskLabelScope(ctx, workflow.TaskID(req.TaskId))
 	if err != nil {
 		return nil, err

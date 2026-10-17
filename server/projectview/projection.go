@@ -1,7 +1,6 @@
 package projectview
 
 import (
-	"errors"
 	"fmt"
 	"math"
 	"time"
@@ -120,29 +119,18 @@ func projectWorkspaceCatalogRowToGenerated(workspace metadata.ProjectWorkspaceCa
 	}
 }
 
-func projectWorkspaceSelectorFromGenerated(selector *projectpb.ProjectWorkspaceSelector) (serverapi.ProjectWorkspaceSelector, error) {
-	if selector == nil {
-		return serverapi.ProjectWorkspaceSelector{}, errors.New("project workspace selector is required")
-	}
-	switch value := selector.Selector.(type) {
-	case *projectpb.ProjectWorkspaceSelector_WorkspaceId:
+func projectWorkspaceSelectorFromGenerated(selector *projectpb.ProjectWorkspaceSelector) serverapi.ProjectWorkspaceSelector {
+	if value, selected := selector.Selector.(*projectpb.ProjectWorkspaceSelector_WorkspaceId); selected {
 		return serverapi.NewProjectWorkspaceSelectorForID(value.WorkspaceId)
-	case *projectpb.ProjectWorkspaceSelector_WorkspaceRoot:
-		return serverapi.NewProjectWorkspaceSelectorForRoot(value.WorkspaceRoot)
-	default:
-		return serverapi.ProjectWorkspaceSelector{}, errors.New("project workspace selector is required")
 	}
+	return serverapi.NewProjectWorkspaceSelectorForRoot(selector.Selector.(*projectpb.ProjectWorkspaceSelector_WorkspaceRoot).WorkspaceRoot)
 }
 
-func projectWorkspaceGetSelectorFromGenerated(request *projectpb.GetProjectWorkspaceRequest) (serverapi.ProjectWorkspaceSelector, error) {
-	switch value := request.Selector.(type) {
-	case *projectpb.GetProjectWorkspaceRequest_WorkspaceId:
+func projectWorkspaceGetSelectorFromGenerated(request *projectpb.GetProjectWorkspaceRequest) serverapi.ProjectWorkspaceSelector {
+	if value, selected := request.Selector.(*projectpb.GetProjectWorkspaceRequest_WorkspaceId); selected {
 		return serverapi.NewProjectWorkspaceSelectorForID(value.WorkspaceId)
-	case *projectpb.GetProjectWorkspaceRequest_WorkspaceRoot:
-		return serverapi.NewProjectWorkspaceSelectorForRoot(value.WorkspaceRoot)
-	default:
-		return serverapi.ProjectWorkspaceSelector{}, errors.New("project workspace selector is required")
 	}
+	return serverapi.NewProjectWorkspaceSelectorForRoot(request.Selector.(*projectpb.GetProjectWorkspaceRequest_WorkspaceRoot).WorkspaceRoot)
 }
 
 func sessionPageToGenerated(page metadata.SessionPage) (*projectpb.SessionPageSuccess, error) {

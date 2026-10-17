@@ -11,16 +11,12 @@ import (
 	"core/server/runtime"
 	"core/server/session"
 	"core/server/sessionruntime"
-	"core/shared/protoapi"
 	runtimepb "core/shared/protoapi/gen/kent/api/runtime"
 	"core/shared/runtimeids"
 	"core/shared/serverapi"
 )
 
 func (s *Service) ShowGoal(ctx context.Context, req *runtimepb.GoalShowRequest) (*runtimepb.GoalShowSuccess, error) {
-	if err := protoapi.Validate(req); err != nil {
-		return nil, err
-	}
 	if s == nil || s.persisted == nil {
 		return nil, errors.New("persisted session resolver is required")
 	}
@@ -31,9 +27,6 @@ func (s *Service) ShowGoal(ctx context.Context, req *runtimepb.GoalShowRequest) 
 	record, err := session.ResolvePersistedSessionRecord(ctx, s.persisted, sessionID.String())
 	if err != nil {
 		return nil, fmt.Errorf("resolve persisted session %q: %w", sessionID, err)
-	}
-	if record.Meta == nil {
-		return nil, fmt.Errorf("persisted session %q metadata is required", sessionID)
 	}
 	availability, err := session.GoalAvailabilityFromMeta(*record.Meta)
 	if err != nil {
@@ -53,9 +46,6 @@ func (s *Service) SetResolvedGoal(
 	ctx context.Context,
 	req *runtimepb.GoalSetRequest,
 ) (serverapi.ResolvedGoalSetCommit, error) {
-	if err := protoapi.Validate(req); err != nil {
-		return serverapi.ResolvedGoalSetCommit{}, err
-	}
 	target := req.GetTarget().GetSession()
 	if target == nil {
 		return serverapi.ResolvedGoalSetCommit{}, errors.New("resolved Goal Set requires an exact Session target")
@@ -102,9 +92,6 @@ func (s *Service) setGoalStatus(
 	req *runtimepb.GoalMutationRequest,
 	status session.GoalStatus,
 ) (*runtimepb.GoalMutationSuccess, error) {
-	if err := protoapi.Validate(req); err != nil {
-		return nil, err
-	}
 	sessionID, err := s.metadata.ResolveSessionTarget(ctx, req.SessionId)
 	if err != nil {
 		return nil, err
@@ -123,9 +110,6 @@ func (s *Service) setGoalStatus(
 }
 
 func (s *Service) ClearGoal(ctx context.Context, req *runtimepb.GoalClearRequest) (*runtimepb.GoalMutationSuccess, error) {
-	if err := protoapi.Validate(req); err != nil {
-		return nil, err
-	}
 	sessionID, err := s.metadata.ResolveSessionTarget(ctx, req.SessionId)
 	if err != nil {
 		return nil, err
@@ -168,18 +152,12 @@ func (s *Service) mutateGoal(
 	}
 	stepText := strings.TrimSpace(rawStepID)
 	if mutation.Actor == session.GoalActorAgent {
-		if stepText == "" {
-			return runtime.GoalCommandResult{}, runtime.ErrAgentGoalStepInactive
-		}
 		stepID, err := runtimeids.ParseStepID(stepText)
 		if err != nil {
 			return runtime.GoalCommandResult{}, err
 		}
 		result, err := s.applyExactAgentGoalMutation(ctx, sessionID, stepID, mutation)
 		return result, goalMutationError(err)
-	}
-	if stepText != "" {
-		return runtime.GoalCommandResult{}, errors.New("Goal execution identity requires an agent Step")
 	}
 	descriptor, err := session.NewOpenSessionDescriptor(sessionID)
 	if err != nil {
@@ -261,7 +239,7 @@ func (s *Service) applyExactAgentGoalMutation(
 			return errors.New("agent Goal mutation kind is invalid")
 		}
 		var err error
-		result, err = engine.ApplyGoalForStep(stepID.String(), operation)
+		result, err = engine.ApplyGoalForStep(stepID, operation)
 		return err
 	})
 	return result, err
@@ -407,9 +385,6 @@ func goalResponseFromRuntimeResult(
 		}
 	default:
 		return nil, errors.New("Goal mutation is missing an authoritative result")
-	}
-	if err := protoapi.Validate(response); err != nil {
-		return nil, err
 	}
 	return response, nil
 }

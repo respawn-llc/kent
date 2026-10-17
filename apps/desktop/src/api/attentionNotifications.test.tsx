@@ -15,7 +15,10 @@ const service = pb.AttentionNotificationService.method;
 const occurredAt = { seconds: 1_789_578_000n, nanos: 0 };
 const sessionTarget = create(pb.AttentionNotificationTargetSchema, {
   kind: pb.AttentionNotificationTargetKind.ATTENTION_NOTIFICATION_TARGET_SESSION_PROMPT,
-  target: { case: "sessionPrompt", value: { projectId: "project-1", sessionId: "session-1" } },
+  target: {
+    case: "sessionPrompt",
+    value: { projectId: "project-1", sessionId: "11111111-1111-4111-8111-111111111111" },
+  },
 });
 const question = create(pb.AttentionNotificationSchema, {
   id: { kind: pb.AttentionNotificationKind.QUESTION, uuid: "batch-1" },
@@ -134,7 +137,11 @@ describe("attention notification API", () => {
         pending: {
           revision: 1,
           question: { skippedAskIDs: [], currentUnresolvedAskIDs: ["ask-1"] },
-          target: { kind: "session_prompt", projectID: "project-1", sessionID: "session-1" },
+          target: {
+            kind: "session_prompt",
+            projectID: "project-1",
+            sessionID: "11111111-1111-4111-8111-111111111111",
+          },
         },
       },
       { type: "resolved", sequence: 2, id: { kind: "question", uuid: "batch-1" } },
@@ -146,7 +153,7 @@ describe("attention notification API", () => {
           ...question,
           target: create(pb.AttentionNotificationTargetSchema, {
             kind: pb.AttentionNotificationTargetKind.ATTENTION_NOTIFICATION_TARGET_SESSION_PROMPT,
-            target: { case: "sessionPrompt", value: { sessionId: "session-1" } },
+            target: { case: "sessionPrompt", value: { sessionId: "11111111-1111-4111-8111-111111111111" } },
           }),
         }),
       );
@@ -221,7 +228,11 @@ describe("attention notification API", () => {
               { requestedPath: "/alias/b", resolvedPath: "/real/file" },
             ],
           },
-          target: { kind: "session_prompt", projectID: "project-1", sessionID: "session-1" },
+          target: {
+            kind: "session_prompt",
+            projectID: "project-1",
+            sessionID: "11111111-1111-4111-8111-111111111111",
+          },
         },
       },
     ]);

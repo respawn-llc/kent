@@ -9,10 +9,9 @@ import { ContractError } from "./errors";
 import { requireUnarySuccess } from "./protobufRpc";
 import type { RpcTransport } from "./transport";
 import type { ChatSessionTarget } from "./chatTypes";
-import { requireChatSessionID } from "./chatTarget";
 
 export async function activateRuntime(transport: RpcTransport, target: ChatSessionTarget): Promise<void> {
-  const sessionID = requireChatSessionID(target);
+  const sessionID = target.sessionID;
   const planMethod = SessionLaunchService.method.plan;
   const result = await transport.callDescriptorAttachedSession(
     target,
@@ -25,7 +24,7 @@ export async function activateRuntime(transport: RpcTransport, target: ChatSessi
     }),
   );
   const plan = requireUnarySuccess(planMethod, result).plan;
-  if (plan?.sessionId !== sessionID)
+  if (plan.sessionId !== sessionID)
     throw new ContractError("Session Plan does not match the requested Session.");
   const method = SessionRuntimeService.method.activate;
   requireUnarySuccess(

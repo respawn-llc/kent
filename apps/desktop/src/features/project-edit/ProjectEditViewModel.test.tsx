@@ -66,6 +66,32 @@ function setup(metadata = project) {
   return { ...view, ...context };
 }
 
+it("accepts eighty Unicode characters rather than eighty UTF-16 units", () => {
+  const view = setup();
+  act(() => {
+    view.result.current.editName("😀".repeat(80));
+  });
+  expect(view.result.current.state.nameErrors).toHaveLength(0);
+  expect(view.result.current.state.canSave).toBe(true);
+  act(() => {
+    view.result.current.editName("😀".repeat(81));
+  });
+  expect(view.result.current.state.nameErrors.length).toBeGreaterThan(0);
+  expect(view.result.current.state.canSave).toBe(false);
+});
+
+it.each([
+  ["\uFEFFKent\uFEFF", true],
+  ["\u0085Kent", false],
+])("uses generated Project name whitespace acceptance", (name, accepted) => {
+  const view = setup();
+  act(() => {
+    view.result.current.editName(name);
+  });
+  expect(view.result.current.state.canSave).toBe(accepted);
+  expect(view.result.current.state.nameErrors.length === 0).toBe(accepted);
+});
+
 it("admits only one Save when the public action binding is invoked twice in one turn", async () => {
   const view = setup();
   act(() => {
@@ -119,10 +145,10 @@ it("reports a request failure through the ordinary status notification", async (
   expect(view.update).toHaveBeenCalledTimes(1);
 });
 
-it("does not submit an invalid changed Project key", async () => {
+it.each(["invalid-key", ""])("does not submit an invalid changed Project key", async (key) => {
   const view = setup();
   act(() => {
-    view.result.current.editKey("invalid-key");
+    view.result.current.editKey(key);
     view.result.current.save(undefined);
   });
   await act(async () => undefined);

@@ -47,9 +47,6 @@ func (s *Store) PrepareManualMove(ctx context.Context, req ManualMoveRequest) (p
 	defer func() {
 		reportWorkflowInvariantError(s.invariantPolicy, resultErr)
 	}()
-	if err := validateCommentarySize(req.Commentary); err != nil {
-		return ManualMovePreparation{}, err
-	}
 	req.Commentary = strings.TrimSpace(req.Commentary)
 	task, err := s.queries.GetTask(ctx, string(req.TaskID))
 	if err != nil {

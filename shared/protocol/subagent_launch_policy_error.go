@@ -65,32 +65,12 @@ func (e *SubagentLaunchPolicyError) Validate() error {
 	}
 	switch e.Kind {
 	case SubagentLaunchPolicyMaxDepthExceeded:
-		if e.AttemptedDepth == nil || *e.AttemptedDepth < 1 {
-			return errors.New("max-depth policy error requires attempted_depth >= 1")
-		}
-		if e.MaxDepth == nil || *e.MaxDepth < 0 {
-			return errors.New("max-depth policy error requires max_depth >= 0")
-		}
-		if *e.AttemptedDepth <= *e.MaxDepth {
-			return errors.New("max-depth policy error requires attempted_depth greater than max_depth")
-		}
 		if e.RepeatedSessionID != nil || len(e.VisitedSessionIDs) != 0 {
 			return errors.New("max-depth policy error cannot contain lineage corruption facts")
 		}
 	case SubagentLaunchPolicyLineageCorrupt:
 		if e.AttemptedDepth != nil || e.MaxDepth != nil {
 			return errors.New("lineage-corrupt policy error cannot contain depth facts")
-		}
-		if e.RepeatedSessionID == nil || e.RepeatedSessionID.IsZero() {
-			return errors.New("lineage-corrupt policy error requires repeated_session_id")
-		}
-		if len(e.VisitedSessionIDs) == 0 {
-			return errors.New("lineage-corrupt policy error requires visited_session_ids")
-		}
-		for _, id := range e.VisitedSessionIDs {
-			if id.IsZero() {
-				return errors.New("lineage-corrupt policy error contains invalid visited_session_id")
-			}
 		}
 	default:
 		return errors.New("subagent launch policy error kind is invalid")

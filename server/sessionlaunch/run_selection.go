@@ -24,9 +24,6 @@ type runSelection struct {
 // SaveRunSelection prepares and saves the existing Session's selection without
 // admitting continuation or retaining a Store or Runtime in the returned plan.
 func (s *Service) SaveRunSelection(ctx context.Context, req PlanRequest) (PlanRequest, error) {
-	if err := req.Validate(); err != nil {
-		return PlanRequest{}, err
-	}
 	sessionID, existing := req.Intent.SessionID()
 	if !existing {
 		return PlanRequest{}, errors.New("Run selection requires an existing Session")

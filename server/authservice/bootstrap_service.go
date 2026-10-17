@@ -30,9 +30,6 @@ func NewBootstrapService(ctx context.Context, connections *ConnectionResolver, o
 }
 
 func (s *BootstrapService) GetBootstrapStatus(ctx context.Context, req *authpb.GetBootstrapStatusRequest) (*authpb.BootstrapStatus, error) {
-	if req == nil {
-		return nil, errors.New("connection bootstrap status request is required")
-	}
 	snapshot, err := s.targetSnapshot(ctx, req.Target)
 	if err != nil {
 		return nil, err
@@ -62,9 +59,6 @@ func (s *BootstrapService) GetBootstrapStatus(ctx context.Context, req *authpb.G
 }
 
 func (s *BootstrapService) StartBootstrap(_ context.Context, req *authpb.StartBootstrapRequest) (*authpb.BootstrapStart, error) {
-	if req == nil {
-		return nil, errors.New("connection bootstrap start request is required")
-	}
 	snapshot, err := s.targetSnapshot(s.ctx, req.Target)
 	if err != nil {
 		return nil, err
@@ -112,16 +106,11 @@ func (s *BootstrapService) StartBootstrap(_ context.Context, req *authpb.StartBo
 		result.Instructions = &authpb.BootstrapStart_Device{Device: &authpb.BootstrapDeviceInstructions{
 			VerificationUrl: code.VerificationURL, UserCode: code.UserCode,
 		}}
-	default:
-		return nil, auth.ErrInvalidAuthMethod
 	}
 	return result, nil
 }
 
 func (s *BootstrapService) CompleteBootstrap(_ context.Context, req *authpb.CompleteBootstrapRequest) (*authpb.BootstrapCompletion, error) {
-	if req == nil {
-		return nil, errors.New("connection bootstrap request is required")
-	}
 	ctx := s.ctx
 	snapshot, err := s.targetSnapshot(ctx, req.Target)
 	if err != nil {
@@ -143,9 +132,6 @@ func (s *BootstrapService) CompleteBootstrap(_ context.Context, req *authpb.Comp
 				return nil, auth.ErrInvalidAuthMethod
 			}
 			browser := req.Continuation.GetBrowser()
-			if browser == nil {
-				return nil, auth.ErrInvalidAuthMethod
-			}
 			if err := auth.ValidateCallbackRedirect(protocol, browser.RedirectUri); err != nil {
 				return nil, err
 			}
@@ -153,14 +139,11 @@ func (s *BootstrapService) CompleteBootstrap(_ context.Context, req *authpb.Comp
 			credential, err = auth.CompleteOpenAIBrowserFlow(ctx, s.oauthOptions, session, req.GetCallbackInput())
 		case authpb.BootstrapMode_BOOTSTRAP_MODE_DEVICE_CODE:
 			device := req.Continuation.GetDevice()
-			if device == nil || device.PollIntervalSeconds <= 0 || device.PollIntervalSeconds > int64((1<<63-1)/time.Second) {
+			if device.PollIntervalSeconds > int64((1<<63-1)/time.Second) {
 				return nil, auth.ErrInvalidAuthMethod
 			}
 			code := auth.DeviceCode{Code: device.Code, UserCode: device.UserCode, PollInterval: time.Duration(device.PollIntervalSeconds) * time.Second}
 			if device.ExpiresAt != nil {
-				if err := device.ExpiresAt.CheckValid(); err != nil {
-					return nil, err
-				}
 				code.ExpiresAt = textutil.Value(device.ExpiresAt.AsTime())
 			}
 			if protocol == config.ConnectionChatGPT {

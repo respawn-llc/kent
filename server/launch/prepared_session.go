@@ -66,9 +66,6 @@ func (p Planner) PrepareSession(ctx context.Context, request SessionPreparationR
 // PlanPreparedSession resolves the same settings as ordinary launch against
 // private target facts. Neither retained metadata nor artifacts are mutated.
 func (p Planner) PlanPreparedSession(ctx context.Context, request SessionRequest, meta session.Meta, executionContext PreparedExecutionContext) (SessionPlan, error) {
-	if err := request.Intent.Validate(); err != nil {
-		return SessionPlan{}, err
-	}
 	if id, present := request.Intent.SessionID(); present && id.String() != meta.SessionID {
 		return SessionPlan{}, errors.New("Session preparation identity does not match")
 	}

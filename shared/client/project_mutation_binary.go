@@ -7,8 +7,6 @@ import (
 	"core/shared/protoapi"
 	projectpb "core/shared/protoapi/gen/kent/api/project"
 	"core/shared/serverapi"
-
-	"google.golang.org/protobuf/proto"
 )
 
 func (c *Remote) CreateProject(ctx context.Context, request *projectpb.CreateProjectRequest) (*projectpb.CreateProjectSuccess, error) {
@@ -111,11 +109,9 @@ func (c *Remote) RebindWorkspace(ctx context.Context, request *projectpb.RebindW
 			case "workspace_binding_ambiguous":
 				return protoapi.WorkspaceBindingAmbiguousMutationFromProto(failure.GetWorkspaceBindingAmbiguous())
 			case "workspace_already_bound":
-				return validateEmptyProjectMutationDetail(
-					failure.GetWorkspaceAlreadyBound(), serverapi.ErrWorkspaceAlreadyBound)
+				return serverapi.ErrWorkspaceAlreadyBound
 			case "workspace_path_missing":
-				return validateEmptyProjectMutationDetail(
-					failure.GetWorkspacePathMissing(), serverapi.ErrWorkspacePathMissing)
+				return serverapi.ErrWorkspacePathMissing
 			default:
 				return generatedOperationFailure(failure.Code)
 			}
@@ -127,9 +123,9 @@ func projectCreateGeneratedError(failure *projectpb.CreateProjectError) error {
 	case "project_key_conflict":
 		return projectKeyConflictError(failure.GetProjectKeyConflict())
 	case "workspace_already_bound":
-		return validateEmptyProjectMutationDetail(failure.GetWorkspaceAlreadyBound(), serverapi.ErrWorkspaceAlreadyBound)
+		return serverapi.ErrWorkspaceAlreadyBound
 	case "workspace_path_missing":
-		return validateEmptyProjectMutationDetail(failure.GetWorkspacePathMissing(), serverapi.ErrWorkspacePathMissing)
+		return serverapi.ErrWorkspacePathMissing
 	default:
 		return generatedOperationFailure(failure.Code)
 	}
@@ -151,9 +147,9 @@ func projectAttachGeneratedError(failure *projectpb.AttachWorkspaceError) error 
 	case "project_not_found":
 		return projectNotFoundError(failure.GetProjectNotFound())
 	case "workspace_already_bound":
-		return validateEmptyProjectMutationDetail(failure.GetWorkspaceAlreadyBound(), serverapi.ErrWorkspaceAlreadyBound)
+		return serverapi.ErrWorkspaceAlreadyBound
 	case "workspace_path_missing":
-		return validateEmptyProjectMutationDetail(failure.GetWorkspacePathMissing(), serverapi.ErrWorkspacePathMissing)
+		return serverapi.ErrWorkspacePathMissing
 	default:
 		return generatedOperationFailure(failure.Code)
 	}
@@ -183,32 +179,6 @@ func projectWorkspaceMutationGeneratedError(
 	}
 }
 
-func workspaceBindingAmbiguousError(details *projectpb.WorkspaceBindingAmbiguousDetails) error {
-	value, err := protoapi.WorkspaceBindingAmbiguousFromProto(details)
-	if err != nil {
-		return err
-	}
-	return value
-}
-
-func projectUnavailableError(details *projectpb.ProjectUnavailableDetails) error {
-	value, err := protoapi.ProjectUnavailableFromProto(details)
-	if err != nil {
-		return err
-	}
-	return value
-}
-
 func projectKeyConflictError(details *projectpb.ProjectKeyConflictDetails) error {
-	if err := protoapi.Validate(details); err != nil {
-		return err
-	}
 	return serverapi.ProjectKeyConflictError{ProjectKey: details.ProjectKey}
-}
-
-func validateEmptyProjectMutationDetail(detail proto.Message, sentinel error) error {
-	if err := protoapi.Validate(detail); err != nil {
-		return err
-	}
-	return sentinel
 }

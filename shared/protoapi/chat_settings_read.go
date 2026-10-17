@@ -19,9 +19,6 @@ type ChatPreparationFailure interface {
 }
 
 func ChatSettingsErrorFromProto[T ChatPreparationFailure](value T) error {
-	if err := Validate(value); err != nil {
-		return err
-	}
 	switch {
 	case value.GetWorkspaceNotRegistered() != nil:
 		return serverapi.ErrWorkspaceNotRegistered

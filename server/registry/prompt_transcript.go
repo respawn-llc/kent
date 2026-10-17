@@ -1,8 +1,6 @@
 package registry
 
 import (
-	"strings"
-
 	"core/shared/protoapi"
 	promptpb "core/shared/protoapi/gen/kent/api/prompt"
 	transcriptpb "core/shared/protoapi/gen/kent/api/transcript"
@@ -17,7 +15,7 @@ const (
 )
 
 func publishPendingPrompt(feed *sessionFeedSequencer, sessionID string, snapshot PendingPromptSnapshot, eventType pendingPromptEventType) {
-	if feed == nil || strings.TrimSpace(snapshot.Request.ToolCallID) == "" {
+	if feed == nil {
 		return
 	}
 	prompt, err := transcriptPendingPromptFromSnapshot(sessionID, snapshot, eventType)
@@ -49,10 +47,7 @@ func transcriptPendingPromptFromSnapshot(sessionID string, snapshot PendingPromp
 }
 
 func QuestionFromSnapshot(sessionID string, snapshot PendingPromptSnapshot) (*promptpb.Question, error) {
-	id, err := runtimeids.ParseSessionID(sessionID)
-	if err != nil {
-		return nil, err
-	}
+	id := runtimeids.SessionIDFromProto(sessionID)
 	pending, err := PendingAskFromSnapshot(id, snapshot)
 	if err != nil {
 		return nil, err
@@ -61,10 +56,7 @@ func QuestionFromSnapshot(sessionID string, snapshot PendingPromptSnapshot) (*pr
 }
 
 func ApprovalFromSnapshot(sessionID string, snapshot PendingPromptSnapshot) (*promptpb.Approval, error) {
-	id, err := runtimeids.ParseSessionID(sessionID)
-	if err != nil {
-		return nil, err
-	}
+	id := runtimeids.SessionIDFromProto(sessionID)
 	pending, err := PendingApprovalFromSnapshot(id, snapshot)
 	if err != nil {
 		return nil, err

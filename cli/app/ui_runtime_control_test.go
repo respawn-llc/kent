@@ -259,10 +259,7 @@ func (f *runtimeControlFakeClient) compactContext(_ context.Context, args string
 }
 func (f *runtimeControlFakeClient) CompactRuntime(ctx context.Context, req clientui.RuntimeCompactRequest) (clientui.RuntimeCompactResult, error) {
 	f.compactRequest = req
-	input, err := req.Admission.CanonicalInput()
-	if err != nil {
-		return clientui.RuntimeCompactResult{}, err
-	}
+	input := req.Admission.CanonicalInput()
 	return clientui.RuntimeCompactResult{}, f.compactContext(ctx, input)
 }
 func (f *runtimeControlFakeClient) Interrupt() error {

@@ -11,11 +11,8 @@ import (
 func writeTaskStartResult(stdout io.Writer, task *taskpb.TaskDetail) error {
 	if len(task.LiveSessions) == 1 {
 		session := task.LiveSessions[0]
-		identity, err := protoapi.SessionIdentityFromProto(session.SessionId, session.ShortId)
-		if err != nil {
-			return err
-		}
-		_, err = fmt.Fprintf(stdout, "Started task %s in session %s using workflow %q (%s).\n", taskDisplayID(task), identity.String(), task.Workflow.DisplayName, task.Workflow.WorkflowId)
+		identity := protoapi.SessionIdentityFromProto(session.SessionId, session.ShortId)
+		_, err := fmt.Fprintf(stdout, "Started task %s in session %s using workflow %q (%s).\n", taskDisplayID(task), identity.String(), task.Workflow.DisplayName, task.Workflow.WorkflowId)
 		return err
 	}
 	if len(task.CurrentScripts) == 1 {
@@ -33,10 +30,7 @@ func writeTaskResumeResult(stdout io.Writer, task *taskpb.TaskDetail, resp *task
 			fmt.Fprintf(stdout, "Resumed node %s.\n", currentNode.NodeId)
 			continue
 		}
-		identity, err := protoapi.SessionIdentityFromProto(*currentNode.SessionId, currentNode.ShortId)
-		if err != nil {
-			return err
-		}
+		identity := protoapi.SessionIdentityFromProto(*currentNode.SessionId, currentNode.ShortId)
 		if _, err := fmt.Fprintf(stdout, "Resumed node %s in session %s.\n", currentNode.NodeId, identity.String()); err != nil {
 			return err
 		}

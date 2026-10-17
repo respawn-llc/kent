@@ -73,7 +73,7 @@ func TestWorkflowGraphDocumentEmitsExplicitArraysAndPreservesNestedOrder(t *test
 	if err != nil {
 		t.Fatalf("prepare Workflow graph document contract: %v", err)
 	}
-	document, err := workflowGraphDocumentFromDraft(mustWorkflowID(t, emptyWorkflowGraphDocumentID), 1, &pb.GraphDraft{
+	document := workflowGraphDocumentFromDraft(mustWorkflowID(t, emptyWorkflowGraphDocumentID), 1, &pb.GraphDraft{
 		NodeGroups: []*pb.GraphDraftNodeGroup{},
 		Nodes: []*pb.GraphDraftNode{{
 			Id: workflowGraphDocumentNodeID, Key: "node", Kind: pb.NodeKind_WORKFLOW_NODE_KIND_JOIN, DisplayName: "Node",
@@ -85,9 +85,6 @@ func TestWorkflowGraphDocumentEmitsExplicitArraysAndPreservesNestedOrder(t *test
 		TransitionGroups: []*pb.GraphDraftTransitionGroup{},
 		Edges:            []*pb.GraphDraftEdge{},
 	})
-	if err != nil {
-		t.Fatalf("document: %v", err)
-	}
 	data, err := json.Marshal(document)
 	if err != nil {
 		t.Fatalf("marshal: %v", err)

@@ -121,7 +121,7 @@ message KentFacts {
   string display_name = 3 [(buf.validate.field).string.(kent.api.shared.nonblank) = true];
   bool managed = 4;
   bool created_branch = 5;
-  optional string origin_session_id = 6 [(buf.validate.field).string.(kent.api.shared.nonblank) = true];
+  optional string origin_session_id = 6 [(buf.validate.field).string.uuid = true, (buf.validate.field).string.(kent.api.shared.canonical_uuid_v4) = true];
 }
 
 message RegisteredFacts {
@@ -409,7 +409,7 @@ message CreateFailureDetails {
 }
 
 message BlockingSession {
-  string session_id = 1 [(buf.validate.field).string.(kent.api.shared.nonblank) = true];
+  string session_id = 1 [(buf.validate.field).string.uuid = true, (buf.validate.field).string.(kent.api.shared.canonical_uuid_v4) = true];
   optional string name = 2 [(buf.validate.field).string.(kent.api.shared.nonblank) = true];
   optional int64 short_id = 3 [(buf.validate.field).int64 = {gt: 0 lte: 9007199254740991}];
 }
@@ -829,6 +829,12 @@ message CreateSuccess {
   kent.api.shared.SessionIdentity session = 3;
 
   option (buf.validate.message).cel = {
+    id: "kent.worktree.create_registered"
+    message: "created worktree must have registered topology"
+    expression: "has(this.worktree.topology.registered)"
+  };
+
+  option (buf.validate.message).cel = {
     id: "kent.worktree.create_projection"
     message: "created worktree must expose every eligible session operation"
     expression:
@@ -896,7 +902,7 @@ message EnterRequest {
     (buf.validate.field).string.(kent.api.shared.canonical_uuid_v4) = true
   ];
   kent.api.shared.SessionSelector session_id = 2 [(buf.validate.field).required = true];
-  string selector = 3 [(buf.validate.field).string.(kent.api.shared.nonblank) = true];
+  string selector = 3 [(buf.validate.field).string.(kent.api.shared.pending_work_nonblank) = true];
   TransitionWorkspace target_workspace = 4 [(buf.validate.field).required = true];
   optional TransitionRuntimeStepOrigin origin = 5;
 }

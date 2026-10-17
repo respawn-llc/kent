@@ -121,10 +121,7 @@ func sessionAgentAuthorID(ctx context.Context, sessionID string) (authorID strin
 	if sessionName := strings.TrimSpace(resp.MainView.Session.GetSessionName()); sessionName != "" {
 		return fmt.Sprintf("Session %s agent", sessionName), nil
 	}
-	identity, err := protoapi.SessionIdentityFromProto(resp.MainView.Session.SessionId, resp.MainView.Session.ShortId)
-	if err != nil {
-		return "", err
-	}
+	identity := protoapi.SessionIdentityFromProto(resp.MainView.Session.SessionId, resp.MainView.Session.ShortId)
 	return fmt.Sprintf("Session %s agent", identity.String()), nil
 }
 
@@ -142,7 +139,8 @@ func taskCommentListSubcommand(args []string, stdout io.Writer, stderr io.Writer
 		fmt.Fprintln(stderr, "task comment list requires <short-id-or-task-id>")
 		return 2
 	}
-	if err := validateWorkflowPagination(*offset, *limit); err != nil {
+	pageLimit, err := protoapi.Int32(*limit, "limit")
+	if err != nil {
 		fmt.Fprintln(stderr, err)
 		return 2
 	}
@@ -159,7 +157,6 @@ func taskCommentListSubcommand(args []string, stdout io.Writer, stderr io.Writer
 			fmt.Fprintln(stderr, err)
 			return 2
 		}
-		pageLimit := int32(*limit)
 		resp, err := remote.ListWorkflowTaskComments(ctx, &taskpb.TaskOffsetPageRequest{
 			TaskId: taskID,
 			Offset: &pageOffset,

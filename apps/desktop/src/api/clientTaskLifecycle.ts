@@ -33,7 +33,6 @@ export async function updateTask(transport: RpcTransport, input: TaskEditInput):
     }),
   );
   const { task } = requireUnarySuccess(method, result);
-  if (task === undefined) throw new ContractError("Updated Task summary is required.");
   return task.id;
 }
 

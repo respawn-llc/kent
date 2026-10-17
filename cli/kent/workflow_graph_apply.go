@@ -13,7 +13,6 @@ import (
 
 	"core/shared/apicontract"
 	"core/shared/config"
-	protoapi "core/shared/protoapi"
 	pb "core/shared/protoapi/gen/kent/api/workflow_definition"
 	"core/shared/runtimeids"
 	"core/shared/workflowcontract"
@@ -174,18 +173,10 @@ func saveWorkflowGraphApply(
 			err,
 		)
 	}
-	if err := protoapi.Validate(response); err != nil {
-		return workflowGraphApplyFailure(
-			workflowGraphApplyRequestFailed,
-			workflowID,
-			workflowGraphApplyPointer(response.CurrentVersion),
-			fmt.Errorf("validate Workflow graph save response: %w", err),
-		)
-	}
 	validation, validationErr := workflowValidationResultsForCLI(response.ValidationResults)
-	impact, impactErr := workflowGraphImpactForCLI(response.Impact)
-	blockers, blockersErr := workflowGraphBlockersForCLI(response.Blockers)
-	if err := errors.Join(validationErr, impactErr, blockersErr); err != nil {
+	impact := workflowGraphImpactForCLI(response.Impact)
+	blockers := workflowGraphBlockersForCLI(response.Blockers)
+	if err := validationErr; err != nil {
 		return workflowGraphApplyFailure(workflowGraphApplyRequestFailed, workflowID, workflowGraphApplyPointer(response.CurrentVersion), err)
 	}
 	outcome := workflowGraphApplyOutcome{
@@ -196,14 +187,6 @@ func saveWorkflowGraphApply(
 		Blockers:          blockers,
 	}
 	if !response.Saved {
-		if len(response.Blockers) == 0 {
-			return workflowGraphApplyFailure(
-				workflowGraphApplyRequestFailed,
-				workflowID,
-				outcome.CurrentVersion,
-				errors.New("Workflow graph save returned blocked without a blocker"),
-			)
-		}
 		if response.ConfirmationRequired && workflowGraphApplyHasBlocker(outcome.Blockers, true) &&
 			!workflowGraphApplyHasBlocker(outcome.Blockers, false) {
 			outcome.Outcome = workflowGraphApplyConfirmationRequired
@@ -212,25 +195,9 @@ func saveWorkflowGraphApply(
 		outcome.Outcome = workflowGraphApplyBlocked
 		return outcome
 	}
-	if len(response.Blockers) != 0 {
-		return workflowGraphApplyFailure(
-			workflowGraphApplyRequestFailed,
-			workflowID,
-			outcome.CurrentVersion,
-			errors.New("Workflow graph save returned saved with blockers"),
-		)
-	}
 	if !response.Changed {
 		outcome.Outcome = workflowGraphApplyUnchanged
 		return outcome
-	}
-	if response.Definition == nil {
-		return workflowGraphApplyFailure(
-			workflowGraphApplyRequestFailed,
-			workflowID,
-			outcome.CurrentVersion,
-			errors.New("Workflow graph save returned changed without a definition"),
-		)
 	}
 	outcome.Outcome = workflowGraphApplySaved
 	definition, err := workflowDefinitionForCLI(response.Definition)

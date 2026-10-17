@@ -71,14 +71,11 @@ type TaskExecutionScope struct {
 }
 
 func (s *Store) TaskExecutionScope(ctx context.Context, taskID workflow.TaskID) (TaskExecutionScope, error) {
-	if strings.TrimSpace(string(taskID)) == "" {
-		return TaskExecutionScope{}, errors.New("task id is required")
-	}
 	row, err := s.queries.GetTaskProjectWorkflowIDs(ctx, string(taskID))
 	if err != nil {
 		return TaskExecutionScope{}, err
 	}
-	if strings.TrimSpace(row.ProjectID) == "" || row.WorkflowID.IsZero() {
+	if strings.TrimSpace(row.ProjectID) == "" {
 		return TaskExecutionScope{}, fmt.Errorf("task %q has incomplete execution scope", taskID)
 	}
 	return TaskExecutionScope{ProjectID: row.ProjectID, WorkflowID: row.WorkflowID}, nil
@@ -141,62 +138,15 @@ type ManualMoveResult struct {
 	TaskAttentionResolution
 }
 
-func (r ManualMoveResult) Validate() error {
-	switch r.Outcome {
-	case ManualMoveResultOutcomeNoOp:
-		if len(r.CurrentNodes) == 0 {
-			return errors.New("manual move no-op must return current nodes")
-		}
-		if len(r.Mutation.Removed) != 0 || len(r.Mutation.Created) != 0 {
-			return errors.New("manual move no-op must not return a mutation")
-		}
-	case ManualMoveResultOutcomeApplied:
-		if len(r.CurrentNodes) != 0 {
-			return errors.New("applied manual move must not return no-op current nodes")
-		}
-		if len(r.Mutation.Removed) == 0 || len(r.Mutation.Created) == 0 {
-			return errors.New("applied manual move must return a non-empty replacement mutation")
-		}
-	default:
-		return fmt.Errorf("manual move result outcome %q is invalid", r.Outcome)
-	}
-	return nil
-}
-
 func (s *Store) CreateTask(ctx context.Context, req CreateTaskRequest) (TaskRecord, error) {
 	projectID := strings.TrimSpace(req.ProjectID)
-	if projectID == "" {
-		return TaskRecord{}, errors.New("project id is required")
-	}
 	var workflowID *runtimeids.WorkflowID
 	if req.WorkflowID != nil {
-		if req.WorkflowID.IsZero() {
-			return TaskRecord{}, errors.New("workflow id is required when provided")
-		}
 		value := *req.WorkflowID
 		workflowID = &value
 	}
-	if len(req.LabelIDs) > label.MaxProjectLabels {
-		limit := label.MaxProjectLabels
-		return TaskRecord{}, TaskLabelMutationError{Reason: TaskLabelMutationTooManyAdd, Field: "label_ids", Limit: &limit}
-	}
-	roleCounts := map[workflow.TaskDependencyRole]int{}
 	dependencyIntents := append([]workflow.TaskDependencyCreateIntent(nil), req.DependencyIntents...)
-	for _, intent := range dependencyIntents {
-		if strings.TrimSpace(string(intent.RelatedTaskID)) == "" {
-			return TaskRecord{}, errors.New("dependency related task id is required")
-		}
-		switch intent.NewTaskRole {
-		case workflow.TaskDependencyRoleBlocker, workflow.TaskDependencyRoleBlocked:
-		default:
-			return TaskRecord{}, errors.New("dependency new task role is invalid")
-		}
-		roleCounts[intent.NewTaskRole]++
-		if roleCounts[intent.NewTaskRole] > workflow.MaxTaskDependencies {
-			return TaskRecord{}, fmt.Errorf("dependency intents exceed the %d per-role limit", workflow.MaxTaskDependencies)
-		}
-	}
-	labelIDs, _, err := parseUniqueLabelIDs(req.LabelIDs, "label_ids", TaskLabelMutationDuplicateAdd)
+	labelIDs, err := labelIDsFromProto(req.LabelIDs, "label_ids")
 	if err != nil {
 		return TaskRecord{}, err
 	}
@@ -205,9 +155,6 @@ func (s *Store) CreateTask(ctx context.Context, req CreateTaskRequest) (TaskReco
 		body: strings.TrimSpace(req.Body), sourceURL: strings.TrimSpace(req.SourceURL),
 		sourceWorkspaceID: strings.TrimSpace(req.SourceWorkspaceID), taskID: prefixedID("task"),
 		labelIDs: labelIDs, dependencyIntents: dependencyIntents, nowUnixMs: s.now().UnixMilli(),
-	}
-	if prepared.title == "" {
-		return TaskRecord{}, errors.New("task title is required")
 	}
 	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
@@ -308,12 +255,6 @@ func createTaskWithQueries(ctx context.Context, q *sqlitegen.Queries, prepared p
 }
 
 func (s *Store) UpdateTask(ctx context.Context, req UpdateTaskRequest) (TaskRecord, error) {
-	if strings.TrimSpace(string(req.TaskID)) == "" {
-		return TaskRecord{}, errors.New("task id is required")
-	}
-	if req.Title != nil && strings.TrimSpace(*req.Title) == "" {
-		return TaskRecord{}, errors.New("task title is required")
-	}
 	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
 		return TaskRecord{}, err
@@ -381,9 +322,6 @@ func (s *Store) UpdateTask(ctx context.Context, req UpdateTaskRequest) (TaskReco
 }
 
 func (s *Store) DeleteTask(ctx context.Context, taskID workflow.TaskID) (DeleteTaskResult, error) {
-	if strings.TrimSpace(string(taskID)) == "" {
-		return DeleteTaskResult{}, errors.New("task id is required")
-	}
 	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
 		return DeleteTaskResult{}, err

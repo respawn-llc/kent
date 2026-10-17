@@ -43,11 +43,7 @@ func TestProjectErrorDecoding(t *testing.T) {
 		{
 			"ambiguous binding", ambiguous,
 			func() error {
-				value, err := WorkspaceBindingAmbiguousFromProto(ambiguous)
-				if err != nil {
-					return err
-				}
-				return value
+				return WorkspaceBindingAmbiguousFromProto(ambiguous)
 			},
 			serverapi.WorkspaceBindingAmbiguousError{CanonicalRoot: "/project", ProjectIDs: []string{"first", "second"}},
 			serverapi.ErrWorkspaceBindingAmbiguous,
@@ -61,11 +57,7 @@ func TestProjectErrorDecoding(t *testing.T) {
 		{
 			"unavailable", unavailable,
 			func() error {
-				value, err := ProjectUnavailableFromProto(unavailable)
-				if err != nil {
-					return err
-				}
-				return value
+				return ProjectUnavailableFromProto(unavailable)
 			},
 			serverapi.ProjectUnavailableError{
 				ProjectID: "project", RootPath: "/project", Availability: clientui.ProjectAvailabilityMissing,
@@ -91,6 +83,9 @@ func TestProjectErrorDecoding(t *testing.T) {
 		},
 	} {
 		t.Run(tt.name, func(t *testing.T) {
+			if err := Validate(tt.details); err != nil {
+				t.Fatal(err)
+			}
 			err := tt.decode()
 			if !errors.Is(err, tt.sentinel) {
 				t.Fatalf("decoded error = %v, want category %v", err, tt.sentinel)
@@ -99,8 +94,8 @@ func TestProjectErrorDecoding(t *testing.T) {
 				t.Fatalf("decoded error = %#v, want %#v", err, tt.expected)
 			}
 			proto.Reset(tt.details)
-			if err := tt.decode(); err == nil || errors.Is(err, tt.sentinel) {
-				t.Fatalf("invalid details decoded as domain error: %v", err)
+			if err := Validate(tt.details); err == nil {
+				t.Fatal("invalid details accepted at the contract boundary")
 			}
 		})
 	}

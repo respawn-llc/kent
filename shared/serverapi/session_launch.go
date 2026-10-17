@@ -1,13 +1,6 @@
 package serverapi
 
-import (
-	"encoding/json"
-	"errors"
-	"fmt"
-
-	"core/shared/protocol"
-	"core/shared/runtimeids"
-)
+import "core/shared/runtimeids"
 
 const SessionPromptHistoryMaxEntries = 100
 
@@ -65,49 +58,6 @@ func (o SessionCreateOrigin) Equal(other SessionCreateOrigin) bool {
 	return leftPresent == rightPresent && (!leftPresent || left == right)
 }
 
-func (o SessionCreateOrigin) Validate() error {
-	switch o.kind {
-	case SessionCreateOriginIndependent:
-		if o.sessionID != nil {
-			return errors.New("independent session create origin cannot contain session_id")
-		}
-	case SessionCreateOriginPreviousSession, SessionCreateOriginParentAgent:
-		if o.sessionID == nil || o.sessionID.IsZero() {
-			return fmt.Errorf("%s session create origin requires session_id", o.kind)
-		}
-	default:
-		return errors.New("session create origin kind is invalid")
-	}
-	return nil
-}
-
-func (o SessionCreateOrigin) MarshalJSON() ([]byte, error) {
-	if err := o.Validate(); err != nil {
-		return nil, err
-	}
-	type wire struct {
-		Kind      SessionCreateOriginKind `json:"kind"`
-		SessionID *runtimeids.SessionID   `json:"session_id,omitempty"`
-	}
-	return json.Marshal(wire{Kind: o.kind, SessionID: o.sessionID})
-}
-
-func (o *SessionCreateOrigin) UnmarshalJSON(data []byte) error {
-	var wire struct {
-		Kind      SessionCreateOriginKind `json:"kind"`
-		SessionID *runtimeids.SessionID   `json:"session_id"`
-	}
-	if err := protocol.DecodeStrictJSON(data, &wire); err != nil {
-		return err
-	}
-	decoded := SessionCreateOrigin{kind: wire.Kind, sessionID: wire.SessionID}
-	if err := decoded.Validate(); err != nil {
-		return err
-	}
-	*o = decoded
-	return nil
-}
-
 type SessionLaunchIntent struct {
 	kind      SessionLaunchIntentKind
 	origin    *SessionCreateOrigin
@@ -157,66 +107,4 @@ func (i SessionLaunchIntent) Equal(other SessionLaunchIntent) bool {
 	leftSession, leftHasSession := i.SessionID()
 	rightSession, rightHasSession := other.SessionID()
 	return leftHasSession == rightHasSession && (!leftHasSession || leftSession == rightSession)
-}
-
-func (i SessionLaunchIntent) Validate() error {
-	switch i.kind {
-	case SessionLaunchIntentCreateNew:
-		if i.sessionID != nil {
-			return errors.New("create_new session launch intent cannot contain session_id")
-		}
-		if i.origin == nil {
-			return errors.New("create_new session launch intent requires origin")
-		}
-		if err := i.origin.Validate(); err != nil {
-			return fmt.Errorf("create_new session launch intent origin: %w", err)
-		}
-	case SessionLaunchIntentOpenExisting:
-		if i.origin != nil {
-			return errors.New("open_existing session launch intent cannot contain origin")
-		}
-		if i.sessionID == nil || i.sessionID.IsZero() {
-			return errors.New("open_existing session launch intent requires session_id")
-		}
-	default:
-		return errors.New("session launch intent kind is invalid")
-	}
-	return nil
-}
-
-func (i SessionLaunchIntent) MarshalJSON() ([]byte, error) {
-	if err := i.Validate(); err != nil {
-		return nil, err
-	}
-	type wire struct {
-		Kind      SessionLaunchIntentKind `json:"kind"`
-		Origin    *SessionCreateOrigin    `json:"origin,omitempty"`
-		SessionID *runtimeids.SessionID   `json:"session_id,omitempty"`
-	}
-	return json.Marshal(wire{
-		Kind:      i.kind,
-		Origin:    i.origin,
-		SessionID: i.sessionID,
-	})
-}
-
-func (i *SessionLaunchIntent) UnmarshalJSON(data []byte) error {
-	var wire struct {
-		Kind      SessionLaunchIntentKind `json:"kind"`
-		Origin    *SessionCreateOrigin    `json:"origin"`
-		SessionID *runtimeids.SessionID   `json:"session_id"`
-	}
-	if err := protocol.DecodeStrictJSON(data, &wire); err != nil {
-		return err
-	}
-	decoded := SessionLaunchIntent{
-		kind:      wire.Kind,
-		origin:    wire.Origin,
-		sessionID: wire.SessionID,
-	}
-	if err := decoded.Validate(); err != nil {
-		return err
-	}
-	*i = decoded
-	return nil
 }

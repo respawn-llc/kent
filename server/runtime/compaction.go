@@ -154,7 +154,7 @@ func (c *defaultContextCompactor) CompactContextWithAcceptance(
 	onActive func(),
 	accept CommandAcceptance,
 ) (session.CommitReceipt, error) {
-	normalizedGuidance := strings.Join(strings.Fields(args), " ")
+	normalizedGuidance := runtimeinput.NormalizePendingWorkArgument(args)
 	admission := runtimeinput.ManualCompactionAdmission{}
 	if normalizedGuidance != "" {
 		admission.Guidance = &normalizedGuidance
@@ -180,9 +180,6 @@ func (c *defaultContextCompactor) CompactContextAdmissionWithAcceptance(
 	admission runtimeinput.ManualCompactionAdmission,
 	accept CommandAcceptance,
 ) (session.CommitReceipt, error) {
-	if err := admission.Validate(); err != nil {
-		return session.CommitReceipt{}, err
-	}
 	args := ""
 	if admission.Guidance != nil {
 		args = *admission.Guidance

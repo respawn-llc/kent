@@ -61,10 +61,7 @@ func ProjectResolvedChatSettingsOperation(input ResolvedChatSettingsOperation) (
 	if input.Edit != nil {
 		switch operation := input.Edit.Operation.(type) {
 		case *chatsettingspb.MutationOperation_Supervisor:
-			supervisor, err := protoapi.ChatSettingsSupervisorFromProto(operation.Supervisor)
-			if err != nil {
-				return PreparedChatSettingsOperationResult{}, err
-			}
+			supervisor := protoapi.ChatSettingsSupervisorFromProto(operation.Supervisor)
 			target.Settings.Supervisor = &supervisor
 		case *chatsettingspb.MutationOperation_Thinking:
 			thinking := strings.TrimSpace(operation.Thinking)

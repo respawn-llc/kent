@@ -156,10 +156,7 @@ func TestActiveSteeringObservesAcceptingRun(t *testing.T) {
 			queueItemID := runtimeids.NewQueueItemID().String()
 			if attributed {
 				source := mustCreateTestSession(t)
-				steer, steerErr := NewAgentSteer(source.Identity(), "redirect")
-				if steerErr != nil {
-					t.Fatal(steerErr)
-				}
+				steer := NewAgentSteer(source.Identity(), "redirect")
 				message = steer.Message()
 				item, handle, accepted, err = engine.QueueAgentSteerForActiveRunWithObservation(t.Context(), queueItemID, steer, t.Context(), nil)
 			} else {

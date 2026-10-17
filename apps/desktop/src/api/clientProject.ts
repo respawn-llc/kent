@@ -21,7 +21,7 @@ import {
   WorkspaceBindingPlanKind,
   WorkspaceBindingPlanMode,
   type ProjectBinding as GeneratedProjectBinding,
-  type ProjectHomeSummary,
+  type ProjectHomeSummaryValid,
   type ProjectMutationBinding,
   type ProjectWorkspaceCatalogSummary,
 } from "@app/server-api-contract/gen/kent/api/project/project_pb";
@@ -155,9 +155,6 @@ export async function listProjectHome(
       }),
     ),
   );
-  if (success.generatedAt === undefined) {
-    throw new ContractError("Project Home generated timestamp is required.");
-  }
   return {
     projects: success.projects.map(projectHomeSummary),
     nextPageToken: success.nextPageToken ?? null,
@@ -183,9 +180,6 @@ export async function createProject(
       }),
     ),
   );
-  if (success.binding === undefined) {
-    throw new ContractError("Project Create binding is required.");
-  }
   return projectMutationBinding(success.binding);
 }
 
@@ -199,9 +193,6 @@ export async function attachWorkspace(
     method,
     await transport.callDescriptor(method, create(method.input, { projectId: projectID, workspaceRoot })),
   );
-  if (success.binding === undefined) {
-    throw new ContractError("Project Workspace attach binding is required.");
-  }
   return {
     binding: projectMutationBinding(success.binding),
     outcome: projectWorkspaceAttachOutcome(success.outcome),
@@ -226,9 +217,6 @@ export async function updateProject(
       }),
     ),
   );
-  if (success.project === undefined) {
-    throw new ContractError("Project Update summary is required.");
-  }
   return { project: projectHomeSummary(success.project) };
 }
 
@@ -248,9 +236,6 @@ export async function setDefaultWorkspace(
       }),
     ),
   );
-  if (success.project === undefined) {
-    throw new ContractError("Project default Workspace summary is required.");
-  }
   return { project: projectHomeSummary(success.project) };
 }
 
@@ -375,10 +360,7 @@ function projectWorkspaceAttachOutcome(outcome: ProjectWorkspaceAttachOutcome) {
   }
 }
 
-function projectHomeSummary(project: ProjectHomeSummary) {
-  if (project.primaryWorkspace?.updatedAt === undefined || project.updatedAt === undefined) {
-    throw new ContractError("Project Home summary is incomplete.");
-  }
+function projectHomeSummary(project: ProjectHomeSummaryValid) {
   return {
     id: project.projectId,
     key: project.projectKey,

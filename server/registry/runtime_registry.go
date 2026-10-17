@@ -524,9 +524,6 @@ func (r *RuntimeRegistry) PublishSessionSettingFeedback(
 	if r == nil {
 		return nil
 	}
-	if err := protoapi.Validate(feedback); err != nil {
-		return err
-	}
 	id := strings.TrimSpace(sessionID)
 	entry := r.authorityEntryBySession(id)
 	if entry == nil {
@@ -609,9 +606,6 @@ func (r *RuntimeRegistry) PublishRuntimeReadModelUpdate(sessionID string, update
 	if entry == nil {
 		return
 	}
-	if err := protoapi.Validate(update); err != nil {
-		panic(fmt.Sprintf("publish invalid canonical runtime read-model update: %+v: %v", update, err))
-	}
 	entry.publicationMu.Lock()
 	defer entry.publicationMu.Unlock()
 	current := entry.mainView.Load()
@@ -631,7 +625,7 @@ func (r *RuntimeRegistry) PublishWorktreeTransitionOutcome(sessionID string, out
 	if r == nil {
 		return
 	}
-	if err := outcome.Validate(); err != nil {
+	if err := outcome.ValidateSourceDiagnostic(); err != nil {
 		panic(fmt.Sprintf("publish invalid worktree transition outcome for session %q: %v", strings.TrimSpace(sessionID), err))
 	}
 	entry := r.authorityEntryBySession(sessionID)
@@ -694,9 +688,6 @@ func (r *RuntimeRegistry) PublishWorktreeTransitionOutcome(sessionID string, out
 func (r *RuntimeRegistry) SubscribeSessionTranscript(ctx context.Context, req *transcriptpb.SubscribeRequest) (serverapi.TranscriptSubscription, error) {
 	if r == nil {
 		return nil, fmt.Errorf("runtime registry is required")
-	}
-	if err := protoapi.Validate(req); err != nil {
-		return nil, err
 	}
 	if ctx == nil {
 		ctx = context.Background()

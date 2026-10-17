@@ -680,11 +680,7 @@ func runLiveWaitSubcommand(args []string) int {
 	if outputMode == runOutputModeJSON {
 		return emitRunWaitJSON(os.Stdout, sessionID.String(), result, nil, ctx, closeFn)
 	}
-	identity, err := protoapi.SessionIdentityFromProto(result.SessionId, result.ShortId)
-	if err != nil {
-		fmt.Fprintln(os.Stderr, err)
-		return 1
-	}
+	identity := protoapi.SessionIdentityFromProto(result.SessionId, result.ShortId)
 	continueHint = buildRunContinueHint(identity.String(), continueRoot)
 	emitRunFinalText(os.Stdout, nil, result.GetAssistantFinalAnswer().GetResult(), continueHint)
 	return 0
@@ -750,11 +746,7 @@ func runLiveWatchSubcommandWithCleanup(args []string, runWithCleanup liveWatchCl
 	if result.Close != nil {
 		_ = result.Close()
 	}
-	identity, err := protoapi.SessionIdentityFromProto(response.SessionId, response.ShortId)
-	if err != nil {
-		fmt.Fprintln(os.Stderr, err)
-		return 1
-	}
+	identity := protoapi.SessionIdentityFromProto(response.SessionId, response.ShortId)
 	return writeRunWatchResponse(os.Stdout, os.Stderr, response, buildRunContinueHint(identity.String(), continueCommandPersistenceRoot(*persistenceRoot)))
 }
 

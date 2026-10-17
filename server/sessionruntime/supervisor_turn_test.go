@@ -278,10 +278,7 @@ func supervisorRequestHasMessage(request llm.Request, kind llm.MessageType) bool
 
 func (h *supervisorTurnHarness) queueOrdinarySteer(t *testing.T) <-chan error {
 	t.Helper()
-	steer, err := runtime.NewAgentSteer(runtimeids.SessionIdentity{ID: runtimeids.NewSessionID()}, "Also verify the result.")
-	if err != nil {
-		t.Fatal(err)
-	}
+	steer := runtime.NewAgentSteer(runtimeids.SessionIdentity{ID: runtimeids.NewSessionID()}, "Also verify the result.")
 	if h.engine.HasPendingRuntimeOperations() {
 		t.Fatal("unexpected pending operation before ordinary steer")
 	}

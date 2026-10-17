@@ -396,12 +396,8 @@ func handoffRequestFromToolCall(call llm.ToolCall) (*handoffRequest, bool) {
 	}, true
 }
 
-func queuedUserMessageText(message QueuedUserMessage) (string, error) {
-	text, err := message.ExecutionText()
-	if err != nil {
-		return "", err
-	}
-	return strings.TrimSpace(text), nil
+func queuedUserMessageText(message QueuedUserMessage) string {
+	return strings.TrimSpace(message.ExecutionText())
 }
 
 type queuedUserMessageFlushGroup struct {
@@ -445,11 +441,7 @@ func (m *defaultMessageLifecycle) PreparePendingUserInjections(selection userInj
 			m.engine.failStoppedLiveRunQueueItems(typedQueueItemIDSet(map[string]struct{}{pending.message.ID: {}}))
 		}
 	}
-	groups, err := queuedUserMessageFlushGroups(claim.items)
-	if err != nil {
-		m.ReleasePreparedUserInjections(prepared)
-		return nil, err
-	}
+	groups := queuedUserMessageFlushGroups(claim.items)
 	for _, group := range groups {
 		prepared.items = append(prepared.items, llm.ItemsFromMessages([]llm.Message{group.message})...)
 	}
@@ -512,23 +504,11 @@ func (m *defaultMessageLifecycle) restoreFailedPreparedInput(prepared *preparedU
 	return restorationErr
 }
 
-func queuedUserMessageFlushGroups(messages []queuedUserMessage) ([]queuedUserMessageFlushGroup, error) {
+func queuedUserMessageFlushGroups(messages []queuedUserMessage) []queuedUserMessageFlushGroup {
 	groups := make([]queuedUserMessageFlushGroup, 0, len(messages))
 	for _, pending := range messages {
-		text, err := queuedUserMessageText(pending.message)
-		if err != nil {
-			return nil, err
-		}
-		if text == "" {
-			continue
-		}
-		queueItems, err := queuedUserMessagesForFlush([]queuedUserMessage{pending})
-		if err != nil {
-			return nil, err
-		}
-		if len(queueItems) == 0 {
-			continue
-		}
+		text := queuedUserMessageText(pending.message)
+		queueItems := []QueuedUserMessage{pending.message}
 		message := pending.message.Message
 		groups = append(groups, queuedUserMessageFlushGroup{
 			message:    message,
@@ -536,24 +516,7 @@ func queuedUserMessageFlushGroups(messages []queuedUserMessage) ([]queuedUserMes
 			queueItems: queueItems,
 		})
 	}
-	return groups, nil
-}
-
-func queuedUserMessagesForFlush(messages []queuedUserMessage) ([]QueuedUserMessage, error) {
-	items := make([]QueuedUserMessage, 0, len(messages))
-	for _, message := range messages {
-		item := message.message
-		item.ID = strings.TrimSpace(item.ID)
-		text, err := queuedUserMessageText(item)
-		if err != nil {
-			return nil, err
-		}
-		if item.ID == "" || text == "" {
-			continue
-		}
-		items = append(items, item)
-	}
-	return items, nil
+	return groups
 }
 
 func startsAgentStep(message llm.Message) bool {

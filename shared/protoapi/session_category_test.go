@@ -21,9 +21,9 @@ func TestSessionCategoryConversions(t *testing.T) {
 			if err != nil || wire != tt.wire {
 				t.Fatalf("encode: got %v, %v; want %v", wire, err, tt.wire)
 			}
-			category, err := protoapi.SessionCategoryFromProto(tt.wire)
-			if err != nil || category != tt.category {
-				t.Fatalf("decode: got %v, %v; want %v", category, err, tt.category)
+			category := protoapi.SessionCategoryFromProto(tt.wire)
+			if category != tt.category {
+				t.Fatalf("decode: got %v; want %v", category, tt.category)
 			}
 		})
 	}
@@ -37,9 +37,9 @@ func TestSessionCategoryConversionsRejectInvalidValues(t *testing.T) {
 		}
 	}
 	for _, wire := range []projectpb.SessionCategory{0, -1, 3} {
-		category, err := protoapi.SessionCategoryFromProto(wire)
-		if err == nil || category != "" {
-			t.Fatalf("decode %v: got %q, %v; want zero and error", wire, category, err)
+		err := protoapi.Validate(&projectpb.SessionPageRequest{ProjectId: "project", Category: wire})
+		if err == nil {
+			t.Fatalf("invalid category %v accepted at the boundary", wire)
 		}
 	}
 }

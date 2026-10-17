@@ -6,7 +6,7 @@ import { QueryClient } from "@tanstack/react-query";
 import { RegistryProvider } from "@effect/atom-react";
 import type { ReactNode } from "react";
 
-import { parsePendingWorkItemID, type ChatInputMutationResult, type ChatSettingsRead } from "@/api";
+import { pendingWorkItemIDFromProto, type ChatInputMutationResult, type ChatSettingsRead } from "@/api";
 import { createTestServices, TestAppProviders } from "@/test-support/app-services";
 import { deferred } from "@/test-support/chat-runtime";
 import {
@@ -160,7 +160,7 @@ it("hides Processes discovery until adoption while rejecting typed activation wi
     outcome: {
       kind: "accepted",
       disposition: "started_turn",
-      queueItemID: parsePendingWorkItemID("99999999-9999-4999-8999-999999999999"),
+      queueItemID: pendingWorkItemIDFromProto("99999999-9999-4999-8999-999999999999"),
       diagnostic: null,
     },
   });
@@ -325,7 +325,7 @@ it("keeps the current catalog and ready settings on same-Session prompt success"
     outcome: {
       kind: "accepted",
       disposition: "started_turn",
-      queueItemID: parsePendingWorkItemID("99999999-9999-4999-8999-999999999999"),
+      queueItemID: pendingWorkItemIDFromProto("99999999-9999-4999-8999-999999999999"),
       diagnostic: null,
     },
   });
@@ -403,7 +403,7 @@ it("opens an accepted child with new typing and preserves an independently saved
       outcome: {
         kind: "accepted",
         disposition: "started_turn",
-        queueItemID: parsePendingWorkItemID("99999999-9999-4999-8999-999999999999"),
+        queueItemID: pendingWorkItemIDFromProto("99999999-9999-4999-8999-999999999999"),
         diagnostic: null,
       },
     });
@@ -540,7 +540,7 @@ it("applies an existing-Session command's late result against the currently disp
     outcome: {
       kind: "accepted",
       disposition: "started_turn",
-      queueItemID: parsePendingWorkItemID("99999999-9999-4999-8999-999999999999"),
+      queueItemID: pendingWorkItemIDFromProto("99999999-9999-4999-8999-999999999999"),
       diagnostic: null,
     },
   });
@@ -777,7 +777,7 @@ it("adopts accepted Send in place and saves only the visible unsent editor to it
       outcome: {
         kind: "accepted",
         disposition: "started_turn",
-        queueItemID: parsePendingWorkItemID("79f762c8-0998-402a-bc80-6b42f3e241ed"),
+        queueItemID: pendingWorkItemIDFromProto("79f762c8-0998-402a-bc80-6b42f3e241ed"),
         diagnostic: null,
       },
     });
@@ -996,7 +996,7 @@ it("restores a late creation failure into the Session already adopted by another
       outcome: {
         kind: "accepted",
         disposition: "started_turn",
-        queueItemID: parsePendingWorkItemID("79f762c8-0998-402a-bc80-6b42f3e241ed"),
+        queueItemID: pendingWorkItemIDFromProto("79f762c8-0998-402a-bc80-6b42f3e241ed"),
         diagnostic: null,
       },
     });

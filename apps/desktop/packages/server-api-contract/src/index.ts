@@ -1,5 +1,6 @@
 export { create } from "@bufbuild/protobuf";
-export type { DescMessage, DescMethod, Message, MessageShape } from "@bufbuild/protobuf";
+export { ValidationError, type Violation } from "@bufbuild/protovalidate";
+export type { DescMessage, DescMethod, Message, MessageShape, MessageValidType } from "@bufbuild/protobuf";
 export { decodeEnvelope, decodeEnvelopeCorrelation, encodeEnvelope } from "./envelope.js";
 export { decode, encode, validate } from "./message.js";
 export {
@@ -9,4 +10,8 @@ export {
   type SubscriptionAssociations,
   type UnaryConnectionPolicy,
 } from "./method.js";
-export { classifyResultFailure, type ResultFailureClassification } from "./result.js";
+export {
+  classifyResultFailure,
+  validateResultErrorDetail,
+  type ResultFailureClassification,
+} from "./result.js";

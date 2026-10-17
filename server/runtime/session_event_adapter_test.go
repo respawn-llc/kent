@@ -438,7 +438,7 @@ func TestSessionLocalAndCacheRecordAdaptersRoundTrip(t *testing.T) {
 	noCacheResponse := persistedCacheResponseObserved{
 		CachedInputTokens: textutil.Value(0),
 		OperationID:       textutil.Value(uuid.NewString()),
-		SessionID:         textutil.Value("session-1"),
+		SessionID:         textutil.Value(uuid.NewString()),
 		Purpose:           textutil.Value(modelcontract.ProviderOperationPurposeGeneration),
 		ObservedAt:        textutil.Value(time.Unix(1_720_000_000, 0).UTC()),
 		ProviderUsage:     &modelcontract.ProviderUsageEvidence{},

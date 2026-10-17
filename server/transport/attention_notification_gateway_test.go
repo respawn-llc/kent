@@ -225,10 +225,8 @@ func gatewayPromptResource(sessionID string) runtimeids.SessionResourceRef {
 	if err != nil {
 		panic(err)
 	}
-	resource, err := runtimeids.NewSessionResourceRef(id, 1)
-	if err != nil {
-		panic(err)
-	}
+	resource := runtimeids.NewSessionResourceRef(id, 1)
+
 	return resource
 }
 

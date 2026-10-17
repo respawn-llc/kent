@@ -141,8 +141,8 @@ func assertOptionalProvenanceID(t *testing.T, label string, got *runtimeids.Sess
 }
 
 func TestNavigationTargetSessionIDPrefersPreviousAndReturnsCopy(t *testing.T) {
-	previous := mustProvenanceSessionID(t, "previous-session")
-	parentAgent := mustProvenanceSessionID(t, "parent-agent-session")
+	previous := mustProvenanceSessionID(t, runtimeids.NewSessionID().String())
+	parentAgent := mustProvenanceSessionID(t, runtimeids.NewSessionID().String())
 	meta := Meta{PreviousSessionID: previous, ParentAgentSessionID: parentAgent}
 
 	target := NavigationTargetSessionID(meta)
@@ -153,7 +153,7 @@ func TestNavigationTargetSessionIDPrefersPreviousAndReturnsCopy(t *testing.T) {
 }
 
 func TestNavigationTargetSessionIDFallsBackToParentAgent(t *testing.T) {
-	parentAgent := mustProvenanceSessionID(t, "parent-agent-session")
+	parentAgent := mustProvenanceSessionID(t, runtimeids.NewSessionID().String())
 	target := NavigationTargetSessionID(Meta{ParentAgentSessionID: parentAgent})
 	assertOptionalProvenanceID(t, "navigation target", target, parentAgent)
 }

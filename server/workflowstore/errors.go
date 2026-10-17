@@ -73,13 +73,6 @@ var (
 	// but missing.
 	ErrWorkflowIDRequired = errors.New("workflow id is required")
 
-	// ErrWorkflowNameRequired is returned when a workflow name is blank.
-	ErrWorkflowNameRequired = errors.New("workflow name is required")
-
-	// ErrCommentAuthorKindInvalid is returned when a comment author kind is not
-	// one of the accepted values.
-	ErrCommentAuthorKindInvalid = errors.New("comment author kind must be user or agent")
-
 	// ErrBelongsToOtherWorkflow is returned when a graph element references a
 	// workflow it does not belong to.
 	ErrBelongsToOtherWorkflow = errors.New("workflow graph element belongs to a different workflow")
@@ -88,10 +81,6 @@ var (
 	// a task's source workspace cannot be changed.
 	ErrSourceWorkspaceAfterAutomation = errors.New("cannot edit source workspace after automation starts")
 	ErrSourceWorkspaceNotInProject    = errors.New("source workspace does not belong to project")
-
-	// ErrApprovalIDRequired is returned when an approval id is required but
-	// blank.
-	ErrApprovalIDRequired = errors.New("approval id is required")
 
 	// ErrCurrentNodePendingApproval is returned when an operation tries to
 	// execute a current node that is awaiting its Approval.
@@ -227,38 +216,14 @@ func (e TaskLabelWrongProjectError) Is(target error) bool {
 	return target == ErrTaskLabelWrongProject
 }
 
-type TaskLabelMutationErrorReason string
-
-const (
-	TaskLabelMutationTooManyAdd      TaskLabelMutationErrorReason = "too_many_add_label_ids"
-	TaskLabelMutationTooManyRemove   TaskLabelMutationErrorReason = "too_many_remove_label_ids"
-	TaskLabelMutationDuplicateAdd    TaskLabelMutationErrorReason = "duplicate_add_label_id"
-	TaskLabelMutationDuplicateRemove TaskLabelMutationErrorReason = "duplicate_remove_label_id"
-	TaskLabelMutationOverlap         TaskLabelMutationErrorReason = "add_remove_overlap"
-	TaskLabelMutationInvalidID       TaskLabelMutationErrorReason = "invalid_label_id"
-)
-
 type TaskLabelMutationError struct {
-	Reason  TaskLabelMutationErrorReason
 	Field   string
-	LabelID *string
-	Limit   *int
+	LabelID string
 	Cause   error
 }
 
 func (e TaskLabelMutationError) Error() string {
-	switch e.Reason {
-	case TaskLabelMutationTooManyAdd, TaskLabelMutationTooManyRemove:
-		return fmt.Sprintf("%s must contain at most %d label IDs", e.Field, *e.Limit)
-	case TaskLabelMutationDuplicateAdd, TaskLabelMutationDuplicateRemove:
-		return fmt.Sprintf("%s contains duplicate label ID %q", e.Field, *e.LabelID)
-	case TaskLabelMutationOverlap:
-		return fmt.Sprintf("label ID %q cannot be both added and removed", *e.LabelID)
-	case TaskLabelMutationInvalidID:
-		return fmt.Sprintf("%s contains invalid label ID %q", e.Field, *e.LabelID)
-	default:
-		return "task label mutation is invalid"
-	}
+	return fmt.Sprintf("%s contains invalid label ID %q", e.Field, e.LabelID)
 }
 
 func (e TaskLabelMutationError) Unwrap() error {

@@ -31,10 +31,6 @@ func taskSessionsSubcommand(args []string, stdout io.Writer, stderr io.Writer) i
 		fmt.Fprintln(stderr, "task sessions requires <short-id-or-task-id>")
 		return 2
 	}
-	if err := validateWorkflowPagination(*offset, *limit); err != nil {
-		fmt.Fprintln(stderr, err)
-		return 2
-	}
 	return runWorkflowCommandSession(stderr, func(cfg config.Connection, remote *client.Remote) int {
 		return runTaskSessions(
 			context.Background(),
@@ -77,7 +73,11 @@ func runTaskSessions(
 		fmt.Fprintln(stderr, err)
 		return 2
 	}
-	pageLimit := int32(limit)
+	pageLimit, err := protoapi.Int32(limit, "limit")
+	if err != nil {
+		fmt.Fprintln(stderr, err)
+		return 2
+	}
 	response, err := workflows.ListWorkflowTaskSessions(rpcCtx, &taskpb.TaskOffsetPageRequest{
 		TaskId: taskID,
 		Offset: &pageOffset,
@@ -97,11 +97,7 @@ func writeTaskSessionsResponse(
 	jsonOut bool,
 ) int {
 	if jsonOut {
-		output, err := taskSessionsOutput(response)
-		if err != nil {
-			fmt.Fprintln(stderr, err)
-			return 1
-		}
+		output := taskSessionsOutput(response)
 		return writeCommandJSON(stdout, stderr, output)
 	}
 	for _, item := range response.Items {
@@ -118,11 +114,7 @@ func writeTaskSessionsResponse(
 			return 1
 		}
 		humanLabel := taskSessionHumanField(label)
-		identity, err := protoapi.SessionIdentityFromProto(item.SessionId, item.ShortId)
-		if err != nil {
-			fmt.Fprintln(stderr, err)
-			return 1
-		}
+		identity := protoapi.SessionIdentityFromProto(item.SessionId, item.ShortId)
 		humanSessionID := taskSessionHumanField(identity.String())
 		var writeErr error
 		if label == item.SessionId {

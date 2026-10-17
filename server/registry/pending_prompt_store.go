@@ -121,9 +121,6 @@ func (s *pendingPromptStore) projectBatchLocked(pending map[string]PendingPrompt
 
 func (s *pendingPromptStore) Begin(sessionID string, resource runtimeids.SessionResourceRef, scopeID runtimeids.ExecutionScopeID, req askquestion.AskQuestionRequest, createdAt time.Time) (PendingPromptSnapshot, bool) {
 	id, toolCallID := strings.TrimSpace(sessionID), strings.TrimSpace(req.ToolCallID)
-	if id == "" || toolCallID == "" {
-		return PendingPromptSnapshot{}, false
-	}
 	snapshot := PendingPromptSnapshot{Request: req.Clone(), CreatedAt: createdAt, Resource: resource, ScopeID: scopeID}
 	s.mu.Lock()
 	pending := maps.Clone(s.load(id))
