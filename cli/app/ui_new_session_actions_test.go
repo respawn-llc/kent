@@ -8,6 +8,7 @@ import (
 	"testing"
 	"time"
 
+	"core/internal/testharness/testsetup"
 	"core/shared/apicontract"
 	"core/shared/protoapi"
 	chatpb "core/shared/protoapi/gen/kent/api/chat"
@@ -581,5 +582,63 @@ func TestNewSessionFirstRequestsCaptureIndependentInputs(t *testing.T) {
 	model.Update(firstResult)
 	if model.newSessionTarget() == nil || len(client.requests) != 3 || model.mainEditor.Text() != "first" {
 		t.Fatal("identityless failure lost New, replayed a request, or failed to restore rejected input")
+	}
+}
+
+func TestNewSessionKeySubmissionsBeforeFirstResultCreateIndependentSessions(t *testing.T) {
+	for _, secondKey := range []tea.KeyMsg{{Type: tea.KeyEnter}, {Type: keyTypeCtrlEnterCSI}} {
+		t.Run(secondKey.String(), func(t *testing.T) {
+			_, workspace := newRegisteredAppWorkspace(t)
+			fixture := startRemoteAuthTestFixture(t, workspace)
+			provider, _ := newFakeResponsesServer(t, []string{"completed first", "completed second"})
+			defer provider.Close()
+			fixture.config.Settings = testsetup.WithResponsesProvider(fixture.config.Settings, provider.URL)
+			testsetup.WriteProviderSettings(t, fixture.config.PersistenceRoot, fixture.config.Settings)
+			server, err := ensureInteractiveProjectBinding(t.Context(), fixture.server)
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer func() { _ = server.Close() }()
+			request, err := prepareNewSessionUIRun(t.Context(), server, nil, serverapi.RunPromptOverrides{})
+			if err != nil {
+				t.Fatal(err)
+			}
+			composition, err := composeUIProgram(request, io.Discard)
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer composition.close()
+			model := composition.model
+			model.Update(model.loadNewSessionSettingsCmd(nil)())
+			dispatch := func(text string, key tea.KeyMsg) newSessionActionDoneMsg {
+				t.Helper()
+				testSetMainInput(model, text)
+				_, command := model.Update(key)
+				for _, message := range collectCmdMessages(t, command) {
+					if result, ok := message.(newSessionActionDoneMsg); ok {
+						if result.err != nil || result.session == nil {
+							t.Fatalf("dispatch %q: session=%v error=%v", text, result.session, result.err)
+						}
+						return result
+					}
+				}
+				t.Fatalf("key did not dispatch New action for %q", text)
+				return newSessionActionDoneMsg{}
+			}
+			first := dispatch("first input", tea.KeyMsg{Type: tea.KeyEnter})
+			if model.newSessionTarget() == nil {
+				t.Fatal("Session adopted before action result delivery")
+			}
+			second := dispatch("second input", secondKey)
+			if first.session.SessionId == second.session.SessionId {
+				t.Fatal("independent first key submissions shared a Session")
+			}
+			model.mainEditor.SetText("newer unsent text")
+			model.Update(second)
+			model.Update(first)
+			if model.currentRuntimeSessionID() != first.session.SessionId || model.mainEditor.Text() != "newer unsent text" {
+				t.Fatal("result delivery order or newer draft was lost")
+			}
+		})
 	}
 }
