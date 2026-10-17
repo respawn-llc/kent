@@ -355,6 +355,7 @@ func prepareSessionUIRun(
 		modelContractLocked:          plan.ModelContractLocked,
 		configuredModelName:          plan.ConfiguredModelName,
 		statusConfig:                 plan.StatusConfig,
+		connectionManagement:         server.ConnectionManagementClient(),
 		initialTransientStatus:       catalogStatus,
 		promptCatalog:                promptCatalog,
 		promptCatalogEntries:         catalogEntries,

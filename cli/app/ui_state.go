@@ -32,6 +32,7 @@ type uiModel struct {
 	uiSessionTransitionFeatureState
 	uiStatusFeatureState
 	uiTranscriptFeatureState
+	uiConnectionRemovalFeatureState
 	uiKeyboardFeatureState
 	uiRollbackFeatureState
 	uiWorktreeFeatureState

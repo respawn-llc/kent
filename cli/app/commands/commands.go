@@ -14,6 +14,7 @@ const (
 	ActionExit              Action = "exit"
 	ActionNew               Action = "new"
 	ActionResume            Action = "resume"
+	ActionLogin             Action = "login"
 	ActionLogout            Action = "logout"
 	ActionCompact           Action = "compact"
 	ActionSetName           Action = "set_name"
@@ -104,7 +105,7 @@ func NewDefaultRegistry() *Registry {
 		return Result{Handled: true, Action: ActionLogout}
 	})
 	r.RegisterWithOptions("login", "Manage provider connections", RegisterOptions{ActiveRunPolicy: ActiveRunPolicyAllowed, PreservePromptHistoryDraft: true}, func(string) Result {
-		return Result{Handled: true, Action: ActionLogout}
+		return Result{Handled: true, Action: ActionLogin}
 	})
 	r.RegisterWithOptions("compact", "Compact the current context (optional: /compact <instructions>)", RegisterOptions{ActiveRunPolicy: ActiveRunPolicyAllowed, PreservePromptHistoryDraft: true}, func(args string) Result {
 		return Result{Handled: true, Action: ActionCompact, Args: strings.TrimSpace(args)}

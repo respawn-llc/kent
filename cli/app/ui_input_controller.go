@@ -57,7 +57,7 @@ func (m *uiModel) shouldAnimateSpinner() bool {
 	if m == nil {
 		return false
 	}
-	return m.isBusy() || m.finalAnswerOperation != nil || m.isReviewerActive() || m.processListHasRunningEntries() || m.worktrees.isLoading() || m.worktrees.create.submitting || m.worktrees.deleteConfirm.submitting
+	return m.isBusy() || m.finalAnswerOperation != nil || m.isReviewerActive() || m.connectionRemoval.isLoading() || m.connectionRemoval.isRemoving() || m.processListHasRunningEntries() || m.worktrees.isLoading() || m.worktrees.create.submitting || m.worktrees.deleteConfirm.submitting
 }
 
 func (m *uiModel) reconcileSpinnerTicking(force bool) tea.Cmd {

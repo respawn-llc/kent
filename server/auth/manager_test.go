@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"path/filepath"
+	"reflect"
 	"testing"
 	"time"
 
@@ -72,6 +73,35 @@ func TestConnectionCredentialReplacementIsolation(t *testing.T) {
 	personal, err := reopened.CurrentOAuth(t.Context(), "personal", config.ConnectionChatGPT)
 	if err != nil || personal.AccessToken != "personal-token" || personal.AccountID != "personal" {
 		t.Fatalf("other connection changed = %+v, %v", personal, err)
+	}
+}
+
+func TestRemoveOAuthDeletesOnlySelectedConnection(t *testing.T) {
+	initial := EmptyState()
+	initial.Connections["work"] = OAuthMethod{
+		AccessToken: "work-token", RefreshToken: "work-refresh",
+		AccountID: "work-account", Email: "work@example.invalid",
+	}
+	initial.Connections["personal"] = OAuthMethod{
+		AccessToken: "personal-token", RefreshToken: "personal-refresh",
+		AccountID: "personal-account", Email: "personal@example.invalid",
+	}
+	store := NewMemoryStore(initial)
+	manager := NewManager(store, nil)
+
+	if err := manager.RemoveOAuth(t.Context(), "work"); err != nil {
+		t.Fatal(err)
+	}
+
+	got, err := store.Load(t.Context())
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := State{Connections: map[config.ConnectionID]OAuthMethod{
+		"personal": initial.Connections["personal"],
+	}}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("OAuth state after removal = %+v, want %+v", got, want)
 	}
 }
 
