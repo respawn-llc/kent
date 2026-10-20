@@ -26,7 +26,6 @@ const (
 	uiConnectionRemovalRemoving
 	uiConnectionRemovalRefreshing
 	uiConnectionRemovalCatalogFailed
-	uiConnectionRemovalRemovalFailed
 	uiConnectionRemovalRefreshFailed
 )
 
@@ -45,8 +44,6 @@ const (
 	uiConnectionRemovalReturnToChat
 	uiConnectionRemovalCancelConfirmation
 	uiConnectionRemovalConfirmRemoval
-	uiConnectionRemovalReturnToList
-	uiConnectionRemovalRetryRemoval
 	uiConnectionRemovalRetryCatalog
 )
 
@@ -201,8 +198,12 @@ func (m *uiModel) reduceConnectionRemovalMessage(msg tea.Msg) uiFeatureUpdateRes
 			return handledUIFeatureUpdate(m, nil)
 		}
 		if done.err != nil {
-			m.showConnectionRemovalFailure(done.err)
-			return handledUIFeatureUpdate(m, m.reconcileSpinnerTicking(false))
+			state.phase = uiConnectionRemovalConfirming
+			state.picker.result = startupPickerResult{}
+			return handledUIFeatureUpdate(m, tea.Batch(
+				m.sendTransientStatusWithNoticeID(connectionOperationErrorText(done.err), uiStatusNoticeError, transientStatusDuration, uiStatusNoticeReplace, ""),
+				m.reconcileSpinnerTicking(false),
+			))
 		}
 		state.selectedID = nil
 		return handledUIFeatureUpdate(m, tea.Batch(
@@ -216,6 +217,11 @@ func (m *uiModel) reduceConnectionRemovalMessage(msg tea.Msg) uiFeatureUpdateRes
 		if err := m.applyConnectionRemovalCatalog(done); err != nil {
 			m.showConnectionRemovalRefreshFailure(err)
 			return handledUIFeatureUpdate(m, m.reconcileSpinnerTicking(false))
+		}
+		if len(state.definitions) == 0 {
+			closeCmd := m.closeConnectionRemovalFlow()
+			m.exitAction = UIActionLogout
+			return handledUIFeatureUpdate(m, sequenceCmds(closeCmd, tea.Quit))
 		}
 		m.showConnectionRemovalList(nil)
 	default:
@@ -259,9 +265,7 @@ func (m *uiModel) showConnectionRemovalList(preselect *config.ConnectionID) {
 		m.setConnectionRemovalPicker(
 			"**Provider connections**",
 			"Provider connections",
-			startupPickerNotice{
-				Text: "No Provider Connections remain. Normal setup will run the next time you open a Session.",
-			},
+			startupPickerNotice{},
 			options,
 		)
 		return
@@ -293,11 +297,11 @@ func (m *uiModel) showConnectionRemovalConfirmation(id config.ConnectionID) {
 		"**Remove connection "+string(id)+"?**",
 		"Remove connection",
 		startupPickerNotice{
-			Text: "This removes the connection definition and saved Kent credentials server-wide. It does not revoke access with the provider.",
+			Text: "Removes this connection and its saved credentials server-wide.",
 		},
 		[]uiConnectionRemovalPickerOption{
-			{title: "Cancel", choice: uiConnectionRemovalChoice{kind: uiConnectionRemovalCancelConfirmation}},
-			{title: "Remove from server", choice: uiConnectionRemovalChoice{kind: uiConnectionRemovalConfirmRemoval}},
+			{title: "No", choice: uiConnectionRemovalChoice{kind: uiConnectionRemovalCancelConfirmation}},
+			{title: "Yes", choice: uiConnectionRemovalChoice{kind: uiConnectionRemovalConfirmRemoval}},
 		},
 	)
 }
@@ -307,23 +311,10 @@ func (m *uiModel) showConnectionRemovalCatalogFailure(err error) {
 	m.setConnectionRemovalPicker(
 		"**Provider connections unavailable**",
 		"Provider connections unavailable",
-		startupPickerNotice{Text: "Could not load provider connections: " + err.Error(), Kind: startupPickerNoticeError},
+		startupPickerNotice{Text: err.Error(), Kind: startupPickerNoticeError},
 		[]uiConnectionRemovalPickerOption{
 			{title: "Return to chat", choice: uiConnectionRemovalChoice{kind: uiConnectionRemovalReturnToChat}},
 			{title: "Retry list", choice: uiConnectionRemovalChoice{kind: uiConnectionRemovalRetryCatalog}},
-		},
-	)
-}
-
-func (m *uiModel) showConnectionRemovalFailure(err error) {
-	m.connectionRemoval.phase = uiConnectionRemovalRemovalFailed
-	m.setConnectionRemovalPicker(
-		"**Connection removal failed**",
-		"Connection removal failed",
-		startupPickerNotice{Text: connectionOperationErrorText(err), Kind: startupPickerNoticeError},
-		[]uiConnectionRemovalPickerOption{
-			{title: "Return to list", choice: uiConnectionRemovalChoice{kind: uiConnectionRemovalReturnToList}},
-			{title: "Retry removal", choice: uiConnectionRemovalChoice{kind: uiConnectionRemovalRetryRemoval}},
 		},
 	)
 }
@@ -334,7 +325,7 @@ func (m *uiModel) showConnectionRemovalRefreshFailure(err error) {
 		"**Connection removed**",
 		"Connection removed",
 		startupPickerNotice{
-			Text: "The connection was removed, but the updated list could not be loaded: " + err.Error(),
+			Text: err.Error(),
 			Kind: startupPickerNoticeError,
 		},
 		[]uiConnectionRemovalPickerOption{
@@ -405,8 +396,6 @@ func (c uiInputController) handleConnectionRemovalKey(msg tea.KeyMsg) (tea.Model
 		switch state.phase {
 		case uiConnectionRemovalConfirming:
 			return m, m.returnToConnectionRemovalList()
-		case uiConnectionRemovalRemovalFailed:
-			return m, m.returnToConnectionRemovalList()
 		case uiConnectionRemovalSelecting, uiConnectionRemovalCatalogFailed, uiConnectionRemovalRefreshFailed:
 			return m, m.closeConnectionRemovalFlow()
 		default:
@@ -451,15 +440,6 @@ func (c uiInputController) handleConnectionRemovalKey(msg tea.KeyMsg) (tea.Model
 			return m, tea.Batch(m.requestConnectionRemovalCatalog(uiConnectionRemovalLoadCatalog), m.reconcileSpinnerTicking(false))
 		default:
 			panic(fmt.Sprintf("invalid catalog failure choice %d", choice.kind))
-		}
-	case uiConnectionRemovalRemovalFailed:
-		switch choice.kind {
-		case uiConnectionRemovalReturnToList:
-			return m, m.returnToConnectionRemovalList()
-		case uiConnectionRemovalRetryRemoval:
-			return m, tea.Batch(m.removeSelectedConnectionCmd(), m.reconcileSpinnerTicking(false))
-		default:
-			panic(fmt.Sprintf("invalid removal failure choice %d", choice.kind))
 		}
 	case uiConnectionRemovalRefreshFailed:
 		switch choice.kind {

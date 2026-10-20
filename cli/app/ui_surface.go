@@ -26,6 +26,15 @@ func (m *uiModel) surface() uiSurface {
 	return m.activeSurface
 }
 
+func (m *uiModel) surfaceHasPendingOperation() bool {
+	switch m.surface() {
+	case uiSurfaceConnectionRemoval:
+		return m.connectionRemoval.isLoading() || m.connectionRemoval.isRemoving()
+	default:
+		return false
+	}
+}
+
 func (m *uiModel) transcriptMode() tui.Mode {
 	if m == nil {
 		return tui.ModeOngoing

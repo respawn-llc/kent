@@ -161,11 +161,12 @@
 - The server must validate connection definitions and references. Terminal forms must not define separate validation rules.
 - `/login` and `/logout` must both appear in terminal slash-command suggestions for every authentication type.
 - `/logout` must list existing Provider Connections without an Add choice. Opening the list or selecting a connection must not delete anything.
-- After selection, `/logout` must ask for confirmation naming the connection and explaining that removal applies server-wide. Cancel must be the default. Canceling confirmation must return to the connection list. Canceling the list must return to chat.
+- After selection, `/logout` must ask for confirmation naming the connection and explaining that removal applies server-wide. The choices must be Yes and No, with No selected by default. Choosing No or canceling confirmation must return to the connection list. Canceling the list must return to chat.
 - Confirmed removal must delete the selected connection's global definition and saved OAuth credentials, including saved account identity. Removal must leave other connections, configuration references, environment secrets, and Session history unchanged. Removal must not revoke access at the provider.
 - Removal must be allowed during execution. It must not cancel or replay already-sent requests. Subsequent requests must follow the existing deleted-connection rules under Session Binding.
-- Removal must clear saved credentials before removing the definition. If either write fails, Kent must report the failure and whether credentials were already cleared, without reporting success. The user must be able to retry explicitly. Removal must not use cross-file rollback or automatic retry. If the connection is already removed and its credentials are absent, removal must succeed.
-- Successful removal must return to the refreshed connection list. When the list is empty, Kent must provide a way back to chat. Removing the last connection must leave normal setup requirements for subsequent Session opens unchanged.
+- Removal must clear saved credentials before removing the definition. If either write fails, Kent must report the failure and whether credentials were already cleared in a status notice, without reporting success or replacing the confirmation page. The user must be able to retry by repeating the confirmation action. Removal must not use cross-file rollback or automatic retry. If the connection is already removed and its credentials are absent, removal must succeed.
+- When a connection-list read fails, Kent must show a full-page error with an explicit retry that reloads all reads for the page. Retrying a read must not repeat a successful removal.
+- If the refreshed list is nonempty, successful removal must return to that list. After removing the last connection, Kent must immediately close the removal page and enter the existing login/setup flow without stopping server-owned in-flight work.
 
 ## Configuration Cutover
 

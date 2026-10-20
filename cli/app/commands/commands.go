@@ -101,7 +101,7 @@ func NewDefaultRegistry() *Registry {
 	r.RegisterWithOptions("resume", "Go to startup screen (session picker)", RegisterOptions{ActiveRunPolicy: ActiveRunPolicyAllowed, PreservePromptHistoryDraft: true}, func(string) Result {
 		return Result{Handled: true, Action: ActionResume}
 	})
-	r.RegisterWithOptions("logout", "Manage provider connections", RegisterOptions{ActiveRunPolicy: ActiveRunPolicyAllowed, PreservePromptHistoryDraft: true}, func(string) Result {
+	r.RegisterWithOptions("logout", "Remove a provider connection", RegisterOptions{ActiveRunPolicy: ActiveRunPolicyAllowed, PreservePromptHistoryDraft: true}, func(string) Result {
 		return Result{Handled: true, Action: ActionLogout}
 	})
 	r.RegisterWithOptions("login", "Manage provider connections", RegisterOptions{ActiveRunPolicy: ActiveRunPolicyAllowed, PreservePromptHistoryDraft: true}, func(string) Result {
