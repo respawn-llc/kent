@@ -1,6 +1,6 @@
 import type { TFunction } from "i18next";
 
-import { errorMessage, type ProjectTaskGroupCounts } from "@/api";
+import { errorMessage, RpcError, type ProjectTaskGroupCounts } from "@/api";
 import { directionalBoundary, type VirtualizedInfiniteListBoundaryState } from "@/ui";
 import {
   projectTaskGroups,
@@ -215,7 +215,11 @@ function groupBoundary(
     failed,
     loading,
     loadingLabel: t("states.loading"),
-    message: failed ? errorMessage(data.error) : "",
+    message: failed
+      ? data.error instanceof RpcError && data.error.code === "internal_failure"
+        ? t("home.prototype.taskReadFailed")
+        : errorMessage(data.error)
+      : "",
     onRetry: () => {
       if (initial) data.refetch();
       else if (direction === "previous") data.fetchPreviousPage();
