@@ -1,5 +1,5 @@
 import { useMutation } from "@tanstack/react-query";
-import { useCallback } from "react";
+import { useCallback, useMemo } from "react";
 import { useTranslation } from "react-i18next";
 
 import { errorMessage } from "@/api";
@@ -12,11 +12,15 @@ export function useNativeChatOpening() {
   const services = useAppServices();
   const { push } = useStatusController();
   const { t } = useTranslation();
-  const { mutate, isPending, variables } = useMutation({
-    mutationFn: async (target: SessionChatTarget) => openNativeChat(services.nativeBridge, target),
-    networkMode: "always",
-    retry: false,
-  });
+  const mutationFn = useCallback(
+    async (target: SessionChatTarget) => openNativeChat(services.nativeBridge, target),
+    [services.nativeBridge],
+  );
+  const mutationOptions = useMemo(
+    () => ({ mutationFn, networkMode: "always" as const, retry: false }),
+    [mutationFn],
+  );
+  const { mutate, isPending, variables } = useMutation(mutationOptions);
   const open = useCallback(
     (target: SessionChatTarget) => {
       mutate(target, {
