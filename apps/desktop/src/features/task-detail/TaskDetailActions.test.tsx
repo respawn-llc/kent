@@ -119,7 +119,9 @@ it("Shift-clicks Open Chat then opens the ordinary picker selection natively", a
   const ordinaryPicker = within(screen.getByRole("dialog"));
   await user.click(ordinaryPicker.getByRole("button", { name: "44444444-4444-4444-8444-444444444444" }));
 
-  expect(openWindow).toHaveBeenCalledTimes(1);
+  await waitFor(() => {
+    expect(openWindow).toHaveBeenCalledTimes(1);
+  });
   expect(openWindow).toHaveBeenCalledWith(
     expect.objectContaining({
       params: {
@@ -146,14 +148,16 @@ it("Shift-clicks a Session in the ordinary Open Chat picker natively", async () 
   const picker = within(screen.getByRole("dialog"));
   fireEvent.click(picker.getByRole("button", { name: "Review chat" }), { shiftKey: true });
 
-  expect(openWindow).toHaveBeenCalledWith(
-    expect.objectContaining({
-      params: {
-        projectID: "project-1",
-        sessionID: "33333333-3333-4333-8333-333333333333",
-      },
-    }),
-  );
+  await waitFor(() => {
+    expect(openWindow).toHaveBeenCalledWith(
+      expect.objectContaining({
+        params: {
+          projectID: "project-1",
+          sessionID: "33333333-3333-4333-8333-333333333333",
+        },
+      }),
+    );
+  });
   expect(openings).toEqual([]);
   expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
 });
