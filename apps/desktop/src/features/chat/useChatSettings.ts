@@ -4,8 +4,8 @@ import type { ChatContext, ChatSettingsMutation, ChatSettingsMutationResponse } 
 import { ChatSettingsView, type ChatSettingsViewProps } from "./ChatSettingsView";
 import type { ChatSettingsViewModel } from "./ChatSettingsViewModel";
 import type { ReadyNewChat, ReadySession, SettingsState } from "./chatSettingsState";
-
 export type ChatSettingsNavigation = Readonly<{
+  projectID: string;
   openTask(taskID: string): void;
   openParentSession(previousSessionID: string): void | Promise<void>;
 }>;
@@ -75,7 +75,11 @@ export function useChatSettings(options: ChatSettingsOptions): ChatSettingsFeatu
       ? { feature }
       : {
           feature,
-          navigation: { openTask: options.openTask, openParentSession: options.openParentSession },
+          navigation: {
+            projectID: options.projectID,
+            openTask: options.openTask,
+            openParentSession: options.openParentSession,
+          },
         };
   return { ...feature, settingsChip: createElement(ChatSettingsView, props) };
 }

@@ -74,5 +74,11 @@ export function useChatSettings(options: ChatSettingsOptions) {
 }
 
 function testNavigation(options: ChatSettingsOptions): ChatSettingsNavigation {
-  return "openTask" in options ? options : { openTask: () => undefined, openParentSession: () => undefined };
+  return "openTask" in options
+    ? options
+    : {
+        projectID: options.target.projectID,
+        openTask: () => undefined,
+        openParentSession: () => undefined,
+      };
 }

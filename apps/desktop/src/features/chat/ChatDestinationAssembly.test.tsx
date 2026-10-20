@@ -343,6 +343,7 @@ function ContextualWorktrees() {
           <SidebarHeaderActionSlot />
           <WorktreeBrowser
             onOpenSession={vi.fn()}
+            projectID={sessionTarget.projectID}
             sessionID={sessionTarget.sessionID}
             navigator={navigator}
             onCreate={vi.fn()}

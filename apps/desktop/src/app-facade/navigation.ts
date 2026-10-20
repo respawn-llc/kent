@@ -20,6 +20,8 @@ export type SessionChatTarget = Readonly<{
   catalogOrigin?: SessionChatCatalogOrigin;
 }>;
 
+export type SessionChatOpeningIntent = "ordinary" | "native_window";
+
 export type AppNavigation = Readonly<{
   back(): Promise<void>;
   forward(): Promise<void>;

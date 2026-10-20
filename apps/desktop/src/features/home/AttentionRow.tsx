@@ -3,7 +3,13 @@ import { memo } from "react";
 import { useTranslation } from "react-i18next";
 
 import type { AttentionItem } from "@/api";
-import { formatRelativeTime, usePathFormatter, type SessionChatTarget } from "@/app-facade";
+import {
+  formatRelativeTime,
+  useAppServices,
+  useNativeChatOpening,
+  usePathFormatter,
+  type SessionChatTarget,
+} from "@/app-facade";
 import { IconTooltipButton, Item, ItemContent, PromptAccessTargets } from "@/ui";
 import { attentionChatTarget } from "./attentionChatTarget";
 
@@ -13,6 +19,8 @@ export const AttentionRow = memo(function AttentionRow({
   onSessionChat,
 }: AttentionRowProps) {
   const { t } = useTranslation();
+  const { nativeBridge } = useAppServices();
+  const nativeChat = useNativeChatOpening();
   const message =
     item.message ??
     (item.kind === "approval"
@@ -21,6 +29,12 @@ export const AttentionRow = memo(function AttentionRow({
         ? t("app.attention.interruptedCurrentNodeFallback")
         : null);
   const chatTarget = attentionChatTarget(item);
+  const nativeWindowsAvailable = nativeBridge.capabilities.dialogWindows;
+  const nativeOpening = chatTarget !== null && nativeChat.pendingSessionID === chatTarget.sessionID;
+  const chatLabel = t("task.openChat", { name: item.taskTitle });
+  const chatTooltip = nativeWindowsAvailable
+    ? t("app.shiftClickToOpenInNewWindow", { action: chatLabel })
+    : chatLabel;
   return (
     <div className="group/attention relative min-w-0" data-testid="attention-row">
       <Item
@@ -38,8 +52,15 @@ export const AttentionRow = memo(function AttentionRow({
               <IconTooltipButton
                 className="text-[var(--color-muted)]"
                 size="icon-sm"
-                label={t("task.openChat", { name: item.taskTitle })}
-                onClick={() => {
+                label={chatLabel}
+                tooltip={chatTooltip}
+                loading={nativeOpening}
+                disabled={nativeOpening}
+                onClick={(event) => {
+                  if (event.shiftKey && nativeWindowsAvailable) {
+                    nativeChat.open(chatTarget);
+                    return;
+                  }
                   onSessionChat(chatTarget);
                 }}
               >

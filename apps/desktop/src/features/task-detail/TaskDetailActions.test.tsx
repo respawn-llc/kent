@@ -1,8 +1,7 @@
 import { expect, it, vi } from "bun:test";
-import { act, screen, waitFor, within } from "@testing-library/react";
+import { act, fireEvent, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 
-import type { TaskDetailSessionChatEntry } from "@/features/task-detail";
 import { appI18n } from "@/i18n";
 import {
   mountTaskDetailSurface,
@@ -13,6 +12,16 @@ import {
   taskStartApplied,
 } from "@/test-support/task-detail";
 import { projectEventsFixture } from "@/test-support/project-events";
+import { createBrowserNativeBridge } from "@/test-support/native-bridge";
+
+function nativeDesktopBridge(openWindow = vi.fn(async () => "created" as const)) {
+  const bridge = createBrowserNativeBridge();
+  return {
+    ...bridge,
+    capabilities: { ...bridge.capabilities, dialogWindows: true },
+    dialogs: { ...bridge.dialogs, openWindow },
+  };
+}
 
 it("orders Start, Open, and Task-wide Interrupt in one wrapping action flow", async () => {
   const sessionName = `${"👨‍👩‍👧‍👦".repeat(31)}e\u0301x`;
@@ -57,6 +66,98 @@ it("opens the only Session directly without a picker", async () => {
   expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
 });
 
+it("Shift-clicks the only Session into its native Chat window", async () => {
+  const openSessionChat = vi.fn(async () => undefined);
+  const sessionID = "33333333-3333-4333-8333-333333333333";
+  const openWindow = vi.fn(async () => "created" as const);
+  mountTaskDetailSurface(
+    taskActionFixture(taskDetailResponse, {}, [
+      {
+        sessionID,
+        sessionName: "Review",
+        nodeDisplayName: "Review",
+      },
+    ]),
+    {
+      nativeBridge: nativeDesktopBridge(openWindow),
+      openSessionChat,
+    },
+  );
+
+  fireEvent.click(await screen.findByRole("button", { name: appI18n.t("task.openInChat") }), {
+    shiftKey: true,
+  });
+
+  await waitFor(() => {
+    expect(openWindow).toHaveBeenCalledWith(
+      expect.objectContaining({
+        params: { projectID: "project-1", sessionID },
+      }),
+    );
+  });
+  expect(openSessionChat).not.toHaveBeenCalled();
+  expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+});
+
+it("Shift-clicks Open Chat then opens the ordinary picker selection natively", async () => {
+  const openings: string[] = [];
+  const openWindow = vi.fn(async () => "created" as const);
+  mountTaskDetailSurface(taskDetailResponse, {
+    nativeBridge: nativeDesktopBridge(openWindow),
+    openSessionChat: async (target) => {
+      openings.push(target.sessionID);
+    },
+  });
+
+  fireEvent.click(await screen.findByRole("button", { name: appI18n.t("task.openInChat") }), {
+    shiftKey: true,
+  });
+  const picker = within(screen.getByRole("dialog"));
+  const user = userEvent.setup();
+  await user.click(picker.getByRole("button", { name: "Review chat" }));
+  await user.click(screen.getByRole("button", { name: appI18n.t("task.openInChat") }));
+  const ordinaryPicker = within(screen.getByRole("dialog"));
+  await user.click(ordinaryPicker.getByRole("button", { name: "44444444-4444-4444-8444-444444444444" }));
+
+  expect(openWindow).toHaveBeenCalledTimes(1);
+  expect(openWindow).toHaveBeenCalledWith(
+    expect.objectContaining({
+      params: {
+        projectID: "project-1",
+        sessionID: "33333333-3333-4333-8333-333333333333",
+      },
+    }),
+  );
+  expect(openings).toEqual(["44444444-4444-4444-8444-444444444444"]);
+  expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+});
+
+it("Shift-clicks a Session in the ordinary Open Chat picker natively", async () => {
+  const openings: string[] = [];
+  const openWindow = vi.fn(async () => "created" as const);
+  mountTaskDetailSurface(taskDetailResponse, {
+    nativeBridge: nativeDesktopBridge(openWindow),
+    openSessionChat: async (target) => {
+      openings.push(target.sessionID);
+    },
+  });
+  const user = userEvent.setup();
+  await user.click(await screen.findByRole("button", { name: appI18n.t("task.openInChat") }));
+  const picker = within(screen.getByRole("dialog"));
+  fireEvent.click(picker.getByRole("button", { name: "Review chat" }), { shiftKey: true });
+
+  expect(openWindow).toHaveBeenCalledWith(
+    expect.objectContaining({
+      params: {
+        projectID: "project-1",
+        sessionID: "33333333-3333-4333-8333-333333333333",
+      },
+    }),
+  );
+  expect(openings).toEqual([]);
+  expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+});
+
 it("offers a CLI Session picker and keeps Task-wide Interrupt generic", async () => {
   mountTaskDetailSurface(
     taskActionFixture(taskDetailResponse, {}, [
@@ -91,7 +192,7 @@ it("keeps Interrupt generic when a Script is the live target", async () => {
 });
 
 it("selects one Session from the Open in Chat popup without opening the others", async () => {
-  const targets: Parameters<TaskDetailSessionChatEntry>[0][] = [];
+  const targets: { projectID: string; sessionID: string }[] = [];
   mountTaskDetailSurface(taskDetailResponse, {
     openSessionChat: async (target) => {
       targets.push(target);

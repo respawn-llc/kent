@@ -196,6 +196,7 @@ function ChatDestinationShell({
                 )}
                 {target !== null && (
                   <WorktreeControl
+                    projectID={target.projectID}
                     sessionID={target.sessionID}
                     target={executionTarget}
                     query={worktrees}

@@ -235,12 +235,12 @@ function ChatRouteContent({
   const appNavigation = useAppNavigation();
   const { open } = useOwnedSidebarRoots();
   const navigation = {
+    projectID,
     openTask: (taskID: string) => {
       open({ kind: "taskDetail", taskID });
     },
-    openParentSession: async (previousSessionID: string) => {
-      return appNavigation.openSessionChat({ projectID, sessionID: previousSessionID });
-    },
+    openParentSession: async (previousSessionID: string) =>
+      appNavigation.openSessionChat({ projectID, sessionID: previousSessionID }),
     openEditedSession: async (editedSessionID: string) =>
       appNavigation.openSessionChat({ projectID, sessionID: editedSessionID }),
   };

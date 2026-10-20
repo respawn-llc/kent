@@ -19,6 +19,7 @@ import {
 import { ActivityRow, CommentComposer, CommentRow, type CommentActions } from "./TaskDetailActivity";
 import type { DescriptionPresentationState } from "./TaskDetailDescriptionPresentation";
 import type { TaskDetailSessionChatEntry } from "./taskDetailSessionChat";
+import type { SessionChatOpeningIntent } from "@/app-facade";
 import { TaskDetailInboxRow } from "./TaskDetailInboxRow";
 import { TaskDetailBodyIslands } from "./TaskDetailBodyIslands";
 import {
@@ -77,6 +78,7 @@ export function TaskDetailList({
   newCommentBody,
   onDraftChange,
   openSessionChat,
+  sessionChatDefaultIntent,
   onDescriptionPresentationChange,
   onAddDependency,
   onDependenciesChanged,
@@ -110,6 +112,7 @@ export function TaskDetailList({
   newCommentBody: string;
   onDraftChange: (draft: TaskDraft) => void;
   openSessionChat?: TaskDetailSessionChatEntry | undefined;
+  sessionChatDefaultIntent: SessionChatOpeningIntent;
   onDescriptionPresentationChange: (presentation: DescriptionPresentationState) => void;
   onAddDependency: (direction: TaskDependencyDirection) => void;
   onDependenciesChanged?: (() => void) | undefined;
@@ -258,6 +261,7 @@ export function TaskDetailList({
           noCommentsTitle={t("task.noCommentsTitle")}
           onDraftChange={onDraftChange}
           openSessionChat={openSessionChat}
+          sessionChatDefaultIntent={sessionChatDefaultIntent}
           onDescriptionPresentationChange={onDescriptionPresentationChange}
           onAddDependency={onAddDependency}
           onDependenciesChanged={onDependenciesChanged}
@@ -308,6 +312,7 @@ type TaskDetailListRowProps = Readonly<{
   noCommentsTitle: string;
   onDraftChange: (draft: TaskDraft) => void;
   openSessionChat?: TaskDetailSessionChatEntry | undefined;
+  sessionChatDefaultIntent: SessionChatOpeningIntent;
   onDescriptionPresentationChange: (presentation: DescriptionPresentationState) => void;
   onAddDependency: (direction: TaskDependencyDirection) => void;
   onDependenciesChanged?: (() => void) | undefined;
@@ -385,6 +390,7 @@ function BodyRow({
   mutations,
   onDraftChange,
   openSessionChat,
+  sessionChatDefaultIntent,
   onDescriptionPresentationChange,
   onSaveDraft,
   descriptionPresentation,
@@ -405,7 +411,14 @@ function BodyRow({
           submitting={updatePending}
         />
       }
-      metadata={<PropertiesIsland detail={detail} mutations={mutations} openSessionChat={openSessionChat} />}
+      metadata={
+        <PropertiesIsland
+          detail={detail}
+          mutations={mutations}
+          openSessionChat={openSessionChat}
+          sessionChatDefaultIntent={sessionChatDefaultIntent}
+        />
+      }
     />
   );
 }
