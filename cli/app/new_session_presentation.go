@@ -8,7 +8,6 @@ import (
 	"core/shared/lifecyclecontract"
 	"core/shared/protoapi"
 	chatpb "core/shared/protoapi/gen/kent/api/chat"
-	runtimepb "core/shared/protoapi/gen/kent/api/runtime"
 	sessionlaunchpb "core/shared/protoapi/gen/kent/api/session_launch"
 	"core/shared/runtimeids"
 	"core/shared/serverapi"
@@ -32,24 +31,14 @@ func prepareNewSessionUIRun(ctx context.Context, server interactiveSessionServer
 	}
 	clients := source.SessionUIClients()
 	return uiLoopRequest{
-		ctx:              ctx,
-		newChatSettings:  server.ChatSettingsClient(),
-		newChatAuth:      server.AuthBootstrapClient(),
-		newChatMutations: clients.ChatMutations,
-		sessionControls:  clients.RuntimeControls,
+		ctx:         ctx,
+		newChatAuth: server.AuthBootstrapClient(),
 		createSession: func(ctx context.Context, target *chatpb.NewChatTarget, draft string) (*chatpb.ExistingSessionTarget, error) {
 			response, err := server.SessionLaunchClient().PlanSession(ctx, protoapi.NewChatSessionPlanRequest(target, &draft))
 			if err != nil {
 				return nil, err
 			}
-			session := &chatpb.ExistingSessionTarget{SessionId: response.Plan.SessionId}
-			if target.Name != nil {
-				err = clients.RuntimeControls.SetSessionName(ctx, &runtimepb.SetSessionNameRequest{
-					SessionId: session.SessionId,
-					Mutation:  &runtimepb.SessionNameMutation{Action: &runtimepb.SessionNameMutation_Set{Set: *target.Name}},
-				})
-			}
-			return session, err
+			return &chatpb.ExistingSessionTarget{SessionId: response.Plan.SessionId}, nil
 		},
 		newChatLogin:     server.Reauthenticate,
 		sessionLifecycle: server.SessionLifecycleClient(),
@@ -75,6 +64,10 @@ func prepareNewSessionUIRun(ctx context.Context, server interactiveSessionServer
 			Invocation:  options,
 		},
 		wiring: &runtimeWiring{
+			chatSettings:    server.ChatSettingsClient(),
+			chatMutations:   clients.ChatMutations,
+			controls:        clients.RuntimeControls,
+			pendingWork:     clients.PendingWork,
 			processViews:    clients.ProcessViews,
 			processControls: clients.ProcessControls,
 			worktrees:       clients.Worktrees,

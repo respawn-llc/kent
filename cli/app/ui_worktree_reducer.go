@@ -75,14 +75,9 @@ func (m *uiModel) reduceWorktreeMessage(msg tea.Msg) uiFeatureUpdateResult {
 			return handledUIFeatureUpdate(m, m.reconcileSpinnerTicking(false))
 		}
 		m.worktrees.errorText = ""
-		var listErr error
-		if msg.workspace != nil {
-			listErr = m.recordWorktreeSelection()
-			if listErr == nil {
-				listErr = m.applyWorktreeEntries(msg.workspace.Worktrees)
-			}
-		} else {
-			listErr = m.applyWorktreeListResponse(msg.resp)
+		listErr := m.recordWorktreeSelection()
+		if listErr == nil {
+			listErr = m.applyWorktreeEntries(msg.workspace.Worktrees)
 		}
 		if listErr != nil {
 			m.worktrees.errorText = runtimeattach.FormatSubmissionError(listErr)
@@ -105,13 +100,7 @@ func (m *uiModel) reduceWorktreeMessage(msg tea.Msg) uiFeatureUpdateResult {
 			m.layout().syncViewport()
 			return handledUIFeatureUpdate(m, m.reconcileSpinnerTicking(false))
 		}
-		var target worktreeui.Item
-		var err error
-		if msg.preview != nil {
-			target, err = worktreeui.ProjectDeletePreview(msg.preview)
-		} else {
-			target, err = worktreeui.ProjectSelectorPreview(msg.resp)
-		}
+		target, err := worktreeui.ProjectDeletePreview(msg.preview)
 		if err != nil {
 			m.worktrees.errorText = runtimeattach.FormatSubmissionError(err)
 			m.layout().syncViewport()
@@ -136,9 +125,6 @@ func (m *uiModel) reduceWorktreeMessage(msg tea.Msg) uiFeatureUpdateResult {
 		}
 		if ok {
 			target.IsCurrent = listedTarget.IsCurrent
-			if target.Entry != nil {
-				target.Entry.Projection.IsCurrent = listedTarget.Entry.Projection.IsCurrent
-			}
 			m.worktrees.entries[idx] = target
 			m.worktrees.selection = idx + 1
 			if err := m.recordWorktreeSelection(); err != nil {
@@ -157,7 +143,7 @@ func (m *uiModel) reduceWorktreeMessage(msg tea.Msg) uiFeatureUpdateResult {
 	case worktreeCreateDoneMsg:
 		var adoption tea.Cmd
 		if msg.createdSession {
-			adoption = m.applyNewSessionActionDone(newSessionActionDoneMsg{origin: m, session: msg.session})
+			adoption = m.applyNewSessionActionDone(newSessionActionDoneMsg{origin: m, chatActionResult: chatActionResult{session: msg.session}})
 		}
 		if msg.token != m.worktrees.mutationToken {
 			m.layout().syncViewport()

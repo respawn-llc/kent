@@ -20,26 +20,15 @@ var (
 	ErrClientUnavailable = errors.New("worktree client is unavailable")
 )
 
-type RuntimeControl struct {
-	Context         func() (context.Context, context.CancelFunc)
-	MutationContext func() (context.Context, context.CancelFunc)
-}
-
 type Service struct {
-	Client         apicontract.WorktreeService
-	SessionTarget  *sharedpb.SessionSelector
-	ProjectID      string
-	WorkspaceID    string
-	WorkspaceRoot  string
-	Runtime        RuntimeControl
-	ResolveContext func() (context.Context, context.CancelFunc)
-	NewOperationID func() worktreecontract.OperationID
+	Client        apicontract.WorktreeService
+	SessionTarget *sharedpb.SessionSelector
+	ProjectID     string
+	WorkspaceID   string
+	WorkspaceRoot string
 }
 
 func (s Service) managementScope() *worktreepb.ManagementScope {
-	if s.SessionTarget != nil {
-		return worktreecontract.SessionManagementScope(s.SessionTarget)
-	}
 	return worktreecontract.WorkspaceManagementScope(s.ProjectID, s.WorkspaceID, nil)
 }
 
@@ -54,17 +43,6 @@ func (s Service) ListWorkspace() (*worktreepb.WorkspaceListSuccess, error) {
 	})
 }
 
-func (s Service) List() (*worktreepb.ListSuccess, error) {
-	ctx, cancel, err := s.resolveMutationContext(false)
-	if err != nil {
-		return nil, err
-	}
-	defer cancel()
-	return s.Client.ListWorktrees(ctx, &worktreepb.ListRequest{
-		SessionId: s.SessionTarget,
-	})
-}
-
 func (s Service) ResolveCreateTarget(target string) (*worktreepb.CreateTargetResolveSuccess, error) {
 	if s.Client == nil {
 		return nil, ErrClientUnavailable
@@ -74,18 +52,6 @@ func (s Service) ResolveCreateTarget(target string) (*worktreepb.CreateTargetRes
 	return s.Client.ResolveWorktreeCreateTarget(ctx, &worktreepb.CreateTargetResolveRequest{
 		Scope:  s.managementScope(),
 		Target: target,
-	})
-}
-
-func (s Service) ResolveSelector(selector string) (*worktreepb.SelectorResolveSuccess, error) {
-	if s.Client == nil {
-		return nil, ErrClientUnavailable
-	}
-	ctx, cancel := s.resolveContext()
-	defer cancel()
-	return s.Client.ResolveWorktreeSelector(ctx, &worktreepb.SelectorResolveRequest{
-		SessionId: s.SessionTarget,
-		Selector:  strings.TrimSpace(selector),
 	})
 }
 
@@ -174,48 +140,18 @@ func (s Service) resolveMutationContext(mutation bool) (context.Context, context
 	if s.Client == nil {
 		return nil, nil, ErrClientUnavailable
 	}
-	if mutation && s.Runtime.MutationContext != nil {
-		if ctx, cancel := s.Runtime.MutationContext(); ctx != nil && cancel != nil {
-			return ctx, cancel, nil
-		}
+	timeout := defaultResolveTimeout
+	if mutation {
+		timeout = defaultMutationTimeout
 	}
-	if s.Runtime.Context != nil {
-		if ctx, cancel := s.Runtime.Context(); ctx != nil && cancel != nil {
-			return ctx, cancel, nil
-		}
-	}
-	if s.ResolveContext != nil {
-		if ctx, cancel := s.ResolveContext(); ctx != nil && cancel != nil {
-			return ctx, cancel, nil
-		}
-	}
-	ctx, cancel := context.WithTimeout(context.Background(), defaultMutationTimeout)
+	ctx, cancel := context.WithTimeout(context.Background(), timeout)
 	return ctx, cancel, nil
 }
 
 func (s Service) resolveContext() (context.Context, context.CancelFunc) {
-	if s.Runtime.Context != nil {
-		if ctx, cancel := s.Runtime.Context(); ctx != nil && cancel != nil {
-			return ctx, cancel
-		}
-	}
-	if s.ResolveContext != nil {
-		if ctx, cancel := s.ResolveContext(); ctx != nil && cancel != nil {
-			return ctx, cancel
-		}
-	}
 	return context.WithTimeout(context.Background(), defaultResolveTimeout)
 }
 
-func DefaultMutationContext() (context.Context, context.CancelFunc) {
-	return context.WithTimeout(context.Background(), defaultMutationTimeout)
-}
-
 func (s Service) operationID() worktreecontract.OperationID {
-	if s.NewOperationID != nil {
-		if id := s.NewOperationID(); id.Validate() == nil {
-			return id
-		}
-	}
 	return worktreecontract.NewOperationID()
 }

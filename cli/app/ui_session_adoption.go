@@ -134,7 +134,6 @@ func (m *uiModel) installSessionObservation(wiring *runtimeWiring, plan sessionL
 	}
 	m.requestOngoingOpen = wiring.requestTranscriptOpen
 	m.turnQueueHook = wiring.turnQueueHook
-	m.worktreeClient = wiring.worktrees
 	events := m.runtimeConnectionEvents
 	m.promptAnswers = wiring.promptAnswers.withConnectionOutcomeSink(func(err error) {
 		enqueueRuntimeConnectionStateChange(events, err)

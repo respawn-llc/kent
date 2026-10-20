@@ -58,9 +58,10 @@ func (c *worktreeCommandTestClient) ListWorktrees(ctx context.Context, req *work
 	return c.listResp, c.listErr
 }
 
-func (c *worktreeCommandTestClient) ListWorkspaceWorktrees(_ context.Context, req *worktreepb.WorkspaceListRequest) (*worktreepb.WorkspaceListSuccess, error) {
+func (c *worktreeCommandTestClient) ListWorkspaceWorktrees(ctx context.Context, req *worktreepb.WorkspaceListRequest) (*worktreepb.WorkspaceListSuccess, error) {
+	c.listCtx = ctx
 	c.workspaceRequests = append(c.workspaceRequests, req)
-	return c.workspaceResp, nil
+	return c.workspaceResp, c.listErr
 }
 
 func (c *worktreeCommandTestClient) ResolveWorktreeSelector(ctx context.Context, req *worktreepb.SelectorResolveRequest) (*worktreepb.SelectorResolveSuccess, error) {
@@ -143,7 +144,7 @@ func (c *worktreeCommandTestClient) consumeReconnectFailure(kind string) bool {
 
 func newWorktreeTestRuntimeClient(sessionID string) *sessionRuntimeClient {
 	reads := &countingSessionViewClient{view: &runtimepb.MainView{Session: &runtimepb.SessionView{SessionId: sessionID}}}
-	return newUIRuntimeClientWithReads(sessionID, reads, &reconnectRetryRuntimeControlClient{}, nil, nil).(*sessionRuntimeClient)
+	return newUIRuntimeClientWithReads(sessionID, reads).(*sessionRuntimeClient)
 }
 
 func newWorktreeTestModel(t *testing.T, client *worktreeCommandTestClient, opts ...UIOption) *uiModel {
@@ -155,6 +156,7 @@ func newWorktreeTestModel(t *testing.T, client *worktreeCommandTestClient, opts 
 	allOpts := []UIOption{WithUIWorktreeClient(client), WithUISessionID(detailTestSessionID)}
 	allOpts = append(allOpts, opts...)
 	model := newProjectedTestUIModel(newWorktreeTestRuntimeClient(detailTestSessionID), allOpts...)
+	model.workspaceContext = uiWorkspaceContext{projectID: "project-1", workspaceID: "workspace-1", root: "/repo"}
 	if runtimeClient, ok := model.runtimeClient().(*sessionRuntimeClient); ok && model.sessionName != nil {
 		runtimeClient.storeMainView(&runtimepb.MainView{Session: &runtimepb.SessionView{SessionId: model.currentRuntimeSessionID(), SessionName: model.sessionName}})
 	}

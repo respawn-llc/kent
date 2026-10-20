@@ -12,6 +12,7 @@ import (
 	chatshellpb "core/shared/protoapi/gen/kent/api/chat_shell"
 	runtimepb "core/shared/protoapi/gen/kent/api/runtime"
 	"core/shared/runtimeids"
+	"google.golang.org/protobuf/proto"
 )
 
 type chatAction interface{ isChatAction() }
@@ -33,7 +34,6 @@ func (chatCompactionAction) isChatAction() {}
 
 type chatActionTransport struct {
 	actions apicontract.ChatMutationService
-	goals   goalSetClient
 }
 
 type chatActionResult struct {
@@ -64,11 +64,28 @@ func (r chatActionResult) submission(text string) (clientui.UserTurnSubmission, 
 	}, nil
 }
 
-func (m *uiModel) knownChatTarget() *chatpb.ChatTarget {
-	target := m.presentationTarget.(uiKnownSessionTarget)
-	return &chatpb.ChatTarget{Target: &chatpb.ChatTarget_Session{Session: &chatpb.ExistingSessionRequestTarget{
-		SessionId: protoapi.SessionSelectorToProto(target.id),
-	}}}
+func (m *uiModel) captureChatAction(action chatAction, submittedText *string) func() chatActionResult {
+	var target *chatpb.ChatTarget
+	var draft *string
+	switch selected := m.presentationTarget.(type) {
+	case *uiNewSessionTarget:
+		target = &chatpb.ChatTarget{Target: &chatpb.ChatTarget_NewChat{NewChat: proto.Clone(selected.creation).(*chatpb.NewChatTarget)}}
+		text := m.mainEditor.Text()
+		if _, shell := action.(chatShellAction); shell && submittedText != nil {
+			text = *submittedText
+		}
+		draft = &text
+	case uiKnownSessionTarget:
+		target = &chatpb.ChatTarget{Target: &chatpb.ChatTarget_Session{Session: &chatpb.ExistingSessionRequestTarget{
+			SessionId: protoapi.SessionSelectorToProto(selected.id), Preparation: selected.preparation,
+		}}}
+		selected.preparation = nil
+		m.presentationTarget = selected
+	default:
+		panic("Chat action requires a selected target")
+	}
+	transport := chatActionTransport{actions: m.chatMutations}
+	return func() chatActionResult { return transport.execute(context.Background(), target, draft, action) }
 }
 
 func (t chatActionTransport) execute(ctx context.Context, target *chatpb.ChatTarget, draft *string, action chatAction) chatActionResult {
@@ -112,10 +129,6 @@ func (t chatActionTransport) execute(ctx context.Context, target *chatpb.ChatTar
 			}
 		}
 	case chatGoalAction:
-		if t.goals == nil {
-			result.err = errors.New("Goal Set service is required")
-			return result
-		}
 		var cancel context.CancelFunc
 		ctx, cancel = context.WithTimeout(ctx, client.GoalRequestTimeout)
 		defer cancel()
@@ -125,7 +138,7 @@ func (t chatActionTransport) execute(ctx context.Context, target *chatpb.ChatTar
 		} else {
 			draft = nil
 		}
-		response, err := t.goals.SetGoal(ctx, &runtimepb.GoalSetRequest{
+		response, err := service.SetGoal(ctx, &runtimepb.GoalSetRequest{
 			Target: target, Objective: action.objective, Actor: "user",
 			ExecutionPolicy:   policy,
 			InitialInputDraft: draft,

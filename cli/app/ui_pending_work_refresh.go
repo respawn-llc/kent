@@ -1,10 +1,12 @@
 package app
 
 import (
-	"errors"
+	"context"
 	"fmt"
 
 	"core/cli/app/internal/runtimeattach"
+	"core/shared/protoapi"
+	runtimepb "core/shared/protoapi/gen/kent/api/runtime"
 	"core/shared/runtimeids"
 	"core/shared/runtimeinput"
 
@@ -24,10 +26,6 @@ type pendingWorkRefreshDoneMsg struct {
 	generation  uint64
 	pendingWork runtimeinput.PendingWork
 	err         error
-}
-
-type pendingWorkListClient interface {
-	ListPendingWork(runtimeids.SessionID) (runtimeinput.PendingWork, error)
 }
 
 func (m *uiModel) advancePendingWorkRefreshScope(sessionID runtimeids.SessionID) tea.Cmd {
@@ -78,12 +76,15 @@ func (m *uiModel) startPendingWorkRefresh() tea.Cmd {
 	sessionID := m.pendingWorkRefresh.sessionID
 	generation := m.pendingWorkRefresh.generation
 	m.pendingWorkRefresh.inFlight = true
-	client, ok := m.runtimeClient().(pendingWorkListClient)
+	client := m.pendingWorkClient
 	return func() tea.Msg {
-		if !ok {
-			return pendingWorkRefreshDoneMsg{generation: generation, err: errors.New("runtime Pending Work list is unavailable")}
+		response, err := runtimeControlCall(func(ctx context.Context) (*runtimepb.ListPendingWorkSuccess, error) {
+			return client.ListPendingWork(ctx, &runtimepb.ListPendingWorkRequest{SessionId: sessionID.String()})
+		})
+		if err != nil {
+			return pendingWorkRefreshDoneMsg{generation: generation, err: err}
 		}
-		pendingWork, err := client.ListPendingWork(sessionID)
+		pendingWork, err := protoapi.PendingWorkFromProto(response.PendingWork)
 		return pendingWorkRefreshDoneMsg{generation: generation, pendingWork: pendingWork, err: err}
 	}
 }

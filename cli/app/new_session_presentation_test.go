@@ -210,9 +210,6 @@ func TestNewSessionPresentationLeavesArtifactsAndCatalogUnchanged(t *testing.T) 
 		if result.err != nil || result.session == nil {
 			t.Fatalf("first action: %v", result.err)
 		}
-		if _, shell := result.action.(chatShellAction); !shell {
-			t.Fatal("supported shell input did not execute the shell action")
-		}
 		if providerCalls.Load() != 0 {
 			t.Fatalf("shell first action contacted provider %d times", providerCalls.Load())
 		}

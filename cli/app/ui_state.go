@@ -41,9 +41,11 @@ type uiModel struct {
 }
 
 type uiRuntimeFeatureState struct {
+	workspaceContext   uiWorkspaceContext
 	chatMutations      apicontract.ChatMutationService
 	chatSettings       apicontract.ChatSettingsService
 	sessionControls    apicontract.RuntimeControlService
+	pendingWorkClient  apicontract.RuntimePendingWorkService
 	createSession      func(context.Context, *chatpb.NewChatTarget, string) (*chatpb.ExistingSessionTarget, error)
 	observeSession     func(context.Context, runtimeids.SessionID) (sessionLaunchPlan, *runtimeLaunchPlan, error)
 	sessionObservation *runtimeLaunchPlan

@@ -99,11 +99,19 @@ message SessionPlanRequest {
   kent.api.invocation.RunPromptOverrides overrides = 4;
   kent.api.chat_settings.InitialChatSettings initial_chat_settings = 5;
   optional string initial_input_draft = 6;
+  optional string initial_name = 7 [
+    (buf.validate.field).string.min_len = 1,
+    (buf.validate.field).cel = {
+      id: "kent.session_launch.initial_name_nonblank"
+      message: "initial_name must be non-blank"
+      expression: "this.trim() != ''"
+    }
+  ];
 
   option (buf.validate.message).cel = {
     id: "kent.session_launch.initial_input_draft_settings"
-    message: "initial_input_draft requires initial_chat_settings"
-    expression: "!has(this.initial_input_draft) || has(this.initial_chat_settings)"
+    message: "initial_input_draft and initial_name require initial_chat_settings"
+    expression: "(!has(this.initial_input_draft) && !has(this.initial_name)) || has(this.initial_chat_settings)"
   };
 }
 

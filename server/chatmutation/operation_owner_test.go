@@ -267,7 +267,7 @@ func TestServiceCarriesOneOperationContextAcrossChatLifecycle(t *testing.T) {
 					}, nil
 				},
 				nil,
-				nil, nil, nil, nil,
+				nil, nil, nil,
 			)
 			service := NewService(
 				owner,

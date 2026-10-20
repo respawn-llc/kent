@@ -10,10 +10,8 @@ import (
 	"core/server/launch"
 	"core/server/metadata"
 	"core/server/promptcommands"
-	"core/server/runtimecontrol"
 	"core/server/session"
 	"core/server/sessionlaunch"
-	"core/server/sessionruntime"
 	"core/shared/config"
 	"core/shared/protoapi"
 	chatpb "core/shared/protoapi/gen/kent/api/chat"
@@ -31,7 +29,7 @@ type placementActivity struct {
 
 func TestChatTargetSelectorsResolveSameSession(t *testing.T) {
 	_, store, source, _ := newPlacementFixture(t)
-	resolver := NewTargetResolver(store, nil, nil, nil, store, nil, nil)
+	resolver := NewTargetResolver(store, nil, nil, nil, store, nil)
 	identity := source.Identity()
 	for _, selector := range []runtimeids.SessionSelector{identity.ID, *identity.ShortID} {
 		resolved, err := resolver.Resolve(t.Context(), TargetResolutionRequest{Target: &chatpb.ChatTarget{
@@ -47,7 +45,7 @@ func TestChatTargetSelectorsResolveSameSession(t *testing.T) {
 
 func TestChatTargetProjectionFailureRetainsKnownIdentity(t *testing.T) {
 	_, store, source, _ := newPlacementFixture(t)
-	resolver := NewTargetResolver(store, nil, nil, nil, store, nil, nil)
+	resolver := NewTargetResolver(store, nil, nil, nil, store, nil)
 	if err := store.Close(); err != nil {
 		t.Fatal(err)
 	}
@@ -80,7 +78,7 @@ func TestNewChatResolutionCarriesCanonicalInvocationPreparation(t *testing.T) {
 	newChat.InitialSettings.Thinking = textutil.Value("ultra")
 	resolver := NewTargetResolver(store, func(context.Context, string, string) (SessionCreationService, error) {
 		return planner, nil
-	}, nil, nil, store, nil, nil)
+	}, nil, nil, store, nil)
 	resolved, err := resolver.Resolve(t.Context(), TargetResolutionRequest{
 		Target:       &chatpb.ChatTarget{Target: &chatpb.ChatTarget_NewChat{NewChat: newChat}},
 		InitialDraft: textutil.Value("new draft"),
@@ -102,7 +100,7 @@ func TestNewChatResolutionCarriesCanonicalInvocationPreparation(t *testing.T) {
 }
 
 func TestNewChatResolutionAppliesFutureNameThroughSessionOwner(t *testing.T) {
-	cfg, store, source, planner := newPlacementFixture(t)
+	_, store, source, planner := newPlacementFixture(t)
 	execution, err := store.ResolveSessionExecutionTarget(t.Context(), source.Meta().SessionID)
 	if err != nil {
 		t.Fatal(err)
@@ -111,17 +109,12 @@ func TestNewChatResolutionAppliesFutureNameThroughSessionOwner(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	authority := sessionruntime.NewAuthority(sessionruntime.AuthorityOptions{
-		PersistenceRoot: cfg.PersistenceRoot, StoreOptions: store.AuthoritativeSessionStoreOptions(),
-	})
-	t.Cleanup(func() { _ = authority.Close(context.Background()) })
-	names := runtimecontrol.NewService(authority, store)
 	newChat := validNewChatTarget()
 	newChat.ProjectId, newChat.WorkspaceId = project, execution.GetWorkspaceId()
 	newChat.Name = textutil.Value("future name")
 	resolver := NewTargetResolver(store, func(context.Context, string, string) (SessionCreationService, error) {
 		return planner, nil
-	}, nil, nil, store, names, nil)
+	}, nil, nil, store, nil)
 	resolved, err := resolver.Resolve(t.Context(), TargetResolutionRequest{
 		Target: &chatpb.ChatTarget{Target: &chatpb.ChatTarget_NewChat{NewChat: newChat}},
 	})
@@ -162,7 +155,7 @@ func TestNewChatResolutionAppliesCapturedWorktreeBeforePreparation(t *testing.T)
 	capture := &selectedWorktreeCapture{}
 	resolver := NewTargetResolver(store, func(context.Context, string, string) (SessionCreationService, error) {
 		return planner, nil
-	}, nil, nil, store, nil, capture)
+	}, nil, nil, store, capture)
 	resolved, err := resolver.Resolve(t.Context(), TargetResolutionRequest{
 		Target: &chatpb.ChatTarget{Target: &chatpb.ChatTarget_NewChat{NewChat: newChat}},
 	})
@@ -184,7 +177,7 @@ func TestFreshPlacementRetainsIdleFreshSession(t *testing.T) {
 	_, store, source, planner := newPlacementFixture(t)
 	resolver := NewTargetResolver(store, nil, func(context.Context, runtimeids.SessionID) (PersistedSessionPlanner, error) {
 		return planner, nil
-	}, placementActivity{state: runtimepb.ActivityState_RUNTIME_ACTIVITY_REGISTERED_IDLE}, nil, nil, nil)
+	}, placementActivity{state: runtimepb.ActivityState_RUNTIME_ACTIVITY_REGISTERED_IDLE}, nil, nil)
 	id, err := runtimeids.ParseSessionID(source.Meta().SessionID)
 	if err != nil {
 		t.Fatal(err)
@@ -220,7 +213,7 @@ func TestFreshPlacementCreatesDurablePreviousSessionChild(t *testing.T) {
 			}
 			resolver := NewTargetResolver(store, nil, func(context.Context, runtimeids.SessionID) (PersistedSessionPlanner, error) {
 				return planner, nil
-			}, placementActivity{state: state}, nil, nil, nil)
+			}, placementActivity{state: state}, nil, nil)
 			id, err := runtimeids.ParseSessionID(source.Meta().SessionID)
 			if err != nil {
 				t.Fatal(err)

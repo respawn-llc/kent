@@ -13,7 +13,6 @@ import (
 	"core/shared/clientui"
 	"core/shared/protoapi"
 	chatpb "core/shared/protoapi/gen/kent/api/chat"
-	runtimepb "core/shared/protoapi/gen/kent/api/runtime"
 	sessionlaunchpb "core/shared/protoapi/gen/kent/api/session_launch"
 	worktreepb "core/shared/protoapi/gen/kent/api/worktree"
 	"core/shared/runtimeids"
@@ -22,10 +21,6 @@ import (
 
 type SessionCreationService interface {
 	PlanSession(context.Context, *sessionlaunchpb.SessionPlanRequest) (*sessionlaunchpb.SessionPlanSuccess, error)
-}
-
-type SessionNamingService interface {
-	SetSessionName(context.Context, *runtimepb.SetSessionNameRequest) error
 }
 
 type WorktreeEnteringService interface {
@@ -56,7 +51,6 @@ type TargetResolver struct {
 	sessionLaunch     SessionLaunchServiceResolver
 	sourceLaunch      SessionRuntimePlannerResolver
 	activity          runtimecontrol.RuntimeActivityResolver
-	names             SessionNamingService
 	worktrees         WorktreeEnteringService
 }
 
@@ -66,7 +60,6 @@ func NewTargetResolver(
 	sourceLaunch SessionRuntimePlannerResolver,
 	activity runtimecontrol.RuntimeActivityResolver,
 	store *metadata.Store,
-	names SessionNamingService,
 	worktrees WorktreeEnteringService,
 ) *TargetResolver {
 	return &TargetResolver{
@@ -75,7 +68,6 @@ func NewTargetResolver(
 		sessionLaunch:     sessionLaunch,
 		sourceLaunch:      sourceLaunch,
 		activity:          activity,
-		names:             names,
 		worktrees:         worktrees,
 	}
 }
@@ -185,17 +177,6 @@ func (r *TargetResolver) Resolve(
 	resolved = ResolvedTarget{SessionID: sessionID, Created: true}
 	shortID := protoapi.SessionShortIDFromProto(response.Plan.ShortId)
 	resolved.ShortID = shortID
-	if newChat.Name != nil {
-		if r.names == nil {
-			return resolved, errors.New("Session naming service is required")
-		}
-		if err := r.names.SetSessionName(ctx, &runtimepb.SetSessionNameRequest{
-			SessionId: sessionID.String(),
-			Mutation:  &runtimepb.SessionNameMutation{Action: &runtimepb.SessionNameMutation_Set{Set: *newChat.Name}},
-		}); err != nil {
-			return resolved, err
-		}
-	}
 	if newChat.WorktreeSelector != nil {
 		if r.worktrees == nil {
 			return resolved, errors.New("Worktree management service is required")

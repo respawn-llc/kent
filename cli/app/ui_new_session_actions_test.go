@@ -124,7 +124,7 @@ func TestNewSessionAdoptionLoadsMetadataWithoutTranscriptHydration(t *testing.T)
 		Session: &runtimepb.SessionView{SessionId: id.String(), SessionName: &name},
 		Status:  &runtimepb.Status{},
 	}}
-	client := newUIRuntimeClientWithReads(id.String(), reads, &reconnectRetryRuntimeControlClient{}, nil, nil)
+	client := newUIRuntimeClientWithReads(id.String(), reads)
 	model.setKnownSessionTarget(id.String())
 	withUISessionObservation(&runtimeWiring{
 		runtimeClient: client, eventDispatcher: newUIEventDispatcher(nil), terminalFocus: newTerminalFocusState(),
@@ -324,8 +324,8 @@ func TestNewSessionConfirmedWorktreeCreateKeepsSessionOnSetupFailure(t *testing.
 	if model.currentRuntimeSessionID() != result.session.SessionId || model.mainEditor.Text() != "draft across setup failure" {
 		t.Fatal("setup failure lost the created Session or visible draft")
 	}
-	if len(worktrees.createRequests) != 1 || worktrees.createRequests[0].Scope.GetSessionId().GetSessionId() != result.session.SessionId {
-		t.Fatal("Worktree create did not run once against the ordinary Session")
+	if len(worktrees.createRequests) != 1 || worktrees.createRequests[0].Scope.GetWorkspace().GetTarget().GetWorkspaceId() != request.newChat.WorkspaceId {
+		t.Fatal("Worktree create did not run once against its workspace")
 	}
 	stored, err := sessionLaunchInitialStateFromServer(t.Context(), server, result.session.SessionId, "", false)
 	if err != nil {
@@ -372,7 +372,7 @@ func TestNewSessionAdoptionPersistsVisibleDraftWithoutMergingStoredInput(t *test
 	model.pendingNewChatActions = 1
 	// Drive observation independently of the indefinite subscription wait.
 	model.applyNewSessionActionDone(newSessionActionDoneMsg{
-		origin: model, session: &chatpb.ExistingSessionTarget{SessionId: plan.SessionID},
+		origin: model, chatActionResult: chatActionResult{session: &chatpb.ExistingSessionTarget{SessionId: plan.SessionID}},
 	})
 	id, err := runtimeids.ParseSessionID(plan.SessionID)
 	if err != nil {
@@ -451,9 +451,9 @@ func TestNewSessionKnownFailureRetainsIdentityAndVisibleDraft(t *testing.T) {
 	id := runtimeids.NewSessionID()
 	model.pendingNewChatActions = 1
 	model.Update(newSessionActionDoneMsg{
-		origin: model, token: 1, action: chatInputAction{},
-		session:       &chatpb.ExistingSessionTarget{SessionId: id.String()},
-		submittedText: appStringPointer("rejected input"), err: io.ErrUnexpectedEOF,
+		origin:           model,
+		chatActionResult: chatActionResult{session: &chatpb.ExistingSessionTarget{SessionId: id.String()}, err: io.ErrUnexpectedEOF},
+		submittedText:    appStringPointer("rejected input"),
 	})
 	if model.currentRuntimeSessionID() != id.String() {
 		t.Fatal("known failed result lost its Session identity")
@@ -471,8 +471,7 @@ func TestNewSessionDeliveredResultsAdoptInOrderWithoutReplacingDraft(t *testing.
 	for range 2 {
 		id := runtimeids.NewSessionID()
 		model.Update(newSessionActionDoneMsg{
-			origin: model, token: 1, action: chatInputAction{},
-			session: &chatpb.ExistingSessionTarget{SessionId: id.String()},
+			origin: model, chatActionResult: chatActionResult{session: &chatpb.ExistingSessionTarget{SessionId: id.String()}},
 		})
 		if model.currentRuntimeSessionID() != id.String() {
 			t.Fatal("delivered result did not adopt its Session")
@@ -491,8 +490,7 @@ func TestNewSessionLateResultDoesNotNavigateReplacement(t *testing.T) {
 	replacement := newProjectedStaticUIModel()
 	replacement.presentationTarget = &uiNewSessionTarget{creation: &chatpb.NewChatTarget{}}
 	result := newSessionActionDoneMsg{
-		origin: origin, token: 1, action: chatInputAction{},
-		session: &chatpb.ExistingSessionTarget{SessionId: runtimeids.NewSessionID().String()},
+		origin: origin, chatActionResult: chatActionResult{session: &chatpb.ExistingSessionTarget{SessionId: runtimeids.NewSessionID().String()}},
 	}
 	origin.Update(result)
 	replacement.Update(result)
@@ -512,8 +510,7 @@ func TestKnownSessionAfterObservationFailureDoesNotCreateOrReplay(t *testing.T) 
 	id := runtimeids.NewSessionID()
 	model.pendingNewChatActions = 1
 	_, cmd := model.Update(newSessionActionDoneMsg{
-		origin: model, token: 1, action: chatGoalAction{objective: "objective"},
-		session: &chatpb.ExistingSessionTarget{SessionId: id.String()},
+		origin: model, chatActionResult: chatActionResult{session: &chatpb.ExistingSessionTarget{SessionId: id.String()}},
 	})
 	for _, msg := range collectCmdMessages(t, cmd) {
 		model.Update(msg)

@@ -40,6 +40,9 @@ Kent must process the following gates in order. It must skip a gate only when it
 - Navigation or exit must discard uncreated New Session text, name, settings, and Worktree selection without confirmation. `/new` must navigate to a fresh Chat presentation, dispose the prior presentation's in-memory state, and recreate it with ordinary startup defaults.
 - Ordinary TUI `/new` must copy only the originating Session's navigation relationship. It must use the chosen Project and workspace's fresh defaults and explicit temporary selections without inheriting the originating Session's model, provider setup, ancestry, or Worktree. Rollback and agent-child inheritance must follow their respective creation contracts.
 - The server must own existing Session drafts and their ordinary save and restore behavior.
+- New Session and an identified Session must use one Chat composer. Actions must target the selected New Session or known Session identity through the shared server Chat creation and action services.
+- Session observation must attach only after identity is known. Observation must be read-only and must not determine action routing or prevent actions on a known Session.
+- Creation must accept the initial name and settings through a shared server API usable by both TUI and Desktop.
 - Pre-Session controls must follow [TUI Slash Overlays](tui-slash-overlays.md#pre-session-controls).
 
 ## Auth gate

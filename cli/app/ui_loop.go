@@ -33,10 +33,7 @@ type uiProgramComposition struct {
 type uiLoopRequest struct {
 	sessionLifecycle             apicontract.SessionLifecycleService
 	newChat                      *chatpb.NewChatTarget
-	newChatSettings              apicontract.ChatSettingsService
 	newChatAuth                  apicontract.AuthBootstrapService
-	newChatMutations             apicontract.ChatMutationService
-	sessionControls              apicontract.RuntimeControlService
 	createSession                func(context.Context, *chatpb.NewChatTarget, string) (*chatpb.ExistingSessionTarget, error)
 	newChatLogin                 func(context.Context) error
 	observeSession               func(context.Context, runtimeids.SessionID) (sessionLaunchPlan, *runtimeLaunchPlan, error)
@@ -215,9 +212,25 @@ func composeUIProgram(request uiLoopRequest, output io.Writer) (*uiProgramCompos
 		return nil, errors.New("projected UI model has unexpected type")
 	}
 	model.keyboardReporting = keyboardReporting
-	model.chatMutations = request.newChatMutations
-	model.chatSettings = request.newChatSettings
-	model.sessionControls = request.sessionControls
+	model.workspaceContext = uiWorkspaceContext{
+		projectID:   request.projectID,
+		workspaceID: request.statusConfig.ExecutionTarget.GetWorkspaceId(),
+		root:        request.statusConfig.ExecutionTarget.GetWorkspaceRoot(),
+	}
+	if request.newChat != nil {
+		model.workspaceContext.workspaceID = request.newChat.WorkspaceId
+		model.workspaceContext.root = request.statusConfig.WorkspaceRoot
+	}
+	model.chatMutations = request.wiring.chatMutations
+	model.chatSettings = request.wiring.chatSettings
+	model.sessionControls = request.wiring.controls
+	model.pendingWorkClient = request.wiring.pendingWork
+	if request.newChat == nil {
+		selected := model.presentationTarget.(uiKnownSessionTarget)
+		selected.preparation = request.wiring.preparation
+		request.wiring.preparation = nil
+		model.presentationTarget = selected
+	}
 	model.createSession = request.createSession
 	var initialDraft *draftContent
 	if target, known := model.presentationTarget.(uiKnownSessionTarget); known {
@@ -238,7 +251,7 @@ func composeUIProgram(request uiLoopRequest, output io.Writer) (*uiProgramCompos
 			auth:     request.newChatAuth,
 			login:    request.newChatLogin,
 		}
-		if request.newChatSettings != nil {
+		if request.wiring.chatSettings != nil {
 			model.startupCmds = append(model.startupCmds, model.loadNewSessionSettingsCmd(nil))
 		}
 	}

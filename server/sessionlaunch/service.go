@@ -557,6 +557,7 @@ func (s *Service) sessionPlanRequestFromGenerated(ctx context.Context, request *
 	initialChat := initialChatCreationFromGenerated(
 		request.InitialChatSettings,
 		request.InitialInputDraft,
+		request.InitialName,
 	)
 	internal := PlanRequest{
 		Mode:            mode,

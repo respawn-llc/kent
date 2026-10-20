@@ -1,10 +1,13 @@
 package app
 
 import (
+	"context"
 	"strconv"
 	"strings"
 	"time"
 
+	transcriptpb "core/shared/protoapi/gen/kent/api/transcript"
+	"core/shared/textutil"
 	"core/shared/transcript"
 
 	bubblespinner "github.com/charmbracelet/bubbles/spinner"
@@ -146,22 +149,23 @@ func (m *uiModel) appendLocalEntryWithNoticeID(role, text, noticeID string) tea.
 	if noticeID == "" {
 		noticeID = m.nextLocalNoticeID()
 	}
-	if !m.hasRuntimeClient() {
+	if _, known := m.presentationTarget.(uiKnownSessionTarget); !known {
 		return m.sendTransientStatusWithNoticeID(text, statusKindForLocalEntryRole(role), transientStatusDuration, uiStatusNoticeReplace, noticeID)
 	}
 	return m.persistLocalEntryCmd(role, text, noticeID)
 }
 
 func (m *uiModel) persistLocalEntryCmd(role, text, noticeID string) tea.Cmd {
-	client := m.runtimeClient()
-	if client == nil {
-		return nil
-	}
+	controls, sessionID := m.sessionControls, m.currentRuntimeSessionID()
 	role = strings.TrimSpace(role)
 	text = strings.TrimSpace(text)
 	noticeID = strings.TrimSpace(noticeID)
 	return func() tea.Msg {
-		err := client.AppendCommittedEntryWithNoticeID(role, text, noticeID)
+		err := runtimeControlCallNoResult(func(ctx context.Context) error {
+			return controls.AppendCommittedEntry(ctx, &transcriptpb.AppendCommittedEntryRequest{
+				SessionId: sessionID, Role: role, Text: text, NoticeId: textutil.OptionalTrimmedString(noticeID),
+			})
+		})
 		return committedEntryPersistDoneMsg{noticeID: noticeID, role: role, text: text, err: err}
 	}
 }

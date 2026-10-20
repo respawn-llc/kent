@@ -6,6 +6,7 @@ import (
 
 	tuiinput "core/cli/tui/input"
 	"core/cli/tui/ongoing"
+	promptpb "core/shared/protoapi/gen/kent/api/prompt"
 	sessionpb "core/shared/protoapi/gen/kent/api/session"
 	sharedpb "core/shared/protoapi/gen/kent/api/shared"
 	"core/shared/serverapi"
@@ -289,12 +290,14 @@ func (m *uiModel) recordPromptHistory(text string) tea.Cmd {
 		return nil
 	}
 	text = preservePromptHistoryText(text)
-	client := m.runtimeClient()
-	if client == nil {
+	if _, known := m.presentationTarget.(uiKnownSessionTarget); !known {
 		return nil
 	}
+	controls, sessionID := m.sessionControls, m.currentRuntimeSessionID()
 	return func() tea.Msg {
-		if err := client.RecordPromptHistory(text); err != nil {
+		if err := runtimeControlCallNoResult(func(ctx context.Context) error {
+			return controls.RecordPromptHistory(ctx, &promptpb.RecordHistoryRequest{SessionId: sessionID, Text: text})
+		}); err != nil {
 			return promptHistoryPersistErrMsg{err: err}
 		}
 		return nil

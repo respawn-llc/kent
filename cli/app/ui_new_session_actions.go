@@ -1,25 +1,17 @@
 package app
 
 import (
-	"context"
-
-	chatpb "core/shared/protoapi/gen/kent/api/chat"
 	"core/shared/runtimeids"
 	"core/shared/runtimeinput"
 	"core/shared/textutil"
 
 	tea "github.com/charmbracelet/bubbletea"
-	"google.golang.org/protobuf/proto"
 )
 
 type newSessionActionDoneMsg struct {
+	chatActionResult
 	origin        *uiModel
-	token         uint64
-	action        chatAction
 	submittedText *string
-	session       *chatpb.ExistingSessionTarget
-	err           error
-	diagnostic    error
 }
 
 func (m *uiModel) newSessionInputCmd(text string, input runtimeinput.Input, intent newSessionInputIntent) tea.Cmd {
@@ -40,30 +32,13 @@ func (m *uiModel) newSessionActionCmd(action chatAction, submittedText *string) 
 		}
 		return nil
 	}
-	var target *chatpb.ChatTarget
-	switch presentation := m.presentationTarget.(type) {
-	case *uiNewSessionTarget:
-		target = &chatpb.ChatTarget{Target: &chatpb.ChatTarget_NewChat{
-			NewChat: proto.Clone(presentation.creation).(*chatpb.NewChatTarget),
-		}}
-	case uiKnownSessionTarget:
-		target = m.knownChatTarget()
-	default:
-		panic("Chat action requires a presentation target")
-	}
-	service := m.chatMutations
-	draft := m.mainEditor.Text()
-	if _, shell := action.(chatShellAction); shell && submittedText != nil {
-		draft = *submittedText
-	}
-	m.submitToken++
+	execute := m.captureChatAction(action, submittedText)
 	m.pendingNewChatActions++
 	result := newSessionActionDoneMsg{
-		origin: m, token: m.submitToken, action: action, submittedText: textutil.Pointer(submittedText),
+		origin: m, submittedText: textutil.Pointer(submittedText),
 	}
 	return func() tea.Msg {
-		settled := (chatActionTransport{actions: service, goals: service}).execute(context.Background(), target, &draft, action)
-		result.session, result.err, result.diagnostic = settled.session, settled.err, settled.diagnostic
+		result.chatActionResult = execute()
 		return result
 	}
 }

@@ -4,6 +4,7 @@ import (
 	"context"
 	"core/shared/apicontract"
 	chatpb "core/shared/protoapi/gen/kent/api/chat"
+	sessionlaunchpb "core/shared/protoapi/gen/kent/api/session_launch"
 	"core/shared/runtimeids"
 )
 
@@ -21,7 +22,8 @@ type uiNewSessionTarget struct {
 func (uiNewSessionTarget) isUIPresentationTarget() {}
 
 type uiKnownSessionTarget struct {
-	id runtimeids.SessionID
+	id          runtimeids.SessionID
+	preparation *sessionlaunchpb.SessionRuntimePreparationOptions
 }
 
 func (uiKnownSessionTarget) isUIPresentationTarget() {}

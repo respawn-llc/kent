@@ -17,11 +17,13 @@ import (
 type InitialChatCreation struct {
 	Settings   serverapi.InitialChatSettings
 	InputDraft *string
+	Name       *string
 }
 
 func initialChatCreationFromGenerated(
 	settings *chatsettingspb.InitialChatSettings,
 	inputDraft *string,
+	name *string,
 ) *InitialChatCreation {
 	if settings == nil {
 		return nil
@@ -29,6 +31,7 @@ func initialChatCreationFromGenerated(
 	creation := &InitialChatCreation{
 		Settings:   protoapi.InitialChatSettingsFromProto(settings),
 		InputDraft: textutil.Pointer(inputDraft),
+		Name:       textutil.Pointer(name),
 	}
 	return creation
 }
@@ -79,6 +82,7 @@ func prepareInitialChatCreation(
 		draft = *creation.InputDraft
 	}
 	return &session.ChatDraftState{
+		Name:    creation.Name,
 		Message: draft,
 		Agent:   state.AgentSelector(),
 		Settings: &session.ChatSettingsOverrides{

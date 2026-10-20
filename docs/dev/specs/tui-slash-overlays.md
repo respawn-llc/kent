@@ -32,6 +32,7 @@
 - Opening the Worktree picker must not create a Session. Selecting an existing Worktree must select only the future Session's execution target. Leave must clear that selection.
 - Confirmed Worktree creation must first create the ordinary Session, then perform ordinary Worktree creation, setup, and enter. Worktree failures must follow the ordinary Worktree failure contract.
 - Worktree deletion must use workspace-scoped management and ordinary deletion protections without creating a Session.
+- Worktree listing and management must use workspace scope independently of Session existence. Only attachment, navigation, and Session creation actions must require a typed Chat target.
 
 ## /goal
 

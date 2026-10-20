@@ -102,13 +102,6 @@ func projectTopology(topology *worktreepb.TopologyEntry) (Item, error) {
 	return item, nil
 }
 
-func ProjectSelectorPreview(response *worktreepb.SelectorResolveSuccess) (Item, error) {
-	if response == nil {
-		return Item{}, errors.New("worktree selector response is empty")
-	}
-	return ProjectItem(response.Worktree)
-}
-
 func WorktreeID(item Item) string {
 	if item.WorktreeID == nil {
 		return ""

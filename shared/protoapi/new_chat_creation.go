@@ -16,6 +16,6 @@ func NewChatSessionPlanRequest(target *chatpb.NewChatTarget, draft *string) *ses
 	return &sessionlaunchpb.SessionPlanRequest{
 		Mode:                sessionlaunchpb.SessionLaunchMode_SESSION_LAUNCH_MODE_INTERACTIVE,
 		Intent:              &sessionlaunchpb.SessionLaunchRequestIntent{Intent: &sessionlaunchpb.SessionLaunchRequestIntent_CreateNew{CreateNew: origin}},
-		InitialChatSettings: target.InitialSettings, InitialInputDraft: draft, Overrides: target.Invocation,
+		InitialChatSettings: target.InitialSettings, InitialInputDraft: draft, InitialName: target.Name, Overrides: target.Invocation,
 	}
 }

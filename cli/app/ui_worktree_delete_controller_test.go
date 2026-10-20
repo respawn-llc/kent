@@ -103,7 +103,7 @@ func TestWorktreeDeleteControllerSubmitSchedulesSpinnerTick(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			client := &worktreeCommandTestClient{listResp: testMainWorktreeListResponse()}
+			client := &worktreeCommandTestClient{workspaceResp: workspaceListFixture(testMainWorktreeListResponse())}
 			model := newWorktreeDeleteControllerTestModel(t, client)
 			model.worktrees.deleteConfirm.selectedAction = tt.action
 
@@ -165,7 +165,7 @@ func TestWorktreeDeleteControllerPendingSpinnerAdvancesFromReturnedTick(t *testi
 		spinnerTickInterval = oldInterval
 	})
 
-	client := &worktreeCommandTestClient{listResp: testMainWorktreeListResponse()}
+	client := &worktreeCommandTestClient{workspaceResp: workspaceListFixture(testMainWorktreeListResponse())}
 	model := newWorktreeDeleteControllerTestModel(t, client)
 	model.worktrees.deleteConfirm.selectedAction = uiWorktreeDeleteActionDelete
 
@@ -200,8 +200,8 @@ func TestWorktreeDeleteCompletionStopsSpinnerAfterOverlayError(t *testing.T) {
 	withDeterministicSpinnerClock(t)
 
 	client := &worktreeCommandTestClient{
-		listResp:  testMainWorktreeListResponse(),
-		deleteErr: errors.New("delete failed"),
+		workspaceResp: workspaceListFixture(testMainWorktreeListResponse()),
+		deleteErr:     errors.New("delete failed"),
 	}
 	model := newWorktreeDeleteControllerTestModel(t, client)
 	model.worktrees.deleteConfirm.selectedAction = uiWorktreeDeleteActionDelete
@@ -228,7 +228,7 @@ func TestWorktreeDeleteCompletionStopsSpinnerAfterOverlayError(t *testing.T) {
 func TestWorktreeDeleteCompletionPreservesSpinnerForFollowUpListLoading(t *testing.T) {
 	withDeterministicSpinnerClock(t)
 
-	client := &worktreeCommandTestClient{listResp: testMainWorktreeListResponse()}
+	client := &worktreeCommandTestClient{workspaceResp: workspaceListFixture(testMainWorktreeListResponse())}
 	model := newWorktreeDeleteControllerTestModel(t, client)
 	model.worktrees.deleteConfirm.selectedAction = uiWorktreeDeleteActionDelete
 
@@ -267,7 +267,7 @@ func TestWorktreeDeleteControllerSubmitsDelete(t *testing.T) {
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			client := &worktreeCommandTestClient{listResp: testMainWorktreeListResponse()}
+			client := &worktreeCommandTestClient{workspaceResp: workspaceListFixture(testMainWorktreeListResponse())}
 			model := newWorktreeDeleteControllerTestModel(t, client)
 			model.worktrees.deleteConfirm.target = tc.target
 			model.worktrees.deleteConfirm.selectedAction = uiWorktreeDeleteActionDelete
@@ -303,7 +303,7 @@ func TestWorktreeDeleteControllerSubmitsDelete(t *testing.T) {
 func TestWorktreeDeleteControllerSubmitsDeleteBranch(t *testing.T) {
 	withDeterministicSpinnerClock(t)
 
-	client := &worktreeCommandTestClient{listResp: testMainWorktreeListResponse()}
+	client := &worktreeCommandTestClient{workspaceResp: workspaceListFixture(testMainWorktreeListResponse())}
 	model := newWorktreeDeleteControllerTestModel(t, client)
 	model.worktrees.deleteConfirm.selectedAction = uiWorktreeDeleteActionDeleteBranch
 
@@ -326,7 +326,7 @@ func TestWorktreeDeleteControllerSubmitsDeleteBranch(t *testing.T) {
 func TestWorktreeDeleteControllerUpdateRoutesToDeleteDialog(t *testing.T) {
 	withDeterministicSpinnerClock(t)
 
-	client := &worktreeCommandTestClient{listResp: testMainWorktreeListResponse()}
+	client := &worktreeCommandTestClient{workspaceResp: workspaceListFixture(testMainWorktreeListResponse())}
 	model := newWorktreeDeleteControllerTestModel(t, client)
 	model.worktrees.deleteConfirm.selectedAction = uiWorktreeDeleteActionDelete
 

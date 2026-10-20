@@ -10,7 +10,6 @@ import (
 
 	"core/cli/app/internal/runtimeattach"
 	"core/shared/clientui"
-	chatpb "core/shared/protoapi/gen/kent/api/chat"
 	"core/shared/runtimeids"
 	"core/shared/runtimeinput"
 	"core/shared/serverapi"
@@ -83,9 +82,6 @@ func (c uiInputController) startTypedSubmissionWithPreSubmitQueuePositionAndOrde
 	} else {
 		m.logf("step.start user_chars=%d", len(text))
 	}
-	if !m.hasRuntimeClient() && !isUserShell {
-		m.conversationFreshness = runtimepb.ConversationFreshness_CONVERSATION_FRESHNESS_ESTABLISHED
-	}
 	m.layout().syncViewport()
 	if isUserShell {
 		return tea.Batch(c.submitUserShellCmd(text, command, origin, submissionOrder), m.reconcileSpinnerTicking(false))
@@ -118,15 +114,10 @@ func (c uiInputController) submitCmd(text string, input runtimeinput.Input, queu
 		return m.newSessionInputCmd(text, input, intent)
 	}
 	token := m.beginSubmitAttempt(text, queuedID, origin, submissionOrder)
-	client := m.runtimeClient()
 	sessionID := m.pendingWorkRefresh.sessionID
-	var target *chatpb.ChatTarget
-	if _, known := m.presentationTarget.(uiKnownSessionTarget); known {
-		target = m.knownChatTarget()
-	}
-	transport := chatActionTransport{actions: m.chatMutations}
 	activation, activationErr := chatActivationFromInput(input)
 	action := chatInputAction{input: activation, queueItemID: runtimeids.NewQueueItemID()}
+	execute := m.captureChatAction(action, &text)
 	return func() tea.Msg {
 		doneMessage := func(message string, err error) submitDoneMsg {
 			return newSubmitDoneMsg(token, message, text, err)
@@ -134,16 +125,7 @@ func (c uiInputController) submitCmd(text string, input runtimeinput.Input, queu
 		if activationErr != nil {
 			return doneMessage("", activationErr)
 		}
-		if client == nil && target == nil {
-			return doneMessage("", errors.New("runtime engine is not configured"))
-		}
-		var submission clientui.UserTurnSubmission
-		var err error
-		if client == nil {
-			submission, err = transport.execute(context.Background(), target, nil, action).submission(text)
-		} else {
-			submission, err = m.submitRuntimeInput(context.Background(), clientui.RuntimeSubmitRequest{Input: input})
-		}
+		submission, err := execute().submission(text)
 		if submission.SessionID != nil && *submission.SessionID != sessionID.String() {
 			done := doneMessage("", err)
 			done.diagnostic = submission.Diagnostic
@@ -176,22 +158,9 @@ func (c uiInputController) submitUserShellCmd(originalText, command string, orig
 		return m.newSessionActionCmd(chatShellAction{command: command}, &originalText)
 	}
 	token := m.beginSubmitAttempt(originalText, "", origin, submissionOrder)
-	client := m.runtimeClient()
-	var target *chatpb.ChatTarget
-	if _, known := m.presentationTarget.(uiKnownSessionTarget); known {
-		target = m.knownChatTarget()
-	}
-	transport := chatActionTransport{actions: m.chatMutations}
+	execute := m.captureChatAction(chatShellAction{command: command}, &originalText)
 	return func() tea.Msg {
-		if client == nil && target == nil {
-			return newSubmitDoneMsg(token, "", originalText, errors.New("runtime engine is not configured"))
-		}
-		var err error
-		if client == nil {
-			err = transport.execute(context.Background(), target, nil, chatShellAction{command: command}).err
-		} else {
-			err = m.submitRuntimeShell(context.Background(), clientui.RuntimeShellRequest{Command: command})
-		}
+		err := execute().err
 		if err != nil {
 			if !errors.Is(err, serverapi.ErrRuntimeCommandNotAccepted) && isRuntimeOperationInterrupted(err) {
 				return newSubmitDoneMsg(token, "", originalText, runtimeattach.ErrSubmissionInterrupted)
@@ -254,35 +223,12 @@ func (c uiInputController) compactCmd(
 	guidance *string,
 ) tea.Cmd {
 	m := c.model
-	client := m.runtimeClient()
 	sessionID := m.pendingWorkRefresh.sessionID
-	var target *chatpb.ChatTarget
-	if _, known := m.presentationTarget.(uiKnownSessionTarget); known {
-		target = m.knownChatTarget()
-	}
-	transport := chatActionTransport{actions: m.chatMutations}
 	action := chatCompactionAction{invocation: chatCompactionInvocation(guidance)}
+	execute := m.captureChatAction(action, &submittedText)
 	return func() tea.Msg {
-		if client == nil && target == nil {
-			return compactDoneMsg{
-				sessionID:     sessionID,
-				submittedText: submittedText,
-				err:           errors.New("runtime engine is not configured"),
-			}
-		}
-		if client == nil {
-			result := transport.execute(context.Background(), target, nil, action)
-			return compactDoneMsg{sessionID: sessionID, submittedText: submittedText, diagnostic: result.diagnostic, err: result.err}
-		}
-		result, err := m.compactRuntimeInput(context.Background(), clientui.RuntimeCompactRequest{
-			Admission: runtimeinput.ManualCompactionAdmission{
-				Guidance: guidance,
-			},
-		})
-		return compactDoneMsg{
-			sessionID: sessionID, submittedText: submittedText,
-			diagnostic: result.Diagnostic, err: err,
-		}
+		result := execute()
+		return compactDoneMsg{sessionID: sessionID, submittedText: submittedText, diagnostic: result.diagnostic, err: result.err}
 	}
 }
 
@@ -354,7 +300,7 @@ func (c uiInputController) handleSubmitDone(msg submitDoneMsg) (tea.Model, tea.C
 	m.activeSubmit = activeSubmitState{}
 	m.clearUnownedQueuedTerminalStatesWithoutPendingOwnership()
 	c.finishRuntimeOperationAffordance()
-	if msg.token == 0 || !m.hasRuntimeClient() {
+	if msg.token == 0 {
 		_ = m.applyRuntimeActivityProjection(&runtimepb.Activity{
 			State:    runtimepb.ActivityState_RUNTIME_ACTIVITY_REGISTERED_IDLE,
 			Reviewer: runtimepb.ReviewerActivity_REVIEWER_ACTIVITY_INACTIVE,
@@ -506,9 +452,6 @@ func (m *uiModel) shouldRestoreSubmittedTextOnSubmitError(err error) bool {
 		return false
 	}
 	if errors.Is(err, serverapi.ErrRuntimeCommandNotAccepted) {
-		return true
-	}
-	if !m.hasRuntimeClient() {
 		return true
 	}
 	return false
