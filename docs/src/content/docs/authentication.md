@@ -31,8 +31,6 @@ MY_PROVIDER_KEY=your-provider-key
 
 When using a custom persistence root, place `.env` in that root. For a remote server, configure the key on the server machine.
 
-On macOS and Linux, restrict the file to its owner with `chmod 600 ~/.kent/.env` (adjust the path for a custom persistence root). Kent rejects files with group or other permissions.
-
 A background service reads this file independently of your terminal shell. A variable already present in the server's launch environment takes precedence, including an empty value. Restart the server after changing either source.
 
 The OpenAI and Grok API-key choices use their official endpoints. Choose Generic to supply a different Responses endpoint.
@@ -40,8 +38,6 @@ The OpenAI and Grok API-key choices use their official endpoints. Choose Generic
 ## Grok support
 
 There are 2, both semi-official, modes of using your subscription in Grok: CLI Proxy and OAuth API. First emulates the official CLI, used by e.g. OpenClaw. OAuth API is the official path, but does not have a Free Plan.
-
-The `/status` Auth section shows quota status for ChatGPT subscriptions and Grok subscription connections that use `grok-oauth-api` or `grok-cli-proxy`. Grok API-key connections show their authentication details without a subscription-quota row. If a Grok billing request returns HTTP 404, 403, or 401, Kent shows `Quota unavailable for this sign-in method` with the provider diagnostic. Treat a 403 as a permission or safety refusal unless the diagnostic provides separate authentication evidence. Use `/login` only when the provider diagnostic identifies an authentication problem.
 
 ## Configure connections and roles
 
