@@ -162,7 +162,7 @@ function RadialRecordingMeter({
       const radius = bounds.width / 2 + 1;
       for (const [index, value] of bars.entries()) {
         const angle = (index / count) * Math.PI * 2 - Math.PI / 2;
-        const amplitude = (value / 255) * padding * 0.78;
+        const amplitude = (value / 255) * padding * 0.65;
         const outer = radius + size / 48 + amplitude;
         context.moveTo(size / 2 + Math.cos(angle) * radius, size / 2 + Math.sin(angle) * radius);
         context.lineTo(size / 2 + Math.cos(angle) * outer, size / 2 + Math.sin(angle) * outer);
