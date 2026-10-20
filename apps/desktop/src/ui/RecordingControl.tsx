@@ -1,8 +1,10 @@
 import { useEffect, useRef, useState, type RefObject } from "react";
 import { createPortal } from "react-dom";
 import { Mic, Square } from "lucide-react";
-import { useReducedMotion } from "motion/react";
+import { AnimatePresence, motion, useReducedMotion } from "motion/react";
 import { IconTooltipButton } from "./IconTooltipButton";
+import { Spinner } from "./Spinner";
+import { motionDurationFromCSSVar } from "./motion";
 
 export type RecordingControlProps = Readonly<{
   phase: "idle" | "preparing" | "recording" | "transcribing";
@@ -24,20 +26,54 @@ export function RecordingControl({
   onStop,
 }: RecordingControlProps) {
   const anchor = useRef<HTMLSpanElement>(null);
+  const reducedMotion = useReducedMotion();
+  const transition = { duration: reducedMotion ? 0 : motionDurationFromCSSVar("--motion-fast", 140) / 1000 };
   return (
     <span className="relative inline-flex shrink-0 items-center gap-[var(--space-2)]">
-      {recording !== null && <RecordingElapsed startedAt={recording.startedAt} />}
-      <span className={recording === null ? "inline-flex" : "inline-flex px-[var(--space-4)]"}>
+      <span className="inline-grid w-[5ch] place-items-end">
+        <AnimatePresence>
+          {recording !== null && (
+            <motion.span
+              key="elapsed"
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              transition={transition}
+            >
+              <RecordingElapsed startedAt={recording.startedAt} />
+            </motion.span>
+          )}
+        </AnimatePresence>
+      </span>
+      <span className="inline-flex px-[var(--space-5)]">
         <span ref={anchor} className="relative inline-grid place-items-center text-[var(--color-primary)]">
           {recording !== null && <RadialRecordingMeter analyser={recording.analyser} anchor={anchor} />}
           <IconTooltipButton
             label={label}
             tooltip={tooltip}
             disabled={disabled}
-            loading={phase === "preparing" || phase === "transcribing"}
             onClick={phase === "recording" ? onStop : onStart}
           >
-            {phase === "recording" ? <Square size={16} fill="currentColor" /> : <Mic size={18} />}
+            <span className="relative grid size-5 place-items-center">
+              <AnimatePresence initial={false}>
+                <motion.span
+                  key={phase}
+                  className="absolute grid place-items-center"
+                  initial={{ opacity: 0, x: reducedMotion ? 0 : 8 }}
+                  animate={{ opacity: 1, x: 0 }}
+                  exit={{ opacity: 0 }}
+                  transition={transition}
+                >
+                  {phase === "preparing" || phase === "transcribing" ? (
+                    <Spinner size="sm" />
+                  ) : phase === "recording" ? (
+                    <Square size={16} fill="currentColor" />
+                  ) : (
+                    <Mic size={18} />
+                  )}
+                </motion.span>
+              </AnimatePresence>
+            </span>
           </IconTooltipButton>
         </span>
       </span>
@@ -126,7 +162,7 @@ function RadialRecordingMeter({
       const radius = bounds.width / 2 + 1;
       for (const [index, value] of bars.entries()) {
         const angle = (index / count) * Math.PI * 2 - Math.PI / 2;
-        const amplitude = (value / 255) * padding * 0.75;
+        const amplitude = (value / 255) * padding * 0.78;
         const outer = radius + size / 48 + amplitude;
         context.moveTo(size / 2 + Math.cos(angle) * radius, size / 2 + Math.sin(angle) * radius);
         context.lineTo(size / 2 + Math.cos(angle) * outer, size / 2 + Math.sin(angle) * outer);

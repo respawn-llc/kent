@@ -20,7 +20,11 @@ import type { SpeechTarget } from "./insertion";
 type Phase =
   | Readonly<{ kind: "idle" }>
   | Readonly<{ kind: "preparing"; field: string | symbol }>
-  | Readonly<{ kind: "recording" | "transcribing"; field: string | symbol; session: CaptureSession }>;
+  | Readonly<{
+      kind: "recording" | "transcribing";
+      field: string | symbol;
+      session: CaptureSession & { startedAt: number };
+    }>;
 
 export function createSpeechDestination({
   services,
@@ -108,9 +112,11 @@ export function createSpeechDestination({
                 ),
               ),
             );
-            yield* Atom.set(phase, { kind: "recording", field, session });
+            const startedAt = yield* speechAttempt(async () => session.ready);
+            const activeSession = { ...session, startedAt };
+            yield* Atom.set(phase, { kind: "recording", field, session: activeSession });
             const clip = yield* speechAttempt(async () => session.finished);
-            yield* Atom.set(phase, { kind: "transcribing", field, session });
+            yield* Atom.set(phase, { kind: "transcribing", field, session: activeSession });
             if (discardable(clip)) {
               yield* speechAttempt(session.transfer.cancel);
               yield* speechAttempt(async () => services.speech.discard(clip.source));

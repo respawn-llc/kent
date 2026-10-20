@@ -53,6 +53,7 @@ export const captureMicrophone = Effect.fn("captureMicrophone")(function* (
   const analyser = audio.createAnalyser();
   analyser.fftSize = 256;
   audio.createMediaStreamSource(stream).connect(analyser);
+  yield* speechAttempt(async () => audio.resume());
   const recorder = yield* speechSync(
     () =>
       new MediaRecorder(stream, {
@@ -72,6 +73,12 @@ export const captureMicrophone = Effect.fn("captureMicrophone")(function* (
       ),
   );
   let complete!: (clip: CompletedClip) => void;
+  let captureStarted!: (time: number) => void;
+  let startupFailed!: (error: unknown) => void;
+  const ready = new Promise<number>((resolve, fail) => {
+    captureStarted = resolve;
+    startupFailed = fail;
+  });
   let reject!: (error: unknown) => void;
   const finished = new Promise<CompletedClip>((resolve, fail) => {
     complete = resolve;
@@ -108,24 +115,41 @@ export const captureMicrophone = Effect.fn("captureMicrophone")(function* (
     sampleSignal();
     recorder.requestData();
   };
+  let observationReady!: () => void;
+  const observing = new Promise<void>((resolve) => {
+    observationReady = resolve;
+  });
   const events = nativeObservation<RecorderEvent>(
     async (emit) => {
       const chunk = (event: BlobEvent) => {
         emit({ kind: "chunk", chunk: event.data });
       };
       const stopped = () => {
+        startupFailed(new SpeechOperationError("recording"));
         emit({ kind: "stop" });
       };
-      const failed = () => {
-        emit({ kind: "error", error: new SpeechOperationError("recording") });
+      const started = () => {
+        if (stoppedAt !== null) return;
+        startedAt = performance.now();
+        nextChunk = setTimeout(requestChunk, 250);
+        limitTimer = setTimeout(stopAtLimit, available.maxDurationSeconds * 1000);
+        captureStarted(startedAt);
       };
+      const failed = () => {
+        const error = new SpeechOperationError("recording");
+        startupFailed(error);
+        emit({ kind: "error", error });
+      };
+      recorder.addEventListener("start", started);
       recorder.addEventListener("dataavailable", chunk);
       recorder.addEventListener("stop", stopped);
       recorder.addEventListener("error", failed);
+      observationReady();
       return () => {
         recorder.removeEventListener("dataavailable", chunk);
         recorder.removeEventListener("stop", stopped);
         recorder.removeEventListener("error", failed);
+        recorder.removeEventListener("start", started);
       };
     },
     async () => services.logger.reportObservationOverflow("speech-recorder"),
@@ -180,14 +204,12 @@ export const captureMicrophone = Effect.fn("captureMicrophone")(function* (
       ),
     ),
   );
-  const startTime = yield* speechSync(() => {
+  yield* speechAttempt(async () => observing);
+  yield* speechSync(() => {
     recorder.start();
     startedAt = performance.now();
-    nextChunk = setTimeout(requestChunk, 250);
-    limitTimer = setTimeout(stopAtLimit, available.maxDurationSeconds * 1000);
-    return startedAt;
   });
-  return { stream, analyser, startedAt: startTime, stop, finished, transfer };
+  return { stream, analyser, ready, stop, finished, transfer };
 });
 
 export type CaptureSession = Effect.Success<ReturnType<typeof captureMicrophone>>;

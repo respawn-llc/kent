@@ -72,7 +72,9 @@ it("releases a microphone permission result that arrives after destination dispo
   client.clear();
 });
 
-function recordingFixture() {
+function recordingFixture(manualStart = false) {
+  const startRequested = vi.fn();
+  let ready = () => undefined;
   const track = { stop: vi.fn() };
   vi.stubGlobal("navigator", { mediaDevices: { getUserMedia: async () => ({ getTracks: () => [track] }) } });
   vi.stubGlobal(
@@ -84,6 +86,11 @@ function recordingFixture() {
       state: RecordingState = "inactive";
       start() {
         this.state = "recording";
+        startRequested();
+        ready = () => {
+          this.dispatchEvent(new Event("start"));
+        };
+        if (!manualStart) queueMicrotask(ready);
       }
       requestData() {
         return undefined;
@@ -99,6 +106,9 @@ function recordingFixture() {
   vi.stubGlobal(
     "AudioContext",
     class {
+      async resume() {
+        return undefined;
+      }
       createAnalyser() {
         return { fftSize: 256, getByteTimeDomainData: (data: Uint8Array) => data.fill(140) };
       }
@@ -158,8 +168,56 @@ function recordingFixture() {
     },
     { wrapper: ({ children }: { children: ReactNode }) => <RegistryProvider>{children}</RegistryProvider> },
   );
-  return { view, track, services, source, capture, retry, client, deliver, recover, report };
+  return {
+    view,
+    track,
+    services,
+    source,
+    capture,
+    retry,
+    client,
+    deliver,
+    recover,
+    report,
+    startRequested,
+    ready: () => {
+      ready();
+    },
+  };
 }
+
+it("keeps preparation visible until the recorder confirms capture has started", async () => {
+  const f = recordingFixture(true);
+  act(() => {
+    f.view.result.current.actions.start();
+  });
+  await waitFor(() => {
+    expect(f.startRequested).toHaveBeenCalled();
+  });
+  expect(f.view.result.current.state.phase).toBe("preparing");
+  act(() => {
+    f.ready();
+  });
+  await waitFor(() => {
+    expect(f.view.result.current.state.phase).toBe("recording");
+  });
+  f.view.unmount();
+  f.client.clear();
+});
+
+it("finalizes owned capture if the destination closes while recorder startup is pending", async () => {
+  const f = recordingFixture(true);
+  act(() => { f.view.result.current.actions.start(); });
+  await waitFor(() => { expect(f.startRequested).toHaveBeenCalled(); });
+  f.view.unmount();
+  await waitFor(() => { expect(f.track.stop).toHaveBeenCalled(); });
+  await waitFor(() => { expect(f.recover).toHaveBeenCalled(); });
+  expect(f.recover.mock.calls[0]?.[0]).toBe(f.source);
+  expect(f.recover.mock.calls[0]?.[1]).toBeInstanceOf(Error);
+  expect(f.recover.mock.calls[0]?.[2]).toBe(target);
+  expect(f.deliver).not.toHaveBeenCalled();
+  f.client.clear();
+});
 
 it("keeps capture running after transport loss and makes its fresh attempt only at Stop", async () => {
   const f = recordingFixture();
