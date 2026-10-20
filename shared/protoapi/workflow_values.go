@@ -37,6 +37,10 @@ func (v workflowValues[T]) Decode(code T) (string, error) {
 	return name, nil
 }
 
+func (v workflowValues[T]) FromProto(code T) string {
+	return v.names[code]
+}
+
 var WorkflowNodeKind = workflowValueNames(map[pb.NodeKind]string{
 	pb.NodeKind_WORKFLOW_NODE_KIND_START:    "start",
 	pb.NodeKind_WORKFLOW_NODE_KIND_AGENT:    "agent",
@@ -46,10 +50,11 @@ var WorkflowNodeKind = workflowValueNames(map[pb.NodeKind]string{
 })
 
 var WorkflowEventResource = workflowValueNames(map[pb.ProjectEventResource]string{
-	pb.ProjectEventResource_WORKFLOW_PROJECT_EVENT_RESOURCE_WORKFLOW:      "workflow",
-	pb.ProjectEventResource_WORKFLOW_PROJECT_EVENT_RESOURCE_WORKFLOW_LINK: "workflow_link",
-	pb.ProjectEventResource_WORKFLOW_PROJECT_EVENT_RESOURCE_TASK:          "task",
-	pb.ProjectEventResource_WORKFLOW_PROJECT_EVENT_RESOURCE_LABEL:         "label",
+	pb.ProjectEventResource_WORKFLOW_PROJECT_EVENT_RESOURCE_WORKFLOW:        "workflow",
+	pb.ProjectEventResource_WORKFLOW_PROJECT_EVENT_RESOURCE_WORKFLOW_LINK:   "workflow_link",
+	pb.ProjectEventResource_WORKFLOW_PROJECT_EVENT_RESOURCE_TASK:            "task",
+	pb.ProjectEventResource_WORKFLOW_PROJECT_EVENT_RESOURCE_LABEL:           "label",
+	pb.ProjectEventResource_WORKFLOW_PROJECT_EVENT_RESOURCE_SESSION_CATALOG: "session_catalog",
 })
 
 var WorkflowEventAction = workflowValueNames(map[pb.ProjectEventAction]string{
@@ -67,7 +72,6 @@ var WorkflowEventAction = workflowValueNames(map[pb.ProjectEventAction]string{
 	pb.ProjectEventAction_WORKFLOW_PROJECT_EVENT_ACTION_RESUMED:              "resumed",
 	pb.ProjectEventAction_WORKFLOW_PROJECT_EVENT_ACTION_APPROVED:             "approved",
 	pb.ProjectEventAction_WORKFLOW_PROJECT_EVENT_ACTION_MOVED:                "moved",
-	pb.ProjectEventAction_WORKFLOW_PROJECT_EVENT_ACTION_CANCELED:             "canceled",
 	pb.ProjectEventAction_WORKFLOW_PROJECT_EVENT_ACTION_COMPLETED:            "completed",
 	pb.ProjectEventAction_WORKFLOW_PROJECT_EVENT_ACTION_COMMENT_ADDED:        "comment_added",
 	pb.ProjectEventAction_WORKFLOW_PROJECT_EVENT_ACTION_COMMENT_UPDATED:      "comment_updated",

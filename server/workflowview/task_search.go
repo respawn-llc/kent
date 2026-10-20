@@ -44,9 +44,6 @@ func (s *TaskSearch) Search(ctx context.Context, req *taskpb.SearchRequest) (res
 	if s == nil || s.queries == nil || s.projection == nil {
 		return nil, errors.New("task search is required")
 	}
-	if err := protoapi.Validate(req); err != nil {
-		return nil, err
-	}
 	if req.Mode == taskpb.SearchMode_SEARCH_MODE_LITERAL {
 		if err := serverapi.ValidateTaskSearchLiteralQuery(req.Query); err != nil {
 			return nil, err
@@ -95,9 +92,6 @@ func (s *TaskSearch) Search(ctx context.Context, req *taskpb.SearchRequest) (res
 		next = &value
 	}
 	response = &taskpb.SearchSuccess{Mode: req.Mode, Groups: groups, NextOffset: next}
-	if err := protoapi.Validate(response); err != nil {
-		return nil, fmt.Errorf("validate task search response: %w", err)
-	}
 	return response, nil
 }
 
@@ -317,8 +311,6 @@ func taskSearchMaterializeHit(
 			return nil, err
 		}
 		hit.Match = &taskpb.SearchHit_Fts5{Fts5: &taskpb.SearchFts5Hit{Snippet: snippet}}
-	default:
-		return nil, errors.New("task search mode is invalid")
 	}
 	return hit, nil
 }

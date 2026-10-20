@@ -19,6 +19,10 @@ func (s *lifecycleResultGatewayService) Close() error {
 	return nil
 }
 
+func (s *lifecycleResultGatewayService) Promote(context.Context, *sessionlaunchpb.SessionPromoteRequest) (*emptypb.Empty, error) {
+	return &emptypb.Empty{}, nil
+}
+
 func (s *lifecycleResultGatewayService) GetInitialInput(context.Context, *sessionlaunchpb.SessionInitialInputRequest) (*sessionlaunchpb.SessionInitialInputSuccess, error) {
 	return &sessionlaunchpb.SessionInitialInputSuccess{}, nil
 }

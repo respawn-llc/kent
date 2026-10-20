@@ -41,7 +41,7 @@ func (s *Service) Transcribe(ctx context.Context, contentType string, input io.R
 	if index < 0 {
 		return Failure(speechpb.FailureKind_FAILURE_KIND_INPUT, nil, errors.New("unsupported audio encoding"))
 	}
-	invocation, err := selection.Allocate(s.rotation)
+	invocation, err := selection.Allocate(ctx, s.rotation)
 	if err != nil {
 		return Failure(speechpb.FailureKind_FAILURE_KIND_CONNECTION, nil, err)
 	}

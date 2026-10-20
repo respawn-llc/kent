@@ -8,7 +8,6 @@ import (
 
 	"core/cli/tui/ongoing"
 	"core/cli/tui/transcriptrender"
-	"core/shared/protoapi"
 	transcriptpb "core/shared/protoapi/gen/kent/api/transcript"
 
 	tea "github.com/charmbracelet/bubbletea"
@@ -68,9 +67,6 @@ func newOngoingTranscriptController(
 }
 
 func (c *ongoingTranscriptController) Accept(message *transcriptpb.Message) (ongoing.Result, tea.Cmd, error) {
-	if err := protoapi.Validate(message); err != nil {
-		return ongoing.Result{}, nil, fmt.Errorf("validate ongoing transcript message: %w", err)
-	}
 	if result, ok := c.classifyDelivery(message); ok {
 		c.requestScratchRehydration()
 		return result, nil, nil

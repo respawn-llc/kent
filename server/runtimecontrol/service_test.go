@@ -12,6 +12,7 @@ import (
 	"sync"
 	"sync/atomic"
 	"testing"
+	"testing/synctest"
 	"time"
 
 	"core/server/llm"
@@ -40,6 +41,56 @@ import (
 	"google.golang.org/protobuf/proto"
 	"google.golang.org/protobuf/types/known/emptypb"
 )
+
+func TestRejectedRuntimeCompactionPreservesIdleLifetime(t *testing.T) {
+	synctest.Test(t, func(t *testing.T) {
+		store, _, service := newRuntimeControlTestService(t, nil, nil, runtime.Config{})
+		sessionID, err := runtimeids.ParseSessionID(store.Meta().SessionID)
+		if err != nil {
+			t.Fatal(err)
+		}
+		time.Sleep(2 * time.Minute)
+		err = service.CompactContext(t.Context(), &runtimepb.CompactContextRequest{
+			SessionId: sessionID.String(),
+			Admission: &runtimepb.ManualCompactionAdmission{},
+		})
+		if err == nil {
+			t.Fatal("compaction without eligible context was accepted")
+		}
+		time.Sleep(time.Minute)
+		synctest.Wait()
+		err = service.authority.WithCurrentRuntime(t.Context(), sessionID, func(context.Context, *runtime.Engine) error { return nil })
+		if !errors.Is(err, serverapi.ErrRuntimeUnavailable) {
+			t.Fatalf("Runtime after original deadline = %v, want unavailable", err)
+		}
+	})
+}
+
+func TestCommittedRuntimeWriteRefreshesIdleLifetime(t *testing.T) {
+	synctest.Test(t, func(t *testing.T) {
+		store, _, service := newRuntimeControlTestService(t, nil, nil, runtime.Config{})
+		sessionID, err := runtimeids.ParseSessionID(store.Meta().SessionID)
+		if err != nil {
+			t.Fatal(err)
+		}
+		time.Sleep(2 * time.Minute)
+		if err := service.AppendSessionEntry(t.Context(), sessionID.String(), "system", "accepted"); err != nil {
+			t.Fatal(err)
+		}
+		time.Sleep(2 * time.Minute)
+		read := func() error {
+			return service.authority.WithCurrentRuntime(t.Context(), sessionID, func(context.Context, *runtime.Engine) error { return nil })
+		}
+		if err := read(); err != nil {
+			t.Fatalf("Runtime retired after accepted write: %v", err)
+		}
+		time.Sleep(time.Minute)
+		synctest.Wait()
+		if err := read(); !errors.Is(err, serverapi.ErrRuntimeUnavailable) {
+			t.Fatalf("Runtime after new idle interval = %v, want unavailable", err)
+		}
+	})
+}
 
 var runtimeControlOpenAICapabilities = llm.ProviderCapabilities{
 	ProviderID:               "openai",
@@ -761,8 +812,8 @@ func newRuntimeControlTestServiceWithFeeds(
 	}
 	if _, err := authority.OpenRuntime(context.Background(), sessionruntime.RuntimeOpenRequest{
 		SessionID: sessionID,
-		OwnerID:   "runtimecontrol-test",
-		Runtime:   &plan,
+
+		Runtime: &plan,
 	}); err != nil {
 		t.Fatalf("open authority runtime: %v", err)
 	}
@@ -1255,8 +1306,9 @@ func TestServiceInterruptReturnsDiagnosticActivityWhenPostInterruptSnapshotFails
 func TestServiceLiveSteerRequiresActiveRun(t *testing.T) {
 	store, _, service := newRuntimeControlTestService(t, finalResponseRuntimeControlClient(), nil, runtime.Config{})
 	_, err := service.LiveSteer(context.Background(), &runtimepb.LiveSteerRequest{
-		SessionId: requestfixture.Selector(t, store.Meta().SessionID),
-		Text:      "steer while idle",
+		QueueItemId: runtimeids.NewQueueItemID().String(),
+		SessionId:   requestfixture.Selector(t, store.Meta().SessionID),
+		Text:        "steer while idle",
 	})
 	if !errors.Is(err, serverapi.ErrRuntimeNoActiveRun) {
 		t.Fatalf("LiveSteer idle error = %v, want ErrRuntimeNoActiveRun", err)
@@ -1269,8 +1321,9 @@ func TestServiceLiveSteerRequiresActiveRun(t *testing.T) {
 func TestServiceLiveSteerUnavailableRuntimeStaysUnavailable(t *testing.T) {
 	service := NewService(sessionruntime.NewAuthority(sessionruntime.AuthorityOptions{}), testsetup.OpenStore(t, t.TempDir()))
 	_, err := service.LiveSteer(context.Background(), &runtimepb.LiveSteerRequest{
-		SessionId: requestfixture.Selector(t, "018fdd67-89ab-4cde-8123-456789abcdef"),
-		Text:      "steer closed runtime",
+		QueueItemId: runtimeids.NewQueueItemID().String(),
+		SessionId:   requestfixture.Selector(t, "018fdd67-89ab-4cde-8123-456789abcdef"),
+		Text:        "steer closed runtime",
 	})
 	if !errors.Is(err, serverapi.ErrRuntimeUnavailable) {
 		t.Fatalf("LiveSteer unavailable runtime error = %v, want ErrRuntimeUnavailable", err)
@@ -1332,9 +1385,11 @@ func TestServiceLiveSteerRecordsHistoryAfterActiveAdmission(t *testing.T) {
 	case <-time.After(3 * time.Second):
 		t.Fatal("timed out waiting for active runtime")
 	}
+	queueItemID := runtimeids.NewQueueItemID().String()
 	steerDone := liveSteerRuntimeControlAsync(service, &runtimepb.LiveSteerRequest{
-		SessionId: requestfixture.Selector(t, store.Meta().SessionID),
-		Text:      " steer live ",
+		QueueItemId: queueItemID,
+		SessionId:   requestfixture.Selector(t, store.Meta().SessionID),
+		Text:        " steer live ",
 	})
 	var result runtimeControlLiveSteerResult
 	select {
@@ -1347,7 +1402,7 @@ func TestServiceLiveSteerRecordsHistoryAfterActiveAdmission(t *testing.T) {
 		t.Fatalf("LiveSteer: %v", result.err)
 	}
 	resp := result.response
-	if resp.QueueItemId == "" || resp.Text != "steer live" {
+	if resp.QueueItemId != queueItemID || resp.Text != "steer live" {
 		t.Fatalf("LiveSteer response = %+v", resp)
 	}
 	waitForRuntimeControlPromptHistoryCount(t, runtimeControlPromptHistoryStoresLoad(t, store.Meta().SessionID), "steer live", 1)
@@ -1374,7 +1429,7 @@ func TestPreparedLiveSteerObservationAndHistory(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			_, handle, accepted, err := service.SubmitLiveSteer(t.Context(), prepared, engine, t.Context(), nil)
+			_, handle, accepted, err := service.SubmitLiveSteer(t.Context(), runtimeids.NewQueueItemID().String(), prepared, engine, t.Context(), nil)
 			if err != nil || !accepted || handle == nil {
 				t.Fatalf("acceptance = %t, handle=%v, err=%v", accepted, handle, err)
 			}
@@ -1407,12 +1462,10 @@ func TestServiceLiveSteerAgentCallerUsesOneWrappedDeveloperMessage(t *testing.T)
 		t.Fatal("timed out waiting for active runtime")
 	}
 	sourceID := runtimeids.NewSessionID()
-	steer, err := runtime.NewAgentSteer(runtimeids.SessionIdentity{ID: sourceID}, "steer live")
-	if err != nil {
-		t.Fatalf("NewAgentSteer: %v", err)
-	}
+	steer := runtime.NewAgentSteer(runtimeids.SessionIdentity{ID: sourceID}, "steer live")
 	sourceText := sourceID.String()
 	steerDone := liveSteerRuntimeControlAsync(service, &runtimepb.LiveSteerRequest{
+		QueueItemId:     runtimeids.NewQueueItemID().String(),
 		SessionId:       requestfixture.Selector(t, store.Meta().SessionID),
 		CallerSessionId: &sourceText,
 		Text:            "steer live",
@@ -1464,8 +1517,9 @@ func TestServiceLiveSteerReportsAdmittedPromptHistoryErrorDiagnostically(t *test
 	historyErr := errors.New("prompt history failed")
 	runtimeControlPromptHistoryStoresLoad(t, store.Meta().SessionID).SetRecordError(historyErr)
 	steerDone := liveSteerRuntimeControlAsync(service, &runtimepb.LiveSteerRequest{
-		SessionId: requestfixture.Selector(t, store.Meta().SessionID),
-		Text:      "steer live",
+		QueueItemId: runtimeids.NewQueueItemID().String(),
+		SessionId:   requestfixture.Selector(t, store.Meta().SessionID),
+		Text:        "steer live",
 	})
 	select {
 	case result := <-steerDone:
@@ -2838,9 +2892,8 @@ func TestServiceSubmitUserTurnPromptCommandUsesExpandedExecutionAndCanonicalHist
 	store, engine, service := newRuntimeControlTestService(t, client, nil, runtime.Config{})
 	resolver := &runtimeControlPromptCommandResolver{content: "expanded current body"}
 	service.WithPromptCommandResolver(resolver)
-	req := &runtimepb.SubmitUserTurnRequest{
-		SessionId: store.Meta().SessionID,
-		Input:     &runtimepb.UserTurnInput{Input: &runtimepb.UserTurnInput_PromptCommand{PromptCommand: &runtimepb.PromptCommandInput{Name: runtimeinput.PromptCommandReviewName, Arguments: "src/internal"}}},
+	req := &runtimepb.SubmitUserTurnRequest{QueueItemId: runtimeids.NewQueueItemID().String(), SessionId: store.Meta().SessionID,
+		Input: &runtimepb.UserTurnInput{Input: &runtimepb.UserTurnInput_PromptCommand{PromptCommand: &runtimepb.PromptCommandInput{Name: runtimeinput.PromptCommandReviewName, Arguments: "src/internal"}}},
 	}
 	resp, err := service.SubmitUserTurn(context.Background(), req)
 	if err != nil {
@@ -2894,11 +2947,9 @@ func TestServiceAdmitManualCompactionAcceptsEligibleIdleRuntime(t *testing.T) {
 	}
 	waitForRuntimeControlAssistantFinal(t, engine, "seeded")
 	waitForRuntimeControlIdle(t, engine)
-	requestID := runtimeids.NewCompactionRequestID()
 
 	accepted, err := service.AdmitManualCompaction(t.Context(), &runtimepb.CompactContextRequest{
 		SessionId: store.Meta().SessionID,
-		RequestId: requestID.String(),
 		Admission: &runtimepb.ManualCompactionAdmission{},
 	})
 	if err != nil {
@@ -2921,11 +2972,9 @@ func TestServiceAdmitManualCompactionQueuesBehindActiveAgentStep(t *testing.T) {
 		t.Fatalf("start user turn: %v", err)
 	}
 	waitForRuntimeControlActiveRun(t, engine)
-	requestID := runtimeids.NewCompactionRequestID()
 
 	accepted, err := service.AdmitManualCompaction(t.Context(), &runtimepb.CompactContextRequest{
 		SessionId: store.Meta().SessionID,
-		RequestId: requestID.String(),
 		Admission: &runtimepb.ManualCompactionAdmission{},
 	})
 	if err != nil {
@@ -2934,16 +2983,18 @@ func TestServiceAdmitManualCompactionQueuesBehindActiveAgentStep(t *testing.T) {
 	if !accepted {
 		t.Fatal("manual compaction behind an active Agent Step was not accepted")
 	}
-	itemID, err := serverapi.PendingWorkItemIDFromCompactionRequest(requestID)
-	if err != nil {
-		t.Fatalf("Pending Work identity: %v", err)
-	}
 	pending, err := engine.PendingWorkSnapshot()
 	if err != nil {
 		t.Fatalf("Pending Work: %v", err)
 	}
-	if !runtimeControlPendingWorkContains(pending, itemID) {
-		t.Fatalf("manual compaction %s is absent from Pending Work: %+v", requestID, pending.Items)
+	compactions := 0
+	for _, item := range pending.Items {
+		if item.Kind == runtimeinput.PendingWorkItemKindManualCompaction {
+			compactions++
+		}
+	}
+	if compactions != 1 {
+		t.Fatalf("manual compaction is absent from Pending Work: %+v", pending.Items)
 	}
 	// Stop the intentionally queued operation before Authority fixture cleanup.
 	if err := engine.Close(); err != nil {
@@ -2966,14 +3017,12 @@ func TestServiceAdmitQueuedPromptCommandUsesExpandedExecutionAndCanonicalPresent
 	request := runtimeControlUserTurnRequest(store, "chat-queue-command", "unused")
 	request.Input = &runtimepb.UserTurnInput{Input: &runtimepb.UserTurnInput_PromptCommand{PromptCommand: &runtimepb.PromptCommandInput{Name: runtimeinput.PromptCommandReviewName, Arguments: "src"}}}
 
-	input, err := protoapi.UserTurnInputFromProto(request.Input)
-	if err != nil {
-		t.Fatal(err)
-	}
+	input := protoapi.UserTurnInputFromProto(request.Input)
 	prepared, err := service.PrepareUserTurn(t.Context(), request.SessionId, input)
 	if err != nil {
 		t.Fatal(err)
 	}
+	prepared.QueueItemID = request.QueueItemId
 	result, err := service.AdmitChatQueuedUserInput(t.Context(), request.SessionId, prepared)
 	if err != nil {
 		t.Fatalf("AdmitChatQueuedUserInput: %v", err)
@@ -3027,6 +3076,7 @@ func TestServiceChatAdmissionsPreservePromptHistoryFailureAfterAcceptance(t *tes
 			if err != nil {
 				t.Fatal(err)
 			}
+			prepared.QueueItemID = runtimeids.NewQueueItemID().String()
 			result, err := test.run(
 				service,
 				t.Context(),
@@ -3092,9 +3142,8 @@ func TestServiceSubmitUserTurnPromptResolutionFailureIsNotAcceptedAndRemainsRetr
 func TestServiceSubmitUserTurnRecordsCommittedAtFlushBeforeAssistantCompletion(t *testing.T) {
 	client := newCancelObservingRuntimeControlClient()
 	store, engine, service := newRuntimeControlTestService(t, client, nil, runtime.Config{})
-	req := &runtimepb.SubmitUserTurnRequest{
-		SessionId: store.Meta().SessionID,
-		Input:     &runtimepb.UserTurnInput{Input: &runtimepb.UserTurnInput_Text{Text: "flush before model completes"}},
+	req := &runtimepb.SubmitUserTurnRequest{QueueItemId: runtimeids.NewQueueItemID().String(), SessionId: store.Meta().SessionID,
+		Input: &runtimepb.UserTurnInput{Input: &runtimepb.UserTurnInput_Text{Text: "flush before model completes"}},
 	}
 	response, err := service.SubmitUserTurn(context.Background(), req)
 	if err != nil {
@@ -3143,7 +3192,12 @@ func TestServiceInterruptForegroundShellAllowsNextTurn(t *testing.T) {
 		})
 	shellDone := make(chan error, 1)
 	go func() {
-		shellDone <- service.SubmitUserShellCommand(t.Context(), runtimeControlShellCommandRequest(store, "shell", "sleep 120"))
+		id, err := runtimeids.ParseSessionID(store.Meta().SessionID)
+		if err != nil {
+			shellDone <- err
+			return
+		}
+		shellDone <- service.AdmitUserShellCommand(t.Context(), id, "sleep 120")
 	}()
 	select {
 	case <-started:
@@ -3170,13 +3224,15 @@ func TestServiceInterruptForegroundShellAllowsNextTurn(t *testing.T) {
 
 func TestServiceSubmitUserShellCommandDoesNotRecordPromptHistory(t *testing.T) {
 	store, _, service := newRuntimeControlTestService(t, nil, newTestToolRegistry(t, tools.HandlerRegistration{ID: toolspec.ToolExecCommand, Handler: fakeShellHandler{}}), runtime.Config{})
-	req := runtimeControlShellCommandRequest(store, "req-1", "pwd")
-
-	if err := service.SubmitUserShellCommand(context.Background(), req); err != nil {
+	id, err := runtimeids.ParseSessionID(store.Meta().SessionID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := service.AdmitUserShellCommand(context.Background(), id, "pwd"); err != nil {
 		t.Fatalf("SubmitUserShellCommand: %v", err)
 	}
 	history := service.promptStore.(*runtimeControlPromptHistoryStore)
-	if err := service.SubmitUserShellCommand(context.Background(), req); err != nil {
+	if err := service.AdmitUserShellCommand(context.Background(), id, "pwd"); err != nil {
 		t.Fatalf("SubmitUserShellCommand second: %v", err)
 	}
 	if got := history.CountText("$ pwd"); got != 0 {
@@ -3523,7 +3579,6 @@ func TestServiceInterruptCompactionAllowsNextTurnWithoutRestart(t *testing.T) {
 
 	if err := service.CompactContext(context.Background(), &runtimepb.CompactContextRequest{
 		SessionId: store.Meta().SessionID,
-		RequestId: runtimeids.NewCompactionRequestID().String(),
 		Admission: &runtimepb.ManualCompactionAdmission{},
 	}); err != nil {
 		t.Fatalf("CompactContext scheduling: %v", err)
@@ -3782,15 +3837,7 @@ func countUserMessagesWithContent(t *testing.T, store *session.Store, content st
 }
 
 func runtimeControlUserTurnRequest(store *session.Store, _ string, text string) *runtimepb.SubmitUserTurnRequest {
-	return &runtimepb.SubmitUserTurnRequest{
-		SessionId: store.Meta().SessionID,
-		Input:     &runtimepb.UserTurnInput{Input: &runtimepb.UserTurnInput_Text{Text: text}},
-	}
-}
-
-func runtimeControlShellCommandRequest(store *session.Store, _ string, command string) *runtimepb.ShellCommandRequest {
-	return &runtimepb.ShellCommandRequest{
-		SessionId: store.Meta().SessionID,
-		Command:   command,
+	return &runtimepb.SubmitUserTurnRequest{QueueItemId: runtimeids.NewQueueItemID().String(), SessionId: store.Meta().SessionID,
+		Input: &runtimepb.UserTurnInput{Input: &runtimepb.UserTurnInput_Text{Text: text}},
 	}
 }

@@ -112,9 +112,6 @@ func onboardingImportSelectionRequest(selection onboardingImportSelection) (*onb
 		return onboardingNoneImportSelection(), nil
 	case onboardingImportModeSymlinkSource:
 		ref := selection.ChoiceRef
-		if ref.ImportProviderId == nil || ref.SourceRootPath == nil {
-			return nil, errors.New("selected import is missing its server choice reference")
-		}
 		return &onboardingpb.ImportSelection{
 			Mode:             onboardingpb.ImportMode_IMPORT_MODE_SYMLINK_SOURCE,
 			ImportProviderId: ref.ImportProviderId,

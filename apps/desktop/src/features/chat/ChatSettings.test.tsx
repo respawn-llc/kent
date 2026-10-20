@@ -1,3 +1,4 @@
+import { expect, it, vi } from "bun:test";
 import { act, renderHook, waitFor } from "@testing-library/react";
 import type { ReactNode } from "react";
 
@@ -143,7 +144,7 @@ it("preserves the current Agent's transient settings after multiple local edits 
       autoCompactionEnabled: true,
     },
   });
-  expect(read).toHaveBeenCalledOnce();
+  expect(read).toHaveBeenCalledTimes(1);
   expect(services.transport.descriptorCalls).toHaveLength(0);
 });
 
@@ -220,6 +221,6 @@ it("keeps loaded New Chat edits available across unrelated renders", async () =>
     supervisor: "all",
     thinking: "offline edit",
   });
-  expect(read).toHaveBeenCalledOnce();
+  expect(read).toHaveBeenCalledTimes(1);
   expect(services.transport.descriptorCalls).toHaveLength(0);
 });

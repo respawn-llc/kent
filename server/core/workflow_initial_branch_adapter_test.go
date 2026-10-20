@@ -227,7 +227,7 @@ func createCoreInitialBranchTask(t *testing.T, store *workflowstore.Store, proje
 			},
 		)
 	})
-	if _, err := store.LinkWorkflow(ctx, projectID, created.ID, true); err != nil {
+	if _, err := store.LinkWorkflowWithDefaultPolicy(ctx, projectID, created.ID, workflowstore.WorkflowLinkDefaultAlways); err != nil {
 		t.Fatalf("LinkWorkflow: %v", err)
 	}
 	task, err := store.CreateTask(ctx, workflowstore.CreateTaskRequest{

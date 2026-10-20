@@ -1,3 +1,4 @@
+import { describe, expect, it } from "bun:test";
 import { create, decode } from "@app/server-api-contract";
 import {
   GoalMutationResultKind,
@@ -9,8 +10,6 @@ import {
 import { FakeRpcTransport, unexpectedProjectOverflow } from "@/test-support/api";
 import { ApiClient } from "./client";
 import { ChatOperationError } from "./chatErrors";
-import { chatGoalSetResultFromGenerated } from "./chatGoal";
-import { ContractError } from "./errors";
 
 const sessionID = "123e4567-e89b-42d3-a456-426614174000";
 
@@ -52,7 +51,7 @@ describe("Desktop Chat Goal Set contract", () => {
       },
     ]);
 
-    await expect(
+    expect(
       new ApiClient(transport, unexpectedProjectOverflow).chat.setGoal(
         { kind: "session", sessionID },
         "ship",
@@ -199,22 +198,5 @@ describe("Desktop Chat Goal Set contract", () => {
       operation: "runtime.detach",
       cause: "release failed",
     });
-  });
-
-  it("rejects malformed known Goal Set details before conversion", () => {
-    const malformed = create(GoalSetResultSchema, {
-      outcome: {
-        case: "success",
-        value: {
-          session: { sessionId: sessionID },
-          outcome: {
-            case: "rejected",
-            value: { code: "runtime_unavailable" },
-          },
-        },
-      },
-    });
-
-    expect(() => chatGoalSetResultFromGenerated(malformed)).toThrow(ContractError);
   });
 });

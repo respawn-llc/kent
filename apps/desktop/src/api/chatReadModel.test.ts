@@ -1,3 +1,5 @@
+import { describe, expect, it } from "bun:test";
+import { fromJson } from "@bufbuild/protobuf";
 import { create } from "@app/server-api-contract";
 import { ProjectAvailability } from "@app/server-api-contract/gen/kent/api/project/project_pb";
 import { SessionExecutionTargetSchema } from "@app/server-api-contract/gen/kent/api/worktree/worktree_pb";
@@ -24,11 +26,11 @@ describe("execution target availability", () => {
 
   it.each([ProjectAvailability.UNSPECIFIED, 999])("rejects invalid availability %s", (availability) => {
     expect(() =>
-      executionFacts(create(SessionExecutionTargetSchema, { workspaceAvailability: availability })),
+      executionFacts(fromJson(SessionExecutionTargetSchema, { workspaceAvailability: availability })),
     ).toThrow(ContractError);
     expect(() =>
       executionFacts(
-        create(SessionExecutionTargetSchema, {
+        fromJson(SessionExecutionTargetSchema, {
           workspaceAvailability: ProjectAvailability.AVAILABLE,
           worktree: { availability },
         }),

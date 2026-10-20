@@ -9,7 +9,9 @@ export {
   type SpeechFailureKind,
 } from "./speech";
 export type { ApiService, ApiSubscription } from "./apiService";
-export { sessionDisplayID } from "./sessionIdentity";
+export { projectUpdateViolations } from "./projectValidation";
+export { taskCreateTitleViolations } from "./taskValidation";
+export { sessionDisplayID, sessionDisplayTitle } from "./sessionIdentity";
 export type { DesktopProcess } from "./processes";
 export type {
   ChatSettingsAgent,
@@ -49,8 +51,6 @@ export type {
   ChatNotAcceptedReason,
   ChatProjectTarget,
   ChatRuntimeActivity,
-  ChatRuntimeAttachment,
-  ChatRuntimeRelease,
   ChatSessionTarget,
   ChatSessionNameMutation,
   ChatSettingsSnapshot,
@@ -149,28 +149,14 @@ export type { TaskSearchErrorReason } from "./errors";
 export { ChatOperationError } from "./chatErrors";
 export type { ChatError } from "./chatErrors";
 export { guiTaskCommentAuthor } from "./client";
-export { newSetupOperationID, parseSetupOperationID, SetupOperationID } from "./setupOperationID";
-export {
-  parseCompactionRequestID,
-  parsePendingWorkItemID,
-  parseWorktreeOperationID,
-  pendingWorkItemSchema,
-  pendingWorkChangedEventSchema,
-  pendingWorkRestorationSchema,
-  pendingWorkSchema,
-  pendingWorkTechnicalRestorationEventSchema,
-  sessionSettingFeedbackSchema,
-} from "./pendingWork";
+export { newSetupOperationID, SetupOperationID } from "./setupOperationID";
+export { pendingWorkItemIDFromProto, worktreeOperationIDFromProto } from "./pendingWork";
 export type {
-  CompactionRequestID,
   PendingWork,
   PendingWorkIdentity,
   PendingWorkItem,
   PendingWorkItemID,
   PendingWorkRestoration,
-  PendingWorkChangedEvent,
-  PendingWorkTechnicalRestorationEvent,
-  SessionSettingFeedback,
 } from "./pendingWork";
 export type * from "./schemas/worktree";
 export {

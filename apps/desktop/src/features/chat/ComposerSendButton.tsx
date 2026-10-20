@@ -7,7 +7,6 @@ import { canConfirmPicker } from "./promptPickerState";
 import type { useChatPromptPicker } from "./useChatPromptPicker";
 
 export function ComposerSendButton() {
-  const { t } = useTranslation();
   const { composer, promptPicker, speech } = useComposerSurface();
   if (promptPicker !== null && promptPicker.state.current !== null) {
     return (
@@ -18,22 +17,30 @@ export function ComposerSendButton() {
       />
     );
   }
-  const reason = speech.busy
-    ? speech.busyReason
-    : composer.interactionRestricted
-      ? t("chat.navigationPending")
-      : composer.draft.kind === "loading"
-        ? t("chatComposer.loadingDraft")
-        : composer.submission.kind !== "ready"
-          ? t("chatComposer.loadingSettings")
-          : t("chatComposer.empty");
+  return <OrdinarySendButton />;
+}
+
+function OrdinarySendButton() {
+  const { t } = useTranslation();
+  const { composer, activity, speech } = useComposerSurface();
+  const reason = composer.heldReadonly
+    ? t("chatComposer.awaitingConfirmation")
+    : !composer.canPrepare
+      ? t("chatComposer.rejections.pending_work_capacity")
+      : composer.interactionRestricted
+        ? t("chat.navigationPending")
+        : composer.draft.kind === "loading"
+          ? t("chatComposer.loadingDraft")
+          : composer.submission.kind !== "ready"
+            ? t("chatComposer.loadingSettings")
+            : t("chatComposer.empty");
   return (
     <SendButton
       enabled={composer.canSubmit}
       pending={composer.inputPending || composer.interactionRestricted}
-      tooltip={composer.canSubmit ? t("chatComposer.send") : reason}
+      tooltip={speech.busy ? speech.busyReason : composer.canSubmit ? t("chatComposer.send") : reason}
       onClick={() => {
-        composer.submit("send");
+        composer.submit("send", "editor", activity ?? undefined);
       }}
     />
   );

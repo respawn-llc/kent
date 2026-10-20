@@ -4,9 +4,9 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"strings"
 	"time"
 
+	"core/shared/apicontract"
 	"core/shared/clientui"
 	serverpb "core/shared/protoapi/gen/kent/api/server"
 	"core/shared/runtimeids"
@@ -20,6 +20,7 @@ var runSessionPickerFlow = runSessionPicker
 const sessionPickerPageSize = 50
 
 type sessionPageLoader interface {
+	Subscribe(context.Context) (apicontract.WorkflowEventSubscription, error)
 	ProjectID() string
 	ListSessionPage(context.Context, sessionPageRequest) (sessionPageResponse, error)
 }
@@ -36,33 +37,6 @@ type sessionPageResponse struct {
 	Category   sessioncontract.SessionCategory
 	Sessions   []clientui.SessionSummary
 	NextOffset *int
-}
-
-func (r sessionPageResponse) Validate() error {
-	if strings.TrimSpace(r.ProjectID) == "" || strings.TrimSpace(r.ProjectID) != r.ProjectID {
-		return errors.New("project_id is invalid")
-	}
-	if _, err := sessioncontract.ParseSessionCategory(string(r.Category)); err != nil {
-		return err
-	}
-	if len(r.Sessions) > sessionPickerPageSize {
-		return fmt.Errorf("session page exceeds maximum size %d", sessionPickerPageSize)
-	}
-	for index, summary := range r.Sessions {
-		if summary.SessionID.IsZero() {
-			return fmt.Errorf("sessions[%d].session_id is required", index)
-		}
-		if summary.Category != r.Category {
-			return fmt.Errorf("sessions[%d].category does not match page category", index)
-		}
-		if !summary.UpdatedAt.After(time.Unix(0, 0).UTC()) {
-			return fmt.Errorf("sessions[%d].updated_at is invalid", index)
-		}
-	}
-	if r.NextOffset != nil && *r.NextOffset <= 0 {
-		return errors.New("next_offset must be positive when present")
-	}
-	return nil
 }
 
 type sessionPickerResult interface {
@@ -84,9 +58,6 @@ func newSessionPickerCancelResult() sessionPickerResult {
 }
 
 func newSessionPickerOpenResult(sessionID runtimeids.SessionID) sessionPickerResult {
-	if sessionID.IsZero() {
-		panic("session picker open result requires a session ID")
-	}
 	return sessionPickerOpenResult{sessionID: sessionID}
 }
 
@@ -95,6 +66,7 @@ func (sessionPickerCancelResult) isSessionPickerResult() {}
 func (sessionPickerOpenResult) isSessionPickerResult()   {}
 
 type sessionPickerModel struct {
+	subscription   apicontract.WorkflowEventSubscription
 	loader         sessionPageLoader
 	requestContext context.Context
 	header         sessionPickerHeaderInfo
@@ -165,6 +137,7 @@ func newSessionPickerModel(
 
 func (m *sessionPickerModel) Init() tea.Cmd {
 	commands := []tea.Cmd{
+		m.subscribeCatalogCmd(),
 		m.startBodyRequest(sessioncontract.SessionCategoryMain, sessionPickerBodyRequestInitial),
 		m.startBodyRequest(sessioncontract.SessionCategorySubagent, sessionPickerBodyRequestInitial),
 		collectSessionPickerStatusCmd(m.header),
@@ -192,8 +165,31 @@ func (m *sessionPickerModel) tab(category sessioncontract.SessionCategory) *sess
 
 func (m *sessionPickerModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch message := msg.(type) {
+	case sessionPickerSubscribedMsg:
+		if message.err != nil {
+			m.header.Notice = &startupPickerNotice{Text: "Session updates unavailable", Kind: startupPickerNoticeError, Diagnostic: message.err}
+			return m, nil
+		}
+		m.subscription = message.subscription
+		return m, m.waitCatalogChangeCmd()
+	case sessionPickerCatalogChangedMsg:
+		if message.err != nil {
+			m.header.Notice = &startupPickerNotice{Text: "Session updates stopped", Kind: startupPickerNoticeError, Diagnostic: message.err}
+			return m, nil
+		}
+		m.main.refreshPending = true
+		m.subagents.refreshPending = true
+		return m, tea.Batch(
+			m.startBodyRequest(sessioncontract.SessionCategoryMain, sessionPickerBodyRequestRetry),
+			m.startBodyRequest(sessioncontract.SessionCategorySubagent, sessionPickerBodyRequestRetry),
+			m.waitCatalogChangeCmd(),
+		)
 	case sessionPickerPageLoadedMsg:
 		cmd := m.applyPageLoaded(message)
+		tab := m.tab(message.category)
+		if tab.refreshPending {
+			cmd = tea.Batch(cmd, m.startBodyRequest(message.category, sessionPickerBodyRequestRetry))
+		}
 		return m, tea.Batch(cmd, m.reconcileSpinnerTick())
 	case sessionPickerSpinnerTickMsg:
 		if m.scheduledSpinnerGeneration == nil || message.generation != *m.scheduledSpinnerGeneration {
@@ -411,6 +407,7 @@ func (m *sessionPickerModel) startBodyRequest(category sessioncontract.SessionCa
 		return nil
 	}
 	if kind == sessionPickerBodyRequestRetry {
+		tab.refreshPending = false
 		m.clearPickerFailureForTab(tab, sessionPickerOperationDirectionalPage, tab.generation)
 		tab.resetForFreshLoad()
 	}
@@ -474,8 +471,8 @@ func validateSessionPickerPage(
 	expectedProjectID string,
 	expectedCategory sessioncontract.SessionCategory,
 ) error {
-	if err := response.Validate(); err != nil {
-		return fmt.Errorf("session picker page is invalid: %w", err)
+	if len(response.Sessions) > sessionPickerPageSize {
+		return fmt.Errorf("session page exceeds maximum size %d", sessionPickerPageSize)
 	}
 	if response.ProjectID != expectedProjectID {
 		return fmt.Errorf(
@@ -611,13 +608,13 @@ func (m *sessionPickerModel) reconcileSpinnerTick() tea.Cmd {
 	})
 }
 
-func runSessionPicker(ctx context.Context, loader sessionPageLoader, theme string, header sessionPickerHeaderInfo) (sessionPickerResult, error) {
+func runSessionPicker(ctx context.Context, loader sessionPageLoader, theme string, header sessionPickerHeaderInfo) (result sessionPickerResult, err error) {
 	lifecycle := newSessionPickerLifecycle(sessionPickerLifecycleOptions{
 		Loader: loader,
 		Theme:  theme,
 		Header: header,
 	})
-	defer lifecycle.Close()
+	defer func() { err = errors.Join(err, lifecycle.Close()) }()
 	finalModel, err := runContextualStartupPicker(ctx, lifecycle)
 	if err != nil {
 		return nil, err
@@ -625,7 +622,7 @@ func runSessionPicker(ctx context.Context, loader sessionPageLoader, theme strin
 	if finalModel != lifecycle {
 		return nil, fmt.Errorf("unexpected picker lifecycle model type %T", finalModel)
 	}
-	result := lifecycle.Result()
+	result = lifecycle.Result()
 	if err := validateSessionPickerLifecycleResult(result); err != nil {
 		return nil, err
 	}

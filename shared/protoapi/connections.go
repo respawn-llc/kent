@@ -1,9 +1,6 @@
 package protoapi
 
 import (
-	"errors"
-	"fmt"
-
 	"core/shared/config"
 	authpb "core/shared/protoapi/gen/kent/api/auth"
 )
@@ -19,42 +16,32 @@ func ConnectionSelectionToProto(selection *config.ConnectionSelection) *authpb.C
 	return &authpb.ConnectionSelection{Ids: ids}
 }
 
-func ConnectionSelectionFromProto(value *authpb.ConnectionSelection) (*config.ConnectionSelection, error) {
+func ConnectionSelectionFromProto(value *authpb.ConnectionSelection) *config.ConnectionSelection {
 	if value == nil {
-		return nil, nil
-	}
-	if len(value.Ids) == 0 {
-		return nil, errors.New("connection selection must contain at least one ID")
+		return nil
 	}
 	selection := make(config.ConnectionSelection, 0, len(value.Ids))
-	seen := make(map[config.ConnectionID]bool, len(value.Ids))
 	for _, raw := range value.Ids {
-		id, err := config.ParseConnectionID(raw)
-		if err != nil {
-			return nil, err
-		}
-		if seen[id] {
-			return nil, fmt.Errorf("duplicate connection ID %q", id)
-		}
-		seen[id] = true
-		selection = append(selection, id)
+		selection = append(selection, config.ConnectionID(raw))
 	}
-	return &selection, nil
+	return &selection
+}
+
+var connectionProtocolValues = map[authpb.ConnectionProtocol]config.ConnectionProtocol{
+	authpb.ConnectionProtocol_CONNECTION_PROTOCOL_RESPONSES:      config.ConnectionResponses,
+	authpb.ConnectionProtocol_CONNECTION_PROTOCOL_CHATGPT:        config.ConnectionChatGPT,
+	authpb.ConnectionProtocol_CONNECTION_PROTOCOL_GROK_CLI_PROXY: config.ConnectionGrokCLIProxy,
+	authpb.ConnectionProtocol_CONNECTION_PROTOCOL_GROK_OAUTH_API: config.ConnectionGrokOAuthAPI,
+	authpb.ConnectionProtocol_CONNECTION_PROTOCOL_GROK_API_KEY:   config.ConnectionGrokAPIKey,
 }
 
 func ConnectionToProto(id config.ConnectionID, definition config.ProviderConnection) *authpb.ConnectionDefinition {
 	var protocol authpb.ConnectionProtocol
-	switch definition.Protocol {
-	case config.ConnectionResponses:
-		protocol = authpb.ConnectionProtocol_CONNECTION_PROTOCOL_RESPONSES
-	case config.ConnectionChatGPT:
-		protocol = authpb.ConnectionProtocol_CONNECTION_PROTOCOL_CHATGPT
-	case config.ConnectionGrokCLIProxy:
-		protocol = authpb.ConnectionProtocol_CONNECTION_PROTOCOL_GROK_CLI_PROXY
-	case config.ConnectionGrokOAuthAPI:
-		protocol = authpb.ConnectionProtocol_CONNECTION_PROTOCOL_GROK_OAUTH_API
-	case config.ConnectionGrokAPIKey:
-		protocol = authpb.ConnectionProtocol_CONNECTION_PROTOCOL_GROK_API_KEY
+	for wire, native := range connectionProtocolValues {
+		if native == definition.Protocol {
+			protocol = wire
+			break
+		}
 	}
 	result := &authpb.ConnectionDefinition{Id: string(id), Protocol: protocol, Endpoint: definition.Endpoint, EnvironmentVariable: definition.EnvironmentVariable, SpeechToTextModel: definition.SpeechToTextModel}
 	if definition.Capabilities != (config.ProviderCapabilitiesOverride{}) {
@@ -64,32 +51,18 @@ func ConnectionToProto(id config.ConnectionID, definition config.ProviderConnect
 }
 
 func ConnectionFromProto(value *authpb.ConnectionDefinition) (config.ConnectionID, config.ProviderConnection, error) {
-	if value == nil {
-		return "", config.ProviderConnection{}, errors.New("connection definition is required")
-	}
-	id, err := config.ParseConnectionID(value.Id)
-	if err != nil {
-		return "", config.ProviderConnection{}, err
-	}
+	id := config.ConnectionID(value.Id)
 	definition := config.ProviderConnection{Endpoint: value.Endpoint, EnvironmentVariable: value.EnvironmentVariable, SpeechToTextModel: value.SpeechToTextModel}
-	switch value.Protocol {
-	case authpb.ConnectionProtocol_CONNECTION_PROTOCOL_RESPONSES:
-		definition.Protocol = config.ConnectionResponses
-	case authpb.ConnectionProtocol_CONNECTION_PROTOCOL_CHATGPT:
-		definition.Protocol = config.ConnectionChatGPT
-	case authpb.ConnectionProtocol_CONNECTION_PROTOCOL_GROK_CLI_PROXY:
-		definition.Protocol = config.ConnectionGrokCLIProxy
-	case authpb.ConnectionProtocol_CONNECTION_PROTOCOL_GROK_OAUTH_API:
-		definition.Protocol = config.ConnectionGrokOAuthAPI
-	case authpb.ConnectionProtocol_CONNECTION_PROTOCOL_GROK_API_KEY:
-		definition.Protocol = config.ConnectionGrokAPIKey
-	default:
-		return "", config.ProviderConnection{}, fmt.Errorf("unsupported connection protocol %v", value.Protocol)
+	definition.Protocol = connectionProtocolValues[value.Protocol]
+	if definition.Protocol == config.ConnectionResponses {
+		if err := config.ValidateResponsesEndpoint(*definition.Endpoint); err != nil {
+			return "", config.ProviderConnection{}, err
+		}
 	}
 	if value.Capabilities != nil {
 		definition.Capabilities = providerCapabilitiesFromProto(value.Capabilities)
 	}
-	return id, definition, definition.Validate()
+	return id, definition, nil
 }
 
 func ExistingConnectionTarget(id config.ConnectionID) *authpb.ConnectionTarget {

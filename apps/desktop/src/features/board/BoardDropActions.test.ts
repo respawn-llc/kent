@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it } from "bun:test";
 
 import type { BoardCard, BoardColumn, ProjectLabelCatalog } from "@/api";
 import { orderedAssignedLabels } from "@/shared/labels";

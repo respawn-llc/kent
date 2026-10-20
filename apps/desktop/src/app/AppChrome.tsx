@@ -1,7 +1,7 @@
 import { Link, useLocation } from "@tanstack/react-router";
 import { useQueryClient } from "@tanstack/react-query";
 import { ChevronLeft, ChevronRight, Home } from "lucide-react";
-import { useCallback, type MouseEvent, type ReactNode } from "react";
+import { useCallback, useRef, type MouseEvent, type ReactNode, type RefObject } from "react";
 import { useTranslation } from "react-i18next";
 
 import { TaskSearchGlobalTrigger, TaskSearchHost, TaskSearchProvider } from "@/features/board";
@@ -25,18 +25,22 @@ export type AppChromeProps = Readonly<{
 }>;
 
 export function AppChrome({ children }: AppChromeProps) {
+  const mainPaneRef = useRef<HTMLDivElement>(null);
   return (
     <TaskSearchProvider>
-      <SidebarProvider policy={sidebarDestinationPolicy}>
+      <SidebarProvider policy={sidebarDestinationPolicy} mainPaneRef={mainPaneRef}>
         <SessionChatCatalogReturnProvider>
-          <AppChromeContent>{children}</AppChromeContent>
+          <AppChromeContent mainPaneRef={mainPaneRef}>{children}</AppChromeContent>
         </SessionChatCatalogReturnProvider>
       </SidebarProvider>
     </TaskSearchProvider>
   );
 }
 
-function AppChromeContent({ children }: AppChromeProps) {
+function AppChromeContent({
+  children,
+  mainPaneRef,
+}: AppChromeProps & { mainPaneRef: RefObject<HTMLDivElement | null> }) {
   const { t } = useTranslation();
   const { nativeBridge, logger } = useAppServices();
   const navigation = useAppNavigation();
@@ -93,7 +97,11 @@ function AppChromeContent({ children }: AppChromeProps) {
       <ProjectDeletionEventHandler />
       <MainWindowNavigation />
       <AttentionController />
-      <div className="min-h-0 min-w-0 flex-1 overflow-visible" data-testid="app-main-content">
+      <div
+        className="min-h-0 min-w-0 flex-1 overflow-visible"
+        data-testid="app-main-content"
+        ref={mainPaneRef}
+      >
         {children}
       </div>
       <SidebarHost />

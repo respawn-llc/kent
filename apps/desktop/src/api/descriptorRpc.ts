@@ -5,8 +5,10 @@ import {
   encode,
   encodeEnvelope,
   operationName,
+  validateResultErrorDetail,
   type DescMethod,
   type MessageShape,
+  type MessageValidType,
 } from "@app/server-api-contract";
 import type { Result, TransportFailure } from "@app/server-api-contract/gen/kent/api/shared/foundation_pb";
 
@@ -74,7 +76,7 @@ export function completeDescriptorResponse<Method extends DescMethod>(
   method: Method,
   expectedCorrelation: string,
   response: DescriptorResponse,
-): MessageShape<Method["output"]> {
+): MessageValidType<Method["output"]> {
   const operation = operationName(method);
   if (response.correlation !== expectedCorrelation) {
     throw new TransportError(`${operation} response correlation does not match its request.`);
@@ -91,9 +93,11 @@ export function completeDescriptorResponse<Method extends DescMethod>(
     throw new TransportError(`${operation} result payload is required.`);
   }
   try {
-    return decode<Method["output"]>(method.output, response.result.payload);
-  } catch {
-    throw new ContractError(`${operation} response did not match GUI contract.`);
+    const result = decode<Method["output"]>(method.output, response.result.payload);
+    validateResultErrorDetail(method.output, result);
+    return result;
+  } catch (cause) {
+    throw new ContractError(`${operation} response did not match GUI contract.`, [], 0, { cause });
   }
 }
 

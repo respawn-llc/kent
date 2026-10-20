@@ -1,0 +1,89 @@
+syntax = "proto3";
+
+package kent.api.chat_shell;
+
+import "buf/validate/validate.proto";
+import "google/protobuf/empty.proto";
+import "kent/api/auth/auth.proto";
+import "kent/api/chat/chat.proto";
+import "kent/api/chat_settings/chat_settings.proto";
+import "kent/api/runtime/runtime.proto";
+import "kent/api/server/server.proto";
+import "kent/api/shared/foundation.proto";
+import "kent/api/shared/validation.proto";
+
+option go_package = "core/shared/protoapi/gen/kent/api/chat_shell;chatshellpb";
+
+message ShellCommandRequest {
+  kent.api.chat.ChatTarget target = 1 [(buf.validate.field).required = true];
+  string command = 2 [
+    (buf.validate.field).string.min_len = 1,
+    (buf.validate.field).string.(kent.api.shared.nonblank) = true
+  ];
+  option (buf.validate.message).cel = {
+    id: "kent.chat.shell_existing_session"
+    message: "foreground shell requires an existing Session"
+    expression: "has(this.target.session)"
+  };
+}
+
+message SubmitUserShellCommandError {
+  string code = 1 [
+    (buf.validate.field).string.min_len = 1,
+    (kent.api.shared.kent_result_field).role = RESULT_FIELD_ROLE_ERROR_CODE
+  ];
+  oneof detail {
+    kent.api.runtime.RuntimeCommandNotAcceptedDetails runtime_command_not_accepted = 2 [(kent.api.shared.kent_result_field) = {
+      role: RESULT_FIELD_ROLE_ERROR_DETAIL
+      error_code: "runtime_command_not_accepted"
+    }];
+    kent.api.runtime.RuntimeUnavailableDetails runtime_unavailable = 3 [(kent.api.shared.kent_result_field) = {
+      role: RESULT_FIELD_ROLE_ERROR_DETAIL
+      error_code: "runtime_unavailable"
+    }];
+    kent.api.shared.InternalFailureDetails internal_failure = 4 [(kent.api.shared.kent_result_field) = {
+      role: RESULT_FIELD_ROLE_ERROR_DETAIL
+      error_code: "internal_failure"
+    }];
+    kent.api.auth.AuthRequiredDetails auth_required = 5 [(kent.api.shared.kent_result_field) = {
+      role: RESULT_FIELD_ROLE_ERROR_DETAIL
+      error_code: "auth_required"
+    }];
+    kent.api.server.ServerNotReadyDetails server_not_ready = 6 [(kent.api.shared.kent_result_field) = {
+      role: RESULT_FIELD_ROLE_ERROR_DETAIL
+      error_code: "server_not_ready"
+    }];
+    kent.api.chat_settings.SessionNotFoundDetails session_not_found = 7 [(kent.api.shared.kent_result_field) = {
+      role: RESULT_FIELD_ROLE_ERROR_DETAIL
+      error_code: "session_not_found"
+    }];
+    kent.api.chat_settings.WorkspaceNotRegisteredDetails workspace_not_registered = 8 [(kent.api.shared.kent_result_field) = {
+      role: RESULT_FIELD_ROLE_ERROR_DETAIL
+      error_code: "workspace_not_registered"
+    }];
+    kent.api.chat_settings.AgentPreparationDetails chat_settings_agent_preparation = 9 [(kent.api.shared.kent_result_field) = {
+      role: RESULT_FIELD_ROLE_ERROR_DETAIL
+      error_code: "chat_settings_agent_preparation"
+    }];
+  }
+}
+
+message SubmitUserShellCommandResult {
+  oneof outcome {
+    option (buf.validate.oneof).required = true;
+    google.protobuf.Empty success = 1 [(kent.api.shared.kent_result_field).role = RESULT_FIELD_ROLE_SUCCESS];
+    SubmitUserShellCommandError error = 2 [(kent.api.shared.kent_result_field).role = RESULT_FIELD_ROLE_ERROR];
+  }
+}
+
+service ShellService {
+  rpc SubmitUserShellCommand(ShellCommandRequest) returns (SubmitUserShellCommandResult) {
+    option (kent.api.shared.kent_method) = {
+      kind: OPERATION_KIND_UNARY
+      authentication_stage: AUTHENTICATION_STAGE_SERVER
+      scope_policy: SCOPE_POLICY_CHAT_TARGET
+      direction: DIRECTION_CLIENT_TO_SERVER
+      unary_connection: UNARY_CONNECTION_DEDICATED
+    };
+  }
+}

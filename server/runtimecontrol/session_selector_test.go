@@ -47,7 +47,7 @@ func TestLiveControlsRejectResolvedSelfTargets(t *testing.T) {
 		target := protoapi.SessionSelectorToProto(selector)
 		for _, operation := range []func() error{
 			func() error {
-				_, err := service.LiveSteer(t.Context(), &runtimepb.LiveSteerRequest{SessionId: target, CallerSessionId: &caller, Text: "continue"})
+				_, err := service.LiveSteer(t.Context(), &runtimepb.LiveSteerRequest{SessionId: target, CallerSessionId: &caller, QueueItemId: runtimeids.NewQueueItemID().String(), Text: "continue"})
 				return err
 			},
 			func() error {

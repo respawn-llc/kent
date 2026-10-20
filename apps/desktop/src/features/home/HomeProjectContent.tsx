@@ -1,21 +1,24 @@
 import { useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
-import { Plus } from "lucide-react";
+import { PictureInPicture, Plus } from "lucide-react";
 
-import { sessionDisplayID, type SessionCatalogSummary, type SessionCategory } from "@/api";
+import { sessionDisplayTitle, type SessionCatalogSummary, type SessionCategory } from "@/api";
 import { errorMessage } from "@/api";
 import {
   formatRelativeTime,
+  useAppServices,
+  useNativeChatOpening,
+  type SessionChatTarget,
   type ProjectContentTab,
   useSessionChatCatalogReturn,
   useAppNavigation,
   readLastProjectRoute,
   writeLastProjectContentTab,
-  type SidebarMode,
 } from "@/app-facade";
 import {
   directionalBoundary,
   EmptyState,
+  IconTooltipButton,
   Item,
   ItemContent,
   ItemTitle,
@@ -30,10 +33,8 @@ import { useHomeProjectModel, useHomeSessionPages } from "./HomeProjectModel";
 
 export function HomeProjectContent({
   projectID,
-  sidebarMode,
 }: Readonly<{
   projectID: string;
-  sidebarMode: SidebarMode;
 }>) {
   const navigation = useAppNavigation();
   const catalogReturn = useSessionChatCatalogReturn(projectID);
@@ -46,7 +47,7 @@ export function HomeProjectContent({
     <ProjectContentTabs
       catalogReturn={catalogReturn?.category ?? null}
       projectID={projectID}
-      sidebarMode={sidebarMode}
+
       taskListViewMemory={taskListViewMemory}
     />
   );
@@ -55,12 +56,10 @@ export function HomeProjectContent({
 function ProjectContentTabs({
   catalogReturn,
   projectID,
-  sidebarMode,
   taskListViewMemory,
 }: Readonly<{
   catalogReturn: SessionCategory | null;
   projectID: string;
-  sidebarMode: SidebarMode;
   taskListViewMemory: ReturnType<typeof createProjectTasksViewMemory>;
 }>) {
   const navigation = useAppNavigation();
@@ -112,7 +111,7 @@ function ProjectContentTabs({
           {tab === "tasks" ? (
             <ProjectTasksSurface
               projectID={projectID}
-              sidebarMode={sidebarMode}
+
               viewMemory={taskListViewMemory}
             />
           ) : (
@@ -152,6 +151,7 @@ function SessionList({
 }>) {
   const { t } = useTranslation();
   const navigation = useAppNavigation();
+  const { nativeBridge } = useAppServices();
   const sessions = query.data?.pages.flatMap((page) => page.sessions) ?? [];
   const initialBoundary = directionalBoundary({
     failed: query.isError,
@@ -189,32 +189,78 @@ function SessionList({
       paddingEnd={16}
       paddingStart={16}
       renderItem={(session) => (
-        <Item
-          className="min-w-0 px-[var(--space-2)] py-[var(--space-3)]"
-          aria-label={session.name ?? sessionDisplayID(session.id, session.shortID)}
-          onClick={() => {
-            void navigation.openSessionChat({
-              catalogOrigin: { category },
-              projectID,
-              sessionID: session.id,
-            });
-          }}
-        >
-          <ItemContent className="min-w-0 w-full">
-            <ItemTitle className="w-full min-w-0">
-              <strong className="min-w-0 flex-1 truncate">
-                {session.name ?? sessionDisplayID(session.id, session.shortID)}
-              </strong>
-            </ItemTitle>
-            {session.firstPromptPreview === null ? null : (
-              <span className="min-w-0 w-full line-clamp-2 break-words text-sm text-[var(--color-muted)]">
-                {session.firstPromptPreview}
-              </span>
-            )}
-            <span className="text-xs text-[var(--color-muted)]">{formatRelativeTime(session.updatedAt)}</span>
-          </ItemContent>
-        </Item>
+        <SessionCatalogRow
+          category={category}
+          nativeWindowsAvailable={nativeBridge.capabilities.dialogWindows}
+          onOpen={async (target) => navigation.openSessionChat(target)}
+          projectID={projectID}
+          session={session}
+        />
       )}
     />
+  );
+}
+
+function SessionCatalogRow({
+  category,
+  nativeWindowsAvailable,
+  onOpen,
+  projectID,
+  session,
+}: Readonly<{
+  category: "main" | "subagent";
+  nativeWindowsAvailable: boolean;
+  onOpen(target: SessionChatTarget): void;
+  projectID: string;
+  session: SessionCatalogSummary;
+}>) {
+  const { t } = useTranslation();
+  const nativeChat = useNativeChatOpening();
+  const title = sessionDisplayTitle(session, (id) => t("home.subagentTitle", { id }));
+  const pending = nativeChat.pendingSessionID === session.id;
+  const target = { projectID, sessionID: session.id };
+  return (
+    <div className="group/session-catalog relative min-w-0">
+      <Item
+        className="absolute inset-0 h-full group-hover/session-catalog:bg-[var(--color-island-1)]"
+        aria-label={title}
+        onClick={(event) => {
+          if (nativeWindowsAvailable && event.shiftKey) {
+            if (pending) return;
+            nativeChat.open(target);
+            return;
+          }
+          onOpen({ ...target, catalogOrigin: { category } });
+        }}
+      />
+      <ItemContent className="pointer-events-none relative min-w-0 px-[var(--space-2)] py-[var(--space-3)]">
+        <div className="flex min-w-0 items-center gap-[var(--space-2)]">
+          <ItemTitle className="min-w-0 flex-1">
+            <strong className="min-w-0 flex-1 truncate">{title}</strong>
+          </ItemTitle>
+          {nativeWindowsAvailable ? (
+            <span className="pointer-events-auto shrink-0">
+              <IconTooltipButton
+                label={t("app.popOut")}
+                tooltip={t("app.popOut")}
+                loading={pending}
+                disabled={pending}
+                onClick={() => {
+                  nativeChat.open(target);
+                }}
+              >
+                <PictureInPicture aria-hidden="true" size={18} strokeWidth={1.5} />
+              </IconTooltipButton>
+            </span>
+          ) : null}
+        </div>
+        {session.firstPromptPreview === null ? null : (
+          <span className="min-w-0 w-full line-clamp-2 break-words text-sm text-[var(--color-muted)]">
+            {session.firstPromptPreview}
+          </span>
+        )}
+        <span className="text-xs text-[var(--color-muted)]">{formatRelativeTime(session.updatedAt)}</span>
+      </ItemContent>
+    </div>
   );
 }

@@ -45,9 +45,6 @@ func (c *Remote) PromptCommandCatalogClientForSession(sessionID string) (apicont
 	if c == nil {
 		return nil, errors.New("remote client is required")
 	}
-	parsed, err := runtimeids.ParseSessionID(sessionID)
-	if err != nil {
-		return nil, err
-	}
+	parsed := runtimeids.SessionIDFromProto(sessionID)
 	return sessionPromptCommandCatalogClient{remote: c, sessionID: parsed}, nil
 }

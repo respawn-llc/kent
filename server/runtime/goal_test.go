@@ -98,7 +98,7 @@ func TestAgentGoalPersistsBeforeReminderDrainsAfterToolCompletion(t *testing.T) 
 	if err := engine.pauseRuntimeOperations(t.Context()); err != nil {
 		t.Fatal(err)
 	}
-	result, err := engine.ApplyGoalForStep(stepID, CurrentGoalSet{Objective: "queued goal", Actor: session.GoalActorAgent})
+	result, err := engine.ApplyGoalForStep(goalStepIdentity(stepID), CurrentGoalSet{Objective: "queued goal", Actor: session.GoalActorAgent})
 	if err != nil || !result.MetadataReceipt.Committed {
 		t.Fatalf("ApplyGoalForStep = %+v, %v", result, err)
 	}
@@ -161,10 +161,10 @@ func TestQueuedAgentShellGoalCompleteSeesQueuedSet(t *testing.T) {
 	stepID := runtimeTestStepID("goal-shell-complete")
 	engine.stepLifecycle = &stubExclusiveStepLifecycle{activeStepID: stepID, snapshot: &RunSnapshot{StepID: stepID}}
 
-	if _, err := engine.ApplyGoalForStep(stepID, CurrentGoalSet{Objective: "queued goal", Actor: session.GoalActorAgent}); err != nil {
+	if _, err := engine.ApplyGoalForStep(goalStepIdentity(stepID), CurrentGoalSet{Objective: "queued goal", Actor: session.GoalActorAgent}); err != nil {
 		t.Fatal(err)
 	}
-	accepted, err := engine.ApplyGoalForStep(stepID, CurrentGoalStatus{Status: session.GoalStatusComplete, Actor: session.GoalActorAgent})
+	accepted, err := engine.ApplyGoalForStep(goalStepIdentity(stepID), CurrentGoalStatus{Status: session.GoalStatusComplete, Actor: session.GoalActorAgent})
 	if err != nil || !accepted.MetadataReceipt.Committed {
 		t.Fatalf("ApplyGoalForStep = %+v, %v", accepted, err)
 	}
@@ -187,11 +187,11 @@ func TestQueuedAgentShellGoalSetRejectsPendingActiveGoal(t *testing.T) {
 	stepID := runtimeTestStepID("goal-shell-overwrite")
 	engine.stepLifecycle = &stubExclusiveStepLifecycle{activeStepID: stepID, snapshot: &RunSnapshot{StepID: stepID}}
 
-	if _, err := engine.ApplyGoalForStep(stepID, CurrentGoalSet{Objective: "first goal", Actor: session.GoalActorAgent}); err != nil {
+	if _, err := engine.ApplyGoalForStep(goalStepIdentity(stepID), CurrentGoalSet{Objective: "first goal", Actor: session.GoalActorAgent}); err != nil {
 		t.Fatal(err)
 	}
 	var blocked session.GoalAgentOverwriteBlockedError
-	if _, err := engine.ApplyGoalForStep(stepID, CurrentGoalSet{Objective: "second goal", Actor: session.GoalActorAgent}); !errors.As(err, &blocked) {
+	if _, err := engine.ApplyGoalForStep(goalStepIdentity(stepID), CurrentGoalSet{Objective: "second goal", Actor: session.GoalActorAgent}); !errors.As(err, &blocked) {
 		t.Fatalf("second set = %v, want overwrite blocked", err)
 	}
 	if err := engine.drainRuntimeOperations(t.Context()); err != nil {
@@ -211,7 +211,7 @@ func TestAgentShellGoalSetForEndedStepIsRejected(t *testing.T) {
 	endedStepID := runtimeTestStepID("ended-goal-shell-step")
 	engine.stepLifecycle = &stubExclusiveStepLifecycle{activeStepID: activeStepID, snapshot: &RunSnapshot{StepID: activeStepID}}
 
-	if _, err := engine.ApplyGoalForStep(endedStepID, CurrentGoalSet{Objective: "stale background goal", Actor: session.GoalActorAgent}); !errors.Is(err, ErrAgentGoalStepInactive) {
+	if _, err := engine.ApplyGoalForStep(goalStepIdentity(endedStepID), CurrentGoalSet{Objective: "stale background goal", Actor: session.GoalActorAgent}); !errors.Is(err, ErrAgentGoalStepInactive) {
 		t.Fatalf("ApplyGoalForStep = %v, want inactive originating step", err)
 	}
 	if g := engine.Goal(); g != nil {
@@ -227,7 +227,7 @@ func TestUserGoalPersistsDuringActiveStep(t *testing.T) {
 	stepID := runtimeTestStepID("user-goal-mutation")
 	engine.stepLifecycle = &stubExclusiveStepLifecycle{activeStepID: stepID, snapshot: &RunSnapshot{StepID: stepID}}
 
-	accepted, err := engine.ApplyGoalForStep(stepID, CurrentGoalSet{Objective: "queued user goal", Actor: session.GoalActorUser})
+	accepted, err := engine.ApplyGoalForStep(goalStepIdentity(stepID), CurrentGoalSet{Objective: "queued user goal", Actor: session.GoalActorUser})
 	if err != nil || !accepted.MetadataReceipt.Committed {
 		t.Fatalf("ApplyGoalForStep = %+v, %v", accepted, err)
 	}
@@ -260,7 +260,7 @@ func TestQueuedActiveGoalResumeRestartsSuspendedGoalLoop(t *testing.T) {
 	if err := engine.pauseRuntimeOperations(t.Context()); err != nil {
 		t.Fatal(err)
 	}
-	accepted, err := engine.ApplyGoalForStep(stepID, CurrentGoalStatus{Status: session.GoalStatusActive, Actor: session.GoalActorUser})
+	accepted, err := engine.ApplyGoalForStep(goalStepIdentity(stepID), CurrentGoalStatus{Status: session.GoalStatusActive, Actor: session.GoalActorUser})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -291,7 +291,7 @@ func TestGoalMutationDuringClosingActiveStepReturnsBusy(t *testing.T) {
 	}
 	lifecycle.closeActiveStepQueue(stepID)
 
-	if _, err := engine.ApplyGoalForStep(stepID, CurrentGoalSet{Objective: "late goal", Actor: session.GoalActorUser}); !errors.Is(err, ErrAgentBusy) {
+	if _, err := engine.ApplyGoalForStep(goalStepIdentity(stepID), CurrentGoalSet{Objective: "late goal", Actor: session.GoalActorUser}); !errors.Is(err, ErrAgentBusy) {
 		t.Fatalf("ApplyGoalForStep = %v, want busy", err)
 	}
 	if g := engine.Goal(); g != nil {
@@ -1059,7 +1059,7 @@ func TestGoalLoopRetriesWhenExclusiveStepIsBusy(t *testing.T) {
 			return ErrAgentBusy
 		}
 		return baseLifecycle.Run(ctx, options, fn)
-	}, snapshotFn: baseLifecycle.Snapshot}
+	}, snapshotFn: baseLifecycle.Snapshot, turnStateLifetimeForStep: baseLifecycle.TurnStateLifetimeForStep}
 	engine.stepLifecycle = wrappedLifecycle
 	t.Cleanup(func() {
 		engine.stepLifecycle = baseLifecycle
@@ -1239,10 +1239,18 @@ func goalDeveloperMessages(t *testing.T, events []testPersistedEvent) []llm.Mess
 }
 
 func mustQueueAgentGoalCompletion(engine *Engine) {
-	_, err := engine.ApplyGoalForStep(engine.ActiveRun().StepID, CurrentGoalStatus{Status: session.GoalStatusComplete, Actor: session.GoalActorAgent})
+	_, err := engine.ApplyGoalForStep(goalStepIdentity(engine.ActiveRun().StepID), CurrentGoalStatus{Status: session.GoalStatusComplete, Actor: session.GoalActorAgent})
 	if err != nil {
 		panic(fmt.Sprintf("queue active-Step Goal completion: %v", err))
 	}
+}
+
+func goalStepIdentity(value string) runtimeids.StepID {
+	identity, err := runtimeids.ParseStepID(value)
+	if err != nil {
+		panic(err)
+	}
+	return identity
 }
 
 type scriptedGoalLoopClient struct {

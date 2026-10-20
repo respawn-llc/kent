@@ -88,7 +88,7 @@ func (s *Starter) PrepareCurrentNode(
 	}
 	var freshOverrides *launch.PreparedRunPromptOverrides
 	if fresh {
-		prepared, err := launch.PrepareRunPromptOverridesWithContext(cfg, workflowPromptOverrides(selection.Assignee), launch.RunPromptPreparationContext{
+		prepared, err := launch.PrepareRunPromptOverridesWithContext(ctx, cfg, workflowPromptOverrides(selection.Assignee), launch.RunPromptPreparationContext{
 			Mode: launch.ModeHeadless, Rotation: s.connectionRotation, AllocateConnection: true,
 		})
 		if err != nil {
@@ -226,15 +226,11 @@ func (s *Starter) PrepareCurrentNode(
 		if freshOverrides != nil {
 			overridesPlan = *freshOverrides
 		} else {
-			saved := meta.ConnectionID
-			if preparation.outgoing != nil {
-				saved = nil
-			}
 			var err error
-			overridesPlan, err = launch.PrepareRunPromptOverridesWithContext(cfg, overrides, launch.RunPromptPreparationContext{
+			overridesPlan, err = launch.PrepareRunPromptOverridesWithContext(ctx, cfg, overrides, launch.RunPromptPreparationContext{
 				Mode: launch.ModeHeadless, ModelLock: meta.Locked, ToolLock: meta.Locked,
-				Rotation: s.connectionRotation, AllocateConnection: preparation.outgoing != nil, ConnectionID: saved,
-				OmittedTarget: &launch.PreparedBaseTarget{Settings: plan.ActiveSettings, Source: plan.Source, EnabledTools: plan.EnabledTools},
+				Rotation: s.connectionRotation, ConnectionID: meta.ConnectionID,
+				OmittedTarget: &launch.PreparedBaseTarget{ConnectionScope: plan.ConnectionScope, Settings: plan.ActiveSettings, Source: plan.Source, EnabledTools: plan.EnabledTools},
 			})
 			if err != nil {
 				return preparedCurrentNodeAgentSession{}, runtime.WorkflowAssignment{}, err

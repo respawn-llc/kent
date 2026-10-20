@@ -1,6 +1,7 @@
 import { useMemo } from "react";
 import type { ChatSessionTarget } from "@/api";
-import { useChatRuntimeSnapshot, type TranscriptRenderItem } from "@/app-facade";
+import { useOptionalChatRuntimeSnapshot, type TranscriptRenderItem } from "@/app-facade";
+import { useComposerSurface } from "./ChatComposerSurface";
 import { ChatTranscriptTail } from "./ChatTailSurface";
 import { ChatUserMessage, type ChatMessageEditControl } from "./messageRows/ChatUserMessage";
 import { ChatAssistantMessage } from "./messageRows/ChatAssistantMessage";
@@ -26,20 +27,36 @@ export function ChatTranscriptContent({
   edit: ChatMessageEditControl;
   openingVisible: boolean;
   bottomInset: number;
-  target: ChatSessionTarget;
+  target: ChatSessionTarget | null;
   effectiveWorkdir: string | null;
 }>) {
-  const { transcript } = useChatRuntimeSnapshot();
-  const neighbors = useMemo(() => messageNeighbors(transcript.items), [transcript.items]);
+  const snapshot = useOptionalChatRuntimeSnapshot();
+  const { composer } = useComposerSurface();
+  const items = snapshot?.transcript.items;
+  const neighbors = useMemo(() => messageNeighbors(items ?? []), [items]);
+  const localMessages = useMemo(
+    () =>
+      composer.outgoing
+        .filter((input) => input.placement === "bubble")
+        .map((input) => ({
+          inputID: input.inputID.toJSONValue(),
+          content: <ChatUserMessage preview={input} />,
+        })),
+    [composer.outgoing],
+  );
   return (
     <ChatTranscriptTail
       bottomInset={bottomInset}
       openingVisible={openingVisible}
       estimateSize={estimateSize}
+      localMessages={localMessages}
       slots={{
         user: (item) => <ChatUserMessage item={item} neighbors={neighbors.get(item.key)} edit={edit} />,
         assistant: (item) => <ChatAssistantMessage item={item} neighbors={neighbors.get(item.key)} />,
-        tool: (item) => <Tool item={item} target={target} effectiveWorkdir={effectiveWorkdir} />,
+        tool: (item) => {
+          if (target === null) throw new Error("Transcript tool requires a Session.");
+          return <Tool item={item} target={target} effectiveWorkdir={effectiveWorkdir} />;
+        },
         reasoning: (item) => <TranscriptReasoningSlot item={item} />,
         notice: (item) => <TranscriptNoticeReviewerSlot row={item.row} />,
         thinkingStatus: (presentation) => <TranscriptThinkingStatus presentation={presentation} />,

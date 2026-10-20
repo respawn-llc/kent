@@ -20,13 +20,15 @@ import (
 )
 
 type stubExclusiveStepLifecycle struct {
-	mu           sync.Mutex
-	busy         bool
-	runCalls     int
-	runFn        func(ctx context.Context, options exclusiveStepOptions, fn func(stepCtx context.Context, stepID string) error) error
-	snapshot     *RunSnapshot
-	snapshotFn   func() *RunSnapshot
-	activeStepID string
+	mu                       sync.Mutex
+	busy                     bool
+	runCalls                 int
+	runFn                    func(ctx context.Context, options exclusiveStepOptions, fn func(stepCtx context.Context, stepID string) error) error
+	snapshot                 *RunSnapshot
+	snapshotFn               func() *RunSnapshot
+	activeStepID             string
+	turnStateLifetime        *llm.CodexTurnStateLifetime
+	turnStateLifetimeForStep func(string) (*llm.CodexTurnStateLifetime, bool)
 }
 
 type stubBackgroundNoticeScheduler struct {
@@ -223,10 +225,7 @@ func TestSubmitUserMessageEagerCompactsAfterSuccessfulFinal(t *testing.T) {
 func TestSubmitAgentSteerEagerCompactsAfterSuccessfulFinal(t *testing.T) {
 	t.Parallel()
 	sourceID := runtimeids.NewSessionID()
-	steer, err := NewAgentSteer(runtimeids.SessionIdentity{ID: sourceID}, "continue")
-	if err != nil {
-		t.Fatalf("new agent steer: %v", err)
-	}
+	steer := NewAgentSteer(runtimeids.SessionIdentity{ID: sourceID}, "continue")
 	client := &fakeCompactionClient{
 		responses: []llm.Response{{
 			Assistant: llm.Message{
@@ -531,6 +530,25 @@ func (s *stubExclusiveStepLifecycle) WithActiveStep(fn func(stepID string) error
 		return false, nil
 	}
 	return true, fn(runtimeTestStepID(stepID))
+}
+
+func (s *stubExclusiveStepLifecycle) TurnStateLifetimeForStep(stepID string) (*llm.CodexTurnStateLifetime, bool) {
+	s.mu.Lock()
+	resolve := s.turnStateLifetimeForStep
+	if resolve != nil {
+		s.mu.Unlock()
+		return resolve(stepID)
+	}
+	if s.activeStepID == "" || runtimeTestStepID(s.activeStepID) != stepID {
+		s.mu.Unlock()
+		return nil, false
+	}
+	if s.turnStateLifetime == nil {
+		s.turnStateLifetime = llm.NewCodexTurnStateLifetime()
+	}
+	lifetime := s.turnStateLifetime
+	s.mu.Unlock()
+	return lifetime, true
 }
 
 func (s *stubExclusiveStepLifecycle) ResolveActiveOutputStep(expectedStepID *string) (*string, error) {
@@ -1276,7 +1294,7 @@ func TestContextCompactorUsesExclusiveStepLifecycle(t *testing.T) {
 	}
 
 	eng.compactionRuntimeState().SetManualCompactionEligible(true)
-	if _, err := eng.compactionFlow.CompactContextWithAcceptance(context.Background(), runtimeids.NewCompactionRequestID(), "", nil, nil); err != nil {
+	if _, err := eng.compactionFlow.CompactContextWithAcceptance(context.Background(), "", nil, nil); err != nil {
 		t.Fatalf("compact context: %v", err)
 	}
 	waitEngineLifecycleTasks(t, eng)

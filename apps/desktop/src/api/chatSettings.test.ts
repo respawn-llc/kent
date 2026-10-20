@@ -1,5 +1,6 @@
+import { describe, expect, it } from "bun:test";
 import { unexpectedProjectOverflow } from "@/test-support/api";
-import { create } from "@app/server-api-contract";
+import { create, encode } from "@app/server-api-contract";
 import { AuthMethod } from "@app/server-api-contract/gen/kent/api/auth/auth_pb";
 import {
   AutoCompactionPolicy,
@@ -14,10 +15,13 @@ import {
   SettingsSchema,
   SupervisorValue,
   ThinkingKind,
+  NewChatAgentChoiceSchema,
+  AgentChoiceSchema,
 } from "@app/server-api-contract/gen/kent/api/chat_settings/chat_settings_pb";
 
 import { FakeRpcTransport } from "@/test-support/api";
 import { ApiClient } from "./client";
+import { pendingWorkItemIDFromProto } from "./pendingWork";
 import { ChatOperationError } from "./chatErrors";
 import type { ChatError } from "./chatErrors";
 import { ContractError } from "./errors";
@@ -79,6 +83,34 @@ function settings() {
   });
 }
 
+it("preserves the server-selected Connection replacement notice", async () => {
+  const transport = new FakeRpcTransport([
+    {
+      descriptor: ChatSettingsService.method.read,
+      result: create(ReadResultSchema, {
+        outcome: {
+          case: "success",
+          value: {
+            target: {
+              case: "session",
+              value: {
+                settings: settings(),
+                session: { sessionId: sessionID },
+                connectionReplacement: { previous: "removed", current: "work" },
+              },
+            },
+          },
+        },
+      }),
+    },
+  ]);
+  const read = await new ApiClient(transport, unexpectedProjectOverflow).chat.getSettings(sessionTarget);
+  expect(read).toMatchObject({
+    kind: "session",
+    connectionReplacement: { previous: "removed", current: "work" },
+  });
+});
+
 function mutationResponse() {
   return create(MutationResponseSchema, {
     outcome: {
@@ -104,6 +136,21 @@ function mutationResponse() {
 }
 
 describe("Chat Settings descriptor adapter", () => {
+  it.each(["model", "thinking"] as const)(
+    "requires New Chat Agent %s without changing shared choices",
+    (field) => {
+      const complete = create(NewChatAgentChoiceSchema, choice());
+      expect(() => encode(NewChatAgentChoiceSchema, complete)).not.toThrow();
+      const incomplete = create(NewChatAgentChoiceSchema, choice());
+      if (incomplete.agent === undefined) throw new Error("Fixture Agent is required.");
+      const agent = incomplete.agent;
+      if (field === "model") delete agent.model;
+      else delete agent.thinking;
+      expect(() => encode(AgentChoiceSchema, agent)).not.toThrow();
+      expect(() => encode(NewChatAgentChoiceSchema, incomplete)).toThrow();
+    },
+  );
+
   it("reads the ordered New Chat catalog separately from the exact creation selection", async () => {
     const first = choice();
     const second = choice("reviewer");
@@ -181,7 +228,7 @@ describe("Chat Settings descriptor adapter", () => {
         }),
       },
     ]);
-    await expect(
+    expect(
       new ApiClient(transport, unexpectedProjectOverflow).chat.getSettings(sessionTarget),
     ).resolves.toMatchObject({
       kind: "session",
@@ -277,7 +324,7 @@ describe("Chat Settings descriptor adapter", () => {
       const transport = new FakeRpcTransport([
         { descriptor: ChatSettingsService.method.mutate, result: response },
       ]);
-      await expect(
+      expect(
         new ApiClient(transport, unexpectedProjectOverflow).chat.mutateSettings(sessionTarget, {
           kind: "agent",
           role: "reviewer",
@@ -352,7 +399,7 @@ describe("Chat Settings descriptor adapter", () => {
         }),
       },
     ]);
-    await expect(
+    expect(
       new ApiClient(transport, unexpectedProjectOverflow).chat.getSettings(newChatTarget),
     ).rejects.toBeInstanceOf(Error);
   });
@@ -375,7 +422,7 @@ describe("Chat Settings descriptor adapter", () => {
         }),
       },
     ]);
-    await expect(
+    expect(
       new ApiClient(transport, unexpectedProjectOverflow).chat.getSettings(newChatTarget),
     ).rejects.toBeInstanceOf(Error);
   });
@@ -400,7 +447,7 @@ describe("Chat Settings descriptor adapter", () => {
         }),
       },
     ]);
-    await expect(
+    expect(
       new ApiClient(transport, unexpectedProjectOverflow).chat.getSettings(sessionTarget),
     ).rejects.toBeInstanceOf(Error);
   });
@@ -435,7 +482,7 @@ describe("Chat Settings descriptor adapter", () => {
         }),
       },
     ]);
-    await expect(
+    expect(
       new ApiClient(transport, unexpectedProjectOverflow).chat.getSettings(sessionTarget),
     ).resolves.toMatchObject({
       kind: "session",
@@ -485,7 +532,7 @@ describe("Chat Settings descriptor adapter", () => {
     const transport = new FakeRpcTransport([
       { descriptor: ChatSettingsService.method.mutate, result: response },
     ]);
-    await expect(
+    expect(
       new ApiClient(transport, unexpectedProjectOverflow).chat.mutateSettings(sessionTarget, {
         kind: "thinking",
         value: "precise custom effort",
@@ -532,8 +579,8 @@ describe("Chat Settings descriptor adapter", () => {
       { descriptor: ChatSettingsService.method.mutate, result: mutation },
     ]);
     const chat = new ApiClient(transport, unexpectedProjectOverflow).chat;
-    await expect(chat.getSettings(sessionTarget)).rejects.toBeInstanceOf(ContractError);
-    await expect(chat.mutateSettings(sessionTarget, { kind: "fast", enabled: true })).rejects.toBeInstanceOf(
+    expect(chat.getSettings(sessionTarget)).rejects.toBeInstanceOf(ContractError);
+    expect(chat.mutateSettings(sessionTarget, { kind: "fast", enabled: true })).rejects.toBeInstanceOf(
       ContractError,
     );
   });
@@ -558,8 +605,8 @@ describe("Chat Settings descriptor adapter", () => {
       },
     ]);
     const chat = new ApiClient(transport, unexpectedProjectOverflow).chat;
-    await expect(chat.getSettings(newChatTarget)).rejects.toBeInstanceOf(ContractError);
-    await expect(chat.getSettings(sessionTarget)).rejects.toBeInstanceOf(ContractError);
+    expect(chat.getSettings(newChatTarget)).rejects.toBeInstanceOf(ContractError);
+    expect(chat.getSettings(sessionTarget)).rejects.toBeInstanceOf(ContractError);
   });
 
   it("rejects unpaired Task facts without manufacturing a navigation target", async () => {
@@ -580,7 +627,7 @@ describe("Chat Settings descriptor adapter", () => {
           }),
         },
       ]);
-      await expect(
+      expect(
         new ApiClient(transport, unexpectedProjectOverflow).chat.getSettings(sessionTarget),
       ).rejects.toBeInstanceOf(Error);
     }
@@ -609,7 +656,7 @@ describe("Chat Settings descriptor adapter", () => {
         }),
       },
     ]);
-    await expect(
+    expect(
       new ApiClient(transport, unexpectedProjectOverflow).chat.getSettings(sessionTarget),
     ).rejects.toBeInstanceOf(Error);
   });
@@ -649,7 +696,7 @@ describe("Chat Settings descriptor adapter", () => {
           }),
         },
       ]);
-      await expect(
+      expect(
         new ApiClient(transport, unexpectedProjectOverflow).chat.getSettings(sessionTarget),
       ).rejects.toBeInstanceOf(Error);
     }
@@ -710,7 +757,7 @@ describe("Chat Settings descriptor adapter", () => {
       const transport = new FakeRpcTransport([
         { descriptor: ChatSettingsService.method.mutate, result: invalid },
       ]);
-      await expect(
+      expect(
         new ApiClient(transport, unexpectedProjectOverflow).chat.mutateSettings(sessionTarget, {
           kind: "fast",
           enabled: true,
@@ -753,7 +800,7 @@ describe("Chat Settings descriptor adapter", () => {
           }),
         },
       ]);
-      await expect(
+      expect(
         new ApiClient(transport, unexpectedProjectOverflow).chat.getSettings(newChatTarget),
       ).rejects.toBeInstanceOf(Error);
     }
@@ -838,7 +885,7 @@ describe("Chat Settings descriptor adapter", () => {
     const transport = new FakeRpcTransport([
       { descriptor: ChatSettingsService.method.mutate, result: response },
     ]);
-    await expect(
+    expect(
       new ApiClient(transport, unexpectedProjectOverflow).chat.mutateSettings(sessionTarget, {
         kind: "questions",
         enabled: false,
@@ -904,6 +951,7 @@ describe("Chat Settings descriptor adapter", () => {
     await chat.queue(
       { ...newChatTarget, initialSettings: result.initialSettings },
       { kind: "text", text: "start" },
+      pendingWorkItemIDFromProto("223e4567-e89b-42d3-a456-426614174000"),
     );
     expect(transport.attachedProjectDescriptorCalls[1]?.request).toEqual(
       create(ChatService.method.queue.input, {
@@ -918,6 +966,7 @@ describe("Chat Settings descriptor adapter", () => {
           },
         },
         activation: { input: { case: "text", value: "start" } },
+        queueItemId: "223e4567-e89b-42d3-a456-426614174000",
       }),
     );
   });

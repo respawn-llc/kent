@@ -10,7 +10,6 @@ import (
 	"sync"
 
 	"core/shared/clientui"
-	"core/shared/protoapi"
 	transcriptpb "core/shared/protoapi/gen/kent/api/transcript"
 	"core/shared/serverapi"
 	"core/shared/textutil"
@@ -219,9 +218,6 @@ type transcriptSubscriptionContract struct {
 }
 
 func (c *transcriptSubscriptionContract) Validate(message *transcriptpb.Message) error {
-	if err := protoapi.Validate(message); err != nil {
-		return errTranscriptContractViolation(err.Error())
-	}
 	if !c.hydrated {
 		hydration := message.Event.GetHydration()
 		if hydration == nil {
@@ -246,9 +242,6 @@ func (c *transcriptSubscriptionContract) validateHydration(hydration *transcript
 		}
 	}
 	for _, row := range hydration.TailSegment.Entries {
-		if err := validateCommittedRow(row); err != nil {
-			return err
-		}
 		if !c.hasHydratedEventSequence || row.Locator.EventSequence > c.hydratedEventSequence {
 			c.hydratedEventSequence = row.Locator.EventSequence
 			c.hasHydratedEventSequence = true
@@ -273,9 +266,6 @@ func (c *transcriptSubscriptionContract) validateLiveMessage(message *transcript
 		return c.trackToolTerminal(clientui.ToolCallID(payload.ToolAbort.ToolCallId), fmt.Sprintf("tool_abort at seq=%d", message.Sequence))
 	case *transcriptpb.Event_CommittedRow:
 		row := payload.CommittedRow
-		if err := validateCommittedRow(row); err != nil {
-			return err
-		}
 		if err := c.validateLiveLocator(row.Locator); err != nil {
 			return err
 		}
@@ -363,13 +353,6 @@ func (c *transcriptSubscriptionContract) trackToolTerminal(toolCallID clientui.T
 	return nil
 }
 
-func validateCommittedRow(row *transcriptpb.CommittedRow) error {
-	if err := protoapi.Validate(row); err != nil {
-		return errTranscriptContractViolation(err.Error())
-	}
-	return nil
-}
-
 func (s *transcriptSubscription) Next(ctx context.Context) (*transcriptpb.Message, error) {
 	if s == nil {
 		return nil, io.EOF
@@ -396,6 +379,25 @@ func (s *transcriptSubscription) Close() error {
 	}
 	s.closeWithError(io.EOF)
 	return nil
+}
+
+func (s *transcriptSubscription) bindObservation(ctx context.Context, release func()) {
+	s.mu.Lock()
+	if s.done {
+		s.mu.Unlock()
+		release()
+		return
+	}
+	previous := s.onClose
+	stop := context.AfterFunc(ctx, func() { s.closeWithError(context.Cause(ctx)) })
+	s.onClose = func() {
+		stop()
+		if previous != nil {
+			previous()
+		}
+		release()
+	}
+	s.mu.Unlock()
 }
 
 func (s *transcriptSubscription) closeWithError(err error) {

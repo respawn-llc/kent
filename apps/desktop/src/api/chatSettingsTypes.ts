@@ -87,7 +87,12 @@ export type NewChatSettingsCatalog = Readonly<{
 }>;
 export type ChatSettingsRead =
   | Readonly<{ kind: "new_chat"; catalog: NewChatSettingsCatalog; initialSettings: InitialChatSettings }>
-  | Readonly<{ kind: "session"; settings: ChatSettings; session: ChatSettingsSessionFacts }>;
+  | Readonly<{
+      kind: "session";
+      settings: ChatSettings;
+      session: ChatSettingsSessionFacts;
+      connectionReplacement?: Readonly<{ previous: string; current: string }>;
+    }>;
 export type ChatSettingsMutation =
   | Readonly<{ kind: "agent"; role: string }>
   | Readonly<{ kind: "supervisor"; value: InitialChatSettings["supervisor"] }>

@@ -57,10 +57,11 @@ type sessionPickerTab struct {
 	category sessioncontract.SessionCategory
 	startupPickerPageWindow[sessionPickerPageSegment]
 
-	bodyPhase   sessionPickerBodyPhase
-	bodyRequest *sessionPickerBodyRequest
-	selected    sessionPickerSelection
-	offset      int
+	bodyPhase      sessionPickerBodyPhase
+	bodyRequest    *sessionPickerBodyRequest
+	refreshPending bool
+	selected       sessionPickerSelection
+	offset         int
 }
 
 func newSessionPickerTab(category sessioncontract.SessionCategory) sessionPickerTab {

@@ -8,13 +8,14 @@ import "google/protobuf/timestamp.proto";
 import "kent/api/auth/auth.proto";
 import "kent/api/server/server.proto";
 import "kent/api/shared/foundation.proto";
+import "kent/api/shared/validation.proto";
 
 option go_package = "core/shared/protoapi/gen/kent/api/process;processpb";
 
 message BackgroundProcess {
 
   string id = 1 [(buf.validate.field).string.min_len = 1];
-  string owner_session_id = 2 [(buf.validate.field).string.min_len = 1];
+  string owner_session_id = 2 [(buf.validate.field).string.uuid = true, (buf.validate.field).string.(kent.api.shared.canonical_uuid_v4) = true];
   optional string owner_step_id = 4 [(buf.validate.field).string.min_len = 1];
   string state = 5 [(buf.validate.field).string.min_len = 1];
   string command = 6;
@@ -32,7 +33,7 @@ message BackgroundProcess {
 }
 
 message ListRequest {
-  optional string owner_session_id = 1 [(buf.validate.field).string.min_len = 1];
+  optional string owner_session_id = 1 [(buf.validate.field).string.uuid = true, (buf.validate.field).string.(kent.api.shared.canonical_uuid_v4) = true];
   optional string owner_step_id = 2 [(buf.validate.field).string.min_len = 1];
   string project_id = 3 [
     (buf.validate.field).string.min_len = 1,
@@ -49,8 +50,7 @@ message ListSuccess {
 }
 
 message ObserveRequest {
-  string project_id = 1 [(buf.validate.field).string.min_len = 1];
-  string session_id = 2 [(buf.validate.field).string.min_len = 1];
+  string session_id = 2 [(buf.validate.field).string.uuid = true, (buf.validate.field).string.(kent.api.shared.canonical_uuid_v4) = true];
 }
 
 message ObserveResult {

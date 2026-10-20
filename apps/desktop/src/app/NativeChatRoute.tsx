@@ -43,19 +43,21 @@ export function NativeChatRoute({
   const navigation = useMemo(
     () => ({
       openTask: async (taskID: string) => requestMainNavigation({ kind: "taskDetail", taskID }),
-      openParentSession: async (previousSessionID: string) =>
-        requestMainNavigation({
+      projectID,
+      openParentSession: async (previousSessionID: string) => {
+        await requestMainNavigation({
           kind: "sessionChat",
           projectID,
           sessionID: previousSessionID,
-        }),
+        });
+      },
       openEditedSession: openChildSession,
     }),
     [projectID, requestMainNavigation, openChildSession],
   );
   return (
     <SidebarProvider policy={sidebarDestinationPolicy}>
-      <NativeChatFrame>
+      <NativeChatFrame sessionID={sessionID}>
         <SidebarRootOwner>
           <ChatDestination
             opening={{ kind: "session", projectID, sessionID }}
@@ -68,9 +70,9 @@ export function NativeChatRoute({
   );
 }
 
-function NativeChatFrame({ children }: Readonly<{ children: ReactNode }>) {
+function NativeChatFrame({ children, sessionID }: Readonly<{ children: ReactNode; sessionID: string }>) {
   return (
-    <WindowChromeFrame controls={<WindowChromeThemeToggle />}>
+    <WindowChromeFrame controls={<WindowChromeThemeToggle />} defaultTitle={sessionID}>
       <div className="min-h-0 min-w-0 flex-1 overflow-visible">{children}</div>
       <SidebarHost />
     </WindowChromeFrame>

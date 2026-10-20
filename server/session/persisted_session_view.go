@@ -22,10 +22,7 @@ func ResolvePersistedSessionView(ctx context.Context, resolver PersistedSessionR
 		return nil, err
 	}
 	meta := *record.Meta
-	id, err := runtimeids.ParseSessionID(meta.SessionID)
-	if err != nil {
-		return nil, err
-	}
+	id := runtimeids.SessionIDFromProto(meta.SessionID)
 	eventLog, err := openCurrentEventLog(filepath.Join(record.SessionDir, eventsFile), currentEventLogPersistedSnapshot)
 	if err != nil {
 		return nil, err

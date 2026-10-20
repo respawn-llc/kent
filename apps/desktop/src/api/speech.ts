@@ -51,7 +51,6 @@ export async function speechAvailability(transport: RpcTransport): Promise<Speec
   switch (result.state.case) {
     case "available": {
       const value = result.state.value;
-      if (value.maxDuration === undefined) throw new ContractError("Speech duration is required.");
       return {
         uploadUrl: value.uploadUrl,
         maxBytes: value.maxBytes,

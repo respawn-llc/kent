@@ -46,8 +46,8 @@ message Question {
     }
   ];
   string session_id = 2 [
-    (buf.validate.field).string.min_len = 1,
-    (buf.validate.field).string.(kent.api.shared.nonblank) = true
+    (buf.validate.field).string.uuid = true,
+    (buf.validate.field).string.(kent.api.shared.canonical_uuid_v4) = true
   ];
   string step_id = 3 [
     (buf.validate.field).string.uuid = true,
@@ -112,8 +112,8 @@ message Approval {
     }
   ];
   string session_id = 2 [
-    (buf.validate.field).string.min_len = 1,
-    (buf.validate.field).string.(kent.api.shared.nonblank) = true
+    (buf.validate.field).string.uuid = true,
+    (buf.validate.field).string.(kent.api.shared.canonical_uuid_v4) = true
   ];
   string step_id = 3 [
     (buf.validate.field).string.uuid = true,
@@ -433,8 +433,8 @@ message FollowUpEvent {
 }
 
 message RecordHistoryRequest {
-  string session_id = 1 [(buf.validate.field).string.min_len = 1];
-  string text = 2;
+  string session_id = 1 [(buf.validate.field).string.uuid = true, (buf.validate.field).string.(kent.api.shared.canonical_uuid_v4) = true];
+  string text = 2 [(buf.validate.field).string.(kent.api.shared.nonblank) = true];
 }
 
 message RecordHistoryError {
@@ -522,7 +522,7 @@ message LiveWatchOutcome {
 
 message LiveWatchSuccess {
   optional int64 short_id = 3 [(buf.validate.field).int64 = {gt: 0 lte: 9007199254740991}];
-  string session_id = 1 [(buf.validate.field).string.min_len = 1];
+  string session_id = 1 [(buf.validate.field).string.uuid = true, (buf.validate.field).string.(kent.api.shared.canonical_uuid_v4) = true];
   LiveWatchOutcome outcome = 2 [(buf.validate.field).required = true];
 
   option (buf.validate.message).cel = {

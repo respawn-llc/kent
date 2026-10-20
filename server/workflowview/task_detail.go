@@ -47,9 +47,6 @@ func (d *TaskDetail) GetTask(ctx context.Context, taskID string) (*taskpb.TaskDe
 	if d == nil {
 		return nil, errors.New("task detail is required")
 	}
-	if strings.TrimSpace(taskID) == "" {
-		return nil, ErrTaskIDRequired
-	}
 	task, err := d.queries.GetTask(ctx, taskID)
 	if err != nil {
 		return nil, err
@@ -60,9 +57,6 @@ func (d *TaskDetail) GetTask(ctx context.Context, taskID string) (*taskpb.TaskDe
 func (d *TaskDetail) ListCurrentNodes(ctx context.Context, taskID string) ([]workflow.CurrentNode, error) {
 	if d == nil || d.queries == nil {
 		return nil, errors.New("task detail is required")
-	}
-	if strings.TrimSpace(taskID) == "" {
-		return nil, ErrTaskIDRequired
 	}
 	nodesByTask, err := d.projection.workflowStore.ListCurrentNodesByTaskWithQueries(ctx, d.queries, []workflow.TaskID{workflow.TaskID(taskID)})
 	if err != nil {
@@ -76,13 +70,7 @@ func (d *TaskDetail) GetTaskByProjectShortID(ctx context.Context, projectID stri
 		return nil, errors.New("task detail is required")
 	}
 	trimmedProjectID := strings.TrimSpace(projectID)
-	if trimmedProjectID == "" {
-		return nil, errors.New("project_id is required")
-	}
 	trimmedShortID := strings.TrimSpace(shortID)
-	if trimmedShortID == "" {
-		return nil, errors.New("short_id is required")
-	}
 	task, err := d.queries.GetTaskByProjectShortID(ctx, sqlitegen.GetTaskByProjectShortIDParams{ProjectID: trimmedProjectID, ShortID: trimmedShortID})
 	if err != nil {
 		return nil, err
@@ -95,9 +83,6 @@ func (d *TaskDetail) GetTaskByShortID(ctx context.Context, shortID string) (*tas
 		return nil, errors.New("task detail is required")
 	}
 	trimmedShortID := strings.TrimSpace(shortID)
-	if trimmedShortID == "" {
-		return nil, errors.New("short_id is required")
-	}
 	tasks, err := d.queries.ListTasksByShortID(ctx, trimmedShortID)
 	if err != nil {
 		return nil, err
@@ -107,6 +92,9 @@ func (d *TaskDetail) GetTaskByShortID(ctx context.Context, shortID string) (*tas
 	}
 	if len(tasks) > 1 {
 		return nil, fmt.Errorf("task short_id %q is ambiguous; use task id", trimmedShortID)
+	}
+	if strings.TrimSpace(tasks[0].ID) == "" {
+		return nil, ErrTaskIDRequired
 	}
 	return d.GetTask(ctx, tasks[0].ID)
 }
@@ -236,15 +224,10 @@ func taskDetailLiveTargets(
 	sessionIDs := make([]string, 0, len(executions))
 	scripts := make([]*taskpb.CurrentScript, 0, len(executions))
 	nodesByID := workflowNodesByID(definition.api)
-	seenSessionIDs := make(map[string]struct{}, len(executions))
 	for _, execution := range executions {
 		switch {
 		case execution.Agent != nil:
 			sessionID := execution.Agent.SessionID.String()
-			if _, exists := seenSessionIDs[sessionID]; exists {
-				return nil, nil, fmt.Errorf("task %q has duplicate live Session %q", taskID, sessionID)
-			}
-			seenSessionIDs[sessionID] = struct{}{}
 			nodeID := string(execution.Ref.CurrentNode.NodeID)
 			node, exists := nodesByID[nodeID]
 			if !exists {
@@ -256,15 +239,10 @@ func taskDetailLiveTargets(
 			sessionIDs = append(sessionIDs, sessionID)
 			agents = append(agents, liveAgent{sessionID: sessionID, nodeDisplayName: workflow.DisplayLabel(node.DisplayName, node.Key)})
 		case execution.Script != nil:
-			if strings.TrimSpace(execution.Script.Path) == "" {
-				return nil, nil, fmt.Errorf("task %q live Script execution has a blank target path", taskID)
-			}
 			scripts = append(scripts, &taskpb.CurrentScript{
 				CurrentNode: workflowCurrentNodeReference(execution.Ref.CurrentNode),
 				Path:        execution.Script.Path,
 			})
-		default:
-			return nil, nil, fmt.Errorf("task %q live workflow execution has no target", taskID)
 		}
 	}
 	names, err := resolveSessionPresentations(ctx, nameLookup, sessionIDs)

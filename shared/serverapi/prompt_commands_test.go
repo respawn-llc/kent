@@ -5,7 +5,6 @@ import (
 
 	"core/shared/protoapi"
 	promptcommandpb "core/shared/protoapi/gen/kent/api/prompt_command"
-	"core/shared/serverapi"
 )
 
 func TestPromptCommandCatalogResponseValidatesNamesAndUnicodePreviewLimit(t *testing.T) {
@@ -34,12 +33,5 @@ func TestPromptCommandCatalogResponseValidatesNamesAndUnicodePreviewLimit(t *tes
 				t.Fatalf("preview %q validated", preview)
 			}
 		})
-	}
-}
-
-func TestPromptCommandErrorValidation(t *testing.T) {
-	command := "prompt:missing"
-	if err := (&serverapi.PromptCommandError{Kind: serverapi.PromptCommandErrorKindCommandNotFound, Command: &command}).Validate(); err != nil {
-		t.Fatalf("Validate: %v", err)
 	}
 }

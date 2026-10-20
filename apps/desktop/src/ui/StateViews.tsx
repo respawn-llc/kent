@@ -106,6 +106,7 @@ function LoadingPlaceholder({
 }
 
 export type EmptyStateProps = Readonly<{
+  surface?: "island" | "plain";
   title: ReactNode;
   body: ReactNode;
   icon?: ReactNode;
@@ -119,6 +120,7 @@ export type EmptyStateProps = Readonly<{
 }>;
 
 export function EmptyState({
+  surface,
   title,
   body,
   icon,
@@ -133,6 +135,7 @@ export function EmptyState({
   const renderedActions = actions ?? action;
   return (
     <StateIsland
+      surface={surface}
       chromePadding={chromePadding}
       contentTestID="empty-state-content"
       contentWidth={contentWidth}

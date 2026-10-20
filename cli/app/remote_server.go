@@ -7,12 +7,17 @@ import (
 	"core/shared/client"
 	"core/shared/config"
 	authpb "core/shared/protoapi/gen/kent/api/auth"
+	workflowpb "core/shared/protoapi/gen/kent/api/workflow_definition"
 	worktreepb "core/shared/protoapi/gen/kent/api/worktree"
 	"errors"
 
 	"core/shared/protocol"
 	"core/shared/theme"
 )
+
+func (s *remoteAppServer) SubscribeWorkflowProject(ctx context.Context, req *workflowpb.ProjectSubscribeRequest) (apicontract.WorkflowEventSubscription, error) {
+	return s.remote.SubscribeWorkflowProject(ctx, req)
+}
 
 type remoteAppServer struct {
 	remote       *client.Remote
@@ -153,21 +158,22 @@ func (s *remoteAppServer) ProjectID() string {
 	return s.remote.ProjectID()
 }
 
-func (s *remoteAppServer) RuntimeAttachmentClients() runtimeAttachmentClients {
+func (s *remoteAppServer) SessionUIClients() sessionUIClients {
 	if s == nil {
-		return runtimeAttachmentClients{}
+		return sessionUIClients{}
 	}
-	return runtimeAttachmentClients{
-		ProcessControls:   s.remote,
-		ProcessViews:      s.remote,
-		PromptControl:     s.remote,
-		RuntimeControls:   s.remote,
-		GoalSet:           s.remote,
-		ChatSettings:      s.remote,
-		SessionTranscript: s.remote,
-		SessionRuntime:    s.remote,
-		SessionViews:      s.remote,
-		Worktrees:         s.remote,
+	return sessionUIClients{
+		AttentionNotifications: s.remote,
+		ChatMutations:          s.remote,
+		ProcessControls:        s.remote,
+		ProcessViews:           s.remote,
+		PromptControl:          s.remote,
+		RuntimeControls:        s.remote,
+		GoalSet:                s.remote,
+		ChatSettings:           s.remote,
+		SessionTranscript:      s.remote,
+		SessionViews:           s.remote,
+		Worktrees:              s.remote,
 	}
 }
 

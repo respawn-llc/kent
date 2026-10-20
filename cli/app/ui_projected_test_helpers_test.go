@@ -142,6 +142,9 @@ func newRecordingPromptControl() *recordingPromptControl {
 }
 
 func (c *recordingPromptControl) AnswerPromptBatch(_ context.Context, request *promptpb.AnswerBatchRequest) (*promptpb.AnswerBatchSuccess, error) {
+	if err := protoapi.Validate(request); err != nil {
+		return nil, err
+	}
 	c.batchRequests <- request
 	return resolvedPromptBatchResponse(request), nil
 }
@@ -277,8 +280,8 @@ func newProjectedAuthorityRuntime(
 	})
 	if _, err := authority.OpenRuntime(t.Context(), sessionruntime.RuntimeOpenRequest{
 		SessionID: sessionID,
-		OwnerID:   "projected-ui-test",
-		Runtime:   &plan,
+
+		Runtime: &plan,
 	}); err != nil {
 		t.Fatalf("open projected runtime: %v", err)
 	}

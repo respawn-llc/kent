@@ -114,6 +114,21 @@ func (s *SessionLifecycleService) resolvePersistedSessionMeta(ctx context.Contex
 	return *record.Meta, nil
 }
 
+func (s *SessionLifecycleService) Promote(ctx context.Context, req *sessionlaunchpb.SessionPromoteRequest) (*emptypb.Empty, error) {
+	if err := protoapi.Validate(req); err != nil {
+		return nil, err
+	}
+	id, err := s.metadata.ResolveSessionTarget(ctx, req.SessionId)
+	if err != nil {
+		return nil, err
+	}
+	err = s.withStore(ctx, id.String(), func(_ context.Context, store *session.Store) error {
+		_, err := store.PromoteSubagentToMain()
+		return err
+	})
+	return &emptypb.Empty{}, err
+}
+
 func (s *SessionLifecycleService) PersistInputDraft(ctx context.Context, req *sessionlaunchpb.SessionPersistInputDraftRequest) (*emptypb.Empty, error) {
 	err := s.withStore(ctx, req.SessionId, func(_ context.Context, store *session.Store) error {
 		var protected *session.ProtectedInputDraftUpdate
@@ -182,10 +197,7 @@ func (s *SessionLifecycleService) resolveTransitionOnce(ctx context.Context, req
 				SelectSession: &sessionlaunchpb.SessionSelectDirective{Auth: sessionlaunchpb.SessionAuthPreparation_SESSION_AUTH_PREPARATION_REAUTHENTICATE},
 			}}, nil
 		}
-		sessionID, err := runtimeids.ParseSessionID(currentID)
-		if err != nil {
-			return &sessionlaunchpb.SessionDirective{}, err
-		}
+		sessionID := runtimeids.SessionIDFromProto(currentID)
 		return protoapi.SessionLaunchDirectiveToProto(
 			serverapi.OpenExistingSessionLaunchIntent(sessionID),
 			sessionLaunchPreparation(nil, nil, sessionlaunchpb.SessionAuthPreparation_SESSION_AUTH_PREPARATION_REAUTHENTICATE),
@@ -213,18 +225,12 @@ func (s *SessionLifecycleService) resolveTransitionOnce(ctx context.Context, req
 		}
 		return s.authorizeNavigationTransition(ctx, meta, resolved)
 	}
-	transition, err := sessionTransitionFromProto(req.Transition)
-	if err != nil {
-		return nil, err
-	}
+	transition := sessionTransitionFromProto(req.Transition)
 	return resolveSessionTransition(ctx, sessionTransitionResolveRequest{Transition: transition})
 }
 
 func (s *SessionLifecycleService) resolveForkRollbackTransition(ctx context.Context, req *sessionlaunchpb.SessionResolveTransitionRequest, store *session.Store) (*sessionlaunchpb.SessionDirective, error) {
-	transition, err := sessionTransitionFromProto(req.Transition)
-	if err != nil {
-		return nil, err
-	}
+	transition := sessionTransitionFromProto(req.Transition)
 	forkUserMessageSeq, err := rollbacktarget.DecodeUserMessageSeq(req.Transition.GetForkRollbackTargetId())
 	if err != nil {
 		return &sessionlaunchpb.SessionDirective{}, err
@@ -241,7 +247,7 @@ func (s *SessionLifecycleService) resolveForkRollbackTransition(ctx context.Cont
 	if err != nil {
 		return nil, err
 	}
-	targetSettings, err := launch.PrepareInteractiveFork(app, store.Meta(), s.rotation)
+	targetSettings, err := launch.PrepareInteractiveFork(ctx, app, store.Meta(), s.rotation)
 	if err != nil {
 		return nil, err
 	}
@@ -253,10 +259,7 @@ func (s *SessionLifecycleService) resolveForkRollbackTransition(ctx context.Cont
 	if err != nil {
 		return &sessionlaunchpb.SessionDirective{}, err
 	}
-	forkID, err := runtimeids.ParseSessionID(resolved.GetLaunch().GetIntent().GetOpenExistingSessionId())
-	if err != nil {
-		return nil, err
-	}
+	forkID := runtimeids.SessionIDFromProto(resolved.GetLaunch().GetIntent().GetOpenExistingSessionId())
 	if err := s.preserveForkExecutionTarget(ctx, req.GetSessionId(), forkID.String()); err != nil {
 		return &sessionlaunchpb.SessionDirective{}, err
 	}
@@ -264,10 +267,7 @@ func (s *SessionLifecycleService) resolveForkRollbackTransition(ctx context.Cont
 }
 
 func (s *SessionLifecycleService) authorizeNavigationTransition(ctx context.Context, current session.Meta, resolved *sessionlaunchpb.SessionDirective) (*sessionlaunchpb.SessionDirective, error) {
-	requestedTarget, err := runtimeids.ParseSessionID(resolved.GetLaunch().GetIntent().GetOpenExistingSessionId())
-	if err != nil {
-		return nil, err
-	}
+	requestedTarget := runtimeids.SessionIDFromProto(resolved.GetLaunch().GetIntent().GetOpenExistingSessionId())
 	authorizedTarget := session.NavigationTargetSessionID(current)
 	if authorizedTarget == nil || *authorizedTarget != requestedTarget {
 		return &sessionlaunchpb.SessionDirective{}, errors.New("session navigation target does not match current session provenance")
@@ -280,9 +280,6 @@ func (s *SessionLifecycleService) authorizeNavigationTransition(ctx context.Cont
 		return &sessionlaunchpb.SessionDirective{}, err
 	}
 	preparation := resolved.GetLaunch().GetPreparation()
-	if preparation == nil {
-		return &sessionlaunchpb.SessionDirective{}, errors.New("session navigation did not resolve launch preparation")
-	}
 	preparation.NavigationBinding = binding
 	return resolved, nil
 }
@@ -293,7 +290,7 @@ func (s *SessionLifecycleService) preserveForkExecutionTarget(ctx context.Contex
 	}
 	trimmedParentID := strings.TrimSpace(parentSessionID)
 	trimmedChildID := strings.TrimSpace(childSessionID)
-	if trimmedParentID == "" || trimmedChildID == "" || trimmedParentID == trimmedChildID {
+	if trimmedParentID == trimmedChildID {
 		return nil
 	}
 	if strings.TrimSpace(s.persistenceRoot) == "" {
@@ -320,10 +317,7 @@ func (s *SessionLifecycleService) withStore(
 	if s == nil || s.authority == nil {
 		return errors.New("session runtime authority is required")
 	}
-	id, err := runtimeids.ParseSessionID(strings.TrimSpace(sessionID))
-	if err != nil {
-		return err
-	}
+	id := runtimeids.SessionIDFromProto(sessionID)
 	descriptor, err := session.NewOpenSessionDescriptor(id)
 	if err != nil {
 		return err

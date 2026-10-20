@@ -305,6 +305,12 @@ message ReadSuccess {
 message SessionSettings {
   Settings settings = 1 [(buf.validate.field).required = true];
   SessionFacts session = 2 [(buf.validate.field).required = true];
+  ConnectionReplacement connection_replacement = 3;
+}
+
+message ConnectionReplacement {
+  string previous = 1 [(buf.validate.field).string.min_len = 1];
+  string current = 2 [(buf.validate.field).string.min_len = 1];
 }
 
 message NewChatCatalog {
@@ -332,6 +338,12 @@ message NewChatAgentChoice {
   optional Fast fast = 5;
   Questions questions = 6 [(buf.validate.field).required = true];
   AutoCompaction auto_compaction = 7 [(buf.validate.field).required = true];
+
+  option (buf.validate.message).cel = {
+    id: "kent.chat_settings.complete_agent_choice"
+    message: "New Chat Agent must specify model and thinking"
+    expression: "has(this.agent.model) && has(this.agent.thinking)"
+  };
 
   option (buf.validate.message).cel = {
     id: "kent.chat_settings.complete_choice_baseline"

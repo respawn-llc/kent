@@ -359,7 +359,7 @@ func normalizeStoredLocalEntry(entry storedLocalEntry) (storedLocalEntry, error)
 	if entry.Role == "" {
 		return storedLocalEntry{}, errors.New("role is required")
 	}
-	if entry.Text == "" && entry.ToolOutputRepair == nil && entry.ProviderModelMismatch == nil && entry.ReasoningOmission == nil {
+	if entry.Text == "" && entry.ToolOutputRepair == nil && entry.ProviderModelMismatch == nil && entry.ReasoningOmission == nil && entry.ConnectionFallback == nil && entry.ConnectionsUnavailable == nil {
 		return storedLocalEntry{}, errors.New("text or typed notice facts are required")
 	}
 	if entry.ToolOutputRepair != nil && !entry.ToolOutputRepair.Valid() {
@@ -370,6 +370,12 @@ func normalizeStoredLocalEntry(entry storedLocalEntry) (storedLocalEntry, error)
 	}
 	if entry.ReasoningOmission != nil && !entry.ReasoningOmission.Valid() {
 		return storedLocalEntry{}, errors.New("reasoning omission facts are invalid")
+	}
+	if err := (transcript.ConnectionNoticeFacts{
+		Fallback: entry.ConnectionFallback, Unavailable: entry.ConnectionsUnavailable,
+		ToolOutputRepair: entry.ToolOutputRepair, ProviderModelMismatch: entry.ProviderModelMismatch, ReasoningOmission: entry.ReasoningOmission,
+	}).Validate(); err != nil {
+		return storedLocalEntry{}, err
 	}
 	if entry.ToolOutputRepair != nil && entry.ProviderModelMismatch != nil ||
 		entry.ReasoningOmission != nil && (entry.ToolOutputRepair != nil || entry.ProviderModelMismatch != nil) {
@@ -382,15 +388,17 @@ func localEntryChatEntry(entry storedLocalEntry) *ChatEntry {
 	condensedText, _ := textutil.OptionalExact(entry.CondensedText)
 	noticeID, _ := textutil.OptionalExact(entry.NoticeID)
 	return &ChatEntry{
-		Visibility:            normalizeRuntimeEntryVisibility(entry.Visibility),
-		Role:                  strings.TrimSpace(entry.Role),
-		Text:                  strings.TrimSpace(entry.Text),
-		DurationMs:            textutil.Pointer(entry.DurationMs),
-		CondensedText:         condensedText,
-		NoticeID:              noticeID,
-		ToolOutputRepair:      textutil.Pointer(entry.ToolOutputRepair),
-		ProviderModelMismatch: textutil.Pointer(entry.ProviderModelMismatch),
-		ReasoningOmission:     textutil.Pointer(entry.ReasoningOmission),
+		Visibility:             normalizeRuntimeEntryVisibility(entry.Visibility),
+		Role:                   strings.TrimSpace(entry.Role),
+		Text:                   strings.TrimSpace(entry.Text),
+		DurationMs:             textutil.Pointer(entry.DurationMs),
+		CondensedText:          condensedText,
+		NoticeID:               noticeID,
+		ToolOutputRepair:       textutil.Pointer(entry.ToolOutputRepair),
+		ProviderModelMismatch:  textutil.Pointer(entry.ProviderModelMismatch),
+		ReasoningOmission:      textutil.Pointer(entry.ReasoningOmission),
+		ConnectionFallback:     textutil.Pointer(entry.ConnectionFallback),
+		ConnectionsUnavailable: textutil.Pointer(entry.ConnectionsUnavailable),
 	}
 }
 
@@ -633,6 +641,9 @@ func (e *Engine) appendPreparedModelInput(stepID *string, input steeringPrepared
 		if err != nil {
 			return session.CommitReceipt{}, err
 		}
+		if prepared.record.Role == session.MessageRoleUser {
+			prepared.record.QueueItemIDs = queuedUserMessageStatusItemIDs(group.queueItems)
+		}
 		projections = append(projections, prepared)
 		payloads = append(payloads, prepared.record)
 	}
@@ -748,11 +759,7 @@ func (e *Engine) emitQueuedUserMessageStatus(
 		Status:        status,
 		FailureReason: reason,
 	}
-	text, err := item.DisplayText()
-	if err != nil {
-		e.surfaceRunError(fmt.Errorf("queued user message status: %w", err))
-		return
-	}
+	text := item.DisplayText()
 	if restore {
 		event.Text = text
 	}
@@ -770,11 +777,7 @@ func (e *Engine) emitInterruptedHumanInputs(items []QueuedUserMessage) {
 	}
 	eventItems := make([]InterruptedHumanInput, 0, len(items))
 	for _, item := range items {
-		text, err := item.DisplayText()
-		if err != nil {
-			e.surfaceRunError(fmt.Errorf("interrupted human input: %w", err))
-			continue
-		}
+		text := item.DisplayText()
 		eventItems = append(eventItems, InterruptedHumanInput{
 			QueueItemID: item.ID,
 			Text:        text,

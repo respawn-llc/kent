@@ -2,14 +2,43 @@ package app
 
 import (
 	"core/cli/tui/ongoing"
+	"core/shared/client"
 	transcriptpb "core/shared/protoapi/gen/kent/api/transcript"
+	"core/shared/serverapi"
 	"errors"
+	"fmt"
 	tea "github.com/charmbracelet/bubbletea"
+	"io"
 	"net"
 	"reflect"
 	"strings"
 	"testing"
 )
+
+func TestProtocolMismatchAfterRestartKeepsTUIOpen(t *testing.T) {
+	for _, debug := range []bool{false, true} {
+		t.Run(fmt.Sprintf("debug=%t", debug), func(t *testing.T) {
+			controller := newNoopOngoingTranscriptController(&ongoingSurfaceSpy{}, ongoingTestFrameProvider)
+			m := newProjectedTestUIModel(&runtimeControlFakeClient{},
+				withUIOngoingTranscriptController(controller), WithUIDebug(debug))
+			mismatch := &client.ProtocolVersionMismatchError{}
+			err := fmt.Errorf("handshake: %w", mismatch)
+			m.setRuntimeDisconnected(true)
+			m.handleOngoingTranscriptEvent(ongoingTranscriptEvent{
+				Kind: ongoingTranscriptEventFailure, Err: err,
+			})
+			if m.Transition().Exit || m.forcedLocalExit {
+				t.Fatal("protocol mismatch requested TUI exit")
+			}
+			if !m.runtimeDisconnectStatusVisible() {
+				t.Fatal("incompatible server was marked usable")
+			}
+			if m.transientStatusKind != uiStatusNoticeError || m.transientStatus != err.Error() {
+				t.Fatal("protocol mismatch did not surface an error notice")
+			}
+		})
+	}
+}
 
 func TestOngoingSurfaceErrorExitsTUIInRelease(t *testing.T) {
 	m := newProjectedStaticUIModel()
@@ -82,6 +111,30 @@ func TestOngoingTranscriptTransportOpenFailureKeepsTUIAndShowsDisconnect(t *test
 	}
 	if got := m.runtimeDisconnectStatusText(); got != runtimeDisconnectedStatusMessage {
 		t.Fatalf("disconnect status = %q, want %q", got, runtimeDisconnectedStatusMessage)
+	}
+}
+
+func TestDormantTranscriptReconnectReadsMainViewWithoutHydration(t *testing.T) {
+	controller := newNoopOngoingTranscriptController(&ongoingSurfaceSpy{}, ongoingTestFrameProvider)
+	m := newProjectedTestUIModel(&runtimeControlFakeClient{}, withUIOngoingTranscriptController(controller))
+	connectionErr := errors.Join(serverapi.ErrStreamFailed, io.EOF)
+	cmd := m.handleOngoingTranscriptEvent(ongoingTranscriptEvent{Kind: ongoingTranscriptEventFailure, Err: connectionErr})
+	if !m.runtimeMainViewBusy || cmd == nil {
+		t.Fatal("transport recovery must read Session state while transcript hydration waits")
+	}
+	token := m.runtimeMainViewToken
+	retry := m.handleRuntimeMainViewRefreshed(runtimeMainViewRefreshedMsg{token: token, err: connectionErr})
+	if retry == nil {
+		t.Fatal("failed reconnect read did not schedule another read")
+	}
+	m.reduceRuntimeMessage(retry())
+	if !m.runtimeMainViewBusy {
+		t.Fatal("retry did not start a read")
+	}
+	view := m.runtimeClient().MainView()
+	m.handleRuntimeMainViewRefreshed(runtimeMainViewRefreshedMsg{token: m.runtimeMainViewToken, view: view})
+	if m.runtimeDisconnectStatusVisible() {
+		t.Fatal("successful read must restore reachability without transcript hydration")
 	}
 }
 

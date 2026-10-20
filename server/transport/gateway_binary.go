@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"log/slog"
 
 	"core/shared/invariant"
 	"core/shared/protoapi"
@@ -580,6 +581,7 @@ func (g *Gateway) resolveBinaryRequest(
 ) (*gatewayBinaryRequest, *sharedpb.TransportFailure) {
 	envelope, err := protoapi.DecodeEnvelope(encoded)
 	if err != nil {
+		slog.Warn("invalid peer envelope", "error", err)
 		correlation := protoapi.DecodeEnvelopeCorrelation(encoded)
 		var recoveredCorrelation *string
 		if correlation != "" {
@@ -727,10 +729,12 @@ func (g *Gateway) dispatchBinary(
 	}
 	message := binding.request()
 	if err := protoapi.Unmarshal(request.call.Payload, message); err != nil {
+		slog.Warn("invalid peer request payload", "operation", binding.operation.Name, "error", err)
 		return nil, nil, invalidPayloadFailure(request.call.Correlation)
 	}
 	decoded = message
 	if err := protoapi.Validate(message); err != nil {
+		slog.Warn("invalid peer request", "operation", binding.operation.Name, "error", err)
 		if binding.validationFailure != nil {
 			if result := binding.validationFailure(message, err); result != nil {
 				return nil, result, nil

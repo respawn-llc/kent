@@ -49,41 +49,17 @@ func newOnboardingFlowState(local config.LocalPreferences, facts *capabilitypb.F
 }
 
 func onboardingSelectionsFromFacts(local config.LocalPreferences, facts *capabilitypb.Facts) (onboardingSelections, error) {
-	if err := validateOnboardingFacts(facts); err != nil {
-		return onboardingSelections{}, err
-	}
 	defaults := facts.GetDefaults()
-	if defaults == nil || defaults.Thinking == nil || defaults.Supervisor == nil {
-		return onboardingSelections{}, conversionError("facts.defaults", defaults, "visible defaults are required")
-	}
-	model, err := onboardingModelSelectionFromValue(defaults.PrimaryModelId, facts)
-	if err != nil {
-		return onboardingSelections{}, err
-	}
+	model := onboardingModelSelectionForModel(strings.TrimSpace(defaults.PrimaryModelId), facts)
 	themeSelection, err := seedThemeSelection(local.Theme)
 	if err != nil {
 		return onboardingSelections{}, err
 	}
-	contextWindow, err := seedContextSelection(int(defaults.GetContextWindowTokens()), model.value, facts)
-	if err != nil {
-		return onboardingSelections{}, err
-	}
-	thinking, err := seedThinkingFact(defaults.Thinking, modelFactForFacts(facts, model.value).SupportedThinkingLevels)
-	if err != nil {
-		return onboardingSelections{}, err
-	}
-	verbosity, err := seedVerbositySelection(config.ModelVerbosity(defaults.GetVerbosity().GetLevel()))
-	if err != nil {
-		return onboardingSelections{}, err
-	}
-	supervisor, err := seedSupervisorSelection(defaults.Supervisor, facts)
-	if err != nil {
-		return onboardingSelections{}, err
-	}
-	compaction, err := seedCompactionSelection(config.CompactionMode(defaults.CompactionMode))
-	if err != nil {
-		return onboardingSelections{}, err
-	}
+	contextWindow := seedContextSelection(int(defaults.GetContextWindowTokens()), model.value, facts)
+	thinking := seedThinkingFact(defaults.Thinking, modelFactForFacts(facts, model.value).SupportedThinkingLevels)
+	verbosity := seedVerbositySelection(defaults.Verbosity)
+	supervisor := seedSupervisorSelection(defaults.Supervisor, facts)
+	compaction := seedCompactionSelection(config.CompactionMode(defaults.CompactionMode))
 	var baselineModelContextWindow *int
 	if defaults.ContextWindowTokens != nil {
 		value := int(*defaults.ContextWindowTokens)
@@ -125,69 +101,55 @@ func onboardingModelSelectionFromValue(value string, facts *capabilitypb.Facts) 
 	if model == "" {
 		return onboardingModelSelection{}, conversionError("model", value, "must not be blank")
 	}
+	return onboardingModelSelectionForModel(model, facts), nil
+}
+
+func onboardingModelSelectionForModel(model string, facts *capabilitypb.Facts) onboardingModelSelection {
 	kind := onboardingModelCustom
 	if modelFactForFacts(facts, model).Known {
 		kind = onboardingModelKnown
 	}
-	return onboardingModelSelection{kind: kind, value: model}, nil
+	return onboardingModelSelection{kind: kind, value: model}
 }
 
-func seedContextSelection(tokens int, model string, facts *capabilitypb.Facts) (onboardingContextSelection, error) {
+func seedContextSelection(tokens int, model string, facts *capabilitypb.Facts) onboardingContextSelection {
 	fact := modelFactForFacts(facts, model)
 	switch {
 	case tokens == 0:
-		return onboardingContextSelection{kind: onboardingContextDefault}, nil
+		return onboardingContextSelection{kind: onboardingContextDefault}
 	case fact.ContextWindowTokens != nil && tokens == int(*fact.ContextWindowTokens):
-		return onboardingContextSelection{kind: onboardingContextDefault}, nil
+		return onboardingContextSelection{kind: onboardingContextDefault}
 	case fact.LargeWindow != nil && tokens == int(fact.LargeWindow.Tokens):
-		return onboardingContextSelection{kind: onboardingContextLarge}, nil
-	case tokens > 0:
-		return onboardingContextSelection{kind: onboardingContextCustom, tokens: tokens}, nil
+		return onboardingContextSelection{kind: onboardingContextLarge}
 	default:
-		return onboardingContextSelection{}, conversionError("model_context_window", tokens, "custom context window must be positive")
+		return onboardingContextSelection{kind: onboardingContextCustom, tokens: tokens}
 	}
 }
 
-func seedThinkingSelection(value string, useDefault bool, supportedLevels []string) (onboardingThinkingSelection, error) {
+func seedThinkingSelection(value string, supportedLevels []string) onboardingThinkingSelection {
 	trimmed := strings.TrimSpace(value)
-	if useDefault {
-		if trimmed == "" {
-			return onboardingThinkingSelection{}, conversionError("thinking_level", value, "default thinking value must not be blank")
-		}
-		return onboardingThinkingSelection{kind: onboardingThinkingDefault}, nil
-	}
 	if trimmed == "" {
-		return onboardingThinkingSelection{kind: onboardingThinkingDisabled}, nil
+		return onboardingThinkingSelection{kind: onboardingThinkingDisabled}
 	}
 	if slices.Contains(supportedLevels, trimmed) {
-		return onboardingThinkingSelection{kind: onboardingThinkingLevel, value: trimmed}, nil
+		return onboardingThinkingSelection{kind: onboardingThinkingLevel, value: trimmed}
 	}
-	return onboardingThinkingSelection{kind: onboardingThinkingCustom, value: trimmed}, nil
+	return onboardingThinkingSelection{kind: onboardingThinkingCustom, value: trimmed}
 }
 
-func seedVerbositySelection(value config.ModelVerbosity) (onboardingVerbositySelection, error) {
-	switch value {
-	case "":
-		return onboardingVerbositySelection{kind: onboardingVerbosityOmitted}, nil
-	case config.ModelVerbosityLow, config.ModelVerbosityMedium, config.ModelVerbosityHigh:
-		return onboardingVerbositySelection{kind: onboardingVerbosityLevel, value: string(value)}, nil
-	default:
-		return onboardingVerbositySelection{}, conversionError("model_verbosity", value, "unsupported verbosity")
+func seedVerbositySelection(value *capabilitypb.VerbosityDefaultFact) onboardingVerbositySelection {
+	if value == nil {
+		return onboardingVerbositySelection{kind: onboardingVerbosityOmitted}
 	}
+	return onboardingVerbositySelection{kind: onboardingVerbosityLevel, value: value.Level}
 }
 
-func seedSupervisorSelection(choice *onboardingpb.SupervisorChoice, facts *capabilitypb.Facts) (onboardingSupervisorSelection, error) {
-	var frequency onboardingSupervisorFrequency
-	switch choice.Frequency {
-	case onboardingpb.SupervisorFrequency_SUPERVISOR_FREQUENCY_OFF:
-		frequency = onboardingSupervisorOff
-	case onboardingpb.SupervisorFrequency_SUPERVISOR_FREQUENCY_EDITS:
-		frequency = onboardingSupervisorEdits
-	case onboardingpb.SupervisorFrequency_SUPERVISOR_FREQUENCY_ALL:
-		frequency = onboardingSupervisorAll
-	default:
-		return onboardingSupervisorSelection{}, conversionError("supervisor.frequency", choice.Frequency, "unsupported frequency")
-	}
+func seedSupervisorSelection(choice *onboardingpb.SupervisorChoice, facts *capabilitypb.Facts) onboardingSupervisorSelection {
+	frequency := map[onboardingpb.SupervisorFrequency]onboardingSupervisorFrequency{
+		onboardingpb.SupervisorFrequency_SUPERVISOR_FREQUENCY_OFF:   onboardingSupervisorOff,
+		onboardingpb.SupervisorFrequency_SUPERVISOR_FREQUENCY_EDITS: onboardingSupervisorEdits,
+		onboardingpb.SupervisorFrequency_SUPERVISOR_FREQUENCY_ALL:   onboardingSupervisorAll,
+	}[choice.Frequency]
 	reviewerModel := onboardingReviewerModelSelection{kind: onboardingReviewerModelInherited}
 	model := facts.Defaults.PrimaryModelId
 	if choice.Model != nil {
@@ -196,13 +158,8 @@ func seedSupervisorSelection(choice *onboardingpb.SupervisorChoice, facts *capab
 			model = choice.Model.GetModelId()
 		case onboardingpb.ModelKind_MODEL_KIND_CUSTOM:
 			model = choice.Model.GetAlias()
-		default:
-			return onboardingSupervisorSelection{}, conversionError("supervisor.model", choice.Model, "unsupported model choice")
 		}
-		override, err := onboardingModelSelectionFromValue(model, facts)
-		if err != nil {
-			return onboardingSupervisorSelection{}, err
-		}
+		override := onboardingModelSelectionForModel(strings.TrimSpace(model), facts)
 		reviewerModel = onboardingReviewerModelSelection{kind: onboardingReviewerModelOverridden, override: override}
 	}
 	reviewerThinking := onboardingReviewerThinkingSelection{kind: onboardingReviewerThinkingInherited}
@@ -217,142 +174,34 @@ func seedSupervisorSelection(choice *onboardingpb.SupervisorChoice, facts *capab
 			thinkingFact.Mode, thinkingFact.Level = "level", choice.Thinking.Level
 		case onboardingpb.ThinkingKind_THINKING_KIND_CUSTOM:
 			thinkingFact.Mode, thinkingFact.Value = "custom", choice.Thinking.Value
-		default:
-			return onboardingSupervisorSelection{}, conversionError("supervisor.thinking", choice.Thinking, "unsupported thinking choice")
 		}
-		override, err := seedThinkingFact(&thinkingFact, modelFactForFacts(facts, model).SupportedThinkingLevels)
-		if err != nil {
-			return onboardingSupervisorSelection{}, err
-		}
+		override := seedThinkingFact(&thinkingFact, modelFactForFacts(facts, model).SupportedThinkingLevels)
 		reviewerThinking = onboardingReviewerThinkingSelection{kind: onboardingReviewerThinkingOverridden, override: override}
 	}
 	return onboardingSupervisorSelection{
 		frequency: frequency,
 		model:     reviewerModel,
 		thinking:  reviewerThinking,
-	}, nil
-}
-
-func seedCompactionSelection(value config.CompactionMode) (onboardingCompactionSelection, error) {
-	switch value {
-	case config.CompactionModeLocal:
-		return onboardingCompactionLocal, nil
-	case config.CompactionModeNative:
-		return onboardingCompactionNative, nil
-	case config.CompactionModeNone:
-		return onboardingCompactionManualOnly, nil
-	default:
-		return "", conversionError("compaction_mode", value, "unsupported compaction mode")
 	}
 }
 
-func seedThinkingFact(fact *capabilitypb.ThinkingDefaultFact, levels []string) (onboardingThinkingSelection, error) {
-	switch fact.Mode {
-	case "default":
-		return onboardingThinkingSelection{kind: onboardingThinkingDefault}, nil
-	case "disabled":
-		return onboardingThinkingSelection{kind: onboardingThinkingDisabled}, nil
-	case "level":
-		return seedThinkingSelection(fact.GetLevel(), false, levels)
-	case "custom":
-		return onboardingThinkingSelection{kind: onboardingThinkingCustom, value: fact.GetValue()}, nil
-	default:
-		return onboardingThinkingSelection{}, conversionError("thinking.mode", fact.Mode, "unsupported thinking mode")
-	}
+func seedCompactionSelection(value config.CompactionMode) onboardingCompactionSelection {
+	return map[config.CompactionMode]onboardingCompactionSelection{
+		config.CompactionModeLocal:  onboardingCompactionLocal,
+		config.CompactionModeNative: onboardingCompactionNative,
+		config.CompactionModeNone:   onboardingCompactionManualOnly,
+	}[value]
 }
 
-func validateOnboardingFacts(facts *capabilitypb.Facts) error {
-	for index, fact := range facts.GetModels().GetKnownModels() {
-		if fact.ModelId == nil || strings.TrimSpace(*fact.ModelId) == "" {
-			return conversionError(fmt.Sprintf("facts.models.known_models[%d].model_id", index), fact.ModelId, "known model id must be present")
-		}
-		if !fact.Known {
-			return conversionError(fmt.Sprintf("facts.models.known_models[%d].known", index), fact.Known, "catalog model must be marked known")
-		}
-		if err := validateModelFactDimensions(fmt.Sprintf("facts.models.known_models[%d]", index), fact); err != nil {
-			return err
-		}
+func seedThinkingFact(fact *capabilitypb.ThinkingDefaultFact, levels []string) onboardingThinkingSelection {
+	if fact.Mode == "level" {
+		return seedThinkingSelection(fact.GetLevel(), levels)
 	}
-	if err := validateModelFactDimensions("facts.models.unknown_fallback", facts.GetModels().GetUnknownFallback()); err != nil {
-		return err
-	}
-	return validateOnboardingImportFacts(facts.GetImports())
-}
-
-func validateModelFactDimensions(field string, fact *capabilitypb.ModelFact) error {
-	if fact.ContextWindowTokens != nil && *fact.ContextWindowTokens <= 0 {
-		return conversionError(field+".context_window_tokens", *fact.ContextWindowTokens, "must be positive")
-	}
-	if fact.LargeWindow != nil && fact.LargeWindow.Tokens <= 0 {
-		return conversionError(field+".large_window.tokens", fact.LargeWindow.Tokens, "must be positive")
-	}
-	for index, level := range fact.SupportedThinkingLevels {
-		if strings.TrimSpace(level) == "" {
-			return conversionError(fmt.Sprintf("%s.supported_thinking_levels[%d]", field, index), level, "must not be blank")
-		}
-	}
-	for index, level := range fact.GetVerbosity().GetLevels() {
-		switch strings.TrimSpace(level) {
-		case string(config.ModelVerbosityLow), string(config.ModelVerbosityMedium), string(config.ModelVerbosityHigh):
-		default:
-			return conversionError(fmt.Sprintf("%s.verbosity.levels[%d]", field, index), level, "unsupported verbosity")
-		}
-	}
-	return nil
-}
-
-func validateOnboardingImportFacts(facts *capabilitypb.ImportFacts) error {
-	validateRef := func(field string, ref *capabilitypb.ImportChoiceRef) error {
-		switch onboardingImportModeFromProto(ref.GetMode()) {
-		case onboardingImportModeNone:
-			return nil
-		case onboardingImportModeSymlinkSource:
-			if ref.ImportProviderId == nil || strings.TrimSpace(*ref.ImportProviderId) == "" {
-				return conversionError(field+".import_provider_id", ref.ImportProviderId, "must be present and non-blank")
-			}
-			if ref.SourceRootPath == nil || strings.TrimSpace(*ref.SourceRootPath) == "" {
-				return conversionError(field+".source_root_path", ref.SourceRootPath, "must be present and non-blank")
-			}
-			return nil
-		default:
-			return conversionError(field+".mode", ref.GetMode(), "unsupported import mode")
-		}
-	}
-	for index, choice := range facts.GetSkills().GetChoices() {
-		field := fmt.Sprintf("facts.imports.skills.choices[%d]", index)
-		if err := validateImportChoice(field, choice, validateRef); err != nil {
-			return err
-		}
-	}
-	for index, choice := range facts.GetCommands().GetChoices() {
-		field := fmt.Sprintf("facts.imports.commands.choices[%d]", index)
-		if err := validateImportChoice(field, choice, validateRef); err != nil {
-			return err
-		}
-	}
-	for index, projection := range facts.GetSkillEnablement() {
-		field := fmt.Sprintf("facts.imports.skill_enablement[%d]", index)
-		if err := validateRef(field+".choice_ref", projection.GetChoiceRef()); err != nil {
-			return err
-		}
-		for candidateIndex, candidate := range projection.Candidates {
-			if strings.TrimSpace(candidate.GetRef().GetTargetName()) == "" {
-				return conversionError(
-					fmt.Sprintf("%s.candidates[%d].ref.target_name", field, candidateIndex),
-					candidate.GetRef().GetTargetName(),
-					"must not be blank",
-				)
-			}
-		}
-	}
-	return nil
-}
-
-func validateImportChoice(field string, choice *capabilitypb.ImportChoiceFact, validateRef func(string, *capabilitypb.ImportChoiceRef) error) error {
-	if err := validateRef(field+".ref", choice.GetRef()); err != nil {
-		return err
-	}
-	return nil
+	return map[string]onboardingThinkingSelection{
+		"default":  {kind: onboardingThinkingDefault},
+		"disabled": {kind: onboardingThinkingDisabled},
+		"custom":   {kind: onboardingThinkingCustom, value: fact.GetValue()},
+	}[fact.Mode]
 }
 
 func conversionError(field string, value any, reason string) error {

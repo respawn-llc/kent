@@ -74,9 +74,6 @@ func NewFinalizer(options Options) (*Finalizer, error) {
 }
 
 func (f *Finalizer) Finalize(_ context.Context, req *onboardingpb.FinalizeRequest) (*onboardingpb.FinalizeSuccess, error) {
-	if req == nil {
-		return nil, invalidRequest("request", "required")
-	}
 	settingsPath := strings.TrimSpace(f.settingsPath)
 	if exists, err := pathExists(settingsPath); err != nil {
 		return nil, configWriteFailed(settingsPath, "validate", err)
@@ -159,10 +156,7 @@ func projectSettings(req *onboardingpb.FinalizeRequest, settings config.Settings
 		preserved["model"] = true
 	}
 	if req.Theme != nil {
-		themeValue, err := onboardingTheme(*req.Theme)
-		if err != nil {
-			return config.Settings{}, nil, err
-		}
+		themeValue := onboardingTheme(*req.Theme)
 		settings.Theme = theme.Normalize(themeValue)
 	}
 	if req.ContextWindow != nil {
@@ -187,10 +181,7 @@ func projectSettings(req *onboardingpb.FinalizeRequest, settings config.Settings
 		if !supportsVerbosity(settings, effectiveModel) {
 			return config.Settings{}, nil, invalidRequest("verbosity", "unsupported_for_model")
 		}
-		value, err := onboardingVerbosity(*req.Verbosity)
-		if err != nil {
-			return config.Settings{}, nil, err
-		}
+		value := onboardingVerbosity(*req.Verbosity)
 		settings.ModelVerbosity = config.ModelVerbosity(value)
 	}
 	if req.AskQuestion != nil {
@@ -208,19 +199,13 @@ func projectSettings(req *onboardingpb.FinalizeRequest, settings config.Settings
 		if *req.Compaction == onboardingpb.CompactionMode_COMPACTION_MODE_NATIVE && !supportsNativeCompaction(settings, effectiveModel) {
 			return config.Settings{}, nil, invalidRequest("compaction", "unsupported_for_provider")
 		}
-		value, err := onboardingCompaction(*req.Compaction)
-		if err != nil {
-			return config.Settings{}, nil, err
-		}
+		value := onboardingCompaction(*req.Compaction)
 		settings.CompactionMode = config.CompactionMode(value)
 	}
 	if len(req.DisabledSkillNames) > 0 {
 		settings.SkillToggles = map[string]bool{}
 		for index, name := range req.DisabledSkillNames {
 			normalized := config.NormalizeSkillName(name)
-			if normalized == "" {
-				return config.Settings{}, nil, invalidRequest(fmt.Sprintf("disabled_skill_names.%d", index), "required")
-			}
 			if _, exists := settings.SkillToggles[normalized]; exists {
 				return config.Settings{}, nil, invalidRequest(fmt.Sprintf("disabled_skill_names.%d", index), "duplicate")
 			}
@@ -234,18 +219,14 @@ func projectSettings(req *onboardingpb.FinalizeRequest, settings config.Settings
 }
 
 func modelChoiceValue(choice *onboardingpb.ModelChoice) (string, error) {
-	switch choice.Kind {
-	case onboardingpb.ModelKind_MODEL_KIND_KNOWN:
+	if choice.Kind == onboardingpb.ModelKind_MODEL_KIND_KNOWN {
 		model := strings.TrimSpace(choice.GetModelId())
 		if _, ok := llm.LookupModelCapabilityContract(model); !ok {
 			return "", invalidRequest("model.model_id", "unknown_model")
 		}
 		return model, nil
-	case onboardingpb.ModelKind_MODEL_KIND_CUSTOM:
-		return strings.TrimSpace(choice.GetAlias()), nil
-	default:
-		return "", invalidRequest("model.kind", "unsupported_value")
 	}
+	return strings.TrimSpace(choice.GetAlias()), nil
 }
 
 func applyContextWindow(settings *config.Settings, model string, choice *onboardingpb.ContextWindowChoice) error {
@@ -266,8 +247,6 @@ func applyContextWindow(settings *config.Settings, model string, choice *onboard
 		settings.ModelContextWindow = *meta.LargeContextWindowTokens
 	case onboardingpb.ContextWindowKind_CONTEXT_WINDOW_KIND_CUSTOM:
 		settings.ModelContextWindow = int(choice.GetTokens())
-	default:
-		return invalidRequest("context_window.kind", "unsupported_value")
 	}
 	settings.ContextCompactionThresholdTokens = settings.ModelContextWindow * 95 / 100
 	return nil
@@ -288,19 +267,12 @@ func thinkingChoiceValue(choice *onboardingpb.ThinkingChoice, model, defaultEffo
 			return "", invalidRequest(field+".level", "unsupported_for_model")
 		}
 		return level, nil
-	case onboardingpb.ThinkingKind_THINKING_KIND_CUSTOM:
-		return strings.TrimSpace(choice.GetValue()), nil
-	default:
-		return "", invalidRequest(field+".kind", "unsupported_value")
 	}
+	return strings.TrimSpace(choice.GetValue()), nil
 }
 
 func applySupervisor(settings *config.Settings, preserved map[string]bool, choice *onboardingpb.SupervisorChoice) error {
-	frequency, err := onboardingSupervisorFrequency(choice.Frequency)
-	if err != nil {
-		return err
-	}
-	settings.Reviewer.Frequency = frequency
+	settings.Reviewer.Frequency = onboardingSupervisorFrequency(choice.Frequency)
 	// A submitted Supervisor choice describes the whole visible selection:
 	// absent overrides mean inheritance. An absent Supervisor preserves baseline.
 	if choice.Model == nil {
@@ -335,56 +307,36 @@ func applySupervisor(settings *config.Settings, preserved map[string]bool, choic
 	return nil
 }
 
-func onboardingTheme(value onboardingpb.Theme) (string, error) {
-	switch value {
-	case onboardingpb.Theme_THEME_AUTO:
-		return "auto", nil
-	case onboardingpb.Theme_THEME_LIGHT:
-		return "light", nil
-	case onboardingpb.Theme_THEME_DARK:
-		return "dark", nil
-	default:
-		return "", invalidRequest("theme", "unsupported_value")
-	}
+func onboardingTheme(value onboardingpb.Theme) string {
+	return map[onboardingpb.Theme]string{
+		onboardingpb.Theme_THEME_AUTO:  "auto",
+		onboardingpb.Theme_THEME_LIGHT: "light",
+		onboardingpb.Theme_THEME_DARK:  "dark",
+	}[value]
 }
 
-func onboardingVerbosity(value onboardingpb.Verbosity) (string, error) {
-	switch value {
-	case onboardingpb.Verbosity_VERBOSITY_LOW:
-		return "low", nil
-	case onboardingpb.Verbosity_VERBOSITY_MEDIUM:
-		return "medium", nil
-	case onboardingpb.Verbosity_VERBOSITY_HIGH:
-		return "high", nil
-	default:
-		return "", invalidRequest("verbosity", "unsupported_value")
-	}
+func onboardingVerbosity(value onboardingpb.Verbosity) string {
+	return map[onboardingpb.Verbosity]string{
+		onboardingpb.Verbosity_VERBOSITY_LOW:    "low",
+		onboardingpb.Verbosity_VERBOSITY_MEDIUM: "medium",
+		onboardingpb.Verbosity_VERBOSITY_HIGH:   "high",
+	}[value]
 }
 
-func onboardingSupervisorFrequency(value onboardingpb.SupervisorFrequency) (string, error) {
-	switch value {
-	case onboardingpb.SupervisorFrequency_SUPERVISOR_FREQUENCY_OFF:
-		return "off", nil
-	case onboardingpb.SupervisorFrequency_SUPERVISOR_FREQUENCY_EDITS:
-		return "edits", nil
-	case onboardingpb.SupervisorFrequency_SUPERVISOR_FREQUENCY_ALL:
-		return "all", nil
-	default:
-		return "", invalidRequest("supervisor.frequency", "unsupported_value")
-	}
+func onboardingSupervisorFrequency(value onboardingpb.SupervisorFrequency) string {
+	return map[onboardingpb.SupervisorFrequency]string{
+		onboardingpb.SupervisorFrequency_SUPERVISOR_FREQUENCY_OFF:   "off",
+		onboardingpb.SupervisorFrequency_SUPERVISOR_FREQUENCY_EDITS: "edits",
+		onboardingpb.SupervisorFrequency_SUPERVISOR_FREQUENCY_ALL:   "all",
+	}[value]
 }
 
-func onboardingCompaction(value onboardingpb.CompactionMode) (string, error) {
-	switch value {
-	case onboardingpb.CompactionMode_COMPACTION_MODE_NATIVE:
-		return "native", nil
-	case onboardingpb.CompactionMode_COMPACTION_MODE_LOCAL:
-		return "local", nil
-	case onboardingpb.CompactionMode_COMPACTION_MODE_NONE:
-		return "none", nil
-	default:
-		return "", invalidRequest("compaction", "unsupported_value")
-	}
+func onboardingCompaction(value onboardingpb.CompactionMode) string {
+	return map[onboardingpb.CompactionMode]string{
+		onboardingpb.CompactionMode_COMPACTION_MODE_NATIVE: "native",
+		onboardingpb.CompactionMode_COMPACTION_MODE_LOCAL:  "local",
+		onboardingpb.CompactionMode_COMPACTION_MODE_NONE:   "none",
+	}[value]
 }
 
 func supportsNativeCompaction(settings config.Settings, model string) bool {
@@ -465,9 +417,6 @@ func executeSelection(ctx context.Context, ledger *mutationLedger, choices []onb
 	if selection == nil || selection.Mode == onboardingpb.ImportMode_IMPORT_MODE_NONE {
 		return nil
 	}
-	if selection.Mode != onboardingpb.ImportMode_IMPORT_MODE_SYMLINK_SOURCE {
-		return invalidRequest(string(kind)+"_import.mode", "unsupported_value")
-	}
 	choice, err := selectedImportChoice(choices, discoveryErrors, selection, kind)
 	if err != nil {
 		return err
@@ -480,7 +429,10 @@ func executeSelection(ctx context.Context, ledger *mutationLedger, choices []onb
 		return serverapi.NewOnboardingCanceledError(serverapi.OnboardingCancelImporting)
 	}
 	if err := executeSymlink(ledger, target, sourceRoot); err != nil {
-		providerUUID, _ := selectionProviderUUID(selection)
+		providerUUID, conversionErr := selectionProviderUUID(selection)
+		if conversionErr != nil {
+			return errors.Join(err, conversionErr)
+		}
 		return serverapi.NewOnboardingFinalizeError(serverapi.OnboardingFinalizeImportFailed, serverapi.OnboardingImportFailedDetails{
 			ImportKind: kind, ProviderUUID: providerUUID, ImportProviderID: selection.ImportProviderId, SourceRootPath: selection.SourceRootPath, Operation: serverapi.OnboardingImportOperationCreateSymlink, Cause: err.Error(),
 		}, err)
@@ -491,8 +443,8 @@ func executeSelection(ctx context.Context, ledger *mutationLedger, choices []onb
 func selectedImportChoice(choices []onboardingimports.Choice, discoveryErrors []onboardingimports.Error, selection *onboardingpb.ImportSelection, kind serverapi.OnboardingImportKind) (onboardingimports.Choice, error) {
 	if selection.ProviderUuid != nil {
 		providerUUID, err := uuid.Parse(*selection.ProviderUuid)
-		if err != nil || providerUUID.Version() != 4 {
-			return onboardingimports.Choice{}, invalidRequest(string(kind)+"_import.provider_uuid", "uuid_v4_required")
+		if err != nil {
+			return onboardingimports.Choice{}, err
 		}
 		providerID, ok := importProviderIDForUUID(providerUUID)
 		if !ok {
@@ -599,7 +551,10 @@ func discoveryError(discoveryErr onboardingimports.Error) error {
 }
 
 func importDiscoveryFailed(selection *onboardingpb.ImportSelection, kind serverapi.OnboardingImportKind, err error) error {
-	providerUUID, _ := selectionProviderUUID(selection)
+	providerUUID, conversionErr := selectionProviderUUID(selection)
+	if conversionErr != nil {
+		return errors.Join(err, conversionErr)
+	}
 	return serverapi.NewOnboardingFinalizeError(serverapi.OnboardingFinalizeImportFailed, serverapi.OnboardingImportFailedDetails{
 		ImportKind: kind, ProviderUUID: providerUUID, ImportProviderID: selection.ImportProviderId, SourceRootPath: selection.SourceRootPath, Operation: serverapi.OnboardingImportOperationDiscover, Cause: err.Error(),
 	}, err)
@@ -611,7 +566,11 @@ func importUnavailable(selection *onboardingpb.ImportSelection, kind serverapi.O
 		if selection.Mode == onboardingpb.ImportMode_IMPORT_MODE_NONE {
 			details.Mode = serverapi.OnboardingImportModeNone
 		}
-		details.ProviderUUID, _ = selectionProviderUUID(selection)
+		providerUUID, err := selectionProviderUUID(selection)
+		if err != nil {
+			return err
+		}
+		details.ProviderUUID = providerUUID
 		details.ImportProviderID = selection.ImportProviderId
 		details.SourceRootPath = selection.SourceRootPath
 	}

@@ -5,17 +5,8 @@ import (
 	"strings"
 )
 
-func normalizeGoalActor(actor GoalActor) (GoalActor, error) {
-	switch GoalActor(strings.TrimSpace(string(actor))) {
-	case GoalActorUser:
-		return GoalActorUser, nil
-	case GoalActorAgent:
-		return GoalActorAgent, nil
-	case GoalActorSystem:
-		return GoalActorSystem, nil
-	default:
-		return "", errors.New("goal actor must be user, agent, or system")
-	}
+func normalizeGoalActor(actor GoalActor) GoalActor {
+	return GoalActor(strings.TrimSpace(string(actor)))
 }
 
 func normalizeGoalStatus(status GoalStatus) (GoalStatus, error) {

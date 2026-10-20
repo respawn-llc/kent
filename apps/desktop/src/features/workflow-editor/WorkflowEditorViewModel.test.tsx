@@ -1,6 +1,7 @@
 import { RegistryProvider, useAtomValue, useAtomSuspense } from "@effect/atom-react";
 import { QueryClient } from "@tanstack/react-query";
 import { act, renderHook, waitFor } from "@testing-library/react";
+import { expect, it, vi } from "bun:test";
 import type { ReactNode } from "react";
 import {
   defaultWorkflowExecutionTargetPolicy,
@@ -388,7 +389,9 @@ it("completes an accepted Save and invalidates saved content after the destinati
   vi.useFakeTimers();
   try {
     view.unmount();
-    await act(async () => vi.advanceTimersByTimeAsync(500));
+    act(() => {
+      vi.advanceTimersByTime(500);
+    });
     await act(async () => {
       response.resolve({ ...preview, saved: true, definition: saved });
       await response.promise;
@@ -444,7 +447,9 @@ it("releases its subscription when the destination owner is disposed", async () 
   vi.useFakeTimers();
   try {
     view.unmount();
-    await act(async () => vi.advanceTimersByTimeAsync(500));
+    act(() => {
+      vi.advanceTimersByTime(500);
+    });
     expect(view.close).toHaveBeenCalledTimes(1);
     expect(view.subscribe).toHaveBeenCalledTimes(1);
   } finally {
@@ -462,9 +467,13 @@ it("does not refresh or retain observation when registration reports open after 
   vi.useFakeTimers();
   try {
     view.unmount();
-    await act(async () => vi.advanceTimersByTimeAsync(500));
+    act(() => {
+      vi.advanceTimersByTime(500);
+    });
     act(() => handler?.onOpen?.());
-    await act(async () => vi.advanceTimersByTimeAsync(500));
+    act(() => {
+      vi.advanceTimersByTime(500);
+    });
     expect(view.close).toHaveBeenCalledTimes(1);
     expect(invalidate).not.toHaveBeenCalled();
     expect(view.subscribe).toHaveBeenCalledTimes(1);

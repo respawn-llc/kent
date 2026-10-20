@@ -4,8 +4,7 @@ import * as React from "react";
 import * as PopoverPrimitive from "@radix-ui/react-popover";
 
 import { cn } from "../classes";
-import { AnimatedSize } from "../AnimatedSize";
-import { motionDurationFromCSSVar } from "../motion";
+import { PopoverBody, popoverLayoutClassName } from "../popoverPresentation";
 import { radixIslandSurfaceContentClassName } from "./radix-island-surface";
 import type { IslandLevel } from "../islandSurfaceStyles";
 
@@ -35,7 +34,7 @@ function PopoverContent({
             level,
             originClassName: "origin-(--radix-popover-content-transform-origin)",
           }),
-          "grid w-64 gap-[var(--space-3)] rounded-[var(--radius-l)] p-[var(--space-3)] text-[var(--color-on-island)]",
+          popoverLayoutClassName,
           className,
         )}
         data-slot="popover-content"
@@ -43,16 +42,7 @@ function PopoverContent({
         sideOffset={sideOffset}
         {...props}
       >
-        <AnimatedSize
-          className="justify-start gap-[inherit]"
-          contentClassName="grid min-h-0 gap-[inherit]"
-          transition={{
-            duration: motionDurationFromCSSVar("--motion-fast", 140) / 1000,
-            ease: "easeInOut",
-          }}
-        >
-          {children}
-        </AnimatedSize>
+        <PopoverBody>{children}</PopoverBody>
       </PopoverPrimitive.Content>
     </PopoverPrimitive.Portal>
   );

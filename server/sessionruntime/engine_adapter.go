@@ -24,6 +24,7 @@ import (
 )
 
 type AgentRuntimePlanOptions struct {
+	ConnectionScope                     config.ConnectionScope
 	MainWorkspaceRoot                   string
 	Settings                            config.Settings
 	EnabledTools                        []toolspec.ID
@@ -117,6 +118,8 @@ func cloneStringPointer(value *string) *string {
 }
 
 type authorityRuntimeOptions struct {
+	submitSessionNaming           func(runtimeids.SessionID, string, runtime.SessionNamingInput)
+	recordUsage                   runtimewire.ConnectionUsageRecorder
 	connectionRotation            *launch.ConnectionRotation
 	environment                   func(string) (string, bool)
 	workspaceMembership           runtimewire.WorkspaceMembership
@@ -138,6 +141,8 @@ type runtimeStoreAdmission struct {
 
 func newAuthorityRuntimeOptions(options AuthorityOptions) authorityRuntimeOptions {
 	return authorityRuntimeOptions{
+		submitSessionNaming:           options.SubmitSessionNaming,
+		recordUsage:                   options.RecordUsage,
 		connectionRotation:            options.ConnectionRotation,
 		environment:                   options.Environment,
 		workspaceMembership:           options.WorkspaceMembership,
@@ -229,21 +234,17 @@ func (a *Authority) buildAgentResource(
 		panic("session runtime resource generation overflow")
 	}
 	a.mu.Unlock()
-	ref, err := runtimeids.NewSessionResourceRef(sessionID, generation)
-	if err != nil {
-		return nil, err
-	}
+	ref := runtimeids.NewSessionResourceRef(sessionID, generation)
 	resourceContext, cancel := context.WithCancel(context.Background())
 	resource := &agentResource{
-		authority:            a,
-		ref:                  ref,
-		ctx:                  resourceContext,
-		cancel:               cancel,
-		changed:              make(chan struct{}),
-		state:                AgentResourceBuilding,
-		owners:               make(map[string]struct{}),
-		ownerlessDisposition: agentResourceRemainAvailable,
-		store:                store,
+		authority:          a,
+		ref:                ref,
+		ctx:                resourceContext,
+		cancel:             cancel,
+		changed:            make(chan struct{}),
+		pendingWorkChanged: make(chan struct{}, 1),
+		state:              AgentResourceBuilding,
+		store:              store,
 	}
 	logger, err := runlog.NewRunLogger(store.Dir(), func(diag runlog.RunLoggerDiagnostic) {
 		if plan.options.OnLoggingFailure != nil {
@@ -258,7 +259,7 @@ func (a *Authority) buildAgentResource(
 	for _, line := range plan.options.StartLogLines {
 		logger.Logf("%s", line)
 	}
-	wiring, err := a.newRuntimeWiringFromPlan(resource, store, logger, durabilityObserver, *plan)
+	wiring, err := a.newRuntimeWiringFromPlan(ctx, resource, store, logger, durabilityObserver, *plan)
 	if err != nil {
 		cancel()
 		err = errors.Join(err, logger.Close())
@@ -285,7 +286,7 @@ func (a *Authority) buildAgentResource(
 	return resource, nil
 }
 
-func (a *Authority) newRuntimeWiringFromPlan(resource *agentResource, store *session.Store, logger *runlog.RunLogger, durabilityObserver *runlog.DurabilityObserver, plan AgentRuntimePlan) (*runtimewire.RuntimeWiring, error) {
+func (a *Authority) newRuntimeWiringFromPlan(ctx context.Context, resource *agentResource, store *session.Store, logger *runlog.RunLogger, durabilityObserver *runlog.DurabilityObserver, plan AgentRuntimePlan) (*runtimewire.RuntimeWiring, error) {
 	eventLog, err := store.MaterializeEventLog()
 	if err != nil {
 		return nil, err
@@ -297,11 +298,20 @@ func (a *Authority) newRuntimeWiringFromPlan(resource *agentResource, store *ses
 	}
 	options.Settings.Connections = catalog.Settings.Connections
 	options.Settings.ConnectionOrder = catalog.Settings.ConnectionOrder
-	replacement, err := a.options.connectionRotation.BindSessionConnection(store, &options.Settings, options.Sources)
+	replacement, err := a.options.connectionRotation.BindSessionConnection(ctx, store, &options.Settings, options.Sources)
 	if err != nil {
 		return nil, err
 	}
 	wiringOptions := runtimewire.RuntimeWiringOptions{
+		ConnectionScope:    options.ConnectionScope,
+		ConnectionRotation: a.options.connectionRotation,
+		SubmitSessionNaming: func(input runtime.SessionNamingInput) {
+			resource.mu.Lock()
+			localTools := resource.localTools
+			resource.mu.Unlock()
+			a.options.submitSessionNaming(resource.ref.SessionID(), localTools.FilesystemContext().Access.ExecutionTargetRoot.RealPath, input)
+		},
+		RecordUsage:                         a.options.recordUsage,
 		Environment:                         a.options.environment,
 		WorkspaceMembership:                 a.options.workspaceMembership,
 		ProjectWorkspaceContextReader:       a.options.projectWorkspaceContextReader,
@@ -322,9 +332,12 @@ func (a *Authority) newRuntimeWiringFromPlan(resource *agentResource, store *ses
 		GlobalConfigDir:                     a.options.persistenceRoot,
 		FilesystemContext:                   options.FilesystemContext,
 		StepLifecycle:                       resource,
+		RuntimeWriteAccepted:                resource.acceptRuntimeWrite,
 		DurabilityObserver:                  durabilityObserver,
-		LifecycleTaskFinished: func() error {
-			return a.closeRetiringResource(context.Background(), resource)
+		LifecycleTaskFinished: func() {
+			resource.mu.Lock()
+			resource.signalLocked()
+			resource.mu.Unlock()
 		},
 		LifecycleRuntimeAbort: func() error {
 			return a.retireRuntimeAbortResource(context.Background(), resource)
@@ -342,6 +355,12 @@ func (a *Authority) newRuntimeWiringFromPlan(resource *agentResource, store *ses
 			})
 		},
 		OnEvent: func(event runtime.Event) {
+			if event.Kind == runtime.EventPendingWorkChanged {
+				select {
+				case resource.pendingWorkChanged <- struct{}{}:
+				default:
+				}
+			}
 			logger.Logf("%s", runlog.FormatRuntimeEvent(event))
 			if transcriptdiag.Enabled(options.Settings.Debug, os.Getenv) {
 				logger.Logf("%s", runlog.FormatTranscriptRuntimeEventDiagnostic(resource.ref.SessionID().String(), event))
@@ -354,6 +373,9 @@ func (a *Authority) newRuntimeWiringFromPlan(resource *agentResource, store *ses
 			}
 			resource.publishObservedEvent(event)
 		},
+	}
+	if a.options.submitSessionNaming == nil {
+		wiringOptions.SubmitSessionNaming = nil
 	}
 	wiring, err := runtimewire.NewRuntimeWiringWithBackground(
 		store,

@@ -1,6 +1,7 @@
 package speech
 
 import (
+	"context"
 	"errors"
 	"slices"
 	"time"
@@ -67,11 +68,11 @@ func EligibleDefaults(settings config.Settings) (Selection, error) {
 	return Selection{settings: settings, Limits: limits}, nil
 }
 
-func (s Selection) Allocate(rotation *launch.ConnectionRotation) (Invocation, error) {
+func (s Selection) Allocate(ctx context.Context, rotation *launch.ConnectionRotation) (Invocation, error) {
 	if s.Limits == nil {
 		return Invocation{}, errors.New("no speech-capable default connection")
 	}
-	id, err := rotation.Prepare(s.settings, true)
+	id, err := rotation.Prepare(ctx, s.settings, true)
 	if err != nil {
 		return Invocation{}, err
 	}

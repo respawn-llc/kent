@@ -64,6 +64,8 @@ export function ChatComposer({
     [editor],
   );
   const pickerOpen = composer.pickerOpen;
+  const outgoingPending = composer.outgoing.filter((input) => input.placement === "pending");
+  const hasPending = composer.pending.items.length + outgoingPending.length > 0;
   const promptVisible = promptPicker != null && promptPicker.state.current !== null;
   const heightStyle: CSSProperties & { "--chat-composer-available-height"?: string } =
     availableHeight === null ? {} : { "--chat-composer-available-height": `${availableHeight.toString()}px` };
@@ -150,10 +152,14 @@ export function ChatComposer({
       }}
     >
       <AnimatePresence initial={false}>
-        {(pickerOpen || composer.pending.items.length > 0) && (
+        {(pickerOpen || hasPending) && (
           <AnimatedReveal key="peeking-surface">
             <PeekingSurface>
-              <ComposerPendingSheet pending={composer.pending} visible={!pickerOpen} />
+              <ComposerPendingSheet
+                pending={composer.pending}
+                outgoing={outgoingPending}
+                visible={!pickerOpen}
+              />
               {pickerOpen && <ComposerSuggestions composer={composer} />}
             </PeekingSurface>
           </AnimatedReveal>

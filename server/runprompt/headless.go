@@ -25,8 +25,6 @@ import (
 	"core/shared/runtimeids"
 	"core/shared/serverapi"
 	"core/shared/textutil"
-
-	"github.com/google/uuid"
 )
 
 var ErrHeadlessGoalSession = errors.New("headless runs cannot continue sessions with goals; clear the goal first")
@@ -97,12 +95,7 @@ func (l *headlessPromptLauncher) prepareHeadlessPrompt(ctx context.Context, req 
 	}
 	var sessionStarted *runpromptpb.SessionStarted
 	if req.Intent.Kind() == serverapi.SessionLaunchIntentCreateNew {
-		sessionID, err := uuid.Parse(runtimePlan.sessionID)
-		if err != nil || sessionID.Version() != 4 {
-			runtimePlan.CloseWithFailure(true)
-			return nil, fmt.Errorf("new headless session id %q is not a UUIDv4", runtimePlan.sessionID)
-		}
-		sessionStarted = &runpromptpb.SessionStarted{SessionId: sessionID.String(), ShortId: protoapi.SessionShortIDToProto(result.Identity.ShortID)}
+		sessionStarted = &runpromptpb.SessionStarted{SessionId: runtimePlan.sessionID, ShortId: protoapi.SessionShortIDToProto(result.Identity.ShortID)}
 	}
 	return &headlessPromptRuntime{
 		identity:          result.Identity,
@@ -193,7 +186,7 @@ func (l *headlessPromptLauncher) prepareActiveContinuation(ctx context.Context, 
 			if err != nil {
 				return false, err
 			}
-			_, observer, accepted, err := l.steering.SubmitLiveSteer(joinCtx, steer, engine, scope.observerCtx, func(commit func() (bool, error)) (bool, error) {
+			_, observer, accepted, err := l.steering.SubmitLiveSteer(joinCtx, runtimeids.NewQueueItemID().String(), steer, engine, scope.observerCtx, func(commit func() (bool, error)) (bool, error) {
 				return accept(func() (bool, error) {
 					accepted, err := commit()
 					if accepted && progress != nil {
@@ -348,6 +341,7 @@ func (l *headlessPromptLauncher) runtimeLaunchRequest(plan launch.SessionPlan, p
 		startLogLines = append(startLogLines, "config.source "+line)
 	}
 	runtimePlan, err := sessionruntime.NewAgentRuntimePlan(sessionruntime.AgentRuntimePlanOptions{
+		ConnectionScope:       plan.ConnectionScope,
 		MainWorkspaceRoot:     executionTarget.WorkspaceRoot,
 		Settings:              plan.ActiveSettings,
 		EnabledTools:          plan.EnabledTools,
@@ -471,11 +465,11 @@ func (r *headlessPromptRuntime) submitUserMessage(scope *observationScope) (*run
 	response := runResponse(r.identity)
 	response.Warnings = append([]string(nil), r.warnings...)
 	response.SelectionWarnings = append([]runpromptpb.RunSelectionWarning(nil), r.selectionWarnings...)
-	var err error
 	r.plan.onActive = r.publishSessionStarted
 	var (
 		active    activeRunCapture
 		hasActive bool
+		err       error
 	)
 	select {
 	case r.plan.submission <- headlessPromptSubmission{

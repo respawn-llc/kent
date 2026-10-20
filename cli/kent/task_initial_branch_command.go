@@ -62,10 +62,6 @@ func writeWorkflowTaskInitialBranchError(stderr io.Writer, err error) bool {
 	if !errors.As(err, &branchErr) {
 		return false
 	}
-	if validationErr := branchErr.Validate(); validationErr != nil {
-		fmt.Fprintf(stderr, "Invalid workflow task branch error: %v.\n", validationErr)
-		return true
-	}
 	switch branchErr.Reason {
 	case serverapi.WorkflowTaskInitialBranchErrorReasonInvalidName:
 		fmt.Fprintf(stderr, "Branch name %q is not a valid Git branch name.\n", branchErr.BranchName)

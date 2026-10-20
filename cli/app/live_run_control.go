@@ -51,6 +51,7 @@ func RunLiveSteer(ctx context.Context, opts Options, targetSessionID runtimeids.
 	}
 	defer func() { _ = closeFn() }()
 	return liveClient.LiveSteer(ctx, &runtimepb.LiveSteerRequest{
+		QueueItemId:     runtimeids.NewQueueItemID().String(),
 		SessionId:       protoapi.SessionSelectorToProto(targetSessionID),
 		CallerSessionId: callerSessionID,
 		Text:            trimmedText,
@@ -65,9 +66,6 @@ func LiveSteerCallerSessionID() (*string, error) {
 	sessionID, err := runtimeids.ParseSessionID(raw)
 	if err != nil {
 		return nil, fmt.Errorf("invalid invoking Session ID %q: %w", raw, err)
-	}
-	if !sessionID.IsCanonicalUUIDv4() {
-		return nil, fmt.Errorf("invalid invoking Session ID %q: canonical UUIDv4 required", raw)
 	}
 	value := sessionID.String()
 	return &value, nil

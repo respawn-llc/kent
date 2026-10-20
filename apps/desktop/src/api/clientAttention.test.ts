@@ -1,3 +1,4 @@
+import { expect, it } from "bun:test";
 import { create } from "@app/server-api-contract";
 import * as pb from "@app/server-api-contract/gen/kent/api/workflow_task/attention_pb";
 import { ApprovalDecision } from "@app/server-api-contract/gen/kent/api/prompt/prompt_pb";
@@ -44,7 +45,7 @@ it("allows absent attention text only for a structured access Approval", async (
   const question = create(pb.QuestionAttentionSchema, {
     currentNode: { nodeId: "node-1" },
     question: {
-      sessionId: "session-1",
+      sessionId: "11111111-1111-4111-8111-111111111111",
       stepId: "22222222-2222-4222-8222-222222222222",
       toolCallId: "ask-1",
       kind: pb.AttentionQuestionKind.APPROVAL,
@@ -57,7 +58,7 @@ it("allows absent attention text only for a structured access Approval", async (
       },
     },
   });
-  await expect(client(question).listTaskAttention("task-1")).resolves.toMatchObject({
+  expect(client(question).listTaskAttention("task-1")).resolves.toMatchObject({
     items: [
       {
         message: null,
@@ -72,15 +73,15 @@ it("allows absent attention text only for a structured access Approval", async (
   const withoutTargets = create(pb.QuestionAttentionSchema, {
     currentNode: question.currentNode,
     question: {
-      sessionId: "session-1",
+      sessionId: "11111111-1111-4111-8111-111111111111",
       stepId: "22222222-2222-4222-8222-222222222222",
       toolCallId: "ask-1",
       kind: pb.AttentionQuestionKind.APPROVAL,
       prompt: { case: "approval", value: { approvalDecisions: [ApprovalDecision.DENY] } },
     },
   });
-  await expect(client(withoutTargets).listTaskAttention("task-1")).rejects.toThrow();
-  await expect(
+  expect(client(withoutTargets).listTaskAttention("task-1")).rejects.toThrow();
+  expect(
     client(create(pb.QuestionAttentionSchema, { ...question, message: "" })).listTaskAttention("task-1"),
   ).rejects.toThrow();
 });

@@ -1,6 +1,7 @@
 export {
   sessionSettingsSubscriptionRoute,
   hasSessionSettingsSubscription,
+  openSessionSettingsSubscription,
   emitSessionSettingsSnapshot,
 } from "./sessionSettingsFixtures";
 import {
@@ -13,6 +14,7 @@ import {
   type DescMethod,
   type Message,
   type MessageShape,
+  type MessageValidType,
 } from "@app/server-api-contract";
 import { ProjectAvailability } from "@app/server-api-contract/gen/kent/api/project/project_pb";
 import {
@@ -43,15 +45,13 @@ import {
   type ProjectAttachment,
   type RpcDedicatedCallOptions,
   type RpcSubscription,
-  type SessionAttachment,
-  type RuntimeOwnerContext,
-  type RuntimeOwnerOptions,
 } from "@/api/composition";
 
 export { worktreeCommandFixture, worktreeCommandFixtureRoutes } from "./worktreeCommandFixtures";
 export { StreamFailureCode } from "@app/server-api-contract/gen/kent/api/shared/foundation_pb";
 export { partialWorktreeDeletionError } from "./worktreeErrorFixtures";
 export { processObservationFixture, processObservationFixtureRoute } from "./processFixtures";
+export { binaryAck } from "./rpcFrames";
 
 export async function unexpectedProjectOverflow(): Promise<never> {
   throw new Error("Unexpected Project event overflow in API fixture.");
@@ -301,11 +301,9 @@ export class FakeRpcTransport implements RpcTransport {
     descriptor: DescMethod;
     request: Message;
   }>[] = [];
-  runtimeOwnerRuns = 0;
   #descriptorRoutes = new Map<string, FakeDescriptorRoute>();
   #descriptorSubscriptionRoutes = new Map<string, FakeDescriptorSubscriptionRoute>();
   #callCounts = new Map<string, number>();
-  #runtimeOwner: SessionAttachment | null = null;
   #descriptorSubscribers: Readonly<{
     descriptor: DescMethod;
     open(): void;
@@ -328,7 +326,7 @@ export class FakeRpcTransport implements RpcTransport {
     descriptor: Method,
     request: MessageShape<Method["input"]>,
     options?: RpcDedicatedCallOptions,
-  ): Promise<MessageShape<Method["output"]>> {
+  ): Promise<MessageValidType<Method["output"]>> {
     validate(descriptor.input, request);
     this.descriptorCalls.push(
       options === undefined ? { descriptor, request } : { descriptor, request, options },
@@ -401,7 +399,7 @@ export class FakeRpcTransport implements RpcTransport {
   async callDescriptorAttachedProject<Method extends DescMethod>(
     input: AttachedProjectDescriptorCall<Method>,
     options?: RpcDedicatedCallOptions,
-  ): Promise<Readonly<{ result: MessageShape<Method["output"]>; attachment: ProjectAttachment }>> {
+  ): Promise<Readonly<{ result: MessageValidType<Method["output"]>; attachment: ProjectAttachment }>> {
     const { projectID, selector, method, createRequest } = input;
     const attachment = this.#projectAttachment(projectID, selector);
     const request = createRequest(attachment);
@@ -421,7 +419,7 @@ export class FakeRpcTransport implements RpcTransport {
     method: Method,
     request: MessageShape<Method["input"]>,
     options?: RpcDedicatedCallOptions,
-  ): Promise<MessageShape<Method["output"]>> {
+  ): Promise<MessageValidType<Method["output"]>> {
     this.attachedSessionCalls.push({ sessionID: target.sessionID, method: operationName(method) });
     return this.callDescriptor(method, request, options);
   }
@@ -443,39 +441,6 @@ export class FakeRpcTransport implements RpcTransport {
               canonicalRoot: selector.workspaceRoot,
             },
     };
-  }
-
-  async runRuntimeOwner<Result>(
-    sessionID: string,
-    options: RuntimeOwnerOptions,
-    run: (context: RuntimeOwnerContext) => Promise<Result>,
-  ): Promise<Result> {
-    this.runtimeOwnerRuns += 1;
-    if (!options.createIfMissing && this.#runtimeOwner === null) {
-      throw new Error("Runtime owner connection is unavailable.");
-    }
-    if (this.#runtimeOwner !== null && this.#runtimeOwner.sessionID !== sessionID) {
-      throw new Error("Runtime owner connection is bound to another Session.");
-    }
-    this.#runtimeOwner ??= {
-      projectID: "project-1",
-      workspaceID: "workspace-1",
-      workspaceRoot: "/workspace",
-      sessionID,
-    };
-    const context: RuntimeOwnerContext = {
-      attachment: this.#runtimeOwner,
-      callDescriptor: async (descriptor, request) => this.callDescriptor(descriptor, request),
-      poison: () => {
-        this.#runtimeOwner = null;
-      },
-    };
-    return run(context).then((result) => {
-      if (options.closeAfter) {
-        this.#runtimeOwner = null;
-      }
-      return result;
-    });
   }
 
   openDescriptor(descriptor: DescMethod): void {

@@ -61,7 +61,8 @@ func taskListSubcommand(args []string, stdout io.Writer, stderr io.Writer) int {
 		fmt.Fprintln(stderr, err)
 		return 2
 	}
-	if err := validateWorkflowPagination(*offset, *limit); err != nil {
+	pageLimit, err := protoapi.Int32(*limit, "limit")
+	if err != nil {
 		fmt.Fprintln(stderr, err)
 		return 2
 	}
@@ -147,7 +148,7 @@ func taskListSubcommand(args []string, stdout io.Writer, stderr io.Writer) int {
 			AttentionKinds:   attentionKinds,
 			Sort:             sortSelectors,
 			Offset:           &pageOffset,
-			Limit:            proto.Int32(int32(*limit)),
+			Limit:            &pageLimit,
 		}
 		resp, err := workflowTaskList(context.Background(), remote, request)
 		if err != nil {
@@ -212,11 +213,7 @@ func parseTaskListLabelMatch(raw string, explicit bool, selectorCount int, unlab
 }
 
 func writeTaskListResponse(stdout io.Writer, stderr io.Writer, response *taskpb.ListSuccess, jsonOut bool) int {
-	resp, err := taskListOutput(response)
-	if err != nil {
-		fmt.Fprintln(stderr, err)
-		return 1
-	}
+	resp := taskListOutput(response)
 	if jsonOut {
 		return writeCommandJSON(stdout, stderr, resp)
 	}

@@ -7,6 +7,7 @@ import (
 	"core/server/llm"
 	"core/server/session"
 	"core/server/tools"
+	"core/shared/config"
 	"core/shared/rollbacktarget"
 	"core/shared/runtimeids"
 	"core/shared/textutil"
@@ -44,6 +45,7 @@ type TranscriptCommittedRowFact struct {
 }
 
 type TranscriptUserRowFact struct {
+	QueueItemIDs      []string
 	Text              string
 	CondensedText     string
 	RollbackTargetID  *string
@@ -80,26 +82,28 @@ type TranscriptReasoningTraceRowFact struct {
 }
 
 type TranscriptNoticeRowFact struct {
-	Reason                string
-	Severity              string
-	LegacyText            *string
-	NoticeID              *string
-	MessageType           llm.MessageType
-	SourcePath            string
-	WorktreeContext       *session.WorktreeContext
-	CondensedText         string
-	CompactLabel          string
-	BackgroundActivityID  string
-	BackgroundProcessID   string
-	BackgroundExitCode    *int
-	DiagnosticCode        string
-	DiagnosticDetail      string
-	CacheWarning          *TranscriptCacheWarningFact
-	Compaction            *TranscriptCompactionNoticeFact
-	ToolOutputRepair      *transcript.ToolOutputRepairNotice
-	ProviderModelMismatch *transcript.ProviderModelMismatchNotice
-	ReasoningOmission     *transcript.ReasoningOmissionNotice
-	ThinkingEffort        *string
+	Reason                 string
+	Severity               string
+	LegacyText             *string
+	NoticeID               *string
+	MessageType            llm.MessageType
+	SourcePath             string
+	WorktreeContext        *session.WorktreeContext
+	CondensedText          string
+	CompactLabel           string
+	BackgroundActivityID   string
+	BackgroundProcessID    string
+	BackgroundExitCode     *int
+	DiagnosticCode         string
+	DiagnosticDetail       string
+	CacheWarning           *TranscriptCacheWarningFact
+	Compaction             *TranscriptCompactionNoticeFact
+	ToolOutputRepair       *transcript.ToolOutputRepairNotice
+	ProviderModelMismatch  *transcript.ProviderModelMismatchNotice
+	ReasoningOmission      *transcript.ReasoningOmissionNotice
+	ConnectionFallback     *config.ConnectionReplacement
+	ConnectionsUnavailable *transcript.ConnectionsUnavailableNotice
+	ThinkingEffort         *string
 }
 
 type TranscriptReviewerFeedbackRowFact struct {
@@ -150,7 +154,7 @@ func TranscriptCommittedRowFactsFromEvent(evt Event) []TranscriptCommittedRowFac
 		if evt.CacheWarning == nil {
 			return nil
 		}
-		facts = []TranscriptCommittedRowFact{transcriptCacheWarningFact(*evt.CacheWarning, evt.CacheWarningVisibility)}
+		facts = []TranscriptCommittedRowFact{transcriptCacheWarningFact(evt.StepID, *evt.CacheWarning, evt.CacheWarningVisibility)}
 	case EventLocalEntryAdded:
 		if evt.LocalEntry == nil {
 			return nil
@@ -248,6 +252,9 @@ func locateTranscriptCommittedRowFacts(facts []TranscriptCommittedRowFact) []Tra
 		}
 		facts[index].Provenance = cloneTranscriptCommittedRowProvenance(provenance)
 		facts[index].Provenance.ProjectedOrdinal = nil
+		if facts[index].User != nil {
+			facts[index].User.QueueItemIDs = append([]string(nil), provenance.QueueItemIDs...)
+		}
 	}
 	return facts
 }
@@ -467,9 +474,6 @@ func transcriptCommittedRowFactFromChatEntryUnlocated(entry ChatEntry) (Transcri
 		if strings.TrimSpace(text) == "" {
 			text = firstNonBlankTranscriptValue(entry.CondensedText, entry.CompactLabel)
 		}
-		if entry.RollbackTargetID != nil && strings.TrimSpace(*entry.RollbackTargetID) == "" {
-			panic("transcript user entry has a present but empty rollback target id")
-		}
 		return TranscriptCommittedRowFact{
 			StepID: entry.StepID,
 			Kind:   TranscriptCommittedRowFactUser,
@@ -569,7 +573,7 @@ func transcriptNoticeRowFactFromChatEntryUnlocated(entry ChatEntry) (TranscriptC
 		return TranscriptCommittedRowFact{}, false
 	}
 	if entry.CacheWarning != nil {
-		return transcriptCacheWarningFact(*entry.CacheWarning, visibility), true
+		return transcriptCacheWarningFact(entry.StepID, *entry.CacheWarning, visibility), true
 	}
 	role := transcript.EntryRole(strings.TrimSpace(entry.Role))
 	if role == transcript.EntryRoleReviewerSuggestions || role == transcript.EntryRoleReviewerError {
@@ -678,6 +682,18 @@ func transcriptToolEntryHasRecoverableText(entry ChatEntry) bool {
 }
 
 func transcriptNoticeEntryIntegrity(entry ChatEntry) transcript.RowIntegrity {
+	if entry.ConnectionsUnavailable != nil {
+		if entry.ConnectionsUnavailable.Valid() {
+			return transcript.RowIntegrityValid
+		}
+		return transcript.RowIntegrityUnrecoverableMalformed
+	}
+	if entry.ConnectionFallback != nil {
+		if entry.ConnectionFallback.Valid() {
+			return transcript.RowIntegrityValid
+		}
+		return transcript.RowIntegrityUnrecoverableMalformed
+	}
 	if entry.ReasoningOmission != nil {
 		if entry.ReasoningOmission.Valid() {
 			return transcript.RowIntegrityValid
@@ -803,6 +819,24 @@ func firstNonBlankTranscriptValue(values ...string) string {
 }
 
 func localEntryNoticeFact(entry ChatEntry) TranscriptCommittedRowFact {
+	if entry.ConnectionsUnavailable != nil {
+		return TranscriptCommittedRowFact{
+			Kind: TranscriptCommittedRowFactNotice, Visibility: entry.Visibility,
+			Notice: &TranscriptNoticeRowFact{
+				Reason: transcript.NoticeReasonConnectionsUnavailable, Severity: transcript.NoticeSeverityError,
+				ConnectionsUnavailable: entry.ConnectionsUnavailable,
+			},
+		}
+	}
+	if entry.ConnectionFallback != nil {
+		return TranscriptCommittedRowFact{
+			Kind: TranscriptCommittedRowFactNotice, Visibility: entry.Visibility,
+			Notice: &TranscriptNoticeRowFact{
+				Reason: transcript.NoticeReasonConnectionFallback, Severity: transcript.NoticeSeverityInfo,
+				ConnectionFallback: textutil.Pointer(entry.ConnectionFallback),
+			},
+		}
+	}
 	if entry.ThinkingEffort != nil {
 		return TranscriptCommittedRowFact{
 			Kind: TranscriptCommittedRowFactNotice, Visibility: entry.Visibility,
@@ -885,9 +919,9 @@ func cloneAskQuestionAnswer(answer *tools.AskQuestionAnswer) *tools.AskQuestionA
 	}
 }
 
-func transcriptCacheWarningFact(warning transcript.CacheWarning, visibility transcript.EntryVisibility) TranscriptCommittedRowFact {
+func transcriptCacheWarningFact(stepID *string, warning transcript.CacheWarning, visibility transcript.EntryVisibility) TranscriptCommittedRowFact {
 	normalized := resolveTranscriptVisibility(visibility, transcript.EntryVisibilityOngoing)
-	return TranscriptCommittedRowFact{Kind: TranscriptCommittedRowFactNotice, Visibility: normalized, Notice: &TranscriptNoticeRowFact{
+	return TranscriptCommittedRowFact{StepID: cloneOptionalStepID(stepID), Kind: TranscriptCommittedRowFactNotice, Visibility: normalized, Notice: &TranscriptNoticeRowFact{
 		Reason:   transcript.NoticeReasonCacheWarning,
 		Severity: transcript.NoticeSeverityWarning,
 		CacheWarning: &TranscriptCacheWarningFact{

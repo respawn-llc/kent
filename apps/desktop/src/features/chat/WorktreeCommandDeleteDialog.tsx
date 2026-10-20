@@ -31,8 +31,7 @@ export function WorktreeCommandDeleteDialog({
       <div className="grid gap-[var(--space-6)]">
         <div className="grid gap-[var(--space-3)]">
           <p className="m-0 break-words">{t("chat.worktree.commandDeleteBody")}</p>
-          {preview.cleanliness !== undefined &&
-          preview.cleanliness.kind !== DirtyStateKind.DIRTY_STATE_CLEAN ? (
+          {preview.cleanliness.kind !== DirtyStateKind.DIRTY_STATE_CLEAN ? (
             <WorktreeCleanliness value={preview.cleanliness} />
           ) : null}
         </div>

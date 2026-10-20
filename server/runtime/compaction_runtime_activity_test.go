@@ -20,7 +20,7 @@ func TestActiveStepSnapshotProjectsAuthoritativeCompactionActivity(t *testing.T)
 		}
 		persistence := newCompactionPersistence(engine)
 		for _, activeKind := range []ActiveKind{ActiveKindCompaction} {
-			if err := persistence.setActivity(stepID, nil, compactionModeAuto, 1, activeKind, true); err != nil {
+			if err := persistence.setActivity(stepID, compactionModeAuto, 1, activeKind, true); err != nil {
 				t.Fatalf("set %s activity: %v", activeKind, err)
 			}
 			active := engine.ActiveStepSnapshot()
@@ -29,7 +29,7 @@ func TestActiveStepSnapshotProjectsAuthoritativeCompactionActivity(t *testing.T)
 				active.ActiveKind != activeKind {
 				t.Fatalf("projected %s activity = %+v, baseline %+v", activeKind, active, baseline)
 			}
-			if err := persistence.setActivity(stepID, nil, compactionModeAuto, 0, activeKind, false); err != nil {
+			if err := persistence.setActivity(stepID, compactionModeAuto, 0, activeKind, false); err != nil {
 				t.Fatalf("clear %s activity: %v", activeKind, err)
 			}
 			restored := engine.ActiveStepSnapshot()

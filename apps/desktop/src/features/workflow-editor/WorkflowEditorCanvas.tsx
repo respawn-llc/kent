@@ -37,7 +37,6 @@ type PendingGraphSelectionRequest = Readonly<{
   conflictVersion: number | null;
   edgeID: string;
   expectedGraphVersion: number;
-  requestID: string;
 }>;
 
 export type WorkflowEditorCanvasProps = Readonly<{
@@ -98,7 +97,6 @@ export function WorkflowEditorCanvas({
         conflictVersion: pendingConnectedCreation.conflictVersion,
         edgeID: pendingConnectedCreation.edgeID,
         expectedGraphVersion: pendingConnectedCreation.expectedGraphVersion,
-        requestID: `connected-node:${pendingConnectedCreation.edgeID}`,
       });
       setPendingConnectedCreation(null);
     });
@@ -267,11 +265,10 @@ export function WorkflowEditorCanvas({
           ? null
           : {
               edgeID: validGraphSelectionRequest.edgeID,
-              requestID: validGraphSelectionRequest.requestID,
             }
       }
-      onGraphSelectionConsumed={(requestID) => {
-        setGraphSelectionRequest((current) => (current?.requestID === requestID ? null : current));
+      onGraphSelectionConsumed={(edgeID) => {
+        setGraphSelectionRequest((current) => (current?.edgeID === edgeID ? null : current));
       }}
     />
   );

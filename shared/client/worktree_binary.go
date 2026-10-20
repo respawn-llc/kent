@@ -214,16 +214,11 @@ func worktreeError[Failure worktreeFailure](failure Failure) error {
 			GetCreateFailed() *worktreepb.CreateFailureDetails
 		}); ok && typed.GetCreateFailed() != nil {
 			details := typed.GetCreateFailed()
-			var owner worktreecontract.CreateErrorOwner
-			switch details.Owner {
-			case worktreepb.CreateErrorOwner_WORKTREE_CREATE_ERROR_OWNER_BASE_REF:
-				owner = worktreecontract.CreateErrorOwnerBaseRef
-			case worktreepb.CreateErrorOwner_WORKTREE_CREATE_ERROR_OWNER_FORM:
-				owner = worktreecontract.CreateErrorOwnerForm
-			default:
-				return generatedOperationFailure(failure.GetCode())
-			}
-			return worktreecontract.NewCreateError(owner, details.Diagnostic, nil)
+			owner := map[worktreepb.CreateErrorOwner]worktreecontract.CreateErrorOwner{
+				worktreepb.CreateErrorOwner_WORKTREE_CREATE_ERROR_OWNER_BASE_REF: worktreecontract.CreateErrorOwnerBaseRef,
+				worktreepb.CreateErrorOwner_WORKTREE_CREATE_ERROR_OWNER_FORM:     worktreecontract.CreateErrorOwnerForm,
+			}[details.Owner]
+			return &worktreecontract.CreateError{Owner: owner, Diagnostic: details.Diagnostic}
 		}
 	case "setup_retained":
 		if typed, ok := any(failure).(interface {

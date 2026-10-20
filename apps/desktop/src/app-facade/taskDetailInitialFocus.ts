@@ -4,10 +4,10 @@ import type { TaskDetailInitialFocus } from "./sidebarContext";
 export function taskDetailInitialFocusFromAttentionItem(
   item: AttentionItem | undefined,
 ): TaskDetailInitialFocus | undefined {
-  if (item?.kind === "question" && item.question.toolCallID.length > 0) {
+  if (item?.kind === "question") {
     return { kind: "question", askIDs: [item.question.toolCallID] };
   }
-  if (item?.kind === "approval" && item.approvalID.length > 0) {
+  if (item?.kind === "approval") {
     return { kind: "approval", approvalID: item.approvalID };
   }
   if (item?.kind === "interrupted_current_node") {

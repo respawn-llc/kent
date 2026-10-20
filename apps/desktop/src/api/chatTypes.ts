@@ -1,4 +1,5 @@
 import type { StreamFailureCode } from "@app/server-api-contract/gen/kent/api/shared/foundation_pb";
+import type { SessionCategory } from "./models";
 import type { ApiSubscription } from "./apiService";
 import type * as Stream from "effect/Stream";
 import type { PendingPrompt } from "./promptModels";
@@ -20,7 +21,6 @@ import type {
 export type { ChatSettings } from "./chatSettingsTypes";
 import type { ChatTranscriptMessage, ChatTranscriptPayloadByKind } from "./chatTranscriptTypes";
 import type {
-  CompactionRequestID,
   PendingWork,
   PendingWorkIdentity,
   PendingWorkItemID,
@@ -66,6 +66,7 @@ export type ChatInputMutationResult = Readonly<{
     | Readonly<{
         kind: "accepted";
         queueItemID: PendingWorkItemID;
+        disposition: "started_turn" | "pending_steer" | "pending_queue";
         diagnostic: ChatAcceptedDiagnostic | null;
       }>
     | Readonly<{
@@ -99,7 +100,6 @@ export type ChatCompactionResult = Readonly<{
   outcome:
     | Readonly<{
         kind: "accepted";
-        requestID: CompactionRequestID;
         diagnostic: ChatAcceptedDiagnostic | null;
       }>
     | Readonly<{ kind: "not_accepted"; reason: ChatNotAcceptedReason }>;
@@ -111,6 +111,8 @@ export type ChatMainView = Readonly<{
   status: ChatRuntimeStatus;
   sessionID: string;
   sessionName: string | null;
+  category: SessionCategory;
+  shortID: bigint | null;
   executionTarget: ChatExecutionTarget;
   activity: ChatRuntimeActivity;
 }>;
@@ -200,8 +202,6 @@ export type ChatGoalObservationHandler = Readonly<{
   onComplete(code: StreamFailureCode | null, message: string | null): void;
   onError(error: Error): void;
 }>;
-export type ChatRuntimeAttachment = Readonly<{ sessionID: string; generation: number }>;
-export type ChatRuntimeRelease = Readonly<{ released: boolean; active: boolean }>;
 export type ChatSessionNameMutation = Readonly<{ kind: "set"; name: string }> | Readonly<{ kind: "clear" }>;
 export type ChatSettingsSnapshot = Readonly<{
   sessionName: string | null;
@@ -229,8 +229,16 @@ export type ChatApi = Readonly<{
   persistDraft(target: ChatSessionTarget, input: string, protectedInput?: string | null): Promise<void>;
   listPendingPrompts(target: ChatSessionTarget): Promise<readonly PendingPrompt[]>;
   answerPromptBatch(input: PromptAnswerBatchInput): Promise<PromptAnswerBatchResponse>;
-  steer(target: ChatMutationTarget, activation: ChatActivation): Promise<ChatInputMutationResult>;
-  queue(target: ChatMutationTarget, activation: ChatActivation): Promise<ChatInputMutationResult>;
+  steer(
+    target: ChatMutationTarget,
+    activation: ChatActivation,
+    queueItemID: PendingWorkItemID,
+  ): Promise<ChatInputMutationResult>;
+  queue(
+    target: ChatMutationTarget,
+    activation: ChatActivation,
+    queueItemID: PendingWorkItemID,
+  ): Promise<ChatInputMutationResult>;
   compact(target: ChatMutationTarget, invocation: ChatCompactionInvocation): Promise<ChatCompactionResult>;
   stop(target: ChatSessionTarget): Promise<"stopped" | "idle">;
   forkEdit(target: ChatSessionTarget, input: ChatForkEditInput): Promise<string>;
@@ -253,8 +261,7 @@ export type ChatApi = Readonly<{
     target: ChatSessionTarget,
     cursor?: Readonly<{ direction: "older" | "newer"; value: number }>,
   ): Promise<ChatTranscriptPage>;
-  activateRuntime(target: ChatSessionTarget): Promise<ChatRuntimeAttachment>;
-  releaseRuntime(attachment: ChatRuntimeAttachment): Promise<ChatRuntimeRelease>;
+  activateRuntime(target: ChatSessionTarget): Promise<void>;
   subscribeTranscript(target: ChatSessionTarget, handler: ChatTranscriptHandler): ApiSubscription;
   subscribeGoal(target: ChatSessionTarget, handler: ChatGoalObservationHandler): ApiSubscription;
 }>;

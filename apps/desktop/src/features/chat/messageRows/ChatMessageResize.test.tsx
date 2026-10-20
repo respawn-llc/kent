@@ -1,3 +1,4 @@
+import { expect, it, vi } from "bun:test";
 import { act, render, screen, waitFor } from "@testing-library/react";
 
 import type { TranscriptRenderItem } from "@/app-facade";
@@ -7,6 +8,26 @@ import { row } from "@/test-support/transcript-window";
 
 import { ChatAssistantMessage } from "./ChatAssistantMessage";
 import { ChatUserMessage } from "./ChatUserMessage";
+import { ChatMessageMotion } from "../ChatMessageMotion";
+import { SharedTextMotion } from "@/ui";
+
+function installElementOffsetWidth(element: HTMLElement, initialWidth: number) {
+  const originalDescriptor = Object.getOwnPropertyDescriptor(element, "offsetWidth");
+  let width = initialWidth;
+  Object.defineProperty(element, "offsetWidth", {
+    configurable: true,
+    get: () => width,
+  });
+  return {
+    set: (nextWidth: number) => {
+      width = nextWidth;
+    },
+    restore: () => {
+      if (originalDescriptor === undefined) Reflect.deleteProperty(element, "offsetWidth");
+      else Object.defineProperty(element, "offsetWidth", originalDescriptor);
+    },
+  };
+}
 
 it("keeps the full initial layout height during ancestor entrance scaling", async () => {
   const geometry = installAnimatedHeightGeometry(160, 0.95);
@@ -25,7 +46,7 @@ it("keeps the full initial layout height during ancestor entrance scaling", asyn
   }
 });
 
-it("grows a streaming bubble smoothly without replacing already rendered characters", async () => {
+it("animates streaming growth in both dimensions without replacing rendered characters", async () => {
   const geometry = installAnimatedHeightGeometry(80);
   const services = createTestServices([]);
   const content = (text: string) => (
@@ -34,15 +55,19 @@ it("grows a streaming bubble smoothly without replacing already rendered charact
     </TestAppProviders>
   );
   const view = render(content("First line"));
+  let restoreOffsetWidth: (() => void) | undefined;
   try {
     const bubble = screen.getByText(() => true, { selector: "section" });
     const firstCharacter = screen.getByText("F", { exact: true });
+    const chatRow = screen.getByText(() => true, { selector: ".chat-message-row" });
+    const offsetWidth = installElementOffsetWidth(chatRow, 320);
+    restoreOffsetWidth = offsetWidth.restore;
     expect(bubble.getBoundingClientRect().height).toBe(80);
     await flushAnimationFrames();
 
     view.rerender(content("First line\nSecond line"));
     act(() => {
-      geometry.resize(160);
+      geometry.resize(160, 480);
     });
 
     expect(bubble.getBoundingClientRect().height).toBeLessThan(160);
@@ -54,23 +79,72 @@ it("grows a streaming bubble smoothly without replacing already rendered charact
     expect(intermediateHeight).toBeLessThan(160);
     view.rerender(content("First line\nSecond line\nThird line"));
     act(() => {
-      geometry.resize(240);
+      geometry.resize(240, 560);
     });
-    expect(bubble.getBoundingClientRect().height).toBeCloseTo(intermediateHeight);
+    const continuingHeight = bubble.getBoundingClientRect().height;
+    expect(continuingHeight).toBeGreaterThan(80);
+    expect(continuingHeight).toBeLessThan(160);
     await waitFor(() => {
       expect(bubble.getBoundingClientRect().height).toBeCloseTo(240);
     });
     expect(screen.getByText("F", { exact: true })).toBe(firstCharacter);
   } finally {
     view.unmount();
+    restoreOffsetWidth?.();
+    geometry.restore();
+  }
+});
+
+it("interrupts streaming height motion for Chat reflow and animates subsequent content growth", async () => {
+  const geometry = installAnimatedHeightGeometry(80);
+  const view = render(
+    <TestAppProviders services={createTestServices([])}>
+      <ChatAssistantMessage item={liveAssistant("A streaming response")} />
+    </TestAppProviders>,
+  );
+  let restoreOffsetWidth: (() => void) | undefined;
+  try {
+    const bubble = screen.getByText(() => true, { selector: "section" });
+    const chatRow = screen.getByText(() => true, { selector: ".chat-message-row" });
+    const offsetWidth = installElementOffsetWidth(chatRow, 320);
+    restoreOffsetWidth = offsetWidth.restore;
+    await flushAnimationFrames();
+    act(() => {
+      geometry.resize(240, 480);
+    });
+    await waitFor(() => {
+      expect(bubble.getBoundingClientRect().height).toBeGreaterThan(80);
+    });
+    act(() => {
+      offsetWidth.set(240);
+      geometry.resize(160, 240);
+    });
+    await flushAnimationFrames();
+    expect(bubble.getBoundingClientRect().height).toBe(160);
+    act(() => {
+      geometry.resize(240, 280);
+    });
+    const intermediateHeight = await waitFor(() => {
+      const height = bubble.getBoundingClientRect().height;
+      expect(height).toBeGreaterThan(160);
+      return height;
+    });
+    expect(intermediateHeight).toBeLessThan(240);
+    await waitFor(() => {
+      expect(bubble.getBoundingClientRect().height).toBeCloseTo(240);
+    });
+  } finally {
+    view.unmount();
+    restoreOffsetWidth?.();
     geometry.restore();
   }
 });
 
 it("applies bubble height changes immediately when reduced motion is requested", async () => {
-  vi.stubGlobal(
-    "matchMedia",
-    vi.fn((query: string) => ({
+  const matchMedia = Object.getOwnPropertyDescriptor(globalThis, "matchMedia");
+  Object.defineProperty(globalThis, "matchMedia", {
+    configurable: true,
+    value: vi.fn((query: string) => ({
       matches: query === "(prefers-reduced-motion: reduce)",
       media: query,
       onchange: null,
@@ -80,7 +154,7 @@ it("applies bubble height changes immediately when reduced motion is requested",
       removeEventListener: vi.fn(),
       dispatchEvent: vi.fn(),
     })),
-  );
+  });
   const geometry = installAnimatedHeightGeometry(80);
   const view = render(
     <TestAppProviders services={createTestServices([])}>
@@ -103,7 +177,8 @@ it("applies bubble height changes immediately when reduced motion is requested",
   } finally {
     view.unmount();
     geometry.restore();
-    vi.unstubAllGlobals();
+    if (matchMedia) Object.defineProperty(globalThis, "matchMedia", matchMedia);
+    else Reflect.deleteProperty(globalThis, "matchMedia");
   }
 });
 
@@ -134,10 +209,18 @@ it.each(["user", "assistant"] as const)(
     const view = render(
       <TestAppProviders services={services}>
         {kind === "user" ? (
-          <ChatUserMessage
-            item={{ kind, state: "committed", key: "1:1", row: committed, value: { Text: text } }}
-            edit={{ onEdit: vi.fn() }}
-          />
+          <ChatMessageMotion motion={new SharedTextMotion()}>
+            <ChatUserMessage
+              item={{
+                kind,
+                state: "committed",
+                key: "1:1",
+                row: committed,
+                value: { Text: text, QueueItemIDs: [] },
+              }}
+              edit={{ onEdit: vi.fn() }}
+            />
+          </ChatMessageMotion>
         ) : (
           <ChatAssistantMessage
             item={{

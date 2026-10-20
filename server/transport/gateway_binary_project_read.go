@@ -47,9 +47,7 @@ func internalProjectFailure[Request proto.Message](_ Request, err error) proto.M
 
 func binaryProjectResolvePathFailure(_ *projectpb.ResolvePathRequest, err error) proto.Message {
 	if ambiguous, ok := serverapi.AsWorkspaceBindingAmbiguous(err); ok {
-		if details, conversionErr := protoapi.WorkspaceBindingAmbiguousToProto(ambiguous); conversionErr == nil {
-			return details
-		}
+		return protoapi.WorkspaceBindingAmbiguousToProto(ambiguous)
 	}
 	return binaryInternalFailure(err)
 }

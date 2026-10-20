@@ -165,25 +165,23 @@ function ChatDestinationShell({
         sessionName={sessionName}
         state={state}
         chromeAction={chromeAction}
-        content={(_, bottomInset) =>
-          target === null ? null : (
-            <ChatTranscriptContent
-              target={target}
-              effectiveWorkdir={executionTarget?.effectiveWorkdir ?? null}
-              bottomInset={bottomInset}
-              openingVisible={openingVisible}
-              edit={{
-                onEdit: (item) => {
-                  edit.activate({
-                    item,
-                    draft: destination.composer.text,
-                    onSuccess: async ({ sessionID }) => navigation.openEditedSession(sessionID),
-                  });
-                },
-              }}
-            />
-          )
-        }
+        content={(_, bottomInset) => (
+          <ChatTranscriptContent
+            target={target}
+            effectiveWorkdir={executionTarget?.effectiveWorkdir ?? null}
+            bottomInset={bottomInset}
+            openingVisible={openingVisible}
+            edit={{
+              onEdit: (item) => {
+                edit.activate({
+                  item,
+                  draft: destination.composer.text,
+                  onSuccess: async ({ sessionID }) => navigation.openEditedSession(sessionID),
+                });
+              },
+            }}
+          />
+        )}
         composer={(_, layout) => (
           <ChatComposer
             {...layout}
@@ -207,6 +205,7 @@ function ChatDestinationShell({
                 )}
                 {target !== null && (
                   <WorktreeControl
+                    projectID={target.projectID}
                     sessionID={target.sessionID}
                     target={executionTarget}
                     query={worktrees}

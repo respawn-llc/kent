@@ -1,6 +1,6 @@
 import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { beforeAll, expect, it } from "vitest";
+import { beforeAll, expect, it } from "bun:test";
 
 import { appI18n, initializeI18n } from "@/i18n";
 import { usePathFormatter } from "@/app-facade";
@@ -49,7 +49,9 @@ it("collapses structured approval targets without changing their values", () => 
       <ApprovalTargets target={target} />
     </TestAppProviders>,
   );
-  expect(screen.getByText("- ~/input → ~/resolved")).toBeInTheDocument();
+  expect(
+    screen.getByText(appI18n.t("task.accessApprovalSingle", { path: "~/input → ~/resolved" })),
+  ).toBeInTheDocument();
   expect(target.resolvedPath).toBe("/Users/engineer/resolved");
 });
 

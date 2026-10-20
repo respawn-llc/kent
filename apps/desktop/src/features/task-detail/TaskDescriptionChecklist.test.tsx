@@ -1,3 +1,4 @@
+import { describe, expect, it, vi } from "bun:test";
 import { act, fireEvent, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { projectEventsFixture } from "@/test-support/project-events";
@@ -86,7 +87,7 @@ describe("Task description checklist", () => {
     fireEvent.click(screen.getByTestId("task-detail-save"));
 
     await waitFor(() => {
-      expect(updateTask).toHaveBeenCalledOnce();
+      expect(updateTask).toHaveBeenCalledTimes(1);
     });
     expect(updateTask).toHaveBeenCalledWith({
       taskID: "task-1",
@@ -270,7 +271,7 @@ describe("Task description checklist", () => {
     fireEvent.keyDown(editor, { key: "Enter", metaKey: true });
 
     await waitFor(() => {
-      expect(updateTask).toHaveBeenCalledOnce();
+      expect(updateTask).toHaveBeenCalledTimes(1);
     });
     expect(screen.getByRole("textbox", { name: appI18n.t("task.description") })).toBeInstanceOf(
       HTMLTextAreaElement,
@@ -301,7 +302,7 @@ describe("Task description checklist", () => {
 
     fireEvent.keyDown(editor, { key: "Enter", metaKey: true });
     await waitFor(() => {
-      expect(updateTask).toHaveBeenCalledOnce();
+      expect(updateTask).toHaveBeenCalledTimes(1);
     });
     await act(async () => {
       pending.reject(new Error("update failed"));

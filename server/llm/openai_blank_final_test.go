@@ -79,7 +79,8 @@ func TestOpenAIBlankFinalClientPresence(t *testing.T) {
 					AssistantText: test.content,
 					ProviderPhase: test.providerPhase,
 				},
-			})
+			}, nil)
+
 			response, err := client.Generate(context.Background(), Request{SessionID: textutil.Value("test-session"),
 				Model:          "gpt-6-sol",
 				ToolChoiceMode: ToolChoiceModeAutomatic, ReasoningEffort: "high",
@@ -158,7 +159,7 @@ func TestOpenAIBlankFinalStreamingAfterCommentary(t *testing.T) {
 				`{"type":"response.completed","response":{"output":[{"id":"msg_commentary","type":"message","role":"assistant","phase":"commentary","content":[{"type":"output_text","text":"working"}]},{"id":"msg_final","type":"message","role":"assistant","phase":"final_answer",`+test.finalResponse+`"status":"completed"}]}}`,
 				`[DONE]`,
 			)
-			response, err := NewResponsesClient(transport).Generate(context.Background(), Request{SessionID: textutil.Value("test-session"),
+			response, err := NewResponsesClient(transport, nil).Generate(context.Background(), Request{SessionID: textutil.Value("test-session"),
 				Model:          "gpt-6-sol",
 				ToolChoiceMode: ToolChoiceModeAutomatic, ReasoningEffort: "high",
 			}, StreamCallbacks{})
@@ -245,7 +246,7 @@ func TestOpenAIBlankFinalStreamingPresence(t *testing.T) {
 		t.Fatalf("output items = %+v, want present whitespace content", response.OutputItems)
 	}
 
-	client := NewResponsesClient(transport)
+	client := NewResponsesClient(transport, nil)
 	clientResponse, err := client.Generate(context.Background(), Request{SessionID: textutil.Value("test-session"),
 		Model:          "gpt-6-sol",
 		ToolChoiceMode: ToolChoiceModeAutomatic, ReasoningEffort: "high",
@@ -265,7 +266,7 @@ func TestOpenAIBlankFinalStreamingPresence(t *testing.T) {
 		`{"type":"response.completed","response":{"output":[{"id":"msg_omitted","type":"message","role":"assistant","phase":"final_answer"}]}}`,
 		`[DONE]`,
 	)
-	omittedResponse, err := NewResponsesClient(omittedTransport).Generate(context.Background(), Request{SessionID: textutil.Value("test-session"),
+	omittedResponse, err := NewResponsesClient(omittedTransport, nil).Generate(context.Background(), Request{SessionID: textutil.Value("test-session"),
 		Model:          "gpt-6-sol",
 		ToolChoiceMode: ToolChoiceModeAutomatic, ReasoningEffort: "high",
 	}, StreamCallbacks{})

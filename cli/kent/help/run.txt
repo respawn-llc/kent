@@ -11,13 +11,12 @@ Run a headless subagent session. This will start a real Kent agent with optional
 - For this command to work, a shared Kent server/service must be running (see relevant documentation).
 - Finalized assistant responses print as they are committed. Use `-q` or `--quiet` to suppress live progress; pending Questions remain visible.
 - New sessions print a ready-to-use `run steer` command after the run becomes steerable.
-- Continue a session with `--continue <id>` or its `--session <id>` alias. If it is active, your message steers its work and the command waits for a Final answer or pending Question.
-- Active continuation saves supported `--thinking-level` selections. It ignores explicit `--agent`/`--fast`, `--model`, `--tools`, `--theme`, and `--model-timeout-seconds` options and lists them in acceptance warnings. Text warnings appear on stderr immediately, including in quiet mode. JSON includes them in the final warnings array.
+- Prefer passing `--session <id>` (returned by the first run of the `run` command) to continue the previous session.
 - Prefer continuing sessions over starting new ones for re-reviews, continuation of work, follow-ups, discussion, and start new ones separate tasks.
 - If you're an agent, you can't control your own session.
 
 Active-run controls:
-  `steer` queues a message for an active run and immediately acknowledges acceptance.
+  `steer` queues a message for an active run.
   `stop` interrupts an active run.
   `wait` waits for an active run to finish.
   `watch` observes the next outcome of an active run.

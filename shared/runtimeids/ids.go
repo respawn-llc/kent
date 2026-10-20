@@ -12,6 +12,11 @@ type uuidv4Value struct {
 	value uuid.UUID
 }
 
+func uuidv4ValueFromProto(raw string) (uuidv4Value, error) {
+	value, err := uuid.Parse(raw)
+	return uuidv4Value{value: value}, err
+}
+
 func parseUUIDv4Value(raw string, field string) (uuidv4Value, error) {
 	trimmed := strings.TrimSpace(raw)
 	if trimmed == "" {

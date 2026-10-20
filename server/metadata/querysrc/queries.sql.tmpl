@@ -1,3 +1,21 @@
+-- name: AccumulateConnectionConsumption :exec
+INSERT INTO connection_consumption (connection_id, hour_start_unix, score)
+VALUES (?, ?, ?)
+ON CONFLICT (connection_id, hour_start_unix) DO UPDATE
+SET score = connection_consumption.score + excluded.score;
+
+-- name: RetainedConnectionConsumption :many
+SELECT connection_id, CAST(SUM(score) AS INTEGER) AS score
+FROM connection_consumption
+WHERE hour_start_unix >= sqlc.arg(cutoff)
+  AND connection_id IN (
+    SELECT value FROM json_each(CAST(sqlc.arg(connection_ids_json) AS TEXT))
+  )
+GROUP BY connection_id;
+
+-- name: ExpireConnectionConsumption :exec
+DELETE FROM connection_consumption WHERE hour_start_unix < ?;
+
 {{define "boardSortOrder"}}{{.}}sort_null_labels ASC,
 {{.}}sort_updated_ascending ASC,
 {{.}}sort_updated_descending DESC,

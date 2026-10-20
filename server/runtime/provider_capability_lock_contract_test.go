@@ -1,7 +1,6 @@
 package runtime
 
 import (
-	"errors"
 	"testing"
 
 	"core/server/llm"
@@ -24,7 +23,7 @@ func TestFastModeAvailabilityUsesCurrentConnectionCapabilityWithOldSessionContra
 		ProviderID: "openai-compatible", SupportsResponsesAPI: true, SupportsFastMode: true,
 	}
 	client := &fakeClient{
-		capsErr: errors.New("transient provider capability failure"),
+		caps: currentCapabilities,
 	}
 	engine, err := New(
 		store,

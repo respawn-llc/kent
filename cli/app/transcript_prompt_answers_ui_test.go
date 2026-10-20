@@ -4,6 +4,7 @@ import (
 	"context"
 	"core/shared/clientui"
 	"core/shared/protoapi"
+	projectpb "core/shared/protoapi/gen/kent/api/project"
 	promptpb "core/shared/protoapi/gen/kent/api/prompt"
 	runtimepb "core/shared/protoapi/gen/kent/api/runtime"
 	transcriptpb "core/shared/protoapi/gen/kent/api/transcript"
@@ -241,15 +242,18 @@ func TestAskCtrlCInterruptsRuntimeWithoutSubmittingPromptCancellation(t *testing
 	}
 }
 
-func TestAskDeliverySetupFailureKeepsQuestionActivity(t *testing.T) {
+func TestAskDeliveryRejectionKeepsQuestionActivity(t *testing.T) {
 	disableTransientStatusClearForTest(t)
 	model, control := newProjectedPromptTestUIModel(t)
 	model = updateUIModel(t, model, askEventMsg{event: model.transcriptPromptEvent(
 		testQuestionPrompt("ask-empty-setup-failure", "Provide details"),
 	)})
 
-	next, _ := model.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	next, command := model.Update(tea.KeyMsg{Type: tea.KeyEnter})
 	model = next.(*uiModel)
+	for _, message := range collectCmdMessages(t, command) {
+		model = updateUIModel(t, model, message)
+	}
 	if model.activity != uiActivityQuestion || testActiveAsk(model) == nil || testPromptAnswerDeliveryActive(model) {
 		t.Fatalf(
 			"setup failure state = activity %d prompt %v delivery %t, want actionable question",
@@ -365,6 +369,7 @@ func TestAskSessionReplacementCancelsDeliveryAndClearsOldPrompt(t *testing.T) {
 	<-control.firstStarted
 
 	model.applyTranscriptSessionIdentity(&transcriptpb.SessionIdentity{SessionId: runtimeids.NewSessionID().String(),
+		Category:              projectpb.SessionCategory_SESSION_CATEGORY_MAIN,
 		ConversationFreshness: runtimepb.ConversationFreshness_CONVERSATION_FRESHNESS_FRESH})
 	if testActiveAsk(model) != nil || testPromptAnswerDeliveryActive(model) {
 		t.Fatal("session replacement retained the old prompt delivery")
@@ -398,6 +403,7 @@ func TestAskSessionReplacementRunsQueuedProjectionBeforeReplacementPrompt(t *tes
 
 	replacementSessionID := runtimeids.NewSessionID()
 	replacementCmd := model.applyTranscriptSessionIdentity(&transcriptpb.SessionIdentity{SessionId: replacementSessionID.String(),
+		Category:              projectpb.SessionCategory_SESSION_CATEGORY_MAIN,
 		ConversationFreshness: runtimepb.ConversationFreshness_CONVERSATION_FRESHNESS_FRESH})
 	if replacementCmd == nil {
 		t.Fatal("session replacement dropped prompt reconciliation projection work")

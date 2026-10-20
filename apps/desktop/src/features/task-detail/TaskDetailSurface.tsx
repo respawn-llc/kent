@@ -20,6 +20,7 @@ import { SpeechDestinationProvider } from "@/shared/speech-input";
 import { TaskSpeechProvider, useTaskDetailSpeech } from "./TaskDetailSpeech";
 import type { TaskDetailDeleteDismissal } from "./taskDetailDismissal";
 import type { TaskDetailSessionChatEntry } from "./taskDetailSessionChat";
+import type { SessionChatOpeningIntent } from "@/app-facade";
 import {
   createTaskDetailViewModel,
   useTaskDetailActions,
@@ -33,6 +34,7 @@ type TaskDetailSurfaceCommonProps = Readonly<{
   initialFocus?: TaskDetailInitialFocus | undefined;
   onMutated?: (() => void) | undefined;
   openSessionChat?: TaskDetailSessionChatEntry | undefined;
+  sessionChatDefaultIntent?: SessionChatOpeningIntent | undefined;
   openSidebar?: SidebarRootController["open"] | undefined;
   retainedState?: unknown;
   sidebarDestination?: Extract<SidebarDestination, { kind: "taskDetail" }> | undefined;
@@ -67,6 +69,7 @@ function TaskDetailDestination({
   onDeleteDismiss,
   onMutated,
   openSessionChat,
+  sessionChatDefaultIntent = "ordinary",
   openSidebar,
   retainedState,
   sidebarDestination,
@@ -148,6 +151,7 @@ function TaskDetailDestination({
             onDeleteDismiss={deleteDismissal}
             onMutated={onMutated}
             openSessionChat={openSessionChat}
+            sessionChatDefaultIntent={sessionChatDefaultIntent}
             openSidebar={openSidebar}
             sidebarDestination={sidebarDestination}
             sidebarMode={sidebarMode}

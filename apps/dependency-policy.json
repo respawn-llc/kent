@@ -15,6 +15,7 @@
         "@app/server-api-contract",
         "@app/ui-kit",
         "@effect/atom-react",
+        "@floating-ui/react",
         "@fontsource-variable/montserrat",
         "@hookform/resolvers",
         "@radix-ui/react-checkbox",
@@ -25,7 +26,6 @@
         "@radix-ui/react-radio-group",
         "@radix-ui/react-slider",
         "@radix-ui/react-switch",
-        "@radix-ui/react-tooltip",
         "@tanstack/react-query",
         "@tanstack/react-router",
         "@tanstack/react-virtual",
@@ -55,9 +55,10 @@
         "zod"
       ],
       "devDependencies": [
+        "@bufbuild/protobuf",
         "@effect/tsgo",
-        "@effect/vitest",
         "@eslint/js",
+        "@happy-dom/global-registrator",
         "@tailwindcss/vite",
         "@tauri-apps/cli",
         "@testing-library/jest-dom",
@@ -67,6 +68,7 @@
         "@types/react",
         "@types/react-dom",
         "@vitejs/plugin-react",
+        "bun-types",
         "eslint",
         "eslint-config-prettier",
         "eslint-import-resolver-typescript",
@@ -75,13 +77,11 @@
         "eslint-plugin-react-hooks",
         "eslint-plugin-react-refresh",
         "eslint-plugin-testing-library",
-        "jsdom",
         "tailwindcss",
         "typescript",
         "typescript-eslint",
         "typescript7",
-        "vite",
-        "vitest"
+        "vite"
       ]
     },
     "@app/native-bridge": {
@@ -95,12 +95,7 @@
         "effect",
         "zod"
       ],
-      "devDependencies": [
-        "@effect/vitest",
-        "typescript",
-        "typescript7",
-        "vitest"
-      ]
+      "devDependencies": ["typescript", "typescript7"]
     },
     "@app/server-api-contract": {
       "dependencies": ["@bufbuild/protobuf", "@bufbuild/protovalidate"],
@@ -114,8 +109,7 @@
         "@types/react",
         "@types/react-dom",
         "typescript",
-        "typescript7",
-        "vitest"
+        "typescript7"
       ]
     }
   }

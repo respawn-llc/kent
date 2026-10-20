@@ -10,16 +10,37 @@ import "kent/api/project/project.proto";
 import "kent/api/shared/foundation.proto";
 import "kent/api/shared/session_selector.proto";
 import "kent/api/shared/validation.proto";
-import "kent/api/session_launch/validation.proto";
 import "kent/api/session_launch/session_launch.proto";
 import "kent/api/worktree/worktree.proto";
 import "kent/api/session_retarget/session_retarget.proto";
 
 option go_package = "core/shared/protoapi/gen/kent/api/session_launch;sessionlaunchpb";
 
+message SessionPromoteRequest {
+  kent.api.shared.SessionSelector session_id = 1 [(buf.validate.field).required = true];
+}
+
+message SessionPromoteError {
+  string code = 1 [(buf.validate.field).string.min_len = 1, (kent.api.shared.kent_result_field).role = RESULT_FIELD_ROLE_ERROR_CODE];
+  oneof detail {
+    kent.api.auth.AuthRequiredDetails auth_required = 2 [(kent.api.shared.kent_result_field) = {role: RESULT_FIELD_ROLE_ERROR_DETAIL error_code: "auth_required"}];
+    kent.api.server.ServerNotReadyDetails server_not_ready = 3 [(kent.api.shared.kent_result_field) = {role: RESULT_FIELD_ROLE_ERROR_DETAIL error_code: "server_not_ready"}];
+    kent.api.shared.InternalFailureDetails internal_failure = 4 [(kent.api.shared.kent_result_field) = {role: RESULT_FIELD_ROLE_ERROR_DETAIL error_code: "internal_failure"}];
+  }
+}
+
+message SessionPromoteResult {
+  oneof outcome {
+    option (buf.validate.oneof).required = true;
+    google.protobuf.Empty success = 1 [(kent.api.shared.kent_result_field).role = RESULT_FIELD_ROLE_SUCCESS];
+    SessionPromoteError error = 2 [(kent.api.shared.kent_result_field).role = RESULT_FIELD_ROLE_ERROR];
+  }
+}
+
 message SessionInitialInputRequest {
   optional string session_id = 1 [
-    (buf.validate.field).string.(scoped_session_id) = true
+    (buf.validate.field).string.uuid = true,
+    (buf.validate.field).string.(kent.api.shared.canonical_uuid_v4) = true
   ];
   string transition_input = 2;
   bool override_stored_draft = 3;
@@ -60,7 +81,8 @@ message SessionInitialInputResult {
 
 message SessionPersistInputDraftRequest {
   string session_id = 1 [
-    (buf.validate.field).string.(scoped_session_id) = true
+    (buf.validate.field).string.uuid = true,
+    (buf.validate.field).string.(kent.api.shared.canonical_uuid_v4) = true
   ];
   string input = 2;
   ProtectedInputDraftUpdate protected_input = 3;
@@ -103,7 +125,7 @@ message SessionPersistInputDraftResult {
 }
 
 message RuntimeStepOrigin {
-  string session_id = 3 [(buf.validate.field).string.(scoped_session_id) = true];
+  string session_id = 3 [(buf.validate.field).string.uuid = true, (buf.validate.field).string.(kent.api.shared.canonical_uuid_v4) = true];
   string step_id = 2 [
     (buf.validate.field).string.uuid = true,
     (buf.validate.field).string.(kent.api.shared.canonical_uuid_v4) = true
@@ -171,9 +193,9 @@ message SessionTransition {
   string initial_prompt = 2;
   bool initial_prompt_history_recorded = 3;
   optional string initial_input = 4;
-  optional string target_session_id = 5 [(buf.validate.field).string.min_len = 1];
+  optional string target_session_id = 5 [(buf.validate.field).string.uuid = true, (buf.validate.field).string.(kent.api.shared.canonical_uuid_v4) = true];
   optional string fork_rollback_target_id = 6 [(buf.validate.field).string.min_len = 1];
-  optional string previous_session_id = 7 [(buf.validate.field).string.min_len = 1];
+  optional string previous_session_id = 7 [(buf.validate.field).string.uuid = true, (buf.validate.field).string.(kent.api.shared.canonical_uuid_v4) = true];
 
   option (buf.validate.message).cel = {
     id: "kent.session_launch.transition_targets"
@@ -185,7 +207,7 @@ message SessionTransition {
 }
 
 message SessionResolveTransitionRequest {
-  optional string session_id = 1 [(buf.validate.field).string.(scoped_session_id) = true];
+  optional string session_id = 1 [(buf.validate.field).string.uuid = true, (buf.validate.field).string.(kent.api.shared.canonical_uuid_v4) = true];
   SessionTransition transition = 2 [(buf.validate.field).required = true];
 }
 
@@ -298,34 +320,7 @@ message SessionResolveTransitionResult {
 
 message SessionRuntimeActivateRequest {
   kent.api.shared.SessionSelector session_id = 1 [(buf.validate.field).required = true];
-  Settings active_settings = 3 [(buf.validate.field).required = true];
-  repeated ToolID enabled_tool_ids = 4 [(buf.validate.field).repeated.items.enum = {
-    defined_only: true
-    not_in: [0]
-  }];
-  optional bool questions_enabled = 5 [(buf.validate.field).required = true];
-  optional bool auto_compaction_enabled = 6 [(buf.validate.field).required = true];
-  bool thinking_override_explicit = 7;
-  SourceReport source = 8 [(buf.validate.field).required = true];
-  optional SessionRuntimeAgentSelection agent_selection = 9;
-  ToolSelection explicit_tool_selection = 10;
-}
-
-message SessionRuntimeAttachment {
-  string session_id = 1 [
-    (buf.validate.field).string.uuid = true,
-    (buf.validate.field).string.(kent.api.shared.canonical_uuid_v4) = true
-  ];
-  uint64 generation = 2 [
-    (buf.validate.field).uint64 = {
-      gte: 1
-      lte: 9007199254740991
-    }
-  ];
-}
-
-message SessionRuntimeActivateSuccess {
-  SessionRuntimeAttachment attachment = 1 [(buf.validate.field).required = true];
+  SessionRuntimePreparationOptions options = 2 [(buf.validate.field).required = true];
 }
 
 message SessionRuntimeActivateError {
@@ -365,79 +360,14 @@ message SessionRuntimeActivateResult {
   oneof outcome {
     option (buf.validate.oneof).required = true;
 
-    SessionRuntimeActivateSuccess success = 1 [(kent.api.shared.kent_result_field).role = RESULT_FIELD_ROLE_SUCCESS];
+    google.protobuf.Empty success = 1 [(kent.api.shared.kent_result_field).role = RESULT_FIELD_ROLE_SUCCESS];
     SessionRuntimeActivateError error = 2 [(kent.api.shared.kent_result_field).role = RESULT_FIELD_ROLE_ERROR];
-  }
-}
-
-enum SessionRuntimeReleaseClosePolicy {
-  SESSION_RUNTIME_RELEASE_CLOSE_POLICY_UNSPECIFIED = 0;
-  SESSION_RUNTIME_RELEASE_CLOSE_POLICY_CLOSE_IF_IDLE = 1;
-  SESSION_RUNTIME_RELEASE_CLOSE_POLICY_DETACH_ONLY = 2;
-}
-
-message SessionRuntimeReleaseRequest {
-  SessionRuntimeAttachment attachment = 1 [(buf.validate.field).required = true];
-  bool drop_owner = 2;
-  optional SessionRuntimeReleaseClosePolicy close_policy = 3 [(buf.validate.field).enum = {
-    defined_only: true
-    not_in: [0]
-  }];
-
-  option (buf.validate.message).cel = {
-    id: "kent.session_launch.detach_only_drops_owner"
-    message: "detach_only release requires drop_owner"
-    expression:
-      "!has(this.close_policy) || this.close_policy != 2 || this.drop_owner"
-  };
-}
-
-message SessionRuntimeReleaseSuccess {
-  bool released = 1;
-  bool active = 2;
-}
-
-message SessionRuntimeReleaseError {
-  string code = 1 [
-    (buf.validate.field).string.min_len = 1,
-    (kent.api.shared.kent_result_field).role = RESULT_FIELD_ROLE_ERROR_CODE
-  ];
-  oneof detail {
-    kent.api.auth.AuthRequiredDetails auth_required = 4 [(kent.api.shared.kent_result_field) = {
-      role: RESULT_FIELD_ROLE_ERROR_DETAIL
-      error_code: "auth_required"
-    }];
-    kent.api.server.ServerNotReadyDetails server_not_ready = 5 [(kent.api.shared.kent_result_field) = {
-      role: RESULT_FIELD_ROLE_ERROR_DETAIL
-      error_code: "server_not_ready"
-    }];
-    SessionRuntimeUnavailableDetails runtime_unavailable = 2 [
-      (kent.api.shared.kent_result_field) = {
-        role: RESULT_FIELD_ROLE_ERROR_DETAIL
-        error_code: "runtime_unavailable"
-      }
-    ];
-    kent.api.shared.InternalFailureDetails internal_failure = 3 [
-      (kent.api.shared.kent_result_field) = {
-        role: RESULT_FIELD_ROLE_ERROR_DETAIL
-        error_code: "internal_failure"
-      }
-    ];
-  }
-}
-
-message SessionRuntimeReleaseResult {
-  oneof outcome {
-    option (buf.validate.oneof).required = true;
-
-    SessionRuntimeReleaseSuccess success = 1 [(kent.api.shared.kent_result_field).role = RESULT_FIELD_ROLE_SUCCESS];
-    SessionRuntimeReleaseError error = 2 [(kent.api.shared.kent_result_field).role = RESULT_FIELD_ROLE_ERROR];
   }
 }
 
 message SessionArchiveRequest {
   kent.api.shared.SessionSelector session_id = 1 [(buf.validate.field).required = true];
-  optional string caller_session_id = 3 [(buf.validate.field).string.(scoped_session_id) = true];
+  optional string caller_session_id = 3 [(buf.validate.field).string.uuid = true, (buf.validate.field).string.(kent.api.shared.canonical_uuid_v4) = true];
   string output_path = 2 [
     (buf.validate.field).string.min_len = 1,
     (buf.validate.field).cel = {
@@ -450,24 +380,24 @@ message SessionArchiveRequest {
 
 message SessionDeleteRequest {
   kent.api.shared.SessionSelector session_id = 1 [(buf.validate.field).required = true];
-  optional string caller_session_id = 2 [(buf.validate.field).string.(scoped_session_id) = true];
+  optional string caller_session_id = 2 [(buf.validate.field).string.uuid = true, (buf.validate.field).string.(kent.api.shared.canonical_uuid_v4) = true];
 }
 
 message SessionArchiveSuccess {
-  string session_id = 1 [(buf.validate.field).string.(scoped_session_id) = true];
+  string session_id = 1 [(buf.validate.field).string.uuid = true, (buf.validate.field).string.(kent.api.shared.canonical_uuid_v4) = true];
   string output_path = 2 [(buf.validate.field).string.min_len = 1];
 }
 
 message SessionDeleteSuccess {
-  string session_id = 1 [(buf.validate.field).string.(scoped_session_id) = true];
+  string session_id = 1 [(buf.validate.field).string.uuid = true, (buf.validate.field).string.(kent.api.shared.canonical_uuid_v4) = true];
 }
 
 message SessionNotFoundDetails {
-  optional string session_id = 1 [(buf.validate.field).string.(scoped_session_id) = true];
+  optional string session_id = 1 [(buf.validate.field).string.uuid = true, (buf.validate.field).string.(kent.api.shared.canonical_uuid_v4) = true];
 }
 
 message SessionInUseDetails {
-  string session_id = 1 [(buf.validate.field).string.(scoped_session_id) = true];
+  string session_id = 1 [(buf.validate.field).string.uuid = true, (buf.validate.field).string.(kent.api.shared.canonical_uuid_v4) = true];
   optional int64 short_id = 2 [(buf.validate.field).int64 = {gt: 0 lte: 9007199254740991}];
 }
 
@@ -582,6 +512,15 @@ message SessionDeleteResult {
 }
 
 service SessionLifecycleService {
+  rpc Promote(SessionPromoteRequest) returns (SessionPromoteResult) {
+    option (kent.api.shared.kent_method) = {
+      kind: OPERATION_KIND_UNARY
+      authentication_stage: AUTHENTICATION_STAGE_SERVER
+      scope_policy: SCOPE_POLICY_SESSION_ATTACHED_PROJECT
+      direction: DIRECTION_CLIENT_TO_SERVER
+      unary_connection: UNARY_CONNECTION_MULTIPLEXED
+    };
+  }
   rpc GetInitialInput(SessionInitialInputRequest) returns (SessionInitialInputResult) {
     option (kent.api.shared.kent_method) = {
       kind: OPERATION_KIND_UNARY
@@ -654,13 +593,4 @@ service SessionRuntimeService {
     };
   }
 
-  rpc Release(SessionRuntimeReleaseRequest) returns (SessionRuntimeReleaseResult) {
-    option (kent.api.shared.kent_method) = {
-      kind: OPERATION_KIND_UNARY
-      authentication_stage: AUTHENTICATION_STAGE_SERVER
-      scope_policy: SCOPE_POLICY_NONE
-      direction: DIRECTION_CLIENT_TO_SERVER
-      unary_connection: UNARY_CONNECTION_MULTIPLEXED
-    };
-  }
 }

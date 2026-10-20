@@ -6,6 +6,7 @@ import (
 	"testing"
 
 	"core/shared/config"
+	"core/shared/protoapi"
 	capabilitypb "core/shared/protoapi/gen/kent/api/capability"
 	"core/shared/theme"
 	"core/shared/toolspec"
@@ -112,32 +113,11 @@ func TestNewOnboardingFlowStatePreservesExplicitReviewerThinkingDisable(t *testi
 	}
 }
 
-func TestNewOnboardingFlowStateRejectsMalformedStructuralInputsInBothModes(t *testing.T) {
-	for _, debug := range []bool{false, true} {
-		t.Run(map[bool]string{false: "release", true: "debug"}[debug], func(t *testing.T) {
-			facts := testOnboardingCapabilityFacts()
-			facts.Defaults.PrimaryModelId = " "
-			_, err := newOnboardingFlowState(config.LocalPreferences{Theme: theme.Dark, Debug: debug}, facts)
-			var conversionErr *onboardingSelectionConversionError
-			if !errors.As(err, &conversionErr) {
-				t.Fatalf("error = %T %v, want typed conversion error", err, err)
-			}
-		})
-	}
-}
-
-func TestNewOnboardingFlowStateRejectsMalformedCapabilityFacts(t *testing.T) {
+func TestCapabilityBoundaryRejectsMalformedImportChoices(t *testing.T) {
 	tests := []struct {
 		name   string
 		mutate func(*config.App, *capabilitypb.Facts)
 	}{
-		{
-			name: "non-positive model fact",
-			mutate: func(_ *config.App, facts *capabilitypb.Facts) {
-				zero := uint32(0)
-				facts.Models.KnownModels[0].ContextWindowTokens = &zero
-			},
-		},
 		{
 			name: "malformed import choice",
 			mutate: func(_ *config.App, facts *capabilitypb.Facts) {
@@ -160,10 +140,8 @@ func TestNewOnboardingFlowStateRejectsMalformedCapabilityFacts(t *testing.T) {
 			cfg := onboardingSeedConfig()
 			facts := testOnboardingCapabilityFacts()
 			tt.mutate(&cfg, facts)
-			_, err := testOnboardingStateFromServerConfig(t, cfg, facts)
-			var conversionErr *onboardingSelectionConversionError
-			if !errors.As(err, &conversionErr) {
-				t.Fatalf("error = %T %v, want typed conversion error", err, err)
+			if err := protoapi.Validate(facts); err == nil {
+				t.Fatal("malformed import choice accepted at generated boundary")
 			}
 		})
 	}

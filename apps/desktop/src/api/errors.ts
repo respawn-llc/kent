@@ -221,8 +221,8 @@ export class WorkflowTaskDependencyError extends RpcError {
 }
 
 export class TransportError extends Error {
-  constructor(message: string) {
-    super(message);
+  constructor(message: string, options?: ErrorOptions) {
+    super(message, options);
     this.name = "TransportError";
   }
 }
@@ -240,10 +240,11 @@ export class ContractError extends Error {
     message: string,
     diagnostics: readonly ContractIssueDiagnostic[] = [],
     totalDiagnosticCount = diagnostics.length,
+    options?: ErrorOptions,
   ) {
     const retainedDiagnostics = diagnostics.slice(0, 8);
     const completeDiagnosticCount = Math.max(totalDiagnosticCount, diagnostics.length);
-    super(contractErrorMessage(message, retainedDiagnostics, completeDiagnosticCount));
+    super(contractErrorMessage(message, retainedDiagnostics, completeDiagnosticCount), options);
     this.name = "ContractError";
     this.diagnostics = retainedDiagnostics;
     this.totalDiagnosticCount = completeDiagnosticCount;

@@ -8,7 +8,7 @@ import {
   ControlService,
   ListSuccessSchema,
   ViewService,
-  type BackgroundProcess,
+  type BackgroundProcessValid,
 } from "@app/server-api-contract/gen/kent/api/process/process_pb";
 
 import { timestampMillis } from "./clientTime";
@@ -30,8 +30,8 @@ export function observeProcesses(
             const method = ViewService.method.observe;
             return transport.subscribeDescriptor({
               method,
-              request: create(method.input, { projectId: target.projectID, sessionId: target.sessionID }),
-              attachment: target,
+              request: create(method.input, { sessionId: target.sessionID }),
+              attachment: { sessionID: target.sessionID },
               eventDescriptor: ListSuccessSchema,
               completionDescriptor: StreamCompletionSchema,
               onStart: (result) => {
@@ -80,10 +80,7 @@ export async function killProcess(transport: RpcTransport, processID: string): P
   requireUnarySuccess(method, await transport.callDescriptor(method, request));
 }
 
-function processFromGenerated(process: BackgroundProcess): DesktopProcess {
-  if (process.startedAt === undefined) {
-    throw new Error("Process start time is required.");
-  }
+function processFromGenerated(process: BackgroundProcessValid): DesktopProcess {
   return {
     id: process.id,
     state: process.state,

@@ -3,7 +3,6 @@ package chatmutation
 import (
 	"context"
 	"errors"
-	"fmt"
 
 	"core/server/launch"
 	"core/server/metadata"
@@ -37,9 +36,10 @@ type TargetResolutionRequest struct {
 }
 
 type ResolvedTarget struct {
-	SessionID runtimeids.SessionID
-	ShortID   *runtimeids.SessionShortID
-	Created   bool
+	SessionID   runtimeids.SessionID
+	ShortID     *runtimeids.SessionShortID
+	Created     bool
+	Preparation *serverapi.SessionRuntimePreparationOptions
 }
 
 type TargetResolver struct {
@@ -101,7 +101,10 @@ func (r *TargetResolver) SelectPlacement(ctx context.Context, target ResolvedTar
 	if err != nil {
 		return target, err
 	}
-	return ResolvedTarget{SessionID: planned.Plan.Descriptor.SessionID(), ShortID: planned.Identity.ShortID, Created: true}, nil
+	return ResolvedTarget{
+		SessionID: planned.Plan.Descriptor.SessionID(), ShortID: planned.Identity.ShortID, Created: true,
+		Preparation: target.Preparation,
+	}, nil
 }
 
 func (r *TargetResolver) Resolve(
@@ -114,9 +117,6 @@ func (r *TargetResolver) Resolve(
 			err = serverapi.WithSessionTarget(captured, err)
 		}
 	}()
-	if err := protoapi.Validate(request.Target); err != nil {
-		return ResolvedTarget{}, fmt.Errorf("Chat target: %w", err)
-	}
 	if r == nil {
 		return ResolvedTarget{}, errors.New("Chat target resolver is required")
 	}
@@ -135,7 +135,15 @@ func (r *TargetResolver) Resolve(
 		if err != nil {
 			return ResolvedTarget{}, err
 		}
-		return ResolvedTarget{SessionID: sessionID, ShortID: record.ShortID}, nil
+		target := ResolvedTarget{SessionID: sessionID, ShortID: record.ShortID}
+		if sessionTarget.Preparation != nil {
+			options, err := protoapi.SessionRuntimePreparationFromProto(sessionTarget.Preparation)
+			if err != nil {
+				return target, err
+			}
+			target.Preparation = &options
+		}
+		return target, nil
 	}
 	newChat := request.Target.GetNewChat()
 	if newChat == nil {
@@ -170,14 +178,8 @@ func (r *TargetResolver) Resolve(
 	if response == nil || response.Plan == nil {
 		return ResolvedTarget{}, errors.New("ordinary Session creation result is required")
 	}
-	sessionID, err := runtimeids.ParseSessionID(response.Plan.SessionId)
-	if err != nil {
-		return ResolvedTarget{}, fmt.Errorf("ordinary Session creation result: %w", err)
-	}
+	sessionID := runtimeids.SessionIDFromProto(response.Plan.SessionId)
 	captured = serverapi.CanonicalSessionTarget{ID: sessionID}
-	shortID, err := protoapi.SessionShortIDFromProto(response.Plan.ShortId)
-	if err != nil {
-		return ResolvedTarget{}, err
-	}
+	shortID := protoapi.SessionShortIDFromProto(response.Plan.ShortId)
 	return ResolvedTarget{SessionID: sessionID, ShortID: shortID, Created: true}, nil
 }

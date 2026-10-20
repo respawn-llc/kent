@@ -54,6 +54,7 @@ type authorityRuntimeEntry struct {
 	engine      *runtime.Engine
 	sessionFeed *sessionFeedSequencer
 	mainView    atomic.Pointer[runtimepb.MainView]
+	observe     sessionruntime.AgentResourceObserver
 
 	publicationMu sync.Mutex
 	mu            sync.Mutex
@@ -82,7 +83,7 @@ func (r *RuntimeRegistry) ResourceReady(
 	_ context.Context,
 	resource sessionruntime.AgentResourceDescriptor,
 	engine *runtime.Engine,
-	retain sessionruntime.AgentResourceRetainer,
+	observe sessionruntime.AgentResourceObserver,
 ) error {
 	if r == nil {
 		return errors.New("runtime registry is required")
@@ -94,14 +95,15 @@ func (r *RuntimeRegistry) ResourceReady(
 	if engine == nil {
 		return errors.New("authority runtime engine is required")
 	}
-	if retain == nil {
-		return errors.New("authority runtime retainer is required")
+	if observe == nil {
+		return errors.New("authority runtime observation registration is required")
 	}
 	sessionID := ref.SessionID().String()
 	entry := &authorityRuntimeEntry{
 		ref:         ref,
 		engine:      engine,
 		sessionFeed: newSessionFeedSequencer(newTranscriptSubscriptionBroker()),
+		observe:     observe,
 	}
 	r.authorityMu.Lock()
 	if existing := r.authorityEntryBySession(sessionID); existing != nil {
@@ -522,9 +524,6 @@ func (r *RuntimeRegistry) PublishSessionSettingFeedback(
 	if r == nil {
 		return nil
 	}
-	if err := protoapi.Validate(feedback); err != nil {
-		return err
-	}
 	id := strings.TrimSpace(sessionID)
 	entry := r.authorityEntryBySession(id)
 	if entry == nil {
@@ -607,9 +606,6 @@ func (r *RuntimeRegistry) PublishRuntimeReadModelUpdate(sessionID string, update
 	if entry == nil {
 		return
 	}
-	if err := protoapi.Validate(update); err != nil {
-		panic(fmt.Sprintf("publish invalid canonical runtime read-model update: %+v: %v", update, err))
-	}
 	entry.publicationMu.Lock()
 	defer entry.publicationMu.Unlock()
 	current := entry.mainView.Load()
@@ -629,7 +625,7 @@ func (r *RuntimeRegistry) PublishWorktreeTransitionOutcome(sessionID string, out
 	if r == nil {
 		return
 	}
-	if err := outcome.Validate(); err != nil {
+	if err := outcome.ValidateSourceDiagnostic(); err != nil {
 		panic(fmt.Sprintf("publish invalid worktree transition outcome for session %q: %v", strings.TrimSpace(sessionID), err))
 	}
 	entry := r.authorityEntryBySession(sessionID)
@@ -693,9 +689,6 @@ func (r *RuntimeRegistry) SubscribeSessionTranscript(ctx context.Context, req *t
 	if r == nil {
 		return nil, fmt.Errorf("runtime registry is required")
 	}
-	if err := protoapi.Validate(req); err != nil {
-		return nil, err
-	}
 	if ctx == nil {
 		ctx = context.Background()
 	}
@@ -724,8 +717,20 @@ func (r *RuntimeRegistry) subscribeAuthorityTranscript(ctx context.Context, id s
 	if !entry.transcriptAttachable() {
 		return nil, fmt.Errorf("authority runtime subscription is not ready: %w", serverapi.ErrStreamUnavailable)
 	}
+	observation, err := entry.observe()
+	if errors.Is(err, serverapi.ErrRuntimeUnavailable) {
+		return nil, serverapi.ErrStreamUnavailable
+	}
+	if err != nil {
+		return nil, err
+	}
+	release := func() {
+		if err := observation.Close(); err != nil {
+			log.Printf("stop watching Session %q: %v", id, err)
+		}
+	}
 	var sub *transcriptSubscription
-	err := entry.engine.WithTranscriptHydrationSnapshot(func(snapshot runtime.TranscriptHydrationSnapshot) error {
+	err = entry.engine.WithTranscriptHydrationSnapshot(func(snapshot runtime.TranscriptHydrationSnapshot) error {
 		tailPage, pageErr := entry.engine.TranscriptNewestSegmentPage()
 		if pageErr != nil {
 			return fmt.Errorf("read transcript hydration tail segment: %w", pageErr)
@@ -737,11 +742,13 @@ func (r *RuntimeRegistry) subscribeAuthorityTranscript(ctx context.Context, id s
 		return subscribeErr
 	})
 	if err != nil {
+		release()
 		if !entry.transcriptAttachable() {
 			return nil, fmt.Errorf("authority runtime subscription became unavailable: %w", serverapi.ErrStreamUnavailable)
 		}
 		return nil, err
 	}
+	sub.bindObservation(ctx, release)
 	return sub, nil
 }
 

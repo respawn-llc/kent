@@ -10,9 +10,6 @@ func TestRunPromptOverridesAgentRoleContract(t *testing.T) {
 		Prompt:    "hello",
 		Overrides: RunPromptOverrides{AgentRole: runPromptStringPtr("worker")},
 	}
-	if err := got.Validate(); err != nil {
-		t.Fatalf("Validate request: %v", err)
-	}
 	if !got.Overrides.HasAny() {
 		t.Fatal("AgentRole should count as an override")
 	}

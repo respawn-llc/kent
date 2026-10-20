@@ -14,15 +14,19 @@ func (m *uiModel) reduceRuntimeMessage(msg tea.Msg) uiFeatureUpdateResult {
 	case runtimeConnectionStateChangedMsg:
 		m.observeRuntimeRequestResult(msg.err)
 		m.layout().syncViewport()
-		return handledUIFeatureUpdate(m, waitRuntimeConnectionStateChange(m.runtimeConnectionEvents))
-	case runtimeReconnectWarningMsg:
-		cmd := m.sendTransientStatusWithNoticeID(msg.text, uiStatusNoticeWarning, transientStatusDuration, uiStatusNoticeReplace, "")
-		m.layout().syncViewport()
-		return handledUIFeatureUpdate(m, m.batchWithNativeOngoingRepaint(sequenceCmds(cmd, waitRuntimeReconnectWarning(m.runtimeReconnectWarning))))
+		return handledUIFeatureUpdate(m, m.batchWithNativeOngoingRepaint(waitRuntimeConnectionStateChange(m.runtimeConnectionEvents)))
 	case runtimeMainViewRefreshedMsg:
 		cmd := m.handleRuntimeMainViewRefreshed(msg)
 		m.layout().syncViewport()
-		return handledUIFeatureUpdate(m, cmd)
+		return handledUIFeatureUpdate(m, m.batchWithNativeOngoingRepaint(cmd))
+	case runtimeMainViewRetryMsg:
+		if msg.token != m.runtimeMainViewToken || !m.runtimeDisconnectStatusVisible() {
+			return handledUIFeatureUpdate(m, nil)
+		}
+		if cmd := m.drainPendingRuntimeMainViewRefresh(); cmd != nil {
+			return handledUIFeatureUpdate(m, cmd)
+		}
+		return handledUIFeatureUpdate(m, m.startRuntimeMainViewRefresh(nil))
 	case detailTranscriptLoadMsg:
 		cmd := m.handleDetailTranscriptLoad(msg)
 		m.layout().syncViewport()
@@ -50,7 +54,7 @@ func (m *uiModel) reduceRuntimeMessage(msg tea.Msg) uiFeatureUpdateResult {
 }
 
 func (m *uiModel) handleDetailTranscriptLoad(msg detailTranscriptLoadMsg) tea.Cmd {
-	pending, ok := m.takePendingDetailTranscriptRequest(msg.requestID)
+	pending, ok := m.takePendingDetailTranscriptRequest(msg.pending)
 	if !ok {
 		return nil
 	}
@@ -61,7 +65,7 @@ func (m *uiModel) handleDetailTranscriptLoad(msg detailTranscriptLoadMsg) tea.Cm
 		m.rollbackDetailPageLoadFailed(pending.request)
 		return m.sendTransientStatusWithNoticeID(msg.err.Error(), uiStatusNoticeError, transientStatusDuration, uiStatusNoticeReplace, "")
 	}
-	clearLoadingCmd := m.clearDetailTranscriptLoadingNotice(msg.requestID)
+	clearLoadingCmd := m.clearDetailTranscriptLoadingNotice(msg.pending)
 	if m.rollbackNavigationDeadlineExceeded(pending.request) {
 		m.rollback.pendingNavigation = nil
 		return m.sendTransientStatusWithNoticeID(

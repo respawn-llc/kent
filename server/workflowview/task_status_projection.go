@@ -149,9 +149,6 @@ func (p *TaskStatusProjection) Project(
 	if queries == nil {
 		return nil, errors.New("workflow queries are required")
 	}
-	if !json.Valid([]byte(observation.LiveTaskStatesJSON)) {
-		return nil, errors.New("task status observation live task states are malformed")
-	}
 	encodedTaskIDs, err := encodeTaskIDs(taskIDs)
 	if err != nil {
 		return nil, err

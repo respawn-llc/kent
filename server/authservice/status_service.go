@@ -37,17 +37,11 @@ func NewStatusService(connections *ConnectionResolver, sessions session.Persiste
 }
 
 func (s *StatusService) GetStatus(ctx context.Context, req *authpb.GetStatusRequest) (*authpb.Status, error) {
-	if req == nil {
-		return nil, errors.New("connection status request is required")
-	}
 	var target *string
 	if req.Provider != nil {
 		target = &req.Provider.ConnectionId
 	}
 	if req.SessionId != nil {
-		if req.Provider != nil {
-			return nil, errors.New("connection status cannot select both a Provider Connection and a Session")
-		}
 		record, err := session.ResolvePersistedSessionRecord(ctx, s.sessions, *req.SessionId)
 		if err != nil {
 			return unavailableStatus(err), nil

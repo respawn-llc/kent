@@ -17,8 +17,6 @@ import (
 	"google.golang.org/protobuf/types/known/durationpb"
 )
 
-const subagentSessionSuffix = "subagent"
-
 type RunPromptResult struct {
 	Identity          *runtimeids.SessionIdentity
 	SessionName       *string
@@ -82,10 +80,7 @@ func runPrompt(ctx context.Context, client apicontract.RunPromptService, opts Op
 		return RunPromptResult{}, err
 	}
 	warnings, warningErr := runPromptWarnings(response)
-	identity, identityErr := protoapi.SessionIdentityFromProto(response.SessionId, response.ShortId)
-	if identityErr != nil {
-		return RunPromptResult{}, errors.Join(err, identityErr)
-	}
+	identity := protoapi.SessionIdentityFromProto(response.SessionId, response.ShortId)
 	if err != nil && response.GetOutcome() == nil {
 		return RunPromptResult{
 			Identity:    &identity,

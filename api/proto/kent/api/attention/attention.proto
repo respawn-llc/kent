@@ -86,7 +86,7 @@ message Notification {
     gte: 1
     lte: 9007199254740991
   }];
-  string session_id = 5 [(buf.validate.field).string.min_len = 1];
+  string session_id = 5 [(buf.validate.field).string.uuid = true, (buf.validate.field).string.(kent.api.shared.canonical_uuid_v4) = true];
   oneof state {
     option (buf.validate.oneof).required = true;
     QuestionState question = 6;
@@ -110,6 +110,13 @@ message Resolved {
   ];
 }
 
+message SessionNamingFailure {
+  string project_id = 1 [(buf.validate.field).string.(kent.api.shared.nonblank) = true];
+  string session_id = 2 [(buf.validate.field).string.(kent.api.shared.nonblank) = true];
+  kent.api.shared.InternalFailureDetails error = 3 [(buf.validate.field).required = true];
+  optional int64 short_id = 4 [(buf.validate.field).int64 = {gt: 0 lte: 9007199254740991}];
+}
+
 message NotificationEvent {
   uint64 sequence = 1 [(buf.validate.field).uint64 = {
     gte: 1
@@ -119,17 +126,14 @@ message NotificationEvent {
     option (buf.validate.oneof).required = true;
     Notification pending = 2;
     Resolved resolved = 3;
+    SessionNamingFailure session_naming_failure = 4;
   }
 }
 
 message SubscribeRequest {
   string session_id = 1 [
-    (buf.validate.field).string.min_len = 1,
-    (buf.validate.field).cel = {
-      id: "kent.attention.subscribe_session_id_nonblank"
-      message: "session ID must be non-blank"
-      expression: "this.trim() != ''"
-    }
+    (buf.validate.field).string.uuid = true,
+    (buf.validate.field).string.(kent.api.shared.canonical_uuid_v4) = true
   ];
 }
 

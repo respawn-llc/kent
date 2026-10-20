@@ -1,6 +1,7 @@
 export { RecordingControl, type RecordingControlProps } from "./RecordingControl";
 export { fieldActions } from "./fieldActions";
 export { ControlTooltip } from "./ControlTooltip";
+export { SharedTextMotion } from "./SharedTextMotion";
 export { Badge } from "./Badge";
 export { PromptOptionRow } from "./PromptOptionRow";
 export { PromptAccessTargets } from "./PromptAccessTargets";
@@ -122,6 +123,7 @@ export {
 } from "./radix/dropdown-menu";
 export { Toaster } from "./Sonner";
 export { Popover, PopoverClose, PopoverContent, PopoverTrigger } from "./radix/popover";
+export { HoverPopover } from "./HoverPopover";
 export { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "./radix/tooltip";
 export { dismissStatusToast, showStatusToast } from "./statusToast";
 export {

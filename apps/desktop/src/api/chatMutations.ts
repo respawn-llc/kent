@@ -1,6 +1,7 @@
 import { create } from "@app/server-api-contract";
 import {
   ChatService,
+  InputAdmissionDisposition,
   type AcceptedDiagnostic,
   type CompactionNotAccepted,
   type InputNotAccepted,
@@ -13,7 +14,7 @@ import {
   PendingWorkLane,
   PendingWorkWorktreeTransitionKind,
   TurnService,
-  type PendingWork as WirePendingWork,
+  type PendingWorkValid as WirePendingWork,
 } from "@app/server-api-contract/gen/kent/api/runtime/runtime_pb";
 import {
   SessionLifecycleService,
@@ -23,15 +24,14 @@ import {
 import { requireProjectAttachment } from "./chatAttachment";
 import { requireChatSuccess } from "./chatErrors";
 import { initialChatSettingsToWire } from "./chatSettings";
-import { nonBlank } from "./chatSchemas";
-import { isValidChatSessionID, requireChatProjectTarget, requireChatSessionID } from "./chatTarget";
+import { required } from "./chatWire";
 import type { ChatActivation, ChatApi, ChatMutationTarget } from "./chatTypes";
 import { ContractError } from "./errors";
 import {
-  parseCompactionRequestID,
-  parsePendingWorkItemID,
-  pendingWorkRestorationSchema,
-  pendingWorkSchema,
+  pendingWorkItemIDFromProto,
+  worktreeOperationIDFromProto,
+  type PendingWork,
+  type PendingWorkItemID,
 } from "./pendingWork";
 import type { RpcTransport } from "./transport";
 
@@ -45,6 +45,7 @@ export function createChatMutationApi(transport: RpcTransport): ChatMutationApi 
     method: typeof ChatService.method.steer | typeof ChatService.method.queue,
     target: ChatMutationTarget,
     activation: ChatActivation,
+    queueItemID: PendingWorkItemID,
   ) => {
     const result =
       target.kind === "session"
@@ -55,10 +56,11 @@ export function createChatMutationApi(transport: RpcTransport): ChatMutationApi 
               target: {
                 target: {
                   case: "session",
-                  value: { sessionId: { value: { case: "sessionId", value: requireChatSessionID(target) } } },
+                  value: { sessionId: { value: { case: "sessionId", value: target.sessionID } } },
                 },
               },
               activation: chatActivation(activation),
+              queueItemId: queueItemID.toJSONValue(),
             }),
           )
         : await transport
@@ -70,6 +72,7 @@ export function createChatMutationApi(transport: RpcTransport): ChatMutationApi 
                 create(method.input, {
                   target: mutationTarget(target, attachment.workspaceID),
                   activation: chatActivation(activation),
+                  queueItemId: queueItemID.toJSONValue(),
                 }),
             })
             .then((call) => {
@@ -79,7 +82,7 @@ export function createChatMutationApi(transport: RpcTransport): ChatMutationApi 
     const success = requireChatSuccess(method, result);
     const returnedSessionID = mutationSessionID(
       target.kind === "session" && activation.kind === "text" ? target.sessionID : null,
-      success.session?.sessionId,
+      success.session.sessionId,
       "Chat mutation",
     );
     if (success.outcome.case === "notAccepted") {
@@ -91,22 +94,29 @@ export function createChatMutationApi(transport: RpcTransport): ChatMutationApi 
         },
       };
     }
-    if (success.outcome.case !== "accepted" || success.outcome.value.queueItem === undefined) {
+    if (success.outcome.case !== "accepted") {
       throw new ContractError("Chat mutation response did not match the GUI contract.");
+    }
+    const acceptedID = pendingWorkItemIDFromProto(success.outcome.value.queueItem.id);
+    if (acceptedID.toJSONValue() !== queueItemID.toJSONValue()) {
+      throw new ContractError("Chat mutation accepted a different input identity.");
     }
     return {
       sessionID: returnedSessionID,
       outcome: {
         kind: "accepted" as const,
-        queueItemID: parsePendingWorkItemID(success.outcome.value.queueItem.id),
+        queueItemID: acceptedID,
+        disposition: inputAdmissionDisposition(success.outcome.value.disposition),
         diagnostic: acceptedDiagnostic(success.outcome.value.diagnostic),
       },
     };
   };
 
   return {
-    steer: async (target, activation) => mutateInput(ChatService.method.steer, target, activation),
-    queue: async (target, activation) => mutateInput(ChatService.method.queue, target, activation),
+    steer: async (target, activation, queueItemID) =>
+      mutateInput(ChatService.method.steer, target, activation, queueItemID),
+    queue: async (target, activation, queueItemID) =>
+      mutateInput(ChatService.method.queue, target, activation, queueItemID),
     async compact(target, invocation) {
       const method = ChatService.method.compact;
       const result =
@@ -119,7 +129,7 @@ export function createChatMutationApi(transport: RpcTransport): ChatMutationApi 
                   target: {
                     case: "session",
                     value: {
-                      sessionId: { value: { case: "sessionId", value: requireChatSessionID(target) } },
+                      sessionId: { value: { case: "sessionId", value: target.sessionID } },
                     },
                   },
                 },
@@ -144,7 +154,7 @@ export function createChatMutationApi(transport: RpcTransport): ChatMutationApi 
       const success = requireChatSuccess(method, result);
       const returnedSessionID = mutationSessionID(
         target.kind === "session" ? target.sessionID : null,
-        success.session?.sessionId,
+        success.session.sessionId,
         "Chat compaction",
       );
       if (success.outcome.case === "notAccepted") {
@@ -156,20 +166,19 @@ export function createChatMutationApi(transport: RpcTransport): ChatMutationApi 
           },
         };
       }
-      if (success.outcome.case !== "accepted" || success.outcome.value.request === undefined) {
+      if (success.outcome.case !== "accepted") {
         throw new ContractError("Chat compaction response did not match the GUI contract.");
       }
       return {
         sessionID: returnedSessionID,
         outcome: {
           kind: "accepted",
-          requestID: parseCompactionRequestID(success.outcome.value.request.id),
           diagnostic: acceptedDiagnostic(success.outcome.value.diagnostic),
         },
       };
     },
     async stop(target) {
-      const requestedSessionID = requireChatSessionID(target);
+      const requestedSessionID = target.sessionID;
       const method = LiveService.method.stop;
       const result = await transport.callDescriptorAttachedSession(
         target,
@@ -187,10 +196,7 @@ export function createChatMutationApi(transport: RpcTransport): ChatMutationApi 
       }
     },
     async forkEdit(target, input) {
-      const requestedSessionID = requireChatSessionID(target);
-      if (!nonBlank.safeParse(input.rollbackTargetID).success) {
-        throw new TypeError("Rollback target ID is required.");
-      }
+      const requestedSessionID = target.sessionID;
       const method = SessionLifecycleService.method.resolveTransition;
       const result = await transport.callDescriptorAttachedSession(
         target,
@@ -207,15 +213,14 @@ export function createChatMutationApi(transport: RpcTransport): ChatMutationApi 
       const directive = requireChatSuccess(method, result);
       if (
         directive.directive.case !== "launch" ||
-        directive.directive.value.intent?.intent.case !== "openExistingSessionId" ||
-        !nonBlank.safeParse(directive.directive.value.intent.intent.value).success
+        directive.directive.value.intent.intent.case !== "openExistingSessionId"
       ) {
         throw new ContractError("Session Edit response did not identify the child Session.");
       }
       return directive.directive.value.intent.intent.value;
     },
     async listPendingWork(target) {
-      const requestedSessionID = requireChatSessionID(target);
+      const requestedSessionID = target.sessionID;
       const method = TurnService.method.listPendingWork;
       const result = await transport.callDescriptorAttachedSession(
         target,
@@ -223,13 +228,10 @@ export function createChatMutationApi(transport: RpcTransport): ChatMutationApi 
         create(method.input, { sessionId: requestedSessionID }),
       );
       const success = requireChatSuccess(method, result);
-      if (success.pendingWork === undefined) {
-        throw new ContractError("Pending Work list response omitted its collection.");
-      }
       return pendingWorkFromWire(success.pendingWork);
     },
     async removePendingWork(target, itemID) {
-      const requestedSessionID = requireChatSessionID(target);
+      const requestedSessionID = target.sessionID;
       const method = TurnService.method.removePendingWork;
       const result = await transport.callDescriptorAttachedSession(
         target,
@@ -240,15 +242,26 @@ export function createChatMutationApi(transport: RpcTransport): ChatMutationApi 
         }),
       );
       const success = requireChatSuccess(method, result);
-      if (success.restoration === undefined) {
-        throw new ContractError("Pending Work removal response omitted its restoration.");
-      }
-      return pendingWorkRestorationSchema.parse({
+      return {
         kind: pendingWorkKind(success.restoration.kind),
-        canonical_input: success.restoration.canonicalInput,
-      });
+        canonicalInput: success.restoration.canonicalInput,
+      };
     },
   };
+}
+
+function inputAdmissionDisposition(value: InputAdmissionDisposition) {
+  switch (value) {
+    case InputAdmissionDisposition.STARTED_TURN:
+      return "started_turn" as const;
+    case InputAdmissionDisposition.PENDING_STEER:
+      return "pending_steer" as const;
+    case InputAdmissionDisposition.PENDING_QUEUE:
+      return "pending_queue" as const;
+    case InputAdmissionDisposition.UNSPECIFIED:
+    default:
+      throw new ContractError("Chat mutation admission disposition is invalid.");
+  }
 }
 
 function mutationTarget(
@@ -264,7 +277,6 @@ function mutationTarget(
     };
   };
 } {
-  requireChatProjectTarget(target);
   return {
     target: {
       case: "newChat",
@@ -279,14 +291,10 @@ function mutationTarget(
 
 function mutationSessionID(
   expectedSessionID: string | null,
-  returnedSessionID: string | undefined,
+  returnedSessionID: string,
   operation: string,
 ): string {
-  if (
-    returnedSessionID === undefined ||
-    !isValidChatSessionID(returnedSessionID) ||
-    (expectedSessionID !== null && returnedSessionID !== expectedSessionID)
-  ) {
+  if (expectedSessionID !== null && returnedSessionID !== expectedSessionID) {
     throw new ContractError(`${operation} response Session does not match the request.`);
   }
   return returnedSessionID;
@@ -378,38 +386,46 @@ function compactionNotAccepted(reason: CompactionNotAccepted["reason"]) {
   }
 }
 
-function pendingWorkFromWire(input: WirePendingWork) {
-  return pendingWorkSchema.parse({
+function pendingWorkFromWire(input: WirePendingWork): PendingWork {
+  return {
     items: input.items.map((item) => {
       const shared = {
-        id: item.id,
-        lane: pendingWorkLane(item.lane),
-        kind: pendingWorkKind(item.kind),
         state: pendingWorkState(item.state),
-        canonical_input: item.canonicalInput,
+        canonicalInput: item.canonicalInput,
       };
       switch (item.payload.case) {
         case "message":
-          return { ...shared, message: { text: item.payload.value.text } };
+          return {
+            ...shared,
+            id: pendingWorkItemIDFromProto(item.id),
+            lane: pendingWorkLane(item.lane),
+            kind: "message",
+            message: { text: item.payload.value.text },
+          };
         case "manualCompaction":
           return {
             ...shared,
-            manual_compaction:
-              item.payload.value.guidance === undefined ? {} : { guidance: item.payload.value.guidance },
+            id: pendingWorkItemIDFromProto(item.id),
+            lane: "steer",
+            kind: "manual_compaction",
+            manualCompaction: { guidance: item.payload.value.guidance ?? null },
           };
         case "worktreeTransition":
           return {
             ...shared,
-            worktree_transition: {
-              transition: pendingWorkTransition(item.payload.value.transition),
-              ...(item.payload.value.selector === undefined ? {} : { selector: item.payload.value.selector }),
-            },
+            id: worktreeOperationIDFromProto(item.id),
+            lane: "steer",
+            kind: "worktree_transition",
+            worktreeTransition:
+              pendingWorkTransition(item.payload.value.transition) === "enter"
+                ? { kind: "enter", selector: required(item.payload.value.selector) }
+                : { kind: "leave", selector: null },
           };
         case undefined:
           throw new ContractError("Pending Work item returned no payload.");
       }
     }),
-  });
+  };
 }
 
 function pendingWorkLane(value: PendingWorkLane): "steer" | "queue" {

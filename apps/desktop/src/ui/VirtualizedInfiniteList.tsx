@@ -21,7 +21,11 @@ import {
   resolvePreviousLoadEdge,
   useVirtualizedLoadMore,
 } from "./virtualizedInfiniteListLoadMore";
-import { pinnedVirtualRangeExtractor, virtualizedVisibleIndexes } from "./virtualizedPinnedRange";
+import {
+  pinnedVirtualRangeExtractor,
+  virtualizedVisibleIndexes,
+  resolveVirtualizedFlowBlock,
+} from "./virtualizedPinnedRange";
 import { resolveVirtualizedResizePolicy } from "./virtualizedResizePolicy";
 import {
   requireVirtualizedPixelOffsetRequest,
@@ -249,15 +253,14 @@ function VirtualizedInfiniteListContent<TItem>({
     cancelScrollRequest,
     options: endOptions,
   } = useVirtualizedEndAnchoring(endAnchoring);
-  const directDomUpdates = endAnchoring !== undefined && !horizontal;
+  const flowLayout = endAnchoring !== undefined && !horizontal;
   const virtualizer = useVirtualizer({
     count,
     getScrollElement: () => scrollRef.current,
     estimateSize,
     paddingEnd: boundaries.paddingEnd,
     paddingStart: boundaries.paddingStart,
-    useFlushSync: directDomUpdates,
-    directDomUpdates,
+    useFlushSync: flowLayout,
     getItemKey: (index) =>
       virtualizedRowKey({
         getItemKey,
@@ -284,6 +287,7 @@ function VirtualizedInfiniteListContent<TItem>({
     endAnchoring !== undefined,
   );
   const virtualItems = virtualizer.getVirtualItems();
+  const flowBlock = resolveVirtualizedFlowBlock(virtualItems, virtualizer.range, flowLayout);
   const visibleIndexes = virtualizedVisibleIndexes(virtualizer);
 
   useEffect(() => {
@@ -405,7 +409,7 @@ function VirtualizedInfiniteListContent<TItem>({
       rowSpacing,
       stickyItemKeys,
       virtualItem,
-      directDomUpdates,
+      flowBlock,
     }),
   );
   const hasHorizontalBoundary = resolveHorizontalBoundary(horizontal, layout, nextBoundary);
@@ -429,8 +433,7 @@ function VirtualizedInfiniteListContent<TItem>({
     >
       <div
         className={resolveVirtualizedInnerClassName(horizontal, hasHorizontalBoundary)}
-        ref={directDomUpdates ? virtualizer.containerRef : undefined}
-        style={resolveVirtualizedInnerStyle(horizontal, virtualizer.getTotalSize(), directDomUpdates)}
+        style={resolveVirtualizedInnerStyle(horizontal, virtualizer.getTotalSize())}
       >
         {boundaries.leading}
         {renderVirtualizedRowsContent({
@@ -438,6 +441,7 @@ function VirtualizedInfiniteListContent<TItem>({
           hasItems: items.length > 0,
           empty,
           loadingLabel,
+          flowBlock,
         })}
         {boundaries.trailing}
       </div>

@@ -152,26 +152,16 @@ func testChatSettingsRuntimeMutation(t *testing.T, switchAgent bool) {
 	initialQuestions := before.GetSession().Settings.Questions.Enabled
 	requestedQuestions := !initialQuestions
 
-	const ownerID = "chat-settings-acceptance-test"
-	activation, err := appCore.SessionRuntimeClient().ActivateSessionRuntime(t.Context(), serverapi.SessionRuntimeActivateRequest{
-		SessionID:             requestfixture.SessionID(t, sessionID.String()),
-		OwnerID:               ownerID,
-		ActiveSettings:        resolved.Config.Settings,
-		QuestionsEnabled:      textutil.Value(initialQuestions),
-		AutoCompactionEnabled: textutil.Value(before.GetSession().Settings.AutoCompaction.Effective),
-		Source:                resolved.Config.Source,
+	err = appCore.SessionRuntimeClient().ActivateSessionRuntime(t.Context(), serverapi.SessionRuntimeActivateRequest{
+		SessionID: requestfixture.SessionID(t, sessionID.String()), SessionRuntimePreparationOptions: serverapi.SessionRuntimePreparationOptions{ActiveSettings: resolved.Config.Settings,
+			QuestionsEnabled:      textutil.Value(initialQuestions),
+			AutoCompactionEnabled: textutil.Value(before.GetSession().Settings.AutoCompaction.Effective),
+			Source:                resolved.Config.Source},
 	})
 	if err != nil {
 		t.Fatalf("ActivateSessionRuntime: %v", err)
 	}
-	t.Cleanup(func() {
-		_, _ = appCore.SessionRuntimeClient().ReleaseSessionRuntime(context.Background(), serverapi.SessionRuntimeReleaseRequest{
-			Attachment:  activation,
-			OwnerID:     ownerID,
-			DropOwner:   true,
-			ClosePolicy: serverapi.SessionRuntimeReleaseClosePolicyDetachOnly,
-		})
-	})
+
 	t.Cleanup(model.unblock)
 
 	turnDone := make(chan error, 1)
@@ -180,9 +170,8 @@ func testChatSettingsRuntimeMutation(t *testing.T, switchAgent bool) {
 		t.Fatal(err)
 	}
 	go func() {
-		_, submitErr := appCore.RuntimeControlClient().SubmitUserTurn(t.Context(), &runtimepb.SubmitUserTurnRequest{
-			SessionId: sessionID.String(),
-			Input:     input,
+		_, submitErr := appCore.RuntimeControlClient().SubmitUserTurn(t.Context(), &runtimepb.SubmitUserTurnRequest{QueueItemId: runtimeids.NewQueueItemID().String(), SessionId: sessionID.String(),
+			Input: input,
 		})
 		turnDone <- submitErr
 	}()
@@ -236,8 +225,7 @@ func testChatSettingsRuntimeMutation(t *testing.T, switchAgent bool) {
 			t.Fatalf("persisted Agent replacement: %+v", record.Meta)
 		}
 		model.unblock()
-		sent, err := appCore.ChatMutationClient().Steer(t.Context(), &chatpb.SteerRequest{
-			Target:     chatCommandTarget(sessionID.String()),
+		sent, err := appCore.ChatMutationClient().Steer(t.Context(), &chatpb.SteerRequest{QueueItemId: runtimeids.NewQueueItemID().String(), Target: chatCommandTarget(sessionID.String()),
 			Activation: &chatpb.Activation{Input: &chatpb.Activation_Text{Text: "continue with the new Agent"}},
 		})
 		if err != nil || sent.GetAccepted() == nil {

@@ -1,13 +1,9 @@
-import { afterEach, expect, it, vi } from "vitest";
+import { expect, it } from "bun:test";
 
 import { createAppLogger, type AppLogLevel } from "./logging";
 
-afterEach(() => {
-  vi.unstubAllEnvs();
-});
-
 it("records native observation overflow as a structured warning", async () => {
-  vi.stubEnv("KENT_DEBUG", "false");
+  globalThis.__KENT_TEST_ENV__.KENT_DEBUG = "false";
   const entries: Readonly<{ context: Readonly<Record<string, string>>; level: AppLogLevel }>[] = [];
   const logger = createAppLogger(async (level, _message, context = {}) => {
     entries.push({ context, level });

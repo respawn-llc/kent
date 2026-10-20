@@ -7,14 +7,20 @@ import (
 	"net"
 	"net/url"
 
+	"core/shared/client"
 	"core/shared/serverapi"
 )
+
+func IsRuntimeProtocolMismatch(err error) bool {
+	var mismatch *client.ProtocolVersionMismatchError
+	return errors.As(err, &mismatch)
+}
 
 func IsRuntimeConnectionError(err error) bool {
 	if err == nil {
 		return false
 	}
-	if errors.Is(err, serverapi.ErrStreamGap) || errors.Is(err, serverapi.ErrStreamUnavailable) || errors.Is(err, serverapi.ErrStreamFailed) {
+	if errors.Is(err, serverapi.ErrStreamGap) || errors.Is(err, serverapi.ErrStreamUnavailable) {
 		return false
 	}
 	if IsRuntimeTimeoutError(err) {
@@ -39,7 +45,7 @@ func ConfirmsRuntimeReachability(err error) bool {
 	if err == nil {
 		return true
 	}
-	if IsRuntimeConnectionError(err) {
+	if IsRuntimeConnectionError(err) || IsRuntimeProtocolMismatch(err) {
 		return false
 	}
 	if IsRuntimeTimeoutError(err) {

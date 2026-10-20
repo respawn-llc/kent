@@ -49,6 +49,7 @@ export function useChatDestination({
   const editorRef = useRef<HTMLTextAreaElement>(null);
   const focusComposer = useCallback(() => editorRef.current?.focus(), []);
   const worktreeCommands = useWorktreeCommands(
+    target?.kind === "session" ? target.projectID : null,
     target?.kind === "session" ? target.sessionID : null,
     focusComposer,
     navigation.openParentSession,
@@ -112,6 +113,12 @@ export function useChatDestination({
   };
   const composer = useChatComposer({
     model: model.composer,
+    prepared: (id) => {
+      if (editorRef.current !== null) composer.messageMotion.capture(id.toJSONValue(), editorRef.current);
+    },
+    rejected: (id) => {
+      composer.messageMotion.reject(id.toJSONValue());
+    },
     commands: [
       ...promptCommands(catalog.data ?? [], t),
       ...worktreeCommands.commands,

@@ -11,6 +11,11 @@ const MaxSessionShortID int64 = 9_007_199_254_740_991
 
 type SessionShortID struct{ value int64 }
 
+// SessionShortIDFromProto converts a number already accepted by the wire contract.
+func SessionShortIDFromProto(value int64) SessionShortID {
+	return SessionShortID{value: value}
+}
+
 func NewSessionShortID(value int64) (SessionShortID, error) {
 	if value <= 0 || value > MaxSessionShortID {
 		return SessionShortID{}, fmt.Errorf("session short ID must be between 1 and %d", MaxSessionShortID)
@@ -58,9 +63,6 @@ func ParseSessionSelector(raw string) (SessionSelector, error) {
 	id, err := ParseSessionID(raw)
 	if err != nil {
 		return nil, err
-	}
-	if !id.IsCanonicalUUIDv4() {
-		return nil, fmt.Errorf("session selector must be a positive number or canonical UUIDv4")
 	}
 	return id, nil
 }

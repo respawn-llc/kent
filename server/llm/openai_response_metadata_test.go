@@ -53,7 +53,7 @@ func TestResponsesClientSelectsServedModelMetadata(t *testing.T) {
 				writeSuccessfulMetadataResponse(t, w, test.createdModel, test.completedModel)
 			})
 			request := Request{SessionID: stringPointer("metadata-session"), Model: "requested-model", ToolChoiceMode: ToolChoiceModeAutomatic}
-			client := NewResponsesClient(transport)
+			client := NewResponsesClient(transport, nil)
 			response, err := client.Generate(context.Background(), request, StreamCallbacks{})
 			if err != nil {
 				t.Fatalf("generate: %v", err)
@@ -89,7 +89,7 @@ func TestResponsesClientParsesStrictReasoningIncludedHeader(t *testing.T) {
 			})
 
 			request := Request{SessionID: stringPointer("metadata-session"), Model: "requested-model", ToolChoiceMode: ToolChoiceModeAutomatic}
-			client := NewResponsesClient(transport)
+			client := NewResponsesClient(transport, nil)
 			response, err := client.Generate(context.Background(), request, StreamCallbacks{})
 			if err != nil {
 				t.Fatalf("generate: %v", err)

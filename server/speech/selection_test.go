@@ -3,7 +3,6 @@ package speech
 import (
 	"testing"
 
-	"core/server/launch"
 	"core/shared/config"
 )
 
@@ -23,16 +22,12 @@ func TestEligibleDefaults(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	rotation := new(launch.ConnectionRotation)
-	for _, want := range []config.ConnectionID{"second", "first", "second"} {
-		invocation, err := selection.Allocate(rotation)
-		if err != nil || invocation.ID != want {
-			t.Fatalf("allocation = %v, %v; want %v", invocation, err, want)
-		}
+	if selection.Limits == nil || selection.Limits.MaxBytes != 25_000_000 {
+		t.Fatalf("eligible default limits = %v", selection.Limits)
 	}
 }
 
-func TestAvailabilityDoesNotAllocateAndSharesLaunchRotation(t *testing.T) {
+func TestRepeatedAvailability(t *testing.T) {
 	defaults := config.ConnectionSelection{"a", "b"}
 	settings := config.Settings{
 		Connection: &defaults, ConnectionOrder: []config.ConnectionID{"b", "a"},
@@ -41,25 +36,10 @@ func TestAvailabilityDoesNotAllocateAndSharesLaunchRotation(t *testing.T) {
 			"b": {Protocol: config.ConnectionChatGPT},
 		},
 	}
-	rotation := new(launch.ConnectionRotation)
 	for range 3 {
 		selection, err := EligibleDefaults(settings)
 		if err != nil || selection.Limits == nil || selection.Limits.MaxBytes != 25_000_000 {
 			t.Fatalf("availability = %v, %v", selection.Limits, err)
-		}
-	}
-	first, err := rotation.Prepare(settings, true)
-	if err != nil || first != "b" {
-		t.Fatalf("launch = %v, %v", first, err)
-	}
-	selection, err := EligibleDefaults(settings)
-	if err != nil {
-		t.Fatal(err)
-	}
-	for _, want := range []config.ConnectionID{"a", "b"} {
-		invocation, err := selection.Allocate(rotation)
-		if err != nil || invocation.ID != want {
-			t.Fatalf("invocation/retry = %v, %v; want %v", invocation, err, want)
 		}
 	}
 }

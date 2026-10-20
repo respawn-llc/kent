@@ -82,9 +82,6 @@ func (e *Engine) projectPendingWork() (runtimeinput.PendingWork, error) {
 		items = append(items, pending.item)
 	}
 	collection := runtimeinput.PendingWork{Items: items}
-	if err := collection.Validate(); err != nil {
-		return runtimeinput.PendingWork{}, err
-	}
 	return collection, nil
 }
 
@@ -95,10 +92,7 @@ func (e *Engine) publishPendingWorkChanged() {
 }
 
 func (e *Engine) publishPendingWorkTechnicalRestoration(item runtimeinput.PendingWorkItem) error {
-	restoration, err := item.TechnicalRestoration()
-	if err != nil {
-		return err
-	}
+	restoration := item.TechnicalRestoration()
 	return e.emitRaw(Event{
 		Kind:                   EventPendingWorkRestored,
 		PendingWorkRestoration: &restoration,
@@ -123,12 +117,9 @@ func (e *Engine) removePendingWork(id runtimeids.QueueItemID) (runtimeinput.Pend
 	var restoration runtimeinput.PendingWorkRestoration
 	if lifecycle, ok := e.stepLifecycle.(*defaultExclusiveStepLifecycle); ok {
 		if operational, removed := lifecycle.removePendingOperationalWork(id); removed {
-			var err error
-			restoration, err = operational.item.Restoration()
-			if err != nil {
-				return runtimeinput.PendingWorkRestoration{}, err
-			}
+			restoration = operational.item.Restoration()
 			e.publishPendingWorkChanged()
+			e.runtimeWriteAccepted()
 			return restoration, nil
 		}
 	}
@@ -142,12 +133,10 @@ func (e *Engine) removePendingWork(id runtimeids.QueueItemID) (runtimeinput.Pend
 	if err != nil {
 		return runtimeinput.PendingWorkRestoration{}, err
 	}
-	restoration, err = item.Restoration()
-	if err != nil {
-		return runtimeinput.PendingWorkRestoration{}, err
-	}
+	restoration = item.Restoration()
 	e.emitQueuedUserMessageStatus(message.message, QueuedUserMessageDiscarded, "", false)
 	e.publishPendingWorkChanged()
+	e.runtimeWriteAccepted()
 	return restoration, nil
 }
 
@@ -195,14 +184,11 @@ func (s *defaultExclusiveStepLifecycle) removePendingOperationalWork(id runtimei
 }
 
 func pendingWorkMessage(message queuedUserMessage) (runtimeinput.PendingWorkItem, error) {
-	id, err := runtimeids.ParseQueueItemID(message.message.ID)
+	id, err := runtimeids.QueueItemIDFromProto(message.message.ID)
 	if err != nil {
 		return runtimeinput.PendingWorkItem{}, err
 	}
-	text, err := message.message.DisplayText()
-	if err != nil {
-		return runtimeinput.PendingWorkItem{}, err
-	}
+	text := message.message.DisplayText()
 	lane := runtimeinput.PendingWorkLaneQueue
 	if message.steerAdmission != nil {
 		lane = runtimeinput.PendingWorkLaneSteer

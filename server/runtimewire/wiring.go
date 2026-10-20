@@ -39,6 +39,10 @@ func (w *RuntimeWiring) Close() error {
 }
 
 type RuntimeWiringOptions struct {
+	ConnectionScope                     config.ConnectionScope
+	ConnectionRotation                  *launch.ConnectionRotation
+	SubmitSessionNaming                 func(runtime.SessionNamingInput)
+	RecordUsage                         ConnectionUsageRecorder
 	Environment                         func(string) (string, bool)
 	WorkspaceMembership                 WorkspaceMembership
 	ProjectWorkspaceContextReader       runtime.ProjectWorkspaceContextReader
@@ -60,7 +64,8 @@ type RuntimeWiringOptions struct {
 	ProviderCapabilitiesOverride        *llm.ProviderCapabilities
 	SkipContinuationAgentRoleValidation bool
 	StepLifecycle                       runtime.StepLifecycleSink
-	LifecycleTaskFinished               func() error
+	LifecycleTaskFinished               func()
+	RuntimeWriteAccepted                func()
 	LifecycleRuntimeAbort               func() error
 	SubmitAgentSteer                    func(context.Context, runtime.AgentSteer) error
 	DurabilityObserver                  runtime.ResultGroupDurabilityObserver
@@ -118,44 +123,22 @@ func NewRuntimeWiringWithBackground(
 			Purpose: purpose, SessionID: store.Meta().SessionID, ActiveSettings: settings,
 			EnabledTools: enabledTools, Sources: opts.Sources, Connection: connection,
 			RequestCapabilities: capabilities,
+			RecordUsage:         opts.RecordUsage,
 		})
 	}
-	providerCapabilities, err := llm.ResolveEffectiveProviderCapabilities(store.Meta().Locked, active)
+	preparedConnection, err := materializeConnection(store, active, opts, newClient)
 	if err != nil {
 		return nil, err
 	}
-	if opts.ProviderCapabilitiesOverride != nil {
-		providerCapabilities = *opts.ProviderCapabilitiesOverride
-	}
-	connection, err := active.SelectedConnection()
-	if err != nil {
-		return nil, err
-	}
-	connectionVariant, err := llm.ResolveConnectionVariant(connection)
-	if err != nil {
-		return nil, err
-	}
-	tokenEstimator, err := llm.ResolveConnectionTokenEstimator(connection)
-	if err != nil {
-		return nil, err
-	}
-	var client llm.Client
-	if opts.Client != nil {
-		client = opts.Client
-	} else {
-		client, err = newClient(active, RuntimeClientPurposeMain, opts.ClientFactory, providerCapabilities)
-		if err != nil {
-			return nil, err
-		}
-	}
+	providerCapabilities := preparedConnection.RequestCapabilities
 
-	newReviewerClient := func() (llm.Client, error) {
+	newReviewerConnectionClient := func(selection *config.ConnectionSelection) (llm.Client, error) {
 		factory := opts.ClientFactory
 		if factory == nil {
 			factory = opts.ReviewerClientFactory
 		}
 		settings := active
-		settings.Connection = active.Reviewer.Connection
+		settings.Connection = selection
 		settings.Model = active.Reviewer.Model
 		settings.ThinkingLevel = active.Reviewer.ThinkingLevel
 		settings.ModelVerbosity = active.Reviewer.ModelVerbosity
@@ -169,6 +152,20 @@ func NewRuntimeWiringWithBackground(
 		}
 		return newClient(settings, RuntimeClientPurposeReviewer, factory, capabilities)
 	}
+	newReviewerClient := func() (llm.Client, error) {
+		return newReviewerConnectionClient(active.Reviewer.Connection)
+	}
+	var reviewerConnectionID *config.ConnectionID
+	if active.Reviewer.Connection != nil {
+		reviewerConnectionID, err = active.Reviewer.Connection.ConcreteID()
+		if err != nil {
+			return nil, err
+		}
+	}
+	reviewerOptions := opts
+	reviewerOptions.ConnectionScope = config.ConnectionScope{Selection: active.Reviewer.Connection}
+	reviewerSettings := active
+	reviewerSettings.Connection = active.Reviewer.Connection
 
 	var reviewerClient llm.Client
 	if strings.ToLower(strings.TrimSpace(active.Reviewer.Frequency)) != "off" {
@@ -188,9 +185,9 @@ func NewRuntimeWiringWithBackground(
 		MinimumExecToBgTime:    time.Duration(active.MinimumExecToBgSeconds) * time.Second,
 		ShellOutputMaxChars:    active.ShellOutputMaxChars,
 		ModelContextWindow:     active.ModelContextWindow,
-		EstimateText:           tokenEstimator.EstimateText,
+		EstimateText:           func(text string) int { return eng.EstimateText(text) },
 		AllowNonCwdEdits:       active.AllowNonCwdEdits,
-		RawImageOriginalDetail: connectionVariant.Variant.Capabilities.IsOpenAIFirstParty,
+		RawImageOriginalDetail: func() bool { return eng.RawImageOriginalDetail() },
 		SupportsVision: func() bool {
 			if locked := store.Meta().Locked; locked != nil {
 				return llm.LockedContractSupportsVisionInputs(locked, active.Model)
@@ -227,9 +224,22 @@ func NewRuntimeWiringWithBackground(
 	if len(opts.RequiredTools) != 0 {
 		promptReloader = requiredToolsSnapshotReloader{base: promptReloader, required: append([]toolspec.ID(nil), opts.RequiredTools...)}
 	}
-	eng, err = runtime.New(store, eventLog, client, toolRegistry, runtime.Config{
+	var namingConfig *runtime.SessionNamingConfig
+	meta := store.Meta()
+	if opts.SubmitSessionNaming != nil && meta.Name == nil &&
+		(meta.ModelRequestCount == 0 || strings.TrimSpace(meta.FirstPromptPreview) != "") {
+		// Capture stays bounded independently of settings, which can change on
+		// Worktree enter/leave before the first Step. The consumer budgets again.
+		namingConfig = &runtime.SessionNamingConfig{MaxInputRunes: 10_000, Submit: opts.SubmitSessionNaming}
+		if strings.TrimSpace(meta.FirstPromptPreview) != "" {
+			namingConfig.ResumeTask = textutil.Value(meta.FirstPromptPreview)
+		}
+	}
+	eng, err = runtime.New(store, eventLog, preparedConnection.Client, toolRegistry, runtime.Config{
+		InitialConnection:               preparedConnection,
+		ResolveConnection:               connectionMaterializer(store, active, opts, newClient),
+		SessionNaming:                   namingConfig,
 		Model:                           active.Model,
-		TokenEstimator:                  tokenEstimator,
 		Debug:                           active.Debug,
 		Temperature:                     1,
 		MaxTokens:                       0,
@@ -239,7 +249,6 @@ func NewRuntimeWiringWithBackground(
 		FastModeEnabled:                 active.PriorityRequestMode,
 		WebSearchMode:                   active.WebSearch,
 		PromptFacingSnapshotReloader:    promptReloader,
-		ProviderCapabilitiesOverride:    &providerCapabilities,
 		EnabledTools:                    enabledTools,
 		SkillPolicy:                     config.ResolveSkillPolicy(active),
 		SubagentCatalog:                 config.App{Settings: active, Source: config.SourceReport{Sources: opts.Sources}},
@@ -264,18 +273,25 @@ func NewRuntimeWiringWithBackground(
 		GlobalConfigDir:                 opts.GlobalConfigDir,
 		WorkflowPreCompactionTokenLimit: config.ResolveWorkflowPreCompactionTokens(active),
 		Reviewer: runtime.ReviewerConfig{
-			Frequency:         active.Reviewer.Frequency,
-			Model:             active.Reviewer.Model,
-			ThinkingLevel:     active.Reviewer.ThinkingLevel,
-			ModelCapabilities: lockedModelCapabilitiesForConfig(active.Reviewer.Model, active.Reviewer.ModelCapabilities, llm.ProviderCapabilities{}, opts.Sources, "reviewer.model_capabilities.supports_reasoning_effort", "reviewer.model_capabilities.supports_vision_inputs"),
-			SystemPromptFile:  active.Reviewer.SystemPromptFile,
-			VerboseOutput:     active.Reviewer.VerboseOutput,
-			Client:            reviewerClient,
-			ClientFactory:     newReviewerClient,
+			Frequency:          active.Reviewer.Frequency,
+			Model:              active.Reviewer.Model,
+			ThinkingLevel:      active.Reviewer.ThinkingLevel,
+			ModelCapabilities:  lockedModelCapabilitiesForConfig(active.Reviewer.Model, active.Reviewer.ModelCapabilities, llm.ProviderCapabilities{}, opts.Sources, "reviewer.model_capabilities.supports_reasoning_effort", "reviewer.model_capabilities.supports_vision_inputs"),
+			SystemPromptFile:   active.Reviewer.SystemPromptFile,
+			VerboseOutput:      active.Reviewer.VerboseOutput,
+			Client:             reviewerClient,
+			ClientFactory:      newReviewerClient,
+			ConnectionID:       reviewerConnectionID,
+			ResolveConnection:  connectionMaterializer(store, reviewerSettings, reviewerOptions, newClient),
+			InheritsConnection: !opts.Sources["reviewer.connection"].Declares("reviewer.connection"),
+			ConnectionClientFactory: func(id config.ConnectionID) (llm.Client, error) {
+				return newReviewerConnectionClient(config.SingleConnection(id))
+			},
 		},
 		OnEvent:               opts.OnEvent,
 		StepLifecycle:         opts.StepLifecycle,
 		LifecycleTaskFinished: opts.LifecycleTaskFinished,
+		RuntimeWriteAccepted:  opts.RuntimeWriteAccepted,
 		LifecycleRuntimeAbort: opts.LifecycleRuntimeAbort,
 		SubmitAgentSteer:      opts.SubmitAgentSteer,
 		DurabilityObserver:    opts.DurabilityObserver,

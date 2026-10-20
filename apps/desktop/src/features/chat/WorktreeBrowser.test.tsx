@@ -1,3 +1,4 @@
+import { expect, it, vi } from "bun:test";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { RegistryProvider } from "@effect/atom-react";
 import { act, render, renderHook, screen, waitFor } from "@testing-library/react";
@@ -38,10 +39,13 @@ import { useWorktreeList } from "./useWorktreeList";
 import { ChatShell } from "./ChatShell";
 import { errorMessage } from "@/api";
 import { CreateTargetResolutionKind, RpcError, WorktreeError } from "@/api";
+import type { ApiService } from "@/api";
 import { createWorktreeCreate, useWorktreeCreate } from "./WorktreeCreate";
 import { WorktreeCreateForm } from "./WorktreeCreateForm";
 import { createWorktreeActions } from "./WorktreeActions";
 import * as ui from "@/ui";
+
+type WorktreeList = Awaited<ReturnType<ApiService["listWorktrees"]>>;
 
 function BrowserProviders({
   services,
@@ -71,6 +75,7 @@ function createFormModel() {
     openSession: vi.fn(),
     client: new QueryClient(),
     api: services.api,
+    projectID: "project-1",
     sessionID: "33333333-3333-4333-8333-333333333333",
     suggestion: "topic",
     navigator: createTestSidebarNavigator(),
@@ -119,6 +124,7 @@ it("keeps an invalid typed Worktree name editable and resumes resolution after c
     <BrowserProviders services={services}>
       <QueryClientProvider client={client}>
         <WorktreeCreateForm
+          projectID="project-1"
           sessionID="33333333-3333-4333-8333-333333333333"
           openSession={vi.fn()}
           navigator={createTestSidebarNavigator()}
@@ -164,6 +170,7 @@ it.each(["list", "target"] as const)(
       <BrowserProviders services={services}>
         <QueryClientProvider client={client}>
           <WorktreeCreateForm
+            projectID="project-1"
             openSession={vi.fn()}
             sessionID="33333333-3333-4333-8333-333333333333"
             navigator={createTestSidebarNavigator()}
@@ -266,14 +273,14 @@ it.each(["base_ref", "form"] as const)("classifies Create rejection owned by %s"
     expect(push).not.toHaveBeenCalled();
   } else {
     expect(result.current.state.baseError).toBeUndefined();
-    expect(push).toHaveBeenCalledOnce();
+    expect(push).toHaveBeenCalledTimes(1);
   }
 });
 
 function WorktreeBrowser({
   onOpenSession = vi.fn(),
   ...props
-}: Readonly<{ sessionID: string; onOpenSession?: (sessionID: string) => void }>) {
+}: Readonly<{ projectID: string; sessionID: string; onOpenSession?: (sessionID: string) => void }>) {
   const [navigator] = useState(() => createTestSidebarNavigator());
   return (
     <Browser
@@ -299,7 +306,11 @@ it.each(["33333333-3333-4333-8333-333333333333", "44444444-4444-4444-8444-444444
     const onOpenSession = vi.fn();
     render(
       <BrowserProviders services={services}>
-        <WorktreeBrowser sessionID="33333333-3333-4333-8333-333333333333" onOpenSession={onOpenSession} />
+        <WorktreeBrowser
+          projectID="project-1"
+          sessionID="33333333-3333-4333-8333-333333333333"
+          onOpenSession={onOpenSession}
+        />
       </BrowserProviders>,
     );
     await user.click(
@@ -328,7 +339,7 @@ it.each(["registered", "missing"] as const)("copies the full %s path from its su
   const services = createTestServices([worktreeBrowserFixtureRoute([entry])]);
   render(
     <BrowserProviders services={services}>
-      <WorktreeBrowser sessionID="33333333-3333-4333-8333-333333333333" />
+      <WorktreeBrowser projectID="project-1" sessionID="33333333-3333-4333-8333-333333333333" />
     </BrowserProviders>,
   );
   const copy = await screen.findByRole("button", {
@@ -347,7 +358,7 @@ it("opens with a fresh read even when the Session list is cached", async () => {
   render(
     <BrowserProviders services={services}>
       <QueryClientProvider client={client}>
-        <WorktreeBrowser sessionID="33333333-3333-4333-8333-333333333333" />
+        <WorktreeBrowser projectID="project-1" sessionID="33333333-3333-4333-8333-333333333333" />
       </QueryClientProvider>
     </BrowserProviders>,
   );
@@ -357,9 +368,9 @@ it("opens with a fresh read even when the Session list is cached", async () => {
   await waitFor(() => {
     expect(client.isFetching()).toBe(0);
   });
-  expect(client.getQueryData(queryKeys.worktreeList("33333333-3333-4333-8333-333333333333"))).not.toBe(
-    cached,
-  );
+  expect(
+    client.getQueryData<WorktreeList>(queryKeys.worktreeList("33333333-3333-4333-8333-333333333333")),
+  ).not.toBe(cached);
 });
 
 it("isolates late list delivery after changing Session", async () => {
@@ -376,7 +387,7 @@ it("isolates late list delivery after changing Session", async () => {
   const surface = (sessionID: string) => (
     <BrowserProviders services={services}>
       <QueryClientProvider client={client}>
-        <WorktreeBrowser sessionID={sessionID} />
+        <WorktreeBrowser projectID="project-1" sessionID={sessionID} />
       </QueryClientProvider>
     </BrowserProviders>
   );
@@ -386,14 +397,20 @@ it("isolates late list delivery after changing Session", async () => {
   });
   view.rerender(surface("44444444-4444-4444-8444-444444444444"));
   await waitFor(() => {
-    expect(client.getQueryData(queryKeys.worktreeList("44444444-4444-4444-8444-444444444444"))).toBeDefined();
+    expect(
+      client.getQueryData<WorktreeList>(queryKeys.worktreeList("44444444-4444-4444-8444-444444444444")),
+    ).toBeDefined();
   });
-  const current = client.getQueryData(queryKeys.worktreeList("44444444-4444-4444-8444-444444444444"));
+  const current = client.getQueryData<WorktreeList>(
+    queryKeys.worktreeList("44444444-4444-4444-8444-444444444444"),
+  );
   await act(async () => {
     old.resolve(result);
     await old.promise;
   });
-  expect(client.getQueryData(queryKeys.worktreeList("44444444-4444-4444-8444-444444444444"))).toBe(current);
+  expect(
+    client.getQueryData<WorktreeList>(queryKeys.worktreeList("44444444-4444-4444-8444-444444444444")),
+  ).toBe(current);
   expect(services.transport.descriptorCalls).toHaveLength(2);
 });
 
@@ -411,7 +428,9 @@ it("reopening replaces an unfinished read without accepting its late delivery", 
   const surface = (open: boolean) => (
     <BrowserProviders services={services}>
       <QueryClientProvider client={client}>
-        {open ? <WorktreeBrowser sessionID="33333333-3333-4333-8333-333333333333" /> : null}
+        {open ? (
+          <WorktreeBrowser projectID="project-1" sessionID="33333333-3333-4333-8333-333333333333" />
+        ) : null}
       </QueryClientProvider>
     </BrowserProviders>
   );
@@ -426,14 +445,14 @@ it("reopening replaces an unfinished read without accepting its late delivery", 
   });
   const key = queryKeys.worktreeList("33333333-3333-4333-8333-333333333333");
   await waitFor(() => {
-    expect(client.getQueryData(key)).toBeDefined();
+    expect(client.getQueryData<WorktreeList>(key)).toBeDefined();
   });
-  const current = client.getQueryData(key);
+  const current = client.getQueryData<WorktreeList>(key);
   await act(async () => {
     old.resolve(result);
     await old.promise;
   });
-  expect(client.getQueryData(key)).toBe(current);
+  expect(client.getQueryData<WorktreeList>(key)).toBe(current);
 });
 
 function ControlOwner() {
@@ -451,6 +470,7 @@ function ControlOwner() {
       content={() => null}
       composer={() => (
         <WorktreeControl
+          projectID={target.projectID}
           sessionID={target.sessionID}
           target={executionTarget}
           query={query}
@@ -471,7 +491,7 @@ it("keeps the shared control and open list independent of transcript loss", asyn
       <QueryClientProvider client={client}>
         <ChatRuntimeProvider api={api} target={target} host={runtimeHost()}>
           <ControlOwner />
-          <WorktreeBrowser sessionID={target.sessionID} />
+          <WorktreeBrowser projectID={target.projectID} sessionID={target.sessionID} />
         </ChatRuntimeProvider>
       </QueryClientProvider>
     </BrowserProviders>,
@@ -502,6 +522,7 @@ it("refreshes after a completed typed transition without changing Chat target or
     onWorktreeTransitionOutcome: worktreeTransitionOutcomeHandler(
       createRefreshOpenWorktreeList(client, services.api, () => ({
         kind: "worktree",
+        projectID: target.projectID,
         openSession: vi.fn(),
         sessionID: target.sessionID,
         page: "list",
@@ -515,7 +536,7 @@ it("refreshes after a completed typed transition without changing Chat target or
     <BrowserProviders services={services}>
       <QueryClientProvider client={client}>
         <ChatRuntimeProvider api={api} target={target} host={host}>
-          <WorktreeBrowser sessionID={target.sessionID} />
+          <WorktreeBrowser projectID={target.projectID} sessionID={target.sessionID} />
         </ChatRuntimeProvider>
       </QueryClientProvider>
     </BrowserProviders>,
@@ -531,7 +552,7 @@ it("refreshes after a completed typed transition without changing Chat target or
   });
   const before = services.transport.descriptorCalls.length;
   const key = queryKeys.chatMainView(target.sessionID);
-  const view = client.getQueryData(key);
+  const view = client.getQueryData<WorktreeList>(key);
   act(() => {
     handler.onEvent({
       sequence: 2,
@@ -549,7 +570,7 @@ it("refreshes after a completed typed transition without changing Chat target or
   await waitFor(() => {
     expect(services.transport.descriptorCalls).toHaveLength(before + 1);
   });
-  expect(client.getQueryData(key)).toBe(view);
+  expect(client.getQueryData<WorktreeList>(key)).toBe(view);
   act(() => {
     handler.onEvent({
       sequence: 3,
@@ -594,19 +615,19 @@ it("Refresh retains cached data but replaces the visible list on failure until R
   render(
     <BrowserProviders services={services}>
       <QueryClientProvider client={client}>
-        <WorktreeBrowser sessionID="33333333-3333-4333-8333-333333333333" />
+        <WorktreeBrowser projectID="project-1" sessionID="33333333-3333-4333-8333-333333333333" />
       </QueryClientProvider>
     </BrowserProviders>,
   );
   const key = queryKeys.worktreeList("33333333-3333-4333-8333-333333333333");
   await waitFor(() => {
-    expect(client.getQueryData(key)).toBeDefined();
+    expect(client.getQueryData<WorktreeList>(key)).toBeDefined();
   });
-  const completed = client.getQueryData(key);
+  const completed = client.getQueryData<WorktreeList>(key);
   const user = userEvent.setup();
   await user.click(screen.getByRole("button", { name: appI18n.t("chat.worktree.refresh") }));
   expect(client.getQueryState(key)?.fetchStatus).toBe("fetching");
-  expect(client.getQueryData(key)).toBe(completed);
+  expect(client.getQueryData<WorktreeList>(key)).toBe(completed);
   expect(screen.getByRole("button", { name: appI18n.t("chat.worktree.switch") })).toBeEnabled();
   await act(async () => {
     refreshing.reject(new Error("Read failed"));
@@ -615,13 +636,13 @@ it("Refresh retains cached data but replaces the visible list on failure until R
   await waitFor(() => {
     expect(client.getQueryState(key)?.status).toBe("error");
   });
-  expect(client.getQueryData(key)).toBe(completed);
+  expect(client.getQueryData<WorktreeList>(key)).toBe(completed);
   expect(screen.queryByRole("button", { name: appI18n.t("chat.worktree.switch") })).not.toBeInTheDocument();
   await user.click(screen.getByRole("button", { name: appI18n.t("app.retry") }));
   await waitFor(() => {
     expect(client.getQueryState(key)?.status).toBe("success");
   });
-  expect(client.getQueryData(key)).not.toBe(completed);
+  expect(client.getQueryData<WorktreeList>(key)).not.toBe(completed);
   expect(services.transport.descriptorCalls).toHaveLength(3);
 });
 
@@ -634,7 +655,7 @@ it("owns failed deletion preview at the Worktrees page and restores its popup on
   const remove = vi.spyOn(services.api, "deleteWorktree");
   render(
     <BrowserProviders services={services}>
-      <WorktreeBrowser sessionID="33333333-3333-4333-8333-333333333333" />
+      <WorktreeBrowser projectID="project-1" sessionID="33333333-3333-4333-8333-333333333333" />
     </BrowserProviders>,
   );
   const user = userEvent.setup();
@@ -672,18 +693,18 @@ it.each(["operational", "precondition"] as const)(
     const notice = vi.spyOn(ui, "showStatusToast").mockImplementation(() => undefined);
     render(
       <BrowserProviders services={services}>
-        <WorktreeBrowser sessionID="33333333-3333-4333-8333-333333333333" />
+        <WorktreeBrowser projectID="project-1" sessionID="33333333-3333-4333-8333-333333333333" />
       </BrowserProviders>,
     );
     const user = userEvent.setup();
     await user.click(await screen.findByRole("button", { name: appI18n.t("chat.worktree.delete") }));
     await user.click(await screen.findByRole("button", { name: appI18n.t("chat.worktree.confirm") }));
     await waitFor(() => {
-      expect(notice).toHaveBeenCalledOnce();
+      expect(notice).toHaveBeenCalledTimes(1);
     });
     expect(screen.getByRole("button", { name: appI18n.t("chat.worktree.confirm") })).toBeEnabled();
-    expect(preview).toHaveBeenCalledOnce();
-    expect(remove).toHaveBeenCalledOnce();
+    expect(preview).toHaveBeenCalledTimes(1);
+    expect(remove).toHaveBeenCalledTimes(1);
     notice.mockRestore();
   },
 );
@@ -704,7 +725,7 @@ it.each([
     render(
       <BrowserProviders services={services}>
         <QueryClientProvider client={client}>
-          <WorktreeBrowser sessionID="33333333-3333-4333-8333-333333333333" />
+          <WorktreeBrowser projectID="project-1" sessionID="33333333-3333-4333-8333-333333333333" />
         </QueryClientProvider>
       </BrowserProviders>,
     );

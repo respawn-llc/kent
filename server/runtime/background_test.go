@@ -56,6 +56,9 @@ func (s *blockingBackgroundStepLifecycle) Snapshot() *RunSnapshot {
 func (s *blockingBackgroundStepLifecycle) WithActiveStep(func(stepID string) error) (bool, error) {
 	return false, nil
 }
+func (s *blockingBackgroundStepLifecycle) TurnStateLifetimeForStep(string) (*llm.CodexTurnStateLifetime, bool) {
+	return nil, false
+}
 func (s *blockingBackgroundStepLifecycle) ApplyForActiveStep(string, func() error) error {
 	return ErrActiveStepInactive
 }

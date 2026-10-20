@@ -163,41 +163,17 @@ func SessionSettingsToProto(settings config.Settings) (*sessionlaunchpb.Settings
 		}
 		message.Workflow.PreCompactionTokens = &value
 	}
-	return message, Validate(message)
+	return message, nil
 }
 
 func SessionSettingsFromProto(message *sessionlaunchpb.Settings) (config.Settings, error) {
-	if err := Validate(message); err != nil {
-		return config.Settings{}, err
-	}
-	modelVerbosity, err := modelVerbosityFromProto(message.ModelVerbosity)
-	if err != nil {
-		return config.Settings{}, err
-	}
-	compactionMode, err := compactionModeFromProto(message.CompactionMode)
-	if err != nil {
-		return config.Settings{}, err
-	}
-	backgroundOutput, err := backgroundShellOutputFromProto(message.BgShellsOutput)
-	if err != nil {
-		return config.Settings{}, err
-	}
-	shellMode, err := shellPostprocessingModeFromProto(message.Shell.PostprocessingMode)
-	if err != nil {
-		return config.Settings{}, err
-	}
-	cacheWarningMode, err := cacheWarningModeFromProto(message.CacheWarningMode)
-	if err != nil {
-		return config.Settings{}, err
-	}
-	workflowMode, err := workflowCompletionModeFromProto(message.Workflow.CompletionMode)
-	if err != nil {
-		return config.Settings{}, err
-	}
-	sleepMode, err := sleepPreventionModeFromProto(message.PreventSleep)
-	if err != nil {
-		return config.Settings{}, err
-	}
+	modelVerbosity := modelVerbosityFromProto(message.ModelVerbosity)
+	compactionMode := compactionModeFromProto(message.CompactionMode)
+	backgroundOutput := backgroundShellOutputFromProto(message.BgShellsOutput)
+	shellMode := shellPostprocessingModeFromProto(message.Shell.PostprocessingMode)
+	cacheWarningMode := cacheWarningModeFromProto(message.CacheWarningMode)
+	workflowMode := workflowCompletionModeFromProto(message.Workflow.CompletionMode)
+	sleepMode := sleepPreventionModeFromProto(message.PreventSleep)
 	systemPromptFile, err := systemPromptFileFromProto(message.SystemPromptFile)
 	if err != nil {
 		return config.Settings{}, err
@@ -206,10 +182,7 @@ func SessionSettingsFromProto(message *sessionlaunchpb.Settings) (config.Setting
 	if err != nil {
 		return config.Settings{}, err
 	}
-	skillToggles, err := booleanFactsFromProto(message.SkillToggles)
-	if err != nil {
-		return config.Settings{}, err
-	}
+	skillToggles := booleanFactsFromProto(message.SkillToggles)
 	subagents, err := subagentRolesFromProto(message.Subagents)
 	if err != nil {
 		return config.Settings{}, err
@@ -218,10 +191,7 @@ func SessionSettingsFromProto(message *sessionlaunchpb.Settings) (config.Setting
 	if err != nil {
 		return config.Settings{}, err
 	}
-	connection, err := connectionIDFromProto(message.Connection)
-	if err != nil {
-		return config.Settings{}, err
-	}
+	connection := connectionIDFromProto(message.Connection)
 	settings := config.Settings{
 		Connection:                       connection,
 		Model:                            message.Model,
@@ -308,14 +278,8 @@ func reviewerSettingsToProto(settings config.ReviewerSettings) (*sessionlaunchpb
 }
 
 func reviewerSettingsFromProto(message *sessionlaunchpb.ReviewerSettings) (config.ReviewerSettings, error) {
-	verbosity, err := modelVerbosityFromProto(message.ModelVerbosity)
-	if err != nil {
-		return config.ReviewerSettings{}, err
-	}
-	connection, err := connectionIDFromProto(message.Connection)
-	if err != nil {
-		return config.ReviewerSettings{}, err
-	}
+	verbosity := modelVerbosityFromProto(message.ModelVerbosity)
+	connection := connectionIDFromProto(message.Connection)
 	return config.ReviewerSettings{
 		Frequency: message.Frequency, Model: message.Model, ThinkingLevel: message.ThinkingLevel,
 		ModelVerbosity: verbosity, Connection: connection,
@@ -338,15 +302,12 @@ func connectionIDToProto(selection *config.ConnectionSelection) (*string, error)
 	return &value, nil
 }
 
-func connectionIDFromProto(raw *string) (*config.ConnectionSelection, error) {
+func connectionIDFromProto(raw *string) *config.ConnectionSelection {
 	if raw == nil {
-		return nil, nil
+		return nil
 	}
-	id, err := config.ParseConnectionID(*raw)
-	if err != nil {
-		return nil, err
-	}
-	return config.SingleConnection(id), nil
+	id := config.ConnectionID(*raw)
+	return config.SingleConnection(id)
 }
 
 func modelCapabilitiesToProto(value config.ModelCapabilitiesOverride) *sessionlaunchpb.ModelCapabilitiesOverride {
@@ -402,10 +363,7 @@ func systemPromptFileFromProto(value *sessionlaunchpb.SystemPromptFile) (*config
 	if value == nil {
 		return nil, nil
 	}
-	scope, err := systemPromptFileScopeFromProto(value.Scope)
-	if err != nil {
-		return nil, err
-	}
+	scope := systemPromptFileScopeFromProto(value.Scope)
 	return &config.SystemPromptFile{Path: value.Path, Scope: scope}, nil
 }
 
@@ -429,13 +387,7 @@ func enabledToolFactsToProto(values map[toolspec.ID]bool) ([]*sessionlaunchpb.To
 func enabledToolFactsFromProto(values []*sessionlaunchpb.ToolEnabledFact) (map[toolspec.ID]bool, error) {
 	result := make(map[toolspec.ID]bool, len(values))
 	for _, value := range values {
-		toolID, err := SessionToolIDFromProto(value.ToolId)
-		if err != nil {
-			return nil, err
-		}
-		if _, exists := result[toolID]; exists {
-			return nil, fmt.Errorf("duplicate enabled tool fact %q", toolID)
-		}
+		toolID := SessionToolIDFromProto(value.ToolId)
 		result[toolID] = value.Enabled
 	}
 	return result, nil
@@ -450,15 +402,12 @@ func booleanFactsToProto(values map[string]bool) []*sessionlaunchpb.BooleanFact 
 	return result
 }
 
-func booleanFactsFromProto(values []*sessionlaunchpb.BooleanFact) (map[string]bool, error) {
+func booleanFactsFromProto(values []*sessionlaunchpb.BooleanFact) map[string]bool {
 	result := make(map[string]bool, len(values))
 	for _, value := range values {
-		if _, exists := result[value.Key]; exists {
-			return nil, fmt.Errorf("duplicate boolean fact %q", value.Key)
-		}
 		result[value.Key] = value.Value
 	}
-	return result, nil
+	return result
 }
 
 func subagentRolesToProto(base config.Settings) ([]*sessionlaunchpb.NamedSubagentRole, error) {
@@ -493,20 +442,11 @@ func subagentRolesToProto(base config.Settings) ([]*sessionlaunchpb.NamedSubagen
 func subagentRolesFromProto(values []*sessionlaunchpb.NamedSubagentRole) (map[string]config.SubagentRole, error) {
 	result := make(map[string]config.SubagentRole, len(values))
 	for _, value := range values {
-		if _, exists := result[value.Name]; exists {
-			return nil, fmt.Errorf("duplicate subagent role %q", value.Name)
-		}
 		settings, err := SessionSettingsFromProto(value.Role.Settings)
 		if err != nil {
 			return nil, fmt.Errorf("subagent %q settings: %w", value.Name, err)
 		}
-		if settings.Connection != nil {
-			return nil, fmt.Errorf("subagent %q must use its configured connection selection", value.Name)
-		}
-		settings.Connection, err = ConnectionSelectionFromProto(value.Role.ConnectionSelection)
-		if err != nil {
-			return nil, fmt.Errorf("subagent %q connection selection: %w", value.Name, err)
-		}
+		settings.Connection = ConnectionSelectionFromProto(value.Role.ConnectionSelection)
 		sources, err := sourceFactsFromProto(value.Role.Sources)
 		if err != nil {
 			return nil, fmt.Errorf("subagent %q sources: %w", value.Name, err)
@@ -538,26 +478,17 @@ func SessionSourceReportToProto(source config.SourceReport) (*sessionlaunchpb.So
 			Exists: file.Exists, Enabled: file.Enabled, Applied: file.Applied,
 		})
 	}
-	return message, Validate(message)
+	return message, nil
 }
 
 func SessionSourceReportFromProto(message *sessionlaunchpb.SourceReport) (config.SourceReport, error) {
-	if err := Validate(message); err != nil {
-		return config.SourceReport{}, err
-	}
 	sources, err := sourceFactsFromProto(message.Sources)
 	if err != nil {
 		return config.SourceReport{}, err
 	}
 	report := config.SourceReport{CreatedDefaultConfig: message.CreatedDefaultConfig, Sources: sources}
 	for _, file := range message.Files {
-		layer, err := configFileLayerFromProto(file.File.Layer)
-		if err != nil {
-			return config.SourceReport{}, err
-		}
-		if report.File(layer) != nil {
-			return config.SourceReport{}, fmt.Errorf("duplicate configuration file layer %q", layer)
-		}
+		layer := configFileLayerFromProto(file.File.Layer)
 		report.Files = append(report.Files, config.ConfigFileReport{
 			SourceFile: config.SourceFile{Layer: layer, Path: file.File.Path},
 			Exists:     file.Exists, Enabled: file.Enabled, Applied: file.Applied,

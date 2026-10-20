@@ -4,10 +4,13 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io"
 	"testing"
 	"time"
 
+	"core/shared/apicontract"
 	"core/shared/clientui"
+	workflowpb "core/shared/protoapi/gen/kent/api/workflow_definition"
 	"core/shared/runtimeids"
 	"core/shared/sessioncontract"
 
@@ -29,6 +32,17 @@ type recordingSessionPageLoader struct {
 	responses func(sessionPageRequest) sessionPageLoadResult
 	started   chan sessionPageLoadCall
 }
+
+func (*recordingSessionPageLoader) Subscribe(context.Context) (apicontract.WorkflowEventSubscription, error) {
+	return quietPickerSubscription{}, nil
+}
+
+type quietPickerSubscription struct{}
+
+func (quietPickerSubscription) Next(context.Context) (*workflowpb.ProjectEvent, error) {
+	return nil, io.EOF
+}
+func (quietPickerSubscription) Close() error { return nil }
 
 func (*recordingSessionPageLoader) ProjectID() string {
 	return "picker-test-project"
@@ -53,6 +67,10 @@ func (l *recordingSessionPageLoader) ListSessionPage(ctx context.Context, reques
 }
 
 func TestSessionPickerLifecycleInitialJourneys(t *testing.T) {
+	identities := map[sessioncontract.SessionCategory]runtimeids.SessionID{
+		sessioncontract.SessionCategoryMain:     runtimeids.NewSessionID(),
+		sessioncontract.SessionCategorySubagent: runtimeids.NewSessionID(),
+	}
 	started := make(chan sessionPageLoadCall, 2)
 	loader := &recordingSessionPageLoader{started: started}
 	lifecycle := newTestSessionPickerLifecycle(t, loader)
@@ -67,7 +85,7 @@ func TestSessionPickerLifecycleInitialJourneys(t *testing.T) {
 	}
 	requireSessionPicker(t, len(calls) == 2, "initial categories = %+v, want main and subagent", calls)
 	for category, call := range calls {
-		call.complete <- sessionPageLoadResult{response: pickerPageResponse(t, call.request, string(category)+"-1")}
+		call.complete <- sessionPageLoadResult{response: pickerPageResponse(t, call.request, identities[category].String())}
 		lifecycle.Update(waitSessionPickerPageLoaded(t, messages, category))
 	}
 	lifecycle.Update(tea.KeyMsg{Type: tea.KeyEnter})
@@ -79,14 +97,14 @@ func TestSessionPickerLifecycleInitialJourneys(t *testing.T) {
 	runSessionPickerTestCommands(empty.Init(), empty)
 	requireSessionPickerResult(t, empty.Result(), sessionPickerCreateResult{})
 	selectionLoader := &recordingSessionPageLoader{responses: func(request sessionPageRequest) sessionPageLoadResult {
-		return sessionPageLoadResult{response: pickerPageResponse(t, request, string(request.Category)+"-1")}
+		return sessionPageLoadResult{response: pickerPageResponse(t, request, identities[request.Category].String())}
 	}}
 	for _, test := range []struct {
 		keys []tea.Msg
 		want sessionPickerResult
 	}{
-		{[]tea.Msg{tea.KeyDown, tea.KeyTab, tea.KeyDown, tea.KeyShiftTab, tea.KeyEnter}, newSessionPickerOpenResult(mustPickerValue(t, "main-1", runtimeids.ParseSessionID))},
-		{[]tea.Msg{tea.KeyDown, tea.KeyTab, tea.KeyDown, tea.KeyShiftTab, tea.KeyTab, tea.KeyEnter}, newSessionPickerOpenResult(mustPickerValue(t, "subagent-1", runtimeids.ParseSessionID))},
+		{[]tea.Msg{tea.KeyDown, tea.KeyTab, tea.KeyDown, tea.KeyShiftTab, tea.KeyEnter}, newSessionPickerOpenResult(identities[sessioncontract.SessionCategoryMain])},
+		{[]tea.Msg{tea.KeyDown, tea.KeyTab, tea.KeyDown, tea.KeyShiftTab, tea.KeyTab, tea.KeyEnter}, newSessionPickerOpenResult(identities[sessioncontract.SessionCategorySubagent])},
 	} {
 		lifecycle := newTestSessionPickerLifecycle(t, selectionLoader)
 		runSessionPickerTestCommands(lifecycle.Init(), lifecycle)
@@ -103,7 +121,7 @@ func TestSessionPickerLifecyclePageFailuresAndRetry(t *testing.T) {
 	category.Category = sessioncontract.SessionCategorySubagent
 	ids := make([]string, sessionPickerPageSize+1)
 	for index := range ids {
-		ids[index] = fmt.Sprintf("oversized-%d", index)
+		ids[index] = fmt.Sprintf("10000000-0000-4000-8000-%012d", index)
 	}
 	tests := []struct {
 		result sessionPageLoadResult
@@ -144,7 +162,7 @@ func TestSessionPickerLifecyclePageFailuresAndRetry(t *testing.T) {
 		if sessionPickerRequestOffset(t, request) == sessionPickerPageSize {
 			return sessionPageLoadResult{err: diagnostic}
 		}
-		response := pickerPageResponse(t, request, "retry-1")
+		response := pickerPageResponse(t, request, "20000000-0000-4000-8000-000000000001")
 		response.NextOffset = ptr(sessionPickerPageSize)
 		return sessionPageLoadResult{response: response}
 	}}
@@ -168,7 +186,7 @@ func TestSessionPickerLifecyclePageFailuresAndRetry(t *testing.T) {
 func TestSessionPickerLifecycleDirectionalTraversal(t *testing.T) {
 	newest := make([]string, sessionPickerPageSize)
 	for index := range newest {
-		newest[index] = fmt.Sprintf("newest-%02d", index)
+		newest[index] = fmt.Sprintf("10000000-0000-4000-8000-%012d", index)
 	}
 	requests := make([]int, 0, 4)
 	loader := &recordingSessionPageLoader{responses: func(request sessionPageRequest) sessionPageLoadResult {
@@ -183,11 +201,11 @@ func TestSessionPickerLifecycleDirectionalTraversal(t *testing.T) {
 			response.NextOffset = ptr(sessionPickerPageSize)
 			return sessionPageLoadResult{response: response}
 		case sessionPickerPageSize:
-			response := pickerPageResponse(t, request, "older-a")
+			response := pickerPageResponse(t, request, "20000000-0000-4000-8000-000000000002")
 			response.NextOffset = ptr(2 * sessionPickerPageSize)
 			return sessionPageLoadResult{response: response}
 		case 2 * sessionPickerPageSize:
-			return sessionPageLoadResult{response: pickerPageResponse(t, request, "older-b")}
+			return sessionPageLoadResult{response: pickerPageResponse(t, request, "20000000-0000-4000-8000-000000000003")}
 		default:
 			t.Fatalf("unexpected page request: %+v", request)
 			return sessionPageLoadResult{}
@@ -219,11 +237,11 @@ func TestSessionPickerLifecyclePreservesRepeatedLiveRows(t *testing.T) {
 			return sessionPageLoadResult{response: pickerPageResponse(t, request)}
 		}
 		if sessionPickerRequestOffset(t, request) == 0 {
-			response := pickerPageResponse(t, request, "repeat")
+			response := pickerPageResponse(t, request, "20000000-0000-4000-8000-000000000004")
 			response.NextOffset = ptr(sessionPickerPageSize)
 			return sessionPageLoadResult{response: response}
 		}
-		return sessionPageLoadResult{response: pickerPageResponse(t, request, "repeat", "older")}
+		return sessionPageLoadResult{response: pickerPageResponse(t, request, "20000000-0000-4000-8000-000000000004", "20000000-0000-4000-8000-000000000005")}
 	}}
 	lifecycle := newTestSessionPickerLifecycle(t, loader)
 	runSessionPickerTestCommands(lifecycle.Init(), lifecycle)
@@ -232,7 +250,7 @@ func TestSessionPickerLifecyclePreservesRepeatedLiveRows(t *testing.T) {
 	sessions := lifecycle.picker.main.sessions()
 	requireSessionPicker(t, len(sessions) == 3 &&
 		sessions[0].SessionID == sessions[1].SessionID &&
-		sessions[2].SessionID.String() == "older",
+		sessions[2].SessionID.String() == "20000000-0000-4000-8000-000000000005",
 		"repeated live rows were changed: %+v", sessions)
 	requireSessionPicker(t, lifecycle.picker.main.residentSessionCount() == 3,
 		"resident count = %d, want repeated rows included", lifecycle.picker.main.residentSessionCount())
@@ -327,15 +345,15 @@ func TestSessionPickerLifecycleGeometryAndResults(t *testing.T) {
 	requireSessionPicker(t, lifecycle.View() != "", "exact 40x10 geometry remained blank")
 
 	open := newTestSessionPickerLifecycle(t, &recordingSessionPageLoader{responses: func(request sessionPageRequest) sessionPageLoadResult {
-		return sessionPageLoadResult{response: pickerPageResponse(t, request, "result-1")}
+		return sessionPageLoadResult{response: pickerPageResponse(t, request, "20000000-0000-4000-8000-000000000006")}
 	}})
 	runSessionPickerTestCommands(open.Init(), open)
 	updateSessionPickerLifecycle(t, open, tea.KeyMsg{Type: tea.KeyDown}, tea.KeyMsg{Type: tea.KeyEnter})
-	requireSessionPickerResult(t, open.Result(), newSessionPickerOpenResult(mustPickerValue(t, "result-1", runtimeids.ParseSessionID)))
+	requireSessionPickerResult(t, open.Result(), newSessionPickerOpenResult(mustPickerValue(t, "20000000-0000-4000-8000-000000000006", runtimeids.ParseSessionID)))
 	cancel := newTestSessionPickerLifecycle(t, &recordingSessionPageLoader{})
 	updateSessionPickerLifecycle(t, cancel, tea.KeyMsg{Type: tea.KeyCtrlC})
 	requireSessionPickerResult(t, cancel.Result(), sessionPickerCancelResult{})
-	for _, result := range []sessionPickerResult{newSessionPickerCreateResult(), newSessionPickerCancelResult(), newSessionPickerOpenResult(mustPickerValue(t, "valid-open", runtimeids.ParseSessionID))} {
+	for _, result := range []sessionPickerResult{newSessionPickerCreateResult(), newSessionPickerCancelResult(), newSessionPickerOpenResult(mustPickerValue(t, "20000000-0000-4000-8000-000000000011", runtimeids.ParseSessionID))} {
 		requireSessionPicker(t, validateSessionPickerLifecycleResult(result) == nil, "validate %T failed", result)
 	}
 	for _, result := range []sessionPickerResult{nil, sessionPickerOpenResult{}} {
@@ -344,7 +362,7 @@ func TestSessionPickerLifecycleGeometryAndResults(t *testing.T) {
 }
 
 func TestSessionPickerLifecycleCloseCancelsOutstandingPageRequests(t *testing.T) {
-	sessionID := mustPickerValue(t, "cancellation-open", runtimeids.ParseSessionID)
+	sessionID := mustPickerValue(t, "20000000-0000-4000-8000-000000000007", runtimeids.ParseSessionID)
 	for _, test := range []struct {
 		name string
 		key  *tea.KeyMsg
@@ -442,7 +460,11 @@ func pickerUpdateCommand(t *testing.T, model *sessionPickerModel, message tea.Ms
 
 func newTestSessionPickerLifecycle(t *testing.T, loader sessionPageLoader) *sessionPickerLifecycle {
 	lifecycle := newSessionPickerLifecycle(sessionPickerLifecycleOptions{Loader: loader, Theme: "dark"})
-	t.Cleanup(lifecycle.Close)
+	t.Cleanup(func() {
+		if err := lifecycle.Close(); err != nil {
+			t.Error(err)
+		}
+	})
 	return lifecycle
 }
 

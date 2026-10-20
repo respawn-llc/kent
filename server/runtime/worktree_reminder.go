@@ -13,7 +13,7 @@ import (
 )
 
 func (e *Engine) SteerWorktreeTransitionFailure(outcome clientui.WorktreeTransitionOutcome) error {
-	if err := outcome.Validate(); err != nil {
+	if err := outcome.ValidateSourceDiagnostic(); err != nil {
 		return fmt.Errorf("validate worktree transition outcome: %w", err)
 	}
 	if outcome.State != clientui.WorktreeTransitionFailed {

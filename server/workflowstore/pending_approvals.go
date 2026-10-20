@@ -156,11 +156,7 @@ func (s *Store) ListPendingApprovals(ctx context.Context, taskID workflow.TaskID
 }
 
 func (s *Store) PendingApproval(ctx context.Context, approvalID workflow.ApprovalID) (workflow.PendingApproval, error) {
-	normalizedID, err := normalizeApprovalID(approvalID)
-	if err != nil {
-		return workflow.PendingApproval{}, err
-	}
-	return pendingApprovalByID(ctx, s.queries, normalizedID)
+	return pendingApprovalByID(ctx, s.queries, approvalID)
 }
 
 func (s *Store) IsCurrentNodeExecutionEligible(ctx context.Context, reference workflow.CurrentNodeReference) (bool, error) {
@@ -849,13 +845,6 @@ func sameMaterializedContinuationSource(
 	leftSessionID, leftExact := left.ExactSessionID()
 	rightSessionID, rightExact := right.ExactSessionID()
 	return leftExact == rightExact && (!leftExact || leftSessionID == rightSessionID)
-}
-
-func normalizeApprovalID(id workflow.ApprovalID) (workflow.ApprovalID, error) {
-	if strings.TrimSpace(id.String()) == "" {
-		return "", ErrApprovalIDRequired
-	}
-	return workflow.ParseApprovalID(id.String())
 }
 
 func currentNodePendingApprovalID(ctx context.Context, q *sqlitegen.Queries, reference workflow.CurrentNodeReference) (workflow.ApprovalID, bool, error) {

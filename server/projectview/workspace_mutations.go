@@ -10,16 +10,10 @@ import (
 )
 
 func (s *Service) SetDefaultWorkspace(ctx context.Context, req *projectpb.SetDefaultWorkspaceRequest) (*projectpb.SetDefaultWorkspaceSuccess, error) {
-	if req == nil {
-		return nil, errors.New("set default workspace request is required")
-	}
 	if s == nil {
 		return nil, errors.New("project service is required")
 	}
-	selector, err := projectWorkspaceSelectorFromGenerated(req.Workspace)
-	if err != nil {
-		return nil, err
-	}
+	selector := projectWorkspaceSelectorFromGenerated(req.Workspace)
 	binding, err := s.metadata.ResolveProjectWorkspaceSelector(ctx, req.ProjectId, selector)
 	if err != nil {
 		return nil, err
@@ -36,16 +30,10 @@ func (s *Service) SetDefaultWorkspace(ctx context.Context, req *projectpb.SetDef
 }
 
 func (s *Service) UnlinkWorkspaceFromProject(ctx context.Context, req *projectpb.UnlinkWorkspaceRequest) (*projectpb.UnlinkWorkspaceSuccess, error) {
-	if req == nil {
-		return nil, errors.New("unlink workspace request is required")
-	}
 	if s == nil {
 		return nil, errors.New("project service is required")
 	}
-	selector, err := projectWorkspaceSelectorFromGenerated(req.Workspace)
-	if err != nil {
-		return nil, err
-	}
+	selector := projectWorkspaceSelectorFromGenerated(req.Workspace)
 	workspaceID := selector.WorkspaceIDValue()
 	if workspaceID == nil {
 		binding, err := s.metadata.ResolveProjectWorkspaceSelector(ctx, req.ProjectId, selector)

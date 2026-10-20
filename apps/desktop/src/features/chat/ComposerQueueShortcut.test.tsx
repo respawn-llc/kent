@@ -1,13 +1,20 @@
+import { afterEach, beforeEach, expect, it, vi } from "bun:test";
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
-import { parsePendingWorkItemID, type ChatInputMutationResult } from "@/api";
+import { pendingWorkItemIDFromProto, type ChatInputMutationResult } from "@/api";
 import { createTestServices } from "@/test-support/app-services";
 import { composerWrapper } from "@/test-support/composer";
 import { useChatComposer, target } from "./chatComposerTestFixture";
-import { createChatStorageFixture } from "./chatStorageFixture";
+import { installChatStorageFixture } from "./chatStorageFixture";
 import { useComposerKeyboard } from "./useComposerKeyboard";
 
-beforeEach(() => vi.stubGlobal("localStorage", createChatStorageFixture()));
-afterEach(() => vi.unstubAllGlobals());
+let restoreStorage: (() => void) | undefined;
+beforeEach(() => {
+  restoreStorage = installChatStorageFixture();
+});
+afterEach(() => {
+  restoreStorage?.();
+  restoreStorage = undefined;
+});
 
 it.each([
   { platform: "macos", modifier: "metaKey", intent: "queue" },
@@ -25,7 +32,8 @@ it.each([
     sessionID: target.sessionID,
     outcome: {
       kind: "accepted",
-      queueItemID: parsePendingWorkItemID("79f762c8-0998-402a-bc80-6b42f3e241ed"),
+      disposition: "started_turn",
+      queueItemID: pendingWorkItemIDFromProto("79f762c8-0998-402a-bc80-6b42f3e241ed"),
       diagnostic: null,
     },
   };
@@ -52,7 +60,7 @@ it.each([
   fireEvent.keyDown(editor, { key: "Enter", ...(modifier === null ? {} : { [modifier]: true }) });
   if (intent !== null) {
     await waitFor(() => {
-      expect(intent === "queue" ? queue : send).toHaveBeenCalledOnce();
+      expect(intent === "queue" ? queue : send).toHaveBeenCalledTimes(1);
     });
   }
   expect(queue).toHaveBeenCalledTimes(intent === "queue" ? 1 : 0);

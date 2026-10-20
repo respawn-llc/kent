@@ -16,7 +16,6 @@ import (
 	"core/server/sessionruntime"
 	"core/server/workflow"
 	"core/shared/clientui"
-	"core/shared/protoapi"
 	taskpb "core/shared/protoapi/gen/kent/api/workflow_task"
 	"core/shared/runtimeids"
 	"core/shared/serverapi"
@@ -56,9 +55,6 @@ func (a *Attention) List(ctx context.Context, req *taskpb.AttentionListRequest) 
 	if a == nil {
 		return nil, errors.New("attention read model is required")
 	}
-	if err := protoapi.Validate(req); err != nil {
-		return nil, err
-	}
 	pageSize := int(req.PageSize)
 	if pageSize == 0 {
 		pageSize = 50
@@ -96,9 +92,6 @@ func (a *Attention) List(ctx context.Context, req *taskpb.AttentionListRequest) 
 func (a *Attention) ListTask(ctx context.Context, req *taskpb.TaskAttentionListRequest) (*taskpb.TaskAttentionListSuccess, error) {
 	if a == nil {
 		return nil, errors.New("attention read model is required")
-	}
-	if err := protoapi.Validate(req); err != nil {
-		return nil, err
 	}
 	taskID := strings.TrimSpace(req.TaskId)
 	task, err := a.queries.GetTask(ctx, taskID)
@@ -363,9 +356,6 @@ func (a *Attention) liveQuestionCandidates(ctx context.Context, taskFilter *stri
 			}
 			promptsByID := make(map[clientui.ToolCallID]PendingPromptSnapshot, len(prompts))
 			for _, prompt := range prompts {
-				if err := prompt.ToolCallID.Validate(); err != nil {
-					return nil, fmt.Errorf("task %q session %q pending prompt identity: %w", taskID, execution.Agent.SessionID, err)
-				}
 				if _, duplicate := promptsByID[prompt.ToolCallID]; duplicate {
 					return nil, fmt.Errorf("task %q session %q has duplicate pending prompt %q", taskID, execution.Agent.SessionID, prompt.ToolCallID)
 				}
@@ -391,9 +381,6 @@ func (a *Attention) liveQuestionCandidates(ctx context.Context, taskFilter *stri
 					return nil, fmt.Errorf("task %q session %q prompt for tool call %q changed prompt kind", taskID, execution.Agent.SessionID, promptReference.ToolCallID)
 				}
 				occurredAt := prompt.CreatedAt.UnixMilli()
-				if occurredAt <= 0 {
-					return nil, fmt.Errorf("task %q session %q prompt for tool call %q has no occurrence time", taskID, execution.Agent.SessionID, promptReference.ToolCallID)
-				}
 				currentNode := workflowCurrentNodeReference(execution.Ref.CurrentNode)
 				out = append(out, attentionCandidate{item: &taskpb.AttentionItem{
 					Id:          liveQuestionAttentionID(execution.Agent.SessionID, prompt.StepID, prompt.ToolCallID),
@@ -428,9 +415,6 @@ func liveQuestionAttentionID(
 func (a *Attention) attachLiveQuestionSessionNames(ctx context.Context, candidates []attentionCandidate) error {
 	sessionIDs := make([]string, 0, len(candidates))
 	for _, candidate := range candidates {
-		if candidate.item.GetQuestion().GetQuestion() == nil {
-			return fmt.Errorf("live question attention %q has no prompt", candidate.item.Id)
-		}
 		sessionIDs = append(sessionIDs, candidate.item.GetQuestion().Question.SessionId)
 	}
 	names, err := resolveSessionPresentations(ctx, a.queries.ListSessionNamesByIDs, sessionIDs)

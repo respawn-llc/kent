@@ -1,6 +1,6 @@
 import { render, screen } from "@testing-library/react";
 import { I18nextProvider } from "react-i18next";
-import { afterEach, beforeAll, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeAll, describe, expect, it, vi } from "bun:test";
 import type { QuestionAttentionItem } from "@/api";
 import { AppServicesProvider } from "@/app-facade";
 import { appI18n, initializeI18n } from "@/i18n";
@@ -10,16 +10,18 @@ import { PromptPrimaryControlRegistry, type PromptPrimaryControl } from "./Promp
 import type { PromptAnswerKey } from "./PromptAnswerState";
 import { questionPresentation, emptyQuestionSelection } from "./TaskDetailQuestionState";
 import { QuestionFormView } from "./TaskDetailQuestionFormView";
-vi.mock("@/shared/speech-input", () => ({
+await vi.mock("@/shared/speech-input", () => ({
   useSpeechField: () => ({ control: undefined, busy: false, busyReason: "Speech pending" }),
 }));
-vi.mock("./TaskDetailSpeech", () => ({
+await vi.mock("./TaskDetailSpeech", () => ({
   useTaskSpeech: () => ({ questionDraft: () => ({ read: () => null, write: () => undefined }) }),
 }));
 const services = createTestServices([], undefined, { platform: "macos" });
 const baseQuestion = parsedQuestionAttention();
 beforeAll(async () => initializeI18n());
-afterEach(() => vi.restoreAllMocks());
+afterEach(() => {
+  vi.restoreAllMocks();
+});
 describe("Task Detail prompt primary controls", () => {
   it("replaces and unregisters exact-key controls without fallback", () => {
     const registry = new PromptPrimaryControlRegistry();

@@ -15,6 +15,7 @@ import (
 	runtimepb "core/shared/protoapi/gen/kent/api/runtime"
 	sharedpb "core/shared/protoapi/gen/kent/api/shared"
 	transcriptpb "core/shared/protoapi/gen/kent/api/transcript"
+	"core/shared/runtimeids"
 	"core/shared/runtimeinput"
 	"core/shared/serverapi"
 	"core/shared/textutil"
@@ -41,10 +42,9 @@ func TestConnectionReplacementIsHydratedAfterCoreActivation(t *testing.T) {
 	if err := store.SetConnectionID("removed"); err != nil {
 		t.Fatal(err)
 	}
-	_, err = app.SessionRuntimeClient().ActivateSessionRuntime(t.Context(), serverapi.SessionRuntimeActivateRequest{
-		SessionID: requestfixture.SessionID(t, store.Meta().SessionID), OwnerID: "connection-notice",
-		ActiveSettings: cfg.Settings, Source: cfg.Source,
-		QuestionsEnabled: textutil.Value(true), AutoCompactionEnabled: textutil.Value(true),
+	err = app.SessionRuntimeClient().ActivateSessionRuntime(t.Context(), serverapi.SessionRuntimeActivateRequest{
+		SessionID: requestfixture.SessionID(t, store.Meta().SessionID), SessionRuntimePreparationOptions: serverapi.SessionRuntimePreparationOptions{ActiveSettings: cfg.Settings, Source: cfg.Source,
+			QuestionsEnabled: textutil.Value(true), AutoCompactionEnabled: textutil.Value(true)},
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -84,9 +84,7 @@ func TestConnectionReplacementIsHydratedAfterCoreActivation(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := app.RuntimeControlClient().SubmitUserTurn(ctx, &runtimepb.SubmitUserTurnRequest{
-		SessionId: store.Meta().SessionID, Input: input,
-	}); err != nil {
+	if _, err := app.RuntimeControlClient().SubmitUserTurn(ctx, &runtimepb.SubmitUserTurnRequest{QueueItemId: runtimeids.NewQueueItemID().String(), SessionId: store.Meta().SessionID, Input: input}); err != nil {
 		t.Fatal(err)
 	}
 	select {

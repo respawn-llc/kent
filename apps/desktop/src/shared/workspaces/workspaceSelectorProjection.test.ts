@@ -1,3 +1,5 @@
+import { describe, expect, it } from "bun:test";
+
 import type { WorkspaceCatalogPage, WorkspaceCatalogRow } from "@/api";
 
 import {

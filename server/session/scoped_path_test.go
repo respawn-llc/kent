@@ -6,6 +6,7 @@ import (
 	"path/filepath"
 	"testing"
 
+	"core/shared/runtimeids"
 	"core/shared/sessioncontract"
 )
 
@@ -40,10 +41,11 @@ func TestResolveScopedSessionDirRejectsSymlinkOutsideContainer(t *testing.T) {
 	if err != nil {
 		t.Fatalf("create escaped session: %v", err)
 	}
-	if err := os.Symlink(escaped.Dir(), filepath.Join(containerA, "escaped-link")); err != nil {
+	escapedID := runtimeids.NewSessionID().String()
+	if err := os.Symlink(escaped.Dir(), filepath.Join(containerA, escapedID)); err != nil {
 		t.Fatalf("symlink escaped session: %v", err)
 	}
-	if _, err := ResolveScopedSessionDir(containerA, "escaped-link"); err == nil {
+	if _, err := ResolveScopedSessionDir(containerA, escapedID); err == nil {
 		t.Fatal("expected symlink escape to be rejected")
 	}
 }
@@ -55,7 +57,7 @@ func TestResolveScopedSessionDirWrapsSessionNotFound(t *testing.T) {
 		t.Fatalf("mkdir container: %v", err)
 	}
 
-	_, err := ResolveScopedSessionDir(containerDir, "missing-session")
+	_, err := ResolveScopedSessionDir(containerDir, runtimeids.NewSessionID().String())
 	if err == nil {
 		t.Fatal("expected missing scoped session to fail")
 	}
@@ -66,15 +68,15 @@ func TestResolveScopedSessionDirWrapsSessionNotFound(t *testing.T) {
 
 func TestResolveScopedSessionDirUsesRuntimeSessionIDSyntax(t *testing.T) {
 	containerDir := t.TempDir()
-	legacyID := "legacy_session.2024"
-	legacyDir := filepath.Join(containerDir, legacyID)
-	if err := os.MkdirAll(legacyDir, 0o755); err != nil {
-		t.Fatalf("mkdir legacy session: %v", err)
+	sessionID := runtimeids.NewSessionID().String()
+	sessionDir := filepath.Join(containerDir, sessionID)
+	if err := os.MkdirAll(sessionDir, 0o755); err != nil {
+		t.Fatalf("mkdir session: %v", err)
 	}
-	if _, err := ResolveScopedSessionDir(containerDir, legacyID); err != nil {
-		t.Fatalf("resolve supported legacy session ID: %v", err)
+	if _, err := ResolveScopedSessionDir(containerDir, sessionID); err != nil {
+		t.Fatalf("resolve canonical session ID: %v", err)
 	}
-	if _, err := ResolveScopedSessionDir(containerDir, " "+legacyID); err == nil {
+	if _, err := ResolveScopedSessionDir(containerDir, " "+sessionID); err == nil {
 		t.Fatal("padded session ID succeeded")
 	}
 }

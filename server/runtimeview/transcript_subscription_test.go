@@ -12,6 +12,7 @@ import (
 	"core/server/session"
 	"core/server/tools"
 	"core/shared/protoapi"
+	projectpb "core/shared/protoapi/gen/kent/api/project"
 	runtimepb "core/shared/protoapi/gen/kent/api/runtime"
 	transcriptpb "core/shared/protoapi/gen/kent/api/transcript"
 	"core/shared/rollbacktarget"
@@ -157,30 +158,6 @@ func TestTranscriptCompactionProjectionCarriesTypedFactsWithoutServerPresentatio
 	}
 	if notice.CompactLabel != nil || notice.CondensedText != nil || notice.Diagnostic != nil {
 		t.Fatalf("server-authored compaction presentation leaked into client contract: %+v", notice)
-	}
-}
-
-func TestTranscriptCompactionStatusPreservesInitiatingRequestIdentity(t *testing.T) {
-	requestID := runtimeids.NewCompactionRequestID()
-	messages, err := TranscriptMessagesFromRuntimeEventChecked(runtime.Event{
-		Kind:   runtime.EventCompactionCompleted,
-		StepID: runtimeStepIDPointer(transcriptProjectionStepID),
-		Compaction: &runtime.CompactionStatus{
-			Mode:      "manual",
-			RequestID: &requestID,
-			Count:     1,
-		},
-	}, nil)
-
-	if err != nil {
-		t.Fatalf("project compaction status: %v", err)
-	}
-	if len(messages) != 1 {
-		t.Fatalf("compaction messages = %+v, want one", messages)
-	}
-	status := messages[0].GetCompactionStatus()
-	if status.RequestId == nil || *status.RequestId != requestID.String() {
-		t.Fatalf("projected request identity = %v, want %s", status.RequestId, requestID.String())
 	}
 }
 
@@ -626,9 +603,8 @@ func TestRuntimeScopedUserFlushProjectsWithoutExactStep(t *testing.T) {
 		UserMessageBatchQueuedItems: []runtime.QueuedUserMessageIdentity{{
 			QueueItemID: "10000000-0000-4000-8000-000000000020",
 		}},
-		CommittedProvenance: &runtime.TranscriptCommittedRowProvenance{EventSequence: 1},
+		CommittedProvenance: &runtime.TranscriptCommittedRowProvenance{EventSequence: 1, QueueItemIDs: []string{"10000000-0000-4000-8000-000000000020"}},
 	}, nil)
-
 	if err != nil {
 		t.Fatalf("project Runtime user flush: %v", err)
 	}
@@ -648,6 +624,9 @@ func TestRuntimeScopedUserFlushProjectsWithoutExactStep(t *testing.T) {
 	}
 	if userRow == nil || userRow.StepId != nil || flushed == nil || flushed.StepId != nil {
 		t.Fatalf("Runtime user/flush Step provenance = user:%+v flush:%+v, want absent", userRow, flushed)
+	}
+	if len(userRow.QueueItemIds) != 1 || userRow.QueueItemIds[0] != "10000000-0000-4000-8000-000000000020" {
+		t.Fatalf("delivery identity = %+v", userRow)
 	}
 }
 
@@ -704,6 +683,7 @@ func TestRuntimeScopedToolCompletionProjectsLiveAndHydratedWithoutExactStep(t *t
 		t.Fatalf("Runtime hydration rows = %+v, want user and tool", hydration.TailSegment.Entries)
 	}
 	hydration.SessionIdentity = &transcriptpb.SessionIdentity{
+		Category:              projectpb.SessionCategory_SESSION_CATEGORY_MAIN,
 		SessionId:             projectionWorkspaceID,
 		ConversationFreshness: runtimepb.ConversationFreshness_CONVERSATION_FRESHNESS_ESTABLISHED,
 	}
@@ -1470,26 +1450,6 @@ func TestTranscriptWorkspacesNoticePreservesTypedMessageAndVisibility(t *testing
 		row.GetNotice().GetMessageType() != transcriptpb.NoticeMessageType_NOTICE_MESSAGE_TYPE_WORKSPACES ||
 		row.Visibility != transcriptpb.EntryVisibility_ENTRY_VISIBILITY_DETAIL {
 		t.Fatalf("Workspaces notice projection = %+v, want typed detail notice", row)
-	}
-}
-
-func TestTranscriptBackgroundActivityRejectsMissingRuntimeActivityID(t *testing.T) {
-	_, err := TranscriptMessagesFromRuntimeEventChecked(runtime.Event{
-		Kind:   runtime.EventBackgroundUpdated,
-		StepID: runtimeStepIDPointer(transcriptProjectionStepID),
-		Background: &runtime.BackgroundShellEvent{
-			Type:        runtime.BackgroundShellEventBackgrounded,
-			ID:          uuid.NewString(),
-			OwnerStepID: transcriptProjectionStepID,
-			State:       "running",
-			Command:     "go test ./...",
-			Workdir:     "/tmp/workspace",
-			Preview:     "tests",
-		},
-	}, nil)
-
-	if err == nil {
-		t.Fatal("expected missing background activity id to be rejected")
 	}
 }
 

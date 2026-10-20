@@ -315,10 +315,7 @@ func expectedSessionRemovalFailure(
 		}
 	case "session_in_use":
 		if inUse != nil {
-			identity, err := protoapi.SessionIdentityFromProto(inUse.SessionId, inUse.ShortId)
-			if err != nil {
-				return sessionRemovalFailure(inUse.SessionId, "request_failed", err.Error())
-			}
+			identity := protoapi.SessionIdentityFromProto(inUse.SessionId, inUse.ShortId)
 			return sessionRemovalFailure(
 				inUse.SessionId,
 				"session_in_use",

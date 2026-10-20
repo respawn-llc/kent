@@ -15,9 +15,18 @@ import { createSpeechTarget } from "./insertion";
 const target = createSpeechTarget({ read: () => "", write: () => undefined, editor: () => null });
 const field = Symbol("origin");
 const siblingField = Symbol("sibling");
+const globals = new Map<string, PropertyDescriptor | undefined>();
+function stubGlobal(name: string, value: unknown) {
+  if (!globals.has(name)) globals.set(name, Object.getOwnPropertyDescriptor(globalThis, name));
+  Object.defineProperty(globalThis, name, { configurable: true, writable: true, value });
+}
 
 afterEach(() => {
-  vi.unstubAllGlobals();
+  for (const [name, descriptor] of globals) {
+    if (descriptor === undefined) Reflect.deleteProperty(globalThis, name);
+    else Object.defineProperty(globalThis, name, descriptor);
+  }
+  globals.clear();
   vi.restoreAllMocks();
 });
 
@@ -32,8 +41,8 @@ it("releases a microphone permission result that arrives after destination dispo
   const permission = deferred<{ getTracks(): readonly { stop(): void }[] }>();
   const track = { stop: vi.fn() };
   const stream = { getTracks: () => [track] };
-  vi.stubGlobal("navigator", { mediaDevices: { getUserMedia: async () => permission.promise } });
-  vi.stubGlobal("MediaRecorder", { isTypeSupported: () => true });
+  stubGlobal("navigator", { mediaDevices: { getUserMedia: async () => permission.promise } });
+  stubGlobal("MediaRecorder", { isTypeSupported: () => true });
   const services = createTestServices([]);
   vi.spyOn(services.api, "speechAvailability").mockResolvedValue(available);
   const client = new QueryClient({ defaultOptions: { queries: { retry: false, staleTime: Infinity } } });
@@ -76,8 +85,8 @@ function recordingFixture(manualStart = false) {
   const startRequested = vi.fn();
   let ready = () => undefined;
   const track = { stop: vi.fn() };
-  vi.stubGlobal("navigator", { mediaDevices: { getUserMedia: async () => ({ getTracks: () => [track] }) } });
-  vi.stubGlobal(
+  stubGlobal("navigator", { mediaDevices: { getUserMedia: async () => ({ getTracks: () => [track] }) } });
+  stubGlobal(
     "MediaRecorder",
     class extends EventTarget {
       static isTypeSupported() {
@@ -103,7 +112,7 @@ function recordingFixture(manualStart = false) {
       }
     },
   );
-  vi.stubGlobal(
+  stubGlobal(
     "AudioContext",
     class {
       async resume() {
@@ -253,7 +262,7 @@ it("keeps capture running after transport loss and makes its fresh attempt only 
 it("keeps sibling capture unavailable until the destination transcription finishes", async () => {
   const f = recordingFixture();
   const finalization = deferred<SpeechSource>();
-  vi.mocked(f.capture.finalize).mockReturnValue(finalization.promise);
+  vi.spyOn(f.capture, "finalize").mockReturnValue(finalization.promise);
   act(() => {
     f.view.result.current.actions.start();
   });
@@ -287,7 +296,7 @@ it.each([null, new Error("cancel failed")])(
   "preserves a disposed destination's original when cancellation returns %s",
   async (cancelError) => {
     const f = recordingFixture();
-    if (cancelError !== null) vi.mocked(f.capture.cancel).mockRejectedValueOnce(cancelError);
+    if (cancelError !== null) vi.spyOn(f.capture, "cancel").mockRejectedValueOnce(cancelError);
     act(() => {
       f.view.result.current.actions.start();
     });

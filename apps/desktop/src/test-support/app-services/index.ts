@@ -1,5 +1,6 @@
 import { createBrowserNativeBridge, type NativePlatform } from "@app/native-bridge";
 import { create } from "@app/server-api-contract";
+import { SpeechService } from "@app/server-api-contract/gen/kent/api/speech/speech_pb";
 import {
   GetReadinessResultSchema,
   ServerService,
@@ -17,6 +18,7 @@ import {
 import { TaskCommentService } from "@app/server-api-contract/gen/kent/api/workflow_task/lifecycle_pb";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { RegistryProvider } from "@effect/atom-react";
+import { MotionConfig } from "motion/react";
 import { createElement, useMemo, type ReactNode } from "react";
 import { I18nextProvider } from "react-i18next";
 
@@ -68,10 +70,12 @@ export function TestAppProviders({
   children,
   services,
   queryClient: suppliedQueryClient,
+  skipAnimations = false,
 }: Readonly<{
   children: ReactNode;
   services: AppServices;
   queryClient?: QueryClient;
+  skipAnimations?: boolean;
 }>) {
   const queryClient = useMemo(
     () =>
@@ -84,7 +88,7 @@ export function TestAppProviders({
       }),
     [suppliedQueryClient],
   );
-  return createElement(
+  const providers = createElement(
     I18nextProvider,
     { i18n: appI18n },
     createElement(
@@ -106,6 +110,9 @@ export function TestAppProviders({
       }),
     ),
   );
+  return skipAnimations
+    ? createElement(MotionConfig, { skipAnimations: true, children: providers })
+    : providers;
 }
 
 export function createTestServices(
@@ -113,7 +120,7 @@ export function createTestServices(
   nativeBridge?: ReturnType<typeof createBrowserNativeBridge>,
   options: CreateTestServicesOptions = {},
 ): TestAppServices {
-  const transport = new FakeRpcTransport(routes);
+  const transport = new FakeRpcTransport([speechUnavailableRoute, ...routes]);
   const logger = createTestLogger();
   const speechUnavailable = async (): Promise<never> => {
     throw new Error("This fixture has no speech transfer.");
@@ -157,6 +164,13 @@ function createTestLogger(): TestLogger {
     },
   };
 }
+
+const speechUnavailableRoute: FakeRoute = {
+  descriptor: SpeechService.method.getAvailability,
+  result: create(SpeechService.method.getAvailability.output, {
+    outcome: { case: "success", value: { state: { case: "unavailable", value: {} } } },
+  }),
+};
 
 export const startupRoutes: readonly FakeRoute[] = [
   {

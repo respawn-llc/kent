@@ -180,9 +180,6 @@ func projectObservationQuestion(question serverapi.ObservationQuestion, answerSe
 	}, nil
 }
 func projectRunWatchJSON(response *promptpb.LiveWatchSuccess) (observationJSONEnvelope, int, error) {
-	if err := protoapi.Validate(response); err != nil {
-		return observationJSONEnvelope{}, 1, err
-	}
 	target := observationTargetSession(response.SessionId)
 	switch selected := response.Outcome.Outcome.(type) {
 	case *promptpb.LiveWatchOutcome_Question:

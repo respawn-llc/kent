@@ -6,7 +6,6 @@ import (
 	"core/server/tools"
 	"core/shared/clientui"
 	"core/shared/config"
-	"core/shared/runtimeids"
 	"core/shared/runtimeinput"
 	"core/shared/transcript"
 	"fmt"
@@ -233,7 +232,6 @@ type ModelResponseTrace struct {
 
 type CompactionStatus struct {
 	Mode              string
-	RequestID         *runtimeids.CompactionRequestID
 	Engine            string
 	Provider          string
 	TrimmedItemsCount *int

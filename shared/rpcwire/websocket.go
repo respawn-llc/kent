@@ -172,6 +172,11 @@ func (c *webSocketConn) OnClose(_ *gws.Conn, err error) {
 	if err == nil {
 		err = io.EOF
 	}
+	var closeErr *gws.CloseError
+	if errors.As(err, &closeErr) && (closeErr.Code == 1000 || closeErr.Code == 1001) {
+		// Normal closure and Going Away terminate transport, not the RPC contract.
+		err = errors.Join(io.EOF, err)
+	}
 	c.publishError(err)
 	_ = c.Close()
 }

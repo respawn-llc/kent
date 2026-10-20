@@ -191,7 +191,7 @@ func TestServiceListWorkflowTasksValidatesAndDelegates(t *testing.T) {
 	ctx, service, projectID, workflowID, taskID := newWorkflowServiceOrdinaryTaskFixture(t)
 
 	blankProjectID := " "
-	if _, err := service.ListWorkflowTasks(ctx, &taskpb.ListRequest{
+	if err := protoapi.Validate(&taskpb.ListRequest{
 		LabelFilter: noLabelFilter(), ProjectId: &blankProjectID}); !isWorkflowServiceRequestFieldError(err, "project_id") {
 		t.Fatalf("blank project error = %#v, want project_id validation", err)
 	}
@@ -311,13 +311,13 @@ func TestServiceTaskCommentListPaginatesOffsetWindows(t *testing.T) {
 		{name: "limit above maximum", offset: &offset, limit: &aboveLimit, field: "limit"},
 	} {
 		t.Run(tt.name, func(t *testing.T) {
-			_, err := service.ListWorkflowTaskComments(ctx, &taskpb.TaskOffsetPageRequest{
+			err := protoapi.Validate(&taskpb.TaskOffsetPageRequest{
 				TaskId: taskID,
 				Offset: tt.offset,
 				Limit:  tt.limit,
 			})
 			if !isWorkflowServiceRequestFieldError(err, tt.field) {
-				t.Fatalf("ListWorkflowTaskComments error = %T %v, want %s validation", err, err, tt.field)
+				t.Fatalf("TaskOffsetPageRequest error = %T %v, want %s validation", err, err, tt.field)
 			}
 		})
 	}
@@ -483,13 +483,10 @@ func TestServiceCompletedReopenRequestsReplacementWithoutMovingTask(t *testing.T
 					t.Fatal("target resolution failure applied Move")
 				}
 				infrastructure.resolveErr = nil
-				retained, err := worktreecontract.NewSetupRetainedError(&worktreepb.RegisteredFacts{
+				retained := worktreecontract.NewSetupRetainedError(&worktreepb.RegisteredFacts{
 					Git:  &worktreepb.GitFacts{CanonicalRoot: replacementRoot, HeadObject: commit},
 					Kent: &worktreepb.KentFacts{WorktreeId: replacementID, CanonicalRoot: replacementRoot, DisplayName: branch},
 				}, "/setup.sh", "setup failed", nil, errors.New("setup process failed"))
-				if err != nil {
-					t.Fatal(err)
-				}
 				retained.Details.RecoveryDisposition = worktreepb.SetupRecoveryDisposition_SETUP_RECOVERY_DISPOSITION_FRESH_REPLACEMENT
 				infrastructure.materializeErr = retained
 				var failure *worktreecontract.SetupRetainedError
@@ -2080,13 +2077,11 @@ func TestServiceMapsWorkflowTaskLabelScopeFailures(t *testing.T) {
 	for index := range raw101 {
 		raw101[index] = "not-a-uuid"
 	}
-	_, err = service.UpdateWorkflowTaskLabels(ctx, &taskpb.LabelsUpdateRequest{
+	err = protoapi.Validate(&taskpb.LabelsUpdateRequest{
 		TaskId:      task.Task.Id,
 		AddLabelIds: raw101,
 	})
-	mutationErr := protoapi.WorkflowTaskLabelValidationDetail(task.Task.Id, err)
-	if mutationErr == nil || mutationErr.Reason != taskpb.LabelErrorReason_LABEL_ERROR_REASON_INVALID_MUTATION ||
-		mutationErr.GetField() != "add_label_ids" {
+	if !isWorkflowServiceRequestFieldError(err, "add_label_ids") {
 		t.Fatalf("invalid mutation error = %T %+v", err, err)
 	}
 }

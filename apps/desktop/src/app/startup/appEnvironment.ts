@@ -69,7 +69,18 @@ export async function createDefaultAppServices(): Promise<AppServices> {
   // to the native-resolved server. context.persistenceRootId is empty for the
   // default root (validation skipped).
   const expectedRootId = browserEndpoint === null ? context.persistenceRootId : "";
-  const api = new ApiClient(createRpcTransport(endpoint, expectedRootId), projectEventDiagnostics(logger));
+  const api = new ApiClient(
+    createRpcTransport(
+      endpoint,
+      (error) => {
+        void logger.append("error", "Invalid server response.", {
+          error: error instanceof Error ? (error.stack ?? error.message) : String(error),
+        });
+      },
+      expectedRootId,
+    ),
+    projectEventDiagnostics(logger),
+  );
   return {
     api,
     speech: createSpeechTransfer(nativeBridge, endpoint),
@@ -245,10 +256,6 @@ class BootstrapErrorTransport implements RpcTransport {
   };
 
   async callDescriptorAttachedSession(): Promise<never> {
-    throw this.#error;
-  }
-
-  async runRuntimeOwner(): Promise<never> {
     throw this.#error;
   }
 }

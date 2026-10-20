@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"path/filepath"
 	"strings"
+	"time"
 
 	"core/cli/internal/pathdisplay"
 	"core/shared/clientui"
@@ -762,6 +763,22 @@ func noticeRoleAndText(row *transcriptpb.NoticeRow, visibility transcriptpb.Entr
 		}
 		return role, reasoningOmissionText
 	}
+	if row.Reason == transcriptpb.NoticeReason_NOTICE_REASON_CONNECTION_FALLBACK && row.ConnectionFallback != nil {
+		return role, fmt.Sprintf("Switched connection from %s to %s because usage was exhausted", row.ConnectionFallback.PreviousId, row.ConnectionFallback.CurrentId)
+	}
+	if row.Reason == transcriptpb.NoticeReason_NOTICE_REASON_CONNECTIONS_UNAVAILABLE && row.ConnectionsUnavailable != nil {
+		var lines []string
+		lines = append(lines, "Configured connections are unavailable. Retry after cooldown or update the configured connections.")
+		for _, member := range row.ConnectionsUnavailable.Members {
+			if member.AvailableAt == nil {
+				lines = append(lines, fmt.Sprintf("%s: already attempted", member.Id))
+			} else {
+				lines = append(lines, fmt.Sprintf("%s: available after %s", member.Id, member.AvailableAt.AsTime().Local().Format(time.RFC3339)))
+			}
+		}
+		lines = append(lines, row.ConnectionsUnavailable.Diagnostics...)
+		return role, strings.Join(lines, "\n")
+	}
 	if isError && row.Reason == transcriptpb.NoticeReason_NOTICE_REASON_LEGACY_UNTYPED_NOTICE && row.LegacyText != nil {
 		return role, *row.LegacyText
 	}
@@ -1024,6 +1041,10 @@ func noticeReasonLabel(reason transcriptpb.NoticeReason) string {
 		return transcript.NoticeReasonProviderModelMismatch
 	case transcriptpb.NoticeReason_NOTICE_REASON_REASONING_OMISSION:
 		return transcript.NoticeReasonReasoningOmission
+	case transcriptpb.NoticeReason_NOTICE_REASON_CONNECTION_FALLBACK:
+		return transcript.NoticeReasonConnectionFallback
+	case transcriptpb.NoticeReason_NOTICE_REASON_CONNECTIONS_UNAVAILABLE:
+		return transcript.NoticeReasonConnectionsUnavailable
 	default:
 		return "notice"
 	}

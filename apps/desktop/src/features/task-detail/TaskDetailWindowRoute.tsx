@@ -1,11 +1,6 @@
-import { useMemo } from "react";
-import { useTranslation } from "react-i18next";
-import { useQueryClient } from "@tanstack/react-query";
-import { useAtomSet } from "@effect/atom-react";
-import { useAppServices, useStatusController } from "@/app-facade";
+import { useAppServices } from "@/app-facade";
 import { TaskDetailSurface } from "./TaskDetailSurface";
 import { useExactTaskDetailDeleteDismissal } from "./taskDetailDismissal";
-import { createTaskDetailChatOpening, TaskDetailChatOpeningContext } from "./TaskDetailChatOpening";
 
 /**
  * Full-bleed native-window host for a popped-out task detail. Unlike the padded
@@ -17,19 +12,7 @@ import { createTaskDetailChatOpening, TaskDetailChatOpeningContext } from "./Tas
 export function TaskDetailWindowRoute({ taskID }: Readonly<{ taskID: string }>) {
   const services = useAppServices();
   const { nativeBridge } = services;
-  const client = useQueryClient();
-  const { push } = useStatusController();
-  const { t } = useTranslation();
-  const model = useMemo(
-    () => createTaskDetailChatOpening({ client, services, push, t }),
-    [client, services, push, t],
-  );
-  const open = useAtomSet(model.open);
-  const openSessionChat = nativeBridge.capabilities.dialogWindows
-    ? async (target: Parameters<typeof open>[0]) => {
-        open(target);
-      }
-    : undefined;
+  const sessionChatDefaultIntent = nativeBridge.capabilities.dialogWindows ? "native_window" : "ordinary";
   const onDeleteDismiss = useExactTaskDetailDeleteDismissal(taskID, async () => {
     await nativeBridge.window.closeCurrent();
   });
@@ -40,14 +23,12 @@ export function TaskDetailWindowRoute({ taskID }: Readonly<{ taskID: string }>) 
         data-tauri-drag-region
       />
       <div className="app-region-no-drag min-h-0 overflow-hidden">
-        <TaskDetailChatOpeningContext.Provider value={model}>
-          <TaskDetailSurface
-            enabled
-            onDeleteDismiss={onDeleteDismiss}
-            taskId={taskID}
-            openSessionChat={openSessionChat}
-          />
-        </TaskDetailChatOpeningContext.Provider>
+        <TaskDetailSurface
+          enabled
+          onDeleteDismiss={onDeleteDismiss}
+          taskId={taskID}
+          sessionChatDefaultIntent={sessionChatDefaultIntent}
+        />
       </div>
     </main>
   );

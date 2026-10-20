@@ -114,13 +114,17 @@ func TestRuntimeAgentSelectionRolePresence(t *testing.T) {
 			if err := proto.Unmarshal(encoded, &wire); err != nil {
 				t.Fatal(err)
 			}
-			selection, err := protoapi.SessionRuntimeAgentSelectionFromProto(&wire)
+			err = protoapi.Validate(&wire)
 			if !test.valid {
 				if err == nil {
 					t.Fatal("present invalid role accepted")
 				}
 				return
 			}
+			if err != nil {
+				t.Fatal(err)
+			}
+			selection, err := protoapi.SessionRuntimeAgentSelectionFromProto(&wire)
 			if err != nil {
 				t.Fatal(err)
 			}

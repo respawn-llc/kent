@@ -121,6 +121,11 @@ func TestSessionCategoryPromotionIsOneWayAndAdvancesRecencyOnce(t *testing.T) {
 	if err != nil {
 		t.Fatalf("create store: %v", err)
 	}
+	savedName := "retained title"
+	if _, err := store.MutateName(&savedName); err != nil {
+		t.Fatal(err)
+	}
+	now = store.Meta().UpdatedAt
 	createdAt := store.Meta().UpdatedAt
 
 	now = now.Add(time.Hour)
@@ -132,6 +137,9 @@ func TestSessionCategoryPromotionIsOneWayAndAdvancesRecencyOnce(t *testing.T) {
 		t.Fatal("first promotion reported no change")
 	}
 	promoted := store.Meta()
+	if promoted.Name == nil || *promoted.Name != savedName {
+		t.Fatalf("promotion changed saved name: %v", promoted.Name)
+	}
 	if promoted.Category == nil || *promoted.Category != sessioncontract.SessionCategoryMain {
 		t.Fatalf("promoted category = %v, want main", promoted.Category)
 	}
@@ -558,10 +566,7 @@ func TestMetaSnapshotDeepCopiesSessionProvenance(t *testing.T) {
 		t.Fatal("snapshot parent-agent session id is nil")
 	}
 	original := *snapshot.ParentAgentSessionID
-	mutated, err := runtimeids.ParseSessionID("mutated-snapshot")
-	if err != nil {
-		t.Fatalf("ParseSessionID mutated snapshot: %v", err)
-	}
+	mutated := runtimeids.NewSessionID()
 	*snapshot.ParentAgentSessionID = mutated
 
 	if got := store.Meta().ParentAgentSessionID; got == nil || *got != original {

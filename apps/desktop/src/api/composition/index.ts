@@ -11,6 +11,4 @@ export type {
   ProjectAttachment,
   SessionAttachment,
   AttachedProjectDescriptorCall,
-  RuntimeOwnerContext,
-  RuntimeOwnerOptions,
 } from "../transport";

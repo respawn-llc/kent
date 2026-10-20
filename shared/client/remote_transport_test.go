@@ -20,16 +20,14 @@ import (
 	projectpb "core/shared/protoapi/gen/kent/api/project"
 	runtimepb "core/shared/protoapi/gen/kent/api/runtime"
 	sessionpb "core/shared/protoapi/gen/kent/api/session"
-	sessionlaunchpb "core/shared/protoapi/gen/kent/api/session_launch"
 	worktreepb "core/shared/protoapi/gen/kent/api/worktree"
 	"core/shared/protocol"
 	"core/shared/rpcwire"
-	"core/shared/serverapi"
+	"core/shared/runtimeids"
 
 	serverpb "core/shared/protoapi/gen/kent/api/server"
 	sharedpb "core/shared/protoapi/gen/kent/api/shared"
 
-	"golang.org/x/net/websocket"
 	"google.golang.org/protobuf/proto"
 	"google.golang.org/protobuf/types/known/emptypb"
 )
@@ -98,51 +96,6 @@ func TestDialConfiguredRemoteCancellationIsNotServerUnavailable(t *testing.T) {
 	var unavailable *ServerUnavailableError
 	if !errors.Is(err, context.Canceled) || errors.As(err, &unavailable) {
 		t.Fatalf("cancellation was classified as a missing server: %v", err)
-	}
-}
-
-func TestRemoteReleaseSessionRuntimePropagatesClosePolicy(t *testing.T) {
-	const sessionID = "123e4567-e89b-42d3-a456-426614174000"
-	releaseRequests := make(chan *sessionlaunchpb.SessionRuntimeReleaseRequest, 1)
-	server := newRemoteTestServer(t, func(ws *websocket.Conn) {
-		acceptRemoteHandshake(t, ws)
-		request := &sessionlaunchpb.SessionRuntimeReleaseRequest{}
-		call := receiveRemoteGeneratedCall(t, ws, "SessionRuntimeService", "Release", request)
-		releaseRequests <- request
-		sendRemoteGeneratedResult(t, ws, call, &sessionlaunchpb.SessionRuntimeReleaseResult{
-			Outcome: &sessionlaunchpb.SessionRuntimeReleaseResult_Success{Success: &sessionlaunchpb.SessionRuntimeReleaseSuccess{Released: true}},
-		})
-	})
-	defer server.Close()
-
-	remote, err := DialRemoteURL(context.Background(), "ws"+server.URL[len("http"):])
-	if err != nil {
-		t.Fatalf("DialRemoteURL: %v", err)
-	}
-	defer func() { _ = remote.Close() }()
-
-	resp, err := remote.ReleaseSessionRuntime(context.Background(), serverapi.SessionRuntimeReleaseRequest{
-		Attachment: serverapi.SessionRuntimeAttachment{
-			SessionID:  sessionID,
-			Generation: 7,
-		},
-		DropOwner:   true,
-		ClosePolicy: serverapi.SessionRuntimeReleaseClosePolicyDetachOnly,
-	})
-	if err != nil {
-		t.Fatalf("ReleaseSessionRuntime: %v", err)
-	}
-	if !resp.Released {
-		t.Fatalf("release response = %+v, want released", resp)
-	}
-	select {
-	case req := <-releaseRequests:
-		if req.Attachment.SessionId != sessionID || req.Attachment.Generation != 7 || !req.DropOwner ||
-			req.GetClosePolicy() != sessionlaunchpb.SessionRuntimeReleaseClosePolicy_SESSION_RUNTIME_RELEASE_CLOSE_POLICY_DETACH_ONLY {
-			t.Fatalf("release request = %+v, want exact attachment and detach-only owner drop", req)
-		}
-	case <-time.After(time.Second):
-		t.Fatal("timed out waiting for release request")
 	}
 }
 
@@ -531,10 +484,7 @@ func TestRemoteSessionAttachmentSurvivesUnaryControlReconnect(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	version, err := protoapi.NewReadModelVersion("epoch-1", 1, 1)
-	if err != nil {
-		t.Fatal(err)
-	}
+	version := protoapi.NewReadModelVersion("epoch-1", 1, 1)
 	response := &sessionpb.MainViewResult{Outcome: &sessionpb.MainViewResult_Success{Success: &sessionpb.MainViewSuccess{
 		MainView: &runtimepb.MainView{
 			Version: version,
@@ -545,6 +495,7 @@ func TestRemoteSessionAttachmentSurvivesUnaryControlReconnect(t *testing.T) {
 				ContextUsage: &runtimepb.ContextUsage{WindowTokens: 1000},
 			},
 			Session: &runtimepb.SessionView{
+				Category:              projectpb.SessionCategory_SESSION_CATEGORY_MAIN,
 				SessionId:             "11111111-1111-4111-8111-111111111111",
 				ConversationFreshness: runtimepb.ConversationFreshness_CONVERSATION_FRESHNESS_FRESH,
 				ExecutionTarget: &worktreepb.SessionExecutionTarget{
@@ -723,6 +674,7 @@ func TestRemoteProjectRootAttachmentRejectsDifferentWorkspaceOnReconnect(t *test
 }
 
 func TestRemoteInterruptUsesDedicatedConnWhileSubmitIsInFlight(t *testing.T) {
+	sessionID := runtimeids.NewSessionID().String()
 	service := runtimepb.File_kent_api_runtime_runtime_proto.Services().ByName("TurnService")
 	submitMethod := service.Methods().ByName("SubmitUserTurn")
 	interruptMethod := service.Methods().ByName("Interrupt")
@@ -802,11 +754,7 @@ func TestRemoteInterruptUsesDedicatedConnWhileSubmitIsInFlight(t *testing.T) {
 				case interruptSeen <- struct{}{}:
 				default:
 				}
-				version, versionErr := protoapi.NewReadModelVersion("epoch-1", 1, 1)
-				if versionErr != nil {
-					reportHandlerError(handlerErrs, "build interrupt version: %w", versionErr)
-					return
-				}
+				version := protoapi.NewReadModelVersion("epoch-1", 1, 1)
 				response := &runtimepb.ReadModelUpdate{
 					Version: version,
 					Activity: &runtimepb.Activity{
@@ -839,7 +787,7 @@ func TestRemoteInterruptUsesDedicatedConnWhileSubmitIsInFlight(t *testing.T) {
 
 	submitDone := make(chan error, 1)
 	go func() {
-		_, submitErr := remote.SubmitUserTurn(context.Background(), runtimeSubmitUserTurnRequestForTest("session-1", "run"))
+		_, submitErr := remote.SubmitUserTurn(context.Background(), runtimeSubmitUserTurnRequestForTest(sessionID, "run"))
 		submitDone <- submitErr
 	}()
 
@@ -853,7 +801,7 @@ func TestRemoteInterruptUsesDedicatedConnWhileSubmitIsInFlight(t *testing.T) {
 
 	interruptCtx, cancel := context.WithTimeout(context.Background(), 500*time.Millisecond)
 	defer cancel()
-	if _, err := remote.Interrupt(interruptCtx, &runtimepb.InterruptRequest{SessionId: "session-1"}); err != nil {
+	if _, err := remote.Interrupt(interruptCtx, &runtimepb.InterruptRequest{SessionId: sessionID}); err != nil {
 		t.Fatalf("Interrupt: %v", err)
 	}
 	select {

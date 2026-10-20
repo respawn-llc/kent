@@ -3,8 +3,6 @@ package app
 import (
 	"context"
 	"errors"
-	"fmt"
-	"strings"
 
 	"core/shared/clientui"
 	"core/shared/protoapi"
@@ -141,17 +139,11 @@ func (a *transcriptPromptAnswerer) submitter(
 		}
 		entry.Answer = &promptpb.AnswerBatchEntry_QuestionAnswer{QuestionAnswer: question}
 	}
-	sessionID, err := runtimeids.ParseSessionID(transcriptPromptSessionID(prompt))
-	if err != nil {
-		return nil, err
-	}
+	sessionID := runtimeids.SessionIDFromProto(transcriptPromptSessionID(prompt))
 	request := &promptpb.AnswerBatchRequest{
 		SessionId: protoapi.SessionSelectorToProto(sessionID),
 		StepId:    transcriptPromptStepID(prompt),
 		Entries:   []*promptpb.AnswerBatchEntry{entry},
-	}
-	if err := protoapi.Validate(request); err != nil {
-		return nil, fmt.Errorf("convert prompt answer: %w", err)
 	}
 	return func(ctx context.Context) error {
 		_, err := a.control.AnswerPromptBatch(ctx, request)
@@ -160,18 +152,12 @@ func (a *transcriptPromptAnswerer) submitter(
 }
 
 func newTranscriptPromptKey(prompt *transcriptpb.Prompt) (transcriptPromptKey, error) {
-	sessionID, err := runtimeids.ParseSessionID(transcriptPromptSessionID(prompt))
-	if err != nil {
-		return transcriptPromptKey{}, errors.New("prompt answer session id is required")
-	}
-	stepID, err := runtimeids.ParseStepID(transcriptPromptStepID(prompt))
+	sessionID := runtimeids.SessionIDFromProto(transcriptPromptSessionID(prompt))
+	stepID, err := runtimeids.StepIDFromProto(transcriptPromptStepID(prompt))
 	if err != nil {
 		return transcriptPromptKey{}, errors.New("prompt answer step id is required")
 	}
 	rawToolCallID := transcriptPromptToolCallID(prompt)
-	if strings.TrimSpace(rawToolCallID) == "" || strings.TrimSpace(rawToolCallID) != rawToolCallID {
-		return transcriptPromptKey{}, errors.New("prompt answer tool call id is required without surrounding whitespace")
-	}
 	return transcriptPromptKey{
 		sessionID:  sessionID,
 		stepID:     stepID,
@@ -184,12 +170,6 @@ func newActivePromptAnswerDelivery(
 	generation uint64,
 	cancel context.CancelFunc,
 ) (*activePromptAnswerDelivery, error) {
-	if key.sessionID.IsZero() || strings.TrimSpace(string(key.toolCallID)) == "" {
-		return nil, errors.New("prompt answer delivery key is required")
-	}
-	if key.stepID.IsZero() {
-		return nil, errors.New("prompt answer delivery step id is required")
-	}
 	if generation == 0 {
 		return nil, errors.New("prompt answer delivery generation is required")
 	}

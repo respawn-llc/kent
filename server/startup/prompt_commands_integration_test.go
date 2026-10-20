@@ -27,6 +27,7 @@ import (
 	"core/shared/serverapi"
 	"core/shared/textutil"
 
+	"core/shared/runtimeids"
 	"github.com/google/uuid"
 )
 
@@ -157,34 +158,24 @@ func TestRemotePromptCommandStartupCatalogAndInvocationUseImportedServerContent(
 	}
 	enabledToolIDs := make([]string, 0, len(plan.Plan.EnabledToolIds))
 	for _, generatedToolID := range plan.Plan.EnabledToolIds {
-		toolID, conversionErr := protoapi.SessionToolIDFromProto(generatedToolID)
-		if conversionErr != nil {
-			t.Fatalf("convert enabled tool ID: %v", conversionErr)
-		}
+		toolID := protoapi.SessionToolIDFromProto(generatedToolID)
 		enabledToolIDs = append(enabledToolIDs, string(toolID))
 	}
-	attachment, err := remote.ActivateSessionRuntime(context.Background(), serverapi.SessionRuntimeActivateRequest{
-		SessionID:             requestfixture.SessionID(t, plan.Plan.SessionId),
-		ActiveSettings:        activeSettings,
-		EnabledToolIDs:        enabledToolIDs,
-		QuestionsEnabled:      textutil.Value(plan.Plan.QuestionsEnabled),
-		AutoCompactionEnabled: textutil.Value(plan.Plan.AutoCompactionEnabled),
-		Source:                source,
+	err = remote.ActivateSessionRuntime(context.Background(), serverapi.SessionRuntimeActivateRequest{
+		SessionID: requestfixture.SessionID(t, plan.Plan.SessionId), SessionRuntimePreparationOptions: serverapi.SessionRuntimePreparationOptions{ActiveSettings: activeSettings,
+			EnabledToolIDs:        enabledToolIDs,
+			QuestionsEnabled:      textutil.Value(plan.Plan.QuestionsEnabled),
+			AutoCompactionEnabled: textutil.Value(plan.Plan.AutoCompactionEnabled),
+			Source:                source},
 	})
 	if err != nil {
 		t.Fatalf("ActivateSessionRuntime: %v", err)
 	}
-	if _, err := remote.SubmitUserTurn(context.Background(), &runtimepb.SubmitUserTurnRequest{
-		SessionId: plan.Plan.SessionId,
-		Input:     &runtimepb.UserTurnInput{Input: &runtimepb.UserTurnInput_PromptCommand{PromptCommand: &runtimepb.PromptCommandInput{Name: "prompt:remote_demo", Arguments: "hello world"}}},
+	if _, err := remote.SubmitUserTurn(context.Background(), &runtimepb.SubmitUserTurnRequest{QueueItemId: runtimeids.NewQueueItemID().String(), SessionId: plan.Plan.SessionId,
+		Input: &runtimepb.UserTurnInput{Input: &runtimepb.UserTurnInput_PromptCommand{PromptCommand: &runtimepb.PromptCommandInput{Name: "prompt:remote_demo", Arguments: "hello world"}}},
 	}); err != nil {
 		t.Fatalf("SubmitUserTurn: %v", err)
 	}
-	_, _ = remote.ReleaseSessionRuntime(context.Background(), serverapi.SessionRuntimeReleaseRequest{
-		Attachment:  attachment,
-		DropOwner:   true,
-		ClosePolicy: serverapi.SessionRuntimeReleaseClosePolicyDetachOnly,
-	})
 	var body json.RawMessage
 	testsetup.RequireUntil(t, time.Now().Add(10*time.Second), 10*time.Millisecond, func() bool {
 		for _, call := range responseServer.Snapshot().Observed {

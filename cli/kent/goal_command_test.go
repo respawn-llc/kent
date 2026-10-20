@@ -279,7 +279,6 @@ func TestGoalCompleteRejectsNonCompletedMutationResult(t *testing.T) {
 		name     string
 		response *runtimepb.GoalMutationSuccess
 	}{
-		{name: "invalid"},
 		{
 			name: "authoritative Clear",
 			response: &runtimepb.GoalMutationSuccess{

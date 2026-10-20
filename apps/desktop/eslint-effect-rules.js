@@ -245,7 +245,7 @@ export const effectRules = {
       schema: [],
       messages: {
         unowned:
-          "Use standard owned Atom React/Vitest bindings and structured child work; first-party root or detached Effect execution is forbidden.",
+          "Use owned Atom React bindings and structured child work; first-party root or detached Effect execution is forbidden.",
         namespace:
           "Effect namespaces must use statically resolved members; dynamic access or forwarding the namespace can expose unowned execution.",
       },

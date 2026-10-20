@@ -3,7 +3,7 @@ import { create } from "@app/server-api-contract";
 import * as pb from "@app/server-api-contract/gen/kent/api/workflow_definition/workflow_definition_pb";
 import { StreamCompletionSchema } from "@app/server-api-contract/gen/kent/api/shared/foundation_pb";
 import type { FakeRpcTransport } from "../api";
-import { vi } from "vitest";
+import { vi } from "bun:test";
 
 export function recordProjectObservers(
   transport: FakeRpcTransport,

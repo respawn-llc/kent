@@ -1,6 +1,4 @@
-# TUI Onboarding (First-Time Setup Wizard)
-
-## Trigger And Surface
+## Trigger and surface
 
 - A missing `config.toml` must open first-time setup before Session selection. First sign-in must be part of setup under [Provider Connections](provider-connections.md), not a preceding persistent configuration write.
 - The wizard is a bounded Alternate Screen surface.
@@ -11,24 +9,24 @@
 - Setup summaries must hide verbosity for models that do not support it.
 - Skill multi-select rows must start with text-symbol checkboxes rather than numbers or literal bracket marks. Provider group headings must not be repeated as prefixes on each skill row.
 
-## Flow Model
+## Flow model
 
 - The wizard is an ordered list of steps, one screen each, of three kinds: single-choice, text input (shared editor), and multi-select. Steps show or hide dynamically based on choices so far and detected capabilities. Connection setup must precede provider-dependent choices and the Defaults finalization path.
 - Step graph (order + visibility conditions):
   1. **Theme** — the picker must offer Auto, Dark, Light in that order, with live preview as the cursor moves. Auto must be the default and apply the detected terminal theme. Dark and Light must apply explicit overrides.
   2. **Connection setup** — choose and configure the first Provider Connection, including sign-in under [Provider Connections](provider-connections.md).
-  3. **Entry** — "configure now" vs "defaults": choosing defaults finalizes immediately with a default config, preserving the chosen theme and connection, and skips all remaining steps.
+  3. **Entry** — "configure now" vs "defaults": choosing defaults finalizes immediately with a default config using the chosen theme and connection, and skips every later step.
   4. **Model** — text input, pre-filled with the current default.
-  5. **Context window** — only for models with a large-window variant; default (smaller) window is the recommended pre-selection.
+  5. **Context window** — only for models with a large-window variant. The default (smaller) window is the recommended pre-selection.
   6. **Thinking level** — only for reasoning-capable models. Every provider must offer its level list and custom-value entry. Disable must appear only when the supported-effort list contains `none`. Custom opens a text sub-step and rejects empty values. Backend request-time validation follows [Core Runtime Tools](core-runtime-tools.md#grok-model-behavior).
   7. **Verbosity** — only for verbosity-capable models.
   8. **Follow-up questions** — enable/disable the ask-question tool.
-  9. **Supervisor** — off / after edits / always; when enabled, sub-steps for Supervisor model (pre-filled with the primary model) and Supervisor thinking (mirrors primary until explicitly diverged; custom entry as above).
-  10. **Compaction mode** — Local always offered; Native only when the provider supports it; Manual-only.
-  11. **Skills import** — only when importable items are detected from other providers; skills enablement is a multi-select.
+  9. **Supervisor** — off / after edits / always. When enabled, sub-steps for Supervisor model (pre-filled with the primary model) and Supervisor thinking (mirrors primary until explicitly diverged, with custom entry as above).
+  10. **Compaction mode** — Local always offered, Native only when the provider supports it, and Manual-only.
+  11. **Skills import** — only when importable items are detected from other providers. Skills enablement is a multi-select.
   12. **Slash commands import** — only when importable slash commands are detected from other providers.
-  13. **Review** — finish, or start over (returns to the first step with all selections preserved).
-- Validation errors render inline on the current screen and block advancing; they never abort the wizard.
+  13. **Review** — finish, or start over (returns to the first step without changing selections).
+- Validation errors render inline on the current screen and block advancing. They never abort the wizard.
 
 ## Keys
 
@@ -36,9 +34,9 @@
 - Across onboarding and Provider Connection setup, `Tab` and `Enter` must submit the current screen and advance. `Shift+Tab` must step back. Validation must block advancing when the current input is invalid.
 - In input fields, `←`/`→` must move the text cursor horizontally. `↑`/`↓` must move the cursor through wrapped input lines. Arrow keys must not switch screens or scroll the page while an input field is focused.
 - `Esc` steps back one step. `Esc` on the first step cancels the wizard.
-- After finalization starts, the spinner remains active and input cannot cancel or dismiss the operation. The wizard waits up to 30 seconds for a final result.
+- After finalization starts, the spinner is active until completion and input cannot cancel or dismiss the operation. The wizard waits up to 30 seconds for a final result.
 
-## Finalize And Cancel
+## Finalize and cancel
 
 - Finalizing shows a progress state. For custom setup, imports finish before Kent writes the configuration. A failed import rolls back the imported changes and returns to the wizard with an error. Connection credential persistence and a failed final configuration write must follow the bounded failure contract in [Provider Connections](provider-connections.md).
 - The defaults path writes the default configuration.
@@ -48,41 +46,41 @@
 - When Supervisor is enabled, the Defaults option uses GPT-6 Luna on first-party OpenAI connections and the primary model on other providers.
 - Custom setup must pre-fill Supervisor with the primary model.
 - Custom setup must use the selected Supervisor model at finalization.
-- Config is written exactly once, at finalize. No step writes settings incrementally. Connection setup must remain unsaved before finalization.
+- Config is written exactly once, at finalize. No step writes settings incrementally. Connection setup must be unsaved before finalization.
 - Canceling before finalization aborts startup with a clear `setup canceled` error and writes nothing. The next launch opens first-time setup again.
 - Finalization cannot be canceled after submission.
 - Success or failure received within 30 seconds is authoritative.
-- A deadline or connection loss reports an indeterminate outcome. Kent does not retry automatically or claim that it canceled the operation.
+- A deadline or connection loss reports an indeterminate outcome. Kent must not retry automatically or claim that it canceled the operation.
 
-## Setup Data And Completion
+## Setup data and completion
 
-- The wizard submits choices to Kent. Kent executes imports and writes `config.toml`; the TUI does not write files.
+- The wizard submits choices to Kent. Kent executes imports and writes `config.toml`. The TUI must not write files.
 - Kent supplies model facts such as context windows, thinking, and verbosity support.
 - Kent also supplies provider facts such as native compaction and importable skills or commands.
 - Setup must request Capability Facts after connection selection and refresh them only when that selection changes. Ordinary model and tool navigation must not refetch them.
 - Capability Facts uses the latest completely published startup configuration and settings available when Kent selects the request's snapshot.
 - Capability Facts must combine the completed pending connection selection with import-discovery observations performed for the request.
-- The TUI must seed operational setup choices from server-provided facts, not client configuration. Setup facts must include only the values needed by the human-facing setup flow. Operational settings that the flow does not show must remain server-owned rather than being sent through the client for preservation.
-- Capability Facts does not wait for an in-progress startup activation to publish newer settings. A separate setup attempt may observe a newer published snapshot.
+- The TUI must seed operational setup choices from server-provided facts, not client configuration. Setup facts must include only the values needed by the human-facing setup flow. The server must own operational settings outside that flow and must not send them through the client for storage.
+- Capability Facts must not wait for an in-progress startup activation to publish newer settings. A separate setup attempt may observe a newer published snapshot.
 - Model facts include the complete built-in known-model list and each model's capabilities.
 - GPT-6 Astra, GPT-6.1 Sol, GPT-6 Sol, and GPT-6 Luna must use a 272,000-token default context window. Their optional large window must be 872,000 tokens for ChatGPT subscription connections and 1,050,000 tokens for OpenAI API-key connections. Setup must display and persist the window for the selected connection.
 - Model facts include one fallback for non-empty unknown model names, so every client applies the same behavior.
 - Provider capability facts cover both the current effective provider and explicit provider choices.
-- An unknown explicit provider fails with an unsupported-provider error. Kent does not replace it with the current provider.
+- An unknown explicit provider fails with an unsupported-provider error. Kent must not replace it with the current provider.
 - Importable skills and slash commands include source paths when identity requires them.
 - The TUI offers importable skills and slash commands as separate import choices.
 - Generated Kent skills appear with external provider skills in the enablement list.
 - Onboarding facts are available before auth completion and before project or session attachment.
-- The model list comes from Kent's built-in catalog. Setup does not perform live provider model discovery.
+- The model list comes from Kent's built-in catalog. Setup must not perform live provider model discovery.
 - Setup facts include import scanning. An import-scan failure lets setup continue without importing and appears as an explicit issue.
 - A model's larger context window is represented as an optional large-window fact. If it is absent, the context-window choice is hidden.
-- A client can provide a workspace root for import discovery. Kent validates it before use. If it is absent, Kent does not substitute another working directory.
+- A client can provide a workspace root for import discovery. Kent validates it before use. If it is absent, Kent must not substitute another working directory.
 - If a provided workspace root cannot be validated, the facts response includes a structured workspace-scope import error, reports global import facts, and omits workspace-local duplicate and skip checks.
 - Import facts include both provider source roots and item source paths when available.
 - Provider facts use stable identifiers. Each client supplies display names.
 - Recommendations are structured facts such as identifiers, modes, counts, and paths. Each client supplies the wording.
 - When no workspace root is provided, import facts include global external-provider imports and generated Kent skill candidates, but omit workspace-local duplicate and skip checks.
-- Reading setup facts does not execute imports, finalize choices, or write configuration.
+- Reading setup facts must not execute imports, finalize choices, or write configuration.
 - Kent supplies provider capabilities and known-model capabilities such as thinking, verbosity, vision input, reasoning summary, and context-window support.
 - For a known model, the built-in model catalog decides verbosity support.
 - For an unknown non-empty model, an explicit provider capability override decides support when present.

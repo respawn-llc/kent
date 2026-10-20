@@ -57,7 +57,7 @@ export async function openNativeDialogWindow(
       preventOverflow: true,
       resizable: options.resizable ?? false,
       shadow: true,
-      skipTaskbar: true,
+      skipTaskbar: options.presentation !== "content",
       title: options.title,
       titleBarStyle: "overlay",
       trafficLightPosition:

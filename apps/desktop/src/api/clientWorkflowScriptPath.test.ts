@@ -1,3 +1,4 @@
+import { describe, expect, it } from "bun:test";
 import * as wf from "@app/server-api-contract/gen/kent/api/workflow_definition/workflow_definition_pb";
 import { create } from "@app/server-api-contract";
 import { unexpectedProjectOverflow } from "@/test-support/api";
@@ -34,7 +35,7 @@ describe("ApiClient workflow script path validation", () => {
       },
     ]);
     const client = new ApiClient(transport, unexpectedProjectOverflow);
-    await expect(
+    expect(
       client.validateWorkflowScriptPath({
         workflowID: "11111111-1111-4111-8111-111111111111",
         nodeID,

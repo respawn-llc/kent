@@ -1,6 +1,7 @@
 import { render, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { vi } from "vitest";
+import { beforeAll, beforeEach, describe, expect, it, mock, vi } from "bun:test";
+import type * as ReactI18next from "react-i18next";
 
 import { appI18n, initializeI18n } from "@/i18n";
 
@@ -9,24 +10,27 @@ type SortState = Readonly<{
   direction: "asc" | "desc";
 }>;
 
-const runtime = vi.hoisted((): { sort: SortState; setSort: ReturnType<typeof vi.fn> } => ({
+const runtime: { sort: SortState; setSort: ReturnType<typeof vi.fn> } = {
   sort: { field: "updated", direction: "desc" },
   setSort: vi.fn(),
-}));
+};
 
-vi.mock("react-i18next", async (importOriginal) => ({
-  ...(await importOriginal()),
+const actualReactI18next: typeof ReactI18next = await import("react-i18next");
+const actualBoardQueryRuntime = await import("./BoardQueryRuntime");
+await mock.module("react-i18next", () => ({
+  ...actualReactI18next,
   useTranslation: () => ({
     t: (key: string, options?: Record<string, unknown>) =>
       options === undefined ? appI18n.t(key) : appI18n.t(key, options),
   }),
 }));
 
-vi.mock("./BoardQueryRuntime", () => ({
+await mock.module("./BoardQueryRuntime", () => ({
+  ...actualBoardQueryRuntime,
   useBoardQuery: () => runtime,
 }));
 
-import { boardSortFieldOptions, BoardSortChrome } from "./BoardSortChrome";
+const { boardSortFieldOptions, BoardSortChrome } = await import("./BoardSortChrome");
 
 beforeAll(async () => initializeI18n());
 

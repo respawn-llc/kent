@@ -1,3 +1,4 @@
+import { describe, expect, it } from "bun:test";
 import { unexpectedProjectOverflow } from "@/test-support/api";
 import { ContractError } from "./errors";
 import { ApiClient } from "./client";
@@ -22,7 +23,7 @@ describe("ApiClient Task Activity pagination", () => {
                   updatedAt: { seconds: 0n, nanos: 2_000_000 },
                   activity: {
                     case: "sessionStarted",
-                    value: { sessionId: "session-1", name: "Implementation" },
+                    value: { sessionId: "11111111-1111-4111-8111-111111111111", name: "Implementation" },
                   },
                 },
               ],
@@ -34,8 +35,8 @@ describe("ApiClient Task Activity pagination", () => {
     ]);
     const client = new ApiClient(transport, unexpectedProjectOverflow);
 
-    await expect(client.listTaskActivity("task-1", 0)).resolves.toMatchObject({
-      items: [{ id: "activity-1", sessionID: "session-1" }],
+    expect(client.listTaskActivity("task-1", 0)).resolves.toMatchObject({
+      items: [{ id: "activity-1", sessionID: "11111111-1111-4111-8111-111111111111" }],
       nextOffset: 50,
     });
     expect(transport.descriptorCalls).toContainEqual({
@@ -59,7 +60,7 @@ describe("ApiClient Task Activity pagination", () => {
                     updatedAt: { seconds: 0n, nanos: 2_000_000 },
                     activity: {
                       case: "sessionStarted",
-                      value: { sessionId: "session-1", name: "Implementation" },
+                      value: { sessionId: "11111111-1111-4111-8111-111111111111", name: "Implementation" },
                     },
                   },
                 ],
@@ -70,7 +71,7 @@ describe("ApiClient Task Activity pagination", () => {
       ]),
       unexpectedProjectOverflow,
     );
-    await expect(mismatchedClient.listTaskActivity("task-1", 0)).rejects.toBeInstanceOf(ContractError);
+    expect(mismatchedClient.listTaskActivity("task-1", 0)).rejects.toBeInstanceOf(ContractError);
   });
 });
 
@@ -103,7 +104,7 @@ describe("ApiClient Task Comment pagination", () => {
     ]);
     const client = new ApiClient(transport, unexpectedProjectOverflow);
 
-    await expect(client.listTaskComments("task-1", 0)).resolves.toMatchObject({
+    expect(client.listTaskComments("task-1", 0)).resolves.toMatchObject({
       items: [{ id: "comment-1", body: "Existing comment", authorKind: "user", authorID: "Nek-12" }],
       nextOffset: 40,
       totalCount: 41,
@@ -127,6 +128,6 @@ describe("ApiClient Task Comment pagination", () => {
       unexpectedProjectOverflow,
     );
 
-    await expect(client.listTaskComments("task-1", 0)).rejects.toThrow();
+    expect(client.listTaskComments("task-1", 0)).rejects.toThrow();
   });
 });

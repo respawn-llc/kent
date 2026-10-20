@@ -2,7 +2,7 @@ import type { AttentionNotificationLifecycle } from "./attentionNotifications";
 import { speechAvailability } from "./speech";
 import type * as Stream from "effect/Stream";
 import { attentionNotifications } from "./attentionNotificationSubscription";
-import { create, operationName } from "@app/server-api-contract";
+import { create } from "@app/server-api-contract";
 import {
   ReadinessSeverity,
   ServerService,
@@ -127,9 +127,6 @@ export class ApiClient implements ApiService {
       method,
       await this.#transport.callDescriptor(method, create(method.input)),
     );
-    if (success.readiness === undefined) {
-      throw new ContractError(`${operationName(method)} response did not match GUI contract.`);
-    }
     return projectReadiness(success.readiness);
   }
 

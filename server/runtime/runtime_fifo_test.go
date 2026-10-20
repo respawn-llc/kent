@@ -137,13 +137,10 @@ func TestAgentStepBoundaryDrainsEveryAcceptedSteerBeforeNextRequest(t *testing.T
 	expectedMessages := make([]string, 0, len(texts))
 	steerDone := make(chan error, len(texts))
 	for _, text := range texts {
-		steer, err := NewAgentSteer(runtimeids.SessionIdentity{ID: runtimeids.NewSessionID()}, text)
-		if err != nil {
-			t.Fatalf("create Agent Steer %q: %v", text, err)
-		}
+		steer := NewAgentSteer(runtimeids.SessionIdentity{ID: runtimeids.NewSessionID()}, text)
 		expectedMessages = append(expectedMessages, messageContent(steer.Message()))
 		go func() {
-			_, accepted, err := engine.QueueAgentSteerForActiveRun(t.Context(), steer, nil)
+			_, accepted, err := engine.QueueAgentSteerForActiveRun(t.Context(), runtimeids.NewQueueItemID().String(), steer, nil)
 			if err == nil && !accepted {
 				err = errors.New("Agent Steer was not accepted")
 			}
@@ -256,12 +253,9 @@ func TestAgentStepBoundaryDrainsSteersAcceptedWhileFollowingRequestIsPreparing(t
 	queueSteer := func(text string, beforeQueue func() error) (<-chan error, string) {
 		t.Helper()
 		done := make(chan error, 1)
-		steer, err := NewAgentSteer(runtimeids.SessionIdentity{ID: runtimeids.NewSessionID()}, text)
-		if err != nil {
-			t.Fatalf("create Agent Steer %q: %v", text, err)
-		}
+		steer := NewAgentSteer(runtimeids.SessionIdentity{ID: runtimeids.NewSessionID()}, text)
 		go func() {
-			_, accepted, queueErr := engine.QueueAgentSteerForActiveRun(t.Context(), steer, beforeQueue)
+			_, accepted, queueErr := engine.QueueAgentSteerForActiveRun(t.Context(), runtimeids.NewQueueItemID().String(), steer, beforeQueue)
 			if queueErr == nil && !accepted {
 				queueErr = errors.New("Agent Steer was not accepted")
 			}
@@ -454,8 +448,7 @@ func TestWorktreeTransitionRunsBeforeQueuedHumanProviderTurn(t *testing.T) {
 	humanDone := make(chan error, 1)
 	go func() {
 		_, accepted, err := engine.QueueUserMessageForActiveRun(
-			t.Context(),
-			"queued human turn",
+			t.Context(), runtimeids.NewQueueItemID().String(), "queued human turn",
 			func() error {
 				close(humanApplying)
 				<-releaseHumanApplication

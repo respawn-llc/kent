@@ -34,7 +34,7 @@ func TestInterruptSessionDoesNotCancelSuccessorStep(t *testing.T) {
 	sessionID := lifecycleSessionID(t, fixture)
 	client := &interruptReplacementLLMClient{entered: make(chan context.Context, 1)}
 	plan := authorityTestRuntimePlan(t, fixture, client)
-	openLifecycleRuntime(t, fixture.authority, sessionID, "successor-test", &plan)
+	openLifecycleRuntime(t, fixture.authority, sessionID, &plan)
 	descriptor := mustOpenSessionDescriptor(t, sessionID)
 	original, err := fixture.authority.StartAgentExecution(t.Context(), AgentExecutionRequest{
 		Descriptor: descriptor,
