@@ -22,6 +22,35 @@ import (
 	"github.com/google/uuid"
 )
 
+type gatedStepStartSink struct {
+	started     chan struct{}
+	release     chan struct{}
+	startOnce   sync.Once
+	releaseOnce sync.Once
+}
+
+func newGatedStepStartSink() *gatedStepStartSink {
+	return &gatedStepStartSink{started: make(chan struct{}), release: make(chan struct{})}
+}
+
+func (s *gatedStepStartSink) StepBegan(context.Context, StepLifecycleSnapshot) error {
+	s.startOnce.Do(func() {
+		close(s.started)
+		<-s.release
+	})
+	return nil
+}
+
+func (*gatedStepStartSink) StepEnded(context.Context, StepLifecycleSnapshot) error {
+	return nil
+}
+
+func (s *gatedStepStartSink) unblock() {
+	s.releaseOnce.Do(func() {
+		close(s.release)
+	})
+}
+
 func TestConcurrentLiveSteerPendingOrderMatchesDeliveryAndStop(t *testing.T) {
 	for _, stop := range []bool{false, true} {
 		t.Run(fmt.Sprintf("stop=%t", stop), func(t *testing.T) {
@@ -118,6 +147,127 @@ func TestConcurrentLiveSteerPendingOrderMatchesDeliveryAndStop(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestLiveRunAdmissionUnavailableWaitRequiresAReadinessOrCompletionSignal(t *testing.T) {
+	if err := (&LiveRunAdmissionUnavailable{}).Wait(context.Background(), nil); err == nil {
+		t.Fatal("waiting without a readiness or completion signal succeeded")
+	}
+
+	ready := make(chan struct{})
+	close(ready)
+	if err := (&LiveRunAdmissionUnavailable{Ready: ready}).Wait(context.Background(), nil); err != nil {
+		t.Fatalf("wait for readiness: %v", err)
+	}
+
+	executionDone := make(chan struct{})
+	close(executionDone)
+	if err := (&LiveRunAdmissionUnavailable{}).Wait(context.Background(), executionDone); err != nil {
+		t.Fatalf("wait for execution completion: %v", err)
+	}
+
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	err := (&LiveRunAdmissionUnavailable{Ready: make(chan struct{})}).Wait(ctx, nil)
+	if !errors.Is(err, context.Canceled) {
+		t.Fatalf("wait after cancellation = %v, want context.Canceled", err)
+	}
+}
+
+func TestSteerInputRetriesAfterLiveRunStepBecomesReady(t *testing.T) {
+	stepStart := newGatedStepStartSink()
+	providerStarted := make(chan struct{})
+	releaseProvider := make(chan struct{})
+	var providerOnce sync.Once
+	var providerReleaseOnce sync.Once
+	client := &hookClient{
+		response: finalTextResponse("done"),
+		beforeReturn: func() error {
+			providerOnce.Do(func() {
+				close(providerStarted)
+				<-releaseProvider
+			})
+			return nil
+		},
+	}
+	engine := mustNewTestEngine(t, mustCreateTestSession(t), client, tools.NewRegistry(), Config{
+		Model: "gpt-6-sol", StepLifecycle: stepStart,
+	})
+	t.Cleanup(func() {
+		stepStart.unblock()
+		providerReleaseOnce.Do(func() {
+			close(releaseProvider)
+		})
+	})
+
+	initialDone := make(chan error, 1)
+	go func() {
+		_, err := engine.SubmitUserMessage(t.Context(), "initial")
+		initialDone <- err
+	}()
+	select {
+	case <-stepStart.started:
+	case <-time.After(runtimeTestSynchronizationTimeout):
+		t.Fatal("initial turn did not reach Step startup")
+	}
+
+	input := plainQueuedUserInput("follow-up")
+	_, err := engine.SteerInput(t.Context(), input, func(func() (bool, error)) (bool, error) {
+		return false, nil
+	})
+	var unavailable *LiveRunAdmissionUnavailable
+	if err == nil || errors.As(err, &unavailable) {
+		t.Fatalf("acceptance without a commit returned %v; want a non-retryable error", err)
+	}
+
+	_, err = engine.SteerInput(t.Context(), input, func(commit func() (bool, error)) (bool, error) {
+		return commit()
+	})
+	if !errors.As(err, &unavailable) {
+		t.Fatalf("SteerInput while Live Run was starting = %v, want unavailable admission", err)
+	}
+
+	waitDone := make(chan error, 1)
+	go func() {
+		waitDone <- unavailable.Wait(t.Context(), nil)
+	}()
+	stepStart.unblock()
+	select {
+	case err := <-waitDone:
+		if err != nil {
+			t.Fatalf("wait for Live Run readiness: %v", err)
+		}
+	case <-time.After(runtimeTestSynchronizationTimeout):
+		t.Fatal("Live Run readiness did not unblock the admission")
+	}
+	select {
+	case <-providerStarted:
+	case <-time.After(runtimeTestSynchronizationTimeout):
+		t.Fatal("Live Run did not reach provider execution")
+	}
+
+	queued, err := engine.SteerInput(t.Context(), input, func(commit func() (bool, error)) (bool, error) {
+		return commit()
+	})
+	if err != nil {
+		t.Fatalf("retry SteerInput after Live Run readiness: %v", err)
+	}
+	if queued.ID != input.ID {
+		t.Fatalf("accepted queue item = %q, want %q", queued.ID, input.ID)
+	}
+
+	providerReleaseOnce.Do(func() {
+		close(releaseProvider)
+	})
+	select {
+	case err := <-initialDone:
+		if err != nil {
+			t.Fatalf("complete initial turn and accepted steer: %v", err)
+		}
+	case <-time.After(runtimeTestSynchronizationTimeout):
+		t.Fatal("accepted follow-up did not complete")
+	}
+	waitEngineLifecycleTasks(t, engine)
 }
 
 func TestLiveRunWaitIdleReturnsNoActive(t *testing.T) {

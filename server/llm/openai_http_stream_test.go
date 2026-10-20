@@ -11,7 +11,9 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"strings"
+	"sync/atomic"
 	"testing"
+	"time"
 
 	"core/shared/config"
 	"core/shared/textutil"
@@ -63,6 +65,118 @@ func newOpenAIRawStreamTestTransport(t *testing.T, stream string) *HTTPTransport
 	t.Helper()
 	server := newOpenAIRawStreamTestServer(t, stream)
 	return newOpenAIStreamTestTransportForServer(t, server)
+}
+
+type readErrorAtEOF struct {
+	io.Reader
+	err error
+}
+
+func (r readErrorAtEOF) Read(p []byte) (int, error) {
+	n, err := r.Reader.Read(p)
+	if errors.Is(err, io.EOF) {
+		return n, r.err
+	}
+	return n, err
+}
+
+func newResponsesClientWithBodies(t *testing.T, bodies ...io.ReadCloser) (*ResponsesClient, *atomic.Int32) {
+	t.Helper()
+	transport := newTestHTTPTransport(t, staticAuthHeader{}, testConnectionRegistration(t, config.ProviderConnection{Protocol: config.ConnectionResponses, Endpoint: textutil.Value(defaultOpenAIBaseURL)}))
+	connectionID := config.ConnectionID("responses-test")
+	transport.ConnectionID = &connectionID
+	var requestCount atomic.Int32
+	transport.Client = &http.Client{Transport: httpclient.RoundTripFunc(func(request *http.Request) (*http.Response, error) {
+		requestNumber := requestCount.Add(1)
+		if int(requestNumber) > len(bodies) {
+			return nil, fmt.Errorf("unexpected Responses test request %d", requestNumber)
+		}
+		headers := make(http.Header)
+		headers.Set("Content-Type", "text/event-stream")
+		headers.Set("x-request-id", "responses-test-request")
+		headers.Set("x-openai-authorization-error", "responses-test-authorization-diagnostic")
+		return &http.Response{
+			StatusCode: http.StatusOK,
+			Header:     headers,
+			Body:       bodies[requestNumber-1],
+			Request:    request,
+		}, nil
+	})}
+	return NewResponsesClient(transport, nil), &requestCount
+}
+
+const incompleteResponsesTestStream = `data: {"type":"response.created","response":{"id":"resp_partial"}}` + "\n\n"
+
+func incompleteResponsesBody() io.ReadCloser {
+	return io.NopCloser(strings.NewReader(incompleteResponsesTestStream))
+}
+
+func responsesBodyEndingWithError(err error) io.ReadCloser {
+	return io.NopCloser(readErrorAtEOF{Reader: strings.NewReader(incompleteResponsesTestStream), err: err})
+}
+
+func completedResponsesBody() io.ReadCloser {
+	return io.NopCloser(strings.NewReader(strings.Join([]string{
+		`event: response.completed`,
+		`data: {"type":"response.completed","sequence_number":1,"response":{"output":[{"type":"message","role":"assistant","phase":"final_answer","content":[{"type":"output_text","text":"recovered"}]}]}}`,
+		``,
+		``,
+	}, "\n")))
+}
+
+func generateWithResponsesClientRetry(ctx context.Context, client *ResponsesClient, schedule GenerationRetrySchedule) (Response, error) {
+	return GenerateWithRetry(ctx, func(ctx context.Context, callbacks StreamCallbacks, _ func()) (Response, error) {
+		return client.Generate(ctx, Request{
+			Model:           "gpt-6-sol",
+			SessionID:       textutil.Value("test-session"),
+			ToolChoiceMode:  ToolChoiceModeAutomatic,
+			ReasoningEffort: "high",
+		}, callbacks)
+	}, GenerationRetryOptions{Schedule: schedule})
+}
+
+func requireResponsesRetryExhaustion(t *testing.T, client *ResponsesClient, requestCount *atomic.Int32, schedule GenerationRetrySchedule) error {
+	t.Helper()
+	_, err := generateWithResponsesClientRetry(context.Background(), client, schedule)
+	if err == nil {
+		t.Fatal("generation unexpectedly succeeded after repeated premature stream endings")
+	}
+	if got, want := requestCount.Load(), int32(len(schedule.Failures)+1); got != want {
+		t.Fatalf("provider requests = %d, want %d", got, want)
+	}
+	var providerErr *ProviderAPIError
+	if !errors.As(err, &providerErr) {
+		t.Fatalf("generation error = %T, want ProviderAPIError", err)
+	}
+	if providerErr.Err == nil ||
+		providerErr.ProviderID != "openai" ||
+		providerErr.StatusCode != http.StatusOK ||
+		providerErr.Code != UnifiedErrorCodeUnknown {
+		t.Fatalf("final provider error = %+v, want retained OpenAI HTTP 200 unknown error cause", providerErr)
+	}
+	if providerErr.ConnectionID == nil || *providerErr.ConnectionID != config.ConnectionID("responses-test") {
+		t.Fatalf("final connection ID = %v, want responses-test", providerErr.ConnectionID)
+	}
+	if providerErr.ProviderRequestID == nil || *providerErr.ProviderRequestID != "responses-test-request" {
+		t.Fatalf("final request ID = %v, want enriched response header", providerErr.ProviderRequestID)
+	}
+	if providerErr.AuthorizationDiagnostic == nil || *providerErr.AuthorizationDiagnostic != "responses-test-authorization-diagnostic" {
+		t.Fatalf("final authorization diagnostic = %v, want enriched response header", providerErr.AuthorizationDiagnostic)
+	}
+	return err
+}
+
+type retryWaitObservedContext struct {
+	context.Context
+	waitStarted chan struct{}
+}
+
+func (ctx retryWaitObservedContext) Done() <-chan struct{} {
+	select {
+	case ctx.waitStarted <- struct{}{}:
+	default:
+	}
+	return ctx.Context.Done()
 }
 
 func joinedAssistantDeltas(deltas []AssistantDelta) string {
@@ -226,26 +340,38 @@ func TestGenerate_AcceptsCompletedResponseEOFWithoutDoneSentinel(t *testing.T) {
 }
 
 func TestGenerate_SalvagesCompletedResponseBeforeTrailingMalformedEvent(t *testing.T) {
-	transport := newOpenAIRawStreamTestTransport(t, strings.Join([]string{
-		`event: response.completed`,
-		`data: {"type":"response.completed","sequence_number":1,"response":{"usage":{"input_tokens":3,"output_tokens":5,"total_tokens":8},"output":[{"type":"message","role":"assistant","phase":"final_answer","content":[{"type":"output_text","text":"Done"}]}]}}`,
-		``,
-		`event: response.completed`,
-		`data: `,
-		``,
-		``,
-	}, "\n"))
-
-	resp, err := transport.Generate(context.Background(), ResponsesRequest{SessionID: textutil.Value("test-session"), ToolChoiceMode: ToolChoiceModeAutomatic, Model: "gpt-6-sol", ReasoningEffort: "high"}, StreamCallbacks{})
-	if err != nil {
-		t.Fatalf("Generate failed: %v", err)
+	tests := []struct {
+		name         string
+		trailingData string
+	}{
+		{name: "empty event data"},
+		{name: "numeric event type", trailingData: `{"type":1}`},
+		{name: "missing event type", trailingData: `{}`},
+		{name: "null event type", trailingData: `{"type":null}`},
 	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			transport := newOpenAIRawStreamTestTransport(t, strings.Join([]string{
+				`event: response.completed`,
+				`data: {"type":"response.completed","sequence_number":1,"response":{"usage":{"input_tokens":3,"output_tokens":5,"total_tokens":8},"output":[{"type":"message","role":"assistant","phase":"final_answer","content":[{"type":"output_text","text":"Done"}]}]}}`,
+				``,
+				`data: ` + test.trailingData,
+				``,
+				``,
+			}, "\n"))
 
-	if optionalStringValue(resp.AssistantText) != "Done" {
-		t.Fatalf("assistant text = %q, want Done", optionalStringValue(resp.AssistantText))
-	}
-	if resp.Usage.InputTokens == nil || resp.Usage.OutputTokens == nil || *resp.Usage.InputTokens != 3 || *resp.Usage.OutputTokens != 5 {
-		t.Fatalf("unexpected usage: %+v", resp.Usage)
+			resp, err := transport.Generate(context.Background(), ResponsesRequest{SessionID: textutil.Value("test-session"), ToolChoiceMode: ToolChoiceModeAutomatic, Model: "gpt-6-sol", ReasoningEffort: "high"}, StreamCallbacks{})
+			if err != nil {
+				t.Fatalf("Generate failed: %v", err)
+			}
+
+			if optionalStringValue(resp.AssistantText) != "Done" {
+				t.Fatalf("assistant text = %q, want Done", optionalStringValue(resp.AssistantText))
+			}
+			if resp.Usage.InputTokens == nil || resp.Usage.OutputTokens == nil || *resp.Usage.InputTokens != 3 || *resp.Usage.OutputTokens != 5 {
+				t.Fatalf("unexpected usage: %+v", resp.Usage)
+			}
+		})
 	}
 }
 
@@ -348,12 +474,6 @@ func TestGenerate_RejectsCompletedEventWithoutResponsePayload(t *testing.T) {
 
 func TestGenerate_RejectsPreTerminalMalformedResponsesStream(t *testing.T) {
 	cases := map[string]string{
-		"eof_without_terminal": strings.Join([]string{
-			`event: response.output_text.delta`,
-			`data: {"type":"response.output_text.delta","output_index":0,"delta":"partial"}`,
-			``,
-			``,
-		}, "\n"),
 		"malformed_json_before_terminal": strings.Join([]string{
 			`event: response.output_text.delta`,
 			`data: {"type":`,
@@ -411,6 +531,120 @@ func TestGenerate_LeavesPreResponseEOFRetryable(t *testing.T) {
 	}
 	if IsNonRetriableModelError(err) {
 		t.Fatalf("expected pre-response EOF to remain retryable: %v", err)
+	}
+}
+
+func TestGenerateWithRetryRetriesUnexpectedEOFBeforeResponseCompletion(t *testing.T) {
+	client, requestCount := newResponsesClientWithBodies(t,
+		responsesBodyEndingWithError(io.ErrUnexpectedEOF),
+		completedResponsesBody(),
+	)
+	response, err := generateWithResponsesClientRetry(context.Background(), client, GenerationRetrySchedule{Failures: []time.Duration{0}})
+	if err != nil {
+		t.Fatalf("generation after unexpected EOF: %v", err)
+	}
+	if got := requestCount.Load(); got != 2 {
+		t.Fatalf("provider requests = %d, want 2", got)
+	}
+	if response.Assistant.Content == nil || *response.Assistant.Content != "recovered" {
+		t.Fatalf("assistant response = %+v, want recovered response", response.Assistant)
+	}
+}
+
+func TestGenerateWithRetryRetriesWrappedEOFBeforeResponseCompletion(t *testing.T) {
+	client, requestCount := newResponsesClientWithBodies(t,
+		responsesBodyEndingWithError(fmt.Errorf("read response: %w", io.EOF)),
+		completedResponsesBody(),
+	)
+	response, err := generateWithResponsesClientRetry(context.Background(), client, GenerationRetrySchedule{Failures: []time.Duration{0}})
+	if err != nil {
+		t.Fatalf("generation after EOF: %v", err)
+	}
+	if got := requestCount.Load(); got != 2 {
+		t.Fatalf("provider requests = %d, want 2", got)
+	}
+	if response.Assistant.Content == nil || *response.Assistant.Content != "recovered" {
+		t.Fatalf("assistant response = %+v, want recovered response", response.Assistant)
+	}
+}
+
+func TestGenerateWithRetryRetriesNormallyClosedStreamBeforeResponseCompletion(t *testing.T) {
+	client, requestCount := newResponsesClientWithBodies(t,
+		incompleteResponsesBody(),
+		completedResponsesBody(),
+	)
+	response, err := generateWithResponsesClientRetry(context.Background(), client, GenerationRetrySchedule{Failures: []time.Duration{0}})
+	if err != nil {
+		t.Fatalf("generation after normal stream close: %v", err)
+	}
+	if got := requestCount.Load(); got != 2 {
+		t.Fatalf("provider requests = %d, want 2", got)
+	}
+	if response.Assistant.Content == nil || *response.Assistant.Content != "recovered" {
+		t.Fatalf("assistant response = %+v, want recovered response", response.Assistant)
+	}
+}
+
+func TestGenerateWithRetryExhaustsUnexpectedEOFsAfterRetryBudget(t *testing.T) {
+	schedule := GenerationRetrySchedule{Failures: []time.Duration{0, 0}}
+	client, requestCount := newResponsesClientWithBodies(t,
+		responsesBodyEndingWithError(io.ErrUnexpectedEOF),
+		responsesBodyEndingWithError(io.ErrUnexpectedEOF),
+		responsesBodyEndingWithError(io.ErrUnexpectedEOF),
+	)
+	err := requireResponsesRetryExhaustion(t, client, requestCount, schedule)
+	if !errors.Is(err, io.ErrUnexpectedEOF) {
+		t.Fatalf("generation error = %v, want the final unexpected EOF cause", err)
+	}
+}
+
+func TestGenerateWithRetryExhaustsNormallyClosedStreamsAfterRetryBudget(t *testing.T) {
+	schedule := GenerationRetrySchedule{Failures: []time.Duration{0, 0}}
+	client, requestCount := newResponsesClientWithBodies(t,
+		incompleteResponsesBody(),
+		incompleteResponsesBody(),
+		incompleteResponsesBody(),
+	)
+	requireResponsesRetryExhaustion(t, client, requestCount, schedule)
+}
+
+func TestGenerateWithRetryCancellationStopsPrematureStreamRetry(t *testing.T) {
+	client, requestCount := newResponsesClientWithBodies(t, responsesBodyEndingWithError(io.ErrUnexpectedEOF))
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	waitStarted := make(chan struct{}, 1)
+	retryCtx := retryWaitObservedContext{Context: ctx, waitStarted: waitStarted}
+	done := make(chan error, 1)
+	go func() {
+		_, err := GenerateWithRetry(retryCtx, func(_ context.Context, callbacks StreamCallbacks, _ func()) (Response, error) {
+			return client.Generate(ctx, Request{
+				Model:           "gpt-6-sol",
+				SessionID:       textutil.Value("test-session"),
+				ToolChoiceMode:  ToolChoiceModeAutomatic,
+				ReasoningEffort: "high",
+			}, callbacks)
+		}, GenerationRetryOptions{Schedule: GenerationRetrySchedule{Failures: []time.Duration{time.Hour}}})
+		done <- err
+	}()
+
+	select {
+	case <-waitStarted:
+	case err := <-done:
+		t.Fatalf("generation returned before entering retry wait: %v", err)
+	case <-time.After(5 * time.Second):
+		t.Fatal("retry wait did not start")
+	}
+	cancel()
+	select {
+	case err := <-done:
+		if !errors.Is(err, context.Canceled) {
+			t.Fatalf("generation error = %v, want context.Canceled", err)
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("canceled retry wait did not return")
+	}
+	if got := requestCount.Load(); got != 1 {
+		t.Fatalf("provider requests = %d, want no dispatch after cancellation", got)
 	}
 }
 

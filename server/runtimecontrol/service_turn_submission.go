@@ -178,9 +178,22 @@ func (s *Service) submitUserTurn(
 		case preparingErr != nil:
 			err = preparingErr
 		case preparing:
-			err = s.withRuntime(attempt.Context(), request.SessionID, func(runCtx context.Context, engine *runtime.Engine) error {
-				return runTurn(runCtx, engine, attempt.Accept)
-			})
+			submit := func() error {
+				return s.withRuntime(attempt.Context(), request.SessionID, func(runCtx context.Context, engine *runtime.Engine) error {
+					return runTurn(runCtx, engine, attempt.Accept)
+				})
+			}
+			err = submit()
+			for {
+				var unavailable *runtime.LiveRunAdmissionUnavailable
+				if !errors.As(err, &unavailable) {
+					break
+				}
+				if err = unavailable.Wait(attempt.Context(), nil); err != nil {
+					break
+				}
+				err = submit()
+			}
 		case s.reactivator != nil:
 			var workflowState *runtime.WorkflowSessionState
 			stateErr := s.withRuntime(attempt.Context(), request.SessionID, func(_ context.Context, engine *runtime.Engine) error {
@@ -206,9 +219,12 @@ func (s *Service) submitUserTurn(
 					workflowState.CurrentNode,
 				)
 				if err == nil {
-					err = s.withRuntime(attempt.Context(), request.SessionID, func(runCtx context.Context, engine *runtime.Engine) error {
-						return runTurn(runCtx, engine, attempt.Accept)
-					})
+					err = s.authority.RunCurrentTurn(
+						attempt.Context(),
+						descriptor,
+						attempt.Accept,
+						runTurn,
+					)
 				}
 			}
 		}
