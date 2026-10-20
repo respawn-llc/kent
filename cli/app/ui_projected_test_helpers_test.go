@@ -143,7 +143,9 @@ func sizedTestUIModel(m *uiModel, width, height int) *uiModel {
 }
 
 func newProjectedStaticUIModel(opts ...UIOption) *uiModel {
-	return newProjectedTestUIModel(nil, opts...)
+	// Static fixtures have a selected Session but no observation attachment.
+	options := append([]UIOption{WithUISessionID(detailTestSessionID)}, opts...)
+	return newProjectedTestUIModel(nil, options...)
 }
 
 type recordingPromptControl struct {
