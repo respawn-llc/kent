@@ -1,5 +1,5 @@
 ---
-title: Bash Hooks
+title: Bash hooks
 description: Configure Kent's shell command post-processing and ship your own hook.
 ---
 
@@ -20,9 +20,9 @@ postprocess_hook = "~/.kent/shell_postprocess_hook"
 Allowed values:
 
 - `none`: disable command post-processing.
-- `builtin`: run Kent's output cleanup and built-in processing. Highly recommended to remain on.
-- `user`: Only run user-configured hooks when present.
-- `all`: run Kent's output cleanup and built-in processing, then run the configured hook. Default.
+- `builtin`: run Kent's output cleanup and built-in processing. This is the default.
+- `user`: only run user-configured hooks when present.
+- `all`: run Kent's output cleanup and built-in processing, then run the configured hook.
 
 Kent's built-in hooks add useful context info about file size, line counts, git commands, compress escape symbols, limit maximum tool output and max line width to prevent overload, and clean up some test output.
 
