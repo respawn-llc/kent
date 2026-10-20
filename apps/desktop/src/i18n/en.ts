@@ -223,7 +223,6 @@ export const englishResources = {
         subagents: "Subagents",
         newChatUnavailable: "New chat is not available in this prototype",
         projectTasksGrid: "Project tasks",
-        taskReadFailed: "Kent couldn't load these tasks because of a server error. Retry to try again.",
         dependenciesColumn: "Dependencies",
         stageColumn: "Stage",
         idColumn: "ID",
