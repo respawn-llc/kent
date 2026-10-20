@@ -19,9 +19,9 @@ import (
 )
 
 func TestRuntimeClientMainViewDoesNotRefreshCachedSnapshotBehindUIBack(t *testing.T) {
-	reads := &countingSessionViewClient{view: &runtimepb.MainView{Session: &runtimepb.SessionView{SessionId: "session-1"}, Status: &runtimepb.Status{}}}
+	reads := &countingSessionViewClient{view: &runtimepb.MainView{Session: &runtimepb.SessionView{SessionId: detailTestSessionID}, Status: &runtimepb.Status{}}}
 	runtimeClient := newTestSessionRuntimeClient(reads)
-	runtimeClient.storeMainView(&runtimepb.MainView{Session: &runtimepb.SessionView{SessionId: "session-1"}, Status: &runtimepb.Status{}})
+	runtimeClient.storeMainView(&runtimepb.MainView{Session: &runtimepb.SessionView{SessionId: detailTestSessionID}, Status: &runtimepb.Status{}})
 	notified := make(chan error, 1)
 	runtimeClient.SetConnectionStateObserver(func(err error) {
 		notified <- err
@@ -206,7 +206,7 @@ func TestCloneRuntimeGoalReturnsIndependentCopy(t *testing.T) {
 
 func TestRuntimeClientGoalStatusEventPatchesCachedMainView(t *testing.T) {
 	runtimeClient := newTestSessionRuntimeClient(&countingSessionViewClient{})
-	runtimeClient.storeMainView(&runtimepb.MainView{Session: &runtimepb.SessionView{SessionId: "session-1"}, Status: &runtimepb.Status{}})
+	runtimeClient.storeMainView(&runtimepb.MainView{Session: &runtimepb.SessionView{SessionId: detailTestSessionID}, Status: &runtimepb.Status{}})
 
 	if _, err := runtimeClient.admitTranscriptMessageState(runtimeClientTestGoalMessage(runtimeClientTestGoal("goal-1", "ship feature", runtimepb.GoalStatus_RUNTIME_GOAL_STATUS_ACTIVE))); err != nil {
 		t.Fatalf("admit goal status: %v", err)
@@ -237,7 +237,7 @@ func TestRuntimeClientGoalStatusEventPatchesCachedMainView(t *testing.T) {
 func TestRuntimeClientCanonicalGoalStatusReplacesCachedGoal(t *testing.T) {
 	runtimeClient := newTestSessionRuntimeClient(&countingSessionViewClient{})
 	runtimeClient.storeMainView(&runtimepb.MainView{
-		Session: &runtimepb.SessionView{SessionId: "session-1"},
+		Session: &runtimepb.SessionView{SessionId: detailTestSessionID},
 		Status: &runtimepb.Status{Goal: runtimeClientTestRuntimeGoal(
 			runtimeClientTestGoal("goal-old", "old", runtimepb.GoalStatus_RUNTIME_GOAL_STATUS_ACTIVE),
 			true,
@@ -288,7 +288,7 @@ func assertRuntimeClientGoalCached(t *testing.T, runtimeClient *sessionRuntimeCl
 func TestRuntimeClientMainViewRefreshDoesNotActivateUnavailableRuntime(t *testing.T) {
 	controls := &reconnectRetryRuntimeControlClient{}
 	authoritativeView := &runtimepb.MainView{
-		Session: &runtimepb.SessionView{SessionId: "session-1", SessionName: proto.String("restored")},
+		Session: &runtimepb.SessionView{SessionId: detailTestSessionID, SessionName: proto.String("restored")},
 		Status:  &runtimepb.Status{ThinkingLevel: "high"},
 	}
 	reads := &flakySessionViewClient{

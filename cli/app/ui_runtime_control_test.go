@@ -491,7 +491,7 @@ func TestRuntimeInterruptNotAcceptedClearsPendingAttempt(t *testing.T) {
 		interruptedSubmitToken: textutil.Value(uint64(1)),
 		view: &runtimepb.MainView{
 			Status:  &runtimepb.Status{},
-			Session: &runtimepb.SessionView{SessionId: "session-1"},
+			Session: &runtimepb.SessionView{SessionId: detailTestSessionID},
 			Activity: &runtimepb.Activity{
 				State:          runtimepb.ActivityState_RUNTIME_ACTIVITY_REGISTERED_IDLE,
 				Reviewer:       runtimepb.ReviewerActivity_REVIEWER_ACTIVITY_INACTIVE,
