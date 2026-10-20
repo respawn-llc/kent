@@ -35,8 +35,8 @@ export function RecordingControl({
           {recording !== null && (
             <motion.span
               key="elapsed"
-              initial={{ opacity: 0 }}
-              animate={{ opacity: 1 }}
+              initial={{ opacity: 0, x: reducedMotion ? 0 : 8 }}
+              animate={{ opacity: 1, x: 0 }}
               exit={{ opacity: 0 }}
               transition={transition}
             >
@@ -45,7 +45,7 @@ export function RecordingControl({
           )}
         </AnimatePresence>
       </span>
-      <span className="inline-flex px-[var(--space-5)]">
+      <span className="inline-flex">
         <span ref={anchor} className="relative inline-grid place-items-center text-[var(--color-primary)]">
           {recording !== null && <RadialRecordingMeter analyser={recording.analyser} anchor={anchor} />}
           <IconTooltipButton
@@ -59,8 +59,8 @@ export function RecordingControl({
                 <motion.span
                   key={phase}
                   className="absolute grid place-items-center"
-                  initial={{ opacity: 0, x: reducedMotion ? 0 : 8 }}
-                  animate={{ opacity: 1, x: 0 }}
+                  initial={{ opacity: 0 }}
+                  animate={{ opacity: 1 }}
                   exit={{ opacity: 0 }}
                   transition={transition}
                 >
@@ -137,12 +137,11 @@ function RadialRecordingMeter({
     let frame: number | undefined;
     const draw = () => {
       const button = anchor.current;
-      const container = button?.parentElement;
-      if (button == null || container == null) return;
+      if (button == null) return;
       const bounds = button.getBoundingClientRect();
       element.style.left = `${String(bounds.left + bounds.width / 2)}px`;
       element.style.top = `${String(bounds.top + bounds.height / 2)}px`;
-      const padding = Number.parseFloat(getComputedStyle(container).paddingLeft);
+      const padding = Number.parseFloat(getComputedStyle(element).getPropertyValue("--space-5"));
       element.style.width = `${String(bounds.width + padding * 2)}px`;
       const size = element.getBoundingClientRect().width;
       const scale = window.devicePixelRatio;
@@ -178,7 +177,7 @@ function RadialRecordingMeter({
   return createPortal(
     <canvas
       ref={canvas}
-      className="pointer-events-none fixed z-[60] aspect-square -translate-x-1/2 -translate-y-1/2 text-[var(--color-primary)]"
+      className="pointer-events-none fixed z-[60] aspect-square -translate-x-1/2 -translate-y-1/2 text-[var(--color-primary)] [filter:drop-shadow(var(--shadow-recording))]"
     />,
     document.body,
   );

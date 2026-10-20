@@ -207,11 +207,19 @@ it("keeps preparation visible until the recorder confirms capture has started", 
 
 it("finalizes owned capture if the destination closes while recorder startup is pending", async () => {
   const f = recordingFixture(true);
-  act(() => { f.view.result.current.actions.start(); });
-  await waitFor(() => { expect(f.startRequested).toHaveBeenCalled(); });
+  act(() => {
+    f.view.result.current.actions.start();
+  });
+  await waitFor(() => {
+    expect(f.startRequested).toHaveBeenCalled();
+  });
   f.view.unmount();
-  await waitFor(() => { expect(f.track.stop).toHaveBeenCalled(); });
-  await waitFor(() => { expect(f.recover).toHaveBeenCalled(); });
+  await waitFor(() => {
+    expect(f.track.stop).toHaveBeenCalled();
+  });
+  await waitFor(() => {
+    expect(f.recover).toHaveBeenCalled();
+  });
   expect(f.recover.mock.calls[0]?.[0]).toBe(f.source);
   expect(f.recover.mock.calls[0]?.[1]).toBeInstanceOf(Error);
   expect(f.recover.mock.calls[0]?.[2]).toBe(target);
