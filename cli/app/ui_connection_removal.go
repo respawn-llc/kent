@@ -26,7 +26,6 @@ const (
 	uiConnectionRemovalRemoving
 	uiConnectionRemovalRefreshing
 	uiConnectionRemovalCatalogFailed
-	uiConnectionRemovalRefreshFailed
 )
 
 type uiConnectionRemovalRequest uint8
@@ -45,6 +44,7 @@ const (
 	uiConnectionRemovalCancelConfirmation
 	uiConnectionRemovalConfirmRemoval
 	uiConnectionRemovalRetryCatalog
+	uiConnectionRemovalRetryRefreshCatalog
 )
 
 type uiConnectionRemovalChoice struct {
@@ -69,7 +69,6 @@ type uiConnectionRemovalState struct {
 type uiConnectionRemovalFeatureState struct {
 	connectionManagement apicontract.ConnectionManagementService
 	connectionRemoval    uiConnectionRemovalState
-	pendingRemovalToken  *uint64
 }
 
 type uiConnectionRemovalRequestDoneMsg struct {
@@ -93,12 +92,6 @@ func (s uiConnectionRemovalState) isRemoving() bool {
 
 func (c uiInputController) startConnectionRemovalFlowCmd() tea.Cmd {
 	m := c.model
-	if m.pendingRemovalToken != nil {
-		return m.sendTransientStatusWithNoticeID(
-			"Connection removal is still in progress",
-			uiStatusNoticeInfo, transientStatusDuration, uiStatusNoticeReplace, "",
-		)
-	}
 	state := &m.connectionRemoval
 	state.generation = nextNonZeroToken(state.generation)
 	state.phase = uiConnectionRemovalClosed
@@ -141,7 +134,6 @@ func (m *uiModel) removeSelectedConnectionCmd() tea.Cmd {
 	state.phase = uiConnectionRemovalRemoving
 	state.generation = nextNonZeroToken(state.generation)
 	token := state.generation
-	m.pendingRemovalToken = &token
 	id := *state.selectedID
 	client := m.connectionManagement
 	return func() tea.Msg {
@@ -163,34 +155,27 @@ func (m *uiModel) reduceConnectionRemovalMessage(msg tea.Msg) uiFeatureUpdateRes
 		return uiFeatureUpdateResult{}
 	}
 	state := &m.connectionRemoval
-	if done.request == uiConnectionRemovalSubmit {
-		if m.pendingRemovalToken == nil ||
-			*m.pendingRemovalToken != done.token {
-			return handledUIFeatureUpdate(m, nil)
-		}
-		m.pendingRemovalToken = nil
-		if !state.isOpen() || state.phase != uiConnectionRemovalRemoving || done.token != state.generation {
-			if done.err == nil {
-				return handledUIFeatureUpdate(m, nil)
-			}
-			message := connectionOperationErrorText(done.err)
-			return handledUIFeatureUpdate(m, tea.Batch(
-				m.appendLocalEntryWithNoticeID("error", message, ""),
-				m.sendTransientStatusWithNoticeID(message, uiStatusNoticeError, transientStatusDuration, uiStatusNoticeReplace, ""),
-			))
-		}
-	} else if !state.isOpen() || done.token != state.generation {
+	if !state.isOpen() || done.token != state.generation {
 		return handledUIFeatureUpdate(m, nil)
 	}
 
 	switch done.request {
-	case uiConnectionRemovalLoadCatalog:
-		if state.phase != uiConnectionRemovalLoading {
+	case uiConnectionRemovalLoadCatalog, uiConnectionRemovalRefreshCatalog:
+		if !state.isLoading() {
 			return handledUIFeatureUpdate(m, nil)
 		}
 		if err := m.applyConnectionRemovalCatalog(done); err != nil {
-			m.showConnectionRemovalCatalogFailure(err)
+			retry := uiConnectionRemovalRetryCatalog
+			if done.request == uiConnectionRemovalRefreshCatalog {
+				retry = uiConnectionRemovalRetryRefreshCatalog
+			}
+			m.showConnectionRemovalCatalogFailure(err, retry)
 			return handledUIFeatureUpdate(m, m.reconcileSpinnerTicking(false))
+		}
+		if done.request == uiConnectionRemovalRefreshCatalog && len(state.definitions) == 0 {
+			closeCmd := m.closeConnectionRemovalFlow()
+			m.exitAction = UIActionLogout
+			return handledUIFeatureUpdate(m, sequenceCmds(closeCmd, tea.Quit))
 		}
 		m.showConnectionRemovalList(nil)
 	case uiConnectionRemovalSubmit:
@@ -210,20 +195,6 @@ func (m *uiModel) reduceConnectionRemovalMessage(msg tea.Msg) uiFeatureUpdateRes
 			m.requestConnectionRemovalCatalog(uiConnectionRemovalRefreshCatalog),
 			m.reconcileSpinnerTicking(false),
 		))
-	case uiConnectionRemovalRefreshCatalog:
-		if state.phase != uiConnectionRemovalRefreshing {
-			return handledUIFeatureUpdate(m, nil)
-		}
-		if err := m.applyConnectionRemovalCatalog(done); err != nil {
-			m.showConnectionRemovalRefreshFailure(err)
-			return handledUIFeatureUpdate(m, m.reconcileSpinnerTicking(false))
-		}
-		if len(state.definitions) == 0 {
-			closeCmd := m.closeConnectionRemovalFlow()
-			m.exitAction = UIActionLogout
-			return handledUIFeatureUpdate(m, sequenceCmds(closeCmd, tea.Quit))
-		}
-		m.showConnectionRemovalList(nil)
 	default:
 		panic(fmt.Sprintf("unknown connection removal request %d", done.request))
 	}
@@ -233,9 +204,6 @@ func (m *uiModel) reduceConnectionRemovalMessage(msg tea.Msg) uiFeatureUpdateRes
 
 func (m *uiModel) applyConnectionRemovalCatalog(done uiConnectionRemovalRequestDoneMsg) error {
 	if done.err != nil {
-		if done.request == uiConnectionRemovalRefreshCatalog {
-			return fmt.Errorf("load refreshed connection list: %w", done.err)
-		}
 		return fmt.Errorf("load connection list: %w", done.err)
 	}
 	if done.catalog == nil {
@@ -297,7 +265,7 @@ func (m *uiModel) showConnectionRemovalConfirmation(id config.ConnectionID) {
 		"**Remove connection "+string(id)+"?**",
 		"Remove connection",
 		startupPickerNotice{
-			Text: "Removes this connection and its saved credentials server-wide.",
+			Text: "Sessions using it lose access. Reopening a Session can switch it to another available connection when its configuration permits; otherwise, its next request is interrupted.",
 		},
 		[]uiConnectionRemovalPickerOption{
 			{title: "No", choice: uiConnectionRemovalChoice{kind: uiConnectionRemovalCancelConfirmation}},
@@ -306,7 +274,7 @@ func (m *uiModel) showConnectionRemovalConfirmation(id config.ConnectionID) {
 	)
 }
 
-func (m *uiModel) showConnectionRemovalCatalogFailure(err error) {
+func (m *uiModel) showConnectionRemovalCatalogFailure(err error, retry uiConnectionRemovalChoiceKind) {
 	m.connectionRemoval.phase = uiConnectionRemovalCatalogFailed
 	m.setConnectionRemovalPicker(
 		"**Provider connections unavailable**",
@@ -314,23 +282,7 @@ func (m *uiModel) showConnectionRemovalCatalogFailure(err error) {
 		startupPickerNotice{Text: err.Error(), Kind: startupPickerNoticeError},
 		[]uiConnectionRemovalPickerOption{
 			{title: "Return to chat", choice: uiConnectionRemovalChoice{kind: uiConnectionRemovalReturnToChat}},
-			{title: "Retry list", choice: uiConnectionRemovalChoice{kind: uiConnectionRemovalRetryCatalog}},
-		},
-	)
-}
-
-func (m *uiModel) showConnectionRemovalRefreshFailure(err error) {
-	m.connectionRemoval.phase = uiConnectionRemovalRefreshFailed
-	m.setConnectionRemovalPicker(
-		"**Connection removed**",
-		"Connection removed",
-		startupPickerNotice{
-			Text: err.Error(),
-			Kind: startupPickerNoticeError,
-		},
-		[]uiConnectionRemovalPickerOption{
-			{title: "Return to chat", choice: uiConnectionRemovalChoice{kind: uiConnectionRemovalReturnToChat}},
-			{title: "Retry list", choice: uiConnectionRemovalChoice{kind: uiConnectionRemovalRetryCatalog}},
+			{title: "Retry list", choice: uiConnectionRemovalChoice{kind: retry}},
 		},
 	)
 }
@@ -372,16 +324,16 @@ func (m *uiModel) updateConnectionRemovalPickerSize() {
 func (c uiInputController) handleConnectionRemovalKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	m := c.model
 	state := &m.connectionRemoval
+	if state.isLoading() || state.isRemoving() {
+		if msg.Type == tea.KeyCtrlC {
+			return c.handleRuntimeCtrlC(nil)
+		}
+		return m, nil
+	}
 	if msg.Type == tea.KeyCtrlC {
 		return c.handleRuntimeCtrlC(func() tea.Cmd {
 			return m.closeConnectionRemovalFlow()
 		})
-	}
-	if state.isLoading() || state.isRemoving() {
-		if msg.Type == tea.KeyEsc {
-			return m, nil
-		}
-		return m, nil
 	}
 	if state.picker == nil {
 		panic("open connection removal flow is missing its picker")
@@ -396,7 +348,7 @@ func (c uiInputController) handleConnectionRemovalKey(msg tea.KeyMsg) (tea.Model
 		switch state.phase {
 		case uiConnectionRemovalConfirming:
 			return m, m.returnToConnectionRemovalList()
-		case uiConnectionRemovalSelecting, uiConnectionRemovalCatalogFailed, uiConnectionRemovalRefreshFailed:
+		case uiConnectionRemovalSelecting, uiConnectionRemovalCatalogFailed:
 			return m, m.closeConnectionRemovalFlow()
 		default:
 			panic(fmt.Sprintf("connection removal cannot be canceled in phase %d", state.phase))
@@ -438,17 +390,10 @@ func (c uiInputController) handleConnectionRemovalKey(msg tea.KeyMsg) (tea.Model
 			return m, m.closeConnectionRemovalFlow()
 		case uiConnectionRemovalRetryCatalog:
 			return m, tea.Batch(m.requestConnectionRemovalCatalog(uiConnectionRemovalLoadCatalog), m.reconcileSpinnerTicking(false))
-		default:
-			panic(fmt.Sprintf("invalid catalog failure choice %d", choice.kind))
-		}
-	case uiConnectionRemovalRefreshFailed:
-		switch choice.kind {
-		case uiConnectionRemovalReturnToChat:
-			return m, m.closeConnectionRemovalFlow()
-		case uiConnectionRemovalRetryCatalog:
+		case uiConnectionRemovalRetryRefreshCatalog:
 			return m, tea.Batch(m.requestConnectionRemovalCatalog(uiConnectionRemovalRefreshCatalog), m.reconcileSpinnerTicking(false))
 		default:
-			panic(fmt.Sprintf("invalid refresh failure choice %d", choice.kind))
+			panic(fmt.Sprintf("invalid catalog failure choice %d", choice.kind))
 		}
 	default:
 		panic(fmt.Sprintf("connection removal picker is unavailable in phase %d", state.phase))
