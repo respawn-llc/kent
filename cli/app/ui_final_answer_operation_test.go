@@ -159,12 +159,18 @@ func TestBackFinalAnswerOperationAbsenceOpensParentWithoutPrefill(t *testing.T) 
 
 func TestBackCommandMissingParentPreservesEditableChildWithoutLookupOrTransition(t *testing.T) {
 	m := newProjectedStaticUIModel(WithUISessionID("11111111-1111-4111-8111-111111111111"))
+	controls := &runtimeControlFakeClient{}
+	m.sessionControls = controls
 	testSetMainInput(m, "editable child draft")
 
 	next, errorCmd := m.inputController().handleBackCommand()
 	m = next.(*uiModel)
-	if errorCmd == nil || m.transientStatus == "" {
+	if errorCmd == nil {
 		t.Fatal("missing parent did not surface an operator-visible error")
+	}
+	m = updateUIModel(t, m, errorCmd())
+	if controls.appendCalls != 1 || controls.appendedText == "" {
+		t.Fatal("missing parent did not publish its ordinary Session notice")
 	}
 	if m.finalAnswerOperation != nil {
 		t.Fatalf("missing parent started final-answer operation %+v", m.finalAnswerOperation)

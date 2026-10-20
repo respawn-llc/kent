@@ -11,7 +11,7 @@ func TestSubmitDoneDispatchesQueuedTurnWithoutNotificationTranscriptFacts(t *tes
 	hooks.OnTranscriptMessage(bellToolStartMessage(1))
 	hooks.OnTranscriptMessage(bellToolStartMessage(1))
 
-	model := newProjectedStaticUIModel(WithUITurnQueueHook(hooks))
+	model := newProjectedStaticUIModel(WithUITurnQueueHook(hooks), WithUISessionID(detailTestSessionID))
 	model.activeSubmit = activeSubmitState{token: 1, text: "current turn"}
 	model.setRuntimeActivityBusyForTest(true)
 	model.queued = queuedInputsForTest("next queued turn")
