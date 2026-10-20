@@ -62,6 +62,11 @@ type startupPickerModel struct {
 	result         startupPickerResult
 }
 
+type startupPickerRowRange struct {
+	start        int
+	endExclusive int
+}
+
 func newStartupPickerModel(headerMarkdown, headerFallback, theme string, notice startupPickerNotice, items []startupPickerOption) *startupPickerModel {
 	m := &startupPickerModel{
 		headerMarkdown: headerMarkdown,
@@ -159,17 +164,19 @@ func (m *startupPickerModel) moveCursor(delta int) {
 }
 
 func (m *startupPickerModel) ensureCursorVisible() {
-	lines, itemStarts := m.contentLines()
-	if m.cursor < 0 || m.cursor >= len(itemStarts) {
+	lines, rows := m.contentLines()
+	if m.cursor < 0 || m.cursor >= len(rows) {
 		return
 	}
-	rowStart := itemStarts[m.cursor]
-	if rowStart < m.scrollOffset {
-		m.scrollOffset = rowStart
-	} else if rowStart >= m.scrollOffset+max(1, m.height) {
-		m.scrollOffset = rowStart - max(1, m.height) + 1
+	row := rows[m.cursor]
+	height := max(1, m.height)
+	if row.start < m.scrollOffset {
+		m.scrollOffset = row.start
 	}
-	m.scrollOffset = min(max(0, m.scrollOffset), max(0, len(lines)-max(1, m.height)))
+	if row.endExclusive > m.scrollOffset+height {
+		m.scrollOffset = min(row.start, row.endExclusive-height)
+	}
+	m.scrollOffset = min(max(0, m.scrollOffset), max(0, len(lines)-height))
 }
 
 func (m *startupPickerModel) renderHeader() string {
@@ -190,7 +197,11 @@ func (m *startupPickerModel) renderNotice() string {
 	if rendered == "" {
 		return ""
 	}
-	return inset + rendered
+	lines := strings.Split(rendered, "\n")
+	for index := range lines {
+		lines[index] = inset + lines[index]
+	}
+	return strings.Join(lines, "\n")
 }
 
 func (m *startupPickerModel) headerInset() string {
@@ -239,31 +250,36 @@ func (m *startupPickerModel) contentWidth() int {
 	return m.width
 }
 
-func (m *startupPickerModel) contentLines() ([]string, []int) {
+func (m *startupPickerModel) contentLines() ([]string, []startupPickerRowRange) {
 	lines := strings.Split(m.renderHeader(), "\n")
 	if notice := m.renderNotice(); notice != "" {
 		lines = append(lines, "")
 		lines = append(lines, strings.Split(notice, "\n")...)
 	}
 	lines = append(lines, "")
-	itemStarts := make([]int, len(m.items))
+	rows := make([]startupPickerRowRange, len(m.items))
 	for index := range m.items {
 		if index > 0 {
 			lines = append(lines, "")
 		}
-		itemStarts[index] = len(lines)
+		rows[index].start = len(lines)
 		lines = append(lines, strings.Split(m.renderRow(index), "\n")...)
+		rows[index].endExclusive = len(lines)
 	}
-	return lines, itemStarts
+	return lines, rows
 }
 
 func (m *startupPickerModel) cursorVisible() bool {
-	_, itemStarts := m.contentLines()
-	if m.cursor < 0 || m.cursor >= len(itemStarts) {
+	_, rows := m.contentLines()
+	if m.cursor < 0 || m.cursor >= len(rows) {
 		return false
 	}
-	return itemStarts[m.cursor] >= m.scrollOffset &&
-		itemStarts[m.cursor] < m.scrollOffset+max(1, m.height)
+	row := rows[m.cursor]
+	height := max(1, m.height)
+	if row.endExclusive-row.start > height {
+		return row.start >= m.scrollOffset && row.start < m.scrollOffset+height
+	}
+	return row.start >= m.scrollOffset && row.endExclusive <= m.scrollOffset+height
 }
 
 func (m *startupPickerModel) scrollBy(delta int) {

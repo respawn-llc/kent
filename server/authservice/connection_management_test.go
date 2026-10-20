@@ -174,6 +174,17 @@ func TestConfigureConnectionDefinitionRemovalFailureReportsClearedCredentials(t 
 			t.Error(err)
 		}
 	})
+	probe, probeErr := os.CreateTemp(resolver.root, "write-permission-probe-*")
+	if probeErr == nil {
+		probePath := probe.Name()
+		if err := probe.Close(); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.Remove(probePath); err != nil {
+			t.Fatal(err)
+		}
+		t.Skip("directory permission changes do not prevent writes for this user")
+	}
 	service := NewBootstrapService(context.Background(), resolver, auth.OpenAIOAuthOptions{})
 
 	_, err := service.ConfigureConnection(t.Context(), &authpb.ConfigureConnectionRequest{
