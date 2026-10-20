@@ -18,15 +18,9 @@ func writeSessionIdentity(ctx context.Context, remote apicontract.SessionViewSer
 	if err != nil {
 		return err
 	}
-	if err := protoapi.Validate(result); err != nil {
-		return err
-	}
 	shortID := "unassigned"
 	if result.ShortId != nil {
-		number, err := protoapi.SessionShortIDFromProto(result.ShortId)
-		if err != nil {
-			return err
-		}
+		number := protoapi.SessionShortIDFromProto(result.ShortId)
 		shortID = number.String()
 	}
 	_, err = fmt.Fprintf(stdout, "Short ID: %s\nUUID: %s\nLog path: %s\n", shortID, result.SessionId, result.LogPath)

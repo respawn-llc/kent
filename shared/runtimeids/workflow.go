@@ -13,6 +13,11 @@ type WorkflowID struct {
 	uuidv4Value
 }
 
+func WorkflowIDFromProto(raw string) (WorkflowID, error) {
+	id, err := uuidv4ValueFromProto(raw)
+	return WorkflowID{uuidv4Value: id}, err
+}
+
 // ParseWorkflowID accepts only the exact lower-case canonical UUIDv4 text form.
 func ParseWorkflowID(raw string) (WorkflowID, error) {
 	parsed, err := ParseCanonicalUUIDv4(raw, "workflow_id")

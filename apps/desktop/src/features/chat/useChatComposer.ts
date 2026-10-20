@@ -27,7 +27,7 @@ import type {
   PendingWorkItemID,
   ChatRuntimeActivity,
 } from "@/api";
-import { parsePendingWorkItemID } from "@/api";
+import { pendingWorkItemIDFromProto } from "@/api";
 import { SharedTextMotion, showStatusToast } from "@/ui";
 
 export type { ComposerSubmission } from "./ComposerInputViewModel";
@@ -112,7 +112,7 @@ export function useChatComposer(options: ChatComposerOptions) {
     () => ({
       ...pending.observation,
       onUserInputCommitted: (inputIDs: readonly string[]) => {
-        observeCommits(inputIDs.map(parsePendingWorkItemID));
+        observeCommits(inputIDs.map(pendingWorkItemIDFromProto));
       },
       onConnectionReplaced: (replacement: ChatTranscriptPayloadByKind["connection_replaced"]) => {
         showStatusToast({

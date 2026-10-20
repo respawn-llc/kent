@@ -183,9 +183,9 @@ message Status {
     defined_only: true
     not_in: [0]
   }];
-  optional string previous_session_id = 8 [(buf.validate.field).string.min_len = 1];
-  optional string parent_agent_session_id = 9 [(buf.validate.field).string.min_len = 1];
-  optional string navigation_target_session_id = 10 [(buf.validate.field).string.min_len = 1];
+  optional string previous_session_id = 8 [(buf.validate.field).string.uuid = true, (buf.validate.field).string.(kent.api.shared.canonical_uuid_v4) = true];
+  optional string parent_agent_session_id = 9 [(buf.validate.field).string.uuid = true, (buf.validate.field).string.(kent.api.shared.canonical_uuid_v4) = true];
+  optional string navigation_target_session_id = 10 [(buf.validate.field).string.uuid = true, (buf.validate.field).string.(kent.api.shared.canonical_uuid_v4) = true];
   string thinking_level = 12 [(buf.validate.field).string.min_len = 1];
   string compaction_mode = 13 [(buf.validate.field).string = {
     in: [
@@ -211,7 +211,7 @@ message SessionView {
     defined_only: true
     not_in: [0]
   }];
-  string session_id = 1 [(buf.validate.field).string.min_len = 1];
+  string session_id = 1 [(buf.validate.field).string.uuid = true, (buf.validate.field).string.(kent.api.shared.canonical_uuid_v4) = true];
   optional string session_name = 2 [(buf.validate.field).string.min_len = 1];
   optional string agent_role = 3 [(buf.validate.field).string.min_len = 1];
   ConversationFreshness conversation_freshness = 4 [(buf.validate.field).enum = {
@@ -260,8 +260,8 @@ message SessionNameMutation {
 
 message SetSessionNameRequest {
   string session_id = 1 [
-    (buf.validate.field).string.min_len = 1,
-    (buf.validate.field).string.(kent.api.shared.nonblank) = true
+    (buf.validate.field).string.uuid = true,
+    (buf.validate.field).string.(kent.api.shared.canonical_uuid_v4) = true
   ];
   SessionNameMutation mutation = 2 [(buf.validate.field).required = true];
 }
@@ -276,11 +276,7 @@ message UserTurnInput {
     option (buf.validate.oneof).required = true;
     string text = 1 [
       (buf.validate.field).string.min_len = 1,
-      (buf.validate.field).cel = {
-        id: "kent.runtime.user_turn_text_nonblank"
-        message: "text must not be blank"
-        expression: "this.trim() != ''"
-      }
+      (buf.validate.field).string.(kent.api.shared.pending_work_nonblank) = true
     ];
     PromptCommandInput prompt_command = 2;
   }
@@ -288,12 +284,8 @@ message UserTurnInput {
 
 message SubmitUserTurnRequest {
   string session_id = 1 [
-    (buf.validate.field).string.min_len = 1,
-    (buf.validate.field).cel = {
-      id: "kent.runtime.submit_user_turn_session_id_nonblank"
-      message: "session_id must not be blank"
-      expression: "this.trim() != ''"
-    }
+    (buf.validate.field).string.uuid = true,
+    (buf.validate.field).string.(kent.api.shared.canonical_uuid_v4) = true
   ];
   UserTurnInput input = 2 [(buf.validate.field).required = true];
   string queue_item_id = 3 [
@@ -346,8 +338,8 @@ message SubmitUserTurnSuccess {
 
 message CompactContextRequest {
   string session_id = 1 [
-    (buf.validate.field).string.min_len = 1,
-    (buf.validate.field).string.(kent.api.shared.nonblank) = true
+    (buf.validate.field).string.uuid = true,
+    (buf.validate.field).string.(kent.api.shared.canonical_uuid_v4) = true
   ];
   ManualCompactionAdmission admission = 3 [(buf.validate.field).required = true];
 }
@@ -355,19 +347,14 @@ message CompactContextRequest {
 message ManualCompactionAdmission {
   optional string guidance = 1 [
     (buf.validate.field).string.min_len = 1,
-    (buf.validate.field).string.(kent.api.shared.nonblank) = true
+    (buf.validate.field).string.(kent.api.shared.pending_work_argument) = true
   ];
-  option (buf.validate.message).cel = {
-    id: "kent.runtime.manual_compaction_guidance_normalized"
-    message: "guidance must be normalized"
-    expression: "!has(this.guidance) || this.guidance == this.guidance.trim()"
-  };
 }
 
 message InterruptRequest {
   string session_id = 1 [
-    (buf.validate.field).string.min_len = 1,
-    (buf.validate.field).string.(kent.api.shared.nonblank) = true
+    (buf.validate.field).string.uuid = true,
+    (buf.validate.field).string.(kent.api.shared.canonical_uuid_v4) = true
   ];
 }
 
@@ -530,7 +517,7 @@ enum PendingWorkWorktreeTransitionKind {
 message PendingWorkMessage {
   string text = 1 [
     (buf.validate.field).string.min_len = 1,
-    (buf.validate.field).string.(kent.api.shared.nonblank) = true
+    (buf.validate.field).string.(kent.api.shared.pending_work_nonblank) = true
   ];
 }
 
@@ -541,13 +528,13 @@ message PendingWorkWorktreeTransition {
   }];
   optional string selector = 2 [
     (buf.validate.field).string.min_len = 1,
-    (buf.validate.field).string.(kent.api.shared.nonblank) = true
+    (buf.validate.field).string.(kent.api.shared.pending_work_argument) = true
   ];
   option (buf.validate.message).cel = {
     id: "kent.runtime.pending_work_worktree_transition_payload"
     message: "Worktree enter requires a normalized selector and leave forbids one"
     expression:
-      "(this.transition == 1 && has(this.selector) && this.selector == this.selector.trim()) || "
+      "(this.transition == 1 && has(this.selector)) || "
       "(this.transition == 2 && !has(this.selector))"
   };
 }
@@ -577,7 +564,7 @@ message PendingWorkItem {
   }];
   string canonical_input = 7 [
     (buf.validate.field).string.min_len = 1,
-    (buf.validate.field).string.(kent.api.shared.nonblank) = true
+    (buf.validate.field).string.(kent.api.shared.pending_work_nonblank) = true
   ];
   option (buf.validate.message).cel = {
     id: "kent.runtime.pending_work_item_payload"
@@ -596,12 +583,20 @@ message PendingWork {
     message: "Pending Work item identities must be unique"
     expression: "this.items.map(item, item.id).unique()"
   };
+  option (buf.validate.message).cel = {
+    id: "kent.runtime.pending_work_lane_order"
+    message: "Pending Work Queue items must precede Steer items"
+    expression:
+      "this.items.map(item, item.lane) == "
+      "this.items.filter(item, item.lane == 2).map(item, item.lane) + "
+      "this.items.filter(item, item.lane == 1).map(item, item.lane)"
+  };
 }
 
 message ListPendingWorkRequest {
   string session_id = 1 [
-    (buf.validate.field).string.min_len = 1,
-    (buf.validate.field).string.(kent.api.shared.nonblank) = true
+    (buf.validate.field).string.uuid = true,
+    (buf.validate.field).string.(kent.api.shared.canonical_uuid_v4) = true
   ];
 }
 
@@ -611,8 +606,8 @@ message ListPendingWorkSuccess {
 
 message RemovePendingWorkRequest {
   string session_id = 1 [
-    (buf.validate.field).string.min_len = 1,
-    (buf.validate.field).string.(kent.api.shared.nonblank) = true
+    (buf.validate.field).string.uuid = true,
+    (buf.validate.field).string.(kent.api.shared.canonical_uuid_v4) = true
   ];
   string item_id = 2 [
     (buf.validate.field).string.uuid = true,
@@ -627,7 +622,7 @@ message PendingWorkRestoration {
   }];
   string canonical_input = 2 [
     (buf.validate.field).string.min_len = 1,
-    (buf.validate.field).string.(kent.api.shared.nonblank) = true
+    (buf.validate.field).string.(kent.api.shared.pending_work_nonblank) = true
   ];
 }
 
@@ -789,7 +784,10 @@ message GoalProjection {
 }
 
 message GoalObservation {
-  uint64 sequence = 1 [(buf.validate.field).uint64.gt = 0];
+  uint64 sequence = 1 [(buf.validate.field).uint64 = {
+    gt: 0
+    lte: 9007199254740991
+  }];
   GoalObservationKind kind = 2 [(buf.validate.field).enum = {
     defined_only: true
     not_in: [0]

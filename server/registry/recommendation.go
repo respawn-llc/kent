@@ -19,5 +19,12 @@ func DecodeLegacyRecommendedOptionIndex(index int, suggestionCount int) (*int, e
 			suggestionCount,
 		)
 	}
-	return &index, nil
+	return RecommendedOptionIndexFromSnapshot(index), nil
+}
+
+func RecommendedOptionIndexFromSnapshot(index int) *int {
+	if index == 0 {
+		return nil
+	}
+	return &index
 }

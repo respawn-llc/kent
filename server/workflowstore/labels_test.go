@@ -155,10 +155,9 @@ func TestProjectLabelReorderRejectsNonPermutationWithoutChangingCatalog(t *testi
 	}
 
 	for name, requested := range map[string][]label.ID{
-		"missing":   {first.ID},
-		"duplicate": {first.ID, first.ID},
-		"unknown":   {first.ID, label.NewID()},
-		"foreign":   {first.ID, foreign.ID},
+		"missing": {first.ID},
+		"unknown": {first.ID, label.NewID()},
+		"foreign": {first.ID, foreign.ID},
 	} {
 		t.Run(name, func(t *testing.T) {
 			if _, err := store.ReorderProjectLabels(ctx, binding.ProjectID, requested); err == nil {
@@ -610,87 +609,6 @@ func TestTaskLabelUpdateIsIdempotentAtomicAndProjectOrdered(t *testing.T) {
 	}
 	if len(assigned) != 1 || assigned[0] != zulu.ID {
 		t.Fatalf("assigned labels after remove = %+v, want Zulu", assigned)
-	}
-}
-
-func TestTaskLabelUpdateRejectsMalformedCollectionsBeforeMutation(t *testing.T) {
-	ctx, store, binding := newTestStoreContext(t)
-	createLinkedValidWorkflow(t, ctx, store, binding.ProjectID)
-	task := createDefaultTask(t, ctx, store, binding.ProjectID)
-	projectLabel, err := store.CreateProjectLabel(ctx, binding.ProjectID, "valid")
-	if err != nil {
-		t.Fatalf("CreateProjectLabel: %v", err)
-	}
-
-	for _, test := range []struct {
-		name   string
-		req    TaskLabelUpdateRequest
-		reason TaskLabelMutationErrorReason
-	}{
-		{
-			name: "duplicate add",
-			req: TaskLabelUpdateRequest{
-				TaskID:      task.ID,
-				AddLabelIDs: []string{projectLabel.ID.String(), projectLabel.ID.String()},
-			},
-			reason: TaskLabelMutationDuplicateAdd,
-		},
-		{
-			name: "duplicate remove",
-			req: TaskLabelUpdateRequest{
-				TaskID:         task.ID,
-				RemoveLabelIDs: []string{projectLabel.ID.String(), projectLabel.ID.String()},
-			},
-			reason: TaskLabelMutationDuplicateRemove,
-		},
-		{
-			name: "overlap",
-			req: TaskLabelUpdateRequest{
-				TaskID:         task.ID,
-				AddLabelIDs:    []string{projectLabel.ID.String()},
-				RemoveLabelIDs: []string{projectLabel.ID.String()},
-			},
-			reason: TaskLabelMutationOverlap,
-		},
-		{
-			name: "invalid canonical ID",
-			req: TaskLabelUpdateRequest{
-				TaskID:      task.ID,
-				AddLabelIDs: []string{"not-a-label-id"},
-			},
-			reason: TaskLabelMutationInvalidID,
-		},
-		{
-			name: "raw 101 IDs precede ID parsing",
-			req: TaskLabelUpdateRequest{
-				TaskID:      task.ID,
-				AddLabelIDs: make([]string, label.MaxProjectLabels+1),
-			},
-			reason: TaskLabelMutationTooManyAdd,
-		},
-		{
-			name: "raw 101 remove IDs precede ID parsing",
-			req: TaskLabelUpdateRequest{
-				TaskID:         task.ID,
-				RemoveLabelIDs: make([]string, label.MaxProjectLabels+1),
-			},
-			reason: TaskLabelMutationTooManyRemove,
-		},
-	} {
-		t.Run(test.name, func(t *testing.T) {
-			_, err := store.UpdateTaskLabels(ctx, test.req)
-			var mutationErr TaskLabelMutationError
-			if !errors.As(err, &mutationErr) || mutationErr.Reason != test.reason {
-				t.Fatalf("UpdateTaskLabels error = %T %v, want reason %q", err, err, test.reason)
-			}
-			assigned, err := store.GetTaskLabelIDs(ctx, task.ID)
-			if err != nil {
-				t.Fatalf("GetTaskLabelIDs after rejection: %v", err)
-			}
-			if len(assigned) != 0 {
-				t.Fatalf("assignments after rejected mutation = %+v", assigned)
-			}
-		})
 	}
 }
 

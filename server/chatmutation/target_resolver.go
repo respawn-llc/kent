@@ -3,7 +3,6 @@ package chatmutation
 import (
 	"context"
 	"errors"
-	"fmt"
 
 	"core/server/launch"
 	"core/server/metadata"
@@ -132,9 +131,6 @@ func (r *TargetResolver) Resolve(
 			err = serverapi.WithSessionTarget(captured, err)
 		}
 	}()
-	if err := protoapi.Validate(request.Target); err != nil {
-		return ResolvedTarget{}, fmt.Errorf("Chat target: %w", err)
-	}
 	if r == nil {
 		return ResolvedTarget{}, errors.New("Chat target resolver is required")
 	}
@@ -184,16 +180,10 @@ func (r *TargetResolver) Resolve(
 	if response == nil || response.Plan == nil {
 		return ResolvedTarget{}, errors.New("ordinary Session creation result is required")
 	}
-	sessionID, err := runtimeids.ParseSessionID(response.Plan.SessionId)
-	if err != nil {
-		return ResolvedTarget{}, fmt.Errorf("ordinary Session creation result: %w", err)
-	}
+	sessionID := runtimeids.SessionIDFromProto(response.Plan.SessionId)
 	captured = serverapi.CanonicalSessionTarget{ID: sessionID}
 	resolved = ResolvedTarget{SessionID: sessionID, Created: true}
-	shortID, err := protoapi.SessionShortIDFromProto(response.Plan.ShortId)
-	if err != nil {
-		return resolved, err
-	}
+	shortID := protoapi.SessionShortIDFromProto(response.Plan.ShortId)
 	resolved.ShortID = shortID
 	if newChat.Name != nil {
 		if r.names == nil {

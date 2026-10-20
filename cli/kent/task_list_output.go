@@ -13,24 +13,15 @@ type taskStatusJSON struct {
 	AttentionTypes []string `json:"attention_types,omitempty"`
 }
 
-func taskStatusOutput(status *taskpb.TaskStatus) (taskStatusJSON, error) {
-	kind, err := protoapi.TaskStatusKind.Decode(status.Kind)
-	if err != nil {
-		return taskStatusJSON{}, err
-	}
-	native, err := protoapi.TaskNativeStateName.Decode(status.NativeState)
-	if err != nil {
-		return taskStatusJSON{}, err
-	}
+func taskStatusOutput(status *taskpb.TaskStatus) taskStatusJSON {
+	kind := protoapi.TaskStatusKind.FromProto(status.Kind)
+	native := protoapi.TaskNativeStateName.FromProto(status.NativeState)
 	out := taskStatusJSON{Kind: kind, NativeState: native, NodeIDs: status.NodeIds}
 	for _, attention := range status.AttentionTypes {
-		name, err := protoapi.TaskAttentionKind.Decode(attention)
-		if err != nil {
-			return taskStatusJSON{}, err
-		}
+		name := protoapi.TaskAttentionKind.FromProto(attention)
 		out.AttentionTypes = append(out.AttentionTypes, name)
 	}
-	return out, nil
+	return out
 }
 
 type taskDependencyProgressJSON struct {
@@ -60,21 +51,15 @@ type taskListJSON struct {
 	Tasks                       []taskListItemJSON `json:"tasks"`
 }
 
-func taskListOutput(response *taskpb.ListSuccess) (taskListJSON, error) {
-	cardinality, err := protoapi.TaskCardinality.Decode(response.MatchingWorkflowCardinality)
-	if err != nil {
-		return taskListJSON{}, err
-	}
+func taskListOutput(response *taskpb.ListSuccess) taskListJSON {
+	cardinality := protoapi.TaskCardinality.FromProto(response.MatchingWorkflowCardinality)
 	out := taskListJSON{
 		Scope: response.Scope, MatchingWorkflowCardinality: cardinality, NextOffset: response.NextOffset,
 		GeneratedAtUnixMs: response.GeneratedAt.AsTime().UnixMilli(),
 		Tasks:             make([]taskListItemJSON, 0, len(response.Tasks)),
 	}
 	for _, task := range response.Tasks {
-		status, err := taskStatusOutput(task.Status)
-		if err != nil {
-			return taskListJSON{}, err
-		}
+		status := taskStatusOutput(task.Status)
 		item := taskListItemJSON{
 			TaskID: task.TaskId, ShortID: task.ShortId, WorkflowID: task.WorkflowId, WorkflowName: task.WorkflowName,
 			Title: task.Title, CreatedAtUnixMs: task.CreatedAt.AsTime().UnixMilli(), UpdatedAtUnixMs: task.UpdatedAt.AsTime().UnixMilli(),
@@ -89,5 +74,5 @@ func taskListOutput(response *taskpb.ListSuccess) (taskListJSON, error) {
 		}
 		out.Tasks = append(out.Tasks, item)
 	}
-	return out, nil
+	return out
 }

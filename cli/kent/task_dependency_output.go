@@ -13,12 +13,12 @@ type taskDependencyMutationJSON struct {
 	BlockedShortID string `json:"blocked_short_id"`
 }
 
-func taskDependencyMutationOutput(value *taskpb.DependencyMutationSuccess) (taskDependencyMutationJSON, error) {
-	outcome, err := protoapi.TaskDependencyMutationOutcome.Decode(value.Outcome)
+func taskDependencyMutationOutput(value *taskpb.DependencyMutationSuccess) taskDependencyMutationJSON {
+	outcome := protoapi.TaskDependencyMutationOutcome.FromProto(value.Outcome)
 	return taskDependencyMutationJSON{
 		Outcome: outcome, BlockerTaskID: value.BlockerTaskId, BlockerShortID: value.BlockerShortId,
 		BlockedTaskID: value.BlockedTaskId, BlockedShortID: value.BlockedShortId,
-	}, err
+	}
 }
 
 type taskDependencyListJSON struct {
@@ -43,38 +43,29 @@ type taskDependencyItemJSON struct {
 	Satisfaction *string        `json:"satisfaction,omitempty"`
 }
 
-func taskDependencyListOutput(value *taskpb.DependencyListSuccess) (taskDependencyListJSON, error) {
+func taskDependencyListOutput(value *taskpb.DependencyListSuccess) taskDependencyListJSON {
 	out := taskDependencyListJSON{
 		TaskID: value.TaskId, ShortID: value.ShortId,
 		Directions: make([]taskDependencyDirectionJSON, 0, len(value.Directions)),
 	}
 	for _, direction := range value.Directions {
-		name, err := protoapi.TaskDependencyDirection.Decode(direction.Direction)
-		if err != nil {
-			return taskDependencyListJSON{}, err
-		}
+		name := protoapi.TaskDependencyDirection.FromProto(direction.Direction)
 		projected := taskDependencyDirectionJSON{
 			Direction: name, TotalCount: direction.TotalCount, UnsatisfiedCount: direction.UnsatisfiedCount,
 			Items: make([]taskDependencyItemJSON, 0, len(direction.Items)),
 		}
 		for _, item := range direction.Items {
-			status, err := taskStatusOutput(item.Status)
-			if err != nil {
-				return taskDependencyListJSON{}, err
-			}
+			status := taskStatusOutput(item.Status)
 			row := taskDependencyItemJSON{
 				TaskID: item.TaskId, ShortID: item.ShortId, Title: item.Title, WorkflowID: item.WorkflowId, Status: status,
 			}
 			if item.Satisfaction != nil {
-				satisfaction, err := protoapi.TaskDependencySatisfaction.Decode(*item.Satisfaction)
-				if err != nil {
-					return taskDependencyListJSON{}, err
-				}
+				satisfaction := protoapi.TaskDependencySatisfaction.FromProto(*item.Satisfaction)
 				row.Satisfaction = &satisfaction
 			}
 			projected.Items = append(projected.Items, row)
 		}
 		out.Directions = append(out.Directions, projected)
 	}
-	return out, nil
+	return out
 }

@@ -13,7 +13,6 @@ import (
 	"core/shared/config"
 	"core/shared/protoapi"
 	projectpb "core/shared/protoapi/gen/kent/api/project"
-	"core/shared/serverapi"
 )
 
 const (
@@ -54,17 +53,12 @@ func projectWorkspacesSubcommand(args []string, stdout io.Writer, stderr io.Writ
 		fmt.Fprintln(stderr, "--project must not be blank")
 		return 2
 	}
-	window, err := serverapi.ResolveOffsetWindow(offsetFlag, limitFlag)
+	requestOffset, err := protoapi.Int32(*offsetFlag, "offset")
 	if err != nil {
 		fmt.Fprintln(stderr, err)
 		return 2
 	}
-	requestOffset, err := protoapi.Int32(window.Offset, "offset")
-	if err != nil {
-		fmt.Fprintln(stderr, err)
-		return 2
-	}
-	requestLimit, err := protoapi.Int32(window.Limit, "limit")
+	requestLimit, err := protoapi.Int32(*limitFlag, "limit")
 	if err != nil {
 		fmt.Fprintln(stderr, err)
 		return 2

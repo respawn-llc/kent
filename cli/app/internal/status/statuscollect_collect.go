@@ -95,12 +95,8 @@ func (c Collector) EnrichBase(ctx context.Context, req Request, snapshot Snapsho
 			snapshot.CollectorWarning = JoinWarnings(snapshot.CollectorWarning, "current session: "+err.Error())
 		} else {
 			snapshot.AgentRole = textutil.Pointer(currentSession.AgentRole)
-			identity, err := protoapi.SessionIdentityFromProto(currentSession.SessionId, currentSession.ShortId)
-			if err != nil {
-				snapshot.CollectorWarning = JoinWarnings(snapshot.CollectorWarning, "current session: "+err.Error())
-			} else {
-				snapshot.SessionIdentity = &identity
-			}
+			identity := protoapi.SessionIdentityFromProto(currentSession.SessionId, currentSession.ShortId)
+			snapshot.SessionIdentity = &identity
 		}
 	}
 	var warning string
@@ -126,10 +122,7 @@ func (c Collector) relatedSessionPresentation(ctx context.Context, sessionViews 
 	if err != nil {
 		return nil, nil, label + ": " + err.Error()
 	}
-	shortID, err := protoapi.SessionShortIDFromProto(sessionView.ShortId)
-	if err != nil {
-		return nil, nil, label + ": " + err.Error()
-	}
+	shortID := protoapi.SessionShortIDFromProto(sessionView.ShortId)
 	return sessionView.SessionName, shortID, ""
 }
 

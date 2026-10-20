@@ -79,16 +79,9 @@ func binaryWorkflowTaskLabelFailureDetail(taskID *string, err error) proto.Messa
 		}
 	case errors.As(err, &mutation):
 		field := mutation.Field
-		if mutation.Reason == workflowstore.TaskLabelMutationOverlap {
-			field = "remove_label_ids"
-		}
 		detail := &taskpb.LabelErrorDetails{
 			Reason: taskpb.LabelErrorReason_LABEL_ERROR_REASON_INVALID_MUTATION,
-			TaskId: taskID, LabelId: mutation.LabelID, Field: &field,
-		}
-		if mutation.Limit != nil {
-			limit := int32(*mutation.Limit)
-			detail.Limit = &limit
+			TaskId: taskID, LabelId: &mutation.LabelID, Field: &field,
 		}
 		return detail
 	default:

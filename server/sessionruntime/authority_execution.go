@@ -469,9 +469,6 @@ func (s *executionPromptStore) Await(ctx context.Context, req tools.AskQuestionR
 		ctx = context.Background()
 	}
 	toolCallID := strings.TrimSpace(req.ToolCallID)
-	if toolCallID == "" {
-		return nil, errors.New("prompt tool call id is required")
-	}
 	snapshot := ExecutionPromptSnapshot{
 		Scope:     s.scope,
 		Request:   req.Clone(),

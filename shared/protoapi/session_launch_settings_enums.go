@@ -7,250 +7,134 @@ import (
 	"core/shared/config"
 )
 
-func modelVerbosityToProto(value config.ModelVerbosity) (configurationpb.ModelVerbosity, error) {
-	switch value {
-	case "":
-		return configurationpb.ModelVerbosity_MODEL_VERBOSITY_UNSPECIFIED, nil
-	case config.ModelVerbosityLow:
-		return configurationpb.ModelVerbosity_MODEL_VERBOSITY_LOW, nil
-	case config.ModelVerbosityMedium:
-		return configurationpb.ModelVerbosity_MODEL_VERBOSITY_MEDIUM, nil
-	case config.ModelVerbosityHigh:
-		return configurationpb.ModelVerbosity_MODEL_VERBOSITY_HIGH, nil
-	default:
-		return 0, fmt.Errorf("model verbosity %q is unsupported", value)
+func enumToProto[Wire ~int32, Native ~string](values map[Wire]Native, value Native, field string) (Wire, error) {
+	for wire, native := range values {
+		if native == value {
+			return wire, nil
+		}
 	}
+	var zero Wire
+	return zero, fmt.Errorf("%s %q is unsupported", field, value)
 }
 
-func modelVerbosityFromProto(value configurationpb.ModelVerbosity) (config.ModelVerbosity, error) {
-	switch value {
-	case configurationpb.ModelVerbosity_MODEL_VERBOSITY_UNSPECIFIED:
-		return "", nil
-	case configurationpb.ModelVerbosity_MODEL_VERBOSITY_LOW:
-		return config.ModelVerbosityLow, nil
-	case configurationpb.ModelVerbosity_MODEL_VERBOSITY_MEDIUM:
-		return config.ModelVerbosityMedium, nil
-	case configurationpb.ModelVerbosity_MODEL_VERBOSITY_HIGH:
-		return config.ModelVerbosityHigh, nil
-	default:
-		return "", fmt.Errorf("protobuf model verbosity %v is unsupported", value)
-	}
+var modelVerbosityValues = map[configurationpb.ModelVerbosity]config.ModelVerbosity{
+	configurationpb.ModelVerbosity_MODEL_VERBOSITY_UNSPECIFIED: "",
+	configurationpb.ModelVerbosity_MODEL_VERBOSITY_LOW:         config.ModelVerbosityLow,
+	configurationpb.ModelVerbosity_MODEL_VERBOSITY_MEDIUM:      config.ModelVerbosityMedium,
+	configurationpb.ModelVerbosity_MODEL_VERBOSITY_HIGH:        config.ModelVerbosityHigh,
+}
+
+func modelVerbosityToProto(value config.ModelVerbosity) (configurationpb.ModelVerbosity, error) {
+	return enumToProto(modelVerbosityValues, value, "model verbosity")
+}
+
+func modelVerbosityFromProto(value configurationpb.ModelVerbosity) config.ModelVerbosity {
+	return modelVerbosityValues[value]
+}
+
+var compactionModeValues = map[configurationpb.CompactionMode]config.CompactionMode{
+	configurationpb.CompactionMode_COMPACTION_MODE_UNSPECIFIED: "",
+	configurationpb.CompactionMode_COMPACTION_MODE_NATIVE:      config.CompactionModeNative,
+	configurationpb.CompactionMode_COMPACTION_MODE_LOCAL:       config.CompactionModeLocal,
+	configurationpb.CompactionMode_COMPACTION_MODE_NONE:        config.CompactionModeNone,
 }
 
 func compactionModeToProto(value config.CompactionMode) (configurationpb.CompactionMode, error) {
-	switch value {
-	case "":
-		return configurationpb.CompactionMode_COMPACTION_MODE_UNSPECIFIED, nil
-	case config.CompactionModeNative:
-		return configurationpb.CompactionMode_COMPACTION_MODE_NATIVE, nil
-	case config.CompactionModeLocal:
-		return configurationpb.CompactionMode_COMPACTION_MODE_LOCAL, nil
-	case config.CompactionModeNone:
-		return configurationpb.CompactionMode_COMPACTION_MODE_NONE, nil
-	default:
-		return 0, fmt.Errorf("compaction mode %q is unsupported", value)
-	}
+	return enumToProto(compactionModeValues, value, "compaction mode")
 }
 
-func compactionModeFromProto(value configurationpb.CompactionMode) (config.CompactionMode, error) {
-	switch value {
-	case configurationpb.CompactionMode_COMPACTION_MODE_UNSPECIFIED:
-		return "", nil
-	case configurationpb.CompactionMode_COMPACTION_MODE_NATIVE:
-		return config.CompactionModeNative, nil
-	case configurationpb.CompactionMode_COMPACTION_MODE_LOCAL:
-		return config.CompactionModeLocal, nil
-	case configurationpb.CompactionMode_COMPACTION_MODE_NONE:
-		return config.CompactionModeNone, nil
-	default:
-		return "", fmt.Errorf("protobuf compaction mode %v is unsupported", value)
-	}
+func compactionModeFromProto(value configurationpb.CompactionMode) config.CompactionMode {
+	return compactionModeValues[value]
+}
+
+var backgroundShellOutputValues = map[configurationpb.BackgroundShellOutputMode]config.BGShellsOutputMode{
+	configurationpb.BackgroundShellOutputMode_BACKGROUND_SHELL_OUTPUT_MODE_UNSPECIFIED: "",
+	configurationpb.BackgroundShellOutputMode_BACKGROUND_SHELL_OUTPUT_MODE_DEFAULT:     config.BGShellsOutputDefault,
+	configurationpb.BackgroundShellOutputMode_BACKGROUND_SHELL_OUTPUT_MODE_VERBOSE:     config.BGShellsOutputVerbose,
+	configurationpb.BackgroundShellOutputMode_BACKGROUND_SHELL_OUTPUT_MODE_CONCISE:     config.BGShellsOutputConcise,
 }
 
 func backgroundShellOutputToProto(value config.BGShellsOutputMode) (configurationpb.BackgroundShellOutputMode, error) {
-	switch value {
-	case "":
-		return configurationpb.BackgroundShellOutputMode_BACKGROUND_SHELL_OUTPUT_MODE_UNSPECIFIED, nil
-	case config.BGShellsOutputDefault:
-		return configurationpb.BackgroundShellOutputMode_BACKGROUND_SHELL_OUTPUT_MODE_DEFAULT, nil
-	case config.BGShellsOutputVerbose:
-		return configurationpb.BackgroundShellOutputMode_BACKGROUND_SHELL_OUTPUT_MODE_VERBOSE, nil
-	case config.BGShellsOutputConcise:
-		return configurationpb.BackgroundShellOutputMode_BACKGROUND_SHELL_OUTPUT_MODE_CONCISE, nil
-	default:
-		return 0, fmt.Errorf("background shell output mode %q is unsupported", value)
-	}
+	return enumToProto(backgroundShellOutputValues, value, "background shell output mode")
 }
 
-func backgroundShellOutputFromProto(value configurationpb.BackgroundShellOutputMode) (config.BGShellsOutputMode, error) {
-	switch value {
-	case configurationpb.BackgroundShellOutputMode_BACKGROUND_SHELL_OUTPUT_MODE_UNSPECIFIED:
-		return "", nil
-	case configurationpb.BackgroundShellOutputMode_BACKGROUND_SHELL_OUTPUT_MODE_DEFAULT:
-		return config.BGShellsOutputDefault, nil
-	case configurationpb.BackgroundShellOutputMode_BACKGROUND_SHELL_OUTPUT_MODE_VERBOSE:
-		return config.BGShellsOutputVerbose, nil
-	case configurationpb.BackgroundShellOutputMode_BACKGROUND_SHELL_OUTPUT_MODE_CONCISE:
-		return config.BGShellsOutputConcise, nil
-	default:
-		return "", fmt.Errorf("protobuf background shell output mode %v is unsupported", value)
-	}
+func backgroundShellOutputFromProto(value configurationpb.BackgroundShellOutputMode) config.BGShellsOutputMode {
+	return backgroundShellOutputValues[value]
+}
+
+var shellPostprocessingValues = map[configurationpb.ShellPostprocessingMode]config.ShellPostprocessingMode{
+	configurationpb.ShellPostprocessingMode_SHELL_POSTPROCESSING_MODE_UNSPECIFIED: "",
+	configurationpb.ShellPostprocessingMode_SHELL_POSTPROCESSING_MODE_NONE:        config.ShellPostprocessingModeNone,
+	configurationpb.ShellPostprocessingMode_SHELL_POSTPROCESSING_MODE_BUILTIN:     config.ShellPostprocessingModeBuiltin,
+	configurationpb.ShellPostprocessingMode_SHELL_POSTPROCESSING_MODE_USER:        config.ShellPostprocessingModeUser,
+	configurationpb.ShellPostprocessingMode_SHELL_POSTPROCESSING_MODE_ALL:         config.ShellPostprocessingModeAll,
 }
 
 func shellPostprocessingModeToProto(value config.ShellPostprocessingMode) (configurationpb.ShellPostprocessingMode, error) {
-	switch value {
-	case "":
-		return configurationpb.ShellPostprocessingMode_SHELL_POSTPROCESSING_MODE_UNSPECIFIED, nil
-	case config.ShellPostprocessingModeNone:
-		return configurationpb.ShellPostprocessingMode_SHELL_POSTPROCESSING_MODE_NONE, nil
-	case config.ShellPostprocessingModeBuiltin:
-		return configurationpb.ShellPostprocessingMode_SHELL_POSTPROCESSING_MODE_BUILTIN, nil
-	case config.ShellPostprocessingModeUser:
-		return configurationpb.ShellPostprocessingMode_SHELL_POSTPROCESSING_MODE_USER, nil
-	case config.ShellPostprocessingModeAll:
-		return configurationpb.ShellPostprocessingMode_SHELL_POSTPROCESSING_MODE_ALL, nil
-	default:
-		return 0, fmt.Errorf("shell postprocessing mode %q is unsupported", value)
-	}
+	return enumToProto(shellPostprocessingValues, value, "shell postprocessing mode")
 }
 
-func shellPostprocessingModeFromProto(value configurationpb.ShellPostprocessingMode) (config.ShellPostprocessingMode, error) {
-	switch value {
-	case configurationpb.ShellPostprocessingMode_SHELL_POSTPROCESSING_MODE_UNSPECIFIED:
-		return "", nil
-	case configurationpb.ShellPostprocessingMode_SHELL_POSTPROCESSING_MODE_NONE:
-		return config.ShellPostprocessingModeNone, nil
-	case configurationpb.ShellPostprocessingMode_SHELL_POSTPROCESSING_MODE_BUILTIN:
-		return config.ShellPostprocessingModeBuiltin, nil
-	case configurationpb.ShellPostprocessingMode_SHELL_POSTPROCESSING_MODE_USER:
-		return config.ShellPostprocessingModeUser, nil
-	case configurationpb.ShellPostprocessingMode_SHELL_POSTPROCESSING_MODE_ALL:
-		return config.ShellPostprocessingModeAll, nil
-	default:
-		return "", fmt.Errorf("protobuf shell postprocessing mode %v is unsupported", value)
-	}
+func shellPostprocessingModeFromProto(value configurationpb.ShellPostprocessingMode) config.ShellPostprocessingMode {
+	return shellPostprocessingValues[value]
+}
+
+var cacheWarningValues = map[configurationpb.CacheWarningMode]config.CacheWarningMode{
+	configurationpb.CacheWarningMode_CACHE_WARNING_MODE_UNSPECIFIED: "",
+	configurationpb.CacheWarningMode_CACHE_WARNING_MODE_OFF:         config.CacheWarningModeOff,
+	configurationpb.CacheWarningMode_CACHE_WARNING_MODE_DEFAULT:     config.CacheWarningModeDefault,
+	configurationpb.CacheWarningMode_CACHE_WARNING_MODE_VERBOSE:     config.CacheWarningModeVerbose,
 }
 
 func cacheWarningModeToProto(value config.CacheWarningMode) (configurationpb.CacheWarningMode, error) {
-	switch value {
-	case "":
-		return configurationpb.CacheWarningMode_CACHE_WARNING_MODE_UNSPECIFIED, nil
-	case config.CacheWarningModeOff:
-		return configurationpb.CacheWarningMode_CACHE_WARNING_MODE_OFF, nil
-	case config.CacheWarningModeDefault:
-		return configurationpb.CacheWarningMode_CACHE_WARNING_MODE_DEFAULT, nil
-	case config.CacheWarningModeVerbose:
-		return configurationpb.CacheWarningMode_CACHE_WARNING_MODE_VERBOSE, nil
-	default:
-		return 0, fmt.Errorf("cache warning mode %q is unsupported", value)
-	}
+	return enumToProto(cacheWarningValues, value, "cache warning mode")
 }
 
-func cacheWarningModeFromProto(value configurationpb.CacheWarningMode) (config.CacheWarningMode, error) {
-	switch value {
-	case configurationpb.CacheWarningMode_CACHE_WARNING_MODE_UNSPECIFIED:
-		return "", nil
-	case configurationpb.CacheWarningMode_CACHE_WARNING_MODE_OFF:
-		return config.CacheWarningModeOff, nil
-	case configurationpb.CacheWarningMode_CACHE_WARNING_MODE_DEFAULT:
-		return config.CacheWarningModeDefault, nil
-	case configurationpb.CacheWarningMode_CACHE_WARNING_MODE_VERBOSE:
-		return config.CacheWarningModeVerbose, nil
-	default:
-		return "", fmt.Errorf("protobuf cache warning mode %v is unsupported", value)
-	}
+func cacheWarningModeFromProto(value configurationpb.CacheWarningMode) config.CacheWarningMode {
+	return cacheWarningValues[value]
+}
+
+var workflowCompletionValues = map[configurationpb.WorkflowCompletionMode]config.WorkflowCompletionMode{
+	configurationpb.WorkflowCompletionMode_WORKFLOW_COMPLETION_MODE_UNSPECIFIED:         "",
+	configurationpb.WorkflowCompletionMode_WORKFLOW_COMPLETION_MODE_AUTO:                config.WorkflowCompletionModeAuto,
+	configurationpb.WorkflowCompletionMode_WORKFLOW_COMPLETION_MODE_STRUCTURED_OUTPUT:   config.WorkflowCompletionModeStructuredOutput,
+	configurationpb.WorkflowCompletionMode_WORKFLOW_COMPLETION_MODE_TOOL:                config.WorkflowCompletionModeTool,
+	configurationpb.WorkflowCompletionMode_WORKFLOW_COMPLETION_MODE_SHELL_COMMAND:       config.WorkflowCompletionModeShellCommand,
+	configurationpb.WorkflowCompletionMode_WORKFLOW_COMPLETION_MODE_UNSTRUCTURED_OUTPUT: config.WorkflowCompletionModeUnstructured,
 }
 
 func workflowCompletionModeToProto(value config.WorkflowCompletionMode) (configurationpb.WorkflowCompletionMode, error) {
-	switch value {
-	case "":
-		return configurationpb.WorkflowCompletionMode_WORKFLOW_COMPLETION_MODE_UNSPECIFIED, nil
-	case config.WorkflowCompletionModeAuto:
-		return configurationpb.WorkflowCompletionMode_WORKFLOW_COMPLETION_MODE_AUTO, nil
-	case config.WorkflowCompletionModeStructuredOutput:
-		return configurationpb.WorkflowCompletionMode_WORKFLOW_COMPLETION_MODE_STRUCTURED_OUTPUT, nil
-	case config.WorkflowCompletionModeTool:
-		return configurationpb.WorkflowCompletionMode_WORKFLOW_COMPLETION_MODE_TOOL, nil
-	case config.WorkflowCompletionModeShellCommand:
-		return configurationpb.WorkflowCompletionMode_WORKFLOW_COMPLETION_MODE_SHELL_COMMAND, nil
-	case config.WorkflowCompletionModeUnstructured:
-		return configurationpb.WorkflowCompletionMode_WORKFLOW_COMPLETION_MODE_UNSTRUCTURED_OUTPUT, nil
-	default:
-		return 0, fmt.Errorf("workflow completion mode %q is unsupported", value)
-	}
+	return enumToProto(workflowCompletionValues, value, "workflow completion mode")
 }
 
-func workflowCompletionModeFromProto(value configurationpb.WorkflowCompletionMode) (config.WorkflowCompletionMode, error) {
-	switch value {
-	case configurationpb.WorkflowCompletionMode_WORKFLOW_COMPLETION_MODE_UNSPECIFIED:
-		return "", nil
-	case configurationpb.WorkflowCompletionMode_WORKFLOW_COMPLETION_MODE_AUTO:
-		return config.WorkflowCompletionModeAuto, nil
-	case configurationpb.WorkflowCompletionMode_WORKFLOW_COMPLETION_MODE_STRUCTURED_OUTPUT:
-		return config.WorkflowCompletionModeStructuredOutput, nil
-	case configurationpb.WorkflowCompletionMode_WORKFLOW_COMPLETION_MODE_TOOL:
-		return config.WorkflowCompletionModeTool, nil
-	case configurationpb.WorkflowCompletionMode_WORKFLOW_COMPLETION_MODE_SHELL_COMMAND:
-		return config.WorkflowCompletionModeShellCommand, nil
-	case configurationpb.WorkflowCompletionMode_WORKFLOW_COMPLETION_MODE_UNSTRUCTURED_OUTPUT:
-		return config.WorkflowCompletionModeUnstructured, nil
-	default:
-		return "", fmt.Errorf("protobuf workflow completion mode %v is unsupported", value)
-	}
+func workflowCompletionModeFromProto(value configurationpb.WorkflowCompletionMode) config.WorkflowCompletionMode {
+	return workflowCompletionValues[value]
+}
+
+var sleepPreventionValues = map[configurationpb.SleepPreventionMode]config.SleepPreventionMode{
+	configurationpb.SleepPreventionMode_SLEEP_PREVENTION_MODE_UNSPECIFIED: "",
+	configurationpb.SleepPreventionMode_SLEEP_PREVENTION_MODE_ALWAYS:      config.SleepPreventionModeAlways,
+	configurationpb.SleepPreventionMode_SLEEP_PREVENTION_MODE_ACTIVE:      config.SleepPreventionModeActive,
+	configurationpb.SleepPreventionMode_SLEEP_PREVENTION_MODE_NEVER:       config.SleepPreventionModeNever,
 }
 
 func sleepPreventionModeToProto(value config.SleepPreventionMode) (configurationpb.SleepPreventionMode, error) {
-	switch value {
-	case "":
-		return configurationpb.SleepPreventionMode_SLEEP_PREVENTION_MODE_UNSPECIFIED, nil
-	case config.SleepPreventionModeAlways:
-		return configurationpb.SleepPreventionMode_SLEEP_PREVENTION_MODE_ALWAYS, nil
-	case config.SleepPreventionModeActive:
-		return configurationpb.SleepPreventionMode_SLEEP_PREVENTION_MODE_ACTIVE, nil
-	case config.SleepPreventionModeNever:
-		return configurationpb.SleepPreventionMode_SLEEP_PREVENTION_MODE_NEVER, nil
-	default:
-		return 0, fmt.Errorf("sleep prevention mode %q is unsupported", value)
-	}
+	return enumToProto(sleepPreventionValues, value, "sleep prevention mode")
 }
 
-func sleepPreventionModeFromProto(value configurationpb.SleepPreventionMode) (config.SleepPreventionMode, error) {
-	switch value {
-	case configurationpb.SleepPreventionMode_SLEEP_PREVENTION_MODE_UNSPECIFIED:
-		return "", nil
-	case configurationpb.SleepPreventionMode_SLEEP_PREVENTION_MODE_ALWAYS:
-		return config.SleepPreventionModeAlways, nil
-	case configurationpb.SleepPreventionMode_SLEEP_PREVENTION_MODE_ACTIVE:
-		return config.SleepPreventionModeActive, nil
-	case configurationpb.SleepPreventionMode_SLEEP_PREVENTION_MODE_NEVER:
-		return config.SleepPreventionModeNever, nil
-	default:
-		return "", fmt.Errorf("protobuf sleep prevention mode %v is unsupported", value)
-	}
+func sleepPreventionModeFromProto(value configurationpb.SleepPreventionMode) config.SleepPreventionMode {
+	return sleepPreventionValues[value]
+}
+
+var systemPromptFileScopeValues = map[configurationpb.SystemPromptFileScope]config.SystemPromptFileScope{
+	configurationpb.SystemPromptFileScope_SYSTEM_PROMPT_FILE_SCOPE_HOME_CONFIG:      config.SystemPromptFileScopeHomeConfig,
+	configurationpb.SystemPromptFileScope_SYSTEM_PROMPT_FILE_SCOPE_WORKSPACE_CONFIG: config.SystemPromptFileScopeWorkspaceConfig,
+	configurationpb.SystemPromptFileScope_SYSTEM_PROMPT_FILE_SCOPE_SUBAGENT:         config.SystemPromptFileScopeSubagent,
 }
 
 func systemPromptFileScopeToProto(value config.SystemPromptFileScope) (configurationpb.SystemPromptFileScope, error) {
-	switch value {
-	case config.SystemPromptFileScopeHomeConfig:
-		return configurationpb.SystemPromptFileScope_SYSTEM_PROMPT_FILE_SCOPE_HOME_CONFIG, nil
-	case config.SystemPromptFileScopeWorkspaceConfig:
-		return configurationpb.SystemPromptFileScope_SYSTEM_PROMPT_FILE_SCOPE_WORKSPACE_CONFIG, nil
-	case config.SystemPromptFileScopeSubagent:
-		return configurationpb.SystemPromptFileScope_SYSTEM_PROMPT_FILE_SCOPE_SUBAGENT, nil
-	default:
-		return 0, fmt.Errorf("system prompt file scope %q is unsupported", value)
-	}
+	return enumToProto(systemPromptFileScopeValues, value, "system prompt file scope")
 }
 
-func systemPromptFileScopeFromProto(value configurationpb.SystemPromptFileScope) (config.SystemPromptFileScope, error) {
-	switch value {
-	case configurationpb.SystemPromptFileScope_SYSTEM_PROMPT_FILE_SCOPE_HOME_CONFIG:
-		return config.SystemPromptFileScopeHomeConfig, nil
-	case configurationpb.SystemPromptFileScope_SYSTEM_PROMPT_FILE_SCOPE_WORKSPACE_CONFIG:
-		return config.SystemPromptFileScopeWorkspaceConfig, nil
-	case configurationpb.SystemPromptFileScope_SYSTEM_PROMPT_FILE_SCOPE_SUBAGENT:
-		return config.SystemPromptFileScopeSubagent, nil
-	default:
-		return "", fmt.Errorf("protobuf system prompt file scope %v is unsupported", value)
-	}
+func systemPromptFileScopeFromProto(value configurationpb.SystemPromptFileScope) config.SystemPromptFileScope {
+	return systemPromptFileScopeValues[value]
 }

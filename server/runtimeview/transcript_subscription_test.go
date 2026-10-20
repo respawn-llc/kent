@@ -1453,26 +1453,6 @@ func TestTranscriptWorkspacesNoticePreservesTypedMessageAndVisibility(t *testing
 	}
 }
 
-func TestTranscriptBackgroundActivityRejectsMissingRuntimeActivityID(t *testing.T) {
-	_, err := TranscriptMessagesFromRuntimeEventChecked(runtime.Event{
-		Kind:   runtime.EventBackgroundUpdated,
-		StepID: runtimeStepIDPointer(transcriptProjectionStepID),
-		Background: &runtime.BackgroundShellEvent{
-			Type:        runtime.BackgroundShellEventBackgrounded,
-			ID:          uuid.NewString(),
-			OwnerStepID: transcriptProjectionStepID,
-			State:       "running",
-			Command:     "go test ./...",
-			Workdir:     "/tmp/workspace",
-			Preview:     "tests",
-		},
-	}, nil)
-
-	if err == nil {
-		t.Fatal("expected missing background activity id to be rejected")
-	}
-}
-
 func TestAssistantTranscriptMessagesDoNotReemitLiveToolStarts(t *testing.T) {
 	for _, kind := range []runtime.EventKind{runtime.EventAssistantMessage, runtime.EventConversationUpdated} {
 		t.Run(string(kind), func(t *testing.T) {

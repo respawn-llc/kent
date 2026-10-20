@@ -196,10 +196,7 @@ func transcriptSessionSettingFeedback(
 	case *chatsettingspb.MutationOperation_AgentRole:
 		return nil, false, nil
 	case *chatsettingspb.MutationOperation_Supervisor:
-		value, err := protoapi.ChatSettingsSupervisorFromProto(settings.Supervisor.Value)
-		if err != nil {
-			return nil, false, err
-		}
+		value := protoapi.ChatSettingsSupervisorFromProto(settings.Supervisor.Value)
 		feedback.Kind = transcriptpb.SessionSettingKind_SESSION_SETTING_KIND_SUPERVISOR
 		feedback.Value = &transcriptpb.SessionSettingFeedback_Supervisor{Supervisor: value}
 	case *chatsettingspb.MutationOperation_Thinking:
@@ -220,9 +217,6 @@ func transcriptSessionSettingFeedback(
 		feedback.Value = &transcriptpb.SessionSettingFeedback_AutoCompaction{AutoCompaction: settings.AutoCompaction.Stored}
 	default:
 		return nil, false, errors.New("applied Chat settings operation kind is invalid")
-	}
-	if err := protoapi.Validate(feedback); err != nil {
-		return nil, false, err
 	}
 	return feedback, true, nil
 }

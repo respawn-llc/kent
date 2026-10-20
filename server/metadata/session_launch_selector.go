@@ -4,15 +4,11 @@ import (
 	"context"
 	"errors"
 
-	"core/shared/protoapi"
 	sessionlaunchpb "core/shared/protoapi/gen/kent/api/session_launch"
 	"core/shared/serverapi"
 )
 
 func (s *Store) ResolveSessionLaunchIntent(ctx context.Context, request *sessionlaunchpb.SessionLaunchRequestIntent) (serverapi.SessionLaunchIntent, error) {
-	if err := protoapi.Validate(request); err != nil {
-		return serverapi.SessionLaunchIntent{}, err
-	}
 	switch intent := request.Intent.(type) {
 	case *sessionlaunchpb.SessionLaunchRequestIntent_OpenExistingSessionId:
 		id, err := s.ResolveSessionTarget(ctx, intent.OpenExistingSessionId)

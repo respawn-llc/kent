@@ -255,9 +255,6 @@ func pendingWorkTestHoldStep(t *testing.T, engine *Engine, kind ActiveKind) func
 func pendingWorkTestSnapshot(t *testing.T, engine *Engine) runtimeinput.PendingWork {
 	t.Helper()
 	snapshot := pendingWorkTestMust(t, engine.PendingWorkSnapshot)
-	if err := snapshot.Validate(); err != nil {
-		t.Fatal(err)
-	}
 	return snapshot
 }
 

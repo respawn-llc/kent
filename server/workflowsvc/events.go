@@ -90,9 +90,6 @@ func (b *workflowProjectEventBroker) PublishWorkflowEvent(_ context.Context, eve
 		RelatedIds: append([]string(nil), event.RelatedIDs...),
 		OccurredAt: timestamppb.New(time.UnixMilli(occurredAt)),
 	}
-	if err := protoapi.Validate(projected); err != nil {
-		return err
-	}
 	b.publish(projected)
 	return nil
 }

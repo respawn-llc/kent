@@ -1,7 +1,7 @@
 import { classifyResultFailure, create } from "@app/server-api-contract";
 import {
   TaskReadService,
-  type SearchHit,
+  type SearchHitValid,
   type SearchSource,
 } from "@app/server-api-contract/gen/kent/api/workflow_task/read_pb";
 import { ContractError, TaskSearchError } from "./errors";
@@ -59,15 +59,14 @@ export async function searchTasks(
   };
 }
 
-function taskSearchSource(value: SearchSource | undefined): TaskSearchSource {
-  if (value === undefined) throw new ContractError("Task search hit source is required.");
+function taskSearchSource(value: SearchSource): TaskSearchSource {
   const kind = taskSearchSourceKind.decode(value.kind);
   if (kind !== "comment") return { kind };
   if (value.commentId === undefined) throw new ContractError("Task search Comment identity is required.");
   return { kind, commentID: value.commentId };
 }
 
-function taskSearchHit(value: SearchHit): TaskSearchHit {
+function taskSearchHit(value: SearchHitValid): TaskSearchHit {
   const source = taskSearchSource(value.source);
   switch (value.match.case) {
     case "literal":

@@ -77,13 +77,15 @@ func TestChatTargetSemanticUnion(t *testing.T) {
 		},
 	} {
 		t.Run(test.name, func(t *testing.T) {
-			_, err := protoapi.ChatTargetFromRequest(&chatpb.SteerRequest{QueueItemId: runtimeids.NewQueueItemID().String(), Target: test.target,
+			err := protoapi.Validate(&chatpb.SteerRequest{
+				QueueItemId: runtimeids.NewQueueItemID().String(),
+				Target:      test.target,
 				Activation: &chatpb.Activation{
 					Input: &chatpb.Activation_Text{Text: "continue"},
 				},
 			})
 			if (err != nil) != test.wantErr {
-				t.Fatalf("ChatTargetFromRequest error = %v, want error %t", err, test.wantErr)
+				t.Fatalf("request validation error = %v, want error %t", err, test.wantErr)
 			}
 		})
 	}
@@ -137,12 +139,23 @@ func TestChatResultClassification(t *testing.T) {
 		},
 	} {
 		t.Run(test.name, func(t *testing.T) {
-			classified, err := protoapi.ClassifyResult(test.result)
+			encoded, err := protoapi.Encode(test.result)
 			if (err != nil) != test.wantErr {
-				t.Fatalf("ClassifyResult error = %v, want error %t", err, test.wantErr)
+				t.Fatalf("result encoding error = %v, want error %t", err, test.wantErr)
 			}
 			if test.wantErr {
 				return
+			}
+			decoded := &chatpb.SteerResult{}
+			if err := protoapi.Decode(encoded, decoded); err != nil {
+				t.Fatal(err)
+			}
+			if err := protoapi.ValidateResultErrorDetail(decoded); err != nil {
+				t.Fatal(err)
+			}
+			classified, err := protoapi.ClassifyResult(decoded)
+			if err != nil {
+				t.Fatal(err)
 			}
 			if classified.Outcome != test.wantOutcome {
 				t.Fatalf("outcome = %v, want %v", classified.Outcome, test.wantOutcome)
@@ -426,7 +439,7 @@ func TestRoutePolicyAuthorizesGoalExceptionWithoutWebSocket(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	err = newRoutePolicyExecutor(gateway).authorizeScopeFacts(context.Background(), &connectionState{}, operation.Options.ScopePolicy, operation.Name, routeScopeParams{sessionID: "missing-session"})
+	err = newRoutePolicyExecutor(gateway).authorizeScopeFacts(context.Background(), &connectionState{}, operation.Options.ScopePolicy, operation.Name, routeScopeParams{sessionID: runtimeids.NewSessionID().String()})
 	if err != nil {
 		t.Fatalf("unbound goal scope: %v", err)
 	}

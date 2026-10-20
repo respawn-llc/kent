@@ -9,6 +9,7 @@ import (
 	runtimepb "core/shared/protoapi/gen/kent/api/runtime"
 	transcriptpb "core/shared/protoapi/gen/kent/api/transcript"
 	"core/shared/runtimeids"
+	"errors"
 	tea "github.com/charmbracelet/bubbletea"
 	"testing"
 )
@@ -112,7 +113,7 @@ func TestPTYCheckpointModelQueuesInitialDetailApplicationBeforeRendererWrite(t *
 	}
 }
 
-func TestPTYCheckpointModelDoesNotQueueInitialDetailApplicationForMalformedPage(t *testing.T) {
+func TestPTYCheckpointModelDoesNotQueueInitialDetailApplicationForFailedPage(t *testing.T) {
 	var out bytes.Buffer
 	writer := analyzer.NewWriter(&out)
 	model, pending := newPendingPTYDetailCheckpointModel(t)
@@ -123,14 +124,7 @@ func TestPTYCheckpointModelDoesNotQueueInitialDetailApplicationForMalformedPage(
 
 	wrapped.Update(detailTranscriptLoadMsg{
 		pending: pending,
-		page: &transcriptpb.Page{
-			SessionId:             detailTestSessionID,
-			ConversationFreshness: runtimepb.ConversationFreshness_CONVERSATION_FRESHNESS_ESTABLISHED,
-			Entries: []*transcriptpb.CommittedRow{{
-				Visibility: transcriptpb.EntryVisibility_ENTRY_VISIBILITY_UNSPECIFIED,
-				Row:        &transcriptpb.CommittedRow_User{User: &transcriptpb.UserRow{Text: "malformed"}},
-			}},
-		}})
+		err:     errors.New("transcript receive failed")})
 	view := wrapped.View()
 	if view == "" {
 		t.Fatal("rejected detail page produced an empty error-state view")

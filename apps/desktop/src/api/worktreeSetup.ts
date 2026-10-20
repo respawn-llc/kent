@@ -59,7 +59,8 @@ export function subscribeWorktreeSetup(
           finish(handler.onComplete);
           return;
         }
-        const diagnostic = required(completion.diagnostic);
+        const diagnostic = completion.diagnostic;
+        if (diagnostic === undefined) throw new ContractError("Required Worktree setup fact is missing.");
         finish(() => {
           handler.onError(
             new TransportError(`Worktree setup completed with code ${code.toString()}: ${diagnostic}`),
@@ -74,9 +75,4 @@ export function subscribeWorktreeSetup(
     },
   });
   return { close: finish };
-}
-
-function required<Value>(value: Value | undefined): Value {
-  if (value === undefined) throw new ContractError("Required Worktree setup fact is missing.");
-  return value;
 }

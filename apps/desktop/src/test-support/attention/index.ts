@@ -95,7 +95,7 @@ const pendingQuestion = create(pb.AttentionNotificationSchema, {
         taskId: "task-1",
         taskShortId: "KT-1",
         taskTitle: "Needs answer",
-        sessionId: "session-1",
+        sessionId: "11111111-1111-4111-8111-111111111111",
         currentNodeId: "node-1",
         focus: {
           kind: pb.AttentionNotificationFocusKind.ATTENTION_NOTIFICATION_FOCUS_QUESTION,
@@ -127,7 +127,7 @@ export const questionAttentionItem = create(pb.AttentionItemSchema, {
       sessionName: "Session one",
       message: "Question from agent",
       question: {
-        sessionId: "session-1",
+        sessionId: "11111111-1111-4111-8111-111111111111",
         stepId: "22222222-2222-4222-8222-222222222222",
         toolCallId: "ask-1",
         kind: pb.AttentionQuestionKind.ORDINARY,
@@ -178,7 +178,13 @@ export function attentionEventsFixture(transport: FakeRpcTransport) {
               ...pendingQuestion,
               target: create(pb.AttentionNotificationTargetSchema, {
                 kind: pb.AttentionNotificationTargetKind.ATTENTION_NOTIFICATION_TARGET_SESSION_PROMPT,
-                target: { case: "sessionPrompt", value: { projectId: "project-1", sessionId: "session-1" } },
+                target: {
+                  case: "sessionPrompt",
+                  value: {
+                    projectId: "project-1",
+                    sessionId: "11111111-1111-4111-8111-111111111111",
+                  },
+                },
               }),
             }),
           },

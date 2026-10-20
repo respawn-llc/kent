@@ -242,15 +242,18 @@ func TestAskCtrlCInterruptsRuntimeWithoutSubmittingPromptCancellation(t *testing
 	}
 }
 
-func TestAskDeliverySetupFailureKeepsQuestionActivity(t *testing.T) {
+func TestAskDeliveryRejectionKeepsQuestionActivity(t *testing.T) {
 	disableTransientStatusClearForTest(t)
 	model, control := newProjectedPromptTestUIModel(t)
 	model = updateUIModel(t, model, askEventMsg{event: model.transcriptPromptEvent(
 		testQuestionPrompt("ask-empty-setup-failure", "Provide details"),
 	)})
 
-	next, _ := model.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	next, command := model.Update(tea.KeyMsg{Type: tea.KeyEnter})
 	model = next.(*uiModel)
+	for _, message := range collectCmdMessages(t, command) {
+		model = updateUIModel(t, model, message)
+	}
 	if model.activity != uiActivityQuestion || testActiveAsk(model) == nil || testPromptAnswerDeliveryActive(model) {
 		t.Fatalf(
 			"setup failure state = activity %d prompt %v delivery %t, want actionable question",

@@ -49,11 +49,7 @@ func (r *ConnectionResolver) resolveTarget(raw *string) (ResolvedConnection, con
 		return ResolvedConnection{}, config.Settings{}, err
 	}
 	if raw != nil {
-		id, err := config.ParseConnectionID(*raw)
-		if err != nil {
-			return ResolvedConnection{}, config.Settings{}, err
-		}
-		app.Settings.Connection = config.SingleConnection(id)
+		app.Settings.Connection = config.SingleConnection(config.ConnectionID(*raw))
 	}
 	connection, err := r.Resolve(app.Settings)
 	return connection, app.Settings, err

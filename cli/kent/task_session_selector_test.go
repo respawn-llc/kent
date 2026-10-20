@@ -87,10 +87,7 @@ func TestWorkflowCommandsSubmitNormalizedSessionSelectors(t *testing.T) {
 				if code != 1 || capture.target == nil {
 					t.Fatalf("exit %d, target %+v, stderr %s", code, capture.target, stderr.String())
 				}
-				target, err := protoapi.SessionSelectorFromProto(capture.target)
-				if err != nil {
-					t.Fatal(err)
-				}
+				target := protoapi.SessionSelectorFromProto(capture.target)
 				expected, err := runtimeids.ParseSessionSelector(input)
 				if err != nil {
 					t.Fatal(err)

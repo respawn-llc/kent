@@ -43,7 +43,7 @@ func (c *Remote) ResolveProjectPath(ctx context.Context, request *projectpb.Reso
 		func(failure *projectpb.ResolvePathError) error {
 			switch failure.Code {
 			case "workspace_binding_ambiguous":
-				return workspaceBindingAmbiguousError(failure.GetWorkspaceBindingAmbiguous())
+				return protoapi.WorkspaceBindingAmbiguousFromProto(failure.GetWorkspaceBindingAmbiguous())
 			default:
 				return generatedOperationFailure(failure.Code)
 			}
@@ -171,8 +171,5 @@ func projectNotFoundGeneratedError(
 }
 
 func projectNotFoundError(details *projectpb.ProjectNotFoundDetails) error {
-	if err := protoapi.Validate(details); err != nil {
-		return fmt.Errorf("decode project_not_found details: %w", err)
-	}
 	return fmt.Errorf("%w: %q", serverapi.ErrProjectNotFound, details.ProjectId)
 }

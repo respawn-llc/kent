@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "bun:test";
-import { createRpcTransport } from "./rpc";
+import { createRpcTransport as createTransport } from "./rpc";
 import { SessionCategory } from "@app/server-api-contract/gen/kent/api/project/session_catalog_pb";
 import { ProtocolMismatchError, RpcError, ServerRootMismatchError } from "./errors";
 import { protocolVersion } from "./rpcSocket";
@@ -45,7 +45,7 @@ import { TaskReadService, SearchMode } from "@app/server-api-contract/gen/kent/a
 import { TaskLifecycleService } from "@app/server-api-contract/gen/kent/api/workflow_task/lifecycle_pb";
 import { WorktreeError } from "./clientWorktree";
 import { ApiClient } from "./client";
-import { unexpectedProjectOverflow } from "@/test-support/api";
+import { binaryAck, unexpectedProjectOverflow } from "@/test-support/api";
 import { searchTasks } from "./clientTaskSearch";
 import { deferred } from "@/test-support/chat-runtime";
 
@@ -101,11 +101,17 @@ class MockWebSocket extends EventTarget {
 }
 
 const sockets: MockWebSocket[] = [];
+const reportInvalidResponse = vi.fn();
+
+function createRpcTransport(endpoint: string, expectedRootId?: string) {
+  return createTransport(endpoint, reportInvalidResponse, expectedRootId);
+}
 const originalWebSocketDescriptor = Object.getOwnPropertyDescriptor(globalThis, "WebSocket");
 
 describe("RpcWebSocketTransport", () => {
   beforeEach(() => {
     sockets.length = 0;
+    reportInvalidResponse.mockClear();
     Object.defineProperty(globalThis, "WebSocket", {
       configurable: true,
       value: MockWebSocket,
@@ -120,6 +126,31 @@ describe("RpcWebSocketTransport", () => {
     } else {
       Reflect.deleteProperty(globalThis, "WebSocket");
     }
+  });
+
+  it("rejects a known error with mismatched detail before returning a decoded result", async () => {
+    const transport = createRpcTransport("ws://127.0.0.1:53082/rpc");
+    const method = QuestionService.method.listPending;
+    const response = transport.callDescriptor(
+      method,
+      create(method.input, {
+        sessionId: { value: { case: "sessionId", value: "33333333-3333-4333-8333-333333333333" } },
+      }),
+    );
+    const socket = sockets[0] ?? failTest("socket missing");
+    await socket.setup();
+    binaryAck(socket, 1, method, {
+      result: create(method.output, {
+        outcome: {
+          case: "error",
+          value: { code: "self_target", detail: { case: "internalFailure", value: {} } },
+        },
+      }),
+    });
+    const failure = await response.catch((cause: unknown) => cause);
+    expect(failure).toBeInstanceOf(ContractError);
+    if (!(failure instanceof ContractError)) throw failure;
+    expect(failure.cause).toBeInstanceOf(Error);
   });
 
   it("rejects pending mutations on disconnect and does not replay them on reconnect", async () => {
@@ -166,8 +197,13 @@ describe("RpcWebSocketTransport", () => {
     const malformedReadiness = callReadiness(transport);
     await waitForSent(socket, 5);
     socket.receive(new Uint8Array([0xff]).buffer);
+    expect(reportInvalidResponse.mock.calls[0]?.[0]).toBeInstanceOf(Error);
     malformedBinaryAck(socket, 4);
     expect(malformedReadiness).rejects.toBeInstanceOf(Error);
+    const reportedCount = reportInvalidResponse.mock.calls.length;
+    malformedBinaryAck(socket, 4);
+    expect(reportInvalidResponse.mock.calls).toHaveLength(reportedCount + 1);
+    expect(reportInvalidResponse.mock.lastCall?.[0]).toBeInstanceOf(Error);
     const next = callReadiness(transport);
     await waitForSent(socket, 6);
     ack(socket, 5);
@@ -1107,54 +1143,6 @@ function descriptorCall(
 
 function descriptorOperation(socket: MockWebSocket, sentIndex: number): string {
   return descriptorCall(socket, sentIndex).operation;
-}
-
-function binaryAck<
-  Method extends
-    | typeof ServerService.method.getReadiness
-    | typeof ConnectionService.method.handshake
-    | typeof ConnectionService.method.attachSession
-    | typeof QuestionService.method.listPending
-    | typeof StreamService.method.subscribe
-    | typeof TaskLifecycleService.method.delete
-    | typeof ProjectSubscriptionService.method.subscribe
-    | typeof TaskReadService.method.search,
->(
-  socket: MockWebSocket,
-  sentIndex: number,
-  method: Method,
-  response: Readonly<{
-    result: ReturnType<typeof create<Method["output"]>>;
-    operation?: string;
-  }>,
-): void {
-  const raw = socket.sent[sentIndex] ?? failTest(`sent frame ${sentIndex.toString()} missing`);
-  const binary = z.instanceof(Uint8Array).safeParse(raw);
-  if (!binary.success) {
-    throw new Error("Mock WebSocket frame is text.");
-  }
-  const call = decodeEnvelope(binary.data).frame;
-  if (call.case !== "call") {
-    throw new Error("Mock WebSocket binary frame is not a call.");
-  }
-  const operation = operationName(method);
-  if (call.value.operation !== operation || call.value.correlation === undefined) {
-    throw new Error("Mock WebSocket binary call has the wrong operation or correlation.");
-  }
-  const payload = encode(method.output, response.result);
-  const encodedResponse = encodeEnvelope({
-    frame: {
-      case: "result",
-      value: {
-        operation: response.operation ?? operation,
-        correlation: call.value.correlation,
-        payload,
-      },
-    },
-  });
-  const responseBuffer = new ArrayBuffer(encodedResponse.byteLength);
-  new Uint8Array(responseBuffer).set(encodedResponse);
-  socket.receive(responseBuffer);
 }
 
 function malformedBinaryAck(socket: MockWebSocket, sentIndex: number): void {

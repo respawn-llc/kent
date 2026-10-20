@@ -3,7 +3,6 @@ package client
 import (
 	"fmt"
 
-	"core/shared/protoapi"
 	pb "core/shared/protoapi/gen/kent/api/workflow_definition"
 	"core/shared/serverapi"
 
@@ -16,9 +15,6 @@ func workflowMethod(service, method protoreflect.Name) protoreflect.MethodDescri
 
 func workflowEntityGeneratedError(code string, missing *pb.WorkflowNotFoundDetails) error {
 	if code == "workflow_not_found" {
-		if err := protoapi.Validate(missing); err != nil {
-			return err
-		}
 		return fmt.Errorf("%w: %q", serverapi.ErrWorkflowNotFound, missing.WorkflowId)
 	}
 	return generatedOperationFailure(code)

@@ -6,7 +6,6 @@ import (
 	"strconv"
 	"strings"
 
-	"core/shared/protoapi"
 	taskpb "core/shared/protoapi/gen/kent/api/workflow_task"
 )
 
@@ -38,12 +37,9 @@ type taskSearchPlainLine struct {
 	FTS5    *taskpb.SearchFts5Hit
 }
 
-func taskSearchPlainProjectionFromResponse(response *taskpb.SearchSuccess) (taskSearchPlainProjection, error) {
-	if err := protoapi.Validate(response); err != nil {
-		return taskSearchPlainProjection{}, err
-	}
+func taskSearchPlainProjectionFromResponse(response *taskpb.SearchSuccess) taskSearchPlainProjection {
 	if len(response.Groups) == 0 {
-		return taskSearchPlainProjection{}, nil
+		return taskSearchPlainProjection{}
 	}
 	groups := make([]taskSearchPlainGroup, 0, len(response.Groups))
 	for _, group := range response.Groups {
@@ -73,7 +69,7 @@ func taskSearchPlainProjectionFromResponse(response *taskpb.SearchSuccess) (task
 			RemainingHitCount: int(group.TotalHitCount - lastOrdinal),
 		})
 	}
-	return taskSearchPlainProjection{Groups: groups}, nil
+	return taskSearchPlainProjection{Groups: groups}
 }
 
 func writeTaskSearchPlainProjection(stdout io.Writer, projection taskSearchPlainProjection) error {

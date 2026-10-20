@@ -1,4 +1,4 @@
-import type { DescMethod, Message, MessageShape } from "@app/server-api-contract";
+import type { DescMethod, Message, MessageValidType } from "@app/server-api-contract";
 import type { ChatOperationError as WireChatOperationError } from "@app/server-api-contract/gen/kent/api/chat/chat_pb";
 import { AgentPreparationCategory } from "@app/server-api-contract/gen/kent/api/chat_settings/chat_settings_pb";
 import type { ReadError } from "@app/server-api-contract/gen/kent/api/chat_settings/chat_settings_pb";
@@ -75,7 +75,7 @@ type ChatRpcResult = Readonly<{
     | Readonly<{ case: undefined; value?: undefined }>;
 }>;
 type MethodOutcome<Method extends DescMethod> =
-  MessageShape<Method["output"]> extends Readonly<{ outcome: infer Outcome }> ? Outcome : never;
+  MessageValidType<Method["output"]> extends Readonly<{ outcome: infer Outcome }> ? Outcome : never;
 type MethodSuccess<Method extends DescMethod> =
   Extract<MethodOutcome<Method>, Readonly<{ case: "success" }>> extends Readonly<{
     value: infer Success;
@@ -85,7 +85,7 @@ type MethodSuccess<Method extends DescMethod> =
 
 export function requireChatSuccess<Method extends DescMethod>(
   method: Method,
-  result: ChatRpcResult,
+  result: MessageValidType<Method["output"]> & ChatRpcResult,
 ): MethodSuccess<Method>;
 export function requireChatSuccess(method: DescMethod, result: ChatRpcResult): Message {
   switch (result.outcome.case) {

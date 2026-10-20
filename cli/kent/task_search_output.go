@@ -43,27 +43,18 @@ type taskSearchLiteralJSON struct {
 	RightTruncated bool   `json:"right_truncated"`
 }
 
-func taskSearchOutput(response *taskpb.SearchSuccess) (taskSearchJSON, error) {
-	mode, err := protoapi.TaskSearchMode.Decode(response.Mode)
-	if err != nil {
-		return taskSearchJSON{}, err
-	}
+func taskSearchOutput(response *taskpb.SearchSuccess) taskSearchJSON {
+	mode := protoapi.TaskSearchMode.FromProto(response.Mode)
 	out := taskSearchJSON{Mode: mode, Groups: make([]taskSearchGroupJSON, 0, len(response.Groups)), NextOffset: response.NextOffset}
 	for _, group := range response.Groups {
-		status, err := taskStatusOutput(group.Status)
-		if err != nil {
-			return taskSearchJSON{}, err
-		}
+		status := taskStatusOutput(group.Status)
 		projected := taskSearchGroupJSON{
 			ProjectID: group.ProjectId, ProjectKey: group.ProjectKey, TaskID: group.TaskId, ShortID: group.ShortId,
 			WorkflowID: group.WorkflowId, Title: group.Title, Status: status, TotalHitCount: group.TotalHitCount,
 			Hits: make([]taskSearchHitJSON, 0, len(group.Hits)),
 		}
 		for _, hit := range group.Hits {
-			kind, err := protoapi.TaskSearchSourceKind.Decode(hit.Source.Kind)
-			if err != nil {
-				return taskSearchJSON{}, err
-			}
+			kind := protoapi.TaskSearchSourceKind.FromProto(hit.Source.Kind)
 			item := taskSearchHitJSON{
 				Ordinal: hit.Ordinal, Source: taskSearchSourceJSON{Kind: kind, CommentID: hit.Source.CommentId},
 				FTS5: hit.GetFts5(),
@@ -78,5 +69,5 @@ func taskSearchOutput(response *taskpb.SearchSuccess) (taskSearchJSON, error) {
 		}
 		out.Groups = append(out.Groups, projected)
 	}
-	return out, nil
+	return out
 }

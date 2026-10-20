@@ -75,9 +75,6 @@ func (d *TaskDependencies) GetTaskDependencies(ctx context.Context, taskID strin
 		return nil, errors.New("task dependencies are required")
 	}
 	trimmedTaskID := strings.TrimSpace(taskID)
-	if trimmedTaskID == "" {
-		return nil, errors.New("task id is required")
-	}
 	facts, err := d.loadFacts(ctx, trimmedTaskID, false)
 	if err != nil {
 		return nil, err
@@ -90,9 +87,6 @@ func (d *TaskDependencies) CountUnsatisfiedBlockers(ctx context.Context, taskID 
 		return 0, errors.New("task dependencies are required")
 	}
 	trimmedTaskID := strings.TrimSpace(taskID)
-	if trimmedTaskID == "" {
-		return 0, errors.New("task id is required")
-	}
 	return d.counter.CountUnsatisfiedBlockers(ctx, trimmedTaskID)
 }
 
@@ -101,16 +95,6 @@ func (d *TaskDependencies) ListTaskDependencies(ctx context.Context, taskID stri
 		return nil, errors.New("task dependencies are required")
 	}
 	trimmedTaskID := strings.TrimSpace(taskID)
-	if trimmedTaskID == "" {
-		return nil, errors.New("task id is required")
-	}
-	if requestedDirection != nil {
-		switch *requestedDirection {
-		case taskpb.DependencyDirection_DEPENDENCY_DIRECTION_BLOCKED_BY, taskpb.DependencyDirection_DEPENDENCY_DIRECTION_BLOCKS:
-		default:
-			return nil, fmt.Errorf("invalid dependency direction %v", *requestedDirection)
-		}
-	}
 	subject, err := d.queries.GetTask(ctx, trimmedTaskID)
 	if err != nil {
 		return nil, err
@@ -427,9 +411,6 @@ func (d *TaskDependencies) addAvailability(count int) (*taskpb.DependencyAddAvai
 	}
 	switch availability.Kind {
 	case workflow.TaskDependencyAddAvailable:
-		if availability.RemainingCapacity == nil {
-			return nil, errors.New("task dependency availability omitted remaining capacity")
-		}
 		return &taskpb.DependencyAddAvailability{
 			Availability: &taskpb.DependencyAddAvailability_Available{
 				Available: &taskpb.DependencyAvailable{RemainingCapacity: int32(*availability.RemainingCapacity)},

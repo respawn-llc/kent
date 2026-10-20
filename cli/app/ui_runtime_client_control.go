@@ -186,9 +186,6 @@ func (c *sessionRuntimeClient) AppendCommittedEntryWithNoticeID(role, text, noti
 }
 
 func (c *sessionRuntimeClient) SubmitRuntimeInput(ctx context.Context, req clientui.RuntimeSubmitRequest) (clientui.UserTurnSubmission, error) {
-	if err := req.Validate(); err != nil {
-		return clientui.UserTurnSubmission{}, err
-	}
 	activation, err := chatActivationFromInput(req.Input)
 	if err != nil {
 		return clientui.UserTurnSubmission{}, err
@@ -202,9 +199,6 @@ func (c *sessionRuntimeClient) SubmitRuntimeInput(ctx context.Context, req clien
 }
 
 func chatActivationFromInput(input runtimeinput.Input) (*chatpb.Activation, error) {
-	if err := input.Validate(); err != nil {
-		return nil, err
-	}
 	if input.Kind == runtimeinput.KindText {
 		return &chatpb.Activation{Input: &chatpb.Activation_Text{Text: *input.Text}}, nil
 	}
@@ -220,17 +214,10 @@ func chatActivationFromInput(input runtimeinput.Input) (*chatpb.Activation, erro
 }
 
 func runtimeSubmitInputText(input clientui.RuntimeSubmitRequest) string {
-	text, err := input.Input.CanonicalHistoryText()
-	if err != nil {
-		panic("runtime submit input must validate before projection: " + err.Error())
-	}
-	return text
+	return input.Input.CanonicalHistoryText()
 }
 
 func (c *sessionRuntimeClient) RunUserShell(ctx context.Context, req clientui.RuntimeShellRequest) error {
-	if err := req.Validate(); err != nil {
-		return err
-	}
 	target, err := c.takeChatTarget()
 	if err != nil {
 		return err
@@ -240,9 +227,6 @@ func (c *sessionRuntimeClient) RunUserShell(ctx context.Context, req clientui.Ru
 }
 
 func (c *sessionRuntimeClient) CompactRuntime(ctx context.Context, req clientui.RuntimeCompactRequest) (clientui.RuntimeCompactResult, error) {
-	if err := req.Validate(); err != nil {
-		return clientui.RuntimeCompactResult{}, err
-	}
 	target, err := c.takeChatTarget()
 	if err != nil {
 		return clientui.RuntimeCompactResult{}, err
@@ -308,9 +292,6 @@ func (c *sessionRuntimeClient) ListPendingWork(sessionID runtimeids.SessionID) (
 	})
 	if err != nil {
 		return runtimeinput.PendingWork{}, err
-	}
-	if err := protoapi.Validate(resp); err != nil {
-		return runtimeinput.PendingWork{}, fmt.Errorf("validate Pending Work list response: %w", err)
 	}
 	return protoapi.PendingWorkFromProto(resp.PendingWork)
 }

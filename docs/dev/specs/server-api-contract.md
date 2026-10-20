@@ -51,7 +51,7 @@
 
 - Every route-reachable named scalar must be classified as open or validated text, identifier, or closed enum.
 - Closed enums must declare every supported value.
-- Message-local rules must be declared in the Protobuf contract and enforced through generated validation.
+- Message-local rules must be declared in the Protobuf contract and enforced through generated validation, except for the known error-code/detail relationships defined below.
 - The server-owned domain boundary must own rules that require server state.
 - Unclassified scalars and validators are invalid API contract state.
 - Kent-owned variant payloads must use typed Protobuf messages or explicit `oneof` branches.
@@ -71,8 +71,10 @@
 - API instants must use `google.protobuf.Timestamp`.
 - API elapsed amounts must use `google.protobuf.Duration`.
 - Raw numeric time representations are permitted only when an external system owns that representation.
-- First-party identifiers use their owning domain format. The Protobuf API must not migrate the persistence or domain identity model.
-- First-party UUID v4 identifiers use canonical textual wire form.
+- Session identity fields must use canonical lowercase UUID v4 text.
+- Session selector inputs and short-alias lookup fields are distinct from Session identity fields.
+- Other existing first-party identifiers retain their owning domain format. The Protobuf API does not migrate the persistence or domain identity model.
+- First-party UUID v4 identifiers retain canonical textual wire form.
 - Session target inputs must accept a full UUID or a Session Short ID. The server must resolve the target to its UUID before target authorization, self-target checks, and execution.
 - Clients must not perform a separate preflight identity lookup for a Session selector.
 - Session subscriptions must use the server's operation-specific Project authorization after target resolution. Clients must not restrict those subscriptions to the Session attached to their connection.
@@ -96,11 +98,13 @@
 - A present error branch is an operation failure.
 - Each operation error must contain a nonempty stable code and a typed detail `oneof`.
 - Known error codes must declare and validate their required detail variant.
+- Known error-code/detail relationships must be checked centrally at the transport boundary from their sole Protobuf declaration.
 - A missing outcome, empty error code, or known code with missing or incorrect detail is malformed.
 - A client must surface an unknown nonempty error code as a generic error while preserving available unknown fields.
 - Subscription-start failure occurs before acknowledgement and is distinct from later events and terminal completion.
 - Subscription terminal failures must use generated Protobuf error codes, including Worktree setup completion. Clients must report the owning operation's terminal outcome and typed failure facts unchanged.
 - Client-visible wording is client-owned and derived from stable codes and typed details.
+- Validation errors in user-provided data must describe what the user must correct. Clients must not present these errors as obscure internal contract failures.
 - The shared `internal_failure` code represents otherwise-unclassified operational failures.
 - Onboarding rollback errors use one typed primary failure plus structured rollback facts containing operation and cause.
 - Session workspace retargeting exposes its background-process blocker through the public `background_process_active` error.
@@ -112,6 +116,7 @@
 - A shared authority, such as a database constraint used by several writers, must own its validation.
 - Clients must run generated Protobuf constraints on server responses and events.
 - Platforms must centralize generated validation at their transport boundary.
+- Runtime Activity must retain one calculation-time contract check before publishing its read model. Update Status must retain its calculation-time contract check before caching the result, including its existing debug failure and production check-failed outcome.
 - Generated clients must carry unknown Protobuf fields unchanged.
 - Generated clients must reject unknown enum values.
 - Except for the Desktop transcript subscription rule below, malformed Protobuf bytes, unknown operations, wrong frame direction, invalid envelopes, and known-operation validation failures must reject only the affected frame after a connection is established.
@@ -121,6 +126,8 @@
 - Protocol-version mismatch and invalid handshake or authentication establishment must reject setup and close the connection.
 - Kent must not add strike counters, rate limits, or repeated-invalid-frame disconnect state solely for contract validation.
 - Debug builds fail fast when Kent attempts to emit a generated message that violates its declared contract.
+- Delivered Transcript and Worktree Setup notifications must fail fast on invalid local output in debug and production. Their contract check must run at final notification encoding. Unobserved notifications must not receive a separate generated validation check.
+- Debug logs for invalid wire messages must identify the validation failure so developers can understand and fix it.
 - Malformed peer input is external data and must be rejected without crashing in debug and production.
 - Production must surface an internal contract error and must not send an invalid frame.
 

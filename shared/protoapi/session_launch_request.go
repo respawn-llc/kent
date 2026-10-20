@@ -9,9 +9,6 @@ import (
 )
 
 func SessionLaunchRequestIntentToProto(intent serverapi.SessionLaunchIntent) (*sessionlaunchpb.SessionLaunchRequestIntent, error) {
-	if err := intent.Validate(); err != nil {
-		return nil, err
-	}
 	if id, present := intent.SessionID(); present {
 		return &sessionlaunchpb.SessionLaunchRequestIntent{Intent: &sessionlaunchpb.SessionLaunchRequestIntent_OpenExistingSessionId{
 			OpenExistingSessionId: SessionSelectorToProto(id),

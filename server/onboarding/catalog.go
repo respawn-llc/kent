@@ -12,6 +12,8 @@ var (
 	providerClaudeCodeUUID = uuid.MustParse("3a8f7b06-2e28-4e5a-91dc-4a57e54c6b87")
 	providerCodexUUID      = uuid.MustParse("a48bd9cb-8a99-470c-b88d-3f087369a8dc")
 	providerAgentsUUID     = uuid.MustParse("76ff2a0e-bf7c-4d62-83fb-82d22bd63661")
+	providerGrokUUID       = uuid.MustParse("51e0fbe1-44af-4fd8-a85d-f9fce1a7f4e8")
+	providerCursorUUID     = uuid.MustParse("5f2fba7a-dc8c-4038-b227-9d3551ea0c61")
 )
 
 type Provider struct {
@@ -25,6 +27,8 @@ func ProductionProviderCatalog() []Provider {
 		onboardingimports.ProviderClaudeCode: providerClaudeCodeUUID,
 		onboardingimports.ProviderCodex:      providerCodexUUID,
 		onboardingimports.ProviderAgents:     providerAgentsUUID,
+		onboardingimports.ProviderGrok:       providerGrokUUID,
+		onboardingimports.ProviderCursor:     providerCursorUUID,
 	}
 	providers := onboardingimports.Providers()
 	out := make([]Provider, 0, len(providers))

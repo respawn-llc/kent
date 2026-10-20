@@ -72,8 +72,10 @@ func TestRuntimeSubmitUserShellCommandRejectsBlankCommand(t *testing.T) {
 }
 
 func TestRuntimeSubmitUserTurnRequestUsesInputAndRejectsMissingInput(t *testing.T) {
-	req := &runtimepb.SubmitUserTurnRequest{QueueItemId: runtimeids.NewQueueItemID().String(), SessionId: "session-1",
-		Input: &runtimepb.UserTurnInput{Input: &runtimepb.UserTurnInput_Text{Text: "hello"}},
+	req := &runtimepb.SubmitUserTurnRequest{
+		QueueItemId: runtimeids.NewQueueItemID().String(),
+		SessionId:   "11111111-1111-4111-8111-111111111111",
+		Input:       &runtimepb.UserTurnInput{Input: &runtimepb.UserTurnInput_Text{Text: "hello"}},
 	}
 	if err := protoapi.Validate(req); err != nil {
 		t.Fatalf("valid request: %v", err)

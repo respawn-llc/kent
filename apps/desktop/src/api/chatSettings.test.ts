@@ -1,6 +1,6 @@
 import { describe, expect, it } from "bun:test";
 import { unexpectedProjectOverflow } from "@/test-support/api";
-import { create } from "@app/server-api-contract";
+import { create, encode } from "@app/server-api-contract";
 import { AuthMethod } from "@app/server-api-contract/gen/kent/api/auth/auth_pb";
 import {
   AutoCompactionPolicy,
@@ -15,11 +15,13 @@ import {
   SettingsSchema,
   SupervisorValue,
   ThinkingKind,
+  NewChatAgentChoiceSchema,
+  AgentChoiceSchema,
 } from "@app/server-api-contract/gen/kent/api/chat_settings/chat_settings_pb";
 
 import { FakeRpcTransport } from "@/test-support/api";
 import { ApiClient } from "./client";
-import { parsePendingWorkItemID } from "./pendingWork";
+import { pendingWorkItemIDFromProto } from "./pendingWork";
 import { ChatOperationError } from "./chatErrors";
 import type { ChatError } from "./chatErrors";
 import { ContractError } from "./errors";
@@ -161,6 +163,21 @@ function mutationResponse() {
 }
 
 describe("Chat Settings descriptor adapter", () => {
+  it.each(["model", "thinking"] as const)(
+    "requires New Chat Agent %s without changing shared choices",
+    (field) => {
+      const complete = create(NewChatAgentChoiceSchema, choice());
+      expect(() => encode(NewChatAgentChoiceSchema, complete)).not.toThrow();
+      const incomplete = create(NewChatAgentChoiceSchema, choice());
+      if (incomplete.agent === undefined) throw new Error("Fixture Agent is required.");
+      const agent = incomplete.agent;
+      if (field === "model") delete agent.model;
+      else delete agent.thinking;
+      expect(() => encode(AgentChoiceSchema, agent)).not.toThrow();
+      expect(() => encode(NewChatAgentChoiceSchema, incomplete)).toThrow();
+    },
+  );
+
   it("reads the ordered New Chat catalog separately from the exact creation selection", async () => {
     const first = choice();
     const second = choice("reviewer");
@@ -961,7 +978,7 @@ describe("Chat Settings descriptor adapter", () => {
     await chat.queue(
       { ...newChatTarget, initialSettings: result.initialSettings },
       { kind: "text", text: "start" },
-      parsePendingWorkItemID("223e4567-e89b-42d3-a456-426614174000"),
+      pendingWorkItemIDFromProto("223e4567-e89b-42d3-a456-426614174000"),
     );
     expect(transport.attachedProjectDescriptorCalls[1]?.request).toEqual(
       create(ChatService.method.queue.input, {

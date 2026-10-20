@@ -47,29 +47,20 @@ func configOriginToProto(origin config.Origin) (*configurationpb.ConfigOrigin, e
 	default:
 		return nil, fmt.Errorf("unknown configuration origin kind %q", origin.Kind)
 	}
-	return message, Validate(message)
+	return message, nil
 }
 
 func configOriginFromProto(message *configurationpb.ConfigOrigin) (config.Origin, error) {
-	if err := Validate(message); err != nil {
-		return config.Origin{}, err
-	}
 	origin := config.Origin{Property: config.PropertyAddress{Key: message.Property.Key, Role: message.Property.Role}}
 	if message.RetainedSessionId != nil {
-		id, err := runtimeids.ParseSessionID(*message.RetainedSessionId)
-		if err != nil {
-			return config.Origin{}, err
-		}
+		id := runtimeids.SessionIDFromProto(*message.RetainedSessionId)
 		origin.RetainedSessionID = &id
 	}
 	switch source := message.Source.(type) {
 	case *configurationpb.ConfigOrigin_DefaultValue:
 		origin.Kind = config.SourceDefault
 	case *configurationpb.ConfigOrigin_File:
-		layer, err := configFileLayerFromProto(source.File.Layer)
-		if err != nil {
-			return config.Origin{}, err
-		}
+		layer := configFileLayerFromProto(source.File.Layer)
 		origin.Kind = config.SourceFileKind
 		origin.File = &config.SourceFile{Layer: layer, Path: source.File.Path}
 	case *configurationpb.ConfigOrigin_Environment:
@@ -105,15 +96,12 @@ func ToolSelectionToProto(selection *config.ToolSelection) (*configurationpb.Too
 		}
 		message.Tools = append(message.Tools, tool)
 	}
-	return message, Validate(message)
+	return message, nil
 }
 
 func ToolSelectionFromProto(message *configurationpb.ToolSelection) (*config.ToolSelection, error) {
 	if message == nil {
 		return nil, nil
-	}
-	if err := Validate(message); err != nil {
-		return nil, err
 	}
 	origin, err := configOriginFromProto(message.Origin)
 	if err != nil {
@@ -121,39 +109,24 @@ func ToolSelectionFromProto(message *configurationpb.ToolSelection) (*config.Too
 	}
 	selection := &config.ToolSelection{Origin: origin, Tools: make([]toolspec.ID, 0, len(message.Tools))}
 	for _, id := range message.Tools {
-		tool, err := SessionToolIDFromProto(id)
-		if err != nil {
-			return nil, err
-		}
+		tool := SessionToolIDFromProto(id)
 		selection.Tools = append(selection.Tools, tool)
 	}
-	return selection, selection.Validate()
+	return selection, nil
+}
+
+var configFileLayerValues = map[configurationpb.ConfigFileLayer]config.FileLayer{
+	configurationpb.ConfigFileLayer_CONFIG_FILE_LAYER_GLOBAL:    config.FileGlobal,
+	configurationpb.ConfigFileLayer_CONFIG_FILE_LAYER_WORKSPACE: config.FileWorkspace,
+	configurationpb.ConfigFileLayer_CONFIG_FILE_LAYER_PRIVATE:   config.FilePrivate,
 }
 
 func configFileLayerToProto(layer config.FileLayer) (configurationpb.ConfigFileLayer, error) {
-	switch layer {
-	case config.FileGlobal:
-		return configurationpb.ConfigFileLayer_CONFIG_FILE_LAYER_GLOBAL, nil
-	case config.FileWorkspace:
-		return configurationpb.ConfigFileLayer_CONFIG_FILE_LAYER_WORKSPACE, nil
-	case config.FilePrivate:
-		return configurationpb.ConfigFileLayer_CONFIG_FILE_LAYER_PRIVATE, nil
-	default:
-		return 0, fmt.Errorf("unknown configuration file layer %q", layer)
-	}
+	return enumToProto(configFileLayerValues, layer, "configuration file layer")
 }
 
-func configFileLayerFromProto(layer configurationpb.ConfigFileLayer) (config.FileLayer, error) {
-	switch layer {
-	case configurationpb.ConfigFileLayer_CONFIG_FILE_LAYER_GLOBAL:
-		return config.FileGlobal, nil
-	case configurationpb.ConfigFileLayer_CONFIG_FILE_LAYER_WORKSPACE:
-		return config.FileWorkspace, nil
-	case configurationpb.ConfigFileLayer_CONFIG_FILE_LAYER_PRIVATE:
-		return config.FilePrivate, nil
-	default:
-		return "", fmt.Errorf("unknown configuration file layer %v", layer)
-	}
+func configFileLayerFromProto(layer configurationpb.ConfigFileLayer) config.FileLayer {
+	return configFileLayerValues[layer]
 }
 
 func sourceFactsToProto(sources map[string]config.Origin) ([]*configurationpb.SourceFact, error) {
@@ -171,12 +144,6 @@ func sourceFactsToProto(sources map[string]config.Origin) ([]*configurationpb.So
 func sourceFactsFromProto(facts []*configurationpb.SourceFact) (map[string]config.Origin, error) {
 	result := make(map[string]config.Origin, len(facts))
 	for _, fact := range facts {
-		if err := Validate(fact); err != nil {
-			return nil, err
-		}
-		if _, exists := result[fact.Key]; exists {
-			return nil, fmt.Errorf("duplicate configuration source %q", fact.Key)
-		}
 		origin, err := configOriginFromProto(fact.Origin)
 		if err != nil {
 			return nil, err

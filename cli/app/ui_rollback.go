@@ -9,7 +9,6 @@ import (
 	"time"
 
 	"core/cli/tui"
-	"core/shared/protoapi"
 	"core/shared/rollbacktarget"
 
 	tea "github.com/charmbracelet/bubbletea"
@@ -314,9 +313,6 @@ func (m *uiModel) rollbackCandidateIsLatest(candidate rollbackCandidate) bool {
 }
 
 func rollbackTargetIDForCandidateLocator(locator *transcriptpb.RollbackCandidate) string {
-	if err := protoapi.Validate(locator); err != nil {
-		panic(fmt.Sprintf("invalid latest rollback candidate locator: %v", err))
-	}
 	targetID := rollbacktarget.EncodeUserMessageSeq(locator.UserMessageSeq)
 	if targetID == "" {
 		panic(fmt.Sprintf("failed to encode rollback target for user message sequence %d", locator.UserMessageSeq))

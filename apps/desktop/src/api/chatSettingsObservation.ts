@@ -6,8 +6,6 @@ import {
 import { StreamCompletionSchema } from "@app/server-api-contract/gen/kent/api/shared/foundation_pb";
 import { requireChatSuccess } from "./chatErrors";
 import { settings, sessionFacts } from "./chatSettings";
-import { required } from "./chatWire";
-import { requireChatSessionID } from "./chatTarget";
 import { streamCompletionFailure } from "./protobufRpc";
 import { subscriptionStream } from "./subscriptionStream";
 import type { ChatSettingsObservation, ChatSessionTarget } from "./chatTypes";
@@ -19,7 +17,7 @@ export function chatSettingsObservation(
   reportOverflow: () => Promise<void>,
 ) {
   return subscriptionStream<ChatSettingsObservation>((emit) => {
-    const sessionID = requireChatSessionID(target);
+    const sessionID = target.sessionID;
     const method = ChatSettingsService.method.subscribe;
     return transport.subscribeDescriptor({
       method,
@@ -36,8 +34,8 @@ export function chatSettingsObservation(
             kind: "snapshot",
             snapshot: {
               sessionName: value.sessionName ?? null,
-              settings: settings(required(value.settings)),
-              session: sessionFacts(required(value.session), sessionID),
+              settings: settings(value.settings),
+              session: sessionFacts(value.session, sessionID),
             },
           });
         },

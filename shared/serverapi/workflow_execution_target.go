@@ -1,8 +1,6 @@
 package serverapi
 
 import (
-	"fmt"
-
 	definitionpb "core/shared/protoapi/gen/kent/api/workflow_definition"
 	taskpb "core/shared/protoapi/gen/kent/api/workflow_task"
 
@@ -89,22 +87,12 @@ func WorkflowLockedTargetDetails(cause WorkflowLockedExecutionTargetCause) *task
 	return &taskpb.LockedExecutionTargetDetails{Cause: originalTargetCauses[cause]}
 }
 
-func WorkflowLockedTargetCause(value taskpb.LockedExecutionTargetCause) (WorkflowLockedExecutionTargetCause, error) {
-	for cause, code := range originalTargetCauses {
-		if code == value {
-			return cause, nil
-		}
-	}
-	return "", fmt.Errorf("unknown original target unavailable cause: %d", value)
+func WorkflowLockedTargetCause(value taskpb.LockedExecutionTargetCause) WorkflowLockedExecutionTargetCause {
+	return originalTargetCauseNames[value]
 }
 
-func WorkflowUnavailableTargetCause(value taskpb.ExecutionTargetUnavailableCause) (WorkflowExecutionTargetUnavailableCause, error) {
-	for cause, code := range unavailableTargetCauses {
-		if code == value {
-			return cause, nil
-		}
-	}
-	return "", fmt.Errorf("unknown configured target unavailable cause: %d", value)
+func WorkflowUnavailableTargetCause(value taskpb.ExecutionTargetUnavailableCause) WorkflowExecutionTargetUnavailableCause {
+	return unavailableTargetCauseNames[value]
 }
 
 func NewWorkflowConfiguredTargetSelectionRequirement(mode WorkflowExecutionTargetMode, requestedRef *string, cause WorkflowExecutionTargetUnavailableCause) *taskpb.SelectionRequired {
@@ -143,4 +131,15 @@ var unavailableTargetCauses = map[WorkflowExecutionTargetUnavailableCause]taskpb
 	WorkflowExecutionTargetUnavailableCauseDefaultBranchMissing:   taskpb.ExecutionTargetUnavailableCause_EXECUTION_TARGET_UNAVAILABLE_CAUSE_DEFAULT_BRANCH_MISSING,
 	WorkflowExecutionTargetUnavailableCauseDefaultBranchAmbiguous: taskpb.ExecutionTargetUnavailableCause_EXECUTION_TARGET_UNAVAILABLE_CAUSE_DEFAULT_BRANCH_AMBIGUOUS,
 	WorkflowExecutionTargetUnavailableCauseGitFailure:             taskpb.ExecutionTargetUnavailableCause_EXECUTION_TARGET_UNAVAILABLE_CAUSE_GIT_FAILURE,
+}
+
+var originalTargetCauseNames = targetCauseNames(originalTargetCauses)
+var unavailableTargetCauseNames = targetCauseNames(unavailableTargetCauses)
+
+func targetCauseNames[Cause ~string, Code ~int32](codes map[Cause]Code) map[Code]Cause {
+	names := make(map[Code]Cause, len(codes))
+	for cause, code := range codes {
+		names[code] = cause
+	}
+	return names
 }

@@ -10,7 +10,7 @@ import {
   type InitialChatSettings,
   type ChatNotAcceptedReason,
   type PendingWorkItemID,
-  parsePendingWorkItemID,
+  pendingWorkItemIDFromProto,
   type ChatRuntimeActivity,
   type ChatInputMutationResult,
 } from "@/api";
@@ -233,7 +233,7 @@ function prepareSubmission(
   callbacks: SubmissionCallbacks,
 ): PreparedComposerCommand {
   if (command.kind === "direct") return command;
-  const queueItemID = parsePendingWorkItemID(crypto.randomUUID());
+  const queueItemID = pendingWorkItemIDFromProto(crypto.randomUUID());
   callbacks.prepared?.(queueItemID);
   return { ...command, queueItemID };
 }

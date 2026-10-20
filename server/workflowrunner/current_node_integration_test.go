@@ -366,7 +366,7 @@ func writeCurrentNodeConfig(t testing.TB, cfg config.App) {
 
 func (f *currentNodeRunnerFixture) createTask(t *testing.T, workflowID runtimeids.WorkflowID) workflowstore.TaskRecord {
 	t.Helper()
-	if _, err := f.store.LinkWorkflow(context.Background(), f.projectID, workflowID, true); err != nil {
+	if _, err := f.store.LinkWorkflowWithDefaultPolicy(context.Background(), f.projectID, workflowID, workflowstore.WorkflowLinkDefaultAlways); err != nil {
 		t.Fatalf("link workflow: %v", err)
 	}
 	task, err := f.store.CreateTask(context.Background(), workflowstore.CreateTaskRequest{

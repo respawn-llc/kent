@@ -4,15 +4,12 @@ import "testing"
 
 func TestInputAndCanonicalCommandProjection(t *testing.T) {
 	input := Command("prompt:review", " src ")
-	if err := input.Validate(); err != nil {
-		t.Fatal(err)
-	}
-	if got, err := input.CanonicalHistoryText(); err != nil || got != "/review src" {
-		t.Fatalf("history = %q, %v", got, err)
+	if got := input.CanonicalHistoryText(); got != "/review src" {
+		t.Fatalf("history = %q", got)
 	}
 	builtin := BuiltinCommand(BuiltinPromptCommandReview, " src ")
-	if got, err := builtin.CanonicalHistoryText(); err != nil || got != "/review src" {
-		t.Fatalf("built-in history = %q, %v", got, err)
+	if got := builtin.CanonicalHistoryText(); got != "/review src" {
+		t.Fatalf("built-in history = %q", got)
 	}
 }
 

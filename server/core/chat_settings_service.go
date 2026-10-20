@@ -21,13 +21,7 @@ type chatSettingsService struct {
 }
 
 func (s chatSettingsService) SubscribeChatSettings(ctx context.Context, req *chatsettingspb.SubscribeRequest) (apicontract.ChatSettingsSubscription, error) {
-	if err := protoapi.Validate(req); err != nil {
-		return nil, err
-	}
-	id, err := runtimeids.ParseSessionID(req.SessionId)
-	if err != nil {
-		return nil, err
-	}
+	id := runtimeids.SessionIDFromProto(req.SessionId)
 	service, err := s.sessionSettingsService(ctx, req.SessionId)
 	if err != nil {
 		return nil, err
@@ -36,16 +30,13 @@ func (s chatSettingsService) SubscribeChatSettings(ctx context.Context, req *cha
 }
 
 func (s chatSettingsService) PublishSessionSettings(ctx context.Context, sessionID string) {
-	id, err := runtimeids.ParseSessionID(sessionID)
+	id := runtimeids.SessionIDFromProto(sessionID)
+	service, err := s.sessionSettingsService(ctx, sessionID)
 	defer func() {
 		if err != nil {
 			slog.ErrorContext(ctx, "Session settings publication target resolution failed", "session_id", sessionID, "error", err)
 		}
 	}()
-	if err != nil {
-		return
-	}
-	service, err := s.sessionSettingsService(ctx, sessionID)
 	if err != nil {
 		return
 	}
@@ -56,9 +47,6 @@ func (s chatSettingsService) ReadChatSettings(
 	ctx context.Context,
 	req *chatsettingspb.ReadRequest,
 ) (response *chatsettingspb.ReadSuccess, err error) {
-	if err := protoapi.Validate(req); err != nil {
-		return nil, err
-	}
 	switch target := req.Target.(type) {
 	case *chatsettingspb.ReadRequest_NewChat:
 		projectCtx, err := s.core.resolveProjectContext(ctx, target.NewChat.ProjectId, target.NewChat.WorkspaceId, "")
@@ -93,9 +81,6 @@ func (s chatSettingsService) MutateChatSettings(
 	ctx context.Context,
 	req *chatsettingspb.MutationRequest,
 ) (response *chatsettingspb.MutationSuccess, err error) {
-	if err := protoapi.Validate(req); err != nil {
-		return nil, err
-	}
 	identity, err := s.sessionSettingsTarget(ctx, req.Session.SessionId)
 	if err != nil {
 		return nil, err

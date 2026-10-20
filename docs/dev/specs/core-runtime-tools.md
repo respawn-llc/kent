@@ -633,4 +633,4 @@ You can use `kent run steer <source-session-id> "message"` to respond.
 
 ## Provider Stream Completion
 
-- OpenAI-compatible Responses streams accept `data: [DONE]` or EOF after a valid `response.completed` event. `response.failed`, `response.incomplete`, `error`, and caller cancellation are failures. EOF before a valid terminal event, including malformed framing that prevents reading one, is a provider-contract error and never a partial completion.
+- OpenAI-compatible Responses streams must end with a valid `response.completed` event and may then end with `data: [DONE]` or EOF. A stream that ends before `response.completed`, either normally or with an EOF read error, is a transient model-step failure and never a partial completion. Malformed JSON, invalid event payloads, or other invalid framing that prevents reading a valid completion are provider-contract failures. `response.failed`, `response.incomplete`, `error`, and caller cancellation are failures.

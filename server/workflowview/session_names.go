@@ -28,9 +28,6 @@ func resolveSessionPresentations(
 	uniqueIDs := make([]string, 0, len(sessionIDs))
 	seen := make(map[string]struct{}, len(sessionIDs))
 	for _, sessionID := range sessionIDs {
-		if strings.TrimSpace(sessionID) == "" {
-			return nil, errors.New("session name lookup requested a blank session id")
-		}
 		if _, exists := seen[sessionID]; exists {
 			continue
 		}

@@ -21,15 +21,11 @@ func NextReadModelVersion(sessionID string) *runtimepb.ReadModelVersion {
 	if id == "" {
 		id = "unknown"
 	}
-	version, err := protoapi.NewReadModelVersion(
+	return protoapi.NewReadModelVersion(
 		processEpoch+"-"+id,
 		1,
 		fallbackSequence.Add(1),
 	)
-	if err != nil {
-		panic(err)
-	}
-	return version
 }
 
 func BuildFeedSnapshot(

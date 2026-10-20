@@ -1,74 +1,31 @@
-export function projectNameErrors(value: string, t: (key: string) => string): readonly string[] {
-  const errors: string[] = [];
-  const visibleLength = value.trim().length;
-  if (visibleLength < 1 || visibleLength > 80) {
-    errors.push(t("form.projectNameLength"));
-  }
-  if (value !== value.trim()) {
-    errors.push(t("form.noEdgeWhitespace"));
-  }
-  if (hasLineBreak(value)) {
-    errors.push(t("form.singleLine"));
-  }
-  return errors;
-}
+import { projectUpdateViolations } from "@/api";
 
-export function projectKeyErrors(value: string, t: (key: string) => string): readonly string[] {
-  const errors: string[] = [];
-  if (value.length < 2 || value.length > 8) {
-    errors.push(t("form.projectKeyLength"));
-  }
-  if (hasWhitespace(value)) {
-    errors.push(t("form.noWhitespace"));
-  }
-  if (!isAsciiUppercaseLetter(value.at(0) ?? "")) {
-    errors.push(t("form.projectKeyStartsWithLetter"));
-  }
-  if (!hasOnlyAsciiUppercaseLettersAndDigits(value)) {
-    errors.push(t("form.projectKeySymbols"));
-  }
-  return errors;
-}
+const ruleMessages: Readonly<Record<string, readonly string[]>> = {
+  "string.min_len": ["form.projectNameLength"],
+  "string.max_len": ["form.projectNameLength"],
+  "update_project.display_name": ["form.noEdgeWhitespace", "form.singleLine"],
+  "kent.project.update.project_key": ["form.projectKeyStartsWithLetter", "form.projectKeySymbols"],
+};
 
-function hasLineBreak(value: string): boolean {
-  for (const char of value) {
-    if (char === "\n" || char === "\r") {
-      return true;
-    }
+export function projectDraftErrors(
+  projectID: string,
+  name: string,
+  key: string | undefined,
+  t: (key: string) => string,
+): Readonly<{ nameErrors: readonly string[]; keyErrors: readonly string[] }> {
+  const nameErrors = new Set<string>();
+  const keyErrors = new Set<string>();
+  for (const violation of projectUpdateViolations(projectID, name, key)) {
+    const field = violation.field[0];
+    if (field?.kind !== "field") throw new Error("Unexpected Project update violation path");
+    const target = field.localName === "displayName" ? nameErrors : keyErrors;
+    const messages =
+      field.localName === "projectKey" &&
+      (violation.ruleId === "string.min_len" || violation.ruleId === "string.max_len")
+        ? ["form.projectKeyLength"]
+        : ruleMessages[violation.ruleId];
+    if (messages === undefined) throw new Error(`Unexpected Project update rule: ${violation.ruleId}`);
+    for (const message of messages) target.add(t(message));
   }
-  return false;
-}
-
-function hasWhitespace(value: string): boolean {
-  for (const char of value) {
-    if (char.trim().length === 0) {
-      return true;
-    }
-  }
-  return false;
-}
-
-function hasOnlyAsciiUppercaseLettersAndDigits(value: string): boolean {
-  for (const char of value) {
-    if (!isAsciiUppercaseLetter(char) && !isAsciiDigit(char)) {
-      return false;
-    }
-  }
-  return true;
-}
-
-function isAsciiUppercaseLetter(value: string): boolean {
-  if (value.length !== 1) {
-    return false;
-  }
-  const code = value.charCodeAt(0);
-  return code >= 65 && code <= 90;
-}
-
-function isAsciiDigit(value: string): boolean {
-  if (value.length !== 1) {
-    return false;
-  }
-  const code = value.charCodeAt(0);
-  return code >= 48 && code <= 57;
+  return { nameErrors: [...nameErrors], keyErrors: [...keyErrors] };
 }

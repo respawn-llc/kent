@@ -811,7 +811,7 @@ func TestPlanLaunchSessionRejectsUnknownParentBeforeRegisteringStore(t *testing.
 		PersistenceRoot: t.TempDir(),
 		Settings:        config.Settings{Model: "gpt-6-sol"},
 	}, t.TempDir())
-	unknownParent := mustSessionLaunchIntentID(t, "unknown-parent")
+	unknownParent := runtimeids.NewSessionID()
 	_, err := service.PlanLaunchSession(context.Background(), PlanRequest{
 		Mode:   launch.ModeHeadless,
 		Intent: serverapi.CreateNewSessionLaunchIntent(serverapi.ParentAgentSessionCreateOrigin(unknownParent)),

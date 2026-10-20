@@ -24,9 +24,8 @@ import { answerPromptBatch } from "./clientPromptAnswers";
 import { ContractError, RpcError, TransportError } from "./errors";
 import { mainView } from "./chatReadModel";
 import { transcriptMessage, transcriptPage } from "./chatTranscript";
-import { enumValue, required } from "./chatWire";
+import { enumValue } from "./chatWire";
 import { InvalidTranscriptEventError } from "./subscriptionErrors";
-import { requireChatSessionID } from "./chatTarget";
 import type { ChatApi, ChatTranscriptMessage } from "./chatTypes";
 import type { RpcTransport } from "./transport";
 export type {
@@ -83,7 +82,7 @@ export function createChatApi(transport: RpcTransport): ChatApi {
     subscribeSettings: (target, reportOverflow) => chatSettingsObservation(transport, target, reportOverflow),
     listPendingPrompts: async (target) =>
       listPendingPrompts(transport, {
-        sessionID: requireChatSessionID(target),
+        sessionID: target.sessionID,
       }),
     answerPromptBatch: async (input) => answerPromptBatch(transport, input),
     ...createChatMutationApi(transport),
@@ -98,7 +97,7 @@ export function createChatApi(transport: RpcTransport): ChatApi {
         target,
         method,
         create(method.input, {
-          sessionId: { value: { case: "sessionId", value: requireChatSessionID(target) } },
+          sessionId: { value: { case: "sessionId", value: target.sessionID } },
         }),
       );
       return requireUnarySuccess(method, result).prompts;
@@ -108,23 +107,23 @@ export function createChatApi(transport: RpcTransport): ChatApi {
       const result = await transport.callDescriptorAttachedSession(
         target,
         method,
-        create(method.input, { sessionId: requireChatSessionID(target), path }),
+        create(method.input, { sessionId: target.sessionID, path }),
         signal === undefined ? undefined : { signal },
       );
       return requireUnarySuccess(method, result).url;
     },
     async getMainView(target) {
-      const sessionId = requireChatSessionID(target);
+      const sessionId = target.sessionID;
       const method = SessionReadService.method.getMainView;
       const result = await transport.callDescriptorAttachedSession(
         target,
         method,
         create(method.input, { sessionId: { value: { case: "sessionId", value: sessionId } } }),
       );
-      return mainView(required(requireUnarySuccess(method, result).mainView), sessionId);
+      return mainView(requireUnarySuccess(method, result).mainView, sessionId);
     },
     async getContext(target) {
-      const sessionId = requireChatSessionID(target);
+      const sessionId = target.sessionID;
       const method = ChatContextService.method.get;
       const result = await transport.callDescriptorAttachedSession(
         target,
@@ -138,10 +137,10 @@ export function createChatApi(transport: RpcTransport): ChatApi {
           },
         }),
       );
-      return context(required(requireUnarySuccess(method, result).context));
+      return context(requireUnarySuccess(method, result).context);
     },
     async getTranscriptPage(target, cursor) {
-      const sessionId = requireChatSessionID(target);
+      const sessionId = target.sessionID;
       const method = ReadService.method.getPage;
       const result = await transport.callDescriptorAttachedSession(
         target,
@@ -158,13 +157,13 @@ export function createChatApi(transport: RpcTransport): ChatApi {
               }),
         }),
       );
-      return transcriptPage(required(requireUnarySuccess(method, result).transcript), sessionId);
+      return transcriptPage(requireUnarySuccess(method, result).transcript, sessionId);
     },
     async activateRuntime(target) {
       return activateRuntime(transport, target);
     },
     subscribeTranscript(target, handler) {
-      const sessionID = requireChatSessionID(target);
+      const sessionID = target.sessionID;
       const method = StreamService.method.subscribe;
       return transport.subscribeDescriptor({
         method,

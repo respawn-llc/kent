@@ -1,8 +1,6 @@
 package protoapi
 
 import (
-	"fmt"
-
 	"core/shared/config"
 	sessionlaunchpb "core/shared/protoapi/gen/kent/api/session_launch"
 	"core/shared/serverapi"
@@ -54,10 +52,7 @@ func SessionRuntimePreparationToProto(request serverapi.SessionRuntimePreparatio
 }
 
 func SessionRuntimeActivateFromProto(request *sessionlaunchpb.SessionRuntimeActivateRequest) (serverapi.SessionRuntimeActivateRequest, error) {
-	selector, err := SessionSelectorFromProto(request.SessionId)
-	if err != nil {
-		return serverapi.SessionRuntimeActivateRequest{}, err
-	}
+	selector := SessionSelectorFromProto(request.SessionId)
 	options, err := SessionRuntimePreparationFromProto(request.Options)
 	if err != nil {
 		return serverapi.SessionRuntimeActivateRequest{}, err
@@ -66,9 +61,6 @@ func SessionRuntimeActivateFromProto(request *sessionlaunchpb.SessionRuntimeActi
 }
 
 func SessionRuntimePreparationFromProto(request *sessionlaunchpb.SessionRuntimePreparationOptions) (serverapi.SessionRuntimePreparationOptions, error) {
-	if err := Validate(request); err != nil {
-		return serverapi.SessionRuntimePreparationOptions{}, err
-	}
 	settings, err := SessionSettingsFromProto(request.ActiveSettings)
 	if err != nil {
 		return serverapi.SessionRuntimePreparationOptions{}, err
@@ -85,25 +77,17 @@ func SessionRuntimePreparationFromProto(request *sessionlaunchpb.SessionRuntimeP
 		ActiveSettings: settings, Source: source,
 		QuestionsEnabled: request.QuestionsEnabled, AutoCompactionEnabled: request.AutoCompactionEnabled,
 		ThinkingOverrideExplicit: request.ThinkingOverrideExplicit, AgentSelection: selection,
+		ConnectionScope: config.ConnectionScope{
+			Selection:       ConnectionSelectionFromProto(request.ConnectionScope.Selection),
+			UnavailableRole: request.ConnectionScope.UnavailableRole,
+		},
 	}
-	if request.ConnectionScope == nil {
-		return serverapi.SessionRuntimePreparationOptions{}, fmt.Errorf("connection scope is required")
-	}
-	scopeSelection, err := ConnectionSelectionFromProto(request.ConnectionScope.Selection)
-	if err != nil {
-		return serverapi.SessionRuntimePreparationOptions{}, err
-	}
-	result.ConnectionScope = config.ConnectionScope{Selection: scopeSelection, UnavailableRole: request.ConnectionScope.UnavailableRole}
 	result.ExplicitToolSelection, err = ToolSelectionFromProto(request.ExplicitToolSelection)
 	if err != nil {
 		return serverapi.SessionRuntimePreparationOptions{}, err
 	}
 	for _, id := range request.EnabledToolIds {
-		tool, err := SessionToolIDFromProto(id)
-		if err != nil {
-			return serverapi.SessionRuntimePreparationOptions{}, err
-		}
-		result.EnabledToolIDs = append(result.EnabledToolIDs, string(tool))
+		result.EnabledToolIDs = append(result.EnabledToolIDs, string(SessionToolIDFromProto(id)))
 	}
 	return result, nil
 }

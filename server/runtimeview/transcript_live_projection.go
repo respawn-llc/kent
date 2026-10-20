@@ -19,7 +19,7 @@ func transcriptRequiredStepID(raw *string) (string, error) {
 	if raw == nil {
 		return "", fmt.Errorf("runtime transcript fact is missing its Step")
 	}
-	stepID, err := runtimeids.ParseStepID(strings.TrimSpace(*raw))
+	stepID, err := runtimeids.StepIDFromProto(*raw)
 	if err != nil {
 		return "", err
 	}
@@ -34,15 +34,11 @@ func transcriptAssistantIdentity(step *string, stream *uuid.UUID, phase llm.Mess
 	if stream == nil {
 		return "", "", transcriptpb.AssistantPhase_ASSISTANT_PHASE_UNSPECIFIED, fmt.Errorf("runtime assistant stream is missing its identity")
 	}
-	streamID, err := runtimeids.ParseAssistantStreamID(stream.String())
-	if err != nil {
-		return "", "", transcriptpb.AssistantPhase_ASSISTANT_PHASE_UNSPECIFIED, err
-	}
 	projectedPhase, err := transcriptAssistantPhase(transcript.AssistantPhase(phase))
 	if err != nil {
 		return "", "", transcriptpb.AssistantPhase_ASSISTANT_PHASE_UNSPECIFIED, err
 	}
-	return stepID, streamID.String(), projectedPhase, nil
+	return stepID, stream.String(), projectedPhase, nil
 }
 
 func transcriptCompactionProjection(
@@ -73,23 +69,16 @@ func transcriptCompactionProjection(
 		projected.Mode = transcriptpb.CompactionMode_COMPACTION_MODE_MANUAL
 	case "workflow_post_completion":
 		projected.Mode = transcriptpb.CompactionMode_COMPACTION_MODE_WORKFLOW_POST_COMPLETION
-	default:
-		return nil, fmt.Errorf("unknown compaction mode %q", mode)
 	}
-	return projected, protoapi.Validate(projected)
+	return projected, nil
 }
 
-func transcriptQueuedFailureReason(reason runtime.QueuedUserMessageFailureReason) (transcriptpb.QueuedMessageFailureReason, error) {
-	switch reason {
-	case runtime.QueuedUserMessageFailureClosing:
-		return transcriptpb.QueuedMessageFailureReason_QUEUED_MESSAGE_FAILURE_REASON_CLOSING, nil
-	case runtime.QueuedUserMessageFailureTerminalWorkflowCompletion:
-		return transcriptpb.QueuedMessageFailureReason_QUEUED_MESSAGE_FAILURE_REASON_TERMINAL_WORKFLOW_COMPLETION, nil
-	case runtime.QueuedUserMessageFailureRuntimeUnavailable:
-		return transcriptpb.QueuedMessageFailureReason_QUEUED_MESSAGE_FAILURE_REASON_RUNTIME_UNAVAILABLE, nil
-	default:
-		return transcriptpb.QueuedMessageFailureReason_QUEUED_MESSAGE_FAILURE_REASON_UNSPECIFIED, fmt.Errorf("unknown queued message failure reason %q", reason)
-	}
+func transcriptQueuedFailureReason(reason runtime.QueuedUserMessageFailureReason) transcriptpb.QueuedMessageFailureReason {
+	return map[runtime.QueuedUserMessageFailureReason]transcriptpb.QueuedMessageFailureReason{
+		runtime.QueuedUserMessageFailureClosing:                    transcriptpb.QueuedMessageFailureReason_QUEUED_MESSAGE_FAILURE_REASON_CLOSING,
+		runtime.QueuedUserMessageFailureTerminalWorkflowCompletion: transcriptpb.QueuedMessageFailureReason_QUEUED_MESSAGE_FAILURE_REASON_TERMINAL_WORKFLOW_COMPLETION,
+		runtime.QueuedUserMessageFailureRuntimeUnavailable:         transcriptpb.QueuedMessageFailureReason_QUEUED_MESSAGE_FAILURE_REASON_RUNTIME_UNAVAILABLE,
+	}[reason]
 }
 
 func transcriptPendingWorkRestoration(restoration *runtimeinput.PendingWorkTechnicalRestoration) (*transcriptpb.PendingWorkTechnicalRestoration, error) {
@@ -106,9 +95,6 @@ func transcriptPendingWorkRestoration(restoration *runtimeinput.PendingWorkTechn
 func transcriptToolPresentation(toolName string, presentation *transcript.ToolCallMeta) (*transcriptpb.ToolPresentation, error) {
 	toolName = strings.TrimSpace(toolName)
 	if presentation == nil {
-		if transcript.IsPatchFamilyToolName(toolName) {
-			return nil, fmt.Errorf("Patch/Edit tool presentation is required")
-		}
 		return nil, nil
 	}
 	if strings.TrimSpace(presentation.ToolName) != toolName {

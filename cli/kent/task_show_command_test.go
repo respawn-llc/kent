@@ -34,10 +34,7 @@ func taskShowFixture(t *testing.T) *taskpb.TaskDetail {
 
 func taskShowJSONForTest(t *testing.T, task *taskpb.TaskDetail) []byte {
 	t.Helper()
-	output, err := taskShowOutputFromDetail(task)
-	if err != nil {
-		t.Fatal(err)
-	}
+	output := taskShowOutputFromDetail(task)
 	data, err := json.Marshal(output)
 	if err != nil {
 		t.Fatal(err)

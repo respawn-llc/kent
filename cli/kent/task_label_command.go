@@ -4,7 +4,6 @@ import (
 	"context"
 	"core/shared/apicontract"
 	"core/shared/client"
-	protoapi "core/shared/protoapi"
 	pb "core/shared/protoapi/gen/kent/api/workflow_definition"
 	taskpb "core/shared/protoapi/gen/kent/api/workflow_task"
 	"fmt"
@@ -114,10 +113,6 @@ func taskLabelAssignmentSubcommand(args []string, stdout io.Writer, stderr io.Wr
 		response, err := remote.UpdateWorkflowTaskLabels(ctx, request)
 		if err != nil {
 			fmt.Fprintln(stderr, err)
-			return 1
-		}
-		if err := protoapi.Validate(response); err != nil {
-			fmt.Fprintf(stderr, "invalid task label assignment response: %v\n", err)
 			return 1
 		}
 		if response.Assignment.TaskId != task.Summary.Id {
@@ -257,10 +252,6 @@ func taskLabelRenameSubcommand(args []string, stdout io.Writer, stderr io.Writer
 			fmt.Fprintln(stderr, err)
 			return 1
 		}
-		if err := protoapi.Validate(response.Label); err != nil {
-			fmt.Fprintf(stderr, "invalid Project label rename response: %v\n", err)
-			return 1
-		}
 		if response.Label.Id != labelID {
 			fmt.Fprintf(stderr, "Project label rename response ID %q does not match selected label %q\n", response.Label.Id, labelID)
 			return 1
@@ -317,10 +308,6 @@ func taskLabelDeleteSubcommand(args []string, stdout io.Writer, stderr io.Writer
 			fmt.Fprintln(stderr, err)
 			return 1
 		}
-		if err := protoapi.Validate(response); err != nil {
-			fmt.Fprintf(stderr, "invalid Project label delete response: %v\n", err)
-			return 1
-		}
 		if response.LabelId != labelID {
 			fmt.Fprintf(stderr, "Project label delete response ID %q does not match selected label %q\n", response.LabelId, labelID)
 			return 1
@@ -350,9 +337,6 @@ func loadWorkflowProjectLabelCatalog(ctx context.Context, remote apicontract.Wor
 }
 
 func workflowProjectLabelCatalogSnapshotFromResponse(catalog *pb.ProjectLabelCatalog, projectID string) (workflowProjectLabelCatalogSnapshot, error) {
-	if err := protoapi.Validate(catalog); err != nil {
-		return workflowProjectLabelCatalogSnapshot{}, fmt.Errorf("invalid Project label catalog response: %w", err)
-	}
 	if catalog.ProjectId != projectID {
 		return workflowProjectLabelCatalogSnapshot{}, fmt.Errorf("Project label catalog response project %q does not match requested project %q", catalog.ProjectId, projectID)
 	}
@@ -362,9 +346,6 @@ func workflowProjectLabelCatalogSnapshotFromResponse(catalog *pb.ProjectLabelCat
 		LabelsByFoldedName: make(map[string]*pb.ProjectLabel, len(catalog.Labels)),
 	}
 	for _, record := range catalog.Labels {
-		if _, exists := snapshot.LabelsByID[record.Id]; exists {
-			return workflowProjectLabelCatalogSnapshot{}, fmt.Errorf("Project label catalog response contains duplicate label ID %q", record.Id)
-		}
 		foldedName := labelcontract.Fold(record.Name)
 		if existing, exists := snapshot.LabelsByFoldedName[foldedName]; exists {
 			return workflowProjectLabelCatalogSnapshot{}, fmt.Errorf("Project label catalog response contains duplicate folded label name %q for IDs %q and %q", foldedName, existing.Id, record.Id)
@@ -405,9 +386,6 @@ func resolveWorkflowProjectLabelFilter(
 			LabelIds:         resolvedGroups[0].IDs,
 			ExcludedLabelIds: resolvedGroups[1].IDs,
 		}},
-	}
-	if err := protoapi.Validate(filter); err != nil {
-		return nil, err
 	}
 	return filter, nil
 }

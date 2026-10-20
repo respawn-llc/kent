@@ -28,12 +28,8 @@ func (s *Store) ReadPromptHistory(ctx context.Context, sessionID string) ([]stri
 	if s == nil || s.queries == nil {
 		return nil, errors.New("metadata store is required")
 	}
-	trimmedSessionID := strings.TrimSpace(sessionID)
-	if trimmedSessionID == "" {
-		return nil, errors.New("session_id is required")
-	}
 	history, err := s.queries.ListSessionPromptHistoryText(ctx, sqlitegen.ListSessionPromptHistoryTextParams{
-		SessionID:  trimmedSessionID,
+		SessionID:  sessionID,
 		MaxEntries: serverapi.SessionPromptHistoryMaxEntries,
 	})
 	if err != nil {
@@ -46,10 +42,7 @@ func (s *Store) RecordPromptHistoryEntry(ctx context.Context, entry PromptHistor
 	if s == nil || s.queries == nil {
 		return PromptHistoryRecord{}, errors.New("metadata store is required")
 	}
-	normalized, err := normalizePromptHistoryEntry(entry)
-	if err != nil {
-		return PromptHistoryRecord{}, err
-	}
+	normalized := normalizePromptHistoryEntry(entry)
 	inserted, err := s.queries.InsertSessionPromptHistoryEntry(ctx, sqlitegen.InsertSessionPromptHistoryEntryParams{
 		SessionID:       normalized.SessionID,
 		Text:            normalized.Text,
@@ -61,7 +54,7 @@ func (s *Store) RecordPromptHistoryEntry(ctx context.Context, entry PromptHistor
 	return promptHistoryRecordFromRow(inserted), nil
 }
 
-func normalizePromptHistoryEntry(entry PromptHistoryEntry) (PromptHistoryEntry, error) {
+func normalizePromptHistoryEntry(entry PromptHistoryEntry) PromptHistoryEntry {
 	normalized := PromptHistoryEntry{
 		SessionID: strings.TrimSpace(entry.SessionID),
 		Text:      entry.Text,
@@ -70,13 +63,7 @@ func normalizePromptHistoryEntry(entry PromptHistoryEntry) (PromptHistoryEntry, 
 	if normalized.CreatedAt.IsZero() {
 		normalized.CreatedAt = time.Now().UTC()
 	}
-	if normalized.SessionID == "" {
-		return PromptHistoryEntry{}, errors.New("session_id is required")
-	}
-	if strings.TrimSpace(normalized.Text) == "" {
-		return PromptHistoryEntry{}, errors.New("text is required")
-	}
-	return normalized, nil
+	return normalized
 }
 
 func promptHistoryRecordFromRow(row sqlitegen.SessionPromptHistoryEntry) PromptHistoryRecord {

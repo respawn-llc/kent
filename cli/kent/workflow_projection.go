@@ -9,14 +9,11 @@ import (
 )
 
 func workflowRecordForCLI(record *pb.WorkflowRecord) (workflowRecordJSON, error) {
-	id, err := runtimeids.ParseWorkflowID(record.GetId())
+	id, err := runtimeids.WorkflowIDFromProto(record.Id)
 	if err != nil {
 		return workflowRecordJSON{}, err
 	}
-	mode, err := protoapi.WorkflowExecutionTargetMode.Decode(record.ExecutionTargetPolicy.GetMode())
-	if err != nil {
-		return workflowRecordJSON{}, err
-	}
+	mode := protoapi.WorkflowExecutionTargetMode.FromProto(record.ExecutionTargetPolicy.Mode)
 	result := workflowRecordJSON{
 		ID: id, Name: record.Name, Description: record.Description, Version: record.Version,
 		ExecutionTargetPolicy: workflowExecutionTargetPolicyJSON{Mode: serverapi.WorkflowExecutionTargetMode(mode), CustomRef: record.ExecutionTargetPolicy.CustomRef},
@@ -52,7 +49,7 @@ func workflowDeleteResponseForCLI(response *pb.DeleteSuccess) (workflowDeleteJSO
 }
 
 func workflowDeleteImpactForCLI(impact *pb.DeleteImpact) (workflowDeleteImpactJSON, error) {
-	id, err := runtimeids.ParseWorkflowID(impact.GetWorkflowId())
+	id, err := runtimeids.WorkflowIDFromProto(impact.WorkflowId)
 	if err != nil {
 		return workflowDeleteImpactJSON{}, err
 	}
@@ -78,7 +75,7 @@ func workflowDefinitionForCLI(definition *pb.WorkflowDefinition) (workflowDefini
 		Edges:            make([]workflowEdgeJSON, 0, len(definition.Edges)),
 	}
 	for _, group := range definition.NodeGroups {
-		id, err := runtimeids.ParseWorkflowID(group.WorkflowId)
+		id, err := runtimeids.WorkflowIDFromProto(group.WorkflowId)
 		if err != nil {
 			return workflowDefinitionJSON{}, err
 		}
@@ -87,14 +84,14 @@ func workflowDefinitionForCLI(definition *pb.WorkflowDefinition) (workflowDefini
 		})
 	}
 	for index, node := range definition.Nodes {
-		id, err := runtimeids.ParseWorkflowID(node.WorkflowId)
+		id, err := runtimeids.WorkflowIDFromProto(node.WorkflowId)
 		if err != nil {
 			return workflowDefinitionJSON{}, err
 		}
 		projected.Nodes = append(projected.Nodes, workflowNodeJSON{workflowGraphDocumentNode: document.Graph.Nodes[index], WorkflowID: id, GroupKey: node.GroupKey})
 	}
 	for index, group := range definition.TransitionGroups {
-		id, err := runtimeids.ParseWorkflowID(group.WorkflowId)
+		id, err := runtimeids.WorkflowIDFromProto(group.WorkflowId)
 		if err != nil {
 			return workflowDefinitionJSON{}, err
 		}
@@ -103,7 +100,7 @@ func workflowDefinitionForCLI(definition *pb.WorkflowDefinition) (workflowDefini
 		})
 	}
 	for index, edge := range definition.Edges {
-		id, err := runtimeids.ParseWorkflowID(edge.WorkflowId)
+		id, err := runtimeids.WorkflowIDFromProto(edge.WorkflowId)
 		if err != nil {
 			return workflowDefinitionJSON{}, err
 		}
@@ -118,7 +115,7 @@ func workflowDefinitionForCLI(definition *pb.WorkflowDefinition) (workflowDefini
 }
 
 func projectWorkflowLinkForCLI(link *pb.ProjectWorkflowLink) (projectWorkflowLinkJSON, error) {
-	id, err := runtimeids.ParseWorkflowID(link.GetWorkflowId())
+	id, err := runtimeids.WorkflowIDFromProto(link.WorkflowId)
 	if err != nil {
 		return projectWorkflowLinkJSON{}, err
 	}

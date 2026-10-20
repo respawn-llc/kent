@@ -208,9 +208,9 @@ func TestQuestionHistoryListDispatchesAliasesAndSelectorContracts(t *testing.T) 
 		if len(remote.historyRequests) != 1 || remote.historyRequests[0].MaxHandoffs != 7 {
 			t.Fatalf("command %v request = %+v", commandArgs, remote.historyRequests)
 		}
-		target, err := protoapi.SessionSelectorFromProto(remote.historyRequests[0].SessionId)
-		if err != nil || target.String() != expected {
-			t.Fatalf("target = %v, %v", target, err)
+		target := protoapi.SessionSelectorFromProto(remote.historyRequests[0].SessionId)
+		if target.String() != expected {
+			t.Fatalf("target = %v", target)
 		}
 	}
 

@@ -1,4 +1,6 @@
 export type { ApiService, ApiSubscription } from "./apiService";
+export { projectUpdateViolations } from "./projectValidation";
+export { taskCreateTitleViolations } from "./taskValidation";
 export { sessionDisplayID, sessionDisplayTitle } from "./sessionIdentity";
 export type { DesktopProcess } from "./processes";
 export type {
@@ -137,26 +139,14 @@ export type { TaskSearchErrorReason } from "./errors";
 export { ChatOperationError } from "./chatErrors";
 export type { ChatError } from "./chatErrors";
 export { guiTaskCommentAuthor } from "./client";
-export { newSetupOperationID, parseSetupOperationID, SetupOperationID } from "./setupOperationID";
-export {
-  parsePendingWorkItemID,
-  parseWorktreeOperationID,
-  pendingWorkItemSchema,
-  pendingWorkChangedEventSchema,
-  pendingWorkRestorationSchema,
-  pendingWorkSchema,
-  pendingWorkTechnicalRestorationEventSchema,
-  sessionSettingFeedbackSchema,
-} from "./pendingWork";
+export { newSetupOperationID, SetupOperationID } from "./setupOperationID";
+export { pendingWorkItemIDFromProto, worktreeOperationIDFromProto } from "./pendingWork";
 export type {
   PendingWork,
   PendingWorkIdentity,
   PendingWorkItem,
   PendingWorkItemID,
   PendingWorkRestoration,
-  PendingWorkChangedEvent,
-  PendingWorkTechnicalRestorationEvent,
-  SessionSettingFeedback,
 } from "./pendingWork";
 export type * from "./schemas/worktree";
 export {

@@ -46,7 +46,7 @@ message ActiveSteerAccepted {
 
 message Request {
   kent.api.session_launch.SessionLaunchRequestIntent intent = 1 [(buf.validate.field).required = true];
-  optional string caller_session_id = 2 [(buf.validate.field).string.min_len = 1];
+  optional string caller_session_id = 2 [(buf.validate.field).string.uuid = true, (buf.validate.field).string.(kent.api.shared.canonical_uuid_v4) = true];
   string prompt = 3 [
     (buf.validate.field).string.min_len = 1,
     (buf.validate.field).cel = {
@@ -57,11 +57,18 @@ message Request {
   ];
   google.protobuf.Duration timeout = 4;
   kent.api.invocation.RunPromptOverrides overrides = 5;
+  option (buf.validate.message).cel = {
+    id: "kent.run_prompt.pending_work_prompt_nonblank"
+    message: "caller-absent Pending Work prompt must not be blank"
+    expression:
+      "has(this.caller_session_id) || "
+      "this.prompt.split('').exists(character, character != '\\uFEFF' && character.trim() != '')"
+  };
 }
 
 message Success {
   optional int64 short_id = 8 [(buf.validate.field).int64 = {gt: 0 lte: 9007199254740991}];
-  string session_id = 1 [(buf.validate.field).string.min_len = 1];
+  string session_id = 1 [(buf.validate.field).string.uuid = true, (buf.validate.field).string.(kent.api.shared.canonical_uuid_v4) = true];
   optional string session_name = 2 [(buf.validate.field).string.(kent.api.shared.nonblank) = true];
   google.protobuf.Duration duration = 3 [(buf.validate.field).required = true];
   repeated string warnings = 4;

@@ -42,9 +42,6 @@ func (m *uiModel) applyRuntimeActivityProjection(activity *runtimepb.Activity) e
 	if m == nil {
 		return nil
 	}
-	if err := protoapi.Validate(activity); err != nil {
-		return err
-	}
 	m.runtimeActivityProjection = activity
 	m.reconcileMissingPromptRecoveryScope()
 	if !protoapi.RuntimeActivityActiveForControl(activity) {

@@ -25,7 +25,7 @@ func mustCLIObservationQuestion(t *testing.T, question serverapi.ObservationQues
 
 func TestObservedQuestionUsesDynamicQuestionAndAnswerTarget(t *testing.T) {
 	question := serverapi.ObservationQuestion{Approval: &clientui.PendingApproval{
-		ToolCallID: "approval-dynamic", SessionID: mustQuestionCommandSessionID("session-1"),
+		ToolCallID: "approval-dynamic", SessionID: mustQuestionCommandSessionID("11111111-1111-4111-8111-111111111111"),
 		StepID:  questionCommandStepID(),
 		Options: []clientui.ApprovalOption{{Decision: clientui.ApprovalDecisionAllowOnce}},
 		AccessTargets: []clientui.FileAccessTarget{{
@@ -45,7 +45,7 @@ func TestObservedQuestionUsesDynamicQuestionAndAnswerTarget(t *testing.T) {
 }
 
 func TestRunWatchApprovalHintTargetsSession(t *testing.T) {
-	sessionID := "session-1"
+	sessionID := "11111111-1111-4111-8111-111111111111"
 	shortID := int64(123)
 	var output bytes.Buffer
 	code := writeRunWatchResponse(&output, io.Discard, &promptpb.LiveWatchSuccess{
@@ -54,7 +54,7 @@ func TestRunWatchApprovalHintTargetsSession(t *testing.T) {
 		Outcome: &promptpb.LiveWatchOutcome{
 			Outcome: &promptpb.LiveWatchOutcome_Question{
 				Question: mustCLIObservationQuestion(t, serverapi.ObservationQuestion{Approval: &clientui.PendingApproval{
-					ToolCallID: "approval-dynamic", SessionID: mustQuestionCommandSessionID("session-1"),
+					ToolCallID: "approval-dynamic", SessionID: mustQuestionCommandSessionID(sessionID),
 					StepID: questionCommandStepID(), Question: "Allow access?", CreatedAt: time.Unix(1, 0),
 					Options: []clientui.ApprovalOption{{
 						Decision: clientui.ApprovalDecisionAllowOnce,

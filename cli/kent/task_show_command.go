@@ -63,11 +63,7 @@ func taskShowSubcommand(args []string, stdout io.Writer, stderr io.Writer) int {
 			fmt.Fprintf(stderr, "Note: This task belongs to another project %s\n", task.Project.ProjectKey)
 		}
 		if *jsonOut {
-			output, err := taskShowOutputFromDetail(task)
-			if err != nil {
-				fmt.Fprintln(stderr, err)
-				return 1
-			}
+			output := taskShowOutputFromDetail(task)
 			return writeCommandJSON(stdout, stderr, output)
 		}
 		labelNames, err := taskLabelNamesForHumanOutput(context.Background(), remote, task.Summary.ProjectId, task.LabelIds)
@@ -83,19 +79,10 @@ func taskShowSubcommand(args []string, stdout io.Writer, stderr io.Writer) int {
 	})
 }
 
-func taskShowOutputFromDetail(task *taskpb.TaskDetail) (taskShowOutput, error) {
-	status, err := taskStatusOutput(task.Status)
-	if err != nil {
-		return taskShowOutput{}, err
-	}
-	source, err := taskSourceWorkspaceOutput(task.SourceWorkspace)
-	if err != nil {
-		return taskShowOutput{}, err
-	}
-	target, err := taskExecutionTargetOutput(task.ExecutionTarget)
-	if err != nil {
-		return taskShowOutput{}, err
-	}
+func taskShowOutputFromDetail(task *taskpb.TaskDetail) taskShowOutput {
+	status := taskStatusOutput(task.Status)
+	source := taskSourceWorkspaceOutput(task.SourceWorkspace)
+	target := taskExecutionTargetOutput(task.ExecutionTarget)
 	output := taskShowOutput{
 		Summary:              taskSummaryOutput(task.Summary),
 		Body:                 task.Body,
@@ -123,7 +110,7 @@ func taskShowOutputFromDetail(task *taskpb.TaskDetail) (taskShowOutput, error) {
 			BlockedTaskCount:        task.Dependencies.DirectlyBlockedTaskCount,
 		}
 	}
-	return output, nil
+	return output
 }
 
 func normalizedLabelIDs(ids []string) []string {
@@ -179,10 +166,7 @@ func writeTaskDetail(stdout io.Writer, task *taskpb.TaskDetail) error {
 }
 
 func writeTaskDetailWithLabelNames(stdout io.Writer, task *taskpb.TaskDetail, labelNames []string) error {
-	statusText, err := taskStatusText(task.Status)
-	if err != nil {
-		return err
-	}
+	statusText := taskStatusText(task.Status)
 	fmt.Fprintf(stdout, "%s: %s\n", task.Summary.ShortId, task.Summary.Title)
 	fmt.Fprintln(stdout, "Body:")
 	fmt.Fprintln(stdout, "```md")
@@ -204,10 +188,7 @@ func writeTaskDetailWithLabelNames(stdout io.Writer, task *taskpb.TaskDetail, la
 		fmt.Fprintf(stdout, "Worktree: %s\n", *task.WorktreePath)
 	}
 	for _, session := range task.LiveSessions {
-		identity, err := protoapi.SessionIdentityFromProto(session.SessionId, session.ShortId)
-		if err != nil {
-			return err
-		}
+		identity := protoapi.SessionIdentityFromProto(session.SessionId, session.ShortId)
 		fmt.Fprintf(stdout, "Current session: %s\n", identity.String())
 	}
 	fmt.Fprintf(stdout, "Retained sessions: %d\n", task.RetainedSessionCount)
@@ -247,10 +228,7 @@ func taskLabelNamesForHumanOutput(ctx context.Context, remote apicontract.Workfl
 }
 
 func writeTaskExecutionTarget(stdout io.Writer, target *taskpb.ExecutionTarget) error {
-	mode, err := protoapi.WorkflowExecutionTargetMode.Decode(target.Mode)
-	if err != nil {
-		return err
-	}
+	mode := protoapi.WorkflowExecutionTargetMode.FromProto(target.Mode)
 	fmt.Fprintf(stdout, "Execution target: %s\n", mode)
 	if target.RequestedRef != nil {
 		fmt.Fprintf(stdout, "Requested revision: %s\n", *target.RequestedRef)
@@ -277,6 +255,6 @@ func shortCommitOID(commitOID string) string {
 	return trimmed[:displayLength]
 }
 
-func taskStatusText(status *taskpb.TaskStatus) (string, error) {
-	return protoapi.TaskStatusKind.Decode(status.Kind)
+func taskStatusText(status *taskpb.TaskStatus) string {
+	return protoapi.TaskStatusKind.FromProto(status.Kind)
 }

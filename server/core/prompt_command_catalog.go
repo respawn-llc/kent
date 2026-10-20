@@ -13,7 +13,6 @@ import (
 	"core/shared/apicontract"
 	"core/shared/clientui"
 	"core/shared/config"
-	"core/shared/protoapi"
 	promptcommandpb "core/shared/protoapi/gen/kent/api/prompt_command"
 	"core/shared/serverapi"
 )
@@ -31,7 +30,7 @@ func (s promptCommandCatalogService) GetPromptCommandCatalog(context.Context, *p
 	for _, entry := range entries {
 		response.Commands = append(response.Commands, &promptcommandpb.CatalogEntry{Name: entry.Name, Preview: entry.Preview})
 	}
-	return response, protoapi.Validate(response)
+	return response, nil
 }
 
 type promptCommandRuntimeResolver struct {

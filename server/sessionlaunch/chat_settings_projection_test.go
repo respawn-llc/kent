@@ -37,10 +37,7 @@ func TestNewChatCatalogCarriesCompletePreparedBaselines(t *testing.T) {
 	}
 	for i, choice := range catalog.Choices {
 		entry := entries[i]
-		supervisor, err := protoapi.ChatSettingsSupervisorFromProto(choice.Baseline.Supervisor)
-		if err != nil {
-			t.Fatal(err)
-		}
+		supervisor := protoapi.ChatSettingsSupervisorFromProto(choice.Baseline.Supervisor)
 		if !proto.Equal(choice.Agent, entry.Choice) ||
 			choice.Baseline.AgentRole != entry.Choice.Role ||
 			supervisor != entry.Settings.Baseline.Supervisor ||

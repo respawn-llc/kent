@@ -136,8 +136,5 @@ func serverReadinessHasCause(readiness *serverpb.Readiness, reason string) bool 
 }
 
 func readinessReason(readiness *serverpb.Readiness) string {
-	if len(readiness.GetCauses()) == 0 {
-		return "server reported not ready without a reason"
-	}
-	return readiness.GetCauses()[0].GetCode()
+	return readiness.Causes[0].Code
 }

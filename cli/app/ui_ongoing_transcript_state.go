@@ -115,10 +115,7 @@ func (m *uiModel) applyTranscriptHydration(
 ) tea.Cmd {
 	var cmds []tea.Cmd
 	cmds = append(cmds, m.applyConnectionReplacement(hydration.ConnectionReplacement))
-	sessionID, err := runtimeids.ParseSessionID(hydration.SessionIdentity.SessionId)
-	if err != nil {
-		panic(err)
-	}
+	sessionID := runtimeids.SessionIDFromProto(hydration.SessionIdentity.SessionId)
 	cmds = append(cmds, m.advancePendingWorkRefreshScope(sessionID))
 	cmds = append(cmds, m.applyTranscriptSessionIdentity(hydration.SessionIdentity))
 	m.applyTranscriptSessionStatus(hydration.SessionStatus)
@@ -272,15 +269,9 @@ func (m *uiModel) applyTranscriptSessionIdentity(identity *transcriptpb.SessionI
 	m.setKnownSessionTarget(nextSessionID)
 	m.reconcileMissingPromptRecoveryScope()
 	m.sessionName = identity.SessionName
-	category, err := protoapi.SessionCategoryFromProto(identity.Category)
-	if err != nil {
-		return m.handleFatalUIError("Session identity could not be displayed", err)
-	}
+	category := protoapi.SessionCategoryFromProto(identity.Category)
 	m.sessionCategory = &category
-	m.sessionShortID, err = protoapi.SessionShortIDFromProto(identity.ShortId)
-	if err != nil {
-		return m.handleFatalUIError("Session identity could not be displayed", err)
-	}
+	m.sessionShortID = protoapi.SessionShortIDFromProto(identity.ShortId)
 	m.conversationFreshness = identity.ConversationFreshness
 	titleCmd := tea.SetWindowTitle(m.sessionTitle())
 	if previousTarget != nil && m.sessionExecutionTarget != nil &&
