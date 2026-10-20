@@ -61,6 +61,8 @@ Just is the sole public developer command interface. Do not add standalone devel
 # Critical Rules - Authoritative Guidance Applicable Always and Everywhere.
 ---
 
+- Public documentation edits are prohibited without Nikita's prior approval of the exact, line-by-line before/after diff. This includes additions, deletions, rewrites, and review fixes. Task approval, implementation approval, reviewer requests, and documentation-update requirements do not authorize public documentation edits. Present the proposed diff and wait for explicit approval before editing. Any subsequent change requires approval of its revised diff.
+
 - `docs/dev/specs/` is authoritative for locked product and product-architecture decisions. Do not create or change a spec without prior explicit user approval, and do not alter a spec to match implementation drift.
   - When the user explicitly changes product behavior or architecture, update the owning spec.
   - Before writing, rewriting, reviewing, or validating specs, read and follow `.kent/skills/spec-writing/SKILL.md`.
