@@ -265,7 +265,7 @@ func (m *uiModel) showConnectionRemovalConfirmation(id config.ConnectionID) {
 		"**Remove connection "+string(id)+"?**",
 		"Remove connection",
 		startupPickerNotice{
-			Text: "Sessions using it lose access. Reopening a Session can switch it to another available connection when its configuration permits; otherwise, its next request is interrupted.",
+			Text: "Sessions using it will be interrupted on their next request. Reopening a Session can switch to another available connection if its configuration allows.",
 		},
 		[]uiConnectionRemovalPickerOption{
 			{title: "No", choice: uiConnectionRemovalChoice{kind: uiConnectionRemovalCancelConfirmation}},
