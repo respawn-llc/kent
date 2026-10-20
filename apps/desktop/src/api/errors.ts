@@ -41,6 +41,11 @@ export type ExecutionTargetChoiceFailure =
       kind: "revision";
       reason: ReturnType<typeof taskExecutionResolutionCode.decode>;
       value: string;
+    }>
+  | Readonly<{
+      kind: "default_branch";
+      reason: ReturnType<typeof taskExecutionResolutionCode.decode>;
+      diagnostic?: string | undefined;
     }>;
 
 export function executionTargetChoiceFailure(error: unknown): ExecutionTargetChoiceFailure | null {
@@ -53,11 +58,21 @@ export function executionTargetChoiceFailure(error: unknown): ExecutionTargetCho
     };
   }
   if (error.detail.case === "executionTargetResolution") {
-    return {
-      kind: "revision",
-      reason: taskExecutionResolutionCode.decode(error.detail.value.code),
-      value: error.detail.value.requestedRef,
-    };
+    const reason = taskExecutionResolutionCode.decode(error.detail.value.code);
+    switch (error.detail.value.target.case) {
+      case "requestedRef":
+        return { kind: "revision", reason, value: error.detail.value.target.value };
+      case "defaultBranch":
+        return {
+          kind: "default_branch",
+          reason,
+          ...(error.detail.value.diagnostic === undefined
+            ? {}
+            : { diagnostic: error.detail.value.diagnostic }),
+        };
+      case undefined:
+        return null;
+    }
   }
   return null;
 }

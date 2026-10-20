@@ -26,6 +26,19 @@ export const executionTargetEnglish = {
   revision_invalid_revision: "Git revision “{{value}}” could not be resolved.",
   revision_non_commit: "Git revision “{{value}}” does not resolve to a commit.",
   revision_git_failure: "Git could not resolve “{{value}}”.",
+  defaultBranchResolution: {
+    default_branch_missing:
+      "Kent could not identify the repository default branch. Retry this choice or choose another execution target.",
+    default_branch_ambiguous:
+      "The local repository has ambiguous default-branch metadata. Retry this choice or choose another execution target.",
+    invalid_revision:
+      "The discovered repository default-branch reference could not be resolved. Retry this choice or choose another execution target.",
+    non_commit:
+      "The discovered repository default-branch reference does not resolve to a commit. Retry this choice or choose another execution target.",
+    git_failure:
+      "Git could not resolve the repository default branch. Retry this choice or choose another execution target.",
+    diagnostic: "Git diagnostic",
+  },
   continue: "Continue",
   unavailable_invalid_revision: "The configured Git revision could not be resolved.",
   unavailable_non_commit: "The configured Git revision does not resolve to a commit.",

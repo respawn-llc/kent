@@ -460,8 +460,23 @@ func workflowConfiguredExecutionTargetSelector(target taskConfiguredTargetJSON) 
 func writeWorkflowExecutionTargetError(stderr io.Writer, err error) bool {
 	var resolutionErr *serverapi.WorkflowExecutionTargetResolutionError
 	if errors.As(err, &resolutionErr) {
-		fmt.Fprintf(stderr, "Execution target revision %q failed: %s.\n", resolutionErr.RequestedRef, resolutionErr.Code)
-		return true
+		switch target := resolutionErr.Target.(type) {
+		case serverapi.WorkflowExecutionTargetResolutionCustomRef:
+			fmt.Fprintf(stderr, "Execution target revision %q failed: %s.\n", target.RequestedRef, resolutionErr.Code)
+			return true
+		case serverapi.WorkflowExecutionTargetResolutionDefaultBranch:
+			fmt.Fprintf(stderr, "%s\n", workflowDefaultBranchResolutionFailureMessage(resolutionErr.Code))
+			if resolutionErr.Diagnostic != nil {
+				fmt.Fprintf(stderr, "Git diagnostic: %s\n", *resolutionErr.Diagnostic)
+			}
+			fmt.Fprintln(stderr, "Retry Task Start with one of these execution targets:")
+			for _, selector := range []string{"none", "head", "default-branch", "ref:<revision>"} {
+				fmt.Fprintf(stderr, "  %s task start <task> --execution-target %s\n", config.Command, selector)
+			}
+			return true
+		default:
+			return false
+		}
 	}
 	var lockedErr *serverapi.WorkflowLockedExecutionTargetError
 	if errors.As(err, &lockedErr) {
@@ -469,6 +484,25 @@ func writeWorkflowExecutionTargetError(stderr io.Writer, err error) bool {
 		return true
 	}
 	return false
+}
+
+func workflowDefaultBranchResolutionFailureMessage(
+	code serverapi.WorkflowExecutionTargetResolutionErrorCode,
+) string {
+	switch code {
+	case serverapi.WorkflowExecutionTargetResolutionErrorDefaultBranchMissing:
+		return "No local repository default branch could be identified."
+	case serverapi.WorkflowExecutionTargetResolutionErrorDefaultBranchAmbiguous:
+		return "Local repository default-branch metadata is ambiguous."
+	case serverapi.WorkflowExecutionTargetResolutionErrorInvalidRevision:
+		return "The discovered repository default-branch reference could not be resolved."
+	case serverapi.WorkflowExecutionTargetResolutionErrorNonCommit:
+		return "The discovered repository default-branch reference does not resolve to a commit."
+	case serverapi.WorkflowExecutionTargetResolutionErrorGitFailure:
+		return "Git failed while resolving the repository default branch."
+	default:
+		return "The repository default branch could not be resolved."
+	}
 }
 
 func taskDeleteSubcommand(args []string, stdout io.Writer, stderr io.Writer) int {
