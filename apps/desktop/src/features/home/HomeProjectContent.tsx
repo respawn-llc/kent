@@ -1,7 +1,6 @@
 import { useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { PictureInPicture, Plus } from "lucide-react";
-import { useAtomValue } from "@effect/atom-react";
 
 import { sessionDisplayTitle, type SessionCatalogSummary, type SessionCategory } from "@/api";
 import { errorMessage } from "@/api";
@@ -153,7 +152,6 @@ function SessionList({
   const { t } = useTranslation();
   const navigation = useAppNavigation();
   const { nativeBridge } = useAppServices();
-  const nativeChat = useNativeChatOpening();
   const sessions = query.data?.pages.flatMap((page) => page.sessions) ?? [];
   const initialBoundary = directionalBoundary({
     failed: query.isError,
@@ -193,7 +191,6 @@ function SessionList({
       renderItem={(session) => (
         <SessionCatalogRow
           category={category}
-          nativeChat={nativeChat}
           nativeWindowsAvailable={nativeBridge.capabilities.dialogWindows}
           onOpen={async (target) => navigation.openSessionChat(target)}
           projectID={projectID}
@@ -206,22 +203,21 @@ function SessionList({
 
 function SessionCatalogRow({
   category,
-  nativeChat,
   nativeWindowsAvailable,
   onOpen,
   projectID,
   session,
 }: Readonly<{
   category: "main" | "subagent";
-  nativeChat: ReturnType<typeof useNativeChatOpening>;
   nativeWindowsAvailable: boolean;
   onOpen(target: SessionChatTarget): void;
   projectID: string;
   session: SessionCatalogSummary;
 }>) {
   const { t } = useTranslation();
+  const nativeChat = useNativeChatOpening();
   const title = sessionDisplayTitle(session, (id) => t("home.subagentTitle", { id }));
-  const pending = useAtomValue(nativeChat.pending(session.id));
+  const pending = nativeChat.pendingSessionID === session.id;
   const target = { projectID, sessionID: session.id };
   return (
     <div className="group/session-catalog relative min-w-0">
@@ -230,6 +226,7 @@ function SessionCatalogRow({
         aria-label={title}
         onClick={(event) => {
           if (nativeWindowsAvailable && event.shiftKey) {
+            if (pending) return;
             nativeChat.open(target);
             return;
           }
@@ -245,7 +242,7 @@ function SessionCatalogRow({
             <span className="pointer-events-auto shrink-0">
               <IconTooltipButton
                 label={t("app.popOut")}
-                tooltip={pending ? t("app.openingChatWindow") : t("app.popOut")}
+                tooltip={t("app.popOut")}
                 loading={pending}
                 disabled={pending}
                 onClick={() => {

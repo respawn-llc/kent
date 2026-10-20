@@ -25,7 +25,6 @@ import { ApiClient, protocolVersion } from "@/api/composition";
 import {
   AppServicesProvider,
   createAppLogger,
-  NativeChatOpeningProvider,
   projectEventDiagnostics,
   StatusProvider,
   TaskSearchMemoryProvider,
@@ -99,9 +98,7 @@ export function TestAppProviders({
           children: createElement(WindowFocusProvider, {
             children: createElement(WindowChromeTitleProvider, {
               children: createElement(StatusProvider, {
-                children: createElement(NativeChatOpeningProvider, {
-                  children: createElement(TaskSearchMemoryProvider, { children }),
-                }),
+                children: createElement(TaskSearchMemoryProvider, { children }),
               }),
             }),
           }),

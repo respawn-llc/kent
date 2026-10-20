@@ -13,7 +13,6 @@ import {
   useTextFieldSubmitShortcut,
   worktreeListQueryOptions,
   type SidebarPageNavigator,
-  type SessionChatOpeningIntent,
 } from "@/app-facade";
 import {
   Button,
@@ -33,8 +32,9 @@ import { createWorktreeCreate, useWorktreeCreate } from "./WorktreeCreate";
 import type { createWorktreeActions } from "./WorktreeActions";
 
 type Props = Readonly<{
+  projectID: string;
   sessionID: string;
-  openSession(sessionID: string, intent?: SessionChatOpeningIntent): void | Promise<void>;
+  openSession(sessionID: string): void | Promise<void>;
   navigator: SidebarPageNavigator;
   actions: ReturnType<typeof createWorktreeActions>;
 }>;
@@ -52,6 +52,7 @@ export function WorktreeCreateForm(props: Props) {
           props.navigator.replace({
             kind: "worktree",
             page: "list",
+            projectID: props.projectID,
             sessionID: props.sessionID,
             openSession: props.openSession,
           })
@@ -60,7 +61,7 @@ export function WorktreeCreateForm(props: Props) {
         <ArrowLeft size={16} />
       </IconTooltipButton>
     ),
-    [props.navigator, props.sessionID, props.openSession, t],
+    [props.navigator, props.projectID, props.sessionID, props.openSession, t],
   );
   usePublishSidebarHeaderAction(header);
   useEffect(() => {
@@ -70,6 +71,7 @@ export function WorktreeCreateForm(props: Props) {
       props.navigator.replace({
         kind: "worktree",
         page: "list",
+        projectID: props.projectID,
         sessionID: props.sessionID,
         openSession: props.openSession,
       });
@@ -78,7 +80,7 @@ export function WorktreeCreateForm(props: Props) {
     return () => {
       document.removeEventListener("keydown", back);
     };
-  }, [props.navigator, props.sessionID, props.openSession]);
+  }, [props.navigator, props.projectID, props.sessionID, props.openSession]);
   if (query.data !== undefined)
     return <CreateFields {...props} suggestion={query.data.branchSuggestion} query={query} />;
   if (query.isError)
@@ -97,6 +99,7 @@ export function WorktreeCreateForm(props: Props) {
 }
 
 function CreateFields({
+  projectID,
   sessionID,
   openSession,
   navigator,
@@ -117,6 +120,7 @@ function CreateFields({
     createWorktreeCreate({
       client,
       api,
+      projectID,
       sessionID,
       openSession,
       navigator,

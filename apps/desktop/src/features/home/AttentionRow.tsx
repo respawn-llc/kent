@@ -1,6 +1,5 @@
 import { MessageCircle } from "lucide-react";
 import { memo } from "react";
-import { useAtomValue } from "@effect/atom-react";
 import { useTranslation } from "react-i18next";
 
 import type { AttentionItem } from "@/api";
@@ -31,13 +30,11 @@ export const AttentionRow = memo(function AttentionRow({
         : null);
   const chatTarget = attentionChatTarget(item);
   const nativeWindowsAvailable = nativeBridge.capabilities.dialogWindows;
-  const nativeOpening = useAtomValue(nativeChat.pending(chatTarget?.sessionID ?? null));
+  const nativeOpening = chatTarget !== null && nativeChat.pendingSessionID === chatTarget.sessionID;
   const chatLabel = t("task.openChat", { name: item.taskTitle });
-  const chatTooltip = nativeOpening
-    ? t("app.openingChatWindow")
-    : nativeWindowsAvailable
-      ? t("app.shiftClickToOpenInNewWindow", { action: chatLabel })
-      : chatLabel;
+  const chatTooltip = nativeWindowsAvailable
+    ? t("app.shiftClickToOpenInNewWindow", { action: chatLabel })
+    : chatLabel;
   return (
     <div className="group/attention relative min-w-0" data-testid="attention-row">
       <Item

@@ -75,6 +75,7 @@ function createFormModel() {
     openSession: vi.fn(),
     client: new QueryClient(),
     api: services.api,
+    projectID: "project-1",
     sessionID: "33333333-3333-4333-8333-333333333333",
     suggestion: "topic",
     navigator: createTestSidebarNavigator(),
@@ -123,6 +124,7 @@ it("keeps an invalid typed Worktree name editable and resumes resolution after c
     <BrowserProviders services={services}>
       <QueryClientProvider client={client}>
         <WorktreeCreateForm
+          projectID="project-1"
           sessionID="33333333-3333-4333-8333-333333333333"
           openSession={vi.fn()}
           navigator={createTestSidebarNavigator()}
@@ -168,6 +170,7 @@ it.each(["list", "target"] as const)(
       <BrowserProviders services={services}>
         <QueryClientProvider client={client}>
           <WorktreeCreateForm
+            projectID="project-1"
             openSession={vi.fn()}
             sessionID="33333333-3333-4333-8333-333333333333"
             navigator={createTestSidebarNavigator()}
@@ -277,7 +280,7 @@ it.each(["base_ref", "form"] as const)("classifies Create rejection owned by %s"
 function WorktreeBrowser({
   onOpenSession = vi.fn(),
   ...props
-}: Readonly<{ sessionID: string; onOpenSession?: (sessionID: string) => void }>) {
+}: Readonly<{ projectID: string; sessionID: string; onOpenSession?: (sessionID: string) => void }>) {
   const [navigator] = useState(() => createTestSidebarNavigator());
   return (
     <Browser
@@ -303,7 +306,11 @@ it.each(["33333333-3333-4333-8333-333333333333", "44444444-4444-4444-8444-444444
     const onOpenSession = vi.fn();
     render(
       <BrowserProviders services={services}>
-        <WorktreeBrowser sessionID="33333333-3333-4333-8333-333333333333" onOpenSession={onOpenSession} />
+        <WorktreeBrowser
+          projectID="project-1"
+          sessionID="33333333-3333-4333-8333-333333333333"
+          onOpenSession={onOpenSession}
+        />
       </BrowserProviders>,
     );
     await user.click(
@@ -332,7 +339,7 @@ it.each(["registered", "missing"] as const)("copies the full %s path from its su
   const services = createTestServices([worktreeBrowserFixtureRoute([entry])]);
   render(
     <BrowserProviders services={services}>
-      <WorktreeBrowser sessionID="33333333-3333-4333-8333-333333333333" />
+      <WorktreeBrowser projectID="project-1" sessionID="33333333-3333-4333-8333-333333333333" />
     </BrowserProviders>,
   );
   const copy = await screen.findByRole("button", {
@@ -351,7 +358,7 @@ it("opens with a fresh read even when the Session list is cached", async () => {
   render(
     <BrowserProviders services={services}>
       <QueryClientProvider client={client}>
-        <WorktreeBrowser sessionID="33333333-3333-4333-8333-333333333333" />
+        <WorktreeBrowser projectID="project-1" sessionID="33333333-3333-4333-8333-333333333333" />
       </QueryClientProvider>
     </BrowserProviders>,
   );
@@ -380,7 +387,7 @@ it("isolates late list delivery after changing Session", async () => {
   const surface = (sessionID: string) => (
     <BrowserProviders services={services}>
       <QueryClientProvider client={client}>
-        <WorktreeBrowser sessionID={sessionID} />
+        <WorktreeBrowser projectID="project-1" sessionID={sessionID} />
       </QueryClientProvider>
     </BrowserProviders>
   );
@@ -421,7 +428,9 @@ it("reopening replaces an unfinished read without accepting its late delivery", 
   const surface = (open: boolean) => (
     <BrowserProviders services={services}>
       <QueryClientProvider client={client}>
-        {open ? <WorktreeBrowser sessionID="33333333-3333-4333-8333-333333333333" /> : null}
+        {open ? (
+          <WorktreeBrowser projectID="project-1" sessionID="33333333-3333-4333-8333-333333333333" />
+        ) : null}
       </QueryClientProvider>
     </BrowserProviders>
   );
@@ -461,6 +470,7 @@ function ControlOwner() {
       content={() => null}
       composer={() => (
         <WorktreeControl
+          projectID={target.projectID}
           sessionID={target.sessionID}
           target={executionTarget}
           query={query}
@@ -481,7 +491,7 @@ it("keeps the shared control and open list independent of transcript loss", asyn
       <QueryClientProvider client={client}>
         <ChatRuntimeProvider api={api} target={target} host={runtimeHost()}>
           <ControlOwner />
-          <WorktreeBrowser sessionID={target.sessionID} />
+          <WorktreeBrowser projectID={target.projectID} sessionID={target.sessionID} />
         </ChatRuntimeProvider>
       </QueryClientProvider>
     </BrowserProviders>,
@@ -512,6 +522,7 @@ it("refreshes after a completed typed transition without changing Chat target or
     onWorktreeTransitionOutcome: worktreeTransitionOutcomeHandler(
       createRefreshOpenWorktreeList(client, services.api, () => ({
         kind: "worktree",
+        projectID: target.projectID,
         openSession: vi.fn(),
         sessionID: target.sessionID,
         page: "list",
@@ -525,7 +536,7 @@ it("refreshes after a completed typed transition without changing Chat target or
     <BrowserProviders services={services}>
       <QueryClientProvider client={client}>
         <ChatRuntimeProvider api={api} target={target} host={host}>
-          <WorktreeBrowser sessionID={target.sessionID} />
+          <WorktreeBrowser projectID={target.projectID} sessionID={target.sessionID} />
         </ChatRuntimeProvider>
       </QueryClientProvider>
     </BrowserProviders>,
@@ -604,7 +615,7 @@ it("Refresh retains cached data but replaces the visible list on failure until R
   render(
     <BrowserProviders services={services}>
       <QueryClientProvider client={client}>
-        <WorktreeBrowser sessionID="33333333-3333-4333-8333-333333333333" />
+        <WorktreeBrowser projectID="project-1" sessionID="33333333-3333-4333-8333-333333333333" />
       </QueryClientProvider>
     </BrowserProviders>,
   );
@@ -644,7 +655,7 @@ it("owns failed deletion preview at the Worktrees page and restores its popup on
   const remove = vi.spyOn(services.api, "deleteWorktree");
   render(
     <BrowserProviders services={services}>
-      <WorktreeBrowser sessionID="33333333-3333-4333-8333-333333333333" />
+      <WorktreeBrowser projectID="project-1" sessionID="33333333-3333-4333-8333-333333333333" />
     </BrowserProviders>,
   );
   const user = userEvent.setup();
@@ -682,7 +693,7 @@ it.each(["operational", "precondition"] as const)(
     const notice = vi.spyOn(ui, "showStatusToast").mockImplementation(() => undefined);
     render(
       <BrowserProviders services={services}>
-        <WorktreeBrowser sessionID="33333333-3333-4333-8333-333333333333" />
+        <WorktreeBrowser projectID="project-1" sessionID="33333333-3333-4333-8333-333333333333" />
       </BrowserProviders>,
     );
     const user = userEvent.setup();
@@ -714,7 +725,7 @@ it.each([
     render(
       <BrowserProviders services={services}>
         <QueryClientProvider client={client}>
-          <WorktreeBrowser sessionID="33333333-3333-4333-8333-333333333333" />
+          <WorktreeBrowser projectID="project-1" sessionID="33333333-3333-4333-8333-333333333333" />
         </QueryClientProvider>
       </BrowserProviders>,
     );

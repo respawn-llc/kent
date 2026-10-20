@@ -1,5 +1,4 @@
 import { useState, type MouseEvent } from "react";
-import { useAtomValue } from "@effect/atom-react";
 import { Save } from "lucide-react";
 import { useTranslation } from "react-i18next";
 
@@ -47,28 +46,25 @@ export type TaskDraft = Readonly<{
 export type SaveTaskDraft = (draft?: TaskDraft, onSaved?: () => void) => void;
 
 function TaskSessionOpenButton({
-  sessionID,
+  pending,
   label,
   tooltip,
   className,
   onClick,
 }: Readonly<{
-  sessionID: string;
+  pending: boolean;
   label: string;
   tooltip: string;
   className?: string;
   onClick(event: MouseEvent<HTMLButtonElement>): void;
 }>) {
-  const { t } = useTranslation();
-  const opening = useNativeChatOpening();
-  const pending = useAtomValue(opening.pending(sessionID));
   return (
     <Button
       aria-label={label}
       className={className}
       disabled={pending}
       onClick={onClick}
-      title={pending ? t("app.openingChatWindow") : tooltip}
+      title={tooltip}
       variant="secondary"
     >
       {pending && <Spinner size="sm" />}
@@ -83,19 +79,19 @@ function TaskSessionOpenAction({
   label,
   defaultIntent,
   nativeWindowsAvailable,
+  pendingSessionID,
 }: Readonly<{
   sessions: TaskDetail["liveSessions"];
   onOpen(sessionID: string, intent: SessionChatOpeningIntent): void;
   label: string;
   defaultIntent: SessionChatOpeningIntent;
   nativeWindowsAvailable: boolean;
+  pendingSessionID: string | null;
 }>) {
   const { t } = useTranslation();
-  const opening = useNativeChatOpening();
   const [open, setOpen] = useState(false);
   const [pickerIntent, setPickerIntent] = useState(defaultIntent);
-  const [nativeRequestSessionID, setNativeRequestSessionID] = useState<string | null>(null);
-  const triggerPending = useAtomValue(opening.pending(nativeRequestSessionID));
+  const triggerPending = pendingSessionID !== null;
   const actionTooltip = (action: string) =>
     nativeWindowsAvailable ? t("app.shiftClickToOpenInNewWindow", { action }) : action;
   const clickIntent = (event: MouseEvent<HTMLButtonElement>) =>
@@ -105,7 +101,7 @@ function TaskSessionOpenAction({
     const tooltip = actionTooltip(label);
     return (
       <TaskSessionOpenButton
-        sessionID={only.sessionID}
+        pending={pendingSessionID === only.sessionID}
         label={label}
         tooltip={tooltip}
         onClick={(event) => {
@@ -124,7 +120,7 @@ function TaskSessionOpenAction({
           onClick={(event) => {
             setPickerIntent(clickIntent(event));
           }}
-          title={triggerPending ? t("app.openingChatWindow") : tooltip}
+          title={tooltip}
         >
           {triggerPending && <Spinner size="sm" />}
           <span className="min-w-0 truncate">{label}</span>
@@ -143,14 +139,13 @@ function TaskSessionOpenAction({
             return (
               <TaskSessionOpenButton
                 key={session.sessionID}
-                sessionID={session.sessionID}
+                pending={pendingSessionID === session.sessionID}
                 label={sessionLabel}
                 tooltip={actionTooltip(sessionAction)}
                 className="w-full justify-start rounded-[var(--radius-s)] border-0 bg-transparent text-left font-sans text-sm hover:bg-[var(--color-island-2)]"
                 onClick={(event) => {
                   const intent = event.shiftKey && nativeWindowsAvailable ? "native_window" : pickerIntent;
                   setOpen(false);
-                  if (intent === "native_window") setNativeRequestSessionID(session.sessionID);
                   onOpen(session.sessionID, intent);
                 }}
               />
@@ -455,9 +450,11 @@ function TaskOpenButtons({
   const { nativeBridge } = useAppServices();
   const formatPath = usePathFormatter();
   const [openError, setOpenError] = useState("");
+  const nativeChat = useNativeChatOpening();
   const executionRoot = taskExecutionRoot(detail);
   const canOpenScript = nativeBridge.capabilities.files.open;
-  const nativeWindowsAvailable = openSessionChat !== undefined && nativeBridge.capabilities.dialogWindows;
+  const canOpenChat = openSessionChat !== undefined || sessionChatDefaultIntent === "native_window";
+  const nativeWindowsAvailable = canOpenChat && nativeBridge.capabilities.dialogWindows;
 
   async function openInCli(sessionID: string): Promise<void> {
     await writeClipboardText(`kent --session=${sessionID}`, nativeBridge);
@@ -476,17 +473,20 @@ function TaskOpenButtons({
     <>
       <TaskSessionOpenAction
         sessions={detail.liveSessions}
-        label={t(openSessionChat === undefined ? "task.openInCli" : "task.openInChat")}
+        label={t(canOpenChat ? "task.openInChat" : "task.openInCli")}
         defaultIntent={sessionChatDefaultIntent}
         nativeWindowsAvailable={nativeWindowsAvailable}
+        pendingSessionID={nativeChat.pendingSessionID}
         onOpen={(sessionID, intent) => {
           setOpenError("");
+          if (intent === "native_window") {
+            nativeChat.open({ projectID: detail.projectID, sessionID });
+            return;
+          }
           const action =
-            openSessionChat === undefined
+            !canOpenChat || openSessionChat === undefined
               ? openInCli(sessionID)
-              : intent === "ordinary"
-                ? openSessionChat({ projectID: detail.projectID, sessionID })
-                : openSessionChat({ projectID: detail.projectID, sessionID }, intent);
+              : openSessionChat({ projectID: detail.projectID, sessionID });
           void action.catch((cause: unknown) => {
             setOpenError(errorMessage(cause));
           });

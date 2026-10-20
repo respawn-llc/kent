@@ -1,5 +1,4 @@
 import { ChevronRight } from "lucide-react";
-import { useAtomValue } from "@effect/atom-react";
 import { useTranslation } from "react-i18next";
 
 import { errorMessage, sessionDisplayID, type ChatSettingsSessionFacts as SessionFacts } from "@/api";
@@ -23,7 +22,7 @@ export function ChatSettingsSessionFacts({
   const { nativeBridge } = useAppServices();
   const nativeChat = useNativeChatOpening();
   const { sessionID, previousSessionID, task, connection } = facts;
-  const parentPending = useAtomValue(nativeChat.pending(previousSessionID));
+  const parentPending = previousSessionID !== null && nativeChat.pendingSessionID === previousSessionID;
   const displayID = sessionDisplayID(sessionID, facts.shortID);
   const parentLabel = t("chatSettings.toParentChat");
   const parentTooltip = nativeBridge.capabilities.dialogWindows
@@ -52,11 +51,11 @@ export function ChatSettingsSessionFacts({
       {previousSessionID === null ? null : (
         <SettingsRow
           as="button"
-          title={parentPending ? t("app.openingChatWindow") : parentTooltip}
+          title={parentTooltip}
           onActivate={(event) => {
             if (parentPending) return;
             if (event.shiftKey && nativeBridge.capabilities.dialogWindows) {
-              void navigation.openParentSession(previousSessionID, "native_window");
+              nativeChat.open({ projectID: navigation.projectID, sessionID: previousSessionID });
               return;
             }
             closeAndNavigate(() => {

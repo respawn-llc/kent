@@ -1,4 +1,4 @@
-import { useAppServices, useNativeChatOpening } from "@/app-facade";
+import { useAppServices } from "@/app-facade";
 import { TaskDetailSurface } from "./TaskDetailSurface";
 import { useExactTaskDetailDeleteDismissal } from "./taskDetailDismissal";
 
@@ -12,12 +12,7 @@ import { useExactTaskDetailDeleteDismissal } from "./taskDetailDismissal";
 export function TaskDetailWindowRoute({ taskID }: Readonly<{ taskID: string }>) {
   const services = useAppServices();
   const { nativeBridge } = services;
-  const { open } = useNativeChatOpening();
-  const openSessionChat = nativeBridge.capabilities.dialogWindows
-    ? async (target: Parameters<typeof open>[0]) => {
-        open(target);
-      }
-    : undefined;
+  const sessionChatDefaultIntent = nativeBridge.capabilities.dialogWindows ? "native_window" : "ordinary";
   const onDeleteDismiss = useExactTaskDetailDeleteDismissal(taskID, async () => {
     await nativeBridge.window.closeCurrent();
   });
@@ -32,8 +27,7 @@ export function TaskDetailWindowRoute({ taskID }: Readonly<{ taskID: string }>) 
           enabled
           onDeleteDismiss={onDeleteDismiss}
           taskId={taskID}
-          openSessionChat={openSessionChat}
-          sessionChatDefaultIntent={openSessionChat === undefined ? "ordinary" : "native_window"}
+          sessionChatDefaultIntent={sessionChatDefaultIntent}
         />
       </div>
     </main>

@@ -1,4 +1,4 @@
-import type { SessionChatOpeningIntent, SidebarRootController } from "@/app-facade";
+import type { SidebarRootController } from "@/app-facade";
 import { createWorktreeActions } from "./WorktreeActions";
 import type { WorktreeCommandIntent } from "./worktreeCommand";
 
@@ -12,7 +12,8 @@ export function createWorktreeCommandActions({
   Readonly<{
     roots: Pick<SidebarRootController, "open">;
     focusComposer(): void;
-    openSession(sessionID: string, intent?: SessionChatOpeningIntent): void | Promise<void>;
+    projectID: string;
+    openSession(sessionID: string): void | Promise<void>;
     deleteTarget(selector: string | null): Promise<void>;
   }>) {
   const transitions = createWorktreeActions({ ...dependencies, onAccepted: () => undefined });
@@ -22,6 +23,7 @@ export function createWorktreeCommandActions({
       case "create": {
         const handle = roots.open({
           kind: "worktree",
+          projectID: dependencies.projectID,
           sessionID: dependencies.sessionID,
           page: intent.kind,
           openSession,

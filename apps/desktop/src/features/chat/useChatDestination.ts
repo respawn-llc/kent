@@ -49,6 +49,7 @@ export function useChatDestination({
   const editorRef = useRef<HTMLTextAreaElement>(null);
   const focusComposer = useCallback(() => editorRef.current?.focus(), []);
   const worktreeCommands = useWorktreeCommands(
+    target?.kind === "session" ? target.projectID : null,
     target?.kind === "session" ? target.sessionID : null,
     focusComposer,
     navigation.openParentSession,

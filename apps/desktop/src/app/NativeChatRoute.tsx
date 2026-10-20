@@ -2,14 +2,7 @@ import { useMemo, type ReactNode } from "react";
 import type { NativeMainNavigation } from "@app/native-bridge";
 import { useStableCallback } from "@/ui";
 import { ChatDestination } from "@/features/chat";
-import {
-  SidebarRootOwner,
-  useAppServices,
-  openNativeChat,
-  useNativeChatOpening,
-  useStatusController,
-  type SessionChatOpeningIntent,
-} from "@/app-facade";
+import { SidebarRootOwner, useAppServices, openNativeChat, useStatusController } from "@/app-facade";
 import { errorMessage } from "@/api";
 import { useTranslation } from "react-i18next";
 import { SidebarProvider } from "./sidebarProvider";
@@ -23,7 +16,6 @@ export function NativeChatRoute({
   sessionID,
 }: Readonly<{ projectID: string; sessionID: string }>) {
   const { nativeBridge } = useAppServices();
-  const { open: openNativeSessionChat } = useNativeChatOpening();
   const { push } = useStatusController();
   const { t } = useTranslation();
   const reportFailure = useStableCallback((error: unknown, title: string) => {
@@ -51,11 +43,8 @@ export function NativeChatRoute({
   const navigation = useMemo(
     () => ({
       openTask: async (taskID: string) => requestMainNavigation({ kind: "taskDetail", taskID }),
-      openParentSession: async (previousSessionID: string, intent?: SessionChatOpeningIntent) => {
-        if (intent === "native_window") {
-          openNativeSessionChat({ projectID, sessionID: previousSessionID });
-          return;
-        }
+      projectID,
+      openParentSession: async (previousSessionID: string) => {
         await requestMainNavigation({
           kind: "sessionChat",
           projectID,
@@ -64,7 +53,7 @@ export function NativeChatRoute({
       },
       openEditedSession: openChildSession,
     }),
-    [projectID, requestMainNavigation, openChildSession, openNativeSessionChat],
+    [projectID, requestMainNavigation, openChildSession],
   );
   return (
     <SidebarProvider policy={sidebarDestinationPolicy}>

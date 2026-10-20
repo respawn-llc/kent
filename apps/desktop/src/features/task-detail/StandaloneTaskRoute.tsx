@@ -1,6 +1,6 @@
 import { useTranslation } from "react-i18next";
 
-import { SidebarRootOwner, useAppNavigation, useNativeChatOpening, useOwnedSidebarRoots } from "@/app-facade";
+import { SidebarRootOwner, useAppNavigation, useOwnedSidebarRoots } from "@/app-facade";
 import { Button } from "@/ui";
 import { TaskDetailSurface } from "./TaskDetailSurface";
 import { useExactTaskDetailDeleteDismissal } from "./taskDetailDismissal";
@@ -21,13 +21,8 @@ export function StandaloneTaskRoute({ taskId }: StandaloneTaskRouteProps) {
 function OwnedStandaloneTaskRoute({ taskId }: StandaloneTaskRouteProps) {
   const { t } = useTranslation();
   const navigation = useAppNavigation();
-  const { open: openNativeChat } = useNativeChatOpening();
   const { open } = useOwnedSidebarRoots();
-  const openSessionChat: TaskDetailSessionChatEntry = async (target, intent) => {
-    if (intent === "native_window") {
-      openNativeChat(target);
-      return;
-    }
+  const openSessionChat: TaskDetailSessionChatEntry = async (target) => {
     await navigation.openSessionChat(target);
   };
   const onDeleteDismiss = useExactTaskDetailDeleteDismissal(taskId, async () => {

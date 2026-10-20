@@ -34,7 +34,6 @@ export const englishResources = {
       close: "Close",
       popOut: "Open in new window",
       popOutError: "Could not open the pop-out window",
-      openingChatWindow: "Opening Chat window…",
       shiftClickToOpenInNewWindow: "{{action}} · Shift-click to open in new window",
       inboxPrevious: "Previous inbox item",
       inboxNext: "Next inbox item",

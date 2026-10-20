@@ -30,6 +30,7 @@ const target = {
   sessionID,
 } as const;
 const navigation = {
+  projectID: target.projectID,
   openTask: vi.fn<(taskID: string) => void>(),
   openParentSession: vi.fn<(previousSessionID: string) => void>(),
 };
