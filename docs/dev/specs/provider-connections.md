@@ -106,10 +106,10 @@
 
 - Kent must load `.env` from its server persistence root at startup, including when installed as a service. The default path must be `~/.kent/.env`. Kent must not load repository `.env` files for this purpose.
 - A present process environment value must take precedence over the file, including an empty value. Kent must require restart to observe file edits or changes to its launch environment.
-- The file must be operator-managed and owner-only. Onboarding and `/login` must not write its secrets.
+- The file must be operator-managed. On Unix, the file must be owner-only. On Windows, Kent must use inherited filesystem permissions. Onboarding and `/login` must not write its secrets.
 - The file must supply server environment values without injecting them into agent shell environments.
 - Agent subprocess environments must exclude explicitly referenced provider-key variables regardless of which server environment source supplied their values.
-- Missing or empty files must be allowed. Unreadable, malformed, or insecure-permission files must fail server startup with safe diagnostics. Kent must use standard dotenv syntax. Malformed-line reporting is optional.
+- If the file is missing, server startup must create an empty file with owner-only permissions on Unix and inherited filesystem permissions on Windows. Kent must leave existing files, contents, and permissions unchanged. Empty files must be allowed. Non-regular, unreadable, or malformed files must fail server startup with safe diagnostics. On Unix, insecure-permission files must also fail server startup with safe diagnostics. Kent must use standard dotenv syntax. Malformed-line reporting is optional.
 - Missing-variable guidance must identify the server-side file path and restart requirement without revealing secrets.
 
 ## Session Binding
