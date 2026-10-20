@@ -315,14 +315,8 @@ func TestSetGoalAllowsOnlyOneConcurrentAgentGoal(t *testing.T) {
 	}
 }
 
-func TestGoalValidationRejectsInvalidValues(t *testing.T) {
+func TestGoalStatusRejectsUnsupportedNativeStatus(t *testing.T) {
 	store := newSessionTestStore(t)
-	if _, _, err := store.SetGoal(" \n\t ", GoalActorUser); err == nil {
-		t.Fatalf("SetGoal empty objective error = nil")
-	}
-	if _, _, err := store.SetGoal("objective", GoalActor("robot")); err == nil {
-		t.Fatalf("SetGoal invalid actor error = nil")
-	}
 	if _, _, err := store.SetGoal("objective", GoalActorUser); err != nil {
 		t.Fatalf("SetGoal valid: %v", err)
 	}

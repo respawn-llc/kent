@@ -11,6 +11,7 @@
 - Creation must suggest an editable unused numbered provider-based ID. Connections must not require a separate display name or hidden identity.
 - Top-level `connection` must select the default for new unroled interactive Sessions. Roles must inherit that selection unless overridden. Main Workspace private configuration may assign developer-specific connection IDs to shared roles.
 - When effective `connection` is absent and exactly one Provider Connection is defined, Kent must select that connection without rewriting configuration. With zero or multiple definitions, selection must fail. Explicit selections and saved Session bindings take precedence.
+- When the top-level `connection` selector contains one ID that points to a removed definition and other Provider Connections remain, Kent must select from the remaining definitions for new Sessions and replacement of a deleted saved connection, regardless of whether the selector was written as a scalar or one-element array. This fallback must not rewrite the selector or expand a role-owned selector or a multi-ID array selector.
 - Main agents, child roles, Supervisor, and Workflow must use the same connection-selection rules.
 - Workflow preparation must use completed connection and default edits without requiring a server restart. Saved Session bindings take precedence as defined by Session Binding.
 - The server must own credentials. Requests must use only the selected connection's credentials.
@@ -21,7 +22,7 @@
 
 - The `connection` setting must accept either one connection ID or an array of connection IDs. The default and role overrides must support both forms with the existing inheritance rules.
 - Array selections must reference the existing global connection definitions. Kent must not require separately named groups or duplicate connection definitions.
-- Kent must treat each array as a set. Kent must collapse duplicate IDs, reject empty arrays and invalid IDs, and ignore unknown IDs. If the set contains no defined member, selection must fail with an actionable error. It must not inherit or select another connection.
+- Kent must treat array selections as sets. Kent must collapse duplicate IDs, reject empty arrays and invalid IDs, and ignore unknown IDs. A role-owned array or a multi-ID top-level array with no defined members must fail with an actionable error. A one-ID top-level array follows the removed-default rule above.
 - Kent must accept valid member definitions without requiring equal protocols, endpoints, or capabilities. Inclusion in a set must express the user's assertion that its members can serve the configured Agent.
 - Selection must not change the Agent's configured model, prompts, or settings. A fresh Session must use the selected connection's declared provider capabilities for supported request features. Selecting a connection that cannot serve the configured model must be treated as a user configuration error.
 - Every fresh Session must select the connection with the lowest estimated consumption over roughly the preceding seven days from its effective member set. The selected role's connection setting must define that set when supplied. Otherwise, the Session must use the inherited connection selector. Array order must not affect selection.

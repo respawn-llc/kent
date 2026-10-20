@@ -3,7 +3,7 @@ import { create, operationName } from "@app/server-api-contract";
 import {
   SessionCatalogService,
   SessionCategory as GeneratedSessionCategory,
-  type SessionSummary,
+  type SessionSummaryValid,
 } from "@app/server-api-contract/gen/kent/api/project/session_catalog_pb";
 import {
   sessionCatalogPageSize,
@@ -58,10 +58,7 @@ export async function listSessionPage(
   return response;
 }
 
-function sessionSummary(summary: SessionSummary): SessionCatalogSummary {
-  if (summary.updatedAt === undefined) {
-    throw new ContractError("Session catalog summary timestamp is required.");
-  }
+function sessionSummary(summary: SessionSummaryValid): SessionCatalogSummary {
   return {
     id: summary.sessionId,
     shortID: summary.shortId ?? null,

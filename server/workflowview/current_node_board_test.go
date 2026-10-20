@@ -300,7 +300,7 @@ func TestBoardListNodeCardsDependencyFilterRunsBeforePagination(t *testing.T) {
 	}
 
 	otherWorkflowID := currentNodeViewWorkflow(t, fixture.store, false)
-	if _, err := fixture.store.LinkWorkflow(fixture.ctx, fixture.binding.ProjectID, otherWorkflowID, false); err != nil {
+	if _, err := fixture.store.LinkWorkflowWithDefaultPolicy(fixture.ctx, fixture.binding.ProjectID, otherWorkflowID, workflowstore.WorkflowLinkDefaultNever); err != nil {
 		t.Fatalf("LinkWorkflow other workflow: %v", err)
 	}
 	otherWorkflowBlocker, err := fixture.store.CreateTask(fixture.ctx, workflowstore.CreateTaskRequest{

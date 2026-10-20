@@ -5,7 +5,7 @@ import type { ChatInputMutationResult, ChatTranscriptHandler, InitialChatSetting
 import { ChatRuntimeProvider, queryKeys } from "@/app-facade";
 import { mainViewRead, runtimeHost, transcriptPage } from "@/test-support/chat-runtime";
 import { ChatComposerSurface, useComposerSurface } from "./ChatComposerSurface";
-import { parsePendingWorkItemID } from "@/api";
+import { pendingWorkItemIDFromProto } from "@/api";
 
 import { createTestServices } from "@/test-support/app-services";
 import { createWorktreeCommand } from "./worktreeCommand";
@@ -147,7 +147,7 @@ const accepted: ChatInputMutationResult = {
   sessionID: target.sessionID,
   outcome: {
     kind: "accepted",
-    queueItemID: parsePendingWorkItemID("79f762c8-0998-402a-bc80-6b42f3e241ed"),
+    queueItemID: pendingWorkItemIDFromProto("79f762c8-0998-402a-bc80-6b42f3e241ed"),
     disposition: "started_turn",
     diagnostic: null,
   },
@@ -897,7 +897,7 @@ it("restores a failed request but does not restore an accepted input with a diag
         ...accepted.outcome,
         kind: "accepted",
         disposition: "started_turn",
-        queueItemID: parsePendingWorkItemID("79f762c8-0998-402a-bc80-6b42f3e241ed"),
+        queueItemID: pendingWorkItemIDFromProto("79f762c8-0998-402a-bc80-6b42f3e241ed"),
         diagnostic: { kind: "prompt_history_failure", operation: null, cause: null },
       },
     });
@@ -971,7 +971,7 @@ it("keeps New Chat typing while Settings load and delivers the identified Sessio
   const readPending = vi.spyOn(services.api.chat, "listPendingWork").mockResolvedValue({
     items: [
       {
-        id: parsePendingWorkItemID("79f762c8-0998-402a-bc80-6b42f3e241ed"),
+        id: pendingWorkItemIDFromProto("79f762c8-0998-402a-bc80-6b42f3e241ed"),
         kind: "message",
         lane: "queue",
         state: "pending",
@@ -1060,7 +1060,7 @@ it("prepends live interrupted messages in event order and restores Discard only 
     ]),
   );
   expect(result.current.text).toBe("one\n \ntwo\ndraft");
-  const item = parsePendingWorkItemID("79f762c8-0998-402a-bc80-6b42f3e241ed");
+  const item = pendingWorkItemIDFromProto("79f762c8-0998-402a-bc80-6b42f3e241ed");
   await act(async () => {
     result.current.pending.discard(item);
   });
@@ -1085,8 +1085,8 @@ it("prepends live interrupted messages in event order and restores Discard only 
 it("keeps repeated compactions distinct and restores only the discarded canonical command", async () => {
   const services = createTestServices([]);
   vi.spyOn(services.api.chat, "getDraft").mockResolvedValue({ input: "draft", protectedInput: null });
-  const first = parsePendingWorkItemID("79f762c8-0998-402a-bc80-6b42f3e241ed");
-  const second = parsePendingWorkItemID("99f762c8-0998-402a-bc80-6b42f3e241ed");
+  const first = pendingWorkItemIDFromProto("79f762c8-0998-402a-bc80-6b42f3e241ed");
+  const second = pendingWorkItemIDFromProto("99f762c8-0998-402a-bc80-6b42f3e241ed");
   const items = [first, second].map((id) => ({
     id,
     kind: "manual_compaction" as const,

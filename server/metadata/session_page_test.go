@@ -17,21 +17,21 @@ func TestSessionPageSeparatesCategoriesAndMapsLegacyToMain(t *testing.T) {
 	ctx := context.Background()
 	store, cfg, binding := newMetadataTestStore(t)
 	updatedAt := time.Date(2026, time.July, 14, 12, 0, 0, 0, time.UTC)
-	importSessionPageFixture(t, store, cfg, binding, "legacy-session", nil, updatedAt.Add(2*time.Minute))
-	importSessionPageFixture(t, store, cfg, binding, "main-session", sessionCategoryForPageTest(sessioncontract.SessionCategoryMain), updatedAt.Add(time.Minute))
-	importSessionPageFixture(t, store, cfg, binding, "subagent-session", sessionCategoryForPageTest(sessioncontract.SessionCategorySubagent), updatedAt)
+	importSessionPageFixture(t, store, cfg, binding, "00000000-0000-4000-8000-000000000101", nil, updatedAt.Add(2*time.Minute))
+	importSessionPageFixture(t, store, cfg, binding, "00000000-0000-4000-8000-000000000102", sessionCategoryForPageTest(sessioncontract.SessionCategoryMain), updatedAt.Add(time.Minute))
+	importSessionPageFixture(t, store, cfg, binding, "00000000-0000-4000-8000-000000000103", sessionCategoryForPageTest(sessioncontract.SessionCategorySubagent), updatedAt)
 
 	mainPage, err := store.ListSessionPage(ctx, binding.ProjectID, sessioncontract.SessionCategoryMain, 0, 10)
 	if err != nil {
 		t.Fatalf("ListSessionPage main: %v", err)
 	}
-	requireSessionPageIDs(t, mainPage, "legacy-session", "main-session")
+	requireSessionPageIDs(t, mainPage, "00000000-0000-4000-8000-000000000101", "00000000-0000-4000-8000-000000000102")
 
 	subagentPage, err := store.ListSessionPage(ctx, binding.ProjectID, sessioncontract.SessionCategorySubagent, 0, 10)
 	if err != nil {
 		t.Fatalf("ListSessionPage subagent: %v", err)
 	}
-	requireSessionPageIDs(t, subagentPage, "subagent-session")
+	requireSessionPageIDs(t, subagentPage, "00000000-0000-4000-8000-000000000103")
 }
 
 func TestSessionPageReflectsPersistedCategoryPromotion(t *testing.T) {
@@ -40,9 +40,9 @@ func TestSessionPageReflectsPersistedCategoryPromotion(t *testing.T) {
 	store, cfg, binding := newMetadataTestStore(t)
 	updatedAt := time.Now().UTC()
 	category := sessioncontract.SessionCategorySubagent
-	importSessionPageFixture(t, store, cfg, binding, "promoted-session", &category, updatedAt)
+	importSessionPageFixture(t, store, cfg, binding, "00000000-0000-4000-8000-000000000104", &category, updatedAt)
 
-	snapshot, err := store.ResolvePersistedSession(ctx, "promoted-session")
+	snapshot, err := store.ResolvePersistedSession(ctx, "00000000-0000-4000-8000-000000000104")
 	if err != nil {
 		t.Fatalf("ResolvePersistedSession: %v", err)
 	}
@@ -60,7 +60,7 @@ func TestSessionPageReflectsPersistedCategoryPromotion(t *testing.T) {
 	if err != nil {
 		t.Fatalf("ListSessionPage main: %v", err)
 	}
-	requireSessionPageIDs(t, mainPage, "promoted-session")
+	requireSessionPageIDs(t, mainPage, "00000000-0000-4000-8000-000000000104")
 
 	subagentPage, err := store.ListSessionPage(ctx, binding.ProjectID, sessioncontract.SessionCategorySubagent, 0, 10)
 	if err != nil {
@@ -74,7 +74,7 @@ func TestSessionPageUsesStableRecencyOrderAcrossAdjacentOffsets(t *testing.T) {
 	ctx := context.Background()
 	store, cfg, binding := newMetadataTestStore(t)
 	updatedAt := time.Date(2026, time.July, 14, 12, 0, 0, 0, time.UTC)
-	for _, id := range []string{"session-d", "session-c", "session-b", "session-a"} {
+	for _, id := range []string{"00000000-0000-4000-8000-000000000004", "00000000-0000-4000-8000-000000000003", "00000000-0000-4000-8000-000000000002", "00000000-0000-4000-8000-000000000001"} {
 		importSessionPageFixture(t, store, cfg, binding, id, sessionCategoryForPageTest(sessioncontract.SessionCategoryMain), updatedAt)
 	}
 
@@ -82,7 +82,7 @@ func TestSessionPageUsesStableRecencyOrderAcrossAdjacentOffsets(t *testing.T) {
 	if err != nil {
 		t.Fatalf("ListSessionPage first: %v", err)
 	}
-	requireSessionPageIDs(t, first, "session-d", "session-c")
+	requireSessionPageIDs(t, first, "00000000-0000-4000-8000-000000000004", "00000000-0000-4000-8000-000000000003")
 	if first.NextOffset == nil || *first.NextOffset != 2 {
 		t.Fatalf("first next offset = %v, want 2", first.NextOffset)
 	}
@@ -91,7 +91,7 @@ func TestSessionPageUsesStableRecencyOrderAcrossAdjacentOffsets(t *testing.T) {
 	if err != nil {
 		t.Fatalf("ListSessionPage second: %v", err)
 	}
-	requireSessionPageIDs(t, second, "session-b", "session-a")
+	requireSessionPageIDs(t, second, "00000000-0000-4000-8000-000000000002", "00000000-0000-4000-8000-000000000001")
 	if second.NextOffset != nil {
 		t.Fatalf("second next offset = %v, want nil", second.NextOffset)
 	}
@@ -111,30 +111,30 @@ func TestSessionPageAcceptsLiveRepeatAndSkipAfterRecencyChange(t *testing.T) {
 	ctx := context.Background()
 	store, cfg, binding := newMetadataTestStore(t)
 	base := time.Date(2026, time.July, 14, 12, 0, 0, 0, time.UTC)
-	for index, id := range []string{"session-c", "session-b", "session-a"} {
+	for index, id := range []string{"00000000-0000-4000-8000-000000000003", "00000000-0000-4000-8000-000000000002", "00000000-0000-4000-8000-000000000001"} {
 		importSessionPageFixture(t, store, cfg, binding, id, sessionCategoryForPageTest(sessioncontract.SessionCategoryMain), base.Add(-time.Duration(index)*time.Minute))
 	}
 	first, err := store.ListSessionPage(ctx, binding.ProjectID, sessioncontract.SessionCategoryMain, 0, 2)
 	if err != nil {
 		t.Fatalf("ListSessionPage first: %v", err)
 	}
-	requireSessionPageIDs(t, first, "session-c", "session-b")
+	requireSessionPageIDs(t, first, "00000000-0000-4000-8000-000000000003", "00000000-0000-4000-8000-000000000002")
 	if first.NextOffset == nil {
 		t.Fatal("expected next offset")
 	}
 
-	importSessionPageFixture(t, store, cfg, binding, "session-a", sessionCategoryForPageTest(sessioncontract.SessionCategoryMain), base.Add(time.Minute))
+	importSessionPageFixture(t, store, cfg, binding, "00000000-0000-4000-8000-000000000001", sessionCategoryForPageTest(sessioncontract.SessionCategoryMain), base.Add(time.Minute))
 	second, err := store.ListSessionPage(ctx, binding.ProjectID, sessioncontract.SessionCategoryMain, *first.NextOffset, 2)
 	if err != nil {
 		t.Fatalf("ListSessionPage second: %v", err)
 	}
-	requireSessionPageIDs(t, second, "session-b")
+	requireSessionPageIDs(t, second, "00000000-0000-4000-8000-000000000002")
 
 	refreshed, err := store.ListSessionPage(ctx, binding.ProjectID, sessioncontract.SessionCategoryMain, 0, 2)
 	if err != nil {
 		t.Fatalf("ListSessionPage refreshed: %v", err)
 	}
-	requireSessionPageIDs(t, refreshed, "session-a", "session-c")
+	requireSessionPageIDs(t, refreshed, "00000000-0000-4000-8000-000000000001", "00000000-0000-4000-8000-000000000003")
 }
 
 func TestSessionPageDefaultWindowTrimsOneHundredAndOneRowLookahead(t *testing.T) {
@@ -143,7 +143,7 @@ func TestSessionPageDefaultWindowTrimsOneHundredAndOneRowLookahead(t *testing.T)
 	store, cfg, binding := newMetadataTestStore(t)
 	base := time.Date(2026, time.July, 14, 12, 0, 0, 0, time.UTC)
 	for index := range MaxSessionPageSize + 1 {
-		id := fmt.Sprintf("session-%03d", index)
+		id := fmt.Sprintf("00000000-0000-4000-8000-%012d", index)
 		importSessionPageFixture(t, store, cfg, binding, id, sessionCategoryForPageTest(sessioncontract.SessionCategoryMain), base.Add(time.Duration(index)*time.Second))
 	}
 

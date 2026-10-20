@@ -17,10 +17,10 @@ func ptrMeta(meta Meta) *Meta {
 }
 
 func TestOpenAcceptsLegacySessionWithoutCategory(t *testing.T) {
-	sessionDir := filepath.Join(t.TempDir(), "legacy-session")
+	sessionDir := filepath.Join(t.TempDir(), "550e8400-e29b-41d4-a716-446655440003")
 	now := time.Now().UTC()
 	meta := Meta{
-		SessionID:          "legacy-session",
+		SessionID:          "550e8400-e29b-41d4-a716-446655440003",
 		WorkspaceRoot:      "/tmp/work",
 		WorkspaceContainer: "workspace",
 		CreatedAt:          now,
@@ -40,10 +40,10 @@ func TestOpenAcceptsLegacySessionWithoutCategory(t *testing.T) {
 }
 
 func TestOpenRejectsMalformedPersistedSessionCategory(t *testing.T) {
-	sessionDir := filepath.Join(t.TempDir(), "malformed-category-session")
+	sessionDir := filepath.Join(t.TempDir(), "550e8400-e29b-41d4-a716-446655440004")
 	now := time.Now().UTC()
 	meta := Meta{
-		SessionID:          "malformed-category-session",
+		SessionID:          "550e8400-e29b-41d4-a716-446655440004",
 		WorkspaceRoot:      "/tmp/work",
 		WorkspaceContainer: "workspace",
 		CreatedAt:          now,
@@ -245,12 +245,12 @@ func TestEventUseRejectsSymlinkedEventsFileAfterMetadataOnlyOpen(t *testing.T) {
 		StepID:    "target-step",
 		Payload:   mustFixtureJSON(t, map[string]any{"role": "user", "content": "hello"}),
 	}})
-	sessionDir := filepath.Join(root, "bad-session")
+	sessionDir := filepath.Join(root, "550e8400-e29b-41d4-a716-446655440001")
 	if err := os.MkdirAll(sessionDir, 0o755); err != nil {
 		t.Fatalf("mkdir session dir: %v", err)
 	}
 	meta := Meta{
-		SessionID:          "bad-session",
+		SessionID:          "550e8400-e29b-41d4-a716-446655440001",
 		WorkspaceRoot:      "/tmp/work-bad",
 		WorkspaceContainer: "workspace-bad",
 		CreatedAt:          time.Now().UTC(),
@@ -274,12 +274,12 @@ func TestEventUseRejectsSymlinkedEventsFileAfterMetadataOnlyOpen(t *testing.T) {
 
 func TestEventUseRejectsMissingEventsFileWithoutChangingMetadata(t *testing.T) {
 	root := t.TempDir()
-	sessionDir := filepath.Join(root, "session-without-events")
+	sessionDir := filepath.Join(root, "550e8400-e29b-41d4-a716-446655440002")
 	if err := os.MkdirAll(sessionDir, 0o755); err != nil {
 		t.Fatalf("mkdir session dir: %v", err)
 	}
 	meta := Meta{
-		SessionID:          "session-without-events",
+		SessionID:          "550e8400-e29b-41d4-a716-446655440002",
 		WorkspaceRoot:      "/tmp/work",
 		WorkspaceContainer: "workspace-x",
 		CreatedAt:          time.Now().UTC(),
@@ -321,12 +321,12 @@ func TestEventUseRejectsMissingEventsFileWithoutChangingMetadata(t *testing.T) {
 
 func TestMaterializeMissingEventsFileDoesNotCommitRecovery(t *testing.T) {
 	root := t.TempDir()
-	sessionDir := filepath.Join(root, "session-without-events")
+	sessionDir := filepath.Join(root, "550e8400-e29b-41d4-a716-446655440002")
 	if err := os.MkdirAll(sessionDir, 0o755); err != nil {
 		t.Fatalf("mkdir session dir: %v", err)
 	}
 	meta := Meta{
-		SessionID:          "session-without-events",
+		SessionID:          "550e8400-e29b-41d4-a716-446655440002",
 		WorkspaceRoot:      "/tmp/work",
 		WorkspaceContainer: "workspace-x",
 		CreatedAt:          time.Now().UTC(),

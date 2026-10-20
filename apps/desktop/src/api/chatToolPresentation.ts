@@ -18,7 +18,7 @@ function presentationKind(value: T.ToolPresentationKind): ChatToolPresentation["
 }
 
 export function toolPresentation(
-  value: T.ToolPresentation | undefined,
+  value: T.ToolPresentationValid | undefined,
   toolName: string | undefined,
 ): ChatToolPresentation | null {
   if (value === undefined) return null;
@@ -86,7 +86,7 @@ function group(value: T.PatchChangeGroup): ChatPatchGroup {
   };
 }
 
-function operation(value: T.PatchFileOperation): ChatPatchOperation {
+function operation(value: T.PatchFileOperationValid): ChatPatchOperation {
   const branch = value.operation;
   switch (branch.case) {
     case "add":
@@ -95,7 +95,7 @@ function operation(value: T.PatchFileOperation): ChatPatchOperation {
     case "move":
       return {
         Kind: "move",
-        Source: path(required(branch.value.source)),
+        Source: path(branch.value.source),
         Groups: branch.value.groups.map(group),
         Deletion: null,
       };
@@ -106,14 +106,14 @@ function operation(value: T.PatchFileOperation): ChatPatchOperation {
         Source: null,
         Groups: [],
         Deletion: {
-          id: { hunk_ordinal: required(branch.value.id).hunkOrdinal },
+          id: { hunk_ordinal: branch.value.id.hunkOrdinal },
           disposition:
             disposition === undefined
               ? null
               : {
                   physical_group: {
                     first_operation: {
-                      hunk_ordinal: required(required(disposition.physicalGroup).firstOperation).hunkOrdinal,
+                      hunk_ordinal: disposition.physicalGroup.firstOperation.hunkOrdinal,
                     },
                   },
                   removed: disposition.removed,
@@ -126,7 +126,7 @@ function operation(value: T.PatchFileOperation): ChatPatchOperation {
   }
 }
 
-function patchPresentation(value: T.PatchPresentation): ChatPatchPresentation {
+function patchPresentation(value: T.PatchPresentationValid): ChatPatchPresentation {
   const branch = value.presentation;
   switch (branch.case) {
     case "invalidInput":
@@ -136,7 +136,7 @@ function patchPresentation(value: T.PatchPresentation): ChatPatchPresentation {
         Variant: "changes",
         InvalidInput: null,
         Files: branch.value.files.map((file) => ({
-          Path: path(required(file.path)),
+          Path: path(file.path),
           Added: file.added,
           Removed: file.removed ?? null,
           Operations: file.operations.map(operation),

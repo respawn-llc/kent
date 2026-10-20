@@ -19,9 +19,6 @@ func (e *ConnectionNotAPIKeyError) Error() string {
 }
 
 func AddProviderConnection(path string, id ConnectionID, definition ProviderConnection) error {
-	if err := definition.Validate(); err != nil {
-		return err
-	}
 	return editConnectionDocument(path, id, func(document *settingsDocument, existing map[ConnectionID]ProviderConnection) error {
 		if _, present := existing[id]; present {
 			return &ConnectionAlreadyExistsError{ID: id}
@@ -50,9 +47,6 @@ func SetProviderConnectionEnvironment(path string, id ConnectionID, name string)
 			return nil
 		}
 		connection.EnvironmentVariable = &name
-		if err := connection.Validate(); err != nil {
-			return err
-		}
 		return document.set([]string{"connections", string(id), "environment_variable"}, name)
 	})
 }
@@ -82,9 +76,6 @@ func RemoveProviderConnection(path string, id ConnectionID) error {
 }
 
 func editConnectionDocument(path string, id ConnectionID, edit func(*settingsDocument, map[ConnectionID]ProviderConnection) error) error {
-	if _, err := ParseConnectionID(string(id)); err != nil {
-		return err
-	}
 	document, raw, err := readSettingsDocument(path)
 	if err != nil {
 		return err

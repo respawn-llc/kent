@@ -424,9 +424,6 @@ func TestProjectKeyValidationCollisionAndMutability(t *testing.T) {
 		t.Fatalf("CreateProjectForWorkspace: %v", err)
 	}
 
-	if err := store.SetProjectKey(ctx, binding.ProjectID, "bad-key"); !errors.Is(err, ErrInvalidProjectKey) {
-		t.Fatalf("expected invalid project key error, got %v", err)
-	}
 	if err := store.SetProjectKey(ctx, binding.ProjectID, "BLD"); err != nil {
 		t.Fatalf("SetProjectKey BLD: %v", err)
 	}

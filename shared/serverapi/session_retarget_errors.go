@@ -47,39 +47,6 @@ func (e *SessionRetargetError) Is(target error) bool {
 	return target == ErrSessionRetarget
 }
 
-func (e *SessionRetargetError) Validate() error {
-	if e == nil {
-		return errors.New("session retarget error is required")
-	}
-	if strings.TrimSpace(e.SessionID) == "" {
-		return errors.New("session id is required")
-	}
-	if err := e.SourceProject.Validate(); err != nil {
-		return fmt.Errorf("source project: %w", err)
-	}
-	if strings.TrimSpace(e.TargetRoot) == "" {
-		return errors.New("target root is required")
-	}
-	switch e.Reason {
-	case SessionRetargetTargetProjectRequired,
-		SessionRetargetTargetProjectConflict:
-		if len(e.CandidateProjects) == 0 {
-			return errors.New("candidate projects are required")
-		}
-		for _, project := range e.CandidateProjects {
-			if err := project.Validate(); err != nil {
-				return fmt.Errorf("candidate project: %w", err)
-			}
-		}
-	case SessionRetargetWorkflowOwned,
-		SessionRetargetBackgroundProcess,
-		SessionRetargetRuntimeActive:
-	default:
-		return fmt.Errorf("invalid session retarget reason %q", e.Reason)
-	}
-	return nil
-}
-
 func (p ProjectReference) Validate() error {
 	if strings.TrimSpace(p.ID) == "" {
 		return errors.New("project id is required")

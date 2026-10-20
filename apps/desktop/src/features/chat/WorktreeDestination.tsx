@@ -54,6 +54,7 @@ function WorktreeDestinationContent({ destination, navigator }: Parameters<typeo
   if (destination.page === "create")
     return (
       <WorktreeCreateForm
+        projectID={destination.projectID}
         sessionID={destination.sessionID}
         openSession={destination.openSession}
         navigator={navigator}
@@ -62,6 +63,7 @@ function WorktreeDestinationContent({ destination, navigator }: Parameters<typeo
     );
   return (
     <WorktreeBrowser
+      projectID={destination.projectID}
       sessionID={destination.sessionID}
       onOpenSession={destination.openSession}
       navigator={navigator}

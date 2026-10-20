@@ -195,10 +195,8 @@ func requirePromptPending(t *testing.T, store *executionPromptStore, requestID s
 func newExecutionPromptStoreForTest(t *testing.T, feed ExecutionPromptFeed) executionPromptStore {
 	t.Helper()
 	sessionID := runtimeids.NewSessionID()
-	resource, err := runtimeids.NewSessionResourceRef(sessionID, 1)
-	if err != nil {
-		t.Fatalf("new session resource: %v", err)
-	}
+	resource := runtimeids.NewSessionResourceRef(sessionID, 1)
+
 	scope := newAgentExecutionScope(runtimeids.NewExecutionScopeID(), resource, nil)
 	return newExecutionPromptStore(&Authority{}, scope, feed)
 }

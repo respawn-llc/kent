@@ -234,10 +234,7 @@ func (a *Authority) buildAgentResource(
 		panic("session runtime resource generation overflow")
 	}
 	a.mu.Unlock()
-	ref, err := runtimeids.NewSessionResourceRef(sessionID, generation)
-	if err != nil {
-		return nil, err
-	}
+	ref := runtimeids.NewSessionResourceRef(sessionID, generation)
 	resourceContext, cancel := context.WithCancel(context.Background())
 	resource := &agentResource{
 		authority:          a,
@@ -301,7 +298,7 @@ func (a *Authority) newRuntimeWiringFromPlan(ctx context.Context, resource *agen
 	}
 	options.Settings.Connections = catalog.Settings.Connections
 	options.Settings.ConnectionOrder = catalog.Settings.ConnectionOrder
-	replacement, err := a.options.connectionRotation.BindSessionConnection(ctx, store, &options.Settings, options.Sources)
+	replacement, err := a.options.connectionRotation.BindSessionConnection(ctx, store, &options.Settings, options.Sources, options.ConnectionScope)
 	if err != nil {
 		return nil, err
 	}

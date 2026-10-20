@@ -8,6 +8,7 @@ import "kent/api/server/server.proto";
 import "kent/api/session_launch/session_lifecycle.proto";
 import "kent/api/shared/foundation.proto";
 import "kent/api/shared/session_selector.proto";
+import "kent/api/shared/validation.proto";
 
 option go_package = "core/shared/protoapi/gen/kent/api/connection;connectionpb";
 
@@ -150,12 +151,12 @@ message SessionAttachment {
   string project_id = 1 [(buf.validate.field).string.min_len = 1];
   string workspace_id = 2 [(buf.validate.field).string.min_len = 1];
   string workspace_root = 3 [(buf.validate.field).string.min_len = 1];
-  string session_id = 4 [(buf.validate.field).string.min_len = 1];
+  string session_id = 4 [(buf.validate.field).string.uuid = true, (buf.validate.field).string.(kent.api.shared.canonical_uuid_v4) = true];
   string reattach_capability = 5 [(buf.validate.field).string.min_len = 1];
 }
 
 message SessionAttachmentTargetDetails {
-  string session_id = 1 [(buf.validate.field).string.min_len = 1];
+  string session_id = 1 [(buf.validate.field).string.uuid = true, (buf.validate.field).string.(kent.api.shared.canonical_uuid_v4) = true];
   optional string project_id = 2 [(buf.validate.field).string.min_len = 1];
   optional string workspace_id = 3 [(buf.validate.field).string.min_len = 1];
   optional string workspace_root = 4 [(buf.validate.field).string.min_len = 1];

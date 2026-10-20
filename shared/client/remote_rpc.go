@@ -14,6 +14,7 @@ import (
 	"core/shared/config"
 	"core/shared/protocol"
 	"core/shared/rpcwire"
+	"core/shared/runtimeids"
 )
 
 var errRemoteClosed = errors.New("remote client is closed")
@@ -265,8 +266,8 @@ func (c *Remote) openSetupRPCConnForAttachment(
 	return conn, cleanup, state, nil
 }
 
-func (c *Remote) prepareDraftHandoff(ctx context.Context, sessionID string) (*remoteSessionControl, bool, error) {
-	sessionID = strings.TrimSpace(sessionID)
+func (c *Remote) prepareDraftHandoff(ctx context.Context, selector runtimeids.SessionSelector) (*remoteSessionControl, bool, error) {
+	sessionID := selector.String()
 	c.mu.Lock()
 	attachmentIntent := c.attachIntent
 	c.mu.Unlock()
@@ -280,10 +281,7 @@ func (c *Remote) prepareDraftHandoff(ctx context.Context, sessionID string) (*re
 	// A Project-attached control connection loses access as soon as the Session
 	// moves. Establish the exact-Session control while the source Project still
 	// owns it so the composer draft can be persisted before TUI reattachment.
-	intent, err := newRemoteSessionAttachmentIntent(sessionID)
-	if err != nil {
-		return nil, false, err
-	}
+	intent := sessionAttachmentIntent(selector)
 	c.mu.Lock()
 	if c.closed.Load() {
 		c.mu.Unlock()

@@ -19,7 +19,7 @@ import {
   type SidebarPageNavigator,
   type StatusController,
 } from "@/app-facade";
-import { projectKeyErrors, projectNameErrors } from "./ProjectEditUtils";
+import { projectDraftErrors } from "./ProjectEditUtils";
 import {
   invalidateProjectEditQueries,
   invalidateProjectWorkspaceOwners,
@@ -287,9 +287,13 @@ export function createProjectEditViewModel({
     const project = get(metadata).data;
     const nameDraft = get(name) ?? project?.displayName ?? "";
     const keyDraft = get(key) ?? project?.projectKey ?? "";
-    const nameErrors = projectNameErrors(nameDraft, t);
     const keyChanged = project !== undefined && keyDraft !== project.projectKey;
-    const keyErrors = keyChanged ? projectKeyErrors(keyDraft, t) : [];
+    const { nameErrors, keyErrors } = projectDraftErrors(
+      projectID,
+      nameDraft,
+      keyChanged ? keyDraft : undefined,
+      t,
+    );
     const dirty = project !== undefined && (nameDraft !== project.displayName || keyChanged);
     return {
       nameDraft,

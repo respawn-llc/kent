@@ -66,22 +66,13 @@ func (s *Service) PrepareUserTurn(ctx context.Context, sessionID string, input r
 	if err != nil {
 		return PreparedUserTurn{}, err
 	}
-	history, err := input.CanonicalHistoryText()
-	if err != nil {
-		return PreparedUserTurn{}, err
-	}
+	history := input.CanonicalHistoryText()
 	return PreparedUserTurn{Input: input, Placement: placement, ExecutionText: execution, HistoryText: history}, nil
 }
 
 func (s *Service) SubmitUserTurn(ctx context.Context, req *runtimepb.SubmitUserTurnRequest) (*runtimepb.SubmitUserTurnSuccess, error) {
-	if err := protoapi.Validate(req); err != nil {
-		return nil, err
-	}
 	return runRuntimeCommand(ctx, func(ctx context.Context) (*runtimepb.SubmitUserTurnSuccess, bool, error) {
-		input, err := protoapi.UserTurnInputFromProto(req.Input)
-		if err != nil {
-			return nil, false, err
-		}
+		input := protoapi.UserTurnInputFromProto(req.Input)
 		prepared, err := s.PrepareUserTurn(ctx, req.SessionId, input)
 		if err != nil {
 			return nil, false, err
@@ -110,9 +101,6 @@ func (s *Service) admitUserTurn(
 	attempt := newRuntimeCommandAttempt(ctx)
 	defer attempt.Finish()
 	response, queued, commandErr := s.submitUserTurn(attempt, request, projection)
-	if commandErr == nil {
-		commandErr = protoapi.Validate(response)
-	}
 	accepted := attempt.Accepted()
 	var admission serverapi.ChatInputAdmissionResult
 	if accepted {
@@ -135,10 +123,7 @@ func (s *Service) submitUserTurn(
 ) (*runtimepb.SubmitUserTurnSuccess, runtime.QueuedUserMessage, error) {
 	var response *runtimepb.SubmitUserTurnSuccess
 	var admitted runtime.QueuedUserMessage
-	sessionID, err := runtimeids.ParseSessionID(request.SessionID)
-	if err != nil {
-		return nil, admitted, err
-	}
+	sessionID := runtimeids.SessionIDFromProto(request.SessionID)
 	if s == nil || s.authority == nil {
 		return nil, admitted, errors.New("session runtime authority is required")
 	}
@@ -178,9 +163,22 @@ func (s *Service) submitUserTurn(
 		case preparingErr != nil:
 			err = preparingErr
 		case preparing:
-			err = s.withRuntime(attempt.Context(), request.SessionID, func(runCtx context.Context, engine *runtime.Engine) error {
-				return runTurn(runCtx, engine, attempt.Accept)
-			})
+			submit := func() error {
+				return s.withRuntime(attempt.Context(), request.SessionID, func(runCtx context.Context, engine *runtime.Engine) error {
+					return runTurn(runCtx, engine, attempt.Accept)
+				})
+			}
+			err = submit()
+			for {
+				var unavailable *runtime.LiveRunAdmissionUnavailable
+				if !errors.As(err, &unavailable) {
+					break
+				}
+				if err = unavailable.Wait(attempt.Context(), nil); err != nil {
+					break
+				}
+				err = submit()
+			}
 		case s.reactivator != nil:
 			var workflowState *runtime.WorkflowSessionState
 			stateErr := s.withRuntime(attempt.Context(), request.SessionID, func(_ context.Context, engine *runtime.Engine) error {
@@ -206,9 +204,12 @@ func (s *Service) submitUserTurn(
 					workflowState.CurrentNode,
 				)
 				if err == nil {
-					err = s.withRuntime(attempt.Context(), request.SessionID, func(runCtx context.Context, engine *runtime.Engine) error {
-						return runTurn(runCtx, engine, attempt.Accept)
-					})
+					err = s.authority.RunCurrentTurn(
+						attempt.Context(),
+						descriptor,
+						attempt.Accept,
+						runTurn,
+					)
 				}
 			}
 		}

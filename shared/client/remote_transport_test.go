@@ -23,6 +23,7 @@ import (
 	worktreepb "core/shared/protoapi/gen/kent/api/worktree"
 	"core/shared/protocol"
 	"core/shared/rpcwire"
+	"core/shared/runtimeids"
 
 	serverpb "core/shared/protoapi/gen/kent/api/server"
 	sharedpb "core/shared/protoapi/gen/kent/api/shared"
@@ -483,10 +484,7 @@ func TestRemoteSessionAttachmentSurvivesUnaryControlReconnect(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	version, err := protoapi.NewReadModelVersion("epoch-1", 1, 1)
-	if err != nil {
-		t.Fatal(err)
-	}
+	version := protoapi.NewReadModelVersion("epoch-1", 1, 1)
 	response := &sessionpb.MainViewResult{Outcome: &sessionpb.MainViewResult_Success{Success: &sessionpb.MainViewSuccess{
 		MainView: &runtimepb.MainView{
 			Version: version,
@@ -676,6 +674,7 @@ func TestRemoteProjectRootAttachmentRejectsDifferentWorkspaceOnReconnect(t *test
 }
 
 func TestRemoteInterruptUsesDedicatedConnWhileSubmitIsInFlight(t *testing.T) {
+	sessionID := runtimeids.NewSessionID().String()
 	service := runtimepb.File_kent_api_runtime_runtime_proto.Services().ByName("TurnService")
 	submitMethod := service.Methods().ByName("SubmitUserTurn")
 	interruptMethod := service.Methods().ByName("Interrupt")
@@ -755,11 +754,7 @@ func TestRemoteInterruptUsesDedicatedConnWhileSubmitIsInFlight(t *testing.T) {
 				case interruptSeen <- struct{}{}:
 				default:
 				}
-				version, versionErr := protoapi.NewReadModelVersion("epoch-1", 1, 1)
-				if versionErr != nil {
-					reportHandlerError(handlerErrs, "build interrupt version: %w", versionErr)
-					return
-				}
+				version := protoapi.NewReadModelVersion("epoch-1", 1, 1)
 				response := &runtimepb.ReadModelUpdate{
 					Version: version,
 					Activity: &runtimepb.Activity{
@@ -792,7 +787,7 @@ func TestRemoteInterruptUsesDedicatedConnWhileSubmitIsInFlight(t *testing.T) {
 
 	submitDone := make(chan error, 1)
 	go func() {
-		_, submitErr := remote.SubmitUserTurn(context.Background(), runtimeSubmitUserTurnRequestForTest("session-1", "run"))
+		_, submitErr := remote.SubmitUserTurn(context.Background(), runtimeSubmitUserTurnRequestForTest(sessionID, "run"))
 		submitDone <- submitErr
 	}()
 
@@ -806,7 +801,7 @@ func TestRemoteInterruptUsesDedicatedConnWhileSubmitIsInFlight(t *testing.T) {
 
 	interruptCtx, cancel := context.WithTimeout(context.Background(), 500*time.Millisecond)
 	defer cancel()
-	if _, err := remote.Interrupt(interruptCtx, &runtimepb.InterruptRequest{SessionId: "session-1"}); err != nil {
+	if _, err := remote.Interrupt(interruptCtx, &runtimepb.InterruptRequest{SessionId: sessionID}); err != nil {
 		t.Fatalf("Interrupt: %v", err)
 	}
 	select {

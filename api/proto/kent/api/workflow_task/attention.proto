@@ -90,7 +90,7 @@ message AttentionCurrentNode {
       expression: "this == this.trim()"
     }
   ];
-  optional string session_id = 3 [(buf.validate.field).string.min_len = 1];
+  optional string session_id = 3 [(buf.validate.field).string.uuid = true, (buf.validate.field).string.(kent.api.shared.canonical_uuid_v4) = true];
   optional string effective_assignee = 4 [(buf.validate.field).string.min_len = 1];
   optional string effective_thinking = 5 [(buf.validate.field).string.min_len = 1];
   optional string node_display_name = 6 [(buf.validate.field).string.(kent.api.shared.nonblank) = true];
@@ -129,7 +129,7 @@ message ApprovalQuestion {
 
 message AttentionQuestionPrompt {
   optional int64 short_id = 7 [(buf.validate.field).int64 = {gt: 0 lte: 9007199254740991}];
-  string session_id = 1 [(buf.validate.field).string.min_len = 1];
+  string session_id = 1 [(buf.validate.field).string.uuid = true, (buf.validate.field).string.(kent.api.shared.canonical_uuid_v4) = true];
   string step_id = 2 [
     (buf.validate.field).string.uuid = true,
     (buf.validate.field).string.(kent.api.shared.canonical_uuid_v4) = true
@@ -352,12 +352,8 @@ message InterruptedAttention {
   ];
   AttentionCurrentNode current_node = 2 [(buf.validate.field).required = true];
   optional string session_id = 3 [
-    (buf.validate.field).string.min_len = 1,
-    (buf.validate.field).cel = {
-      id: "kent.workflow_task.interrupted_attention_session_id_nonblank"
-      message: "session_id must be non-blank"
-      expression: "this.trim() != ''"
-    }
+    (buf.validate.field).string.uuid = true,
+    (buf.validate.field).string.(kent.api.shared.canonical_uuid_v4) = true
   ];
   optional InterruptedCurrentNodeDetails details = 4;
 }
@@ -391,6 +387,11 @@ message AttentionItem {
       "(this.kind == 1 && has(this.question)) || "
       "(this.kind == 2 && has(this.approval)) || "
       "(this.kind == 3 && has(this.interrupted_current_node))"
+  };
+  option (buf.validate.message).cel = {
+    id: "kent.workflow_task.question_attention_occurrence"
+    message: "Question attention occurrence must be after the Unix epoch"
+    expression: "this.kind != 1 || this.occurred_at > timestamp('1970-01-01T00:00:00Z')"
   };
 }
 
@@ -488,11 +489,17 @@ message AttentionNotificationID {
     defined_only: true
     not_in: [0]
   }];
-  string uuid = 2 [(buf.validate.field).string.min_len = 1];
+  string uuid = 2 [
+    (buf.validate.field).string.min_len = 1,
+    (buf.validate.field).string.(kent.api.shared.nonblank) = true
+  ];
 }
 
 message WorkflowApprovalState {
-  string approval_id = 1 [(buf.validate.field).string.min_len = 1];
+  string approval_id = 1 [
+    (buf.validate.field).string.min_len = 1,
+    (buf.validate.field).string.(kent.api.shared.nonblank) = true
+  ];
   optional string message = 2;
 }
 
@@ -547,7 +554,7 @@ message WorkflowTaskAttentionTarget {
   string task_id = 3 [(buf.validate.field).string.min_len = 1];
   optional string task_short_id = 4 [(buf.validate.field).string.min_len = 1];
   optional string task_title = 5 [(buf.validate.field).string.min_len = 1];
-  optional string session_id = 6 [(buf.validate.field).string.min_len = 1];
+  optional string session_id = 6 [(buf.validate.field).string.uuid = true, (buf.validate.field).string.(kent.api.shared.canonical_uuid_v4) = true];
   optional string current_node_id = 7 [
     (buf.validate.field).string.min_len = 1,
     (buf.validate.field).cel = {
@@ -569,8 +576,11 @@ message WorkflowTaskAttentionTarget {
 
 message SessionPromptAttentionTarget {
   optional int64 short_id = 3 [(buf.validate.field).int64 = {gt: 0 lte: 9007199254740991}];
-  string session_id = 1 [(buf.validate.field).string.min_len = 1];
-  string project_id = 2 [(buf.validate.field).string.min_len = 1];
+  string session_id = 1 [(buf.validate.field).string.uuid = true, (buf.validate.field).string.(kent.api.shared.canonical_uuid_v4) = true];
+  string project_id = 2 [
+    (buf.validate.field).string.min_len = 1,
+    (buf.validate.field).string.(kent.api.shared.nonblank) = true
+  ];
 }
 
 message AttentionNotificationTarget {
@@ -599,7 +609,14 @@ message AttentionNotification {
     defined_only: true
     not_in: [0]
   }];
-  google.protobuf.Timestamp occurred_at = 3 [(buf.validate.field).required = true];
+  google.protobuf.Timestamp occurred_at = 3 [
+    (buf.validate.field).required = true,
+    (buf.validate.field).cel = {
+      id: "kent.workflow_task.notification_occurrence_nonzero"
+      message: "Notification occurrence must not be Go zero time"
+      expression: "this != timestamp('0001-01-01T00:00:00Z')"
+    }
+  ];
   uint64 revision = 4 [(buf.validate.field).uint64 = {
     gte: 1
     lte: 9007199254740991
@@ -667,7 +684,14 @@ message ResolvedAttentionNotification {
     defined_only: true
     not_in: [0]
   }];
-  google.protobuf.Timestamp occurred_at = 3 [(buf.validate.field).required = true];
+  google.protobuf.Timestamp occurred_at = 3 [
+    (buf.validate.field).required = true,
+    (buf.validate.field).cel = {
+      id: "kent.workflow_task.resolved_notification_occurrence_nonzero"
+      message: "Resolved notification occurrence must not be Go zero time"
+      expression: "this != timestamp('0001-01-01T00:00:00Z')"
+    }
+  ];
 
   option (buf.validate.message).cel = {
     id: "kent.workflow_task.resolved_notification_kind"

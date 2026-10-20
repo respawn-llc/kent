@@ -84,9 +84,6 @@ func (c *sessionRuntimeClient) SetConnectionStateObserver(observer func(error)) 
 
 func (c *sessionRuntimeClient) MainView() *runtimepb.MainView {
 	view, _ := c.cachedMainView()
-	if view.Session.SessionId == "" {
-		view.Session.SessionId = c.sessionID
-	}
 	return view
 }
 
@@ -113,9 +110,6 @@ func (c *sessionRuntimeClient) refreshMainViewSync(timeout time.Duration) (*runt
 	view, err := c.fetchMainViewSync(timeout)
 	if err != nil {
 		c.mu.Lock()
-		if c.mainView.Session.SessionId == "" {
-			c.mainView.Session.SessionId = c.sessionID
-		}
 		c.hasMainView = true
 		view = proto.Clone(c.mainView).(*runtimepb.MainView)
 		c.mu.Unlock()
@@ -135,15 +129,9 @@ func (c *sessionRuntimeClient) fetchMainViewSync(timeout time.Duration) (*runtim
 	c.notifyConnectionState(err)
 	if err != nil {
 		view, _ := c.cachedMainView()
-		if view.Session.SessionId == "" {
-			view.Session.SessionId = c.sessionID
-		}
 		return view, err
 	}
 	view := proto.Clone(resp.MainView).(*runtimepb.MainView)
-	if view.Session.SessionId == "" {
-		view.Session.SessionId = c.sessionID
-	}
 	return view, nil
 }
 

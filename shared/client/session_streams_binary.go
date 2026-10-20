@@ -12,6 +12,8 @@ import (
 	sessionpb "core/shared/protoapi/gen/kent/api/session"
 	sharedpb "core/shared/protoapi/gen/kent/api/shared"
 	transcriptpb "core/shared/protoapi/gen/kent/api/transcript"
+	"core/shared/rpcwire"
+	"core/shared/runtimeids"
 	"core/shared/serverapi"
 
 	"google.golang.org/protobuf/proto"
@@ -39,31 +41,56 @@ func subscribeSessionBinary[
 	c *Remote, ctx context.Context, method protoreflect.MethodDescriptor, request Request,
 	result Result, decodeFailure func(Failure) error, newEvent func() Event,
 ) (*remoteSubscription[Event], error) {
-	var target string
-	switch value := any(request.GetSessionId()).(type) {
-	case string:
-		target = value
-	case *sharedpb.SessionSelector:
-		selector, err := protoapi.SessionSelectorFromProto(value)
-		if err != nil {
-			return nil, err
-		}
-		target = selector.String()
-	}
-	attachment, err := c.subscriptionAttachment(target)
+	operations, err := protoapi.ResolveSubscriptionOperations(method)
 	if err != nil {
 		return nil, err
 	}
-	return subscribeGeneratedBinary(c, ctx, method, request, result, decodeFailure, newEvent,
+	frame, _, err := binaryCallFrame(operations.Subscribe.Name, method, request, result)
+	if err != nil {
+		return nil, err
+	}
+	return subscribePreparedSessionBinary(c, ctx, operations, frame, request, result, decodeFailure, newEvent)
+}
+
+func subscribePreparedSessionBinary[
+	Target interface {
+		string | *sharedpb.SessionSelector
+	},
+	Request interface {
+		proto.Message
+		GetSessionId() Target
+	},
+	Success any, Failure comparableProtoMessage,
+	Result generatedUnaryResult[Success, Failure], Event proto.Message,
+](
+	c *Remote, ctx context.Context, operations protoapi.SubscriptionOperations, frame rpcwire.Frame,
+	request Request, result Result, decodeFailure func(Failure) error, newEvent func() Event,
+) (*remoteSubscription[Event], error) {
+	var target runtimeids.SessionSelector
+	switch value := any(request.GetSessionId()).(type) {
+	case string:
+		target = runtimeids.SessionIDFromProto(value)
+	case *sharedpb.SessionSelector:
+		target = protoapi.SessionSelectorFromProto(value)
+	}
+	attachment := c.subscriptionAttachment(target)
+	return subscribePreparedBinary(c, ctx, operations, frame, result, decodeFailure, newEvent,
 		func() *sharedpb.StreamCompletion { return &sharedpb.StreamCompletion{} }, binaryStreamCompletionError, attachment)
 }
 
 func (c *Remote) SubscribeSessionTranscript(ctx context.Context, request *transcriptpb.SubscribeRequest) (serverapi.TranscriptSubscription, error) {
-	target, err := protoapi.SessionSelectorFromProto(request.GetSessionId())
+	method := bootstrapMethod(transcriptpb.File_kent_api_transcript_transcript_proto, "StreamService", "Subscribe")
+	operations, err := protoapi.ResolveSubscriptionOperations(method)
 	if err != nil {
 		return nil, err
 	}
-	handoff, installHandoff, err := c.prepareDraftHandoff(ctx, target.String())
+	result := &transcriptpb.SubscribeResult{}
+	frame, _, err := binaryCallFrame(operations.Subscribe.Name, method, request, result)
+	if err != nil {
+		return nil, err
+	}
+	target := protoapi.SessionSelectorFromProto(request.GetSessionId())
+	handoff, installHandoff, err := c.prepareDraftHandoff(ctx, target)
 	if err != nil {
 		return nil, err
 	}
@@ -71,9 +98,8 @@ func (c *Remote) SubscribeSessionTranscript(ctx context.Context, request *transc
 	if handoff != nil {
 		subscriptionRemote = handoff.remote
 	}
-	subscription, err := subscribeSessionBinary(subscriptionRemote, ctx,
-		bootstrapMethod(transcriptpb.File_kent_api_transcript_transcript_proto, "StreamService", "Subscribe"),
-		request, &transcriptpb.SubscribeResult{},
+	subscription, err := subscribePreparedSessionBinary(subscriptionRemote, ctx, operations, frame,
+		request, result,
 		func(failure *transcriptpb.SubscribeError) error {
 			return generatedOperationFailure(failure.Code)
 		}, func() *transcriptpb.Message { return &transcriptpb.Message{} })

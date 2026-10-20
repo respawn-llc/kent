@@ -41,7 +41,7 @@ message BootstrapStatus {
   ];
   BootstrapCallbackTransport callback_transport = 7;
   AuthMethod method = 8 [(buf.validate.field).enum.defined_only = true];
-  string connection_id = 9 [(buf.validate.field).string.min_len = 1];
+  string connection_id = 9 [(buf.validate.field).string.(kent.api.shared.connection_id) = true];
 }
 
 message GetBootstrapStatusRequest {
@@ -134,7 +134,7 @@ message BootstrapCompletion {
   AuthMethod method = 3 [(buf.validate.field).enum.defined_only = true];
   optional string account_id = 4 [(buf.validate.field).string.min_len = 1];
   optional string email = 5 [(buf.validate.field).string.min_len = 1];
-  string connection_id = 6 [(buf.validate.field).string.min_len = 1];
+  string connection_id = 6 [(buf.validate.field).string.(kent.api.shared.connection_id) = true];
 }
 
 message AuthRequiredDetails {}
@@ -206,7 +206,7 @@ message CompleteBootstrapResult {
 }
 
 message ProviderSelection {
-  string connection_id = 1 [(buf.validate.field).string.min_len = 1];
+  string connection_id = 1 [(buf.validate.field).string.(kent.api.shared.connection_id) = true];
 }
 
 message GetStatusRequest {
@@ -308,7 +308,7 @@ message ProviderFacts {
 }
 
 message ConnectionFacts {
-  string connection_id = 1 [(buf.validate.field).string.min_len = 1];
+  string connection_id = 1 [(buf.validate.field).string.(kent.api.shared.connection_id) = true];
   AuthMethod method = 2 [(buf.validate.field).enum = {
     defined_only: true
     not_in: [0]
@@ -318,7 +318,7 @@ message ConnectionFacts {
 message StatusFacts {
   AuthMethod method = 1 [(buf.validate.field).enum.defined_only = true];
   ProviderFacts provider = 2 [(buf.validate.field).required = true];
-  string connection_id = 7 [(buf.validate.field).string.min_len = 1];
+  string connection_id = 7 [(buf.validate.field).string.(kent.api.shared.connection_id) = true];
   ConnectionFacts session_connection = 8;
   oneof method_facts {
     OAuthFacts oauth = 4;
@@ -501,7 +501,7 @@ enum ConnectionFailureReason {
 
 message ConnectionFailureDetails {
   ConnectionFailureReason reason = 1 [(buf.validate.field).enum = {defined_only: true, not_in: [0]}];
-  optional string connection_id = 2 [(buf.validate.field).string.min_len = 1];
+  optional string connection_id = 2 [(buf.validate.field).string.(kent.api.shared.connection_id) = true];
   optional string diagnostic = 3 [
     (buf.validate.field).string.min_len = 1,
     (buf.validate.field).cel = {
@@ -536,7 +536,7 @@ message ProviderCapabilitiesOverride {
 }
 
 message ConnectionDefinition {
-  string id = 1 [(buf.validate.field).string.min_len = 1];
+  string id = 1 [(buf.validate.field).string.(kent.api.shared.connection_id) = true];
   ConnectionProtocol protocol = 2 [(buf.validate.field).enum = {defined_only: true, not_in: [0]}];
   optional string endpoint = 3 [(buf.validate.field).string.min_len = 1];
   optional string environment_variable = 4 [(buf.validate.field).string.min_len = 1];
@@ -560,7 +560,7 @@ message ConnectionDefinition {
 message ConnectionTarget {
   oneof target {
     option (buf.validate.oneof).required = true;
-    string connection_id = 1 [(buf.validate.field).string.min_len = 1];
+    string connection_id = 1 [(buf.validate.field).string.(kent.api.shared.connection_id) = true];
     google.protobuf.Empty pending_setup = 2;
     ConnectionDefinition add_connection = 3;
   }
@@ -571,7 +571,11 @@ message GetConnectionsRequest {
 }
 
 message ConnectionSelection {
-  repeated string ids = 1 [(buf.validate.field).repeated = {min_items: 1, unique: true, items: {string: {min_len: 1}}}];
+  repeated string ids = 1 [(buf.validate.field).repeated = {
+    min_items: 1
+    unique: true
+    items: {string: {[kent.api.shared.connection_id]: true}}
+  }];
 }
 
 message ConnectionCatalog {
@@ -590,7 +594,7 @@ message GetConnectionsResult {
 }
 
 message ConnectionReferenceEdit {
-  string connection_id = 1 [(buf.validate.field).string.min_len = 1];
+  string connection_id = 1 [(buf.validate.field).string.(kent.api.shared.connection_id) = true];
   string environment_variable = 2 [(buf.validate.field).string.min_len = 1];
 
   option (buf.validate.message).cel = {
@@ -607,15 +611,8 @@ message ConfigureConnectionRequest {
     google.protobuf.Empty discard_setup = 2;
     ConnectionDefinition add = 3;
     ConnectionReferenceEdit reference = 4;
-    string default_connection_id = 5 [(buf.validate.field).string.min_len = 1];
-    string remove_connection_id = 6 [
-      (buf.validate.field).string.min_len = 1,
-      (buf.validate.field).cel = {
-        id: "kent.auth.connection_removal.id_nonblank"
-        message: "connection ID must be non-blank"
-        expression: "this.trim() != ''"
-      }
-    ];
+    string default_connection_id = 5 [(buf.validate.field).string.(kent.api.shared.connection_id) = true];
+    string remove_connection_id = 6 [(buf.validate.field).string.(kent.api.shared.connection_id) = true];
   }
 }
 

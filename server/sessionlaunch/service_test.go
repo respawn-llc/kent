@@ -124,7 +124,7 @@ func TestDeletedSessionBindingAllocatesNextMember(t *testing.T) {
 	if !reflect.DeepEqual(replacement.Plan.ActiveSettings.Connection, config.SingleConnection("b")) {
 		t.Fatalf("replacement = %v; want next member b", replacement.Plan.ActiveSettings.Connection)
 	}
-	notice, err := launch.BindSessionConnection(store, &replacement.Plan.ActiveSettings, replacement.Plan.Source.Sources)
+	notice, err := launch.BindSessionConnection(store, &replacement.Plan.ActiveSettings, replacement.Plan.Source.Sources, replacement.Plan.ConnectionScope)
 	if err != nil || notice == nil || notice.Previous != "removed" || notice.Current != "b" || *store.Meta().ConnectionID != "b" {
 		t.Fatalf("persisted replacement = %v, %v", notice, err)
 	}
@@ -257,7 +257,7 @@ func TestExplicitUnchangedAgentReplacesDeletedBindingOnce(t *testing.T) {
 	if !reflect.DeepEqual(result.Plan.ActiveSettings.Connection, config.SingleConnection("b")) || result.Plan.ActiveSettings.Model != "gpt-6-luna" {
 		t.Fatalf("replacement settings = %+v", result.Plan.ActiveSettings)
 	}
-	if _, err := launch.BindSessionConnection(store, &result.Plan.ActiveSettings, result.Plan.Source.Sources); err != nil {
+	if _, err := launch.BindSessionConnection(store, &result.Plan.ActiveSettings, result.Plan.Source.Sources, result.Plan.ConnectionScope); err != nil {
 		t.Fatal(err)
 	}
 	if *store.Meta().ConnectionID != "b" || *store.Meta().Continuation.AgentRole != "worker" {
@@ -756,7 +756,7 @@ func TestPlanLaunchSessionRejectsUnknownParentBeforeRegisteringStore(t *testing.
 		PersistenceRoot: t.TempDir(),
 		Settings:        config.Settings{Model: "gpt-6-sol"},
 	}, t.TempDir())
-	unknownParent := mustSessionLaunchIntentID(t, "unknown-parent")
+	unknownParent := runtimeids.NewSessionID()
 	_, err := service.PlanLaunchSession(context.Background(), PlanRequest{
 		Mode:   launch.ModeHeadless,
 		Intent: serverapi.CreateNewSessionLaunchIntent(serverapi.ParentAgentSessionCreateOrigin(unknownParent)),

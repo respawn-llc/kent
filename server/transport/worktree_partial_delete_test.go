@@ -38,7 +38,7 @@ func TestWorktreeDeletionPartialProgressSurvivesGateway(t *testing.T) {
 	for _, cause := range []error{
 		errors.New("Git removal failed"),
 		&worktreecontract.BlockedError{Details: &worktreepb.BlockedDetails{
-			ActiveSessions: &worktreepb.ActiveSessionBlockers{Sessions: []*worktreepb.BlockingSession{{SessionId: "active-session"}}},
+			ActiveSessions: &worktreepb.ActiveSessionBlockers{Sessions: []*worktreepb.BlockingSession{{SessionId: sess.Meta().SessionID}}},
 		}},
 	} {
 		gateway, err := NewGateway(&partialDeleteDependencies{

@@ -146,11 +146,7 @@ func taskCreateSubcommand(args []string, stdout io.Writer, stderr io.Writer) int
 			return 1
 		}
 		if *jsonOut {
-			output, err := taskShowOutputFromDetail(task)
-			if err != nil {
-				fmt.Fprintln(stderr, err)
-				return 1
-			}
+			output := taskShowOutputFromDetail(task)
 			return writeCommandJSON(stdout, stderr, output)
 		}
 		labelNames, err := taskLabelNamesForHumanOutput(context.Background(), remote, task.Summary.ProjectId, task.LabelIds)
@@ -423,32 +419,16 @@ func writeWorkflowExecutionTargetSelectionRequiredForCommand(
 	command string,
 ) {
 	switch {
-	case requirement == nil:
-		fmt.Fprintln(stderr, "Execution target selection is required.")
 	case requirement.GetPolicyRequiresSelection() != nil:
 		fmt.Fprintln(stderr, "Execution target selection is required: workflow policy requires selection.")
 	case requirement.GetConfiguredTargetUnavailable() != nil:
 		configured := requirement.GetConfiguredTargetUnavailable()
-		mode, err := protoapi.WorkflowExecutionTargetMode.Decode(configured.Mode)
-		if err != nil {
-			fmt.Fprintf(stderr, "Execution target selection response is invalid: %v.\n", err)
-			return
-		}
-		cause, err := serverapi.WorkflowUnavailableTargetCause(configured.Cause)
-		if err != nil {
-			fmt.Fprintf(stderr, "Execution target selection response is invalid: %v.\n", err)
-			return
-		}
+		mode := protoapi.WorkflowExecutionTargetMode.FromProto(configured.Mode)
+		cause := serverapi.WorkflowUnavailableTargetCause(configured.Cause)
 		fmt.Fprintf(stderr, "Execution target selection is required: configured target %s is unavailable (%s).\n", workflowConfiguredExecutionTargetSelector(taskConfiguredTargetJSON{Mode: mode, RequestedRef: configured.RequestedRef}), cause)
 	case requirement.GetOriginalTargetUnavailable() != nil:
-		cause, err := serverapi.WorkflowLockedTargetCause(requirement.GetOriginalTargetUnavailable().Cause)
-		if err != nil {
-			fmt.Fprintf(stderr, "Execution target selection response is invalid: %v.\n", err)
-			return
-		}
+		cause := serverapi.WorkflowLockedTargetCause(requirement.GetOriginalTargetUnavailable().Cause)
 		fmt.Fprintf(stderr, "The original execution target cannot be reused (%s). Choose a replacement to continue.\n", cause)
-	default:
-		fmt.Fprintln(stderr, "Execution target selection response is invalid.")
 	}
 	fmt.Fprintln(stderr, "Rerun with one of:")
 	for _, selection := range []string{"none", "head", "default-branch", "ref:<revision>"} {
@@ -457,12 +437,12 @@ func writeWorkflowExecutionTargetSelectionRequiredForCommand(
 			prefix += " "
 		}
 		branch := ""
-		if requirement != nil && requirement.GetOriginalTargetUnavailable() != nil && selection != "none" {
+		if requirement.GetOriginalTargetUnavailable() != nil && selection != "none" {
 			branch = " --branch-name <new-branch-name>"
 		}
 		fmt.Fprintf(stderr, "  %s--execution-target %s%s\n", prefix, selection, branch)
 	}
-	if requirement != nil && requirement.GetOriginalTargetUnavailable() != nil {
+	if requirement.GetOriginalTargetUnavailable() != nil {
 		fmt.Fprintln(stderr, "Managed replacements default to the Task Short ID when --branch-name is omitted. Existing branches are retained; choose another name if it collides.")
 	}
 }
@@ -591,10 +571,6 @@ func taskResumeSubcommand(args []string, stdout io.Writer, stderr io.Writer) int
 			fmt.Fprintln(stderr, err)
 			return 1
 		}
-		if err := protoapi.Validate(resp); err != nil {
-			fmt.Fprintln(stderr, err)
-			return 1
-		}
 		if selection := resp.GetSelectionRequired(); selection != nil {
 			writeWorkflowExecutionTargetSelectionRequired(stderr, selection)
 			return 1
@@ -714,10 +690,6 @@ func taskApproveSubcommand(args []string, stdout io.Writer, stderr io.Writer) in
 			}
 			return 1
 		}
-		if err := protoapi.Validate(resp); err != nil {
-			fmt.Fprintln(stderr, err)
-			return 1
-		}
 		applied := resp.GetApplied()
 		detail, err := getWorkflowTaskByID(context.Background(), remote, applied.TaskId)
 		if err != nil {
@@ -777,10 +749,6 @@ func taskMoveSubcommand(args []string, stdout io.Writer, stderr io.Writer) int {
 			TaskId: taskID, TargetNodeId: positionals[1],
 		})
 		if err != nil {
-			fmt.Fprintln(stderr, err)
-			return 1
-		}
-		if err := protoapi.Validate(preview); err != nil {
 			fmt.Fprintln(stderr, err)
 			return 1
 		}
@@ -863,12 +831,8 @@ func taskMoveSubcommand(args []string, stdout io.Writer, stderr io.Writer) int {
 			var setupErr *worktreecontract.SetupRetainedError
 			if errors.As(err, &setupErr) {
 				if *jsonOut {
-					output, err := taskSetupRetainedOutput(setupErr.Details)
-					if err != nil {
-						fmt.Fprintln(stderr, err)
-					} else {
-						_ = writeCommandJSON(stdout, stderr, output)
-					}
+					output := taskSetupRetainedOutput(setupErr.Details)
+					_ = writeCommandJSON(stdout, stderr, output)
 					return 1
 				}
 				guidance, projectionErr := projectRetainedSetupGuidance(recoveryArgs, executionTarget, setupErr)
@@ -899,10 +863,6 @@ func writeTaskMoveOutcome(
 	jsonOut bool,
 	recoveryCommand string,
 ) int {
-	if err := protoapi.Validate(resp); err != nil {
-		fmt.Fprintln(stderr, err)
-		return 1
-	}
 	output, err := taskMoveOutput(resp)
 	if err != nil {
 		fmt.Fprintln(stderr, err)
@@ -1246,9 +1206,6 @@ func taskMoveRecoveryArgs(taskRef, targetNode string, project, commentary, trans
 }
 
 func projectRetainedSetupGuidance(base []string, target *taskpb.ExecutionTargetSelection, setupErr *worktreecontract.SetupRetainedError) (taskSetupGuidance, error) {
-	if err := protoapi.Validate(setupErr.Details); err != nil {
-		return taskSetupGuidance{}, err
-	}
 	var selector *string
 	if target != nil {
 		value, err := taskExecutionTargetSelector(target)

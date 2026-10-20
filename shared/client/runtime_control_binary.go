@@ -2,7 +2,6 @@ package client
 
 import (
 	"context"
-	"errors"
 	"fmt"
 
 	"core/shared/protoapi"
@@ -149,9 +148,6 @@ func (c *Remote) SetGoal(ctx context.Context, request *runtimepb.GoalSetRequest)
 		return result.GetSuccess(), nil
 	case protoapi.OperationKnownFailure, protoapi.OperationGenericFailure:
 		failure := result.GetError()
-		if failure == nil {
-			return nil, fmt.Errorf("%s classified a failure without an error value", method.FullName())
-		}
 		return nil, goalSetGeneratedError(failure)
 	default:
 		return nil, fmt.Errorf("classify %s result: unknown outcome %d", method.FullName(), classified.Outcome)
@@ -170,12 +166,6 @@ func (e *GoalSetGeneratedError) Error() string {
 }
 
 func goalSetGeneratedError(failure *runtimepb.GoalSetError) error {
-	if failure == nil {
-		return errors.New("Goal Set error is required")
-	}
-	if err := protoapi.Validate(failure); err != nil {
-		return fmt.Errorf("validate Goal Set error: %w", err)
-	}
 	switch failure.Code {
 	case "runtime_unavailable":
 		return protoapi.RuntimeUnavailableFromProto(failure.GetRuntimeUnavailable())

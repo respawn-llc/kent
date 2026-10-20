@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, expect, it, vi } from "bun:test";
 import { act, fireEvent, render, renderHook, screen, waitFor } from "@testing-library/react";
-import { parsePendingWorkItemID } from "@/api";
+import { pendingWorkItemIDFromProto } from "@/api";
 import { createTestServices } from "@/test-support/app-services";
 import { TestAppProviders, composerWrapper } from "@/test-support/composer";
 import { useChatComposer, target } from "./chatComposerTestFixture";
@@ -27,7 +27,7 @@ it.each(["send", "queue"] as const)(
       outcome: {
         kind: "accepted",
         disposition: "started_turn",
-        queueItemID: parsePendingWorkItemID("79f762c8-0998-402a-bc80-6b42f3e241ed"),
+        queueItemID: pendingWorkItemIDFromProto("79f762c8-0998-402a-bc80-6b42f3e241ed"),
         diagnostic: null,
       },
     });

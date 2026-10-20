@@ -2,7 +2,6 @@ package sessionruntime
 
 import (
 	"errors"
-	"fmt"
 	"sort"
 	"strings"
 
@@ -216,17 +215,6 @@ func workflowExecutionLess(leftExecution TaskExecution, rightExecution TaskExecu
 }
 
 func (e TaskExecution) validate() error {
-	if err := e.Ref.Validate(); err != nil {
-		return err
-	}
-	for index, prompt := range e.PendingPrompts {
-		if err := prompt.validate(); err != nil {
-			return fmt.Errorf("pending prompt %d: %w", index, err)
-		}
-		if index != 0 && e.PendingPrompts[index-1].ToolCallID >= prompt.ToolCallID {
-			return errors.New("live workflow execution pending prompts are not sorted and unique")
-		}
-	}
 	if (e.Agent == nil) == (e.Script == nil) {
 		return errors.New("live workflow execution must have exactly one target")
 	}
@@ -245,18 +233,6 @@ func (e TaskExecution) validate() error {
 		return errors.New("queued workflow execution cannot have pending prompts")
 	}
 	return nil
-}
-
-func (p PendingPromptReference) validate() error {
-	if err := p.ToolCallID.Validate(); err != nil {
-		return err
-	}
-	switch p.Kind {
-	case PendingPromptKindQuestion, PendingPromptKindSessionApproval:
-		return nil
-	default:
-		return fmt.Errorf("pending prompt for tool call %q has invalid kind %q", p.ToolCallID, p.Kind)
-	}
 }
 
 func (e TaskExecution) HasPendingPromptKind(kind PendingPromptKind) bool {

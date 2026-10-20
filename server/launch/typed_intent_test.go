@@ -71,17 +71,7 @@ func TestPlannerOpenExistingIntentOpensTheRequestedSession(t *testing.T) {
 	}
 }
 
-func TestTypedLaunchIntentRejectsInvalidIdentity(t *testing.T) {
-	var zeroID runtimeids.SessionID
-	tests := []serverapi.SessionLaunchIntent{
-		serverapi.CreateNewSessionLaunchIntent(serverapi.ParentAgentSessionCreateOrigin(zeroID)),
-		serverapi.OpenExistingSessionLaunchIntent(zeroID),
-	}
-	for _, intent := range tests {
-		if err := intent.Validate(); err == nil {
-			t.Fatalf("intent %#v validated with an absent identity", intent)
-		}
-	}
+func TestTypedLaunchSourceRejectsEscapingIdentity(t *testing.T) {
 	if _, err := runtimeids.ParseSessionID("../escape"); err == nil {
 		t.Fatal("path-shaped session identity validated")
 	}

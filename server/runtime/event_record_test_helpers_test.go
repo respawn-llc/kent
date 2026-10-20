@@ -67,9 +67,5 @@ func mustQueueUserMessage(t *testing.T, engine *Engine, text string) QueuedUserM
 
 func mustQueuedUserMessageText(t *testing.T, item QueuedUserMessage) string {
 	t.Helper()
-	text, err := item.DisplayText()
-	if err != nil {
-		t.Fatalf("queued message text: %v", err)
-	}
-	return text
+	return item.DisplayText()
 }

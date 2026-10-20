@@ -26,6 +26,7 @@ type WorktreeCommandModel = Readonly<{
 }>;
 
 export function useWorktreeCommands(
+  projectID: string | null,
   sessionID: string | null,
   focusComposer: () => void,
   openSession: (sessionID: string) => void | Promise<void>,
@@ -41,10 +42,12 @@ export function useWorktreeCommands(
     () =>
       Atom.make((get) => {
         if (sessionID === null) return null;
+        if (projectID === null) throw new Error("Worktree actions require a Project.");
         const preview = Atom.make<WorktreeDeletePreview | null>(null);
         const dependencies = {
           client,
           api,
+          projectID,
           sessionID,
           push,
           t,
@@ -78,7 +81,7 @@ export function useWorktreeCommands(
           },
         };
       }),
-    [api, client, currentSurface, focusComposer, openOriginSession, push, roots, sessionID, t],
+    [api, client, currentSurface, focusComposer, openOriginSession, projectID, push, roots, sessionID, t],
   );
   const model = useAtomValue(scope);
   const commands = useMemo(

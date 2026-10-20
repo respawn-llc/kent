@@ -14,7 +14,6 @@ import (
 	"core/server/runtimeactivity"
 	"core/server/session"
 	"core/server/workflow"
-	"core/shared/protoapi"
 	runtimepb "core/shared/protoapi/gen/kent/api/runtime"
 	taskpb "core/shared/protoapi/gen/kent/api/workflow_task"
 	"core/shared/serverapi"
@@ -47,9 +46,6 @@ func NewTaskSessions(metadataStore *metadata.Store, activities ActiveTaskSession
 func (s *TaskSessions) List(ctx context.Context, req *taskpb.TaskOffsetPageRequest) (*taskpb.SessionListSuccess, error) {
 	if s == nil || s.queries == nil {
 		return nil, errors.New("Task Sessions read model is required")
-	}
-	if err := protoapi.Validate(req); err != nil {
-		return nil, err
 	}
 	taskID := strings.TrimSpace(req.TaskId)
 	if _, err := s.queries.GetTask(ctx, taskID); err != nil {
@@ -177,9 +173,6 @@ func (s *TaskSessions) activeTaskSessions(ctx context.Context, taskID string) ([
 }
 
 func taskSessionStatus(activity *runtimepb.Activity) (taskpb.SessionStatus, error) {
-	if err := protoapi.Validate(activity); err != nil {
-		return taskpb.SessionStatus_SESSION_STATUS_UNSPECIFIED, err
-	}
 	switch activity.State {
 	case runtimepb.ActivityState_RUNTIME_ACTIVITY_AWAITING_PROMPT:
 		return taskpb.SessionStatus_SESSION_STATUS_QUESTION, nil

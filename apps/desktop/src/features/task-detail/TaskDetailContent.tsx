@@ -12,6 +12,7 @@ import { useAppNavigation } from "@/app-facade";
 import { TaskDeleteProvider } from "./TaskDeleteButton";
 import { TaskDetailList } from "./TaskDetailList";
 import type { TaskDetailSessionChatEntry } from "./taskDetailSessionChat";
+import type { SessionChatOpeningIntent } from "@/app-facade";
 import { taskDetailSidebarDestination } from "./taskDetailSidebarDestination";
 import type { TaskDetailDeleteDismissal } from "./taskDetailDismissal";
 import type { PromptAnswerKey } from "./PromptAnswerState";
@@ -32,6 +33,7 @@ export function TaskDetailContent({
   onDeleteDismiss,
   onMutated,
   openSessionChat,
+  sessionChatDefaultIntent,
   navigator,
   sidebarDestination,
   sidebarMode,
@@ -47,6 +49,7 @@ export function TaskDetailContent({
   onDeleteDismiss: TaskDetailDeleteDismissal;
   onMutated?: (() => void) | undefined;
   openSessionChat?: TaskDetailSessionChatEntry | undefined;
+  sessionChatDefaultIntent: SessionChatOpeningIntent;
   navigator?: SidebarPageNavigator | undefined;
   openSidebar?: SidebarRootController["open"] | undefined;
   sidebarDestination?: Extract<SidebarDestination, { kind: "taskDetail" }> | undefined;
@@ -163,6 +166,7 @@ export function TaskDetailContent({
           }}
           onSaveDraft={saveDraft}
           openSessionChat={openSessionChat}
+          sessionChatDefaultIntent={sessionChatDefaultIntent}
           primaryFocusRequest={primaryFocusRequest}
           promptAnswerState={promptAnswerState}
           selectedTab={selectedTab}

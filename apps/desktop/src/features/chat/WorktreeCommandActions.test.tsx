@@ -18,6 +18,7 @@ it.each([false, true])("resolves a command selector before Switch, current=%s", 
   const model = createWorktreeCommandActions({
     client: new QueryClient(),
     api: services.api,
+    projectID: "project-1",
     sessionID: "33333333-3333-4333-8333-333333333333",
     roots: { open },
     focusComposer: vi.fn(),
@@ -71,6 +72,7 @@ it("dispatches Leave without resolving or listing targets", async () => {
   const model = createWorktreeCommandActions({
     client: new QueryClient(),
     api: services.api,
+    projectID: "project-1",
     sessionID: "33333333-3333-4333-8333-333333333333",
     roots: { open },
     focusComposer: vi.fn(),
@@ -124,6 +126,7 @@ it.each(["resolveWorktreeSelector", "switchWorktree"] as const)(
     const model = createWorktreeCommandActions({
       client: new QueryClient(),
       api: services.api,
+      projectID: "project-1",
       sessionID: "33333333-3333-4333-8333-333333333333",
       roots: { open: vi.fn() },
       focusComposer: vi.fn(),
@@ -177,6 +180,7 @@ it.each(["list", "create"] as const)("opens the ordinary %s destination", async 
   const model = createWorktreeCommandActions({
     client: new QueryClient(),
     api: services.api,
+    projectID: "project-1",
     sessionID: "33333333-3333-4333-8333-333333333333",
     roots: { open },
     focusComposer: vi.fn(),

@@ -24,8 +24,7 @@ it("preserves graph impact and blocker identities through generated validation",
       },
     ],
   });
-  validate(GraphSavePreviewSuccessSchema, preview);
-  expect(workflowSavePreview(preview)).toMatchObject({
+  expect(workflowSavePreview(validate(GraphSavePreviewSuccessSchema, preview))).toMatchObject({
     changed: true,
     impact: { removedEntities: [{ entityID: edgeID, entityType: "edge" }] },
     blockers: [{ affectedEntities: [{ entityID: edgeID, entityType: "edge" }] }],

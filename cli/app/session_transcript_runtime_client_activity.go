@@ -20,10 +20,6 @@ func (c *sessionRuntimeClient) mergeRuntimeTuple(
 	decision := decideRuntimeTuple(c.mainView.Version, candidate.Version, ingress)
 	if decision == runtimeTupleApply {
 		applyRuntimeTuple(c.mainView, candidate)
-		if c.mainView.Session.SessionId == "" {
-			c.mainView.Session.SessionId = c.sessionID
-			c.advanceMetadataRevision()
-		}
 		c.hasMainView = true
 	}
 	return runtimeTupleMergeResult{decision: decision, view: proto.CloneOf(c.mainView), project: decision == runtimeTupleApply}
@@ -49,7 +45,7 @@ func (c *sessionRuntimeClient) admitTranscriptMessageState(message *transcriptpb
 			applyRuntimeTuple(c.mainView, candidate)
 		}
 		applyTranscriptHydrationMetadataToMainView(c.mainView, hydration)
-		c.ensureMainViewIdentity()
+		c.hasMainView = true
 		c.advanceMetadataRevision()
 		result = runtimeTupleMergeResult{decision: decision, view: proto.CloneOf(c.mainView), project: true}
 	case *transcriptpb.Event_RuntimeReadModelUpdate:
@@ -57,29 +53,18 @@ func (c *sessionRuntimeClient) admitTranscriptMessageState(message *transcriptpb
 		decision := decideRuntimeTuple(c.mainView.Version, candidate.Version, runtimeTupleIngressIncremental)
 		if decision == runtimeTupleApply {
 			applyRuntimeTuple(c.mainView, candidate)
-			if c.ensureMainViewIdentity() {
-				c.advanceMetadataRevision()
-			}
+			c.hasMainView = true
 		}
 		result = runtimeTupleMergeResult{decision: decision, view: proto.CloneOf(c.mainView), project: decision == runtimeTupleApply}
 	default:
 		metadataChanged := applyTranscriptMetadataToMainView(c.mainView, message)
-		if c.ensureMainViewIdentity() || metadataChanged {
+		c.hasMainView = true
+		if metadataChanged {
 			c.advanceMetadataRevision()
 		}
 		result.view = proto.CloneOf(c.mainView)
 	}
 	return result, nil
-}
-
-func (c *sessionRuntimeClient) ensureMainViewIdentity() bool {
-	if c.mainView.Session.SessionId == "" {
-		c.mainView.Session.SessionId = c.sessionID
-		c.hasMainView = true
-		return true
-	}
-	c.hasMainView = true
-	return false
 }
 
 func applyTranscriptMetadataToMainView(view *runtimepb.MainView, message *transcriptpb.Message) bool {

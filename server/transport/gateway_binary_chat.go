@@ -104,11 +104,7 @@ func registerChatUnary[
 }
 
 func chatTargetScope[Request protoapi.ChatTargetRequest](request Request) (routeScopeParams, error) {
-	target, err := protoapi.ChatTargetFromRequest(request)
-	if err != nil {
-		return routeScopeParams{}, err
-	}
-	return routeScopeParams{chatTarget: target}, nil
+	return routeScopeParams{chatTarget: request.GetTarget()}, nil
 }
 
 func binaryChatFailure[Request protoapi.ChatTargetRequest](

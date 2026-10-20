@@ -3,7 +3,6 @@ package main
 import (
 	"errors"
 
-	"core/shared/protoapi"
 	taskpb "core/shared/protoapi/gen/kent/api/workflow_task"
 	worktreepb "core/shared/protoapi/gen/kent/api/worktree"
 )
@@ -101,22 +100,14 @@ type taskSetupRetainedJSON struct {
 	RetainedPreviousWorktree *taskRetainedWorktreeJSON  `json:"retained_previous_worktree"`
 }
 
-func taskSetupRetainedOutput(details *worktreepb.SetupRetainedDetails) (taskSetupRetainedJSON, error) {
-	if err := protoapi.Validate(details); err != nil {
-		return taskSetupRetainedJSON{}, err
-	}
-	var disposition string
-	switch details.RecoveryDisposition {
-	case worktreepb.SetupRecoveryDisposition_SETUP_RECOVERY_DISPOSITION_RETRY_EXISTING:
-		disposition = "retry_existing"
-	case worktreepb.SetupRecoveryDisposition_SETUP_RECOVERY_DISPOSITION_FRESH_REPLACEMENT:
-		disposition = "fresh_replacement"
-	default:
-		return taskSetupRetainedJSON{}, errors.New("invalid setup recovery disposition")
-	}
+func taskSetupRetainedOutput(details *worktreepb.SetupRetainedDetails) taskSetupRetainedJSON {
+	disposition := map[worktreepb.SetupRecoveryDisposition]string{
+		worktreepb.SetupRecoveryDisposition_SETUP_RECOVERY_DISPOSITION_RETRY_EXISTING:    "retry_existing",
+		worktreepb.SetupRecoveryDisposition_SETUP_RECOVERY_DISPOSITION_FRESH_REPLACEMENT: "fresh_replacement",
+	}[details.RecoveryDisposition]
 	return taskSetupRetainedJSON{
 		Type: "worktree_setup_retained", RecoveryDisposition: disposition,
 		Worktree: taskRegisteredWorktreeOutput(details.Worktree), ScriptPath: details.ScriptPath,
 		Diagnostic: details.Diagnostic, RetainedPreviousWorktree: taskRetainedWorktreeOutput(details.RetainedPreviousWorktree),
-	}, nil
+	}
 }

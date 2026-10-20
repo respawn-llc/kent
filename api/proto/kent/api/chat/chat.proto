@@ -87,7 +87,7 @@ message Activation {
 
     string text = 1 [
       (buf.validate.field).string.min_len = 1,
-      (buf.validate.field).string.(kent.api.shared.nonblank) = true
+      (buf.validate.field).string.(kent.api.shared.pending_work_nonblank) = true
     ];
     CommandInvocation command = 2;
   }

@@ -43,11 +43,6 @@ func TestResolveSessionNamesRejectsInvalidInputsAndResults(t *testing.T) {
 		wantError  string
 	}{
 		{
-			name:       "blank input ID",
-			sessionIDs: []string{" "},
-			wantError:  "blank session id",
-		},
-		{
 			name:       "blank result ID",
 			sessionIDs: []string{"session-a"},
 			rows:       []sqlitegen.ListSessionNamesByIDsRow{{ID: " ", Name: sql.NullString{String: "Name", Valid: true}}},

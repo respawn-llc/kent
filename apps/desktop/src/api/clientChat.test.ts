@@ -2,7 +2,7 @@ import { describe, expect, it } from "bun:test";
 import { StreamFailureCode } from "@app/server-api-contract/gen/kent/api/shared/foundation_pb";
 import { unexpectedProjectOverflow } from "@/test-support/api";
 import { ApiClient } from "./client";
-import { parsePendingWorkItemID } from "./pendingWork";
+import { pendingWorkItemIDFromProto } from "./pendingWork";
 import { ContractError, RpcError, TransportError } from "./errors";
 import { FakeRpcTransport } from "@/test-support/api";
 import { create, encode } from "@app/server-api-contract";
@@ -830,7 +830,11 @@ describe("Desktop Chat mutation adapter", () => {
     ]);
     const chat = new ApiClient(transport, unexpectedProjectOverflow).chat;
 
-    await chat.steer(sessionTarget, { kind: "text", text: "continue" }, parsePendingWorkItemID(queueItemID));
+    await chat.steer(
+      sessionTarget,
+      { kind: "text", text: "continue" },
+      pendingWorkItemIDFromProto(queueItemID),
+    );
     await chat.queue(
       newChatTarget,
       {
@@ -840,7 +844,7 @@ describe("Desktop Chat mutation adapter", () => {
         separatorWhitespace: "\t",
         arguments: "working tree",
       },
-      parsePendingWorkItemID(queueItemID),
+      pendingWorkItemIDFromProto(queueItemID),
     );
     const rejected = await chat.compact(newChatTarget, {
       token: "/compact",
@@ -975,7 +979,7 @@ describe("Desktop Chat mutation adapter", () => {
     const queued = await chat.queue(
       sessionTarget,
       { kind: "text", text: "continue" },
-      parsePendingWorkItemID(queueItemID),
+      pendingWorkItemIDFromProto(queueItemID),
     );
     if (queued.outcome.kind !== "accepted") throw new Error("Expected accepted Queue fixture.");
     expect(queued.outcome.queueItemID.toJSONValue()).toBe(queueItemID);
@@ -1012,7 +1016,7 @@ describe("Desktop Chat mutation adapter", () => {
       unexpectedProjectOverflow,
     ).chat;
     const error = await failingChat
-      .queue(sessionTarget, { kind: "text", text: "continue" }, parsePendingWorkItemID(queueItemID))
+      .queue(sessionTarget, { kind: "text", text: "continue" }, pendingWorkItemIDFromProto(queueItemID))
       .catch((cause: unknown) => cause);
     expect(error).toBeInstanceOf(ChatOperationError);
     expect(error).toMatchObject({
@@ -1072,7 +1076,7 @@ describe("Desktop Chat mutation adapter", () => {
             kind: "text",
             text: "continue",
           },
-          parsePendingWorkItemID(queueItemID),
+          pendingWorkItemIDFromProto(queueItemID),
         )
         .then(
           () => {

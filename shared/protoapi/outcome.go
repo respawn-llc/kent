@@ -45,9 +45,6 @@ func FailureResult(method protoreflect.MethodDescriptor, detail proto.Message) (
 	}
 	detailName := detail.ProtoReflect().Descriptor().FullName()
 	if detailName == convention.failure.Message().FullName() {
-		if err := Validate(detail); err != nil {
-			return nil, err
-		}
 		result := dynamicpb.NewMessage(method.Output())
 		result.Set(convention.failure, protoreflect.ValueOfMessage(detail.ProtoReflect()))
 		return result, nil

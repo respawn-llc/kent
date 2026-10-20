@@ -42,21 +42,6 @@ type InitialChatSettings struct {
 	AutoCompactionEnabled bool    `json:"auto_compaction_enabled"`
 }
 
-func (s InitialChatSettings) Validate() error {
-	if err := validateChatTargetID("agent_role", &s.AgentRole); err != nil {
-		return err
-	}
-	switch s.Supervisor {
-	case "off", "edits", "all":
-	default:
-		return fmt.Errorf("initial Chat Supervisor %q is invalid", s.Supervisor)
-	}
-	if s.Thinking != nil {
-		return validateChatTargetID("thinking", s.Thinking)
-	}
-	return nil
-}
-
 type ChatSettingsAgentPreparationCategory string
 
 const (

@@ -5,7 +5,7 @@ import { useQueryClient } from "@tanstack/react-query";
 import * as Atom from "effect/reactivity/Atom";
 import { useAtomSet } from "@effect/atom-react";
 import {
-  parsePendingWorkItemID,
+  pendingWorkItemIDFromProto,
   type ChatInputMutationResult,
   type ChatRuntimeActivity,
   type PendingWorkItemID,
@@ -135,7 +135,7 @@ it.each(["accepted", "not_accepted", "error"] as const)(
   async (outcome) => {
     const { result, inputID, accept, fail, rejected } = await setup();
     const pendingItem = {
-      id: parsePendingWorkItemID(inputID.toJSONValue()),
+      id: pendingWorkItemIDFromProto(inputID.toJSONValue()),
       kind: "message" as const,
       lane: "steer" as const,
       state: "pending" as const,
@@ -144,7 +144,7 @@ it.each(["accepted", "not_accepted", "error"] as const)(
     };
     await act(async () => {
       result.current.observeOutgoing({
-        committedIDs: [inputID, parsePendingWorkItemID(inputID.toJSONValue())],
+        committedIDs: [inputID, pendingWorkItemIDFromProto(inputID.toJSONValue())],
         pendingItems: [pendingItem],
         pendingFetching: true,
       });
@@ -188,7 +188,7 @@ it("reconciles canonical committed IDs from the stable runtime observation witho
     observation.onUserInputCommitted([
       inputID.toJSONValue(),
       inputID.toJSONValue(),
-      parsePendingWorkItemID("5b26bfad-a049-49a8-a4cd-cdc2bbf6ea36").toJSONValue(),
+      pendingWorkItemIDFromProto("5b26bfad-a049-49a8-a4cd-cdc2bbf6ea36").toJSONValue(),
     ]);
   });
   expect(result.current.text).toBe("");
@@ -459,7 +459,7 @@ it.each(["not_accepted", "error"] as const)(
   async (outcome) => {
     const { result, inputID, accept, fail, rejected } = await setup("queue");
     const pendingItem = {
-      id: parsePendingWorkItemID(inputID.toJSONValue()),
+      id: pendingWorkItemIDFromProto(inputID.toJSONValue()),
       kind: "message" as const,
       lane: "queue" as const,
       state: "pending" as const,

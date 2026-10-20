@@ -106,7 +106,6 @@ func (m *uiModel) loadDetailTranscriptPageWithOptionsCmd(
 		var page *transcriptpb.Page
 		if err == nil {
 			page = resp.Transcript
-			err = validateDetailTranscriptPageResponse(sessionID, page)
 		}
 		if deadline != nil && errors.Is(err, context.DeadlineExceeded) {
 			err = fmt.Errorf("%w: %w", errRollbackNavigationTimedOut, err)
@@ -119,13 +118,7 @@ func validateDetailTranscriptPageResponse(
 	requestSessionID runtimeids.SessionID,
 	page *transcriptpb.Page,
 ) error {
-	if err := protoapi.Validate(page); err != nil {
-		return err
-	}
-	responseSessionID, err := runtimeids.ParseSessionID(page.SessionId)
-	if err != nil {
-		return err
-	}
+	responseSessionID := runtimeids.SessionIDFromProto(page.SessionId)
 	if responseSessionID != requestSessionID {
 		return fmt.Errorf(
 			"transcript page session %s does not match requested session %s",

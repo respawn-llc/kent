@@ -33,9 +33,6 @@ func (e *Engine) scheduleOperationalPendingWork(ctx context.Context, request ope
 	if err := e.requirePendingWorkCapacity(); err != nil {
 		return err
 	}
-	if err := request.item.Validate(); err != nil {
-		return err
-	}
 	if request.item.Kind == runtimeinput.PendingWorkItemKindManualCompaction {
 		if err := e.manualCompactionAdmissionError(); err != nil {
 			return err
@@ -104,10 +101,7 @@ func manualCompactionPendingWorkItem(payload runtimeinput.ManualCompactionAdmiss
 		guidance := *payload.Guidance
 		payload.Guidance = &guidance
 	}
-	canonical, err := payload.CanonicalInput()
-	if err != nil {
-		return runtimeinput.PendingWorkItem{}, err
-	}
+	canonical := payload.CanonicalInput()
 	item := runtimeinput.PendingWorkItem{
 		ID: runtimeids.NewQueueItemID(), Lane: runtimeinput.PendingWorkLaneSteer, Kind: runtimeinput.PendingWorkItemKindManualCompaction,
 		State: runtimeinput.PendingWorkItemStatePending, CanonicalInput: canonical, ManualCompaction: &payload,

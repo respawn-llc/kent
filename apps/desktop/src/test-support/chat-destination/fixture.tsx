@@ -95,6 +95,7 @@ function sessionSettingsRead(): Extract<ChatSettingsRead, { kind: "session" }> {
 }
 const openSession = vi.fn<(sessionID: string) => void | Promise<void>>();
 const navigation = {
+  projectID: sessionTarget.projectID,
   openTask: vi.fn<(taskID: string) => void>(),
   openParentSession: openSession,
   openEditedSession: openSession,

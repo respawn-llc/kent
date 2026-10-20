@@ -33,9 +33,6 @@ func (c *sessionRuntimeClient) mergeMainViewCandidate(
 	metadataBaselineRevision *uint64,
 ) runtimeTupleMergeResult {
 	view = proto.Clone(view).(*runtimepb.MainView)
-	if view.Session.SessionId == "" {
-		view.Session.SessionId = c.sessionID
-	}
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	decision := decideRuntimeTuple(c.mainView.Version, view.Version, ingress)
@@ -67,9 +64,6 @@ func (c *sessionRuntimeClient) advanceMetadataRevision() {
 func (c *sessionRuntimeClient) patchMainView(apply func(view *runtimepb.MainView)) {
 	c.mu.Lock()
 	apply(c.mainView)
-	if c.mainView.Session.SessionId == "" {
-		c.mainView.Session.SessionId = c.sessionID
-	}
 	c.hasMainView = true
 	c.advanceMetadataRevision()
 	c.mu.Unlock()

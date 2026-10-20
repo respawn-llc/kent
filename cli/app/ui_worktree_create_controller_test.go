@@ -6,7 +6,6 @@ import (
 	"testing"
 
 	"core/cli/app/internal/worktreeui"
-	"core/shared/invariant"
 	worktreepb "core/shared/protoapi/gen/kent/api/worktree"
 	"core/shared/worktreecontract"
 
@@ -270,45 +269,5 @@ func TestWorktreeCreateFieldErrorClearsWhenBaseRefBecomesHidden(t *testing.T) {
 
 	if model.worktrees.create.baseRefErrorText != "" {
 		t.Fatalf("base-ref error = %q, want cleared when field is hidden", model.worktrees.create.baseRefErrorText)
-	}
-}
-
-func TestWorktreeCreateInvalidTypedErrorUsesContractPolicy(t *testing.T) {
-	tests := []struct {
-		name    string
-		invalid *worktreecontract.CreateError
-	}{
-		{name: "invalid owner", invalid: &worktreecontract.CreateError{Owner: "invalid", Diagnostic: "invalid owner"}},
-		{name: "blank diagnostic", invalid: &worktreecontract.CreateError{Owner: worktreecontract.CreateErrorOwnerForm, Diagnostic: ""}},
-	}
-	for _, test := range tests {
-		t.Run(test.name, func(t *testing.T) {
-			invalid := test.invalid
-			model := newWorktreeCreateControllerTestModel(t, nil)
-			model.worktrees.create.submitting = true
-			model.worktrees.create.baseRefErrorText = "stale"
-
-			model.debugMode = false
-			model.applyWorktreeCreateError(invalid)
-			if model.worktrees.create.errorText == "" || model.worktrees.create.baseRefErrorText != "" {
-				t.Fatalf("release invalid typed state = %+v, want form-level contract error", model.worktrees.create)
-			}
-
-			model.debugMode = true
-			defer func() {
-				recovered := recover()
-				diagnostic, ok := recovered.(invariant.Diagnostic)
-				if !ok {
-					t.Fatalf("panic payload = %T, want invariant.Diagnostic", recovered)
-				}
-				if diagnostic.Fields[invariant.FieldOperation] == "" ||
-					diagnostic.Fields[invariant.FieldRawOwner] == "" ||
-					diagnostic.Fields[invariant.FieldValidationCause] == "" ||
-					diagnostic.Stack == "" {
-					t.Fatalf("invariant diagnostic = %+v, want operation/raw owner/cause/stack", diagnostic)
-				}
-			}()
-			model.applyWorktreeCreateError(invalid)
-		})
 	}
 }

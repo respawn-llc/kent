@@ -93,9 +93,6 @@ func (c *CurrentNodeController) Interrupt(ctx context.Context, selector Interrup
 	if c == nil {
 		return errors.New("current node workflow controller is required")
 	}
-	if err := selector.Validate(); err != nil {
-		return err
-	}
 	var (
 		stopHandles    []sessionruntime.ExecutionHandle
 		waitHandles    []sessionruntime.ExecutionHandle

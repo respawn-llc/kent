@@ -88,16 +88,7 @@ func NewSetupRetainedError(
 	diagnostic string,
 	retainedPreviousWorktree *worktreepb.RetainedPreviousWorktree,
 	cause error,
-) (*SetupRetainedError, error) {
-	if worktree == nil {
-		return nil, errors.New("retained setup error requires a registered worktree")
-	}
-	if strings.TrimSpace(scriptPath) == "" {
-		return nil, errors.New("retained setup error script_path is required")
-	}
-	if strings.TrimSpace(diagnostic) == "" {
-		return nil, errors.New("retained setup error diagnostic is required")
-	}
+) *SetupRetainedError {
 	return &SetupRetainedError{
 		Details: &worktreepb.SetupRetainedDetails{
 			Worktree:                 worktree,
@@ -107,7 +98,7 @@ func NewSetupRetainedError(
 			RecoveryDisposition:      worktreepb.SetupRecoveryDisposition_SETUP_RECOVERY_DISPOSITION_RETRY_EXISTING,
 		},
 		cause: cause,
-	}, nil
+	}
 }
 
 func (e *SetupRetainedError) Error() string {
@@ -245,20 +236,3 @@ func (e *CreateContractError) Unwrap() error {
 }
 
 func (e *CreateContractError) Is(target error) bool { return target == ErrWorktreeCreateContract }
-
-func ValidateCreateError(err error, operation string) error {
-	var typed *CreateError
-	if !errors.As(err, &typed) {
-		return nil
-	}
-	if validationErr := typed.Validate(); validationErr != nil {
-		var owner *CreateErrorOwner
-		if typed != nil {
-			owner = &typed.Owner
-		}
-		return &CreateContractError{
-			Operation: strings.TrimSpace(operation), Owner: owner, Cause: validationErr,
-		}
-	}
-	return nil
-}

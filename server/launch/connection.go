@@ -196,7 +196,7 @@ func (r *connectionAssignments) leastConsumed(members []config.ConnectionID, sco
 	return selected
 }
 
-func (p RunPromptPreparationContext) prepareConnection(ctx context.Context, settings *config.Settings, source config.SourceReport) error {
+func (p RunPromptPreparationContext) prepareConnection(ctx context.Context, settings *config.Settings, source config.SourceReport, scope config.ConnectionScope) error {
 	saved := p.ConnectionID
 	if retained := p.RetainedConnectionSelection; retained != nil {
 		if saved != nil || p.AllocateConnection {
@@ -211,7 +211,7 @@ func (p RunPromptPreparationContext) prepareConnection(ctx context.Context, sett
 		}
 		saved = retained
 	}
-	id, _, err := p.Rotation.ResolveSessionConnection(ctx, *settings, saved, p.AllocateConnection)
+	id, _, err := p.Rotation.ResolveSessionConnection(ctx, *settings, source, scope, saved, p.AllocateConnection)
 	if err != nil {
 		return err
 	}
@@ -221,11 +221,18 @@ func (p RunPromptPreparationContext) prepareConnection(ctx context.Context, sett
 
 // ResolveSessionConnection projects a binding without changing Session metadata.
 // Only a removed definition permits ordinary resume to select a replacement.
-func ResolveSessionConnection(settings config.Settings, saved *config.ConnectionID) (config.ConnectionID, *config.ConnectionReplacement, error) {
-	return (*ConnectionRotation)(nil).ResolveSessionConnection(context.Background(), settings, saved, false)
+func ResolveSessionConnection(settings config.Settings, source config.SourceReport, scope config.ConnectionScope, saved *config.ConnectionID) (config.ConnectionID, *config.ConnectionReplacement, error) {
+	return (*ConnectionRotation)(nil).ResolveSessionConnection(context.Background(), settings, source, scope, saved, false)
 }
 
-func (r *ConnectionRotation) ResolveSessionConnection(ctx context.Context, settings config.Settings, saved *config.ConnectionID, allocate bool) (config.ConnectionID, *config.ConnectionReplacement, error) {
+func (r *ConnectionRotation) ResolveSessionConnection(
+	ctx context.Context,
+	settings config.Settings,
+	source config.SourceReport,
+	scope config.ConnectionScope,
+	saved *config.ConnectionID,
+	allocate bool,
+) (config.ConnectionID, *config.ConnectionReplacement, error) {
 	if saved != nil {
 		if _, err := config.ParseConnectionID(string(*saved)); err != nil {
 			return "", nil, err
@@ -234,7 +241,8 @@ func (r *ConnectionRotation) ResolveSessionConnection(ctx context.Context, setti
 			return *saved, nil, nil
 		}
 	}
-	selected, err := r.Prepare(ctx, settings, allocate)
+	candidates, _, _ := sessionConnectionCandidates(settings, source, scope)
+	selected, err := r.Prepare(ctx, candidates, allocate)
 	if err != nil {
 		return "", nil, err
 	}
@@ -244,15 +252,41 @@ func (r *ConnectionRotation) ResolveSessionConnection(ctx context.Context, setti
 	return selected, &config.ConnectionReplacement{Previous: *saved, Current: selected}, nil
 }
 
-func BindSessionConnection(store *session.Store, settings *config.Settings, sources map[string]config.Origin) (*config.ConnectionReplacement, error) {
-	return (*ConnectionRotation)(nil).BindSessionConnection(context.Background(), store, settings, sources)
+func BindSessionConnection(store *session.Store, settings *config.Settings, sources map[string]config.Origin, scope config.ConnectionScope) (*config.ConnectionReplacement, error) {
+	return (*ConnectionRotation)(nil).BindSessionConnection(context.Background(), store, settings, sources, scope)
 }
 
-func (r *ConnectionRotation) BindSessionConnection(ctx context.Context, store *session.Store, settings *config.Settings, sources map[string]config.Origin) (*config.ConnectionReplacement, error) {
+func (r *ConnectionRotation) BindSessionConnection(ctx context.Context, store *session.Store, settings *config.Settings, sources map[string]config.Origin, scope config.ConnectionScope) (*config.ConnectionReplacement, error) {
 	saved := store.Meta().ConnectionID
-	selected, replacement, err := r.ResolveSessionConnection(ctx, *settings, saved, true)
-	if err != nil {
-		return nil, err
+	source := config.SourceReport{Sources: sources}
+	_, _, fallback := sessionConnectionCandidates(*settings, source, scope)
+	var selected config.ConnectionID
+	var replacement *config.ConnectionReplacement
+	selectedResolved := false
+	if fallback {
+		if planned, err := settings.Connection.ConcreteID(); err == nil {
+			_, plannedDefined := settings.Connections[*planned]
+			savedDefined := false
+			if saved != nil {
+				_, savedDefined = settings.Connections[*saved]
+			}
+			if plannedDefined && !savedDefined {
+				// Session planning already selected this connection. Bind that
+				// result rather than allocating from the fallback candidates again.
+				selected = *planned
+				if saved != nil {
+					replacement = &config.ConnectionReplacement{Previous: *saved, Current: selected}
+				}
+				selectedResolved = true
+			}
+		}
+	}
+	if !selectedResolved {
+		var err error
+		selected, replacement, err = r.ResolveSessionConnection(ctx, *settings, source, scope, saved, true)
+		if err != nil {
+			return nil, err
+		}
 	}
 	if saved == nil || *saved != selected {
 		if err := store.SetConnectionID(selected); err != nil {
@@ -265,7 +299,9 @@ func (r *ConnectionRotation) BindSessionConnection(ctx context.Context, store *s
 	return replacement, nil
 }
 func projectSessionConnection(settings *config.Settings, source config.SourceReport, meta session.Meta) error {
-	selected, _, err := ResolveSessionConnection(*settings, meta.ConnectionID)
+	selected, _, err := ResolveSessionConnection(
+		*settings, source, config.ConnectionScope{Selection: settings.Connection}, meta.ConnectionID,
+	)
 	if err != nil {
 		return err
 	}
@@ -282,4 +318,47 @@ func projectSessionConnection(settings *config.Settings, source config.SourceRep
 	}
 	config.InheritReviewerSettings(settings, source.Sources)
 	return nil
+}
+
+func sessionConnectionCandidates(
+	settings config.Settings,
+	source config.SourceReport,
+	scope config.ConnectionScope,
+) (config.Settings, config.ConnectionID, bool) {
+	if scope.UnavailableRole != nil || scope.Selection == nil || len(*scope.Selection) != 1 {
+		return settings, "", false
+	}
+	origin, present := source.Sources["connection"]
+	if !present || origin.Property.Role != nil {
+		return settings, "", false
+	}
+	defaultID := (*scope.Selection)[0]
+	if _, present := settings.Connections[defaultID]; present {
+		return settings, "", false
+	}
+	members := make(config.ConnectionSelection, 0, len(settings.Connections))
+	for _, id := range settings.ConnectionOrder {
+		if _, present := settings.Connections[id]; present {
+			members = append(members, id)
+		}
+	}
+	if len(members) == 0 {
+		return settings, "", false
+	}
+	candidates := settings
+	candidates.Connection = &members
+	return candidates, defaultID, true
+}
+
+func subagentConnectionSource(source config.SourceReport, role config.SubagentRole) config.SourceReport {
+	origin, present := role.Sources["connection"]
+	if !present || source.Sources["connection"].OverridesRole("connection") {
+		return source
+	}
+	source.Sources = maps.Clone(source.Sources)
+	if source.Sources == nil {
+		source.Sources = make(map[string]config.Origin)
+	}
+	source.Sources["connection"] = origin
+	return source
 }

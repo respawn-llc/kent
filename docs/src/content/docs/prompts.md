@@ -16,7 +16,7 @@ These files are `developer`-level instructions.
 
 ## System Prompt
 
-Kent selects one configured custom prompt through [configuration precedence](../config/#precedence): global, shared workspace, then Main Workspace private settings. A selected role uses its own `system_prompt_file` when configured and inherits the agent selection when omitted.
+Kent selects one configured custom prompt through [configuration precedence](../config/#precedence): global, shared workspace, then Main Workspace private settings. A selected role's `system_prompt_file` replaces the inherited agent selection. Omission inherits; an explicitly empty path is invalid.
 
 The selected file keeps its scope in this priority order, lowest to highest. Only one of the configured-file entries participates:
 
@@ -32,7 +32,6 @@ Paths are resolved relative to the configuration file that supplies them unless 
 Kent snapshots the rendered system prompt when it creates the session contract. Edits take effect after successful compaction and the next model request.
 
 ## Placeholders
-
 You can assemble your own system prompt from building blocks provided by Kent. It's highly recommended to leave the instructions about the harness (`HarnessWorkflowAutonomy`) intact.
 
 System prompt files use Go template syntax with these fields:
@@ -62,7 +61,7 @@ Additionally, if `tool_preambles = true` in the [config](../config/), another bl
 
 ## Supervisor System Prompt
 
-Set `reviewer.system_prompt_file` to use a custom supervisor system prompt:
+`reviewer.system_prompt_file` replaces Kent's built-in supervisor system prompt:
 
 - `~/.kent/config.toml`
 - `<workspace-root>/.kent/config.toml`

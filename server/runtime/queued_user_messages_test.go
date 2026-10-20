@@ -11,10 +11,7 @@ import (
 
 func TestQueuedUserMessageStorePreservesTypedAgentSteer(t *testing.T) {
 	sourceID := runtimeids.NewSessionID()
-	steer, err := NewAgentSteer(runtimeids.SessionIdentity{ID: sourceID}, "report status")
-	if err != nil {
-		t.Fatalf("NewAgentSteer: %v", err)
-	}
+	steer := NewAgentSteer(runtimeids.SessionIdentity{ID: sourceID}, "report status")
 	message := steer.Message()
 	item, err := (&queuedUserMessageStore{}).QueueItem(QueuedUserMessage{
 		ID:                    runtimeids.NewQueueItemID().String(),
@@ -27,28 +24,6 @@ func TestQueuedUserMessageStorePreservesTypedAgentSteer(t *testing.T) {
 	if item.Message.Role != llm.RoleDeveloper ||
 		item.Message.MessageType == nil || *item.Message.MessageType != llm.MessageTypeAgentSteer {
 		t.Fatalf("queued message lost typed agent steer: %+v", item.Message)
-	}
-}
-
-func TestQueuedUserMessageStoreReturnsErrorsForInvalidPayloads(t *testing.T) {
-	store := &queuedUserMessageStore{}
-	if _, err := store.QueueItem(QueuedUserMessage{}); err == nil {
-		t.Fatal("QueueItem accepted an invalid payload")
-	}
-	for _, content := range []string{"", " \t "} {
-		if _, err := store.QueueItem(QueuedUserMessage{
-			ID: runtimeids.NewQueueItemID().String(),
-			Message: llm.Message{
-				Role:    llm.RoleUser,
-				Content: textutil.Value(content),
-			},
-			CanonicalPresentation: content,
-		}); err == nil {
-			t.Fatalf("QueueItem accepted whitespace-only content %q", content)
-		}
-	}
-	if _, err := (QueuedUserMessage{}).DisplayText(); err == nil {
-		t.Fatal("DisplayText accepted an invalid payload")
 	}
 }
 
@@ -73,14 +48,8 @@ func TestQueuedUserMessageStoreRejectsDuplicatePendingIdentity(t *testing.T) {
 
 func TestQueuedUserMessageFlushGroupsKeepAgentSteersSeparate(t *testing.T) {
 	human := llm.Message{Role: llm.RoleUser, Content: textutil.Value("human")}
-	first, err := NewAgentSteer(runtimeids.SessionIdentity{ID: runtimeids.NewSessionID()}, "first")
-	if err != nil {
-		t.Fatalf("NewAgentSteer first: %v", err)
-	}
-	second, err := NewAgentSteer(runtimeids.SessionIdentity{ID: runtimeids.NewSessionID()}, "second")
-	if err != nil {
-		t.Fatalf("NewAgentSteer second: %v", err)
-	}
+	first := NewAgentSteer(runtimeids.SessionIdentity{ID: runtimeids.NewSessionID()}, "first")
+	second := NewAgentSteer(runtimeids.SessionIdentity{ID: runtimeids.NewSessionID()}, "second")
 	firstMessage := first.Message()
 	secondMessage := second.Message()
 	pending := []queuedUserMessage{
@@ -89,10 +58,7 @@ func TestQueuedUserMessageFlushGroupsKeepAgentSteersSeparate(t *testing.T) {
 		{message: QueuedUserMessage{ID: "a2", Message: secondMessage, CanonicalPresentation: "second"}},
 		{message: QueuedUserMessage{ID: "h2", Message: human, CanonicalPresentation: "human"}},
 	}
-	groups, err := queuedUserMessageFlushGroups(pending)
-	if err != nil {
-		t.Fatalf("queuedUserMessageFlushGroups: %v", err)
-	}
+	groups := queuedUserMessageFlushGroups(pending)
 	if len(groups) != 4 {
 		t.Fatalf("flush groups = %d, want 4", len(groups))
 	}

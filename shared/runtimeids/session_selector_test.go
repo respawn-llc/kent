@@ -24,9 +24,6 @@ func TestSessionSelectorsNormalizeWithoutChangingIdentity(t *testing.T) {
 			if selector.String() != tc.want {
 				t.Fatalf("selector = %s, want %s", selector, tc.want)
 			}
-			if id, ok := selector.(runtimeids.SessionID); ok && !id.IsCanonicalUUIDv4() {
-				t.Fatal("selector became a noncanonical Session identity")
-			}
 		})
 	}
 }

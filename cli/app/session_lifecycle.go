@@ -129,18 +129,12 @@ func runSessionLifecycleWithOptions(ctx context.Context, server interactiveSessi
 				return errors.New("session lifecycle returned no result")
 			}
 
-			canonicalIntent, err := protoapi.SessionLaunchIntentFromProto(next.GetLaunch().Intent)
-			if err != nil {
-				return err
-			}
+			canonicalIntent := protoapi.SessionLaunchIntentFromProto(next.GetLaunch().Intent)
 			intent, err = protoapi.SessionLaunchRequestIntentToProto(canonicalIntent)
 			if err != nil {
 				return err
 			}
 			preparation = next.GetLaunch().Preparation
-		}
-		if preparation == nil {
-			return errors.New("launch directive is missing preparation")
 		}
 		reboundServer, rebound, err := bindNavigationSessionContext(ctx, server, preparation)
 		if err != nil {
@@ -153,9 +147,10 @@ func runSessionLifecycleWithOptions(ctx context.Context, server interactiveSessi
 			server = reboundServer
 			planner = newSessionLaunchPlanner(server)
 		}
-		launchRequest, err := sessionLaunchRequestFromIntent(intent, mergeSessionPlanOverrides(opts.InvocationOverrides, nextSessionOverrides))
-		if err != nil {
-			return err
+		launchRequest := sessionLaunchRequest{
+			Mode:      launchModeInteractive,
+			Intent:    intent,
+			Overrides: mergeSessionPlanOverrides(opts.InvocationOverrides, nextSessionOverrides),
 		}
 		if err := server.EnsureConnectionSetup(ctx); err != nil {
 			if errors.Is(err, ErrAuthCanceledByUser) {
@@ -317,12 +312,9 @@ func prepareSessionUIRun(
 			promptCatalog = catalogClient
 			response, catalogErr := catalogClient.GetPromptCommandCatalog(ctx, &promptcommandpb.GetCatalogRequest{})
 			if catalogErr == nil {
-				var entries []commands.PromptCommandCatalogEntry
-				entries, catalogErr = promptCatalogSnapshot(response)
+				entries := promptCatalogSnapshot(response)
 				catalogEntries = entries
-				if catalogErr == nil {
-					commandRegistry = commands.NewDefaultRegistryWithPromptCatalog(entries)
-				}
+				commandRegistry = commands.NewDefaultRegistryWithPromptCatalog(entries)
 			}
 			if catalogErr != nil {
 				notice := "Custom prompt commands are unavailable for this session."
@@ -393,18 +385,6 @@ func sessionLaunchInitialStateFromServer(
 		return sessionLaunchInitialState{}, err
 	}
 	return sessionLaunchInitialState{Input: resp.Input}, nil
-}
-
-func sessionLaunchRequestFromIntent(intent *sessionlaunchpb.SessionLaunchRequestIntent, overrides serverapi.RunPromptOverrides) (sessionLaunchRequest, error) {
-	if err := protoapi.Validate(intent); err != nil {
-		return sessionLaunchRequest{}, err
-	}
-	request := sessionLaunchRequest{
-		Mode:      launchModeInteractive,
-		Intent:    intent,
-		Overrides: overrides,
-	}
-	return request, nil
 }
 
 func sessionLaunchPreparationValues(preparation *sessionlaunchpb.SessionLaunchPreparation) (string, bool, string, bool, error) {

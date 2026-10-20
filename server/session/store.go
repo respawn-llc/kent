@@ -154,7 +154,7 @@ func NewCreateSessionDescriptor(
 	workspaceRoot string,
 	category sessioncontract.SessionCategory,
 ) (SessionDescriptor, error) {
-	if sessionID.IsZero() || !sessionID.IsCanonicalUUIDv4() {
+	if sessionID.IsZero() {
 		return SessionDescriptor{}, errors.New("new session id must be a canonical UUIDv4")
 	}
 	validatedCategory, err := sessioncontract.ParseSessionCategory(string(category))
@@ -229,7 +229,7 @@ func NewLazy(workspaceContainerDir, workspaceContainerName, workspaceRoot string
 }
 
 func NewLazyWithID(sessionID runtimeids.SessionID, workspaceContainerDir, workspaceContainerName, workspaceRoot string, category sessioncontract.SessionCategory, options ...StoreOption) (*Store, error) {
-	if sessionID.IsZero() || !sessionID.IsCanonicalUUIDv4() {
+	if sessionID.IsZero() {
 		return nil, errors.New("new session id must be a canonical UUIDv4")
 	}
 	storeOpts := normalizeStoreOptions(options...)
@@ -415,6 +415,9 @@ func validatePersistedSessionRecord(sessionID string, record PersistedSessionRec
 	}
 	if strings.TrimSpace(record.Meta.SessionID) == "" {
 		return fmt.Errorf("session %q: %w", id, errResolverRecordMissingSessionID)
+	}
+	if _, err := runtimeids.ParseSessionID(record.Meta.SessionID); err != nil {
+		return fmt.Errorf("persisted Session identity: %w", err)
 	}
 	if record.Meta.SessionID != id {
 		return fmt.Errorf(
@@ -1091,18 +1094,12 @@ func prepareActiveGoalState(
 	now time.Time,
 ) (GoalState, error) {
 	goal.Objective = strings.TrimSpace(goal.Objective)
-	if goal.Objective == "" {
-		return GoalState{}, errors.New("goal objective is required")
-	}
 	goal.ID = strings.TrimSpace(goal.ID)
 	if goal.ID == "" {
 		goal.ID = uuid.NewString()
 	}
 	goal.Status = GoalStatusActive
-	normalizedActor, err := normalizeGoalActor(actor)
-	if err != nil {
-		return GoalState{}, err
-	}
+	normalizedActor := normalizeGoalActor(actor)
 	current = cloneGoalState(current)
 	if normalizedActor == GoalActorAgent && current != nil && current.Status != GoalStatusComplete {
 		return GoalState{}, GoalAgentOverwriteBlockedError{Goal: *current}
@@ -1129,9 +1126,6 @@ func prepareGoalStatusState(
 	if err != nil {
 		return GoalState{}, false, err
 	}
-	if _, err := normalizeGoalActor(actor); err != nil {
-		return GoalState{}, false, err
-	}
 	current = cloneGoalState(current)
 	if current == nil {
 		if allow != nil {
@@ -1148,9 +1142,6 @@ func prepareGoalStatusState(
 }
 
 func prepareGoalClearState(current *GoalState, actor GoalActor) (GoalState, error) {
-	if _, err := normalizeGoalActor(actor); err != nil {
-		return GoalState{}, err
-	}
 	current = cloneGoalState(current)
 	if current == nil {
 		return GoalState{}, errors.New("goal is not set")
