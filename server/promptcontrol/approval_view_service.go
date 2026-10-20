@@ -25,9 +25,6 @@ func NewApprovalViewService(prompts PendingPromptSource, store *metadata.Store) 
 }
 
 func (s *ApprovalViewService) ListPendingApprovalsBySession(ctx context.Context, req *promptpb.ListPendingRequest) (*promptpb.ListApprovalsSuccess, error) {
-	if err := protoapi.Validate(req); err != nil {
-		return nil, err
-	}
 	if s == nil || s.prompts == nil {
 		return nil, fmt.Errorf("pending prompt source is required")
 	}

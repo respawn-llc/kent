@@ -124,7 +124,7 @@ func TestRunWatchCallerCancellationKeepsInterruptExitCode(t *testing.T) {
 }
 
 func TestTaskObservationRendersDiscriminatorAndTaskTargetForOneQuestion(t *testing.T) {
-	sessionID := "session-1"
+	sessionID := "11111111-1111-4111-8111-111111111111"
 	response := &taskpb.ObserveSuccess{
 		TaskId: "task-1", TaskShortId: "T-1",
 		Outcomes: []*taskpb.ObserveOutcome{{Outcome: &taskpb.ObserveOutcome_Question{Question: &taskpb.ObserveQuestion{
@@ -157,7 +157,7 @@ func TestTaskObservationRendersDiscriminatorAndTaskTargetForOneQuestion(t *testi
 }
 
 func TestTaskObservationUsesSessionTargetsForParallelQuestions(t *testing.T) {
-	firstSession, secondSession := "session-1", "session-2"
+	firstSession, secondSession := "11111111-1111-4111-8111-111111111111", "22222222-2222-4222-8222-222222222222"
 	firstShort, secondShort := int64(123), int64(124)
 	response := &taskpb.ObserveSuccess{
 		TaskId: "task-1", TaskShortId: "T-1",

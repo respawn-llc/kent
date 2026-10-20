@@ -20,6 +20,7 @@ import (
 	"core/server/llm"
 	"core/server/onboarding"
 	"core/shared/config"
+	"core/shared/protoapi"
 	authpb "core/shared/protoapi/gen/kent/api/auth"
 	capabilitypb "core/shared/protoapi/gen/kent/api/capability"
 	onboardingpb "core/shared/protoapi/gen/kent/api/onboarding"
@@ -804,16 +805,14 @@ func TestFinalizerRestoresPreexistingEmptyTargetDirectoryOnRollback(t *testing.T
 	}
 }
 
-func TestFinalizerRejectsNonV4ProviderUUID(t *testing.T) {
-	root := t.TempDir()
-	home := t.TempDir()
+func TestFinalizeBoundaryRejectsNonV4ProviderUUID(t *testing.T) {
 	v1UUID := uuid.MustParse("6ba7b810-9dad-11d1-80b4-00c04fd430c8")
 
-	_, err := newTestFinalizer(t, root, home).Finalize(context.Background(), &onboardingpb.FinalizeRequest{
+	err := protoapi.Validate(&onboardingpb.FinalizeRequest{
 		SkillsImport: &onboardingpb.ImportSelection{Mode: onboardingpb.ImportMode_IMPORT_MODE_SYMLINK_SOURCE, ProviderUuid: ptr(v1UUID.String())},
 	})
-	if !errors.Is(err, serverapi.ErrOnboardingFinalizeInvalidRequest) {
-		t.Fatalf("error = %v, want invalid_request", err)
+	if err == nil {
+		t.Fatal("non-v4 provider identity accepted at generated boundary")
 	}
 }
 

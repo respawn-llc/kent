@@ -1,11 +1,10 @@
 import { create } from "@app/server-api-contract";
 import {
   AttentionReadService,
-  type AttentionItem as GeneratedAttentionItem,
+  type AttentionItemValid as GeneratedAttentionItem,
   type InterruptedCurrentNodeDetails,
   type AttentionQuestionPrompt as GeneratedQuestionPrompt,
 } from "@app/server-api-contract/gen/kent/api/workflow_task/attention_pb";
-import { required } from "./chatWire";
 import { timestampMillis } from "./clientTime";
 import { taskCurrentNode } from "./clientTaskProjection";
 import { ContractError } from "./errors";
@@ -36,7 +35,7 @@ export async function listAttention(
   return {
     items: response.items.map(attentionItem),
     nextPageToken: response.nextPageToken ?? null,
-    generatedAt: timestampMillis(required(response.generatedAt)),
+    generatedAt: timestampMillis(response.generatedAt),
   };
 }
 
@@ -48,7 +47,7 @@ export async function listTaskAttention(transport: RpcTransport, taskId: string)
   );
   const items = response.items.map(attentionItem);
   requireTaskBoundItems(taskId, items);
-  return { items, generatedAt: timestampMillis(required(response.generatedAt)) };
+  return { items, generatedAt: timestampMillis(response.generatedAt) };
 }
 
 export function attentionItem(value: GeneratedAttentionItem): AttentionItem {
@@ -59,7 +58,7 @@ export function attentionItem(value: GeneratedAttentionItem): AttentionItem {
     taskID: value.taskId,
     taskShortID: value.taskShortId,
     taskTitle: value.taskTitle,
-    occurredAt: timestampMillis(required(value.occurredAt)),
+    occurredAt: timestampMillis(value.occurredAt),
   };
   switch (value.detail.case) {
     case "question": {
@@ -68,14 +67,14 @@ export function attentionItem(value: GeneratedAttentionItem): AttentionItem {
         ...base,
         kind: "question" as const,
         message: detail.message ?? null,
-        currentNode: taskCurrentNode(required(detail.currentNode)),
+        currentNode: taskCurrentNode(detail.currentNode),
         sessionName: detail.sessionName ?? null,
-        question: attentionQuestion(required(detail.question)),
+        question: attentionQuestion(detail.question),
       };
     }
     case "approval": {
       const detail = value.detail.value;
-      const snapshot = required(detail.approvalSnapshot);
+      const snapshot = detail.approvalSnapshot;
       return {
         ...base,
         kind: "approval",
@@ -98,7 +97,7 @@ export function attentionItem(value: GeneratedAttentionItem): AttentionItem {
         ...base,
         kind: "interrupted_current_node",
         message: detail.message ?? null,
-        currentNode: taskCurrentNode(required(detail.currentNode)),
+        currentNode: taskCurrentNode(detail.currentNode),
         sessionID: detail.sessionId ?? null,
         detailJSON: detail.details === undefined ? null : interruptionDiagnosticJSON(detail.details),
       };

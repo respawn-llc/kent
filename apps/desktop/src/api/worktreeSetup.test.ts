@@ -21,9 +21,9 @@ import {
 } from "@app/server-api-contract/gen/kent/api/worktree/worktree_pb";
 
 import { ApiClient } from "./client";
-import { newSetupOperationID, parseSetupOperationID } from "./setupOperationID";
+import { newSetupOperationID, SetupOperationID } from "./setupOperationID";
 const setupIDWire = "123e4567-e89b-42d3-a456-426614174000";
-const setupID = parseSetupOperationID(setupIDWire);
+const setupID = SetupOperationID.fromProto(setupIDWire);
 const startedSetupEvent = create(SetupEventSchema, {
   setupOperationId: setupIDWire,
   phase: {
@@ -64,13 +64,6 @@ const failedSetupEvent = create(SetupEventSchema, {
 });
 
 describe("worktree setup API", () => {
-  it("rejects malformed setup operation ids before RPC submission can use them", () => {
-    expect(() => parseSetupOperationID("11111111-1111-1111-1111-111111111111")).toThrow(
-      "Setup operation id must be a UUID v4.",
-    );
-    expect(() => parseSetupOperationID("not-a-uuid")).toThrow("Setup operation id must be a UUID v4.");
-  });
-
   it("uses caller-provided setup operation ids only for asynchronous workflow lifecycle mutations", async () => {
     const transport = new FakeRpcTransport([
       setupSubscriptionRoute(),

@@ -85,7 +85,7 @@ describe("Worktree query ownership", () => {
         baseRef: null,
       })
       .catch(() => undefined);
-    const operation = selector.worktree?.projection?.switch;
+    const operation = selector.worktree.projection.switch;
     if (operation === undefined) throw new Error("fixture omitted Switch authority");
     await services.api
       .switchWorktree("33333333-3333-4333-8333-333333333333", operation)

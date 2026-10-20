@@ -302,12 +302,8 @@ message ToolRow {
   optional kent.api.prompt.QuestionAnswer question_answer = 9;
   optional WebSearchDetail web_search = 10;
   optional string answered_by_session_id = 11 [
-    (buf.validate.field).string.min_len = 1,
-    (buf.validate.field).cel = {
-      id: "kent.transcript.tool_row_answerer_nonblank"
-      message: "answered-by Session ID must be non-blank"
-      expression: "this.trim() != ''"
-    }
+    (buf.validate.field).string.uuid = true,
+    (buf.validate.field).string.(kent.api.shared.canonical_uuid_v4) = true
   ];
   optional ViewedImageKind viewed_image_kind = 12 [(buf.validate.field).enum = {defined_only: true not_in: [0]}];
   option (buf.validate.message).cel = {
@@ -319,6 +315,16 @@ message ToolRow {
     id: "kent.transcript.tool_row_patch_owner"
     message: "Patch/Edit tools require patch presentation and other tools cannot carry it"
     expression: "has(this.tool_name) && this.tool_name in ['patch', 'edit', 'replace', 'write'] ? (has(this.presentation) && has(this.presentation.patch_presentation)) : (!has(this.presentation) || !has(this.presentation.patch_presentation))"
+  };
+  option (buf.validate.message).cel = {
+    id: "kent.transcript.tool_row_normalized_patch_owner"
+    message: "Normalized Patch/Edit tool names require patch presentation and other tools cannot carry it"
+    expression: "has(this.tool_name) && this.tool_name.trim() in ['patch', 'edit', 'replace', 'write'] ? (has(this.presentation) && has(this.presentation.patch_presentation)) : (!has(this.presentation) || !has(this.presentation.patch_presentation))"
+  };
+  option (buf.validate.message).cel = {
+    id: "kent.transcript.tool_row_presentation_owner"
+    message: "Tool presentation requires a tool name"
+    expression: "!has(this.presentation) || has(this.tool_name)"
   };
 }
 
@@ -597,8 +603,8 @@ message SessionIdentity {
     not_in: [0]
   }];
   optional int64 short_id = 6 [(buf.validate.field).int64 = {gt: 0 lte: 9007199254740991}];
-  string session_id = 1 [(buf.validate.field).string.min_len = 1];
-  optional string session_name = 2 [(buf.validate.field).string.min_len = 1];
+  string session_id = 1 [(buf.validate.field).string.uuid = true, (buf.validate.field).string.(kent.api.shared.canonical_uuid_v4) = true];
+  optional string session_name = 2 [(buf.validate.field).string.min_len = 1, (buf.validate.field).string.(kent.api.shared.nonblank) = true];
   kent.api.runtime.ConversationFreshness conversation_freshness = 3 [(buf.validate.field).enum = {
     defined_only: true
     not_in: [0]
@@ -636,10 +642,15 @@ message SessionStatus {
     ]
   }];
   int32 compaction_count = 9 [(buf.validate.field).int32.gte = 0];
-  optional string previous_session_id = 10 [(buf.validate.field).string.min_len = 1];
-  optional string parent_agent_session_id = 11 [(buf.validate.field).string.min_len = 1];
-  optional string navigation_target_session_id = 12 [(buf.validate.field).string.min_len = 1];
+  optional string previous_session_id = 10 [(buf.validate.field).string.uuid = true, (buf.validate.field).string.(kent.api.shared.canonical_uuid_v4) = true];
+  optional string parent_agent_session_id = 11 [(buf.validate.field).string.uuid = true, (buf.validate.field).string.(kent.api.shared.canonical_uuid_v4) = true];
+  optional string navigation_target_session_id = 12 [(buf.validate.field).string.uuid = true, (buf.validate.field).string.(kent.api.shared.canonical_uuid_v4) = true];
   optional kent.api.runtime.WorkflowSessionStatus workflow = 13;
+  option (buf.validate.message).cel = {
+    id: "kent.transcript.workflow_task_nonblank"
+    message: "workflow task_id must be non-blank when workflow is present"
+    expression: "!has(this.workflow) || this.workflow.task_id.trim() != ''"
+  };
   option (buf.validate.message).cel = {
     id: "kent.transcript.fast_mode_availability"
     message: "fast mode cannot be enabled when unavailable"
@@ -780,6 +791,11 @@ message ToolStart {
     id: "kent.transcript.tool_start_patch_owner"
     message: "Patch/Edit tools require patch presentation and other tools cannot carry it"
     expression: "this.tool_name in ['patch', 'edit', 'replace', 'write'] ? (has(this.presentation) && has(this.presentation.patch_presentation)) : (!has(this.presentation) || !has(this.presentation.patch_presentation))"
+  };
+  option (buf.validate.message).cel = {
+    id: "kent.transcript.tool_start_normalized_patch_owner"
+    message: "Normalized Patch/Edit tool names require patch presentation and other tools cannot carry it"
+    expression: "this.tool_name.trim() in ['patch', 'edit', 'replace', 'write'] ? (has(this.presentation) && has(this.presentation.patch_presentation)) : (!has(this.presentation) || !has(this.presentation.patch_presentation))"
   };
 }
 
@@ -1300,7 +1316,7 @@ message RollbackCandidate {
 }
 
 message Page {
-  string session_id = 1 [(buf.validate.field).string.min_len = 1];
+  string session_id = 1 [(buf.validate.field).string.uuid = true, (buf.validate.field).string.(kent.api.shared.canonical_uuid_v4) = true];
   optional string session_name = 2 [(buf.validate.field).string.min_len = 1];
   kent.api.runtime.ConversationFreshness conversation_freshness = 3 [(buf.validate.field).enum = {
     defined_only: true
@@ -1356,12 +1372,8 @@ message SubscribeRequest {
 }
 message AppendCommittedEntryRequest {
   string session_id = 1 [
-    (buf.validate.field).string.min_len = 1,
-    (buf.validate.field).cel = {
-      id: "kent.transcript.append_entry_session_id_nonblank"
-      message: "session ID must be non-blank"
-      expression: "this.trim() != ''"
-    }
+    (buf.validate.field).string.uuid = true,
+    (buf.validate.field).string.(kent.api.shared.canonical_uuid_v4) = true
   ];
   string role = 2;
   string text = 3;

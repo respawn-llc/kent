@@ -46,9 +46,6 @@ func NewService(opts Options) *Service {
 }
 
 func (s *Service) GetFacts(ctx context.Context, req *capabilitypb.GetFactsRequest) (*capabilitypb.Facts, error) {
-	if req == nil {
-		return nil, errors.New("capability facts request is required")
-	}
 	providerIDs := normalizedProviderIDs(req.ExplicitLlmProviderIds)
 	settings := s.cfg.Settings
 	if s.setup != nil {

@@ -21,9 +21,6 @@ func NewAskViewService(prompts PendingPromptSource, store *metadata.Store) *AskV
 }
 
 func (s *AskViewService) ListPendingAsksBySession(ctx context.Context, req *promptpb.ListPendingRequest) (*promptpb.ListQuestionsSuccess, error) {
-	if err := protoapi.Validate(req); err != nil {
-		return nil, err
-	}
 	if s == nil || s.prompts == nil {
 		return nil, fmt.Errorf("pending prompt source is required")
 	}

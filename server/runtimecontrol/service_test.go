@@ -1462,10 +1462,7 @@ func TestServiceLiveSteerAgentCallerUsesOneWrappedDeveloperMessage(t *testing.T)
 		t.Fatal("timed out waiting for active runtime")
 	}
 	sourceID := runtimeids.NewSessionID()
-	steer, err := runtime.NewAgentSteer(runtimeids.SessionIdentity{ID: sourceID}, "steer live")
-	if err != nil {
-		t.Fatalf("NewAgentSteer: %v", err)
-	}
+	steer := runtime.NewAgentSteer(runtimeids.SessionIdentity{ID: sourceID}, "steer live")
 	sourceText := sourceID.String()
 	steerDone := liveSteerRuntimeControlAsync(service, &runtimepb.LiveSteerRequest{
 		QueueItemId:     runtimeids.NewQueueItemID().String(),
@@ -3020,10 +3017,7 @@ func TestServiceAdmitQueuedPromptCommandUsesExpandedExecutionAndCanonicalPresent
 	request := runtimeControlUserTurnRequest(store, "chat-queue-command", "unused")
 	request.Input = &runtimepb.UserTurnInput{Input: &runtimepb.UserTurnInput_PromptCommand{PromptCommand: &runtimepb.PromptCommandInput{Name: runtimeinput.PromptCommandReviewName, Arguments: "src"}}}
 
-	input, err := protoapi.UserTurnInputFromProto(request.Input)
-	if err != nil {
-		t.Fatal(err)
-	}
+	input := protoapi.UserTurnInputFromProto(request.Input)
 	prepared, err := service.PrepareUserTurn(t.Context(), request.SessionId, input)
 	if err != nil {
 		t.Fatal(err)

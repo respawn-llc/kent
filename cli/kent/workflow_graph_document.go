@@ -100,7 +100,7 @@ func prepareWorkflowGraphDocumentContract() (workflowGraphDocumentContract, erro
 }
 
 func workflowGraphDocumentFromDefinition(definition *pb.WorkflowDefinition) (workflowGraphDocument, error) {
-	id, err := runtimeids.ParseWorkflowID(definition.Workflow.Id)
+	id, err := runtimeids.WorkflowIDFromProto(definition.Workflow.Id)
 	if err != nil {
 		return workflowGraphDocument{}, err
 	}
@@ -108,14 +108,14 @@ func workflowGraphDocumentFromDefinition(definition *pb.WorkflowDefinition) (wor
 		id,
 		definition.Workflow.Version,
 		protoapi.WorkflowGraphDraftFromDefinition(definition),
-	)
+	), nil
 }
 
 func workflowGraphDocumentFromDraft(
 	workflowID runtimeids.WorkflowID,
 	expectedVersion int64,
 	graph *pb.GraphDraft,
-) (workflowGraphDocument, error) {
+) workflowGraphDocument {
 	document := workflowGraphDocument{
 		WorkflowID:      workflowID,
 		ExpectedVersion: expectedVersion,
@@ -132,10 +132,7 @@ func workflowGraphDocumentFromDraft(
 		})
 	}
 	for _, node := range graph.Nodes {
-		value, err := workflowDocumentNode(node)
-		if err != nil {
-			return workflowGraphDocument{}, err
-		}
+		value := workflowDocumentNode(node)
 		document.Graph.Nodes = append(document.Graph.Nodes, value)
 	}
 	for _, group := range graph.TransitionGroups {
@@ -145,13 +142,10 @@ func workflowGraphDocumentFromDraft(
 		})
 	}
 	for _, edge := range graph.Edges {
-		value, err := workflowDocumentEdge(edge)
-		if err != nil {
-			return workflowGraphDocument{}, err
-		}
+		value := workflowDocumentEdge(edge)
 		document.Graph.Edges = append(document.Graph.Edges, value)
 	}
-	return document, nil
+	return document
 }
 
 func (c workflowGraphDocumentContract) Decode(data []byte) (workflowGraphDocument, error) {
@@ -208,13 +202,6 @@ func (d workflowGraphDocument) WorkflowGraphDraft() (*pb.GraphDraft, error) {
 			return nil, err
 		}
 		graph.Edges = append(graph.Edges, value)
-	}
-	if err := protoapi.Validate(&pb.GraphValidateDraftRequest{
-		WorkflowId: d.WorkflowID.String(),
-		Graph:      graph,
-		Modes:      []pb.ValidationMode{pb.ValidationMode_WORKFLOW_VALIDATION_MODE_DRAFT},
-	}); err != nil {
-		return nil, err
 	}
 	return graph, nil
 }

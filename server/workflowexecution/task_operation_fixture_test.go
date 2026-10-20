@@ -139,7 +139,7 @@ func controllerTaskFixtureInStoreWithGraph(
 	if err != nil || !saved.Saved {
 		t.Fatalf("save controller workflow: %v, %v", saved.ValidationErrors, err)
 	}
-	if _, err := store.LinkWorkflow(ctx, binding.ProjectID, record.ID, true); err != nil {
+	if _, err := store.LinkWorkflowWithDefaultPolicy(ctx, binding.ProjectID, record.ID, workflowstore.WorkflowLinkDefaultAlways); err != nil {
 		t.Fatal(err)
 	}
 	task, err := store.CreateTask(ctx, workflowstore.CreateTaskRequest{ProjectID: binding.ProjectID, SourceWorkspaceID: binding.WorkspaceID, Title: "Controller operation"})

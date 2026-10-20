@@ -223,7 +223,7 @@ message FinalizeRequest {
   ];
   ImportSelection skills_import = 12;
   ImportSelection commands_import = 13;
-  repeated string disabled_skill_names = 14 [(buf.validate.field).repeated.items.string.min_len = 1];
+  repeated string disabled_skill_names = 14 [(buf.validate.field).repeated.items.string.(kent.api.shared.nonblank) = true];
 
 }
 

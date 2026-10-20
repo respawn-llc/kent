@@ -126,14 +126,8 @@ func (c *sessionRuntimeClient) SetGoal(objective string) (*runtimepb.GoalSetSucc
 	if err != nil {
 		return nil, err
 	}
-	if err := protoapi.Validate(resp); err != nil {
-		return nil, err
-	}
 	if rejected := resp.GetRejected(); rejected != nil {
 		return nil, client.GoalSetErrorAsError(rejected)
-	}
-	if resp.GetMutation() == nil {
-		return nil, errors.New("Goal Set response did not contain a committed mutation")
 	}
 	return resp, nil
 }
@@ -196,9 +190,6 @@ func (c *sessionRuntimeClient) AppendCommittedEntryWithNoticeID(role, text, noti
 }
 
 func (c *sessionRuntimeClient) SubmitRuntimeInput(ctx context.Context, req clientui.RuntimeSubmitRequest) (clientui.UserTurnSubmission, error) {
-	if err := req.Validate(); err != nil {
-		return clientui.UserTurnSubmission{}, err
-	}
 	activation, err := chatActivationFromInput(req.Input)
 	if err != nil {
 		return clientui.UserTurnSubmission{}, err
@@ -211,9 +202,6 @@ func (c *sessionRuntimeClient) SubmitRuntimeInput(ctx context.Context, req clien
 		Target: target, Activation: activation, QueueItemId: runtimeids.NewQueueItemID().String(),
 	})
 	if err != nil {
-		return clientui.UserTurnSubmission{}, err
-	}
-	if err := protoapi.Validate(resp); err != nil {
 		return clientui.UserTurnSubmission{}, err
 	}
 	if rejected := resp.GetNotAccepted(); rejected != nil {
@@ -229,9 +217,6 @@ func (c *sessionRuntimeClient) SubmitRuntimeInput(ctx context.Context, req clien
 }
 
 func chatActivationFromInput(input runtimeinput.Input) (*chatpb.Activation, error) {
-	if err := input.Validate(); err != nil {
-		return nil, err
-	}
 	if input.Kind == runtimeinput.KindText {
 		return &chatpb.Activation{Input: &chatpb.Activation_Text{Text: *input.Text}}, nil
 	}
@@ -247,17 +232,10 @@ func chatActivationFromInput(input runtimeinput.Input) (*chatpb.Activation, erro
 }
 
 func runtimeSubmitInputText(input clientui.RuntimeSubmitRequest) string {
-	text, err := input.Input.CanonicalHistoryText()
-	if err != nil {
-		panic("runtime submit input must validate before projection: " + err.Error())
-	}
-	return text
+	return input.Input.CanonicalHistoryText()
 }
 
 func (c *sessionRuntimeClient) RunUserShell(ctx context.Context, req clientui.RuntimeShellRequest) error {
-	if err := req.Validate(); err != nil {
-		return err
-	}
 	target, err := c.takeChatTarget()
 	if err != nil {
 		return err
@@ -269,9 +247,6 @@ func (c *sessionRuntimeClient) RunUserShell(ctx context.Context, req clientui.Ru
 }
 
 func (c *sessionRuntimeClient) CompactRuntime(ctx context.Context, req clientui.RuntimeCompactRequest) (clientui.RuntimeCompactResult, error) {
-	if err := req.Validate(); err != nil {
-		return clientui.RuntimeCompactResult{}, err
-	}
 	invocation := &chatpb.CompactionInvocation{Token: "/compact"}
 	if req.Admission.Guidance != nil {
 		invocation.SeparatorWhitespace = " "
@@ -285,9 +260,6 @@ func (c *sessionRuntimeClient) CompactRuntime(ctx context.Context, req clientui.
 		Target: target, Invocation: invocation,
 	})
 	if err != nil {
-		return clientui.RuntimeCompactResult{}, err
-	}
-	if err := protoapi.Validate(result); err != nil {
 		return clientui.RuntimeCompactResult{}, err
 	}
 	if rejected := result.GetNotAccepted(); rejected != nil {
@@ -353,9 +325,6 @@ func (c *sessionRuntimeClient) ListPendingWork(sessionID runtimeids.SessionID) (
 	})
 	if err != nil {
 		return runtimeinput.PendingWork{}, err
-	}
-	if err := protoapi.Validate(resp); err != nil {
-		return runtimeinput.PendingWork{}, fmt.Errorf("validate Pending Work list response: %w", err)
 	}
 	return protoapi.PendingWorkFromProto(resp.PendingWork)
 }

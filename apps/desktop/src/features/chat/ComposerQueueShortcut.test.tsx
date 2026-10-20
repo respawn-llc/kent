@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, expect, it, vi } from "bun:test";
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
-import { parsePendingWorkItemID, type ChatInputMutationResult } from "@/api";
+import { pendingWorkItemIDFromProto, type ChatInputMutationResult } from "@/api";
 import { createTestServices } from "@/test-support/app-services";
 import { composerWrapper } from "@/test-support/composer";
 import { useChatComposer, target } from "./chatComposerTestFixture";
@@ -33,7 +33,7 @@ it.each([
     outcome: {
       kind: "accepted",
       disposition: "started_turn",
-      queueItemID: parsePendingWorkItemID("79f762c8-0998-402a-bc80-6b42f3e241ed"),
+      queueItemID: pendingWorkItemIDFromProto("79f762c8-0998-402a-bc80-6b42f3e241ed"),
       diagnostic: null,
     },
   };

@@ -15,7 +15,6 @@ import type {
   WorkflowValidationErrorDetails,
 } from "./models";
 import type { WorkflowSelectorApplicability } from "./workflowSelectionModels";
-import { ContractError } from "./errors";
 import {
   workflowAssigneeSelection,
   workflowCompletionMode,
@@ -31,10 +30,7 @@ import {
   workflowValidationMode,
 } from "./workflowProtoValues";
 
-export function workflowRecord(value: pb.WorkflowRecord | undefined): WorkflowRecord {
-  if (value?.executionTargetPolicy === undefined) {
-    throw new ContractError("Workflow record and execution target policy are required.");
-  }
+export function workflowRecord(value: pb.WorkflowRecordValid): WorkflowRecord {
   const record: WorkflowRecord = {
     id: value.id,
     name: value.name,
@@ -50,13 +46,11 @@ export function workflowRecord(value: pb.WorkflowRecord | undefined): WorkflowRe
     : { ...record, projectLink: { isDefault: value.projectLink.default } };
 }
 
-export function projectWorkflowLink(value: pb.ProjectWorkflowLink | undefined): ProjectWorkflowLink {
-  if (value === undefined) throw new ContractError("Project Workflow link is required.");
+export function projectWorkflowLink(value: pb.ProjectWorkflowLink): ProjectWorkflowLink {
   return { id: value.id, projectID: value.projectId, workflowID: value.workflowId, isDefault: value.default };
 }
 
-export function workflowDefinition(value: pb.WorkflowDefinition | undefined): WorkflowDefinition {
-  if (value === undefined) throw new ContractError("Workflow definition is required.");
+export function workflowDefinition(value: pb.WorkflowDefinitionValid): WorkflowDefinition {
   return {
     workflow: workflowRecord(value.workflow),
     nodeGroups: value.nodeGroups.map((group) => ({
@@ -93,7 +87,6 @@ export function workflowDefinition(value: pb.WorkflowDefinition | undefined): Wo
       description: group.description,
     })),
     edges: value.edges.map((edge) => {
-      if (edge.contextSource === undefined) throw new ContractError("Workflow context source is required.");
       return {
         id: edge.id,
         workflowID: edge.workflowId,
@@ -164,13 +157,11 @@ function workflowValidationDetails(
     requiredTool: details.requiredTool ?? null,
   };
 }
-export function workflowValidation(value: pb.ValidateResponse | undefined): WorkflowValidation {
-  if (value === undefined) throw new ContractError("Workflow validation result is required.");
+export function workflowValidation(value: pb.ValidateResponse): WorkflowValidation {
   return { valid: value.valid, errors: value.errors.map(workflowValidationError) };
 }
 
-function workflowApplicability(value: pb.SelectorApplicability | undefined): WorkflowSelectorApplicability {
-  if (value === undefined) throw new ContractError("Workflow selector applicability is required.");
+function workflowApplicability(value: pb.SelectorApplicability): WorkflowSelectorApplicability {
   return {
     available: value.available,
     parameterVisible: value.parameterVisible,
@@ -178,8 +169,7 @@ function workflowApplicability(value: pb.SelectorApplicability | undefined): Wor
   };
 }
 
-export function workflowWiring(value: pb.DerivedWiring | undefined): WorkflowDerivedWiring {
-  if (value === undefined) throw new ContractError("Workflow derived wiring is required.");
+export function workflowWiring(value: pb.DerivedWiringValid): WorkflowDerivedWiring {
   return {
     nodes: value.nodes.map((node) => ({
       nodeID: node.nodeId,
@@ -211,7 +201,7 @@ function workflowOutputField(value: pb.OutputField) {
 }
 
 export function workflowValidationResults(
-  values: readonly pb.ModeValidationResult[],
+  values: readonly pb.ModeValidationResultValid[],
 ): WorkflowGraphValidationResults {
   const results: Partial<Record<"draft" | "task_creation" | "execution", WorkflowValidation>> = {};
   for (const value of values)
@@ -223,8 +213,7 @@ function graphEntity(value: pb.GraphEntityReference): WorkflowGraphEntityReferen
   return { entityType: workflowGraphEntityType.decode(value.entityType), entityID: value.entityId };
 }
 
-function graphImpact(value: pb.GraphSaveImpact | undefined): WorkflowGraphSaveImpact {
-  if (value === undefined) throw new ContractError("Workflow graph save impact is required.");
+function graphImpact(value: pb.GraphSaveImpact): WorkflowGraphSaveImpact {
   return {
     removedNodeGroupCount: Number(value.removedNodeGroupCount),
     removedNodeCount: Number(value.removedNodeCount),
@@ -251,7 +240,7 @@ function graphBlocker(value: pb.GraphSaveBlocker): WorkflowGraphSaveBlocker {
 }
 
 export function workflowSavePreview(
-  value: pb.GraphSavePreviewSuccess | pb.GraphSaveSuccess,
+  value: pb.GraphSavePreviewSuccessValid | pb.GraphSaveSuccessValid,
 ): WorkflowGraphSavePreview {
   return {
     changed: value.changed,
@@ -264,8 +253,7 @@ export function workflowSavePreview(
   };
 }
 
-export function workflowDeleteImpact(value: pb.DeleteImpact | undefined): WorkflowDeleteImpact {
-  if (value === undefined) throw new ContractError("Workflow deletion impact is required.");
+export function workflowDeleteImpact(value: pb.DeleteImpact): WorkflowDeleteImpact {
   return {
     workflowID: value.workflowId,
     version: Number(value.version),

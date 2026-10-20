@@ -20,7 +20,7 @@ export function processObservationFixture(transport: FakeRpcTransport) {
         processes: processes.map((process) =>
           create(BackgroundProcessSchema, {
             id: process.id,
-            ownerSessionId: "session-1",
+            ownerSessionId: "11111111-1111-4111-8111-111111111111",
             state: process.state,
             command: "sleep 30",
             workdir: "/workspace",

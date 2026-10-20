@@ -54,13 +54,7 @@ func (b *Board) Get(ctx context.Context, req *taskpb.BoardGetRequest) (*taskpb.B
 	if b == nil {
 		return nil, errors.New("board is required")
 	}
-	if err := protoapi.Validate(req); err != nil {
-		return nil, err
-	}
 	projectID := strings.TrimSpace(req.ProjectId)
-	if projectID == "" {
-		return nil, errors.New("project_id is required")
-	}
 	definitions, picker, err := b.selectionInputs(ctx, projectID)
 	if err != nil {
 		return nil, err
@@ -82,7 +76,7 @@ func (b *Board) Get(ctx context.Context, req *taskpb.BoardGetRequest) (*taskpb.B
 			GeneratedAt: timestamppb.Now(),
 		}, nil
 	}
-	selectedWorkflowID, err := runtimeids.ParseWorkflowID(selected.WorkflowId)
+	selectedWorkflowID, err := runtimeids.WorkflowIDFromProto(selected.WorkflowId)
 	if err != nil {
 		return nil, err
 	}
@@ -110,11 +104,8 @@ func (b *Board) ListNodeCards(ctx context.Context, req *taskpb.BoardNodeCardsLis
 	if b == nil {
 		return nil, errors.New("board is required")
 	}
-	if err := protoapi.Validate(req); err != nil {
-		return nil, err
-	}
 	projectID := strings.TrimSpace(req.ProjectId)
-	workflowID, err := runtimeids.ParseWorkflowID(req.WorkflowId)
+	workflowID, err := runtimeids.WorkflowIDFromProto(req.WorkflowId)
 	if err != nil {
 		return nil, err
 	}

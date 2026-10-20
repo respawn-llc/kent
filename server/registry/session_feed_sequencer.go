@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"sync"
 
-	"core/shared/protoapi"
 	runtimepb "core/shared/protoapi/gen/kent/api/runtime"
 	transcriptpb "core/shared/protoapi/gen/kent/api/transcript"
 )
@@ -58,9 +57,6 @@ func (s *sessionFeedSequencer) Subscribe(
 		return nil, err
 	}
 	event := &transcriptpb.Event{Payload: &transcriptpb.Event_Hydration{Hydration: hydration}}
-	if err := protoapi.Validate(event); err != nil {
-		return nil, fmt.Errorf("build canonical transcript hydration: %w", err)
-	}
 	return s.broker.Subscribe(event)
 }
 
@@ -70,7 +66,6 @@ func (s *sessionFeedSequencer) Publish(events []*transcriptpb.Event) {
 	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	s.validateEvents(events)
 	s.broker.Publish(events)
 }
 
@@ -90,7 +85,6 @@ func (s *sessionFeedSequencer) PublishBuilt(build func() ([]*transcriptpb.Event,
 	if len(events) == 0 {
 		return nil
 	}
-	s.validateEvents(events)
 	s.broker.Publish(events)
 	return nil
 }
@@ -139,16 +133,5 @@ func (s *sessionFeedSequencer) CloseContractViolation(err error) error {
 
 func (s *sessionFeedSequencer) publishRuntimeReadModelLocked(update *runtimepb.ReadModelUpdate) {
 	event := &transcriptpb.Event{Payload: &transcriptpb.Event_RuntimeReadModelUpdate{RuntimeReadModelUpdate: update}}
-	if err := protoapi.Validate(event); err != nil {
-		panic(fmt.Sprintf("publish invalid canonical runtime read-model update: %+v: %v", update, err))
-	}
 	s.broker.Publish([]*transcriptpb.Event{event})
-}
-
-func (s *sessionFeedSequencer) validateEvents(events []*transcriptpb.Event) {
-	for _, event := range events {
-		if err := protoapi.Validate(event); err != nil {
-			panic(fmt.Sprintf("publish invalid canonical transcript event before batch mutation: %v", err))
-		}
-	}
 }

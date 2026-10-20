@@ -17,10 +17,7 @@ type managementContext struct {
 }
 
 func (s *Service) resolveWorkspaceBinding(ctx context.Context, projectID, workspaceID string) (metadata.Binding, error) {
-	selector, err := serverapi.NewProjectWorkspaceSelectorForID(workspaceID)
-	if err != nil {
-		return metadata.Binding{}, err
-	}
+	selector := serverapi.NewProjectWorkspaceSelectorForID(workspaceID)
 	return s.metadata.ResolveProjectWorkspaceSelector(ctx, projectID, selector)
 }
 

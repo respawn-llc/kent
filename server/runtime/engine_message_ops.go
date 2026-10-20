@@ -759,11 +759,7 @@ func (e *Engine) emitQueuedUserMessageStatus(
 		Status:        status,
 		FailureReason: reason,
 	}
-	text, err := item.DisplayText()
-	if err != nil {
-		e.surfaceRunError(fmt.Errorf("queued user message status: %w", err))
-		return
-	}
+	text := item.DisplayText()
 	if restore {
 		event.Text = text
 	}
@@ -781,11 +777,7 @@ func (e *Engine) emitInterruptedHumanInputs(items []QueuedUserMessage) {
 	}
 	eventItems := make([]InterruptedHumanInput, 0, len(items))
 	for _, item := range items {
-		text, err := item.DisplayText()
-		if err != nil {
-			e.surfaceRunError(fmt.Errorf("interrupted human input: %w", err))
-			continue
-		}
+		text := item.DisplayText()
 		eventItems = append(eventItems, InterruptedHumanInput{
 			QueueItemID: item.ID,
 			Text:        text,

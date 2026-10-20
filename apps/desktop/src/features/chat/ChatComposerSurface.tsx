@@ -1,6 +1,6 @@
 import { createContext, useContext, useLayoutEffect, type ReactNode } from "react";
 
-import { parsePendingWorkItemID, type ChatRuntimeActivity } from "@/api";
+import { pendingWorkItemIDFromProto, type ChatRuntimeActivity } from "@/api";
 import { useChatRuntimePresentation, useOptionalChatRuntimeSnapshot } from "@/app-facade";
 import { Island } from "@/ui";
 import { useComposerKeyboard } from "./useComposerKeyboard";
@@ -34,7 +34,7 @@ export function ChatComposerSurface({ composer, children, enabled = true }: Surf
     observeOutgoing({
       committedIDs:
         snapshot?.transcript.items.flatMap((item) =>
-          item.kind === "user" ? item.value.QueueItemIDs.map(parsePendingWorkItemID) : [],
+          item.kind === "user" ? item.value.QueueItemIDs.map(pendingWorkItemIDFromProto) : [],
         ) ?? [],
       pendingItems: pending.data?.items ?? [],
       pendingFetching: pending.isFetching,

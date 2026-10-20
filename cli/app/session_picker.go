@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"strings"
 	"time"
 
 	"core/shared/apicontract"
@@ -40,33 +39,6 @@ type sessionPageResponse struct {
 	NextOffset *int
 }
 
-func (r sessionPageResponse) Validate() error {
-	if strings.TrimSpace(r.ProjectID) == "" || strings.TrimSpace(r.ProjectID) != r.ProjectID {
-		return errors.New("project_id is invalid")
-	}
-	if _, err := sessioncontract.ParseSessionCategory(string(r.Category)); err != nil {
-		return err
-	}
-	if len(r.Sessions) > sessionPickerPageSize {
-		return fmt.Errorf("session page exceeds maximum size %d", sessionPickerPageSize)
-	}
-	for index, summary := range r.Sessions {
-		if summary.SessionID.IsZero() {
-			return fmt.Errorf("sessions[%d].session_id is required", index)
-		}
-		if summary.Category != r.Category {
-			return fmt.Errorf("sessions[%d].category does not match page category", index)
-		}
-		if !summary.UpdatedAt.After(time.Unix(0, 0).UTC()) {
-			return fmt.Errorf("sessions[%d].updated_at is invalid", index)
-		}
-	}
-	if r.NextOffset != nil && *r.NextOffset <= 0 {
-		return errors.New("next_offset must be positive when present")
-	}
-	return nil
-}
-
 type sessionPickerResult interface {
 	isSessionPickerResult()
 }
@@ -86,9 +58,6 @@ func newSessionPickerCancelResult() sessionPickerResult {
 }
 
 func newSessionPickerOpenResult(sessionID runtimeids.SessionID) sessionPickerResult {
-	if sessionID.IsZero() {
-		panic("session picker open result requires a session ID")
-	}
 	return sessionPickerOpenResult{sessionID: sessionID}
 }
 
@@ -502,8 +471,8 @@ func validateSessionPickerPage(
 	expectedProjectID string,
 	expectedCategory sessioncontract.SessionCategory,
 ) error {
-	if err := response.Validate(); err != nil {
-		return fmt.Errorf("session picker page is invalid: %w", err)
+	if len(response.Sessions) > sessionPickerPageSize {
+		return fmt.Errorf("session page exceeds maximum size %d", sessionPickerPageSize)
 	}
 	if response.ProjectID != expectedProjectID {
 		return fmt.Errorf(

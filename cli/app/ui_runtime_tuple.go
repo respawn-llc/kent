@@ -39,10 +39,7 @@ func decideRuntimeTuple(
 	incoming *runtimepb.ReadModelVersion,
 	ingress runtimeTupleIngress,
 ) runtimeTupleDecision {
-	if incoming == nil || protoapi.Validate(incoming) != nil {
-		return runtimeTupleIgnore
-	}
-	if current == nil || protoapi.Validate(current) != nil {
+	if current == nil {
 		return runtimeTupleApply
 	}
 	if incoming.Epoch != current.Epoch {

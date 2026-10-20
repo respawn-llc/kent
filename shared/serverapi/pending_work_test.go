@@ -5,7 +5,6 @@ import (
 	"testing"
 
 	"core/shared/clientui"
-	"core/shared/runtimeinput"
 )
 
 func TestPendingWorkCapacityDirectAndNested(t *testing.T) {
@@ -29,18 +28,5 @@ func TestPendingWorkIdentityViewsReuseDomainUUID(t *testing.T) {
 	got, err := PendingWorkItemIDFromWorktreeOperation(worktreeID)
 	if err != nil || got.String() != worktreeID.String() {
 		t.Fatalf("Worktree Pending Work id = %q, %v", got, err)
-	}
-}
-
-func TestPendingWorkRemovalResponseValidatesTypedCanonicalRestoration(t *testing.T) {
-	t.Parallel()
-	valid := runtimeinput.PendingWorkRestoration{Kind: runtimeinput.PendingWorkItemKindWorktreeTransition, CanonicalInput: "/wt leave"}
-	if err := valid.Validate(); err != nil {
-		t.Fatalf("Validate: %v", err)
-	}
-	invalid := valid
-	invalid.CanonicalInput = ""
-	if err := invalid.Validate(); err == nil {
-		t.Fatal("Validate accepted missing canonical input")
 	}
 }

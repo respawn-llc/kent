@@ -131,7 +131,6 @@ export function WorktreeBrowser({
       );
     if (query.data === undefined) return <LoadingState surface="plain" appearanceDelayMs={0} />;
     const { target, worktrees } = query.data;
-    if (target === undefined) throw new Error("Worktree list target is required");
     return (
       <div
         className="grid min-w-0 gap-[var(--space-2)]"

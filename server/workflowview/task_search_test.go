@@ -40,7 +40,7 @@ func TestTaskSearchFindsAndFiltersCanonicalTaskSources(t *testing.T) {
 	if err != nil {
 		t.Fatalf("RegisterWorkspaceBinding: %v", err)
 	}
-	if _, err := fixture.store.LinkWorkflow(fixture.ctx, otherBinding.ProjectID, fixture.workflowID, true); err != nil {
+	if _, err := fixture.store.LinkWorkflowWithDefaultPolicy(fixture.ctx, otherBinding.ProjectID, fixture.workflowID, workflowstore.WorkflowLinkDefaultAlways); err != nil {
 		t.Fatalf("LinkWorkflow second project: %v", err)
 	}
 	if _, err := fixture.store.CreateTask(fixture.ctx, workflowstore.CreateTaskRequest{
@@ -109,7 +109,7 @@ func TestTaskSearchProjectScopedNumericShortIDRanksExactTaskFirst(t *testing.T) 
 	if err != nil {
 		t.Fatalf("RegisterWorkspaceBinding: %v", err)
 	}
-	if _, err := fixture.store.LinkWorkflow(fixture.ctx, otherBinding.ProjectID, fixture.workflowID, true); err != nil {
+	if _, err := fixture.store.LinkWorkflowWithDefaultPolicy(fixture.ctx, otherBinding.ProjectID, fixture.workflowID, workflowstore.WorkflowLinkDefaultAlways); err != nil {
 		t.Fatalf("LinkWorkflow second Project: %v", err)
 	}
 	if _, err := fixture.metadata.DB().Exec(
@@ -179,7 +179,7 @@ func TestTaskSearchGlobalNumericShortIDReturnsEveryProjectWithDeterministicTies(
 	if err != nil {
 		t.Fatalf("RegisterWorkspaceBinding: %v", err)
 	}
-	if _, err := fixture.store.LinkWorkflow(fixture.ctx, otherBinding.ProjectID, fixture.workflowID, true); err != nil {
+	if _, err := fixture.store.LinkWorkflowWithDefaultPolicy(fixture.ctx, otherBinding.ProjectID, fixture.workflowID, workflowstore.WorkflowLinkDefaultAlways); err != nil {
 		t.Fatalf("LinkWorkflow second Project: %v", err)
 	}
 	if _, err := fixture.metadata.DB().Exec(

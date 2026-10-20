@@ -26,11 +26,8 @@ func TestSessionSelectorContract(t *testing.T) {
 		if err := Validate(tc.selector); (err == nil) != tc.valid {
 			t.Fatalf("selector %v validation = %v, want valid=%t", tc.selector, err, tc.valid)
 		}
-		selector, err := SessionSelectorFromProto(tc.selector)
-		if (err == nil) != tc.valid {
-			t.Fatalf("selector %v conversion = %v, want valid=%t", tc.selector, err, tc.valid)
-		}
 		if tc.valid {
+			selector := SessionSelectorFromProto(tc.selector)
 			reconstructed := SessionSelectorToProto(selector)
 			if !proto.Equal(reconstructed, tc.selector) {
 				t.Fatalf("selector roundtrip = %v, want %v", reconstructed, tc.selector)

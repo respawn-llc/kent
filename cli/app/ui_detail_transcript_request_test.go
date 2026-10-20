@@ -166,20 +166,6 @@ func TestDetailTranscriptMatchingErrorAllowsNextRequest(t *testing.T) {
 	_ = waitForDetailTranscriptCompletion(t, secondDone)
 }
 
-func TestDetailTranscriptMalformedPageClearsPendingRequestWithoutMutatingMembershipOrTUI(t *testing.T) {
-	malformed := detailTestUserRow("invalid row")
-	malformed.Integrity = transcriptpb.RowIntegrity(255)
-	assertDetailTranscriptPageRejected(t, &transcriptpb.Page{ConversationFreshness: runtimepb.ConversationFreshness_CONVERSATION_FRESHNESS_ESTABLISHED, SessionId: detailTestSessionID,
-		Entries: []*transcriptpb.CommittedRow{malformed}})
-}
-
-func TestDetailTranscriptUnresolvedVisibilityClearsPendingRequestWithoutMutatingMembershipOrTUI(t *testing.T) {
-	unresolved := detailTestUserRow("unresolved visibility")
-	unresolved.Visibility = transcriptpb.EntryVisibility_ENTRY_VISIBILITY_UNSPECIFIED
-	assertDetailTranscriptPageRejected(t, &transcriptpb.Page{ConversationFreshness: runtimepb.ConversationFreshness_CONVERSATION_FRESHNESS_ESTABLISHED, SessionId: detailTestSessionID,
-		Entries: []*transcriptpb.CommittedRow{unresolved}})
-}
-
 func TestDetailTranscriptMismatchedResponseSessionClearsPendingRequestWithoutMutatingMembershipOrTUI(t *testing.T) {
 	assertDetailTranscriptPageRejected(t, &transcriptpb.Page{ConversationFreshness: runtimepb.ConversationFreshness_CONVERSATION_FRESHNESS_ESTABLISHED, SessionId: detailTestReplacementSessionID,
 		Entries: []*transcriptpb.CommittedRow{detailTestUserRow("wrong session")}})

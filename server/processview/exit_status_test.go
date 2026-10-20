@@ -16,15 +16,12 @@ func TestProcessExitStatusRoundTrips(t *testing.T) {
 	for _, status := range []int{-1, 0, 255, 2147483648, 3221225477, 4294967295} {
 		t.Run(strconv.Itoa(status), func(t *testing.T) {
 			now := time.Now()
-			process, err := ProcessFromSnapshot(shelltool.Snapshot{
+			process := ProcessFromSnapshot(shelltool.Snapshot{
 				ID: uuid.NewString(), OwnerSessionID: uuid.NewString(),
 				State: "completed", Command: "child", Workdir: "/tmp",
 				StartedAt: now, FinishedAt: now, LastUpdatedAt: now,
 				ExitCode: &status, LogPath: "/tmp/child.log",
 			})
-			if err != nil {
-				t.Fatal(err)
-			}
 			encoded, err := proto.Marshal(process)
 			if err != nil {
 				t.Fatal(err)

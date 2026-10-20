@@ -1,7 +1,6 @@
 package runtimeactivity
 
 import (
-	"core/shared/protoapi"
 	runtimepb "core/shared/protoapi/gen/kent/api/runtime"
 	"core/shared/runtimeids"
 	"fmt"
@@ -69,9 +68,6 @@ func resolveRuntimeFeedActivity(snapshot ResolverSnapshot) (*runtimepb.Activity,
 	} else {
 		activity.State = runtimepb.ActivityState_RUNTIME_ACTIVITY_REGISTERED_IDLE
 		activity.QueueAccepting = snapshot.Registry.QueueAccepting
-	}
-	if err := protoapi.Validate(activity); err != nil {
-		return &runtimepb.Activity{}, err
 	}
 	return activity, nil
 }

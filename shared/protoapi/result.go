@@ -28,43 +28,18 @@ type ClassifiedFailure struct {
 }
 
 func ClassifyResult(message proto.Message) (ClassifiedResult, error) {
-	if message == nil {
-		return ClassifiedResult{}, fmt.Errorf("operation result is required")
-	}
 	reflected := message.ProtoReflect()
-	if !reflected.IsValid() {
-		return ClassifiedResult{}, fmt.Errorf("operation result is required")
-	}
 	convention, err := inspectResult(reflected.Descriptor())
 	if err != nil {
 		return ClassifiedResult{}, err
 	}
-	if err := Validate(message); err != nil {
-		return ClassifiedResult{}, fmt.Errorf("validate operation result: %w", err)
+	if reflected.WhichOneof(convention.outcome) == convention.success {
+		return ClassifiedResult{
+			Outcome: OperationSuccess,
+			Success: reflected.Get(convention.success).Message(),
+		}, nil
 	}
-	selected := reflected.WhichOneof(convention.outcome)
-	switch selected {
-	case convention.success:
-		success := reflected.Get(convention.success).Message()
-		if !success.IsValid() {
-			return ClassifiedResult{}, fmt.Errorf("%s success is required", reflected.Descriptor().FullName())
-		}
-		return ClassifiedResult{Outcome: OperationSuccess, Success: success}, nil
-	case convention.failure:
-		failure := reflected.Get(convention.failure).Message()
-		if !failure.IsValid() {
-			return ClassifiedResult{}, fmt.Errorf("%s error is required", reflected.Descriptor().FullName())
-		}
-		return classifyFailure(failure, convention.error)
-	case nil:
-		return ClassifiedResult{}, fmt.Errorf("%s has no outcome", reflected.Descriptor().FullName())
-	default:
-		return ClassifiedResult{}, fmt.Errorf(
-			"%s selected an undeclared outcome field %s",
-			reflected.Descriptor().FullName(),
-			selected.FullName(),
-		)
-	}
+	return classifyFailure(reflected.Get(convention.failure).Message(), convention.error), nil
 }
 
 type resultConvention struct {
@@ -193,13 +168,10 @@ func inspectError(descriptor protoreflect.MessageDescriptor) (errorConvention, e
 	return convention, nil
 }
 
-func classifyFailure(failure protoreflect.Message, convention errorConvention) (ClassifiedResult, error) {
+func classifyFailure(failure protoreflect.Message, convention errorConvention) ClassifiedResult {
 	code := failure.Get(convention.code).String()
-	if code == "" {
-		return ClassifiedResult{}, fmt.Errorf("%s error code is required", failure.Descriptor().FullName())
-	}
 	selectedDetail := failure.WhichOneof(convention.detail)
-	requiredDetail, known := convention.detailByCode[code]
+	_, known := convention.detailByCode[code]
 	if !known {
 		var detail protoreflect.Message
 		if selectedDetail != nil {
@@ -208,10 +180,32 @@ func classifyFailure(failure protoreflect.Message, convention errorConvention) (
 		return ClassifiedResult{
 			Outcome: OperationGenericFailure,
 			Failure: &ClassifiedFailure{Code: code, Detail: detail},
-		}, nil
+		}
+	}
+	return ClassifiedResult{
+		Outcome: OperationKnownFailure,
+		Failure: &ClassifiedFailure{Code: code, Detail: failure.Get(selectedDetail).Message()},
+	}
+}
+
+func ValidateResultErrorDetail(message proto.Message) error {
+	reflected := message.ProtoReflect()
+	convention, err := inspectResult(reflected.Descriptor())
+	if err != nil {
+		return err
+	}
+	if reflected.WhichOneof(convention.outcome) != convention.failure {
+		return nil
+	}
+	failure := reflected.Get(convention.failure).Message()
+	code := failure.Get(convention.error.code).String()
+	selectedDetail := failure.WhichOneof(convention.error.detail)
+	requiredDetail, known := convention.error.detailByCode[code]
+	if !known {
+		return nil
 	}
 	if selectedDetail == nil {
-		return ClassifiedResult{}, fmt.Errorf(
+		return fmt.Errorf(
 			"%s known error code %q requires detail %s",
 			failure.Descriptor().FullName(),
 			code,
@@ -219,7 +213,7 @@ func classifyFailure(failure protoreflect.Message, convention errorConvention) (
 		)
 	}
 	if selectedDetail != requiredDetail {
-		return ClassifiedResult{}, fmt.Errorf(
+		return fmt.Errorf(
 			"%s known error code %q requires detail %s, got %s",
 			failure.Descriptor().FullName(),
 			code,
@@ -227,10 +221,7 @@ func classifyFailure(failure protoreflect.Message, convention errorConvention) (
 			selectedDetail.Name(),
 		)
 	}
-	return ClassifiedResult{
-		Outcome: OperationKnownFailure,
-		Failure: &ClassifiedFailure{Code: code, Detail: failure.Get(selectedDetail).Message()},
-	}, nil
+	return nil
 }
 
 func resultFieldOptions(field protoreflect.FieldDescriptor) (*sharedpb.KentResultFieldOptions, error) {

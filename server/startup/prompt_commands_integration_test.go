@@ -158,10 +158,7 @@ func TestRemotePromptCommandStartupCatalogAndInvocationUseImportedServerContent(
 	}
 	enabledToolIDs := make([]string, 0, len(plan.Plan.EnabledToolIds))
 	for _, generatedToolID := range plan.Plan.EnabledToolIds {
-		toolID, conversionErr := protoapi.SessionToolIDFromProto(generatedToolID)
-		if conversionErr != nil {
-			t.Fatalf("convert enabled tool ID: %v", conversionErr)
-		}
+		toolID := protoapi.SessionToolIDFromProto(generatedToolID)
 		enabledToolIDs = append(enabledToolIDs, string(toolID))
 	}
 	err = remote.ActivateSessionRuntime(context.Background(), serverapi.SessionRuntimeActivateRequest{

@@ -3,7 +3,6 @@ package transport
 import (
 	"context"
 	"errors"
-	"fmt"
 
 	"core/shared/apicontract"
 	"core/shared/protoapi"
@@ -60,11 +59,7 @@ func promptAnswerBatchFailure(err error) proto.Message {
 	}
 	var rejected *serverapi.ParentQuestionAnswerRejectedError
 	if errors.As(err, &rejected) {
-		details, conversionErr := protoapi.ParentQuestionAnswerRejectedToProto(rejected)
-		if conversionErr != nil {
-			return binaryInternalFailure(fmt.Errorf("encode parent Question-answer rejection: %w", conversionErr))
-		}
-		return details
+		return protoapi.ParentQuestionAnswerRejectedToProto(rejected)
 	}
 	return binaryAuthReadinessFailure(err)
 }

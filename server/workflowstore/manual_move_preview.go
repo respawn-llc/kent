@@ -630,21 +630,15 @@ func validateManualMoveValues(
 		if _, exists := requiredNodes[nodeKey]; !exists {
 			return fmt.Errorf("%w: extra value node %s", ErrManualMoveValuesInvalid, nodeKey)
 		}
-		for outputName, value := range outputs {
+		for outputName := range outputs {
 			if _, exists := requirements[manualMoveValueIdentity{NodeKey: nodeKey, OutputName: outputName}]; !exists {
 				return fmt.Errorf("%w: extra value %s.%s", ErrManualMoveValuesInvalid, nodeKey, outputName)
-			}
-			if strings.TrimSpace(value) == "" {
-				return fmt.Errorf("%w: blank value %s.%s", ErrManualMoveValuesInvalid, nodeKey, outputName)
-			}
-			if len(value) > workflow.MaxOutputValueBytes {
-				return fmt.Errorf("%w: oversized value %s.%s", ErrManualMoveValuesInvalid, nodeKey, outputName)
 			}
 		}
 	}
 	for _, required := range choice.RequiredValues {
 		if outputs := submitted[required.NodeKey]; outputs != nil {
-			if value, exists := outputs[required.OutputName]; exists && strings.TrimSpace(value) != "" {
+			if _, exists := outputs[required.OutputName]; exists {
 				continue
 			}
 		}

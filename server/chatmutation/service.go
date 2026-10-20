@@ -99,9 +99,6 @@ func (s *Service) SetGoal(
 	ctx context.Context,
 	request *runtimepb.GoalSetRequest,
 ) (*runtimepb.GoalSetSuccess, error) {
-	if err := protoapi.Validate(request); err != nil {
-		return nil, err
-	}
 	if s == nil || s.operations == nil {
 		return nil, errors.New("Chat operation owner is required")
 	}
@@ -207,9 +204,6 @@ func (s *Service) invokeGoal(
 	if response.Mutation == nil {
 		return goalSetInvocation{}, errors.New("resolved Goal Set commit requires a mutation")
 	}
-	if err := protoapi.Validate(response.Mutation); err != nil {
-		return goalSetInvocation{}, fmt.Errorf("validate resolved Goal Set mutation: %w", err)
-	}
 	return goalSetInvocation{
 		mutation:   proto.Clone(response.Mutation).(*runtimepb.GoalMutationSuccess),
 		diagnostic: response.Diagnostic,
@@ -287,9 +281,6 @@ func (s *Service) Steer(
 	ctx context.Context,
 	request *chatpb.SteerRequest,
 ) (*chatpb.InputMutationSuccess, error) {
-	if err := protoapi.Validate(request); err != nil {
-		return nil, err
-	}
 	return s.runInputMutation(ctx, request.Target, request.Activation, request.QueueItemId, inputMutationSteer)
 }
 
@@ -297,9 +288,6 @@ func (s *Service) Queue(
 	ctx context.Context,
 	request *chatpb.QueueRequest,
 ) (*chatpb.InputMutationSuccess, error) {
-	if err := protoapi.Validate(request); err != nil {
-		return nil, err
-	}
 	return s.runInputMutation(ctx, request.Target, request.Activation, request.QueueItemId, inputMutationQueue)
 }
 
@@ -307,9 +295,6 @@ func (s *Service) Compact(
 	ctx context.Context,
 	request *chatpb.CompactRequest,
 ) (*chatpb.CompactionMutationSuccess, error) {
-	if err := protoapi.Validate(request); err != nil {
-		return nil, err
-	}
 	draft, admission, err := compactionInvocation(request.Invocation)
 	if err != nil {
 		return nil, err
@@ -505,16 +490,10 @@ func (s *Service) admitInput(
 }
 
 func activationInput(activation *chatpb.Activation) (string, runtimeinput.Input, error) {
-	if err := protoapi.Validate(activation); err != nil {
-		return "", runtimeinput.Input{}, err
-	}
 	if text, ok := activation.Input.(*chatpb.Activation_Text); ok {
 		return text.Text, runtimeinput.Text(text.Text), nil
 	}
 	command := activation.GetCommand()
-	if command == nil {
-		return "", runtimeinput.Input{}, errors.New("Chat activation selection is required")
-	}
 	draft := command.Token + command.SeparatorWhitespace + command.Arguments
 	return draft, runtimeinput.Command(command.CatalogIdentity, command.Arguments), nil
 }
@@ -522,9 +501,6 @@ func activationInput(activation *chatpb.Activation) (string, runtimeinput.Input,
 func compactionInvocation(
 	invocation *chatpb.CompactionInvocation,
 ) (string, runtimeinput.ManualCompactionAdmission, error) {
-	if err := protoapi.Validate(invocation); err != nil {
-		return "", runtimeinput.ManualCompactionAdmission{}, err
-	}
 	draft := invocation.Token + invocation.SeparatorWhitespace + invocation.RawGuidance
 	normalizedGuidance := runtimeinput.NormalizePendingWorkArgument(invocation.RawGuidance)
 	admission := runtimeinput.ManualCompactionAdmission{}

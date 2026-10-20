@@ -9,9 +9,6 @@ import (
 
 // SessionNameFromMutation returns the normalized optional fact for a typed action.
 func SessionNameFromMutation(mutation *runtimepb.SessionNameMutation) (*string, error) {
-	if err := Validate(mutation); err != nil {
-		return nil, err
-	}
 	switch action := mutation.Action.(type) {
 	case *runtimepb.SessionNameMutation_Set:
 		return sessioncontract.NormalizeSessionName(&action.Set)

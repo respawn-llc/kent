@@ -10,9 +10,6 @@ import (
 )
 
 func RunPromptRequestFromProto(value *runpromptpb.Request, intent serverapi.SessionLaunchIntent) (serverapi.RunPromptRequest, error) {
-	if err := Validate(value); err != nil {
-		return serverapi.RunPromptRequest{}, err
-	}
 	var err error
 	request := serverapi.RunPromptRequest{Intent: intent, Prompt: value.Prompt, CallerSessionID: textutil.Pointer(value.CallerSessionId)}
 	if value.Overrides != nil {
@@ -28,5 +25,5 @@ func RunPromptRequestFromProto(value *runpromptpb.Request, intent serverapi.Sess
 			return serverapi.RunPromptRequest{}, fmt.Errorf("Run Prompt timeout is outside the supported duration range")
 		}
 	}
-	return request, request.Validate()
+	return request, nil
 }

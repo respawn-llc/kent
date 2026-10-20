@@ -8,7 +8,12 @@ import { SidebarHeaderActionProvider, SidebarHeaderActionSlot } from "@/app-faca
 import { createTestSidebarNavigator } from "@/test-support/sidebar";
 import { WorktreeBrowser } from "./WorktreeBrowser";
 
-import { RpcError, parsePendingWorkItemID, type ChatInputMutationResult, type ChatSettingsRead } from "@/api";
+import {
+  RpcError,
+  pendingWorkItemIDFromProto,
+  type ChatInputMutationResult,
+  type ChatSettingsRead,
+} from "@/api";
 import { createTestServices } from "@/test-support/app-services";
 import {
   changedIdentity,
@@ -220,7 +225,7 @@ it("holds busy Send readonly until acceptance during compaction, then allows con
       outcome: {
         kind: "accepted",
         disposition: "pending_steer",
-        queueItemID: parsePendingWorkItemID(crypto.randomUUID()),
+        queueItemID: pendingWorkItemIDFromProto(crypto.randomUUID()),
         diagnostic: null,
       },
     });
@@ -611,7 +616,7 @@ it("preserves focus, selection and continued typing across successive deliveries
     outcome: {
       kind: "accepted",
       disposition: "started_turn",
-      queueItemID: parsePendingWorkItemID("99999999-9999-4999-8999-999999999999"),
+      queueItemID: pendingWorkItemIDFromProto("99999999-9999-4999-8999-999999999999"),
       diagnostic: null,
     },
   });
@@ -787,7 +792,7 @@ it("shows a newly arriving question in the open Chat without a notification clic
 
 it("shows every accepted Pending Work item and restores only a discarded item", async () => {
   const accepted = Array.from({ length: 105 }, (_, index) => ({
-    id: parsePendingWorkItemID(crypto.randomUUID()),
+    id: pendingWorkItemIDFromProto(crypto.randomUUID()),
     kind: "message" as const,
     state: "pending" as const,
     lane: "steer" as const,

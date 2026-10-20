@@ -31,11 +31,7 @@ func registerGoalGatewayBinaryBindings(bindings map[string]gatewayBinaryBinding)
 }
 
 func goalSetTargetScope(request *runtimepb.GoalSetRequest) (routeScopeParams, error) {
-	target, err := protoapi.ChatTargetFromRequest(request)
-	if err != nil {
-		return routeScopeParams{}, err
-	}
-	return routeScopeParams{chatTarget: target}, nil
+	return routeScopeParams{chatTarget: request.Target}, nil
 }
 
 func binaryGoalSetFailure(

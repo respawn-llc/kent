@@ -30,9 +30,6 @@ func (s *sessionAttentionSubscription) Next(ctx context.Context) (*attentionpb.N
 	case clientui.AttentionNotificationEventSessionNamingFailure:
 		result.Payload = &attentionpb.NotificationEvent_SessionNamingFailure{SessionNamingFailure: event.SessionNamingFailure}
 	case clientui.AttentionNotificationEventResolved:
-		if event.ID == nil || event.OccurredAt == nil {
-			return nil, fmt.Errorf("resolved attention identity and time are required")
-		}
 		id, err := sessionAttentionID(*event.ID)
 		if err != nil {
 			return nil, err
@@ -41,9 +38,6 @@ func (s *sessionAttentionSubscription) Next(ctx context.Context) (*attentionpb.N
 			Id: id, OccurredAt: timestamppb.New(*event.OccurredAt),
 		}}
 	case clientui.AttentionNotificationEventPending:
-		if event.Pending == nil {
-			return nil, fmt.Errorf("pending attention notification is required")
-		}
 		pending := event.Pending
 		id, err := sessionAttentionID(pending.ID)
 		if err != nil {
@@ -59,27 +53,17 @@ func (s *sessionAttentionSubscription) Next(ctx context.Context) (*attentionpb.N
 		}
 		switch pending.Kind {
 		case clientui.AttentionNotificationKindQuestion:
-			if pending.Question == nil {
-				return nil, fmt.Errorf("attention Question state is required")
-			}
 			question, err := attentionQuestionState(pending.Question)
 			if err != nil {
 				return nil, err
 			}
 			notification.State = &attentionpb.Notification_Question{Question: question}
 		case clientui.AttentionNotificationKindApproval:
-			if pending.Approval == nil {
-				return nil, fmt.Errorf("attention Approval state is required")
-			}
 			notification.State = &attentionpb.Notification_Approval{Approval: attentionApprovalState(pending.Approval)}
-		default:
-			return nil, fmt.Errorf("invalid Session attention kind %q", pending.Kind)
 		}
 		result.Payload = &attentionpb.NotificationEvent_Pending{Pending: notification}
-	default:
-		return nil, fmt.Errorf("invalid attention event type %q", event.Type)
 	}
-	return result, protoapi.Validate(result)
+	return result, nil
 }
 
 func attentionQuestionState(question *clientui.AttentionNotificationQuestionState) (*attentionpb.QuestionState, error) {
