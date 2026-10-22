@@ -469,10 +469,14 @@ func (e *Engine) appendMessageRaw(
 	eventPolicy steeringMessageEventPolicy,
 	persist bool,
 	provenanceDestination **TranscriptCommittedRowProvenance,
+	queueItemID *runtimeids.QueueItemID,
 ) (session.CommitReceipt, error) {
 	prepared, err := e.prepareMessageProjection(stepID, msg)
 	if err != nil {
 		return session.CommitReceipt{}, err
+	}
+	if queueItemID != nil {
+		prepared.record.QueueItemIDs = []string{queueItemID.String()}
 	}
 	previousCommittedCount := e.CommittedTranscriptEntryCount()
 	receipt := session.CommitReceipt{}

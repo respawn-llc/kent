@@ -1042,11 +1042,6 @@ func (e *Engine) runUserShellCommand(ctx context.Context, command string, onActi
 			return err
 		}
 
-		call := llm.ToolCall{
-			ID:    uuid.NewString(),
-			Name:  string(toolspec.ToolExecCommand),
-			Input: mustJSON(map[string]string{"cmd": command}),
-		}
 		accepted, acceptErr := runCommandAcceptance(accept, func() (bool, error) {
 			// Acceptance commits live server-owned work. Its user message is
 			// recorded once the command tool has returned its formatted output.
@@ -1055,40 +1050,60 @@ func (e *Engine) runUserShellCommand(ctx context.Context, command string, onActi
 		if err := commandAcceptanceResult(accepted, acceptErr); err != nil {
 			return err
 		}
-		_, registered := e.registry.Get(toolspec.ToolExecCommand)
-		var completed bool
-		var execErr error
-		result, completed, execErr = e.executePreparedToolCall(
-			stepCtx, stepID, call,
-			toolspec.ToolExecCommand, true, nil, nil,
-		)
-		if !completed {
-			if execErr == nil {
-				execErr = errors.New("shell tool execution returned no result")
-			}
-			result = shelltool.ErrorResult(tools.Call{ID: call.ID, Name: toolspec.ToolExecCommand}, execErr.Error())
+		outcome, execErr := e.executeUserShell(stepCtx, stepID, runtimeinput.ShellCommand{Command: command})
+		result = outcome.result
+		if outcome.message == nil {
+			return execErr
 		}
-		var output string
-		if decodeErr := json.Unmarshal(result.Output, &output); decodeErr != nil {
-			return errors.Join(execErr, fmt.Errorf("shell tool returned non-text output: %w", decodeErr))
-		}
-		message := llm.Message{
-			Role:           llm.RoleUser,
-			MessageType:    textutil.Value(llm.MessageTypeUserShellCommand),
-			Content:        textutil.Value(fmt.Sprintf("User ran a shell command:\n<command>%s</command>\n%s", command, output)),
-			CompactContent: textutil.Value(command),
-		}
-		_, persistErr := awaitEngineRuntimeOperation(context.Background(), e, func(context.Context) (struct{}, error) {
-			return struct{}{}, e.steer(stepID, steerMessagesWithPersistenceIntent(
-				steeringPriorityNormal, steeringMessageEventDefault, true, []llm.Message{message},
-			))
-		})
-		if !registered {
-			execErr = errors.Join(execErr, errUnknownTool)
-		}
+		_, persistErr := e.publishUserShellResult(stepID, *outcome.message, nil)
 		return errors.Join(execErr, persistErr)
 	})
 	return result, err
+}
+
+type userShellOutcome struct {
+	result  tools.Result
+	message *llm.Message
+}
+
+// The caller owns execution. This core neither acquires another execution nor
+// waits on the Runtime FIFO, which is paused at an Agent Step Boundary.
+func (e *Engine) executeUserShell(ctx context.Context, stepID string, command runtimeinput.ShellCommand) (userShellOutcome, error) {
+	call := llm.ToolCall{
+		ID: uuid.NewString(), Name: string(toolspec.ToolExecCommand),
+		Input: mustJSON(map[string]string{"cmd": command.Command}),
+	}
+	_, registered := e.registry.Get(toolspec.ToolExecCommand)
+	result, completed, execErr := e.executePreparedToolCall(ctx, stepID, call, toolspec.ToolExecCommand, true, nil, nil)
+	if !completed {
+		if execErr == nil {
+			execErr = errors.New("shell tool execution returned no result")
+		}
+		result = shelltool.ErrorResult(tools.Call{ID: call.ID, Name: toolspec.ToolExecCommand}, execErr.Error())
+	}
+	outcome := userShellOutcome{result: result}
+	var output string
+	if err := json.Unmarshal(result.Output, &output); err != nil {
+		return outcome, errors.Join(execErr, fmt.Errorf("shell tool returned non-text output: %w", err))
+	}
+	outcome.message = &llm.Message{
+		Role: llm.RoleUser, MessageType: textutil.Value(llm.MessageTypeUserShellCommand),
+		Content:        textutil.Value(fmt.Sprintf("User ran a shell command:\n<command>%s</command>\n%s", command.Command, output)),
+		CompactContent: textutil.Value(command.Command),
+	}
+	if !registered {
+		execErr = errors.Join(execErr, errUnknownTool)
+	}
+	return outcome, execErr
+}
+
+func (e *Engine) publishUserShellResult(stepID string, message llm.Message, source *runtimeids.QueueItemID) (session.CommitReceipt, error) {
+	return e.steerWithCommitReceipt(stepID, steeringIntent{
+		priority: steeringPriorityUser,
+		items: []steeringItem{{message: &steeringMessage{
+			message: message, eventPolicy: steeringMessageEventDefault, persist: true, queueItemID: source,
+		}}},
+	})
 }
 
 func (e *Engine) runStepLoop(ctx context.Context, stepID string) (llm.Message, error) {
