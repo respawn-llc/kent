@@ -32,17 +32,32 @@ func TestToolPresentationPreservesServerPatchCounts(t *testing.T) {
 			},
 		},
 	}
-	encoded, err := protoapi.Encode(message)
-	if err != nil {
-		t.Fatal(err)
-	}
-	received := &transcriptpb.ToolPresentation{}
-	if err := protoapi.Decode(encoded, received); err != nil {
-		t.Fatal(err)
-	}
-	adapted := protoapi.ToolPresentationFromProto("patch", received)
-	file := adapted.PatchPresentation.Files[0]
-	if file.Added != 7 || file.Removed == nil || *file.Removed != 3 {
-		t.Fatalf("server counts changed: added=%d removed=%v", file.Added, file.Removed)
+	for _, pending := range []bool{false, true} {
+		for _, removed := range []*int32{nil, proto.Int32(3)} {
+			outgoing := proto.Clone(message).(*transcriptpb.ToolPresentation)
+			facts := outgoing.PatchPresentation.GetChanges().Files[0]
+			facts.Removed = removed
+			if pending {
+				facts.Operations = []*transcriptpb.PatchFileOperation{{
+					Operation: &transcriptpb.PatchFileOperation_Delete{Delete: &transcriptpb.PatchDeletionOperation{
+						Id: &transcriptpb.PatchDeletionOperationID{HunkOrdinal: 0},
+					}},
+				}}
+			}
+			encoded, err := protoapi.Encode(outgoing)
+			if err != nil {
+				t.Fatalf("pending=%t removed=%v: %v", pending, removed, err)
+			}
+			received := &transcriptpb.ToolPresentation{}
+			if err := protoapi.Decode(encoded, received); err != nil {
+				t.Fatal(err)
+			}
+			adapted := protoapi.ToolPresentationFromProto("patch", received)
+			file := adapted.PatchPresentation.Files[0]
+			if file.Added != 7 || (file.Removed == nil) != (removed == nil) ||
+				removed != nil && *file.Removed != int(*removed) {
+				t.Fatalf("server counts changed: added=%d removed=%v", file.Added, file.Removed)
+			}
+		}
 	}
 }
