@@ -230,9 +230,6 @@ func (c *CurrentNodeController) CompleteSessionCurrentNode(
 	if c == nil {
 		return workflowruntime.CompletionResult{}, errors.New("current node workflow controller is required")
 	}
-	if sessionID.IsZero() {
-		return workflowruntime.CompletionResult{}, errors.New("session id is required")
-	}
 	handle, live := c.authority.SessionExecution(sessionID)
 	if !live || handle.Scope().Kind() != sessionruntime.ExecutionScopeAgent {
 		return workflowruntime.CompletionResult{}, sessionruntime.ErrExecutionNoLongerLive
