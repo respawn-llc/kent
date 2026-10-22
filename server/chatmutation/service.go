@@ -50,21 +50,34 @@ type RuntimeAdmissionService interface {
 	) (bool, error)
 }
 
-func (s *Service) SubmitUserShellCommand(ctx context.Context, request *chatshellpb.ShellCommandRequest) error {
+func (s *Service) SubmitUserShellCommand(ctx context.Context, request *chatshellpb.ShellCommandRequest) (*chatshellpb.ShellCommandSuccess, error) {
 	if err := protoapi.Validate(request); err != nil {
-		return err
+		return nil, err
 	}
+	var result *chatshellpb.ShellCommandSuccess
 	operation, err := s.operations.Start(ctx, func(scope OperationScope) error {
-		target, err := s.prepareRuntimeWithDraft(scope, request.Target, nil)
-		if err != nil {
+		target, err := s.prepareRuntimeWithDraft(scope, request.Target, request.InitialInputDraft)
+		if err != nil && target.SessionID.IsZero() {
 			return err
 		}
-		return s.admissions.AdmitUserShellCommand(scope.Context(), target.SessionID, request.Command)
+		if err == nil {
+			err = s.admissions.AdmitUserShellCommand(scope.Context(), target.SessionID, request.Command)
+		}
+		result = &chatshellpb.ShellCommandSuccess{Session: &chatpb.ExistingSessionTarget{SessionId: target.SessionID.String()}}
+		if err != nil {
+			result.Outcome = &chatshellpb.ShellCommandSuccess_Failed{Failed: inputNotAcceptedForCause("chat_shell", err)}
+		} else {
+			result.Outcome = &chatshellpb.ShellCommandSuccess_Completed{Completed: &emptypb.Empty{}}
+		}
+		return nil
 	})
 	if err != nil {
-		return err
+		return nil, err
 	}
-	return operation.Await(ctx)
+	if err := operation.Await(ctx); err != nil {
+		return nil, err
+	}
+	return result, nil
 }
 
 type ResolvedGoalSetInvoker interface {
@@ -250,7 +263,7 @@ func (s *Service) resolveTarget(
 		InitialDraft: initialDraft,
 	})
 	if err != nil {
-		return ResolvedTarget{}, err
+		return target, err
 	}
 	return target, nil
 }

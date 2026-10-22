@@ -209,7 +209,7 @@ func WithUISessionName(name *string) UIOption {
 
 func WithUISessionID(sessionID string) UIOption {
 	return func(m *uiModel) {
-		m.sessionID = strings.TrimSpace(sessionID)
+		m.setKnownSessionTarget(sessionID)
 	}
 }
 
@@ -223,20 +223,6 @@ func WithUIProcessClient(client clientui.ProcessClient) UIOption {
 func WithUIWorktreeClient(client apicontract.WorktreeService) UIOption {
 	return func(m *uiModel) {
 		m.worktreeClient = client
-	}
-}
-
-func WithUITurnQueueHook(hook turnQueueHook) UIOption {
-	return func(m *uiModel) {
-		m.turnQueueHook = hook
-	}
-}
-
-func WithUITerminalFocusState(state *terminalFocusState) UIOption {
-	return func(m *uiModel) {
-		if state != nil {
-			m.terminalFocus = state
-		}
 	}
 }
 

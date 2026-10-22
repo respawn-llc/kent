@@ -132,7 +132,7 @@ func (m *uiModel) statusLineSpinning() bool {
 	if m == nil {
 		return false
 	}
-	return (m.runtimeActivityBusy() && m.activity != uiActivityQuestion) ||
+	return m.pendingNewChatActions > 0 || m.sessionObservationLoading() || (m.runtimeActivityBusy() && m.activity != uiActivityQuestion) ||
 		m.isReviewerActive()
 }
 
@@ -156,7 +156,7 @@ func (m *uiModel) runtimeContextUsageAppliesTo(sessionID string) bool {
 	}
 	sessionID = strings.TrimSpace(sessionID)
 	if sessionID == "" {
-		sessionID = strings.TrimSpace(m.sessionID)
+		sessionID = strings.TrimSpace(m.currentRuntimeSessionID())
 	}
 	return sessionID != "" && strings.TrimSpace(m.runtimeContextUsageSession) == sessionID
 }
@@ -165,18 +165,8 @@ func (m *uiModel) currentRuntimeSessionID() string {
 	if m == nil {
 		return ""
 	}
-	if sessionID := strings.TrimSpace(m.sessionID); sessionID != "" {
-		return sessionID
-	}
-	if client := m.runtimeClient(); client != nil {
-		if cached, ok := client.(interface {
-			CachedMainView() (*runtimepb.MainView, bool)
-		}); ok {
-			view, hasCached := cached.CachedMainView()
-			if hasCached {
-				return strings.TrimSpace(view.Session.SessionId)
-			}
-		}
+	if target, ok := m.presentationTarget.(uiKnownSessionTarget); ok {
+		return target.id.String()
 	}
 	return ""
 }

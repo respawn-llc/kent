@@ -12,6 +12,8 @@ import (
 	"core/cli/tui/ongoing"
 	"core/shared/apicontract"
 	"core/shared/config"
+	chatpb "core/shared/protoapi/gen/kent/api/chat"
+	"core/shared/runtimeids"
 
 	tea "github.com/charmbracelet/bubbletea"
 	xansi "github.com/charmbracelet/x/ansi"
@@ -30,11 +32,17 @@ type uiProgramComposition struct {
 
 type uiLoopRequest struct {
 	sessionLifecycle             apicontract.SessionLifecycleService
+	newChat                      *chatpb.NewChatTarget
+	newChatAuth                  apicontract.AuthBootstrapService
+	createSession                func(context.Context, *chatpb.NewChatTarget, string) (*chatpb.ExistingSessionTarget, error)
+	newChatLogin                 func(context.Context) error
+	observeSession               func(context.Context, runtimeids.SessionID) (sessionLaunchPlan, *runtimeLaunchPlan, error)
 	ctx                          context.Context
 	wiring                       *runtimeWiring
 	projectID                    string
 	active                       config.Settings
 	commandRegistry              *commands.Registry
+	loadCommandCatalog           func(context.Context) uiCommandCatalog
 	initialPrompt                string
 	initialPromptHistoryRecorded bool
 	initialInput                 string
@@ -138,13 +146,13 @@ func composeUIProgram(request uiLoopRequest, output io.Writer) (*uiProgramCompos
 	tuiLogger, _ := newRollingTUILogger(request.statusConfig.PersistenceRoot)
 	uiLogger := newMultiUILogger(tuiLogger)
 	runtimeClient := request.wiring.runtimeClient
-	if runtimeClient == nil {
+	if runtimeClient == nil && request.newChat == nil {
 		if tuiLogger != nil {
 			_ = tuiLogger.Close()
 		}
 		return nil, errors.New("runtime client is required")
 	}
-	if request.wiring.eventDispatcher == nil || request.wiring.eventDispatcher.transcriptEvents == nil {
+	if runtimeClient != nil && (request.wiring.eventDispatcher == nil || request.wiring.eventDispatcher.transcriptEvents == nil) {
 		if tuiLogger != nil {
 			_ = tuiLogger.Close()
 		}
@@ -179,26 +187,23 @@ func composeUIProgram(request uiLoopRequest, output io.Writer) (*uiProgramCompos
 		WithUICommandRegistry(request.commandRegistry),
 		WithUIPromptCommandCatalog(request.promptCatalog),
 		WithUIPromptCommandCatalogEntries(request.promptCatalogEntries),
-		WithUITurnQueueHook(request.wiring.turnQueueHook),
 		WithUIProcessClient(newUIProcessClientWithReads(request.projectID, request.wiring.processViews, request.wiring.processControls)),
-		WithUIWorktreeClient(request.wiring.worktrees),
 		WithUIStartupSubmit(request.initialPrompt),
 		WithUIStartupSubmitPromptHistoryRecorded(request.initialPromptHistoryRecorded),
 		WithUIInitialInput(request.initialInput),
-		WithUISessionID(sessionID),
-		WithUIStatusConfig(request.statusConfig),
 		WithUITerminalCursorState(terminalCursor),
 		WithUIRendererOutputGateState(rendererOutputGate),
 		WithUIOngoingSurface(ongoingSurface),
-		WithUIOngoingTranscriptEvents(request.wiring.eventDispatcher.transcriptEvents),
-		WithUIClientLifecycleIssues(request.wiring.lifecycleHookIssues, request.wiring.lifecycleHookDone),
-		WithUIOngoingTranscriptReopen(request.wiring.requestTranscriptOpen),
-		WithUITerminalFocusState(request.wiring.terminalFocus),
+	}
+	if runtimeClient != nil {
+		uiOptions = append(uiOptions, WithUISessionID(sessionID), withUISessionObservation(request.wiring, sessionLaunchPlan{StatusConfig: request.statusConfig}, programContext))
+	} else {
+		uiOptions = append(uiOptions, WithUIWorktreeClient(request.wiring.worktrees), WithUIStatusConfig(request.statusConfig))
 	}
 	if request.sessionTitle != nil {
 		uiOptions = append(uiOptions, WithUISessionName(request.sessionTitle))
 	}
-	rawModel := NewProjectedUIModel(runtimeClient, uiOptions...)
+	rawModel := NewProjectedUIModel(nil, uiOptions...)
 	model, ok := rawModel.(*uiModel)
 	if !ok {
 		if tuiLogger != nil {
@@ -207,7 +212,49 @@ func composeUIProgram(request uiLoopRequest, output io.Writer) (*uiProgramCompos
 		return nil, errors.New("projected UI model has unexpected type")
 	}
 	model.keyboardReporting = keyboardReporting
-	model.drafts = newUIDraftPersistence(request.sessionLifecycle, sessionID, model.mainEditor.Text())
+	model.workspaceContext = uiWorkspaceContext{
+		projectID:   request.projectID,
+		workspaceID: request.statusConfig.ExecutionTarget.GetWorkspaceId(),
+		root:        request.statusConfig.ExecutionTarget.GetWorkspaceRoot(),
+	}
+	if request.newChat != nil {
+		model.workspaceContext.workspaceID = request.newChat.WorkspaceId
+		model.workspaceContext.root = request.statusConfig.WorkspaceRoot
+	}
+	model.chatMutations = request.wiring.chatMutations
+	model.chatSettings = request.wiring.chatSettings
+	model.sessionControls = request.wiring.controls
+	model.pendingWorkClient = request.wiring.pendingWork
+	if request.newChat == nil {
+		selected := model.presentationTarget.(uiKnownSessionTarget)
+		selected.preparation = request.wiring.preparation
+		request.wiring.preparation = nil
+		model.presentationTarget = selected
+	}
+	model.createSession = request.createSession
+	var initialDraft *draftContent
+	if target, known := model.presentationTarget.(uiKnownSessionTarget); known {
+		initialDraft = &draftContent{sessionID: target.id, input: model.mainEditor.Text()}
+	}
+	model.drafts = newUIDraftPersistence(request.sessionLifecycle, initialDraft)
+	model.observeSession = request.observeSession
+	model.observationContext = programContext
+	if request.loadCommandCatalog != nil {
+		load := request.loadCommandCatalog
+		model.startupCmds = append(model.startupCmds, func() tea.Msg {
+			return initialCommandCatalogDoneMsg{owner: model, catalog: load(programContext)}
+		})
+	}
+	if request.newChat != nil {
+		model.presentationTarget = &uiNewSessionTarget{
+			creation: request.newChat,
+			auth:     request.newChatAuth,
+			login:    request.newChatLogin,
+		}
+		if request.wiring.chatSettings != nil {
+			model.startupCmds = append(model.startupCmds, model.loadNewSessionSettingsCmd(nil))
+		}
+	}
 	if request.initialTransientStatus != nil {
 		model.startupCmds = append(model.startupCmds, model.showTransientStatusNotice(uiStatusNotice{
 			Text:     *request.initialTransientStatus,
@@ -215,25 +262,6 @@ func composeUIProgram(request uiLoopRequest, output io.Writer) (*uiProgramCompos
 			Duration: transientStatusDuration,
 		}))
 	}
-	model.promptAnswers = request.wiring.promptAnswers.withConnectionOutcomeSink(func(err error) {
-		enqueueRuntimeConnectionStateChange(model.runtimeConnectionEvents, err)
-	})
-	model.promptAttention = request.wiring.promptAttention
-	if request.wiring.attentionNotifications == nil {
-		return nil, errors.New("Session attention client is required")
-	}
-	attentionEvents, stopAttention := startSessionAttentionEvents(programContext, sessionID, request.wiring.attentionNotifications)
-	model.eventDispatcher.attentionEvents = attentionEvents
-	sessionClient, ok := runtimeClient.(*sessionRuntimeClient)
-	if !ok {
-		return nil, errors.New("projected UI model runtime client has unexpected type")
-	}
-	model.ongoingTranscript = newOngoingTranscriptController(
-		ongoingSurface,
-		model.ongoingFrameInput,
-		sessionClient.admitTranscriptMessageState,
-		model.applyAdmittedTranscriptMessageState,
-	)
 	return &uiProgramComposition{
 		model:                 model,
 		options:               options,
@@ -242,7 +270,6 @@ func composeUIProgram(request uiLoopRequest, output io.Writer) (*uiProgramCompos
 		terminalOutput:        nativeProgressOutput,
 		nativeProgressEnabled: nativeProgressEnabled,
 		close: func() {
-			stopAttention()
 			if err := keyboardReporting.Close(); err != nil && uiLogger != nil {
 				uiLogger.Logf("app.exit keyboard_reporting_reset_error=%q", err.Error())
 			}

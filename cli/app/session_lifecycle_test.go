@@ -176,8 +176,8 @@ func TestPersistSessionDraftIncludesOnlyComposerInput(t *testing.T) {
 		},
 	}
 	model := newUIModelDefaults(nil)
-	model.sessionID = "session-1"
-	model.drafts = newUIDraftPersistence(client, model.sessionID, model.mainEditor.Text())
+	model.setKnownSessionTarget(detailTestSessionID)
+	model.drafts = newUIDraftPersistence(client, &draftContent{sessionID: model.presentationTarget.(uiKnownSessionTarget).id, input: model.mainEditor.Text()})
 	testSetMainInput(model, "visible draft")
 	model.injectedQueue = []*injectedRuntimeQueueItem{{
 
@@ -199,7 +199,7 @@ func TestPersistSessionDraftIncludesOnlyComposerInput(t *testing.T) {
 	if done.err != nil {
 		t.Fatalf("persist draft: %v", done.err)
 	}
-	if captured.Input != "visible draft" || captured.SessionId != "session-1" {
+	if captured.Input != "visible draft" || captured.SessionId != detailTestSessionID {
 		t.Fatalf("captured draft request = %+v, want composer input only", captured)
 	}
 	model.finishDraftSave(done)

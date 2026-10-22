@@ -1,10 +1,10 @@
 package protoapi
 
 import (
+	configurationpb "core/shared/protoapi/gen/kent/api/configuration"
 	"fmt"
 
 	"core/shared/config"
-	sessionlaunchpb "core/shared/protoapi/gen/kent/api/session_launch"
 )
 
 func enumToProto[Wire ~int32, Native ~string](values map[Wire]Native, value Native, field string) (Wire, error) {
@@ -17,124 +17,124 @@ func enumToProto[Wire ~int32, Native ~string](values map[Wire]Native, value Nati
 	return zero, fmt.Errorf("%s %q is unsupported", field, value)
 }
 
-var modelVerbosityValues = map[sessionlaunchpb.ModelVerbosity]config.ModelVerbosity{
-	sessionlaunchpb.ModelVerbosity_MODEL_VERBOSITY_UNSPECIFIED: "",
-	sessionlaunchpb.ModelVerbosity_MODEL_VERBOSITY_LOW:         config.ModelVerbosityLow,
-	sessionlaunchpb.ModelVerbosity_MODEL_VERBOSITY_MEDIUM:      config.ModelVerbosityMedium,
-	sessionlaunchpb.ModelVerbosity_MODEL_VERBOSITY_HIGH:        config.ModelVerbosityHigh,
+var modelVerbosityValues = map[configurationpb.ModelVerbosity]config.ModelVerbosity{
+	configurationpb.ModelVerbosity_MODEL_VERBOSITY_UNSPECIFIED: "",
+	configurationpb.ModelVerbosity_MODEL_VERBOSITY_LOW:         config.ModelVerbosityLow,
+	configurationpb.ModelVerbosity_MODEL_VERBOSITY_MEDIUM:      config.ModelVerbosityMedium,
+	configurationpb.ModelVerbosity_MODEL_VERBOSITY_HIGH:        config.ModelVerbosityHigh,
 }
 
-func modelVerbosityToProto(value config.ModelVerbosity) (sessionlaunchpb.ModelVerbosity, error) {
+func modelVerbosityToProto(value config.ModelVerbosity) (configurationpb.ModelVerbosity, error) {
 	return enumToProto(modelVerbosityValues, value, "model verbosity")
 }
 
-func modelVerbosityFromProto(value sessionlaunchpb.ModelVerbosity) config.ModelVerbosity {
+func modelVerbosityFromProto(value configurationpb.ModelVerbosity) config.ModelVerbosity {
 	return modelVerbosityValues[value]
 }
 
-var compactionModeValues = map[sessionlaunchpb.CompactionMode]config.CompactionMode{
-	sessionlaunchpb.CompactionMode_COMPACTION_MODE_UNSPECIFIED: "",
-	sessionlaunchpb.CompactionMode_COMPACTION_MODE_NATIVE:      config.CompactionModeNative,
-	sessionlaunchpb.CompactionMode_COMPACTION_MODE_LOCAL:       config.CompactionModeLocal,
-	sessionlaunchpb.CompactionMode_COMPACTION_MODE_NONE:        config.CompactionModeNone,
+var compactionModeValues = map[configurationpb.CompactionMode]config.CompactionMode{
+	configurationpb.CompactionMode_COMPACTION_MODE_UNSPECIFIED: "",
+	configurationpb.CompactionMode_COMPACTION_MODE_NATIVE:      config.CompactionModeNative,
+	configurationpb.CompactionMode_COMPACTION_MODE_LOCAL:       config.CompactionModeLocal,
+	configurationpb.CompactionMode_COMPACTION_MODE_NONE:        config.CompactionModeNone,
 }
 
-func compactionModeToProto(value config.CompactionMode) (sessionlaunchpb.CompactionMode, error) {
+func compactionModeToProto(value config.CompactionMode) (configurationpb.CompactionMode, error) {
 	return enumToProto(compactionModeValues, value, "compaction mode")
 }
 
-func compactionModeFromProto(value sessionlaunchpb.CompactionMode) config.CompactionMode {
+func compactionModeFromProto(value configurationpb.CompactionMode) config.CompactionMode {
 	return compactionModeValues[value]
 }
 
-var backgroundShellOutputValues = map[sessionlaunchpb.BackgroundShellOutputMode]config.BGShellsOutputMode{
-	sessionlaunchpb.BackgroundShellOutputMode_BACKGROUND_SHELL_OUTPUT_MODE_UNSPECIFIED: "",
-	sessionlaunchpb.BackgroundShellOutputMode_BACKGROUND_SHELL_OUTPUT_MODE_DEFAULT:     config.BGShellsOutputDefault,
-	sessionlaunchpb.BackgroundShellOutputMode_BACKGROUND_SHELL_OUTPUT_MODE_VERBOSE:     config.BGShellsOutputVerbose,
-	sessionlaunchpb.BackgroundShellOutputMode_BACKGROUND_SHELL_OUTPUT_MODE_CONCISE:     config.BGShellsOutputConcise,
+var backgroundShellOutputValues = map[configurationpb.BackgroundShellOutputMode]config.BGShellsOutputMode{
+	configurationpb.BackgroundShellOutputMode_BACKGROUND_SHELL_OUTPUT_MODE_UNSPECIFIED: "",
+	configurationpb.BackgroundShellOutputMode_BACKGROUND_SHELL_OUTPUT_MODE_DEFAULT:     config.BGShellsOutputDefault,
+	configurationpb.BackgroundShellOutputMode_BACKGROUND_SHELL_OUTPUT_MODE_VERBOSE:     config.BGShellsOutputVerbose,
+	configurationpb.BackgroundShellOutputMode_BACKGROUND_SHELL_OUTPUT_MODE_CONCISE:     config.BGShellsOutputConcise,
 }
 
-func backgroundShellOutputToProto(value config.BGShellsOutputMode) (sessionlaunchpb.BackgroundShellOutputMode, error) {
+func backgroundShellOutputToProto(value config.BGShellsOutputMode) (configurationpb.BackgroundShellOutputMode, error) {
 	return enumToProto(backgroundShellOutputValues, value, "background shell output mode")
 }
 
-func backgroundShellOutputFromProto(value sessionlaunchpb.BackgroundShellOutputMode) config.BGShellsOutputMode {
+func backgroundShellOutputFromProto(value configurationpb.BackgroundShellOutputMode) config.BGShellsOutputMode {
 	return backgroundShellOutputValues[value]
 }
 
-var shellPostprocessingValues = map[sessionlaunchpb.ShellPostprocessingMode]config.ShellPostprocessingMode{
-	sessionlaunchpb.ShellPostprocessingMode_SHELL_POSTPROCESSING_MODE_UNSPECIFIED: "",
-	sessionlaunchpb.ShellPostprocessingMode_SHELL_POSTPROCESSING_MODE_NONE:        config.ShellPostprocessingModeNone,
-	sessionlaunchpb.ShellPostprocessingMode_SHELL_POSTPROCESSING_MODE_BUILTIN:     config.ShellPostprocessingModeBuiltin,
-	sessionlaunchpb.ShellPostprocessingMode_SHELL_POSTPROCESSING_MODE_USER:        config.ShellPostprocessingModeUser,
-	sessionlaunchpb.ShellPostprocessingMode_SHELL_POSTPROCESSING_MODE_ALL:         config.ShellPostprocessingModeAll,
+var shellPostprocessingValues = map[configurationpb.ShellPostprocessingMode]config.ShellPostprocessingMode{
+	configurationpb.ShellPostprocessingMode_SHELL_POSTPROCESSING_MODE_UNSPECIFIED: "",
+	configurationpb.ShellPostprocessingMode_SHELL_POSTPROCESSING_MODE_NONE:        config.ShellPostprocessingModeNone,
+	configurationpb.ShellPostprocessingMode_SHELL_POSTPROCESSING_MODE_BUILTIN:     config.ShellPostprocessingModeBuiltin,
+	configurationpb.ShellPostprocessingMode_SHELL_POSTPROCESSING_MODE_USER:        config.ShellPostprocessingModeUser,
+	configurationpb.ShellPostprocessingMode_SHELL_POSTPROCESSING_MODE_ALL:         config.ShellPostprocessingModeAll,
 }
 
-func shellPostprocessingModeToProto(value config.ShellPostprocessingMode) (sessionlaunchpb.ShellPostprocessingMode, error) {
+func shellPostprocessingModeToProto(value config.ShellPostprocessingMode) (configurationpb.ShellPostprocessingMode, error) {
 	return enumToProto(shellPostprocessingValues, value, "shell postprocessing mode")
 }
 
-func shellPostprocessingModeFromProto(value sessionlaunchpb.ShellPostprocessingMode) config.ShellPostprocessingMode {
+func shellPostprocessingModeFromProto(value configurationpb.ShellPostprocessingMode) config.ShellPostprocessingMode {
 	return shellPostprocessingValues[value]
 }
 
-var cacheWarningValues = map[sessionlaunchpb.CacheWarningMode]config.CacheWarningMode{
-	sessionlaunchpb.CacheWarningMode_CACHE_WARNING_MODE_UNSPECIFIED: "",
-	sessionlaunchpb.CacheWarningMode_CACHE_WARNING_MODE_OFF:         config.CacheWarningModeOff,
-	sessionlaunchpb.CacheWarningMode_CACHE_WARNING_MODE_DEFAULT:     config.CacheWarningModeDefault,
-	sessionlaunchpb.CacheWarningMode_CACHE_WARNING_MODE_VERBOSE:     config.CacheWarningModeVerbose,
+var cacheWarningValues = map[configurationpb.CacheWarningMode]config.CacheWarningMode{
+	configurationpb.CacheWarningMode_CACHE_WARNING_MODE_UNSPECIFIED: "",
+	configurationpb.CacheWarningMode_CACHE_WARNING_MODE_OFF:         config.CacheWarningModeOff,
+	configurationpb.CacheWarningMode_CACHE_WARNING_MODE_DEFAULT:     config.CacheWarningModeDefault,
+	configurationpb.CacheWarningMode_CACHE_WARNING_MODE_VERBOSE:     config.CacheWarningModeVerbose,
 }
 
-func cacheWarningModeToProto(value config.CacheWarningMode) (sessionlaunchpb.CacheWarningMode, error) {
+func cacheWarningModeToProto(value config.CacheWarningMode) (configurationpb.CacheWarningMode, error) {
 	return enumToProto(cacheWarningValues, value, "cache warning mode")
 }
 
-func cacheWarningModeFromProto(value sessionlaunchpb.CacheWarningMode) config.CacheWarningMode {
+func cacheWarningModeFromProto(value configurationpb.CacheWarningMode) config.CacheWarningMode {
 	return cacheWarningValues[value]
 }
 
-var workflowCompletionValues = map[sessionlaunchpb.WorkflowCompletionMode]config.WorkflowCompletionMode{
-	sessionlaunchpb.WorkflowCompletionMode_WORKFLOW_COMPLETION_MODE_UNSPECIFIED:         "",
-	sessionlaunchpb.WorkflowCompletionMode_WORKFLOW_COMPLETION_MODE_AUTO:                config.WorkflowCompletionModeAuto,
-	sessionlaunchpb.WorkflowCompletionMode_WORKFLOW_COMPLETION_MODE_STRUCTURED_OUTPUT:   config.WorkflowCompletionModeStructuredOutput,
-	sessionlaunchpb.WorkflowCompletionMode_WORKFLOW_COMPLETION_MODE_TOOL:                config.WorkflowCompletionModeTool,
-	sessionlaunchpb.WorkflowCompletionMode_WORKFLOW_COMPLETION_MODE_SHELL_COMMAND:       config.WorkflowCompletionModeShellCommand,
-	sessionlaunchpb.WorkflowCompletionMode_WORKFLOW_COMPLETION_MODE_UNSTRUCTURED_OUTPUT: config.WorkflowCompletionModeUnstructured,
+var workflowCompletionValues = map[configurationpb.WorkflowCompletionMode]config.WorkflowCompletionMode{
+	configurationpb.WorkflowCompletionMode_WORKFLOW_COMPLETION_MODE_UNSPECIFIED:         "",
+	configurationpb.WorkflowCompletionMode_WORKFLOW_COMPLETION_MODE_AUTO:                config.WorkflowCompletionModeAuto,
+	configurationpb.WorkflowCompletionMode_WORKFLOW_COMPLETION_MODE_STRUCTURED_OUTPUT:   config.WorkflowCompletionModeStructuredOutput,
+	configurationpb.WorkflowCompletionMode_WORKFLOW_COMPLETION_MODE_TOOL:                config.WorkflowCompletionModeTool,
+	configurationpb.WorkflowCompletionMode_WORKFLOW_COMPLETION_MODE_SHELL_COMMAND:       config.WorkflowCompletionModeShellCommand,
+	configurationpb.WorkflowCompletionMode_WORKFLOW_COMPLETION_MODE_UNSTRUCTURED_OUTPUT: config.WorkflowCompletionModeUnstructured,
 }
 
-func workflowCompletionModeToProto(value config.WorkflowCompletionMode) (sessionlaunchpb.WorkflowCompletionMode, error) {
+func workflowCompletionModeToProto(value config.WorkflowCompletionMode) (configurationpb.WorkflowCompletionMode, error) {
 	return enumToProto(workflowCompletionValues, value, "workflow completion mode")
 }
 
-func workflowCompletionModeFromProto(value sessionlaunchpb.WorkflowCompletionMode) config.WorkflowCompletionMode {
+func workflowCompletionModeFromProto(value configurationpb.WorkflowCompletionMode) config.WorkflowCompletionMode {
 	return workflowCompletionValues[value]
 }
 
-var sleepPreventionValues = map[sessionlaunchpb.SleepPreventionMode]config.SleepPreventionMode{
-	sessionlaunchpb.SleepPreventionMode_SLEEP_PREVENTION_MODE_UNSPECIFIED: "",
-	sessionlaunchpb.SleepPreventionMode_SLEEP_PREVENTION_MODE_ALWAYS:      config.SleepPreventionModeAlways,
-	sessionlaunchpb.SleepPreventionMode_SLEEP_PREVENTION_MODE_ACTIVE:      config.SleepPreventionModeActive,
-	sessionlaunchpb.SleepPreventionMode_SLEEP_PREVENTION_MODE_NEVER:       config.SleepPreventionModeNever,
+var sleepPreventionValues = map[configurationpb.SleepPreventionMode]config.SleepPreventionMode{
+	configurationpb.SleepPreventionMode_SLEEP_PREVENTION_MODE_UNSPECIFIED: "",
+	configurationpb.SleepPreventionMode_SLEEP_PREVENTION_MODE_ALWAYS:      config.SleepPreventionModeAlways,
+	configurationpb.SleepPreventionMode_SLEEP_PREVENTION_MODE_ACTIVE:      config.SleepPreventionModeActive,
+	configurationpb.SleepPreventionMode_SLEEP_PREVENTION_MODE_NEVER:       config.SleepPreventionModeNever,
 }
 
-func sleepPreventionModeToProto(value config.SleepPreventionMode) (sessionlaunchpb.SleepPreventionMode, error) {
+func sleepPreventionModeToProto(value config.SleepPreventionMode) (configurationpb.SleepPreventionMode, error) {
 	return enumToProto(sleepPreventionValues, value, "sleep prevention mode")
 }
 
-func sleepPreventionModeFromProto(value sessionlaunchpb.SleepPreventionMode) config.SleepPreventionMode {
+func sleepPreventionModeFromProto(value configurationpb.SleepPreventionMode) config.SleepPreventionMode {
 	return sleepPreventionValues[value]
 }
 
-var systemPromptFileScopeValues = map[sessionlaunchpb.SystemPromptFileScope]config.SystemPromptFileScope{
-	sessionlaunchpb.SystemPromptFileScope_SYSTEM_PROMPT_FILE_SCOPE_HOME_CONFIG:      config.SystemPromptFileScopeHomeConfig,
-	sessionlaunchpb.SystemPromptFileScope_SYSTEM_PROMPT_FILE_SCOPE_WORKSPACE_CONFIG: config.SystemPromptFileScopeWorkspaceConfig,
-	sessionlaunchpb.SystemPromptFileScope_SYSTEM_PROMPT_FILE_SCOPE_SUBAGENT:         config.SystemPromptFileScopeSubagent,
+var systemPromptFileScopeValues = map[configurationpb.SystemPromptFileScope]config.SystemPromptFileScope{
+	configurationpb.SystemPromptFileScope_SYSTEM_PROMPT_FILE_SCOPE_HOME_CONFIG:      config.SystemPromptFileScopeHomeConfig,
+	configurationpb.SystemPromptFileScope_SYSTEM_PROMPT_FILE_SCOPE_WORKSPACE_CONFIG: config.SystemPromptFileScopeWorkspaceConfig,
+	configurationpb.SystemPromptFileScope_SYSTEM_PROMPT_FILE_SCOPE_SUBAGENT:         config.SystemPromptFileScopeSubagent,
 }
 
-func systemPromptFileScopeToProto(value config.SystemPromptFileScope) (sessionlaunchpb.SystemPromptFileScope, error) {
+func systemPromptFileScopeToProto(value config.SystemPromptFileScope) (configurationpb.SystemPromptFileScope, error) {
 	return enumToProto(systemPromptFileScopeValues, value, "system prompt file scope")
 }
 
-func systemPromptFileScopeFromProto(value sessionlaunchpb.SystemPromptFileScope) config.SystemPromptFileScope {
+func systemPromptFileScopeFromProto(value configurationpb.SystemPromptFileScope) config.SystemPromptFileScope {
 	return systemPromptFileScopeValues[value]
 }

@@ -218,7 +218,7 @@ func (m *uiModel) injectedQueueItemNeedsLocalPane(item *injectedRuntimeQueueItem
 	case injectedRuntimeQueuePendingCreate, injectedRuntimeQueueDiscardFailed:
 		return true
 	case injectedRuntimeQueueEnqueued:
-		return m != nil && !m.hasRuntimeClient()
+		return item.ServerID == nil
 	default:
 		return false
 	}

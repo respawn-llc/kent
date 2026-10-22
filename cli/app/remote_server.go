@@ -8,7 +8,7 @@ import (
 	"core/shared/config"
 	authpb "core/shared/protoapi/gen/kent/api/auth"
 	workflowpb "core/shared/protoapi/gen/kent/api/workflow_definition"
-	worktreepb "core/shared/protoapi/gen/kent/api/worktree"
+	"core/shared/runtimeids"
 	"errors"
 
 	"core/shared/protocol"
@@ -53,11 +53,14 @@ func (s *remoteAppServer) PresentationTheme() string {
 	return s.presentation.Theme
 }
 
-func (s *remoteAppServer) PromptCommandCatalogClient(_ context.Context, sessionID string, _ *worktreepb.SessionExecutionTarget) (apicontract.PromptCommandCatalogService, error) {
+func (s *remoteAppServer) PromptCommandCatalogClient(_ context.Context, sessionID *runtimeids.SessionID) (apicontract.PromptCommandCatalogService, error) {
 	if s == nil {
 		return nil, errors.New("remote server is required")
 	}
-	return s.remote.PromptCommandCatalogClientForSession(sessionID)
+	if sessionID == nil {
+		return s.remote, nil
+	}
+	return s.remote.PromptCommandCatalogClientForSession(sessionID.String())
 }
 
 func (s *remoteAppServer) Close() error {
@@ -88,6 +91,8 @@ func (s *remoteAppServer) ProjectBinding() (client.ProjectAttachment, bool) {
 }
 
 func (s *remoteAppServer) ChatSettingsClient() apicontract.ChatSettingsService { return s.remote }
+
+func (s *remoteAppServer) AuthBootstrapClient() apicontract.AuthBootstrapService { return s.remote }
 
 func (s *remoteAppServer) workspaceRetargetContext() *sessionWorkspaceRetargetContext {
 	if s == nil || s.retarget == nil {
@@ -169,7 +174,7 @@ func (s *remoteAppServer) SessionUIClients() sessionUIClients {
 		ProcessViews:           s.remote,
 		PromptControl:          s.remote,
 		RuntimeControls:        s.remote,
-		GoalSet:                s.remote,
+		PendingWork:            s.remote,
 		ChatSettings:           s.remote,
 		SessionTranscript:      s.remote,
 		SessionViews:           s.remote,

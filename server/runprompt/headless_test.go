@@ -39,6 +39,7 @@ import (
 	"core/shared/clientui"
 	"core/shared/config"
 	"core/shared/protoapi"
+	invocationpb "core/shared/protoapi/gen/kent/api/invocation"
 	promptpb "core/shared/protoapi/gen/kent/api/prompt"
 	runpromptpb "core/shared/protoapi/gen/kent/api/run_prompt"
 	sessionlaunchpb "core/shared/protoapi/gen/kent/api/session_launch"
@@ -343,7 +344,7 @@ func TestInProcessRunPromptClientRejectsInvalidRequestsBeforeLaunch(t *testing.T
 		{name: "reserved role", req: &runpromptpb.Request{
 			Intent:    validIntent,
 			Prompt:    "work",
-			Overrides: &sessionlaunchpb.RunPromptOverrides{AgentRole: &reservedRole},
+			Overrides: &invocationpb.RunPromptOverrides{AgentRole: &reservedRole},
 		}},
 	}
 

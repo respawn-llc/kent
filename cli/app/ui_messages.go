@@ -1,6 +1,7 @@
 package app
 
 import (
+	"context"
 	"os/exec"
 	"strings"
 	"time"
@@ -174,7 +175,8 @@ type uiModelProbeMessage interface {
 }
 
 type runtimeConnectionStateChangedMsg struct {
-	err error
+	scope context.Context
+	err   error
 }
 
 type runtimeMainViewRefreshedMsg struct {

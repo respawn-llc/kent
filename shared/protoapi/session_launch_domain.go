@@ -1,11 +1,13 @@
 package protoapi
 
 import (
+	configurationpb "core/shared/protoapi/gen/kent/api/configuration"
 	"errors"
 	"fmt"
 	"strings"
 
 	authpb "core/shared/protoapi/gen/kent/api/auth"
+	invocationpb "core/shared/protoapi/gen/kent/api/invocation"
 	projectpb "core/shared/protoapi/gen/kent/api/project"
 	sessionlaunchpb "core/shared/protoapi/gen/kent/api/session_launch"
 	"core/shared/protocol"
@@ -167,6 +169,9 @@ func sessionCreateOriginToProto(origin serverapi.SessionCreateOrigin) (*sessionl
 	switch origin.Kind() {
 	case serverapi.SessionCreateOriginIndependent:
 		message.Origin = &sessionlaunchpb.SessionCreateOrigin_Independent{Independent: &emptypb.Empty{}}
+	case serverapi.SessionCreateOriginNavigationOnly:
+		id, _ := origin.SessionID()
+		message.Origin = &sessionlaunchpb.SessionCreateOrigin_NavigationOnlySessionId{NavigationOnlySessionId: id.String()}
 	case serverapi.SessionCreateOriginPreviousSession, serverapi.SessionCreateOriginParentAgent:
 		sessionID, _ := origin.SessionID()
 		if origin.Kind() == serverapi.SessionCreateOriginPreviousSession {
@@ -184,6 +189,8 @@ func sessionCreateOriginFromProto(message *sessionlaunchpb.SessionCreateOrigin) 
 	switch origin := message.Origin.(type) {
 	case *sessionlaunchpb.SessionCreateOrigin_Independent:
 		return serverapi.IndependentSessionCreateOrigin()
+	case *sessionlaunchpb.SessionCreateOrigin_NavigationOnlySessionId:
+		return serverapi.NavigationOnlySessionCreateOrigin(runtimeids.SessionIDFromProto(origin.NavigationOnlySessionId))
 	case *sessionlaunchpb.SessionCreateOrigin_PreviousSessionId:
 		sessionID := runtimeids.SessionIDFromProto(origin.PreviousSessionId)
 		return serverapi.PreviousSessionCreateOrigin(sessionID)
@@ -193,11 +200,11 @@ func sessionCreateOriginFromProto(message *sessionlaunchpb.SessionCreateOrigin) 
 	}
 }
 
-func RunPromptOverridesToProto(overrides serverapi.RunPromptOverrides) (*sessionlaunchpb.RunPromptOverrides, error) {
+func RunPromptOverridesToProto(overrides serverapi.RunPromptOverrides) (*invocationpb.RunPromptOverrides, error) {
 	if err := overrides.ValidateAgentRoleOverride(); err != nil {
 		return nil, err
 	}
-	message := &sessionlaunchpb.RunPromptOverrides{AgentRole: clonePointer(overrides.AgentRole)}
+	message := &invocationpb.RunPromptOverrides{AgentRole: clonePointer(overrides.AgentRole)}
 	setOptionalNonblank(&message.Model, overrides.Model)
 	setOptionalNonblank(&message.ThinkingLevel, overrides.ThinkingLevel)
 	setOptionalNonblank(&message.Theme, overrides.Theme)
@@ -212,7 +219,7 @@ func RunPromptOverridesToProto(overrides serverapi.RunPromptOverrides) (*session
 	return message, nil
 }
 
-func RunPromptOverridesFromProto(message *sessionlaunchpb.RunPromptOverrides) (serverapi.RunPromptOverrides, error) {
+func RunPromptOverridesFromProto(message *invocationpb.RunPromptOverrides) (serverapi.RunPromptOverrides, error) {
 	overrides := serverapi.RunPromptOverrides{
 		AgentRole:     clonePointer(message.AgentRole),
 		Model:         dereference(message.Model),
@@ -268,24 +275,24 @@ func SessionRuntimeAgentSelectionToProto(selection *serverapi.SessionRuntimeAgen
 	}
 }
 
-func SessionToolIDToProto(toolID toolspec.ID) (sessionlaunchpb.ToolID, error) {
+func SessionToolIDToProto(toolID toolspec.ID) (configurationpb.ToolID, error) {
 	return enumToProto(sessionToolIDValues, toolID, "tool id")
 }
 
-func SessionToolIDFromProto(toolID sessionlaunchpb.ToolID) toolspec.ID {
+func SessionToolIDFromProto(toolID configurationpb.ToolID) toolspec.ID {
 	return sessionToolIDValues[toolID]
 }
 
-var sessionToolIDValues = map[sessionlaunchpb.ToolID]toolspec.ID{
-	sessionlaunchpb.ToolID_TOOL_ID_EXEC_COMMAND:    toolspec.ToolExecCommand,
-	sessionlaunchpb.ToolID_TOOL_ID_WRITE_STDIN:     toolspec.ToolWriteStdin,
-	sessionlaunchpb.ToolID_TOOL_ID_VIEW_IMAGE:      toolspec.ToolViewImage,
-	sessionlaunchpb.ToolID_TOOL_ID_PATCH:           toolspec.ToolPatch,
-	sessionlaunchpb.ToolID_TOOL_ID_EDIT:            toolspec.ToolEdit,
-	sessionlaunchpb.ToolID_TOOL_ID_ASK_QUESTION:    toolspec.ToolAskQuestion,
-	sessionlaunchpb.ToolID_TOOL_ID_COMPLETE_NODE:   toolspec.ToolCompleteNode,
-	sessionlaunchpb.ToolID_TOOL_ID_TRIGGER_HANDOFF: toolspec.ToolTriggerHandoff,
-	sessionlaunchpb.ToolID_TOOL_ID_WEB_SEARCH:      toolspec.ToolWebSearch,
+var sessionToolIDValues = map[configurationpb.ToolID]toolspec.ID{
+	configurationpb.ToolID_TOOL_ID_EXEC_COMMAND:    toolspec.ToolExecCommand,
+	configurationpb.ToolID_TOOL_ID_WRITE_STDIN:     toolspec.ToolWriteStdin,
+	configurationpb.ToolID_TOOL_ID_VIEW_IMAGE:      toolspec.ToolViewImage,
+	configurationpb.ToolID_TOOL_ID_PATCH:           toolspec.ToolPatch,
+	configurationpb.ToolID_TOOL_ID_EDIT:            toolspec.ToolEdit,
+	configurationpb.ToolID_TOOL_ID_ASK_QUESTION:    toolspec.ToolAskQuestion,
+	configurationpb.ToolID_TOOL_ID_COMPLETE_NODE:   toolspec.ToolCompleteNode,
+	configurationpb.ToolID_TOOL_ID_TRIGGER_HANDOFF: toolspec.ToolTriggerHandoff,
+	configurationpb.ToolID_TOOL_ID_WEB_SEARCH:      toolspec.ToolWebSearch,
 }
 
 func subagentLaunchDenialKindToProto(kind serverapi.SubagentLaunchDenialKind) (sessionlaunchpb.SubagentLaunchDenialKind, error) {

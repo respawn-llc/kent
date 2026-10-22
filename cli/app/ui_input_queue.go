@@ -12,6 +12,8 @@ import (
 	"core/cli/app/commands"
 	"core/cli/app/internal/runtimeattach"
 	"core/shared/clientui"
+	runtimepb "core/shared/protoapi/gen/kent/api/runtime"
+	"core/shared/runtimeids"
 	"core/shared/runtimeinput"
 	"google.golang.org/protobuf/proto"
 
@@ -162,7 +164,7 @@ func (m *uiModel) enqueueInjectedInput(text string) tea.Cmd {
 		return nil
 	}
 	submissionOrder := m.nextPendingInputSubmissionOrder()
-	if !m.hasRuntimeClient() {
+	if m.newSessionTarget() != nil {
 		m.injectedQueue = append(m.injectedQueue, &injectedRuntimeQueueItem{
 			Text:            text,
 			State:           injectedRuntimeQueueEnqueued,
@@ -176,11 +178,13 @@ func (m *uiModel) enqueueInjectedInput(text string) tea.Cmd {
 		submissionOrder: submissionOrder,
 	}
 	m.injectedQueue = append(m.injectedQueue, pending)
-	client := m.runtimeClient()
+	activation, err := chatActivationFromInput(runtimeinput.Text(text))
+	if err != nil {
+		panic(err)
+	}
+	execute := m.captureChatAction(chatInputAction{input: activation, queueItemID: runtimeids.NewQueueItemID()}, &text)
 	return func() tea.Msg {
-		submission, err := client.SubmitRuntimeInput(context.Background(), clientui.RuntimeSubmitRequest{
-			Input: runtimeinput.Text(text),
-		})
+		submission, err := execute().submission(text)
 		return injectedQueueCreateDoneMsg{
 			pending:    pending,
 			item:       submission.Queued,
@@ -202,6 +206,15 @@ func (m *uiModel) queueInjectedInput(text string) tea.Cmd {
 
 func (c uiInputController) queueOrStartSubmission(text string) (tea.Model, tea.Cmd) {
 	m := c.model
+	if m.newSessionTarget() != nil {
+		if blocked, cmd := m.gateNewSessionInput(text, newSessionInputQueue); blocked {
+			return m, cmd
+		}
+		m.clearInput()
+		return m, c.dispatchQueuedInput(queuedInputItem{
+			Text: text, submissionOrder: m.nextPendingInputSubmissionOrder(),
+		})
+	}
 	if blocked, blockCmd := c.blockInjectedQueueSubmission(); blocked {
 		return m, blockCmd
 	}
@@ -513,27 +526,31 @@ func (m *uiModel) markInjectedQueueDiscardRequested(item *injectedRuntimeQueueIt
 	case injectedRuntimeQueueCanceledBeforeCreate, injectedRuntimeQueueDiscardPending:
 		return nil
 	case injectedRuntimeQueueEnqueued, injectedRuntimeQueueDiscardFailed:
-		if !m.hasRuntimeClient() {
+		if item.ServerID == nil {
 			m.removeInjectedQueueItemAt(index)
 			return nil
 		}
 		item.State = injectedRuntimeQueueDiscardPending
-		return m.discardInjectedRuntimeQueueCommand(item, m.runtimeClient())
+		return m.discardInjectedRuntimeQueueCommand(item)
 	default:
 		return nil
 	}
 }
 
-func (m *uiModel) discardInjectedRuntimeQueueCommand(item *injectedRuntimeQueueItem, client clientui.RuntimeClient) tea.Cmd {
-	if client == nil || item.ServerID == nil {
+func (m *uiModel) discardInjectedRuntimeQueueCommand(item *injectedRuntimeQueueItem) tea.Cmd {
+	if item.ServerID == nil {
 		err := errors.New("accepted queued item requires a Runtime client and server identity")
 		return m.handleFatalUIError(err.Error(), err)
 	}
 	serverID := *item.ServerID
+	client, sessionID := m.pendingWorkClient, m.currentRuntimeSessionID()
 	return func() tea.Msg {
+		_, err := runtimeControlCall(func(ctx context.Context) (*runtimepb.RemovePendingWorkSuccess, error) {
+			return client.RemovePendingWork(ctx, &runtimepb.RemovePendingWorkRequest{SessionId: sessionID, ItemId: serverID})
+		})
 		return injectedQueueDiscardDoneMsg{
 			item:      item,
-			discarded: client.DiscardQueuedUserMessage(serverID),
+			discarded: err == nil,
 		}
 	}
 }
@@ -628,7 +645,7 @@ func (c uiInputController) handleInjectedQueueCreateDone(msg injectedQueueCreate
 	case injectedRuntimeQueueCanceledBeforeCreate:
 		item.State = injectedRuntimeQueueDiscardPending
 		return m, tea.Batch(
-			m.discardInjectedRuntimeQueueCommand(item, m.runtimeClient()),
+			m.discardInjectedRuntimeQueueCommand(item),
 			pendingWorkRefreshCmd,
 		)
 	}

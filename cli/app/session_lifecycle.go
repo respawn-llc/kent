@@ -1,7 +1,5 @@
 package app
 
-import worktreepb "core/shared/protoapi/gen/kent/api/worktree"
-
 import (
 	"context"
 	"errors"
@@ -37,7 +35,7 @@ type sessionReattachServer interface {
 }
 
 type promptCommandCatalogServer interface {
-	PromptCommandCatalogClient(context.Context, string, *worktreepb.SessionExecutionTarget) (apicontract.PromptCommandCatalogService, error)
+	PromptCommandCatalogClient(context.Context, *runtimeids.SessionID) (apicontract.PromptCommandCatalogService, error)
 }
 
 type interactiveSessionServer interface {
@@ -46,6 +44,7 @@ type interactiveSessionServer interface {
 	sessionTransitionServer
 	EnsureAuthReady(ctx context.Context, settings config.Settings, interactor authInteractor) error
 	EnsureConnectionSetup(ctx context.Context) error
+	AuthBootstrapClient() apicontract.AuthBootstrapService
 	BindProjectWorkspace(ctx context.Context, projectID string, workspaceID string) (interactiveSessionServer, error)
 }
 
@@ -85,6 +84,12 @@ func runSessionLifecycleWithOptions(ctx context.Context, server interactiveSessi
 			case *sessionlaunchpb.SessionDirective_Stop:
 				return nil
 			case *sessionlaunchpb.SessionDirective_SelectSession:
+				if err := server.EnsureConnectionSetup(ctx); err != nil {
+					if errors.Is(err, ErrAuthCanceledByUser) {
+						return nil
+					}
+					return err
+				}
 				picked, err := planner.selectSession(ctx, pickerNotice)
 				if err != nil {
 					return err
@@ -152,17 +157,45 @@ func runSessionLifecycleWithOptions(ctx context.Context, server interactiveSessi
 			Intent:    intent,
 			Overrides: mergeSessionPlanOverrides(opts.InvocationOverrides, nextSessionOverrides),
 		}
-		if err := server.EnsureConnectionSetup(ctx); err != nil {
-			if errors.Is(err, ErrAuthCanceledByUser) {
-				return nil
+		if creation, ok := intent.Intent.(*sessionlaunchpb.SessionLaunchRequestIntent_CreateNew); ok {
+			request, err := prepareNewSessionUIRun(ctx, server, creation.CreateNew, launchRequest.Overrides)
+			if err != nil {
+				return err
 			}
-			return err
+			request.initialPrompt, request.initialPromptHistoryRecorded, request.initialInput, _, err = sessionLaunchPreparationValues(preparation)
+			if err != nil {
+				return err
+			}
+			finalModel, err := runUILoop(request)
+			if err != nil {
+				return err
+			}
+			nextSessionOverrides = serverapi.RunPromptOverrides{}
+			transition := extractUITransition(finalModel)
+			if model, ok := finalModel.(*uiModel); ok && model.currentRuntimeSessionID() != "" {
+				next, err = resolveSessionAction(ctx, server, interactor, model.currentRuntimeSessionID(), transition)
+				if err != nil {
+					return err
+				}
+				continue
+			}
+			switch transition.Action {
+			case UIActionNewSession:
+				next, err = defaultSessionLaunchDirective(serverapi.CreateNewSessionLaunchIntent(serverapi.IndependentSessionCreateOrigin()))
+			case UIActionResume:
+				next = &sessionlaunchpb.SessionDirective{Directive: &sessionlaunchpb.SessionDirective_SelectSession{
+					SelectSession: &sessionlaunchpb.SessionSelectDirective{Auth: sessionlaunchpb.SessionAuthPreparation_SESSION_AUTH_PREPARATION_KEEP_CURRENT_AUTH},
+				}}
+			default:
+				next, err = resolveSessionAction(ctx, server, interactor, "", transition)
+			}
+			if err != nil {
+				return err
+			}
+			continue
 		}
 		plan, err := planner.PlanSession(ctx, launchRequest)
 		if err != nil {
-			return err
-		}
-		if err := server.EnsureAuthReady(ctx, plan.ActiveSettings, interactor); err != nil {
 			return err
 		}
 		plan.ClientLifecycleCommand = clientSettings.Hooks.LifecycleCommand()
@@ -288,40 +321,16 @@ func prepareSessionUIRun(
 	transitionInput string,
 	overrideStoredDraft bool,
 ) (*runtimeLaunchPlan, uiLoopRequest, error) {
+	runtimePlan, err := prepareSessionObservation(ctx, server, planner, plan)
+	if err != nil {
+		return nil, uiLoopRequest{}, err
+	}
 	id, err := runtimeids.ParseSessionID(plan.SessionID)
 	if err != nil {
+		runtimePlan.Close()
 		return nil, uiLoopRequest{}, err
 	}
-	if _, err := server.SessionLifecycleClient().Promote(ctx, &sessionlaunchpb.SessionPromoteRequest{SessionId: protoapi.SessionSelectorToProto(id)}); err != nil {
-		return nil, uiLoopRequest{}, err
-	}
-	runtimePlan, err := planner.PrepareRuntime(ctx, plan, os.Stderr, "app.start session_id="+plan.SessionID+" workspace="+plan.ExecutionTarget.EffectiveWorkdir+" model="+plan.ActiveSettings.Model)
-	if err != nil {
-		return nil, uiLoopRequest{}, err
-	}
-	commandRegistry := commands.NewDefaultRegistry()
-	var catalogStatus *string
-	var promptCatalog apicontract.PromptCommandCatalogService
-	var catalogEntries []commands.PromptCommandCatalogEntry
-	if catalogServer, ok := server.(promptCommandCatalogServer); ok {
-		catalogClient, catalogErr := catalogServer.PromptCommandCatalogClient(ctx, plan.SessionID, plan.ExecutionTarget)
-		if catalogErr != nil {
-			notice := "Custom prompt commands are unavailable for this session."
-			catalogStatus = &notice
-		} else if catalogClient != nil {
-			promptCatalog = catalogClient
-			response, catalogErr := catalogClient.GetPromptCommandCatalog(ctx, &promptcommandpb.GetCatalogRequest{})
-			if catalogErr == nil {
-				entries := promptCatalogSnapshot(response)
-				catalogEntries = entries
-				commandRegistry = commands.NewDefaultRegistryWithPromptCatalog(entries)
-			}
-			if catalogErr != nil {
-				notice := "Custom prompt commands are unavailable for this session."
-				catalogStatus = &notice
-			}
-		}
-	}
+	catalog := prepareUICommandCatalog(ctx, server, &id)
 	initialState, err := sessionLaunchInitialStateFromServer(
 		ctx,
 		server,
@@ -339,7 +348,7 @@ func prepareSessionUIRun(
 		wiring:                       runtimePlan.Wiring,
 		projectID:                    strings.TrimSpace(server.ProjectID()),
 		active:                       plan.ActiveSettings,
-		commandRegistry:              commandRegistry,
+		commandRegistry:              catalog.registry,
 		initialPrompt:                initialPrompt,
 		initialPromptHistoryRecorded: initialPromptHistoryRecorded,
 		initialInput:                 initialState.Input,
@@ -347,10 +356,58 @@ func prepareSessionUIRun(
 		modelContractLocked:          plan.ModelContractLocked,
 		configuredModelName:          plan.ConfiguredModelName,
 		statusConfig:                 plan.StatusConfig,
-		initialTransientStatus:       catalogStatus,
-		promptCatalog:                promptCatalog,
-		promptCatalogEntries:         catalogEntries,
+		initialTransientStatus:       catalog.status,
+		promptCatalog:                catalog.client,
+		promptCatalogEntries:         catalog.entries,
 	}, nil
+}
+
+func prepareSessionObservation(ctx context.Context, server interactiveSessionServer, planner *launchPlanner, plan sessionLaunchPlan) (*runtimeLaunchPlan, error) {
+	id, err := runtimeids.ParseSessionID(plan.SessionID)
+	if err != nil {
+		return nil, err
+	}
+	if _, err := server.SessionLifecycleClient().Promote(ctx, &sessionlaunchpb.SessionPromoteRequest{SessionId: protoapi.SessionSelectorToProto(id)}); err != nil {
+		return nil, err
+	}
+	return planner.PrepareRuntime(ctx, plan, os.Stderr, "app.start session_id="+plan.SessionID+" workspace="+plan.ExecutionTarget.EffectiveWorkdir+" model="+plan.ActiveSettings.Model)
+}
+
+type uiCommandCatalog struct {
+	err      error
+	registry *commands.Registry
+	client   apicontract.PromptCommandCatalogService
+	entries  []commands.PromptCommandCatalogEntry
+	status   *string
+}
+
+func prepareUICommandCatalog(ctx context.Context, server interactiveSessionServer, id *runtimeids.SessionID) uiCommandCatalog {
+	catalog := uiCommandCatalog{registry: commands.NewDefaultRegistry()}
+	if catalogServer, ok := server.(promptCommandCatalogServer); ok {
+		catalogClient, catalogErr := catalogServer.PromptCommandCatalogClient(ctx, id)
+		if catalogErr != nil {
+			catalog.err = catalogErr
+			notice := "Custom prompt commands are unavailable for this session."
+			catalog.status = &notice
+		} else if catalogClient != nil {
+			catalog.client = catalogClient
+			response, catalogErr := catalogClient.GetPromptCommandCatalog(ctx, &promptcommandpb.GetCatalogRequest{})
+			if catalogErr == nil {
+				var entries []commands.PromptCommandCatalogEntry
+				entries = promptCatalogSnapshot(response)
+				catalog.entries = entries
+				if catalogErr == nil {
+					catalog.registry = commands.NewDefaultRegistryWithPromptCatalog(entries)
+				}
+			}
+			if catalogErr != nil {
+				catalog.err = catalogErr
+				notice := "Custom prompt commands are unavailable for this session."
+				catalog.status = &notice
+			}
+		}
+	}
+	return catalog
 }
 
 func shouldCloseReboundServer(original, rebound interactiveSessionServer) bool {
@@ -470,7 +527,7 @@ func resolveSessionAction(ctx context.Context, server sessionTransitionServer, i
 func sessionTransitionInitialInput(transition UITransition) *string {
 	switch transition.Action {
 	case UIActionForkRollback, UIActionOpenSession:
-		return textutil.Pointer(transition.InitialInput)
+		return transition.InitialInput
 	default:
 		return nil
 	}

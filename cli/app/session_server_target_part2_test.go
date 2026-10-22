@@ -113,7 +113,7 @@ func TestRemoteNoAuthUnregisteredWorkspaceBindingCanPrepareRuntime(t *testing.T)
 		t.Fatalf("ensureInteractiveProjectBinding: %v", err)
 	}
 	_, runtimePlan := prepareAppRuntimePlan(t, bound, sessionLaunchRequest{Mode: launchModeInteractive, Intent: requestfixture.LaunchIntent(t, serverapi.CreateNewSessionLaunchIntent(serverapi.IndependentSessionCreateOrigin()))}, io.Discard, "test remote no-auth rebound runtime")
-	submission, err := submitRuntimeClientForTest(t, runtimePlan.Wiring.runtimeClient, "hello after rebound no auth")
+	submission, err := submitRuntimeClientForTest(t, runtimePlan.Wiring, "hello after rebound no auth")
 	requireQueuedAppTestUserTurn(t, submission, err)
 	waitForRemoteTranscriptAssistantFinal(
 		t,
@@ -160,7 +160,7 @@ func TestStartSessionServerUsesInvocationOverridesWhenAttachingToDiscoveredDaemo
 		t.Fatalf("enabled tools = %+v, want only shell", plan.EnabledTools)
 	}
 
-	submission, err := submitRuntimeClientForTest(t, runtimePlan.Wiring.runtimeClient, "hello through interactive override")
+	submission, err := submitRuntimeClientForTest(t, runtimePlan.Wiring, "hello through interactive override")
 	requireQueuedAppTestUserTurn(t, submission, err)
 	waitForRemoteTranscriptAssistantFinal(
 		t,
@@ -198,7 +198,7 @@ func TestStartSessionServerUsesConfiguredDaemonForPromptRoundTrip(t *testing.T) 
 	_, runtimePlan := prepareAppRuntimePlan(t, server, sessionLaunchRequest{Mode: launchModeInteractive, Intent: requestfixture.LaunchIntent(t, serverapi.CreateNewSessionLaunchIntent(serverapi.IndependentSessionCreateOrigin()))}, io.Discard, "test remote prompt round trip")
 	defer closeRuntimeLaunchPlan(t, runtimePlan)
 
-	submissionDone, submissionFailed := startAppTestRuntimeSubmission(t, runtimePlan.Wiring.runtimeClient, "start prompt round trip")
+	submissionDone, submissionFailed := startAppTestRuntimeSubmission(t, runtimePlan.Wiring, "start prompt round trip")
 	requireQueuedAppTestRuntimeSubmission(t, submissionDone)
 	askPrompt := waitForRemoteTranscriptPrompt(t, runtimePlan.Wiring.eventDispatcher.transcriptEvents, "ask-1", submissionFailed)
 	if askPrompt.GetQuestion() == nil || transcriptPromptQuestion(askPrompt) != "Pick one" {

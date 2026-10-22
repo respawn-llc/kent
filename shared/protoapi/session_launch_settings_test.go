@@ -1,13 +1,13 @@
 package protoapi_test
 
 import (
+	configurationpb "core/shared/protoapi/gen/kent/api/configuration"
 	"os"
 	"path/filepath"
 	"testing"
 
 	"core/shared/config"
 	"core/shared/protoapi"
-	sessionlaunchpb "core/shared/protoapi/gen/kent/api/session_launch"
 
 	"google.golang.org/protobuf/proto"
 	"google.golang.org/protobuf/types/known/emptypb"
@@ -15,11 +15,11 @@ import (
 
 func TestSourceReportRequiresUniqueSourceKeys(t *testing.T) {
 	fact := testConfigSourceFact()
-	report := &sessionlaunchpb.SourceReport{Sources: []*sessionlaunchpb.SourceFact{fact}}
+	report := &configurationpb.SourceReport{Sources: []*configurationpb.SourceFact{fact}}
 	if err := protoapi.Validate(report); err != nil {
 		t.Fatal(err)
 	}
-	report.Sources = append(report.Sources, proto.Clone(fact).(*sessionlaunchpb.SourceFact))
+	report.Sources = append(report.Sources, proto.Clone(fact).(*configurationpb.SourceFact))
 	if err := protoapi.Validate(report); err == nil {
 		t.Fatal("duplicate source keys accepted")
 	}
@@ -28,17 +28,17 @@ func TestSourceReportRequiresUniqueSourceKeys(t *testing.T) {
 func TestSubagentRoleRequiresUniqueSourceKeys(t *testing.T) {
 	settings := testSessionSettings(t)
 	fact := testConfigSourceFact()
-	role := &sessionlaunchpb.SubagentRole{Settings: settings, Sources: []*sessionlaunchpb.SourceFact{fact}}
+	role := &configurationpb.SubagentRole{Settings: settings, Sources: []*configurationpb.SourceFact{fact}}
 	if err := protoapi.Validate(role); err != nil {
 		t.Fatal(err)
 	}
-	role.Sources = append(role.Sources, proto.Clone(fact).(*sessionlaunchpb.SourceFact))
+	role.Sources = append(role.Sources, proto.Clone(fact).(*configurationpb.SourceFact))
 	if err := protoapi.Validate(role); err == nil {
 		t.Fatal("duplicate subagent source keys accepted")
 	}
 }
 
-func testSessionSettings(t *testing.T) *sessionlaunchpb.Settings {
+func testSessionSettings(t *testing.T) *configurationpb.Settings {
 	t.Helper()
 	workspace := t.TempDir()
 	app, err := config.Load(workspace, workspace, config.LoadOptions{ConfigRoot: t.TempDir()})
@@ -57,7 +57,7 @@ func TestSessionSettingsRequiresUniqueEnabledTools(t *testing.T) {
 	if len(settings.EnabledTools) == 0 {
 		t.Fatal("enabled-tool fixture is empty")
 	}
-	settings.EnabledTools = append(settings.EnabledTools, proto.Clone(settings.EnabledTools[0]).(*sessionlaunchpb.ToolEnabledFact))
+	settings.EnabledTools = append(settings.EnabledTools, proto.Clone(settings.EnabledTools[0]).(*configurationpb.ToolEnabledFact))
 	if err := protoapi.Validate(settings); err == nil {
 		t.Fatal("duplicate enabled tool IDs accepted")
 	}
@@ -65,12 +65,12 @@ func TestSessionSettingsRequiresUniqueEnabledTools(t *testing.T) {
 
 func TestSessionSettingsRequiresUniqueSkillToggles(t *testing.T) {
 	settings := testSessionSettings(t)
-	fact := &sessionlaunchpb.BooleanFact{Key: "skill", Value: true}
-	settings.SkillToggles = []*sessionlaunchpb.BooleanFact{fact}
+	fact := &configurationpb.BooleanFact{Key: "skill", Value: true}
+	settings.SkillToggles = []*configurationpb.BooleanFact{fact}
 	if err := protoapi.Validate(settings); err != nil {
 		t.Fatal(err)
 	}
-	settings.SkillToggles = append(settings.SkillToggles, proto.Clone(fact).(*sessionlaunchpb.BooleanFact))
+	settings.SkillToggles = append(settings.SkillToggles, proto.Clone(fact).(*configurationpb.BooleanFact))
 	if err := protoapi.Validate(settings); err == nil {
 		t.Fatal("duplicate skill keys accepted")
 	}
@@ -78,15 +78,15 @@ func TestSessionSettingsRequiresUniqueSkillToggles(t *testing.T) {
 
 func TestSessionSettingsRequiresUniqueSubagentNames(t *testing.T) {
 	nested := testSessionSettings(t)
-	settings := proto.Clone(nested).(*sessionlaunchpb.Settings)
-	role := &sessionlaunchpb.NamedSubagentRole{
-		Name: "assistant", Role: &sessionlaunchpb.SubagentRole{Settings: nested},
+	settings := proto.Clone(nested).(*configurationpb.Settings)
+	role := &configurationpb.NamedSubagentRole{
+		Name: "assistant", Role: &configurationpb.SubagentRole{Settings: nested},
 	}
-	settings.Subagents = []*sessionlaunchpb.NamedSubagentRole{role}
+	settings.Subagents = []*configurationpb.NamedSubagentRole{role}
 	if err := protoapi.Validate(settings); err != nil {
 		t.Fatal(err)
 	}
-	settings.Subagents = append(settings.Subagents, proto.Clone(role).(*sessionlaunchpb.NamedSubagentRole))
+	settings.Subagents = append(settings.Subagents, proto.Clone(role).(*configurationpb.NamedSubagentRole))
 	if err := protoapi.Validate(settings); err == nil {
 		t.Fatal("duplicate subagent names accepted")
 	}
@@ -119,7 +119,7 @@ func TestReviewerConnectionIdentityContract(t *testing.T) {
 }
 
 func TestSubagentConnectionUsesRoleSelection(t *testing.T) {
-	role := &sessionlaunchpb.SubagentRole{Settings: testSessionSettings(t)}
+	role := &configurationpb.SubagentRole{Settings: testSessionSettings(t)}
 	if err := protoapi.Validate(role); err != nil {
 		t.Fatal(err)
 	}
@@ -130,28 +130,28 @@ func TestSubagentConnectionUsesRoleSelection(t *testing.T) {
 	}
 }
 
-func testConfigSourceFact() *sessionlaunchpb.SourceFact {
-	return &sessionlaunchpb.SourceFact{
+func testConfigSourceFact() *configurationpb.SourceFact {
+	return &configurationpb.SourceFact{
 		Key: "model",
-		Origin: &sessionlaunchpb.ConfigOrigin{
-			Property: &sessionlaunchpb.ConfigPropertyAddress{Key: "model"},
-			Source:   &sessionlaunchpb.ConfigOrigin_DefaultValue{DefaultValue: &emptypb.Empty{}},
+		Origin: &configurationpb.ConfigOrigin{
+			Property: &configurationpb.ConfigPropertyAddress{Key: "model"},
+			Source:   &configurationpb.ConfigOrigin_DefaultValue{DefaultValue: &emptypb.Empty{}},
 		},
 	}
 }
 
 func TestSourceReportRequiresUniqueFileLayers(t *testing.T) {
-	first := &sessionlaunchpb.ConfigFileReport{
-		File: &sessionlaunchpb.ConfigFileSource{
-			Layer: sessionlaunchpb.ConfigFileLayer_CONFIG_FILE_LAYER_GLOBAL,
+	first := &configurationpb.ConfigFileReport{
+		File: &configurationpb.ConfigFileSource{
+			Layer: configurationpb.ConfigFileLayer_CONFIG_FILE_LAYER_GLOBAL,
 			Path:  "/config.toml",
 		},
 	}
-	report := &sessionlaunchpb.SourceReport{Files: []*sessionlaunchpb.ConfigFileReport{first}}
+	report := &configurationpb.SourceReport{Files: []*configurationpb.ConfigFileReport{first}}
 	if err := protoapi.Validate(report); err != nil {
 		t.Fatal(err)
 	}
-	report.Files = append(report.Files, proto.Clone(first).(*sessionlaunchpb.ConfigFileReport))
+	report.Files = append(report.Files, proto.Clone(first).(*configurationpb.ConfigFileReport))
 	if err := protoapi.Validate(report); err == nil {
 		t.Fatal("duplicate source file layers accepted")
 	}
@@ -186,7 +186,7 @@ func TestNativeProgressSettingSurvivesSessionSettingsTransport(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			received := new(sessionlaunchpb.Settings)
+			received := new(configurationpb.Settings)
 			if err := proto.Unmarshal(payload, received); err != nil {
 				t.Fatal(err)
 			}

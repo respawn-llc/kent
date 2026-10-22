@@ -18,10 +18,7 @@ import (
 )
 
 func TestStaleContentCompleteHydrationFailsBeforeAnySideEffect(t *testing.T) {
-	runtimeClient := newTestSessionRuntimeClient(
-		&countingSessionViewClient{},
-		newUnavailableRuntimeControlService(),
-	)
+	runtimeClient := newTestSessionRuntimeClient(&countingSessionViewClient{})
 	current := runtimeTupleTestView(11, runtimeTupleTestIdleActivity())
 	current.Status.ThinkingLevel = "current"
 	current.Session.SessionName = proto.String("current")
@@ -79,10 +76,7 @@ func TestStaleContentCompleteHydrationFailsBeforeAnySideEffect(t *testing.T) {
 func TestStaleHydrationDeveloperErrorPanicsInEveryModeBeforeSideEffects(t *testing.T) {
 	for _, debugMode := range []bool{false, true} {
 		t.Run(map[bool]string{false: "release", true: "debug"}[debugMode], func(t *testing.T) {
-			runtimeClient := newTestSessionRuntimeClient(
-				&countingSessionViewClient{},
-				newUnavailableRuntimeControlService(),
-			)
+			runtimeClient := newTestSessionRuntimeClient(&countingSessionViewClient{})
 			current := runtimeTupleTestView(11, runtimeTupleTestIdleActivity())
 			runtimeClient.storeMainView(current)
 			m := sizedTestUIModel(newProjectedTestUIModel(runtimeClient, WithUIDebug(debugMode)), 93, 31)
@@ -139,10 +133,7 @@ func capturePanic(action func()) (recovered any) {
 }
 
 func TestNonStaleContentCompleteHydrationAppliesWholeEvent(t *testing.T) {
-	runtimeClient := newTestSessionRuntimeClient(
-		&countingSessionViewClient{},
-		newUnavailableRuntimeControlService(),
-	)
+	runtimeClient := newTestSessionRuntimeClient(&countingSessionViewClient{})
 	current := runtimeTupleTestView(10, runtimeTupleTestIdleActivity())
 	runtimeClient.storeMainView(current)
 	m := newProjectedTestUIModel(runtimeClient)
@@ -185,10 +176,7 @@ func TestNonStaleContentCompleteHydrationAppliesWholeEvent(t *testing.T) {
 }
 
 func TestHydrationReplacesStaleBackgroundProcessEntries(t *testing.T) {
-	runtimeClient := newTestSessionRuntimeClient(
-		&countingSessionViewClient{},
-		newUnavailableRuntimeControlService(),
-	)
+	runtimeClient := newTestSessionRuntimeClient(&countingSessionViewClient{})
 	current := runtimeTupleTestView(10, runtimeTupleTestRunningActivity())
 	runtimeClient.storeMainView(current)
 	m := newProjectedTestUIModel(runtimeClient)
@@ -223,10 +211,7 @@ func TestHydrationReplacesStaleBackgroundProcessEntries(t *testing.T) {
 }
 
 func TestHydrationReplacesStaleCompletedCompactionCountWithoutActiveCompaction(t *testing.T) {
-	runtimeClient := newTestSessionRuntimeClient(
-		&countingSessionViewClient{},
-		newUnavailableRuntimeControlService(),
-	)
+	runtimeClient := newTestSessionRuntimeClient(&countingSessionViewClient{})
 	current := runtimeTupleTestView(10, runtimeTupleTestIdleActivity())
 	current.Status.CompactionCount = 9
 	runtimeClient.storeMainView(current)
@@ -255,7 +240,7 @@ func TestHydrationReplacesStaleCompletedCompactionCountWithoutActiveCompaction(t
 func TestAcceptedHydrationDoesNotAdvanceCacheWithUnaryRead(t *testing.T) {
 	v12 := runtimeTupleTestView(12, runtimeTupleTestIdleActivity())
 	reads := &countingSessionViewClient{view: v12}
-	runtimeClient := newTestSessionRuntimeClient(reads, newUnavailableRuntimeControlService())
+	runtimeClient := newTestSessionRuntimeClient(reads)
 	runtimeClient.storeMainView(runtimeTupleTestView(
 		10,
 		runtimeTupleTestIdleActivity(),
@@ -301,7 +286,7 @@ func TestAcceptedHydrationDoesNotAdvanceCacheWithUnaryRead(t *testing.T) {
 func TestRejectedDuplicateHydrationDoesNotStartUnaryRefresh(t *testing.T) {
 	v12 := runtimeTupleTestView(12, runtimeTupleTestIdleActivity())
 	reads := &countingSessionViewClient{view: v12}
-	runtimeClient := newTestSessionRuntimeClient(reads, newUnavailableRuntimeControlService())
+	runtimeClient := newTestSessionRuntimeClient(reads)
 	runtimeClient.storeMainView(runtimeTupleTestView(
 		10,
 		runtimeTupleTestIdleActivity(),
@@ -345,11 +330,12 @@ func TestHydrationAdmissionSerializesUnaryAndInterruptTupleCommitsUntilWholeEven
 		Version:  &runtimepb.ReadModelVersion{Epoch: "runtime-tuple-test", Generation: 1, Sequence: 13},
 		Activity: runtimeTupleTestIdleActivity(),
 	}}
-	runtimeClient := newTestSessionRuntimeClient(reads, controls)
+	runtimeClient := newTestSessionRuntimeClient(reads)
 	v10 := runtimeTupleTestView(10, runtimeTupleTestIdleActivity())
 	v10.Session.SessionId = ongoingTestSessionID().String()
 	runtimeClient.storeMainView(v10)
 	m := newProjectedTestUIModel(runtimeClient)
+	m.sessionControls = controls
 	surface := newBlockingOngoingSurface()
 	controller := newOngoingTranscriptController(
 		surface,

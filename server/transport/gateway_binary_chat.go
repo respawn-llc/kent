@@ -16,7 +16,6 @@ import (
 
 	"google.golang.org/protobuf/proto"
 	"google.golang.org/protobuf/reflect/protoreflect"
-	"google.golang.org/protobuf/types/known/emptypb"
 )
 
 func registerChatGatewayBinaryBindings(bindings map[string]gatewayBinaryBinding) error {
@@ -25,11 +24,8 @@ func registerChatGatewayBinaryBindings(bindings map[string]gatewayBinaryBinding)
 		gatewayBinaryCoreActiveOrdinary,
 		func() *chatshellpb.ShellCommandRequest { return &chatshellpb.ShellCommandRequest{} },
 		chatTargetScope[*chatshellpb.ShellCommandRequest],
-		func(g *Gateway, ctx context.Context, _ *connectionState, request *chatshellpb.ShellCommandRequest) (*emptypb.Empty, error) {
-			if err := g.deps.ChatMutationClient().SubmitUserShellCommand(ctx, request); err != nil {
-				return nil, err
-			}
-			return &emptypb.Empty{}, nil
+		func(g *Gateway, ctx context.Context, _ *connectionState, request *chatshellpb.ShellCommandRequest) (*chatshellpb.ShellCommandSuccess, error) {
+			return g.deps.ChatMutationClient().SubmitUserShellCommand(ctx, request)
 		},
 		func(_ *Gateway, _ *connectionState, _ *chatshellpb.ShellCommandRequest, err error) proto.Message {
 			detail := binaryChatDomainFailure(err)

@@ -8,25 +8,21 @@ import (
 	"strings"
 
 	"core/cli/app/internal/runtimeattach"
+	"core/shared/apicontract"
 	"core/shared/clientui"
 	"core/shared/config"
 	"core/shared/protoapi"
 	chatsettingspb "core/shared/protoapi/gen/kent/api/chat_settings"
 	transcriptpb "core/shared/protoapi/gen/kent/api/transcript"
-	"core/shared/runtimeinput"
 	"core/shared/textutil"
 
 	tea "github.com/charmbracelet/bubbletea"
 	"google.golang.org/protobuf/proto"
 )
 
-type runtimeInterruptCandidateClient interface {
-	interruptRuntimeCandidate() (runtimeTupleCandidate, error)
-}
-
-type chatSettingsRuntimeClient interface {
-	ReadChatSettings() (*chatsettingspb.Settings, error)
-	MutateChatSettings(*chatsettingspb.MutationOperation) (*chatsettingspb.MutationSuccess, error)
+func (m *uiModel) selectedSessionSettingsClient() sessionChatSettingsClient {
+	target := m.presentationTarget.(uiKnownSessionTarget)
+	return sessionChatSettingsClient{service: m.chatSettings, sessionID: target.id}
 }
 
 func (m *uiModel) runtimeClient() clientui.RuntimeClient {
@@ -41,7 +37,10 @@ func (m *uiModel) hasRuntimeClient() bool {
 }
 
 func (m *uiModel) chatSettingsMutationCommand(operation *chatsettingspb.MutationOperation) tea.Cmd {
-	client := m.runtimeClient().(chatSettingsRuntimeClient)
+	if m.newSessionTarget() != nil {
+		return m.mutateNewSessionSettings(operation)
+	}
+	client := m.selectedSessionSettingsClient()
 	return func() tea.Msg {
 		response, err := client.MutateChatSettings(operation)
 		return chatSettingsDoneMsg{operation: operation, response: response, err: err}
@@ -52,7 +51,18 @@ func (m *uiModel) chatSettingsToggleCommand(
 	operation *chatsettingspb.MutationOperation,
 	requested string,
 ) tea.Cmd {
-	client := m.runtimeClient().(chatSettingsRuntimeClient)
+	if m.newSessionTarget() != nil {
+		settings := m.projectedNewSessionSettings()
+		if settings == nil {
+			return m.mutateNewSessionSettings(operation)
+		}
+		resolved, err := resolveChatSettingsToggle(operation, requested, settings)
+		if err != nil {
+			return m.sendTransientStatusWithNoticeID(err.Error(), uiStatusNoticeError, transientStatusDuration, uiStatusNoticeReplace, "")
+		}
+		return m.mutateNewSessionSettings(resolved)
+	}
+	client := m.selectedSessionSettingsClient()
 	return func() tea.Msg {
 		settings, err := client.ReadChatSettings()
 		if err != nil {
@@ -142,16 +152,8 @@ func (m *uiModel) applyChatSettingsDone(msg chatSettingsDoneMsg) tea.Cmd {
 	}
 	response := msg.response
 	settings := response.Settings
-	m.modelName = settings.SelectedAgent.Model
-	m.thinkingLevel = settings.SelectedAgent.Thinking
-	m.fastModeAvailable = settings.Fast != nil
-	m.fastModeEnabled = settings.Fast != nil && settings.Fast.Value
-	m.reviewerMode = supervisorRuntimeMode(settings.Supervisor.Value)
-	m.reviewerEnabled = settings.Supervisor.Value != chatsettingspb.SupervisorValue_SUPERVISOR_VALUE_OFF
-	m.questionsEnabled = settings.Questions.Enabled
+	m.applyChatSettingsProjection(settings)
 	m.autoCompactionEnabled = response.Context.AutoCompactionEnabled
-	m.modelContractLocked = settings.AgentLocked
-	m.status.snapshot.AgentRole = textutil.OptionalTrimmedString(config.NormalizeSubagentSelector(settings.SelectedAgent.Role))
 	m.status.snapshot.CompactionCount = int(response.Context.CompletedCompactionCount)
 	m.setRuntimeContextUsage(m.currentRuntimeSessionID(), &runtimepb.ContextUsage{UsedTokens: int32(response.Context.UsedTokens), WindowTokens: int32(response.Context.ContextWindowTokens)})
 	if rejected := response.Result.GetRejected(); rejected != nil {
@@ -168,6 +170,18 @@ func (m *uiModel) applyChatSettingsDone(msg chatSettingsDoneMsg) tea.Cmd {
 		uiStatusNoticeSuccess, transientStatusDuration, uiStatusNoticeReplace,
 		chatSettingsMutationNoticeID(msg.operation),
 	)
+}
+
+func (m *uiModel) applyChatSettingsProjection(settings *chatsettingspb.Settings) {
+	m.modelName = settings.SelectedAgent.Model
+	m.thinkingLevel = settings.SelectedAgent.Thinking
+	m.fastModeAvailable = settings.Fast != nil
+	m.fastModeEnabled = settings.Fast != nil && settings.Fast.Value
+	m.reviewerMode = supervisorRuntimeMode(settings.Supervisor.Value)
+	m.reviewerEnabled = settings.Supervisor.Value != chatsettingspb.SupervisorValue_SUPERVISOR_VALUE_OFF
+	m.questionsEnabled = settings.Questions.Enabled
+	m.modelContractLocked = settings.AgentLocked
+	m.status.snapshot.AgentRole = textutil.OptionalTrimmedString(config.NormalizeSubagentSelector(settings.SelectedAgent.Role))
 }
 
 func chatSettingsMutationNoticeID(operation *chatsettingspb.MutationOperation) string {
@@ -226,94 +240,6 @@ var chatSettingsSupervisorNotices = map[chatsettingspb.SupervisorValue]string{ch
 
 var chatSettingsRejectionNotices = map[chatsettingspb.MutationRejectionReason]string{chatsettingspb.MutationRejectionReason_MUTATION_REJECTION_REASON_AGENT_LOCKED: "Agent is locked", chatsettingspb.MutationRejectionReason_MUTATION_REJECTION_REASON_AGENT_UNAVAILABLE: "Agent is unavailable", chatsettingspb.MutationRejectionReason_MUTATION_REJECTION_REASON_THINKING_UNAVAILABLE: "Thinking is unavailable", chatsettingspb.MutationRejectionReason_MUTATION_REJECTION_REASON_FAST_UNAVAILABLE: "Fast mode is unavailable", chatsettingspb.MutationRejectionReason_MUTATION_REJECTION_REASON_AUTO_COMPACTION_POLICY_LOCKED: "Auto-compaction is unavailable"}
 
-func (m *uiModel) showRuntimeGoal() (*runtimepb.GoalView, error) {
-	m.checkTUIBlockingOperation("runtime control read", "show goal")
-	if client := m.runtimeClient(); client != nil {
-		goal, err := client.ShowGoal()
-		m.observeRuntimeRequestResult(err)
-		return goal, err
-	}
-	return nil, nil
-}
-
-func (m *uiModel) setRuntimeGoal(objective string) (*runtimepb.GoalSetSuccess, error) {
-	m.checkTUIBlockingOperation("runtime control mutation", "set goal")
-	if client := m.runtimeClient(); client != nil {
-		result, err := client.SetGoal(objective)
-		m.observeRuntimeRequestResult(err)
-		return result, err
-	}
-	return nil, nil
-}
-
-func (m *uiModel) pauseRuntimeGoal() (*runtimepb.GoalMutationSuccess, error) {
-	m.checkTUIBlockingOperation("runtime control mutation", "pause goal")
-	if client := m.runtimeClient(); client != nil {
-		result, err := client.PauseGoal()
-		m.observeRuntimeRequestResult(err)
-		return result, err
-	}
-	return nil, nil
-}
-
-func (m *uiModel) resumeRuntimeGoal() (*runtimepb.GoalMutationSuccess, error) {
-	m.checkTUIBlockingOperation("runtime control mutation", "resume goal")
-	if client := m.runtimeClient(); client != nil {
-		result, err := client.ResumeGoal()
-		m.observeRuntimeRequestResult(err)
-		return result, err
-	}
-	return nil, nil
-}
-
-func (m *uiModel) clearRuntimeGoal() (*runtimepb.GoalMutationSuccess, error) {
-	m.checkTUIBlockingOperation("runtime control mutation", "clear goal")
-	if client := m.runtimeClient(); client != nil {
-		result, err := client.ClearGoal()
-		m.observeRuntimeRequestResult(err)
-		return result, err
-	}
-	return nil, nil
-}
-
-func (m *uiModel) submitRuntimeUserMessage(ctx context.Context, text string) (clientui.UserTurnSubmission, error) {
-	return m.submitRuntimeInput(ctx, clientui.RuntimeSubmitRequest{
-		Input: runtimeinput.Text(text),
-	})
-}
-
-func (m *uiModel) submitRuntimeInput(ctx context.Context, req clientui.RuntimeSubmitRequest) (clientui.UserTurnSubmission, error) {
-	if client := m.runtimeClient(); client != nil {
-		submission, err := client.SubmitRuntimeInput(ctx, req)
-		m.observeRuntimeRequestResult(err)
-		return submission, err
-	}
-	return clientui.UserTurnSubmission{}, nil
-}
-
-func (m *uiModel) submitRuntimeUserShellCommand(ctx context.Context, command string) error {
-	return m.submitRuntimeShell(ctx, clientui.RuntimeShellRequest{Command: command})
-}
-
-func (m *uiModel) submitRuntimeShell(ctx context.Context, req clientui.RuntimeShellRequest) error {
-	if client := m.runtimeClient(); client != nil {
-		err := client.RunUserShell(ctx, req)
-		m.observeRuntimeRequestResult(err)
-		return err
-	}
-	return nil
-}
-
-func (m *uiModel) compactRuntimeInput(ctx context.Context, req clientui.RuntimeCompactRequest) (clientui.RuntimeCompactResult, error) {
-	m.checkTUIBlockingOperation("runtime control mutation", "compact")
-	if client := m.runtimeClient(); client != nil {
-		result, err := client.CompactRuntime(ctx, req)
-		m.observeRuntimeRequestResult(err)
-		return result, err
-	}
-	return clientui.RuntimeCompactResult{}, nil
-}
-
 func (m *uiModel) interruptRuntime() error {
 	m.checkTUIBlockingOperation("runtime control mutation", "interrupt")
 	candidate, err := executeRuntimeInterrupt(runtimeInterruptRequestFromModel(m))
@@ -327,46 +253,28 @@ func (m *uiModel) interruptRuntime() error {
 }
 
 type runtimeInterruptRequest struct {
-	client clientui.RuntimeClient
+	controls  apicontract.RuntimeControlService
+	sessionID string
 }
 
 func runtimeInterruptRequestFromModel(m *uiModel) runtimeInterruptRequest {
 	if m == nil {
 		return runtimeInterruptRequest{}
 	}
-	return runtimeInterruptRequest{client: m.runtimeClient()}
+	return runtimeInterruptRequest{controls: m.sessionControls, sessionID: m.currentRuntimeSessionID()}
 }
 
 func executeRuntimeInterrupt(req runtimeInterruptRequest) (*runtimeTupleCandidate, error) {
-	if req.client == nil {
+	if req.sessionID == "" {
 		return nil, nil
 	}
-	if candidateClient, ok := req.client.(runtimeInterruptCandidateClient); ok {
-		candidate, err := candidateClient.interruptRuntimeCandidate()
-		if err != nil {
-			return nil, err
-		}
-		return &candidate, nil
+	response, err := runtimeControlCall(func(ctx context.Context) (*runtimepb.ReadModelUpdate, error) {
+		return req.controls.Interrupt(ctx, &runtimepb.InterruptRequest{SessionId: req.sessionID})
+	})
+	if err != nil {
+		return nil, err
 	}
-	return nil, req.client.Interrupt()
-}
-
-func (m *uiModel) discardQueuedRuntimeUserMessage(queueItemID string) bool {
-	m.checkTUIBlockingOperation("runtime queue mutation", "discard queued user message")
-	if client := m.runtimeClient(); client != nil {
-		return client.DiscardQueuedUserMessage(queueItemID)
-	}
-	return false
-}
-
-func (m *uiModel) recordRuntimePromptHistory(text string) error {
-	m.checkTUIBlockingOperation("runtime control mutation", "record prompt history")
-	if client := m.runtimeClient(); client != nil {
-		err := client.RecordPromptHistory(text)
-		m.observeRuntimeRequestResult(err)
-		return err
-	}
-	return nil
+	return &runtimeTupleCandidate{Version: response.Version, Activity: response.Activity}, nil
 }
 
 type runtimeControlPendingState struct {
@@ -441,15 +349,15 @@ func (m *uiModel) runtimeControlCommand(operation runtimeControlOperation, mutat
 	if m == nil {
 		return nil
 	}
-	client := m.runtimeClient()
-	if client == nil {
+	controls := m.sessionControls
+	if m.newSessionTarget() != nil {
 		return nil
 	}
 	interruptReq := runtimeInterruptRequest{}
 	if operation == runtimeControlInterrupt {
 		interruptReq = runtimeInterruptRequestFromModel(m)
 	}
-	sessionID := strings.TrimSpace(m.sessionID)
+	sessionID := strings.TrimSpace(m.currentRuntimeSessionID())
 	token, shouldStart := m.beginRuntimeControlMutation(operation, sessionID, mutation)
 	if !shouldStart {
 		return nil
@@ -458,7 +366,9 @@ func (m *uiModel) runtimeControlCommand(operation runtimeControlOperation, mutat
 		msg := runtimeControlDoneMsg{token: token, sessionID: sessionID, operation: operation, name: mutation}
 		switch operation {
 		case runtimeControlSetSessionName:
-			msg.err = client.SetSessionName(mutation)
+			msg.err = runtimeControlCallNoResult(func(ctx context.Context) error {
+				return controls.SetSessionName(ctx, &runtimepb.SetSessionNameRequest{SessionId: sessionID, Mutation: mutation})
+			})
 		case runtimeControlInterrupt:
 			msg.runtimeTuple, msg.err = executeRuntimeInterrupt(interruptReq)
 		}
@@ -470,7 +380,7 @@ func (m *uiModel) applyRuntimeControlDone(msg runtimeControlDoneMsg) tea.Cmd {
 	if m == nil || msg.token != m.runtimeControlTokenFor(msg.operation) {
 		return nil
 	}
-	if msg.sessionID != "" && strings.TrimSpace(m.sessionID) != "" && msg.sessionID != strings.TrimSpace(m.sessionID) {
+	if msg.sessionID != "" && strings.TrimSpace(m.currentRuntimeSessionID()) != "" && msg.sessionID != strings.TrimSpace(m.currentRuntimeSessionID()) {
 		m.clearRuntimeControlPending(msg.operation)
 		return nil
 	}

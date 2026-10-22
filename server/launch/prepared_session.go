@@ -132,6 +132,8 @@ func (p Planner) prepareCreation(ctx context.Context, origin serverapi.SessionCr
 		}
 		request.Source = session.CreationContextSourceFromMeta(*record.Meta)
 		switch origin.Kind() {
+		case serverapi.SessionCreateOriginNavigationOnly:
+			request.SourceKind = session.SessionCreationSourceNavigationOnly
 		case serverapi.SessionCreateOriginParentAgent:
 			if err := (parentAgentDepthPolicy{sessions: p.PersistedSessions}).enforce(ctx, *record.Meta, p.Config.Settings.MaxSubagentDepth, p.Config.Settings.Debug); err != nil {
 				return session.CreationPlan{}, err

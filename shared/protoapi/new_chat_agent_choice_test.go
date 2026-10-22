@@ -5,6 +5,7 @@ import (
 
 	"core/shared/protoapi"
 	pb "core/shared/protoapi/gen/kent/api/chat_settings"
+	configurationpb "core/shared/protoapi/gen/kent/api/configuration"
 	"google.golang.org/protobuf/proto"
 )
 
@@ -22,7 +23,9 @@ func TestNewChatAgentChoiceRequiresCompleteAgent(t *testing.T) {
 				t.Fatalf("shared Agent choice rejected optional selection: %v", err)
 			}
 			choice := &pb.NewChatAgentChoice{
-				Agent: agent,
+				Defaults: testSessionSettings(t),
+				Source:   &configurationpb.SourceReport{},
+				Agent:    agent,
 				Baseline: &pb.InitialChatSettings{
 					AgentRole: "default", Supervisor: pb.SupervisorValue_SUPERVISOR_VALUE_OFF,
 					QuestionsEnabled: proto.Bool(true), AutoCompactionEnabled: proto.Bool(true),
