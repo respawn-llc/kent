@@ -22,14 +22,16 @@ const (
 // Attempts are diagnostic only: they neither change provider requests nor add
 // anything to model-visible history. Missing usage is not a zero-token charge.
 type providerAttemptDiagnostic struct {
-	logger          *slog.Logger
-	started         time.Time
-	responseID      *string
-	servedModel     *string
-	servedTier      *string
-	usage           *Usage
-	totalTokens     *int64
-	reasoningTokens *int64
+	logger           *slog.Logger
+	started          time.Time
+	responseID       *string
+	servedModel      *string
+	servedTier       *string
+	usage            *Usage
+	totalTokens      *int64
+	reasoningTokens  *int64
+	incremental      *bool
+	transmittedItems *int
 }
 
 func (t *HTTPTransport) startProviderAttempt(
@@ -133,6 +135,8 @@ func (a *providerAttemptDiagnostic) finish(ctx context.Context, response *http.R
 		"output_tokens", diagnosticOptional(usage.OutputTokens),
 		"total_tokens", diagnosticOptional(a.totalTokens),
 		"reasoning_tokens", diagnosticOptional(a.reasoningTokens),
+		"incremental", diagnosticOptional(a.incremental),
+		"transmitted_items", diagnosticOptional(a.transmittedItems),
 	)
 }
 

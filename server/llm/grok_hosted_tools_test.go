@@ -72,43 +72,45 @@ func TestGrokHostedCustomCallsAreNotLocalAndKeepWireHistory(t *testing.T) {
 			}
 			requests := 0
 			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-				requests++
-				w.Header().Set("Content-Type", "text/event-stream")
-				if requests == 2 {
-					var body struct {
-						Input []json.RawMessage `json:"input"`
-					}
-					if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
-						t.Error(err)
-					}
-					for _, want := range items[:2] {
-						var expected any
-						_ = json.Unmarshal(want, &expected)
-						found := false
-						for _, raw := range body.Input {
-							var got any
-							_ = json.Unmarshal(raw, &got)
-							if reflect.DeepEqual(got, expected) {
-								found = true
+				serveResponsesTestWebsocket(t, w, r, func(raw json.RawMessage) []string {
+					requests++
+					if requests == 2 {
+						var body struct {
+							Input []json.RawMessage `json:"input"`
+						}
+						if err := json.Unmarshal(raw, &body); err != nil {
+							t.Error(err)
+						}
+						for _, want := range items[:2] {
+							var expected any
+							_ = json.Unmarshal(want, &expected)
+							found := false
+							for _, raw := range body.Input {
+								var got any
+								_ = json.Unmarshal(raw, &got)
+								if reflect.DeepEqual(got, expected) {
+									found = true
+								}
+							}
+							if !found {
+								t.Errorf("hosted history lost: %s", want)
 							}
 						}
-						if !found {
-							t.Errorf("hosted history lost: %s", want)
-						}
+						return []string{`{"type":"response.completed","response":{"id":"second","output":[]}}`}
 					}
-					fmt.Fprint(w, "data: {\"type\":\"response.completed\",\"response\":{\"output\":[]}}\n\n")
-					return
-				}
-				for index, item := range items {
-					fmt.Fprintf(w, "data: {\"type\":\"response.output_item.added\",\"output_index\":%d,\"item\":%s}\n\n", index, item)
-					fmt.Fprintf(w, "data: {\"type\":\"response.output_item.done\",\"output_index\":%d,\"item\":%s}\n\n", index, item)
-				}
-				if completed {
-					output, _ := json.Marshal(items)
-					fmt.Fprintf(w, "data: {\"type\":\"response.completed\",\"response\":{\"output\":%s}}\n\n", output)
-				} else {
-					fmt.Fprint(w, "data: {\"type\":\"response.completed\",\"response\":{\"output\":[]}}\n\n")
-				}
+					var events []string
+					for index, item := range items {
+						events = append(events, fmt.Sprintf(`{"type":"response.output_item.added","output_index":%d,"item":%s}`, index, item))
+						events = append(events, fmt.Sprintf(`{"type":"response.output_item.done","output_index":%d,"item":%s}`, index, item))
+					}
+					if completed {
+						output, _ := json.Marshal(items)
+						events = append(events, fmt.Sprintf(`{"type":"response.completed","response":{"id":"first","output":%s}}`, output))
+					} else {
+						events = append(events, `{"type":"response.completed","response":{"id":"first","output":[]}}`)
+					}
+					return events
+				})
 			}))
 			defer server.Close()
 			selected, err := ResolveConnectionVariant(config.ProviderConnection{Protocol: config.ConnectionGrokOAuthAPI})

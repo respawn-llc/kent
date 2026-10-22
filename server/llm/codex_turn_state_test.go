@@ -3,6 +3,7 @@ package llm
 import (
 	"bytes"
 	"context"
+	"encoding/json"
 	"fmt"
 	"log/slog"
 	"net/http"
@@ -14,13 +15,11 @@ import (
 )
 
 func TestCodexTurnStateUsesInitialHTTPHeaderAndIgnoresMetadata(t *testing.T) {
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set(codexTurnStateHeader, "header-state")
-		w.Header().Set("Content-Type", "text/event-stream")
-		_, _ = fmt.Fprintf(w, "data: %s\n\ndata: %s\n\ndata: [DONE]\n\n",
-			`{"type":"response.metadata","headers":{"x-codex-turn-state":"metadata-state"}}`,
-			completedResponseSSEJSON,
-		)
+		serveResponsesTestWebsocket(t, w, r, func(json.RawMessage) []string {
+			return []string{`{"type":"response.metadata","headers":{"x-codex-turn-state":"metadata-state"}}`, completedResponseSSEJSON}
+		})
 	}))
 	t.Cleanup(server.Close)
 
@@ -57,6 +56,7 @@ func TestCodexTurnStateInvalidWarningIsRedacted(t *testing.T) {
 }
 
 const completedResponseSSEJSON = `{"type":"response.completed","response":{"usage":{"input_tokens":1,"output_tokens":1,"total_tokens":2},"output":[]}}`
+const completedCompactionSSEJSON = `{"type":"response.completed","response":{"id":"compact-test","usage":{"input_tokens":1,"output_tokens":1,"total_tokens":2},"output":[{"type":"compaction","id":"checkpoint","encrypted_content":"opaque-checkpoint"}]}}`
 
 func writeCompletedResponseSSE(w http.ResponseWriter) {
 	w.Header().Set("Content-Type", "text/event-stream")

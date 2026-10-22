@@ -82,11 +82,17 @@ func TestProviderAttemptDiagnosticsPreserveIdentityAndReportedUsage(t *testing.T
 			previous := slog.Default()
 			slog.SetDefault(slog.New(slog.NewJSONHandler(&logs, nil)))
 			t.Cleanup(func() { slog.SetDefault(previous) })
-			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 				if test.status != http.StatusOK {
 					w.Header().Set("Content-Type", "application/json")
 					w.WriteHeader(test.status)
 					_, _ = fmt.Fprint(w, test.event)
+					return
+				}
+				if !test.compact {
+					serveResponsesTestWebsocket(t, w, r, func(json.RawMessage) []string {
+						return []string{test.event}
+					})
 					return
 				}
 				w.Header().Set("Content-Type", "text/event-stream")
@@ -135,6 +141,7 @@ func TestProviderAttemptDiagnosticsPreserveIdentityAndReportedUsage(t *testing.T
 			if len(attempts) != 2 {
 				t.Fatalf("observed physical attempts = %d, want 2", len(attempts))
 			}
+			upgrades := 0
 			for _, records := range attempts {
 				if len(records) != 2 || records[0].Kind != "started" || records[1].Kind != "finished" {
 					t.Fatalf("attempt lifecycle = %+v, want started and finished", records)
@@ -152,8 +159,18 @@ func TestProviderAttemptDiagnosticsPreserveIdentityAndReportedUsage(t *testing.T
 				if test.canceled {
 					outcome = "canceled"
 				}
-				if finished.Outcome != outcome || finished.HTTPStatus == nil || *finished.HTTPStatus != test.status {
+				if finished.Outcome != outcome {
 					t.Fatalf("attempt outcome = %+v", finished)
+				}
+				if test.compact || test.status != http.StatusOK {
+					if finished.HTTPStatus == nil || *finished.HTTPStatus != test.status {
+						t.Fatalf("HTTP attempt status = %+v", finished.HTTPStatus)
+					}
+				} else if finished.HTTPStatus != nil {
+					if *finished.HTTPStatus != http.StatusSwitchingProtocols {
+						t.Fatalf("WebSocket handshake status = %d", *finished.HTTPStatus)
+					}
+					upgrades++
 				}
 				operation := "generation"
 				if test.compact {
@@ -176,6 +193,15 @@ func TestProviderAttemptDiagnosticsPreserveIdentityAndReportedUsage(t *testing.T
 					finished.OutputTokens == nil || *finished.OutputTokens != 4 ||
 					finished.ResponseID == nil || *finished.ResponseID != "response-1" {
 					t.Fatalf("reported usage = %+v", finished)
+				}
+			}
+			if !test.compact && test.status == http.StatusOK {
+				expectedUpgrades := 1
+				if test.failed {
+					expectedUpgrades = 2
+				}
+				if upgrades != expectedUpgrades {
+					t.Fatalf("handshake attempts = %d, want %d", upgrades, expectedUpgrades)
 				}
 			}
 		})

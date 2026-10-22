@@ -69,6 +69,8 @@ type HTTPTransport struct {
 
 	mu                  sync.RWMutex
 	modelContextWindows map[string]int
+	generationMu        sync.Mutex
+	socket              *responses.ResponseConnection
 }
 
 func NewHTTPTransport(auth DispatchAuthProvider, registration ProviderVariantRegistration) (*HTTPTransport, error) {
@@ -93,6 +95,9 @@ func (t *HTTPTransport) Generate(ctx context.Context, request ResponsesRequest, 
 	defer func() { t.identifyProviderError(err) }()
 	if t.Client == nil {
 		t.Client = NewHTTPClient(120 * time.Second)
+	}
+	if t.registration.Variant.generationProtocol == responsesWebsocket {
+		return t.generateWebsocket(ctx, request, callbacks)
 	}
 	preparation, err := t.prepareDispatch(
 		ctx,

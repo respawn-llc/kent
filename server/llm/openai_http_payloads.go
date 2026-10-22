@@ -152,7 +152,7 @@ func (b responsesRequestPayloadBuilder) BuildCompactV2(request ResponsesRequest,
 	return out, nil
 }
 
-func applyCodexClientMetadata(payload *responses.ResponseNewParams, projection *codexDispatchProjection) {
+func applyCodexClientMetadata(payload interface{ SetExtraFields(map[string]any) }, projection *codexDispatchProjection) {
 	if projection == nil {
 		return
 	}
