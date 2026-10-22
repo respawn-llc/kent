@@ -92,6 +92,7 @@ func TestAcceptedNativeReasoningToolOutputSurvivesResultsAndReload(t *testing.T)
 		json.RawMessage(`{"type":"reasoning","id":"rs_native","summary":[{"type":"summary_text","text":"<plan>&"}],"encrypted_content":"opaque_ciphertext"}`),
 		json.RawMessage(`{"type":"future_provider_item","id":"opaque_native","data":{"text":"<opaque>&"}}`),
 		json.RawMessage(`{"type":"function_call","id":"item_native","call_id":"call_native","name":"exec_command","arguments":"{\"cmd\":\"pwd\"}","status":"completed"}`),
+		json.RawMessage(`{"type":"message","id":"after_call","role":"assistant","phase":"commentary","content":[{"type":"output_text","text":"after the call","annotations":[]}]}`),
 	}
 	var calls atomic.Int32
 	var toolResults atomic.Int32
@@ -127,6 +128,10 @@ func TestAcceptedNativeReasoningToolOutputSurvivesResultsAndReload(t *testing.T)
 				t.Errorf("next provider request retained %d/%d native items", next, len(native))
 			}
 			output = []byte(`{"type":"message","id":"msg_final","role":"assistant","phase":"final_answer","content":[{"type":"output_text","text":"done","annotations":[]}]}`)
+		} else {
+			if _, err := fmt.Fprintf(w, "data: {\"type\":\"response.output_item.added\",\"output_index\":2,\"item\":%s}\n\ndata: {\"type\":\"response.output_item.added\",\"output_index\":3,\"item\":%s}\n\ndata: {\"type\":\"response.output_text.delta\",\"output_index\":3,\"delta\":\"after the call\"}\n\n", native[2], native[3]); err != nil {
+				t.Error(err)
+			}
 		}
 		_, err := fmt.Fprintf(w, "data: {\"type\":\"response.completed\",\"response\":{\"id\":\"resp_native\",\"status\":\"completed\",\"output\":[%s],\"usage\":{\"input_tokens\":10,\"output_tokens\":2,\"total_tokens\":12}}}\n\n", output)
 		if err != nil {
@@ -136,8 +141,12 @@ func TestAcceptedNativeReasoningToolOutputSurvivesResultsAndReload(t *testing.T)
 	store := mustCreateTestSession(t)
 	registry := newTestToolRegistry(t, tools.HandlerRegistration{ID: toolspec.ToolExecCommand, Handler: fakeTool{name: toolspec.ToolExecCommand}})
 	var startedCalls []llm.ToolCall
+	var prematureCommentary bool
 	cfg := Config{Model: "gpt-6-sol", EnabledTools: []toolspec.ID{toolspec.ToolExecCommand},
 		OnEvent: func(event Event) {
+			if event.Kind == EventAssistantDelta && event.AssistantStreamMetadata != nil && event.AssistantStreamMetadata.OutputIndex != nil && *event.AssistantStreamMetadata.OutputIndex == 3 {
+				prematureCommentary = true
+			}
 			if event.Kind == EventToolCallStarted && event.ToolCall != nil {
 				startedCalls = append(startedCalls, *event.ToolCall)
 			}
@@ -149,6 +158,9 @@ func TestAcceptedNativeReasoningToolOutputSurvivesResultsAndReload(t *testing.T)
 	}
 	if toolResults.Load() != 1 {
 		t.Fatalf("actual tool results sent = %d", toolResults.Load())
+	}
+	if prematureCommentary {
+		t.Fatal("commentary after an unaccepted local call appeared before acceptance")
 	}
 	if len(startedCalls) != 1 || startedCalls[0].OutputIndex == nil || *startedCalls[0].OutputIndex != 2 {
 		t.Fatalf("local tool start lost its native position: %+v", startedCalls)

@@ -67,6 +67,16 @@ describe("transcript live membership and compaction", () => {
     expect(window.dispatch({ kind: "committed-row", row: result }).kind).toBe("accepted");
     expect(window.snapshot.items.map((item) => item.key)).toEqual(keys);
     expect(window.snapshot.items.map((item) => item.kind)).toEqual(["user", "tool", "assistant"]);
+    const completedItem = window.snapshot.items[1];
+    const overlap = window.dispatch({
+      kind: "page-success",
+      request: visit(window, "older"),
+      page: page([row(1), pending, after], null, 300),
+    });
+    expect(overlap.kind).toBe("accepted");
+    expect(window.snapshot.items.map((item) => item.kind)).toEqual(["user", "tool", "assistant"]);
+    expect(window.snapshot.items[1]?.key).toBe(completedItem?.key);
+    expect(window.snapshot.items[1]).toMatchObject({ row: result });
   });
 
   it("keeps Thinking Status out of transcript items while preserving real reasoning", () => {

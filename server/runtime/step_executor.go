@@ -282,6 +282,7 @@ func (s *defaultStepExecutor) runStepLoopWithOptions(ctx context.Context, stepID
 		e.assertWorkflowInstructionsPresent(stepNo)
 
 		var streamSteerErr error
+		var unacceptedLocalCallIndex *int64
 		candidate, err := e.generateWithMissingToolOutputRepair(
 			ctx,
 			stepID,
@@ -296,22 +297,40 @@ func (s *defaultStepExecutor) runStepLoopWithOptions(ctx context.Context, stepID
 			},
 			llm.StreamCallbacks{
 				OnAssistantDelta: func(delta llm.AssistantDelta) {
+					if unacceptedLocalCallIndex != nil && delta.OutputIndex != nil && *delta.OutputIndex > *unacceptedLocalCallIndex {
+						// Acceptance publishes the native call and subsequent text together.
+						// A provider preview must not imply local execution has started.
+						return
+					}
 					if streamSteerErr == nil {
 						streamSteerErr = e.steer(stepID, steerAssistantDeltaIntent(delta))
 					}
 				},
 				OnReasoningSummaryDelta: func(delta llm.ReasoningSummaryDelta) {
+					if unacceptedLocalCallIndex != nil && delta.SourceCoordinate != nil && delta.SourceCoordinate.OutputIndex != nil && *delta.SourceCoordinate.OutputIndex > *unacceptedLocalCallIndex {
+						return
+					}
 					if streamSteerErr == nil {
 						streamSteerErr = e.steer(stepID, steerReasoningDeltaIntent(delta))
 					}
 				},
 				OnOutputItem: func(item llm.ResponseItem) {
+					if item.Type == llm.ResponseItemTypeFunctionCall || item.Type == llm.ResponseItemTypeCustomToolCall {
+						if unacceptedLocalCallIndex == nil || item.OutputIndex < *unacceptedLocalCallIndex {
+							index := item.OutputIndex
+							unacceptedLocalCallIndex = &index
+						}
+					}
+					if unacceptedLocalCallIndex != nil && item.OutputIndex >= *unacceptedLocalCallIndex {
+						return
+					}
 					if streamSteerErr == nil {
 						streamSteerErr = e.steerProviderOutputItem(stepID, item)
 					}
 				},
 			},
 			func() {
+				unacceptedLocalCallIndex = nil
 				_ = e.resetReasoningAndClearStreamingState(stepID)
 			},
 		)
