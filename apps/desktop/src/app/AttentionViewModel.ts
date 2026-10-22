@@ -1,4 +1,5 @@
 import type { QueryClient } from "@tanstack/react-query";
+import { projectMarkdownText } from "@/ui";
 import type { TFunction } from "i18next";
 import * as Effect from "effect/Effect";
 import * as Stream from "effect/Stream";
@@ -236,17 +237,45 @@ export function createAttentionViewModel({
         setSurface(get, surfaces, id, { notification, state: current.state });
       }
     };
-    const namingFailure = Atom.fn<Extract<AttentionNotificationEvent, { type: "session_naming_failure" }>>()(
+    const sessionFeedback = Atom.fn<
+      Extract<AttentionNotificationEvent, { type: "session_naming_failure" | "session_turn_end" }>
+    >()(
       (event) =>
         Effect.gen(function* () {
-          const notification = {
-            id: `session-naming-${event.sequence.toString()}`,
-            title: t("app.attention.sessionNamingFailed"),
-            body: t("app.attention.sessionNamingFailureHelp"),
-            target: event.target,
-          };
+          const completed = event.type === "session_turn_end";
+          const completionTitle = completed
+            ? Array.from(event.sessionName ?? t("app.attention.sessionFallback")).slice(0, 75).join("")
+            : "";
+          const completionText = completed
+            ? Array.from(
+                t("app.attention.turnCompletionMessage", {
+                  title: completionTitle,
+                  body: projectMarkdownText(event.assistantContent) || t("app.attention.turnComplete"),
+                }),
+              )
+            : [];
+          const notification = completed
+            ? {
+                id: `session-turn-end-${event.sequence.toString()}`,
+                title: completionTitle,
+                body:
+                  completionText.length > 80
+                    ? completionText.slice(Array.from(completionTitle).length + 2, 77).join("") + "..."
+                    : completionText.slice(Array.from(completionTitle).length + 2).join(""),
+                target: event.target,
+              }
+            : {
+                id: `session-naming-${event.sequence.toString()}`,
+                title: t("app.attention.sessionNamingFailed"),
+                body: t("app.attention.sessionNamingFailureHelp"),
+                target: event.target,
+              };
           const showFailure = () => {
-            status.push({ ...notification, tone: "danger" });
+            status.push({
+              ...notification,
+              tone: completed ? "info" : "danger",
+              onClick: () => { get.set(activate, { target: event.target, notification: null }); },
+            });
           };
           if (inputs().focused === true || !bridge.capabilities.notifications.basic) {
             showFailure();
@@ -264,7 +293,7 @@ export function createAttentionViewModel({
                     context: { sessionID: event.target.sessionID },
                     error: error.cause,
                     logger,
-                    message: "Delivering Session-naming notification failed.",
+                    message: "Delivering Session notification failed.",
                     recover: showFailure,
                   }),
                 ),
@@ -275,7 +304,7 @@ export function createAttentionViewModel({
         }),
       { concurrent: true, initialValue: null },
     );
-    get.mount(namingFailure);
+    get.mount(sessionFeedback);
     const inbox = Atom.make(
       (observation) =>
         services.api
@@ -284,13 +313,16 @@ export function createAttentionViewModel({
             Stream.runForEach((value) =>
               Effect.sync(() => {
                 if (value.kind === "event") {
-                  if (value.event.type === "session_naming_failure") {
-                    get.set(namingFailure, value.event);
+                  if (
+                    value.event.type === "session_naming_failure" ||
+                    value.event.type === "session_turn_end"
+                  ) {
+                    get.set(sessionFeedback, value.event);
                     return;
                   }
                   get.set(refresh, undefined);
                   if (value.event.type === "pending") pending(get, value.event.pending);
-                  else if (value.event.type === "resolved") {
+                  else {
                     const id = attentionNotificationIDKey(value.event.id);
                     dismissSurface(get, surfaces, status, id);
                     get.set(remove, id);
