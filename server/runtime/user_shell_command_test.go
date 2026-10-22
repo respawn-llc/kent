@@ -324,6 +324,118 @@ type userShellTestTool struct {
 	run      func(context.Context, string) error
 }
 
+func TestBusyShellSteerRunsAtBoundaryAndQueueWaitsForTurn(t *testing.T) {
+	started, release := make(chan int, 3), make(chan struct{})
+	defer close(release)
+	client := &hookClient{response: finalTextResponse("done")}
+	requests := 0
+	client.beforeReturn = func() error {
+		requests++
+		started <- requests
+		<-release
+		return nil
+	}
+	commands := make(chan string, 4)
+	engine := mustNewTestEngine(t, mustCreateTestSession(t), client, newTestToolRegistry(t, tools.HandlerRegistration{
+		ID: toolspec.ToolExecCommand, Handler: userShellTestTool{commands: commands},
+	}), Config{Model: "gpt-6-sol"})
+	done := make(chan error, 1)
+	go func() {
+		_, err := engine.SubmitUserMessage(t.Context(), "start")
+		done <- err
+	}()
+	if request := <-started; request != 1 {
+		t.Fatalf("initial request = %d", request)
+	}
+	_, err := engine.Steer(t.Context(), "before shell", nil)
+	pendingWorkTestNoError(t, err)
+	for _, lane := range []runtimeinput.PendingWorkLane{runtimeinput.PendingWorkLaneSteer, runtimeinput.PendingWorkLaneQueue} {
+		_, err := engine.QueueShellInput(t.Context(), runtimeids.NewQueueItemID(), runtimeinput.ShellCommand{Command: string(lane)}, lane, nil)
+		pendingWorkTestNoError(t, err)
+	}
+	release <- struct{}{}
+	if request := <-started; request != 2 {
+		t.Fatalf("continuation request = %d", request)
+	}
+	if len(commands) != 1 || <-commands != string(runtimeinput.PendingWorkLaneSteer) {
+		t.Fatal("Steer did not execute alone at the Step Boundary")
+	}
+	work := pendingWorkTestSnapshot(t, engine)
+	if len(work.Items) != 1 || work.Items[0].Lane != runtimeinput.PendingWorkLaneQueue {
+		t.Fatalf("Queue Shell did not remain pending: %+v", work)
+	}
+	var ordered []string
+	for _, message := range requestMessages(client.calls[1]) {
+		if messageContent(message) == "before shell" {
+			ordered = append(ordered, "text")
+		} else if message.MessageType != nil && *message.MessageType == llm.MessageTypeUserShellCommand {
+			ordered = append(ordered, "shell")
+		}
+	}
+	if len(ordered) != 2 || ordered[0] != "text" || ordered[1] != "shell" {
+		t.Fatalf("same-lane input order = %v", ordered)
+	}
+	release <- struct{}{}
+	pendingWorkTestNoError(t, <-done)
+	pendingWorkTestNoError(t, engine.WaitForScheduledQueuedUserWork(t.Context()))
+	if len(commands) != 1 || <-commands != string(runtimeinput.PendingWorkLaneQueue) || len(client.calls) != 2 {
+		t.Fatal("Queue Shell did not execute after the turn without another model request")
+	}
+}
+
+func TestShellOutcomeSurvivesPreparationRebuild(t *testing.T) {
+	preparation := &heldPromptPreparation{started: make(chan struct{}), release: make(chan struct{})}
+	commands := make(chan string, 4)
+	client := &fakeClient{responses: []llm.Response{finalTextResponse("done")}}
+	engine := shellPreparationTestEngine(t, client, preparation, commands)
+	release := pendingWorkTestHoldMaintenance(t, engine)
+	text, err := engine.Steer(t.Context(), "before shell", nil)
+	pendingWorkTestNoError(t, err)
+	_, err = engine.QueueShellInput(t.Context(), runtimeids.NewQueueItemID(), runtimeinput.ShellCommand{Command: "echo once"}, runtimeinput.PendingWorkLaneSteer, nil)
+	pendingWorkTestNoError(t, err)
+	release()
+	pendingWorkTestWait(t, preparation.started, "preparation after Shell execution")
+	if len(commands) != 1 {
+		t.Fatalf("Shell execution count before preparation = %d", len(commands))
+	}
+	pending := pendingWorkTestSnapshot(t, engine)
+	if len(pending.Items) != 1 || pending.Items[0].ID.String() != text.ID {
+		t.Fatalf("uncommitted text did not remain pending: %+v", pending)
+	}
+	_, err = engine.Steer(t.Context(), "rebuild input", nil)
+	pendingWorkTestNoError(t, err)
+	close(preparation.release)
+	pendingWorkTestNoError(t, engine.WaitForScheduledQueuedUserWork(t.Context()))
+	if len(commands) != 1 || len(client.calls) != 1 {
+		t.Fatalf("Shell executions=%d model requests=%d", len(commands), len(client.calls))
+	}
+	var ordered []string
+	for _, message := range requestMessages(client.calls[0]) {
+		if message.MessageType != nil && *message.MessageType == llm.MessageTypeUserShellCommand {
+			ordered = append(ordered, *message.CompactContent)
+		} else if messageContent(message) == "before shell" || messageContent(message) == "rebuild input" {
+			ordered = append(ordered, messageContent(message))
+		}
+	}
+	if len(ordered) != 3 || ordered[0] != "before shell" || ordered[1] != "echo once" || ordered[2] != "rebuild input" {
+		t.Fatalf("rebuilt input order = %v", ordered)
+	}
+}
+
+func shellPreparationTestEngine(t *testing.T, client *fakeClient, preparation *heldPromptPreparation, commands chan string) *Engine {
+	t.Helper()
+	store := mustCreateTestSession(t)
+	seed := mustNewTestEngine(t, store, &fakeClient{responses: []llm.Response{finalTextResponse("seed")}}, tools.NewRegistry(), Config{})
+	_, err := seed.SubmitUserMessage(t.Context(), "seed")
+	pendingWorkTestNoError(t, err)
+	pendingWorkTestNoError(t, seed.Close())
+	_, err = store.RefreshLockedMainPromptSnapshot(session.LockedMainPromptSnapshot{})
+	pendingWorkTestNoError(t, err)
+	return mustNewTestEngine(t, mustOpenTestSession(t, store.Dir()), client, newTestToolRegistry(t, tools.HandlerRegistration{
+		ID: toolspec.ToolExecCommand, Handler: userShellTestTool{commands: commands},
+	}), Config{PromptFacingSnapshotReloader: preparation})
+}
+
 func (h userShellTestTool) Call(ctx context.Context, call tools.Call) (tools.Result, error) {
 	var input struct {
 		Command string `json:"cmd"`

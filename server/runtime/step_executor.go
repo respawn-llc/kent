@@ -255,8 +255,11 @@ func (s *defaultStepExecutor) RunStepLoopWithOptions(ctx context.Context, stepID
 	return s.runStepLoopWithOptions(ctx, stepID, options)
 }
 
-func (s *defaultStepExecutor) runStepLoopWithOptions(ctx context.Context, stepID string, options stepLoopOptions) (stepLoopResult, error) {
+func (s *defaultStepExecutor) runStepLoopWithOptions(ctx context.Context, stepID string, options stepLoopOptions) (result stepLoopResult, runErr error) {
 	e := s.engine
+	defer func() {
+		runErr = errors.Join(runErr, s.messages.FinalizeShellOutcomes(stepID))
+	}()
 	executedToolCall := false
 	patchEditsApplied, mismatchWarningCommitted := false, false
 	stepNo := 0
@@ -266,6 +269,9 @@ func (s *defaultStepExecutor) runStepLoopWithOptions(ctx context.Context, stepID
 			return stepLoopResult{}, err
 		}
 		if err := e.stepLifecycle.BeginAgentStepBoundary(ctx); err != nil {
+			return stepLoopResult{}, err
+		}
+		if err := s.messages.ProcessPendingShellActions(ctx, stepID, options.UserInputSelection); err != nil {
 			return stepLoopResult{}, err
 		}
 		if e.backgroundFlow != nil {
@@ -538,6 +544,9 @@ func (s *defaultStepExecutor) buildActiveTurnRequestAtBoundary(
 			return request, err
 		}
 		if err := s.engine.stepLifecycle.BeginAgentStepBoundary(ctx); err != nil {
+			return llm.Request{}, err
+		}
+		if err := s.messages.ProcessPendingShellActions(ctx, stepID, options.UserInputSelection); err != nil {
 			return llm.Request{}, err
 		}
 	}

@@ -107,10 +107,6 @@ func (m QueuedUserMessage) DisplayText() string {
 	return m.CanonicalPresentation
 }
 
-func (m QueuedUserMessage) ExecutionText() string {
-	return *m.Message.Content
-}
-
 func (s *queuedUserMessageStore) Discard(queueItemID string) bool {
 	_, removed := s.DiscardItem(queueItemID)
 	return removed
@@ -272,7 +268,7 @@ func (s *queuedUserMessageStore) ReleaseClaim(claim *queuedUserMessageClaim) []Q
 			remaining = append(remaining, pending)
 			continue
 		}
-		if pending.removeOnRelease {
+		if pending.removeOnRelease && pending.shellOutcome == nil {
 			removed = append(removed, pending.message)
 			continue
 		}
@@ -291,7 +287,7 @@ func (s *queuedUserMessageStore) Drain() []queuedUserMessage {
 	pending := make([]queuedUserMessage, 0, len(s.items))
 	remaining := s.items[:0]
 	for _, item := range s.items {
-		if item.claimID != nil {
+		if item.claimID != nil || item.shellOutcome != nil {
 			remaining = append(remaining, item)
 			continue
 		}
@@ -315,7 +311,7 @@ func (s *queuedUserMessageStore) DrainByID(ids map[string]struct{}) []queuedUser
 			remaining = append(remaining, pending)
 			continue
 		}
-		if pending.claimID != nil {
+		if pending.claimID != nil || pending.shellOutcome != nil {
 			pending.removeOnRelease = true
 			remaining = append(remaining, pending)
 			continue

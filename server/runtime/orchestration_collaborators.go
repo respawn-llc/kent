@@ -137,6 +137,8 @@ type messageLifecycle interface {
 	RestoreMessages() error
 	PreparePendingUserInjections(selection userInjectionSelection) (*preparedUserInjections, error)
 	ConsumeShellPrefix(ctx context.Context, stepID string) (bool, error)
+	ProcessPendingShellActions(ctx context.Context, stepID string, selection userInjectionSelection) error
+	FinalizeShellOutcomes(stepID string) error
 	ReleasePreparedUserInjections(prepared *preparedUserInjections)
 	CommitPreparedUserInjections(ctx context.Context, stepID string, prepared *preparedUserInjections, thinking nativeThinkingProjection) (userInjectionCommitResult, error)
 	DrainPendingUserInjections() []QueuedUserMessage

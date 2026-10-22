@@ -396,10 +396,6 @@ func handoffRequestFromToolCall(call llm.ToolCall) (*handoffRequest, bool) {
 	}, true
 }
 
-func queuedUserMessageText(message QueuedUserMessage) string {
-	return strings.TrimSpace(message.ExecutionText())
-}
-
 type queuedUserMessageFlushGroup struct {
 	message    llm.Message
 	batch      []string
@@ -476,15 +472,40 @@ func (m *defaultMessageLifecycle) settleCompletedShells(stepID string, claim *qu
 	return result
 }
 
-func (m *defaultMessageLifecycle) PreparePendingUserInjections(selection userInjectionSelection) (*preparedUserInjections, error) {
-	var claim *queuedUserMessageClaim
+func (m *defaultMessageLifecycle) claimPendingInputs(selection userInjectionSelection) (*queuedUserMessageClaim, error) {
+	if selection == nil {
+		selection = steerUserInjections()
+	}
 	switch selected := selection.(type) {
 	case queuedTurnUserInjectionSelection:
-		claim = m.queue.ClaimQueuedTurn()
+		return m.queue.ClaimQueuedTurn(), nil
 	case steerUserInjectionSelection:
-		claim = m.queue.ClaimSteersAndIDs(selected.queueItemIDs)
+		return m.queue.ClaimSteersAndIDs(selected.queueItemIDs), nil
 	default:
 		return nil, fmt.Errorf("unsupported user injection selection %T", selection)
+	}
+}
+
+func (m *defaultMessageLifecycle) ProcessPendingShellActions(ctx context.Context, stepID string, selection userInjectionSelection) error {
+	claim, err := m.claimPendingInputs(selection)
+	if err != nil || claim == nil {
+		return err
+	}
+	defer func() {
+		m.engine.removeStoppedLiveRunQueueItems(func() []QueuedUserMessage { return m.queue.ReleaseClaim(claim) })
+	}()
+	return m.executeClaimShells(ctx, stepID, claim)
+}
+
+func (m *defaultMessageLifecycle) FinalizeShellOutcomes(stepID string) error {
+	claim := m.queue.claim(func(pending queuedUserMessage) bool { return pending.shellOutcome != nil })
+	return m.settleCompletedShells(stepID, claim)
+}
+
+func (m *defaultMessageLifecycle) PreparePendingUserInjections(selection userInjectionSelection) (*preparedUserInjections, error) {
+	claim, err := m.claimPendingInputs(selection)
+	if err != nil {
+		return nil, err
 	}
 	prepared := &preparedUserInjections{queue: m.queue, claim: claim}
 	if claim == nil {
@@ -570,12 +591,18 @@ func (m *defaultMessageLifecycle) restoreFailedPreparedInput(prepared *preparedU
 func queuedUserMessageFlushGroups(messages []queuedUserMessage) []queuedUserMessageFlushGroup {
 	groups := make([]queuedUserMessageFlushGroup, 0, len(messages))
 	for _, pending := range messages {
-		text := queuedUserMessageText(pending.message)
 		queueItems := []QueuedUserMessage{pending.message}
-		message := *pending.message.Message
+		source := pending.message.Message
+		if pending.shellOutcome != nil {
+			source = pending.shellOutcome.message
+		}
+		if source == nil {
+			panic("request preparation reached an unexecuted Shell action")
+		}
+		message := *source
 		groups = append(groups, queuedUserMessageFlushGroup{
 			message:    message,
-			batch:      []string{text},
+			batch:      []string{strings.TrimSpace(*message.Content)},
 			queueItems: queueItems,
 		})
 	}
