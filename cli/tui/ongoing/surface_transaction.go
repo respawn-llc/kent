@@ -5,6 +5,8 @@ import (
 	"strings"
 
 	"core/cli/tui/transcriptrender"
+
+	xansi "github.com/charmbracelet/x/ansi"
 )
 
 type terminalRowRange struct {
@@ -66,20 +68,16 @@ func (s *Surface) validateRenderFrame(frame FrameInput, operation string) {
 }
 
 func (s *Surface) writeFrameTransaction(frame FrameInput, immutableRows []string) (Result, error) {
-	liveLayout := s.liveBandLayout(frame)
+	liveLayout, cursor := s.allocateLiveBand(frame)
+	liveLayout = composeInputOverlay(frame, liveLayout)
+	frame.Cursor = cursor
 	liveLines := liveBandLineTexts(liveLayout)
-	if !s.minimumLiveBandFits(frame, liveLines) {
-		liveLayout = nil
-		frame.Cursor = Cursor{}
-	} else {
-		liveLayout = s.shrinkLiveBandLayoutToFrame(frame, liveLayout)
+	for row, line := range liveLines {
+		if width := xansi.StringWidth(line); width > frame.Size.Width {
+			panicOngoingDeveloperError("write_frame_transaction", "live row exceeds terminal width", map[string]any{"row": row, "width": width, "terminal_width": frame.Size.Width})
+		}
 	}
-	liveLines = liveBandLineTexts(liveLayout)
 	frame.Cursor = cursorForVisibleLiveBand(frame.Cursor, frame.Size.Height, liveLayout)
-	if len(immutableRows) > 0 && len(liveLines) >= frame.Size.Height {
-		liveLines = nil
-		frame.Cursor = Cursor{}
-	}
 	previousHeight := s.previousMutableBandHeightAtBottom(frame.Size)
 	contentHeight := len(liveLines)
 	releasableHeight := max(0, previousHeight-contentHeight)
@@ -132,6 +130,37 @@ func (s *Surface) writeFrameTransaction(frame FrameInput, immutableRows []string
 	return Result{}, nil
 }
 
+func composeInputOverlay(frame FrameInput, layout []liveBandLine) []liveBandLine {
+	if frame.Overlay == nil || len(layout) == 0 {
+		return layout
+	}
+	for inputRow, line := range layout {
+		if line.sectionKind != FrameSectionInput {
+			continue
+		}
+		available := frame.Size.Height - (len(layout) - inputRow)
+		height := min(frame.Overlay.PreferredHeight, available)
+		if height < frame.Overlay.MinimumHeight {
+			return layout
+		}
+		projected := frame.Overlay.Project(height)
+		rows := frameLines(FrameInput{Theme: frame.Theme, Sections: []FrameSection{{
+			Lines: projected.Lines, StyledLines: projected.StyledLines,
+		}}})
+		if len(rows) > height {
+			panicOngoingDeveloperError("compose_input_overlay", "projection exceeds allocation", map[string]any{"height": height, "rows": len(rows)})
+		}
+		growth := max(0, len(rows)-inputRow)
+		if growth > 0 {
+			layout = append(make([]liveBandLine, growth), layout...)
+			inputRow += growth
+		}
+		copy(layout[inputRow-len(rows):inputRow], rows)
+		return layout
+	}
+	return layout
+}
+
 func validateFrameTransactionGeometry(
 	frame FrameInput,
 	previousHeight int,
@@ -143,9 +172,6 @@ func validateFrameTransactionGeometry(
 		contentHeight >= 0 &&
 		contentHeight <= nextHeight &&
 		nextHeight <= frame.Size.Height
-	if immutableRowCount > 0 {
-		valid = valid && nextHeight < frame.Size.Height
-	}
 	if frame.Cursor.Visible {
 		valid = valid &&
 			frame.Cursor.Row > 0 &&
@@ -172,88 +198,76 @@ func validateFrameTransactionGeometry(
 	})
 }
 
-func (s *Surface) minimumLiveBandFits(frame FrameInput, liveLines []string) bool {
-	return enforcedMinimumLiveBandHeight(frame, s.activeAssistant, liveLines) <= frame.Size.Height
-}
-
-func (s *Surface) liveBandLayout(frame FrameInput) []liveBandLine {
+func (s *Surface) allocateLiveBand(frame FrameInput) ([]liveBandLine, Cursor) {
 	lines := activeAssistantLinesWithLinkPresentation(
 		s.activeAssistant,
 		frameWidthOrDefault(frame),
 		frame.Theme,
 		s.markdownLinks,
 	)
-	layout := make([]liveBandLine, 0, len(lines)+len(frame.Sections))
-	for _, line := range lines {
-		layout = append(layout, liveBandLine{text: line})
-	}
-	layout = append(layout, frameLines(frame)...)
-	return layout
-}
-
-func (s *Surface) shrinkLiveBandLayoutToFrame(frame FrameInput, liveLayout []liveBandLine) []liveBandLine {
-	if len(liveLayout) <= frame.Size.Height {
-		return liveLayout
-	}
-	lines := minimumLiveBandLayoutWithLinkPresentation(frame, s.activeAssistant, s.markdownLinks)
-	if len(lines) > frame.Size.Height {
-		return lines[len(lines)-frame.Size.Height:]
-	}
-	return lines
-}
-
-func minimumLiveBandLayoutWithLinkPresentation(
-	frame FrameInput,
-	assistant activeAssistantState,
-	linkPresentation transcriptrender.MarkdownLinkPresentation,
-) []liveBandLine {
-	var lines []string
-	if assistant.source != "" {
-		assistantLines := activeAssistantLinesWithLinkPresentation(
-			assistant,
-			frameWidthOrDefault(frame),
-			frame.Theme,
-			linkPresentation,
-		)
-		if len(assistantLines) > 0 {
-			lines = append(lines, assistantLines[len(assistantLines)-1])
-		}
-	}
-	layout := make([]liveBandLine, 0, len(lines)+len(frame.Sections))
-	for _, line := range lines {
-		layout = append(layout, liveBandLine{text: line})
-	}
-	for _, section := range frame.Sections {
-		totalLines := len(section.StyledLines) + len(section.Lines)
-		if totalLines == 0 {
-			continue
-		}
-		limit := 1
-		switch section.Kind {
-		case FrameSectionQueuedOrSteered:
-			limit = min(2, totalLines)
-		case FrameSectionInput:
-			limit = min(3, totalLines)
-		}
-		start := 0
-		if section.Kind == FrameSectionInput && totalLines > limit {
-			start = totalLines - limit
-		}
-		for index := start; index < start+limit; index++ {
-			text := ""
-			if index < len(section.StyledLines) {
-				text = encodeTranscriptLine(section.StyledLines[index], frame.Theme)
-			} else {
-				text = section.Lines[index-len(section.StyledLines)]
+	heights := make([]int, len(frame.Sections))
+	minimums := make([]int, len(frame.Sections))
+	total, minimum := len(lines), min(1, len(lines))
+	for index, section := range frame.Sections {
+		preferred := len(section.Lines) + len(section.StyledLines)
+		floor := preferred
+		if section.Demand != nil {
+			preferred, floor = section.Demand.PreferredHeight, section.Demand.MinimumHeight
+		} else {
+			switch section.Kind {
+			case FrameSectionPendingTools:
+				floor = min(1, preferred)
 			}
-			layout = append(layout, liveBandLine{
-				text:        text,
-				sectionKind: section.Kind,
-				sectionRow:  index + 1,
-			})
+		}
+		if floor < 0 || preferred < floor {
+			panicOngoingDeveloperError("allocate_live_band", "invalid section demand", map[string]any{"kind": section.Kind, "preferred": preferred, "minimum": floor})
+		}
+		heights[index], minimums[index] = preferred, floor
+		total += preferred
+		minimum += floor
+	}
+	if minimum > frame.Size.Height {
+		return nil, Cursor{}
+	}
+	deficit := max(0, total-frame.Size.Height)
+	commentaryReduction := min(deficit, len(lines)-min(1, len(lines)))
+	lines = lines[commentaryReduction:]
+	deficit -= commentaryReduction
+	for _, kind := range []FrameSectionKind{FrameSectionQueuedOrSteered, FrameSectionPendingTools, FrameSectionInput} {
+		for index, section := range frame.Sections {
+			if section.Kind == kind {
+				reduction := min(deficit, heights[index]-minimums[index])
+				heights[index] -= reduction
+				deficit -= reduction
+			}
 		}
 	}
-	return layout
+	layout := make([]liveBandLine, 0, min(total, frame.Size.Height))
+	for _, line := range lines {
+		layout = append(layout, liveBandLine{text: line})
+	}
+	cursor := frame.Cursor
+	for index, section := range frame.Sections {
+		if section.Demand != nil {
+			projected := section.Demand.Project(heights[index])
+			section.Lines, section.StyledLines = projected.Lines, projected.StyledLines
+			if section.Kind == FrameSectionInput {
+				cursor = projected.Cursor
+				if cursor.Visible {
+					cursor.Target = &CursorTarget{SectionKind: section.Kind, Row: cursor.Row}
+				}
+			}
+		}
+		rows := frameLines(FrameInput{Theme: frame.Theme, Sections: []FrameSection{section}})
+		if section.Demand != nil && len(rows) > heights[index] {
+			panicOngoingDeveloperError("allocate_live_band", "projection exceeds allocation", map[string]any{"kind": section.Kind, "height": heights[index], "rows": len(rows)})
+		}
+		if len(rows) > heights[index] {
+			rows = rows[len(rows)-heights[index]:]
+		}
+		layout = append(layout, rows...)
+	}
+	return layout, cursor
 }
 
 func activeAssistantLinesWithLinkPresentation(
@@ -279,38 +293,6 @@ func activeAssistantLinesWithLinkPresentation(
 		})
 	}
 	return projection.VolatileRows
-}
-
-func enforcedMinimumLiveBandHeight(frame FrameInput, assistant activeAssistantState, liveLines []string) int {
-	if len(liveLines) == 0 {
-		return 0
-	}
-	total := 0
-	if assistant.source != "" {
-		total++
-	}
-	for _, section := range frame.Sections {
-		totalLines := len(section.StyledLines) + len(section.Lines)
-		if totalLines == 0 {
-			continue
-		}
-		switch section.Kind {
-		case FrameSectionPendingTools:
-			total++
-		case FrameSectionQueuedOrSteered:
-			total += min(2, totalLines)
-		case FrameSectionInput:
-			total += min(3, totalLines)
-		case FrameSectionStatus:
-			total++
-		default:
-			total++
-		}
-	}
-	if total == 0 {
-		return len(liveLines)
-	}
-	return total
 }
 
 func frameWidthOrDefault(frame FrameInput) int {

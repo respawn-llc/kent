@@ -17,6 +17,21 @@
 
 - The enforced minimum mutable band is: one in-progress tool call, one commentary line, one queued-or-steered message line plus its more-count line when additional messages exist, the input upper and lower dividers, one input text line, and one status line.
 - If the terminal height and current live content cannot fit the enforced minimum, ongoing hides the live area until the terminal is tall enough. This is the only case where input dividers and the status line are not shown. It must not drop committed content, switch to a transcript viewport, or partially remove unshrinkable pieces to make space.
+- The mutable band may use the full visible terminal height. Its enforced minimum must count only present tool, commentary, and queued-or-steered content, plus the input dividers, one input text line, and the status line.
+- When the complete live content exceeds the terminal height, ongoing must shrink commentary first, queued-or-steered messages second, pending tool calls third, and unsubmitted input text last. Each stage must reach its minimum before the next stage shrinks. The input dividers and status line must not shrink.
+- Commentary must show the newest rendered terminal rows, down to one rolling row, without truncation markers. Hidden volatile rows may become visible again when space returns. Visual hiding must not change Markdown Promotion or omit content from the Immutable Area.
+- Queued-or-steered messages must use one compact row per message and show as many messages as fit without a fixed message-count limit. Ongoing must display them in their existing order, hide the oldest messages first, and show the more-count row above visible messages only when messages are hidden. Their minimum is one message row plus the more-count row when required.
+- Pending tool calls must shrink to one visible call by hiding older calls first. Ongoing must not add summaries, ellipses, or more-count rows for hidden tool calls.
+- Unsubmitted input text must shrink to one visible text row between its dividers. The visible input must follow the cursor.
+- Prompt-history recall must show the recalled prompt in the editable input without a duplicate preview below input.
+
+## Live-area overlays
+
+- File-search and slash-command completion pickers must overlay mutable live content directly above the input upper divider in the normal buffer. They must not cover immutable transcript rows.
+- Completion pickers must size independently from the regular mutable-band allocation, using terminal height above the current input area. An overlay may grow the mutable band upward, moving committed output into native scrollback without painting over it. Opening a picker must not shrink the underlying commentary, queue, tools, or input to create space.
+- Completion pickers must show at most seven rows and keep the selected result visible as the operator navigates. With one available row, the picker must show the selected result. With no available rows, the picker must hide without clearing its selection.
+- Keyboard help must use the same independent overlay placement above input, retaining its existing formatting and clipping. Help must hide when fewer than three mutable rows are available above input.
+- When several live-area overlays are active, ongoing must select help first, slash-command completion second, and file-search completion third. It must not stack them.
 
 ## Delivery consumption
 
@@ -50,7 +65,7 @@
 ## Assistant streaming
 
 - Streaming Markdown uses the complete assistant source received so far. The width-aware volatile tail is in the Mutable Band. Closed blocks that cannot change become stable Logical Lines and promote into the Immutable Area.
-- Streaming, committed emission, and hydration must render every received character of assistant commentary and final output. Terminal wrapping and stable Markdown promotion may change row boundaries, but they never replace, truncate, ellipsize, or omit assistant source content.
+- Committed emission and hydration must render every received character of assistant commentary and final output into the Immutable Area. Streaming may hide volatile preview rows under the mutable-band height rules, but it must use the complete assistant source for Markdown Promotion and finalization. Terminal wrapping and stable Markdown promotion may change row boundaries, but they never replace, truncate, ellipsize, or omit assistant source content from immutable output.
 - Markdown Promotion accounts for constructs that can restyle or reflow preceding rows. The active source line and any open construct whose visible rows can change are volatile until Kent proves them stable. A table can wait for its closing row.
 - Promotion is monotonic. The promotion boundary never moves backward past rows already appended to the immutable area. If re-rendering the source would change an already-promoted row, Kent must report a developer error. It must not rewrite, restyle, or re-emit that row.
 - Stable prose contains no line breaks generated from terminal width. Markdown soft line breaks flow as spaces. Authored hard breaks and authored preformatted line boundaries are logical line boundaries. GFM tables are the width-formatted Markdown exception and use the terminal width at promotion.

@@ -8,6 +8,7 @@ import (
 	runtimepb "core/shared/protoapi/gen/kent/api/runtime"
 	transcriptpb "core/shared/protoapi/gen/kent/api/transcript"
 	"core/shared/runtimeids"
+	"core/shared/runtimeinput"
 	tea "github.com/charmbracelet/bubbletea"
 	xansi "github.com/charmbracelet/x/ansi"
 	"reflect"
@@ -98,6 +99,87 @@ func TestNativeOngoingHydrationWaitsForWindowSize(t *testing.T) {
 	}
 	if got := spySurface.calls[1].frame.Size.Width; got != 80 {
 		t.Fatalf("hydration frame width = %d, want 80", got)
+	}
+}
+
+func TestNativeOngoingAbsoluteFloorHoldsOnlyUnsupportedGeometry(t *testing.T) {
+	var output bytes.Buffer
+	gate := newUIRendererOutputGateState()
+	surface := ongoing.NewSurface(&output)
+	m := newProjectedStaticUIModel(WithUIOngoingSurface(surface), WithUIRendererOutputGateState(gate))
+	m.ongoingTranscript = newNoopOngoingTranscriptController(surface, m.ongoingFrameInput)
+	_ = m.Init()
+	m.Update(tea.WindowSizeMsg{Width: 40, Height: 3})
+	if frame := m.View(); frame != "" {
+		t.Fatalf("undersized ongoing painted a fallback frame: %q", frame)
+	}
+	var rendererOutput bytes.Buffer
+	writer := newUIRendererOutputGateWriter(&rendererOutput, gate)
+	if _, err := writer.Write([]byte("fallback frame")); err != nil {
+		t.Fatal(err)
+	}
+	if rendererOutput.Len() != 0 {
+		t.Fatal("undersized ongoing leaked renderer output")
+	}
+	hydration := ongoingHydrationMessage(1)
+	m.Update(ongoingTranscriptEvent{Kind: ongoingTranscriptEventMessage, Message: hydration})
+	before := output.Len()
+	message := ongoingTranscriptMessage(2, reflect.TypeFor[*transcriptpb.Event_CommittedRow]())
+	m.Update(ongoingTranscriptEvent{Kind: ongoingTranscriptEventMessage, Message: message})
+	if output.Len() != before {
+		t.Fatal("unsupported geometry delivered transcript")
+	}
+	m.Update(tea.WindowSizeMsg{Width: 40, Height: 4})
+	if !m.nativeOngoingSurfaceActive() || output.Len() == before {
+		t.Fatal("four-row ongoing did not acquire ownership and drain transcript")
+	}
+	m.Update(ongoingTranscriptEvent{
+		Kind:    ongoingTranscriptEventMessage,
+		Message: ongoingTranscriptMessage(3, reflect.TypeFor[*transcriptpb.Event_ToolStart]()),
+	})
+	m.Update(ongoingTranscriptEvent{
+		Kind: ongoingTranscriptEventMessage,
+		Message: transcriptTestMessage(4, &transcriptpb.AssistantDelta{
+			StreamId: runtimeids.NewAssistantStreamID().String(), StepId: ongoingTestStepID().String(),
+			Phase: transcriptpb.AssistantPhase_ASSISTANT_PHASE_COMMENTARY, Delta: "volatile commentary",
+		}),
+	})
+	m.pendingWorkRefresh.collection = runtimeinput.PendingWork{Items: []runtimeinput.PendingWorkItem{
+		pendingWorkMessageForTest(runtimeinput.PendingWorkLaneSteer, "queued one"),
+		pendingWorkMessageForTest(runtimeinput.PendingWorkLaneSteer, "queued two"),
+	}}
+	for index, height := range []int{8, 7, 8, 4} {
+		transactionStart := output.Len()
+		m.Update(tea.WindowSizeMsg{Width: 40, Height: height})
+		before := output.Len()
+		m.Update(ongoingTranscriptEvent{
+			Kind:    ongoingTranscriptEventMessage,
+			Message: ongoingTranscriptMessage(uint64(index+5), reflect.TypeFor[*transcriptpb.Event_CommittedRow]()),
+		})
+		if !m.nativeOngoingSurfaceActive() || output.Len() <= before {
+			t.Fatalf("supported height %d stopped committed delivery", height)
+		}
+		stream, err := analyzer.NewStream(pty.MustDimensions(height, 40))
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := stream.Feed(output.Bytes()[transactionStart:]); err != nil {
+			t.Fatal(err)
+		}
+		snapshot, err := stream.ScreenSnapshot()
+		if err != nil {
+			t.Fatal(err)
+		}
+		divider := m.layout().inputPaneProjectionWithBudget(40, 1, uiThemeStyles(m.theme)).Lines[0]
+		if visible := strings.Contains(snapshot.RenderText(), xansi.Strip(divider)); visible != (height >= 8) {
+			t.Fatalf("mixed-content live visibility at %d rows = %t: screen=%q queue=%d tools=%d", height, visible, snapshot.RenderText(), len(m.layout().queuedMessages()), len(m.ongoingTranscript.liveReadModel.pendingTools))
+		}
+	}
+	before = output.Len()
+	m.Update(tea.WindowSizeMsg{Width: 40, Height: 3})
+	m.View()
+	if output.Len() != before {
+		t.Fatal("unsupported resize erased or repainted native content")
 	}
 }
 
@@ -293,9 +375,8 @@ func TestNativeOngoingTransientPickersAndAskDoNotCreateBlankScrollback(t *testin
 			}
 			test.open(m)
 			openFrame := m.ongoingFrameInput()
-			picker, pickerVisible := frameSection(openFrame, ongoing.FrameSectionPicker)
-			if test.name != "active ask" && (!pickerVisible || len(picker.Lines) != slashCommandPickerLines) {
-				t.Fatalf("picker frame height = %d visible=%t, want %d", len(picker.Lines), pickerVisible, slashCommandPickerLines)
+			if test.name != "active ask" && openFrame.Overlay == nil {
+				t.Fatal("completion overlay missing")
 			}
 			if openFrame.Cursor.Visible &&
 				(openFrame.Cursor.Row < 1 || openFrame.Cursor.Row > height ||
@@ -307,8 +388,8 @@ func TestNativeOngoingTransientPickersAndAskDoNotCreateBlankScrollback(t *testin
 			}
 			test.close(m)
 			closedFrame := m.ongoingFrameInput()
-			if _, ok := frameSection(closedFrame, ongoing.FrameSectionPicker); ok {
-				t.Fatal("closed transient lifecycle retained a picker frame section")
+			if closedFrame.Overlay != nil {
+				t.Fatal("closed transient lifecycle retained an overlay")
 			}
 			if _, err := surface.Render(closedFrame); err != nil {
 				t.Fatalf("close transient frame: %v", err)

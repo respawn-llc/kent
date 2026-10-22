@@ -6,9 +6,10 @@
 
 ## Size degradation
 
-- Below 40 columns by 10 rows, the TUI leaves its owned frame blank without changing Scrollback.
+- Below 40 columns or 4 rows, Ongoing Mode must leave its owned frame blank without changing Scrollback and hold transcript events until the terminal reaches both dimensions.
+- Below 40 columns or 10 rows, other TUI surfaces must leave their owned frame blank without changing Scrollback.
 - Rendering resumes when the terminal reaches the minimum size.
-- The same size rule applies to every TUI surface.
+- At or above its absolute minimum, Ongoing Mode must apply the current-content live-area minimum defined in [Ongoing Scrollback Buffer](ongoing-scrollback-buffer.md#mutable-band-height). Hiding the live area must not stop committed output.
 - At or above the minimum, every surface must be usable. Content that exceeds the height can scroll. Every unbounded list uses Infinite Scroll and never loads the complete list. Horizontal content wraps without overflowing or disappearing off-screen. The status line follows its priority ladder.
 
 ## Theme and color

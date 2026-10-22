@@ -5,7 +5,6 @@ import (
 	"time"
 
 	"core/cli/tui/ongoing"
-	"core/cli/tui/transcriptrender"
 
 	tea "github.com/charmbracelet/bubbletea"
 )
@@ -45,9 +44,12 @@ func WithUIOngoingTranscriptReopen(request func()) UIOption {
 }
 
 func (m *uiModel) nativeOngoingSurfaceActive() bool {
-	return m != nil &&
-		m.ongoingSurface != nil &&
+	return m.nativeOngoingSurfaceSelected() &&
 		desiredOngoingOwnership(m.terminalGeometry, terminalDestinationForSurface(m.surface()))
+}
+
+func (m *uiModel) nativeOngoingSurfaceSelected() bool {
+	return m != nil && m.ongoingSurface != nil && m.surface() == uiSurfaceOngoingTranscript
 }
 
 func (m *uiModel) scheduleOngoingWidthRehydration() tea.Cmd {
@@ -204,19 +206,36 @@ func (m *uiModel) ongoingFrameInput() ongoing.FrameInput {
 		}
 		sections = append(sections, ongoing.FrameSection{Kind: kind, Lines: append([]string(nil), lines...)})
 	}
-	appendStyledSection := func(kind ongoing.FrameSectionKind, lines []transcriptrender.Line) {
-		if len(lines) == 0 {
-			return
-		}
-		sections = append(sections, ongoing.FrameSection{Kind: kind, StyledLines: append([]transcriptrender.Line(nil), lines...)})
+	inputPane := layout.inputPaneProjectionWithBudget(width, max(1, height-3), style)
+	if entries := layout.queuedMessages(); len(entries) > 0 {
+		sections = append(sections, ongoing.FrameSection{
+			Kind: ongoing.FrameSectionQueuedOrSteered,
+			Demand: &ongoing.FrameDemand{
+				PreferredHeight: len(entries),
+				MinimumHeight:   min(2, len(entries)),
+				Project: func(rows int) ongoing.SectionProjection {
+					return ongoing.SectionProjection{StyledLines: projectQueuedMessageLines(entries, width, rows)}
+				},
+			},
+		})
 	}
-	inputPane := layout.inputPaneProjection(width, height, style)
-	appendSection(ongoing.FrameSectionPicker, layout.renderActivePicker(width))
-	appendStyledSection(ongoing.FrameSectionQueuedOrSteered, layout.renderQueuedMessageLines(width))
-	appendSection(ongoing.FrameSectionHelp, layout.renderHelpPane(width, helpPaneMaxLines(height, 1, 0, 0), style))
-	appendSection(ongoing.FrameSectionInput, inputPane.Lines)
-	if selected, ok := m.selectedPromptHistoryText(); ok {
-		appendSection(ongoing.FrameSectionPromptHistory, terminalSafeFrameLinesForWidth([]string{selected}, width))
+	if len(inputPane.Lines) > 0 {
+		sections = append(sections, ongoing.FrameSection{
+			Kind: ongoing.FrameSectionInput,
+			Demand: &ongoing.FrameDemand{
+				PreferredHeight: len(inputPane.Lines),
+				MinimumHeight:   min(3, len(inputPane.Lines)),
+				Project: func(rows int) ongoing.SectionProjection {
+					pane := layout.inputPaneProjectionWithBudget(width, rows-2, style)
+					return ongoing.SectionProjection{
+						Lines: pane.Lines,
+						Cursor: ongoing.Cursor{
+							Visible: pane.Cursor.Visible, Row: pane.Cursor.Row, Column: pane.Cursor.Col + 1,
+						},
+					}
+				},
+			},
+		})
 	}
 	statusLine := layout.renderStatusLine(width, style)
 	if statusLine != "" {
@@ -240,11 +259,37 @@ func (m *uiModel) ongoingFrameInput() ongoing.FrameInput {
 		SpinnerFrame: m.spinnerFrame,
 		Sections:     sections,
 		Cursor:       frameCursor,
+		Overlay:      layout.ongoingInputOverlay(width, height, style),
 	}
 	if cursor.Visible {
 		frame.Cursor.Row = ongoingFrameInputCursorTerminalRow(frame, cursor.Row)
 	}
 	return frame
+}
+
+func (l uiViewLayout) ongoingInputOverlay(width, height int, style uiStyles) *ongoing.FrameDemand {
+	if l.model.helpVisible && l.model.canShowHelp() {
+		return &ongoing.FrameDemand{
+			PreferredHeight: len(l.renderHelpPane(width, height, style)),
+			MinimumHeight:   3,
+			Project: func(rows int) ongoing.SectionProjection {
+				return ongoing.SectionProjection{Lines: l.renderHelpPane(width, rows, style)}
+			},
+		}
+	}
+	picker := l.model.activePickerPresentation()
+	if !picker.visible {
+		return nil
+	}
+	return &ongoing.FrameDemand{
+		PreferredHeight: min(slashCommandPickerLines, len(picker.rows)),
+		MinimumHeight:   1,
+		Project: func(rows int) ongoing.SectionProjection {
+			picker.lineCount = rows
+			picker.start = pickerViewportStart(picker.selection, len(picker.rows), rows)
+			return ongoing.SectionProjection{Lines: l.renderPicker(picker, width)}
+		},
+	}
 }
 
 func ongoingFrameInputCursorSectionRow(frame ongoing.FrameInput) (int, bool) {
@@ -293,6 +338,9 @@ func ongoingFrameSectionTerminalRows(frame ongoing.FrameInput, kind ongoing.Fram
 }
 
 func ongoingFrameSectionLineCount(section ongoing.FrameSection) int {
+	if section.Demand != nil {
+		return section.Demand.PreferredHeight
+	}
 	return len(section.StyledLines) + len(section.Lines)
 }
 

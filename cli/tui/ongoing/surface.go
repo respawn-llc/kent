@@ -20,6 +20,7 @@ type FrameInput struct {
 	Theme        string
 	SpinnerFrame int
 	Sections     []FrameSection
+	Overlay      *FrameDemand
 	Cursor       Cursor
 }
 
@@ -39,6 +40,21 @@ type FrameSection struct {
 	Kind        FrameSectionKind
 	Lines       []string
 	StyledLines []transcriptrender.Line
+	Demand      *FrameDemand
+}
+
+// FrameDemand projects frame-local content only after the whole band's budget
+// is known. Editor and selection state remain owned by the caller.
+type FrameDemand struct {
+	PreferredHeight int
+	MinimumHeight   int
+	Project         func(height int) SectionProjection
+}
+
+type SectionProjection struct {
+	Lines       []string
+	StyledLines []transcriptrender.Line
+	Cursor      Cursor
 }
 
 type liveBandLine struct {
@@ -57,9 +73,6 @@ const (
 	FrameSectionGoal            FrameSectionKind = "goal"
 	FrameSectionStatus          FrameSectionKind = "status"
 	FrameSectionInput           FrameSectionKind = "input"
-	FrameSectionPicker          FrameSectionKind = "picker"
-	FrameSectionHelp            FrameSectionKind = "help"
-	FrameSectionPromptHistory   FrameSectionKind = "prompt_history"
 	FrameSectionPendingTools    FrameSectionKind = "pending_tools"
 	FrameSectionRunState        FrameSectionKind = "run_state"
 	FrameSectionSessionStatus   FrameSectionKind = "session_status"
