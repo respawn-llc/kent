@@ -35,10 +35,7 @@ func ServerNotReadyToProto(err *serverapi.ServerNotReadyError) (*serverpb.Server
 }
 
 func ServerNotReadyFromProto(details *serverpb.ServerNotReadyDetails) error {
-	reason, err := serverNotReadyReasonFromProto(details.Reason)
-	if err != nil {
-		return err
-	}
+	reason := serverNotReadyReasonValues[details.Reason]
 	return serverapi.NewServerNotReadyError(reason, serverapi.ServerNotReadyDetails{
 		OnboardingCompleted: details.OnboardingCompleted,
 		SettingsPath:        cloneBootstrapErrorPointer(details.SettingsPath),
@@ -159,10 +156,7 @@ func OnboardingFinalizeErrorFromProto(message *onboardingpb.FinalizeError) error
 		}
 		details = converted
 	case *onboardingpb.FinalizeError_Canceled:
-		phase, err := cancelPhaseFromProto(detail.Canceled.Phase)
-		if err != nil {
-			return err
-		}
+		phase := cancelPhaseValues[detail.Canceled.Phase]
 		details = serverapi.OnboardingCanceledDetails{Phase: phase}
 	default:
 		return fmt.Errorf("onboarding finalize error detail %T is unsupported", detail)
@@ -230,18 +224,9 @@ func importUnavailableDetailsToProto(details serverapi.OnboardingImportUnavailab
 }
 
 func importUnavailableDetailsFromProto(details *onboardingpb.ImportUnavailableDetails) (serverapi.OnboardingImportUnavailableDetails, error) {
-	kind, err := importKindFromProto(details.ImportKind)
-	if err != nil {
-		return serverapi.OnboardingImportUnavailableDetails{}, err
-	}
-	mode, err := onboardingImportModeFromProto(details.Mode)
-	if err != nil {
-		return serverapi.OnboardingImportUnavailableDetails{}, err
-	}
-	reason, err := importUnavailableReasonFromProto(details.Reason)
-	if err != nil {
-		return serverapi.OnboardingImportUnavailableDetails{}, err
-	}
+	kind := importKindValues[details.ImportKind]
+	mode := onboardingImportModeValues[details.Mode]
+	reason := importUnavailableReasonValues[details.Reason]
 	provider, err := uuidFromString(details.ProviderUuid)
 	if err != nil {
 		return serverapi.OnboardingImportUnavailableDetails{}, err
@@ -282,16 +267,9 @@ func importFailedDetailsToProto(details serverapi.OnboardingImportFailedDetails)
 func importFailedDetailsFromProto(details *onboardingpb.ImportFailedDetails) (serverapi.OnboardingImportFailedDetails, error) {
 	var kind serverapi.OnboardingImportKind
 	if details.ImportKind != nil {
-		value, err := importKindFromProto(*details.ImportKind)
-		if err != nil {
-			return serverapi.OnboardingImportFailedDetails{}, err
-		}
-		kind = value
+		kind = importKindValues[*details.ImportKind]
 	}
-	operation, err := importOperationFromProto(details.Operation)
-	if err != nil {
-		return serverapi.OnboardingImportFailedDetails{}, err
-	}
+	operation := importOperationValues[details.Operation]
 	provider, err := uuidFromString(details.ProviderUuid)
 	if err != nil {
 		return serverapi.OnboardingImportFailedDetails{}, err
@@ -403,9 +381,9 @@ func rollbackPrimaryFromProto(message *onboardingpb.RollbackPrimaryFailure) (ser
 		}
 		return serverapi.OnboardingRollbackPrimaryFailure{ConfigWriteFailed: &details}, nil
 	case *onboardingpb.RollbackPrimaryFailure_Canceled:
-		phase, err := cancelPhaseFromProto(failure.Canceled.Phase)
+		phase := cancelPhaseValues[failure.Canceled.Phase]
 		details := serverapi.OnboardingCanceledDetails{Phase: phase}
-		return serverapi.OnboardingRollbackPrimaryFailure{Canceled: &details}, err
+		return serverapi.OnboardingRollbackPrimaryFailure{Canceled: &details}, nil
 	case *onboardingpb.RollbackPrimaryFailure_InternalFailure:
 		details := serverapi.OnboardingInternalFailureDetails{Cause: cloneBootstrapErrorPointer(failure.InternalFailure.Cause)}
 		return serverapi.OnboardingRollbackPrimaryFailure{InternalFailure: &details}, nil
@@ -419,151 +397,61 @@ func onboardingDetailsTypeError(err *serverapi.OnboardingFinalizeError, details 
 }
 
 func serverNotReadyReasonToProto(reason serverapi.ServerNotReadyReason) (serverpb.ServerNotReadyReason, error) {
-	switch reason {
-	case serverapi.ServerNotReadyOnboardingRequired:
-		return serverpb.ServerNotReadyReason_SERVER_NOT_READY_REASON_ONBOARDING_REQUIRED, nil
-	case serverapi.ServerNotReadyActivationFailed:
-		return serverpb.ServerNotReadyReason_SERVER_NOT_READY_REASON_ACTIVATION_FAILED, nil
-	default:
-		return 0, fmt.Errorf("server-not-ready reason %q is unsupported", reason)
-	}
+	return enumToProto(serverNotReadyReasonValues, reason, "server-not-ready reason")
 }
 
-func serverNotReadyReasonFromProto(reason serverpb.ServerNotReadyReason) (serverapi.ServerNotReadyReason, error) {
-	switch reason {
-	case serverpb.ServerNotReadyReason_SERVER_NOT_READY_REASON_ONBOARDING_REQUIRED:
-		return serverapi.ServerNotReadyOnboardingRequired, nil
-	case serverpb.ServerNotReadyReason_SERVER_NOT_READY_REASON_ACTIVATION_FAILED:
-		return serverapi.ServerNotReadyActivationFailed, nil
-	default:
-		return "", fmt.Errorf("protobuf server-not-ready reason %v is unsupported", reason)
-	}
+var serverNotReadyReasonValues = map[serverpb.ServerNotReadyReason]serverapi.ServerNotReadyReason{
+	serverpb.ServerNotReadyReason_SERVER_NOT_READY_REASON_ONBOARDING_REQUIRED: serverapi.ServerNotReadyOnboardingRequired,
+	serverpb.ServerNotReadyReason_SERVER_NOT_READY_REASON_ACTIVATION_FAILED:   serverapi.ServerNotReadyActivationFailed,
 }
 
 func importKindToProto(kind serverapi.OnboardingImportKind) (onboardingpb.ImportKind, error) {
-	switch kind {
-	case serverapi.OnboardingImportKindSkills:
-		return onboardingpb.ImportKind_IMPORT_KIND_SKILLS, nil
-	case serverapi.OnboardingImportKindCommands:
-		return onboardingpb.ImportKind_IMPORT_KIND_COMMANDS, nil
-	default:
-		return 0, fmt.Errorf("onboarding import kind %q is unsupported", kind)
-	}
+	return enumToProto(importKindValues, kind, "onboarding import kind")
 }
 
-func importKindFromProto(kind onboardingpb.ImportKind) (serverapi.OnboardingImportKind, error) {
-	switch kind {
-	case onboardingpb.ImportKind_IMPORT_KIND_SKILLS:
-		return serverapi.OnboardingImportKindSkills, nil
-	case onboardingpb.ImportKind_IMPORT_KIND_COMMANDS:
-		return serverapi.OnboardingImportKindCommands, nil
-	default:
-		return "", fmt.Errorf("protobuf onboarding import kind %v is unsupported", kind)
-	}
+var importKindValues = map[onboardingpb.ImportKind]serverapi.OnboardingImportKind{
+	onboardingpb.ImportKind_IMPORT_KIND_SKILLS:   serverapi.OnboardingImportKindSkills,
+	onboardingpb.ImportKind_IMPORT_KIND_COMMANDS: serverapi.OnboardingImportKindCommands,
 }
 
 func onboardingImportModeToProto(mode serverapi.OnboardingImportMode) (onboardingpb.ImportMode, error) {
-	switch mode {
-	case serverapi.OnboardingImportModeNone:
-		return onboardingpb.ImportMode_IMPORT_MODE_NONE, nil
-	case serverapi.OnboardingImportModeSymlinkSource:
-		return onboardingpb.ImportMode_IMPORT_MODE_SYMLINK_SOURCE, nil
-	default:
-		return 0, fmt.Errorf("onboarding import mode %q is unsupported", mode)
-	}
+	return enumToProto(onboardingImportModeValues, mode, "onboarding import mode")
 }
 
-func onboardingImportModeFromProto(mode onboardingpb.ImportMode) (serverapi.OnboardingImportMode, error) {
-	switch mode {
-	case onboardingpb.ImportMode_IMPORT_MODE_NONE:
-		return serverapi.OnboardingImportModeNone, nil
-	case onboardingpb.ImportMode_IMPORT_MODE_SYMLINK_SOURCE:
-		return serverapi.OnboardingImportModeSymlinkSource, nil
-	default:
-		return "", fmt.Errorf("protobuf onboarding import mode %v is unsupported", mode)
-	}
+var onboardingImportModeValues = map[onboardingpb.ImportMode]serverapi.OnboardingImportMode{
+	onboardingpb.ImportMode_IMPORT_MODE_NONE:           serverapi.OnboardingImportModeNone,
+	onboardingpb.ImportMode_IMPORT_MODE_SYMLINK_SOURCE: serverapi.OnboardingImportModeSymlinkSource,
 }
 
 func importUnavailableReasonToProto(reason serverapi.OnboardingImportUnavailableReason) (onboardingpb.ImportUnavailableReason, error) {
-	switch reason {
-	case serverapi.OnboardingImportReasonNotDiscovered:
-		return onboardingpb.ImportUnavailableReason_IMPORT_UNAVAILABLE_REASON_NOT_DISCOVERED, nil
-	case serverapi.OnboardingImportReasonTargetExists:
-		return onboardingpb.ImportUnavailableReason_IMPORT_UNAVAILABLE_REASON_TARGET_EXISTS, nil
-	case serverapi.OnboardingImportReasonUnsupportedProvider:
-		return onboardingpb.ImportUnavailableReason_IMPORT_UNAVAILABLE_REASON_UNSUPPORTED_PROVIDER, nil
-	default:
-		return 0, fmt.Errorf("onboarding import-unavailable reason %q is unsupported", reason)
-	}
+	return enumToProto(importUnavailableReasonValues, reason, "onboarding import-unavailable reason")
 }
 
-func importUnavailableReasonFromProto(reason onboardingpb.ImportUnavailableReason) (serverapi.OnboardingImportUnavailableReason, error) {
-	switch reason {
-	case onboardingpb.ImportUnavailableReason_IMPORT_UNAVAILABLE_REASON_NOT_DISCOVERED:
-		return serverapi.OnboardingImportReasonNotDiscovered, nil
-	case onboardingpb.ImportUnavailableReason_IMPORT_UNAVAILABLE_REASON_TARGET_EXISTS:
-		return serverapi.OnboardingImportReasonTargetExists, nil
-	case onboardingpb.ImportUnavailableReason_IMPORT_UNAVAILABLE_REASON_UNSUPPORTED_PROVIDER:
-		return serverapi.OnboardingImportReasonUnsupportedProvider, nil
-	default:
-		return "", fmt.Errorf("protobuf onboarding import-unavailable reason %v is unsupported", reason)
-	}
+var importUnavailableReasonValues = map[onboardingpb.ImportUnavailableReason]serverapi.OnboardingImportUnavailableReason{
+	onboardingpb.ImportUnavailableReason_IMPORT_UNAVAILABLE_REASON_NOT_DISCOVERED:       serverapi.OnboardingImportReasonNotDiscovered,
+	onboardingpb.ImportUnavailableReason_IMPORT_UNAVAILABLE_REASON_TARGET_EXISTS:        serverapi.OnboardingImportReasonTargetExists,
+	onboardingpb.ImportUnavailableReason_IMPORT_UNAVAILABLE_REASON_UNSUPPORTED_PROVIDER: serverapi.OnboardingImportReasonUnsupportedProvider,
 }
 
 func importOperationToProto(operation serverapi.OnboardingImportOperation) (onboardingpb.ImportOperation, error) {
-	switch operation {
-	case serverapi.OnboardingImportOperationDiscover:
-		return onboardingpb.ImportOperation_IMPORT_OPERATION_DISCOVER, nil
-	case serverapi.OnboardingImportOperationPrepareTarget:
-		return onboardingpb.ImportOperation_IMPORT_OPERATION_PREPARE_TARGET, nil
-	case serverapi.OnboardingImportOperationCreateSymlink:
-		return onboardingpb.ImportOperation_IMPORT_OPERATION_CREATE_SYMLINK, nil
-	default:
-		return 0, fmt.Errorf("onboarding import operation %q is unsupported", operation)
-	}
+	return enumToProto(importOperationValues, operation, "onboarding import operation")
 }
 
-func importOperationFromProto(operation onboardingpb.ImportOperation) (serverapi.OnboardingImportOperation, error) {
-	switch operation {
-	case onboardingpb.ImportOperation_IMPORT_OPERATION_DISCOVER:
-		return serverapi.OnboardingImportOperationDiscover, nil
-	case onboardingpb.ImportOperation_IMPORT_OPERATION_PREPARE_TARGET:
-		return serverapi.OnboardingImportOperationPrepareTarget, nil
-	case onboardingpb.ImportOperation_IMPORT_OPERATION_CREATE_SYMLINK:
-		return serverapi.OnboardingImportOperationCreateSymlink, nil
-	default:
-		return "", fmt.Errorf("protobuf onboarding import operation %v is unsupported", operation)
-	}
+var importOperationValues = map[onboardingpb.ImportOperation]serverapi.OnboardingImportOperation{
+	onboardingpb.ImportOperation_IMPORT_OPERATION_DISCOVER:       serverapi.OnboardingImportOperationDiscover,
+	onboardingpb.ImportOperation_IMPORT_OPERATION_PREPARE_TARGET: serverapi.OnboardingImportOperationPrepareTarget,
+	onboardingpb.ImportOperation_IMPORT_OPERATION_CREATE_SYMLINK: serverapi.OnboardingImportOperationCreateSymlink,
 }
 
 func cancelPhaseToProto(phase serverapi.OnboardingCancelPhase) (onboardingpb.CancelPhase, error) {
-	switch phase {
-	case serverapi.OnboardingCancelWaitingForLock:
-		return onboardingpb.CancelPhase_CANCEL_PHASE_WAITING_FOR_LOCK, nil
-	case serverapi.OnboardingCancelValidating:
-		return onboardingpb.CancelPhase_CANCEL_PHASE_VALIDATING, nil
-	case serverapi.OnboardingCancelDiscoveringImports:
-		return onboardingpb.CancelPhase_CANCEL_PHASE_DISCOVERING_IMPORTS, nil
-	case serverapi.OnboardingCancelImporting:
-		return onboardingpb.CancelPhase_CANCEL_PHASE_IMPORTING, nil
-	default:
-		return 0, fmt.Errorf("onboarding cancel phase %q is unsupported", phase)
-	}
+	return enumToProto(cancelPhaseValues, phase, "onboarding cancel phase")
 }
 
-func cancelPhaseFromProto(phase onboardingpb.CancelPhase) (serverapi.OnboardingCancelPhase, error) {
-	switch phase {
-	case onboardingpb.CancelPhase_CANCEL_PHASE_WAITING_FOR_LOCK:
-		return serverapi.OnboardingCancelWaitingForLock, nil
-	case onboardingpb.CancelPhase_CANCEL_PHASE_VALIDATING:
-		return serverapi.OnboardingCancelValidating, nil
-	case onboardingpb.CancelPhase_CANCEL_PHASE_DISCOVERING_IMPORTS:
-		return serverapi.OnboardingCancelDiscoveringImports, nil
-	case onboardingpb.CancelPhase_CANCEL_PHASE_IMPORTING:
-		return serverapi.OnboardingCancelImporting, nil
-	default:
-		return "", fmt.Errorf("protobuf onboarding cancel phase %v is unsupported", phase)
-	}
+var cancelPhaseValues = map[onboardingpb.CancelPhase]serverapi.OnboardingCancelPhase{
+	onboardingpb.CancelPhase_CANCEL_PHASE_WAITING_FOR_LOCK:    serverapi.OnboardingCancelWaitingForLock,
+	onboardingpb.CancelPhase_CANCEL_PHASE_VALIDATING:          serverapi.OnboardingCancelValidating,
+	onboardingpb.CancelPhase_CANCEL_PHASE_DISCOVERING_IMPORTS: serverapi.OnboardingCancelDiscoveringImports,
+	onboardingpb.CancelPhase_CANCEL_PHASE_IMPORTING:           serverapi.OnboardingCancelImporting,
 }
 
 func uuidToString(value *uuid.UUID) *string {
