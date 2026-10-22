@@ -88,7 +88,7 @@ subagents = false # disables all workflow-agent delegation
 model = "gpt-6-astra"
 thinking_level = "low"
 description = "Low-cost role for headless runs."
-max_subagent_depth = 1 # allow/deny subagent launches by this role.
+max_subagent_depth = 1 # allow/deny subagent launches by this role
 agent_callable = false # model agents cannot delegate to this role
 workflow_subagent = false # Workflow agents cannot delegate to this role
 ```
