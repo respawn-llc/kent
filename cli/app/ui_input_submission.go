@@ -92,21 +92,6 @@ func (c uiInputController) finishRuntimeOperationAffordance() {
 	}
 }
 
-func (c uiInputController) notifyTurnQueueDrainedIfIdle() {
-	m := c.model
-	if m.turnQueueHook == nil || !c.turnQueueDrained() {
-		return
-	}
-	m.turnQueueHook.OnTurnQueueDrained()
-}
-
-func (c uiInputController) turnQueueDrained() bool {
-	m := c.model
-	return m != nil &&
-		!m.blocksRuntimeInput() &&
-		!m.ask.hasCurrent()
-}
-
 func (m *uiModel) acceptedSubmissionDiagnosticCmd(diagnostic error) tea.Cmd {
 	if diagnostic == nil {
 		return nil

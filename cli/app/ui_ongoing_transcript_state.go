@@ -23,12 +23,8 @@ func (m *uiModel) applyAdmittedTranscriptMessageState(
 	if m == nil {
 		return nil
 	}
-	if m.turnQueueHook != nil {
-		if message.Event.GetHydration() != nil {
-			m.turnQueueHook.OnTurnQueueAborted()
-		} else {
-			m.turnQueueHook.OnTranscriptMessage(message)
-		}
+	if m.turnQueueHook != nil && message.Event.GetHydration() == nil {
+		m.turnQueueHook.OnTranscriptMessage(message)
 	}
 	switch message.Event.Payload.(type) {
 	case *transcriptpb.Event_Hydration:
@@ -68,7 +64,7 @@ func (m *uiModel) applyAdmittedTranscriptMessageState(
 			switch status.State {
 			case transcriptpb.CompactionState_COMPACTION_STATE_COMPLETED:
 				if m.turnQueueHook != nil {
-					m.turnQueueHook.OnUserCompactionCompleted(m.inputController().turnQueueDrained())
+					m.turnQueueHook.OnUserCompactionCompleted()
 				}
 			}
 		}

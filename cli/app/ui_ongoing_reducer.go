@@ -55,7 +55,6 @@ func (m *uiModel) handleOngoingTranscriptEvent(event ongoingTranscriptEvent) tea
 		if acceptedHydration {
 			m.observeRuntimeRequestResult(nil)
 		}
-		m.inputController().notifyTurnQueueDrainedIfIdle()
 		m.layout().syncViewport()
 		var connectionStatusCmd tea.Cmd
 		if wasRuntimeDisconnected && acceptedHydration {
@@ -66,9 +65,6 @@ func (m *uiModel) handleOngoingTranscriptEvent(event ongoingTranscriptEvent) tea
 		if runtimeattach.IsRuntimeConnectionError(event.Err) {
 			m.observeRuntimeRequestResult(event.Err)
 			recovery = m.startRuntimeMainViewRefresh()
-		}
-		if m.turnQueueHook != nil {
-			m.turnQueueHook.OnTurnQueueAborted()
 		}
 		result = m.ongoingTranscript.HandleSubscriptionLoss()
 	case ongoingTranscriptEventFailure:
