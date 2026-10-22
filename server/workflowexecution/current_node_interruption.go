@@ -5,7 +5,6 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
-	"strings"
 	"time"
 
 	"core/server/sessionruntime"
@@ -203,9 +202,6 @@ func (c *CurrentNodeController) InterruptForManualMove(
 ) error {
 	if c == nil {
 		return errors.New("current node workflow controller is required")
-	}
-	if strings.TrimSpace(string(taskID)) == "" {
-		return errors.New("workflow task id is required")
 	}
 	var (
 		stopHandles    []sessionruntime.ExecutionHandle
