@@ -198,30 +198,10 @@ func (l uiViewLayout) queuedVisibleMessages() ([]queuedPaneEntry, int) {
 
 func (l uiViewLayout) queuedMessages() []queuedPaneEntry {
 	pending := pendingWorkInputs(l.model.pendingWorkRefresh.collection)
-	entries := make([]queuedPaneEntry, 0, len(pending)+len(l.model.queued)+len(l.model.injectedQueue))
+	entries := make([]queuedPaneEntry, 0, len(pending))
 	for _, item := range pending {
 		entries = append(entries, queuedPaneEntry{ongoingLiveInput: item})
 	}
-	for _, message := range l.model.queued {
-		entries = append(entries, queuedPaneEntry{ongoingLiveInput: ongoingLiveInput{Text: message.Text, Disposition: ongoingLiveInputQueued}})
-	}
-	for _, message := range l.model.injectedQueue {
-		if !l.model.injectedQueueItemNeedsLocalPane(message) {
-			continue
-		}
-		entries = append(entries, queuedPaneEntry{ongoingLiveInput: ongoingLiveInput{Text: message.Text, Disposition: ongoingLiveInputSteering}})
-	}
 	sort.SliceStable(entries, func(i, j int) bool { return entries[i].Disposition < entries[j].Disposition })
 	return entries
-}
-
-func (m *uiModel) injectedQueueItemNeedsLocalPane(item *injectedRuntimeQueueItem) bool {
-	switch item.State {
-	case injectedRuntimeQueuePendingCreate, injectedRuntimeQueueDiscardFailed:
-		return true
-	case injectedRuntimeQueueEnqueued:
-		return m != nil && !m.hasRuntimeClient()
-	default:
-		return false
-	}
 }

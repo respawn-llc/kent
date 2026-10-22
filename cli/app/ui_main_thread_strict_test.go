@@ -69,8 +69,7 @@ func TestTUIStrictIOViewDoesNotFetchProcessesForStatusOrOverlay(t *testing.T) {
 type strictRuntimeClient struct {
 	clientui.RuntimeClient
 
-	submitQueuedID string
-	submitCalls    int
+	submitCalls int
 }
 
 func (*strictRuntimeClient) MainView() *runtimepb.MainView {
@@ -81,14 +80,14 @@ func (c *strictRuntimeClient) SubmitRuntimeInput(_ context.Context, request clie
 	c.submitCalls++
 	return clientui.UserTurnSubmission{
 		Queued: clientui.QueuedUserMessage{
-			ID:   c.submitQueuedID,
+			ID:   request.QueueItemID.String(),
 			Text: runtimeSubmitInputText(request),
 		},
 	}, nil
 }
 
 func TestTUIStrictIOBusyEnterQueuesInjectedInputAsCommand(t *testing.T) {
-	client := &strictRuntimeClient{submitQueuedID: "server-queue-1"}
+	client := &strictRuntimeClient{}
 	m := newStrictUIModel(client)
 	m.startupCmds = nil
 	setStrictTestRuntimeBusy(t, m)
@@ -112,7 +111,7 @@ func TestTUIStrictIOBusyEnterQueuesInjectedInputAsCommand(t *testing.T) {
 	if client.submitCalls != 1 {
 		t.Fatalf("SubmitRuntimeInput calls after command = %d, want 1", client.submitCalls)
 	}
-	if len(updated.injectedQueue) != 1 || updated.injectedQueue[0].ServerID == nil || *updated.injectedQueue[0].ServerID != "server-queue-1" {
+	if len(updated.injectedQueue) != 1 || updated.injectedQueue[0].Request.QueueItemID.IsZero() || updated.injectedQueue[0].State != injectedRuntimeQueueEnqueued {
 		t.Fatalf("expected server queue item after command, got %+v", updated.injectedQueue)
 	}
 }

@@ -97,7 +97,7 @@ func TestProgramXtermCtrlEnterSubmitsDraft(t *testing.T) {
 	model := newProjectedStaticUIModel()
 	testSetMainInput(model, "draft")
 	result := runTerminalInputProgramAfterKeys(t, model, "\x1b[27;5;13~\x03", 1)
-	if !result.isBusy() {
+	if !result.hasPendingInputAdmission() {
 		t.Fatal("xterm Ctrl+Enter did not submit the composer")
 	}
 }
@@ -282,7 +282,7 @@ func TestProgramKeypadEnterSubmitsLikeEnter(t *testing.T) {
 	model := newProjectedStaticUIModel()
 	testSetMainInput(model, "draft")
 	result := runTerminalInputProgramAfterKeys(t, model, "\x1b[57414u\x03", 1)
-	if !result.isBusy() {
+	if !result.hasPendingInputAdmission() {
 		t.Fatal("keypad Enter did not start submission")
 	}
 }
@@ -291,7 +291,7 @@ func TestProgramKittyPlainEnterSubmitsLikeEnter(t *testing.T) {
 	model := newProjectedStaticUIModel()
 	testSetMainInput(model, "draft")
 	result := runTerminalInputProgramAfterKeys(t, model, "\x1b[13;1u\x03", 1)
-	if !result.isBusy() {
+	if !result.hasPendingInputAdmission() {
 		t.Fatal("Kitty plain Enter did not start submission")
 	}
 }
@@ -300,7 +300,7 @@ func TestProgramKittyPlainTabQueuesLikeTab(t *testing.T) {
 	model := newProjectedStaticUIModel()
 	testSetMainInput(model, "draft")
 	result := runTerminalInputProgramAfterKeys(t, model, "\x1b[9;1u\x03", 1)
-	if !result.isBusy() {
+	if !result.hasPendingInputAdmission() {
 		t.Fatal("Kitty plain Tab did not start submission")
 	}
 }

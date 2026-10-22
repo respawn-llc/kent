@@ -26,7 +26,7 @@ func (m *uiModel) reduceRuntimeMessage(msg tea.Msg) uiFeatureUpdateResult {
 		if cmd := m.drainPendingRuntimeMainViewRefresh(); cmd != nil {
 			return handledUIFeatureUpdate(m, cmd)
 		}
-		return handledUIFeatureUpdate(m, m.startRuntimeMainViewRefresh(nil))
+		return handledUIFeatureUpdate(m, m.startRuntimeMainViewRefresh())
 	case detailTranscriptLoadMsg:
 		cmd := m.handleDetailTranscriptLoad(msg)
 		m.layout().syncViewport()

@@ -3,9 +3,13 @@ package app
 import (
 	"context"
 	"errors"
+	"fmt"
+	"io"
 	"testing"
+	"time"
 
 	"core/cli/app/commands"
+	"core/cli/app/internal/runtimeattach"
 	"core/shared/clientui"
 	"core/shared/runtimeids"
 	"core/shared/runtimeinput"
@@ -47,8 +51,8 @@ func TestInputShortcutsSelectServerAdmissionIntent(t *testing.T) {
 				if len(model.injectedQueue) != 1 || model.injectedQueue[0].Request.QueueItemID != client.submitRequest.QueueItemID {
 					t.Fatal("admission did not retain the dispatched identity")
 				}
-				if len(model.queued) != 0 || model.mainEditor.Text() != "" {
-					t.Fatal("input remained in a local queue or composer")
+				if model.mainEditor.Text() != "" {
+					t.Fatal("input remained in the composer")
 				}
 			})
 		}
@@ -61,6 +65,7 @@ type inputAdmissionTestClient struct {
 }
 
 func (c *inputAdmissionTestClient) SubmitRuntimeInput(_ context.Context, request clientui.RuntimeSubmitRequest) (clientui.UserTurnSubmission, error) {
+	c.submitCalls++
 	if err := c.rejections[request.QueueItemID]; err != nil {
 		return clientui.UserTurnSubmission{}, err
 	}
@@ -71,28 +76,87 @@ func (c *inputAdmissionTestClient) SubmitRuntimeInput(_ context.Context, request
 }
 
 func TestInputAdmissionsSettleIndependently(t *testing.T) {
-	client := &inputAdmissionTestClient{rejections: make(map[runtimeids.QueueItemID]error)}
-	model := newProjectedTestUIModel(client)
-	testSetMainInput(model, "first")
-	_, first := model.Update(tea.KeyMsg{Type: tea.KeyEnter})
-	testSetMainInput(model, "second")
-	_, second := model.Update(tea.KeyMsg{Type: tea.KeyTab})
-	if len(model.injectedQueue) != 2 {
-		t.Fatal("second admission was blocked by the outstanding first request")
-	}
-	firstID := model.injectedQueue[0].Request.QueueItemID
-	secondID := model.injectedQueue[1].Request.QueueItemID
-	client.rejections[firstID] = errors.New("admission rejected")
-	testSetMainInput(model, "new draft")
-	for _, command := range []tea.Cmd{second, first} {
-		for _, message := range collectCmdMessages(t, command) {
-			model = updateUIModel(t, model, message)
+	for _, inputs := range [][2]string{
+		{"first", "second"},
+		{"/prompt:check first", "/prompt:check second"},
+		{"  $echo first  ", "$echo second"},
+	} {
+		for _, failed := range []int{0, 1} {
+			for _, reverse := range []bool{false, true} {
+				t.Run(fmt.Sprintf("%s/failure%d/reverse%t", inputs[0], failed, reverse), func(t *testing.T) {
+					disableTransientStatusClearForTest(t)
+					client := &inputAdmissionTestClient{rejections: make(map[runtimeids.QueueItemID]error)}
+					model := newProjectedTestUIModel(client,
+						WithUIPromptCommandCatalogEntries([]commands.PromptCommandCatalogEntry{{Name: "prompt:check"}}))
+					model.commandRegistry = commands.NewDefaultRegistryWithPromptCatalog(model.promptCatalogEntries)
+					testSetMainInput(model, inputs[0])
+					_, first := model.Update(tea.KeyMsg{Type: tea.KeyEnter})
+					testSetMainInput(model, inputs[1])
+					_, second := model.Update(tea.KeyMsg{Type: tea.KeyTab})
+					if len(model.injectedQueue) != 2 {
+						t.Fatal("second admission was blocked by the outstanding first request")
+					}
+					failedID := model.injectedQueue[failed].Request.QueueItemID
+					acceptedID := model.injectedQueue[1-failed].Request.QueueItemID
+					rejection := errors.New("admission rejected")
+					client.rejections[failedID] = rejection
+					testSetMainInput(model, "new draft")
+					order := []tea.Cmd{first, second}
+					if reverse {
+						order = []tea.Cmd{second, first}
+					}
+					for _, command := range order {
+						for _, message := range collectCmdMessages(t, command) {
+							model = updateUIModel(t, model, message)
+						}
+					}
+					if model.mainEditor.Text() != "new draft\n\n"+inputs[failed] {
+						t.Fatalf("failed input restoration = %q", model.mainEditor.Text())
+					}
+					if model.transientStatus != runtimeattach.FormatSubmissionError(rejection) {
+						t.Fatal("failed admission did not surface its own error")
+					}
+					if len(model.injectedQueue) != 1 || model.injectedQueue[0].Request.QueueItemID != acceptedID ||
+						client.discardQueuedCalls != 0 || client.submitCalls != 2 {
+						t.Fatal("rejection discarded or resubmitted unrelated accepted input")
+					}
+				})
+			}
 		}
 	}
-	if model.mainEditor.Text() != "new draft\n\nfirst" {
-		t.Fatalf("failed input restoration = %q", model.mainEditor.Text())
+}
+
+func TestQueueShortcutKeepsCompactionOnDedicatedOperation(t *testing.T) {
+	client := &runtimeControlFakeClient{}
+	model := newProjectedTestUIModel(client)
+	model.setRuntimeActivityBusyForTest(true)
+	testSetMainInput(model, "/compact keep details")
+	_, command := model.Update(tea.KeyMsg{Type: tea.KeyTab})
+	ctx, cancel := context.WithTimeout(t.Context(), 3*time.Second)
+	defer cancel()
+	program := tea.NewProgram(&compactionAdmissionTestModel{ui: model, command: command},
+		tea.WithContext(ctx), tea.WithInput(nil), tea.WithOutput(io.Discard), tea.WithoutRenderer())
+	if _, err := program.Run(); err != nil {
+		t.Fatal(err)
 	}
-	if len(model.injectedQueue) != 1 || model.injectedQueue[0].Request.QueueItemID != secondID {
-		t.Fatal("rejection discarded the unrelated accepted input")
+	if client.submitCalls != 0 || len(model.injectedQueue) != 0 ||
+		client.compactRequest.Admission.CanonicalInput() != "/compact keep details" {
+		t.Fatalf("Queue direct operation: input calls=%d pending=%d compaction=%+v draft=%q", client.submitCalls, len(model.injectedQueue), client.compactRequest, model.mainEditor.Text())
 	}
+}
+
+type compactionAdmissionTestModel struct {
+	ui      *uiModel
+	command tea.Cmd
+}
+
+func (m *compactionAdmissionTestModel) Init() tea.Cmd { return m.command }
+func (*compactionAdmissionTestModel) View() string    { return "" }
+func (m *compactionAdmissionTestModel) Update(message tea.Msg) (tea.Model, tea.Cmd) {
+	next, command := m.ui.Update(message)
+	m.ui = next.(*uiModel)
+	if _, complete := message.(compactDoneMsg); complete {
+		return m, tea.Quit
+	}
+	return m, command
 }

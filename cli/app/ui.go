@@ -54,7 +54,7 @@ func (m *uiModel) Init() tea.Cmd {
 		tea.SetWindowTitle(m.sessionTitle()),
 		tea.WindowSize(),
 		m.loadPromptHistoryCmd(),
-		m.startRuntimeMainViewRefresh(nil),
+		m.startRuntimeMainViewRefresh(),
 	}
 	if cmd := m.reconcileOngoingOwnership(); cmd != nil {
 		cmds = append(cmds, cmd)
@@ -87,11 +87,11 @@ func (m *uiModel) startupSubmitCmd() tea.Cmd {
 	}
 	if m.startupSubmitPromptHistoryRecorded {
 		if input, ok := promptCommandInput(startupText); ok {
-			return m.inputController().startTypedSubmissionWithPreSubmitQueuePosition(startupText, input, preSubmitQueueBack, "", activeSubmitOriginDirect)
+			return m.inputController().startTypedSubmission(startupText, input)
 		}
-		return m.inputController().startSubmissionWithPreSubmitQueuePosition(startupText, preSubmitQueueBack, "")
+		return m.inputController().startSubmission(startupText)
 	}
-	return m.inputController().startSubmissionWithPromptHistoryAndQueuePositionAndID(startupText, preSubmitQueueBack, "")
+	return m.inputController().startSubmission(startupText)
 }
 
 func (m *uiModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {

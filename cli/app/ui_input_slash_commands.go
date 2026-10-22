@@ -2,7 +2,6 @@ package app
 
 import (
 	"fmt"
-	"strings"
 
 	"core/cli/app/commands"
 	tuiinput "core/cli/tui/input"
@@ -66,7 +65,7 @@ func (c uiInputController) handleEnteredSlashCommandInput(text, submittedText st
 			recordCmd = m.recordPromptHistory(commandText)
 		}
 		m.clearCommandInput(command, draft)
-		next, cmd := c.applyCommandResultWithPreSubmitQueuePositionAndSubmittedText(commandResult, preSubmitQueueBack, activeSubmitOriginDirect, submittedText)
+		next, cmd := c.applyCommandResult(commandResult, submittedText)
 		return true, next, finalizeSlashCommandCmd(commandResult.Action, cmd, recordCmd)
 	}
 	return false, m, nil
@@ -120,39 +119,4 @@ func finalizeSlashCommandCmd(action commands.Action, primary tea.Cmd, record tea
 		return tea.Batch(primary, record)
 	}
 	return sequenceCmds(record, primary)
-}
-
-func (m *uiModel) blockedDeferredSlashCommand(commandText string) (string, bool) {
-	if m.commandRegistry == nil {
-		return "", false
-	}
-	commandResult := m.commandRegistry.Execute(commandText)
-	if !commandResult.Handled {
-		return "", false
-	}
-	switch commandResult.Action {
-	case commands.ActionBack:
-		if !m.hasNavigationTargetSession() {
-			return "No parent session available", true
-		}
-	case commands.ActionSetFast:
-		available, _ := m.fastModeState()
-		if !m.hasRuntimeClient() && !available {
-			return "Fast mode is only available for OpenAI-based Responses providers", true
-		}
-	case commands.ActionProcesses:
-		args := strings.Fields(strings.TrimSpace(commandResult.Args))
-		if len(args) > 0 && m.processClient == nil {
-			return "background process client is unavailable", true
-		}
-	case commands.ActionWorktree:
-		if m.worktreeClient == nil {
-			return "worktree client is unavailable", true
-		}
-	}
-	return "", false
-}
-
-func isCompactCommandResult(commandResult commands.Result) bool {
-	return commandResult.Handled && commandResult.Action == commands.ActionCompact
 }

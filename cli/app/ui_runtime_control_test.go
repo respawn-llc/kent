@@ -50,7 +50,6 @@ type runtimeControlFakeClient struct {
 	submitCalls           int
 	submitResult          string
 	interruptCalls        int
-	submitQueuedID        string
 	discardQueuedID       string
 	discardQueuedCalls    int
 	discardQueuedResult   bool
@@ -242,9 +241,9 @@ func (f *runtimeControlFakeClient) SubmitRuntimeInput(ctx context.Context, req c
 	f.submitRequest = req
 	text := runtimeSubmitInputText(req)
 	submission, err := f.submitUserMessage(ctx, text)
-	if err == nil && strings.TrimSpace(f.submitQueuedID) != "" {
+	if err == nil {
 		submission.Queued = clientui.QueuedUserMessage{
-			ID:   strings.TrimSpace(f.submitQueuedID),
+			ID:   req.QueueItemID.String(),
 			Text: text}
 	}
 	return submission, err
@@ -452,9 +451,8 @@ func TestRuntimeInterruptNotAcceptedClearsPendingAttempt(t *testing.T) {
 	m := newProjectedClosedUIModel(client)
 	m.sessionID = "session-1"
 	m.setRuntimeActivityBusyForTest(true)
-	m.activeSubmit = activeSubmitState{
-		token: 1,
-		text:  "keep me"}
+	m.enqueueInput("keep me", runtimeinput.Text("keep me"), runtimeinput.PendingWorkLaneSteer)
+	pending := m.injectedQueue[0]
 
 	cmd := m.inputController().interruptBusyRuntime()
 	if !m.hasPendingInterrupt() {
@@ -470,12 +468,11 @@ func TestRuntimeInterruptNotAcceptedClearsPendingAttempt(t *testing.T) {
 	if !updated.runtimeMainViewBusy {
 		t.Fatal("failed interrupt did not request authoritative state")
 	}
-	if updated.activeSubmit.token != 1 || updated.activeSubmit.text != "keep me" {
-		t.Fatalf("not-accepted interrupt changed active submit: %+v", updated.activeSubmit)
+	if len(updated.injectedQueue) != 1 || updated.injectedQueue[0] != pending {
+		t.Fatal("not-accepted interrupt changed outstanding admission")
 	}
 	updated.handleRuntimeMainViewRefreshed(runtimeMainViewRefreshedMsg{
-		token:                  updated.runtimeMainViewToken,
-		interruptedSubmitToken: textutil.Value(uint64(1)),
+		token: updated.runtimeMainViewToken,
 		view: &runtimepb.MainView{
 			Status:  &runtimepb.Status{},
 			Session: &runtimepb.SessionView{SessionId: "session-1"},
@@ -491,44 +488,13 @@ func TestRuntimeInterruptNotAcceptedClearsPendingAttempt(t *testing.T) {
 	}
 }
 
-func TestInterruptRecoveryPreservesNewerSubmission(t *testing.T) {
-	m := newProjectedClosedUIModel(&runtimeControlFakeClient{})
-	m.sessionID = "session-1"
-	m.setRuntimeActivityBusyForTest(true)
-	m.activeSubmit = activeSubmitState{token: 1, text: "old"}
-	m.setPendingInterrupt(true)
-	m.applyRuntimeControlDone(runtimeControlDoneMsg{
-		operation: runtimeControlInterrupt,
-		token:     m.runtimeControlTokenFor(runtimeControlInterrupt),
-		sessionID: m.sessionID,
-		err:       errors.New("interruption response lost"),
-	})
-	m.activeSubmit = activeSubmitState{token: 2, text: "new"}
-	m.handleRuntimeMainViewRefreshed(runtimeMainViewRefreshedMsg{
-		token:                  m.runtimeMainViewToken,
-		interruptedSubmitToken: textutil.Value(uint64(1)),
-		view: &runtimepb.MainView{
-			Status:  &runtimepb.Status{},
-			Session: &runtimepb.SessionView{SessionId: m.sessionID},
-			Activity: &runtimepb.Activity{
-				State:          runtimepb.ActivityState_RUNTIME_ACTIVITY_REGISTERED_IDLE,
-				Reviewer:       runtimepb.ReviewerActivity_REVIEWER_ACTIVITY_INACTIVE,
-				QueueAccepting: true,
-			},
-		},
-	})
-	if m.activeSubmit.token != 2 {
-		t.Fatal("old interrupt recovery cleared a newer submission")
-	}
-}
-
 func TestInterruptedHumanInputRestoresServerOrderBeforeComposer(t *testing.T) {
 	m := newProjectedClosedUIModel(&runtimeControlFakeClient{})
 	firstID := runtimeids.NewQueueItemID()
 	secondID := runtimeids.NewQueueItemID()
 	m.injectedQueue = []*injectedRuntimeQueueItem{
-		{ServerID: textutil.Value(firstID.String()), Text: "local stale first", State: injectedRuntimeQueueEnqueued},
-		{ServerID: textutil.Value(secondID.String()), Text: "local stale second", State: injectedRuntimeQueueEnqueued}}
+		{Request: clientui.RuntimeSubmitRequest{QueueItemID: firstID}, Text: "local stale first", State: injectedRuntimeQueueEnqueued},
+		{Request: clientui.RuntimeSubmitRequest{QueueItemID: secondID}, Text: "local stale second", State: injectedRuntimeQueueEnqueued}}
 	testSetMainInput(m, "composer")
 
 	cmd := m.applyTranscriptHumanInputInterrupted(&transcriptpb.HumanInputInterrupted{
@@ -699,9 +665,9 @@ func TestSubmitErrorShowsTransientStatusWithoutPersisting(t *testing.T) {
 	m := newProjectedStaticUIModel()
 	m.engine = client
 	m.setRuntimeActivityBusyForTest(true)
-	m.activeSubmit = activeSubmitState{token: 1, text: "prompt"}
+	m.enqueueInput("prompt", runtimeinput.Text("prompt"), runtimeinput.PendingWorkLaneSteer)
 
-	next, cmd := m.Update(submitDoneMsg{token: 1, submittedText: "prompt", err: errors.New("submit failed")})
+	next, cmd := m.Update(injectedQueueCreateDoneMsg{pending: m.injectedQueue[0], err: errors.New("submit failed")})
 	updated := next.(*uiModel)
 
 	if updated.activity != uiActivityError {

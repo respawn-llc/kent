@@ -33,7 +33,6 @@ func TestStaleContentCompleteHydrationFailsBeforeAnySideEffect(t *testing.T) {
 		collection:      runtimeinput.PendingWork{Items: []runtimeinput.PendingWorkItem{pendingWorkMessageForTest(runtimeinput.PendingWorkLaneSteer, "existing Pending Work")}},
 		successfulFetch: true,
 	}
-	m.queued = []queuedInputItem{{ID: "existing", Text: "existing"}}
 	m.reasoningStatusHeader = "existing reasoning"
 	surface := &ongoingSurfaceSpy{}
 	controller := newOngoingTranscriptController(
@@ -44,7 +43,6 @@ func TestStaleContentCompleteHydrationFailsBeforeAnySideEffect(t *testing.T) {
 	)
 	beforeView := runtimeClient.MainView()
 	beforeActivity := m.runtimeActivityProjection
-	beforeQueue := append([]queuedInputItem(nil), m.queued...)
 	beforeReasoning := m.reasoningStatusHeader
 	beforeLifecycle := m.runtimeLifecycle
 	beforeAsk := m.ask
@@ -58,7 +56,6 @@ func TestStaleContentCompleteHydrationFailsBeforeAnySideEffect(t *testing.T) {
 	}
 	assertUnchanged(t, "cached main view", runtimeClient.MainView(), beforeView)
 	assertUnchanged(t, "UI activity", m.runtimeActivityProjection, beforeActivity)
-	assertUnchanged(t, "UI queue", m.queued, beforeQueue)
 	assertUnchanged(t, "UI reasoning", m.reasoningStatusHeader, beforeReasoning)
 	assertUnchanged(t, "UI lifecycle", m.runtimeLifecycle, beforeLifecycle)
 	assertUnchanged(t, "ask controller", m.ask, beforeAsk)
@@ -86,7 +83,6 @@ func TestStaleHydrationDeveloperErrorPanicsInEveryModeBeforeSideEffects(t *testi
 			current := runtimeTupleTestView(11, runtimeTupleTestIdleActivity())
 			runtimeClient.storeMainView(current)
 			m := sizedTestUIModel(newProjectedTestUIModel(runtimeClient, WithUIDebug(debugMode)), 93, 31)
-			m.queued = []queuedInputItem{{ID: "queued-1", Text: "do not flush"}}
 			surface := &ongoingSurfaceSpy{}
 			m.ongoingTranscript = newOngoingTranscriptController(
 				surface,
@@ -95,7 +91,6 @@ func TestStaleHydrationDeveloperErrorPanicsInEveryModeBeforeSideEffects(t *testi
 				m.applyAdmittedTranscriptMessageState,
 			)
 			beforeView := runtimeClient.MainView()
-			beforeQueue := append([]queuedInputItem(nil), m.queued...)
 			hydration := runtimeTupleTestRichHydration(10)
 
 			recovered := capturePanic(func() {
@@ -122,7 +117,6 @@ func TestStaleHydrationDeveloperErrorPanicsInEveryModeBeforeSideEffects(t *testi
 				t.Fatal("developer error omitted stack trace")
 			}
 			assertUnchanged(t, "cached main view", runtimeClient.MainView(), beforeView)
-			assertUnchanged(t, "queued input", m.queued, beforeQueue)
 			if len(surface.calls) != 0 {
 				t.Fatalf("stale hydration reached terminal surface: %+v", surface.calls)
 			}
@@ -382,7 +376,7 @@ func TestHydrationAdmissionSerializesUnaryAndInterruptTupleCommitsUntilWholeEven
 		t.Fatal("terminal hydration completed before release")
 	}
 
-	refresh := m.startRuntimeMainViewRefresh(nil)
+	refresh := m.startRuntimeMainViewRefresh()
 	refreshMessage, ok := refresh().(runtimeMainViewRefreshedMsg)
 	if !ok {
 		t.Fatalf("refresh command returned an unexpected message")

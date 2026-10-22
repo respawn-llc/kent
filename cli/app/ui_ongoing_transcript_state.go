@@ -13,6 +13,7 @@ import (
 	"core/shared/textutil"
 
 	tea "github.com/charmbracelet/bubbletea"
+	"google.golang.org/protobuf/proto"
 )
 
 func (m *uiModel) applyAdmittedTranscriptMessageState(
@@ -210,7 +211,7 @@ func (m *uiModel) matchesMissingPromptRecoveryScope(scope missingPromptRecoveryS
 func (m *uiModel) applyTranscriptRuntimeReadModelUpdate(admission runtimeTupleMergeResult) tea.Cmd {
 	switch admission.decision {
 	case runtimeTupleRefresh:
-		return m.startRuntimeMainViewRefresh(nil)
+		return m.startRuntimeMainViewRefresh()
 	}
 	if !admission.project {
 		return nil
@@ -310,28 +311,21 @@ func (m *uiModel) applyTranscriptUserMessageFlushed(flushed *transcriptpb.UserMe
 
 func (m *uiModel) applyTranscriptQueuedMessageState(state *transcriptpb.QueuedMessageState) tea.Cmd {
 	if state.Status == transcriptpb.QueuedMessageStatus_QUEUED_MESSAGE_STATUS_ACCEPTED {
-		m.registerSteeredQueuedUserMessage(clientui.QueuedUserMessage{
-			ID:   state.QueueItemId,
-			Text: dereferenceTranscriptText(state.Text),
-		})
 		return nil
 	}
-	ids := []string{state.QueueItemId}
 	index := m.injectedQueueIndexByServerID(state.QueueItemId)
 	if index < 0 {
-		m.retainUnownedQueuedTerminalState(state)
 		return nil
 	}
 	if m.injectedQueue[index].State == injectedRuntimeQueuePendingCreate {
-		m.retainUnownedQueuedTerminalState(state)
+		m.injectedQueue[index].Terminal = proto.Clone(state).(*transcriptpb.QueuedMessageState)
 		return nil
 	}
-	localText := m.injectedQueue[index].Text
-	m.removeInjectedQueueItemsByIDs(ids)
-	if state.Status != transcriptpb.QueuedMessageStatus_QUEUED_MESSAGE_STATUS_FAILED {
+	m.removeInjectedQueueItemAt(index)
+	if state.Status != transcriptpb.QueuedMessageStatus_QUEUED_MESSAGE_STATUS_FAILED || state.Text == nil {
 		return nil
 	}
-	m.inputController().restoreInjectedTextIntoInput(localText)
+	m.inputController().restoreSubmittedTextIntoInput(*state.Text)
 	return m.sendTransientStatusWithNoticeID(
 		"queued message was not submitted; restored to input",
 		uiStatusNoticeError,
@@ -342,22 +336,20 @@ func (m *uiModel) applyTranscriptQueuedMessageState(state *transcriptpb.QueuedMe
 }
 
 func (m *uiModel) applyTranscriptHumanInputInterrupted(event *transcriptpb.HumanInputInterrupted) tea.Cmd {
-	ids := make([]string, 0, len(event.Items))
 	texts := make([]string, 0, len(event.Items))
 	for _, item := range event.Items {
 		id := item.QueueItemId
 		index := m.injectedQueueIndexByServerID(id)
-		if index < 0 || m.injectedQueue[index].State == injectedRuntimeQueuePendingCreate {
-			m.retainUnownedQueuedTerminalState(&transcriptpb.QueuedMessageState{
+		if index >= 0 && m.injectedQueue[index].State == injectedRuntimeQueuePendingCreate {
+			m.injectedQueue[index].Terminal = &transcriptpb.QueuedMessageState{
 				QueueItemId: item.QueueItemId,
 				Status:      transcriptpb.QueuedMessageStatus_QUEUED_MESSAGE_STATUS_DISCARDED,
-			})
-		} else {
-			ids = append(ids, id)
+			}
+		} else if index >= 0 {
+			m.removeInjectedQueueItemAt(index)
 		}
 		texts = append(texts, item.Text)
 	}
-	m.removeInjectedQueueItemsByIDs(ids)
 	var cmd tea.Cmd
 	m.inputController().restoreServerOrderedTextBeforeComposer(strings.Join(texts, "\n\n"))
 	if m.hasPendingInterrupt() {

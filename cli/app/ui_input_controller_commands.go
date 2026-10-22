@@ -17,36 +17,17 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 )
 
-func (c uiInputController) applyCommandResultWithPreSubmitQueuePosition(commandResult commands.Result, queuePosition preSubmitQueuePosition) (tea.Model, tea.Cmd) {
-	return c.applyCommandResultWithPreSubmitQueuePositionAndSubmittedText(commandResult, queuePosition, activeSubmitOriginDirect, "")
-}
-
-func (c uiInputController) applyCommandResultWithPreSubmitQueuePositionAndOrigin(commandResult commands.Result, queuePosition preSubmitQueuePosition, origin activeSubmitOrigin) (tea.Model, tea.Cmd) {
-	return c.applyCommandResultWithPreSubmitQueuePositionAndSubmittedText(commandResult, queuePosition, origin, "")
-}
-
-func (c uiInputController) applyCommandResultWithPreSubmitQueuePositionAndSubmittedText(commandResult commands.Result, queuePosition preSubmitQueuePosition, origin activeSubmitOrigin, submittedText string) (tea.Model, tea.Cmd) {
-	return c.applyCommandResultWithPreSubmitQueuePositionAndOriginAndOrder(commandResult, queuePosition, origin, nil, submittedText)
-}
-
-func (c uiInputController) applyCommandResultWithPreSubmitQueuePositionAndOriginAndOrder(
+func (c uiInputController) applyCommandResult(
 	commandResult commands.Result,
-	queuePosition preSubmitQueuePosition,
-	origin activeSubmitOrigin,
-	submissionOrder *inputSubmissionOrder,
 	submittedText string,
 ) (tea.Model, tea.Cmd) {
 	m := c.model
 	if commandResult.PromptCommand != nil {
 		invocation := commandResult.PromptCommand
 		canonical := runtimeinput.CanonicalCommandText(invocation.Name, invocation.Arguments)
-		return m, c.startTypedSubmissionWithPreSubmitQueuePositionAndOrder(
+		return m, c.startTypedSubmission(
 			canonical,
 			runtimeinput.Input{Kind: runtimeinput.KindPromptCommand, PromptCommand: invocation},
-			queuePosition,
-			"",
-			origin,
-			submissionOrder,
 		)
 	}
 	if commandResult.SubmitUser {
@@ -66,13 +47,7 @@ func (c uiInputController) applyCommandResultWithPreSubmitQueuePositionAndOrigin
 		return m, tea.Quit
 	}
 	if commandResult.SubmitUser {
-		return m, c.startSubmissionWithPreSubmitQueuePositionAndOriginAndOrder(
-			commandResult.User,
-			queuePosition,
-			"",
-			origin,
-			submissionOrder,
-		)
+		return m, c.startSubmission(commandResult.User)
 	}
 	prefixCmd := tea.Cmd(nil)
 	if commandResult.Text != "" {
