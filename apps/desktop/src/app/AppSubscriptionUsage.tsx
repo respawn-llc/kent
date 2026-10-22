@@ -35,7 +35,7 @@ export function AppSubscriptionUsage() {
               <button
                 type="button"
                 aria-label={t("subscriptionUsage.title")}
-                className={`grid h-6 w-6 place-items-center rounded-full border border-transparent bg-transparent text-[var(--color-on-island)] ${visible ? "" : "invisible"}`}
+                className={`grid h-6 w-6 place-items-center rounded-full border border-transparent bg-transparent text-[var(--color-on-island)] transition-transform active:scale-90 ${visible ? "" : "invisible"}`}
               >
                 <Gauge size={16} strokeWidth={1.25} />
               </button>

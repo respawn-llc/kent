@@ -101,7 +101,7 @@ export type ApiSubscription = Readonly<{
 
 export interface ApiService {
   getSubscriptionConnections(): Promise<readonly SubscriptionConnection[]>;
-  getSubscriptionBinding(sessionID: string): Promise<SubscriptionBinding>;
+  getSubscriptionBinding(sessionID: string): Promise<SubscriptionBinding | null>;
   getSubscriptionUsage(connectionID: string): Promise<SubscriptionUsage | null>;
   readonly chat: ChatApi;
 

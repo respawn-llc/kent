@@ -54,15 +54,11 @@ function throwAuthReadFailure(
   });
 }
 
-function binding(value: Status): SubscriptionBinding {
+function binding(value: Status): SubscriptionBinding | null {
   const resolution = value.resolution;
+  if (resolution?.resolution.case === "unavailable") return null;
   if (resolution?.resolution.case !== "known") {
-    throw new SubscriptionReadError(
-      resolution?.resolution.case === "unavailable"
-        ? resolution.resolution.value.cause
-        : "Session connection is unavailable.",
-      "binding",
-    );
+    throw new SubscriptionReadError("Session connection is unavailable.", "binding");
   }
   const facts = resolution.resolution.value;
   const result = { connectionID: facts.connectionId, supported: facts.method === AuthMethod.OAUTH };
@@ -82,8 +78,12 @@ export async function getSubscriptionUsage(
   connectionID: string,
 ): Promise<SubscriptionUsage | null> {
   const value = await status(transport, { provider: { connectionId: connectionID } });
-  if (!binding(value).supported) return null;
   const subscription = value.subscription;
+  if (
+    subscription.failureClassification === SubscriptionFailureClassification.UNAVAILABLE_FOR_SIGN_IN_METHOD ||
+    binding(value)?.supported !== true
+  )
+    return null;
   const source =
     subscription.quotaSource === SubscriptionQuotaSource.CHATGPT
       ? "chatgpt"
@@ -93,11 +93,6 @@ export async function getSubscriptionUsage(
   if (subscription.failure !== undefined)
     throw new SubscriptionReadError(subscription.failure.cause, "quota", {
       source,
-      classification:
-        subscription.failureClassification ===
-        SubscriptionFailureClassification.UNAVAILABLE_FOR_SIGN_IN_METHOD
-          ? "unavailable-for-sign-in-method"
-          : null,
     });
   if (!subscription.applicable) return null;
   return {

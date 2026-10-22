@@ -5,9 +5,20 @@ import * as AsyncResult from "effect/reactivity/AsyncResult";
 import * as Stream from "effect/Stream";
 import * as Clock from "effect/Clock";
 import { RotateCw } from "lucide-react";
+import { AnimatePresence } from "motion/react";
 import { useTranslation } from "react-i18next";
-import { errorMessage, SubscriptionReadError, type SubscriptionUsage, type SubscriptionWindow } from "@/api";
-import { ErrorState, IconTooltipButton, LinearBar, Spinner, VirtualizedInfiniteList } from "@/ui";
+import { errorMessage, type SubscriptionUsage, type SubscriptionWindow } from "@/api";
+import { formatDuration } from "@/app-facade";
+import {
+  AnimatedChipSummary,
+  AnimatedReveal,
+  AnimatedSize,
+  Button,
+  ErrorState,
+  LinearBar,
+  Spinner,
+  VirtualizedInfiniteList,
+} from "@/ui";
 import type { createSubscriptionUsageModel } from "./model";
 import { presentUsageWindow } from "./presentation";
 import "./subscriptionUsage.css";
@@ -29,70 +40,80 @@ export function UsageContent({
   };
   if (!virtualized && state.hidden) return null;
   return (
-    <section className="subscription-usage">
-      <header className="subscription-usage-header">
-        <strong>{t("subscriptionUsage.title")}</strong>
-        {state.failed ? (
-          <IconTooltipButton
-            label={t("subscriptionUsage.retry")}
-            onClick={() => {
-              retry(undefined);
-            }}
-            size="icon-sm"
-            loading={busy}
-            disabled={busy}
-          >
-            <RotateCw size={14} />
-          </IconTooltipButton>
-        ) : busy ? (
-          <Spinner size="sm" />
-        ) : null}
-      </header>
-      {state.error !== null ? (
-        <ErrorState surface="plain" fullPage={false} body={errorMessage(state.error)} />
-      ) : virtualized ? (
-        <div className="subscription-usage-viewport" style={viewportStyle}>
-          <VirtualizedInfiniteList
-            items={rows}
-            getItemKey={(row) => row.id}
-            renderItem={(row) => <ConnectionUsage row={row} />}
-            estimateSize={() => 112}
-            hasNextPage={false}
-            isFetchingNextPage={false}
-            loadingLabel={t("subscriptionUsage.loading")}
-            onLoadMore={() => undefined}
-            rowSpacing="tight"
-            className="h-full min-h-0 overflow-x-hidden overflow-y-auto overscroll-contain"
-          />
-        </div>
-      ) : (
-        rows.map((row) => <ConnectionUsage key={row.id} row={row} />)
-      )}
-    </section>
+    <AnimatedSize>
+      <section className="subscription-usage">
+        <header className="subscription-usage-header">
+          <strong>{t("subscriptionUsage.title")}</strong>
+          {state.failed ? (
+            <Button
+              onClick={() => {
+                retry(undefined);
+              }}
+              size="icon-sm"
+              loading={busy}
+              disabled={busy}
+              className="transition-transform active:scale-90"
+            >
+              <RotateCw size={14} />
+            </Button>
+          ) : busy ? (
+            <Spinner size="sm" />
+          ) : null}
+        </header>
+        {state.error !== null ? (
+          <ErrorState surface="plain" fullPage={false} body={errorMessage(state.error)} />
+        ) : virtualized ? (
+          <div className="subscription-usage-viewport" style={viewportStyle}>
+            <VirtualizedInfiniteList
+              items={rows}
+              getItemKey={(row) => row.id}
+              renderItem={(row) => <ConnectionUsage row={row} />}
+              estimateSize={() => 112}
+              hasNextPage={false}
+              isFetchingNextPage={false}
+              onLoadMore={() => undefined}
+              rowSpacing="tight"
+              className="h-full min-h-0 overflow-x-hidden overflow-y-auto overscroll-contain"
+            />
+          </div>
+        ) : (
+          rows.map((row) => <ConnectionUsage key={row.id} row={row} />)
+        )}
+      </section>
+    </AnimatedSize>
   );
 }
 
 type UsageRow = Readonly<{ id: string; data: SubscriptionUsage | null | undefined; error: unknown }>;
 
 function ConnectionUsage({ row }: Readonly<{ row: UsageRow }>) {
-  const { t } = useTranslation();
   return (
-    <div className="subscription-usage-connection">
-      <div className="subscription-usage-name">
-        <strong title={row.id}>{row.id}</strong>
-        {row.data?.plan != null && <span title={row.data.plan}>{row.data.plan}</span>}
-      </div>
-      {row.data !== undefined && row.data !== null && <UsageWindows usage={row.data} />}
-      {row.error !== null && (
-        <p className="subscription-usage-error">
-          {row.error instanceof SubscriptionReadError &&
-            row.error.classification === "unavailable-for-sign-in-method" && (
-              <span className="block">{t("subscriptionUsage.quotaUnavailableForSignInMethod")}</span>
-            )}
-          <span>{errorMessage(row.error)}</span>
-        </p>
-      )}
-    </div>
+    <AnimatedReveal>
+      <AnimatedSize contentClassName="subscription-usage-connection">
+        <div className="subscription-usage-name">
+          <strong title={row.id}>{row.id}</strong>
+          {row.data?.plan != null && (
+            <span title={row.data.plan}>
+              <AnimatedChipSummary text={row.data.plan} />
+            </span>
+          )}
+        </div>
+        {row.data !== undefined && row.data !== null && <UsageWindows usage={row.data} />}
+        {row.error !== null && (
+          <div className="grid">
+            <AnimatePresence>
+              <AnimatedReveal
+                key={errorMessage(row.error)}
+                className="subscription-usage-error col-start-1 row-start-1"
+                variant="fade"
+              >
+                {errorMessage(row.error)}
+              </AnimatedReveal>
+            </AnimatePresence>
+          </div>
+        )}
+      </AnimatedSize>
+    </AnimatedReveal>
   );
 }
 
@@ -125,48 +146,47 @@ function UsageWindow({
       <div className="subscription-usage-window-label">
         <span>
           {window.bucket === "additional"
-            ? t("subscriptionUsage.additional", { duration: duration(window.durationSeconds, i18n.language) })
-            : duration(window.durationSeconds, i18n.language)}
+            ? t("subscriptionUsage.additional", {
+                duration: formatDuration(window.durationSeconds, i18n.language),
+              })
+            : formatDuration(window.durationSeconds, i18n.language)}
           {window.limitName === null ? null : ` · ${window.limitName}`}
           {window.meteredFeature === null ? null : ` · ${window.meteredFeature}`}
         </span>
         <span>
-          {t(
-            presentation.kind === "remaining" ? "subscriptionUsage.remaining" : "subscriptionUsage.consumed",
-            {
-              percent: new Intl.NumberFormat(i18n.language, { maximumFractionDigits: 1 }).format(
-                presentation.percent,
-              ),
-            },
-          )}
+          <AnimatedChipSummary
+            text={t(
+              presentation.kind === "remaining"
+                ? "subscriptionUsage.remaining"
+                : "subscriptionUsage.consumed",
+              {
+                percent: new Intl.NumberFormat(i18n.language, { maximumFractionDigits: 1 }).format(
+                  presentation.percent,
+                ),
+              },
+            )}
+          />
         </span>
       </div>
       <LinearBar segments={presentation.segments} />
       {((window.resetAt !== null && now !== null) || presentation.contributions !== null) && (
         <div className="subscription-usage-details">
           {presentation.contributions !== null && (
-            <span>{t("subscriptionUsage.breakdown", presentation.contributions)}</span>
+            <span>
+              <AnimatedChipSummary text={t("subscriptionUsage.breakdown", presentation.contributions)} />
+            </span>
           )}
           {window.resetAt !== null && now !== null && (
             <span>
-              {t("subscriptionUsage.reset", {
-                duration: duration(Math.max(0, (window.resetAt - now) / 1000), i18n.language),
-              })}
+              <AnimatedChipSummary
+                text={t("subscriptionUsage.reset", {
+                  duration: formatDuration(Math.max(0, (window.resetAt - now) / 1000), i18n.language),
+                })}
+              />
             </span>
           )}
         </div>
       )}
     </div>
   );
-}
-
-function duration(seconds: number, locale: string) {
-  const unit = seconds >= 86400 ? "day" : seconds >= 3600 ? "hour" : seconds >= 60 ? "minute" : "second";
-  const divisor = unit === "day" ? 86400 : unit === "hour" ? 3600 : unit === "minute" ? 60 : 1;
-  return new Intl.NumberFormat(locale, {
-    style: "unit",
-    unit,
-    unitDisplay: "short",
-    maximumFractionDigits: 0,
-  }).format(Math.ceil(seconds / divisor));
 }

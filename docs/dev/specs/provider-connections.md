@@ -109,8 +109,8 @@
 - Each connection's usage display must show its name and supplied plan, all supplied quota windows, and each supplied reset countdown. Ordinary subscription windows must show allowance remaining. Grok must show its supplied Build and Chat consumption breakdown.
 - Desktop must fetch quota when a subscription-usage popup opens and refresh it on reopening. Opening the navigation Chrome popup must fetch all supported subscription connections with a small fixed limit on simultaneous requests. Chat and navigation Chrome must share cached usage results for the same connection. Desktop must not poll quota periodically.
 - During refresh, Desktop must show cached values and only a small header activity indicator. Successful connection results must appear progressively.
-- Desktop must show supported subscription connections with missing credentials or failed quota lookups, including readable connection-specific failure diagnostics.
-- A subscription-usage popup must offer one Retry icon in its header with a tooltip when lookups fail. Retry must request only failed lookups, and its icon must spin during retry. A connection-catalog failure must use the popup's full Error state with Retry.
+- Desktop must omit unavailable Session bindings and quotas that the provider identifies as unsupported for the sign-in method. Desktop must show intact configured connections with credential errors or temporary quota failures and readable connection-specific diagnostics.
+- A subscription-usage popup must offer one Retry icon in its header without a label or tooltip when lookups fail. Retry must request only failed lookups, and its icon must spin during retry. Loading must use an indicator without a label. A connection-catalog failure must use the popup's full Error state with Retry.
 - Subscription lookup failure must not block Chat context inspection or compaction.
 - Loading and retry must not close a subscription-usage popup.
 

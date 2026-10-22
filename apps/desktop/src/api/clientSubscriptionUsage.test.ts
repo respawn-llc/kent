@@ -5,6 +5,7 @@ import {
   AuthMethod,
   SubscriptionWindowBucket,
   SubscriptionQuotaSource,
+  SubscriptionFailureClassification,
   SubscriptionFactsSchema,
   type SubscriptionFacts,
 } from "@app/server-api-contract/gen/kent/api/auth/auth_pb";
@@ -61,6 +62,37 @@ test("optional plan and reset remain absent at the descriptor boundary", async (
     plan: null,
     windows: [{ resetAt: null, limitName: null, meteredFeature: null, contributions: null }],
   });
+});
+
+test("provider-confirmed unsupported quota is omitted", async () => {
+  const subscription = create(SubscriptionFactsSchema, {
+    applicable: true,
+    quotaSource: SubscriptionQuotaSource.GROK,
+    failure: { cause: "unsupported" },
+    failureClassification: SubscriptionFailureClassification.UNAVAILABLE_FOR_SIGN_IN_METHOD,
+  });
+  expect(
+    await client(AuthMethod.OAUTH, undefined, subscription).getSubscriptionUsage("connection"),
+  ).toBeNull();
+});
+
+test("unresolvable Session bindings are omitted", async () => {
+  const transport = new FakeRpcTransport([
+    {
+      descriptor: AuthService.method.getStatus,
+      result: create(AuthService.method.getStatus.output, {
+        outcome: {
+          case: "success",
+          value: {
+            resolution: { resolution: { case: "unavailable", value: { cause: "removed connection" } } },
+            subscription: { applicable: false },
+          },
+        },
+      }),
+    },
+  ]);
+  const api = new ApiClient(transport, unexpectedProjectOverflow);
+  expect(await api.getSubscriptionBinding(crypto.randomUUID())).toBeNull();
 });
 
 test("supplied plan, reset and zero Grok contributions remain structured", async () => {

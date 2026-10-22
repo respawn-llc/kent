@@ -16,20 +16,17 @@ export type SubscriptionUsage = Readonly<{
 }>;
 export class SubscriptionReadError extends Error {
   readonly source: SubscriptionUsage["source"];
-  readonly classification: "unavailable-for-sign-in-method" | null;
   readonly binding: SubscriptionBinding | null;
   constructor(
     message: string,
     readonly kind: "binding" | "auth" | "quota",
     facts: Readonly<{
       source?: SubscriptionUsage["source"];
-      classification?: "unavailable-for-sign-in-method" | null;
       binding?: SubscriptionBinding | null;
     }> = {},
   ) {
     super(message);
     this.source = facts.source ?? null;
-    this.classification = facts.classification ?? null;
     this.binding = facts.binding ?? null;
   }
 }

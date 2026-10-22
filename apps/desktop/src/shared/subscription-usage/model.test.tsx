@@ -35,6 +35,20 @@ function setup(connections: readonly SubscriptionConnection[] | Error = [{ id: "
   return { ...view, api, client, read, catalog, binding };
 }
 
+test("unavailable Session bindings are hidden without quota reads", async () => {
+  const view = setup();
+  view.binding.mockResolvedValue(null);
+  act(() => {
+    view.result.current.openChat();
+  });
+  await waitFor(() => {
+    expect(view.binding).toHaveBeenCalledTimes(1);
+    expect(view.result.current.chat.hidden).toBe(true);
+  });
+  expect(view.result.current.chat.error).toBeNull();
+  expect(view.read).not.toHaveBeenCalled();
+});
+
 test("two consumers share an in-flight connection read and its cached result", async () => {
   const view = setup();
   const response = deferred<SubscriptionUsage>();
