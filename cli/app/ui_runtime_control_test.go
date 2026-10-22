@@ -46,6 +46,7 @@ type runtimeControlFakeClient struct {
 	appendedText          string
 	submitText            string
 	submitInput           runtimeinput.Input
+	submitRequest         clientui.RuntimeSubmitRequest
 	submitCalls           int
 	submitResult          string
 	interruptCalls        int
@@ -238,6 +239,7 @@ func (f *runtimeControlFakeClient) submitUserMessage(_ context.Context, text str
 func (f *runtimeControlFakeClient) SubmitRuntimeInput(ctx context.Context, req clientui.RuntimeSubmitRequest) (clientui.UserTurnSubmission, error) {
 	f.submitCalls++
 	f.submitInput = req.Input
+	f.submitRequest = req
 	text := runtimeSubmitInputText(req)
 	submission, err := f.submitUserMessage(ctx, text)
 	if err == nil && strings.TrimSpace(f.submitQueuedID) != "" {
@@ -249,9 +251,6 @@ func (f *runtimeControlFakeClient) SubmitRuntimeInput(ctx context.Context, req c
 }
 func (f *runtimeControlFakeClient) submitUserShellCommand(_ context.Context, command string) error {
 	return f.err
-}
-func (f *runtimeControlFakeClient) RunUserShell(ctx context.Context, req clientui.RuntimeShellRequest) error {
-	return f.submitUserShellCommand(ctx, req.Command)
 }
 func (f *runtimeControlFakeClient) compactContext(_ context.Context, args string) error {
 	_ = args

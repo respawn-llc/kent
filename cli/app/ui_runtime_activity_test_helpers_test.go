@@ -5,6 +5,7 @@ import runtimepb "core/shared/protoapi/gen/kent/api/runtime"
 import (
 	"context"
 	"core/shared/clientui"
+	"core/shared/runtimeids"
 	"core/shared/runtimeinput"
 	"testing"
 )
@@ -29,6 +30,7 @@ func (m *uiModel) setRuntimeActivityBusyForTest(busy bool) {
 func submitRuntimeClientForTest(t *testing.T, client clientui.RuntimeClient, text string) (clientui.UserTurnSubmission, error) {
 	t.Helper()
 	return client.SubmitRuntimeInput(context.Background(), clientui.RuntimeSubmitRequest{
-		Input: runtimeinput.Text(text),
+		Input:  runtimeinput.Text(text),
+		Intent: runtimeinput.PendingWorkLaneSteer, QueueItemID: runtimeids.NewQueueItemID(),
 	})
 }

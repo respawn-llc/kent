@@ -1,6 +1,7 @@
 package app
 
 import transcriptpb "core/shared/protoapi/gen/kent/api/transcript"
+import runtimepb "core/shared/protoapi/gen/kent/api/runtime"
 
 import (
 	"context"
@@ -12,6 +13,7 @@ import (
 	"core/cli/app/commands"
 	"core/cli/app/internal/runtimeattach"
 	"core/shared/clientui"
+	"core/shared/runtimeids"
 	"core/shared/runtimeinput"
 	"google.golang.org/protobuf/proto"
 
@@ -47,6 +49,9 @@ const (
 )
 
 type injectedRuntimeQueueItem struct {
+	Request         clientui.RuntimeSubmitRequest
+	SessionID       runtimeids.SessionID
+	Generation      uint64
 	ServerID        *string
 	Text            string
 	State           injectedRuntimeQueueState
@@ -81,7 +86,9 @@ func (m *uiModel) registerSteeredQueuedUserMessage(queued clientui.QueuedUserMes
 	}
 	item := m.injectedQueue[index]
 	item.ServerID = &serverID
-	item.State = injectedRuntimeQueueEnqueued
+	if item.State != injectedRuntimeQueuePendingCreate {
+		item.State = injectedRuntimeQueueEnqueued
+	}
 	return true
 }
 
@@ -158,37 +165,53 @@ func (m *uiModel) clearUnownedQueuedTerminalStatesWithoutPendingOwnership() {
 }
 
 func (m *uiModel) enqueueInjectedInput(text string) tea.Cmd {
+	return m.enqueueInput(text, runtimeinput.Text(text), runtimeinput.PendingWorkLaneSteer)
+}
+
+func (m *uiModel) enqueueInput(text string, input runtimeinput.Input, intent runtimeinput.PendingWorkLane) tea.Cmd {
 	if strings.TrimSpace(text) == "" {
 		return nil
 	}
-	submissionOrder := m.nextPendingInputSubmissionOrder()
-	if !m.hasRuntimeClient() {
-		m.injectedQueue = append(m.injectedQueue, &injectedRuntimeQueueItem{
-			Text:            text,
-			State:           injectedRuntimeQueueEnqueued,
-			submissionOrder: submissionOrder,
-		})
-		return nil
+	if command, shell := parseUserShellCommand(text); shell {
+		input = runtimeinput.Shell(command)
 	}
+	id := runtimeids.NewQueueItemID()
+	serverID := id.String()
 	pending := &injectedRuntimeQueueItem{
+		Request:         clientui.RuntimeSubmitRequest{Input: input, Intent: intent, QueueItemID: id},
+		SessionID:       m.pendingWorkRefresh.sessionID,
+		Generation:      m.pendingWorkRefresh.generation,
+		ServerID:        &serverID,
 		Text:            text,
 		State:           injectedRuntimeQueuePendingCreate,
-		submissionOrder: submissionOrder,
+		submissionOrder: m.nextPendingInputSubmissionOrder(),
 	}
 	m.injectedQueue = append(m.injectedQueue, pending)
 	client := m.runtimeClient()
-	return func() tea.Msg {
-		submission, err := client.SubmitRuntimeInput(context.Background(), clientui.RuntimeSubmitRequest{
-			Input: runtimeinput.Text(text),
-		})
+	command := func() tea.Msg {
+		if client == nil {
+			return injectedQueueCreateDoneMsg{pending: pending, err: errors.New("runtime engine is not configured")}
+		}
+		submission, err := client.SubmitRuntimeInput(context.Background(), pending.Request)
 		return injectedQueueCreateDoneMsg{
-			pending:    pending,
-			item:       submission.Queued,
-			completed:  submission.Queued.ID == "",
-			diagnostic: submission.Diagnostic,
-			err:        err,
+			pending:           pending,
+			selectedSessionID: submission.SessionID,
+			item:              submission.Queued,
+			completed:         submission.Queued.ID == "",
+			diagnostic:        submission.Diagnostic,
+			err:               err,
 		}
 	}
+	return tea.Batch(command, m.reconcileSpinnerTicking(false))
+}
+
+func (m *uiModel) hasPendingInputAdmission() bool {
+	for _, item := range m.injectedQueue {
+		if item.State == injectedRuntimeQueuePendingCreate {
+			return true
+		}
+	}
+	return false
 }
 
 func (m *uiModel) queueInjectedInput(text string) tea.Cmd {
@@ -202,23 +225,17 @@ func (m *uiModel) queueInjectedInput(text string) tea.Cmd {
 
 func (c uiInputController) queueOrStartSubmission(text string) (tea.Model, tea.Cmd) {
 	m := c.model
-	if blocked, blockCmd := c.blockInjectedQueueSubmission(); blocked {
-		return m, blockCmd
-	}
 	if blocked, disconnectCmd := c.blockDisconnectedSubmission(false, ""); blocked {
 		return m, disconnectCmd
 	}
 	draft := m.capturePromptHistoryDraftForReuse()
-	m.queueInput(text)
+	m.clearInput()
 	if c.preservePromptHistoryDraftForQueuedText(text) {
 		m.restoreCapturedPromptHistoryDraft(draft)
 	} else {
 		m.resetPromptHistoryNavigation()
 	}
-	if m.blocksRuntimeInput() {
-		return m, nil
-	}
-	return c.flushQueuedInputs(queueDrainOne)
+	return m, m.enqueueInput(text, runtimeinput.Text(text), runtimeinput.PendingWorkLaneQueue)
 }
 
 func (c uiInputController) preservePromptHistoryDraftForQueuedText(text string) bool {
@@ -583,7 +600,20 @@ func (c uiInputController) handleInjectedQueueCreateDone(msg injectedQueueCreate
 		return m, nil
 	}
 	item := m.injectedQueue[index]
-	pendingWorkRefreshCmd := m.requestPendingWorkRefreshIfSuccessful(m.pendingWorkRefresh.sessionID, msg.err == nil)
+	if item.SessionID != m.pendingWorkRefresh.sessionID || item.Generation != m.pendingWorkRefresh.generation {
+		m.removeInjectedQueueItemAt(index)
+		return m, nil
+	}
+	if msg.selectedSessionID != nil && *msg.selectedSessionID != m.sessionID {
+		m.removeInjectedQueueItemAt(index)
+		m.nextSessionID = *msg.selectedSessionID
+		m.exitAction = UIActionOpenSession
+		if msg.diagnostic != nil {
+			return m, tea.Sequence(m.appendLocalEntryWithNoticeID("error", msg.diagnostic.Error(), ""), tea.Quit)
+		}
+		return m, tea.Quit
+	}
+	pendingWorkRefreshCmd := m.requestPendingWorkRefreshIfSuccessful(item.SessionID, msg.err == nil)
 	pendingWorkRefreshCmd = tea.Batch(pendingWorkRefreshCmd, m.acceptedSubmissionDiagnosticCmd(msg.diagnostic))
 	m.observeRuntimeRequestResult(msg.err)
 	if msg.err != nil {
@@ -607,7 +637,7 @@ func (c uiInputController) handleInjectedQueueCreateDone(msg injectedQueueCreate
 		if item.State != injectedRuntimeQueuePendingCreate {
 			return m, pendingWorkRefreshCmd
 		}
-		m.rememberPromptHistoryLocally(item.Text)
+		m.rememberAcceptedInput(item)
 		return m, pendingWorkRefreshCmd
 	}
 	serverID := strings.TrimSpace(msg.item.ID)
@@ -617,14 +647,13 @@ func (c uiInputController) handleInjectedQueueCreateDone(msg injectedQueueCreate
 	}
 	item.ServerID = &serverID
 	if item.State == injectedRuntimeQueuePendingCreate {
-		m.rememberPromptHistoryLocally(item.Text)
+		m.rememberAcceptedInput(item)
+		item.State = injectedRuntimeQueueEnqueued
 	}
 	if deferredCmd, consumed := m.applyUnownedQueuedTerminalState(serverID); consumed {
 		return m, tea.Batch(deferredCmd, pendingWorkRefreshCmd)
 	}
 	switch item.State {
-	case injectedRuntimeQueuePendingCreate:
-		item.State = injectedRuntimeQueueEnqueued
 	case injectedRuntimeQueueCanceledBeforeCreate:
 		item.State = injectedRuntimeQueueDiscardPending
 		return m, tea.Batch(
@@ -634,6 +663,18 @@ func (c uiInputController) handleInjectedQueueCreateDone(msg injectedQueueCreate
 	}
 	m.clearUnownedQueuedTerminalStatesWithoutPendingOwnership()
 	return m, pendingWorkRefreshCmd
+}
+
+func (m *uiModel) rememberAcceptedInput(item *injectedRuntimeQueueItem) {
+	switch item.Request.Input.Kind {
+	case runtimeinput.KindText:
+		m.rememberPromptHistoryLocally(item.Text)
+		m.conversationFreshness = runtimepb.ConversationFreshness_CONVERSATION_FRESHNESS_ESTABLISHED
+	case runtimeinput.KindPromptCommand:
+		m.rememberPromptCommandHistoryLocally(item.Request.Input.CanonicalHistoryText())
+		m.conversationFreshness = runtimepb.ConversationFreshness_CONVERSATION_FRESHNESS_ESTABLISHED
+	case runtimeinput.KindShell:
+	}
 }
 
 func (c uiInputController) handleInjectedQueueDiscardDone(msg injectedQueueDiscardDoneMsg) (tea.Model, tea.Cmd) {

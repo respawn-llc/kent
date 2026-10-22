@@ -322,6 +322,10 @@ func (m *uiModel) applyTranscriptQueuedMessageState(state *transcriptpb.QueuedMe
 		m.retainUnownedQueuedTerminalState(state)
 		return nil
 	}
+	if m.injectedQueue[index].State == injectedRuntimeQueuePendingCreate {
+		m.retainUnownedQueuedTerminalState(state)
+		return nil
+	}
 	localText := m.injectedQueue[index].Text
 	m.removeInjectedQueueItemsByIDs(ids)
 	if state.Status != transcriptpb.QueuedMessageStatus_QUEUED_MESSAGE_STATUS_FAILED {
@@ -342,7 +346,8 @@ func (m *uiModel) applyTranscriptHumanInputInterrupted(event *transcriptpb.Human
 	texts := make([]string, 0, len(event.Items))
 	for _, item := range event.Items {
 		id := item.QueueItemId
-		if m.injectedQueueIndexByServerID(id) < 0 {
+		index := m.injectedQueueIndexByServerID(id)
+		if index < 0 || m.injectedQueue[index].State == injectedRuntimeQueuePendingCreate {
 			m.retainUnownedQueuedTerminalState(&transcriptpb.QueuedMessageState{
 				QueueItemId: item.QueueItemId,
 				Status:      transcriptpb.QueuedMessageStatus_QUEUED_MESSAGE_STATUS_DISCARDED,

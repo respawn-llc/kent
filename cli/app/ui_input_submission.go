@@ -67,99 +67,18 @@ func (c uiInputController) startTypedSubmissionWithPreSubmitQueuePositionAndOrde
 	if blocked, disconnectCmd := c.blockDisconnectedSubmission(true, text); blocked {
 		return disconnectCmd
 	}
-	if blocked, blockCmd := c.blockInjectedQueueSubmission(); blocked {
-		return blockCmd
-	}
-	c.startRuntimeOperationAffordance()
-	command, isUserShell := parseUserShellCommand(text)
-	if isUserShell {
-		m.logf("step.user_shell.start command_chars=%d", len(command))
-	} else {
-		m.logf("step.start user_chars=%d", len(text))
-	}
-	if !m.hasRuntimeClient() && !isUserShell {
-		m.conversationFreshness = runtimepb.ConversationFreshness_CONVERSATION_FRESHNESS_ESTABLISHED
-	}
 	m.layout().syncViewport()
-	if isUserShell {
-		return tea.Batch(c.submitUserShellCmd(text, command, origin, submissionOrder), m.reconcileSpinnerTicking(false))
-	}
-	return tea.Batch(c.submitCmd(text, input, queuedID, origin, submissionOrder), m.reconcileSpinnerTicking(false))
+	return tea.Batch(m.enqueueInput(text, input, runtimeinput.PendingWorkLaneSteer), m.reconcileSpinnerTicking(false))
 }
 
 func (c uiInputController) startSubmissionWithPromptHistoryAndQueuePositionAndID(text string, queuePosition preSubmitQueuePosition, queuedID string) tea.Cmd {
-	m := c.model
 	if cmd, rejected := c.rejectUnavailablePromptCommand(text); rejected {
 		return cmd
 	}
 	if blocked, disconnectCmd := c.blockDisconnectedSubmission(true, text); blocked {
 		return disconnectCmd
 	}
-	if blocked, blockCmd := c.blockInjectedQueueSubmission(); blocked {
-		return blockCmd
-	}
-	m.rememberPromptHistoryLocally(text)
 	return c.startSubmissionWithPreSubmitQueuePositionAndOrigin(text, queuePosition, queuedID, activeSubmitOriginDirect)
-}
-
-func (c uiInputController) submitCmd(text string, input runtimeinput.Input, queuedID string, origin activeSubmitOrigin, submissionOrder *inputSubmissionOrder) tea.Cmd {
-	m := c.model
-	token := m.beginSubmitAttempt(text, queuedID, origin, submissionOrder)
-	client := m.runtimeClient()
-	sessionID := m.pendingWorkRefresh.sessionID
-	return func() tea.Msg {
-		doneMessage := func(message string, err error) submitDoneMsg {
-			return newSubmitDoneMsg(token, message, text, err)
-		}
-		if client == nil {
-			return doneMessage("", errors.New("runtime engine is not configured"))
-		}
-		submission, err := m.submitRuntimeInput(context.Background(), clientui.RuntimeSubmitRequest{
-			Input: input,
-		})
-		if submission.SessionID != nil && *submission.SessionID != sessionID.String() {
-			done := doneMessage("", err)
-			done.diagnostic = submission.Diagnostic
-			done.selectedSessionID = submission.SessionID
-			return done
-		}
-		if err != nil {
-			if !errors.Is(err, serverapi.ErrRuntimeCommandNotAccepted) && errors.Is(err, context.Canceled) {
-				return doneMessage("", runtimeattach.ErrSubmissionInterrupted)
-			}
-			return doneMessage("", err)
-		}
-		message := ""
-		if submission.Message != nil {
-			message = *submission.Message
-		}
-		done := doneMessage(message, nil)
-		done.diagnostic = submission.Diagnostic
-		done.selectedSessionID = submission.SessionID
-		done.queued = submission.Queued
-		resultKind := submission.ResultKind
-		done.resultKind = &resultKind
-		return done
-	}
-}
-
-func (c uiInputController) submitUserShellCmd(originalText, command string, origin activeSubmitOrigin, submissionOrder *inputSubmissionOrder) tea.Cmd {
-	m := c.model
-	token := m.beginSubmitAttempt(originalText, "", origin, submissionOrder)
-	client := m.runtimeClient()
-	return func() tea.Msg {
-		if client == nil {
-			return newSubmitDoneMsg(token, "", originalText, errors.New("runtime engine is not configured"))
-		}
-		err := m.submitRuntimeShell(context.Background(), clientui.RuntimeShellRequest{Command: command})
-		if err != nil {
-			if !errors.Is(err, serverapi.ErrRuntimeCommandNotAccepted) && isRuntimeOperationInterrupted(err) {
-				return newSubmitDoneMsg(token, "", originalText, runtimeattach.ErrSubmissionInterrupted)
-			}
-			return newSubmitDoneMsg(token, "", originalText, err)
-		}
-		return newSubmitDoneMsg(token, "", originalText, nil)
-	}
 }
 
 func (m *uiModel) beginSubmitAttempt(

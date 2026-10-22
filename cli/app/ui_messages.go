@@ -99,11 +99,12 @@ type chatSettingsDoneMsg struct {
 }
 
 type injectedQueueCreateDoneMsg struct {
-	diagnostic error
-	pending    *injectedRuntimeQueueItem
-	item       clientui.QueuedUserMessage
-	completed  bool
-	err        error
+	selectedSessionID *string
+	diagnostic        error
+	pending           *injectedRuntimeQueueItem
+	item              clientui.QueuedUserMessage
+	completed         bool
+	err               error
 }
 
 type injectedQueueDiscardDoneMsg struct {

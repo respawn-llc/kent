@@ -24,15 +24,16 @@ func (c uiInputController) handleQueuedSlashCommandInput(text string) (bool, tea
 		}
 		return false, m, nil
 	}
-	if errText, blocked := m.blockedDeferredSlashCommand(selection.commandText()); blocked {
-		return true, m, sequenceCmds(c.model.appendLocalEntryWithNoticeID("error", errText, ""), c.model.sendTransientStatusWithNoticeID(errText, uiStatusNoticeError, transientStatusDuration, uiStatusNoticeReplace, ""))
-	}
 	queuedText := selection.commandText()
-	if commandResult := m.commandRegistry.Execute(queuedText); isCompactCommandResult(commandResult) {
-		queuedText = text
+	result := m.commandRegistry.Execute(queuedText)
+	if result.PromptCommand != nil {
+		draft := m.capturePromptHistoryDraftForReuse()
+		m.clearCommandInput(selection.command, draft)
+		return true, m, m.enqueueInput(text, runtimeinput.Input{
+			Kind: runtimeinput.KindPromptCommand, PromptCommand: result.PromptCommand,
+		}, runtimeinput.PendingWorkLaneQueue)
 	}
-	next, cmd := c.queueOrStartSubmission(queuedText)
-	return true, next, cmd
+	return c.handleEnteredSlashCommandInput(queuedText, text)
 }
 
 func (c uiInputController) handleEnteredSlashCommandInput(text, submittedText string) (bool, tea.Model, tea.Cmd) {

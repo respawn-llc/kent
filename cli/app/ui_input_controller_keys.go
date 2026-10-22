@@ -171,23 +171,7 @@ func (c uiInputController) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		if blocked, disconnectCmd := c.blockDisconnectedSubmission(false, ""); blocked {
 			return m, disconnectCmd
 		}
-		_, isUserShell := parseUserShellCommand(trimmedText)
 		draft := m.capturePromptHistoryDraftForReuse()
-		if m.blocksRuntimeInput() {
-			if isUserShell {
-				m.queueInput(submittedText)
-				m.restoreCapturedPromptHistoryDraft(draft)
-				return m, nil
-			}
-			cmd := m.queueInjectedInput(submittedText)
-			m.restoreCapturedPromptHistoryDraft(draft)
-			return m, cmd
-		}
-		if len(m.queued) > 0 {
-			m.queueInput(submittedText)
-			m.restoreCapturedPromptHistoryDraft(draft)
-			return c.flushQueuedInputs(queueDrainOne)
-		}
 		if handled, next, cmd := c.handleEnteredSlashCommandInput(trimmedText, submittedText); handled {
 			return next, cmd
 		}

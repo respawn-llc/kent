@@ -40,22 +40,6 @@ func (c uiInputController) applyCommandResultWithPreSubmitQueuePositionAndOrigin
 	if commandResult.PromptCommand != nil {
 		invocation := commandResult.PromptCommand
 		canonical := runtimeinput.CanonicalCommandText(invocation.Name, invocation.Arguments)
-		history := invocation.CanonicalHistoryText()
-		if commandResult.FreshConversation && (m.isBusy() || m.currentConversationFreshness() != runtimepb.ConversationFreshness_CONVERSATION_FRESHNESS_FRESH) {
-			previousSessionID, err := runtimeids.ParseSessionID(m.sessionID)
-			if err != nil {
-				return m, c.model.appendLocalEntryWithNoticeID("error", "Current session identity is invalid: "+err.Error(), "")
-			}
-			if blocked, disconnectCmd := c.blockDisconnectedSubmission(true, canonical); blocked {
-				return m, disconnectCmd
-			}
-			m.nextSessionInitialPrompt = history
-			m.nextSessionInitialPromptHistoryRecorded = true
-			m.nextPreviousSessionID = &previousSessionID
-			m.exitAction = UIActionNewSession
-			return m, tea.Quit
-		}
-		m.rememberPromptCommandHistoryLocally(history)
 		return m, c.startTypedSubmissionWithPreSubmitQueuePositionAndOrder(
 			canonical,
 			runtimeinput.Input{Kind: runtimeinput.KindPromptCommand, PromptCommand: invocation},

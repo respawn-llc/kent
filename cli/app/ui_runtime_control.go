@@ -4,6 +4,7 @@ import runtimepb "core/shared/protoapi/gen/kent/api/runtime"
 
 import (
 	"context"
+	"core/shared/runtimeids"
 	"errors"
 	"strings"
 
@@ -278,7 +279,8 @@ func (m *uiModel) clearRuntimeGoal() (*runtimepb.GoalMutationSuccess, error) {
 
 func (m *uiModel) submitRuntimeUserMessage(ctx context.Context, text string) (clientui.UserTurnSubmission, error) {
 	return m.submitRuntimeInput(ctx, clientui.RuntimeSubmitRequest{
-		Input: runtimeinput.Text(text),
+		Input:  runtimeinput.Text(text),
+		Intent: runtimeinput.PendingWorkLaneSteer, QueueItemID: runtimeids.NewQueueItemID(),
 	})
 }
 
