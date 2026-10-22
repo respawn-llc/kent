@@ -81,9 +81,6 @@ func (g *Gateway) resolveSessionAttachmentTargetWithCapability(
 		}
 	}()
 	trimmedSessionID := strings.TrimSpace(sessionID)
-	if trimmedSessionID == "" {
-		return &worktreepb.SessionExecutionTarget{}, metadata.Binding{}, errors.New("session id is required")
-	}
 	metadataStore := g.deps.MetadataStore()
 	if metadataStore == nil {
 		return &worktreepb.SessionExecutionTarget{}, metadata.Binding{}, errors.New("metadata store is required")
@@ -133,11 +130,6 @@ func (e sessionAttachmentTargetError) Error() string {
 
 func (e sessionAttachmentTargetError) Unwrap() error {
 	return e.cause
-}
-
-func (g *Gateway) resolveSessionAttachment(ctx context.Context, state *connectionState, sessionID string) (metadata.Binding, error) {
-	_, binding, err := g.resolveSessionAttachmentTarget(ctx, state, sessionID)
-	return binding, err
 }
 
 func (g *Gateway) promptCommandWorkspaceRootForState(ctx context.Context, state *connectionState, sessionID *runtimeids.SessionID) (string, error) {
