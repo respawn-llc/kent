@@ -111,8 +111,8 @@ func writeSessionReattachAuthorityKey(path string, key []byte) error {
 
 func (a *sessionReattachAuthority) issue(sessionID string) (string, error) {
 	sessionID = strings.TrimSpace(sessionID)
-	if a == nil || sessionID == "" {
-		return "", errors.New("Session reattach authority and Session ID are required")
+	if a == nil {
+		return "", errors.New("Session reattach authority is required")
 	}
 	mac := hmac.New(sha256.New, a.key[:])
 	_, _ = mac.Write([]byte(sessionID))
