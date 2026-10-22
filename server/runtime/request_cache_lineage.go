@@ -305,6 +305,7 @@ func (e *Engine) prepareCacheObservedRequest(
 	purpose modelcontract.ProviderOperationPurpose,
 	responseMode cacheResponseObservationMode,
 ) (cacheObservedRequest, error) {
+	request.Purpose = textutil.Value(purpose)
 	destination, err := client.capabilities(ctx)
 	if err != nil {
 		return cacheObservedRequest{}, err
