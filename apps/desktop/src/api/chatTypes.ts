@@ -66,7 +66,7 @@ export type ChatInputMutationResult = Readonly<{
     | Readonly<{
         kind: "accepted";
         queueItemID: PendingWorkItemID;
-        disposition: "started_turn" | "pending_steer" | "pending_queue";
+        disposition: "started_turn" | "started_shell" | "pending_steer" | "pending_queue";
         diagnostic: ChatAcceptedDiagnostic | null;
       }>
     | Readonly<{

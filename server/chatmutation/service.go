@@ -416,6 +416,8 @@ func (s *Service) mutateInput(
 	switch admissionResult.Disposition {
 	case runtimeinput.InputAdmissionStartedTurn:
 		acceptedResult.Disposition = chatpb.InputAdmissionDisposition_INPUT_ADMISSION_DISPOSITION_STARTED_TURN
+	case runtimeinput.InputAdmissionStartedShell:
+		acceptedResult.Disposition = chatpb.InputAdmissionDisposition_INPUT_ADMISSION_DISPOSITION_STARTED_SHELL
 	case runtimeinput.InputAdmissionPendingSteer:
 		acceptedResult.Disposition = chatpb.InputAdmissionDisposition_INPUT_ADMISSION_DISPOSITION_PENDING_STEER
 	case runtimeinput.InputAdmissionPendingQueue:
