@@ -257,7 +257,7 @@ describe("TranscriptWindowView", () => {
       },
     });
     const onInput = vi.fn();
-    const view = render(
+    const content = () => (
       <TranscriptWindowView
         boundaryErrorMessage={(error) => error.message}
         estimateSize={() => 60}
@@ -266,8 +266,9 @@ describe("TranscriptWindowView", () => {
         retryLabel="Retry"
         slots={slots}
         snapshot={window.snapshot}
-      />,
+      />
     );
+    const view = render(content());
     const before = new Map(
       ["assistant", "tool", "reasoning_trace"].map((family) => [
         family,
@@ -275,6 +276,23 @@ describe("TranscriptWindowView", () => {
       ]),
     );
     for (const row of committedPromotions()) {
+      if (row.Tool !== null) {
+        expect(
+          window.dispatch({
+            kind: "committed-row",
+            row: {
+              ...row,
+              Kind: "tool_call",
+              Tool: null,
+              ToolCall: { StepID: "step", ToolCallID: "tool-call", ToolName: "shell" },
+            },
+          }).kind,
+        ).toBe("accepted");
+        view.rerender(content());
+        const previous = before.get("tool");
+        if (previous === undefined) throw new Error("Missing initial tool presentation.");
+        expect(screen.getByTestId("family-tool_call")).toBe(previous);
+      }
       expect(window.dispatch({ kind: "committed-row", row }).kind).toBe("accepted");
     }
     view.rerender(

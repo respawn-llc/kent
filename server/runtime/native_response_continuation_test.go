@@ -354,7 +354,7 @@ func TestAcceptedInvisibleNativeOutputContinuesWithoutVisibleRows(t *testing.T) 
 func TestNativeStreamingKeepsMessageIdentityAcrossHostedCalls(t *testing.T) {
 	t.Parallel()
 	output := []json.RawMessage{
-		json.RawMessage(`{"type":"message","id":"before","role":"assistant","phase":"commentary","content":[{"type":"output_text","text":"before","annotations":[]}]}`),
+		json.RawMessage(`{"type":"message","id":"before","role":"assistant","phase":"commentary","content":[{"type":"output_text","text":"before complete","annotations":[]}]}`),
 		json.RawMessage(`{"type":"web_search_call","id":"search_native","status":"completed","action":{"type":"search","query":"sample"}}`),
 		json.RawMessage(`{"type":"message","id":"after","role":"assistant","phase":"commentary","content":[{"type":"output_text","text":"after","annotations":[]}]}`),
 		json.RawMessage(`{"type":"message","id":"final","role":"assistant","phase":"final_answer","content":[{"type":"output_text","text":"final","annotations":[]}]}`),
@@ -375,11 +375,23 @@ func TestNativeStreamingKeepsMessageIdentityAcrossHostedCalls(t *testing.T) {
 				t.Error(err)
 			}
 			if item.Type == "message" {
-				delta, err := json.Marshal(item.Content[0].Text)
+				text := item.Content[0].Text
+				if index == 0 {
+					text = "before"
+				}
+				delta, err := json.Marshal(text)
 				if err != nil {
 					t.Error(err)
 				}
 				if _, err := fmt.Fprintf(w, "data: {\"type\":\"response.output_text.delta\",\"output_index\":%d,\"delta\":%s}\n\n", index, delta); err != nil {
+					t.Error(err)
+				}
+			}
+			if index == 0 {
+				continue
+			}
+			if index == 2 {
+				if _, err := fmt.Fprintf(w, "data: {\"type\":\"response.output_text.delta\",\"output_index\":0,\"delta\":\" complete\"}\n\ndata: {\"type\":\"response.output_item.done\",\"output_index\":0,\"item\":%s}\n\n", output[0]); err != nil {
 					t.Error(err)
 				}
 			}
@@ -416,7 +428,7 @@ func TestNativeStreamingKeepsMessageIdentityAcrossHostedCalls(t *testing.T) {
 			timeline = append(timeline, event.Kind)
 		}
 	}
-	if len(streams) != 3 || streams[0] == streams[1] || streams[1] == streams[2] || streams[0] == streams[2] {
+	if len(streams) != 4 || streams[0] != streams[2] || streams[0] == streams[1] || streams[1] == streams[3] || streams[0] == streams[3] {
 		t.Fatalf("separate provider messages share a streaming identity: %v", streams)
 	}
 	if len(timeline) < 4 || timeline[0] != EventAssistantDelta || timeline[1] != EventToolCallStarted || timeline[2] != EventAssistantDelta {
@@ -452,7 +464,7 @@ func TestNativeStreamingKeepsMessageIdentityAcrossHostedCalls(t *testing.T) {
 				hydratedStreams = append(hydratedStreams, row.Assistant.StreamID.String())
 			}
 		}
-		if !reflect.DeepEqual(hydratedStreams, streams) {
+		if !reflect.DeepEqual(hydratedStreams, []string{streams[0], streams[1], streams[3]}) {
 			return fmt.Errorf("native assistant correlations changed through hydration: %v", hydratedStreams)
 		}
 		return nil
