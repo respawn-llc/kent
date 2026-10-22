@@ -510,15 +510,10 @@ func TestReviewerMismatchedRouteKeepsInvocationStateIsolated(t *testing.T) {
 				if err != nil {
 					return err
 				}
-				if _, err := engine.generateWithRetryClient(
-					ctx,
+				if _, err := engine.generateWithRetryClient(ctx,
 					stepID,
 					newObservedModelClient(reviewerClient),
-					reviewerRequest,
-					nil,
-					nil,
-					nil,
-				); err != nil {
+					reviewerRequest, llm.StreamCallbacks{}, nil); err != nil {
 					return err
 				}
 				followupRequest, err := engine.buildActiveTurnDispatchRequest(ctx, stepID, nil, true)
@@ -831,7 +826,7 @@ func TestGenerateWithRetryReplaysExactProviderTurnState(t *testing.T) {
 	_, err = engine.generateWithRetryClient(context.Background(), runtimeTestStepID("provider-turn-state"), newObservedModelClient(client), llm.Request{
 		Model: "gpt-6-sol", SessionID: textutil.Value("session-1"), CodexDispatch: dispatch,
 		ToolChoiceMode: llm.ToolChoiceModeAutomatic, ReasoningEffort: "high",
-	}, nil, nil, nil)
+	}, llm.StreamCallbacks{}, nil)
 	if err != nil {
 		t.Fatalf("generateWithRetryClient: %v", err)
 	}
@@ -864,7 +859,7 @@ func TestGenerationMissingOutputRebuildReplaysProviderTurnState(t *testing.T) {
 	err := engine.stepLifecycle.Run(t.Context(), exclusiveStepOptions{ActiveKind: ActiveKindUserTurn}, func(ctx context.Context, stepID string) error {
 		_, err := engine.generateWithMissingToolOutputRepair(ctx, stepID, func() (llm.Request, error) {
 			return engine.buildActiveTurnDispatchRequest(ctx, stepID, nil, true)
-		}, nil, nil, nil)
+		}, llm.StreamCallbacks{}, nil)
 		return err
 	})
 	if err != nil {

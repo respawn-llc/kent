@@ -381,8 +381,12 @@ You can use `kent run steer <source-session-id> "message"` to respond.
 - Every model generation request uses the provider's streaming response protocol. Kent has no non-streaming generation or fallback path.
 - Callers that expose only a completed response consume the generation stream internally and return the assembled response only after the stream completes successfully.
 - One generation-stream contract carries assistant output, reasoning output, provider-hosted output, and stream activity.
-- When Kent records a response, its Reasoning Traces must precede assistant `final` text from the same Agent Turn in persisted transcript order. Reasoning Traces may follow assistant `commentary` text from that Agent Turn.
-- This persisted-order requirement must not buffer or reorder TUI Ongoing Mode output. Assistant text must continue streaming immediately.
+- Responses-native output must have the provider's complete item order through streaming, acceptance, saved history, presentation, and subsequent model requests. Each assistant message must have a separate identity across intervening local or provider-hosted tool calls.
+- Kent must not regroup native output by assistant phase or move tool calls around a final answer. Provider-hosted calls must occupy their original positions before, between, or after assistant messages.
+- Native output must be saved once without changing its item bytes. Answer, reasoning, and tool presentation must be derived from that output without a second saved representation of its text or tool arguments. Existing saved generic Messages must keep their existing reader and prepared input.
+- Existing tool parallelism and Result Group persistence timing must be unchanged. Concurrent completion order must not reorder the provider's original output.
+- For other response bodies, recorded Reasoning Traces must precede assistant `final` text from the same Agent Turn and may follow assistant `commentary` text.
+- Assistant text must continue streaming immediately. TUI Ongoing Mode must not rewrite emitted scrollback.
 - Every generation request has a required tool-choice mode: automatic or required. Missing or unknown modes are invalid.
 - Required tool choice validates against the complete advertised tool set, including local, custom, and enabled provider-hosted tools. An empty set is invalid. A provider that cannot represent required choice returns a policy error before dispatch. Automatic and required requests use the same bounded provider- and transport-failure retry policy. A retry must use the request's tool-choice mode and advertised tools unchanged. Kent never falls back from required to automatic choice.
 - Tool-choice mode changes only tool selection. It never changes the advertised tools or their order, parallel-tool behavior, or prompt-cache identity. Exact counting of a built request must use its tool mode and complete tool set unchanged. Standalone estimation uses automatic choice.

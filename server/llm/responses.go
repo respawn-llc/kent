@@ -58,6 +58,7 @@ func RequestAsResponses(request Request) ResponsesRequest {
 }
 
 type ResponsesResponse struct {
+	NativeResponse    *NativeResponse
 	AssistantText     *string
 	ProviderPhase     *ProviderPhase
 	ServedModel       *string
@@ -137,7 +138,7 @@ func responseFromResponses(providerResp ResponsesResponse) (Response, error) {
 	if assistantPhase != "" {
 		typedAssistantPhase = textutil.Value(assistantPhase)
 	}
-	return Response{
+	result := Response{
 		Assistant: Message{
 			Role:           RoleAssistant,
 			Content:        resolveAssistantContent(RoleAssistant, assistantPhase, providerResp.AssistantText),
@@ -154,7 +155,9 @@ func responseFromResponses(providerResp ResponsesResponse) (Response, error) {
 		ReasoningItems:    append([]ReasoningItem(nil), providerResp.ReasoningItems...),
 		OutputItems:       CloneResponseItems(providerResp.OutputItems),
 		Usage:             providerResp.Usage,
-	}, nil
+	}
+	result.Assistant.NativeResponse = providerResp.NativeResponse
+	return result, nil
 }
 
 func resolveAssistantContent(role Role, phase MessagePhase, content *string) *string {

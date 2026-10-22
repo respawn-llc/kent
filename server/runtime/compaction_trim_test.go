@@ -136,7 +136,7 @@ func TestRemoteCompactionCollapsesToolPayloadAfterOverflowAndPersistsCacheWarnin
 		_, err := eng.generateWithRetryClient(context.Background(), cacheStepID, newObservedModelClient(&fakeClient{responses: []llm.Response{{
 			Assistant: llm.Message{Role: llm.RoleAssistant, Content: textutil.Value("seeded")},
 			Usage:     llm.Usage{CachedInputTokens: textutil.Value(512)},
-		}}}), seedRequest, nil, nil, nil)
+		}}}), seedRequest, llm.StreamCallbacks{}, nil)
 		return err
 	}); err != nil {
 		t.Fatalf("seed cache lineage: %v", err)

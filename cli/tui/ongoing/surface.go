@@ -124,6 +124,7 @@ type Surface struct {
 	retainedBandHeight int
 	groupRegister      *transcriptrender.Group
 	activeAssistant    activeAssistantState
+	pendingAssistants  []activeAssistantState
 	terminalResize     TerminalResizePolicy
 	markdownLinks      transcriptrender.MarkdownLinkPresentation
 	lastPaintedSize    *Size
@@ -204,7 +205,18 @@ func (s *Surface) ApplyTerminalMessage(message *transcriptpb.Message, frame Fram
 
 func (s *Surface) applyHydration(hydration *transcriptpb.Hydration, frame FrameInput) (Result, error) {
 	lines := s.hydrationImmutableLines(hydration, frame.Size.Width, frame.Theme)
-	activeStreamHydrated := s.hydrateActiveAssistantStream(hydration.ActiveAssistant)
+	s.pendingAssistants = nil
+	var first *transcriptpb.AssistantStream
+	if len(hydration.ActiveAssistants) > 0 {
+		first = hydration.ActiveAssistants[0]
+		for _, stream := range hydration.ActiveAssistants[1:] {
+			id := stream.StreamId
+			s.pendingAssistants = append(s.pendingAssistants, activeAssistantState{
+				streamID: &id, source: stream.Text, phase: stream.Phase,
+			})
+		}
+	}
+	activeStreamHydrated := s.hydrateActiveAssistantStream(first)
 	if activeStreamHydrated && !s.activeAssistantPromotionDeferred() {
 		projection := newMarkdownProjector(nil, frame.Theme, s.markdownLinks).Project(markdownProjectionInput{
 			Source:           s.activeAssistant.source,
@@ -223,7 +235,7 @@ func (s *Surface) applyHydration(hydration *transcriptpb.Hydration, frame FrameI
 		s.activeAssistant.promotedSourceBoundary = projection.PromotedBoundary
 		lines = append(lines, promotedRows...)
 	}
-	if len(lines) == 0 && !activeStreamHydrated {
+	if len(lines) == 0 && !activeStreamHydrated && len(s.pendingAssistants) == 0 {
 		return Result{}, nil
 	}
 	return s.writeFrameTransaction(frame, lines)
@@ -249,12 +261,22 @@ func (s *Surface) applyAssistantDelta(streamID string, delta string, phase trans
 		streamIDCopy := streamID
 		s.activeAssistant.streamID = &streamIDCopy
 	} else if *s.activeAssistant.streamID != streamID {
-		panicOngoingDeveloperError("assistant_delta", "stream id does not match active stream", map[string]any{
-			"active_stream_id":  *s.activeAssistant.streamID,
-			"message_stream_id": streamID,
-			"width":             frame.Size.Width,
-			"height":            frame.Size.Height,
+		for index := range s.pendingAssistants {
+			stream := &s.pendingAssistants[index]
+			if *stream.streamID == streamID {
+				if stream.phase != phase {
+					stream.phase = phase
+					stream.phaseSourceStart = len(stream.source)
+				}
+				stream.source += delta
+				return s.writeFrameTransaction(frame, nil)
+			}
+		}
+		id := streamID
+		s.pendingAssistants = append(s.pendingAssistants, activeAssistantState{
+			streamID: &id, source: delta, phase: phase,
 		})
+		return s.writeFrameTransaction(frame, nil)
 	}
 	if s.activeAssistant.phase != phase {
 		s.activeAssistant.phase = phase
@@ -299,15 +321,29 @@ func (s *Surface) activeAssistantPromotionDeferred() bool {
 
 func (s *Surface) abortAssistantStream(streamID string, frame FrameInput) (Result, error) {
 	if s.activeAssistant.streamID != nil && *s.activeAssistant.streamID != streamID {
-		panicOngoingDeveloperError("assistant_abort", "stream id does not match active stream", map[string]any{
+		for index, stream := range s.pendingAssistants {
+			if *stream.streamID == streamID {
+				s.pendingAssistants = append(s.pendingAssistants[:index], s.pendingAssistants[index+1:]...)
+				return s.Render(frame)
+			}
+		}
+		panicOngoingDeveloperError("assistant_abort", "stream id does not match active streams", map[string]any{
 			"active_stream_id":  *s.activeAssistant.streamID,
 			"message_stream_id": streamID,
 			"width":             frame.Size.Width,
 			"height":            frame.Size.Height,
 		})
 	}
-	s.activeAssistant = activeAssistantState{}
+	s.advanceAssistantStream()
 	return s.Render(frame)
+}
+
+func (s *Surface) advanceAssistantStream() {
+	s.activeAssistant = activeAssistantState{}
+	if len(s.pendingAssistants) > 0 {
+		s.activeAssistant = s.pendingAssistants[0]
+		s.pendingAssistants = s.pendingAssistants[1:]
+	}
 }
 
 func (s *Surface) finalizeAssistantStream(streamID string, text string, frame FrameInput) (Result, error) {
@@ -342,7 +378,7 @@ func (s *Surface) finalizeAssistantStream(streamID string, text string, frame Fr
 		rows = newMarkdownProjector(nil, frame.Theme, s.markdownLinks).renderer.RenderStable(unpromoted, frameWidthOrDefault(frame))
 	}
 	promotedRows := s.renderAssistantPromotedRows(rows, frame.Theme)
-	s.activeAssistant = activeAssistantState{}
+	s.advanceAssistantStream()
 	return s.writeFrameTransaction(frame, promotedRows)
 }
 
@@ -419,6 +455,7 @@ func (s *Surface) ResetForScratchHydration(reason RehydrateReason, frame FrameIn
 	}
 	s.retainedBandHeight = 0
 	s.activeAssistant = activeAssistantState{}
+	s.pendingAssistants = nil
 	s.groupRegister = nil
 	paintedSize := frame.Size
 	s.lastPaintedSize = &paintedSize

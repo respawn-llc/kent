@@ -188,7 +188,10 @@ func TestRunPromptCreatesSessionAndPersistsDurableTranscript(t *testing.T) {
 		if !ok {
 			t.Fatalf("message payload = %T, want session.MessageRecord", mustSessionEventPayload(evt))
 		}
-		msg := appMessageFromRecord(record)
+		msg, err := appMessageFromRecord(record)
+		if err != nil {
+			t.Fatal(err)
+		}
 		if msg.Role == llm.RoleUser && msg.Content != nil && *msg.Content == "hello from user" {
 			sawUser = true
 		}
@@ -379,7 +382,10 @@ func openAuthoritativeWorkspaceSessionStore(t *testing.T, workspaceRoot, session
 	return openAuthoritativeAppSession(t, cfg.PersistenceRoot, sessionID)
 }
 
-func appMessageFromRecord(record session.MessageRecord) llm.Message {
+func appMessageFromRecord(record session.MessageRecord) (llm.Message, error) {
+	if record.NativeResponse != nil {
+		return llm.MessageFromNativeResponse(*record.NativeResponse)
+	}
 	message := llm.Message{
 		Role:    llm.Role(record.Role),
 		Content: textutil.Value(valueOrEmpty(record.Content)),
@@ -390,7 +396,7 @@ func appMessageFromRecord(record session.MessageRecord) llm.Message {
 	if record.Phase != nil {
 		message.Phase = textutil.Value(llm.MessagePhase(*record.Phase))
 	}
-	return message
+	return message, nil
 }
 
 func valueOrEmpty(value *string) string {
@@ -414,7 +420,10 @@ func readStoredMessages(store *session.Store) ([]llm.Message, error) {
 		if !ok {
 			return nil, fmt.Errorf("message payload = %T, want session.MessageRecord", mustSessionEventPayload(evt))
 		}
-		msg := appMessageFromRecord(record)
+		msg, err := appMessageFromRecord(record)
+		if err != nil {
+			return nil, err
+		}
 		messages = append(messages, msg)
 	}
 	return messages, nil

@@ -1179,42 +1179,47 @@ func (e *Engine) ensureLocked() (session.LockedContract, error) {
 // each iteration so the retry observes the appended synthetic outputs. When the
 // 400 is unrelated to missing outputs (nothing to repair), the original error is
 // returned unchanged.
-func (e *Engine) generateWithMissingToolOutputRepair(ctx context.Context, stepID string, rebuild func() (llm.Request, error), onDelta func(llm.AssistantDelta), onReasoningDelta func(llm.ReasoningSummaryDelta), onAttemptReset func()) (successfulRequestCandidate, error) {
+func (e *Engine) generateWithMissingToolOutputRepair(ctx context.Context, stepID string, rebuild func() (llm.Request, error), callbacks llm.StreamCallbacks, onAttemptReset func()) (successfulRequestCandidate, error) {
 	return withConnectionFallback(ctx,
 		func(ctx context.Context, selection ConnectionSelectionRequest) (*connectionBundle, error) {
 			return e.selectConnection(ctx, stepID, selection)
 		},
 		func(connection *connectionBundle) (successfulRequestCandidate, error) {
-			return e.generateRepairAttempt(ctx, stepID, connection, rebuild, onDelta, onReasoningDelta, onAttemptReset)
+			return e.generateRepairAttempt(ctx, stepID, connection, rebuild, callbacks, onAttemptReset)
 		})
 }
 
-func (e *Engine) generateRepairAttempt(ctx context.Context, stepID string, connection *connectionBundle, rebuild func() (llm.Request, error), onDelta func(llm.AssistantDelta), onReasoningDelta func(llm.ReasoningSummaryDelta), onAttemptReset func()) (successfulRequestCandidate, error) {
+func (e *Engine) generateRepairAttempt(ctx context.Context, stepID string, connection *connectionBundle, rebuild func() (llm.Request, error), callbacks llm.StreamCallbacks, onAttemptReset func()) (successfulRequestCandidate, error) {
 	for {
 		req, err := rebuild()
 		if err != nil {
 			return successfulRequestCandidate{}, err
 		}
 		var emitted atomic.Bool
-		wrappedDelta := onDelta
-		if onDelta != nil {
-			wrappedDelta = func(delta llm.AssistantDelta) {
+		wrapped := callbacks
+		if callbacks.OnAssistantDelta != nil {
+			wrapped.OnAssistantDelta = func(delta llm.AssistantDelta) {
 				if delta.Text != "" {
 					emitted.Store(true)
 				}
-				onDelta(delta)
+				callbacks.OnAssistantDelta(delta)
 			}
 		}
-		wrappedReasoningDelta := onReasoningDelta
-		if onReasoningDelta != nil {
-			wrappedReasoningDelta = func(delta llm.ReasoningSummaryDelta) {
+		if callbacks.OnReasoningSummaryDelta != nil {
+			wrapped.OnReasoningSummaryDelta = func(delta llm.ReasoningSummaryDelta) {
 				if strings.TrimSpace(delta.Text) != "" {
 					emitted.Store(true)
 				}
-				onReasoningDelta(delta)
+				callbacks.OnReasoningSummaryDelta(delta)
 			}
 		}
-		candidate, err := e.generateWithRetryClient(ctx, stepID, connection.client, req, wrappedDelta, wrappedReasoningDelta, onAttemptReset)
+		if callbacks.OnOutputItem != nil {
+			wrapped.OnOutputItem = func(item llm.ResponseItem) {
+				emitted.Store(true)
+				callbacks.OnOutputItem(item)
+			}
+		}
+		candidate, err := e.generateWithRetryClient(ctx, stepID, connection.client, req, wrapped, onAttemptReset)
 		if err == nil {
 			return candidate, nil
 		}
@@ -1237,11 +1242,11 @@ func (e *Engine) generateRepairAttempt(ctx context.Context, stepID string, conne
 	}
 }
 
-func (e *Engine) generateWithRetryClient(ctx context.Context, stepID string, client *observedModelClient, req llm.Request, onDelta func(llm.AssistantDelta), onReasoningDelta func(llm.ReasoningSummaryDelta), onAttemptReset func()) (successfulRequestCandidate, error) {
-	return e.generateWithRetryPolicy(ctx, stepID, client, req, modelRequestRetriesAllowed, onDelta, onReasoningDelta, onAttemptReset)
+func (e *Engine) generateWithRetryClient(ctx context.Context, stepID string, client *observedModelClient, req llm.Request, callbacks llm.StreamCallbacks, onAttemptReset func()) (successfulRequestCandidate, error) {
+	return e.generateWithRetryPolicy(ctx, stepID, client, req, modelRequestRetriesAllowed, callbacks, onAttemptReset)
 }
 
-func (e *Engine) generateWithRetryPolicy(ctx context.Context, stepID string, client *observedModelClient, req llm.Request, retryPolicy modelRequestRetryPolicy, onDelta func(llm.AssistantDelta), onReasoningDelta func(llm.ReasoningSummaryDelta), onAttemptReset func()) (successfulRequestCandidate, error) {
+func (e *Engine) generateWithRetryPolicy(ctx context.Context, stepID string, client *observedModelClient, req llm.Request, retryPolicy modelRequestRetryPolicy, callbacks llm.StreamCallbacks, onAttemptReset func()) (successfulRequestCandidate, error) {
 	estimator := e.connectionSnapshot().estimator
 	observed, err := e.prepareCacheObservedRequest(
 		ctx,
@@ -1254,22 +1259,21 @@ func (e *Engine) generateWithRetryPolicy(ctx context.Context, stepID string, cli
 	if err != nil {
 		return successfulRequestCandidate{}, err
 	}
-	resp, err := e.generateObservedWithRetry(ctx, stepID, client, observed, retryPolicy, onDelta, onReasoningDelta, onAttemptReset)
+	resp, err := e.generateObservedWithRetry(ctx, stepID, client, observed, retryPolicy, callbacks, onAttemptReset)
 	if err != nil {
 		return successfulRequestCandidate{}, err
 	}
 	return newSuccessfulRequestCandidate(estimator, observed.request, resp), nil
 }
 
-func (e *Engine) generateObservedWithRetry(ctx context.Context, stepID string, client *observedModelClient, observed cacheObservedRequest, retryPolicy modelRequestRetryPolicy, onDelta func(llm.AssistantDelta), onReasoningDelta func(llm.ReasoningSummaryDelta), onAttemptReset func()) (llm.Response, error) {
+func (e *Engine) generateObservedWithRetry(ctx context.Context, stepID string, client *observedModelClient, observed cacheObservedRequest, retryPolicy modelRequestRetryPolicy, callbacks llm.StreamCallbacks, onAttemptReset func()) (llm.Response, error) {
 	publishedProviderDiagnostics := make(map[llm.CodexTurnStateDiagnosticCategory]struct{}, 2)
 	return generateWithRetryClient(
 		ctx,
 		client,
 		observed,
 		retryPolicy,
-		onDelta,
-		onReasoningDelta,
+		callbacks,
 		onAttemptReset,
 		func() {
 			e.publishProviderTurnStateDiagnostics(stepID, observed.request.CodexDispatch, publishedProviderDiagnostics)
@@ -1282,8 +1286,7 @@ func generateWithRetryClient(
 	client *observedModelClient,
 	observed cacheObservedRequest,
 	retryPolicy modelRequestRetryPolicy,
-	onDelta func(llm.AssistantDelta),
-	onReasoningDelta func(llm.ReasoningSummaryDelta),
+	callbacks llm.StreamCallbacks,
 	onAttemptReset func(),
 	onAttemptFinished func(),
 ) (llm.Response, error) {
@@ -1300,7 +1303,7 @@ func generateWithRetryClient(
 				var observationErr *cacheObservationDispatchError
 				return errors.As(err, &observationErr)
 			},
-			OnDelta: onDelta, OnReasoningDelta: onReasoningDelta,
+			Callbacks:      callbacks,
 			OnAttemptReset: onAttemptReset, OnAttemptFinished: onAttemptFinished,
 		})
 }

@@ -100,10 +100,9 @@ export function TranscriptWindowView({
     { loadingLabel, retryLabel, errorMessage: boundaryErrorMessage, suppressed: tailFailure !== undefined },
     emitInput,
   );
-  const activeAssistantKey = snapshot?.activeAssistant?.key;
   const pinnedItemKeys = useMemo(
-    () => new Set(activeAssistantKey === undefined ? [] : [activeAssistantKey]),
-    [activeAssistantKey],
+    () => new Set(snapshot?.activeAssistants.map((item) => item.key)),
+    [snapshot?.activeAssistants],
   );
 
   return (
@@ -284,8 +283,8 @@ function transcriptViewItems(
           }));
   if (snapshot === null) return failed ? [...previews, failureItem] : previews;
   const items =
-    !snapshot.showsLive && snapshot.activeAssistant !== null
-      ? [...snapshot.items, snapshot.activeAssistant]
+    !snapshot.showsLive
+      ? [...snapshot.items, ...snapshot.activeAssistants]
       : snapshot.items;
   if (failed) return [...items, ...previews, failureItem];
   return snapshot.showsLive ? [...items, ...previews, statusItem] : [...items, ...previews];

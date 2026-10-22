@@ -334,7 +334,7 @@ func hydrationHasNoTerminalRows(hydration *transcriptpb.Hydration) bool {
 	if hydration == nil {
 		return true
 	}
-	if hydration.ActiveAssistant != nil {
+	if len(hydration.ActiveAssistants) > 0 {
 		return false
 	}
 	for _, row := range hydration.TailSegment.Entries {

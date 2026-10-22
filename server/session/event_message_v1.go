@@ -72,21 +72,46 @@ type MessageReasoningRecord struct {
 	EncryptedContent string                              `json:"encrypted_content"`
 }
 
+type NativeResponseFormat string
+
+const (
+	NativeResponseOpenAI NativeResponseFormat = "openai-responses"
+	NativeResponseGrok   NativeResponseFormat = "grok-responses"
+)
+
+// Items are opaque bytes (base64 in the event codec), not JSON objects: JSON
+// escaping and compaction must not change accepted provider input.
+type NativeResponseBody struct {
+	Format                NativeResponseFormat          `json:"format"`
+	Items                 [][]byte                      `json:"items"`
+	ReasoningType         *modelcontract.ReasoningType  `json:"reasoning_type,omitempty"`
+	ReasoningPresentation []NativeReasoningPresentation `json:"reasoning_presentation,omitempty"`
+}
+
+type NativeReasoningPresentation struct {
+	OutputIndex int64                        `json:"output_index"`
+	PartIndex   int64                        `json:"part_index"`
+	DurationMs  *int64                       `json:"duration_ms,omitempty"`
+	KentTraceID *runtimeids.ReasoningTraceID `json:"kent_trace_id,omitempty"`
+}
+
 type MessageRecord struct {
-	QueueItemIDs         []string                 `json:"queue_item_ids,omitempty"`
-	Role                 MessageRole              `json:"role"`
-	MessageType          *MessageType             `json:"message_type,omitempty"`
-	SourcePath           *string                  `json:"source_path,omitempty"`
-	WorktreeContext      *WorktreeContext         `json:"worktree_context,omitempty"`
-	Content              *string                  `json:"content,omitempty"`
-	CompactContent       *string                  `json:"compact_content,omitempty"`
-	Name                 *string                  `json:"name,omitempty"`
-	ToolCallID           *string                  `json:"tool_call_id,omitempty"`
-	Phase                *MessagePhase            `json:"phase,omitempty"`
-	BackgroundActivityID *string                  `json:"background_activity_id,omitempty"`
-	BackgroundExitCode   *int                     `json:"background_exit_code,omitempty"`
-	ToolCalls            []MessageToolCallRecord  `json:"tool_calls,omitempty"`
-	ReasoningItems       []MessageReasoningRecord `json:"reasoning_items,omitempty"`
+	NativeToolPresentation map[string]json.RawMessage `json:"native_tool_presentation,omitempty"`
+	NativeResponse         *NativeResponseBody        `json:"native_response,omitempty"`
+	QueueItemIDs           []string                   `json:"queue_item_ids,omitempty"`
+	Role                   MessageRole                `json:"role"`
+	MessageType            *MessageType               `json:"message_type,omitempty"`
+	SourcePath             *string                    `json:"source_path,omitempty"`
+	WorktreeContext        *WorktreeContext           `json:"worktree_context,omitempty"`
+	Content                *string                    `json:"content,omitempty"`
+	CompactContent         *string                    `json:"compact_content,omitempty"`
+	Name                   *string                    `json:"name,omitempty"`
+	ToolCallID             *string                    `json:"tool_call_id,omitempty"`
+	Phase                  *MessagePhase              `json:"phase,omitempty"`
+	BackgroundActivityID   *string                    `json:"background_activity_id,omitempty"`
+	BackgroundExitCode     *int                       `json:"background_exit_code,omitempty"`
+	ToolCalls              []MessageToolCallRecord    `json:"tool_calls,omitempty"`
+	ReasoningItems         []MessageReasoningRecord   `json:"reasoning_items,omitempty"`
 }
 
 func (MessageRecord) eventKind() EventKind {
@@ -99,6 +124,53 @@ func (m MessageRecord) validate() error {
 }
 
 func normalizeMessageRecord(message MessageRecord) (MessageRecord, error) {
+	if len(message.NativeToolPresentation) > 0 {
+		if message.NativeResponse == nil {
+			return MessageRecord{}, fmt.Errorf("native tool presentation requires a native response")
+		}
+		presentation := make(map[string]json.RawMessage, len(message.NativeToolPresentation))
+		for callID, raw := range message.NativeToolPresentation {
+			if strings.TrimSpace(callID) == "" {
+				return MessageRecord{}, fmt.Errorf("native tool presentation requires a call identity")
+			}
+			if err := validateJSONValue("native tool presentation", raw); err != nil {
+				return MessageRecord{}, err
+			}
+			presentation[callID] = append(json.RawMessage(nil), raw...)
+		}
+		message.NativeToolPresentation = presentation
+	}
+	if body := message.NativeResponse; body != nil {
+		if message.Role != MessageRoleAssistant || message.Content != nil || len(message.ToolCalls) != 0 || len(message.ReasoningItems) != 0 {
+			return MessageRecord{}, fmt.Errorf("native response requires an assistant without a parallel message body")
+		}
+		if body.Format != NativeResponseOpenAI && body.Format != NativeResponseGrok {
+			return MessageRecord{}, fmt.Errorf("unknown native response format %q", body.Format)
+		}
+		if len(body.Items) == 0 {
+			return MessageRecord{}, fmt.Errorf("native response items are required")
+		}
+		if err := (&modelcontract.ReasoningAttribution{Type: body.ReasoningType}).Validate(); err != nil {
+			return MessageRecord{}, err
+		}
+		cloned := &NativeResponseBody{Format: body.Format, Items: make([][]byte, len(body.Items)), ReasoningType: body.ReasoningType}
+		cloned.ReasoningPresentation = append([]NativeReasoningPresentation(nil), body.ReasoningPresentation...)
+		for _, presentation := range cloned.ReasoningPresentation {
+			if presentation.OutputIndex < 0 || presentation.OutputIndex >= int64(len(body.Items)) || presentation.PartIndex < 0 {
+				return MessageRecord{}, fmt.Errorf("invalid native reasoning presentation coordinate")
+			}
+			if presentation.DurationMs != nil && *presentation.DurationMs < 0 {
+				return MessageRecord{}, fmt.Errorf("invalid native reasoning duration")
+			}
+		}
+		for i, item := range body.Items {
+			if !json.Valid(item) {
+				return MessageRecord{}, fmt.Errorf("native response item %d is invalid JSON", i)
+			}
+			cloned.Items[i] = append([]byte(nil), item...)
+		}
+		message.NativeResponse = cloned
+	}
 	if len(message.QueueItemIDs) > 0 && message.Role != MessageRoleUser {
 		return MessageRecord{}, fmt.Errorf("source queue items require a user message")
 	}

@@ -257,7 +257,7 @@ func TestCompletedResponseAbortThenReasoningResetWithoutAssistantStream(t *testi
 	if err != nil {
 		t.Fatalf("discard completed response: %v", err)
 	}
-	if outcome.kind != completedResponseResolutionDiscarded || outcome.streamID != nil {
+	if outcome.kind != completedResponseResolutionDiscarded {
 		t.Fatalf("discard outcome = %+v, want discarded without stream", outcome)
 	}
 	if err := (&defaultStepExecutor{engine: engine}).resetProvisionalReasoning(stepID); err != nil {

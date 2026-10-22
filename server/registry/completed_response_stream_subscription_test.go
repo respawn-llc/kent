@@ -160,7 +160,7 @@ func (f *streamSubscriptionFixture) freshCleanHydration() *transcriptpb.Hydratio
 	defer func() { _ = fresh.Close() }()
 	message := nextTranscriptMessage(f.t, fresh)
 	hydration := message.Event.GetHydration()
-	if hydration.ActiveAssistant != nil {
+	if len(hydration.ActiveAssistants) != 0 {
 		f.t.Fatalf("fresh hydration active stream = %+v, want none", hydration)
 	}
 	return hydration

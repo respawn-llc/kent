@@ -88,7 +88,7 @@ export function hydration(
       Activity: activity,
     },
     TailSegment: { Entries: entries, OlderCursor: 300, HasMoreAbove: true },
-    ActiveAssistant: null,
+    ActiveAssistants: [],
     ActiveThinkingStatus: null,
     ActiveReasoningTraces: [],
     InFlightTools: [],

@@ -173,7 +173,14 @@ func validateFrameTransactionGeometry(
 }
 
 func (s *Surface) minimumLiveBandFits(frame FrameInput, liveLines []string) bool {
-	return enforcedMinimumLiveBandHeight(frame, s.activeAssistant, liveLines) <= frame.Size.Height
+	return enforcedMinimumLiveBandHeight(frame, s.lastAssistantStream(), liveLines) <= frame.Size.Height
+}
+
+func (s *Surface) lastAssistantStream() activeAssistantState {
+	if len(s.pendingAssistants) > 0 {
+		return s.pendingAssistants[len(s.pendingAssistants)-1]
+	}
+	return s.activeAssistant
 }
 
 func (s *Surface) liveBandLayout(frame FrameInput) []liveBandLine {
@@ -183,6 +190,11 @@ func (s *Surface) liveBandLayout(frame FrameInput) []liveBandLine {
 		frame.Theme,
 		s.markdownLinks,
 	)
+	for _, stream := range s.pendingAssistants {
+		lines = append(lines, activeAssistantLinesWithLinkPresentation(
+			stream, frameWidthOrDefault(frame), frame.Theme, s.markdownLinks,
+		)...)
+	}
 	layout := make([]liveBandLine, 0, len(lines)+len(frame.Sections))
 	for _, line := range lines {
 		layout = append(layout, liveBandLine{text: line})
@@ -195,7 +207,7 @@ func (s *Surface) shrinkLiveBandLayoutToFrame(frame FrameInput, liveLayout []liv
 	if len(liveLayout) <= frame.Size.Height {
 		return liveLayout
 	}
-	lines := minimumLiveBandLayoutWithLinkPresentation(frame, s.activeAssistant, s.markdownLinks)
+	lines := minimumLiveBandLayoutWithLinkPresentation(frame, s.lastAssistantStream(), s.markdownLinks)
 	if len(lines) > frame.Size.Height {
 		return lines[len(lines)-frame.Size.Height:]
 	}

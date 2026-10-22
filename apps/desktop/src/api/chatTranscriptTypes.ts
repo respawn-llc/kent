@@ -200,7 +200,7 @@ export type ChatCommittedRow = Readonly<{
   }> | null;
   ReviewerError: Readonly<{ ID: string; StepID: string; Detail: string }> | null;
 }>;
-type AssistantFacts = Readonly<{ StepID: string; StreamID: string; Phase: "commentary" | "final_answer" }>;
+type AssistantFacts = Readonly<{ StepID: string; StreamID: string; Phase: "commentary" | "final_answer"; OutputIndex?: number }>;
 export interface ChatTranscriptPayloadByKind {
   hydration: Readonly<{
     ConnectionReplacement: ChatTranscriptPayloadByKind["connection_replaced"] | null;
@@ -212,7 +212,7 @@ export interface ChatTranscriptPayloadByKind {
       HasMoreAbove: boolean;
       Entries: readonly ChatCommittedRow[];
     }>;
-    ActiveAssistant: (AssistantFacts & Readonly<{ Text: string }>) | null;
+    ActiveAssistants: readonly (AssistantFacts & Readonly<{ Text: string }>)[];
     ActiveThinkingStatus: ChatTranscriptPayloadByKind["thinking_status_update"] | null;
     ActiveReasoningTraces: readonly ChatTranscriptPayloadByKind["reasoning_trace_update"][];
     ActiveStep: ChatTranscriptPayloadByKind["step_state"] | null;
@@ -233,6 +233,7 @@ export interface ChatTranscriptPayloadByKind {
   }>;
   thinking_status_update: Readonly<{ StepID: string; Text: string }>;
   reasoning_trace_update: Readonly<{
+    OutputIndex?: number;
     StepID: string;
     Identity: ChatReasoningIdentity;
     CompactText: string;
@@ -240,6 +241,7 @@ export interface ChatTranscriptPayloadByKind {
   }>;
   reasoning_trace_reset: Readonly<{ StepID: string }>;
   tool_start: Readonly<{
+    OutputIndex?: number;
     StepID: string;
     ToolCallID: string;
     ToolName: string;

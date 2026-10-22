@@ -49,7 +49,7 @@ export function committedCorrelation(row: CommittedRow): string | null {
   }
 }
 
-function assistant(value: NonNullable<Hydration["ActiveAssistant"]>): TranscriptProvisionalItem {
+function assistant(value: Hydration["ActiveAssistants"][number]): TranscriptProvisionalItem {
   return { kind: "assistant", state: "live", key: assistantKey(value.StreamID), value };
 }
 
@@ -64,13 +64,13 @@ function reasoning(value: Reasoning): TranscriptProvisionalItem {
 export function hydratedLive(hydration: Hydration): readonly TranscriptProvisionalItem[] {
   const items = [
     ...hydration.ActiveReasoningTraces.map(reasoning),
-    ...(hydration.ActiveAssistant === null ? [] : [assistant(hydration.ActiveAssistant)]),
+    ...hydration.ActiveAssistants.map(assistant),
     ...hydration.InFlightTools.map(tool),
   ];
   if (new Set(items.map((item) => item.key)).size !== items.length) {
     throw new ContractError("Hydration contains duplicate live correlations.");
   }
-  return items;
+  return orderProviderItems(items);
 }
 
 export function reduceLive(
@@ -121,11 +121,21 @@ function updateLiveItem(
   next: TranscriptProvisionalItem,
 ): readonly TranscriptProvisionalItem[] {
   const previous = items.find((item) => item.key === next.key);
-  if (previous === undefined) return [...items, next];
+  if (previous === undefined) return orderProviderItems([...items, next]);
   if (previous.value.StepID !== next.value.StepID) {
     throw new ContractError("Live correlation changed its owning Step.");
   }
   return items.map((item) => (item.key === next.key ? next : item));
+}
+
+function orderProviderItems(items: readonly TranscriptProvisionalItem[]): readonly TranscriptProvisionalItem[] {
+  return [...items].sort((a, b) => {
+    if (a.value.StepID !== b.value.StepID) return 0;
+    const left = a.value.OutputIndex;
+    const right = b.value.OutputIndex;
+    if (left === undefined) return right === undefined ? 0 : -1;
+    return right === undefined ? 1 : left - right;
+  });
 }
 
 /** Presentation identity is retained only for resident rows and current provisional correlations. */

@@ -16,6 +16,17 @@ func VisibleChatEntriesFromMessage(msg llm.Message) []ChatEntry {
 }
 
 func visibleChatEntriesFromMessage(msg llm.Message, completions map[string]tools.Result, materializedToolCalls map[string]struct{}) []ChatEntry {
+	if msg.NativeResponse != nil {
+		var entries []ChatEntry
+		for _, projected := range nativeResponseMessages(msg) {
+			if projected.Reasoning != nil {
+				entries = append(entries, *projected.Reasoning)
+				continue
+			}
+			entries = append(entries, visibleChatEntriesFromMessage(projected.Message, completions, materializedToolCalls)...)
+		}
+		return entries
+	}
 	entries := make([]ChatEntry, 0, 1+len(msg.ToolCalls))
 	switch msg.Role {
 	case llm.RoleUser:

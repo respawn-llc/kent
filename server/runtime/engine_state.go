@@ -24,9 +24,8 @@ func (e *Engine) overlayLiveStreaming(snapshot *ChatSnapshot) {
 	if e == nil || snapshot == nil {
 		return
 	}
-	streaming, streamingErr, streamingMetadata := e.transcriptRuntimeState().StreamingSnapshot()
+	streaming, streamingErr := e.transcriptRuntimeState().StreamingSnapshot()
 	snapshot.Streaming = streaming
-	snapshot.StreamingMetadata = streamingMetadata
 	snapshot.StreamingError = streamingErr
 }
 

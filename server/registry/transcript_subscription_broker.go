@@ -12,7 +12,6 @@ import (
 	"core/shared/clientui"
 	transcriptpb "core/shared/protoapi/gen/kent/api/transcript"
 	"core/shared/serverapi"
-	"core/shared/textutil"
 )
 
 const transcriptSubscriptionBufferSize = 256
@@ -210,7 +209,7 @@ func transcriptProjectionContractError(err error) error {
 
 type transcriptSubscriptionContract struct {
 	hydrated                 bool
-	activeStream             *string
+	activeStreams            map[string]struct{}
 	inFlightTools            map[clientui.ToolCallID]struct{}
 	hydratedEventSequence    int64
 	hasHydratedEventSequence bool
@@ -233,8 +232,10 @@ func (c *transcriptSubscriptionContract) Validate(message *transcriptpb.Message)
 }
 
 func (c *transcriptSubscriptionContract) validateHydration(hydration *transcriptpb.Hydration) error {
-	if hydration.ActiveAssistant != nil {
-		c.activeStream = textutil.Value(hydration.ActiveAssistant.StreamId)
+	for _, assistant := range hydration.ActiveAssistants {
+		if err := c.matchOrStartStream(assistant.StreamId, 1, "hydrated assistant"); err != nil {
+			return err
+		}
 	}
 	for _, tool := range hydration.InFlightTools {
 		if err := c.trackToolStart(tool, "hydration in-flight tool"); err != nil {
@@ -258,7 +259,7 @@ func (c *transcriptSubscriptionContract) validateLiveMessage(message *transcript
 		if err := c.matchActiveStream(payload.AssistantStreamAbort.StreamId, message.Sequence, "assistant_stream_abort"); err != nil {
 			return err
 		}
-		c.activeStream = nil
+		delete(c.activeStreams, payload.AssistantStreamAbort.StreamId)
 		return nil
 	case *transcriptpb.Event_ToolStart:
 		return c.trackToolStart(payload.ToolStart, fmt.Sprintf("tool_start at seq=%d", message.Sequence))
@@ -274,9 +275,7 @@ func (c *transcriptSubscriptionContract) validateLiveMessage(message *transcript
 				if err := c.matchActiveStream(*assistant.StreamId, message.Sequence, "committed assistant row"); err != nil {
 					return err
 				}
-				c.activeStream = nil
-			} else if c.activeStream != nil {
-				return errTranscriptContractViolation(fmt.Sprintf("committed assistant row at seq=%d has nil stream_id while stream %s is active", message.Sequence, *c.activeStream))
+				delete(c.activeStreams, *assistant.StreamId)
 			}
 		}
 		if tool := row.GetTool(); tool != nil && tool.ToolCallId != nil {
@@ -312,19 +311,16 @@ func (c *transcriptSubscriptionContract) validateLiveLocator(locator *transcript
 }
 
 func (c *transcriptSubscriptionContract) matchOrStartStream(streamID string, seq uint64, op string) error {
-	if c.activeStream == nil {
-		c.activeStream = &streamID
-		return nil
+	if c.activeStreams == nil {
+		c.activeStreams = make(map[string]struct{})
 	}
-	return c.matchActiveStream(streamID, seq, op)
+	c.activeStreams[streamID] = struct{}{}
+	return nil
 }
 
 func (c *transcriptSubscriptionContract) matchActiveStream(streamID string, seq uint64, op string) error {
-	if c.activeStream == nil {
+	if _, exists := c.activeStreams[streamID]; !exists {
 		return errTranscriptContractViolation(fmt.Sprintf("%s at seq=%d has stream_id %s with no active assistant stream", op, seq, streamID))
-	}
-	if *c.activeStream != streamID {
-		return errTranscriptContractViolation(fmt.Sprintf("%s at seq=%d has stream_id %s, active stream_id is %s", op, seq, streamID, *c.activeStream))
 	}
 	return nil
 }

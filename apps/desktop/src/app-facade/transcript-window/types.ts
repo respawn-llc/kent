@@ -60,7 +60,7 @@ export type TranscriptWindowSnapshot = Readonly<{
   showsLive: boolean;
   thinkingStatus: ThinkingStatusPresentation | null;
   items: readonly TranscriptRenderItem[];
-  activeAssistant: Extract<TranscriptProvisionalItem, { kind: "assistant" }> | null;
+  activeAssistants: readonly Extract<TranscriptProvisionalItem, { kind: "assistant" }>[];
   older: TranscriptBoundary;
   newer: TranscriptBoundary;
   opening: Readonly<{ kind: "loading" | "ready" | "disposed" }> | Readonly<{ kind: "error"; error: Error }>;

@@ -227,12 +227,12 @@ describe("TranscriptWindowView", () => {
       kind: "initial-hydration",
       hydration: {
         ...initial,
-        ActiveAssistant: {
+        ActiveAssistants: [{
           StepID: "step",
           StreamID: "assistant-stream",
           Phase: "commentary",
           Text: "Live assistant",
-        },
+        }],
         InFlightTools: [
           {
             StepID: "step",

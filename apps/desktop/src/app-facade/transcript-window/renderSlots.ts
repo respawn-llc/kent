@@ -23,7 +23,7 @@ export type TranscriptCommittedItem = {
 }[CommittedRow["Kind"]];
 
 interface LiveValues {
-  assistant: NonNullable<ChatTranscriptPayloadByKind["hydration"]["ActiveAssistant"]>;
+  assistant: ChatTranscriptPayloadByKind["hydration"]["ActiveAssistants"][number];
   tool: ChatTranscriptPayloadByKind["tool_start"];
   reasoning_trace: ChatTranscriptPayloadByKind["reasoning_trace_update"];
 }

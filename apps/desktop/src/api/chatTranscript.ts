@@ -61,6 +61,7 @@ function thinking(value: T.ThinkingStatusUpdate): Payloads["thinking_status_upda
 
 function reasoning(value: T.ReasoningTraceUpdateValid): Payloads["reasoning_trace_update"] {
   return {
+    ...(value.outputIndex === undefined ? {} : { OutputIndex: safeNumber(value.outputIndex) }),
     StepID: value.stepId,
     Identity: reasoningIdentity(value.identity),
     CompactText: value.compactText,
@@ -106,6 +107,7 @@ function compaction(value: T.CompactionStatus): Payloads["compaction_status"] {
 
 function tool(value: T.ToolStart): Payloads["tool_start"] {
   return {
+    ...(value.outputIndex === undefined ? {} : { OutputIndex: safeNumber(value.outputIndex) }),
     StepID: value.stepId,
     ToolCallID: value.toolCallId,
     ToolName: value.toolName,
@@ -163,15 +165,13 @@ function hydration(value: T.HydrationValid): Payloads["hydration"] {
       HasMoreAbove: tail.hasMoreAbove,
       Entries: tail.entries.map(committedRow),
     },
-    ActiveAssistant:
-      value.activeAssistant === undefined
-        ? null
-        : {
-            StepID: value.activeAssistant.stepId,
-            StreamID: value.activeAssistant.streamId,
-            Phase: assistantPhase(value.activeAssistant.phase),
-            Text: value.activeAssistant.text,
-          },
+    ActiveAssistants: value.activeAssistants.map((stream) => ({
+      StepID: stream.stepId,
+      StreamID: stream.streamId,
+      Phase: assistantPhase(stream.phase),
+      Text: stream.text,
+      ...(stream.outputIndex === undefined ? {} : { OutputIndex: safeNumber(stream.outputIndex) }),
+    })),
     ActiveThinkingStatus:
       value.activeThinkingStatus === undefined ? null : thinking(value.activeThinkingStatus),
     ActiveReasoningTraces: value.activeReasoningTraces.map(reasoning),
@@ -278,6 +278,7 @@ const eventProjections: {
       StreamID: value.streamId,
       Phase: assistantPhase(value.phase),
       Delta: value.delta,
+      ...(value.outputIndex === undefined ? {} : { OutputIndex: safeNumber(value.outputIndex) }),
     },
   }),
   assistantStreamAbort: (value, sequence) => ({

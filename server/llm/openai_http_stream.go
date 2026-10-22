@@ -8,6 +8,7 @@ import (
 	"time"
 	"unicode"
 
+	"core/server/session"
 	"core/shared/llmerrors"
 	"core/shared/modelcontract"
 	"core/shared/textutil"
@@ -84,6 +85,17 @@ func (a *responseStreamAccumulator) Consume(evt responses.ResponseStreamEventUni
 		a.reasoning.UpsertReasoningItem(evt.Item, evt.OutputIndex)
 		a.recordReasoningAccumulatorError()
 		a.passthrough.Upsert(evt.Item, evt.OutputIndex, a.policy)
+		if a.callbacks.OnOutputItem != nil && evt.Item.Type != "message" && evt.Item.Type != "reasoning" {
+			items, _, _, _, _, _, _, err := parseOutputItems([]responses.ResponseOutputItemUnion{evt.Item}, a.policy)
+			if err != nil {
+				a.responseError = &responseStreamError{ProviderContract: &responseStreamProviderContract{Message: err.Error()}}
+				return
+			}
+			for _, item := range items {
+				item.OutputIndex = evt.OutputIndex
+				a.callbacks.OnOutputItem(item)
+			}
+		}
 	case "response.function_call_arguments.delta":
 		a.toolCalls.AppendArguments(evt.ItemID, evt.Delta)
 	case "response.function_call_arguments.done":
@@ -189,7 +201,7 @@ func (a *responseStreamAccumulator) consumeAssistantDelta(outputIndex int64, tex
 		return
 	}
 	a.assistantMessages.AppendDelta(outputIndex, text)
-	a.emitAssistantDelta(AssistantDelta{Text: text, Phase: phase})
+	a.emitAssistantDelta(AssistantDelta{Text: text, Phase: phase, OutputIndex: textutil.Value(outputIndex)})
 	a.assistantStartedByOutput[outputIndex] = true
 }
 
@@ -367,7 +379,20 @@ func (a *responseStreamAccumulator) Response() (ResponsesResponse, error) {
 		return ResponsesResponse{}, evidenceErr
 	}
 
+	body := session.NativeResponseBody{Format: session.NativeResponseOpenAI, Items: make([][]byte, len(a.completed.Output))}
+	switch a.policy.(type) {
+	case grokResponsesPolicy, grokCLIResponsesPolicy:
+		body.Format = session.NativeResponseGrok
+	}
+	for i, item := range a.completed.Output {
+		body.Items[i] = []byte(item.RawJSON())
+	}
+	var native *NativeResponse
+	if len(body.Items) > 0 {
+		native = (&NativeResponse{body: body, items: parsedItems}).WithReasoningType(body.ReasoningType)
+	}
 	return ResponsesResponse{
+		NativeResponse:   native,
 		AssistantText:    finalText,
 		ProviderPhase:    finalProviderPhase,
 		ServedModel:      textutil.Pointer(a.standardServedModel),
@@ -734,11 +759,12 @@ type toolCallAccumulator struct {
 }
 
 type toolCallState struct {
-	CallID   string
-	Name     string
-	Args     strings.Builder
-	Custom   strings.Builder
-	IsCustom bool
+	OutputIndex *int64
+	CallID      string
+	Name        string
+	Args        strings.Builder
+	Custom      strings.Builder
+	IsCustom    bool
 }
 
 func newToolCallAccumulator() *toolCallAccumulator {
@@ -860,6 +886,7 @@ func (a *toolCallAccumulator) Merge(calls []ToolCall) {
 		if state == nil {
 			continue
 		}
+		state.OutputIndex = textutil.Pointer(call.OutputIndex)
 		if v := strings.TrimSpace(call.ID); v != "" {
 			state.CallID = v
 		}
@@ -899,6 +926,7 @@ func (a *toolCallAccumulator) ToToolCalls(policy responsesPolicy) []ToolCall {
 		}
 		out = append(out, ToolCall{
 			ID: callID, Name: state.Name, Input: input, Custom: state.IsCustom,
+			OutputIndex: textutil.Pointer(state.OutputIndex),
 			CustomInput: textutil.OptionalExactString(state.Custom.String()),
 		})
 	}

@@ -125,7 +125,7 @@ export function fixtureHydration(
     TailSegment: { Entries: entries, OlderCursor: null, HasMoreAbove: false },
     ActiveThinkingStatus: null,
     ActiveReasoningTraces: traces,
-    ActiveAssistant: null,
+    ActiveAssistants: [],
     InFlightTools: [],
     ActiveStep: null,
     ActiveCompaction: null,

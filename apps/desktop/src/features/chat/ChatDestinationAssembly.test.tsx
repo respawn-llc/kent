@@ -255,12 +255,12 @@ it("keeps streamed output and drafts usable when reviewer suggestions are follow
         payload: {
           ...hydration(),
           TailSegment: { OlderCursor: null, HasMoreAbove: false, Entries: [row(1)] },
-          ActiveAssistant: {
+          ActiveAssistants: [{
             StepID: prompt.stepID,
             StreamID: "stream",
             Phase: "commentary",
             Text: "Current response",
-          },
+          }],
         },
       });
     });

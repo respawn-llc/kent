@@ -7,25 +7,20 @@ import (
 	"core/server/session"
 	"core/shared/config"
 	"core/shared/runtimeids"
-
-	"github.com/google/uuid"
 )
 
 type TranscriptHydrationSnapshot struct {
-	ConnectionReplacement   *config.ConnectionReplacement
-	CommittedRows           []TranscriptCommittedRowFact
-	ActiveAssistantText     string
-	ActiveAssistantMetadata *AssistantStreamMetadata
-	ActiveAssistantStreamID *uuid.UUID
-	ActiveAssistantPhase    llm.MessagePhase
-	ActiveThinkingStatus    *TranscriptThinkingStatusState
-	ActiveReasoningTraces   []TranscriptReasoningTraceState
-	InFlightTools           []TranscriptLiveToolStart
-	ActiveCompaction        *TranscriptCompactionState
-	CompactionCount         int
-	ContextUsage            *ContextUsage
-	Goal                    *session.GoalState
-	GoalSuspended           bool
+	ConnectionReplacement *config.ConnectionReplacement
+	CommittedRows         []TranscriptCommittedRowFact
+	ActiveAssistants      []AssistantStreamSnapshot
+	ActiveThinkingStatus  *TranscriptThinkingStatusState
+	ActiveReasoningTraces []TranscriptReasoningTraceState
+	InFlightTools         []TranscriptLiveToolStart
+	ActiveCompaction      *TranscriptCompactionState
+	CompactionCount       int
+	ContextUsage          *ContextUsage
+	Goal                  *session.GoalState
+	GoalSuspended         bool
 }
 
 type TranscriptThinkingStatusState struct {
@@ -81,19 +76,16 @@ func (e *Engine) transcriptHydrationSegmentLocked() TranscriptHydrationSnapshot 
 	thinkingStatus, reasoningTraces := e.transcriptRuntimeState().ReasoningSnapshot()
 	usage := e.ContextUsage()
 	return TranscriptHydrationSnapshot{
-		ConnectionReplacement:   e.transcriptRuntimeState().ConnectionReplacement(),
-		CommittedRows:           snapshot.Rows,
-		ActiveAssistantText:     snapshot.Streaming,
-		ActiveAssistantMetadata: cloneAssistantStreamMetadata(snapshot.StreamingMetadata),
-		ActiveAssistantStreamID: cloneTranscriptStreamID(snapshot.StreamingStreamID),
-		ActiveAssistantPhase:    snapshot.StreamingPhase,
-		ActiveThinkingStatus:    thinkingStatus,
-		ActiveReasoningTraces:   reasoningTraces,
-		InFlightTools:           e.transcriptRuntimeState().LiveToolSnapshot(),
-		ActiveCompaction:        e.compactionRuntimeState().ActiveSnapshot(),
-		CompactionCount:         e.CompactionCount(),
-		ContextUsage:            &usage,
-		Goal:                    e.Goal(),
-		GoalSuspended:           e.GoalLoopSuspended(),
+		ConnectionReplacement: e.transcriptRuntimeState().ConnectionReplacement(),
+		CommittedRows:         snapshot.Rows,
+		ActiveAssistants:      snapshot.Streaming,
+		ActiveThinkingStatus:  thinkingStatus,
+		ActiveReasoningTraces: reasoningTraces,
+		InFlightTools:         e.transcriptRuntimeState().LiveToolSnapshot(),
+		ActiveCompaction:      e.compactionRuntimeState().ActiveSnapshot(),
+		CompactionCount:       e.CompactionCount(),
+		ContextUsage:          &usage,
+		Goal:                  e.Goal(),
+		GoalSuspended:         e.GoalLoopSuspended(),
 	}
 }

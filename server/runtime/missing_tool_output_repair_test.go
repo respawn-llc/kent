@@ -503,16 +503,11 @@ func TestGenerationMissingToolOutputRebuildKeepsIdentityAndAllocatesFreshState(t
 		context.Background(),
 		exclusiveStepOptions{ActiveKind: ActiveKindUserTurn},
 		func(ctx context.Context, stepID string) error {
-			_, generateErr := engine.generateWithMissingToolOutputRepair(
-				ctx,
+			_, generateErr := engine.generateWithMissingToolOutputRepair(ctx,
 				stepID,
 				func() (llm.Request, error) {
 					return engine.buildActiveTurnDispatchRequest(ctx, stepID, nil, true)
-				},
-				nil,
-				nil,
-				nil,
-			)
+				}, llm.StreamCallbacks{}, nil)
 			return generateErr
 		},
 	)

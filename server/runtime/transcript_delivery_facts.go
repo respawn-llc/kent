@@ -135,7 +135,7 @@ func TranscriptCommittedRowFactsFromEvent(evt Event) []TranscriptCommittedRowFac
 	case EventConversationUpdated, EventAssistantMessage:
 		facts = transcriptCommittedRowFactsFromMessage(
 			evt.Message,
-			evt.AssistantTranscriptStreamID,
+			evt.AssistantStreamCorrelations,
 			nil,
 			nil,
 			transcriptMessageProjectionContext{Provenance: evt.CommittedProvenance},
@@ -317,12 +317,12 @@ type transcriptMessageProjectionContext struct {
 
 func transcriptCommittedRowFactsFromMessage(
 	msg llm.Message,
-	streamID *uuid.UUID,
+	correlations []AssistantStreamCorrelation,
 	completions map[string]tools.Result,
 	materializedToolCalls map[string]struct{},
 	contexts ...transcriptMessageProjectionContext,
 ) []TranscriptCommittedRowFact {
-	facts := transcriptCommittedRowFactsFromMessageUnlocated(msg, streamID, completions, materializedToolCalls)
+	facts := transcriptCommittedRowFactsFromMessageUnlocated(msg, correlations, completions, materializedToolCalls)
 	var provenance *TranscriptCommittedRowProvenance
 	var completionProvenance map[string]*TranscriptCommittedRowProvenance
 	if len(contexts) > 0 {
@@ -337,7 +337,7 @@ func transcriptCommittedRowFactsFromMessage(
 		if facts[index].Assistant != nil && provenance != nil {
 			facts[index].Assistant.CommittedAtUnixMs = textutil.Pointer(provenance.CommittedAtUnixMs)
 		}
-		if facts[index].Tool != nil && completionProvenance != nil {
+		if msg.NativeResponse == nil && facts[index].Tool != nil && completionProvenance != nil {
 			if owner := completionProvenance[facts[index].Tool.ToolCallID]; owner != nil {
 				facts[index].Provenance = cloneTranscriptCommittedRowProvenance(owner)
 			}
@@ -346,7 +346,34 @@ func transcriptCommittedRowFactsFromMessage(
 	return facts
 }
 
-func transcriptCommittedRowFactsFromMessageUnlocated(msg llm.Message, streamID *uuid.UUID, completions map[string]tools.Result, materializedToolCalls map[string]struct{}) []TranscriptCommittedRowFact {
+func transcriptCommittedRowFactsFromMessageUnlocated(msg llm.Message, correlations []AssistantStreamCorrelation, completions map[string]tools.Result, materializedToolCalls map[string]struct{}) []TranscriptCommittedRowFact {
+	if msg.NativeResponse != nil {
+		var facts []TranscriptCommittedRowFact
+		for _, projected := range nativeResponseMessages(msg) {
+			if projected.Reasoning != nil {
+				if fact, ok := transcriptCommittedRowFactFromChatEntry(*projected.Reasoning); ok {
+					fact.ReasoningTrace.ProvisionalIdentity = projected.ReasoningIdentity
+					facts = append(facts, fact)
+				}
+				continue
+			}
+			facts = append(facts, transcriptGenericMessageRowFacts(projected.Message, assistantStreamForOutput(correlations, &projected.OutputIndex), completions, materializedToolCalls)...)
+		}
+		return facts
+	}
+	return transcriptGenericMessageRowFacts(msg, assistantStreamForOutput(correlations, nil), completions, materializedToolCalls)
+}
+
+func assistantStreamForOutput(correlations []AssistantStreamCorrelation, outputIndex *int64) *uuid.UUID {
+	for _, correlation := range correlations {
+		if textutil.EqualOptional(correlation.OutputIndex, outputIndex) {
+			return textutil.Value(correlation.StreamID)
+		}
+	}
+	return nil
+}
+
+func transcriptGenericMessageRowFacts(msg llm.Message, streamID *uuid.UUID, completions map[string]tools.Result, materializedToolCalls map[string]struct{}) []TranscriptCommittedRowFact {
 	switch msg.Role {
 	case llm.RoleUser:
 		if msg.MessageType != nil &&

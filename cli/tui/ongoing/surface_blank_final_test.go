@@ -94,3 +94,32 @@ func streamIDPointer(streamID string) *string {
 func blankFinalFrame() FrameInput {
 	return FrameInput{Size: Size{Width: 80, Height: 24}}
 }
+
+func TestSurfaceAcceptsSeparateAssistantStreamsBeforeEitherCommits(t *testing.T) {
+	var output bytes.Buffer
+	surface := NewSurface(&output)
+	first := runtimeids.NewAssistantStreamID().String()
+	second := runtimeids.NewAssistantStreamID().String()
+	phase := transcriptpb.AssistantPhase_ASSISTANT_PHASE_COMMENTARY
+	apply := func(event *transcriptpb.Event) {
+		t.Helper()
+		if _, err := surface.ApplyTerminalMessage(&transcriptpb.Message{Event: event}, blankFinalFrame()); err != nil {
+			t.Fatal(err)
+		}
+	}
+	for _, id := range []string{first, second} {
+		apply(&transcriptpb.Event{Payload: &transcriptpb.Event_AssistantDelta{
+			AssistantDelta: &transcriptpb.AssistantDelta{StreamId: id, Phase: phase, Delta: "item"},
+		}})
+	}
+	for _, id := range []string{first, second} {
+		apply(&transcriptpb.Event{Payload: &transcriptpb.Event_CommittedRow{
+			CommittedRow: &transcriptpb.CommittedRow{Row: &transcriptpb.CommittedRow_Assistant{
+				Assistant: &transcriptpb.AssistantRow{StreamId: &id, Phase: phase, Text: "item"},
+			}},
+		}})
+	}
+	if output.Len() == 0 {
+		t.Fatal("separate assistant streams produced no terminal output")
+	}
+}

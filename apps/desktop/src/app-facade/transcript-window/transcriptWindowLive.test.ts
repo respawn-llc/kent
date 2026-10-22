@@ -255,7 +255,7 @@ describe("transcript live membership and compaction", () => {
       kind: "initial-hydration",
       hydration: {
         ...initial,
-        ActiveAssistant: { StepID: "step", StreamID: "stream", Phase: "commentary", Text: "Draft" },
+        ActiveAssistants: [{ StepID: "step", StreamID: "stream", Phase: "commentary", Text: "Draft" }],
       },
     });
     window.dispatch({
