@@ -344,7 +344,7 @@
 - A pending compacted context must carry the identity of its in-progress assignment, when present, so later activation can distinguish continuation from a new assignment. Existing pending summaries without that identity must receive new-assignment instructions. Kent must not infer the missing identity or rewrite saved conversation history.
 - Post-completion compaction has no current executable assignment. Its replacement contains the completed-assignment summary and general Workflow instructions without a current-assignment reminder. Every later executable Node entry, including a return to the same Node key, appends reassignment instructions before its first model request.
 - Prompt explains task identity, node role/assignee, selected completion behavior, question behavior, handoff/transition mechanics, task comments, and why ordinary final answers are invalid when the selected mode rejects them.
-- Agent Sessions created by Workflow Execution begin at subagent depth `0`. Delegation from a Workflow agent follows the global subagent-depth policy.
+- Delegation from a Workflow agent must follow the caller-role and absolute-depth policy in [Headless Mode And Shared Control](core-runtime-tools.md#headless-mode-and-shared-control).
 - Ordinary final response text cannot bypass the selected completion mode.
 - Existing user goal state is not reused as workflow autonomy state.
 - Workflow Task Sessions expose ordinary human `/goal` control. Goal mutations follow the same live Steering or dormant Store ownership as other Sessions.

@@ -687,6 +687,7 @@ func TestPlannerHeadlessChildWithRoleUsesFreshSystemPromptSnapshot(t *testing.T)
 		t.Fatalf("write role prompt: %v", err)
 	}
 	cfg.Settings.Subagents = map[string]config.SubagentRole{
+		"old_parent_role": {},
 		"code_review": {
 			Settings: config.Settings{
 				Model:            "gpt-6-luna",

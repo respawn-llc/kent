@@ -143,6 +143,7 @@ it("reveals the live destination without freezing its opening layout", async () 
   expect(target).not.toBeVisible();
   target.append(document.createTextNode(" with newly laid out content"));
   await new Promise((resolve) => setTimeout(resolve, 350));
+  await layoutSettled();
   expect(target).toBeVisible();
   expect(target).toHaveTextContent("A message with newly laid out content");
   expect(document.body.children).toHaveLength(2);
