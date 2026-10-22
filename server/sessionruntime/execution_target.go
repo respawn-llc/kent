@@ -90,15 +90,9 @@ func (a *Authority) RunWorktreeTransition(
 	if fn == nil {
 		return nil, errors.New("worktree transition executor is required")
 	}
-	if err := operationID.Validate(); err != nil {
-		return nil, err
-	}
-	id, err := runtimeids.ParseSessionID(strings.TrimSpace(sessionID))
-	if err != nil {
-		return nil, err
-	}
+	id := runtimeids.SessionIDFromProto(sessionID)
 	var acknowledgement *worktreepb.ScheduledAcknowledgement
-	err = a.withMaintenanceResource(ctx, id, func(runCtx context.Context, store *session.Store, resource *agentResource, engine *runtime.Engine) (bool, error) {
+	err := a.withMaintenanceResource(ctx, id, func(runCtx context.Context, store *session.Store, resource *agentResource, engine *runtime.Engine) (bool, error) {
 		if resource == nil {
 			runErr := fn(
 				runCtx,
