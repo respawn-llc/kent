@@ -36,15 +36,24 @@ type CursorTarget struct {
 }
 
 type FrameSection struct {
-	Kind        FrameSectionKind
-	Lines       []string
-	StyledLines []transcriptrender.Line
+	Kind          FrameSectionKind
+	Lines         []string
+	StyledLines   []transcriptrender.Line
+	OutputIndexes []*int64
+}
+
+func (s FrameSection) outputIndex(row int) *int64 {
+	if s.OutputIndexes == nil {
+		return nil
+	}
+	return s.OutputIndexes[row]
 }
 
 type liveBandLine struct {
 	text        string
 	sectionKind FrameSectionKind
 	sectionRow  int
+	outputIndex *int64
 }
 
 type FrameSectionKind string
@@ -132,6 +141,7 @@ type Surface struct {
 }
 
 type activeAssistantState struct {
+	outputIndex            *int64
 	streamID               *string
 	source                 string
 	phase                  transcriptpb.AssistantPhase
@@ -189,7 +199,7 @@ func (s *Surface) ApplyTerminalMessage(message *transcriptpb.Message, frame Fram
 		return s.applyHydration(payload.Hydration, frame)
 	case *transcriptpb.Event_AssistantDelta:
 		delta := payload.AssistantDelta
-		return s.applyAssistantDelta(delta.StreamId, delta.Delta, delta.Phase, frame)
+		return s.applyAssistantDelta(delta.StreamId, delta.Delta, delta.Phase, delta.OutputIndex, frame)
 	case *transcriptpb.Event_AssistantStreamAbort:
 		return s.abortAssistantStream(payload.AssistantStreamAbort.StreamId, frame)
 	case *transcriptpb.Event_StepState:
@@ -241,7 +251,7 @@ func (s *Surface) applyHydration(hydration *transcriptpb.Hydration, frame FrameI
 		for _, stream := range hydration.ActiveAssistants[1:] {
 			id := stream.StreamId
 			s.pendingAssistants = append(s.pendingAssistants, activeAssistantState{
-				streamID: &id, source: stream.Text, phase: stream.Phase,
+				streamID: &id, source: stream.Text, phase: stream.Phase, outputIndex: stream.OutputIndex,
 			})
 		}
 	}
@@ -277,6 +287,7 @@ func (s *Surface) hydrateActiveAssistantStream(stream *transcriptpb.AssistantStr
 	}
 	streamIDCopy := stream.StreamId
 	s.activeAssistant = activeAssistantState{
+		outputIndex:      stream.OutputIndex,
 		streamID:         &streamIDCopy,
 		source:           stream.Text,
 		phase:            stream.Phase,
@@ -285,10 +296,11 @@ func (s *Surface) hydrateActiveAssistantStream(stream *transcriptpb.AssistantStr
 	return stream.Text != ""
 }
 
-func (s *Surface) applyAssistantDelta(streamID string, delta string, phase transcriptpb.AssistantPhase, frame FrameInput) (Result, error) {
+func (s *Surface) applyAssistantDelta(streamID string, delta string, phase transcriptpb.AssistantPhase, outputIndex *int64, frame FrameInput) (Result, error) {
 	if s.activeAssistant.streamID == nil {
 		streamIDCopy := streamID
 		s.activeAssistant.streamID = &streamIDCopy
+		s.activeAssistant.outputIndex = outputIndex
 	} else if *s.activeAssistant.streamID != streamID {
 		for index := range s.pendingAssistants {
 			stream := &s.pendingAssistants[index]
@@ -303,7 +315,7 @@ func (s *Surface) applyAssistantDelta(streamID string, delta string, phase trans
 		}
 		id := streamID
 		s.pendingAssistants = append(s.pendingAssistants, activeAssistantState{
-			streamID: &id, source: delta, phase: phase,
+			streamID: &id, source: delta, phase: phase, outputIndex: outputIndex,
 		})
 		return s.writeFrameTransaction(frame, nil)
 	}
@@ -337,6 +349,11 @@ func (s *Surface) applyAssistantDelta(streamID string, delta string, phase trans
 }
 
 func (s *Surface) activeAssistantPromotionDeferred() bool {
+	if s.activeAssistant.outputIndex != nil && *s.activeAssistant.outputIndex > 0 {
+		// Earlier native items may not be accepted yet. Keep this tail mutable
+		// until source-ordered committed rows establish its scrollback position.
+		return true
+	}
 	if s.activeAssistant.phase != transcriptpb.AssistantPhase_ASSISTANT_PHASE_FINAL {
 		return false
 	}

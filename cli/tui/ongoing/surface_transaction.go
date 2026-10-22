@@ -2,6 +2,7 @@ package ongoing
 
 import (
 	"io"
+	"sort"
 	"strings"
 
 	"core/cli/tui/transcriptrender"
@@ -47,6 +48,11 @@ func (s *Surface) terminalHeightExpanded(target Size) bool {
 }
 
 func (s *Surface) validateRenderFrame(frame FrameInput, operation string) {
+	for _, section := range frame.Sections {
+		if section.OutputIndexes != nil && len(section.OutputIndexes) != len(section.Lines)+len(section.StyledLines) {
+			panicOngoingDeveloperError(operation, "provider output positions must match section rows", nil)
+		}
+	}
 	if frame.Size.Width <= 0 || frame.Size.Height <= 0 {
 		panicOngoingDeveloperError(operation, "invalid terminal geometry", map[string]any{
 			"width":  frame.Size.Width,
@@ -184,23 +190,25 @@ func (s *Surface) lastAssistantStream() activeAssistantState {
 }
 
 func (s *Surface) liveBandLayout(frame FrameInput) []liveBandLine {
-	lines := activeAssistantLinesWithLinkPresentation(
-		s.activeAssistant,
-		frameWidthOrDefault(frame),
-		frame.Theme,
-		s.markdownLinks,
-	)
-	for _, stream := range s.pendingAssistants {
-		lines = append(lines, activeAssistantLinesWithLinkPresentation(
-			stream, frameWidthOrDefault(frame), frame.Theme, s.markdownLinks,
-		)...)
-	}
-	layout := make([]liveBandLine, 0, len(lines)+len(frame.Sections))
-	for _, line := range lines {
-		layout = append(layout, liveBandLine{text: line})
+	var layout []liveBandLine
+	for _, stream := range append([]activeAssistantState{s.activeAssistant}, s.pendingAssistants...) {
+		for _, line := range activeAssistantLinesWithLinkPresentation(stream, frameWidthOrDefault(frame), frame.Theme, s.markdownLinks) {
+			layout = append(layout, liveBandLine{text: line, outputIndex: stream.outputIndex})
+		}
 	}
 	layout = append(layout, frameLines(frame)...)
+	orderProviderLines(layout)
 	return layout
+}
+
+func orderProviderLines(layout []liveBandLine) {
+	sort.SliceStable(layout, func(i, j int) bool {
+		left, right := layout[i].outputIndex, layout[j].outputIndex
+		if left == nil {
+			return false
+		}
+		return right == nil || *left < *right
+	})
 }
 
 func (s *Surface) shrinkLiveBandLayoutToFrame(frame FrameInput, liveLayout []liveBandLine) []liveBandLine {
@@ -233,7 +241,7 @@ func minimumLiveBandLayoutWithLinkPresentation(
 	}
 	layout := make([]liveBandLine, 0, len(lines)+len(frame.Sections))
 	for _, line := range lines {
-		layout = append(layout, liveBandLine{text: line})
+		layout = append(layout, liveBandLine{text: line, outputIndex: assistant.outputIndex})
 	}
 	for _, section := range frame.Sections {
 		totalLines := len(section.StyledLines) + len(section.Lines)
@@ -262,9 +270,11 @@ func minimumLiveBandLayoutWithLinkPresentation(
 				text:        text,
 				sectionKind: section.Kind,
 				sectionRow:  index + 1,
+				outputIndex: section.outputIndex(index),
 			})
 		}
 	}
+	orderProviderLines(layout)
 	return layout
 }
 
@@ -340,6 +350,7 @@ func frameLines(frame FrameInput) []liveBandLine {
 				text:        encodeTranscriptLine(line, frame.Theme),
 				sectionKind: section.Kind,
 				sectionRow:  index + 1,
+				outputIndex: section.outputIndex(index),
 			})
 		}
 		for index, line := range section.Lines {
@@ -347,6 +358,7 @@ func frameLines(frame FrameInput) []liveBandLine {
 				text:        line,
 				sectionKind: section.Kind,
 				sectionRow:  len(section.StyledLines) + index + 1,
+				outputIndex: section.outputIndex(len(section.StyledLines) + index),
 			})
 		}
 	}

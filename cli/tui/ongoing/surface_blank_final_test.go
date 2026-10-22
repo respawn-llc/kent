@@ -2,14 +2,55 @@ package ongoing
 
 import (
 	"bytes"
+	"strings"
 	"testing"
 
+	"core/internal/testharness/pty"
+	"core/internal/testharness/pty/analyzer"
 	transcriptpb "core/shared/protoapi/gen/kent/api/transcript"
 	"core/shared/runtimeids"
 	"core/shared/textutil"
 
 	"github.com/google/uuid"
 )
+
+func TestSurfaceInterleavesHostedPreviewBetweenProviderMessages(t *testing.T) {
+	var output bytes.Buffer
+	surface := NewSurface(&output)
+	frame := blankFinalFrame()
+	first, second := runtimeids.NewAssistantStreamID().String(), runtimeids.NewAssistantStreamID().String()
+	apply := func(id string, index int64, text string) {
+		t.Helper()
+		_, err := surface.ApplyTerminalMessage(&transcriptpb.Message{Event: &transcriptpb.Event{
+			Payload: &transcriptpb.Event_AssistantDelta{AssistantDelta: &transcriptpb.AssistantDelta{
+				StreamId: id, OutputIndex: &index, Phase: transcriptpb.AssistantPhase_ASSISTANT_PHASE_COMMENTARY, Delta: text,
+			}},
+		}}, frame)
+		if err != nil {
+			t.Fatal(err)
+		}
+	}
+	apply(first, 0, "EARLIER")
+	frame.Sections = []FrameSection{{Kind: FrameSectionPendingTools, Lines: []string{"HOSTED"}, OutputIndexes: []*int64{textutil.Value(int64(1))}}}
+	apply(second, 2, "LATER")
+	apply(first, 0, " COMPLETE")
+	terminal, err := analyzer.NewStream(pty.MustDimensions(frame.Size.Height, frame.Size.Width))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := terminal.Feed(output.Bytes()); err != nil {
+		t.Fatal(err)
+	}
+	snapshot, err := terminal.ScreenSnapshot()
+	if err != nil {
+		t.Fatal(err)
+	}
+	text := snapshot.RenderText()
+	before, tool, after := strings.Index(text, "EARLIER COMPLETE"), strings.Index(text, "HOSTED"), strings.Index(text, "LATER")
+	if before < 0 || tool < before || after < tool {
+		t.Fatalf("provider item order changed across interleaved deltas: %q", text)
+	}
+}
 
 func TestSurfaceBlankFinalDefersEmptyStreamPromotion(t *testing.T) {
 	surface := NewSurface(&bytes.Buffer{})
