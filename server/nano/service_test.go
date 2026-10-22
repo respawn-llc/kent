@@ -27,6 +27,7 @@ import (
 	"core/shared/jsoncontract"
 	"core/shared/textutil"
 
+	"github.com/coder/websocket"
 	"github.com/google/uuid"
 )
 
@@ -59,13 +60,26 @@ func TestNanoChatGPTDispatchIdentityAndRetry(t *testing.T) {
 	var received []metadata
 	var identities, states []string
 	var observations sync.Mutex
+	released := make(chan struct{})
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("x-codex-turn-state", "opaque,state=value")
+		socket, err := websocket.Accept(w, r, nil)
+		if err != nil {
+			t.Error(err)
+			return
+		}
+		defer socket.CloseNow()
+		_, raw, err := socket.Read(t.Context())
+		if err != nil {
+			t.Error(err)
+			return
+		}
 		observations.Lock()
 		defer observations.Unlock()
 		var body struct {
 			ClientMetadata map[string]string `json:"client_metadata"`
 		}
-		if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		if err := json.Unmarshal(raw, &body); err != nil {
 			t.Error(err)
 		}
 		var facts metadata
@@ -77,14 +91,16 @@ func TestNanoChatGPTDispatchIdentityAndRetry(t *testing.T) {
 		states = append(states, r.Header.Get("x-codex-turn-state"))
 		if len(received) == 1 {
 			endParent()
-			w.Header().Set("x-codex-turn-state", "opaque,state=value")
-			w.Header().Set("Content-Type", "application/json")
-			w.WriteHeader(http.StatusServiceUnavailable)
-			fmt.Fprint(w, `{"error":{"message":"retry","type":"server_error"}}`)
+			if err := socket.Write(t.Context(), websocket.MessageText, []byte(`{"type":"error","status":503,"error":{"message":"retry","type":"server_error"}}`)); err != nil {
+				t.Error(err)
+			}
 			return
 		}
-		w.Header().Set("Content-Type", "text/event-stream")
-		fmt.Fprintf(w, "data: {\"type\":\"response.completed\",\"response\":%s}\n\n", completedResponse)
+		if err := socket.Write(t.Context(), websocket.MessageText, []byte(fmt.Sprintf(`{"type":"response.completed","response":%s}`, completedResponse))); err != nil {
+			t.Error(err)
+		}
+		_, _, _ = socket.Read(t.Context())
+		close(released)
 	}))
 	defer server.Close()
 	root := t.TempDir()
@@ -138,6 +154,11 @@ func TestNanoChatGPTDispatchIdentityAndRetry(t *testing.T) {
 	})
 	if err != nil {
 		t.Fatal(err)
+	}
+	select {
+	case <-released:
+	case <-time.After(time.Second):
+		t.Fatal("Nano returned without releasing its completed provider socket")
 	}
 	observations.Lock()
 	defer observations.Unlock()

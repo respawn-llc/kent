@@ -16,6 +16,11 @@ const (
 	responsesSocketBufferedEvents = 1600
 )
 
+type responsesGenerationSocket struct {
+	*responses.ResponseConnection
+	mode OpenAIAuthMode
+}
+
 func (t *HTTPTransport) Close() error {
 	t.generationMu.Lock()
 	defer t.generationMu.Unlock()
@@ -36,7 +41,14 @@ func (t *HTTPTransport) generateWebsocket(ctx context.Context, request Responses
 			t.socket = nil
 		}
 	}()
-	preparation, err := t.prepareDispatch(ctx, request.SessionID, request.Model, request.CodexDispatch, request.FastMode)
+	var preparation responsesDispatchPreparation
+	if t.socket == nil {
+		preparation, err = t.prepareDispatch(ctx, request.SessionID, request.Model, request.CodexDispatch, request.FastMode)
+	} else {
+		if err = validateResponsesDispatchIdentity(request.SessionID, request.CodexDispatch); err == nil {
+			preparation, err = t.projectDispatch(*request.SessionID, request.Model, request.CodexDispatch, request.FastMode, t.socket.mode)
+		}
+	}
 	if err != nil {
 		return result, err
 	}
@@ -64,13 +76,16 @@ func (t *HTTPTransport) generateWebsocket(ctx context.Context, request Responses
 	if t.socket == nil {
 		service := responses.NewResponseService(option.WithBaseURL(t.serviceBaseURL()), option.WithHTTPClient(t.streamingHTTPClient()), option.WithMaxRetries(0))
 		options := append(t.buildRequestOptions(request, preparation), option.WithResponseInto(&handshake))
-		t.socket, err = service.Connect(ctx, responses.ResponseConnectionOptions{
+		connection, err := service.Connect(ctx, responses.ResponseConnectionOptions{
 			MaxMessageBytes: responsesSocketMessageBytes, MaxBufferedBytes: responsesSocketBufferedBytes, MaxBufferedEvents: responsesSocketBufferedEvents,
 		}, options...)
 		if err != nil {
 			return result, newResponsesRequestErrorMapper(preparation.variant.ProviderID).Map(err, handshake, "open responses websocket")
 		}
+		t.socket = &responsesGenerationSocket{ResponseConnection: connection, mode: preparation.mode}
 	}
+	abort := context.AfterFunc(ctx, t.socket.Abort)
+	defer abort()
 	headersObserved := false
 	observeCodexTurnStateResponseHeader(codexTurnStateObserver(preparation.projection, request.CodexDispatch), handshake, &headersObserved)
 	if err := t.socket.Create(ctx, create); err != nil {
@@ -95,6 +110,9 @@ func (t *HTTPTransport) generateWebsocket(ctx context.Context, request Responses
 			return result, err
 		}
 		if accumulator.hasCompleted() {
+			if !abort() {
+				return result, ctx.Err()
+			}
 			return responseFromStreamAccumulator(accumulator, preparation.variant.ProviderID, handshake, evidence)
 		}
 	}

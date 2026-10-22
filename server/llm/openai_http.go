@@ -70,7 +70,7 @@ type HTTPTransport struct {
 	mu                  sync.RWMutex
 	modelContextWindows map[string]int
 	generationMu        sync.Mutex
-	socket              *responses.ResponseConnection
+	socket              *responsesGenerationSocket
 }
 
 func NewHTTPTransport(auth DispatchAuthProvider, registration ProviderVariantRegistration) (*HTTPTransport, error) {
@@ -420,20 +420,30 @@ func (t *HTTPTransport) prepareDispatch(
 	dispatch *CodexDispatchContext,
 	fastMode bool,
 ) (responsesDispatchPreparation, error) {
-	if sessionID == nil {
-		return responsesDispatchPreparation{}, fmt.Errorf("%w: Session identity is required for dispatch", ErrInvalidRequest)
-	}
-	if err := validateSessionDispatchPairing(sessionID, dispatch); err != nil {
+	if err := validateResponsesDispatchIdentity(sessionID, dispatch); err != nil {
 		return responsesDispatchPreparation{}, err
 	}
 	authHeader, mode, err := t.resolveAuth(ctx)
 	if err != nil {
 		return responsesDispatchPreparation{}, err
 	}
+	preparation, err := t.projectDispatch(*sessionID, model, dispatch, fastMode, mode)
+	preparation.authHeader = authHeader
+	return preparation, err
+}
+
+func validateResponsesDispatchIdentity(sessionID *string, dispatch *CodexDispatchContext) error {
+	if sessionID == nil {
+		return fmt.Errorf("%w: Session identity is required for dispatch", ErrInvalidRequest)
+	}
+	return validateSessionDispatchPairing(sessionID, dispatch)
+}
+
+func (t *HTTPTransport) projectDispatch(sessionID string, model string, dispatch *CodexDispatchContext, fastMode bool, mode OpenAIAuthMode) (responsesDispatchPreparation, error) {
 	variant := t.registration.Variant
 	providerCaps := t.providerCapabilitiesForVariant(variant)
 	projection, err := variant.ResponsesPolicy.prepareDispatch(
-		*sessionID,
+		sessionID,
 		model,
 		dispatch,
 		effectiveServiceTier(fastMode, t.effectiveRequestCapabilities(providerCaps)),
@@ -450,7 +460,6 @@ func (t *HTTPTransport) prepareDispatch(
 		dispatch.bindTurnState(accountID, t.serviceBaseURL())
 	}
 	return responsesDispatchPreparation{
-		authHeader:   authHeader,
 		mode:         mode,
 		variant:      variant,
 		providerCaps: providerCaps,

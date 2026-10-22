@@ -440,7 +440,7 @@ func (e *Engine) Close() error {
 	e.lifecycleWG.Wait()
 	e.runtimeFIFO.Close()
 	abortErr := e.steerLifecycleClose(steerLiveToolAbortIntent("canceled"))
-	return errors.Join(interruptErr, abortErr)
+	return errors.Join(interruptErr, abortErr, e.connectionSnapshot().client.Close(), e.reviewerState.Client().Close())
 }
 
 func (e *Engine) BeginRetirement() bool {

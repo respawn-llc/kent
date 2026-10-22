@@ -3,6 +3,7 @@ package llm
 import (
 	"context"
 	"fmt"
+	"io"
 	"strings"
 
 	"core/shared/modelcontract"
@@ -96,6 +97,13 @@ type ResponsesClient struct {
 }
 
 type UsageObserver func(context.Context, string, Usage)
+
+func (c *ResponsesClient) Close() error {
+	if closer, ok := c.transport.(io.Closer); ok {
+		return closer.Close()
+	}
+	return nil
+}
 
 func NewResponsesClient(transport ResponsesTransport, observer UsageObserver) *ResponsesClient {
 	return &ResponsesClient{transport: transport, usageObserver: observer}
