@@ -224,6 +224,7 @@ export const englishResources = {
         newChatUnavailable: "New chat is not available in this prototype",
         projectTasksGrid: "Project tasks",
         dependenciesColumn: "Dependencies",
+        stageColumn: "Stage",
         idColumn: "ID",
         titleColumn: "Title",
         workflowColumn: "Workflow",

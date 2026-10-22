@@ -4,7 +4,7 @@ import type { WorkflowEdgeSelectionMode } from "./workflowSelectionModels";
 export type WorkflowGraphDraftNodeGroup = Readonly<{
   id: string;
   key: string;
-  name: string;
+  name: string | null;
 }>;
 
 export type WorkflowGraphDraftNode = Readonly<{

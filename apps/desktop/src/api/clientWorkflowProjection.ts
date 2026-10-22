@@ -57,7 +57,7 @@ export function workflowDefinition(value: pb.WorkflowDefinitionValid): WorkflowD
       id: group.groupId,
       workflowID: group.workflowId,
       key: group.groupKey,
-      name: group.displayName,
+      name: group.displayName ?? null,
       sortOrder: group.sortOrder,
       nodeIDs: [],
     })),

@@ -6,11 +6,13 @@ export type ProjectTaskColumnLayout = Readonly<{
   dependenciesPx: number;
   idCharacters: number;
   labelsPx: number;
+  stagePx: number;
   workflowPx: number;
 }>;
 
 export type ProjectTaskRenderedColumnWidths = Readonly<{
   labelsPx: number | null;
+  stagePx: number | null;
   workflowPx: number | null;
 }>;
 
@@ -22,6 +24,7 @@ type ProjectTaskStructuralColumnWidths = Readonly<{
 type ProjectTaskVisibleColumns = Readonly<{
   dependencies: boolean;
   labelsPx: number | null;
+  stage: boolean;
   title: boolean;
   workflow: boolean;
 }>;
@@ -30,6 +33,7 @@ const initialProjectTaskColumnLayout: ProjectTaskColumnLayout = {
   dependenciesPx: 18,
   idCharacters: 2,
   labelsPx: 48,
+  stagePx: 64,
   workflowPx: 64,
 };
 
@@ -45,6 +49,7 @@ export function useProjectTaskColumnLayout(data: ProjectTaskListData): Readonly<
         const expanded = {
           ...current,
           labelsPx: widths.labelsPx === null ? current.labelsPx : Math.max(current.labelsPx, widths.labelsPx),
+          stagePx: widths.stagePx === null ? current.stagePx : Math.max(current.stagePx, widths.stagePx),
           workflowPx:
             widths.workflowPx === null ? current.workflowPx : Math.max(current.workflowPx, widths.workflowPx),
         };
@@ -105,6 +110,7 @@ function projectTaskColumnLayoutsEqual(
     left.dependenciesPx === right.dependenciesPx &&
     left.idCharacters === right.idCharacters &&
     left.labelsPx === right.labelsPx &&
+    left.stagePx === right.stagePx &&
     left.workflowPx === right.workflowPx
   );
 }
@@ -123,6 +129,7 @@ export function projectTaskColumnStyle(
     `${layout.idCharacters.toString()}ch`,
     visible.title ? "minmax(7ch, 1fr)" : null,
     visible.dependencies ? `${layout.dependenciesPx.toString()}px` : null,
+    visible.stage ? `${layout.stagePx.toString()}px` : null,
     visible.labelsPx === null ? null : `${visible.labelsPx.toString()}px`,
     visible.workflow ? `${layout.workflowPx.toString()}px` : null,
   ].filter((column): column is string => column !== null);
@@ -140,6 +147,7 @@ export function resolveProjectTaskVisibleColumns(
     return {
       dependencies: true,
       labelsPx: layout.labelsPx,
+      stage: true,
       title: true,
       workflow: workflowRelevant,
     };
@@ -160,20 +168,20 @@ export function resolveProjectTaskVisibleColumns(
     gapPx * (2 + optionalWidths.length);
 
   const optionalWidths = workflowRelevant
-    ? [layout.dependenciesPx, layout.labelsPx, layout.workflowPx]
-    : [layout.dependenciesPx, layout.labelsPx];
+    ? [layout.dependenciesPx, layout.stagePx, layout.labelsPx, layout.workflowPx]
+    : [layout.dependenciesPx, layout.stagePx, layout.labelsPx];
   const workflow = workflowRelevant && requiredWidth(optionalWidths) <= widthPx;
-  const labelsAvailablePx = widthPx - requiredWidth([layout.dependenciesPx, 0]);
+  const labelsAvailablePx = widthPx - requiredWidth([layout.dependenciesPx, layout.stagePx, 0]);
   let labelsPx: number | null = null;
   if (workflow) {
     labelsPx = layout.labelsPx;
   } else if (labelsAvailablePx >= initialProjectTaskColumnLayout.labelsPx) {
     labelsPx = Math.min(layout.labelsPx, labelsAvailablePx);
   }
-  const withoutLabels = [layout.dependenciesPx];
-  const dependencies = labelsPx !== null || requiredWidth(withoutLabels) <= widthPx;
+  const stage = labelsPx !== null || requiredWidth([layout.dependenciesPx, layout.stagePx]) <= widthPx;
+  const dependencies = stage || requiredWidth([layout.dependenciesPx]) <= widthPx;
   const title = dependencies || requiredWidth([]) <= widthPx;
-  return { dependencies, labelsPx, title, workflow };
+  return { dependencies, labelsPx, stage, title, workflow };
 }
 
 export function useProjectTaskListWidth(): Readonly<{

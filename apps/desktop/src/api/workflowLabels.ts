@@ -82,6 +82,7 @@ export type TaskListItem = Readonly<{
   shortID: string;
   workflowID: string;
   workflowName: string | null;
+  stageName: string | null;
   title: string;
   createdAt: number;
   updatedAt: number;

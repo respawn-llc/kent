@@ -22,6 +22,7 @@
 - Transition branches visibly distinguish their Context-Preservation Mode: a new Session is blue, a continued Session is gray, and a compacted-and-continued Session is orange.
 - A transition displays its Transition Label or Transition Key. A Fan-Out Transition branch displays its Transition Branch Key.
 - Node Groups appear as labeled branch islands. Their owned Join belongs to that group and appears to its right, vertically centered on it. Empty Node Groups are not saved.
+- New Node Groups must start with a null name. The editor must allow operators to clear a Group name. An unnamed Group must display its Group Key as its label.
 - Layout is deterministic, derived from Workflow structure, and left-to-right. Canvas positions are not Workflow data.
 - Group backgrounds must be behind transitions and labels. Node cards and their interaction points must be above them.
 - Opening a Workflow fits the complete graph. Refreshing a changed Workflow must not change pan and zoom, must clear stale selection, and must report that the Workflow changed.
