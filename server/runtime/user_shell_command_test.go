@@ -264,6 +264,82 @@ func TestIdleShellAdmissionExecutesWithoutModelTurn(t *testing.T) {
 	}
 }
 
+func TestQueueShellPrefixPrecedesNextModelMessage(t *testing.T) {
+	started, release := make(chan struct{}), make(chan struct{})
+	client := &hookClient{response: finalTextResponse("done")}
+	requests := 0
+	client.beforeReturn = func() error {
+		requests++
+		if requests == 1 {
+			close(started)
+			<-release
+		}
+		return nil
+	}
+	commands := make(chan string, 4)
+	engine := mustNewTestEngine(t, mustCreateTestSession(t), client, newTestToolRegistry(t, tools.HandlerRegistration{
+		ID: toolspec.ToolExecCommand, Handler: userShellTestTool{commands: commands},
+	}), Config{Model: "gpt-6-sol"})
+	done := make(chan error, 1)
+	go func() {
+		_, err := engine.SubmitUserMessage(t.Context(), "start")
+		done <- err
+	}()
+	pendingWorkTestWait(t, started, "initial model request")
+	for _, command := range []string{"echo A", "echo B"} {
+		_, err := engine.QueueShellInput(t.Context(), runtimeids.NewQueueItemID(), runtimeinput.ShellCommand{Command: command}, runtimeinput.PendingWorkLaneQueue, nil)
+		pendingWorkTestNoError(t, err)
+	}
+	_, err := engine.QueueUserInput(t.Context(), plainQueuedUserInput("message C"))
+	pendingWorkTestNoError(t, err)
+	if len(commands) != 0 || len(pendingWorkTestSnapshot(t, engine).Items) != 3 {
+		t.Fatal("Queue Shell executed before the Agent Turn ended")
+	}
+	close(release)
+	pendingWorkTestNoError(t, <-done)
+	pendingWorkTestNoError(t, engine.WaitForScheduledQueuedUserWork(t.Context()))
+	if len(client.calls) != 2 || len(commands) != 2 {
+		t.Fatalf("model calls=%d, Shell calls=%d", len(client.calls), len(commands))
+	}
+	for _, want := range []string{"echo A", "echo B"} {
+		if got := <-commands; got != want {
+			t.Fatalf("Shell command=%q, want %q", got, want)
+		}
+	}
+	var ordered []string
+	for _, message := range requestMessages(client.calls[1]) {
+		if message.MessageType != nil && *message.MessageType == llm.MessageTypeUserShellCommand {
+			ordered = append(ordered, *message.CompactContent)
+		} else if message.Role == llm.RoleUser && messageContent(message) == "message C" {
+			ordered = append(ordered, messageContent(message))
+		}
+	}
+	if len(ordered) != 3 || ordered[0] != "echo A" || ordered[1] != "echo B" || ordered[2] != "message C" {
+		t.Fatalf("next model input order = %v", ordered)
+	}
+}
+
+type userShellTestTool struct {
+	commands chan string
+	run      func(context.Context, string) error
+}
+
+func (h userShellTestTool) Call(ctx context.Context, call tools.Call) (tools.Result, error) {
+	var input struct {
+		Command string `json:"cmd"`
+	}
+	if err := json.Unmarshal(call.Input, &input); err != nil {
+		return tools.Result{}, err
+	}
+	h.commands <- input.Command
+	if h.run != nil {
+		if err := h.run(ctx, input.Command); err != nil {
+			return tools.Result{}, err
+		}
+	}
+	return tools.Result{CallID: call.ID, Name: call.Name, Output: mustJSON(input.Command)}, nil
+}
+
 func TestUserShellCommandSurvivesReopenWithoutBecomingARollbackTarget(t *testing.T) {
 	store := mustCreateTestSession(t)
 	engine := mustNewExecTestEngine(t, store, &fakeClient{}, Config{Model: "gpt-6-sol"})
