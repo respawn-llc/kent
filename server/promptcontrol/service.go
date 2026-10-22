@@ -100,10 +100,7 @@ func (s *PromptControlService) AnswerPromptBatch(
 				},
 			}
 		case *promptpb.AnswerBatchEntry_ApprovalAnswer:
-			decision, err := protoapi.ApprovalDecisionFromProto(answer.ApprovalAnswer.Decision)
-			if err != nil {
-				return nil, err
-			}
+			decision := protoapi.ApprovalDecisionFromProto(answer.ApprovalAnswer.Decision)
 			command.Payload = sessionruntime.PromptApprovalAnswerCommand{
 				Answer: askquestion.AskQuestionApproval{
 					Decision:   askquestion.AskQuestionApprovalDecision(decision),

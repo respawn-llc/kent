@@ -1,5 +1,6 @@
 import { describe, expect, it } from "bun:test";
 import { create, validate } from "@app/server-api-contract";
+import { SessionAttachmentSchema } from "@app/server-api-contract/gen/kent/api/connection/connection_pb";
 import {
   ConnectionDefinitionSchema,
   AuthMethod,
@@ -17,6 +18,33 @@ import {
   ProviderKind,
   StatusFactsSchema,
 } from "@app/server-api-contract/gen/kent/api/auth/auth_pb";
+
+describe("Session attachment capabilities", () => {
+  it("accepts nonempty capabilities without surrounding whitespace", () => {
+    for (const capability of [
+      "signed-capability",
+      "",
+      " signed-capability",
+      "signed-capability\t",
+      "\u0085signed-capability",
+      " \t",
+    ]) {
+      const attachment = create(SessionAttachmentSchema, {
+        projectId: "project-1",
+        workspaceId: "workspace-1",
+        workspaceRoot: "/workspace",
+        sessionId: "00000000-0000-4000-8000-000000000001",
+        reattachCapability: capability,
+      });
+      const check = () => validate(SessionAttachmentSchema, attachment);
+      if (capability === "signed-capability") {
+        expect(check).not.toThrow();
+      } else {
+        expect(check).toThrow();
+      }
+    }
+  });
+});
 
 describe("Connection Selection identities", () => {
   it("requires the same alphabet in Connection outputs", () => {

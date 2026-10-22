@@ -152,7 +152,10 @@ message SessionAttachment {
   string workspace_id = 2 [(buf.validate.field).string.min_len = 1];
   string workspace_root = 3 [(buf.validate.field).string.min_len = 1];
   string session_id = 4 [(buf.validate.field).string.uuid = true, (buf.validate.field).string.(kent.api.shared.canonical_uuid_v4) = true];
-  string reattach_capability = 5 [(buf.validate.field).string.min_len = 1];
+  string reattach_capability = 5 [
+    (buf.validate.field).string.min_len = 1,
+    (buf.validate.field).string.(kent.api.shared.trimmed) = true
+  ];
 }
 
 message SessionAttachmentTargetDetails {

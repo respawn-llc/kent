@@ -596,11 +596,7 @@ func transcriptPromptApprovalOptions(prompt *transcriptpb.Prompt) []clientui.App
 	options := prompt.GetApproval().GetOptions()
 	decisions := make([]clientui.ApprovalDecision, len(options))
 	for index, option := range options {
-		decision, err := protoapi.ApprovalDecisionFromProto(option.Decision)
-		if err != nil {
-			panic(err)
-		}
-		decisions[index] = decision
+		decisions[index] = protoapi.ApprovalDecisionFromProto(option.Decision)
 	}
 	return decisions
 }

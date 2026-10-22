@@ -1,7 +1,6 @@
 package protocol
 
 import (
-	"errors"
 	"fmt"
 
 	"core/shared/runtimeids"
@@ -57,23 +56,4 @@ func (e *SubagentLaunchPolicyError) Error() string {
 		return "subagent launch rejected: parent-agent lineage is corrupt"
 	}
 	return "subagent launch rejected"
-}
-
-func (e *SubagentLaunchPolicyError) Validate() error {
-	if e == nil {
-		return errors.New("subagent launch policy error is required")
-	}
-	switch e.Kind {
-	case SubagentLaunchPolicyMaxDepthExceeded:
-		if e.RepeatedSessionID != nil || len(e.VisitedSessionIDs) != 0 {
-			return errors.New("max-depth policy error cannot contain lineage corruption facts")
-		}
-	case SubagentLaunchPolicyLineageCorrupt:
-		if e.AttemptedDepth != nil || e.MaxDepth != nil {
-			return errors.New("lineage-corrupt policy error cannot contain depth facts")
-		}
-	default:
-		return errors.New("subagent launch policy error kind is invalid")
-	}
-	return nil
 }

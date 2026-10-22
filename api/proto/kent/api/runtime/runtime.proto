@@ -1161,14 +1161,6 @@ message GoalSetError {
     }];
   }
 
-  option (buf.validate.message).cel = {
-    id: "kent.runtime.goal_set_error_detail"
-    message: "Goal Set error code and detail must match"
-    expression:
-      "(this.code == 'runtime_unavailable' && has(this.runtime_unavailable)) || "
-      "(this.code == 'internal_failure' && has(this.internal_failure)) || "
-      "(this.code != 'runtime_unavailable' && this.code != 'internal_failure')"
-  };
 }
 
 message GoalSetSuccess {
