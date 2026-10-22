@@ -1,12 +1,15 @@
 package llm
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
+	"fmt"
 	"net/http"
 
 	"core/shared/textutil"
 	"github.com/openai/openai-go/v3/option"
+	"github.com/openai/openai-go/v3/packages/param"
 	"github.com/openai/openai-go/v3/responses"
 )
 
@@ -18,7 +21,14 @@ const (
 
 type responsesGenerationSocket struct {
 	*responses.ResponseConnection
-	mode OpenAIAuthMode
+	mode       OpenAIAuthMode
+	checkpoint *responsesContinuation
+}
+
+type responsesContinuation struct {
+	responseID string
+	items      []json.RawMessage
+	settings   []byte
 }
 
 func (t *HTTPTransport) Close() error {
@@ -64,13 +74,42 @@ func (t *HTTPTransport) generateWebsocket(ctx context.Context, request Responses
 	if err := json.Unmarshal(encoded, &create); err != nil {
 		return result, err
 	}
+	var controls map[string]json.RawMessage
+	if err := json.Unmarshal(encoded, &controls); err != nil {
+		return result, err
+	}
+	delete(controls, "input")
+	delete(controls, "client_metadata")
+	settings, err := json.Marshal(controls)
+	if err != nil {
+		return result, err
+	}
+	start := 0
+	if t.socket != nil && t.socket.checkpoint != nil {
+		prior := t.socket.checkpoint
+		if len(request.Items) >= len(prior.items) && bytes.Equal(settings, prior.settings) {
+			matches := true
+			for index, item := range prior.items {
+				if !bytes.Equal(request.Items[index].Raw, item) {
+					matches = false
+					break
+				}
+			}
+			if matches {
+				start = len(prior.items)
+				create.PreviousResponseID = param.NewOpt(prior.responseID)
+			}
+		}
+	}
+	input := responses.ResponseInputParam(payload.Input.OfInputItemList[start:])
+	create.Input = responses.ResponsesClientEventResponseCreateInputUnionParam{OfResponse: &input}
 	applyCodexClientMetadata(&create, preparation.projection)
 	var handshake *http.Response
 	evidence := t.providerUsageRequestEvidence(request, preparation, payload)
 	attempt := t.startProviderAttempt(ctx, request, preparation, evidence.RequestedServiceTier, providerAttemptGenerate)
 	if attempt != nil {
-		attempt.incremental = textutil.Value(false)
-		attempt.transmittedItems = textutil.Value(len(payload.Input.OfInputItemList))
+		attempt.incremental = textutil.Value(create.PreviousResponseID.Valid())
+		attempt.transmittedItems = textutil.Value(len(input))
 	}
 	defer func() { attempt.finish(ctx, handshake, err) }()
 	if t.socket == nil {
@@ -113,7 +152,25 @@ func (t *HTTPTransport) generateWebsocket(ctx context.Context, request Responses
 			if !abort() {
 				return result, ctx.Err()
 			}
-			return responseFromStreamAccumulator(accumulator, preparation.variant.ProviderID, handshake, evidence)
+			result, err = responseFromStreamAccumulator(accumulator, preparation.variant.ProviderID, handshake, evidence)
+			if err != nil {
+				return result, err
+			}
+			if accumulator.completed.ID == "" {
+				return result, fmt.Errorf("completed Responses response has no response ID")
+			}
+			checkpoint := &responsesContinuation{responseID: accumulator.completed.ID, settings: settings,
+				items: make([]json.RawMessage, 0, len(request.Items)+len(accumulator.completed.Output))}
+			for _, item := range request.Items {
+				checkpoint.items = append(checkpoint.items, item.Raw)
+			}
+			if result.NativeResponse != nil {
+				for _, item := range result.NativeResponse.body.Items {
+					checkpoint.items = append(checkpoint.items, item)
+				}
+			}
+			t.socket.checkpoint = checkpoint
+			return result, nil
 		}
 	}
 }

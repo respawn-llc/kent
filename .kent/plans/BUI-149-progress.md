@@ -1,3 +1,15 @@
+### Step 6 complete
+
+- One latest socket-owned checkpoint retains response ID, immutable Raw slice headers for prepared input plus complete native terminal output, and exact serialized prepared controls excluding input and transient Codex client_metadata.
+- Direct byte comparisons select suffix/prior-ID only for an exact full prefix and unchanged controls. Failed attempts discard the socket/checkpoint. Missing successful response ID fails rather than silently resetting regular continuation.
+- Reapplied the original prepared input parameters after typed create conversion. This fixes loss of native identity/unknown extension fields caused by generated-type JSON decoding.
+- Red/green public socket regression reproduced full-prefix retransmission (and missing native identity in generated create); now suffix-only, changed-control full reset, and non-prefix replacement pass.
+- Migrated all five native Runtime fixtures to actual SDK-compatible WebSockets, not generic HTTP variants or a protocol bridge. Actual accepted answer + next human turn and reasoning/local-tool/result transmit only new items with prior ID; independent prepared-context/reload assertions retain all original bytes/order. Invisible native output produces zero new input while retaining response lineage. Hosted/interleaved streaming tests pass.
+- Added HTTP-compaction boundary case: one generation socket, HTTP compact checkpoint, complete replacement context without old ID, then incremental again; one socket opening verified.
+- Existing completed fixture now carries a genuine response ID as required by continuation.
+- Focused socket/Stop/compaction/first-party cases pass. Runtime Native + cache-lineage/warning/compaction-identity focused cases pass. Alternate build passed after initial continuation production implementation; rebuild again after remaining changes.
+- Steps 7–9 remain. Do not complete workflow yet.
+
 ### October 22 terminal-output evidence (Session 442 continuation)
 
 - User requested evidence from `~/Dev/Tools/grok-build` rather than choosing an output-authority policy themselves.

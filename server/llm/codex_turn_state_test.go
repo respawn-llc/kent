@@ -55,7 +55,7 @@ func TestCodexTurnStateInvalidWarningIsRedacted(t *testing.T) {
 	}
 }
 
-const completedResponseSSEJSON = `{"type":"response.completed","response":{"usage":{"input_tokens":1,"output_tokens":1,"total_tokens":2},"output":[]}}`
+const completedResponseSSEJSON = `{"type":"response.completed","response":{"id":"response-test","usage":{"input_tokens":1,"output_tokens":1,"total_tokens":2},"output":[]}}`
 const completedCompactionSSEJSON = `{"type":"response.completed","response":{"id":"compact-test","usage":{"input_tokens":1,"output_tokens":1,"total_tokens":2},"output":[{"type":"compaction","id":"checkpoint","encrypted_content":"opaque-checkpoint"}]}}`
 
 func writeCompletedResponseSSE(w http.ResponseWriter) {

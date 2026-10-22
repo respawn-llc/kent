@@ -1,9 +1,11 @@
 package llm
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -18,6 +20,121 @@ import (
 	"github.com/google/uuid"
 	sdkwebsocket "github.com/openai/openai-go/v3/packages/websocket"
 )
+
+func TestResponsesSocketContinuesExactNativePrefixWithOnlyNewInput(t *testing.T) {
+	native := json.RawMessage(`{"type":"message","id":"native","role":"assistant","content":[{"type":"output_text","text":"answer","annotations":[]}],"provider_extension":{"opaque":"retained"}}`)
+	next := json.RawMessage(`{"type":"message","role":"user","content":[{"type":"input_text","text":"next"}]}`)
+	var turns int
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		serveResponsesTestWebsocket(t, w, r, func(raw json.RawMessage) []string {
+			turns++
+			var create struct {
+				Input    []json.RawMessage `json:"input"`
+				Previous *string           `json:"previous_response_id"`
+			}
+			if err := json.Unmarshal(raw, &create); err != nil {
+				t.Error(err)
+			}
+			if turns == 2 {
+				if create.Previous == nil || *create.Previous != "response-native" || len(create.Input) != 1 {
+					t.Errorf("next request retransmitted prefix: %s", raw)
+				}
+				if len(create.Input) == 1 && !bytes.Equal(create.Input[0], next) {
+					t.Errorf("new input missing: %s", raw)
+				}
+			}
+			if turns == 3 && (create.Previous != nil || len(create.Input) != 4) {
+				t.Errorf("changed controls did not reset to full context: %s", raw)
+			}
+			if turns == 4 && (create.Previous != nil || len(create.Input) != 1) {
+				t.Errorf("replacement context did not reset: %s", raw)
+			}
+			return []string{fmt.Sprintf(`{"type":"response.completed","response":{"id":"response-native","output":[%s]}}`, native)}
+		})
+	}))
+	defer server.Close()
+	registration := testConnectionRegistration(t, config.ProviderConnection{Protocol: config.ConnectionResponses, Endpoint: textutil.Value(defaultOpenAIBaseURL)})
+	registration.Variant.BaseURL = textutil.Value(server.URL + "/v1")
+	transport := newTestHTTPTransport(t, staticAuthHeader{}, registration)
+	defer transport.Close()
+	request := ResponsesRequest{Model: "gpt-6-sol", ReasoningEffort: "high", SessionID: textutil.Value("session"), ToolChoiceMode: ToolChoiceModeAutomatic,
+		Items: []ResponseItem{{Raw: json.RawMessage(`{"type":"message","role":"user","content":[{"type":"input_text","text":"first"}]}`)}},
+	}
+	response, err := transport.Generate(t.Context(), request, StreamCallbacks{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	request.Items = append(request.Items, response.OutputItems...)
+	request.Items = append(request.Items, ResponseItem{Raw: next})
+	response, err = transport.Generate(t.Context(), request, StreamCallbacks{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	request.Items = append(request.Items, response.OutputItems...)
+	request.MaxTokens = 256
+	if _, err := transport.Generate(t.Context(), request, StreamCallbacks{}); err != nil {
+		t.Fatal(err)
+	}
+	request.Items = []ResponseItem{{Raw: next}}
+	if _, err := transport.Generate(t.Context(), request, StreamCallbacks{}); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestResponsesCompactionReplacesContextWithoutReplacingSocket(t *testing.T) {
+	var openings, turns, compactions atomic.Int32
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Header.Get("Upgrade") != "websocket" {
+			compactions.Add(1)
+			w.Header().Set("Content-Type", "text/event-stream")
+			_, _ = io.WriteString(w, `data: {"type":"response.completed","response":{"id":"compacted","output":[{"type":"compaction","id":"checkpoint","encrypted_content":"encrypted"}]}}`+"\n\n")
+			return
+		}
+		openings.Add(1)
+		serveResponsesTestWebsocket(t, w, r, func(raw json.RawMessage) []string {
+			var create struct {
+				Previous *string           `json:"previous_response_id"`
+				Input    []json.RawMessage `json:"input"`
+			}
+			if err := json.Unmarshal(raw, &create); err != nil {
+				t.Error(err)
+			}
+			switch turns.Add(1) {
+			case 2:
+				if create.Previous != nil || len(create.Input) != 1 {
+					t.Errorf("compacted context did not replace prefix: %s", raw)
+				}
+			case 3:
+				if create.Previous == nil || len(create.Input) != 0 {
+					t.Errorf("post-compaction continuation not incremental: %s", raw)
+				}
+			}
+			return []string{completedResponseSSEJSON}
+		})
+	}))
+	defer server.Close()
+	registration := testConnectionRegistration(t, config.ProviderConnection{Protocol: config.ConnectionResponses, Endpoint: textutil.Value(defaultOpenAIBaseURL)})
+	registration.Variant.BaseURL = textutil.Value(server.URL + "/v1")
+	transport := newTestHTTPTransport(t, staticAuthHeader{}, registration)
+	request := ResponsesRequest{Model: "gpt-6-sol", ReasoningEffort: "high", SessionID: textutil.Value("session"), ToolChoiceMode: ToolChoiceModeAutomatic,
+		Items: []ResponseItem{{Raw: json.RawMessage(`{"type":"message","role":"user","content":[{"type":"input_text","text":"first"}]}`)}}}
+	if _, err := transport.Generate(t.Context(), request, StreamCallbacks{}); err != nil {
+		t.Fatal(err)
+	}
+	compacted, err := transport.Compact(t.Context(), request)
+	if err != nil {
+		t.Fatal(err)
+	}
+	request.Items = PrepareResponsesInputItems(compacted.OutputItems)
+	for range 2 {
+		if _, err := transport.Generate(t.Context(), request, StreamCallbacks{}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if openings.Load() != 1 || compactions.Load() != 1 {
+		t.Fatalf("socket openings=%d HTTP compactions=%d", openings.Load(), compactions.Load())
+	}
+}
 
 func TestFirstPartyResponsesStreamsThroughManagedWebsocket(t *testing.T) {
 	ctx, cancel := context.WithTimeout(t.Context(), 5*time.Second)

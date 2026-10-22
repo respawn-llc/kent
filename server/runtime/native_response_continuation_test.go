@@ -21,7 +21,30 @@ import (
 	"core/shared/modelcontract"
 	"core/shared/textutil"
 	"core/shared/toolspec"
+	"github.com/coder/websocket"
 )
+
+func nativeResponsesSocketHandler(t *testing.T, respond func(json.RawMessage) []string) http.Handler {
+	t.Helper()
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		socket, err := websocket.Accept(w, r, nil)
+		if err != nil {
+			return
+		}
+		defer socket.CloseNow()
+		for {
+			_, raw, err := socket.Read(t.Context())
+			if err != nil {
+				return
+			}
+			for _, event := range respond(raw) {
+				if err := socket.Write(t.Context(), websocket.MessageText, []byte(event)); err != nil {
+					return
+				}
+			}
+		}
+	})
+}
 
 func nativeResponseTestClient(t *testing.T, handler http.Handler) llm.Client {
 	t.Helper()
@@ -49,12 +72,21 @@ func nativeResponseTestClient(t *testing.T, handler http.Handler) llm.Client {
 func TestAcceptedNativeAnswerContinuesWithoutReconstruction(t *testing.T) {
 	t.Parallel()
 	native := json.RawMessage(`{"type":"message","id":"msg_native","role":"assistant","phase":"final_answer","status":"completed","content":[{"type":"output_text","text":"<answer>&","annotations":[]}]}`)
-	client := nativeResponseTestClient(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		w.Header().Set("Content-Type", "text/event-stream")
-		_, err := fmt.Fprintf(w, "data: {\"type\":\"response.completed\",\"response\":{\"id\":\"resp_native\",\"status\":\"completed\",\"output\":[%s],\"usage\":{\"input_tokens\":10,\"output_tokens\":2,\"total_tokens\":12}}}\n\n", native)
-		if err != nil {
-			t.Error(err)
+	var calls atomic.Int32
+	client := nativeResponseTestClient(t, nativeResponsesSocketHandler(t, func(raw json.RawMessage) []string {
+		if calls.Add(1) == 2 {
+			var create struct {
+				Input    []json.RawMessage `json:"input"`
+				Previous *string           `json:"previous_response_id"`
+			}
+			if err := json.Unmarshal(raw, &create); err != nil {
+				t.Error(err)
+			}
+			if create.Previous == nil || *create.Previous != "resp_native" || len(create.Input) != 1 {
+				t.Errorf("accepted answer was retransmitted rather than continued: %s", raw)
+			}
 		}
+		return []string{fmt.Sprintf(`{"type":"response.completed","response":{"id":"resp_native","status":"completed","output":[%s],"usage":{"input_tokens":10,"output_tokens":2,"total_tokens":12}}}`, native)}
 	}))
 	store := mustCreateTestSession(t)
 	engine := mustNewTestEngine(t, store, client, tools.NewRegistry(), Config{Model: "gpt-6-sol"})
@@ -96,18 +128,18 @@ func TestAcceptedNativeReasoningToolOutputSurvivesResultsAndReload(t *testing.T)
 	}
 	var calls atomic.Int32
 	var toolResults atomic.Int32
-	client := nativeResponseTestClient(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	client := nativeResponseTestClient(t, nativeResponsesSocketHandler(t, func(raw json.RawMessage) []string {
 		var request struct {
-			Input []json.RawMessage `json:"input"`
+			Input    []json.RawMessage `json:"input"`
+			Previous *string           `json:"previous_response_id"`
 		}
-		if err := json.NewDecoder(r.Body).Decode(&request); err != nil {
+		if err := json.Unmarshal(raw, &request); err != nil {
 			t.Error(err)
-			return
+			return nil
 		}
-		w.Header().Set("Content-Type", "text/event-stream")
+		var events []string
 		output := bytes.Join(nativeBytes(native), []byte(","))
 		if calls.Add(1) > 1 {
-			next := 0
 			for _, raw := range request.Input {
 				var item struct {
 					ID     string `json:"id"`
@@ -117,26 +149,21 @@ func TestAcceptedNativeReasoningToolOutputSurvivesResultsAndReload(t *testing.T)
 				if err := json.Unmarshal(raw, &item); err != nil {
 					t.Error(err)
 				}
-				if next < len(native) && bytes.Equal(raw, native[next]) {
-					next++
-				}
 				if item.Type == "function_call_output" && item.CallID == "call_native" {
 					toolResults.Add(1)
 				}
 			}
-			if next != len(native) {
-				t.Errorf("next provider request retained %d/%d native items", next, len(native))
+			if request.Previous == nil || *request.Previous != "resp_native" || len(request.Input) != 1 {
+				t.Errorf("tool continuation retransmitted provider output: %s", raw)
 			}
 			output = []byte(`{"type":"message","id":"msg_final","role":"assistant","phase":"final_answer","content":[{"type":"output_text","text":"done","annotations":[]}]}`)
 		} else {
-			if _, err := fmt.Fprintf(w, "data: {\"type\":\"response.output_item.added\",\"output_index\":2,\"item\":%s}\n\ndata: {\"type\":\"response.output_item.added\",\"output_index\":3,\"item\":%s}\n\ndata: {\"type\":\"response.output_text.delta\",\"output_index\":3,\"delta\":\"after the call\"}\n\n", native[2], native[3]); err != nil {
-				t.Error(err)
-			}
+			events = append(events,
+				fmt.Sprintf(`{"type":"response.output_item.added","output_index":2,"item":%s}`, native[2]),
+				fmt.Sprintf(`{"type":"response.output_item.added","output_index":3,"item":%s}`, native[3]),
+				`{"type":"response.output_text.delta","output_index":3,"delta":"after the call"}`)
 		}
-		_, err := fmt.Fprintf(w, "data: {\"type\":\"response.completed\",\"response\":{\"id\":\"resp_native\",\"status\":\"completed\",\"output\":[%s],\"usage\":{\"input_tokens\":10,\"output_tokens\":2,\"total_tokens\":12}}}\n\n", output)
-		if err != nil {
-			t.Error(err)
-		}
+		return append(events, fmt.Sprintf(`{"type":"response.completed","response":{"id":"resp_native","status":"completed","output":[%s],"usage":{"input_tokens":10,"output_tokens":2,"total_tokens":12}}}`, output))
 	}))
 	store := mustCreateTestSession(t)
 	registry := newTestToolRegistry(t, tools.HandlerRegistration{ID: toolspec.ToolExecCommand, Handler: fakeTool{name: toolspec.ToolExecCommand}})
@@ -218,12 +245,8 @@ func TestNativeOutputPresentationKeepsInterleavedHostedCalls(t *testing.T) {
 		json.RawMessage(`{"type":"message","id":"after","role":"assistant","phase":"commentary","content":[{"type":"output_text","text":"after","annotations":[]}]}`),
 		json.RawMessage(`{"type":"message","id":"final","role":"assistant","phase":"final_answer","content":[{"type":"output_text","text":"final","annotations":[]}]}`),
 	}
-	client := nativeResponseTestClient(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		w.Header().Set("Content-Type", "text/event-stream")
-		_, err := fmt.Fprintf(w, "data: {\"type\":\"response.completed\",\"response\":{\"id\":\"resp_ordered\",\"status\":\"completed\",\"output\":[%s],\"usage\":{\"input_tokens\":10,\"output_tokens\":2,\"total_tokens\":12}}}\n\n", bytes.Join(nativeBytes(output), []byte(",")))
-		if err != nil {
-			t.Error(err)
-		}
+	client := nativeResponseTestClient(t, nativeResponsesSocketHandler(t, func(json.RawMessage) []string {
+		return []string{fmt.Sprintf(`{"type":"response.completed","response":{"id":"resp_ordered","status":"completed","output":[%s],"usage":{"input_tokens":10,"output_tokens":2,"total_tokens":12}}}`, bytes.Join(nativeBytes(output), []byte(",")))}
 	}))
 	store := mustCreateTestSession(t)
 	cfg := Config{Model: "gpt-6-sol", WebSearchMode: "native", EnabledTools: []toolspec.ID{toolspec.ToolWebSearch}}
@@ -302,25 +325,22 @@ func TestAcceptedInvisibleNativeOutputContinuesWithoutVisibleRows(t *testing.T) 
 	opaque := json.RawMessage(`{"type":"future_provider_item","id":"invisible_native","data":"<opaque>&"}`)
 	final := json.RawMessage(`{"type":"message","id":"final","role":"assistant","phase":"final_answer","content":[{"type":"output_text","text":"done","annotations":[]}]}`)
 	var calls atomic.Int32
-	client := nativeResponseTestClient(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	client := nativeResponseTestClient(t, nativeResponsesSocketHandler(t, func(raw json.RawMessage) []string {
 		output := opaque
 		if calls.Add(1) > 1 {
 			var request struct {
-				Input []json.RawMessage `json:"input"`
+				Input    []json.RawMessage `json:"input"`
+				Previous *string           `json:"previous_response_id"`
 			}
-			if err := json.NewDecoder(r.Body).Decode(&request); err != nil {
+			if err := json.Unmarshal(raw, &request); err != nil {
 				t.Error(err)
 			}
-			if !slices.ContainsFunc(request.Input, func(item json.RawMessage) bool { return bytes.Equal(item, opaque) }) {
-				t.Error("invisible native output missing from next request")
+			if request.Previous == nil || *request.Previous != "resp_native" || len(request.Input) != 0 {
+				t.Errorf("invisible native output not retained in provider prefix: %s", raw)
 			}
 			output = final
 		}
-		w.Header().Set("Content-Type", "text/event-stream")
-		_, err := fmt.Fprintf(w, "data: {\"type\":\"response.completed\",\"response\":{\"id\":\"resp_native\",\"status\":\"completed\",\"output\":[%s],\"usage\":{\"input_tokens\":10,\"output_tokens\":2,\"total_tokens\":12}}}\n\n", output)
-		if err != nil {
-			t.Error(err)
-		}
+		return []string{fmt.Sprintf(`{"type":"response.completed","response":{"id":"resp_native","status":"completed","output":[%s],"usage":{"input_tokens":10,"output_tokens":2,"total_tokens":12}}}`, output)}
 	}))
 	store := mustCreateTestSession(t)
 	engine := mustNewTestEngine(t, store, client, tools.NewRegistry(), Config{Model: "gpt-6-sol"})
@@ -359,12 +379,10 @@ func TestNativeStreamingKeepsMessageIdentityAcrossHostedCalls(t *testing.T) {
 		json.RawMessage(`{"type":"message","id":"after","role":"assistant","phase":"commentary","content":[{"type":"output_text","text":"after","annotations":[]}]}`),
 		json.RawMessage(`{"type":"message","id":"final","role":"assistant","phase":"final_answer","content":[{"type":"output_text","text":"final","annotations":[]}]}`),
 	}
-	client := nativeResponseTestClient(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		w.Header().Set("Content-Type", "text/event-stream")
+	client := nativeResponseTestClient(t, nativeResponsesSocketHandler(t, func(json.RawMessage) []string {
+		var events []string
 		for index, raw := range output {
-			if _, err := fmt.Fprintf(w, "data: {\"type\":\"response.output_item.added\",\"output_index\":%d,\"item\":%s}\n\n", index, raw); err != nil {
-				t.Error(err)
-			}
+			events = append(events, fmt.Sprintf(`{"type":"response.output_item.added","output_index":%d,"item":%s}`, index, raw))
 			var item struct {
 				Type    string `json:"type"`
 				Content []struct {
@@ -383,25 +401,18 @@ func TestNativeStreamingKeepsMessageIdentityAcrossHostedCalls(t *testing.T) {
 				if err != nil {
 					t.Error(err)
 				}
-				if _, err := fmt.Fprintf(w, "data: {\"type\":\"response.output_text.delta\",\"output_index\":%d,\"delta\":%s}\n\n", index, delta); err != nil {
-					t.Error(err)
-				}
+				events = append(events, fmt.Sprintf(`{"type":"response.output_text.delta","output_index":%d,"delta":%s}`, index, delta))
 			}
 			if index == 0 {
 				continue
 			}
 			if index == 2 {
-				if _, err := fmt.Fprintf(w, "data: {\"type\":\"response.output_text.delta\",\"output_index\":0,\"delta\":\" complete\"}\n\ndata: {\"type\":\"response.output_item.done\",\"output_index\":0,\"item\":%s}\n\n", output[0]); err != nil {
-					t.Error(err)
-				}
+				events = append(events, `{"type":"response.output_text.delta","output_index":0,"delta":" complete"}`,
+					fmt.Sprintf(`{"type":"response.output_item.done","output_index":0,"item":%s}`, output[0]))
 			}
-			if _, err := fmt.Fprintf(w, "data: {\"type\":\"response.output_item.done\",\"output_index\":%d,\"item\":%s}\n\n", index, raw); err != nil {
-				t.Error(err)
-			}
+			events = append(events, fmt.Sprintf(`{"type":"response.output_item.done","output_index":%d,"item":%s}`, index, raw))
 		}
-		if _, err := fmt.Fprintf(w, "data: {\"type\":\"response.completed\",\"response\":{\"id\":\"resp_streamed\",\"status\":\"completed\",\"output\":[%s],\"usage\":{\"input_tokens\":10,\"output_tokens\":2,\"total_tokens\":12}}}\n\n", bytes.Join(nativeBytes(output), []byte(","))); err != nil {
-			t.Error(err)
-		}
+		return append(events, fmt.Sprintf(`{"type":"response.completed","response":{"id":"resp_streamed","status":"completed","output":[%s],"usage":{"input_tokens":10,"output_tokens":2,"total_tokens":12}}}`, bytes.Join(nativeBytes(output), []byte(","))))
 	}))
 	var events []Event
 	engine := mustNewTestEngine(t, mustCreateTestSession(t), client, tools.NewRegistry(), Config{
