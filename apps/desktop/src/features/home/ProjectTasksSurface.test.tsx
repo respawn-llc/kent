@@ -494,6 +494,26 @@ describe("ProjectTasksSurface", () => {
     }
   });
 
+  it("restores at the top after a negative rubber-band scroll event", () => {
+    const geometry = installProjectTaskScrollGeometry();
+    try {
+      const memory = createProjectTasksViewMemory();
+      const view = renderSurface(memory);
+      const grid = screen.getByRole("grid", { name: appI18n.t("home.prototype.projectTasksGrid") });
+      Object.defineProperty(grid, "scrollTop", { configurable: true, writable: true, value: -24 });
+      fireEvent.scroll(grid);
+      view.unmount();
+
+      renderSurface(memory);
+
+      expect(screen.getByRole("grid", { name: appI18n.t("home.prototype.projectTasksGrid") }).scrollTop).toBe(
+        0,
+      );
+    } finally {
+      geometry.restore();
+    }
+  });
+
   it("restores retained pixels while established group pages refresh", () => {
     const geometry = installProjectTaskScrollGeometry();
     try {
