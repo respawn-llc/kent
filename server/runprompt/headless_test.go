@@ -1810,6 +1810,7 @@ func TestInProcessRunPromptReturnsPendingQuestionAndExecutionContinues(t *testin
 	providerStarted := make(chan struct{})
 	releaseProvider := make(chan struct{})
 	continued := make(chan struct{})
+	releaseFinalResponse := make(chan struct{})
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch calls.Add(1) {
 		case 1:
@@ -1830,6 +1831,11 @@ func TestInProcessRunPromptReturnsPendingQuestionAndExecutionContinues(t *testin
 				t.Errorf("Question follow-up request has no function_call_output")
 			}
 			close(continued)
+			select {
+			case <-releaseFinalResponse:
+			case <-r.Context().Done():
+				return
+			}
 			modelstub.WriteCompletedResponseStream(w, "resumed", 1, 1)
 		default:
 			t.Errorf("unexpected provider request %d", calls.Load())
@@ -1908,6 +1914,7 @@ func TestInProcessRunPromptReturnsPendingQuestionAndExecutionContinues(t *testin
 	if !active || after != before {
 		t.Fatalf("execution after answer = %v active=%t, want the same active execution", after, active)
 	}
+	close(releaseFinalResponse)
 	if _, err := before.Wait(context.Background()); err != nil {
 		t.Fatalf("continued execution: %v", err)
 	}

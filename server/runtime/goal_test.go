@@ -1064,15 +1064,6 @@ func TestGoalLoopRetriesWhenExclusiveStepIsBusy(t *testing.T) {
 	t.Cleanup(func() {
 		engine.stepLifecycle = baseLifecycle
 	})
-	goalCompletionDone := make(chan error, 1)
-	client.beforeReturn = func(call int) {
-		if call == 1 {
-			go func() {
-				_, err := engine.SetGoalStatus(t.Context(), session.GoalStatusComplete, session.GoalActorAgent)
-				goalCompletionDone <- err
-			}()
-		}
-	}
 	if _, err := engine.SetGoal(context.Background(), "ship goal mode", session.GoalActorUser); err != nil {
 		t.Fatalf("SetGoal: %v", err)
 	}
@@ -1080,15 +1071,10 @@ func TestGoalLoopRetriesWhenExclusiveStepIsBusy(t *testing.T) {
 		t.Fatalf("StartGoalLoop: %v", err)
 	}
 	client.waitStarted(t, 1)
-	client.releaseCall(1)
-	select {
-	case err := <-goalCompletionDone:
-		if err != nil {
-			t.Fatalf("complete Goal after protected Step: %v", err)
-		}
-	case <-time.After(runtimeTestSynchronizationTimeout):
-		t.Fatal("timed out completing Goal after protected Step")
+	if _, err := engine.SetGoalStatus(t.Context(), session.GoalStatusComplete, session.GoalActorAgent); err != nil {
+		t.Fatalf("complete Goal after protected Step: %v", err)
 	}
+	client.releaseCall(1)
 	waitGoalLoopRunning(t, engine, false)
 	if attempts < 2 {
 		t.Fatalf("goal loop attempts = %d, want retry after busy step lifecycle", attempts)
