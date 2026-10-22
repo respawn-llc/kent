@@ -214,6 +214,7 @@ type transcriptSubscriptionContract struct {
 	hydratedEventSequence    int64
 	hasHydratedEventSequence bool
 	liveLocator              *transcriptpb.CommittedRowLocator
+	nativeToolCalls          map[clientui.ToolCallID]*transcriptpb.CommittedRow
 }
 
 func (c *transcriptSubscriptionContract) Validate(message *transcriptpb.Message) error {
@@ -243,6 +244,11 @@ func (c *transcriptSubscriptionContract) validateHydration(hydration *transcript
 		}
 	}
 	for _, row := range hydration.TailSegment.Entries {
+		if row.GetToolCall() != nil {
+			if err := c.trackNativeToolCall(row); err != nil {
+				return err
+			}
+		}
 		if !c.hasHydratedEventSequence || row.Locator.EventSequence > c.hydratedEventSequence {
 			c.hydratedEventSequence = row.Locator.EventSequence
 			c.hasHydratedEventSequence = true
@@ -264,11 +270,37 @@ func (c *transcriptSubscriptionContract) validateLiveMessage(message *transcript
 	case *transcriptpb.Event_ToolStart:
 		return c.trackToolStart(payload.ToolStart, fmt.Sprintf("tool_start at seq=%d", message.Sequence))
 	case *transcriptpb.Event_ToolAbort:
-		return c.trackToolTerminal(clientui.ToolCallID(payload.ToolAbort.ToolCallId), fmt.Sprintf("tool_abort at seq=%d", message.Sequence))
+		id := clientui.ToolCallID(payload.ToolAbort.ToolCallId)
+		delete(c.nativeToolCalls, id)
+		return c.trackToolTerminal(id, fmt.Sprintf("tool_abort at seq=%d", message.Sequence))
+	case *transcriptpb.Event_StepState:
+		if payload.StepState.Lifecycle == transcriptpb.StepLifecycle_STEP_LIFECYCLE_FINISHED {
+			for id, row := range c.nativeToolCalls {
+				if row.GetToolCall().StepId == payload.StepState.StepId {
+					delete(c.nativeToolCalls, id)
+				}
+			}
+		}
 	case *transcriptpb.Event_CommittedRow:
 		row := payload.CommittedRow
+		if tool := row.GetTool(); tool != nil && tool.ToolCallId != nil {
+			id := clientui.ToolCallID(*tool.ToolCallId)
+			if source := c.nativeToolCalls[id]; source != nil {
+				if row.Locator.EventSequence != source.Locator.EventSequence || row.Locator.RowOrdinal != source.Locator.RowOrdinal ||
+					tool.GetToolName() != source.GetToolCall().ToolName {
+					return errTranscriptContractViolation("native result does not match its accepted call source")
+				}
+				delete(c.nativeToolCalls, id)
+				return c.trackToolTerminal(id, "native tool result update")
+			}
+		}
 		if err := c.validateLiveLocator(row.Locator); err != nil {
 			return err
+		}
+		if row.GetToolCall() != nil {
+			if err := c.trackNativeToolCall(row); err != nil {
+				return err
+			}
 		}
 		if assistant := row.GetAssistant(); assistant != nil {
 			if assistant.StreamId != nil {
@@ -282,6 +314,18 @@ func (c *transcriptSubscriptionContract) validateLiveMessage(message *transcript
 			return c.trackToolTerminal(clientui.ToolCallID(*tool.ToolCallId), fmt.Sprintf("committed tool row at seq=%d", message.Sequence))
 		}
 	}
+	return nil
+}
+
+func (c *transcriptSubscriptionContract) trackNativeToolCall(row *transcriptpb.CommittedRow) error {
+	if c.nativeToolCalls == nil {
+		c.nativeToolCalls = make(map[clientui.ToolCallID]*transcriptpb.CommittedRow)
+	}
+	id := clientui.ToolCallID(row.GetToolCall().ToolCallId)
+	if c.nativeToolCalls[id] != nil {
+		return errTranscriptContractViolation("native call repeats a pending tool identity")
+	}
+	c.nativeToolCalls[id] = row
 	return nil
 }
 

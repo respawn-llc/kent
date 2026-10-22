@@ -497,6 +497,32 @@ func (s *chatStore) streamingSnapshot() ([]AssistantStreamSnapshot, string) {
 	return s.streamingSnapshotLocked(), s.streamingError
 }
 
+func (s *chatStore) nativeToolCallLocator(callID string) *transcript.CommittedRowLocator {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	var locator *transcript.CommittedRowLocator
+	s.walkProjectionLocked(func(record chatMessageRecord) {
+		if record.Message.NativeResponse == nil {
+			return
+		}
+		for _, call := range record.Message.ToolCalls {
+			if call.ID != callID {
+				continue
+			}
+			rows := locateTranscriptCommittedRowFacts(transcriptCommittedRowFactsFromMessage(
+				*record.Message, nil, nil, nil, transcriptMessageProjectionContext{Provenance: record.Provenance},
+			))
+			for _, row := range rows {
+				if row.ToolCall != nil && row.ToolCall.ToolCallID == callID {
+					locator = textutil.Value(row.Locator)
+					return
+				}
+			}
+		}
+	}, func(localChatEntry) {}, nil)
+	return locator
+}
+
 func (s *chatStore) recordAssistantStreamFinalization(committedEntryStart int, streamID *uuid.UUID) {
 	if s == nil || committedEntryStart < 0 || streamID == nil {
 		return

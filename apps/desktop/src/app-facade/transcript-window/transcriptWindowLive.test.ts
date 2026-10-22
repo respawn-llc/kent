@@ -25,6 +25,50 @@ const completed: ChatTranscriptPayloadByKind["compaction_status"] = {
 };
 
 describe("transcript live membership and compaction", () => {
+  it("completes a native call at its original position without replacing neighboring identities", () => {
+    const window = new TranscriptWindow();
+    window.dispatch({ kind: "initial-hydration", hydration: hydration([row(1)]) });
+    const pending = {
+      ...row(2),
+      Kind: "tool_call",
+      User: null,
+      ToolCall: { StepID: "step", ToolCallID: "native-call", ToolName: "exec_command" },
+    } as const;
+    const after = {
+      ...row(2),
+      Locator: { event_sequence: 2, row_ordinal: 2 },
+      Kind: "assistant",
+      User: null,
+      Assistant: { StepID: "step", Phase: "final_answer", Text: "answer" },
+    } as const;
+    window.dispatch({ kind: "committed-row", row: pending });
+    expect(window.snapshot.items.find((item) => item.kind === "tool_call")?.value.Activity).toBeNull();
+    window.dispatch({ kind: "live-fact", fact: { kind: "tool_start", payload: pending.ToolCall } });
+    expect(window.snapshot.items.find((item) => item.kind === "tool_call")?.value.Activity).toEqual(
+      pending.ToolCall,
+    );
+    window.dispatch({ kind: "committed-row", row: after });
+    const keys = window.snapshot.items.map((item) => item.key);
+    const result = {
+      ...pending,
+      Kind: "tool",
+      ToolCall: null,
+      Tool: {
+        StepID: "step",
+        ToolCallID: "native-call",
+        ToolName: "exec_command",
+        Text: "result",
+        IsError: false,
+        ViewedImageKind: null,
+        AnsweredBySessionID: null,
+        AnsweredBySessionShortID: null,
+      },
+    } as const;
+    expect(window.dispatch({ kind: "committed-row", row: result }).kind).toBe("accepted");
+    expect(window.snapshot.items.map((item) => item.key)).toEqual(keys);
+    expect(window.snapshot.items.map((item) => item.kind)).toEqual(["user", "tool", "assistant"]);
+  });
+
   it("keeps Thinking Status out of transcript items while preserving real reasoning", () => {
     const window = new TranscriptWindow();
     window.dispatch({

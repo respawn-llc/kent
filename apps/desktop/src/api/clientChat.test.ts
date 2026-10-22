@@ -165,12 +165,14 @@ function transcriptHydrationPayload() {
       },
     },
     tailSegment: {},
-    activeAssistants: [{
-      stepId: sessionID,
-      streamId: sessionID,
-      text: " ",
-      phase: T.AssistantPhase.COMMENTARY,
-    }],
+    activeAssistants: [
+      {
+        stepId: sessionID,
+        streamId: sessionID,
+        text: " ",
+        phase: T.AssistantPhase.COMMENTARY,
+      },
+    ],
     activeStep: {
       stepId: sessionID,
       activeKind: R.ActivityActiveKind.RUNTIME_ACTIVITY_ACTIVE_KIND_USER_TURN,

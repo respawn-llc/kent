@@ -1075,7 +1075,7 @@ func committedStartsForPersistedAssistantMessage(e *Engine, msg llm.Message, exe
 	}
 	toolCallStarts := make(map[string]int)
 	for idx, entry := range entries {
-		if strings.TrimSpace(entry.Role) != "tool_call" {
+		if !isToolCallEntryRole(strings.TrimSpace(entry.Role)) {
 			continue
 		}
 		callID := strings.TrimSpace(entry.ToolCallID)

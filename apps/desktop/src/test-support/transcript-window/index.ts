@@ -12,6 +12,7 @@ export function row(sequence: number): ChatTranscriptPayloadByKind["committed_ro
     User: { Text: `Message ${String(sequence)}`, QueueItemIDs: [] },
     Assistant: null,
     Tool: null,
+    ToolCall: null,
     ReasoningTrace: null,
     Notice: null,
     ReviewerFeedback: null,

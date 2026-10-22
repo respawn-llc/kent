@@ -134,6 +134,7 @@ type Event struct {
 	AssistantTranscriptStreamID  *uuid.UUID
 	AssistantStreamCorrelations  []AssistantStreamCorrelation
 	AssistantStreamAbortReason   string
+	NativeToolCallLocator        *transcript.CommittedRowLocator
 	ReasoningDelta               *llm.ReasoningSummaryDelta
 	ReasoningTraceIdentity       *TranscriptReasoningTraceIdentity
 	UserMessage                  string

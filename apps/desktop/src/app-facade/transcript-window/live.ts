@@ -37,6 +37,8 @@ export function committedCorrelation(row: CommittedRow): string | null {
       return item.value.StreamID != null ? assistantKey(item.value.StreamID) : null;
     case "tool":
       return item.value.ToolCallID === null ? null : toolKey(item.value.ToolCallID);
+    case "tool_call":
+      return toolKey(item.value.Call.ToolCallID);
     case "reasoning_trace":
       return item.value.ProvisionalIdentity != null
         ? reasoningKey(item.value.StepID, item.value.ProvisionalIdentity)
@@ -128,7 +130,9 @@ function updateLiveItem(
   return items.map((item) => (item.key === next.key ? next : item));
 }
 
-function orderProviderItems(items: readonly TranscriptProvisionalItem[]): readonly TranscriptProvisionalItem[] {
+function orderProviderItems(
+  items: readonly TranscriptProvisionalItem[],
+): readonly TranscriptProvisionalItem[] {
   return [...items].sort((a, b) => {
     if (a.value.StepID !== b.value.StepID) return 0;
     const left = a.value.OutputIndex;
@@ -161,17 +165,28 @@ export function present(
   const liveKeys = new Set(provisional.map((item) => item.key));
   const promotions = new Map<string, string>();
   const committedCorrelations = new Set<string>();
+  const represented = new Set<string>();
   for (const row of [...rows, ...pool, ...admitted]) {
     const key = committedCorrelation(row);
     if (key === null) continue;
-    committedCorrelations.add(key);
+    represented.add(key);
+    if (row.Kind !== "tool_call") committedCorrelations.add(key);
     if (liveKeys.has(key)) promotions.set(locatorKey(row), key);
   }
   const remaining = provisional.filter((item) => !committedCorrelations.has(item.key));
+  const activities = new Map(
+    remaining.flatMap((item) => (item.kind === "tool" ? [[item.key, item.value] as const] : [])),
+  );
   const items: TranscriptRenderItem[] = rows
-    .map((row) => committedItem(row, priorKeys.get(locatorKey(row)) ?? promotions.get(locatorKey(row))))
+    .map((row) =>
+      committedItem(
+        row,
+        priorKeys.get(locatorKey(row)) ?? promotions.get(locatorKey(row)),
+        row.ToolCall === null ? null : (activities.get(toolKey(row.ToolCall.ToolCallID)) ?? null),
+      ),
+    )
     .filter((item) => item.row.Visibility !== "hidden");
-  if (showLive) items.push(...remaining);
+  if (showLive) items.push(...remaining.filter((item) => !represented.has(item.key)));
   if (new Set(items.map((item) => item.key)).size !== items.length) {
     throw new ContractError("Transcript rows compete for one live presentation identity.");
   }

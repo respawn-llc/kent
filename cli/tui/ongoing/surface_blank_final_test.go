@@ -6,6 +6,9 @@ import (
 
 	transcriptpb "core/shared/protoapi/gen/kent/api/transcript"
 	"core/shared/runtimeids"
+	"core/shared/textutil"
+
+	"github.com/google/uuid"
 )
 
 func TestSurfaceBlankFinalDefersEmptyStreamPromotion(t *testing.T) {
@@ -118,7 +121,29 @@ func TestSurfaceAcceptsSeparateAssistantStreamsBeforeEitherCommits(t *testing.T)
 				Assistant: &transcriptpb.AssistantRow{StreamId: &id, Phase: phase, Text: "item"},
 			}},
 		}})
+		if id == first {
+			apply(&transcriptpb.Event{Payload: &transcriptpb.Event_CommittedRow{
+				CommittedRow: &transcriptpb.CommittedRow{
+					Visibility: transcriptpb.EntryVisibility_ENTRY_VISIBILITY_ONGOING_COLLAPSED,
+					Integrity:  transcriptpb.RowIntegrity_ROW_INTEGRITY_VALID,
+					Locator:    &transcriptpb.CommittedRowLocator{EventSequence: 1, RowOrdinal: 2},
+					Row: &transcriptpb.CommittedRow_ToolCall{ToolCall: &transcriptpb.ToolStart{
+						StepId: uuid.NewString(), ToolCallId: "native-call", ToolName: "exec_command",
+					}},
+				},
+			}})
+		}
 	}
+	apply(&transcriptpb.Event{Payload: &transcriptpb.Event_CommittedRow{
+		CommittedRow: &transcriptpb.CommittedRow{
+			Visibility: transcriptpb.EntryVisibility_ENTRY_VISIBILITY_ONGOING_COLLAPSED,
+			Integrity:  transcriptpb.RowIntegrity_ROW_INTEGRITY_VALID,
+			Locator:    &transcriptpb.CommittedRowLocator{EventSequence: 1, RowOrdinal: 2},
+			Row: &transcriptpb.CommittedRow_Tool{Tool: &transcriptpb.ToolRow{
+				ToolCallId: textutil.Value("native-call"), ToolName: textutil.Value("exec_command"), ResultSummary: textutil.Value("result"),
+			}},
+		},
+	}})
 	if output.Len() == 0 {
 		t.Fatal("separate assistant streams produced no terminal output")
 	}

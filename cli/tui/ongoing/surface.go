@@ -125,6 +125,7 @@ type Surface struct {
 	groupRegister      *transcriptrender.Group
 	activeAssistant    activeAssistantState
 	pendingAssistants  []activeAssistantState
+	emittedNativeCalls map[string]*transcriptpb.ToolStart
 	terminalResize     TerminalResizePolicy
 	markdownLinks      transcriptrender.MarkdownLinkPresentation
 	lastPaintedSize    *Size
@@ -191,7 +192,29 @@ func (s *Surface) ApplyTerminalMessage(message *transcriptpb.Message, frame Fram
 		return s.applyAssistantDelta(delta.StreamId, delta.Delta, delta.Phase, frame)
 	case *transcriptpb.Event_AssistantStreamAbort:
 		return s.abortAssistantStream(payload.AssistantStreamAbort.StreamId, frame)
+	case *transcriptpb.Event_StepState:
+		if payload.StepState.Lifecycle == transcriptpb.StepLifecycle_STEP_LIFECYCLE_FINISHED {
+			s.emittedNativeCalls = nil
+		}
+		return s.Render(frame)
 	case *transcriptpb.Event_CommittedRow:
+		if call := payload.CommittedRow.GetToolCall(); call != nil {
+			if s.emittedNativeCalls == nil {
+				s.emittedNativeCalls = make(map[string]*transcriptpb.ToolStart)
+			}
+			s.emittedNativeCalls[call.ToolCallId] = call
+		}
+		if result := payload.CommittedRow.GetTool(); result != nil && result.ToolCallId != nil {
+			if call := s.emittedNativeCalls[*result.ToolCallId]; call != nil {
+				delete(s.emittedNativeCalls, *result.ToolCallId)
+				rendered := transcriptrender.RenderToolCompletion(call, result, frame.Size.Width, frame.Theme)
+				lines := make([]string, 0, len(rendered.Lines))
+				for _, line := range rendered.Lines {
+					lines = append(lines, encodeTranscriptLine(line, frame.Theme))
+				}
+				return s.writeFrameTransaction(frame, s.renderGroupedRows(rendered.Group, lines, false))
+			}
+		}
 		if assistant := payload.CommittedRow.GetAssistant(); assistant != nil && assistant.StreamId != nil {
 			return s.finalizeAssistantStream(*assistant.StreamId, assistant.Text, frame)
 		}
@@ -204,6 +227,12 @@ func (s *Surface) ApplyTerminalMessage(message *transcriptpb.Message, frame Fram
 }
 
 func (s *Surface) applyHydration(hydration *transcriptpb.Hydration, frame FrameInput) (Result, error) {
+	s.emittedNativeCalls = make(map[string]*transcriptpb.ToolStart)
+	for _, row := range hydration.TailSegment.Entries {
+		if call := row.GetToolCall(); call != nil {
+			s.emittedNativeCalls[call.ToolCallId] = call
+		}
+	}
 	lines := s.hydrationImmutableLines(hydration, frame.Size.Width, frame.Theme)
 	s.pendingAssistants = nil
 	var first *transcriptpb.AssistantStream
@@ -456,6 +485,7 @@ func (s *Surface) ResetForScratchHydration(reason RehydrateReason, frame FrameIn
 	s.retainedBandHeight = 0
 	s.activeAssistant = activeAssistantState{}
 	s.pendingAssistants = nil
+	s.emittedNativeCalls = nil
 	s.groupRegister = nil
 	paintedSize := frame.Size
 	s.lastPaintedSize = &paintedSize
@@ -605,6 +635,7 @@ func committedRowLines(
 	case *transcriptpb.CommittedRow_User,
 		*transcriptpb.CommittedRow_Assistant,
 		*transcriptpb.CommittedRow_Tool,
+		*transcriptpb.CommittedRow_ToolCall,
 		*transcriptpb.CommittedRow_Notice,
 		*transcriptpb.CommittedRow_ReviewerFeedback,
 		*transcriptpb.CommittedRow_ReviewerError:

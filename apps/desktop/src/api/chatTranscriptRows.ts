@@ -210,6 +210,7 @@ export function committedRow(value: T.CommittedRowValid): ChatCommittedRow {
     User: null,
     Assistant: null,
     Tool: null,
+    ToolCall: null,
     ReasoningTrace: null,
     Notice: null,
     ReviewerFeedback: null,
@@ -234,6 +235,17 @@ export function committedRow(value: T.CommittedRowValid): ChatCommittedRow {
         ...base,
         Kind: "tool",
         Tool: toolRow(row.value),
+      };
+    case "toolCall":
+      return {
+        ...base,
+        Kind: "tool_call",
+        ToolCall: {
+          StepID: row.value.stepId,
+          ToolCallID: row.value.toolCallId,
+          ToolName: row.value.toolName,
+          Presentation: toolPresentation(row.value.presentation, row.value.toolName),
+        },
       };
     case "reasoningTrace":
       return {

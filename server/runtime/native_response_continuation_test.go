@@ -389,7 +389,11 @@ func TestNativeStreamingKeepsMessageIdentityAcrossHostedCalls(t *testing.T) {
 	}
 	var streams []string
 	var timeline []EventKind
+	var acceptedRows []TranscriptCommittedRowFact
 	for _, event := range events {
+		if event.Kind == EventAssistantMessage && event.Message.NativeResponse != nil {
+			acceptedRows = append(acceptedRows, TranscriptCommittedRowFactsFromEvent(event)...)
+		}
 		if event.Kind == EventAssistantDelta {
 			if event.AssistantTranscriptStreamID == nil {
 				t.Fatal("assistant delta has no stream identity")
@@ -405,6 +409,26 @@ func TestNativeStreamingKeepsMessageIdentityAcrossHostedCalls(t *testing.T) {
 	}
 	if len(timeline) < 4 || timeline[0] != EventAssistantDelta || timeline[1] != EventToolCallStarted || timeline[2] != EventAssistantDelta {
 		t.Fatalf("hosted call moved out of provider streaming order: %v", timeline)
+	}
+	if len(acceptedRows) != len(output) {
+		t.Fatalf("accepted native response delivered %d of %d visible items before result delivery", len(acceptedRows), len(output))
+	}
+	if acceptedRows[1].ToolCall == nil || acceptedRows[1].ToolCall.ToolCallID != "search_native" {
+		t.Fatal("accepted native call lost its original source slot")
+	}
+	var resultLocator *TranscriptCommittedRowFact
+	for _, event := range events {
+		if event.Kind != EventToolCallCompleted {
+			continue
+		}
+		for _, row := range TranscriptCommittedRowFactsFromEvent(event) {
+			if row.Tool != nil && row.Tool.ToolCallID == "search_native" {
+				resultLocator = &row
+			}
+		}
+	}
+	if resultLocator == nil || resultLocator.Locator != acceptedRows[1].Locator {
+		t.Fatal("native result did not update its accepted call's locator")
 	}
 	if err := engine.WithTranscriptHydrationSnapshot(func(snapshot TranscriptHydrationSnapshot) error {
 		var hydratedStreams []string

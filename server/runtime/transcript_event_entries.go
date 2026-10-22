@@ -23,6 +23,16 @@ func visibleChatEntriesFromMessage(msg llm.Message, completions map[string]tools
 				entries = append(entries, *projected.Reasoning)
 				continue
 			}
+			if len(projected.Message.ToolCalls) > 0 {
+				for _, call := range projected.Message.ToolCalls {
+					if _, complete := completions[call.ID]; !complete {
+						entries = append(entries, acceptedNativeToolCallEntry(call))
+					} else {
+						entries = append(entries, visibleChatEntriesFromMessage(llm.Message{Role: llm.RoleAssistant, ToolCalls: []llm.ToolCall{call}}, completions, materializedToolCalls)...)
+					}
+				}
+				continue
+			}
 			entries = append(entries, visibleChatEntriesFromMessage(projected.Message, completions, materializedToolCalls)...)
 		}
 		return entries
@@ -57,6 +67,16 @@ func visibleChatEntriesFromMessage(msg llm.Message, completions map[string]tools
 		}
 	}
 	return entries
+}
+
+func acceptedNativeToolCallEntry(call llm.ToolCall) ChatEntry {
+	entry := formatPersistedToolCall(call)
+	entry.Role = string(transcript.EntryRoleAcceptedToolCall)
+	return entry
+}
+
+func isToolCallEntryRole(role string) bool {
+	return role == "tool_call" || role == string(transcript.EntryRoleAcceptedToolCall)
 }
 
 func synthesizedToolResultForCall(call llm.ToolCall, completions map[string]tools.Result, materializedToolCalls map[string]struct{}) (tools.Result, bool) {

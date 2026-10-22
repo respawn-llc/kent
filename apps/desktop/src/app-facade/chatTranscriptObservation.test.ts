@@ -159,6 +159,41 @@ it("rejects a live committed event that does not advance beyond hydration", () =
   expect(observation.state.kind).toBe("error");
 });
 
+it("accepts a completed native result at its hydrated call locator without resetting live order", () => {
+  const failure = vi.fn();
+  const { handlers, observation } = logicalObservationFixture({ onError: failure });
+  const pending = {
+    ...row(10),
+    Kind: "tool_call",
+    User: null,
+    ToolCall: { StepID: "step", ToolCallID: "native", ToolName: "exec_command" },
+  } as const;
+  handlers[0]?.onOpen?.();
+  handlers[0]?.onEvent(hydrationWithRows([pending]));
+  handlers[0]?.onEvent({
+    sequence: 2,
+    kind: "committed_row",
+    payload: {
+      ...pending,
+      Kind: "tool",
+      ToolCall: null,
+      Tool: {
+        StepID: "step",
+        ToolCallID: "native",
+        ToolName: "exec_command",
+        Text: "result",
+        IsError: false,
+        ViewedImageKind: null,
+        AnsweredBySessionID: null,
+        AnsweredBySessionShortID: null,
+      },
+    },
+  });
+  handlers[0]?.onEvent({ sequence: 3, kind: "committed_row", payload: row(11) });
+  expect(failure).not.toHaveBeenCalled();
+  expect(observation.state.kind).toBe("observing");
+});
+
 it.each([
   {
     name: "first-row ordinal gap",

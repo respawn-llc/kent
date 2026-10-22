@@ -151,7 +151,15 @@ export type ChatNotice = Readonly<{
 export type ChatCommittedRow = Readonly<{
   Visibility: "ongoing" | "ongoing_collapsed" | "detail" | "hidden";
   Integrity: 0 | 1 | 2;
-  Kind: "user" | "assistant" | "tool" | "reasoning_trace" | "notice" | "reviewer_feedback" | "reviewer_error";
+  Kind:
+    | "user"
+    | "assistant"
+    | "tool"
+    | "tool_call"
+    | "reasoning_trace"
+    | "notice"
+    | "reviewer_feedback"
+    | "reviewer_error";
   Locator: Readonly<{ event_sequence: number; row_ordinal: number }>;
   User: Readonly<{
     StepID?: string | null;
@@ -184,6 +192,7 @@ export type ChatCommittedRow = Readonly<{
     AnsweredBySessionShortID: bigint | null;
     WebSearch?: ChatWebSearchDetail | null;
   }> | null;
+  ToolCall: ChatTranscriptPayloadByKind["tool_start"] | null;
   ReasoningTrace: Readonly<{
     StepID: string;
     CompactText: string;
@@ -200,7 +209,12 @@ export type ChatCommittedRow = Readonly<{
   }> | null;
   ReviewerError: Readonly<{ ID: string; StepID: string; Detail: string }> | null;
 }>;
-type AssistantFacts = Readonly<{ StepID: string; StreamID: string; Phase: "commentary" | "final_answer"; OutputIndex?: number }>;
+type AssistantFacts = Readonly<{
+  StepID: string;
+  StreamID: string;
+  Phase: "commentary" | "final_answer";
+  OutputIndex?: number;
+}>;
 export interface ChatTranscriptPayloadByKind {
   hydration: Readonly<{
     ConnectionReplacement: ChatTranscriptPayloadByKind["connection_replaced"] | null;

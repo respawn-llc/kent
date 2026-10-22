@@ -589,6 +589,7 @@ message CommittedRow {
     NoticeRow notice = 8;
     ReviewerFeedbackRow reviewer_feedback = 9;
     ReviewerErrorRow reviewer_error = 10;
+    ToolStart tool_call = 11;
   }
   option (buf.validate.message).cel = {
     id: "kent.transcript.reviewer_error_visibility"

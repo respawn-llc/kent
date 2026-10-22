@@ -52,6 +52,7 @@ function fixtureUserRow(sequence: number): ChatTranscriptPayloadByKind["committe
     },
     Assistant: null,
     Tool: null,
+    ToolCall: null,
     ReasoningTrace: null,
     Notice: null,
     ReviewerFeedback: null,

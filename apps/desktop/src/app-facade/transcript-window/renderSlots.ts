@@ -6,6 +6,10 @@ interface CommittedValues {
   user: NonNullable<CommittedRow["User"]>;
   assistant: NonNullable<CommittedRow["Assistant"]>;
   tool: NonNullable<CommittedRow["Tool"]>;
+  tool_call: Readonly<{
+    Call: NonNullable<CommittedRow["ToolCall"]>;
+    Activity: ChatTranscriptPayloadByKind["tool_start"] | null;
+  }>;
   reasoning_trace: NonNullable<CommittedRow["ReasoningTrace"]>;
   notice: NonNullable<CommittedRow["Notice"]>;
   reviewer_feedback: NonNullable<CommittedRow["ReviewerFeedback"]>;
@@ -44,7 +48,7 @@ export type TranscriptRenderItem = TranscriptCommittedItem | TranscriptProvision
 export type TranscriptRenderSlots<Output> = Readonly<{
   user(item: Extract<TranscriptRenderItem, { kind: "user" }>): Output;
   assistant(item: Extract<TranscriptRenderItem, { kind: "assistant" }>): Output;
-  tool(item: Extract<TranscriptRenderItem, { kind: "tool" }>): Output;
+  tool(item: Extract<TranscriptRenderItem, { kind: "tool" | "tool_call" }>): Output;
   reasoning(item: Extract<TranscriptRenderItem, { kind: "reasoning_trace" }>): Output;
   notice(
     item: Extract<TranscriptRenderItem, { kind: "notice" | "reviewer_feedback" | "reviewer_error" }>,
@@ -61,11 +65,16 @@ function required<Value>(value: Value | null): Value {
   return value;
 }
 
-export function committedItem(row: CommittedRow, key = locatorKey(row)): TranscriptCommittedItem {
+export function committedItem(
+  row: CommittedRow,
+  key = locatorKey(row),
+  activity: ChatTranscriptPayloadByKind["tool_start"] | null = null,
+): TranscriptCommittedItem {
   const payloads = [
     row.User,
     row.Assistant,
     row.Tool,
+    row.ToolCall,
     row.ReasoningTrace,
     row.Notice,
     row.ReviewerFeedback,
@@ -82,6 +91,8 @@ export function committedItem(row: CommittedRow, key = locatorKey(row)): Transcr
       return { ...base, kind: row.Kind, value: required(row.Assistant) };
     case "tool":
       return { ...base, kind: row.Kind, value: required(row.Tool) };
+    case "tool_call":
+      return { ...base, kind: row.Kind, value: { Call: required(row.ToolCall), Activity: activity } };
     case "reasoning_trace":
       return { ...base, kind: row.Kind, value: required(row.ReasoningTrace) };
     case "notice":

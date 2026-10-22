@@ -129,7 +129,8 @@ func (e *Engine) publishCommittedFinalizedToolCompletion(
 ) error {
 	result := cloneToolResult(completion.Result)
 	e.transcriptRuntimeState().CompleteLiveTool(result.CallID)
-	err := e.emitRaw(Event{Kind: EventToolCallCompleted, ToolResult: &result, CommittedTranscriptChanged: true, CommittedProvenance: cloneTranscriptCommittedRowProvenance(completionProvenance)}.withStepID(completionStepID))
+	err := e.emitRaw(Event{Kind: EventToolCallCompleted, ToolResult: &result,
+		CommittedTranscriptChanged: true, CommittedProvenance: cloneTranscriptCommittedRowProvenance(completionProvenance)}.withStepID(completionStepID))
 	if completion.OperatorFeedback == nil {
 		return err
 	}

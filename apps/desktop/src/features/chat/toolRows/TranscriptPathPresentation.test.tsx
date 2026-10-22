@@ -14,7 +14,8 @@ it("formats the image label without changing its source or offering Copy", async
   const user = userEvent.setup();
   const path = "/Users/engineer/project/image.png";
   const item = {
-    kind: "live",
+    kind: "call",
+    activity: "active",
     tool: {
       StepID: "step",
       ToolCallID: "image-call",

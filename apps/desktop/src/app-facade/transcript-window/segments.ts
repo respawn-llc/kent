@@ -54,6 +54,31 @@ function authoritativePayload(row: CommittedRow): CommittedRow {
   return { ...row, ReasoningTrace: { ...row.ReasoningTrace, ProvisionalIdentity: null } };
 }
 
+export function completesNativeCall(pending: CommittedRow, completed: CommittedRow): boolean {
+  return (
+    pending.Kind === "tool_call" &&
+    completed.Kind === "tool" &&
+    compareRows(pending, completed) === 0 &&
+    pending.ToolCall !== null &&
+    completed.Tool !== null &&
+    pending.ToolCall.ToolCallID === completed.Tool.ToolCallID &&
+    pending.ToolCall.ToolName === completed.Tool.ToolName &&
+    pending.ToolCall.StepID === completed.Tool.StepID &&
+    pending.Integrity === completed.Integrity
+  );
+}
+
+function shareRow(source: CommittedRow, incoming: CommittedRow): CommittedRow {
+  if (source === incoming) return source;
+  if (completesNativeCall(source, incoming)) return incoming;
+  if (completesNativeCall(incoming, source)) return source;
+  const previous = authoritativePayload(source);
+  if (replaceEqualDeep(previous, authoritativePayload(incoming)) === previous) return source;
+  const error = new ContractError("Recurrent transcript locator carries an incompatible committed payload.");
+  error.cause = { locator: incoming.Locator, resident: source, incoming };
+  throw error;
+}
+
 /** Recurrent rows reference the resident source payload, including rows about to be evicted. */
 export function shareSegment(
   segment: Segment,
@@ -61,20 +86,11 @@ export function shareSegment(
   pool: readonly CommittedRow[] = [],
 ): Segment {
   const sources = new Map(
-    [...pool, ...resident.flatMap((shell) => shell.entries)].map((row) => [locatorKey(row), row] as const),
+    mergeRows(residentRows(resident), pool).map((row) => [locatorKey(row), row] as const),
   );
   const entries = segment.entries.map((row) => {
     const source = sources.get(locatorKey(row));
-    if (source === undefined || source === row) return row;
-    const previous = authoritativePayload(source);
-    if (replaceEqualDeep(previous, authoritativePayload(row)) !== previous) {
-      const error = new ContractError(
-        "Recurrent transcript locator carries an incompatible committed payload.",
-      );
-      error.cause = { locator: row.Locator, resident: source, incoming: row };
-      throw error;
-    }
-    return source;
+    return source === undefined ? row : shareRow(source, row);
   });
   return { ...segment, entries };
 }
@@ -103,7 +119,7 @@ export function mergeRows(
       return rows.concat(left.slice(leftIndex));
     }
     const order = compareRows(first, second);
-    rows.push(order <= 0 ? first : second);
+    rows.push(order === 0 ? shareRow(first, second) : order < 0 ? first : second);
     if (order <= 0) leftIndex++;
     if (order >= 0) rightIndex++;
   }

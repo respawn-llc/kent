@@ -796,6 +796,18 @@ func transcriptRowFromFact(fact runtime.TranscriptCommittedRowFact, identities m
 			assistant.StreamId = &streamID
 		}
 		row.Row = &transcriptpb.CommittedRow_Assistant{Assistant: assistant}
+	case runtime.TranscriptCommittedRowFactToolCall:
+		stepID, err := transcriptRequiredStepID(fact.StepID)
+		if err != nil {
+			return nil, err
+		}
+		presentation, err := transcriptToolPresentation(fact.ToolCall.ToolName, fact.ToolCall.Presentation)
+		if err != nil {
+			return nil, err
+		}
+		row.Row = &transcriptpb.CommittedRow_ToolCall{ToolCall: &transcriptpb.ToolStart{
+			StepId: stepID, ToolCallId: fact.ToolCall.ToolCallID, ToolName: fact.ToolCall.ToolName, Presentation: presentation,
+		}}
 	case runtime.TranscriptCommittedRowFactTool:
 		presentation, err := transcriptToolPresentation(fact.Tool.ToolName, fact.Tool.Presentation)
 		if err != nil {

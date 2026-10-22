@@ -36,6 +36,7 @@ function committedPromotions(): readonly TranscriptCommittedItem["row"][] {
         Phase: "commentary",
         committed_at_unix_ms: null,
       },
+      ToolCall: null,
       Tool: null,
       ReasoningTrace: null,
       Notice: null,
@@ -49,6 +50,7 @@ function committedPromotions(): readonly TranscriptCommittedItem["row"][] {
       Integrity: 0,
       User: null,
       Assistant: null,
+      ToolCall: null,
       Tool: {
         ViewedImageKind: null,
         StepID: "step",
@@ -74,6 +76,7 @@ function committedPromotions(): readonly TranscriptCommittedItem["row"][] {
       Integrity: 0,
       User: null,
       Assistant: null,
+      ToolCall: null,
       Tool: null,
       ReasoningTrace: {
         StepID: "step",
@@ -227,12 +230,14 @@ describe("TranscriptWindowView", () => {
       kind: "initial-hydration",
       hydration: {
         ...initial,
-        ActiveAssistants: [{
-          StepID: "step",
-          StreamID: "assistant-stream",
-          Phase: "commentary",
-          Text: "Live assistant",
-        }],
+        ActiveAssistants: [
+          {
+            StepID: "step",
+            StreamID: "assistant-stream",
+            Phase: "commentary",
+            Text: "Live assistant",
+          },
+        ],
         InFlightTools: [
           {
             StepID: "step",
