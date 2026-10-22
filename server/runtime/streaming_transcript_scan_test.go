@@ -338,6 +338,63 @@ func fullStreamingProjection(t *testing.T, events []session.EventRecord) ChatSna
 	return scan.PageSnapshot()
 }
 
+func TestStreamingTranscriptScanIsolatesInputAndSnapshots(t *testing.T) {
+	events := []session.EventRecord{
+		streamScanTestEventAtSequence(t, 1, "message", llm.Message{
+			Role: llm.RoleUser, Content: textutil.Value("task"),
+		}),
+		streamScanTestEventAtSequence(t, 2, "message", llm.Message{
+			Role: llm.RoleAssistant,
+			ToolCalls: []llm.ToolCall{
+				{ID: "call-1", Name: string(toolspec.ToolExecCommand), Input: json.RawMessage(`{"cmd":"pwd"}`)},
+			},
+		}),
+		streamScanTestEventAtSequence(t, 3, "tool_completed", storedToolCompletion{
+			CallID: "call-1", Name: string(toolspec.ToolExecCommand),
+			Output: json.RawMessage(`{"output":"workspace"}`),
+			Presentation: &transcript.ToolCallMeta{
+				ToolName:    string(toolspec.ToolExecCommand),
+				Suggestions: []string{"inspect workspace"},
+			},
+		}),
+		streamScanTestEventAtSequence(t, 4, "message", llm.Message{
+			Role: llm.RoleAssistant, Phase: textutil.Value(llm.MessagePhaseFinal),
+			Content: textutil.Value("finished"),
+		}),
+	}
+	want := fullStreamingProjection(t, events)
+	scan := newStreamingTranscriptScan(config.CacheWarningModeDefault)
+	applyEventsToStreaming(t, scan, events)
+	page := scan.PageSnapshot()
+	for index := range page.Entries {
+		entry := &page.Entries[index]
+		entry.Text = "changed"
+		if entry.RollbackTargetID != nil {
+			*entry.RollbackTargetID = "changed"
+		}
+		if entry.CommittedProvenance != nil {
+			entry.CommittedProvenance.EventSequence = 999
+		}
+		if entry.ToolCall != nil && len(entry.ToolCall.Suggestions) > 0 {
+			entry.ToolCall.Suggestions[0] = "changed"
+		}
+	}
+	finalAnswer := scan.LastCommittedAssistantFinalAnswer()
+	if finalAnswer == nil {
+		t.Fatal("missing final answer")
+	}
+	*finalAnswer = "changed"
+	if got := scan.PageSnapshot(); !reflect.DeepEqual(got, want) {
+		t.Fatalf("mutating a page changed the retained projection: got %+v, want %+v", got, want)
+	}
+	if got := scan.LastCommittedAssistantFinalAnswer(); got == nil || *got != "finished" {
+		t.Fatalf("mutating the final answer changed the retained answer: %v", got)
+	}
+	if got := fullStreamingProjection(t, events); !reflect.DeepEqual(got, want) {
+		t.Fatalf("mutating a page changed the input records: got %+v, want %+v", got, want)
+	}
+}
+
 func TestStreamingTranscriptScanOrdersMaterializedToolsByCompletionProvenance(t *testing.T) {
 	t.Parallel()
 	events := []session.EventRecord{

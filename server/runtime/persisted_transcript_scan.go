@@ -6,47 +6,10 @@ import (
 
 	"core/server/llm"
 	"core/server/session"
-	"core/shared/config"
 	"core/shared/textutil"
 	"core/shared/transcript"
 	patchformat "core/shared/transcript/patchformat"
 )
-
-type PersistedTranscriptScanRequest struct {
-	CacheWarningMode config.CacheWarningMode
-}
-
-type PersistedTranscriptScan struct {
-	scan *streamingTranscriptScan
-}
-
-func NewPersistedTranscriptScan(req PersistedTranscriptScanRequest) *PersistedTranscriptScan {
-	return &PersistedTranscriptScan{
-		scan: newStreamingTranscriptScan(req.CacheWarningMode),
-	}
-}
-
-func (s *PersistedTranscriptScan) ApplyPersistedEvent(record session.EventRecord) error {
-	if s == nil {
-		return nil
-	}
-	return s.scan.ApplyPersistedEvent(record)
-}
-
-func (s *PersistedTranscriptScan) CollectedPageSnapshot() ChatSnapshot {
-	if s == nil {
-		return ChatSnapshot{}
-	}
-	page := s.scan.PageSnapshot()
-	return ChatSnapshot{Entries: clonePersistedChatEntries(page.Entries)}
-}
-
-func (s *PersistedTranscriptScan) LastCommittedAssistantFinalAnswer() *string {
-	if s == nil {
-		return nil
-	}
-	return s.scan.LastCommittedAssistantFinalAnswer()
-}
 
 func clonePersistedChatEntries(entries []ChatEntry) []ChatEntry {
 	if len(entries) == 0 {

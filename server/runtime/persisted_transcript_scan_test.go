@@ -15,7 +15,7 @@ import (
 
 func TestPersistedTranscriptScanEnrichesToolResultFromCompletion(t *testing.T) {
 	t.Parallel()
-	scan := NewPersistedTranscriptScan(PersistedTranscriptScanRequest{})
+	scan := newStreamingTranscriptScan("")
 	toolOutput, err := json.Marshal(map[string]any{"ok": true})
 	if err != nil {
 		t.Fatalf("marshal tool output: %v", err)
@@ -31,7 +31,7 @@ func TestPersistedTranscriptScanEnrichesToolResultFromCompletion(t *testing.T) {
 		}
 	}
 
-	page := scan.CollectedPageSnapshot()
+	page := scan.PageSnapshot()
 	if len(page.Entries) != 2 {
 		t.Fatalf("len(page.Entries) = %d, want 2", len(page.Entries))
 	}
@@ -45,7 +45,7 @@ func TestPersistedTranscriptScanEnrichesToolResultFromCompletion(t *testing.T) {
 
 func TestPersistedTranscriptScanProjectsDeveloperAndToolSummaryMetadata(t *testing.T) {
 	t.Parallel()
-	scan := NewPersistedTranscriptScan(PersistedTranscriptScanRequest{})
+	scan := newStreamingTranscriptScan("")
 	events := []session.EventRecord{
 		mustPersistedScanEvent(t, "message", llm.Message{Role: llm.RoleDeveloper, MessageType: textutil.Value(llm.MessageTypeEnvironment), Content: textutil.Value("Internal developer note")}),
 		mustPersistedScanEvent(t, "tool_completed", storedToolCompletion{CallID: "call-1", Name: string(toolspec.ToolExecCommand), IsError: true, Summary: textutil.Value("permission denied"), CondensedText: textutil.Value("permission denied compact"), Output: json.RawMessage(`{"error":"permission denied"}`)}),
@@ -57,7 +57,7 @@ func TestPersistedTranscriptScanProjectsDeveloperAndToolSummaryMetadata(t *testi
 		}
 	}
 
-	page := scan.CollectedPageSnapshot()
+	page := scan.PageSnapshot()
 	if got := len(page.Entries); got != 3 {
 		t.Fatalf("len(page.Entries) = %d, want 3 (%+v)", got, page.Entries)
 	}
@@ -73,7 +73,7 @@ func TestPersistedTranscriptScanProjectsDeveloperAndToolSummaryMetadata(t *testi
 
 func TestPersistedTranscriptScanSynthesizesCompletedToolResultWithoutToolMessage(t *testing.T) {
 	t.Parallel()
-	scan := NewPersistedTranscriptScan(PersistedTranscriptScanRequest{})
+	scan := newStreamingTranscriptScan("")
 	events := []session.EventRecord{
 		mustPersistedScanEvent(t, "message", llm.Message{Role: llm.RoleAssistant, Content: textutil.Value("working"), ToolCalls: []llm.ToolCall{{ID: "call-1", Name: string(toolspec.ToolExecCommand), Input: json.RawMessage(`{"command":"pwd"}`)}}}),
 		mustPersistedScanEvent(t, "tool_completed", storedToolCompletion{CallID: "call-1", Name: string(toolspec.ToolExecCommand), Output: json.RawMessage(`{"output":"/tmp","exit_code":0,"truncated":false}`)}),
@@ -84,7 +84,7 @@ func TestPersistedTranscriptScanSynthesizesCompletedToolResultWithoutToolMessage
 		}
 	}
 
-	page := scan.CollectedPageSnapshot()
+	page := scan.PageSnapshot()
 	if len(page.Entries) != 3 {
 		t.Fatalf("len(page.Entries) = %d, want 3", len(page.Entries))
 	}
@@ -122,7 +122,7 @@ func TestPersistedTranscriptScanProjectsCurrentPatchPresentation(t *testing.T) {
 	singlePatch := "*** Begin Patch\n*** Update File: cli/app/ui_status.go\n@@\n type uiStatusAuthInfo struct {\n-\tSummary string\n+\tSummary string\n+\tReady bool\n }\n*** End Patch\n"
 	multiPatch := "*** Begin Patch\n*** Update File: a.go\n+new\n*** Update File: b.go\n-old\n*** End Patch\n"
 	rawPatch := "not a structured patch payload"
-	scan := NewPersistedTranscriptScan(PersistedTranscriptScanRequest{})
+	scan := newStreamingTranscriptScan("")
 	events := []session.EventRecord{
 		mustPersistedScanEvent(t, "message", llm.Message{Role: llm.RoleAssistant, ToolCalls: []llm.ToolCall{{
 			ID:          "call-patch-single",
@@ -150,7 +150,7 @@ func TestPersistedTranscriptScanProjectsCurrentPatchPresentation(t *testing.T) {
 		}
 	}
 
-	page := scan.CollectedPageSnapshot()
+	page := scan.PageSnapshot()
 	if len(page.Entries) != 6 {
 		t.Fatalf("len(page.Entries) = %d, want 6 (%+v)", len(page.Entries), page.Entries)
 	}
@@ -192,7 +192,7 @@ func TestPersistedTranscriptScanProjectsCurrentPatchPresentation(t *testing.T) {
 
 func TestPersistedTranscriptScanProjectsPreservedUserMessageFromPersistedMessage(t *testing.T) {
 	t.Parallel()
-	scan := NewPersistedTranscriptScan(PersistedTranscriptScanRequest{})
+	scan := newStreamingTranscriptScan("")
 	events := []session.EventRecord{
 		mustPersistedScanEvent(t, "message", llm.Message{Role: llm.RoleUser, Content: textutil.Value("before compaction")}),
 		mustPersistedScanEvent(t, "history_replaced", historyReplacementPayload{Items: llm.ItemsFromMessages([]llm.Message{{Role: llm.RoleUser, Content: textutil.Value("condensed provider summary"), MessageType: textutil.Value(llm.MessageTypeCompactionSummary)}})}),
@@ -205,7 +205,7 @@ func TestPersistedTranscriptScanProjectsPreservedUserMessageFromPersistedMessage
 		}
 	}
 
-	page := scan.CollectedPageSnapshot()
+	page := scan.PageSnapshot()
 	if len(page.Entries) != 4 {
 		t.Fatalf("len(page.Entries) = %d, want 4 (%+v)", len(page.Entries), page.Entries)
 	}
@@ -228,7 +228,7 @@ func TestPersistedTranscriptScanProjectsPreservedUserMessageFromPersistedMessage
 
 func TestPersistedTranscriptScanProjectsPreservedUserMessageFromHistoryReplacement(t *testing.T) {
 	t.Parallel()
-	scan := NewPersistedTranscriptScan(PersistedTranscriptScanRequest{})
+	scan := newStreamingTranscriptScan("")
 	events := []session.EventRecord{
 		mustPersistedScanEvent(t, "message", llm.Message{Role: llm.RoleUser, Content: textutil.Value("before compaction")}),
 		mustPersistedScanEvent(t, "history_replaced", historyReplacementPayload{Items: llm.ItemsFromMessages([]llm.Message{
@@ -242,7 +242,7 @@ func TestPersistedTranscriptScanProjectsPreservedUserMessageFromHistoryReplaceme
 		}
 	}
 
-	page := scan.CollectedPageSnapshot()
+	page := scan.PageSnapshot()
 	if len(page.Entries) != 3 {
 		t.Fatalf("len(page.Entries) = %d, want 3 (%+v)", len(page.Entries), page.Entries)
 	}
@@ -256,7 +256,7 @@ func TestPersistedTranscriptScanProjectsPreservedUserMessageFromHistoryReplaceme
 
 func TestPersistedTranscriptScanMaterializesCompactedDeveloperContextInDetailPage(t *testing.T) {
 	t.Parallel()
-	scan := NewPersistedTranscriptScan(PersistedTranscriptScanRequest{})
+	scan := newStreamingTranscriptScan("")
 	events := []session.EventRecord{
 		mustPersistedScanEvent(t, "message", llm.Message{Role: llm.RoleUser, Content: textutil.Value("before compaction")}),
 		mustPersistedScanEvent(t, "local_entry", storedLocalEntry{Role: "error", Text: "before replace"}),
@@ -272,7 +272,7 @@ func TestPersistedTranscriptScanMaterializesCompactedDeveloperContextInDetailPag
 		}
 	}
 
-	page := scan.CollectedPageSnapshot()
+	page := scan.PageSnapshot()
 	if got := len(page.Entries); got != 5 {
 		t.Fatalf("len(page.Entries) = %d, want 5 (%+v)", got, page.Entries)
 	}
@@ -298,12 +298,12 @@ func TestPersistedTranscriptScanMaterializesCompactedDeveloperContextInDetailPag
 
 func TestPersistedTranscriptScanReplaysCacheWarnings(t *testing.T) {
 	t.Parallel()
-	scan := NewPersistedTranscriptScan(PersistedTranscriptScanRequest{})
+	scan := newStreamingTranscriptScan("")
 	if err := scan.ApplyPersistedEvent(mustPersistedScanEvent(t, sessionEventCacheWarning, transcript.CacheWarning{Scope: transcript.CacheWarningScopeConversation, Reason: transcript.CacheWarningReasonNonPostfix})); err != nil {
 		t.Fatalf("ApplyPersistedEvent(cache_warning): %v", err)
 	}
 
-	page := scan.CollectedPageSnapshot()
+	page := scan.PageSnapshot()
 	if len(page.Entries) != 1 {
 		t.Fatalf("len(page.Entries) = %d, want 1", len(page.Entries))
 	}
@@ -327,12 +327,12 @@ func TestPersistedTranscriptScanUsesCacheWarningModeVisibility(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			scan := NewPersistedTranscriptScan(PersistedTranscriptScanRequest{CacheWarningMode: tt.mode})
+			scan := newStreamingTranscriptScan(tt.mode)
 			if err := scan.ApplyPersistedEvent(mustPersistedScanEvent(t, sessionEventCacheWarning, transcript.CacheWarning{Scope: transcript.CacheWarningScopeConversation, Reason: transcript.CacheWarningReasonNonPostfix})); err != nil {
 				t.Fatalf("ApplyPersistedEvent(cache_warning): %v", err)
 			}
 
-			page := scan.CollectedPageSnapshot()
+			page := scan.PageSnapshot()
 			if len(page.Entries) != 1 {
 				t.Fatalf("len(page.Entries) = %d, want 1", len(page.Entries))
 			}

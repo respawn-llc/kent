@@ -79,7 +79,7 @@ func TestRemoteCompactionReplacementOwnsExactlyOneTranscriptSummary(t *testing.T
 	if err != nil {
 		t.Fatalf("read bounded dormant records: %v", err)
 	}
-	scan := NewPersistedTranscriptScan(PersistedTranscriptScanRequest{})
+	scan := newStreamingTranscriptScan("")
 	for _, record := range window.Records {
 		if err := scan.ApplyPersistedEvent(record); err != nil {
 			t.Fatalf("apply dormant record: %v", err)
@@ -87,7 +87,7 @@ func TestRemoteCompactionReplacementOwnsExactlyOneTranscriptSummary(t *testing.T
 	}
 	assertSingleCompactionSummaryAndPreservedUserFact(
 		t,
-		TranscriptCommittedRowFactsFromSnapshot(scan.CollectedPageSnapshot()),
+		TranscriptCommittedRowFactsFromSnapshot(scan.PageSnapshot()),
 		preservedUserMessage,
 	)
 }
@@ -320,7 +320,7 @@ func TestEligibleHistoryReplacementTimestampParityAcrossPersistedAndLiveProjecti
 		t.Fatalf("read persisted replacement records: %v", err)
 	}
 	var persistedReplacementTime *transcript.CommittedAtUnixMs
-	scan := NewPersistedTranscriptScan(PersistedTranscriptScanRequest{})
+	scan := newStreamingTranscriptScan("")
 	for _, record := range window.Records {
 		if kind := mustSessionEventKind(record); kind == session.EventKindHistoryReplace {
 			persistedReplacementTime = record.CommittedAtUnixMs()
@@ -332,7 +332,7 @@ func TestEligibleHistoryReplacementTimestampParityAcrossPersistedAndLiveProjecti
 	if persistedReplacementTime == nil || persistedReplacementTime.UnixMs() != replacementTime.UnixMs() {
 		t.Fatalf("persisted replacement time = %v, live = %d", persistedReplacementTime, replacementTime.UnixMs())
 	}
-	persistedFacts := TranscriptCommittedRowFactsFromSnapshot(scan.CollectedPageSnapshot())
+	persistedFacts := TranscriptCommittedRowFactsFromSnapshot(scan.PageSnapshot())
 	assertReplacementFactsMatch(t, persistedFacts, replacementTime)
 	if err := engine.Close(); err != nil {
 		t.Fatalf("close eligible replacement engine: %v", err)

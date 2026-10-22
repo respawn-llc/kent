@@ -68,12 +68,19 @@ func TestAssistantMessagesRemainOngoingAcrossCommentaryAndFinalPhases(t *testing
 			if len(facts) != 1 || facts[0].Visibility != test.want {
 				t.Fatalf("assistant facts = %+v, want one %q row", facts, test.want)
 			}
-			scan := newInMemoryTranscriptScan(nil, nil)
-			scan.ApplyMessage(llm.Message{
+			scan := newStreamingTranscriptScan("")
+			var phase *llm.MessagePhase
+			if test.phase != "" {
+				phase = textutil.Value(test.phase)
+			}
+			record := streamScanTestEvent(t, "message", llm.Message{
 				Role:    llm.RoleAssistant,
-				Phase:   textutil.Value(test.phase),
+				Phase:   phase,
 				Content: textutil.Value("assistant content"),
-			}, &TranscriptCommittedRowProvenance{EventSequence: 1}, exactStepIDPointer(runtimeTestStepID(chatStoreTestStepID)))
+			})
+			if err := scan.ApplyPersistedEvent(record); err != nil {
+				t.Fatalf("project assistant message: %v", err)
+			}
 			scannedEntries := scan.PageSnapshot().Entries
 			if len(scannedEntries) != 1 || scannedEntries[0].Visibility != test.want {
 				t.Fatalf("scanned assistant entries = %+v, want one %q row", scannedEntries, test.want)

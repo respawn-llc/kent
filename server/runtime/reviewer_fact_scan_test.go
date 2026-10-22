@@ -34,14 +34,14 @@ func TestPersistedTranscriptScanReconstructsTypedReviewerFacts(t *testing.T) {
 		t.Fatalf("create error event: %v", err)
 	}
 
-	scan := NewPersistedTranscriptScan(PersistedTranscriptScanRequest{})
+	scan := newStreamingTranscriptScan("")
 	for _, event := range []session.EventRecord{feedbackEvent, errorEvent} {
 		if err := scan.ApplyPersistedEvent(event); err != nil {
 			t.Fatalf("apply typed Reviewer event: %v", err)
 		}
 	}
 
-	page := scan.CollectedPageSnapshot()
+	page := scan.PageSnapshot()
 	if len(page.Entries) != 2 || page.Entries[0].ReviewerFeedback == nil || page.Entries[1].ReviewerError == nil {
 		t.Fatalf("projected entries = %+v, want Reviewer feedback and error", page.Entries)
 	}
@@ -284,7 +284,7 @@ func TestReviewerFactSteeringCommitFenceMatrix(t *testing.T) {
 
 func TestPersistedTranscriptScanKeepsHistoricalReviewerLocalEntriesGeneric(t *testing.T) {
 	// TODO(KENT-405): delete this compatibility fixture with the legacy reader in 2.7.0.
-	scan := NewPersistedTranscriptScan(PersistedTranscriptScanRequest{})
+	scan := newStreamingTranscriptScan("")
 	events := []session.EventRecord{
 		mustPersistedScanEvent(t, "local_entry", storedLocalEntry{
 			Visibility: transcript.EntryVisibilityOngoing,
@@ -307,12 +307,12 @@ func TestPersistedTranscriptScanKeepsHistoricalReviewerLocalEntriesGeneric(t *te
 			t.Fatalf("apply historical Reviewer local entry: %v", err)
 		}
 	}
-	entries := scan.CollectedPageSnapshot().Entries
+	entries := scan.PageSnapshot().Entries
 	if len(entries) != 3 || entries[0].Role != "reviewer_suggestions" || entries[0].Text != "legacy Markdown\n\n- item" ||
 		entries[1].Role != "reviewer_error" || entries[1].Text != "legacy error detail" {
 		t.Fatalf("historical Reviewer local entry = %+v", entries)
 	}
-	facts := TranscriptCommittedRowFactsFromSnapshot(scan.CollectedPageSnapshot())
+	facts := TranscriptCommittedRowFactsFromSnapshot(scan.PageSnapshot())
 	if len(facts) != 2 {
 		t.Fatalf("hidden historical Reviewer entry reached committed-row facts: %+v", facts)
 	}

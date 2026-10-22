@@ -2,71 +2,12 @@ package runtime
 
 import (
 	"encoding/json"
-	"sort"
 	"strings"
 
 	"core/server/llm"
 	"core/server/session"
-	"core/server/tools"
-	"core/shared/rollbacktarget"
 	"core/shared/textutil"
 )
-
-type inMemoryTranscriptScan struct {
-	pageEntries []ChatEntry
-
-	toolCompletions       map[string]tools.Result
-	materializedToolCalls map[string]struct{}
-}
-
-func newInMemoryTranscriptScan(completions map[string]tools.Result, materializedToolCalls map[string]struct{}) *inMemoryTranscriptScan {
-	return &inMemoryTranscriptScan{
-		toolCompletions:       completions,
-		materializedToolCalls: materializedToolCalls,
-	}
-}
-
-func (s *inMemoryTranscriptScan) ApplyMessage(msg llm.Message, provenance *TranscriptCommittedRowProvenance, stepID *string, owners ...map[string]*TranscriptCommittedRowProvenance) {
-	if s == nil {
-		return
-	}
-	entries := visibleChatEntriesFromMessage(msg, s.toolCompletions, s.materializedToolCalls)
-	for index := range entries {
-		entry := &entries[index]
-		if strings.TrimSpace(entry.Role) == "user" && provenance != nil && provenance.EventSequence > 0 {
-			targetID := rollbacktarget.EncodeUserMessageSeq(provenance.EventSequence)
-			entry.RollbackTargetID = &targetID
-		}
-		entry.StepID = cloneOptionalStepID(stepID)
-		entry.CommittedProvenance = cloneTranscriptCommittedRowProvenance(provenance)
-		if len(owners) > 0 && entry.ToolCallID != "" {
-			if owner := owners[0][entry.ToolCallID]; owner != nil {
-				entry.CommittedProvenance = cloneTranscriptCommittedRowProvenance(owner)
-			}
-		}
-	}
-	sort.SliceStable(entries, func(left, right int) bool {
-		return transcriptCommittedProvenanceBefore(
-			entries[left].CommittedProvenance,
-			entries[right].CommittedProvenance,
-		)
-	})
-	for _, entry := range entries {
-		s.appendEntry(entry)
-	}
-}
-
-func (s *inMemoryTranscriptScan) PageSnapshot() ChatSnapshot {
-	if s == nil {
-		return ChatSnapshot{}
-	}
-	return ChatSnapshot{Entries: append([]ChatEntry(nil), s.pageEntries...)}
-}
-
-func (s *inMemoryTranscriptScan) appendEntry(entry ChatEntry) {
-	entry.Visibility = normalizeRuntimeEntryVisibility(entry.Visibility)
-	s.pageEntries = append(s.pageEntries, clonePersistedChatEntry(entry))
-}
 
 type responseItemMessageWalker struct {
 	currentAssistant *llm.Message

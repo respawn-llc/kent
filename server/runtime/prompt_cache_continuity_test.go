@@ -589,7 +589,7 @@ func capturePersistedProjectionFromStore(t *testing.T, store *session.Store) pro
 	scan := mustScanPersistedActiveSegment(t, store)
 	return promptCacheProjection{
 		MainViewJSON:   mustMarshalCanonicalJSON(t, persistedMainViewComparable(t, store, scan)),
-		TranscriptJSON: mustMarshalCanonicalJSON(t, scan.CollectedPageSnapshot()),
+		TranscriptJSON: mustMarshalCanonicalJSON(t, scan.PageSnapshot()),
 	}
 }
 
@@ -631,7 +631,7 @@ func runtimeMainViewComparable(engine *Engine) promptCacheComparableMainView {
 	}
 }
 
-func persistedMainViewComparable(t *testing.T, store *session.Store, scan *PersistedTranscriptScan) promptCacheComparableMainView {
+func persistedMainViewComparable(t *testing.T, store *session.Store, scan *streamingTranscriptScan) promptCacheComparableMainView {
 	t.Helper()
 	meta := store.Meta()
 	eventLog := mustMaterializeTestEventLog(t, store)
@@ -640,7 +640,7 @@ func persistedMainViewComparable(t *testing.T, store *session.Store, scan *Persi
 		SessionName:                    meta.Name,
 		ConversationFreshness:          conversationFreshnessLabel(mustEventLogConversationFreshness(eventLog)),
 		Revision:                       mustEventLogRevision(eventLog),
-		CommittedEntryCount:            len(scan.CollectedPageSnapshot().Entries),
+		CommittedEntryCount:            len(scan.PageSnapshot().Entries),
 		PreviousSessionID:              meta.PreviousSessionID,
 		ParentAgentSessionID:           meta.ParentAgentSessionID,
 		NavigationTargetSessionID:      navigationTargetSessionIDForPromptCache(meta),
@@ -661,7 +661,7 @@ func navigationTargetSessionIDForPromptCache(meta session.Meta) *runtimeids.Sess
 	return nil
 }
 
-func mustScanPersistedActiveSegment(t *testing.T, store *session.Store) *PersistedTranscriptScan {
+func mustScanPersistedActiveSegment(t *testing.T, store *session.Store) *streamingTranscriptScan {
 	t.Helper()
 	eventLog := mustMaterializeTestEventLog(t, store)
 	var matchErr error
@@ -672,7 +672,7 @@ func mustScanPersistedActiveSegment(t *testing.T, store *session.Store) *Persist
 	if matchErr != nil {
 		t.Fatalf("match newest persisted transcript segment: %v", matchErr)
 	}
-	scan := NewPersistedTranscriptScan(PersistedTranscriptScanRequest{})
+	scan := newStreamingTranscriptScan("")
 	for _, record := range window.Records {
 		if err := scan.ApplyPersistedEvent(record); err != nil {
 			t.Fatalf("project newest persisted transcript segment: %v", err)
