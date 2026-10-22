@@ -241,7 +241,10 @@ func (r *ConnectionRotation) ResolveSessionConnection(
 			return *saved, nil, nil
 		}
 	}
-	candidates, _, _ := sessionConnectionCandidates(settings, source, scope)
+	candidates := settings
+	if allocate || saved != nil {
+		candidates, _, _ = sessionConnectionCandidates(settings, source, scope)
+	}
 	selected, err := r.Prepare(ctx, candidates, allocate)
 	if err != nil {
 		return "", nil, err
