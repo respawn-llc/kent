@@ -78,7 +78,7 @@ func TestUserShellAcceptanceOwnsExecutionAcrossCallerCancellation(t *testing.T) 
 			}
 			done := make(chan error, 1)
 			go func() {
-				_, err := engine.SubmitUserShellCommandWithAcceptance(caller, "pwd", accept)
+				_, err := engine.QueueShellInput(caller, runtimeids.NewQueueItemID(), runtimeinput.ShellCommand{Command: "pwd"}, runtimeinput.PendingWorkLaneSteer, accept)
 				done <- err
 			}()
 			if acceptCommand {
@@ -87,7 +87,7 @@ func TestUserShellAcceptanceOwnsExecutionAcrossCallerCancellation(t *testing.T) 
 			}
 			select {
 			case err := <-done:
-				if !errors.Is(err, context.Canceled) {
+				if !acceptCommand && !errors.Is(err, context.Canceled) || acceptCommand && err != nil {
 					t.Fatalf("caller cancellation = %v", err)
 				}
 			case <-time.After(runtimeTestSynchronizationTimeout):
@@ -146,7 +146,7 @@ func TestUserShellRealProcessLifecycle(t *testing.T) {
 			}
 			done := make(chan error, 1)
 			go func() {
-				_, err := engine.SubmitUserShellCommand(t.Context(), command)
+				err := executeTestShell(t.Context(), engine, command)
 				done <- err
 			}()
 			if mode != "foreground" {
@@ -202,7 +202,7 @@ func TestUserShellCommandIsUserContextInNextModelRequest(t *testing.T) {
 		ID:      toolspec.ToolExecCommand,
 		Handler: fakeTool{name: toolspec.ToolExecCommand, out: mustJSON(output)},
 	}), Config{Model: "gpt-6-sol"})
-	if _, err := engine.SubmitUserShellCommand(t.Context(), command); err != nil {
+	if err := executeTestShell(t.Context(), engine, command); err != nil {
 		t.Fatal(err)
 	}
 	if len(client.calls) != 0 {
@@ -656,7 +656,7 @@ func TestUserShellCommandSurvivesReopenWithoutBecomingARollbackTarget(t *testing
 	store := mustCreateTestSession(t)
 	engine := mustNewExecTestEngine(t, store, &fakeClient{}, Config{Model: "gpt-6-sol"})
 	command := "echo fixture"
-	if _, err := engine.SubmitUserShellCommand(t.Context(), command); err != nil {
+	if err := executeTestShell(t.Context(), engine, command); err != nil {
 		t.Fatal(err)
 	}
 	if store.Meta().FirstPromptPreview != "" {
@@ -712,7 +712,7 @@ func TestUserShellCommandLiveDeliveryKeepsOutputCollapsed(t *testing.T) {
 		},
 	})
 	command := "echo fixture"
-	if _, err := engine.SubmitUserShellCommand(t.Context(), command); err != nil {
+	if err := executeTestShell(t.Context(), engine, command); err != nil {
 		t.Fatal(err)
 	}
 	found := false
@@ -741,14 +741,8 @@ func TestSubmitUserShellCommandPersistsErrorWithoutRegisteredHandler(t *testing.
 	client := &fakeClient{}
 	engine := mustNewTestEngine(t, store, client, newTestToolRegistry(t), Config{Model: "gpt-6-sol"})
 
-	result, err := engine.SubmitUserShellCommand(context.Background(), "pwd")
-	if !errors.Is(err, errUnknownTool) {
-		t.Fatalf("submit shell command error = %v, want unknown tool", err)
-	}
-	if result.CallID == "" ||
-		result.Name != toolspec.ToolExecCommand ||
-		!result.IsError {
-		t.Fatalf("unknown shell handler result = %+v", result)
+	if err := executeTestShell(t.Context(), engine, "pwd"); !errors.Is(err, errUnknownTool) {
+		t.Fatalf("shell error = %v, want unknown tool", err)
 	}
 	if len(client.calls) != 0 {
 		t.Fatalf("unknown shell handler dispatched model calls = %d", len(client.calls))
@@ -773,4 +767,11 @@ func TestSubmitUserShellCommandPersistsErrorWithoutRegisteredHandler(t *testing.
 	if messages != 1 {
 		t.Fatalf("persisted shell error messages = %d, want one", messages)
 	}
+}
+
+func executeTestShell(ctx context.Context, engine *Engine, command string) error {
+	if _, err := engine.QueueShellInput(ctx, runtimeids.NewQueueItemID(), runtimeinput.ShellCommand{Command: command}, runtimeinput.PendingWorkLaneSteer, nil); err != nil {
+		return err
+	}
+	return engine.WaitForScheduledQueuedUserWork(ctx)
 }

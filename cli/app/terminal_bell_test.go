@@ -5,12 +5,9 @@ import (
 	"core/cli/tui/transcriptrender"
 	"core/shared/clientui"
 	transcriptpb "core/shared/protoapi/gen/kent/api/transcript"
-	"core/shared/runtimeids"
 	"core/shared/textutil"
-	"google.golang.org/protobuf/types/known/timestamppb"
 	"strings"
 	"testing"
-	"time"
 	"unicode/utf8"
 )
 
@@ -346,56 +343,4 @@ func attentionNotificationID(kind clientui.AttentionNotificationKind, uuid strin
 
 func bellTestPrompt(id, question string) *transcriptpb.Prompt {
 	return testQuestionPrompt(id, question)
-}
-
-func bellTestStepID(index int) runtimeids.StepID {
-	values := []string{
-		"11111111-1111-4111-8111-111111111111",
-		"22222222-2222-4222-8222-222222222222",
-		"33333333-3333-4333-8333-333333333333",
-	}
-	if index < 1 || index > len(values) {
-		panic("bell test step index is out of range")
-	}
-	id, err := runtimeids.ParseStepID(values[index-1])
-	if err != nil {
-		panic(err)
-	}
-	return id
-}
-
-func bellToolStartMessage(step int) *transcriptpb.Message {
-	return transcriptTestMessage(2, &transcriptpb.ToolStart{StepId: bellTestStepID(step).String(), ToolCallId: "tool-call", ToolName: "exec_command"})
-
-}
-
-func bellAssistantFinalMessage(step int) *transcriptpb.Message {
-	return bellAssistantFinalMessageWithText(step, "turn complete")
-}
-
-func bellAssistantFinalMessageWithText(step int, text string) *transcriptpb.Message {
-	return transcriptTestMessage(2, &transcriptpb.CommittedRow{
-		Visibility: transcriptpb.EntryVisibility_ENTRY_VISIBILITY_ONGOING,
-		Integrity:  transcriptpb.RowIntegrity_ROW_INTEGRITY_VALID, Row: &transcriptpb.CommittedRow_Assistant{Assistant: &transcriptpb.AssistantRow{StepId: bellTestStepID(step).String(), Text: text, Phase: transcriptpb.AssistantPhase_ASSISTANT_PHASE_FINAL}}})
-
-}
-
-func bellStepFinishedMessage(step int) *transcriptpb.Message {
-	return transcriptTestMessage(2, &transcriptpb.StepState{StepId: bellTestStepID(step).String(),
-		Lifecycle: transcriptpb.StepLifecycle_STEP_LIFECYCLE_FINISHED})
-
-}
-
-func bellAssistantDeltaMessage(step int, delta string) *transcriptpb.Message {
-	return transcriptTestMessage(2, &transcriptpb.AssistantDelta{StepId: bellTestStepID(step).String(), StreamId: runtimeids.NewAssistantStreamID().String(), Delta: delta, Phase: transcriptpb.AssistantPhase_ASSISTANT_PHASE_FINAL})
-
-}
-
-func bellLiveRunNoFinalMessage() *transcriptpb.Message {
-	startedAt := time.Date(2026, time.January, 1, 0, 0, 0, 0, time.UTC)
-	return transcriptTestMessage(2, &transcriptpb.LiveRunFinished{
-		Status:     transcriptpb.LiveRunStatus_LIVE_RUN_STATUS_COMPLETED,
-		ResultKind: transcriptpb.LiveRunResultKind_LIVE_RUN_RESULT_KIND_NO_FINAL_ANSWER,
-		StartedAt:  timestamppb.New(startedAt),
-		FinishedAt: timestamppb.New(startedAt.Add(time.Second))})
 }

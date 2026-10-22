@@ -248,9 +248,7 @@ func (f *runtimeControlFakeClient) SubmitRuntimeInput(ctx context.Context, req c
 	}
 	return submission, err
 }
-func (f *runtimeControlFakeClient) submitUserShellCommand(_ context.Context, command string) error {
-	return f.err
-}
+
 func (f *runtimeControlFakeClient) compactContext(_ context.Context, args string) error {
 	_ = args
 	return f.err
