@@ -462,6 +462,8 @@ func (p Planner) planSessionWithExecutionContext(ctx context.Context, req Sessio
 	}
 	baseActive := EffectiveSettings(p.Config.Settings, meta.Locked)
 	baseSource := p.Config.Source
+	// Role membership must inherit the configured selector, not the saved binding.
+	active, source := baseActive, baseSource
 	if meta.ConnectionID != nil {
 		if err := projectSessionConnection(&baseActive, baseSource, meta); err != nil {
 			return SessionPlan{}, err
@@ -471,7 +473,6 @@ func (p Planner) planSessionWithExecutionContext(ctx context.Context, req Sessio
 	if meta.Continuation != nil {
 		continuationAgentRole = cloneContinuationRole(meta.Continuation.AgentRole)
 	}
-	active, source := baseActive, baseSource
 	scope := config.ConnectionScope{Selection: p.Config.Settings.Connection}
 	enabledTools := []toolspec.ID(nil)
 	var err error
@@ -481,7 +482,7 @@ func (p Planner) planSessionWithExecutionContext(ctx context.Context, req Sessio
 		source = cloneSourceReport(req.PreparedPromptFacingTarget.Source)
 		enabledTools = append([]toolspec.ID(nil), req.PreparedPromptFacingTarget.EnabledTools...)
 	} else if meta.Continuation != nil {
-		active, source, scope, err = applyPersistedSubagentRoleSettingsWithSelection(ctx, baseActive, baseSource, continuationAgentRole, meta.ConnectionID, meta.Locked == nil, !req.SkipContinuationAgentRoleValidation, p.Rotation, true)
+		active, source, scope, err = applyPersistedSubagentRoleSettingsWithSelection(ctx, active, source, continuationAgentRole, meta.ConnectionID, meta.Locked == nil, !req.SkipContinuationAgentRoleValidation, p.Rotation, true)
 		if err != nil {
 			return SessionPlan{}, err
 		}
