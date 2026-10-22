@@ -13,7 +13,7 @@ import {
 import { protobufRpcError, requireUnarySuccess } from "./protobufRpc";
 import type { RpcTransport } from "./transport";
 import { timestampMillis } from "./clientTime";
-import { ContractError, RpcError } from "./errors";
+import { RpcError } from "./errors";
 import { SubscriptionReadError, type SubscriptionUsage, type SubscriptionBinding } from "./subscriptionUsage";
 
 export async function getSubscriptionConnections(transport: RpcTransport) {
@@ -84,7 +84,6 @@ export async function getSubscriptionUsage(
   const value = await status(transport, { provider: { connectionId: connectionID } });
   if (!binding(value).supported) return null;
   const subscription = value.subscription;
-  if (subscription === undefined) throw new ContractError("Subscription facts are missing.");
   const source =
     subscription.quotaSource === SubscriptionQuotaSource.CHATGPT
       ? "chatgpt"
