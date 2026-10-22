@@ -26,19 +26,28 @@ async function layoutSettled() {
 
 it.each([50, 900])("keeps a tall-chat flight at 350ms with a %ims theme duration", async (duration) => {
   document.documentElement.style.setProperty("--motion-text-handoff", `${String(duration)}ms`);
+  let now = Math.ceil(performance.now());
+  const clock = vi.spyOn(performance, "now").mockImplementation(() => now);
   const motion = new SharedTextMotion();
-  const source = textElement(window.innerHeight - 60);
-  const target = textElement(20);
-  motion.capture("first", source);
-  source.remove();
-  expect(motion.arrive(["first"], target)).toBe(true);
-  expect(target).not.toBeVisible();
-  await new Promise((resolve) => setTimeout(resolve, 250));
-  expect(target).not.toBeVisible();
-  await new Promise((resolve) => setTimeout(resolve, 150));
-  expect(target).toBeVisible();
-  expect(document.body.children).toHaveLength(1);
-  motion.dispose();
+  try {
+    const source = textElement(window.innerHeight - 60);
+    const target = textElement(20);
+    motion.capture("first", source);
+    source.remove();
+    expect(motion.arrive(["first"], target)).toBe(true);
+    expect(target).not.toBeVisible();
+    await layoutSettled();
+    now += 349;
+    await layoutSettled();
+    expect(target).not.toBeVisible();
+    now += 1;
+    await layoutSettled();
+    expect(target).toBeVisible();
+    expect(document.body.children).toHaveLength(1);
+  } finally {
+    motion.dispose();
+    clock.mockRestore();
+  }
 });
 
 it("consumes reduced-motion delivery without overlays or historical replay", () => {
