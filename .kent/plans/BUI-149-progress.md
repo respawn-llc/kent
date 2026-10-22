@@ -1,3 +1,12 @@
+### Step 8 complete / final verification in progress
+
+- Conservative whole-diff count against baseline 2a591451e: 2,622 changed non-test/non-doc lines (2,033 added + 589 deleted), including go.mod/go.sum, Just, preparer, decoder patch and protocol changes. This overcounts test-support sources and remains below 4,000. Unchanged ignored SDK excluded.
+- Audited one generation selector, payload builder, existing response accumulator/parser, socket-owned exact-prefix checkpoint, opening-auth owner and optional cleanup chain. Main/Reviewer/Nano/Workflow/subagent share the existing provider construction. No SDK recovery/reconnect, HTTP fallback, steering API, provider credential persistence, full transcript scan or public-doc change added.
+- Reconciled all Codex routing fixture scenarios with real SDK WebSockets and HTTP compaction; source helpers produce native events directly, not an SSE-to-WebSocket bridge. Removed now-unused SSE tool/final writers. Tool loops/human turns, sticky-account/unknown-account, concurrent Sessions, shared/mismatched Reviewer routes, local and native compaction, invalid headers, generation retry and missing-output repair retained.
+- Migration found a genuine lost-header regression: SDK Connect failures returned before observing Codex's routing response header. Red `TestGenerateWithRetryReplaysExactProviderTurnState` observed ["", ""] instead of ["", "opaque,state=value"]. Observing handshake headers before checking Connect's error restores the existing retry owner; focused retry/missing-output/invalid-header cases pass.
+- Tool-loop, two-human-turn/sticky-account, unidentified-account, concurrent-Session/Reviewer-sharing, local/remote/standalone compaction and mismatched-Reviewer focused checks passed individually. No runtime routing scenario removed; old per-request account refresh expectation now verifies the explicitly approved sticky socket credential.
+- Step 9 required affected/full tests, lint, release compilation and final alternate rebuild remain. No manual QA performed.
+
 ### Step 7 complete
 
 - Added failing SDK-boundary Grok bare-exhaustion regression: previously returned an unclassified errors.errorString. Typed protocol error now goes through the selected existing Responses reducer, preserving machine code/type/param/message and SDK-reported optional status.

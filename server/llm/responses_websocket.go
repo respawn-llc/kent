@@ -121,6 +121,8 @@ func (t *HTTPTransport) generateWebsocket(ctx context.Context, request Responses
 		connection, err := service.Connect(ctx, responses.ResponseConnectionOptions{
 			MaxMessageBytes: responsesSocketMessageBytes, MaxBufferedBytes: responsesSocketBufferedBytes, MaxBufferedEvents: responsesSocketBufferedEvents,
 		}, options...)
+		headersObserved := false
+		observeCodexTurnStateResponseHeader(codexTurnStateObserver(preparation.projection, request.CodexDispatch), handshake, &headersObserved)
 		if err != nil {
 			return result, newResponsesRequestErrorMapper(preparation.variant.ProviderID).Map(err, handshake, "open responses websocket")
 		}
@@ -128,8 +130,6 @@ func (t *HTTPTransport) generateWebsocket(ctx context.Context, request Responses
 	}
 	abort := context.AfterFunc(ctx, t.socket.Abort)
 	defer abort()
-	headersObserved := false
-	observeCodexTurnStateResponseHeader(codexTurnStateObserver(preparation.projection, request.CodexDispatch), handshake, &headersObserved)
 	if err := t.socket.Create(ctx, create); err != nil {
 		return result, err
 	}
