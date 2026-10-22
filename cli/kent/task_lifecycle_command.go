@@ -359,7 +359,7 @@ func taskStartSubcommand(args []string, stdout io.Writer, stderr io.Writer) int 
 				renderTaskSetupGuidance(stderr, taskAlreadyStartedGuidance(positionals[0], recoveryProject))
 				return 1
 			}
-			if !writeWorkflowTaskTargetOrBranchError(stderr, err) &&
+			if !writeWorkflowTaskTargetOrBranchError(stderr, positionals[0], err) &&
 				!writeWorkflowTaskMutationSelfTargetError(stderr, err) {
 				fmt.Fprintln(stderr, err)
 			}
@@ -457,7 +457,7 @@ func workflowConfiguredExecutionTargetSelector(target taskConfiguredTargetJSON) 
 	return workflowExecutionTargetPolicySelector(workflowExecutionTargetPolicyJSON{Mode: serverapi.WorkflowExecutionTargetMode(target.Mode)})
 }
 
-func writeWorkflowExecutionTargetError(stderr io.Writer, err error) bool {
+func writeWorkflowExecutionTargetError(stderr io.Writer, taskSelector string, err error) bool {
 	var resolutionErr *serverapi.WorkflowExecutionTargetResolutionError
 	if errors.As(err, &resolutionErr) {
 		switch target := resolutionErr.Target.(type) {
@@ -465,13 +465,23 @@ func writeWorkflowExecutionTargetError(stderr io.Writer, err error) bool {
 			fmt.Fprintf(stderr, "Execution target revision %q failed: %s.\n", target.RequestedRef, resolutionErr.Code)
 			return true
 		case serverapi.WorkflowExecutionTargetResolutionDefaultBranch:
-			fmt.Fprintf(stderr, "%s\n", workflowDefaultBranchResolutionFailureMessage(resolutionErr.Code))
+			fmt.Fprintf(
+				stderr,
+				"Task %q could not start with execution target %q: %s\n",
+				taskSelector,
+				"default-branch",
+				workflowDefaultBranchResolutionFailureMessage(resolutionErr.Code),
+			)
+			fmt.Fprintf(stderr, "Resolution code: %s\n", resolutionErr.Code)
 			if resolutionErr.Diagnostic != nil {
 				fmt.Fprintf(stderr, "Git diagnostic: %s\n", *resolutionErr.Diagnostic)
 			}
-			fmt.Fprintln(stderr, "Retry Task Start with one of these execution targets:")
+			fmt.Fprintf(stderr, "Retry Task Start for %s with one of these execution targets:\n", taskSelector)
 			for _, selector := range []string{"none", "head", "default-branch", "ref:<revision>"} {
-				fmt.Fprintf(stderr, "  %s task start <task> --execution-target %s\n", config.Command, selector)
+				command := []string{
+					config.Command, "task", "start", taskSelector, "--execution-target", selector,
+				}
+				fmt.Fprintf(stderr, "  %s\n", commandString(command))
 			}
 			return true
 		default:
@@ -597,7 +607,7 @@ func taskResumeSubcommand(args []string, stdout io.Writer, stderr io.Writer) int
 			if writeTaskSetupFailure(stderr, taskSetupObservedActionResume, positionals[0], recoveryProject, executionTarget, err) {
 				return 1
 			}
-			if writeWorkflowTaskTargetOrBranchError(stderr, err) ||
+			if writeWorkflowTaskTargetOrBranchError(stderr, positionals[0], err) ||
 				writeWorkflowTaskContextSelectionError(stderr, err) ||
 				writeWorkflowTaskMutationSelfTargetError(stderr, err) {
 				return 1
@@ -877,7 +887,7 @@ func taskMoveSubcommand(args []string, stdout io.Writer, stderr io.Writer) int {
 				}
 				return 1
 			}
-			if !writeWorkflowTaskTargetOrBranchError(stderr, err) &&
+			if !writeWorkflowTaskTargetOrBranchError(stderr, positionals[0], err) &&
 				!writeWorkflowTaskMutationSelfTargetError(stderr, err) {
 				fmt.Fprintln(stderr, err)
 			}

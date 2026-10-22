@@ -28,15 +28,17 @@ export const executionTargetEnglish = {
   revision_git_failure: "Git could not resolve “{{value}}”.",
   defaultBranchResolution: {
     default_branch_missing:
-      "Kent could not identify the repository default branch. Retry this choice or choose another execution target.",
+      "Task Start could not resolve your selected Repository default branch: no local default-branch metadata was found.",
     default_branch_ambiguous:
-      "The local repository has ambiguous default-branch metadata. Retry this choice or choose another execution target.",
+      "Task Start could not resolve your selected Repository default branch: the local metadata identifies more than one candidate.",
     invalid_revision:
-      "The discovered repository default-branch reference could not be resolved. Retry this choice or choose another execution target.",
+      "Task Start could not use your selected Repository default branch: its discovered reference does not resolve to a commit.",
     non_commit:
-      "The discovered repository default-branch reference does not resolve to a commit. Retry this choice or choose another execution target.",
+      "Task Start could not use your selected Repository default branch: its discovered reference resolves to a non-commit.",
     git_failure:
-      "Git could not resolve the repository default branch. Retry this choice or choose another execution target.",
+      "Task Start could not use your selected Repository default branch: Git could not inspect the repository.",
+    guidance:
+      "To retry this target, first correct or update the repository's default-branch metadata or resolve the Git error. Then select Repository default branch above and choose Continue. To use another target, select it above and choose Continue.",
     diagnostic: "Git diagnostic",
   },
   continue: "Continue",

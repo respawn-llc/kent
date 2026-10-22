@@ -422,6 +422,7 @@ function ExecutionTargetChoiceFailureMessage({
         className="grid gap-[var(--space-1)] text-sm text-[var(--color-error)]"
       >
         <p className="m-0">{t(`executionTargetContinuation.defaultBranchResolution.${failure.reason}`)}</p>
+        <p className="m-0">{t("executionTargetContinuation.defaultBranchResolution.guidance")}</p>
         {failure.diagnostic === undefined ? null : (
           <p className="m-0 break-all whitespace-pre-wrap font-mono">
             {t("executionTargetContinuation.defaultBranchResolution.diagnostic")}: {failure.diagnostic}
