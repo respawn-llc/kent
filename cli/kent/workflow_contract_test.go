@@ -736,10 +736,7 @@ func TestWorkflowGraphDocumentOptionalGroupName(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		roundtrip, err := workflowGraphDocumentFromDraft(document.WorkflowID, 0, draft)
-		if err != nil {
-			t.Fatal(err)
-		}
+		roundtrip := workflowGraphDocumentFromDraft(document.WorkflowID, 0, draft)
 		value, named := name["display_name"].(string)
 		got := roundtrip.Graph.NodeGroups[0].DisplayName
 		if named && (got == nil || *got != value) || !named && got != nil {
