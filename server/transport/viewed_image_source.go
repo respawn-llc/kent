@@ -41,9 +41,6 @@ func (d viewedImageSourceDescriptor) validate() error {
 func (a *sessionReattachAuthority) issueViewedImageSourceURL(
 	descriptor viewedImageSourceDescriptor,
 ) (string, error) {
-	if err := descriptor.validate(); err != nil {
-		return "", err
-	}
 	payload, err := json.Marshal(descriptor)
 	if err != nil {
 		return "", fmt.Errorf("encode viewed image source descriptor: %w", err)
