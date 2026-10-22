@@ -78,7 +78,9 @@ it.each([true, false])(
       },
       { wrapper },
     );
-    await waitFor(() => { expect(focused ? status.push : notify).toHaveBeenCalledTimes(1); });
+    await waitFor(() => {
+      expect(focused ? status.push : notify).toHaveBeenCalledTimes(1);
+    });
     expect(focused ? notify : status.push).not.toHaveBeenCalled();
     await act(async () => {
       if (focused) status.push.mock.calls[0]?.[0].onClick?.();
@@ -88,12 +90,12 @@ it.each([true, false])(
         view.result.current({ target: delivered.target, notification: null });
       }
     });
-    await waitFor(() =>
-      { expect(openSessionChat).toHaveBeenCalledWith({
+    await waitFor(() => {
+      expect(openSessionChat).toHaveBeenCalledWith({
         projectID: target.projectID,
         sessionID: target.sessionID,
-      }); },
-    );
+      });
+    });
     view.unmount();
   },
 );

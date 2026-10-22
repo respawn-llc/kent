@@ -244,7 +244,9 @@ export function createAttentionViewModel({
         Effect.gen(function* () {
           const completed = event.type === "session_turn_end";
           const completionTitle = completed
-            ? Array.from(event.sessionName ?? t("app.attention.sessionFallback")).slice(0, 75).join("")
+            ? Array.from(event.sessionName ?? t("app.attention.sessionFallback"))
+                .slice(0, 75)
+                .join("")
             : "";
           const completionText = completed
             ? Array.from(
@@ -274,7 +276,9 @@ export function createAttentionViewModel({
             status.push({
               ...notification,
               tone: completed ? "info" : "danger",
-              onClick: () => { get.set(activate, { target: event.target, notification: null }); },
+              onClick: () => {
+                get.set(activate, { target: event.target, notification: null });
+              },
             });
           };
           if (inputs().focused === true || !bridge.capabilities.notifications.basic) {
