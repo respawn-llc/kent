@@ -3641,6 +3641,8 @@ func TestCompactAndContinueResumeRestoresAssignmentAfterPreActivationCompaction(
 	if requests[1].SessionID == nil || *requests[1].SessionID != target.SessionID.String() {
 		t.Fatalf("pre-activation resumed Session = %v, want %s", requests[1].SessionID, *target.SessionID)
 	}
+	f.waitForTaskQuiescence(t, task.ID)
+	f.waitForSessionExecutionQuiescence(t, *target.SessionID)
 	if got := f.workflowAssignmentRecordCount(t, *target.SessionID); got != 2 {
 		t.Fatalf("pre-activation Workflow assignment records = %d, want source and target assignments", got)
 	}
