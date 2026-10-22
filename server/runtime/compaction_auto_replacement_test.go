@@ -73,7 +73,7 @@ func TestAutoCompactionRecomputesUsageFromReplacementHistory(t *testing.T) {
 	if got := codexTurnIDForDispatch(t, client.compactionCalls[0].CodexDispatch); got != stepID {
 		t.Fatalf("inline compaction dispatch identity = %q, want enclosing Step %q", got, stepID)
 	}
-	assertCompactionReplacementOrder(t, engine.transcriptRuntimeState().SnapshotItems(), false)
+	assertCompactionReplacementOrder(t, compactionReplacementItems(t, engine), false)
 	if got, want := request.PromptCacheKey, engine.SessionID(); got != want {
 		t.Fatalf("automatic compaction prompt cache key = %q, want stable Session ID %q", got, want)
 	}
@@ -120,7 +120,7 @@ func TestAutoCompactionLocalCarriesPreservedUserMessageInOrder(t *testing.T) {
 		t.Fatalf("local Generate calls = %d, want one", len(client.calls))
 	}
 	buildActiveTurnRequestForTest(t, engine, nil, true)
-	assertCompactionReplacementOrder(t, engine.transcriptRuntimeState().SnapshotItems(), false)
+	assertCompactionReplacementOrder(t, compactionReplacementItems(t, engine), false)
 }
 
 func remoteCompactionReplacement(

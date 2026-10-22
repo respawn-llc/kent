@@ -179,7 +179,7 @@ type NodeGroupRecord struct {
 	ID          string
 	WorkflowID  runtimeids.WorkflowID
 	Key         workflow.ModelKey
-	DisplayName string
+	DisplayName *string
 	SortOrder   int64
 }
 

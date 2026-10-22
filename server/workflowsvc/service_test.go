@@ -3065,7 +3065,7 @@ func addWorkflowGraphAtomicParallelNodeGroup(
 	groupID := workflowServiceGraphEntityID("group-parallel-" + workflowID.String())
 	graph = protoapi.WorkflowGraphDraftFromDefinition(current)
 	graph.NodeGroups = append(graph.NodeGroups, &pb.GraphDraftNodeGroup{
-		Id: groupID, Key: "parallel", DisplayName: "Parallel",
+		Id: groupID, Key: "parallel", DisplayName: new("Parallel"),
 	})
 	for index := range graph.Nodes {
 		switch graph.Nodes[index].Id {

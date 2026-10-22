@@ -223,6 +223,7 @@
 - `node_key`, `transition_id`, `edge_key`, Parameter Keys, and binding names match `^[a-z][a-z0-9_]{0,63}$`.
 - Workflow display names are trimmed non-empty labels capped at 120 chars. They cannot serve as references.
 - Node display labels may be empty. They must be trimmed and capped at 120 characters.
+- Node Group names must be optional and represent absence as null. A supplied Group name must survive save and reload.
 
 ## Node Completion
 

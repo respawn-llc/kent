@@ -1334,6 +1334,38 @@ AND
 GROUP BY node_id
 ORDER BY node_id ASC;
 
+-- name: ListTaskStageNamesByTasks :many
+SELECT
+    task.id AS task_id,
+    CAST(CASE WHEN node.group_id IS NULL
+        THEN COALESCE(NULLIF(trim(node.display_name), ''), node.node_key)
+        ELSE COALESCE(node_group.display_name, (
+            SELECT COALESCE(NULLIF(trim(member.display_name), ''), member.node_key)
+            FROM workflow_nodes member
+            WHERE member.group_id = node.group_id
+            ORDER BY member.sort_order, member.rowid
+            LIMIT 1
+        ))
+    END AS TEXT) AS stage_name
+FROM tasks task
+JOIN task_current_nodes current_node ON current_node.rowid = COALESCE(
+    (
+        SELECT serial.rowid
+        FROM task_current_nodes serial
+        WHERE serial.task_id = task.id AND serial.transition_branch_key IS NULL
+    ),
+    (
+        SELECT parallel.rowid
+        FROM task_current_nodes parallel
+        WHERE parallel.task_id = task.id AND parallel.transition_branch_key IS NOT NULL
+        ORDER BY parallel.transition_branch_key
+        LIMIT 1
+    )
+)
+JOIN workflow_nodes node ON node.id = current_node.node_id
+LEFT JOIN workflow_node_groups node_group ON node_group.id = node.group_id
+WHERE task.id IN (sqlc.slice('task_ids'));
+
 -- name: ListWorkflowTaskListRows :many
 WITH
 args AS (

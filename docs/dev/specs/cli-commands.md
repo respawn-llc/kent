@@ -471,6 +471,7 @@
 ### Workflow selection and discovery
 
 - Workflow selectors are bare canonical UUID v4 values. Workflow display names and prefixed identifiers are not selectors.
+- Workflow authoring must allow operators to omit Node Group names. Optional Group names follow [Workflow rules](workflow-orchestration.md).
 - Every command that accepts a Workflow selector uses the same syntax and emits copyable bare UUIDs in human and JSON output.
 - `kent workflow list` is paginated.
 - `--project <path-or-id>` filters Workflow list to Workflows linked to the resolved Project.

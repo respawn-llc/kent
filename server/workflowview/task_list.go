@@ -160,11 +160,24 @@ func (l *TaskList) List(ctx context.Context, req *taskpb.ListRequest) (*taskpb.L
 	if err != nil {
 		return nil, err
 	}
+	stageByTask := make(map[string]string, len(pageTaskIDs))
+	if workflowID == nil && len(pageTaskIDs) > 0 {
+		stages, err := l.queries.ListTaskStageNamesByTasks(ctx, pageTaskIDs)
+		if err != nil {
+			return nil, err
+		}
+		for _, stage := range stages {
+			stageByTask[stage.TaskID] = stage.StageName
+		}
+	}
 	responseItems := make([]*taskpb.ListItem, 0, len(pageItems))
 	for _, row := range pageItems {
 		item := row.item
 		item.Labels = labelsByTask[item.TaskId]
 		item.DependencyProgress = dependencyProgressByTask[item.TaskId]
+		if name, exists := stageByTask[item.TaskId]; exists {
+			item.StageName = &name
+		}
 		responseItems = append(responseItems, item)
 	}
 	var nextOffset *int32

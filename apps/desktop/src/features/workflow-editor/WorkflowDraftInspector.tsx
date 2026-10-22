@@ -5,6 +5,7 @@ import type {
   WorkflowDefinition,
   WorkflowExecutionTargetMode,
   WorkflowExecutionTargetPolicy,
+  WorkflowNodeGroup,
   WorkflowValidation,
 } from "@/api";
 import type { WorkflowInspectorInitialFocus, WorkflowInspectorSelection } from "@/app-facade";
@@ -86,7 +87,12 @@ export function WorkflowDraftInspectorContent({
     return group === undefined ? (
       <MissingEntity entityID={selection.groupID} />
     ) : (
-      <GroupDetails definition={definition} group={group} validation={validation} />
+      <GroupDraftDetails
+        controller={controller}
+        definition={definition}
+        group={group}
+        validation={validation}
+      />
     );
   }
   const edge = controller.draft.edges.find((item) => item.id === selection.edgeID);
@@ -153,6 +159,40 @@ function WorkflowDraftNodeDetails({
     return <FixedNodeDraftDetails controller={controller} node={node} validation={validation} />;
   }
   return <NodeDetails definition={definition} node={node} validation={validation} />;
+}
+
+function GroupDraftDetails({
+  controller,
+  definition,
+  group,
+  validation,
+}: Readonly<{
+  controller: WorkflowEditorView;
+  definition: WorkflowDefinition;
+  group: WorkflowNodeGroup;
+  validation: WorkflowValidation;
+}>) {
+  const { t } = useTranslation();
+  return (
+    <GroupDetails
+      definition={definition}
+      group={group}
+      validation={validation}
+      nameField={
+        <TextInput
+          label={t("workflowEditor.displayName")}
+          value={group.name ?? ""}
+          onChange={(event) => {
+            controller.dispatch({
+              type: "editNodeGroupName",
+              groupID: group.id,
+              name: event.target.value.length === 0 ? null : event.target.value,
+            });
+          }}
+        />
+      }
+    />
+  );
 }
 
 function EdgeDraftDetails({

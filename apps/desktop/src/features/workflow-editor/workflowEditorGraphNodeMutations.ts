@@ -120,11 +120,11 @@ export function createWorkflowNodeGroupFromNode(
   if (node.groupID !== null) {
     return unchanged(draft, workflowEditorGraphMutationWarnings.nodeGroupRequiresUngroupedNode);
   }
-  const groupName = input.groupName ?? `${node.name} parallel`;
+  const groupName = input.groupName ?? null;
   const groupKey =
     input.groupKey ??
     uniqueWorkflowModelKey(
-      groupName,
+      `${node.key}_parallel`,
       draft.nodeGroups.map((group) => group.key),
     );
   const joinKey = uniqueWorkflowModelKey(

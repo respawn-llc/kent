@@ -402,7 +402,7 @@ type WorkflowNodeGroup struct {
 	ID          string
 	WorkflowID  runtimeids.WorkflowID
 	GroupKey    string
-	DisplayName string
+	DisplayName sql.NullString
 	SortOrder   int64
 }
 

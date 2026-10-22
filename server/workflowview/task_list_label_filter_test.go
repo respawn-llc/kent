@@ -4,12 +4,180 @@ import (
 	"slices"
 	"testing"
 
+	"core/internal/testharness/workflowfixture"
+	"core/server/workflow"
 	"core/server/workflowstore"
 	workflowpb "core/shared/protoapi/gen/kent/api/workflow_definition"
 	taskpb "core/shared/protoapi/gen/kent/api/workflow_task"
+	"core/shared/runtimeids"
 
 	"google.golang.org/protobuf/proto"
 )
+
+func TestProjectTaskListStageUsesUngroupedNodeName(t *testing.T) {
+	fixture := newCurrentNodeViewFixture(t, false)
+	started := fixture.startTask(t, "Stage")
+	page, err := fixture.tasks.List(fixture.ctx, &taskpb.ListRequest{
+		ProjectId: &fixture.binding.ProjectID, LabelFilter: noLabelFilter(),
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(page.Tasks) != 1 || page.Tasks[0].TaskId != string(started.task.ID) ||
+		page.Tasks[0].StageName == nil || *page.Tasks[0].StageName != "Agent" {
+		t.Fatalf("Stage projection = %+v", page.Tasks)
+	}
+	workflowfixture.SaveStoreGraph(t, fixture.ctx, fixture.store, fixture.workflowID, func(_ workflow.Definition, req *workflowstore.WorkflowGraphSaveRequest) {
+		for i := range req.Nodes {
+			if req.Nodes[i].ID == fixture.agentNodeID {
+				req.Nodes[i].DisplayName = ""
+			}
+		}
+	})
+	page, err = fixture.tasks.List(fixture.ctx, &taskpb.ListRequest{
+		ProjectId: &fixture.binding.ProjectID, LabelFilter: noLabelFilter(),
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if page.Tasks[0].StageName == nil || *page.Tasks[0].StageName != "agent" {
+		t.Fatalf("unnamed ungrouped Node Stage = %+v", page.Tasks)
+	}
+}
+
+func TestProjectTaskListStageUsesNamedGroupDuringParallelWork(t *testing.T) {
+	fixture := newCurrentNodeViewFixture(t, false)
+	groupID := runtimeids.NewGraphEntityID()
+	otherID := workflow.NodeID(runtimeids.NewGraphEntityID())
+	joinID := workflow.NodeID(runtimeids.NewGraphEntityID())
+	otherTransition := workflow.TransitionGroupID(runtimeids.NewGraphEntityID())
+	joinTransition := workflow.TransitionGroupID(runtimeids.NewGraphEntityID())
+	workflowfixture.SaveStoreGraph(t, fixture.ctx, fixture.store, fixture.workflowID, func(definition workflow.Definition, req *workflowstore.WorkflowGraphSaveRequest) {
+		terminalID := currentNodeViewNodeIDByKind(t, definition, workflow.NodeKindTerminal)
+		startID := currentNodeViewNodeIDByKind(t, definition, workflow.NodeKindStart)
+		var startTransition workflow.TransitionGroupID
+		for _, transition := range req.TransitionGroups {
+			if transition.SourceNodeID == startID {
+				startTransition = transition.ID
+			}
+		}
+		req.NodeGroups = append(req.NodeGroups, workflowstore.NodeGroupRecord{
+			ID: groupID, WorkflowID: fixture.workflowID, Key: "parallel", DisplayName: new("Delivery"),
+		})
+		for i := range req.Nodes {
+			if req.Nodes[i].ID == fixture.agentNodeID {
+				req.Nodes[i].GroupID = &groupID
+			}
+		}
+		req.Nodes = append(req.Nodes,
+			workflowstore.NodeRecord{ID: otherID, WorkflowID: fixture.workflowID, Key: "other", Kind: workflow.NodeKindAgent, DisplayName: "Other", SubagentRole: "coder", GroupID: &groupID},
+			workflowstore.NodeRecord{ID: joinID, WorkflowID: fixture.workflowID, Key: "join", Kind: workflow.NodeKindJoin, DisplayName: "Join", GroupID: &groupID},
+		)
+		for i := range req.Edges {
+			if req.Edges[i].TargetNodeID == terminalID {
+				req.Edges[i].TargetNodeID = joinID
+			}
+		}
+		req.TransitionGroups = append(req.TransitionGroups,
+			workflowstore.TransitionGroupRecord{ID: otherTransition, WorkflowID: fixture.workflowID, SourceNodeID: otherID, TransitionID: "other_done", DisplayName: "Done"},
+			workflowstore.TransitionGroupRecord{ID: joinTransition, WorkflowID: fixture.workflowID, SourceNodeID: joinID, TransitionID: "joined", DisplayName: "Done"},
+		)
+		for _, edge := range []struct {
+			group  workflow.TransitionGroupID
+			target workflow.NodeID
+			key    workflow.ModelKey
+		}{{startTransition, otherID, "a_other"}, {otherTransition, joinID, "other_done"}, {joinTransition, terminalID, "joined"}} {
+			prompt := ""
+			if edge.target == otherID {
+				prompt = "Work."
+			}
+			req.Edges = append(req.Edges, workflowstore.EdgeRecord{
+				ID: workflow.EdgeID(runtimeids.NewGraphEntityID()), WorkflowID: fixture.workflowID,
+				TransitionGroupID: edge.group, TargetNodeID: edge.target, Key: edge.key,
+				AssigneeSelection: workflow.AssigneeSelectionConfigured, ThinkingSelection: workflow.ThinkingSelectionConfigured,
+				ContextMode: workflow.ContextModeNewSession, PromptTemplate: prompt,
+			})
+		}
+	})
+	task := fixture.createBacklogTask(t, "Parallel stage")
+	plan, err := fixture.store.PlanTaskStart(fixture.ctx, task.ID, &workflowstore.ExecutionTargetCandidate{
+		Snapshot: workflowstore.ExecutionTargetSnapshot{Mode: workflow.ExecutionTargetModeNone, Provenance: workflowstore.ExecutionTargetProvenanceResolved},
+		Root:     workflowstore.ExecutionRoot{SourceWorkspaceID: fixture.binding.WorkspaceID, SourceWorkspaceRoot: fixture.binding.CanonicalRoot},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := fixture.store.CommitTaskStart(fixture.ctx, plan, workflowfixture.PrepareCurrentNodeSessions(t, fixture.ctx, fixture.metadata, plan.StartContexts())); err != nil {
+		t.Fatal(err)
+	}
+	page, err := fixture.tasks.List(fixture.ctx, &taskpb.ListRequest{
+		ProjectId: &fixture.binding.ProjectID, LabelFilter: noLabelFilter(),
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(page.Tasks) != 1 || len(page.Tasks[0].Status.NodeIds) != 2 ||
+		page.Tasks[0].StageName == nil || *page.Tasks[0].StageName != "Delivery" {
+		t.Fatalf("parallel Stage = %+v", page.Tasks)
+	}
+	workflowfixture.SaveStoreGraph(t, fixture.ctx, fixture.store, fixture.workflowID, func(_ workflow.Definition, req *workflowstore.WorkflowGraphSaveRequest) {
+		req.NodeGroups[0].DisplayName = nil
+	})
+	page, err = fixture.tasks.List(fixture.ctx, &taskpb.ListRequest{
+		ProjectId: &fixture.binding.ProjectID, LabelFilter: noLabelFilter(),
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(page.Tasks) != 1 || page.Tasks[0].StageName == nil || *page.Tasks[0].StageName != "Agent" {
+		t.Fatalf("unnamed parallel Group Stage = %+v, want first stored member Agent", page.Tasks)
+	}
+	workflowfixture.SaveStoreGraph(t, fixture.ctx, fixture.store, fixture.workflowID, func(_ workflow.Definition, req *workflowstore.WorkflowGraphSaveRequest) {
+		for i := range req.Nodes {
+			if req.Nodes[i].ID == fixture.agentNodeID {
+				req.Nodes[i].DisplayName = ""
+			}
+		}
+	})
+	page, err = fixture.tasks.List(fixture.ctx, &taskpb.ListRequest{
+		ProjectId: &fixture.binding.ProjectID, LabelFilter: noLabelFilter(),
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if page.Tasks[0].StageName == nil || *page.Tasks[0].StageName != "agent" {
+		t.Fatalf("unnamed Group first member key Stage = %+v", page.Tasks)
+	}
+}
+
+func TestProjectTaskListStageIncludesBacklogAndDone(t *testing.T) {
+	fixture := newCurrentNodeViewFixture(t, false)
+	backlog := fixture.createBacklogTask(t, "Backlog")
+	done := fixture.startTask(t, "Done")
+	if _, err := workflowfixture.CompleteCurrentNode(t, fixture.ctx, fixture.metadata, fixture.store, workflowstore.CurrentNodeCompletionRequest{
+		Source: done.currentNode, TransitionID: "done",
+	}); err != nil {
+		t.Fatal(err)
+	}
+	page, err := fixture.tasks.List(fixture.ctx, &taskpb.ListRequest{
+		ProjectId: &fixture.binding.ProjectID, LabelFilter: noLabelFilter(),
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(page.Tasks) != 2 {
+		t.Fatalf("Tasks = %+v", page.Tasks)
+	}
+	for _, item := range page.Tasks {
+		want := "Done"
+		if item.TaskId == string(backlog.ID) {
+			want = "Backlog"
+		}
+		if item.StageName == nil || *item.StageName != want {
+			t.Fatalf("Stage = %v, want %s", item.StageName, want)
+		}
+	}
+}
 
 func TestProjectTaskListGroupPagesProjectCanonicalRowDataInServerOrder(t *testing.T) {
 	fixture := newCurrentNodeViewFixture(t, false)
