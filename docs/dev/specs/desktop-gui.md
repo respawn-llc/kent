@@ -1,6 +1,6 @@
 ## Authority, connection, and shared behavior
 
-- Across all destinations, the global sidebar owner selects shifting only when the measured main pane can retain at least 400 pixels after reserving the sidebar's preferred width and inset, and selects overlay otherwise. Destinations may explicitly require a mode. Home measures its inner main pane, excluding the Project catalog. A shifted sidebar cannot be widened far enough to reduce the main pane below 400 pixels. Any sidebar closes when its available width falls below 400 pixels. An open sidebar keeps its chosen mode until it closes.
+- Across all destinations, the global sidebar owner selects shifting only when the measured main pane has at least 400 pixels after reserving the sidebar's preferred width and inset, and selects overlay otherwise. Destinations may explicitly require a mode. Home measures its inner main pane, excluding the Project catalog. A shifted sidebar cannot be widened far enough to reduce the main pane below 400 pixels. Any sidebar closes when its available width falls below 400 pixels. An open sidebar keeps its chosen mode until it closes.
 
 - Read-only filesystem paths projected from structured data are home-relative when inside the user's home directory. This applies to labels, tooltips, execution-target facts, approvals, and image-tool labels. Editable path fields, clipboard values, and action/link targets must use their canonical values.
 - Model-visible arbitrary text, conversation bodies, errors, and diagnostics are not path-rewritten. Patch labels must show absolute paths supplied by the model exactly. General environment CWD and Session rebind target-directory context must be absolute.
@@ -48,7 +48,7 @@
 - The shortcut must do nothing when the focused text field has no submission action.
 - The shortcut must not change the field's ordinary Enter behavior.
 - Desktop uses localized user-facing text, accessible controls, standard compact loading, error, and empty states, and motion that respects reduced-motion preference. On macOS, Linux, and browser presentation, top chrome uses a contrast fade for readability. Windows uses progressive blur without a darkening fade.
-- Dialogs, popups, confirmation flows, and dropdowns only collect an operator result. They close before returning that result to their parent destination. The parent destination owns navigation, server requests, pending state, failures, and retries through its action paths.
+- Dialogs, popups, confirmation flows, and dropdowns only collect an operator result, except for read-only subscription-usage inspection. Result-collecting surfaces close before returning that result to their parent destination. The parent destination owns navigation, server requests, pending state, failures, and retries through its action paths.
 - Cards are reserved for board Task cards. Navigation, browsing, and selection collections use list rows.
 - Workflow browsing rows show the Workflow name, description, version, and an Edit action. Selecting the row opens the Workflow editor. Edit opens Workflow settings without loading the Workflow graph.
 
@@ -59,6 +59,13 @@
 - Workflow Mode entry/exit notices must use a graph icon. Headless Mode entry/exit notices must use an information icon. Worktree Mode entry/exit notices must use a branch icon, and Session rebind notices must use an information icon.
 
 ## Home and navigation
+
+- Navigation Chrome must show a small gauge icon beside the theme control with a `Subscription usage` tooltip when at least one configured connection supports subscription usage. It must hide this control when no configured connection supports subscription usage. Determining visibility must not fetch provider quota.
+- When the loaded catalog has no supported subscriptions and the control is hidden, Desktop must discover connections added while it is hidden only after restart or reload. Desktop must not add focus refresh, periodic catalog polling, or background quota requests for this discovery. Opening an available usage popup must refresh its catalog.
+- Clicking this control must open a read-only popup listing all supported subscription connections. Clicking the control again, clicking outside, or pressing Escape must close it.
+- The popup must use the existing UI kit and a lazy list. Its height must be capped at roughly five connection entries and reduced to fit smaller windows.
+- Connection entries must use compact rows without nested cards. Each entry must show its name and muted plan on one line, with thin quota-window bars and subtle separators between connections.
+- Subscription loading, quota presentation, and icon Retry must follow [Desktop subscription usage](provider-connections.md#desktop-subscription-usage).
 
 - Home opens on Inbox unless a valid last-opened Project or Workflow destination can be restored. Back and forward use available navigation history. Otherwise Back returns Home.
 - Home has compact navigation and content side by side when both are usable, otherwise navigation stacks above content. It has no resizable splitter or temporary navigation drawer.

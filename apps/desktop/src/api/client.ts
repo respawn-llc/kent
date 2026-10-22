@@ -100,6 +100,7 @@ import { subscribeWorkflow } from "./workflowProjectEvents";
 import { projectEvents, type ProjectOverflowReporter } from "./projectEvents";
 import * as workflowBoard from "./clientWorkflowBoard";
 import * as workflowLabels from "./clientWorkflowLabels";
+import * as subscriptionUsage from "./clientSubscriptionUsage";
 
 export const guiTaskCommentAuthor = "user";
 
@@ -115,6 +116,11 @@ export class ApiClient implements ApiService {
   }
 
   readonly chat: ChatApi;
+  getSubscriptionConnections = async () => subscriptionUsage.getSubscriptionConnections(this.#transport);
+  getSubscriptionBinding = async (sessionID: string) =>
+    subscriptionUsage.getSubscriptionBinding(this.#transport, sessionID);
+  getSubscriptionUsage = async (connectionID: string) =>
+    subscriptionUsage.getSubscriptionUsage(this.#transport, connectionID);
 
   observeProcesses = (target: ChatSessionTarget) => processes.observeProcesses(this.#transport, target);
   killProcess = async (processID: string) => processes.killProcess(this.#transport, processID);

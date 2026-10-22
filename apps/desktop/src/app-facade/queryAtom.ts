@@ -1,4 +1,5 @@
 import {
+  type QueriesObserver,
   type InfiniteQueryObserver,
   type MutationObserver,
   type QueryObserver,
@@ -16,6 +17,10 @@ export type QuerySnapshot<R> = R extends unknown
   ? Readonly<Omit<R, "refetch" | "fetchNextPage" | "fetchPreviousPage" | "mutate" | "reset" | "promise">>
   : never;
 
+export function queryAtom<Q, E = Error>(
+  observer: QueriesObserver,
+): Atom.Atom<readonly QuerySnapshot<QueryObserverResult<Q, E>>[]>;
+
 export function queryAtom<Q, E, A, K extends QueryKey, P>(
   observer: InfiniteQueryObserver<Q, E, A, K, P>,
 ): Atom.Atom<QuerySnapshot<InfiniteQueryObserverResult<A, E>>>;
@@ -27,12 +32,11 @@ export function queryAtom<A, E, V, C>(
 ): Atom.Atom<QuerySnapshot<MutationObserverResult<A, E, V>>>;
 export function queryAtom<Q, E, A, D, K extends QueryKey, V, P>(
   observer:
-    QueryObserver<Q, E, A, D, K> | MutationObserver<A, E, V, P> | InfiniteQueryObserver<Q, E, A, K, P>,
-): Atom.Atom<
-  QuerySnapshot<
-    QueryObserverResult<A, E> | InfiniteQueryObserverResult<A, E> | MutationObserverResult<A, E, V>
-  >
-> {
+    | QueryObserver<Q, E, A, D, K>
+    | MutationObserver<A, E, V, P>
+    | InfiniteQueryObserver<Q, E, A, K, P>
+    | QueriesObserver,
+): Atom.Atom<unknown> {
   return Atom.make((get) => {
     // Query owns the result object. Atom owns only this subscription, not a second cache.
     get.addFinalizer(
