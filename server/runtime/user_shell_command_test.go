@@ -20,6 +20,8 @@ import (
 	shelltool "core/server/tools/shell"
 	"core/server/tools/shell/postprocess"
 	"core/shared/config"
+	"core/shared/runtimeids"
+	"core/shared/runtimeinput"
 	"core/shared/toolspec"
 	"core/shared/transcript"
 )
@@ -223,6 +225,42 @@ func TestUserShellCommandIsUserContextInNextModelRequest(t *testing.T) {
 	}
 	if !found {
 		t.Fatal("next model request has no user-attributed shell command")
+	}
+}
+
+func TestIdleShellAdmissionExecutesWithoutModelTurn(t *testing.T) {
+	for _, lane := range []runtimeinput.PendingWorkLane{runtimeinput.PendingWorkLaneSteer, runtimeinput.PendingWorkLaneQueue} {
+		t.Run(string(lane), func(t *testing.T) {
+			client := &fakeClient{responses: []llm.Response{finalTextResponse("done")}}
+			engine := mustNewTestEngine(t, mustCreateTestSession(t), client, newTestToolRegistry(t, tools.HandlerRegistration{
+				ID:      toolspec.ToolExecCommand,
+				Handler: fakeTool{name: toolspec.ToolExecCommand, out: mustJSON("shell output")},
+			}), Config{Model: "gpt-6-sol"})
+			command := runtimeinput.ShellCommand{Command: "echo ready"}
+			item, err := engine.QueueShellInput(t.Context(), runtimeids.NewQueueItemID(), command, lane, nil)
+			pendingWorkTestNoError(t, err)
+			if item.Disposition != runtimeinput.InputAdmissionStartedShell {
+				t.Fatalf("idle Shell disposition = %s", item.Disposition)
+			}
+			pendingWorkTestNoError(t, engine.WaitForScheduledQueuedUserWork(t.Context()))
+			if len(client.calls) != 0 || len(pendingWorkTestSnapshot(t, engine).Items) != 0 {
+				t.Fatal("Shell left pending work or started a model turn")
+			}
+			_, err = engine.SubmitUserMessage(t.Context(), "continue")
+			pendingWorkTestNoError(t, err)
+			found := 0
+			for _, message := range requestMessages(client.calls[0]) {
+				if message.MessageType != nil && *message.MessageType == llm.MessageTypeUserShellCommand {
+					found++
+					if message.CompactContent == nil || *message.CompactContent != command.Command {
+						t.Fatalf("Shell attribution = %+v", message)
+					}
+				}
+			}
+			if found != 1 {
+				t.Fatalf("Shell results in next request = %d", found)
+			}
+		})
 	}
 }
 

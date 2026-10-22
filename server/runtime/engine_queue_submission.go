@@ -254,6 +254,9 @@ func (e *Engine) submitQueuedUserMessages(ctx context.Context, selection userInj
 			if err := e.ensureMetaContextForRequest(stepCtx, stepID); err != nil {
 				return err
 			}
+			if consumed, shellErr := e.messageFlow.ConsumeShellPrefix(stepCtx, stepID); consumed || shellErr != nil {
+				return shellErr
+			}
 			if !e.messageFlow.HasPendingUserInjections() {
 				return nil
 			}

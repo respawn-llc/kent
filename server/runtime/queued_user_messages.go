@@ -20,10 +20,36 @@ type queuedUserMessageStore struct {
 
 type queuedUserMessage struct {
 	message         QueuedUserMessage
+	shellOutcome    *userShellOutcome
 	steerAdmission  *pendingWorkSteerAdmission
 	autoStart       bool
 	claimID         *queuedUserMessageClaimID
 	removeOnRelease bool
+}
+
+func (s *queuedUserMessageStore) ClaimShellPrefix() *queuedUserMessageClaim {
+	selected := false
+	return s.claim(func(pending queuedUserMessage) bool {
+		if selected || pending.steerAdmission == nil && !pending.autoStart {
+			return false
+		}
+		selected = true
+		return pending.message.Shell != nil
+	})
+}
+
+func (s *queuedUserMessageStore) SetShellOutcome(claim *queuedUserMessageClaim, index int, outcome userShellOutcome) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	for i := range s.items {
+		pending := &s.items[i]
+		if pending.message.ID == claim.items[index].message.ID && pending.claimID != nil && *pending.claimID == claim.id {
+			pending.shellOutcome = &outcome
+			claim.items[index].shellOutcome = &outcome
+			return
+		}
+	}
+	panic("Shell execution lost its claimed action")
 }
 
 type queuedUserMessageClaimID uint64
@@ -346,6 +372,7 @@ func (s *queuedUserMessageStore) EntrySnapshot() []queuedUserMessage {
 	for _, pending := range s.items {
 		out = append(out, queuedUserMessage{
 			message:        pending.message,
+			shellOutcome:   pending.shellOutcome,
 			steerAdmission: clonePendingWorkSteerAdmission(pending.steerAdmission),
 			autoStart:      pending.autoStart,
 		})

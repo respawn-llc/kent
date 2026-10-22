@@ -55,6 +55,9 @@ func (e *Engine) projectPendingWork() (runtimeinput.PendingWork, error) {
 	queue := make([]runtimeinput.PendingWorkItem, 0, len(messages))
 	steer := make([]orderedPendingWorkItem, 0, len(messages))
 	for _, message := range messages {
+		if message.shellOutcome != nil {
+			continue
+		}
 		item, err := pendingWorkMessage(message)
 		if err != nil {
 			return runtimeinput.PendingWork{}, err

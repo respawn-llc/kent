@@ -136,6 +136,7 @@ type toolExecutor interface {
 type messageLifecycle interface {
 	RestoreMessages() error
 	PreparePendingUserInjections(selection userInjectionSelection) (*preparedUserInjections, error)
+	ConsumeShellPrefix(ctx context.Context, stepID string) (bool, error)
 	ReleasePreparedUserInjections(prepared *preparedUserInjections)
 	CommitPreparedUserInjections(ctx context.Context, stepID string, prepared *preparedUserInjections, thinking nativeThinkingProjection) (userInjectionCommitResult, error)
 	DrainPendingUserInjections() []QueuedUserMessage
