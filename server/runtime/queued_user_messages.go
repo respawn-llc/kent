@@ -123,7 +123,7 @@ func (s *queuedUserMessageStore) DiscardItem(queueItemID string) (queuedUserMess
 	removed := false
 	var item queuedUserMessage
 	for _, pending := range s.items {
-		if pending.message.ID == id && pending.claimID == nil {
+		if pending.message.ID == id && pending.claimID == nil && pending.shellOutcome == nil {
 			removed = true
 			item = pending
 			continue

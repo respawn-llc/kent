@@ -387,7 +387,7 @@ func TestShellOutcomeSurvivesPreparationRebuild(t *testing.T) {
 	preparation := &heldPromptPreparation{started: make(chan struct{}), release: make(chan struct{})}
 	commands := make(chan string, 4)
 	client := &fakeClient{responses: []llm.Response{finalTextResponse("done")}}
-	engine := shellPreparationTestEngine(t, client, preparation, commands)
+	engine := shellPreparationTestEngine(t, client, preparation, commands, Config{})
 	release := pendingWorkTestHoldMaintenance(t, engine)
 	text, err := engine.Steer(t.Context(), "before shell", nil)
 	pendingWorkTestNoError(t, err)
@@ -422,7 +422,7 @@ func TestShellOutcomeSurvivesPreparationRebuild(t *testing.T) {
 	}
 }
 
-func shellPreparationTestEngine(t *testing.T, client *fakeClient, preparation *heldPromptPreparation, commands chan string) *Engine {
+func shellPreparationTestEngine(t *testing.T, client *fakeClient, preparation *heldPromptPreparation, commands chan string, config Config) *Engine {
 	t.Helper()
 	store := mustCreateTestSession(t)
 	seed := mustNewTestEngine(t, store, &fakeClient{responses: []llm.Response{finalTextResponse("seed")}}, tools.NewRegistry(), Config{})
@@ -431,9 +431,209 @@ func shellPreparationTestEngine(t *testing.T, client *fakeClient, preparation *h
 	pendingWorkTestNoError(t, seed.Close())
 	_, err = store.RefreshLockedMainPromptSnapshot(session.LockedMainPromptSnapshot{})
 	pendingWorkTestNoError(t, err)
+	config.PromptFacingSnapshotReloader = preparation
 	return mustNewTestEngine(t, mustOpenTestSession(t, store.Dir()), client, newTestToolRegistry(t, tools.HandlerRegistration{
 		ID: toolspec.ToolExecCommand, Handler: userShellTestTool{commands: commands},
-	}), Config{PromptFacingSnapshotReloader: preparation})
+	}), config)
+}
+
+func TestCompletedShellResultSettlesWithoutPreparedRequest(t *testing.T) {
+	for _, stop := range []bool{false, true} {
+		t.Run(strconv.FormatBool(stop), func(t *testing.T) {
+			preparation := &heldPromptPreparation{started: make(chan struct{}), release: make(chan struct{})}
+			if !stop {
+				preparation.err = errors.New("request preparation failed")
+			}
+			commands := make(chan string, 4)
+			client := &fakeClient{responses: []llm.Response{finalTextResponse("done")}}
+			restored := make(chan InterruptedHumanInput, 4)
+			engine := shellPreparationTestEngine(t, client, preparation, commands, Config{
+				OnEvent: func(event Event) {
+					if event.HumanInputInterrupted != nil {
+						for _, item := range event.HumanInputInterrupted.Items {
+							restored <- item
+						}
+					}
+					if status := event.QueuedUserMessageStatus; status != nil && status.Status == QueuedUserMessageFailed && status.Text != "" {
+						restored <- InterruptedHumanInput{QueueItemID: status.QueueItemID, Text: status.Text}
+					}
+				},
+			})
+			release := pendingWorkTestHoldMaintenance(t, engine)
+			text, err := engine.Steer(t.Context(), "uncommitted text", nil)
+			pendingWorkTestNoError(t, err)
+			command := runtimeinput.ShellCommand{Command: "echo completed"}
+			_, err = engine.QueueShellInput(t.Context(), runtimeids.NewQueueItemID(), command, runtimeinput.PendingWorkLaneSteer, nil)
+			pendingWorkTestNoError(t, err)
+			release()
+			pendingWorkTestWait(t, preparation.started, "preparation after completed command")
+			if len(commands) != 1 {
+				t.Fatal("Shell did not finish before preparation")
+			}
+			if stop {
+				interrupted, err := engine.TryInterruptActiveRun()
+				if err != nil || !interrupted {
+					t.Fatalf("Stop = %v, %v", interrupted, err)
+				}
+			}
+			close(preparation.release)
+			waitEngineLifecycleTasks(t, engine)
+			if len(client.calls) != 0 || len(commands) != 1 {
+				t.Fatal("terminal preparation replayed Shell or called the model")
+			}
+			results := 0
+			for _, entry := range engine.ChatSnapshot().Entries {
+				if entry.MessageType == llm.MessageTypeUserShellCommand {
+					results++
+				}
+			}
+			if results != 1 {
+				t.Fatalf("completed Shell results in Session = %d", results)
+			}
+			work := pendingWorkTestSnapshot(t, engine)
+			if stop {
+				if len(work.Items) != 0 || len(restored) != 1 || (<-restored).QueueItemID != text.ID {
+					t.Fatal("Stop did not restore only the uncommitted text")
+				}
+			} else if len(work.Items) != 0 || len(restored) != 1 || (<-restored).QueueItemID != text.ID {
+				t.Fatalf("ordinary text failure restoration: pending=%+v restored=%d", work, len(restored))
+			}
+		})
+	}
+}
+
+func TestShellResultPersistenceFailureDoesNotRestoreExecutedCommand(t *testing.T) {
+	preparation := &heldPromptPreparation{started: make(chan struct{}), release: make(chan struct{})}
+	commands := make(chan string, 4)
+	restored := make(chan string, 4)
+	client := &fakeClient{}
+	engine := shellPreparationTestEngine(t, client, preparation, commands, Config{
+		OnEvent: func(event Event) {
+			if event.PendingWorkRestoration != nil {
+				restored <- event.PendingWorkRestoration.CanonicalInput
+			}
+		},
+	})
+	release := pendingWorkTestHoldMaintenance(t, engine)
+	_, err := engine.Steer(t.Context(), "uncommitted", nil)
+	pendingWorkTestNoError(t, err)
+	_, err = engine.QueueShellInput(t.Context(), runtimeids.NewQueueItemID(), runtimeinput.ShellCommand{Command: "echo once"}, runtimeinput.PendingWorkLaneSteer, nil)
+	pendingWorkTestNoError(t, err)
+	release()
+	pendingWorkTestWait(t, preparation.started, "preparation after execution")
+	mustBlockTestEventLogAppends(t, engine.store)
+	close(preparation.release)
+	waitEngineLifecycleTasks(t, engine)
+	if len(commands) != 1 || len(client.calls) != 0 {
+		t.Fatal("failed result persistence replayed execution")
+	}
+	if len(restored) != 1 || <-restored != "uncommitted" {
+		t.Fatal("failed persistence restored an executed Shell command")
+	}
+	_, diagnostic, _ := engine.transcriptRuntimeState().StreamingSnapshot()
+	if diagnostic == "" {
+		t.Fatal("persistence failure omitted diagnostics")
+	}
+}
+
+func TestRejectedShellAdmissionDoesNotExecute(t *testing.T) {
+	engine := pendingWorkTestEngine(t, Config{})
+	_, err := engine.QueueShellInput(t.Context(), runtimeids.NewQueueItemID(),
+		runtimeinput.ShellCommand{Command: "echo rejected"}, runtimeinput.PendingWorkLaneQueue,
+		func(func() (bool, error)) (bool, error) { return false, nil })
+	if !errors.Is(err, context.Canceled) || len(pendingWorkTestSnapshot(t, engine).Items) != 0 || engine.HasScheduledQueuedUserWork() {
+		t.Fatalf("rejected Shell admission = %v", err)
+	}
+}
+
+func TestStopRestoresUnstartedShell(t *testing.T) {
+	client := newBlockingThenQueuedClient()
+	restored := make(chan InterruptedHumanInput, 4)
+	commands := make(chan string, 4)
+	engine := mustNewTestEngine(t, mustCreateTestSession(t), client, newTestToolRegistry(t, tools.HandlerRegistration{
+		ID: toolspec.ToolExecCommand, Handler: userShellTestTool{commands: commands},
+	}), Config{OnEvent: func(event Event) {
+		if event.HumanInputInterrupted != nil {
+			for _, input := range event.HumanInputInterrupted.Items {
+				restored <- input
+			}
+		}
+	}})
+	done := make(chan error, 1)
+	go func() {
+		_, err := engine.SubmitUserMessage(t.Context(), "start")
+		done <- err
+	}()
+	pendingWorkTestWait(t, client.started, "active turn")
+	command := runtimeinput.ShellCommand{Command: "echo unstarted"}
+	item, err := engine.QueueShellInput(t.Context(), runtimeids.NewQueueItemID(), command, runtimeinput.PendingWorkLaneQueue, nil)
+	pendingWorkTestNoError(t, err)
+	stopped, err := engine.TryInterruptActiveRun()
+	pendingWorkTestNoError(t, err)
+	close(client.releaseC)
+	if !stopped || !errors.Is(<-done, context.Canceled) {
+		t.Fatal("Stop did not interrupt the active turn")
+	}
+	waitEngineLifecycleTasks(t, engine)
+	if len(commands) != 0 || len(restored) != 1 {
+		t.Fatalf("Shell commands=%d restored=%d", len(commands), len(restored))
+	}
+	input := <-restored
+	if input.QueueItemID != item.ID || input.Text != command.CanonicalInput() {
+		t.Fatalf("restored Shell = %+v", input)
+	}
+	if len(pendingWorkTestSnapshot(t, engine).Items) != 0 {
+		t.Fatal("Stop left the unstarted command eligible")
+	}
+}
+
+func TestNonzeroShellResultIsRecordedWithoutReplay(t *testing.T) {
+	t.Setenv("SHELL", "/bin/sh")
+	workdir := t.TempDir()
+	manager, err := shelltool.NewManager(t.TempDir(), shelltool.WithMinimumExecToBgTime(time.Hour))
+	pendingWorkTestNoError(t, err)
+	t.Cleanup(func() { pendingWorkTestNoError(t, manager.Close()) })
+	store := mustCreateTestSession(t)
+	handler := shelltool.NewExecCommandToolWithPostprocessor(workdir, 16_000, 200_000, manager, store.Meta().SessionID,
+		postprocessfixture.NewRunner(t, postprocess.Settings{Mode: config.ShellPostprocessingModeBuiltin}))
+	client := &fakeClient{responses: []llm.Response{finalTextResponse("done")}}
+	restored := make(chan string, 4)
+	engine := mustNewTestEngine(t, store, client, newTestToolRegistry(t, tools.HandlerRegistration{
+		ID: toolspec.ToolExecCommand, Handler: handler,
+	}), Config{OnEvent: func(event Event) {
+		if event.HumanInputInterrupted != nil || event.PendingWorkRestoration != nil {
+			restored <- "restored"
+		}
+		if status := event.QueuedUserMessageStatus; status != nil && status.Status == QueuedUserMessageFailed && status.Text != "" {
+			restored <- status.Text
+		}
+	}})
+	command := runtimeinput.ShellCommand{Command: "echo executed >> count; exit 7"}
+	_, err = engine.QueueShellInput(t.Context(), runtimeids.NewQueueItemID(), command, runtimeinput.PendingWorkLaneQueue, nil)
+	pendingWorkTestNoError(t, err)
+	pendingWorkTestNoError(t, engine.WaitForScheduledQueuedUserWork(t.Context()))
+	if len(client.calls) != 0 || len(restored) != 0 {
+		t.Fatal("nonzero exit started a model turn or restored executed input")
+	}
+	_, err = engine.SubmitUserMessage(t.Context(), "continue")
+	pendingWorkTestNoError(t, err)
+	content, err := os.ReadFile(filepath.Join(workdir, "count"))
+	pendingWorkTestNoError(t, err)
+	if string(content) != "executed\n" {
+		t.Fatalf("command execution count changed: %q", content)
+	}
+	results := 0
+	for _, message := range requestMessages(client.calls[0]) {
+		if message.MessageType != nil && *message.MessageType == llm.MessageTypeUserShellCommand {
+			results++
+			if message.CompactContent == nil || *message.CompactContent != command.Command {
+				t.Fatalf("nonzero Shell result attribution = %+v", message)
+			}
+		}
+	}
+	if results != 1 {
+		t.Fatalf("nonzero Shell results = %d", results)
+	}
 }
 
 func (h userShellTestTool) Call(ctx context.Context, call tools.Call) (tools.Result, error) {

@@ -564,10 +564,13 @@ func (m *defaultMessageLifecycle) CommitPreparedUserInjections(ctx context.Conte
 }
 
 func (m *defaultMessageLifecycle) restoreFailedPreparedInput(prepared *preparedUserInjections) error {
+	if prepared.claim == nil {
+		return nil
+	}
 	ids := make(map[string]struct{})
-	for _, group := range prepared.groups {
-		for id := range queuedUserMessageIDSet(group.queueItems) {
-			ids[id] = struct{}{}
+	for _, pending := range prepared.claim.items {
+		if pending.shellOutcome == nil {
+			ids[pending.message.ID] = struct{}{}
 		}
 	}
 	e := m.engine
