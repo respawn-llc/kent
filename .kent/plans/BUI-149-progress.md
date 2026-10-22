@@ -1,3 +1,16 @@
+### October 22 terminal-output evidence (Session 442 continuation)
+
+- User requested evidence from `~/Dev/Tools/grok-build` rather than choosing an output-authority policy themselves.
+- Inspected checkout HEAD `2bdd1d6a6369de0e8c68132ea4539e9abd9e14a8`, SOURCE_REV `559751fdcec02d413e4c57c8832ab275e4f44980`.
+- `crates/codegen/xai-grok-sampler/src/stream/responses.rs:430` stores the completed Response, and line 643 converts that Response into accepted conversation items. Streamed function-call deltas are previews, not acceptance authority.
+- `doom_loop_recovery.rs:354` replaces captured done items with terminal output; line 420 explicitly forbids adding omitted items even when terminal output is empty. Its done-item recovery applies only when aborted before terminal.
+- Official xAI best-practices guide independently states that response.completed carries the full response, including encrypted reasoning to return: https://docs.x.ai/developers/model-capabilities/text/best-practices . This verifies the documented/client contract, not live inference.
+- Red/green: existing Grok hosted-custom boundary test now checks that terminal-empty output accepts no local calls or history. Failed with accepted patch_call and hosted items, then passed after terminal parsed calls/items replaced streamed call merging. Complete terminal fixture still preserves hosted history. Hosted web-search fixture now includes its completed items in terminal output.
+- HTTP compaction's existing streamed-checkpoint behavior is intentionally unchanged, with done-item selection scoped to that compaction operation.
+- Focused `Grok|FirstPartyResponses|TestGenerate_PreservesHosted|TestOAuthCompactRequestUsesStreamed` passes.
+- Broader `Grok|Stream|FirstPartyResponses` exposed two inherited retry fixtures still returning SSE to the now-WebSocket first-party adapter (`TestGenerateWithRetryRetriesNormallyClosedStreamBeforeResponseCompletion`, `TestGenerateWithRetryExhaustsNormallyClosedStreamsAfterRetryBudget`). Migrate these in step 7. The other two failures from that run (compaction and hosted search fixture) were corrected and focused verification passes.
+- Step 6 continuation implementation has not begun. Existing text/reasoning reconciliation remains; terminal call acceptance and output history no longer merge streamed-only calls/hosted items. No Design decision added.
+
 # BUI-149 implementation checkpoint
 
 ## Scope and state

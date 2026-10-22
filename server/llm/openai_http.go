@@ -525,7 +525,12 @@ func (t *HTTPTransport) compactResponsesTriggerV2(ctx context.Context, request R
 	if err != nil {
 		return ResponsesCompactionResponse{}, err
 	}
-	checkpoint, err := requireSingleEncryptedCompactionOutput(response.OutputItems)
+	// Compaction's HTTP checkpoint stream retains its existing done-item contract.
+	outputItems := response.OutputItems
+	if len(outputItems) == 0 {
+		outputItems = accumulator.passthrough.Items()
+	}
+	checkpoint, err := requireSingleEncryptedCompactionOutput(outputItems)
 	if err != nil {
 		return ResponsesCompactionResponse{}, newOpenAIProviderContractError(variant.ProviderID, rawResp, err)
 	}

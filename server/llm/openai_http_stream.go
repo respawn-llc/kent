@@ -362,17 +362,16 @@ func (a *responseStreamAccumulator) Response() (ResponsesResponse, error) {
 		finalPhase = parsedPhase
 		finalProviderPhase = parsedProviderPhase
 	}
-	a.toolCalls.Merge(parsedCalls)
-	finalCalls = a.toolCalls.ToToolCalls(a.policy)
+	// Stream events are previews. The terminal response is the complete output,
+	// so omitted calls must not become accepted executions or replayed history.
+	finalCalls = parsedCalls
 	mergedReasoning, mergeErr := mergeReasoningEntries(parsedReasoning, finalReasoning)
 	if mergeErr != nil {
 		return ResponsesResponse{}, mergeErr
 	}
 	finalReasoning = a.policy.reasoningEntries(mergedReasoning)
 	finalReasoningItems = mergeReasoningItems(parsedReasoningItems, finalReasoningItems)
-	if len(parsedItems) > 0 {
-		finalOutputItems = mergePassthroughOutputItems(repairAssistantOutputItems(parsedItems, finalText, finalTextPresent, finalPhase, streamOutputIndex, hasResolvedStream), a.passthrough.Items())
-	}
+	finalOutputItems = repairAssistantOutputItems(parsedItems, finalText, finalTextPresent, finalPhase, streamOutputIndex, hasResolvedStream)
 
 	providerEvidence, evidenceErr := providerUsageEvidenceFromResponse(*a.completed, finalOutputItems)
 	if evidenceErr != nil {
