@@ -16,6 +16,7 @@ import (
 	"core/server/authservice"
 	"core/server/metadata"
 	"core/server/onboarding"
+	"core/server/onboardingimports"
 	"core/shared/client"
 	"core/shared/config"
 	"core/shared/protoapi"
@@ -60,7 +61,7 @@ func TestRemotePromptCommandStartupCatalogAndInvocationUseImportedServerContent(
 	if err := os.WriteFile(filepath.Join(sourceRoot, "remote_demo.md"), []byte("server body $ARGUMENTS"), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	providerID := "claude_code"
+	providerID := string(onboardingimports.ProviderClaudeCode)
 	connections := authservice.NewBootstrapService(t.Context(), authservice.NewConnectionResolver(cfg.PersistenceRoot, auth.NewManager(auth.NewMemoryStore(auth.EmptyState()), nil), nil), auth.OpenAIOAuthOptions{})
 	endpoint := "http://localhost:1234/v1"
 	if _, err := connections.ConfigureConnection(t.Context(), &authpb.ConfigureConnectionRequest{Change: &authpb.ConfigureConnectionRequest_PendingSetup{

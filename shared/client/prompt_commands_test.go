@@ -11,6 +11,7 @@ import (
 	"core/server/auth"
 	"core/server/authservice"
 	"core/server/onboarding"
+	"core/server/onboardingimports"
 	"core/server/promptcommands"
 	"core/shared/config"
 	"core/shared/protoapi"
@@ -114,7 +115,7 @@ func TestRemotePromptCommandImportCatalogAndInvocationUseServerRoots(t *testing.
 	if err != nil {
 		t.Fatalf("NewFinalizer: %v", err)
 	}
-	providerID := "claude_code"
+	providerID := string(onboardingimports.ProviderClaudeCode)
 	if _, err := finalizer.Finalize(context.Background(), &onboardingpb.FinalizeRequest{
 		CommandsImport: &onboardingpb.ImportSelection{
 			Mode:             onboardingpb.ImportMode_IMPORT_MODE_SYMLINK_SOURCE,

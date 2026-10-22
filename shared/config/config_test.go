@@ -1029,6 +1029,49 @@ func TestEnsureManagedRGConfigFilePreservesExistingContents(t *testing.T) {
 	}
 }
 
+func TestManagedRGConfigExistingFileLoadsWithoutWritePermission(t *testing.T) {
+	root := filepath.Join(t.TempDir(), "persistence")
+	if err := os.Mkdir(root, 0o755); err != nil {
+		t.Fatalf("create persistence root: %v", err)
+	}
+	if err := os.Mkdir(filepath.Join(root, "worktrees"), 0o755); err != nil {
+		t.Fatalf("create worktree base dir: %v", err)
+	}
+	path := filepath.Join(root, managedRGConfigName)
+	const existing = "--max-columns=80\n"
+	if err := os.WriteFile(path, []byte(existing), 0o644); err != nil {
+		t.Fatalf("write existing managed rg config: %v", err)
+	}
+	t.Setenv(PersistenceRootEnvName, root)
+	t.Cleanup(func() {
+		if err := os.Chmod(root, 0o755); err != nil {
+			t.Errorf("restore persistence root permissions: %v", err)
+		}
+	})
+	if err := os.Chmod(root, 0o555); err != nil {
+		t.Fatalf("remove persistence root write permission: %v", err)
+	}
+
+	createdPath, created, ensureErr := EnsureManagedRGConfigFile()
+	_, loadErr := LoadGlobal(LoadOptions{ConfigRoot: root})
+	if ensureErr != nil || loadErr != nil {
+		t.Fatalf("existing managed rg config should allow initialization and configuration loading: ensure error = %v, load error = %v", ensureErr, loadErr)
+	}
+	if created {
+		t.Fatal("existing managed rg config must not be recreated")
+	}
+	if createdPath != path {
+		t.Fatalf("managed rg config path = %q, want %q", createdPath, path)
+	}
+	data, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("read managed rg config: %v", err)
+	}
+	if string(data) != existing {
+		t.Fatalf("managed rg config contents = %q, want %q", string(data), existing)
+	}
+}
+
 func TestLoadSubagentRoleFromFile(t *testing.T) {
 	home, workspace, configPath := newConfigTestFile(t)
 	contents := strings.Join([]string{

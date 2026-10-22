@@ -435,8 +435,8 @@ func executeSelection(ctx context.Context, ledger *mutationLedger, choices []onb
 }
 
 func selectedImportChoice(choices []onboardingimports.Choice, discoveryErrors []onboardingimports.Error, selection *onboardingpb.ImportSelection, kind serverapi.OnboardingImportKind) (onboardingimports.Choice, error) {
-	providerID := onboardingimports.ProviderID(strings.TrimSpace(derefString(selection.ImportProviderId)))
-	root := filepath.Clean(strings.TrimSpace(derefString(selection.SourceRootPath)))
+	providerID := onboardingimports.ProviderID(strings.TrimSpace(*selection.ImportProviderId))
+	root := filepath.Clean(strings.TrimSpace(*selection.SourceRootPath))
 	for _, choice := range choices {
 		if choiceMatchesRef(choice, providerID, root) {
 			return choice, nil
@@ -460,7 +460,7 @@ func choiceMatchesRef(choice onboardingimports.Choice, providerID onboardingimpo
 		choice.Ref.ProviderID != nil &&
 		*choice.Ref.ProviderID == providerID &&
 		choice.Ref.SourceRoot != nil &&
-		filepath.Clean(derefString(choice.Ref.SourceRoot)) == root
+		filepath.Clean(*choice.Ref.SourceRoot) == root
 }
 
 func rootDiscoveryError(discoveryErrors []onboardingimports.Error, providerID onboardingimports.ProviderID, root string, kind serverapi.OnboardingImportKind) error {

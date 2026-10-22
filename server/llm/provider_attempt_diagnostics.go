@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"time"
 
+	"core/shared/modelcontract"
 	"core/shared/textutil"
 	"github.com/google/uuid"
 	"github.com/openai/openai-go/v3/responses"
@@ -22,14 +23,16 @@ const (
 // Attempts are diagnostic only: they neither change provider requests nor add
 // anything to model-visible history. Missing usage is not a zero-token charge.
 type providerAttemptDiagnostic struct {
-	logger          *slog.Logger
-	started         time.Time
-	responseID      *string
-	servedModel     *string
-	servedTier      *string
-	usage           *Usage
-	totalTokens     *int64
-	reasoningTokens *int64
+	logger           *slog.Logger
+	started          time.Time
+	responseID       *string
+	servedModel      *string
+	servedTier       *string
+	usage            *Usage
+	totalTokens      *int64
+	reasoningTokens  *int64
+	localCompaction  bool
+	compactionOutput *compactionOutputDiagnostic
 }
 
 func (t *HTTPTransport) startProviderAttempt(
@@ -44,6 +47,8 @@ func (t *HTTPTransport) startProviderAttempt(
 	}
 	attempt := &providerAttemptDiagnostic{
 		started: time.Now(),
+		localCompaction: operation == providerAttemptGenerate && request.Purpose != nil &&
+			*request.Purpose == modelcontract.ProviderOperationPurposeCompaction,
 		logger: slog.Default().With(
 			"attempt_id", uuid.NewString(),
 			"operation", operation,
@@ -60,9 +65,12 @@ func (t *HTTPTransport) startProviderAttempt(
 	return attempt
 }
 
-func (a *providerAttemptDiagnostic) observeResponse(response responses.Response, windowTokens int) {
+func (a *providerAttemptDiagnostic) observeResponse(eventType string, response responses.Response, windowTokens int) {
 	if a == nil {
 		return
+	}
+	if a.localCompaction {
+		a.compactionOutput = describeCompactionOutput(eventType, response)
 	}
 	if id := textutil.OptionalTrimmedString(response.ID); id != nil {
 		a.responseID = id
