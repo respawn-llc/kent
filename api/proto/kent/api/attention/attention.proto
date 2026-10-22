@@ -117,6 +117,24 @@ message SessionNamingFailure {
   optional int64 short_id = 4 [(buf.validate.field).int64 = {gt: 0 lte: 9007199254740991}];
 }
 
+// A one-shot completed assistant-final turn, not pending attention. It is
+// ephemeral: subscribers receive neither replay nor delivery acknowledgments.
+// Clients render the content and use Session identity for navigation.
+message SessionTurnEnd {
+  string project_id = 1 [(buf.validate.field).string.(kent.api.shared.nonblank) = true];
+  string session_id = 2 [
+    (buf.validate.field).string.uuid = true,
+    (buf.validate.field).string.(kent.api.shared.canonical_uuid_v4) = true
+  ];
+  optional int64 short_id = 3 [(buf.validate.field).int64 = {gt: 0 lte: 9007199254740991}];
+  optional string session_name = 4 [(buf.validate.field).string.(kent.api.shared.nonblank) = true];
+  string assistant_content = 5;
+  google.protobuf.Timestamp completed_at = 6 [
+    (buf.validate.field).required = true,
+    (buf.validate.field).timestamp.gt = {seconds: 0}
+  ];
+}
+
 message NotificationEvent {
   uint64 sequence = 1 [(buf.validate.field).uint64 = {
     gte: 1
@@ -127,6 +145,7 @@ message NotificationEvent {
     Notification pending = 2;
     Resolved resolved = 3;
     SessionNamingFailure session_naming_failure = 4;
+    SessionTurnEnd session_turn_end = 5;
   }
 }
 

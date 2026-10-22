@@ -290,7 +290,7 @@ export function createAttentionViewModel({
                   }
                   get.set(refresh, undefined);
                   if (value.event.type === "pending") pending(get, value.event.pending);
-                  else {
+                  else if (value.event.type === "resolved") {
                     const id = attentionNotificationIDKey(value.event.id);
                     dismissSurface(get, surfaces, status, id);
                     get.set(remove, id);

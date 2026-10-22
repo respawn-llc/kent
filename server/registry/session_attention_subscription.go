@@ -27,6 +27,8 @@ func (s *sessionAttentionSubscription) Next(ctx context.Context) (*attentionpb.N
 	}
 	result := &attentionpb.NotificationEvent{Sequence: event.Sequence}
 	switch event.Type {
+	case clientui.AttentionNotificationEventSessionTurnEnd:
+		result.Payload = &attentionpb.NotificationEvent_SessionTurnEnd{SessionTurnEnd: event.SessionTurnEnd}
 	case clientui.AttentionNotificationEventSessionNamingFailure:
 		result.Payload = &attentionpb.NotificationEvent_SessionNamingFailure{SessionNamingFailure: event.SessionNamingFailure}
 	case clientui.AttentionNotificationEventResolved:
