@@ -531,6 +531,9 @@ func TestFinalAssistantBeforeSameTurnBackgroundNoticeKeepsCommittedFrontierConti
 	case <-time.After(runtimeTestSynchronizationTimeout):
 		t.Fatal("background terminal update did not complete after the Step boundary")
 	}
+	if err := eng.drainRuntimeOperations(t.Context()); err != nil {
+		t.Fatalf("apply background terminal update: %v", err)
+	}
 	waitEngineLifecycleTasks(t, eng)
 
 	mu.Lock()
