@@ -50,6 +50,8 @@ go.work.sum
 
 # Lazy Protobuf generation cache and disposable generated sources.
 /.generated/protobuf/
+/.generated/openai-sdk*/
+/.generated/openai-sdk.lock
 /shared/protoapi/gen/
 /apps/desktop/packages/server-api-contract/src/gen/
 

@@ -101,7 +101,9 @@ update_go_deps() {
 	fi
 	require_cmd go
 	echo "==> Updating Go module dependencies"
+	run_cmd just install _prepare-openai
 	run_cmd go get -u -t ./...
+	run_cmd just install _prepare-openai
 	run_cmd go mod tidy
 	updated_any="true"
 }
