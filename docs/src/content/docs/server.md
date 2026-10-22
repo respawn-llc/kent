@@ -1,13 +1,15 @@
 ---
-title: Kent Server
+title: Kent server
 description: Kent's local client-server architecture and background service management.
 ---
 
 Kent runs all its work through a local server process. Frontends are clients: TUI, desktop app, headless runs, and other local integrations all need the server to be running. To start the server, run `kent serve`.
 
+See [connection configuration](../config/#connecting-to-a-server) for address selection and session resume behavior.
+
 The server owns all long-running work: sessions, projects, runtime orchestration, background shells, tool execution, tasks, workflows, and storage.
 
-While annoying at times, this:
+Why? Because this:
 
 - Gives ability to fully isolate work on another machine, VM, or container. See [Sandboxing](../sandboxing/) for remote/container setup.
 - Drastically reduces resource consumption
@@ -15,9 +17,9 @@ While annoying at times, this:
 - Allows spawning agents on schedule and periodically.
 - Uses only about 25 MB of RAM while idle.
 
-## Background Service
+## Background service
 
-To use Kent on your local machine more easily, consider installing a system service that will run `kent serve` for you at login:
+The easiest way to use Kent locally without manually running the server is via the **system service**:
 
 ```bash
 kent service status
@@ -28,7 +30,11 @@ kent service start
 kent service uninstall
 ```
 
-All service commands accept `--persistence-root` and honor `KENT_PERSISTENCE_ROOT`. The root you install with is remembered, so pass the same root on `status`/`start`/`stop`/`restart`/`uninstall` to target that instance.
+Install the service once, then restart it after updates.
+
+## Provider environment
+
+See [API keys and background services](../authentication/#api-keys-and-background-services) for provider credentials and the server's `.env` file.
 
 ## Backends
 
@@ -38,12 +44,11 @@ All service commands accept `--persistence-root` and honor `KENT_PERSISTENCE_ROO
 | Linux / WSL2 | `systemd --user` |
 | Windows      | Windows Service  |
 
-- On windows, `uninstall --keep-running` is not supported; the server is bound to the service and stops with it.
+- On Windows, uninstalling the service stops the server.
 - Linux headless machines may need lingering enabled so the server survives logout `loginctl enable-linger "$USER"`.
 
-## Port Conflicts
+:::tip
 
-Service install/start commands refuse to change the service when Kent's configured server endpoint is already owned by a manual `kent serve` process or by a non-Kent listener.
-If you started `kent serve` manually, stop that process before installing or starting the background service.
+You can run multiple manually launched servers with different storage paths. Managed service installation uses one registration regardless of storage path. All service commands accept `--persistence-root` and honor `KENT_PERSISTENCE_ROOT`. The root you install with is remembered, so pass the same root on `status`/`start`/`stop`/`restart`/`uninstall`.
 
-Running another server on a different configured port is fine. Kent only checks the endpoint resolved from `server_host` and `server_port`.
+:::
