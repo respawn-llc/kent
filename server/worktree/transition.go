@@ -71,9 +71,6 @@ func (s *Service) transitionWorkspaceContext(
 	sessionID string,
 	target *worktreepb.TransitionWorkspace,
 ) (sessionWorkspaceContext, error) {
-	if target == nil {
-		return sessionWorkspaceContext{}, errors.New("target workspace is required")
-	}
 	binding, err := s.metadata.LookupWorkspaceBindingByID(ctx, strings.TrimSpace(target.WorkspaceId))
 	if err != nil {
 		return sessionWorkspaceContext{}, err
