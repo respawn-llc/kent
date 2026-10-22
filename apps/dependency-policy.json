@@ -41,6 +41,7 @@
         "react-dom",
         "react-hook-form",
         "react-i18next",
+        "rehype-sanitize",
         "remark-breaks",
         "remark-gfm",
         "remark-parse",
