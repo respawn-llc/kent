@@ -1,4 +1,4 @@
-import { expect, it, vi } from "vitest";
+import { expect, it, vi } from "bun:test";
 import type { SpeechSource } from "@/app-facade";
 import { createSpeechTarget } from "./insertion";
 import { deliverSpeech } from "./recovery";

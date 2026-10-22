@@ -1,4 +1,4 @@
-import { expect, it } from "vitest";
+import { expect, it } from "bun:test";
 import { appendSpeech } from "./insertion";
 
 it("appends exact speech against current edits with only the missing blank-line separator", () => {

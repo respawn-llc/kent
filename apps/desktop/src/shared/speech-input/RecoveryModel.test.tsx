@@ -1,6 +1,6 @@
 import { RegistryProvider, useAtomValue } from "@effect/atom-react";
 import { act, renderHook, waitFor } from "@testing-library/react";
-import { expect, it, vi } from "vitest";
+import { expect, it, vi } from "bun:test";
 import type { ReactNode } from "react";
 import { createInstance } from "i18next";
 import { createTestServices } from "@/test-support/app-services";

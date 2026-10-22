@@ -1,4 +1,4 @@
-import { expect, it } from "vitest";
+import { expect, it } from "bun:test";
 import { act, render, screen } from "@testing-library/react";
 import { useRef, useState } from "react";
 import { createSpeechTarget } from "./insertion";

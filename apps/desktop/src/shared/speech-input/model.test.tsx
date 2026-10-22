@@ -1,7 +1,7 @@
 import { RegistryProvider, useAtomMount, useAtomValue } from "@effect/atom-react";
 import { QueryClient } from "@tanstack/react-query";
 import { act, renderHook, waitFor } from "@testing-library/react";
-import { afterEach, expect, it, vi } from "vitest";
+import { afterEach, expect, it, vi } from "bun:test";
 import type { ReactNode } from "react";
 import * as Effect from "effect/Effect";
 import { SpeechTransportError, type SpeechAvailable } from "@/api";

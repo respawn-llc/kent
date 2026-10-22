@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it } from "bun:test";
 import { isDiscardableClip } from "./clip";
 
 describe("recording no-op rules", () => {
