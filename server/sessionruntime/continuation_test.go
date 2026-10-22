@@ -65,6 +65,104 @@ func TestExecutionStopJoinsQueuedModelWork(t *testing.T) {
 	}
 }
 
+func TestExecutionStopCancelsScheduledWorkBeforeStep(t *testing.T) {
+	fixture := newSessionRuntimeFixture(t)
+	id := lifecycleSessionID(t, fixture)
+	client := &sessionRuntimeTestLLMClient{responses: []llm.Response{{
+		Assistant: llm.Message{Role: llm.RoleAssistant, Content: textutil.Value("done"), Phase: textutil.Value(llm.MessagePhaseFinal)},
+	}}}
+	plan := authorityTestRuntimePlan(t, fixture, client)
+	openLifecycleRuntime(t, fixture.authority, id, &plan)
+	busy := make(chan struct{})
+	release := make(chan struct{})
+	unblock := sync.OnceFunc(func() { close(release) })
+	defer unblock()
+	maintenanceDone := make(chan error, 1)
+	go func() {
+		maintenanceDone <- fixture.authority.WithCurrentRuntime(t.Context(), id, func(ctx context.Context, engine *runtime.Engine) error {
+			return engine.RunWhenIdle(ctx, runtime.ActiveKindRuntimeMaintenance, func() error {
+				close(busy)
+				<-release
+				return nil
+			})
+		})
+	}()
+	<-busy
+	scheduled := make(chan runtime.QueuedUserMessage, 1)
+	handle, err := fixture.authority.StartAgentExecution(t.Context(), AgentExecutionRequest{
+		Descriptor: mustOpenSessionDescriptor(t, id), Resource: CurrentAgentResource{},
+		Runner: func(ctx context.Context, _ ExecutionScope, bridge AgentRuntimeBridge) error {
+			err := bridge.WithEngine(ctx, func(ctx context.Context, engine *runtime.Engine) error {
+				item, err := engine.QueueUserInput(ctx, runtime.QueuedUserInput{
+					ID: runtimeids.NewQueueItemID().String(), ExecutionText: "queued", CanonicalPresentation: "queued",
+				})
+				if err == nil && !engine.HasScheduledQueuedUserWork() {
+					return errors.New("accepted input did not schedule a worker")
+				}
+				scheduled <- item
+				return err
+			})
+			if err != nil {
+				return err
+			}
+			<-ctx.Done()
+			return context.Cause(ctx)
+		},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	item := <-scheduled
+	ctx, cancel := context.WithTimeout(t.Context(), 3*time.Second)
+	defer cancel()
+	if err := handle.Stop(ctx); err != nil {
+		t.Fatalf("stop before Step entry: %v", err)
+	}
+	if len(client.requestSnapshot()) != 0 {
+		t.Fatal("scheduled worker entered provider before startup was released")
+	}
+	if _, live := fixture.authority.SessionExecution(id); live {
+		t.Fatal("stopped scheduled execution remains live")
+	}
+	// Stop leaves unconsumed Queue content intact. Discard that input explicitly
+	// before releasing independent maintenance, which may schedule retained work.
+	if err := fixture.authority.WithCurrentRuntime(t.Context(), id, func(ctx context.Context, engine *runtime.Engine) error {
+		if engine.HasScheduledQueuedUserWork() {
+			return errors.New("Stop returned before the worker exited")
+		}
+		itemID, err := runtimeids.ParseQueueItemID(item.ID)
+		if err != nil {
+			return err
+		}
+		_, err = engine.RemovePendingWork(ctx, itemID)
+		return err
+	}); err != nil {
+		t.Fatal(err)
+	}
+	unblock()
+	if err := <-maintenanceDone; err != nil {
+		t.Fatal(err)
+	}
+	next, err := fixture.authority.StartAgentExecution(t.Context(), AgentExecutionRequest{
+		Descriptor: mustOpenSessionDescriptor(t, id), Resource: CurrentAgentResource{},
+		Runner: func(ctx context.Context, _ ExecutionScope, bridge AgentRuntimeBridge) error {
+			return bridge.WithEngine(ctx, func(ctx context.Context, engine *runtime.Engine) error {
+				_, err := engine.SubmitUserMessage(ctx, "next")
+				return err
+			})
+		},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := next.Wait(ctx); err != nil {
+		t.Fatalf("subsequent execution: %v", err)
+	}
+	if got := len(client.requestSnapshot()); got != 1 {
+		t.Fatalf("provider calls after subsequent execution = %d, want one", got)
+	}
+}
+
 func (b *continuationStartupBarrier) StepBegan(context.Context, AgentResourceDescriptor, runtime.StepLifecycleSnapshot) error {
 	b.once.Do(func() { close(b.entered); <-b.release })
 	return nil
