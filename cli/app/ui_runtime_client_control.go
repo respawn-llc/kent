@@ -12,7 +12,6 @@ import (
 	"core/shared/protoapi"
 	chatpb "core/shared/protoapi/gen/kent/api/chat"
 	chatsettingspb "core/shared/protoapi/gen/kent/api/chat_settings"
-	chatshellpb "core/shared/protoapi/gen/kent/api/chat_shell"
 	promptpb "core/shared/protoapi/gen/kent/api/prompt"
 	runtimepb "core/shared/protoapi/gen/kent/api/runtime"
 	sharedpb "core/shared/protoapi/gen/kent/api/shared"
@@ -233,17 +232,6 @@ func chatActivationFromInput(input runtimeinput.Input) (*chatpb.Activation, erro
 
 func runtimeSubmitInputText(input clientui.RuntimeSubmitRequest) string {
 	return input.Input.CanonicalHistoryText()
-}
-
-func (c *sessionRuntimeClient) RunUserShell(ctx context.Context, req clientui.RuntimeShellRequest) error {
-	target, err := c.takeChatTarget()
-	if err != nil {
-		return err
-	}
-	return c.chatMutations.SubmitUserShellCommand(ctx, &chatshellpb.ShellCommandRequest{
-		Target:  target,
-		Command: req.Command,
-	})
 }
 
 func (c *sessionRuntimeClient) CompactRuntime(ctx context.Context, req clientui.RuntimeCompactRequest) (clientui.RuntimeCompactResult, error) {

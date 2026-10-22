@@ -291,19 +291,6 @@ func (m *uiModel) submitRuntimeInput(ctx context.Context, req clientui.RuntimeSu
 	return clientui.UserTurnSubmission{}, nil
 }
 
-func (m *uiModel) submitRuntimeUserShellCommand(ctx context.Context, command string) error {
-	return m.submitRuntimeShell(ctx, clientui.RuntimeShellRequest{Command: command})
-}
-
-func (m *uiModel) submitRuntimeShell(ctx context.Context, req clientui.RuntimeShellRequest) error {
-	if client := m.runtimeClient(); client != nil {
-		err := client.RunUserShell(ctx, req)
-		m.observeRuntimeRequestResult(err)
-		return err
-	}
-	return nil
-}
-
 func (m *uiModel) compactRuntimeInput(ctx context.Context, req clientui.RuntimeCompactRequest) (clientui.RuntimeCompactResult, error) {
 	m.checkTUIBlockingOperation("runtime control mutation", "compact")
 	if client := m.runtimeClient(); client != nil {

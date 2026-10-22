@@ -10,7 +10,6 @@ import (
 	"core/server/runtimecontrol"
 	"core/shared/protoapi"
 	chatpb "core/shared/protoapi/gen/kent/api/chat"
-	chatshellpb "core/shared/protoapi/gen/kent/api/chat_shell"
 	promptcommandpb "core/shared/protoapi/gen/kent/api/prompt_command"
 	runtimepb "core/shared/protoapi/gen/kent/api/runtime"
 	sharedpb "core/shared/protoapi/gen/kent/api/shared"
@@ -32,7 +31,7 @@ type RuntimeOpeningService interface {
 }
 
 type RuntimeAdmissionService interface {
-	AdmitUserShellCommand(context.Context, runtimeids.SessionID, string) error
+	AdmitChatShellInput(context.Context, runtimeids.SessionID, runtimeids.QueueItemID, runtimeinput.ShellCommand, runtimeinput.PendingWorkLane) (serverapi.ChatInputAdmissionResult, error)
 	PrepareUserTurn(context.Context, string, runtimeinput.Input) (runtimecontrol.PreparedUserTurn, error)
 	AdmitChatUserTurn(
 		context.Context,
@@ -48,23 +47,6 @@ type RuntimeAdmissionService interface {
 		context.Context,
 		*runtimepb.CompactContextRequest,
 	) (bool, error)
-}
-
-func (s *Service) SubmitUserShellCommand(ctx context.Context, request *chatshellpb.ShellCommandRequest) error {
-	if err := protoapi.Validate(request); err != nil {
-		return err
-	}
-	operation, err := s.operations.Start(ctx, func(scope OperationScope) error {
-		target, err := s.prepareRuntimeWithDraft(scope, request.Target, nil)
-		if err != nil {
-			return err
-		}
-		return s.admissions.AdmitUserShellCommand(scope.Context(), target.SessionID, request.Command)
-	})
-	if err != nil {
-		return err
-	}
-	return operation.Await(ctx)
 }
 
 type ResolvedGoalSetInvoker interface {
@@ -370,11 +352,17 @@ func (s *Service) mutateInput(
 	operation inputMutationOperation,
 ) (*chatpb.InputMutationSuccess, error) {
 	ctx := scope.Context()
-	draft, input, err := activationInput(activation)
-	if err != nil {
-		return nil, err
+	var draft *string
+	var input runtimeinput.Input
+	shell := activation.GetShell()
+	if shell == nil {
+		text, parsed, err := activationInput(activation)
+		if err != nil {
+			return nil, err
+		}
+		draft, input = &text, parsed
 	}
-	target, err := s.resolveTarget(scope, targetRequest, &draft)
+	target, err := s.resolveTarget(scope, targetRequest, draft)
 	if err != nil {
 		if target.SessionID.IsZero() {
 			return nil, err
@@ -384,23 +372,41 @@ func (s *Service) mutateInput(
 	if s.admissions == nil {
 		return inputNotAccepted(target.SessionID, operation, errors.New("user-turn admission service is required")), nil
 	}
-	prepared, err := s.admissions.PrepareUserTurn(ctx, target.SessionID.String(), input)
-	if err != nil {
-		return inputNotAccepted(target.SessionID, operation, err), nil
-	}
-	prepared.QueueItemID = queueItemID
-	target, err = s.targets.SelectPlacement(ctx, target, prepared.Placement)
-	if err != nil {
-		return inputNotAccepted(target.SessionID, operation, err), nil
-	}
-	if prepared.Placement == promptcommands.PlacementFresh {
-		operation = inputMutationSteer
+	var prepared *runtimecontrol.PreparedUserTurn
+	if shell == nil {
+		turn, err := s.admissions.PrepareUserTurn(ctx, target.SessionID.String(), input)
+		if err != nil {
+			return inputNotAccepted(target.SessionID, operation, err), nil
+		}
+		turn.QueueItemID = queueItemID
+		prepared = &turn
+		target, err = s.targets.SelectPlacement(ctx, target, turn.Placement)
+		if err != nil {
+			return inputNotAccepted(target.SessionID, operation, err), nil
+		}
+		if turn.Placement == promptcommands.PlacementFresh {
+			operation = inputMutationSteer
+		}
 	}
 	target, err = s.openRuntime(scope, target)
 	if err != nil {
 		return inputNotAccepted(target.SessionID, operation, err), nil
 	}
-	admissionResult, admissionErr := s.admitInput(ctx, operation, target.SessionID.String(), prepared)
+	var admissionResult serverapi.ChatInputAdmissionResult
+	var admissionErr error
+	if shell != nil {
+		id, err := runtimeids.QueueItemIDFromProto(queueItemID)
+		if err != nil {
+			return nil, err
+		}
+		lane := runtimeinput.PendingWorkLaneSteer
+		if operation == inputMutationQueue {
+			lane = runtimeinput.PendingWorkLaneQueue
+		}
+		admissionResult, admissionErr = s.admissions.AdmitChatShellInput(ctx, target.SessionID, id, runtimeinput.ShellCommand{Command: shell.Command}, lane)
+	} else {
+		admissionResult, admissionErr = s.admitInput(ctx, operation, target.SessionID.String(), *prepared)
+	}
 	if !admissionResult.Accepted {
 		return inputNotAccepted(target.SessionID, operation, admissionErr), nil
 	}

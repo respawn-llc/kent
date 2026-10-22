@@ -5,7 +5,6 @@ import (
 
 	"core/shared/protoapi"
 	chatpb "core/shared/protoapi/gen/kent/api/chat"
-	chatshellpb "core/shared/protoapi/gen/kent/api/chat_shell"
 	runtimepb "core/shared/protoapi/gen/kent/api/runtime"
 	sharedpb "core/shared/protoapi/gen/kent/api/shared"
 	"core/shared/runtimeids"
@@ -59,12 +58,13 @@ func TestRuntimeGoalMutationResponseCarriesClosedAuthoritativeClear(t *testing.T
 	}
 }
 
-func TestRuntimeSubmitUserShellCommandRejectsBlankCommand(t *testing.T) {
-	err := protoapi.Validate(&chatshellpb.ShellCommandRequest{
+func TestChatShellRejectsBlankCommand(t *testing.T) {
+	err := protoapi.Validate(&chatpb.SteerRequest{
+		QueueItemId: runtimeids.NewQueueItemID().String(),
 		Target: &chatpb.ChatTarget{Target: &chatpb.ChatTarget_Session{Session: &chatpb.ExistingSessionRequestTarget{
 			SessionId: &sharedpb.SessionSelector{Value: &sharedpb.SessionSelector_SessionId{SessionId: "550e8400-e29b-41d4-a716-446655440000"}},
 		}}},
-		Command: " \t\n",
+		Activation: &chatpb.Activation{Input: &chatpb.Activation_Shell{Shell: &chatpb.ShellCommand{Command: " \t\n"}}},
 	})
 	if err == nil {
 		t.Fatal("Shell command accepted a blank command")

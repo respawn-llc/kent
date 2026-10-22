@@ -244,7 +244,17 @@ func (e *Engine) submitQueuedUserMessages(ctx context.Context, selection userInj
 		if err := e.waitQueuedUserAutoDrainAllowed(ctx); err != nil {
 			return llm.Message{}, receipt, consumedQueueItemIDs, err
 		}
-		err = e.stepLifecycle.Run(ctx, exclusiveStepOptions{EmitRunState: true, ActiveKind: ActiveKindUserTurn}, func(stepCtx context.Context, stepID string) error {
+		activeKind := ActiveKindUserTurn
+		for _, pending := range e.messageFlow.PendingUserMessageEntries() {
+			if pending.steerAdmission == nil && !pending.autoStart {
+				continue
+			}
+			if pending.message.Shell != nil {
+				activeKind = ActiveKindUserShell
+			}
+			break
+		}
+		err = e.stepLifecycle.Run(ctx, exclusiveStepOptions{EmitRunState: true, ActiveKind: activeKind}, func(stepCtx context.Context, stepID string) error {
 			if onActive != nil {
 				onActive()
 			}

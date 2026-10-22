@@ -598,7 +598,8 @@ func (e *Engine) publishQueuedInput(stepID *string, prepared preparedMessageProj
 		Message:                    prepared.message,
 		CommittedProvenance:        &provenance,
 	}.withStepID(stepID)
-	if prepared.message.Role == llm.RoleUser {
+	if prepared.message.Role == llm.RoleUser &&
+		(prepared.message.MessageType == nil || *prepared.message.MessageType != llm.MessageTypeUserShellCommand) {
 		event = Event{
 			Kind:                         EventUserMessageFlushed,
 			UserMessage:                  *prepared.message.Content,

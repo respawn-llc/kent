@@ -27,7 +27,6 @@ import (
 	"core/shared/protoapi"
 	chatpb "core/shared/protoapi/gen/kent/api/chat"
 	chatsettingspb "core/shared/protoapi/gen/kent/api/chat_settings"
-	chatshellpb "core/shared/protoapi/gen/kent/api/chat_shell"
 	runpromptpb "core/shared/protoapi/gen/kent/api/run_prompt"
 	sharedpb "core/shared/protoapi/gen/kent/api/shared"
 	"core/shared/runtimeids"
@@ -87,17 +86,23 @@ func TestChatShellPreparesDormantSessionWithoutModel(t *testing.T) {
 		t.Fatal(err)
 	}
 	output := filepath.Join(store.Meta().WorkspaceRoot, "shell-first-action")
-	if err := app.ChatMutationClient().SubmitUserShellCommand(t.Context(), &chatshellpb.ShellCommandRequest{
+	result, err := app.ChatMutationClient().Steer(t.Context(), &chatpb.SteerRequest{
+		QueueItemId: runtimeids.NewQueueItemID().String(),
 		Target: &chatpb.ChatTarget{Target: &chatpb.ChatTarget_Session{
 			Session: &chatpb.ExistingSessionRequestTarget{SessionId: protoapi.SessionSelectorToProto(id)},
 		}},
-		Command: "touch " + output,
-	}); err != nil {
+		Activation: &chatpb.Activation{Input: &chatpb.Activation_Shell{Shell: &chatpb.ShellCommand{Command: "touch " + output}}},
+	})
+	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := os.Stat(output); err != nil {
-		t.Fatalf("shell returned before command completed: %v", err)
+	if result.GetAccepted() == nil {
+		t.Fatalf("Shell not accepted: %+v", result)
 	}
+	testsetup.RequireUntil(t, time.Now().Add(5*time.Second), time.Millisecond, func() bool {
+		_, err := os.Stat(output)
+		return err == nil
+	}, "accepted Shell did not complete")
 }
 
 func TestRunThinkingExplicitDefaultSurvivesFailedContinuation(t *testing.T) {
