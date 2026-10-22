@@ -17,6 +17,17 @@
 - The server must own provider sign-in initiation, device polling, token exchange, and refresh. Clients must receive sign-in instructions without access or refresh credentials. Clients must own browser launch and callback or pasted-input collection.
 - Setup completion must apply server-wide. Credential readiness must be checked for the actual Session/role connection, with no default-connection gate before Session selection. A broken default must not block working connections. If credentials are missing when an interactive Session opens, Kent must open the affected connection's authentication flow. Headless credential failures must return actionable errors.
 
+## Responses WebSockets
+
+- Kent must use Responses WebSockets for generation through first-party OpenAI API-key, ChatGPT Codex OAuth, and public xAI API-key and OAuth connections. Grok CLI proxy and generic Responses-compatible connections must use HTTP generation.
+- A Session's socket must belong to its Active Session Runtime and follow that Runtime's existing idle retirement. Client observation must not own the socket or provider work. Ordinary completed turns must reuse the socket.
+- A WebSocket must use the credentials selected when it opens until that socket ends. Model requests on an open socket must not refresh credentials. Opening a new socket must resolve credentials through the selected Provider Connection's authentication owner.
+- Kent must send the complete prepared working context on a fresh socket. When subsequent prepared context extends the previous input and completed output unchanged, Kent must send only appended items with the prior response ID. Changed request settings or a non-prefix context must cause a complete current-context request without continuing the old response chain.
+- Compaction must keep the socket open and send the complete replacement context on the next generation request.
+- Explicit Stop during provider generation must close that socket so generation cannot continue unobserved. A later invocation must start with the complete prepared context on a fresh socket.
+- Model-request retries, authentication handling, and allowance switching must follow their owning contracts. Kent must add no SDK recovery, automatic command replay, or WebSocket-to-HTTP fallback.
+- A socket must allow messages up to 256 MiB and bound queued incoming data to 64 MiB and 1,600 events. Exceeding a bound must use existing model-error/retry behavior without dropping or truncating events.
+
 ## Connection Sets
 
 - The `connection` setting must accept either one connection ID or an array of connection IDs. The default and role overrides must support both forms with the existing inheritance rules.
