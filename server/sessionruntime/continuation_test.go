@@ -19,6 +19,52 @@ type continuationStartupBarrier struct {
 	once    sync.Once
 }
 
+func TestExecutionStopJoinsQueuedModelWork(t *testing.T) {
+	fixture := newSessionRuntimeFixture(t)
+	id := lifecycleSessionID(t, fixture)
+	client := &interruptReplacementLLMClient{entered: make(chan context.Context, 1)}
+	plan := authorityTestRuntimePlan(t, fixture, client)
+	openLifecycleRuntime(t, fixture.authority, id, &plan)
+	handle, err := fixture.authority.StartAgentExecution(t.Context(), AgentExecutionRequest{
+		Descriptor: mustOpenSessionDescriptor(t, id), Resource: CurrentAgentResource{},
+		Runner: func(ctx context.Context, _ ExecutionScope, bridge AgentRuntimeBridge) error {
+			err := bridge.WithEngine(ctx, func(ctx context.Context, engine *runtime.Engine) error {
+				_, err := engine.QueueUserInput(ctx, runtime.QueuedUserInput{
+					ID: runtimeids.NewQueueItemID().String(), ExecutionText: "queued", CanonicalPresentation: "queued",
+				})
+				return err
+			})
+			if err != nil {
+				return err
+			}
+			<-ctx.Done()
+			return context.Cause(ctx)
+		},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	var providerContext context.Context
+	select {
+	case providerContext = <-client.entered:
+	case <-time.After(3 * time.Second):
+		t.Fatal("queued model work did not start")
+	}
+	ctx, cancel := context.WithTimeout(t.Context(), 3*time.Second)
+	defer cancel()
+	if err := handle.Stop(ctx); err != nil {
+		t.Fatal(err)
+	}
+	select {
+	case <-providerContext.Done():
+	default:
+		t.Fatal("execution retired while its queued model request was still running")
+	}
+	if _, live := fixture.authority.SessionExecution(id); live {
+		t.Fatal("stopped execution remains live")
+	}
+}
+
 func (b *continuationStartupBarrier) StepBegan(context.Context, AgentResourceDescriptor, runtime.StepLifecycleSnapshot) error {
 	b.once.Do(func() { close(b.entered); <-b.release })
 	return nil
