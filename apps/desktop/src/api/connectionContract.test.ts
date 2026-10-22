@@ -1,6 +1,7 @@
 import { describe, expect, it } from "bun:test";
 import { create, validate } from "@app/server-api-contract";
 import { SessionAttachmentSchema } from "@app/server-api-contract/gen/kent/api/connection/connection_pb";
+import { ConnectionReplacementSchema } from "@app/server-api-contract/gen/kent/api/chat_settings/chat_settings_pb";
 import {
   ConnectionDefinitionSchema,
   AuthMethod,
@@ -47,6 +48,24 @@ describe("Session attachment capabilities", () => {
 });
 
 describe("Connection Selection identities", () => {
+  it("requires Connection IDs in Chat Settings replacements", () => {
+    for (const id of ["openai", "local-2_api", "", "Bad", " padded ", "bad/name", "\uFEFF"]) {
+      for (const field of ["previous", "current"] as const) {
+        const replacement = create(ConnectionReplacementSchema, {
+          previous: "openai",
+          current: "local",
+          [field]: id,
+        });
+        const check = () => validate(ConnectionReplacementSchema, replacement);
+        if (id === "openai" || id === "local-2_api") {
+          expect(check).not.toThrow();
+        } else {
+          expect(check).toThrow();
+        }
+      }
+    }
+  });
+
   it("requires the same alphabet in Connection outputs", () => {
     for (const id of ["openai", "local-2_api", "Bad", " padded ", "bad/name", "é"]) {
       const checks = [

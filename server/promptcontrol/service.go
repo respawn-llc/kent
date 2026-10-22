@@ -58,16 +58,13 @@ func (s *PromptControlService) AnswerPromptBatch(
 	if err != nil {
 		return nil, err
 	}
-	stepID, err := runtimeids.ParseStepID(req.StepId)
+	stepID, err := runtimeids.StepIDFromProto(req.StepId)
 	if err != nil {
 		return nil, err
 	}
 	var answerer *runtimeids.SessionIdentity
 	if req.InvokingSessionId != nil {
-		id, err := runtimeids.ParseSessionID(*req.InvokingSessionId)
-		if err != nil {
-			return nil, err
-		}
+		id := runtimeids.SessionIDFromProto(*req.InvokingSessionId)
 		caller, err := session.ResolvePersistedSessionRecord(ctx, s.persistedSession, id.String())
 		if err != nil {
 			return nil, err
@@ -164,7 +161,7 @@ func (s *PromptControlService) SubscribeFollowUp(
 	if err != nil {
 		return nil, err
 	}
-	stepID, err := runtimeids.ParseStepID(req.StepId)
+	stepID, err := runtimeids.StepIDFromProto(req.StepId)
 	if err != nil {
 		return nil, err
 	}
