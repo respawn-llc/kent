@@ -303,8 +303,7 @@ type ongoingSurfaceSpy struct {
 
 func ongoingTestFrameProvider() ongoing.FrameInput {
 	return ongoing.FrameInput{
-		Size:   ongoing.Size{Width: 80, Height: 24},
-		Cursor: ongoing.Cursor{Visible: true, Row: 24, Column: 1},
+		Size: ongoing.Size{Width: 80, Height: 24},
 	}
 }
 

@@ -21,7 +21,6 @@ type FrameInput struct {
 	SpinnerFrame int
 	Sections     []FrameSection
 	Overlay      *FrameDemand
-	Cursor       Cursor
 }
 
 type Cursor struct {

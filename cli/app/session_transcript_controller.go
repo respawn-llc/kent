@@ -100,7 +100,6 @@ func (c *ongoingTranscriptController) diagnoseRuntimeAdmissionError(
 	frame := c.frameProvider()
 	facts := conflict.facts()
 	facts["terminal_size"] = frame.Size
-	facts["terminal_cursor"] = frame.Cursor
 	hydration := message.Event.GetHydration()
 	facts["quoted_payload"] = strconv.Quote(fmt.Sprintf("%+v", hydration))
 	return ongoing.NewDeveloperError(
@@ -344,15 +343,11 @@ func (c *ongoingTranscriptController) frameInput() ongoing.FrameInput {
 	frame := c.frameProvider()
 	c.liveReadModel.refreshPendingToolSection(frame.Size.Width, frame.SpinnerFrame, frame.Theme)
 	c.liveReadModel.refreshPendingPromptSection(frame.Size.Width)
-	cursorSectionRow, cursorTargetsInput := ongoingFrameInputCursorSectionRow(frame)
 	sections := make([]ongoing.FrameSection, 0, len(c.liveReadModel.sectionOrder))
 	for _, kind := range c.liveReadModel.sectionOrder {
 		sections = append(sections, c.liveReadModel.sections[kind])
 	}
 	frame.Sections = append(sections, frame.Sections...)
-	if cursorTargetsInput {
-		frame.Cursor.Row = ongoingFrameInputCursorTerminalRow(frame, cursorSectionRow)
-	}
 	return frame
 }
 

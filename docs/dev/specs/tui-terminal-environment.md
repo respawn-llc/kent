@@ -6,7 +6,7 @@
 
 ## Size degradation
 
-- Below 40 columns or 4 rows, Ongoing Mode must leave its owned frame blank without changing Scrollback and hold transcript events until the terminal reaches both dimensions.
+- Below 40 columns or 4 rows, Ongoing Mode must emit no further UI or transcript output, must not erase or clear existing terminal content, and must hold transcript events until the terminal reaches both dimensions.
 - Below 40 columns or 10 rows, other TUI surfaces must leave their owned frame blank without changing Scrollback.
 - Rendering resumes when the terminal reaches the minimum size.
 - At or above its absolute minimum, Ongoing Mode must apply the current-content live-area minimum defined in [Ongoing Scrollback Buffer](ongoing-scrollback-buffer.md#mutable-band-height). Hiding the live area must not stop committed output.

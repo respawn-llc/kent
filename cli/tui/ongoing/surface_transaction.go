@@ -1,7 +1,9 @@
 package ongoing
 
 import (
+	"fmt"
 	"io"
+	"strconv"
 	"strings"
 
 	"core/cli/tui/transcriptrender"
@@ -55,35 +57,27 @@ func (s *Surface) validateRenderFrame(frame FrameInput, operation string) {
 			"height": frame.Size.Height,
 		})
 	}
-	if frame.Cursor.Visible {
-		if frame.Cursor.Row <= 0 || frame.Cursor.Row > frame.Size.Height || frame.Cursor.Column <= 0 || frame.Cursor.Column > frame.Size.Width {
-			panicOngoingDeveloperError(operation, "invalid cursor", map[string]any{
-				"row":    frame.Cursor.Row,
-				"column": frame.Cursor.Column,
-				"width":  frame.Size.Width,
-				"height": frame.Size.Height,
-			})
-		}
-	}
 }
 
 func (s *Surface) writeFrameTransaction(frame FrameInput, immutableRows []string) (Result, error) {
 	liveLayout, cursor := s.allocateLiveBand(frame)
 	liveLayout = composeInputOverlay(frame, liveLayout)
-	frame.Cursor = cursor
 	liveLines := liveBandLineTexts(liveLayout)
 	for row, line := range liveLines {
 		if width := xansi.StringWidth(line); width > frame.Size.Width {
-			panicOngoingDeveloperError("write_frame_transaction", "live row exceeds terminal width", map[string]any{"row": row, "width": width, "terminal_width": frame.Size.Width})
+			panicOngoingDeveloperError("write_frame_transaction", "live row exceeds terminal width", map[string]any{
+				"row": row, "row_width": width, "width": frame.Size.Width, "height": frame.Size.Height,
+				"quoted_row": strconv.Quote(line),
+			})
 		}
 	}
-	frame.Cursor = cursorForVisibleLiveBand(frame.Cursor, frame.Size.Height, liveLayout)
+	cursor = cursorForVisibleLiveBand(cursor, frame.Size.Height, liveLayout)
 	previousHeight := s.previousMutableBandHeightAtBottom(frame.Size)
 	contentHeight := len(liveLines)
 	releasableHeight := max(0, previousHeight-contentHeight)
 	releasedHeight := min(len(immutableRows), releasableHeight)
 	nextHeight := max(contentHeight, previousHeight-releasedHeight)
-	validateFrameTransactionGeometry(frame, previousHeight, contentHeight, nextHeight, len(immutableRows))
+	validateFrameTransactionGeometry(frame, cursor, liveLines, previousHeight, contentHeight, nextHeight, len(immutableRows))
 	eraseHeight := max(previousHeight, nextHeight)
 	var transaction strings.Builder
 	transaction.WriteString(resetScrollRegionAndOriginMode())
@@ -120,7 +114,7 @@ func (s *Surface) writeFrameTransaction(frame FrameInput, immutableRows []string
 		liveLines,
 		s.terminalResize == TerminalResizeSemanticPrompt,
 	)
-	writeCursor(&transaction, frame.Cursor)
+	writeCursor(&transaction, cursor)
 	if _, err := io.WriteString(s.writer, transaction.String()); err != nil {
 		return Result{}, err
 	}
@@ -148,7 +142,10 @@ func composeInputOverlay(frame FrameInput, layout []liveBandLine) []liveBandLine
 			Lines: projected.Lines, StyledLines: projected.StyledLines,
 		}}})
 		if len(rows) > height {
-			panicOngoingDeveloperError("compose_input_overlay", "projection exceeds allocation", map[string]any{"height": height, "rows": len(rows)})
+			panicOngoingDeveloperError("compose_input_overlay", "projection exceeds allocation", map[string]any{
+				"allocation": height, "rows": len(rows), "width": frame.Size.Width, "height": frame.Size.Height,
+				"quoted_rows": fmt.Sprintf("%q", liveBandLineTexts(rows)),
+			})
 		}
 		growth := max(0, len(rows)-inputRow)
 		if growth > 0 {
@@ -163,6 +160,8 @@ func composeInputOverlay(frame FrameInput, layout []liveBandLine) []liveBandLine
 
 func validateFrameTransactionGeometry(
 	frame FrameInput,
+	cursor Cursor,
+	liveLines []string,
 	previousHeight int,
 	contentHeight int,
 	nextHeight int,
@@ -172,12 +171,12 @@ func validateFrameTransactionGeometry(
 		contentHeight >= 0 &&
 		contentHeight <= nextHeight &&
 		nextHeight <= frame.Size.Height
-	if frame.Cursor.Visible {
+	if cursor.Visible {
 		valid = valid &&
-			frame.Cursor.Row > 0 &&
-			frame.Cursor.Row <= frame.Size.Height &&
-			frame.Cursor.Column > 0 &&
-			frame.Cursor.Column <= frame.Size.Width
+			cursor.Row > 0 &&
+			cursor.Row <= frame.Size.Height &&
+			cursor.Column > 0 &&
+			cursor.Column <= frame.Size.Width
 	}
 	if valid {
 		return
@@ -194,7 +193,9 @@ func validateFrameTransactionGeometry(
 		"next_height":         nextHeight,
 		"immutable_row_count": immutableRowCount,
 		"section_line_counts": sectionLineCounts,
-		"cursor":              frame.Cursor,
+		"cursor":              cursor,
+		"quoted_rows":         fmt.Sprintf("%q", liveLines),
+		"quoted_frame":        strconv.Quote(fmt.Sprintf("%+v", frame)),
 	})
 }
 
@@ -220,7 +221,11 @@ func (s *Surface) allocateLiveBand(frame FrameInput) ([]liveBandLine, Cursor) {
 			}
 		}
 		if floor < 0 || preferred < floor {
-			panicOngoingDeveloperError("allocate_live_band", "invalid section demand", map[string]any{"kind": section.Kind, "preferred": preferred, "minimum": floor})
+			panicOngoingDeveloperError("allocate_live_band", "invalid section demand", map[string]any{
+				"kind": section.Kind, "preferred": preferred, "minimum": floor,
+				"width": frame.Size.Width, "height": frame.Size.Height,
+				"quoted_frame": strconv.Quote(fmt.Sprintf("%+v", frame)),
+			})
 		}
 		heights[index], minimums[index] = preferred, floor
 		total += preferred
@@ -246,7 +251,7 @@ func (s *Surface) allocateLiveBand(frame FrameInput) ([]liveBandLine, Cursor) {
 	for _, line := range lines {
 		layout = append(layout, liveBandLine{text: line})
 	}
-	cursor := frame.Cursor
+	cursor := Cursor{}
 	for index, section := range frame.Sections {
 		if section.Demand != nil {
 			projected := section.Demand.Project(heights[index])
@@ -260,7 +265,11 @@ func (s *Surface) allocateLiveBand(frame FrameInput) ([]liveBandLine, Cursor) {
 		}
 		rows := frameLines(FrameInput{Theme: frame.Theme, Sections: []FrameSection{section}})
 		if section.Demand != nil && len(rows) > heights[index] {
-			panicOngoingDeveloperError("allocate_live_band", "projection exceeds allocation", map[string]any{"kind": section.Kind, "height": heights[index], "rows": len(rows)})
+			panicOngoingDeveloperError("allocate_live_band", "projection exceeds allocation", map[string]any{
+				"kind": section.Kind, "allocation": heights[index], "rows": len(rows),
+				"width": frame.Size.Width, "height": frame.Size.Height,
+				"quoted_rows": fmt.Sprintf("%q", liveBandLineTexts(rows)),
+			})
 		}
 		if len(rows) > heights[index] {
 			rows = rows[len(rows)-heights[index]:]

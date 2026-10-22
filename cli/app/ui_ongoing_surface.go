@@ -241,30 +241,13 @@ func (m *uiModel) ongoingFrameInput() ongoing.FrameInput {
 	if statusLine != "" {
 		appendSection(ongoing.FrameSectionStatus, []string{statusLine})
 	}
-	cursor := inputPane.Cursor
-	frameCursor := ongoing.Cursor{}
-	if cursor.Visible {
-		frameCursor = ongoing.Cursor{
-			Visible: true,
-			Column:  cursor.Col + 1,
-			Target: &ongoing.CursorTarget{
-				SectionKind: ongoing.FrameSectionInput,
-				Row:         cursor.Row,
-			},
-		}
-	}
-	frame := ongoing.FrameInput{
+	return ongoing.FrameInput{
 		Size:         ongoing.Size{Width: width, Height: height},
 		Theme:        m.theme,
 		SpinnerFrame: m.spinnerFrame,
 		Sections:     sections,
-		Cursor:       frameCursor,
 		Overlay:      layout.ongoingInputOverlay(width, height, style),
 	}
-	if cursor.Visible {
-		frame.Cursor.Row = ongoingFrameInputCursorTerminalRow(frame, cursor.Row)
-	}
-	return frame
 }
 
 func (l uiViewLayout) ongoingInputOverlay(width, height int, style uiStyles) *ongoing.FrameDemand {
@@ -290,69 +273,4 @@ func (l uiViewLayout) ongoingInputOverlay(width, height int, style uiStyles) *on
 			return ongoing.SectionProjection{Lines: l.renderPicker(picker, width)}
 		},
 	}
-}
-
-func ongoingFrameInputCursorSectionRow(frame ongoing.FrameInput) (int, bool) {
-	if !frame.Cursor.Visible {
-		return 0, false
-	}
-	if frame.Cursor.Target != nil && frame.Cursor.Target.SectionKind == ongoing.FrameSectionInput && frame.Cursor.Target.Row > 0 {
-		return frame.Cursor.Target.Row, true
-	}
-	start, end, ok := ongoingFrameSectionTerminalRows(frame, ongoing.FrameSectionInput)
-	if !ok || frame.Cursor.Row < start || frame.Cursor.Row > end {
-		return 0, false
-	}
-	return frame.Cursor.Row - start + 1, true
-}
-
-func ongoingFrameInputCursorTerminalRow(frame ongoing.FrameInput, cursorSectionRow int) int {
-	start, end, ok := ongoingFrameSectionTerminalRows(frame, ongoing.FrameSectionInput)
-	if !ok {
-		return clampTerminalCursorRow(frame.Cursor.Row, frame.Size.Height)
-	}
-	if cursorSectionRow <= 0 {
-		cursorSectionRow = 1
-	}
-	inputSectionLines := end - start + 1
-	if cursorSectionRow > inputSectionLines {
-		cursorSectionRow = inputSectionLines
-	}
-	return clampTerminalCursorRow(start+cursorSectionRow-1, frame.Size.Height)
-}
-
-func ongoingFrameSectionTerminalRows(frame ongoing.FrameInput, kind ongoing.FrameSectionKind) (int, int, bool) {
-	totalSectionLines := 0
-	for _, section := range frame.Sections {
-		totalSectionLines += ongoingFrameSectionLineCount(section)
-	}
-	row := frame.Size.Height - totalSectionLines + 1
-	for _, section := range frame.Sections {
-		count := ongoingFrameSectionLineCount(section)
-		if section.Kind == kind {
-			return row, row + count - 1, true
-		}
-		row += count
-	}
-	return 0, 0, false
-}
-
-func ongoingFrameSectionLineCount(section ongoing.FrameSection) int {
-	if section.Demand != nil {
-		return section.Demand.PreferredHeight
-	}
-	return len(section.StyledLines) + len(section.Lines)
-}
-
-func clampTerminalCursorRow(row int, height int) int {
-	if height <= 0 {
-		return row
-	}
-	if row < 1 {
-		return 1
-	}
-	if row > height {
-		return height
-	}
-	return row
 }

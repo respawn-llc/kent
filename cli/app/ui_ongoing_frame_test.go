@@ -230,50 +230,6 @@ func TestOngoingAllocatedInputFollowsCursor(t *testing.T) {
 	}
 }
 
-func TestOngoingFrameInputUsesOperatorLocalSectionsAndCursor(t *testing.T) {
-	m := sizedTestUIModel(newProjectedStaticUIModel(
-		WithUITerminalCursorState(newUITerminalCursorState())), 48, 10)
-	m.Update(promptHistoryLoadedMsg{prompts: []string{"older", "newer"}})
-	testSetMainInputAtRuneCursor(m, "hello", 2)
-	testSetPromptHistorySelection(m, 1)
-	m.helpVisible = true
-
-	frame := m.ongoingFrameInput()
-
-	if got, want := frame.Size, (ongoing.Size{Width: 48, Height: 10}); got != want {
-		t.Fatalf("frame size = %+v, want %+v", got, want)
-	}
-	inputStart, inputEnd, ok := ongoingFrameSectionTerminalRows(frame, ongoing.FrameSectionInput)
-	if !ok {
-		t.Fatal("input section missing from ongoing frame")
-	}
-	statusStart, _, ok := ongoingFrameSectionTerminalRows(frame, ongoing.FrameSectionStatus)
-	if !ok {
-		t.Fatal("status section missing from ongoing frame")
-	}
-	if !frame.Cursor.Visible || frame.Cursor.Row < inputStart || frame.Cursor.Row > inputEnd {
-		t.Fatalf("frame cursor = %+v, want visible within input rows %d..%d", frame.Cursor, inputStart, inputEnd)
-	}
-	if frame.Cursor.Target == nil || frame.Cursor.Target.SectionKind != ongoing.FrameSectionInput {
-		t.Fatalf("frame cursor target = %+v, want input section target", frame.Cursor.Target)
-	}
-	if frame.Cursor.Row >= statusStart {
-		t.Fatalf("frame cursor row = %d, want before status row %d", frame.Cursor.Row, statusStart)
-	}
-	if got, want := frame.Cursor.Target.Row, 2; got != want {
-		t.Fatalf("input cursor target row = %d, want framed content row %d", got, want)
-	}
-	if got, want := frame.Cursor.Row, inputStart+1; got != want {
-		t.Fatalf("terminal cursor row = %d, want first framed input content row %d", got, want)
-	}
-	wantKinds := []ongoing.FrameSectionKind{
-		ongoing.FrameSectionInput,
-		ongoing.FrameSectionStatus}
-	if got := frameSectionKinds(frame); !reflect.DeepEqual(got, wantKinds) {
-		t.Fatalf("frame section kinds = %v, want %v", got, wantKinds)
-	}
-}
-
 func TestOngoingFrameInputIgnoresRuntimeMainViewCopiesOfTranscriptOwnedFacts(t *testing.T) {
 	m := sizedTestUIModel(newProjectedStaticUIModel(), 48, 10)
 	m.runtimeActivityProjection = &runtimepb.Activity{
@@ -310,25 +266,18 @@ func TestOngoingTranscriptControllerPlacesCursorAfterPrependedLiveSections(t *te
 	testSetMainInputAtRuneCursor(m, "hello", 2)
 	m.pendingWorkRefresh.collection = runtimeinput.PendingWork{Items: []runtimeinput.PendingWorkItem{
 		pendingWorkMessageForTest(runtimeinput.PendingWorkLaneSteer, "server pending")}}
-	surface := &ongoingSurfaceSpy{}
+	var output bytes.Buffer
+	surface := ongoing.NewSurface(&output)
 	controller := newTestOngoingTranscriptController(surface, m.ongoingFrameInput)
 	if _, err := controller.Accept(ongoingHydrationMessage(1)); err != nil {
 		t.Fatalf("accept hydration: %v", err)
 	}
-	if _, err := controller.Accept(ongoingTranscriptMessage(2, reflect.TypeFor[*transcriptpb.Event_PendingWorkChanged]())); err != nil {
-		t.Fatalf("accept queued message: %v", err)
+	if _, err := controller.Accept(ongoingTranscriptMessage(2, reflect.TypeFor[*transcriptpb.Event_ToolStart]())); err != nil {
+		t.Fatalf("accept pending tool: %v", err)
 	}
-
-	frame := surface.calls[len(surface.calls)-1].frame
-	inputStart, inputEnd, ok := ongoingFrameSectionTerminalRows(frame, ongoing.FrameSectionInput)
-	if !ok {
-		t.Fatal("input section missing from final ongoing frame")
-	}
-	if !frame.Cursor.Visible || frame.Cursor.Row < inputStart || frame.Cursor.Row > inputEnd {
-		t.Fatalf("final frame cursor = %+v, want within input rows %d..%d", frame.Cursor, inputStart, inputEnd)
-	}
-	if got, want := frame.Cursor.Row, inputStart+1; got != want {
-		t.Fatalf("final frame cursor row = %d, want first framed input content row %d", got, want)
+	snapshot := ongoingScreenFromOutput(t, ongoing.Size{Width: 48, Height: 10}, output.Bytes())
+	if snapshot.Cursor.Row != 7 || snapshot.Cursor.Col != 4 {
+		t.Fatalf("final cursor = %+v, want draft cell (7,4)", snapshot.Cursor)
 	}
 }
 
@@ -344,7 +293,8 @@ func TestOngoingTranscriptControllerPreservesWrappedDisplayCursorTargetWithPrepe
 	m.pendingWorkRefresh.collection = runtimeinput.PendingWork{Items: []runtimeinput.PendingWorkItem{
 		pendingWorkMessageForTest(runtimeinput.PendingWorkLaneSteer, "server pending")}}
 
-	surface := &ongoingSurfaceSpy{}
+	var output bytes.Buffer
+	surface := ongoing.NewSurface(&output)
 	controller := newTestOngoingTranscriptController(surface, m.ongoingFrameInput)
 	if _, err := controller.Accept(ongoingHydrationMessage(1)); err != nil {
 		t.Fatalf("accept hydration: %v", err)
@@ -353,35 +303,9 @@ func TestOngoingTranscriptControllerPreservesWrappedDisplayCursorTargetWithPrepe
 		t.Fatalf("accept queued message: %v", err)
 	}
 
-	frame := surface.calls[len(surface.calls)-1].frame
-	_, queuedEnd, ok := ongoingFrameSectionTerminalRows(frame, ongoing.FrameSectionQueuedOrSteered)
-	if !ok {
-		t.Fatal("prepended queued section missing from final ongoing frame")
-	}
-	inputStart, inputEnd, ok := ongoingFrameSectionTerminalRows(frame, ongoing.FrameSectionInput)
-	if !ok {
-		t.Fatal("input section missing from final ongoing frame")
-	}
-	if queuedEnd >= inputStart {
-		t.Fatalf("queued section ends at row %d, want before input start %d", queuedEnd, inputStart)
-	}
-	if frame.Cursor.Target == nil || frame.Cursor.Target.SectionKind != ongoing.FrameSectionInput {
-		t.Fatalf("frame cursor target = %+v, want input section", frame.Cursor.Target)
-	}
-	if got, want := frame.Cursor.Target.Row, projected.Row; got != want {
-		t.Fatalf("frame cursor target row = %d, want shared editor row %d", got, want)
-	}
-	if got, want := frame.Cursor.Column, projected.Col+1; got != want {
-		t.Fatalf("frame cursor column = %d, want shared editor column %d", got, want)
-	}
-	if frame.Cursor.Column < 1 || frame.Cursor.Column > frame.Size.Width {
-		t.Fatalf("frame cursor column %d outside width %d", frame.Cursor.Column, frame.Size.Width)
-	}
-	if got, want := frame.Cursor.Row, inputStart+projected.Row-1; got != want {
-		t.Fatalf("frame cursor row = %d, want targeted input row %d", got, want)
-	}
-	if frame.Cursor.Row < inputStart || frame.Cursor.Row > inputEnd {
-		t.Fatalf("frame cursor row %d outside input rows %d..%d", frame.Cursor.Row, inputStart, inputEnd)
+	snapshot := ongoingScreenFromOutput(t, ongoing.Size{Width: width, Height: 12}, output.Bytes())
+	if snapshot.Cursor.Row != 9 || snapshot.Cursor.Col != projected.Col {
+		t.Fatalf("wrapped cursor = %+v, want last content row and column %d", snapshot.Cursor, projected.Col)
 	}
 }
 
@@ -418,22 +342,30 @@ func TestOngoingFrameInputAskViewportAndCursorShareBoundedProjection(t *testing.
 	if len(input.Lines) > height-1 {
 		t.Fatalf("framed ask rows = %d, bounded maximum = %d", len(input.Lines), height-1)
 	}
-	if frame.Cursor.Target == nil || frame.Cursor.Target.SectionKind != ongoing.FrameSectionInput {
-		t.Fatalf("frame cursor target = %+v, want input section", frame.Cursor.Target)
+	var output bytes.Buffer
+	if _, err := ongoing.NewSurface(&output).Render(frame); err != nil {
+		t.Fatal(err)
 	}
-	if got, want := frame.Cursor.Target.Row, pane.Cursor.Row; got != want {
-		t.Fatalf("frame cursor target row = %d, want bounded pane row %d", got, want)
+	snapshot := ongoingScreenFromOutput(t, frame.Size, output.Bytes())
+	if snapshot.Cursor.Row != pane.Cursor.Row-1 || snapshot.Cursor.Col != pane.Cursor.Col {
+		t.Fatalf("ask cursor = %+v, want bounded pane cursor %+v", snapshot.Cursor, pane.Cursor)
 	}
-	inputStart, inputEnd, ok := ongoingFrameSectionTerminalRows(frame, ongoing.FrameSectionInput)
-	if !ok {
-		t.Fatal("bounded ask input section has no terminal rows")
+}
+
+func ongoingScreenFromOutput(t *testing.T, size ongoing.Size, output []byte) analyzer.ScreenSnapshot {
+	t.Helper()
+	stream, err := analyzer.NewStream(pty.MustDimensions(size.Height, size.Width))
+	if err != nil {
+		t.Fatal(err)
 	}
-	if got, want := frame.Cursor.Row, inputStart+pane.Cursor.Row-1; got != want {
-		t.Fatalf("frame cursor terminal row = %d, want %d", got, want)
+	if err := stream.Feed(output); err != nil {
+		t.Fatal(err)
 	}
-	if frame.Cursor.Row < inputStart || frame.Cursor.Row > inputEnd {
-		t.Fatalf("frame cursor row %d outside bounded input rows %d..%d", frame.Cursor.Row, inputStart, inputEnd)
+	snapshot, err := stream.ScreenSnapshot()
+	if err != nil {
+		t.Fatal(err)
 	}
+	return snapshot
 }
 
 func TestOngoingFrameInputKeepsServerBackedQueuedStateTranscriptOwned(t *testing.T) {

@@ -311,9 +311,26 @@ func TestOngoingTranscriptDeliveryKeepsCursorAbsentForAskOptionPicker(t *testing
 		Phase: transcriptpb.AssistantPhase_ASSISTANT_PHASE_COMMENTARY})); err != nil {
 		t.Fatalf("accept assistant delta: %v", err)
 	}
-
-	if got := m.ongoingFrameInput().Cursor; !reflect.DeepEqual(got, ongoing.Cursor{}) {
-		t.Fatalf("ask option picker frame cursor = %+v, want absent zero value", got)
+	stream, err := analyzer.NewStream(pty.MustDimensions(34, 77))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := stream.Feed(out.Bytes()); err != nil {
+		t.Fatal(err)
+	}
+	analysis, err := stream.Snapshot()
+	if err != nil {
+		t.Fatal(err)
+	}
+	var visible *bool
+	for _, change := range analysis.PrivateModeChanges {
+		if change.Mode == 25 {
+			state := change.Enabled
+			visible = &state
+		}
+	}
+	if visible == nil || *visible {
+		t.Fatal("option picker did not hide the final terminal cursor")
 	}
 }
 
@@ -377,11 +394,6 @@ func TestNativeOngoingTransientPickersAndAskDoNotCreateBlankScrollback(t *testin
 			openFrame := m.ongoingFrameInput()
 			if test.name != "active ask" && openFrame.Overlay == nil {
 				t.Fatal("completion overlay missing")
-			}
-			if openFrame.Cursor.Visible &&
-				(openFrame.Cursor.Row < 1 || openFrame.Cursor.Row > height ||
-					openFrame.Cursor.Column < 1 || openFrame.Cursor.Column > width) {
-				t.Fatalf("open cursor outside terminal: %+v", openFrame.Cursor)
 			}
 			if _, err := surface.Render(openFrame); err != nil {
 				t.Fatalf("render transient frame: %v", err)
