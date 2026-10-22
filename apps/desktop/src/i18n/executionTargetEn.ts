@@ -26,6 +26,21 @@ export const executionTargetEnglish = {
   revision_invalid_revision: "Git revision “{{value}}” could not be resolved.",
   revision_non_commit: "Git revision “{{value}}” does not resolve to a commit.",
   revision_git_failure: "Git could not resolve “{{value}}”.",
+  defaultBranchResolution: {
+    default_branch_missing:
+      "Task Start could not resolve your selected Repository default branch: no local default-branch metadata was found.",
+    default_branch_ambiguous:
+      "Task Start could not resolve your selected Repository default branch: the local metadata identifies more than one candidate.",
+    invalid_revision:
+      "Task Start could not use your selected Repository default branch: its discovered reference does not resolve to a commit.",
+    non_commit:
+      "Task Start could not use your selected Repository default branch: its discovered reference resolves to a non-commit.",
+    git_failure:
+      "Task Start could not use your selected Repository default branch: Git could not inspect the repository.",
+    guidance:
+      "To retry this target, first correct or update the repository's default-branch metadata or resolve the Git error. Then select Repository default branch above and choose Continue. To use another target, select it above and choose Continue.",
+    diagnostic: "Git diagnostic",
+  },
   continue: "Continue",
   unavailable_invalid_revision: "The configured Git revision could not be resolved.",
   unavailable_non_commit: "The configured Git revision does not resolve to a commit.",

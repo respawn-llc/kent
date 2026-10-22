@@ -36,6 +36,15 @@ func (s *taskCreateConflictService) CreateWorkflowTask(context.Context, *taskpb.
 	return nil, workflowstore.TaskCreateConflictError{Reason: workflowstore.TaskCreateConflictSerialization}
 }
 
+type taskStartResolutionFailureService struct {
+	apicontract.WorkflowService
+	failure error
+}
+
+func (s *taskStartResolutionFailureService) StartWorkflowTask(context.Context, *taskpb.StartRequest) (*taskpb.StartSuccess, error) {
+	return nil, s.failure
+}
+
 func TestTaskCreateSerializationConflictRoundTrip(t *testing.T) {
 	app, _ := newGatewayTestCore(t, true, true)
 	defer func() { _ = app.Close() }()
@@ -62,6 +71,50 @@ func TestTaskCreateSerializationConflictRoundTrip(t *testing.T) {
 	}
 	if conflict.Failure.GetCreateConflict().GetReason() != taskpb.CreateConflictReason_CREATE_CONFLICT_REASON_SERIALIZATION {
 		t.Fatalf("Create lost serialization conflict detail: %v", conflict.Failure)
+	}
+}
+
+func TestTaskStartDefaultBranchResolutionFailureRoundTrip(t *testing.T) {
+	app, _ := newGatewayTestCore(t, true, true)
+	defer func() { _ = app.Close() }()
+	diagnostic := "local remote HEAD inspection failed"
+	gateway, err := NewGateway(&gatewayCloseDependencies{
+		GatewayDependencies: app,
+		workflow: &taskStartResolutionFailureService{
+			WorkflowService: app.WorkflowClient(),
+			failure: &serverapi.WorkflowExecutionTargetResolutionError{
+				Target: serverapi.WorkflowExecutionTargetResolutionDefaultBranch{},
+				Code:   serverapi.WorkflowExecutionTargetResolutionErrorGitFailure, Diagnostic: &diagnostic,
+			},
+		},
+	}, gatewayTestIdentity())
+	if err != nil {
+		t.Fatal(err)
+	}
+	server := httptest.NewServer(gateway.Handler())
+	defer server.Close()
+	remote, err := remoteclient.DialRemoteURL(t.Context(), "ws"+server.URL[len("http"):])
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = remote.Close() }()
+
+	response, err := remote.StartWorkflowTask(t.Context(), &taskpb.StartRequest{
+		TaskId:           uuid.NewString(),
+		SetupOperationId: worktreecontract.NewSetupOperationID().String(),
+		ExecutionTarget: &taskpb.ExecutionTargetSelection{
+			Mode: pb.ExecutionTargetMode_WORKFLOW_EXECUTION_TARGET_MODE_DEFAULT_BRANCH,
+		},
+	})
+	var resolutionErr *serverapi.WorkflowExecutionTargetResolutionError
+	if response != nil || !errors.As(err, &resolutionErr) {
+		t.Fatalf("StartWorkflowTask round trip = %+v, %T %v; want typed resolution failure", response, err, err)
+	}
+	_, isDefaultBranch := resolutionErr.Target.(serverapi.WorkflowExecutionTargetResolutionDefaultBranch)
+	if !isDefaultBranch ||
+		resolutionErr.Code != serverapi.WorkflowExecutionTargetResolutionErrorGitFailure ||
+		resolutionErr.Diagnostic == nil || *resolutionErr.Diagnostic != diagnostic {
+		t.Fatalf("StartWorkflowTask round trip = %+v, %T %+v; want default-branch Git failure with diagnostic", response, err, resolutionErr)
 	}
 }
 

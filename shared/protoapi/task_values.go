@@ -125,9 +125,11 @@ var TaskSessionStatus = workflowValueNames(map[pb.SessionStatus]string{
 })
 
 var TaskExecutionResolutionCode = workflowValueNames(map[pb.ExecutionTargetResolutionCode]string{
-	pb.ExecutionTargetResolutionCode_EXECUTION_TARGET_RESOLUTION_CODE_INVALID_REVISION: "invalid_revision",
-	pb.ExecutionTargetResolutionCode_EXECUTION_TARGET_RESOLUTION_CODE_NON_COMMIT:       "non_commit",
-	pb.ExecutionTargetResolutionCode_EXECUTION_TARGET_RESOLUTION_CODE_GIT_FAILURE:      "git_failure",
+	pb.ExecutionTargetResolutionCode_EXECUTION_TARGET_RESOLUTION_CODE_INVALID_REVISION:         "invalid_revision",
+	pb.ExecutionTargetResolutionCode_EXECUTION_TARGET_RESOLUTION_CODE_NON_COMMIT:               "non_commit",
+	pb.ExecutionTargetResolutionCode_EXECUTION_TARGET_RESOLUTION_CODE_GIT_FAILURE:              "git_failure",
+	pb.ExecutionTargetResolutionCode_EXECUTION_TARGET_RESOLUTION_CODE_DEFAULT_BRANCH_MISSING:   "default_branch_missing",
+	pb.ExecutionTargetResolutionCode_EXECUTION_TARGET_RESOLUTION_CODE_DEFAULT_BRANCH_AMBIGUOUS: "default_branch_ambiguous",
 })
 
 var TaskInitialBranchReason = workflowValueNames(map[pb.InitialBranchErrorReason]string{
