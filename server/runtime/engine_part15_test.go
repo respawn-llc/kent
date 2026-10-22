@@ -768,7 +768,7 @@ func TestAutoCompactionRetries400ByCollapsingShellOutput(t *testing.T) {
 			},
 		},
 		compactionErrors: []error{
-			&llm.ProviderAPIError{ProviderID: "openai", StatusCode: 400, Code: llm.UnifiedErrorCodeContextLengthOverflow, ProviderCode: "context_length_exceeded", Message: "prompt exceeded"},
+			&llm.ProviderAPIError{ProviderID: "openai", StatusCode: textutil.Value(400), Code: llm.UnifiedErrorCodeContextLengthOverflow, ProviderCode: "context_length_exceeded", Message: "prompt exceeded"},
 			nil,
 		},
 		compactionResponses: []llm.CompactionResponse{

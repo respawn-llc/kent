@@ -1,6 +1,7 @@
 package llm
 
 import (
+	"core/shared/textutil"
 	"errors"
 	"fmt"
 	"net/http"
@@ -8,16 +9,16 @@ import (
 )
 
 func TestIsAuthenticationError(t *testing.T) {
-	if !IsAuthenticationError(&ProviderAPIError{ProviderID: "openai", StatusCode: 401, Code: UnifiedErrorCodeAuthentication}) {
+	if !IsAuthenticationError(&ProviderAPIError{ProviderID: "openai", StatusCode: textutil.Value(401), Code: UnifiedErrorCodeAuthentication}) {
 		t.Fatal("expected provider authentication code to be auth error")
 	}
-	if !IsAuthenticationError(&ProviderAPIError{ProviderID: "openai", StatusCode: 401, Code: UnifiedErrorCodeUnknown}) {
+	if !IsAuthenticationError(&ProviderAPIError{ProviderID: "openai", StatusCode: textutil.Value(401), Code: UnifiedErrorCodeUnknown}) {
 		t.Fatal("expected 401 to be auth error")
 	}
-	if IsAuthenticationError(&ProviderAPIError{ProviderID: "openai", StatusCode: 403, Code: UnifiedErrorCodeUnknown}) {
+	if IsAuthenticationError(&ProviderAPIError{ProviderID: "openai", StatusCode: textutil.Value(403), Code: UnifiedErrorCodeUnknown}) {
 		t.Fatal("403 alone must not be an auth error")
 	}
-	if IsAuthenticationError(&ProviderAPIError{ProviderID: "openai", StatusCode: 429, Code: UnifiedErrorCodeUnknown}) {
+	if IsAuthenticationError(&ProviderAPIError{ProviderID: "openai", StatusCode: textutil.Value(429), Code: UnifiedErrorCodeUnknown}) {
 		t.Fatal("did not expect 429 to be auth error")
 	}
 	if !IsAuthenticationError(&AuthError{Err: errors.New("token refresh failed")}) {
@@ -27,19 +28,19 @@ func TestIsAuthenticationError(t *testing.T) {
 
 func TestIsNonRetriableModelError(t *testing.T) {
 	for _, status := range []int{400, 401, 403, 404} {
-		if !IsNonRetriableModelError(&ProviderAPIError{ProviderID: "openai", StatusCode: status, Code: UnifiedErrorCodeUnknown}) {
+		if !IsNonRetriableModelError(&ProviderAPIError{ProviderID: "openai", StatusCode: textutil.Value(status), Code: UnifiedErrorCodeUnknown}) {
 			t.Fatalf("expected %d to be non-retriable", status)
 		}
 	}
 	for _, status := range []int{408, 409, 429, 500} {
-		if IsNonRetriableModelError(&ProviderAPIError{ProviderID: "openai", StatusCode: status, Code: UnifiedErrorCodeUnknown}) {
+		if IsNonRetriableModelError(&ProviderAPIError{ProviderID: "openai", StatusCode: textutil.Value(status), Code: UnifiedErrorCodeUnknown}) {
 			t.Fatalf("did not expect %d to be non-retriable", status)
 		}
 	}
-	if !IsNonRetriableModelError(&ProviderAPIError{ProviderID: "openai", StatusCode: 0, Code: UnifiedErrorCodeProviderContract, Message: "unknown provider contract"}) {
+	if !IsNonRetriableModelError(&ProviderAPIError{ProviderID: "openai", StatusCode: nil, Code: UnifiedErrorCodeProviderContract, Message: "unknown provider contract"}) {
 		t.Fatal("expected provider contract error to be non-retriable")
 	}
-	if !IsNonRetriableModelError(&ProviderAPIError{ProviderID: "openai", StatusCode: http.StatusOK, Code: UnifiedErrorCodeUnknown, ProviderType: "response.incomplete", ProviderCode: "max_output_tokens"}) {
+	if !IsNonRetriableModelError(&ProviderAPIError{ProviderID: "openai", StatusCode: textutil.Value(http.StatusOK), Code: UnifiedErrorCodeUnknown, ProviderType: "response.incomplete", ProviderCode: "max_output_tokens"}) {
 		t.Fatal("expected response.incomplete terminal error to be non-retriable")
 	}
 	if !IsNonRetriableModelError(&AuthError{Err: errors.New("token refresh failed")}) {
@@ -58,29 +59,29 @@ func TestIsContextLengthOverflowError(t *testing.T) {
 	}{
 		{
 			name: "provider unified overflow code",
-			err:  &ProviderAPIError{ProviderID: "openai", StatusCode: 400, Code: UnifiedErrorCodeContextLengthOverflow, ProviderCode: "context_length_exceeded"},
+			err:  &ProviderAPIError{ProviderID: "openai", StatusCode: textutil.Value(400), Code: UnifiedErrorCodeContextLengthOverflow, ProviderCode: "context_length_exceeded"},
 			want: true,
 		},
 		{
 			name: "413 overflow code",
-			err:  &ProviderAPIError{ProviderID: "openai", StatusCode: 413, Code: UnifiedErrorCodeContextLengthOverflow, ProviderCode: "context_length_exceeded"},
+			err:  &ProviderAPIError{ProviderID: "openai", StatusCode: textutil.Value(413), Code: UnifiedErrorCodeContextLengthOverflow, ProviderCode: "context_length_exceeded"},
 			want: true,
 		},
 		{
 			name: "wrapped overflow error",
-			err:  fmt.Errorf("compact failed: %w", &ProviderAPIError{ProviderID: "openai", StatusCode: 422, Code: UnifiedErrorCodeContextLengthOverflow, ProviderCode: "input_too_long"}),
+			err:  fmt.Errorf("compact failed: %w", &ProviderAPIError{ProviderID: "openai", StatusCode: textutil.Value(422), Code: UnifiedErrorCodeContextLengthOverflow, ProviderCode: "input_too_long"}),
 			want: true,
 		},
 		{
 			name: "provider unknown code",
-			err:  &ProviderAPIError{ProviderID: "openai", StatusCode: 400, Code: UnifiedErrorCodeUnknown, ProviderCode: "invalid_tool_arguments"},
+			err:  &ProviderAPIError{ProviderID: "openai", StatusCode: textutil.Value(400), Code: UnifiedErrorCodeUnknown, ProviderCode: "invalid_tool_arguments"},
 			want: false,
 		},
 		{
 			name: "raw body does not override structured classification",
 			err: &ProviderAPIError{
 				ProviderID: "openai",
-				StatusCode: 400,
+				StatusCode: textutil.Value(400),
 				Code:       UnifiedErrorCodeUnknown,
 				Raw:        `{"error":{"code":"context_length_exceeded"}}`,
 			},

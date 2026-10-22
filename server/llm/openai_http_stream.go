@@ -227,18 +227,12 @@ func (a *responseStreamAccumulator) Err(providerID string, responseStatus *respo
 	if a == nil || a.responseError == nil {
 		return nil
 	}
-	if responseStatus == nil {
-		message := strings.TrimSpace(a.responseError.Raw)
-		if a.responseError.ProviderContract != nil {
-			message = a.responseError.ProviderContract.Message
-		}
-		if message == "" {
-			message = "unrecognized stream error"
-		}
-		return errors.New(message)
+	var status *int
+	if responseStatus != nil {
+		status = &responseStatus.Code
 	}
 	if a.responseError.ProviderContract != nil {
-		return llmerrors.NewProviderContractError(providerID, responseStatus.Code, errors.New(a.responseError.ProviderContract.Message))
+		return llmerrors.NewProviderContractError(providerID, status, errors.New(a.responseError.ProviderContract.Message))
 	}
 	return &ssestream.StreamError{
 		Message: a.responseError.Raw,

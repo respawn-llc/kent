@@ -209,7 +209,7 @@ func TestGrokFailuresKeepDiagnosticsWithoutRetryOrAuthFallback(t *testing.T) {
 				Model: "grok-4.7", SessionID: textutil.Value("fixture"), ToolChoiceMode: ToolChoiceModeAutomatic, ReasoningEffort: "high",
 			}, StreamCallbacks{})
 			var failure *ProviderAPIError
-			if !errors.As(err, &failure) || failure.ProviderID != "grok-cli-proxy" || failure.StatusCode != test.status || failure.ProviderCode != test.code || failure.Message == "" ||
+			if !errors.As(err, &failure) || failure.ProviderID != "grok-cli-proxy" || !HasHTTPStatus(failure, test.status) || failure.ProviderCode != test.code || failure.Message == "" ||
 				failure.ConnectionID == nil || *failure.ConnectionID != "selected-grok" {
 				t.Fatalf("provider failure = %#v, %v", failure, err)
 			}

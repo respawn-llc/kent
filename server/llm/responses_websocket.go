@@ -102,7 +102,10 @@ func (t *HTTPTransport) generateWebsocket(ctx context.Context, request Responses
 		}
 	}
 	input := responses.ResponseInputParam(payload.Input.OfInputItemList[start:])
-	create.Input = responses.ResponsesClientEventResponseCreateInputUnionParam{OfResponse: &input}
+	create.Input = responses.ResponsesClientEventResponseCreateInputUnionParam{}
+	if len(input) > 0 {
+		create.Input.OfResponse = &input
+	}
 	applyCodexClientMetadata(&create, preparation.projection)
 	var handshake *http.Response
 	evidence := t.providerUsageRequestEvidence(request, preparation, payload)
@@ -135,10 +138,30 @@ func (t *HTTPTransport) generateWebsocket(ctx context.Context, request Responses
 	for {
 		event, err := t.socket.Recv(ctx)
 		if err != nil {
-			return result, err
+			return result, &ProviderAPIError{ProviderID: preparation.variant.ProviderID,
+				Code: UnifiedErrorCodeUnknown, Message: err.Error(), Err: err}
 		}
 		if callbacks.OnStreamActivity != nil {
 			callbacks.OnStreamActivity()
+		}
+		if event.JSON.OfResponsesServerEventResponseWsError.Valid() {
+			failure := event.OfResponsesServerEventResponseWsError
+			var status *int
+			if failure.JSON.Status.Valid() {
+				status = textutil.Value(int(failure.Status))
+			}
+			reducer, reducerErr := providerErrorReducerForID(preparation.variant.ProviderID)
+			if reducerErr != nil {
+				return result, reducerErr
+			}
+			responsesReducer, ok := reducer.(responsesErrorReducer)
+			if !ok {
+				return result, fmt.Errorf("Responses provider has no structured error reducer")
+			}
+			return result, responsesReducer.providerError(status, responsesErrorPayload{
+				Code: failure.Error.Code, Type: failure.Error.Type,
+				Param: failure.Error.Param, Message: failure.Error.Message,
+			}, failure.RawJSON(), nil)
 		}
 		var streamEvent responses.ResponseStreamEventUnion
 		if err := json.Unmarshal([]byte(event.RawJSON()), &streamEvent); err != nil {
@@ -146,7 +169,7 @@ func (t *HTTPTransport) generateWebsocket(ctx context.Context, request Responses
 		}
 		accumulator.Consume(streamEvent)
 		if err := accumulator.Err(preparation.variant.ProviderID, nil); err != nil {
-			return result, err
+			return result, newResponsesRequestErrorMapper(preparation.variant.ProviderID).Map(err, nil, "read responses websocket events")
 		}
 		if accumulator.hasCompleted() {
 			if !abort() {
@@ -157,7 +180,7 @@ func (t *HTTPTransport) generateWebsocket(ctx context.Context, request Responses
 				return result, err
 			}
 			if accumulator.completed.ID == "" {
-				return result, fmt.Errorf("completed Responses response has no response ID")
+				return result, newOpenAIProviderContractError(preparation.variant.ProviderID, nil, fmt.Errorf("completed Responses response has no response ID"))
 			}
 			checkpoint := &responsesContinuation{responseID: accumulator.completed.ID, settings: settings,
 				items: make([]json.RawMessage, 0, len(request.Items)+len(accumulator.completed.Output))}

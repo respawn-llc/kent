@@ -29,8 +29,56 @@ import (
 	"core/shared/toolspec"
 	"core/shared/transcript"
 
+	"github.com/coder/websocket"
 	"github.com/google/uuid"
 )
+
+func TestUsageFallbackContinuesAfterBareGrokSocketExhaustion(t *testing.T) {
+	var exhaustedCalls, healthyCalls atomic.Int32
+	endpoint := func(exhausted bool) *httptest.Server {
+		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			socket, err := websocket.Accept(w, r, nil)
+			if err != nil {
+				return
+			}
+			defer socket.CloseNow()
+			if _, _, err := socket.Read(t.Context()); err != nil {
+				return
+			}
+			event := `{"type":"response.completed","response":{"id":"healthy","output":[{"type":"message","id":"answer","role":"assistant","phase":"final_answer","content":[{"type":"output_text","text":"done","annotations":[]}]}]}}`
+			if exhausted {
+				exhaustedCalls.Add(1)
+				event = `{"error":{"code":"personal-team-blocked:spending-limit","type":"allowance","message":"unavailable"}}`
+			} else {
+				healthyCalls.Add(1)
+			}
+			_ = socket.Write(t.Context(), websocket.MessageText, []byte(event))
+			_, _, _ = socket.Read(t.Context())
+		}))
+		t.Cleanup(server.Close)
+		return server
+	}
+	a, b := endpoint(true), endpoint(false)
+	targets := map[config.ConnectionID]string{"a": a.URL, "b": b.URL}
+	factory := RuntimeClientFactoryFunc(func(_ context.Context, request RuntimeClientRequest) (llm.Client, error) {
+		registration, err := llm.ResolveConnectionVariant(config.ProviderConnection{Protocol: config.ConnectionGrokAPIKey, EnvironmentVariable: textutil.Value("KENT_TEST_GROK_KEY")})
+		if err != nil {
+			return nil, err
+		}
+		registration.Variant.BaseURL = textutil.Value(targets[request.Connection.ID] + "/v1")
+		return llm.NewProviderClient(llm.ProviderClientOptions{
+			Registration: registration, Auth: request.Connection.Auth, ConnectionID: &request.Connection.ID,
+			ContextWindowTokens: request.ActiveSettings.ModelContextWindow, RequestCapabilities: &request.RequestCapabilities,
+		})
+	})
+	wiring, store := newUsageFallbackRuntimeWithReviewer(t, launch.NewConnectionRotation(testsetup.OpenStore(t, t.TempDir()), time.Minute), a.URL, b.URL, config.CompactionModeLocal, config.ReviewerSettings{Frequency: "off"}, factory)
+	if _, err := wiring.Engine.SubmitUserMessage(t.Context(), "hello"); err != nil {
+		t.Fatal(err)
+	}
+	if store.Meta().ConnectionID == nil || *store.Meta().ConnectionID != "b" || exhaustedCalls.Load() != 1 || healthyCalls.Load() != 1 {
+		t.Fatalf("fallback selection=%v exhausted=%d healthy=%d", store.Meta().ConnectionID, exhaustedCalls.Load(), healthyCalls.Load())
+	}
+}
 
 func TestUsageFallbackContinuesAndSavesReplacement(t *testing.T) {
 	exhausted, exhaustedCalls := usageFailureEndpoint(t, 429, usageExhaustionFixture(t))

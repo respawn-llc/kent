@@ -319,19 +319,6 @@ type responsesStatus struct {
 	Code int
 }
 
-type providerContractErrorWithoutStatus struct {
-	ProviderID string
-	Err        error
-}
-
-func (e *providerContractErrorWithoutStatus) Error() string {
-	return fmt.Sprintf("%s provider contract error without HTTP response status: %v", e.ProviderID, e.Err)
-}
-
-func (e *providerContractErrorWithoutStatus) Unwrap() error {
-	return e.Err
-}
-
 func newResponsesStatus(rawResp *http.Response) *responsesStatus {
 	if rawResp == nil {
 		return nil
@@ -340,10 +327,11 @@ func newResponsesStatus(rawResp *http.Response) *responsesStatus {
 }
 
 func newOpenAIProviderContractError(providerID string, rawResp *http.Response, cause error) error {
-	if rawResp == nil {
-		return &providerContractErrorWithoutStatus{ProviderID: providerID, Err: cause}
+	var status *int
+	if rawResp != nil && rawResp.StatusCode != http.StatusSwitchingProtocols {
+		status = &rawResp.StatusCode
 	}
-	providerErr := llmerrors.NewProviderContractError(providerID, rawResp.StatusCode, cause)
+	providerErr := llmerrors.NewProviderContractError(providerID, status, cause)
 	enrichProviderAPIErrorFromResponseHeaders(providerErr, rawResp)
 	return providerErr
 }
@@ -352,7 +340,7 @@ func newOpenAIResponsesStreamPrematureEndError(providerID string, rawResp *http.
 	message := cause.Error()
 	providerErr := &ProviderAPIError{
 		ProviderID: providerID,
-		StatusCode: rawResp.StatusCode,
+		StatusCode: textutil.Value(rawResp.StatusCode),
 		Code:       UnifiedErrorCodeUnknown,
 		Message:    message,
 		Raw:        message,

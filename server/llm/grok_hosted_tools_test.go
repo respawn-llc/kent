@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"net/http"
 	"net/http/httptest"
-	"reflect"
 	"testing"
 
 	"core/shared/config"
@@ -76,25 +75,14 @@ func TestGrokHostedCustomCallsAreNotLocalAndKeepWireHistory(t *testing.T) {
 					requests++
 					if requests == 2 {
 						var body struct {
-							Input []json.RawMessage `json:"input"`
+							Input    []json.RawMessage `json:"input"`
+							Previous *string           `json:"previous_response_id"`
 						}
 						if err := json.Unmarshal(raw, &body); err != nil {
 							t.Error(err)
 						}
-						for _, want := range items[:2] {
-							var expected any
-							_ = json.Unmarshal(want, &expected)
-							found := false
-							for _, raw := range body.Input {
-								var got any
-								_ = json.Unmarshal(raw, &got)
-								if reflect.DeepEqual(got, expected) {
-									found = true
-								}
-							}
-							if !found {
-								t.Errorf("hosted history lost: %s", want)
-							}
+						if body.Previous == nil || *body.Previous != "first" || len(body.Input) != 0 {
+							t.Errorf("hosted native history not retained by continuation: %s", raw)
 						}
 						return []string{`{"type":"response.completed","response":{"id":"second","output":[]}}`}
 					}

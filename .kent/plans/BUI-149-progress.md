@@ -1,3 +1,15 @@
+### Step 7 complete
+
+- Added failing SDK-boundary Grok bare-exhaustion regression: previously returned an unclassified errors.errorString. Typed protocol error now goes through the selected existing Responses reducer, preserving machine code/type/param/message and SDK-reported optional status.
+- Shared ProviderAPIError.StatusCode is now *int. Classifiers/formatters, constructors, diagnostics, tests and scripted test harness use explicit absence; removed the old separate missing-status contract-error type. No post-upgrade error inherits HTTP 101.
+- Failed/incomplete events now reach existing structured stream reducers even without HTTP status. Boundary cases verify statusless OpenAI quota, explicit ordinary 429, failed overload and incomplete token limit, including existing retry classification.
+- Socket receive/limit/termination errors retain causes in ordinary provider errors without status; socket discard remains the sole failure action. Normal close before terminal is retryable and subsequent attempts open fresh sockets.
+- Existing normally-closed retry fixtures migrated to real WebSockets. Existing injected HTTP reader-EOF fixtures explicitly use a generic HTTP-compatible endpoint, preserving coverage of that still-active transport. No production fallback added.
+- Actual RuntimeWiring test verifies bare SDK-decoded xAI spending-limit → existing connection owner → exactly one replacement → healthy socket generation and saved selected connection b. Passes. Existing generic HTTP fallback/save/zero-attempt/completed-tool cases pass.
+- Focused llm Grok/socket/error/retry and shared error cases pass. Runtime overflow/provider-status focused run exposed an inherited SSE-only Codex routing/compaction fixture, not a status-type failure: `TestRemoteCompactionRetryAndLocalFallbackKeepTurnStateScopes` still serves HTTP 200 to generation's WebSocket handshake. The rest of provider_turn_state_retry_test.go also needs migration to current socket semantics during required-check reconciliation. Do not weaken the transport selector to preserve it.
+- The first runtimewire bare-error setup omitted Grok's required environment-variable declaration; corrected its fixture declaration and reran successfully. No production environment or credentials touched.
+- Latest alternate Go build passes after optional-status integration. Steps 8–9 remain; required full checks have NOT run yet.
+
 ### Step 6 complete
 
 - One latest socket-owned checkpoint retains response ID, immutable Raw slice headers for prepared input plus complete native terminal output, and exact serialized prepared controls excluding input and transient Codex client_metadata.

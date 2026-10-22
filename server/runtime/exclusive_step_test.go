@@ -427,7 +427,7 @@ func TestExclusiveStepLifecycleEagerCompactionDoesNotReserveAfterTerminalCleanup
 
 func TestExclusiveStepLifecycleFailedEagerCompactionDoesNotRetry(t *testing.T) {
 	t.Parallel()
-	compactionErr := &llm.ProviderAPIError{ProviderID: "openai", StatusCode: 503, Code: llm.UnifiedErrorCodeUnknown}
+	compactionErr := &llm.ProviderAPIError{ProviderID: "openai", StatusCode: textutil.Value(503), Code: llm.UnifiedErrorCodeUnknown}
 	client := &fakeCompactionClient{compactionErrors: []error{compactionErr}}
 	engine := mustNewTestEngine(t, mustCreateTestSession(t), client, newTestToolRegistry(t), Config{
 		Model:                 "gpt-6-sol",

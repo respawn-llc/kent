@@ -649,7 +649,9 @@ func (e *Engine) compactNowWithAcceptance(
 			}
 			var providerErr *llm.ProviderAPIError
 			if errors.As(err, &providerErr) {
-				attrs = append(attrs, slog.Int("status_code", providerErr.StatusCode))
+				if providerErr.StatusCode != nil {
+					attrs = append(attrs, slog.Int("status_code", *providerErr.StatusCode))
+				}
 				if requestID, ok := textutil.OptionalTrimmed(providerErr.ProviderRequestID); ok {
 					attrs = append(attrs, slog.String("request_id", requestID))
 				}

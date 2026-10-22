@@ -136,6 +136,60 @@ func TestResponsesCompactionReplacesContextWithoutReplacingSocket(t *testing.T) 
 	}
 }
 
+func TestGrokSocketBareExhaustionKeepsStructuredClassification(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		serveResponsesTestWebsocket(t, w, r, func(json.RawMessage) []string {
+			return []string{`{"error":{"code":"personal-team-blocked:spending-limit","type":"allowance","message":"allowance unavailable"}}`}
+		})
+	}))
+	defer server.Close()
+	registration := testConnectionRegistration(t, config.ProviderConnection{Protocol: config.ConnectionGrokOAuthAPI})
+	registration.Variant.BaseURL = textutil.Value(server.URL + "/v1")
+	transport := newTestHTTPTransport(t, oauthStaticAuth{}, registration)
+	_, err := transport.Generate(t.Context(), ResponsesRequest{Model: "grok-4.7", SessionID: textutil.Value("session"), ReasoningEffort: "high", ToolChoiceMode: ToolChoiceModeAutomatic}, StreamCallbacks{})
+	var providerErr *ProviderAPIError
+	if !errors.As(err, &providerErr) || providerErr.ProviderCode != "personal-team-blocked:spending-limit" || !IsUsageExhaustionError(err) {
+		t.Fatalf("structured exhaustion lost: %T %v", err, err)
+	}
+	if providerErr.StatusCode != nil {
+		t.Fatalf("absent provider status became %v", *providerErr.StatusCode)
+	}
+}
+
+func TestResponsesSocketErrorsRetainProviderFactsWithoutHandshakeStatus(t *testing.T) {
+	for _, test := range []struct {
+		name         string
+		event        string
+		code         UnifiedErrorCode
+		status       *int
+		providerCode string
+		nonRetriable bool
+	}{
+		{name: "rate limit", event: `{"type":"error","status":429,"error":{"code":"rate_limit_exceeded","type":"rate_limit","message":"retry later"}}`, code: UnifiedErrorCodeUnknown, status: textutil.Value(429), providerCode: "rate_limit_exceeded"},
+		{name: "quota", event: `{"type":"error","error":{"code":"insufficient_quota","type":"allowance","message":"unavailable"}}`, code: UnifiedErrorCodeUsageExhausted, providerCode: "insufficient_quota", nonRetriable: true},
+		{name: "failed", event: `{"type":"response.failed","response":{"id":"failed","error":{"code":"server_is_overloaded","message":"busy"}}}`, code: UnifiedErrorCodeProviderOverload, providerCode: "server_is_overloaded"},
+		{name: "incomplete", event: `{"type":"response.incomplete","response":{"id":"incomplete","incomplete_details":{"reason":"max_output_tokens"}}}`, code: UnifiedErrorCodeUnknown, providerCode: "max_output_tokens", nonRetriable: true},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				serveResponsesTestWebsocket(t, w, r, func(json.RawMessage) []string { return []string{test.event} })
+			}))
+			defer server.Close()
+			registration := testConnectionRegistration(t, config.ProviderConnection{Protocol: config.ConnectionResponses, Endpoint: textutil.Value(defaultOpenAIBaseURL)})
+			registration.Variant.BaseURL = textutil.Value(server.URL + "/v1")
+			transport := newTestHTTPTransport(t, staticAuthHeader{}, registration)
+			_, err := transport.Generate(t.Context(), ResponsesRequest{Model: "gpt-6-sol", ReasoningEffort: "high", SessionID: textutil.Value("session"), ToolChoiceMode: ToolChoiceModeAutomatic}, StreamCallbacks{})
+			var failure *ProviderAPIError
+			if !errors.As(err, &failure) || failure.Code != test.code || failure.ProviderCode != test.providerCode || IsNonRetriableModelError(err) != test.nonRetriable {
+				t.Fatalf("provider classification=%+v", err)
+			}
+			if (test.status == nil) != (failure.StatusCode == nil) || (test.status != nil && *test.status != *failure.StatusCode) {
+				t.Fatalf("provider status=%v expected=%v", failure.StatusCode, test.status)
+			}
+		})
+	}
+}
+
 func TestFirstPartyResponsesStreamsThroughManagedWebsocket(t *testing.T) {
 	ctx, cancel := context.WithTimeout(t.Context(), 5*time.Second)
 	defer cancel()

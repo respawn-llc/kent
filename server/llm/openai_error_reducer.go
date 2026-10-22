@@ -9,6 +9,7 @@ import (
 	"strings"
 
 	"core/shared/llmerrors"
+	"core/shared/textutil"
 
 	openai "github.com/openai/openai-go/v3"
 	"github.com/openai/openai-go/v3/packages/ssestream"
@@ -17,7 +18,7 @@ import (
 type responsesErrorReducer struct {
 	providerID string
 	decode     func([]byte) (responsesErrorPayload, bool)
-	classify   func(int, string, string) UnifiedErrorCode
+	classify   func(*int, string, string) UnifiedErrorCode
 }
 
 type opaqueProviderErrorReducer struct {
@@ -34,7 +35,7 @@ func newOpenAICompatibleErrorReducer(providerID string) ProviderErrorReducer {
 func newChatGPTErrorReducer(providerID string) ProviderErrorReducer {
 	return responsesErrorReducer{
 		providerID: providerID, decode: decodeResponsesErrorPayload,
-		classify: func(status int, code, typ string) UnifiedErrorCode {
+		classify: func(status *int, code, typ string) UnifiedErrorCode {
 			category := classifyOpenAIUnifiedErrorCode(status, code, typ)
 			if category == UnifiedErrorCodeUnknown && (code == "usage_limit_reached" || typ == "usage_limit_reached") {
 				return UnifiedErrorCodeUsageExhausted
@@ -69,7 +70,7 @@ func (r opaqueProviderErrorReducer) Reduce(err error, rawResp *http.Response) (*
 		message := strings.TrimSpace(err.Error())
 		return &ProviderAPIError{
 			ProviderID: r.providerID,
-			StatusCode: 0,
+			StatusCode: nil,
 			Code:       UnifiedErrorCodeUnknown,
 			Message:    message,
 			Raw:        message,
@@ -83,22 +84,23 @@ func (r responsesErrorReducer) reduceFromStreamError(err error, responseStatus *
 	if err == nil {
 		return nil, false
 	}
-	if responseStatus == nil {
-		return nil, false
-	}
 	var streamErr *ssestream.StreamError
 	if !errors.As(err, &streamErr) {
 		return nil, false
 	}
-	reduced, ok := r.reducePayload(streamErr.Event.Data, err, responseStatus.Code)
+	var status *int
+	if responseStatus != nil {
+		status = &responseStatus.Code
+	}
+	reduced, ok := r.reducePayload(streamErr.Event.Data, err, status)
 	if !ok {
 		raw := truncateError(streamErr.Event.Data)
-		return r.providerError(responseStatus.Code, responsesErrorPayload{Message: raw}, raw, err), true
+		return r.providerError(status, responsesErrorPayload{Message: raw}, raw, err), true
 	}
 	return reduced, true
 }
 
-func (r responsesErrorReducer) reducePayload(data []byte, cause error, status int) (*ProviderAPIError, bool) {
+func (r responsesErrorReducer) reducePayload(data []byte, cause error, status *int) (*ProviderAPIError, bool) {
 	payload, ok := r.decode(data)
 	if !ok {
 		return nil, false
@@ -106,7 +108,7 @@ func (r responsesErrorReducer) reducePayload(data []byte, cause error, status in
 	return r.providerError(status, payload, string(data), cause), true
 }
 
-func (r responsesErrorReducer) providerError(status int, payload responsesErrorPayload, raw string, cause error) *ProviderAPIError {
+func (r responsesErrorReducer) providerError(status *int, payload responsesErrorPayload, raw string, cause error) *ProviderAPIError {
 	return &ProviderAPIError{
 		ProviderID: r.providerID, StatusCode: status, Code: r.classify(status, payload.Code, payload.Type),
 		ProviderCode: payload.Code, ProviderType: payload.Type, ProviderParam: payload.Param,
@@ -122,10 +124,10 @@ func (r responsesErrorReducer) reduceFromSDK(err error) (*ProviderAPIError, bool
 	if !errors.As(err, &sdkErr) {
 		return nil, false
 	}
-	if reduced, ok := r.reducePayload([]byte(sdkErr.RawJSON()), err, sdkErr.StatusCode); ok {
+	if reduced, ok := r.reducePayload([]byte(sdkErr.RawJSON()), err, &sdkErr.StatusCode); ok {
 		return reduced, true
 	}
-	return r.providerError(sdkErr.StatusCode, responsesErrorPayload{
+	return r.providerError(&sdkErr.StatusCode, responsesErrorPayload{
 		Code: sdkErr.Code, Type: sdkErr.Type, Param: sdkErr.Param, Message: sdkErr.Message,
 	}, sdkErr.RawJSON(), err), true
 }
@@ -137,8 +139,8 @@ func (r responsesErrorReducer) reduceFromResponse(rawResp *http.Response) (*Prov
 	if rawResp.Body == nil {
 		return &ProviderAPIError{
 			ProviderID: r.providerID,
-			StatusCode: rawResp.StatusCode,
-			Code:       r.classify(rawResp.StatusCode, "", ""),
+			StatusCode: textutil.Value(rawResp.StatusCode),
+			Code:       r.classify(&rawResp.StatusCode, "", ""),
 			Message:    http.StatusText(rawResp.StatusCode),
 			Raw:        "<empty error body>",
 		}, true
@@ -148,16 +150,16 @@ func (r responsesErrorReducer) reduceFromResponse(rawResp *http.Response) (*Prov
 	rawResp.Body = io.NopCloser(bytes.NewReader(body))
 	raw := truncateError(body)
 	if readErr != nil {
-		return r.providerError(rawResp.StatusCode, responsesErrorPayload{Message: raw}, raw, readErr), true
+		return r.providerError(&rawResp.StatusCode, responsesErrorPayload{Message: raw}, raw, readErr), true
 	}
-	if reduced, ok := r.reducePayload(body, nil, rawResp.StatusCode); ok {
+	if reduced, ok := r.reducePayload(body, nil, &rawResp.StatusCode); ok {
 		return reduced, true
 	}
 
 	return &ProviderAPIError{
 		ProviderID: r.providerID,
-		StatusCode: rawResp.StatusCode,
-		Code:       r.classify(rawResp.StatusCode, "", ""),
+		StatusCode: textutil.Value(rawResp.StatusCode),
+		Code:       r.classify(&rawResp.StatusCode, "", ""),
 		Message:    raw,
 		Raw:        raw,
 	}, true
@@ -174,7 +176,7 @@ func (r opaqueProviderErrorReducer) reduceFromResponse(rawResp *http.Response) (
 		}
 		return &ProviderAPIError{
 			ProviderID: r.providerID,
-			StatusCode: rawResp.StatusCode,
+			StatusCode: textutil.Value(rawResp.StatusCode),
 			Code:       code,
 			Message:    http.StatusText(rawResp.StatusCode),
 			Raw:        "<empty error body>",
@@ -190,7 +192,7 @@ func (r opaqueProviderErrorReducer) reduceFromResponse(rawResp *http.Response) (
 	}
 	return &ProviderAPIError{
 		ProviderID: r.providerID,
-		StatusCode: rawResp.StatusCode,
+		StatusCode: textutil.Value(rawResp.StatusCode),
 		Code:       code,
 		Message:    raw,
 		Raw:        raw,
@@ -274,7 +276,7 @@ func decodeResponsesErrorPayload(data []byte) (responsesErrorPayload, bool) {
 	return payload, true
 }
 
-func classifyOpenAIUnifiedErrorCode(statusCode int, providerCode, providerType string) UnifiedErrorCode {
+func classifyOpenAIUnifiedErrorCode(statusCode *int, providerCode, providerType string) UnifiedErrorCode {
 	if category := classifyResponsesErrorCode(statusCode, providerCode); category != UnifiedErrorCodeUnknown {
 		return category
 	}
@@ -288,11 +290,11 @@ func classifyOpenAIUnifiedErrorCode(statusCode int, providerCode, providerType s
 	return UnifiedErrorCodeUnknown
 }
 
-func classifyResponsesErrorCode(statusCode int, providerCode string) UnifiedErrorCode {
-	if statusCode == 401 {
+func classifyResponsesErrorCode(statusCode *int, providerCode string) UnifiedErrorCode {
+	if statusCode != nil && *statusCode == 401 {
 		return UnifiedErrorCodeAuthentication
 	}
-	if statusCode == 426 {
+	if statusCode != nil && *statusCode == 426 {
 		return llmerrors.UnifiedErrorCodeProtocolVersion
 	}
 	switch strings.ToLower(strings.TrimSpace(providerCode)) {

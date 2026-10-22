@@ -34,7 +34,7 @@ const (
 type ProviderAPIError struct {
 	ProviderID              string
 	ConnectionID            *config.ConnectionID
-	StatusCode              int
+	StatusCode              *int
 	Code                    UnifiedErrorCode
 	ProviderCode            string
 	ProviderType            string
@@ -46,7 +46,7 @@ type ProviderAPIError struct {
 	Err                     error
 }
 
-func NewProviderContractError(providerID string, statusCode int, cause error) *ProviderAPIError {
+func NewProviderContractError(providerID string, statusCode *int, cause error) *ProviderAPIError {
 	message := "provider contract error"
 	if cause != nil {
 		message = cause.Error()
@@ -69,7 +69,10 @@ func (e *ProviderAPIError) Error() string {
 	if e.ConnectionID != nil {
 		identity = fmt.Sprintf("connection %s (%s)", *e.ConnectionID, identity)
 	}
-	return fmt.Sprintf("%s status %d [%s/%s]: %s", identity, e.StatusCode, e.Code, e.ProviderCode, e.Message)
+	if e.StatusCode != nil {
+		identity = fmt.Sprintf("%s status %d", identity, *e.StatusCode)
+	}
+	return fmt.Sprintf("%s [%s/%s]: %s", identity, e.Code, e.ProviderCode, e.Message)
 }
 
 func (e *ProviderAPIError) Unwrap() error {
@@ -137,8 +140,7 @@ func IsAuthenticationError(err error) bool {
 		if providerErr.Code == UnifiedErrorCodeAuthentication {
 			return true
 		}
-		switch providerErr.StatusCode {
-		case 401:
+		if HasHTTPStatus(providerErr, 401) {
 			return true
 		}
 	}
@@ -169,9 +171,10 @@ func IsNonRetriableModelError(err error) bool {
 		if providerErr.Code == UnifiedErrorCodeProviderContract || providerErr.Code == UnifiedErrorCodeEntitlement || providerErr.Code == UnifiedErrorCodeProtocolVersion || providerErr.Code == UnifiedErrorCodeUsageExhausted {
 			return true
 		}
-		switch providerErr.StatusCode {
-		case 400, 401, 403, 404:
-			return true
+		for _, status := range []int{400, 401, 403, 404} {
+			if HasHTTPStatus(providerErr, status) {
+				return true
+			}
 		}
 	}
 	return false
@@ -195,7 +198,7 @@ func HasHTTPStatus(err error, statusCode int) bool {
 		return false
 	}
 	var providerErr *ProviderAPIError
-	if errors.As(err, &providerErr) && providerErr.StatusCode == statusCode {
+	if errors.As(err, &providerErr) && providerErr.StatusCode != nil && *providerErr.StatusCode == statusCode {
 		return true
 	}
 	return false
@@ -257,13 +260,13 @@ func optionalDiagnosticValue(value *string) string {
 	return strings.TrimSpace(*value)
 }
 
-func authenticationFailedWarning(provider string, statusCode int) string {
+func authenticationFailedWarning(provider string, statusCode *int) string {
 	label := strings.TrimSpace(provider)
 	if label == "" {
 		label = "API"
 	}
-	if statusCode > 0 {
-		return fmt.Sprintf("Authentication failed with %s (HTTP %d). Run /login for the selected connection or check its configured environment variable on the server and restart after changing the server environment.", label, statusCode)
+	if statusCode != nil {
+		return fmt.Sprintf("Authentication failed with %s (HTTP %d). Run /login for the selected connection or check its configured environment variable on the server and restart after changing the server environment.", label, *statusCode)
 	}
 	return fmt.Sprintf("Authentication failed with %s. Run /login for the selected connection or check its configured environment variable on the server and restart after changing the server environment.", label)
 }

@@ -425,7 +425,7 @@ endpoint = %q
 		Model: "operator-model", SessionID: textutil.Value("session"), ToolChoiceMode: llm.ToolChoiceModeAutomatic,
 	}, llm.StreamCallbacks{})
 	var providerErr *llm.ProviderAPIError
-	if !errors.As(err, &providerErr) || providerErr.StatusCode != http.StatusBadRequest || requests.Load() != 1 {
+	if !errors.As(err, &providerErr) || !HasHTTPStatus(providerErr, http.StatusBadRequest) || requests.Load() != 1 {
 		t.Fatalf("selected-provider failure = %v, requests=%d", err, requests.Load())
 	}
 	next, err := rotation.Prepare(t.Context(), settings, true)

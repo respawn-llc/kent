@@ -740,8 +740,8 @@ func TestNewOpenAIProviderContractErrorPreservesMissingResponseStatus(t *testing
 	if !errors.Is(err, cause) {
 		t.Fatalf("provider contract error does not preserve cause: %v", err)
 	}
-	var missingStatus *providerContractErrorWithoutStatus
-	if !errors.As(err, &missingStatus) {
+	var missingStatus *ProviderAPIError
+	if !errors.As(err, &missingStatus) || missingStatus.StatusCode != nil {
 		t.Fatalf("error = %T, want typed missing-status provider contract error", err)
 	}
 }

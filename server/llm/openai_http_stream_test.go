@@ -17,6 +17,7 @@ import (
 
 	"core/shared/config"
 	"core/shared/textutil"
+	"github.com/coder/websocket"
 )
 
 type staticAuthHeader struct{}
@@ -82,7 +83,7 @@ func (r readErrorAtEOF) Read(p []byte) (int, error) {
 
 func newResponsesClientWithBodies(t *testing.T, bodies ...io.ReadCloser) (*ResponsesClient, *atomic.Int32) {
 	t.Helper()
-	transport := newTestHTTPTransport(t, staticAuthHeader{}, testConnectionRegistration(t, config.ProviderConnection{Protocol: config.ConnectionResponses, Endpoint: textutil.Value(defaultOpenAIBaseURL)}))
+	transport := newTestHTTPTransport(t, staticAuthHeader{}, testConnectionRegistration(t, config.ProviderConnection{Protocol: config.ConnectionResponses, Endpoint: textutil.Value("https://compatible.example/v1")}))
 	connectionID := config.ConnectionID("responses-test")
 	transport.ConnectionID = &connectionID
 	var requestCount atomic.Int32
@@ -109,6 +110,34 @@ const incompleteResponsesTestStream = `data: {"type":"response.created","respons
 
 func incompleteResponsesBody() io.ReadCloser {
 	return io.NopCloser(strings.NewReader(incompleteResponsesTestStream))
+}
+
+func newPrematureSocketClient(t *testing.T, recover bool) (*ResponsesClient, *atomic.Int32) {
+	t.Helper()
+	var requests atomic.Int32
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		socket, err := websocket.Accept(w, r, nil)
+		if err != nil {
+			return
+		}
+		defer socket.CloseNow()
+		if _, _, err := socket.Read(t.Context()); err != nil {
+			return
+		}
+		if requests.Add(1) > 1 && recover {
+			_ = socket.Write(t.Context(), websocket.MessageText, []byte(`{"type":"response.completed","response":{"id":"recovered","output":[{"type":"message","role":"assistant","content":[{"type":"output_text","text":"recovered"}]}]}}`))
+			_, _, _ = socket.Read(t.Context())
+			return
+		}
+		_ = socket.Write(t.Context(), websocket.MessageText, []byte(`{"type":"response.created","response":{"id":"partial","output":[]}}`))
+		_ = socket.Close(websocket.StatusNormalClosure, "")
+	}))
+	t.Cleanup(server.Close)
+	registration := testConnectionRegistration(t, config.ProviderConnection{Protocol: config.ConnectionResponses, Endpoint: textutil.Value(defaultOpenAIBaseURL)})
+	registration.Variant.BaseURL = textutil.Value(server.URL + "/v1")
+	transport := newTestHTTPTransport(t, staticAuthHeader{}, registration)
+	transport.ConnectionID = textutil.Value(config.ConnectionID("responses-test"))
+	return NewResponsesClient(transport, nil), &requests
 }
 
 func responsesBodyEndingWithError(err error) io.ReadCloser {
@@ -149,8 +178,7 @@ func requireResponsesRetryExhaustion(t *testing.T, client *ResponsesClient, requ
 		t.Fatalf("generation error = %T, want ProviderAPIError", err)
 	}
 	if providerErr.Err == nil ||
-		providerErr.ProviderID != "openai" ||
-		providerErr.StatusCode != http.StatusOK ||
+		providerErr.ProviderID != "openai-compatible" || !HasHTTPStatus(providerErr, http.StatusOK) ||
 		providerErr.Code != UnifiedErrorCodeUnknown {
 		t.Fatalf("final provider error = %+v, want retained OpenAI HTTP 200 unknown error cause", providerErr)
 	}
@@ -403,7 +431,7 @@ func TestGenerate_MapsResponseIncompleteEventToProviderAPIError(t *testing.T) {
 	if providerErr.ProviderParam != "response.incomplete_details.reason" {
 		t.Fatalf("provider param = %q, want response.incomplete_details.reason", providerErr.ProviderParam)
 	}
-	if providerErr.StatusCode != http.StatusOK {
+	if !HasHTTPStatus(providerErr, http.StatusOK) {
 		t.Fatalf("provider status = %d, want %d", providerErr.StatusCode, http.StatusOK)
 	}
 	if !IsNonRetriableModelError(err) {
@@ -430,7 +458,7 @@ func TestGenerate_MapsResponseIncompleteWithoutReasonToProviderContractError(t *
 	if providerErr.Code != UnifiedErrorCodeProviderContract {
 		t.Fatalf("provider code = %q, want %q", providerErr.Code, UnifiedErrorCodeProviderContract)
 	}
-	if providerErr.StatusCode != http.StatusOK {
+	if !HasHTTPStatus(providerErr, http.StatusOK) {
 		t.Fatalf("provider status = %d, want %d", providerErr.StatusCode, http.StatusOK)
 	}
 }
@@ -465,7 +493,7 @@ func TestGenerate_RejectsCompletedEventWithoutResponsePayload(t *testing.T) {
 			if providerErr.Code != UnifiedErrorCodeProviderContract {
 				t.Fatalf("provider code = %q, want %q", providerErr.Code, UnifiedErrorCodeProviderContract)
 			}
-			if providerErr.StatusCode != http.StatusOK {
+			if !HasHTTPStatus(providerErr, http.StatusOK) {
 				t.Fatalf("provider status = %d, want %d", providerErr.StatusCode, http.StatusOK)
 			}
 		})
@@ -569,10 +597,7 @@ func TestGenerateWithRetryRetriesWrappedEOFBeforeResponseCompletion(t *testing.T
 }
 
 func TestGenerateWithRetryRetriesNormallyClosedStreamBeforeResponseCompletion(t *testing.T) {
-	client, requestCount := newResponsesClientWithBodies(t,
-		incompleteResponsesBody(),
-		completedResponsesBody(),
-	)
+	client, requestCount := newPrematureSocketClient(t, true)
 	response, err := generateWithResponsesClientRetry(context.Background(), client, GenerationRetrySchedule{Failures: []time.Duration{0}})
 	if err != nil {
 		t.Fatalf("generation after normal stream close: %v", err)
@@ -600,12 +625,15 @@ func TestGenerateWithRetryExhaustsUnexpectedEOFsAfterRetryBudget(t *testing.T) {
 
 func TestGenerateWithRetryExhaustsNormallyClosedStreamsAfterRetryBudget(t *testing.T) {
 	schedule := GenerationRetrySchedule{Failures: []time.Duration{0, 0}}
-	client, requestCount := newResponsesClientWithBodies(t,
-		incompleteResponsesBody(),
-		incompleteResponsesBody(),
-		incompleteResponsesBody(),
-	)
-	requireResponsesRetryExhaustion(t, client, requestCount, schedule)
+	client, requestCount := newPrematureSocketClient(t, false)
+	_, err := generateWithResponsesClientRetry(t.Context(), client, schedule)
+	var providerErr *ProviderAPIError
+	if !errors.As(err, &providerErr) || providerErr.StatusCode != nil || providerErr.Code != UnifiedErrorCodeUnknown || providerErr.Err == nil {
+		t.Fatalf("premature socket termination error=%v", err)
+	}
+	if requestCount.Load() != 3 {
+		t.Fatalf("fresh socket attempts=%d", requestCount.Load())
+	}
 }
 
 func TestGenerateWithRetryCancellationStopsPrematureStreamRetry(t *testing.T) {
@@ -1126,10 +1154,10 @@ func TestGenerate_MapsProviderOverloadCodeWithoutMessageMatching(t *testing.T) {
 	if err == nil || !errors.As(err, &providerErr) {
 		t.Fatalf("expected ProviderAPIError, got %T", err)
 	}
-	if providerErr.Code != UnifiedErrorCodeProviderOverload || providerErr.ProviderCode != "server_is_overloaded" || providerErr.StatusCode != http.StatusOK {
+	if providerErr.Code != UnifiedErrorCodeProviderOverload || providerErr.ProviderCode != "server_is_overloaded" || !HasHTTPStatus(providerErr, http.StatusOK) {
 		t.Fatalf("unexpected provider overload: %+v", providerErr)
 	}
-	if got := classifyOpenAIUnifiedErrorCode(http.StatusUnauthorized, "server_is_overloaded", ""); got != UnifiedErrorCodeAuthentication || classifyOpenAIUnifiedErrorCode(http.StatusOK, "SERVER_IS_OVERLOADED", "") != UnifiedErrorCodeUnknown {
+	if got := classifyOpenAIUnifiedErrorCode(textutil.Value(http.StatusUnauthorized), "server_is_overloaded", ""); got != UnifiedErrorCodeAuthentication || classifyOpenAIUnifiedErrorCode(textutil.Value(http.StatusOK), "SERVER_IS_OVERLOADED", "") != UnifiedErrorCodeUnknown {
 		t.Fatalf("terminal HTTP status classification = %q, want %q", got, UnifiedErrorCodeAuthentication)
 	}
 }
