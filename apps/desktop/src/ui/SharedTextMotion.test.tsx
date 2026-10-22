@@ -133,20 +133,27 @@ it("keeps automatic scrolling independent of delivery and retires a consumed pen
 });
 
 it("reveals the live destination without freezing its opening layout", async () => {
+  let now = Math.ceil(performance.now());
+  const clock = vi.spyOn(performance, "now").mockImplementation(() => now);
   const motion = new SharedTextMotion();
-  const source = textElement(100);
-  const target = textElement(-100);
-  motion.capture("first", source);
-  expect(motion.arrive(["first"], target)).toBe(true);
-  vi.spyOn(target, "getBoundingClientRect").mockReturnValue(new DOMRect(20, 100, 240, 30));
-  await layoutSettled();
-  expect(target).not.toBeVisible();
-  target.append(document.createTextNode(" with newly laid out content"));
-  await new Promise((resolve) => setTimeout(resolve, 350));
-  expect(target).toBeVisible();
-  expect(target).toHaveTextContent("A message with newly laid out content");
-  expect(document.body.children).toHaveLength(2);
-  motion.dispose();
+  try {
+    const source = textElement(100);
+    const target = textElement(-100);
+    motion.capture("first", source);
+    expect(motion.arrive(["first"], target)).toBe(true);
+    vi.spyOn(target, "getBoundingClientRect").mockReturnValue(new DOMRect(20, 100, 240, 30));
+    await layoutSettled();
+    expect(target).not.toBeVisible();
+    target.append(document.createTextNode(" with newly laid out content"));
+    now += 350;
+    await layoutSettled();
+    expect(target).toBeVisible();
+    expect(target).toHaveTextContent("A message with newly laid out content");
+    expect(document.body.children).toHaveLength(2);
+  } finally {
+    motion.dispose();
+    clock.mockRestore();
+  }
 });
 
 it("expires composer snapshots and bounds the retained source count", () => {
