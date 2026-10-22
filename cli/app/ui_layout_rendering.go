@@ -20,6 +20,8 @@ func (l uiViewLayout) renderChatPanel(width, height int, style uiStyles) []strin
 		return l.renderStatusOverlay(width, height, style)
 	case uiSurfaceGoal:
 		return l.renderGoalOverlay(width, height, style)
+	case uiSurfaceConnectionRemoval:
+		return l.renderConnectionRemoval(width, height, style)
 	case uiSurfaceWorktree:
 		return l.renderWorktreeOverlay(width, height, style)
 	case uiSurfaceProcessList:

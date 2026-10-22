@@ -257,7 +257,7 @@ func resolveSessionContextSettings(ctx context.Context, app config.App, meta ses
 			return config.Settings{}, config.SourceReport{}, session.ChatSettings{}, config.ConnectionScope{}, err
 		}
 	}
-	selected, _, err := rotation.ResolveSessionConnection(ctx, active, meta.ConnectionID, allocate && session.ContinuationAgentRole(meta) == nil)
+	selected, _, err := rotation.ResolveSessionConnection(ctx, active, source, scope, meta.ConnectionID, allocate && session.ContinuationAgentRole(meta) == nil)
 	if err != nil {
 		return config.Settings{}, config.SourceReport{}, session.ChatSettings{}, config.ConnectionScope{}, err
 	}
@@ -486,7 +486,7 @@ func (p Planner) planSessionWithExecutionContext(ctx context.Context, req Sessio
 			return SessionPlan{}, err
 		}
 	}
-	selected, _, err := p.Rotation.ResolveSessionConnection(ctx, active, meta.ConnectionID, req.PreparedPromptFacingTarget == nil && continuationAgentRole == nil)
+	selected, _, err := p.Rotation.ResolveSessionConnection(ctx, active, source, scope, meta.ConnectionID, req.PreparedPromptFacingTarget == nil && continuationAgentRole == nil)
 	if err != nil {
 		return SessionPlan{}, err
 	}
@@ -602,7 +602,8 @@ func applyPersistedSubagentRoleSettingsWithSelection(ctx context.Context, base c
 		return config.Settings{}, config.SourceReport{}, config.ConnectionScope{}, err
 	}
 	scope := config.ConnectionScope{Selection: providerSettings.Connection}
-	connection, _, err := rotation.ResolveSessionConnection(ctx, providerSettings, savedConnection, allocate)
+	connectionSource := subagentConnectionSource(source, lookup.Role)
+	connection, _, err := rotation.ResolveSessionConnection(ctx, providerSettings, connectionSource, scope, savedConnection, allocate)
 	if err != nil {
 		return config.Settings{}, config.SourceReport{}, config.ConnectionScope{}, err
 	}
@@ -843,7 +844,7 @@ func prepareAgent(ctx context.Context, app config.App, overrides serverapi.RunPr
 			resolved := EffectiveSettings(app.Settings, preparation.ModelLock)
 			source := cloneSourceReport(app.Source)
 			scope := config.ConnectionScope{Selection: resolved.Connection}
-			connectionErr := preparation.prepareConnection(ctx, &resolved, source)
+			connectionErr := preparation.prepareConnection(ctx, &resolved, source, scope)
 			capabilities, err := llm.ResolveRuntimeProviderCapabilities(resolved)
 			if connectionErr != nil {
 				err = connectionErr
@@ -894,7 +895,7 @@ func prepareAgent(ctx context.Context, app config.App, overrides serverapi.RunPr
 		return agentPreparation{}, err
 	}
 	scope := config.ConnectionScope{Selection: providerSettings.Connection}
-	connectionErr := preparation.prepareConnection(ctx, &providerSettings, overrideConfig.Source)
+	connectionErr := preparation.prepareConnection(ctx, &providerSettings, subagentConnectionSource(overrideConfig.Source, lookup.Role), scope)
 	selectedProviderID, err := persistedRoleProviderID(providerSettings)
 	if connectionErr != nil {
 		err = connectionErr

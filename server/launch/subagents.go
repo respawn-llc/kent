@@ -24,7 +24,10 @@ func resolveSubagentSettingsWithProviderID(base config.Settings, baseSource conf
 		return config.Settings{}, config.SourceReport{}, nil, err
 	}
 	var connection *config.ConnectionID
-	selected, _, err := ResolveSessionConnection(providerSettings, nil)
+	scope := config.ConnectionScope{Selection: providerSettings.Connection}
+	selected, _, err := ResolveSessionConnection(
+		providerSettings, subagentConnectionSource(baseSource, role), scope, nil,
+	)
 	var unavailable *config.ConnectionReferenceError
 	if err != nil && !errors.As(err, &unavailable) {
 		return config.Settings{}, config.SourceReport{}, nil, err

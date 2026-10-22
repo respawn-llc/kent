@@ -1381,10 +1381,15 @@ func TestCompatibleProviderCommentaryFlushesAcceptedSteeringBeforeContinuing(t *
 		_, err := eng.Steer(context.Background(), "accepted steering", nil)
 		steeringDone <- err
 	}()
-	releaseRun()
-	if err := <-steeringDone; err != nil {
-		t.Fatalf("Steer: %v", err)
+	select {
+	case err := <-steeringDone:
+		if err != nil {
+			t.Fatalf("Steer: %v", err)
+		}
+	case <-time.After(runtimeTestSynchronizationTimeout):
+		t.Fatal("timed out waiting for steering acceptance")
 	}
+	releaseRun()
 	if err := <-submitDone; err != nil {
 		t.Fatalf("submit: %v", err)
 	}

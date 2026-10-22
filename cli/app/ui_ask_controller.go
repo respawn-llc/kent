@@ -97,7 +97,7 @@ func (c uiAskController) resolvePrompt(toolCallID string) tea.Cmd {
 		m.ask.queue = m.ask.queue[1:]
 		c.setActiveAsk(next)
 		m.activity = uiActivityQuestion
-		m.setInputMode(uiInputModeAsk)
+		m.restorePrimaryInputMode()
 		return m.scheduleCurrentQuestionProjection()
 	}
 	m.ask.current = nil
