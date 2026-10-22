@@ -325,7 +325,7 @@ func loadSessionPickerModelFacts(ctx context.Context, service apicontract.ChatSe
 		return nil, err
 	}
 	catalog := response.GetNewChat()
-	if catalog == nil || catalog.InitialSettings == nil {
+	if catalog == nil {
 		return nil, errors.New("new Chat catalog is required")
 	}
 	var modelFacts *sessionPickerModelFacts
