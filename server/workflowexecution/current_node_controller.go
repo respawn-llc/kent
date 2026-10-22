@@ -613,18 +613,4 @@ func runCurrentNodeTaskMutation[T any](
 	return result, err
 }
 
-func (c *CurrentNodeController) requireLiveScope(scopeID runtimeids.ExecutionScopeID) error {
-	if c == nil || scopeID.IsZero() {
-		return errors.New("workflow exact execution scope id is required")
-	}
-	handle, exists := c.authority.ExecutionByScope(scopeID)
-	if !exists {
-		return sessionruntime.ErrExecutionNoLongerLive
-	}
-	if _, workflowScoped := handle.Scope().Workflow(); !workflowScoped {
-		return sessionruntime.ErrExecutionNoLongerLive
-	}
-	return nil
-}
-
 var _ workflowruntime.Controller = (*CurrentNodeController)(nil)
