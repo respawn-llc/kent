@@ -26,11 +26,10 @@ func WriteStdinStaticContractSource() tools.StaticContractSource {
 }
 
 const (
-	minimumOutputPollWaitMS    = 15_000
-	maximumInstantOutputWaitMS = 1_100
-	maximumOutputPollWaitMS    = 24 * 60 * 60 * 1_000
-	shortOutputPollError       = "Avoid polling repeatedly for short intervals, prefer 3-15min polls depending on task. Pick a better interval and retry"
-	longOutputPollError        = "This poll is too long. Consider using system cron jobs and `kent run` headless runs for tasks that require such long wait periods"
+	minimumOutputPollWaitMS = 15_000
+	maximumOutputPollWaitMS = 24 * 60 * 60 * 1_000
+	shortOutputPollError    = "Avoid polling repeatedly for short intervals, prefer 3-15min polls depending on task. Pick a better interval and retry"
+	longOutputPollError     = "This poll is too long. Consider using system cron jobs and `kent run` headless runs for tasks that require such long wait periods"
 )
 
 type WriteStdinTool struct {
@@ -61,10 +60,10 @@ func (t *WriteStdinTool) Call(ctx context.Context, c tools.Call) (tools.Result, 
 	if in.SessionID <= 0 {
 		return ErrorResult(c, "session_id is required"), nil
 	}
-	yieldTime := defaultWriteYieldTime
+	yieldTime := time.Duration(0)
 	if in.YieldTimeMS != nil {
-		if in.Chars == "" && *in.YieldTimeMS <= maximumInstantOutputWaitMS {
-			yieldTime = defaultWriteYieldTime
+		if in.Chars == "" && *in.YieldTimeMS <= 0 {
+			yieldTime = 0
 		} else if in.Chars == "" && *in.YieldTimeMS < minimumOutputPollWaitMS {
 			return ErrorResult(c, shortOutputPollError), nil
 		} else if in.Chars == "" && *in.YieldTimeMS > maximumOutputPollWaitMS {

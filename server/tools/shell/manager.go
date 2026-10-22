@@ -352,7 +352,10 @@ func (m *Manager) WriteStdin(ctx context.Context, req WriteRequest) (result Exec
 		}
 	}()
 
-	yieldTime := normalizeWriteYieldTime(req.YieldTime, defaultWriteYieldTime)
+	yieldTime := time.Duration(0)
+	if req.Input != "" || req.YieldTime > 0 {
+		yieldTime = normalizeWriteYieldTime(req.YieldTime, defaultWriteYieldTime)
+	}
 	maxOutputChars := req.MaxOutputChars
 	if maxOutputChars <= 0 {
 		maxOutputChars = defaultOutputTokenCap * 4
