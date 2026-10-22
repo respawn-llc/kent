@@ -3,7 +3,6 @@ package sessionruntime
 import (
 	"context"
 	"errors"
-	"fmt"
 	"sort"
 	"time"
 
@@ -87,9 +86,6 @@ func (a *Authority) ResolvePromptBatch(
 	if stepID.IsZero() {
 		return nil, errors.New("step id is required")
 	}
-	if err := validatePromptAnswerCommands(commands); err != nil {
-		return nil, err
-	}
 	if err := context.Cause(ctx); err != nil {
 		return nil, err
 	}
@@ -124,9 +120,6 @@ func (s *executionPromptStore) resolvePromptBatch(
 	}
 	if stepID.IsZero() {
 		return nil, errors.New("step id is required")
-	}
-	if err := validatePromptAnswerCommands(commands); err != nil {
-		return nil, err
 	}
 	if err := context.Cause(ctx); err != nil {
 		return nil, err
@@ -306,36 +299,6 @@ func validatePromptResolution(
 		return nil
 	}
 	return tools.ValidateAskQuestionResolution(entry.snapshot.Request, resolution)
-}
-
-func validatePromptAnswerCommands(commands []PromptAnswerCommand) error {
-	if len(commands) == 0 {
-		return errors.New("prompt answer commands are required")
-	}
-	seen := make(map[clientui.ToolCallID]struct{}, len(commands))
-	for index, command := range commands {
-		if err := command.ToolCallID.Validate(); err != nil {
-			return fmt.Errorf("prompt answer command %d: %w", index, err)
-		}
-		switch answer := command.Payload.(type) {
-		case PromptQuestionAnswerCommand:
-			if err := tools.ValidateAskQuestionResolutionShape(answer.Answer); err != nil {
-				return fmt.Errorf("prompt answer command %d: %w", index, err)
-			}
-		case PromptApprovalAnswerCommand:
-			if err := tools.ValidateAskQuestionResolutionShape(answer.Answer); err != nil {
-				return fmt.Errorf("prompt answer command %d: %w", index, err)
-			}
-		case PromptDeclinedCommand:
-		default:
-			return fmt.Errorf("prompt answer command %d has an invalid payload variant", index)
-		}
-		if _, exists := seen[command.ToolCallID]; exists {
-			return fmt.Errorf("prompt answer command tool call id %q is duplicated", command.ToolCallID)
-		}
-		seen[command.ToolCallID] = struct{}{}
-	}
-	return nil
 }
 
 func skippedPromptAnswerResults(commands []PromptAnswerCommand) []PromptAnswerResult {
