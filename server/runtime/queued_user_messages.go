@@ -43,7 +43,7 @@ func (s *queuedUserMessageStore) Queue(input QueuedUserInput, association ...que
 	}
 	return s.QueueItem(QueuedUserMessage{
 		ID:                    input.ID,
-		Message:               llm.Message{Role: llm.RoleUser, Content: textutil.Value(input.ExecutionText)},
+		Message:               &llm.Message{Role: llm.RoleUser, Content: textutil.Value(input.ExecutionText)},
 		CanonicalPresentation: input.CanonicalPresentation,
 	}, association...)
 }
@@ -54,6 +54,9 @@ type queuedUserMessageAssociation struct {
 }
 
 func (s *queuedUserMessageStore) QueueItem(item QueuedUserMessage, associations ...queuedUserMessageAssociation) (QueuedUserMessage, error) {
+	if (item.Message == nil) == (item.Shell == nil) {
+		return QueuedUserMessage{}, errors.New("pending input requires exactly one message or Shell action")
+	}
 	var association queuedUserMessageAssociation
 	if len(associations) != 0 {
 		association = associations[0]

@@ -579,7 +579,8 @@ func (e *Engine) launchLifecycleTaskWithCompletion(
 
 type QueuedUserMessage struct {
 	ID                    string
-	Message               llm.Message
+	Message               *llm.Message
+	Shell                 *runtimeinput.ShellCommand
 	CanonicalPresentation string
 	Disposition           runtimeinput.InputAdmissionDisposition
 }
@@ -657,14 +658,35 @@ func (e *Engine) queueMessage(ctx context.Context, id string, message llm.Messag
 }
 
 func (e *Engine) queueMessageRaw(id string, message llm.Message, presentation string, namingTask *string, forceAutoDrain, autoStart bool, accept CommandAcceptance) (QueuedUserMessage, error) {
+	return e.queueActionRaw(QueuedUserMessage{
+		ID: id, Message: &message, CanonicalPresentation: presentation,
+	}, namingTask, forceAutoDrain, autoStart, accept)
+}
+
+// QueueShellInput accepts executable work in the ordinary Steer/Queue owner.
+// Completion is delivered by the Runtime, independently of the admission caller.
+func (e *Engine) QueueShellInput(ctx context.Context, id runtimeids.QueueItemID, command runtimeinput.ShellCommand, lane runtimeinput.PendingWorkLane, accept CommandAcceptance) (QueuedUserMessage, error) {
+	if id.IsZero() || strings.TrimSpace(command.Command) == "" {
+		return QueuedUserMessage{}, errors.New("Shell requires a Queue Item identity and command")
+	}
+	if lane != runtimeinput.PendingWorkLaneQueue && lane != runtimeinput.PendingWorkLaneSteer {
+		return QueuedUserMessage{}, fmt.Errorf("invalid Shell lane %q", lane)
+	}
+	if e == nil || e.closed.Load() {
+		return QueuedUserMessage{}, ErrEngineClosed
+	}
+	if err := context.Cause(ctx); err != nil {
+		return QueuedUserMessage{}, err
+	}
+	return e.queueActionRaw(QueuedUserMessage{
+		ID: id.String(), Shell: &command, CanonicalPresentation: command.CanonicalInput(),
+	}, nil, lane == runtimeinput.PendingWorkLaneSteer, true, accept)
+}
+
+func (e *Engine) queueActionRaw(liveItem QueuedUserMessage, namingTask *string, forceAutoDrain, autoStart bool, accept CommandAcceptance) (QueuedUserMessage, error) {
 	e.ensureOrchestrationCollaborators()
 	if err := e.requirePendingWorkCapacity(); err != nil {
 		return QueuedUserMessage{}, err
-	}
-	liveItem := QueuedUserMessage{
-		ID:                    id,
-		Message:               message,
-		CanonicalPresentation: presentation,
 	}
 	lane := runtimeinput.PendingWorkLaneQueue
 	if forceAutoDrain {
@@ -764,7 +786,7 @@ func (e *Engine) acceptPendingMessage(item QueuedUserMessage, lane runtimeinput.
 		e.lifecycleMu.Unlock()
 		return QueuedUserMessage{}, fmt.Errorf("invalid pending message lane %q", lane)
 	}
-	if item.Message.Role == llm.RoleUser && item.Message.Content != nil {
+	if item.Message != nil && item.Message.Role == llm.RoleUser && item.Message.Content != nil {
 		if err := e.store.CaptureInitialPromptPreview(*item.Message.Content); err != nil {
 			e.outputMutationMu.Unlock()
 			e.lifecycleMu.Unlock()
@@ -773,6 +795,9 @@ func (e *Engine) acceptPendingMessage(item QueuedUserMessage, lane runtimeinput.
 	}
 	if autoStart && !e.stepLifecycle.IsBusy() && !e.HasScheduledQueuedUserWork() {
 		disposition = runtimeinput.InputAdmissionStartedTurn
+		if item.Shell != nil {
+			disposition = runtimeinput.InputAdmissionStartedShell
+		}
 	}
 	queued, err := e.messageFlow.QueueUserMessageWithID(item, association)
 	queued.Disposition = disposition
@@ -781,8 +806,8 @@ func (e *Engine) acceptPendingMessage(item QueuedUserMessage, lane runtimeinput.
 		if namingTask != nil {
 			e.captureSessionNamingRaw(*namingTask)
 		}
-		if association.steerAdmission != nil {
-			e.markSupervisorSteerRaw(queued.Message)
+		if association.steerAdmission != nil && queued.Message != nil {
+			e.markSupervisorSteerRaw(*queued.Message)
 		}
 		e.emitQueuedUserMessageStatus(queued, QueuedUserMessageAccepted, "", false)
 	}

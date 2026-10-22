@@ -509,7 +509,7 @@ func queuedUserMessageFlushGroups(messages []queuedUserMessage) []queuedUserMess
 	for _, pending := range messages {
 		text := queuedUserMessageText(pending.message)
 		queueItems := []QueuedUserMessage{pending.message}
-		message := pending.message.Message
+		message := *pending.message.Message
 		groups = append(groups, queuedUserMessageFlushGroup{
 			message:    message,
 			batch:      []string{text},

@@ -66,6 +66,28 @@ func TestPendingWorkProjectsAcceptedMessageAndCompactionOrder(t *testing.T) {
 	releaseMaintenance()
 }
 
+func TestPendingWorkProjectsShellAction(t *testing.T) {
+	engine := pendingWorkTestEngine(t, Config{Model: "gpt-6-sol"})
+	release := pendingWorkTestHoldMaintenance(t, engine)
+	defer release()
+	command := runtimeinput.ShellCommand{Command: "echo pending"}
+	id := runtimeids.NewQueueItemID()
+	_, err := engine.QueueShellInput(t.Context(), id, command, runtimeinput.PendingWorkLaneQueue, nil)
+	pendingWorkTestNoError(t, err)
+	work := pendingWorkTestSnapshot(t, engine)
+	if len(work.Items) != 1 || work.Items[0].ID != id ||
+		work.Items[0].Kind != runtimeinput.PendingWorkItemKindShell ||
+		work.Items[0].Shell == nil || *work.Items[0].Shell != command ||
+		work.Items[0].CanonicalInput != command.CanonicalInput() {
+		t.Fatalf("Shell Pending Work = %+v", work)
+	}
+	restored, err := engine.RemovePendingWork(t.Context(), id)
+	pendingWorkTestNoError(t, err)
+	if restored.Kind != runtimeinput.PendingWorkItemKindShell || restored.CanonicalInput != command.CanonicalInput() {
+		t.Fatalf("Shell restoration = %+v", restored)
+	}
+}
+
 func TestPendingWorkCapacityRejectsWithoutMutation(t *testing.T) {
 	engine := pendingWorkTestEngine(t, Config{Model: "gpt-6-sol"})
 	releaseMaintenance := pendingWorkTestHoldMaintenance(t, engine)
