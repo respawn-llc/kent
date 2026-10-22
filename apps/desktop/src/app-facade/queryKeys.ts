@@ -51,6 +51,9 @@ const worktreeOperationKey = (
 ) => ["worktree", worktreeFact(sessionID), kind, worktreeFact(value, requireTrimmed)] as const;
 
 export const queryKeys = {
+  subscriptionCatalog: () => ["subscription", "catalog"] as const,
+  subscriptionBinding: (sessionID: string) => ["subscription", "binding", sessionID] as const,
+  subscriptionUsage: (connectionID: string) => ["subscription", "usage", connectionID] as const,
   startup: ["startup"],
   readiness: ["startup", "readiness"],
   projects: ["projects"],
@@ -92,6 +95,10 @@ export const queryKeys = {
   allPendingAsks: ["pending-asks"],
   allProcesses: ["processes"],
   chatMainView: (sessionID: string) => ["chat", sessionID, "main-view"] as const,
+  viewedImage: (sessionID: string, locator: Readonly<{ event_sequence: number; row_ordinal: number }>) =>
+    ["chat", sessionID, "viewed-image", locator.event_sequence, locator.row_ordinal] as const,
+  viewedPDF: (sessionID: string, target: Readonly<{ path: string; basePath: string | null }>) =>
+    ["chat", sessionID, "viewed-pdf", target.basePath, target.path] as const,
   boardWorkflowRoot: (projectID: string, workflowID: string | undefined) => ["board", projectID, workflowID],
   projectBoardsRoot: (projectID: string) => ["board", projectID],
   board: (projectID: string, workflowID: string | undefined, filter: BoardFilterInput) => [
@@ -104,16 +111,15 @@ export const queryKeys = {
   workflowDefinition: (workflowID: string) => ["workflow-definition", workflowID],
   workflowDraftValidation: (
     workflowID: string,
-    sourceVersion: number,
-    version: number,
-    metadataSignature: string,
+    sourceVersion: number | null,
+    version: number | null,
+    metadataSignature: string | null,
   ) => ["workflow-draft-validation", workflowID, sourceVersion, version, metadataSignature],
-  workflowDraftDerivedWiring: (workflowID: string, sourceVersion: number, graphSignature: string) => [
-    "workflow-draft-derived-wiring",
-    workflowID,
-    sourceVersion,
-    graphSignature,
-  ],
+  workflowDraftDerivedWiring: (
+    workflowID: string,
+    sourceVersion: number | null,
+    graphSignature: string | null,
+  ) => ["workflow-draft-derived-wiring", workflowID, sourceVersion, graphSignature],
   workflowValidation: (workflowID: string, mode: string) => ["workflow-validation", workflowID, mode],
   workflowScriptPathValidation: (workflowID: string, nodeID: string, scriptPath: string) => [
     "workflow-script-path-validation",
@@ -121,14 +127,13 @@ export const queryKeys = {
     nodeID,
     scriptPath,
   ],
-  workflowGraphLayout: (workflowID: string, version: number, valid: boolean, errors: readonly unknown[]) => [
-    "workflow-graph-layout",
-    workflowID,
-    version,
-    valid,
-    errors,
-  ],
-  projectWorkflowLinks: (projectID: string) => ["project-workflow-links", projectID],
+  workflowGraphLayout: (
+    workflowID: string,
+    version: number | null,
+    valid: boolean | null,
+    errors: readonly unknown[] | null,
+  ) => ["workflow-graph-layout", workflowID, version, valid, errors],
+  projectWorkflowLinks: (projectID: string | null) => ["project-workflow-links", projectID],
   projectTaskWorkflows: (projectID: string) => ["project-workflow-links", projectID, "task-list"],
   projectLabels: (projectID: string) => ["project-labels", projectID],
   taskLabels: (taskID: string) => ["task-labels", taskID],

@@ -3,17 +3,20 @@ package app
 import (
 	"context"
 	"errors"
-	"net/http"
-	"net/http/httptest"
 	"testing"
 	"time"
 
 	"core/cli/app/internal/authui"
+	sharedauth "core/shared/auth"
 	"core/shared/config"
+	"core/shared/protoapi"
 	authpb "core/shared/protoapi/gen/kent/api/auth"
+	"core/shared/serverapi"
+	"google.golang.org/protobuf/types/known/emptypb"
 )
 
 type stubAuthBootstrapClient struct {
+	protocol      *authpb.ConnectionProtocol
 	status        *authpb.BootstrapStatus
 	completeReq   *authpb.CompleteBootstrapRequest
 	completeCalls int
@@ -23,6 +26,29 @@ type stubAuthBootstrapClient struct {
 
 func (c *stubAuthBootstrapClient) GetBootstrapStatus(context.Context, *authpb.GetBootstrapStatusRequest) (*authpb.BootstrapStatus, error) {
 	return c.status, nil
+}
+
+func (c *stubAuthBootstrapClient) StartBootstrap(_ context.Context, req *authpb.StartBootstrapRequest) (*authpb.BootstrapStart, error) {
+	result := &authpb.BootstrapStart{Continuation: &authpb.BootstrapContinuation{Protocol: authpb.ConnectionProtocol_CONNECTION_PROTOCOL_CHATGPT}}
+	if c.protocol != nil {
+		result.Continuation.Protocol = *c.protocol
+	}
+	if req.Mode == authpb.BootstrapMode_BOOTSTRAP_MODE_DEVICE_CODE {
+		result.Instructions = &authpb.BootstrapStart_Device{Device: &authpb.BootstrapDeviceInstructions{VerificationUrl: "https://provider.example/device", UserCode: "CODE-1"}}
+		result.Continuation.Grant = &authpb.BootstrapContinuation_Device{Device: &authpb.DeviceBootstrapContinuation{Code: "device-1", UserCode: "CODE-1", PollIntervalSeconds: 1}}
+	} else {
+		result.Instructions = &authpb.BootstrapStart_AuthorizationUrl{AuthorizationUrl: "https://provider.example/authorize"}
+		result.Continuation.Grant = &authpb.BootstrapContinuation_Browser{Browser: &authpb.BrowserBootstrapContinuation{RedirectUri: req.GetRedirectUri(), State: "state-1", CodeVerifier: "verifier-1"}}
+	}
+	return result, nil
+}
+
+func (*stubAuthBootstrapClient) GetConnections(context.Context, *authpb.GetConnectionsRequest) (*authpb.ConnectionCatalog, error) {
+	return &authpb.ConnectionCatalog{}, nil
+}
+
+func (*stubAuthBootstrapClient) ConfigureConnection(context.Context, *authpb.ConfigureConnectionRequest) (*emptypb.Empty, error) {
+	return &emptypb.Empty{}, nil
 }
 
 func (c *stubAuthBootstrapClient) CompleteBootstrap(_ context.Context, req *authpb.CompleteBootstrapRequest) (*authpb.BootstrapCompletion, error) {
@@ -37,6 +63,75 @@ func (c *stubAuthBootstrapClient) CompleteBootstrap(_ context.Context, req *auth
 		return c.completeResp, nil
 	}
 	return &authpb.BootstrapCompletion{AuthReady: true, Method: authpb.AuthMethod_AUTH_METHOD_OAUTH, ConnectionId: "test"}, nil
+}
+
+func TestRemoteAuthReadinessAllowsOptionalAuthForHeadlessClients(t *testing.T) {
+	connection := config.ConnectionID("connection")
+	remote := &stubAuthBootstrapClient{status: &authpb.BootstrapStatus{
+		Method:       authpb.AuthMethod_AUTH_METHOD_NONE,
+		AuthRequired: false,
+	}}
+
+	if err := ensureRemoteAuthReady(t.Context(), remote, config.Settings{Connection: config.SingleConnection(connection)}, newHeadlessAuthInteractor()); err != nil {
+		t.Fatalf("ensureRemoteAuthReady: %v", err)
+	}
+	if remote.completeCalls != 0 {
+		t.Fatalf("bootstrap calls = %d, want no authentication attempt", remote.completeCalls)
+	}
+}
+
+func TestRemoteAuthReadinessBootstrapsAPIKeyForHeadlessClients(t *testing.T) {
+	connection := config.ConnectionID("connection")
+	remote := &stubAuthBootstrapClient{status: &authpb.BootstrapStatus{
+		Method:       authpb.AuthMethod_AUTH_METHOD_API_KEY,
+		ConnectionId: string(connection),
+		AuthRequired: true,
+	}}
+
+	if err := ensureRemoteAuthReady(t.Context(), remote, config.Settings{Connection: config.SingleConnection(connection)}, newHeadlessAuthInteractor()); err != nil {
+		t.Fatalf("ensureRemoteAuthReady: %v", err)
+	}
+	if remote.completeCalls != 1 {
+		t.Fatalf("bootstrap calls = %d, want exactly one API-key bootstrap", remote.completeCalls)
+	}
+	if remote.completeReq.GetMode() != authpb.BootstrapMode_BOOTSTRAP_MODE_API_KEY ||
+		remote.completeReq.GetTarget().GetConnectionId() != string(connection) {
+		t.Fatalf("unexpected API-key bootstrap request: %+v", remote.completeReq)
+	}
+}
+
+func TestRemoteAuthReadinessReportsUnavailableOAuthForHeadlessClients(t *testing.T) {
+	connection := config.ConnectionID("connection")
+	remote := &stubAuthBootstrapClient{status: &authpb.BootstrapStatus{
+		Method:         authpb.AuthMethod_AUTH_METHOD_OAUTH,
+		ConnectionId:   "connection",
+		AuthRequired:   true,
+		SupportedModes: []authpb.BootstrapMode{authpb.BootstrapMode_BOOTSTRAP_MODE_DEVICE_CODE},
+	}}
+
+	err := ensureRemoteAuthReady(t.Context(), remote, config.Settings{Connection: config.SingleConnection(connection)}, newHeadlessAuthInteractor())
+	if !errors.Is(err, serverapi.ErrServerAuthRequired) {
+		t.Fatalf("ensureRemoteAuthReady error = %v, want unavailable interaction error", err)
+	}
+	if remote.completeCalls != 0 {
+		t.Fatalf("bootstrap calls = %d, want no headless OAuth attempt", remote.completeCalls)
+	}
+}
+
+func TestRemoteAuthReadinessRequiresInteractorForUnreadyAuth(t *testing.T) {
+	connection := config.ConnectionID("connection")
+	remote := &stubAuthBootstrapClient{status: &authpb.BootstrapStatus{
+		Method:       authpb.AuthMethod_AUTH_METHOD_NONE,
+		AuthRequired: false,
+	}}
+
+	err := ensureRemoteAuthReady(t.Context(), remote, config.Settings{Connection: config.SingleConnection(connection)}, nil)
+	if !errors.Is(err, serverapi.ErrServerAuthRequired) {
+		t.Fatalf("ensureRemoteAuthReady error = %v, want interaction-required error", err)
+	}
+	if remote.completeCalls != 0 {
+		t.Fatalf("bootstrap calls = %d, want no authentication attempt", remote.completeCalls)
+	}
 }
 
 type stubOAuthCallbackListener struct {
@@ -61,100 +156,48 @@ func (l *stubOAuthCallbackListener) Close() error {
 	return nil
 }
 
-func TestRemoteAuthBootstrapRetriesUnsupportedSelectedMode(t *testing.T) {
-	remote := &stubAuthBootstrapClient{status: &authpb.BootstrapStatus{
-		AuthRequired:   true,
-		SupportedModes: []authpb.BootstrapMode{authpb.BootstrapMode_BOOTSTRAP_MODE_API_KEY},
-	}}
-	pickerCalls := 0
-	interactor := &interactiveAuthInteractor{
-		lookupEnv: func(string) string { return "api-key" },
-		pickMethod: func(req authInteraction) (authMethodPickerResult, error) {
-			pickerCalls++
-			if pickerCalls == 1 {
-				return authMethodPickerResult{Choice: authMethodChoiceBrowserAuto}, nil
-			}
-			if req.FlowErr == nil {
-				t.Fatal("unsupported mode must be surfaced on retry")
-			}
-			return authMethodPickerResult{Choice: authMethodChoiceEnvAPIKey}, nil
-		},
-	}
-
-	if err := ensureRemoteAuthReady(context.Background(), remote, config.Settings{}, interactor, true); err != nil {
-		t.Fatalf("ensureRemoteAuthReady: %v", err)
-	}
-	if pickerCalls != 2 || remote.completeCalls != 1 {
-		t.Fatalf("picker calls=%d complete calls=%d, want 2 and 1", pickerCalls, remote.completeCalls)
+func TestRemoteAuthBootstrapForwardsDeviceContinuation(t *testing.T) {
+	useStartupTestTerminal(t)
+	for _, protocol := range []authpb.ConnectionProtocol{
+		authpb.ConnectionProtocol_CONNECTION_PROTOCOL_CHATGPT,
+		authpb.ConnectionProtocol_CONNECTION_PROTOCOL_GROK_CLI_PROXY,
+		authpb.ConnectionProtocol_CONNECTION_PROTOCOL_GROK_OAUTH_API,
+	} {
+		t.Run(protocol.String(), func(t *testing.T) {
+			testRemoteDeviceContinuation(t, protocol)
+		})
 	}
 }
 
-func TestRemoteAuthBootstrapSurfacesCompletionFailureThenRetries(t *testing.T) {
-	completeErr := errors.New("remote completion failed")
-	remote := &stubAuthBootstrapClient{
-		status: &authpb.BootstrapStatus{
-			AuthRequired:   true,
-			SupportedModes: []authpb.BootstrapMode{authpb.BootstrapMode_BOOTSTRAP_MODE_API_KEY},
-		},
-		completeErr: completeErr,
-	}
-	pickerCalls := 0
-	interactor := &interactiveAuthInteractor{
-		lookupEnv: func(string) string { return "api-key" },
-		pickMethod: func(req authInteraction) (authMethodPickerResult, error) {
-			pickerCalls++
-			if pickerCalls == 1 && req.FlowErr != nil {
-				t.Fatalf("initial flow error = %v", req.FlowErr)
-			}
-			if pickerCalls == 2 && !errors.Is(req.FlowErr, completeErr) {
-				t.Fatalf("retry flow error = %v, want completion failure", req.FlowErr)
-			}
-			return authMethodPickerResult{Choice: authMethodChoiceEnvAPIKey}, nil
-		},
-	}
-
-	if err := ensureRemoteAuthReady(context.Background(), remote, config.Settings{}, interactor, true); err != nil {
-		t.Fatalf("ensureRemoteAuthReady: %v", err)
-	}
-	if pickerCalls != 2 || remote.completeCalls != 2 {
-		t.Fatalf("picker calls=%d complete calls=%d, want 2 and 2", pickerCalls, remote.completeCalls)
-	}
-}
-
-func TestRemoteAuthBootstrapMapsProviderDeviceGrantToCompletion(t *testing.T) {
-	provider := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		switch r.URL.Path {
-		case "/api/accounts/deviceauth/usercode":
-			_, _ = w.Write([]byte(`{"device_auth_id":"device-1","user_code":"CODE-1","interval":1}`))
-		case "/api/accounts/deviceauth/token":
-			_, _ = w.Write([]byte(`{"authorization_code":"authorization-1","code_verifier":"verifier-1"}`))
-		default:
-			w.WriteHeader(http.StatusNotFound)
-		}
-	}))
-	defer provider.Close()
-
+func testRemoteDeviceContinuation(t *testing.T, protocol authpb.ConnectionProtocol) {
 	remote := &stubAuthBootstrapClient{status: &authpb.BootstrapStatus{
 		AuthRequired:   true,
 		SupportedModes: []authpb.BootstrapMode{authpb.BootstrapMode_BOOTSTRAP_MODE_DEVICE_CODE},
-		Oauth: &authpb.BootstrapOAuthConfig{
-			Issuer:   &provider.URL,
-			ClientId: ptrString("client-1"),
-		},
-	}}
+	}, protocol: &protocol}
+	opened := false
 	interactor := &interactiveAuthInteractor{
+		openBrowser: func(value string) error {
+			opened = true
+			if value != "https://provider.example/device" {
+				t.Fatalf("device verification URL changed: %q", value)
+			}
+			return nil
+		},
 		pickMethod: func(authInteraction) (authMethodPickerResult, error) {
 			return authMethodPickerResult{Choice: authMethodChoiceDevice}, nil
 		},
 	}
 
-	if err := ensureRemoteAuthReady(context.Background(), remote, config.Settings{}, interactor, true); err != nil {
-		t.Fatalf("ensureRemoteAuthReady: %v", err)
+	request, err := interactor.collectRemoteBootstrapRequest(t.Context(), remote, protoapi.ExistingConnectionTarget("test"), "dark", authMethodChoiceDevice, remote.status)
+	if err != nil {
+		t.Fatal(err)
 	}
-	if remote.completeReq.Mode != authpb.BootstrapMode_BOOTSTRAP_MODE_DEVICE_CODE ||
-		remote.completeReq.GetDeviceAuthorizationCode() != "authorization-1" ||
-		remote.completeReq.GetDeviceCodeVerifier() != "verifier-1" {
-		t.Fatalf("unexpected completion request: %+v", remote.completeReq)
+	if request.Mode != authpb.BootstrapMode_BOOTSTRAP_MODE_DEVICE_CODE ||
+		request.GetContinuation().GetDevice().GetCode() != "device-1" {
+		t.Fatalf("unexpected completion request: %+v", request)
+	}
+	if opened != (protocol != authpb.ConnectionProtocol_CONNECTION_PROTOCOL_CHATGPT) {
+		t.Fatalf("automatic browser launch = %v for %v", opened, protocol)
 	}
 }
 
@@ -187,10 +230,12 @@ func TestRemoteAuthBootstrapHybridBrowserAcceptsCallbackOrPaste(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			useStartupTestTerminal(t)
 			listener := &stubOAuthCallbackListener{callback: authui.OAuthBrowserCallback{Code: "code-1"}}
 			remote := &stubAuthBootstrapClient{status: &authpb.BootstrapStatus{
-				AuthReady:    false,
-				AuthRequired: true,
+				AuthReady:         false,
+				AuthRequired:      true,
+				CallbackTransport: &authpb.BootstrapCallbackTransport{BindAddress: "127.0.0.1:1455", RedirectHost: "localhost", CallbackPath: "/auth/callback"},
 				SupportedModes: []authpb.BootstrapMode{
 					authpb.BootstrapMode_BOOTSTRAP_MODE_BROWSER_CALLBACK_URL,
 				},
@@ -199,16 +244,17 @@ func TestRemoteAuthBootstrapHybridBrowserAcceptsCallbackOrPaste(t *testing.T) {
 				pickMethod: func(authInteraction) (authMethodPickerResult, error) {
 					return authMethodPickerResult{Choice: authMethodChoiceBrowserAuto}, nil
 				},
-				startCallbackListener: func() (oauthCallbackListener, error) { return listener, nil },
+				startCallbackListener: func(sharedauth.CallbackTransport) (oauthCallbackListener, error) { return listener, nil },
 				openBrowser:           func(string) error { return nil },
 				runCallbackPage:       tt.runPage,
 			}
 
-			if err := ensureRemoteAuthReady(context.Background(), remote, config.Settings{}, interactor, true); err != nil {
-				t.Fatalf("ensureRemoteAuthReady: %v", err)
+			request, err := interactor.collectRemoteBootstrapRequest(t.Context(), remote, protoapi.ExistingConnectionTarget("test"), "dark", authMethodChoiceBrowserAuto, remote.status)
+			if err != nil {
+				t.Fatal(err)
 			}
-			if remote.completeReq.GetCallbackInput() != tt.wantInput {
-				t.Fatalf("callback input=%q, want %q", remote.completeReq.GetCallbackInput(), tt.wantInput)
+			if request.GetCallbackInput() != tt.wantInput {
+				t.Fatalf("callback input=%q, want %q", request.GetCallbackInput(), tt.wantInput)
 			}
 			if listener.closed == 0 {
 				t.Fatal("expected listener to close")
@@ -218,10 +264,12 @@ func TestRemoteAuthBootstrapHybridBrowserAcceptsCallbackOrPaste(t *testing.T) {
 }
 
 func TestRemoteAuthBootstrapHybridBrowserCancelClosesListener(t *testing.T) {
+	useStartupTestTerminal(t)
 	listener := &stubOAuthCallbackListener{}
 	remote := &stubAuthBootstrapClient{status: &authpb.BootstrapStatus{
-		AuthReady:    false,
-		AuthRequired: true,
+		AuthReady:         false,
+		AuthRequired:      true,
+		CallbackTransport: &authpb.BootstrapCallbackTransport{BindAddress: "127.0.0.1:1455", RedirectHost: "localhost", CallbackPath: "/auth/callback"},
 		SupportedModes: []authpb.BootstrapMode{
 			authpb.BootstrapMode_BOOTSTRAP_MODE_BROWSER_CALLBACK_URL,
 		},
@@ -235,14 +283,14 @@ func TestRemoteAuthBootstrapHybridBrowserCancelClosesListener(t *testing.T) {
 			}
 			return authMethodPickerResult{Choice: authMethodChoiceBrowserAuto}, nil
 		},
-		startCallbackListener: func() (oauthCallbackListener, error) { return listener, nil },
+		startCallbackListener: func(sharedauth.CallbackTransport) (oauthCallbackListener, error) { return listener, nil },
 		openBrowser:           func(string) error { return nil },
 		runCallbackPage: func(context.Context, authCallbackPageData, func(context.Context) (authui.OAuthBrowserCallback, error), func(context.Context, string) error) (authCallbackPageResult, error) {
 			return authCallbackPageResult{Canceled: true}, nil
 		},
 	}
 
-	err := ensureRemoteAuthReady(context.Background(), remote, config.Settings{}, interactor, true)
+	_, err := interactor.collectRemoteBootstrapRequest(t.Context(), remote, protoapi.ExistingConnectionTarget("test"), "dark", authMethodChoiceBrowserAuto, remote.status)
 	if err == nil || !errors.Is(err, ErrAuthCanceledByUser) {
 		t.Fatalf("expected auth cancel, got %v", err)
 	}
@@ -252,26 +300,18 @@ func TestRemoteAuthBootstrapHybridBrowserCancelClosesListener(t *testing.T) {
 }
 
 func TestRemoteAuthBootstrapRejectsMismatchedOAuthState(t *testing.T) {
+	useStartupTestTerminal(t)
 	listener := &stubOAuthCallbackListener{}
 	remote := &stubAuthBootstrapClient{status: &authpb.BootstrapStatus{
-		AuthReady:    false,
-		AuthRequired: true,
+		AuthReady:         false,
+		AuthRequired:      true,
+		CallbackTransport: &authpb.BootstrapCallbackTransport{BindAddress: "127.0.0.1:1455", RedirectHost: "localhost", CallbackPath: "/auth/callback"},
 		SupportedModes: []authpb.BootstrapMode{
 			authpb.BootstrapMode_BOOTSTRAP_MODE_BROWSER_CALLBACK_URL,
 		},
 	}}
-	pickCalls := 0
-	var flowErr error
 	interactor := &interactiveAuthInteractor{
-		pickMethod: func(req authInteraction) (authMethodPickerResult, error) {
-			pickCalls++
-			if pickCalls > 1 {
-				flowErr = req.FlowErr
-				return authMethodPickerResult{Canceled: true}, nil
-			}
-			return authMethodPickerResult{Choice: authMethodChoiceBrowserAuto}, nil
-		},
-		startCallbackListener: func() (oauthCallbackListener, error) { return listener, nil },
+		startCallbackListener: func(sharedauth.CallbackTransport) (oauthCallbackListener, error) { return listener, nil },
 		openBrowser:           func(string) error { return nil },
 		runCallbackPage: func(ctx context.Context, _ authCallbackPageData, _ func(context.Context) (authui.OAuthBrowserCallback, error), complete func(context.Context, string) error) (authCallbackPageResult, error) {
 			input := "http://localhost/callback?code=pasted&state=wrong"
@@ -279,11 +319,8 @@ func TestRemoteAuthBootstrapRejectsMismatchedOAuthState(t *testing.T) {
 		},
 	}
 
-	err := ensureRemoteAuthReady(context.Background(), remote, config.Settings{}, interactor, true)
-	if err == nil || !errors.Is(err, ErrAuthCanceledByUser) {
-		t.Fatalf("expected auth cancel, got %v", err)
-	}
-	if flowErr == nil || !errors.Is(flowErr, ErrOAuthStateMismatch) {
-		t.Fatalf("flow error = %v, want oauth state mismatch", flowErr)
+	_, err := interactor.collectRemoteBootstrapRequest(t.Context(), remote, protoapi.ExistingConnectionTarget("test"), "dark", authMethodChoiceBrowserAuto, remote.status)
+	if !errors.Is(err, ErrOAuthStateMismatch) {
+		t.Fatalf("flow error = %v, want oauth state mismatch", err)
 	}
 }

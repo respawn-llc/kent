@@ -11,9 +11,11 @@ import (
 	"core/server/runtime"
 	"core/shared/apicontract"
 	"core/shared/config"
+	"core/shared/protoapi"
 	authpb "core/shared/protoapi/gen/kent/api/auth"
 	runtimepb "core/shared/protoapi/gen/kent/api/runtime"
 	sessionpb "core/shared/protoapi/gen/kent/api/session"
+	sharedpb "core/shared/protoapi/gen/kent/api/shared"
 	"core/shared/runtimeids"
 	"core/shared/textutil"
 )
@@ -63,7 +65,7 @@ func (c Collector) CollectBase(req Request) Snapshot {
 	return Snapshot{
 		CollectedAt:          collectedAt,
 		Workdir:              filepath.ToSlash(strings.TrimSpace(workdir)),
-		SessionName:          strings.TrimSpace(req.SessionName),
+		SessionName:          req.SessionName,
 		SessionID:            strings.TrimSpace(req.SessionID),
 		AgentRole:            textutil.Pointer(req.AgentRole),
 		PreviousSessionID:    previousSessionID,
@@ -89,12 +91,14 @@ func (c Collector) EnrichBase(ctx context.Context, req Request, snapshot Snapsho
 			snapshot.CollectorWarning = JoinWarnings(snapshot.CollectorWarning, "current session: "+err.Error())
 		} else {
 			snapshot.AgentRole = textutil.Pointer(currentSession.AgentRole)
+			identity := protoapi.SessionIdentityFromProto(currentSession.SessionId, currentSession.ShortId)
+			snapshot.SessionIdentity = &identity
 		}
 	}
 	var warning string
-	snapshot.PreviousSessionName, warning = c.relatedSessionName(ctx, req.SessionViews, snapshot.PreviousSessionID, "previous session")
+	snapshot.PreviousSessionName, snapshot.PreviousSessionShortID, warning = c.relatedSessionPresentation(ctx, req.SessionViews, snapshot.PreviousSessionID, "previous session")
 	snapshot.CollectorWarning = JoinWarnings(snapshot.CollectorWarning, warning)
-	snapshot.ParentAgentSessionName, warning = c.relatedSessionName(ctx, req.SessionViews, snapshot.ParentAgentSessionID, "parent agent session")
+	snapshot.ParentAgentSessionName, snapshot.ParentAgentSessionShortID, warning = c.relatedSessionPresentation(ctx, req.SessionViews, snapshot.ParentAgentSessionID, "parent agent session")
 	snapshot.CollectorWarning = JoinWarnings(snapshot.CollectorWarning, warning)
 	return snapshot
 }
@@ -106,15 +110,16 @@ func JoinWarnings(existing string, warning string) string {
 	}), " | ")
 }
 
-func (c Collector) relatedSessionName(ctx context.Context, sessionViews apicontract.SessionViewService, sessionID *runtimeids.SessionID, label string) (string, string) {
+func (c Collector) relatedSessionPresentation(ctx context.Context, sessionViews apicontract.SessionViewService, sessionID *runtimeids.SessionID, label string) (*string, *runtimeids.SessionShortID, string) {
 	if sessionID == nil {
-		return "", ""
+		return nil, nil, ""
 	}
 	sessionView, err := c.resolveSessionView(ctx, sessionViews, sessionID.String())
 	if err != nil {
-		return "", label + ": " + err.Error()
+		return nil, nil, label + ": " + err.Error()
 	}
-	return strings.TrimSpace(sessionView.GetSessionName()), ""
+	shortID := protoapi.SessionShortIDFromProto(sessionView.ShortId)
+	return sessionView.SessionName, shortID, ""
 }
 
 func (c Collector) resolveSessionView(ctx context.Context, sessionViews apicontract.SessionViewService, sessionID string) (*runtimepb.SessionView, error) {
@@ -131,7 +136,7 @@ func (c Collector) resolveSessionView(ctx context.Context, sessionViews apicontr
 	}
 	readCtx, cancel := context.WithTimeout(ctx, readTimeout)
 	defer cancel()
-	resp, err := sessionViews.GetSessionMainView(readCtx, &sessionpb.MainViewRequest{SessionId: id})
+	resp, err := sessionViews.GetSessionMainView(readCtx, &sessionpb.MainViewRequest{SessionId: &sharedpb.SessionSelector{Value: &sharedpb.SessionSelector_SessionId{SessionId: id}}})
 	if err != nil {
 		return &runtimepb.SessionView{}, err
 	}
@@ -142,9 +147,11 @@ func (c Collector) CollectAuth(ctx context.Context, req Request, _ Snapshot) Aut
 	if req.AuthStatus == nil {
 		return AuthStageResult{}
 	}
-	response, err := req.AuthStatus.GetStatus(ctx, &authpb.GetStatusRequest{
-		Provider: req.AuthSelection,
-	})
+	request := &authpb.GetStatusRequest{}
+	if req.SessionID != "" {
+		request.SessionId = &req.SessionID
+	}
+	response, err := req.AuthStatus.GetStatus(ctx, request)
 	if err != nil {
 		return UnavailableAuthStage(err)
 	}

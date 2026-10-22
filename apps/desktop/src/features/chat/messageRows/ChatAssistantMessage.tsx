@@ -1,5 +1,6 @@
+import { useRef } from "react";
 import type { TranscriptRenderItem } from "@/app-facade";
-import { Island, StaticMarkdown, StreamingMarkdown } from "@/ui";
+import { AnimatedSize, Island, StaticMarkdown, StreamingMarkdown } from "@/ui";
 
 import { MessageFooter } from "./MessageFooter";
 import type { MessageNeighbors } from "./messageNeighbors";
@@ -12,22 +13,28 @@ export function ChatAssistantMessage({
   item: Extract<TranscriptRenderItem, { kind: "assistant" }>;
   neighbors?: MessageNeighbors | undefined;
 }>) {
+  const row = useRef<HTMLDivElement>(null);
   return (
     <div
+      ref={row}
       className="chat-message-row chat-message-assistant"
       data-previous={neighbors?.previous}
       data-next={neighbors?.next}
     >
       <div className="chat-message-width">
         <Island className="chat-message-island" level={1} radius="l" unpadded>
-          {item.state === "live" ? (
-            <StreamingMarkdown value={item.value.Text} />
-          ) : (
-            <StaticMarkdown value={item.value.Text} />
-          )}
-          {item.state === "committed" && (
-            <MessageFooter text={item.value.Text} committedAt={item.value.committed_at_unix_ms} />
-          )}
+          <AnimatedSize className="justify-start" reflowRef={row}>
+            <div className="chat-message-content">
+              {item.state === "live" ? (
+                <StreamingMarkdown value={item.value.Text} />
+              ) : (
+                <StaticMarkdown value={item.value.Text} />
+              )}
+              {item.state === "committed" && (
+                <MessageFooter text={item.value.Text} committedAt={item.value.committed_at_unix_ms} />
+              )}
+            </div>
+          </AnimatedSize>
         </Island>
       </div>
     </div>

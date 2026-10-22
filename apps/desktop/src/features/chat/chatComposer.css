@@ -4,6 +4,7 @@
   width: 100%;
   max-width: var(--chat-content-max-width);
   margin-inline: auto;
+  padding-inline: var(--space-2);
   padding-block-end: var(--space-2);
 }
 
@@ -29,7 +30,7 @@
   border: 0;
   background: transparent;
   border-radius: 0;
-  padding: var(--space-1);
+  padding: var(--space-1) calc(var(--space-2) + var(--space-1) / 2);
   box-shadow: none;
   transition: none;
 }
@@ -39,7 +40,7 @@
   flex-wrap: wrap;
   flex-shrink: 0;
   align-items: center;
-  gap: var(--space-2);
+  gap: var(--space-1);
 }
 
 .chat-composer-controls > :not(.chat-composer-settings, .chat-composer-actions),
@@ -57,14 +58,14 @@
 }
 
 .chat-composer-settings {
-  min-width: min(12rem, 100%);
+  min-width: 0;
   flex: 0 1 auto;
   max-width: 100%;
 }
 
 .chat-composer-worktree {
   flex: 0 1 auto;
-  min-width: min(6rem, 100%);
+  min-width: 0;
   max-width: 100%;
 }
 

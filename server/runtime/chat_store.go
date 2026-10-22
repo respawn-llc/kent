@@ -4,6 +4,7 @@ import (
 	"core/server/llm"
 	"core/server/session"
 	"core/server/tools"
+	"core/shared/config"
 	"core/shared/runtimeids"
 	"core/shared/textutil"
 	"core/shared/toolspec"
@@ -18,35 +19,40 @@ import (
 )
 
 type ChatEntry struct {
-	StepID                *string
-	Visibility            transcript.EntryVisibility
-	RollbackTargetID      *string
-	Role                  string
-	Text                  string
-	DurationMs            *int64
-	CondensedText         string
-	Phase                 llm.MessagePhase
-	MessageType           llm.MessageType
-	CompactionNumber      *int
-	SourcePath            string
-	WorktreeContext       *session.WorktreeContext
-	CompactLabel          string
-	ToolResultSummary     string
-	ToolCallID            string
-	QuestionAnswer        *tools.AskQuestionAnswer
-	WebSearch             *transcript.WebSearchDetail
-	NoticeID              string
-	BackgroundActivityID  string
-	BackgroundProcessID   string
-	BackgroundExitCode    *int
-	CacheWarning          *transcript.CacheWarning
-	ToolOutputRepair      *transcript.ToolOutputRepairNotice
-	ProviderModelMismatch *transcript.ProviderModelMismatchNotice
-	ThinkingEffort        *string
-	ToolCall              *transcript.ToolCallMeta
-	CommittedProvenance   *TranscriptCommittedRowProvenance
-	ReviewerFeedback      *ReviewerFeedbackChatEntry
-	ReviewerError         *ReviewerErrorChatEntry
+	StepID                 *string
+	Visibility             transcript.EntryVisibility
+	RollbackTargetID       *string
+	Role                   string
+	Text                   string
+	DurationMs             *int64
+	CondensedText          string
+	Phase                  llm.MessagePhase
+	MessageType            llm.MessageType
+	CompactionNumber       *int
+	SourcePath             string
+	WorktreeContext        *session.WorktreeContext
+	CompactLabel           string
+	ToolResultSummary      string
+	ViewedImageKind        *transcript.ViewedImageKind
+	ToolCallID             string
+	QuestionAnswer         *tools.AskQuestionAnswer
+	AnsweredBySessionID    *runtimeids.SessionID
+	WebSearch              *transcript.WebSearchDetail
+	NoticeID               string
+	BackgroundActivityID   string
+	BackgroundProcessID    string
+	BackgroundExitCode     *int
+	CacheWarning           *transcript.CacheWarning
+	ToolOutputRepair       *transcript.ToolOutputRepairNotice
+	ProviderModelMismatch  *transcript.ProviderModelMismatchNotice
+	ReasoningOmission      *transcript.ReasoningOmissionNotice
+	ConnectionFallback     *config.ConnectionReplacement
+	ConnectionsUnavailable *transcript.ConnectionsUnavailableNotice
+	ThinkingEffort         *string
+	ToolCall               *transcript.ToolCallMeta
+	CommittedProvenance    *TranscriptCommittedRowProvenance
+	ReviewerFeedback       *ReviewerFeedbackChatEntry
+	ReviewerError          *ReviewerErrorChatEntry
 }
 
 type ReviewerFeedbackChatEntry struct {
@@ -73,15 +79,17 @@ type AssistantStreamMetadata struct {
 }
 
 type storedToolCompletion struct {
-	CallID         string                   `json:"call_id"`
-	Name           string                   `json:"name"`
-	IsError        bool                     `json:"is_error"`
-	Output         json.RawMessage          `json:"output"`
-	Summary        *string                  `json:"summary,omitempty"`
-	CondensedText  *string                  `json:"condensed_text,omitempty"`
-	Presentation   *transcript.ToolCallMeta `json:"presentation,omitempty"`
-	ProviderItems  []llm.ResponseItem       `json:"provider_items,omitempty"`
-	QuestionAnswer *tools.AskQuestionAnswer `json:"question_answer,omitempty"`
+	CallID              string                   `json:"call_id"`
+	Name                string                   `json:"name"`
+	IsError             bool                     `json:"is_error"`
+	ProviderItemOnly    bool                     `json:"provider_item_only,omitempty"`
+	Output              json.RawMessage          `json:"output"`
+	Summary             *string                  `json:"summary,omitempty"`
+	CondensedText       *string                  `json:"condensed_text,omitempty"`
+	Presentation        *transcript.ToolCallMeta `json:"presentation,omitempty"`
+	ProviderItems       []llm.ResponseItem       `json:"provider_items,omitempty"`
+	QuestionAnswer      *tools.AskQuestionAnswer `json:"question_answer,omitempty"`
+	AnsweredBySessionID *runtimeids.SessionID    `json:"answered_by_session_id,omitempty"`
 }
 
 type chatStore struct {
@@ -104,6 +112,7 @@ type chatStore struct {
 
 	providerTokenEstimate      int
 	providerTokenEstimateDirty bool
+	tokenEstimator             llm.TokenEstimator
 }
 
 type assistantStreamingState struct {
@@ -139,6 +148,7 @@ func newChatStoreWithCWD(cwd string) *chatStore {
 		synthesizedToolResults:      make(map[string]struct{}, 16),
 		cwd:                         strings.TrimSpace(cwd),
 		providerTokenEstimateDirty:  true,
+		tokenEstimator:              llm.DefaultTokenEstimator{},
 	}
 }
 
@@ -164,7 +174,13 @@ func (s *chatStore) appendMessage(stepID *string, msg llm.Message) error {
 	if err := s.validateMessageLocked(stepID, msg); err != nil {
 		return err
 	}
-	s.providerItems = append(s.providerItems, llm.ItemsFromMessages([]llm.Message{msg})...)
+	providerItems := llm.ItemsFromMessages([]llm.Message{msg})
+	if msg.Role == llm.RoleTool && msg.ToolCallID != nil {
+		if completion, ok := s.toolCompletions[*msg.ToolCallID]; ok && completion.ProviderItemOnly {
+			providerItems = nil
+		}
+	}
+	s.providerItems = append(s.providerItems, providerItems...)
 	s.applyMessageStatsLocked(stepID, msg)
 	s.providerTokenEstimateDirty = true
 	return nil
@@ -174,7 +190,7 @@ func (s *chatStore) replaceHistory(stepID string, items []llm.ResponseItem) {
 		textutil.OptionalExactString(stepID),
 		items,
 		nil,
-		transcriptEntriesFromHistoryReplacement(items, nil),
+		transcriptEntriesFromHistoryReplacement(historyReplacementPayload{Items: items}),
 	)
 }
 
@@ -186,17 +202,33 @@ func (s *chatStore) replaceHistoryAtCommittedEntryStart(
 ) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	preparedItems := llm.PrepareResponsesInputItems(items)
+	s.recordReplacementToolCallStepIDsLocked(stepID, preparedItems)
+	s.installWorkingSetLocked(&compactionCheckpoint{Items: llm.CloneResponseItems(preparedItems)}, committedEntryStart, projectedEntries)
+}
+
+func (s *chatStore) beginGeneration(_ *string, committedEntryStart int, entries []ChatEntry) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.installWorkingSetLocked(nil, &committedEntryStart, entries)
+}
+
+func (s *chatStore) prepareGeneration(items []llm.ResponseItem, entries []ChatEntry) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.compact = &compactionCheckpoint{Items: llm.CloneResponseItems(llm.PrepareResponsesInputItems(items))}
+	s.transcriptEntryCount += len(entries)
+	s.providerTokenEstimateDirty = true
+}
+
+func (s *chatStore) installWorkingSetLocked(checkpoint *compactionCheckpoint, committedEntryStart *int, projectedEntries []ChatEntry) {
 	if committedEntryStart != nil && *committedEntryStart > s.transcriptEntryCount {
 		s.transcriptEntryCount = *committedEntryStart
 	}
-	preparedItems := llm.PrepareOpenAIInputItems(items)
-	s.recordReplacementToolCallStepIDsLocked(stepID, preparedItems)
 	// Provider/model history switches to the compacted checkpoint while the
 	// transcript receives its typed projection at the same committed boundary.
 	s.transcriptEntryCount += len(projectedEntries)
-	s.compact = &compactionCheckpoint{
-		Items: llm.CloneResponseItems(preparedItems),
-	}
+	s.compact = checkpoint
 	s.providerItems = nil
 	s.pruneToolCompletionsToWorkingSetLocked()
 	s.providerTokenEstimateDirty = true
@@ -243,13 +275,20 @@ func (s *chatStore) estimatedProviderTokens() int {
 		return s.providerTokenEstimate
 	}
 	items, _ := s.snapshotProviderItemsLocked()
-	total := estimateItemsTokens(items)
+	total := llm.EstimateItemsTokens(s.tokenEstimator, items)
 	if total < 0 {
 		total = 0
 	}
 	s.providerTokenEstimate = total
 	s.providerTokenEstimateDirty = false
 	return total
+}
+
+func (s *chatStore) bindTokenEstimator(estimator llm.TokenEstimator) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.tokenEstimator = estimator
+	s.providerTokenEstimateDirty = true
 }
 
 func (s *chatStore) snapshotItems() []llm.ResponseItem {
@@ -308,14 +347,16 @@ func (s *chatStore) restoreToolCompletionRecord(record session.ToolCompletionRec
 		return fmt.Errorf("restore session tool completion record: %w", err)
 	}
 	s.recordToolCompletionWithProviderItems(tools.Result{
-		CallID:         completion.CallID,
-		Name:           toolspec.ID(completion.Name),
-		IsError:        completion.IsError,
-		Output:         completion.Output,
-		Summary:        completion.Summary,
-		CondensedText:  completion.CondensedText,
-		Presentation:   completion.Presentation,
-		QuestionAnswer: completion.QuestionAnswer,
+		CallID:              completion.CallID,
+		Name:                toolspec.ID(completion.Name),
+		IsError:             completion.IsError,
+		ProviderItemOnly:    completion.ProviderItemOnly,
+		Output:              completion.Output,
+		Summary:             completion.Summary,
+		CondensedText:       completion.CondensedText,
+		Presentation:        completion.Presentation,
+		QuestionAnswer:      completion.QuestionAnswer,
+		AnsweredBySessionID: completion.AnsweredBySessionID,
 	}, completion.ProviderItems)
 	return nil
 }
@@ -474,7 +515,7 @@ func cloneTranscriptStreamID(streamID *uuid.UUID) *uuid.UUID {
 }
 
 func (s *chatStore) countLocalEntry(entry ChatEntry) {
-	if strings.TrimSpace(entry.Text) == "" && entry.CacheWarning == nil && entry.ToolOutputRepair == nil && entry.ProviderModelMismatch == nil && entry.ReviewerFeedback == nil && entry.ReviewerError == nil {
+	if strings.TrimSpace(entry.Text) == "" && entry.CacheWarning == nil && entry.ToolOutputRepair == nil && entry.ProviderModelMismatch == nil && entry.ReasoningOmission == nil && entry.ConnectionFallback == nil && entry.ConnectionsUnavailable == nil && entry.ReviewerFeedback == nil && entry.ReviewerError == nil {
 		return
 	}
 	s.mu.Lock()
@@ -566,7 +607,7 @@ func (s *chatStore) snapshotProviderItemsLocked() ([]llm.ResponseItem, *int) {
 		if completionName == "" {
 			completionName = itemName
 		}
-		pendingOutputs = append(pendingOutputs, llm.PrepareOpenAIInputItems([]llm.ResponseItem{{
+		pendingOutputs = append(pendingOutputs, llm.PrepareResponsesInputItems([]llm.ResponseItem{{
 			Type:   llm.ToolOutputItemType(item.Type == llm.ResponseItemTypeCustomToolCall),
 			CallID: textutil.Value(callID),
 			Name:   textutil.OptionalExactString(completionName),

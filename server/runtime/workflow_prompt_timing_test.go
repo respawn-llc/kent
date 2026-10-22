@@ -129,6 +129,14 @@ func TestSelectWorkflowTaskPromptAfterSameNodeAssignmentCompaction(t *testing.T)
 	}
 }
 
+func TestSelectWorkflowTaskPromptAfterDeferredSameAssignmentCompaction(t *testing.T) {
+	t.Parallel()
+	kind, present := selectWorkflowTaskPromptForTest(t, nil, "run-current", workflowTaskPromptTriggerCompaction)
+	if !present || kind != prompts.WorkflowTaskPromptCompactionReminder {
+		t.Fatalf("deferred current assignment prompt = %v, present=%v, want continuation", kind, present)
+	}
+}
+
 func TestSelectWorkflowTaskPromptAfterCompactionForAnotherNodeAssignment(t *testing.T) {
 	t.Parallel()
 	kind, ok := selectWorkflowTaskPromptForTest(
@@ -153,7 +161,7 @@ func TestSelectWorkflowTaskPromptResumeRestoresMissingOrDifferentAssignment(t *t
 		{
 			name:       "missing assignment",
 			items:      nil,
-			wantKind:   prompts.WorkflowTaskPromptInitialAssignment,
+			wantKind:   prompts.WorkflowTaskPromptCompactionReminder,
 			wantInject: true,
 		},
 		{
@@ -203,7 +211,7 @@ func TestSelectWorkflowTaskPromptForFanoutCloneWithInheritedAssignment(t *testin
 	}
 	clone, err := session.CloneSession(
 		sourceLog,
-		"fanout-clone",
+		new("fanout-clone"),
 		sessioncontract.SessionCategoryMain, session.ForkThinking{Desired: "medium", PreserveNativeUpdates: true})
 
 	if err != nil {

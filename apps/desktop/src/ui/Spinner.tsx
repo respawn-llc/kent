@@ -3,12 +3,13 @@ import { cx } from "./classes";
 export type SpinnerProps = Readonly<{
   className?: string | undefined;
   size?: "sm" | "md";
-  tone?: "primary" | "secondary" | "success";
+  tone?: "primary" | "secondary" | "success" | "inherit";
   strokeWidth?: number | undefined;
   testID?: string | undefined;
 }>;
 
 const tones = {
+  inherit: "text-current",
   primary: "text-[var(--color-primary)]",
   secondary: "text-[var(--color-secondary)]",
   success: "text-[var(--color-success)]",

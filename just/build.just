@@ -22,7 +22,6 @@ desktop *args:
 
 [private]
 _desktop *args:
-    just _node
     bash scripts/build-desktop.sh --skip-install {{args}}
 
 docs *args:
@@ -30,9 +29,8 @@ docs *args:
 
 [private]
 _docs *args:
-    just _node
-    pnpm --dir docs exec astro build {{args}}
-    node docs/scripts/emit-deployment-files.mjs
+    bun run --bun --cwd docs astro build {{args}}
+    bun docs/scripts/emit-deployment-files.mjs
 
 [private]
 _go *args:
@@ -49,17 +47,16 @@ _desktop-web:
 
 [private]
 _desktop-web-implementation:
-    just _node
     just _gen-typescript
     just build _desktop-compiler
-    pnpm --dir apps/desktop exec vite --config tooling/vite.config.ts build
-    node apps/scripts/check-desktop-font-assets.mjs
+    bun run --bun --cwd apps/desktop vite --config tooling/vite.config.ts build
+    bun apps/scripts/check-desktop-font-assets.mjs
 
 [private]
 _desktop-compiler:
     just install _effect-compiler
     just _lint _effect-policy
-    node apps/desktop/node_modules/typescript7/bin/tsc -b apps/desktop/tsconfig.json --pretty false
+    bun apps/desktop/node_modules/typescript7/bin/tsc -b apps/desktop/tsconfig.json --pretty false
 
 [private]
 _desktop-smoke-macos bundle_dir:
@@ -74,7 +71,18 @@ _desktop-smoke-macos-implementation bundle_dir:
     [ "${#dmgs[@]}" -eq 1 ] || { echo "Expected exactly one macOS DMG, found ${#dmgs[@]}." >&2; exit 1; }
     mount_dir="$(mktemp -d)"
     printf 'Y\n' | hdiutil attach "${dmgs[0]}" -nobrowse -readonly -mountpoint "$mount_dir"
-    trap 'hdiutil detach "$mount_dir"' EXIT
+    cleanup() {
+        local smoke_status=$?
+        local detach_status=0
+        # This is a read-only smoke image; force eject after the application exits.
+        hdiutil detach -force "$mount_dir" || detach_status=$?
+        if [ "$smoke_status" -eq 0 ]; then
+            smoke_status=$detach_status
+        fi
+        trap - EXIT
+        exit "$smoke_status"
+    }
+    trap cleanup EXIT
     app="$mount_dir/Kent.app"
     executable="$app/Contents/MacOS/kent-desktop"
     [ "$(plutil -extract LSMinimumSystemVersion raw "$app/Contents/Info.plist")" = "15.0" ]
@@ -92,6 +100,5 @@ _desktop-ci-debug key:
 
 [private]
 _desktop-ci-debug-implementation key:
-    just _node
-    pnpm --dir apps/desktop exec tauri signer generate -f -w {{key}} -p ""
+    bun run --bun --cwd apps/desktop tauri signer generate -f -w {{key}} -p ""
     TAURI_SIGNING_PRIVATE_KEY="$(cat {{key}})" TAURI_SIGNING_PRIVATE_KEY_PASSWORD="" bash scripts/build-desktop.sh --skip-install -- --debug

@@ -120,21 +120,20 @@ func (b *forkReplayBatch) validateDrained() error {
 // conversation up to (but excluding) the visible user message persisted at
 // userMessageSeq. It returns the forked store and the 1-based ordinal of that
 // user message among the parent's visible user messages (for naming/display).
+// User-driven forks select a fresh interactive contract, not a continuation.
 func ForkAtUserMessage(parentLog MaterializedEventLog, userMessageSeq int64, forkName string, category sessioncontract.SessionCategory, thinking ForkThinking) (*Store, int, error) {
 	if userMessageSeq <= 0 {
 		return nil, 0, fmt.Errorf("user message seq must be >= 1")
 	}
 	return streamChildFromParent(parentLog, forkName, category, ChildContextOptions{
-		LockedContract:      InheritContractWithoutTools,
-		InheritContinuation: true,
-		InheritGoal:         true,
+		InheritGoal: true,
 	}, userMessageSeq, thinking)
 }
 
 // CloneSession creates a child session that replays the parent's entire
 // conversation history. Workflow fan-out copies retain the outgoing contract for
 // a permitted lazy compaction, or reuse the source's committed summary.
-func CloneSession(parentLog MaterializedEventLog, forkName string, category sessioncontract.SessionCategory, thinking ForkThinking) (*Store, error) {
+func CloneSession(parentLog MaterializedEventLog, forkName *string, category sessioncontract.SessionCategory, thinking ForkThinking) (*Store, error) {
 	parent, err := materializedForkParent(parentLog)
 	if err != nil {
 		return nil, err
@@ -189,8 +188,12 @@ func streamChildFromParent(
 		return nil, 0, err
 	}
 
+	name, err := sessioncontract.NormalizeSessionName(&forkName)
+	if err != nil {
+		return nil, 0, err
+	}
 	child.mu.Lock()
-	child.meta.Name = strings.TrimSpace(forkName)
+	child.meta.Name = name
 	child.meta.ChatSettings = &ChatSettingsOverrides{Thinking: textutil.Value(thinking.Desired)}
 	if thinking.PreserveNativeUpdates {
 		child.meta.OriginalThinkingEffort = textutil.Pointer(parentMeta.OriginalThinkingEffort)
@@ -290,33 +293,32 @@ func streamReplay(parentLog MaterializedEventLog, version int, appendBatch func(
 		if _, configuration := payload.(ConfigurationUpdateRecord); configuration && !preserveNativeUpdates {
 			return nil
 		}
-		if replacement, ok := payload.(HistoryReplacementRecord); ok {
-			if !preserveNativeUpdates {
-				items := make([]ProviderHistoryItem, 0, len(replacement.Items))
-				for _, item := range replacement.Items {
-					if item.Type != ProviderHistoryItemTypeConfigurationUpdate {
-						items = append(items, item)
-					}
-				}
-				replacement.Items = items
-			}
+		if IsContextBoundary(payload.eventKind()) {
 			if err := flush(); err != nil {
 				return err
 			}
-			rebasedReplacement := rebaseHistoryReplacementRollbackCandidate(
-				replacement,
-				latestRollbackCandidate,
-			)
-			rebasedRecord, err := newEventRecord(
-				record.Seq(),
-				record.StepID(),
-				rebasedReplacement,
-				record.CommittedAtUnixMs(),
-			)
+			candidate, err := normalizeRollbackCandidate(latestRollbackCandidate)
 			if err != nil {
 				return err
 			}
-			record = rebasedRecord
+			switch boundary := payload.(type) {
+			case HistoryReplacementRecord:
+				if !preserveNativeUpdates {
+					var items []ProviderHistoryItem
+					for _, item := range boundary.Items {
+						if item.Type != ProviderHistoryItemTypeConfigurationUpdate {
+							items = append(items, item)
+						}
+					}
+					boundary.Items = items
+				}
+				boundary.LatestRollbackCandidate = candidate
+				payload = boundary
+			}
+			record, err = newEventRecord(record.Seq(), record.StepID(), payload, record.CommittedAtUnixMs())
+			if err != nil {
+				return err
+			}
 		}
 		recordBytes, err := replayRecordByteSizeForVersion(record, version)
 		if err != nil {
@@ -362,19 +364,6 @@ func isForkVisibleUserMessage(record EventRecord) (bool, error) {
 		message.MessageType,
 		message.Content,
 	), nil
-}
-
-func rebaseHistoryReplacementRollbackCandidate(
-	replacement HistoryReplacementRecord,
-	locator *rollbacktarget.CandidateLocator,
-) HistoryReplacementRecord {
-	if locator == nil {
-		replacement.LatestRollbackCandidate = nil
-		return replacement
-	}
-	candidate := *locator
-	replacement.LatestRollbackCandidate = &candidate
-	return replacement
 }
 
 func replayRecordByteSize(record EventRecord) (int, error) {
@@ -426,10 +415,6 @@ func cloneLockedContract(in *LockedContract) *LockedContract {
 		toolPreambles := *in.ToolPreambles
 		copyLocked.ToolPreambles = &toolPreambles
 	}
-	if in.WorkflowCompletionMode != nil {
-		mode := *in.WorkflowCompletionMode
-		copyLocked.WorkflowCompletionMode = &mode
-	}
 	copyLocked.ProviderContract.SupportsProviderVerbosity = textutil.Pointer(in.ProviderContract.SupportsProviderVerbosity)
 	copyLocked.SystemPrompt = strings.TrimSpace(in.SystemPrompt)
 	copyLocked.ReviewerPrompt = strings.TrimSpace(in.ReviewerPrompt)
@@ -450,14 +435,12 @@ type LockedContractInheritance uint8
 const (
 	InheritNoContract LockedContractInheritance = iota
 	InheritFullContract
-	InheritContractWithoutTools
 )
 
 type ChildContextOptions struct {
 	LockedContract LockedContractInheritance
-	// InheritContinuation preserves parent continuation settings for
-	// interactive children. Headless subagent launches leave this false so
-	// parent role/base URL state cannot override the selected subagent config.
+	// InheritContinuation preserves workflow context, delegation ancestry,
+	// and role for continuation children, not user-driven forks.
 	InheritContinuation bool
 	// InheritGoal preserves the parent's current goal for user-facing
 	// Edit/Fork children. Complete-history workflow clones leave this false.
@@ -530,12 +513,8 @@ func InitializeCreationContext(child *Store, source CreationContextSource, kind 
 		return nil
 	}
 	switch opts.LockedContract {
-	case InheritFullContract, InheritContractWithoutTools:
+	case InheritFullContract:
 		child.meta.Locked = cloneLockedContract(sourceMeta.Locked)
-		if opts.LockedContract == InheritContractWithoutTools && child.meta.Locked != nil {
-			child.meta.Locked.EnabledTools = nil
-			child.meta.Locked.HasEnabledTools = false
-		}
 	case InheritNoContract:
 		child.meta.Locked = nil
 	default:
@@ -544,6 +523,11 @@ func InitializeCreationContext(child *Store, source CreationContextSource, kind 
 		return errors.New("invalid locked contract inheritance policy")
 	}
 	child.meta.WorkspaceRoot = sourceMeta.WorkspaceRoot
+	if opts.InheritContinuation || kind == SessionCreationSourceParentAgent {
+		child.meta.WorkflowSnapshot = cloneWorkflowSnapshot(sourceMeta.WorkflowSnapshot)
+	} else {
+		child.meta.WorkflowSnapshot = nil
+	}
 	child.meta.WorkspaceContainer = sourceMeta.WorkspaceContainer
 	child.meta.WorktreeReminder = CloneWorktreeReminderState(sourceMeta.WorktreeReminder)
 	child.meta.UsageState = nil
@@ -561,7 +545,7 @@ func InitializeCreationContext(child *Store, source CreationContextSource, kind 
 	switch kind {
 	case SessionCreationSourcePreviousSession:
 		child.meta.PreviousSessionID = &sourceID
-		if sourceMeta.ParentAgentSessionID != nil {
+		if opts.InheritContinuation && sourceMeta.ParentAgentSessionID != nil {
 			parentAgentSessionID := *sourceMeta.ParentAgentSessionID
 			child.meta.ParentAgentSessionID = &parentAgentSessionID
 		}
@@ -570,9 +554,6 @@ func InitializeCreationContext(child *Store, source CreationContextSource, kind 
 	}
 	if opts.InheritContinuation {
 		child.meta.Continuation = cloneContinuationContext(sourceMeta.Continuation)
-		if kind == SessionCreationSourcePreviousSession {
-			child.meta.ConnectionID = textutil.Pointer(sourceMeta.ConnectionID)
-		}
 	} else {
 		child.meta.Continuation = nil
 	}
@@ -602,21 +583,31 @@ func (d *replayDerivedState) apply(record EventRecord) error {
 	}
 	switch payload := payload.(type) {
 	case MessageRecord:
-		if payload.Role == MessageRoleDeveloper && payload.MessageType != nil {
-			switch *payload.MessageType {
-			case MessageTypeHeadlessMode:
-				d.headlessActive = true
-			case MessageTypeHeadlessModeExit:
-				d.headlessActive = false
+		d.applyMessage(payload)
+	case GenerationContextRecord:
+		for _, messages := range [][]MessageRecord{payload.BeforeSummary, payload.AfterSummary} {
+			for _, message := range messages {
+				d.applyMessage(message)
 			}
-		}
-		if isCompactionSoonReminderMessage(payload) {
-			d.reminderIssued = true
 		}
 	case HistoryReplacementRecord:
 		d.reminderIssued = false
 	}
 	return nil
+}
+
+func (d *replayDerivedState) applyMessage(message MessageRecord) {
+	if message.Role == MessageRoleDeveloper && message.MessageType != nil {
+		switch *message.MessageType {
+		case MessageTypeHeadlessMode:
+			d.headlessActive = true
+		case MessageTypeHeadlessModeExit:
+			d.headlessActive = false
+		}
+	}
+	if isCompactionSoonReminderMessage(message) {
+		d.reminderIssued = true
+	}
 }
 
 func isCompactionSoonReminderMessage(message MessageRecord) bool {

@@ -1,9 +1,11 @@
 package app
 
 import (
+	"core/cli/internal/pathdisplay"
+	"core/shared/runtimeids"
 	sharedtheme "core/shared/theme"
 	"fmt"
-	"os"
+	"math"
 	"path/filepath"
 	"strings"
 	"time"
@@ -32,6 +34,42 @@ func statusClampPercent(value float64) float64 {
 		return 100
 	}
 	return value
+}
+
+type grokSubscriptionBarSegments struct {
+	BuildOrTotalCells int
+	ChatCells         int
+	EmptyCells        int
+	Stacked           bool
+}
+
+func grokSubscriptionBarSegmentsForWindow(width int, window uiStatusSubscriptionWindow) grokSubscriptionBarSegments {
+	width = min(statusSubscriptionBarMaxWidth, max(4, width))
+	totalUsed := statusClampPercent(window.UsedPercent)
+	totalCells := int(math.Round(float64(width) * totalUsed / 100))
+	segments := grokSubscriptionBarSegments{
+		BuildOrTotalCells: totalCells,
+		EmptyCells:        width - totalCells,
+	}
+	contributions := window.GrokContributions
+	if contributions == nil || contributions.BuildUsedPercent == nil || contributions.ChatUsedPercent == nil {
+		return segments
+	}
+
+	buildUsed := statusClampPercent(*contributions.BuildUsedPercent)
+	chatUsed := statusClampPercent(*contributions.ChatUsedPercent)
+	if math.Abs(buildUsed+chatUsed-totalUsed) > 0.01 {
+		return segments
+	}
+
+	buildCells := int(math.Round(float64(width) * buildUsed / 100))
+	buildCells = min(totalCells, buildCells)
+	return grokSubscriptionBarSegments{
+		BuildOrTotalCells: buildCells,
+		ChatCells:         totalCells - buildCells,
+		EmptyCells:        width - totalCells,
+		Stacked:           true,
+	}
 }
 
 func statusSubscriptionBarWidth(width int) int {
@@ -143,17 +181,17 @@ func statusVisibleAuthSummary(auth uiStatusAuthInfo, subscription uiStatusSubscr
 func statusSessionProvenanceSummaries(snapshot uiStatusSnapshot) []string {
 	summaries := make([]string, 0, 2)
 	if snapshot.PreviousSessionID != nil {
-		previousID := snapshot.PreviousSessionID.String()
-		if previousName := strings.TrimSpace(snapshot.PreviousSessionName); previousName != "" {
-			summaries = append(summaries, fmt.Sprintf("Previous session: %s <%s>", previousName, previousID))
+		previousID := (runtimeids.SessionIdentity{ID: *snapshot.PreviousSessionID, ShortID: snapshot.PreviousSessionShortID}).String()
+		if snapshot.PreviousSessionName != nil {
+			summaries = append(summaries, fmt.Sprintf("Previous session: %s <%s>", *snapshot.PreviousSessionName, previousID))
 		} else {
 			summaries = append(summaries, fmt.Sprintf("Previous session: %s", previousID))
 		}
 	}
 	if snapshot.ParentAgentSessionID != nil {
-		parentAgentID := snapshot.ParentAgentSessionID.String()
-		if parentAgentName := strings.TrimSpace(snapshot.ParentAgentSessionName); parentAgentName != "" {
-			summaries = append(summaries, fmt.Sprintf("Parent agent session: %s <%s>", parentAgentName, parentAgentID))
+		parentAgentID := (runtimeids.SessionIdentity{ID: *snapshot.ParentAgentSessionID, ShortID: snapshot.ParentAgentSessionShortID}).String()
+		if snapshot.ParentAgentSessionName != nil {
+			summaries = append(summaries, fmt.Sprintf("Parent agent session: %s <%s>", *snapshot.ParentAgentSessionName, parentAgentID))
 		} else {
 			summaries = append(summaries, fmt.Sprintf("Parent agent session: %s", parentAgentID))
 		}
@@ -180,25 +218,9 @@ func statusDisplayPath(path, workdir string) string {
 		return "<unknown>"
 	}
 	if work := filepath.ToSlash(strings.TrimSpace(workdir)); work != "" {
-		if trimmed == work {
-			return trimmed
-		}
-		if strings.HasPrefix(trimmed, work+"/") {
-			return "." + strings.TrimPrefix(trimmed, work)
-		}
+		return pathdisplay.Compact(trimmed, &work)
 	}
-	if home, err := os.UserHomeDir(); err == nil {
-		home = filepath.ToSlash(strings.TrimSpace(home))
-		if home != "" {
-			if trimmed == home {
-				return "~"
-			}
-			if strings.HasPrefix(trimmed, home+"/") {
-				return "~" + strings.TrimPrefix(trimmed, home)
-			}
-		}
-	}
-	return trimmed
+	return pathdisplay.Compact(trimmed, nil)
 }
 
 func statusValueOrFallback(value, fallback string) string {

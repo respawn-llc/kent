@@ -10,6 +10,7 @@ import (
 	"strings"
 
 	"core/server/metadata"
+	"core/shared/protoapi"
 	worktreepb "core/shared/protoapi/gen/kent/api/worktree"
 	"core/shared/worktreecontract"
 )
@@ -59,7 +60,7 @@ func (s *Service) executeDeleteLocked(
 	} else if record != nil {
 		targetRoot = &record.CanonicalRoot
 	}
-	if err := s.checkDeleteTargetActivity(ctx, record, targetRoot); err != nil {
+	if err := s.checkDeleteTargetActivity(ctx, record, targetRoot, s.authority.HasBlockingWorktreeDeleteActivity); err != nil {
 		return nil, err
 	}
 	if err := s.ensureDeleteFolderRemovalAuthorized(ctx, entry, req.ForceFolderRemoval); err != nil {
@@ -178,7 +179,11 @@ func (s *Service) checkDeleteTargetActivity(
 	ctx context.Context,
 	record *metadata.WorktreeRecord,
 	worktreeRoot *string,
+	hasBlockingActivity func(context.Context, string) (bool, error),
 ) error {
+	if hasBlockingActivity == nil {
+		return errors.New("delete Runtime activity check is required")
+	}
 	if worktreeRoot != nil && strings.TrimSpace(*worktreeRoot) == "" {
 		return errors.New("delete target root must not be blank when present")
 	}
@@ -195,7 +200,7 @@ func (s *Service) checkDeleteTargetActivity(
 				return err
 			}
 			for _, target := range page.Sessions {
-				active, err := s.authority.HasBlockingRuntimeActivity(ctx, target.SessionID)
+				active, err := hasBlockingActivity(ctx, target.SessionID)
 				if err != nil {
 					return err
 				}
@@ -207,7 +212,7 @@ func (s *Service) checkDeleteTargetActivity(
 					return &worktreecontract.BlockedError{Details: &worktreepb.BlockedDetails{ActiveSessions: activeBlockers}}
 				}
 				activeBlockers.Sessions = append(activeBlockers.Sessions, &worktreepb.BlockingSession{
-					SessionId: target.SessionID, Name: nonblankPointer(target.SessionName),
+					SessionId: target.SessionID, ShortId: protoapi.SessionShortIDToProto(target.ShortID), Name: target.SessionName,
 				})
 			}
 			if page.Next == nil {

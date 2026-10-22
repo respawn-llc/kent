@@ -448,7 +448,7 @@ func (l *currentEventLog) readActiveSegment() (EventRecordWindow, error) {
 				matchErr = err
 				return true
 			}
-			return kind == EventKindHistoryReplace
+			return IsContextBoundary(kind)
 		},
 	)
 	if err != nil {

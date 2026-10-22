@@ -1,10 +1,25 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it } from "bun:test";
 
 import type { ChatTranscriptCommittedRow } from "@/api";
 
 import { projectNotice } from "./transcriptNoticePolicy";
 
 describe("Chat notice policy", () => {
+  it("uses client prose for the Workspaces collapsed summary", () => {
+    const policy = projectNotice(
+      noticeRow({
+        MessageType: "workspaces",
+        CompactLabel: "server label",
+        CondensedText: "server condensed text",
+        Diagnostic: { Code: "workspaces", Detail: "Workspace context" },
+      }),
+      prose,
+    );
+    expect(policy?.kind).toBe("disclosure");
+    if (policy?.kind !== "disclosure") throw new Error("Expected Workspaces disclosure.");
+    expect(policy.summary).toBe(prose.compact);
+  });
+
   it("uses client prose for agent steer summaries and preserves the message body", () => {
     const detail = "message from the sending Session";
     const policy = projectNotice(
@@ -23,12 +38,15 @@ describe("Chat notice policy", () => {
   });
 
   it("keeps notice inclusion, source, and expansion decisions typed", () => {
-    const cases: readonly {
-      name: string;
-      row: ChatTranscriptCommittedRow;
-      bodyKind: "markdown" | "plain_text" | null;
-      defaultExpanded?: boolean;
-    }[] = [
+    const cases: readonly (
+      | Readonly<{ name: string; row: ChatTranscriptCommittedRow; bodyKind: null }>
+      | Readonly<{
+          name: string;
+          row: ChatTranscriptCommittedRow;
+          bodyKind: "markdown" | "plain_text";
+          defaultExpanded: boolean;
+        }>
+    )[] = [
       { name: "hidden", row: noticeRow({ Visibility: "hidden" }), bodyKind: null },
       { name: "interruption", row: noticeRow({ MessageType: "interruption" }), bodyKind: null },
       {
@@ -83,6 +101,15 @@ describe("Chat notice policy", () => {
         defaultExpanded: false,
       },
       {
+        name: "Workspaces context",
+        row: noticeRow({
+          MessageType: "workspaces",
+          Diagnostic: { Code: "workspaces", Detail: "Workspace context" },
+        }),
+        bodyKind: "markdown",
+        defaultExpanded: false,
+      },
+      {
         name: "warning",
         row: noticeRow({ Severity: "warning", LegacyText: "warning detail" }),
         bodyKind: "plain_text",
@@ -112,7 +139,7 @@ describe("Chat notice policy", () => {
         MessageType: "compaction_summary",
         Compaction: { Count: 2, Detail: detail },
       }),
-      { expanded: detail, compact: "compaction 2" },
+      { expanded: detail, compact: "compaction 2", copyText: detail, sourcePath: null },
     );
     expect(policy).not.toBeNull();
     if (policy === null) throw new Error("Expected compaction policy.");
@@ -127,8 +154,36 @@ type Notice = NonNullable<ChatTranscriptCommittedRow["Notice"]>;
 
 const prose = {
   expanded: "structured notice",
+  copyText: "structured notice",
+  sourcePath: null,
   compact: "localized notice",
 };
+
+it("collapses a structured source-path fallback without changing Copy or arbitrary context text", () => {
+  const path = "/Users/engineer/AGENTS.md";
+  const pathProse = { ...prose, sourcePath: "~/AGENTS.md", copyText: path };
+  const sourceRow = noticeRow({ SourcePath: path, MessageType: "agents.md" });
+  const sourcePolicy = projectNotice(sourceRow, pathProse);
+  expect(sourcePolicy?.kind).toBe("disclosure");
+  if (sourcePolicy?.kind !== "disclosure") throw new Error("Expected source-path disclosure.");
+  expect(sourcePolicy.summary).toBe("~/AGENTS.md");
+  expect(sourcePolicy.body.text).toBe("~/AGENTS.md");
+  expect(sourcePolicy.copyText).toBe(path);
+
+  const context = projectNotice(
+    noticeRow({
+      SourcePath: path,
+      MessageType: "agents.md",
+      Diagnostic: { Code: "context", Detail: path },
+      CompactLabel: path,
+    }),
+    pathProse,
+  );
+  if (context?.kind !== "disclosure") throw new Error("Expected context disclosure.");
+  expect(context.summary).toBe(path);
+  expect(context.body.text).toBe(path);
+  expect(context.copyText).toBe(path);
+});
 
 function noticeRow(input: Partial<Notice> & { Visibility?: ChatTranscriptCommittedRow["Visibility"] } = {}) {
   const { Visibility = "ongoing", ...noticeInput } = input;

@@ -10,16 +10,131 @@ import (
 
 	"core/server/llm"
 	"core/server/tools"
+	"core/shared/runtimeids"
 	"core/shared/runtimeinput"
 	"core/shared/textutil"
 )
+
+func TestPostTurnQueueDeliversOneItemPerTurnWhileSteersBatch(t *testing.T) {
+	testPostTurnQueueDeliversOneItemPerTurn(t, false)
+}
+
+func TestPostTurnQueueDoesNotConsumeAnotherItemOnProviderRetry(t *testing.T) {
+	testPostTurnQueueDeliversOneItemPerTurn(t, true)
+}
+
+func testPostTurnQueueDeliversOneItemPerTurn(t *testing.T, retryQueuedRequest bool) {
+	t.Helper()
+	started := make(chan int, 4)
+	release := make(chan struct{})
+	defer close(release)
+	var call int
+	client := &hookClient{response: finalTextResponse("done")}
+	if retryQueuedRequest {
+		client.errors = []error{nil, nil, &llm.ProviderAPIError{ProviderID: "openai", StatusCode: 503, Code: llm.UnifiedErrorCodeUnknown}}
+	}
+	client.beforeReturn = func() error {
+		call++
+		started <- call
+		<-release
+		return nil
+	}
+	submitted := make(chan string, 10)
+	engine := mustNewTestEngine(t, mustCreateTestSession(t), client, tools.NewRegistry(), Config{
+		Model: "gpt-6-sol",
+		OnEvent: func(event Event) {
+			if event.QueuedUserMessageStatus != nil && event.QueuedUserMessageStatus.Status == QueuedUserMessageSubmitted {
+				submitted <- event.QueuedUserMessageStatus.QueueItemID
+			}
+		},
+	})
+	done := make(chan error, 1)
+	go func() {
+		_, err := engine.SubmitUserMessage(t.Context(), "start")
+		done <- err
+	}()
+	waitCall := func(want int) {
+		t.Helper()
+		select {
+		case got := <-started:
+			if got != want {
+				t.Fatalf("provider request = %d, want %d", got, want)
+			}
+		case <-time.After(runtimeTestSynchronizationTimeout):
+			t.Fatalf("provider request %d never started", want)
+		}
+	}
+	waitCall(1)
+	first, err := engine.QueueUserInput(t.Context(), plainQueuedUserInput("first queued"))
+	pendingWorkTestNoError(t, err)
+	second, err := engine.QueueUserInput(t.Context(), plainQueuedUserInput("second queued"))
+	pendingWorkTestNoError(t, err)
+	steerOne, err := engine.Steer(t.Context(), "first steer", nil)
+	pendingWorkTestNoError(t, err)
+	steerTwo, err := engine.Steer(t.Context(), "second steer", nil)
+	pendingWorkTestNoError(t, err)
+	release <- struct{}{}
+	waitCall(2)
+	want := map[string]bool{steerOne.ID: true, steerTwo.ID: true}
+	for len(submitted) > 0 {
+		id := <-submitted
+		if id == first.ID || id == second.ID {
+			t.Fatal("Queue item was drained at an in-turn steering boundary")
+		}
+		delete(want, id)
+	}
+	if len(want) != 0 {
+		t.Fatalf("eligible steers were not delivered together: %+v", want)
+	}
+	release <- struct{}{}
+	waitCall(3)
+	select {
+	case id := <-submitted:
+		if id != first.ID {
+			t.Fatalf("first queued turn submitted %s, want %s", id, first.ID)
+		}
+	default:
+		t.Fatal("first queued turn did not submit the first Queue item")
+	}
+	select {
+	case id := <-submitted:
+		t.Fatalf("first queued turn drained another item %s", id)
+	default:
+	}
+	pending := pendingWorkTestSnapshot(t, engine)
+	if len(pending.Items) != 1 || pending.Items[0].ID.String() != second.ID {
+		t.Fatalf("second Queue item must remain pending: %+v", pending.Items)
+	}
+	release <- struct{}{}
+	waitCall(4)
+	if retryQueuedRequest {
+		select {
+		case id := <-submitted:
+			t.Fatalf("provider retry consumed another Queue item %s", id)
+		default:
+		}
+		release <- struct{}{}
+		waitCall(5)
+	}
+	select {
+	case id := <-submitted:
+		if id != second.ID {
+			t.Fatalf("next queued turn submitted %s, want %s", id, second.ID)
+		}
+	default:
+		t.Fatal("next queued turn did not submit the remaining Queue item")
+	}
+	release <- struct{}{}
+	pendingWorkTestNoError(t, <-done)
+	waitEngineLifecycleTasks(t, engine)
+}
 
 func TestStopRestoresSteerAndPostTurnQueueWithoutContinuation(t *testing.T) {
 	client := newBlockingThenQueuedClient()
 	var mu sync.Mutex
 	var restored []InterruptedHumanInput
 	engine := mustNewTestEngine(t, mustCreateTestSession(t), client, tools.NewRegistry(), Config{
-		Model: "gpt-5",
+		Model: "gpt-6-sol",
 		OnEvent: func(event Event) {
 			if event.HumanInputInterrupted != nil {
 				mu.Lock()
@@ -34,13 +149,9 @@ func TestStopRestoresSteerAndPostTurnQueueWithoutContinuation(t *testing.T) {
 		done <- err
 	}()
 	pendingWorkTestWait(t, client.started, "held provider")
-	steer, err := engine.SteerInput(t.Context(), QueuedUserInput{
-		ExecutionText: "expanded steer", CanonicalPresentation: "/review steer",
-	}, nil)
+	steer, err := engine.SteerInput(t.Context(), QueuedUserInput{ID: runtimeids.NewQueueItemID().String(), ExecutionText: "expanded steer", CanonicalPresentation: "/review steer"}, nil)
 	pendingWorkTestNoError(t, err)
-	queued, err := engine.QueueUserInput(t.Context(), QueuedUserInput{
-		ExecutionText: "expanded queue", CanonicalPresentation: "/review queue",
-	})
+	queued, err := engine.QueueUserInput(t.Context(), QueuedUserInput{ID: runtimeids.NewQueueItemID().String(), ExecutionText: "expanded queue", CanonicalPresentation: "/review queue"})
 	pendingWorkTestNoError(t, err)
 	stopped, err := engine.TryInterruptActiveRun()
 	pendingWorkTestNoError(t, err)
@@ -75,7 +186,7 @@ func TestStopRestoresSteerAndPostTurnQueueWithoutContinuation(t *testing.T) {
 
 func TestPostTurnQueueStartsAfterActiveTurnCompletes(t *testing.T) {
 	client := &fakeClient{responses: []llm.Response{{Assistant: llm.Message{Role: llm.RoleAssistant, Content: textutil.Value("queued work handled"), Phase: textutil.Value(llm.MessagePhaseFinal)}}}}
-	engine := mustNewTestEngine(t, mustCreateTestSession(t), client, tools.NewRegistry(), Config{Model: "gpt-5"})
+	engine := mustNewTestEngine(t, mustCreateTestSession(t), client, tools.NewRegistry(), Config{Model: "gpt-6-sol"})
 	started := make(chan struct{})
 	release := make(chan struct{})
 	done := make(chan error, 1)
@@ -142,7 +253,7 @@ func TestPostTurnQueueStartsImmediatelyWhenRuntimeIsIdle(t *testing.T) {
 			Phase:   textutil.Value(llm.MessagePhaseFinal),
 		},
 	}}}
-	engine := mustNewTestEngine(t, mustCreateTestSession(t), client, tools.NewRegistry(), Config{Model: "gpt-5"})
+	engine := mustNewTestEngine(t, mustCreateTestSession(t), client, tools.NewRegistry(), Config{Model: "gpt-6-sol"})
 
 	queued, err := engine.QueueUserInput(t.Context(), plainQueuedUserInput("queued input"))
 	if err != nil {
@@ -171,7 +282,7 @@ func TestPostTurnQueueDoesNotHoldCompletedLiveRun(t *testing.T) {
 		t.Run(test.name, func(t *testing.T) {
 			client, started, releaseProvider := newGatedHookClient(finalTextResponse("original answer"), finalTextResponse("queued answer"))
 			defer releaseProvider()
-			engine := mustNewTestEngine(t, mustCreateTestSession(t), client, tools.NewRegistry(), Config{Model: "gpt-5"})
+			engine := mustNewTestEngine(t, mustCreateTestSession(t), client, tools.NewRegistry(), Config{Model: "gpt-6-sol"})
 			done := make(chan error, 1)
 			go func() {
 				_, err := engine.SubmitUserMessage(t.Context(), "start")
@@ -219,7 +330,7 @@ func TestPostTurnQueueDoesNotHoldCompletedLiveRun(t *testing.T) {
 }
 
 func TestQueuedUserMessageCallerCancellationStopsWaitAndPreventsLaterAcceptance(t *testing.T) {
-	engine := mustNewExecTestEngine(t, mustCreateTestSession(t), &fakeClient{}, Config{Model: "gpt-5"})
+	engine := mustNewExecTestEngine(t, mustCreateTestSession(t), &fakeClient{}, Config{Model: "gpt-6-sol"})
 	caller, cancel := context.WithCancel(t.Context())
 	defer cancel()
 	accepting := make(chan struct{})
@@ -254,7 +365,7 @@ func TestConcurrentQueueRemovalDoesNotKeepLaterSendRunning(t *testing.T) {
 		t.Run(fmt.Sprintf("fail=%t", fail), func(t *testing.T) {
 			client, started, release := newGatedHookClient(finalTextResponse("initial"), finalTextResponse("later"))
 			defer release()
-			engine := mustNewTestEngine(t, mustCreateTestSession(t), client, tools.NewRegistry(), Config{Model: "gpt-5"})
+			engine := mustNewTestEngine(t, mustCreateTestSession(t), client, tools.NewRegistry(), Config{Model: "gpt-6-sol"})
 			initialDone := make(chan error, 1)
 			go func() {
 				_, err := engine.SubmitUserMessage(t.Context(), "start")

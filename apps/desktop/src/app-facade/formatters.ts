@@ -1,5 +1,16 @@
 const relativeFormatter = new Intl.RelativeTimeFormat("en", { numeric: "auto" });
 
+export function formatDuration(seconds: number, locale: string): string {
+  const unit = seconds >= 86400 ? "day" : seconds >= 3600 ? "hour" : seconds >= 60 ? "minute" : "second";
+  const divisor = unit === "day" ? 86400 : unit === "hour" ? 3600 : unit === "minute" ? 60 : 1;
+  return new Intl.NumberFormat(locale, {
+    style: "unit",
+    unit,
+    unitDisplay: "short",
+    maximumFractionDigits: 0,
+  }).format(Math.ceil(seconds / divisor));
+}
+
 export function formatRelativeTime(unixMs: number, nowMs = Date.now()): string {
   if (unixMs <= 0) {
     return "";

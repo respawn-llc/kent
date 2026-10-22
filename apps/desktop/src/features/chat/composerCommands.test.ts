@@ -1,4 +1,35 @@
-import { composerSuggestions, resolveComposerCommand } from "./composerCommands";
+import { expect, it, vi } from "bun:test";
+import { composerSuggestions, dispatchComposerCommand, resolveComposerCommand } from "./composerCommands";
+import { createTestServices } from "@/test-support/app-services";
+import { createNameCommand } from "./nameCommand";
+
+it("sets literal name arguments immediately without submitting model input", async () => {
+  const api = createTestServices([]).api.chat;
+  const setName = vi.spyOn(api, "setSessionName").mockResolvedValue();
+  const steer = vi.spyOn(api, "steer");
+  const queue = vi.spyOn(api, "queue");
+  const command = createNameCommand({ api, existingSession: true, description: null, notify: vi.fn() });
+  const resolution = resolveComposerCommand(' /name \t Ω  "review"\nsecond line  ', [command]);
+  if (resolution.kind !== "direct") throw new Error("Expected direct name execution");
+  const target = { kind: "session", projectID: "project-1", sessionID: "session-1" } as const;
+  expect(await dispatchComposerCommand(api, target, resolution, "send")).toEqual({ kind: "local" });
+  expect(setName).toHaveBeenCalledWith(target, { kind: "set", name: 'Ω  "review"\nsecond line' });
+  expect(steer).not.toHaveBeenCalled();
+  expect(queue).not.toHaveBeenCalled();
+});
+
+it("executes blank name arguments as Clear immediately through Queue", async () => {
+  const api = createTestServices([]).api.chat;
+  const setName = vi.spyOn(api, "setSessionName").mockResolvedValue();
+  const queue = vi.spyOn(api, "queue");
+  const command = createNameCommand({ api, existingSession: true, description: null, notify: vi.fn() });
+  const resolution = resolveComposerCommand("/name \t\n ", [command]);
+  if (resolution.kind !== "direct") throw new Error("Expected direct name execution");
+  const target = { kind: "session", projectID: "project-1", sessionID: "session-1" } as const;
+  expect(await dispatchComposerCommand(api, target, resolution, "queue")).toEqual({ kind: "local" });
+  expect(setName).toHaveBeenCalledWith(target, { kind: "clear" });
+  expect(queue).not.toHaveBeenCalled();
+});
 
 it("keeps unavailable commands recognized without offering them for discovery", () => {
   const notify = vi.fn();
@@ -7,10 +38,14 @@ it("keeps unavailable commands recognized without offering them for discovery", 
     aliases: [],
     description: null,
     preview: null,
-    execution: { kind: "unavailable", notify } as const,
+    execution: { kind: "unavailable", draft: "discard", notify } as const,
   };
   expect(composerSuggestions("/", [command])).toEqual([]);
-  expect(resolveComposerCommand(command.token, [command])).toEqual({ kind: "unavailable", notify });
+  expect(resolveComposerCommand(command.token, [command])).toEqual({
+    kind: "unavailable",
+    draft: "discard",
+    notify,
+  });
 });
 
 it.each(["  ", "\t "])("recognizes the first command token after leading %j", (leading) => {
@@ -89,7 +124,7 @@ it("hides aliases from discovery and ends discovery when arguments begin", () =>
   expect(composerSuggestions("/visible ", commands)).toEqual([]);
 });
 
-it("does not expand an exact hidden alias into a visible prefix match", () => {
+it("keeps matching canonical commands visible when the query is also an alias", () => {
   const commands = [
     {
       token: "/review",
@@ -99,7 +134,7 @@ it("does not expand an exact hidden alias into a visible prefix match", () => {
       execution: { kind: "prompt", catalogIdentity: "prompt:review" } as const,
     },
   ];
-  expect(composerSuggestions("/r", commands)).toEqual([]);
+  expect(composerSuggestions("/r", commands)).toEqual(commands);
   expect(resolveComposerCommand("/r", commands)).toEqual({
     kind: "input",
     activation: {
@@ -110,4 +145,23 @@ it("does not expand an exact hidden alias into a visible prefix match", () => {
       arguments: "",
     },
   });
+});
+
+it("matches names case-insensitively and ranks by position, length, then name like the TUI", () => {
+  const commands = ["prompt:review", "review-long", "areview", "review-b", "review-a"].map((name) => ({
+    token: `/${name}`,
+    aliases: name === "prompt:review" ? ["/review"] : [],
+    description: null,
+    preview: null,
+    execution: { kind: "prompt", catalogIdentity: name } as const,
+  }));
+  expect(composerSuggestions("/REVIEW", commands).map((command) => command.token)).toEqual([
+    "/review-a",
+    "/review-b",
+    "/review-long",
+    "/areview",
+    "/prompt:review",
+  ]);
+  const review = commands.slice(0, 1);
+  expect(composerSuggestions("/review", review)).toEqual(review);
 });

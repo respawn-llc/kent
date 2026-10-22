@@ -72,8 +72,6 @@ export function settingsDisabledReason(
       return undefined;
     case "workflow_lock":
       return t("chatSettings.workflowLock");
-    case "caching_lock":
-      return t("chatSettings.cachingLock");
     case "policy_disabled":
       return t("chatSettings.policyDisabled");
   }
@@ -83,6 +81,7 @@ const operationFailureLabels = {
   opening: { internal: "chat.openingFailed", unknown: "chat.openingFailed" },
   settings: { internal: "chatSettings.errors.internalFailure", unknown: "chatSettings.errors.unknown" },
   edit: { internal: "chatTranscript.editFailed", unknown: "chatTranscript.editUnknownFailure" },
+  input: { internal: "chatComposer.rejections.internal_failure", unknown: "chatComposer.submitFailed" },
 } as const;
 
 export function chatOperationFailureMessage(

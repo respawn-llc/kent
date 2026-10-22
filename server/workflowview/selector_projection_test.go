@@ -3,6 +3,7 @@ package workflowview
 import (
 	"testing"
 
+	"core/internal/testharness/testsetup"
 	"core/server/workflow"
 	pb "core/shared/protoapi/gen/kent/api/workflow_definition"
 	"core/shared/runtimeids"
@@ -33,7 +34,7 @@ func TestWorkflowCurrentNodeProjectsMaterializedAgentSelection(t *testing.T) {
 	if projected.EffectiveThinking == nil || *projected.EffectiveThinking != "max" {
 		t.Fatalf("effective thinking = %v, want max", projected.EffectiveThinking)
 	}
-	if projected.NodeID == "" {
+	if projected.NodeId == "" {
 		t.Fatal("projected node id is blank")
 	}
 }
@@ -51,6 +52,35 @@ func TestWorkflowCurrentNodeOmitsSelectionForNonAgentProjection(t *testing.T) {
 	projected := workflowCurrentNode(currentNode)
 	if projected.EffectiveAssignee != nil || projected.EffectiveThinking != nil {
 		t.Fatalf("non-agent selection fields = assignee:%v thinking:%v, want omitted", projected.EffectiveAssignee, projected.EffectiveThinking)
+	}
+}
+
+func TestTaskDetailCurrentNodesUseWorkflowDisplayNames(t *testing.T) {
+	detail := &TaskDetail{metadata: testsetup.OpenStore(t, t.TempDir())}
+	reference, err := workflow.NewCurrentNodeReference("task-1", "node-uuid", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	node, err := workflow.NewCurrentNode(reference, nil, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	definition := &pb.WorkflowDefinition{Nodes: []*pb.WorkflowNode{
+		{Id: "node-uuid", Key: "recon", DisplayName: "Recon"},
+	}}
+	for _, name := range []string{"Recon", "QA"} {
+		definition.Nodes[0].DisplayName = name
+		projected, err := detail.taskDetailCurrentNodes(t.Context(), []workflow.CurrentNode{node}, definition)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if len(projected) != 1 || projected[0].GetNodeDisplayName() != name || projected[0].NodeId != "node-uuid" {
+			t.Fatalf("unexpected named Current Node: %v", projected)
+		}
+	}
+	definition.Nodes = nil
+	if _, err := detail.taskDetailCurrentNodes(t.Context(), []workflow.CurrentNode{node}, definition); err == nil {
+		t.Fatal("expected unknown Current Node to fail projection")
 	}
 }
 

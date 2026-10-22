@@ -6,6 +6,7 @@ import "buf/validate/validate.proto";
 import "google/protobuf/empty.proto";
 import "google/protobuf/timestamp.proto";
 import "kent/api/shared/foundation.proto";
+import "kent/api/shared/validation.proto";
 
 option go_package = "core/shared/protoapi/gen/kent/api/auth;authpb";
 
@@ -18,9 +19,10 @@ enum BootstrapMode {
   BOOTSTRAP_MODE_API_KEY = 5;
 }
 
-message BootstrapOAuthConfig {
-  optional string issuer = 1 [(buf.validate.field).string.min_len = 1];
-  optional string client_id = 2 [(buf.validate.field).string.min_len = 1];
+message BootstrapCallbackTransport {
+  string bind_address = 1 [(buf.validate.field).string.min_len = 1];
+  string redirect_host = 2 [(buf.validate.field).string.min_len = 1];
+  string callback_path = 3 [(buf.validate.field).string.min_len = 1];
 }
 
 message BootstrapStatus {
@@ -37,13 +39,63 @@ message BootstrapStatus {
       }
     }
   ];
-  BootstrapOAuthConfig oauth = 7;
+  BootstrapCallbackTransport callback_transport = 7;
   AuthMethod method = 8 [(buf.validate.field).enum.defined_only = true];
-  string connection_id = 9 [(buf.validate.field).string.min_len = 1];
+  string connection_id = 9 [(buf.validate.field).string.(kent.api.shared.connection_id) = true];
 }
 
 message GetBootstrapStatusRequest {
-  optional string connection_id = 1 [(buf.validate.field).string.min_len = 1];
+  ConnectionTarget target = 1 [(buf.validate.field).required = true];
+}
+
+message StartBootstrapRequest {
+  ConnectionTarget target = 1 [(buf.validate.field).required = true];
+  BootstrapMode mode = 2 [(buf.validate.field).enum = {defined_only: true, in: [2, 3, 4]}];
+  optional string redirect_uri = 3 [(buf.validate.field).string.min_len = 1];
+}
+
+message BrowserBootstrapContinuation {
+  string redirect_uri = 1 [(buf.validate.field).string.min_len = 1];
+  string state = 2 [(buf.validate.field).string.min_len = 1];
+  string code_verifier = 3 [(buf.validate.field).string.min_len = 1];
+}
+
+message DeviceBootstrapContinuation {
+  string code = 1 [(buf.validate.field).string.min_len = 1];
+  string user_code = 2 [(buf.validate.field).string.min_len = 1];
+  int64 poll_interval_seconds = 3 [(buf.validate.field).int64.gt = 0];
+  google.protobuf.Timestamp expires_at = 4;
+}
+
+message BootstrapContinuation {
+  ConnectionProtocol protocol = 1 [(buf.validate.field).enum = {defined_only: true, in: [2, 3, 4]}];
+  oneof grant {
+    option (buf.validate.oneof).required = true;
+    BrowserBootstrapContinuation browser = 2;
+    DeviceBootstrapContinuation device = 3;
+  }
+}
+
+message BootstrapDeviceInstructions {
+  string verification_url = 1 [(buf.validate.field).string.min_len = 1];
+  string user_code = 2 [(buf.validate.field).string.min_len = 1];
+}
+
+message BootstrapStart {
+  BootstrapContinuation continuation = 1 [(buf.validate.field).required = true];
+  oneof instructions {
+    option (buf.validate.oneof).required = true;
+    string authorization_url = 2 [(buf.validate.field).string.min_len = 1];
+    BootstrapDeviceInstructions device = 3;
+  }
+}
+
+message StartBootstrapResult {
+  oneof outcome {
+    option (buf.validate.oneof).required = true;
+    BootstrapStart success = 1 [(kent.api.shared.kent_result_field).role = RESULT_FIELD_ROLE_SUCCESS];
+    CompleteBootstrapError error = 2 [(kent.api.shared.kent_result_field).role = RESULT_FIELD_ROLE_ERROR];
+  }
 }
 
 message CompleteBootstrapRequest {
@@ -55,12 +107,8 @@ message CompleteBootstrapRequest {
   ];
   bool force = 2;
   optional string callback_input = 4 [(buf.validate.field).string.min_len = 1];
-  optional string redirect_uri = 5 [(buf.validate.field).string.min_len = 1];
-  optional string oauth_state = 6 [(buf.validate.field).string.min_len = 1];
-  optional string oauth_code_verifier = 7 [(buf.validate.field).string.min_len = 1];
-  optional string device_authorization_code = 8 [(buf.validate.field).string.min_len = 1];
-  optional string device_code_verifier = 9 [(buf.validate.field).string.min_len = 1];
-  optional string connection_id = 10 [(buf.validate.field).string.min_len = 1];
+  ConnectionTarget target = 10 [(buf.validate.field).required = true];
+  BootstrapContinuation continuation = 11;
 
   option (buf.validate.message).cel = {
     id: "kent.auth.bootstrap.mode_payload"
@@ -69,20 +117,15 @@ message CompleteBootstrapRequest {
       "this.mode == 1 ? true : "
       "this.mode == 5 ? true : "
       "(this.mode == 2 || this.mode == 3) ? "
-      "(has(this.callback_input) && has(this.redirect_uri) && has(this.oauth_state) && has(this.oauth_code_verifier)) : "
+      "(has(this.callback_input) && has(this.continuation) && has(this.continuation.browser)) : "
       "this.mode == 4 ? "
-      "(has(this.device_authorization_code) && has(this.device_code_verifier)) : false"
+      "(has(this.continuation) && has(this.continuation.device)) : false"
   };
   option (buf.validate.message).cel = {
     id: "kent.auth.bootstrap.credentials_nonblank"
     message: "present bootstrap credentials must be non-blank"
     expression:
-      "(!has(this.callback_input) || this.callback_input.trim() != '') && "
-      "(!has(this.redirect_uri) || this.redirect_uri.trim() != '') && "
-      "(!has(this.oauth_state) || this.oauth_state.trim() != '') && "
-      "(!has(this.oauth_code_verifier) || this.oauth_code_verifier.trim() != '') && "
-      "(!has(this.device_authorization_code) || this.device_authorization_code.trim() != '') && "
-      "(!has(this.device_code_verifier) || this.device_code_verifier.trim() != '')"
+      "(!has(this.callback_input) || this.callback_input.trim() != '')"
   };
 }
 
@@ -91,7 +134,7 @@ message BootstrapCompletion {
   AuthMethod method = 3 [(buf.validate.field).enum.defined_only = true];
   optional string account_id = 4 [(buf.validate.field).string.min_len = 1];
   optional string email = 5 [(buf.validate.field).string.min_len = 1];
-  string connection_id = 6 [(buf.validate.field).string.min_len = 1];
+  string connection_id = 6 [(buf.validate.field).string.(kent.api.shared.connection_id) = true];
 }
 
 message AuthRequiredDetails {}
@@ -102,6 +145,10 @@ message GetBootstrapStatusError {
     (kent.api.shared.kent_result_field).role = RESULT_FIELD_ROLE_ERROR_CODE
   ];
   oneof detail {
+    ConnectionFailureDetails connection_failure = 4 [(kent.api.shared.kent_result_field) = {
+      role: RESULT_FIELD_ROLE_ERROR_DETAIL
+      error_code: "connection_failure"
+    }];
     AuthRequiredDetails auth_required = 2 [
       (kent.api.shared.kent_result_field) = {
         role: RESULT_FIELD_ROLE_ERROR_DETAIL
@@ -131,6 +178,10 @@ message CompleteBootstrapError {
     (kent.api.shared.kent_result_field).role = RESULT_FIELD_ROLE_ERROR_CODE
   ];
   oneof detail {
+    ConnectionFailureDetails connection_failure = 4 [(kent.api.shared.kent_result_field) = {
+      role: RESULT_FIELD_ROLE_ERROR_DETAIL
+      error_code: "connection_failure"
+    }];
     AuthRequiredDetails auth_required = 2 [
       (kent.api.shared.kent_result_field) = {
         role: RESULT_FIELD_ROLE_ERROR_DETAIL
@@ -155,12 +206,21 @@ message CompleteBootstrapResult {
 }
 
 message ProviderSelection {
-  string connection_id = 1 [(buf.validate.field).string.min_len = 1];
+  string connection_id = 1 [(buf.validate.field).string.(kent.api.shared.connection_id) = true];
 }
 
 message GetStatusRequest {
   ProviderSelection provider = 1;
   bool skip_subscription_usage = 2;
+  optional string session_id = 3 [
+    (buf.validate.field).string.uuid = true,
+    (buf.validate.field).string.(kent.api.shared.canonical_uuid_v4) = true
+  ];
+  option (buf.validate.message).cel = {
+    id: "kent.auth.status_target"
+    message: "Select a Provider Connection or a Session, not both"
+    expression: "!has(this.provider) || !has(this.session_id)"
+  };
 }
 
 message StatusFailure {
@@ -247,10 +307,19 @@ message ProviderFacts {
   };
 }
 
+message ConnectionFacts {
+  string connection_id = 1 [(buf.validate.field).string.(kent.api.shared.connection_id) = true];
+  AuthMethod method = 2 [(buf.validate.field).enum = {
+    defined_only: true
+    not_in: [0]
+  }];
+}
+
 message StatusFacts {
   AuthMethod method = 1 [(buf.validate.field).enum.defined_only = true];
   ProviderFacts provider = 2 [(buf.validate.field).required = true];
-  string connection_id = 7 [(buf.validate.field).string.min_len = 1];
+  string connection_id = 7 [(buf.validate.field).string.(kent.api.shared.connection_id) = true];
+  ConnectionFacts session_connection = 8;
   oneof method_facts {
     OAuthFacts oauth = 4;
     APIKeyFacts api_key = 5;
@@ -288,6 +357,22 @@ enum SubscriptionWindowBucket {
   SUBSCRIPTION_WINDOW_BUCKET_ADDITIONAL = 2;
 }
 
+enum SubscriptionQuotaSource {
+  SUBSCRIPTION_QUOTA_SOURCE_UNSPECIFIED = 0;
+  SUBSCRIPTION_QUOTA_SOURCE_CHATGPT = 1;
+  SUBSCRIPTION_QUOTA_SOURCE_GROK = 2;
+}
+
+enum SubscriptionFailureClassification {
+  SUBSCRIPTION_FAILURE_CLASSIFICATION_UNSPECIFIED = 0;
+  SUBSCRIPTION_FAILURE_CLASSIFICATION_UNAVAILABLE_FOR_SIGN_IN_METHOD = 1;
+}
+
+message GrokUsageContributions {
+  optional double build_used_percent = 1 [(buf.validate.field).double.finite = true];
+  optional double chat_used_percent = 2 [(buf.validate.field).double.finite = true];
+}
+
 message SubscriptionWindowFacts {
   SubscriptionWindowBucket bucket = 1 [
     (buf.validate.field).enum = {
@@ -304,6 +389,7 @@ message SubscriptionWindowFacts {
   google.protobuf.Timestamp reset_at = 4;
   optional string limit_name = 5 [(buf.validate.field).string.min_len = 1];
   optional string metered_feature = 6 [(buf.validate.field).string.min_len = 1];
+  GrokUsageContributions grok_contributions = 7;
 
   option (buf.validate.message).cel = {
     id: "kent.auth.subscription_window.bucket_fields"
@@ -322,13 +408,29 @@ message SubscriptionFacts {
   optional string plan = 2 [(buf.validate.field).string.min_len = 1];
   repeated SubscriptionWindowFacts windows = 3;
   StatusFailure failure = 4;
+  optional SubscriptionQuotaSource quota_source = 5 [
+    (buf.validate.field).enum = {
+      defined_only: true
+      not_in: [0]
+    }
+  ];
+  optional SubscriptionFailureClassification failure_classification = 6 [
+    (buf.validate.field).enum = {
+      defined_only: true
+      not_in: [0]
+    }
+  ];
 
   option (buf.validate.message).cel = {
     id: "kent.auth.subscription.applicability"
     message: "subscription facts must match applicability and failure state"
-    expression:
-      "!this.applicable ? (!has(this.plan) && size(this.windows) == 0 && !has(this.failure)) : "
+    expression: "!this.applicable ? (!has(this.plan) && size(this.windows) == 0 && !has(this.failure) && !has(this.quota_source) && !has(this.failure_classification)) : "
       "has(this.failure) ? (!has(this.plan) && size(this.windows) == 0) : true"
+  };
+  option (buf.validate.message).cel = {
+    id: "kent.auth.subscription.failure_classification"
+    message: "subscription failure classification requires a failure"
+    expression: "!has(this.failure_classification) || has(this.failure)"
   };
 }
 
@@ -372,8 +474,186 @@ message GetStatusResult {
   }
 }
 
+enum ConnectionProtocol {
+  CONNECTION_PROTOCOL_UNSPECIFIED = 0;
+  CONNECTION_PROTOCOL_RESPONSES = 1;
+  CONNECTION_PROTOCOL_CHATGPT = 2;
+  CONNECTION_PROTOCOL_GROK_CLI_PROXY = 3;
+  CONNECTION_PROTOCOL_GROK_OAUTH_API = 4;
+  CONNECTION_PROTOCOL_GROK_API_KEY = 5;
+}
+
+enum ConnectionFailureReason {
+  CONNECTION_FAILURE_REASON_UNSPECIFIED = 0;
+  CONNECTION_FAILURE_REASON_ALREADY_EXISTS = 1;
+  CONNECTION_FAILURE_REASON_NOT_FOUND = 2;
+  CONNECTION_FAILURE_REASON_NOT_API_KEY = 3;
+  CONNECTION_FAILURE_REASON_NOT_SUBSCRIPTION = 4;
+  CONNECTION_FAILURE_REASON_SIGN_IN_REQUIRED = 5;
+  CONNECTION_FAILURE_REASON_SETUP_REQUIRED = 6;
+  CONNECTION_FAILURE_REASON_SETUP_COMPLETED = 7;
+  CONNECTION_FAILURE_REASON_FINISH_ACCEPTED = 8;
+  CONNECTION_FAILURE_REASON_SETUP_CHANGED = 9;
+  CONNECTION_FAILURE_REASON_SELECTION_REQUIRED = 10;
+  CONNECTION_FAILURE_REASON_CREDENTIAL_CLEAR_FAILED = 11;
+  CONNECTION_FAILURE_REASON_DEFINITION_REMOVE_FAILED = 12;
+}
+
+message ConnectionFailureDetails {
+  ConnectionFailureReason reason = 1 [(buf.validate.field).enum = {defined_only: true, not_in: [0]}];
+  optional string connection_id = 2 [(buf.validate.field).string.(kent.api.shared.connection_id) = true];
+  optional string diagnostic = 3 [
+    (buf.validate.field).string.min_len = 1,
+    (buf.validate.field).cel = {
+      id: "kent.auth.connection_failure.diagnostic_nonblank"
+      message: "diagnostic must be non-blank when present"
+      expression: "this.trim() != ''"
+    }
+  ];
+  option (buf.validate.message).cel = {
+    id: "kent.auth.connection_failure.identity"
+    message: "connection-specific failures require a connection ID; setup failures have no connection ID"
+    expression: "(this.reason in [1, 2, 3, 4, 5, 11, 12]) == has(this.connection_id)"
+  };
+  option (buf.validate.message).cel = {
+    id: "kent.auth.connection_failure.removal_diagnostic"
+    message: "connection removal failures require a diagnostic"
+    expression: "(this.reason in [11, 12]) == has(this.diagnostic)"
+  };
+}
+
+message ProviderCapabilitiesOverride {
+  string provider_id = 1 [(buf.validate.field).string.min_len = 1];
+  bool supports_responses_api = 2;
+  bool supports_responses_compact = 3;
+  bool supports_prompt_cache_key = 5;
+  bool supports_native_web_search = 6;
+  bool supports_reasoning_encrypted = 7;
+  bool supports_server_side_context_edit = 8;
+  bool supports_provider_verbosity = 9;
+  bool is_openai_first_party = 10;
+  bool supports_fast_mode = 11;
+}
+
+message ConnectionDefinition {
+  string id = 1 [(buf.validate.field).string.(kent.api.shared.connection_id) = true];
+  ConnectionProtocol protocol = 2 [(buf.validate.field).enum = {defined_only: true, not_in: [0]}];
+  optional string endpoint = 3 [(buf.validate.field).string.min_len = 1];
+  optional string environment_variable = 4 [(buf.validate.field).string.min_len = 1];
+  ProviderCapabilitiesOverride capabilities = 5;
+
+  option (buf.validate.message).cel = {
+    id: "kent.auth.connection.protocol_fields"
+    message: "Connection fields must match the selected protocol"
+    expression: "this.protocol == 1 ? has(this.endpoint) : this.protocol in [2, 3, 4] ? (!has(this.endpoint) && !has(this.environment_variable)) : this.protocol == 5 ? (!has(this.endpoint) && has(this.environment_variable)) : false"
+  };
+  option (buf.validate.message).cel = {
+    id: "kent.auth.connection.nonblank"
+    message: "present connection fields must be non-blank"
+    expression:
+      "this.id.trim() != '' && "
+      "(!has(this.endpoint) || this.endpoint.trim() != '') && "
+      "(!has(this.environment_variable) || this.environment_variable.trim() != '')"
+  };
+}
+
+message ConnectionTarget {
+  oneof target {
+    option (buf.validate.oneof).required = true;
+    string connection_id = 1 [(buf.validate.field).string.(kent.api.shared.connection_id) = true];
+    google.protobuf.Empty pending_setup = 2;
+    ConnectionDefinition add_connection = 3;
+  }
+}
+
+message GetConnectionsRequest {
+  optional string workspace_root = 1 [(buf.validate.field).string.min_len = 1];
+}
+
+message ConnectionSelection {
+  repeated string ids = 1 [(buf.validate.field).repeated = {
+    min_items: 1
+    unique: true
+    items: {string: {[kent.api.shared.connection_id]: true}}
+  }];
+}
+
+message ConnectionCatalog {
+  repeated ConnectionDefinition connections = 1;
+  ConnectionSelection default_selection = 2;
+  ConnectionDefinition pending_setup = 3;
+  ConnectionSelection workspace_selection = 4;
+}
+
+message GetConnectionsResult {
+  oneof outcome {
+    option (buf.validate.oneof).required = true;
+    ConnectionCatalog success = 1 [(kent.api.shared.kent_result_field).role = RESULT_FIELD_ROLE_SUCCESS];
+    GetBootstrapStatusError error = 2 [(kent.api.shared.kent_result_field).role = RESULT_FIELD_ROLE_ERROR];
+  }
+}
+
+message ConnectionReferenceEdit {
+  string connection_id = 1 [(buf.validate.field).string.(kent.api.shared.connection_id) = true];
+  string environment_variable = 2 [(buf.validate.field).string.min_len = 1];
+
+  option (buf.validate.message).cel = {
+    id: "kent.auth.connection_reference.nonblank"
+    message: "connection reference fields must be non-blank"
+    expression: "this.connection_id.trim() != '' && this.environment_variable.trim() != ''"
+  };
+}
+
+message ConfigureConnectionRequest {
+  oneof change {
+    option (buf.validate.oneof).required = true;
+    ConnectionDefinition pending_setup = 1;
+    google.protobuf.Empty discard_setup = 2;
+    ConnectionDefinition add = 3;
+    ConnectionReferenceEdit reference = 4;
+    string default_connection_id = 5 [(buf.validate.field).string.(kent.api.shared.connection_id) = true];
+    string remove_connection_id = 6 [(buf.validate.field).string.(kent.api.shared.connection_id) = true];
+  }
+}
+
+message ConfigureConnectionResult {
+  oneof outcome {
+    option (buf.validate.oneof).required = true;
+    google.protobuf.Empty success = 1 [(kent.api.shared.kent_result_field).role = RESULT_FIELD_ROLE_SUCCESS];
+    CompleteBootstrapError error = 2 [(kent.api.shared.kent_result_field).role = RESULT_FIELD_ROLE_ERROR];
+  }
+}
+
 service AuthService {
+  rpc GetConnections(GetConnectionsRequest) returns (GetConnectionsResult) {
+    option (kent.api.shared.kent_method) = {
+      kind: OPERATION_KIND_UNARY
+      authentication_stage: AUTHENTICATION_STAGE_PRE_SERVER
+      scope_policy: SCOPE_POLICY_NONE
+      direction: DIRECTION_CLIENT_TO_SERVER
+      unary_connection: UNARY_CONNECTION_MULTIPLEXED
+    };
+  }
+  rpc ConfigureConnection(ConfigureConnectionRequest) returns (ConfigureConnectionResult) {
+    option (kent.api.shared.kent_method) = {
+      kind: OPERATION_KIND_UNARY
+      authentication_stage: AUTHENTICATION_STAGE_PRE_SERVER
+      scope_policy: SCOPE_POLICY_NONE
+      direction: DIRECTION_CLIENT_TO_SERVER
+      unary_connection: UNARY_CONNECTION_MULTIPLEXED
+    };
+  }
   rpc GetBootstrapStatus(GetBootstrapStatusRequest) returns (GetBootstrapStatusResult) {
+    option (kent.api.shared.kent_method) = {
+      kind: OPERATION_KIND_UNARY
+      authentication_stage: AUTHENTICATION_STAGE_PRE_SERVER
+      scope_policy: SCOPE_POLICY_NONE
+      direction: DIRECTION_CLIENT_TO_SERVER
+      unary_connection: UNARY_CONNECTION_MULTIPLEXED
+    };
+  }
+
+  rpc StartBootstrap(StartBootstrapRequest) returns (StartBootstrapResult) {
     option (kent.api.shared.kent_method) = {
       kind: OPERATION_KIND_UNARY
       authentication_stage: AUTHENTICATION_STAGE_PRE_SERVER

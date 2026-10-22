@@ -21,7 +21,7 @@ func TestNewChatCatalogCarriesCompletePreparedBaselines(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	response, err := NewService(launch.Planner{Config: app}).NewChatSettings(t.Context())
+	response, err := NewService(launch.Planner{Config: app}, ChatSettingsOwner{}, nil).NewChatSettings(t.Context())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -35,10 +35,7 @@ func TestNewChatCatalogCarriesCompletePreparedBaselines(t *testing.T) {
 	}
 	for i, choice := range catalog.Choices {
 		entry := entries[i]
-		supervisor, err := protoapi.ChatSettingsSupervisorFromProto(choice.Baseline.Supervisor)
-		if err != nil {
-			t.Fatal(err)
-		}
+		supervisor := protoapi.ChatSettingsSupervisorFromProto(choice.Baseline.Supervisor)
 		if !proto.Equal(choice.Agent, entry.Choice) ||
 			choice.Baseline.AgentRole != entry.Choice.Role ||
 			supervisor != entry.Settings.Baseline.Supervisor ||
@@ -63,7 +60,7 @@ func TestNewChatCatalogCarriesCompletePreparedBaselines(t *testing.T) {
 
 func TestNewChatCatalogRejectsIncompleteAgentSelection(t *testing.T) {
 	app := testNewChatSettingsApp(t)
-	response, err := NewService(launch.Planner{Config: app}).NewChatSettings(t.Context())
+	response, err := NewService(launch.Planner{Config: app}, ChatSettingsOwner{}, nil).NewChatSettings(t.Context())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -131,7 +128,7 @@ func TestProjectChatSettingsAuthoritativeReadSemantics(t *testing.T) {
 			AutoCompaction: true,
 		},
 		Locked: &session.LockedContract{
-			Model:        "gpt-5",
+			Model:        "gpt-6-sol",
 			EnabledTools: []string{},
 			ProviderContract: session.LockedProviderCapabilities{
 				ProviderID: "anthropic",
@@ -142,11 +139,11 @@ func TestProjectChatSettingsAuthoritativeReadSemantics(t *testing.T) {
 		t.Fatalf("project caching lock: %v", err)
 	}
 	if locked.SelectedAgent.Role != "historical" ||
-		locked.SelectedAgent.Model != "gpt-5" ||
-		locked.AgentEditability != chatsettingspb.Editability_EDITABILITY_CACHING_LOCK ||
-		!locked.AgentLocked || !locked.CachingLocked ||
+		locked.SelectedAgent.Model != "gpt-6-sol" ||
+		locked.AgentEditability != chatsettingspb.Editability_EDITABILITY_EDITABLE ||
+		locked.AgentLocked || !locked.CachingLocked ||
 		locked.Questions.Capable || !locked.Questions.Enabled ||
-		locked.Fast != nil {
+		locked.Fast == nil || !locked.Fast.Value {
 		t.Fatalf("locked projection = %+v", locked)
 	}
 
@@ -184,7 +181,7 @@ func testChatSettingsCatalog(t *testing.T) launch.PreparedChatAgentCatalog {
 
 func testChatSettingsApp(t *testing.T) config.App {
 	settings := config.DefaultOnboardingSettings()
-	settings.Model = "gpt-5"
+	settings.Model = "gpt-6-sol"
 	settings.ThinkingLevel = "medium"
 	settings.EnabledTools = map[toolspec.ID]bool{
 		toolspec.ToolAskQuestion: true,
@@ -192,7 +189,7 @@ func testChatSettingsApp(t *testing.T) config.App {
 	}
 	settings.Subagents = map[string]config.SubagentRole{
 		config.BuiltInSubagentRoleFast: {
-			Settings: config.Settings{Model: "gpt-5", ThinkingLevel: "low"},
+			Settings: config.Settings{Model: "gpt-6-sol", ThinkingLevel: "low"},
 			Sources:  map[string]config.Origin{"model": {Kind: config.SourceInput, Property: config.PropertyAddress{Key: "model"}}, "thinking_level": {Kind: config.SourceInput, Property: config.PropertyAddress{Key: "thinking_level"}}},
 		},
 		"no-questions": {

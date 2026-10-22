@@ -6,6 +6,7 @@ import (
 	"strings"
 
 	"core/shared/auth"
+	"core/shared/config"
 )
 
 var ErrModelStreamStalled = errors.New("model stream stalled")
@@ -15,6 +16,9 @@ type UnifiedErrorCode string
 const (
 	UnifiedErrorCodeUnknown               UnifiedErrorCode = "unknown"
 	UnifiedErrorCodeAuthentication        UnifiedErrorCode = "authentication"
+	UnifiedErrorCodeEntitlement           UnifiedErrorCode = "entitlement"
+	UnifiedErrorCodeUsageExhausted        UnifiedErrorCode = "usage_exhausted"
+	UnifiedErrorCodeProtocolVersion       UnifiedErrorCode = "protocol_version"
 	UnifiedErrorCodeContextLengthOverflow UnifiedErrorCode = "context_length_overflow"
 	UnifiedErrorCodeProviderContract      UnifiedErrorCode = "provider_contract_error"
 	UnifiedErrorCodeProviderOverload      UnifiedErrorCode = "provider_overload"
@@ -29,6 +33,7 @@ const (
 
 type ProviderAPIError struct {
 	ProviderID              string
+	ConnectionID            *config.ConnectionID
 	StatusCode              int
 	Code                    UnifiedErrorCode
 	ProviderCode            string
@@ -60,7 +65,11 @@ func (e *ProviderAPIError) Error() string {
 	if e == nil {
 		return "provider api error"
 	}
-	return fmt.Sprintf("%s status %d [%s/%s]: %s", e.ProviderID, e.StatusCode, e.Code, e.ProviderCode, e.Message)
+	identity := e.ProviderID
+	if e.ConnectionID != nil {
+		identity = fmt.Sprintf("connection %s (%s)", *e.ConnectionID, identity)
+	}
+	return fmt.Sprintf("%s status %d [%s/%s]: %s", identity, e.StatusCode, e.Code, e.ProviderCode, e.Message)
 }
 
 func (e *ProviderAPIError) Unwrap() error {
@@ -71,7 +80,8 @@ func (e *ProviderAPIError) Unwrap() error {
 }
 
 type AuthError struct {
-	Err error
+	ConnectionID *config.ConnectionID
+	Err          error
 }
 
 type ProviderSelectionError struct {
@@ -121,15 +131,23 @@ func IsAuthenticationError(err error) bool {
 	}
 	var providerErr *ProviderAPIError
 	if errors.As(err, &providerErr) {
+		if providerErr.Code == UnifiedErrorCodeEntitlement || providerErr.Code == UnifiedErrorCodeProtocolVersion {
+			return false
+		}
 		if providerErr.Code == UnifiedErrorCodeAuthentication {
 			return true
 		}
 		switch providerErr.StatusCode {
-		case 401, 403:
+		case 401:
 			return true
 		}
 	}
 	return false
+}
+
+func IsUsageExhaustionError(err error) bool {
+	var providerErr *ProviderAPIError
+	return errors.As(err, &providerErr) && providerErr.Code == UnifiedErrorCodeUsageExhausted
 }
 
 func IsNonRetriableModelError(err error) bool {
@@ -148,7 +166,7 @@ func IsNonRetriableModelError(err error) bool {
 		if providerErr.ProviderType == providerTypeResponseIncomplete {
 			return true
 		}
-		if providerErr.Code == UnifiedErrorCodeProviderContract {
+		if providerErr.Code == UnifiedErrorCodeProviderContract || providerErr.Code == UnifiedErrorCodeEntitlement || providerErr.Code == UnifiedErrorCodeProtocolVersion || providerErr.Code == UnifiedErrorCodeUsageExhausted {
 			return true
 		}
 		switch providerErr.StatusCode {
@@ -195,15 +213,30 @@ func UserFacingError(err error) string {
 		return providerSelectionErr.Error()
 	}
 	var authErr *AuthError
-	if errors.As(err, &authErr) && errors.Is(authErr.Err, auth.ErrAuthNotConfigured) {
-		return "Not authenticated, run /login to sign in with your provider"
+	if errors.As(err, &authErr) {
+		if errors.Is(authErr.Err, auth.ErrAuthNotConfigured) {
+			return "Not authenticated, run /login to sign in with your provider"
+		}
+		if authErr.ConnectionID != nil {
+			if errors.Is(authErr.Err, auth.ErrOAuthRefreshFailed) {
+				detail := strings.TrimRight(authErr.Error(), ".")
+				return fmt.Sprintf("Failed to authenticate the provider connection: %s.\nRun /login to authenticate connection %s, used for this session.", detail, *authErr.ConnectionID)
+			}
+			return authErr.Error()
+		}
 	}
 	if errors.Is(err, auth.ErrAuthNotConfigured) {
 		return "Not authenticated, run /login to sign in with your provider"
 	}
 	var providerErr *ProviderAPIError
 	if errors.As(err, &providerErr) {
-		if providerErr.Code == UnifiedErrorCodeAuthentication || providerErr.StatusCode == 401 || providerErr.StatusCode == 403 {
+		if providerErr.Code == UnifiedErrorCodeProtocolVersion {
+			return fmt.Sprintf("The provider rejected this client version. Update Kent before trying again. %s", providerErr.Error())
+		}
+		if IsAuthenticationError(providerErr) {
+			if providerErr.ConnectionID != nil {
+				return fmt.Sprintf("Failed to authenticate the provider connection: %s. Run /login to authenticate connection %s, used for this session.", strings.TrimRight(providerErr.Error(), "."), *providerErr.ConnectionID)
+			}
 			message := authenticationFailedWarning(providerErr.ProviderID, providerErr.StatusCode)
 			if diagnostic := optionalDiagnosticValue(providerErr.AuthorizationDiagnostic); diagnostic != "" {
 				message += providerAuthorizationDiagnosticPrefix + diagnostic + "."

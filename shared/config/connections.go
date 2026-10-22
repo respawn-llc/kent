@@ -3,20 +3,91 @@ package config
 import (
 	"fmt"
 	"net/url"
+	"slices"
 	"strings"
 )
 
 type ConnectionID string
+type ConnectionSelection []ConnectionID
 type ConnectionProtocol string
+
+func SingleConnection(id ConnectionID) *ConnectionSelection {
+	selection := ConnectionSelection{id}
+	return &selection
+}
+
+func (s *ConnectionSelection) ConcreteID() (*ConnectionID, error) {
+	if s == nil {
+		return nil, &ConnectionReferenceError{}
+	}
+	if len(*s) != 1 {
+		return nil, fmt.Errorf("connection selection must be resolved to one connection before provider preparation")
+	}
+	return &(*s)[0], nil
+}
+
+func (s *ConnectionSelection) TOMLValue() any {
+	if len(*s) == 1 {
+		return string((*s)[0])
+	}
+	values := make([]string, len(*s))
+	for index, id := range *s {
+		values[index] = string(id)
+	}
+	return values
+}
+
+func (s Settings) ConnectionMembers() ([]ConnectionID, error) {
+	if s.Connection == nil {
+		if len(s.Connections) == 1 {
+			for id := range s.Connections {
+				return []ConnectionID{id}, nil
+			}
+		}
+		return nil, &ConnectionReferenceError{}
+	}
+	members := make([]ConnectionID, 0, len(*s.Connection))
+	if len(*s.Connection) == 1 {
+		id := (*s.Connection)[0]
+		if _, present := s.Connections[id]; present {
+			return []ConnectionID{id}, nil
+		}
+		return nil, &ConnectionReferenceError{Connection: &id}
+	}
+	for _, id := range s.ConnectionOrder {
+		if slices.Contains(*s.Connection, id) {
+			members = append(members, id)
+		}
+	}
+	if len(members) == 0 {
+		return nil, &ConnectionReferenceError{Selection: s.Connection}
+	}
+	return members, nil
+}
 
 type ConnectionReplacement struct {
 	Previous ConnectionID
 	Current  ConnectionID
 }
 
+func (r ConnectionReplacement) Valid() bool {
+	return r.Previous != "" && r.Current != "" && r.Previous != r.Current
+}
+
+// ConnectionScope retains the configured selector independently of a Session's
+// concrete binding. An unavailable role is reported only if replacement is needed.
+type ConnectionScope struct {
+	Selection       *ConnectionSelection
+	UnavailableRole *string
+}
+
 const (
-	ConnectionResponses ConnectionProtocol = "responses"
-	ConnectionChatGPT   ConnectionProtocol = "chatgpt-codex"
+	ConnectionResponses            ConnectionProtocol = "responses"
+	ConnectionChatGPT              ConnectionProtocol = "chatgpt-codex"
+	ConnectionGrokCLIProxy         ConnectionProtocol = "grok-cli-proxy"
+	ConnectionGrokOAuthAPI         ConnectionProtocol = "grok-oauth-api"
+	ConnectionGrokAPIKey           ConnectionProtocol = "grok-api-key"
+	DefaultOpenAIResponsesEndpoint                    = "https://api.openai.com/v1"
 )
 
 type ProviderConnection struct {
@@ -26,50 +97,77 @@ type ProviderConnection struct {
 	Capabilities        ProviderCapabilitiesOverride
 }
 
+func (p ConnectionProtocol) IsSubscription() bool {
+	switch p {
+	case ConnectionChatGPT, ConnectionGrokCLIProxy, ConnectionGrokOAuthAPI:
+		return true
+	default:
+		return false
+	}
+}
+
 type ConnectionReferenceError struct {
 	Connection *ConnectionID
+	Selection  *ConnectionSelection
 }
 
 func (e *ConnectionReferenceError) Error() string {
-	if e.Connection == nil {
-		return "select a provider connection with the connection setting"
+	if e.Selection != nil {
+		return fmt.Sprintf("connection selection %v has no defined members; add its connections to global config.toml or select an existing connection", *e.Selection)
 	}
-	return fmt.Sprintf("provider connection %q is not defined in the server global configuration", *e.Connection)
+	if e.Connection == nil {
+		return "Kent has no provider connection selected. Run kent in an interactive terminal to set one up, or choose a connection in the server's global config.toml. See " + DocsURL + "/authentication/"
+	}
+	return fmt.Sprintf("Kent cannot use connection %q because it is missing from the server's global config.toml. Add that connection, or select an existing one. See %s/authentication/", *e.Connection, DocsURL)
 }
 
 // SelectedConnection reads an already effective reference; role inheritance and
 // persisted Session binding selection happen before this lookup.
 func (s Settings) SelectedConnection() (ProviderConnection, error) {
-	if s.Connection == nil {
-		return ProviderConnection{}, &ConnectionReferenceError{}
+	id, err := s.Connection.ConcreteID()
+	if err != nil {
+		return ProviderConnection{}, err
 	}
-	connection, present := s.Connections[*s.Connection]
+	connection, present := s.Connections[*id]
 	if !present {
-		id := *s.Connection
-		return ProviderConnection{}, &ConnectionReferenceError{Connection: &id}
+		return ProviderConnection{}, &ConnectionReferenceError{Connection: id}
 	}
 	return connection, connection.Validate()
 }
 
 func (c ProviderConnection) Validate() error {
 	switch c.Protocol {
-	case ConnectionChatGPT:
+	case ConnectionChatGPT, ConnectionGrokCLIProxy, ConnectionGrokOAuthAPI:
 		if c.Endpoint != nil || c.EnvironmentVariable != nil {
-			return fmt.Errorf("ChatGPT connections use subscription sign-in, without an endpoint or environment variable")
+			return fmt.Errorf("%s connections use subscription sign-in, without an endpoint or environment variable", c.Protocol)
+		}
+	case ConnectionGrokAPIKey:
+		if c.Endpoint != nil {
+			return fmt.Errorf("Grok API-key connections use the official endpoint")
+		}
+		if c.EnvironmentVariable == nil || strings.TrimSpace(*c.EnvironmentVariable) == "" {
+			return fmt.Errorf("Grok API-key connections require an environment-variable name")
 		}
 	case ConnectionResponses:
 		if c.Endpoint == nil {
 			return fmt.Errorf("Responses connections require an endpoint")
 		}
-		endpoint, err := url.Parse(*c.Endpoint)
-		if err != nil || endpoint.Host == "" || endpoint.Scheme != "http" && endpoint.Scheme != "https" {
-			return fmt.Errorf("connection endpoint must be an absolute HTTP or HTTPS URL")
+		if err := ValidateResponsesEndpoint(*c.Endpoint); err != nil {
+			return err
 		}
 		if c.EnvironmentVariable != nil && strings.TrimSpace(*c.EnvironmentVariable) == "" {
 			return fmt.Errorf("environment_variable cannot be empty; omit it for auth-less access")
 		}
 	default:
-		return fmt.Errorf("connection protocol must be responses or chatgpt-codex")
+		return fmt.Errorf("unsupported connection protocol %q", c.Protocol)
+	}
+	return nil
+}
+
+func ValidateResponsesEndpoint(value string) error {
+	endpoint, err := url.Parse(value)
+	if err != nil || endpoint.Host == "" || endpoint.Scheme != "http" && endpoint.Scheme != "https" {
+		return fmt.Errorf("connection endpoint must be an absolute HTTP or HTTPS URL")
 	}
 	return nil
 }
@@ -87,24 +185,52 @@ func ParseConnectionID(value string) (ConnectionID, error) {
 	return ConnectionID(value), nil
 }
 
-func newConnectionReference(key string, apply func(*settingsState, *ConnectionID), get func(settingsState) *ConnectionID) scalarSetting[*ConnectionID] {
-	return scalarSetting[*ConnectionID]{
+func newConnectionReference(key string, allowSet bool, apply func(*settingsState, *ConnectionSelection), get func(settingsState) *ConnectionSelection) scalarSetting[*ConnectionSelection] {
+	return scalarSetting[*ConnectionSelection]{
 		key: key, apply: apply, get: get,
-		equal: func(a, b *ConnectionID) bool { return a == b || a != nil && b != nil && *a == *b },
-		decodeFile: func(raw settingsFile, path []string) (*ConnectionID, bool, error) {
-			value, present, err := lookupFileValue(raw, path)
-			if err != nil || !present {
-				return nil, present, err
-			}
-			text, ok := value.(string)
-			if !ok {
-				return nil, false, &SettingsKeyTypeError{Key: key, ExpectedType: "string"}
-			}
-			id, err := ParseConnectionID(text)
-			return &id, true, err
+		equal: func(a, b *ConnectionSelection) bool { return a == b || a != nil && b != nil && slices.Equal(*a, *b) },
+		decodeFile: func(raw settingsFile, path []string) (*ConnectionSelection, bool, error) {
+			return lookupFileConnectionSelection(raw, path, key, allowSet)
 		},
 		doc: settingDocOptions{omitInTOML: true},
 	}
+}
+
+func lookupFileConnectionSelection(raw settingsFile, path []string, key string, allowSet bool) (*ConnectionSelection, bool, error) {
+	value, present, err := lookupFileValue(raw, path)
+	if err != nil || !present {
+		return nil, present, err
+	}
+	var values []any
+	switch value := value.(type) {
+	case string:
+		values = []any{value}
+	case []any:
+		if !allowSet {
+			return nil, false, &SettingsKeyTypeError{Key: key, ExpectedType: "string"}
+		}
+		values = value
+	default:
+		return nil, false, &SettingsKeyTypeError{Key: key, ExpectedType: "string or array of strings"}
+	}
+	if len(values) == 0 {
+		return nil, false, fmt.Errorf("%s must contain at least one connection ID", key)
+	}
+	selection := ConnectionSelection{}
+	for _, value := range values {
+		text, ok := value.(string)
+		if !ok {
+			return nil, false, &SettingsKeyTypeError{Key: key, ExpectedType: "array of strings"}
+		}
+		id, err := ParseConnectionID(text)
+		if err != nil {
+			return nil, false, err
+		}
+		if !slices.Contains(selection, id) {
+			selection = append(selection, id)
+		}
+	}
+	return &selection, true, nil
 }
 
 type connectionsSetting struct{}
@@ -190,6 +316,7 @@ func readConnectionCapabilities(definition settingsFile) (ProviderCapabilitiesOv
 		to  *bool
 	}{
 		{"supports_responses_api", &result.SupportsResponsesAPI},
+		{"supports_fast_mode", &result.SupportsFastMode},
 		{"supports_responses_compact", &result.SupportsResponsesCompact},
 		{"supports_prompt_cache_key", &result.SupportsPromptCacheKey},
 		{"supports_native_web_search", &result.SupportsNativeWebSearch},

@@ -3,9 +3,13 @@ package transport
 import (
 	"context"
 	"fmt"
+	"log/slog"
 
+	"core/shared/invariant"
 	"core/shared/protoapi"
 	sharedpb "core/shared/protoapi/gen/kent/api/shared"
+	transcriptpb "core/shared/protoapi/gen/kent/api/transcript"
+	worktreepb "core/shared/protoapi/gen/kent/api/worktree"
 	"core/shared/rpcwire"
 
 	"google.golang.org/protobuf/proto"
@@ -36,6 +40,14 @@ func sendBinaryNotification(
 	}
 	encodedPayload, err := protoapi.Encode(payload)
 	if err != nil {
+		slog.Error("invalid locally produced notification", "operation", operation.Name, "error", err)
+		switch payload.(type) {
+		case *transcriptpb.Message, *worktreepb.SetupEvent:
+			panic(fmt.Errorf("encode %s payload: %w", operation.Name, err))
+		}
+		invariant.NewPolicy().Check(false, invariant.FailureDiagnostic(
+			invariant.ScopeServerAPIContract, operation.Name, err,
+		))
 		return fmt.Errorf("encode %s payload: %w", operation.Name, err)
 	}
 	envelope := &sharedpb.Envelope{

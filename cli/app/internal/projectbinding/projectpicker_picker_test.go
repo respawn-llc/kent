@@ -80,3 +80,21 @@ func TestRowTextAndPreviewPath(t *testing.T) {
 		t.Fatalf("workspace row text = %+v", workspace)
 	}
 }
+
+func TestPreviewPathPreservesRelativePaths(t *testing.T) {
+	for _, path := range []string{".", "..", "./file", "../file", "relative/file"} {
+		if got := PreviewPath(path, "/home/me"); got != path {
+			t.Fatalf("PreviewPath(%q) = %q", path, got)
+		}
+	}
+}
+
+func TestPreviewPathUsesCurrentWorkingDirectory(t *testing.T) {
+	cwd := t.TempDir()
+	t.Chdir(cwd)
+	for _, home := range []string{filepath.Dir(cwd), ""} {
+		if got := PreviewPath(filepath.Join(cwd, "file"), home); got != "./file" {
+			t.Fatalf("PreviewPath with home %q = %q, want ./file", home, got)
+		}
+	}
+}

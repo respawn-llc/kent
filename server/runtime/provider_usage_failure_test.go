@@ -5,7 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"testing"
-	"time"
+	"testing/synctest"
 
 	"core/server/llm"
 	"core/server/session"
@@ -16,13 +16,16 @@ import (
 
 func TestProviderUsageExcludesFailedTransportAndRetainsSuccessfulRetry(t *testing.T) {
 	t.Parallel()
-	withGenerateRetryDelays(t, []time.Duration{0})
+	synctest.Test(t, testProviderUsageExcludesFailedTransportAndRetainsSuccessfulRetry)
+}
+
+func testProviderUsageExcludesFailedTransportAndRetainsSuccessfulRetry(t *testing.T) {
 	store := mustCreateTestSession(t)
 	client := &fakeClient{
 		errors:    []error{errors.New("temporary provider failure")},
 		responses: []llm.Response{providerUsageTestResponse(29)},
 	}
-	engine := mustNewTestEngine(t, store, client, tools.NewRegistry(), Config{Model: "gpt-5"})
+	engine := mustNewTestEngine(t, store, client, tools.NewRegistry(), Config{Model: "gpt-6-sol"})
 
 	if _, err := generateTestActiveStep(
 		context.Background(),
@@ -49,7 +52,7 @@ func TestProviderUsagePersistenceFailureDoesNotRetryProviderAndRetainsCommittedF
 	gate := sessiontest.NewPersistenceGate(runtimeTestSessionPersistence)
 	store := mustCreateTestSessionAt(t, t.TempDir(), session.WithPersistenceObserver(gate))
 	client := &fakeClient{responses: []llm.Response{providerUsageTestResponse(31)}}
-	engine := mustNewTestEngine(t, store, client, tools.NewRegistry(), Config{Model: "gpt-5"})
+	engine := mustNewTestEngine(t, store, client, tools.NewRegistry(), Config{Model: "gpt-6-sol"})
 	gate.FailNext(observerErr)
 
 	_, err := generateTestActiveStep(

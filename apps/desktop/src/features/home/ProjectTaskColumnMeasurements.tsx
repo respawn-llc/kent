@@ -17,18 +17,21 @@ export function ProjectTaskColumnMeasurements({
   data: ProjectTaskListData;
   onMeasure: (widths: ProjectTaskRenderedColumnWidths) => void;
 }>) {
-  const entries = useMemo(
-    () =>
-      projectTaskGroups.flatMap((group) =>
-        data[group].tasks.map((task): ProjectTaskMeasurementEntry => ({
-          key: `${group}-${task.id}`,
-          task,
-        })),
-      ),
-    [data],
-  );
+  const active = data.active.tasks;
+  const backlog = data.backlog.tasks;
+  const done = data.done.tasks;
+  const entries = useMemo(() => {
+    const tasks = { active, backlog, done };
+    return projectTaskGroups.flatMap((group) =>
+      tasks[group].map((task): ProjectTaskMeasurementEntry => ({
+        key: `${group}-${task.id}`,
+        task,
+      })),
+    );
+  }, [active, backlog, done]);
   const labelRows = useRef(new Map<string, HTMLSpanElement>());
   const workflowNames = useRef(new Map<string, HTMLSpanElement>());
+  const stageNames = useRef(new Map<string, HTMLSpanElement>());
 
   useLayoutEffect(() => {
     let active = true;
@@ -36,6 +39,7 @@ export function ProjectTaskColumnMeasurements({
       if (!active) return;
       onMeasure({
         labelsPx: maximumMeasuredWidth(labelRows.current.values()),
+        stagePx: maximumMeasuredWidth(stageNames.current.values()),
         workflowPx: maximumMeasuredWidth(workflowNames.current.values()),
       });
     };
@@ -44,6 +48,9 @@ export function ProjectTaskColumnMeasurements({
       observer?.observe(element);
     }
     for (const element of workflowNames.current.values()) {
+      observer?.observe(element);
+    }
+    for (const element of stageNames.current.values()) {
       observer?.observe(element);
     }
     measure();
@@ -66,6 +73,9 @@ export function ProjectTaskColumnMeasurements({
             retainMeasurementElement(labelRows.current, entry.key, element);
           }}
           task={entry.task}
+          stageRef={(element) => {
+            retainMeasurementElement(stageNames.current, entry.key, element);
+          }}
           workflowRef={(element) => {
             retainMeasurementElement(workflowNames.current, entry.key, element);
           }}
@@ -78,10 +88,12 @@ export function ProjectTaskColumnMeasurements({
 function TaskColumnMeasurement({
   labelRef,
   task,
+  stageRef,
   workflowRef,
 }: Readonly<{
   labelRef: (element: HTMLSpanElement | null) => void;
   task: TaskListItem;
+  stageRef: (element: HTMLSpanElement | null) => void;
   workflowRef: (element: HTMLSpanElement | null) => void;
 }>) {
   return (
@@ -95,6 +107,12 @@ function TaskColumnMeasurement({
             {item.content}
           </span>
         ))}
+      </span>
+      <span
+        className="inline-block w-max max-w-[24ch] overflow-hidden whitespace-nowrap text-xs"
+        ref={stageRef}
+      >
+        {task.stageName}
       </span>
       <span
         className="inline-block w-max max-w-[24ch] overflow-hidden whitespace-nowrap text-xs"

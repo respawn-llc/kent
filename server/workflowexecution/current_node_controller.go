@@ -221,7 +221,6 @@ func (c *CurrentNodeController) CompleteScriptCurrentNode(
 func (c *CurrentNodeController) CompleteSessionCurrentNode(
 	ctx context.Context,
 	sessionID runtimeids.SessionID,
-	runID runtimeids.RunID,
 	stepID runtimeids.StepID,
 	transitionID string,
 	outputValues map[string]string,
@@ -240,7 +239,6 @@ func (c *CurrentNodeController) CompleteSessionCurrentNode(
 	return c.CompleteAgentCurrentNode(ctx, workflowruntime.AgentCompletionRequest{
 		Provenance: workflowruntime.AgentCompletionProvenance{
 			ScopeID: handle.Scope().ID(),
-			RunID:   runID,
 			StepID:  stepID,
 		},
 		SessionID:    sessionID,
@@ -257,9 +255,9 @@ func (c *CurrentNodeController) completeAgentCurrentNode(
 	if c == nil {
 		return workflowruntime.CompletionResult{}, errors.New("current node workflow controller is required")
 	}
-	if req.Provenance.ScopeID.IsZero() || req.Provenance.RunID.IsZero() ||
+	if req.Provenance.ScopeID.IsZero() ||
 		req.Provenance.StepID.IsZero() || req.SessionID.IsZero() {
-		return workflowruntime.CompletionResult{}, errors.New("Agent completion requires Scope, Session, Run, and Step provenance")
+		return workflowruntime.CompletionResult{}, errors.New("Agent completion requires Scope, Session, and Step provenance")
 	}
 	handle, live := c.authority.SessionExecution(req.SessionID)
 	if !live || handle.Scope().Kind() != sessionruntime.ExecutionScopeAgent ||
@@ -276,7 +274,6 @@ func (c *CurrentNodeController) completeAgentCurrentNode(
 			return c.authority.CompleteAgentStep(
 				ctx,
 				req.Provenance.ScopeID,
-				req.Provenance.RunID,
 				req.Provenance.StepID,
 				commit,
 			)
@@ -378,7 +375,7 @@ func (c *CurrentNodeController) restoreExecutionRoot(ctx context.Context, inputs
 	if errors.As(err, &unavailable) {
 		return NewTaskStartPreparationError(err, workflow.CurrentNodeInterruptionDetail{
 			Code:                               "workflow_original_target_unavailable",
-			OriginalExecutionTargetUnavailable: serverapi.NewWorkflowOriginalTargetSelectionRequirement(unavailable.Cause).Details.GetOriginalTargetUnavailable(),
+			OriginalExecutionTargetUnavailable: serverapi.WorkflowLockedTargetDetails(unavailable.Cause),
 		})
 	}
 	return err

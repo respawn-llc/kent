@@ -1,13 +1,13 @@
 import { fireEvent, render, screen } from "@testing-library/react";
+import { beforeEach, describe, expect, it, mock, vi } from "bun:test";
 import { useLayoutEffect } from "react";
 
-import { VirtualizedInfiniteList } from "./VirtualizedInfiniteList";
 import {
   createVirtualizedPixelOffsetRequest,
   type VirtualizedPixelOffsetRequest,
 } from "./virtualizedPixelOffsetRequest";
 
-const virtualizer = vi.hoisted(() => ({
+const virtualizer = {
   getOffsetForIndex: vi.fn(),
   getTotalSize: vi.fn(() => 120),
   getVirtualItems: vi.fn<
@@ -20,20 +20,36 @@ const virtualizer = vi.hoisted(() => ({
       start: number;
     }>[]
   >(() => []),
+  options: { count: 0, overscan: 0 },
+  get range() {
+    const items = this.getVirtualItems();
+    const first = items[0];
+    const last = items.at(-1);
+    return first === undefined || last === undefined
+      ? null
+      : { startIndex: first.index, endIndex: last.index };
+  },
   measureElement: vi.fn(),
   scrollToIndex: vi.fn(),
   scrollToOffset: vi.fn(),
   shouldAdjustScrollPositionOnItemSizeChange: undefined,
-}));
+};
 const testEstimateSize = () => 40;
 const testGetItemKey = (item: string) => item;
 const testRenderItem = (item: string) => item;
 
-vi.mock("@tanstack/react-virtual", () => ({
+const actualVirtualizer = await import("@tanstack/react-virtual");
+await mock.module("@tanstack/react-virtual", () => ({
+  ...actualVirtualizer,
   defaultRangeExtractor: ({ startIndex, endIndex }: Readonly<{ startIndex: number; endIndex: number }>) =>
     Array.from({ length: endIndex - startIndex + 1 }, (_value, index) => startIndex + index),
-  useVirtualizer: () => virtualizer,
+  useVirtualizer: (options: Readonly<{ count: number }>) => {
+    virtualizer.options.count = options.count;
+    return virtualizer;
+  },
 }));
+
+const { VirtualizedInfiniteList } = await import("./VirtualizedInfiniteList");
 
 function List({
   hasNextPage = false,
@@ -153,7 +169,7 @@ describe("VirtualizedInfiniteList horizontal paging", () => {
         orientation="horizontal"
       />,
     );
-    expect(onLoadMore).toHaveBeenCalledOnce();
+    expect(onLoadMore).toHaveBeenCalledTimes(1);
 
     virtualizer.getVirtualItems.mockReturnValue([
       { end: 40, index: 0, key: "header", lane: 0, size: 40, start: 0 },
@@ -185,7 +201,7 @@ describe("VirtualizedInfiniteList horizontal paging", () => {
         previousLoadItemKey="workflow-40"
       />,
     );
-    expect(onLoadPrevious).toHaveBeenCalledOnce();
+    expect(onLoadPrevious).toHaveBeenCalledTimes(1);
 
     virtualizer.getVirtualItems.mockReturnValue([
       { end: 40, index: 0, key: "header", lane: 0, size: 40, start: 0 },
@@ -279,13 +295,13 @@ describe("VirtualizedInfiniteList horizontal paging", () => {
         previousLoadItemKey="workflow-0"
       />,
     );
-    expect(onLoadMore).toHaveBeenCalledOnce();
+    expect(onLoadMore).toHaveBeenCalledTimes(1);
 
     const forwardItems = windowItems(40, 81);
     renderWindow(view, forwardItems, [40]);
     const initialItems = windowItems(0, 120);
     renderWindow(view, initialItems, [0]);
-    expect(onLoadPrevious).toHaveBeenCalledOnce();
+    expect(onLoadPrevious).toHaveBeenCalledTimes(1);
 
     renderWindow(view, initialItems, [40]);
     renderWindow(view, initialItems, [119]);
@@ -623,8 +639,8 @@ describe("VirtualizedInfiniteList pixel restoration", () => {
       />,
     );
 
-    expect(loadActive).toHaveBeenCalledOnce();
-    expect(loadDone).toHaveBeenCalledOnce();
+    expect(loadActive).toHaveBeenCalledTimes(1);
+    expect(loadDone).toHaveBeenCalledTimes(1);
     view.rerender(
       <VirtualizedInfiniteList
         estimateSize={testEstimateSize}
@@ -654,7 +670,7 @@ describe("VirtualizedInfiniteList pixel restoration", () => {
       />,
     );
     expect(loadActive).toHaveBeenCalledTimes(2);
-    expect(loadDone).toHaveBeenCalledOnce();
+    expect(loadDone).toHaveBeenCalledTimes(1);
 
     view.rerender(
       <VirtualizedInfiniteList
@@ -685,7 +701,7 @@ describe("VirtualizedInfiniteList pixel restoration", () => {
       />,
     );
     expect(loadActive).toHaveBeenCalledTimes(3);
-    expect(loadDone).toHaveBeenCalledOnce();
+    expect(loadDone).toHaveBeenCalledTimes(1);
   });
 
   it("retires visibility-trigger state after its boundary is removed", () => {
@@ -713,7 +729,7 @@ describe("VirtualizedInfiniteList pixel restoration", () => {
         visibilityTriggers={[trigger]}
       />,
     );
-    expect(load).toHaveBeenCalledOnce();
+    expect(load).toHaveBeenCalledTimes(1);
 
     view.rerender(
       <VirtualizedInfiniteList
@@ -770,7 +786,7 @@ describe("VirtualizedInfiniteList pixel restoration", () => {
       <List hasNextPage onLoadMore={onLoadMore} request={createVirtualizedPixelOffsetRequest("deep", 999)} />,
     );
     expect(screen.getByText("c")).toBeInTheDocument();
-    expect(onLoadMore).toHaveBeenCalledOnce();
+    expect(onLoadMore).toHaveBeenCalledTimes(1);
   });
 
   it("keeps a supplied newer boundary at list start while loading from the first item key", () => {
@@ -788,7 +804,7 @@ describe("VirtualizedInfiniteList pixel restoration", () => {
         previousLoadItemKey="b"
       />,
     );
-    expect(onLoadPrevious).toHaveBeenCalledOnce();
+    expect(onLoadPrevious).toHaveBeenCalledTimes(1);
     const boundary = screen.getByTestId("virtual-boundary-previous");
     const rows = screen.getAllByRole("listitem");
     expect(rows[0]).toContainElement(boundary);
@@ -822,7 +838,7 @@ describe("VirtualizedInfiniteList pixel restoration", () => {
         previousLoadItemKey="feed"
       />,
     );
-    expect(onLoadPrevious).toHaveBeenCalledOnce();
+    expect(onLoadPrevious).toHaveBeenCalledTimes(1);
     expect(screen.queryByTestId("virtual-boundary-previous")).not.toBeInTheDocument();
   });
 
@@ -852,7 +868,7 @@ describe("VirtualizedInfiniteList pixel restoration", () => {
     expect(screen.getByText("c")).toBeInTheDocument();
     expect(screen.getByTestId("virtual-boundary-next")).toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: "Retry" }));
-    expect(onRetry).toHaveBeenCalledOnce();
+    expect(onRetry).toHaveBeenCalledTimes(1);
 
     view.rerender(
       <List

@@ -8,11 +8,13 @@ import (
 	"testing"
 
 	"core/cli/app/internal/startupconfig"
+	"core/shared/client"
 	"core/shared/config"
 )
 
-func TestStartRunPromptClientMissingWorkspaceContextSessionFailsBeforeAttach(t *testing.T) {
+func TestStartRunPromptClientUnavailableServerDoesNotValidateCallerLocally(t *testing.T) {
 	home := newAppTestHome(t)
+	configureAppTestServerPort(t)
 	workspace := t.TempDir()
 	configPath := filepath.Join(home, config.ConfigDirName, "config.toml")
 	if err := os.MkdirAll(filepath.Dir(configPath), 0o755); err != nil {
@@ -28,8 +30,9 @@ func TestStartRunPromptClientMissingWorkspaceContextSessionFailsBeforeAttach(t *
 		WorkspaceContextSessionID: "session-from-env",
 		AgentRole:                 sessionLifecycleStringPtr("missing"),
 	})
-	if !errors.Is(err, startupconfig.ErrWorkspaceContextSessionMissing) {
-		t.Fatalf("error = %v, want missing workspace context session", err)
+	var unavailable *client.ServerUnavailableError
+	if !errors.As(err, &unavailable) || errors.Is(err, startupconfig.ErrWorkspaceContextSessionMissing) {
+		t.Fatalf("error = %v, want unavailable server without local caller validation", err)
 	}
 }
 

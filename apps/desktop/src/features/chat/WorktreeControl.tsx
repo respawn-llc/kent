@@ -6,11 +6,15 @@ import type { useWorktreeList } from "./useWorktreeList";
 import { worktreeTarget } from "./worktreePresentation";
 
 export function WorktreeControl({
+  projectID,
   sessionID,
   target,
   query,
+  openSession,
 }: Readonly<{
+  projectID: string;
   sessionID: string;
+  openSession(sessionID: string): void | Promise<void>;
   target: ChatExecutionTarget | null;
   query: ReturnType<typeof useWorktreeList>;
 }>) {
@@ -24,8 +28,8 @@ export function WorktreeControl({
         className="flex max-w-full items-center gap-[var(--space-2)] text-sm"
         onClick={(event) => {
           const returnFocus = event.currentTarget;
-          const handle = roots.open({ kind: "worktree", sessionID, page: "list" });
-          void handle.lifecycle.then((outcome) => {
+          const handle = roots.toggle({ kind: "worktree", projectID, sessionID, page: "list", openSession });
+          void handle?.lifecycle.then((outcome) => {
             if (outcome === "closed" && returnFocus.isConnected) returnFocus.focus();
           });
         }}

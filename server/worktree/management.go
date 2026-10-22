@@ -5,6 +5,7 @@ import (
 	"errors"
 
 	"core/server/metadata"
+	sharedpb "core/shared/protoapi/gen/kent/api/shared"
 	worktreepb "core/shared/protoapi/gen/kent/api/worktree"
 	"core/shared/serverapi"
 	"core/shared/worktreecontract"
@@ -16,17 +17,18 @@ type managementContext struct {
 }
 
 func (s *Service) resolveWorkspaceBinding(ctx context.Context, projectID, workspaceID string) (metadata.Binding, error) {
-	selector, err := serverapi.NewProjectWorkspaceSelectorForID(workspaceID)
-	if err != nil {
-		return metadata.Binding{}, err
-	}
+	selector := serverapi.NewProjectWorkspaceSelectorForID(workspaceID)
 	return s.metadata.ResolveProjectWorkspaceSelector(ctx, projectID, selector)
 }
 
 func (s *Service) resolveManagementContext(ctx context.Context, scope *worktreepb.ManagementScope) (managementContext, error) {
 	switch selected := scope.GetScope().(type) {
 	case *worktreepb.ManagementScope_SessionId:
-		caller, err := s.resolveSessionWorkspaceContext(ctx, selected.SessionId)
+		id, err := s.metadata.ResolveSessionTarget(ctx, selected.SessionId)
+		if err != nil {
+			return managementContext{}, err
+		}
+		caller, err := s.resolveSessionWorkspaceContext(ctx, id.String())
 		if err != nil {
 			return managementContext{}, err
 		}
@@ -40,8 +42,12 @@ func (s *Service) resolveManagementContext(ctx context.Context, scope *worktreep
 			return managementContext{}, err
 		}
 		result := managementContext{binding: binding}
-		if selected.Workspace.CallerSessionId != nil {
-			caller, err := s.resolveSessionWorkspaceContext(ctx, *selected.Workspace.CallerSessionId)
+		if selected.Workspace.SessionContext != nil {
+			id, err := s.metadata.ResolveSessionTarget(ctx, selected.Workspace.SessionContext)
+			if err != nil {
+				return managementContext{}, err
+			}
+			caller, err := s.resolveSessionWorkspaceContext(ctx, id.String())
 			if err != nil {
 				return managementContext{}, err
 			}
@@ -90,7 +96,7 @@ func (s *Service) beginManagementMutation(ctx context.Context, scope *worktreepb
 }
 
 func (s *Service) beginWorkspaceMutation(ctx context.Context, sessionID string) (func(), sessionWorkspaceContext, error) {
-	release, selected, err := s.beginManagementMutation(ctx, worktreecontract.SessionManagementScope(sessionID))
+	release, selected, err := s.beginManagementMutation(ctx, worktreecontract.SessionManagementScope(&sharedpb.SessionSelector{Value: &sharedpb.SessionSelector_SessionId{SessionId: sessionID}}))
 	if err != nil {
 		return nil, sessionWorkspaceContext{}, err
 	}

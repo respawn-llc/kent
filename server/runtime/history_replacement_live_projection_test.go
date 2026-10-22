@@ -18,15 +18,15 @@ func TestRemoteCompactionReplacementOwnsExactlyOneTranscriptSummary(t *testing.T
 	store := mustCreateTestSession(t)
 	var events []Event
 	client := &fakeCompactionClient{compactionResponses: []llm.CompactionResponse{{
-		Checkpoint: llm.ResponseItem{
+		OutputItems: []llm.ResponseItem{llm.ResponseItem{
 			Type:             llm.ResponseItemTypeCompaction,
 			ID:               textutil.Value("checkpoint"),
 			EncryptedContent: textutil.Value("encrypted"),
-		},
-		Usage: llm.Usage{InputTokens: 100, WindowTokens: 200_000},
+		}},
+		Usage: llm.Usage{InputTokens: textutil.Value(100), WindowTokens: 200_000, ContextUsage: &llm.ContextUsage{Tokens: 100, MeasurementPoint: llm.ContextMeasurementInput}},
 	}}}
 	engine := mustNewTestEngine(t, store, client, tools.NewRegistry(), Config{
-		Model:          "gpt-5",
+		Model:          "gpt-6-sol",
 		CompactionMode: "native",
 		OnEvent:        func(event Event) { events = append(events, event) },
 	})
@@ -48,6 +48,12 @@ func TestRemoteCompactionReplacementOwnsExactlyOneTranscriptSummary(t *testing.T
 		liveFacts = append(liveFacts, TranscriptCommittedRowFactsFromEvent(event)...)
 	}
 	assertSingleCompactionSummaryAndPreservedUserFact(t, liveFacts, preservedUserMessage)
+	buildActiveTurnRequestForTest(t, engine, nil, true)
+	liveFacts = nil
+	for _, event := range events {
+		liveFacts = append(liveFacts, TranscriptCommittedRowFactsFromEvent(event)...)
+	}
+	assertSingleCompactionSummaryAndPreservedUserFact(t, liveFacts, preservedUserMessage)
 
 	page := mustEngineNewestSegmentPage(t, engine)
 	assertSingleCompactionSummaryAndPreservedUserFact(
@@ -65,7 +71,7 @@ func TestRemoteCompactionReplacementOwnsExactlyOneTranscriptSummary(t *testing.T
 		reopenedStore,
 		&fakeClient{},
 		tools.NewRegistry(),
-		Config{Model: "gpt-5"},
+		Config{Model: "gpt-6-sol"},
 	)
 	reopenedPage := mustEngineNewestSegmentPage(t, reopened)
 	assertSingleCompactionSummaryAndPreservedUserFact(
@@ -147,7 +153,7 @@ func TestHistoryReplacementProjectsPreservedUserContextWithoutReplayingUserTurns
 		&fakeClient{},
 		tools.NewRegistry(),
 		Config{
-			Model:   "gpt-5",
+			Model:   "gpt-6-sol",
 			OnEvent: func(event Event) { events = append(events, event) },
 		},
 	)
@@ -167,7 +173,7 @@ func TestHistoryReplacementProjectsPreservedUserContextWithoutReplayingUserTurns
 
 	if err := steerTestActiveStep(engine,
 		"compaction",
-		steerHistoryReplacementIntent("local", compactionModeAuto, 1, nil, items),
+		steerTestPreparedHistoryIntent("local", compactionModeAuto, 1, nil, preparedCompactionHistory{items: items}),
 	); err != nil {
 		t.Fatalf("persist history replacement: %v", err)
 	}
@@ -245,7 +251,7 @@ func TestHistoryReplacementProjectsPreservedUserContextWithoutReplayingUserTurns
 		mustOpenTestSession(t, store.Dir()),
 		providerClient,
 		tools.NewRegistry(),
-		Config{Model: "gpt-5"},
+		Config{Model: "gpt-6-sol"},
 	)
 	reopenedPage := mustEngineNewestSegmentPage(t, reopened)
 	reopenedFacts := TranscriptCommittedRowFactsFromSnapshot(reopenedPage.Snapshot)
@@ -278,7 +284,7 @@ func TestEligibleHistoryReplacementTimestampParityAcrossPersistedAndLiveProjecti
 		&fakeClient{},
 		newTestToolRegistry(t),
 		Config{
-			Model:   "gpt-5",
+			Model:   "gpt-6-sol",
 			OnEvent: func(event Event) { events = append(events, event) },
 		},
 	)
@@ -302,7 +308,7 @@ func TestEligibleHistoryReplacementTimestampParityAcrossPersistedAndLiveProjecti
 	if err := steerTestActiveStep(
 		engine,
 		"eligible replacement",
-		steerHistoryReplacementIntent("local", compactionModeAuto, 1, nil, items),
+		steerTestPreparedHistoryIntent("local", compactionModeAuto, 1, nil, preparedCompactionHistory{items: items}),
 	); err != nil {
 		t.Fatalf("persist eligible history replacement: %v", err)
 	}
@@ -342,7 +348,7 @@ func TestEligibleHistoryReplacementTimestampParityAcrossPersistedAndLiveProjecti
 		mustOpenTestSession(t, store.Dir()),
 		&fakeClient{},
 		newTestToolRegistry(t),
-		Config{Model: "gpt-5"},
+		Config{Model: "gpt-6-sol"},
 	)
 	restartedFacts := TranscriptCommittedRowFactsFromSnapshot(mustEngineNewestSegmentPage(t, reopened).Snapshot)
 	assertReplacementFactsMatch(t, restartedFacts, replacementTime)

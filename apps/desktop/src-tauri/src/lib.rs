@@ -11,6 +11,7 @@ use std::sync::{
 use tauri::{Emitter, Manager};
 use tauri_plugin_dialog::DialogExt;
 
+mod clipboard;
 mod native_glass;
 
 const CONFIG_FILE_NAME: &str = "config.toml";
@@ -159,14 +160,30 @@ fn file_available(path: String, base_path: String) -> Result<bool, String> {
 
 #[tauri::command]
 fn open_file_path(path: String, base_path: String) -> Result<(), String> {
-    let resolved = resolve_user_file_path(&path, &base_path)?;
+    let resolved = resolve_regular_file(&path, &base_path)?;
+    tauri_plugin_opener::reveal_item_in_dir(&resolved)
+        .map_err(|error| format!("Reveal file failed: {error}"))
+}
+
+fn resolve_regular_file(path: &str, base_path: &str) -> Result<PathBuf, String> {
+    let resolved = resolve_user_file_path(path, base_path)?;
     let metadata =
         fs::metadata(&resolved).map_err(|error| format!("Read file metadata failed: {error}"))?;
     if !metadata.is_file() {
         return Err("Path is not a file.".to_string());
     }
-    tauri_plugin_opener::reveal_item_in_dir(&resolved)
-        .map_err(|error| format!("Reveal file failed: {error}"))
+    Ok(resolved)
+}
+
+#[tauri::command]
+async fn open_file_default(path: String, base_path: Option<String>) -> Result<(), String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        let resolved = resolve_regular_file(&path, base_path.as_deref().unwrap_or(""))?;
+        tauri_plugin_opener::open_path(&resolved, None::<&str>)
+            .map_err(|error| format!("Open file failed: {error}"))
+    })
+    .await
+    .map_err(|error| format!("File opener failed: {error}"))?
 }
 
 #[tauri::command]
@@ -631,6 +648,7 @@ pub fn run() {
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
+            clipboard::paste_clipboard,
             resolve_native_context,
             resolve_native_platform,
             self_update_supported,
@@ -638,6 +656,7 @@ pub fn run() {
             select_file,
             file_available,
             open_file_path,
+            open_file_default,
             open_external_url,
             append_gui_log,
             send_attention_notification,
@@ -915,10 +934,25 @@ fn home_dir() -> Result<PathBuf, String> {
 }
 
 fn server_rpc_url(host: &str, port: u16) -> String {
-    let authority_host = if host.contains(':') && !host.starts_with('[') && !host.ends_with(']') {
-        format!("[{host}]")
-    } else {
-        host.to_string()
+    let parse_host = host
+        .strip_prefix('[')
+        .and_then(|host| host.strip_suffix(']'))
+        .unwrap_or(host);
+    let parsed_host = parse_host.parse::<std::net::IpAddr>().ok();
+    let host = match parsed_host {
+        Some(std::net::IpAddr::V4(address)) if address.is_unspecified() => "127.0.0.1",
+        Some(std::net::IpAddr::V6(address)) if address.is_unspecified() => "::1",
+        _ => host,
+    };
+    let authority_host = match parsed_host {
+        Some(std::net::IpAddr::V6(_)) if host.starts_with('[') && host.ends_with(']') => {
+            host.to_string()
+        }
+        Some(std::net::IpAddr::V6(_)) => format!("[{host}]"),
+        _ if host.contains(':') && !host.starts_with('[') && !host.ends_with(']') => {
+            format!("[{host}]")
+        }
+        _ => host.to_string(),
     };
     format!("ws://{authority_host}:{port}/rpc")
 }

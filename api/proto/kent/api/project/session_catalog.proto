@@ -6,6 +6,7 @@ import "buf/validate/validate.proto";
 import "google/protobuf/timestamp.proto";
 import "kent/api/server/server.proto";
 import "kent/api/shared/foundation.proto";
+import "kent/api/shared/validation.proto";
 
 option go_package = "core/shared/protoapi/gen/kent/api/project;projectpb";
 
@@ -16,13 +17,10 @@ enum SessionCategory {
 }
 
 message SessionSummary {
+  optional int64 short_id = 6 [(buf.validate.field).int64 = {gt: 0 lte: 9007199254740991}];
   string session_id = 1 [
-    (buf.validate.field).string.min_len = 1,
-    (buf.validate.field).cel = {
-      id: "session_summary.session_id.trimmed"
-      message: "session_id must not have surrounding whitespace"
-      expression: "this == this.trim()"
-    }
+    (buf.validate.field).string.uuid = true,
+    (buf.validate.field).string.(kent.api.shared.canonical_uuid_v4) = true
   ];
   SessionCategory category = 2 [(buf.validate.field).enum = {
     defined_only: true

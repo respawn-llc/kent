@@ -8,6 +8,7 @@ import (
 	"io"
 	"strings"
 	"sync"
+	"time"
 
 	"core/prompts"
 	"core/shared/clientui"
@@ -28,7 +29,6 @@ type AskQuestionRequest struct {
 	ApprovalConsumer       func(AskQuestionApproval) error       `json:"-"`
 	AccessTargets          []FileAccessTarget                    `json:"-"`
 	Origin                 AskQuestionOrigin                     `json:"-"`
-	RunID                  string                                `json:"-"`
 	StepID                 string                                `json:"-"`
 	ToolCallID             string                                `json:"-"`
 	QuestionBatch          *AskQuestionBatchMetadata             `json:"-"`
@@ -272,8 +272,8 @@ func normalizedRecommendedOptionIndex(index int, suggestionCount int) int {
 	return index
 }
 
-func selectedOptionToolOutputSummary(optionNumber int, freeform *string) string {
-	base := fmt.Sprintf("User chose option #%d.", optionNumber)
+func selectedOptionToolOutputSummary(optionNumber int, freeform *string, answerer string) string {
+	base := fmt.Sprintf("%s chose option #%d.", answerer, optionNumber)
 	if freeform == nil {
 		return base
 	}
@@ -330,22 +330,28 @@ func (t *AskQuestionTool) Call(ctx context.Context, c Call) (Result, error) {
 		return ErrorResult(c, prepareErr.Error()), nil
 	}
 	req.Origin = AskQuestionOriginModelTool
-	req.RunID = c.RunID
 	req.StepID = c.StepID
 	if c.AskQuestionBatch != nil {
 		batch := *c.AskQuestionBatch
 		batch.BatchToolCallIDs = append([]string(nil), c.AskQuestionBatch.BatchToolCallIDs...)
 		req.Origin = batch.Origin
-		req.RunID = batch.RunID
 		req.StepID = batch.StepID
 		req.QuestionBatch = &batch
 	}
+	askStartedAt := time.Now()
 	resolution, err := t.broker.Ask(ctx, req)
 	if err != nil {
 		if ShouldSkipRemainingQuestionBatch(err, context.Cause(ctx)) {
 			notifyAskQuestionBatchSkipped(c)
 		}
-		return ErrorResult(c, err.Error()), nil
+		message := err.Error()
+		if errors.Is(err, context.Canceled) {
+			message = fmt.Sprintf(
+				"You were interrupted while waiting for an answer to this question after %s. The interruption grants no authorization to make your own decision or treat any of the proposed options as chosen. Consider re-asking this question when appropriate.",
+				formatDurationShort(time.Since(askStartedAt)),
+			)
+		}
+		return ErrorResult(c, message), nil
 	}
 	summary, summaryErr := buildResolutionToolOutputSummary(resolution)
 	if summaryErr != nil {
@@ -364,8 +370,13 @@ func (t *AskQuestionTool) Call(ctx context.Context, c Call) (Result, error) {
 		CondensedText: textutil.OptionalExactString(condensed),
 	}
 	if answer, ok := resolution.(AskQuestionAnswer); ok {
-		answerCopy := answer
-		result.QuestionAnswer = &answerCopy
+		result.QuestionAnswer = &AskQuestionAnswer{
+			SelectedOptionNumber: answer.SelectedOptionNumber,
+			Freeform:             answer.Freeform,
+		}
+		if answer.Answerer != nil {
+			result.AnsweredBySessionID = &answer.Answerer.ID
+		}
 	}
 	return result, nil
 }

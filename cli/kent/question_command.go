@@ -13,12 +13,15 @@ import (
 	"strings"
 	"time"
 
+	"core/cli/app"
+	"core/prompts"
 	"core/shared/apicontract"
 	"core/shared/client"
 	"core/shared/clientui"
 	"core/shared/config"
 	"core/shared/protoapi"
 	promptpb "core/shared/protoapi/gen/kent/api/prompt"
+	taskpb "core/shared/protoapi/gen/kent/api/workflow_task"
 	"core/shared/runtimeids"
 	"core/shared/serverapi"
 	"core/shared/textutil"
@@ -53,7 +56,7 @@ type questionCommand struct {
 }
 
 type questionCommandSelector struct {
-	SessionID  *runtimeids.SessionID
+	SessionID  runtimeids.SessionSelector
 	TaskRef    *string
 	ProjectRef string
 	Command    string
@@ -61,6 +64,7 @@ type questionCommandSelector struct {
 
 type taskQuestionSessionCandidate struct {
 	SessionID   runtimeids.SessionID
+	ShortID     *runtimeids.SessionShortID
 	SessionName *string
 	Questions   []questionCommandPendingQuestion
 }
@@ -68,8 +72,9 @@ type taskQuestionSessionCandidate struct {
 type questionCommandPendingQuestion struct {
 	ToolCallID             clientui.ToolCallID
 	SessionID              runtimeids.SessionID
+	ShortID                *runtimeids.SessionShortID
 	StepID                 runtimeids.StepID
-	Kind                   serverapi.WorkflowAttentionQuestionKind
+	Kind                   taskpb.AttentionQuestionKind
 	Question               string
 	Suggestions            []string
 	RecommendedOptionIndex *int
@@ -121,17 +126,16 @@ func (c questionCommand) showSubcommand(args []string, stdout io.Writer, stderr 
 		return 2
 	}
 	if selector.SessionID != nil {
-		return c.showSessionQuestion(*selector.SessionID, stdout, stderr)
+		return c.showSessionQuestion(selector.SessionID, stdout, stderr)
 	}
 	return c.showTaskQuestion(selector, stdout, stderr)
 }
 
-func (c questionCommand) showSessionQuestion(sessionID runtimeids.SessionID, stdout io.Writer, stderr io.Writer) int {
+func (c questionCommand) showSessionQuestion(sessionID runtimeids.SessionSelector, stdout io.Writer, stderr io.Writer) int {
 	return c.withRemote(stderr, sessionID, func(remote questionCommandRemote) int {
 		question, ok, err := listPendingSessionPrompt(context.Background(), remote, sessionID)
 		if err != nil {
-			fmt.Fprintln(stderr, err)
-			return 1
+			return questionOperationFailure(stderr, config.Command+" question", err)
 		}
 		if !ok {
 			fmt.Fprintln(stdout, noPendingQuestionsText)
@@ -144,6 +148,7 @@ func (c questionCommand) showSessionQuestion(sessionID runtimeids.SessionID, std
 
 func (c questionCommand) answerSubcommand(args []string, stdout io.Writer, stderr io.Writer) int {
 	fs := newCommandFlagSet(config.Command+" question answer", stderr, questionAnswerUsage)
+	persistenceRoot := fs.String("persistence-root", "", persistenceRootFlagUsage)
 	var sessionFlag *string
 	registerOptionalStringFlag(fs, "session", "session whose pending question to answer", &sessionFlag)
 	var taskFlag *string
@@ -172,19 +177,25 @@ func (c questionCommand) answerSubcommand(args []string, stdout io.Writer, stder
 		fmt.Fprintln(stderr, "question answer requires --option or non-blank --commentary")
 		return 2
 	}
+	if flagExplicit(fs, "persistence-root") {
+		if err := publishPersistenceRootEnv(*persistenceRoot); err != nil {
+			fmt.Fprintln(stderr, err)
+			return 2
+		}
+	}
 	selector, err := resolveQuestionCommandSelector(sessionFlag, taskFlag, *projectFlag, config.Command+" question answer")
 	if err != nil {
 		fmt.Fprintln(stderr, err)
 		return 2
 	}
 	if selector.SessionID != nil {
-		return c.answerSessionQuestion(*selector.SessionID, option, commentary, stdout, stderr)
+		return c.answerSessionQuestion(selector.SessionID, option, commentary, stdout, stderr)
 	}
 	return c.answerTaskQuestion(selector, option, commentary, stdout, stderr)
 }
 
 func (c questionCommand) answerSessionQuestion(
-	sessionID runtimeids.SessionID,
+	sessionID runtimeids.SessionSelector,
 	option *int,
 	commentary *string,
 	stdout io.Writer,
@@ -193,8 +204,7 @@ func (c questionCommand) answerSessionQuestion(
 	return c.withRemote(stderr, sessionID, func(remote questionCommandRemote) int {
 		question, ok, err := listPendingSessionPrompt(context.Background(), remote, sessionID)
 		if err != nil {
-			fmt.Fprintln(stderr, err)
-			return 1
+			return questionOperationFailure(stderr, config.Command+" question answer", err)
 		}
 		if !ok {
 			fmt.Fprintln(stderr, noPendingQuestionAnswerText)
@@ -244,8 +254,7 @@ func (c questionCommand) showResolvedTaskQuestion(
 	return c.withRemote(stderr, candidate.SessionID, func(promptRemote questionCommandRemote) int {
 		question, ok, err := readPendingSessionPromptByKey(context.Background(), promptRemote, expected)
 		if err != nil {
-			fmt.Fprintln(stderr, err)
-			return 1
+			return questionOperationFailure(stderr, selector.Command, err)
 		}
 		if !ok {
 			fmt.Fprintln(stdout, noPendingQuestionsText)
@@ -302,8 +311,7 @@ func (c questionCommand) answerResolvedTaskQuestion(
 	return c.withRemote(stderr, candidate.SessionID, func(promptRemote questionCommandRemote) int {
 		question, ok, err := readPendingSessionPromptByKey(context.Background(), promptRemote, expected)
 		if err != nil {
-			fmt.Fprintln(stderr, err)
-			return 1
+			return questionOperationFailure(stderr, selector.Command, err)
 		}
 		if !ok {
 			fmt.Fprintln(stderr, noPendingQuestionAnswerText)
@@ -340,6 +348,16 @@ func isQuestionAnswerUsageError(err error) bool {
 	return errors.As(err, &usageErr)
 }
 
+func questionOperationFailure(stderr io.Writer, command string, err error) int {
+	var self *serverapi.SessionSelfTargetError
+	if errors.As(err, &self) {
+		fmt.Fprintln(stderr, prompts.RenderLiveControlSelfTargetDeniedPrompt(command))
+		return 2
+	}
+	fmt.Fprintln(stderr, err)
+	return 1
+}
+
 func answerQuestionThroughBatch(
 	remote questionCommandRemote,
 	question questionCommandPendingQuestion,
@@ -349,6 +367,11 @@ func answerQuestionThroughBatch(
 	stdout io.Writer,
 	stderr io.Writer,
 ) int {
+	invokingSessionID, err := workflowTaskInvokingSessionID()
+	if err != nil {
+		fmt.Fprintln(stderr, err)
+		return 1
+	}
 	entry, err := questionBatchAnswer(question, option, commentary)
 	if err != nil {
 		fmt.Fprintln(stderr, err)
@@ -360,7 +383,7 @@ func answerQuestionThroughBatch(
 	answerCtx, stopAnswer := questionAnswerContext()
 	defer stopAnswer()
 	watch, err := remote.SubscribeFollowUp(answerCtx, &promptpb.FollowUpWatchRequest{
-		SessionId:  question.SessionID.String(),
+		SessionId:  protoapi.SessionSelectorToProto(question.SessionID),
 		StepId:     question.StepID.String(),
 		ToolCallId: string(question.ToolCallID),
 	})
@@ -370,13 +393,23 @@ func answerQuestionThroughBatch(
 	}
 	defer func() { _ = watch.Close() }()
 	request := &promptpb.AnswerBatchRequest{
-		SessionId: question.SessionID.String(),
-		StepId:    question.StepID.String(),
-		Entries:   []*promptpb.AnswerBatchEntry{entry},
+		SessionId:         protoapi.SessionSelectorToProto(question.SessionID),
+		StepId:            question.StepID.String(),
+		Entries:           []*promptpb.AnswerBatchEntry{entry},
+		InvokingSessionId: invokingSessionID,
 	}
 	response, err := remote.AnswerPromptBatch(answerCtx, request)
 	if err != nil {
-		fmt.Fprintln(stderr, err)
+		var rejected *serverapi.ParentQuestionAnswerRejectedError
+		if errors.As(err, &rejected) {
+			fmt.Fprintf(
+				stderr,
+				"You are a sub-agent trying to answer a question from your parent session %s. This question is likely intended for someone else. Do not answer questions you are not authorized to answer.\n",
+				(runtimeids.SessionIdentity{ID: question.SessionID, ShortID: question.ShortID}).String(),
+			)
+		} else {
+			return questionOperationFailure(stderr, config.Command+" question answer", err)
+		}
 		return 1
 	}
 	if err := protoapi.ValidatePromptAnswerBatchResponse(request, response); err != nil {
@@ -406,7 +439,7 @@ func questionBatchAnswer(
 	commentary *string,
 ) (*promptpb.AnswerBatchEntry, error) {
 	entry := &promptpb.AnswerBatchEntry{ToolCallId: string(question.ToolCallID)}
-	if question.Kind == serverapi.WorkflowAttentionQuestionKindApproval {
+	if question.Kind == taskpb.AttentionQuestionKind_ATTENTION_QUESTION_KIND_APPROVAL {
 		if question.Approval == nil {
 			return nil, errors.New("pending Approval has no authoritative options")
 		}
@@ -466,12 +499,16 @@ func readTaskQuestionFollowUp(
 func listPendingSessionQuestions(
 	ctx context.Context,
 	remote questionCommandRemote,
-	sessionID runtimeids.SessionID,
+	sessionID runtimeids.SessionSelector,
 ) ([]clientui.PendingAsk, error) {
 	ctx, cancel := context.WithTimeout(ctx, questionCommandTimeout)
 	defer cancel()
+	caller, err := app.LiveSteerCallerSessionID()
+	if err != nil {
+		return nil, err
+	}
 	response, err := remote.ListPendingAsksBySession(ctx, &promptpb.ListPendingRequest{
-		SessionId: sessionID.String(),
+		SessionId: protoapi.SessionSelectorToProto(sessionID), CallerSessionId: caller,
 	})
 	if err != nil {
 		return nil, err
@@ -487,10 +524,14 @@ func listPendingSessionQuestions(
 	return asks, nil
 }
 
-func listPendingSessionApprovals(ctx context.Context, remote questionCommandRemote, sessionID runtimeids.SessionID) ([]clientui.PendingApproval, error) {
+func listPendingSessionApprovals(ctx context.Context, remote questionCommandRemote, sessionID runtimeids.SessionSelector) ([]clientui.PendingApproval, error) {
 	ctx, cancel := context.WithTimeout(ctx, questionCommandTimeout)
 	defer cancel()
-	response, err := remote.ListPendingApprovalsBySession(ctx, &promptpb.ListPendingRequest{SessionId: sessionID.String()})
+	caller, err := app.LiveSteerCallerSessionID()
+	if err != nil {
+		return nil, err
+	}
+	response, err := remote.ListPendingApprovalsBySession(ctx, &promptpb.ListPendingRequest{SessionId: protoapi.SessionSelectorToProto(sessionID), CallerSessionId: caller})
 	if err != nil {
 		return nil, err
 	}
@@ -508,7 +549,7 @@ func listPendingSessionApprovals(ctx context.Context, remote questionCommandRemo
 func listPendingSessionPrompt(
 	ctx context.Context,
 	remote questionCommandRemote,
-	sessionID runtimeids.SessionID,
+	sessionID runtimeids.SessionSelector,
 ) (questionCommandPendingQuestion, bool, error) {
 	asks, err := listPendingSessionQuestions(ctx, remote, sessionID)
 	if err != nil {
@@ -538,13 +579,12 @@ func readPendingSessionPromptByKey(
 	if err != nil {
 		return questionCommandPendingQuestion{}, false, err
 	}
-	if expected.Kind == serverapi.WorkflowAttentionQuestionKindOrdinary {
+	if expected.Kind == taskpb.AttentionQuestionKind_ATTENTION_QUESTION_KIND_ORDINARY {
 		for _, ask := range asks {
 			if ask.SessionID == expected.SessionID &&
 				ask.StepID == expected.StepID &&
 				ask.ToolCallID == expected.ToolCallID {
-				question, err := pendingSessionQuestion(ask)
-				return question, err == nil, err
+				return pendingSessionQuestion(ask), true, nil
 			}
 		}
 		return questionCommandPendingQuestion{}, false, nil
@@ -553,7 +593,7 @@ func readPendingSessionPromptByKey(
 		if approval.SessionID == expected.SessionID &&
 			approval.StepID == expected.StepID &&
 			approval.ToolCallID == expected.ToolCallID {
-			return pendingSessionApproval(approval)
+			return pendingSessionApproval(approval), true, nil
 		}
 	}
 	return questionCommandPendingQuestion{}, false, nil
@@ -563,11 +603,10 @@ func pendingQuestionFromObservation(
 	question serverapi.ObservationQuestion,
 ) (questionCommandPendingQuestion, bool, error) {
 	if question.Ask != nil {
-		pending, err := pendingSessionQuestion(*question.Ask)
-		return pending, err == nil, err
+		return pendingSessionQuestion(*question.Ask), true, nil
 	}
 	if question.Approval != nil {
-		return pendingSessionApproval(*question.Approval)
+		return pendingSessionApproval(*question.Approval), true, nil
 	}
 	return questionCommandPendingQuestion{}, false, errors.New("pending prompt has no Question or Approval")
 }
@@ -588,7 +627,7 @@ func withQuestionTaskRemote(
 	stderr io.Writer,
 	run func(*client.Remote, string) int,
 ) int {
-	return runWorkflowCommandSession(stderr, func(cfg config.App, remote *client.Remote) int {
+	return runWorkflowCommandSession(stderr, func(cfg config.Connection, remote *client.Remote) int {
 		if selector.TaskRef == nil {
 			fmt.Fprintln(stderr, "question task selector is required")
 			return 2
@@ -616,8 +655,8 @@ func listTaskQuestionCandidates(
 ) ([]taskQuestionSessionCandidate, error) {
 	rpcCtx, cancel := context.WithTimeout(ctx, questionCommandTimeout)
 	defer cancel()
-	response, err := remote.ListWorkflowTaskAttention(rpcCtx, serverapi.WorkflowTaskAttentionListRequest{
-		TaskID: taskID,
+	response, err := remote.ListWorkflowTaskAttention(rpcCtx, &taskpb.TaskAttentionListRequest{
+		TaskId: taskID,
 	})
 	if err != nil {
 		return nil, err
@@ -625,54 +664,52 @@ func listTaskQuestionCandidates(
 	return taskQuestionCandidates(response.Items)
 }
 
-func taskQuestionCandidates(items []serverapi.WorkflowAttentionItem) ([]taskQuestionSessionCandidate, error) {
-	questions := make([]serverapi.WorkflowAttentionItem, 0, len(items))
+func taskQuestionCandidates(items []*taskpb.AttentionItem) ([]taskQuestionSessionCandidate, error) {
+	questions := make([]*taskpb.AttentionItem, 0, len(items))
 	for _, item := range items {
-		if item.Kind != string(serverapi.WorkflowTaskAttentionKindQuestion) {
-			continue
-		}
-		if item.Question == nil {
-			return nil, fmt.Errorf("pending question %q has no typed prompt", item.ID)
-		}
-		if item.Question.Kind != serverapi.WorkflowAttentionQuestionKindOrdinary && item.Question.Kind != serverapi.WorkflowAttentionQuestionKindApproval {
+		if item.Kind != taskpb.AttentionItemKind_ATTENTION_ITEM_KIND_QUESTION {
 			continue
 		}
 		questions = append(questions, item)
 	}
 	sort.Slice(questions, func(i, j int) bool {
-		if questions[i].OccurredAtUnixMs != questions[j].OccurredAtUnixMs {
-			return questions[i].OccurredAtUnixMs < questions[j].OccurredAtUnixMs
+		if !questions[i].OccurredAt.AsTime().Equal(questions[j].OccurredAt.AsTime()) {
+			return questions[i].OccurredAt.AsTime().Before(questions[j].OccurredAt.AsTime())
 		}
-		return questions[i].ID < questions[j].ID
+		return questions[i].Id < questions[j].Id
 	})
 	candidates := make([]taskQuestionSessionCandidate, 0)
 	candidateBySession := make(map[runtimeids.SessionID]int)
 	for _, item := range questions {
-		prompt := *item.Question
-		sessionID := prompt.SessionID
-		sessionName, err := normalizedOptionalQuestionSessionName(item.SessionName)
+		detail := item.GetQuestion()
+		prompt := detail.Question
+		sessionID := runtimeids.SessionIDFromProto(prompt.SessionId)
+		shortID := protoapi.SessionShortIDFromProto(prompt.ShortId)
+		stepID, err := runtimeids.StepIDFromProto(prompt.StepId)
 		if err != nil {
-			return nil, fmt.Errorf("pending question %q session name: %w", item.ID, err)
+			return nil, err
 		}
+		sessionName := normalizedOptionalQuestionSessionName(detail.SessionName)
 		question := questionCommandPendingQuestion{
-			ToolCallID: prompt.ToolCallID,
-			SessionID:  prompt.SessionID,
-			StepID:     prompt.StepID,
-			Kind:       prompt.Kind,
+			ToolCallID: clientui.ToolCallID(prompt.ToolCallId),
+			SessionID:  sessionID,
+			ShortID:    shortID,
+			StepID:     stepID,
 		}
-		if prompt.Kind == serverapi.WorkflowAttentionQuestionKindOrdinary {
-			if item.Message == nil {
-				return nil, fmt.Errorf("pending question %q has no content", item.ID)
+		if ordinary := prompt.GetOrdinary(); ordinary != nil {
+			question.Kind = taskpb.AttentionQuestionKind_ATTENTION_QUESTION_KIND_ORDINARY
+			question.Question = *detail.Message
+			question.Suggestions = append([]string(nil), ordinary.Suggestions...)
+			if ordinary.RecommendedOptionIndex != nil {
+				index := int(*ordinary.RecommendedOptionIndex)
+				question.RecommendedOptionIndex = &index
 			}
-			question.Question = *item.Message
-			question.Suggestions = append([]string(nil), prompt.Suggestions...)
-			question.RecommendedOptionIndex = textutil.Pointer(prompt.RecommendedOptionIndex)
 		} else {
-			if item.Message == nil || prompt.SessionID.IsZero() || prompt.StepID.IsZero() ||
-				prompt.ToolCallID.Validate() != nil || len(prompt.ApprovalDecisions) == 0 {
+			question.Kind = taskpb.AttentionQuestionKind_ATTENTION_QUESTION_KIND_APPROVAL
+			if detail.Message == nil {
 				continue
 			}
-			question.Question = *item.Message
+			question.Question = *detail.Message
 		}
 		index, exists := candidateBySession[sessionID]
 		if !exists {
@@ -680,6 +717,7 @@ func taskQuestionCandidates(items []serverapi.WorkflowAttentionItem) ([]taskQues
 			candidateBySession[sessionID] = index
 			candidates = append(candidates, taskQuestionSessionCandidate{
 				SessionID:   sessionID,
+				ShortID:     shortID,
 				SessionName: sessionName,
 			})
 		} else if !textutil.EqualOptional(candidates[index].SessionName, sessionName) {
@@ -690,15 +728,12 @@ func taskQuestionCandidates(items []serverapi.WorkflowAttentionItem) ([]taskQues
 	return candidates, nil
 }
 
-func normalizedOptionalQuestionSessionName(raw *string) (*string, error) {
+func normalizedOptionalQuestionSessionName(raw *string) *string {
 	if raw == nil {
-		return nil, nil
+		return nil
 	}
 	trimmed := strings.TrimSpace(*raw)
-	if trimmed == "" {
-		return nil, errors.New("session name must be non-blank when present")
-	}
-	return &trimmed, nil
+	return &trimmed
 }
 
 func selectTaskQuestionCandidate(
@@ -712,10 +747,6 @@ func selectTaskQuestionCandidate(
 	if len(candidates) > 1 {
 		writeTaskQuestionAmbiguity(stderr, selector, candidates)
 		return nil, 1
-	}
-	if err := rejectSelfTarget(candidates[0].SessionID, selector.Command); err != nil {
-		fmt.Fprintln(stderr, err)
-		return nil, 2
 	}
 	return &candidates[0], 0
 }
@@ -735,7 +766,7 @@ func writeTaskQuestionAmbiguity(
 		if candidate.SessionName != nil {
 			name = *candidate.SessionName
 		}
-		fmt.Fprintf(stderr, "- %s (%s)\n", name, candidate.SessionID)
+		fmt.Fprintf(stderr, "- %s (%s)\n", name, (runtimeids.SessionIdentity{ID: candidate.SessionID, ShortID: candidate.ShortID}).String())
 	}
 }
 
@@ -776,14 +807,11 @@ func resolveQuestionCommandSelector(
 		return questionCommandSelector{}, errors.New("--project requires a non-blank project selector")
 	}
 	if sessionPresent {
-		sessionID, err := parseCLILiveSessionID(*rawSessionID)
+		sessionID, err := runtimeids.ParseSessionSelector(*rawSessionID)
 		if err != nil {
 			return questionCommandSelector{}, err
 		}
-		if err := rejectSelfTarget(sessionID, selector.Command); err != nil {
-			return questionCommandSelector{}, err
-		}
-		selector.SessionID = &sessionID
+		selector.SessionID = sessionID
 		return selector, nil
 	}
 	taskRef := strings.TrimSpace(*rawTaskRef)
@@ -796,7 +824,7 @@ func resolveQuestionCommandSelector(
 
 func (c questionCommand) withRemote(
 	stderr io.Writer,
-	sessionID runtimeids.SessionID,
+	sessionID runtimeids.SessionSelector,
 	run func(questionCommandRemote) int,
 ) int {
 	remote, err := c.openRemote(context.Background(), sessionID.String())
@@ -809,11 +837,15 @@ func (c questionCommand) withRemote(
 }
 
 func openQuestionCommandRemote(ctx context.Context, sessionID string) (questionCommandRemote, error) {
+	return openConfiguredSessionRemote(ctx, sessionID)
+}
+
+func openConfiguredSessionRemote(ctx context.Context, sessionID string) (*client.Remote, error) {
 	configRoot, err := nearestCommandConfigRoot()
 	if err != nil {
 		return nil, err
 	}
-	cfg, err := config.LoadConnectionDiscovery(configRoot)
+	cfg, err := config.LoadConnectionDiscovery(configRoot, config.LoadOptions{})
 	if err != nil {
 		return nil, err
 	}
@@ -830,50 +862,34 @@ func openQuestionCommandRemote(ctx context.Context, sessionID string) (questionC
 	return remote, nil
 }
 
-func pendingSessionQuestion(ask clientui.PendingAsk) (questionCommandPendingQuestion, error) {
-	if err := ask.ToolCallID.Validate(); err != nil {
-		return questionCommandPendingQuestion{}, err
-	}
-	if ask.SessionID.IsZero() || ask.StepID.IsZero() {
-		return questionCommandPendingQuestion{}, errors.New("pending question has incomplete batch identity")
-	}
-	if ask.RecommendedOptionIndex != nil &&
-		(*ask.RecommendedOptionIndex < 1 || *ask.RecommendedOptionIndex > len(ask.Suggestions)) {
-		return questionCommandPendingQuestion{}, fmt.Errorf(
-			"pending question %q recommended option index %d is outside suggestions 1..%d",
-			ask.ToolCallID,
-			*ask.RecommendedOptionIndex,
-			len(ask.Suggestions),
-		)
-	}
+func pendingSessionQuestion(ask clientui.PendingAsk) questionCommandPendingQuestion {
 	return questionCommandPendingQuestion{
 		ToolCallID:             ask.ToolCallID,
 		SessionID:              ask.SessionID,
+		ShortID:                ask.ShortID,
 		StepID:                 ask.StepID,
-		Kind:                   serverapi.WorkflowAttentionQuestionKindOrdinary,
+		Kind:                   taskpb.AttentionQuestionKind_ATTENTION_QUESTION_KIND_ORDINARY,
 		Question:               ask.Question,
 		Suggestions:            append([]string(nil), ask.Suggestions...),
 		RecommendedOptionIndex: textutil.Pointer(ask.RecommendedOptionIndex),
-	}, nil
+	}
 }
 
 func pendingSessionApproval(
 	approval clientui.PendingApproval,
-) (questionCommandPendingQuestion, bool, error) {
-	if err := (serverapi.ObservationQuestion{Approval: &approval}).Validate(); err != nil {
-		return questionCommandPendingQuestion{}, false, err
-	}
+) questionCommandPendingQuestion {
 	cloned := approval
 	cloned.Options = append([]clientui.ApprovalOption(nil), approval.Options...)
 	cloned.AccessTargets = append([]clientui.FileAccessTarget(nil), approval.AccessTargets...)
 	return questionCommandPendingQuestion{
 		ToolCallID: approval.ToolCallID,
 		SessionID:  approval.SessionID,
+		ShortID:    approval.ShortID,
 		StepID:     approval.StepID,
-		Kind:       serverapi.WorkflowAttentionQuestionKindApproval,
+		Kind:       taskpb.AttentionQuestionKind_ATTENTION_QUESTION_KIND_APPROVAL,
 		Question:   approval.Question,
 		Approval:   &cloned,
-	}, true, nil
+	}
 }
 
 func writePendingQuestion(stdout io.Writer, ask questionCommandPendingQuestion, next bool) {

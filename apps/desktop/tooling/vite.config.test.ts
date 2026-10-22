@@ -1,6 +1,5 @@
-// @vitest-environment node
 import { readFileSync } from "node:fs";
-import { expect, it } from "vitest";
+import { expect, it } from "bun:test";
 import { z } from "zod";
 import config from "./vite.config";
 

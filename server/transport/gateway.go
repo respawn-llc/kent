@@ -2,7 +2,6 @@ package transport
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -10,22 +9,17 @@ import (
 	"reflect"
 	"strings"
 	"sync"
-	"time"
 
 	"core/server/auth"
 	"core/server/chatcontext"
 	"core/server/metadata"
 	"core/shared/apicontract"
 	"core/shared/llmerrors"
-	"core/shared/protoapi"
 	sharedpb "core/shared/protoapi/gen/kent/api/shared"
 	"core/shared/protocol"
 	"core/shared/rpcwire"
 	"core/shared/runtimeids"
 	"core/shared/serverapi"
-
-	"github.com/google/uuid"
-	"google.golang.org/protobuf/proto"
 )
 
 // ErrGatewayDependenciesRequired is returned by NewGateway when the supplied
@@ -38,11 +32,15 @@ var ErrGatewayDependenciesRequired = errors.New("gateway dependencies are requir
 const canceledByClientMessage = "request canceled by client"
 
 type Gateway struct {
-	deps              GatewayDependencies
-	identity          protocol.ServerIdentity
-	registration      gatewayRegistration
-	sessionReattachMu sync.Mutex
-	sessionReattach   *sessionReattachAuthority
+	deps                  GatewayDependencies
+	identity              protocol.ServerIdentity
+	registration          gatewayRegistration
+	sessionReattachMu     sync.Mutex
+	sessionReattach       *sessionReattachAuthority
+	connectionLifecycle   context.Context
+	closeConnections      context.CancelFunc
+	connectionLifecycleMu sync.Mutex
+	connections           sync.WaitGroup
 }
 
 type GatewayDependencies interface {
@@ -71,8 +69,8 @@ type GatewayServerStatusDependencies interface {
 type GatewayAuthDependencies interface {
 	AuthManager() *auth.Manager
 	AuthBootstrapClient() apicontract.AuthBootstrapService
+	ConnectionManagementClient() apicontract.ConnectionManagementService
 	AuthStatusClient() apicontract.AuthStatusService
-	ServerAuthRequired() bool
 }
 
 type GatewayCapabilityFactsDependencies interface {
@@ -128,16 +126,13 @@ type GatewayPromptCommandDependencies interface {
 
 type GatewayProcessDependencies interface {
 	ProcessViewClient() apicontract.ProcessViewService
+	ProcessObservationClient() apicontract.ProcessObservationService
 	ProcessControlClient() apicontract.ProcessControlService
 }
 
 type GatewayWorktreeDependencies interface {
 	WorktreeClient() apicontract.WorktreeService
 }
-
-type gatewayUnaryHandler func(g *Gateway, ctx context.Context, state *connectionState, req protocol.Request, prepared any) protocol.Response
-
-var gatewayUnaryHandlers = routeHandlersForKind(apicontract.KindUnary, gatewayUnaryHandlerEntries)
 
 type gatewayRequestScheduleKind uint8
 
@@ -153,7 +148,6 @@ type gatewayRequestSchedule struct {
 }
 
 type gatewayEstablishedRequest struct {
-	legacy  *protocol.Request
 	binary  *gatewayBinaryRequest
 	failure *sharedpb.TransportFailure
 }
@@ -164,34 +158,6 @@ type connectionState struct {
 	attachedWorkspaceID   string
 	attachedWorkspaceRoot string
 	attachedSession       *runtimeids.SessionID
-	runtimeOwnerID        string
-	ownedRuntimesMu       sync.Mutex
-	ownedRuntimes         map[serverapi.SessionRuntimeAttachment]struct{}
-}
-
-type gatewaySubscriptionHandler func(g *Gateway, conn rpcwire.Conn, ctx context.Context, state *connectionState, route apicontract.Route, req protocol.Request)
-
-var gatewaySubscriptionHandlerEntries = map[string]gatewaySubscriptionHandler{
-	protocol.MethodAttentionNotificationSubscribe: (*Gateway).serveAttentionNotificationSubscription,
-	protocol.MethodWorkflowSubscribe:              (*Gateway).serveWorkflowSubscription,
-	protocol.MethodWorkflowSubscribeProject:       (*Gateway).serveWorkflowProjectSubscription,
-}
-
-var gatewaySubscriptionHandlers = routeHandlersForKind(apicontract.KindSubscription, gatewaySubscriptionHandlerEntries)
-
-func routeHandlersForKind[T any](kind apicontract.Kind, entries map[string]T) map[string]T {
-	handlers := make(map[string]T)
-	for _, route := range apicontract.Routes() {
-		if route.Kind != kind {
-			continue
-		}
-		handler, ok := entries[route.Method]
-		if !ok {
-			continue
-		}
-		handlers[route.Method] = handler
-	}
-	return handlers
 }
 
 func NewGateway(deps GatewayDependencies, identity protocol.ServerIdentity) (*Gateway, error) {
@@ -208,11 +174,23 @@ func NewGateway(deps GatewayDependencies, identity protocol.ServerIdentity) (*Ga
 	if err := registration.Validate(); err != nil {
 		return nil, fmt.Errorf("validate Gateway registration: %w", err)
 	}
+	connectionLifecycle, closeConnections := context.WithCancel(context.Background())
 	return &Gateway{
-		deps:         deps,
-		identity:     identity,
-		registration: registration,
+		deps:                deps,
+		identity:            identity,
+		registration:        registration,
+		connectionLifecycle: connectionLifecycle,
+		closeConnections:    closeConnections,
 	}, nil
+}
+
+// Close disconnects clients and drains their handlers before server resources
+// are released. HTTP shutdown alone does not wait for upgraded WebSockets.
+func (g *Gateway) Close() {
+	g.connectionLifecycleMu.Lock()
+	g.closeConnections()
+	g.connectionLifecycleMu.Unlock()
+	g.connections.Wait()
 }
 
 func (g *Gateway) sessionReattachAuthority() (*sessionReattachAuthority, error) {
@@ -253,7 +231,27 @@ func (g *Gateway) Handler() http.Handler {
 	return rpcwire.NewWebSocketTransport().Handler(g.handleConn)
 }
 
+func (g *Gateway) ViewedImageHandler() http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != ViewedImageBodyPath {
+			http.NotFound(w, r)
+			return
+		}
+		g.serveViewedImageOriginal(w, r)
+	})
+}
+
 func (g *Gateway) handleConn(ctx context.Context, conn rpcwire.Conn) {
+	g.connectionLifecycleMu.Lock()
+	if g.connectionLifecycle.Err() != nil {
+		g.connectionLifecycleMu.Unlock()
+		_ = conn.Close()
+		return
+	}
+	g.connections.Add(1)
+	g.connectionLifecycleMu.Unlock()
+	defer g.connections.Done()
+
 	connCtx, cancel := context.WithCancel(ctx)
 	var stopOnce sync.Once
 	stop := func() {
@@ -262,6 +260,8 @@ func (g *Gateway) handleConn(ctx context.Context, conn rpcwire.Conn) {
 			_ = conn.Close()
 		})
 	}
+	stopShutdown := context.AfterFunc(g.connectionLifecycle, stop)
+	defer stopShutdown()
 	go func() {
 		select {
 		case <-ctx.Done():
@@ -270,14 +270,13 @@ func (g *Gateway) handleConn(ctx context.Context, conn rpcwire.Conn) {
 			stop()
 		}
 	}()
-	state := &connectionState{runtimeOwnerID: uuid.NewString()}
+	state := &connectionState{}
 	const ordinaryAdmissionLimit = 16
 	admission := make(chan struct{}, ordinaryAdmissionLimit)
 	var ordinary sync.WaitGroup
 	defer func() {
 		stop()
 		ordinary.Wait()
-		g.cleanupConnectionRuntimes(state)
 	}()
 	for {
 		if !state.handshakeDone {
@@ -315,14 +314,14 @@ func (g *Gateway) handleConn(ctx context.Context, conn rpcwire.Conn) {
 		schedule := g.gatewayRequestScheduleForEstablished(request)
 		if schedule.kind == gatewayRequestScheduleExclusive {
 			ordinary.Wait()
-			if !g.serveEstablishedRequest(conn, connCtx, state, request, schedule) {
+			if !g.serveBinaryRequest(conn, connCtx, state, *request.binary) {
 				stop()
 				return
 			}
 			continue
 		}
 		if schedule.kind == gatewayRequestScheduleProgress || schedule.kind == gatewayRequestScheduleSubscription {
-			if !g.serveEstablishedRequest(conn, connCtx, state, request, schedule) {
+			if !g.serveBinaryRequest(conn, connCtx, state, *request.binary) {
 				stop()
 				return
 			}
@@ -336,11 +335,13 @@ func (g *Gateway) handleConn(ctx context.Context, conn rpcwire.Conn) {
 		}
 
 		ordinary.Add(1)
-		go func(request gatewayEstablishedRequest, schedule gatewayRequestSchedule) {
+		go func(request gatewayBinaryRequest) {
 			defer ordinary.Done()
 			defer func() { <-admission }()
-			g.serveOrdinaryEstablishedRequest(conn, connCtx, state, request, schedule, stop)
-		}(request, schedule)
+			if !g.serveBinaryRequest(conn, connCtx, state, request) {
+				stop()
+			}
+		}(*request.binary)
 	}
 }
 
@@ -350,9 +351,6 @@ func isBinaryHandshake(binding gatewayBinaryBinding) bool {
 }
 
 func (g *Gateway) gatewayRequestScheduleForEstablished(request gatewayEstablishedRequest) gatewayRequestSchedule {
-	if request.legacy != nil {
-		return g.gatewayRequestScheduleFor(*request.legacy)
-	}
 	if request.binary != nil &&
 		request.binary.binding.operation.Options.Kind == sharedpb.OperationKind_OPERATION_KIND_SUBSCRIPTION {
 		return gatewayRequestSchedule{kind: gatewayRequestScheduleSubscription}
@@ -374,85 +372,6 @@ func (g *Gateway) gatewayRequestScheduleForEstablished(request gatewayEstablishe
 	return gatewayRequestSchedule{kind: gatewayRequestScheduleOrdinary}
 }
 
-func (g *Gateway) gatewayRequestScheduleFor(req protocol.Request) gatewayRequestSchedule {
-	operation, route, known := g.registration.LegacyOperation(strings.TrimSpace(req.Method))
-	if !known {
-		return gatewayRequestSchedule{kind: gatewayRequestScheduleOrdinary}
-	}
-	switch operation.Options.Kind {
-	case sharedpb.OperationKind_OPERATION_KIND_SUBSCRIPTION:
-		return gatewayRequestSchedule{kind: gatewayRequestScheduleSubscription}
-	case sharedpb.OperationKind_OPERATION_KIND_UNARY:
-		if isGatewayExclusiveOperation(operation, route) {
-			return gatewayRequestSchedule{kind: gatewayRequestScheduleExclusive}
-		}
-	}
-	return gatewayRequestSchedule{kind: gatewayRequestScheduleOrdinary}
-}
-
-func (g *Gateway) serveGatewayRequest(conn rpcwire.Conn, ctx context.Context, state *connectionState, req protocol.Request, schedule gatewayRequestSchedule) bool {
-	switch schedule.kind {
-	case gatewayRequestScheduleSubscription:
-		g.serveSubscription(conn, ctx, state, req)
-		return false
-	case gatewayRequestScheduleOrdinary, gatewayRequestScheduleExclusive:
-		return sendResponse(ctx, conn, g.dispatch(ctx, state, req))
-	default:
-		panic(fmt.Sprintf("unknown Gateway request schedule kind %d", schedule.kind))
-	}
-}
-
-func (g *Gateway) serveEstablishedRequest(
-	conn rpcwire.Conn,
-	ctx context.Context,
-	state *connectionState,
-	request gatewayEstablishedRequest,
-	schedule gatewayRequestSchedule,
-) bool {
-	if request.legacy != nil {
-		return g.serveGatewayRequest(conn, ctx, state, *request.legacy, schedule)
-	}
-	if request.binary != nil {
-		return g.serveBinaryRequest(conn, ctx, state, *request.binary)
-	}
-	panic("established Gateway request is required")
-}
-
-func (g *Gateway) serveOrdinaryGatewayRequest(
-	conn rpcwire.Conn,
-	ctx context.Context,
-	state *connectionState,
-	req protocol.Request,
-	schedule gatewayRequestSchedule,
-	stop func(),
-) {
-	if !g.serveGatewayRequest(conn, ctx, state, req, schedule) {
-		stop()
-	}
-}
-
-func (g *Gateway) serveOrdinaryEstablishedRequest(
-	conn rpcwire.Conn,
-	ctx context.Context,
-	state *connectionState,
-	request gatewayEstablishedRequest,
-	schedule gatewayRequestSchedule,
-	stop func(),
-) {
-	if !g.serveEstablishedRequest(conn, ctx, state, request, schedule) {
-		stop()
-	}
-}
-
-func isGatewayExclusiveOperation(operation protoapi.Operation, _ apicontract.Route) bool {
-	switch operation.Options.ScopePolicy {
-	case sharedpb.ScopePolicy_SCOPE_POLICY_ATTACH_PROJECT,
-		sharedpb.ScopePolicy_SCOPE_POLICY_ATTACH_SESSION:
-		return true
-	}
-	return false
-}
-
 func (g *Gateway) requireCoreActive() error {
 	lifecycle, ok := g.deps.(GatewayStartupLifecycle)
 	if !ok {
@@ -461,141 +380,12 @@ func (g *Gateway) requireCoreActive() error {
 	return lifecycle.RequireCoreActive()
 }
 
-const gatewayRuntimeCleanupTimeout = 3 * time.Second
-
-func (g *Gateway) cleanupConnectionRuntimes(state *connectionState) {
-	owned := state.takeOwnedRuntimes()
-	if len(owned) == 0 || g == nil || isNilGatewayDependencies(g.deps) {
-		return
-	}
-	client := g.deps.SessionRuntimeClient()
-	if client == nil {
-		return
-	}
-	ownerID := strings.TrimSpace(state.runtimeOwnerID)
-	for _, attachment := range owned {
-		ctx, cancel := context.WithTimeout(context.Background(), gatewayRuntimeCleanupTimeout)
-		_, _ = client.ReleaseSessionRuntime(ctx, serverapi.SessionRuntimeReleaseRequest{
-			Attachment:  attachment,
-			DropOwner:   true,
-			ClosePolicy: serverapi.SessionRuntimeReleaseClosePolicyDetachOnly,
-			OwnerID:     ownerID,
-		})
-		cancel()
-	}
-}
-
-func (g *Gateway) dispatch(ctx context.Context, state *connectionState, req protocol.Request) protocol.Response {
-	if err := req.Validate(); err != nil {
-		return protocol.NewErrorResponse(req.ID, protocol.ErrCodeInvalidRequest, err.Error())
-	}
-	if !state.handshakeDone {
-		return protocol.NewErrorResponse(req.ID, protocol.ErrCodeInvalidRequest, "handshake is required before other methods")
-	}
-	operation, route, ok := g.registration.LegacyOperation(req.Method)
-	if !ok {
-		return protocol.NewErrorResponse(req.ID, protocol.ErrCodeMethodNotFound, fmt.Sprintf("method %q not found", req.Method))
-	}
-	if err := g.requireCoreActive(); err != nil {
-		return responseForError(req.ID, err)
-	}
-	if err := newRoutePolicyExecutor(g).requireAuthenticationStage(
-		ctx,
-		state,
-		operation.Options.AuthenticationStage,
-	); err != nil {
-		return responseForError(req.ID, err)
-	}
-	route.Scope = routeScopePolicy(operation.Options.ScopePolicy)
-	prepared, resp, failed := g.preflightRouteRequest(ctx, state, route, req)
-	if failed {
-		return resp
-	}
-	handler := gatewayUnaryHandlers[req.Method]
-	return handler(g, ctx, state, req, prepared)
-}
-
-func handlePrepared[TReq any, TResp any](id string, prepared any, handler func(TReq) (TResp, error)) protocol.Response {
-	params, ok := prepared.(TReq)
-	if !ok {
-		var zero TResp
-		return completeUnaryResponse(id, zero, fmt.Errorf("prepared request has type %T", prepared), nil)
-	}
-	resp, err := handler(params)
-	return completeUnaryResponse(id, resp, err, nil)
-}
-
-type unaryResponseEncoder func(any) (json.RawMessage, error)
-
-func generatedJSONResponseEncoder(value any) (json.RawMessage, error) {
-	message, ok := value.(proto.Message)
-	if !ok {
-		return nil, fmt.Errorf("generated response has type %T", value)
-	}
-	return protoapi.EncodeJSON(message)
-}
-
-func completeUnaryResponse(id string, resp any, handlerErr error, encoder unaryResponseEncoder) protocol.Response {
-	if handlerErr != nil {
-		return responseForError(id, handlerErr)
-	}
-	if validator, ok := resp.(interface{ Validate() error }); ok {
-		if err := validator.Validate(); err != nil {
-			return responseForError(id, fmt.Errorf("handler returned an invalid response: %w", err))
-		}
-	}
-	if encoder == nil {
-		encoder = func(value any) (json.RawMessage, error) {
-			if value == nil {
-				return nil, nil
-			}
-			return json.Marshal(value)
-		}
-	}
-	result, err := encoder(resp)
-	if err != nil {
-		return responseForError(id, fmt.Errorf("encode handler response: %w", err))
-	}
-	return protocol.Response{
-		JSONRPC: protocol.JSONRPCVersion,
-		ID:      strings.TrimSpace(id),
-		Result:  result,
-	}
-}
-
-func receiveRequest(ctx context.Context, conn rpcwire.Conn) (protocol.Request, error) {
-	for {
-		select {
-		case <-ctx.Done():
-			return protocol.Request{}, ctx.Err()
-		case event, ok := <-conn.Events():
-			if !ok {
-				return protocol.Request{}, io.EOF
-			}
-			if event.Err != nil {
-				return protocol.Request{}, event.Err
-			}
-			request, err := event.Frame.DecodeRequest()
-			if err != nil {
-				return protocol.Request{}, err
-			}
-			return request, nil
-		}
-	}
-}
-
 func (g *Gateway) receiveEstablishedRequest(ctx context.Context, conn rpcwire.Conn) (gatewayEstablishedRequest, error) {
 	frame, err := receiveFrame(ctx, conn)
 	if err != nil {
 		return gatewayEstablishedRequest{}, err
 	}
 	switch frame.Kind {
-	case rpcwire.FrameText:
-		request, err := frame.DecodeRequest()
-		if err != nil {
-			return gatewayEstablishedRequest{}, err
-		}
-		return gatewayEstablishedRequest{legacy: &request}, nil
 	case rpcwire.FrameBinary:
 		request, failure := g.resolveBinaryRequest(frame.Payload)
 		if failure != nil {
@@ -603,7 +393,9 @@ func (g *Gateway) receiveEstablishedRequest(ctx context.Context, conn rpcwire.Co
 		}
 		return gatewayEstablishedRequest{binary: request}, nil
 	default:
-		return gatewayEstablishedRequest{}, fmt.Errorf("unsupported Gateway frame kind %d", frame.Kind)
+		return gatewayEstablishedRequest{failure: &sharedpb.TransportFailure{
+			Code: sharedpb.TransportFailureCode_TRANSPORT_FAILURE_CODE_MALFORMED_ENVELOPE,
+		}}, nil
 	}
 }
 
@@ -622,104 +414,67 @@ func receiveFrame(ctx context.Context, conn rpcwire.Conn) (rpcwire.Frame, error)
 	}
 }
 
-func sendResponse(ctx context.Context, conn rpcwire.Conn, resp protocol.Response) bool {
-	return conn.Send(ctx, rpcwire.FrameFromResponse(resp)) == nil
-}
-
-func responseForError(id string, err error) protocol.Response {
-	var structured protocol.StructuredRPCError
-	if errors.As(err, &structured) {
-		return protocol.NewErrorResponseWithData(id, structured.RPCErrorCode(), err.Error(), structured.RPCErrorData())
-	}
-	code, message := protocolError(err)
-	return protocol.NewErrorResponse(id, code, message)
-}
-
-func protocolError(err error) (int, string) {
+func streamFailure(err error) (sharedpb.StreamFailureCode, string) {
 	if err == nil {
-		return protocol.ErrCodeInternalError, "internal error"
+		return sharedpb.StreamFailureCode_STREAM_FAILURE_CODE_INTERNAL_FAILURE, "internal error"
 	}
 	message := strings.TrimSpace(err.Error())
 	if errors.Is(err, context.Canceled) {
 		if message == "" || message == context.Canceled.Error() {
 			message = canceledByClientMessage
 		}
-		return protocol.ErrCodeRequestCanceled, message
+		return sharedpb.StreamFailureCode_STREAM_FAILURE_CODE_REQUEST_CANCELED, message
 	}
 	if errors.Is(err, llmerrors.ErrModelStreamStalled) {
-		return protocol.ErrCodeModelStreamStalled, message
+		return sharedpb.StreamFailureCode_STREAM_FAILURE_CODE_MODEL_STREAM_STALLED, message
 	}
 	if errors.Is(err, serverapi.ErrStreamGap) {
-		return protocol.ErrCodeStreamGap, message
+		return sharedpb.StreamFailureCode_STREAM_FAILURE_CODE_STREAM_GAP, message
 	}
 	if errors.Is(err, serverapi.ErrWorkspaceNotRegistered) {
-		return protocol.ErrCodeWorkspaceNotRegistered, message
+		return sharedpb.StreamFailureCode_STREAM_FAILURE_CODE_WORKSPACE_NOT_REGISTERED, message
 	}
 	if errors.Is(err, serverapi.ErrProjectNotFound) {
-		return protocol.ErrCodeProjectNotFound, message
+		return sharedpb.StreamFailureCode_STREAM_FAILURE_CODE_PROJECT_NOT_FOUND, message
 	}
 	if errors.Is(err, serverapi.ErrProjectUnavailable) {
-		return protocol.ErrCodeProjectUnavailable, message
+		return sharedpb.StreamFailureCode_STREAM_FAILURE_CODE_PROJECT_UNAVAILABLE, message
 	}
 	if errors.Is(err, serverapi.ErrRuntimeUnavailable) {
-		return protocol.ErrCodeRuntimeUnavailable, message
+		return sharedpb.StreamFailureCode_STREAM_FAILURE_CODE_RUNTIME_UNAVAILABLE, message
 	}
 	if errors.Is(err, serverapi.ErrRuntimeNoActiveRun) {
-		return protocol.ErrCodeRuntimeNoActiveRun, message
+		return sharedpb.StreamFailureCode_STREAM_FAILURE_CODE_RUNTIME_NO_ACTIVE_RUN, message
 	}
 	if errors.Is(err, serverapi.ErrRuntimeNoFinalAnswer) {
-		return protocol.ErrCodeRuntimeNoFinalAnswer, message
+		return sharedpb.StreamFailureCode_STREAM_FAILURE_CODE_RUNTIME_NO_FINAL_ANSWER, message
 	}
 	if errors.Is(err, serverapi.ErrStreamUnavailable) {
-		return protocol.ErrCodeStreamUnavailable, message
+		return sharedpb.StreamFailureCode_STREAM_FAILURE_CODE_STREAM_UNAVAILABLE, message
 	}
 	if errors.Is(err, serverapi.ErrStreamFailed) {
-		return protocol.ErrCodeStreamFailed, message
+		return sharedpb.StreamFailureCode_STREAM_FAILURE_CODE_STREAM_FAILED, message
 	}
 	if errors.Is(err, serverapi.ErrPromptNotFound) {
-		return protocol.ErrCodePromptNotFound, message
+		return sharedpb.StreamFailureCode_STREAM_FAILURE_CODE_PROMPT_NOT_FOUND, message
 	}
 	if errors.Is(err, serverapi.ErrPromptAlreadyResolved) {
-		return protocol.ErrCodePromptResolved, message
+		return sharedpb.StreamFailureCode_STREAM_FAILURE_CODE_PROMPT_RESOLVED, message
 	}
 	if errors.Is(err, serverapi.ErrPromptUnsupported) {
-		return protocol.ErrCodePromptUnsupported, message
+		return sharedpb.StreamFailureCode_STREAM_FAILURE_CODE_PROMPT_UNSUPPORTED, message
 	}
 	if errors.Is(err, serverapi.ErrWorkflowTaskNotFound) {
-		return protocol.ErrCodeWorkflowTaskNotFound, message
+		return sharedpb.StreamFailureCode_STREAM_FAILURE_CODE_TASK_NOT_FOUND, message
 	}
 	if errors.Is(err, serverapi.ErrWorkflowTaskCompleteTargetNotFound) {
-		return protocol.ErrCodeWorkflowTaskCompleteNotFound, message
+		return sharedpb.StreamFailureCode_STREAM_FAILURE_CODE_TASK_COMPLETE_NOT_FOUND, message
 	}
 	if errors.Is(err, serverapi.ErrWorkflowTaskCompleteSelectorAmbiguous) {
-		return protocol.ErrCodeWorkflowTaskCompleteAmbiguous, message
+		return sharedpb.StreamFailureCode_STREAM_FAILURE_CODE_TASK_COMPLETE_AMBIGUOUS, message
 	}
 	if errors.Is(err, serverapi.ErrServerAuthRequired) || errors.Is(err, auth.ErrAuthNotConfigured) {
-		return protocol.ErrCodeAuthRequired, message
+		return sharedpb.StreamFailureCode_STREAM_FAILURE_CODE_AUTH_REQUIRED, message
 	}
-	return protocol.ErrCodeInternalError, message
-}
-
-func streamCompleteParams(err error) protocol.StreamCompleteParams {
-	if err == nil || errors.Is(err, io.EOF) || errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
-		return protocol.StreamCompleteParams{}
-	}
-	code, message := protocolError(err)
-	params := protocol.StreamCompleteParams{Code: code, Message: message}
-	if reason, ok := serverapi.TranscriptCloseReasonOf(err); ok {
-		params.TranscriptCloseReason = string(reason)
-	}
-	return params
-}
-
-func decodeParams[T any](raw json.RawMessage) (T, error) {
-	var zero T
-	if len(raw) == 0 {
-		return zero, nil
-	}
-	var out T
-	if err := json.Unmarshal(raw, &out); err != nil {
-		return zero, fmt.Errorf("decode params: %w", err)
-	}
-	return out, nil
+	return sharedpb.StreamFailureCode_STREAM_FAILURE_CODE_INTERNAL_FAILURE, message
 }

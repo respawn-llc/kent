@@ -17,6 +17,7 @@ import (
 )
 
 type PreparedUserTurn struct {
+	QueueItemID   string
 	Input         runtimeinput.Input
 	Placement     promptcommands.Placement
 	ExecutionText string
@@ -25,14 +26,15 @@ type PreparedUserTurn struct {
 
 func (p PreparedUserTurn) queuedInput() runtime.QueuedUserInput {
 	return runtime.QueuedUserInput{
+		ID:                    p.QueueItemID,
 		ExecutionText:         p.ExecutionText,
 		CanonicalPresentation: p.HistoryText,
 	}
 }
 
-func queuedUserTurnResponse(compacted bool, queueItemID string) *runtimepb.SubmitUserTurnSuccess {
+func queuedUserTurnResponse(queueItemID string) *runtimepb.SubmitUserTurnSuccess {
 	return &runtimepb.SubmitUserTurnSuccess{Result: &runtimepb.SubmitUserTurnSuccess_Queued{
-		Queued: &runtimepb.SubmitUserTurnQueued{Compacted: compacted, Steered: true, QueueItemId: queueItemID},
+		Queued: &runtimepb.SubmitUserTurnQueued{Steered: true, QueueItemId: queueItemID},
 	}}
 }
 
@@ -64,28 +66,20 @@ func (s *Service) PrepareUserTurn(ctx context.Context, sessionID string, input r
 	if err != nil {
 		return PreparedUserTurn{}, err
 	}
-	history, err := input.CanonicalHistoryText()
-	if err != nil {
-		return PreparedUserTurn{}, err
-	}
+	history := input.CanonicalHistoryText()
 	return PreparedUserTurn{Input: input, Placement: placement, ExecutionText: execution, HistoryText: history}, nil
 }
 
 func (s *Service) SubmitUserTurn(ctx context.Context, req *runtimepb.SubmitUserTurnRequest) (*runtimepb.SubmitUserTurnSuccess, error) {
-	if err := protoapi.Validate(req); err != nil {
-		return nil, err
-	}
 	return runRuntimeCommand(ctx, func(ctx context.Context) (*runtimepb.SubmitUserTurnSuccess, bool, error) {
-		input, err := protoapi.UserTurnInputFromProto(req.Input)
-		if err != nil {
-			return nil, false, err
-		}
+		input := protoapi.UserTurnInputFromProto(req.Input)
 		prepared, err := s.PrepareUserTurn(ctx, req.SessionId, input)
 		if err != nil {
 			return nil, false, err
 		}
-		response, accepted, _, err := s.admitUserTurn(ctx, req.SessionId, prepared)
-		return response, accepted, err
+		prepared.QueueItemID = req.QueueItemId
+		response, admission, err := s.admitUserTurn(ctx, req.SessionId, prepared)
+		return response, admission.Accepted, err
 	})
 }
 
@@ -94,87 +88,61 @@ func (s *Service) AdmitChatUserTurn(
 	sessionID string,
 	prepared PreparedUserTurn,
 ) (serverapi.ChatInputAdmissionResult, error) {
-	response, accepted, historyErr, commandErr := s.admitUserTurn(ctx, sessionID, prepared)
-	if !accepted {
-		return serverapi.ChatInputAdmissionResult{}, commandErr
-	}
-	queueItemID, parseErr := runtimeids.ParseQueueItemID(response.GetQueued().GetQueueItemId())
-	return serverapi.ChatInputAdmissionResult{
-		QueueItemID:          queueItemID,
-		Accepted:             true,
-		PromptHistoryFailure: historyErr,
-	}, errors.Join(commandErr, parseErr)
+	_, admission, err := s.admitUserTurn(ctx, sessionID, prepared)
+	return admission, err
 }
 
 func (s *Service) admitUserTurn(
 	ctx context.Context,
 	sessionID string,
 	projection PreparedUserTurn,
-) (*runtimepb.SubmitUserTurnSuccess, bool, error, error) {
+) (*runtimepb.SubmitUserTurnSuccess, serverapi.ChatInputAdmissionResult, error) {
 	request := canonicalUserTurnRequest(sessionID, projection.Input)
 	attempt := newRuntimeCommandAttempt(ctx)
 	defer attempt.Finish()
-	response, commandErr := s.submitUserTurn(attempt, request, projection)
-	if commandErr == nil {
-		commandErr = protoapi.Validate(response)
-	}
+	response, queued, commandErr := s.submitUserTurn(attempt, request, projection)
 	accepted := attempt.Accepted()
-	var historyErr error
+	var admission serverapi.ChatInputAdmissionResult
 	if accepted {
-		historyErr = s.recordAcceptedUserTurnHistory(request, projection)
+		queueItemID, parseErr := runtimeids.ParseQueueItemID(queued.ID)
+		admission = serverapi.ChatInputAdmissionResult{
+			QueueItemID:          queueItemID,
+			Disposition:          queued.Disposition,
+			Accepted:             true,
+			PromptHistoryFailure: s.recordAcceptedUserTurnHistory(request, projection),
+		}
+		commandErr = errors.Join(commandErr, parseErr)
 	}
-	return response, accepted, historyErr, commandErr
+	return response, admission, commandErr
 }
 
 func (s *Service) submitUserTurn(
 	attempt *runtimeCommandAttempt,
 	request sessionUserTurnRequest,
 	projection PreparedUserTurn,
-) (*runtimepb.SubmitUserTurnSuccess, error) {
+) (*runtimepb.SubmitUserTurnSuccess, runtime.QueuedUserMessage, error) {
 	var response *runtimepb.SubmitUserTurnSuccess
-	sessionID, err := runtimeids.ParseSessionID(request.SessionID)
-	if err != nil {
-		return nil, err
-	}
+	var admitted runtime.QueuedUserMessage
+	sessionID := runtimeids.SessionIDFromProto(request.SessionID)
 	if s == nil || s.authority == nil {
-		return nil, errors.New("session runtime authority is required")
+		return nil, admitted, errors.New("session runtime authority is required")
 	}
 	descriptor, err := session.NewOpenSessionDescriptor(sessionID)
 	if err != nil {
-		return nil, err
+		return nil, admitted, err
 	}
 	runTurn := func(runCtx context.Context, engine *runtime.Engine, accept runtime.CommandAcceptance) error {
-		shouldCompact, err := engine.ShouldCompactBeforeUserMessage(runCtx, projection.ExecutionText)
-		if err != nil {
-			return err
-		}
-		compacted := false
-		var acceptedCompactionErr error
-		if shouldCompact {
-			compactionAccepted, compactErr := s.runPreSubmitCompaction(
-				attempt.Context(),
-				engine,
-				projection.ExecutionText,
-			)
-			if compactionAccepted {
-				compacted = true
-				acceptedCompactionErr = compactErr
-			} else if compactErr != nil {
-				if !errors.Is(compactErr, runtime.ErrAgentBusy) {
-					return compactErr
-				}
-			}
-		}
 		queued, err := engine.SteerInput(
 			runCtx,
 			projection.queuedInput(),
 			accept,
 		)
 		if err != nil {
-			return errors.Join(acceptedCompactionErr, err)
+			return err
 		}
-		response = queuedUserTurnResponse(compacted, queued.ID)
-		return acceptedCompactionErr
+		response = queuedUserTurnResponse(queued.ID)
+		admitted = queued
+		return nil
 	}
 	executeTurn := func() error {
 		return s.authority.RunCurrentTurn(
@@ -195,9 +163,22 @@ func (s *Service) submitUserTurn(
 		case preparingErr != nil:
 			err = preparingErr
 		case preparing:
-			err = s.withRuntime(attempt.Context(), request.SessionID, func(runCtx context.Context, engine *runtime.Engine) error {
-				return runTurn(runCtx, engine, attempt.Accept)
-			})
+			submit := func() error {
+				return s.withRuntime(attempt.Context(), request.SessionID, func(runCtx context.Context, engine *runtime.Engine) error {
+					return runTurn(runCtx, engine, attempt.Accept)
+				})
+			}
+			err = submit()
+			for {
+				var unavailable *runtime.LiveRunAdmissionUnavailable
+				if !errors.As(err, &unavailable) {
+					break
+				}
+				if err = unavailable.Wait(attempt.Context(), nil); err != nil {
+					break
+				}
+				err = submit()
+			}
 		case s.reactivator != nil:
 			var workflowState *runtime.WorkflowSessionState
 			stateErr := s.withRuntime(attempt.Context(), request.SessionID, func(_ context.Context, engine *runtime.Engine) error {
@@ -223,14 +204,17 @@ func (s *Service) submitUserTurn(
 					workflowState.CurrentNode,
 				)
 				if err == nil {
-					err = s.withRuntime(attempt.Context(), request.SessionID, func(runCtx context.Context, engine *runtime.Engine) error {
-						return runTurn(runCtx, engine, attempt.Accept)
-					})
+					err = s.authority.RunCurrentTurn(
+						attempt.Context(),
+						descriptor,
+						attempt.Accept,
+						runTurn,
+					)
 				}
 			}
 		}
 	}
-	return response, err
+	return response, admitted, err
 }
 
 func (s *Service) recordAcceptedUserTurnHistory(
@@ -245,15 +229,4 @@ func (s *Service) recordAcceptedUserTurnHistory(
 		return errors.Join(err, reportErr)
 	}
 	return nil
-}
-
-func (s *Service) runPreSubmitCompaction(
-	ctx context.Context,
-	engine *runtime.Engine,
-	text string,
-) (bool, error) {
-	attempt := newRuntimeCommandAttempt(ctx)
-	defer attempt.Finish()
-	receipt, err := engine.CompactContextForPreSubmitWithAcceptance(attempt.Context(), text, attempt.Accept)
-	return receipt.Committed, err
 }

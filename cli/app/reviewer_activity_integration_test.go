@@ -7,6 +7,7 @@ import (
 	"core/server/runtime"
 	"core/server/sessionruntime"
 	runtimepb "core/shared/protoapi/gen/kent/api/runtime"
+	sharedpb "core/shared/protoapi/gen/kent/api/shared"
 	transcriptpb "core/shared/protoapi/gen/kent/api/transcript"
 	"core/shared/runtimeids"
 	"core/shared/serverapi"
@@ -35,10 +36,10 @@ func TestReviewerActivityPublishesInvocationAndTerminalStateToTUI(t *testing.T) 
 			if testCase.terminal == "failure" {
 				reviewer.resultErr = errors.Join(llm.ErrInvalidRequest, errors.New("reviewer unavailable"))
 			}
-			activity := registry.NewRuntimeRegistry()
+			activity := registry.NewRuntimeRegistry(nil)
 			var engine *runtime.Engine
 			store, engine := newAppRuntimeEngine(t, reviewerActivityMainClient{}, runtime.Config{
-				Model:         "gpt-5",
+				Model:         "gpt-6-sol",
 				ThinkingLevel: "medium",
 				OnEvent: func(event runtime.Event) {
 					if event.Kind == runtime.EventRuntimeActivityChanged {
@@ -47,7 +48,7 @@ func TestReviewerActivityPublishesInvocationAndTerminalStateToTUI(t *testing.T) 
 				},
 				Reviewer: runtime.ReviewerConfig{
 					Frequency: "all",
-					Model:     "gpt-5",
+					Model:     "gpt-6-sol",
 					Client:    reviewer,
 				},
 			})
@@ -55,10 +56,8 @@ func TestReviewerActivityPublishesInvocationAndTerminalStateToTUI(t *testing.T) 
 			if err != nil {
 				t.Fatalf("parse Session ID: %v", err)
 			}
-			resource, err := runtimeids.NewSessionResourceRef(sessionID, 1)
-			if err != nil {
-				t.Fatalf("create Runtime resource: %v", err)
-			}
+			resource := runtimeids.NewSessionResourceRef(sessionID, 1)
+
 			if err := activity.ResourceReady(
 				context.Background(),
 				sessionruntime.AgentResourceDescriptor{Ref: resource, State: sessionruntime.AgentResourceReady},
@@ -84,7 +83,7 @@ func TestReviewerActivityPublishesInvocationAndTerminalStateToTUI(t *testing.T) 
 			})
 
 			subscription, err := activity.SubscribeSessionTranscript(
-				context.Background(), &transcriptpb.SubscribeRequest{SessionId: engine.SessionID()})
+				context.Background(), &transcriptpb.SubscribeRequest{SessionId: &sharedpb.SessionSelector{Value: &sharedpb.SessionSelector_SessionId{SessionId: engine.SessionID()}}})
 			if err != nil {
 				t.Fatalf("subscribe transcript: %v", err)
 			}
@@ -161,7 +160,7 @@ func TestReviewerActivityPublishesInvocationAndTerminalStateToTUI(t *testing.T) 
 					t,
 					store,
 					reviewerActivityMainClient{},
-					runtime.Config{Model: "gpt-5", ThinkingLevel: "medium"},
+					runtime.Config{Model: "gpt-6-sol", ThinkingLevel: "medium"},
 				)
 				if err := reopened.Close(); err != nil {
 					t.Fatalf("close reopened Runtime: %v", err)

@@ -1,7 +1,6 @@
 package runtimeactivity
 
 import (
-	"core/shared/protoapi"
 	runtimepb "core/shared/protoapi/gen/kent/api/runtime"
 	"core/shared/runtimeids"
 	"fmt"
@@ -20,7 +19,6 @@ type PendingContinuationSnapshot struct {
 }
 
 type ActiveStepSnapshot struct {
-	RunID      string
 	StepID     string
 	ActiveKind runtimepb.ActivityActiveKind
 }
@@ -54,16 +52,11 @@ func resolveRuntimeFeedActivity(snapshot ResolverSnapshot) (*runtimepb.Activity,
 		if snapshot.PromptWait {
 			activity.State = runtimepb.ActivityState_RUNTIME_ACTIVITY_AWAITING_PROMPT
 		}
-		runID, err := runtimeids.ParseRunID(snapshot.Active.RunID)
-		if err != nil {
-			return &runtimepb.Activity{}, fmt.Errorf("parse runtime active run id: %w", err)
-		}
 		stepID, err := runtimeids.ParseStepID(snapshot.Active.StepID)
 		if err != nil {
 			return &runtimepb.Activity{}, fmt.Errorf("parse runtime active step id: %w", err)
 		}
 		activity.ActiveStep = &runtimepb.ActiveStep{
-			RunId:      runID.String(),
 			StepId:     stepID.String(),
 			ActiveKind: snapshot.Active.ActiveKind,
 		}
@@ -75,9 +68,6 @@ func resolveRuntimeFeedActivity(snapshot ResolverSnapshot) (*runtimepb.Activity,
 	} else {
 		activity.State = runtimepb.ActivityState_RUNTIME_ACTIVITY_REGISTERED_IDLE
 		activity.QueueAccepting = snapshot.Registry.QueueAccepting
-	}
-	if err := protoapi.Validate(activity); err != nil {
-		return &runtimepb.Activity{}, err
 	}
 	return activity, nil
 }

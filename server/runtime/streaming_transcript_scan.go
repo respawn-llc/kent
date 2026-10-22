@@ -106,14 +106,15 @@ func (s *streamingTranscriptScan) ApplyPersistedEvent(record session.EventRecord
 			return nil
 		}
 		s.completions[callID] = tools.Result{
-			CallID:         completion.CallID,
-			Name:           toolspec.ID(completion.Name),
-			IsError:        completion.IsError,
-			Output:         completion.Output,
-			Summary:        completion.Summary,
-			CondensedText:  completion.CondensedText,
-			Presentation:   completion.Presentation,
-			QuestionAnswer: cloneAskQuestionAnswer(completion.QuestionAnswer),
+			CallID:              completion.CallID,
+			Name:                toolspec.ID(completion.Name),
+			IsError:             completion.IsError,
+			Output:              completion.Output,
+			Summary:             completion.Summary,
+			CondensedText:       completion.CondensedText,
+			Presentation:        completion.Presentation,
+			QuestionAnswer:      cloneAskQuestionAnswer(completion.QuestionAnswer),
+			AnsweredBySessionID: cloneOptionalRuntimeSessionID(completion.AnsweredBySessionID),
 		}
 		provenance, provenanceErr := transcriptProvenanceFromRecord(record)
 		if provenanceErr != nil {
@@ -198,10 +199,8 @@ func (s *streamingTranscriptScan) ApplyPersistedEvent(record session.EventRecord
 		if provenanceErr != nil {
 			return provenanceErr
 		}
-		entries := transcriptEntriesFromHistoryReplacement(
-			llm.PrepareOpenAIInputItems(replacement.Items),
-			replacement.CompactionNumber,
-		)
+		replacement.Items = llm.PrepareResponsesInputItems(replacement.Items)
+		entries := transcriptEntriesFromHistoryReplacement(replacement)
 		for index := range entries {
 			entries[index].StepID = cloneOptionalStepID(stepID)
 		}
@@ -209,6 +208,15 @@ func (s *streamingTranscriptScan) ApplyPersistedEvent(record session.EventRecord
 			s.appendEntry(entry)
 		}
 		s.lastCommittedAssistantFinalAnswer = textutil.Pointer(replacement.LastCommittedAssistantFinalAnswer)
+	case session.GenerationContextRecord:
+		s.closeTurn()
+		entries, err := generationContextEntries(record, payload)
+		if err != nil {
+			return err
+		}
+		for _, entry := range entries {
+			s.appendEntry(entry)
+		}
 	}
 	return nil
 }

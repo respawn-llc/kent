@@ -83,6 +83,59 @@ func TestWebSearchDetailOptionalAndNonTextFacts(t *testing.T) {
 			t.Fatalf("incorrect non-text destination: %+v", result)
 		}
 	}
+	t.Run("empty title uses supplied destination", func(t *testing.T) {
+		const destination = "https://example.com/untitled"
+		detail, err := DecodeWebSearchDetail(json.RawMessage(`{"action":{"type":"search"},"results":[{"type":"text_result","title":"","url":"` + destination + `"}]}`))
+		if err != nil {
+			t.Fatal(err)
+		}
+		if detail == nil || len(detail.Results) != 1 {
+			t.Fatalf("untitled result was not projected: %+v", detail)
+		}
+		result := detail.Results[0]
+		if result.Title != nil || result.Destination == nil || *result.Destination != destination {
+			t.Fatalf("untitled result = %+v, want absent title and supplied destination", result)
+		}
+	})
+	t.Run("untitled result preserves neighboring order", func(t *testing.T) {
+		firstTitle := "First"
+		thirdTitle := "Third"
+		detail, err := DecodeWebSearchDetail(json.RawMessage(`{"action":{"type":"search"},"results":[{"title":"First","url":"https://example.com/first"},{"title":"","url":"https://example.com/untitled"},{"title":"Third","url":"https://example.com/third"}]}`))
+		if err != nil {
+			t.Fatal(err)
+		}
+		if detail == nil || len(detail.Results) != 3 {
+			t.Fatalf("mixed titled and untitled results were not preserved: %+v", detail)
+		}
+		wantTitles := []*string{&firstTitle, nil, &thirdTitle}
+		wantDestinations := []string{
+			"https://example.com/first",
+			"https://example.com/untitled",
+			"https://example.com/third",
+		}
+		for i, result := range detail.Results {
+			wantTitle := wantTitles[i]
+			if wantTitle == nil {
+				if result.Title != nil {
+					t.Fatalf("result %d title = %q, want absent", i, *result.Title)
+				}
+			} else if result.Title == nil || *result.Title != *wantTitle {
+				t.Fatalf("result %d title = %v, want %q", i, result.Title, *wantTitle)
+			}
+			if result.Destination == nil || *result.Destination != wantDestinations[i] {
+				t.Fatalf("result %d destination = %v, want %q", i, result.Destination, wantDestinations[i])
+			}
+		}
+	})
+	t.Run("untitled result without destination is omitted", func(t *testing.T) {
+		detail, err := DecodeWebSearchDetail(json.RawMessage(`{"action":{"type":"search"},"results":[{"type":"text_result","title":""}]}`))
+		if err != nil {
+			t.Fatal(err)
+		}
+		if detail != nil {
+			t.Fatalf("useless untitled result produced detail: %+v", detail)
+		}
+	})
 }
 
 func TestWebSearchPageDetails(t *testing.T) {
@@ -138,6 +191,23 @@ func TestWebSearchMalformedQueryListRetainsIdentifiedCompletion(t *testing.T) {
 func TestFormatAskQuestionToolOutputRejectsPresentZeroSelection(t *testing.T) {
 	if formatted, ok := formatAskQuestionToolOutput([]byte(`{"selected_option_number":0,"freeform_answer":"typed"}`)); ok || formatted != "" {
 		t.Fatalf("present zero selection formatted as %q, %t; want malformed payload rejection", formatted, ok)
+	}
+}
+
+func TestGrokHostedCustomOutputKeepsProviderToolIdentity(t *testing.T) {
+	for _, tc := range []struct {
+		raw    json.RawMessage
+		callID string
+		name   string
+		input  string
+	}{
+		{json.RawMessage(`{"type":"custom_tool_call","id":"ctc_pdf","call_id":"as_pdf","name":"pdf_browse","input":"{\"pages\":\"1\"}"}`), "as_pdf", "pdf_browse", `{"pages":"1"}`},
+		{json.RawMessage(`{"type":"custom_tool_call","id":"ctc_x","call_id":"xs_search","name":"x_keyword_search","input":"{\"query\":\"kent\"}"}`), "xs_search", "x_keyword_search", `{"query":"kent"}`},
+	} {
+		executions := HostedExecutionsFromOutputs([]HostedToolOutput{{Raw: tc.raw}}, nil)
+		if len(executions) != 1 || executions[0].Call.ID != tc.callID || string(executions[0].Call.Name) != tc.name || string(executions[0].Call.Input) != tc.input || string(executions[0].Call.ProviderItem) != string(tc.raw) || !executions[0].Result.ProviderItemOnly {
+			t.Fatalf("hosted execution = %+v", executions)
+		}
 	}
 }
 

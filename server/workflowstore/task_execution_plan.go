@@ -229,11 +229,11 @@ func (s *Store) PlanTaskStart(ctx context.Context, taskID workflow.TaskID, candi
 	if err != nil {
 		return TaskStartPlan{}, err
 	}
-	target, err := s.materializeTaskStart(prepared)
+	targets, err := s.materializeTaskStart(ctx, prepared)
 	if err != nil {
 		return TaskStartPlan{}, err
 	}
-	plan, err := s.planTaskExecution(ctx, prepared.task, prepared.workflowVersion, []workflow.CurrentNode{prepared.startCurrentNode}, []workflow.CurrentNode{target}, candidate)
+	plan, err := s.planTaskExecution(ctx, prepared.task, prepared.workflowVersion, []workflow.CurrentNode{prepared.startCurrentNode}, targets, candidate)
 	return TaskStartPlan{plan: plan}, err
 }
 

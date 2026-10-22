@@ -189,15 +189,17 @@ func (e *Engine) prepareStoredToolCompletion(
 		return storedToolCompletion{}, "", false, err
 	}
 	payload := storedToolCompletion{
-		CallID:         r.CallID,
-		Name:           string(r.Name),
-		IsError:        r.IsError,
-		Output:         append(json.RawMessage(nil), r.Output...),
-		Summary:        r.Summary,
-		CondensedText:  r.CondensedText,
-		Presentation:   r.Presentation,
-		ProviderItems:  e.providerItemsForToolCompletion(r),
-		QuestionAnswer: cloneAskQuestionAnswer(r.QuestionAnswer),
+		CallID:              r.CallID,
+		Name:                string(r.Name),
+		IsError:             r.IsError,
+		ProviderItemOnly:    r.ProviderItemOnly,
+		Output:              append(json.RawMessage(nil), r.Output...),
+		Summary:             r.Summary,
+		CondensedText:       r.CondensedText,
+		Presentation:        r.Presentation,
+		ProviderItems:       e.providerItemsForToolCompletion(r),
+		QuestionAnswer:      cloneAskQuestionAnswer(r.QuestionAnswer),
+		AnsweredBySessionID: cloneOptionalRuntimeSessionID(r.AnsweredBySessionID),
 	}
 	return payload, backgroundSessionID, hasBackgroundSession, nil
 }
@@ -215,6 +217,9 @@ func (e *Engine) applyCommittedStoredToolCompletion(
 }
 
 func (e *Engine) providerItemsForToolCompletion(r tools.Result) []llm.ResponseItem {
+	if r.ProviderItemOnly {
+		return nil
+	}
 	callID := strings.TrimSpace(r.CallID)
 	if callID == "" {
 		return nil
@@ -238,7 +243,7 @@ func (e *Engine) providerItemsForToolCompletion(r tools.Result) []llm.ResponseIt
 		itemName, _ := textutil.OptionalTrimmed(callItem.Name)
 		name = firstNonEmpty(name, itemName)
 	}
-	return llm.PrepareOpenAIInputItems([]llm.ResponseItem{{
+	return llm.PrepareResponsesInputItems([]llm.ResponseItem{{
 		Type:   llm.ToolOutputItemType(custom),
 		CallID: textutil.Value(callID),
 		Name:   textutil.OptionalExactString(name),
@@ -350,7 +355,7 @@ func normalizeStoredLocalEntry(entry storedLocalEntry) (storedLocalEntry, error)
 	if entry.Role == "" {
 		return storedLocalEntry{}, errors.New("role is required")
 	}
-	if entry.Text == "" && entry.ToolOutputRepair == nil && entry.ProviderModelMismatch == nil {
+	if entry.Text == "" && entry.ToolOutputRepair == nil && entry.ProviderModelMismatch == nil && entry.ReasoningOmission == nil && entry.ConnectionFallback == nil && entry.ConnectionsUnavailable == nil {
 		return storedLocalEntry{}, errors.New("text or typed notice facts are required")
 	}
 	if entry.ToolOutputRepair != nil && !entry.ToolOutputRepair.Valid() {
@@ -359,7 +364,17 @@ func normalizeStoredLocalEntry(entry storedLocalEntry) (storedLocalEntry, error)
 	if entry.ProviderModelMismatch != nil && !entry.ProviderModelMismatch.Valid() {
 		return storedLocalEntry{}, errors.New("provider-model mismatch facts are invalid")
 	}
-	if entry.ToolOutputRepair != nil && entry.ProviderModelMismatch != nil {
+	if entry.ReasoningOmission != nil && !entry.ReasoningOmission.Valid() {
+		return storedLocalEntry{}, errors.New("reasoning omission facts are invalid")
+	}
+	if err := (transcript.ConnectionNoticeFacts{
+		Fallback: entry.ConnectionFallback, Unavailable: entry.ConnectionsUnavailable,
+		ToolOutputRepair: entry.ToolOutputRepair, ProviderModelMismatch: entry.ProviderModelMismatch, ReasoningOmission: entry.ReasoningOmission,
+	}).Validate(); err != nil {
+		return storedLocalEntry{}, err
+	}
+	if entry.ToolOutputRepair != nil && entry.ProviderModelMismatch != nil ||
+		entry.ReasoningOmission != nil && (entry.ToolOutputRepair != nil || entry.ProviderModelMismatch != nil) {
 		return storedLocalEntry{}, errors.New("local entry cannot carry multiple typed notice facts")
 	}
 	return entry, nil
@@ -369,14 +384,17 @@ func localEntryChatEntry(entry storedLocalEntry) *ChatEntry {
 	condensedText, _ := textutil.OptionalExact(entry.CondensedText)
 	noticeID, _ := textutil.OptionalExact(entry.NoticeID)
 	return &ChatEntry{
-		Visibility:            normalizeRuntimeEntryVisibility(entry.Visibility),
-		Role:                  strings.TrimSpace(entry.Role),
-		Text:                  strings.TrimSpace(entry.Text),
-		DurationMs:            textutil.Pointer(entry.DurationMs),
-		CondensedText:         condensedText,
-		NoticeID:              noticeID,
-		ToolOutputRepair:      textutil.Pointer(entry.ToolOutputRepair),
-		ProviderModelMismatch: textutil.Pointer(entry.ProviderModelMismatch),
+		Visibility:             normalizeRuntimeEntryVisibility(entry.Visibility),
+		Role:                   strings.TrimSpace(entry.Role),
+		Text:                   strings.TrimSpace(entry.Text),
+		DurationMs:             textutil.Pointer(entry.DurationMs),
+		CondensedText:          condensedText,
+		NoticeID:               noticeID,
+		ToolOutputRepair:       textutil.Pointer(entry.ToolOutputRepair),
+		ProviderModelMismatch:  textutil.Pointer(entry.ProviderModelMismatch),
+		ReasoningOmission:      textutil.Pointer(entry.ReasoningOmission),
+		ConnectionFallback:     textutil.Pointer(entry.ConnectionFallback),
+		ConnectionsUnavailable: textutil.Pointer(entry.ConnectionsUnavailable),
 	}
 }
 
@@ -619,6 +637,9 @@ func (e *Engine) appendPreparedModelInput(stepID *string, input steeringPrepared
 		if err != nil {
 			return session.CommitReceipt{}, err
 		}
+		if prepared.record.Role == session.MessageRoleUser {
+			prepared.record.QueueItemIDs = queuedUserMessageStatusItemIDs(group.queueItems)
+		}
 		projections = append(projections, prepared)
 		payloads = append(payloads, prepared.record)
 	}
@@ -734,11 +755,7 @@ func (e *Engine) emitQueuedUserMessageStatus(
 		Status:        status,
 		FailureReason: reason,
 	}
-	text, err := item.DisplayText()
-	if err != nil {
-		e.surfaceRunError(fmt.Errorf("queued user message status: %w", err))
-		return
-	}
+	text := item.DisplayText()
 	if restore {
 		event.Text = text
 	}
@@ -756,11 +773,7 @@ func (e *Engine) emitInterruptedHumanInputs(items []QueuedUserMessage) {
 	}
 	eventItems := make([]InterruptedHumanInput, 0, len(items))
 	for _, item := range items {
-		text, err := item.DisplayText()
-		if err != nil {
-			e.surfaceRunError(fmt.Errorf("interrupted human input: %w", err))
-			continue
-		}
+		text := item.DisplayText()
 		eventItems = append(eventItems, InterruptedHumanInput{
 			QueueItemID: item.ID,
 			Text:        text,

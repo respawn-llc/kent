@@ -84,23 +84,11 @@ func (p *clientLifecycleProxy) enqueueTaskCompletion(result *transcriptpb.LiveRu
 }
 
 func (p *clientLifecycleProxy) acceptSessionIdentity(identity *transcriptpb.SessionIdentity) {
-	if err := p.eventContext.AcceptSessionIdentity(identity); err != nil {
-		p.dispatcher.Report(lifecyclehook.NewObservationIssue(
-			lifecyclehook.ObservationFactSessionIdentity,
-			err,
-		))
-		return
-	}
+	p.eventContext.AcceptSessionIdentity(identity)
 }
 
 func (p *clientLifecycleProxy) acceptSessionStatus(status *transcriptpb.SessionStatus) {
-	if err := p.eventContext.AcceptSessionStatus(status); err != nil {
-		p.dispatcher.Report(lifecyclehook.NewObservationIssue(
-			lifecyclehook.ObservationFactSessionStatus,
-			err,
-		))
-		return
-	}
+	p.eventContext.AcceptSessionStatus(status)
 }
 
 func (p *clientLifecycleProxy) context() lifecyclecontract.Context {

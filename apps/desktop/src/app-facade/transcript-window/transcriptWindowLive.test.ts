@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it } from "bun:test";
 
 import type { ChatTranscriptPayloadByKind } from "@/api";
 import { hydration, idle, page, row, sequences, visit } from "@/test-support/transcript-window";
@@ -7,14 +7,13 @@ import { TranscriptWindow } from "./index";
 const compacting = {
   ...idle,
   State: "running",
-  ActiveStep: { RunID: "run", StepID: "step", ActiveKind: "compaction" },
+  ActiveStep: { StepID: "step", ActiveKind: "compaction" },
 } as const;
 const activeCompaction: ChatTranscriptPayloadByKind["compaction_status"] = {
   StepID: "step",
   State: "started",
   Mode: "manual",
   Count: 1,
-  RequestID: "request",
 };
 const started: ChatTranscriptPayloadByKind["compaction_status"] = {
   ...activeCompaction,
@@ -26,13 +25,63 @@ const completed: ChatTranscriptPayloadByKind["compaction_status"] = {
 };
 
 describe("transcript live membership and compaction", () => {
+  it("keeps Thinking Status out of transcript items while preserving real reasoning", () => {
+    const window = new TranscriptWindow();
+    window.dispatch({
+      kind: "initial-hydration",
+      hydration: hydration([row(1)], 0, {
+        ...idle,
+        State: "running",
+        ActiveStep: { StepID: "step", ActiveKind: "user_turn" },
+      }),
+    });
+    const committed = window.snapshot.items;
+    for (const text of ["planning", "checking", "finishing"]) {
+      window.dispatch({
+        kind: "live-fact",
+        fact: { kind: "thinking_status_update", payload: { StepID: "step", Text: text } },
+      });
+      expect(window.snapshot.thinkingStatus).toEqual({ kind: "text", text });
+      expect(window.snapshot.items).toEqual(committed);
+    }
+    const trace = {
+      StepID: "step",
+      Identity: { Kent: "trace" },
+      Text: "real reasoning",
+      CompactText: "real reasoning",
+    };
+    window.dispatch({ kind: "live-fact", fact: { kind: "reasoning_trace_update", payload: trace } });
+    const reasoningTrace = window.snapshot.items.find((item) => item.kind === "reasoning_trace");
+    expect(reasoningTrace?.value).toEqual(trace);
+    window.dispatch({
+      kind: "live-fact",
+      fact: { kind: "thinking_status_update", payload: { StepID: "step", Text: "another status" } },
+    });
+    expect(window.snapshot.items.filter((item) => item.kind === "reasoning_trace")).toHaveLength(1);
+    window.dispatch({
+      kind: "live-fact",
+      fact: {
+        kind: "step_state",
+        payload: {
+          StepID: "step",
+          Lifecycle: "finished",
+          ActiveKind: "user_turn",
+          Status: "completed",
+        },
+      },
+    });
+    expect(window.snapshot.items).toEqual(committed);
+    window.dispatch({ kind: "runtime-activity", activity: idle });
+    expect(window.snapshot.thinkingStatus).toBeNull();
+  });
+
   it("retains status through reasoning and retry but clears lost observation until hydration", () => {
     const window = new TranscriptWindow();
     const source = {
       ...hydration([row(1)], 0, {
         ...idle,
         State: "running",
-        ActiveStep: { RunID: "run", StepID: "step", ActiveKind: "user_turn" },
+        ActiveStep: { StepID: "step", ActiveKind: "user_turn" },
       }),
       ActiveThinkingStatus: { StepID: "step", Text: "status" },
     };
@@ -69,7 +118,7 @@ describe("transcript live membership and compaction", () => {
       ...idle,
       State: "running",
       Reviewer: "invoking",
-      ActiveStep: { RunID: "run", StepID: "step", ActiveKind: "user_turn" },
+      ActiveStep: { StepID: "step", ActiveKind: "user_turn" },
     } as const;
     const status = (StepID: string, Text: string) =>
       window.dispatch({
@@ -112,7 +161,7 @@ describe("transcript live membership and compaction", () => {
       activity: {
         ...reviewer,
         State: "running",
-        ActiveStep: { RunID: "run", StepID: "step", ActiveKind: "user_turn" },
+        ActiveStep: { StepID: "step", ActiveKind: "user_turn" },
       },
     });
     expect(window.snapshot.thinkingStatus).toEqual({ kind: "working" });
@@ -127,7 +176,6 @@ describe("transcript live membership and compaction", () => {
       ["workflow_turn", "working"],
       ["goal_loop", "working"],
       ["compaction", "compacting"],
-      ["pre_submit_compaction", "compacting"],
       ["user_shell", "running"],
       ["background", "running"],
       ["runtime_maintenance", "running"],
@@ -139,7 +187,7 @@ describe("transcript live membership and compaction", () => {
         hydration: hydration([row(1)], 0, {
           ...idle,
           State: "running",
-          ActiveStep: { RunID: "run", StepID: "step", ActiveKind },
+          ActiveStep: { StepID: "step", ActiveKind },
         }),
       });
       expect(window.snapshot.thinkingStatus).toEqual({ kind });

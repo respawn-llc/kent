@@ -155,21 +155,21 @@ func replayRecordInputs(records []EventRecord) ([]EventRecordAppendInput, error)
 	return inputs, nil
 }
 
-func (c MaterializedEventLog) AppendCompactionHistoryReplacement(
+func (c MaterializedEventLog) AppendHistoryReplacement(
 	stepID *string,
 	record HistoryReplacementRecord,
 ) (EventRecord, CommitReceipt, error) {
 	outcome, err := c.appendRecordInputsAtomic([]EventRecordAppendInput{{
 		StepID: stepID, Payload: record,
 	}}, func(meta *Meta) (bool, error) {
-		*meta = ProjectCompactedMeta(*meta)
+		*meta = ProjectSnapshotBoundary(*meta, SnapshotBoundaryCompaction)
 		return true, nil
 	})
 	if len(outcome.records) != 1 {
 		return EventRecord{}, CommitReceipt{Committed: outcome.committed}, errors.Join(
 			err,
 			fmt.Errorf(
-				"typed compaction append produced %d records, want 1",
+				"history replacement append produced %d records, want 1",
 				len(outcome.records),
 			),
 		)
@@ -398,6 +398,24 @@ func projectEventPayloadForVersion(version int, payload EventRecordPayload) (Eve
 }
 
 func advanceActiveWorkflowAssignmentFromRecords(meta *Meta, records []EventRecord) error {
+	applyMessage := func(message MessageRecord) error {
+		if message.MessageType == nil {
+			return nil
+		}
+		switch *message.MessageType {
+		case MessageTypeWorkflowMode:
+			normalized, err := normalizeMessageRecord(message)
+			if err != nil {
+				return err
+			}
+			meta.ActiveWorkflowAssignment = &normalized
+			meta.ActiveWorkflowAssignmentState = &ActiveWorkflowAssignmentState{}
+		case MessageTypeWorkflowModeExit:
+			meta.ActiveWorkflowAssignment = nil
+			meta.ActiveWorkflowAssignmentState = &ActiveWorkflowAssignmentState{}
+		}
+		return nil
+	}
 	for _, record := range records {
 		payload, err := record.Payload()
 		if err != nil {
@@ -405,16 +423,16 @@ func advanceActiveWorkflowAssignmentFromRecords(meta *Meta, records []EventRecor
 		}
 		switch value := payload.(type) {
 		case MessageRecord:
-			if value.MessageType == nil {
-				continue
+			if err := applyMessage(value); err != nil {
+				return err
 			}
-			switch *value.MessageType {
-			case MessageTypeWorkflowMode:
-				meta.ActiveWorkflowAssignment = cloneMessageRecord(&value)
-				meta.ActiveWorkflowAssignmentState = &ActiveWorkflowAssignmentState{}
-			case MessageTypeWorkflowModeExit:
-				meta.ActiveWorkflowAssignment = nil
-				meta.ActiveWorkflowAssignmentState = &ActiveWorkflowAssignmentState{}
+		case GenerationContextRecord:
+			for _, messages := range [][]MessageRecord{value.BeforeSummary, value.AfterSummary} {
+				for _, message := range messages {
+					if err := applyMessage(message); err != nil {
+						return err
+					}
+				}
 			}
 		case HistoryReplacementRecord:
 			meta.ActiveWorkflowAssignment = nil
@@ -426,22 +444,15 @@ func advanceActiveWorkflowAssignmentFromRecords(meta *Meta, records []EventRecor
 					item.MessageType == nil {
 					continue
 				}
-				switch *item.MessageType {
-				case MessageTypeWorkflowMode:
-					message, err := normalizeMessageRecord(MessageRecord{
-						Role:            *item.Role,
-						MessageType:     item.MessageType,
-						SourcePath:      item.SourcePath,
-						WorktreeContext: item.WorktreeContext,
-						Content:         item.Content,
-						CompactContent:  item.CompactContent,
-					})
-					if err != nil {
-						return err
-					}
-					meta.ActiveWorkflowAssignment = &message
-				case MessageTypeWorkflowModeExit:
-					meta.ActiveWorkflowAssignment = nil
+				if err := applyMessage(MessageRecord{
+					Role:            *item.Role,
+					MessageType:     item.MessageType,
+					SourcePath:      item.SourcePath,
+					WorktreeContext: item.WorktreeContext,
+					Content:         item.Content,
+					CompactContent:  item.CompactContent,
+				}); err != nil {
+					return err
 				}
 			}
 		}
@@ -506,9 +517,8 @@ func (s *Store) captureFirstPromptPreviewFromRecordsLocked(records []EventRecord
 		) {
 			continue
 		}
-		preview := normalizeFirstPromptPreview(*message.Content)
-		if preview != "" {
-			s.meta.FirstPromptPreview = preview
+		s.captureFirstPromptPreviewLocked(*message.Content)
+		if s.meta.FirstPromptPreview != "" {
 			return nil
 		}
 	}
@@ -524,7 +534,11 @@ func (s *Store) advanceConversationFreshnessFromRecordsLocked(records []EventRec
 		if err != nil {
 			return err
 		}
-		if visible {
+		kind, err := record.Kind()
+		if err != nil {
+			return err
+		}
+		if visible || IsContextBoundary(kind) {
 			s.conversationFreshness = ConversationFreshnessEstablished
 			s.meta.ConversationEstablished = true
 			return nil

@@ -16,6 +16,7 @@ import (
 	"core/server/workflowexecution"
 	"core/server/workflowstore"
 	pb "core/shared/protoapi/gen/kent/api/workflow_definition"
+	taskpb "core/shared/protoapi/gen/kent/api/workflow_task"
 	"core/shared/runtimeids"
 	"core/shared/serverapi"
 	"core/shared/sessioncontract"
@@ -26,7 +27,7 @@ func TestServiceManualMoveNoOpRejectsExplicitBranchWithoutPendingMutation(t *tes
 	workflowID := createWorkflowServiceChainedWorkflow(t, ctx, service)
 	linkDefaultWorkflowServiceProject(t, ctx, service, binding.ProjectID, workflowID)
 	task := createDefaultWorkflowServiceTask(t, ctx, service, binding.ProjectID)
-	taskID := workflow.TaskID(task.Task.ID)
+	taskID := workflow.TaskID(task.Task.Id)
 	service.currentNodeExecution = newManualMoveExecutionStub(service)
 	currentNodes, err := service.store.ListCurrentNodes(ctx, taskID)
 	if err != nil {
@@ -34,9 +35,9 @@ func TestServiceManualMoveNoOpRejectsExplicitBranchWithoutPendingMutation(t *tes
 	}
 	branchName := "feature/no-op-move"
 
-	_, err = service.MoveWorkflowTask(ctx, serverapi.WorkflowTaskMoveRequest{
-		TaskID:       task.Task.ID,
-		TargetNodeID: string(currentNodes[0].Reference.NodeID),
+	_, err = service.MoveWorkflowTask(ctx, &taskpb.MoveRequest{
+		TaskId:       task.Task.Id,
+		TargetNodeId: string(currentNodes[0].Reference.NodeID),
 		BranchName:   &branchName,
 	})
 
@@ -50,8 +51,8 @@ func TestServiceManualMoveNoOpRejectsExplicitBranchWithoutPendingMutation(t *tes
 		t.Fatalf("GetTaskExecutionTargetContext: %v", err)
 	}
 	if targetContext.Task.PendingInitialManagedBranchName == nil ||
-		*targetContext.Task.PendingInitialManagedBranchName != task.Task.ShortID {
-		t.Fatalf("pending branch = %v, want unchanged %q", targetContext.Task.PendingInitialManagedBranchName, task.Task.ShortID)
+		*targetContext.Task.PendingInitialManagedBranchName != task.Task.ShortId {
+		t.Fatalf("pending branch = %v, want unchanged %q", targetContext.Task.PendingInitialManagedBranchName, task.Task.ShortId)
 	}
 	after, err := service.store.ListCurrentNodes(ctx, taskID)
 	if err != nil {
@@ -67,7 +68,7 @@ func TestServiceManualMoveNonExecutableRejectsExplicitBranchWithoutPendingMutati
 	workflowID := createWorkflowServiceChainedWorkflow(t, ctx, service)
 	linkDefaultWorkflowServiceProject(t, ctx, service, binding.ProjectID, workflowID)
 	task := createDefaultWorkflowServiceTask(t, ctx, service, binding.ProjectID)
-	taskID := workflow.TaskID(task.Task.ID)
+	taskID := workflow.TaskID(task.Task.Id)
 	execution := newManualMoveExecutionStub(service)
 	service.currentNodeExecution = execution
 	definition, err := service.GetWorkflow(ctx, &pb.GetRequest{WorkflowId: workflowID.String()})
@@ -81,9 +82,9 @@ func TestServiceManualMoveNonExecutableRejectsExplicitBranchWithoutPendingMutati
 	}
 	branchName := "feature/non-executable-move"
 
-	_, err = service.MoveWorkflowTask(ctx, serverapi.WorkflowTaskMoveRequest{
-		TaskID:       task.Task.ID,
-		TargetNodeID: targetNodeID,
+	_, err = service.MoveWorkflowTask(ctx, &taskpb.MoveRequest{
+		TaskId:       task.Task.Id,
+		TargetNodeId: targetNodeID,
 		BranchName:   &branchName,
 	})
 
@@ -98,8 +99,8 @@ func TestServiceManualMoveNonExecutableRejectsExplicitBranchWithoutPendingMutati
 		t.Fatalf("GetTaskExecutionTargetContext: %v", err)
 	}
 	if targetContext.Task.PendingInitialManagedBranchName == nil ||
-		*targetContext.Task.PendingInitialManagedBranchName != task.Task.ShortID {
-		t.Fatalf("pending branch = %v, want unchanged %q", targetContext.Task.PendingInitialManagedBranchName, task.Task.ShortID)
+		*targetContext.Task.PendingInitialManagedBranchName != task.Task.ShortId {
+		t.Fatalf("pending branch = %v, want unchanged %q", targetContext.Task.PendingInitialManagedBranchName, task.Task.ShortId)
 	}
 	after, err := service.store.ListCurrentNodes(ctx, taskID)
 	if err != nil {
@@ -144,8 +145,8 @@ func TestServiceManualMoveCarriesBranchAssertionAndDoesNotApplyOnMismatch(t *tes
 	}
 	service.executionTargets = targets
 
-	_, err = service.MoveWorkflowTask(ctx, serverapi.WorkflowTaskMoveRequest{
-		TaskID: task.Task.ID, TargetNodeID: workflowServiceNodeIDByKey(t, definition.Definition, "plan"),
+	_, err = service.MoveWorkflowTask(ctx, &taskpb.MoveRequest{
+		TaskId: task.Task.Id, TargetNodeId: workflowServiceNodeIDByKey(t, definition.Definition, "plan"),
 		BranchName: &branchName,
 	})
 	var mismatch *serverapi.WorkflowTaskInitialBranchError
@@ -170,7 +171,7 @@ func TestServiceManualMoveAcceptedBranchReturnsConflictWhenFinalRevalidationBeco
 	})
 	linkDefaultWorkflowServiceProject(t, ctx, service, binding.ProjectID, workflowID)
 	task := createDefaultWorkflowServiceTask(t, ctx, service, binding.ProjectID)
-	taskID := workflow.TaskID(task.Task.ID)
+	taskID := workflow.TaskID(task.Task.Id)
 	definition, err := service.GetWorkflow(ctx, &pb.GetRequest{WorkflowId: workflowID.String()})
 	if err != nil {
 		t.Fatalf("GetWorkflow: %v", err)
@@ -182,7 +183,7 @@ func TestServiceManualMoveAcceptedBranchReturnsConflictWhenFinalRevalidationBeco
 	requestedRef := "HEAD"
 	commitOID := strings.Repeat("e", 40)
 	branchName := "feature/stale-manual-move"
-	worktreeID := "worktree-" + task.Task.ID
+	worktreeID := "worktree-" + task.Task.Id
 	worktreeRoot := filepath.Join(t.TempDir(), "task-worktree")
 	materializedBranch := ""
 	targets := &recordingExecutionTargetInfrastructure{
@@ -259,15 +260,15 @@ func TestServiceManualMoveAcceptedBranchReturnsConflictWhenFinalRevalidationBeco
 		}
 	}
 
-	response, err := service.MoveWorkflowTask(ctx, serverapi.WorkflowTaskMoveRequest{
-		TaskID: task.Task.ID, TargetNodeID: string(targetNodeID),
+	response, err := service.MoveWorkflowTask(ctx, &taskpb.MoveRequest{
+		TaskId: task.Task.Id, TargetNodeId: string(targetNodeID),
 		BranchName: &branchName,
 	})
 
 	if !errors.Is(err, workflowexecution.ErrManualMoveLifecycleConflict) {
 		t.Fatalf("MoveWorkflowTask error = %T %v, want Manual Move lifecycle conflict", err, err)
 	}
-	if response.Outcome != "" {
+	if response != nil {
 		t.Fatalf("MoveWorkflowTask response = %+v, want no successful outcome", response)
 	}
 	if materializedBranch != branchName {

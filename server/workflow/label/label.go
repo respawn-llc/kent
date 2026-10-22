@@ -26,6 +26,11 @@ func NewID() ID {
 	return ID{value: uuid.New()}
 }
 
+func IDFromProto(raw string) (ID, error) {
+	parsed, err := uuid.Parse(raw)
+	return ID{value: parsed}, err
+}
+
 func ParseID(raw string) (ID, error) {
 	parsed, err := runtimeids.ParseCanonicalUUIDv4(raw, "label ID")
 	if err != nil {

@@ -10,6 +10,12 @@ import (
 	"core/shared/runtimeids"
 )
 
+type ConnectionConsumption struct {
+	ConnectionID  string
+	HourStartUnix int64
+	Score         int64
+}
+
 type MigrationCurrentNodeValueEnvironment struct {
 	PlacementID            string
 	CurrentInputValuesJson string
@@ -105,6 +111,11 @@ type MigrationWorkflowGraphEdge struct {
 	ParametersJson string
 }
 
+type PragmaTableList struct {
+	Name string
+	Type string
+}
+
 type Project struct {
 	ID                           string
 	DisplayName                  string
@@ -155,7 +166,7 @@ type Session struct {
 	WorkspaceID              sql.NullString
 	WorktreeID               sql.NullString
 	ArtifactRelpath          string
-	Name                     string
+	Name                     sql.NullString
 	FirstPromptPreview       string
 	InputDraft               string
 	Category                 sql.NullString
@@ -175,6 +186,7 @@ type Session struct {
 	CompletedCompactionCount sql.NullInt64
 	ManualCompactEligible    sql.NullInt64
 	ProtectedInputDraft      sql.NullString
+	ShortID                  sql.NullInt64
 }
 
 type SessionPromptHistoryEntry struct {
@@ -182,6 +194,11 @@ type SessionPromptHistoryEntry struct {
 	SessionID       string
 	Text            string
 	CreatedAtUnixMs int64
+}
+
+type SessionShortIDSequence struct {
+	Singleton int64
+	NextValue int64
 }
 
 type SessionWorkflowNodeAssociation struct {
@@ -385,7 +402,7 @@ type WorkflowNodeGroup struct {
 	ID          string
 	WorkflowID  runtimeids.WorkflowID
 	GroupKey    string
-	DisplayName string
+	DisplayName sql.NullString
 	SortOrder   int64
 }
 

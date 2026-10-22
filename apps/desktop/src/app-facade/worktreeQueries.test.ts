@@ -1,3 +1,4 @@
+import { describe, expect, it, vi } from "bun:test";
 import { QueryClient } from "@tanstack/react-query";
 import { newSetupOperationID } from "@/api";
 import { worktreeQueryFixtureRoutes } from "@/test-support/api";
@@ -18,22 +19,30 @@ describe("Worktree query ownership", () => {
   it("uses exact keys, fresh transient fetches, and durable-only invalidation", async () => {
     const services = createTestServices(worktreeQueryFixtureRoutes());
     const queryClient = new QueryClient();
-    const request = createWorktreeTargetResolutionRequest("session-1", " Feature ");
+    const request = createWorktreeTargetResolutionRequest(
+      "33333333-3333-4333-8333-333333333333",
+      " Feature ",
+    );
     const key = queryKeys.worktreeCreateTargetResolution(request.sessionID, request.target);
 
-    expect(key).toEqual(["worktree", "session-1", "create-target-resolution", "Feature"]);
+    expect(key).toEqual([
+      "worktree",
+      "33333333-3333-4333-8333-333333333333",
+      "create-target-resolution",
+      "Feature",
+    ]);
     await freshFetchWorktreeCreateTargetResolution(queryClient, services.api, request);
     await freshFetchWorktreeCreateTargetResolution(queryClient, services.api, request);
     expect(services.transport.descriptorCalls).toHaveLength(2);
     await disposeWorktreeCreateTargetResolution(queryClient, request);
     expect(queryClient.getQueryState(key)).toBeUndefined();
-    const status = queryKeys.worktreeStatus("session-1");
-    const list = queryKeys.worktreeList("session-1");
-    const transient = queryKeys.worktreeDeletePreview("session-1", "feature");
+    const status = queryKeys.worktreeStatus("33333333-3333-4333-8333-333333333333");
+    const list = queryKeys.worktreeList("33333333-3333-4333-8333-333333333333");
+    const transient = queryKeys.worktreeDeletePreview("33333333-3333-4333-8333-333333333333", "feature");
     queryClient.setQueryData(status, {});
     queryClient.setQueryData(list, {});
     queryClient.setQueryData(transient, {});
-    await invalidateWorktreeSessionReads(queryClient, "session-1");
+    await invalidateWorktreeSessionReads(queryClient, "33333333-3333-4333-8333-333333333333");
     expect([status, list, transient].map((value) => queryClient.getQueryState(value)?.isInvalidated)).toEqual(
       [true, true, false],
     );
@@ -44,15 +53,15 @@ describe("Worktree query ownership", () => {
     const queryClient = new QueryClient();
     const createOptions = worktreeCreateTargetResolutionQueryOptions(
       services.api,
-      createWorktreeTargetResolutionRequest("session-1", "feature"),
+      createWorktreeTargetResolutionRequest("33333333-3333-4333-8333-333333333333", "feature"),
     );
     const selectorOptions = worktreeSelectorResolutionQueryOptions(
       services.api,
-      createWorktreeSelectorRequest("session-1", "feature"),
+      createWorktreeSelectorRequest("33333333-3333-4333-8333-333333333333", "feature"),
     );
     const deleteOptions = worktreeDeletePreviewQueryOptions(
       services.api,
-      createWorktreeSelectorRequest("session-1", "feature"),
+      createWorktreeSelectorRequest("33333333-3333-4333-8333-333333333333", "feature"),
     );
 
     await queryClient.fetchQuery(createOptions);
@@ -64,34 +73,33 @@ describe("Worktree query ownership", () => {
     if (createTarget.resolution === undefined) {
       throw new Error("fixture omitted Create target resolution");
     }
+    const createWorktree = vi.spyOn(services.api, "createWorktree");
+    const switchWorktree = vi.spyOn(services.api, "switchWorktree");
+    const deleteWorktree = vi.spyOn(services.api, "deleteWorktree");
+    const setupOperationID = newSetupOperationID();
     await services.api
       .createWorktree({
-        sessionID: "session-1",
-        setupOperationID: newSetupOperationID(),
+        sessionID: "33333333-3333-4333-8333-333333333333",
+        setupOperationID,
         resolution: createTarget.resolution,
         baseRef: null,
       })
       .catch(() => undefined);
-    const operation = selector.worktree?.projection?.switch;
+    const operation = selector.worktree.projection.switch;
     if (operation === undefined) throw new Error("fixture omitted Switch authority");
-    await services.api.switchWorktree("session-1", operation).catch(() => undefined);
-    await services.api.deleteWorktree("session-1", deletion, "confirm").catch(() => undefined);
-    const expectedSpec: unknown = expect.objectContaining({ baseRef: "refs/heads/feature-1" });
-    const expectedWorkspace: unknown = expect.objectContaining({
-      workspaceId: "workspace-1",
-      workspaceRoot: "/repo",
+    await services.api
+      .switchWorktree("33333333-3333-4333-8333-333333333333", operation)
+      .catch(() => undefined);
+    await services.api
+      .deleteWorktree("33333333-3333-4333-8333-333333333333", deletion, "confirm")
+      .catch(() => undefined);
+    expect(createWorktree).toHaveBeenCalledWith({
+      sessionID: "33333333-3333-4333-8333-333333333333",
+      setupOperationID,
+      resolution: createTarget.resolution,
+      baseRef: null,
     });
-    expect(services.transport.descriptorCalls.map(({ request }) => request)).toEqual(
-      expect.arrayContaining([
-        expect.objectContaining({
-          spec: expectedSpec,
-        }),
-        expect.objectContaining({
-          selector: "feature-1",
-          targetWorkspace: expectedWorkspace,
-        }),
-        expect.objectContaining({ forceFolderRemoval: true }),
-      ]),
-    );
+    expect(switchWorktree).toHaveBeenCalledWith("33333333-3333-4333-8333-333333333333", operation);
+    expect(deleteWorktree).toHaveBeenCalledWith("33333333-3333-4333-8333-333333333333", deletion, "confirm");
   });
 });

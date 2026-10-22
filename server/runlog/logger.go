@@ -203,7 +203,6 @@ func runtimeEventDigest(evt runtime.Event) string {
 	if evt.RunState != nil {
 		parts = append(
 			parts,
-			evt.RunState.RunID,
 			string(evt.RunState.Status),
 			string(evt.RunState.Lifecycle.Phase),
 			string(evt.RunState.Lifecycle.Mode),

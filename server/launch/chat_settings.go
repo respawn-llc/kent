@@ -1,9 +1,9 @@
 package launch
 
 import (
+	"context"
 	"errors"
 	"fmt"
-	"reflect"
 	"slices"
 	"strings"
 
@@ -25,36 +25,46 @@ type PreparedChatSettings struct {
 }
 
 type PreparedChatAgentCatalogEntry struct {
-	ConnectionID   *config.ConnectionID
-	Choice         *chatsettingspb.AgentChoice
-	Settings       *PreparedChatSettings
-	SelectionError error
-	comparison     preparedChatAgentComparison
+	ConnectionID         *config.ConnectionID
+	Choice               *chatsettingspb.AgentChoice
+	Settings             *PreparedChatSettings
+	SelectionError       error
+	providerCapabilities llm.ProviderCapabilities
+	systemPromptFile     *config.SystemPromptFile
+}
+
+func (e PreparedChatAgentCatalogEntry) ProviderCapabilities() llm.ProviderCapabilities {
+	return e.providerCapabilities
 }
 
 type PreparedChatAgentCatalog struct {
 	entries []PreparedChatAgentCatalogEntry
 }
 
-type preparedChatAgentComparison struct {
-	Settings             config.Settings
-	Tools                []toolspec.ID
-	ProviderCapabilities llm.ProviderCapabilities
-	ChatSettings         PreparedChatSettings
-}
-
 func PrepareChatAgentCatalog(
 	app config.App,
 	skipProviderReadinessValidation bool,
 ) (PreparedChatAgentCatalog, error) {
-	return prepareChatAgentCatalog(app, RunPromptPreparationContext{
+	return prepareChatAgentCatalog(context.Background(), app, RunPromptPreparationContext{
 		Mode:                            ModeInteractive,
 		SkipProviderReadinessValidation: skipProviderReadinessValidation,
 	})
 
 }
 
-func PrepareSessionChatAgentCatalog(app config.App, meta session.Meta) (PreparedChatAgentCatalog, error) {
+func PrepareChatAgentSelection(ctx context.Context, app config.App, selector string, meta session.Meta, rotation *ConnectionRotation) (PreparedChatAgentCatalogEntry, error) {
+	return prepareChatAgentEntry(ctx, app, selector, RunPromptPreparationContext{
+		Mode: defaultAgentMode(meta), Rotation: rotation, AllocateConnection: true,
+	}, false)
+}
+
+func RevalidateChatAgentSelection(app config.App, selector string, meta session.Meta, connection config.ConnectionID) (PreparedChatAgentCatalogEntry, error) {
+	return prepareChatAgentEntry(context.Background(), app, selector, RunPromptPreparationContext{
+		Mode: defaultAgentMode(meta), RetainedConnectionSelection: &connection,
+	}, false)
+}
+
+func PrepareSessionChatAgentCatalog(ctx context.Context, app config.App, meta session.Meta, rotation *ConnectionRotation) (PreparedChatAgentCatalog, error) {
 	state, err := session.ChatSettingsStateFromMeta(meta)
 	if err != nil {
 		return PreparedChatAgentCatalog{}, err
@@ -66,13 +76,13 @@ func PrepareSessionChatAgentCatalog(app config.App, meta session.Meta) (Prepared
 	}
 	// Baselines use configured settings, retaining only the Session's role and
 	// binding. Persisted controls and locks are applied by the settings owner.
-	target, err := (Planner{Config: app}).SelectedSessionPromptFacingTargetFromMeta(session.Meta{
+	target, err := (Planner{Config: app, Rotation: rotation}).SelectedSessionPromptFacingTargetFromMeta(ctx, session.Meta{
 		ConnectionID: meta.ConnectionID, Continuation: continuation,
-	})
+	}, false)
 	if err != nil {
 		return PreparedChatAgentCatalog{}, err
 	}
-	return prepareChatAgentCatalogForSession(app, RunPromptPreparationContext{Mode: defaultAgentMode(meta)}, selector, target, meta.Locked != nil)
+	return prepareChatAgentCatalogForSession(ctx, app, RunPromptPreparationContext{Mode: defaultAgentMode(meta)}, selector, target)
 }
 
 func defaultAgentMode(meta session.Meta) Mode {
@@ -82,14 +92,14 @@ func defaultAgentMode(meta session.Meta) Mode {
 	return ModeInteractive
 }
 
-func prepareChatAgentCatalog(app config.App, preparation RunPromptPreparationContext) (PreparedChatAgentCatalog, error) {
-	return buildChatAgentCatalog(app, nil, false, func(selector string) (PreparedChatAgentCatalogEntry, error) {
-		return prepareChatAgentEntry(app, selector, preparation, false)
+func prepareChatAgentCatalog(ctx context.Context, app config.App, preparation RunPromptPreparationContext) (PreparedChatAgentCatalog, error) {
+	return buildChatAgentCatalog(app, nil, func(selector string) (PreparedChatAgentCatalogEntry, error) {
+		return prepareChatAgentEntry(ctx, app, selector, preparation, false)
 	})
 }
 
-func prepareChatAgentCatalogForSession(app config.App, preparation RunPromptPreparationContext, current string, currentTarget PreparedBaseTarget, locked bool) (PreparedChatAgentCatalog, error) {
-	return buildChatAgentCatalog(app, &current, locked, func(selector string) (PreparedChatAgentCatalogEntry, error) {
+func prepareChatAgentCatalogForSession(ctx context.Context, app config.App, preparation RunPromptPreparationContext, current string, currentTarget PreparedBaseTarget) (PreparedChatAgentCatalog, error) {
+	return buildChatAgentCatalog(app, &current, func(selector string) (PreparedChatAgentCatalogEntry, error) {
 		if selector == current {
 			capabilities, err := llm.ResolveRuntimeProviderCapabilities(currentTarget.Settings)
 			if err != nil {
@@ -97,11 +107,11 @@ func prepareChatAgentCatalogForSession(app config.App, preparation RunPromptPrep
 			}
 			return chatAgentCatalogEntry(app, selector, currentTarget, capabilities, llm.SupportsFastModeProvider(capabilities))
 		}
-		return prepareChatAgentEntry(app, selector, preparation, true)
+		return prepareChatAgentEntry(ctx, app, selector, preparation, true)
 	})
 }
 
-func buildChatAgentCatalog(app config.App, current *string, locked bool, prepare func(string) (PreparedChatAgentCatalogEntry, error)) (PreparedChatAgentCatalog, error) {
+func buildChatAgentCatalog(app config.App, current *string, prepare func(string) (PreparedChatAgentCatalogEntry, error)) (PreparedChatAgentCatalog, error) {
 	selectors := append(
 		[]string{config.DefaultSubagentRole},
 		config.AvailableSubagentRoleNames(app.Settings, false)...,
@@ -115,17 +125,12 @@ func buildChatAgentCatalog(app config.App, current *string, locked bool, prepare
 		if err != nil {
 			return PreparedChatAgentCatalog{}, err
 		}
-		if (!locked || current == nil || selector != *current) && len(entries) > 0 &&
-			entry.SelectionError == nil && entries[0].SelectionError == nil &&
-			reflect.DeepEqual(entries[0].comparison, entry.comparison) {
-			continue
-		}
 		entries = append(entries, entry)
 	}
-	defaultPrompt := entries[0].comparison.Settings.SystemPromptFile
+	defaultPrompt := entries[0].systemPromptFile
 	for index := range entries {
 		entries[index].Choice.CustomSystemPrompt = !textutil.EqualOptional(
-			entries[index].comparison.Settings.SystemPromptFile,
+			entries[index].systemPromptFile,
 			defaultPrompt,
 		)
 	}
@@ -154,13 +159,13 @@ func (c PreparedChatAgentCatalog) Lookup(agent string) (PreparedChatAgentCatalog
 	return PreparedChatAgentCatalogEntry{}, false
 }
 
-func prepareChatAgentEntry(app config.App, selector string, preparation RunPromptPreparationContext, allowUnavailable bool) (PreparedChatAgentCatalogEntry, error) {
+func prepareChatAgentEntry(ctx context.Context, app config.App, selector string, preparation RunPromptPreparationContext, allowUnavailable bool) (PreparedChatAgentCatalogEntry, error) {
 	fail := func(category serverapi.ChatSettingsAgentPreparationCategory) (PreparedChatAgentCatalogEntry, error) {
 		return PreparedChatAgentCatalogEntry{}, &serverapi.ChatSettingsAgentPreparationError{
 			Agent: selector, Category: category,
 		}
 	}
-	prepared, err := prepareAgent(app, serverapi.RunPromptOverrides{AgentRole: &selector}, preparation, applyDerivedModelContextBudgetOverrides)
+	prepared, err := prepareAgent(ctx, app, serverapi.RunPromptOverrides{AgentRole: &selector}, preparation, applyDerivedModelContextBudgetOverrides)
 	if err == nil && prepared.Unavailable != nil {
 		if allowUnavailable {
 			return partialChatAgentEntry(app, selector, *prepared.Unavailable), nil
@@ -182,7 +187,7 @@ func prepareChatAgentEntry(app config.App, selector string, preparation RunPromp
 		if err != nil {
 			return fail(serverapi.ChatSettingsAgentInternalPreparation)
 		}
-		fastAvailable = true
+		fastAvailable = llm.SupportsFastModeProvider(capabilities)
 	} else {
 		if prepared.ProviderCapabilities == nil {
 			return fail(serverapi.ChatSettingsAgentInternalPreparation)
@@ -202,8 +207,12 @@ func chatAgentCatalogEntry(app config.App, selector string, target PreparedBaseT
 	}
 	tools := append([]toolspec.ID(nil), target.EnabledTools...)
 	role := app.Settings.Subagents[selector]
+	connection, err := target.Settings.Connection.ConcreteID()
+	if err != nil {
+		return PreparedChatAgentCatalogEntry{}, err
+	}
 	entry := PreparedChatAgentCatalogEntry{
-		ConnectionID: target.Settings.Connection,
+		ConnectionID: connection,
 		Choice: &chatsettingspb.AgentChoice{
 			Role:               selector,
 			Model:              textutil.OptionalTrimmedString(target.Settings.Model),
@@ -214,26 +223,21 @@ func chatAgentCatalogEntry(app config.App, selector string, target PreparedBaseT
 		},
 		Settings: &settings,
 	}
-	entry.comparison = preparedChatAgentComparison{
-		Settings:             normalizeComparableSettings(target.Settings),
-		Tools:                append([]toolspec.ID(nil), tools...),
-		ProviderCapabilities: capabilities,
-		ChatSettings:         settings,
-	}
+	entry.providerCapabilities = capabilities
+	entry.systemPromptFile = target.Settings.SystemPromptFile
 	return entry, nil
 }
 
 func partialChatAgentEntry(app config.App, selector string, partial unavailableAgent) PreparedChatAgentCatalogEntry {
 	role := app.Settings.Subagents[selector]
 	return PreparedChatAgentCatalogEntry{
-		ConnectionID: partial.Role.Settings.Connection,
 		Choice: &chatsettingspb.AgentChoice{
 			Role: selector, Model: partial.Role.Model, Thinking: partial.Role.Thinking,
 			CustomCapabilities: config.SubagentRoleHasCapabilityOverrides(role),
 			AgentCallable:      config.SubagentRoleCallable(role),
 		},
-		SelectionError: partial.Cause,
-		comparison:     preparedChatAgentComparison{Settings: normalizeComparableSettings(partial.Role.Settings)},
+		SelectionError:   partial.Cause,
+		systemPromptFile: partial.Role.Settings.SystemPromptFile,
 	}
 }
 
@@ -251,7 +255,7 @@ func classifyChatAgentPreparationError(err error) serverapi.ChatSettingsAgentPre
 }
 
 func PrepareChatSettingsForAgent(app config.App, agent string) (PreparedChatSettings, error) {
-	target, prepared, err := prepareChatSettingsTargetForAgent(app, agent, RunPromptPreparationContext{Mode: ModeInteractive})
+	target, prepared, err := prepareChatSettingsTargetForAgent(context.Background(), app, agent, RunPromptPreparationContext{Mode: ModeInteractive})
 	if err != nil {
 		return PreparedChatSettings{}, err
 	}
@@ -264,7 +268,7 @@ func PrepareChatSettingsForAgent(app config.App, agent string) (PreparedChatSett
 	)
 }
 
-func prepareChatSettingsTargetForAgent(
+func prepareChatSettingsTargetForAgent(ctx context.Context,
 	app config.App,
 	agent string,
 	preparation RunPromptPreparationContext,
@@ -274,7 +278,7 @@ func prepareChatSettingsTargetForAgent(
 	if !valid {
 		return PreparedBaseTarget{}, PreparedRunPromptOverrides{}, fmt.Errorf("%w: Chat Agent is required", errInvalidAgentRole)
 	}
-	prepared, err := PrepareRunPromptOverridesWithContext(
+	prepared, err := PrepareRunPromptOverridesWithContext(ctx,
 		app,
 		serverapi.RunPromptOverrides{AgentRole: &agent},
 
@@ -292,7 +296,7 @@ func prepareChatSettingsTargetForAgent(
 
 func PrepareChatSettingsForPreparedTarget(target PreparedBaseTarget, fastAvailable bool) (PreparedChatSettings, error) {
 	supervisor, valid := runtime.NormalizeReviewerFrequency(target.Settings.Reviewer.Frequency)
-	thinking := strings.TrimSpace(target.Settings.ThinkingLevel)
+	thinking := llm.ProviderThinkingEffort(target.Settings.Model, strings.TrimSpace(target.Settings.ThinkingLevel))
 	if !valid || thinking == "" {
 		return PreparedChatSettings{}, errors.New("prepared Chat settings are invalid")
 	}
@@ -335,7 +339,13 @@ func ResolveSessionChatSettings(meta session.Meta, current config.Settings) (ses
 	if supervisor := strings.TrimSpace(current.Reviewer.Frequency); supervisor != "" {
 		currentOverrides.Supervisor = &supervisor
 	}
-	if thinking := strings.TrimSpace(current.ThinkingLevel); thinking != "" {
+	thinking := llm.ProviderThinkingEffort(current.Model, strings.TrimSpace(current.ThinkingLevel))
+	if meta.ChatSettings == nil || meta.ChatSettings.Thinking == nil {
+		if err := llm.ValidateModelReasoningEffort(current.Model, thinking); err != nil {
+			return session.ChatSettings{}, err
+		}
+	}
+	if thinking != "" {
 		currentOverrides.Thinking = &thinking
 	}
 	return session.ResolveEffectiveChatSettings(

@@ -6,25 +6,28 @@ import (
 	"fmt"
 	"strings"
 
+	"core/server/metadata"
 	"core/server/metadata/sqlitegen"
 )
 
 type sessionNameLookup func(context.Context, []string) ([]sqlitegen.ListSessionNamesByIDsRow, error)
 
-func resolveSessionNames(
+type sessionPresentation struct {
+	Name    *string
+	ShortID *int64
+}
+
+func resolveSessionPresentations(
 	ctx context.Context,
 	lookup sessionNameLookup,
 	sessionIDs []string,
-) (map[string]*string, error) {
+) (map[string]sessionPresentation, error) {
 	if lookup == nil {
 		return nil, errors.New("session name lookup is required")
 	}
 	uniqueIDs := make([]string, 0, len(sessionIDs))
 	seen := make(map[string]struct{}, len(sessionIDs))
 	for _, sessionID := range sessionIDs {
-		if strings.TrimSpace(sessionID) == "" {
-			return nil, errors.New("session name lookup requested a blank session id")
-		}
 		if _, exists := seen[sessionID]; exists {
 			continue
 		}
@@ -32,13 +35,13 @@ func resolveSessionNames(
 		uniqueIDs = append(uniqueIDs, sessionID)
 	}
 	if len(uniqueIDs) == 0 {
-		return map[string]*string{}, nil
+		return map[string]sessionPresentation{}, nil
 	}
 	rows, err := lookup(ctx, uniqueIDs)
 	if err != nil {
 		return nil, err
 	}
-	names := make(map[string]*string, len(rows))
+	names := make(map[string]sessionPresentation, len(rows))
 	for _, row := range rows {
 		if strings.TrimSpace(row.ID) == "" {
 			return nil, errors.New("session name lookup returned a blank session id")
@@ -46,17 +49,11 @@ func resolveSessionNames(
 		if _, exists := names[row.ID]; exists {
 			return nil, fmt.Errorf("session name lookup returned duplicate session %q", row.ID)
 		}
-		var name *string
-		switch {
-		case row.Name == "":
-			// TODO(KENT-220): Delete the exact-empty compatibility branch after Session names migrate to null.
-		case strings.TrimSpace(row.Name) == "":
+		name := metadata.OptionalString(row.Name)
+		if name != nil && strings.TrimSpace(*name) == "" {
 			return nil, fmt.Errorf("session name lookup returned a blank name for session %q", row.ID)
-		default:
-			value := row.Name
-			name = &value
 		}
-		names[row.ID] = name
+		names[row.ID] = sessionPresentation{Name: name, ShortID: metadata.OptionalInt64(row.ShortID)}
 	}
 	for _, sessionID := range uniqueIDs {
 		if _, exists := names[sessionID]; !exists {

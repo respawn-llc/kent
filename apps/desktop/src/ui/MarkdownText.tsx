@@ -1,9 +1,24 @@
-import { createContext, useContext, type ComponentProps } from "react";
+import {
+  createContext,
+  useContext,
+  useMemo,
+  type ComponentProps,
+  type MouseEvent,
+  type ReactNode,
+} from "react";
 import remarkBreaks from "remark-breaks";
 import remarkGfm from "remark-gfm";
-import { Streamdown, type Components, type CustomRendererProps, type ExtraProps } from "streamdown";
+import {
+  Streamdown,
+  type AnimateOptions,
+  type Components,
+  type CustomRendererProps,
+  type ExtraProps,
+  type PluginConfig,
+} from "streamdown";
 
 import { Checkbox } from "./radix/checkbox";
+import { safeExternalUrl } from "./externalLinks";
 import { syntaxHighlightingLanguageHints } from "./syntaxHighlighting";
 import { SyntaxHighlightedCode } from "./SyntaxHighlightedCode";
 import { projectMarkdownText } from "./taskBodyMarkdownText";
@@ -31,12 +46,35 @@ type MarkdownTaskListItemContextValue = Readonly<{
 }>;
 
 const MarkdownTaskListItemContext = createContext<MarkdownTaskListItemContextValue | null>(null);
+const MarkdownLinkContext = createContext<((url: string) => void) | null>(null);
 const languageHints = syntaxHighlightingLanguageHints();
+const linkSafety = { enabled: false };
+const markdownPlugins = {
+  renderers: [{ component: MarkdownHighlightedCode, language: languageHints }],
+} satisfies PluginConfig;
+const markdownRemarkPlugins = [[remarkGfm, {}], remarkBreaks] satisfies NonNullable<
+  ComponentProps<typeof Streamdown>["remarkPlugins"]
+>;
+const markdownAnimation = {
+  animation: "blurIn",
+  duration: 50,
+  easing: "ease",
+  sep: "char",
+  stagger: 13,
+} satisfies AnimateOptions;
 const richComponents = {
+  a: MarkdownExternalLink,
   input: MarkdownTaskListCheckbox,
   li: MarkdownTaskListItem,
   p: "div",
-} satisfies Pick<Components, "input" | "li" | "p">;
+} satisfies Pick<Components, "a" | "input" | "li" | "p">;
+
+export function MarkdownLinkProvider({
+  children,
+  openExternal,
+}: Readonly<{ children: ReactNode; openExternal(url: string): void }>) {
+  return <MarkdownLinkContext.Provider value={openExternal}>{children}</MarkdownLinkContext.Provider>;
+}
 
 export function StaticMarkdown({
   disabled = false,
@@ -76,25 +114,52 @@ function MarkdownCore({
   taskListItemToggleLabel?: StaticMarkdownProps["taskListItemToggleLabel"];
   value: string;
 }>) {
-  const interaction = { disabled, onChange, taskListItemToggleLabel, value };
+  const interaction = useMemo(
+    () => ({ disabled, onChange, taskListItemToggleLabel, value, sourceOffset: undefined }),
+    [disabled, onChange, taskListItemToggleLabel, value],
+  );
   return (
-    <MarkdownTaskListItemContext.Provider value={{ ...interaction, sourceOffset: undefined }}>
+    <MarkdownTaskListItemContext.Provider value={interaction}>
       <Streamdown
-        animated={
-          animated ? { animation: "blurIn", duration: 50, easing: "ease", sep: "char", stagger: 13 } : false
-        }
+        animated={animated ? markdownAnimation : false}
         className={`markdown-text${animated ? " markdown-text-streaming" : ""}`}
         components={richComponents}
         controls={false}
         isAnimating={animated}
+        linkSafety={linkSafety}
         mode={animated ? "streaming" : "static"}
-        plugins={{ renderers: [{ component: MarkdownHighlightedCode, language: languageHints }] }}
-        remarkPlugins={[[remarkGfm, {}], remarkBreaks]}
+        plugins={markdownPlugins}
+        remarkPlugins={markdownRemarkPlugins}
         {...(onChange === undefined ? {} : { parseMarkdownIntoBlocksFn: singleMarkdownBlock })}
       >
         {value}
       </Streamdown>
     </MarkdownTaskListItemContext.Provider>
+  );
+}
+
+function MarkdownExternalLink({ children, href, className, title }: ComponentProps<"a">) {
+  const openExternal = useContext(MarkdownLinkContext);
+  const url = safeExternalUrl(href);
+  if (url === undefined) return <span>{children}</span>;
+  if (openExternal === null) throw new Error("MarkdownLinkProvider is required for external links.");
+  const openLink = (event: MouseEvent<HTMLAnchorElement>) => {
+    if (event.button > 1) return;
+    event.preventDefault();
+    openExternal(url);
+  };
+  return (
+    <a
+      className={className}
+      href={url}
+      title={title}
+      rel="noopener noreferrer"
+      target="_blank"
+      onClick={openLink}
+      onAuxClick={openLink}
+    >
+      {children}
+    </a>
   );
 }
 

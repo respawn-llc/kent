@@ -10,12 +10,15 @@ import (
 	"testing"
 	"time"
 
+	"core/internal/testharness/requestfixture"
 	"core/internal/testharness/testsetup"
+	"core/server/launch"
 	"core/server/metadata"
+	"core/server/runtime"
 	"core/server/session"
-	"core/server/session/sessiontest"
 	sessionruntime "core/server/sessionruntime"
 	"core/shared/config"
+	"core/shared/protoapi"
 	sessionlaunchpb "core/shared/protoapi/gen/kent/api/session_launch"
 	worktreepb "core/shared/protoapi/gen/kent/api/worktree"
 	"core/shared/rollbacktarget"
@@ -77,24 +80,14 @@ func userMessageSeqAt(t *testing.T, store *session.Store, n int) int64 {
 	return 0
 }
 
-func newTestSessionLifecycleService(root string, options ...[]session.StoreOption) *SessionLifecycleService {
-	storeOptions := sessionServiceTestPersistence.Options()
-	if len(options) == 0 {
-		return newGlobalSessionLifecycleServiceWithOptions(root, storeOptions)
-	}
-	return newGlobalSessionLifecycleServiceWithOptions(root, options[0])
-}
-
-func newGlobalSessionLifecycleServiceWithOptions(root string, storeOptions []session.StoreOption) *SessionLifecycleService {
+func newTestSessionLifecycleService(root string, owner *metadata.Store) *SessionLifecycleService {
 	authority := sessionruntime.NewAuthority(sessionruntime.AuthorityOptions{
-		PersistenceRoot: root,
-		StoreOptions:    storeOptions,
+		PersistenceRoot:               root,
+		ProjectWorkspaceContextReader: owner,
+		StoreOptions:                  owner.AuthoritativeSessionStoreOptions(),
 	})
-	return NewGlobalSessionLifecycleService(root, authority).
-		WithPersistedSessionResolver(sessionServiceTestPersistence)
+	return NewGlobalSessionLifecycleService(root, authority, owner)
 }
-
-var sessionServiceTestPersistence = sessiontest.NewPersistence()
 
 type sessionLifecycleRetargeterStub struct {
 	result    metadata.SessionWorkspaceRetargetResult
@@ -147,25 +140,28 @@ func (s *sessionLifecycleRetargeterStub) RetargetWorkspace(_ context.Context, re
 	return completedWorkspaceRetargetResponse(s.result)
 }
 
-func createPersistedSession(t *testing.T) (string, string, *session.Store) {
+func createPersistedSession(t *testing.T) (string, string, *session.Store, *metadata.Store) {
 	t.Helper()
 	persistenceRoot := t.TempDir()
-	containerDir := filepath.Join(persistenceRoot, "projects", "project-x", "sessions")
-	store, err := session.Create(containerDir, "workspace-x", "/tmp/work", sessioncontract.SessionCategoryMain, sessionServiceTestPersistence.Options()...)
+	sessionServiceTestPersistence := testsetup.OpenStore(t, persistenceRoot)
+	workspace := t.TempDir()
+	binding, err := sessionServiceTestPersistence.RegisterWorkspaceBinding(t.Context(), workspace)
+	if err != nil {
+		t.Fatal(err)
+	}
+	containerDir := filepath.Join(persistenceRoot, "projects", binding.ProjectID, "sessions")
+	store, err := session.Create(containerDir, "workspace-x", workspace, sessioncontract.SessionCategoryMain, sessionServiceTestPersistence.AuthoritativeSessionStoreOptions()...)
 	if err != nil {
 		t.Fatalf("create session store: %v", err)
 	}
-	return persistenceRoot, containerDir, store
+	return persistenceRoot, containerDir, store, sessionServiceTestPersistence
 }
 
 func createAuthoritativeSessionLifecycleSession(t *testing.T, workspaceRoot string) (config.App, *metadata.Store, metadata.Binding, *session.Store) {
 	t.Helper()
 	cfg := config.App{PersistenceRoot: t.TempDir(), WorkspaceRoot: workspaceRoot}
 	cfg.Settings = testsetup.WriteProviderSettings(t, cfg.PersistenceRoot, config.DefaultOnboardingSettings())
-	store, err := metadata.Open(cfg.PersistenceRoot)
-	if err != nil {
-		t.Fatalf("metadata.Open: %v", err)
-	}
+	store := testsetup.OpenStore(t, cfg.PersistenceRoot)
 	binding, err := store.RegisterWorkspaceBinding(context.Background(), cfg.WorkspaceRoot)
 	if err != nil {
 		t.Fatalf("RegisterWorkspaceBinding: %v", err)
@@ -181,7 +177,7 @@ func createAuthoritativeSessionLifecycleSession(t *testing.T, workspaceRoot stri
 		_ = store.Close()
 		t.Fatalf("session.Create: %v", err)
 	}
-	if err := sess.SetName("incident triage"); err != nil {
+	if err := sess.SetName(textutil.Value("incident triage")); err != nil {
 		_ = store.Close()
 		t.Fatalf("SetName: %v", err)
 	}
@@ -190,12 +186,12 @@ func createAuthoritativeSessionLifecycleSession(t *testing.T, workspaceRoot stri
 }
 
 func TestServiceGetInitialInputPrefersStoredDraft(t *testing.T) {
-	root, _, store := createPersistedSession(t)
+	root, _, store, sessionServiceTestPersistence := createPersistedSession(t)
 	if err := store.SetInputDraft("draft from store", nil); err != nil {
 		t.Fatalf("set input draft: %v", err)
 	}
 
-	service := newTestSessionLifecycleService(root)
+	service := newTestSessionLifecycleService(root, sessionServiceTestPersistence)
 	resp, err := service.GetInitialInput(context.Background(), &sessionlaunchpb.SessionInitialInputRequest{
 		SessionId:       proto.String(store.Meta().SessionID),
 		TransitionInput: "transition input",
@@ -225,11 +221,11 @@ func TestServiceGetInitialInputOverrideReturnsOnlyExactTransitionInput(t *testin
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			root, _, store := createPersistedSession(t)
-			if err := store.SetName("parent session"); err != nil {
+			root, _, store, sessionServiceTestPersistence := createPersistedSession(t)
+			if err := store.SetName(textutil.Value("parent session")); err != nil {
 				t.Fatalf("persist parent session: %v", err)
 			}
-			service := newTestSessionLifecycleService(root)
+			service := newTestSessionLifecycleService(root, sessionServiceTestPersistence)
 			_, err := service.PersistInputDraft(context.Background(), &sessionlaunchpb.SessionPersistInputDraftRequest{
 				SessionId: store.Meta().SessionID,
 				Input:     "conflicting parent draft",
@@ -254,7 +250,8 @@ func TestServiceGetInitialInputOverrideReturnsOnlyExactTransitionInput(t *testin
 }
 
 func TestServiceGetInitialInputAllowsEmptySessionID(t *testing.T) {
-	service := newTestSessionLifecycleService(t.TempDir())
+	sessionServiceTestPersistence := testsetup.OpenStore(t, t.TempDir())
+	service := newTestSessionLifecycleService(t.TempDir(), sessionServiceTestPersistence)
 	resp, err := service.GetInitialInput(context.Background(), &sessionlaunchpb.SessionInitialInputRequest{
 		TransitionInput: "transition input",
 	})
@@ -267,12 +264,12 @@ func TestServiceGetInitialInputAllowsEmptySessionID(t *testing.T) {
 }
 
 func TestServicePersistInputDraftWritesBySessionID(t *testing.T) {
-	root, _, store := createPersistedSession(t)
-	if err := store.SetName("session name"); err != nil {
+	root, _, store, sessionServiceTestPersistence := createPersistedSession(t)
+	if err := store.SetName(textutil.Value("session name")); err != nil {
 		t.Fatalf("set session name: %v", err)
 	}
 
-	service := newTestSessionLifecycleService(root)
+	service := newTestSessionLifecycleService(root, sessionServiceTestPersistence)
 	if _, err := service.PersistInputDraft(context.Background(), &sessionlaunchpb.SessionPersistInputDraftRequest{
 		SessionId: store.Meta().SessionID,
 		Input:     "saved by service",
@@ -280,7 +277,7 @@ func TestServicePersistInputDraftWritesBySessionID(t *testing.T) {
 		t.Fatalf("PersistInputDraft: %v", err)
 	}
 
-	reopened, err := session.Open(store.Dir(), sessionServiceTestPersistence.Options()...)
+	reopened, err := session.Open(store.Dir(), sessionServiceTestPersistence.AuthoritativeSessionStoreOptions()...)
 	if err != nil {
 		t.Fatalf("reopen session store: %v", err)
 	}
@@ -289,9 +286,44 @@ func TestServicePersistInputDraftWritesBySessionID(t *testing.T) {
 	}
 }
 
+func TestPromoteDormantSubagentWithoutRuntime(t *testing.T) {
+	root, container, parent, persistence := createPersistedSession(t)
+	child, err := session.Create(container, "child", parent.Meta().WorkspaceRoot, sessioncontract.SessionCategorySubagent, persistence.AuthoritativeSessionStoreOptions()...)
+	if err != nil {
+		t.Fatal(err)
+	}
+	service := newTestSessionLifecycleService(root, persistence)
+	id, err := runtimeids.ParseSessionID(child.Meta().SessionID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	identity, err := persistence.SessionIdentity(t.Context(), id)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if identity.ShortID == nil {
+		t.Fatal("persisted Session has no Short ID")
+	}
+	for _, selector := range []runtimeids.SessionSelector{*identity.ShortID, id} {
+		if _, err := service.Promote(t.Context(), &sessionlaunchpb.SessionPromoteRequest{SessionId: protoapi.SessionSelectorToProto(selector)}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	reopened, err := session.Open(child.Dir(), persistence.AuthoritativeSessionStoreOptions()...)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if reopened.Meta().Category == nil || *reopened.Meta().Category != sessioncontract.SessionCategoryMain {
+		t.Fatal("Subagent was not permanently promoted")
+	}
+	if err := service.authority.WithCurrentRuntime(t.Context(), id, func(context.Context, *runtime.Engine) error { return nil }); !errors.Is(err, serverapi.ErrRuntimeUnavailable) {
+		t.Fatalf("promotion loaded Runtime: %v", err)
+	}
+}
+
 func TestServiceRestoresAndClearsProtectedDraft(t *testing.T) {
-	_, containerDir, store := createPersistedSession(t)
-	service := newTestSessionLifecycleService(containerDir)
+	_, containerDir, store, sessionServiceTestPersistence := createPersistedSession(t)
+	service := newTestSessionLifecycleService(containerDir, sessionServiceTestPersistence)
 	protected := "draft A"
 	request := &sessionlaunchpb.SessionPersistInputDraftRequest{
 		SessionId:      store.Meta().SessionID,
@@ -336,9 +368,10 @@ func TestServiceRetargetSessionWorkspaceDelegatesAndMapsBinding(t *testing.T) {
 		},
 		WorkspaceBindingCreated: true,
 	}}
-	service := NewGlobalSessionLifecycleService(t.TempDir(), nil).WithWorkspaceRetargeter(retargeter)
+	fixture := newSessionRemovalServiceFixture(t)
+	service := fixture.service.WithWorkspaceRetargeter(retargeter)
 	resp, err := service.RetargetSessionWorkspace(context.Background(), &sessionlaunchpb.SessionRetargetWorkspaceRequest{
-		SessionId:     "session-1",
+		SessionId:     protoapi.SessionSelectorToProto(fixture.session.Identity().ID),
 		WorkspaceRoot: retargeter.result.Binding.CanonicalRoot,
 		ProjectId:     &projectID,
 	})
@@ -358,13 +391,14 @@ func TestServiceRetargetSessionWorkspaceDelegatesAndMapsBinding(t *testing.T) {
 
 func TestServiceRetargetSessionWorkspacePreservesRuntimeOrigin(t *testing.T) {
 	retargeter := &sessionLifecycleRetargeterStub{}
-	service := NewGlobalSessionLifecycleService(t.TempDir(), nil).WithWorkspaceRetargeter(retargeter)
+	fixture := newSessionRemovalServiceFixture(t)
+	service := fixture.service.WithWorkspaceRetargeter(retargeter)
 	origin := &sessionlaunchpb.RuntimeStepOrigin{
-		RunId:  "11111111-1111-4111-8111-111111111111",
-		StepId: "22222222-2222-4222-8222-222222222222",
+		SessionId: fixture.session.Meta().SessionID,
+		StepId:    "22222222-2222-4222-8222-222222222222",
 	}
 	response, err := service.RetargetSessionWorkspace(t.Context(), &sessionlaunchpb.SessionRetargetWorkspaceRequest{
-		SessionId:     "session-1",
+		SessionId:     protoapi.SessionSelectorToProto(fixture.session.Identity().ID),
 		WorkspaceRoot: t.TempDir(),
 		Origin:        origin,
 	})
@@ -377,9 +411,9 @@ func TestServiceRetargetSessionWorkspacePreservesRuntimeOrigin(t *testing.T) {
 }
 
 func TestServiceRetargetSessionWorkspaceRequiresRetargeter(t *testing.T) {
-	service := NewGlobalSessionLifecycleService(t.TempDir(), nil)
+	service := NewGlobalSessionLifecycleService(t.TempDir(), nil, testsetup.OpenStore(t, t.TempDir()))
 	_, err := service.RetargetSessionWorkspace(context.Background(), &sessionlaunchpb.SessionRetargetWorkspaceRequest{
-		SessionId:     "session-1",
+		SessionId:     requestfixture.Selector(t, "33333333-3333-4333-8333-333333333333"),
 		WorkspaceRoot: t.TempDir(),
 	})
 	if !errors.Is(err, errSessionWorkspaceRetargeterRequired) {
@@ -388,11 +422,11 @@ func TestServiceRetargetSessionWorkspaceRequiresRetargeter(t *testing.T) {
 }
 
 func TestServicePersistInputDraftPersistsAndDedupes(t *testing.T) {
-	root, _, store := createPersistedSession(t)
-	if err := store.SetName("session name"); err != nil {
+	root, _, store, sessionServiceTestPersistence := createPersistedSession(t)
+	if err := store.SetName(textutil.Value("session name")); err != nil {
 		t.Fatalf("set session name: %v", err)
 	}
-	service := newTestSessionLifecycleService(root)
+	service := newTestSessionLifecycleService(root, sessionServiceTestPersistence)
 	req := &sessionlaunchpb.SessionPersistInputDraftRequest{
 		SessionId: store.Meta().SessionID,
 		Input:     "saved by service",
@@ -404,7 +438,7 @@ func TestServicePersistInputDraftPersistsAndDedupes(t *testing.T) {
 	if _, err := service.PersistInputDraft(context.Background(), req); err != nil {
 		t.Fatalf("PersistInputDraft replay: %v", err)
 	}
-	reopened, err := session.Open(store.Dir(), sessionServiceTestPersistence.Options()...)
+	reopened, err := session.Open(store.Dir(), sessionServiceTestPersistence.AuthoritativeSessionStoreOptions()...)
 	if err != nil {
 		t.Fatalf("reopen session store: %v", err)
 	}
@@ -414,7 +448,8 @@ func TestServicePersistInputDraftPersistsAndDedupes(t *testing.T) {
 }
 
 func TestServiceResolveTransitionOpenSessionRequiresTarget(t *testing.T) {
-	service := newTestSessionLifecycleService(t.TempDir())
+	sessionServiceTestPersistence := testsetup.OpenStore(t, t.TempDir())
+	service := newTestSessionLifecycleService(t.TempDir(), sessionServiceTestPersistence)
 	response, err := service.ResolveTransition(context.Background(), &sessionlaunchpb.SessionResolveTransitionRequest{
 		Transition: &sessionlaunchpb.SessionTransition{
 			Action: sessionlaunchpb.SessionTransitionAction_SESSION_TRANSITION_ACTION_OPEN_SESSION,
@@ -426,13 +461,13 @@ func TestServiceResolveTransitionOpenSessionRequiresTarget(t *testing.T) {
 }
 
 func TestServiceResolveTransitionOpenSessionAuthorizesProvenanceTargetAndReturnsBinding(t *testing.T) {
-	root, containerDir, parent := createPersistedSession(t)
+	root, containerDir, parent, sessionServiceTestPersistence := createPersistedSession(t)
 	child, err := session.NewLazy(
 		containerDir,
 		"workspace-x",
-		"/tmp/work",
+		parent.Meta().WorkspaceRoot,
 		sessioncontract.SessionCategoryMain,
-		sessionServiceTestPersistence.Options()...,
+		sessionServiceTestPersistence.AuthoritativeSessionStoreOptions()...,
 	)
 	if err != nil {
 		t.Fatalf("create child: %v", err)
@@ -453,7 +488,7 @@ func TestServiceResolveTransitionOpenSessionAuthorizesProvenanceTargetAndReturns
 		firstStarted: firstStarted,
 		releaseFirst: releaseFirst,
 	}
-	service := newTestSessionLifecycleService(root).WithNavigationTargetResolver(resolver)
+	service := newTestSessionLifecycleService(root, sessionServiceTestPersistence).WithNavigationTargetResolver(resolver)
 
 	request := &sessionlaunchpb.SessionResolveTransitionRequest{
 		SessionId: proto.String(child.Meta().SessionID),
@@ -496,13 +531,13 @@ func TestServiceResolveTransitionOpenSessionAuthorizesProvenanceTargetAndReturns
 }
 
 func TestServiceResolveTransitionOpenSessionRejectsNonProvenanceTargetBeforeResolution(t *testing.T) {
-	root, containerDir, parent := createPersistedSession(t)
+	root, containerDir, parent, sessionServiceTestPersistence := createPersistedSession(t)
 	child, err := session.NewLazy(
 		containerDir,
 		"workspace-x",
-		"/tmp/work",
+		parent.Meta().WorkspaceRoot,
 		sessioncontract.SessionCategoryMain,
-		sessionServiceTestPersistence.Options()...,
+		sessionServiceTestPersistence.AuthoritativeSessionStoreOptions()...,
 	)
 	if err != nil {
 		t.Fatalf("create child: %v", err)
@@ -514,7 +549,7 @@ func TestServiceResolveTransitionOpenSessionRejectsNonProvenanceTargetBeforeReso
 		t.Fatalf("EnsureDurable child: %v", err)
 	}
 	resolver := &sessionNavigationTargetResolverStub{}
-	service := newTestSessionLifecycleService(root).WithNavigationTargetResolver(resolver)
+	service := newTestSessionLifecycleService(root, sessionServiceTestPersistence).WithNavigationTargetResolver(resolver)
 
 	_, err = service.ResolveTransition(context.Background(), &sessionlaunchpb.SessionResolveTransitionRequest{
 		SessionId: proto.String(child.Meta().SessionID),
@@ -534,12 +569,30 @@ func TestServiceResolveTransitionOpenSessionRejectsNonProvenanceTargetBeforeReso
 func TestServiceResolveTransitionForkRollbackCreatesFork(t *testing.T) {
 	cfg, metadataStore, _, store := createAuthoritativeSessionLifecycleSession(t, t.TempDir())
 	containerDir := filepath.Dir(store.Dir())
+	if err := store.SetWorkflowSnapshot(session.WorkflowSnapshot{CompletionMode: sessioncontract.WorkflowCompletionModeTool}); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.MarkModelDispatchLocked(session.LockedContract{Model: "workflow-model"}); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.SetContinuationContext(session.ContinuationContext{AgentRole: new("workflow-agent")}); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.SetConnectionID(config.ConnectionID("deleted-workflow-connection")); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.SetThinkingOverride(new("low")); err != nil {
+		t.Fatal(err)
+	}
+	if _, _, err := store.SetGoal("finish the investigation", session.GoalActorUser); err != nil {
+		t.Fatal(err)
+	}
 	appendSessionMessage(t, store, "step-1", session.MessageRoleUser, "u1")
 	appendSessionMessage(t, store, "step-1", session.MessageRoleAssistant, "a1")
 	appendSessionMessage(t, store, "step-2", session.MessageRoleUser, "u2")
 	appendSessionMessage(t, store, "step-2", session.MessageRoleAssistant, "a2")
 
-	service := newGlobalSessionLifecycleServiceWithOptions(cfg.PersistenceRoot, metadataStore.AuthoritativeSessionStoreOptions()).WithPersistedSessionResolver(metadataStore)
+	service := newTestSessionLifecycleService(cfg.PersistenceRoot, metadataStore)
 	resp, err := service.ResolveTransition(context.Background(), &sessionlaunchpb.SessionResolveTransitionRequest{
 		SessionId: proto.String(store.Meta().SessionID),
 		Transition: &sessionlaunchpb.SessionTransition{
@@ -560,8 +613,41 @@ func TestServiceResolveTransitionForkRollbackCreatesFork(t *testing.T) {
 	if prompt == nil || prompt.Text != "edited prompt" {
 		t.Fatalf("initial prompt = %+v, want edited prompt", prompt)
 	}
-	if _, err := session.Open(filepath.Join(containerDir, forkID.String()), metadataStore.AuthoritativeSessionStoreOptions()...); err != nil {
+	forked, err := session.Open(filepath.Join(containerDir, forkID.String()), metadataStore.AuthoritativeSessionStoreOptions()...)
+	if err != nil {
 		t.Fatalf("open forked session store: %v", err)
+	}
+	meta := forked.Meta()
+	if meta.Locked != nil || meta.WorkflowSnapshot != nil || meta.Continuation != nil || meta.ParentAgentSessionID != nil {
+		t.Fatalf("interactive fork retained source execution settings: %+v", meta)
+	}
+	connection, err := cfg.Settings.Connection.ConcreteID()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if meta.ConnectionID == nil || *meta.ConnectionID != *connection {
+		t.Fatalf("interactive fork did not retain its freshly selected Connection: %v", meta.ConnectionID)
+	}
+	if meta.Category == nil || *meta.Category != sessioncontract.SessionCategoryMain ||
+		meta.PreviousSessionID == nil || meta.PreviousSessionID.String() != store.Meta().SessionID {
+		t.Fatalf("interactive fork identity/provenance = %+v", meta)
+	}
+	if meta.Goal == nil || meta.Goal.Objective != store.Meta().Goal.Objective {
+		t.Fatalf("fork lost source Goal: %+v", meta.Goal)
+	}
+	taskID, err := metadataStore.WorkflowTaskIDForSession(t.Context(), forkID.String())
+	if err != nil || taskID != nil {
+		t.Fatalf("interactive fork Task owner = %v, %v", taskID, err)
+	}
+	settings, err := launch.ResolveReadOnlySessionContextSettings(cfg, meta, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if settings.Settings.Model != cfg.Settings.Model || settings.Settings.ThinkingLevel != "low" {
+		t.Fatalf("fork did not select fresh interactive model/current Thinking: %s/%s", settings.Settings.Model, settings.Settings.ThinkingLevel)
+	}
+	if store.Meta().Locked == nil || store.Meta().WorkflowSnapshot == nil || store.Meta().Continuation == nil || store.Meta().ConnectionID == nil {
+		t.Fatal("fork changed source settings")
 	}
 }
 
@@ -572,7 +658,7 @@ func TestServiceResolveTransitionForkRollbackUsesTargetToken(t *testing.T) {
 	appendSessionMessage(t, store, "step-2", session.MessageRoleUser, "u2")
 	appendSessionMessage(t, store, "step-2", session.MessageRoleAssistant, "a2")
 
-	service := newGlobalSessionLifecycleServiceWithOptions(cfg.PersistenceRoot, metadataStore.AuthoritativeSessionStoreOptions()).WithPersistedSessionResolver(metadataStore)
+	service := newTestSessionLifecycleService(cfg.PersistenceRoot, metadataStore)
 	resp, err := service.ResolveTransition(context.Background(), &sessionlaunchpb.SessionResolveTransitionRequest{
 		SessionId: proto.String(store.Meta().SessionID),
 		Transition: &sessionlaunchpb.SessionTransition{
@@ -595,6 +681,115 @@ func TestServiceResolveTransitionForkRollbackUsesTargetToken(t *testing.T) {
 	prompt := preparation.InitialPrompt
 	if prompt == nil || prompt.Text != "edited prompt" {
 		t.Fatalf("initial prompt = %+v, want edited prompt", prompt)
+	}
+}
+
+func TestServiceForkAndCloneLeaveSourceBindingUnchanged(t *testing.T) {
+	cfg, metadataStore, _, source := createAuthoritativeSessionLifecycleSession(t, t.TempDir())
+	cfg.Settings.Model = "gpt-6-astra"
+	selection := config.ConnectionSelection{"a", "b"}
+	cfg.Settings.Connection = &selection
+	cfg.Settings.ConnectionOrder = []config.ConnectionID{"a", "b"}
+	cfg.Settings.Connections = map[config.ConnectionID]config.ProviderConnection{
+		"a": {Protocol: config.ConnectionResponses, Endpoint: new("https://api.openai.com/v1")},
+		"b": {Protocol: config.ConnectionResponses, Endpoint: new("https://example.test/v1")},
+	}
+	rendered, err := config.RenderSettingsTOMLForOnboarding(cfg.Settings, config.OnboardingWriteOptions{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(cfg.PersistenceRoot, "config.toml"), []byte(rendered), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := source.SetConnectionID("a"); err != nil {
+		t.Fatal(err)
+	}
+	if err := source.SetWorkflowSnapshot(session.WorkflowSnapshot{CompletionMode: sessioncontract.WorkflowCompletionModeTool}); err != nil {
+		t.Fatal(err)
+	}
+	if err := source.MarkModelDispatchLocked(session.LockedContract{Model: cfg.Settings.Model}); err != nil {
+		t.Fatal(err)
+	}
+	if err := source.SetThinkingOverride(new("low")); err != nil {
+		t.Fatal(err)
+	}
+	if err := source.AdoptOriginalThinkingEffort("xhigh"); err != nil {
+		t.Fatal(err)
+	}
+	appendSessionMessage(t, source, "step-1", session.MessageRoleUser, "original input")
+	log, err := source.MaterializeEventLog()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, _, err := log.AppendRecord(nil, session.ConfigurationUpdateRecord{Item: session.ProviderHistoryItem{
+		Type: session.ProviderHistoryItemTypeConfigurationUpdate, ConfigurationEffort: new("low"),
+		Raw: []byte(`{"type":"configuration_update","reasoning":{"effort":"low"}}`),
+	}}); err != nil {
+		t.Fatal(err)
+	}
+	target := appendSessionMessage(t, source, "step-2", session.MessageRoleUser, "edit this")
+	rotation := launch.NewConnectionRotation(testsetup.OpenStore(t, t.TempDir()), 0)
+	if allocated, err := rotation.Prepare(t.Context(), cfg.Settings, true); err != nil || allocated != "a" {
+		t.Fatalf("initial allocation = %s, %v", allocated, err)
+	}
+	authority := sessionruntime.NewAuthority(sessionruntime.AuthorityOptions{
+		PersistenceRoot: cfg.PersistenceRoot, StoreOptions: metadataStore.AuthoritativeSessionStoreOptions(),
+		ConnectionRotation: rotation,
+	})
+	t.Cleanup(func() {
+		if err := authority.Close(context.Background()); err != nil {
+			t.Error(err)
+		}
+	})
+	service := NewGlobalSessionLifecycleService(cfg.PersistenceRoot, authority, metadataStore).WithConnectionRotation(rotation)
+	directive, err := service.ResolveTransition(t.Context(), &sessionlaunchpb.SessionResolveTransitionRequest{
+		SessionId: new(source.Meta().SessionID),
+		Transition: &sessionlaunchpb.SessionTransition{
+			Action:               sessionlaunchpb.SessionTransitionAction_SESSION_TRANSITION_ACTION_FORK_ROLLBACK,
+			ForkRollbackTargetId: new(rollbacktarget.EncodeUserMessageSeq(target.Seq())),
+		},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	intent, _ := requireSessionLifecycleLaunch(t, directive)
+	forkID, _ := intent.SessionID()
+	record, err := metadataStore.ResolvePersistedSession(t.Context(), forkID.String())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if record.Meta.ConnectionID == nil || *record.Meta.ConnectionID != "b" || record.Meta.OriginalThinkingEffort != nil {
+		t.Fatalf("fork did not project Thinking against its allocated custom Connection: %+v", record.Meta)
+	}
+	forked, err := session.Open(record.SessionDir, metadataStore.AuthoritativeSessionStoreOptions()...)
+	if err != nil {
+		t.Fatal(err)
+	}
+	forkLog, err := forked.MaterializeEventLog()
+	if err != nil {
+		t.Fatal(err)
+	}
+	window, err := forkLog.ReadRecentRecords(10)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(window.Records) != 1 {
+		t.Fatalf("unsupported native update remained in fork history: %d records", len(window.Records))
+	}
+	cloneThinking, err := launch.ResolveForkThinking(cfg, source.Meta(), true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	cloned, err := session.CloneSession(log, new("workflow clone"), sessioncontract.SessionCategoryMain, cloneThinking)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cloned.Meta().ConnectionID != nil || cloned.Meta().WorkflowSnapshot != nil ||
+		cloned.Meta().Locked != nil || cloned.Meta().OriginalThinkingEffort == nil || !cloneThinking.PreserveNativeUpdates {
+		t.Fatalf("new clone retained source execution settings or lost native history: %+v", cloned.Meta())
+	}
+	if source.Meta().ConnectionID == nil || *source.Meta().ConnectionID != "a" || source.Meta().OriginalThinkingEffort == nil {
+		t.Fatal("fork altered source binding or Thinking history")
 	}
 }
 
@@ -623,7 +818,7 @@ func TestServiceResolveTransitionForkRollbackPreservesExecutionTarget(t *testing
 		t.Fatalf("UpdateSessionExecutionTarget: %v", err)
 	}
 
-	service := newGlobalSessionLifecycleServiceWithOptions(cfg.PersistenceRoot, metadataStore.AuthoritativeSessionStoreOptions())
+	service := newTestSessionLifecycleService(cfg.PersistenceRoot, metadataStore)
 	resp, err := service.ResolveTransition(context.Background(), &sessionlaunchpb.SessionResolveTransitionRequest{
 		SessionId: proto.String(sess.Meta().SessionID),
 		Transition: &sessionlaunchpb.SessionTransition{
@@ -688,7 +883,7 @@ func TestServiceResolveTransitionForkRollbackActivatesChildInPreservedWorktree(t
 		t.Fatalf("UpdateSessionExecutionTarget: %v", err)
 	}
 
-	lifecycle := newGlobalSessionLifecycleServiceWithOptions(cfg.PersistenceRoot, metadataStore.AuthoritativeSessionStoreOptions())
+	lifecycle := newTestSessionLifecycleService(cfg.PersistenceRoot, metadataStore)
 	resolved, err := lifecycle.ResolveTransition(context.Background(), &sessionlaunchpb.SessionResolveTransitionRequest{
 		SessionId: proto.String(sess.Meta().SessionID),
 		Transition: &sessionlaunchpb.SessionTransition{
@@ -717,27 +912,22 @@ func TestServiceResolveTransitionForkRollbackActivatesChildInPreservedWorktree(t
 	})
 	runtimeService := sessionruntime.NewAPI(metadataStore, runtimeAuthority, sessionruntime.APIOptions{})
 	activateSettings := cfg.Settings
-	activateSettings.Model = "gpt-5.4"
+	activateSettings.Model = "gpt-6-sol"
 	activateSettings.ThinkingLevel = "medium"
 	activateSettings.Reviewer.Frequency = "off"
 	activateSettings = testsetup.WithResponsesProvider(activateSettings, "http://127.0.0.1:1/v1")
 	activateSettings.Shell.PostprocessingMode = config.ShellPostprocessingModeBuiltin
-	activation, err := runtimeService.ActivateSessionRuntime(context.Background(), serverapi.SessionRuntimeActivateRequest{
-		SessionID:             forkID.String(),
-		OwnerID:               "test-owner",
-		ActiveSettings:        activateSettings,
-		QuestionsEnabled:      textutil.Value(true),
-		AutoCompactionEnabled: textutil.Value(true),
-		Source:                config.SourceReport{},
+	err = runtimeService.ActivateSessionRuntime(context.Background(), serverapi.SessionRuntimeActivateRequest{
+		SessionID: requestfixture.SessionID(t, forkID.String()), SessionRuntimePreparationOptions: serverapi.SessionRuntimePreparationOptions{ActiveSettings: activateSettings,
+			QuestionsEnabled:      textutil.Value(true),
+			AutoCompactionEnabled: textutil.Value(true),
+			Source:                config.SourceReport{}},
 	})
 	if err != nil {
 		t.Fatalf("ActivateSessionRuntime: %v", err)
 	}
-	if _, err := runtimeService.ReleaseSessionRuntime(context.Background(), serverapi.SessionRuntimeReleaseRequest{
-		Attachment: activation,
-		OwnerID:    "test-owner",
-	}); err != nil {
-		t.Fatalf("ReleaseSessionRuntime: %v", err)
+	if err := runtimeAuthority.Close(context.Background()); err != nil {
+		t.Fatalf("close Runtime: %v", err)
 	}
 
 	childStore, err := session.OpenByID(cfg.PersistenceRoot, forkID.String(), metadataStore.AuthoritativeSessionStoreOptions()...)
@@ -762,11 +952,11 @@ func TestServiceResolveTransitionForkRollbackActivatesChildInPreservedWorktree(t
 }
 
 func TestServiceResolveTransitionForkRollbackRejectsInvalidTargetToken(t *testing.T) {
-	root, _, store := createPersistedSession(t)
+	root, _, store, sessionServiceTestPersistence := createPersistedSession(t)
 	appendSessionMessage(t, store, "step-1", session.MessageRoleUser, "u1")
 	appendSessionMessage(t, store, "step-1", session.MessageRoleAssistant, "a1")
 
-	service := newTestSessionLifecycleService(root)
+	service := newTestSessionLifecycleService(root, sessionServiceTestPersistence)
 	_, err := service.ResolveTransition(context.Background(), &sessionlaunchpb.SessionResolveTransitionRequest{
 		SessionId: proto.String(store.Meta().SessionID),
 		Transition: &sessionlaunchpb.SessionTransition{
@@ -781,13 +971,19 @@ func TestServiceResolveTransitionForkRollbackRejectsInvalidTargetToken(t *testin
 
 func TestServiceGetInitialInputResolvesSessionAcrossProjects(t *testing.T) {
 	root := t.TempDir()
-	containerB := filepath.Join(root, "projects", "project-b", "sessions")
+	sessionServiceTestPersistence := testsetup.OpenStore(t, root)
+	workspace := t.TempDir()
+	binding, err := sessionServiceTestPersistence.RegisterWorkspaceBinding(t.Context(), workspace)
+	if err != nil {
+		t.Fatal(err)
+	}
+	containerB := filepath.Join(root, "projects", binding.ProjectID, "sessions")
 	store, err := session.Create(
 		containerB,
 		"workspace-b",
-		"/tmp/workspace-b",
+		workspace,
 		sessioncontract.SessionCategoryMain,
-		sessionServiceTestPersistence.Options()...,
+		sessionServiceTestPersistence.AuthoritativeSessionStoreOptions()...,
 	)
 	if err != nil {
 		t.Fatalf("create foreign session store: %v", err)
@@ -796,7 +992,7 @@ func TestServiceGetInitialInputResolvesSessionAcrossProjects(t *testing.T) {
 		t.Fatalf("set foreign input draft: %v", err)
 	}
 
-	service := newTestSessionLifecycleService(root)
+	service := newTestSessionLifecycleService(root, sessionServiceTestPersistence)
 	response, err := service.GetInitialInput(context.Background(), &sessionlaunchpb.SessionInitialInputRequest{SessionId: proto.String(store.Meta().SessionID)})
 	if err != nil {
 		t.Fatalf("GetInitialInput: %v", err)
@@ -808,22 +1004,28 @@ func TestServiceGetInitialInputResolvesSessionAcrossProjects(t *testing.T) {
 
 func TestServicePersistInputDraftResolvesSessionAcrossProjects(t *testing.T) {
 	root := t.TempDir()
-	containerB := filepath.Join(root, "projects", "project-b", "sessions")
+	sessionServiceTestPersistence := testsetup.OpenStore(t, root)
+	workspace := t.TempDir()
+	binding, err := sessionServiceTestPersistence.RegisterWorkspaceBinding(t.Context(), workspace)
+	if err != nil {
+		t.Fatal(err)
+	}
+	containerB := filepath.Join(root, "projects", binding.ProjectID, "sessions")
 	store, err := session.Create(
 		containerB,
 		"workspace-b",
-		"/tmp/workspace-b",
+		workspace,
 		sessioncontract.SessionCategoryMain,
-		sessionServiceTestPersistence.Options()...,
+		sessionServiceTestPersistence.AuthoritativeSessionStoreOptions()...,
 	)
 	if err != nil {
 		t.Fatalf("create foreign session store: %v", err)
 	}
-	if err := store.SetName("foreign session"); err != nil {
+	if err := store.SetName(textutil.Value("foreign session")); err != nil {
 		t.Fatalf("persist foreign session meta: %v", err)
 	}
 
-	service := newTestSessionLifecycleService(root)
+	service := newTestSessionLifecycleService(root, sessionServiceTestPersistence)
 	_, err = service.PersistInputDraft(context.Background(), &sessionlaunchpb.SessionPersistInputDraftRequest{
 		SessionId: store.Meta().SessionID,
 		Input:     "updated draft",
@@ -843,7 +1045,7 @@ func TestServicePersistInputDraftResolvesSessionAcrossProjects(t *testing.T) {
 func TestServiceResolveTransitionLogoutUsesSessionIDWithoutStoreLookup(t *testing.T) {
 	currentID := runtimeids.NewSessionID()
 
-	service := newTestSessionLifecycleService(t.TempDir())
+	service := newTestSessionLifecycleService(t.TempDir(), testsetup.OpenStore(t, t.TempDir()))
 
 	resp, err := service.ResolveTransition(context.Background(), &sessionlaunchpb.SessionResolveTransitionRequest{
 		SessionId: proto.String(currentID.String()),
@@ -865,7 +1067,7 @@ func TestServiceResolveTransitionLogoutUsesSessionIDWithoutStoreLookup(t *testin
 }
 
 func TestServiceResolveTransitionLogoutReturnsStableDirective(t *testing.T) {
-	service := newTestSessionLifecycleService(t.TempDir())
+	service := newTestSessionLifecycleService(t.TempDir(), testsetup.OpenStore(t, t.TempDir()))
 	req := &sessionlaunchpb.SessionResolveTransitionRequest{
 		SessionId:  proto.String(runtimeids.NewSessionID().String()),
 		Transition: &sessionlaunchpb.SessionTransition{Action: sessionlaunchpb.SessionTransitionAction_SESSION_TRANSITION_ACTION_LOGOUT},

@@ -5,21 +5,162 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"io"
+	"net/http"
+	"net/http/httptest"
+	"net/http/httputil"
+	"net/url"
 	"reflect"
 	"sync"
 	"testing"
 	"time"
 
+	modelstub "core/internal/testharness/pty/blackbox"
 	"core/internal/testharness/testsetup"
 	"core/server/launch"
 	"core/server/llm"
 	"core/server/session"
 	"core/server/workflow"
 	"core/server/workflowexecution"
+	"core/server/workflowruntime"
 	"core/server/workflowstore"
 	"core/shared/config"
+	"core/shared/textutil"
 	"core/shared/toolspec"
 )
+
+func TestCompactAndContinuePreservesAccountDespiteChangedAssignmentOrder(t *testing.T) {
+	a, err := modelstub.StartScriptedResponsesStub(modelstub.Script{Steps: []modelstub.ScriptStep{
+		modelstub.FinalAnswer(`{"transition":"next","commentary":"done"}`),
+		modelstub.FinalAnswer("Outgoing summary."),
+		modelstub.FinalAnswer("Reviewed."),
+	}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = a.Stop() })
+	b, err := modelstub.StartScriptedResponsesStub(modelstub.Script{Steps: []modelstub.ScriptStep{
+		modelstub.FinalAnswer(`{"commentary":"done"}`),
+	}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = b.Stop() })
+	type observedRequest struct {
+		Member config.ConnectionID
+		Auth   string
+		Model  string
+	}
+	observed := make(chan observedRequest, 8)
+	proxy := func(member config.ConnectionID, destination string) *httptest.Server {
+		target, err := url.Parse(destination)
+		if err != nil {
+			t.Fatal(err)
+		}
+		target.Path = ""
+		upstream := httputil.NewSingleHostReverseProxy(target)
+		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			body, err := io.ReadAll(r.Body)
+			if err != nil {
+				t.Error(err)
+				http.Error(w, "read request", http.StatusBadRequest)
+				return
+			}
+			var request struct {
+				Model string `json:"model"`
+			}
+			if err := json.Unmarshal(body, &request); err != nil {
+				t.Error(err)
+				http.Error(w, "decode request", http.StatusBadRequest)
+				return
+			}
+			observed <- observedRequest{Member: member, Auth: r.Header.Get("Authorization"), Model: request.Model}
+			r.Body = io.NopCloser(bytes.NewReader(body))
+			upstream.ServeHTTP(w, r)
+		}))
+		t.Cleanup(server.Close)
+		return server
+	}
+	endpointA, endpointB := proxy("a", a.URL()), proxy("b", b.URL())
+	f := newCurrentNodeRunnerFixture(t)
+	cfg := &f.starter.cfg
+	cfg.Settings.Model = "gpt-6-sol"
+	cfg.Settings.CompactionMode = config.CompactionModeNone
+	cfg.Settings.Workflow.CompletionMode = config.WorkflowCompletionModeAuto
+	selection := config.ConnectionSelection{"b", "a"}
+	cfg.Settings.Connection = &selection
+	cfg.Settings.ConnectionOrder = []config.ConnectionID{"a", "b"}
+	cfg.Settings.Connections = map[config.ConnectionID]config.ProviderConnection{}
+	for _, member := range []struct {
+		id        config.ConnectionID
+		endpoint  string
+		key       string
+		responses bool
+	}{
+		{"a", endpointA.URL + "/v1", "KENT_TEST_ACCOUNT_A", false},
+		{"b", endpointB.URL + "/v1", "KENT_TEST_ACCOUNT_B", true},
+	} {
+		t.Setenv(member.key, "credential-"+string(member.id))
+		cfg.Settings.Connections[member.id] = config.ProviderConnection{
+			Protocol: config.ConnectionResponses, Endpoint: textutil.Value(member.endpoint), EnvironmentVariable: textutil.Value(member.key),
+			Capabilities: config.ProviderCapabilitiesOverride{ProviderID: "openai-compatible", SupportsResponsesAPI: member.responses},
+		}
+	}
+	for _, roleName := range []string{"coder", "reviewer"} {
+		role := cfg.Settings.Subagents[roleName]
+		role.Settings.Model = "gpt-6-sol"
+		cfg.Settings.Subagents[roleName] = role
+	}
+	writeCurrentNodeConfig(t, *cfg)
+	f.starter.runtimeClientFactory = nil
+	workflowID := createCurrentNodeTwoStepWorkflowWithTransition(t, f.store, "Sticky Connection dispatch",
+		currentNodeWorkflowStep{kind: workflow.NodeKindAgent, role: "coder", prompt: "Complete.", completionMode: string(config.WorkflowCompletionModeUnstructured)},
+		currentNodeWorkflowStep{kind: workflow.NodeKindAgent, role: "reviewer", prompt: "Review.", completionMode: string(config.WorkflowCompletionModeUnstructured)},
+		currentNodeLinearTransition{id: "next", mode: workflow.ContextModeCompactAndContinueSession, requiresApproval: true},
+	)
+	task := f.createTask(t, workflowID)
+	f.startTask(t, task)
+	approval := f.waitForPendingApproval(t, task.ID)
+	f.waitForTaskQuiescence(t, task.ID)
+	source := f.onlyProjectSessionMeta(t)
+	for _, member := range []config.ConnectionID{"b", "a"} {
+		selected, err := f.starter.connectionRotation.Prepare(t.Context(), cfg.Settings, true)
+		if err != nil || selected != member {
+			t.Fatalf("competing allocation = %s, %v, want %s", selected, err, member)
+		}
+	}
+	cfg.Settings.CompactionMode = config.CompactionModeLocal
+	writeCurrentNodeConfig(t, *cfg)
+	if _, err := f.controller.ApplyPendingApproval(t.Context(), approval.ID); err != nil {
+		t.Fatalf("apply compact-and-continue Approval: %v", err)
+	}
+	for index, want := range []config.ConnectionID{"a", "a", "a"} {
+		select {
+		case request := <-observed:
+			if request.Member != want || request.Auth != "Bearer credential-"+string(want) || request.Model != "gpt-6-sol" {
+				t.Fatalf("request %d = %+v; want member %s with its credential/model", index, request, want)
+			}
+		case <-time.After(currentNodeRunnerWait):
+			nodes, err := f.store.ListCurrentNodes(t.Context(), task.ID)
+			for _, node := range nodes {
+				if node.Scheduling != nil {
+					t.Logf("scheduling=%+v interruption=%+v", *node.Scheduling, node.Scheduling.Interruption)
+				}
+			}
+			t.Fatalf("request %d did not reach selected member %s; nodes=%+v error=%v", index, want, nodes, err)
+		}
+	}
+	f.waitForTaskQuiescence(t, task.ID)
+	meta := f.onlyProjectSessionMeta(t)
+	if meta.SessionID != source.SessionID || meta.ConnectionID == nil || *meta.ConnectionID != "a" || meta.Locked == nil ||
+		meta.WorkflowSnapshot == nil || meta.WorkflowSnapshot.CompletionMode != workflowruntime.CompletionModeUnstructuredOutput {
+		t.Fatalf("continuation did not preserve Session account and its completion capabilities: %+v", meta)
+	}
+	selected, err := f.starter.connectionRotation.Prepare(t.Context(), cfg.Settings, true)
+	if err != nil || selected != "b" {
+		t.Fatalf("continuation changed assignment order: next allocation = %s, %v, want b", selected, err)
+	}
+}
 
 func TestLazyCompactAndContinueUsesOutgoingConfiguration(t *testing.T) {
 	client := newLazyCompactionClient([]llm.CompactionResponse{workflowPostCompletionCompactionResponse("lazy-source")})
@@ -49,19 +190,19 @@ func TestLazyCompactAndContinueUsesOutgoingConfiguration(t *testing.T) {
 	factoryRequests := f.runtimeRequests()
 	var targetID *string
 	for _, request := range factoryRequests {
-		if request.Connection.ID == "reviewer" {
+		if request.ActiveSettings.Model == "workflow-reviewer" && request.Connection.ID == "coder" {
 			targetID = &request.SessionID
 		}
 	}
 	if targetID == nil {
-		t.Fatal("lazy continuation did not construct the target connection")
+		t.Fatal("lazy continuation did not use the target model with the saved connection")
 	}
 	record, err := f.metadata.ResolvePersistedSession(t.Context(), *targetID)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if record.Meta.ConnectionID == nil || *record.Meta.ConnectionID != "reviewer" {
-		t.Fatal("lazy continuation did not persist the target binding")
+	if record.Meta.ConnectionID == nil || *record.Meta.ConnectionID != "coder" {
+		t.Fatal("lazy continuation changed the saved binding")
 	}
 }
 
@@ -80,6 +221,7 @@ func TestDirectCompactAndContinueTaskInterruptPreservesOutgoingConfiguration(t *
 	}
 	f := newCurrentNodeRunnerFixtureWithClient(t, client)
 	f.starter.cfg.Settings.CompactionMode = config.CompactionModeNative
+	writeCurrentNodeConfig(t, f.starter.cfg)
 	configureCompactionThinking(t, f)
 	var once sync.Once
 	unblock := func() { once.Do(func() { close(client.release) }) }
@@ -154,6 +296,7 @@ func prepareLazyCompactionApproval(t *testing.T, client currentNodeRunnerClient)
 	// Enable compaction only after outgoing completion to exercise an
 	// un-precompacted Session at the lazy continuation boundary.
 	f.starter.cfg.Settings.CompactionMode = config.CompactionModeNone
+	writeCurrentNodeConfig(t, f.starter.cfg)
 	configureCompactionThinking(t, f)
 	task := f.createTask(t, createCurrentNodeThreeStepWorkflow(
 		t, f.store, "Lazy compaction configuration",
@@ -165,6 +308,7 @@ func prepareLazyCompactionApproval(t *testing.T, client currentNodeRunnerClient)
 	approval := f.waitForPendingApproval(t, task.ID)
 	f.waitForTaskQuiescence(t, task.ID)
 	f.starter.cfg.Settings.CompactionMode = config.CompactionModeNative
+	writeCurrentNodeConfig(t, f.starter.cfg)
 	return f, approval
 }
 
@@ -176,7 +320,7 @@ func configureCompactionThinking(t *testing.T, f *currentNodeRunnerFixture) {
 	for role, effort := range map[string]string{"coder": "low", "reviewer": "high"} {
 		settings := f.starter.cfg.Settings.Subagents[role]
 		id := config.ConnectionID(role)
-		settings.Settings.Connection = &id
+		settings.Settings.Connection = config.SingleConnection(id)
 		f.starter.cfg.Settings.Connections[id] = config.ProviderConnection{Protocol: config.ConnectionChatGPT}
 		settings.Sources["connection"] = config.Origin{Kind: config.SourceInput, Property: config.PropertyAddress{Key: "connection"}}
 		settings.Settings.ThinkingLevel = effort
@@ -188,6 +332,7 @@ func configureCompactionThinking(t *testing.T, f *currentNodeRunnerFixture) {
 		f.starter.cfg.Settings.Subagents[role] = settings
 	}
 	f.starter.cfg.Settings = testsetup.WriteProviderSettings(t, f.cfg.PersistenceRoot, f.starter.cfg.Settings)
+	writeCurrentNodeConfig(t, f.starter.cfg)
 }
 
 func TestLazyCompactAndContinueFailureRetainsOutgoingConfiguration(t *testing.T) {

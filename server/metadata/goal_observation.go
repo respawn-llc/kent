@@ -9,7 +9,6 @@ import (
 
 	"core/server/goalview"
 	"core/server/session"
-	"core/shared/protoapi"
 	runtimepb "core/shared/protoapi/gen/kent/api/runtime"
 	"core/shared/serverapi"
 	"google.golang.org/protobuf/proto"
@@ -45,13 +44,14 @@ func (s *Store) SubscribeGoalObservation(
 	ctx context.Context,
 	req *runtimepb.GoalObserveRequest,
 ) (serverapi.GoalObservationSubscription, error) {
-	if err := protoapi.Validate(req); err != nil {
-		return nil, err
-	}
 	if s == nil {
 		return nil, errors.New("metadata store is required")
 	}
-	record, err := session.ResolvePersistedSessionRecord(ctx, s, strings.TrimSpace(req.SessionId))
+	sessionID, err := s.ResolveSessionTarget(ctx, req.SessionId)
+	if err != nil {
+		return nil, err
+	}
+	record, err := session.ResolvePersistedSessionRecord(ctx, s, sessionID.String())
 	if err != nil {
 		return nil, err
 	}
@@ -59,13 +59,10 @@ func (s *Store) SubscribeGoalObservation(
 	if err != nil {
 		return nil, err
 	}
-	return s.goalObservations.subscribe(strings.TrimSpace(req.SessionId), status), nil
+	return s.goalObservations.subscribe(sessionID.String(), status), nil
 }
 
 func goalProjection(meta *session.Meta) (*runtimepb.GoalProjection, error) {
-	if meta == nil {
-		return &runtimepb.GoalProjection{}, errors.New("persisted Session metadata is required")
-	}
 	availability, err := session.GoalAvailabilityFromMeta(*meta)
 	if err != nil {
 		return &runtimepb.GoalProjection{}, err

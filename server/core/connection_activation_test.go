@@ -5,15 +5,17 @@ import (
 	"testing"
 	"time"
 
+	"core/internal/testharness/requestfixture"
 	"core/internal/testharness/testsetup"
 	"core/server/auth"
 	"core/server/llm"
-	"core/server/metadata"
 	"core/server/runtimewire"
 	"core/shared/config"
 	"core/shared/protoapi"
 	runtimepb "core/shared/protoapi/gen/kent/api/runtime"
+	sharedpb "core/shared/protoapi/gen/kent/api/shared"
 	transcriptpb "core/shared/protoapi/gen/kent/api/transcript"
+	"core/shared/runtimeids"
 	"core/shared/runtimeinput"
 	"core/shared/serverapi"
 	"core/shared/textutil"
@@ -23,13 +25,15 @@ func TestConnectionReplacementIsHydratedAfterCoreActivation(t *testing.T) {
 	settings := config.DefaultOnboardingSettings()
 	settings.Reviewer.Frequency = "off"
 	cfg := testsetup.ProgrammaticConfig(t, settings)
-	binding, err := metadata.RegisterBinding(t.Context(), cfg.PersistenceRoot, cfg.WorkspaceRoot)
+	metadataStore := testsetup.OpenStore(t, cfg.PersistenceRoot)
+	binding, err := metadataStore.RegisterWorkspaceBinding(t.Context(), cfg.WorkspaceRoot)
 	if err != nil {
 		t.Fatal(err)
 	}
 	model := newChatSettingsBoundaryLLMClient()
 	t.Cleanup(model.unblock)
 	app := newCoreTestAppWithOptions(t, cfg, auth.EmptyState(), Options{
+		MetadataStore: metadataStore,
 		RuntimeClientFactory: runtimewire.RuntimeClientFactoryFunc(func(context.Context, runtimewire.RuntimeClientRequest) (llm.Client, error) {
 			return model, nil
 		}),
@@ -38,17 +42,16 @@ func TestConnectionReplacementIsHydratedAfterCoreActivation(t *testing.T) {
 	if err := store.SetConnectionID("removed"); err != nil {
 		t.Fatal(err)
 	}
-	_, err = app.SessionRuntimeClient().ActivateSessionRuntime(t.Context(), serverapi.SessionRuntimeActivateRequest{
-		SessionID: store.Meta().SessionID, OwnerID: "connection-notice",
-		ActiveSettings: cfg.Settings, Source: cfg.Source,
-		QuestionsEnabled: textutil.Value(true), AutoCompactionEnabled: textutil.Value(true),
+	err = app.SessionRuntimeClient().ActivateSessionRuntime(t.Context(), serverapi.SessionRuntimeActivateRequest{
+		SessionID: requestfixture.SessionID(t, store.Meta().SessionID), SessionRuntimePreparationOptions: serverapi.SessionRuntimePreparationOptions{ActiveSettings: cfg.Settings, Source: cfg.Source,
+			QuestionsEnabled: textutil.Value(true), AutoCompactionEnabled: textutil.Value(true)},
 	})
 	if err != nil {
 		t.Fatal(err)
 	}
 	ctx, cancel := context.WithTimeout(t.Context(), 5*time.Second)
 	defer cancel()
-	subscription, err := app.SessionTranscriptClient().SubscribeSessionTranscript(ctx, &transcriptpb.SubscribeRequest{SessionId: store.Meta().SessionID})
+	subscription, err := app.SessionTranscriptClient().SubscribeSessionTranscript(ctx, &transcriptpb.SubscribeRequest{SessionId: &sharedpb.SessionSelector{Value: &sharedpb.SessionSelector_SessionId{SessionId: store.Meta().SessionID}}})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -58,14 +61,18 @@ func TestConnectionReplacementIsHydratedAfterCoreActivation(t *testing.T) {
 		t.Fatal(err)
 	}
 	notice := message.GetEvent().GetHydration().GetConnectionReplacement()
-	if notice == nil || notice.PreviousId != "removed" || notice.CurrentId != string(*cfg.Settings.Connection) {
+	selected, err := cfg.Settings.Connection.ConcreteID()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if notice == nil || notice.PreviousId != "removed" || notice.CurrentId != string(*selected) {
 		t.Fatalf("activation replacement notice = %+v", notice)
 	}
 	record, err := app.MetadataStore().ResolvePersistedSession(ctx, store.Meta().SessionID)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if record.Meta.ConnectionID == nil || *record.Meta.ConnectionID != *cfg.Settings.Connection {
+	if record.Meta.ConnectionID == nil || *record.Meta.ConnectionID != *selected {
 		t.Fatalf("announced replacement was not saved: %v", record.Meta.ConnectionID)
 	}
 	select {
@@ -77,9 +84,7 @@ func TestConnectionReplacementIsHydratedAfterCoreActivation(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := app.RuntimeControlClient().SubmitUserTurn(ctx, &runtimepb.SubmitUserTurnRequest{
-		SessionId: store.Meta().SessionID, Input: input,
-	}); err != nil {
+	if _, err := app.RuntimeControlClient().SubmitUserTurn(ctx, &runtimepb.SubmitUserTurnRequest{QueueItemId: runtimeids.NewQueueItemID().String(), SessionId: store.Meta().SessionID, Input: input}); err != nil {
 		t.Fatal(err)
 	}
 	select {

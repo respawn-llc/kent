@@ -10,6 +10,7 @@ import "kent/api/auth/auth.proto";
 import "kent/api/runtime/runtime.proto";
 import "kent/api/server/server.proto";
 import "kent/api/shared/foundation.proto";
+import "kent/api/shared/session_selector.proto";
 import "kent/api/shared/validation.proto";
 
 option go_package = "core/shared/protoapi/gen/kent/api/prompt;promptpb";
@@ -35,6 +36,7 @@ enum FollowUpKind {
 }
 
 message Question {
+  optional int64 short_id = 9 [(buf.validate.field).int64 = {gt: 0 lte: 9007199254740991}];
   string tool_call_id = 1 [
     (buf.validate.field).string.min_len = 1,
     (buf.validate.field).cel = {
@@ -44,8 +46,8 @@ message Question {
     }
   ];
   string session_id = 2 [
-    (buf.validate.field).string.min_len = 1,
-    (buf.validate.field).string.(kent.api.shared.nonblank) = true
+    (buf.validate.field).string.uuid = true,
+    (buf.validate.field).string.(kent.api.shared.canonical_uuid_v4) = true
   ];
   string step_id = 3 [
     (buf.validate.field).string.uuid = true,
@@ -72,6 +74,7 @@ message Question {
     (buf.validate.field).required = true,
     (buf.validate.field).timestamp.gt = {seconds: 0}
   ];
+  QuestionBatch batch = 8;
 
   option (buf.validate.message).cel = {
     id: "kent.prompt.question_recommendation"
@@ -99,6 +102,7 @@ message FileAccessTarget {
 }
 
 message Approval {
+  optional int64 short_id = 9 [(buf.validate.field).int64 = {gt: 0 lte: 9007199254740991}];
   string tool_call_id = 1 [
     (buf.validate.field).string.min_len = 1,
     (buf.validate.field).cel = {
@@ -108,8 +112,8 @@ message Approval {
     }
   ];
   string session_id = 2 [
-    (buf.validate.field).string.min_len = 1,
-    (buf.validate.field).string.(kent.api.shared.nonblank) = true
+    (buf.validate.field).string.uuid = true,
+    (buf.validate.field).string.(kent.api.shared.canonical_uuid_v4) = true
   ];
   string step_id = 3 [
     (buf.validate.field).string.uuid = true,
@@ -132,6 +136,7 @@ message Approval {
     (buf.validate.field).timestamp.gt = {seconds: 0}
   ];
   repeated FileAccessTarget access_targets = 7 [(buf.validate.field).repeated.items.required = true];
+  QuestionBatch batch = 8;
 
   option (buf.validate.message).cel = {
     id: "kent.prompt.approval_decisions_unique"
@@ -146,9 +151,10 @@ message Approval {
 }
 
 message ListPendingRequest {
-  string session_id = 1 [
-    (buf.validate.field).string.min_len = 1,
-    (buf.validate.field).string.(kent.api.shared.nonblank) = true
+  kent.api.shared.SessionSelector session_id = 1 [(buf.validate.field).required = true];
+  optional string caller_session_id = 2 [
+    (buf.validate.field).string.uuid = true,
+    (buf.validate.field).string.(kent.api.shared.canonical_uuid_v4) = true
   ];
 }
 
@@ -166,6 +172,10 @@ message ListQuestionsError {
     (kent.api.shared.kent_result_field).role = RESULT_FIELD_ROLE_ERROR_CODE
   ];
   oneof detail {
+    kent.api.shared.SessionSelfTargetDetails self_target = 4 [(kent.api.shared.kent_result_field) = {
+      role: RESULT_FIELD_ROLE_ERROR_DETAIL
+      error_code: "self_target"
+    }];
     kent.api.shared.InternalFailureDetails internal_failure = 2 [(kent.api.shared.kent_result_field) = {
       role: RESULT_FIELD_ROLE_ERROR_DETAIL
       error_code: "internal_failure"
@@ -184,6 +194,10 @@ message ListApprovalsError {
     (kent.api.shared.kent_result_field).role = RESULT_FIELD_ROLE_ERROR_CODE
   ];
   oneof detail {
+    kent.api.shared.SessionSelfTargetDetails self_target = 4 [(kent.api.shared.kent_result_field) = {
+      role: RESULT_FIELD_ROLE_ERROR_DETAIL
+      error_code: "self_target"
+    }];
     kent.api.shared.InternalFailureDetails internal_failure = 2 [(kent.api.shared.kent_result_field) = {
       role: RESULT_FIELD_ROLE_ERROR_DETAIL
       error_code: "internal_failure"
@@ -264,10 +278,7 @@ message AnswerBatchEntry {
 }
 
 message AnswerBatchRequest {
-  string session_id = 1 [
-    (buf.validate.field).string.uuid = true,
-    (buf.validate.field).string.(kent.api.shared.canonical_uuid_v4) = true
-  ];
+  kent.api.shared.SessionSelector session_id = 1 [(buf.validate.field).required = true];
   string step_id = 2 [
     (buf.validate.field).string.uuid = true,
     (buf.validate.field).string.(kent.api.shared.canonical_uuid_v4) = true
@@ -276,6 +287,10 @@ message AnswerBatchRequest {
     min_items: 1
     items: {required: true}
   }];
+  optional string invoking_session_id = 4 [
+    (buf.validate.field).string.uuid = true,
+    (buf.validate.field).string.(kent.api.shared.canonical_uuid_v4) = true
+  ];
 
   option (buf.validate.message).cel = {
     id: "kent.prompt.answer_batch_tool_call_ids_unique"
@@ -312,12 +327,27 @@ message AnswerBatchSuccess {
   };
 }
 
+message ParentQuestionAnswerRejectedDetails {
+  string answering_session_id = 1 [
+    (buf.validate.field).string.uuid = true,
+    (buf.validate.field).string.(kent.api.shared.canonical_uuid_v4) = true
+  ];
+  string question_session_id = 2 [
+    (buf.validate.field).string.uuid = true,
+    (buf.validate.field).string.(kent.api.shared.canonical_uuid_v4) = true
+  ];
+}
+
 message AnswerBatchError {
   string code = 1 [
     (buf.validate.field).string.min_len = 1,
     (kent.api.shared.kent_result_field).role = RESULT_FIELD_ROLE_ERROR_CODE
   ];
   oneof detail {
+    kent.api.shared.SessionSelfTargetDetails self_target = 6 [(kent.api.shared.kent_result_field) = {
+      role: RESULT_FIELD_ROLE_ERROR_DETAIL
+      error_code: "self_target"
+    }];
     kent.api.shared.InternalFailureDetails internal_failure = 2 [(kent.api.shared.kent_result_field) = {
       role: RESULT_FIELD_ROLE_ERROR_DETAIL
       error_code: "internal_failure"
@@ -332,6 +362,11 @@ message AnswerBatchError {
       role: RESULT_FIELD_ROLE_ERROR_DETAIL
       error_code: "server_not_ready"
     }];
+
+    ParentQuestionAnswerRejectedDetails parent_question_answer_rejected = 5 [(kent.api.shared.kent_result_field) = {
+      role: RESULT_FIELD_ROLE_ERROR_DETAIL
+      error_code: "parent_question_answer_rejected"
+    }];
   }
 }
 
@@ -344,10 +379,7 @@ message AnswerBatchResult {
 }
 
 message FollowUpWatchRequest {
-  string session_id = 1 [
-    (buf.validate.field).string.uuid = true,
-    (buf.validate.field).string.(kent.api.shared.canonical_uuid_v4) = true
-  ];
+  kent.api.shared.SessionSelector session_id = 1 [(buf.validate.field).required = true];
   string step_id = 2 [
     (buf.validate.field).string.uuid = true,
     (buf.validate.field).string.(kent.api.shared.canonical_uuid_v4) = true
@@ -401,8 +433,8 @@ message FollowUpEvent {
 }
 
 message RecordHistoryRequest {
-  string session_id = 1 [(buf.validate.field).string.min_len = 1];
-  string text = 2;
+  string session_id = 1 [(buf.validate.field).string.uuid = true, (buf.validate.field).string.(kent.api.shared.canonical_uuid_v4) = true];
+  string text = 2 [(buf.validate.field).string.(kent.api.shared.nonblank) = true];
 }
 
 message RecordHistoryError {
@@ -441,7 +473,11 @@ message RecordHistoryResult {
 }
 
 message LiveWatchRequest {
-  string session_id = 1 [(buf.validate.field).string.min_len = 1];
+  kent.api.shared.SessionSelector session_id = 1 [(buf.validate.field).required = true];
+  optional string caller_session_id = 2 [
+    (buf.validate.field).string.uuid = true,
+    (buf.validate.field).string.(kent.api.shared.canonical_uuid_v4) = true
+  ];
 }
 
 message ObservationQuestion {
@@ -453,7 +489,7 @@ message ObservationQuestion {
 }
 
 message LiveWatchFinal {
-  string session_name = 1;
+  optional string session_name = 1 [(buf.validate.field).string.(kent.api.shared.nonblank) = true];
   google.protobuf.Duration duration = 2 [
     (buf.validate.field).required = true,
     (buf.validate.field).duration.gte = {}
@@ -485,7 +521,8 @@ message LiveWatchOutcome {
 }
 
 message LiveWatchSuccess {
-  string session_id = 1 [(buf.validate.field).string.min_len = 1];
+  optional int64 short_id = 3 [(buf.validate.field).int64 = {gt: 0 lte: 9007199254740991}];
+  string session_id = 1 [(buf.validate.field).string.uuid = true, (buf.validate.field).string.(kent.api.shared.canonical_uuid_v4) = true];
   LiveWatchOutcome outcome = 2 [(buf.validate.field).required = true];
 
   option (buf.validate.message).cel = {
@@ -504,6 +541,10 @@ message LiveWatchError {
     (kent.api.shared.kent_result_field).role = RESULT_FIELD_ROLE_ERROR_CODE
   ];
   oneof detail {
+    kent.api.shared.SessionSelfTargetDetails self_target = 8 [(kent.api.shared.kent_result_field) = {
+      role: RESULT_FIELD_ROLE_ERROR_DETAIL
+      error_code: "self_target"
+    }];
     kent.api.shared.InternalFailureDetails internal_failure = 2 [(kent.api.shared.kent_result_field) = {
       role: RESULT_FIELD_ROLE_ERROR_DETAIL
       error_code: "internal_failure"
@@ -512,7 +553,7 @@ message LiveWatchError {
       role: RESULT_FIELD_ROLE_ERROR_DETAIL
       error_code: "runtime_unavailable"
     }];
-    google.protobuf.Empty no_active_run = 4 [(kent.api.shared.kent_result_field) = {
+    kent.api.shared.SessionIdentity no_active_run = 4 [(kent.api.shared.kent_result_field) = {
       role: RESULT_FIELD_ROLE_ERROR_DETAIL
       error_code: "no_active_run"
     }];
@@ -636,4 +677,25 @@ service LiveWatchService {
       unary_connection: UNARY_CONNECTION_DEDICATED
     };
   }
+}
+
+message QuestionBatch {
+  repeated string tool_call_ids = 1 [(buf.validate.field).repeated = {
+    min_items: 1
+    unique: true
+    items: {
+      string: {min_len: 1}
+      cel: {
+        id: "kent.prompt.batch_tool_call_id_canonical"
+        message: "tool_call_ids must not have surrounding whitespace"
+        expression: "this == this.trim()"
+      }
+    }
+  }];
+  uint32 unmaterialized_count = 2;
+  option (buf.validate.message).cel = {
+    id: "kent.prompt.batch_unmaterialized_count"
+    message: "unmaterialized_count must not exceed the original batch size"
+    expression: "this.unmaterialized_count <= size(this.tool_call_ids)"
+  };
 }

@@ -24,14 +24,8 @@ func workflowWiringForCLI(wiring *pb.DerivedWiring) (workflowDerivedWiringJSON, 
 		})
 	}
 	for _, edge := range wiring.Edges {
-		assignee, err := workflowApplicabilityForCLI(edge.AssigneeSelectionApplicability)
-		if err != nil {
-			return workflowDerivedWiringJSON{}, err
-		}
-		thinking, err := workflowApplicabilityForCLI(edge.ThinkingSelectionApplicability)
-		if err != nil {
-			return workflowDerivedWiringJSON{}, err
-		}
+		assignee := workflowApplicabilityForCLI(edge.AssigneeSelectionApplicability)
+		thinking := workflowApplicabilityForCLI(edge.ThinkingSelectionApplicability)
 		result.Edges = append(result.Edges, workflowDerivedEdgeJSON{
 			EdgeID: edge.EdgeId, InputBindings: workflowInputBindingsForCLI(edge.InputBindings),
 			RequiredProvisionFields:        protoapi.WorkflowOutputFieldsForJSON(edge.RequiredProvisionFields),
@@ -42,12 +36,9 @@ func workflowWiringForCLI(wiring *pb.DerivedWiring) (workflowDerivedWiringJSON, 
 	return result, nil
 }
 
-func workflowApplicabilityForCLI(value *pb.SelectorApplicability) (workflowSelectorApplicabilityJSON, error) {
-	reason, err := protoapi.WorkflowSelectorApplicabilityReason.Decode(value.Reason)
-	if err != nil {
-		return workflowSelectorApplicabilityJSON{}, err
-	}
-	return workflowSelectorApplicabilityJSON{Available: value.Available, ParameterVisible: value.ParameterVisible, Reason: reason}, nil
+func workflowApplicabilityForCLI(value *pb.SelectorApplicability) workflowSelectorApplicabilityJSON {
+	reason := protoapi.WorkflowSelectorApplicabilityReason.FromProto(value.Reason)
+	return workflowSelectorApplicabilityJSON{Available: value.Available, ParameterVisible: value.ParameterVisible, Reason: reason}
 }
 
 func workflowInputBindingsForCLI(values []*pb.InputBinding) []workflowInputBindingJSON {
@@ -58,11 +49,8 @@ func workflowInputBindingsForCLI(values []*pb.InputBinding) []workflowInputBindi
 	return result
 }
 
-func workflowGraphImpactForCLI(impact *pb.GraphSaveImpact) (*workflowGraphImpactJSON, error) {
-	entities, err := workflowGraphEntitiesForCLI(impact.RemovedEntities)
-	if err != nil {
-		return nil, err
-	}
+func workflowGraphImpactForCLI(impact *pb.GraphSaveImpact) *workflowGraphImpactJSON {
+	entities := workflowGraphEntitiesForCLI(impact.RemovedEntities)
 	return &workflowGraphImpactJSON{
 		RemovedNodeGroupCount: impact.RemovedNodeGroupCount, RemovedNodeCount: impact.RemovedNodeCount,
 		RemovedTransitionGroupCount: impact.RemovedTransitionGroupCount, RemovedEdgeCount: impact.RemovedEdgeCount,
@@ -70,42 +58,33 @@ func workflowGraphImpactForCLI(impact *pb.GraphSaveImpact) (*workflowGraphImpact
 		ActiveCurrentNodeCount: impact.ActiveCurrentNodeCount, PendingApprovalCount: impact.PendingApprovalCount,
 		StartNodeChangeCount: impact.StartNodeChangeCount, LastTerminalChangeCount: impact.LastTerminalChangeCount,
 		TaskReferencedNodeKindChangeCount: impact.TaskReferencedNodeKindChangeCount,
-	}, nil
+	}
 }
 
-func workflowGraphEntitiesForCLI(entities []*pb.GraphEntityReference) ([]workflowcontract.WorkflowGraphEntityReference, error) {
+func workflowGraphEntitiesForCLI(entities []*pb.GraphEntityReference) []workflowcontract.WorkflowGraphEntityReference {
 	result := make([]workflowcontract.WorkflowGraphEntityReference, 0, len(entities))
 	for _, entity := range entities {
-		kind, err := protoapi.WorkflowGraphEntityType.Decode(entity.EntityType)
-		if err != nil {
-			return nil, err
-		}
+		kind := protoapi.WorkflowGraphEntityType.FromProto(entity.EntityType)
 		result = append(result, workflowcontract.WorkflowGraphEntityReference{
 			EntityType: workflowcontract.WorkflowGraphEntityType(kind), EntityID: entity.EntityId,
 		})
 	}
-	return result, nil
+	return result
 }
 
-func workflowGraphBlockersForCLI(blockers []*pb.GraphSaveBlocker) ([]workflowGraphBlockerJSON, error) {
+func workflowGraphBlockersForCLI(blockers []*pb.GraphSaveBlocker) []workflowGraphBlockerJSON {
 	result := make([]workflowGraphBlockerJSON, 0, len(blockers))
 	for _, blocker := range blockers {
-		entities, err := workflowGraphEntitiesForCLI(blocker.AffectedEntities)
-		if err != nil {
-			return nil, err
-		}
+		entities := workflowGraphEntitiesForCLI(blocker.AffectedEntities)
 		result = append(result, workflowGraphBlockerJSON{Code: blocker.Code, Message: blocker.Message, Count: blocker.Count, AffectedEntities: entities})
 	}
-	return result, nil
+	return result
 }
 
 func workflowValidationResultsForCLI(results []*pb.ModeValidationResult) (map[string]workflowValidationJSON, error) {
 	out := make(map[string]workflowValidationJSON, len(results))
 	for _, result := range results {
-		mode, err := protoapi.WorkflowValidationMode.Decode(result.Mode)
-		if err != nil {
-			return nil, err
-		}
+		mode := protoapi.WorkflowValidationMode.FromProto(result.Mode)
 		value, err := workflowValidationForCLI(result.Result)
 		if err != nil {
 			return nil, err

@@ -29,16 +29,10 @@ func ServerNotReadyToProto(err *serverapi.ServerNotReadyError) (*serverpb.Server
 	default:
 		return nil, fmt.Errorf("server-not-ready details type %T is unsupported", err.Details)
 	}
-	if validationErr := Validate(details); validationErr != nil {
-		return nil, validationErr
-	}
 	return details, nil
 }
 
 func ServerNotReadyFromProto(details *serverpb.ServerNotReadyDetails) error {
-	if err := Validate(details); err != nil {
-		return err
-	}
 	reason, err := serverNotReadyReasonFromProto(details.Reason)
 	if err != nil {
 		return err
@@ -127,16 +121,10 @@ func OnboardingFinalizeErrorToProto(err *serverapi.OnboardingFinalizeError) (*on
 	default:
 		return nil, fmt.Errorf("onboarding finalize error code %q is unsupported", err.Code)
 	}
-	if validationErr := Validate(result); validationErr != nil {
-		return nil, validationErr
-	}
 	return result, nil
 }
 
 func OnboardingFinalizeErrorFromProto(message *onboardingpb.FinalizeError) error {
-	if err := Validate(message); err != nil {
-		return err
-	}
 	code := serverapi.OnboardingFinalizeErrorCode(message.Code)
 	var details any
 	switch detail := message.Detail.(type) {
@@ -184,14 +172,20 @@ func OnboardingFinalizeErrorFromProto(message *onboardingpb.FinalizeError) error
 	return typed
 }
 
+func InternalFailureToProto(err error) *sharedpb.InternalFailureDetails {
+	cause := err.Error()
+	return &sharedpb.InternalFailureDetails{Cause: &cause, SessionTarget: SessionTargetErrorContext(err)}
+}
+
 func InternalFailureFromProto(details *sharedpb.InternalFailureDetails) error {
-	if err := Validate(details); err != nil {
-		return err
-	}
+	cause := errors.New("server operation failed")
 	if details.Cause != nil {
-		return errors.New(*details.Cause)
+		cause = errors.New(*details.Cause)
 	}
-	return errors.New("server operation failed")
+	if details.SessionTarget != nil {
+		return SessionTargetContextErrorFromProto(details.SessionTarget, cause)
+	}
+	return cause
 }
 
 func invalidRequestDetailsToProto(details serverapi.OnboardingInvalidRequestDetails) *onboardingpb.InvalidRequestDetails {

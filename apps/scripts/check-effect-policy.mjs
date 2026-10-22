@@ -12,7 +12,6 @@ const desktopRequire = createRequire(
 const docsRequire = createRequire(
   new URL("../../docs/package.json", import.meta.url),
 );
-const astroRequire = createRequire(docsRequire.resolve("astro/package.json"));
 const { ESLint } = desktopRequire("eslint");
 const tseslint = desktopRequire("typescript-eslint");
 const ts = desktopRequire("typescript");
@@ -98,7 +97,7 @@ async function embeddedSources(path) {
     return [
       {
         path: `${path}.tsx`,
-        code: astroRequire("@astrojs/compiler/sync").convertToTSX(text, {
+        code: docsRequire("@astrojs/compiler/sync").convertToTSX(text, {
           filename: pathToFileURL(path).href,
         }).code,
       },

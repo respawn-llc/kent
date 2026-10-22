@@ -1,3 +1,4 @@
+import { expect, it, vi } from "bun:test";
 import { act, renderHook, waitFor } from "@testing-library/react";
 import type { ReactNode } from "react";
 
@@ -105,7 +106,6 @@ it("replaces all five New Chat settings with the selected Agent's complete serve
     initialSettings: reviewerBaseline,
   });
   expect(services.transport.descriptorCalls).toHaveLength(0);
-  expect(services.transport.calls).toHaveLength(0);
 });
 
 it("preserves the current Agent's transient settings after multiple local edits and repeated selection", async () => {
@@ -144,9 +144,8 @@ it("preserves the current Agent's transient settings after multiple local edits 
       autoCompactionEnabled: true,
     },
   });
-  expect(read).toHaveBeenCalledOnce();
+  expect(read).toHaveBeenCalledTimes(1);
   expect(services.transport.descriptorCalls).toHaveLength(0);
-  expect(services.transport.calls).toHaveLength(0);
 });
 
 it("reports exactly InitialChatSettings to the host without catalog or display metadata", async () => {
@@ -179,7 +178,6 @@ it("reports exactly InitialChatSettings to the host without catalog or display m
   if (result.current.kind !== "ready-new-chat") throw new Error("Expected ready New Chat.");
   expect(report.mock.lastCall?.[0]).toBe(result.current.initialSettings);
   expect(services.transport.descriptorCalls).toHaveLength(0);
-  expect(services.transport.calls).toHaveLength(0);
 
   unmount();
   const { result: reopened } = renderHook(
@@ -223,6 +221,6 @@ it("keeps loaded New Chat edits available across unrelated renders", async () =>
     supervisor: "all",
     thinking: "offline edit",
   });
-  expect(read).toHaveBeenCalledOnce();
+  expect(read).toHaveBeenCalledTimes(1);
   expect(services.transport.descriptorCalls).toHaveLength(0);
 });

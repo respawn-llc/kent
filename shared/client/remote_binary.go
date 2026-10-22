@@ -9,6 +9,7 @@ import (
 	"core/shared/serverapi"
 
 	authpb "core/shared/protoapi/gen/kent/api/auth"
+	connectionpb "core/shared/protoapi/gen/kent/api/connection"
 	serverpb "core/shared/protoapi/gen/kent/api/server"
 	sharedpb "core/shared/protoapi/gen/kent/api/shared"
 	"google.golang.org/protobuf/proto"
@@ -92,11 +93,7 @@ func decodeGeneratedResult[
 	if classified.Outcome == protoapi.OperationGenericFailure {
 		return zeroSuccess, generatedOperationFailure(classified.Failure.Code)
 	}
-	var zeroFailure Failure
 	failure := result.GetError()
-	if failure == zeroFailure {
-		return zeroSuccess, fmt.Errorf("%s classified a failure without an error value", method.FullName())
-	}
 	if err, matched := generatedPlatformFailure(failure); matched {
 		return zeroSuccess, err
 	}
@@ -202,7 +199,7 @@ func (c *remoteControlConn) callBinary(
 			return response.err
 		}
 		if response.binary == nil {
-			return fmt.Errorf("operation %s received a JSON response", operation.Name)
+			return fmt.Errorf("operation %s received no result", operation.Name)
 		}
 		return decodeBinaryResponse(operation, id, response.binary, result)
 	case <-ctx.Done():
@@ -227,6 +224,14 @@ func callBinaryRPC(
 	if err != nil {
 		return err
 	}
+	_, establishing := request.(*connectionpb.HandshakeRequest)
+	return callPreparedBinaryRPC(ctx, conn, requestID, frame, operation, result, establishing)
+}
+
+func callPreparedBinaryRPC(
+	ctx context.Context, conn rpcwire.Conn, requestID string, frame rpcwire.Frame,
+	operation protoapi.Operation, result proto.Message, establishing bool,
+) error {
 	if err := conn.Send(ctx, frame); err != nil {
 		return err
 	}
@@ -236,7 +241,11 @@ func callBinaryRPC(
 			return err
 		}
 		if received.Kind != rpcwire.FrameBinary {
-			return fmt.Errorf("operation %s received a JSON response", operation.Name)
+			// Handshake rejection ends setup; established calls reject only the frame.
+			if establishing {
+				return fmt.Errorf("handshake received a nonbinary frame")
+			}
+			continue
 		}
 		response, correlation, err := decodeBinaryEnvelope(received.Payload)
 		if err != nil {
@@ -247,9 +256,6 @@ func callBinaryRPC(
 		}
 		if err := decodeBinaryResponse(operation, requestID, response, result); err != nil {
 			return err
-		}
-		if _, err := protoapi.ClassifyResult(result); err != nil {
-			return fmt.Errorf("classify %s result: %w", operation.Name, err)
 		}
 		return nil
 	}
@@ -377,7 +383,10 @@ func decodeBinaryResponse(
 		return fmt.Errorf("operation %s result payload is required", operation.Name)
 	}
 	if err := protoapi.Decode(response.result.Payload, result); err != nil {
-		return fmt.Errorf("decode %s result: %w", operation.Name, err)
+		return invalidResponseError(operation.Name, err)
+	}
+	if err := protoapi.ValidateResultErrorDetail(result); err != nil {
+		return fmt.Errorf("classify %s result: %w", operation.Name, err)
 	}
 	return nil
 }

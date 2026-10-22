@@ -50,7 +50,11 @@ func TestRuntimeMainViewRefreshCoalescesAndDrainsAfterCompletion(t *testing.T) {
 			if next == nil {
 				t.Fatal("completion did not schedule the pending refresh")
 			}
-			lastResult := next().(runtimeMainViewRefreshedMsg)
+			completion := next()
+			if retry, ok := completion.(runtimeMainViewRetryMsg); ok {
+				completion = m.reduceRuntimeMessage(retry).cmd()
+			}
+			lastResult := completion.(runtimeMainViewRefreshedMsg)
 			if cmd := m.handleRuntimeMainViewRefreshed(lastResult); cmd != nil {
 				t.Fatal("coalesced requests scheduled more than one follow-up")
 			}
@@ -180,8 +184,8 @@ func TestDelayedTranscriptRuntimeTupleCannotRollBackNewerUnaryState(t *testing.T
 	if m.runtimeActivityBusy() || m.runtimeActivityBlocksInput() {
 		t.Fatalf("delayed running state blocked input: projection=%+v lifecycle=%+v", m.runtimeActivityProjection, m.runtimeLifecycle.Run)
 	}
-	if m.currentRunID != "" || m.currentStepID != "" {
-		t.Fatalf("delayed running state restored active identity run=%q step=%q", m.currentRunID, m.currentStepID)
+	if m.currentStepID != "" {
+		t.Fatalf("delayed running state restored active Step %q", m.currentStepID)
 	}
 }
 
@@ -260,8 +264,8 @@ func TestRuntimeMainViewRefreshCommitsOnlyWhenReducerHandlesCandidate(t *testing
 	if got.Session.GetSessionName() != "captured unary metadata" || got.Session.ExecutionTarget.GetWorkspaceId() != "workspace-1" {
 		t.Fatalf("unary session metadata was not projected: %+v", got.Session)
 	}
-	if m.reviewerMode != "edits" || !m.reviewerEnabled || m.sessionName != "captured unary metadata" {
-		t.Fatalf("UI metadata was not projected: reviewer=%q enabled=%t session=%q", m.reviewerMode, m.reviewerEnabled, m.sessionName)
+	if m.reviewerMode != "edits" || !m.reviewerEnabled || m.sessionName == nil || *m.sessionName != "captured unary metadata" {
+		t.Fatalf("UI metadata was not projected: reviewer=%q enabled=%t session=%v", m.reviewerMode, m.reviewerEnabled, m.sessionName)
 	}
 }
 
@@ -359,7 +363,6 @@ func runtimeTupleTestRunningActivity() *runtimepb.Activity {
 		Reviewer:       runtimepb.ReviewerActivity_REVIEWER_ACTIVITY_INACTIVE,
 		QueueAccepting: true,
 		ActiveStep: &runtimepb.ActiveStep{
-			RunId:      ongoingTestRunID().String(),
 			StepId:     ongoingTestStepID().String(),
 			ActiveKind: runtimepb.ActivityActiveKind_RUNTIME_ACTIVITY_ACTIVE_KIND_USER_TURN,
 		},

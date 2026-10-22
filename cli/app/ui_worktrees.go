@@ -11,6 +11,7 @@ import (
 	tuiinput "core/cli/tui/input"
 	"core/shared/apicontract"
 	"core/shared/clientui"
+	sharedpb "core/shared/protoapi/gen/kent/api/shared"
 	worktreepb "core/shared/protoapi/gen/kent/api/worktree"
 	"core/shared/runtimeids"
 	"core/shared/runtimeinput"
@@ -454,8 +455,10 @@ func (m *uiModel) suggestedWorktreeBranchFromEntries() string {
 	if m == nil {
 		return ""
 	}
-	if sessionBranch := worktreecontract.SanitizeBranchSuggestion(m.suggestedWorktreeSessionName()); sessionBranch != nil {
-		return *sessionBranch
+	if name := m.suggestedWorktreeSessionName(); name != nil {
+		if sessionBranch := worktreecontract.SanitizeBranchSuggestion(*name); sessionBranch != nil {
+			return *sessionBranch
+		}
 	}
 	return ""
 }
@@ -602,7 +605,7 @@ func (m *uiModel) worktreeMutationService() worktreeui.Service {
 	}
 	service := worktreeui.Service{
 		Client:        m.worktreeClient,
-		SessionID:     m.sessionID,
+		SessionTarget: &sharedpb.SessionSelector{Value: &sharedpb.SessionSelector_SessionId{SessionId: m.sessionID}},
 		WorkspaceID:   target.GetWorkspaceId(),
 		WorkspaceRoot: target.GetWorkspaceRoot(),
 		ResolveContext: func() (context.Context, context.CancelFunc) {
@@ -611,10 +614,8 @@ func (m *uiModel) worktreeMutationService() worktreeui.Service {
 	}
 	if client, ok := m.runtimeClient().(*sessionRuntimeClient); ok && client != nil {
 		service.Runtime = worktreeui.RuntimeControl{
-			Context:                  service.ResolveContext,
-			MutationContext:          worktreeui.DefaultMutationContext,
-			RecoverRuntimeConnection: client.recoverRuntimeConnectionWithWarning,
-			AppendRecoveryWarning:    true,
+			Context:         service.ResolveContext,
+			MutationContext: worktreeui.DefaultMutationContext,
 		}
 	}
 	return service

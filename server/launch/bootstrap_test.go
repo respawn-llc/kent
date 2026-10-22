@@ -5,9 +5,11 @@ import (
 	"path/filepath"
 	"testing"
 
+	"core/internal/testharness/testsetup"
 	"core/server/metadata"
 	"core/server/session"
 	"core/shared/config"
+	"core/shared/textutil"
 )
 
 func TestResolveBootstrapPlanUsesSessionWorkspace(t *testing.T) {
@@ -91,11 +93,7 @@ func TestResolveBootstrapPlanUsesMetadataSessionLookupByID(t *testing.T) {
 
 func TestResolveSessionCallerTreatsUnownedSessionAsOrdinary(t *testing.T) {
 	persistenceRoot := t.TempDir()
-	metadataStore, err := metadata.Open(persistenceRoot)
-	if err != nil {
-		t.Fatalf("metadata.Open: %v", err)
-	}
-	defer func() { _ = metadataStore.Close() }()
+	metadataStore := testsetup.OpenStore(t, persistenceRoot)
 	ordinary := createMetadataBackedSession(
 		t,
 		metadataStore,
@@ -103,7 +101,7 @@ func TestResolveSessionCallerTreatsUnownedSessionAsOrdinary(t *testing.T) {
 		"/tmp/ordinary-workspace",
 		session.ContinuationContext{},
 	)
-	ordinaryCaller, err := ResolveSessionCaller(persistenceRoot, ordinary.Meta().SessionID)
+	ordinaryCaller, err := ResolveSessionCaller(t.Context(), metadataStore, ordinary.Meta().SessionID)
 	if err != nil {
 		t.Fatalf("ResolveSessionCaller ordinary: %v", err)
 	}
@@ -127,7 +125,7 @@ func TestResolveBootstrapPlanUsesReboundWorkspaceRootFromMetadataAuthority(t *te
 	}
 	projectSessionsDir := filepath.Join(filepath.Join(cfg.PersistenceRoot, "projects"), binding.ProjectID, "sessions")
 	store := createTestSessionInContainer(t, projectSessionsDir, filepath.Base(projectSessionsDir), cfg.WorkspaceRoot, metadataStore.AuthoritativeSessionStoreOptions()...)
-	if err := store.SetName("hello"); err != nil {
+	if err := store.SetName(textutil.Value("hello")); err != nil {
 		t.Fatalf("SetName: %v", err)
 	}
 	if err := store.EnsureDurable(); err != nil {

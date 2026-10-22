@@ -16,7 +16,7 @@ These files are `developer`-level instructions.
 
 ## System Prompt
 
-Kent selects one configured custom prompt through [configuration precedence](../config/#precedence): global, shared workspace, then Main Workspace private settings. A selected role's `system_prompt_file` replaces the inherited agent selection. Omission inherits; an explicitly empty path is invalid.
+Kent selects one configured custom prompt through [configuration precedence](../config/#precedence): global, shared workspace, then Main Workspace private settings. A selected role uses its own `system_prompt_file` when configured and inherits the agent selection when omitted.
 
 The selected file keeps its scope in this priority order, lowest to highest. Only one of the configured-file entries participates:
 
@@ -62,7 +62,7 @@ Additionally, if `tool_preambles = true` in the [config](../config/), another bl
 
 ## Supervisor System Prompt
 
-`reviewer.system_prompt_file` replaces Kent's built-in supervisor system prompt:
+Set `reviewer.system_prompt_file` to use a custom supervisor system prompt:
 
 - `~/.kent/config.toml`
 - `<workspace-root>/.kent/config.toml`

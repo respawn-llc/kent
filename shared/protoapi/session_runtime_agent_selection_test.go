@@ -18,7 +18,7 @@ import (
 
 func TestRoleDeclarationsSurviveSettingsTransportUnderEnvironmentOverride(t *testing.T) {
 	root, workspace := t.TempDir(), t.TempDir()
-	if err := os.WriteFile(filepath.Join(root, "config.toml"), []byte("[subagents.worker]\nmodel = \"declared-model\"\n"), 0o600); err != nil {
+	if err := os.WriteFile(filepath.Join(root, "config.toml"), []byte("[subagents.worker]\nmodel = \"declared-model\"\nconnection = [\"a\", \"b\"]\n"), 0o600); err != nil {
 		t.Fatal(err)
 	}
 	t.Setenv("KENT_MODEL", "environment-model")
@@ -40,6 +40,9 @@ func TestRoleDeclarationsSurviveSettingsTransportUnderEnvironmentOverride(t *tes
 	}
 	if !reflect.DeepEqual(role.Sources, app.Settings.Subagents["worker"].Sources) {
 		t.Fatal("transport changed declaration origins or materialized omitted declarations")
+	}
+	if !reflect.DeepEqual(role.Settings.Connection, app.Settings.Subagents["worker"].Settings.Connection) {
+		t.Fatalf("configured role selection was lost: %v", role.Settings.Connection)
 	}
 }
 
@@ -111,13 +114,17 @@ func TestRuntimeAgentSelectionRolePresence(t *testing.T) {
 			if err := proto.Unmarshal(encoded, &wire); err != nil {
 				t.Fatal(err)
 			}
-			selection, err := protoapi.SessionRuntimeAgentSelectionFromProto(&wire)
+			err = protoapi.Validate(&wire)
 			if !test.valid {
 				if err == nil {
 					t.Fatal("present invalid role accepted")
 				}
 				return
 			}
+			if err != nil {
+				t.Fatal(err)
+			}
+			selection, err := protoapi.SessionRuntimeAgentSelectionFromProto(&wire)
 			if err != nil {
 				t.Fatal(err)
 			}

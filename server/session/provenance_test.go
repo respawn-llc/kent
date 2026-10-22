@@ -3,7 +3,9 @@ package session
 import (
 	"testing"
 
+	"core/shared/config"
 	"core/shared/runtimeids"
+	"core/shared/sessioncontract"
 )
 
 func TestInitializeCreationContextSetsTypedProvenanceAtomically(t *testing.T) {
@@ -39,7 +41,7 @@ func TestInitializeCreationContextSetsTypedProvenanceAtomically(t *testing.T) {
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
 			child := newSessionTestLazyStoreAt(t, root)
-			if err := InitializeCreationContext(child, test.source, test.kind, ChildContextOptions{}); err != nil {
+			if err := InitializeCreationContext(child, test.source, test.kind, ChildContextOptions{InheritContinuation: true}); err != nil {
 				t.Fatalf("InitializeCreationContext: %v", err)
 			}
 			meta := child.Meta()
@@ -59,13 +61,23 @@ func TestInitializeCreationContextSetsTypedProvenanceAtomically(t *testing.T) {
 	}
 }
 
-func TestForkAndCloneRecordPreviousSessionAndPreserveParentAgentAncestry(t *testing.T) {
+func TestForkDetachesOwnershipWhileClonePreservesParentAgentAncestry(t *testing.T) {
 	root := t.TempDir()
 	parentAgent := newSessionTestStoreAt(t, root)
 	source := newSessionTestLazyStoreAt(t, root)
 	if err := InitializeCreationContext(source, parentAgent, SessionCreationSourceParentAgent, ChildContextOptions{}); err != nil {
 		t.Fatalf("initialize source ancestry: %v", err)
 	}
+	if err := source.SetWorkflowSnapshot(WorkflowSnapshot{CompletionMode: sessioncontract.WorkflowCompletionModeTool}); err != nil {
+		t.Fatal(err)
+	}
+	if err := source.SetContinuationContext(ContinuationContext{AgentRole: new("workflow-agent")}); err != nil {
+		t.Fatal(err)
+	}
+	if err := source.SetConnectionID(config.ConnectionID("workflow-connection")); err != nil {
+		t.Fatal(err)
+	}
+	markSessionTestLocked(t, source, sessionTestLockedContract())
 	if err := source.EnsureDurable(); err != nil {
 		t.Fatalf("persist source ancestry: %v", err)
 	}
@@ -79,14 +91,30 @@ func TestForkAndCloneRecordPreviousSessionAndPreserveParentAgentAncestry(t *test
 	if err != nil {
 		t.Fatalf("ForkAtUserMessage: %v", err)
 	}
-	cloned, err := CloneSession(sourceLog, "cloned", testSessionCategory, ForkThinking{Desired: "medium", PreserveNativeUpdates: true})
+	cloned, err := CloneSession(sourceLog, new("cloned"), testSessionCategory, ForkThinking{Desired: "medium", PreserveNativeUpdates: true})
 	if err != nil {
 		t.Fatalf("CloneSession: %v", err)
 	}
 	for name, derived := range map[string]*Store{"forked": forked, "cloned": cloned} {
 		meta := derived.Meta()
 		assertOptionalProvenanceID(t, name+" previous", meta.PreviousSessionID, mustProvenanceSessionID(t, source.Meta().SessionID))
-		assertOptionalProvenanceID(t, name+" parent agent", meta.ParentAgentSessionID, mustProvenanceSessionID(t, parentAgent.Meta().SessionID))
+		if meta.SessionID == source.Meta().SessionID {
+			t.Fatal("child reused source identity")
+		}
+		if name == "forked" {
+			assertOptionalProvenanceID(t, name+" parent agent", meta.ParentAgentSessionID, nil)
+			if meta.WorkflowSnapshot != nil || meta.Continuation != nil || meta.ConnectionID != nil {
+				t.Fatalf("interactive fork retained workflow execution context: %+v", meta)
+			}
+		} else {
+			assertOptionalProvenanceID(t, name+" parent agent", meta.ParentAgentSessionID, mustProvenanceSessionID(t, parentAgent.Meta().SessionID))
+			if meta.WorkflowSnapshot != nil || meta.Continuation != nil || meta.ConnectionID != nil || meta.Locked != nil {
+				t.Fatalf("workflow clone retained source execution settings: %+v", meta)
+			}
+		}
+	}
+	if source.Meta().WorkflowSnapshot == nil || source.Meta().Continuation == nil || source.Meta().ConnectionID == nil || source.Meta().ParentAgentSessionID == nil {
+		t.Fatal("fork changed source execution context")
 	}
 }
 
@@ -113,8 +141,8 @@ func assertOptionalProvenanceID(t *testing.T, label string, got *runtimeids.Sess
 }
 
 func TestNavigationTargetSessionIDPrefersPreviousAndReturnsCopy(t *testing.T) {
-	previous := mustProvenanceSessionID(t, "previous-session")
-	parentAgent := mustProvenanceSessionID(t, "parent-agent-session")
+	previous := mustProvenanceSessionID(t, runtimeids.NewSessionID().String())
+	parentAgent := mustProvenanceSessionID(t, runtimeids.NewSessionID().String())
 	meta := Meta{PreviousSessionID: previous, ParentAgentSessionID: parentAgent}
 
 	target := NavigationTargetSessionID(meta)
@@ -125,7 +153,7 @@ func TestNavigationTargetSessionIDPrefersPreviousAndReturnsCopy(t *testing.T) {
 }
 
 func TestNavigationTargetSessionIDFallsBackToParentAgent(t *testing.T) {
-	parentAgent := mustProvenanceSessionID(t, "parent-agent-session")
+	parentAgent := mustProvenanceSessionID(t, runtimeids.NewSessionID().String())
 	target := NavigationTargetSessionID(Meta{ParentAgentSessionID: parentAgent})
 	assertOptionalProvenanceID(t, "navigation target", target, parentAgent)
 }

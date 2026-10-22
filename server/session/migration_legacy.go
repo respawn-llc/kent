@@ -322,7 +322,13 @@ func decodeLegacyCacheRequestV0(payload json.RawMessage) (CacheRequestObservatio
 		return CacheRequestObservationRecord{}, fmt.Errorf("decode legacy cache request: %w", err)
 	}
 	normalizeLegacyCacheFacts(&legacy.DigestVersion, &legacy.Scope)
-	return CacheRequestObservationRecord(legacy), nil
+	return CacheRequestObservationRecord{
+		DigestVersion: legacy.DigestVersion,
+		CacheKey:      legacy.CacheKey,
+		Scope:         legacy.Scope,
+		ChunkCount:    legacy.ChunkCount,
+		TerminalHash:  legacy.TerminalHash,
+	}, nil
 }
 
 func decodeLegacyCacheResponseV0(payload json.RawMessage) (CacheResponseObservationRecord, error) {
@@ -639,10 +645,10 @@ func (o *legacyMigrationOutput) writeRecord(record EventRecord) (EventRecord, er
 		return EventRecord{}, err
 	}
 	if replacement, ok := payload.(HistoryReplacementRecord); ok {
-		replacement = rebaseHistoryReplacementRollbackCandidate(
-			replacement,
-			o.latestRollbackCandidate,
-		)
+		replacement.LatestRollbackCandidate, err = normalizeRollbackCandidate(o.latestRollbackCandidate)
+		if err != nil {
+			return EventRecord{}, err
+		}
 		record, err = NewEventRecord(record.Seq(), record.StepID(), replacement)
 		if err != nil {
 			return EventRecord{}, fmt.Errorf(

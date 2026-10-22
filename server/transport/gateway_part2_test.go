@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"core/internal/testharness/postprocessfixture"
+	"core/internal/testharness/requestfixture"
 	"core/internal/testharness/testsetup"
 	serverbootstrap "core/server/bootstrap"
 	"core/server/core"
@@ -25,13 +26,16 @@ import (
 	"core/server/tools/shell/postprocess"
 	remoteclient "core/shared/client"
 	"core/shared/config"
+	"core/shared/protoapi"
 	connectionpb "core/shared/protoapi/gen/kent/api/connection"
 	processpb "core/shared/protoapi/gen/kent/api/process"
 	runtimepb "core/shared/protoapi/gen/kent/api/runtime"
 	sessionpb "core/shared/protoapi/gen/kent/api/session"
 	sessionlaunchpb "core/shared/protoapi/gen/kent/api/session_launch"
+	sharedpb "core/shared/protoapi/gen/kent/api/shared"
 	transcriptpb "core/shared/protoapi/gen/kent/api/transcript"
 	worktreepb "core/shared/protoapi/gen/kent/api/worktree"
+	"core/shared/runtimeids"
 	"core/shared/sessioncontract"
 	"core/shared/textutil"
 	"core/shared/worktreecontract"
@@ -44,7 +48,7 @@ func newGatewayTestServerForConfig(t *testing.T, cfg config.App) (*core.Core, *h
 func newGatewayTestServerForConfigOptions(t *testing.T, cfg config.App, options core.Options) (*core.Core, *httptest.Server) {
 	t.Helper()
 	cfg.Settings = testsetup.WriteProviderSettings(t, cfg.PersistenceRoot, cfg.Settings)
-	authSupport := newGatewayTestAuthSupport(t, true)
+	authSupport := newGatewayTestAuthSupport(t, cfg.PersistenceRoot, true)
 	background, err := serverbootstrap.BuildShellManager(cfg)
 	if err != nil {
 		t.Fatalf("BuildShellManager: %v", err)
@@ -148,7 +152,7 @@ func TestGatewayProjectRemoteContinuesAfterActiveStepScheduledCrossProjectMove(t
 		}),
 	})
 	movedSession := createGatewayAuthoritativeSession(t, appCore)
-	_ = activateGatewayController(t, appCore, movedSession.Meta().SessionID)
+	activateGatewayController(t, appCore, movedSession.Meta().SessionID)
 	foreignSession, err := session.Create(
 		filepath.Join(targetConfig.Config.PersistenceRoot, "projects", targetBinding.ProjectID, "sessions"),
 		"target",
@@ -173,7 +177,7 @@ func TestGatewayProjectRemoteContinuesAfterActiveStepScheduledCrossProjectMove(t
 	}
 	defer func() { _ = remote.Close() }()
 	transcript, err := remote.SubscribeSessionTranscript(context.Background(), &transcriptpb.SubscribeRequest{
-		SessionId: movedSession.Meta().SessionID,
+		SessionId: protoapi.SessionSelectorToProto(*movedSession.Identity().ShortID),
 	})
 	if err != nil {
 		t.Fatalf("SubscribeSessionTranscript: %v", err)
@@ -189,7 +193,7 @@ func TestGatewayProjectRemoteContinuesAfterActiveStepScheduledCrossProjectMove(t
 
 	modelClient.setRun(func() error {
 		activeView, err := remote.GetSessionMainView(context.Background(), &sessionpb.MainViewRequest{
-			SessionId: movedSession.Meta().SessionID,
+			SessionId: &sharedpb.SessionSelector{Value: &sharedpb.SessionSelector_SessionId{SessionId: movedSession.Meta().SessionID}},
 		})
 		if err != nil {
 			return err
@@ -199,12 +203,12 @@ func TestGatewayProjectRemoteContinuesAfterActiveStepScheduledCrossProjectMove(t
 			return errors.New("originating Agent Step is required")
 		}
 		response, err := remote.RetargetSessionWorkspace(context.Background(), &sessionlaunchpb.SessionRetargetWorkspaceRequest{
-			SessionId:     movedSession.Meta().SessionID,
+			SessionId:     requestfixture.Selector(t, movedSession.Meta().SessionID),
 			WorkspaceRoot: targetConfig.Config.WorkspaceRoot,
 			ProjectId:     &targetBinding.ProjectID,
 			Origin: &sessionlaunchpb.RuntimeStepOrigin{
-				RunId:  active.RunId,
-				StepId: active.StepId,
+				SessionId: movedSession.Meta().SessionID,
+				StepId:    active.StepId,
 			},
 		})
 		if err != nil {
@@ -214,7 +218,7 @@ func TestGatewayProjectRemoteContinuesAfterActiveStepScheduledCrossProjectMove(t
 			return errors.New("active-step Session rebind completed synchronously")
 		}
 		acknowledgedView, err := remote.GetSessionMainView(context.Background(), &sessionpb.MainViewRequest{
-			SessionId: movedSession.Meta().SessionID,
+			SessionId: &sharedpb.SessionSelector{Value: &sharedpb.SessionSelector_SessionId{SessionId: movedSession.Meta().SessionID}},
 		})
 		if err != nil {
 			return err
@@ -224,9 +228,8 @@ func TestGatewayProjectRemoteContinuesAfterActiveStepScheduledCrossProjectMove(t
 		}
 		return nil
 	})
-	submission, err := remote.SubmitUserTurn(context.Background(), &runtimepb.SubmitUserTurnRequest{
-		SessionId: movedSession.Meta().SessionID,
-		Input:     &runtimepb.UserTurnInput{Input: &runtimepb.UserTurnInput_Text{Text: "move this Session"}},
+	submission, err := remote.SubmitUserTurn(context.Background(), &runtimepb.SubmitUserTurnRequest{QueueItemId: runtimeids.NewQueueItemID().String(), SessionId: movedSession.Meta().SessionID,
+		Input: &runtimepb.UserTurnInput{Input: &runtimepb.UserTurnInput_Text{Text: "move this Session"}},
 	})
 	if err != nil {
 		t.Fatalf("SubmitUserTurn with self-rebind: %v", err)
@@ -297,7 +300,7 @@ func TestGatewayProjectRemoteContinuesAfterActiveStepScheduledCrossProjectMove(t
 	}
 	waitForGatewayCondition(t, "retained Runtime to finish its originating execution", func() bool {
 		view, viewErr := destination.GetSessionMainView(context.Background(), &sessionpb.MainViewRequest{
-			SessionId: movedSession.Meta().SessionID,
+			SessionId: &sharedpb.SessionSelector{Value: &sharedpb.SessionSelector_SessionId{SessionId: movedSession.Meta().SessionID}},
 		})
 		return viewErr == nil && view.MainView.Activity.State == runtimepb.ActivityState_RUNTIME_ACTIVITY_REGISTERED_IDLE
 	})
@@ -324,11 +327,14 @@ func TestGatewaySessionReattachCapabilitySurvivesGatewayReplacement(t *testing.T
 	if err != nil {
 		t.Fatalf("NewGateway first: %v", err)
 	}
+	if movedSession.Identity().ShortID == nil {
+		t.Fatal("fresh Session has no assigned number")
+	}
 	firstAttachment, err := invokeBinaryAttachSession(
 		firstGateway,
 		t.Context(),
 		&connectionState{attachedProject: sourceBinding.ProjectID},
-		&connectionpb.AttachSessionRequest{SessionId: movedSession.Meta().SessionID},
+		&connectionpb.AttachSessionRequest{SessionId: protoapi.SessionSelectorToProto(*movedSession.Identity().ShortID)},
 	)
 	if err != nil {
 		t.Fatalf("attach Session before move: %v", err)
@@ -337,7 +343,7 @@ func TestGatewaySessionReattachCapabilitySurvivesGatewayReplacement(t *testing.T
 
 	if _, err := appCore.SessionLifecycleClient().RetargetSessionWorkspace(
 		t.Context(), &sessionlaunchpb.SessionRetargetWorkspaceRequest{
-			SessionId:     movedSession.Meta().SessionID,
+			SessionId:     requestfixture.Selector(t, movedSession.Meta().SessionID),
 			WorkspaceRoot: targetConfig.Config.WorkspaceRoot,
 			ProjectId:     &targetBinding.ProjectID,
 		},
@@ -354,7 +360,7 @@ func TestGatewaySessionReattachCapabilitySurvivesGatewayReplacement(t *testing.T
 		t.Context(),
 		&connectionState{attachedProject: sourceBinding.ProjectID},
 		&connectionpb.AttachSessionRequest{
-			SessionId:          movedSession.Meta().SessionID,
+			SessionId:          protoapi.SessionSelectorToProto(movedSession.Identity().ID),
 			ReattachCapability: &capability,
 		},
 	)
@@ -406,6 +412,30 @@ func TestGatewayRequiresExplicitWorkspaceSelectionForMultiWorkspaceProject(t *te
 	target := gatewaySessionExecutionTarget(t, conn, "main-view-after-explicit-workspace", planResp.Plan.SessionId)
 	if got, want := target.EffectiveWorkdir, bindingB.CanonicalRoot; got != want {
 		t.Fatalf("planned execution workdir = %q, want %q", got, want)
+	}
+}
+
+func TestGatewayAttachMissingNumericSessionOmitsUnknownUUID(t *testing.T) {
+	fixture := newRoutePolicyFixture(t)
+	shortID, err := runtimeids.NewSessionShortID(runtimeids.MaxSessionShortID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	request := &connectionpb.AttachSessionRequest{SessionId: protoapi.SessionSelectorToProto(shortID)}
+	state := &connectionState{attachedProject: fixture.bindingA.ProjectID}
+	_, err = invokeBinaryAttachSession(fixture.gateway, t.Context(), state, request)
+	if !errors.Is(err, sessioncontract.ErrSessionNotFound) {
+		t.Fatalf("missing numeric attachment = %v", err)
+	}
+	if closeErr := fixture.appCore.MetadataStore().Close(); closeErr != nil {
+		t.Fatal(closeErr)
+	}
+	failure, ok := binaryAttachSessionFailure(fixture.gateway, state, request, err).(*connectionpb.AttachSessionError)
+	if !ok || failure.GetSessionNotFound() == nil || failure.GetSessionNotFound().SessionId != nil {
+		t.Fatalf("missing numeric failure invented an identity: %v", failure)
+	}
+	if err := protoapi.Validate(failure); err != nil {
+		t.Fatal(err)
 	}
 }
 
@@ -505,7 +535,6 @@ func TestGatewayScopesProcessViewsAndAllowsGlobalKill(t *testing.T) {
 		Command:        []string{"/bin/sh", "-lc", "printf own\\n; sleep 1"},
 		DisplayCommand: "printf own; sleep 1",
 		OwnerSessionID: storeA.Meta().SessionID,
-		OwnerRunID:     "run-a",
 		OwnerStepID:    "step-a",
 		Workdir:        appCore.Config().WorkspaceRoot,
 		YieldTime:      time.Millisecond,
@@ -518,7 +547,6 @@ func TestGatewayScopesProcessViewsAndAllowsGlobalKill(t *testing.T) {
 		Command:        []string{"/bin/sh", "-lc", "printf foreign\\n; sleep 1"},
 		DisplayCommand: "printf foreign; sleep 1",
 		OwnerSessionID: storeB.Meta().SessionID,
-		OwnerRunID:     "run-b",
 		OwnerStepID:    "step-b",
 		Workdir:        resolvedB.Config.WorkspaceRoot,
 		YieldTime:      time.Millisecond,
@@ -573,7 +601,7 @@ func TestGatewayRemoteResolveWorktreeCreateTarget(t *testing.T) {
 	defer func() { _ = remote.Close() }()
 
 	resp, err := remote.ResolveWorktreeCreateTarget(context.Background(), &worktreepb.CreateTargetResolveRequest{
-		Scope:  worktreecontract.SessionManagementScope(store.Meta().SessionID),
+		Scope:  worktreecontract.SessionManagementScope(&sharedpb.SessionSelector{Value: &sharedpb.SessionSelector_SessionId{SessionId: store.Meta().SessionID}}),
 		Target: "HEAD",
 	})
 	if err != nil {

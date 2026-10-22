@@ -32,7 +32,9 @@ import { createWorktreeCreate, useWorktreeCreate } from "./WorktreeCreate";
 import type { createWorktreeActions } from "./WorktreeActions";
 
 type Props = Readonly<{
+  projectID: string;
   sessionID: string;
+  openSession(sessionID: string): void | Promise<void>;
   navigator: SidebarPageNavigator;
   actions: ReturnType<typeof createWorktreeActions>;
 }>;
@@ -47,32 +49,44 @@ export function WorktreeCreateForm(props: Props) {
       <IconTooltipButton
         label={t("chat.worktree.back")}
         onClick={() =>
-          props.navigator.replace({ kind: "worktree", page: "list", sessionID: props.sessionID })
+          props.navigator.replace({
+            kind: "worktree",
+            page: "list",
+            projectID: props.projectID,
+            sessionID: props.sessionID,
+            openSession: props.openSession,
+          })
         }
       >
         <ArrowLeft size={16} />
       </IconTooltipButton>
     ),
-    [props.navigator, props.sessionID, t],
+    [props.navigator, props.projectID, props.sessionID, props.openSession, t],
   );
   usePublishSidebarHeaderAction(header);
   useEffect(() => {
     const back = (event: KeyboardEvent) => {
       if (event.key !== "Escape" || event.defaultPrevented) return;
       event.preventDefault();
-      props.navigator.replace({ kind: "worktree", page: "list", sessionID: props.sessionID });
+      props.navigator.replace({
+        kind: "worktree",
+        page: "list",
+        projectID: props.projectID,
+        sessionID: props.sessionID,
+        openSession: props.openSession,
+      });
     };
     document.addEventListener("keydown", back);
     return () => {
       document.removeEventListener("keydown", back);
     };
-  }, [props.navigator, props.sessionID]);
+  }, [props.navigator, props.projectID, props.sessionID, props.openSession]);
   if (query.data !== undefined)
     return <CreateFields {...props} suggestion={query.data.branchSuggestion} query={query} />;
   if (query.isError)
     return (
       <ErrorState
-        fullPage={false}
+        surface="plain"
         title={t("states.error")}
         body={errorMessage(query.error)}
         retryLabel={t("app.retry")}
@@ -81,11 +95,13 @@ export function WorktreeCreateForm(props: Props) {
         }}
       />
     );
-  return <LoadingState fullPage={false} appearanceDelayMs={0} />;
+  return <LoadingState surface="plain" appearanceDelayMs={0} />;
 }
 
 function CreateFields({
+  projectID,
   sessionID,
+  openSession,
   navigator,
   actions,
   suggestion,
@@ -104,7 +120,9 @@ function CreateFields({
     createWorktreeCreate({
       client,
       api,
+      projectID,
       sessionID,
+      openSession,
       navigator,
       suggestion,
       push,
@@ -124,6 +142,7 @@ function CreateFields({
   if (query.isError || resolution?.isError)
     return (
       <ErrorState
+        surface="plain"
         title={t("states.error")}
         body={errorMessage(query.isError ? query.error : resolution?.error)}
         retryLabel={t("app.retry")}

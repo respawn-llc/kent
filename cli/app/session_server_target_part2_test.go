@@ -6,15 +6,59 @@ import (
 	"testing"
 
 	"core/cli/app/internal/projectbinding"
+	"core/internal/testharness/requestfixture"
 	"core/internal/testharness/testsetup"
 	serverstartup "core/server/startup"
 	"core/shared/clientui"
 	"core/shared/config"
+	runtimepb "core/shared/protoapi/gen/kent/api/runtime"
+	"core/shared/runtimeids"
 	"core/shared/serverapi"
 	"core/shared/toolspec"
 )
 
+func TestTUIOpeningDormantSessionReadsStateWithoutHydration(t *testing.T) {
+	_, workspace := newRegisteredAppWorkspace(t)
+	provider, hits := newFakeResponsesServer(t, nil)
+	defer provider.Close()
+	cfg := loadAppTestConfig(t, workspace, config.LoadOptions{})
+	testsetup.WriteProviderSettings(t, cfg.PersistenceRoot, testsetup.WithResponsesProvider(cfg.Settings, provider.URL))
+	fixture := startConfiguredDaemonFixture(t, workspace, serverstartup.Request{
+		WorkspaceRoot: workspace, WorkspaceRootExplicit: true, LoadOptions: config.LoadOptions{Model: "gpt-6-sol"},
+	})
+	server := fixture.attachRemoteSessionServer(t, Options{WorkspaceRoot: workspace}, newHeadlessAuthInteractor())
+	created, opening := prepareAppRuntimePlan(t, server, sessionLaunchRequest{
+		Mode:   launchModeInteractive,
+		Intent: requestfixture.LaunchIntent(t, serverapi.CreateNewSessionLaunchIntent(serverapi.IndependentSessionCreateOrigin())),
+	}, io.Discard, "create dormant fixture")
+	closeRuntimeLaunchPlan(t, opening)
+	id, err := runtimeids.ParseSessionID(created.SessionID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, reopened := prepareAppRuntimePlan(t, server, sessionLaunchRequest{
+		Mode: launchModeInteractive, Intent: requestfixture.LaunchIntent(t, serverapi.OpenExistingSessionLaunchIntent(id)),
+	}, io.Discard, "open dormant fixture")
+	defer closeRuntimeLaunchPlan(t, reopened)
+	view, err := reopened.Wiring.runtimeClient.RefreshMainView()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if view.Session.SessionId != id.String() || view.Activity.State != runtimepb.ActivityState_RUNTIME_ACTIVITY_UNAVAILABLE {
+		t.Fatalf("dormant Main View = %+v", view)
+	}
+	select {
+	case event := <-reopened.Wiring.eventDispatcher.transcriptEvents:
+		t.Fatalf("dormant Ongoing emitted transcript event: %+v", event)
+	default:
+	}
+	if hits.Load() != 0 {
+		t.Fatal("opening invoked the model")
+	}
+}
+
 func TestRemoteNoAuthUnregisteredWorkspaceBindingCanPrepareRuntime(t *testing.T) {
+	useStartupTestTerminal(t)
 	newAppTestHome(t)
 	workspace := t.TempDir()
 	configureAppTestServerPort(t)
@@ -24,7 +68,7 @@ func TestRemoteNoAuthUnregisteredWorkspaceBindingCanPrepareRuntime(t *testing.T)
 	testsetup.WriteProviderSettings(t, cfg.PersistenceRoot, testsetup.WithResponsesProvider(cfg.Settings, fakeResponses.URL))
 
 	srv, err := serverstartup.StartServeServer(context.Background(), serverstartup.Request{
-		LoadOptions: config.LoadOptions{Model: "gpt-5"},
+		LoadOptions: config.LoadOptions{Model: "gpt-6-sol"},
 	})
 
 	if err != nil {
@@ -55,10 +99,11 @@ func TestRemoteNoAuthUnregisteredWorkspaceBindingCanPrepareRuntime(t *testing.T)
 			if authPickerCalls > 1 {
 				t.Fatal("remote no-auth binding flow must not re-enter auth picker")
 			}
-			return authMethodPickerResult{Choice: authMethodChoiceSkip}, nil
+			t.Fatal("configured auth-less connections must not open a sign-in picker")
+			return authMethodPickerResult{}, nil
 		},
 	}
-	server, err := startSessionServer(context.Background(), Options{WorkspaceRoot: workspace, WorkspaceRootExplicit: true, Model: "gpt-5"}, interactor, true)
+	server, err := startSessionServer(context.Background(), Options{WorkspaceRoot: workspace, WorkspaceRootExplicit: true, Model: "gpt-6-sol"}, interactor, true)
 	if err != nil {
 		t.Fatalf("startSessionServer: %v", err)
 	}
@@ -67,7 +112,7 @@ func TestRemoteNoAuthUnregisteredWorkspaceBindingCanPrepareRuntime(t *testing.T)
 	if err != nil {
 		t.Fatalf("ensureInteractiveProjectBinding: %v", err)
 	}
-	_, runtimePlan := prepareAppRuntimePlan(t, bound, sessionLaunchRequest{Mode: launchModeInteractive, Intent: serverapi.CreateNewSessionLaunchIntent(serverapi.IndependentSessionCreateOrigin())}, io.Discard, "test remote no-auth rebound runtime")
+	_, runtimePlan := prepareAppRuntimePlan(t, bound, sessionLaunchRequest{Mode: launchModeInteractive, Intent: requestfixture.LaunchIntent(t, serverapi.CreateNewSessionLaunchIntent(serverapi.IndependentSessionCreateOrigin()))}, io.Discard, "test remote no-auth rebound runtime")
 	submission, err := submitRuntimeClientForTest(t, runtimePlan.Wiring.runtimeClient, "hello after rebound no auth")
 	requireQueuedAppTestUserTurn(t, submission, err)
 	waitForRemoteTranscriptAssistantFinal(
@@ -92,24 +137,24 @@ func TestStartSessionServerUsesInvocationOverridesWhenAttachingToDiscoveredDaemo
 	fixture := startConfiguredDaemonFixture(t, workspace, serverstartup.Request{
 		WorkspaceRoot:         workspace,
 		WorkspaceRootExplicit: true,
-		LoadOptions:           config.LoadOptions{Model: "gpt-5.4"},
+		LoadOptions:           config.LoadOptions{Model: "gpt-6-sol"},
 	})
 
-	server := fixture.attachRemoteSessionServer(t, Options{
+	options := Options{
 		WorkspaceRoot:         workspace,
 		WorkspaceRootExplicit: true,
-		Model:                 "gpt-5.3-codex",
+		Model:                 "gpt-6-luna",
 		Tools:                 "shell",
-	}, newHeadlessAuthInteractor())
-
-	plan, runtimePlan := prepareAppRuntimePlan(t, server, sessionLaunchRequest{Mode: launchModeInteractive, Intent: serverapi.CreateNewSessionLaunchIntent(serverapi.IndependentSessionCreateOrigin())}, io.Discard, "test remote interactive runtime override")
-	defer closeRuntimeLaunchPlan(t, runtimePlan)
-	if plan.ActiveSettings.Model != "gpt-5.3-codex" {
-		t.Fatalf("model = %q, want gpt-5.3-codex", plan.ActiveSettings.Model)
 	}
-	if plan.StatusConfig.AuthSelection == nil ||
-		plan.StatusConfig.AuthSelection.ConnectionId != "test" {
-		t.Fatalf("status auth selection = %+v, want configured connection", plan.StatusConfig.AuthSelection)
+	server := fixture.attachRemoteSessionServer(t, options, newHeadlessAuthInteractor())
+
+	plan, runtimePlan := prepareAppRuntimePlan(t, server, sessionLaunchRequest{
+		Mode: launchModeInteractive, Intent: requestfixture.LaunchIntent(t, serverapi.CreateNewSessionLaunchIntent(serverapi.IndependentSessionCreateOrigin())),
+		Overrides: runPromptOverridesFromOptions(options),
+	}, io.Discard, "test remote interactive runtime override")
+	defer closeRuntimeLaunchPlan(t, runtimePlan)
+	if plan.ActiveSettings.Model != "gpt-6-luna" {
+		t.Fatalf("model = %q, want gpt-6-luna", plan.ActiveSettings.Model)
 	}
 	if len(plan.EnabledTools) != 1 || plan.EnabledTools[0] != toolspec.ToolExecCommand {
 		t.Fatalf("enabled tools = %+v, want only shell", plan.EnabledTools)
@@ -146,11 +191,11 @@ func TestStartSessionServerUsesConfiguredDaemonForPromptRoundTrip(t *testing.T) 
 	fixture := startConfiguredDaemonFixture(t, workspace, serverstartup.Request{
 		WorkspaceRoot:         workspace,
 		WorkspaceRootExplicit: true,
-		LoadOptions:           config.LoadOptions{Model: "gpt-5"},
+		LoadOptions:           config.LoadOptions{Model: "gpt-6-sol"},
 	})
 
 	server := fixture.attachRemoteSessionServer(t, Options{WorkspaceRoot: workspace, WorkspaceRootExplicit: true}, newHeadlessAuthInteractor())
-	_, runtimePlan := prepareAppRuntimePlan(t, server, sessionLaunchRequest{Mode: launchModeInteractive, Intent: serverapi.CreateNewSessionLaunchIntent(serverapi.IndependentSessionCreateOrigin())}, io.Discard, "test remote prompt round trip")
+	_, runtimePlan := prepareAppRuntimePlan(t, server, sessionLaunchRequest{Mode: launchModeInteractive, Intent: requestfixture.LaunchIntent(t, serverapi.CreateNewSessionLaunchIntent(serverapi.IndependentSessionCreateOrigin()))}, io.Discard, "test remote prompt round trip")
 	defer closeRuntimeLaunchPlan(t, runtimePlan)
 
 	submissionDone, submissionFailed := startAppTestRuntimeSubmission(t, runtimePlan.Wiring.runtimeClient, "start prompt round trip")

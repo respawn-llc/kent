@@ -110,7 +110,7 @@ func startStandingRunPromptServer(t *testing.T, workspace, openAIBaseURL string)
 	srv, err := serverstartup.StartServeServer(context.Background(), serverstartup.Request{
 		WorkspaceRoot:         workspace,
 		WorkspaceRootExplicit: true,
-		LoadOptions:           config.LoadOptions{Model: "gpt-5"},
+		LoadOptions:           config.LoadOptions{Model: "gpt-6-sol"},
 	})
 
 	if err != nil {
@@ -209,10 +209,15 @@ func createAppRuntimeSessionAt(t *testing.T, root string, workspaceContainerName
 func newAppRuntimeEngineWithStore(t *testing.T, store *session.Store, client llm.Client, cfg runtime.Config, handlers ...tools.HandlerRegistration) *runtime.Engine {
 	t.Helper()
 	if cfg.Model == "" {
-		cfg.Model = "gpt-5"
+		cfg.Model = "gpt-6-sol"
 	}
 	if cfg.GlobalConfigDir == "" {
 		cfg.GlobalConfigDir = t.TempDir()
+	}
+	if cfg.ProjectWorkspaceContextReader == nil {
+		metadataStore := testsetup.OpenStore(t, filepath.Dir(store.Dir()))
+		testsetup.ImportSessionProjectWorkspaceContext(t, metadataStore, store)
+		cfg.ProjectWorkspaceContextReader = metadataStore
 	}
 	eventLog, err := store.MaterializeEventLog()
 	if err != nil {

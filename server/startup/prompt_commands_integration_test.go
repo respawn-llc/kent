@@ -10,12 +10,16 @@ import (
 	"time"
 
 	modelstub "core/internal/testharness/pty/blackbox"
+	"core/internal/testharness/requestfixture"
 	"core/internal/testharness/testsetup"
+	"core/server/auth"
+	"core/server/authservice"
 	"core/server/metadata"
 	"core/server/onboarding"
 	"core/shared/client"
 	"core/shared/config"
 	"core/shared/protoapi"
+	authpb "core/shared/protoapi/gen/kent/api/auth"
 	onboardingpb "core/shared/protoapi/gen/kent/api/onboarding"
 	promptcommandpb "core/shared/protoapi/gen/kent/api/prompt_command"
 	runtimepb "core/shared/protoapi/gen/kent/api/runtime"
@@ -23,6 +27,7 @@ import (
 	"core/shared/serverapi"
 	"core/shared/textutil"
 
+	"core/shared/runtimeids"
 	"github.com/google/uuid"
 )
 
@@ -56,7 +61,14 @@ func TestRemotePromptCommandStartupCatalogAndInvocationUseImportedServerContent(
 		t.Fatal(err)
 	}
 	providerID := "claude_code"
-	finalizer, err := onboarding.NewFinalizer(onboarding.Options{PersistenceRoot: cfg.PersistenceRoot, WorkspaceRoot: workspaceA, HomeDir: os.Getenv("HOME"), SettingsPath: cfg.Source.File(config.FileGlobal).Path})
+	connections := authservice.NewBootstrapService(t.Context(), authservice.NewConnectionResolver(cfg.PersistenceRoot, auth.NewManager(auth.NewMemoryStore(auth.EmptyState()), nil), nil), auth.OpenAIOAuthOptions{})
+	endpoint := "http://localhost:1234/v1"
+	if _, err := connections.ConfigureConnection(t.Context(), &authpb.ConfigureConnectionRequest{Change: &authpb.ConfigureConnectionRequest_PendingSetup{
+		PendingSetup: &authpb.ConnectionDefinition{Id: "local", Protocol: authpb.ConnectionProtocol_CONNECTION_PROTOCOL_RESPONSES, Endpoint: &endpoint},
+	}}); err != nil {
+		t.Fatal(err)
+	}
+	finalizer, err := onboarding.NewFinalizer(onboarding.Options{Baseline: config.DefaultOnboardingSettings(), PersistenceRoot: cfg.PersistenceRoot, WorkspaceRoot: workspaceA, HomeDir: os.Getenv("HOME"), SettingsPath: cfg.Source.File(config.FileGlobal).Path, Connections: connections})
 	if err != nil {
 		t.Fatalf("NewFinalizer: %v", err)
 	}
@@ -84,7 +96,7 @@ func TestRemotePromptCommandStartupCatalogAndInvocationUseImportedServerContent(
 		t.Fatal(err)
 	}
 	if err := os.WriteFile(filepath.Join(workspaceConfigDir, "config.toml"), []byte(
-		"model = \"gpt-5\"\n",
+		"model = \"gpt-6-sol\"\n",
 	), 0o600); err != nil {
 		t.Fatal(err)
 	}
@@ -94,7 +106,7 @@ func TestRemotePromptCommandStartupCatalogAndInvocationUseImportedServerContent(
 		WorkspaceRoot:         workspaceA,
 		WorkspaceRootExplicit: true,
 		LoadOptions: config.LoadOptions{
-			Model: "gpt-5",
+			Model: "gpt-6-sol",
 		},
 	})
 	connection, err := server.Config().Settings.SelectedConnection()
@@ -119,7 +131,7 @@ func TestRemotePromptCommandStartupCatalogAndInvocationUseImportedServerContent(
 		t.Fatalf("catalog = %+v", catalog.Commands)
 	}
 
-	intent, err := protoapi.SessionLaunchIntentToProto(
+	intent, err := protoapi.SessionLaunchRequestIntentToProto(
 		serverapi.CreateNewSessionLaunchIntent(serverapi.IndependentSessionCreateOrigin()),
 	)
 	if err != nil {
@@ -142,34 +154,24 @@ func TestRemotePromptCommandStartupCatalogAndInvocationUseImportedServerContent(
 	}
 	enabledToolIDs := make([]string, 0, len(plan.Plan.EnabledToolIds))
 	for _, generatedToolID := range plan.Plan.EnabledToolIds {
-		toolID, conversionErr := protoapi.SessionToolIDFromProto(generatedToolID)
-		if conversionErr != nil {
-			t.Fatalf("convert enabled tool ID: %v", conversionErr)
-		}
+		toolID := protoapi.SessionToolIDFromProto(generatedToolID)
 		enabledToolIDs = append(enabledToolIDs, string(toolID))
 	}
-	attachment, err := remote.ActivateSessionRuntime(context.Background(), serverapi.SessionRuntimeActivateRequest{
-		SessionID:             plan.Plan.SessionId,
-		ActiveSettings:        activeSettings,
-		EnabledToolIDs:        enabledToolIDs,
-		QuestionsEnabled:      textutil.Value(plan.Plan.QuestionsEnabled),
-		AutoCompactionEnabled: textutil.Value(plan.Plan.AutoCompactionEnabled),
-		Source:                source,
+	err = remote.ActivateSessionRuntime(context.Background(), serverapi.SessionRuntimeActivateRequest{
+		SessionID: requestfixture.SessionID(t, plan.Plan.SessionId), SessionRuntimePreparationOptions: serverapi.SessionRuntimePreparationOptions{ActiveSettings: activeSettings,
+			EnabledToolIDs:        enabledToolIDs,
+			QuestionsEnabled:      textutil.Value(plan.Plan.QuestionsEnabled),
+			AutoCompactionEnabled: textutil.Value(plan.Plan.AutoCompactionEnabled),
+			Source:                source},
 	})
 	if err != nil {
 		t.Fatalf("ActivateSessionRuntime: %v", err)
 	}
-	if _, err := remote.SubmitUserTurn(context.Background(), &runtimepb.SubmitUserTurnRequest{
-		SessionId: plan.Plan.SessionId,
-		Input:     &runtimepb.UserTurnInput{Input: &runtimepb.UserTurnInput_PromptCommand{PromptCommand: &runtimepb.PromptCommandInput{Name: "prompt:remote_demo", Arguments: "hello world"}}},
+	if _, err := remote.SubmitUserTurn(context.Background(), &runtimepb.SubmitUserTurnRequest{QueueItemId: runtimeids.NewQueueItemID().String(), SessionId: plan.Plan.SessionId,
+		Input: &runtimepb.UserTurnInput{Input: &runtimepb.UserTurnInput_PromptCommand{PromptCommand: &runtimepb.PromptCommandInput{Name: "prompt:remote_demo", Arguments: "hello world"}}},
 	}); err != nil {
 		t.Fatalf("SubmitUserTurn: %v", err)
 	}
-	_, _ = remote.ReleaseSessionRuntime(context.Background(), serverapi.SessionRuntimeReleaseRequest{
-		Attachment:  attachment,
-		DropOwner:   true,
-		ClosePolicy: serverapi.SessionRuntimeReleaseClosePolicyDetachOnly,
-	})
 	var body json.RawMessage
 	testsetup.RequireUntil(t, time.Now().Add(10*time.Second), 10*time.Millisecond, func() bool {
 		for _, call := range responseServer.Snapshot().Observed {

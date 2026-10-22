@@ -9,16 +9,15 @@ import (
 	"testing"
 
 	modelstub "core/internal/testharness/pty/blackbox"
+	"core/internal/testharness/requestfixture"
 	"core/internal/testharness/testsetup"
 	"core/server/auth"
 	"core/server/launch"
-	"core/server/metadata"
 	"core/server/runtime"
 	"core/server/session"
 	"core/server/session/sessiontest"
 	"core/server/sessionlaunch"
 	"core/shared/config"
-	worktreepb "core/shared/protoapi/gen/kent/api/worktree"
 	"core/shared/runtimeids"
 	"core/shared/serverapi"
 	"core/shared/sessioncontract"
@@ -47,11 +46,7 @@ func runPromptSenderProvenanceCase(t *testing.T, agent bool, create bool) {
 	ctx := context.Background()
 	root := t.TempDir()
 	workspace := t.TempDir()
-	meta, err := metadata.Open(root)
-	if err != nil {
-		t.Fatalf("metadata.Open: %v", err)
-	}
-	t.Cleanup(func() { _ = meta.Close() })
+	meta := testsetup.OpenStore(t, root)
 	binding, err := meta.RegisterWorkspaceBinding(ctx, workspace)
 	if err != nil {
 		t.Fatalf("RegisterWorkspaceBinding: %v", err)
@@ -70,13 +65,13 @@ func runPromptSenderProvenanceCase(t *testing.T, agent bool, create bool) {
 	}
 
 	var callerID *string
-	var callerRuntimeID *runtimeids.SessionID
+	var callerIdentity *runtimeids.SessionIdentity
 	if agent {
 		caller := createSession(sessioncontract.SessionCategoryMain)
 		id := caller.Meta().SessionID
 		callerID = &id
-		parsedID := mustRunPromptSessionID(t, id)
-		callerRuntimeID = &parsedID
+		identity := caller.Identity()
+		callerIdentity = &identity
 	}
 	var targetID string
 	if !create {
@@ -88,10 +83,7 @@ func runPromptSenderProvenanceCase(t *testing.T, agent bool, create bool) {
 	wantContent := prompt
 	wantRole := session.MessageRoleUser
 	if agent {
-		steer, err := runtime.NewAgentSteer(*callerRuntimeID, prompt)
-		if err != nil {
-			t.Fatalf("NewAgentSteer: %v", err)
-		}
+		steer := runtime.NewAgentSteer(*callerIdentity, prompt)
 		message := steer.Message()
 		if message.Content == nil {
 			t.Fatal("NewAgentSteer returned absent content")
@@ -116,27 +108,34 @@ func runPromptSenderProvenanceCase(t *testing.T, agent bool, create bool) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	cfg.Settings.Model = "gpt-5"
+	cfg.Settings.Model = "gpt-6-sol"
 	cfg.Settings = testsetup.WriteProviderSettings(t, cfg.PersistenceRoot, testsetup.WithResponsesProvider(cfg.Settings, provider.URL))
 	cfg.Settings.EnabledTools = map[toolspec.ID]bool{}
 	cfg.Settings.MaxSubagentDepth = 2
+	if agent && !create {
+		cfg.Settings.Subagents[config.DefaultSubagentRole] = config.SubagentRole{
+			AgentCallable: false,
+			Sources: map[string]config.Origin{"agent_callable": {
+				Kind: config.SourceInput, Property: config.PropertyAddress{Key: "agent_callable"},
+			}},
+		}
+	}
 	cfg.Settings.Shell.PostprocessingMode = config.ShellPostprocessingModeBuiltin
 	history := &recordingPromptHistoryStore{}
-	authority := newTestHeadlessRuntimeAuthority(root, authManager, nil, storeOptions...)
+	authority, liveRunObserver := newObservedTestHeadlessRuntimeAuthority(t, root, nil, meta, authManager, nil, storeOptions...)
 	client := NewInProcessRunPromptClient(HeadlessBootstrap{
+		Metadata: meta,
 		SessionLaunch: sessionlaunch.NewService(launch.Planner{
 			Config:            cfg,
 			ContainerDir:      containerDir,
 			StoreOptions:      storeOptions,
 			PersistedSessions: meta,
+			CallerSessions:    meta,
 			SessionProjects:   fixedSessionProjectResolver{}, ManagedWorktreeRoots: fixedSessionProjectResolver{},
-			ExecutionTargets: fixedSessionExecutionTargetResolver{target: &worktreepb.SessionExecutionTarget{
-				WorkspaceRoot:    workspace,
-				CwdRelpath:       ".",
-				EffectiveWorkdir: workspace,
-			}},
-		}),
+			ExecutionTargets: meta,
+		}, sessionlaunch.ChatSettingsOwner{}, meta),
 		RuntimeAuthority: authority,
+		LiveRunObserver:  liveRunObserver,
 		PromptHistory:    history,
 	})
 
@@ -144,7 +143,7 @@ func runPromptSenderProvenanceCase(t *testing.T, agent bool, create bool) {
 	if create {
 		if agent {
 			intent = serverapi.CreateNewSessionLaunchIntent(
-				serverapi.ParentAgentSessionCreateOrigin(*callerRuntimeID),
+				serverapi.ParentAgentSessionCreateOrigin(callerIdentity.ID),
 			)
 		} else {
 			intent = serverapi.CreateNewSessionLaunchIntent(serverapi.IndependentSessionCreateOrigin())
@@ -152,11 +151,11 @@ func runPromptSenderProvenanceCase(t *testing.T, agent bool, create bool) {
 	} else {
 		intent = serverapi.OpenExistingSessionLaunchIntent(mustRunPromptSessionID(t, targetID))
 	}
-	response, err := client.RunPrompt(ctx, serverapi.RunPromptRequest{
+	response, err := client.RunPrompt(ctx, requestfixture.RunPrompt(t, serverapi.RunPromptRequest{
 		Intent:          intent,
 		CallerSessionID: callerID,
 		Prompt:          prompt,
-	}, nil)
+	}), nil)
 	if err != nil {
 		t.Fatalf("RunPrompt: %v", err)
 	}

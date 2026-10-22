@@ -14,7 +14,7 @@ import (
 	"core/server/workflow"
 	"core/shared/jsoncontract"
 	"core/shared/runtimeids"
-	"core/shared/serverapi"
+	"core/shared/workflowcontract"
 )
 
 // CurrentNodeInterruptionPostCommitDiagnostic reports that interruption
@@ -50,16 +50,16 @@ func (s *Store) ListCurrentNodes(ctx context.Context, taskID workflow.TaskID) ([
 	return s.listTaskCurrentNodes(ctx, s.queries, taskID)
 }
 
-func (s *Store) publishCurrentNodeTaskEvent(ctx context.Context, taskID workflow.TaskID, action serverapi.WorkflowProjectEventAction) error {
+func (s *Store) publishCurrentNodeTaskEvent(ctx context.Context, taskID workflow.TaskID, action workflowcontract.EventAction) error {
 	task, err := s.queries.GetTask(ctx, string(taskID))
 	if err != nil {
 		return fmt.Errorf("read task for current node event: %w", err)
 	}
 	workflowID := task.WorkflowID
-	if err := s.PublishWorkflowEvent(ctx, WorkflowEventRecord{
+	if err := s.PublishWorkflowEvent(ctx, workflowcontract.Event{
 		ProjectID:       &task.ProjectID,
 		WorkflowID:      &workflowID,
-		Resource:        serverapi.WorkflowProjectEventResourceTask,
+		Resource:        workflowcontract.EventResourceTask,
 		Action:          action,
 		PrimaryEntityID: string(taskID),
 	}); err != nil {
@@ -195,27 +195,6 @@ func newNonExecutableCurrentNodeWithPriorValues(
 		return workflow.CurrentNode{}, err
 	}
 	return workflow.NewCurrentNodeWithMaterializedValues(reference, nil, priorValues, nil, nil)
-}
-
-func newReadyCurrentNode(taskID workflow.TaskID, nodeID workflow.NodeID, enteredByEdgeID workflow.EdgeID, selection *workflow.AgentExecutionSelection) (workflow.CurrentNode, error) {
-	reference, err := workflow.NewCurrentNodeReference(taskID, nodeID, nil)
-	if err != nil {
-		return workflow.CurrentNode{}, err
-	}
-	currentNode, err := workflow.NewCurrentNodeWithMaterializedSource(
-		reference,
-		nil,
-		workflow.MaterializedPriorValues{},
-		nil,
-		workflow.DeferredSelfMaterializedContinuationSource(),
-		&workflow.CurrentNodeScheduling{State: workflow.CurrentNodeSchedulingReady},
-		selection,
-	)
-	if err != nil {
-		return workflow.CurrentNode{}, err
-	}
-	currentNode.EnteredByEdgeID = &enteredByEdgeID
-	return currentNode, nil
 }
 
 func (s *Store) currentNodeFromRow(row sqlitegen.ListTaskCurrentNodesRow) (workflow.CurrentNode, error) {
@@ -546,7 +525,7 @@ func (s *Store) InterruptAdmittedCurrentNode(
 	}
 	return currentNodeInterruptionPostCommitDiagnostic(
 		reference,
-		s.publishCurrentNodeTaskEvent(ctx, reference.TaskID, serverapi.WorkflowProjectEventActionInterrupted),
+		s.publishCurrentNodeTaskEvent(ctx, reference.TaskID, workflowcontract.EventActionInterrupted),
 	)
 }
 
@@ -580,7 +559,7 @@ func (s *Store) InterruptCurrentNode(
 	}
 	return currentNodeInterruptionPostCommitDiagnostic(
 		reference,
-		s.publishCurrentNodeTaskEvent(ctx, reference.TaskID, serverapi.WorkflowProjectEventActionInterrupted),
+		s.publishCurrentNodeTaskEvent(ctx, reference.TaskID, workflowcontract.EventActionInterrupted),
 	)
 }
 
@@ -616,7 +595,7 @@ func (s *Store) ReplaceUserInterruptionWithAssignmentFailure(
 	}
 	return currentNodeInterruptionPostCommitDiagnostic(
 		reference,
-		s.publishCurrentNodeTaskEvent(ctx, reference.TaskID, serverapi.WorkflowProjectEventActionInterrupted),
+		s.publishCurrentNodeTaskEvent(ctx, reference.TaskID, workflowcontract.EventActionInterrupted),
 	)
 }
 
@@ -644,7 +623,7 @@ func (s *Store) ReconcileTaskResume(ctx context.Context, taskID workflow.TaskID)
 	if changed == 0 {
 		return nil
 	}
-	return s.publishCurrentNodeTaskEvent(ctx, taskID, serverapi.WorkflowProjectEventActionInterrupted)
+	return s.publishCurrentNodeTaskEvent(ctx, taskID, workflowcontract.EventActionInterrupted)
 }
 
 func taskCurrentNodeInsertParams(currentNode workflow.CurrentNode) (sqlitegen.InsertTaskCurrentNodeParams, error) {

@@ -20,24 +20,22 @@ import (
 	projectpb "core/shared/protoapi/gen/kent/api/project"
 	runtimepb "core/shared/protoapi/gen/kent/api/runtime"
 	sessionpb "core/shared/protoapi/gen/kent/api/session"
-	sessionlaunchpb "core/shared/protoapi/gen/kent/api/session_launch"
 	worktreepb "core/shared/protoapi/gen/kent/api/worktree"
 	"core/shared/protocol"
 	"core/shared/rpcwire"
-	"core/shared/serverapi"
+	"core/shared/runtimeids"
 
 	serverpb "core/shared/protoapi/gen/kent/api/server"
 	sharedpb "core/shared/protoapi/gen/kent/api/shared"
 
-	"golang.org/x/net/websocket"
 	"google.golang.org/protobuf/proto"
 	"google.golang.org/protobuf/types/known/emptypb"
 )
 
 func TestDialConfiguredRemotePrefersLocalUnixSocket(t *testing.T) {
 	handlerErrs := make(chan error, 8)
-	cfg := config.App{PersistenceRoot: t.TempDir(), Settings: config.Settings{ServerHost: "127.0.0.1", ServerPort: 1}}
-	socketPath, ok, err := config.ServerLocalRPCSocketPath(cfg)
+	cfg := config.Connection{PersistenceRoot: t.TempDir(), ServerHost: "127.0.0.1", ServerPort: 1}
+	socketPath, ok, err := config.ServerLocalRPCSocketPath(cfg.PersistenceRoot)
 	if err != nil {
 		t.Fatalf("ServerLocalRPCSocketPath: %v", err)
 	}
@@ -61,48 +59,43 @@ func TestDialConfiguredRemotePrefersLocalUnixSocket(t *testing.T) {
 	requireNoHandlerError(t, handlerErrs)
 }
 
-func TestRemoteReleaseSessionRuntimePropagatesClosePolicy(t *testing.T) {
-	const sessionID = "123e4567-e89b-42d3-a456-426614174000"
-	releaseRequests := make(chan *sessionlaunchpb.SessionRuntimeReleaseRequest, 1)
-	server := newRemoteTestServer(t, func(ws *websocket.Conn) {
-		acceptRemoteHandshake(t, ws)
-		request := &sessionlaunchpb.SessionRuntimeReleaseRequest{}
-		call := receiveRemoteGeneratedCall(t, ws, "SessionRuntimeService", "Release", request)
-		releaseRequests <- request
-		sendRemoteGeneratedResult(t, ws, call, &sessionlaunchpb.SessionRuntimeReleaseResult{
-			Outcome: &sessionlaunchpb.SessionRuntimeReleaseResult_Success{Success: &sessionlaunchpb.SessionRuntimeReleaseSuccess{Released: true}},
-		})
-	})
-	defer server.Close()
-
-	remote, err := DialRemoteURL(context.Background(), "ws"+server.URL[len("http"):])
+func TestDialConfiguredRemoteUnavailablePreservesAddressAndCause(t *testing.T) {
+	listener, err := net.Listen("tcp", "127.0.0.1:0")
 	if err != nil {
-		t.Fatalf("DialRemoteURL: %v", err)
+		t.Fatal(err)
 	}
-	defer func() { _ = remote.Close() }()
+	port := listener.Addr().(*net.TCPAddr).Port
+	if err := listener.Close(); err != nil {
+		t.Fatal(err)
+	}
+	cfg := config.Connection{PersistenceRoot: t.TempDir(), ServerHost: "127.0.0.1", ServerPort: port}
+	remote, err := DialConfiguredRemote(t.Context(), cfg)
+	if remote != nil {
+		_ = remote.Close()
+		t.Fatal("unavailable server returned a connection")
+	}
+	var unavailable *ServerUnavailableError
+	if !errors.As(err, &unavailable) {
+		t.Fatalf("expected server-unavailable error, got %v", err)
+	}
+	if unavailable.Endpoint != cfg.RPCURL() {
+		t.Fatalf("endpoint = %q, want %q", unavailable.Endpoint, cfg.RPCURL())
+	}
+	var networkError *net.OpError
+	if !errors.As(err, &networkError) {
+		t.Fatalf("network diagnostic lost: %v", err)
+	}
+}
 
-	resp, err := remote.ReleaseSessionRuntime(context.Background(), serverapi.SessionRuntimeReleaseRequest{
-		Attachment: serverapi.SessionRuntimeAttachment{
-			SessionID:  sessionID,
-			Generation: 7,
-		},
-		DropOwner:   true,
-		ClosePolicy: serverapi.SessionRuntimeReleaseClosePolicyDetachOnly,
+func TestDialConfiguredRemoteCancellationIsNotServerUnavailable(t *testing.T) {
+	ctx, cancel := context.WithCancel(t.Context())
+	cancel()
+	_, err := DialConfiguredRemote(ctx, config.Connection{
+		PersistenceRoot: t.TempDir(), ServerHost: "127.0.0.1", ServerPort: 1,
 	})
-	if err != nil {
-		t.Fatalf("ReleaseSessionRuntime: %v", err)
-	}
-	if !resp.Released {
-		t.Fatalf("release response = %+v, want released", resp)
-	}
-	select {
-	case req := <-releaseRequests:
-		if req.Attachment.SessionId != sessionID || req.Attachment.Generation != 7 || !req.DropOwner ||
-			req.GetClosePolicy() != sessionlaunchpb.SessionRuntimeReleaseClosePolicy_SESSION_RUNTIME_RELEASE_CLOSE_POLICY_DETACH_ONLY {
-			t.Fatalf("release request = %+v, want exact attachment and detach-only owner drop", req)
-		}
-	case <-time.After(time.Second):
-		t.Fatal("timed out waiting for release request")
+	var unavailable *ServerUnavailableError
+	if !errors.Is(err, context.Canceled) || errors.As(err, &unavailable) {
+		t.Fatalf("cancellation was classified as a missing server: %v", err)
 	}
 }
 
@@ -114,7 +107,7 @@ func TestDialConfiguredRemoteFallsBackToTCPWhenLocalUnixSocketMissing(t *testing
 	defer server.Close()
 
 	cfg := testRemoteConfigFromServerURL(t, t.TempDir(), server.URL)
-	socketPath, ok, err := config.ServerLocalRPCSocketPath(cfg)
+	socketPath, ok, err := config.ServerLocalRPCSocketPath(cfg.PersistenceRoot)
 	if err != nil {
 		t.Fatalf("ServerLocalRPCSocketPath: %v", err)
 	}
@@ -142,7 +135,7 @@ func TestDialConfiguredRemoteFallsBackToTCPWhenLocalUnixHandshakeStalls(t *testi
 	defer server.Close()
 
 	cfg := testRemoteConfigFromServerURL(t, t.TempDir(), server.URL)
-	socketPath, ok, err := config.ServerLocalRPCSocketPath(cfg)
+	socketPath, ok, err := config.ServerLocalRPCSocketPath(cfg.PersistenceRoot)
 	if err != nil {
 		t.Fatalf("ServerLocalRPCSocketPath: %v", err)
 	}
@@ -194,7 +187,7 @@ func TestDialConfiguredRemoteHonorsExplicitTCPTargetOverDerivedLocalSocket(t *te
 
 	cfg.Source.Sources["server_port"] = config.Origin{Kind: config.SourceInput, Property: config.PropertyAddress{Key: "server_port"}}
 
-	socketPath, ok, err := config.ServerLocalRPCSocketPath(cfg)
+	socketPath, ok, err := config.ServerLocalRPCSocketPath(cfg.PersistenceRoot)
 	if err != nil {
 		t.Fatalf("ServerLocalRPCSocketPath: %v", err)
 	}
@@ -491,10 +484,7 @@ func TestRemoteSessionAttachmentSurvivesUnaryControlReconnect(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	version, err := protoapi.NewReadModelVersion("epoch-1", 1, 1)
-	if err != nil {
-		t.Fatal(err)
-	}
+	version := protoapi.NewReadModelVersion("epoch-1", 1, 1)
 	response := &sessionpb.MainViewResult{Outcome: &sessionpb.MainViewResult_Success{Success: &sessionpb.MainViewSuccess{
 		MainView: &runtimepb.MainView{
 			Version: version,
@@ -505,7 +495,8 @@ func TestRemoteSessionAttachmentSurvivesUnaryControlReconnect(t *testing.T) {
 				ContextUsage: &runtimepb.ContextUsage{WindowTokens: 1000},
 			},
 			Session: &runtimepb.SessionView{
-				SessionId:             "session-1",
+				Category:              projectpb.SessionCategory_SESSION_CATEGORY_MAIN,
+				SessionId:             "11111111-1111-4111-8111-111111111111",
 				ConversationFreshness: runtimepb.ConversationFreshness_CONVERSATION_FRESHNESS_FRESH,
 				ExecutionTarget: &worktreepb.SessionExecutionTarget{
 					WorkspaceId: proto.String("workspace-1"), WorkspaceName: "workspace",
@@ -565,7 +556,7 @@ func TestRemoteSessionAttachmentSurvivesUnaryControlReconnect(t *testing.T) {
 				reportHandlerError(handlerErrs, "decode Session main-view request: %v", err)
 				return
 			}
-			if request.SessionId != "session-1" {
+			if request.SessionId.GetSessionId() != "11111111-1111-4111-8111-111111111111" {
 				reportHandlerError(handlerErrs, "main-view Session = %q, want session-1", request.SessionId)
 				return
 			}
@@ -585,14 +576,14 @@ func TestRemoteSessionAttachmentSurvivesUnaryControlReconnect(t *testing.T) {
 	remote, err := DialRemoteURLForSession(
 		context.Background(),
 		"ws"+server.URL[len("http"):],
-		"session-1",
+		"11111111-1111-4111-8111-111111111111",
 	)
 	if err != nil {
 		t.Fatalf("DialRemoteURLForSession: %v", err)
 	}
 	defer func() { _ = remote.Close() }()
 
-	request := &sessionpb.MainViewRequest{SessionId: "session-1"}
+	request := &sessionpb.MainViewRequest{SessionId: &sharedpb.SessionSelector{Value: &sharedpb.SessionSelector_SessionId{SessionId: "11111111-1111-4111-8111-111111111111"}}}
 	if _, err := remote.GetSessionMainView(context.Background(), request); err != nil {
 		t.Fatalf("first GetSessionMainView: %v", err)
 	}
@@ -683,6 +674,7 @@ func TestRemoteProjectRootAttachmentRejectsDifferentWorkspaceOnReconnect(t *test
 }
 
 func TestRemoteInterruptUsesDedicatedConnWhileSubmitIsInFlight(t *testing.T) {
+	sessionID := runtimeids.NewSessionID().String()
 	service := runtimepb.File_kent_api_runtime_runtime_proto.Services().ByName("TurnService")
 	submitMethod := service.Methods().ByName("SubmitUserTurn")
 	interruptMethod := service.Methods().ByName("Interrupt")
@@ -762,11 +754,7 @@ func TestRemoteInterruptUsesDedicatedConnWhileSubmitIsInFlight(t *testing.T) {
 				case interruptSeen <- struct{}{}:
 				default:
 				}
-				version, versionErr := protoapi.NewReadModelVersion("epoch-1", 1, 1)
-				if versionErr != nil {
-					reportHandlerError(handlerErrs, "build interrupt version: %w", versionErr)
-					return
-				}
+				version := protoapi.NewReadModelVersion("epoch-1", 1, 1)
 				response := &runtimepb.ReadModelUpdate{
 					Version: version,
 					Activity: &runtimepb.Activity{
@@ -799,7 +787,7 @@ func TestRemoteInterruptUsesDedicatedConnWhileSubmitIsInFlight(t *testing.T) {
 
 	submitDone := make(chan error, 1)
 	go func() {
-		_, submitErr := remote.SubmitUserTurn(context.Background(), runtimeSubmitUserTurnRequestForTest("session-1", "run"))
+		_, submitErr := remote.SubmitUserTurn(context.Background(), runtimeSubmitUserTurnRequestForTest(sessionID, "run"))
 		submitDone <- submitErr
 	}()
 
@@ -813,7 +801,7 @@ func TestRemoteInterruptUsesDedicatedConnWhileSubmitIsInFlight(t *testing.T) {
 
 	interruptCtx, cancel := context.WithTimeout(context.Background(), 500*time.Millisecond)
 	defer cancel()
-	if _, err := remote.Interrupt(interruptCtx, &runtimepb.InterruptRequest{SessionId: "session-1"}); err != nil {
+	if _, err := remote.Interrupt(interruptCtx, &runtimepb.InterruptRequest{SessionId: sessionID}); err != nil {
 		t.Fatalf("Interrupt: %v", err)
 	}
 	select {
@@ -937,8 +925,7 @@ func serveHandshakeWithRoot(ctx context.Context, conn rpcwire.Conn, rootID strin
 			}
 			continue
 		}
-		req := event.Frame.Request()
-		reportHandlerError(handlerErrs, "unexpected method %q", req.Method)
+		reportHandlerError(handlerErrs, "unexpected application frame kind %d", event.Frame.Kind)
 		return
 	}
 }
@@ -998,7 +985,7 @@ func startUnixStallingListener(t *testing.T, socketPath string, stall time.Durat
 	return listener, accepted
 }
 
-func testRemoteConfigFromServerURL(t *testing.T, persistenceRoot string, serverURL string) config.App {
+func testRemoteConfigFromServerURL(t *testing.T, persistenceRoot string, serverURL string) config.Connection {
 	t.Helper()
 	parsed, err := url.Parse(serverURL)
 	if err != nil {
@@ -1012,7 +999,7 @@ func testRemoteConfigFromServerURL(t *testing.T, persistenceRoot string, serverU
 	if err != nil {
 		t.Fatalf("Atoi port: %v", err)
 	}
-	return config.App{PersistenceRoot: persistenceRoot, Settings: config.Settings{ServerHost: host, ServerPort: port}}
+	return config.Connection{PersistenceRoot: persistenceRoot, ServerHost: host, ServerPort: port}
 }
 
 func serveProjectListRPC(ctx context.Context, conn rpcwire.Conn, handlerErrs chan<- error) {

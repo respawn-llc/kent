@@ -19,18 +19,17 @@ func TestActiveStepSnapshotProjectsAuthoritativeCompactionActivity(t *testing.T)
 			t.Fatalf("baseline activity = %+v, want active user turn", baseline)
 		}
 		persistence := newCompactionPersistence(engine)
-		for _, activeKind := range []ActiveKind{ActiveKindCompaction, ActiveKindPreSubmitCompaction} {
-			if err := persistence.setActivity(stepID, nil, compactionModeAuto, 1, activeKind, true); err != nil {
+		for _, activeKind := range []ActiveKind{ActiveKindCompaction} {
+			if err := persistence.setActivity(stepID, compactionModeAuto, 1, activeKind, true); err != nil {
 				t.Fatalf("set %s activity: %v", activeKind, err)
 			}
 			active := engine.ActiveStepSnapshot()
 			if active == nil ||
-				active.RunID != baseline.RunID ||
 				active.StepID != stepID ||
 				active.ActiveKind != activeKind {
 				t.Fatalf("projected %s activity = %+v, baseline %+v", activeKind, active, baseline)
 			}
-			if err := persistence.setActivity(stepID, nil, compactionModeAuto, 0, activeKind, false); err != nil {
+			if err := persistence.setActivity(stepID, compactionModeAuto, 0, activeKind, false); err != nil {
 				t.Fatalf("clear %s activity: %v", activeKind, err)
 			}
 			restored := engine.ActiveStepSnapshot()
@@ -50,7 +49,7 @@ func TestActiveStepSnapshotProjectsAuthoritativeCompactionActivity(t *testing.T)
 			activityEvents++
 		}
 	}
-	if activityEvents != 4 {
-		t.Fatalf("runtime activity events = %d, want start and clear for both compaction kinds", activityEvents)
+	if activityEvents != 2 {
+		t.Fatalf("runtime activity events = %d, want start and clear for compaction", activityEvents)
 	}
 }

@@ -171,7 +171,15 @@ func (e *Engine) ApplyWorktreeTransitionTerminal(
 		return err
 	}
 	deferred := submitEngineRuntimeOperation(e, func(operationCtx context.Context) (struct{}, error) {
-		return struct{}{}, apply(operationCtx)
+		previous := e.WorktreeReminderState()
+		err := apply(operationCtx)
+		if worktreeFailureIsIndeterminate(err) {
+			return struct{}{}, err
+		}
+		if _, fresh := e.generationContextSnapshot().(freshGenerationContext); fresh {
+			return struct{}{}, err
+		}
+		return struct{}{}, errors.Join(err, e.steerWorktreeTransitionRaw(previous))
 	})
 	_, err := deferred.Await(context.WithoutCancel(ctx))
 	return err
@@ -227,30 +235,14 @@ func (e *Engine) launchIndeterminateWorktreeLifecycleTask(task func(context.Cont
 	})
 }
 
-// SubmitQueuedUserMessages starts a fresh step from already-queued injected user
-// messages or background notices. This is used when a non-turn busy operation
-// (for example manual compaction) completes while queued steering is waiting.
-func (e *Engine) SubmitQueuedUserMessages(ctx context.Context) (assistant llm.Message, err error) {
-	assistant, _, err = e.SubmitQueuedUserMessagesWithActiveHook(ctx, nil)
-	e.surfaceRunError(err)
-	return assistant, err
-}
-
-func (e *Engine) SubmitQueuedUserMessagesWithActiveHook(ctx context.Context, onActive func()) (assistant llm.Message, receipt session.CommitReceipt, err error) {
-	assistant, receipt, _, err = e.submitQueuedUserMessages(ctx, allPendingUserInjectionSelection{}, onActive)
-	return
-}
-
 func (e *Engine) submitQueuedUserMessages(ctx context.Context, selection userInjectionSelection, onActive func()) (assistant llm.Message, receipt session.CommitReceipt, consumedQueueItemIDs map[string]struct{}, err error) {
 	e.ensureOrchestrationCollaborators()
 	for {
 		if e.failQueuedUserWorkIfTerminal() {
 			return llm.Message{}, receipt, consumedQueueItemIDs, nil
 		}
-		if _, steerOnly := selection.(steerUserInjectionSelection); steerOnly {
-			if err := e.waitQueuedUserAutoDrainAllowed(ctx); err != nil {
-				return llm.Message{}, receipt, consumedQueueItemIDs, err
-			}
+		if err := e.waitQueuedUserAutoDrainAllowed(ctx); err != nil {
+			return llm.Message{}, receipt, consumedQueueItemIDs, err
 		}
 		err = e.stepLifecycle.Run(ctx, exclusiveStepOptions{EmitRunState: true, ActiveKind: ActiveKindUserTurn}, func(stepCtx context.Context, stepID string) error {
 			if onActive != nil {
@@ -301,7 +293,7 @@ func (e *Engine) resumeQueuedUserAutoDrain() {
 		e.queuedUserWorkPauseCount--
 	}
 	e.queuedUserWorkMu.Unlock()
-	e.scheduleQueuedUserInjectionsIfIdle()
+	e.scheduleQueuedUserInjections()
 }
 
 func (e *Engine) waitQueuedUserAutoDrainAllowed(ctx context.Context) error {
@@ -339,14 +331,14 @@ func (e *Engine) HasQueuedUserWork() bool {
 	return false
 }
 
-func (e *Engine) scheduleQueuedUserInjectionsIfIdle() bool {
+func (e *Engine) scheduleQueuedUserInjections() bool {
 	if e == nil {
 		return false
 	}
 	e.ensureOrchestrationCollaborators()
-	if e.stepLifecycle != nil && e.stepLifecycle.IsBusy() {
-		return false
-	}
+	// Schedule at acceptance even while compaction or another step is busy.
+	// The worker waits for that step; its completion keeps the execution owner
+	// (including Questions and Approvals) attached until queued work finishes.
 	if !e.messageFlow.HasPendingUserInjections() {
 		return false
 	}
@@ -354,7 +346,7 @@ func (e *Engine) scheduleQueuedUserInjectionsIfIdle() bool {
 		return false
 	}
 	e.queuedUserWorkMu.Lock()
-	if !e.messageFlow.HasPendingUserSteers() && len(e.queuedUserAutoDrainIDSnapshot()) == 0 {
+	if !e.messageFlow.HasPendingUserSteers() && !e.hasQueuedUserAutoStart() {
 		e.queuedUserWorkMu.Unlock()
 		return false
 	}
@@ -388,7 +380,7 @@ func (e *Engine) processQueuedUserWork(
 			e.surfaceRunError(err)
 			return nil
 		}
-		_, receipt, _, err := e.submitQueuedUserMessages(ctx, steerUserInjections(e.queuedUserAutoDrainIDSnapshot()), nil)
+		_, receipt, _, err := e.submitQueuedUserMessages(ctx, queuedTurnUserInjectionSelection{}, nil)
 		if err != nil {
 			if fatal, abort := resultGroupFatalFromError(err); abort {
 				e.clearQueuedUserWorkScheduled(completion, err)
@@ -442,7 +434,7 @@ func (e *Engine) clearQueuedUserWorkScheduled(
 	}
 	// Admission schedules under this same lock. Keep the current worker and
 	// its execution owner until accepted steers have drained.
-	if err == nil && (e.messageFlow.HasPendingUserSteers() || len(e.queuedUserAutoDrainIDSnapshot()) > 0) {
+	if err == nil && (e.messageFlow.HasPendingUserSteers() || e.hasQueuedUserAutoStart()) {
 		e.queuedUserWorkMu.Unlock()
 		return false
 	}
@@ -453,36 +445,11 @@ func (e *Engine) clearQueuedUserWorkScheduled(
 	return true
 }
 
-func (e *Engine) queuedUserAutoDrainIDSnapshot() map[string]struct{} {
-	ids := make(map[string]struct{})
+func (e *Engine) hasQueuedUserAutoStart() bool {
 	for _, pending := range e.messageFlow.PendingUserMessageEntries() {
-		if pending.autoStart {
-			ids[pending.message.ID] = struct{}{}
+		if pending.autoStart && pending.steerAdmission == nil {
+			return true
 		}
 	}
-	return ids
-}
-
-func (e *Engine) DrainQueuedUserMessagesBeforeClose(ctx context.Context) error {
-	if e == nil {
-		return nil
-	}
-	if e.failQueuedUserWorkIfTerminal() {
-		return nil
-	}
-	if !e.HasQueuedUserWork() {
-		return nil
-	}
-	_, err := e.SubmitQueuedUserMessages(ctx)
-	if err != nil {
-		if e.failQueuedUserWorkIfTerminal() {
-			return nil
-		}
-		if !e.HasQueuedUserWork() {
-			return err
-		}
-		e.FailQueuedUserMessages(QueuedUserMessageFailureClosing)
-		return err
-	}
-	return nil
+	return false
 }

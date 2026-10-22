@@ -138,14 +138,23 @@ func TestPreparedSessionSharesCallerTransaction(t *testing.T) {
 			}
 		} else if err != nil || record.Meta.SessionID != id.String() {
 			t.Fatalf("committed Session not published: %+v, %v", record, err)
+		} else if record.ShortID == nil || record.ShortID.Int64() != 1 {
+			t.Fatalf("committed prepared Session number = %v, want 1", record.ShortID)
 		}
 	}
 	if _, err := os.Stat(creation.Snapshot().SessionDir); !errors.Is(err, os.ErrNotExist) {
 		t.Fatalf("database cutover created Session artifacts: %v", err)
 	}
+	materialized, err := session.MaterializeCommittedCreation(t.Context(), creation, store.AuthoritativeSessionStoreOptions()...)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if materialized.Identity().ID != id || materialized.Identity().String() != "1" {
+		t.Fatalf("materialized identity = %+v", materialized.Identity())
+	}
 	established := creation.Snapshot()
 	established.Meta.LastSequence = 7
-	established.Meta.Name = "established"
+	established.Meta.Name = metadataStringPointer("established")
 	if err := store.ImportSessionSnapshot(t.Context(), established); err != nil {
 		t.Fatal(err)
 	}
@@ -161,7 +170,7 @@ func TestPreparedSessionSharesCallerTransaction(t *testing.T) {
 		t.Fatal(err)
 	}
 	record, err := store.ResolvePersistedSession(t.Context(), id.String())
-	if err != nil || record.Meta.LastSequence != established.Meta.LastSequence || record.Meta.Name != established.Meta.Name {
+	if err != nil || record.Meta.LastSequence != established.Meta.LastSequence || record.Meta.Name == nil || *record.Meta.Name != *established.Meta.Name {
 		t.Fatalf("failed duplicate insertion changed existing Session: %+v, %v", record, err)
 	}
 }

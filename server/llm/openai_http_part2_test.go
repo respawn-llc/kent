@@ -2,11 +2,13 @@ package llm
 
 import (
 	"context"
+	"core/shared/config"
 	"core/shared/textutil"
 	"core/shared/toolspec"
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"reflect"
@@ -18,13 +20,14 @@ import (
 )
 
 func TestBuildPayload_AppliesStructuredOutputJSONSchema(t *testing.T) {
-	transport := NewHTTPTransport(staticAuth{})
-	payload, err := transport.buildPayload(OpenAIRequest{ToolChoiceMode: ToolChoiceModeAutomatic,
-		Model: "gpt-5",
+	transport := newTestHTTPTransport(t, staticAuth{}, testConnectionRegistration(t, config.ProviderConnection{Protocol: config.ConnectionResponses, Endpoint: textutil.Value(defaultOpenAIBaseURL)}))
+
+	payload, err := transport.buildPayload(ResponsesRequest{ToolChoiceMode: ToolChoiceModeAutomatic,
+		Model: "gpt-6-sol",
 		StructuredOutput: &StructuredOutput{
 			Name:   "reviewer_suggestions",
 			Schema: mustTestStructuredSchema(t, testReviewerStructuredOutput{}),
-		},
+		}, ReasoningEffort: "high",
 	}, OpenAIAuthMode{}, requireProviderCapabilities(t, transport, OpenAIAuthMode{}))
 	if err != nil {
 		t.Fatalf("build payload: %v", err)
@@ -51,14 +54,15 @@ func TestBuildPayload_AppliesStructuredOutputJSONSchema(t *testing.T) {
 }
 
 func TestBuildPayload_ForwardsPreparedStructuredOutputSchemaUnchanged(t *testing.T) {
-	transport := NewHTTPTransport(staticAuth{})
+	transport := newTestHTTPTransport(t, staticAuth{}, testConnectionRegistration(t, config.ProviderConnection{Protocol: config.ConnectionResponses, Endpoint: textutil.Value(defaultOpenAIBaseURL)}))
+
 	prepared := mustTestStructuredSchema(t, testWorkflowStructuredOutput{})
-	payload, err := transport.buildPayload(OpenAIRequest{ToolChoiceMode: ToolChoiceModeAutomatic,
-		Model: "gpt-5",
+	payload, err := transport.buildPayload(ResponsesRequest{ToolChoiceMode: ToolChoiceModeAutomatic,
+		Model: "gpt-6-sol",
 		StructuredOutput: &StructuredOutput{
 			Name:   "workflow_completion",
 			Schema: prepared,
-		},
+		}, ReasoningEffort: "high",
 	}, OpenAIAuthMode{}, requireProviderCapabilities(t, transport, OpenAIAuthMode{}))
 	if err != nil {
 		t.Fatalf("build payload: %v", err)
@@ -98,9 +102,10 @@ func mustDecodeSchemaObject(t *testing.T, raw []byte) map[string]any {
 }
 
 func TestBuildPayload_AppliesConfiguredModelVerbosityForSupportedModels(t *testing.T) {
-	transport := NewHTTPTransport(staticAuth{})
+	transport := newTestHTTPTransport(t, staticAuth{}, testConnectionRegistration(t, config.ProviderConnection{Protocol: config.ConnectionResponses, Endpoint: textutil.Value(defaultOpenAIBaseURL)}))
+
 	transport.ModelVerbosity = "high"
-	payload, err := transport.buildPayload(OpenAIRequest{ToolChoiceMode: ToolChoiceModeAutomatic, Model: "gpt-5"}, OpenAIAuthMode{}, requireProviderCapabilities(t, transport, OpenAIAuthMode{}))
+	payload, err := transport.buildPayload(ResponsesRequest{ToolChoiceMode: ToolChoiceModeAutomatic, Model: "gpt-6-sol", ReasoningEffort: "high"}, OpenAIAuthMode{}, requireProviderCapabilities(t, transport, OpenAIAuthMode{}))
 	if err != nil {
 		t.Fatalf("build payload: %v", err)
 	}
@@ -116,14 +121,15 @@ func TestBuildPayload_AppliesConfiguredModelVerbosityForSupportedModels(t *testi
 }
 
 func TestBuildPayload_MergesConfiguredModelVerbosityWithStructuredOutput(t *testing.T) {
-	transport := NewHTTPTransport(staticAuth{})
+	transport := newTestHTTPTransport(t, staticAuth{}, testConnectionRegistration(t, config.ProviderConnection{Protocol: config.ConnectionResponses, Endpoint: textutil.Value(defaultOpenAIBaseURL)}))
+
 	transport.ModelVerbosity = "low"
-	payload, err := transport.buildPayload(OpenAIRequest{ToolChoiceMode: ToolChoiceModeAutomatic,
-		Model: "gpt-5",
+	payload, err := transport.buildPayload(ResponsesRequest{ToolChoiceMode: ToolChoiceModeAutomatic,
+		Model: "gpt-6-sol",
 		StructuredOutput: &StructuredOutput{
 			Name:   "reviewer_suggestions",
 			Schema: mustTestStructuredSchema(t, testReviewerStructuredOutput{}),
-		},
+		}, ReasoningEffort: "high",
 	}, OpenAIAuthMode{}, requireProviderCapabilities(t, transport, OpenAIAuthMode{}))
 	if err != nil {
 		t.Fatalf("build payload: %v", err)
@@ -143,9 +149,10 @@ func TestBuildPayload_MergesConfiguredModelVerbosityWithStructuredOutput(t *test
 }
 
 func TestBuildPayload_AppliesReasoningEffortForOpenAIModels(t *testing.T) {
-	transport := NewHTTPTransport(staticAuth{})
-	payload, err := transport.buildPayload(OpenAIRequest{ToolChoiceMode: ToolChoiceModeAutomatic,
-		Model:           "gpt-5",
+	transport := newTestHTTPTransport(t, staticAuth{}, testConnectionRegistration(t, config.ProviderConnection{Protocol: config.ConnectionResponses, Endpoint: textutil.Value(defaultOpenAIBaseURL)}))
+
+	payload, err := transport.buildPayload(ResponsesRequest{ToolChoiceMode: ToolChoiceModeAutomatic,
+		Model:           "gpt-6-sol",
 		ReasoningEffort: "xhigh",
 	}, OpenAIAuthMode{}, requireProviderCapabilities(t, transport, OpenAIAuthMode{}))
 	if err != nil {
@@ -163,8 +170,9 @@ func TestBuildPayload_AppliesReasoningEffortForOpenAIModels(t *testing.T) {
 }
 
 func TestBuildPayload_SkipsReasoningSummaryForUnknownModels(t *testing.T) {
-	transport := NewHTTPTransport(staticAuth{})
-	payload, err := transport.buildPayload(OpenAIRequest{ToolChoiceMode: ToolChoiceModeAutomatic,
+	transport := newTestHTTPTransport(t, staticAuth{}, testConnectionRegistration(t, config.ProviderConnection{Protocol: config.ConnectionResponses, Endpoint: textutil.Value(defaultOpenAIBaseURL)}))
+
+	payload, err := transport.buildPayload(ResponsesRequest{ToolChoiceMode: ToolChoiceModeAutomatic,
 		Model:           "custom-model",
 		ReasoningEffort: "high",
 	}, OpenAIAuthMode{}, requireProviderCapabilities(t, transport, OpenAIAuthMode{}))
@@ -192,21 +200,37 @@ func TestBuildPayload_SkipsReasoningSummaryForUnknownModels(t *testing.T) {
 }
 
 func TestBuildPayload_AppliesFastModeForOpenAIProvider(t *testing.T) {
-	transport := NewHTTPTransport(staticAuth{})
-	payload, err := transport.buildPayload(OpenAIRequest{ToolChoiceMode: ToolChoiceModeAutomatic,
-		Model:    "gpt-5.3-codex",
-		FastMode: true,
-	}, OpenAIAuthMode{}, requireProviderCapabilities(t, transport, OpenAIAuthMode{}))
+	transport := newTestHTTPTransport(t, staticAuth{}, testConnectionRegistration(t, config.ProviderConnection{Protocol: config.ConnectionResponses, Endpoint: textutil.Value(defaultOpenAIBaseURL)}))
+
+	capabilities := ProviderCapabilities{
+		ProviderID: "openai-compatible", SupportsResponsesAPI: true, SupportsFastMode: true,
+	}
+	payload, err := transport.buildPayload(ResponsesRequest{ToolChoiceMode: ToolChoiceModeAutomatic,
+		Model:    "gpt-6-sol",
+		FastMode: true, ReasoningEffort: "high",
+	}, OpenAIAuthMode{}, capabilities)
 	if err != nil {
 		t.Fatalf("build payload: %v", err)
 	}
 	if payload.ServiceTier != responses.ResponseNewParamsServiceTierPriority {
-		t.Fatalf("expected priority service tier for openai provider, got %q", payload.ServiceTier)
+		t.Fatalf("expected priority service tier for a fast-mode-capable connection, got %q", payload.ServiceTier)
 	}
 
 	jsonPayload := mustMarshalObject(t, payload)
 	if got := jsonPayload["service_tier"]; got != "priority" {
 		t.Fatalf("expected service_tier=priority, got %#v", got)
+	}
+
+	unsupportedPayload, err := transport.buildPayload(ResponsesRequest{
+		ToolChoiceMode: ToolChoiceModeAutomatic, Model: "gpt-6-sol", FastMode: true, ReasoningEffort: "high",
+	}, OpenAIAuthMode{}, ProviderCapabilities{
+		ProviderID: "openai", SupportsResponsesAPI: true, IsOpenAIFirstParty: true,
+	})
+	if err != nil {
+		t.Fatalf("build payload without the fast-mode capability: %v", err)
+	}
+	if unsupportedPayload.ServiceTier != "" {
+		t.Fatalf("service tier without fast-mode capability = %q, want omitted", unsupportedPayload.ServiceTier)
 	}
 }
 
@@ -241,16 +265,17 @@ func TestBuildResponsesInput_AssistantReasoningItemsUseEncryptedContentOnly(t *t
 }
 
 func TestBuildPayload_ForwardsPreparedFunctionSchemaUnchanged(t *testing.T) {
-	transport := NewHTTPTransport(staticAuth{})
+	transport := newTestHTTPTransport(t, staticAuth{}, testConnectionRegistration(t, config.ProviderConnection{Protocol: config.ConnectionResponses, Endpoint: textutil.Value(defaultOpenAIBaseURL)}))
+
 	prepared := mustTestFunctionSchema(t, testNestedFunctionInput{})
-	payload, err := transport.buildPayload(OpenAIRequest{ToolChoiceMode: ToolChoiceModeAutomatic,
-		Model: "gpt-5",
+	payload, err := transport.buildPayload(ResponsesRequest{ToolChoiceMode: ToolChoiceModeAutomatic,
+		Model: "gpt-6-sol",
 		Tools: []Tool{
 			{
 				Name:   "ask_question",
 				Schema: prepared,
 			},
-		},
+		}, ReasoningEffort: "high",
 	}, OpenAIAuthMode{}, requireProviderCapabilities(t, transport, OpenAIAuthMode{}))
 	if err != nil {
 		t.Fatalf("build payload: %v", err)
@@ -279,7 +304,7 @@ func TestBuildPayload_ForwardsPreparedFunctionSchemaUnchanged(t *testing.T) {
 }
 
 func TestBuildResponsesInput_CanonicalCompactionItemRoundTrip(t *testing.T) {
-	items := mustBuildResponsesInput(t, PrepareOpenAIInputItems([]ResponseItem{
+	items := mustBuildResponsesInput(t, PrepareResponsesInputItems([]ResponseItem{
 		{Type: ResponseItemTypeMessage, Role: textutil.Value(RoleUser), Content: textutil.Value("u1")},
 		{Type: ResponseItemTypeCompaction, ID: textutil.Value("cmp_1"), EncryptedContent: textutil.Value("enc_1")},
 	}))
@@ -319,7 +344,7 @@ func TestParseOutputItems_PreservesCompactionItem(t *testing.T) {
 	if err := json.Unmarshal(raw, &output); err != nil {
 		t.Fatalf("unmarshal output: %v", err)
 	}
-	items, assistantText, assistantPhase, _, toolCalls, reasoning, reasoningItems, err := parseOutputItems(output)
+	items, assistantText, assistantPhase, _, toolCalls, reasoning, reasoningItems, err := parseOutputItems(output, openAIResponsesPolicy{})
 	if err != nil {
 		t.Fatalf("parse output: %v", err)
 	}
@@ -359,7 +384,7 @@ func TestParseOutputItems_UsesLastAssistantMessageWhenMultipleUnphased(t *testin
 	if err := json.Unmarshal(raw, &output); err != nil {
 		t.Fatalf("unmarshal output: %v", err)
 	}
-	_, assistantText, assistantPhase, _, _, _, _, err := parseOutputItems(output)
+	_, assistantText, assistantPhase, _, _, _, _, err := parseOutputItems(output, openAIResponsesPolicy{})
 	if err != nil {
 		t.Fatalf("parse output: %v", err)
 	}
@@ -399,7 +424,7 @@ func TestParseOutputItems_UsesTrailingAssistantPhaseBlock(t *testing.T) {
 	if err := json.Unmarshal(raw, &output); err != nil {
 		t.Fatalf("unmarshal output: %v", err)
 	}
-	_, assistantText, assistantPhase, _, _, _, _, err := parseOutputItems(output)
+	_, assistantText, assistantPhase, _, _, _, _, err := parseOutputItems(output, openAIResponsesPolicy{})
 	if err != nil {
 		t.Fatalf("parse output: %v", err)
 	}
@@ -411,49 +436,134 @@ func TestParseOutputItems_UsesTrailingAssistantPhaseBlock(t *testing.T) {
 	}
 }
 
-func TestAPIKeyCompactRequestTargetsStreamingResponsesV2(t *testing.T) {
-	var captured map[string]any
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.URL.Path != "/v1/responses" {
-			http.Error(w, "unexpected path: "+r.URL.Path, http.StatusNotFound)
-			return
-		}
-		if err := json.NewDecoder(r.Body).Decode(&captured); err != nil {
-			http.Error(w, err.Error(), http.StatusBadRequest)
-			return
-		}
-		w.Header().Set("Content-Type", "text/event-stream")
-		_, _ = w.Write([]byte(`data: {"type":"response.completed","response":{"usage":{"input_tokens":10,"output_tokens":5,"total_tokens":15},"output":[{"type":"compaction","id":"cmp_1","encrypted_content":"enc_1"}]}}` + "\n\n"))
-	}))
-	t.Cleanup(server.Close)
+func TestCompactRequestUsesSelectedProtocol(t *testing.T) {
+	for _, protocol := range []config.ConnectionProtocol{config.ConnectionResponses, config.ConnectionGrokCLIProxy, config.ConnectionGrokOAuthAPI, config.ConnectionGrokAPIKey} {
+		t.Run(string(protocol), func(t *testing.T) {
+			standard := protocol != config.ConnectionResponses
+			var captured map[string]any
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				path := "/v1/responses"
+				if standard {
+					path += "/compact"
+				}
+				if r.URL.Path != path {
+					http.Error(w, "unexpected path: "+r.URL.Path, http.StatusNotFound)
+					return
+				}
+				if err := json.NewDecoder(r.Body).Decode(&captured); err != nil {
+					http.Error(w, err.Error(), http.StatusBadRequest)
+					return
+				}
+				response := `{"usage":{"input_tokens":10,"output_tokens":5,"total_tokens":15},"output":[{"type":"compaction","id":"cmp_1","encrypted_content":"enc_1","opaque_extension":{"keep":true}}]}`
+				if standard {
+					response = `{"usage":{"input_tokens":10,"output_tokens":5,"total_tokens":15},"output":[{"type":"message","role":"user","content":[{"type":"input_text","text":"retained"}],"opaque_extension":{"keep":true}},{"type":"compaction","id":"cmp_1","encrypted_content":"enc_1","opaque_extension":{"keep":true}},{"type":"compaction","id":"cmp_2","encrypted_content":"enc_2"}]}`
+					w.Header().Set("Content-Type", "application/json")
+					_, _ = io.WriteString(w, response)
+				} else {
+					w.Header().Set("Content-Type", "text/event-stream")
+					_, _ = io.WriteString(w, `data: {"type":"response.completed","response":`+response+"}\n\n")
+				}
+			}))
+			t.Cleanup(server.Close)
 
-	transport := NewHTTPTransport(staticAuth{})
-	transport.Client = newRewritingHTTPClient(t, server)
+			transport := newTestHTTPTransport(t, staticAuth{}, testConnectionRegistration(t, config.ProviderConnection{Protocol: config.ConnectionResponses, Endpoint: textutil.Value(defaultOpenAIBaseURL)}))
 
-	resp, err := transport.Compact(context.Background(), OpenAIRequest{
-		Model:          "gpt-5",
-		SessionID:      textutil.Value("test-session"),
-		ToolChoiceMode: ToolChoiceModeAutomatic,
-		Items: PrepareOpenAIInputItems([]ResponseItem{
-			{Type: ResponseItemTypeMessage, Role: textutil.Value(RoleUser), Content: textutil.Value("u1")},
-		}),
-	})
-	if err != nil {
-		t.Fatalf("compact request failed: %v", err)
-	}
-	if resp.Checkpoint.Type != ResponseItemTypeCompaction {
-		t.Fatalf("expected one compact output item, got %+v", resp.Checkpoint)
-	}
-	if captured["stream"] != true {
-		t.Fatalf("stream = %#v, want true", captured["stream"])
-	}
-	input, ok := captured["input"].([]any)
-	if !ok || len(input) != 2 {
-		t.Fatalf("input = %#v, want history plus trigger", captured["input"])
-	}
-	trigger, _ := input[len(input)-1].(map[string]any)
-	if len(trigger) != 1 || trigger["type"] != "compaction_trigger" {
-		t.Fatalf("final input = %#v, want exact compaction trigger", trigger)
+			transport.Client = newRewritingHTTPClient(t, server)
+			if standard {
+				definition := config.ProviderConnection{Protocol: protocol}
+				if protocol == config.ConnectionGrokAPIKey {
+					definition.EnvironmentVariable = textutil.Value("GROK_KEY")
+				}
+				selected, err := ResolveConnectionVariant(definition)
+				if err != nil {
+					t.Fatal(err)
+				}
+				transport = newTestHTTPTransport(t, staticAuth{}, selected)
+				transport.Client = newRewritingHTTPClient(t, server)
+			}
+
+			resp, err := transport.Compact(context.Background(), ResponsesRequest{
+				Model:                   "gpt-6-sol",
+				SessionID:               textutil.Value("test-session"),
+				PromptCacheKey:          "session-cache-key",
+				FastMode:                true,
+				SystemPrompt:            "system instructions",
+				ReasoningEffort:         "high",
+				SupportsReasoningEffort: true,
+				Temperature:             0.4,
+				MaxTokens:               128,
+				ToolChoiceMode:          ToolChoiceModeAutomatic,
+				Tools:                   []Tool{{Name: "exec_command", Schema: mustTestFunctionSchema(t, struct{}{})}},
+				Items: PrepareResponsesInputItems([]ResponseItem{
+					{Type: ResponseItemTypeMessage, Role: textutil.Value(RoleUser), Content: textutil.Value("u1")},
+				}),
+			})
+			if protocol == config.ConnectionGrokCLIProxy {
+				if err == nil || captured != nil {
+					t.Fatalf("unsupported proxy compaction must fail without dispatch: %v, %+v", err, captured)
+				}
+				return
+			}
+			if err != nil {
+				t.Fatalf("compact request failed: %v", err)
+			}
+			checkpointIndex := 0
+			if standard {
+				checkpointIndex = 1
+				if len(resp.OutputItems) != 3 || resp.OutputItems[0].Type != ResponseItemTypeMessage ||
+					optionalStringValue(resp.OutputItems[2].EncryptedContent) != "enc_2" {
+					t.Fatalf("provider bundle changed: %+v", resp)
+				}
+			} else if len(resp.OutputItems) != 1 {
+				t.Fatalf("OpenAI checkpoint count = %d", len(resp.OutputItems))
+			}
+			if resp.OutputItems[checkpointIndex].Type != ResponseItemTypeCompaction {
+				t.Fatalf("expected compact output item, got %+v", resp.OutputItems)
+			}
+			var raw struct {
+				Extension *struct{ Keep bool } `json:"opaque_extension"`
+			}
+			if err := json.Unmarshal(resp.OutputItems[checkpointIndex].Raw, &raw); err != nil || raw.Extension == nil || !raw.Extension.Keep {
+				t.Fatalf("lost opaque checkpoint: %s, %v", resp.OutputItems[checkpointIndex].Raw, err)
+			}
+			if resp.ProviderEvidence.Usage == nil {
+				t.Fatal("compaction omitted provider usage evidence")
+			}
+			if resp.ProviderEvidence.RequestedServiceTier == nil || *resp.ProviderEvidence.RequestedServiceTier != "priority" {
+				t.Fatal("compaction omitted requested priority evidence")
+			}
+			if standard {
+				if captured["prompt_cache_key"] != "session-cache-key" || captured["service_tier"] != "priority" ||
+					captured["instructions"] != "system instructions" || captured["max_output_tokens"] != float64(128) ||
+					captured["temperature"] != 0.4 || captured["context_management"] != nil {
+					t.Fatalf("standard compaction controls changed: %+v", captured)
+				}
+				if _, present := captured["stream"]; present {
+					t.Fatal("standard compaction must not stream")
+				}
+			} else if captured["stream"] != true {
+				t.Fatalf("stream = %#v, want true", captured["stream"])
+			}
+			input, ok := captured["input"].([]any)
+			tools, okTools := captured["tools"].([]any)
+			if !okTools || len(tools) != 1 || captured["instructions"] != "system instructions" || captured["tool_choice"] != "auto" {
+				t.Fatalf("compaction changed cache-snapshotted instructions/tools: %+v", captured)
+			}
+			expectedInputs := 2
+			if standard {
+				expectedInputs = 1
+			}
+			if !ok || len(input) != expectedInputs {
+				t.Fatalf("input = %#v, want history plus trigger", captured["input"])
+			}
+			if standard {
+				return
+			}
+			trigger, _ := input[len(input)-1].(map[string]any)
+			if len(trigger) != 1 || trigger["type"] != "compaction_trigger" {
+				t.Fatalf("final input = %#v, want exact compaction trigger", trigger)
+			}
+		})
 	}
 }
 
@@ -474,12 +584,11 @@ func TestOAuthCompactRequestTargetsStreamingResponsesWithFinalTrigger(t *testing
 	}))
 	t.Cleanup(server.Close)
 
-	transport := NewHTTPTransport(oauthStaticAuth{})
-	transport.BaseURL = "https://chatgpt.com/backend-api/codex"
-	transport.BaseURLExplicit = true
+	transport := newTestHTTPTransport(t, oauthStaticAuth{}, testConnectionRegistration(t, config.ProviderConnection{Protocol: config.ConnectionChatGPT}))
+
 	transport.Client = newRewritingHTTPClient(t, server)
 
-	request := OpenAIRequest{
+	request := ResponsesRequest{
 		Model:          "gpt-5.6-sol",
 		SystemPrompt:   "stable system prompt",
 		PromptCacheKey: "session-cache-lineage",
@@ -488,11 +597,11 @@ func TestOAuthCompactRequestTargetsStreamingResponsesWithFinalTrigger(t *testing
 		Tools: []Tool{{
 			Name:   "exec_command",
 			Schema: mustTestFunctionSchema(t, struct{}{}),
-		}},
+		}}, ReasoningEffort: "high",
 	}
 	dispatch, err := NewCodexDispatchContext(CodexDispatchFacts{
 		SessionID:   "test-session",
-		RunID:       "test-run",
+		StepID:      "test-step",
 		RequestKind: CodexRequestKindCompaction.Optional(),
 	})
 	if err != nil {
@@ -500,7 +609,7 @@ func TestOAuthCompactRequestTargetsStreamingResponsesWithFinalTrigger(t *testing
 	}
 	request.CodexDispatch = dispatch
 	request.PromptCacheKey = "session-cache-lineage"
-	request.Items = PrepareOpenAIInputItems([]ResponseItem{
+	request.Items = PrepareResponsesInputItems([]ResponseItem{
 		{Type: ResponseItemTypeMessage, Role: textutil.Value(RoleUser), Content: textutil.Value("history first")},
 		{Type: ResponseItemTypeMessage, Role: textutil.Value(RoleDeveloper), Content: textutil.Value("compact this conversation")},
 	})
@@ -508,11 +617,11 @@ func TestOAuthCompactRequestTargetsStreamingResponsesWithFinalTrigger(t *testing
 	if err != nil {
 		t.Fatalf("oauth compact request failed: %v", err)
 	}
-	checkpoint := resp.Checkpoint
+	checkpoint := resp.OutputItems[0]
 	if checkpoint.Type != ResponseItemTypeCompaction || optionalStringValue(checkpoint.ID) != "cmp_1" || optionalStringValue(checkpoint.EncryptedContent) != "enc_1" || !json.Valid(checkpoint.Raw) {
 		t.Fatalf("checkpoint = %+v, want canonical encrypted compaction with raw JSON", checkpoint)
 	}
-	if resp.Usage.InputTokens != 10 || resp.Usage.OutputTokens != 5 {
+	if resp.Usage.InputTokens == nil || resp.Usage.OutputTokens == nil || *resp.Usage.InputTokens != 10 || *resp.Usage.OutputTokens != 5 {
 		t.Fatalf("usage = %+v, want completed response usage", resp.Usage)
 	}
 	if got := captured["stream"]; got != true {
@@ -546,7 +655,7 @@ func TestOAuthCompactRequestTargetsStreamingResponsesWithFinalTrigger(t *testing
 	}
 }
 
-func TestOAuthCompactRequestPreservesTypedCheckpointContractReasons(t *testing.T) {
+func TestCompactRequestPreservesTypedCheckpointContractReasons(t *testing.T) {
 	tests := []struct {
 		name            string
 		output          string
@@ -581,34 +690,64 @@ func TestOAuthCompactRequestPreservesTypedCheckpointContractReasons(t *testing.T
 		},
 	}
 
-	for _, test := range tests {
-		t.Run(test.name, func(t *testing.T) {
-			server := newOAuthCompactStreamServer(t, []string{test.output})
-			transport := newCanonicalOAuthTestTransport(t, server)
+	for _, protocol := range []config.ConnectionProtocol{config.ConnectionChatGPT, config.ConnectionGrokOAuthAPI} {
+		for _, test := range tests {
+			t.Run(string(protocol)+"/"+test.name, func(t *testing.T) {
+				var transport *HTTPTransport
+				if protocol == config.ConnectionChatGPT {
+					server := newOAuthCompactStreamServer(t, []string{test.output})
+					transport = newCanonicalOAuthTestTransport(t, server)
+				} else {
+					var event struct {
+						Response json.RawMessage `json:"response"`
+					}
+					if err := json.Unmarshal([]byte(test.output), &event); err != nil {
+						t.Fatal(err)
+					}
+					server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+						w.Header().Set("Content-Type", "application/json")
+						_, _ = w.Write(event.Response)
+					}))
+					t.Cleanup(server.Close)
+					selected, err := ResolveConnectionVariant(config.ProviderConnection{Protocol: protocol})
+					if err != nil {
+						t.Fatal(err)
+					}
+					transport = newTestHTTPTransport(t, oauthStaticAuth{}, selected)
 
-			_, err := transport.Compact(context.Background(), testOAuthCompactionRequest(t, "gpt-5.6-sol"))
-			if err == nil {
-				t.Fatal("compact request unexpectedly succeeded")
-			}
-			var contractErr *CompactionCheckpointContractError
-			if !errors.As(err, &contractErr) {
-				t.Fatalf("error = %T %v, want typed checkpoint contract error", err, err)
-			}
-			if contractErr.Reason != test.reason ||
-				contractErr.CompactionCount != test.compactionCount ||
-				contractErr.OutputCount != test.outputCount ||
-				!reflect.DeepEqual(contractErr.OutputTypeCounts, test.typeCounts) {
-				t.Fatalf("checkpoint contract error = %+v, want reason=%q compaction_count=%d output_count=%d type_counts=%v",
-					contractErr, test.reason, test.compactionCount, test.outputCount, test.typeCounts)
-			}
-			var providerErr *ProviderAPIError
-			if !errors.As(err, &providerErr) {
-				t.Fatalf("error = %T %v, want provider-contract wrapper", err, err)
-			}
-			if providerErr.Code != UnifiedErrorCodeProviderContract {
-				t.Fatalf("provider error code = %q, want provider contract", providerErr.Code)
-			}
-		})
+					transport.Client = newRewritingHTTPClient(t, server)
+				}
+
+				result, err := transport.Compact(context.Background(), testOAuthCompactionRequest(t, "gpt-5.6-sol"))
+				if protocol == config.ConnectionGrokOAuthAPI {
+					if err != nil || len(result.OutputItems) != test.outputCount {
+						t.Fatalf("Grok output must not use OpenAI checkpoint validation: %+v, %v", result, err)
+					}
+					return
+				}
+				if err == nil {
+					t.Fatal("compact request unexpectedly succeeded")
+				}
+				var contractErr *CompactionCheckpointContractError
+				if !errors.As(err, &contractErr) {
+					t.Fatalf("error = %T %v, want typed checkpoint contract error", err, err)
+				}
+				if contractErr.Reason != test.reason ||
+					contractErr.CompactionCount != test.compactionCount ||
+					contractErr.OutputCount != test.outputCount ||
+					!reflect.DeepEqual(contractErr.OutputTypeCounts, test.typeCounts) {
+					t.Fatalf("checkpoint contract error = %+v, want reason=%q compaction_count=%d output_count=%d type_counts=%v",
+						contractErr, test.reason, test.compactionCount, test.outputCount, test.typeCounts)
+				}
+				var providerErr *ProviderAPIError
+				if !errors.As(err, &providerErr) {
+					t.Fatalf("error = %T %v, want provider-contract wrapper", err, err)
+				}
+				if providerErr.Code != UnifiedErrorCodeProviderContract {
+					t.Fatalf("provider error code = %q, want provider contract", providerErr.Code)
+				}
+			})
+		}
 	}
 }
 
@@ -622,10 +761,10 @@ func TestOAuthCompactRequestUsesStreamedCompactionWhenCompletedOutputIsEmpty(t *
 	if err != nil {
 		t.Fatalf("compact request failed: %v", err)
 	}
-	if optionalStringValue(resp.Checkpoint.ID) != "cmp_streamed" || optionalStringValue(resp.Checkpoint.EncryptedContent) != "enc_streamed" {
-		t.Fatalf("checkpoint = %+v, want streamed compaction checkpoint", resp.Checkpoint)
+	if optionalStringValue(resp.OutputItems[0].ID) != "cmp_streamed" || optionalStringValue(resp.OutputItems[0].EncryptedContent) != "enc_streamed" {
+		t.Fatalf("checkpoint = %+v, want streamed compaction checkpoint", resp.OutputItems[0])
 	}
-	if resp.Usage.InputTokens != 9 || resp.Usage.OutputTokens != 4 {
+	if resp.Usage.InputTokens == nil || resp.Usage.OutputTokens == nil || *resp.Usage.InputTokens != 9 || *resp.Usage.OutputTokens != 4 {
 		t.Fatalf("usage = %+v, want terminal completed usage", resp.Usage)
 	}
 }
@@ -661,9 +800,9 @@ func TestOAuthCompactRequestUsesCompletedCheckpointAtStreamedPosition(t *testing
 			if err != nil {
 				t.Fatal(err)
 			}
-			if !textutil.EqualOptional(resp.Checkpoint.ID, test.completedID) ||
-				!textutil.EqualOptional(resp.Checkpoint.EncryptedContent, textutil.Value("enc_completed")) {
-				t.Fatalf("checkpoint = %+v, want completed checkpoint", resp.Checkpoint)
+			if !textutil.EqualOptional(resp.OutputItems[0].ID, test.completedID) ||
+				!textutil.EqualOptional(resp.OutputItems[0].EncryptedContent, textutil.Value("enc_completed")) {
+				t.Fatalf("checkpoint = %+v, want completed checkpoint", resp.OutputItems[0])
 			}
 		})
 	}
@@ -776,52 +915,54 @@ func newOAuthCompactStreamServer(t *testing.T, events []string) *httptest.Server
 	return server
 }
 
-func testOAuthCompactionRequest(t *testing.T, model string) OpenAIRequest {
+func testOAuthCompactionRequest(t *testing.T, model string) ResponsesRequest {
 	t.Helper()
 	dispatch, err := NewCodexDispatchContext(CodexDispatchFacts{
 		SessionID:   "test-session",
-		RunID:       "test-run",
+		StepID:      "test-step",
 		RequestKind: CodexRequestKindCompaction.Optional(),
 	})
 	if err != nil {
 		t.Fatalf("dispatch context: %v", err)
 	}
-	return OpenAIRequest{
-		Model:          model,
-		SessionID:      textutil.Value("test-session"),
-		CodexDispatch:  dispatch,
-		ToolChoiceMode: ToolChoiceModeAutomatic,
+	return ResponsesRequest{
+		Model:           model,
+		ReasoningEffort: "high",
+		SessionID:       textutil.Value("test-session"),
+		CodexDispatch:   dispatch,
+		ToolChoiceMode:  ToolChoiceModeAutomatic,
 	}
 }
 
-func TestOpenAIRequestBuildersRejectUnpreparedViewImageInputFileOutput(t *testing.T) {
-	transport := NewHTTPTransport(staticAuth{})
+func TestResponsesRequestBuildersRejectUnpreparedViewImageInputFileOutput(t *testing.T) {
+	transport := newTestHTTPTransport(t, staticAuth{}, testConnectionRegistration(t, config.ProviderConnection{Protocol: config.ConnectionResponses, Endpoint: textutil.Value(defaultOpenAIBaseURL)}))
+
 	unpreparedItems := []ResponseItem{unmaterializedViewImageInputFileOutput()}
 	caps := requireProviderCapabilities(t, transport, OpenAIAuthMode{})
 	checkErr := func(name string, err error) {
 		t.Helper()
-		if !errors.Is(err, ErrOpenAIInputItemUnprepared) {
+		if !errors.Is(err, ErrResponsesInputItemUnprepared) {
 			t.Fatalf("%s error = %v, want materialization failure", name, err)
 		}
-		var preparationErr *OpenAIInputItemPreparationError
+		var preparationErr *ResponsesInputItemPreparationError
 		if !errors.As(err, &preparationErr) {
 			t.Fatalf("%s error type = %T, want typed preparation error", name, err)
 		}
 		if preparationErr.Type != ResponseItemTypeFunctionCallOutput ||
 			preparationErr.Name == nil || *preparationErr.Name != string(toolspec.ToolViewImage) ||
 			preparationErr.CallID == nil || *preparationErr.CallID != "call_1" ||
-			preparationErr.State != OpenAIInputPreparationMissingRaw {
+			preparationErr.State != ResponsesInputPreparationMissingRaw {
 			t.Fatalf("%s preparation error = %+v", name, preparationErr)
 		}
 	}
 
-	_, err := transport.buildPayload(OpenAIRequest{ToolChoiceMode: ToolChoiceModeAutomatic, Model: "gpt-5", Items: unpreparedItems}, OpenAIAuthMode{}, caps)
+	_, err := transport.buildPayload(ResponsesRequest{ToolChoiceMode: ToolChoiceModeAutomatic, Model: "gpt-6-sol", Items: unpreparedItems, ReasoningEffort: "high"}, OpenAIAuthMode{}, caps)
 	checkErr("buildPayload", err)
 
-	_, err = transport.requestPayloadBuilder(caps).BuildCompactV2(OpenAIRequest{
-		Model:          "gpt-5",
+	_, err = transport.requestPayloadBuilder(caps, openAIResponsesPolicy{}).BuildCompactV2(ResponsesRequest{
+		Model:          "gpt-6-sol",
 		ToolChoiceMode: ToolChoiceModeAutomatic,
-		Items:          unpreparedItems,
+		Items:          unpreparedItems, ReasoningEffort: "high",
 	}, OpenAIAuthMode{})
 	checkErr("buildCompactPayload", err)
 }
@@ -837,7 +978,7 @@ func unmaterializedViewImageInputFileOutput() ResponseItem {
 
 func TestResolveModelContextWindowUsesModelMetadataFromAPI(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.URL.Path != "/v1/models/gpt-5" {
+		if r.URL.Path != "/v1/models/gpt-6-sol" {
 			w.WriteHeader(http.StatusNotFound)
 			return
 		}
@@ -847,7 +988,7 @@ func TestResolveModelContextWindowUsesModelMetadataFromAPI(t *testing.T) {
 		}
 		w.Header().Set("Content-Type", "application/json")
 		_, _ = w.Write([]byte(`{
-			"id":"gpt-5",
+			"id":"gpt-6-sol",
 			"object":"model",
 			"created":1731459200,
 			"owned_by":"openai",
@@ -856,12 +997,12 @@ func TestResolveModelContextWindowUsesModelMetadataFromAPI(t *testing.T) {
 	}))
 	defer server.Close()
 
-	transport := NewHTTPTransport(staticAuth{})
-	transport.BaseURL = server.URL + "/v1"
-	transport.Client = server.Client()
+	transport := newTestHTTPTransport(t, staticAuth{}, testConnectionRegistration(t, config.ProviderConnection{Protocol: config.ConnectionResponses, Endpoint: textutil.Value(defaultOpenAIBaseURL)}))
+
+	transport.Client = newRewritingHTTPClient(t, server)
 	transport.ContextWindowTokens = 0
 
-	window, err := transport.ResolveModelContextWindow(context.Background(), "gpt-5")
+	window, err := transport.ResolveModelContextWindow(context.Background(), "gpt-6-sol")
 	if err != nil {
 		t.Fatalf("resolve model context window failed: %v", err)
 	}
@@ -872,13 +1013,13 @@ func TestResolveModelContextWindowUsesModelMetadataFromAPI(t *testing.T) {
 
 func TestResolveModelContextWindowFallsBackToInputTokenLimitField(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.URL.Path != "/v1/models/gpt-5" {
+		if r.URL.Path != "/v1/models/gpt-6-sol" {
 			w.WriteHeader(http.StatusNotFound)
 			return
 		}
 		w.Header().Set("Content-Type", "application/json")
 		_, _ = w.Write([]byte(`{
-			"id":"gpt-5",
+			"id":"gpt-6-sol",
 			"object":"model",
 			"created":1731459200,
 			"owned_by":"openai",
@@ -887,12 +1028,12 @@ func TestResolveModelContextWindowFallsBackToInputTokenLimitField(t *testing.T) 
 	}))
 	defer server.Close()
 
-	transport := NewHTTPTransport(staticAuth{})
-	transport.BaseURL = server.URL + "/v1"
-	transport.Client = server.Client()
+	transport := newTestHTTPTransport(t, staticAuth{}, testConnectionRegistration(t, config.ProviderConnection{Protocol: config.ConnectionResponses, Endpoint: textutil.Value(defaultOpenAIBaseURL)}))
+
+	transport.Client = newRewritingHTTPClient(t, server)
 	transport.ContextWindowTokens = 0
 
-	window, err := transport.ResolveModelContextWindow(context.Background(), "gpt-5")
+	window, err := transport.ResolveModelContextWindow(context.Background(), "gpt-6-sol")
 	if err != nil {
 		t.Fatalf("resolve model context window failed: %v", err)
 	}

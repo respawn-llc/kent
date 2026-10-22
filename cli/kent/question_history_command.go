@@ -14,6 +14,7 @@ import (
 	"core/shared/config"
 	"core/shared/protoapi"
 	sessionpb "core/shared/protoapi/gen/kent/api/session"
+	"core/shared/runtimeids"
 	"core/shared/serverapi"
 	"core/shared/sessionenv"
 )
@@ -54,7 +55,7 @@ func (c questionCommand) listSubcommand(args []string, stdout io.Writer, stderr 
 		fmt.Fprintln(stderr, "Session ID is required")
 		return 2
 	}
-	sessionID, err := parseCLILiveSessionID(rawSessionID)
+	sessionID, err := runtimeids.ParseSessionSelector(rawSessionID)
 	if err != nil {
 		fmt.Fprintln(stderr, err)
 		return 2
@@ -68,7 +69,7 @@ func (c questionCommand) listSubcommand(args []string, stdout io.Writer, stderr 
 		ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt)
 		defer stop()
 		sub, err := historyRemote.SubscribeQuestionHistory(ctx, &sessionpb.QuestionHistorySubscribeRequest{
-			SessionId: sessionID.String(), MaxHandoffs: handoffs,
+			SessionId: protoapi.SessionSelectorToProto(sessionID), MaxHandoffs: handoffs,
 		})
 		if err != nil {
 			fmt.Fprintln(stderr, err)
@@ -175,6 +176,12 @@ func writeQuestionHistoryHumanItem(stdout io.Writer, question *sessionpb.Questio
 	} else if _, err := fmt.Fprintf(stdout, "Answer: %s\n", question.Answer); err != nil {
 		return err
 	}
+	answerer := optionalSessionDisplayID(question.AnsweredBySessionId, question.AnsweredBySessionShortId)
+	if answerer != nil {
+		if _, err := fmt.Fprintf(stdout, "Answered by agent %s\n", *answerer); err != nil {
+			return err
+		}
+	}
 	if question.Commentary != nil {
 		if _, err := fmt.Fprintf(stdout, "Commentary: %s\n", *question.Commentary); err != nil {
 			return err
@@ -241,6 +248,7 @@ func streamQuestionHistoryJSON(
 				Answer:               question.Answer,
 				SelectedOptionNumber: question.SelectedOptionNumber,
 				Commentary:           question.Commentary,
+				AnsweredBySessionID:  question.AnsweredBySessionId,
 			}
 			if question.CommittedAt != nil {
 				at := question.CommittedAt.AsTime().UTC()
@@ -270,5 +278,6 @@ type questionHistoryJSONRecord struct {
 	Answer               string     `json:"answer"`
 	SelectedOptionNumber *int32     `json:"selected_option_number"`
 	Commentary           *string    `json:"commentary"`
+	AnsweredBySessionID  *string    `json:"answered_by_session_id"`
 	At                   *time.Time `json:"at"`
 }

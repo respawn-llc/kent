@@ -2,48 +2,49 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { RegistryProvider } from "@effect/atom-react";
 import { act, renderHook, waitFor } from "@testing-library/react";
 import type { ReactNode } from "react";
-import { afterEach, vi } from "vitest";
+import { afterEach, describe, expect, it, mock } from "bun:test";
 
 import type { BoardNodeCardsPage, BoardNodeCardsSort } from "@/api";
 
 type BoardRequest = Readonly<{ offset: number; sort: BoardNodeCardsSort }>;
 
-const testState = vi.hoisted((): { requests: BoardRequest[]; sort: BoardNodeCardsSort } => ({
+const testState: { requests: BoardRequest[]; sort: BoardNodeCardsSort } = {
   requests: [],
   sort: { field: "updated", direction: "desc" },
+};
+
+const actualAppFacade = await import("@/app-facade");
+const actualBoardQueryRuntime = await import("./BoardQueryRuntime");
+await mock.module("@/app-facade", () => ({
+  ...actualAppFacade,
+  useAppServices: () => ({
+    api: {
+      listBoardNodeCards: async (input: {
+        offset?: number;
+        sort?: BoardNodeCardsSort;
+      }): Promise<BoardNodeCardsPage> => {
+        const offset = input.offset ?? 0;
+        const sort = input.sort ?? ({ field: "updated", direction: "desc" } satisfies BoardNodeCardsSort);
+        testState.requests.push({ offset, sort });
+        return {
+          projectID: "project-1",
+          workflowID: "workflow-1",
+          nodeID: "node-1",
+          cards: [],
+          nextOffset: offset < 100 ? offset + 25 : null,
+          generatedAt: 1,
+        };
+      },
+    },
+  }),
+  queryKeys: {
+    ...actualAppFacade.queryKeys,
+    boardNodeCards: (...parts: unknown[]) => ["board-node-cards", ...parts],
+  },
 }));
 
-vi.mock("@/app-facade", async (importOriginal) => {
-  const actual = await importOriginal<Record<string, unknown>>();
-  return {
-    ...actual,
-    useAppServices: () => ({
-      api: {
-        listBoardNodeCards: async (input: {
-          offset?: number;
-          sort?: BoardNodeCardsSort;
-        }): Promise<BoardNodeCardsPage> => {
-          const offset = input.offset ?? 0;
-          const sort = input.sort ?? ({ field: "updated", direction: "desc" } satisfies BoardNodeCardsSort);
-          testState.requests.push({ offset, sort });
-          return {
-            projectID: "project-1",
-            workflowID: "workflow-1",
-            nodeID: "node-1",
-            cards: [],
-            nextOffset: offset < 100 ? offset + 25 : null,
-            generatedAt: 1,
-          };
-        },
-      },
-    }),
-    queryKeys: {
-      boardNodeCards: (...parts: unknown[]) => ["board-node-cards", ...parts],
-    },
-  };
-});
-
-vi.mock("./BoardQueryRuntime", () => ({
+await mock.module("./BoardQueryRuntime", () => ({
+  ...actualBoardQueryRuntime,
   useBoardQuery: () => ({
     filter: { labelFilter: { kind: "none" }, dependencyFilter: null },
     queriesEnabled: true,
@@ -51,7 +52,7 @@ vi.mock("./BoardQueryRuntime", () => ({
   }),
 }));
 
-import { shouldRefreshBoardFromProjectEvent, useBoardNodeCards } from "./useBoardData";
+const { shouldRefreshBoardFromProjectEvent, useBoardNodeCards } = await import("./useBoardData");
 
 describe("useBoardNodeCards pagination", () => {
   afterEach(() => {

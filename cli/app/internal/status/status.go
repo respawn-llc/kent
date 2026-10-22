@@ -45,8 +45,7 @@ type Request struct {
 	Source                config.SourceReport
 	CacheKeys             CacheKeys
 	AuthStatus            apicontract.AuthStatusService
-	AuthSelection         *authpb.ProviderSelection
-	SessionName           string
+	SessionName           *string
 	SessionID             string
 	AgentRole             *string
 	ConfiguredModelName   *string
@@ -62,31 +61,35 @@ type Request struct {
 }
 
 type Snapshot struct {
-	CollectedAt            time.Time
-	Workdir                string
-	SessionName            string
-	SessionID              string
-	AgentRole              *string
-	PreviousSessionID      *runtimeids.SessionID
-	PreviousSessionName    string
-	ParentAgentSessionID   *runtimeids.SessionID
-	ParentAgentSessionName string
-	Git                    GitInfo
-	Auth                   AuthInfo
-	Context                ContextInfo
-	Model                  ModelInfo
-	Config                 ConfigInfo
-	Subscription           SubscriptionInfo
-	SkillPolicy            config.SkillPolicy
-	Skills                 []SkillInspection
-	SkillTokenCounts       map[string]int
-	AgentsPaths            []string
-	AgentTokenCounts       map[string]int
-	CompactionCount        int
-	CollectorWarning       string
+	CollectedAt               time.Time
+	Workdir                   string
+	SessionName               *string
+	SessionID                 string
+	SessionIdentity           *runtimeids.SessionIdentity
+	AgentRole                 *string
+	PreviousSessionID         *runtimeids.SessionID
+	PreviousSessionShortID    *runtimeids.SessionShortID
+	PreviousSessionName       *string
+	ParentAgentSessionID      *runtimeids.SessionID
+	ParentAgentSessionShortID *runtimeids.SessionShortID
+	ParentAgentSessionName    *string
+	Git                       GitInfo
+	Auth                      AuthInfo
+	Context                   ContextInfo
+	Model                     ModelInfo
+	Config                    ConfigInfo
+	Subscription              SubscriptionInfo
+	SkillPolicy               config.SkillPolicy
+	Skills                    []SkillInspection
+	SkillTokenCounts          map[string]int
+	AgentsPaths               []string
+	AgentTokenCounts          map[string]int
+	CompactionCount           int
+	CollectorWarning          string
 }
 
 type AuthInfo struct {
+	Connection  *authpb.ConnectionFacts
 	Summary     string
 	Details     []string
 	Visible     bool
@@ -125,17 +128,25 @@ type ConfigInfo struct {
 }
 
 type SubscriptionInfo struct {
-	Applicable bool
-	Summary    string
-	Error      string
-	Windows    []SubscriptionWindow
+	Applicable            bool
+	Summary               string
+	Error                 string
+	QuotaSource           *authpb.SubscriptionQuotaSource
+	FailureClassification *authpb.SubscriptionFailureClassification
+	Windows               []SubscriptionWindow
 }
 
 type SubscriptionWindow struct {
-	Label       string
-	Qualifier   string
-	UsedPercent float64
-	ResetAt     time.Time
+	Label             string
+	Qualifier         string
+	UsedPercent       float64
+	ResetAt           time.Time
+	GrokContributions *GrokUsageContribution
+}
+
+type GrokUsageContribution struct {
+	BuildUsedPercent *float64
+	ChatUsedPercent  *float64
 }
 
 type SkillInspection struct {

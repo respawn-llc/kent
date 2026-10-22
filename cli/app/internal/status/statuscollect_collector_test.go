@@ -11,7 +11,6 @@ import (
 	"path/filepath"
 	"testing"
 
-	"google.golang.org/protobuf/proto"
 	"google.golang.org/protobuf/types/known/emptypb"
 )
 
@@ -141,17 +140,28 @@ func TestCollectorRequestsEffectiveSessionAuthProvider(t *testing.T) {
 			Subscription: &authpb.SubscriptionFacts{},
 		},
 	}
-	selection := authpb.ProviderSelection{ConnectionId: "local"}
+	id := "123e4567-e89b-42d3-a456-426614174000"
 
 	result := (Collector{}).CollectAuth(context.Background(), Request{
-		AuthStatus:    authStatus,
-		AuthSelection: &selection,
+		AuthStatus: authStatus,
+		SessionID:  id,
 	}, Snapshot{})
 
-	if authStatus.request.GetProvider() == nil ||
-		!proto.Equal(authStatus.request.GetProvider(), &selection) ||
+	if authStatus.request.Provider != nil ||
+		authStatus.request.GetSessionId() != id ||
 		result.Auth.Provider != "https://session.example" {
 		t.Fatalf("effective provider request/result = %+v / %+v", authStatus.request, result)
+	}
+}
+
+func TestCollectorRequestsSavedSessionBindingInsteadOfLaunchSelection(t *testing.T) {
+	id := "123e4567-e89b-42d3-a456-426614174000"
+	client := &recordingStatusAuthStatusStub{response: &authpb.Status{}}
+	(Collector{}).CollectAuth(t.Context(), Request{
+		SessionID: id, AuthStatus: client,
+	}, Snapshot{})
+	if client.request.GetSessionId() != id || client.request.Provider != nil {
+		t.Fatalf("Session Auth request = %+v", client.request)
 	}
 }
 

@@ -12,6 +12,7 @@ import (
 	"core/server/session"
 	"core/server/tools"
 	"core/shared/protoapi"
+	projectpb "core/shared/protoapi/gen/kent/api/project"
 	runtimepb "core/shared/protoapi/gen/kent/api/runtime"
 	transcriptpb "core/shared/protoapi/gen/kent/api/transcript"
 	"core/shared/rollbacktarget"
@@ -160,29 +161,6 @@ func TestTranscriptCompactionProjectionCarriesTypedFactsWithoutServerPresentatio
 	}
 }
 
-func TestTranscriptCompactionStatusPreservesInitiatingRequestIdentity(t *testing.T) {
-	requestID := runtimeids.NewCompactionRequestID()
-	messages, err := TranscriptMessagesFromRuntimeEventChecked(runtime.Event{
-		Kind:   runtime.EventCompactionCompleted,
-		StepID: runtimeStepIDPointer(transcriptProjectionStepID),
-		Compaction: &runtime.CompactionStatus{
-			Mode:      "manual",
-			RequestID: &requestID,
-			Count:     1,
-		},
-	})
-	if err != nil {
-		t.Fatalf("project compaction status: %v", err)
-	}
-	if len(messages) != 1 {
-		t.Fatalf("compaction messages = %+v, want one", messages)
-	}
-	status := messages[0].GetCompactionStatus()
-	if status.RequestId == nil || *status.RequestId != requestID.String() {
-		t.Fatalf("projected request identity = %v, want %s", status.RequestId, requestID.String())
-	}
-}
-
 func TestTranscriptPendingWorkTechnicalRestorationProjection(t *testing.T) {
 	itemID := runtimeids.NewQueueItemID()
 	restoration := runtimeinput.PendingWorkTechnicalRestoration{
@@ -193,7 +171,8 @@ func TestTranscriptPendingWorkTechnicalRestorationProjection(t *testing.T) {
 	messages, err := TranscriptMessagesFromRuntimeEventChecked(runtime.Event{
 		Kind:                   runtime.EventPendingWorkRestored,
 		PendingWorkRestoration: &restoration,
-	})
+	}, nil)
+
 	if err != nil {
 		t.Fatalf("project pending work restoration: %v", err)
 	}
@@ -212,7 +191,7 @@ func TestTranscriptPendingWorkTechnicalRestorationProjection(t *testing.T) {
 }
 
 func TestTranscriptPendingWorkChangedProjectionCarriesNoCollection(t *testing.T) {
-	messages, err := TranscriptMessagesFromRuntimeEventChecked(runtime.Event{Kind: runtime.EventPendingWorkChanged})
+	messages, err := TranscriptMessagesFromRuntimeEventChecked(runtime.Event{Kind: runtime.EventPendingWorkChanged}, nil)
 	if err != nil {
 		t.Fatalf("project pending work change: %v", err)
 	}
@@ -319,17 +298,16 @@ func TestTranscriptHydrationPreservesDeletionDispositionPresence(t *testing.T) {
 }
 
 const (
-	transcriptProjectionRunID  = "10000000-0000-4000-8000-000000000011"
 	transcriptProjectionStepID = "10000000-0000-4000-8000-000000000012"
 )
 
-func mustTranscriptHydration(t *testing.T, snapshot runtime.TranscriptHydrationSnapshot, facts ...[]runtime.TranscriptCommittedRowFact) *transcriptpb.Hydration {
+func mustTranscriptHydration(t *testing.T, snapshot runtime.TranscriptHydrationSnapshot, committedRows []runtime.TranscriptCommittedRowFact, identityMaps ...map[runtimeids.SessionID]runtimeids.SessionIdentity) *transcriptpb.Hydration {
 	t.Helper()
-	var committedRows []runtime.TranscriptCommittedRowFact
-	if len(facts) > 0 {
-		committedRows = facts[0]
+	var identities map[runtimeids.SessionID]runtimeids.SessionIdentity
+	if len(identityMaps) > 0 {
+		identities = identityMaps[0]
 	}
-	tailSegment, err := transcriptTailSegmentFromFactsChecked(committedRows, nil, false)
+	tailSegment, err := transcriptTailSegmentFromFactsChecked(committedRows, nil, false, identities)
 	if err != nil {
 		t.Fatalf("project transcript hydration tail: %v", err)
 	}
@@ -347,7 +325,8 @@ func TestTranscriptHydrationCarriesRuntimeNativeAssistantStreamIdentity(t *testi
 		ActiveAssistantMetadata: &runtime.AssistantStreamMetadata{StepID: transcriptProjectionStepID},
 		ActiveAssistantStreamID: &streamID,
 		ActiveAssistantPhase:    llm.MessagePhaseFinal,
-	})
+	}, nil)
+
 	if hydration.ActiveAssistant == nil {
 		t.Fatal("expected active assistant stream in hydration")
 	}
@@ -381,7 +360,8 @@ func TestTranscriptHydrationProjectsRuntimeOwnedFacts(t *testing.T) {
 		ContextUsage:     &runtime.ContextUsage{UsedTokens: 123, WindowTokens: 4000, CacheHitPercent: 25, HasCacheHitPercentage: true},
 		Goal:             &session.GoalState{ID: "goal-1", Objective: "ship", Status: session.GoalStatusActive, CreatedAt: goalTime, UpdatedAt: goalTime},
 		GoalSuspended:    true,
-	})
+	}, nil)
+
 	if hydration.ActiveThinkingStatus == nil || hydration.ActiveThinkingStatus.Text != "Planning" ||
 		len(hydration.ActiveReasoningTraces) != 1 || hydration.ActiveReasoningTraces[0].Text != "inspect" {
 		t.Fatalf("reasoning = status %+v traces %+v", hydration.ActiveThinkingStatus, hydration.ActiveReasoningTraces)
@@ -407,7 +387,8 @@ func TestTranscriptReasoningHydrationAndLivePreserveOrderedIdentities(t *testing
 			{StepID: transcriptProjectionStepID, Identity: runtime.TranscriptReasoningTraceIdentity{Kent: &firstID}, Text: "first"},
 			{StepID: transcriptProjectionStepID, Identity: runtime.TranscriptReasoningTraceIdentity{Provider: &llm.ReasoningItemIdentity{ItemID: "second", PartIndex: &secondIndex}}, Text: "second"},
 		},
-	})
+	}, nil)
+
 	if len(hydration.ActiveReasoningTraces) != 2 || hydration.ActiveReasoningTraces[0].Identity.GetKentTraceId() != firstID.String() ||
 		hydration.ActiveReasoningTraces[1].Identity.GetProvider() == nil {
 		t.Fatalf("hydrated reasoning order = %+v", hydration.ActiveReasoningTraces)
@@ -420,7 +401,8 @@ func TestTranscriptReasoningHydrationAndLivePreserveOrderedIdentities(t *testing
 			Text:             "first",
 		},
 		ReasoningTraceIdentity: &runtime.TranscriptReasoningTraceIdentity{Kent: &firstID},
-	})
+	}, nil)
+
 	if err != nil {
 		t.Fatalf("project first live reasoning event: %v", err)
 	}
@@ -433,7 +415,8 @@ func TestTranscriptReasoningHydrationAndLivePreserveOrderedIdentities(t *testing
 		ReasoningTraceIdentity: &runtime.TranscriptReasoningTraceIdentity{
 			Provider: &llm.ReasoningItemIdentity{ItemID: "second", PartIndex: &secondIndex},
 		},
-	})
+	}, nil)
+
 	if err != nil {
 		t.Fatalf("project second live reasoning event: %v", err)
 	}
@@ -451,6 +434,35 @@ func TestTranscriptReasoningHydrationAndLivePreserveOrderedIdentities(t *testing
 	}
 }
 
+func TestTranscriptThinkingStatusIsNeverProjectedAsReasoningTrace(t *testing.T) {
+	status := &llm.ReasoningStatus{Text: "checking"}
+	events, err := TranscriptMessagesFromRuntimeEventChecked(runtime.Event{
+		Kind: runtime.EventReasoningDelta, StepID: runtimeStepIDPointer(transcriptProjectionStepID),
+		ReasoningDelta: &llm.ReasoningSummaryDelta{CurrentStatus: status},
+	}, nil)
+
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(events) != 1 || events[0].GetThinkingStatusUpdate() == nil {
+		t.Fatalf("status-only update generated transcript content: %+v", events)
+	}
+	identity := runtimeids.NewReasoningTraceID()
+	events, err = TranscriptMessagesFromRuntimeEventChecked(runtime.Event{
+		Kind: runtime.EventReasoningDelta, StepID: runtimeStepIDPointer(transcriptProjectionStepID),
+		ReasoningDelta:         &llm.ReasoningSummaryDelta{CurrentStatus: status, Text: "actual reasoning"},
+		ReasoningTraceIdentity: &runtime.TranscriptReasoningTraceIdentity{Kent: &identity},
+	}, nil)
+
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(events) != 2 || events[0].GetThinkingStatusUpdate() == nil ||
+		events[1].GetReasoningTraceUpdate() == nil || events[1].GetReasoningTraceUpdate().Text != "actual reasoning" {
+		t.Fatalf("status and real reasoning lost their separate channels: %+v", events)
+	}
+}
+
 func TestTranscriptCommittedRowsPreserveRuntimeVisibility(t *testing.T) {
 	messages, err := TranscriptMessagesFromRuntimeEventChecked(runtime.Event{
 		Kind:                runtime.EventLocalEntryAdded,
@@ -464,7 +476,8 @@ func TestTranscriptCommittedRowsPreserveRuntimeVisibility(t *testing.T) {
 				EventSequence: 1,
 			},
 		},
-	})
+	}, nil)
+
 	if err != nil {
 		t.Fatalf("project runtime visibility row: %v", err)
 	}
@@ -508,7 +521,8 @@ func TestDeveloperMessageProjectsAsRegularNotice(t *testing.T) {
 		Kind:                runtime.EventLocalEntryAdded,
 		LocalEntryProjected: true,
 		LocalEntry:          &entry,
-	})
+	}, nil)
+
 	if err != nil {
 		t.Fatalf("project developer context row: %v", err)
 	}
@@ -560,7 +574,7 @@ func TestTranscriptCommittedRowsProjectCommitTime(t *testing.T) {
 			},
 		},
 	} {
-		row, err := transcriptRowFromFact(fact)
+		row, err := transcriptRowFromFact(fact, nil)
 		if err != nil {
 			t.Fatalf("project committed time: %v", err)
 		}
@@ -587,8 +601,8 @@ func TestRuntimeScopedUserFlushProjectsWithoutExactStep(t *testing.T) {
 		UserMessageBatchQueuedItems: []runtime.QueuedUserMessageIdentity{{
 			QueueItemID: "10000000-0000-4000-8000-000000000020",
 		}},
-		CommittedProvenance: &runtime.TranscriptCommittedRowProvenance{EventSequence: 1},
-	})
+		CommittedProvenance: &runtime.TranscriptCommittedRowProvenance{EventSequence: 1, QueueItemIDs: []string{"10000000-0000-4000-8000-000000000020"}},
+	}, nil)
 	if err != nil {
 		t.Fatalf("project Runtime user flush: %v", err)
 	}
@@ -609,6 +623,9 @@ func TestRuntimeScopedUserFlushProjectsWithoutExactStep(t *testing.T) {
 	if userRow == nil || userRow.StepId != nil || flushed == nil || flushed.StepId != nil {
 		t.Fatalf("Runtime user/flush Step provenance = user:%+v flush:%+v, want absent", userRow, flushed)
 	}
+	if len(userRow.QueueItemIds) != 1 || userRow.QueueItemIds[0] != "10000000-0000-4000-8000-000000000020" {
+		t.Fatalf("delivery identity = %+v", userRow)
+	}
 }
 
 func TestRuntimeScopedToolCompletionProjectsLiveAndHydratedWithoutExactStep(t *testing.T) {
@@ -621,7 +638,8 @@ func TestRuntimeScopedToolCompletionProjectsLiveAndHydratedWithoutExactStep(t *t
 		Kind:                runtime.EventToolCallCompleted,
 		ToolResult:          &result,
 		CommittedProvenance: &runtime.TranscriptCommittedRowProvenance{EventSequence: 2},
-	})
+	}, nil)
+
 	if err != nil {
 		t.Fatalf("project Runtime tool completion: %v", err)
 	}
@@ -655,11 +673,13 @@ func TestRuntimeScopedToolCompletionProjectsLiveAndHydratedWithoutExactStep(t *t
 				Text:       "done",
 			},
 		},
-	})
+	}, nil)
+
 	if len(hydration.TailSegment.Entries) != 2 {
 		t.Fatalf("Runtime hydration rows = %+v, want user and tool", hydration.TailSegment.Entries)
 	}
 	hydration.SessionIdentity = &transcriptpb.SessionIdentity{
+		Category:              projectpb.SessionCategory_SESSION_CATEGORY_MAIN,
 		SessionId:             projectionWorkspaceID,
 		ConversationFreshness: runtimepb.ConversationFreshness_CONVERSATION_FRESHNESS_ESTABLISHED,
 	}
@@ -691,6 +711,90 @@ func TestRuntimeScopedToolCompletionProjectsLiveAndHydratedWithoutExactStep(t *t
 	}
 }
 
+func TestQuestionAnswererProjectsAcrossLiveHydrationAndPageRows(t *testing.T) {
+	answerer, err := runtimeids.ParseSessionID("bf18c402-c6d0-4f32-8e0d-01e34cbfc273")
+	if err != nil {
+		t.Fatal(err)
+	}
+	shortID, err := runtimeids.NewSessionShortID(42)
+	if err != nil {
+		t.Fatal(err)
+	}
+	identities := map[runtimeids.SessionID]runtimeids.SessionIdentity{answerer: {ID: answerer, ShortID: &shortID}}
+	presentation := transcript.NormalizeToolCallMeta(transcript.ToolCallMeta{
+		ToolName:     string(toolspec.ToolAskQuestion),
+		Presentation: transcript.ToolPresentationAskQuestion,
+		Question:     "Choose",
+		Suggestions:  []string{"option"},
+	})
+	result := tools.Result{
+		CallID:              "call-question",
+		Name:                toolspec.ToolAskQuestion,
+		Output:              json.RawMessage(`"Agent answered"`),
+		Presentation:        &presentation,
+		AnsweredBySessionID: &answerer,
+	}
+	live, err := TranscriptMessagesFromRuntimeEventChecked(runtime.Event{
+		Kind:                runtime.EventToolCallCompleted,
+		ToolResult:          &result,
+		CommittedProvenance: &runtime.TranscriptCommittedRowProvenance{EventSequence: 1},
+	}, identities)
+	if err != nil {
+		t.Fatalf("project live Question completion: %v", err)
+	}
+	if len(live) != 1 || live[0].GetCommittedRow().GetTool() == nil {
+		t.Fatalf("live Question rows = %+v, want one ToolRow", live)
+	}
+	assertQuestionAnswererToolRow(t, live[0].GetCommittedRow().GetTool(), answerer)
+
+	provenance := &runtime.TranscriptCommittedRowProvenance{EventSequence: 1}
+	snapshot := runtime.ChatSnapshot{Entries: []runtime.ChatEntry{{
+		Visibility:          transcript.EntryVisibilityOngoingCollapsed,
+		Role:                "tool_result_ok",
+		Text:                "Agent answered",
+		ToolCallID:          "call-question",
+		ToolCall:            &presentation,
+		AnsweredBySessionID: &answerer,
+		CommittedProvenance: provenance,
+	}}}
+	page, err := TranscriptPageFromSegment(
+		"12345678-1234-4234-8234-123456789012",
+		textutil.Value("session"),
+		runtimepb.ConversationFreshness_CONVERSATION_FRESHNESS_ESTABLISHED,
+		runtime.TranscriptSegmentPage{Snapshot: snapshot},
+		identities,
+	)
+	if err != nil {
+		t.Fatalf("project Question page: %v", err)
+	}
+	if len(page.Entries) != 1 || page.Entries[0].GetTool() == nil {
+		t.Fatalf("Question page rows = %+v, want one ToolRow", page.Entries)
+	}
+	assertQuestionAnswererToolRow(t, page.Entries[0].GetTool(), answerer)
+
+	hydration := mustTranscriptHydration(t, runtime.TranscriptHydrationSnapshot{},
+		runtime.TranscriptCommittedRowFactsFromSnapshot(snapshot), identities)
+	if len(hydration.TailSegment.Entries) != 1 || hydration.TailSegment.Entries[0].GetTool() == nil {
+		t.Fatalf("Question hydration rows = %+v, want one ToolRow", hydration.TailSegment.Entries)
+	}
+	assertQuestionAnswererToolRow(t, hydration.TailSegment.Entries[0].GetTool(), answerer)
+}
+
+func assertQuestionAnswererToolRow(
+	t *testing.T,
+	row *transcriptpb.ToolRow,
+	answerer runtimeids.SessionID,
+) {
+	t.Helper()
+	if row == nil ||
+		row.AnsweredBySessionId == nil ||
+		*row.AnsweredBySessionId != answerer.String() ||
+		row.AnsweredBySessionShortId == nil || *row.AnsweredBySessionShortId != 42 ||
+		row.QuestionAnswer != nil {
+		t.Fatalf("Question ToolRow = %+v, want answerer %s and no structured answer", row, answerer)
+	}
+}
+
 func TestTranscriptCommittedReasoningEventCarriesDedicatedPayload(t *testing.T) {
 	part := int64(0)
 	durationMs := int64(321)
@@ -707,7 +811,8 @@ func TestTranscriptCommittedReasoningEventCarriesDedicatedPayload(t *testing.T) 
 			Provider: &llm.ReasoningItemIdentity{ItemID: "reason_1", PartIndex: &part},
 		},
 		CommittedProvenance: &runtime.TranscriptCommittedRowProvenance{EventSequence: 1},
-	})
+	}, nil)
+
 	if err != nil {
 		t.Fatalf("project reasoning row: %v", err)
 	}
@@ -751,7 +856,7 @@ func TestTranscriptReasoningDurationProjectsHydrationAndBoundedPage(t *testing.T
 
 	page, err := TranscriptPageFromSegment(
 		"58e121b5-30f7-4d0f-a1fa-fb3e6695e39c",
-		"name",
+		textutil.Value("name"),
 		runtimepb.ConversationFreshness_CONVERSATION_FRESHNESS_ESTABLISHED,
 		runtime.TranscriptSegmentPage{Snapshot: runtime.ChatSnapshot{Entries: []runtime.ChatEntry{{
 			StepID:     runtimeStepIDPointer(transcriptProjectionStepID),
@@ -761,8 +866,8 @@ func TestTranscriptReasoningDurationProjectsHydrationAndBoundedPage(t *testing.T
 			CommittedProvenance: &runtime.TranscriptCommittedRowProvenance{
 				EventSequence: 1,
 			},
-		}}}},
-	)
+		}}}}, nil)
+
 	if err != nil {
 		t.Fatalf("project bounded transcript page: %v", err)
 	}
@@ -795,7 +900,7 @@ func TestUnknownToolExecutionProjectsFinalizedFailedInput(t *testing.T) {
 	store := newRuntimeViewStore(t)
 	var completion runtime.Event
 	engine := newRuntimeViewEngine(t, store, client, runtime.Config{
-		Model: "gpt-5",
+		Model: "gpt-6-sol",
 		OnEvent: func(evt runtime.Event) {
 			if evt.Kind == runtime.EventToolCallCompleted && evt.ToolResult != nil {
 				completion = evt
@@ -816,7 +921,7 @@ func TestUnknownToolExecutionProjectsFinalizedFailedInput(t *testing.T) {
 		t.Fatalf("emitted presentation = %+v, want original input preserved", completion.ToolResult.Presentation)
 	}
 
-	messages, err := TranscriptMessagesFromRuntimeEventChecked(completion)
+	messages, err := TranscriptMessagesFromRuntimeEventChecked(completion, nil)
 	if err != nil {
 		t.Fatalf("project failed tool completion: %v", err)
 	}
@@ -874,7 +979,7 @@ func TestWebSearchLiveAndReopenedPage(t *testing.T) {
 			store := newRuntimeViewStore(t)
 			var completion runtime.Event
 			engine := newRuntimeViewEngine(t, store, client, runtime.Config{
-				Model: "gpt-5", WebSearchMode: "native", EnabledTools: []toolspec.ID{toolspec.ToolWebSearch},
+				Model: "gpt-6-sol", WebSearchMode: "native", EnabledTools: []toolspec.ID{toolspec.ToolWebSearch},
 				OnEvent: func(event runtime.Event) {
 					if event.Kind == runtime.EventToolCallCompleted {
 						completion = event
@@ -884,7 +989,7 @@ func TestWebSearchLiveAndReopenedPage(t *testing.T) {
 			if _, err := engine.SubmitUserMessage(context.Background(), "search example"); err != nil {
 				t.Fatal(err)
 			}
-			events, err := TranscriptMessagesFromRuntimeEventChecked(completion)
+			events, err := TranscriptMessagesFromRuntimeEventChecked(completion, nil)
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -923,7 +1028,7 @@ func TestWebSearchLiveAndReopenedPage(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			page, err := TranscriptPageFromSegment(projectionWorkspaceID, "search", runtimepb.ConversationFreshness_CONVERSATION_FRESHNESS_ESTABLISHED, segment)
+			page, err := TranscriptPageFromSegment(projectionWorkspaceID, textutil.Value("search"), runtimepb.ConversationFreshness_CONVERSATION_FRESHNESS_ESTABLISHED, segment, nil)
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -962,7 +1067,7 @@ func TestTranscriptPagePreservesRollbackTargetIdentity(t *testing.T) {
 	}
 	page, err := TranscriptPageFromSegment(
 		"58e121b5-30f7-4d0f-a1fa-fb3e6695e39c",
-		"name",
+		textutil.Value("name"),
 		runtimepb.ConversationFreshness_CONVERSATION_FRESHNESS_ESTABLISHED,
 		runtime.TranscriptSegmentPage{
 			LatestRollbackCandidate: locator,
@@ -975,8 +1080,8 @@ func TestTranscriptPagePreservesRollbackTargetIdentity(t *testing.T) {
 					EventSequence: 5,
 				},
 			}}},
-		},
-	)
+		}, nil)
+
 	if err != nil {
 		t.Fatalf("project page: %v", err)
 	}
@@ -1018,7 +1123,7 @@ func TestTranscriptProjectionCanonicalizesBlankPersistedAssistantPhase(t *testin
 func TestTranscriptPageProjectsReviewerAndBackgroundMetadata(t *testing.T) {
 	exitCode := 9
 	activityID := uuid.New()
-	page, err := TranscriptPageFromSegment("58e121b5-30f7-4d0f-a1fa-fb3e6695e39c", "name", runtimepb.ConversationFreshness_CONVERSATION_FRESHNESS_ESTABLISHED, runtime.TranscriptSegmentPage{
+	page, err := TranscriptPageFromSegment("58e121b5-30f7-4d0f-a1fa-fb3e6695e39c", textutil.Value("name"), runtimepb.ConversationFreshness_CONVERSATION_FRESHNESS_ESTABLISHED, runtime.TranscriptSegmentPage{
 		Snapshot: runtime.ChatSnapshot{Entries: []runtime.ChatEntry{
 			{Role: "reviewer_status", Text: "review complete", CommittedProvenance: &runtime.TranscriptCommittedRowProvenance{EventSequence: 6}},
 			{
@@ -1031,7 +1136,8 @@ func TestTranscriptPageProjectsReviewerAndBackgroundMetadata(t *testing.T) {
 				CommittedProvenance:  &runtime.TranscriptCommittedRowProvenance{EventSequence: 7},
 			},
 		}},
-	})
+	}, nil)
+
 	if err != nil {
 		t.Fatalf("project page: %v", err)
 	}
@@ -1050,7 +1156,7 @@ func TestTranscriptPageProjectsReviewerAndBackgroundMetadata(t *testing.T) {
 	if backgroundRow.GetNotice() == nil {
 		t.Fatalf("background row = %+v, want notice", backgroundRow)
 	}
-	if background := backgroundRow.GetNotice().Background; background == nil || background.ExitCode == nil || *background.ExitCode != int32(exitCode) {
+	if background := backgroundRow.GetNotice().Background; background == nil || background.ExitCode == nil || *background.ExitCode != int64(exitCode) {
 		t.Fatalf("background notice = %+v, want exit code %d", background, exitCode)
 	}
 }
@@ -1071,7 +1177,8 @@ func TestTranscriptMessagesIgnoreEmptyAssistantDelta(t *testing.T) {
 		Kind:                        runtime.EventAssistantDelta,
 		AssistantDelta:              "",
 		AssistantTranscriptStreamID: &streamID,
-	})
+	}, nil)
+
 	if err != nil {
 		t.Fatalf("project empty assistant delta: %v", err)
 	}
@@ -1084,7 +1191,8 @@ func TestTranscriptMessagesIgnoreNoopAssistantResetWithoutStream(t *testing.T) {
 	messages, err := TranscriptMessagesFromRuntimeEventChecked(runtime.Event{
 		Kind:                       runtime.EventAssistantDeltaReset,
 		AssistantStreamAbortReason: string(runtime.AssistantStreamAbortSuperseded),
-	})
+	}, nil)
+
 	if err != nil {
 		t.Fatalf("project noop assistant reset: %v", err)
 	}
@@ -1099,7 +1207,8 @@ func TestTranscriptMessagesIgnoreFinalizedAssistantReset(t *testing.T) {
 		Kind:                        runtime.EventAssistantDeltaReset,
 		StepID:                      runtimeStepIDPointer(transcriptProjectionStepID),
 		AssistantTranscriptStreamID: &streamID,
-	})
+	}, nil)
+
 	if err != nil {
 		t.Fatalf("project finalized assistant reset: %v", err)
 	}
@@ -1117,14 +1226,14 @@ func TestTranscriptBackgroundActivityUsesRuntimeActivityID(t *testing.T) {
 			Type:        runtime.BackgroundShellEventBackgrounded,
 			ID:          uuid.NewString(),
 			ActivityID:  activityID,
-			OwnerRunID:  transcriptProjectionRunID,
 			OwnerStepID: transcriptProjectionStepID,
 			State:       "running",
 			Command:     "go test ./...",
 			Workdir:     "/tmp/workspace",
 			Preview:     "tests",
 		},
-	})
+	}, nil)
+
 	if err != nil {
 		t.Fatalf("project background activity: %v", err)
 	}
@@ -1134,6 +1243,9 @@ func TestTranscriptBackgroundActivityUsesRuntimeActivityID(t *testing.T) {
 	background := messages[0].GetBackgroundActivity()
 	if got := background.ActivityId; got != activityID.String() {
 		t.Fatalf("background transcript id = %q, want activity id %q", got, activityID)
+	}
+	if background.OwnerStepId != transcriptProjectionStepID {
+		t.Fatalf("background owner Step = %q, want %q", background.OwnerStepId, transcriptProjectionStepID)
 	}
 }
 
@@ -1158,7 +1270,6 @@ func TestTranscriptBackgroundActivityLifecycleIgnoresPreviewTruncation(t *testin
 					Type:              tt.eventType,
 					ID:                uuid.NewString(),
 					ActivityID:        uuid.New(),
-					OwnerRunID:        transcriptProjectionRunID,
 					OwnerStepID:       transcriptProjectionStepID,
 					State:             string(tt.eventType),
 					Command:           "sleep 2",
@@ -1166,7 +1277,8 @@ func TestTranscriptBackgroundActivityLifecycleIgnoresPreviewTruncation(t *testin
 					PreviewRemoved:    tt.previewRemoved,
 					UserRequestedKill: tt.userRequestedKill,
 				},
-			})
+			}, nil)
+
 			if err != nil {
 				t.Fatalf("project background activity: %v", err)
 			}
@@ -1199,7 +1311,8 @@ func TestTranscriptBackgroundNoticeCarriesTypedExitCode(t *testing.T) {
 			BackgroundActivityID: textutil.Value(activityID.String()),
 			BackgroundExitCode:   &exitCode,
 		},
-	})
+	}, nil)
+
 	if err != nil {
 		t.Fatalf("project background notice: %v", err)
 	}
@@ -1212,7 +1325,7 @@ func TestTranscriptBackgroundNoticeCarriesTypedExitCode(t *testing.T) {
 		t.Fatal("background notice row is missing notice payload")
 	}
 	background := row.GetNotice().Background
-	if background == nil || background.ExitCode == nil || *background.ExitCode != int32(exitCode) {
+	if background == nil || background.ExitCode == nil || *background.ExitCode != int64(exitCode) {
 		t.Fatalf("background notice = %+v, want exit code %d", background, exitCode)
 	}
 }
@@ -1239,7 +1352,8 @@ func TestTranscriptWorktreeNoticeCarriesTypedContextWithoutServerPresentation(t 
 			WorktreeContext: &target.WorktreeContext,
 			Content:         textutil.Value("model-visible worktree context"),
 		},
-	})
+	}, nil)
+
 	if err != nil {
 		t.Fatalf("project worktree notice: %v", err)
 	}
@@ -1286,7 +1400,8 @@ func TestTranscriptWorktreeNoticeKeepsMissingBranchNullable(t *testing.T) {
 			WorktreeContext: &context,
 			Content:         textutil.Value("model-visible detached worktree context"),
 		},
-	})
+	}, nil)
+
 	if err != nil {
 		t.Fatalf("project detached worktree notice: %v", err)
 	}
@@ -1302,23 +1417,29 @@ func TestTranscriptWorktreeNoticeKeepsMissingBranchNullable(t *testing.T) {
 	}
 }
 
-func TestTranscriptBackgroundActivityRejectsMissingRuntimeActivityID(t *testing.T) {
-	_, err := TranscriptMessagesFromRuntimeEventChecked(runtime.Event{
-		Kind:   runtime.EventBackgroundUpdated,
-		StepID: runtimeStepIDPointer(transcriptProjectionStepID),
-		Background: &runtime.BackgroundShellEvent{
-			Type:        runtime.BackgroundShellEventBackgrounded,
-			ID:          uuid.NewString(),
-			OwnerRunID:  transcriptProjectionRunID,
-			OwnerStepID: transcriptProjectionStepID,
-			State:       "running",
-			Command:     "go test ./...",
-			Workdir:     "/tmp/workspace",
-			Preview:     "tests",
+func TestTranscriptWorkspacesNoticePreservesTypedMessageAndVisibility(t *testing.T) {
+	messages, err := TranscriptMessagesFromRuntimeEventChecked(runtime.Event{
+		Kind: runtime.EventConversationUpdated,
+		CommittedProvenance: &runtime.TranscriptCommittedRowProvenance{
+			EventSequence: 3,
 		},
-	})
-	if err == nil {
-		t.Fatal("expected missing background activity id to be rejected")
+		Message: llm.Message{
+			Role:        llm.RoleDeveloper,
+			MessageType: textutil.Value(llm.MessageTypeWorkspaces),
+			Content:     textutil.Value("project workspace context"),
+		},
+	}, nil)
+	if err != nil {
+		t.Fatalf("project Workspaces notice: %v", err)
+	}
+	if len(messages) != 1 {
+		t.Fatalf("messages = %d, want one Workspaces notice", len(messages))
+	}
+	row := messages[0].GetCommittedRow()
+	if row.GetNotice() == nil ||
+		row.GetNotice().GetMessageType() != transcriptpb.NoticeMessageType_NOTICE_MESSAGE_TYPE_WORKSPACES ||
+		row.Visibility != transcriptpb.EntryVisibility_ENTRY_VISIBILITY_DETAIL {
+		t.Fatalf("Workspaces notice projection = %+v, want typed detail notice", row)
 	}
 }
 
@@ -1340,7 +1461,8 @@ func TestAssistantTranscriptMessagesDoNotReemitLiveToolStarts(t *testing.T) {
 						Name: "shell",
 					}},
 				},
-			})
+			}, nil)
+
 			if err != nil {
 				t.Fatalf("project assistant transcript event: %v", err)
 			}
@@ -1367,7 +1489,7 @@ func TestInFlightClearFailureIsOperationalDiagnosticOnly(t *testing.T) {
 	if facts := runtime.TranscriptCommittedRowFactsFromEvent(event); len(facts) != 0 {
 		t.Fatalf("in-flight clear failure committed facts = %+v, want none", facts)
 	}
-	messages, err := TranscriptMessagesFromRuntimeEventChecked(event)
+	messages, err := TranscriptMessagesFromRuntimeEventChecked(event, nil)
 	if err != nil {
 		t.Fatalf("project in-flight clear failure: %v", err)
 	}
@@ -1389,7 +1511,7 @@ func TestContextFactPersistenceFailureIsOperationalDiagnosticOnly(t *testing.T) 
 	if facts := runtime.TranscriptCommittedRowFactsFromEvent(event); len(facts) != 0 {
 		t.Fatalf("Context-fact persistence failure committed facts = %+v, want none", facts)
 	}
-	messages, err := TranscriptMessagesFromRuntimeEventChecked(event)
+	messages, err := TranscriptMessagesFromRuntimeEventChecked(event, nil)
 	if err != nil {
 		t.Fatalf("project context-fact persistence failure: %v", err)
 	}

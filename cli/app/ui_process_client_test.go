@@ -22,6 +22,7 @@ type fixedUIProcessClient struct {
 }
 
 const uiProcessTestProjectID = "project-1"
+const uiProcessTestSessionID = "11111111-1111-4111-8111-111111111111"
 
 func withUIBackgroundManagerForTest(manager *shelltool.Manager) UIOption {
 	return func(m *uiModel) {
@@ -100,7 +101,7 @@ func TestUIProcessClientProjectsManagerSnapshots(t *testing.T) {
 		Postprocessor:  postprocessfixture.NewRunner(t, postprocess.Settings{Mode: config.ShellPostprocessingModeBuiltin}),
 		Command:        []string{"sh", "-c", "printf 'done\n'; sleep 0.05; exit 7"},
 		DisplayCommand: "project-test",
-		OwnerSessionID: "session-1",
+		OwnerSessionID: uiProcessTestSessionID,
 		Workdir:        workdir,
 		YieldTime:      fastBackgroundTestYield})
 	if err != nil {
@@ -128,7 +129,7 @@ func TestUIProcessClientProjectsManagerSnapshots(t *testing.T) {
 		return false
 	})
 
-	var projectedExitCode *int32
+	var projectedExitCode *int64
 	found := false
 	entries, err := client.ListProcesses(context.Background())
 	if err != nil {
@@ -196,13 +197,13 @@ func TestExplicitUIProcessClientWinsOverBackgroundManagerOptionOrder(t *testing.
 
 func TestUIProcessClientUsesSharedReadsWhenAvailable(t *testing.T) {
 	reads := &stubProcessViewService{
-		listResp: &processpb.ListSuccess{Processes: []*processpb.BackgroundProcess{{Id: "proc-1", OwnerRunId: proto.String("run-1"), OwnerStepId: proto.String("step-1")}}}}
+		listResp: &processpb.ListSuccess{Processes: []*processpb.BackgroundProcess{{Id: "proc-1", OwnerStepId: proto.String("step-1")}}}}
 	processClient := newUIProcessClientWithReads(uiProcessTestProjectID, reads, nil)
 	got, err := processClient.ListProcesses(context.Background())
 	if err != nil {
 		t.Fatalf("ListProcesses: %v", err)
 	}
-	if len(got) != 1 || got[0].Id != "proc-1" || got[0].GetOwnerRunId() != "run-1" || got[0].GetOwnerStepId() != "step-1" {
+	if len(got) != 1 || got[0].Id != "proc-1" || got[0].GetOwnerStepId() != "step-1" {
 		t.Fatalf("unexpected loopback process payload: %+v", got)
 	}
 }
@@ -215,8 +216,7 @@ func TestUIProcessClientDoesNotBypassSharedReadBoundaryOnError(t *testing.T) {
 		Postprocessor:  postprocessfixture.NewRunner(t, postprocess.Settings{Mode: config.ShellPostprocessingModeBuiltin}),
 		Command:        []string{"sh", "-c", "printf 'done\n'; sleep 0.05; exit 0"},
 		DisplayCommand: "fallback-process",
-		OwnerSessionID: "session-1",
-		OwnerRunID:     "run-1",
+		OwnerSessionID: uiProcessTestSessionID,
 		OwnerStepID:    "step-1",
 		Workdir:        workdir,
 		YieldTime:      fastBackgroundTestYield})
@@ -296,5 +296,5 @@ func (allUIProjectSessionMembership) FilterProjectSessionIDs(
 	_ context.Context,
 	_ string,
 	_ []string) ([]string, error) {
-	return []string{"session-1"}, nil
+	return []string{uiProcessTestSessionID}, nil
 }

@@ -1,8 +1,13 @@
+import { describe, expect, it } from "bun:test";
 import { screen, waitFor } from "@testing-library/react";
 
-import { RpcError, rpcErrorCodes } from "@/api";
 import { createTestSidebarNavigator } from "@/test-support/sidebar";
-import { mountTaskDetailSurface, taskDetailResponse } from "@/test-support/task-detail";
+import {
+  mountTaskDetailSurface,
+  taskDetailResponse,
+  taskGetRoute,
+  taskMissingRoute,
+} from "@/test-support/task-detail";
 import { appI18n } from "@/i18n";
 
 describe("TaskDetailSurface sidebar ownership", () => {
@@ -10,21 +15,10 @@ describe("TaskDetailSurface sidebar ownership", () => {
     const page = createTestSidebarNavigator();
     mountTaskDetailSurface(taskDetailResponse, {
       navigator: page,
-      routes: [
-        {
-          method: "workflow.task.get",
-          handler: () => {
-            throw new RpcError({
-              code: rpcErrorCodes.workflowTaskNotFound,
-              message: "gone",
-              method: "workflow.task.get",
-            });
-          },
-        },
-      ],
+      routes: [taskMissingRoute("task-1")],
     });
     await waitFor(() => {
-      expect(page.back).toHaveBeenCalledOnce();
+      expect(page.back).toHaveBeenCalledTimes(1);
     });
     expect(page.registerCapture).not.toHaveBeenCalled();
   });
@@ -34,12 +28,9 @@ describe("TaskDetailSurface sidebar ownership", () => {
     mountTaskDetailSurface(taskDetailResponse, {
       navigator: page,
       routes: [
-        {
-          method: "workflow.task.get",
-          handler: () => {
-            throw new Error("offline");
-          },
-        },
+        taskGetRoute(() => {
+          throw new Error("offline");
+        }),
       ],
     });
     expect(await screen.findByTestId("error-state")).toBeInTheDocument();

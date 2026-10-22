@@ -21,10 +21,12 @@ import (
 	"core/server/workflowstore"
 	"core/shared/clientui"
 	"core/shared/config"
+	taskpb "core/shared/protoapi/gen/kent/api/workflow_task"
 	"core/shared/runtimeids"
-	"core/shared/serverapi"
+
 	"core/shared/sessioncontract"
 	"core/shared/textutil"
+	"google.golang.org/protobuf/types/known/emptypb"
 
 	"github.com/google/uuid"
 )
@@ -124,7 +126,7 @@ func newCurrentNodeViewFixture(t *testing.T, requiresApproval bool) currentNodeV
 		t.Fatalf("workflowstore.New: %v", err)
 	}
 	workflowID := currentNodeViewWorkflow(t, store, requiresApproval)
-	if _, err := store.LinkWorkflow(t.Context(), binding.ProjectID, workflowID, true); err != nil {
+	if _, err := store.LinkWorkflowWithDefaultPolicy(t.Context(), binding.ProjectID, workflowID, workflowstore.WorkflowLinkDefaultAlways); err != nil {
 		t.Fatalf("LinkWorkflow: %v", err)
 	}
 	definitions, err := NewDefinitionProjection(store)
@@ -182,7 +184,7 @@ func newCurrentNodeViewFixture(t *testing.T, requiresApproval bool) currentNodeV
 	if err != nil {
 		t.Fatalf("NewTaskSearch: %v", err)
 	}
-	activity, err := NewActivity(metadataStore, projector)
+	activity, err := NewActivity(metadataStore)
 	if err != nil {
 		t.Fatalf("NewActivity: %v", err)
 	}
@@ -296,7 +298,7 @@ func (f currentNodeViewFixture) newCurrentNodeViewSession(t *testing.T) runtimei
 	if err := sessionStore.EnsureDurable(); err != nil {
 		t.Fatalf("session.EnsureDurable: %v", err)
 	}
-	if err := sessionStore.SetName("Current Node session"); err != nil {
+	if err := sessionStore.SetName(textutil.Value("Current Node session")); err != nil {
 		t.Fatalf("session.SetName: %v", err)
 	}
 	if _, err := f.metadata.ResolvePersistedSession(f.ctx, sessionStore.Meta().SessionID); err != nil {
@@ -395,8 +397,9 @@ WHERE task_id = ? AND node_id = ? AND transition_branch_key IS NULL`,
 func (f currentNodeViewFixture) newAgentAuthority(t *testing.T) (*sessionruntime.Authority, sessionruntime.AgentRuntimePlan) {
 	t.Helper()
 	authority := sessionruntime.NewAuthority(sessionruntime.AuthorityOptions{
-		PersistenceRoot: f.cfg.PersistenceRoot,
-		StoreOptions:    f.metadata.AuthoritativeSessionStoreOptions(),
+		PersistenceRoot:               f.cfg.PersistenceRoot,
+		ProjectWorkspaceContextReader: f.metadata,
+		StoreOptions:                  f.metadata.AuthoritativeSessionStoreOptions(),
 	})
 	t.Cleanup(func() {
 		if err := authority.Close(context.Background()); err != nil {
@@ -521,7 +524,7 @@ func (q currentNodeViewQuestion) resolve(t *testing.T, ctx context.Context) {
 func (f currentNodeViewFixture) newAgentRuntimePlan(t *testing.T) sessionruntime.AgentRuntimePlan {
 	t.Helper()
 	settings := f.cfg.Settings
-	settings.Model = "gpt-5"
+	settings.Model = "gpt-6-sol"
 	settings.ModelContextWindow = 200_000
 	settings.Reviewer.Frequency = "off"
 	plan, err := sessionruntime.NewAgentRuntimePlan(sessionruntime.AgentRuntimePlanOptions{
@@ -617,15 +620,15 @@ func currentNodeViewNodeIDByKind(t *testing.T, definition workflow.Definition, k
 	return ""
 }
 
-func workflowViewBoardColumn(t *testing.T, board serverapi.WorkflowBoard, nodeID workflow.NodeID) serverapi.WorkflowBoardColumn {
+func workflowViewBoardColumn(t *testing.T, board *taskpb.Board, nodeID workflow.NodeID) *taskpb.BoardColumn {
 	t.Helper()
 	for _, column := range board.Columns {
-		if column.Node.NodeID == string(nodeID) {
+		if column.Node.NodeId == string(nodeID) {
 			return column
 		}
 	}
 	t.Fatalf("board column for node %q missing", nodeID)
-	return serverapi.WorkflowBoardColumn{}
+	return &taskpb.BoardColumn{}
 }
 
 func mustDefinitionProjection(t *testing.T, store *workflowstore.Store) *DefinitionProjection {
@@ -639,6 +642,10 @@ func mustDefinitionProjection(t *testing.T, store *workflowstore.Store) *Definit
 
 func stringPointer(value string) *string {
 	return &value
+}
+
+func noLabelFilter() *taskpb.LabelFilter {
+	return &taskpb.LabelFilter{Filter: &taskpb.LabelFilter_None{None: &emptypb.Empty{}}}
 }
 
 func intPointer(value int) *int {
@@ -657,7 +664,7 @@ func equalStrings(left, right []string) bool {
 	return true
 }
 
-func equalStatusKinds(left, right []serverapi.WorkflowTaskStatusKind) bool {
+func equalStatusKinds(left, right []taskpb.TaskStatusKind) bool {
 	if len(left) != len(right) {
 		return false
 	}

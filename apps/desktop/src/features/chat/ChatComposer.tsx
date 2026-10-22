@@ -1,4 +1,3 @@
-import { ComposerIcon } from "./ComposerIcon";
 import { AnimatePresence } from "motion/react";
 import { useLayoutEffect, useRef, type CSSProperties, type RefObject, type ReactNode } from "react";
 import { useTranslation } from "react-i18next";
@@ -8,7 +7,6 @@ import {
   AnimatedReveal,
   AnimatedSize,
   ErrorState,
-  IconTooltipButton,
   Island,
   PeekingSurface,
   Spinner,
@@ -18,11 +16,13 @@ import {
 import { ComposerPendingSheet } from "./ComposerPendingSheet";
 import { ChatPromptPicker } from "./ChatPromptPicker";
 import { ComposerSendButton } from "./ComposerSendButton";
+import { ComposerStopButton } from "./ComposerStopButton";
 import { SessionChatContext } from "./SessionChatContext";
 import { useComposerSurface } from "./ChatComposerSurface";
 import type { useChatComposer } from "./useChatComposer";
 import type { ChatSettingsFeature } from "./useChatSettings";
 import "./chatComposer.css";
+import { useChatClipboard } from "./ChatClipboard";
 
 export type ChatComposerProps = Readonly<{
   settings: ChatSettingsFeature;
@@ -43,11 +43,14 @@ export function ChatComposer({
 }: ChatComposerProps) {
   const { t } = useTranslation();
   const { nativeBridge } = useAppServices();
+  const clipboard = useChatClipboard();
   const { composer, activity, stoppable, promptPicker, onEditorKeyDown } = useComposerSurface();
   const root = useRef<HTMLDivElement>(null);
   const localEditor = useRef<HTMLTextAreaElement>(null);
   const editor = editorRef ?? localEditor;
   const pickerOpen = composer.pickerOpen;
+  const outgoingPending = composer.outgoing.filter((input) => input.placement === "pending");
+  const hasPending = composer.pending.items.length + outgoingPending.length > 0;
   const promptVisible = promptPicker != null && promptPicker.state.current !== null;
   const heightStyle: CSSProperties & { "--chat-composer-available-height"?: string } =
     availableHeight === null ? {} : { "--chat-composer-available-height": `${availableHeight.toString()}px` };
@@ -92,27 +95,56 @@ export function ChatComposer({
       className={cx(fieldInputClassName, "chat-composer-editor")}
       rows={1}
       value={composer.text}
-      readOnly={composer.navigationPending}
+      readOnly={composer.interactionRestricted}
       onChange={(event) => {
         composer.edit(event.target.value);
       }}
       onKeyDown={onEditorKeyDown}
       placeholder={
         stoppable && activity?.queueAccepting
-          ? t("chatComposer.queuePlaceholder", {
-              shortcut: queueShortcutLabel(nativeBridge.capabilities.platform),
-            })
+          ? t("chatComposer.queuePlaceholder", { context: nativeBridge.capabilities.platform })
           : undefined
       }
     />
   );
   return (
-    <div className="chat-composer" ref={root}>
+    <div
+      className="chat-composer"
+      ref={root}
+      onKeyDownCapture={(event) => {
+        if (
+          !clipboard.supported ||
+          promptVisible ||
+          event.key.toLowerCase() !== "v" ||
+          !(event.metaKey || event.ctrlKey) ||
+          event.altKey
+        )
+          return;
+        if (editor.current === null || composer.interactionRestricted) return;
+        event.preventDefault();
+        clipboard.paste(editor.current);
+      }}
+      onPaste={(event) => {
+        if (
+          !clipboard.supported ||
+          promptVisible ||
+          editor.current === null ||
+          composer.interactionRestricted
+        )
+          return;
+        event.preventDefault();
+        clipboard.paste(editor.current);
+      }}
+    >
       <AnimatePresence initial={false}>
-        {(pickerOpen || composer.pending.items.length > 0) && (
+        {(pickerOpen || hasPending) && (
           <AnimatedReveal key="peeking-surface">
             <PeekingSurface>
-              <ComposerPendingSheet pending={composer.pending} visible={!pickerOpen} />
+              <ComposerPendingSheet
+                pending={composer.pending}
+                outgoing={outgoingPending}
+                visible={!pickerOpen}
+              />
               {pickerOpen && <ComposerSuggestions composer={composer} />}
             </PeekingSurface>
           </AnimatedReveal>
@@ -126,13 +158,15 @@ export function ChatComposer({
               className={promptVisible ? "hidden" : "flex min-h-0 min-w-0 flex-col"}
             >
               {editorRegion}
+              <div hidden={!clipboard.pending}>
+                <Spinner size="sm" />
+              </div>
             </div>
             {promptPicker !== null && <ChatPromptPicker picker={promptPicker} />}
             <ComposerControls
               composer={composer}
               settings={settings}
               settingsChip={settingsChip}
-              stoppable={stoppable}
               controls={controls}
             />
           </div>
@@ -143,10 +177,6 @@ export function ChatComposer({
 }
 
 type Composer = ReturnType<typeof useChatComposer>;
-
-function queueShortcutLabel(platform: string): string {
-  return platform === "macos" ? "⌘+Enter" : "Ctrl+Enter";
-}
 
 function ComposerSuggestions({ composer }: Readonly<{ composer: Composer }>) {
   const { t } = useTranslation();
@@ -198,16 +228,13 @@ function ComposerControls({
   composer,
   settings,
   settingsChip,
-  stoppable,
   controls,
 }: Readonly<{
   composer: Composer;
   settings: ChatSettingsFeature;
   settingsChip?: ReactNode;
-  stoppable: boolean;
   controls?: ReactNode;
 }>) {
-  const { t } = useTranslation();
   return (
     <div className="chat-composer-controls">
       <div className="chat-composer-settings">
@@ -215,23 +242,8 @@ function ComposerControls({
       </div>
       {controls}
       <div className="chat-composer-actions">
-        {composer.target?.kind === "session" && (
-          <SessionChatContext compact={composer.compact} settings={settings} />
-        )}
-        {stoppable && (
-          <IconTooltipButton
-            label={t("chatComposer.stop")}
-            onClick={() => {
-              composer.pending.stop();
-            }}
-            size="icon-sm"
-          >
-            <ComposerIcon
-              kind={composer.pending.stopPending ? "loading" : "stop"}
-              className="text-[var(--color-error)]"
-            />
-          </IconTooltipButton>
-        )}
+        {composer.target?.kind === "session" && <SessionChatContext compact={composer.compact} />}
+        <ComposerStopButton />
         <ComposerSendButton />
       </div>
     </div>

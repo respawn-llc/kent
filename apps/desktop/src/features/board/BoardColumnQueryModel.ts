@@ -1,5 +1,5 @@
 import { InfiniteQueryObserver, type InfiniteData, type QueryClient } from "@tanstack/react-query";
-import * as Atom from "effect/unstable/reactivity/Atom";
+import * as Atom from "effect/reactivity/Atom";
 import * as Effect from "effect/Effect";
 import { boardNodeCardsPageSize, type ApiService, type BoardNodeCardsPage } from "@/api";
 import { queryAtom, queryKeys, retainQueryData, type RetainedQueryData } from "@/app-facade";

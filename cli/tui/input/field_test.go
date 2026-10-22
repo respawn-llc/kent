@@ -122,6 +122,23 @@ func TestFieldVerticalMovementAccountsForPrefixWrapping(t *testing.T) {
 	}
 }
 
+func TestFieldVerticalMovementPreservesColumnAcrossPrefix(t *testing.T) {
+	field := NewField()
+	field.Prefix = "› "
+	field.Editor.Replace("abcdefghijklmno")
+	field.Editor.SetCursor(12)
+	before := field.Render(8).Cursor
+	field.MoveUp(8)
+	after := field.Render(8).Cursor
+	if after.Row != before.Row-1 || after.Col != before.Col {
+		t.Fatalf("up moved cursor from %+v to %+v, want previous row at same column", before, after)
+	}
+	field.MoveDown(8)
+	if got := field.Render(8).Cursor; got != before {
+		t.Fatalf("down moved cursor to %+v, want %+v", got, before)
+	}
+}
+
 func TestFieldVerticalMovementAcrossWrappedLines(t *testing.T) {
 	field := NewField()
 	field.Editor.Replace("abcd efgh ijkl")

@@ -6,6 +6,7 @@ import (
 	"strings"
 
 	"core/server/session"
+	"core/shared/runtimeids"
 	"core/shared/transcript"
 )
 
@@ -14,6 +15,7 @@ type questionHistoryRecord struct {
 	Answer               string
 	SelectedOptionNumber *int
 	Commentary           *string
+	AnsweredBySessionID  *runtimeids.SessionID
 	At                   *transcript.CommittedAtUnixMs
 }
 
@@ -58,6 +60,11 @@ func projectQuestionHistoryRecord(
 	if strings.TrimSpace(presentation.Question) == "" {
 		return nil, nil
 	}
+	answerer := completion.AnsweredBySessionID
+	if answerer != nil {
+		copy := *answerer
+		answerer = &copy
+	}
 	question := strings.TrimSpace(presentation.Question)
 	switch version {
 	case session.EventLogVersionV1:
@@ -66,8 +73,9 @@ func projectQuestionHistoryRecord(
 			return nil, nil
 		}
 		return &questionHistoryRecord{
-			Question: question,
-			Answer:   answer,
+			Question:            question,
+			Answer:              answer,
+			AnsweredBySessionID: answerer,
 		}, nil
 	case session.EventLogVersionV2:
 		if completion.QuestionAnswer == nil {
@@ -78,8 +86,9 @@ func projectQuestionHistoryRecord(
 		}
 		answer := completion.QuestionAnswer
 		projected := &questionHistoryRecord{
-			Question: question,
-			At:       record.CommittedAtUnixMs(),
+			Question:            question,
+			AnsweredBySessionID: answerer,
+			At:                  record.CommittedAtUnixMs(),
 		}
 		if projected.At == nil {
 			return nil, fmt.Errorf(

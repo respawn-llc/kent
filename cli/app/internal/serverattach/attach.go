@@ -12,8 +12,6 @@ import (
 	"core/shared/protocol"
 )
 
-var ErrNoServerAvailable = errors.New("no server available to attach to")
-
 var ErrReachableServerRootMismatch = errors.New("reachable server serves a different persistence root than the selected one")
 
 // RootMismatchServerError reports that a reachable server's persistence root did
@@ -79,7 +77,7 @@ func attachRunPromptRemote(ctx context.Context, req AttachRunPromptRequest) (*cl
 	if rootMismatch != "" {
 		return nil, &RootMismatchServerError{Reason: rootMismatch}
 	}
-	return nil, ErrNoServerAvailable
+	return nil, errors.New("server attachment completed without a client")
 }
 
 // rootMatches reports whether identity satisfies the required persistence-root

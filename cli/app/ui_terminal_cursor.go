@@ -187,6 +187,7 @@ type terminalCursorControlWritePlan struct {
 	passthrough          bool
 	invalidatesPlacement bool
 	restoreAnchorBefore  bool
+	showsCursor          bool
 }
 
 type terminalCursorFile interface {
@@ -240,7 +241,11 @@ func (w uiTerminalCursorWriter) writePayload(p []byte) (int, error) {
 			w.state.discardPlacedCursor()
 			return n, nil
 		}
-		return writeTerminalCursorBytes(w.out, p)
+		// Cursor-only movement must reach the terminal even when Bubble Tea
+		// skips rendering an unchanged text frame.
+		if !control.showsCursor || !w.state.hasPlacement() {
+			return writeTerminalCursorBytes(w.out, p)
+		}
 	}
 	shouldPreserveCursor := w.state.hasPlacement()
 	if shouldPreserveCursor {
@@ -323,6 +328,7 @@ func terminalCursorWriterControlWrite(p []byte) terminalCursorControlWritePlan {
 	state := byte(0)
 	invalidatesPlacement := false
 	restoreAnchorBefore := false
+	showsCursor := false
 	for len(input) > 0 {
 		_, width, n, newState := xansi.GraphemeWidth.DecodeSequenceInString(input, state, parser)
 		if n <= 0 {
@@ -333,6 +339,9 @@ func terminalCursorWriterControlWrite(p []byte) terminalCursorControlWritePlan {
 		input = input[n:]
 		if width > 0 {
 			return terminalCursorControlWritePlan{}
+		}
+		if sequence == xansi.ShowCursor {
+			showsCursor = true
 		}
 		if terminalCursorControlSequenceInvalidatesPlacement(sequence, parser) {
 			invalidatesPlacement = true
@@ -345,6 +354,7 @@ func terminalCursorWriterControlWrite(p []byte) terminalCursorControlWritePlan {
 		passthrough:          true,
 		invalidatesPlacement: invalidatesPlacement,
 		restoreAnchorBefore:  restoreAnchorBefore,
+		showsCursor:          showsCursor,
 	}
 }
 

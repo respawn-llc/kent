@@ -3,7 +3,9 @@ syntax = "proto3";
 package kent.api.capability;
 
 import "buf/validate/validate.proto";
+import "kent/api/onboarding/onboarding.proto";
 import "kent/api/shared/foundation.proto";
+import "kent/api/shared/validation.proto";
 
 option go_package = "core/shared/protoapi/gen/kent/api/capability;capabilitypb";
 
@@ -33,7 +35,14 @@ message ModelLargeWindowFact {
 message ModelVerbosityFact {
   bool supported = 1;
   string source = 2 [(buf.validate.field).string.min_len = 1];
-  repeated string levels = 3 [(buf.validate.field).repeated.items.string.min_len = 1];
+  repeated string levels = 3 [
+    (buf.validate.field).repeated.items.string.min_len = 1,
+    (buf.validate.field).cel = {
+      id: "kent.capability.verbosity_levels"
+      message: "verbosity levels must be low, medium or high"
+      expression: "this.all(level, level.trim() in ['low', 'medium', 'high'])"
+    }
+  ];
 }
 
 message ModelFact {
@@ -43,7 +52,7 @@ message ModelFact {
   ModelLargeWindowFact large_window = 4;
   optional string default_context_window_mode = 5 [(buf.validate.field).string.min_len = 1];
   bool supports_thinking = 6;
-  repeated string supported_thinking_levels = 7 [(buf.validate.field).repeated.items.string.min_len = 1];
+  repeated string supported_thinking_levels = 7 [(buf.validate.field).repeated.items.string.(kent.api.shared.nonblank) = true];
   bool supports_reasoning_summary = 8;
   bool supports_vision_inputs = 9;
   ModelVerbosityFact verbosity = 10 [(buf.validate.field).required = true];
@@ -52,6 +61,12 @@ message ModelFact {
 message ModelFacts {
   repeated ModelFact known_models = 1;
   ModelFact unknown_fallback = 2 [(buf.validate.field).required = true];
+
+  option (buf.validate.message).cel = {
+    id: "kent.capability.known_model_identity"
+    message: "catalog models must have a substantive identity and be marked known"
+    expression: "this.known_models.all(model, has(model.model_id) && model.model_id.trim() != '' && model.known)"
+  };
 }
 
 message ProviderFact {
@@ -65,6 +80,7 @@ message ProviderFact {
   bool supports_server_side_context_edit = 8;
   bool is_openai_first_party = 9;
   bool supports_provider_verbosity = 10;
+  bool supports_fast_mode = 11;
 }
 
 message ProviderFacts {
@@ -107,6 +123,14 @@ message ImportChoiceRef {
   ];
   optional string import_provider_id = 3 [(buf.validate.field).string.min_len = 1];
   optional string source_root_path = 4 [(buf.validate.field).string.min_len = 1];
+
+  option (buf.validate.message).cel = {
+    id: "kent.capability.symlink_choice_identity"
+    message: "symlink source choices require a substantive provider and source root"
+    expression:
+      "this.mode != 2 || (has(this.import_provider_id) && this.import_provider_id.trim() != '' && "
+      "has(this.source_root_path) && this.source_root_path.trim() != '')"
+  };
 }
 
 message ImportConflictFact {
@@ -186,6 +210,12 @@ message ImportItemGroupFact {
 message SkillEnablementProjectionFact {
   ImportChoiceRef choice_ref = 1 [(buf.validate.field).required = true];
   repeated ImportItemFact candidates = 2;
+
+  option (buf.validate.message).cel = {
+    id: "kent.capability.skill_candidate_name"
+    message: "skill enablement candidates must have substantive target names"
+    expression: "this.candidates.all(candidate, candidate.ref.target_name.trim() != '')"
+  };
 }
 
 message ImportErrorFact {
@@ -228,17 +258,17 @@ message ImportFacts {
 }
 
 message ThinkingDefaultFact {
-  string mode = 1 [(buf.validate.field).string.min_len = 1];
+  string mode = 1 [(buf.validate.field).string = {in: ["default", "disabled", "level", "custom"]}];
   optional string level = 2 [(buf.validate.field).string.min_len = 1];
   optional string value = 3 [(buf.validate.field).string.min_len = 1];
 }
 
 message VerbosityDefaultFact {
-  string level = 1 [(buf.validate.field).string.min_len = 1];
+  string level = 1 [(buf.validate.field).string = {in: ["low", "medium", "high"]}];
 }
 
 message DefaultFacts {
-  string primary_model_id = 1 [(buf.validate.field).string.min_len = 1];
+  string primary_model_id = 1 [(buf.validate.field).string.(kent.api.shared.nonblank) = true];
   ThinkingDefaultFact thinking = 2 [(buf.validate.field).required = true];
   VerbosityDefaultFact verbosity = 3;
   string compaction_mode = 4 [(buf.validate.field).string = {
@@ -248,6 +278,9 @@ message DefaultFacts {
       "none"
     ]
   }];
+  optional uint32 context_window_tokens = 5 [(buf.validate.field).uint32.gt = 0];
+  bool ask_question = 6;
+  kent.api.onboarding.SupervisorChoice supervisor = 7 [(buf.validate.field).required = true];
 }
 
 message Facts {

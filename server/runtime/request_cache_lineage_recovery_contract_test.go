@@ -24,7 +24,7 @@ func TestCommittedCacheResponseObserverFailureRetainsLineage(t *testing.T) {
 		{Usage: llm.Usage{CachedInputTokens: textutil.Value(0)}},
 	}}
 	engine := mustNewTestEngine(t, store, client, tools.NewRegistry(), Config{
-		Model:            "gpt-5",
+		Model:            "gpt-6-sol",
 		CacheWarningMode: config.CacheWarningModeDefault,
 	})
 	baselineSequence := store.Meta().LastSequence
@@ -62,7 +62,7 @@ func TestVerboseCacheReuseDropPersistsTypedWarning(t *testing.T) {
 		{Usage: llm.Usage{CachedInputTokens: textutil.Value(0)}},
 	}}
 	engine := mustNewTestEngine(t, store, client, tools.NewRegistry(), Config{
-		Model:            "gpt-5",
+		Model:            "gpt-6-sol",
 		CacheWarningMode: config.CacheWarningModeVerbose,
 	})
 
@@ -98,7 +98,7 @@ func TestReviewerCacheLineagePersistsScopedWarning(t *testing.T) {
 		{Usage: llm.Usage{CachedInputTokens: textutil.Value(0)}},
 	}}
 	engine := mustNewTestEngine(t, store, client, tools.NewRegistry(), Config{
-		Model:            "gpt-5",
+		Model:            "gpt-6-sol",
 		CacheWarningMode: config.CacheWarningModeVerbose,
 	})
 	requests := []llm.Request{
@@ -116,6 +116,56 @@ func TestReviewerCacheLineagePersistsScopedWarning(t *testing.T) {
 	assertBoundedCacheWarning(t, store, session.CacheScopeReviewer, session.CacheWarningReasonNonPostfix, 6)
 }
 
+func TestRebuiltAgentModelChangeWarnsAtDispatch(t *testing.T) {
+	t.Parallel()
+	store := mustCreateTestSession(t)
+	client := &fakeClient{responses: []llm.Response{{}, {}}}
+	engine := mustNewTestEngine(t, store, client, tools.NewRegistry(), Config{
+		Model: "gpt-6-sol", CacheWarningMode: config.CacheWarningModeVerbose,
+	})
+	key := store.Meta().SessionID
+	for _, contents := range [][]string{{"first"}, {"first", "second"}} {
+		request := cacheLineageRequest(key, transcript.CacheWarningScopeConversation, contents...)
+		if _, err := generateTestActiveStep(t.Context(), engine, "original-agent", client, request); err != nil {
+			t.Fatalf("original Agent dispatch: %v", err)
+		}
+	}
+	if err := engine.Close(); err != nil {
+		t.Fatalf("close original Agent: %v", err)
+	}
+	reopened := mustOpenTestSession(t, store.Dir())
+	replacementClient := &fakeClient{responses: []llm.Response{{}, {}}}
+	var warningsEmitted []Event
+	replacement := mustNewTestEngine(t, reopened, replacementClient, tools.NewRegistry(), Config{
+		Model: "gpt-6-astra", CacheWarningMode: config.CacheWarningModeVerbose,
+		OnEvent: func(event Event) {
+			if event.Kind == EventCacheWarning {
+				warningsEmitted = append(warningsEmitted, event)
+			}
+		},
+	})
+	for _, contents := range [][]string{{"first", "second", "third"}, {"first", "second", "third", "fourth"}} {
+		request := cacheLineageRequest(key, transcript.CacheWarningScopeConversation, contents...)
+		request.Model = "gpt-6-astra"
+		if _, err := generateTestActiveStep(t.Context(), replacement, "replacement-agent", replacementClient, request); err != nil {
+			t.Fatalf("replacement Agent dispatch: %v", err)
+		}
+	}
+	warnings := persistedCacheWarnings(t, reopened)
+	if len(warnings) != 1 {
+		t.Fatalf("cache warnings after model replacement and postfix follow-up = %+v, want one", warnings)
+	}
+	if warnings[0].Scope != transcript.CacheWarningScopeConversation ||
+		warnings[0].Reason != transcript.CacheWarningReasonNonPostfix ||
+		warnings[0].CacheKey == nil || *warnings[0].CacheKey != key ||
+		warnings[0].LostInputTokens != nil {
+		t.Fatalf("replacement cache warning = %+v", warnings[0])
+	}
+	if len(warningsEmitted) != 1 || warningsEmitted[0].CacheWarningVisibility != transcript.EntryVisibilityOngoing {
+		t.Fatalf("live replacement cache warning = %+v, want one Ongoing warning", warningsEmitted)
+	}
+}
+
 func cacheLineageRequest(cacheKey string, scope transcript.CacheWarningScope, contents ...string) llm.Request {
 	items := make([]llm.ResponseItem, 0, len(contents))
 	for _, content := range contents {
@@ -125,10 +175,10 @@ func cacheLineageRequest(cacheKey string, scope transcript.CacheWarningScope, co
 		}})...)
 	}
 	return llm.Request{
-		Model:            "gpt-5",
+		Model:            "gpt-6-sol",
 		PromptCacheKey:   cacheKey,
 		PromptCacheScope: scope,
-		Items:            items,
+		Items:            items, ReasoningEffort: "high",
 	}
 }
 

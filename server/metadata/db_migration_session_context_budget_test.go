@@ -6,6 +6,8 @@ import (
 	"path/filepath"
 	"reflect"
 	"testing"
+
+	"core/server/session"
 )
 
 func TestSessionContextBudgetCutoverPreservesOtherSessionFacts(t *testing.T) {
@@ -28,7 +30,7 @@ func testSessionContextBudgetCutoverPreservesOtherSessionFacts(t *testing.T, ver
 INSERT INTO projects (id, display_name, created_at_unix_ms, updated_at_unix_ms)
 VALUES ('context-budget-project', 'Project', 1000, 1000)`)
 	locked := map[string]any{
-		"model":             "gpt-5.6-sol",
+		"model":             "gpt-6-sol",
 		"context_window":    float64(272_000),
 		"context_percent":   float64(95),
 		"system_prompt":     "preserved system prompt",
@@ -92,8 +94,12 @@ FROM sessions WHERE id = ?`, id).Scan(
 		if !reflect.DeepEqual(got, want) {
 			t.Fatalf("migrated contract = %+v, want %+v", got, want)
 		}
+		var usageState session.UsageState
+		if err := json.Unmarshal([]byte(usage), &usageState); err != nil {
+			t.Fatal(err)
+		}
 		if name != "evals" || draft != "unsent message" ||
-			continuation != `{"agent_role":"pm"}` || usage != `{"input_tokens":123456}` ||
+			continuation != `{"agent_role":"pm"}` || usageState.InputTokens == nil || *usageState.InputTokens != 123456 ||
 			metadata != `{"conversation_established":true}` ||
 			sequence != 1234 || created != 1000 || updated != 2000 {
 			t.Fatalf("migration changed unrelated Session facts for %s", id)

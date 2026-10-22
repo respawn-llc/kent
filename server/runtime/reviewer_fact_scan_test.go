@@ -117,7 +117,7 @@ func TestReviewerFactsSurviveNewestAdjacentAndReopenedPages(t *testing.T) {
 			}
 		}
 	}
-	engine := mustNewTestEngine(t, store, &fakeClient{}, tools.NewRegistry(), Config{Model: "gpt-5"})
+	engine := mustNewTestEngine(t, store, &fakeClient{}, tools.NewRegistry(), Config{Model: "gpt-6-sol"})
 	newest := mustEngineNewestSegmentPage(t, engine)
 	var pages []TranscriptSegmentPage
 	for page := newest; ; {
@@ -180,7 +180,7 @@ func TestReviewerFactsSurviveSessionCloneReplay(t *testing.T) {
 		t.Fatalf("append clone error: %v", err)
 	}
 	parentLog := mustMaterializeTestEventLog(t, parent)
-	child, err := session.CloneSession(parentLog, "reviewer-clone", sessioncontract.SessionCategoryMain, session.ForkThinking{Desired: "medium", PreserveNativeUpdates: true})
+	child, err := session.CloneSession(parentLog, new("reviewer-clone"), sessioncontract.SessionCategoryMain, session.ForkThinking{Desired: "medium", PreserveNativeUpdates: true})
 	if err != nil {
 		t.Fatalf("clone session: %v", err)
 	}
@@ -254,7 +254,7 @@ func TestReviewerFactSteeringCommitFenceMatrix(t *testing.T) {
 		t.Run(testCase.name, func(t *testing.T) {
 			t.Run("uncommitted", func(t *testing.T) {
 				store := mustCreateTestSession(t)
-				engine := mustNewTestEngine(t, store, &fakeClient{}, tools.NewRegistry(), Config{Model: "gpt-5"})
+				engine := mustNewTestEngine(t, store, &fakeClient{}, tools.NewRegistry(), Config{Model: "gpt-6-sol"})
 				restoreStep := setTestActiveStep(engine, "11111111-1111-4111-8111-111111111111")
 				defer restoreStep()
 				mustBlockTestEventLogAppends(t, store)
@@ -267,7 +267,7 @@ func TestReviewerFactSteeringCommitFenceMatrix(t *testing.T) {
 				observerErr := errors.New("typed Reviewer observer failed")
 				gate := sessiontest.NewPersistenceGate(runtimeTestSessionPersistence)
 				store := mustCreateTestSessionAt(t, t.TempDir(), session.WithPersistenceObserver(gate))
-				engine := mustNewTestEngine(t, store, &fakeClient{}, tools.NewRegistry(), Config{Model: "gpt-5"})
+				engine := mustNewTestEngine(t, store, &fakeClient{}, tools.NewRegistry(), Config{Model: "gpt-6-sol"})
 				restoreStep := setTestActiveStep(engine, "22222222-2222-4222-8222-222222222222")
 				defer restoreStep()
 				gate.FailNext(observerErr)

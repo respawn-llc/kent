@@ -11,8 +11,8 @@ func TestBackgroundHydrationFiltersSessionProcessesAndOmitsPreview(t *testing.T)
 	activities, err := runtimeview.TranscriptBackgroundActivitiesFromProcessSnapshots("session-1", []shelltool.Snapshot{
 		{
 			ID: "process-1", ActivityID: uuid.MustParse("66666666-6666-4666-8666-666666666666"),
-			OwnerSessionID: "session-1", OwnerRunID: "11111111-1111-4111-8111-111111111111",
-			OwnerStepID: "22222222-2222-4222-8222-222222222222", Command: "go test ./...",
+			OwnerSessionID: "session-1",
+			OwnerStepID:    "22222222-2222-4222-8222-222222222222", Command: "go test ./...",
 			Workdir: "/workspace", LogPath: "/tmp/process.log", RecentOutput: "\x1b[31mraw\x1b[0m",
 			Running: true, Backgrounded: true,
 		},

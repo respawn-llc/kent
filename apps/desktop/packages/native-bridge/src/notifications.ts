@@ -5,6 +5,8 @@ import {
   requestPermission as tauriRequestPermission,
 } from "@tauri-apps/plugin-notification";
 import { z } from "zod";
+import type * as Stream from "effect/Stream";
+import { nativeObservation, type NativeOverflowReporter } from "./observation";
 
 import { tauriPlatformSupportsNativeNotifications, type NativePlatform } from "./capabilities";
 import { NativeNotificationIDMapper } from "./notificationIds";
@@ -50,15 +52,11 @@ export type NativeNotificationActivation = Readonly<{
   target: NativeNotificationTarget;
 }>;
 
-export type NativeNotificationUnlisten = () => void;
-
 export type NativeNotificationBridge = Readonly<{
   permissionState(): Promise<NativeNotificationPermission>;
   requestPermission(): Promise<NativeNotificationPermission>;
   notify(message: NativeNotification): Promise<void>;
-  onActivated(
-    handler: (activation: NativeNotificationActivation) => void,
-  ): Promise<NativeNotificationUnlisten>;
+  activations(reportOverflow: NativeOverflowReporter): Stream.Stream<NativeNotificationActivation, Error>;
   removeActive(id: string): Promise<void>;
 }>;
 
@@ -91,9 +89,7 @@ type TauriNotificationBackend = Readonly<{
   isPermissionGranted(): Promise<boolean>;
   requestPermission(): Promise<NotificationPermission>;
   send(notification: TauriNotificationRequest): Promise<void>;
-  onActivated(
-    handler: (activation: NativeNotificationActivation) => void,
-  ): Promise<NativeNotificationUnlisten>;
+  onActivated(handler: (activation: NativeNotificationActivation) => void): Promise<() => void>;
   removeActive(backendID: number): Promise<void>;
 }>;
 
@@ -110,9 +106,7 @@ export function createUnavailableNativeNotifications(): NativeNotificationBridge
     async notify(): Promise<void> {
       throw new Error("Native notifications are unavailable in this shell.");
     },
-    async onActivated(): Promise<NativeNotificationUnlisten> {
-      return () => undefined;
-    },
+    activations: (reportOverflow) => nativeObservation(async () => () => undefined, reportOverflow),
     async removeActive(): Promise<void> {
       return Promise.resolve();
     },
@@ -197,14 +191,13 @@ function createWebNativeNotifications(runtime: WebNotificationRuntime): NativeNo
         });
       };
     },
-    async onActivated(
-      handler: (activation: NativeNotificationActivation) => void,
-    ): Promise<NativeNotificationUnlisten> {
-      handlers.add(handler);
-      return () => {
-        handlers.delete(handler);
-      };
-    },
+    activations: (reportOverflow) =>
+      nativeObservation(async (handler) => {
+        handlers.add(handler);
+        return () => {
+          handlers.delete(handler);
+        };
+      }, reportOverflow),
     async removeActive(id: string): Promise<void> {
       activeNotifications.get(id)?.close();
       activeNotifications.delete(id);
@@ -234,7 +227,7 @@ function createTauriDesktopNativeNotifications(backend: TauriNotificationBackend
         title: message.title,
       });
     },
-    onActivated: backend.onActivated,
+    activations: (reportOverflow) => nativeObservation(backend.onActivated, reportOverflow),
     async removeActive(id: string): Promise<void> {
       await backend.removeActive(mapper.resolveBackendID(id));
     },
@@ -244,9 +237,7 @@ function createTauriDesktopNativeNotifications(backend: TauriNotificationBackend
 function defaultTauriNotificationBackend(): TauriNotificationBackend {
   return {
     isPermissionGranted: tauriIsPermissionGranted,
-    async onActivated(
-      handler: (activation: NativeNotificationActivation) => void,
-    ): Promise<NativeNotificationUnlisten> {
+    async onActivated(handler: (activation: NativeNotificationActivation) => void): Promise<() => void> {
       return listen<unknown>(tauriActivationEvent, (event) => {
         handler(nativeNotificationActivation(event.payload));
       });

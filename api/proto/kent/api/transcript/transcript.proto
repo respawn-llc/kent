@@ -8,10 +8,12 @@ import "google/protobuf/empty.proto";
 import "google/protobuf/timestamp.proto";
 import "kent/api/auth/auth.proto";
 import "kent/api/prompt/prompt.proto";
+import "kent/api/project/session_catalog.proto";
 import "kent/api/runtime/runtime.proto";
 import "kent/api/server/server.proto";
 import "kent/api/shared/foundation.proto";
 import "kent/api/shared/validation.proto";
+import "kent/api/shared/session_selector.proto";
 import "kent/api/transcript/tool_presentation.proto";
 import "kent/api/worktree/worktree.proto";
 
@@ -141,6 +143,9 @@ enum NoticeReason {
   NOTICE_REASON_TOOL_OUTPUT_REPAIR = 5;
   NOTICE_REASON_PROVIDER_MODEL_MISMATCH = 6;
   NOTICE_REASON_THINKING_UPDATE = 7;
+  NOTICE_REASON_REASONING_OMISSION = 8;
+  NOTICE_REASON_CONNECTION_FALLBACK = 9;
+  NOTICE_REASON_CONNECTIONS_UNAVAILABLE = 10;
 }
 
 enum NoticeSeverity {
@@ -176,6 +181,7 @@ enum NoticeMessageType {
   NOTICE_MESSAGE_TYPE_WORKFLOW_MODE_EXIT = 22;
   NOTICE_MESSAGE_TYPE_SESSION_REBIND = 23;
   NOTICE_MESSAGE_TYPE_USER_SHELL_COMMAND = 24;
+  NOTICE_MESSAGE_TYPE_WORKSPACES = 25;
 }
 
 message Diagnostic {
@@ -235,6 +241,11 @@ message UserRow {
     }
   ];
   optional google.protobuf.Timestamp committed_at = 5;
+  repeated string queue_item_ids = 6 [
+    (buf.validate.field).repeated.unique = true,
+    (buf.validate.field).repeated.items.string.uuid = true,
+    (buf.validate.field).repeated.items.string.(kent.api.shared.canonical_uuid_v4) = true
+  ];
 }
 
 message AssistantRow {
@@ -255,7 +266,14 @@ message AssistantRow {
   optional string condensed_text = 6 [(buf.validate.field).string.(kent.api.shared.nonblank) = true];
 }
 
+enum ViewedImageKind {
+  VIEWED_IMAGE_KIND_UNSPECIFIED = 0;
+  VIEWED_IMAGE_KIND_RASTER = 1;
+  VIEWED_IMAGE_KIND_PDF = 2;
+}
+
 message ToolRow {
+  optional int64 answered_by_session_short_id = 13 [(buf.validate.field).int64 = {gt: 0 lte: 9007199254740991}];
   optional string step_id = 1 [
     (buf.validate.field).string.uuid = true,
     (buf.validate.field).string.(kent.api.shared.canonical_uuid_v4) = true
@@ -283,6 +301,11 @@ message ToolRow {
   optional ToolPresentation presentation = 8;
   optional kent.api.prompt.QuestionAnswer question_answer = 9;
   optional WebSearchDetail web_search = 10;
+  optional string answered_by_session_id = 11 [
+    (buf.validate.field).string.uuid = true,
+    (buf.validate.field).string.(kent.api.shared.canonical_uuid_v4) = true
+  ];
+  optional ViewedImageKind viewed_image_kind = 12 [(buf.validate.field).enum = {defined_only: true not_in: [0]}];
   option (buf.validate.message).cel = {
     id: "kent.transcript.ask_result"
     message: "errored Ask Question results require nonblank failure text"
@@ -292,6 +315,16 @@ message ToolRow {
     id: "kent.transcript.tool_row_patch_owner"
     message: "Patch/Edit tools require patch presentation and other tools cannot carry it"
     expression: "has(this.tool_name) && this.tool_name in ['patch', 'edit', 'replace', 'write'] ? (has(this.presentation) && has(this.presentation.patch_presentation)) : (!has(this.presentation) || !has(this.presentation.patch_presentation))"
+  };
+  option (buf.validate.message).cel = {
+    id: "kent.transcript.tool_row_normalized_patch_owner"
+    message: "Normalized Patch/Edit tool names require patch presentation and other tools cannot carry it"
+    expression: "has(this.tool_name) && this.tool_name.trim() in ['patch', 'edit', 'replace', 'write'] ? (has(this.presentation) && has(this.presentation.patch_presentation)) : (!has(this.presentation) || !has(this.presentation.patch_presentation))"
+  };
+  option (buf.validate.message).cel = {
+    id: "kent.transcript.tool_row_presentation_owner"
+    message: "Tool presentation requires a tool name"
+    expression: "!has(this.presentation) || has(this.tool_name)"
   };
 }
 
@@ -431,13 +464,27 @@ message ProviderModelMismatch {
   string served_model = 2 [(buf.validate.field).string.min_len = 1];
 }
 
+message ReasoningOmission {
+  int32 count = 1 [(buf.validate.field).int32.gte = 1];
+}
+
+message UnavailableConnection {
+  string id = 1 [(buf.validate.field).string.min_len = 1];
+  optional google.protobuf.Timestamp available_at = 2;
+}
+
+message ConnectionsUnavailable {
+  repeated UnavailableConnection members = 1 [(buf.validate.field).repeated.min_items = 1];
+  repeated string diagnostics = 2;
+}
+
 message BackgroundNoticeIdentity {
   string activity_id = 1 [
     (buf.validate.field).string.uuid = true,
     (buf.validate.field).string.(kent.api.shared.canonical_uuid_v4) = true
   ];
   string process_id = 2 [(buf.validate.field).string.min_len = 1];
-  optional int32 exit_code = 3;
+  optional int64 exit_code = 3;
 }
 
 message WorktreeContext {
@@ -476,6 +523,9 @@ message NoticeRow {
   optional string condensed_text = 14 [(buf.validate.field).string.min_len = 1];
   optional string compact_label = 15 [(buf.validate.field).string.min_len = 1];
   optional ProviderModelMismatch provider_model_mismatch = 16;
+  optional ReasoningOmission reasoning_omission = 19;
+  optional ConnectionReplacement connection_fallback = 20;
+  optional ConnectionsUnavailable connections_unavailable = 21;
   optional string thinking_effort = 18 [
     (buf.validate.field).string.min_len = 1,
     (buf.validate.field).cel = {
@@ -495,16 +545,23 @@ message NoticeRow {
     expression: "this.reason != 3 || this.severity != 3 || has(this.legacy_text) || (has(this.worktree) && has(this.message_type) && this.message_type in [17, 18])"
   };
   option (buf.validate.message).cel = {
+    id: "kent.transcript.connection_notice_payload"
+    message: "connection payloads require their matching reason"
+    expression: "has(this.connection_fallback) == (this.reason == 9) && has(this.connections_unavailable) == (this.reason == 10)"
+  };
+  option (buf.validate.message).cel = {
     id: "kent.transcript.notice_reason_payload"
     message: "notice payload must match reason"
     expression:
-      "(this.reason == 1 && has(this.cache_warning) && !has(this.legacy_text) && !has(this.compaction) && !has(this.tool_output_repair) && !has(this.provider_model_mismatch) && !has(this.diagnostic) && !has(this.background)) || "
-      "(this.reason == 2 && has(this.compaction) && has(this.message_type) && this.message_type == 5 && !has(this.legacy_text) && !has(this.cache_warning) && !has(this.tool_output_repair) && !has(this.provider_model_mismatch) && !has(this.diagnostic) && !has(this.background)) || "
-      "(this.reason == 3 && (has(this.legacy_text) || has(this.message_type)) && !has(this.cache_warning) && !has(this.compaction) && !has(this.tool_output_repair) && !has(this.provider_model_mismatch) && !has(this.diagnostic) && !has(this.background)) || "
-      "(this.reason == 4 && has(this.diagnostic) && !has(this.legacy_text) && !has(this.cache_warning) && !has(this.compaction) && !has(this.tool_output_repair) && !has(this.provider_model_mismatch)) || "
-      "(this.reason == 5 && has(this.tool_output_repair) && !has(this.legacy_text) && !has(this.cache_warning) && !has(this.compaction) && !has(this.provider_model_mismatch) && !has(this.diagnostic) && !has(this.background)) || "
-      "(this.reason == 6 && has(this.provider_model_mismatch) && !has(this.legacy_text) && !has(this.cache_warning) && !has(this.compaction) && !has(this.tool_output_repair) && !has(this.diagnostic) && !has(this.background)) || "
-      "(this.reason == 7 && this.severity == 1 && !has(this.message_type) && !has(this.legacy_text) && !has(this.cache_warning) && !has(this.compaction) && !has(this.tool_output_repair) && !has(this.provider_model_mismatch) && !has(this.diagnostic) && !has(this.background))"
+      "(this.reason == 1 && has(this.cache_warning) && !has(this.legacy_text) && !has(this.compaction) && !has(this.tool_output_repair) && !has(this.provider_model_mismatch) && !has(this.reasoning_omission) && !has(this.diagnostic) && !has(this.background)) || "
+      "(this.reason == 2 && has(this.compaction) && has(this.message_type) && this.message_type == 5 && !has(this.legacy_text) && !has(this.cache_warning) && !has(this.tool_output_repair) && !has(this.provider_model_mismatch) && !has(this.reasoning_omission) && !has(this.diagnostic) && !has(this.background)) || "
+      "(this.reason == 3 && (has(this.legacy_text) || has(this.message_type)) && !has(this.cache_warning) && !has(this.compaction) && !has(this.tool_output_repair) && !has(this.provider_model_mismatch) && !has(this.reasoning_omission) && !has(this.diagnostic) && !has(this.background)) || "
+      "(this.reason == 4 && has(this.diagnostic) && !has(this.legacy_text) && !has(this.cache_warning) && !has(this.compaction) && !has(this.tool_output_repair) && !has(this.provider_model_mismatch) && !has(this.reasoning_omission)) || "
+      "(this.reason == 5 && has(this.tool_output_repair) && !has(this.legacy_text) && !has(this.cache_warning) && !has(this.compaction) && !has(this.provider_model_mismatch) && !has(this.reasoning_omission) && !has(this.diagnostic) && !has(this.background)) || "
+      "(this.reason == 6 && has(this.provider_model_mismatch) && !has(this.legacy_text) && !has(this.cache_warning) && !has(this.compaction) && !has(this.tool_output_repair) && !has(this.reasoning_omission) && !has(this.diagnostic) && !has(this.background)) || "
+      "(this.reason == 7 && this.severity == 1 && !has(this.message_type) && !has(this.legacy_text) && !has(this.cache_warning) && !has(this.compaction) && !has(this.tool_output_repair) && !has(this.provider_model_mismatch) && !has(this.reasoning_omission) && !has(this.diagnostic) && !has(this.background)) || "
+      "(this.reason == 8 && this.severity == 2 && has(this.reasoning_omission) && !has(this.message_type) && !has(this.legacy_text) && !has(this.cache_warning) && !has(this.compaction) && !has(this.tool_output_repair) && !has(this.provider_model_mismatch) && !has(this.diagnostic) && !has(this.background)) || "
+      "(this.reason in [9, 10] && !has(this.message_type) && !has(this.legacy_text) && !has(this.cache_warning) && !has(this.compaction) && !has(this.tool_output_repair) && !has(this.provider_model_mismatch) && !has(this.reasoning_omission) && !has(this.diagnostic) && !has(this.background))"
   };
 }
 
@@ -541,8 +598,13 @@ message CommittedRow {
 }
 
 message SessionIdentity {
-  string session_id = 1 [(buf.validate.field).string.min_len = 1];
-  optional string session_name = 2 [(buf.validate.field).string.min_len = 1];
+  kent.api.project.SessionCategory category = 5 [(buf.validate.field).enum = {
+    defined_only: true
+    not_in: [0]
+  }];
+  optional int64 short_id = 6 [(buf.validate.field).int64 = {gt: 0 lte: 9007199254740991}];
+  string session_id = 1 [(buf.validate.field).string.uuid = true, (buf.validate.field).string.(kent.api.shared.canonical_uuid_v4) = true];
+  optional string session_name = 2 [(buf.validate.field).string.min_len = 1, (buf.validate.field).string.(kent.api.shared.nonblank) = true];
   kent.api.runtime.ConversationFreshness conversation_freshness = 3 [(buf.validate.field).enum = {
     defined_only: true
     not_in: [0]
@@ -580,10 +642,15 @@ message SessionStatus {
     ]
   }];
   int32 compaction_count = 9 [(buf.validate.field).int32.gte = 0];
-  optional string previous_session_id = 10 [(buf.validate.field).string.min_len = 1];
-  optional string parent_agent_session_id = 11 [(buf.validate.field).string.min_len = 1];
-  optional string navigation_target_session_id = 12 [(buf.validate.field).string.min_len = 1];
+  optional string previous_session_id = 10 [(buf.validate.field).string.uuid = true, (buf.validate.field).string.(kent.api.shared.canonical_uuid_v4) = true];
+  optional string parent_agent_session_id = 11 [(buf.validate.field).string.uuid = true, (buf.validate.field).string.(kent.api.shared.canonical_uuid_v4) = true];
+  optional string navigation_target_session_id = 12 [(buf.validate.field).string.uuid = true, (buf.validate.field).string.(kent.api.shared.canonical_uuid_v4) = true];
   optional kent.api.runtime.WorkflowSessionStatus workflow = 13;
+  option (buf.validate.message).cel = {
+    id: "kent.transcript.workflow_task_nonblank"
+    message: "workflow task_id must be non-blank when workflow is present"
+    expression: "!has(this.workflow) || this.workflow.task_id.trim() != ''"
+  };
   option (buf.validate.message).cel = {
     id: "kent.transcript.fast_mode_availability"
     message: "fast mode cannot be enabled when unavailable"
@@ -725,6 +792,11 @@ message ToolStart {
     message: "Patch/Edit tools require patch presentation and other tools cannot carry it"
     expression: "this.tool_name in ['patch', 'edit', 'replace', 'write'] ? (has(this.presentation) && has(this.presentation.patch_presentation)) : (!has(this.presentation) || !has(this.presentation.patch_presentation))"
   };
+  option (buf.validate.message).cel = {
+    id: "kent.transcript.tool_start_normalized_patch_owner"
+    message: "Normalized Patch/Edit tool names require patch presentation and other tools cannot carry it"
+    expression: "this.tool_name.trim() in ['patch', 'edit', 'replace', 'write'] ? (has(this.presentation) && has(this.presentation.patch_presentation)) : (!has(this.presentation) || !has(this.presentation.patch_presentation))"
+  };
 }
 
 message ToolAbort {
@@ -808,10 +880,6 @@ message QueuedMessageState {
 }
 
 message StepState {
-  string run_id = 1 [
-    (buf.validate.field).string.uuid = true,
-    (buf.validate.field).string.(kent.api.shared.canonical_uuid_v4) = true
-  ];
   string step_id = 2 [
     (buf.validate.field).string.uuid = true,
     (buf.validate.field).string.(kent.api.shared.canonical_uuid_v4) = true
@@ -858,15 +926,6 @@ message CompactionStatus {
   }];
   int32 count = 4 [(buf.validate.field).int32.gte = 0];
   optional Diagnostic diagnostic = 5;
-  optional string request_id = 6 [
-    (buf.validate.field).string.uuid = true,
-    (buf.validate.field).string.(kent.api.shared.canonical_uuid_v4) = true
-  ];
-  option (buf.validate.message).cel = {
-    id: "kent.transcript.manual_compaction_identity"
-    message: "only manual compaction carries a request identity"
-    expression: "!has(this.request_id) || this.mode == 3"
-  };
   option (buf.validate.message).cel = {
     id: "kent.transcript.compaction_diagnostic"
     message: "only failed compaction carries a diagnostic"
@@ -880,10 +939,6 @@ message BackgroundActivity {
     (buf.validate.field).string.(kent.api.shared.canonical_uuid_v4) = true
   ];
   string process_id = 2 [(buf.validate.field).string.min_len = 1];
-  string owner_run_id = 3 [
-    (buf.validate.field).string.uuid = true,
-    (buf.validate.field).string.(kent.api.shared.canonical_uuid_v4) = true
-  ];
   string owner_step_id = 4 [
     (buf.validate.field).string.uuid = true,
     (buf.validate.field).string.(kent.api.shared.canonical_uuid_v4) = true
@@ -896,7 +951,7 @@ message BackgroundActivity {
   string workdir = 7 [(buf.validate.field).string.min_len = 1];
   optional string log_path = 8 [(buf.validate.field).string.min_len = 1];
   optional string preview = 9 [(buf.validate.field).string.min_len = 1];
-  optional int32 exit_code = 10;
+  optional int64 exit_code = 10;
   bool user_requested_kill = 11;
   bool notice_suppressed = 12;
   optional Diagnostic diagnostic = 13;
@@ -1067,6 +1122,13 @@ enum SessionSettingKind {
   SESSION_SETTING_KIND_AUTO_COMPACTION = 6;
 }
 
+message SessionNameValue {
+  optional string name = 1 [
+    (buf.validate.field).string.(kent.api.shared.nonblank) = true,
+    (buf.validate.field).string.(kent.api.shared.trimmed) = true
+  ];
+}
+
 message SessionSettingFeedback {
   SessionSettingKind kind = 1 [(buf.validate.field).enum = {
     defined_only: true
@@ -1075,7 +1137,7 @@ message SessionSettingFeedback {
   bool changed = 2;
   oneof value {
     option (buf.validate.oneof).required = true;
-    string session_name = 3;
+    SessionNameValue session_name = 3;
     string thinking = 4 [(buf.validate.field).string.(kent.api.shared.nonblank) = true];
     bool fast_mode = 5;
     string supervisor = 6 [(buf.validate.field).string = {
@@ -1092,7 +1154,7 @@ message SessionSettingFeedback {
     id: "kent.transcript.session_setting_feedback_value"
     message: "Session setting feedback kind and resulting value must agree"
     expression:
-      "(this.kind == 1 && has(this.session_name) && this.session_name == this.session_name.trim()) || "
+      "(this.kind == 1 && has(this.session_name)) || "
       "(this.kind == 2 && has(this.thinking) && this.thinking == this.thinking.trim()) || "
       "(this.kind == 3 && has(this.fast_mode)) || "
       "(this.kind == 4 && has(this.supervisor)) || "
@@ -1166,7 +1228,7 @@ message Hydration {
     id: "kent.transcript.hydration_active_ownership"
     message: "step-scoped hydrated facts must match the canonical runtime active step"
     expression:
-      "(!has(this.active_step) || (has(this.runtime_read_model_update.activity.active_step) && this.active_step.run_id == this.runtime_read_model_update.activity.active_step.run_id && this.active_step.step_id == this.runtime_read_model_update.activity.active_step.step_id && this.active_step.active_kind == this.runtime_read_model_update.activity.active_step.active_kind)) && "
+      "(!has(this.active_step) || (has(this.runtime_read_model_update.activity.active_step) && this.active_step.step_id == this.runtime_read_model_update.activity.active_step.step_id && this.active_step.active_kind == this.runtime_read_model_update.activity.active_step.active_kind)) && "
       "(!has(this.active_assistant) || (has(this.runtime_read_model_update.activity.active_step) && this.active_assistant.step_id == this.runtime_read_model_update.activity.active_step.step_id)) && "
       "(!has(this.active_thinking_status) || (has(this.runtime_read_model_update.activity.active_step) && this.active_thinking_status.step_id == this.runtime_read_model_update.activity.active_step.step_id)) && "
       "this.active_reasoning_traces.all(trace, has(this.runtime_read_model_update.activity.active_step) && trace.step_id == this.runtime_read_model_update.activity.active_step.step_id) && "
@@ -1229,14 +1291,7 @@ message Message {
 }
 
 message PageRequest {
-  string session_id = 1 [
-    (buf.validate.field).string.min_len = 1,
-    (buf.validate.field).cel = {
-      id: "kent.transcript.page_request_session_id_nonblank"
-      message: "session ID must be non-blank"
-      expression: "this.trim() != ''"
-    }
-  ];
+  kent.api.shared.SessionSelector session_id = 1 [(buf.validate.field).required = true];
   oneof direction {
     int64 cursor = 2 [(buf.validate.field).int64 = {
       gte: 1
@@ -1261,7 +1316,7 @@ message RollbackCandidate {
 }
 
 message Page {
-  string session_id = 1 [(buf.validate.field).string.min_len = 1];
+  string session_id = 1 [(buf.validate.field).string.uuid = true, (buf.validate.field).string.(kent.api.shared.canonical_uuid_v4) = true];
   optional string session_name = 2 [(buf.validate.field).string.min_len = 1];
   kent.api.runtime.ConversationFreshness conversation_freshness = 3 [(buf.validate.field).enum = {
     defined_only: true
@@ -1300,14 +1355,7 @@ message PageSuccess {
   Page transcript = 1 [(buf.validate.field).required = true];
 }
 message LatestFinalAnswerRequest {
-  string session_id = 1 [
-    (buf.validate.field).string.min_len = 1,
-    (buf.validate.field).cel = {
-      id: "kent.transcript.latest_final_answer_session_id_nonblank"
-      message: "session ID must be non-blank"
-      expression: "this.trim() != ''"
-    }
-  ];
+  kent.api.shared.SessionSelector session_id = 1 [(buf.validate.field).required = true];
 }
 message LatestFinalAnswerSuccess {
   optional string answer = 1 [
@@ -1320,23 +1368,12 @@ message LatestFinalAnswerSuccess {
   ];
 }
 message SubscribeRequest {
-  string session_id = 1 [
-    (buf.validate.field).string.min_len = 1,
-    (buf.validate.field).cel = {
-      id: "kent.transcript.subscribe_session_id_nonblank"
-      message: "session ID must be non-blank"
-      expression: "this.trim() != ''"
-    }
-  ];
+  kent.api.shared.SessionSelector session_id = 1 [(buf.validate.field).required = true];
 }
 message AppendCommittedEntryRequest {
   string session_id = 1 [
-    (buf.validate.field).string.min_len = 1,
-    (buf.validate.field).cel = {
-      id: "kent.transcript.append_entry_session_id_nonblank"
-      message: "session ID must be non-blank"
-      expression: "this.trim() != ''"
-    }
+    (buf.validate.field).string.uuid = true,
+    (buf.validate.field).string.(kent.api.shared.canonical_uuid_v4) = true
   ];
   string role = 2;
   string text = 3;

@@ -1,4 +1,5 @@
 import { render } from "@testing-library/react";
+import { vi } from "bun:test";
 import { MotionConfig } from "motion/react";
 import type { ReactNode } from "react";
 import { QueryClient } from "@tanstack/react-query";
@@ -12,7 +13,7 @@ import {
 import type { ChatSettingsRead, InitialChatSettings } from "@/api";
 import { createTestServices, TestAppProviders, type TestAppServices } from "@/test-support/app-services";
 import { deferred, mainViewRead, target as sessionTarget, transcriptPage } from "@/test-support/chat-runtime";
-import { worktreeBrowserFixtureRoute } from "@/test-support/api";
+import { worktreeBrowserFixtureRoute, sessionSettingsSubscriptionRoute } from "@/test-support/api";
 import {
   ChatPromptPresenceProvider,
   SidebarRootContext,
@@ -71,15 +72,42 @@ const catalog: Extract<ChatSettingsRead, { kind: "new_chat" }> = {
     ],
   },
 };
+function sessionSettingsRead(): Extract<ChatSettingsRead, { kind: "session" }> {
+  const choice = catalog.catalog.choices[0];
+  if (choice === undefined) throw new Error("Missing settings choice");
+  return {
+    kind: "session",
+    session: { sessionID: sessionTarget.sessionID, shortID: null, previousSessionID: null, task: null },
+    settings: {
+      selectedAgent: { role: choice.agent.role, model: choice.agent.model, thinking: choice.agent.thinking },
+      agentChoices: [choice.agent],
+      agentEditability: { kind: "editable" },
+      agentLocked: false,
+      cachingLocked: false,
+      workflowLocked: false,
+      supervisor: choice.supervisor,
+      thinking: choice.thinking,
+      fast: choice.fast,
+      questions: choice.questions,
+      autoCompaction: choice.autoCompaction,
+    },
+  };
+}
+const openSession = vi.fn<(sessionID: string) => void | Promise<void>>();
 const navigation = {
+  projectID: sessionTarget.projectID,
   openTask: vi.fn<(taskID: string) => void>(),
-  openParentSession: vi.fn<(sessionID: string) => void | Promise<void>>(),
+  openParentSession: openSession,
+  openEditedSession: openSession,
 };
 function renderDestination(
   services: TestAppServices,
   client: QueryClient,
   opening: ChatDestinationOpening,
-  contextualContent?: ReactNode,
+  {
+    contextualContent,
+    skipAnimations = true,
+  }: Readonly<{ contextualContent?: ReactNode; skipAnimations?: boolean }> = {},
 ) {
   const root = createRootRoute();
   const session = createRoute({
@@ -94,7 +122,7 @@ function renderDestination(
           <SidebarShellContext.Provider value={createTestSidebarShell()}>
             <SidebarRootOwner>
               <ChatPromptPresenceProvider>
-                <MotionConfig skipAnimations>
+                <MotionConfig skipAnimations={skipAnimations}>
                   <ChatDestination opening={opening} navigation={navigation} />
                   {contextualContent}
                 </MotionConfig>
@@ -113,27 +141,10 @@ function sessionWithPrompts(
   configure?: (services: TestAppServices) => void,
   selected: ChatDestinationOpening = { kind: "session", ...sessionTarget },
   contextualContent?: ReactNode,
+  skipAnimations = true,
 ) {
-  const services = createTestServices([worktreeBrowserFixtureRoute()]);
-  const choice = catalog.catalog.choices[0];
-  if (choice === undefined) throw new Error("Missing settings choice");
-  const settings = vi.spyOn(services.api.chat, "getSettings").mockResolvedValue({
-    kind: "session",
-    session: { sessionID: sessionTarget.sessionID, previousSessionID: null, task: null },
-    settings: {
-      selectedAgent: { role: choice.agent.role, model: choice.agent.model, thinking: choice.agent.thinking },
-      agentChoices: [choice.agent],
-      agentEditability: { kind: "editable" },
-      agentLocked: false,
-      cachingLocked: false,
-      workflowLocked: false,
-      supervisor: choice.supervisor,
-      thinking: choice.thinking,
-      fast: choice.fast,
-      questions: choice.questions,
-      autoCompaction: choice.autoCompaction,
-    },
-  });
+  const services = createTestServices([worktreeBrowserFixtureRoute(), sessionSettingsSubscriptionRoute()]);
+  const settings = vi.spyOn(services.api.chat, "getSettings").mockResolvedValue(sessionSettingsRead());
   vi.spyOn(services.api.chat, "getDraft").mockResolvedValue({ input: "", protectedInput: null });
   vi.spyOn(services.api.chat, "persistDraft").mockResolvedValue();
   vi.spyOn(services.api.chat, "getMainView").mockResolvedValue(mainViewRead());
@@ -148,8 +159,17 @@ function sessionWithPrompts(
   const answer = vi.spyOn(services.api.chat, "answerPromptBatch").mockReturnValue(response.promise);
   const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   configure?.(services);
-  const view = renderDestination(services, client, selected, contextualContent);
+  const view = renderDestination(services, client, selected, { contextualContent, skipAnimations });
   return { ...view, services, handlers, settings, pending, answer, client, response };
 }
 
-export { opening, newChatTarget, baseline, catalog, navigation, renderDestination, sessionWithPrompts };
+export {
+  opening,
+  newChatTarget,
+  baseline,
+  catalog,
+  navigation,
+  renderDestination,
+  sessionSettingsRead,
+  sessionWithPrompts,
+};

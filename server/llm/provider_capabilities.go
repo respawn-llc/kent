@@ -15,7 +15,7 @@ func InferProviderCapabilities(providerID string) (ProviderCapabilities, error) 
 }
 
 func SupportsFastModeProvider(caps ProviderCapabilities) bool {
-	return caps.SupportsResponsesAPI && caps.IsOpenAIFirstParty
+	return caps.SupportsFastMode
 }
 
 func SupportsPromptCacheKeyProvider(caps ProviderCapabilities) bool {

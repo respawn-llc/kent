@@ -42,15 +42,11 @@ func (m *uiModel) applyRuntimeActivityProjection(activity *runtimepb.Activity) e
 	if m == nil {
 		return nil
 	}
-	if err := protoapi.Validate(activity); err != nil {
-		return err
-	}
 	m.runtimeActivityProjection = activity
 	m.reconcileMissingPromptRecoveryScope()
 	if !protoapi.RuntimeActivityActiveForControl(activity) {
 		m.runtimeLifecycle.Run = clientui.IdleRunLifecycle()
 		m.activity = uiActivityIdle
-		m.currentRunID = ""
 		m.currentStepID = ""
 		return nil
 	}
@@ -65,10 +61,8 @@ func (m *uiModel) applyRuntimeActivityProjection(activity *runtimepb.Activity) e
 		m.activity = uiActivityRunning
 	}
 	if activity.ActiveStep != nil {
-		m.currentRunID = activity.ActiveStep.RunId
 		m.currentStepID = activity.ActiveStep.StepId
 	} else {
-		m.currentRunID = ""
 		m.currentStepID = ""
 	}
 	return nil
@@ -88,8 +82,7 @@ func (m *uiModel) isCompacting() bool {
 		return false
 	}
 	switch m.runtimeActivityProjection.ActiveStep.ActiveKind {
-	case runtimepb.ActivityActiveKind_RUNTIME_ACTIVITY_ACTIVE_KIND_COMPACTION,
-		runtimepb.ActivityActiveKind_RUNTIME_ACTIVITY_ACTIVE_KIND_PRE_SUBMIT_COMPACTION:
+	case runtimepb.ActivityActiveKind_RUNTIME_ACTIVITY_ACTIVE_KIND_COMPACTION:
 		return true
 	default:
 		return false
@@ -126,17 +119,9 @@ func (m *uiModel) setPendingInterrupt(pending bool) {
 	}
 	if pending {
 		m.interruptLifecycle = uiInterruptPending
-		m.interruptRunID = strings.TrimSpace(m.currentRunID)
 		m.interruptStepID = strings.TrimSpace(m.currentStepID)
-		m.completedRunID = ""
-		m.completedStepID = ""
 		return
 	}
-	if strings.TrimSpace(m.interruptRunID) != "" && strings.TrimSpace(m.interruptStepID) != "" {
-		m.completedRunID = strings.TrimSpace(m.interruptRunID)
-		m.completedStepID = strings.TrimSpace(m.interruptStepID)
-	}
 	m.interruptLifecycle = uiInterruptIdle
-	m.interruptRunID = ""
 	m.interruptStepID = ""
 }

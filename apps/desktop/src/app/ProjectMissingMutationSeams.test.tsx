@@ -1,107 +1,103 @@
-import { render } from "@testing-library/react";
-import type { ReactElement, ReactNode } from "react";
-import { I18nextProvider } from "react-i18next";
+import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { beforeAll, beforeEach, describe, expect, it, mock, vi } from "bun:test";
+import type { ReactNode } from "react";
 
-import { RpcError, rpcErrorCodes } from "@/api";
-import { NewTaskForm } from "@/features/tasks";
-import { LinkWorkflowSidebar } from "@/features/workflows";
+import { RpcError } from "@/api";
 import { appI18n, initializeI18n } from "@/i18n";
-import type * as TaskDependenciesModule from "@/shared/task-dependencies";
 import { createTestSidebarNavigator } from "@/test-support/sidebar";
-const fixture = vi.hoisted<{
+import { createTestServices, TestAppProviders } from "@/test-support/app-services";
+const fixture: {
   createError: Error | null;
-  linkError: Error | null;
-}>(() => ({ createError: null, linkError: null }));
+} = { createError: null };
+const actualTaskDependencies = await import("@/shared/task-dependencies");
+const actualWorkflowLibrary = await import("@/shared/workflow-library");
+const actualUi = await import("@/ui");
+const workflowRendering = await import("@/test-support/workflow-rendering");
 
-vi.mock("@tanstack/react-query", () => ({
-  useMutation: () => ({
-    error: fixture.linkError,
-    isError: fixture.linkError !== null,
-    isPending: false,
-    mutateAsync: vi.fn(),
-  }),
-  useInfiniteQuery: () => ({
-    data: undefined,
-    error: null,
-    hasNextPage: false,
-    isError: false,
-    isFetchingNextPage: false,
-    isPending: false,
-    fetchNextPage: vi.fn(),
-    refetch: vi.fn(),
-  }),
-  useQuery: () => ({ data: undefined, error: null, isError: false, isPending: false, refetch: vi.fn() }),
-  useQueryClient: () => ({ invalidateQueries: vi.fn() }),
-}));
-vi.mock("@/app-facade", async (importOriginal) => ({
-  ...(await importOriginal()),
-  queryKeys: { allBoards: [], allProjectWorkflowLinks: [], allWorkflows: [], projectWorkflowLinks: () => [] },
-  useAppServices: () => ({ api: {} }),
-  projectWorkspaceQueryOptions: () => ({}),
-  useStatusController: () => ({ push: vi.fn() }),
-  useTextFieldSubmitShortcut: () => undefined,
-  workspaceCatalogInfiniteQueryOptions: () => ({}),
-}));
-vi.mock("@/shared/labels", () => ({
+await mock.module("@/shared/labels", () => ({
   LabelChooser: () => null,
   orderedAssignedLabels: () => [],
   ProjectLabelsProvider: ({ children }: Readonly<{ children: ReactNode }>) => <>{children}</>,
   useProjectLabelCatalog: () => ({ data: { labels: [] } }),
 }));
-vi.mock("@/shared/task-mutations", () => ({
+await mock.module("@/shared/task-mutations", () => ({
   useCreateTask: () => ({ error: fixture.createError, isPending: false, submit: vi.fn() }),
 }));
-vi.mock("@/shared/task-dependencies", async (importOriginal) => ({
-  ...(await importOriginal<typeof TaskDependenciesModule>()),
+await mock.module("@/shared/task-dependencies", () => ({
+  ...actualTaskDependencies,
   DependenciesArea: () => null,
 }));
-vi.mock("@/shared/workflow-library", () => ({
-  useWorkflowPages: () => ({
-    data: { pages: [{ workflows: [] }] },
-    hasNextPage: false,
-    isError: false,
-    isFetchingNextPage: false,
-    isPending: false,
-  }),
-  WorkflowActionsContextMenu: ({ children }: Readonly<{ children: ReactNode }>) => <>{children}</>,
+await mock.module("@/shared/workflow-library", () => ({
+  ...actualWorkflowLibrary,
+  WorkflowActionsContextMenu: workflowRendering.WorkflowActionsContextMenuStub,
 }));
+await mock.module("@/ui", () => ({
+  ...actualUi,
+  VirtualizedInfiniteList: workflowRendering.WorkflowListStub,
+}));
+const { NewTaskForm } = await import("@/features/tasks");
+const { LinkWorkflowSidebar } = await import("@/features/workflows");
 
-const missing = new RpcError({ code: rpcErrorCodes.projectNotFound, message: "gone", method: "mutation" });
+const missing = new RpcError({ code: "project_not_found", message: "gone", method: "mutation" });
 
 beforeAll(async () => initializeI18n());
-beforeEach(() => Object.assign(fixture, { createError: null, linkError: null }));
-
-function renderWithI18n(element: ReactElement) {
-  return render(<I18nextProvider i18n={appI18n}>{element}</I18nextProvider>);
-}
+beforeEach(() => Object.assign(fixture, { createError: null }));
 
 describe("Project-missing mutation seams", () => {
   it("dismisses New Task when creation reports the Project missing", async () => {
     fixture.createError = missing;
+    const services = createTestServices([]);
+    vi.spyOn(services.api, "listWorkspaces").mockResolvedValue({
+      projectID: "project-1",
+      offset: 0,
+      workspaces: [],
+      nextOffset: null,
+    });
     const navigator = createTestSidebarNavigator();
-    renderWithI18n(
-      <NewTaskForm
-        boardQueryWorkflowID="workflow-1"
-        navigator={navigator}
-        projectID="project-1"
-        workflowID="workflow-1"
-      />,
+    render(
+      <TestAppProviders services={services}>
+        <NewTaskForm
+          boardQueryWorkflowID="workflow-1"
+          navigator={navigator}
+          projectID="project-1"
+          workflowID="workflow-1"
+        />
+      </TestAppProviders>,
     );
-    expect(navigator.back).toHaveBeenCalledOnce();
+    expect(navigator.back).toHaveBeenCalledTimes(1);
   });
 
   it("backs out of Link Workflow when linking reports the Project missing", async () => {
-    fixture.linkError = missing;
+    const services = createTestServices([]);
+    vi.spyOn(services.api, "listWorkflows").mockResolvedValue({
+      workflows: [
+        {
+          id: "workflow-1",
+          name: "Workflow",
+          description: "",
+          version: 1,
+          executionTargetPolicy: { mode: "default_branch", customRef: null },
+        },
+      ],
+      nextOffset: null,
+    });
+    vi.spyOn(services.api, "listProjectWorkflowLinks").mockResolvedValue([]);
+    vi.spyOn(services.api, "linkWorkflowToProject").mockRejectedValue(missing);
     const navigator = createTestSidebarNavigator();
-    renderWithI18n(
-      <LinkWorkflowSidebar
-        creating={false}
-        navigator={navigator}
-        onCreated={vi.fn()}
-        onLinked={vi.fn()}
-        projectID="project-1"
-      />,
+    render(
+      <TestAppProviders services={services}>
+        <LinkWorkflowSidebar
+          creating={false}
+          navigator={navigator}
+          onCreated={vi.fn()}
+          onLinked={vi.fn()}
+          projectID="project-1"
+        />
+      </TestAppProviders>,
     );
-    expect(navigator.back).toHaveBeenCalledOnce();
+    fireEvent.click(await screen.findByRole("button", { name: appI18n.t("workflowLibrary.link") }));
+    await waitFor(() => {
+      expect(navigator.back).toHaveBeenCalledTimes(1);
+    });
   });
 });

@@ -29,6 +29,7 @@ export type NativeFileBridge = Readonly<{
   selectFile(options: NativeFilePickerOptions): Promise<NativeFileSelection>;
   fileAvailable(target: NativeFileTarget): Promise<boolean>;
   openFile(target: NativeFileTarget): Promise<void>;
+  openDefault(target: NativeFileTarget): Promise<void>;
 }>;
 
 export function createBrowserDirectoryBridge(): NativeDirectoryBridge {
@@ -48,6 +49,9 @@ export function createBrowserFileBridge(): NativeFileBridge {
       return false;
     },
     async openFile(): Promise<void> {
+      throw new Error("File opening is unavailable in this shell.");
+    },
+    async openDefault(): Promise<void> {
       throw new Error("File opening is unavailable in this shell.");
     },
   };
@@ -77,6 +81,12 @@ export function createTauriFileBridge(): NativeFileBridge {
     async openFile(target: NativeFileTarget): Promise<void> {
       await invoke("open_file_path", {
         basePath: target.basePath ?? "",
+        path: target.path,
+      });
+    },
+    async openDefault(target: NativeFileTarget): Promise<void> {
+      await invoke("open_file_default", {
+        basePath: target.basePath,
         path: target.path,
       });
     },

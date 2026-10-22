@@ -3,15 +3,22 @@ package promptcontrol
 import (
 	"context"
 	"errors"
+	"path/filepath"
 	"testing"
 
+	"core/internal/testharness/requestfixture"
+	"core/internal/testharness/testsetup"
+	"core/server/metadata"
+	"core/server/session"
 	"core/server/sessionruntime"
 	askquestion "core/server/tools"
 	"core/shared/clientui"
+	"core/shared/config"
 	"core/shared/protoapi"
 	promptpb "core/shared/protoapi/gen/kent/api/prompt"
 	"core/shared/runtimeids"
 	"core/shared/serverapi"
+	"core/shared/sessioncontract"
 )
 
 type stubPromptResponder struct {
@@ -66,13 +73,13 @@ func (*stubPromptFollowUpSubscription) Close() error { return nil }
 
 func newPromptControlTestService() (*PromptControlService, *stubPromptResponder) {
 	responder := &stubPromptResponder{}
-	return NewPromptControlService(responder), responder
+	return NewPromptControlService(responder, nil, nil), responder
 }
 
 func TestServiceSubscribeFollowUpInstallsWatcherBeforeReturning(t *testing.T) {
 	service, responder := newPromptControlTestService()
 	request := &promptpb.FollowUpWatchRequest{
-		SessionId:  runtimeids.NewSessionID().String(),
+		SessionId:  requestfixture.Selector(t, runtimeids.NewSessionID().String()),
 		StepId:     promptControlStepID(t).String(),
 		ToolCallId: "prompt-1",
 	}
@@ -84,7 +91,7 @@ func TestServiceSubscribeFollowUpInstallsWatcherBeforeReturning(t *testing.T) {
 		t.Fatalf("SubscribeFollowUp: %v", err)
 	}
 	if got != subscription || responder.followUpCalls != 1 ||
-		responder.followUpSession.String() != request.SessionId ||
+		responder.followUpSession.String() != request.SessionId.GetSessionId() ||
 		responder.followUpStep.String() != request.StepId ||
 		string(responder.followUpToolCall) != request.ToolCallId {
 		t.Fatalf("follow-up installation = subscription %p responder %+v", got, responder)
@@ -104,7 +111,7 @@ func TestServiceAnswerPromptBatchTranslatesMixedEntries(t *testing.T) {
 	if err != nil {
 		t.Fatalf("AnswerPromptBatch: %v", err)
 	}
-	if responder.batchCalls != 1 || responder.batchSession.String() != request.SessionId || responder.batchStep.String() != request.StepId {
+	if responder.batchCalls != 1 || responder.batchSession.String() != request.SessionId.GetSessionId() || responder.batchStep.String() != request.StepId {
 		t.Fatalf("batch delegation = calls %d session %s step %s", responder.batchCalls, responder.batchSession, responder.batchStep)
 	}
 	if len(responder.batchCommands) != 3 {
@@ -115,7 +122,8 @@ func TestServiceAnswerPromptBatchTranslatesMixedEntries(t *testing.T) {
 		question.Answer.SelectedOptionNumber == nil ||
 		*question.Answer.SelectedOptionNumber != 2 ||
 		question.Answer.Freeform == nil ||
-		*question.Answer.Freeform != "question commentary" {
+		*question.Answer.Freeform != "question commentary" ||
+		question.Answer.Answerer != nil {
 		t.Fatalf("question command = %+v", responder.batchCommands[0])
 	}
 	approval, ok := responder.batchCommands[1].Payload.(sessionruntime.PromptApprovalAnswerCommand)
@@ -133,6 +141,95 @@ func TestServiceAnswerPromptBatchTranslatesMixedEntries(t *testing.T) {
 	}
 }
 
+func TestServiceAnswerPromptBatchAttributesUnrelatedAgent(t *testing.T) {
+	persistedSessions, target, caller := promptControlAgentSessions(t)
+	_, responder := newPromptControlTestService()
+	service := NewPromptControlService(responder, persistedSessions, persistedSessions)
+	responder.batchResults = []sessionruntime.PromptAnswerResult{
+		{ToolCallID: "question-1", Outcome: sessionruntime.PromptAnswerOutcomeResolved},
+		{ToolCallID: "approval-1", Outcome: sessionruntime.PromptAnswerOutcomeResolved},
+		{ToolCallID: "declined-1", Outcome: sessionruntime.PromptAnswerOutcomeSkipped},
+	}
+	request := promptAnswerBatchRequest(t)
+	request.SessionId = protoapi.SessionSelectorToProto(*target.Identity().ShortID)
+	callerSessionID := caller.Meta().SessionID
+	request.InvokingSessionId = &callerSessionID
+
+	if _, err := service.AnswerPromptBatch(t.Context(), request); err != nil {
+		t.Fatalf("AnswerPromptBatch: %v", err)
+	}
+	if len(responder.batchCommands) == 0 {
+		t.Fatal("AnswerPromptBatch did not deliver the Question answer")
+	}
+	if responder.batchSession.String() != target.Meta().SessionID {
+		t.Fatalf("resolved target = %s", responder.batchSession)
+	}
+	answer, ok := responder.batchCommands[0].Payload.(sessionruntime.PromptQuestionAnswerCommand)
+	callerRecord, err := persistedSessions.ResolvePersistedSession(t.Context(), caller.Meta().SessionID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !ok || answer.Answer.Answerer == nil ||
+		answer.Answer.Answerer.ID.String() != caller.Meta().SessionID ||
+		answer.Answer.Answerer.ShortID == nil || callerRecord.ShortID == nil || *answer.Answer.Answerer.ShortID != *callerRecord.ShortID {
+		t.Fatalf("Question answer actor = %+v, want invoking Session %q", answer, caller.Meta().SessionID)
+	}
+}
+
+func promptControlAgentSessions(t *testing.T) (*metadata.Store, *session.Store, *session.Store) {
+	t.Helper()
+	cfg := testsetup.ProgrammaticConfig(t, config.DefaultOnboardingSettings())
+	persistedSessions := testsetup.OpenStore(t, cfg.PersistenceRoot)
+	binding, err := persistedSessions.RegisterWorkspaceBinding(t.Context(), cfg.WorkspaceRoot)
+	if err != nil {
+		t.Fatalf("RegisterBinding: %v", err)
+	}
+	options := persistedSessions.AuthoritativeSessionStoreOptions()
+	container := filepath.Join(cfg.PersistenceRoot, "projects", binding.ProjectID, "sessions")
+	target, err := session.Create(
+		container,
+		binding.WorkspaceName,
+		cfg.WorkspaceRoot,
+		sessioncontract.SessionCategoryMain,
+		options...,
+	)
+	if err != nil {
+		t.Fatalf("create target Session: %v", err)
+	}
+	otherParent, err := session.Create(
+		container,
+		binding.WorkspaceName,
+		cfg.WorkspaceRoot,
+		sessioncontract.SessionCategoryMain,
+		options...,
+	)
+	if err != nil {
+		t.Fatalf("create unrelated parent Session: %v", err)
+	}
+	caller, err := session.NewLazy(
+		container,
+		binding.WorkspaceName,
+		cfg.WorkspaceRoot,
+		sessioncontract.SessionCategorySubagent,
+		options...,
+	)
+	if err != nil {
+		t.Fatalf("create unrelated agent Session: %v", err)
+	}
+	if err := session.InitializeCreationContext(
+		caller,
+		otherParent,
+		session.SessionCreationSourceParentAgent,
+		session.ChildContextOptions{},
+	); err != nil {
+		t.Fatalf("initialize unrelated agent Session: %v", err)
+	}
+	if err := caller.EnsureDurable(); err != nil {
+		t.Fatalf("persist unrelated agent Session: %v", err)
+	}
+	return persistedSessions, target, caller
+}
+
 func promptAnswerBatchRequest(t *testing.T) *promptpb.AnswerBatchRequest {
 	t.Helper()
 	sessionID, err := runtimeids.ParseSessionID("11111111-1111-4111-8111-111111111111")
@@ -147,7 +244,7 @@ func promptAnswerBatchRequest(t *testing.T) *promptpb.AnswerBatchRequest {
 	questionCommentary := "question commentary"
 	approvalCommentary := "approval commentary"
 	return &promptpb.AnswerBatchRequest{
-		SessionId: sessionID.String(),
+		SessionId: requestfixture.Selector(t, sessionID.String()),
 		StepId:    stepID.String(),
 		Entries: []*promptpb.AnswerBatchEntry{
 			{

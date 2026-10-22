@@ -116,5 +116,12 @@ export default tseslint.config(
       "max-lines": ["error", { max: 1100, skipBlankLines: true, skipComments: true }],
     },
   },
+  {
+    // Matcher declaration merging requires interfaces.
+    files: ["test/bun-test-dom.d.ts"],
+    rules: {
+      "@typescript-eslint/no-empty-object-type": ["error", { allowInterfaces: "always" }],
+    },
+  },
   prettier,
 );

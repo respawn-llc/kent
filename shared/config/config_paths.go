@@ -69,7 +69,7 @@ func NormalizePersistenceRoot(path string) (string, error) {
 	return abs, nil
 }
 
-func preparePersistenceRoot(path string) (string, error) {
+func PreparePersistenceRoot(path string) (string, error) {
 	expanded, err := expandTildePath(path)
 	if err != nil {
 		return "", fmt.Errorf("expand persistence root: %w", err)

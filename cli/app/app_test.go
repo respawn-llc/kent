@@ -6,14 +6,15 @@ import (
 	"core/server/launch"
 	"core/server/session"
 	"core/shared/config"
+	sharedpb "core/shared/protoapi/gen/kent/api/shared"
 	"core/shared/runtimeids"
 	"core/shared/serverapi"
 	"core/shared/toolspec"
 )
 
 func TestEffectiveSettingsKeepsBaseThinkingLevelEvenWhenSessionIsLocked(t *testing.T) {
-	base := config.Settings{Model: "gpt-5", ThinkingLevel: "high"}
-	locked := &session.LockedContract{Model: "gpt-5"}
+	base := config.Settings{Model: "gpt-6-sol", ThinkingLevel: "high"}
+	locked := &session.LockedContract{Model: "gpt-6-sol"}
 
 	effective := launch.EffectiveSettings(base, locked)
 	if effective.ThinkingLevel != "high" {
@@ -23,7 +24,7 @@ func TestEffectiveSettingsKeepsBaseThinkingLevelEvenWhenSessionIsLocked(t *testi
 
 func TestActiveToolIDs_UsesLockedEnabledToolsVerbatim(t *testing.T) {
 	locked := &session.LockedContract{EnabledTools: []string{string(toolspec.ToolExecCommand)}}
-	ids, err := launch.ActiveToolIDsForPlan(config.Settings{Model: "gpt-5.4"}, config.SourceReport{}, locked)
+	ids, err := launch.ActiveToolIDsForPlan(config.Settings{Model: "gpt-6-sol"}, config.SourceReport{}, locked)
 	if err != nil {
 		t.Fatalf("activeToolIDs: %v", err)
 	}
@@ -42,8 +43,8 @@ func containsToolID(ids []toolspec.ID, want toolspec.ID) bool {
 }
 
 func TestSessionLaunchOptionsForUsesTypedInitialIntent(t *testing.T) {
-	selected := sessionLifecycleSessionID(t, "selected-session")
-	parent := sessionLifecycleSessionID(t, "parent-session")
+	selected := runtimeids.NewSessionID()
+	parent := runtimeids.NewSessionID()
 
 	tests := []struct {
 		name          string
@@ -79,25 +80,36 @@ func TestSessionLaunchOptionsForUsesTypedInitialIntent(t *testing.T) {
 			if err != nil {
 				t.Fatalf("sessionLaunchOptionsFor: %v", err)
 			}
-			if intent == nil || intent.Kind() != test.wantKind {
+			if intent == nil || (intent.GetCreateNew() != nil) != (test.wantKind == serverapi.SessionLaunchIntentCreateNew) {
 				t.Fatalf("intent = %+v, want %q", intent, test.wantKind)
 			}
 			if test.wantSessionID.IsZero() {
-				if _, present := intent.SessionID(); present {
+				if intent.GetOpenExistingSessionId() != nil {
 					t.Fatal("create intent unexpectedly has an existing session identity")
 				}
-			} else if got, present := intent.SessionID(); !present || got != test.wantSessionID {
-				t.Fatalf("session identity = %q/%v, want %q/true", got.String(), present, test.wantSessionID.String())
+			} else if got := intent.GetOpenExistingSessionId().GetSessionId(); got != test.wantSessionID.String() {
+				t.Fatalf("session identity = %q, want %q", got, test.wantSessionID.String())
 			}
-			origin, hasOrigin := intent.CreateOrigin()
+			origin := intent.GetCreateNew()
 			if test.wantParentID.IsZero() {
-				if hasOrigin && origin.Kind() == serverapi.SessionCreateOriginParentAgent {
+				if origin.GetParentAgentSessionId() != nil {
 					t.Fatal("intent unexpectedly has a parent-agent origin")
 				}
-			} else if got, present := origin.SessionID(); !hasOrigin || origin.Kind() != serverapi.SessionCreateOriginParentAgent || !present || got != test.wantParentID {
-				t.Fatalf("parent-agent identity = %q/%v, want %q/true", got.String(), present, test.wantParentID.String())
+			} else if got := origin.GetParentAgentSessionId().GetSessionId(); got != test.wantParentID.String() {
+				t.Fatalf("parent-agent identity = %q, want %q", got, test.wantParentID.String())
 			}
 		})
+	}
+}
+
+func TestSessionLaunchOptionsForPreservesShortSessionSelector(t *testing.T) {
+	intent, _, err := sessionLaunchOptionsFor(Options{SessionID: "42"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	selector, ok := intent.GetOpenExistingSessionId().GetValue().(*sharedpb.SessionSelector_ShortId)
+	if !ok || selector.ShortId != 42 {
+		t.Fatalf("session selector = %v, want short ID 42", intent.GetOpenExistingSessionId())
 	}
 }
 

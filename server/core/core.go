@@ -14,6 +14,7 @@ import (
 	"core/server/metadata"
 	"core/server/runprompt"
 	"core/server/sessionlaunch"
+	"core/server/sessionview"
 	shelltool "core/server/tools/shell"
 	"core/shared/apicontract"
 	"core/shared/clientui"
@@ -23,12 +24,14 @@ import (
 	runpromptpb "core/shared/protoapi/gen/kent/api/run_prompt"
 	sessionlaunchpb "core/shared/protoapi/gen/kent/api/session_launch"
 	"core/shared/serverapi"
+	"google.golang.org/protobuf/types/known/emptypb"
 )
 
 type Core struct {
-	bundles   *Bundles
-	closeOnce sync.Once
-	closeErr  error
+	connectionRotation *launch.ConnectionRotation
+	bundles            *Bundles
+	closeOnce          sync.Once
+	closeErr           error
 }
 
 type unregisteredSessionLaunchClient struct{}
@@ -39,13 +42,13 @@ func (unregisteredSessionLaunchClient) PlanSession(context.Context, *sessionlaun
 
 type unregisteredRunPromptClient struct{}
 
-func (unregisteredRunPromptClient) RunPrompt(context.Context, serverapi.RunPromptRequest, serverapi.RunPromptProgressSink) (*runpromptpb.Success, error) {
+func (unregisteredRunPromptClient) RunPrompt(context.Context, *runpromptpb.Request, serverapi.RunPromptProgressSink) (*runpromptpb.Success, error) {
 	return nil, serverapi.ErrWorkspaceNotRegistered
 }
 
 type unavailableAttentionNotificationClient struct{}
 
-func (unavailableAttentionNotificationClient) SubscribeAttentionNotifications(context.Context, serverapi.AttentionNotificationSubscribeRequest) (serverapi.AttentionNotificationSubscription, error) {
+func (unavailableAttentionNotificationClient) SubscribeAttentionNotifications(context.Context, *emptypb.Empty) (apicontract.AttentionNotificationSubscription, error) {
 	return nil, serverapi.ErrStreamUnavailable
 }
 
@@ -290,16 +293,22 @@ func (s *Core) sessionLaunchServiceForProjectContextLocked(projectCtx projectCon
 
 func (s *Core) newSessionLaunchService(projectCtx projectContext) *sessionlaunch.Service {
 	return sessionlaunch.NewService(launch.Planner{
+		Rotation:          s.connectionRotation,
 		Config:            projectCtx.config,
 		ContainerDir:      projectCtx.projectSession,
 		StoreOptions:      s.safeBundles().Persistence.metadataStore.AuthoritativeSessionStoreOptions(),
 		PersistedSessions: s.safeBundles().Persistence.metadataStore,
+		CallerSessions:    s.safeBundles().Persistence.metadataStore,
 		ExecutionTargets:  s.safeBundles().Persistence.metadataStore,
 		SessionProjects:   s.safeBundles().Persistence.metadataStore, ManagedWorktreeRoots: s.safeBundles().Persistence.metadataStore,
 		ReloadConfig: func() (config.App, error) {
 			return s.reloadWorkspaceConfig(projectCtx.projectRoot)
 		},
-	})
+	}, sessionlaunch.ChatSettingsOwner{
+		Authority: s.safeBundles().Runtime.runtimeAuthority,
+		Registry:  s.safeBundles().Runtime.runtimeRegistry,
+		Changes:   s.safeBundles().Sessions.settingsChanges,
+	}, s.safeBundles().Persistence.metadataStore)
 }
 
 func (s *Core) runPromptClientForProjectContext(projectCtx projectContext) apicontract.RunPromptService {
@@ -313,9 +322,11 @@ func (s *Core) runPromptClientForProjectContext(projectCtx projectContext) apico
 		return cached
 	}
 	client := runprompt.NewInProcessRunPromptClient(runprompt.HeadlessBootstrap{
+		Metadata:               s.safeBundles().Persistence.metadataStore,
 		SessionLaunch:          s.sessionLaunchServiceForProjectContext(projectCtx),
 		PromptHistory:          s.safeBundles().Persistence.metadataStore,
 		RuntimeAuthority:       s.safeBundles().Runtime.runtimeAuthority,
+		LiveRunObserver:        s.safeBundles().Runtime.liveRunObserver,
 		ManagedWorktreeBaseDir: s.safeBundles().Projects.cfg.Settings.Worktrees.BaseDir,
 	})
 	s.safeBundles().Sessions.runPromptMap[scopeKey] = client
@@ -370,13 +381,6 @@ func (s *Core) AuthManager() *auth.Manager {
 	return s.safeBundles().Auth.support.AuthManager
 }
 
-func (s *Core) ServerAuthRequired() bool {
-	if s == nil {
-		return true
-	}
-	return s.safeBundles().Auth.authRequired
-}
-
 func (s *Core) Background() *shelltool.Manager {
 	if s == nil {
 		return nil
@@ -388,7 +392,22 @@ func (s *Core) SessionViewClient() apicontract.SessionViewService {
 	if s == nil {
 		return nil
 	}
-	return s.safeBundles().Sessions.sessionViews
+	service := s.safeBundles().Sessions.sessionViews
+	if service == nil {
+		return nil
+	}
+	return service
+}
+
+func (s *Core) ViewedImageOriginalOpener() sessionview.ViewedImageOriginalOpener {
+	if s == nil {
+		return nil
+	}
+	service := s.safeBundles().Sessions.sessionViews
+	if service == nil {
+		return nil
+	}
+	return service
 }
 
 func (s *Core) SessionChatContextOwner() chatcontext.SessionOwner {
@@ -428,6 +447,10 @@ func (s *Core) AuthBootstrapClient() apicontract.AuthBootstrapService {
 		return nil
 	}
 	return s.safeBundles().Auth.authBootstrap
+}
+
+func (s *Core) ConnectionManagementClient() apicontract.ConnectionManagementService {
+	return s.safeBundles().Auth.support.Connections
 }
 
 func (s *Core) AuthStatusClient() apicontract.AuthStatusService {
@@ -489,6 +512,17 @@ func (s *Core) ApprovalViewClient() apicontract.ApprovalViewService {
 }
 
 func (s *Core) ProcessViewClient() apicontract.ProcessViewService {
+	if s == nil {
+		return nil
+	}
+	processes := s.safeBundles().Processes
+	if processes == nil {
+		return nil
+	}
+	return processes
+}
+
+func (s *Core) ProcessObservationClient() apicontract.ProcessObservationService {
 	if s == nil {
 		return nil
 	}

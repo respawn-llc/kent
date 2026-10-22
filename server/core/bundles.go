@@ -14,6 +14,7 @@ import (
 	"core/server/processview"
 	"core/server/promptcontrol"
 	"core/server/registry"
+	"core/server/runprompt"
 	"core/server/runtimecontrol"
 	"core/server/serverstatus"
 	"core/server/sessionlaunch"
@@ -51,7 +52,6 @@ type AuthBundle struct {
 	authBootstrap apicontract.AuthBootstrapService
 	authStatus    apicontract.AuthStatusService
 	serverStatus  apicontract.ServerStatusService
-	authRequired  bool
 }
 
 type ChatBundle struct {
@@ -82,18 +82,20 @@ type RuntimeBundle struct {
 	runtimeAuthority    *sessionruntime.Authority
 	runtimeControls     apicontract.RuntimeControlService
 	runtimeLiveControls apicontract.RuntimeLiveControlService
+	liveRunObserver     runprompt.LiveRunObserver
 	sessionRuntime      apicontract.SessionRuntimeService
 	sessionTranscript   apicontract.SessionTranscriptService
 }
 
 type SessionBundle struct {
+	settingsChanges     *sessionlaunch.SettingsBroadcaster
 	mu                  sync.Mutex
 	runPromptMu         sync.Mutex
 	sessionLaunchMap    map[string]apicontract.SessionLaunchService
 	sessionServices     map[string]*sessionlaunch.Service
 	runPromptMap        map[string]apicontract.RunPromptService
 	sessionLaunch       apicontract.SessionLaunchService
-	sessionViews        apicontract.SessionViewService
+	sessionViews        *sessionview.Service
 	sessionContextOwner chatcontext.SessionOwner
 	sessionLifecycle    apicontract.SessionLifecycleService
 	runPrompt           apicontract.RunPromptService
@@ -182,6 +184,7 @@ type bundleCompositionInput struct {
 	serverStatusService     *serverstatus.ServerStatusService
 	sessionRuntimeAPI       *sessionruntime.API
 	sessionViewService      *sessionview.Service
+	settingsChanges         *sessionlaunch.SettingsBroadcaster
 	sessionLifecycleService *sessionservice.SessionLifecycleService
 	updateStatusService     *serverstatus.UpdateStatusService
 	workflowService         *workflowsvc.Service
@@ -194,10 +197,11 @@ type bundleCompositionInput struct {
 
 func composeBundles(in bundleCompositionInput) *Bundles {
 	return &Bundles{
-		Auth:       newAuthBundle(in.authSupport, in.authBootstrapService, in.authStatusService, in.serverStatusService, authservice.StartupAuthRequired(in.cfg.Settings)),
+		Auth:       newAuthBundle(in.authSupport, in.authBootstrapService, in.authStatusService, in.serverStatusService),
 		Capability: in.capabilityFactsService,
 		Chat:       &ChatBundle{},
 		cleanup: []lifecycleResource{
+			{name: "Session settings observation", close: in.settingsChanges.Close},
 			{name: "persistence root lock", close: in.rootLease.Close},
 			{name: "metadata store", close: in.metadataStore.Close},
 			{name: "background manager", close: in.background.Close},
@@ -244,19 +248,18 @@ func composeBundles(in bundleCompositionInput) *Bundles {
 		Projects:    newProjectBundle(in.cfg, in.workspaceConfigResolver, in.projectViews),
 		Prompts:     newPromptBundle(in.askService, in.approvalService, in.promptControlService, in.attentionService),
 		Runtime:     newRuntimeBundle(in.background, in.runtimeRegistry, in.runtimeAuthority, in.runtimeControlService, in.sessionRuntimeAPI),
-		Sessions:    newSessionBundle(in.sessionViewService, in.sessionLifecycleService),
+		Sessions:    newSessionBundle(in.sessionViewService, in.sessionLifecycleService, in.settingsChanges),
 		Workflows:   newWorkflowBundle(in.workflowService),
 		Worktrees:   &WorktreeBundle{worktrees: in.worktreeService},
 	}
 }
 
-func newAuthBundle(authSupport serverbootstrap.AuthSupport, bootstrapService *authservice.BootstrapService, statusService *authservice.StatusService, serverStatusService *serverstatus.ServerStatusService, authRequired bool) *AuthBundle {
+func newAuthBundle(authSupport serverbootstrap.AuthSupport, bootstrapService *authservice.BootstrapService, statusService *authservice.StatusService, serverStatusService *serverstatus.ServerStatusService) *AuthBundle {
 	return &AuthBundle{
 		support:       authSupport,
 		authBootstrap: bootstrapService,
 		authStatus:    statusService,
 		serverStatus:  serverStatusService,
-		authRequired:  authRequired,
 	}
 }
 
@@ -291,6 +294,7 @@ func newRuntimeBundle(background *shelltool.Manager, runtimeRegistry *registry.R
 		runtimeAuthority:    runtimeAuthority,
 		runtimeControls:     runtimeControlService,
 		runtimeLiveControls: runtimeControlService,
+		liveRunObserver:     runtimeControlService,
 		sessionRuntime:      sessionRuntimeAPI,
 		sessionTranscript:   runtimeRegistry,
 	}
@@ -300,8 +304,9 @@ func newWorkflowBundle(workflowService *workflowsvc.Service) *WorkflowBundle {
 	return &WorkflowBundle{workflows: workflowService}
 }
 
-func newSessionBundle(sessionViewService *sessionview.Service, sessionLifecycleService *sessionservice.SessionLifecycleService) *SessionBundle {
+func newSessionBundle(sessionViewService *sessionview.Service, sessionLifecycleService *sessionservice.SessionLifecycleService, settingsChanges *sessionlaunch.SettingsBroadcaster) *SessionBundle {
 	return &SessionBundle{
+		settingsChanges:     settingsChanges,
 		sessionLaunchMap:    make(map[string]apicontract.SessionLaunchService),
 		sessionServices:     make(map[string]*sessionlaunch.Service),
 		runPromptMap:        make(map[string]apicontract.RunPromptService),

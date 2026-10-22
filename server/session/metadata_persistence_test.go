@@ -2,6 +2,7 @@ package session
 
 import (
 	"context"
+	"core/shared/textutil"
 	"errors"
 	"fmt"
 	"os"
@@ -35,6 +36,13 @@ func (r *recordingPersistenceObserver) ObservePersistedStore(_ context.Context, 
 	r.called = true
 	r.snapshot = snapshot
 	return r.err
+}
+
+func (r *recordingPersistenceObserver) ResolvePersistedSession(_ context.Context, id string) (PersistedSessionRecord, error) {
+	if r.snapshot.Meta.SessionID != id {
+		return PersistedSessionRecord{}, ErrSessionNotFound
+	}
+	return PersistedSessionRecord{SessionDir: r.snapshot.SessionDir, Meta: cloneTestMeta(&r.snapshot.Meta), ContextFacts: r.snapshot.ContextFacts.Clone()}, nil
 }
 
 func (r *recordingPersistenceObserver) ObserveEventLogReconciliation(_ context.Context, reconciliation PersistedEventLogReconciliation) error {
@@ -158,16 +166,16 @@ func (o *deadlineRejectingPersistenceObserver) ObserveEventLogReconciliation(
 
 func TestOpenByIDUsesAuthoritativeResolver(t *testing.T) {
 	root := t.TempDir()
-	sessionDir := filepath.Join(root, "projects", "project-1", "sessions", "session-1")
+	sessionDir := filepath.Join(root, "projects", "project-1", "sessions", "550e8400-e29b-41d4-a716-446655440000")
 	writeSessionFixtureEvents(t, sessionDir, nil)
 	now := time.Now().UTC()
 	store, err := OpenByID(
 		root,
-		"session-1",
+		"550e8400-e29b-41d4-a716-446655440000",
 		WithPersistedSessionResolver(stubPersistedSessionResolver{record: PersistedSessionRecord{
 			SessionDir: sessionDir,
 			Meta: &Meta{
-				SessionID:     "session-1",
+				SessionID:     "550e8400-e29b-41d4-a716-446655440000",
 				WorkspaceRoot: "/tmp/workspace-a",
 				CreatedAt:     now,
 				UpdatedAt:     now,
@@ -212,11 +220,11 @@ func TestCommittedEventMetadataDurabilityHasNoSyntheticDeadline(t *testing.T) {
 }
 
 func TestOpenUsesAuthoritativeResolverMetadata(t *testing.T) {
-	sessionDir := filepath.Join(t.TempDir(), "session-1")
+	sessionDir := filepath.Join(t.TempDir(), "550e8400-e29b-41d4-a716-446655440000")
 	writeSessionFixtureEvents(t, sessionDir, nil)
 	now := time.Now().UTC()
 	authoritative := Meta{
-		SessionID:          "session-1",
+		SessionID:          "550e8400-e29b-41d4-a716-446655440000",
 		WorkspaceRoot:      "/tmp/workspace-new",
 		WorkspaceContainer: "workspace-new",
 		CreatedAt:          now,
@@ -239,15 +247,15 @@ func TestOpenUsesAuthoritativeResolverMetadata(t *testing.T) {
 }
 
 func TestOpenRejectsAuthoritativeResolverSessionDirMismatch(t *testing.T) {
-	sessionDir := filepath.Join(t.TempDir(), "session-1")
-	otherDir := filepath.Join(t.TempDir(), "session-1")
+	sessionDir := filepath.Join(t.TempDir(), "550e8400-e29b-41d4-a716-446655440000")
+	otherDir := filepath.Join(t.TempDir(), "550e8400-e29b-41d4-a716-446655440000")
 	now := time.Now().UTC()
 	_, err := Open(
 		sessionDir,
 		WithPersistedSessionResolver(stubPersistedSessionResolver{record: PersistedSessionRecord{
 			SessionDir: otherDir,
 			Meta: &Meta{
-				SessionID:     "session-1",
+				SessionID:     "550e8400-e29b-41d4-a716-446655440000",
 				WorkspaceRoot: "/tmp/workspace",
 				CreatedAt:     now,
 				UpdatedAt:     now,
@@ -260,7 +268,7 @@ func TestOpenRejectsAuthoritativeResolverSessionDirMismatch(t *testing.T) {
 }
 
 func TestOpenPropagatesAuthoritativeResolverNotFound(t *testing.T) {
-	sessionDir := filepath.Join(t.TempDir(), "session-1")
+	sessionDir := filepath.Join(t.TempDir(), "550e8400-e29b-41d4-a716-446655440000")
 	_, err := Open(
 		sessionDir,
 		WithPersistedSessionResolver(stubPersistedSessionResolver{err: ErrSessionNotFound}),
@@ -271,14 +279,14 @@ func TestOpenPropagatesAuthoritativeResolverNotFound(t *testing.T) {
 }
 
 func TestOpenRejectsAuthoritativeResolverSessionIDMismatch(t *testing.T) {
-	sessionDir := filepath.Join(t.TempDir(), "session-1")
+	sessionDir := filepath.Join(t.TempDir(), "550e8400-e29b-41d4-a716-446655440000")
 	now := time.Now().UTC()
 	_, err := Open(
 		sessionDir,
 		WithPersistedSessionResolver(stubPersistedSessionResolver{record: PersistedSessionRecord{
 			SessionDir: sessionDir,
 			Meta: &Meta{
-				SessionID:     "session-2",
+				SessionID:     "550e8400-e29b-41d4-a716-446655440001",
 				WorkspaceRoot: "/tmp/workspace",
 				CreatedAt:     now,
 				UpdatedAt:     now,
@@ -291,7 +299,7 @@ func TestOpenRejectsAuthoritativeResolverSessionIDMismatch(t *testing.T) {
 }
 
 func TestOpenRejectsAuthoritativeResolverMissingSessionID(t *testing.T) {
-	sessionDir := filepath.Join(t.TempDir(), "session-1")
+	sessionDir := filepath.Join(t.TempDir(), "550e8400-e29b-41d4-a716-446655440000")
 	now := time.Now().UTC()
 	_, err := Open(
 		sessionDir,
@@ -310,7 +318,7 @@ func TestOpenRejectsAuthoritativeResolverMissingSessionID(t *testing.T) {
 }
 
 func TestMetadataPersistencePublishesObserver(t *testing.T) {
-	sessionDir := filepath.Join(t.TempDir(), "session-1")
+	sessionDir := filepath.Join(t.TempDir(), "550e8400-e29b-41d4-a716-446655440000")
 	writeSessionFixtureEvents(t, sessionDir, nil)
 	now := time.Now().UTC()
 	observer := &recordingPersistenceObserver{}
@@ -319,7 +327,7 @@ func TestMetadataPersistencePublishesObserver(t *testing.T) {
 		WithPersistedSessionResolver(stubPersistedSessionResolver{record: PersistedSessionRecord{
 			SessionDir: sessionDir,
 			Meta: &Meta{
-				SessionID:     "session-1",
+				SessionID:     "550e8400-e29b-41d4-a716-446655440000",
 				WorkspaceRoot: "/tmp/workspace-a",
 				CreatedAt:     now,
 				UpdatedAt:     now,
@@ -330,17 +338,17 @@ func TestMetadataPersistencePublishesObserver(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Open: %v", err)
 	}
-	if err := store.SetName("incident triage"); err != nil {
+	if err := store.SetName(stringPointer("incident triage")); err != nil {
 		t.Fatalf("SetName: %v", err)
 	}
-	if !observer.called || observer.snapshot.Meta.Name != "incident triage" {
+	if !observer.called || observer.snapshot.Meta.Name == nil || *observer.snapshot.Meta.Name != "incident triage" {
 		t.Fatalf("observer snapshot = %+v, called = %t", observer.snapshot.Meta, observer.called)
 	}
 }
 
 func TestForkAtUserMessagePreservesPersistenceObserver(t *testing.T) {
 	observer := &recordingPersistenceObserver{}
-	parent, err := Create(t.TempDir(), "workspace-x", "/tmp/work", testSessionCategory, WithPersistenceObserver(observer))
+	parent, err := Create(t.TempDir(), "workspace-x", "/tmp/work", testSessionCategory, WithPersistenceObserver(observer), WithPersistedSessionResolver(observer))
 	if err != nil {
 		t.Fatalf("create parent: %v", err)
 	}
@@ -362,7 +370,7 @@ func TestForkAtUserMessagePreservesPersistenceObserver(t *testing.T) {
 
 func TestOpenByIDRejectsInvalidResolverRecords(t *testing.T) {
 	root := t.TempDir()
-	sessionDir := filepath.Join(root, "projects", "project-1", "sessions", "session-1")
+	sessionDir := filepath.Join(root, "projects", "project-1", "sessions", "550e8400-e29b-41d4-a716-446655440000")
 	writeSessionFixtureEvents(t, sessionDir, nil)
 	tests := []struct {
 		name   string
@@ -377,8 +385,8 @@ func TestOpenByIDRejectsInvalidResolverRecords(t *testing.T) {
 		{
 			name: "relative session dir",
 			record: PersistedSessionRecord{
-				SessionDir: "relative/session-1",
-				Meta:       &Meta{SessionID: "session-1"},
+				SessionDir: "relative/550e8400-e29b-41d4-a716-446655440000",
+				Meta:       &Meta{SessionID: "550e8400-e29b-41d4-a716-446655440000"},
 			},
 			want: errResolverRecordRelativeSessionDir,
 		},
@@ -387,7 +395,7 @@ func TestOpenByIDRejectsInvalidResolverRecords(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			_, err := OpenByID(
 				root,
-				"session-1",
+				"550e8400-e29b-41d4-a716-446655440000",
 				WithPersistedSessionResolver(stubPersistedSessionResolver{record: tt.record}),
 			)
 			if !errors.Is(err, tt.want) {
@@ -399,12 +407,12 @@ func TestOpenByIDRejectsInvalidResolverRecords(t *testing.T) {
 
 func TestPersistedSessionOpenRequiresResolver(t *testing.T) {
 	root := t.TempDir()
-	sessionDir := filepath.Join(root, "session-1")
+	sessionDir := filepath.Join(root, "550e8400-e29b-41d4-a716-446655440000")
 	writeSessionFixtureEvents(t, sessionDir, nil)
 	if _, err := Open(sessionDir); !errors.Is(err, ErrPersistedSessionResolverRequired) {
 		t.Fatalf("Open error = %v, want resolver required", err)
 	}
-	if _, err := OpenByID(root, "session-1"); !errors.Is(err, ErrPersistedSessionResolverRequired) {
+	if _, err := OpenByID(root, "550e8400-e29b-41d4-a716-446655440000"); !errors.Is(err, ErrPersistedSessionResolverRequired) {
 		t.Fatalf("OpenByID error = %v, want resolver required", err)
 	}
 }
@@ -428,11 +436,11 @@ func TestMetadataMutationRequiresPersistenceObserverWithoutChangingState(t *test
 	if err != nil {
 		t.Fatalf("NewLazy: %v", err)
 	}
-	if err := store.SetName("must not persist"); !errors.Is(err, errPersistenceObserverRequired) {
+	if err := store.SetName(stringPointer("must not persist")); !errors.Is(err, errPersistenceObserverRequired) {
 		t.Fatalf("SetName error = %v, want persistence observer required", err)
 	}
-	if store.Meta().Name != "" {
-		t.Fatalf("name changed without persistence observer: %q", store.Meta().Name)
+	if store.Meta().Name != nil {
+		t.Fatalf("name changed without persistence observer: %v", store.Meta().Name)
 	}
 	if _, err := os.Stat(store.Dir()); !errors.Is(err, os.ErrNotExist) {
 		t.Fatalf("session artifact created without persistence observer: %v", err)
@@ -457,7 +465,7 @@ func TestEventLogMaterializationRequiresPersistenceObserverWithoutCreatingArtifa
 
 func TestPersistedSessionDirectoryContainsOnlyStableArtifacts(t *testing.T) {
 	observer := &recordingPersistenceObserver{}
-	store, err := Create(t.TempDir(), "workspace-x", "/tmp/work", testSessionCategory, WithPersistenceObserver(observer))
+	store, err := Create(t.TempDir(), "workspace-x", "/tmp/work", testSessionCategory, WithPersistenceObserver(observer), WithPersistedSessionResolver(observer))
 	if err != nil {
 		t.Fatalf("Create: %v", err)
 	}
@@ -501,13 +509,13 @@ func TestSetUsageStateReportsCommittedObserverFailureAndRetries(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewLazy: %v", err)
 	}
-	usage := &UsageState{InputTokens: 900, WindowTokens: 200_000}
+	usage := &UsageState{InputTokens: textutil.Value(900), WindowTokens: 200_000, ReportedContextTokens: textutil.Value(900)}
 
 	receipt, err := store.SetUsageState(usage)
 	if err == nil || !receipt.Committed {
 		t.Fatalf("first SetUsageState receipt=%+v error=%v, want committed observer failure", receipt, err)
 	}
-	if stored := store.Meta().UsageState; stored == nil || stored.InputTokens != usage.InputTokens {
+	if stored := store.Meta().UsageState; stored == nil || !textutil.EqualOptional(stored.InputTokens, usage.InputTokens) {
 		t.Fatalf("committed usage state = %+v, want %+v", stored, usage)
 	}
 
@@ -515,7 +523,7 @@ func TestSetUsageStateReportsCommittedObserverFailureAndRetries(t *testing.T) {
 	if err != nil || !receipt.Committed {
 		t.Fatalf("retried SetUsageState receipt=%+v error=%v, want committed success", receipt, err)
 	}
-	if stored := store.Meta().UsageState; stored == nil || stored.InputTokens != usage.InputTokens {
+	if stored := store.Meta().UsageState; stored == nil || !textutil.EqualOptional(stored.InputTokens, usage.InputTokens) {
 		t.Fatalf("committed usage state = %+v, want %+v", stored, usage)
 	}
 }
@@ -530,13 +538,13 @@ func TestPersistenceObserverRunsOutsideStoreLock(t *testing.T) {
 
 	errCh := make(chan error, 1)
 	go func() {
-		errCh <- store.SetName("incident triage")
+		errCh <- store.SetName(stringPointer("incident triage"))
 	}()
 
 	select {
 	case meta := <-observer.ch:
-		if meta.Name != "incident triage" {
-			t.Fatalf("observer reentrant read name = %q, want incident triage", meta.Name)
+		if meta.Name == nil || *meta.Name != "incident triage" {
+			t.Fatalf("observer reentrant read name = %v, want incident triage", meta.Name)
 		}
 	case <-time.After(2 * time.Second):
 		t.Fatal("observer did not complete; possible store lock reentrancy deadlock")
@@ -554,13 +562,13 @@ func TestPersistenceObserverRunsOutsideStoreLock(t *testing.T) {
 
 func TestPersistenceSnapshotsAreImmutable(t *testing.T) {
 	observer := &recordingPersistenceObserver{}
-	store, err := Create(t.TempDir(), "workspace-x", "/tmp/work", testSessionCategory, WithPersistenceObserver(observer))
+	store, err := Create(t.TempDir(), "workspace-x", "/tmp/work", testSessionCategory, WithPersistenceObserver(observer), WithPersistedSessionResolver(observer))
 	if err != nil {
 		t.Fatalf("Create: %v", err)
 	}
 	verbosity := true
 	if err := store.MarkModelDispatchLocked(LockedContract{
-		Model:        "gpt-5",
+		Model:        "gpt-6-sol",
 		SystemPrompt: "original prompt",
 		ProviderContract: LockedProviderCapabilities{
 			SupportsProviderVerbosity: &verbosity,
@@ -597,7 +605,7 @@ func TestCommittedObservationFailurePrecedesLaterMutation(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Create: %v", err)
 	}
-	if err := store.MarkModelDispatchLocked(LockedContract{Model: "gpt-5"}); err != nil {
+	if err := store.MarkModelDispatchLocked(LockedContract{Model: "gpt-6-sol"}); err != nil {
 		t.Fatal(err)
 	}
 
@@ -621,7 +629,7 @@ func TestCommittedObservationFailurePrecedesLaterMutation(t *testing.T) {
 
 	secondDone := make(chan error, 1)
 	go func() {
-		secondDone <- store.SetName("later mutation")
+		secondDone <- store.SetName(stringPointer("later mutation"))
 	}()
 	close(observer.release)
 
@@ -632,8 +640,8 @@ func TestCommittedObservationFailurePrecedesLaterMutation(t *testing.T) {
 	if err := <-secondDone; err != nil {
 		t.Fatalf("SetName: %v", err)
 	}
-	if store.Meta().Name != "later mutation" {
-		t.Fatalf("session name = %q, want later mutation", store.Meta().Name)
+	if store.Meta().Name == nil || *store.Meta().Name != "later mutation" {
+		t.Fatalf("session name = %v, want later mutation", store.Meta().Name)
 	}
 	if locked := store.Meta().Locked; locked == nil || !locked.HasReviewerPrompt {
 		t.Fatalf("committed reviewer snapshot = %+v, want present", locked)
@@ -643,8 +651,8 @@ func TestCommittedObservationFailurePrecedesLaterMutation(t *testing.T) {
 	if err != nil {
 		t.Fatalf("OpenByID: %v", err)
 	}
-	if reopened.Meta().Name != "later mutation" {
-		t.Fatalf("reopened name = %q, want later mutation", reopened.Meta().Name)
+	if reopened.Meta().Name == nil || *reopened.Meta().Name != "later mutation" {
+		t.Fatalf("reopened name = %v, want later mutation", reopened.Meta().Name)
 	}
 	if locked := reopened.Meta().Locked; locked == nil || !locked.HasReviewerPrompt {
 		t.Fatalf("reopened reviewer snapshot = %+v, want present", locked)

@@ -15,6 +15,7 @@ import (
 	"core/shared/config"
 	"core/shared/rollbacktarget"
 	"core/shared/runtimeids"
+	"core/shared/sessioncontract"
 	"core/shared/textutil"
 	"core/shared/transcript"
 )
@@ -355,14 +356,6 @@ func (e *Engine) applyStreamingStateMutationForStep(stepID string, mutate func(*
 	return e.steerOrderedRaw(provenance, steerEventIntent(Event{Kind: EventStreamingErrorUpdated}))
 }
 
-func (e *Engine) SetSessionName(ctx context.Context, name string) (bool, error) {
-	result, err := awaitEngineRuntimeOperation(ctx, e, func(context.Context) (bool, error) {
-		mutation, mutationErr := e.store.MutateName(name)
-		return mutation.Changed, mutationErr
-	})
-	return result, err
-}
-
 func (e *Engine) SetThinkingLevel(ctx context.Context, level string) error {
 	normalized := strings.TrimSpace(level)
 	if normalized == "" {
@@ -397,6 +390,7 @@ func (e *Engine) AcceptPreparedChatSettings(settings session.ChatSettings) error
 	if !accepted {
 		return ErrEngineClosed
 	}
+	e.runtimeWriteAccepted()
 	return nil
 }
 
@@ -447,7 +441,7 @@ func (e *Engine) setThinkingValue(value string) error {
 
 func (e *Engine) SetFastModeEnabled(enabled bool) (bool, error) {
 	if enabled && !e.FastModeAvailable() {
-		return false, errors.New("fast mode is only available for OpenAI-based Responses providers")
+		return false, errors.New("fast mode is unavailable for the selected provider connection")
 	}
 	return awaitEngineRuntimeOperation(context.Background(), e, func(context.Context) (bool, error) {
 		changed := e.localFastModeEnabledChange(enabled)
@@ -687,11 +681,7 @@ func (e *Engine) FastModeEnabled() bool {
 }
 
 func (e *Engine) FastModeAvailable() bool {
-	caps, err := e.providerCapabilities(context.Background())
-	if err != nil {
-		return false
-	}
-	return llm.SupportsFastModeProvider(caps)
+	return llm.SupportsFastModeProvider(e.connectionSnapshot().transportCapabilities)
 }
 
 func (e *Engine) ReviewerFrequency() string {
@@ -758,12 +748,20 @@ func (e *Engine) reviewerRequestConfigSnapshot() reviewerRequestConfig {
 	}
 }
 
-func (e *Engine) SessionName() string {
-	return strings.TrimSpace(e.store.Meta().Name)
+func (e *Engine) SessionName() *string {
+	return e.store.Meta().Name
 }
 
 func (e *Engine) SessionID() string {
 	return strings.TrimSpace(e.store.Meta().SessionID)
+}
+
+func (e *Engine) SessionIdentity() runtimeids.SessionIdentity {
+	return e.store.Identity()
+}
+
+func (e *Engine) SessionCategory() (sessioncontract.SessionCategory, error) {
+	return e.store.Meta().EffectiveCategory(), nil
 }
 
 func (e *Engine) ContinuationAgentRole() *string {
@@ -867,44 +865,49 @@ func mustJSON(v any) json.RawMessage {
 }
 
 type storedLocalEntry struct {
-	Visibility            transcript.EntryVisibility              `json:"visibility,omitempty"`
-	Role                  string                                  `json:"role"`
-	Text                  string                                  `json:"text"`
-	DurationMs            *int64                                  `json:"duration_ms,omitempty"`
-	CondensedText         *string                                 `json:"condensed_text,omitempty"`
-	DiagnosticKey         *string                                 `json:"diagnostic_key,omitempty"`
-	NoticeID              *string                                 `json:"notice_id,omitempty"`
-	ToolOutputRepair      *transcript.ToolOutputRepairNotice      `json:"tool_output_repair,omitempty"`
-	ProviderModelMismatch *transcript.ProviderModelMismatchNotice `json:"provider_model_mismatch,omitempty"`
+	Visibility             transcript.EntryVisibility               `json:"visibility,omitempty"`
+	Role                   string                                   `json:"role"`
+	Text                   string                                   `json:"text"`
+	DurationMs             *int64                                   `json:"duration_ms,omitempty"`
+	CondensedText          *string                                  `json:"condensed_text,omitempty"`
+	DiagnosticKey          *string                                  `json:"diagnostic_key,omitempty"`
+	NoticeID               *string                                  `json:"notice_id,omitempty"`
+	ToolOutputRepair       *transcript.ToolOutputRepairNotice       `json:"tool_output_repair,omitempty"`
+	ProviderModelMismatch  *transcript.ProviderModelMismatchNotice  `json:"provider_model_mismatch,omitempty"`
+	ReasoningOmission      *transcript.ReasoningOmissionNotice      `json:"reasoning_omission,omitempty"`
+	ConnectionFallback     *config.ConnectionReplacement            `json:"connection_fallback,omitempty"`
+	ConnectionsUnavailable *transcript.ConnectionsUnavailableNotice `json:"connections_unavailable,omitempty"`
 	// AfterToolCallID keeps atomically persisted operator feedback visually
 	// attached after the tool result that caused it.
 	AfterToolCallID *string `json:"after_tool_call_id,omitempty"`
 }
 
 type historyReplacementPayload struct {
-	Engine                            string                           `json:"engine"`
-	Mode                              string                           `json:"mode"`
-	CompactionNumber                  *int                             `json:"compaction_number,omitempty"`
-	CommittedEntryStart               *int                             `json:"committed_entry_start,omitempty"`
-	PendingHandoffFutureMessage       *string                          `json:"pending_handoff_future_message,omitempty"`
-	LastCommittedAssistantFinalAnswer *string                          `json:"last_committed_assistant_final_answer,omitempty"`
-	LatestRollbackCandidate           *rollbacktarget.CandidateLocator `json:"latest_rollback_candidate,omitempty"`
-	Items                             []llm.ResponseItem               `json:"items"`
+	Engine                            string                             `json:"engine"`
+	Mode                              string                             `json:"mode"`
+	CompactionNumber                  *int                               `json:"compaction_number,omitempty"`
+	CommittedEntryStart               *int                               `json:"committed_entry_start,omitempty"`
+	PendingHandoffFutureMessage       *string                            `json:"pending_handoff_future_message,omitempty"`
+	LastCommittedAssistantFinalAnswer *string                            `json:"last_committed_assistant_final_answer,omitempty"`
+	LatestRollbackCandidate           *rollbacktarget.CandidateLocator   `json:"latest_rollback_candidate,omitempty"`
+	Items                             []llm.ResponseItem                 `json:"items"`
+	CacheMetadata                     []session.CacheMetadataObservation `json:"cache_metadata,omitempty"`
+	Output                            *compactionOutput                  `json:"-"`
 }
 
 func (e *Engine) setLastUsage(usage llm.Usage) {
 	baselineEstimate := 0
 	if e != nil {
-		baselineEstimate = e.transcriptRuntimeState().EstimatedProviderTokens()
+		baselineEstimate = e.estimatedProviderHistoryTokens()
 	}
 	normalizedUsage, totalInputTokens, totalCachedInputTokens := e.usageTrackingState().Next(usage)
-	e.applyUsageTrackingState(normalizedUsage, baselineEstimate, totalInputTokens, totalCachedInputTokens)
+	e.applyUsageTrackingState(normalizedUsage, reportedContextTokens(normalizedUsage), baselineEstimate, totalInputTokens, totalCachedInputTokens)
 }
 
 func (e *Engine) recordLastUsage(usage llm.Usage) (session.CommitReceipt, error) {
 	baselineEstimate := 0
 	if e != nil {
-		baselineEstimate = e.transcriptRuntimeState().EstimatedProviderTokens()
+		baselineEstimate = e.estimatedProviderHistoryTokens()
 	}
 	return e.recordLastUsageWithBaseline(usage, baselineEstimate)
 }
@@ -914,14 +917,13 @@ func (e *Engine) recordLastUsageWithBaseline(usage llm.Usage, baselineEstimate i
 	receipt := session.CommitReceipt{Committed: true}
 	var persistenceErr error
 	if e != nil && e.store != nil {
-		cachedInputTokens, hasCachedInputTokens := textutil.OptionalValue(normalizedUsage.CachedInputTokens)
 		receipt, persistenceErr = e.store.SetUsageState(&session.UsageState{
 			InputTokens:             normalizedUsage.InputTokens,
 			OutputTokens:            normalizedUsage.OutputTokens,
 			WindowTokens:            normalizedUsage.WindowTokens,
-			CachedInputTokens:       cachedInputTokens,
-			HasCachedInputTokens:    hasCachedInputTokens,
+			CachedInputTokens:       normalizedUsage.CachedInputTokens,
 			EstimatedProviderTokens: baselineEstimate,
+			ReportedContextTokens:   reportedContextTokens(normalizedUsage),
 			TotalInputTokens:        totalInputTokens,
 			TotalCachedInputTokens:  totalCachedInputTokens,
 		})
@@ -929,7 +931,7 @@ func (e *Engine) recordLastUsageWithBaseline(usage llm.Usage, baselineEstimate i
 			return receipt, persistenceErr
 		}
 	}
-	e.applyUsageTrackingState(normalizedUsage, baselineEstimate, totalInputTokens, totalCachedInputTokens)
+	e.applyUsageTrackingState(normalizedUsage, reportedContextTokens(normalizedUsage), baselineEstimate, totalInputTokens, totalCachedInputTokens)
 	return receipt, persistenceErr
 }
 
@@ -938,31 +940,35 @@ func (e *Engine) restorePersistedUsageState(state *session.UsageState) {
 		return
 	}
 	normalized := normalizePersistedUsageTrackingState(*state)
-	var cachedInputTokens *int
-	if normalized.HasCachedInputTokens {
-		cachedInputTokens = textutil.Value(normalized.CachedInputTokens)
-	}
 	e.applyUsageTrackingState(
 		llm.Usage{
 			InputTokens:       normalized.InputTokens,
 			OutputTokens:      normalized.OutputTokens,
 			WindowTokens:      normalized.WindowTokens,
-			CachedInputTokens: cachedInputTokens,
+			CachedInputTokens: normalized.CachedInputTokens,
 		},
+		normalized.ReportedContextTokens,
 		normalized.EstimatedProviderTokens,
 		normalized.TotalInputTokens,
 		normalized.TotalCachedInputTokens,
 	)
 }
 
-func (e *Engine) applyUsageTrackingState(usage llm.Usage, baselineEstimate, totalInputTokens, totalCachedInputTokens int) {
+func (e *Engine) applyUsageTrackingState(usage llm.Usage, reported *int, baselineEstimate, totalInputTokens, totalCachedInputTokens int) {
 	if baselineEstimate < 0 {
 		baselineEstimate = 0
 	}
 	e.usageTrackingState().Apply(usage, totalInputTokens, totalCachedInputTokens)
 	if e.modelRequests().TokenUsage() != nil {
-		e.modelRequests().TokenUsage().storeUsageBaseline(usage.InputTokens, baselineEstimate)
+		e.modelRequests().TokenUsage().storeUsageBaseline(reported, baselineEstimate)
 	}
+}
+
+func reportedContextTokens(usage llm.Usage) *int {
+	if usage.ContextUsage == nil {
+		return nil
+	}
+	return textutil.Value(usage.ContextUsage.Tokens)
 }
 
 func (e *Engine) usageTrackingState() *usageTrackingState {
@@ -992,6 +998,7 @@ func (e *Engine) transcriptRuntimeState() *transcriptRuntimeState {
 	defer e.mu.Unlock()
 	if e.transcriptState == nil {
 		e.transcriptState = newTranscriptRuntimeState(transcriptWorkingDir(e.cfg.TranscriptWorkingDir, e.store.Meta().WorkspaceRoot))
+		e.transcriptState.chatProjection().bindTokenEstimator(e.connection.estimator)
 	}
 	return e.transcriptState
 }
@@ -1089,7 +1096,7 @@ func eventShouldCarryContextUsage(evt Event) bool {
 
 func eventShouldCarryCommittedEntryCount(evt Event) bool {
 	switch evt.Kind {
-	case EventBackgroundUpdated:
+	case EventBackgroundUpdated, EventQuestionCandidateFinished:
 		return false
 	default:
 		return true

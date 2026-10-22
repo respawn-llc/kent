@@ -169,11 +169,9 @@ func batchedPromptRequest(id string, ordinal int) tools.AskQuestionRequest {
 		ToolCallID: id,
 		Question:   id,
 		Origin:     tools.AskQuestionOriginModelTool,
-		RunID:      "run-1",
 		StepID:     "step-1",
 		QuestionBatch: &tools.AskQuestionBatchMetadata{
 			Origin:              tools.AskQuestionOriginModelTool,
-			RunID:               "run-1",
 			StepID:              "step-1",
 			ToolCallID:          id,
 			BatchToolCallIDs:    []string{"ask-1", "ask-2"},
@@ -197,10 +195,8 @@ func requirePromptPending(t *testing.T, store *executionPromptStore, requestID s
 func newExecutionPromptStoreForTest(t *testing.T, feed ExecutionPromptFeed) executionPromptStore {
 	t.Helper()
 	sessionID := runtimeids.NewSessionID()
-	resource, err := runtimeids.NewSessionResourceRef(sessionID, 1)
-	if err != nil {
-		t.Fatalf("new session resource: %v", err)
-	}
+	resource := runtimeids.NewSessionResourceRef(sessionID, 1)
+
 	scope := newAgentExecutionScope(runtimeids.NewExecutionScopeID(), resource, nil)
 	return newExecutionPromptStore(&Authority{}, scope, feed)
 }

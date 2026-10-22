@@ -1,5 +1,5 @@
 import { useAtomSet, useAtomValue } from "@effect/atom-react";
-import * as Atom from "effect/unstable/reactivity/Atom";
+import * as Atom from "effect/reactivity/Atom";
 import { useQueryClient } from "@tanstack/react-query";
 import { useMemo } from "react";
 import { useTranslation } from "react-i18next";
@@ -12,7 +12,7 @@ import {
   useStatusController,
   worktreeTransitionOutcomeHandler,
 } from "@/app-facade";
-import { Spinner } from "@/ui";
+import { Spinner, useStableCallback } from "@/ui";
 import { createWorktreeCommand } from "./worktreeCommand";
 import { createWorktreeCommandActions } from "./WorktreeCommandActions";
 import { createWorktreeCommandDelete, useWorktreeCommandDelete } from "./WorktreeCommandDelete";
@@ -25,21 +25,29 @@ type WorktreeCommandModel = Readonly<{
   preview: Atom.Writable<WorktreeDeletePreview | null>;
 }>;
 
-export function useWorktreeCommands(sessionID: string | null, focusComposer: () => void) {
+export function useWorktreeCommands(
+  projectID: string | null,
+  sessionID: string | null,
+  focusComposer: () => void,
+  openSession: (sessionID: string) => void | Promise<void>,
+) {
   const { api } = useAppServices();
   const client = useQueryClient();
   const roots = useOwnedSidebarRoots();
   const { currentSurface } = useSidebarShell();
   const { push } = useStatusController();
   const { t } = useTranslation();
+  const openOriginSession = useStableCallback(openSession);
   const scope = useMemo(
     () =>
       Atom.make((get) => {
         if (sessionID === null) return null;
+        if (projectID === null) throw new Error("Worktree actions require a Project.");
         const preview = Atom.make<WorktreeDeletePreview | null>(null);
         const dependencies = {
           client,
           api,
+          projectID,
           sessionID,
           push,
           t,
@@ -56,6 +64,7 @@ export function useWorktreeCommands(sessionID: string | null, focusComposer: () 
           ...dependencies,
           roots,
           focusComposer,
+          openSession: openOriginSession,
           deleteTarget: deletion.prepare,
         });
         return {
@@ -72,7 +81,7 @@ export function useWorktreeCommands(sessionID: string | null, focusComposer: () 
           },
         };
       }),
-    [api, client, currentSurface, focusComposer, push, roots, sessionID, t],
+    [api, client, currentSurface, focusComposer, openOriginSession, projectID, push, roots, sessionID, t],
   );
   const model = useAtomValue(scope);
   const commands = useMemo(

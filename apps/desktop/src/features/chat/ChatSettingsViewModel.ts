@@ -1,5 +1,5 @@
 import { MutationObserver, QueryObserver, skipToken, type QueryClient } from "@tanstack/react-query";
-import * as Atom from "effect/unstable/reactivity/Atom";
+import * as Atom from "effect/reactivity/Atom";
 import * as Effect from "effect/Effect";
 import type { TFunction } from "i18next";
 import {
@@ -9,6 +9,7 @@ import {
   type ChatSettingsRead,
   type ChatSettingsMutation,
   type ChatSettingsMutationResponse,
+  type ChatSettingsSnapshot,
 } from "@/api";
 import { queryAtom, type AppServices } from "@/app-facade";
 import { showStatusToast } from "@/ui";
@@ -45,10 +46,23 @@ export function createChatSettingsViewModel({
       queryFn:
         selected === null
           ? skipToken
-          : async () => {
+          : async (): Promise<ChatSettingsRead> => {
               const result = await services.api.chat.getSettings(selected);
               if (result.kind !== selected.kind)
                 throw new ContractError("Chat Settings returned a different target kind.");
+              if (
+                result.kind === "session" &&
+                result.connectionReplacement !== undefined &&
+                get.get(target) === selected &&
+                observer.hasListeners()
+              ) {
+                showStatusToast({
+                  id: `chat-settings-connection-${result.session.sessionID}`,
+                  tone: "warning",
+                  title: t("chatSettings.connectionReplaced"),
+                  body: t("chatSettings.connectionReplacement", result.connectionReplacement),
+                });
+              }
               return result;
             },
     });
@@ -65,23 +79,27 @@ export function createChatSettingsViewModel({
         return edit?.source === result.data ? edit.state : loadedState(result.data);
       return loadingState(selected?.kind ?? "new_chat");
     });
+    const publishSettings = (snapshot: Pick<ChatSettingsSnapshot, "settings" | "session">) => {
+      get.set(local, null);
+      client.setQueryData(observer.options.queryKey, {
+        kind: "session",
+        settings: snapshot.settings,
+        session: snapshot.session,
+      } satisfies ChatSettingsRead);
+    };
     return {
       selected,
       local,
       observer,
       read,
       state,
+      publishSettings,
       publish(
         response: ChatSettingsMutationResponse,
         onContextChange: ((context: ChatContext) => void) | undefined,
       ) {
         if (get.get(target) !== selected || !observer.hasListeners()) return;
-        get.set(local, null);
-        client.setQueryData(observer.options.queryKey, {
-          kind: "session",
-          settings: response.settings,
-          session: response.session,
-        } satisfies ChatSettingsRead);
+        publishSettings(response);
         onContextChange?.(response.context);
         if (response.result.kind === "rejected")
           report(t(`chatSettings.rejections.${response.result.reason}`));
@@ -105,15 +123,26 @@ export function createChatSettingsViewModel({
     (input, get) =>
       Effect.gen(function* () {
         const scope = get(current);
+        const pending = mutation.getCurrentResult();
+        if (
+          pending.isPending &&
+          pending.variables.input.operation.kind === "agent" &&
+          scope.selected?.kind === "session" &&
+          pending.variables.session.sessionID === scope.selected.sessionID
+        ) {
+          input.rejected(new ContractError("An Agent switch is already in progress."));
+          return;
+        }
         const initial = get(scope.read).data;
         if (initial === undefined || scope.selected === null) {
           input.rejected(new ContractError("Chat Settings are not ready."));
           return;
         }
-        get.set(scope.local, {
-          source: initial,
-          state: settingsReducer(get(scope.state), { kind: "activated", operation: input.operation }),
-        });
+        if (input.operation.kind !== "agent" || scope.selected.kind === "new_chat")
+          get.set(scope.local, {
+            source: initial,
+            state: settingsReducer(get(scope.state), { kind: "activated", operation: input.operation }),
+          });
         if (scope.selected.kind === "new_chat") {
           input.completed(null);
           return;
@@ -155,6 +184,16 @@ export function createChatSettingsViewModel({
     (_, get) => Effect.promise(async () => get(current).observer.refetch()),
     { concurrent: true },
   );
-  return { state, activate, refresh, requests } as const;
+  const receive = Atom.fn<ChatSettingsSnapshot>()(
+    (snapshot, get) =>
+      Effect.sync(() => {
+        const scope = get(current);
+        if (scope.selected?.kind !== "session" || scope.selected.sessionID !== snapshot.session.sessionID)
+          return;
+        scope.publishSettings(snapshot);
+      }),
+    { concurrent: true },
+  );
+  return { state, activate, refresh, requests, receive } as const;
 }
 export type ChatSettingsViewModel = ReturnType<typeof createChatSettingsViewModel>;

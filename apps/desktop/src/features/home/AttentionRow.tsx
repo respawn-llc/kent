@@ -5,26 +5,22 @@ import { useTranslation } from "react-i18next";
 import type { AttentionItem } from "@/api";
 import {
   formatRelativeTime,
-  taskDetailInitialFocusFromAttentionItem,
-  useAppNavigation,
-  type SidebarMode,
-  type SidebarRootController,
+  useAppServices,
+  useNativeChatOpening,
+  usePathFormatter,
+  type SessionChatTarget,
 } from "@/app-facade";
-import { desktopChatEnabled } from "@/shared/feature-flags";
 import { IconTooltipButton, Item, ItemContent, PromptAccessTargets } from "@/ui";
 import { attentionChatTarget } from "./attentionChatTarget";
 
 export const AttentionRow = memo(function AttentionRow({
   item,
-  openSidebar,
-  sidebarMode,
-}: Readonly<{
-  item: AttentionItem;
-  openSidebar: SidebarRootController["open"];
-  sidebarMode: SidebarMode;
-}>) {
+  onTaskDetail,
+  onSessionChat,
+}: AttentionRowProps) {
   const { t } = useTranslation();
-  const navigation = useAppNavigation();
+  const { nativeBridge } = useAppServices();
+  const nativeChat = useNativeChatOpening();
   const message =
     item.message ??
     (item.kind === "approval"
@@ -32,35 +28,58 @@ export const AttentionRow = memo(function AttentionRow({
       : item.kind === "interrupted_current_node"
         ? t("app.attention.interruptedCurrentNodeFallback")
         : null);
-  const chatTarget = desktopChatEnabled ? attentionChatTarget(item) : null;
+  const chatTarget = attentionChatTarget(item);
+  const nativeWindowsAvailable = nativeBridge.capabilities.dialogWindows;
+  const nativeOpening = chatTarget !== null && nativeChat.pendingSessionID === chatTarget.sessionID;
+  const chatLabel = t("task.openChat", { name: item.taskTitle });
+  const chatTooltip = nativeWindowsAvailable
+    ? t("app.shiftClickToOpenInNewWindow", { action: chatLabel })
+    : chatLabel;
   return (
-    <div className="flex min-w-0 items-start" data-testid="attention-row">
+    <div className="group/attention relative min-w-0" data-testid="attention-row">
       <Item
-        className="min-w-0 flex-1 px-[var(--space-2)] py-[var(--space-3)]"
+        className="absolute inset-0 h-full group-hover/attention:bg-[var(--color-island-1)]"
         aria-label={`${item.taskShortID} ${item.taskTitle}`}
         onClick={() => {
-          openTaskDetail(item, openSidebar, sidebarMode);
+          onTaskDetail(item);
         }}
-      >
-        <ItemContent className="min-w-0">
+      />
+      <ItemContent className="pointer-events-none relative min-w-0 px-[var(--space-2)] py-[var(--space-3)]">
+        <div className="flex min-w-0 items-center gap-[var(--space-2)]">
           <AttentionHeader item={item} />
-          <AttentionBody item={item} message={message} />
-        </ItemContent>
-      </Item>
-      {chatTarget === null ? null : (
-        <IconTooltipButton
-          className="mt-[var(--space-2)] text-[var(--color-muted)]"
-          label={t("task.openChat", { name: item.taskTitle })}
-          onClick={() => {
-            void navigation.openSessionChat(chatTarget);
-          }}
-        >
-          <MessageCircle className="size-4" strokeWidth={1.5} />
-        </IconTooltipButton>
-      )}
+          {chatTarget === null ? null : (
+            <span className="pointer-events-auto shrink-0">
+              <IconTooltipButton
+                className="text-[var(--color-muted)]"
+                size="icon-sm"
+                label={chatLabel}
+                tooltip={chatTooltip}
+                loading={nativeOpening}
+                disabled={nativeOpening}
+                onClick={(event) => {
+                  if (event.shiftKey && nativeWindowsAvailable) {
+                    nativeChat.open(chatTarget);
+                    return;
+                  }
+                  onSessionChat(chatTarget);
+                }}
+              >
+                <MessageCircle className="size-4" strokeWidth={1.5} />
+              </IconTooltipButton>
+            </span>
+          )}
+        </div>
+        <AttentionBody item={item} message={message} />
+      </ItemContent>
     </div>
   );
 }, attentionRowPropsEqual);
+
+type AttentionRowProps = Readonly<{
+  item: AttentionItem;
+  onTaskDetail: (item: AttentionItem) => void;
+  onSessionChat: (target: SessionChatTarget) => void;
+}>;
 
 function AttentionHeader({ item }: Readonly<{ item: AttentionItem }>) {
   return (
@@ -78,13 +97,14 @@ function AttentionHeader({ item }: Readonly<{ item: AttentionItem }>) {
 }
 
 function AttentionBody({ item, message }: Readonly<{ item: AttentionItem; message: string | null }>) {
+  const formatPath = usePathFormatter();
   return (
     <>
       {item.kind === "question" &&
       item.question.kind === "approval" &&
       item.question.accessTargets.length > 0 ? (
         <div className="min-w-0 line-clamp-2 break-words text-sm text-[var(--color-muted)]">
-          <PromptAccessTargets targets={item.question.accessTargets} />
+          <PromptAccessTargets targets={item.question.accessTargets} formatPath={formatPath} />
         </div>
       ) : (
         <span className="min-w-0 line-clamp-2 break-words text-sm text-[var(--color-muted)]">{message}</span>
@@ -94,36 +114,10 @@ function AttentionBody({ item, message }: Readonly<{ item: AttentionItem; messag
   );
 }
 
-function openTaskDetail(
-  item: AttentionItem,
-  openSidebar: SidebarRootController["open"],
-  sidebarMode: SidebarMode,
-): void {
-  openSidebar({
-    kind: "taskDetail",
-    initialFocus: taskDetailInitialFocusFromAttentionItem(item),
-    inboxNav: true,
-    mode: sidebarMode,
-    onMutated: undefined,
-    taskID: item.taskID,
-  });
-}
-
-function attentionRowPropsEqual(
-  previous: Readonly<{
-    item: AttentionItem;
-    openSidebar: SidebarRootController["open"];
-    sidebarMode: SidebarMode;
-  }>,
-  next: Readonly<{
-    item: AttentionItem;
-    openSidebar: SidebarRootController["open"];
-    sidebarMode: SidebarMode;
-  }>,
-): boolean {
+function attentionRowPropsEqual(previous: AttentionRowProps, next: AttentionRowProps): boolean {
   return (
-    previous.openSidebar === next.openSidebar &&
-    previous.sidebarMode === next.sidebarMode &&
+    previous.onTaskDetail === next.onTaskDetail &&
+    previous.onSessionChat === next.onSessionChat &&
     attentionItemsEqual(previous.item, next.item)
   );
 }

@@ -56,13 +56,13 @@ func TestBuildRequest_ReopenPreservesPromptCachePrefix(t *testing.T) {
 func TestBuildReviewerRequest_ReopenPreservesPromptCachePrefix(t *testing.T) {
 	fixture := newPromptCacheContinuityFixture(t)
 	fixture.assertPersistedProjectionParity(t)
-	originalReq, err := fixture.engine.buildReviewerRequest(context.Background(), newObservedModelClient(fixture.reviewerClient))
+	originalReq, err := fixture.engine.buildReviewerRequest(context.Background())
 	if err != nil {
 		t.Fatalf("build original reviewer request: %v", err)
 	}
 	reloaded, reopenedStore := fixture.reopen(t)
 	assertPersistedProjectionMatchesRuntime(t, capturePersistedProjectionFromStore(t, reopenedStore), captureRuntimeProjection(t, reloaded))
-	reloadedReq, err := reloaded.buildReviewerRequest(context.Background(), newObservedModelClient(fixture.reviewerClient))
+	reloadedReq, err := reloaded.buildReviewerRequest(context.Background())
 	if err != nil {
 		t.Fatalf("build reloaded reviewer request: %v", err)
 	}
@@ -145,8 +145,8 @@ func TestSkillsPolicyChangesOnlyAtMainContextReconstruction(t *testing.T) {
 		responses: []llm.Response{finalOutputItemResponse("enabled response")},
 	}
 	enabled := mustNewTestEngine(t, store, enabledClient, registry, Config{
-		Model:    "gpt-5",
-		Reviewer: ReviewerConfig{Model: "gpt-5"},
+		Model:    "gpt-6-sol",
+		Reviewer: ReviewerConfig{Model: "gpt-6-sol"},
 	})
 	if _, err := enabled.SubmitUserMessage(context.Background(), "first"); err != nil {
 		t.Fatalf("enabled submit: %v", err)
@@ -168,19 +168,19 @@ func TestSkillsPolicyChangesOnlyAtMainContextReconstruction(t *testing.T) {
 		caps:      caps,
 		responses: []llm.Response{finalOutputItemResponse("disabled response")},
 		compactionResponses: []llm.CompactionResponse{{
-			Checkpoint: llm.ResponseItem{
+			OutputItems: []llm.ResponseItem{llm.ResponseItem{
 				Type:             llm.ResponseItemTypeCompaction,
 				ID:               textutil.Value("cmp_skills_policy"),
 				EncryptedContent: textutil.Value("encrypted"),
-			},
-			Usage: llm.Usage{InputTokens: 1000, OutputTokens: 100, WindowTokens: 200000},
+			}},
+			Usage: llm.Usage{InputTokens: textutil.Value(1000), OutputTokens: textutil.Value(100), WindowTokens: 200000, ContextUsage: &llm.ContextUsage{Tokens: 1000, MeasurementPoint: llm.ContextMeasurementInput}},
 		}},
 	}
 	disabled := mustNewTestEngine(t, reopenedStore, disabledClient, registry, Config{
-		Model:          "gpt-5",
+		Model:          "gpt-6-sol",
 		CompactionMode: "native",
 		SkillPolicy:    disabledPolicy,
-		Reviewer:       ReviewerConfig{Model: "gpt-5"},
+		Reviewer:       ReviewerConfig{Model: "gpt-6-sol"},
 	})
 	if _, err := disabled.SubmitUserMessage(context.Background(), "second"); err != nil {
 		t.Fatalf("disabled reopened submit: %v", err)
@@ -194,7 +194,7 @@ func TestSkillsPolicyChangesOnlyAtMainContextReconstruction(t *testing.T) {
 	}
 
 	mainBeforeReviewer := disabled.transcriptRuntimeState().SnapshotMessages()
-	reviewerRequest, err := disabled.buildReviewerRequest(context.Background(), newObservedModelClient(disabledClient))
+	reviewerRequest, err := disabled.buildReviewerRequest(context.Background())
 	if err != nil {
 		t.Fatalf("build reviewer request: %v", err)
 	}
@@ -206,10 +206,7 @@ func TestSkillsPolicyChangesOnlyAtMainContextReconstruction(t *testing.T) {
 	}
 
 	scheduleManualCompactionAndWait(t, disabled)
-	postCompactionRequest, err := disabled.buildRequest(context.Background(), "", true)
-	if err != nil {
-		t.Fatalf("build post-compaction request: %v", err)
-	}
+	postCompactionRequest := buildActiveTurnRequestForTest(t, disabled, nil, true)
 	if _, found := skillMessageContent(requestMessages(postCompactionRequest)); found {
 		t.Fatalf("post-compaction context retained disabled skills: %+v", requestMessages(postCompactionRequest))
 	}
@@ -241,19 +238,19 @@ func TestLiveReloadedSkillsPolicyAppliesOnlyAtCompaction(t *testing.T) {
 	client := &fakeCompactionClient{
 		responses: []llm.Response{finalOutputItemResponse("enabled response")},
 		compactionResponses: []llm.CompactionResponse{{
-			Checkpoint: llm.ResponseItem{
+			OutputItems: []llm.ResponseItem{llm.ResponseItem{
 				Type:             llm.ResponseItemTypeCompaction,
 				ID:               textutil.Value("cmp_live_reload_skills"),
 				EncryptedContent: textutil.Value("encrypted"),
-			},
-			Usage: llm.Usage{InputTokens: 1000, OutputTokens: 100, WindowTokens: 200000},
+			}},
+			Usage: llm.Usage{InputTokens: textutil.Value(1000), OutputTokens: textutil.Value(100), WindowTokens: 200000, ContextUsage: &llm.ContextUsage{Tokens: 1000, MeasurementPoint: llm.ContextMeasurementInput}},
 		}},
 	}
 	eng := mustNewTestEngine(t, store, client, tools.NewRegistry(), Config{
-		Model:                        "gpt-5",
+		Model:                        "gpt-6-sol",
 		CompactionMode:               "native",
 		PromptFacingSnapshotReloader: reloader,
-		Reviewer:                     ReviewerConfig{Model: "gpt-5"},
+		Reviewer:                     ReviewerConfig{Model: "gpt-6-sol"},
 	})
 	if _, err := eng.SubmitUserMessage(context.Background(), "first"); err != nil {
 		t.Fatalf("enabled submit: %v", err)
@@ -269,7 +266,7 @@ func TestLiveReloadedSkillsPolicyAppliesOnlyAtCompaction(t *testing.T) {
 		t.Fatal("changing reloaded settings mutated the active main transcript")
 	}
 
-	reviewerDisabled, err := eng.buildReviewerRequest(context.Background(), newObservedModelClient(client))
+	reviewerDisabled, err := eng.buildReviewerRequest(context.Background())
 	if err != nil {
 		t.Fatalf("build disabled reviewer request: %v", err)
 	}
@@ -282,11 +279,12 @@ func TestLiveReloadedSkillsPolicyAppliesOnlyAtCompaction(t *testing.T) {
 	}
 
 	scheduleManualCompactionAndWait(t, eng)
+	buildActiveTurnRequestForTest(t, eng, nil, true)
 	postCompactionSkills, found := skillMessageContent(eng.transcriptRuntimeState().SnapshotMessages())
 	if !found || postCompactionSkills == generationSkills {
 		t.Fatalf("post-compaction active transcript did not apply live-reloaded per-skill policy: %+v", eng.transcriptRuntimeState().SnapshotMessages())
 	}
-	reviewerAfterCompaction, err := eng.buildReviewerRequest(context.Background(), newObservedModelClient(client))
+	reviewerAfterCompaction, err := eng.buildReviewerRequest(context.Background())
 	if err != nil {
 		t.Fatalf("build post-compaction reviewer request: %v", err)
 	}
@@ -407,11 +405,11 @@ func newPromptCacheContinuityFixture(t *testing.T) *promptCacheContinuityFixture
 	reviewerClient := &fakeClient{caps: clientCaps}
 	registry := newTestToolRegistry(t, tools.HandlerRegistration{ID: toolspec.ToolExecCommand, Handler: fakeTool{name: toolspec.ToolExecCommand}}, tools.HandlerRegistration{ID: toolspec.ToolAskQuestion, Handler: fakeTool{name: toolspec.ToolAskQuestion}})
 	cfg := Config{
-		Model:         "gpt-5",
+		Model:         "gpt-6-sol",
 		ThinkingLevel: "medium",
 		EnabledTools:  []toolspec.ID{toolspec.ToolExecCommand, toolspec.ToolAskQuestion},
 		Reviewer: ReviewerConfig{
-			Model:         "gpt-5",
+			Model:         "gpt-6-sol",
 			ThinkingLevel: "medium",
 		},
 	}
@@ -546,7 +544,7 @@ func assertPromptCacheChunkPrefix(t *testing.T, previous llm.Request, next llm.R
 
 type promptCacheComparableMainView struct {
 	SessionID                      string                        `json:"session_id"`
-	SessionName                    string                        `json:"session_name,omitempty"`
+	SessionName                    *string                       `json:"session_name,omitempty"`
 	ConversationFreshness          string                        `json:"conversation_freshness"`
 	Revision                       int64                         `json:"revision"`
 	CommittedEntryCount            int                           `json:"committed_entry_count"`
@@ -558,7 +556,6 @@ type promptCacheComparableMainView struct {
 }
 
 type promptCacheComparableRunView struct {
-	RunID      string `json:"run_id"`
 	StepID     string `json:"step_id"`
 	Status     string `json:"status"`
 	StartedAt  string `json:"started_at,omitempty"`
@@ -690,7 +687,6 @@ func comparableRuntimeRunView(run *RunSnapshot) *promptCacheComparableRunView {
 		finishedAt = run.FinishedAt.UTC().Format(time.RFC3339Nano)
 	}
 	return &promptCacheComparableRunView{
-		RunID:      run.RunID,
 		StepID:     run.StepID,
 		Status:     string(run.Status),
 		StartedAt:  run.StartedAt.UTC().Format(time.RFC3339Nano),
@@ -739,7 +735,7 @@ func skillMessageContent(messages []llm.Message) (string, bool) {
 
 func seq21To28ShapeRequest(t testing.TB, thirdCallInput json.RawMessage) llm.Request {
 	return llm.Request{ToolChoiceMode: llm.ToolChoiceModeAutomatic,
-		Model:        "gpt-5",
+		Model:        "gpt-6-sol",
 		SystemPrompt: "system",
 		Items: llm.ItemsFromMessages([]llm.Message{
 			{Role: llm.RoleUser, Content: textutil.Value("review docs migration")},
@@ -756,7 +752,7 @@ func seq21To28ShapeRequest(t testing.TB, thirdCallInput json.RawMessage) llm.Req
 			{Role: llm.RoleTool, ToolCallID: textutil.Value("call-search"), Name: textutil.Value(string(toolspec.ToolExecCommand)), Content: textutil.Value(`"docs/dev/specs/README.md:1:# Product Specs"`)},
 			{Role: llm.RoleTool, ToolCallID: textutil.Value("call-status"), Name: textutil.Value(string(toolspec.ToolExecCommand)), Content: textutil.Value(`"M\tdocs/dev/specs/README.md"`)},
 		}),
-		Tools: []llm.Tool{{Name: string(toolspec.ToolExecCommand), Description: "execute command", Schema: mustTestFunctionSchema(t)}},
+		Tools: []llm.Tool{{Name: string(toolspec.ToolExecCommand), Description: "execute command", Schema: mustTestFunctionSchema(t)}}, ReasoningEffort: "high",
 	}
 }
 

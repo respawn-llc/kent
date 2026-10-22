@@ -6,6 +6,7 @@ import (
 	"strings"
 
 	"core/server/goalview"
+	"core/server/metadata"
 	"core/server/runtime"
 	"core/server/runtimeview"
 	"core/server/session"
@@ -49,7 +50,7 @@ func (s *Service) resolveMainView(ctx context.Context, sessionID string) (*runti
 	}
 	if s.mainViews != nil {
 		if view, ok := s.mainViews.RuntimeMainViewSnapshot(sessionID); ok {
-			if s.targets != nil && strings.TrimSpace(view.Session.SessionId) != "" {
+			if s.targets != nil {
 				target, err := s.targets.ResolveSessionExecutionTarget(ctx, view.Session.SessionId)
 				if err != nil {
 					return nil, err
@@ -78,6 +79,7 @@ func (s *Service) resolveMainView(ctx context.Context, sessionID string) (*runti
 }
 
 type dormantSessionSnapshot struct {
+	metadata         *metadata.Store
 	view             *session.PersistedSessionView
 	cacheWarningMode config.CacheWarningMode
 	projection       dormantChatProjection
@@ -89,14 +91,11 @@ func (s dormantSessionSnapshot) MainView(ctx context.Context) (*runtimepb.MainVi
 	}
 	meta := s.view.Meta()
 	sessionFreshness := s.view.ConversationFreshness()
-	version, err := protoapi.NewReadModelVersion(
+	version := protoapi.NewReadModelVersion(
 		"persisted-session-"+meta.SessionID,
 		1,
 		uint64(meta.LastSequence)+1,
 	)
-	if err != nil {
-		return nil, err
-	}
 	freshness := runtimeview.ConversationFreshnessFromSession(sessionFreshness)
 	goalAvailability, err := session.GoalAvailabilityFromMeta(meta)
 	if err != nil {
@@ -139,12 +138,18 @@ func (s dormantSessionSnapshot) MainView(ctx context.Context) (*runtimepb.MainVi
 		Goal:            goal,
 		WorkflowSession: s.projection.workflow,
 	}
+	category, err := protoapi.SessionCategoryToProto(meta.EffectiveCategory())
+	if err != nil {
+		return nil, err
+	}
 	view := &runtimepb.MainView{
 		Version: version,
 		Status:  status,
 		Session: &runtimepb.SessionView{
+			Category:              category,
 			SessionId:             meta.SessionID,
-			SessionName:           textutil.OptionalExactString(meta.Name),
+			ShortId:               protoapi.SessionShortIDToProto(s.view.Identity().ShortID),
+			SessionName:           textutil.Pointer(meta.Name),
 			AgentRole:             session.ContinuationAgentRole(meta),
 			ConversationFreshness: freshness,
 			ExecutionTarget:       s.projection.target,
@@ -166,7 +171,7 @@ func (s dormantSessionSnapshot) TranscriptPage(ctx context.Context, req *transcr
 		if err != nil {
 			return nil, err
 		}
-		page, err := s.transcriptPage(segment)
+		page, err := s.transcriptPage(ctx, segment)
 		if err != nil {
 			return nil, err
 		}
@@ -196,7 +201,7 @@ func (s dormantSessionSnapshot) TranscriptPage(ctx context.Context, req *transcr
 		return nil, err
 	}
 	segment.LatestRollbackCandidate = newest.LatestRollbackCandidate
-	page, err := s.transcriptPage(segment)
+	page, err := s.transcriptPage(ctx, segment)
 	if err != nil {
 		return nil, err
 	}
@@ -213,12 +218,17 @@ func (s dormantSessionSnapshot) cacheWarningModeOrDefault() config.CacheWarningM
 	return normalizeServiceCacheWarningMode(s.cacheWarningMode)
 }
 
-func (s dormantSessionSnapshot) transcriptPage(segment runtime.TranscriptSegmentPage) (*transcriptpb.Page, error) {
+func (s dormantSessionSnapshot) transcriptPage(ctx context.Context, segment runtime.TranscriptSegmentPage) (*transcriptpb.Page, error) {
 	meta := s.view.Meta()
+	identities, err := s.metadata.SessionIdentities(ctx, runtimeview.TranscriptReferencedSessions(runtime.TranscriptCommittedRowFactsFromSnapshot(segment.Snapshot)))
+	if err != nil {
+		return nil, err
+	}
 	return runtimeview.TranscriptPageFromSegment(
 		meta.SessionID,
 		meta.Name,
 		runtimeview.ConversationFreshnessFromSession(s.view.ConversationFreshness()),
 		segment,
+		identities,
 	)
 }

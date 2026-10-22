@@ -21,10 +21,10 @@ These directions are part of the current product boundary and are unlikely to be
 - **MCP as a first-class integration surface.** Kent prefers a small model-facing tool set and normal CLI programs. If a capability can be exposed as a command-line tool or script, that is usually the better integration path.
 - **Extra UI chrome or vibe-coding surfaces.** Kent's UI should stay focused on terminal-native engineering work: steering, inspection, review, session control, and long-running execution.
 - **Runtime toolset or model switching for active sessions.** Changing these mid-session can invalidate prompt caches and alter the model contract. Prefer per-session config, subagent roles, or new sessions.
-- **Microcompaction.** Compaction should preserve continuity and cache behavior. Tiny frequent rewrites add cost and risk without enough benefit.
+- **Microcompaction.** Compaction maintains continuity and cache behavior. Tiny frequent rewrites add cost and risk without enough benefit.
 - **Built-in sandboxing as a trust boundary.** Sandboxing should be done with real isolation such as containers, VMs, or remote environments. Kent may support workflows that run inside those environments, but the CLI itself should not pretend that a fragile local sandbox is a security boundary.
 - **A dedicated WebFetch tool.** Use shell-accessible tools or scripts that return raw Markdown, such as Jina Reader wrappers. This keeps web access transparent and avoids another model-facing tool.
-- **Anthropic, Gemini, or Antigravity subscription usage.** These will not be supported unless their terms allow third-party harnesses. API-key or compatible-provider work should still fit the normal provider capability model.
+- **Anthropic, Gemini, or Antigravity subscription usage.** Kent supports these only when provider terms allow third-party harnesses. API-key or compatible-provider integrations should use the normal provider capability model.
 
 This list is not a substitute for design review. If a proposal appears to conflict with a boundary but solves an important reliability or quality problem, open an issue and describe the tradeoff clearly before writing code.
 
@@ -34,9 +34,12 @@ Prerequisites:
 
 - Go `1.25`
 - Just
-- Node `22` or newer and pnpm for desktop and docs commands
+- Bun `1.4.2` for desktop and docs commands
+- Node `22` or newer for the desktop test runner
 - ripgrep (`rg`)
 - Rust toolchain for Tauri native builds in `apps/desktop`
+
+Bun's default package cache is shared across Kent checkouts on the same machine. Each checkout creates its own `node_modules` tree.
 
 Prepare the checkout:
 
@@ -65,13 +68,13 @@ Bare `just build` builds the active Go, desktop, and docs areas. Bare `just test
 
 ## Pull Request Expectations
 
-Please keep pull requests small enough to review in one pass and make sure they are tied to a previously triaged issue.
+Please keep pull requests small enough to review in one pass and tie each one to an issue maintainers have already triaged.
 
 A strong PR usually:
 
 - solves one clear problem
 - includes tests for behavior changes
-- updates user-facing documentation when needed
+- updates user-facing documentation for user-visible changes
 - keeps `AGENTS.md` accurate when project guidance changes
 - avoids unrelated cleanup in the same change set
 

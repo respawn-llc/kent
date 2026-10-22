@@ -9,6 +9,7 @@ import (
 
 	checkpoint "core/internal/testharness/pty/analyzer"
 	"core/internal/testharness/pty/appfixture"
+	"core/internal/testharness/requestfixture"
 	serverstartup "core/server/startup"
 	"core/shared/config"
 	"core/shared/runtimeids"
@@ -100,7 +101,7 @@ func runPTYFixtureProcess(t *testing.T, ctx context.Context, processConfig appfi
 	}
 	launchRequest := sessionLaunchRequest{
 		Mode:   launchModeInteractive,
-		Intent: serverapi.OpenExistingSessionLaunchIntent(parsedSessionID),
+		Intent: requestfixture.LaunchIntent(t, serverapi.OpenExistingSessionLaunchIntent(parsedSessionID)),
 	}
 	plan, err := planner.PlanSession(ctx, launchRequest)
 	if err != nil {

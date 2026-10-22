@@ -17,9 +17,74 @@ import (
 )
 
 func TestSupportedChatThinkingValuesUsesKnownModelContract(t *testing.T) {
-	got := supportedChatThinkingValues("gpt-5", "ultra")
+	got := supportedChatThinkingValues("gpt-6-sol", "ultra")
 	if slices.Contains(got, "ultra") {
 		t.Fatalf("supported thinking values = %v, unexpectedly included configured value outside the known model contract", got)
+	}
+}
+
+func TestChatAgentCatalogDistinguishesConnectionSets(t *testing.T) {
+	app := loadLaunchConfig(t, t.TempDir(),
+		`connection = ["a", "b"]`,
+		`[connections.a]`,
+		`protocol = "chatgpt-codex"`,
+		`[connections.b]`,
+		`protocol = "chatgpt-codex"`,
+		`[connections.c]`,
+		`protocol = "chatgpt-codex"`,
+		`[subagents.distinct]`,
+		`connection = ["a", "c"]`,
+		`[subagents.equivalent]`,
+		`connection = ["b", "a"]`,
+	)
+	catalog, err := PrepareChatAgentCatalog(app, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, present := catalog.Lookup("distinct"); !present {
+		t.Fatal("Agent with a distinct effective set was omitted")
+	}
+	if _, present := catalog.Lookup("equivalent"); !present {
+		t.Fatal("Agent with an equivalent effective set was omitted")
+	}
+}
+
+func TestSessionChatAgentCatalogPreservesWorkerMatchingHeadlessDefault(t *testing.T) {
+	app := loadLaunchConfig(t, t.TempDir(),
+		`connection = "work"`,
+		`model = "gpt-6-astra"`,
+		`[connections.work]`,
+		`protocol = "responses"`,
+		`endpoint = "http://127.0.0.1:1/v1"`,
+		`[subagents.default]`,
+		`model = "gpt-6-sol"`,
+		`[subagents.worker]`,
+		`model = "gpt-6-sol"`,
+	)
+	for _, headless := range []bool{false, true} {
+		meta := session.Meta{ConnectionID: textutil.Value(config.ConnectionID("work"))}
+		model := "gpt-6-astra"
+		if headless {
+			meta.Continuation = &session.ContinuationContext{AgentRole: textutil.Value(config.DefaultSubagentRole)}
+			model = "gpt-6-sol"
+		}
+		catalog, err := PrepareSessionChatAgentCatalog(t.Context(), app, meta, nil)
+		if err != nil {
+			t.Fatal(err)
+		}
+		defaultCount := 0
+		for _, choice := range catalog.Choices() {
+			if choice.Role == config.DefaultSubagentRole {
+				defaultCount++
+				if choice.GetModel() != model {
+					t.Fatalf("headless %v: default model = %q, want %q", headless, choice.GetModel(), model)
+				}
+			}
+		}
+		worker, available := catalog.Lookup("worker")
+		if defaultCount != 1 || !available || worker.Choice.GetModel() != "gpt-6-sol" {
+			t.Fatalf("headless %v: default count = %d, worker = %+v", headless, defaultCount, worker)
+		}
 	}
 }
 
@@ -37,15 +102,15 @@ func TestSessionAgentChoicesPreserveOnlyKnownRoleFacts(t *testing.T) {
 			root, workspace := t.TempDir(), t.TempDir()
 			declarations := ""
 			if scenario.authored {
-				declarations = "model = \"gpt-5-mini\"\nthinking_level = \"high\""
+				declarations = "model = \"gpt-6-luna\"\nthinking_level = \"high\""
 			}
 			if scenario.environment {
-				t.Setenv("KENT_MODEL", "gpt-5-mini")
+				t.Setenv("KENT_MODEL", "gpt-6-luna")
 				t.Setenv("KENT_THINKING_LEVEL", "high")
 			}
 			if err := os.WriteFile(filepath.Join(root, "config.toml"), []byte(fmt.Sprintf(`
 connection = "work"
-model = "gpt-5"
+model = "gpt-6-sol"
 thinking_level = "medium"
 [connections.work]
 protocol = "responses"
@@ -68,7 +133,7 @@ connection = "missing"
 				if available {
 					app.Settings.Connections["missing"] = app.Settings.Connections["work"]
 				}
-				catalog, err := PrepareSessionChatAgentCatalog(app, meta)
+				catalog, err := PrepareSessionChatAgentCatalog(t.Context(), app, meta, nil)
 				if err != nil {
 					t.Fatal(err)
 				}
@@ -80,9 +145,9 @@ connection = "missing"
 					if available != (entry.SelectionError == nil) || available != (entry.Settings != nil) {
 						t.Fatalf("choice %s availability: %+v", name, entry)
 					}
-					model, thinking := "gpt-5", "medium"
+					model, thinking := "gpt-6-sol", "medium"
 					if scenario.authored || scenario.environment {
-						model, thinking = "gpt-5-mini", "high"
+						model, thinking = "gpt-6-luna", "high"
 					} else if name == "fast" && !available {
 						if entry.Choice.Model != nil || entry.Choice.Thinking != nil {
 							t.Fatalf("unresolved built-in defaults became facts: %+v", entry.Choice)
@@ -105,9 +170,9 @@ func TestSupportedChatThinkingValuesPreservesConfiguredUnknownModelValue(t *test
 	}
 }
 
-func TestPrepareChatAgentCatalogProjectsChoicesAndOmitsEquivalentAgents(t *testing.T) {
+func TestPrepareChatAgentCatalogProjectsChoicesAndPreservesNamedAgents(t *testing.T) {
 	settings := config.DefaultOnboardingSettings()
-	settings.Model = "gpt-5"
+	settings.Model = "gpt-6-sol"
 	settings.ThinkingLevel = "medium"
 	settings.EnabledTools = map[toolspec.ID]bool{
 		toolspec.ToolExecCommand: true,
@@ -115,7 +180,7 @@ func TestPrepareChatAgentCatalogProjectsChoicesAndOmitsEquivalentAgents(t *testi
 	}
 	settings.Subagents = map[string]config.SubagentRole{
 		"equivalent": {
-			Settings: config.Settings{Model: "gpt-5", ThinkingLevel: "medium"},
+			Settings: config.Settings{Model: "gpt-6-sol", ThinkingLevel: "medium"},
 			Sources:  map[string]config.Origin{"model": {Kind: config.SourceInput, Property: config.PropertyAddress{Key: "model"}}, "thinking_level": {Kind: config.SourceInput, Property: config.PropertyAddress{Key: "thinking_level"}}},
 		},
 		"worker": {
@@ -149,10 +214,10 @@ func TestPrepareChatAgentCatalogProjectsChoicesAndOmitsEquivalentAgents(t *testi
 		t.Fatalf("PrepareChatAgentCatalog: %v", err)
 	}
 	choices := catalog.Choices()
-	if len(choices) != 3 || choices[0].Role != "default" || choices[1].Role != "fast" || choices[2].Role != "worker" {
+	if len(choices) != 4 || choices[0].Role != "default" || choices[1].Role != "fast" || choices[2].Role != "equivalent" || choices[3].Role != "worker" {
 		t.Fatalf("choices = %+v", choices)
 	}
-	worker := choices[2]
+	worker := choices[3]
 	if worker.GetModel() != "worker-model" || worker.GetThinking() != "high" ||
 		!worker.CustomSystemPrompt || !worker.CustomCapabilities || worker.AgentCallable ||
 		!slices.Equal(worker.Tools, []string{"exec_command", "view_image"}) {
@@ -160,8 +225,11 @@ func TestPrepareChatAgentCatalogProjectsChoicesAndOmitsEquivalentAgents(t *testi
 	}
 
 	settings.Subagents["broken"] = config.SubagentRole{
-		Settings: config.Settings{ThinkingLevel: " "},
-		Sources:  map[string]config.Origin{"thinking_level": {Kind: config.SourceInput, Property: config.PropertyAddress{Key: "thinking_level"}}},
+		Settings: config.Settings{Model: "gpt-6-astra", ThinkingLevel: " "},
+		Sources: map[string]config.Origin{
+			"model":          {Kind: config.SourceInput, Property: config.PropertyAddress{Key: "model"}},
+			"thinking_level": {Kind: config.SourceInput, Property: config.PropertyAddress{Key: "thinking_level"}},
+		},
 	}
 	_, err = PrepareChatAgentCatalog(testsetup.ProgrammaticConfig(t, settings), true)
 	var typed *serverapi.ChatSettingsAgentPreparationError

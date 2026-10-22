@@ -12,7 +12,6 @@ func ActiveStepFromRuntimeSnapshot(snapshot *runtime.RunSnapshot) *ActiveStepSna
 		return nil
 	}
 	return &ActiveStepSnapshot{
-		RunID:      snapshot.RunID,
 		StepID:     snapshot.StepID,
 		ActiveKind: MustClientActiveKindFromRuntime(snapshot.ActiveKind),
 	}
@@ -44,8 +43,6 @@ func ClientActiveKindFromRuntime(kind runtime.ActiveKind) (runtimepb.ActivityAct
 		return runtimepb.ActivityActiveKind_RUNTIME_ACTIVITY_ACTIVE_KIND_WORKFLOW_TURN, nil
 	case runtime.ActiveKindCompaction:
 		return runtimepb.ActivityActiveKind_RUNTIME_ACTIVITY_ACTIVE_KIND_COMPACTION, nil
-	case runtime.ActiveKindPreSubmitCompaction:
-		return runtimepb.ActivityActiveKind_RUNTIME_ACTIVITY_ACTIVE_KIND_PRE_SUBMIT_COMPACTION, nil
 	case runtime.ActiveKindUserShell:
 		return runtimepb.ActivityActiveKind_RUNTIME_ACTIVITY_ACTIVE_KIND_USER_SHELL, nil
 	case runtime.ActiveKindBackground:

@@ -1,3 +1,21 @@
+-- name: AccumulateConnectionConsumption :exec
+INSERT INTO connection_consumption (connection_id, hour_start_unix, score)
+VALUES (?, ?, ?)
+ON CONFLICT (connection_id, hour_start_unix) DO UPDATE
+SET score = connection_consumption.score + excluded.score;
+
+-- name: RetainedConnectionConsumption :many
+SELECT connection_id, CAST(SUM(score) AS INTEGER) AS score
+FROM connection_consumption
+WHERE hour_start_unix >= sqlc.arg(cutoff)
+  AND connection_id IN (
+    SELECT value FROM json_each(CAST(sqlc.arg(connection_ids_json) AS TEXT))
+  )
+GROUP BY connection_id;
+
+-- name: ExpireConnectionConsumption :exec
+DELETE FROM connection_consumption WHERE hour_start_unix < ?;
+
 {{define "boardSortOrder"}}{{.}}sort_null_labels ASC,
 {{.}}sort_updated_ascending ASC,
 {{.}}sort_updated_descending DESC,
@@ -26,6 +44,7 @@
 {{define "taskSessionProjectionFields"}}
 SELECT
     session.id AS session_id,
+    session.short_id,
     session.name AS session_name,
     node.display_name AS node_name,
     session.continuation_json,
@@ -1268,6 +1287,38 @@ AND
 GROUP BY node_id
 ORDER BY node_id ASC;
 
+-- name: ListTaskStageNamesByTasks :many
+SELECT
+    task.id AS task_id,
+    CAST(CASE WHEN node.group_id IS NULL
+        THEN COALESCE(NULLIF(trim(node.display_name), ''), node.node_key)
+        ELSE COALESCE(node_group.display_name, (
+            SELECT COALESCE(NULLIF(trim(member.display_name), ''), member.node_key)
+            FROM workflow_nodes member
+            WHERE member.group_id = node.group_id
+            ORDER BY member.sort_order, member.rowid
+            LIMIT 1
+        ))
+    END AS TEXT) AS stage_name
+FROM tasks task
+JOIN task_current_nodes current_node ON current_node.rowid = COALESCE(
+    (
+        SELECT serial.rowid
+        FROM task_current_nodes serial
+        WHERE serial.task_id = task.id AND serial.transition_branch_key IS NULL
+    ),
+    (
+        SELECT parallel.rowid
+        FROM task_current_nodes parallel
+        WHERE parallel.task_id = task.id AND parallel.transition_branch_key IS NOT NULL
+        ORDER BY parallel.transition_branch_key
+        LIMIT 1
+    )
+)
+JOIN workflow_nodes node ON node.id = current_node.node_id
+LEFT JOIN workflow_node_groups node_group ON node_group.id = node.group_id
+WHERE task.id IN (sqlc.slice('task_ids'));
+
 -- name: ListWorkflowTaskListRows :many
 WITH
 args AS (
@@ -1878,6 +1929,7 @@ WHERE id = sqlc.arg(id);
 -- name: UpsertSession :exec
 INSERT INTO sessions (
     id,
+    short_id,
     project_id,
     workspace_id,
     worktree_id,
@@ -1903,6 +1955,7 @@ INSERT INTO sessions (
     manual_compact_eligible
 ) VALUES (
     sqlc.arg(id),
+    sqlc.narg(short_id),
     sqlc.arg(project_id),
     sqlc.arg(workspace_id),
     sqlc.narg(worktree_id),
@@ -2096,6 +2149,7 @@ ORDER BY
 -- name: ListSessionPage :many
 SELECT
     id,
+    short_id,
     name,
     first_prompt_preview,
     COALESCE(category, 'main') AS category,
@@ -2168,6 +2222,7 @@ WHERE id = sqlc.arg(project_id);
 -- name: GetSessionRecordByID :one
 SELECT
     s.id,
+    s.short_id,
     s.artifact_relpath,
     s.name,
     s.first_prompt_preview,
@@ -2192,6 +2247,18 @@ LEFT JOIN workspaces w ON w.id = s.workspace_id
 WHERE s.id = sqlc.arg(session_id)
 LIMIT 1;
 
+-- name: AllocateSessionShortID :one
+UPDATE session_short_id_sequence
+SET next_value = next_value + 1
+WHERE singleton = 1 AND next_value <= sqlc.arg(max_short_id)
+RETURNING CAST(next_value - 1 AS INTEGER) AS short_id;
+
+-- name: GetSessionIDByShortID :one
+SELECT id FROM sessions WHERE short_id = sqlc.arg(short_id);
+
+-- name: GetSessionShortID :one
+SELECT short_id FROM sessions WHERE id = sqlc.arg(session_id);
+
 -- name: GetSessionExecutionTargetByID :one
 SELECT
     s.id AS session_id,
@@ -2212,6 +2279,7 @@ LIMIT 1;
 -- name: GetSessionWorkspaceRetargetStateByID :one
 SELECT
     s.id AS session_id,
+    s.short_id,
     s.project_id,
     p.display_name AS project_display_name,
     p.project_key,
@@ -2504,6 +2572,7 @@ WHERE id = '';
 SELECT
     id,
     name,
+    short_id,
     updated_at_unix_ms
 FROM sessions
 WHERE worktree_id = sqlc.arg(worktree_id)
@@ -2648,8 +2717,10 @@ SELECT
     durable_attention.session_id,
     durable_attention.interruption_reason,
     durable_attention.interruption_detail_json,
-    durable_attention.occurred_at_unix_ms
+    durable_attention.occurred_at_unix_ms,
+    session.short_id AS session_short_id
 FROM durable_attention
+LEFT JOIN sessions session ON session.id = durable_attention.session_id
 LEFT JOIN task_pending_approvals approval
   ON durable_attention.kind = 'approval'
  AND approval.id = durable_attention.approval_id
@@ -2698,7 +2769,12 @@ FROM task_comments
 WHERE id IN (sqlc.slice('ids'));
 
 -- name: ListSessionNamesByIDs :many
-SELECT id, name
+SELECT id, name, short_id
+FROM sessions
+WHERE id IN (sqlc.slice('ids'));
+
+-- name: ListSessionShortIDsByIDs :many
+SELECT id, short_id
 FROM sessions
 WHERE id IN (sqlc.slice('ids'));
 
@@ -2766,6 +2842,7 @@ SELECT
 FROM sqlite_schema
 WHERE sql IS NOT NULL
   AND name != 'sqlite_sequence'
+  AND name NOT IN (SELECT name FROM pragma_table_list WHERE type = 'shadow')
 ORDER BY
     CASE type
         WHEN 'table' THEN 0

@@ -8,9 +8,13 @@ import (
 	"path/filepath"
 	"testing"
 
+	"core/server/auth"
+	"core/server/authservice"
 	"core/server/onboarding"
 	"core/server/promptcommands"
+	"core/shared/config"
 	"core/shared/protoapi"
+	authpb "core/shared/protoapi/gen/kent/api/auth"
 	onboardingpb "core/shared/protoapi/gen/kent/api/onboarding"
 	promptcommandpb "core/shared/protoapi/gen/kent/api/prompt_command"
 	runtimepb "core/shared/protoapi/gen/kent/api/runtime"
@@ -93,10 +97,19 @@ func TestRemotePromptCommandImportCatalogAndInvocationUseServerRoots(t *testing.
 	if err := os.WriteFile(filepath.Join(sourceRoot, "remote_demo.md"), []byte("server body $ARGUMENTS"), 0o600); err != nil {
 		t.Fatal(err)
 	}
+	connections := authservice.NewBootstrapService(t.Context(), authservice.NewConnectionResolver(serverRoot, auth.NewManager(auth.NewMemoryStore(auth.EmptyState()), nil), nil), auth.OpenAIOAuthOptions{})
+	endpoint := "http://localhost:1234/v1"
+	if _, err := connections.ConfigureConnection(t.Context(), &authpb.ConfigureConnectionRequest{Change: &authpb.ConfigureConnectionRequest_PendingSetup{
+		PendingSetup: &authpb.ConnectionDefinition{Id: "local", Protocol: authpb.ConnectionProtocol_CONNECTION_PROTOCOL_RESPONSES, Endpoint: &endpoint},
+	}}); err != nil {
+		t.Fatal(err)
+	}
 	finalizer, err := onboarding.NewFinalizer(onboarding.Options{
+		Baseline:        config.DefaultOnboardingSettings(),
 		PersistenceRoot: serverRoot,
 		WorkspaceRoot:   serverWorkspace,
 		HomeDir:         home,
+		Connections:     connections,
 	})
 	if err != nil {
 		t.Fatalf("NewFinalizer: %v", err)
@@ -232,9 +245,8 @@ func TestRemotePromptCommandImportCatalogAndInvocationUseServerRoots(t *testing.
 	if !foundRemoteCommand {
 		t.Fatalf("catalog = %+v", catalog.Commands)
 	}
-	_, err = remote.SubmitUserTurn(context.Background(), &runtimepb.SubmitUserTurnRequest{
-		SessionId: runtimeids.NewSessionID().String(),
-		Input:     &runtimepb.UserTurnInput{Input: &runtimepb.UserTurnInput_PromptCommand{PromptCommand: &runtimepb.PromptCommandInput{Name: "prompt:remote_demo", Arguments: "hello world"}}},
+	_, err = remote.SubmitUserTurn(context.Background(), &runtimepb.SubmitUserTurnRequest{QueueItemId: runtimeids.NewQueueItemID().String(), SessionId: runtimeids.NewSessionID().String(),
+		Input: &runtimepb.UserTurnInput{Input: &runtimepb.UserTurnInput_PromptCommand{PromptCommand: &runtimepb.PromptCommandInput{Name: "prompt:remote_demo", Arguments: "hello world"}}},
 	})
 	if err != nil {
 		t.Fatalf("SubmitUserTurn: %v", err)

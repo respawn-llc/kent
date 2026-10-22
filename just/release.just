@@ -4,7 +4,6 @@ cli *args:
     bash scripts/release-artifacts.sh build {{args}}
 
 desktop *args:
-    just _node
     bash scripts/desktop-release.sh build --skip-install {{args}}
 
 brew *args:
@@ -32,7 +31,6 @@ _windows-installer-smoke *args:
 
 [private]
 _desktop-build *args:
-    just _node
     bash scripts/desktop-release.sh build {{args}}
 
 [private]

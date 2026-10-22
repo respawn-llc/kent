@@ -9,11 +9,12 @@ import (
 	"strings"
 
 	"core/shared/runtimeids"
+	"core/shared/sessioncontract"
 	"core/shared/textutil"
 )
 
-// CreationPlan grants artifact creation only for one newly allocated identity.
-// Opening an ordinary persisted Session never grants this capability.
+// CreationPlan grants artifact creation for a new or committed unstarted
+// identity. Opening an ordinary persisted Session never grants this capability.
 type CreationPlan struct {
 	descriptor SessionDescriptor
 	snapshot   PersistedStoreSnapshot
@@ -25,9 +26,61 @@ type cloneCreation struct {
 	thinking ForkThinking
 }
 
+// ResumeCreation reconstructs an unstarted Session's creation capability from
+// its committed facts. Missing files alone never authorize recreating history.
+// An existing event log returns no plan and remains owned by ordinary opening.
+func ResumeCreation(record PersistedSessionRecord, thinking ForkThinking) (*CreationPlan, error) {
+	if record.Meta == nil {
+		return nil, errResolverRecordMissingMetadata
+	}
+	meta := record.Meta
+	if err := validatePersistedSessionRecord(meta.SessionID, record); err != nil {
+		return nil, err
+	}
+	if meta.LastSequence != 0 || meta.ConversationEstablished || meta.ModelRequestCount != 0 {
+		return nil, errors.New("cannot recreate an established Session")
+	}
+	if _, err := os.Lstat(filepath.Join(record.SessionDir, eventsFile)); err == nil {
+		return nil, nil
+	} else if !errors.Is(err, os.ErrNotExist) {
+		return nil, err
+	}
+	id, err := runtimeids.ParseSessionID(meta.SessionID)
+	if err != nil {
+		return nil, err
+	}
+	if meta.Category == nil {
+		return nil, errors.New("Session creation requires a category")
+	}
+	descriptor, err := NewCreateSessionDescriptor(id, filepath.Dir(record.SessionDir), meta.WorkspaceContainer, meta.WorkspaceRoot, *meta.Category)
+	if err != nil {
+		return nil, err
+	}
+	plan := CreationPlan{
+		descriptor: descriptor,
+		snapshot: PersistedStoreSnapshot{
+			SessionDir: record.SessionDir, Meta: cloneMeta(*meta), ContextFacts: record.ContextFacts.Clone(),
+		},
+	}
+	if meta.PreviousSessionID != nil {
+		if err := ValidateOriginalThinkingEffort(&thinking.Desired); err != nil {
+			return nil, err
+		}
+		source, err := NewScopedOpenSessionDescriptor(*meta.PreviousSessionID, filepath.Dir(record.SessionDir))
+		if err != nil {
+			return nil, err
+		}
+		if source.SessionID() == id {
+			return nil, errors.New("clone source and child identities must differ")
+		}
+		plan.clone = &cloneCreation{source: source, thinking: thinking}
+	}
+	return &plan, nil
+}
+
 // PrepareClone captures source identity and metadata without opening history.
 // Startup acquires the source Store for the existing bounded replay.
-func PrepareClone(descriptor SessionDescriptor, source PersistedSessionRecord, name string, thinking ForkThinking, options ...StoreOption) (CreationPlan, error) {
+func PrepareClone(descriptor SessionDescriptor, source PersistedSessionRecord, name *string, thinking ForkThinking, options ...StoreOption) (CreationPlan, error) {
 	if err := ValidateOriginalThinkingEffort(&thinking.Desired); err != nil {
 		return CreationPlan{}, err
 	}
@@ -53,12 +106,16 @@ func PrepareClone(descriptor SessionDescriptor, source PersistedSessionRecord, n
 	plan, err := PrepareCreation(CreationRequest{
 		Descriptor: descriptor, Source: CreationContextSourceFromMeta(*source.Meta),
 		SourceKind:     SessionCreationSourcePreviousSession,
-		ContextOptions: ChildContextOptions{LockedContract: InheritFullContract, InheritContinuation: true},
+		ContextOptions: ChildContextOptions{},
 	}, options...)
 	if err != nil {
 		return CreationPlan{}, err
 	}
-	plan.snapshot.Meta.Name = strings.TrimSpace(name)
+	plan.snapshot.Meta.ParentAgentSessionID = textutil.Pointer(source.Meta.ParentAgentSessionID)
+	plan.snapshot.Meta.Name, err = sessioncontract.NormalizeSessionName(name)
+	if err != nil {
+		return CreationPlan{}, err
+	}
 	plan.snapshot.Meta.ChatSettings = &ChatSettingsOverrides{Thinking: textutil.Value(thinking.Desired)}
 	if thinking.PreserveNativeUpdates {
 		plan.snapshot.Meta.OriginalThinkingEffort = textutil.Pointer(source.Meta.OriginalThinkingEffort)
@@ -172,18 +229,22 @@ func (p CreationPlan) WithLaunchMetadata(name *string, continuation Continuation
 		if strings.TrimSpace(*name) == "" {
 			return CreationPlan{}, errors.New("Session name cannot be blank")
 		}
-		p.snapshot.Meta.Name = strings.TrimSpace(*name)
+		p.snapshot.Meta.Name = textutil.Value(strings.TrimSpace(*name))
 	}
 	p.snapshot.Meta.Continuation = normalized
 	return p, nil
 }
 
-func (p CreationPlan) WithListingMetadata(name, firstPromptPreview string) (CreationPlan, error) {
+func (p CreationPlan) WithListingMetadata(name *string, firstPromptPreview string) (CreationPlan, error) {
 	if err := p.descriptor.Validate(); err != nil {
 		return CreationPlan{}, err
 	}
 	p.snapshot = p.Snapshot()
-	p.snapshot.Meta.Name = strings.TrimSpace(name)
+	normalized, err := sessioncontract.NormalizeSessionName(name)
+	if err != nil {
+		return CreationPlan{}, err
+	}
+	p.snapshot.Meta.Name = normalized
 	p.snapshot.Meta.FirstPromptPreview = normalizeFirstPromptPreview(firstPromptPreview)
 	return p, nil
 }

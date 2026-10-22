@@ -9,12 +9,14 @@ import (
 
 	"core/server/registry"
 	"core/server/runtime"
+	"core/server/session"
 	servicecontract "core/shared/apicontract"
 	"core/shared/clientui"
 	"core/shared/protoapi"
 	attentionpb "core/shared/protoapi/gen/kent/api/attention"
 	promptpb "core/shared/protoapi/gen/kent/api/prompt"
 	runtimepb "core/shared/protoapi/gen/kent/api/runtime"
+	sharedpb "core/shared/protoapi/gen/kent/api/shared"
 	"core/shared/runtimeids"
 	"core/shared/serverapi"
 	"core/shared/textutil"
@@ -23,6 +25,42 @@ import (
 
 var _ servicecontract.RuntimeLiveControlService = (*Service)(nil)
 
+func retainLiveTargetFailure(identity runtimeids.SessionIdentity, err *error) {
+	if *err != nil {
+		*err = serverapi.WithSessionTarget(serverapi.ProjectedSessionTarget{Identity: identity}, *err)
+	}
+}
+
+func (s *Service) liveTarget(ctx context.Context, target *sharedpb.SessionSelector, caller *string) (identity runtimeids.SessionIdentity, err error) {
+	var captured serverapi.SessionTarget = serverapi.UnresolvedSessionTarget{}
+	defer func() { err = serverapi.WithSessionTarget(captured, err) }()
+	id, err := s.metadata.ResolveSessionTarget(ctx, target)
+	if err != nil {
+		if errors.Is(err, session.ErrSessionNotFound) {
+			err = errors.Join(serverapi.ErrRuntimeUnavailable, err)
+		}
+		return identity, err
+	}
+	captured = serverapi.CanonicalSessionTarget{ID: id}
+	identity, err = s.metadata.SessionIdentity(ctx, id)
+	if err != nil {
+		return identity, err
+	}
+	captured = serverapi.ProjectedSessionTarget{Identity: identity}
+	err = validateSteerCallerTarget(id, caller)
+	return identity, err
+}
+
+func validateSteerCallerTarget(id runtimeids.SessionID, caller *string) error {
+	if caller != nil {
+		source := runtimeids.SessionIDFromProto(*caller)
+		if source == id {
+			return &serverapi.SessionSelfTargetError{SessionID: id}
+		}
+	}
+	return nil
+}
+
 func (s *Service) withLiveExecutionRuntime(ctx context.Context, id runtimeids.SessionID, fn func(context.Context, *runtime.Engine) error) error {
 	if s == nil || s.authority == nil {
 		return errors.New("session runtime authority is required")
@@ -30,38 +68,15 @@ func (s *Service) withLiveExecutionRuntime(ctx context.Context, id runtimeids.Se
 	return s.authority.WithLiveExecutionRuntime(ctx, id, fn)
 }
 
-func (s *Service) LiveSteer(ctx context.Context, req *runtimepb.LiveSteerRequest) (*runtimepb.LiveSteerSuccess, error) {
-	if err := protoapi.Validate(req); err != nil {
-		return nil, err
-	}
-	sessionID, err := runtimeids.ParseSessionID(req.SessionId)
+func (s *Service) LiveSteer(ctx context.Context, req *runtimepb.LiveSteerRequest) (resp *runtimepb.LiveSteerSuccess, err error) {
+	prepared, err := s.PrepareLiveSteer(ctx, req.SessionId, req.CallerSessionId, req.Text)
 	if err != nil {
 		return nil, err
 	}
-	callerSessionID := req.CallerSessionId
-	text := strings.TrimSpace(req.Text)
-	var resp *runtimepb.LiveSteerSuccess
-	err = s.withLiveExecutionRuntime(ctx, sessionID, func(callbackCtx context.Context, engine *runtime.Engine) error {
-		queueText := text
-		var agentSteer runtime.AgentSteer
-		if callerSessionID != nil {
-			callerID, parseErr := runtimeids.ParseSessionID(*callerSessionID)
-			if parseErr != nil {
-				return parseErr
-			}
-			agentSteer, err = runtime.NewAgentSteer(callerID, text)
-			if err != nil {
-				return err
-			}
-			queueText = *agentSteer.Message().Content
-		}
-		var item runtime.QueuedUserMessage
-		var accepted bool
-		if callerSessionID != nil {
-			item, accepted, err = engine.QueueAgentSteerForActiveRun(callbackCtx, agentSteer, nil)
-		} else {
-			item, accepted, err = engine.QueueUserMessageForActiveRun(callbackCtx, queueText, nil)
-		}
+	defer retainLiveTargetFailure(prepared.Identity, &err)
+	err = s.withLiveExecutionRuntime(ctx, prepared.Identity.ID, func(callbackCtx context.Context, engine *runtime.Engine) error {
+		item, _, accepted, submitErr := s.SubmitLiveSteer(callbackCtx, req.QueueItemId, prepared, engine, nil, nil)
+		err = submitErr
 		if errors.Is(err, runtime.ErrNoActiveLiveRun) {
 			return serverapi.ErrRuntimeNoActiveRun
 		}
@@ -71,37 +86,96 @@ func (s *Service) LiveSteer(ctx context.Context, req *runtimepb.LiveSteerRequest
 		if !accepted {
 			return serverapi.ErrRuntimeNoActiveRun
 		}
-		displayText, displayErr := item.DisplayText()
-		if displayErr != nil {
-			return displayErr
-		}
+		displayText := item.DisplayText()
 		resp = &runtimepb.LiveSteerSuccess{
 			QueueItemId: item.ID,
 			Text:        displayText,
-		}
-		if s != nil && s.promptStore != nil {
-			if _, err := s.recordPromptHistory(callbackCtx, sessionID.String(), queueText); err != nil {
-				engine.ReportPromptHistoryPersistError(err.Error())
-			}
 		}
 		return nil
 	})
 	return resp, err
 }
 
-func (s *Service) LiveStop(ctx context.Context, req *runtimepb.LiveStopRequest) (*runtimepb.LiveStopSuccess, error) {
-	if err := protoapi.Validate(req); err != nil {
-		return nil, err
+type PreparedLiveSteer struct {
+	Identity   runtimeids.SessionIdentity
+	Text       string
+	AgentSteer *runtime.AgentSteer
+}
+
+func (p PreparedLiveSteer) HistoryText() string {
+	if p.AgentSteer != nil {
+		return *p.AgentSteer.Message().Content
 	}
-	sessionID, err := runtimeids.ParseSessionID(req.SessionId)
+	return p.Text
+}
+
+func (s *Service) AgentSteerForCaller(ctx context.Context, caller *string, text string) (*runtime.AgentSteer, error) {
+	if caller == nil {
+		return nil, nil
+	}
+	callerID := runtimeids.SessionIDFromProto(*caller)
+	source, err := s.metadata.SessionIdentity(ctx, callerID)
 	if err != nil {
 		return nil, err
 	}
+	steer := runtime.NewAgentSteer(source, text)
+	return &steer, nil
+}
+
+func (s *Service) PrepareLiveSteer(ctx context.Context, target *sharedpb.SessionSelector, caller *string, text string) (PreparedLiveSteer, error) {
+	identity, err := s.liveTarget(ctx, target, caller)
+	if err != nil {
+		return PreparedLiveSteer{}, err
+	}
+	return s.PrepareSessionSteer(ctx, identity, caller, text)
+}
+
+func (s *Service) PrepareSessionSteer(ctx context.Context, identity runtimeids.SessionIdentity, caller *string, text string) (PreparedLiveSteer, error) {
+	if err := validateSteerCallerTarget(identity.ID, caller); err != nil {
+		return PreparedLiveSteer{}, err
+	}
+	text = strings.TrimSpace(text)
+	steer, err := s.AgentSteerForCaller(ctx, caller, text)
+	if err != nil {
+		return PreparedLiveSteer{}, err
+	}
+	return PreparedLiveSteer{Identity: identity, Text: text, AgentSteer: steer}, nil
+}
+
+// SubmitLiveSteer records the accepted representation once for both live control
+// and Run continuation. A nil observer leaves live control acknowledgement-only.
+func (s *Service) SubmitLiveSteer(ctx context.Context, queueItemID string, prepared PreparedLiveSteer, engine *runtime.Engine, observerCtx context.Context, accept runtime.CommandAcceptance) (runtime.QueuedUserMessage, *runtime.LiveRunWaitHandle, bool, error) {
+	var item runtime.QueuedUserMessage
+	var handle *runtime.LiveRunWaitHandle
+	var accepted bool
+	var err error
+	if prepared.AgentSteer != nil {
+		item, handle, accepted, err = engine.QueueAgentSteerForActiveRunWithObservation(ctx, queueItemID, *prepared.AgentSteer, observerCtx, accept)
+	} else {
+		item, handle, accepted, err = engine.QueueUserMessageForActiveRunWithObservation(ctx, queueItemID, prepared.Text, observerCtx, accept)
+	}
+	if accepted {
+		if _, historyErr := s.recordPromptHistory(ctx, prepared.Identity.ID.String(), prepared.HistoryText()); historyErr != nil {
+			engine.ReportPromptHistoryPersistError(historyErr.Error())
+		}
+	}
+	return item, handle, accepted, err
+}
+
+func (s *Service) LiveStop(ctx context.Context, req *runtimepb.LiveStopRequest) (response *runtimepb.LiveStopSuccess, err error) {
+	identity, err := s.liveTarget(ctx, req.SessionId, req.CallerSessionId)
+	if errors.Is(err, session.ErrSessionNotFound) {
+		return &runtimepb.LiveStopSuccess{Status: runtimepb.LiveStopStatus_RUNTIME_LIVE_STOP_STATUS_IDLE}, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	defer retainLiveTargetFailure(identity, &err)
 	if s == nil || s.authority == nil {
 		return nil, errors.New("session runtime authority is required")
 	}
 	resp := &runtimepb.LiveStopSuccess{Status: runtimepb.LiveStopStatus_RUNTIME_LIVE_STOP_STATUS_IDLE}
-	stopped, err := s.authority.InterruptSession(ctx, sessionID)
+	stopped, err := s.authority.InterruptSession(ctx, identity.ID)
 	if err != nil {
 		return nil, err
 	}
@@ -111,32 +185,30 @@ func (s *Service) LiveStop(ctx context.Context, req *runtimepb.LiveStopRequest) 
 	return resp, nil
 }
 
-func (s *Service) captureLiveRun(ctx context.Context, id runtimeids.SessionID) (*runtime.LiveRunWaitHandle, string, error) {
+func (s *Service) captureLiveRun(ctx context.Context, id runtimeids.SessionID) (*runtime.LiveRunWaitHandle, *string, error) {
 	var handle *runtime.LiveRunWaitHandle
-	var name string
+	var name *string
 	err := s.withLiveExecutionRuntime(ctx, id, func(callbackCtx context.Context, engine *runtime.Engine) error {
 		var err error
 		handle, err = engine.CaptureActiveRunResult(callbackCtx)
 		if err == nil {
-			name = strings.TrimSpace(engine.SessionName())
+			name = engine.SessionName()
 		}
 		return err
 	})
 	if errors.Is(err, runtime.ErrNoActiveLiveRun) {
-		return nil, "", serverapi.ErrRuntimeNoActiveRun
+		return nil, nil, serverapi.ErrRuntimeNoActiveRun
 	}
 	return handle, name, err
 }
 
-func (s *Service) LiveWait(ctx context.Context, req *runtimepb.LiveWaitRequest) (*runtimepb.LiveWaitSuccess, error) {
-	if err := protoapi.Validate(req); err != nil {
-		return nil, err
-	}
-	sessionID, err := runtimeids.ParseSessionID(req.SessionId)
+func (s *Service) LiveWait(ctx context.Context, req *runtimepb.LiveWaitRequest) (resp *runtimepb.LiveWaitSuccess, err error) {
+	identity, err := s.liveTarget(ctx, req.SessionId, req.CallerSessionId)
 	if err != nil {
 		return nil, err
 	}
-	var resp *runtimepb.LiveWaitSuccess
+	defer retainLiveTargetFailure(identity, &err)
+	sessionID := identity.ID
 	waitHandle, sessionName, err := s.captureLiveRun(ctx, sessionID)
 	if err != nil {
 		return resp, err
@@ -148,25 +220,24 @@ func (s *Service) LiveWait(ctx context.Context, req *runtimepb.LiveWaitRequest) 
 	if err != nil {
 		return resp, err
 	}
-	if sessionName == "" {
-		sessionName = sessionID.String()
-	}
 	if result.AssistantMessage.Content == nil {
 		return nil, errors.New("live run final answer content is required")
 	}
 	resp = &runtimepb.LiveWaitSuccess{
+		ShortId:   protoapi.SessionShortIDToProto(identity.ShortID),
 		SessionId: sessionID.String(), SessionName: sessionName,
 		Result: &runtimepb.LiveWaitSuccess_AssistantFinalAnswer{
 			AssistantFinalAnswer: &runtimepb.LiveWaitAssistantFinalAnswer{Result: *result.AssistantMessage.Content},
 		},
 		Duration:       durationpb.New(result.FinishedAt.Sub(result.StartedAt)),
-		LiveRunGroupId: result.GroupID.String(), TerminalRunId: result.RunID.String(),
-		TerminalStepId: result.StepID.String(), TerminalStatus: string(result.Status),
+		LiveRunGroupId: result.GroupID.String(), TerminalStepId: result.StepID.String(),
+		TerminalStatus: string(result.Status),
 	}
 	return resp, err
 }
 
-func (s *Service) pendingWatchQuestion(sessionID runtimeids.SessionID) (*serverapi.ObservationQuestion, error) {
+func (s *Service) pendingWatchQuestion(identity runtimeids.SessionIdentity) (*serverapi.ObservationQuestion, error) {
+	sessionID := identity.ID
 	if s.pendingPrompts == nil {
 		return nil, nil
 	}
@@ -178,12 +249,14 @@ func (s *Service) pendingWatchQuestion(sessionID runtimeids.SessionID) (*servera
 			if err != nil {
 				return nil, err
 			}
+			approval.ShortID = identity.ShortID
 			approvals = append(approvals, approval)
 		} else {
 			ask, err := registry.PendingAskFromSnapshot(sessionID, snapshot)
 			if err != nil {
 				return nil, err
 			}
+			ask.ShortID = identity.ShortID
 			asks = append(asks, ask)
 		}
 	}
@@ -204,17 +277,21 @@ func liveWatchQuestionResult(id runtimeids.SessionID, question *serverapi.Observ
 	}}, nil
 }
 
-func (s *Service) LiveWatch(ctx context.Context, req *promptpb.LiveWatchRequest) (*promptpb.LiveWatchSuccess, error) {
-	if err := protoapi.Validate(req); err != nil {
-		return nil, err
-	}
-	id, err := runtimeids.ParseSessionID(req.SessionId)
+func (s *Service) LiveWatch(ctx context.Context, req *promptpb.LiveWatchRequest) (response *promptpb.LiveWatchSuccess, err error) {
+	identity, err := s.liveTarget(ctx, req.SessionId, req.CallerSessionId)
 	if err != nil {
 		return nil, err
 	}
+	defer retainLiveTargetFailure(identity, &err)
+	id := identity.ID
 	if s.attention == nil {
 		return nil, errors.New("attention notification service is required")
 	}
+	defer func() {
+		if response != nil {
+			response.ShortId = protoapi.SessionShortIDToProto(identity.ShortID)
+		}
+	}()
 	watchCtx, cancel := context.WithCancel(ctx)
 	defer cancel()
 	sub, err := s.attention.SubscribeSessionAttentionNotifications(ctx, &attentionpb.SubscribeRequest{
@@ -226,7 +303,7 @@ func (s *Service) LiveWatch(ctx context.Context, req *promptpb.LiveWatchRequest)
 	defer func() { _ = sub.Close() }()
 	handle, name, captureErr := s.captureLiveRun(watchCtx, id)
 	if errors.Is(captureErr, serverapi.ErrRuntimeNoActiveRun) {
-		question, err := s.pendingWatchQuestion(id)
+		question, err := s.pendingWatchQuestion(identity)
 		if err != nil {
 			return nil, err
 		}
@@ -238,10 +315,41 @@ func (s *Service) LiveWatch(ctx context.Context, req *promptpb.LiveWatchRequest)
 	if captureErr != nil {
 		return nil, captureErr
 	}
-	if question, err := s.pendingWatchQuestion(id); err != nil {
+	return s.observeCapturedLiveRun(watchCtx, cancel, identity, name, handle, sub)
+}
+
+// ObserveLiveRun observes a run already captured by its owner. cancel must
+// cancel the context used to capture handle, so a pending prompt can release
+// the observer's terminal waiter without affecting the execution itself.
+func (s *Service) ObserveLiveRun(
+	ctx context.Context,
+	cancel context.CancelFunc,
+	id runtimeids.SessionID,
+	handle *runtime.LiveRunWaitHandle,
+) (*promptpb.LiveWatchSuccess, error) {
+	identity, err := s.metadata.SessionIdentity(ctx, id)
+	if err != nil {
+		cancel()
 		return nil, err
-	} else if question != nil {
-		return liveWatchQuestionResult(id, question)
+	}
+	return s.observeCapturedLiveRun(ctx, cancel, identity, nil, handle, nil)
+}
+
+func (s *Service) observeCapturedLiveRun(
+	ctx context.Context,
+	cancel context.CancelFunc,
+	identity runtimeids.SessionIdentity,
+	name *string,
+	handle *runtime.LiveRunWaitHandle,
+	sub serverapi.SessionAttentionNotificationSubscription,
+) (*promptpb.LiveWatchSuccess, error) {
+	id := identity.ID
+	if cancel == nil {
+		return nil, errors.New("live run observation cancel function is required")
+	}
+	if handle == nil {
+		cancel()
+		return nil, errors.New("live run observation handle is required")
 	}
 	type terminal struct {
 		result runtime.LiveRunResult
@@ -251,20 +359,49 @@ func (s *Service) LiveWatch(ctx context.Context, req *promptpb.LiveWatchRequest)
 	questionCh := make(chan *serverapi.ObservationQuestion, 1)
 	attentionErrCh := make(chan error, 1)
 	var wg sync.WaitGroup
-	wg.Add(2)
-	go func() { defer wg.Done(); result, err := handle.Wait(); terminalCh <- terminal{result, err} }()
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		result, err := handle.Wait()
+		terminalCh <- terminal{result, err}
+	}()
+	ownsSubscription := sub == nil
+	if ownsSubscription {
+		if s.attention == nil {
+			cancel()
+			wg.Wait()
+			return nil, errors.New("attention notification service is required")
+		}
+		var err error
+		sub, err = s.attention.SubscribeSessionAttentionNotifications(ctx, &attentionpb.SubscribeRequest{
+			SessionId: id.String(),
+		})
+		if err != nil {
+			cancel()
+			wg.Wait()
+			return nil, err
+		}
+	}
+	defer func() {
+		cancel()
+		if ownsSubscription {
+			_ = sub.Close()
+		}
+		wg.Wait()
+	}()
+	wg.Add(1)
 	go func() {
 		defer wg.Done()
 		for {
-			if _, err := sub.Next(watchCtx); err != nil {
-				if watchCtx.Err() == nil {
+			if _, err := sub.Next(ctx); err != nil {
+				if ctx.Err() == nil {
 					attentionErrCh <- liveWatchAttentionStreamError(err)
 				}
 				return
 			}
-			question, err := s.pendingWatchQuestion(id)
+			question, err := s.pendingWatchQuestion(identity)
 			if err != nil {
-				if watchCtx.Err() == nil {
+				if ctx.Err() == nil {
 					attentionErrCh <- liveWatchAttentionStreamError(err)
 				}
 				return
@@ -275,34 +412,29 @@ func (s *Service) LiveWatch(ctx context.Context, req *promptpb.LiveWatchRequest)
 			}
 		}
 	}()
+	if question, err := s.pendingWatchQuestion(identity); err != nil {
+		return nil, err
+	} else if question != nil {
+		return liveWatchQuestionResult(id, question)
+	}
 	select {
 	case question := <-questionCh:
-		cancel()
-		wg.Wait()
 		return liveWatchQuestionResult(id, question)
 	case terminal := <-terminalCh:
-		cancel()
-		wg.Wait()
-		if ctxErr := ctx.Err(); ctxErr != nil {
-			return nil, ctxErr
+		if err := ctx.Err(); err != nil {
+			return nil, err
 		}
 		return liveWatchResult(id, name, terminal.result, terminal.err)
 	case err := <-attentionErrCh:
 		if ctx.Err() == nil {
 			select {
 			case terminal := <-terminalCh:
-				cancel()
-				wg.Wait()
 				return liveWatchResult(id, name, terminal.result, terminal.err)
 			default:
 			}
 		}
-		cancel()
-		wg.Wait()
 		return nil, err
 	case <-ctx.Done():
-		cancel()
-		wg.Wait()
 		return nil, ctx.Err()
 	}
 }
@@ -383,11 +515,8 @@ func classifyLiveRun(result runtime.LiveRunResult, err error) liveRunTerminal {
 	return terminal
 }
 
-func liveWatchResult(id runtimeids.SessionID, name string, result runtime.LiveRunResult, err error) (*promptpb.LiveWatchSuccess, error) {
+func liveWatchResult(id runtimeids.SessionID, name *string, result runtime.LiveRunResult, err error) (*promptpb.LiveWatchSuccess, error) {
 	terminal := classifyLiveRun(result, err)
-	if name == "" {
-		name = id.String()
-	}
 	if terminal.noFinal {
 		reason := strings.TrimSpace(string(terminal.noFinalReason))
 		if reason == "" {

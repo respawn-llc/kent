@@ -1,7 +1,6 @@
 package app
 
 import (
-	"strconv"
 	"strings"
 
 	tea "github.com/charmbracelet/bubbletea"
@@ -37,7 +36,17 @@ func normalizeKeyMsg(msg tea.Msg) (tea.KeyMsg, bool) {
 
 func normalizeKeyMsgWithSource(msg tea.Msg) (tea.KeyMsg, bool, string) {
 	if keyMsg, ok := msg.(tea.KeyMsg); ok {
+		if keyMsg.Type == tea.KeyEnter && keyMsg.Alt {
+			keyMsg.Type = tea.KeyCtrlJ
+			keyMsg.Alt = false
+			return keyMsg, true, "alt_enter"
+		}
 		if keyMsg.Type == tea.KeyRunes {
+			if !keyMsg.Paste && len(keyMsg.Runes) == 1 && keyMsg.Runes[0] == '\x00' {
+				keyMsg.Type = tea.KeyNull
+				keyMsg.Runes = nil
+				return keyMsg, true, "keymsg"
+			}
 			if len(keyMsg.Runes) == 1 && keyMsg.Runes[0] == '\x1b' {
 				keyMsg.Type = tea.KeyEsc
 				keyMsg.Runes = nil
@@ -109,152 +118,4 @@ func isDeleteCurrentLineKeyForGOOS(msg tea.KeyMsg, goos string) bool {
 		return true
 	}
 	return keyString == "ctrl+backspace" || keyString == "cmd+backspace" || keyString == "super+backspace"
-}
-
-func isCtrlEnterCSISequence(seq string) bool {
-	switch seq {
-	case "13;5u", "13;5~", "27;5;13u", "27;5;13~":
-		return true
-	default:
-		return false
-	}
-}
-
-func isShiftEnterCSISequence(seq string) bool {
-	switch seq {
-	case "13;2u", "13;2~", "27;2;13u", "27;2;13~":
-		return true
-	default:
-		return false
-	}
-}
-
-func isCtrlBackspaceCSISequence(seq string) bool {
-	modifier, ok := parseBackspaceCSIModifier(seq)
-	if !ok {
-		return false
-	}
-	return csiModifierHasCtrl(modifier)
-}
-
-func isSuperBackspaceCSISequence(seq string) bool {
-	modifier, ok := parseBackspaceCSIModifier(seq)
-	if !ok {
-		return false
-	}
-	return csiModifierHasSuper(modifier)
-}
-
-func isHelpCSISequence(seq string) bool {
-	codepoint, modifier, ok := parseCSIUCodepointAndModifier(seq)
-	if !ok {
-		return false
-	}
-	if !csiModifierHasSuper(modifier) {
-		return false
-	}
-	switch rune(codepoint) {
-	case '?', '/':
-		return true
-	default:
-		return false
-	}
-}
-
-func parseCSIUCodepointAndModifier(seq string) (int, int, bool) {
-	if len(seq) < 4 || seq[len(seq)-1] != 'u' {
-		return 0, 0, false
-	}
-	body := seq[:len(seq)-1]
-	parts := strings.Split(body, ";")
-	if len(parts) < 2 {
-		return 0, 0, false
-	}
-
-	modifierIdx := 1
-	codepointIdx := 0
-	if parts[0] == "27" {
-		if len(parts) < 3 {
-			return 0, 0, false
-		}
-		modifierIdx = 1
-		codepointIdx = 2
-	}
-
-	modifier, ok := parseCSIParamInt(parts[modifierIdx])
-	if !ok {
-		return 0, 0, false
-	}
-	codepoint, ok := parseCSIParamInt(parts[codepointIdx])
-	if !ok {
-		return 0, 0, false
-	}
-	return codepoint, modifier, true
-}
-
-func parseBackspaceCSIModifier(seq string) (int, bool) {
-	if len(seq) < 3 {
-		return 0, false
-	}
-	terminator := seq[len(seq)-1]
-	if terminator != 'u' && terminator != '~' {
-		return 0, false
-	}
-	body := seq[:len(seq)-1]
-	parts := strings.Split(body, ";")
-	if len(parts) < 2 {
-		return 0, false
-	}
-
-	modifierIdx := 1
-	keyCodeIdx := 0
-	if parts[0] == "27" {
-		if len(parts) < 3 {
-			return 0, false
-		}
-		modifierIdx = 1
-		keyCodeIdx = 2
-	}
-
-	modifier, ok := parseCSIParamInt(parts[modifierIdx])
-	if !ok {
-		return 0, false
-	}
-	keyCode, ok := parseCSIParamInt(parts[keyCodeIdx])
-	if !ok {
-		return 0, false
-	}
-	if keyCode != 127 && keyCode != 8 {
-		return 0, false
-	}
-	return modifier, true
-}
-
-func parseCSIParamInt(field string) (int, bool) {
-	if strings.TrimSpace(field) == "" {
-		return 0, false
-	}
-	valueText := field
-	if idx := strings.Index(valueText, ":"); idx >= 0 {
-		valueText = valueText[:idx]
-	}
-	value, err := strconv.Atoi(valueText)
-	if err != nil {
-		return 0, false
-	}
-	return value, true
-}
-
-func csiModifierHasCtrl(modifier int) bool {
-	if modifier <= 1 {
-		return false
-	}
-	return (modifier-1)&4 != 0
-}
-
-func csiModifierHasSuper(modifier int) bool {
-	if modifier <= 1 {
-		return false
-	}
-	return (modifier-1)&8 != 0
 }

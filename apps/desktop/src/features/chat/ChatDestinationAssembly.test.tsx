@@ -1,5 +1,6 @@
-import { createChatStorageFixture } from "./chatStorageFixture";
-import { act, screen, waitFor, within } from "@testing-library/react";
+import { afterEach, beforeEach, expect, it, onTestFinished, vi } from "bun:test";
+import { installChatStorageFixture } from "./chatStorageFixture";
+import { act, fireEvent, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { QueryClient } from "@tanstack/react-query";
 import { useState } from "react";
@@ -7,7 +8,12 @@ import { SidebarHeaderActionProvider, SidebarHeaderActionSlot } from "@/app-faca
 import { createTestSidebarNavigator } from "@/test-support/sidebar";
 import { WorktreeBrowser } from "./WorktreeBrowser";
 
-import { RpcError, parsePendingWorkItemID, type ChatInputMutationResult, type ChatSettingsRead } from "@/api";
+import {
+  RpcError,
+  pendingWorkItemIDFromProto,
+  type ChatInputMutationResult,
+  type ChatSettingsRead,
+} from "@/api";
 import { createTestServices } from "@/test-support/app-services";
 import {
   changedIdentity,
@@ -30,8 +36,295 @@ import {
   renderDestination,
   sessionWithPrompts,
 } from "@/test-support/chat-destination";
-beforeEach(() => vi.stubGlobal("localStorage", createChatStorageFixture()));
-afterEach(() => vi.unstubAllGlobals());
+let restoreStorage: (() => void) | undefined;
+beforeEach(() => {
+  restoreStorage = installChatStorageFixture();
+});
+afterEach(() => {
+  restoreStorage?.();
+  restoreStorage = undefined;
+});
+
+it.each([question(), approval()])(
+  "hides navigation and position for a single $kind prompt",
+  async (prompt) => {
+    const view = sessionWithPrompts();
+    await waitFor(() => {
+      expect(view.handlers).toHaveLength(1);
+    });
+    act(() =>
+      view.handlers[0]?.onEvent({
+        sequence: 1,
+        kind: "hydration",
+        payload: { ...hydration(), PendingPrompts: [{ state: "pending", prompt }] },
+      }),
+    );
+    expect(await screen.findByRole("radiogroup")).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: appI18n.t("chat.picker.previous") })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: appI18n.t("chat.picker.next") })).not.toBeInTheDocument();
+    expect(
+      screen.queryByText(appI18n.t("chat.picker.position", { current: 1, count: 1 })),
+    ).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: appI18n.t("chatComposer.stop") })).not.toBeInTheDocument();
+    const user = userEvent.setup();
+    await user.click(screen.getByRole("button", { name: appI18n.t("chat.picker.decline") }));
+    await waitFor(() => {
+      expect(view.answer).toHaveBeenCalledTimes(1);
+    });
+    expect(view.answer.mock.calls[0]?.[0].entries).toEqual([
+      { toolCallID: prompt.toolCallID, kind: "declined" },
+    ]);
+    const decline = screen.getByRole("button", { name: appI18n.t("chat.picker.decline") });
+    expect(decline).toBeDisabled();
+    expect(within(decline).getByTestId("spinner")).toBeInTheDocument();
+    view.unmount();
+  },
+);
+
+it("shows original batch navigation while the remaining questions are still arriving", async () => {
+  const view = sessionWithPrompts();
+  const toolCallIDs = ["first", "second", "third", "fourth", "fifth"];
+  const prompt = question("first", { batch: { toolCallIDs, unmaterializedCount: 4 } });
+  await waitFor(() => {
+    expect(view.handlers).toHaveLength(1);
+  });
+  act(() =>
+    view.handlers[0]?.onEvent({
+      sequence: 1,
+      kind: "hydration",
+      payload: { ...hydration(), PendingPrompts: [{ state: "pending", prompt }] },
+    }),
+  );
+  expect(
+    await screen.findByText(appI18n.t("chat.picker.position", { current: 1, count: 5 })),
+  ).toBeInTheDocument();
+  expect(screen.getByRole("button", { name: appI18n.t("chat.picker.previous") })).toBeDisabled();
+  expect(screen.getByRole("button", { name: appI18n.t("chat.picker.next") })).toBeDisabled();
+  const first = screen.getAllByRole("radio")[0];
+  if (first === undefined) throw new Error("Question must offer an answer.");
+  await userEvent.setup().click(first);
+  expect(view.answer).not.toHaveBeenCalled();
+  view.unmount();
+});
+
+it("keeps navigation for a five-question batch when four questions are answered", async () => {
+  const view = sessionWithPrompts();
+  const toolCallIDs = Array.from({ length: 5 }, (_, index) => `question-${String(index + 1)}`);
+  const prompts = toolCallIDs.map((id) => question(id, { batch: { toolCallIDs, unmaterializedCount: 0 } }));
+  await waitFor(() => {
+    expect(view.handlers).toHaveLength(1);
+  });
+  act(() =>
+    view.handlers[0]?.onEvent({
+      sequence: 1,
+      kind: "hydration",
+      payload: { ...hydration(), PendingPrompts: prompts.map((prompt) => ({ state: "pending", prompt })) },
+    }),
+  );
+  const user = userEvent.setup();
+  for (let index = 0; index < 4; index += 1) {
+    expect(
+      await screen.findByText(appI18n.t("chat.picker.position", { current: index + 1, count: 5 })),
+    ).toBeInTheDocument();
+    const first = screen.getAllByRole("radio")[0];
+    if (first === undefined) throw new Error("Question must offer an answer.");
+    await user.click(first);
+  }
+  expect(screen.getByText(appI18n.t("chat.picker.position", { current: 5, count: 5 }))).toBeInTheDocument();
+  expect(screen.getByRole("button", { name: appI18n.t("chat.picker.previous") })).toBeInTheDocument();
+  expect(screen.getByRole("button", { name: appI18n.t("chat.picker.next") })).toBeInTheDocument();
+  expect(view.answer).not.toHaveBeenCalled();
+  await user.click(screen.getByRole("button", { name: appI18n.t("chat.picker.previous") }));
+  expect(screen.getByText(appI18n.t("chat.picker.position", { current: 4, count: 5 }))).toBeInTheDocument();
+  view.unmount();
+});
+
+it("declines the current prompt from composer actions without stopping the run and submits the completed batch", async () => {
+  const view = sessionWithPrompts((services) => {
+    vi.spyOn(services.api.chat, "stop").mockResolvedValue("stopped");
+  });
+  const prompts = [question(), approval()];
+  await waitFor(() => {
+    expect(view.handlers).toHaveLength(1);
+  });
+  act(() =>
+    view.handlers[0]?.onEvent({
+      sequence: 1,
+      kind: "hydration",
+      payload: { ...hydration(), PendingPrompts: prompts.map((prompt) => ({ state: "pending", prompt })) },
+    }),
+  );
+  const user = userEvent.setup();
+  const decline = await screen.findByRole("button", { name: appI18n.t("chat.picker.decline") });
+  expect(screen.getAllByRole("button", { name: appI18n.t("chat.picker.decline") })).toHaveLength(1);
+  expect(screen.queryByRole("button", { name: appI18n.t("chatComposer.stop") })).not.toBeInTheDocument();
+  expect(screen.getByText(appI18n.t("chat.picker.position", { current: 1, count: 2 }))).toBeInTheDocument();
+  await user.click(decline);
+  expect(view.answer).not.toHaveBeenCalled();
+  expect(screen.getByText(appI18n.t("chat.picker.position", { current: 2, count: 2 }))).toBeInTheDocument();
+  await user.click(screen.getByRole("button", { name: appI18n.t("chat.picker.previous") }));
+  expect(screen.getByRole("button", { name: appI18n.t("chat.picker.decline") })).toBeDisabled();
+  await user.click(screen.getByRole("button", { name: appI18n.t("chat.picker.next") }));
+  await user.click(screen.getByRole("button", { name: appI18n.t("chat.picker.decline") }));
+  await waitFor(() => {
+    expect(view.answer).toHaveBeenCalledTimes(1);
+  });
+  expect(view.answer.mock.calls[0]?.[0].entries).toEqual(
+    prompts.map((prompt) => ({ toolCallID: prompt.toolCallID, kind: "declined" })),
+  );
+  const pendingDecline = screen.getByRole("button", { name: appI18n.t("chat.picker.decline") });
+  expect(pendingDecline).toBeDisabled();
+  expect(within(pendingDecline).getByTestId("spinner")).toBeInTheDocument();
+  expect(view.services.api.chat.stop).not.toHaveBeenCalled();
+  await act(async () => {
+    view.response.resolve({
+      results: prompts.map((prompt) => ({ toolCallID: prompt.toolCallID, outcome: "resolved" })),
+    });
+  });
+  const stop = await screen.findByRole("button", { name: appI18n.t("chatComposer.stop") });
+  expect(screen.queryByRole("button", { name: appI18n.t("chat.picker.decline") })).not.toBeInTheDocument();
+  await user.click(stop);
+  await waitFor(() => {
+    expect(view.services.api.chat.stop).toHaveBeenCalledTimes(1);
+  });
+  view.unmount();
+});
+
+it("holds busy Send readonly until acceptance during compaction, then allows continued typing", async () => {
+  const accepted = deferred<ChatInputMutationResult>();
+  const view = sessionWithPrompts((services) => {
+    vi.spyOn(services.api.chat, "steer").mockReturnValue(accepted.promise);
+  });
+  await waitFor(() => {
+    expect(view.handlers).toHaveLength(1);
+  });
+  await act(async () => {
+    view.handlers[0]?.onEvent({
+      sequence: 1,
+      kind: "hydration",
+      payload: {
+        ...hydration(),
+        ActiveCompaction: { StepID: "compact", State: "started", Mode: "manual", Count: 1 },
+      },
+    });
+  });
+  const user = userEvent.setup();
+  const editor = await screen.findByRole("textbox");
+  await user.type(editor, "steer during compaction");
+  await user.click(screen.getByRole("button", { name: appI18n.t("chatComposer.send") }));
+  await waitFor(() => {
+    expect(view.services.api.chat.steer).toHaveBeenCalledTimes(1);
+  });
+  expect(editor).toHaveValue("steer during compaction");
+  expect(editor).toHaveAttribute("readonly");
+  await user.type(editor, "next draft");
+  expect(editor).toHaveValue("steer during compaction");
+  await act(async () => {
+    accepted.resolve({
+      sessionID: sessionTarget.sessionID,
+      outcome: {
+        kind: "accepted",
+        disposition: "pending_steer",
+        queueItemID: pendingWorkItemIDFromProto(crypto.randomUUID()),
+        diagnostic: null,
+      },
+    });
+  });
+  expect(editor).toHaveValue("");
+  expect(editor).not.toHaveAttribute("readonly");
+  await user.type(editor, "next draft");
+  expect(editor).toHaveValue("next draft");
+});
+
+it("keeps streamed output and drafts usable when reviewer suggestions are followed by a question", async () => {
+  const geometry = installVirtualizedScrollGeometry(600);
+  const view = sessionWithPrompts();
+  const prompt = question("question-1", { recommendedOptionIndex: 1 });
+  try {
+    await waitFor(() => {
+      expect(view.handlers).toHaveLength(1);
+      expect(view.client.isFetching()).toBe(0);
+    });
+    const editor = await screen.findByRole("textbox");
+    const user = userEvent.setup();
+    await user.type(editor, "Keep this draft");
+    await act(async () => {
+      view.handlers[0]?.onEvent({
+        sequence: 1,
+        kind: "hydration",
+        payload: {
+          ...hydration(),
+          TailSegment: { OlderCursor: null, HasMoreAbove: false, Entries: [row(1)] },
+          ActiveAssistant: {
+            StepID: prompt.stepID,
+            StreamID: "stream",
+            Phase: "commentary",
+            Text: "Current response",
+          },
+        },
+      });
+    });
+    const list = screen.getByRole("list");
+    act(() => {
+      geometry.resize(list, 600);
+    });
+    await act(async () => {
+      view.handlers[0]?.onEvent({
+        sequence: 2,
+        kind: "committed_row",
+        payload: {
+          ...row(2),
+          Kind: "reviewer_feedback",
+          User: null,
+          ReviewerFeedback: {
+            ID: crypto.randomUUID(),
+            StepID: prompt.stepID,
+            Suggestions: ["Check the result"],
+            SuggestionCount: 1,
+          },
+        },
+      });
+    });
+    await user.click(within(list).getByRole("button", { expanded: false }));
+    expect(await screen.findByText("Check the result")).toBeInTheDocument();
+    await act(async () => {
+      for (let sequence = 3; sequence < 63; sequence++) {
+        view.handlers[0]?.onEvent({
+          sequence,
+          kind: "assistant_delta",
+          payload: { StepID: prompt.stepID, StreamID: "stream", Phase: "commentary", Delta: "a" },
+        });
+        await Promise.resolve();
+      }
+    });
+    await act(async () => {
+      view.handlers[0]?.onEvent({ sequence: 63, kind: "prompt", payload: { state: "pending", prompt } });
+    });
+    expect(view.services.logger.entries().filter((entry) => entry.level === "warn")).toEqual([]);
+    expect(view.handlers).toHaveLength(1);
+    expect(await screen.findByRole("radio", { name: "one" })).toBeInTheDocument();
+    expect(editor).not.toBeVisible();
+    await act(async () => {
+      view.handlers[0]?.onEvent({
+        sequence: 64,
+        kind: "prompt",
+        payload: { state: "resolved", toolCallID: prompt.toolCallID },
+      });
+      view.handlers[0]?.onEvent({
+        sequence: 65,
+        kind: "assistant_delta",
+        payload: { StepID: prompt.stepID, StreamID: "stream", Phase: "commentary", Delta: " continued" },
+      });
+    });
+    expect(await screen.findByRole("textbox")).toHaveValue("Keep this draft");
+    expect(list).toHaveTextContent(`Current response${"a".repeat(60)} continued`);
+    expect(screen.queryByRole("button", { name: appI18n.t("app.retry") })).not.toBeInTheDocument();
+    expect(view.handlers).toHaveLength(1);
+  } finally {
+    view.unmount();
+    geometry.restore();
+  }
+});
 
 function ContextualWorktrees() {
   const [open, setOpen] = useState(false);
@@ -49,6 +342,8 @@ function ContextualWorktrees() {
         <SidebarHeaderActionProvider>
           <SidebarHeaderActionSlot />
           <WorktreeBrowser
+            onOpenSession={vi.fn()}
+            projectID={sessionTarget.projectID}
             sessionID={sessionTarget.sessionID}
             navigator={navigator}
             onCreate={vi.fn()}
@@ -90,7 +385,9 @@ it("keeps transcript and composer usable through a sidebar-owned Worktree refres
   expect(screen.getByText("Message 1")).toBeInTheDocument();
   const calls = list.mock.calls.length;
   await user.click(screen.getByRole("button", { name: appI18n.t("app.retry") }));
-  await waitFor(() => expect(screen.queryByTestId("error-state")).not.toBeInTheDocument());
+  await waitFor(() => {
+    expect(screen.queryByTestId("error-state")).not.toBeInTheDocument();
+  });
   expect(list).toHaveBeenCalledTimes(calls + 1);
   list.mockRejectedValueOnce(new Error("sidebar failed again"));
   await user.click(screen.getByRole("button", { name: appI18n.t("chat.worktree.refresh") }));
@@ -122,8 +419,8 @@ it("keeps a failed Chat Worktree-label read owned by Chat through targeted Retry
   await user.click(screen.getByRole("button", { name: appI18n.t("app.retry") }));
   expect(await screen.findByRole("textbox")).toHaveValue("preserved label draft");
   expect(list).toHaveBeenCalledTimes(reads + 1);
-  expect(view.services.api.chat.getMainView).toHaveBeenCalledOnce();
-  expect(view.settings).toHaveBeenCalledOnce();
+  expect(view.services.api.chat.getMainView).toHaveBeenCalledTimes(1);
+  expect(view.settings).toHaveBeenCalledTimes(1);
 });
 
 it("keeps the opening editor usable and delays its one control indicator", async () => {
@@ -137,13 +434,18 @@ it("keeps the opening editor usable and delays its one control indicator", async
     const editor = screen.getByRole("textbox");
     expect(editor).not.toHaveAttribute("readonly");
     expect(screen.queryByTestId("chat-opening-controls")).not.toBeInTheDocument();
-    await act(async () => vi.advanceTimersByTimeAsync(499));
+    await act(async () => {
+      vi.advanceTimersByTime(499);
+    });
     expect(screen.queryByTestId("chat-opening-controls")).not.toBeInTheDocument();
-    await act(async () => vi.advanceTimersByTimeAsync(1));
+    await act(async () => {
+      vi.advanceTimersByTime(1);
+    });
     expect(screen.getByTestId("chat-opening-controls")).toBeInTheDocument();
     await act(async () => {
       loading.resolve(catalog);
-      await vi.advanceTimersByTimeAsync(1);
+      await loading.promise;
+      vi.advanceTimersByTime(1);
     });
     expect(screen.queryByTestId("chat-opening-controls")).not.toBeInTheDocument();
     expect(screen.getByRole("textbox")).toBe(editor);
@@ -157,13 +459,21 @@ it("does not show opening indicators when settings arrive within the reveal dela
   vi.useFakeTimers();
   try {
     const services = createTestServices([]);
-    vi.spyOn(services.api.chat, "getSettings").mockResolvedValue(catalog);
+    const settingsRead = Promise.resolve(catalog);
+    vi.spyOn(services.api.chat, "getSettings").mockReturnValue(settingsRead);
     vi.spyOn(services.api.chat, "getCommandCatalog").mockResolvedValue([]);
     const view = renderDestination(services, new QueryClient(), opening);
-    await act(async () => vi.advanceTimersByTimeAsync(50));
+    await act(async () => {
+      vi.advanceTimersByTime(50);
+    });
     expect(screen.getByRole("textbox")).not.toHaveAttribute("readonly");
     expect(screen.queryByTestId("chat-opening-controls")).not.toBeInTheDocument();
-    await act(async () => vi.advanceTimersByTimeAsync(600));
+    await act(async () => {
+      await settingsRead;
+    });
+    await act(async () => {
+      vi.advanceTimersByTime(600);
+    });
     expect(screen.queryByTestId("chat-opening-controls")).not.toBeInTheDocument();
     view.unmount();
   } finally {
@@ -174,8 +484,8 @@ it("does not show opening indicators when settings arrive within the reveal dela
 it("opens Session editing independently of settings and merges the late saved draft", async () => {
   const draft = deferred<{ input: string; protectedInput: string | null }>();
   const view = sessionWithPrompts((services) => {
-    vi.mocked(services.api.chat.getDraft).mockReturnValue(draft.promise);
-    vi.mocked(services.api.chat.getSettings).mockReturnValue(deferred<ChatSettingsRead>().promise);
+    vi.spyOn(services.api.chat, "getDraft").mockReturnValue(draft.promise);
+    vi.spyOn(services.api.chat, "getSettings").mockReturnValue(deferred<ChatSettingsRead>().promise);
   });
   const user = userEvent.setup();
   await user.type(screen.getByRole("textbox"), "new typing");
@@ -192,9 +502,11 @@ it("blocks parent interaction while Edit is pending and restores its draft after
   const response = deferred<string>();
   const view = sessionWithPrompts((services) => {
     vi.spyOn(services.api.chat, "forkEdit").mockReturnValue(response.promise);
-    vi.mocked(services.api.chat.getTranscriptPage).mockResolvedValue({
+    vi.spyOn(services.api.chat, "getTranscriptPage").mockResolvedValue({
       ...transcriptPage(null),
-      entries: [{ ...row(1), User: { Text: "original message", RollbackTargetID: "rollback" } }],
+      entries: [
+        { ...row(1), User: { Text: "original message", RollbackTargetID: "rollback", QueueItemIDs: [] } },
+      ],
     });
   });
   const user = userEvent.setup();
@@ -215,9 +527,9 @@ it("blocks parent interaction while Edit is pending and restores its draft after
 it("keeps the parent draft when child creation succeeds but departure saving fails", async () => {
   const view = sessionWithPrompts((services) => {
     vi.spyOn(services.api.chat, "forkEdit").mockResolvedValue("child-session");
-    vi.mocked(services.api.chat.getTranscriptPage).mockResolvedValue({
+    vi.spyOn(services.api.chat, "getTranscriptPage").mockResolvedValue({
       ...transcriptPage(null),
-      entries: [{ ...row(1), User: { Text: "original", RollbackTargetID: "rollback" } }],
+      entries: [{ ...row(1), User: { Text: "original", RollbackTargetID: "rollback", QueueItemIDs: [] } }],
     });
   });
   navigation.openParentSession.mockImplementationOnce(async (sessionID: string) =>
@@ -228,7 +540,7 @@ it("keeps the parent draft when child creation succeeds but departure saving fai
   );
   const user = userEvent.setup();
   await user.type(screen.getByRole("textbox"), "preserve parent");
-  vi.mocked(view.services.api.chat.persistDraft).mockRejectedValue(new Error("save unavailable"));
+  vi.spyOn(view.services.api.chat, "persistDraft").mockRejectedValue(new Error("save unavailable"));
   await user.click(await screen.findByRole("button", { name: appI18n.t("chatTranscript.edit") }));
   await waitFor(() => {
     expect(view.services.api.chat.persistDraft).toHaveBeenCalled();
@@ -236,44 +548,81 @@ it("keeps the parent draft when child creation succeeds but departure saving fai
   expect(await screen.findByRole("textbox")).toHaveValue("preserve parent");
   expect(screen.getByRole("textbox")).not.toHaveAttribute("readonly");
   expect(view.router.state.location.pathname).toBe("/");
-  expect(view.services.api.chat.forkEdit).toHaveBeenCalledOnce();
+  expect(view.services.api.chat.forkEdit).toHaveBeenCalledTimes(1);
 });
 
 it("preserves focus, selection and continued typing across successive deliveries with Worktree commands", async () => {
+  onTestFinished(() => {
+    vi.useRealTimers();
+  });
   const first = deferred<ChatInputMutationResult>();
   const second = deferred<ChatInputMutationResult>();
   const view = sessionWithPrompts((services) => {
-    vi.mocked(services.api.chat.getSettings).mockResolvedValueOnce(catalog);
+    vi.spyOn(services.api.chat, "getSettings").mockResolvedValueOnce(catalog);
     vi.spyOn(services.api.chat, "steer")
       .mockReturnValueOnce(first.promise)
       .mockReturnValueOnce(second.promise);
-    vi.mocked(services.api.chat.getMainView).mockReturnValue(
+    vi.spyOn(services.api.chat, "getMainView").mockReturnValue(
       deferred<Awaited<ReturnType<typeof services.api.chat.getMainView>>>().promise,
     );
-    vi.mocked(services.api.chat.getTranscriptPage).mockReturnValue(
+    vi.spyOn(services.api.chat, "getTranscriptPage").mockReturnValue(
       deferred<Awaited<ReturnType<typeof services.api.chat.getTranscriptPage>>>().promise,
     );
   }, opening);
   const user = userEvent.setup();
   const send = () => screen.getByRole("button", { name: appI18n.t("chatComposer.send") });
-  await user.type(screen.getByRole("textbox"), "/review one");
-  await waitFor(() => expect(send()).toBeEnabled());
-  await user.click(send());
-  await user.type(screen.getByRole("textbox"), "/init two");
-  await user.click(send());
-  await user.type(screen.getByRole("textbox"), "continuing");
+  // Populate setup drafts in one input operation; only the final keystroke
+  // exercises selection replacement after the asynchronous deliveries.
+  await user.click(screen.getByRole("textbox"));
+  await user.paste("/review one");
+  await waitFor(() => {
+    expect(send()).toBeEnabled();
+  });
+  vi.useFakeTimers();
+  fireEvent.click(send());
+  await waitFor(() => {
+    expect(view.services.api.chat.steer).toHaveBeenCalledTimes(1);
+  });
+  await act(async () => {
+    vi.advanceTimersByTime(2000);
+  });
+  await waitFor(() => {
+    expect(screen.getByRole<HTMLTextAreaElement>("textbox").readOnly).toBe(false);
+  });
+  vi.useRealTimers();
+  expect(view.services.api.chat.steer).toHaveBeenCalledTimes(1);
+  expect(screen.getByRole<HTMLTextAreaElement>("textbox").readOnly).toBe(false);
+  await user.click(screen.getByRole("textbox"));
+  await user.paste("/init two");
+  vi.useFakeTimers();
+  fireEvent.click(send());
+  await waitFor(() => {
+    expect(view.services.api.chat.steer).toHaveBeenCalledTimes(2);
+  });
+  await act(async () => {
+    vi.advanceTimersByTime(2000);
+  });
+  await waitFor(() => {
+    expect(screen.getByRole<HTMLTextAreaElement>("textbox").readOnly).toBe(false);
+  });
+  vi.useRealTimers();
+  expect(view.services.api.chat.steer).toHaveBeenCalledTimes(2);
+  expect(screen.getByRole<HTMLTextAreaElement>("textbox").readOnly).toBe(false);
+  await user.click(screen.getByRole("textbox"));
+  await user.paste("continuing");
   const editor = screen.getByRole<HTMLTextAreaElement>("textbox");
   editor.setSelectionRange(2, 5);
   const accepted = (sessionID: string): ChatInputMutationResult => ({
     sessionID,
     outcome: {
       kind: "accepted",
-      queueItemID: parsePendingWorkItemID("99999999-9999-4999-8999-999999999999"),
+      disposition: "started_turn",
+      queueItemID: pendingWorkItemIDFromProto("99999999-9999-4999-8999-999999999999"),
       diagnostic: null,
     },
   });
   await act(async () => {
-    first.resolve(accepted("first-session"));
+    first.resolve(accepted("33333333-3333-4333-8333-333333333333"));
   });
   await waitFor(() => {
     expect(view.services.api.chat.persistDraft).toHaveBeenCalled();
@@ -283,7 +632,7 @@ it("preserves focus, selection and continued typing across successive deliveries
   expect(editor.selectionEnd).toBe(5);
   expect(editor).toHaveValue("continuing");
   await act(async () => {
-    second.resolve(accepted("second-session"));
+    second.resolve(accepted("44444444-4444-4444-8444-444444444444"));
   });
   expect(screen.getByRole("textbox")).toHaveFocus();
   expect(editor.selectionStart).toBe(2);
@@ -326,40 +675,45 @@ it("retains committed history and input during explicit observation Retry withou
   expect(view.handlers).toHaveLength(2);
   expect(screen.getAllByText("Message 1")).toHaveLength(priorRows.length);
   expect(screen.getByRole("textbox")).toHaveValue("unsent");
-  expect(view.services.api.chat.getMainView).toHaveBeenCalledOnce();
-  expect(view.settings).toHaveBeenCalledOnce();
+  expect(view.services.api.chat.getMainView).toHaveBeenCalledTimes(1);
+  expect(view.settings).toHaveBeenCalledTimes(1);
 });
 
 it("retries the failed opening page and observation independently once per activation", async () => {
   const view = sessionWithPrompts((services) => {
-    vi.mocked(services.api.chat.getTranscriptPage).mockRejectedValueOnce(new Error("page unavailable"));
+    vi.spyOn(services.api.chat, "getTranscriptPage").mockRejectedValueOnce(new Error("page unavailable"));
   });
   await waitFor(() => {
     expect(view.handlers).toHaveLength(1);
   });
   act(() => view.handlers[0]?.onError(new Error("observation unavailable")));
-  await waitFor(() => expect(screen.getByRole("button", { name: appI18n.t("app.retry") })).toBeEnabled());
+  const pageRetry = await within(screen.getByTestId("error-state")).findByRole("button", {
+    name: appI18n.t("app.retry"),
+  });
+  await waitFor(() => {
+    expect(pageRetry).toBeEnabled();
+  });
   const user = userEvent.setup();
   await user.type(screen.getByRole("textbox"), "keep input");
-  await user.click(screen.getByRole("button", { name: appI18n.t("app.retry") }));
+  await user.click(pageRetry);
   await waitFor(() => {
     expect(view.services.api.chat.getTranscriptPage).toHaveBeenCalledTimes(2);
   });
   expect(view.handlers).toHaveLength(2);
-  expect(view.services.api.chat.getMainView).toHaveBeenCalledOnce();
-  expect(view.settings).toHaveBeenCalledOnce();
+  expect(view.services.api.chat.getMainView).toHaveBeenCalledTimes(1);
+  expect(view.settings).toHaveBeenCalledTimes(1);
   expect(screen.getByRole("textbox")).toHaveValue("keep input");
 });
 
 it.each(["page-first", "hydration-first"] as const)(
   "opens mounted Chat at the newest content through %s startup",
   async (order) => {
-    installAnimationFrameTestSupport();
+    const restoreAnimationFrameTestSupport = installAnimationFrameTestSupport();
     const geometry = installVirtualizedScrollGeometry(600);
     const pageRead = deferred<ReturnType<typeof transcriptPage>>();
     const entries = Array.from({ length: 100 }, (_, index) => row(index + 1));
     const view = sessionWithPrompts((services) => {
-      vi.mocked(services.api.chat.getTranscriptPage).mockReturnValue(pageRead.promise);
+      vi.spyOn(services.api.chat, "getTranscriptPage").mockReturnValue(pageRead.promise);
     });
     try {
       await waitFor(() => {
@@ -401,6 +755,7 @@ it.each(["page-first", "hydration-first"] as const)(
     } finally {
       view.unmount();
       geometry.restore();
+      restoreAnimationFrameTestSupport();
     }
   },
 );
@@ -438,7 +793,7 @@ it("shows a newly arriving question in the open Chat without a notification clic
 
 it("shows every accepted Pending Work item and restores only a discarded item", async () => {
   const accepted = Array.from({ length: 105 }, (_, index) => ({
-    id: parsePendingWorkItemID(crypto.randomUUID()),
+    id: pendingWorkItemIDFromProto(crypto.randomUUID()),
     kind: "message" as const,
     state: "pending" as const,
     lane: "steer" as const,
@@ -447,7 +802,7 @@ it("shows every accepted Pending Work item and restores only a discarded item", 
   }));
   let pending = accepted;
   const view = sessionWithPrompts((services) => {
-    vi.mocked(services.api.chat.listPendingWork).mockImplementation(async () => ({ items: pending }));
+    vi.spyOn(services.api.chat, "listPendingWork").mockImplementation(async () => ({ items: pending }));
     vi.spyOn(services.api.chat, "removePendingWork").mockImplementation(async (_, id) => {
       const item = pending.find((entry) => entry.id.toJSONValue() === id.toJSONValue());
       if (item === undefined) throw new Error("Pending item is missing.");
@@ -461,8 +816,12 @@ it("shows every accepted Pending Work item and restores only a discarded item", 
   const button = discard.at(-1);
   if (last === undefined || button === undefined) throw new Error("Missing accepted item.");
   await userEvent.setup().click(button);
-  await waitFor(() => expect(screen.getByRole("textbox")).toHaveValue(last.canonicalInput));
-  await waitFor(() => expect(button).not.toBeInTheDocument());
+  await waitFor(() => {
+    expect(screen.getByRole("textbox")).toHaveValue(last.canonicalInput);
+  });
+  await waitFor(() => {
+    expect(button).not.toBeInTheDocument();
+  });
   expect(screen.getAllByRole("button", { name: appI18n.t("chatComposer.discard") })).toHaveLength(104);
   view.unmount();
 });
@@ -485,7 +844,7 @@ it.each(["radio", "label"] as const)(
     const option = await screen.findByRole("radio", { name: "one" });
     await userEvent.setup().click(surface === "radio" ? option : screen.getByText("one"));
     await waitFor(() => {
-      expect(view.answer).toHaveBeenCalledOnce();
+      expect(view.answer).toHaveBeenCalledTimes(1);
     });
     expect(view.answer.mock.calls[0]?.[0].entries).toMatchObject([
       { selectedOptionNumber: 1, freeform: null },
@@ -522,7 +881,7 @@ it.each(["enter", "send"] as const)(
     if (method === "enter") await user.keyboard("{Enter}");
     else await user.click(screen.getByRole("button", { name: appI18n.t("chatComposer.send") }));
     await waitFor(() => {
-      expect(view.answer).toHaveBeenCalledOnce();
+      expect(view.answer).toHaveBeenCalledTimes(1);
     });
     expect(view.answer.mock.calls[0]?.[0].entries).toEqual([
       {
@@ -564,7 +923,7 @@ it("protects typed commentary even for the preselected recommendation and resets
   expect(view.answer).not.toHaveBeenCalled();
   await user.click(option);
   await waitFor(() => {
-    expect(view.answer).toHaveBeenCalledOnce();
+    expect(view.answer).toHaveBeenCalledTimes(1);
   });
   expect(view.answer.mock.calls[0]?.[0].entries).toMatchObject([
     { selectedOptionNumber: 1, freeform: "still writing commentary" },
@@ -573,7 +932,11 @@ it("protects typed commentary even for the preselected recommendation and resets
 });
 
 it("preserves failed answer diagnostics separately while retaining answers for explicit resubmission", async () => {
-  const failure = new RpcError({ code: -32603, method: "answer_batch", message: crypto.randomUUID() });
+  const failure = new RpcError({
+    code: "internal_failure",
+    method: "answer_batch",
+    message: crypto.randomUUID(),
+  });
   const view = sessionWithPrompts();
   const prompt = question();
   await waitFor(() => {
@@ -595,21 +958,23 @@ it("preserves failed answer diagnostics separately while retaining answers for e
   expect(view.answer).not.toHaveBeenCalled();
   await user.click(screen.getByRole("radio", { name: "one" }));
   await waitFor(() => {
-    expect(view.answer).toHaveBeenCalledOnce();
+    expect(view.answer).toHaveBeenCalledTimes(1);
   });
   await act(async () => {
     view.response.reject(failure);
   });
   await waitFor(() => {
-    expect(view.services.logger.entries()).toEqual(
-      expect.arrayContaining([
-        expect.objectContaining({ context: { error: failure.message, sessionID: sessionTarget.sessionID } }),
-      ]),
-    );
+    expect(
+      view.services.logger
+        .entries()
+        .some(
+          ({ context }) => context.error === failure.message && context.sessionID === sessionTarget.sessionID,
+        ),
+    ).toBe(true);
   });
   expect(screen.getByRole("radio", { name: "one" })).toBeChecked();
   expect(screen.getByDisplayValue("retained answer")).toBeInTheDocument();
-  expect(view.answer).toHaveBeenCalledOnce();
+  expect(view.answer).toHaveBeenCalledTimes(1);
   view.answer.mockResolvedValue({ results: [{ toolCallID: prompt.toolCallID, outcome: "resolved" }] });
   await user.click(screen.getByRole("button", { name: appI18n.t("chatComposer.send") }));
   await waitFor(() => {
@@ -648,7 +1013,7 @@ it("retains pending prompt answers and commentary through a Settings read failur
   await user.click(screen.getByRole("radio", { name: "two" }));
   await user.click(screen.getByRole("radio", { name: "two" }));
   await waitFor(() => {
-    expect(view.answer).toHaveBeenCalledOnce();
+    expect(view.answer).toHaveBeenCalledTimes(1);
   });
   expect(view.answer.mock.calls[0]?.[0].entries).toMatchObject([
     {
@@ -684,7 +1049,7 @@ it("keeps an admitted prompt submission pending through Pending Work read recove
   await user.click(screen.getByRole("radio", { name: option }));
   await user.click(screen.getByRole("radio", { name: option }));
   await waitFor(() => {
-    expect(view.answer).toHaveBeenCalledOnce();
+    expect(view.answer).toHaveBeenCalledTimes(1);
   });
   const reads = view.pending.mock.calls.length;
   view.pending.mockRejectedValueOnce(new Error("offline"));
@@ -696,10 +1061,12 @@ it("keeps an admitted prompt submission pending through Pending Work read recove
   expect(await screen.findByRole("radio", { name: option })).toBeDisabled();
   expect(screen.getByDisplayValue("approval commentary")).toHaveAttribute("readonly");
   expect(view.pending).toHaveBeenCalledTimes(reads + 2);
-  expect(view.answer).toHaveBeenCalledOnce();
+  expect(view.answer).toHaveBeenCalledTimes(1);
   await act(async () => {
     view.response.resolve({ results: [{ toolCallID: prompt.toolCallID, outcome: "resolved" }] });
   });
-  await waitFor(() => expect(screen.queryByRole("radio", { name: option })).not.toBeInTheDocument());
-  expect(view.answer).toHaveBeenCalledOnce();
+  await waitFor(() => {
+    expect(screen.queryByRole("radio", { name: option })).not.toBeInTheDocument();
+  });
+  expect(view.answer).toHaveBeenCalledTimes(1);
 });

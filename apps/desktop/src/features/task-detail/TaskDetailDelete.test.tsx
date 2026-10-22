@@ -1,14 +1,12 @@
 import { screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { vi } from "vitest";
+import { expect, it, mock, vi } from "bun:test";
 
-import { RpcError, rpcErrorCodes } from "@/api";
 import { appI18n } from "@/i18n";
 import { createTestSidebarNavigator } from "@/test-support/sidebar";
-import { getCallCount, mountTaskDetailSurface, taskDetailResponse } from "@/test-support/task-detail";
 
-const statusError = vi.hoisted(() => vi.fn(() => "status-error"));
-vi.mock("sonner", () => {
+const statusError = vi.fn(() => "status-error");
+await mock.module("sonner", () => {
   const toast = Object.assign(
     vi.fn(() => "status"),
     {
@@ -22,17 +20,17 @@ vi.mock("sonner", () => {
   return { toast, Toaster: () => null };
 });
 
+const {
+  mountTaskDetailSurface,
+  taskDetailResponse,
+  taskActionFixture,
+  taskDeleteRoute,
+  taskDeleted,
+  taskAlreadyDeleted,
+} = await import("@/test-support/task-detail");
+
 function taskWithDelete(canDelete: boolean) {
-  return {
-    task: {
-      ...taskDetailResponse.task,
-      attention_count: 0,
-      actions: {
-        ...taskDetailResponse.task.actions,
-        can_delete: canDelete,
-      },
-    },
-  };
+  return taskActionFixture(taskDetailResponse, { canDelete });
 }
 
 it("shows Delete only for a clean deletable Task and replaces it with Save while dirty", async () => {
@@ -68,15 +66,13 @@ it("dismisses its exact host after successful deletion", async () => {
   const services = mountTaskDetailSurface(taskWithDelete(true), {
     onDeleteDismiss,
     routes: [
-      {
-        method: "workflow.task.delete",
-        handler: async () => {
-          expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
-          return {};
-        },
-      },
+      taskDeleteRoute(async () => {
+        expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+        return taskDeleted();
+      }),
     ],
   });
+  const removeTask = vi.spyOn(services.api, "deleteTask");
   const user = userEvent.setup();
   const deleteLabel = appI18n.t("board.deleteTask");
 
@@ -88,8 +84,8 @@ it("dismisses its exact host after successful deletion", async () => {
   );
 
   await waitFor(() => {
-    expect(getCallCount(services.transport.calls, "workflow.task.delete")).toBe(1);
-    expect(onDeleteDismiss).toHaveBeenCalledOnce();
+    expect(removeTask).toHaveBeenCalledTimes(1);
+    expect(onDeleteDismiss).toHaveBeenCalledTimes(1);
   });
 });
 
@@ -97,7 +93,7 @@ it("dismisses the exact current sidebar page after successful deletion", async (
   const navigator = createTestSidebarNavigator();
   mountTaskDetailSurface(taskWithDelete(true), {
     navigator,
-    routes: [{ method: "workflow.task.delete", result: {} }],
+    routes: [taskDeleteRoute()],
   });
   const user = userEvent.setup();
 
@@ -109,7 +105,7 @@ it("dismisses the exact current sidebar page after successful deletion", async (
   );
 
   await waitFor(() => {
-    expect(navigator.close).toHaveBeenCalledOnce();
+    expect(navigator.close).toHaveBeenCalledTimes(1);
   });
 });
 
@@ -119,22 +115,16 @@ it("treats typed Task-not-found as deletion and lets the user retry an ordinary 
   const services = mountTaskDetailSurface(taskWithDelete(true), {
     onDeleteDismiss,
     routes: [
-      {
-        method: "workflow.task.delete",
-        handler: async () => {
-          attempts += 1;
-          if (attempts === 1) {
-            throw new Error("temporary failure");
-          }
-          throw new RpcError({
-            code: rpcErrorCodes.workflowTaskNotFound,
-            message: "Task not found",
-            method: "workflow.task.delete",
-          });
-        },
-      },
+      taskDeleteRoute(async () => {
+        attempts += 1;
+        if (attempts === 1) {
+          throw new Error("temporary failure");
+        }
+        return taskAlreadyDeleted("task-1");
+      }),
     ],
   });
+  const removeTask = vi.spyOn(services.api, "deleteTask");
   const user = userEvent.setup();
   const deleteLabel = appI18n.t("board.deleteTask");
   const confirmLabel = appI18n.t("board.deleteTaskConfirm");
@@ -144,7 +134,7 @@ it("treats typed Task-not-found as deletion and lets the user retry an ordinary 
   await user.click(confirm);
   expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
   await waitFor(() => {
-    expect(getCallCount(services.transport.calls, "workflow.task.delete")).toBe(1);
+    expect(removeTask).toHaveBeenCalledTimes(1);
     expect(screen.getByRole("button", { name: deleteLabel })).not.toBeDisabled();
     expect(onDeleteDismiss).not.toHaveBeenCalled();
   });
@@ -152,8 +142,8 @@ it("treats typed Task-not-found as deletion and lets the user retry an ordinary 
   await user.click(screen.getByRole("button", { name: deleteLabel }));
   await user.click(within(screen.getByRole("dialog")).getByRole("button", { name: confirmLabel }));
   await waitFor(() => {
-    expect(getCallCount(services.transport.calls, "workflow.task.delete")).toBe(2);
-    expect(onDeleteDismiss).toHaveBeenCalledOnce();
+    expect(removeTask).toHaveBeenCalledTimes(2);
+    expect(onDeleteDismiss).toHaveBeenCalledTimes(1);
   });
 });
 
@@ -164,7 +154,7 @@ it("surfaces an exact-host dismissal failure without closing a replacement", asy
   }));
   mountTaskDetailSurface(taskWithDelete(true), {
     onDeleteDismiss,
-    routes: [{ method: "workflow.task.delete", result: {} }],
+    routes: [taskDeleteRoute()],
   });
   const user = userEvent.setup();
   const deleteLabel = appI18n.t("board.deleteTask");
@@ -178,7 +168,7 @@ it("surfaces an exact-host dismissal failure without closing a replacement", asy
   expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
 
   await waitFor(() => {
-    expect(onDeleteDismiss).toHaveBeenCalledOnce();
+    expect(onDeleteDismiss).toHaveBeenCalledTimes(1);
     expect(screen.getByRole("button", { name: deleteLabel })).not.toBeDisabled();
     expect(statusError).toHaveBeenLastCalledWith(
       expect.anything(),
@@ -193,17 +183,17 @@ it("still best-effort dismisses its exact host when ordinary Task Detail content
   const services = mountTaskDetailSurface(taskWithDelete(true), {
     onDeleteDismiss,
     routes: [
-      {
-        method: "workflow.task.delete",
-        handler: async () =>
-          new Promise<Record<string, never>>((resolve) => {
+      taskDeleteRoute(
+        async () =>
+          new Promise<ReturnType<typeof taskDeleted>>((resolve) => {
             resolveDelete = () => {
-              resolve({});
+              resolve(taskDeleted());
             };
           }),
-      },
+      ),
     ],
   });
+  const removeTask = vi.spyOn(services.api, "deleteTask");
   const user = userEvent.setup();
   const deleteLabel = appI18n.t("board.deleteTask");
 
@@ -214,13 +204,13 @@ it("still best-effort dismisses its exact host when ordinary Task Detail content
     }),
   );
   await waitFor(() => {
-    expect(getCallCount(services.transport.calls, "workflow.task.delete")).toBe(1);
+    expect(removeTask).toHaveBeenCalledTimes(1);
   });
 
   services.unmountTaskDetail();
   resolveDelete?.();
 
   await waitFor(() => {
-    expect(onDeleteDismiss).toHaveBeenCalledOnce();
+    expect(onDeleteDismiss).toHaveBeenCalledTimes(1);
   });
 });

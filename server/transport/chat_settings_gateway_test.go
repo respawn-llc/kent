@@ -1,14 +1,31 @@
 package transport
 
 import (
+	"errors"
 	"net/http/httptest"
 	"testing"
 
 	"core/shared/protoapi"
 	settingspb "core/shared/protoapi/gen/kent/api/chat_settings"
 	connectionpb "core/shared/protoapi/gen/kent/api/connection"
+	sharedpb "core/shared/protoapi/gen/kent/api/shared"
 	"core/shared/runtimeids"
+	"core/shared/serverapi"
+	"core/shared/sessioncontract"
 )
+
+func settingsFailureSessionID(t *testing.T, details *settingspb.SessionNotFoundDetails) *runtimeids.SessionID {
+	t.Helper()
+	if details == nil {
+		t.Fatal("missing Session-not-found details")
+	}
+	err := protoapi.SessionTargetContextErrorFromProto(details.SessionTarget, sessioncontract.ErrSessionNotFound)
+	var target *serverapi.SessionTargetError
+	if !errors.As(err, &target) {
+		t.Fatalf("invalid captured target: %v", err)
+	}
+	return target.SessionID()
+}
 
 func TestGatewayDescriptorNewChatSettingsCatalog(t *testing.T) {
 	fixture := newRoutePolicyFixture(t)
@@ -47,40 +64,48 @@ func TestGatewayDescriptorSettingsMissingSessionFailure(t *testing.T) {
 	conn := dialGateway(t, server)
 	t.Cleanup(func() { _ = conn.Close() })
 	handshakeGateway(t, conn)
-	id := runtimeids.NewSessionID().String()
 	method := settingspb.File_kent_api_chat_settings_chat_settings_proto.Services().
 		ByName("ChatSettingsService").Methods().ByName("Read")
-	result := &settingspb.ReadResult{}
-	callGatewayDescriptor(t, conn, "missing-settings", method, &settingspb.ReadRequest{
-		Target: &settingspb.ReadRequest_Session{Session: &settingspb.SessionTarget{SessionId: id}},
-	}, result)
-	if result.GetError().GetSessionNotFound().GetSessionId() != id {
-		t.Fatalf("missing Session failure = %v", result)
+	id := runtimeids.NewSessionID().String()
+	for _, target := range []*sharedpb.SessionSelector{
+		{Value: &sharedpb.SessionSelector_SessionId{SessionId: id}},
+		{Value: &sharedpb.SessionSelector_ShortId{ShortId: runtimeids.MaxSessionShortID}},
+	} {
+		result := &settingspb.ReadResult{}
+		callGatewayDescriptor(t, conn, "missing-settings", method, &settingspb.ReadRequest{
+			Target: &settingspb.ReadRequest_Session{Session: &settingspb.SessionTarget{SessionId: target}},
+		}, result)
+		details := result.GetError().GetSessionNotFound()
+		known := settingsFailureSessionID(t, details)
+		if (target.GetShortId() != 0 && known != nil) ||
+			(target.GetShortId() == 0 && (known == nil || known.String() != id)) {
+			t.Fatalf("missing Session failure = %v", result)
+		}
 	}
 }
 
-func TestGatewayDescriptorSettingsRequiresAuthentication(t *testing.T) {
+func TestGatewayDescriptorSettingsChecksSessionWithoutProviderCredentials(t *testing.T) {
 	appCore, server, _ := newGatewayTestServerWithAuth(t, false)
 	t.Cleanup(func() { _ = appCore.Close() })
 	t.Cleanup(server.Close)
 	conn := dialGateway(t, server)
 	t.Cleanup(func() { _ = conn.Close() })
 	handshakeGateway(t, conn)
-	session := &settingspb.SessionTarget{SessionId: runtimeids.NewSessionID().String()}
+	session := &settingspb.SessionTarget{SessionId: &sharedpb.SessionSelector{Value: &sharedpb.SessionSelector_SessionId{SessionId: runtimeids.NewSessionID().String()}}}
 	service := settingspb.File_kent_api_chat_settings_chat_settings_proto.Services().ByName("ChatSettingsService")
 	read := &settingspb.ReadResult{}
 	callGatewayDescriptor(t, conn, "unauthenticated-read", service.Methods().ByName("Read"),
 		&settingspb.ReadRequest{Target: &settingspb.ReadRequest_Session{Session: session}}, read)
-	if read.GetError().GetAuthRequired() == nil {
-		t.Fatalf("read authentication failure = %v", read)
+	if id := settingsFailureSessionID(t, read.GetError().GetSessionNotFound()); id == nil || id.String() != session.SessionId.GetSessionId() {
+		t.Fatalf("read Session failure = %v", read)
 	}
 	mutation := &settingspb.MutationResponse{}
 	callGatewayDescriptor(t, conn, "unauthenticated-mutation", service.Methods().ByName("Mutate"),
 		&settingspb.MutationRequest{
 			Session: session, Operation: &settingspb.MutationOperation{Operation: &settingspb.MutationOperation_QuestionsEnabled{QuestionsEnabled: false}},
 		}, mutation)
-	if mutation.GetError().GetAuthRequired() == nil {
-		t.Fatalf("mutation authentication failure = %v", mutation)
+	if id := settingsFailureSessionID(t, mutation.GetError().GetSessionNotFound()); id == nil || id.String() != session.SessionId.GetSessionId() {
+		t.Fatalf("mutation Session failure = %v", mutation)
 	}
 }
 
@@ -103,7 +128,7 @@ func TestGatewayDescriptorSessionSettingsMutations(t *testing.T) {
 	} {
 		result := &settingspb.MutationResponse{}
 		callGatewayDescriptor(t, conn, "mutate-settings", method, &settingspb.MutationRequest{
-			Session: &settingspb.SessionTarget{SessionId: fixture.ownSessionID}, Operation: operation,
+			Session: &settingspb.SessionTarget{SessionId: &sharedpb.SessionSelector{Value: &sharedpb.SessionSelector_SessionId{SessionId: fixture.ownSessionID}}}, Operation: operation,
 		}, result)
 		success := result.GetSuccess()
 		if success == nil || success.Session.SessionId != fixture.ownSessionID || success.Settings == nil || success.Context == nil {

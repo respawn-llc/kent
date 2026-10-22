@@ -9,6 +9,8 @@ import (
 
 	"core/server/session"
 	"core/shared/config"
+	"core/shared/modelcontract"
+	"core/shared/textutil"
 )
 
 type ModelKnowledgeCutoff struct {
@@ -22,10 +24,12 @@ type ModelKnowledgeCutoff struct {
 
 type ModelCapabilityContract struct {
 	Model                         string
+	TokenPricing                  *TokenPricing
+	DefaultReasoningEffort        *string
 	ContextWindowTokens           int
-	LargeContextWindowTokens      int
-	KnowledgeCutoff               ModelKnowledgeCutoff
-	HasKnowledgeCutoff            bool
+	LargeContextWindowTokens      *int
+	VariantContexts               map[string]*ModelMetadata
+	KnowledgeCutoff               *ModelKnowledgeCutoff
 	SupportsReasoningEffort       bool
 	SupportsNativeThinkingUpdates bool
 	SupportedReasoningEfforts     []string
@@ -35,10 +39,20 @@ type ModelCapabilityContract struct {
 	SupportsVisionInputs          bool
 }
 
-func lookupProviderVariantContract(providerID string) (providerVariantRegistration, bool) {
+func (c ModelCapabilityContract) ContextMetadata(providerID string) *ModelMetadata {
+	if metadata, present := c.VariantContexts[providerID]; present {
+		return metadata
+	}
+	return &ModelMetadata{
+		ContextWindowTokens:      c.ContextWindowTokens,
+		LargeContextWindowTokens: c.LargeContextWindowTokens,
+	}
+}
+
+func lookupProviderVariantContract(providerID string) (ProviderVariantRegistration, bool) {
 	key := strings.ToLower(strings.TrimSpace(providerID))
 	if key == "" {
-		return providerVariantRegistration{}, false
+		return ProviderVariantRegistration{}, false
 	}
 	registration, ok := globalProviderRegistry.providerVariantsByID[key]
 	return registration, ok
@@ -58,10 +72,10 @@ func LookupModelCapabilityContract(model string) (ModelCapabilityContract, bool)
 
 func LookupModelKnowledgeCutoff(model string) (ModelKnowledgeCutoff, bool) {
 	contract, ok := LookupModelCapabilityContract(model)
-	if !ok || !contract.HasKnowledgeCutoff {
+	if !ok || contract.KnowledgeCutoff == nil {
 		return ModelKnowledgeCutoff{}, false
 	}
-	return contract.KnowledgeCutoff, true
+	return *contract.KnowledgeCutoff, true
 }
 
 func KnownModelCapabilityContracts() []ModelCapabilityContract {
@@ -73,7 +87,15 @@ func LookupProviderCapabilityContract(providerID string) (ProviderCapabilities, 
 	if !ok {
 		return ProviderCapabilities{}, false
 	}
-	return registration.Variant.Capabilities, true
+	return registration.Variant.capabilitiesWithOverride(nil), true
+}
+
+func LookupProviderReasoningType(providerID string) *modelcontract.ReasoningType {
+	registration, ok := lookupProviderVariantContract(providerID)
+	if !ok {
+		return nil
+	}
+	return textutil.Pointer(registration.Variant.ReasoningType)
 }
 
 func resolveProviderTransportVariant(provider Provider, endpoint ProviderTransportEndpoint, mode OpenAIAuthMode) (ProviderVariantContract, error) {
@@ -183,6 +205,7 @@ func ProviderCapabilitiesFromOverride(override config.ProviderCapabilitiesOverri
 	return ProviderCapabilities{
 		ProviderID:                    providerID,
 		SupportsResponsesAPI:          override.SupportsResponsesAPI,
+		SupportsFastMode:              override.SupportsFastMode,
 		SupportsResponsesCompact:      override.SupportsResponsesCompact,
 		SupportsPromptCacheKey:        override.SupportsPromptCacheKey,
 		SupportsNativeWebSearch:       override.SupportsNativeWebSearch,

@@ -1,16 +1,17 @@
 package app
 
 import (
+	sharedpb "core/shared/protoapi/gen/kent/api/shared"
 	worktreepb "core/shared/protoapi/gen/kent/api/worktree"
 
 	"context"
 	"core/shared/apicontract"
-	"core/shared/authstatus"
 	"core/shared/client"
 	"core/shared/clientui"
 	"core/shared/config"
 	"core/shared/lifecyclecontract"
 	"core/shared/protoapi"
+	chatsettingspb "core/shared/protoapi/gen/kent/api/chat_settings"
 	sessionpb "core/shared/protoapi/gen/kent/api/session"
 	"errors"
 	"io"
@@ -20,6 +21,7 @@ import (
 	"sync"
 
 	projectpb "core/shared/protoapi/gen/kent/api/project"
+	workflowpb "core/shared/protoapi/gen/kent/api/workflow_definition"
 
 	sessionlaunchpb "core/shared/protoapi/gen/kent/api/session_launch"
 	"core/shared/serverapi"
@@ -36,11 +38,12 @@ const (
 
 type sessionLaunchRequest struct {
 	Mode      launchMode
-	Intent    serverapi.SessionLaunchIntent
+	Intent    *sessionlaunchpb.SessionLaunchRequestIntent
 	Overrides serverapi.RunPromptOverrides
 }
 
 type sessionLaunchPlan struct {
+	ConnectionScope            config.ConnectionScope
 	Mode                       launchMode
 	SessionID                  string
 	ActiveSettings             config.Settings
@@ -63,10 +66,7 @@ type sessionLaunchPlan struct {
 type runtimeLaunchPlan struct {
 	Wiring           *runtimeWiring
 	stopEventStreams func()
-	close            func() error
-	detachClose      func() error
 	closeOnce        sync.Once
-	closeErr         error
 }
 
 func validateLaunchSessionTitle(value *string) (*string, error) {
@@ -80,29 +80,15 @@ func validateLaunchSessionTitle(value *string) (*string, error) {
 	return &title, nil
 }
 
-func (p *runtimeLaunchPlan) Close() error {
-	return p.closeWithPolicy(false)
-}
-
-func (p *runtimeLaunchPlan) DetachOnlyClose() error {
-	return p.closeWithPolicy(true)
-}
-
-func (p *runtimeLaunchPlan) closeWithPolicy(detachOnly bool) error {
+func (p *runtimeLaunchPlan) Close() {
 	if p == nil {
-		return nil
+		return
 	}
 	p.closeOnce.Do(func() {
 		if p.stopEventStreams != nil {
 			p.stopEventStreams()
 		}
-		if detachOnly && p.detachClose != nil {
-			p.closeErr = p.detachClose()
-		} else if p.close != nil {
-			p.closeErr = p.close()
-		}
 	})
-	return p.closeErr
 }
 
 type sessionPickerRunner func(context.Context, sessionPageLoader, string, sessionPickerHeaderInfo) (sessionPickerResult, error)
@@ -112,10 +98,15 @@ type sessionViewReader interface {
 }
 
 type launchPlannerServer interface {
-	Config() config.App
+	SubscribeWorkflowProject(context.Context, *workflowpb.ProjectSubscribeRequest) (apicontract.WorkflowEventSubscription, error)
+	Connection() config.Connection
+	LocalPreferences() config.LocalPreferences
+	ProjectBinding() (client.ProjectAttachment, bool)
+	ChatSettingsClient() apicontract.ChatSettingsService
 	PresentationTheme() string
 	ProjectID() string
 	AuthStatusClient() apicontract.AuthStatusService
+	ConnectionManagementClient() apicontract.ConnectionManagementService
 	ProjectViewClient() apicontract.ProjectViewService
 	ServerStatusClient() apicontract.ServerStatusService
 	SessionLaunchClient() apicontract.SessionLaunchService
@@ -134,6 +125,11 @@ func newSessionLaunchPlanner(server launchPlannerServer) *launchPlanner {
 type projectScopedSessionPageLoader struct {
 	projectID string
 	client    apicontract.ProjectViewService
+	subscribe func(context.Context, *workflowpb.ProjectSubscribeRequest) (apicontract.WorkflowEventSubscription, error)
+}
+
+func (l projectScopedSessionPageLoader) Subscribe(ctx context.Context) (apicontract.WorkflowEventSubscription, error) {
+	return l.subscribe(ctx, &workflowpb.ProjectSubscribeRequest{ProjectId: &l.projectID})
 }
 
 func (l projectScopedSessionPageLoader) ProjectID() string {
@@ -158,14 +154,8 @@ func (l projectScopedSessionPageLoader) ListSessionPage(ctx context.Context, req
 	if err != nil {
 		return sessionPageResponse{}, err
 	}
-	responseCategory, err := protoapi.SessionCategoryFromProto(response.Category)
-	if err != nil {
-		return sessionPageResponse{}, err
-	}
-	sessions, err := client.SessionSummariesFromProto(response.Sessions)
-	if err != nil {
-		return sessionPageResponse{}, err
-	}
+	responseCategory := protoapi.SessionCategoryFromProto(response.Category)
+	sessions := client.SessionSummariesFromProto(response.Sessions)
 	page := sessionPageResponse{
 		ProjectID: response.ProjectId,
 		Category:  responseCategory,
@@ -182,9 +172,6 @@ func (p *launchPlanner) PlanSession(ctx context.Context, req sessionLaunchReques
 	if p == nil || p.server == nil || p.server.SessionLaunchClient() == nil {
 		return sessionLaunchPlan{}, errors.New("launch planner bootstrap is required")
 	}
-	if err := req.Intent.Validate(); err != nil {
-		return sessionLaunchPlan{}, err
-	}
 	var mode sessionlaunchpb.SessionLaunchMode
 	switch req.Mode {
 	case launchModeInteractive:
@@ -194,13 +181,10 @@ func (p *launchPlanner) PlanSession(ctx context.Context, req sessionLaunchReques
 	default:
 		return sessionLaunchPlan{}, errors.New("Session launch mode is invalid")
 	}
-	intent, err := protoapi.SessionLaunchIntentToProto(req.Intent)
-	if err != nil {
-		return sessionLaunchPlan{}, err
-	}
-	overrides := mergeSessionPlanOverrides(sessionPlanOverridesFromConfig(p.server.Config()), req.Overrides)
-	generatedRequest := &sessionlaunchpb.SessionPlanRequest{Mode: mode, Intent: intent}
+	overrides := req.Overrides
+	generatedRequest := &sessionlaunchpb.SessionPlanRequest{Mode: mode, Intent: req.Intent}
 	if overrides.HasAny() {
+		var err error
 		generatedRequest.Overrides, err = protoapi.RunPromptOverridesToProto(overrides)
 		if err != nil {
 			return sessionLaunchPlan{}, err
@@ -209,9 +193,6 @@ func (p *launchPlanner) PlanSession(ctx context.Context, req sessionLaunchReques
 	resp, err := p.server.SessionLaunchClient().PlanSession(ctx, generatedRequest)
 	if err != nil {
 		return sessionLaunchPlan{}, err
-	}
-	if resp == nil || resp.Plan == nil {
-		return sessionLaunchPlan{}, errors.New("Session launch plan is required")
 	}
 	settings, err := protoapi.SessionSettingsFromProto(resp.Plan.ActiveSettings)
 	if err != nil {
@@ -227,15 +208,16 @@ func (p *launchPlanner) PlanSession(ctx context.Context, req sessionLaunchReques
 	}
 	enabledTools := make([]toolspec.ID, 0, len(resp.Plan.EnabledToolIds))
 	for _, generated := range resp.Plan.EnabledToolIds {
-		id, err := protoapi.SessionToolIDFromProto(generated)
-		if err != nil {
-			return sessionLaunchPlan{}, err
-		}
+		id := protoapi.SessionToolIDFromProto(generated)
 		enabledTools = append(enabledTools, id)
 	}
-	cfg := p.server.Config()
+	cfg := p.server.Connection()
 	activeSettings := settings
-	authSelection := authstatus.ProviderSelection(activeSettings)
+	local := p.server.LocalPreferences()
+	activeSettings.Theme = p.server.PresentationTheme()
+	activeSettings.Debug = local.Debug
+	activeSettings.NotificationMethod = local.NotificationMethod
+	activeSettings.TUINativeProgressBar = local.TUINativeProgressBar
 	sessionTitle, err := validateLaunchSessionTitle(resp.Plan.SessionName)
 	if err != nil {
 		return sessionLaunchPlan{}, err
@@ -250,7 +232,9 @@ func (p *launchPlanner) PlanSession(ctx context.Context, req sessionLaunchReques
 	if err != nil {
 		return sessionLaunchPlan{}, err
 	}
+	scopeSelection := protoapi.ConnectionSelectionFromProto(resp.Plan.ConnectionScope.Selection)
 	return sessionLaunchPlan{
+		ConnectionScope:          config.ConnectionScope{Selection: scopeSelection, UnavailableRole: resp.Plan.ConnectionScope.UnavailableRole},
 		Mode:                     req.Mode,
 		SessionID:                resp.Plan.SessionId,
 		ActiveSettings:           activeSettings,
@@ -269,7 +253,6 @@ func (p *launchPlanner) PlanSession(ctx context.Context, req sessionLaunchReques
 			PersistenceRoot: cfg.PersistenceRoot,
 			SessionViews:    p.server.SessionViewClient(),
 			Settings:        activeSettings,
-			AuthSelection:   authSelection,
 			Source:          source,
 			AuthStatus:      p.server.AuthStatusClient(),
 		},
@@ -282,7 +265,7 @@ func loadSelectedSessionExecutionTarget(ctx context.Context, sessionViews sessio
 	if sessionViews == nil {
 		return nil, errors.New("session view client is required")
 	}
-	resp, err := sessionViews.GetSessionMainView(ctx, &sessionpb.MainViewRequest{SessionId: strings.TrimSpace(sessionID)})
+	resp, err := sessionViews.GetSessionMainView(ctx, &sessionpb.MainViewRequest{SessionId: &sharedpb.SessionSelector{Value: &sharedpb.SessionSelector_SessionId{SessionId: strings.TrimSpace(sessionID)}}})
 	if err != nil {
 		return nil, err
 	}
@@ -293,7 +276,7 @@ func (p *launchPlanner) PrepareRuntime(ctx context.Context, plan sessionLaunchPl
 	if p == nil || p.server == nil {
 		return nil, io.ErrClosedPipe
 	}
-	runtimeServer, ok := p.server.(runtimeAttachmentSource)
+	runtimeServer, ok := p.server.(sessionUISource)
 	if !ok {
 		return nil, errors.New("runtime attachment server is required")
 	}
@@ -314,47 +297,62 @@ func (p *launchPlanner) selectSession(ctx context.Context, notice *startupPicker
 	loader := projectScopedSessionPageLoader{
 		projectID: projectID,
 		client:    p.server.ProjectViewClient(),
+		subscribe: p.server.SubscribeWorkflowProject,
 	}
-	header := p.sessionPickerHeaderInfo(p.server.Config())
+	header, err := p.sessionPickerHeaderInfo()
+	if err != nil {
+		return nil, err
+	}
 	header.Notice = notice
 	return p.pickSession(ctx, loader, p.server.PresentationTheme(), header)
 }
 
-func (p *launchPlanner) sessionPickerHeaderInfo(cfg config.App) sessionPickerHeaderInfo {
-	statusReq := populateStatusRequestCacheKeys(uiStatusRequest{
-		WorkspaceRoot:   strings.TrimSpace(cfg.WorkspaceRoot),
-		PersistenceRoot: strings.TrimSpace(cfg.PersistenceRoot),
-		Settings:        cfg.Settings,
-		Source:          cfg.Source,
-		AuthStatus:      p.server.AuthStatusClient(),
-	})
-	return sessionPickerHeaderInfo{
-		Version:       config.Version,
-		StatusRequest: statusReq,
-		ServerAddress: net.JoinHostPort(cfg.Settings.ServerHost, strconv.Itoa(cfg.Settings.ServerPort)),
-		updateStatus:  p.server.ServerStatusClient(),
+func (p *launchPlanner) sessionPickerHeaderInfo() (sessionPickerHeaderInfo, error) {
+	cfg := p.server.Connection()
+	binding, present := p.server.ProjectBinding()
+	if !present {
+		return sessionPickerHeaderInfo{}, errors.New("workspace binding is required for Chat settings")
 	}
+	request := &chatsettingspb.ReadRequest{
+		Target: &chatsettingspb.ReadRequest_NewChat{NewChat: &chatsettingspb.NewChatTarget{
+			ProjectId: binding.ProjectID, WorkspaceId: binding.WorkspaceID,
+		}},
+	}
+	return sessionPickerHeaderInfo{
+		Version: config.Version,
+		StatusRequest: populateStatusRequestCacheKeys(uiStatusRequest{
+			WorkspaceRoot: binding.WorkspaceRoot, PersistenceRoot: cfg.PersistenceRoot,
+		}),
+		ServerAddress: net.JoinHostPort(cfg.ServerHost, strconv.Itoa(cfg.ServerPort)),
+		Debug:         p.server.LocalPreferences().Debug,
+		updateStatus:  p.server.ServerStatusClient(),
+		loadHeaderFacts: func(ctx context.Context) (*sessionPickerHeaderFacts, error) {
+			model, modelErr := loadSessionPickerModelFacts(ctx, p.server.ChatSettingsClient(), request)
+			provider, providerErr := loadSessionPickerProviderInfo(ctx, p.server.ConnectionManagementClient(), p.server.AuthStatusClient())
+			return &sessionPickerHeaderFacts{Model: model, Provider: provider}, errors.Join(modelErr, providerErr)
+		},
+	}, nil
 }
 
-func sessionPlanOverridesFromConfig(cfg config.App) serverapi.RunPromptOverrides {
-	sources := cfg.Source.Sources
-	overrides := serverapi.RunPromptOverrides{}
-	if sourceIsCLI(sources, "model") {
-		overrides.Model = cfg.Settings.Model
+func loadSessionPickerModelFacts(ctx context.Context, service apicontract.ChatSettingsService, request *chatsettingspb.ReadRequest) (*sessionPickerModelFacts, error) {
+	response, err := service.ReadChatSettings(ctx, request)
+	if err != nil {
+		return nil, err
 	}
-	if sourceIsCLI(sources, "thinking_level") {
-		overrides.ThinkingLevel = cfg.Settings.ThinkingLevel
+	catalog := response.GetNewChat()
+	if catalog == nil || catalog.InitialSettings == nil {
+		return nil, errors.New("new Chat catalog is required")
 	}
-	if sourceIsCLI(sources, "theme") {
-		overrides.Theme = cfg.Settings.Theme
+	var modelFacts *sessionPickerModelFacts
+	for _, choice := range catalog.Choices {
+		if choice.Agent.Role == catalog.InitialSettings.AgentRole {
+			if choice.Agent.Model != nil {
+				modelFacts = &sessionPickerModelFacts{Name: choice.Agent.Model, ThinkingLevel: choice.Agent.Thinking}
+			}
+			break
+		}
 	}
-	if sourceIsCLI(sources, "timeouts.model_request_seconds") {
-		overrides.ModelTimeoutSeconds = cfg.Settings.Timeouts.ModelRequestSeconds
-	}
-	if hasCLIToolOverride(cfg.Source) {
-		overrides.Tools = enabledToolsCSV(cfg.Settings.EnabledTools)
-	}
-	return overrides
+	return modelFacts, nil
 }
 
 func mergeSessionPlanOverrides(base serverapi.RunPromptOverrides, override serverapi.RunPromptOverrides) serverapi.RunPromptOverrides {
@@ -379,27 +377,4 @@ func mergeSessionPlanOverrides(base serverapi.RunPromptOverrides, override serve
 		merged.Tools = value
 	}
 	return merged
-}
-
-func sourceIsCLI(sources map[string]config.Origin, key string) bool {
-	return sources[key].Kind == config.SourceCLI
-}
-
-func hasCLIToolOverride(source config.SourceReport) bool {
-	for _, id := range toolspec.CatalogIDs() {
-		if sourceIsCLI(source.Sources, "tools."+toolspec.ConfigName(id)) {
-			return true
-		}
-	}
-	return false
-}
-
-func enabledToolsCSV(enabled map[toolspec.ID]bool) string {
-	names := []string{}
-	for _, id := range toolspec.CatalogIDs() {
-		if enabled[id] {
-			names = append(names, toolspec.ConfigName(id))
-		}
-	}
-	return strings.Join(names, ",")
 }

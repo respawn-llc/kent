@@ -49,7 +49,7 @@ func TestPromptCatalogRefreshRemovesStaleEntryAndAtomicallyReplacesSnapshot(t *t
 	}
 }
 
-func TestPromptCatalogRefreshIgnoresStaleCompletion(t *testing.T) {
+func TestPromptCatalogRefreshAcceptsCompletedSnapshotWhileAnotherReadIsPending(t *testing.T) {
 	service := &promptCatalogTestService{response: &promptcommandpb.Catalog{
 		Commands: []*promptcommandpb.CatalogEntry{{Name: "prompt:new", Preview: "new"}},
 	}}
@@ -61,8 +61,8 @@ func TestPromptCatalogRefreshIgnoresStaleCompletion(t *testing.T) {
 	second := model.startPromptCatalogRefresh("prompt:old")
 	_ = second
 	model.handlePromptCatalogRefreshDone(first().(promptCatalogRefreshDoneMsg))
-	if _, ok := model.commandRegistry.Command("/prompt:new"); ok {
-		t.Fatal("stale refresh completion replaced the current snapshot")
+	if _, ok := model.commandRegistry.Command("/prompt:new"); !ok {
+		t.Fatal("completed catalog snapshot was not applied")
 	}
 }
 

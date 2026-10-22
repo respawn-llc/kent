@@ -19,7 +19,7 @@ func TestPersistedMessageAppliesProjectionByCommitReceipt(t *testing.T) {
 		store := mustCreateTestSession(t)
 		var events []Event
 		eng := mustNewTestEngine(t, store, &fakeClient{}, tools.NewRegistry(), Config{
-			Model:   "gpt-5",
+			Model:   "gpt-6-sol",
 			OnEvent: func(event Event) { events = append(events, event) },
 		})
 		mustBlockTestEventLogAppends(t, store)
@@ -39,7 +39,7 @@ func TestPersistedMessageAppliesProjectionByCommitReceipt(t *testing.T) {
 		store := mustCreateTestSessionAt(t, t.TempDir(), session.WithPersistenceObserver(gate))
 		var events []Event
 		eng := mustNewTestEngine(t, store, &fakeClient{}, tools.NewRegistry(), Config{
-			Model:   "gpt-5",
+			Model:   "gpt-6-sol",
 			OnEvent: func(event Event) { events = append(events, event) },
 		})
 		gate.FailNext(observerErr)
@@ -64,14 +64,6 @@ func TestRuntimeSetterCallerCancellationStopsOnlyWait(t *testing.T) {
 		applied func(*Engine) bool
 	}{
 		{
-			name: "Session name",
-			apply: func(ctx context.Context, engine *Engine) error {
-				_, err := engine.SetSessionName(ctx, "renamed")
-				return err
-			},
-			applied: func(engine *Engine) bool { return engine.SessionName() == "renamed" },
-		},
-		{
 			name: "Thinking",
 			apply: func(ctx context.Context, engine *Engine) error {
 				return engine.SetThinkingLevel(ctx, "low")
@@ -92,7 +84,7 @@ func TestRuntimeSetterCallerCancellationStopsOnlyWait(t *testing.T) {
 		t.Run(test.name, func(t *testing.T) {
 			store := mustCreateTestSession(t)
 			engine := mustNewExecTestEngine(t, store, &fakeClient{}, Config{
-				Model:                   "gpt-5",
+				Model:                   "gpt-6-sol",
 				ThinkingLevel:           "high",
 				SupportedThinkingValues: []string{"low", "high"},
 			})

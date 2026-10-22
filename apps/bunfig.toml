@@ -1,0 +1,5 @@
+[install]
+linker = "isolated"
+minimumReleaseAge = 604800
+# Approved for the scroll fixes; remove after October 18, 2026.
+minimumReleaseAgeExcludes = ["@tanstack/react-virtual", "@tanstack/virtual-core"]

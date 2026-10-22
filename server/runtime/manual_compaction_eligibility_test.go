@@ -8,7 +8,6 @@ import (
 	contextpb "core/shared/protoapi/gen/kent/api/chat_context"
 	"core/shared/runtimeids"
 	"core/shared/runtimeinput"
-	"core/shared/serverapi"
 	"core/shared/textutil"
 )
 
@@ -27,15 +26,13 @@ func TestManualCompactionRejectsTooSoonBeforeScheduling(t *testing.T) {
 		}},
 	}
 	engine := mustNewTestEngine(t, mustCreateTestSession(t), client, newTestToolRegistry(t), Config{
-		Model:          "gpt-5",
+		Model:          "gpt-6-sol",
 		CompactionMode: "local",
 	})
 	engine.compactionRuntimeState().SetManualCompactionEligible(false)
 
-	requestID := runtimeids.NewCompactionRequestID()
-	if _, err := engine.CompactContextAdmissionForRequestWithAcceptance(
+	if _, err := engine.CompactContextAdmissionWithAcceptance(
 		t.Context(),
-		requestID,
 		runtimeinput.ManualCompactionAdmission{},
 		nil,
 	); !errors.Is(err, ErrManualCompactionTooSoon) {
@@ -65,7 +62,7 @@ func TestManualCompactionAcceptsAfterAgentStepBoundary(t *testing.T) {
 		}},
 	}
 	engine := mustNewTestEngine(t, mustCreateTestSession(t), client, newTestToolRegistry(t), Config{
-		Model:          "gpt-5",
+		Model:          "gpt-6-sol",
 		CompactionMode: "local",
 	})
 	completeManualEligibilityAgentStep(t, engine)
@@ -84,10 +81,10 @@ func TestManualCompactionAcceptsAfterAgentStepBoundary(t *testing.T) {
 }
 
 func TestManualCompactionAdmissionReturnsDuringAgentStep(t *testing.T) {
-	engine := pendingWorkTestEngine(t, Config{Model: "gpt-5", CompactionMode: "local"})
+	engine := pendingWorkTestEngine(t, Config{Model: "gpt-6-sol", CompactionMode: "local"})
 	release := pendingWorkTestHoldStep(t, engine, ActiveKindUserTurn)
-	_, firstID := schedulePendingManualCompaction(t, engine)
-	_, secondID := schedulePendingManualCompaction(t, engine)
+	firstID := schedulePendingManualCompaction(t, engine)
+	secondID := schedulePendingManualCompaction(t, engine)
 	pending := pendingWorkTestSnapshot(t, engine)
 	if !pendingWorkTestContains(pending, firstID) || !pendingWorkTestContains(pending, secondID) {
 		t.Fatalf("repeated manual compactions were coalesced: %+v", pending.Items)
@@ -112,29 +109,32 @@ func TestManualCompactionRevalidatesMutableConditionsAtBoundary(t *testing.T) {
 		{
 			"active compaction",
 			func(engine *Engine) {
-				engine.compactionRuntimeState().SetActive(runtimeTestStepID("other-compaction"), nil, string(compactionModeManual), 1, ActiveKindCompaction)
+				engine.compactionRuntimeState().SetActive(runtimeTestStepID("other-compaction"), string(compactionModeManual), 1, ActiveKindCompaction)
 			},
 		},
 		{"too soon", func(engine *Engine) { engine.compactionRuntimeState().SetManualCompactionEligible(false) }},
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
-			engine := pendingWorkTestEngine(t, Config{Model: "gpt-5", CompactionMode: "local"})
+			engine := pendingWorkTestEngine(t, Config{Model: "gpt-6-sol", CompactionMode: "local"})
 			engine.compactionRuntimeState().SetManualCompactionEligible(true)
 			release := pendingWorkTestHoldMaintenance(t, engine)
 			var terminal *CompactionStatus
+			var events []Event
 			engine.cfg.OnEvent = func(event Event) {
+				events = append(events, event)
 				if event.Kind == EventCompactionFailed && event.Compaction != nil {
 					terminal = event.Compaction
 				}
 			}
 
-			requestID, itemID := schedulePendingManualCompaction(t, engine)
+			itemID := schedulePendingManualCompaction(t, engine)
 			test.mutate(engine)
 			release()
 			waitEngineLifecycleTasks(t, engine)
-			if terminal == nil || terminal.RequestID == nil || *terminal.RequestID != requestID {
-				t.Fatalf("terminal compaction status = %+v, want request %s", terminal, requestID)
+			assertSingleDurableCompactionFailure(t, engine, events, compactionModeManual)
+			if terminal == nil {
+				t.Fatal("missing terminal compaction status")
 			}
 			if pendingWorkTestContains(pendingWorkTestSnapshot(t, engine), itemID) {
 				t.Fatal("started manual compaction remained in Pending Work")
@@ -143,15 +143,19 @@ func TestManualCompactionRevalidatesMutableConditionsAtBoundary(t *testing.T) {
 	}
 }
 
-func schedulePendingManualCompaction(t *testing.T, engine *Engine) (runtimeids.CompactionRequestID, runtimeids.QueueItemID) {
+func schedulePendingManualCompaction(t *testing.T, engine *Engine) runtimeids.QueueItemID {
 	t.Helper()
-	requestID := runtimeids.NewCompactionRequestID()
-	_, err := engine.CompactContextAdmissionForRequestWithAcceptance(
-		t.Context(), requestID, runtimeinput.ManualCompactionAdmission{}, nil)
+	before := pendingWorkTestSnapshot(t, engine)
+	_, err := engine.CompactContextAdmissionWithAcceptance(
+		t.Context(), runtimeinput.ManualCompactionAdmission{}, nil)
 	pendingWorkTestNoError(t, err)
-	itemID, err := serverapi.PendingWorkItemIDFromCompactionRequest(requestID)
-	pendingWorkTestNoError(t, err)
-	return requestID, itemID
+	for _, item := range pendingWorkTestSnapshot(t, engine).Items {
+		if item.Kind == runtimeinput.PendingWorkItemKindManualCompaction && !pendingWorkTestContains(before, item.ID) {
+			return item.ID
+		}
+	}
+	t.Fatal("accepted manual compaction missing from Pending Work")
+	return runtimeids.QueueItemID{}
 }
 
 func TestCompactionCarryoverSelectsNewestOrdinaryUserPrompt(t *testing.T) {

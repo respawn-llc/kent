@@ -14,32 +14,31 @@ import (
 const DefaultMaxConcurrentShells = 100
 
 const (
-	defaultModel                         = "gpt-5.6-sol"
-	defaultThinkingLevel                 = "medium"
-	defaultModelVerbosity                = ModelVerbosityLow
-	defaultTheme                         = theme.Auto
-	defaultModelContextWindow            = 372_000
-	minimumModelContextWindow            = 40_000
-	defaultModelTimeoutSeconds           = 400
-	defaultMinimumExecToBgSec            = 15
-	defaultShellOutputMaxChars           = 16_000
-	defaultBGShellsOutput                = "default"
-	defaultShellPostprocessingMode       = ShellPostprocessingModeBuiltin
-	defaultCacheWarningMode              = CacheWarningModeDefault
-	defaultWorkflowCompletionMode        = WorkflowCompletionModeAuto
-	defaultWorkflowConcurrency           = 5
-	defaultWorkflowInvalidCompletionCap  = 5
-	defaultWorkflowUseRequiredToolCalls  = true
-	defaultWorkflowSubagents             = false
-	defaultMaxSubagentDepth              = 2
-	defaultCompactionThreshold           = defaultModelContextWindow * 95 / 100
-	defaultPreSubmitCompactionLeadTokens = DefaultPreSubmitRunwayTokens
-	defaultReviewerFrequency             = "edits"
-	defaultReviewerTimeoutSec            = 120
-	defaultCompactionMode                = "local"
-	defaultServerHost                    = "127.0.0.1"
-	defaultServerPort                    = 53082
-	defaultWorktreeSetupTimeoutSeconds   = 60
+	defaultModel                        = "gpt-6.1-sol"
+	defaultThinkingLevel                = "medium"
+	defaultModelVerbosity               = ModelVerbosityLow
+	defaultTheme                        = theme.Auto
+	defaultModelContextWindow           = 272_000
+	minimumModelContextWindow           = 40_000
+	defaultModelTimeoutSeconds          = 400
+	defaultMinimumExecToBgSec           = 15
+	defaultShellOutputMaxChars          = 16_000
+	defaultBGShellsOutput               = "default"
+	defaultShellPostprocessingMode      = ShellPostprocessingModeBuiltin
+	defaultCacheWarningMode             = CacheWarningModeDefault
+	defaultWorkflowCompletionMode       = WorkflowCompletionModeAuto
+	defaultWorkflowConcurrency          = 5
+	defaultWorkflowInvalidCompletionCap = 5
+	defaultWorkflowUseRequiredToolCalls = true
+	defaultWorkflowSubagents            = false
+	defaultMaxSubagentDepth             = 2
+	defaultCompactionThreshold          = defaultModelContextWindow * 95 / 100
+	defaultReviewerFrequency            = "edits"
+	defaultReviewerTimeoutSec           = 120
+	defaultCompactionMode               = "local"
+	defaultServerHost                   = "127.0.0.1"
+	defaultServerPort                   = 53082
+	defaultWorktreeSetupTimeoutSeconds  = 60
 )
 
 func settingsTOMLForOnboarding(settings Settings, preservedDefaults map[string]bool) string {
@@ -71,6 +70,9 @@ func settingsTOMLWithRenderingOptions(settings Settings, includeToolSection bool
 	var out strings.Builder
 	out.WriteString("# Edit and restart to apply changes.\n")
 	out.WriteString("# Config reference: " + DocsURL + "/config/\n\n")
+	if settings.Connection != nil {
+		writeDefaultLines(&out, []defaultConfigLine{{Path: []string{"connection"}, Value: settings.Connection.TOMLValue()}})
+	}
 	writeRootConfigLines(&out, rootLines)
 	modelCapabilityLines := activeOptionalSectionLines(filterDefaultLines(lines, "model_capabilities"), filterDefaultLines(defaultLines, "model_capabilities"))
 	if len(modelCapabilityLines) > 0 {
@@ -79,8 +81,7 @@ func settingsTOMLWithRenderingOptions(settings Settings, includeToolSection bool
 	}
 	if includeToolSection {
 		out.WriteString("\n[tools]\n")
-		out.WriteString("# Leave both patch/edit commented to use Kent's model-based default:\n")
-		out.WriteString("# patch for first-party OpenAI or gpt-* models, edit otherwise.\n")
+		out.WriteString("# Leave patch and edit unset to let Kent choose.\n")
 		writeToolLines(&out, state.Settings.EnabledTools)
 	}
 	shellLines := annotateRenderedLines(filterDefaultLines(lines, "shell"), filterDefaultLines(defaultLines, "shell"), nil)
@@ -117,23 +118,32 @@ func settingsTOMLWithRenderingOptions(settings Settings, includeToolSection bool
 		out.WriteString("\n[reviewer.model_capabilities]\n")
 		writeDefaultLines(&out, reviewerModelCapabilityLines)
 	}
-	writeBuiltInSubagentSections(&out)
+	if settings.Nano != nil {
+		for _, section := range []string{"nano", "nano.model_capabilities", "nano.features"} {
+			sectionLines := filterExactSectionLines(lines, section)
+			if len(sectionLines) > 0 {
+				out.WriteString("\n[" + section + "]\n")
+				writeDefaultLines(&out, sectionLines)
+			}
+		}
+	}
+	writeBuiltInSubagentSections(&out, settings.Model, settings.ModelContextWindow)
 	writeSkillTogglesSection(&out, state.Settings.SkillToggles)
 	return out.String()
 }
 
-func writeBuiltInSubagentSections(builder *strings.Builder) {
+func writeBuiltInSubagentSections(builder *strings.Builder, mainModel string, contextWindow int) {
 	if builder == nil {
 		return
 	}
 	builder.WriteString("\n[subagents.fast]\n")
-	builder.WriteString("# inherits all main settings unless overridden\n")
-	builder.WriteString("# agent_callable = true # set false to hide/block this role from Kent-session subagent calls\n")
-	builder.WriteString("# description = \"\" # model-visible role description for future/catalog uses\n")
-	builder.WriteString("# model = \"gpt-5.6-terra\" # built-in heuristic on exact OpenAI first-party setups\n")
-	builder.WriteString("# thinking_level = \"low\" # built-in heuristic on exact OpenAI first-party setups\n")
-	builder.WriteString("# priority_request_mode = true # built-in heuristic on exact OpenAI first-party setups\n")
-	builder.WriteString("# model_context_window = 372000 # built-in heuristic on exact OpenAI first-party setups\n")
+	builder.WriteString("# Inherits main settings unless overridden.\n")
+	builder.WriteString("# agent_callable = true # Set false to prevent model-originated delegation to this role.\n")
+	builder.WriteString("# description = \"\" # Role description shown to the model.\n")
+	builder.WriteString("# model = " + strconv.Quote(mainModel) + "\n")
+	builder.WriteString("# thinking_level = \"low\"\n")
+	builder.WriteString("# priority_request_mode = true\n")
+	builder.WriteString("# model_context_window = " + strconv.Itoa(contextWindow) + "\n")
 }
 
 func DefaultModel() string {
@@ -218,18 +228,25 @@ func shouldRenderReviewerThinking(settings Settings, preserved map[string]bool) 
 }
 
 func writeReviewerInheritanceLines(builder *strings.Builder, raw Settings, effective Settings, preserved map[string]bool) {
-	modelCommented := !(preserved != nil && preserved["reviewer.model"]) && strings.TrimSpace(raw.Reviewer.Model) == ""
+	modelCommented := reviewerValueInherited("reviewer.model", strings.TrimSpace(raw.Reviewer.Model) == "", preserved)
 	writeCommentedAssignment(builder, "model", effective.Reviewer.Model, modelCommented, "# inherited from main model unless overridden")
-	thinkingCommented := !(preserved != nil && preserved["reviewer.thinking_level"]) && strings.TrimSpace(raw.Reviewer.ThinkingLevel) == ""
+	thinkingCommented := reviewerValueInherited("reviewer.thinking_level", strings.TrimSpace(raw.Reviewer.ThinkingLevel) == "", preserved)
 	thinkingValue := any(effective.Reviewer.ThinkingLevel)
 	if preserved != nil && preserved["reviewer.thinking_level"] && strings.TrimSpace(raw.Reviewer.ThinkingLevel) == "" {
 		thinkingValue = raw.Reviewer.ThinkingLevel
 	}
 	writeCommentedAssignment(builder, "thinking_level", thinkingValue, thinkingCommented, "# inherited from main thinking_level unless overridden")
-	verbosityCommented := !(preserved != nil && preserved["reviewer.model_verbosity"]) && strings.TrimSpace(string(raw.Reviewer.ModelVerbosity)) == ""
+	verbosityCommented := reviewerValueInherited("reviewer.model_verbosity", strings.TrimSpace(string(raw.Reviewer.ModelVerbosity)) == "", preserved)
 	writeCommentedAssignment(builder, "model_verbosity", effective.Reviewer.ModelVerbosity, verbosityCommented, "# inherited from main model_verbosity unless overridden")
-	contextCommented := !(preserved != nil && preserved["reviewer.model_context_window"]) && raw.Reviewer.ModelContextWindow <= 0
+	contextCommented := reviewerValueInherited("reviewer.model_context_window", raw.Reviewer.ModelContextWindow <= 0, preserved)
 	writeCommentedAssignment(builder, "model_context_window", effective.Reviewer.ModelContextWindow, contextCommented, "# inherited from main model_context_window unless overridden")
+}
+
+func reviewerValueInherited(key string, absent bool, declarations map[string]bool) bool {
+	if declarations != nil {
+		return !declarations[key]
+	}
+	return absent
 }
 
 func writeCommentedAssignment(builder *strings.Builder, key string, value any, commented bool, trailingComment string) {

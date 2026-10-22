@@ -143,6 +143,19 @@ func newTestStore(t *testing.T) (*Store, metadata.Binding) {
 	return store, binding
 }
 
+func noneManualMoveExecutionTargetCandidate(binding metadata.Binding) *ExecutionTargetCandidate {
+	return &ExecutionTargetCandidate{
+		Snapshot: ExecutionTargetSnapshot{
+			Mode:       workflow.ExecutionTargetModeNone,
+			Provenance: ExecutionTargetProvenanceResolved,
+		},
+		Root: ExecutionRoot{
+			SourceWorkspaceID:   binding.WorkspaceID,
+			SourceWorkspaceRoot: binding.CanonicalRoot,
+		},
+	}
+}
+
 func newTestStoreContext(t *testing.T) (context.Context, *Store, metadata.Binding) {
 	t.Helper()
 	store, binding := newTestStore(t)
@@ -232,7 +245,11 @@ func applyManualMoveForStoreTestWithPreparation(
 
 func linkWorkflow(t *testing.T, ctx context.Context, store *Store, projectID string, workflowID runtimeids.WorkflowID, isDefault bool) ProjectWorkflowLinkRecord {
 	t.Helper()
-	link, err := store.LinkWorkflow(ctx, projectID, workflowID, isDefault)
+	policy := WorkflowLinkDefaultNever
+	if isDefault {
+		policy = WorkflowLinkDefaultAlways
+	}
+	link, err := store.LinkWorkflowWithDefaultPolicy(ctx, projectID, workflowID, policy)
 	if err != nil {
 		t.Fatalf("LinkWorkflow: %v", err)
 	}

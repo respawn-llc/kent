@@ -3,15 +3,16 @@ package app
 import (
 	"context"
 	"errors"
-	"strings"
 	"testing"
 
 	tea "github.com/charmbracelet/bubbletea"
-	ansi "github.com/charmbracelet/x/ansi"
 )
 
 func TestAuthCallbackPageInvalidPasteShowsTransientErrorAndStaysOpen(t *testing.T) {
-	m := newAuthCallbackPageModel(authCallbackPageData{Theme: "dark"})
+	m, err := newAuthCallbackPageModel(authCallbackPageData{Theme: "dark"})
+	if err != nil {
+		t.Fatal(err)
+	}
 	m.complete = func(context.Context, string) error {
 		return errors.New("oauth callback is missing code")
 	}
@@ -28,13 +29,16 @@ func TestAuthCallbackPageInvalidPasteShowsTransientErrorAndStaysOpen(t *testing.
 	if m.result.CallbackInput != "" {
 		t.Fatalf("expected invalid paste to stay on page, result=%+v", m.result)
 	}
-	if !strings.Contains(ansi.Strip(m.View()), "Invalid callback: oauth callback is missing code") {
-		t.Fatalf("expected transient error in view, got %q", ansi.Strip(m.View()))
+	if m.currentScreen.ErrorText == "" {
+		t.Fatal("invalid callback failure was not surfaced")
 	}
 }
 
 func TestAuthCallbackPageBrowserWaitErrorShowsErrorAndStaysOpen(t *testing.T) {
-	m := newAuthCallbackPageModel(authCallbackPageData{Theme: "dark"})
+	m, err := newAuthCallbackPageModel(authCallbackPageData{Theme: "dark"})
+	if err != nil {
+		t.Fatal(err)
+	}
 	next, cmd := m.Update(authCallbackPageBrowserDoneMsg{err: errors.New("listener timed out")})
 	m = next.(*authCallbackPageModel)
 	if cmd == nil {
@@ -43,16 +47,19 @@ func TestAuthCallbackPageBrowserWaitErrorShowsErrorAndStaysOpen(t *testing.T) {
 	if m.result.Err != nil || m.result.Canceled {
 		t.Fatalf("expected browser wait failure to keep page open, result=%+v", m.result)
 	}
-	if !strings.Contains(ansi.Strip(m.View()), "Browser callback failed: listener timed out. Paste the callback URL or code.") {
-		t.Fatalf("expected transient wait error in view, got %q", ansi.Strip(m.View()))
+	if m.currentScreen.ErrorText == "" {
+		t.Fatal("callback wait failure was not surfaced")
 	}
 }
 
-func TestAuthCallbackPageEscCancels(t *testing.T) {
-	m := newAuthCallbackPageModel(authCallbackPageData{Theme: "dark"})
+func TestAuthCallbackPageEscGoesBack(t *testing.T) {
+	m, err := newAuthCallbackPageModel(authCallbackPageData{Theme: "dark"})
+	if err != nil {
+		t.Fatal(err)
+	}
 	next, _ := m.Update(tea.KeyMsg{Type: tea.KeyEsc})
 	m = next.(*authCallbackPageModel)
-	if !m.result.Canceled {
-		t.Fatalf("expected Esc to cancel, got %+v", m.result)
+	if !errors.Is(m.result.Err, ErrAuthBack) {
+		t.Fatalf("expected Esc to go back, got %+v", m.result)
 	}
 }

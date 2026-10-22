@@ -7,17 +7,14 @@ import "kent/api/auth/auth.proto";
 import "kent/api/server/server.proto";
 import "kent/api/prompt_command/validation.proto";
 import "kent/api/shared/foundation.proto";
+import "kent/api/shared/validation.proto";
 
 option go_package = "core/shared/protoapi/gen/kent/api/prompt_command;promptcommandpb";
 
 message GetCatalogRequest {
   optional string session_id = 1 [
-    (buf.validate.field).string.min_len = 1,
-    (buf.validate.field).cel = {
-      id: "kent.prompt_command.session_id.trimmed"
-      message: "session_id must not have surrounding whitespace"
-      expression: "this == this.trim()"
-    }
+    (buf.validate.field).string.uuid = true,
+    (buf.validate.field).string.(kent.api.shared.canonical_uuid_v4) = true
   ];
 }
 

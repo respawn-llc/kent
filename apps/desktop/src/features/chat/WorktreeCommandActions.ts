@@ -5,12 +5,15 @@ import type { WorktreeCommandIntent } from "./worktreeCommand";
 export function createWorktreeCommandActions({
   roots,
   focusComposer,
+  openSession,
   deleteTarget,
   ...dependencies
 }: Omit<Parameters<typeof createWorktreeActions>[0], "onAccepted"> &
   Readonly<{
-    roots: SidebarRootController;
+    roots: Pick<SidebarRootController, "open">;
     focusComposer(): void;
+    projectID: string;
+    openSession(sessionID: string): void | Promise<void>;
     deleteTarget(selector: string | null): Promise<void>;
   }>) {
   const transitions = createWorktreeActions({ ...dependencies, onAccepted: () => undefined });
@@ -18,7 +21,13 @@ export function createWorktreeCommandActions({
     switch (intent.kind) {
       case "list":
       case "create": {
-        const handle = roots.open({ kind: "worktree", sessionID: dependencies.sessionID, page: intent.kind });
+        const handle = roots.open({
+          kind: "worktree",
+          projectID: dependencies.projectID,
+          sessionID: dependencies.sessionID,
+          page: intent.kind,
+          openSession,
+        });
         void handle.lifecycle.then((outcome) => {
           if (outcome === "closed") focusComposer();
         });

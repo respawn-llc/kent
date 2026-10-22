@@ -20,6 +20,8 @@ func (l uiViewLayout) renderChatPanel(width, height int, style uiStyles) []strin
 		return l.renderStatusOverlay(width, height, style)
 	case uiSurfaceGoal:
 		return l.renderGoalOverlay(width, height, style)
+	case uiSurfaceConnectionRemoval:
+		return l.renderConnectionRemoval(width, height, style)
 	case uiSurfaceWorktree:
 		return l.renderWorktreeOverlay(width, height, style)
 	case uiSurfaceProcessList:
@@ -213,9 +215,9 @@ func (l uiViewLayout) queuedMessages() []queuedPaneEntry {
 	return entries
 }
 
-func (m *uiModel) injectedQueueItemNeedsLocalPane(item injectedRuntimeQueueItem) bool {
+func (m *uiModel) injectedQueueItemNeedsLocalPane(item *injectedRuntimeQueueItem) bool {
 	switch item.State {
-	case injectedRuntimeQueuePendingCreate, injectedRuntimeQueueCreateFailed, injectedRuntimeQueueDiscardFailed:
+	case injectedRuntimeQueuePendingCreate, injectedRuntimeQueueDiscardFailed:
 		return true
 	case injectedRuntimeQueueEnqueued:
 		return m != nil && !m.hasRuntimeClient()

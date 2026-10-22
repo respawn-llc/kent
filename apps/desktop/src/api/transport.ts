@@ -1,12 +1,4 @@
-import type { JsonValue } from "./json";
-import type { DescMessage, DescMethod, MessageShape } from "@app/server-api-contract";
-
-export type RpcEventHandler = Readonly<{
-  onOpen?(): void;
-  onEvent(method: string, params: unknown): void;
-  onComplete(code: number, message: string): void;
-  onError(error: Error): void;
-}>;
+import type { DescMessage, DescMethod, MessageShape, MessageValidType } from "@app/server-api-contract";
 
 export type RpcSubscription = Readonly<{
   close(): void;
@@ -28,9 +20,12 @@ export type DescriptorSubscriptionInput<
   request: MessageShape<Method["input"]>;
   eventDescriptor: EventDescriptor;
   completionDescriptor: CompletionDescriptor;
-  onStart(result: MessageShape<Method["output"]>): void;
-  handler: DescriptorSubscriptionHandler<MessageShape<EventDescriptor>, MessageShape<CompletionDescriptor>>;
-  attachment?: Readonly<{ projectID: string; sessionID: string }>;
+  onStart(result: MessageValidType<Method["output"]>): void;
+  handler: DescriptorSubscriptionHandler<
+    MessageValidType<EventDescriptor>,
+    MessageValidType<CompletionDescriptor>
+  >;
+  attachment?: SessionAttachmentTarget;
   establishmentTimeoutMs?: number | null;
   transcriptRejection?: Readonly<{ onInvalidEvent(error: Error): void }>;
 }>;
@@ -59,18 +54,7 @@ export type SessionAttachment = Readonly<{
   workspaceRoot: string;
   sessionID: string;
 }>;
-export type SessionAttachmentTarget = Readonly<{ sessionID: string; projectID?: string }>;
-
-export type AttachedRequest =
-  | Readonly<{ kind: "value"; value: JsonValue }>
-  | Readonly<{ kind: "factory"; create(attachment: ProjectAttachment): JsonValue }>;
-
-export type AttachedProjectCall = Readonly<{
-  projectID: string;
-  selector: Readonly<{ workspaceID: string } | { workspaceRoot: string }>;
-  method: string;
-  request: AttachedRequest;
-}>;
+export type SessionAttachmentTarget = Readonly<{ sessionID: string }>;
 
 export type AttachedProjectDescriptorCall<Method extends DescMethod> = Readonly<{
   projectID: string;
@@ -79,58 +63,27 @@ export type AttachedProjectDescriptorCall<Method extends DescMethod> = Readonly<
   createRequest(attachment: ProjectAttachment): MessageShape<Method["input"]>;
 }>;
 
-export type RuntimeOwnerContext = Readonly<{
-  attachment: SessionAttachment;
-  call(method: string, params: JsonValue): Promise<unknown>;
+export type RpcTransport = Readonly<{
+  callDescriptorAttachedSession<Method extends DescMethod>(
+    target: SessionAttachmentTarget,
+    method: Method,
+    request: MessageShape<Method["input"]>,
+    options?: RpcDedicatedCallOptions,
+  ): Promise<MessageValidType<Method["output"]>>;
   callDescriptor<Method extends DescMethod>(
     method: Method,
     request: MessageShape<Method["input"]>,
-  ): Promise<MessageShape<Method["output"]>>;
-  poison(): void;
-}>;
-
-export type RuntimeOwnerOptions = Readonly<{
-  createIfMissing: boolean;
-  closeAfter?: boolean;
-}>;
-
-export type RpcTransport = Readonly<{
-  call(method: string, params: JsonValue, options?: RpcCallOptions): Promise<unknown>;
-  callDedicated(method: string, params: JsonValue, options?: RpcDedicatedCallOptions): Promise<unknown>;
-  callAttachedProject(
-    input: AttachedProjectCall,
     options?: RpcDedicatedCallOptions,
-  ): Promise<Readonly<{ result: unknown; attachment: ProjectAttachment }>>;
-  runRuntimeOwner<Result>(
-    sessionID: string,
-    options: RuntimeOwnerOptions,
-    run: (context: RuntimeOwnerContext) => Promise<Result>,
-  ): Promise<Result>;
-  subscribe(method: string, params: JsonValue, handler: RpcEventHandler): RpcSubscription;
+  ): Promise<MessageValidType<Method["output"]>>;
+  callDescriptorAttachedProject<Method extends DescMethod>(
+    input: AttachedProjectDescriptorCall<Method>,
+    options?: RpcDedicatedCallOptions,
+  ): Promise<Readonly<{ result: MessageValidType<Method["output"]>; attachment: ProjectAttachment }>>;
+  subscribeDescriptor<
+    Method extends DescMethod,
+    EventDescriptor extends DescMessage,
+    CompletionDescriptor extends DescMessage,
+  >(
+    input: DescriptorSubscriptionInput<Method, EventDescriptor, CompletionDescriptor>,
+  ): RpcSubscription;
 }>;
-
-export type DescriptorRpcTransport = RpcTransport &
-  Readonly<{
-    callDescriptorAttachedSession<Method extends DescMethod>(
-      target: SessionAttachmentTarget,
-      method: Method,
-      request: MessageShape<Method["input"]>,
-      options?: RpcDedicatedCallOptions,
-    ): Promise<MessageShape<Method["output"]>>;
-    callDescriptor<Method extends DescMethod>(
-      method: Method,
-      request: MessageShape<Method["input"]>,
-      options?: RpcCallOptions,
-    ): Promise<MessageShape<Method["output"]>>;
-    callDescriptorAttachedProject<Method extends DescMethod>(
-      input: AttachedProjectDescriptorCall<Method>,
-      options?: RpcDedicatedCallOptions,
-    ): Promise<Readonly<{ result: MessageShape<Method["output"]>; attachment: ProjectAttachment }>>;
-    subscribeDescriptor<
-      Method extends DescMethod,
-      EventDescriptor extends DescMessage,
-      CompletionDescriptor extends DescMessage,
-    >(
-      input: DescriptorSubscriptionInput<Method, EventDescriptor, CompletionDescriptor>,
-    ): RpcSubscription;
-  }>;

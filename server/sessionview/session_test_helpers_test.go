@@ -65,10 +65,11 @@ func newSessionViewRuntimeFixture(t *testing.T, store *session.Store, client llm
 	if err != nil {
 		t.Fatalf("parse session id: %v", err)
 	}
+	metadataStore := testsetup.OpenSessionProjectWorkspaceContextReader(t, store)
 	settings := config.DefaultOnboardingSettings()
 	root := t.TempDir()
 	settings = testsetup.WriteProviderSettings(t, root, settings)
-	settings.Model = "gpt-5"
+	settings.Model = "gpt-6-sol"
 	settings.Reviewer.Frequency = "off"
 	plan, err := sessionruntime.NewAgentRuntimePlan(sessionruntime.AgentRuntimePlanOptions{
 		MainWorkspaceRoot:     store.Meta().WorkspaceRoot,
@@ -87,19 +88,20 @@ func newSessionViewRuntimeFixture(t *testing.T, store *session.Store, client llm
 	if err != nil {
 		t.Fatalf("new runtime plan: %v", err)
 	}
-	activity := registry.NewRuntimeRegistry()
+	activity := registry.NewRuntimeRegistry(nil)
 	authority := sessionruntime.NewAuthority(sessionruntime.AuthorityOptions{
-		PersistenceRoot:   root,
-		StoreOptions:      sessionViewTestPersistence.Options(),
-		ResourceLifecycle: activity,
+		PersistenceRoot:               root,
+		ProjectWorkspaceContextReader: metadataStore,
+		StoreOptions:                  sessionViewTestPersistence.Options(),
+		ResourceLifecycle:             activity,
 		EventFeed: func(resource runtimeids.SessionResourceRef, event runtime.Event) {
 			activity.PublishAuthorityRuntimeEvent(resource, event)
 		},
 	})
 	if _, err := authority.OpenRuntime(t.Context(), sessionruntime.RuntimeOpenRequest{
 		SessionID: sessionID,
-		OwnerID:   "sessionview-test",
-		Runtime:   &plan,
+
+		Runtime: &plan,
 	}); err != nil {
 		t.Fatalf("open runtime: %v", err)
 	}

@@ -6,7 +6,6 @@ import (
 
 	"core/shared/protoapi"
 	runtimepb "core/shared/protoapi/gen/kent/api/runtime"
-	"core/shared/runtimeids"
 
 	"google.golang.org/protobuf/proto"
 )
@@ -32,24 +31,14 @@ func registerGoalGatewayBinaryBindings(bindings map[string]gatewayBinaryBinding)
 }
 
 func goalSetTargetScope(request *runtimepb.GoalSetRequest) (routeScopeParams, error) {
-	target, err := protoapi.ChatTargetFromRequest(request)
-	if err != nil {
-		return routeScopeParams{}, err
-	}
-	return routeScopeParams{chatTarget: target}, nil
+	return routeScopeParams{chatTarget: request.Target}, nil
 }
 
 func binaryGoalSetFailure(
 	_ *Gateway,
 	_ *connectionState,
-	request *runtimepb.GoalSetRequest,
+	_ *runtimepb.GoalSetRequest,
 	err error,
 ) proto.Message {
-	var sessionID runtimeids.SessionID
-	if request != nil {
-		if requested := request.Target.GetSession(); requested != nil {
-			sessionID, _ = runtimeids.ParseSessionID(requested.SessionId)
-		}
-	}
-	return protoapi.GoalSetErrorFromError(err, sessionID)
+	return protoapi.GoalSetErrorFromError(err)
 }

@@ -14,7 +14,7 @@ func TestWorkflowLinkReportsMissingProject(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	_, err = store.LinkWorkflow(ctx, "missing-project", created.ID, false)
+	_, err = store.LinkWorkflowWithDefaultPolicy(ctx, "missing-project", created.ID, WorkflowLinkDefaultNever)
 	if !errors.Is(err, serverapi.ErrProjectNotFound) {
 		t.Fatalf("link to missing Project = %v", err)
 	}
@@ -22,7 +22,7 @@ func TestWorkflowLinkReportsMissingProject(t *testing.T) {
 
 func TestWorkflowLinkReportsMissingWorkflow(t *testing.T) {
 	ctx, store, binding := newTestStoreContext(t)
-	_, err := store.LinkWorkflow(ctx, binding.ProjectID, runtimeids.NewWorkflowID(), false)
+	_, err := store.LinkWorkflowWithDefaultPolicy(ctx, binding.ProjectID, runtimeids.NewWorkflowID(), WorkflowLinkDefaultNever)
 	if !errors.Is(err, serverapi.ErrWorkflowNotFound) {
 		t.Fatalf("link to missing Workflow = %v", err)
 	}

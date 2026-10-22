@@ -13,7 +13,6 @@ import {
   ResultFieldRole,
   type KentResultFieldOptions,
 } from "./gen/kent/api/shared/foundation_pb.js";
-import { validate } from "./message.js";
 
 export type ResultFailureClassification = Readonly<{
   kind: "known" | "generic";
@@ -25,14 +24,24 @@ export function classifyResultFailure(
   failure: Message,
 ): ResultFailureClassification {
   const errorDescriptor = inspectResultError(resultDescriptor);
-  validate(errorDescriptor.message, failure);
   const convention = inspectError(errorDescriptor.message);
   const reflected = reflect(errorDescriptor.message, failure);
+  const code = reflected.get(convention.code);
+  return { kind: convention.detailByCode.has(code) ? "known" : "generic", code };
+}
+
+export function validateResultErrorDetail(resultDescriptor: DescMessage, result: Message): void {
+  const errorDescriptor = inspectResultError(resultDescriptor);
+  const reflectedResult = reflect(resultDescriptor, result);
+  if (reflectedResult.oneofCase(resultOutcome(withResultOptions(errorDescriptor))) !== errorDescriptor)
+    return;
+  const convention = inspectError(errorDescriptor.message);
+  const reflected = reflectedResult.get(errorDescriptor);
   const code = reflected.get(convention.code);
   const selectedDetail = reflected.oneofCase(convention.detail);
   const requiredDetail = convention.detailByCode.get(code);
   if (requiredDetail === undefined) {
-    return { kind: "generic", code };
+    return;
   }
   if (selectedDetail === undefined) {
     throw new Error(
@@ -44,7 +53,6 @@ export function classifyResultFailure(
       `${errorDescriptor.message.typeName} known error code ${code} requires detail ${requiredDetail.name}, got ${selectedDetail.name}`,
     );
   }
-  return { kind: "known", code };
 }
 
 type FieldWithOptions = Readonly<{

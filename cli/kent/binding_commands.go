@@ -11,6 +11,7 @@ import (
 	"strings"
 	"time"
 
+	"core/cli/internal/pathdisplay"
 	"core/shared/apicontract"
 	"core/shared/client"
 	"core/shared/clientui"
@@ -18,6 +19,7 @@ import (
 	"core/shared/protoapi"
 	projectpb "core/shared/protoapi/gen/kent/api/project"
 	sessionlaunchpb "core/shared/protoapi/gen/kent/api/session_launch"
+	"core/shared/runtimeids"
 	"core/shared/serverapi"
 	"core/shared/sessionenv"
 
@@ -39,6 +41,8 @@ func projectSubcommand(args []string, stdout io.Writer, stderr io.Writer) int {
 			return detachSubcommand(args[1:], stdout, stderr)
 		case "delete":
 			return projectDeleteSubcommand(args[1:], stdout, stderr)
+		case "workspaces":
+			return projectWorkspacesSubcommand(args[1:], stdout, stderr)
 		}
 	}
 	fs := newCommandFlagSet(config.Command+" project", stderr, projectUsage)
@@ -78,7 +82,7 @@ func projectListSubcommand(args []string, stdout io.Writer, stderr io.Writer) in
 		return 1
 	}
 	for _, project := range projects {
-		_, _ = fmt.Fprintf(stdout, "%s\t%s\t%s\n", project.ProjectID, project.DisplayName, project.RootPath)
+		_, _ = fmt.Fprintf(stdout, "%s\t%s\t%s\n", project.ProjectID, project.DisplayName, pathdisplay.Compact(project.RootPath, nil))
 	}
 	return 0
 }
@@ -243,29 +247,29 @@ func rebindWorkspaceWithTimeout(ctx context.Context, remote apicontract.ProjectV
 }
 
 func retargetSessionWorkspace(ctx context.Context, remote apicontract.SessionLifecycleService, sessionID string, workspaceRoot string, projectID *string) (*sessionlaunchpb.SessionRetargetWorkspaceSuccess, error) {
-	origin, err := sessionRetargetRuntimeOrigin(sessionID)
+	selector, err := runtimeids.ParseSessionSelector(sessionID)
 	if err != nil {
-		return &sessionlaunchpb.SessionRetargetWorkspaceSuccess{}, err
+		return nil, err
 	}
+	origin := sessionRetargetRuntimeOrigin()
 	return remote.RetargetSessionWorkspace(ctx, &sessionlaunchpb.SessionRetargetWorkspaceRequest{
-		SessionId:     sessionID,
+		SessionId:     protoapi.SessionSelectorToProto(selector),
 		WorkspaceRoot: workspaceRoot,
 		ProjectId:     projectID,
 		Origin:        origin,
 	})
 }
 
-func sessionRetargetRuntimeOrigin(sessionID string) (*sessionlaunchpb.RuntimeStepOrigin, error) {
+func sessionRetargetRuntimeOrigin() *sessionlaunchpb.RuntimeStepOrigin {
 	currentSessionID, ok := sessionenv.LookupSessionID(os.LookupEnv)
-	if !ok || currentSessionID != strings.TrimSpace(sessionID) {
-		return nil, nil
+	if !ok {
+		return nil
 	}
-	runID, stepID := sessionenv.LookupRunStepID(os.LookupEnv)
-	if runID == "" && stepID == "" {
-		return nil, nil
+	stepID, _ := sessionenv.LookupStepID(os.LookupEnv)
+	if stepID == "" {
+		return nil
 	}
-	origin := &sessionlaunchpb.RuntimeStepOrigin{RunId: runID, StepId: stepID}
-	return origin, protoapi.Validate(origin)
+	return &sessionlaunchpb.RuntimeStepOrigin{SessionId: currentSessionID, StepId: stepID}
 }
 
 func listProjects(ctx context.Context) ([]clientui.ProjectSummary, error) {
@@ -280,10 +284,7 @@ func listProjects(ctx context.Context) ([]clientui.ProjectSummary, error) {
 	}
 	projects := make([]clientui.ProjectSummary, 0, len(resp.Projects))
 	for _, project := range resp.Projects {
-		summary, err := client.ProjectSummaryFromProto(project)
-		if err != nil {
-			return nil, err
-		}
+		summary := client.ProjectSummaryFromProto(project)
 		projects = append(projects, summary)
 	}
 	return projects, nil
@@ -291,9 +292,6 @@ func listProjects(ctx context.Context) ([]clientui.ProjectSummary, error) {
 
 func createProject(ctx context.Context, displayName string, workspaceRoot string) (*projectpb.ProjectMutationBinding, error) {
 	trimmedDisplayName := strings.TrimSpace(displayName)
-	if trimmedDisplayName == "" {
-		return nil, errors.New("project name is required")
-	}
 	normalizedWorkspaceRoot, err := normalizeBindingCommandPath(workspaceRoot)
 	if err != nil {
 		return nil, err
@@ -323,25 +321,25 @@ func retargetSessionWorkspaceResponse(ctx context.Context, sessionID string, new
 	return resp, nil
 }
 
-func openBindingCommandRemote(ctx context.Context, path string) (config.App, *client.Remote, error) {
+func openBindingCommandRemote(ctx context.Context, path string) (config.Connection, *client.Remote, error) {
 	cfg, remote, err := openBindingCommandRemoteLifecycle(ctx, path)
 	if err != nil && remote != nil {
 		_ = remote.Close()
-		return config.App{}, nil, err
+		return config.Connection{}, nil, err
 	}
 	return cfg, remote, err
 }
 
-func openBindingCommandRemoteLifecycle(ctx context.Context, path string) (config.App, *client.Remote, error) {
+func openBindingCommandRemoteLifecycle(ctx context.Context, path string) (config.Connection, *client.Remote, error) {
 	cfg, err := loadBindingCommandConfig(path)
 	if err != nil {
-		return config.App{}, nil, err
+		return config.Connection{}, nil, err
 	}
 	dialCtx, cancel := context.WithTimeout(ctx, bindingCommandRPCTimeout)
 	defer cancel()
 	remote, err := client.DialConfiguredRemote(dialCtx, cfg)
 	if err != nil {
-		return config.App{}, nil, err
+		return config.Connection{}, nil, err
 	}
 	// When the operator selected an explicit non-default persistence root, only
 	// operate on a server actually serving that root so project/binding commands
@@ -374,22 +372,22 @@ func resolveWorkspaceBinding(ctx context.Context, projectViews apicontract.Proje
 	if resp.Binding == nil {
 		return serverapi.ProjectBinding{}, errWorkspaceNotRegistered
 	}
-	return client.ProjectBindingFromProto(resp.Binding)
+	return client.ProjectBindingFromProto(resp.Binding), nil
 }
 
-func loadBindingCommandConfig(path string) (config.App, error) {
+func loadBindingCommandConfig(path string) (config.Connection, error) {
 	trimmedPath := strings.TrimSpace(path)
 	if trimmedPath == "" {
 		trimmedPath = "."
 	}
 	absPath, err := filepath.Abs(trimmedPath)
 	if err != nil {
-		return config.App{}, err
+		return config.Connection{}, err
 	}
 	if info, statErr := os.Stat(absPath); statErr == nil && !info.IsDir() {
 		absPath = filepath.Dir(absPath)
 	}
-	return config.LoadConnectionDiscovery(absPath)
+	return config.LoadConnectionDiscovery(absPath, config.LoadOptions{})
 }
 
 var errWorkspaceNotRegistered = serverapi.ErrWorkspaceNotRegistered

@@ -1,5 +1,6 @@
 import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import type { ReactElement } from "react";
+import { beforeAll, beforeEach, expect, it, mock, vi } from "bun:test";
 import {
   createMemoryHistory,
   createRootRoute,
@@ -7,36 +8,35 @@ import {
   RouterContextProvider,
 } from "@tanstack/react-router";
 
-import { SidebarRootContext } from "@/app-facade";
 import { createBrowserNativeBridge } from "@/test-support/native-bridge";
 import { createTaskDetailTestServices, taskDetailResponse } from "@/test-support/task-detail";
 import { createTestSidebarController } from "@/test-support/sidebar";
 import { TestAppProviders } from "@/test-support/app-services";
 import { appI18n, initializeI18n } from "@/i18n";
-import { StandaloneTaskRoute } from "./StandaloneTaskRoute";
-import { TaskDetailWindowRoute } from "./TaskDetailWindowRoute";
 
-const fixture = vi.hoisted(() => ({
-  featureFlags: { desktopChatEnabled: true },
+const fixture = {
   copyText: vi.fn(async () => undefined),
   navigation: {
     openHome: vi.fn(async () => undefined),
     openSessionChat: vi.fn(async () => undefined),
   },
-}));
+};
 
-vi.mock("@/shared/feature-flags", () => fixture.featureFlags);
-vi.mock("@/app-facade", async (importOriginal) => ({
-  ...(await importOriginal()),
+const actualAppFacade = await import("@/app-facade");
+await mock.module("@/app-facade", () => ({
+  ...actualAppFacade,
   useAppNavigation: () => fixture.navigation,
 }));
-vi.mock("./taskDetailDismissal", () => ({
+await mock.module("./taskDetailDismissal", () => ({
   useExactTaskDetailDeleteDismissal: () => async () => ({ kind: "accepted" }),
 }));
 
+const { SidebarRootContext } = actualAppFacade;
+const { StandaloneTaskRoute } = await import("./StandaloneTaskRoute");
+const { TaskDetailWindowRoute } = await import("./TaskDetailWindowRoute");
+
 beforeAll(async () => initializeI18n());
 beforeEach(() => {
-  fixture.featureFlags.desktopChatEnabled = true;
   fixture.copyText.mockClear();
   fixture.navigation.openHome.mockClear();
   fixture.navigation.openSessionChat.mockClear();
@@ -68,9 +68,9 @@ function renderTaskDetailHost(child: ReactElement) {
 
 it.each([
   ["development", true, true],
-  ["production", false, false],
+  ["production", false, true],
 ] as const)("renders the %s main-window Task Detail actions", async (_name, enabled, hasChat) => {
-  fixture.featureFlags.desktopChatEnabled = enabled;
+  globalThis.__KENT_TEST_ENV__.DEV = enabled;
   renderTaskDetailHost(<StandaloneTaskRoute taskId="task-1" />);
 
   const flow = await screen.findByTestId("task-detail-action-flow");
@@ -79,22 +79,26 @@ it.each([
   });
   expect(openInCli !== null).toBe(!hasChat);
   if (openInCli !== null) {
+    const session = taskDetailResponse.task.liveSessions[0];
+    if (session === undefined) throw new Error("Live Session fixture is required.");
     fireEvent.click(openInCli);
+    fireEvent.click(within(screen.getByRole("dialog")).getByRole("button", { name: "Review chat" }));
     await waitFor(() => {
-      expect(fixture.copyText).toHaveBeenCalledWith("kent --session=session-1");
+      expect(fixture.copyText).toHaveBeenCalledWith(`kent --session=${session.sessionId}`);
     });
   }
 
   const openChat = within(flow).queryByRole("button", {
-    name: appI18n.t("task.openChat", { name: "Review chat" }),
+    name: appI18n.t("task.openInChat"),
   });
   expect(openChat !== null).toBe(hasChat);
   if (openChat !== null) {
     fireEvent.click(openChat);
+    fireEvent.click(within(screen.getByRole("dialog")).getByRole("button", { name: "Review chat" }));
     await waitFor(() => {
       expect(fixture.navigation.openSessionChat).toHaveBeenCalledWith({
         projectID: "project-1",
-        sessionID: "session-1",
+        sessionID: "33333333-3333-4333-8333-333333333333",
       });
     });
   }
@@ -111,7 +115,7 @@ it("keeps native Task Detail on its CLI action without a Chat action", async () 
   ).toBeInTheDocument();
   expect(
     within(flow).queryByRole("button", {
-      name: appI18n.t("task.openChat", { name: "Review chat" }),
+      name: appI18n.t("task.openInChat"),
     }),
   ).not.toBeInTheDocument();
 });

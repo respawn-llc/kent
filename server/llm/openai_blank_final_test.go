@@ -39,7 +39,7 @@ func TestOpenAIBlankFinalResponsePresence(t *testing.T) {
 				t.Fatalf("unmarshal output: %v", err)
 			}
 
-			items, assistantText, phase, _, _, _, _, err := parseOutputItems(output)
+			items, assistantText, phase, _, _, _, _, err := parseOutputItems(output, openAIResponsesPolicy{})
 			if err != nil {
 				t.Fatalf("parse output: %v", err)
 			}
@@ -74,15 +74,16 @@ func TestOpenAIBlankFinalClientPresence(t *testing.T) {
 		{name: "omitted final", content: nil, providerPhase: FinalProviderPhase()},
 	} {
 		t.Run(test.name, func(t *testing.T) {
-			client := NewOpenAIClient(providerPhaseProjectionTransport{
-				response: OpenAIResponse{
+			client := NewResponsesClient(providerPhaseProjectionTransport{
+				response: ResponsesResponse{
 					AssistantText: test.content,
 					ProviderPhase: test.providerPhase,
 				},
-			})
+			}, nil)
+
 			response, err := client.Generate(context.Background(), Request{SessionID: textutil.Value("test-session"),
-				Model:          "gpt-5",
-				ToolChoiceMode: ToolChoiceModeAutomatic,
+				Model:          "gpt-6-sol",
+				ToolChoiceMode: ToolChoiceModeAutomatic, ReasoningEffort: "high",
 			}, StreamCallbacks{})
 			if err != nil {
 				t.Fatalf("generate: %v", err)
@@ -158,9 +159,9 @@ func TestOpenAIBlankFinalStreamingAfterCommentary(t *testing.T) {
 				`{"type":"response.completed","response":{"output":[{"id":"msg_commentary","type":"message","role":"assistant","phase":"commentary","content":[{"type":"output_text","text":"working"}]},{"id":"msg_final","type":"message","role":"assistant","phase":"final_answer",`+test.finalResponse+`"status":"completed"}]}}`,
 				`[DONE]`,
 			)
-			response, err := NewOpenAIClient(transport).Generate(context.Background(), Request{SessionID: textutil.Value("test-session"),
-				Model:          "gpt-5",
-				ToolChoiceMode: ToolChoiceModeAutomatic,
+			response, err := NewResponsesClient(transport, nil).Generate(context.Background(), Request{SessionID: textutil.Value("test-session"),
+				Model:          "gpt-6-sol",
+				ToolChoiceMode: ToolChoiceModeAutomatic, ReasoningEffort: "high",
 			}, StreamCallbacks{})
 			if err != nil {
 				t.Fatalf("generate stream: %v", err)
@@ -199,9 +200,9 @@ func TestOpenAIBlankFinalStreamingRejectsPendingUnmaterializedOutput(t *testing.
 				`[DONE]`,
 			}
 			transport := newOpenAIStreamTestTransport(t, events...)
-			_, err := transport.Generate(context.Background(), OpenAIRequest{SessionID: textutil.Value("test-session"),
-				Model:          "gpt-5",
-				ToolChoiceMode: ToolChoiceModeAutomatic,
+			_, err := transport.Generate(context.Background(), ResponsesRequest{SessionID: textutil.Value("test-session"),
+				Model:          "gpt-6-sol",
+				ToolChoiceMode: ToolChoiceModeAutomatic, ReasoningEffort: "high",
 			}, StreamCallbacks{})
 			if err == nil {
 				t.Fatal("pending assistant output without a matching output item was accepted")
@@ -215,9 +216,9 @@ func TestOpenAIBlankFinalRejectsMalformedContentShape(t *testing.T) {
 		`{"type":"response.output_item.done","output_index":0,"item":{"id":"msg_invalid","type":"message","role":"assistant","phase":"final_answer","content":{}}}`,
 		`[DONE]`,
 	)
-	if _, err := transport.Generate(context.Background(), OpenAIRequest{SessionID: textutil.Value("test-session"),
-		Model:          "gpt-5",
-		ToolChoiceMode: ToolChoiceModeAutomatic,
+	if _, err := transport.Generate(context.Background(), ResponsesRequest{SessionID: textutil.Value("test-session"),
+		Model:          "gpt-6-sol",
+		ToolChoiceMode: ToolChoiceModeAutomatic, ReasoningEffort: "high",
 	}, StreamCallbacks{}); err == nil {
 		t.Fatal("expected malformed content shape to fail")
 	}
@@ -231,9 +232,9 @@ func TestOpenAIBlankFinalStreamingPresence(t *testing.T) {
 		`[DONE]`,
 	)
 
-	response, err := transport.Generate(context.Background(), OpenAIRequest{SessionID: textutil.Value("test-session"),
+	response, err := transport.Generate(context.Background(), ResponsesRequest{SessionID: textutil.Value("test-session"),
 		ToolChoiceMode: ToolChoiceModeAutomatic,
-		Model:          "gpt-5",
+		Model:          "gpt-6-sol", ReasoningEffort: "high",
 	}, StreamCallbacks{})
 	if err != nil {
 		t.Fatalf("generate stream: %v", err)
@@ -245,10 +246,10 @@ func TestOpenAIBlankFinalStreamingPresence(t *testing.T) {
 		t.Fatalf("output items = %+v, want present whitespace content", response.OutputItems)
 	}
 
-	client := NewOpenAIClient(transport)
+	client := NewResponsesClient(transport, nil)
 	clientResponse, err := client.Generate(context.Background(), Request{SessionID: textutil.Value("test-session"),
-		Model:          "gpt-5",
-		ToolChoiceMode: ToolChoiceModeAutomatic,
+		Model:          "gpt-6-sol",
+		ToolChoiceMode: ToolChoiceModeAutomatic, ReasoningEffort: "high",
 	}, StreamCallbacks{})
 	if err != nil {
 		t.Fatalf("client generate stream: %v", err)
@@ -265,9 +266,9 @@ func TestOpenAIBlankFinalStreamingPresence(t *testing.T) {
 		`{"type":"response.completed","response":{"output":[{"id":"msg_omitted","type":"message","role":"assistant","phase":"final_answer"}]}}`,
 		`[DONE]`,
 	)
-	omittedResponse, err := NewOpenAIClient(omittedTransport).Generate(context.Background(), Request{SessionID: textutil.Value("test-session"),
-		Model:          "gpt-5",
-		ToolChoiceMode: ToolChoiceModeAutomatic,
+	omittedResponse, err := NewResponsesClient(omittedTransport, nil).Generate(context.Background(), Request{SessionID: textutil.Value("test-session"),
+		Model:          "gpt-6-sol",
+		ToolChoiceMode: ToolChoiceModeAutomatic, ReasoningEffort: "high",
 	}, StreamCallbacks{})
 	if err != nil {
 		t.Fatalf("omitted client generate stream: %v", err)
@@ -322,7 +323,7 @@ func TestOpenAIBlankFinalInputPreparation(t *testing.T) {
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
-			prepared := PrepareOpenAIInputItems([]ResponseItem{test.item})
+			prepared := PrepareResponsesInputItems([]ResponseItem{test.item})
 			if len(prepared) != 1 {
 				t.Fatalf("prepared items = %d, want 1", len(prepared))
 			}

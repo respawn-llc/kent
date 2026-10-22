@@ -56,13 +56,19 @@ func (a *Authority) SyncExecutionTarget(ctx context.Context, sessionID string, t
 			if normalizedReminder == nil {
 				return false, nil
 			}
-			return false, store.SetWorktreeReminderState(normalizedReminder)
+			previous := store.Meta().WorktreeReminder
+			if err := store.SetWorktreeReminderState(normalizedReminder); err != nil {
+				return false, err
+			}
+			return false, runtime.SteerPersistedWorktreeTransition(store, previous)
 		}
 		retire := false
 		err := engine.RunWhenIdleBeforeQueuedUserWork(runCtx, runtime.ActiveKindRuntimeMaintenance, func() error {
-			var syncErr error
-			retire, syncErr = syncResourceExecutionTarget(resource, engine, normalizedTarget, normalizedReminder)
-			return syncErr
+			return engine.ApplyWorktreeTransitionTerminal(runCtx, func(context.Context) error {
+				var syncErr error
+				retire, syncErr = syncResourceExecutionTarget(resource, engine, normalizedTarget, normalizedReminder)
+				return syncErr
+			})
 		})
 		return retire, err
 	})
@@ -87,9 +93,6 @@ func (a *Authority) RunWorktreeTransition(
 	if err := operationID.Validate(); err != nil {
 		return nil, err
 	}
-	if err := transition.Validate(); err != nil {
-		return nil, err
-	}
 	id, err := runtimeids.ParseSessionID(strings.TrimSpace(sessionID))
 	if err != nil {
 		return nil, err
@@ -100,7 +103,14 @@ func (a *Authority) RunWorktreeTransition(
 			runErr := fn(
 				runCtx,
 				// Dormant maintenance already holds Session admission for this callback.
-				func(apply func(context.Context) error) error { return apply(runCtx) },
+				func(apply func(context.Context) error) error {
+					previous := store.Meta().WorktreeReminder
+					err := apply(runCtx)
+					if worktreeTransitionIsIndeterminate(err) {
+						return err
+					}
+					return errors.Join(err, runtime.SteerPersistedWorktreeTransition(store, previous))
+				},
 				func(syncCtx context.Context, target *worktreepb.SessionExecutionTarget, reminder *session.WorktreeReminderState) error {
 					if err := context.Cause(syncCtx); err != nil {
 						return err
@@ -226,7 +236,7 @@ func (a *Authority) RunSessionMaintenanceAtStepBoundary(
 		}
 		if origin != nil {
 			activeStep := runtimeactivity.ActiveStepFromProvider(engine)
-			if activeStep == nil || activeStep.RunID != origin.RunId || activeStep.StepID != origin.StepId {
+			if activeStep == nil || activeStep.StepID != origin.StepId {
 				return false, runtime.ErrActiveStepInactive
 			}
 		}
@@ -297,26 +307,51 @@ func (a *Authority) ClearWorktreeReminder(ctx context.Context, sessionID string)
 }
 
 func (a *Authority) HasBlockingRuntimeActivity(ctx context.Context, sessionID string) (bool, error) {
-	if ctx == nil {
-		ctx = context.Background()
-	}
-	if err := context.Cause(ctx); err != nil {
-		return false, err
-	}
-	id, err := runtimeids.ParseSessionID(strings.TrimSpace(sessionID))
+	resource, err := a.activityResource(ctx, sessionID)
 	if err != nil {
 		return false, err
 	}
-	if a == nil {
-		return false, nil
-	}
-	a.mu.Lock()
-	resource := a.resources[id]
-	a.mu.Unlock()
 	if resource == nil {
 		return false, nil
 	}
 	return hasBlockingRuntimeActivity(resource), nil
+}
+
+// HasBlockingWorktreeDeleteActivity includes Runtime state that would prevent
+// idle retirement, such as a queued Worktree transition reservation. Retirement
+// still revalidates under its admission gate before a Session is retargeted.
+func (a *Authority) HasBlockingWorktreeDeleteActivity(ctx context.Context, sessionID string) (bool, error) {
+	resource, err := a.activityResource(ctx, sessionID)
+	if err != nil {
+		return false, err
+	}
+	if resource == nil || hasBlockingRuntimeActivity(resource) {
+		return resource != nil, nil
+	}
+	resource.mu.Lock()
+	engine := resource.engine
+	resource.mu.Unlock()
+	return engine != nil && engine.HasRetirementBlockers(), nil
+}
+
+func (a *Authority) activityResource(ctx context.Context, sessionID string) (*agentResource, error) {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	if err := context.Cause(ctx); err != nil {
+		return nil, err
+	}
+	id, err := runtimeids.ParseSessionID(strings.TrimSpace(sessionID))
+	if err != nil {
+		return nil, err
+	}
+	if a == nil {
+		return nil, nil
+	}
+	a.mu.Lock()
+	resource := a.resources[id]
+	a.mu.Unlock()
+	return resource, nil
 }
 
 func hasBlockingRuntimeActivity(resource *agentResource) bool {
@@ -546,8 +581,7 @@ func resourceSessionHasWorkflowContract(resource *agentResource) bool {
 	if resource == nil || resource.store == nil {
 		return false
 	}
-	locked := resource.store.Meta().Locked
-	return locked != nil && locked.WorkflowCompletionMode != nil
+	return resource.store.Meta().WorkflowSnapshot != nil
 }
 
 func runtimeBackgroundShellEvent(resource *agentResource, event shelltool.Event) runtime.BackgroundShellEvent {
@@ -577,7 +611,6 @@ func runtimeBackgroundShellEvent(resource *agentResource, event shelltool.Event)
 		Type:              eventType,
 		ID:                event.Snapshot.ID,
 		ActivityID:        event.Snapshot.ActivityID,
-		OwnerRunID:        event.Snapshot.OwnerRunID,
 		OwnerStepID:       event.Snapshot.OwnerStepID,
 		State:             event.Snapshot.State,
 		Command:           event.Snapshot.Command,
@@ -693,8 +726,6 @@ func (a *Authority) withMaintenanceResourceAdmission(
 	}
 	if retire {
 		err = errors.Join(err, a.retireExactResource(ctx, resource))
-	} else {
-		err = errors.Join(err, a.closeRetiringResource(context.Background(), resource))
 	}
 	return err
 }

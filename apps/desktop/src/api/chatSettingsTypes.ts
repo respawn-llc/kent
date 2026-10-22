@@ -3,7 +3,6 @@ import type { ChatContext, InitialChatSettings } from "./chatTypes";
 export type ChatSettingsEditability =
   | Readonly<{ kind: "editable" }>
   | Readonly<{ kind: "workflow_lock" }>
-  | Readonly<{ kind: "caching_lock" }>
   | Readonly<{ kind: "policy_disabled" }>;
 
 export type ChatSettingsAgent = Readonly<{
@@ -73,7 +72,9 @@ export type ChatSettings = ChatSettingsControls &
     cachingLocked: boolean;
   }>;
 export type ChatSettingsSessionFacts = Readonly<{
+  connection?: Readonly<{ id: string; mode: "subscription" | "api_key" | "no_auth" }>;
   sessionID: string;
+  shortID: bigint | null;
   previousSessionID: string | null;
   task: Readonly<{ taskID: string; shortID: string }> | null;
 }>;
@@ -86,7 +87,12 @@ export type NewChatSettingsCatalog = Readonly<{
 }>;
 export type ChatSettingsRead =
   | Readonly<{ kind: "new_chat"; catalog: NewChatSettingsCatalog; initialSettings: InitialChatSettings }>
-  | Readonly<{ kind: "session"; settings: ChatSettings; session: ChatSettingsSessionFacts }>;
+  | Readonly<{
+      kind: "session";
+      settings: ChatSettings;
+      session: ChatSettingsSessionFacts;
+      connectionReplacement?: Readonly<{ previous: string; current: string }>;
+    }>;
 export type ChatSettingsMutation =
   | Readonly<{ kind: "agent"; role: string }>
   | Readonly<{ kind: "supervisor"; value: InitialChatSettings["supervisor"] }>

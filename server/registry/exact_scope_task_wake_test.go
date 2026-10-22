@@ -22,6 +22,7 @@ import (
 	"core/shared/serverapi"
 	"core/shared/sessioncontract"
 	"core/shared/textutil"
+	"core/shared/workflowcontract"
 )
 
 type exactScopeTaskWakeClient struct{}
@@ -42,20 +43,20 @@ func (exactScopeTaskWakeClient) ProviderCapabilities(context.Context) (llm.Provi
 
 type exactScopeTaskWakeEvents struct {
 	mu     sync.Mutex
-	events []serverapi.WorkflowProjectEvent
+	events []workflowcontract.Event
 }
 
-func (p *exactScopeTaskWakeEvents) publish(_ context.Context, event serverapi.WorkflowProjectEvent) error {
+func (p *exactScopeTaskWakeEvents) publish(_ context.Context, event workflowcontract.Event) error {
 	p.mu.Lock()
 	defer p.mu.Unlock()
 	p.events = append(p.events, event)
 	return nil
 }
 
-func (p *exactScopeTaskWakeEvents) snapshot() []serverapi.WorkflowProjectEvent {
+func (p *exactScopeTaskWakeEvents) snapshot() []workflowcontract.Event {
 	p.mu.Lock()
 	defer p.mu.Unlock()
-	return append([]serverapi.WorkflowProjectEvent(nil), p.events...)
+	return append([]workflowcontract.Event(nil), p.events...)
 }
 
 func TestPromptPendingScopePublishesTaskWakeOnlyFromWorkflowScope(t *testing.T) {
@@ -78,7 +79,7 @@ func TestPromptPendingScopePublishesTaskWakeOnlyFromWorkflowScope(t *testing.T) 
 	}
 
 	settings := config.DefaultOnboardingSettings()
-	settings.Model = "gpt-5"
+	settings.Model = "gpt-6-sol"
 	settings = testsetup.WriteProviderSettings(t, persistenceRoot, settings)
 	filesystemContext, err := runtimewire.NewFilesystemContext(
 		workspaceRoot,
@@ -100,7 +101,7 @@ func TestPromptPendingScopePublishesTaskWakeOnlyFromWorkflowScope(t *testing.T) 
 		t.Fatalf("new runtime plan: %v", err)
 	}
 	events := &exactScopeTaskWakeEvents{}
-	registry := NewRuntimeRegistry().WithWorkflowEventPublisher(events.publish)
+	registry := NewRuntimeRegistry(nil).WithWorkflowEventPublisher(events.publish)
 	authority := sessionruntime.NewAuthority(sessionruntime.AuthorityOptions{
 		PersistenceRoot:   persistenceRoot,
 		ResourceLifecycle: registry,
@@ -111,10 +112,10 @@ func TestPromptPendingScopePublishesTaskWakeOnlyFromWorkflowScope(t *testing.T) 
 			t.Errorf("close authority: %v", err)
 		}
 	})
-	attachment, err := authority.OpenRuntime(context.Background(), sessionruntime.RuntimeOpenRequest{
+	_, err = authority.OpenRuntime(context.Background(), sessionruntime.RuntimeOpenRequest{
 		SessionID: sessionID,
-		OwnerID:   "exact-scope-test",
-		Runtime:   &plan,
+
+		Runtime: &plan,
 	})
 	if err != nil {
 		t.Fatalf("open runtime: %v", err)
@@ -179,8 +180,8 @@ func TestPromptPendingScopePublishesTaskWakeOnlyFromWorkflowScope(t *testing.T) 
 	event := projected[0]
 	if event.ProjectID == nil || *event.ProjectID != workflowRef.ProjectID ||
 		event.WorkflowID == nil || *event.WorkflowID != workflowRef.WorkflowID ||
-		event.Resource != serverapi.WorkflowProjectEventResourceTask ||
-		event.Action != serverapi.WorkflowProjectEventActionQuestionWaiting ||
+		event.Resource != workflowcontract.EventResourceTask ||
+		event.Action != workflowcontract.EventActionQuestionWaiting ||
 		event.PrimaryEntityID != string(workflowRef.CurrentNode.TaskID) ||
 		len(event.RelatedIDs) != 2 ||
 		event.RelatedIDs[0] != sessionID.String() ||
@@ -197,8 +198,8 @@ func TestPromptPendingScopePublishesTaskWakeOnlyFromWorkflowScope(t *testing.T) 
 	cleared := projected[1]
 	if cleared.ProjectID == nil || *cleared.ProjectID != workflowRef.ProjectID ||
 		cleared.WorkflowID == nil || *cleared.WorkflowID != workflowRef.WorkflowID ||
-		cleared.Resource != serverapi.WorkflowProjectEventResourceTask ||
-		cleared.Action != serverapi.WorkflowProjectEventActionQuestionCleared ||
+		cleared.Resource != workflowcontract.EventResourceTask ||
+		cleared.Action != workflowcontract.EventActionQuestionCleared ||
 		cleared.PrimaryEntityID != string(workflowRef.CurrentNode.TaskID) ||
 		len(cleared.RelatedIDs) != 2 ||
 		cleared.RelatedIDs[0] != sessionID.String() ||
@@ -210,9 +211,6 @@ func TestPromptPendingScopePublishesTaskWakeOnlyFromWorkflowScope(t *testing.T) 
 	if err := workflowHandle.Stop(stopCtx); err != nil {
 		t.Fatalf("stop workflow execution: %v", err)
 	}
-	if _, err := attachment.Release(context.Background(), sessionruntime.RuntimeReleaseClose); err != nil {
-		t.Fatalf("close workflow runtime: %v", err)
-	}
 
 	nonWorkflowRequest := request
 	nonWorkflowRequest.AttentionTarget = nil
@@ -220,7 +218,7 @@ func TestPromptPendingScopePublishesTaskWakeOnlyFromWorkflowScope(t *testing.T) 
 	nonWorkflowHandle, err := authority.StartAgentExecution(context.Background(), sessionruntime.AgentExecutionRequest{
 		Descriptor: descriptor,
 		Runtime:    &plan,
-		Resource:   sessionruntime.OpenAgentResource{},
+		Resource:   sessionruntime.ReplaceAgentResource{},
 		Runner: func(ctx context.Context, scope sessionruntime.ExecutionScope, _ sessionruntime.AgentRuntimeBridge) error {
 			err := registry.PromptPendingScope(scope, nonWorkflowRequest, time.Now().UTC())
 			nonWorkflowPromptDone <- err

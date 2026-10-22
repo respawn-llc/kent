@@ -5,80 +5,27 @@ import (
 
 	"core/server/llm"
 	"core/server/tools"
-	"core/shared/runtimeids"
 	"core/shared/textutil"
 )
-
-func TestEmitCompactionStatusStillPublishesFailureEventWhenErrorPersistenceFails(t *testing.T) {
-	t.Parallel()
-	store := mustCreateTestSession(t)
-	var events []Event
-	engine := mustNewTestEngine(t, store, &fakeClient{}, tools.NewRegistry(), Config{
-		Model:   "gpt-5",
-		OnEvent: func(event Event) { events = append(events, event) },
-	})
-	blocker := mustBlockTestEventLogAppends(t, store)
-	t.Cleanup(func() {
-		if err := blocker.Restore(); err != nil {
-			t.Errorf("restore event-log appends: %v", err)
-		}
-	})
-
-	stepID := runtimeTestStepID("compaction")
-	restoreStep := setTestActiveStep(engine, stepID)
-	defer restoreStep()
-	err := newCompactionPersistence(engine).emitStatus(
-		stepID,
-		nil,
-		EventCompactionFailed,
-		compactionModeAuto,
-		"remote",
-		"openai",
-		nil,
-		1,
-		"provider failure",
-	)
-	if err == nil {
-		t.Fatal("compaction failure persistence error was not surfaced")
-	}
-	failedEvents := 0
-	for _, event := range events {
-		switch event.Kind {
-		case EventCompactionFailed:
-			failedEvents++
-		case EventLocalEntryAdded:
-			t.Fatalf("failed compaction emitted persisted local entry: %+v", events)
-		}
-	}
-	if failedEvents != 1 {
-		t.Fatalf("compaction failure events = %d, want one", failedEvents)
-	}
-}
 
 func TestReplaceHistoryPublishesProjectedTranscriptEntriesBeforeCompactionStatus(t *testing.T) {
 	t.Parallel()
 	var events []Event
 	engine := mustNewTestEngine(t, mustCreateTestSession(t), &fakeClient{}, tools.NewRegistry(), Config{
-		Model:   "gpt-5",
+		Model:   "gpt-6-sol",
 		OnEvent: func(event Event) { events = append(events, event) },
 	})
 	stepID := runtimeTestStepID("compact")
-	requestID := runtimeids.NewCompactionRequestID()
 	restoreStep := setTestActiveStep(engine, stepID)
 	defer restoreStep()
-	receipt, err := newCompactionPersistence(engine).replaceHistory(
-		stepID,
-		"local",
-		compactionModeManual,
-		llm.ItemsFromMessages([]llm.Message{
-			{Role: llm.RoleDeveloper, MessageType: textutil.Value(llm.MessageTypeCompactionSummary), Content: textutil.Value("summary")},
-			{Role: llm.RoleUser, Content: textutil.Value("continued input")},
-		}),
-	)
+	receipt, err := replaceTestPreparedHistory(engine, stepID, "local", compactionModeManual, preparedCompactionHistory{items: llm.ItemsFromMessages([]llm.Message{
+		{Role: llm.RoleDeveloper, MessageType: textutil.Value(llm.MessageTypeCompactionSummary), Content: textutil.Value("summary")},
+		{Role: llm.RoleUser, Content: textutil.Value("continued input")},
+	})})
 	if err != nil || !receipt.Committed {
 		t.Fatalf("replace history: receipt=%+v error=%v", receipt, err)
 	}
-	if err := newCompactionPersistence(engine).emitStatus(stepID, &requestID, EventCompactionCompleted, compactionModeManual, "local", "openai", nil, 1, ""); err != nil {
+	if err := newCompactionPersistence(engine).emitStatus(stepID, EventCompactionCompleted, compactionModeManual, "local", "openai", nil, 1, ""); err != nil {
 		t.Fatalf("emit completion status: %v", err)
 	}
 
@@ -92,10 +39,6 @@ func TestReplaceHistoryPublishesProjectedTranscriptEntriesBeforeCompactionStatus
 			}
 			localIndexes = append(localIndexes, index)
 		case EventCompactionCompleted:
-			if event.Compaction == nil || event.Compaction.RequestID == nil ||
-				*event.Compaction.RequestID != requestID {
-				t.Fatalf("completion request identity = %+v, want %s", event.Compaction, requestID.String())
-			}
 			statusIndex = index
 		}
 	}
@@ -112,13 +55,13 @@ func TestAutoCompactionStatusEventDoesNotPublishCommittedEntryStart(t *testing.T
 	t.Parallel()
 	var events []Event
 	engine := mustNewTestEngine(t, mustCreateTestSession(t), &fakeClient{}, tools.NewRegistry(), Config{
-		Model:   "gpt-5",
+		Model:   "gpt-6-sol",
 		OnEvent: func(event Event) { events = append(events, event) },
 	})
 	stepID := runtimeTestStepID("compact")
 	restoreStep := setTestActiveStep(engine, stepID)
 	defer restoreStep()
-	if err := newCompactionPersistence(engine).emitStatus(stepID, nil, EventCompactionCompleted, compactionModeAuto, "local", "openai", nil, 1, ""); err != nil {
+	if err := newCompactionPersistence(engine).emitStatus(stepID, EventCompactionCompleted, compactionModeAuto, "local", "openai", nil, 1, ""); err != nil {
 		t.Fatalf("emit auto completion status: %v", err)
 	}
 	if len(events) != 1 || events[0].Kind != EventCompactionCompleted || events[0].CommittedEntryStartSet {

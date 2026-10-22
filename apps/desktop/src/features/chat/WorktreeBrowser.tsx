@@ -1,15 +1,17 @@
-import { ArrowRightLeft, Plus, RefreshCw } from "lucide-react";
+import { ArrowRightLeft, MessageCircle, Plus, RefreshCw } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactElement } from "react";
-import type * as Atom from "effect/unstable/reactivity/Atom";
+import type * as Atom from "effect/reactivity/Atom";
 import { useAtomValue } from "@effect/atom-react";
 import { useQueryClient } from "@tanstack/react-query";
 import { useTranslation } from "react-i18next";
 
 import { errorMessage, type WorktreeDeletePreviewOperation, type WorktreeSwitch } from "@/api";
+import { CopyableValue } from "@/shared/copyable-value";
 import {
   useAppServices,
-  useStatusController,
+  useNativeChatOpening,
   usePublishSidebarHeaderAction,
+  useStatusController,
   type SidebarPageNavigator,
 } from "@/app-facade";
 import {
@@ -20,6 +22,10 @@ import {
   IconTooltipButton,
   LoadingState,
   Spinner,
+  Tooltip,
+  TooltipContent,
+  TooltipProvider,
+  TooltipTrigger,
 } from "@/ui";
 import { useWorktreeList } from "./useWorktreeList";
 import { worktreeRow } from "./worktreePresentation";
@@ -27,14 +33,18 @@ import { createWorktreeDelete, useWorktreeDelete } from "./WorktreeDelete";
 import { WorktreeDeleteButton } from "./WorktreeDeleteButton";
 
 export function WorktreeBrowser({
+  projectID,
   sessionID,
   onCreate,
   onSwitch,
   navigator,
   switchPending = false,
   refreshOpenWorktreeList,
+  onOpenSession,
 }: Readonly<{
+  projectID: string;
   sessionID: string;
+  onOpenSession(sessionID: string): void | Promise<void>;
   onCreate(): void;
   onSwitch(operation: WorktreeSwitch): void;
   navigator: SidebarPageNavigator;
@@ -42,6 +52,8 @@ export function WorktreeBrowser({
   refreshOpenWorktreeList(sessionID: string): void;
 }>) {
   const { t } = useTranslation();
+  const { nativeBridge } = useAppServices();
+  const nativeWindowsAvailable = nativeBridge.capabilities.dialogWindows;
   const query = useWorktreeList(sessionID);
   const [selected, setSelected] = useState<WorktreeDeletePreviewOperation | null>(null);
   const rows = useRef<HTMLDivElement>(null);
@@ -112,6 +124,7 @@ export function WorktreeBrowser({
     if (query.isError || deletion?.preview.isError)
       return (
         <ErrorState
+          surface="plain"
           body={errorMessage(query.isError ? query.error : deletion?.preview.error)}
           title={t("states.error")}
           retryLabel={t("app.retry")}
@@ -121,6 +134,8 @@ export function WorktreeBrowser({
           }}
         />
       );
+    if (query.data === undefined) return <LoadingState surface="plain" appearanceDelayMs={0} />;
+    const { target, worktrees } = query.data;
     return (
       <div
         className="grid min-w-0 gap-[var(--space-2)]"
@@ -129,42 +144,67 @@ export function WorktreeBrowser({
           lastFocused.current = event.target;
         }}
       >
-        {query.data === undefined ? <LoadingState fullPage={false} appearanceDelayMs={0} /> : null}
-        {query.data?.worktrees.length === 0 ? (
+        {worktrees.length === 0 ? (
           <EmptyState fullPage={false} title={t("chat.worktree.empty")} body={null} />
         ) : null}
-        {query.data?.worktrees.map((entry) => {
-          const target = query.data.target;
-          if (target === undefined) throw new Error("Worktree list target is required");
+        {worktrees.map((entry) => {
           const row = worktreeRow(entry, target.workspaceName);
           return (
             <ActionableListRow
               key={row.key}
               selected={row.selected}
-              wrapActions
+              layout="stacked"
+              subtitle={
+                <TooltipProvider>
+                  <Tooltip>
+                    <TooltipTrigger asChild>
+                      <div className="min-w-0">
+                        <CopyableValue
+                          accessibleLabel={t("chat.worktree.copyPath", { path: row.path })}
+                          clipboardValue={row.path}
+                          copySucceeded={{ id: "worktree-copy-path", title: t("chat.worktree.pathCopied") }}
+                          copyFailed={{ id: "worktree-copy-path", title: t("chat.worktree.copyFailed") }}
+                          className="block w-full font-mono"
+                          size="xs"
+                          unpadded
+                        >
+                          <span className="block truncate">{row.ref ?? row.path}</span>
+                        </CopyableValue>
+                      </div>
+                    </TooltipTrigger>
+                    <TooltipContent>{t("chat.worktree.copyPath", { path: row.path })}</TooltipContent>
+                  </Tooltip>
+                </TooltipProvider>
+              }
               selectionControl={
-                <div className="flex min-w-0 flex-[1_1_16rem] items-center gap-[var(--space-2)] px-[var(--space-2)]">
-                  <div className="min-w-0 flex-1">
-                    <div className="truncate text-sm">{row.title}</div>
-                    {row.ref === undefined ? null : (
-                      <div className="truncate font-mono text-xs text-[var(--color-muted)]">{row.ref}</div>
-                    )}
-                  </div>
-                  {row.indicator === undefined ? null : (
-                    <Badge
-                      className="shrink-0"
-                      size="compact"
-                      tone={row.indicator === "missing" ? "danger" : "warning"}
-                    >
-                      {t(`chat.worktree.${row.indicator}`)}
+                <div className="flex min-w-0 flex-1 items-center gap-[var(--space-1)]">
+                  <div className="min-w-0 truncate text-sm font-medium">{row.title}</div>
+                  {row.selected && (
+                    <Badge className="shrink-0" size="compact" tone="info">
+                      {t("chat.worktree.current")}
                     </Badge>
                   )}
+                  {row.badges.map(({ label, tone }) => (
+                    <Badge key={label} className="shrink-0" size="compact" tone={tone}>
+                      {t(`chat.worktree.${label}`)}
+                    </Badge>
+                  ))}
                 </div>
               }
               actions={
                 <>
+                  {row.originSessionID === undefined ? null : (
+                    <WorktreeOriginSessionAction
+                      currentSessionID={sessionID}
+                      projectID={projectID}
+                      nativeWindowsAvailable={nativeWindowsAvailable}
+                      onOpenSession={onOpenSession}
+                      originSessionID={row.originSessionID}
+                    />
+                  )}
                   {row.switch === undefined ? null : (
                     <IconTooltipButton
+                      size="icon-sm"
                       label={t(switchPending ? "chat.worktree.switchPending" : "chat.worktree.switch")}
                       disabled={switchPending}
                       onClick={() => {
@@ -196,6 +236,50 @@ export function WorktreeBrowser({
       refreshOpenWorktreeList={refreshOpenWorktreeList}
       content={content}
     />
+  );
+}
+
+function WorktreeOriginSessionAction({
+  currentSessionID,
+  projectID,
+  nativeWindowsAvailable,
+  onOpenSession,
+  originSessionID,
+}: Readonly<{
+  currentSessionID: string;
+  projectID: string;
+  nativeWindowsAvailable: boolean;
+  onOpenSession(sessionID: string): void | Promise<void>;
+  originSessionID: string;
+}>) {
+  const { t } = useTranslation();
+  const nativeChat = useNativeChatOpening();
+  const pending = nativeChat.pendingSessionID === originSessionID;
+  const isCurrentSession = originSessionID === currentSessionID;
+  const label = t(
+    isCurrentSession ? "chat.worktree.currentOriginSession" : "chat.worktree.openOriginSession",
+    { sessionID: originSessionID },
+  );
+  const tooltip = nativeWindowsAvailable ? t("app.shiftClickToOpenInNewWindow", { action: label }) : label;
+  return (
+    <IconTooltipButton
+      size="icon-sm"
+      label={label}
+      tooltip={tooltip}
+      loading={pending}
+      disabled={pending}
+      className={isCurrentSession ? "text-[var(--color-primary)]" : undefined}
+      onClick={(event) => {
+        if (!event.shiftKey || !nativeWindowsAvailable) {
+          if (isCurrentSession) return;
+          void onOpenSession(originSessionID);
+          return;
+        }
+        nativeChat.open({ projectID, sessionID: originSessionID });
+      }}
+    >
+      <MessageCircle size={16} />
+    </IconTooltipButton>
   );
 }
 

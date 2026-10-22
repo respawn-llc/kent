@@ -1,9 +1,13 @@
 package session
 
-import "core/shared/config"
+import (
+	"core/shared/config"
+	"core/shared/textutil"
+)
 
 func cloneMeta(in Meta) Meta {
 	out := in
+	out.Name = textutil.Pointer(in.Name)
 	if in.ConnectionID != nil {
 		id := *in.ConnectionID
 		out.ConnectionID = &id
@@ -35,6 +39,10 @@ func cloneMeta(in Meta) Meta {
 	out.RebindReminder = CloneSessionRebindReminder(in.RebindReminder)
 	if in.UsageState != nil {
 		usage := *in.UsageState
+		usage.InputTokens = textutil.Pointer(usage.InputTokens)
+		usage.OutputTokens = textutil.Pointer(usage.OutputTokens)
+		usage.CachedInputTokens = textutil.Pointer(usage.CachedInputTokens)
+		usage.ReportedContextTokens = textutil.Pointer(usage.ReportedContextTokens)
 		out.UsageState = &usage
 	}
 	if in.Goal != nil {
@@ -42,9 +50,18 @@ func cloneMeta(in Meta) Meta {
 		out.Goal = &goal
 	}
 	out.Locked = cloneLockedContract(in.Locked)
+	out.WorkflowSnapshot = cloneWorkflowSnapshot(in.WorkflowSnapshot)
 	out.ActiveWorkflowAssignment = cloneMessageRecord(in.ActiveWorkflowAssignment)
 	out.ActiveWorkflowAssignmentState = cloneActiveWorkflowAssignmentState(in.ActiveWorkflowAssignmentState)
 	return out
+}
+
+func cloneWorkflowSnapshot(in *WorkflowSnapshot) *WorkflowSnapshot {
+	if in == nil {
+		return nil
+	}
+	out := *in
+	return &out
 }
 
 func cloneActiveWorkflowAssignmentState(in *ActiveWorkflowAssignmentState) *ActiveWorkflowAssignmentState {

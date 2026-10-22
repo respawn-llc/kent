@@ -6,20 +6,16 @@ import (
 	"testing"
 	"time"
 
-	"core/shared/apicontract"
 	"core/shared/serverapi"
 )
 
 func TestAttachRunPromptValidationFailuresCloseRemote(t *testing.T) {
-	authErr := errors.New("auth failed")
 	for _, tc := range []struct {
 		name          string
 		attachProject bool
-		authErr       error
 		wantErr       error
 		notErr        error
 	}{
-		{name: "auth", attachProject: true, authErr: authErr, wantErr: authErr, notErr: serverapi.ErrWorkspaceNotRegistered},
 		{name: "project", wantErr: serverapi.ErrWorkspaceNotRegistered},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
@@ -27,11 +23,6 @@ func TestAttachRunPromptValidationFailuresCloseRemote(t *testing.T) {
 			defer closeServer()
 			req := testAttachRequest(planProjectDial(boundPlanResponse()))
 			req.DialWorkspace = dialWorkspace
-			if tc.authErr != nil {
-				req.EnsureAuthReady = func(context.Context, apicontract.AuthBootstrapService) error {
-					return tc.authErr
-				}
-			}
 			_, _, err := AttachRunPrompt(context.Background(), req)
 			if !errors.Is(err, tc.wantErr) || tc.notErr != nil && errors.Is(err, tc.notErr) {
 				t.Fatalf("AttachRunPrompt error = %v, want %v", err, tc.wantErr)

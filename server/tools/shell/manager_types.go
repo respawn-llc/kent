@@ -133,7 +133,6 @@ type Snapshot struct {
 	ID                   string
 	ActivityID           uuid.UUID
 	OwnerSessionID       string
-	OwnerRunID           string
 	OwnerStepID          string
 	ExecutionCorrelation *runtimeids.ExecutionCorrelation
 	State                string
@@ -157,7 +156,6 @@ type ExecRequest struct {
 	Command              []string
 	DisplayCommand       string
 	OwnerSessionID       string
-	OwnerRunID           string
 	OwnerStepID          string
 	ExecutionCorrelation *runtimeids.ExecutionCorrelation
 	Workdir              string
@@ -248,7 +246,6 @@ type processEntry struct {
 	id                   string
 	activityID           uuid.UUID
 	ownerSessionID       string
-	ownerRunID           string
 	ownerStepID          string
 	executionCorrelation *runtimeids.ExecutionCorrelation
 	command              string
@@ -298,7 +295,6 @@ func (p *processEntry) snapshotLocked() Snapshot {
 		ID:                   p.id,
 		ActivityID:           p.activityID,
 		OwnerSessionID:       p.ownerSessionID,
-		OwnerRunID:           p.ownerRunID,
 		OwnerStepID:          p.ownerStepID,
 		ExecutionCorrelation: cloneExecutionCorrelation(p.executionCorrelation),
 		State:                p.state,

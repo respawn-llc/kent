@@ -9,6 +9,7 @@ import (
 	"strings"
 	"time"
 
+	"core/shared/config"
 	"core/shared/invariant"
 	"core/shared/modelcontract"
 	"core/shared/runtimeids"
@@ -68,6 +69,7 @@ const (
 	EventKindToolCompletion      EventKind = "tool_completed"
 	EventKindLocalEntry          EventKind = "local_entry"
 	EventKindHistoryReplace      EventKind = "history_replaced"
+	EventKindGenerationContext   EventKind = "generation_context"
 	EventKindConfigurationUpdate EventKind = "configuration_updated"
 	EventKindCacheRequest        EventKind = "cache_request_observed"
 	EventKindCacheResponse       EventKind = "cache_response_observed"
@@ -207,6 +209,10 @@ func newEventRecord(
 			mismatch.ServedModel = strings.TrimSpace(mismatch.ServedModel)
 			typed.ProviderModelMismatch = &mismatch
 		}
+		if typed.ReasoningOmission != nil {
+			omission := *typed.ReasoningOmission
+			typed.ReasoningOmission = &omission
+		}
 		payload = typed
 	case ReviewerFeedbackRecord:
 		typed.Suggestions = append([]string(nil), typed.Suggestions...)
@@ -219,6 +225,12 @@ func newEventRecord(
 			return EventRecord{}, fmt.Errorf("%s payload: %w", payload.eventKind(), normalizeErr)
 		}
 		payload = normalized
+	case GenerationContextRecord:
+		normalized, normalizeErr := normalizeGenerationContextRecord(typed)
+		if normalizeErr != nil {
+			return EventRecord{}, normalizeErr
+		}
+		payload = normalized
 	case ConfigurationUpdateRecord:
 		normalized, normalizeErr := normalizeProviderHistoryItem(0, typed.Item)
 		if normalizeErr != nil {
@@ -228,6 +240,10 @@ func newEventRecord(
 	case CacheRequestObservationRecord:
 		typed.CacheKey = strings.TrimSpace(typed.CacheKey)
 		typed.TerminalHash = strings.TrimSpace(typed.TerminalHash)
+		if typed.MetadataHash != nil {
+			metadataHash := *typed.MetadataHash
+			typed.MetadataHash = &metadataHash
+		}
 		payload = typed
 	case CacheResponseObservationRecord:
 		if typed.CacheKey != nil {
@@ -237,6 +253,10 @@ func newEventRecord(
 		if typed.TerminalHash != nil {
 			terminalHash := strings.TrimSpace(*typed.TerminalHash)
 			typed.TerminalHash = &terminalHash
+		}
+		if typed.MetadataHash != nil {
+			metadataHash := *typed.MetadataHash
+			typed.MetadataHash = &metadataHash
 		}
 		if typed.DigestVersion != nil {
 			digestVersion := *typed.DigestVersion
@@ -363,16 +383,19 @@ const (
 )
 
 type LocalEntryRecord struct {
-	Visibility            EntryVisibility                         `json:"visibility"`
-	Role                  string                                  `json:"role"`
-	Text                  *string                                 `json:"text"`
-	DurationMs            *int64                                  `json:"duration_ms,omitempty"`
-	CondensedText         *string                                 `json:"condensed_text,omitempty"`
-	DiagnosticKey         *string                                 `json:"diagnostic_key,omitempty"`
-	NoticeID              *string                                 `json:"notice_id,omitempty"`
-	AfterToolCallID       *string                                 `json:"after_tool_call_id,omitempty"`
-	ToolOutputRepair      *transcript.ToolOutputRepairNotice      `json:"tool_output_repair,omitempty"`
-	ProviderModelMismatch *transcript.ProviderModelMismatchNotice `json:"provider_model_mismatch,omitempty"`
+	Visibility             EntryVisibility                          `json:"visibility"`
+	Role                   string                                   `json:"role"`
+	Text                   *string                                  `json:"text"`
+	DurationMs             *int64                                   `json:"duration_ms,omitempty"`
+	CondensedText          *string                                  `json:"condensed_text,omitempty"`
+	DiagnosticKey          *string                                  `json:"diagnostic_key,omitempty"`
+	NoticeID               *string                                  `json:"notice_id,omitempty"`
+	AfterToolCallID        *string                                  `json:"after_tool_call_id,omitempty"`
+	ToolOutputRepair       *transcript.ToolOutputRepairNotice       `json:"tool_output_repair,omitempty"`
+	ProviderModelMismatch  *transcript.ProviderModelMismatchNotice  `json:"provider_model_mismatch,omitempty"`
+	ReasoningOmission      *transcript.ReasoningOmissionNotice      `json:"reasoning_omission,omitempty"`
+	ConnectionFallback     *config.ConnectionReplacement            `json:"connection_fallback,omitempty"`
+	ConnectionsUnavailable *transcript.ConnectionsUnavailableNotice `json:"connections_unavailable,omitempty"`
 }
 
 type ReviewerFeedbackRecord struct {
@@ -408,6 +431,27 @@ type CacheRequestObservationRecord struct {
 	Scope         CacheScope `json:"scope"`
 	ChunkCount    int        `json:"chunk_count"`
 	TerminalHash  string     `json:"terminal_hash"`
+	MetadataHash  *string    `json:"metadata_hash,omitempty"`
+}
+
+type CacheMetadataObservation struct {
+	DigestVersion int        `json:"digest_version"`
+	CacheKey      string     `json:"cache_key"`
+	Scope         CacheScope `json:"scope"`
+	MetadataHash  string     `json:"metadata_hash"`
+}
+
+func (r CacheMetadataObservation) validate() error {
+	if r.DigestVersion != CacheDigestV1 {
+		return fmt.Errorf("unsupported cache digest version %d", r.DigestVersion)
+	}
+	if strings.TrimSpace(r.CacheKey) == "" {
+		return errors.New("cache key is required")
+	}
+	if err := validateCacheScope(r.Scope); err != nil {
+		return err
+	}
+	return validateCacheHash("metadata", r.MetadataHash)
 }
 
 type CacheResponseObservationRecord struct {
@@ -416,6 +460,7 @@ type CacheResponseObservationRecord struct {
 	Scope             *CacheScope                             `json:"scope,omitempty"`
 	ChunkCount        *int                                    `json:"chunk_count,omitempty"`
 	TerminalHash      *string                                 `json:"terminal_hash,omitempty"`
+	MetadataHash      *string                                 `json:"metadata_hash,omitempty"`
 	CachedInputTokens *int                                    `json:"cached_input_tokens,omitempty"`
 	OperationID       *string                                 `json:"operation_id,omitempty"`
 	SessionID         *string                                 `json:"session_id,omitempty"`
@@ -488,7 +533,7 @@ func (r CacheResponseObservationRecord) validate() error {
 			return errors.New("provider observation time is required")
 		}
 	}
-	if r.DigestVersion == nil && r.CacheKey == nil && r.Scope == nil && r.ChunkCount == nil && r.TerminalHash == nil {
+	if r.DigestVersion == nil && r.CacheKey == nil && r.Scope == nil && r.ChunkCount == nil && r.TerminalHash == nil && r.MetadataHash == nil {
 		if r.ProviderUsage == nil {
 			return errors.New("provider response observation requires provider usage")
 		}
@@ -506,6 +551,7 @@ func (r CacheResponseObservationRecord) validate() error {
 		Scope:         *r.Scope,
 		ChunkCount:    *r.ChunkCount,
 		TerminalHash:  *r.TerminalHash,
+		MetadataHash:  r.MetadataHash,
 	}
 	if err := request.validate(); err != nil {
 		return err
@@ -536,9 +582,19 @@ func (r CacheRequestObservationRecord) validate() error {
 	if strings.TrimSpace(r.TerminalHash) == "" {
 		return fmt.Errorf("terminal hash is required")
 	}
-	decodedHash, err := hex.DecodeString(strings.TrimSpace(r.TerminalHash))
-	if err != nil || len(decodedHash) != 32 {
-		return fmt.Errorf("terminal hash must be a SHA-256 hexadecimal digest")
+	if err := validateCacheHash("terminal", strings.TrimSpace(r.TerminalHash)); err != nil {
+		return err
+	}
+	if r.MetadataHash != nil {
+		return validateCacheHash("metadata", *r.MetadataHash)
+	}
+	return nil
+}
+
+func validateCacheHash(name, hash string) error {
+	decoded, err := hex.DecodeString(hash)
+	if err != nil || len(decoded) != 32 {
+		return fmt.Errorf("%s hash must be a SHA-256 hexadecimal digest", name)
 	}
 	return nil
 }
@@ -566,7 +622,7 @@ func (r LocalEntryRecord) validate() error {
 	if strings.TrimSpace(r.Role) == "" {
 		return fmt.Errorf("role is required")
 	}
-	if r.Text == nil && r.ToolOutputRepair == nil && r.ProviderModelMismatch == nil {
+	if r.Text == nil && r.ToolOutputRepair == nil && r.ProviderModelMismatch == nil && r.ReasoningOmission == nil && r.ConnectionFallback == nil && r.ConnectionsUnavailable == nil {
 		return fmt.Errorf("text or typed notice facts are required")
 	}
 	if r.Text != nil && strings.TrimSpace(*r.Text) == "" {
@@ -578,7 +634,17 @@ func (r LocalEntryRecord) validate() error {
 	if r.ProviderModelMismatch != nil && !r.ProviderModelMismatch.Valid() {
 		return fmt.Errorf("provider-model mismatch facts are invalid")
 	}
-	if r.ToolOutputRepair != nil && r.ProviderModelMismatch != nil {
+	if r.ReasoningOmission != nil && !r.ReasoningOmission.Valid() {
+		return fmt.Errorf("reasoning omission facts are invalid")
+	}
+	if err := (transcript.ConnectionNoticeFacts{
+		Fallback: r.ConnectionFallback, Unavailable: r.ConnectionsUnavailable,
+		ToolOutputRepair: r.ToolOutputRepair, ProviderModelMismatch: r.ProviderModelMismatch, ReasoningOmission: r.ReasoningOmission,
+	}).Validate(); err != nil {
+		return err
+	}
+	if r.ToolOutputRepair != nil && r.ProviderModelMismatch != nil ||
+		r.ReasoningOmission != nil && (r.ToolOutputRepair != nil || r.ProviderModelMismatch != nil) {
 		return fmt.Errorf("local entry cannot carry multiple typed notice facts")
 	}
 	if r.DurationMs != nil && *r.DurationMs < 0 {
@@ -654,8 +720,6 @@ func encodeEventRecordPayloadV1(payload EventRecordPayload) ([]byte, error) {
 	switch typed := payload.(type) {
 	case ToolCompletionRecord:
 		return encodeToolCompletionRecordV1(typed)
-	case HistoryReplacementRecord:
-		return encodeHistoryReplacementRecordV1(typed)
 	default:
 		return json.Marshal(payload)
 	}
@@ -836,8 +900,6 @@ func encodeEventRecordPayloadV2(payload EventRecordPayload) ([]byte, error) {
 	switch typed := payload.(type) {
 	case ToolCompletionRecord:
 		return encodeToolCompletionRecordV2(typed)
-	case HistoryReplacementRecord:
-		return encodeHistoryReplacementRecordV1(typed)
 	default:
 		return json.Marshal(payload)
 	}
@@ -867,16 +929,17 @@ func decodeEventRecordPayloadV2(
 		return decodeEventRecordPayloadV1(kind, decode)
 	}
 	var wire struct {
-		CallID         string                       `json:"call_id"`
-		Name           string                       `json:"name"`
-		OutputKind     ToolOutputKind               `json:"output_kind"`
-		IsError        *bool                        `json:"is_error"`
-		Output         json.RawMessage              `json:"output"`
-		Summary        *string                      `json:"summary,omitempty"`
-		CondensedText  *string                      `json:"condensed_text,omitempty"`
-		Presentation   json.RawMessage              `json:"presentation,omitempty"`
-		ProviderItems  []ToolCompletionProviderItem `json:"provider_items,omitempty"`
-		QuestionAnswer *QuestionAnswerRecord        `json:"question_answer,omitempty"`
+		CallID              string                       `json:"call_id"`
+		Name                string                       `json:"name"`
+		OutputKind          ToolOutputKind               `json:"output_kind"`
+		IsError             *bool                        `json:"is_error"`
+		Output              json.RawMessage              `json:"output"`
+		Summary             *string                      `json:"summary,omitempty"`
+		CondensedText       *string                      `json:"condensed_text,omitempty"`
+		Presentation        json.RawMessage              `json:"presentation,omitempty"`
+		ProviderItems       []ToolCompletionProviderItem `json:"provider_items,omitempty"`
+		QuestionAnswer      *QuestionAnswerRecord        `json:"question_answer,omitempty"`
+		AnsweredBySessionID *runtimeids.SessionID        `json:"answered_by_session_id,omitempty"`
 	}
 	if err := decode(&wire); err != nil {
 		return nil, fmt.Errorf("decode %s payload: %w", kind, err)
@@ -889,6 +952,7 @@ func decodeEventRecordPayloadV2(
 		IsError: *wire.IsError, Output: wire.Output, Summary: wire.Summary,
 		CondensedText: wire.CondensedText, Presentation: wire.Presentation,
 		ProviderItems: wire.ProviderItems, QuestionAnswer: wire.QuestionAnswer,
+		AnsweredBySessionID: wire.AnsweredBySessionID,
 	}, nil
 }
 
@@ -919,15 +983,16 @@ func decodeEventRecordPayloadV1(
 			return nil, fmt.Errorf("decode %s payload: is_error is required", kind)
 		}
 		completion := ToolCompletionRecord{
-			CallID:        wire.CallID,
-			Name:          wire.Name,
-			OutputKind:    wire.OutputKind,
-			IsError:       *wire.IsError,
-			Output:        wire.Output,
-			Summary:       wire.Summary,
-			CondensedText: wire.CondensedText,
-			Presentation:  wire.Presentation,
-			ProviderItems: wire.ProviderItems,
+			CallID:              wire.CallID,
+			Name:                wire.Name,
+			OutputKind:          wire.OutputKind,
+			IsError:             *wire.IsError,
+			Output:              wire.Output,
+			Summary:             wire.Summary,
+			CondensedText:       wire.CondensedText,
+			Presentation:        wire.Presentation,
+			ProviderItems:       wire.ProviderItems,
+			AnsweredBySessionID: wire.AnsweredBySessionID,
 		}
 		payload = completion
 	case EventKindLocalEntry:
@@ -954,6 +1019,12 @@ func decodeEventRecordPayloadV1(
 			return nil, fmt.Errorf("decode %s payload: %w", kind, err)
 		}
 		payload = replacement
+	case EventKindGenerationContext:
+		var record GenerationContextRecord
+		if err := decode(&record); err != nil {
+			return nil, fmt.Errorf("decode %s payload: %w", kind, err)
+		}
+		payload = record
 	case EventKindConfigurationUpdate:
 		var update ConfigurationUpdateRecord
 		if err := decode(&update); err != nil {
@@ -990,6 +1061,7 @@ func validateEventKind(kind EventKind) error {
 		EventKindToolCompletion,
 		EventKindLocalEntry,
 		EventKindHistoryReplace,
+		EventKindGenerationContext,
 		EventKindConfigurationUpdate,
 		EventKindCacheRequest,
 		EventKindCacheResponse,

@@ -27,6 +27,8 @@ const (
 	ProviderClaudeCode ProviderID = "claude_code"
 	ProviderCodex      ProviderID = "codex"
 	ProviderAgents     ProviderID = "agents"
+	ProviderGrok       ProviderID = "grok"
+	ProviderCursor     ProviderID = "cursor"
 
 	SourceKindExternalProvider SourceKind = "external_provider"
 	SourceKindGenerated        SourceKind = "generated"
@@ -159,6 +161,8 @@ func Providers() []Provider {
 		{ID: ProviderClaudeCode, HomeEntry: ".claude", SkillSourceCandidates: []string{"skills"}, SupportsCommandImport: true},
 		{ID: ProviderCodex, HomeEntry: ".codex", SkillSourceCandidates: []string{filepath.Join("skills", "local"), "skills"}, SupportsCommandImport: true},
 		{ID: ProviderAgents, HomeEntry: ".agents", SkillSourceCandidates: []string{"skills"}, SupportsCommandImport: true},
+		{ID: ProviderGrok, HomeEntry: ".grok", SkillSourceCandidates: []string{"skills"}, SupportsCommandImport: true},
+		{ID: ProviderCursor, HomeEntry: ".cursor", SkillSourceCandidates: []string{"skills"}, SupportsCommandImport: true},
 	}
 }
 

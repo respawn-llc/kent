@@ -202,7 +202,7 @@ func reviewerItemsFromMessages(messages []llm.Message) []llm.ResponseItem {
 		if msg.Content == nil || strings.TrimSpace(*msg.Content) == "" {
 			continue
 		}
-		items = append(items, llm.PrepareOpenAIInputItems([]llm.ResponseItem{{
+		items = append(items, llm.PrepareResponsesInputItems([]llm.ResponseItem{{
 			Type:           llm.ResponseItemTypeMessage,
 			Role:           textutil.Value(msg.Role),
 			MessageType:    msg.MessageType,

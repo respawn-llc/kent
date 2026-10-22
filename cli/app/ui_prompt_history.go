@@ -7,6 +7,7 @@ import (
 	tuiinput "core/cli/tui/input"
 	"core/cli/tui/ongoing"
 	sessionpb "core/shared/protoapi/gen/kent/api/session"
+	sharedpb "core/shared/protoapi/gen/kent/api/shared"
 	"core/shared/serverapi"
 
 	tea "github.com/charmbracelet/bubbletea"
@@ -25,7 +26,7 @@ func (m *uiModel) loadPromptHistoryCmd() tea.Cmd {
 	}
 	m.promptHistoryLoading = true
 	return func() tea.Msg {
-		result, err := client.GetPromptHistory(context.Background(), &sessionpb.PromptHistoryRequest{SessionId: sessionID})
+		result, err := client.GetPromptHistory(context.Background(), &sessionpb.PromptHistoryRequest{SessionId: &sharedpb.SessionSelector{Value: &sharedpb.SessionSelector_SessionId{SessionId: sessionID}}})
 		if err != nil {
 			return promptHistoryLoadedMsg{err: err}
 		}

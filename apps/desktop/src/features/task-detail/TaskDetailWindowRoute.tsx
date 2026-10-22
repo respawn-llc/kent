@@ -10,7 +10,9 @@ import { useExactTaskDetailDeleteDismissal } from "./taskDetailDismissal";
  * macOS traffic lights off the content — exactly how the in-app sidebar hosts it.
  */
 export function TaskDetailWindowRoute({ taskID }: Readonly<{ taskID: string }>) {
-  const { nativeBridge } = useAppServices();
+  const services = useAppServices();
+  const { nativeBridge } = services;
+  const sessionChatDefaultIntent = nativeBridge.capabilities.dialogWindows ? "native_window" : "ordinary";
   const onDeleteDismiss = useExactTaskDetailDeleteDismissal(taskID, async () => {
     await nativeBridge.window.closeCurrent();
   });
@@ -21,7 +23,12 @@ export function TaskDetailWindowRoute({ taskID }: Readonly<{ taskID: string }>) 
         data-tauri-drag-region
       />
       <div className="app-region-no-drag min-h-0 overflow-hidden">
-        <TaskDetailSurface enabled onDeleteDismiss={onDeleteDismiss} taskId={taskID} />
+        <TaskDetailSurface
+          enabled
+          onDeleteDismiss={onDeleteDismiss}
+          taskId={taskID}
+          sessionChatDefaultIntent={sessionChatDefaultIntent}
+        />
       </div>
     </main>
   );

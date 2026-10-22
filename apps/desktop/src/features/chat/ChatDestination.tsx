@@ -1,4 +1,5 @@
 import { useMemo, type ReactNode } from "react";
+import { PictureInPicture } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import { useBlocker } from "@tanstack/react-router";
 import { errorMessage } from "@/api";
@@ -16,9 +17,9 @@ import { ChatShell, type ChatShellState } from "./ChatShell";
 import { ChatComposer } from "./ChatComposer";
 import { ChatComposerSurface } from "./ChatComposerSurface";
 import { useChatDestination } from "./useChatDestination";
-import type { ChatSettingsNavigation } from "./useChatSettings";
+import type { ChatDestinationNavigation } from "./useChatSettings";
 import { ChatWorkspaceChip } from "./ChatWorkspaceChip";
-import { Spinner, useDelayedAppearance } from "@/ui";
+import { IconTooltipButton, Spinner, useDelayedAppearance } from "@/ui";
 import { GoalAffordance } from "./goal";
 import {
   createChatMessageEditViewModel,
@@ -29,12 +30,15 @@ import { WorktreeControl } from "./WorktreeControl";
 import { useWorktreeList } from "./useWorktreeList";
 import { ChatProcessesChip } from "./ChatProcessesChip";
 import { chatOperationFailureMessage } from "./chatSettingsPresentation";
+import { useSessionSettingsObservation } from "./useSessionSettingsObservation";
 
 export function ChatDestination(
   props: Readonly<{
     opening: ChatDestinationOpening;
-    navigation: ChatSettingsNavigation;
+    navigation: ChatDestinationNavigation;
     onSessionDelivered?(sessionID: string): void;
+    onPopOutCreated?(projectID: string): Promise<void>;
+    openCreatedSession?(sessionID: string): Promise<void>;
   }>,
 ) {
   const destination = useChatDestination(props);
@@ -61,6 +65,7 @@ export function ChatDestination(
         chips={chips}
         openingVisible={openingVisible}
         navigation={props.navigation}
+        onPopOutCreated={props.onPopOutCreated}
       />
     </ChatRuntimeProvider>
   );
@@ -71,18 +76,21 @@ function ChatDestinationShell({
   chips,
   openingVisible,
   navigation,
+  onPopOutCreated,
 }: Readonly<{
   destination: ReturnType<typeof useChatDestination>;
   chips: ReactNode;
   openingVisible: boolean;
-  navigation: ChatSettingsNavigation;
+  navigation: ChatDestinationNavigation;
+  onPopOutCreated: ((projectID: string) => Promise<void>) | undefined;
 }>) {
   const { sessionName, goal, mainView, activeProcessCount } = useChatRuntimePresentation();
   const { t } = useTranslation();
-  const { api } = useAppServices();
+  const { api, nativeBridge } = useAppServices();
   const client = useQueryClient();
   const { push } = useStatusController();
   const target = destination.target?.kind === "session" ? destination.target : null;
+  useSessionSettingsObservation(target, destination.settingsModel);
   const executionTarget = mainView.kind === "session" ? (mainView.data?.executionTarget ?? null) : null;
   const worktrees = useWorktreeList(target?.sessionID ?? null, executionTarget, "chat-label");
   const newGoal = destination.goalState;
@@ -101,29 +109,70 @@ function ChatDestinationShell({
   const state: ChatShellState = editRequest.isPending
     ? { kind: "loading" }
     : chatReadState(destination, mainView, worktrees, t);
+  const chromeAction = useMemo(
+    () =>
+      target === null || onPopOutCreated === undefined || !nativeBridge.capabilities.dialogWindows ? null : (
+        <IconTooltipButton
+          label={t("app.popOut")}
+          tooltip={
+            destination.popOutRequest.isPending || editRequest.isPending
+              ? t("states.loading")
+              : t("app.popOut")
+          }
+          size="icon-sm"
+          variant="ghost"
+          disabled={destination.popOutRequest.isPending || editRequest.isPending}
+          onClick={() => {
+            destination.popOut({
+              flushDraft: destination.composer.flushDraft,
+              onCreated: onPopOutCreated,
+              editRequest: editModel.request,
+            });
+          }}
+        >
+          {destination.popOutRequest.isPending ? (
+            <Spinner size="sm" />
+          ) : (
+            <PictureInPicture size={16} strokeWidth={1.125} />
+          )}
+        </IconTooltipButton>
+      ),
+    [
+      target,
+      onPopOutCreated,
+      nativeBridge.capabilities.dialogWindows,
+      t,
+      destination.popOutRequest.isPending,
+      destination.popOut,
+      destination.composer.flushDraft,
+      editRequest.isPending,
+      editModel.request,
+    ],
+  );
   return (
     <ChatComposerSurface composer={destination.composer} enabled={!editRequest.isPending}>
       <ChatShell
         selectedSession={destination.target}
         sessionName={sessionName}
         state={state}
-        content={(_, bottomInset) =>
-          target === null ? null : (
-            <ChatTranscriptContent
-              bottomInset={bottomInset}
-              openingVisible={openingVisible}
-              edit={{
-                onEdit: (item) => {
-                  edit.activate({
-                    item,
-                    draft: destination.composer.text,
-                    onSuccess: async ({ sessionID }) => navigation.openParentSession(sessionID),
-                  });
-                },
-              }}
-            />
-          )
-        }
+        chromeAction={chromeAction}
+        content={(_, bottomInset) => (
+          <ChatTranscriptContent
+            target={target}
+            effectiveWorkdir={executionTarget?.effectiveWorkdir ?? null}
+            bottomInset={bottomInset}
+            openingVisible={openingVisible}
+            edit={{
+              onEdit: (item) => {
+                edit.activate({
+                  item,
+                  draft: destination.composer.text,
+                  onSuccess: async ({ sessionID }) => navigation.openEditedSession(sessionID),
+                });
+              },
+            }}
+          />
+        )}
         composer={(_, layout) => (
           <ChatComposer
             {...layout}
@@ -146,7 +195,13 @@ function ChatDestinationShell({
                   </div>
                 )}
                 {target !== null && (
-                  <WorktreeControl sessionID={target.sessionID} target={executionTarget} query={worktrees} />
+                  <WorktreeControl
+                    projectID={target.projectID}
+                    sessionID={target.sessionID}
+                    target={executionTarget}
+                    query={worktrees}
+                    openSession={navigation.openParentSession}
+                  />
                 )}
                 {shownGoal !== null && <GoalAffordance goal={shownGoal} onActivate={destination.openGoal} />}
                 {target !== null && (

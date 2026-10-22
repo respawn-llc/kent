@@ -38,7 +38,7 @@ export type {
 } from "./workflowEditorDraftTypes";
 
 export type WorkflowEditorDraftState = Readonly<{
-  acknowledgedConflictVersion: number;
+  acknowledgedConflictVersion: number | null;
   source: WorkflowDefinition;
   draft: DraftWorkflowDefinition;
   conflict: WorkflowDefinition | null;
@@ -60,6 +60,7 @@ export type WorkflowEditorDraftAction =
   | Readonly<{ type: "reloadConflict" }>
   | Readonly<{ type: "editWorkflowMetadata"; name: string; description: string }>
   | Readonly<{ type: "editWorkflowExecutionTargetPolicy"; policy: WorkflowExecutionTargetPolicy }>
+  | Readonly<{ type: "editNodeGroupName"; groupID: string; name: string | null }>
   | Readonly<{
       type: "editNodeIdentity";
       nodeID: string;
@@ -117,7 +118,7 @@ export type WorkflowEditorDirtyState = Readonly<{
 
 export function initializeWorkflowEditorDraft(source: WorkflowDefinition): WorkflowEditorDraftState {
   return {
-    acknowledgedConflictVersion: 0,
+    acknowledgedConflictVersion: null,
     conflict: null,
     draft: draftDefinitionFromSource(source),
     graphVersion: 0,
@@ -224,6 +225,18 @@ export function workflowEditorDraftReducer(
   state: WorkflowEditorDraftState,
   action: WorkflowEditorDraftAction,
 ): WorkflowEditorDraftState {
+  if (action.type === "editNodeGroupName") {
+    return nextDraftState(
+      state,
+      {
+        ...state.draft,
+        nodeGroups: state.draft.nodeGroups.map((group) =>
+          group.id === action.groupID ? { ...group, name: action.name } : group,
+        ),
+      },
+      false,
+    );
+  }
   if (isLifecycleAction(action)) {
     return reduceLifecycleAction(state, action);
   }
@@ -248,7 +261,7 @@ function reduceLifecycleAction(
     case "keepEditing":
       return {
         ...state,
-        acknowledgedConflictVersion: state.conflict?.workflow.version ?? 0,
+        acknowledgedConflictVersion: state.conflict?.workflow.version ?? null,
         conflict: null,
       };
     case "reloadConflict":

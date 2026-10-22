@@ -38,7 +38,7 @@ func TestSessionContextFactsPersistIndependentlyFromFullSnapshots(t *testing.T) 
 	if err := sessionStore.SetSessionContextFacts(4, true); err != nil {
 		t.Fatalf("SetSessionContextFacts: %v", err)
 	}
-	if err := sessionStore.SetName("ordinary snapshot"); err != nil {
+	if err := sessionStore.SetName(metadataStringPointer("ordinary snapshot")); err != nil {
 		t.Fatalf("SetName: %v", err)
 	}
 	reopened, err := session.OpenByID(root, sessionStore.Meta().SessionID, options...)
@@ -157,7 +157,7 @@ END;`,
 	if _, err := store.DB().ExecContext(ctx, `DROP TRIGGER fail_context_write`); err != nil {
 		t.Fatalf("drop failing trigger: %v", err)
 	}
-	if err := sessionStore.SetName("later full snapshot"); err != nil {
+	if err := sessionStore.SetName(metadataStringPointer("later full snapshot")); err != nil {
 		t.Fatalf("SetName: %v", err)
 	}
 

@@ -132,7 +132,7 @@ func TestForkAfterReminderPreservesReminderAdmission(t *testing.T) {
 func newReminderRecoveryEngine(t *testing.T, store *session.Store, client llm.Client, onEvent func(Event)) *Engine {
 	t.Helper()
 	return mustNewTestEngine(t, store, client, tools.NewRegistry(), Config{
-		Model:                 "gpt-5",
+		Model:                 "gpt-6-sol",
 		ContextWindowTokens:   2_000,
 		AutoCompactTokenLimit: 1_000,
 		CompactionMode:        "local",
@@ -142,7 +142,7 @@ func newReminderRecoveryEngine(t *testing.T, store *session.Store, client llm.Cl
 
 func seedReminderUsage(t *testing.T, engine *Engine) {
 	t.Helper()
-	engine.setLastUsage(llm.Usage{InputTokens: 890, WindowTokens: 2_000})
+	engine.setLastUsage(llm.Usage{InputTokens: textutil.Value(890), WindowTokens: 2_000, ContextUsage: &llm.ContextUsage{Tokens: 890, MeasurementPoint: llm.ContextMeasurementInput}})
 }
 
 func typedReminderEvents(events []Event) int {

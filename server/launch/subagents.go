@@ -1,6 +1,7 @@
 package launch
 
 import (
+	"errors"
 	"fmt"
 	"maps"
 	"reflect"
@@ -14,24 +15,54 @@ import (
 const fastRoleSameAsMainWarning = "Warning: user configuration for fast agents is the same as for other agents. Consider asking the user to edit their config to pick a faster, smaller model at the end of your task. More info at " + config.DocsURL
 
 func resolveSubagentSettingsWithProviderID(base config.Settings, baseSource config.SourceReport, roleName string, providerID string, allowModelOverride bool, validate bool) (config.Settings, config.SourceReport, *string, error) {
-	lookup := config.LookupSubagentRole(base, roleName)
-	switch lookup.Status {
-	case config.SubagentRoleLookupInvalid:
-		return config.Settings{}, config.SourceReport{}, nil, fmt.Errorf("invalid subagent role %q", roleName)
-	case config.SubagentRoleLookupMissing:
-		return config.Settings{}, config.SourceReport{}, nil, fmt.Errorf("Unrecognized role %q. It may have been removed by the user during the session. Available roles: [%s]", *lookup.NormalizedSelector, strings.Join(config.AvailableSubagentRoleNames(base, false), ", "))
+	selector, role, err := lookupSubagentRole(base, roleName)
+	if err != nil {
+		return config.Settings{}, config.SourceReport{}, nil, err
+	}
+	providerSettings, err := config.OverlaySubagentRoleProviderSettings(config.App{Settings: base, Source: baseSource}, role)
+	if err != nil {
+		return config.Settings{}, config.SourceReport{}, nil, err
+	}
+	var connection *config.ConnectionID
+	scope := config.ConnectionScope{Selection: providerSettings.Connection}
+	selected, _, err := ResolveSessionConnection(
+		providerSettings, subagentConnectionSource(baseSource, role), scope, nil,
+	)
+	var unavailable *config.ConnectionReferenceError
+	if err != nil && !errors.As(err, &unavailable) {
+		return config.Settings{}, config.SourceReport{}, nil, err
+	}
+	if err == nil {
+		connection = &selected
 	}
 	providerID = strings.TrimSpace(providerID)
 	prepared, err := prepareSubagentSettingsFromRole(
 		base,
 		baseSource,
-		*lookup.NormalizedSelector,
-		lookup.Role,
+		selector,
+		role,
 		&providerID,
+		connection,
 		allowModelOverride,
 		validate,
 	)
 	return prepared.Settings, prepared.Source, prepared.Warning, err
+}
+
+func lookupSubagentRole(settings config.Settings, roleName string) (string, config.SubagentRole, error) {
+	lookup := config.LookupSubagentRole(settings, roleName)
+	switch lookup.Status {
+	case config.SubagentRoleLookupInvalid:
+		return "", config.SubagentRole{}, fmt.Errorf("invalid subagent role %q", roleName)
+	case config.SubagentRoleLookupMissing:
+		return "", config.SubagentRole{}, fmt.Errorf(
+			"Unrecognized role %q. It may have been removed by the user during the session. Available roles: [%s]",
+			*lookup.NormalizedSelector,
+			strings.Join(config.AvailableSubagentRoleNames(settings, false), ", "),
+		)
+	default:
+		return *lookup.NormalizedSelector, lookup.Role, nil
+	}
 }
 
 // ResolveConfiguredSubagentSettings resolves one configured role against the
@@ -52,10 +83,10 @@ type preparedRoleSettings struct {
 	Thinking *string
 }
 
-func prepareSubagentSettingsFromRole(base config.Settings, baseSource config.SourceReport, selector string, role config.SubagentRole, providerID *string, allowModelOverride bool, validate bool) (preparedRoleSettings, error) {
+func prepareSubagentSettingsFromRole(base config.Settings, baseSource config.SourceReport, selector string, role config.SubagentRole, providerID *string, connection *config.ConnectionID, allowModelOverride bool, validate bool) (preparedRoleSettings, error) {
 	resolved := cloneSettings(base)
 	if providerID != nil {
-		_ = applyBuiltInRoleHeuristics(&resolved, selector, *providerID, allowModelOverride)
+		applyBuiltInRoleHeuristics(&resolved, selector, *providerID, allowModelOverride)
 	}
 	originalModel := strings.TrimSpace(resolved.Model)
 	resolved, effectiveSources, err := config.OverlaySubagentRoleSettings(config.App{Settings: resolved, Source: baseSource}, role, allowModelOverride)
@@ -63,6 +94,12 @@ func prepareSubagentSettingsFromRole(base config.Settings, baseSource config.Sou
 		return preparedRoleSettings{}, err
 	}
 	resolved, effectiveSources = config.OverlayAgentOverrides(resolved, effectiveSources, base, baseSource.Sources, allowModelOverride)
+	// Role declarations retain membership; request-facing defaults need the
+	// concrete member already selected by the launch or read-projection owner.
+	resolved.Connection = nil
+	if connection != nil {
+		resolved.Connection = config.SingleConnection(*connection)
+	}
 	explicitSources := make(map[string]config.Origin, len(role.Sources))
 	maps.Copy(explicitSources, role.Sources)
 	for key, origin := range baseSource.Sources {
@@ -70,11 +107,17 @@ func prepareSubagentSettingsFromRole(base config.Settings, baseSource config.Sou
 			explicitSources[key] = origin
 		}
 	}
-	applyDerivedModelContextBudgetOverrides(&resolved, explicitSources, originalModel, allowModelOverride)
-	effectiveSource := baseSource
 	if !allowModelOverride && effectiveSources["model"].Kind == config.SourceDefault {
 		effectiveSources["model"] = config.Origin{Kind: config.SourceSession, Property: config.PropertyAddress{Key: "model"}}
 	}
+	var unavailable *config.ConnectionReferenceError
+	if err := llm.ApplyConnectionModelDefaults(&resolved, effectiveSources); err != nil && !errors.As(err, &unavailable) {
+		return preparedRoleSettings{}, err
+	}
+	if err := applyDerivedModelContextBudgetOverrides(&resolved, explicitSources, originalModel, allowModelOverride); err != nil {
+		return preparedRoleSettings{}, err
+	}
+	effectiveSource := baseSource
 	config.InheritReviewerSettings(&resolved, effectiveSources)
 	effectiveSource.Sources = effectiveSources
 	if validate {
@@ -101,49 +144,58 @@ func prepareSubagentSettingsFromRole(base config.Settings, baseSource config.Sou
 	return preparedRoleSettings{Settings: resolved, Source: effectiveSource, Warning: warning, Model: model, Thinking: thinking}, nil
 }
 
-func applyBuiltInRoleHeuristics(settings *config.Settings, roleName string, providerID string, allowModelOverride bool) bool {
+func applyBuiltInRoleHeuristics(settings *config.Settings, roleName string, providerID string, allowModelOverride bool) {
 	if settings == nil || roleName != config.BuiltInSubagentRoleFast {
-		return false
+		return
 	}
 	if providerID != "openai" && providerID != "chatgpt-codex" {
-		return false
+		return
 	}
 	settings.PriorityRequestMode = true
 	if !allowModelOverride {
-		return true
+		return
 	}
-	settings.Model = "gpt-5.6-terra"
+	settings.Model = "gpt-6-luna"
 	settings.ThinkingLevel = "low"
-	llm.ApplyDerivedModelContextBudget(settings, settings.Model, settings.ModelContextWindow, settings.ContextCompactionThresholdTokens)
-	settings.PreSubmitCompactionLeadTokens = config.DefaultPreSubmitRunwayTokens
-	return true
+	if contract, known := llm.LookupModelCapabilityContract(settings.Model); known {
+		if meta := contract.ContextMetadata(providerID); meta != nil {
+			settings.ModelContextWindow = meta.ContextWindowTokens
+			settings.ContextCompactionThresholdTokens = meta.ContextWindowTokens * 95 / 100
+		}
+	}
 }
 
-func applyDerivedModelContextBudgetOverrides(settings *config.Settings, explicitSources map[string]config.Origin, originalModel string, allowModelOverride bool) {
+func applyDerivedModelContextBudgetOverrides(settings *config.Settings, explicitSources map[string]config.Origin, originalModel string, allowModelOverride bool) error {
 	if settings == nil || !allowModelOverride {
-		return
+		return nil
 	}
 	if _, ok := explicitSources["model"]; !ok {
-		return
+		return nil
 	}
 	if strings.TrimSpace(settings.Model) == "" || strings.TrimSpace(settings.Model) == originalModel {
-		return
+		return nil
 	}
 	if _, ok := explicitSources["model_context_window"]; !ok {
-		if meta, ok := llm.LookupModelMetadata(settings.Model); ok && meta.ContextWindowTokens > 0 {
+		meta, err := llm.ModelContextForSettings(*settings, settings.Model)
+		// Role facts can be projected before a connection is available. Keep
+		// the inherited budget until its variant context can be resolved.
+		var unavailable *config.ConnectionReferenceError
+		if err != nil && !errors.As(err, &unavailable) {
+			return err
+		}
+		if meta != nil && meta.ContextWindowTokens > 0 {
 			settings.ModelContextWindow = meta.ContextWindowTokens
 		}
 	}
 	if _, ok := explicitSources["context_compaction_threshold_tokens"]; !ok && settings.ModelContextWindow > 0 {
 		settings.ContextCompactionThresholdTokens = settings.ModelContextWindow * 95 / 100
 	}
-	if _, ok := explicitSources["pre_submit_compaction_lead_tokens"]; !ok {
-		settings.PreSubmitCompactionLeadTokens = config.DefaultPreSubmitRunwayTokens
-	}
+	return nil
 }
 
 func cloneSettings(in config.Settings) config.Settings {
 	out := in
+	out.PreSubmitCompactionLeadTokens = textutil.Pointer(in.PreSubmitCompactionLeadTokens)
 	out.Shell.PostprocessHook = textutil.Pointer(in.Shell.PostprocessHook)
 	out.SystemPromptFile = textutil.Pointer(in.SystemPromptFile)
 	out.Reviewer.SystemPromptFile = textutil.Pointer(in.Reviewer.SystemPromptFile)

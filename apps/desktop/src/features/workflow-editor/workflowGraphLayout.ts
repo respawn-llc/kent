@@ -225,7 +225,7 @@ export function workflowGraphLayoutWithDraftProjection(
           data: {
             ...node.data,
             hasError: errorMarkers.relatedIDs.has(group.id),
-            label: group.name || group.key,
+            label: group.name ?? group.key,
           },
         },
       ];

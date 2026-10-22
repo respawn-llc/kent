@@ -2,7 +2,7 @@ import { Effect as Fx, Scope } from "effect";
 import { runPromise as launch } from "effect/Effect";
 import * as E from "effect/Effect";
 import { RegistryContext } from "@effect/atom-react";
-import * as Registry from "effect/unstable/reactivity/AtomRegistry";
+import * as Registry from "effect/reactivity/AtomRegistry";
 
 const alias = Fx;
 const forward = alias.runSync;

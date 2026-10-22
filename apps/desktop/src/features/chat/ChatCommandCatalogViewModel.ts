@@ -1,5 +1,5 @@
 import { QueryObserver, skipToken, type QueryClient } from "@tanstack/react-query";
-import * as Atom from "effect/unstable/reactivity/Atom";
+import * as Atom from "effect/reactivity/Atom";
 import * as Effect from "effect/Effect";
 import type { ChatSettingsTarget } from "@/api";
 import { queryAtom, type AppServices } from "@/app-facade";

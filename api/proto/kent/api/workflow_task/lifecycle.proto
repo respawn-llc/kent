@@ -10,6 +10,7 @@ import "kent/api/auth/auth.proto";
 import "kent/api/server/server.proto";
 import "kent/api/shared/foundation.proto";
 import "kent/api/shared/validation.proto";
+import "kent/api/shared/session_selector.proto";
 import "kent/api/workflow_definition/workflow_definition.proto";
 import "kent/api/workflow_task/attention.proto";
 import "kent/api/workflow_task/read.proto";
@@ -36,7 +37,6 @@ enum MovePreviewBlocker {
   MOVE_PREVIEW_BLOCKER_INVALID_WORKFLOW = 1;
   MOVE_PREVIEW_BLOCKER_NO_SOURCE_POSITION = 2;
   MOVE_PREVIEW_BLOCKER_UNSUPPORTED_DESTINATION = 3;
-  MOVE_PREVIEW_BLOCKER_WAITING_QUESTION = 4;
   MOVE_PREVIEW_BLOCKER_LIFECYCLE_CONFLICT = 5;
   MOVE_PREVIEW_BLOCKER_CONTEXT_SESSION_UNAVAILABLE = 6;
   MOVE_PREVIEW_BLOCKER_NO_USABLE_TRANSITION = 7;
@@ -113,16 +113,8 @@ enum ExecutionTargetResolutionCode {
   EXECUTION_TARGET_RESOLUTION_CODE_INVALID_REVISION = 1;
   EXECUTION_TARGET_RESOLUTION_CODE_NON_COMMIT = 2;
   EXECUTION_TARGET_RESOLUTION_CODE_GIT_FAILURE = 3;
-}
-
-enum LockedExecutionTargetCause {
-  LOCKED_EXECUTION_TARGET_CAUSE_UNSPECIFIED = 0;
-  LOCKED_EXECUTION_TARGET_CAUSE_DETACHED_HEAD = 1;
-  LOCKED_EXECUTION_TARGET_CAUSE_INVALID_ROOT = 2;
-  LOCKED_EXECUTION_TARGET_CAUSE_ROOT_INACCESSIBLE = 3;
-  LOCKED_EXECUTION_TARGET_CAUSE_MISSING_BRANCH = 4;
-  LOCKED_EXECUTION_TARGET_CAUSE_CONFLICT = 5;
-  LOCKED_EXECUTION_TARGET_CAUSE_GIT_FAILURE = 6;
+  EXECUTION_TARGET_RESOLUTION_CODE_DEFAULT_BRANCH_MISSING = 4;
+  EXECUTION_TARGET_RESOLUTION_CODE_DEFAULT_BRANCH_AMBIGUOUS = 5;
 }
 
 enum InitialBranchErrorReason {
@@ -178,6 +170,11 @@ message CreateRequest {
   repeated DependencyCreateIntent dependency_intents = 8 [
     (buf.validate.field).repeated.max_items = 100
   ];
+  option (buf.validate.message).cel = {
+    id: "kent.workflow_task.create_dependency_role_limits"
+    message: "dependency intents must not exceed 50 per role"
+    expression: "this.dependency_intents.filter(intent, intent.new_task_role == 1).size() <= 50 && this.dependency_intents.filter(intent, intent.new_task_role == 2).size() <= 50"
+  };
 }
 
 message CreateSuccess {
@@ -238,7 +235,7 @@ message DependencyConfirmationRequired {
 
 message StartRequest {
   string task_id = 1 [(buf.validate.field).string.(kent.api.shared.nonblank) = true];
-  optional string invoking_session_id = 2 [(buf.validate.field).string.min_len = 1];
+  optional string invoking_session_id = 2 [(buf.validate.field).string.uuid = true, (buf.validate.field).string.(kent.api.shared.canonical_uuid_v4) = true];
   string setup_operation_id = 3 [
     (buf.validate.field).string.uuid = true,
     (buf.validate.field).string.(kent.api.shared.canonical_uuid_v4) = true
@@ -263,14 +260,14 @@ message StartSuccess {
 
 message InterruptRequest {
   string task_id = 1 [(buf.validate.field).string.(kent.api.shared.nonblank) = true];
-  optional string invoking_session_id = 2 [(buf.validate.field).string.min_len = 1];
-  optional string session_id = 3 [(buf.validate.field).string.min_len = 1];
+  optional string invoking_session_id = 2 [(buf.validate.field).string.uuid = true, (buf.validate.field).string.(kent.api.shared.canonical_uuid_v4) = true];
+  kent.api.shared.SessionSelector session_id = 3;
   optional string reason = 4;
 }
 
 message ResumeRequest {
   string task_id = 1 [(buf.validate.field).string.(kent.api.shared.nonblank) = true];
-  optional string invoking_session_id = 2 [(buf.validate.field).string.min_len = 1];
+  optional string invoking_session_id = 2 [(buf.validate.field).string.uuid = true, (buf.validate.field).string.(kent.api.shared.canonical_uuid_v4) = true];
   string setup_operation_id = 3 [
     (buf.validate.field).string.uuid = true,
     (buf.validate.field).string.(kent.api.shared.canonical_uuid_v4) = true
@@ -294,7 +291,7 @@ message ResumeSuccess {
 
 message ApproveRequest {
   string approval_id = 1 [(buf.validate.field).string.min_len = 1];
-  optional string invoking_session_id = 2 [(buf.validate.field).string.min_len = 1];
+  optional string invoking_session_id = 2 [(buf.validate.field).string.uuid = true, (buf.validate.field).string.(kent.api.shared.canonical_uuid_v4) = true];
 }
 
 message ApproveApplied {
@@ -306,7 +303,6 @@ message ApproveSuccess {
   oneof outcome {
     option (buf.validate.oneof).required = true;
     ApproveApplied applied = 1;
-    SelectionRequired selection_required = 2;
   }
 }
 
@@ -318,8 +314,8 @@ message MovePreviewRequest {
 message MoveRequiredValue {
   string node_key = 1 [(buf.validate.field).string.min_len = 1];
   string output_name = 2 [(buf.validate.field).string.min_len = 1];
-  optional string description = 3 [(buf.validate.field).string.min_len = 1];
-  optional string resolved_value = 4 [(buf.validate.field).string.min_len = 1];
+  optional string description = 3 [(buf.validate.field).string.(kent.api.shared.nonblank) = true];
+  optional string resolved_value = 4 [(buf.validate.field).string.(kent.api.shared.nonblank) = true];
 }
 
 message MoveTransitionChoice {
@@ -398,11 +394,11 @@ message NodeOutputValues {
 
 message MoveRequest {
   string task_id = 1 [(buf.validate.field).string.(kent.api.shared.nonblank) = true];
-  optional string invoking_session_id = 2 [(buf.validate.field).string.min_len = 1];
+  optional string invoking_session_id = 2 [(buf.validate.field).string.uuid = true, (buf.validate.field).string.(kent.api.shared.canonical_uuid_v4) = true];
   string target_node_id = 3 [(buf.validate.field).string.min_len = 1];
   optional string transition_key = 4 [(buf.validate.field).string.min_len = 1];
   repeated NodeOutputValues values = 5;
-  optional string commentary = 6;
+  optional string commentary = 6 [(buf.validate.field).string.max_bytes = 65536];
   optional ExecutionTargetSelection execution_target = 7;
   optional string branch_name = 8 [(buf.validate.field).string.min_len = 1];
   bool proceed_despite_dependencies = 9;
@@ -435,24 +431,33 @@ message MoveSuccess {
 }
 
 message CompleteRequest {
-  optional string session_id = 1 [(buf.validate.field).string.min_len = 1];
+  kent.api.shared.SessionSelector session_id = 1;
   optional string task_id = 2 [(buf.validate.field).string.(kent.api.shared.nonblank) = true];
   optional string transition_id = 3 [(buf.validate.field).string.min_len = 1];
   repeated NamedValue output_values = 4;
-  optional string commentary = 5;
+  optional string commentary = 5 [(buf.validate.field).string.max_bytes = 65536];
   CompleteActorKind actor_kind = 6 [(buf.validate.field).enum = {
     defined_only: true
     not_in: [0]
   }];
-  optional string agent_session_id = 7 [(buf.validate.field).string.min_len = 1];
+  optional string agent_session_id = 7 [(buf.validate.field).string.uuid = true, (buf.validate.field).string.(kent.api.shared.canonical_uuid_v4) = true];
   bool force = 8;
+  optional string step_id = 10 [
+    (buf.validate.field).string.uuid = true,
+    (buf.validate.field).string.(kent.api.shared.canonical_uuid_v4) = true
+  ];
 
   option (buf.validate.message).cel = {
     id: "kent.workflow_task.complete_actor"
     message: "completion actor, selector, and force fields must agree"
     expression:
-      "(this.actor_kind == 1 && has(this.agent_session_id) && !this.force && !(has(this.session_id) && has(this.task_id))) || "
-      "(this.actor_kind == 2 && !has(this.agent_session_id) && this.force && (has(this.session_id) != has(this.task_id)))"
+      "(this.actor_kind == 1 && has(this.agent_session_id) && has(this.step_id) && !this.force && !(has(this.session_id) && has(this.task_id))) || "
+      "(this.actor_kind == 2 && !has(this.agent_session_id) && !has(this.step_id) && this.force && (has(this.session_id) != has(this.task_id)))"
+  };
+  option (buf.validate.message).cel = {
+    id: "kent.workflow_task.complete_output_names_unique"
+    message: "output names must be unique"
+    expression: "this.output_values.map(output, output.name).unique()"
   };
 }
 
@@ -461,11 +466,25 @@ message CompletionHandoff {
   string destination_display_name = 2 [(buf.validate.field).string.min_len = 1];
 }
 
-message CompleteSuccess {
+message AgentCompletion {
   string task_id = 1 [(buf.validate.field).string.min_len = 1];
   repeated AttentionCurrentNode current_nodes = 2;
   optional string pending_approval_id = 3 [(buf.validate.field).string.min_len = 1];
   CompletionHandoff handoff = 4 [(buf.validate.field).required = true];
+}
+
+message ForcedCompletionMove {
+  string task_id = 1 [(buf.validate.field).string.min_len = 1];
+  string target_node_id = 2 [(buf.validate.field).string.min_len = 1];
+  MoveSuccess outcome = 3 [(buf.validate.field).required = true];
+}
+
+message CompleteSuccess {
+  oneof outcome {
+    option (buf.validate.oneof).required = true;
+    AgentCompletion agent_completion = 1;
+    ForcedCompletionMove forced_move = 2;
+  }
 }
 
 message DeleteRequest {
@@ -523,7 +542,13 @@ message DependencyListDirection {
 message DependencyListSuccess {
   string task_id = 1 [(buf.validate.field).string.min_len = 1];
   string short_id = 2 [(buf.validate.field).string.min_len = 1];
-  repeated DependencyListDirection directions = 3;
+  repeated DependencyListDirection directions = 3 [(buf.validate.field).repeated.max_items = 2];
+
+  option (buf.validate.message).cel = {
+    id: "kent.workflow_task.dependency_list_directions_unique"
+    message: "dependency directions must be unique"
+    expression: "this.directions.map(direction, direction.direction).unique()"
+  };
 }
 
 message Comment {
@@ -541,7 +566,7 @@ message Comment {
 
 message CommentAddRequest {
   string task_id = 1 [(buf.validate.field).string.(kent.api.shared.nonblank) = true];
-  string body = 2 [(buf.validate.field).string.min_len = 1];
+  string body = 2 [(buf.validate.field).string.min_len = 1, (buf.validate.field).string.(kent.api.shared.nonblank) = true];
   CommentAuthorKind author = 3 [(buf.validate.field).enum = {
     defined_only: true
     not_in: [0]
@@ -556,7 +581,7 @@ message CommentAddSuccess {
 message TaskOffsetPageRequest {
   string task_id = 1 [(buf.validate.field).string.(kent.api.shared.nonblank) = true];
   optional int32 offset = 2 [(buf.validate.field).int32.gte = 0];
-  optional int32 limit = 3 [(buf.validate.field).int32.gt = 0];
+  optional int32 limit = 3 [(buf.validate.field).int32 = {gt: 0 lte: 100}];
 }
 
 message CommentListSuccess {
@@ -570,7 +595,7 @@ message CommentListSuccess {
 
 message CommentReplaceRequest {
   string comment_id = 1 [(buf.validate.field).string.min_len = 1];
-  string body = 2 [(buf.validate.field).string.min_len = 1];
+  string body = 2 [(buf.validate.field).string.min_len = 1, (buf.validate.field).string.(kent.api.shared.nonblank) = true];
 }
 
 message CommentDeleteRequest {
@@ -578,7 +603,7 @@ message CommentDeleteRequest {
 }
 
 message SessionStarted {
-  string session_id = 1 [(buf.validate.field).string.min_len = 1];
+  string session_id = 1 [(buf.validate.field).string.uuid = true, (buf.validate.field).string.(kent.api.shared.canonical_uuid_v4) = true];
   string name = 2 [(buf.validate.field).string.min_len = 1];
 }
 
@@ -600,7 +625,8 @@ message ActivityListSuccess {
 }
 
 message SessionItem {
-  string session_id = 1 [(buf.validate.field).string.min_len = 1];
+  optional int64 short_id = 6 [(buf.validate.field).int64 = {gt: 0 lte: 9007199254740991}];
+  string session_id = 1 [(buf.validate.field).string.uuid = true, (buf.validate.field).string.(kent.api.shared.canonical_uuid_v4) = true];
   optional string session_name = 2 [(buf.validate.field).string.min_len = 1];
   optional string node_name = 3 [(buf.validate.field).string.min_len = 1];
   string agent_role = 4 [(buf.validate.field).string.min_len = 1];
@@ -656,20 +682,32 @@ message ObserveRequest {
 }
 
 message ObserveDone {
-  optional string session_id = 1 [(buf.validate.field).string.min_len = 1];
+  optional string session_id = 1 [(buf.validate.field).string.uuid = true, (buf.validate.field).string.(kent.api.shared.canonical_uuid_v4) = true];
   optional string script_path = 2 [(buf.validate.field).string.min_len = 1];
   optional string node_key = 3 [(buf.validate.field).string.min_len = 1];
 }
 
 message ObserveQuestion {
-  optional string session_id = 1 [(buf.validate.field).string.min_len = 1];
+  option (buf.validate.message).cel = {
+    id: "kent.workflow_task.observe_question_session_number"
+    message: "short_id requires session_id"
+    expression: "!has(this.short_id) || has(this.session_id)"
+  };
+  optional int64 short_id = 5 [(buf.validate.field).int64 = {gt: 0 lte: 9007199254740991}];
+  optional string session_id = 1 [(buf.validate.field).string.uuid = true, (buf.validate.field).string.(kent.api.shared.canonical_uuid_v4) = true];
   optional string script_path = 2 [(buf.validate.field).string.min_len = 1];
   optional string node_key = 3 [(buf.validate.field).string.min_len = 1];
   kent.api.prompt.ObservationQuestion question = 4 [(buf.validate.field).required = true];
 }
 
 message ObserveFailure {
-  optional string session_id = 1 [(buf.validate.field).string.min_len = 1];
+  option (buf.validate.message).cel = {
+    id: "kent.workflow_task.observe_failure_session_number"
+    message: "short_id requires session_id"
+    expression: "!has(this.short_id) || has(this.session_id)"
+  };
+  optional int64 short_id = 5 [(buf.validate.field).int64 = {gt: 0 lte: 9007199254740991}];
+  optional string session_id = 1 [(buf.validate.field).string.uuid = true, (buf.validate.field).string.(kent.api.shared.canonical_uuid_v4) = true];
   optional string script_path = 2 [(buf.validate.field).string.min_len = 1];
   optional string node_key = 3 [(buf.validate.field).string.min_len = 1];
   kent.api.prompt.LiveWatchFailure failure = 4 [(buf.validate.field).required = true];
@@ -800,14 +838,20 @@ message ExecutionTargetResolutionDetails {
     defined_only: true
     not_in: [0]
   }];
-  string requested_ref = 2 [(buf.validate.field).string.min_len = 1];
-}
+  oneof target {
+    option (buf.validate.oneof).required = true;
+    string requested_ref = 2 [(buf.validate.field).string.min_len = 1];
+    google.protobuf.Empty default_branch = 3;
+  }
+  optional string diagnostic = 4 [(buf.validate.field).string.min_len = 1];
 
-message LockedExecutionTargetDetails {
-  LockedExecutionTargetCause cause = 1 [(buf.validate.field).enum = {
-    defined_only: true
-    not_in: [0]
-  }];
+  option (buf.validate.message).cel = {
+    id: "kent.workflow_task.execution_target_resolution_facts"
+    message: "execution target resolution facts must match the selected target"
+    expression:
+      "(has(this.requested_ref) && this.code in [1, 2, 3] && !has(this.diagnostic)) || "
+      "(has(this.default_branch) && this.code in [1, 2, 3, 4, 5])"
+  };
 }
 
 message InitialBranchDetails {
@@ -843,9 +887,15 @@ message InitialBranchDetails {
 message CompletionTargetNotFoundDetails {}
 message CompletionSelectorAmbiguousDetails {}
 
+message ContextSelectionRequiredDetails {
+  string task_id = 1 [(buf.validate.field).string.min_len = 1];
+}
+
 message CreateError {
   string code = 1 [(buf.validate.field).string.min_len = 1, (kent.api.shared.kent_result_field).role = RESULT_FIELD_ROLE_ERROR_CODE];
   oneof detail {
+    kent.api.server.ServerNotReadyDetails server_not_ready = 8 [(kent.api.shared.kent_result_field) = {role: RESULT_FIELD_ROLE_ERROR_DETAIL error_code: "server_not_ready"}];
+    kent.api.auth.AuthRequiredDetails auth_required = 9 [(kent.api.shared.kent_result_field) = {role: RESULT_FIELD_ROLE_ERROR_DETAIL error_code: "auth_required"}];
     kent.api.workflow_definition.RequestValidationDetails invalid_request = 2 [(kent.api.shared.kent_result_field) = {role: RESULT_FIELD_ROLE_ERROR_DETAIL error_code: "invalid_request"}];
     CreateSelectionDetails create_selection = 3 [(kent.api.shared.kent_result_field) = {role: RESULT_FIELD_ROLE_ERROR_DETAIL error_code: "create_selection"}];
     CreateConflictDetails create_conflict = 4 [(kent.api.shared.kent_result_field) = {role: RESULT_FIELD_ROLE_ERROR_DETAIL error_code: "create_conflict"}];
@@ -858,6 +908,8 @@ message CreateError {
 message UpdateError {
   string code = 1 [(buf.validate.field).string.min_len = 1, (kent.api.shared.kent_result_field).role = RESULT_FIELD_ROLE_ERROR_CODE];
   oneof detail {
+    kent.api.server.ServerNotReadyDetails server_not_ready = 5 [(kent.api.shared.kent_result_field) = {role: RESULT_FIELD_ROLE_ERROR_DETAIL error_code: "server_not_ready"}];
+    kent.api.auth.AuthRequiredDetails auth_required = 6 [(kent.api.shared.kent_result_field) = {role: RESULT_FIELD_ROLE_ERROR_DETAIL error_code: "auth_required"}];
     kent.api.workflow_definition.RequestValidationDetails invalid_request = 2 [(kent.api.shared.kent_result_field) = {role: RESULT_FIELD_ROLE_ERROR_DETAIL error_code: "invalid_request"}];
     TaskNotFoundDetails task_not_found = 3 [(kent.api.shared.kent_result_field) = {role: RESULT_FIELD_ROLE_ERROR_DETAIL error_code: "task_not_found"}];
     kent.api.shared.InternalFailureDetails internal_failure = 4 [(kent.api.shared.kent_result_field) = {role: RESULT_FIELD_ROLE_ERROR_DETAIL error_code: "internal_failure"}];
@@ -867,6 +919,9 @@ message UpdateError {
 message StartError {
   string code = 1 [(buf.validate.field).string.min_len = 1, (kent.api.shared.kent_result_field).role = RESULT_FIELD_ROLE_ERROR_CODE];
   oneof detail {
+    kent.api.server.ServerNotReadyDetails server_not_ready = 11 [(kent.api.shared.kent_result_field) = {role: RESULT_FIELD_ROLE_ERROR_DETAIL error_code: "server_not_ready"}];
+    kent.api.auth.AuthRequiredDetails auth_required = 12 [(kent.api.shared.kent_result_field) = {role: RESULT_FIELD_ROLE_ERROR_DETAIL error_code: "auth_required"}];
+    kent.api.worktree.SetupRetainedDetails setup_retained = 10 [(kent.api.shared.kent_result_field) = {role: RESULT_FIELD_ROLE_ERROR_DETAIL error_code: "setup_retained"}];
     kent.api.workflow_definition.RequestValidationDetails invalid_request = 2 [(kent.api.shared.kent_result_field) = {role: RESULT_FIELD_ROLE_ERROR_DETAIL error_code: "invalid_request"}];
     TaskNotFoundDetails task_not_found = 3 [(kent.api.shared.kent_result_field) = {role: RESULT_FIELD_ROLE_ERROR_DETAIL error_code: "task_not_found"}];
     SelfTargetDetails self_target = 4 [(kent.api.shared.kent_result_field) = {role: RESULT_FIELD_ROLE_ERROR_DETAIL error_code: "self_target"}];
@@ -881,6 +936,8 @@ message StartError {
 message InterruptError {
   string code = 1 [(buf.validate.field).string.min_len = 1, (kent.api.shared.kent_result_field).role = RESULT_FIELD_ROLE_ERROR_CODE];
   oneof detail {
+    kent.api.server.ServerNotReadyDetails server_not_ready = 6 [(kent.api.shared.kent_result_field) = {role: RESULT_FIELD_ROLE_ERROR_DETAIL error_code: "server_not_ready"}];
+    kent.api.auth.AuthRequiredDetails auth_required = 7 [(kent.api.shared.kent_result_field) = {role: RESULT_FIELD_ROLE_ERROR_DETAIL error_code: "auth_required"}];
     kent.api.workflow_definition.RequestValidationDetails invalid_request = 2 [(kent.api.shared.kent_result_field) = {role: RESULT_FIELD_ROLE_ERROR_DETAIL error_code: "invalid_request"}];
     TaskNotFoundDetails task_not_found = 3 [(kent.api.shared.kent_result_field) = {role: RESULT_FIELD_ROLE_ERROR_DETAIL error_code: "task_not_found"}];
     SelfTargetDetails self_target = 4 [(kent.api.shared.kent_result_field) = {role: RESULT_FIELD_ROLE_ERROR_DETAIL error_code: "self_target"}];
@@ -891,6 +948,10 @@ message InterruptError {
 message ResumeError {
   string code = 1 [(buf.validate.field).string.min_len = 1, (kent.api.shared.kent_result_field).role = RESULT_FIELD_ROLE_ERROR_CODE];
   oneof detail {
+    kent.api.server.ServerNotReadyDetails server_not_ready = 11 [(kent.api.shared.kent_result_field) = {role: RESULT_FIELD_ROLE_ERROR_DETAIL error_code: "server_not_ready"}];
+    kent.api.auth.AuthRequiredDetails auth_required = 12 [(kent.api.shared.kent_result_field) = {role: RESULT_FIELD_ROLE_ERROR_DETAIL error_code: "auth_required"}];
+    kent.api.worktree.SetupRetainedDetails setup_retained = 9 [(kent.api.shared.kent_result_field) = {role: RESULT_FIELD_ROLE_ERROR_DETAIL error_code: "setup_retained"}];
+    ContextSelectionRequiredDetails context_selection_required = 10 [(kent.api.shared.kent_result_field) = {role: RESULT_FIELD_ROLE_ERROR_DETAIL error_code: "context_selection_required"}];
     kent.api.workflow_definition.RequestValidationDetails invalid_request = 2 [(kent.api.shared.kent_result_field) = {role: RESULT_FIELD_ROLE_ERROR_DETAIL error_code: "invalid_request"}];
     TaskNotFoundDetails task_not_found = 3 [(kent.api.shared.kent_result_field) = {role: RESULT_FIELD_ROLE_ERROR_DETAIL error_code: "task_not_found"}];
     SelfTargetDetails self_target = 4 [(kent.api.shared.kent_result_field) = {role: RESULT_FIELD_ROLE_ERROR_DETAIL error_code: "self_target"}];
@@ -904,6 +965,9 @@ message ResumeError {
 message ApproveError {
   string code = 1 [(buf.validate.field).string.min_len = 1, (kent.api.shared.kent_result_field).role = RESULT_FIELD_ROLE_ERROR_CODE];
   oneof detail {
+    kent.api.server.ServerNotReadyDetails server_not_ready = 9 [(kent.api.shared.kent_result_field) = {role: RESULT_FIELD_ROLE_ERROR_DETAIL error_code: "server_not_ready"}];
+    kent.api.auth.AuthRequiredDetails auth_required = 10 [(kent.api.shared.kent_result_field) = {role: RESULT_FIELD_ROLE_ERROR_DETAIL error_code: "auth_required"}];
+    ContextSelectionRequiredDetails context_selection_required = 8 [(kent.api.shared.kent_result_field) = {role: RESULT_FIELD_ROLE_ERROR_DETAIL error_code: "context_selection_required"}];
     kent.api.workflow_definition.RequestValidationDetails invalid_request = 2 [(kent.api.shared.kent_result_field) = {role: RESULT_FIELD_ROLE_ERROR_DETAIL error_code: "invalid_request"}];
     TaskNotFoundDetails task_not_found = 3 [(kent.api.shared.kent_result_field) = {role: RESULT_FIELD_ROLE_ERROR_DETAIL error_code: "task_not_found"}];
     SelfTargetDetails self_target = 4 [(kent.api.shared.kent_result_field) = {role: RESULT_FIELD_ROLE_ERROR_DETAIL error_code: "self_target"}];
@@ -916,6 +980,8 @@ message ApproveError {
 message MovePreviewError {
   string code = 1 [(buf.validate.field).string.min_len = 1, (kent.api.shared.kent_result_field).role = RESULT_FIELD_ROLE_ERROR_CODE];
   oneof detail {
+    kent.api.server.ServerNotReadyDetails server_not_ready = 5 [(kent.api.shared.kent_result_field) = {role: RESULT_FIELD_ROLE_ERROR_DETAIL error_code: "server_not_ready"}];
+    kent.api.auth.AuthRequiredDetails auth_required = 6 [(kent.api.shared.kent_result_field) = {role: RESULT_FIELD_ROLE_ERROR_DETAIL error_code: "auth_required"}];
     kent.api.workflow_definition.RequestValidationDetails invalid_request = 2 [(kent.api.shared.kent_result_field) = {role: RESULT_FIELD_ROLE_ERROR_DETAIL error_code: "invalid_request"}];
     TaskNotFoundDetails task_not_found = 3 [(kent.api.shared.kent_result_field) = {role: RESULT_FIELD_ROLE_ERROR_DETAIL error_code: "task_not_found"}];
     kent.api.shared.InternalFailureDetails internal_failure = 4 [(kent.api.shared.kent_result_field) = {role: RESULT_FIELD_ROLE_ERROR_DETAIL error_code: "internal_failure"}];
@@ -925,6 +991,9 @@ message MovePreviewError {
 message MoveError {
   string code = 1 [(buf.validate.field).string.min_len = 1, (kent.api.shared.kent_result_field).role = RESULT_FIELD_ROLE_ERROR_CODE];
   oneof detail {
+    kent.api.server.ServerNotReadyDetails server_not_ready = 10 [(kent.api.shared.kent_result_field) = {role: RESULT_FIELD_ROLE_ERROR_DETAIL error_code: "server_not_ready"}];
+    kent.api.auth.AuthRequiredDetails auth_required = 11 [(kent.api.shared.kent_result_field) = {role: RESULT_FIELD_ROLE_ERROR_DETAIL error_code: "auth_required"}];
+    kent.api.worktree.SetupRetainedDetails setup_retained = 9 [(kent.api.shared.kent_result_field) = {role: RESULT_FIELD_ROLE_ERROR_DETAIL error_code: "setup_retained"}];
     kent.api.workflow_definition.RequestValidationDetails invalid_request = 2 [(kent.api.shared.kent_result_field) = {role: RESULT_FIELD_ROLE_ERROR_DETAIL error_code: "invalid_request"}];
     TaskNotFoundDetails task_not_found = 3 [(kent.api.shared.kent_result_field) = {role: RESULT_FIELD_ROLE_ERROR_DETAIL error_code: "task_not_found"}];
     SelfTargetDetails self_target = 4 [(kent.api.shared.kent_result_field) = {role: RESULT_FIELD_ROLE_ERROR_DETAIL error_code: "self_target"}];
@@ -938,6 +1007,12 @@ message MoveError {
 message CompleteError {
   string code = 1 [(buf.validate.field).string.min_len = 1, (kent.api.shared.kent_result_field).role = RESULT_FIELD_ROLE_ERROR_CODE];
   oneof detail {
+    ExecutionTargetResolutionDetails execution_target_resolution = 9 [(kent.api.shared.kent_result_field) = {role: RESULT_FIELD_ROLE_ERROR_DETAIL error_code: "execution_target_resolution"}];
+    LockedExecutionTargetDetails locked_execution_target = 10 [(kent.api.shared.kent_result_field) = {role: RESULT_FIELD_ROLE_ERROR_DETAIL error_code: "locked_execution_target"}];
+    InitialBranchDetails initial_branch = 11 [(kent.api.shared.kent_result_field) = {role: RESULT_FIELD_ROLE_ERROR_DETAIL error_code: "initial_branch"}];
+    kent.api.worktree.SetupRetainedDetails setup_retained = 12 [(kent.api.shared.kent_result_field) = {role: RESULT_FIELD_ROLE_ERROR_DETAIL error_code: "setup_retained"}];
+    kent.api.server.ServerNotReadyDetails server_not_ready = 7 [(kent.api.shared.kent_result_field) = {role: RESULT_FIELD_ROLE_ERROR_DETAIL error_code: "server_not_ready"}];
+    kent.api.auth.AuthRequiredDetails auth_required = 8 [(kent.api.shared.kent_result_field) = {role: RESULT_FIELD_ROLE_ERROR_DETAIL error_code: "auth_required"}];
     kent.api.workflow_definition.RequestValidationDetails invalid_request = 2 [(kent.api.shared.kent_result_field) = {role: RESULT_FIELD_ROLE_ERROR_DETAIL error_code: "invalid_request"}];
     TaskNotFoundDetails task_not_found = 3 [(kent.api.shared.kent_result_field) = {role: RESULT_FIELD_ROLE_ERROR_DETAIL error_code: "task_not_found"}];
     CompletionTargetNotFoundDetails completion_target_not_found = 4 [(kent.api.shared.kent_result_field) = {role: RESULT_FIELD_ROLE_ERROR_DETAIL error_code: "completion_target_not_found"}];
@@ -949,6 +1024,8 @@ message CompleteError {
 message DeleteError {
   string code = 1 [(buf.validate.field).string.min_len = 1, (kent.api.shared.kent_result_field).role = RESULT_FIELD_ROLE_ERROR_CODE];
   oneof detail {
+    kent.api.server.ServerNotReadyDetails server_not_ready = 6 [(kent.api.shared.kent_result_field) = {role: RESULT_FIELD_ROLE_ERROR_DETAIL error_code: "server_not_ready"}];
+    kent.api.auth.AuthRequiredDetails auth_required = 7 [(kent.api.shared.kent_result_field) = {role: RESULT_FIELD_ROLE_ERROR_DETAIL error_code: "auth_required"}];
     kent.api.workflow_definition.RequestValidationDetails invalid_request = 2 [(kent.api.shared.kent_result_field) = {role: RESULT_FIELD_ROLE_ERROR_DETAIL error_code: "invalid_request"}];
     TaskNotFoundDetails task_not_found = 3 [(kent.api.shared.kent_result_field) = {role: RESULT_FIELD_ROLE_ERROR_DETAIL error_code: "task_not_found"}];
     kent.api.worktree.BlockedDetails worktree_blocked = 4 [(kent.api.shared.kent_result_field) = {role: RESULT_FIELD_ROLE_ERROR_DETAIL error_code: "worktree_blocked"}];
@@ -959,6 +1036,8 @@ message DeleteError {
 message DependencyAddError {
   string code = 1 [(buf.validate.field).string.min_len = 1, (kent.api.shared.kent_result_field).role = RESULT_FIELD_ROLE_ERROR_CODE];
   oneof detail {
+    kent.api.server.ServerNotReadyDetails server_not_ready = 5 [(kent.api.shared.kent_result_field) = {role: RESULT_FIELD_ROLE_ERROR_DETAIL error_code: "server_not_ready"}];
+    kent.api.auth.AuthRequiredDetails auth_required = 6 [(kent.api.shared.kent_result_field) = {role: RESULT_FIELD_ROLE_ERROR_DETAIL error_code: "auth_required"}];
     kent.api.workflow_definition.RequestValidationDetails invalid_request = 2 [(kent.api.shared.kent_result_field) = {role: RESULT_FIELD_ROLE_ERROR_DETAIL error_code: "invalid_request"}];
     DependencyErrorDetails dependency = 3 [(kent.api.shared.kent_result_field) = {role: RESULT_FIELD_ROLE_ERROR_DETAIL error_code: "dependency"}];
     kent.api.shared.InternalFailureDetails internal_failure = 4 [(kent.api.shared.kent_result_field) = {role: RESULT_FIELD_ROLE_ERROR_DETAIL error_code: "internal_failure"}];
@@ -968,6 +1047,8 @@ message DependencyAddError {
 message DependencyRemoveError {
   string code = 1 [(buf.validate.field).string.min_len = 1, (kent.api.shared.kent_result_field).role = RESULT_FIELD_ROLE_ERROR_CODE];
   oneof detail {
+    kent.api.server.ServerNotReadyDetails server_not_ready = 5 [(kent.api.shared.kent_result_field) = {role: RESULT_FIELD_ROLE_ERROR_DETAIL error_code: "server_not_ready"}];
+    kent.api.auth.AuthRequiredDetails auth_required = 6 [(kent.api.shared.kent_result_field) = {role: RESULT_FIELD_ROLE_ERROR_DETAIL error_code: "auth_required"}];
     kent.api.workflow_definition.RequestValidationDetails invalid_request = 2 [(kent.api.shared.kent_result_field) = {role: RESULT_FIELD_ROLE_ERROR_DETAIL error_code: "invalid_request"}];
     DependencyErrorDetails dependency = 3 [(kent.api.shared.kent_result_field) = {role: RESULT_FIELD_ROLE_ERROR_DETAIL error_code: "dependency"}];
     kent.api.shared.InternalFailureDetails internal_failure = 4 [(kent.api.shared.kent_result_field) = {role: RESULT_FIELD_ROLE_ERROR_DETAIL error_code: "internal_failure"}];
@@ -977,6 +1058,9 @@ message DependencyRemoveError {
 message DependencyListError {
   string code = 1 [(buf.validate.field).string.min_len = 1, (kent.api.shared.kent_result_field).role = RESULT_FIELD_ROLE_ERROR_CODE];
   oneof detail {
+    TaskNotFoundDetails task_not_found = 6 [(kent.api.shared.kent_result_field) = {role: RESULT_FIELD_ROLE_ERROR_DETAIL error_code: "task_not_found"}];
+    kent.api.auth.AuthRequiredDetails auth_required = 7 [(kent.api.shared.kent_result_field) = {role: RESULT_FIELD_ROLE_ERROR_DETAIL error_code: "auth_required"}];
+    kent.api.server.ServerNotReadyDetails server_not_ready = 5 [(kent.api.shared.kent_result_field) = {role: RESULT_FIELD_ROLE_ERROR_DETAIL error_code: "server_not_ready"}];
     kent.api.workflow_definition.RequestValidationDetails invalid_request = 2 [(kent.api.shared.kent_result_field) = {role: RESULT_FIELD_ROLE_ERROR_DETAIL error_code: "invalid_request"}];
     DependencyErrorDetails dependency = 3 [(kent.api.shared.kent_result_field) = {role: RESULT_FIELD_ROLE_ERROR_DETAIL error_code: "dependency"}];
     kent.api.shared.InternalFailureDetails internal_failure = 4 [(kent.api.shared.kent_result_field) = {role: RESULT_FIELD_ROLE_ERROR_DETAIL error_code: "internal_failure"}];
@@ -986,6 +1070,8 @@ message DependencyListError {
 message CommentAddError {
   string code = 1 [(buf.validate.field).string.min_len = 1, (kent.api.shared.kent_result_field).role = RESULT_FIELD_ROLE_ERROR_CODE];
   oneof detail {
+    kent.api.server.ServerNotReadyDetails server_not_ready = 5 [(kent.api.shared.kent_result_field) = {role: RESULT_FIELD_ROLE_ERROR_DETAIL error_code: "server_not_ready"}];
+    kent.api.auth.AuthRequiredDetails auth_required = 6 [(kent.api.shared.kent_result_field) = {role: RESULT_FIELD_ROLE_ERROR_DETAIL error_code: "auth_required"}];
     kent.api.workflow_definition.RequestValidationDetails invalid_request = 2 [(kent.api.shared.kent_result_field) = {role: RESULT_FIELD_ROLE_ERROR_DETAIL error_code: "invalid_request"}];
     TaskNotFoundDetails task_not_found = 3 [(kent.api.shared.kent_result_field) = {role: RESULT_FIELD_ROLE_ERROR_DETAIL error_code: "task_not_found"}];
     kent.api.shared.InternalFailureDetails internal_failure = 4 [(kent.api.shared.kent_result_field) = {role: RESULT_FIELD_ROLE_ERROR_DETAIL error_code: "internal_failure"}];
@@ -995,6 +1081,7 @@ message CommentAddError {
 message CommentListError {
   string code = 1 [(buf.validate.field).string.min_len = 1, (kent.api.shared.kent_result_field).role = RESULT_FIELD_ROLE_ERROR_CODE];
   oneof detail {
+    kent.api.server.ServerNotReadyDetails server_not_ready = 5 [(kent.api.shared.kent_result_field) = {role: RESULT_FIELD_ROLE_ERROR_DETAIL error_code: "server_not_ready"}];
     kent.api.workflow_definition.RequestValidationDetails invalid_request = 2 [(kent.api.shared.kent_result_field) = {role: RESULT_FIELD_ROLE_ERROR_DETAIL error_code: "invalid_request"}];
     TaskNotFoundDetails task_not_found = 3 [(kent.api.shared.kent_result_field) = {role: RESULT_FIELD_ROLE_ERROR_DETAIL error_code: "task_not_found"}];
     kent.api.shared.InternalFailureDetails internal_failure = 4 [(kent.api.shared.kent_result_field) = {role: RESULT_FIELD_ROLE_ERROR_DETAIL error_code: "internal_failure"}];
@@ -1004,6 +1091,8 @@ message CommentListError {
 message CommentReplaceError {
   string code = 1 [(buf.validate.field).string.min_len = 1, (kent.api.shared.kent_result_field).role = RESULT_FIELD_ROLE_ERROR_CODE];
   oneof detail {
+    kent.api.server.ServerNotReadyDetails server_not_ready = 5 [(kent.api.shared.kent_result_field) = {role: RESULT_FIELD_ROLE_ERROR_DETAIL error_code: "server_not_ready"}];
+    kent.api.auth.AuthRequiredDetails auth_required = 6 [(kent.api.shared.kent_result_field) = {role: RESULT_FIELD_ROLE_ERROR_DETAIL error_code: "auth_required"}];
     kent.api.workflow_definition.RequestValidationDetails invalid_request = 2 [(kent.api.shared.kent_result_field) = {role: RESULT_FIELD_ROLE_ERROR_DETAIL error_code: "invalid_request"}];
     TaskNotFoundDetails task_not_found = 3 [(kent.api.shared.kent_result_field) = {role: RESULT_FIELD_ROLE_ERROR_DETAIL error_code: "task_not_found"}];
     kent.api.shared.InternalFailureDetails internal_failure = 4 [(kent.api.shared.kent_result_field) = {role: RESULT_FIELD_ROLE_ERROR_DETAIL error_code: "internal_failure"}];
@@ -1013,6 +1102,8 @@ message CommentReplaceError {
 message CommentDeleteError {
   string code = 1 [(buf.validate.field).string.min_len = 1, (kent.api.shared.kent_result_field).role = RESULT_FIELD_ROLE_ERROR_CODE];
   oneof detail {
+    kent.api.server.ServerNotReadyDetails server_not_ready = 5 [(kent.api.shared.kent_result_field) = {role: RESULT_FIELD_ROLE_ERROR_DETAIL error_code: "server_not_ready"}];
+    kent.api.auth.AuthRequiredDetails auth_required = 6 [(kent.api.shared.kent_result_field) = {role: RESULT_FIELD_ROLE_ERROR_DETAIL error_code: "auth_required"}];
     kent.api.workflow_definition.RequestValidationDetails invalid_request = 2 [(kent.api.shared.kent_result_field) = {role: RESULT_FIELD_ROLE_ERROR_DETAIL error_code: "invalid_request"}];
     TaskNotFoundDetails task_not_found = 3 [(kent.api.shared.kent_result_field) = {role: RESULT_FIELD_ROLE_ERROR_DETAIL error_code: "task_not_found"}];
     kent.api.shared.InternalFailureDetails internal_failure = 4 [(kent.api.shared.kent_result_field) = {role: RESULT_FIELD_ROLE_ERROR_DETAIL error_code: "internal_failure"}];
@@ -1022,6 +1113,7 @@ message CommentDeleteError {
 message ActivityListError {
   string code = 1 [(buf.validate.field).string.min_len = 1, (kent.api.shared.kent_result_field).role = RESULT_FIELD_ROLE_ERROR_CODE];
   oneof detail {
+    kent.api.server.ServerNotReadyDetails server_not_ready = 5 [(kent.api.shared.kent_result_field) = {role: RESULT_FIELD_ROLE_ERROR_DETAIL error_code: "server_not_ready"}];
     kent.api.workflow_definition.RequestValidationDetails invalid_request = 2 [(kent.api.shared.kent_result_field) = {role: RESULT_FIELD_ROLE_ERROR_DETAIL error_code: "invalid_request"}];
     TaskNotFoundDetails task_not_found = 3 [(kent.api.shared.kent_result_field) = {role: RESULT_FIELD_ROLE_ERROR_DETAIL error_code: "task_not_found"}];
     kent.api.shared.InternalFailureDetails internal_failure = 4 [(kent.api.shared.kent_result_field) = {role: RESULT_FIELD_ROLE_ERROR_DETAIL error_code: "internal_failure"}];
@@ -1031,6 +1123,7 @@ message ActivityListError {
 message SessionListError {
   string code = 1 [(buf.validate.field).string.min_len = 1, (kent.api.shared.kent_result_field).role = RESULT_FIELD_ROLE_ERROR_CODE];
   oneof detail {
+    kent.api.server.ServerNotReadyDetails server_not_ready = 5 [(kent.api.shared.kent_result_field) = {role: RESULT_FIELD_ROLE_ERROR_DETAIL error_code: "server_not_ready"}];
     kent.api.workflow_definition.RequestValidationDetails invalid_request = 2 [(kent.api.shared.kent_result_field) = {role: RESULT_FIELD_ROLE_ERROR_DETAIL error_code: "invalid_request"}];
     TaskNotFoundDetails task_not_found = 3 [(kent.api.shared.kent_result_field) = {role: RESULT_FIELD_ROLE_ERROR_DETAIL error_code: "task_not_found"}];
     kent.api.shared.InternalFailureDetails internal_failure = 4 [(kent.api.shared.kent_result_field) = {role: RESULT_FIELD_ROLE_ERROR_DETAIL error_code: "internal_failure"}];
@@ -1058,6 +1151,8 @@ message LabelsUpdateError {
 message ObserveError {
   string code = 1 [(buf.validate.field).string.min_len = 1, (kent.api.shared.kent_result_field).role = RESULT_FIELD_ROLE_ERROR_CODE];
   oneof detail {
+    kent.api.server.ServerNotReadyDetails server_not_ready = 5 [(kent.api.shared.kent_result_field) = {role: RESULT_FIELD_ROLE_ERROR_DETAIL error_code: "server_not_ready"}];
+    kent.api.auth.AuthRequiredDetails auth_required = 6 [(kent.api.shared.kent_result_field) = {role: RESULT_FIELD_ROLE_ERROR_DETAIL error_code: "auth_required"}];
     kent.api.workflow_definition.RequestValidationDetails invalid_request = 2 [(kent.api.shared.kent_result_field) = {role: RESULT_FIELD_ROLE_ERROR_DETAIL error_code: "invalid_request"}];
     TaskNotFoundDetails task_not_found = 3 [(kent.api.shared.kent_result_field) = {role: RESULT_FIELD_ROLE_ERROR_DETAIL error_code: "task_not_found"}];
     kent.api.shared.InternalFailureDetails internal_failure = 4 [(kent.api.shared.kent_result_field) = {role: RESULT_FIELD_ROLE_ERROR_DETAIL error_code: "internal_failure"}];
@@ -1140,6 +1235,11 @@ message DependencyAddResult {
     DependencyMutationSuccess success = 1 [(kent.api.shared.kent_result_field).role = RESULT_FIELD_ROLE_SUCCESS];
     DependencyAddError error = 2 [(kent.api.shared.kent_result_field).role = RESULT_FIELD_ROLE_ERROR];
   }
+  option (buf.validate.message).cel = {
+    id: "kent.workflow_task.dependency_add_outcome"
+    message: "dependency Add requires an added or already-present outcome"
+    expression: "!has(this.success) || this.success.outcome in [1, 2]"
+  };
 }
 message DependencyRemoveResult {
   oneof outcome {
@@ -1147,6 +1247,11 @@ message DependencyRemoveResult {
     DependencyMutationSuccess success = 1 [(kent.api.shared.kent_result_field).role = RESULT_FIELD_ROLE_SUCCESS];
     DependencyRemoveError error = 2 [(kent.api.shared.kent_result_field).role = RESULT_FIELD_ROLE_ERROR];
   }
+  option (buf.validate.message).cel = {
+    id: "kent.workflow_task.dependency_remove_outcome"
+    message: "dependency Remove requires a removed or already-absent outcome"
+    expression: "!has(this.success) || this.success.outcome in [3, 4]"
+  };
 }
 message DependencyListResult {
   oneof outcome {
@@ -1214,73 +1319,73 @@ message ObserveResult {
 
 service TaskLifecycleService {
   rpc Create(CreateRequest) returns (CreateResult) {
-    option (kent.api.shared.kent_method) = {kind: OPERATION_KIND_UNARY authentication_stage: AUTHENTICATION_STAGE_SERVER scope_policy: SCOPE_POLICY_PROJECT_VIEW direction: DIRECTION_CLIENT_TO_SERVER unary_connection: UNARY_CONNECTION_MULTIPLEXED legacy_wire_name: "workflow.task.create"};
+    option (kent.api.shared.kent_method) = {kind: OPERATION_KIND_UNARY authentication_stage: AUTHENTICATION_STAGE_SERVER scope_policy: SCOPE_POLICY_PROJECT_VIEW direction: DIRECTION_CLIENT_TO_SERVER unary_connection: UNARY_CONNECTION_MULTIPLEXED};
   }
   rpc Update(UpdateRequest) returns (UpdateResult) {
-    option (kent.api.shared.kent_method) = {kind: OPERATION_KIND_UNARY authentication_stage: AUTHENTICATION_STAGE_SERVER scope_policy: SCOPE_POLICY_PROJECT_VIEW direction: DIRECTION_CLIENT_TO_SERVER unary_connection: UNARY_CONNECTION_MULTIPLEXED legacy_wire_name: "workflow.task.update"};
+    option (kent.api.shared.kent_method) = {kind: OPERATION_KIND_UNARY authentication_stage: AUTHENTICATION_STAGE_SERVER scope_policy: SCOPE_POLICY_PROJECT_VIEW direction: DIRECTION_CLIENT_TO_SERVER unary_connection: UNARY_CONNECTION_MULTIPLEXED};
   }
   rpc Start(StartRequest) returns (StartResult) {
-    option (kent.api.shared.kent_method) = {kind: OPERATION_KIND_UNARY authentication_stage: AUTHENTICATION_STAGE_SERVER scope_policy: SCOPE_POLICY_PROJECT_VIEW direction: DIRECTION_CLIENT_TO_SERVER unary_connection: UNARY_CONNECTION_MULTIPLEXED legacy_wire_name: "workflow.task.start"};
+    option (kent.api.shared.kent_method) = {kind: OPERATION_KIND_UNARY authentication_stage: AUTHENTICATION_STAGE_SERVER scope_policy: SCOPE_POLICY_PROJECT_VIEW direction: DIRECTION_CLIENT_TO_SERVER unary_connection: UNARY_CONNECTION_MULTIPLEXED};
   }
   rpc Interrupt(InterruptRequest) returns (InterruptResult) {
-    option (kent.api.shared.kent_method) = {kind: OPERATION_KIND_UNARY authentication_stage: AUTHENTICATION_STAGE_SERVER scope_policy: SCOPE_POLICY_PROJECT_VIEW direction: DIRECTION_CLIENT_TO_SERVER unary_connection: UNARY_CONNECTION_MULTIPLEXED legacy_wire_name: "workflow.task.interrupt"};
+    option (kent.api.shared.kent_method) = {kind: OPERATION_KIND_UNARY authentication_stage: AUTHENTICATION_STAGE_SERVER scope_policy: SCOPE_POLICY_PROJECT_VIEW direction: DIRECTION_CLIENT_TO_SERVER unary_connection: UNARY_CONNECTION_MULTIPLEXED};
   }
   rpc Resume(ResumeRequest) returns (ResumeResult) {
-    option (kent.api.shared.kent_method) = {kind: OPERATION_KIND_UNARY authentication_stage: AUTHENTICATION_STAGE_SERVER scope_policy: SCOPE_POLICY_PROJECT_VIEW direction: DIRECTION_CLIENT_TO_SERVER unary_connection: UNARY_CONNECTION_MULTIPLEXED legacy_wire_name: "workflow.task.resume"};
+    option (kent.api.shared.kent_method) = {kind: OPERATION_KIND_UNARY authentication_stage: AUTHENTICATION_STAGE_SERVER scope_policy: SCOPE_POLICY_PROJECT_VIEW direction: DIRECTION_CLIENT_TO_SERVER unary_connection: UNARY_CONNECTION_MULTIPLEXED};
   }
   rpc Approve(ApproveRequest) returns (ApproveResult) {
-    option (kent.api.shared.kent_method) = {kind: OPERATION_KIND_UNARY authentication_stage: AUTHENTICATION_STAGE_SERVER scope_policy: SCOPE_POLICY_PROJECT_VIEW direction: DIRECTION_CLIENT_TO_SERVER unary_connection: UNARY_CONNECTION_MULTIPLEXED legacy_wire_name: "workflow.task.approve"};
+    option (kent.api.shared.kent_method) = {kind: OPERATION_KIND_UNARY authentication_stage: AUTHENTICATION_STAGE_SERVER scope_policy: SCOPE_POLICY_PROJECT_VIEW direction: DIRECTION_CLIENT_TO_SERVER unary_connection: UNARY_CONNECTION_MULTIPLEXED};
   }
   rpc PreviewMove(MovePreviewRequest) returns (MovePreviewResult) {
-    option (kent.api.shared.kent_method) = {kind: OPERATION_KIND_UNARY authentication_stage: AUTHENTICATION_STAGE_SERVER scope_policy: SCOPE_POLICY_PROJECT_VIEW direction: DIRECTION_CLIENT_TO_SERVER unary_connection: UNARY_CONNECTION_MULTIPLEXED legacy_wire_name: "workflow.task.move.preview"};
+    option (kent.api.shared.kent_method) = {kind: OPERATION_KIND_UNARY authentication_stage: AUTHENTICATION_STAGE_SERVER scope_policy: SCOPE_POLICY_PROJECT_VIEW direction: DIRECTION_CLIENT_TO_SERVER unary_connection: UNARY_CONNECTION_MULTIPLEXED};
   }
   rpc Move(MoveRequest) returns (MoveResult) {
-    option (kent.api.shared.kent_method) = {kind: OPERATION_KIND_UNARY authentication_stage: AUTHENTICATION_STAGE_SERVER scope_policy: SCOPE_POLICY_PROJECT_VIEW direction: DIRECTION_CLIENT_TO_SERVER unary_connection: UNARY_CONNECTION_MULTIPLEXED legacy_wire_name: "workflow.task.move"};
+    option (kent.api.shared.kent_method) = {kind: OPERATION_KIND_UNARY authentication_stage: AUTHENTICATION_STAGE_SERVER scope_policy: SCOPE_POLICY_PROJECT_VIEW direction: DIRECTION_CLIENT_TO_SERVER unary_connection: UNARY_CONNECTION_MULTIPLEXED};
   }
   rpc Complete(CompleteRequest) returns (CompleteResult) {
-    option (kent.api.shared.kent_method) = {kind: OPERATION_KIND_UNARY authentication_stage: AUTHENTICATION_STAGE_SERVER scope_policy: SCOPE_POLICY_PROJECT_VIEW direction: DIRECTION_CLIENT_TO_SERVER unary_connection: UNARY_CONNECTION_MULTIPLEXED legacy_wire_name: "workflow.task.complete"};
+    option (kent.api.shared.kent_method) = {kind: OPERATION_KIND_UNARY authentication_stage: AUTHENTICATION_STAGE_SERVER scope_policy: SCOPE_POLICY_PROJECT_VIEW direction: DIRECTION_CLIENT_TO_SERVER unary_connection: UNARY_CONNECTION_MULTIPLEXED};
   }
   rpc Delete(DeleteRequest) returns (DeleteResult) {
-    option (kent.api.shared.kent_method) = {kind: OPERATION_KIND_UNARY authentication_stage: AUTHENTICATION_STAGE_SERVER scope_policy: SCOPE_POLICY_PROJECT_VIEW direction: DIRECTION_CLIENT_TO_SERVER unary_connection: UNARY_CONNECTION_MULTIPLEXED legacy_wire_name: "workflow.task.delete"};
+    option (kent.api.shared.kent_method) = {kind: OPERATION_KIND_UNARY authentication_stage: AUTHENTICATION_STAGE_SERVER scope_policy: SCOPE_POLICY_PROJECT_VIEW direction: DIRECTION_CLIENT_TO_SERVER unary_connection: UNARY_CONNECTION_MULTIPLEXED};
   }
 }
 
 service TaskDependencyService {
   rpc Add(DependencyAddRequest) returns (DependencyAddResult) {
-    option (kent.api.shared.kent_method) = {kind: OPERATION_KIND_UNARY authentication_stage: AUTHENTICATION_STAGE_SERVER scope_policy: SCOPE_POLICY_PROJECT_VIEW direction: DIRECTION_CLIENT_TO_SERVER unary_connection: UNARY_CONNECTION_MULTIPLEXED legacy_wire_name: "workflow.task.dependency.add"};
+    option (kent.api.shared.kent_method) = {kind: OPERATION_KIND_UNARY authentication_stage: AUTHENTICATION_STAGE_SERVER scope_policy: SCOPE_POLICY_PROJECT_VIEW direction: DIRECTION_CLIENT_TO_SERVER unary_connection: UNARY_CONNECTION_MULTIPLEXED};
   }
   rpc Remove(DependencyRemoveRequest) returns (DependencyRemoveResult) {
-    option (kent.api.shared.kent_method) = {kind: OPERATION_KIND_UNARY authentication_stage: AUTHENTICATION_STAGE_SERVER scope_policy: SCOPE_POLICY_PROJECT_VIEW direction: DIRECTION_CLIENT_TO_SERVER unary_connection: UNARY_CONNECTION_MULTIPLEXED legacy_wire_name: "workflow.task.dependency.remove"};
+    option (kent.api.shared.kent_method) = {kind: OPERATION_KIND_UNARY authentication_stage: AUTHENTICATION_STAGE_SERVER scope_policy: SCOPE_POLICY_PROJECT_VIEW direction: DIRECTION_CLIENT_TO_SERVER unary_connection: UNARY_CONNECTION_MULTIPLEXED};
   }
   rpc List(DependencyListRequest) returns (DependencyListResult) {
-    option (kent.api.shared.kent_method) = {kind: OPERATION_KIND_UNARY authentication_stage: AUTHENTICATION_STAGE_PRE_SERVER scope_policy: SCOPE_POLICY_PROJECT_VIEW direction: DIRECTION_CLIENT_TO_SERVER unary_connection: UNARY_CONNECTION_MULTIPLEXED legacy_wire_name: "workflow.task.dependency.list"};
+    option (kent.api.shared.kent_method) = {kind: OPERATION_KIND_UNARY authentication_stage: AUTHENTICATION_STAGE_PRE_SERVER scope_policy: SCOPE_POLICY_PROJECT_VIEW direction: DIRECTION_CLIENT_TO_SERVER unary_connection: UNARY_CONNECTION_MULTIPLEXED};
   }
 }
 
 service TaskCommentService {
   rpc Add(CommentAddRequest) returns (CommentAddResult) {
-    option (kent.api.shared.kent_method) = {kind: OPERATION_KIND_UNARY authentication_stage: AUTHENTICATION_STAGE_SERVER scope_policy: SCOPE_POLICY_PROJECT_VIEW direction: DIRECTION_CLIENT_TO_SERVER unary_connection: UNARY_CONNECTION_MULTIPLEXED legacy_wire_name: "workflow.task.comment.add"};
+    option (kent.api.shared.kent_method) = {kind: OPERATION_KIND_UNARY authentication_stage: AUTHENTICATION_STAGE_SERVER scope_policy: SCOPE_POLICY_PROJECT_VIEW direction: DIRECTION_CLIENT_TO_SERVER unary_connection: UNARY_CONNECTION_MULTIPLEXED};
   }
   rpc List(TaskOffsetPageRequest) returns (CommentListResult) {
-    option (kent.api.shared.kent_method) = {kind: OPERATION_KIND_UNARY authentication_stage: AUTHENTICATION_STAGE_PRE_SERVER scope_policy: SCOPE_POLICY_PROJECT_VIEW direction: DIRECTION_CLIENT_TO_SERVER unary_connection: UNARY_CONNECTION_MULTIPLEXED legacy_wire_name: "workflow.task.comment.list"};
+    option (kent.api.shared.kent_method) = {kind: OPERATION_KIND_UNARY authentication_stage: AUTHENTICATION_STAGE_PRE_SERVER scope_policy: SCOPE_POLICY_PROJECT_VIEW direction: DIRECTION_CLIENT_TO_SERVER unary_connection: UNARY_CONNECTION_MULTIPLEXED};
   }
   rpc Replace(CommentReplaceRequest) returns (CommentReplaceResult) {
-    option (kent.api.shared.kent_method) = {kind: OPERATION_KIND_UNARY authentication_stage: AUTHENTICATION_STAGE_SERVER scope_policy: SCOPE_POLICY_PROJECT_VIEW direction: DIRECTION_CLIENT_TO_SERVER unary_connection: UNARY_CONNECTION_MULTIPLEXED legacy_wire_name: "workflow.task.comment.replace"};
+    option (kent.api.shared.kent_method) = {kind: OPERATION_KIND_UNARY authentication_stage: AUTHENTICATION_STAGE_SERVER scope_policy: SCOPE_POLICY_PROJECT_VIEW direction: DIRECTION_CLIENT_TO_SERVER unary_connection: UNARY_CONNECTION_MULTIPLEXED};
   }
   rpc Delete(CommentDeleteRequest) returns (CommentDeleteResult) {
-    option (kent.api.shared.kent_method) = {kind: OPERATION_KIND_UNARY authentication_stage: AUTHENTICATION_STAGE_SERVER scope_policy: SCOPE_POLICY_PROJECT_VIEW direction: DIRECTION_CLIENT_TO_SERVER unary_connection: UNARY_CONNECTION_MULTIPLEXED legacy_wire_name: "workflow.task.comment.delete"};
+    option (kent.api.shared.kent_method) = {kind: OPERATION_KIND_UNARY authentication_stage: AUTHENTICATION_STAGE_SERVER scope_policy: SCOPE_POLICY_PROJECT_VIEW direction: DIRECTION_CLIENT_TO_SERVER unary_connection: UNARY_CONNECTION_MULTIPLEXED};
   }
 }
 
 service TaskActivityService {
   rpc List(TaskOffsetPageRequest) returns (ActivityListResult) {
-    option (kent.api.shared.kent_method) = {kind: OPERATION_KIND_UNARY authentication_stage: AUTHENTICATION_STAGE_PRE_SERVER scope_policy: SCOPE_POLICY_PROJECT_VIEW direction: DIRECTION_CLIENT_TO_SERVER unary_connection: UNARY_CONNECTION_MULTIPLEXED legacy_wire_name: "workflow.task.activity.list"};
+    option (kent.api.shared.kent_method) = {kind: OPERATION_KIND_UNARY authentication_stage: AUTHENTICATION_STAGE_PRE_SERVER scope_policy: SCOPE_POLICY_PROJECT_VIEW direction: DIRECTION_CLIENT_TO_SERVER unary_connection: UNARY_CONNECTION_MULTIPLEXED};
   }
 }
 
 service TaskSessionService {
   rpc List(TaskOffsetPageRequest) returns (SessionListResult) {
-    option (kent.api.shared.kent_method) = {kind: OPERATION_KIND_UNARY authentication_stage: AUTHENTICATION_STAGE_PRE_SERVER scope_policy: SCOPE_POLICY_PROJECT_VIEW direction: DIRECTION_CLIENT_TO_SERVER unary_connection: UNARY_CONNECTION_MULTIPLEXED legacy_wire_name: "workflow.task.session.list"};
+    option (kent.api.shared.kent_method) = {kind: OPERATION_KIND_UNARY authentication_stage: AUTHENTICATION_STAGE_PRE_SERVER scope_policy: SCOPE_POLICY_PROJECT_VIEW direction: DIRECTION_CLIENT_TO_SERVER unary_connection: UNARY_CONNECTION_MULTIPLEXED};
   }
 }
 
@@ -1292,6 +1397,6 @@ service TaskLabelService {
 
 service TaskObservationService {
   rpc Observe(ObserveRequest) returns (ObserveResult) {
-    option (kent.api.shared.kent_method) = {kind: OPERATION_KIND_UNARY authentication_stage: AUTHENTICATION_STAGE_SERVER scope_policy: SCOPE_POLICY_PROJECT_VIEW direction: DIRECTION_CLIENT_TO_SERVER unary_connection: UNARY_CONNECTION_MULTIPLEXED legacy_wire_name: "workflow.task.observe"};
+    option (kent.api.shared.kent_method) = {kind: OPERATION_KIND_UNARY authentication_stage: AUTHENTICATION_STAGE_SERVER scope_policy: SCOPE_POLICY_PROJECT_VIEW direction: DIRECTION_CLIENT_TO_SERVER unary_connection: UNARY_CONNECTION_MULTIPLEXED};
   }
 }

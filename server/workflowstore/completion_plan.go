@@ -8,7 +8,7 @@ import (
 	"core/server/metadata/sqlitegen"
 	"core/server/session"
 	"core/server/workflow"
-	"core/shared/serverapi"
+	"core/shared/workflowcontract"
 )
 
 type CurrentNodeCompletionPlan struct {
@@ -97,6 +97,23 @@ func (s *Store) PlanCurrentNodeCompletion(ctx context.Context, request CurrentNo
 	if err != nil {
 		return plan, err
 	}
+	handoffSource := source
+	destinationDisplayName := workflow.DisplayLabel(group.DisplayName, string(group.TransitionID))
+	if len(targets) == 1 {
+		handoffTarget := targets[0].Node
+		if handoffTarget.Kind() == workflow.NodeKindJoin && len(result.Mutation.Created) == 1 {
+			handoffSource = handoffTarget
+			handoffTarget, err = currentNodeDefinitionNode(definition, result.Mutation.Created[0].Reference.NodeID)
+			if err != nil {
+				return plan, err
+			}
+		}
+		destinationDisplayName = workflow.NodeDisplayLabel(handoffTarget)
+	}
+	result.Handoff = CompletionHandoff{
+		SourceNodeDisplayName:  workflow.NodeDisplayLabel(handoffSource),
+		DestinationDisplayName: destinationDisplayName,
+	}
 	result, err = completeCurrentNodePostTurnFacts(ctx, s.queries, definition, current, completionTargetEdges(targets), source.Kind() == workflow.NodeKindAgent, result)
 	if err != nil {
 		return plan, err
@@ -133,7 +150,7 @@ func (s *Store) planSequentialCompletion(
 		result.legacyFallbacks = append(result.legacyFallbacks, *materialized.LegacyFallback)
 	}
 	if target.Edge.RequiresApproval {
-		approval, err := newPendingApproval(current, version, group, workflow.NodeDisplayName(source), target.Edge, target.Node,
+		approval, err := newPendingApproval(current, version, group, workflow.NodeDisplayLabel(source), target.Edge, target.Node,
 			materialized.CurrentNode, req.Commentary, req.OutputValues, s.now().UTC())
 		if err != nil {
 			return CurrentNodeCompletionResult{}, err
@@ -141,15 +158,10 @@ func (s *Store) planSequentialCompletion(
 		result.PendingApproval = &approval
 		return result, nil
 	}
-	handoff, err := currentNodeCompletionHandoff(source, target.Node)
-	if err != nil {
-		return CurrentNodeCompletionResult{}, err
-	}
 	result.Mutation = workflow.CurrentNodeMutationResult{
 		Removed: []workflow.CurrentNodeReference{current.Reference},
 		Created: []workflow.CurrentNode{materialized.CurrentNode},
 	}
-	result.Handoff = handoff
 	if executableNodeKind(target.Node.Kind()) {
 		intent, err := newCurrentNodeAutomaticIntent(materialized.CurrentNode.Reference, target.Node)
 		if err != nil {
@@ -175,9 +187,9 @@ func (s *Store) CommitCurrentNodeCompletion(ctx context.Context, prepared Curren
 		reportLegacyContinuationSourceAfterCommit(s.invariantPolicy, detail)
 	}
 	if len(mutation.Removed) != 0 {
-		event := WorkflowEventRecord{
+		event := workflowcontract.Event{
 			ProjectID: &prepared.plan.task.ProjectID, WorkflowID: &prepared.plan.task.WorkflowID,
-			Resource: serverapi.WorkflowProjectEventResourceTask, Action: serverapi.WorkflowProjectEventActionCompleted,
+			Resource: workflowcontract.EventResourceTask, Action: workflowcontract.EventActionCompleted,
 			PrimaryEntityID: prepared.plan.task.ID,
 		}
 		if err := s.PublishWorkflowEvent(ctx, event); err != nil {

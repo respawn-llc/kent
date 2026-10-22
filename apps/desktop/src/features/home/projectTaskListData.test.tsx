@@ -2,18 +2,12 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { RegistryProvider } from "@effect/atom-react";
 import { act, renderHook, waitFor } from "@testing-library/react";
 import type { ReactNode } from "react";
-import { afterEach, vi } from "vitest";
+import { afterEach, describe, expect, it, vi } from "bun:test";
+import { projectEventsFixture, recordProjectObservers } from "@/test-support/project-events";
 
-import type * as AppFacade from "@/app-facade";
-import type {
-  ProjectTaskGroupCounts,
-  ProjectTaskGroupDefinition,
-  TaskListInput,
-  TaskListPage,
-  WorkflowProjectEvent,
-} from "@/api";
+import type { ProjectTaskGroupCounts, ProjectTaskGroupDefinition, TaskListInput, TaskListPage } from "@/api";
 import { AppServicesProvider, queryKeys } from "@/app-facade";
-import { createTestServices, type TestAppServices } from "@/test-support/app-services";
+import { createTestServices, startupRoutes } from "@/test-support/app-services";
 import {
   projectTaskGroupPageSize,
   projectTaskGroupRetainedPages,
@@ -36,7 +30,7 @@ type TaskGroup = "active" | "backlog" | "done";
 interface TestState {
   countRequests: number;
   getCounts: () => Promise<ProjectTaskGroupCounts>;
-  handlers: Parameters<TestAppServices["transport"]["subscribe"]>[2][];
+  handlers: Readonly<{ onError(error: Error): void }>[];
   listPage: (input: TaskListInput) => Promise<TaskListPage>;
   listRequests: TaskListInput[];
 }
@@ -49,29 +43,6 @@ const state: TestState = {
   listRequests: [],
 };
 
-const mockedApi = {
-  getProjectTaskGroupCounts: async () => {
-    state.countRequests += 1;
-    return state.getCounts();
-  },
-  listTasks: async (input: TaskListInput) => {
-    state.listRequests.push(input);
-    return state.listPage(input);
-  },
-};
-const mockedServices = {
-  api: mockedApi,
-  logger: { append: async () => undefined },
-};
-
-vi.mock("@/app-facade", async (importOriginal) => {
-  const actual = await importOriginal<typeof AppFacade>();
-  return {
-    ...actual,
-    useAppServices: () => mockedServices,
-  };
-});
-
 describe("Project Task-list data ownership", () => {
   afterEach(() => {
     state.countRequests = 0;
@@ -79,6 +50,103 @@ describe("Project Task-list data ownership", () => {
     state.handlers.length = 0;
     state.listPage = async (input) => pageResponse(taskGroupForInput(input), input.offset ?? 0);
     state.listRequests.length = 0;
+  });
+
+  it.each(["next", "previous", "retry"] as const)(
+    "admits group %s once while retained rows are fetching",
+    async (action) => {
+      state.listPage = async (input) => ({
+        ...pageResponse(taskGroupForInput(input), input.offset ?? 0),
+        nextOffset: (input.offset ?? 0) + projectTaskGroupPageSize,
+      });
+      const harness = createHarness();
+      const view = renderHook(
+        () =>
+          useProjectTaskListData({
+            projectID: "project-1",
+            expanded: { active: true, backlog: false, done: false },
+          }),
+        { wrapper: ({ children }) => harness.render(children) },
+      );
+      await waitFor(() => {
+        expect(view.result.current.active.tasks).toHaveLength(1);
+      });
+      if (action === "previous") {
+        for (let page = 0; page < projectTaskGroupRetainedPages; page += 1) {
+          await act(async () => {
+            view.result.current.active.fetchNextPage();
+          });
+        }
+        expect(view.result.current.active.hasPreviousPage).toBe(true);
+      }
+      const count = state.listRequests.length;
+      const response = deferred<TaskListPage>();
+      state.listPage = async () => response.promise;
+      await act(async () => {
+        const invoke =
+          action === "next"
+            ? view.result.current.active.fetchNextPage
+            : action === "previous"
+              ? view.result.current.active.fetchPreviousPage
+              : view.result.current.active.refetch;
+        invoke();
+        invoke();
+        view.result.current.active.refetch();
+      });
+      expect(state.listRequests).toHaveLength(count + 1);
+      await act(async () => {
+        response.resolve(pageResponse("active", 0));
+      });
+    },
+  );
+
+  it("admits counts retry once while established counts are refreshing", async () => {
+    const harness = createHarness();
+    const view = renderHook(
+      () =>
+        useProjectTaskListData({
+          projectID: "project-1",
+          expanded: { active: false, backlog: false, done: false },
+        }),
+      { wrapper: ({ children }) => harness.render(children) },
+    );
+    await waitFor(() => {
+      expect(view.result.current.counts.isSuccess).toBe(true);
+    });
+    const response = deferred<ProjectTaskGroupCounts>();
+    state.getCounts = async () => response.promise;
+    await act(async () => {
+      view.result.current.counts.refetch();
+      view.result.current.counts.refetch();
+    });
+    expect(state.countRequests).toBe(2);
+    await act(async () => {
+      response.resolve(countsResponse(3));
+    });
+  });
+
+  it("ignores collapsed group requests and unavailable directional edges", async () => {
+    state.listPage = async (input) => ({ ...pageResponse(taskGroupForInput(input), 0), nextOffset: null });
+    const harness = createHarness();
+    const view = renderHook(
+      () =>
+        useProjectTaskListData({
+          projectID: "project-1",
+          expanded: { active: true, backlog: false, done: false },
+        }),
+      { wrapper: ({ children }) => harness.render(children) },
+    );
+    await waitFor(() => {
+      expect(view.result.current.active.tasks).toHaveLength(1);
+    });
+    await act(async () => {
+      view.result.current.active.fetchNextPage();
+      view.result.current.active.fetchPreviousPage();
+      view.result.current.backlog.fetchNextPage();
+      view.result.current.backlog.fetchPreviousPage();
+      view.result.current.backlog.refetch();
+    });
+    expect(state.listRequests).toHaveLength(1);
   });
 
   it("starts counts and expanded first pages in parallel while collapsed groups stay absent", async () => {
@@ -115,11 +183,10 @@ describe("Project Task-list data ownership", () => {
 
     rerender({ active: false, backlog: true, done: false });
     await waitFor(() => {
-      expect(
-        harness.queryClient.getQueryData(
-          queryKeys.projectTaskGroup("project-1", "active", defaultProjectTaskSort),
-        ),
-      ).toBeUndefined();
+      const collapsedGroup = harness.queryClient.getQueryData(
+        queryKeys.projectTaskGroup("project-1", "active", defaultProjectTaskSort),
+      );
+      expect(collapsedGroup).toBeUndefined();
     });
     expect(result.current.active.tasks).toEqual([]);
     expect(
@@ -163,7 +230,7 @@ describe("Project Task-list data ownership", () => {
     });
     for (let page = 1; page <= projectTaskGroupRetainedPages; page += 1) {
       await act(async () => {
-        await result.current.active.fetchNextPage();
+        result.current.active.fetchNextPage();
       });
     }
     await waitFor(() => {
@@ -176,7 +243,7 @@ describe("Project Task-list data ownership", () => {
     expect(result.current.active.nextRequestGeneration).toBe("project-1:end");
 
     await act(async () => {
-      await result.current.active.fetchPreviousPage();
+      result.current.active.fetchPreviousPage();
     });
     await waitFor(() => {
       expect(result.current.active.pages).toHaveLength(10);
@@ -185,11 +252,10 @@ describe("Project Task-list data ownership", () => {
     expect(result.current.active.tasks.at(0)?.id).toBe("active-0");
     expect(result.current.active.nextRequestGeneration).toBe("project-1:500");
     unmount();
-    expect(
-      harness.queryClient.getQueryData(
-        queryKeys.projectTaskGroup("project-1", "active", defaultProjectTaskSort),
-      ),
-    ).toBeDefined();
+    const retainedGroup = harness.queryClient.getQueryData(
+      queryKeys.projectTaskGroup("project-1", "active", defaultProjectTaskSort),
+    );
+    expect(retainedGroup).toBeDefined();
   });
 
   it("sends the selected sort to every expanded group and preserves server row order", async () => {
@@ -221,12 +287,18 @@ describe("Project Task-list data ownership", () => {
       expect(state.listRequests).toHaveLength(2);
       expect(result.current.active.tasks).toHaveLength(2);
     });
-    expect(state.listRequests).toEqual(
-      expect.arrayContaining([
-        expect.objectContaining({ group: "active", offset: 0, sort: [selectedSort] }),
-        expect.objectContaining({ group: "backlog", offset: 0, sort: [selectedSort] }),
-      ]),
-    );
+    const selectedSortRequests = state.listRequests.filter(({ offset, sort }) => {
+      return (
+        offset === 0 &&
+        sort?.length === 1 &&
+        sort.some(
+          ({ field, direction }) => field === selectedSort.field && direction === selectedSort.direction,
+        )
+      );
+    });
+    expect(selectedSortRequests).toHaveLength(2);
+    expect(selectedSortRequests.some(({ group }) => group === "active")).toBe(true);
+    expect(selectedSortRequests.some(({ group }) => group === "backlog")).toBe(true);
     expect(result.current.active.tasks.map((task) => task.id)).toEqual(["active-0-last", "active-0-first"]);
     expect(result.current.done.tasks).toEqual([]);
   });
@@ -329,8 +401,8 @@ describe("Project Task-list data ownership", () => {
     });
 
     await act(async () => {
-      void result.current.counts.refetch();
-      void result.current.active.refetch();
+      result.current.counts.refetch();
+      result.current.active.refetch();
     });
     await waitFor(() => {
       expect(result.current.counts.isFetching).toBe(true);
@@ -372,11 +444,10 @@ describe("Project Task-list data ownership", () => {
     rerender({ expanded: false });
     expect(result.current.active.tasks).toEqual([]);
     await waitFor(() => {
-      expect(
-        harness.queryClient.getQueryData(
-          queryKeys.projectTaskGroup("project-1", "active", defaultProjectTaskSort),
-        ),
-      ).toBeUndefined();
+      const collapsedGroup = harness.queryClient.getQueryData(
+        queryKeys.projectTaskGroup("project-1", "active", defaultProjectTaskSort),
+      );
+      expect(collapsedGroup).toBeUndefined();
     });
     fail = true;
     rerender({ expanded: true });
@@ -502,7 +573,7 @@ describe("Project Task-list data ownership", () => {
       expect(edgeResult.current.active.tasks).toHaveLength(1);
     });
     await act(async () => {
-      await edgeResult.current.active.fetchNextPage();
+      edgeResult.current.active.fetchNextPage();
     });
     await waitFor(() => {
       expect(edgeResult.current.active.isFetchNextPageError).toBe(true);
@@ -575,7 +646,7 @@ describe("Project Task-list data ownership", () => {
     });
 
     act(() => {
-      state.handlers[0]?.onEvent("workflow.project", workflowWireEvent("task", "moved", "task-2"));
+      projectEventsFixture(harness.transport).emit({ action: "moved", entityID: "task-2" });
     });
     await waitFor(() => {
       expect(invalidations).toContainEqual(queryKeys.projectTaskListsRoot("project-1"));
@@ -584,10 +655,7 @@ describe("Project Task-list data ownership", () => {
 
     invalidations.length = 0;
     act(() => {
-      state.handlers[0]?.onEvent(
-        "workflow.project",
-        workflowWireEvent("task", "dependencies_changed", "task-2"),
-      );
+      projectEventsFixture(harness.transport).emit({ action: "dependencies_changed", entityID: "task-2" });
     });
     await waitFor(() => {
       expect(invalidations).toContainEqual(queryKeys.projectTaskListsRoot("project-1"));
@@ -596,7 +664,11 @@ describe("Project Task-list data ownership", () => {
 
     invalidations.length = 0;
     act(() => {
-      state.handlers[0]?.onEvent("workflow.project", workflowWireEvent("label", "renamed", "label-1"));
+      projectEventsFixture(harness.transport).emit({
+        resource: "label",
+        action: "renamed",
+        entityID: "label-1",
+      });
     });
     await waitFor(() => {
       expect(invalidations).toContainEqual(queryKeys.projectTaskListsRoot("project-1"));
@@ -605,14 +677,14 @@ describe("Project Task-list data ownership", () => {
 
     invalidations.length = 0;
     await act(async () => {
-      state.handlers[0]?.onEvent("workflow.project", workflowWireEvent("task", "comment_added", "task-1"));
+      projectEventsFixture(harness.transport).emit({ action: "comment_added" });
     });
     await Promise.resolve();
     expect(invalidations).toEqual([]);
 
     invalidations.length = 0;
     act(() => {
-      state.handlers[0]?.onEvent("workflow.project", workflowWireEvent("task", "labels_changed", "task-1"));
+      projectEventsFixture(harness.transport).emit({ action: "labels_changed" });
     });
     await waitFor(() => {
       expect(invalidations).toContainEqual(queryKeys.projectTaskListsRoot("project-1"));
@@ -621,10 +693,11 @@ describe("Project Task-list data ownership", () => {
 
     invalidations.length = 0;
     act(() => {
-      state.handlers[0]?.onEvent(
-        "workflow.project",
-        workflowWireEvent("workflow", "graph_saved", "workflow-1"),
-      );
+      projectEventsFixture(harness.transport).emit({
+        resource: "workflow",
+        action: "graph_saved",
+        entityID: "workflow-1",
+      });
     });
     await waitFor(() => {
       expect(invalidations).toContainEqual(queryKeys.projectBoardsRoot("project-1"));
@@ -633,7 +706,11 @@ describe("Project Task-list data ownership", () => {
 
     invalidations.length = 0;
     act(() => {
-      state.handlers[0]?.onEvent("workflow.project", workflowWireEvent("workflow_link", "linked", "link-1"));
+      projectEventsFixture(harness.transport).emit({
+        resource: "workflow_link",
+        action: "linked",
+        entityID: "link-1",
+      });
     });
     await waitFor(() => {
       expect(invalidations).toContainEqual(queryKeys.projectBoardsRoot("project-1"));
@@ -643,7 +720,7 @@ describe("Project Task-list data ownership", () => {
     invalidations.length = 0;
     const failure = new Error("subscription unavailable");
     await act(async () => {
-      state.handlers[0]?.onComplete(409, "stream gap");
+      projectEventsFixture(harness.transport).completeWithGap();
     });
     expect(invalidations).toEqual([]);
     await act(async () => {
@@ -668,23 +745,22 @@ describe("Project Task-list data ownership", () => {
 });
 
 function createHarness() {
-  const services = createTestServices([]);
-  const close = vi.fn();
-  const subscribe = services.transport.subscribe.bind(services.transport);
-  vi.spyOn(services.transport, "subscribe").mockImplementation((method, params, handler) => {
-    state.handlers.push(handler);
-    const subscription = subscribe(method, params, handler);
-    return {
-      close() {
-        close();
-        subscription.close();
-      },
-    };
+  const services = createTestServices(startupRoutes);
+  vi.spyOn(services.api, "getProjectTaskGroupCounts").mockImplementation(async () => {
+    state.countRequests += 1;
+    return state.getCounts();
   });
+  vi.spyOn(services.api, "listTasks").mockImplementation(async (input) => {
+    state.listRequests.push(input);
+    return state.listPage(input);
+  });
+  const close = vi.fn();
+  recordProjectObservers(services.transport, (handler) => state.handlers.push(handler), close);
   const queryClient = new QueryClient({
     defaultOptions: { queries: { retry: false } },
   });
   return {
+    transport: services.transport,
     close,
     queryClient,
     render(children: ReactNode) {
@@ -725,6 +801,7 @@ function pageResponse(group: TaskGroup, offset: number): TaskListPage {
         shortID: ["KNT", offset + 1].join("-"),
         workflowID: "workflow-1",
         workflowName: "Default",
+        stageName: null,
         title: "Task",
         createdAt: 1,
         updatedAt: 1,
@@ -739,24 +816,6 @@ function pageResponse(group: TaskGroup, offset: number): TaskListPage {
         dependencyProgress: null,
       },
     ],
-  };
-}
-
-function workflowWireEvent(
-  resource: WorkflowProjectEvent["resource"],
-  action: WorkflowProjectEvent["action"],
-  primaryEntityID: string,
-) {
-  return {
-    event: {
-      action,
-      occurred_at_unix_ms: 1,
-      primary_entity_id: primaryEntityID,
-      project_id: "project-1",
-      related_ids: [],
-      resource,
-      ...(resource === "label" ? {} : { workflow_id: "11111111-1111-4111-8111-111111111111" }),
-    },
   };
 }
 

@@ -119,7 +119,7 @@ func TestAgentStepBoundaryDrainsEveryAcceptedSteerBeforeNextRequest(t *testing.T
 			ID:      toolspec.ToolExecCommand,
 			Handler: fakeTool{name: toolspec.ToolExecCommand},
 		}),
-		Config{Model: "gpt-5"},
+		Config{Model: "gpt-6-sol"},
 	)
 
 	runDone := make(chan error, 1)
@@ -137,13 +137,10 @@ func TestAgentStepBoundaryDrainsEveryAcceptedSteerBeforeNextRequest(t *testing.T
 	expectedMessages := make([]string, 0, len(texts))
 	steerDone := make(chan error, len(texts))
 	for _, text := range texts {
-		steer, err := NewAgentSteer(runtimeids.NewSessionID(), text)
-		if err != nil {
-			t.Fatalf("create Agent Steer %q: %v", text, err)
-		}
+		steer := NewAgentSteer(runtimeids.SessionIdentity{ID: runtimeids.NewSessionID()}, text)
 		expectedMessages = append(expectedMessages, messageContent(steer.Message()))
 		go func() {
-			_, accepted, err := engine.QueueAgentSteerForActiveRun(t.Context(), steer, nil)
+			_, accepted, err := engine.QueueAgentSteerForActiveRun(t.Context(), runtimeids.NewQueueItemID().String(), steer, nil)
 			if err == nil && !accepted {
 				err = errors.New("Agent Steer was not accepted")
 			}
@@ -239,7 +236,7 @@ func TestAgentStepBoundaryDrainsSteersAcceptedWhileFollowingRequestIsPreparing(t
 			ID:      toolspec.ToolExecCommand,
 			Handler: fakeTool{name: toolspec.ToolExecCommand},
 		}),
-		Config{Model: "gpt-5"},
+		Config{Model: "gpt-6-sol"},
 	)
 
 	runDone := make(chan error, 1)
@@ -256,12 +253,9 @@ func TestAgentStepBoundaryDrainsSteersAcceptedWhileFollowingRequestIsPreparing(t
 	queueSteer := func(text string, beforeQueue func() error) (<-chan error, string) {
 		t.Helper()
 		done := make(chan error, 1)
-		steer, err := NewAgentSteer(runtimeids.NewSessionID(), text)
-		if err != nil {
-			t.Fatalf("create Agent Steer %q: %v", text, err)
-		}
+		steer := NewAgentSteer(runtimeids.SessionIdentity{ID: runtimeids.NewSessionID()}, text)
 		go func() {
-			_, accepted, queueErr := engine.QueueAgentSteerForActiveRun(t.Context(), steer, beforeQueue)
+			_, accepted, queueErr := engine.QueueAgentSteerForActiveRun(t.Context(), runtimeids.NewQueueItemID().String(), steer, beforeQueue)
 			if queueErr == nil && !accepted {
 				queueErr = errors.New("Agent Steer was not accepted")
 			}
@@ -435,7 +429,7 @@ func TestWorktreeTransitionRunsBeforeQueuedHumanProviderTurn(t *testing.T) {
 				release: releaseTool,
 			},
 		}),
-		Config{Model: "gpt-5"},
+		Config{Model: "gpt-6-sol"},
 	)
 
 	initialDone := make(chan error, 1)
@@ -454,8 +448,7 @@ func TestWorktreeTransitionRunsBeforeQueuedHumanProviderTurn(t *testing.T) {
 	humanDone := make(chan error, 1)
 	go func() {
 		_, accepted, err := engine.QueueUserMessageForActiveRun(
-			t.Context(),
-			"queued human turn",
+			t.Context(), runtimeids.NewQueueItemID().String(), "queued human turn",
 			func() error {
 				close(humanApplying)
 				<-releaseHumanApplication
@@ -540,7 +533,7 @@ func TestWorktreeTransitionWaitsForActiveAgentStepBoundary(t *testing.T) {
 				release: releaseTool,
 			},
 		}),
-		Config{Model: "gpt-5"},
+		Config{Model: "gpt-6-sol"},
 	)
 
 	initialDone := make(chan error, 1)
@@ -614,10 +607,10 @@ func newHeldReviewerWorktreeEngine(t *testing.T, mainClient llm.Client) (*Engine
 		mainClient,
 		tools.NewRegistry(),
 		Config{
-			Model: "gpt-5",
+			Model: "gpt-6-sol",
 			Reviewer: ReviewerConfig{
 				Frequency:     "all",
-				Model:         "gpt-5",
+				Model:         "gpt-6-sol",
 				ThinkingLevel: "low",
 				Client:        reviewerClient,
 			},
@@ -716,11 +709,11 @@ func TestWorktreeTransitionUsesReviewerFollowUpStepAtToolBoundary(t *testing.T) 
 			},
 		}),
 		Config{
-			Model:         "gpt-5",
+			Model:         "gpt-6-sol",
 			StepLifecycle: stepLifecycle,
 			Reviewer: ReviewerConfig{
 				Frequency:     "all",
-				Model:         "gpt-5",
+				Model:         "gpt-6-sol",
 				ThinkingLevel: "low",
 				Client:        reviewerClient,
 			},
@@ -1001,7 +994,7 @@ func TestEngineDefersOrdinaryRuntimeMutationUntilProtectedStepFinishes(t *testin
 		mustCreateTestSession(t),
 		&fakeClient{},
 		tools.NewRegistry(),
-		Config{Model: "gpt-5"},
+		Config{Model: "gpt-6-sol"},
 	)
 	stepStarted := make(chan struct{})
 	releaseStep := make(chan struct{})
@@ -1048,14 +1041,14 @@ func TestActiveSessionRuntimeFIFOsAreIndependent(t *testing.T) {
 		mustCreateTestSession(t),
 		&fakeClient{},
 		tools.NewRegistry(),
-		Config{Model: "gpt-5"},
+		Config{Model: "gpt-6-sol"},
 	)
 	second := mustNewTestEngine(
 		t,
 		mustCreateTestSession(t),
 		&fakeClient{},
 		tools.NewRegistry(),
-		Config{Model: "gpt-5", SupportedThinkingValues: []string{"low"}},
+		Config{Model: "gpt-6-sol", SupportedThinkingValues: []string{"low"}},
 	)
 	firstStarted := make(chan struct{})
 	releaseFirst := make(chan struct{})
@@ -1094,7 +1087,7 @@ func TestEngineAppliesStreamingStateAndItsEventAsOneOrderedMutation(t *testing.T
 		mustCreateTestSession(t),
 		&fakeClient{},
 		tools.NewRegistry(),
-		Config{Model: "gpt-5"},
+		Config{Model: "gpt-6-sol"},
 	)
 	stepStarted := make(chan struct{})
 	releaseStep := make(chan struct{})
@@ -1153,7 +1146,7 @@ func TestForegroundShellReleasesRuntimeFIFOAfterScheduling(t *testing.T) {
 			ID:      toolspec.ToolExecCommand,
 			Handler: handler,
 		}),
-		Config{Model: "gpt-5", SupportedThinkingValues: []string{"low"}},
+		Config{Model: "gpt-6-sol", SupportedThinkingValues: []string{"low"}},
 	)
 
 	firstStarted := make(chan struct{})
@@ -1222,7 +1215,7 @@ func TestForegroundShellTerminalEffectReentersAtTheCurrentRuntimeTail(t *testing
 			ID:      toolspec.ToolExecCommand,
 			Handler: handler,
 		}),
-		Config{Model: "gpt-5"},
+		Config{Model: "gpt-6-sol"},
 	)
 	shellDone := make(chan error, 1)
 	go func() {
@@ -1279,7 +1272,7 @@ func TestWorktreeTerminalEffectReentersAtTheCurrentRuntimeTail(t *testing.T) {
 		mustCreateTestSession(t),
 		&fakeClient{},
 		tools.NewRegistry(),
-		Config{Model: "gpt-5"},
+		Config{Model: "gpt-6-sol"},
 	)
 	transitionStarted := make(chan struct{})
 	releaseTransition := make(chan struct{})
@@ -1339,10 +1332,10 @@ func TestManualCompactionReleasesRuntimeFIFOAfterScheduling(t *testing.T) {
 	client := &heldRuntimeCompactionClient{
 		fakeCompactionClient: &fakeCompactionClient{
 			compactionResponses: []llm.CompactionResponse{{
-				Checkpoint: llm.ResponseItem{
+				OutputItems: []llm.ResponseItem{llm.ResponseItem{
 					Type:             llm.ResponseItemTypeCompaction,
 					EncryptedContent: textutil.Value("checkpoint"),
-				},
+				}},
 				Usage: llm.Usage{WindowTokens: 200000},
 			}},
 		},
@@ -1354,7 +1347,7 @@ func TestManualCompactionReleasesRuntimeFIFOAfterScheduling(t *testing.T) {
 		mustCreateTestSession(t),
 		client,
 		tools.NewRegistry(),
-		Config{Model: "gpt-5", SupportedThinkingValues: []string{"low"}},
+		Config{Model: "gpt-6-sol", SupportedThinkingValues: []string{"low"}},
 	)
 	engine.compactionRuntimeState().SetManualCompactionEligible(true)
 
@@ -1385,10 +1378,10 @@ func TestSteersAcceptedDuringCompactionFullyDrainIntoTheFollowingAgentStep(t *te
 	client := &heldRuntimeCompactionClient{
 		fakeCompactionClient: &fakeCompactionClient{
 			compactionResponses: []llm.CompactionResponse{{
-				Checkpoint: llm.ResponseItem{
+				OutputItems: []llm.ResponseItem{llm.ResponseItem{
 					Type:             llm.ResponseItemTypeCompaction,
 					EncryptedContent: textutil.Value("checkpoint"),
-				},
+				}},
 				Usage: llm.Usage{WindowTokens: 200000},
 			}},
 			responses: []llm.Response{finalTextResponse("done")},
@@ -1401,7 +1394,7 @@ func TestSteersAcceptedDuringCompactionFullyDrainIntoTheFollowingAgentStep(t *te
 		mustCreateTestSession(t),
 		client,
 		tools.NewRegistry(),
-		Config{Model: "gpt-5", SupportedThinkingValues: []string{"low"}},
+		Config{Model: "gpt-6-sol", SupportedThinkingValues: []string{"low"}},
 	)
 	engine.compactionRuntimeState().SetManualCompactionEligible(true)
 

@@ -33,10 +33,10 @@ func TestSelectedPendingInputTriggersCompactionBeforeCommit(t *testing.T) {
 
 func TestPendingBudgetRebuildSelectsNewSteerAndExcludesQueue(t *testing.T) {
 	store := mustCreateTestSession(t)
-	configuration := Config{Model: "gpt-5", ContextWindowTokens: 200000, AutoCompactTokenLimit: 100000, CompactionMode: "native"}
+	configuration := Config{Model: "gpt-6-sol", ContextWindowTokens: 200000, AutoCompactTokenLimit: 100000, CompactionMode: "native"}
 	seed := mustNewTestEngine(t, store, &fakeClient{responses: []llm.Response{{
 		Assistant: llm.Message{Role: llm.RoleAssistant, Content: textutil.Value("seeded"), Phase: textutil.Value(llm.MessagePhaseFinal)},
-		Usage:     llm.Usage{InputTokens: 95000, WindowTokens: 200000},
+		Usage:     llm.Usage{InputTokens: textutil.Value(95000), WindowTokens: 200000, ContextUsage: &llm.ContextUsage{Tokens: 95000, MeasurementPoint: llm.ContextMeasurementInput}},
 	}}}, tools.NewRegistry(), configuration)
 	if _, err := seed.SubmitUserMessage(t.Context(), "seed"); err != nil {
 		t.Fatal(err)
@@ -53,8 +53,8 @@ func TestPendingBudgetRebuildSelectsNewSteerAndExcludesQueue(t *testing.T) {
 		fakeCompactionClient: &fakeCompactionClient{
 			responses: []llm.Response{finalOutputItemResponse("done")},
 			compactionResponses: []llm.CompactionResponse{{
-				Checkpoint: llm.ResponseItem{Type: llm.ResponseItemTypeCompaction, EncryptedContent: textutil.Value("checkpoint")},
-				Usage:      llm.Usage{InputTokens: 1000, OutputTokens: 10, WindowTokens: 200000},
+				OutputItems: []llm.ResponseItem{llm.ResponseItem{Type: llm.ResponseItemTypeCompaction, EncryptedContent: textutil.Value("checkpoint")}},
+				Usage:       llm.Usage{InputTokens: textutil.Value(1000), OutputTokens: textutil.Value(10), WindowTokens: 200000, ContextUsage: &llm.ContextUsage{Tokens: 1000, MeasurementPoint: llm.ContextMeasurementInput}},
 			}},
 		},
 		started: make(chan struct{}), release: make(chan struct{}),
@@ -99,12 +99,12 @@ func TestPendingBudgetRebuildSelectsNewSteerAndExcludesQueue(t *testing.T) {
 func testSelectedPendingInputBudget(t *testing.T, toolContinuation bool) {
 	client := &fakeCompactionClient{
 		responses: []llm.Response{
-			{Assistant: llm.Message{Role: llm.RoleAssistant, Content: textutil.Value("seeded"), Phase: textutil.Value(llm.MessagePhaseFinal)}, Usage: llm.Usage{InputTokens: 95000, WindowTokens: 200000}},
+			{Assistant: llm.Message{Role: llm.RoleAssistant, Content: textutil.Value("seeded"), Phase: textutil.Value(llm.MessagePhaseFinal)}, Usage: llm.Usage{InputTokens: textutil.Value(95000), WindowTokens: 200000, ContextUsage: &llm.ContextUsage{Tokens: 95000, MeasurementPoint: llm.ContextMeasurementInput}}},
 			finalOutputItemResponse("done"),
 		},
 		compactionResponses: []llm.CompactionResponse{{
-			Checkpoint: llm.ResponseItem{Type: llm.ResponseItemTypeCompaction, EncryptedContent: textutil.Value("checkpoint")},
-			Usage:      llm.Usage{InputTokens: 1000, OutputTokens: 10, WindowTokens: 200000},
+			OutputItems: []llm.ResponseItem{llm.ResponseItem{Type: llm.ResponseItemTypeCompaction, EncryptedContent: textutil.Value("checkpoint")}},
+			Usage:       llm.Usage{InputTokens: textutil.Value(1000), OutputTokens: textutil.Value(10), WindowTokens: 200000, ContextUsage: &llm.ContextUsage{Tokens: 1000, MeasurementPoint: llm.ContextMeasurementInput}},
 		}},
 	}
 	registry := tools.NewRegistry()
@@ -117,7 +117,7 @@ func testSelectedPendingInputBudget(t *testing.T, toolContinuation bool) {
 		client.responses[0].ToolCalls = []llm.ToolCall{{ID: "budget-tool", Name: string(toolspec.ToolExecCommand), Input: json.RawMessage(`{"command":"pwd"}`)}}
 	}
 	engine := mustNewTestEngine(t, mustCreateTestSession(t), client, registry, Config{
-		Model: "gpt-5", EnabledTools: enabled, ContextWindowTokens: 200000, AutoCompactTokenLimit: 100000, CompactionMode: "native",
+		Model: "gpt-6-sol", EnabledTools: enabled, ContextWindowTokens: 200000, AutoCompactTokenLimit: 100000, CompactionMode: "native",
 	})
 	pending := strings.Repeat("pending ", 6000)
 	if toolContinuation {

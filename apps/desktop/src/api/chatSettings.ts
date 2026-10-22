@@ -1,4 +1,5 @@
-import { create } from "@app/server-api-contract";
+import { create, type MessageValidType } from "@app/server-api-contract";
+import { AuthMethod } from "@app/server-api-contract/gen/kent/api/auth/auth_pb";
 import {
   AutoCompactionPolicy,
   ChatSettingsService,
@@ -7,10 +8,10 @@ import {
   MutationRejectionReason,
   ThinkingKind,
   type AgentChoice,
-  type InitialChatSettings as WireInitialChatSettings,
-  type NewChatAgentChoice,
+  type NewChatAgentChoiceSchema,
+  type SettingsSchema,
+  type SessionFactsSchema,
   type Settings,
-  type SessionFacts,
   type MutationOperation,
 } from "@app/server-api-contract/gen/kent/api/chat_settings/chat_settings_pb";
 import {
@@ -20,7 +21,6 @@ import {
 
 import { requireProjectAttachment } from "./chatAttachment";
 import { requireChatSuccess } from "./chatErrors";
-import { requireChatProjectTarget, requireChatSessionID } from "./chatTarget";
 import { supervisorFromWire, supervisorToWire } from "./chatSupervisor";
 import type { ChatApi, ChatContext, InitialChatSettings } from "./chatTypes";
 import type {
@@ -33,46 +33,49 @@ import type {
 } from "./chatSettingsTypes";
 import { ContractError } from "./errors";
 
-import type { DescriptorRpcTransport } from "./transport";
+import type { RpcTransport } from "./transport";
 
 export function createChatSettingsApi(
-  transport: DescriptorRpcTransport,
+  transport: RpcTransport,
 ): Pick<ChatApi, "getSettings" | "mutateSettings"> {
   return {
     async mutateSettings(target, operation) {
-      const sessionID = requireChatSessionID(target);
+      const sessionID = target.sessionID;
       const method = ChatSettingsService.method.mutate;
       const response = await transport.callDescriptorAttachedSession(
         target,
         method,
         create(method.input, {
-          session: { sessionId: sessionID },
+          session: { sessionId: { value: { case: "sessionId", value: sessionID } } },
           operation: { operation: mutationOperation(operation) },
         }),
       );
       const value = requireChatSuccess(method, response);
-      const result = required(value.result).outcome;
+      const result = value.result.outcome;
       if (result.case === undefined) throw new ContractError("Chat Settings mutation outcome is invalid.");
       return {
         result:
           result.case === "applied"
             ? { kind: "applied", changed: result.value.changed }
             : { kind: "rejected", reason: rejection(result.value.reason) },
-        settings: settings(required(value.settings)),
-        session: sessionFacts(required(value.session), sessionID),
-        context: context(required(value.context)),
+        settings: settings(value.settings),
+        session: sessionFacts(value.session, sessionID),
+        context: context(value.context),
       };
     },
     async getSettings(target) {
-      if (target.kind === "session") requireChatSessionID(target);
-      else requireChatProjectTarget(target);
       const method = ChatSettingsService.method.read;
       const result =
         target.kind === "session"
           ? await transport.callDescriptorAttachedSession(
               target,
               method,
-              create(method.input, { target: { case: "session", value: { sessionId: target.sessionID } } }),
+              create(method.input, {
+                target: {
+                  case: "session",
+                  value: { sessionId: { value: { case: "sessionId", value: target.sessionID } } },
+                },
+              }),
             )
           : await transport
               .callDescriptorAttachedProject({
@@ -93,10 +96,16 @@ export function createChatSettingsApi(
               });
       const response = requireChatSuccess(method, result);
       if (target.kind === "session" && response.target.case === "session") {
+        const replacement = response.target.value.connectionReplacement;
+        if (replacement !== undefined && (!replacement.previous.trim() || !replacement.current.trim()))
+          throw new ContractError("Chat Settings Connection replacement is invalid.");
         return {
           kind: "session",
-          settings: settings(required(response.target.value.settings)),
-          session: sessionFacts(required(response.target.value.session), target.sessionID),
+          settings: settings(response.target.value.settings),
+          session: sessionFacts(response.target.value.session, target.sessionID),
+          ...(replacement === undefined
+            ? {}
+            : { connectionReplacement: { previous: replacement.previous, current: replacement.current } }),
         };
       }
       if (target.kind !== "new_chat" || response.target.case !== "newChat") {
@@ -104,11 +113,11 @@ export function createChatSettingsApi(
       }
       return {
         kind: "new_chat",
-        initialSettings: initialSettings(required(response.target.value.initialSettings)),
+        initialSettings: initialSettings(response.target.value.initialSettings),
         catalog: {
           choices: response.target.value.choices.map((choice) => ({
-            agent: completeAgentChoice(required(choice.agent)),
-            baseline: initialSettings(required(choice.baseline)),
+            agent: completeAgentChoice(choice.agent),
+            baseline: initialSettings(choice.baseline),
             ...controls(choice),
           })),
         },
@@ -190,8 +199,8 @@ export function context(value: Context): ChatContext {
   };
 }
 
-function settings(value: Settings): ChatSettings {
-  const agent = required(value.selectedAgent);
+export function settings(value: MessageValidType<typeof SettingsSchema>): ChatSettings {
+  const agent = value.selectedAgent;
   return {
     selectedAgent: { role: agent.role, model: agent.model, thinking: agent.thinking },
     agentChoices: value.agentChoices.map(agentChoice),
@@ -203,15 +212,41 @@ function settings(value: Settings): ChatSettings {
   };
 }
 
-function sessionFacts(value: SessionFacts, sessionID: string): ChatSettingsSessionFacts {
+export function sessionFacts(
+  value: MessageValidType<typeof SessionFactsSchema>,
+  sessionID: string,
+): ChatSettingsSessionFacts {
   if (value.sessionId !== sessionID) {
     throw new ContractError("Chat Settings response Session does not match the request.");
   }
   return {
     sessionID: value.sessionId,
+    ...(value.connection === undefined
+      ? {}
+      : {
+          connection: {
+            id: value.connection.connectionId,
+            mode: connectionMode(value.connection.method),
+          },
+        }),
+    shortID: value.shortId ?? null,
     previousSessionID: value.previousSessionId ?? null,
     task: value.taskId === undefined ? null : { taskID: value.taskId, shortID: required(value.taskShortId) },
   };
+}
+
+function connectionMode(method: AuthMethod): "subscription" | "api_key" | "no_auth" {
+  switch (method) {
+    case AuthMethod.OAUTH:
+      return "subscription";
+    case AuthMethod.API_KEY:
+      return "api_key";
+    case AuthMethod.NONE:
+      return "no_auth";
+    case AuthMethod.UNSPECIFIED:
+    default:
+      throw new ContractError("Session Connection has an invalid Auth method.");
+  }
 }
 
 function required<T>(value: T | undefined): T {
@@ -219,7 +254,7 @@ function required<T>(value: T | undefined): T {
   return value;
 }
 
-function initialSettings(value: WireInitialChatSettings): InitialChatSettings {
+function initialSettings(value: MessageValidType<typeof InitialChatSettingsSchema>): InitialChatSettings {
   return {
     agentRole: value.agentRole,
     supervisor: supervisorFromWire(value.supervisor),
@@ -256,8 +291,6 @@ function editability(value: Editability): ChatSettingsEditability {
       return { kind: "editable" };
     case Editability.WORKFLOW_LOCK:
       return { kind: "workflow_lock" };
-    case Editability.CACHING_LOCK:
-      return { kind: "caching_lock" };
     case Editability.POLICY_DISABLED:
       return { kind: "policy_disabled" };
     case Editability.UNSPECIFIED:
@@ -265,9 +298,11 @@ function editability(value: Editability): ChatSettingsEditability {
   }
 }
 
-function controls(value: Settings | NewChatAgentChoice): ChatSettingsControls {
-  const supervisorValue = required(value.supervisor);
-  const questions = required(value.questions);
+function controls(
+  value: MessageValidType<typeof SettingsSchema> | MessageValidType<typeof NewChatAgentChoiceSchema>,
+): ChatSettingsControls {
+  const supervisorValue = value.supervisor;
+  const questions = value.questions;
   return {
     supervisor: {
       value: supervisorFromWire(supervisorValue.value),
@@ -288,7 +323,7 @@ function controls(value: Settings | NewChatAgentChoice): ChatSettingsControls {
       enabled: questions.enabled,
       editability: editability(questions.editability),
     },
-    autoCompaction: autoCompaction(required(value.autoCompaction)),
+    autoCompaction: autoCompaction(value.autoCompaction),
   };
 }
 

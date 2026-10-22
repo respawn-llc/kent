@@ -1,7 +1,7 @@
 import type { NativeBridge } from "@app/native-bridge";
 
 import type { ApiService } from "@/api";
-import type { AppLogger } from "./logging";
+import type { AppObservationLogger } from "./logging";
 
 export type AppStorageNamespace =
   | Readonly<{
@@ -18,7 +18,7 @@ export type AppServices = Readonly<{
   debugThemeOverrideEnabled: boolean;
   endpoint: string;
   homePath: string;
-  logger: AppLogger;
+  logger: AppObservationLogger;
   nativeBridge: NativeBridge;
   protocolVersion: string;
   storageNamespace: AppStorageNamespace | null;

@@ -9,11 +9,16 @@ import (
 	"github.com/yuin/goldmark/text"
 )
 
-func currentReasoningStatus(markdownText string) *ReasoningStatus {
+// partitionReasoningStatus keeps Thinking Status transient: its Markdown span
+// must never reach either the Go TUI or Desktop transcript as a Reasoning Trace.
+// Unmatched streaming markup remains trace text until the parser recognizes it;
+// consumers replace the trace snapshot at the same coordinate, including empty text.
+func partitionReasoningStatus(markdownText string) (string, *ReasoningStatus) {
 	source := []byte(markdownText)
 	document := goldmark.New(goldmark.WithExtensions(extension.GFM)).Parser().Parse(text.NewReader(source))
 
 	var status *ReasoningStatus
+	trace := markdownText
 	_ = ast.Walk(document, func(node ast.Node, entering bool) (ast.WalkStatus, error) {
 		if !entering {
 			return ast.WalkContinue, nil
@@ -31,7 +36,12 @@ func currentReasoningStatus(markdownText string) *ReasoningStatus {
 			return ast.WalkContinue, nil
 		}
 		status = &ReasoningStatus{Text: value}
+		// This eligible emphasis has exactly one text child. Its source segment
+		// excludes the paired delimiters consumed by Goldmark.
+		start := content.Segment.Start - emphasis.Level
+		stop := content.Segment.Stop + emphasis.Level
+		trace = markdownText[:start] + markdownText[stop:]
 		return ast.WalkStop, nil
 	})
-	return status
+	return trace, status
 }

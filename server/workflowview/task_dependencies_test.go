@@ -6,7 +6,7 @@ import (
 
 	"core/server/workflow"
 	"core/server/workflowstore"
-	"core/shared/serverapi"
+	taskpb "core/shared/protoapi/gen/kent/api/workflow_task"
 )
 
 func TestNewTaskDependenciesRequiresTaskStatusProjection(t *testing.T) {
@@ -85,7 +85,7 @@ func TestListTaskDependenciesOmitsEmptyDirections(t *testing.T) {
 	if listed.Directions == nil || len(listed.Directions) != 0 {
 		t.Fatalf("directions = %+v, want empty list", listed.Directions)
 	}
-	direction := serverapi.WorkflowTaskDependencyDirectionBlocks
+	direction := taskpb.DependencyDirection_DEPENDENCY_DIRECTION_BLOCKS
 	filtered, err := dependencies.ListTaskDependencies(
 		fixture.ctx,
 		string(task.ID),
@@ -140,11 +140,11 @@ func TestListTaskDependenciesSortsBothDirectionsUnfinishedFirstThenShortID(t *te
 		t.Fatalf("ListTaskDependencies: %v", err)
 	}
 	assertDependencyItemOrder(t,
-		listedDependencyDirection(t, listed, serverapi.WorkflowTaskDependencyDirectionBlockedBy).Items,
+		listedDependencyDirection(t, listed, taskpb.DependencyDirection_DEPENDENCY_DIRECTION_BLOCKED_BY).Items,
 		blockerOpenFirst, blockerOpenSecond, blockerDone,
 	)
 	assertDependencyItemOrder(t,
-		listedDependencyDirection(t, listed, serverapi.WorkflowTaskDependencyDirectionBlocks).Items,
+		listedDependencyDirection(t, listed, taskpb.DependencyDirection_DEPENDENCY_DIRECTION_BLOCKS).Items,
 		blockedOpenFirst, blockedOpenSecond, blockedDone,
 	)
 }
@@ -185,7 +185,7 @@ func backlogNodeID(t *testing.T, definition workflow.Definition) workflow.NodeID
 	return workflow.NodeID("unreachable")
 }
 
-func listedDependencyDirection(t *testing.T, dependencies serverapi.WorkflowTaskDependencyListResponse, direction serverapi.WorkflowTaskDependencyDirection) serverapi.WorkflowTaskDependencyListDirectionProjection {
+func listedDependencyDirection(t *testing.T, dependencies *taskpb.DependencyListSuccess, direction taskpb.DependencyDirection) *taskpb.DependencyListDirection {
 	t.Helper()
 	for _, candidate := range dependencies.Directions {
 		if candidate.Direction == direction {
@@ -193,16 +193,16 @@ func listedDependencyDirection(t *testing.T, dependencies serverapi.WorkflowTask
 		}
 	}
 	t.Fatalf("dependency direction %q missing from %+v", direction, dependencies.Directions)
-	return serverapi.WorkflowTaskDependencyListDirectionProjection{}
+	return &taskpb.DependencyListDirection{}
 }
 
-func assertDependencyItemOrder(t *testing.T, items []serverapi.WorkflowTaskDependencyItem, expected ...workflowstore.TaskRecord) {
+func assertDependencyItemOrder(t *testing.T, items []*taskpb.DependencyItem, expected ...workflowstore.TaskRecord) {
 	t.Helper()
 	if len(items) != len(expected) {
 		t.Fatalf("items = %+v, want %d items", items, len(expected))
 	}
 	for index, task := range expected {
-		if items[index].TaskID != string(task.ID) {
+		if items[index].TaskId != string(task.ID) {
 			t.Fatalf("items = %+v, want task %q at index %d", items, task.ShortID, index)
 		}
 	}

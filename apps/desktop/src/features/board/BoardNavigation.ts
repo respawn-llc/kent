@@ -1,5 +1,5 @@
 import { useAtomMount, useAtomSet } from "@effect/atom-react";
-import * as Atom from "effect/unstable/reactivity/Atom";
+import * as Atom from "effect/reactivity/Atom";
 import * as Effect from "effect/Effect";
 import { useMemo } from "react";
 import {

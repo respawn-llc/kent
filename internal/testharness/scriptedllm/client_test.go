@@ -13,6 +13,14 @@ import (
 	"core/shared/textutil"
 )
 
+func TestExhaustedScriptIsTerminalForRuntimeRetries(t *testing.T) {
+	client := scriptedllm.NewClient(scriptedllm.Script{})
+	_, err := client.Generate(t.Context(), llm.Request{Model: "test", ToolChoiceMode: llm.ToolChoiceModeAutomatic}, llm.StreamCallbacks{})
+	if !errors.Is(err, scriptedllm.ErrScriptExhausted) || !llm.IsNonRetriableModelError(err) {
+		t.Fatalf("exhausted script error = %v, want a terminal harness error", err)
+	}
+}
+
 func TestClientStreamsDeltasFinalResponseAndReasoning(t *testing.T) {
 	client := scriptedllm.NewClient(scriptedllm.Script{
 		Steps: []scriptedllm.Step{{
@@ -92,7 +100,7 @@ func TestClientCompactionCapabilitiesAndContextWindow(t *testing.T) {
 		Capabilities:        &caps,
 		ContextWindowTokens: &window,
 		Compactions: []llm.CompactionResponse{{
-			Checkpoint: llm.ResponseItem{Type: llm.ResponseItemTypeCompaction, EncryptedContent: textutil.Value("encrypted")},
+			OutputItems: []llm.ResponseItem{{Type: llm.ResponseItemTypeCompaction, EncryptedContent: textutil.Value("encrypted")}},
 		}},
 	})
 
@@ -105,7 +113,7 @@ func TestClientCompactionCapabilitiesAndContextWindow(t *testing.T) {
 		t.Fatalf("ResolveModelContextWindow = %d, %v", resolved, err)
 	}
 	compaction, err := client.Compact(context.Background(), llm.CompactionRequest{Model: "m"})
-	if err != nil || compaction.Checkpoint.Type != llm.ResponseItemTypeCompaction {
+	if err != nil || len(compaction.OutputItems) != 1 || compaction.OutputItems[0].Type != llm.ResponseItemTypeCompaction {
 		t.Fatalf("Compact = %+v, %v", compaction, err)
 	}
 }

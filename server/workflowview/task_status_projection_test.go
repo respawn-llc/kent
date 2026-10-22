@@ -5,7 +5,7 @@ import (
 
 	"core/server/workflow"
 	"core/server/workflowexecution"
-	"core/shared/serverapi"
+	taskpb "core/shared/protoapi/gen/kent/api/workflow_task"
 )
 
 type staticTaskStatusLiveObservationSource struct {
@@ -59,7 +59,7 @@ func TestTaskDetailProjectsConcurrencyQueuedCurrentNodeAsResumable(t *testing.T)
 	if err != nil {
 		t.Fatalf("TaskDetail.GetTask: %v", err)
 	}
-	if projected.Status.Kind != serverapi.WorkflowTaskStatusKindQueued ||
+	if projected.Status.Kind != taskpb.TaskStatusKind_TASK_STATUS_KIND_QUEUED ||
 		!projected.Actions.CanResume ||
 		projected.Actions.CanInterrupt {
 		t.Fatalf("concurrency-queued Task detail = %+v", projected)

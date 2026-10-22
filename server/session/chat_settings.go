@@ -175,13 +175,16 @@ func ProjectChatSettingsState(meta Meta, target ChatSettingsState) (Meta, bool, 
 	if selection != nil {
 		next.AgentRole = selection.AgentRole
 	}
-	changed := !chatSettingsStatesEqual(current, next)
+	changed := !current.Equal(next)
 	if !changed {
 		return currentMeta, false, nil
 	}
 	agentChanged := !textutil.EqualOptional(current.AgentRole, next.AgentRole)
-	if currentMeta.Locked != nil && (agentChanged || !textutil.EqualOptional(currentMeta.ConnectionID, next.ConnectionID)) {
+	if currentMeta.Locked != nil && !agentChanged && !textutil.EqualOptional(currentMeta.ConnectionID, next.ConnectionID) {
 		return Meta{}, false, ErrChatAgentLocked
+	}
+	if agentChanged {
+		currentMeta.Locked = nil
 	}
 	currentMeta.ChatSettings = cloneChatSettingsOverrides(next.Settings)
 	currentMeta.ConnectionID = textutil.Pointer(next.ConnectionID)
@@ -219,6 +222,7 @@ func (s *Store) CommitChatSettingsState(target ChatSettingsState) (ChatSettingsC
 	s.meta.ChatSettings = projected.ChatSettings
 	s.meta.ConnectionID = projected.ConnectionID
 	s.meta.Continuation = projected.Continuation
+	s.meta.Locked = projected.Locked
 	s.meta.UpdatedAt = storeTimestamp(s.options)
 
 	receipt, err := s.persistMetadataMutationWithCommitReceiptLocked(checkpoint)
@@ -315,7 +319,7 @@ func InitializeChatDraft(store *Store, state ChatDraftState) error {
 	if store.meta.PreviousSessionID != nil || store.meta.ParentAgentSessionID != nil {
 		return errors.New("Chat draft initialization requires an independent Session")
 	}
-	if store.meta.Name != "" ||
+	if store.meta.Name != nil ||
 		store.meta.FirstPromptPreview != "" ||
 		store.meta.InputDraft != "" ||
 		store.meta.Continuation != nil ||
@@ -380,7 +384,7 @@ func chatSettingsStateFromNormalizedMeta(meta Meta) ChatSettingsState {
 	}
 }
 
-func chatSettingsStatesEqual(left ChatSettingsState, right ChatSettingsState) bool {
+func (left ChatSettingsState) Equal(right ChatSettingsState) bool {
 	return textutil.EqualOptional(left.AgentRole, right.AgentRole) &&
 		textutil.EqualOptional(left.ConnectionID, right.ConnectionID) &&
 		chatSettingsOverridesEqual(left.Settings, right.Settings)

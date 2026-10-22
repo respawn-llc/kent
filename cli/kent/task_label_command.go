@@ -4,7 +4,6 @@ import (
 	"context"
 	"core/shared/apicontract"
 	"core/shared/client"
-	protoapi "core/shared/protoapi"
 	pb "core/shared/protoapi/gen/kent/api/workflow_definition"
 	taskpb "core/shared/protoapi/gen/kent/api/workflow_task"
 	"fmt"
@@ -15,7 +14,6 @@ import (
 	"core/shared/config"
 	"core/shared/labelcontract"
 	"core/shared/runtimeids"
-	"core/shared/serverapi"
 )
 
 type workflowProjectLabelCatalogSnapshot struct {
@@ -80,17 +78,17 @@ func taskLabelAssignmentSubcommand(args []string, stdout io.Writer, stderr io.Wr
 		fmt.Fprintln(stderr, "task label "+commandName+" requires at least one --label <name-or-uuid>")
 		return 2
 	}
-	return runWorkflowCommandSession(stderr, func(cfg config.App, remote *client.Remote) int {
+	return runWorkflowCommandSession(stderr, func(cfg config.Connection, remote *client.Remote) int {
 		task, err := resolveWorkflowTask(context.Background(), cfg, remote, remote, *projectRef, positionals[0])
 		if err != nil {
 			fmt.Fprintln(stderr, err)
 			return 1
 		}
-		if strings.TrimSpace(task.Summary.ProjectID) == "" {
+		if strings.TrimSpace(task.Summary.ProjectId) == "" {
 			fmt.Fprintln(stderr, "resolved task is missing project_id")
 			return 1
 		}
-		_, snapshot, err := loadWorkflowProjectLabelCatalog(context.Background(), remote, task.Summary.ProjectID)
+		_, snapshot, err := loadWorkflowProjectLabelCatalog(context.Background(), remote, task.Summary.ProjectId)
 		if err != nil {
 			fmt.Fprintln(stderr, err)
 			return 1
@@ -100,7 +98,7 @@ func taskLabelAssignmentSubcommand(args []string, stdout io.Writer, stderr io.Wr
 			fmt.Fprintln(stderr, err)
 			return 1
 		}
-		request := &taskpb.LabelsUpdateRequest{TaskId: task.Summary.ID}
+		request := &taskpb.LabelsUpdateRequest{TaskId: task.Summary.Id}
 		switch operation {
 		case taskLabelAssignmentOperationAdd:
 			request.AddLabelIds = labelIDs
@@ -117,12 +115,8 @@ func taskLabelAssignmentSubcommand(args []string, stdout io.Writer, stderr io.Wr
 			fmt.Fprintln(stderr, err)
 			return 1
 		}
-		if err := protoapi.Validate(response); err != nil {
-			fmt.Fprintf(stderr, "invalid task label assignment response: %v\n", err)
-			return 1
-		}
-		if response.Assignment.TaskId != task.Summary.ID {
-			fmt.Fprintf(stderr, "task label assignment response task %q does not match resolved task %q\n", response.Assignment.TaskId, task.Summary.ID)
+		if response.Assignment.TaskId != task.Summary.Id {
+			fmt.Fprintf(stderr, "task label assignment response task %q does not match resolved task %q\n", response.Assignment.TaskId, task.Summary.Id)
 			return 1
 		}
 		if *jsonOut {
@@ -143,7 +137,7 @@ func taskLabelCreateSubcommand(args []string, stdout io.Writer, stderr io.Writer
 	if !ok {
 		return exitCode
 	}
-	return runWorkflowCommandSession(stderr, func(cfg config.App, remote *client.Remote) int {
+	return runWorkflowCommandSession(stderr, func(cfg config.Connection, remote *client.Remote) int {
 		projectID, err := resolveWorkflowProjectID(context.Background(), cfg, remote, *projectRef)
 		if err != nil {
 			fmt.Fprintln(stderr, err)
@@ -184,7 +178,7 @@ func taskLabelListSubcommand(args []string, stdout io.Writer, stderr io.Writer) 
 		fmt.Fprintln(stderr, "task label list --name requires a non-blank value")
 		return 2
 	}
-	return runWorkflowCommandSession(stderr, func(cfg config.App, remote *client.Remote) int {
+	return runWorkflowCommandSession(stderr, func(cfg config.Connection, remote *client.Remote) int {
 		projectID, err := resolveWorkflowProjectID(context.Background(), cfg, remote, *projectRef)
 		if err != nil {
 			fmt.Fprintln(stderr, err)
@@ -230,7 +224,7 @@ func taskLabelRenameSubcommand(args []string, stdout io.Writer, stderr io.Writer
 		fmt.Fprintln(stderr, "task label rename requires --label <name-or-uuid>")
 		return 2
 	}
-	return runWorkflowCommandSession(stderr, func(cfg config.App, remote *client.Remote) int {
+	return runWorkflowCommandSession(stderr, func(cfg config.Connection, remote *client.Remote) int {
 		projectID, err := resolveWorkflowProjectID(context.Background(), cfg, remote, *projectRef)
 		if err != nil {
 			fmt.Fprintln(stderr, err)
@@ -256,10 +250,6 @@ func taskLabelRenameSubcommand(args []string, stdout io.Writer, stderr io.Writer
 		})
 		if err != nil {
 			fmt.Fprintln(stderr, err)
-			return 1
-		}
-		if err := protoapi.Validate(response.Label); err != nil {
-			fmt.Fprintf(stderr, "invalid Project label rename response: %v\n", err)
 			return 1
 		}
 		if response.Label.Id != labelID {
@@ -290,7 +280,7 @@ func taskLabelDeleteSubcommand(args []string, stdout io.Writer, stderr io.Writer
 		fmt.Fprintln(stderr, "task label delete requires --label <name-or-uuid>")
 		return 2
 	}
-	return runWorkflowCommandSession(stderr, func(cfg config.App, remote *client.Remote) int {
+	return runWorkflowCommandSession(stderr, func(cfg config.Connection, remote *client.Remote) int {
 		projectID, err := resolveWorkflowProjectID(context.Background(), cfg, remote, *projectRef)
 		if err != nil {
 			fmt.Fprintln(stderr, err)
@@ -316,10 +306,6 @@ func taskLabelDeleteSubcommand(args []string, stdout io.Writer, stderr io.Writer
 		})
 		if err != nil {
 			fmt.Fprintln(stderr, err)
-			return 1
-		}
-		if err := protoapi.Validate(response); err != nil {
-			fmt.Fprintf(stderr, "invalid Project label delete response: %v\n", err)
 			return 1
 		}
 		if response.LabelId != labelID {
@@ -351,9 +337,6 @@ func loadWorkflowProjectLabelCatalog(ctx context.Context, remote apicontract.Wor
 }
 
 func workflowProjectLabelCatalogSnapshotFromResponse(catalog *pb.ProjectLabelCatalog, projectID string) (workflowProjectLabelCatalogSnapshot, error) {
-	if err := protoapi.Validate(catalog); err != nil {
-		return workflowProjectLabelCatalogSnapshot{}, fmt.Errorf("invalid Project label catalog response: %w", err)
-	}
 	if catalog.ProjectId != projectID {
 		return workflowProjectLabelCatalogSnapshot{}, fmt.Errorf("Project label catalog response project %q does not match requested project %q", catalog.ProjectId, projectID)
 	}
@@ -363,9 +346,6 @@ func workflowProjectLabelCatalogSnapshotFromResponse(catalog *pb.ProjectLabelCat
 		LabelsByFoldedName: make(map[string]*pb.ProjectLabel, len(catalog.Labels)),
 	}
 	for _, record := range catalog.Labels {
-		if _, exists := snapshot.LabelsByID[record.Id]; exists {
-			return workflowProjectLabelCatalogSnapshot{}, fmt.Errorf("Project label catalog response contains duplicate label ID %q", record.Id)
-		}
 		foldedName := labelcontract.Fold(record.Name)
 		if existing, exists := snapshot.LabelsByFoldedName[foldedName]; exists {
 			return workflowProjectLabelCatalogSnapshot{}, fmt.Errorf("Project label catalog response contains duplicate folded label name %q for IDs %q and %q", foldedName, existing.Id, record.Id)
@@ -386,30 +366,26 @@ func resolveWorkflowProjectLabelSelectors(snapshot workflowProjectLabelCatalogSn
 
 func resolveWorkflowProjectLabelFilter(
 	snapshot workflowProjectLabelCatalogSnapshot,
-	mode serverapi.WorkflowTaskNamedLabelFilterMode,
+	mode taskpb.NamedLabelFilterMode,
 	includedSelectors []string,
 	excludedSelectors []string,
-) (serverapi.WorkflowTaskLabelFilter, error) {
+) (*taskpb.LabelFilter, error) {
 	resolvedGroups, err := resolveWorkflowProjectLabelSelectorGroups(snapshot, [][]string{includedSelectors, excludedSelectors})
 	if err != nil {
-		return serverapi.WorkflowTaskLabelFilter{}, err
+		return nil, err
 	}
 	if conflictID := sharedWorkflowProjectLabelSelectorGroups(resolvedGroups[0], resolvedGroups[1]); conflictID != nil {
-		return serverapi.WorkflowTaskLabelFilter{}, conflictingWorkflowProjectLabelSelectorsError{
+		return nil, conflictingWorkflowProjectLabelSelectorsError{
 			Included: resolvedGroups[0].SelectorsByID[*conflictID],
 			Excluded: resolvedGroups[1].SelectorsByID[*conflictID],
 		}
 	}
-	filter := serverapi.WorkflowTaskLabelFilter{
-		Kind: serverapi.WorkflowTaskLabelFilterKindNamed,
-		Named: &serverapi.WorkflowTaskNamedLabelFilter{
+	filter := &taskpb.LabelFilter{
+		Filter: &taskpb.LabelFilter_Named{Named: &taskpb.NamedLabelFilter{
 			Mode:             mode,
-			LabelIDs:         resolvedGroups[0].IDs,
-			ExcludedLabelIDs: resolvedGroups[1].IDs,
-		},
-	}
-	if err := filter.Validate(); err != nil {
-		return serverapi.WorkflowTaskLabelFilter{}, err
+			LabelIds:         resolvedGroups[0].IDs,
+			ExcludedLabelIds: resolvedGroups[1].IDs,
+		}},
 	}
 	return filter, nil
 }

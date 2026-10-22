@@ -5,7 +5,9 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"strings"
 
+	"core/shared/llmerrors"
 	"core/shared/protoapi"
 	sharedpb "core/shared/protoapi/gen/kent/api/shared"
 	worktreepb "core/shared/protoapi/gen/kent/api/worktree"
@@ -30,7 +32,7 @@ func subscribeWorktreeSetupBinary(
 			if completion.Code == nil {
 				return io.EOF
 			}
-			return protocolError(&protocol.ResponseError{Code: int(completion.GetCode()), Message: completion.GetDiagnostic()})
+			return streamFailureError(completion.GetCode(), completion.GetDiagnostic())
 		}, nil)
 }
 
@@ -47,15 +49,32 @@ func subscribeGeneratedBinary[
 	if err != nil {
 		return nil, err
 	}
+	frame, _, err := binaryCallFrame(operations.Subscribe.Name, method, request, startResult)
+	if err != nil {
+		return nil, err
+	}
+	return subscribePreparedBinary(c, ctx, operations, frame, startResult, decodeFailure,
+		newEvent, newCompletion, completionError, attachment)
+}
+
+func subscribePreparedBinary[
+	Success any, Failure comparableProtoMessage,
+	Result generatedUnaryResult[Success, Failure], Event proto.Message, Completion proto.Message,
+](
+	c *Remote, ctx context.Context, operations protoapi.SubscriptionOperations, frame rpcwire.Frame,
+	startResult Result, decodeFailure func(Failure) error,
+	newEvent func() Event, newCompletion func() Completion, completionError func(Completion) error,
+	attachment *remoteAttachmentIntent,
+) (*remoteSubscription[Event], error) {
 	conn, cleanup, err := c.openRPCConnWithAdditionalAttachment(ctx, attachment)
 	if err != nil {
 		return nil, err
 	}
-	if err := callBinaryRPC(ctx, conn, operations.Subscribe.Name, method, request, startResult); err != nil {
+	if err := callPreparedBinaryRPC(ctx, conn, operations.Subscribe.Name, frame, operations.Subscribe, startResult, false); err != nil {
 		cleanup()
 		return nil, errors.Join(serverapi.ErrStreamFailed, err)
 	}
-	if _, err := decodeGeneratedResult(method, startResult, decodeFailure); err != nil {
+	if _, err := decodeGeneratedResult(operations.Subscribe.Descriptor, startResult, decodeFailure); err != nil {
 		cleanup()
 		return nil, err
 	}
@@ -80,7 +99,7 @@ func nextBinarySubscriptionEvent[Event proto.Message, Completion proto.Message](
 	}
 	if frame.Kind != rpcwire.FrameBinary {
 		return zero, errors.Join(serverapi.ErrStreamFailed,
-			fmt.Errorf("operation %s received a JSON frame", operations.Subscribe.Name))
+			fmt.Errorf("operation %s received a nonbinary frame", operations.Subscribe.Name))
 	}
 	envelope, err := protoapi.DecodeEnvelope(frame.Payload)
 	if err != nil {
@@ -115,7 +134,7 @@ func binaryStreamCompletionError(completion *sharedpb.StreamCompletion) error {
 	if completion.Code == nil {
 		return io.EOF
 	}
-	err := protocolError(&protocol.ResponseError{Code: int(completion.GetCode()), Message: completion.GetMessage()})
+	err := streamFailureError(completion.GetCode(), completion.GetMessage())
 	if completion.TranscriptCloseReason != nil {
 		var reason serverapi.TranscriptCloseReason
 		switch completion.GetTranscriptCloseReason() {
@@ -129,4 +148,56 @@ func binaryStreamCompletionError(completion *sharedpb.StreamCompletion) error {
 		return serverapi.NewTranscriptStreamError(reason, err)
 	}
 	return err
+}
+
+func streamFailureError(code sharedpb.StreamFailureCode, diagnostic string) error {
+	message := strings.TrimSpace(diagnostic)
+	if code == sharedpb.StreamFailureCode_STREAM_FAILURE_CODE_REQUEST_CANCELED {
+		return requestCanceledError{message: message}
+	}
+	if message == "" {
+		message = "stream failed"
+	}
+	var cause error
+	switch code {
+	case sharedpb.StreamFailureCode_STREAM_FAILURE_CODE_AUTH_REQUIRED:
+		cause = serverapi.ErrServerAuthRequired
+	case sharedpb.StreamFailureCode_STREAM_FAILURE_CODE_MODEL_STREAM_STALLED:
+		cause = llmerrors.ErrModelStreamStalled
+	case sharedpb.StreamFailureCode_STREAM_FAILURE_CODE_STREAM_GAP:
+		cause = serverapi.ErrStreamGap
+	case sharedpb.StreamFailureCode_STREAM_FAILURE_CODE_WORKSPACE_NOT_REGISTERED:
+		cause = serverapi.ErrWorkspaceNotRegistered
+	case sharedpb.StreamFailureCode_STREAM_FAILURE_CODE_PROJECT_NOT_FOUND:
+		cause = serverapi.ErrProjectNotFound
+	case sharedpb.StreamFailureCode_STREAM_FAILURE_CODE_PROJECT_UNAVAILABLE:
+		cause = serverapi.ErrProjectUnavailable
+	case sharedpb.StreamFailureCode_STREAM_FAILURE_CODE_RUNTIME_UNAVAILABLE:
+		cause = serverapi.ErrRuntimeUnavailable
+	case sharedpb.StreamFailureCode_STREAM_FAILURE_CODE_RUNTIME_NO_ACTIVE_RUN:
+		cause = serverapi.ErrRuntimeNoActiveRun
+	case sharedpb.StreamFailureCode_STREAM_FAILURE_CODE_RUNTIME_NO_FINAL_ANSWER:
+		cause = serverapi.ErrRuntimeNoFinalAnswer
+	case sharedpb.StreamFailureCode_STREAM_FAILURE_CODE_STREAM_UNAVAILABLE:
+		cause = serverapi.ErrStreamUnavailable
+	case sharedpb.StreamFailureCode_STREAM_FAILURE_CODE_STREAM_FAILED:
+		cause = serverapi.ErrStreamFailed
+	case sharedpb.StreamFailureCode_STREAM_FAILURE_CODE_PROMPT_NOT_FOUND:
+		cause = serverapi.ErrPromptNotFound
+	case sharedpb.StreamFailureCode_STREAM_FAILURE_CODE_PROMPT_RESOLVED:
+		cause = serverapi.ErrPromptAlreadyResolved
+	case sharedpb.StreamFailureCode_STREAM_FAILURE_CODE_PROMPT_UNSUPPORTED:
+		cause = serverapi.ErrPromptUnsupported
+	case sharedpb.StreamFailureCode_STREAM_FAILURE_CODE_TASK_NOT_FOUND:
+		cause = serverapi.ErrWorkflowTaskNotFound
+	case sharedpb.StreamFailureCode_STREAM_FAILURE_CODE_TASK_COMPLETE_NOT_FOUND:
+		cause = serverapi.ErrWorkflowTaskCompleteTargetNotFound
+	case sharedpb.StreamFailureCode_STREAM_FAILURE_CODE_TASK_COMPLETE_AMBIGUOUS:
+		cause = serverapi.ErrWorkflowTaskCompleteSelectorAmbiguous
+	case sharedpb.StreamFailureCode_STREAM_FAILURE_CODE_INTERNAL_FAILURE:
+		return errors.New(message)
+	default:
+		return fmt.Errorf("invalid stream failure code %d: %s", code, message)
+	}
+	return protocol.NewSentinelErrorWithRendering(cause, message, protocol.SentinelErrorJoined)
 }

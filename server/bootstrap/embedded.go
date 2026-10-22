@@ -1,14 +1,17 @@
 package bootstrap
 
 import (
+	"context"
 	"errors"
 	"os"
 	"strings"
 	"time"
 
 	"core/server/auth"
+	"core/server/authservice"
 	"core/server/chatcontext"
 	"core/server/launch"
+	"core/server/llm"
 	shelltool "core/server/tools/shell"
 	"core/shared/config"
 	"core/shared/textutil"
@@ -27,30 +30,14 @@ type ConfigPlan struct {
 	Client config.ClientSettings
 }
 
-func ValidateSessionExists(persistenceRoot string, sessionID string) error {
-	return launch.ValidateSessionExists(persistenceRoot, sessionID)
-}
-
 type AuthSupport struct {
 	OAuthOptions auth.OpenAIOAuthOptions
 	AuthManager  *auth.Manager
 	Environment  func(string) (string, bool)
+	Connections  *authservice.BootstrapService
 }
 
 func ResolveConfig(req Request) (ConfigPlan, error) {
-	return resolveConfig(req, loadConfig)
-}
-
-// ResolveConnectionConfig preserves continuation discovery without resolving
-// Main Workspace private ownership before server attachment.
-func ResolveConnectionConfig(req Request) (ConfigPlan, error) {
-	return resolveConfig(req, func(opts config.LoadOptions, _ string, plan launch.BootstrapPlan) (ConfigPlan, error) {
-		app, client, err := config.LoadInteractiveConnectionDiscovery(plan.WorkspaceRoot, opts)
-		return ConfigPlan{Config: app, Client: client}, err
-	})
-}
-
-func resolveConfig(req Request, load func(config.LoadOptions, string, launch.BootstrapPlan) (ConfigPlan, error)) (ConfigPlan, error) {
 	persistenceRoot, err := config.ResolvePersistenceRoot(req.LoadOptions.ConfigRoot)
 	if err != nil {
 		return ConfigPlan{}, err
@@ -63,11 +50,10 @@ func resolveConfig(req Request, load func(config.LoadOptions, string, launch.Boo
 	if err != nil {
 		return ConfigPlan{}, err
 	}
-	opts := req.LoadOptions
-	return load(opts, persistenceRoot, bootstrapPlan)
+	return loadConfig(req.LoadOptions, persistenceRoot, bootstrapPlan)
 }
 
-func BuildAuthSupport(store auth.Store, lookupEnv func(string) (string, bool)) (AuthSupport, error) {
+func BuildAuthSupport(ctx context.Context, root string, store auth.Store, lookupEnv func(string) (string, bool)) (AuthSupport, error) {
 	if store == nil {
 		return AuthSupport{}, errors.New("auth store is required")
 	}
@@ -79,13 +65,20 @@ func BuildAuthSupport(store auth.Store, lookupEnv func(string) (string, bool)) (
 		Issuer:   auth.DefaultOpenAIIssuer,
 		ClientID: textutil.FirstNonEmpty(strings.TrimSpace(clientID), auth.DefaultOpenAIClientID),
 	}
+	grokRefresher := auth.NewOAuthRefresher(time.Now, 5*time.Minute, func(ctx context.Context, credential auth.OAuthMethod) (auth.OAuthMethod, error) {
+		return auth.RefreshGrokAuthToken(ctx, nil, credential)
+	})
+	manager := auth.NewManager(store, map[config.ConnectionProtocol]*auth.OAuthRefresher{
+		config.ConnectionChatGPT:      auth.NewOpenAIOAuthRefresher(oauthOpts, time.Now, 5*time.Minute),
+		config.ConnectionGrokCLIProxy: grokRefresher,
+		config.ConnectionGrokOAuthAPI: grokRefresher,
+	})
+	connections := authservice.NewBootstrapService(ctx, authservice.NewConnectionResolver(root, manager, lookupEnv), oauthOpts)
 	return AuthSupport{
 		OAuthOptions: oauthOpts,
 		Environment:  lookupEnv,
-		AuthManager: auth.NewManager(
-			store,
-			auth.NewOpenAIOAuthRefresher(oauthOpts, time.Now, 5*time.Minute),
-		),
+		AuthManager:  manager,
+		Connections:  connections,
 	}, nil
 }
 
@@ -99,6 +92,9 @@ func BuildShellManager(cfg config.App) (*shelltool.Manager, error) {
 func loadConfig(loadOpts config.LoadOptions, persistenceRoot string, plan launch.BootstrapPlan) (ConfigPlan, error) {
 	if strings.TrimSpace(plan.WorkspaceRoot) == "" {
 		app, err := config.LoadGlobal(loadOpts)
+		if err == nil {
+			_, err = llm.ResolveNanoTargets(app.Settings)
+		}
 		return ConfigPlan{Config: app}, err
 	}
 	mainRoot := plan.MainWorkspaceRoot
@@ -110,5 +106,8 @@ func loadConfig(loadOpts config.LoadOptions, persistenceRoot string, plan launch
 		mainRoot = &root
 	}
 	app, client, err := config.LoadInteractive(plan.WorkspaceRoot, *mainRoot, loadOpts)
+	if err == nil {
+		_, err = llm.ResolveNanoTargets(app.Settings)
+	}
 	return ConfigPlan{Config: app, Client: client}, err
 }

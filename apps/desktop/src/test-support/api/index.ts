@@ -1,12 +1,20 @@
+export {
+  sessionSettingsSubscriptionRoute,
+  hasSessionSettingsSubscription,
+  openSessionSettingsSubscription,
+  emitSessionSettingsSnapshot,
+} from "./sessionSettingsFixtures";
 import {
   create,
   decode,
   encode,
+  validate,
   operationName,
   type DescMessage,
   type DescMethod,
   type Message,
   type MessageShape,
+  type MessageValidType,
 } from "@app/server-api-contract";
 import { ProjectAvailability } from "@app/server-api-contract/gen/kent/api/project/project_pb";
 import {
@@ -31,30 +39,19 @@ import {
   TransitionService,
 } from "@app/server-api-contract/gen/kent/api/worktree/worktree_pb";
 import {
-  type DescriptorRpcTransport,
+  type RpcTransport,
   type DescriptorSubscriptionInput,
-  type AttachedProjectCall,
   type AttachedProjectDescriptorCall,
-  type JsonValue,
   type ProjectAttachment,
-  type RpcCallOptions,
   type RpcDedicatedCallOptions,
-  type RpcEventHandler,
   type RpcSubscription,
-  type SessionAttachment,
-  type RuntimeOwnerContext,
-  type RuntimeOwnerOptions,
 } from "@/api/composition";
 
 export { worktreeCommandFixture, worktreeCommandFixtureRoutes } from "./worktreeCommandFixtures";
+export { StreamFailureCode } from "@app/server-api-contract/gen/kent/api/shared/foundation_pb";
 export { partialWorktreeDeletionError } from "./worktreeErrorFixtures";
-
-type FakeJsonRoute = Readonly<{
-  method: string;
-  result?: unknown;
-  error?: Error;
-  handler?: (params: JsonValue, callIndex: number) => unknown;
-}>;
+export { processObservationFixture, processObservationFixtureRoute } from "./processFixtures";
+export { binaryAck } from "./rpcFrames";
 
 export async function unexpectedProjectOverflow(): Promise<never> {
   throw new Error("Unexpected Project event overflow in API fixture.");
@@ -72,7 +69,7 @@ type FakeDescriptorSubscriptionRoute = Readonly<{
   startResult: Message;
 }>;
 
-export type FakeRoute = FakeJsonRoute | FakeDescriptorRoute | FakeDescriptorSubscriptionRoute;
+export type FakeRoute = FakeDescriptorRoute | FakeDescriptorSubscriptionRoute;
 
 export function worktreeBrowserFixtureEntry(
   kind: "mainWorkspace" | "registered" | "missing",
@@ -283,28 +280,15 @@ export function worktreeQueryFixtureRoutes(): readonly FakeRoute[] {
   ];
 }
 
-export class FakeRpcTransport implements DescriptorRpcTransport {
-  readonly calls: Readonly<{ method: string; params: JsonValue; options?: RpcCallOptions }>[] = [];
+export class FakeRpcTransport implements RpcTransport {
   readonly descriptorCalls: Readonly<{
     descriptor: DescMethod;
     request: Message;
-    options?: RpcCallOptions;
-  }>[] = [];
-  readonly dedicatedCalls: Readonly<{
-    method: string;
-    params: JsonValue;
     options?: RpcDedicatedCallOptions;
   }>[] = [];
   readonly attachedSessionCalls: Readonly<{
     sessionID: string;
     method: string;
-  }>[] = [];
-  readonly attachedProjectCalls: Readonly<{
-    projectID: string;
-    selector: Readonly<{ workspaceID: string } | { workspaceRoot: string }>;
-    method: string;
-    params: JsonValue;
-    options?: RpcDedicatedCallOptions;
   }>[] = [];
   readonly attachedProjectDescriptorCalls: Readonly<{
     projectID: string;
@@ -313,18 +297,13 @@ export class FakeRpcTransport implements DescriptorRpcTransport {
     request: Message;
     options?: RpcDedicatedCallOptions;
   }>[] = [];
-  readonly subscriptionStarts: Readonly<{ method: string; params: JsonValue }>[] = [];
   readonly descriptorSubscriptionStarts: Readonly<{
     descriptor: DescMethod;
     request: Message;
   }>[] = [];
-  runtimeOwnerRuns = 0;
-  #routes = new Map<string, FakeJsonRoute>();
   #descriptorRoutes = new Map<string, FakeDescriptorRoute>();
   #descriptorSubscriptionRoutes = new Map<string, FakeDescriptorSubscriptionRoute>();
   #callCounts = new Map<string, number>();
-  #runtimeOwner: SessionAttachment | null = null;
-  #subscribers: Readonly<{ method: string; params: JsonValue; handler: RpcEventHandler }>[] = [];
   #descriptorSubscribers: Readonly<{
     descriptor: DescMethod;
     open(): void;
@@ -337,24 +316,18 @@ export class FakeRpcTransport implements DescriptorRpcTransport {
     for (const route of routes) {
       if ("subscriptionDescriptor" in route) {
         this.#descriptorSubscriptionRoutes.set(operationName(route.subscriptionDescriptor), route);
-      } else if ("descriptor" in route) {
-        this.#descriptorRoutes.set(operationName(route.descriptor), route);
       } else {
-        this.#routes.set(route.method, route);
+        this.#descriptorRoutes.set(operationName(route.descriptor), route);
       }
     }
-  }
-
-  async call(method: string, params: JsonValue, options?: RpcCallOptions): Promise<unknown> {
-    this.calls.push(options === undefined ? { method, params } : { method, params, options });
-    return this.#dispatch(method, params);
   }
 
   async callDescriptor<Method extends DescMethod>(
     descriptor: Method,
     request: MessageShape<Method["input"]>,
-    options?: RpcCallOptions,
-  ): Promise<MessageShape<Method["output"]>> {
+    options?: RpcDedicatedCallOptions,
+  ): Promise<MessageValidType<Method["output"]>> {
+    validate(descriptor.input, request);
     this.descriptorCalls.push(
       options === undefined ? { descriptor, request } : { descriptor, request, options },
     );
@@ -423,37 +396,10 @@ export class FakeRpcTransport implements DescriptorRpcTransport {
     };
   }
 
-  async callDedicated(
-    method: string,
-    params: JsonValue,
-    options?: RpcDedicatedCallOptions,
-  ): Promise<unknown> {
-    this.dedicatedCalls.push(options === undefined ? { method, params } : { method, params, options });
-    return this.#dispatch(method, params);
-  }
-
-  async callAttachedProject(
-    input: AttachedProjectCall,
-    options?: RpcDedicatedCallOptions,
-  ): Promise<Readonly<{ result: unknown; attachment: ProjectAttachment }>> {
-    const { projectID, selector, method, request } = input;
-    const attachment = this.#projectAttachment(projectID, selector);
-    const params = request.kind === "factory" ? request.create(attachment) : request.value;
-    this.attachedProjectCalls.push(
-      options === undefined
-        ? { projectID, selector, method, params }
-        : { projectID, selector, method, params, options },
-    );
-    return {
-      result: this.#dispatch(method, params),
-      attachment,
-    };
-  }
-
   async callDescriptorAttachedProject<Method extends DescMethod>(
     input: AttachedProjectDescriptorCall<Method>,
     options?: RpcDedicatedCallOptions,
-  ): Promise<Readonly<{ result: MessageShape<Method["output"]>; attachment: ProjectAttachment }>> {
+  ): Promise<Readonly<{ result: MessageValidType<Method["output"]>; attachment: ProjectAttachment }>> {
     const { projectID, selector, method, createRequest } = input;
     const attachment = this.#projectAttachment(projectID, selector);
     const request = createRequest(attachment);
@@ -473,7 +419,7 @@ export class FakeRpcTransport implements DescriptorRpcTransport {
     method: Method,
     request: MessageShape<Method["input"]>,
     options?: RpcDedicatedCallOptions,
-  ): Promise<MessageShape<Method["output"]>> {
+  ): Promise<MessageValidType<Method["output"]>> {
     this.attachedSessionCalls.push({ sessionID: target.sessionID, method: operationName(method) });
     return this.callDescriptor(method, request, options);
   }
@@ -495,103 +441,6 @@ export class FakeRpcTransport implements DescriptorRpcTransport {
               canonicalRoot: selector.workspaceRoot,
             },
     };
-  }
-
-  async runRuntimeOwner<Result>(
-    sessionID: string,
-    options: RuntimeOwnerOptions,
-    run: (context: RuntimeOwnerContext) => Promise<Result>,
-  ): Promise<Result> {
-    this.runtimeOwnerRuns += 1;
-    if (!options.createIfMissing && this.#runtimeOwner === null) {
-      throw new Error("Runtime owner connection is unavailable.");
-    }
-    if (this.#runtimeOwner !== null && this.#runtimeOwner.sessionID !== sessionID) {
-      throw new Error("Runtime owner connection is bound to another Session.");
-    }
-    this.#runtimeOwner ??= {
-      projectID: "project-1",
-      workspaceID: "workspace-1",
-      workspaceRoot: "/workspace",
-      sessionID,
-    };
-    const context: RuntimeOwnerContext = {
-      attachment: this.#runtimeOwner,
-      call: async (method, params) => this.#dispatch(method, params),
-      callDescriptor: async (descriptor, request) => this.callDescriptor(descriptor, request),
-      poison: () => {
-        this.#runtimeOwner = null;
-      },
-    };
-    return run(context).then((result) => {
-      if (options.closeAfter) {
-        this.#runtimeOwner = null;
-      }
-      return result;
-    });
-  }
-
-  #dispatch(method: string, params: JsonValue): unknown {
-    const route = this.#routes.get(method);
-    if (route === undefined) {
-      throw new Error(`Missing fake route: ${method}`);
-    }
-    if (route.error !== undefined) {
-      throw route.error;
-    }
-    const callIndex = this.#callCounts.get(method) ?? 0;
-    this.#callCounts.set(method, callIndex + 1);
-    if (route.handler !== undefined) {
-      return route.handler(params, callIndex);
-    }
-    return route.result;
-  }
-
-  get subscriptions(): Readonly<{ method: string; params: JsonValue }>[] {
-    return this.#subscribers.map((subscriber) => ({
-      method: subscriber.method,
-      params: subscriber.params,
-    }));
-  }
-
-  subscribe(method: string, params: JsonValue, handler: RpcEventHandler): RpcSubscription {
-    const entry = { method, params, handler };
-    this.subscriptionStarts.push({ method, params });
-    this.#subscribers.push(entry);
-    return {
-      close: () => {
-        this.#subscribers = this.#subscribers.filter((subscriber) => subscriber !== entry);
-      },
-    };
-  }
-
-  emit(method: string, params: unknown): void {
-    for (const subscriber of [...this.#subscribers]) {
-      try {
-        subscriber.handler.onEvent(method, params);
-      } catch (cause) {
-        const error = cause instanceof Error ? cause : new Error("Subscription event failed.");
-        subscriber.handler.onError(error);
-      }
-    }
-  }
-
-  open(subscriptionMethod: string): void {
-    for (const subscriber of this.#subscribersFor(subscriptionMethod)) {
-      subscriber.handler.onOpen?.();
-    }
-  }
-
-  complete(subscriptionMethod: string, code: number, message: string): void {
-    for (const subscriber of this.#subscribersFor(subscriptionMethod)) {
-      subscriber.handler.onComplete(code, message);
-    }
-  }
-
-  fail(subscriptionMethod: string, error: Error): void {
-    for (const subscriber of this.#subscribersFor(subscriptionMethod)) {
-      subscriber.handler.onError(error);
-    }
   }
 
   openDescriptor(descriptor: DescMethod): void {
@@ -632,12 +481,6 @@ export class FakeRpcTransport implements DescriptorRpcTransport {
 
   failDescriptor(descriptor: DescMethod, error: Error): void {
     for (const subscriber of this.#descriptorSubscribersFor(descriptor)) subscriber.fail(error);
-  }
-
-  #subscribersFor(
-    subscriptionMethod: string,
-  ): readonly Readonly<{ method: string; params: JsonValue; handler: RpcEventHandler }>[] {
-    return this.#subscribers.filter((subscriber) => subscriber.method === subscriptionMethod);
   }
 
   #descriptorSubscribersFor(descriptor: DescMethod) {

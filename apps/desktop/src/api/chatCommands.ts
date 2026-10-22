@@ -2,16 +2,13 @@ import { create } from "@app/server-api-contract";
 import { PromptCommandService } from "@app/server-api-contract/gen/kent/api/prompt_command/prompt_command_pb";
 import { requireProjectAttachment } from "./chatAttachment";
 import { requireChatSuccess } from "./chatErrors";
-import { requireChatProjectTarget, requireChatSessionID } from "./chatTarget";
 import type { ChatApi } from "./chatTypes";
-import type { DescriptorRpcTransport } from "./transport";
+import type { RpcTransport } from "./transport";
 
-export function createChatCommandApi(transport: DescriptorRpcTransport): Pick<ChatApi, "getCommandCatalog"> {
+export function createChatCommandApi(transport: RpcTransport): Pick<ChatApi, "getCommandCatalog"> {
   return {
     async getCommandCatalog(target) {
       const method = PromptCommandService.method.getCatalog;
-      if (target.kind === "session") requireChatSessionID(target);
-      else requireChatProjectTarget(target);
       const result =
         target.kind === "session"
           ? await transport.callDescriptorAttachedSession(

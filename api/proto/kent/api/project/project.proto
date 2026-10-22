@@ -413,6 +413,11 @@ message ProjectHomeListRequest {
       id: "project_home_list.page_token.trimmed"
       message: "page_token must not have surrounding whitespace"
       expression: "this == this.trim()"
+    },
+    (buf.validate.field).cel = {
+      id: "project_home_list.page_token.offset"
+      message: "page_token must be a nonnegative integer offset"
+      expression: "int(this) >= 0"
     }
   ];
 }
@@ -529,7 +534,7 @@ message PlanWorkspaceBindingSuccess {
     id: "plan_workspace_binding.shape"
     message: "workspace binding plan fields do not match its kind"
     expression:
-      "this.kind == 1 ? has(this.binding) && size(this.projects) == 0 && !has(this.workspace) : "
+      "this.kind == 1 ? has(this.binding) && this.binding.project_id.trim() != '' && size(this.projects) == 0 && !has(this.workspace) : "
       "this.kind == 4 ? !has(this.binding) && size(this.projects) == 0 && has(this.workspace) : "
       "!has(this.binding) && !has(this.workspace)"
   };
@@ -828,7 +833,7 @@ message ProjectWorkspaceSelector {
 }
 
 message SetDefaultWorkspaceRequest {
-  string project_id = 1 [(buf.validate.field).string.min_len = 1];
+  string project_id = 1 [(buf.validate.field).string.(kent.api.shared.nonblank) = true];
   ProjectWorkspaceSelector workspace = 2 [(buf.validate.field).required = true];
 }
 
@@ -1023,13 +1028,13 @@ message GetProjectWorkspaceResult {
 }
 
 message UnlinkWorkspaceRequest {
-  string project_id = 1 [(buf.validate.field).string.min_len = 1];
+  string project_id = 1 [(buf.validate.field).string.(kent.api.shared.nonblank) = true];
   ProjectWorkspaceSelector workspace = 2 [(buf.validate.field).required = true];
 }
 
 message UnlinkWorkspaceSuccess {
-  string project_id = 1 [(buf.validate.field).string.min_len = 1];
-  string workspace_id = 2 [(buf.validate.field).string.min_len = 1];
+  string project_id = 1 [(buf.validate.field).string.(kent.api.shared.nonblank) = true];
+  string workspace_id = 2 [(buf.validate.field).string.(kent.api.shared.nonblank) = true];
   repeated WorkspaceUnlinkBlocker blockers = 3 [(buf.validate.field).repeated.max_items = 6];
   optional ProjectHomeSummary project = 4;
 }

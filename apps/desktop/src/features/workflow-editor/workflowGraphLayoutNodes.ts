@@ -17,6 +17,7 @@ import {
   workflowNodeWidth,
 } from "./workflowGraphLayoutGeometry";
 import type { WorkflowGraphNode } from "./workflowGraphLayout";
+import { fallbackLabel } from "./workflowInspectorModel";
 
 export type WorkflowGraphNodeLayout = Readonly<{
   alignedJoinNodeIDs: ReadonlySet<string>;
@@ -140,7 +141,7 @@ function emptyGroupNode(
         kind: "group",
         entityID: group.id,
         entityKind: "group",
-        label: group.name || group.key,
+        label: group.name ?? group.key,
         empty: true,
         hasError: errorMarkers.relatedIDs.has(group.id),
       },
@@ -170,7 +171,7 @@ function populatedGroupNode(
         kind: "group",
         entityID: group.id,
         entityKind: "group",
-        label: group.name || group.key,
+        label: group.name ?? group.key,
         empty: false,
         hasError: errorMarkers.relatedIDs.has(group.id),
       },
@@ -272,7 +273,7 @@ function workflowNode(
       endpointPorts: options.endpointPorts,
       creationHandleID: workflowGraphCreationHandleIDForNode(node),
       groupID: node.groupID,
-      label: node.name,
+      label: fallbackLabel(node.key, node.name),
       role: workflowGraphNodeRole(node),
       hasError: options.errorMarkers.nodeIDs.has(node.id) || options.errorMarkers.relatedIDs.has(node.id),
     },

@@ -55,6 +55,7 @@ func (s *Store) planTransitionParameterContract(
 	targetSessionResolved := false
 	if contextResolutionMode == transitionContractContextResolutionDeferred &&
 		currentSource.SessionID == nil && source.Kind() == workflow.NodeKindAgent &&
+		transitionBranchKey == nil &&
 		workflow.CanonicalContextSource(edge.ContextSource).Kind == workflow.ContextSourceImmediateSource {
 		if currentSource.AgentExecutionSelection == nil {
 			return workflow.TransitionParameterContract{}, errors.New("planned Agent source has no execution selection")
@@ -96,6 +97,7 @@ func (s *Store) planTransitionParameterContract(
 				ContextMode:           edge.ContextMode,
 				ContextSource:         edge.ContextSource,
 				TargetSessionResolved: true,
+				FanoutBranch:          transitionBranchKey != nil,
 			})
 			if err != nil {
 				return workflow.TransitionParameterContract{}, err

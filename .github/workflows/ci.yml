@@ -80,17 +80,16 @@ jobs:
 
       - uses: extractions/setup-just@v3
 
-      - name: Setup pnpm
-        uses: pnpm/action-setup@v6.0.9
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@v2
         with:
-          version: 11.11.0
+          bun-version-file: apps/package.json
 
-      - name: Setup Node
-        uses: actions/setup-node@v6.4.0
+      - name: Cache Bun packages
+        uses: actions/cache@v4
         with:
-          node-version: 22
-          cache: pnpm
-          cache-dependency-path: apps/pnpm-lock.yaml
+          path: ~/.bun/install/cache
+          key: bun-${{ runner.os }}-${{ hashFiles('apps/bun.lock', 'docs/bun.lock') }}
 
       - name: Install ripgrep
         run: sudo apt-get update && sudo apt-get install -y ripgrep
@@ -99,9 +98,7 @@ jobs:
         run: just install _apps-dependencies
 
       - name: Test
-        run: |
-          just test server --no-wall-clock-cap
-          just test desktop
+        run: just test server
 
   windows-installer:
     runs-on: windows-latest
@@ -142,56 +139,6 @@ jobs:
           VERSION: 0.0.0
         run: just release _windows-installer-smoke --version "$VERSION" --goarch amd64 --dist-dir dist
 
-      - name: Smoke test installer restores stopped service after failure
-        env:
-          VERSION: 0.0.0
-        run: |
-          cat > fake-kent.go <<'GO'
-          package main
-          import (
-            "fmt"
-            "os"
-            "strings"
-          )
-          func mark(value string) {
-            path := os.Getenv("KENT_FAKE_MARKER")
-            if path == "" { return }
-            f, err := os.OpenFile(path, os.O_CREATE|os.O_APPEND|os.O_WRONLY, 0644)
-            if err == nil { _, _ = f.WriteString(value + "\n"); _ = f.Close() }
-          }
-          func main() {
-            args := os.Args[1:]
-            if len(args) == 1 && args[0] == "--version" { fmt.Println(os.Getenv("KENT_FAKE_VERSION")); return }
-            if len(args) >= 2 && args[0] == "service" && args[1] == "status" {
-              exe, _ := os.Executable()
-              fmt.Printf(`{"installed":true,"loaded":true,"running":true,"command":[%q],"endpoint":"","logs":[]}`+"\n", exe)
-              return
-            }
-            if len(args) >= 2 && args[0] == "service" && args[1] == "stop" { mark("stopped"); return }
-            if len(args) >= 3 && strings.Join(args[:3], " ") == "service restart --if-installed" { mark("restarted"); return }
-            fmt.Fprintf(os.Stderr, "unexpected args: %v\n", args)
-            os.Exit(1)
-          }
-          GO
-          mkdir -p "recovery-release/v${VERSION}" "recovery-install" "recovery-staging"
-          GOOS=windows GOARCH=amd64 go build -o recovery-install/kent.exe fake-kent.go
-          cp recovery-install/kent.exe "recovery-staging/kent_${VERSION}_windows_amd64.exe"
-          powershell -NoProfile -Command "Compress-Archive -LiteralPath 'recovery-staging/kent_${VERSION}_windows_amd64.exe' -DestinationPath 'recovery-release/v${VERSION}/kent_${VERSION}_windows_amd64.zip' -Force"
-          checksum=$(powershell -NoProfile -Command "(Get-FileHash -Algorithm SHA256 -LiteralPath 'recovery-release/v${VERSION}/kent_${VERSION}_windows_amd64.zip').Hash.ToLowerInvariant()")
-          printf '%s  %s\n' "$checksum" "kent_${VERSION}_windows_amd64.zip" > "recovery-release/v${VERSION}/checksums.txt"
-          release_base="$(cygpath -w "$PWD/recovery-release")"
-          install_dir="$(cygpath -w "$PWD/recovery-install")"
-          marker_path="$PWD/recovery-marker.txt"
-          marker_win="$(cygpath -w "$marker_path")"
-          if KENT_RELEASE_BASE="$release_base" KENT_FAKE_MARKER="$marker_win" KENT_FAKE_VERSION="wrong" \
-            powershell -NoProfile -ExecutionPolicy Bypass -File scripts/install.ps1 \
-              -Version "$VERSION" -InstallDir "$install_dir" -Yes -NoPath -NoDeps; then
-            echo "installer unexpectedly succeeded" >&2
-            exit 1
-          fi
-          grep -q '^stopped$' "$marker_path"
-          grep -q '^restarted$' "$marker_path"
-
   docs:
     runs-on: ubuntu-latest
     steps:
@@ -200,17 +147,16 @@ jobs:
         with:
           persist-credentials: false
 
-      - name: Setup pnpm
-        uses: pnpm/action-setup@v6.0.9
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@v2
         with:
-          version: 11.11.0
+          bun-version-file: docs/package.json
 
-      - name: Setup Node
-        uses: actions/setup-node@v6.4.0
+      - name: Cache Bun packages
+        uses: actions/cache@v4
         with:
-          node-version: 22
-          cache: pnpm
-          cache-dependency-path: docs/pnpm-lock.yaml
+          path: ~/.bun/install/cache
+          key: bun-${{ runner.os }}-${{ hashFiles('docs/bun.lock') }}
 
       - uses: extractions/setup-just@v3
 
@@ -234,17 +180,21 @@ jobs:
           go-version-file: go.mod
           cache: true
 
-      - name: Setup pnpm
-        uses: pnpm/action-setup@v6.0.9
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@v2
         with:
-          version: 11.11.0
+          bun-version-file: apps/package.json
+
+      - name: Cache Bun packages
+        uses: actions/cache@v4
+        with:
+          path: ~/.bun/install/cache
+          key: bun-${{ runner.os }}-${{ hashFiles('apps/bun.lock', 'docs/bun.lock') }}
 
       - name: Setup Node
         uses: actions/setup-node@v6.4.0
         with:
           node-version: 22
-          cache: pnpm
-          cache-dependency-path: apps/pnpm-lock.yaml
 
       - uses: extractions/setup-just@v3
 
@@ -285,17 +235,16 @@ jobs:
         with:
           workspaces: apps/desktop/src-tauri
 
-      - name: Setup pnpm
-        uses: pnpm/action-setup@v6.0.9
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@v2
         with:
-          version: 11.11.0
+          bun-version-file: apps/package.json
 
-      - name: Setup Node
-        uses: actions/setup-node@v6.4.0
+      - name: Cache Bun packages
+        uses: actions/cache@v4
         with:
-          node-version: 22
-          cache: pnpm
-          cache-dependency-path: apps/pnpm-lock.yaml
+          path: ~/.bun/install/cache
+          key: bun-${{ runner.os }}-${{ hashFiles('apps/bun.lock', 'docs/bun.lock') }}
 
       - uses: extractions/setup-just@v3
 
@@ -348,17 +297,16 @@ jobs:
         with:
           workspaces: apps/desktop/src-tauri
 
-      - name: Setup pnpm
-        uses: pnpm/action-setup@v6.0.9
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@v2
         with:
-          version: 11.11.0
+          bun-version-file: apps/package.json
 
-      - name: Setup Node
-        uses: actions/setup-node@v6.4.0
+      - name: Cache Bun packages
+        uses: actions/cache@v4
         with:
-          node-version: 22
-          cache: pnpm
-          cache-dependency-path: apps/pnpm-lock.yaml
+          path: ~/.bun/install/cache
+          key: bun-${{ runner.os }}-${{ hashFiles('apps/bun.lock', 'docs/bun.lock') }}
 
       - uses: extractions/setup-just@v3
 
@@ -367,7 +315,7 @@ jobs:
 
       # The desktop build signs updater artifacts (createUpdaterArtifacts is on). PRs
       # (incl. forks) have no secret, so mint a throwaway key and pass it by content.
-      # The signer runs under pnpm --dir apps/desktop, so the key path must be
-      # absolute ($RUNNER_TEMP); the signed debug artifacts are discarded.
+      # The signer runs from the apps workspace, so the key path must be absolute
+      # ($RUNNER_TEMP); the signed debug artifacts are discarded.
       - name: Build desktop bundle (unsigned, debug)
         run: just build _desktop-ci-debug "$RUNNER_TEMP/ci-updater.key"

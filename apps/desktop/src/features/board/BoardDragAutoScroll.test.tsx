@@ -1,22 +1,35 @@
 import { act, fireEvent, render, renderHook, screen } from "@testing-library/react";
-import { afterEach, expect, it, vi } from "vitest";
+import { afterEach, expect, it, vi } from "bun:test";
 
 import { useBoardDragAutoScroll } from "./BoardDragAutoScroll";
 
+let requestAnimationFrameDescriptor: PropertyDescriptor | undefined;
+let cancelAnimationFrameDescriptor: PropertyDescriptor | undefined;
+
 afterEach(() => {
   vi.useRealTimers();
-  vi.unstubAllGlobals();
+  restoreGlobal("requestAnimationFrame", requestAnimationFrameDescriptor);
+  restoreGlobal("cancelAnimationFrame", cancelAnimationFrameDescriptor);
 });
 
 it("scrolls both board axes only during a card drag inside the board", () => {
+  requestAnimationFrameDescriptor = Object.getOwnPropertyDescriptor(globalThis, "requestAnimationFrame");
+  cancelAnimationFrameDescriptor = Object.getOwnPropertyDescriptor(globalThis, "cancelAnimationFrame");
   vi.useFakeTimers();
-  vi.stubGlobal("requestAnimationFrame", (callback: FrameRequestCallback) =>
-    window.setTimeout(() => {
-      callback(performance.now());
-    }, 16),
-  );
-  vi.stubGlobal("cancelAnimationFrame", (id: number) => {
-    window.clearTimeout(id);
+  Object.defineProperty(globalThis, "requestAnimationFrame", {
+    configurable: true,
+    value: (callback: FrameRequestCallback) =>
+      window.setTimeout(() => {
+        callback(performance.now());
+      }, 16),
+    writable: true,
+  });
+  Object.defineProperty(globalThis, "cancelAnimationFrame", {
+    configurable: true,
+    value: (id: number) => {
+      window.clearTimeout(id);
+    },
+    writable: true,
   });
   render(
     <div data-testid="board">
@@ -71,3 +84,11 @@ it("scrolls both board axes only during a card drag inside the board", () => {
   expect(root.scrollLeft).toBe(scrollLeft);
   expect(column.scrollTop).toBe(scrollTop);
 });
+
+function restoreGlobal(name: string, descriptor: PropertyDescriptor | undefined): void {
+  if (descriptor === undefined) {
+    Reflect.deleteProperty(globalThis, name);
+  } else {
+    Object.defineProperty(globalThis, name, descriptor);
+  }
+}

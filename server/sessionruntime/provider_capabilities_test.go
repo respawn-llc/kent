@@ -10,6 +10,7 @@ func sessionRuntimeTestProviderCapabilities() llm.ProviderCapabilities {
 	return llm.ProviderCapabilities{
 		ProviderID:           "openai",
 		SupportsResponsesAPI: true,
+		SupportsFastMode:     true,
 		IsOpenAIFirstParty:   true,
 	}
 }
@@ -27,5 +28,9 @@ func (*ownerlessRetirementLLMClient) ProviderCapabilities(context.Context) (llm.
 }
 
 func (lifecycleRequestCaptureClient) ProviderCapabilities(context.Context) (llm.ProviderCapabilities, error) {
+	return sessionRuntimeTestProviderCapabilities(), nil
+}
+
+func (*lifecycleQuestionBarrierClient) ProviderCapabilities(context.Context) (llm.ProviderCapabilities, error) {
 	return sessionRuntimeTestProviderCapabilities(), nil
 }

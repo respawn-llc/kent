@@ -1,7 +1,7 @@
 import { useMemo, useState } from "react";
 import { useQueryClient, type QueryClient } from "@tanstack/react-query";
 import { useAtomMount, useAtomSet, useAtomValue } from "@effect/atom-react";
-import * as Atom from "effect/unstable/reactivity/Atom";
+import * as Atom from "effect/reactivity/Atom";
 import * as Effect from "effect/Effect";
 import type {
   WorkflowExecutionTargetSelection,
@@ -10,12 +10,14 @@ import type {
   TaskMovePreviewResponse,
 } from "@/api";
 import {
-  decodeWorktreeSetupRetainedError,
-  decodeExecutionTargetChoiceFailure,
+  worktreeSetupRecovery,
+  errorMessage,
+  RpcError,
+  executionTargetChoiceFailure,
   type ExecutionTargetChoiceFailure,
-  type WorktreeSetupRetainedError,
+  type WorktreeSetupRecovery,
 } from "@/api";
-import { reportNonCancelledError } from "@/app-facade";
+import { reportNonCancelledError, useAppServices } from "@/app-facade";
 import {
   initialExecutionTargetSelectionDraft,
   moveTaskInitiatingAction,
@@ -47,7 +49,7 @@ export type PendingTaskInitiatingAction =
   | Readonly<{
       kind: "setup_recovery";
       action: TaskInitiatingAction;
-      failure: WorktreeSetupRetainedError;
+      failure: WorktreeSetupRecovery;
       choiceFailure: ExecutionTargetChoiceFailure | null;
       retrySelection?: WorkflowExecutionTargetSelection;
     }>;
@@ -117,7 +119,7 @@ function createTaskInitiatingActions(client: QueryClient) {
             }
           },
           onError(error) {
-            const failure = decodeWorktreeSetupRetainedError(error);
+            const failure = worktreeSetupRecovery(error);
             if (failure !== null) {
               input.onConfirmation({
                 kind: "setup_recovery",
@@ -163,6 +165,7 @@ function createTaskInitiatingActions(client: QueryClient) {
 }
 
 export function useTaskInitiatingActionController(options: Options) {
+  const { logger } = useAppServices();
   const client = useQueryClient();
   const model = useMemo(() => createTaskInitiatingActions(client), [client]);
   useAtomMount(model.requests);
@@ -192,7 +195,19 @@ export function useTaskInitiatingActionController(options: Options) {
         ...(selection === undefined ? {} : { selection }),
         onConfirmation: setPending,
         onError: (failedAction, error) => {
-          const choiceFailure = decodeExecutionTargetChoiceFailure(error);
+          void logger.append("warn", "Task initiating action failed.", {
+            taskID: taskInitiatingActionTaskID(failedAction),
+            action: failedAction.kind,
+            error: errorMessage(error),
+            ...(error instanceof RpcError
+              ? {
+                  method: error.method,
+                  code: error.code,
+                  ...(error.data === undefined ? {} : { details: errorMessage(error.data) }),
+                }
+              : {}),
+          });
+          const choiceFailure = executionTargetChoiceFailure(error);
           if (
             choiceFailure !== null &&
             (confirmation?.kind === "execution_target" || confirmation?.kind === "setup_recovery")

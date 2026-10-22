@@ -1,7 +1,9 @@
 package app
 
 import (
+	"context"
 	"fmt"
+	"os"
 	"strings"
 
 	"core/cli/app/internal/authui"
@@ -11,8 +13,6 @@ import (
 	"github.com/charmbracelet/lipgloss"
 	ansi "github.com/charmbracelet/x/ansi"
 )
-
-const authPickerHeaderMarkdown = "**Pick auth options**"
 
 var runStartupPickerFlow = runStartupPicker
 
@@ -48,12 +48,11 @@ type startupPickerStyles struct {
 }
 
 type startupPickerModel struct {
-	banner         string
 	headerMarkdown string
 	headerFallback string
 	items          []startupPickerOption
 	cursor         int
-	offset         int
+	scrollOffset   int
 	width          int
 	height         int
 	theme          string
@@ -61,6 +60,11 @@ type startupPickerModel struct {
 	headerMD       *startupMarkdownRenderer
 	notice         startupPickerNotice
 	result         startupPickerResult
+}
+
+type startupPickerRowRange struct {
+	start        int
+	endExclusive int
 }
 
 func newStartupPickerModel(headerMarkdown, headerFallback, theme string, notice startupPickerNotice, items []startupPickerOption) *startupPickerModel {
@@ -91,7 +95,7 @@ func (m *startupPickerModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if key.Height > 0 {
 			m.height = key.Height
 		}
-		m.ensureCursorVisible()
+		m.clampScrollOffset()
 		return m, nil
 	case tea.KeyMsg:
 		switch key.Type {
@@ -99,6 +103,14 @@ func (m *startupPickerModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.moveCursor(-1)
 		case tea.KeyDown:
 			m.moveCursor(1)
+		case tea.KeyPgUp:
+			m.scrollBy(-max(1, m.height-1))
+		case tea.KeyPgDown:
+			m.scrollBy(max(1, m.height-1))
+		case tea.KeyHome:
+			m.scrollOffset = 0
+		case tea.KeyEnd:
+			m.scrollOffset = m.maxScrollOffset()
 		case tea.KeyRunes:
 			filtered, _ := stripMouseSGRRunes(key.Runes)
 			if len(filtered) == 1 {
@@ -116,6 +128,10 @@ func (m *startupPickerModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			if len(m.items) == 0 || m.cursor < 0 || m.cursor >= len(m.items) {
 				return m, nil
 			}
+			if !m.cursorVisible() {
+				m.ensureCursorVisible()
+				return m, nil
+			}
 			m.result = startupPickerResult{ChoiceID: m.items[m.cursor].ID}
 			return m, tea.Quit
 		case tea.KeyEsc, tea.KeyCtrlC:
@@ -127,25 +143,10 @@ func (m *startupPickerModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 }
 
 func (m *startupPickerModel) View() string {
-	var out strings.Builder
-	if banner := renderStartupBanner(m.banner); banner != "" {
-		out.WriteString(banner)
-		out.WriteString("\n\n")
-	}
-	out.WriteString(m.renderHeader())
-	if notice := m.renderNotice(); strings.TrimSpace(notice) != "" {
-		out.WriteString("\n\n")
-		out.WriteString(notice)
-	}
-	out.WriteString("\n\n")
-	visible := m.visibleRowsFromOffset(m.offset)
-	for idx, row := range visible {
-		if idx > 0 {
-			out.WriteString("\n\n")
-		}
-		out.WriteString(m.renderRow(row.index))
-	}
-	return out.String()
+	lines, _ := m.contentLines()
+	start := min(m.scrollOffset, max(0, len(lines)-max(1, m.height)))
+	end := min(len(lines), start+max(1, m.height))
+	return strings.Join(lines[start:end], "\n")
 }
 
 func (m *startupPickerModel) moveCursor(delta int) {
@@ -163,25 +164,19 @@ func (m *startupPickerModel) moveCursor(delta int) {
 }
 
 func (m *startupPickerModel) ensureCursorVisible() {
-	if m.cursor < m.offset {
-		m.offset = m.cursor
+	lines, rows := m.contentLines()
+	if m.cursor < 0 || m.cursor >= len(rows) {
+		return
 	}
-	for m.offset < m.cursor && !m.rowVisibleFromOffset(m.offset, m.cursor) {
-		m.offset++
+	row := rows[m.cursor]
+	height := max(1, m.height)
+	if row.start < m.scrollOffset {
+		m.scrollOffset = row.start
 	}
-	if m.offset < 0 {
-		m.offset = 0
+	if row.endExclusive > m.scrollOffset+height {
+		m.scrollOffset = min(row.start, row.endExclusive-height)
 	}
-	for m.offset > 0 && m.rowVisibleFromOffset(m.offset-1, m.cursor) {
-		m.offset--
-	}
-	maxOffset := len(m.items) - 1
-	if maxOffset < 0 {
-		maxOffset = 0
-	}
-	if m.offset > maxOffset {
-		m.offset = maxOffset
-	}
+	m.scrollOffset = min(max(0, m.scrollOffset), max(0, len(lines)-height))
 }
 
 func (m *startupPickerModel) renderHeader() string {
@@ -202,7 +197,11 @@ func (m *startupPickerModel) renderNotice() string {
 	if rendered == "" {
 		return ""
 	}
-	return inset + rendered
+	lines := strings.Split(rendered, "\n")
+	for index := range lines {
+		lines[index] = inset + lines[index]
+	}
+	return strings.Join(lines, "\n")
 }
 
 func (m *startupPickerModel) headerInset() string {
@@ -232,7 +231,16 @@ func (m *startupPickerModel) renderRow(index int) string {
 	if contentWidth < 1 {
 		contentWidth = 1
 	}
-	return marker + " " + titleStyle.Render(truncateQueuedMessageLine(item.Title, contentWidth))
+	titleLines := wrapLine(item.Title, contentWidth)
+	if len(titleLines) == 0 {
+		titleLines = []string{""}
+	}
+	lines := make([]string, 0, len(titleLines))
+	lines = append(lines, marker+" "+titleStyle.Render(titleLines[0]))
+	for _, line := range titleLines[1:] {
+		lines = append(lines, "  "+titleStyle.Render(line))
+	}
+	return strings.Join(lines, "\n")
 }
 
 func (m *startupPickerModel) contentWidth() int {
@@ -242,67 +250,49 @@ func (m *startupPickerModel) contentWidth() int {
 	return m.width
 }
 
-func (m *startupPickerModel) staticLineCount() int {
-	lines := 2
-	if bannerLines := startupBannerLineCount(m.banner); bannerLines > 0 {
-		lines += bannerLines + 2
+func (m *startupPickerModel) contentLines() ([]string, []startupPickerRowRange) {
+	lines := strings.Split(m.renderHeader(), "\n")
+	if notice := m.renderNotice(); notice != "" {
+		lines = append(lines, "")
+		lines = append(lines, strings.Split(notice, "\n")...)
 	}
-	if strings.TrimSpace(m.notice.Text) != "" {
-		lines += 2
+	lines = append(lines, "")
+	rows := make([]startupPickerRowRange, len(m.items))
+	for index := range m.items {
+		if index > 0 {
+			lines = append(lines, "")
+		}
+		rows[index].start = len(lines)
+		lines = append(lines, strings.Split(m.renderRow(index), "\n")...)
+		rows[index].endExclusive = len(lines)
 	}
-	return lines
+	return lines, rows
 }
 
-func (m *startupPickerModel) visibleLineBudget() int {
-	rows := m.height - m.staticLineCount()
-	if rows < 1 {
-		return 1
+func (m *startupPickerModel) cursorVisible() bool {
+	_, rows := m.contentLines()
+	if m.cursor < 0 || m.cursor >= len(rows) {
+		return false
 	}
-	return rows
+	row := rows[m.cursor]
+	height := max(1, m.height)
+	if row.endExclusive-row.start > height {
+		return row.start >= m.scrollOffset && row.start < m.scrollOffset+height
+	}
+	return row.start >= m.scrollOffset && row.endExclusive <= m.scrollOffset+height
 }
 
-type startupPickerVisibleRow struct {
-	index int
+func (m *startupPickerModel) scrollBy(delta int) {
+	m.scrollOffset = min(max(0, m.scrollOffset+delta), m.maxScrollOffset())
 }
 
-func (m *startupPickerModel) visibleRowsFromOffset(offset int) []startupPickerVisibleRow {
-	budget := m.visibleLineBudget()
-	if budget <= 0 {
-		return nil
-	}
-	visible := make([]startupPickerVisibleRow, 0, len(m.items))
-	for i := offset; i < len(m.items); i++ {
-		separator := 0
-		if len(visible) > 0 {
-			separator = 1
-		}
-		available := budget - separator
-		if available < 1 {
-			break
-		}
-		rowLines := 1
-		if rowLines > available {
-			if len(visible) == 0 {
-				return []startupPickerVisibleRow{{index: i}}
-			}
-			break
-		}
-		visible = append(visible, startupPickerVisibleRow{index: i})
-		budget -= separator + rowLines
-		if budget == 0 {
-			break
-		}
-	}
-	return visible
+func (m *startupPickerModel) maxScrollOffset() int {
+	lines, _ := m.contentLines()
+	return max(0, len(lines)-max(1, m.height))
 }
 
-func (m *startupPickerModel) rowVisibleFromOffset(offset, index int) bool {
-	for _, row := range m.visibleRowsFromOffset(offset) {
-		if row.index == index {
-			return true
-		}
-	}
-	return false
+func (m *startupPickerModel) clampScrollOffset() {
+	m.scrollOffset = min(max(0, m.scrollOffset), m.maxScrollOffset())
 }
 
 func newStartupPickerStyles(theme string) startupPickerStyles {
@@ -317,8 +307,7 @@ func newStartupPickerStyles(theme string) startupPickerStyles {
 }
 
 func runStartupPicker(model *startupPickerModel) (startupPickerResult, error) {
-	program := tea.NewProgram(model, tea.WithAltScreen())
-	finalModel, err := program.Run()
+	finalModel, err := runStartupAlternateScreen(context.Background(), model, os.Stdout)
 	if err != nil {
 		return startupPickerResult{}, err
 	}
@@ -332,8 +321,6 @@ func runStartupPicker(model *startupPickerModel) (startupPickerResult, error) {
 type authMethodChoice string
 
 const (
-	authMethodChoiceSkip        authMethodChoice = "skip"
-	authMethodChoiceEnvAPIKey   authMethodChoice = "env_api_key"
 	authMethodChoiceBrowserAuto authMethodChoice = "oauth_browser"
 	authMethodChoiceDevice      authMethodChoice = "oauth_device"
 )
@@ -343,43 +330,40 @@ type authMethodPickerResult struct {
 	Canceled bool
 }
 
-func authMethodOptions(includeEnvAPIKey bool, allowSkip bool) []startupPickerOption {
-	items := make([]startupPickerOption, 0, 4)
-	items = append(items,
-		startupPickerOption{
-			ID:    string(authMethodChoiceBrowserAuto),
-			Title: "Sign in with OpenAI Codex using browser",
-		},
-		startupPickerOption{
-			ID:    string(authMethodChoiceDevice),
-			Title: "Sign in with OpenAI Codex using device code",
-		},
-	)
-	if includeEnvAPIKey {
-		items = append(items, startupPickerOption{
-			ID:    string(authMethodChoiceEnvAPIKey),
-			Title: "Use provided OPENAI_API_KEY from now on",
-		})
+func newAuthMethodPickerModel(req authInteraction) (*onboardingModel, *authMethodPickerResult, error) {
+	theme, err := seedThemeSelection(req.Theme)
+	if err != nil {
+		return nil, nil, err
 	}
-	if allowSkip {
-		items = append(items, startupPickerOption{
-			ID:    string(authMethodChoiceSkip),
-			Title: "No auth",
-		})
+	options := []onboardingOption{}
+	for _, choice := range []struct {
+		method authMethodChoice
+		title  string
+	}{
+		{authMethodChoiceBrowserAuto, "Browser"},
+		{authMethodChoiceDevice, "Device code"},
+	} {
+		if supportsBootstrapMode(req.Modes, choice.method) {
+			options = append(options, onboardingOption{ID: string(choice.method), Title: choice.title})
+		}
 	}
-	return items
-}
-
-func newAuthMethodPickerModel(theme string, notice startupPickerNotice, includeEnvAPIKey bool, allowSkip bool) *startupPickerModel {
-	model := newStartupPickerModel(authPickerHeaderMarkdown, "Pick auth options", theme, notice, authMethodOptions(includeEnvAPIKey, allowSkip))
-	model.banner = startupBannerANSI
-	return model
+	result := &authMethodPickerResult{}
+	model := newOnboardingFormModel(onboardingFlowState{selections: onboardingSelections{theme: theme}}, onboardingWorkflow{
+		steps: []onboardingStepDefinition{{id: connectionStepAuthMethod, build: func(*onboardingFlowState) onboardingScreen {
+			return onboardingScreen{ID: connectionStepAuthMethod, Kind: onboardingScreenChoice, Title: "Choose a sign-in method",
+				Options: options, ErrorText: authMethodPickerNoticeForRequest(req).Text}
+		}, apply: func(state *onboardingFlowState, value string) error {
+			result.Choice = authMethodChoice(value)
+			state.pendingAction = onboardingPendingActionConnectionComplete
+			return nil
+		}}},
+	})
+	return model, result, nil
 }
 
 func authMethodPickerNoticeForRequest(req authInteraction) startupPickerNotice {
 	notice := authui.AuthMethodPickerNotice(authui.AuthMethodPickerNoticeRequest{
-		FlowErr:      req.FlowErr,
-		HasEnvAPIKey: req.HasEnvAPIKey,
+		FlowErr: req.FlowErr,
 	})
 	kind := startupPickerNoticeNeutral
 	if notice.Kind == authui.AuthNoticeError {
@@ -388,20 +372,15 @@ func authMethodPickerNoticeForRequest(req authInteraction) startupPickerNotice {
 	return startupPickerNotice{Text: notice.Text, Kind: kind}
 }
 
-func authMethodDisplayTitle(choice authMethodChoice) string {
-	for _, item := range authMethodOptions(true, true) {
-		if item.ID == string(choice) {
-			return item.Title
-		}
-	}
-	return string(choice)
-}
-
 func runAuthMethodPicker(req authInteraction) (authMethodPickerResult, error) {
-	model := newAuthMethodPickerModel(req.Theme, authMethodPickerNoticeForRequest(req), req.HasEnvAPIKey, true)
-	picked, err := runStartupPickerFlow(model)
+	model, result, err := newAuthMethodPickerModel(req)
 	if err != nil {
 		return authMethodPickerResult{}, err
 	}
-	return authMethodPickerResult{Choice: authMethodChoice(picked.ChoiceID), Canceled: picked.Canceled}, nil
+	_, err = runOnboardingProgram(context.Background(), model)
+	if err != nil {
+		return authMethodPickerResult{}, err
+	}
+	result.Canceled = model.canceled
+	return *result, nil
 }

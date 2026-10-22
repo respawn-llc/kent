@@ -125,10 +125,11 @@ export function TaskStartButton() {
     <Button
       data-testid="task-detail-start"
       aria-busy={controller.starting}
+      loading={controller.starting}
       onClick={controller.start}
       variant="primary"
     >
-      {controller.starting ? <Spinner /> : t("task.start")}
+      {t("task.start")}
     </Button>
   );
 }

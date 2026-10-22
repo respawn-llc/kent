@@ -53,8 +53,6 @@ export type ServerReadiness = Readonly<{
   serverID: string;
   serverVersion: string;
   protocolVersion: string;
-  authReady: boolean;
-  authRequired: boolean;
   endpoint: string;
   subagentRoles: readonly SubagentRoleSummary[];
   causes: readonly ServerCause[];
@@ -68,7 +66,7 @@ export type WorkspaceSummary = Readonly<{
   rootPath: string;
   availability: WorkspaceAvailability;
   isPrimary: boolean;
-  updatedAt: number;
+  updatedAt: number | null;
 }>;
 
 export type ProjectSummary = Readonly<{
@@ -121,6 +119,7 @@ export type SessionCategory = "main" | "subagent";
 export const sessionCatalogPageSize = 50;
 export type SessionCatalogSummary = Readonly<{
   id: string;
+  shortID: bigint | null;
   category: SessionCategory;
   name: string | null;
   firstPromptPreview: string | null;
@@ -186,6 +185,11 @@ export type BindingPlan = Readonly<{
   binding: ProjectBinding | null;
 }>;
 
+export type PromptQuestionBatch = Readonly<{
+  toolCallIDs: readonly string[];
+  unmaterializedCount: number;
+}>;
+
 export type PendingAsk = Readonly<{
   toolCallID: string;
   sessionID: string;
@@ -194,6 +198,7 @@ export type PendingAsk = Readonly<{
   suggestions: readonly string[];
   recommendedOptionIndex: number | null;
   createdAt: string;
+  batch?: PromptQuestionBatch;
 }>;
 
 export type ApprovalDecision = "allow_once" | "allow_session" | "deny";
@@ -258,7 +263,7 @@ export type WorkflowNodeGroup = Readonly<{
   id: string;
   workflowID: string;
   key: string;
-  name: string;
+  name: string | null;
   sortOrder: number;
   nodeIDs: readonly string[];
 }>;
@@ -589,7 +594,7 @@ export type BoardColumn = Readonly<{
   key: string;
   kind: string;
   name: string;
-  assigneeRole: string;
+  assigneeRole: string | null;
   outputFields: readonly WorkflowOutputField[];
   groupID: string | null;
   sortOrder: number;
@@ -601,7 +606,7 @@ export type BoardColumn = Readonly<{
 export type BoardGroup = Readonly<{
   id: string;
   key: string;
-  name: string;
+  name: string | null;
   sortOrder: number;
   nodeIDs: readonly string[];
 }>;
@@ -645,7 +650,7 @@ export type ApprovalSnapshot = Readonly<{
 
 export type AttentionPage = Readonly<{
   items: readonly AttentionItem[];
-  nextPageToken: string;
+  nextPageToken: string | null;
   generatedAt: number;
 }>;
 
@@ -690,7 +695,7 @@ export type TaskDetail = Readonly<{
   workflowVersion: number;
   title: string;
   body: string;
-  sourceURL: string;
+  sourceURL: string | null;
   sourceWorkspace: WorkspaceSummary;
   status: TaskStatus;
   actions: TaskActions;
@@ -699,7 +704,7 @@ export type TaskDetail = Readonly<{
   dependencies: TaskDependencies;
   executionTarget: WorkflowExecutionTarget | null;
   worktreePath: string | null;
-  currentNodes: readonly TaskCurrentNode[];
+  currentNodes: readonly (TaskCurrentNode & Readonly<{ displayName: string }>)[];
   liveSessions: readonly TaskLiveSession[];
   currentScripts: readonly Readonly<{ currentNode: TaskScriptCurrentNode; path: string }>[];
   retainedSessionCount: number;

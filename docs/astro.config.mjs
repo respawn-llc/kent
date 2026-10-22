@@ -85,8 +85,16 @@ export default defineConfig({
           link: "/lifecycle-hooks/",
         },
         {
+          label: "Authentication",
+          link: "/authentication/",
+        },
+        {
           label: "Configuration",
           link: "/config/",
+        },
+        {
+          label: "Nano, Supervisor, and Decision models",
+          link: "/auxiliary-models/",
         },
         {
           label: "Contributing",

@@ -3,6 +3,7 @@ package remoteattach
 import (
 	"context"
 	"errors"
+	"fmt"
 	"testing"
 	"time"
 
@@ -13,6 +14,37 @@ import (
 	"core/shared/protocol"
 	"core/shared/serverapi"
 )
+
+func TestDialHeadlessPreservesProtocolMismatch(t *testing.T) {
+	mismatch := fmt.Errorf("handshake failed: %w", &client.ProtocolVersionMismatchError{})
+	for _, test := range []struct {
+		name      string
+		dialError error
+		reachable bool
+	}{
+		{name: "unreachable", dialError: errors.New("connection refused")},
+		{name: "protocol mismatch", dialError: mismatch, reachable: true},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			remote, reachable, err := DialHeadless(t.Context(), HeadlessRequest{
+				AttachTimeout: time.Second,
+				DialProjectView: func(context.Context, config.Connection) (ProjectViewRemote, error) {
+					return nil, test.dialError
+				},
+				DialWorkspace: func(context.Context, config.Connection, string, string) (*client.Remote, error) {
+					t.Fatal("workspace dial attempted after failed handshake")
+					return nil, nil
+				},
+			})
+			if remote != nil || reachable != test.reachable {
+				t.Fatalf("remote = %v, reachable = %v, want reachable %v", remote, reachable, test.reachable)
+			}
+			if !errors.Is(err, test.dialError) {
+				t.Fatalf("error = %v, want original connection failure", err)
+			}
+		})
+	}
+}
 
 type projectViewRemoteStub struct {
 	apicontract.ProjectViewService
@@ -50,7 +82,7 @@ func (s *projectViewRemoteStub) PlanWorkspaceBinding(ctx context.Context, req *p
 }
 
 func TestDialHeadlessPinsProjectViewRootBeforeDiscovery(t *testing.T) {
-	cfg := config.App{WorkspaceRoot: "/workspace"}
+	cfg := config.Connection{WorkspaceRoot: "/workspace"}
 	pinErr := errors.New("root mismatch")
 	projectViews := &projectViewRemoteStub{
 		requireRoot: func(string) error { return pinErr },
@@ -64,8 +96,8 @@ func TestDialHeadlessPinsProjectViewRootBeforeDiscovery(t *testing.T) {
 		AttachTimeout:    20 * time.Millisecond,
 		DiscoveryTimeout: 20 * time.Millisecond,
 		RootID:           "root-want",
-		DialProjectView:  func(context.Context, config.App) (ProjectViewRemote, error) { return projectViews, nil },
-		DialWorkspace: func(context.Context, config.App, string, string) (*client.Remote, error) {
+		DialProjectView:  func(context.Context, config.Connection) (ProjectViewRemote, error) { return projectViews, nil },
+		DialWorkspace: func(context.Context, config.Connection, string, string) (*client.Remote, error) {
 			t.Fatal("workspace dial must not run when the project-view root pin fails")
 			return nil, nil
 		},
@@ -88,7 +120,7 @@ func TestDialHeadlessPinsProjectViewRootBeforeDiscovery(t *testing.T) {
 }
 
 func TestDialHeadlessUsesWorkspaceDiscoveryAndFreshWorkspaceDialTimeout(t *testing.T) {
-	cfg := config.App{WorkspaceRoot: "/workspace"}
+	cfg := config.Connection{WorkspaceRoot: "/workspace"}
 	attachTimeout := 20 * time.Millisecond
 	projectViews := &projectViewRemoteStub{
 		plan: func(ctx context.Context, req *projectpb.PlanWorkspaceBindingRequest) (*projectpb.PlanWorkspaceBindingSuccess, error) {
@@ -113,10 +145,10 @@ func TestDialHeadlessUsesWorkspaceDiscoveryAndFreshWorkspaceDialTimeout(t *testi
 		Config:           cfg,
 		AttachTimeout:    attachTimeout,
 		DiscoveryTimeout: 120 * time.Millisecond,
-		DialProjectView: func(context.Context, config.App) (ProjectViewRemote, error) {
+		DialProjectView: func(context.Context, config.Connection) (ProjectViewRemote, error) {
 			return projectViews, nil
 		},
-		DialWorkspace: func(ctx context.Context, cfg config.App, projectID string, workspaceID string) (*client.Remote, error) {
+		DialWorkspace: func(ctx context.Context, cfg config.Connection, projectID string, workspaceID string) (*client.Remote, error) {
 			deadline, hasDeadline := ctx.Deadline()
 			if !hasDeadline {
 				t.Fatal("expected workspace dial deadline")
@@ -150,7 +182,7 @@ func TestDialHeadlessUsesWorkspaceDiscoveryAndFreshWorkspaceDialTimeout(t *testi
 
 func TestDialHeadlessRejectsNilDialers(t *testing.T) {
 	_, _, err := DialHeadless(context.Background(), HeadlessRequest{
-		DialWorkspace: func(context.Context, config.App, string, string) (*client.Remote, error) {
+		DialWorkspace: func(context.Context, config.Connection, string, string) (*client.Remote, error) {
 			return nil, nil
 		},
 	})
@@ -159,7 +191,7 @@ func TestDialHeadlessRejectsNilDialers(t *testing.T) {
 	}
 
 	_, _, err = DialHeadless(context.Background(), HeadlessRequest{
-		DialProjectView: func(context.Context, config.App) (ProjectViewRemote, error) {
+		DialProjectView: func(context.Context, config.Connection) (ProjectViewRemote, error) {
 			return &projectViewRemoteStub{}, nil
 		},
 	})
@@ -176,13 +208,13 @@ func TestDialHeadlessClosesAndReturnsPlanFailure(t *testing.T) {
 		},
 	}
 	remote, ok, err := DialHeadless(context.Background(), HeadlessRequest{
-		Config:           config.App{WorkspaceRoot: "/workspace"},
+		Config:           config.Connection{WorkspaceRoot: "/workspace"},
 		AttachTimeout:    time.Second,
 		DiscoveryTimeout: time.Second,
-		DialProjectView: func(context.Context, config.App) (ProjectViewRemote, error) {
+		DialProjectView: func(context.Context, config.Connection) (ProjectViewRemote, error) {
 			return projectViews, nil
 		},
-		DialWorkspace: func(context.Context, config.App, string, string) (*client.Remote, error) {
+		DialWorkspace: func(context.Context, config.Connection, string, string) (*client.Remote, error) {
 			t.Fatal("unexpected workspace dial")
 			return nil, nil
 		},
@@ -216,13 +248,13 @@ func TestDialHeadlessReturnsWorkspaceDialFailure(t *testing.T) {
 		},
 	}
 	remote, ok, err := DialHeadless(context.Background(), HeadlessRequest{
-		Config:           config.App{WorkspaceRoot: "/workspace"},
+		Config:           config.Connection{WorkspaceRoot: "/workspace"},
 		AttachTimeout:    time.Second,
 		DiscoveryTimeout: time.Second,
-		DialProjectView: func(context.Context, config.App) (ProjectViewRemote, error) {
+		DialProjectView: func(context.Context, config.Connection) (ProjectViewRemote, error) {
 			return projectViews, nil
 		},
-		DialWorkspace: func(context.Context, config.App, string, string) (*client.Remote, error) {
+		DialWorkspace: func(context.Context, config.Connection, string, string) (*client.Remote, error) {
 			return nil, wantErr
 		},
 	})
@@ -248,7 +280,7 @@ func TestDialInteractiveRejectsNilDialers(t *testing.T) {
 }
 
 func TestDialInteractiveBoundWorkspaceDialsWorkspaceAndClosesProjectView(t *testing.T) {
-	cfg := config.App{WorkspaceRoot: "/workspace"}
+	cfg := config.Connection{WorkspaceRoot: "/workspace"}
 	projectViews := &projectViewRemoteStub{
 		plan: func(ctx context.Context, req *projectpb.PlanWorkspaceBindingRequest) (*projectpb.PlanWorkspaceBindingSuccess, error) {
 			if err := ctx.Err(); err != nil {
@@ -270,10 +302,10 @@ func TestDialInteractiveBoundWorkspaceDialsWorkspaceAndClosesProjectView(t *test
 	remote, ok := DialInteractive(context.Background(), InteractiveRequest{
 		Config:        cfg,
 		AttachTimeout: time.Second,
-		DialProjectView: func(context.Context, config.App) (ProjectViewRemote, error) {
+		DialProjectView: func(context.Context, config.Connection) (ProjectViewRemote, error) {
 			return projectViews, nil
 		},
-		DialWorkspace: func(ctx context.Context, cfg config.App, projectID string, workspaceID string) (*client.Remote, error) {
+		DialWorkspace: func(ctx context.Context, cfg config.Connection, projectID string, workspaceID string) (*client.Remote, error) {
 			if err := ctx.Err(); err != nil {
 				return nil, err
 			}
@@ -301,12 +333,12 @@ func TestDialInteractiveClosesNonRemoteUnboundFallback(t *testing.T) {
 		},
 	}
 	remote, ok := DialInteractive(context.Background(), InteractiveRequest{
-		Config:        config.App{WorkspaceRoot: "/workspace"},
+		Config:        config.Connection{WorkspaceRoot: "/workspace"},
 		AttachTimeout: time.Second,
-		DialProjectView: func(context.Context, config.App) (ProjectViewRemote, error) {
+		DialProjectView: func(context.Context, config.Connection) (ProjectViewRemote, error) {
 			return projectViews, nil
 		},
-		DialWorkspace: func(context.Context, config.App, string, string) (*client.Remote, error) {
+		DialWorkspace: func(context.Context, config.Connection, string, string) (*client.Remote, error) {
 			t.Fatal("unexpected workspace dial")
 			return nil, nil
 		},

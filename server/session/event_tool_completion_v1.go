@@ -9,13 +9,15 @@ import (
 
 	"core/server/llm/openaiwire"
 	"core/shared/invariant"
+	"core/shared/runtimeids"
 )
 
 type ToolOutputKind string
 
 const (
-	ToolOutputKindFunction ToolOutputKind = "function"
-	ToolOutputKindCustom   ToolOutputKind = "custom"
+	ToolOutputKindFunction         ToolOutputKind = "function"
+	ToolOutputKindCustom           ToolOutputKind = "custom"
+	ToolOutputKindProviderItemOnly ToolOutputKind = "provider_item_only"
 )
 
 type ProviderInputItemType string
@@ -42,16 +44,17 @@ type ToolCompletionProviderItem struct {
 }
 
 type ToolCompletionRecord struct {
-	CallID         string                       `json:"call_id"`
-	Name           string                       `json:"name"`
-	OutputKind     ToolOutputKind               `json:"output_kind"`
-	IsError        bool                         `json:"is_error"`
-	Output         json.RawMessage              `json:"output"`
-	Summary        *string                      `json:"summary,omitempty"`
-	CondensedText  *string                      `json:"condensed_text,omitempty"`
-	Presentation   json.RawMessage              `json:"presentation,omitempty"`
-	ProviderItems  []ToolCompletionProviderItem `json:"provider_items,omitempty"`
-	QuestionAnswer *QuestionAnswerRecord        `json:"question_answer,omitempty"`
+	CallID              string                       `json:"call_id"`
+	Name                string                       `json:"name"`
+	OutputKind          ToolOutputKind               `json:"output_kind"`
+	IsError             bool                         `json:"is_error"`
+	Output              json.RawMessage              `json:"output"`
+	Summary             *string                      `json:"summary,omitempty"`
+	CondensedText       *string                      `json:"condensed_text,omitempty"`
+	Presentation        json.RawMessage              `json:"presentation,omitempty"`
+	ProviderItems       []ToolCompletionProviderItem `json:"provider_items,omitempty"`
+	QuestionAnswer      *QuestionAnswerRecord        `json:"question_answer,omitempty"`
+	AnsweredBySessionID *runtimeids.SessionID        `json:"answered_by_session_id,omitempty"`
 }
 
 type QuestionAnswerRecord struct {
@@ -60,15 +63,16 @@ type QuestionAnswerRecord struct {
 }
 
 type toolCompletionRecordV1Wire struct {
-	CallID        string                       `json:"call_id"`
-	Name          string                       `json:"name"`
-	OutputKind    ToolOutputKind               `json:"output_kind"`
-	IsError       *bool                        `json:"is_error"`
-	Output        json.RawMessage              `json:"output"`
-	Summary       *string                      `json:"summary,omitempty"`
-	CondensedText *string                      `json:"condensed_text,omitempty"`
-	Presentation  json.RawMessage              `json:"presentation,omitempty"`
-	ProviderItems []ToolCompletionProviderItem `json:"provider_items,omitempty"`
+	CallID              string                       `json:"call_id"`
+	Name                string                       `json:"name"`
+	OutputKind          ToolOutputKind               `json:"output_kind"`
+	IsError             *bool                        `json:"is_error"`
+	Output              json.RawMessage              `json:"output"`
+	Summary             *string                      `json:"summary,omitempty"`
+	CondensedText       *string                      `json:"condensed_text,omitempty"`
+	Presentation        json.RawMessage              `json:"presentation,omitempty"`
+	ProviderItems       []ToolCompletionProviderItem `json:"provider_items,omitempty"`
+	AnsweredBySessionID *runtimeids.SessionID        `json:"answered_by_session_id,omitempty"`
 }
 
 var ErrToolCompletionProviderItem = errors.New("invalid tool completion provider item")
@@ -117,6 +121,10 @@ func normalizeToolCompletionRecord(record ToolCompletionRecord) (ToolCompletionR
 	}
 	switch record.OutputKind {
 	case ToolOutputKindFunction, ToolOutputKindCustom:
+	case ToolOutputKindProviderItemOnly:
+		if len(record.ProviderItems) != 0 {
+			return ToolCompletionRecord{}, fmt.Errorf("provider-hosted completion cannot contain tool output items")
+		}
 	default:
 		return ToolCompletionRecord{}, fmt.Errorf("unsupported tool output kind %q", record.OutputKind)
 	}
@@ -150,6 +158,16 @@ func normalizeToolCompletionRecord(record ToolCompletionRecord) (ToolCompletionR
 			return ToolCompletionRecord{}, fmt.Errorf("Question answer selected option must be positive")
 		}
 		record.QuestionAnswer = &answer
+	}
+	if record.AnsweredBySessionID != nil {
+		if record.AnsweredBySessionID.IsZero() {
+			return ToolCompletionRecord{}, fmt.Errorf("answered-by Session ID is required")
+		}
+		if record.Name != "ask_question" || record.IsError {
+			return ToolCompletionRecord{}, fmt.Errorf("answered-by Session ID is only valid on a successful Question answer")
+		}
+		answerer := *record.AnsweredBySessionID
+		record.AnsweredBySessionID = &answerer
 	}
 	return record, nil
 }
@@ -328,6 +346,11 @@ func encodeToolCompletionRecordV1(record ToolCompletionRecord) ([]byte, error) {
 			}
 		}
 		buffer.WriteByte(']')
+	}
+	if record.AnsweredBySessionID != nil {
+		if err := writeMarshaledJSONField(&buffer, "answered_by_session_id", record.AnsweredBySessionID, true); err != nil {
+			return nil, err
+		}
 	}
 	buffer.WriteByte('}')
 	return buffer.Bytes(), nil

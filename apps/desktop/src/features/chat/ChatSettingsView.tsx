@@ -1,11 +1,17 @@
-import { Zap } from "lucide-react";
-import { useId, useState } from "react";
+import { useId, useRef, useState } from "react";
+import { LayoutGroup, motion } from "motion/react";
 import { flushSync } from "react-dom";
 import { useTranslation } from "react-i18next";
 
-import { errorMessage, type ChatSettingsMutation } from "@/api";
-import { runViewTransition, useAppServices } from "@/app-facade";
-import { Popover, PopoverContent, SegmentedControl } from "@/ui";
+import { type ChatSettingsMutation } from "@/api";
+import {
+  Button,
+  Dialog,
+  compactDialogWidth,
+  motionDurationFromCSSVar,
+  HoverPopover,
+  SegmentedControl,
+} from "@/ui";
 
 import {
   activateChatSetting,
@@ -20,7 +26,8 @@ import { SettingsRow, SettingsSwitch } from "./ChatSettingsRows";
 import { ChatSettingsAgentRow } from "./ChatSettingsAgentRow";
 import type { ChatSettingsNavigation, ReadyChatSettings } from "./useChatSettings";
 import { ChatSettingsSessionFacts } from "./ChatSettingsSessionFacts";
-import "./chatSettings.css";
+import { ComposerIcon } from "./ComposerIcon";
+import { useAgentChooserLayout } from "./useAgentChooserLayout";
 
 export type ChatSettingsViewProps =
   | Readonly<{ feature: Extract<ReadyChatSettings, { kind: "ready-new-chat" }> }>
@@ -32,9 +39,12 @@ export type ChatSettingsViewProps =
 export function ChatSettingsView(props: ChatSettingsViewProps) {
   const { feature } = props;
   const { t } = useTranslation();
-  const { logger } = useAppServices();
   const [view, setView] = useState<"closed" | "overview" | "agents">("closed");
-  const transitionName = CSS.escape(`chat-settings-agent-${useId()}`);
+  const [agentSelection, setAgentSelection] = useState<string | null>(null);
+  const transitionName = useId();
+  const { overviewRef, scrollRef, selectedRef, maxHeight, overviewOpacity, capture } = useAgentChooserLayout(
+    view === "agents",
+  );
   const settings = settingsPresentation(feature);
   const reason = (
     editability: Parameters<typeof settingsDisabledReason>[1],
@@ -56,28 +66,22 @@ export function ChatSettingsView(props: ChatSettingsViewProps) {
       : feature.settings.agentChoices;
   function showAgents() {
     if (agentReason !== undefined) return;
-    transition(() => {
+    capture();
+    flushSync(() => {
       setView((current) => (current === "closed" ? current : "agents"));
     });
   }
   function selectAgent(role: string) {
     if (agentReason !== undefined) return;
-    transition(() => {
+    if (feature.kind === "ready-session" && role !== settings.selectedAgent.role) {
+      setView("closed");
+      setAgentSelection(role);
+      return;
+    }
+    flushSync(() => {
       activate({ kind: "agent", role });
       setView((current) => (current === "closed" ? current : "overview"));
     });
-  }
-  function transition(update: () => void) {
-    void runViewTransition({
-      scope: "chat-settings",
-      update: () => {
-        flushSync(update);
-      },
-    })
-      .then(async (result) => result.updateCallbackDone)
-      .catch((error: unknown) => {
-        void logger.append("warn", "Chat Settings view transition failed.", { error: errorMessage(error) });
-      });
   }
   const summary = {
     role: settings.selectedAgent.role,
@@ -86,135 +90,210 @@ export function ChatSettingsView(props: ChatSettingsViewProps) {
     fast: settings.fast.kind === "supported" && settings.fast.value,
   };
   return (
-    <Popover
-      open={view !== "closed"}
-      onOpenChange={(open) => {
-        setView(open ? "overview" : "closed");
-      }}
-    >
-      <ChatSettingsChip {...summary} />
-      <PopoverContent
-        align="start"
-        className="w-96 max-w-[var(--radix-popover-content-available-width)] max-h-[var(--radix-popover-content-available-height)] grid-cols-[minmax(0,1fr)] grid-rows-[minmax(0,1fr)] gap-0 overflow-hidden p-[var(--space-1)]"
-      >
-        <div className="min-h-0 min-w-0 overflow-y-auto text-sm">
-          {view === "agents"
-            ? agents.map((agent) => (
+    <>
+      <AgentSwitchDialog
+        feature={feature}
+        agentSelection={agentSelection}
+        close={() => {
+          setAgentSelection(null);
+        }}
+      />
+      <LayoutGroup id={transitionName}>
+        <HoverPopover
+          open={view !== "closed"}
+          onOpenChange={(open) => {
+            setView(open ? "overview" : "closed");
+          }}
+          trigger={(triggerProps) => <ChatSettingsChip {...summary} triggerProps={triggerProps} />}
+          align="start"
+          className="w-96 max-w-[var(--hover-popover-available-width)] max-h-[var(--hover-popover-available-height)] grid-cols-[minmax(0,1fr)] grid-rows-[minmax(0,1fr)] gap-0 overflow-hidden p-[var(--space-1)]"
+        >
+          <motion.div
+            layoutScroll
+            ref={scrollRef}
+            className="relative min-h-0 min-w-0 overflow-y-auto text-sm"
+            style={{ maxHeight }}
+          >
+            {view === "agents" ? (
+              <div>
+                {agents.map((agent) => (
+                  <ChatSettingsAgentRow
+                    agent={agent.role === selectedAgent.role ? selectedAgent : agent}
+                    key={agent.role}
+                    onActivate={() => {
+                      selectAgent(agent.role);
+                    }}
+                    reason={agentReason}
+                    selected={agent.role === selectedAgent.role}
+                    transitionName={transitionName}
+                    contentRef={agent.role === selectedAgent.role ? selectedRef : undefined}
+                  />
+                ))}
+              </div>
+            ) : null}
+            {/* Retain uncommitted input when returning through the already-selected Agent. */}
+            <div ref={overviewRef} hidden={view === "agents"}>
+              {view !== "agents" ? (
                 <ChatSettingsAgentRow
-                  agent={agent.role === selectedAgent.role ? selectedAgent : agent}
-                  key={agent.role}
-                  onActivate={() => {
-                    selectAgent(agent.role);
-                  }}
+                  agent={selectedAgent}
+                  onActivate={showAgents}
                   reason={agentReason}
-                  selected={agent.role === selectedAgent.role}
+                  selected
+                  contentRef={selectedRef}
                   transitionName={transitionName}
                 />
-              ))
-            : null}
-          {/* Retain uncommitted input when returning through the already-selected Agent. */}
-          <div hidden={view === "agents"}>
-            <ChatSettingsAgentRow
-              agent={selectedAgent}
-              onActivate={showAgents}
-              reason={agentReason}
-              selected
-              transitionName={transitionName}
-            />
-            <SettingsRow
-              onActivate={() => {
-                activate({
-                  kind: "supervisor",
-                  value:
-                    supervisor.value === "off"
-                      ? supervisor.baseline === "off"
-                        ? "edits"
-                        : supervisor.baseline
-                      : "off",
-                });
-              }}
-              reason={reason(supervisor.editability)}
-            >
-              <span className="min-w-0 flex-1 truncate">{t("chatSettings.supervisor")}</span>
-              <div
-                onClick={(event) => {
-                  event.stopPropagation();
-                }}
+              ) : null}
+              <motion.div
+                animate={{ opacity: overviewOpacity }}
+                transition={{ duration: motionDurationFromCSSVar("--motion-fast", 140) / 1000 }}
               >
-                <SegmentedControl
-                  size="compact"
-                  ariaLabel={t("chatSettings.supervisor")}
-                  disabled={reason(supervisor.editability) !== undefined}
-                  onValueActivate={(value) => {
-                    if (value === supervisor.value) activate({ kind: "supervisor", value });
-                  }}
-                  onValueChange={(value) => {
-                    activate({ kind: "supervisor", value });
-                  }}
-                  options={[
-                    { value: "all", label: t("chatSettings.supervisorAlways") },
-                    { value: "edits", label: t("chatSettings.supervisorEdits") },
-                    { value: "off", label: t("chatSettings.supervisorOff") },
-                  ]}
-                  value={supervisor.value}
-                />
-              </div>
-            </SettingsRow>
-            {settings.thinking.kind === "enumerated" ? (
-              <SettingsRow reason={reason(settings.thinking.editability)}>
-                <div className="min-w-0 flex-1">
-                  <ThinkingSelector
-                    onCommit={(value) => {
-                      activate({ kind: "thinking", value });
+                {settings.fast.kind === "supported" ? (
+                  <SettingsSwitch
+                    checked={settings.fast.value}
+                    trailingIcon={<ComposerIcon kind="fast" />}
+                    label={t("chatSettings.fast")}
+                    onChange={(enabled) => {
+                      activate({ kind: "fast", enabled });
                     }}
+                    reason={reason(settings.fast.editability)}
+                  />
+                ) : null}
+                <SettingsSwitch
+                  checked={settings.questions.enabled}
+                  label={t("chatSettings.questions")}
+                  onChange={(enabled) => {
+                    activate({ kind: "questions", enabled });
+                  }}
+                  reason={reason(settings.questions.editability)}
+                />
+                <ChatAutoCompactionSwitch feature={feature} />
+                <SettingsRow
+                  onActivate={() => {
+                    activate({
+                      kind: "supervisor",
+                      value:
+                        supervisor.value === "off"
+                          ? supervisor.baseline === "off"
+                            ? "edits"
+                            : supervisor.baseline
+                          : "off",
+                    });
+                  }}
+                  reason={reason(supervisor.editability)}
+                >
+                  <span className="min-w-0 flex-1 truncate">{t("chatSettings.supervisor")}</span>
+                  <div
+                    onClick={(event) => {
+                      event.stopPropagation();
+                    }}
+                  >
+                    <SegmentedControl
+                      size="compact"
+                      ariaLabel={t("chatSettings.supervisor")}
+                      disabled={reason(supervisor.editability) !== undefined}
+                      onValueActivate={(value) => {
+                        if (value === supervisor.value) activate({ kind: "supervisor", value });
+                      }}
+                      onValueChange={(value) => {
+                        activate({ kind: "supervisor", value });
+                      }}
+                      options={[
+                        { value: "all", label: t("chatSettings.supervisorAlways") },
+                        { value: "edits", label: t("chatSettings.supervisorEdits") },
+                        { value: "off", label: t("chatSettings.supervisorOff") },
+                      ]}
+                      value={supervisor.value}
+                    />
+                  </div>
+                </SettingsRow>
+                {settings.thinking.kind === "enumerated" && settings.thinking.values.length > 1 ? (
+                  <SettingsRow reason={reason(settings.thinking.editability)}>
+                    <div className="min-w-0 flex-1">
+                      <ThinkingSelector
+                        onCommit={(value) => {
+                          activate({ kind: "thinking", value });
+                        }}
+                        thinking={settings.thinking}
+                      />
+                    </div>
+                  </SettingsRow>
+                ) : null}
+                {settings.thinking.kind === "custom" ? (
+                  <CustomThinkingEditor
+                    reason={reason(settings.thinking.editability)}
+                    feature={feature}
+                    key={settings.selectedAgent.role}
                     thinking={settings.thinking}
                   />
-                </div>
-              </SettingsRow>
-            ) : null}
-            {settings.thinking.kind === "custom" ? (
-              <CustomThinkingEditor
-                reason={reason(settings.thinking.editability)}
-                feature={feature}
-                key={settings.selectedAgent.role}
-                thinking={settings.thinking}
-              />
-            ) : null}
-            {settings.fast.kind === "supported" ? (
-              <SettingsSwitch
-                checked={settings.fast.value}
-                icon={<Zap className="shrink-0 text-[var(--color-secondary)]" size={14} />}
-                label={t("chatSettings.fast")}
-                onChange={(enabled) => {
-                  activate({ kind: "fast", enabled });
-                }}
-                reason={reason(settings.fast.editability)}
-              />
-            ) : null}
-            <SettingsSwitch
-              checked={settings.questions.enabled}
-              label={t("chatSettings.questions")}
-              onChange={(enabled) => {
-                activate({ kind: "questions", enabled });
-              }}
-              reason={reason(settings.questions.editability)}
-            />
-            <ChatAutoCompactionSwitch feature={feature} />
-            {"navigation" in props ? (
-              <ChatSettingsSessionFacts
-                facts={props.feature.session}
-                navigation={props.navigation}
-                closeAndNavigate={(action) => {
-                  flushSync(() => {
-                    setView("closed");
-                  });
-                  action();
-                }}
-              />
-            ) : null}
-          </div>
+                ) : null}
+                {"navigation" in props ? (
+                  <ChatSettingsSessionFacts
+                    facts={props.feature.session}
+                    navigation={props.navigation}
+                    closeAndNavigate={(action) => {
+                      flushSync(() => {
+                        setView("closed");
+                      });
+                      action();
+                    }}
+                  />
+                ) : null}
+              </motion.div>
+            </div>
+          </motion.div>
+        </HoverPopover>
+      </LayoutGroup>
+    </>
+  );
+}
+
+function AgentSwitchDialog({
+  feature,
+  agentSelection,
+  close,
+}: Readonly<{
+  feature: ReadyChatSettings;
+  agentSelection: string | null;
+  close(): void;
+}>) {
+  const { t } = useTranslation();
+  const cancelRef = useRef<HTMLButtonElement>(null);
+  if (feature.kind !== "ready-session") return null;
+  return (
+    <Dialog
+      open={agentSelection !== null}
+      title={t("chatSettings.switchAgent")}
+      closeLabel={t("app.close")}
+      onClose={close}
+      closeDisabled={feature.agentPending}
+      width={compactDialogWidth}
+      initialFocusRef={cancelRef}
+    >
+      <div className="grid gap-[var(--space-3)]">
+        <p>{t("chatSettings.switchAgentWarning")}</p>
+        <div className="flex justify-end gap-[var(--space-2)]">
+          <Button
+            loading={feature.agentPending}
+            disabled={feature.agentPending}
+            onClick={() => {
+              if (agentSelection === null) return;
+              void feature
+                .activate({ kind: "agent", role: agentSelection })
+                .then((result) => {
+                  if (result.result.kind === "applied") close();
+                })
+                .catch(() => {
+                  /* Mutation owner presents failure and retains this choice. */
+                });
+            }}
+          >
+            {t("chatSettings.confirmSwitch")}
+          </Button>
+          <Button ref={cancelRef} variant="primary" disabled={feature.agentPending} onClick={close}>
+            {t("chatSettings.cancelSwitch")}
+          </Button>
         </div>
-      </PopoverContent>
-    </Popover>
+      </div>
+    </Dialog>
   );
 }

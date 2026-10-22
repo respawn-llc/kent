@@ -24,7 +24,7 @@ const (
 	recoveredDirName    = "recovered"
 	generatedSkillsDir  = "skills"
 	markerFileName      = brand.GeneratedMarkerName
-	markerSchemaVersion = 1
+	markerSchemaVersion = 2
 	generatedRootPerm   = fs.FileMode(0o700)
 	generatedDirPerm    = fs.FileMode(0o755)
 	generatedFilePerm   = fs.FileMode(0o644)
@@ -384,6 +384,15 @@ func sortedTree(entries []treeEntry) []treeEntry {
 	return out
 }
 
+func isGeneratedOSMetadata(name string) (bool, error) {
+	switch name {
+	case ".DS_Store", "Thumbs.db", "desktop.ini":
+		return true, nil
+	default:
+		return filepath.Match("._*", name)
+	}
+}
+
 func hashActualTree(root string) (string, error) {
 	items := make([]actualTreeItem, 0)
 	err := filepath.WalkDir(root, func(path string, entry fs.DirEntry, err error) error {
@@ -399,7 +408,7 @@ func hashActualTree(root string) (string, error) {
 			if !mode.IsDir() {
 				return fmt.Errorf("generated root has unsupported mode %s", mode)
 			}
-			items = append(items, actualTreeItem{Path: ".", Kind: treeEntryDir, Perm: mode.Perm()})
+			items = append(items, actualTreeItem{Path: ".", Kind: treeEntryDir})
 			return nil
 		}
 		rel, err := filepath.Rel(root, path)
@@ -416,13 +425,19 @@ func hashActualTree(root string) (string, error) {
 		}
 		mode := info.Mode()
 		if mode.IsDir() {
-			items = append(items, actualTreeItem{Path: rel, Kind: treeEntryDir, Perm: mode.Perm()})
+			items = append(items, actualTreeItem{Path: rel, Kind: treeEntryDir})
 			return nil
 		}
 		if !mode.IsRegular() {
 			return fmt.Errorf("generated entry %s has unsupported mode %s", rel, mode)
 		}
-		items = append(items, actualTreeItem{Path: rel, Kind: treeEntryFile, Perm: mode.Perm(), FilePath: path})
+		ignore, err := isGeneratedOSMetadata(filepath.Base(path))
+		if err != nil {
+			return fmt.Errorf("match generated OS metadata name %q: %w", filepath.Base(path), err)
+		}
+		if !ignore {
+			items = append(items, actualTreeItem{Path: rel, Kind: treeEntryFile, FilePath: path})
+		}
 		return nil
 	})
 	if err != nil {
@@ -434,7 +449,6 @@ func hashActualTree(root string) (string, error) {
 type actualTreeItem struct {
 	Path     string
 	Kind     treeEntryKind
-	Perm     fs.FileMode
 	FilePath string
 }
 
@@ -453,8 +467,6 @@ func hashActualTreeItems(items []actualTreeItem) (string, error) {
 		h.Write([]byte{0})
 		h.Write([]byte(item.Kind))
 		h.Write([]byte{0})
-		h.Write([]byte(item.Perm.String()))
-		h.Write([]byte{0})
 		if item.Kind == treeEntryFile {
 			file, err := os.Open(item.FilePath)
 			if err != nil {
@@ -472,6 +484,39 @@ func hashActualTreeItems(items []actualTreeItem) (string, error) {
 		h.Write([]byte{0})
 	}
 	return treeHashPrefix + hex.EncodeToString(h.Sum(nil)), nil
+}
+
+func prepareGeneratedTreeForRemoval(root string) error {
+	info, err := os.Lstat(root)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return nil
+		}
+		return err
+	}
+	if !info.IsDir() {
+		return nil
+	}
+	// Add owner access before descending so permission-only changes cannot block reseeding.
+	return filepath.WalkDir(root, func(path string, entry fs.DirEntry, err error) error {
+		if err != nil {
+			return err
+		}
+		if !entry.IsDir() {
+			return nil
+		}
+		info, err := os.Lstat(path)
+		if err != nil {
+			return err
+		}
+		if !info.IsDir() {
+			return nil
+		}
+		if err := os.Chmod(path, info.Mode().Perm()|0o700); err != nil {
+			return fmt.Errorf("make generated directory removable %s: %w", path, err)
+		}
+		return nil
+	})
 }
 
 func writeExpectedTree(root string, entries []treeEntry) error {
@@ -517,6 +562,9 @@ func writeExpectedTree(root string, entries []treeEntry) error {
 	markerData = append(markerData, '\n')
 	if err := os.WriteFile(filepath.Join(tempRoot, markerFileName), markerData, 0o644); err != nil {
 		return fmt.Errorf("write generated marker: %w", err)
+	}
+	if err := prepareGeneratedTreeForRemoval(root); err != nil {
+		return fmt.Errorf("prepare generated tree for replacement: %w", err)
 	}
 	if err := os.RemoveAll(root); err != nil {
 		return fmt.Errorf("replace generated root: remove old: %w", err)

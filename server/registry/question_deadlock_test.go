@@ -20,6 +20,7 @@ import (
 	"core/shared/clientui"
 	"core/shared/config"
 	runtimepb "core/shared/protoapi/gen/kent/api/runtime"
+	sharedpb "core/shared/protoapi/gen/kent/api/shared"
 	transcriptpb "core/shared/protoapi/gen/kent/api/transcript"
 	worktreepb "core/shared/protoapi/gen/kent/api/worktree"
 	"core/shared/runtimeids"
@@ -123,7 +124,7 @@ func exerciseQuestionResolution(t *testing.T, answer, delayedSupervisor bool) {
 		t.Fatal(err)
 	}
 	settings := config.DefaultOnboardingSettings()
-	settings.Model = "gpt-5"
+	settings.Model = "gpt-6-sol"
 	settings.ModelContextWindow = 200000
 	settings.Reviewer.Frequency = "off"
 	settings = testsetup.WriteProviderSettings(t, root, settings)
@@ -168,10 +169,12 @@ func exerciseQuestionResolution(t *testing.T, answer, delayedSupervisor bool) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	registry := NewRuntimeRegistry().WithExecutionTargetResolver(persistence.ResolveOptionalSessionExecutionTarget)
+	registry := NewRuntimeRegistry(nil).WithExecutionTargetResolver(persistence.ResolveOptionalSessionExecutionTarget)
 	authority := sessionruntime.NewAuthority(sessionruntime.AuthorityOptions{
-		PersistenceRoot: root, StoreOptions: persistence.AuthoritativeSessionStoreOptions(),
-		ResourceLifecycle: registry, PromptFeed: registry,
+		PersistenceRoot:               root,
+		StoreOptions:                  persistence.AuthoritativeSessionStoreOptions(),
+		ProjectWorkspaceContextReader: persistence,
+		ResourceLifecycle:             registry, PromptFeed: registry,
 		StepLifecycle: questionDeadlockStepLifecycle{registry: registry},
 		EventFeed: func(ref runtimeids.SessionResourceRef, event runtime.Event) {
 			if event.LocalEntry != nil && event.LocalEntry.ReviewerError != nil {
@@ -187,13 +190,13 @@ func exerciseQuestionResolution(t *testing.T, answer, delayedSupervisor bool) {
 			t.Errorf("close authority: %v", err)
 		}
 	})
-	attachment, err := authority.OpenRuntime(t.Context(), sessionruntime.RuntimeOpenRequest{
-		SessionID: id, OwnerID: "original-client", Runtime: &plan,
+	_, err = authority.OpenRuntime(t.Context(), sessionruntime.RuntimeOpenRequest{
+		SessionID: id, Runtime: &plan,
 	})
 	if err != nil {
 		t.Fatal(err)
 	}
-	subscription, err := registry.SubscribeSessionTranscript(t.Context(), &transcriptpb.SubscribeRequest{SessionId: id.String()})
+	subscription, err := registry.SubscribeSessionTranscript(t.Context(), &transcriptpb.SubscribeRequest{SessionId: &sharedpb.SessionSelector{Value: &sharedpb.SessionSelector_SessionId{SessionId: id.String()}}})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -263,15 +266,12 @@ func exerciseQuestionResolution(t *testing.T, answer, delayedSupervisor bool) {
 		if err := subscription.Close(); err != nil {
 			t.Fatal(err)
 		}
-		if _, err := attachment.Release(t.Context(), sessionruntime.RuntimeReleaseDetach); err != nil {
-			t.Fatal(err)
-		}
 		if _, err := authority.OpenRuntime(t.Context(), sessionruntime.RuntimeOpenRequest{
-			SessionID: id, OwnerID: "reopened-client", Runtime: &plan,
+			SessionID: id, Runtime: &plan,
 		}); err != nil {
 			t.Fatal(err)
 		}
-		reopenedSubscription, err := registry.SubscribeSessionTranscript(t.Context(), &transcriptpb.SubscribeRequest{SessionId: id.String()})
+		reopenedSubscription, err := registry.SubscribeSessionTranscript(t.Context(), &transcriptpb.SubscribeRequest{SessionId: &sharedpb.SessionSelector{Value: &sharedpb.SessionSelector_SessionId{SessionId: id.String()}}})
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -311,7 +311,7 @@ func exerciseQuestionResolution(t *testing.T, answer, delayedSupervisor bool) {
 		reopened := make(chan error, 1)
 		go func() {
 			close(reopenStarted)
-			sub, err := registry.SubscribeSessionTranscript(t.Context(), &transcriptpb.SubscribeRequest{SessionId: id.String()})
+			sub, err := registry.SubscribeSessionTranscript(t.Context(), &transcriptpb.SubscribeRequest{SessionId: &sharedpb.SessionSelector{Value: &sharedpb.SessionSelector_SessionId{SessionId: id.String()}}})
 			if err == nil {
 				_, err = sub.Next(t.Context())
 				err = errors.Join(err, sub.Close())

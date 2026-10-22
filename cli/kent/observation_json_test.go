@@ -13,8 +13,10 @@ import (
 	"core/shared/clientui"
 	promptpb "core/shared/protoapi/gen/kent/api/prompt"
 	runtimepb "core/shared/protoapi/gen/kent/api/runtime"
+	taskpb "core/shared/protoapi/gen/kent/api/workflow_task"
 	"core/shared/runtimeids"
 	"core/shared/serverapi"
+	"core/shared/textutil"
 	"google.golang.org/protobuf/types/known/durationpb"
 )
 
@@ -59,8 +61,7 @@ func TestTaskObservationJSONUsageWritesExactlyOneObjectAndNoStderr(t *testing.T)
 	if code := taskObservationSubcommand(
 		[]string{"--json", "--unknown", "task-aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa"},
 		&stdout,
-		&stderr,
-		serverapi.WorkflowTaskObservationWait,
+		&stderr, taskpb.ObservationMode_OBSERVATION_MODE_WAIT,
 	); code != 2 || stderr.Len() != 0 {
 		t.Fatalf("exit=%d stdout=%q stderr=%q", code, stdout.String(), stderr.String())
 	}
@@ -96,8 +97,10 @@ func TestTaskObservationHelpReturnsSuccessWithoutJSONEnvelope(t *testing.T) {
 func TestProjectRunWatchJSONQuestionUsesAnswerTargetAndOrderedSuggestions(t *testing.T) {
 	recommended := 2
 	responseSessionID := runtimeids.NewSessionID()
+	shortID := int64(123)
 	response := &promptpb.LiveWatchSuccess{
 		SessionId: responseSessionID.String(),
+		ShortId:   &shortID,
 		Outcome: &promptpb.LiveWatchOutcome{
 			Outcome: &promptpb.LiveWatchOutcome_Question{
 				Question: mustCLIObservationQuestion(t, serverapi.ObservationQuestion{Ask: &clientui.PendingAsk{
@@ -107,7 +110,7 @@ func TestProjectRunWatchJSONQuestionUsesAnswerTargetAndOrderedSuggestions(t *tes
 			},
 		},
 	}
-	envelope, code, err := projectRunWatchJSON("requested-session", response)
+	envelope, code, err := projectRunWatchJSON(response)
 	if err != nil || code != 0 {
 		t.Fatalf("projection = %#v, code=%d, err=%v", envelope, code, err)
 	}
@@ -120,11 +123,11 @@ func TestProjectRunWatchJSONQuestionUsesAnswerTargetAndOrderedSuggestions(t *tes
 		t.Fatal(err)
 	}
 	target := decoded["target"].(map[string]any)
-	if target["session_id"] != "requested-session" {
+	if target["session_id"] != responseSessionID.String() {
 		t.Fatalf("target = %#v", target)
 	}
 	outcome := decoded["outcomes"].([]any)[0].(map[string]any)
-	if outcome["answer_target"].(map[string]any)["session_id"] != "requested-session" {
+	if outcome["answer_target"].(map[string]any)["session_id"] != responseSessionID.String() {
 		t.Fatalf("answer_target = %#v", outcome["answer_target"])
 	}
 	if _, present := outcome["session_id"]; present {
@@ -136,16 +139,18 @@ func TestProjectTaskObservationJSONPreservesQuestionNodeAndKeepsDoneEmpty(t *tes
 	typedSessionID := runtimeids.NewSessionID()
 	sessionID := typedSessionID.String()
 	nodeKey := "build"
-	envelope, _, err := projectTaskObservationJSON("task-id", serverapi.WorkflowTaskObservationResponse{
-		TaskID: "response-task", TaskShortID: "T-1",
-		Outcomes: []serverapi.WorkflowTaskObservationOutcome{
-			{Kind: serverapi.WorkflowTaskObservationDone, SessionID: &sessionID, NodeKey: &nodeKey},
-			{Kind: serverapi.WorkflowTaskObservationQuestion, SessionID: &sessionID, NodeKey: &nodeKey,
-				Question: &serverapi.ObservationQuestion{Approval: &clientui.PendingApproval{
+	envelope, _, err := projectTaskObservationJSON("task-id", &taskpb.ObserveSuccess{
+		TaskId: "response-task", TaskShortId: "T-1",
+		Outcomes: []*taskpb.ObserveOutcome{
+			{Outcome: &taskpb.ObserveOutcome_Done{Done: &taskpb.ObserveDone{SessionId: &sessionID, NodeKey: &nodeKey}}},
+			{Outcome: &taskpb.ObserveOutcome_Question{Question: &taskpb.ObserveQuestion{SessionId: &sessionID, NodeKey: &nodeKey,
+				Question: observationQuestionForTest(t, serverapi.ObservationQuestion{Approval: &clientui.PendingApproval{
 					ToolCallID: "ask", SessionID: typedSessionID, StepID: questionCommandStepID(),
 					Options:       []clientui.ApprovalOption{{Decision: clientui.ApprovalDecisionAllowOnce}},
 					AccessTargets: []clientui.FileAccessTarget{{RequestedPath: "/alias/file", ResolvedPath: "/real/file"}},
-				}}},
+					CreatedAt:     time.UnixMilli(1),
+				}}),
+			}}},
 		},
 	})
 	if err != nil {
@@ -181,7 +186,7 @@ func TestProjectTaskObservationJSONPreservesQuestionNodeAndKeepsDoneEmpty(t *tes
 }
 
 func TestProjectObservationJSONStatusPrecedenceAndNoFinalProjection(t *testing.T) {
-	noFinal, code, err := projectRunWatchJSON("session", &promptpb.LiveWatchSuccess{SessionId: "session", Outcome: &promptpb.LiveWatchOutcome{Outcome: &promptpb.LiveWatchOutcome_NoFinalResult{NoFinalResult: &promptpb.LiveWatchFailure{Reason: "no final"}}}})
+	noFinal, code, err := projectRunWatchJSON(&promptpb.LiveWatchSuccess{SessionId: "550e8400-e29b-41d4-a716-446655440000", Outcome: &promptpb.LiveWatchOutcome{Outcome: &promptpb.LiveWatchOutcome_NoFinalResult{NoFinalResult: &promptpb.LiveWatchFailure{Reason: "no final"}}}})
 	rawNoFinal, marshalErr := json.Marshal(noFinal)
 	if err != nil || marshalErr != nil || code != 0 || noFinal.Status != "success" {
 		t.Fatalf("no-final projection = %#v, code=%d, err=%v", noFinal, code, err)
@@ -190,12 +195,12 @@ func TestProjectObservationJSONStatusPrecedenceAndNoFinalProjection(t *testing.T
 	if err := json.Unmarshal(rawNoFinal, &noFinalJSON); err != nil || noFinalJSON["status"] != "success" {
 		t.Fatalf("no-final JSON = %s, err=%v", rawNoFinal, err)
 	}
-	task, code, err := projectTaskObservationJSON("task-id", serverapi.WorkflowTaskObservationResponse{
-		TaskID:      "response-task",
-		TaskShortID: "T-1",
-		Outcomes: []serverapi.WorkflowTaskObservationOutcome{
-			{Kind: serverapi.WorkflowTaskObservationInterrupted, Failure: &serverapi.RuntimeLiveWatchFailure{Reason: "stopped"}},
-			{Kind: serverapi.WorkflowTaskObservationExecutionError, Failure: &serverapi.RuntimeLiveWatchFailure{Reason: "failed"}},
+	task, code, err := projectTaskObservationJSON("task-id", &taskpb.ObserveSuccess{
+		TaskId:      "response-task",
+		TaskShortId: "T-1",
+		Outcomes: []*taskpb.ObserveOutcome{
+			{Outcome: &taskpb.ObserveOutcome_Interrupted{Interrupted: &taskpb.ObserveFailure{Failure: &promptpb.LiveWatchFailure{Reason: "stopped"}}}},
+			{Outcome: &taskpb.ObserveOutcome_ExecutionError{ExecutionError: &taskpb.ObserveFailure{Failure: &promptpb.LiveWatchFailure{Reason: "failed"}}}},
 		},
 	})
 	if err != nil || code != 1 || task.Status != "error" {
@@ -205,14 +210,15 @@ func TestProjectObservationJSONStatusPrecedenceAndNoFinalProjection(t *testing.T
 
 func TestRunFinalJSONPreservesSessionNameAndDuration(t *testing.T) {
 	resultText := "done"
-	envelope, code, err := projectRunWatchJSON("session", &promptpb.LiveWatchSuccess{
+	envelope, code, err := projectRunWatchJSON(&promptpb.LiveWatchSuccess{
 		SessionId: "session",
 		Outcome: &promptpb.LiveWatchOutcome{
 			Outcome: &promptpb.LiveWatchOutcome_FinalAnswer{FinalAnswer: &promptpb.LiveWatchFinal{
-				Result: &resultText, SessionName: "live", Duration: durationpb.New(2500 * time.Millisecond),
+				Result: &resultText, SessionName: textutil.Value("live"), Duration: durationpb.New(2500 * time.Millisecond),
 			}},
 		},
 	})
+
 	if err != nil || code != 0 {
 		t.Fatalf("projection = %#v, code=%d, err=%v", envelope, code, err)
 	}
@@ -228,9 +234,11 @@ func TestRunFinalJSONPreservesSessionNameAndDuration(t *testing.T) {
 	if outcome["session_name"] != "live" || outcome["duration_ms"] != float64(2500) {
 		t.Fatalf("final outcome = %#v", outcome)
 	}
-	wait, code := projectRunWaitJSON("session", &runtimepb.LiveWaitSuccess{
+	waitID := runtimeids.NewSessionID()
+	wait, code := projectRunWaitJSON("123", &runtimepb.LiveWaitSuccess{
+		SessionId:   waitID.String(),
 		Result:      &runtimepb.LiveWaitSuccess_AssistantFinalAnswer{AssistantFinalAnswer: &runtimepb.LiveWaitAssistantFinalAnswer{Result: "done"}},
-		SessionName: "waited", Duration: durationpb.New(1500 * time.Millisecond),
+		SessionName: textutil.Value("waited"), Duration: durationpb.New(1500 * time.Millisecond),
 	}, nil, context.Background())
 	if code != 0 {
 		t.Fatalf("wait projection code = %d", code)
@@ -242,6 +250,9 @@ func TestRunFinalJSONPreservesSessionNameAndDuration(t *testing.T) {
 	if err := json.Unmarshal(raw, &generic); err != nil {
 		t.Fatal(err)
 	}
+	if generic["target"].(map[string]any)["session_id"] != waitID.String() {
+		t.Fatalf("wait target = %v", generic["target"])
+	}
 	outcome = generic["outcomes"].([]any)[0].(map[string]any)
 	if outcome["session_name"] != "waited" || outcome["duration_ms"] != float64(1500) {
 		t.Fatalf("wait final outcome = %#v", outcome)
@@ -250,13 +261,12 @@ func TestRunFinalJSONPreservesSessionNameAndDuration(t *testing.T) {
 
 func TestTaskFailureJSONPreservesTypedDiscriminatorMetadata(t *testing.T) {
 	sessionID, scriptPath, nodeKey := "session", "script.sh", "build"
-	envelope, _, err := projectTaskObservationJSON("task", serverapi.WorkflowTaskObservationResponse{
-		TaskID: "task", TaskShortID: "T-1",
-		Outcomes: []serverapi.WorkflowTaskObservationOutcome{{
-			Kind:      serverapi.WorkflowTaskObservationExecutionError,
-			SessionID: &sessionID, ScriptPath: &scriptPath, NodeKey: &nodeKey,
-			Failure: &serverapi.RuntimeLiveWatchFailure{Reason: "failed"},
-		}},
+	envelope, _, err := projectTaskObservationJSON("task", &taskpb.ObserveSuccess{
+		TaskId: "task", TaskShortId: "T-1",
+		Outcomes: []*taskpb.ObserveOutcome{{Outcome: &taskpb.ObserveOutcome_ExecutionError{ExecutionError: &taskpb.ObserveFailure{
+			SessionId: &sessionID, ScriptPath: &scriptPath, NodeKey: &nodeKey,
+			Failure: &promptpb.LiveWatchFailure{Reason: "failed"},
+		}}}},
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -278,14 +288,9 @@ func TestTaskFailureJSONPreservesTypedDiscriminatorMetadata(t *testing.T) {
 }
 
 func TestMalformedObservationProjectionReturnsError(t *testing.T) {
-	if _, _, err := projectRunWatchJSON("session", &promptpb.LiveWatchSuccess{SessionId: "session", Outcome: &promptpb.LiveWatchOutcome{Outcome: &promptpb.LiveWatchOutcome_Question{Question: nil}}}); err == nil {
-		t.Fatal("Run malformed question unexpectedly projected successfully")
-	}
-	if _, _, err := projectTaskObservationJSON("task", serverapi.WorkflowTaskObservationResponse{
-		TaskID: "task", TaskShortID: "T-1",
-		Outcomes: []serverapi.WorkflowTaskObservationOutcome{{
-			Kind: serverapi.WorkflowTaskObservationExecutionError,
-		}},
+	if _, _, err := projectTaskObservationJSON("task", &taskpb.ObserveSuccess{
+		TaskId: "task", TaskShortId: "T-1",
+		Outcomes: []*taskpb.ObserveOutcome{{Outcome: &taskpb.ObserveOutcome_ExecutionError{ExecutionError: &taskpb.ObserveFailure{}}}},
 	}); err == nil {
 		t.Fatal("Task malformed failure unexpectedly projected successfully")
 	}
@@ -313,6 +318,42 @@ func TestRunWaitJSONSeparatesFinalAndCleanupWarnings(t *testing.T) {
 	if len(envelope.Outcomes) != 1 || len(envelope.Outcomes[0].Warnings) != 0 ||
 		len(envelope.Warnings) != 1 || envelope.Warnings[0] != "close warning" {
 		t.Fatalf("envelope = %#v", envelope)
+	}
+}
+
+func TestRunWaitJSONOmitsUnresolvedNumericIdentity(t *testing.T) {
+	envelope, code := projectRunWaitJSON("123", nil, serverapi.WithSessionTarget(serverapi.UnresolvedSessionTarget{}, serverapi.ErrRuntimeUnavailable), context.Background())
+	if code != 1 {
+		t.Fatalf("missing Session exit = %d", code)
+	}
+	raw, err := json.Marshal(envelope)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var decoded map[string]any
+	if err := json.Unmarshal(raw, &decoded); err != nil {
+		t.Fatal(err)
+	}
+	if target, present := decoded["target"]; present {
+		if _, present := target.(map[string]any)["session_id"]; present {
+			t.Fatalf("unresolved number acquired a UUID: %s", raw)
+		}
+	}
+}
+
+func TestRunWaitJSONRetainsResolvedNumericIdentity(t *testing.T) {
+	id := runtimeids.NewSessionID()
+	short, err := runtimeids.NewSessionShortID(123)
+	if err != nil {
+		t.Fatal(err)
+	}
+	envelope, code := projectRunWaitJSON("00123", nil, &serverapi.SessionTargetError{
+		Target: serverapi.ProjectedSessionTarget{Identity: runtimeids.SessionIdentity{ID: id, ShortID: &short}},
+		Cause:  serverapi.ErrRuntimeNoActiveRun,
+	}, context.Background())
+	target, ok := envelope.Target.(observationJSONRunTarget)
+	if code != 1 || !ok || target.SessionID == nil || *target.SessionID != id.String() {
+		t.Fatalf("known target = %v, exit %d", envelope, code)
 	}
 }
 
@@ -371,16 +412,17 @@ func TestObservationErrorCancellationPrecedence(t *testing.T) {
 }
 
 func TestRunWaitHardCutoverAndHeadlessEscape(t *testing.T) {
+	sessionID := runtimeids.NewSessionID().String()
 	previousWait, previousPrompt := runLiveWaitApp, runPromptApp
 	defer func() { runLiveWaitApp, runPromptApp = previousWait, previousPrompt }()
 	waitCalls, promptCalls := 0, 0
-	runLiveWaitApp = func(context.Context, app.Options, runtimeids.SessionID) (*runtimepb.LiveWaitSuccess, error) {
+	runLiveWaitApp = func(context.Context, app.Options, runtimeids.SessionSelector) (*runtimepb.LiveWaitSuccess, error) {
 		waitCalls++
-		return &runtimepb.LiveWaitSuccess{}, nil
+		return &runtimepb.LiveWaitSuccess{SessionId: sessionID}, nil
 	}
 	runPromptApp = func(context.Context, app.Options, string, time.Duration, serverapi.RunPromptProgressSink) (app.RunPromptResult, error) {
 		promptCalls++
-		return app.RunPromptResult{}, nil
+		return app.RunPromptResult{Outcome: app.RunPromptFinalAnswer{Text: "done"}}, nil
 	}
 	if code := runSubcommand([]string{"wait", "ordinary", "text"}); code != 2 {
 		t.Fatalf("wait text exit = %d", code)
@@ -388,7 +430,6 @@ func TestRunWaitHardCutoverAndHeadlessEscape(t *testing.T) {
 	if waitCalls != 0 || promptCalls != 0 {
 		t.Fatalf("calls after malformed Wait = wait:%d prompt:%d", waitCalls, promptCalls)
 	}
-	sessionID := runtimeids.NewSessionID().String()
 	if code := runSubcommand([]string{"wait", sessionID}); code != 0 {
 		t.Fatalf("wait command exit = %d", code)
 	}
@@ -407,7 +448,7 @@ func TestRunWaitCanonicalValidationPrecedesRemote(t *testing.T) {
 	previous := runLiveWaitApp
 	defer func() { runLiveWaitApp = previous }()
 	calls := 0
-	runLiveWaitApp = func(context.Context, app.Options, runtimeids.SessionID) (*runtimepb.LiveWaitSuccess, error) {
+	runLiveWaitApp = func(context.Context, app.Options, runtimeids.SessionSelector) (*runtimepb.LiveWaitSuccess, error) {
 		calls++
 		return &runtimepb.LiveWaitSuccess{}, nil
 	}

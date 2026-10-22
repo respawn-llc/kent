@@ -33,7 +33,7 @@ type runtimeControlFakeClient struct {
 	mainView              *runtimepb.MainView
 	cachedMainView        *runtimepb.MainView
 	hasCachedMainView     bool
-	setSessionNameArg     string
+	setSessionNameArg     *runtimepb.SessionNameMutation
 	goal                  *runtimepb.GoalView
 	showGoalCalls         int
 	setGoalArg            string
@@ -59,25 +59,9 @@ type runtimeControlFakeClient struct {
 	err                   error
 	appendErr             error
 	submitErr             error
+	submitDiagnostic      error
 	interruptErr          error
 	collaborative         bool
-}
-
-func TestUserTurnSubmissionFromResponsePreservesMessagePresence(t *testing.T) {
-	t.Parallel()
-	blank := ""
-	withBlank := userTurnSubmissionFromResponse(&runtimepb.SubmitUserTurnSuccess{Result: &runtimepb.SubmitUserTurnSuccess_SilentFinal{SilentFinal: &runtimepb.SubmitUserTurnSilentFinal{Message: blank}}}, "turn")
-	if withBlank.Message == nil || *withBlank.Message != "" {
-		t.Fatalf("blank submission message = %v, want present empty message", withBlank.Message)
-	}
-	if withBlank.ResultKind != clientui.UserTurnResultKindSilentFinal {
-		t.Fatalf("blank submission result kind = %v, want silent final", withBlank.ResultKind)
-	}
-
-	withoutMessage := userTurnSubmissionFromResponse(&runtimepb.SubmitUserTurnSuccess{Result: &runtimepb.SubmitUserTurnSuccess_NoFinal{NoFinal: &runtimepb.SubmitUserTurnNoFinal{}}}, "turn")
-	if withoutMessage.Message != nil {
-		t.Fatalf("omitted submission message = %v, want absent", withoutMessage.Message)
-	}
 }
 
 type timeoutNetError struct{}
@@ -122,8 +106,8 @@ func (f *runtimeControlFakeClient) SessionView() *runtimepb.SessionView {
 	}
 	return proto.Clone(f.sessionView).(*runtimepb.SessionView)
 }
-func (f *runtimeControlFakeClient) SetSessionName(name string) error {
-	f.setSessionNameArg = name
+func (f *runtimeControlFakeClient) SetSessionName(mutation *runtimepb.SessionNameMutation) error {
+	f.setSessionNameArg = mutation
 	return f.err
 }
 func (f *runtimeControlFakeClient) ReadChatSettings() (*chatsettingspb.Settings, error) {
@@ -158,7 +142,7 @@ func runtimeControlFakeChatSettings() *chatsettingspb.Settings {
 	return &chatsettingspb.Settings{
 		SelectedAgent: &chatsettingspb.AgentSummary{
 			Role:     "default",
-			Model:    "gpt-5",
+			Model:    "gpt-6-sol",
 			Thinking: "medium"},
 		Supervisor: &chatsettingspb.Supervisor{
 			Value:    chatsettingspb.SupervisorValue_SUPERVISOR_VALUE_OFF,
@@ -245,7 +229,7 @@ func (f *runtimeControlFakeClient) AppendCommittedEntryWithNoticeID(role, text, 
 }
 func (f *runtimeControlFakeClient) submitUserMessage(_ context.Context, text string) (clientui.UserTurnSubmission, error) {
 	f.submitText = text
-	result := clientui.UserTurnSubmission{Message: textutil.Value(f.submitResult)}
+	result := clientui.UserTurnSubmission{Message: textutil.Value(f.submitResult), Diagnostic: f.submitDiagnostic}
 	if f.submitErr != nil {
 		return result, f.submitErr
 	}
@@ -273,13 +257,10 @@ func (f *runtimeControlFakeClient) compactContext(_ context.Context, args string
 	_ = args
 	return f.err
 }
-func (f *runtimeControlFakeClient) CompactRuntime(ctx context.Context, req clientui.RuntimeCompactRequest) error {
+func (f *runtimeControlFakeClient) CompactRuntime(ctx context.Context, req clientui.RuntimeCompactRequest) (clientui.RuntimeCompactResult, error) {
 	f.compactRequest = req
-	input, err := req.Admission.CanonicalInput()
-	if err != nil {
-		return err
-	}
-	return f.compactContext(ctx, input)
+	input := req.Admission.CanonicalInput()
+	return clientui.RuntimeCompactResult{}, f.compactContext(ctx, input)
 }
 func (f *runtimeControlFakeClient) Interrupt() error {
 	f.interruptCalls++
@@ -546,9 +527,9 @@ func TestInterruptedHumanInputRestoresServerOrderBeforeComposer(t *testing.T) {
 	m := newProjectedClosedUIModel(&runtimeControlFakeClient{})
 	firstID := runtimeids.NewQueueItemID()
 	secondID := runtimeids.NewQueueItemID()
-	m.injectedQueue = []injectedRuntimeQueueItem{
-		{LocalID: firstID.String(), ServerID: firstID.String(), Text: "local stale first", State: injectedRuntimeQueueEnqueued},
-		{LocalID: secondID.String(), ServerID: secondID.String(), Text: "local stale second", State: injectedRuntimeQueueEnqueued}}
+	m.injectedQueue = []*injectedRuntimeQueueItem{
+		{ServerID: textutil.Value(firstID.String()), Text: "local stale first", State: injectedRuntimeQueueEnqueued},
+		{ServerID: textutil.Value(secondID.String()), Text: "local stale second", State: injectedRuntimeQueueEnqueued}}
 	testSetMainInput(m, "composer")
 
 	cmd := m.applyTranscriptHumanInputInterrupted(&transcriptpb.HumanInputInterrupted{
@@ -686,7 +667,7 @@ func TestRuntimeControlCompletionsAreScopedPerOperation(t *testing.T) {
 	m := newProjectedTestUIModel(client)
 	m.startupCmds = nil
 
-	sessionCmd := m.runtimeControlCommand(runtimeControlSetSessionName, "incident triage", false, "")
+	sessionCmd := m.runtimeControlCommand(runtimeControlSetSessionName, sessionNameCommandMutation("incident triage"))
 	thinkingCmd := m.chatSettingsMutationCommand(&chatsettingspb.MutationOperation{Operation: &chatsettingspb.MutationOperation_Thinking{Thinking: "high"}})
 	sessionMsgs := collectCmdMessages(t, sessionCmd)
 	thinkingMsgs := collectCmdMessages(t, thinkingCmd)
@@ -708,8 +689,8 @@ func TestRuntimeControlCompletionsAreScopedPerOperation(t *testing.T) {
 	updated := next.(*uiModel)
 	next, _ = updated.Update(sessionDone)
 	updated = next.(*uiModel)
-	if updated.thinkingLevel != "high" || updated.sessionName != "incident triage" {
-		t.Fatalf("expected independent completions to apply, session=%q thinking=%q", updated.sessionName, updated.thinkingLevel)
+	if updated.thinkingLevel != "high" || updated.sessionName == nil || *updated.sessionName != "incident triage" {
+		t.Fatalf("expected independent completions to apply, session=%v thinking=%q", updated.sessionName, updated.thinkingLevel)
 	}
 }
 func TestSubmitErrorShowsTransientStatusWithoutPersisting(t *testing.T) {

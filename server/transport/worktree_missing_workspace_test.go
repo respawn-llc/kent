@@ -6,6 +6,7 @@ import (
 
 	"core/server/metadata"
 	remoteclient "core/shared/client"
+	sharedpb "core/shared/protoapi/gen/kent/api/shared"
 	worktreepb "core/shared/protoapi/gen/kent/api/worktree"
 	"core/shared/serverapi"
 )
@@ -42,11 +43,11 @@ func TestWorktreeRetainedSessionMissingWorkspace(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer func() { _ = remote.Close() }()
-	_, err = remote.ListWorktrees(t.Context(), &worktreepb.ListRequest{SessionId: sessionID})
+	_, err = remote.ListWorktrees(t.Context(), &worktreepb.ListRequest{SessionId: &sharedpb.SessionSelector{Value: &sharedpb.SessionSelector_SessionId{SessionId: sessionID}}})
 	if !errors.Is(err, serverapi.ErrWorkspaceNotRegistered) {
 		t.Fatalf("Worktree list error = %v, want ErrWorkspaceNotRegistered", err)
 	}
-	_, err = remote.GetWorktreeStatus(t.Context(), &worktreepb.StatusRequest{SessionId: sessionID})
+	_, err = remote.GetWorktreeStatus(t.Context(), &worktreepb.StatusRequest{SessionId: &sharedpb.SessionSelector{Value: &sharedpb.SessionSelector_SessionId{SessionId: sessionID}}})
 	if !errors.Is(err, serverapi.ErrWorkspaceNotRegistered) {
 		t.Fatalf("Worktree status error = %v, want ErrWorkspaceNotRegistered", err)
 	}

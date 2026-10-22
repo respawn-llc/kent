@@ -3,7 +3,7 @@ import { lazy, Suspense, useEffect, useMemo } from "react";
 import { useTranslation } from "react-i18next";
 
 import { BoardRoute } from "@/features/board";
-import { ChatDestination, NewChatDestination } from "@/features/chat";
+import { ChatDestination } from "@/features/chat";
 import { createProjectTasksViewMemory, HomeRoute, ProjectTasksSurface } from "@/features/home";
 import { StartupGate } from "@/features/startup";
 import { StandaloneTaskRoute } from "@/features/task-detail";
@@ -17,6 +17,7 @@ import {
   useAppNavigation,
   useChatHistoryBookmark,
   SidebarRootOwner,
+  useOwnedSidebarRoots,
   writeBrowserStorage,
   writeLastProjectRoute,
 } from "@/app-facade";
@@ -149,12 +150,7 @@ export function ProjectTasksRoute() {
   return (
     <SidebarRootOwner>
       <section className="island-glass h-full min-h-0 overflow-hidden rounded-[var(--radius-xl)]">
-        <ProjectTasksSurface
-          key={params.projectId}
-          projectID={params.projectId}
-          sidebarMode="shift"
-          viewMemory={viewMemory}
-        />
+        <ProjectTasksSurface key={params.projectId} projectID={params.projectId} viewMemory={viewMemory} />
       </section>
     </SidebarRootOwner>
   );
@@ -224,31 +220,40 @@ function ChatRouteOpening({
   projectID,
   sessionID,
 }: Readonly<{ projectID: string; sessionID: string | null }>) {
-  const bookmark = useChatHistoryBookmark(projectID, sessionID);
-  const appNavigation = useAppNavigation();
-  const navigation = {
-    openTask: (taskID: string) => {
-      void appNavigation.openTask(taskID);
-    },
-    openParentSession: async (previousSessionID: string) => {
-      return appNavigation.openSessionChat({ projectID, sessionID: previousSessionID });
-    },
-  };
   return (
     <SidebarRootOwner>
-      {bookmark.sessionID === null ? (
-        <NewChatDestination
-          projectID={projectID}
-          navigation={navigation}
-          onSessionDelivered={bookmark.delivered}
-        />
-      ) : (
-        <ChatDestination
-          opening={{ kind: "session", projectID, sessionID: bookmark.sessionID }}
-          navigation={navigation}
-          onSessionDelivered={bookmark.delivered}
-        />
-      )}
+      <ChatRouteContent projectID={projectID} sessionID={sessionID} />
     </SidebarRootOwner>
+  );
+}
+
+function ChatRouteContent({
+  projectID,
+  sessionID,
+}: Readonly<{ projectID: string; sessionID: string | null }>) {
+  const bookmark = useChatHistoryBookmark(projectID, sessionID);
+  const appNavigation = useAppNavigation();
+  const { open } = useOwnedSidebarRoots();
+  const navigation = {
+    projectID,
+    openTask: (taskID: string) => {
+      open({ kind: "taskDetail", taskID });
+    },
+    openParentSession: async (previousSessionID: string) =>
+      appNavigation.openSessionChat({ projectID, sessionID: previousSessionID }),
+    openEditedSession: async (editedSessionID: string) =>
+      appNavigation.openSessionChat({ projectID, sessionID: editedSessionID }),
+  };
+  return (
+    <ChatDestination
+      opening={
+        bookmark.sessionID === null
+          ? { kind: "new_chat", projectID, workspace: null }
+          : { kind: "session", projectID, sessionID: bookmark.sessionID }
+      }
+      navigation={navigation}
+      onSessionDelivered={bookmark.delivered}
+      onPopOutCreated={appNavigation.back}
+    />
   );
 }

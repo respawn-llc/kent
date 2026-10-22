@@ -3,20 +3,17 @@ package app
 import (
 	"context"
 	"errors"
-	"strings"
 	"sync"
 	"testing"
 	"time"
 
-	"core/shared/clientui"
+	chatpb "core/shared/protoapi/gen/kent/api/chat"
 	promptpb "core/shared/protoapi/gen/kent/api/prompt"
 	runtimepb "core/shared/protoapi/gen/kent/api/runtime"
 	sessionpb "core/shared/protoapi/gen/kent/api/session"
 	transcriptpb "core/shared/protoapi/gen/kent/api/transcript"
-	"core/shared/runtimeinput"
 	"core/shared/serverapi"
 
-	tea "github.com/charmbracelet/bubbletea"
 	"google.golang.org/protobuf/proto"
 	"google.golang.org/protobuf/types/known/timestamppb"
 )
@@ -48,8 +45,6 @@ type reconnectRetryRuntimeControlClient struct {
 	firstSubmitErr   error
 	firstRecordErr   error
 	appendErr        error
-	compactErr       error
-	compactCalls     int
 	showGoalErr      error
 	showGoalCalls    int
 	submitCalls      int
@@ -96,16 +91,6 @@ func (c *reconnectRetryRuntimeControlClient) AppendCommittedEntry(_ context.Cont
 	return c.appendErr
 }
 
-func (c *reconnectRetryRuntimeControlClient) ShouldCompactBeforeUserMessage(context.Context, *runtimepb.ShouldCompactRequest) (*runtimepb.ShouldCompactSuccess, error) {
-	c.mu.Lock()
-	defer c.mu.Unlock()
-	c.compactCalls++
-	if c.compactCalls == 1 && c.compactErr != nil {
-		return &runtimepb.ShouldCompactSuccess{}, c.compactErr
-	}
-	return &runtimepb.ShouldCompactSuccess{}, nil
-}
-
 func (c *reconnectRetryRuntimeControlClient) SubmitUserTurn(_ context.Context, req *runtimepb.SubmitUserTurnRequest) (*runtimepb.SubmitUserTurnSuccess, error) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
@@ -114,10 +99,6 @@ func (c *reconnectRetryRuntimeControlClient) SubmitUserTurn(_ context.Context, r
 		return &runtimepb.SubmitUserTurnSuccess{}, c.firstSubmitErr
 	}
 	return &runtimepb.SubmitUserTurnSuccess{Result: &runtimepb.SubmitUserTurnSuccess_AssistantFinal{AssistantFinal: &runtimepb.SubmitUserTurnAssistantFinal{Message: "recovered"}}}, nil
-}
-
-func (c *reconnectRetryRuntimeControlClient) SubmitUserShellCommand(context.Context, *runtimepb.ShellCommandRequest) error {
-	return nil
 }
 
 func (c *reconnectRetryRuntimeControlClient) CompactContext(context.Context, *runtimepb.CompactContextRequest) error {
@@ -153,7 +134,7 @@ func (c *reconnectRetryRuntimeControlClient) ShowGoal(context.Context, *runtimep
 
 func (c *reconnectRetryRuntimeControlClient) SetGoal(_ context.Context, request *runtimepb.GoalSetRequest) (*runtimepb.GoalSetSuccess, error) {
 	return &runtimepb.GoalSetSuccess{
-		Session: request.GetTarget().GetSession(),
+		Session: &chatpb.ExistingSessionTarget{SessionId: request.GetTarget().GetSession().GetSessionId().GetSessionId()},
 		Outcome: &runtimepb.GoalSetSuccess_Mutation{Mutation: c.setGoalResp},
 	}, nil
 }
@@ -305,132 +286,7 @@ func assertRuntimeClientGoalCached(t *testing.T, runtimeClient *sessionRuntimeCl
 	}
 }
 
-func deletedTestRuntimeClientSubmitUserMessageRecoversRuntimeUnavailableAndReusesRequestID(t *testing.T) {
-	controls := &reconnectRetryRuntimeControlClient{firstSubmitErr: serverapi.ErrRuntimeUnavailable}
-	runtimeClient := newTestSessionRuntimeClientWithControls(controls)
-	reactivator := newRuntimeReactivator()
-	recoveryCalls := 0
-	reactivator.SetReactivateFunc(func(context.Context) error {
-		recoveryCalls++
-		return nil
-	})
-	runtimeClient.SetRuntimeReactivator(reactivator)
-
-	submission, err := runtimeClient.SubmitRuntimeInput(context.Background(), clientui.RuntimeSubmitRequest{
-		Input: runtimeinput.Text("hello"),
-	})
-	message := ""
-	if submission.Message != nil {
-		message = *submission.Message
-	}
-	if err != nil {
-		t.Fatalf("SubmitUserMessage: %v", err)
-	}
-	if message != "recovered" {
-		t.Fatalf("SubmitUserMessage message = %q, want recovered", message)
-	}
-	if recoveryCalls != 1 {
-		t.Fatalf("recovery call count = %d, want 1", recoveryCalls)
-	}
-	if got := controls.submitRequestIDs(); len(got) != 2 || got[0] == "" || got[0] != got[1] {
-		t.Fatalf("submit request ids = %+v, want same non-empty id across retry", got)
-	}
-}
-
-func deletedTestRuntimeClientRecordPromptHistoryReusesRequestIDAcrossReconnect(t *testing.T) {
-	controls := &reconnectRetryRuntimeControlClient{firstRecordErr: serverapi.ErrRuntimeUnavailable}
-	runtimeClient := newTestSessionRuntimeClientWithControls(controls)
-	reactivator := newRuntimeReactivator()
-	reactivator.SetReactivateFunc(func(context.Context) error { return nil })
-	runtimeClient.SetRuntimeReactivator(reactivator)
-
-	if err := runtimeClient.RecordPromptHistory("/status"); err != nil {
-		t.Fatalf("RecordPromptHistory: %v", err)
-	}
-	if got := controls.recordRequestIDs(); len(got) != 2 || got[0] == "" || got[0] != got[1] {
-		t.Fatalf("record request ids = %+v, want same non-empty id across retry", got)
-	}
-}
-
-func deletedTestRuntimeClientSubmitUserMessageRecoversRuntimeUnavailable(t *testing.T) {
-	controls := &reconnectRetryRuntimeControlClient{firstSubmitErr: serverapi.ErrRuntimeUnavailable}
-	runtimeClient := newTestSessionRuntimeClientWithControls(controls)
-	reactivator := newRuntimeReactivator()
-	recoveryCalls := 0
-	reactivator.SetReactivateFunc(func(context.Context) error {
-		recoveryCalls++
-		return nil
-	})
-	runtimeClient.SetRuntimeReactivator(reactivator)
-
-	submission, err := runtimeClient.SubmitRuntimeInput(context.Background(), clientui.RuntimeSubmitRequest{
-		Input: runtimeinput.Text("hello"),
-	})
-	message := ""
-	if submission.Message != nil {
-		message = *submission.Message
-	}
-	if err != nil {
-		t.Fatalf("SubmitUserMessage: %v", err)
-	}
-	if message != "recovered" {
-		t.Fatalf("SubmitUserMessage message = %q, want recovered", message)
-	}
-	if recoveryCalls != 1 {
-		t.Fatalf("recovery call count = %d, want 1", recoveryCalls)
-	}
-	entries := controls.appendedLocalEntries()
-	if len(entries) != 1 {
-		t.Fatalf("warning entry count = %d, want 1", len(entries))
-	}
-	entry := entries[0]
-	if entry.Role != "warning" || entry.GetVisibility() != transcriptpb.AppendVisibility_APPEND_VISIBILITY_ONGOING {
-		t.Fatalf("warning entry = %+v, want recovery warning", entry)
-	}
-}
-
-func deletedTestRuntimeClientSubmitTurnRecoveryContinuesFirstPrompt(t *testing.T) {
-	controls := &reconnectRetryRuntimeControlClient{firstSubmitErr: serverapi.ErrRuntimeUnavailable}
-	runtimeClient := newTestSessionRuntimeClientWithControls(controls)
-	reactivator := newRuntimeReactivator()
-	reactivator.SetReactivateFunc(func(context.Context) error { return nil })
-	runtimeClient.SetRuntimeReactivator(reactivator)
-	model := newProjectedClosedUIModel(runtimeClient)
-	model.startupCmds = nil
-
-	submitCmd := model.inputController().startSubmissionWithPromptHistoryAndQueuePositionAndID("hello after restart", preSubmitQueueBack, "")
-	if submitCmd == nil {
-		t.Fatal("expected submit command")
-	}
-	next := tea.Model(model)
-	updated := next.(*uiModel)
-	submitMsgs := collectCmdMessages(t, submitCmd)
-	var done submitDoneMsg
-	foundDone := false
-	for _, msg := range submitMsgs {
-		if typed, ok := msg.(submitDoneMsg); ok {
-			done = typed
-			foundDone = true
-		}
-	}
-	if !foundDone {
-		t.Fatalf("expected submit result, got %+v", submitMsgs)
-	}
-	if done.err != nil || done.message != "recovered" {
-		t.Fatalf("submit result = %+v, want recovered first prompt", done)
-	}
-	next, _ = updated.Update(done)
-	updated = next.(*uiModel)
-	if updated.activity == uiActivityError {
-		t.Fatal("did not expect pre-submit recovery to surface operator error")
-	}
-	plain := stripANSIAndTrimRight(updated.view.View())
-	if strings.Contains(plain, serverapi.ErrRuntimeUnavailable.Error()) || strings.Contains(plain, "runtime for session") {
-		t.Fatalf("did not expect recovery diagnostics in ongoing transcript, got %q", plain)
-	}
-}
-
-func TestRuntimeClientMainViewRefreshRecoversRuntimeUnavailableSilently(t *testing.T) {
+func TestRuntimeClientMainViewRefreshDoesNotActivateUnavailableRuntime(t *testing.T) {
 	controls := &reconnectRetryRuntimeControlClient{}
 	authoritativeView := &runtimepb.MainView{
 		Session: &runtimepb.SessionView{SessionId: "session-1", SessionName: proto.String("restored")},
@@ -441,128 +297,20 @@ func TestRuntimeClientMainViewRefreshRecoversRuntimeUnavailableSilently(t *testi
 		responses: []*sessionpb.MainViewSuccess{{}, {MainView: authoritativeView}},
 	}
 	runtimeClient := newTestSessionRuntimeClient(reads, controls)
-	reactivator := newRuntimeReactivator()
-	recoveryCalls := 0
-	reactivator.SetReactivateFunc(func(context.Context) error {
-		recoveryCalls++
-		return nil
-	})
-	runtimeClient.SetRuntimeReactivator(reactivator)
-
+	if _, err := runtimeClient.RefreshMainView(); !errors.Is(err, serverapi.ErrRuntimeUnavailable) {
+		t.Fatalf("RefreshMainView error = %v, want unavailable", err)
+	}
+	if reads.count != 1 {
+		t.Fatalf("main-view read count = %d, want one read without replay", reads.count)
+	}
 	view, err := runtimeClient.RefreshMainView()
 	if err != nil {
-		t.Fatalf("RefreshMainView: %v", err)
-	}
-	if recoveryCalls != 1 {
-		t.Fatalf("recovery call count = %d, want 1", recoveryCalls)
-	}
-	if reads.count != 2 {
-		t.Fatalf("main-view read count = %d, want 2", reads.count)
+		t.Fatal(err)
 	}
 	if view.Session.GetSessionName() != "restored" || view.Status.ThinkingLevel != "high" {
 		t.Fatalf("main view = %+v, want %+v", view, authoritativeView)
 	}
 	if entries := controls.appendedLocalEntries(); len(entries) != 0 {
 		t.Fatalf("did not expect visible recovery warning during main-view refresh, got %+v", entries)
-	}
-}
-
-func TestRuntimeClientMainViewRecoveryPreservesReadDeadline(t *testing.T) {
-	controls := &reconnectRetryRuntimeControlClient{}
-	reads := &flakySessionViewClient{errs: []error{serverapi.ErrRuntimeUnavailable}}
-	runtimeClient := newTestSessionRuntimeClient(reads, controls)
-	reactivator := newRuntimeReactivator()
-	reactivationStarted := make(chan struct{})
-	reactivator.SetReactivateFunc(func(ctx context.Context) error {
-		close(reactivationStarted)
-		<-ctx.Done()
-		return ctx.Err()
-	})
-	runtimeClient.SetRuntimeReactivator(reactivator)
-
-	start := time.Now()
-	if _, err := runtimeClient.refreshMainViewSync(uiRuntimeReadTimeout); !errors.Is(err, context.DeadlineExceeded) {
-		t.Fatalf("refreshMainViewSync error = %v, want reactivation deadline error", err)
-	}
-	if elapsed := time.Since(start); elapsed > uiRuntimeReadTimeout+500*time.Millisecond {
-		t.Fatalf("refreshMainViewSync elapsed = %s, want bounded by read timeout %s", elapsed, uiRuntimeReadTimeout)
-	}
-	select {
-	case <-reactivationStarted:
-	case <-time.After(time.Second):
-		t.Fatal("reactivation did not start")
-	}
-}
-
-func deletedTestRuntimeClientShowGoalRecoversRuntimeUnavailableSilently(t *testing.T) {
-	goal := &runtimepb.Goal{Id: "goal-1", Objective: "ship", Status: runtimepb.GoalStatus_RUNTIME_GOAL_STATUS_ACTIVE}
-	controls := &reconnectRetryRuntimeControlClient{
-		showGoalErr:  serverapi.ErrRuntimeUnavailable,
-		showGoalResp: runtimeClientTestShowResponse(goal),
-	}
-	runtimeClient := newTestSessionRuntimeClientWithControls(controls)
-	reactivator := newRuntimeReactivator()
-	recoveryCalls := 0
-	reactivator.SetReactivateFunc(func(context.Context) error {
-		recoveryCalls++
-		return nil
-	})
-	runtimeClient.SetRuntimeReactivator(reactivator)
-
-	got, err := runtimeClient.ShowGoal()
-	if err != nil {
-		t.Fatalf("ShowGoal: %v", err)
-	}
-	if recoveryCalls != 1 {
-		t.Fatalf("recovery call count = %d, want 1", recoveryCalls)
-	}
-	if controls.showGoalCalls != 2 {
-		t.Fatalf("show goal call count = %d, want 2", controls.showGoalCalls)
-	}
-	if got == nil || got.Goal == nil ||
-		got.Goal.Id != "goal-1" ||
-		got.Goal.Objective != "ship" ||
-		got.Goal.Status != runtimepb.GoalStatus_RUNTIME_GOAL_STATUS_ACTIVE {
-		t.Fatalf("goal = %+v, want recovered active goal", got)
-	}
-	if entries := controls.appendedLocalEntries(); len(entries) != 0 {
-		t.Fatalf("did not expect visible recovery warning during goal read, got %+v", entries)
-	}
-}
-
-func deletedTestRuntimeClientReconnectWarningFailureDoesNotBlockSubmit(t *testing.T) {
-	controls := &reconnectRetryRuntimeControlClient{firstSubmitErr: serverapi.ErrRuntimeUnavailable, appendErr: serverapi.ErrRuntimeUnavailable}
-	runtimeClient := newTestSessionRuntimeClientWithControls(controls)
-	warnings := make(chan runtimeReconnectWarningMsg, 1)
-	runtimeClient.SetRuntimeReconnectWarningObserver(func(text string, visibility clientui.EntryVisibility) {
-		warnings <- runtimeReconnectWarningMsg{text: text, visibility: visibility}
-	})
-	reactivator := newRuntimeReactivator()
-	reactivator.SetReactivateFunc(func(context.Context) error { return nil })
-	runtimeClient.SetRuntimeReactivator(reactivator)
-
-	submission, err := runtimeClient.SubmitRuntimeInput(context.Background(), clientui.RuntimeSubmitRequest{
-		Input: runtimeinput.Text("hello"),
-	})
-	message := ""
-	if submission.Message != nil {
-		message = *submission.Message
-	}
-	if err != nil {
-		t.Fatalf("SubmitUserMessage: %v", err)
-	}
-	if message != "recovered" {
-		t.Fatalf("SubmitUserMessage message = %q, want recovered", message)
-	}
-	if entries := controls.appendedLocalEntries(); len(entries) != 1 {
-		t.Fatalf("warning append attempts = %d, want 1", len(entries))
-	}
-	select {
-	case warning := <-warnings:
-		if warning.visibility != clientui.EntryVisibilityOngoing {
-			t.Fatalf("warning = %+v, want lease recovery warning", warning)
-		}
-	default:
-		t.Fatal("expected warning fallback notification")
 	}
 }

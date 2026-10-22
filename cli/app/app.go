@@ -7,6 +7,8 @@ import (
 	"time"
 
 	"core/shared/config"
+	"core/shared/protoapi"
+	sessionlaunchpb "core/shared/protoapi/gen/kent/api/session_launch"
 	"core/shared/runtimeids"
 	"core/shared/serverapi"
 )
@@ -17,6 +19,7 @@ type Options struct {
 	SessionID                 string
 	WorkspaceContextSessionID string
 	AgentRole                 *string
+	RunAgentFlag              RunAgentFlag
 	Model                     string
 	ThinkingLevel             string
 	Theme                     string
@@ -45,9 +48,12 @@ func Run(ctx context.Context, opts Options) (runErr error) {
 	if err != nil {
 		return err
 	}
+	invocationOverrides := runPromptOverridesFromOptions(opts)
+	invocationOverrides.AgentRole = nil
 	return runSessionLifecycleWithOptions(ctx, server, interactor, sessionLifecycleOptions{
-		Intent:    intent,
-		Overrides: overrides,
+		Intent:              intent,
+		Overrides:           overrides,
+		InvocationOverrides: invocationOverrides,
 	})
 }
 
@@ -65,10 +71,10 @@ func RunPrompt(ctx context.Context, opts Options, prompt string, timeout time.Du
 			_ = closeFn()
 		}
 	}()
-	return runPrompt(ctx, runClient, workspaceConfig.Options, workspaceConfig.CallerContext, strings.TrimSpace(opts.SessionID), prompt, timeout, progress)
+	return runPrompt(ctx, runClient, workspaceConfig.Options, strings.TrimSpace(opts.SessionID), prompt, timeout, progress)
 }
 
-func sessionLaunchOptionsFor(opts Options) (*serverapi.SessionLaunchIntent, serverapi.RunPromptOverrides, error) {
+func sessionLaunchOptionsFor(opts Options) (*sessionlaunchpb.SessionLaunchRequestIntent, serverapi.RunPromptOverrides, error) {
 	var agentRole *string
 	if opts.AgentRole != nil {
 		value := strings.TrimSpace(*opts.AgentRole)
@@ -82,24 +88,24 @@ func sessionLaunchOptionsFor(opts Options) (*serverapi.SessionLaunchIntent, serv
 		return nil, serverapi.RunPromptOverrides{}, errors.New("session ID and workspace context session ID cannot both be set")
 	}
 	if opts.SessionID != "" {
-		sessionID, err := runtimeids.ParseSessionID(opts.SessionID)
+		sessionID, err := runtimeids.ParseSessionSelector(opts.SessionID)
 		if err != nil {
 			return nil, serverapi.RunPromptOverrides{}, err
 		}
-		intent := serverapi.OpenExistingSessionLaunchIntent(sessionID)
-		return &intent, overrides, nil
+		intent := &sessionlaunchpb.SessionLaunchRequestIntent{Intent: &sessionlaunchpb.SessionLaunchRequestIntent_OpenExistingSessionId{OpenExistingSessionId: protoapi.SessionSelectorToProto(sessionID)}}
+		return intent, overrides, nil
 	}
 	if opts.WorkspaceContextSessionID != "" {
 		parentID, err := runtimeids.ParseSessionID(opts.WorkspaceContextSessionID)
 		if err != nil {
 			return nil, serverapi.RunPromptOverrides{}, err
 		}
-		intent := serverapi.CreateNewSessionLaunchIntent(serverapi.ParentAgentSessionCreateOrigin(parentID))
-		return &intent, overrides, nil
+		intent, err := protoapi.SessionLaunchRequestIntentToProto(serverapi.CreateNewSessionLaunchIntent(serverapi.ParentAgentSessionCreateOrigin(parentID)))
+		return intent, overrides, err
 	}
 	if agentRole != nil && *agentRole != config.DefaultSubagentRole {
-		intent := serverapi.CreateNewSessionLaunchIntent(serverapi.IndependentSessionCreateOrigin())
-		return &intent, overrides, nil
+		intent, err := protoapi.SessionLaunchRequestIntentToProto(serverapi.CreateNewSessionLaunchIntent(serverapi.IndependentSessionCreateOrigin()))
+		return intent, overrides, err
 	}
 	return nil, overrides, nil
 }

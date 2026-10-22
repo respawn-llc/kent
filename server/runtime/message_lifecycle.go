@@ -12,6 +12,7 @@ import (
 	"core/server/session"
 	"core/server/tools"
 	"core/shared/config"
+	"core/shared/modelcontract"
 	"core/shared/runtimeinput"
 	"core/shared/textutil"
 	"core/shared/toolspec"
@@ -42,6 +43,10 @@ func (m *defaultMessageLifecycle) RestoreMessages() error {
 	if matchErr != nil {
 		return matchErr
 	}
+	producingEvidence, err := restoredProducingStepEvidence(activeWindow.Records, e.SessionID())
+	if err != nil {
+		return err
+	}
 	var rollbackLocator rollbackCandidateLocatorTracker
 	manualEligible := false
 	type restoredToolGeneration struct {
@@ -60,9 +65,16 @@ func (m *defaultMessageLifecycle) RestoreMessages() error {
 		case session.ConfigurationUpdateRecord:
 			e.transcriptRuntimeState().AppendConfigurationItem(llmResponseItemFromSessionHistory(payload.Item))
 		case session.MessageRecord:
+			if _, fresh := e.generationContextSnapshot().(freshGenerationContext); fresh {
+				e.setGenerationContext(preparedGenerationContext{})
+			}
 			msg, err := llmMessageFromSessionRecord(payload)
 			if err != nil {
 				return fmt.Errorf("restore session message record: %w", err)
+			}
+			for index := range msg.ReasoningItems {
+				item := &msg.ReasoningItems[index]
+				item.Attribution = producingEvidence.infer(item.Attribution, stepIDPointer, modelcontract.ProviderOperationPurposeGeneration)
 			}
 			if err := rollbackLocator.ObserveMessage(record.Seq(), msg); err != nil {
 				return err
@@ -143,40 +155,28 @@ func (m *defaultMessageLifecycle) RestoreMessages() error {
 			if err != nil {
 				return fmt.Errorf("restore session history replacement record: %w", err)
 			}
+			for index := range replacement.Items {
+				item := &replacement.Items[index]
+				if item.Type == llm.ResponseItemTypeCompaction {
+					item.Attribution = producingEvidence.infer(item.Attribution, stepIDPointer, modelcontract.ProviderOperationPurposeCompaction)
+				}
+			}
 			e.resetLocalDiagnostics()
 			manualEligible = false
-			projectedEntries := transcriptEntriesFromHistoryReplacement(
-				replacement.Items,
-				replacement.CompactionNumber,
-			)
-			e.transcriptRuntimeState().ReplaceHistoryAtCommittedEntryStart(
-				record.StepID(),
-				replacement.Items,
-				replacement.CommittedEntryStart,
-				projectedEntries,
-			)
-			replacementMode := session.CompactionMode(replacement.Mode)
-			if err := e.compactionRuntimeState().SetHistoryReplacementMode(&replacementMode); err != nil {
-				return fmt.Errorf("restore history replacement mode: %w", err)
+			if _, err := e.installHistoryReplacement(record, replacement); err != nil {
+				return err
 			}
-			if replacement.LastCommittedAssistantFinalAnswer != nil {
-				e.transcriptRuntimeState().SeedLastCommittedAssistantFinalAnswerIfAbsent(
-					replacement.LastCommittedAssistantFinalAnswer,
-				)
-			}
-			if replacement.CompactionNumber != nil && *replacement.CompactionNumber > 0 {
-				e.compactionRuntimeState().SetCount(*replacement.CompactionNumber)
-			} else {
-				count := e.compactionRuntimeState().IncrementCount()
-				e.persistCompletedCompactionFactsBestEffort(stepID, count)
-			}
-			rollbackLocator.ObserveHistoryReplacement(replacement)
+			rollbackLocator.ObserveCompaction(replacement.LatestRollbackCandidate)
 			recoveredHandoff.ClearSatisfiedByCompaction()
 			if replacement.PendingHandoffFutureMessage != nil {
 				recoveredHandoff.SeedFutureMessage(*replacement.PendingHandoffFutureMessage)
 			}
 			e.resetPromptCacheObservationBaselines()
 			reminderIssued = false
+		case session.GenerationContextRecord:
+			if _, err := e.installGenerationContext(record, payload); err != nil {
+				return err
+			}
 		}
 		e.compactionRuntimeState().ApplyWorkflowPostCompletionActivity(
 			workflowPostCompletionActivityForSessionRecord(payload),
@@ -202,12 +202,6 @@ func (m *defaultMessageLifecycle) RestoreMessages() error {
 	if err := e.store.SetCompactionSoonReminderIssued(reminderIssued); err != nil {
 		return err
 	}
-	// Base meta context is injected once at the birth of a session's active list
-	// (fresh-session boot injects it first; compaction reinjects it into the
-	// history_replaced payload). Any restored history therefore already carries
-	// it, so a non-empty restore means injection has happened. This is a
-	// deterministic length check, never a scan of which messages are present.
-	e.baseMetaInjected = len(e.transcriptRuntimeState().SnapshotMessages()) > 0
 	if futureMessage := recoveredHandoff.PendingFutureMessage(); futureMessage != "" {
 		e.handoffRuntimeState().QueueFutureMessage(futureMessage)
 	}
@@ -374,12 +368,8 @@ func handoffRequestFromToolCall(call llm.ToolCall) (*handoffRequest, bool) {
 	}, true
 }
 
-func queuedUserMessageText(message QueuedUserMessage) (string, error) {
-	text, err := message.ExecutionText()
-	if err != nil {
-		return "", err
-	}
-	return strings.TrimSpace(text), nil
+func queuedUserMessageText(message QueuedUserMessage) string {
+	return strings.TrimSpace(message.ExecutionText())
 }
 
 type queuedUserMessageFlushGroup struct {
@@ -398,8 +388,8 @@ type preparedUserInjections struct {
 func (m *defaultMessageLifecycle) PreparePendingUserInjections(selection userInjectionSelection) (*preparedUserInjections, error) {
 	var claim *queuedUserMessageClaim
 	switch selected := selection.(type) {
-	case allPendingUserInjectionSelection:
-		claim = m.queue.ClaimAll()
+	case queuedTurnUserInjectionSelection:
+		claim = m.queue.ClaimQueuedTurn()
 	case steerUserInjectionSelection:
 		claim = m.queue.ClaimSteersAndIDs(selected.queueItemIDs)
 	default:
@@ -415,15 +405,15 @@ func (m *defaultMessageLifecycle) PreparePendingUserInjections(selection userInj
 		if pending.steerAdmission != nil {
 			lane = runtimeinput.PendingWorkLaneSteer
 		}
-		if m.engine.liveRun.beginQueueItemPublication(id, lane) && m.engine.liveRun.finishQueueItemPublication(id) {
+		publishing, _, err := m.engine.liveRun.beginQueueItemPublication(id, lane, claim)
+		if err != nil {
+			return nil, err
+		}
+		if publishing && m.engine.liveRun.finishQueueItemPublication(id) {
 			m.engine.failStoppedLiveRunQueueItems(typedQueueItemIDSet(map[string]struct{}{pending.message.ID: {}}))
 		}
 	}
-	groups, err := queuedUserMessageFlushGroups(claim.items)
-	if err != nil {
-		m.ReleasePreparedUserInjections(prepared)
-		return nil, err
-	}
+	groups := queuedUserMessageFlushGroups(claim.items)
 	for _, group := range groups {
 		prepared.items = append(prepared.items, llm.ItemsFromMessages([]llm.Message{group.message})...)
 	}
@@ -486,23 +476,11 @@ func (m *defaultMessageLifecycle) restoreFailedPreparedInput(prepared *preparedU
 	return restorationErr
 }
 
-func queuedUserMessageFlushGroups(messages []queuedUserMessage) ([]queuedUserMessageFlushGroup, error) {
+func queuedUserMessageFlushGroups(messages []queuedUserMessage) []queuedUserMessageFlushGroup {
 	groups := make([]queuedUserMessageFlushGroup, 0, len(messages))
 	for _, pending := range messages {
-		text, err := queuedUserMessageText(pending.message)
-		if err != nil {
-			return nil, err
-		}
-		if text == "" {
-			continue
-		}
-		queueItems, err := queuedUserMessagesForFlush([]queuedUserMessage{pending})
-		if err != nil {
-			return nil, err
-		}
-		if len(queueItems) == 0 {
-			continue
-		}
+		text := queuedUserMessageText(pending.message)
+		queueItems := []QueuedUserMessage{pending.message}
 		message := pending.message.Message
 		groups = append(groups, queuedUserMessageFlushGroup{
 			message:    message,
@@ -510,24 +488,7 @@ func queuedUserMessageFlushGroups(messages []queuedUserMessage) ([]queuedUserMes
 			queueItems: queueItems,
 		})
 	}
-	return groups, nil
-}
-
-func queuedUserMessagesForFlush(messages []queuedUserMessage) ([]QueuedUserMessage, error) {
-	items := make([]QueuedUserMessage, 0, len(messages))
-	for _, message := range messages {
-		item := message.message
-		item.ID = strings.TrimSpace(item.ID)
-		text, err := queuedUserMessageText(item)
-		if err != nil {
-			return nil, err
-		}
-		if item.ID == "" || text == "" {
-			continue
-		}
-		items = append(items, item)
-	}
-	return items, nil
+	return groups
 }
 
 func startsAgentStep(message llm.Message) bool {
@@ -604,11 +565,12 @@ func (m *defaultMessageLifecycle) HasPendingUserSteers() bool {
 	return m != nil && m.queue != nil && m.queue.HasPendingSteers()
 }
 
-func newActiveMetaContextBuilder(meta session.Meta, executionRoot, model, thinkingLevel, globalConfigDir string, skillPolicy config.SkillPolicy, now time.Time) metaContextBuilder {
-	roots := activeMetaContextRootsForMeta(meta, executionRoot)
+func newActiveMetaContextBuilder(store *session.Store, executionRoot, model, thinkingLevel, globalConfigDir string, skillPolicy config.SkillPolicy, now time.Time) metaContextBuilder {
+	roots := activeMetaContextRootsForMeta(store.Meta(), executionRoot)
 	builder := newMetaContextBuilder(roots.discoveryRoot, model, thinkingLevel, skillPolicy, now).
 		withEnvironmentCWD(roots.environmentCWD).
 		withGlobalConfigDir(globalConfigDir)
+	builder.sessionShortID = store.Identity().ShortID
 	return builder
 }
 

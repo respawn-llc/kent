@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"fmt"
 
+	"core/server/metadata"
 	"core/server/metadata/sqlitegen"
 	"core/server/workflow"
 	"core/shared/runtimeids"
@@ -26,13 +27,6 @@ func nullableGraphIdentity(value any) (*string, error) {
 	default:
 		return nil, fmt.Errorf("graph identity has unexpected SQLite type %T", value)
 	}
-}
-
-func nullableGraphIdentityArgument(value *string) sql.NullString {
-	if value == nil {
-		return sql.NullString{}
-	}
-	return sql.NullString{String: *value, Valid: true}
 }
 
 func workflowDefinitionFromPreparedGraph(
@@ -111,7 +105,7 @@ func currentWorkflowGraphSavePrepared(ctx context.Context, q *sqlitegen.Queries,
 	}
 	groupKeyByID := make(map[string]string, len(nodeGroups))
 	for _, group := range nodeGroups {
-		prepared.nodeGroups = append(prepared.nodeGroups, NodeGroupRecord{ID: group.ID, WorkflowID: group.WorkflowID, Key: workflow.ModelKey(group.GroupKey), DisplayName: group.DisplayName, SortOrder: group.SortOrder})
+		prepared.nodeGroups = append(prepared.nodeGroups, NodeGroupRecord{ID: group.ID, WorkflowID: group.WorkflowID, Key: workflow.ModelKey(group.GroupKey), DisplayName: metadata.OptionalString(group.DisplayName), SortOrder: group.SortOrder})
 		groupKeyByID[group.ID] = group.GroupKey
 	}
 	for _, node := range nodes {

@@ -1,4 +1,7 @@
+import type { StreamFailureCode } from "@app/server-api-contract/gen/kent/api/shared/foundation_pb";
+import type { SessionCategory } from "./models";
 import type { ApiSubscription } from "./apiService";
+import type * as Stream from "effect/Stream";
 import type { PendingPrompt } from "./promptModels";
 import type { PromptAnswerBatchInput, PromptAnswerBatchResponse } from "./clientInputs";
 import type {
@@ -9,6 +12,8 @@ import type {
   ChatGoalSetTarget,
 } from "./chatGoal";
 import type {
+  ChatSettings,
+  ChatSettingsSessionFacts,
   ChatSettingsRead,
   ChatSettingsMutation,
   ChatSettingsMutationResponse,
@@ -16,7 +21,6 @@ import type {
 export type { ChatSettings } from "./chatSettingsTypes";
 import type { ChatTranscriptMessage, ChatTranscriptPayloadByKind } from "./chatTranscriptTypes";
 import type {
-  CompactionRequestID,
   PendingWork,
   PendingWorkIdentity,
   PendingWorkItemID,
@@ -62,6 +66,7 @@ export type ChatInputMutationResult = Readonly<{
     | Readonly<{
         kind: "accepted";
         queueItemID: PendingWorkItemID;
+        disposition: "started_turn" | "pending_steer" | "pending_queue";
         diagnostic: ChatAcceptedDiagnostic | null;
       }>
     | Readonly<{
@@ -95,7 +100,6 @@ export type ChatCompactionResult = Readonly<{
   outcome:
     | Readonly<{
         kind: "accepted";
-        requestID: CompactionRequestID;
         diagnostic: ChatAcceptedDiagnostic | null;
       }>
     | Readonly<{ kind: "not_accepted"; reason: ChatNotAcceptedReason }>;
@@ -107,6 +111,8 @@ export type ChatMainView = Readonly<{
   status: ChatRuntimeStatus;
   sessionID: string;
   sessionName: string | null;
+  category: SessionCategory;
+  shortID: bigint | null;
   executionTarget: ChatExecutionTarget;
   activity: ChatRuntimeActivity;
 }>;
@@ -146,7 +152,6 @@ export type ChatRuntimeActivity = Readonly<{
   state:
     "unavailable" | "registered_idle" | "starting" | "running" | "awaiting_prompt" | "draining" | "closing";
   activeStep: Readonly<{
-    runID: string;
     stepID: string;
     activeKind: NonNullable<
       ChatTranscriptPayloadByKind["runtime_read_model_update"]["Activity"]["ActiveStep"]
@@ -180,8 +185,8 @@ export type ChatTranscriptPage = Readonly<{
 }>;
 export type ChatTranscriptCommittedRow = ChatTranscriptPayloadByKind["committed_row"];
 export type ChatTranscriptCompletion = Readonly<{
-  code: number;
-  message: string;
+  code: StreamFailureCode | null;
+  message: string | null;
   reason: "subscriber_overflow" | "contract_violation" | null;
 }>;
 export type ChatTranscriptHandler = Readonly<{
@@ -194,22 +199,46 @@ export type ChatTranscriptHandler = Readonly<{
 export type ChatGoalObservationHandler = Readonly<{
   onOpen?(): void;
   onEvent(observation: ChatGoalObservation): void;
-  onComplete(code: number, message: string): void;
+  onComplete(code: StreamFailureCode | null, message: string | null): void;
   onError(error: Error): void;
 }>;
-export type ChatRuntimeAttachment = Readonly<{ sessionID: string; generation: number }>;
-export type ChatRuntimeRelease = Readonly<{ released: boolean; active: boolean }>;
+export type ChatSessionNameMutation = Readonly<{ kind: "set"; name: string }> | Readonly<{ kind: "clear" }>;
+export type ChatSettingsSnapshot = Readonly<{
+  sessionName: string | null;
+  settings: ChatSettings;
+  session: ChatSettingsSessionFacts;
+}>;
+export type ChatSettingsObservation =
+  Readonly<{ kind: "snapshot"; snapshot: ChatSettingsSnapshot }> | Readonly<{ kind: "error"; error: Error }>;
 export type ChatApi = Readonly<{
+  subscribeSettings(
+    target: ChatSessionTarget,
+    reportOverflow: () => Promise<void>,
+  ): Stream.Stream<ChatSettingsObservation>;
+  setSessionName(target: ChatSessionTarget, mutation: ChatSessionNameMutation): Promise<void>;
   getCommandCatalog(
     target: ChatSettingsTarget,
   ): Promise<readonly Readonly<{ name: string; preview: string }>[]>;
   getDraft(target: ChatSessionTarget): Promise<Readonly<{ input: string; protectedInput: string | null }>>;
   getPromptHistory(target: ChatSessionTarget): Promise<readonly string[]>;
+  resolveViewedImageOriginalSource(
+    target: ChatSessionTarget,
+    path: string,
+    signal?: AbortSignal,
+  ): Promise<string>;
   persistDraft(target: ChatSessionTarget, input: string, protectedInput?: string | null): Promise<void>;
   listPendingPrompts(target: ChatSessionTarget): Promise<readonly PendingPrompt[]>;
   answerPromptBatch(input: PromptAnswerBatchInput): Promise<PromptAnswerBatchResponse>;
-  steer(target: ChatMutationTarget, activation: ChatActivation): Promise<ChatInputMutationResult>;
-  queue(target: ChatMutationTarget, activation: ChatActivation): Promise<ChatInputMutationResult>;
+  steer(
+    target: ChatMutationTarget,
+    activation: ChatActivation,
+    queueItemID: PendingWorkItemID,
+  ): Promise<ChatInputMutationResult>;
+  queue(
+    target: ChatMutationTarget,
+    activation: ChatActivation,
+    queueItemID: PendingWorkItemID,
+  ): Promise<ChatInputMutationResult>;
   compact(target: ChatMutationTarget, invocation: ChatCompactionInvocation): Promise<ChatCompactionResult>;
   stop(target: ChatSessionTarget): Promise<"stopped" | "idle">;
   forkEdit(target: ChatSessionTarget, input: ChatForkEditInput): Promise<string>;
@@ -232,8 +261,7 @@ export type ChatApi = Readonly<{
     target: ChatSessionTarget,
     cursor?: Readonly<{ direction: "older" | "newer"; value: number }>,
   ): Promise<ChatTranscriptPage>;
-  activateRuntime(target: ChatSessionTarget): Promise<ChatRuntimeAttachment>;
-  releaseRuntime(attachment: ChatRuntimeAttachment): Promise<ChatRuntimeRelease>;
+  activateRuntime(target: ChatSessionTarget): Promise<void>;
   subscribeTranscript(target: ChatSessionTarget, handler: ChatTranscriptHandler): ApiSubscription;
   subscribeGoal(target: ChatSessionTarget, handler: ChatGoalObservationHandler): ApiSubscription;
 }>;

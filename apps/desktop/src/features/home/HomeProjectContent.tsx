@@ -1,28 +1,24 @@
 import { useEffect, useState } from "react";
-import { useInfiniteQuery, useQuery } from "@tanstack/react-query";
 import { useTranslation } from "react-i18next";
-import { Plus } from "lucide-react";
-import { desktopChatEnabled } from "@/shared/feature-flags";
+import { PictureInPicture, Plus } from "lucide-react";
 
-import type { SessionCatalogSummary, SessionCategory } from "@/api";
-import { errorMessage, isProjectMissingError } from "@/api";
+import { sessionDisplayTitle, type SessionCatalogSummary, type SessionCategory } from "@/api";
+import { errorMessage } from "@/api";
 import {
-  clearLastProjectRoute,
   formatRelativeTime,
-  mainSessionCatalogInfiniteQueryOptions,
+  useAppServices,
+  useNativeChatOpening,
+  type SessionChatTarget,
   type ProjectContentTab,
-  queryKeys,
-  subagentSessionCatalogInfiniteQueryOptions,
   useSessionChatCatalogReturn,
   useAppNavigation,
-  useAppServices,
   readLastProjectRoute,
   writeLastProjectContentTab,
-  type SidebarMode,
 } from "@/app-facade";
 import {
   directionalBoundary,
   EmptyState,
+  IconTooltipButton,
   Item,
   ItemContent,
   ItemTitle,
@@ -33,58 +29,41 @@ import {
 import { OverlappingCrossfade } from "./OverlappingCrossfade";
 import { ProjectTasksSurface } from "./ProjectTasksSurface";
 import { createProjectTasksViewMemory } from "./projectTasksViewMemory";
+import { useHomeProjectModel, useHomeSessionPages } from "./HomeProjectModel";
 
 export function HomeProjectContent({
   projectID,
-  sessionsVisible,
-  sidebarMode,
 }: Readonly<{
   projectID: string;
-  sessionsVisible: boolean;
-  sidebarMode: SidebarMode;
 }>) {
-  const { api } = useAppServices();
   const navigation = useAppNavigation();
   const catalogReturn = useSessionChatCatalogReturn(projectID);
   const [taskListViewMemory] = useState(createProjectTasksViewMemory);
   useEffect(() => {
     catalogReturn?.consume();
   }, [catalogReturn]);
-  const projectQuery = useQuery({
-    queryKey: queryKeys.projectEdit(projectID),
-    queryFn: async () => api.getProjectEdit(projectID),
-  });
-  useEffect(() => {
-    if (!isProjectMissingError(projectQuery.error)) return;
-    clearLastProjectRoute(projectID);
-    void navigation.selectHomeProject(null);
-  }, [navigation, projectID, projectQuery.error]);
-  return sessionsVisible ? (
+  useHomeProjectModel(projectID, async () => navigation.selectHomeProject(null));
+  return (
     <ProjectContentTabs
       catalogReturn={catalogReturn?.category ?? null}
       projectID={projectID}
-      sidebarMode={sidebarMode}
+
       taskListViewMemory={taskListViewMemory}
     />
-  ) : (
-    <ProjectTasksSurface projectID={projectID} sidebarMode={sidebarMode} viewMemory={taskListViewMemory} />
   );
 }
 
 function ProjectContentTabs({
   catalogReturn,
   projectID,
-  sidebarMode,
   taskListViewMemory,
 }: Readonly<{
   catalogReturn: SessionCategory | null;
   projectID: string;
-  sidebarMode: SidebarMode;
   taskListViewMemory: ReturnType<typeof createProjectTasksViewMemory>;
 }>) {
   const navigation = useAppNavigation();
   const { t } = useTranslation();
-  const { api } = useAppServices();
   const [tab, setTab] = useState<ProjectContentTab>(() => {
     if (catalogReturn === "main") return "sessions";
     if (catalogReturn === "subagent") return "subagents";
@@ -97,14 +76,8 @@ function ProjectContentTabs({
   useEffect(() => {
     writeLastProjectContentTab(projectID, tab);
   }, [projectID, tab]);
-  const mainSessionsQuery = useInfiniteQuery({
-    ...mainSessionCatalogInfiniteQueryOptions(api, projectID),
-    enabled: tab === "sessions",
-  });
-  const subagentSessionsQuery = useInfiniteQuery({
-    ...subagentSessionCatalogInfiniteQueryOptions(api, projectID),
-    enabled: tab === "subagents",
-  });
+  const mainSessionsQuery = useHomeSessionPages(projectID, "main", tab === "sessions");
+  const subagentSessionsQuery = useHomeSessionPages(projectID, "subagent", tab === "subagents");
 
   return (
     <div className="flex h-full min-h-0 flex-col">
@@ -117,15 +90,13 @@ function ProjectContentTabs({
             {
               label: t("home.prototype.sessions"),
               value: "sessions",
-              action: desktopChatEnabled
-                ? {
-                    ariaLabel: t("chat.newChat"),
-                    children: <Plus size={14} />,
-                    onClick: () => {
-                      void navigation.openNewChat(projectID);
-                    },
-                  }
-                : undefined,
+              action: {
+                ariaLabel: t("chat.newChat"),
+                children: <Plus size={14} />,
+                onClick: () => {
+                  void navigation.openNewChat(projectID);
+                },
+              },
             },
             { label: t("home.prototype.subagents"), value: "subagents" },
           ]}
@@ -140,7 +111,7 @@ function ProjectContentTabs({
           {tab === "tasks" ? (
             <ProjectTasksSurface
               projectID={projectID}
-              sidebarMode={sidebarMode}
+
               viewMemory={taskListViewMemory}
             />
           ) : (
@@ -170,16 +141,17 @@ function SessionList({
         }>
       | undefined;
     error: Error | null;
-    fetchNextPage: () => Promise<unknown>;
+    fetchNextPage: () => void;
     hasNextPage: boolean;
     isError: boolean;
     isFetchingNextPage: boolean;
     isPending: boolean;
-    refetch: () => Promise<unknown>;
+    refetch: () => void;
   }>;
 }>) {
   const { t } = useTranslation();
   const navigation = useAppNavigation();
+  const { nativeBridge } = useAppServices();
   const sessions = query.data?.pages.flatMap((page) => page.sessions) ?? [];
   const initialBoundary = directionalBoundary({
     failed: query.isError,
@@ -187,7 +159,7 @@ function SessionList({
     loadingLabel: t("states.loading"),
     message: query.isError ? errorMessage(query.error) : "",
     onRetry: () => {
-      void query.refetch();
+      query.refetch();
     },
     retryLabel: t("app.retry"),
   });
@@ -212,35 +184,83 @@ function SessionList({
       items={sessions}
       loadingLabel={t("app.loadingMore")}
       onLoadMore={() => {
-        void query.fetchNextPage();
+        query.fetchNextPage();
       }}
       paddingEnd={16}
       paddingStart={16}
       renderItem={(session) => (
-        <Item
-          className="min-w-0 px-[var(--space-2)] py-[var(--space-3)]"
-          aria-label={session.name ?? session.id}
-          onClick={() => {
-            void navigation.openSessionChat({
-              catalogOrigin: { category },
-              projectID,
-              sessionID: session.id,
-            });
-          }}
-        >
-          <ItemContent className="min-w-0">
-            <ItemTitle className="max-w-full">
-              <strong className="truncate">{session.name ?? session.id}</strong>
-            </ItemTitle>
-            {session.firstPromptPreview === null ? null : (
-              <span className="line-clamp-2 break-words text-sm text-[var(--color-muted)]">
-                {session.firstPromptPreview}
-              </span>
-            )}
-            <span className="text-xs text-[var(--color-muted)]">{formatRelativeTime(session.updatedAt)}</span>
-          </ItemContent>
-        </Item>
+        <SessionCatalogRow
+          category={category}
+          nativeWindowsAvailable={nativeBridge.capabilities.dialogWindows}
+          onOpen={async (target) => navigation.openSessionChat(target)}
+          projectID={projectID}
+          session={session}
+        />
       )}
     />
+  );
+}
+
+function SessionCatalogRow({
+  category,
+  nativeWindowsAvailable,
+  onOpen,
+  projectID,
+  session,
+}: Readonly<{
+  category: "main" | "subagent";
+  nativeWindowsAvailable: boolean;
+  onOpen(target: SessionChatTarget): void;
+  projectID: string;
+  session: SessionCatalogSummary;
+}>) {
+  const { t } = useTranslation();
+  const nativeChat = useNativeChatOpening();
+  const title = sessionDisplayTitle(session, (id) => t("home.subagentTitle", { id }));
+  const pending = nativeChat.pendingSessionID === session.id;
+  const target = { projectID, sessionID: session.id };
+  return (
+    <div className="group/session-catalog relative min-w-0">
+      <Item
+        className="absolute inset-0 h-full group-hover/session-catalog:bg-[var(--color-island-1)]"
+        aria-label={title}
+        onClick={(event) => {
+          if (nativeWindowsAvailable && event.shiftKey) {
+            if (pending) return;
+            nativeChat.open(target);
+            return;
+          }
+          onOpen({ ...target, catalogOrigin: { category } });
+        }}
+      />
+      <ItemContent className="pointer-events-none relative min-w-0 px-[var(--space-2)] py-[var(--space-3)]">
+        <div className="flex min-w-0 items-center gap-[var(--space-2)]">
+          <ItemTitle className="min-w-0 flex-1">
+            <strong className="min-w-0 flex-1 truncate">{title}</strong>
+          </ItemTitle>
+          {nativeWindowsAvailable ? (
+            <span className="pointer-events-auto shrink-0">
+              <IconTooltipButton
+                label={t("app.popOut")}
+                tooltip={t("app.popOut")}
+                loading={pending}
+                disabled={pending}
+                onClick={() => {
+                  nativeChat.open(target);
+                }}
+              >
+                <PictureInPicture aria-hidden="true" size={18} strokeWidth={1.5} />
+              </IconTooltipButton>
+            </span>
+          ) : null}
+        </div>
+        {session.firstPromptPreview === null ? null : (
+          <span className="min-w-0 w-full line-clamp-2 break-words text-sm text-[var(--color-muted)]">
+            {session.firstPromptPreview}
+          </span>
+        )}
+        <span className="text-xs text-[var(--color-muted)]">{formatRelativeTime(session.updatedAt)}</span>
+      </ItemContent>
+    </div>
   );
 }

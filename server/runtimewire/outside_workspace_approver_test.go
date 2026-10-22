@@ -29,7 +29,14 @@ func TestOutsideWorkspaceApprovalDecisionAndCache(t *testing.T) {
 			})
 			approver := NewOutsideWorkspaceApprover(broker)
 			for call := 1; call <= 2; call++ {
-				result, err := approver.Approve(outsideWorkspaceApprovalContext(), outsideWorkspaceApprovalRequest())
+				request := outsideWorkspaceApprovalRequest()
+				if call == 2 {
+					request.Targets = []askquestion.FileAccessTarget{{
+						RequestedPath: "/different/outside/file",
+						ResolvedPath:  "/different/outside/file",
+					}}
+				}
+				result, err := approver.Approve(outsideWorkspaceApprovalContext(), request)
 				want := askquestion.FileAccessApproval{Kind: decision.kind, Commentary: &commentary}
 				wantCalls := call
 				if call == 2 && decision.kind == askquestion.FileAccessApprovalAllowSession {
@@ -77,7 +84,6 @@ func TestOutsideWorkspaceApprovalFailureDoesNotCache(t *testing.T) {
 func outsideWorkspaceApprovalContext() context.Context {
 	return askquestion.WithApprovalLifecycle(
 		askquestion.WithExecutionIdentity(context.Background(), askquestion.ExecutionIdentity{
-			RunID:      "11111111-1111-4111-8111-111111111111",
 			StepID:     "22222222-2222-4222-8222-222222222222",
 			ToolCallID: "call-edit",
 		}),
@@ -108,7 +114,6 @@ func TestOutsideWorkspaceApprovalRetainsExecutingToolIdentity(t *testing.T) {
 
 	_, err := approver.Approve(
 		askquestion.WithApprovalLifecycle(askquestion.WithExecutionIdentity(context.Background(), askquestion.ExecutionIdentity{
-			RunID:      "11111111-1111-4111-8111-111111111111",
 			StepID:     "22222222-2222-4222-8222-222222222222",
 			ToolCallID: "call-edit",
 		}), askquestion.NewApprovalLifecycle()),
@@ -117,10 +122,9 @@ func TestOutsideWorkspaceApprovalRetainsExecutingToolIdentity(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Approve: %v", err)
 	}
-	if received.RunID != "11111111-1111-4111-8111-111111111111" ||
-		received.StepID != "22222222-2222-4222-8222-222222222222" ||
+	if received.StepID != "22222222-2222-4222-8222-222222222222" ||
 		received.ToolCallID != "call-edit" {
-		t.Fatalf("approval identity = run %q step %q tool %q", received.RunID, received.StepID, received.ToolCallID)
+		t.Fatalf("approval identity = step %q tool %q", received.StepID, received.ToolCallID)
 	}
 	if !reflect.DeepEqual(received.AccessTargets, targets) {
 		t.Fatalf("approval targets = %+v, want %+v", received.AccessTargets, targets)

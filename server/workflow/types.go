@@ -134,7 +134,7 @@ type NodeGroup struct {
 	WorkflowID    runtimeids.WorkflowID
 	ID            string
 	Key           ModelKey
-	DisplayName   string
+	DisplayName   *string
 	SortOrder     int64
 	MemberNodeIDs []NodeID
 }
@@ -287,6 +287,17 @@ func NodeDisplayName(node Node) string {
 		return ""
 	}
 	return node.Identity().DisplayName
+}
+
+func NodeDisplayLabel(node Node) string {
+	return DisplayLabel(NodeDisplayName(node), string(NodeKey(node)))
+}
+
+func DisplayLabel(displayName, identifier string) string {
+	if label := strings.TrimSpace(displayName); label != "" {
+		return label
+	}
+	return identifier
 }
 
 func NodeGroupID(node Node) (string, bool) {

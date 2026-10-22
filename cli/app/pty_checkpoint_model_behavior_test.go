@@ -9,8 +9,8 @@ import (
 	runtimepb "core/shared/protoapi/gen/kent/api/runtime"
 	transcriptpb "core/shared/protoapi/gen/kent/api/transcript"
 	"core/shared/runtimeids"
+	"errors"
 	tea "github.com/charmbracelet/bubbletea"
-	"github.com/google/uuid"
 	"testing"
 )
 
@@ -80,14 +80,14 @@ func TestPTYCheckpointModelEmitsPromptReadyOnInteractiveTransition(t *testing.T)
 func TestPTYCheckpointModelQueuesInitialDetailApplicationBeforeRendererWrite(t *testing.T) {
 	var out bytes.Buffer
 	writer := analyzer.NewWriter(&out)
-	model, requestID := newPendingPTYDetailCheckpointModel(t)
+	model, pending := newPendingPTYDetailCheckpointModel(t)
 	wrapped := newPTYCheckpointModel(
 		model,
 		writer,
 		newPTYCheckpointScenarioState(appfixture.ScriptFinalAssistantOrdinal(1)))
 
 	wrapped.Update(detailTranscriptLoadMsg{
-		requestID: requestID,
+		pending: pending,
 		page: &transcriptpb.Page{
 			SessionId:             detailTestSessionID,
 			ConversationFreshness: runtimepb.ConversationFreshness_CONVERSATION_FRESHNESS_ESTABLISHED,
@@ -113,25 +113,18 @@ func TestPTYCheckpointModelQueuesInitialDetailApplicationBeforeRendererWrite(t *
 	}
 }
 
-func TestPTYCheckpointModelDoesNotQueueInitialDetailApplicationForMalformedPage(t *testing.T) {
+func TestPTYCheckpointModelDoesNotQueueInitialDetailApplicationForFailedPage(t *testing.T) {
 	var out bytes.Buffer
 	writer := analyzer.NewWriter(&out)
-	model, requestID := newPendingPTYDetailCheckpointModel(t)
+	model, pending := newPendingPTYDetailCheckpointModel(t)
 	wrapped := newPTYCheckpointModel(
 		model,
 		writer,
 		newPTYCheckpointScenarioState(appfixture.ScriptFinalAssistantOrdinal(1)))
 
 	wrapped.Update(detailTranscriptLoadMsg{
-		requestID: requestID,
-		page: &transcriptpb.Page{
-			SessionId:             detailTestSessionID,
-			ConversationFreshness: runtimepb.ConversationFreshness_CONVERSATION_FRESHNESS_ESTABLISHED,
-			Entries: []*transcriptpb.CommittedRow{{
-				Visibility: transcriptpb.EntryVisibility_ENTRY_VISIBILITY_UNSPECIFIED,
-				Row:        &transcriptpb.CommittedRow_User{User: &transcriptpb.UserRow{Text: "malformed"}},
-			}},
-		}})
+		pending: pending,
+		err:     errors.New("transcript receive failed")})
 	view := wrapped.View()
 	if view == "" {
 		t.Fatal("rejected detail page produced an empty error-state view")
@@ -366,27 +359,25 @@ func ptyCheckpointAssistantStreamID() *string {
 	return &value
 }
 
-func newPendingPTYDetailCheckpointModel(t *testing.T) (*uiModel, uuid.UUID) {
+func newPendingPTYDetailCheckpointModel(t *testing.T) (*uiModel, *uiPendingDetailTranscriptRequest) {
 	t.Helper()
 	model := newProjectedClosedUIModel(
 		&runtimeControlFakeClient{},
 		WithUISessionID(detailTestSessionID))
 	model.view = mustUpdateTUIModel(t, model.view, tea.KeyMsg{Type: tea.KeyShiftTab})
 	model.activeSurface = uiSurfaceTranscriptDetail
-	requestID := uuid.New()
 	_, cancel := context.WithCancel(context.Background())
 	sessionID, err := runtimeids.ParseSessionID(detailTestSessionID)
 	if err != nil {
 		t.Fatalf("parse detail test session ID: %v", err)
 	}
 	model.pendingDetailTranscript = &uiPendingDetailTranscriptRequest{
-		id:         requestID,
 		sessionID:  sessionID,
 		request:    &transcriptpb.PageRequest{},
 		detailMode: true,
 		cancel:     cancel}
 	t.Cleanup(model.Close)
-	return model, requestID
+	return model, model.pendingDetailTranscript
 }
 
 func analyzeCheckpointBytes(t *testing.T, payload []byte) analyzer.Analysis {

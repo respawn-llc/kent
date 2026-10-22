@@ -6,7 +6,9 @@ import "buf/validate/validate.proto";
 import "google/protobuf/empty.proto";
 import "google/protobuf/timestamp.proto";
 import "kent/api/attention/attention.proto";
+import "kent/api/auth/auth.proto";
 import "kent/api/prompt/prompt.proto";
+import "kent/api/server/server.proto";
 import "kent/api/shared/foundation.proto";
 import "kent/api/shared/validation.proto";
 import "kent/api/workflow_definition/workflow_definition.proto";
@@ -30,6 +32,7 @@ enum AttentionNotificationEventType {
   ATTENTION_NOTIFICATION_EVENT_UNSPECIFIED = 0;
   ATTENTION_NOTIFICATION_EVENT_PENDING = 1;
   ATTENTION_NOTIFICATION_EVENT_RESOLVED = 2;
+  ATTENTION_NOTIFICATION_EVENT_SESSION_NAMING_FAILURE = 3;
 }
 
 enum AttentionNotificationKind {
@@ -70,6 +73,7 @@ enum AttentionRequestValidationCode {
 }
 
 message AttentionCurrentNode {
+  optional int64 short_id = 7 [(buf.validate.field).int64 = {gt: 0 lte: 9007199254740991}];
   string node_id = 1 [
     (buf.validate.field).string.min_len = 1,
     (buf.validate.field).cel = {
@@ -86,9 +90,10 @@ message AttentionCurrentNode {
       expression: "this == this.trim()"
     }
   ];
-  optional string session_id = 3 [(buf.validate.field).string.min_len = 1];
+  optional string session_id = 3 [(buf.validate.field).string.uuid = true, (buf.validate.field).string.(kent.api.shared.canonical_uuid_v4) = true];
   optional string effective_assignee = 4 [(buf.validate.field).string.min_len = 1];
   optional string effective_thinking = 5 [(buf.validate.field).string.min_len = 1];
+  optional string node_display_name = 6 [(buf.validate.field).string.(kent.api.shared.nonblank) = true];
 }
 
 message OrdinaryQuestion {
@@ -123,7 +128,8 @@ message ApprovalQuestion {
 }
 
 message AttentionQuestionPrompt {
-  string session_id = 1 [(buf.validate.field).string.min_len = 1];
+  optional int64 short_id = 7 [(buf.validate.field).int64 = {gt: 0 lte: 9007199254740991}];
+  string session_id = 1 [(buf.validate.field).string.uuid = true, (buf.validate.field).string.(kent.api.shared.canonical_uuid_v4) = true];
   string step_id = 2 [
     (buf.validate.field).string.uuid = true,
     (buf.validate.field).string.(kent.api.shared.canonical_uuid_v4) = true
@@ -248,6 +254,23 @@ message ConfiguredExecutionTargetUnavailableDetails {
   };
 }
 
+enum LockedExecutionTargetCause {
+  LOCKED_EXECUTION_TARGET_CAUSE_UNSPECIFIED = 0;
+  LOCKED_EXECUTION_TARGET_CAUSE_DETACHED_HEAD = 1;
+  LOCKED_EXECUTION_TARGET_CAUSE_INVALID_ROOT = 2;
+  LOCKED_EXECUTION_TARGET_CAUSE_ROOT_INACCESSIBLE = 3;
+  LOCKED_EXECUTION_TARGET_CAUSE_MISSING_BRANCH = 4;
+  LOCKED_EXECUTION_TARGET_CAUSE_CONFLICT = 5;
+  LOCKED_EXECUTION_TARGET_CAUSE_GIT_FAILURE = 6;
+}
+
+message LockedExecutionTargetDetails {
+  LockedExecutionTargetCause cause = 1 [(buf.validate.field).enum = {
+    defined_only: true
+    not_in: [0]
+  }];
+}
+
 message InterruptedCurrentNodeDetails {
   string code = 1 [
     (buf.validate.field).string.min_len = 1,
@@ -262,6 +285,7 @@ message InterruptedCurrentNodeDetails {
     option (buf.validate.oneof).required = true;
     GenericInterruptionDetails generic = 3;
     ConfiguredExecutionTargetUnavailableDetails configured_execution_target_unavailable = 4;
+    LockedExecutionTargetDetails original_execution_target_unavailable = 5;
   }
 
   option (buf.validate.message).cel = {
@@ -272,7 +296,7 @@ message InterruptedCurrentNodeDetails {
 }
 
 message QuestionAttention {
-  string message = 1 [
+  optional string message = 1 [
     (buf.validate.field).string.min_len = 1,
     (buf.validate.field).cel = {
       id: "kent.workflow_task.question_attention_message_nonblank"
@@ -290,6 +314,12 @@ message QuestionAttention {
     }
   ];
   AttentionQuestionPrompt question = 4 [(buf.validate.field).required = true];
+
+  option (buf.validate.message).cel = {
+    id: "kent.workflow_task.question_attention_message"
+    message: "message is required unless an approval has access targets"
+    expression: "has(this.message) || (has(this.question.approval) && size(this.question.approval.access_targets) > 0)"
+  };
 
   option (buf.validate.message).cel = {
     id: "kent.workflow_task.question_attention_current_node_session_absent"
@@ -322,12 +352,8 @@ message InterruptedAttention {
   ];
   AttentionCurrentNode current_node = 2 [(buf.validate.field).required = true];
   optional string session_id = 3 [
-    (buf.validate.field).string.min_len = 1,
-    (buf.validate.field).cel = {
-      id: "kent.workflow_task.interrupted_attention_session_id_nonblank"
-      message: "session_id must be non-blank"
-      expression: "this.trim() != ''"
-    }
+    (buf.validate.field).string.uuid = true,
+    (buf.validate.field).string.(kent.api.shared.canonical_uuid_v4) = true
   ];
   optional InterruptedCurrentNodeDetails details = 4;
 }
@@ -361,6 +387,11 @@ message AttentionItem {
       "(this.kind == 1 && has(this.question)) || "
       "(this.kind == 2 && has(this.approval)) || "
       "(this.kind == 3 && has(this.interrupted_current_node))"
+  };
+  option (buf.validate.message).cel = {
+    id: "kent.workflow_task.question_attention_occurrence"
+    message: "Question attention occurrence must be after the Unix epoch"
+    expression: "this.kind != 1 || this.occurred_at > timestamp('1970-01-01T00:00:00Z')"
   };
 }
 
@@ -396,6 +427,8 @@ message AttentionListError {
     (kent.api.shared.kent_result_field).role = RESULT_FIELD_ROLE_ERROR_CODE
   ];
   oneof detail {
+    kent.api.server.ServerNotReadyDetails server_not_ready = 4 [(kent.api.shared.kent_result_field) = {role: RESULT_FIELD_ROLE_ERROR_DETAIL error_code: "server_not_ready"}];
+    kent.api.auth.AuthRequiredDetails auth_required = 5 [(kent.api.shared.kent_result_field) = {role: RESULT_FIELD_ROLE_ERROR_DETAIL error_code: "auth_required"}];
     AttentionRequestValidationDetails invalid_request = 2 [(kent.api.shared.kent_result_field) = {
       role: RESULT_FIELD_ROLE_ERROR_DETAIL
       error_code: "invalid_request"
@@ -430,6 +463,8 @@ message TaskAttentionListError {
     (kent.api.shared.kent_result_field).role = RESULT_FIELD_ROLE_ERROR_CODE
   ];
   oneof detail {
+    kent.api.server.ServerNotReadyDetails server_not_ready = 4 [(kent.api.shared.kent_result_field) = {role: RESULT_FIELD_ROLE_ERROR_DETAIL error_code: "server_not_ready"}];
+    kent.api.auth.AuthRequiredDetails auth_required = 5 [(kent.api.shared.kent_result_field) = {role: RESULT_FIELD_ROLE_ERROR_DETAIL error_code: "auth_required"}];
     AttentionRequestValidationDetails invalid_request = 2 [(kent.api.shared.kent_result_field) = {
       role: RESULT_FIELD_ROLE_ERROR_DETAIL
       error_code: "invalid_request"
@@ -454,11 +489,17 @@ message AttentionNotificationID {
     defined_only: true
     not_in: [0]
   }];
-  string uuid = 2 [(buf.validate.field).string.min_len = 1];
+  string uuid = 2 [
+    (buf.validate.field).string.min_len = 1,
+    (buf.validate.field).string.(kent.api.shared.nonblank) = true
+  ];
 }
 
 message WorkflowApprovalState {
-  string approval_id = 1 [(buf.validate.field).string.min_len = 1];
+  string approval_id = 1 [
+    (buf.validate.field).string.min_len = 1,
+    (buf.validate.field).string.(kent.api.shared.nonblank) = true
+  ];
   optional string message = 2;
 }
 
@@ -504,6 +545,7 @@ message AttentionNotificationTaskFocus {
 }
 
 message WorkflowTaskAttentionTarget {
+  optional int64 session_short_id = 10 [(buf.validate.field).int64 = {gt: 0 lte: 9007199254740991}];
   optional string project_id = 1 [(buf.validate.field).string.min_len = 1];
   string workflow_id = 2 [
     (buf.validate.field).string.uuid = true,
@@ -512,7 +554,7 @@ message WorkflowTaskAttentionTarget {
   string task_id = 3 [(buf.validate.field).string.min_len = 1];
   optional string task_short_id = 4 [(buf.validate.field).string.min_len = 1];
   optional string task_title = 5 [(buf.validate.field).string.min_len = 1];
-  optional string session_id = 6 [(buf.validate.field).string.min_len = 1];
+  optional string session_id = 6 [(buf.validate.field).string.uuid = true, (buf.validate.field).string.(kent.api.shared.canonical_uuid_v4) = true];
   optional string current_node_id = 7 [
     (buf.validate.field).string.min_len = 1,
     (buf.validate.field).cel = {
@@ -533,7 +575,12 @@ message WorkflowTaskAttentionTarget {
 }
 
 message SessionPromptAttentionTarget {
-  string session_id = 1 [(buf.validate.field).string.min_len = 1];
+  optional int64 short_id = 3 [(buf.validate.field).int64 = {gt: 0 lte: 9007199254740991}];
+  string session_id = 1 [(buf.validate.field).string.uuid = true, (buf.validate.field).string.(kent.api.shared.canonical_uuid_v4) = true];
+  string project_id = 2 [
+    (buf.validate.field).string.min_len = 1,
+    (buf.validate.field).string.(kent.api.shared.nonblank) = true
+  ];
 }
 
 message AttentionNotificationTarget {
@@ -562,7 +609,14 @@ message AttentionNotification {
     defined_only: true
     not_in: [0]
   }];
-  google.protobuf.Timestamp occurred_at = 3 [(buf.validate.field).required = true];
+  google.protobuf.Timestamp occurred_at = 3 [
+    (buf.validate.field).required = true,
+    (buf.validate.field).cel = {
+      id: "kent.workflow_task.notification_occurrence_nonzero"
+      message: "Notification occurrence must not be Go zero time"
+      expression: "this != timestamp('0001-01-01T00:00:00Z')"
+    }
+  ];
   uint64 revision = 4 [(buf.validate.field).uint64 = {
     gte: 1
     lte: 9007199254740991
@@ -630,7 +684,14 @@ message ResolvedAttentionNotification {
     defined_only: true
     not_in: [0]
   }];
-  google.protobuf.Timestamp occurred_at = 3 [(buf.validate.field).required = true];
+  google.protobuf.Timestamp occurred_at = 3 [
+    (buf.validate.field).required = true,
+    (buf.validate.field).cel = {
+      id: "kent.workflow_task.resolved_notification_occurrence_nonzero"
+      message: "Resolved notification occurrence must not be Go zero time"
+      expression: "this != timestamp('0001-01-01T00:00:00Z')"
+    }
+  ];
 
   option (buf.validate.message).cel = {
     id: "kent.workflow_task.resolved_notification_kind"
@@ -652,6 +713,7 @@ message AttentionNotificationEvent {
     option (buf.validate.oneof).required = true;
     AttentionNotification pending = 4;
     ResolvedAttentionNotification resolved = 5;
+    kent.api.attention.SessionNamingFailure session_naming_failure = 6;
   }
 
   option (buf.validate.message).cel = {
@@ -659,7 +721,8 @@ message AttentionNotificationEvent {
     message: "attention event type must match its payload"
     expression:
       "(this.type == 1 && has(this.pending)) || "
-      "(this.type == 2 && has(this.resolved))"
+      "(this.type == 2 && has(this.resolved)) || "
+      "(this.type == 3 && has(this.session_naming_failure))"
   };
 }
 
@@ -669,6 +732,8 @@ message AttentionNotificationStartError {
     (kent.api.shared.kent_result_field).role = RESULT_FIELD_ROLE_ERROR_CODE
   ];
   oneof detail {
+    kent.api.server.ServerNotReadyDetails server_not_ready = 3 [(kent.api.shared.kent_result_field) = {role: RESULT_FIELD_ROLE_ERROR_DETAIL error_code: "server_not_ready"}];
+    kent.api.auth.AuthRequiredDetails auth_required = 4 [(kent.api.shared.kent_result_field) = {role: RESULT_FIELD_ROLE_ERROR_DETAIL error_code: "auth_required"}];
     kent.api.shared.InternalFailureDetails internal_failure = 2 [(kent.api.shared.kent_result_field) = {
       role: RESULT_FIELD_ROLE_ERROR_DETAIL
       error_code: "internal_failure"
@@ -692,7 +757,6 @@ service AttentionReadService {
       scope_policy: SCOPE_POLICY_NONE
       direction: DIRECTION_CLIENT_TO_SERVER
       unary_connection: UNARY_CONNECTION_MULTIPLEXED
-      legacy_wire_name: "workflow.attention.list"
     };
   }
   rpc ListTask(TaskAttentionListRequest) returns (TaskAttentionListResult) {
@@ -702,7 +766,6 @@ service AttentionReadService {
       scope_policy: SCOPE_POLICY_PROJECT_VIEW
       direction: DIRECTION_CLIENT_TO_SERVER
       unary_connection: UNARY_CONNECTION_MULTIPLEXED
-      legacy_wire_name: "workflow.task.attention.list"
     };
   }
 }
@@ -716,7 +779,6 @@ service AttentionNotificationService {
       direction: DIRECTION_CLIENT_TO_SERVER
       event: {package: "kent.api.workflow_task" service: "AttentionNotificationService" method: "Event"}
       completion: {package: "kent.api.workflow_task" service: "AttentionNotificationService" method: "Complete"}
-      legacy_wire_name: "attention.notification.subscribe"
     };
   }
   rpc Event(AttentionNotificationEvent) returns (google.protobuf.Empty) {
@@ -725,7 +787,6 @@ service AttentionNotificationService {
       authentication_stage: AUTHENTICATION_STAGE_NONE
       scope_policy: SCOPE_POLICY_NOTIFICATION
       direction: DIRECTION_SERVER_TO_CLIENT
-      legacy_wire_name: "attention.notification"
     };
   }
   rpc Complete(kent.api.shared.StreamCompletion) returns (google.protobuf.Empty) {
@@ -734,7 +795,6 @@ service AttentionNotificationService {
       authentication_stage: AUTHENTICATION_STAGE_NONE
       scope_policy: SCOPE_POLICY_NOTIFICATION
       direction: DIRECTION_SERVER_TO_CLIENT
-      legacy_wire_name: "attention.notification.complete"
     };
   }
 }

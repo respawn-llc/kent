@@ -1,13 +1,11 @@
 package app
 
 import (
-	"strings"
-
 	"core/cli/app/internal/runtimeattach"
 	"core/shared/clientui"
 )
 
-const runtimeDisconnectedStatusMessage = "server disconnected"
+const runtimeDisconnectedStatusMessage = "server connection lost"
 
 func (m *uiModel) observeRuntimeRequestResult(err error) {
 	if m == nil || !m.hasRuntimeClient() {
@@ -17,7 +15,7 @@ func (m *uiModel) observeRuntimeRequestResult(err error) {
 		m.setRuntimeDisconnected(false)
 		return
 	}
-	if runtimeattach.IsRuntimeConnectionError(err) {
+	if runtimeattach.IsRuntimeConnectionError(err) || runtimeattach.IsRuntimeProtocolMismatch(err) {
 		m.setRuntimeDisconnected(true)
 		return
 	}
@@ -42,13 +40,6 @@ func enqueueRuntimeConnectionStateChange(ch chan runtimeConnectionStateChangedMs
 		return
 	}
 	coalesceLatest(ch, runtimeConnectionStateChangedMsg{err: err})
-}
-
-func enqueueRuntimeReconnectWarning(ch chan runtimeReconnectWarningMsg, text string, visibility clientui.EntryVisibility) {
-	if ch == nil || strings.TrimSpace(text) == "" {
-		return
-	}
-	coalesceLatest(ch, runtimeReconnectWarningMsg{text: strings.TrimSpace(text), visibility: visibility})
 }
 
 func coalesceLatest[T any](ch chan T, msg T) {

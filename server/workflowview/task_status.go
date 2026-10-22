@@ -5,11 +5,11 @@ import (
 	"fmt"
 
 	"core/server/metadata/sqlitegen"
-	"core/shared/serverapi"
+	taskpb "core/shared/protoapi/gen/kent/api/workflow_task"
 )
 
 type workflowTaskStatusFact struct {
-	Status serverapi.WorkflowTaskStatus
+	Status *taskpb.TaskStatus
 	Done   bool
 }
 

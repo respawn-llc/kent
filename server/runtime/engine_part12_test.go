@@ -14,78 +14,12 @@ import (
 	"testing"
 )
 
-func TestShouldCompactBeforeUserMessageUsesLocalEstimateWithProviderOverride(t *testing.T) {
-	t.Parallel()
-	store := mustCreateTestSession(t)
-
-	client := &contextWindowClient{contextWindow: 1000}
-	eng := mustNewTestEngine(t, store, client, tools.NewRegistry(), Config{
-		Model:                 "gpt-5",
-		AutoCompactTokenLimit: 950,
-		ContextWindowTokens:   1000,
-		ProviderCapabilitiesOverride: &llm.ProviderCapabilities{
-			ProviderID:                    "openai",
-			SupportsResponsesAPI:          true,
-			SupportsResponsesCompact:      true,
-			SupportsPromptCacheKey:        true,
-			SupportsNativeWebSearch:       true,
-			SupportsReasoningEncrypted:    true,
-			SupportsServerSideContextEdit: true,
-			IsOpenAIFirstParty:            true,
-		},
-		PreSubmitCompactionLeadTokens: 50,
-	})
-	if err := eng.steerRuntime(steerMessagesWithPersistenceIntent(steeringPriorityNormal, steeringMessageEventDefault, true, []llm.Message{{Role: llm.RoleUser, Content: textutil.Value(strings.Repeat("a", 3400))}})); err != nil {
-		t.Fatalf("append message: %v", err)
-	}
-
-	shouldCompact, err := eng.ShouldCompactBeforeUserMessage(context.Background(), strings.Repeat("b", 400))
-	if err != nil {
-		t.Fatalf("ShouldCompactBeforeUserMessage: %v", err)
-	}
-	if !shouldCompact {
-		t.Fatal("expected local estimate to trigger pre-submit compaction")
-	}
-}
-
-func TestShouldCompactBeforeUserMessageUsesLocalEstimateWithLockedContract(t *testing.T) {
-	t.Parallel()
-	store := mustCreateTestSession(t)
-	if err := store.MarkModelDispatchLocked(session.LockedContract{
-		Model: "gpt-5",
-		ProviderContract: session.LockedProviderCapabilities{
-			ProviderID: "openai",
-		},
-	}); err != nil {
-		t.Fatalf("MarkModelDispatchLocked: %v", err)
-	}
-
-	client := &contextWindowClient{contextWindow: 1000}
-	eng := mustNewTestEngine(t, store, client, tools.NewRegistry(), Config{
-		Model:                         "gpt-5",
-		AutoCompactTokenLimit:         950,
-		ContextWindowTokens:           1000,
-		PreSubmitCompactionLeadTokens: 50,
-	})
-	if err := eng.steerRuntime(steerMessagesWithPersistenceIntent(steeringPriorityNormal, steeringMessageEventDefault, true, []llm.Message{{Role: llm.RoleUser, Content: textutil.Value(strings.Repeat("a", 3400))}})); err != nil {
-		t.Fatalf("append message: %v", err)
-	}
-
-	shouldCompact, err := eng.ShouldCompactBeforeUserMessage(context.Background(), strings.Repeat("b", 400))
-	if err != nil {
-		t.Fatalf("ShouldCompactBeforeUserMessage: %v", err)
-	}
-	if !shouldCompact {
-		t.Fatal("expected local estimate to trigger pre-submit compaction")
-	}
-}
-
 func TestCompactionSoonReminderStaysSingleShotAfterReEnablingAutoCompactionAboveReminderBand(t *testing.T) {
 	t.Parallel()
 	store := mustCreateTestSession(t)
 
 	eng := mustNewTestEngine(t, store, &fakeClient{}, newTestToolRegistry(t, tools.HandlerRegistration{ID: toolspec.ToolExecCommand, Handler: fakeTool{name: toolspec.ToolExecCommand}}), Config{
-		Model:                 "gpt-5",
+		Model:                 "gpt-6-sol",
 		ContextWindowTokens:   2_000,
 		AutoCompactTokenLimit: 1_000,
 		CompactionMode:        "local",
@@ -93,7 +27,7 @@ func TestCompactionSoonReminderStaysSingleShotAfterReEnablingAutoCompactionAbove
 	if err := eng.steerRuntime(steerMessagesWithPersistenceIntent(steeringPriorityNormal, steeringMessageEventDefault, true, []llm.Message{{Role: llm.RoleUser, Content: textutil.Value("seed")}})); err != nil {
 		t.Fatalf("append seed message: %v", err)
 	}
-	eng.setLastUsage(llm.Usage{InputTokens: 890, WindowTokens: 2_000})
+	eng.setLastUsage(llm.Usage{InputTokens: textutil.Value(890), WindowTokens: 2_000, ContextUsage: &llm.ContextUsage{Tokens: 890, MeasurementPoint: llm.ContextMeasurementInput}})
 
 	changed, enabled, err := eng.SetAutoCompactionEnabled(t.Context(), false)
 	if err != nil {
@@ -145,14 +79,14 @@ func TestCompactionSoonReminderStaysSingleShotAfterReEnablingAutoCompactionAbove
 		t.Fatalf("expected one reminder after re-enable, got %d entries=%+v", reminders, snap.Entries)
 	}
 
-	eng.setLastUsage(llm.Usage{InputTokens: 800, WindowTokens: 2_000})
+	eng.setLastUsage(llm.Usage{InputTokens: textutil.Value(800), WindowTokens: 2_000, ContextUsage: &llm.ContextUsage{Tokens: 800, MeasurementPoint: llm.ContextMeasurementInput}})
 	resetStepID := runtimeTestStepID("step-reset")
 	if err := runTestActiveStep(eng, resetStepID, func() error {
 		return newCompactionReminderCoordinator(eng).maybeAppend(context.Background(), resetStepID)
 	}); err != nil {
 		t.Fatalf("reset reminder state: %v", err)
 	}
-	eng.setLastUsage(llm.Usage{InputTokens: 860, WindowTokens: 2_000})
+	eng.setLastUsage(llm.Usage{InputTokens: textutil.Value(860), WindowTokens: 2_000, ContextUsage: &llm.ContextUsage{Tokens: 860, MeasurementPoint: llm.ContextMeasurementInput}})
 	reissueStepID := runtimeTestStepID("step-reissue")
 	if err := runTestActiveStep(eng, reissueStepID, func() error {
 		return newCompactionReminderCoordinator(eng).maybeAppend(context.Background(), reissueStepID)
@@ -177,7 +111,7 @@ func TestReopenedSessionRestoresCompactionSoonReminderIssuedState(t *testing.T) 
 	store := mustCreateTestSession(t)
 
 	eng := mustNewTestEngine(t, store, &fakeClient{}, newTestToolRegistry(t, tools.HandlerRegistration{ID: toolspec.ToolExecCommand, Handler: fakeTool{name: toolspec.ToolExecCommand}}), Config{
-		Model:                 "gpt-5",
+		Model:                 "gpt-6-sol",
 		ContextWindowTokens:   2_000,
 		AutoCompactTokenLimit: 1_000,
 		CompactionMode:        "local",
@@ -194,12 +128,12 @@ func TestReopenedSessionRestoresCompactionSoonReminderIssuedState(t *testing.T) 
 		t.Fatalf("re-open store: %v", err)
 	}
 	restored := mustNewTestEngine(t, reopenedStore, &fakeClient{}, newTestToolRegistry(t, tools.HandlerRegistration{ID: toolspec.ToolExecCommand, Handler: fakeTool{name: toolspec.ToolExecCommand}}), Config{
-		Model:                 "gpt-5",
+		Model:                 "gpt-6-sol",
 		ContextWindowTokens:   2_000,
 		AutoCompactTokenLimit: 1_000,
 		CompactionMode:        "local",
 	})
-	restored.setLastUsage(llm.Usage{InputTokens: 890, WindowTokens: 2_000})
+	restored.setLastUsage(llm.Usage{InputTokens: textutil.Value(890), WindowTokens: 2_000, ContextUsage: &llm.ContextUsage{Tokens: 890, MeasurementPoint: llm.ContextMeasurementInput}})
 	if !restored.compactionRuntimeState().SoonReminderIssued() {
 		t.Fatal("expected reopened session to restore reminder-issued state")
 	}
@@ -219,7 +153,7 @@ func TestForkedSessionBeforeReminderDoesNotCopyReminderIssuedState(t *testing.T)
 	store := mustCreateTestSession(t)
 
 	eng := mustNewTestEngine(t, store, &fakeClient{}, newTestToolRegistry(t, tools.HandlerRegistration{ID: toolspec.ToolExecCommand, Handler: fakeTool{name: toolspec.ToolExecCommand}}), Config{
-		Model:                 "gpt-5",
+		Model:                 "gpt-6-sol",
 		ContextWindowTokens:   2_000,
 		AutoCompactTokenLimit: 1_000,
 		CompactionMode:        "local",
@@ -239,7 +173,7 @@ func TestForkedSessionBeforeReminderDoesNotCopyReminderIssuedState(t *testing.T)
 		t.Fatal("expected fork before reminder to clear reminder-issued state")
 	}
 	forked := mustNewTestEngine(t, forkedStore, &fakeClient{}, newTestToolRegistry(t, tools.HandlerRegistration{ID: toolspec.ToolExecCommand, Handler: fakeTool{name: toolspec.ToolExecCommand}}), Config{
-		Model:                 "gpt-5",
+		Model:                 "gpt-6-sol",
 		ContextWindowTokens:   2_000,
 		AutoCompactTokenLimit: 1_000,
 		CompactionMode:        "local",
@@ -247,7 +181,7 @@ func TestForkedSessionBeforeReminderDoesNotCopyReminderIssuedState(t *testing.T)
 	if err != nil {
 		t.Fatalf("restore forked engine: %v", err)
 	}
-	forked.setLastUsage(llm.Usage{InputTokens: 890, WindowTokens: 2_000})
+	forked.setLastUsage(llm.Usage{InputTokens: textutil.Value(890), WindowTokens: 2_000, ContextUsage: &llm.ContextUsage{Tokens: 890, MeasurementPoint: llm.ContextMeasurementInput}})
 	if forked.compactionRuntimeState().SoonReminderIssued() {
 		t.Fatal("expected forked session before reminder to start with cleared reminder-issued state")
 	}
@@ -266,11 +200,11 @@ func TestForkedSessionDoesNotCopyPersistedUsageState(t *testing.T) {
 	t.Parallel()
 	store := mustCreateTestSession(t)
 
-	eng := mustNewTestEngine(t, store, &fakeClient{}, newTestToolRegistry(t, tools.HandlerRegistration{ID: toolspec.ToolExecCommand, Handler: fakeTool{name: toolspec.ToolExecCommand}}), Config{Model: "gpt-5", ContextWindowTokens: 410_000})
+	eng := mustNewTestEngine(t, store, &fakeClient{}, newTestToolRegistry(t, tools.HandlerRegistration{ID: toolspec.ToolExecCommand, Handler: fakeTool{name: toolspec.ToolExecCommand}}), Config{Model: "gpt-6-sol", ContextWindowTokens: 410_000})
 	if err := eng.steerRuntime(steerMessagesWithPersistenceIntent(steeringPriorityNormal, steeringMessageEventDefault, true, []llm.Message{{Role: llm.RoleUser, Content: textutil.Value("seed")}})); err != nil {
 		t.Fatalf("append seed message: %v", err)
 	}
-	if _, err := eng.recordLastUsage(llm.Usage{InputTokens: 900, WindowTokens: 410_000}); err != nil {
+	if _, err := eng.recordLastUsage(llm.Usage{InputTokens: textutil.Value(900), WindowTokens: 410_000, ContextUsage: &llm.ContextUsage{Tokens: 900, MeasurementPoint: llm.ContextMeasurementInput}}); err != nil {
 		t.Fatalf("record last usage: %v", err)
 	}
 	if store.Meta().UsageState == nil {
@@ -291,7 +225,7 @@ func TestForkedSessionAfterReminderPreservesCompactionSoonReminderIssuedState(t 
 	store := mustCreateTestSession(t)
 
 	eng := mustNewTestEngine(t, store, &fakeClient{}, newTestToolRegistry(t, tools.HandlerRegistration{ID: toolspec.ToolExecCommand, Handler: fakeTool{name: toolspec.ToolExecCommand}}), Config{
-		Model:                 "gpt-5",
+		Model:                 "gpt-6-sol",
 		ContextWindowTokens:   2_000,
 		AutoCompactTokenLimit: 1_000,
 		CompactionMode:        "local",
@@ -335,7 +269,7 @@ func TestCompactionSoonReminderPreservesIssuedStateWhenSuppressed(t *testing.T) 
 
 			client := &contextWindowClient{contextWindow: 2_000}
 			eng := mustNewTestEngine(t, store, client, newTestToolRegistry(t, tools.HandlerRegistration{ID: toolspec.ToolExecCommand, Handler: fakeTool{name: toolspec.ToolExecCommand}}), Config{
-				Model:                 "gpt-5",
+				Model:                 "gpt-6-sol",
 				ContextWindowTokens:   2_000,
 				AutoCompactTokenLimit: 1_000,
 				CompactionMode:        tt.compactionMode,
@@ -343,7 +277,7 @@ func TestCompactionSoonReminderPreservesIssuedStateWhenSuppressed(t *testing.T) 
 			if err := eng.steerRuntime(steerMessagesWithPersistenceIntent(steeringPriorityNormal, steeringMessageEventDefault, true, []llm.Message{{Role: llm.RoleUser, Content: textutil.Value("seed")}})); err != nil {
 				t.Fatalf("append seed message: %v", err)
 			}
-			eng.setLastUsage(llm.Usage{InputTokens: 890, WindowTokens: 2_000})
+			eng.setLastUsage(llm.Usage{InputTokens: textutil.Value(890), WindowTokens: 2_000, ContextUsage: &llm.ContextUsage{Tokens: 890, MeasurementPoint: llm.ContextMeasurementInput}})
 			eng.compactionRuntimeState().SetSoonReminderIssued(true)
 
 			if tt.disableAuto {
@@ -377,17 +311,17 @@ func TestRunStepLoopSkipsCompactionSoonReminderWhenImmediateAutoCompactionRuns(t
 	client := &fakeCompactionClient{
 		responses: []llm.Response{{Assistant: llm.Message{Role: llm.RoleAssistant, Content: textutil.Value("done"), Phase: textutil.Value(llm.MessagePhaseFinal)}}},
 		compactionResponses: []llm.CompactionResponse{{
-			Checkpoint: llm.ResponseItem{
+			OutputItems: []llm.ResponseItem{llm.ResponseItem{
 				Type:             llm.ResponseItemTypeCompaction,
 				ID:               textutil.Value("cmp_1"),
 				EncryptedContent: textutil.Value("enc_1"),
-			},
-			Usage: llm.Usage{InputTokens: 100, WindowTokens: 2_000},
+			}},
+			Usage: llm.Usage{InputTokens: textutil.Value(100), WindowTokens: 2_000, ContextUsage: &llm.ContextUsage{Tokens: 100, MeasurementPoint: llm.ContextMeasurementInput}},
 		}},
 	}
 
 	eng := mustNewTestEngine(t, store, client, newTestToolRegistry(t, tools.HandlerRegistration{ID: toolspec.ToolExecCommand, Handler: fakeTool{name: toolspec.ToolExecCommand}}), Config{
-		Model:                 "gpt-5",
+		Model:                 "gpt-6-sol",
 		ContextWindowTokens:   20_000,
 		AutoCompactTokenLimit: 10_000,
 		MaxTokens:             20,
@@ -396,7 +330,7 @@ func TestRunStepLoopSkipsCompactionSoonReminderWhenImmediateAutoCompactionRuns(t
 	if err := eng.steerRuntime(steerMessagesWithPersistenceIntent(steeringPriorityNormal, steeringMessageEventDefault, true, []llm.Message{{Role: llm.RoleUser, Content: textutil.Value("seed")}})); err != nil {
 		t.Fatalf("append seed message: %v", err)
 	}
-	eng.setLastUsage(llm.Usage{InputTokens: 9_990, WindowTokens: 20_000})
+	eng.setLastUsage(llm.Usage{InputTokens: textutil.Value(9_990), WindowTokens: 20_000, ContextUsage: &llm.ContextUsage{Tokens: 9_990, MeasurementPoint: llm.ContextMeasurementInput}})
 
 	restoreStep := setTestActiveStep(eng, "step-1")
 	msg, err := eng.runStepLoop(context.Background(), runtimeTestStepID("step-1"))
@@ -431,12 +365,12 @@ func TestRunStepLoopInjectsCompactionSoonReminderBeforeFinalAnswerRequest(t *tes
 	client := &fakeCompactionClient{
 		responses: []llm.Response{{
 			Assistant: llm.Message{Role: llm.RoleAssistant, Content: textutil.Value("done"), Phase: textutil.Value(llm.MessagePhaseFinal)},
-			Usage:     llm.Usage{InputTokens: 890, WindowTokens: 2_000},
+			Usage:     llm.Usage{InputTokens: textutil.Value(890), WindowTokens: 2_000, ContextUsage: &llm.ContextUsage{Tokens: 890, MeasurementPoint: llm.ContextMeasurementInput}},
 		}},
 	}
 
 	eng := mustNewTestEngine(t, store, client, newTestToolRegistry(t, tools.HandlerRegistration{ID: toolspec.ToolExecCommand, Handler: fakeTool{name: toolspec.ToolExecCommand}}), Config{
-		Model:                 "gpt-5",
+		Model:                 "gpt-6-sol",
 		ContextWindowTokens:   2_000,
 		AutoCompactTokenLimit: 1_000,
 		CompactionMode:        "local",
@@ -444,7 +378,7 @@ func TestRunStepLoopInjectsCompactionSoonReminderBeforeFinalAnswerRequest(t *tes
 	if err := eng.steerRuntime(steerMessagesWithPersistenceIntent(steeringPriorityNormal, steeringMessageEventDefault, true, []llm.Message{{Role: llm.RoleUser, Content: textutil.Value("seed")}})); err != nil {
 		t.Fatalf("append seed message: %v", err)
 	}
-	eng.setLastUsage(llm.Usage{InputTokens: 890, WindowTokens: 2_000})
+	eng.setLastUsage(llm.Usage{InputTokens: textutil.Value(890), WindowTokens: 2_000, ContextUsage: &llm.ContextUsage{Tokens: 890, MeasurementPoint: llm.ContextMeasurementInput}})
 
 	restoreStep := setTestActiveStep(eng, "step-1")
 	msg, err := eng.runStepLoop(context.Background(), runtimeTestStepID("step-1"))
@@ -498,17 +432,17 @@ func TestRunStepLoopAppendsCompactionSoonReminderImmediatelyAfterToolOutputBound
 			{
 				Assistant: llm.Message{Role: llm.RoleAssistant, Content: textutil.Value("checking"), Phase: textutil.Value(llm.MessagePhaseCommentary)},
 				ToolCalls: []llm.ToolCall{{ID: "call_1", Name: string(toolspec.ToolExecCommand), Input: json.RawMessage(`{"command":"pwd"}`)}},
-				Usage:     llm.Usage{InputTokens: 890, WindowTokens: 2_000},
+				Usage:     llm.Usage{InputTokens: textutil.Value(890), WindowTokens: 2_000, ContextUsage: &llm.ContextUsage{Tokens: 890, MeasurementPoint: llm.ContextMeasurementInput}},
 			},
 			{
 				Assistant: llm.Message{Role: llm.RoleAssistant, Content: textutil.Value("done"), Phase: textutil.Value(llm.MessagePhaseFinal)},
-				Usage:     llm.Usage{InputTokens: 920, WindowTokens: 2_000},
+				Usage:     llm.Usage{InputTokens: textutil.Value(920), WindowTokens: 2_000, ContextUsage: &llm.ContextUsage{Tokens: 920, MeasurementPoint: llm.ContextMeasurementInput}},
 			},
 		},
 	}
 
 	eng := mustNewTestEngine(t, store, client, newTestToolRegistry(t, tools.HandlerRegistration{ID: toolspec.ToolExecCommand, Handler: fakeTool{name: toolspec.ToolExecCommand}}), Config{
-		Model:                 "gpt-5",
+		Model:                 "gpt-6-sol",
 		ContextWindowTokens:   2_000,
 		AutoCompactTokenLimit: 1_000,
 		CompactionMode:        "local",

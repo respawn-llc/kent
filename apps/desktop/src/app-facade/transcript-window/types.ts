@@ -1,6 +1,6 @@
 import type { ChatTranscriptPage, ChatTranscriptPayloadByKind, ContractError } from "@/api";
 
-import type { TranscriptRenderItem } from "./renderSlots";
+import type { TranscriptProvisionalItem, TranscriptRenderItem } from "./renderSlots";
 
 export type CommittedRow = ChatTranscriptPayloadByKind["committed_row"];
 export type Hydration = ChatTranscriptPayloadByKind["hydration"];
@@ -60,6 +60,7 @@ export type TranscriptWindowSnapshot = Readonly<{
   showsLive: boolean;
   thinkingStatus: ThinkingStatusPresentation | null;
   items: readonly TranscriptRenderItem[];
+  activeAssistant: Extract<TranscriptProvisionalItem, { kind: "assistant" }> | null;
   older: TranscriptBoundary;
   newer: TranscriptBoundary;
   opening: Readonly<{ kind: "loading" | "ready" | "disposed" }> | Readonly<{ kind: "error"; error: Error }>;

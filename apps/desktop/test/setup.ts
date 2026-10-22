@@ -1,40 +1,48 @@
-import "@testing-library/jest-dom/vitest";
-import { vi } from "vitest";
+import { GlobalRegistrator } from "@happy-dom/global-registrator";
+import { afterEach, expect, vi } from "bun:test";
 
-if (typeof window !== "undefined") {
-  Object.defineProperty(window, "scrollTo", { configurable: true, value: vi.fn() });
-}
+GlobalRegistrator.register({ url: "http://localhost:1420/" });
 
-// jsdom has no layout engine. Supply a viewport and row geometry so the real
+const { cleanup } = await import("@testing-library/react");
+const { default: matcherExports, ...matchers } = await import("@testing-library/jest-dom/matchers");
+void matcherExports;
+expect.extend(matchers);
+afterEach(() => {
+  cleanup();
+  document.body.innerHTML = "";
+});
+
+Object.defineProperty(window, "scrollTo", { configurable: true, value: vi.fn() });
+
+// Happy DOM has no layout engine. Supply a viewport and row geometry so the real
 // virtualizer owns ranges in component tests too. Geometry-specific tests
 // override these configurable getters with their own measurements.
-if (typeof HTMLElement !== "undefined")
-  Object.defineProperties(HTMLElement.prototype, {
-    offsetHeight: {
-      configurable: true,
-      get(this: HTMLElement) {
-        return this.hasAttribute("data-index") ? 40 : 600;
-      },
+Object.defineProperties(HTMLElement.prototype, {
+  offsetHeight: {
+    configurable: true,
+    get(this: HTMLElement) {
+      return this.hasAttribute("data-index") ? 40 : 600;
     },
-    offsetWidth: {
-      configurable: true,
-      get(this: HTMLElement) {
-        return this.hasAttribute("data-index") ? 160 : 800;
-      },
+  },
+  offsetWidth: {
+    configurable: true,
+    get(this: HTMLElement) {
+      return this.hasAttribute("data-index") ? 160 : 800;
     },
-  });
+  },
+});
 
 class TestResizeObserver implements ResizeObserver {
   disconnect(): void {
-    // jsdom has no layout engine; component tests only need the observer API to exist.
+    // The component tests only need the observer API to exist.
   }
 
   observe(): void {
-    // jsdom has no layout engine; component tests only need the observer API to exist.
+    // The component tests only need the observer API to exist.
   }
 
   unobserve(): void {
-    // jsdom has no layout engine; component tests only need the observer API to exist.
+    // The component tests only need the observer API to exist.
   }
 }
 

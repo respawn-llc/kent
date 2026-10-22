@@ -1,6 +1,7 @@
-import type { AttentionNotificationEventHandler } from "./attentionNotifications";
-import { attentionNotificationRpcHandler } from "./attentionNotificationSubscription";
-import { create, operationName } from "@app/server-api-contract";
+import type { AttentionNotificationLifecycle } from "./attentionNotifications";
+import type * as Stream from "effect/Stream";
+import { attentionNotifications } from "./attentionNotificationSubscription";
+import { create } from "@app/server-api-contract";
 import {
   ReadinessSeverity,
   ServerService,
@@ -11,7 +12,7 @@ import type { ChatApi } from "./chat";
 import type { ChatSessionTarget } from "./chatTypes";
 import { createChatApi } from "./chat";
 import { listSessionPage as listSessionCatalogPage } from "./clientCatalog";
-import { parseRpcResponse as parse } from "./clientParse";
+import * as attention from "./clientAttention";
 import * as taskLifecycle from "./clientTaskLifecycle";
 import * as taskDependencies from "./clientTaskDependencies";
 import * as taskDetail from "./clientTaskDetail";
@@ -44,7 +45,6 @@ import type {
   WorkflowListInput,
   WorkflowProjectLinkInput,
 } from "./clientInputs";
-import { compactJsonObject, emptyJsonObject } from "./json";
 import type { SetupOperationID } from "./setupOperationID";
 import type * as worktreeModels from "./schemas/worktree";
 import { subscribeWorktreeSetup, type WorktreeSetupEventHandler } from "./worktreeSetup";
@@ -93,23 +93,22 @@ import type {
 import type { BoardFilter } from "./workflowBoardFilters";
 import { ContractError } from "./errors";
 import { requireUnarySuccess } from "./protobufRpc";
-import { workflowIDSchema } from "./schemas/workflowID";
-import { attentionPageSchema, taskUpdateResponseSchema } from "./schemas/workflowBoard";
-import type { DescriptorRpcTransport } from "./transport";
+import type { RpcTransport } from "./transport";
 import type { WorkflowProjectEventHandler } from "./workflowProjectEvents";
 import type { TaskSearchInput, TaskSearchResponse } from "./taskSearch";
-import { workflowProjectEventRpcHandler } from "./workflowProjectEvents";
+import { subscribeWorkflow } from "./workflowProjectEvents";
 import { projectEvents, type ProjectOverflowReporter } from "./projectEvents";
 import * as workflowBoard from "./clientWorkflowBoard";
 import * as workflowLabels from "./clientWorkflowLabels";
+import * as subscriptionUsage from "./clientSubscriptionUsage";
 
 export const guiTaskCommentAuthor = "user";
 
 export class ApiClient implements ApiService {
-  readonly #transport: DescriptorRpcTransport;
+  readonly #transport: RpcTransport;
 
   constructor(
-    transport: DescriptorRpcTransport,
+    transport: RpcTransport,
     private readonly reportProjectOverflow: ProjectOverflowReporter,
   ) {
     this.#transport = transport;
@@ -117,8 +116,13 @@ export class ApiClient implements ApiService {
   }
 
   readonly chat: ChatApi;
+  getSubscriptionConnections = async () => subscriptionUsage.getSubscriptionConnections(this.#transport);
+  getSubscriptionBinding = async (sessionID: string) =>
+    subscriptionUsage.getSubscriptionBinding(this.#transport, sessionID);
+  getSubscriptionUsage = async (connectionID: string) =>
+    subscriptionUsage.getSubscriptionUsage(this.#transport, connectionID);
 
-  listProcesses = async (target: ChatSessionTarget) => processes.listProcesses(this.#transport, target);
+  observeProcesses = (target: ChatSessionTarget) => processes.observeProcesses(this.#transport, target);
   killProcess = async (processID: string) => processes.killProcess(this.#transport, processID);
 
   async getReadiness(): Promise<ServerReadiness> {
@@ -127,9 +131,6 @@ export class ApiClient implements ApiService {
       method,
       await this.#transport.callDescriptor(method, create(method.input)),
     );
-    if (success.readiness === undefined) {
-      throw new ContractError(`${operationName(method)} response did not match GUI contract.`);
-    }
     return projectReadiness(success.readiness);
   }
 
@@ -272,22 +273,12 @@ export class ApiClient implements ApiService {
     return workflowBoard.listBoardNodeCards(this.#transport, input);
   }
 
-  async listAttention(pageToken: string): Promise<AttentionPage> {
-    return parse(
-      "workflow.attention.list",
-      attentionPageSchema,
-      await this.#transport.call(
-        "workflow.attention.list",
-        compactJsonObject({
-          page_size: 40,
-          page_token: pageToken,
-        }),
-      ),
-    );
+  async listAttention(pageToken: string | null): Promise<AttentionPage> {
+    return attention.listAttention(this.#transport, pageToken);
   }
 
   async listTaskAttention(taskID: string): Promise<TaskAttention> {
-    return taskDetail.listTaskAttention(this.#transport, taskID);
+    return attention.listTaskAttention(this.#transport, taskID);
   }
 
   async createTask(input: TaskMutationInput): Promise<CreatedTaskSummary> {
@@ -328,20 +319,7 @@ export class ApiClient implements ApiService {
   }
 
   async updateTask(input: TaskEditInput): Promise<string> {
-    const response = parse(
-      "workflow.task.update",
-      taskUpdateResponseSchema,
-      await this.#transport.call(
-        "workflow.task.update",
-        compactJsonObject({
-          task_id: input.taskID,
-          title: input.title,
-          body: input.body,
-          source_workspace_id: input.sourceWorkspaceID,
-        }),
-      ),
-    );
-    return response.task.id;
+    return taskLifecycle.updateTask(this.#transport, input);
   }
 
   async startTask(input: TaskStartInput): Promise<TaskStartResponse> {
@@ -357,10 +335,7 @@ export class ApiClient implements ApiService {
   }
 
   async interruptTask(taskID: string, sessionID?: string): Promise<void> {
-    await this.#transport.call(
-      "workflow.task.interrupt",
-      compactJsonObject({ task_id: taskID, session_id: sessionID }),
-    );
+    await taskLifecycle.interruptTask(this.#transport, taskID, sessionID);
   }
 
   async resumeTask(input: TaskResumeInput): Promise<TaskResumeResponse> {
@@ -372,7 +347,7 @@ export class ApiClient implements ApiService {
   }
 
   async deleteTask(taskID: string): Promise<void> {
-    await this.#transport.call("workflow.task.delete", { task_id: taskID });
+    await taskLifecycle.deleteTask(this.#transport, taskID);
   }
 
   async getTask(taskID: string): Promise<TaskDetail> {
@@ -392,11 +367,11 @@ export class ApiClient implements ApiService {
   }
 
   async replaceComment(commentID: string, body: string): Promise<void> {
-    await this.#transport.call("workflow.task.comment.replace", { comment_id: commentID, body });
+    await taskDetail.replaceComment(this.#transport, commentID, body);
   }
 
   async deleteComment(commentID: string): Promise<void> {
-    await this.#transport.call("workflow.task.comment.delete", { comment_id: commentID });
+    await taskDetail.deleteComment(this.#transport, commentID);
   }
 
   async answerPromptBatch(input: PromptAnswerBatchInput): Promise<PromptAnswerBatchResponse> {
@@ -416,19 +391,13 @@ export class ApiClient implements ApiService {
   }
 
   subscribeWorkflow(workflowID: string, handler: WorkflowProjectEventHandler): ApiSubscription {
-    return this.#transport.subscribe(
-      "workflow.subscribe",
-      { workflow_id: workflowIDSchema.parse(workflowID) },
-      workflowProjectEventRpcHandler("workflow.event", handler),
-    );
+    return subscribeWorkflow(this.#transport, workflowID, handler);
   }
 
-  subscribeAttentionNotifications(handler: AttentionNotificationEventHandler): ApiSubscription {
-    return this.#transport.subscribe(
-      "attention.notification.subscribe",
-      emptyJsonObject,
-      attentionNotificationRpcHandler(handler),
-    );
+  subscribeAttentionNotifications(
+    reportOverflow: () => Promise<void>,
+  ): Stream.Stream<AttentionNotificationLifecycle> {
+    return attentionNotifications(this.#transport, reportOverflow);
   }
 
   getWorktreeStatus = async (sessionID: string) => worktree.getWorktreeStatus(this.#transport, sessionID);
@@ -458,8 +427,6 @@ function projectReadiness(readiness: Readiness): ServerReadiness {
     serverID: readiness.serverId,
     serverVersion: readiness.serverVersion,
     protocolVersion: readiness.protocolVersion,
-    authReady: readiness.authReady,
-    authRequired: readiness.authRequired,
     endpoint: readiness.endpoint,
     subagentRoles: readiness.subagentRoles.map((role) => ({ name: role.name })),
     causes: readiness.causes.map((cause) => ({

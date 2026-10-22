@@ -17,14 +17,14 @@ func messageContent(message Message) string {
 }
 
 func TestRequestValidateRejectsMissingToolChoiceMode(t *testing.T) {
-	err := (Request{Model: "gpt-5"}).Validate()
+	err := (Request{Model: "gpt-6-sol", ReasoningEffort: "high"}).Validate()
 	if !errors.Is(err, ErrInvalidRequest) {
 		t.Fatalf("Validate() error = %v, want ErrInvalidRequest", err)
 	}
 }
 
 func TestRequestValidateRejectsUnknownToolChoiceMode(t *testing.T) {
-	err := (Request{Model: "gpt-5", ToolChoiceMode: ToolChoiceMode("sometimes")}).Validate()
+	err := (Request{Model: "gpt-6-sol", ToolChoiceMode: ToolChoiceMode("sometimes"), ReasoningEffort: "high"}).Validate()
 	if !errors.Is(err, ErrInvalidRequest) {
 		t.Fatalf("Validate() error = %v, want ErrInvalidRequest", err)
 	}
@@ -32,9 +32,9 @@ func TestRequestValidateRejectsUnknownToolChoiceMode(t *testing.T) {
 
 func TestRequestValidateAcceptsRequiredToolChoiceWithLocalTool(t *testing.T) {
 	err := (Request{
-		Model:          "gpt-5",
+		Model:          "gpt-6-sol",
 		ToolChoiceMode: ToolChoiceModeRequired,
-		Tools:          []Tool{{Name: "shell", Schema: mustTestFunctionSchema(t, struct{}{})}},
+		Tools:          []Tool{{Name: "shell", Schema: mustTestFunctionSchema(t, struct{}{})}}, ReasoningEffort: "high",
 	}).Validate()
 	if err != nil {
 		t.Fatalf("Validate() error = %v", err)
@@ -43,9 +43,9 @@ func TestRequestValidateAcceptsRequiredToolChoiceWithLocalTool(t *testing.T) {
 
 func TestRequestValidateRejectsUnpreparedFunctionSchema(t *testing.T) {
 	err := (Request{
-		Model:          "gpt-5",
+		Model:          "gpt-6-sol",
 		ToolChoiceMode: ToolChoiceModeAutomatic,
-		Tools:          []Tool{{Name: "shell"}},
+		Tools:          []Tool{{Name: "shell"}}, ReasoningEffort: "high",
 	}).Validate()
 	if !errors.Is(err, ErrInvalidRequest) {
 		t.Fatalf("Validate() error = %v, want ErrInvalidRequest", err)
@@ -54,9 +54,9 @@ func TestRequestValidateRejectsUnpreparedFunctionSchema(t *testing.T) {
 
 func TestRequestValidateRejectsUnpreparedStructuredOutputSchema(t *testing.T) {
 	err := (Request{
-		Model:            "gpt-5",
+		Model:            "gpt-6-sol",
 		ToolChoiceMode:   ToolChoiceModeAutomatic,
-		StructuredOutput: &StructuredOutput{Name: "reviewer_suggestions"},
+		StructuredOutput: &StructuredOutput{Name: "reviewer_suggestions"}, ReasoningEffort: "high",
 	}).Validate()
 	if !errors.Is(err, ErrInvalidRequest) {
 		t.Fatalf("Validate() error = %v, want ErrInvalidRequest", err)
@@ -65,9 +65,9 @@ func TestRequestValidateRejectsUnpreparedStructuredOutputSchema(t *testing.T) {
 
 func TestRequestValidateAcceptsRequiredToolChoiceWithHostedWebSearchOnly(t *testing.T) {
 	err := (Request{
-		Model:                 "gpt-5",
+		Model:                 "gpt-6-sol",
 		ToolChoiceMode:        ToolChoiceModeRequired,
-		EnableNativeWebSearch: true,
+		EnableNativeWebSearch: true, ReasoningEffort: "high",
 	}).Validate()
 	if err != nil {
 		t.Fatalf("Validate() error = %v", err)
@@ -75,7 +75,7 @@ func TestRequestValidateAcceptsRequiredToolChoiceWithHostedWebSearchOnly(t *test
 }
 
 func TestRequestValidateRejectsRequiredToolChoiceWithoutAdvertisedTools(t *testing.T) {
-	err := (Request{Model: "gpt-5", ToolChoiceMode: ToolChoiceModeRequired}).Validate()
+	err := (Request{Model: "gpt-6-sol", ToolChoiceMode: ToolChoiceModeRequired, ReasoningEffort: "high"}).Validate()
 	if !errors.Is(err, ErrInvalidRequest) {
 		t.Fatalf("Validate() error = %v, want ErrInvalidRequest", err)
 	}
@@ -83,7 +83,7 @@ func TestRequestValidateRejectsRequiredToolChoiceWithoutAdvertisedTools(t *testi
 
 func TestRequestFromLockedContract_UsesBinaryPromptAndExplicitTools(t *testing.T) {
 	locked := session.LockedContract{
-		Model:          "gpt-5",
+		Model:          "gpt-6-sol",
 		Temperature:    1,
 		MaxOutputToken: 0,
 	}
@@ -109,7 +109,7 @@ func TestRequestFromLockedContract_UsesBinaryPromptAndExplicitTools(t *testing.T
 
 func TestRequestFromLockedContract_RespectsExplicitToolDisable(t *testing.T) {
 	locked := session.LockedContract{
-		Model:          "gpt-5",
+		Model:          "gpt-6-sol",
 		Temperature:    1,
 		MaxOutputToken: 0,
 	}
@@ -123,7 +123,7 @@ func TestRequestFromLockedContract_RespectsExplicitToolDisable(t *testing.T) {
 }
 
 func TestRequestFromLockedContractValidatesHostedToolsAfterControlsAreApplied(t *testing.T) {
-	locked := session.LockedContract{Model: "gpt-5"}
+	locked := session.LockedContract{Model: "gpt-6-sol"}
 	req, err := RequestFromLockedContract(locked, "sys", nil, nil, ToolControls{
 		ChoiceMode:            ToolChoiceModeRequired,
 		EnableNativeWebSearch: true,
@@ -392,7 +392,7 @@ func TestPreparedOpenAIItemKeepsWorktreeContextOutOfProviderPayload(t *testing.T
 }
 
 func TestUsageCacheHitPercent(t *testing.T) {
-	usage := Usage{InputTokens: 200, CachedInputTokens: textutil.Value(50)}
+	usage := Usage{InputTokens: textutil.Value(200), CachedInputTokens: textutil.Value(50)}
 	pct, ok := usage.CacheHitPercent()
 	if !ok {
 		t.Fatal("expected cache hit percentage to be available")
@@ -401,7 +401,7 @@ func TestUsageCacheHitPercent(t *testing.T) {
 		t.Fatalf("cache hit percent=%d, want 25", pct)
 	}
 
-	unknown := Usage{InputTokens: 200}
+	unknown := Usage{InputTokens: textutil.Value(200)}
 	if pct, ok := unknown.CacheHitPercent(); ok || pct != 0 {
 		t.Fatalf("expected unknown cache hit percentage, got pct=%d ok=%t", pct, ok)
 	}

@@ -1,5 +1,7 @@
 import { act, fireEvent, render, renderHook, screen, within } from "@testing-library/react";
 import { StrictMode, useEffect, useLayoutEffect, useState, type ReactNode } from "react";
+import { RegistryProvider } from "@effect/atom-react";
+import { describe, expect, it, vi } from "bun:test";
 
 import {
   useSidebarRoots,
@@ -20,24 +22,80 @@ const policy: SidebarDestinationPolicy = {
   retainedState: (_destination, state) => state,
 };
 
-function destination(title: string): SidebarDestination {
-  return { kind: "custom", title, content: null };
+const emptyContent = () => null;
+
+it.each([
+  [640, false],
+  [1100, false],
+  [640, true],
+  [1100, true],
+] as const)("chooses contextual presentation from the %ipx owner pane (nested: %s)", (width, nested) => {
+  const pane = document.createElement("section");
+  const container = document.createElement("main");
+  container.append(pane);
+  if (nested) pane.setAttribute("data-sidebar-protected-main", "");
+  const mainPaneRef = { current: nested ? container : pane };
+  const measure = vi.spyOn(pane, "getBoundingClientRect").mockReturnValue(new DOMRect(0, 0, width, 600));
+  function adaptiveWrapper({ children }: Readonly<{ children: ReactNode }>) {
+    return (
+      <RegistryProvider>
+        <SidebarProvider policy={policy} mainPaneRef={mainPaneRef}>
+          {children}
+        </SidebarProvider>
+      </RegistryProvider>
+    );
+  }
+  const { result } = renderHook(() => ({ roots: useSidebarRoots(), shell: useSidebarShell() }), {
+    wrapper: adaptiveWrapper,
+  });
+  act(() => {
+    result.current.roots.open({ ...destination("Goal"), sizing: { desiredWidthPx: 560, minWidthPx: 400 } });
+  });
+  const mode = width < 968 ? "overlay" : "shift";
+  expect(result.current.shell.activeDestination?.mode).toBe(mode);
+  measure.mockReturnValue(new DOMRect(0, 0, 420, 600));
+  act(() => {
+    result.current.roots.open(destination("Processes"));
+  });
+  expect(result.current.shell.activeDestination?.mode).toBe(mode);
+  vi.useFakeTimers();
+  act(() => {
+    result.current.shell.close();
+    vi.runAllTimers();
+    result.current.roots.open(destination("Reopened"));
+  });
+  vi.useRealTimers();
+  expect(result.current.shell.activeDestination?.mode).toBe("overlay");
+});
+
+function destination(title: string): Extract<SidebarDestination, { kind: "custom" }> {
+  return { kind: "custom", title, content: emptyContent };
 }
 
 function wrapper({ children }: Readonly<{ children: ReactNode }>) {
-  return <SidebarProvider policy={policy}>{children}</SidebarProvider>;
+  return (
+    <RegistryProvider>
+      <SidebarProvider policy={policy}>{children}</SidebarProvider>
+    </RegistryProvider>
+  );
 }
 
 function strictWrapper({ children }: Readonly<{ children: ReactNode }>) {
   return (
     <StrictMode>
-      <SidebarProvider policy={policy}>{children}</SidebarProvider>
+      <RegistryProvider>
+        <SidebarProvider policy={policy}>{children}</SidebarProvider>
+      </RegistryProvider>
     </StrictMode>
   );
 }
 
 function productionWrapper({ children }: Readonly<{ children: ReactNode }>) {
-  return <SidebarProvider policy={sidebarDestinationPolicy}>{children}</SidebarProvider>;
+  return (
+    <RegistryProvider>
+      <SidebarProvider policy={sidebarDestinationPolicy}>{children}</SidebarProvider>
+    </RegistryProvider>
+  );
 }
 
 const newTaskDestination = {
@@ -88,7 +146,7 @@ function ShellHarness() {
     const root = roots.open({
       kind: "custom",
       title: "A",
-      content: <div data-testid="page-a" />,
+      content: () => <div data-testid="page-a" />,
     });
     return root.release;
   }, [roots]);
@@ -116,7 +174,7 @@ function ShellHarness() {
           page?.navigator.push({
             kind: "custom",
             title: "B",
-            content: <div data-testid="page-b" />,
+            content: () => <div data-testid="page-b" />,
           });
         }}
         type="button"
@@ -134,6 +192,53 @@ function ShellHarness() {
 }
 
 describe("SidebarProvider stack", () => {
+  it("toggles the current Worktree root and replaces other roots without history", () => {
+    const { result } = renderHook(useHarness, { wrapper: productionWrapper });
+    const worktree = {
+      kind: "worktree",
+      projectID: "project-1",
+      sessionID: "session-1",
+      page: "list",
+      openSession: vi.fn(),
+    } as const;
+    act(() => {
+      result.current.roots.open(worktree);
+    });
+    act(() => {
+      expect(result.current.roots.toggle({ ...worktree })).toBeNull();
+    });
+    expect(result.current.shell.phase).toBe("closing");
+    act(() => {
+      result.current.roots.toggle(worktree);
+    });
+    expect(result.current.shell.phase).toBe("open");
+    act(() => {
+      result.current.roots.toggle({ kind: "processes", projectID: "project-1", sessionID: "session-1" });
+    });
+    expect(result.current.shell.activeDestination?.kind).toBe("processes");
+    expect(result.current.shell.canGoBack).toBe(false);
+  });
+
+  it("toggles a custom root by identity and respects its close availability", () => {
+    const { result } = renderHook(useHarness, { wrapper: productionWrapper });
+    const goal = { kind: "custom", title: "Goal", content: emptyContent, identity: Symbol("goal") } as const;
+    act(() => {
+      result.current.roots.toggle(goal);
+    });
+    const page = requireNavigator(result.current);
+    let unregister: (() => void) | undefined;
+    act(() => {
+      unregister = page.registerAvailability({ back: true, close: false });
+      expect(result.current.roots.toggle({ ...goal, content: () => null })).toBeNull();
+    });
+    expect(result.current.shell.phase).toBe("open");
+    act(() => {
+      unregister?.();
+      expect(result.current.roots.toggle({ ...goal, content: () => null })).toBeNull();
+    });
+    expect(result.current.shell.phase).toBe("closing");
+  });
+
   it("pushes, restores snapshots, truncates a matching branch, replaces, and goes Back", async () => {
     const { result } = renderHook(useHarness, { wrapper });
     let lifecycle: Promise<unknown> | undefined;
@@ -152,7 +257,7 @@ describe("SidebarProvider stack", () => {
       expect(a.back()).toBe("stale");
     });
     expect(captured).toEqual(["A"]);
-    expect(result.current.shell.activeDestination).toEqual(destination("B"));
+    expect(result.current.shell.activeDestination).toMatchObject(destination("B"));
 
     const b = requireNavigator(result.current);
     act(() => {
@@ -163,7 +268,7 @@ describe("SidebarProvider stack", () => {
     act(() => {
       expect(c.push(destination("A"))).toBe("accepted");
     });
-    expect(result.current.shell.activeDestination).toEqual(destination("A"));
+    expect(result.current.shell.activeDestination).toMatchObject(destination("A"));
     expect(result.current.page?.retainedState).toEqual({ draft: "a" });
 
     const restoredA = requireNavigator(result.current);
@@ -175,7 +280,7 @@ describe("SidebarProvider stack", () => {
       expect(d.back()).toBe("accepted");
     });
     expect(result.current.shell.phase).toBe("closing");
-    await expect(lifecycle).resolves.toBe("closed");
+    expect(lifecycle).resolves.toBe("closed");
   });
 
   it("rejects append Push without capture while leaving the page capability active", () => {
@@ -189,7 +294,7 @@ describe("SidebarProvider stack", () => {
       expect(navigator.push(destination("B"))).toBe("unavailable");
       expect(navigator.back()).toBe("accepted");
     });
-    expect(result.current.shell.activeDestination).toEqual(destination("A"));
+    expect(result.current.shell.activeDestination).toMatchObject(destination("A"));
     expect(result.current.shell.phase).toBe("closing");
   });
 
@@ -207,7 +312,7 @@ describe("SidebarProvider stack", () => {
       expect(a.close()).toBe("stale");
     });
     expect(capture).not.toHaveBeenCalled();
-    expect(result.current.shell.activeDestination).toEqual(destination("B"));
+    expect(result.current.shell.activeDestination).toMatchObject(destination("B"));
 
     const b = requireNavigator(result.current);
     act(() => {
@@ -216,7 +321,7 @@ describe("SidebarProvider stack", () => {
       expect(b.back()).toBe("stale");
     });
     expect(capture).not.toHaveBeenCalled();
-    expect(result.current.shell.activeDestination).toEqual(destination("C"));
+    expect(result.current.shell.activeDestination).toMatchObject(destination("C"));
   });
 
   it("keeps the root and the newest non-root pages within the 50-entry limit", () => {
@@ -245,7 +350,7 @@ describe("SidebarProvider stack", () => {
     }
     expect(visited).toHaveLength(49);
     expect(visited).not.toContain("1");
-    expect(result.current.shell.activeDestination).toEqual(destination("0"));
+    expect(result.current.shell.activeDestination).toMatchObject(destination("0"));
   });
 
   it("keeps a replayed current-page registration usable without reactivating stale pages", () => {
@@ -263,7 +368,7 @@ describe("SidebarProvider stack", () => {
       expect(a.back()).toBe("stale");
       expect(requireNavigator(result.current).back()).toBe("accepted");
     });
-    expect(result.current.shell.activeDestination).toEqual(destination("A"));
+    expect(result.current.shell.activeDestination).toMatchObject(destination("A"));
   });
 
   it("settles only the owning root for replacement, release, close, and provider teardown", async () => {
@@ -280,13 +385,13 @@ describe("SidebarProvider stack", () => {
       staleClose = oldPage.close();
       firstRoot?.release();
     });
-    await expect(firstRoot?.lifecycle).resolves.toBe("replaced");
+    expect(firstRoot?.lifecycle).resolves.toBe("replaced");
     expect(staleClose).toBe("stale");
-    expect(view.result.current.shell.activeDestination).toEqual(destination("B"));
+    expect(view.result.current.shell.activeDestination).toMatchObject(destination("B"));
     act(() => {
       secondRoot?.release();
     });
-    await expect(secondRoot?.lifecycle).resolves.toBe("released");
+    expect(secondRoot?.lifecycle).resolves.toBe("released");
     expect(view.result.current.shell.activeDestination).toBeNull();
 
     let teardownRoot: ReturnType<typeof view.result.current.roots.open> | undefined;
@@ -295,7 +400,7 @@ describe("SidebarProvider stack", () => {
     });
     const teardownPage = requireNavigator(view.result.current);
     view.unmount();
-    await expect(teardownRoot?.lifecycle).resolves.toBe("released");
+    expect(teardownRoot?.lifecycle).resolves.toBe("released");
     expect(teardownPage.close()).toBe("stale");
     teardownRoot?.release();
   });
@@ -334,7 +439,7 @@ describe("SidebarProvider stack", () => {
       expect(a.push(destination("B"))).toBe("accepted");
     });
     expect(firstCapture).not.toHaveBeenCalled();
-    expect(secondCapture).toHaveBeenCalledOnce();
+    expect(secondCapture).toHaveBeenCalledTimes(1);
 
     const b = requireNavigator(result.current);
     let detachAvailability: (() => void) | undefined;
@@ -394,7 +499,7 @@ describe("SidebarProvider stack", () => {
         "accepted",
       );
     });
-    expect(capture).toHaveBeenCalledOnce();
+    expect(capture).toHaveBeenCalledTimes(1);
     act(() => {
       expect(requireNavigator(result.current).back()).toBe("accepted");
     });
@@ -408,7 +513,10 @@ describe("SidebarProvider stack", () => {
       );
     });
     expect(discardedCapture).not.toHaveBeenCalled();
-    expect(result.current.shell.activeDestination).toEqual({ kind: "taskDetail", taskID: "task-origin" });
+    expect(result.current.shell.activeDestination).toMatchObject({
+      kind: "taskDetail",
+      taskID: "task-origin",
+    });
     expect(result.current.shell.canGoBack).toBe(false);
   });
 
@@ -426,7 +534,7 @@ describe("SidebarProvider stack", () => {
         a.push({
           kind: "custom",
           title: "Wide",
-          content: null,
+          content: () => null,
           sizing: { desiredWidthPx: 700, minWidthPx: 400 },
         }),
       ).toBe("accepted");
@@ -441,7 +549,7 @@ describe("SidebarProvider stack", () => {
       expect(requireNavigator(result.current).close()).toBe("accepted");
     });
     expect(result.current.shell.phase).toBe("closing");
-    expect(result.current.shell.activeDestination).toEqual(destination("A"));
+    expect(result.current.shell.activeDestination).toMatchObject(destination("A"));
     act(() => {
       vi.runAllTimers();
     });
@@ -451,9 +559,11 @@ describe("SidebarProvider stack", () => {
 
   it("renders X before Back, hides root Back, and mounts only the current page", () => {
     render(
-      <SidebarProvider policy={policy}>
-        <ShellHarness />
-      </SidebarProvider>,
+      <RegistryProvider>
+        <SidebarProvider policy={policy}>
+          <ShellHarness />
+        </SidebarProvider>
+      </RegistryProvider>,
     );
     const headerButtons = () =>
       within(screen.getByTestId("app-sidebar-leading-controls")).getAllByRole("button");

@@ -59,7 +59,8 @@ type WorktreeRecord struct {
 
 type WorktreeSessionBlocker struct {
 	SessionID   string
-	SessionName string
+	ShortID     *runtimeids.SessionShortID
+	SessionName *string
 	UpdatedAt   time.Time
 }
 
@@ -80,6 +81,7 @@ type Store struct {
 }
 
 type sessionMetadataDocument struct {
+	WorkflowSnapshot                *session.WorkflowSnapshot              `json:"workflow_snapshot,omitempty"`
 	ConnectionID                    *config.ConnectionID                   `json:"connection_id"`
 	WorkspaceRoot                   string                                 `json:"workspace_root"`
 	WorkspaceContainer              string                                 `json:"workspace_container"`
@@ -207,7 +209,23 @@ func Open(persistenceRoot string) (*Store, error) {
 	if trimmedRoot == "" {
 		return nil, errors.New("persistence root is required")
 	}
-	return OpenAtPath(trimmedRoot, filepath.Join(trimmedRoot, "db", "main.sqlite3"))
+	return OpenAtPath(trimmedRoot, databasePath(trimmedRoot))
+}
+
+func databasePath(persistenceRoot string) string {
+	return filepath.Join(persistenceRoot, "db", "main.sqlite3")
+}
+
+func DatabaseExists(persistenceRoot string) (bool, error) {
+	root := strings.TrimSpace(persistenceRoot)
+	if root == "" {
+		return false, errors.New("persistence root is required")
+	}
+	_, err := os.Stat(databasePath(root))
+	if errors.Is(err, os.ErrNotExist) {
+		return false, nil
+	}
+	return err == nil, err
 }
 
 func OpenAtPath(persistenceRoot string, databasePath string) (*Store, error) {
@@ -223,6 +241,24 @@ func OpenAtPath(persistenceRoot string, databasePath string) (*Store, error) {
 	if err != nil {
 		return nil, err
 	}
+	store, err := NewStore(trimmedRoot, db)
+	if err != nil {
+		_ = db.Close()
+	}
+	return store, err
+}
+
+// NewStore takes ownership of an initialized metadata database on success.
+func NewStore(persistenceRoot string, db *sql.DB) (*Store, error) {
+	trimmedRoot := strings.TrimSpace(persistenceRoot)
+	if trimmedRoot == "" {
+		return nil, errors.New("persistence root is required")
+	}
+	if db == nil {
+		return nil, errors.New("metadata database is required")
+	}
+	db.SetMaxOpenConns(sqlitegen.ConnectionPoolSize)
+	db.SetMaxIdleConns(sqlitegen.ConnectionPoolSize)
 	store := &Store{
 		persistenceRoot:  trimmedRoot,
 		db:               db,
@@ -230,7 +266,6 @@ func OpenAtPath(persistenceRoot string, databasePath string) (*Store, error) {
 		goalObservations: newGoalObservationBroker(),
 	}
 	if err := store.BackfillProjectKeys(context.Background()); err != nil {
-		_ = db.Close()
 		return nil, err
 	}
 	return store, nil
@@ -330,13 +365,7 @@ func (s *Store) ResolveProjectWorkspaceSelector(ctx context.Context, projectID s
 	if s == nil || s.queries == nil {
 		return Binding{}, errors.New("metadata store is required")
 	}
-	if err := selector.Validate(); err != nil {
-		return Binding{}, err
-	}
 	trimmedProjectID := strings.TrimSpace(projectID)
-	if trimmedProjectID == "" {
-		return Binding{}, errors.New("project id is required")
-	}
 	if _, err := s.queries.GetProjectDisplayName(ctx, trimmedProjectID); err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
 			return Binding{}, fmt.Errorf("%w: %q", serverapi.ErrProjectNotFound, trimmedProjectID)
@@ -354,9 +383,6 @@ func (s *Store) ResolveProjectWorkspaceSelector(ctx context.Context, projectID s
 		return binding, nil
 	}
 	workspaceRootValue := selector.WorkspaceRootValue()
-	if workspaceRootValue == nil {
-		return Binding{}, errors.New("workspace root selector is required")
-	}
 	workspaceRoot := *workspaceRootValue
 	absoluteRoot, absErr := filepath.Abs(filepath.Clean(workspaceRoot))
 	lookupByRoot := func(root string) (Binding, error) {
@@ -714,7 +740,11 @@ func (s *Store) ListSessionsTargetingWorktreePage(ctx context.Context, worktreeI
 	}
 	page := WorktreeSessionPage{Sessions: make([]WorktreeSessionBlocker, 0, len(rows))}
 	for _, row := range rows {
-		page.Sessions = append(page.Sessions, WorktreeSessionBlocker{SessionID: row.ID, SessionName: row.Name, UpdatedAt: timeFromStoredTimestamp(row.UpdatedAtUnixMs)})
+		shortID, err := sessionShortID(row.ShortID)
+		if err != nil {
+			return WorktreeSessionPage{}, err
+		}
+		page.Sessions = append(page.Sessions, WorktreeSessionBlocker{SessionID: row.ID, ShortID: shortID, SessionName: OptionalString(row.Name), UpdatedAt: timeFromStoredTimestamp(row.UpdatedAtUnixMs)})
 	}
 	if len(rows) == pageSize {
 		last := page.Sessions[len(page.Sessions)-1]
@@ -762,9 +792,6 @@ func (s *Store) CreateProjectForWorkspaceWithKey(ctx context.Context, workspaceR
 		return Binding{}, errors.New("metadata store is required")
 	}
 	trimmedProjectName := strings.TrimSpace(projectName)
-	if trimmedProjectName == "" {
-		return Binding{}, errors.New("project name is required")
-	}
 	canonicalRoot, err := config.CanonicalWorkspaceRoot(workspaceRoot)
 	if err != nil {
 		return Binding{}, err
@@ -791,9 +818,6 @@ func (s *Store) AttachWorkspaceToProjectWithResult(ctx context.Context, projectI
 		return ProjectWorkspaceAttachResult{}, errors.New("metadata store is required")
 	}
 	trimmedProjectID := strings.TrimSpace(projectID)
-	if trimmedProjectID == "" {
-		return ProjectWorkspaceAttachResult{}, errors.New("project id is required")
-	}
 	canonicalRoot, err := config.CanonicalWorkspaceRoot(workspaceRoot)
 	if err != nil {
 		return ProjectWorkspaceAttachResult{}, err
@@ -826,16 +850,9 @@ func (s *Store) UpdateProjectMetadata(ctx context.Context, projectID string, dis
 		return errors.New("metadata store is required")
 	}
 	trimmedProjectID := strings.TrimSpace(projectID)
-	if trimmedProjectID == "" {
-		return errors.New("project id is required")
-	}
 	var normalizedKey string
 	if strings.TrimSpace(projectKey) != "" {
-		var err error
-		normalizedKey, err = normalizeProjectKey(projectKey)
-		if err != nil {
-			return err
-		}
+		normalizedKey = normalizeProjectKey(projectKey)
 	}
 	now := time.Now().UTC().UnixMilli()
 	tx, err := s.db.BeginTx(ctx, nil)
@@ -885,12 +902,6 @@ func (s *Store) SetProjectDefaultWorkspaceAndGetSummary(ctx context.Context, pro
 	}
 	trimmedProjectID := strings.TrimSpace(projectID)
 	trimmedWorkspaceID := strings.TrimSpace(workspaceID)
-	if trimmedProjectID == "" {
-		return serverapi.ProjectHomeSummary{}, errors.New("project id is required")
-	}
-	if trimmedWorkspaceID == "" {
-		return serverapi.ProjectHomeSummary{}, errors.New("workspace id is required")
-	}
 	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
 		return serverapi.ProjectHomeSummary{}, fmt.Errorf("begin default workspace tx: %w", err)
@@ -954,12 +965,6 @@ func (s *Store) UnlinkProjectWorkspaceWithRuntimeBlockers(ctx context.Context, p
 	}
 	trimmedProjectID := strings.TrimSpace(projectID)
 	trimmedWorkspaceID := strings.TrimSpace(workspaceID)
-	if trimmedProjectID == "" {
-		return nil, errors.New("project id is required")
-	}
-	if trimmedWorkspaceID == "" {
-		return nil, errors.New("workspace id is required")
-	}
 	if _, err := s.queries.GetProjectDisplayName(ctx, trimmedProjectID); err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
 			return nil, serverapi.ErrProjectNotFound
@@ -1545,10 +1550,7 @@ func setInitialProjectKey(ctx context.Context, q *sqlitegen.Queries, projectID s
 		}
 		return strings.TrimSpace(state.ProjectKey), nil
 	}
-	normalizedKey, err := normalizeProjectKey(trimmedKey)
-	if err != nil {
-		return "", err
-	}
+	normalizedKey := normalizeProjectKey(trimmedKey)
 	updated, err := q.SetProjectKey(ctx, sqlitegen.SetProjectKeyParams{ProjectKey: normalizedKey, UpdatedAtUnixMs: updatedAtUnixMs, ProjectID: projectID})
 	if err != nil {
 		if IsSQLiteUniqueConstraint(err) {
@@ -1570,10 +1572,7 @@ func (s *Store) SetProjectKey(ctx context.Context, projectID string, projectKey 
 	if trimmedProjectID == "" {
 		return errors.New("project id is required")
 	}
-	normalizedKey, err := normalizeProjectKey(projectKey)
-	if err != nil {
-		return err
-	}
+	normalizedKey := normalizeProjectKey(projectKey)
 	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
 		return fmt.Errorf("begin set project key tx: %w", err)
@@ -1647,12 +1646,8 @@ func (s *Store) AllocateProjectTaskSequence(ctx context.Context, projectID strin
 	return key, row.NextTaskSeq - 1, nil
 }
 
-func normalizeProjectKey(raw string) (string, error) {
-	key := strings.ToUpper(strings.TrimSpace(raw))
-	if !isValidProjectKey(key) {
-		return "", fmt.Errorf("%w: must match ^[A-Z][A-Z0-9]{1,7}$", ErrInvalidProjectKey)
-	}
-	return key, nil
+func normalizeProjectKey(raw string) string {
+	return strings.ToUpper(strings.TrimSpace(raw))
 }
 
 func isValidProjectKey(key string) bool {
@@ -1963,9 +1958,11 @@ func (s *Store) ListSessionPage(
 			Category:  rowCategory,
 			UpdatedAt: timeFromStoredTimestamp(row.UpdatedAtUnixMs),
 		}
-		if row.Name != "" {
-			summary.Name = textutil.Value(row.Name)
+		summary.ShortID, err = sessionShortID(row.ShortID)
+		if err != nil {
+			return SessionPage{}, err
 		}
+		summary.Name = OptionalString(row.Name)
 		if row.FirstPromptPreview != "" {
 			summary.FirstPromptPreview = textutil.Value(row.FirstPromptPreview)
 		}
@@ -2108,8 +2105,13 @@ func (s *Store) ResolvePersistedSession(ctx context.Context, sessionID string) (
 	if err != nil {
 		return session.PersistedSessionRecord{}, err
 	}
+	shortID, err := sessionShortID(row.ShortID)
+	if err != nil {
+		return session.PersistedSessionRecord{}, err
+	}
 	return session.PersistedSessionRecord{
 		SessionDir: sessionDir,
+		ShortID:    shortID,
 		Meta:       &meta,
 		ContextFacts: session.SessionContextFacts{
 			CompletedCompactionCount: optionalContextFactInt(row.CompletedCompactionCount),
@@ -2324,7 +2326,7 @@ func (s *Store) upsertSessionSnapshotWithQueries(
 	params.WorkspaceID = sql.NullString{String: binding.WorkspaceID, Valid: binding.WorkspaceID != ""}
 	params.WorktreeID = worktreeID
 	params.CwdRelpath = cwdRelpath
-	if err := q.UpsertSession(ctx, params); err != nil {
+	if err := persistSessionWithShortID(ctx, q, params); err != nil {
 		return fmt.Errorf("upsert session snapshot: %w", err)
 	}
 	return nil
@@ -2352,6 +2354,9 @@ func (s *Store) serializeSessionSnapshot(snapshot session.PersistedStoreSnapshot
 		return sqlitegen.UpsertSessionParams{}, fmt.Errorf("validate session Chat settings: %w", err)
 	}
 	snapshot.Meta.ChatSettings = chatSettings
+	if err := session.ValidateWorkflowSnapshot(snapshot.Meta.WorkflowSnapshot); err != nil {
+		return sqlitegen.UpsertSessionParams{}, err
+	}
 	if err := session.ValidateOriginalThinkingEffort(snapshot.Meta.OriginalThinkingEffort); err != nil {
 		return sqlitegen.UpsertSessionParams{}, err
 	}
@@ -2389,6 +2394,7 @@ func (s *Store) serializeSessionSnapshot(snapshot session.PersistedStoreSnapshot
 		return sqlitegen.UpsertSessionParams{}, err
 	}
 	metadataJSON, err := marshalJSON(sessionMetadataDocument{
+		WorkflowSnapshot:                snapshot.Meta.WorkflowSnapshot,
 		ConnectionID:                    snapshot.Meta.ConnectionID,
 		WorkspaceRoot:                   snapshot.Meta.WorkspaceRoot,
 		WorkspaceContainer:              snapshot.Meta.WorkspaceContainer,
@@ -2419,7 +2425,7 @@ func (s *Store) serializeSessionSnapshot(snapshot session.PersistedStoreSnapshot
 	return sqlitegen.UpsertSessionParams{
 		ID:                       snapshot.Meta.SessionID,
 		ArtifactRelpath:          relpath,
-		Name:                     snapshot.Meta.Name,
+		Name:                     NullableString(snapshot.Meta.Name),
 		FirstPromptPreview:       snapshot.Meta.FirstPromptPreview,
 		InputDraft:               snapshot.Meta.InputDraft,
 		ProtectedInputDraft:      protectedInputDraft,
@@ -2501,7 +2507,7 @@ func displayNameForPath(path string) string {
 }
 
 func sessionLaunchVisible(meta session.Meta) bool {
-	if strings.TrimSpace(meta.Name) != "" {
+	if meta.Name != nil {
 		return true
 	}
 	if strings.TrimSpace(meta.FirstPromptPreview) != "" {
@@ -2562,6 +2568,9 @@ func sessionMetaFromRecordRow(row sqlitegen.GetSessionRecordByIDRow) (session.Me
 	if err := session.ValidateOriginalThinkingEffort(metadataPayload.OriginalThinkingEffort); err != nil {
 		return session.Meta{}, err
 	}
+	if err := session.ValidateWorkflowSnapshot(metadataPayload.WorkflowSnapshot); err != nil {
+		return session.Meta{}, fmt.Errorf("validate session Workflow snapshot: %w", err)
+	}
 	if err := session.ValidateRetainedToolSelection(metadataPayload.RetainedToolSelection); err != nil {
 		return session.Meta{}, err
 	}
@@ -2608,7 +2617,7 @@ func sessionMetaFromRecordRow(row sqlitegen.GetSessionRecordByIDRow) (session.Me
 	return session.Meta{
 		SessionID:                       row.ID,
 		Category:                        category,
-		Name:                            row.Name,
+		Name:                            OptionalString(row.Name),
 		FirstPromptPreview:              row.FirstPromptPreview,
 		InputDraft:                      row.InputDraft,
 		ProtectedInputDraft:             OptionalString(row.ProtectedInputDraft),
@@ -2619,6 +2628,7 @@ func sessionMetaFromRecordRow(row sqlitegen.GetSessionRecordByIDRow) (session.Me
 		Continuation:                    continuation,
 		ConnectionID:                    metadataPayload.ConnectionID,
 		ChatSettings:                    chatSettings,
+		WorkflowSnapshot:                metadataPayload.WorkflowSnapshot,
 		OriginalThinkingEffort:          metadataPayload.OriginalThinkingEffort,
 		RetainedToolSelection:           metadataPayload.RetainedToolSelection,
 		CreatedAt:                       timeFromStoredTimestamp(row.CreatedAtUnixMs),

@@ -4,6 +4,7 @@ import (
 	"context"
 	"testing"
 
+	"core/internal/testharness/testsetup"
 	"core/server/session"
 	"core/shared/protoapi"
 	sessionlaunchpb "core/shared/protoapi/gen/kent/api/session_launch"
@@ -16,7 +17,7 @@ import (
 
 func TestSessionTransitionMapsEveryActionToTypedLifecycleResult(t *testing.T) {
 	parentID := runtimeids.NewSessionID()
-	service := newTestSessionLifecycleService(t.TempDir())
+	service := newTestSessionLifecycleService(t.TempDir(), testsetup.OpenStore(t, t.TempDir()))
 
 	tests := []struct {
 		name       string
@@ -88,7 +89,7 @@ func TestSessionTransitionRollbackLaunchesCreatedFork(t *testing.T) {
 	appendSessionMessage(t, store, "step-1", session.MessageRoleUser, "u1")
 	appendSessionMessage(t, store, "step-1", session.MessageRoleAssistant, "a1")
 
-	service := newGlobalSessionLifecycleServiceWithOptions(cfg.PersistenceRoot, metadataStore.AuthoritativeSessionStoreOptions()).WithPersistedSessionResolver(metadataStore)
+	service := newTestSessionLifecycleService(cfg.PersistenceRoot, metadataStore)
 	result, err := service.ResolveTransition(context.Background(), &sessionlaunchpb.SessionResolveTransitionRequest{
 		SessionId: proto.String(store.Meta().SessionID),
 		Transition: &sessionlaunchpb.SessionTransition{
@@ -125,7 +126,7 @@ func TestSessionTransitionRollbackLaunchesCreatedFork(t *testing.T) {
 }
 
 func TestSessionTransitionLogoutResultDependsOnCurrentSession(t *testing.T) {
-	service := newTestSessionLifecycleService(t.TempDir())
+	service := newTestSessionLifecycleService(t.TempDir(), testsetup.OpenStore(t, t.TempDir()))
 	currentID := runtimeids.NewSessionID()
 
 	withCurrent, err := service.ResolveTransition(context.Background(), &sessionlaunchpb.SessionResolveTransitionRequest{
@@ -169,10 +170,7 @@ func requireSessionDirectiveWireEqual(t *testing.T, got *sessionlaunchpb.Session
 
 func requireSessionLifecycleLaunch(t *testing.T, result *sessionlaunchpb.SessionDirective) (serverapi.SessionLaunchIntent, *sessionlaunchpb.SessionLaunchPreparation) {
 	t.Helper()
-	intent, err := protoapi.SessionLaunchIntentFromProto(result.GetLaunch().GetIntent())
-	if err != nil {
-		t.Fatal(err)
-	}
+	intent := protoapi.SessionLaunchIntentFromProto(result.GetLaunch().GetIntent())
 	preparation := result.GetLaunch().GetPreparation()
 	if preparation == nil {
 		t.Fatal("launch result omitted preparation")

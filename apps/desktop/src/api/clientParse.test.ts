@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it } from "bun:test";
 
 import { ContractError, errorMessage } from "./errors";
 import { parseRpcResponse } from "./clientParse";
@@ -13,7 +13,7 @@ describe("parseRpcResponse", () => {
     });
 
     const error = catchError(() =>
-      parseRpcResponse("workflow.task.get", schema, {
+      parseRpcResponse("test.unary", schema, {
         task: {
           current_nodes: [{ session_id: { secret: "do-not-log" } }],
         },

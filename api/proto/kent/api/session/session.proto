@@ -9,18 +9,13 @@ import "kent/api/auth/auth.proto";
 import "kent/api/runtime/runtime.proto";
 import "kent/api/server/server.proto";
 import "kent/api/shared/foundation.proto";
+import "kent/api/shared/session_selector.proto";
+import "kent/api/shared/validation.proto";
 
 option go_package = "core/shared/protoapi/gen/kent/api/session;sessionpb";
 
 message MainViewRequest {
-  string session_id = 1 [
-    (buf.validate.field).string.min_len = 1,
-    (buf.validate.field).cel = {
-      id: "kent.session.main_view_session_id_nonblank"
-      message: "session ID must be non-blank"
-      expression: "this.trim() != ''"
-    }
-  ];
+  kent.api.shared.SessionSelector session_id = 1 [(buf.validate.field).required = true];
 }
 
 message MainViewSuccess {
@@ -53,7 +48,55 @@ message MainViewResult {
 }
 
 message PromptHistoryRequest {
-  string session_id = 1 [(buf.validate.field).string.min_len = 1];
+  kent.api.shared.SessionSelector session_id = 1 [(buf.validate.field).required = true];
+}
+
+message ViewedImageOriginalSourceRequest {
+  string session_id = 1 [(buf.validate.field).string.uuid = true, (buf.validate.field).string.(kent.api.shared.canonical_uuid_v4) = true];
+  string path = 2 [
+    (buf.validate.field).string.min_len = 1,
+    (buf.validate.field).cel = {
+      id: "kent.session.viewed_image_path_nonblank"
+      message: "image path must be non-blank"
+      expression: "this.trim() != ''"
+    }
+  ];
+}
+
+message ViewedImageOriginalSourceSuccess {
+  string url = 1 [
+    (buf.validate.field).string.min_len = 1,
+    (buf.validate.field).cel = {
+      id: "kent.session.viewed_image_original_source_url_nonblank"
+      message: "image source URL must be non-blank"
+      expression: "this.trim() != ''"
+    }
+  ];
+}
+
+message ViewedImageOriginalSourceError {
+  string code = 1 [
+    (buf.validate.field).string.min_len = 1,
+    (kent.api.shared.kent_result_field).role = RESULT_FIELD_ROLE_ERROR_CODE
+  ];
+  oneof detail {
+    kent.api.server.ServerNotReadyDetails server_not_ready = 2 [(kent.api.shared.kent_result_field) = {
+      role: RESULT_FIELD_ROLE_ERROR_DETAIL
+      error_code: "server_not_ready"
+    }];
+    kent.api.shared.InternalFailureDetails internal_failure = 3 [(kent.api.shared.kent_result_field) = {
+      role: RESULT_FIELD_ROLE_ERROR_DETAIL
+      error_code: "internal_failure"
+    }];
+  }
+}
+
+message ViewedImageOriginalSourceResult {
+  oneof outcome {
+    option (buf.validate.oneof).required = true;
+    ViewedImageOriginalSourceSuccess success = 1 [(kent.api.shared.kent_result_field).role = RESULT_FIELD_ROLE_SUCCESS];
+    ViewedImageOriginalSourceError error = 2 [(kent.api.shared.kent_result_field).role = RESULT_FIELD_ROLE_ERROR];
+  }
 }
 
 message PromptHistorySuccess {
@@ -85,7 +128,64 @@ message PromptHistoryResult {
   }
 }
 
+message IdentityLocationRequest {
+  kent.api.shared.SessionSelector session_id = 1 [(buf.validate.field).required = true];
+}
+
+message IdentityLocationSuccess {
+  string session_id = 1 [
+    (buf.validate.field).string.uuid = true,
+    (buf.validate.field).string.(kent.api.shared.canonical_uuid_v4) = true
+  ];
+  optional int64 short_id = 2 [(buf.validate.field).int64 = {gt: 0 lte: 9007199254740991}];
+  string log_path = 3 [(buf.validate.field).string.(kent.api.shared.nonblank) = true];
+}
+
+message IdentityLocationError {
+  string code = 1 [
+    (buf.validate.field).string.min_len = 1,
+    (kent.api.shared.kent_result_field).role = RESULT_FIELD_ROLE_ERROR_CODE
+  ];
+  oneof detail {
+    kent.api.server.ServerNotReadyDetails server_not_ready = 2 [(kent.api.shared.kent_result_field) = {
+      role: RESULT_FIELD_ROLE_ERROR_DETAIL
+      error_code: "server_not_ready"
+    }];
+    kent.api.shared.InternalFailureDetails internal_failure = 3 [(kent.api.shared.kent_result_field) = {
+      role: RESULT_FIELD_ROLE_ERROR_DETAIL
+      error_code: "internal_failure"
+    }];
+  }
+}
+
+message IdentityLocationResult {
+  oneof outcome {
+    option (buf.validate.oneof).required = true;
+    IdentityLocationSuccess success = 1 [(kent.api.shared.kent_result_field).role = RESULT_FIELD_ROLE_SUCCESS];
+    IdentityLocationError error = 2 [(kent.api.shared.kent_result_field).role = RESULT_FIELD_ROLE_ERROR];
+  }
+}
+
 service ReadService {
+  rpc ResolveViewedImageOriginalSource(ViewedImageOriginalSourceRequest) returns (ViewedImageOriginalSourceResult) {
+    option (kent.api.shared.kent_method) = {
+      kind: OPERATION_KIND_UNARY
+      authentication_stage: AUTHENTICATION_STAGE_PRE_SERVER
+      scope_policy: SCOPE_POLICY_SESSION_ACTIVE_PROJECT
+      direction: DIRECTION_CLIENT_TO_SERVER
+      unary_connection: UNARY_CONNECTION_MULTIPLEXED
+    };
+  }
+
+  rpc GetIdentityLocation(IdentityLocationRequest) returns (IdentityLocationResult) {
+    option (kent.api.shared.kent_method) = {
+      kind: OPERATION_KIND_UNARY
+      authentication_stage: AUTHENTICATION_STAGE_PRE_SERVER
+      scope_policy: SCOPE_POLICY_SESSION_ACTIVE_PROJECT
+      direction: DIRECTION_CLIENT_TO_SERVER
+      unary_connection: UNARY_CONNECTION_MULTIPLEXED
+    };
+  }
   rpc GetPromptHistory(PromptHistoryRequest) returns (PromptHistoryResult) {
     option (kent.api.shared.kent_method) = {
       kind: OPERATION_KIND_UNARY
@@ -108,14 +208,7 @@ service ReadService {
 }
 
 message QuestionHistorySubscribeRequest {
-  string session_id = 1 [
-    (buf.validate.field).string.min_len = 1,
-    (buf.validate.field).cel = {
-      id: "kent.session.question_history_session_id_nonblank"
-      message: "session ID must be non-blank"
-      expression: "this.trim() != ''"
-    }
-  ];
+  kent.api.shared.SessionSelector session_id = 1 [(buf.validate.field).required = true];
   int32 max_handoffs = 2 [(buf.validate.field).int32.gt = 0];
 }
 
@@ -124,6 +217,12 @@ message QuestionHistoryStarted {
 }
 
 message QuestionHistoryQuestion {
+  option (buf.validate.message).cel = {
+    id: "kent.session.question_history_answerer_number"
+    message: "answered_by_session_short_id requires answered_by_session_id"
+    expression: "!has(this.answered_by_session_short_id) || has(this.answered_by_session_id)"
+  };
+  optional int64 answered_by_session_short_id = 7 [(buf.validate.field).int64 = {gt: 0 lte: 9007199254740991}];
   string question = 1 [
     (buf.validate.field).string.min_len = 1,
     (buf.validate.field).cel = {
@@ -150,6 +249,10 @@ message QuestionHistoryQuestion {
     }
   ];
   optional google.protobuf.Timestamp committed_at = 5;
+  optional string answered_by_session_id = 6 [
+    (buf.validate.field).string.uuid = true,
+    (buf.validate.field).string.(kent.api.shared.canonical_uuid_v4) = true
+  ];
 }
 
 message QuestionHistoryCompleted {

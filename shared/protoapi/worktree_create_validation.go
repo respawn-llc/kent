@@ -2,10 +2,8 @@ package protoapi
 
 import (
 	"errors"
-	"strings"
 
 	"buf.build/go/protovalidate"
-	"core/shared/invariant"
 	"core/shared/worktreecontract"
 )
 
@@ -30,23 +28,6 @@ func ClassifyWorktreeCreateValidation(err error) error {
 		owner = worktreecontract.CreateErrorOwnerBaseRef
 	}
 	return worktreecontract.NewCreateError(owner, violation.Proto.GetMessage(), err)
-}
-
-func ValidateWorktreeCreateErrorBoundary(err error, operation string, policy invariant.Policy) error {
-	contractErr := worktreecontract.ValidateCreateError(err, operation)
-	if contractErr == nil {
-		return nil
-	}
-	fields := map[invariant.Field]string{
-		invariant.FieldOperation:       strings.TrimSpace(operation),
-		invariant.FieldValidationCause: contractErr.Error(),
-	}
-	var typed *worktreecontract.CreateContractError
-	if errors.As(contractErr, &typed) && typed.Owner != nil {
-		fields[invariant.FieldRawOwner] = string(*typed.Owner)
-	}
-	policy.Check(false, invariant.Diagnostic{Scope: invariant.ScopeWorktreeContract, Fields: fields})
-	return contractErr
 }
 
 func selectWorktreeCreateViolation(violations []*protovalidate.Violation) *protovalidate.Violation {

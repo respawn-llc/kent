@@ -19,7 +19,7 @@ func TestConnectionReplacementPersistenceFailureDoesNotPublishOrDispatch(t *test
 	gate := sessiontest.NewPersistenceGate(sessiontest.NewPersistence())
 	failure := errors.New("replacement persistence rejected")
 	gate.FailWhen(func(snapshot session.PersistedStoreSnapshot) bool {
-		return snapshot.Meta.ConnectionID != nil && *snapshot.Meta.ConnectionID == *fixture.config.Settings.Connection
+		return snapshot.Meta.ConnectionID != nil && *snapshot.Meta.ConnectionID == (*fixture.config.Settings.Connection)[0]
 	}, failure)
 	var notices int
 	authority := NewAuthority(AuthorityOptions{
@@ -36,7 +36,7 @@ func TestConnectionReplacementPersistenceFailureDoesNotPublishOrDispatch(t *test
 	client := &sessionRuntimeTestLLMClient{}
 	plan := authorityTestRuntimePlan(t, fixture, client)
 	_, err := authority.OpenRuntime(t.Context(), RuntimeOpenRequest{
-		SessionID: lifecycleSessionID(t, fixture), OwnerID: "replacement-failure", Runtime: &plan,
+		SessionID: lifecycleSessionID(t, fixture), Runtime: &plan,
 	})
 	if !errors.Is(err, failure) {
 		t.Fatalf("activation error = %v", err)

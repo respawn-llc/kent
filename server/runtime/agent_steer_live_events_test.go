@@ -12,15 +12,12 @@ func TestAgentSteerLiveEventsProjectTheCommittedMessage(t *testing.T) {
 	t.Run("direct submission", func(t *testing.T) {
 		var events []Event
 		eng := mustNewTestEngine(t, mustCreateTestSession(t), &fakeClient{responses: []llm.Response{finalTextResponse("done")}}, tools.NewRegistry(), Config{
-			Model: "gpt-5",
+			Model: "gpt-6-sol",
 			OnEvent: func(event Event) {
 				events = append(events, event)
 			},
 		})
-		steer, err := NewAgentSteer(runtimeids.NewSessionID(), "direct")
-		if err != nil {
-			t.Fatalf("NewAgentSteer: %v", err)
-		}
+		steer := NewAgentSteer(runtimeids.SessionIdentity{ID: runtimeids.NewSessionID()}, "direct")
 		if _, err := eng.SubmitAgentSteerWithHooks(t.Context(), steer, nil, nil); err != nil {
 			t.Fatalf("SubmitAgentSteerWithHooks: %v", err)
 		}
@@ -30,15 +27,12 @@ func TestAgentSteerLiveEventsProjectTheCommittedMessage(t *testing.T) {
 	t.Run("queued flush", func(t *testing.T) {
 		var events []Event
 		eng := mustNewTestEngine(t, mustCreateTestSession(t), &fakeClient{responses: []llm.Response{finalOutputItemResponse("done")}}, tools.NewRegistry(), Config{
-			Model: "gpt-5",
+			Model: "gpt-6-sol",
 			OnEvent: func(event Event) {
 				events = append(events, event)
 			},
 		})
-		steer, err := NewAgentSteer(runtimeids.NewSessionID(), "queued")
-		if err != nil {
-			t.Fatalf("NewAgentSteer: %v", err)
-		}
+		steer := NewAgentSteer(runtimeids.SessionIdentity{ID: runtimeids.NewSessionID()}, "queued")
 		if _, err := eng.QueueAgentSteer(t.Context(), steer, nil); err != nil {
 			t.Fatal(err)
 		}

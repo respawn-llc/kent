@@ -7,6 +7,7 @@ import (
 	"core/cli/tui"
 	"core/cli/tui/transcriptrender"
 	"core/shared/clientui"
+	"core/shared/runtimeids"
 	"core/shared/sessioncontract"
 	"core/shared/textutil"
 	sharedtheme "core/shared/theme"
@@ -41,7 +42,7 @@ func (m *sessionPickerModel) View() string {
 	out.WriteString(m.renderHeader())
 	activeTab := m.activeTab
 	m.startupStatus.activeTab = &activeTab
-	if status := newSessionPickerStatusSurface(m.startupStatus).RenderStatus(m.width); status != "" {
+	if status := m.renderPickerStatus(); status != "" {
 		out.WriteString("\n\n")
 		out.WriteString(status)
 	}
@@ -102,7 +103,7 @@ func (m *sessionPickerModel) visibleLineBudget() int {
 	statusLines := 0
 	activeTab := m.activeTab
 	m.startupStatus.activeTab = &activeTab
-	if newSessionPickerStatusSurface(m.startupStatus).RenderStatus(m.width) != "" {
+	if m.renderPickerStatus() != "" {
 		statusLines = 2
 	}
 	rows := m.height - lipgloss.Height(m.renderHeader()) - tabLines - 2 - statusLines
@@ -110,6 +111,17 @@ func (m *sessionPickerModel) visibleLineBudget() int {
 		return 1
 	}
 	return rows
+}
+
+func (m *sessionPickerModel) renderPickerStatus() string {
+	projection := projectStartupPickerStatus(m.startupStatus)
+	if projection.Failure == nil && m.headerFactsErr != nil {
+		projection.Notice = startupPickerNotice{
+			Text: "Could not load settings. " + m.headerFactsErr.Error(),
+			Kind: startupPickerNoticeError, Diagnostic: m.headerFactsErr,
+		}
+	}
+	return renderStartupPickerStatus(projection, m.width)
 }
 
 func (m *sessionPickerModel) renderRow(tab *sessionPickerTab, index int, showPreview bool) string {
@@ -158,10 +170,8 @@ func (m *sessionPickerModel) renderRow(tab *sessionPickerTab, index int, showPre
 }
 
 func sessionPickerTitle(item clientui.SessionSummary) string {
-	if title, present := textutil.OptionalTrimmed(item.Name); present {
-		return title
-	}
-	return item.SessionID.String()
+	return sessionDisplayTitle(item.Name, &item.Category, item.ShortID,
+		(runtimeids.SessionIdentity{ID: item.SessionID, ShortID: item.ShortID}).String())
 }
 
 func (m *sessionPickerModel) hasPreview(tab *sessionPickerTab, index int) bool {

@@ -56,6 +56,9 @@ func (s *blockingBackgroundStepLifecycle) Snapshot() *RunSnapshot {
 func (s *blockingBackgroundStepLifecycle) WithActiveStep(func(stepID string) error) (bool, error) {
 	return false, nil
 }
+func (s *blockingBackgroundStepLifecycle) TurnStateLifetimeForStep(string) (*llm.CodexTurnStateLifetime, bool) {
+	return nil, false
+}
 func (s *blockingBackgroundStepLifecycle) ApplyForActiveStep(string, func() error) error {
 	return ErrActiveStepInactive
 }
@@ -111,7 +114,7 @@ func TestBackgroundNoticeSchedulerCancelsQueuedContinuationOnEngineClose(t *test
 
 func TestSteerBackgroundContinuationFailureUsesDeveloperErrorFeedback(t *testing.T) {
 	store := mustCreateTestSession(t)
-	engine := mustNewTestEngine(t, store, &fakeClient{}, tools.NewRegistry(), Config{Model: "gpt-5"})
+	engine := mustNewTestEngine(t, store, &fakeClient{}, tools.NewRegistry(), Config{Model: "gpt-6-sol"})
 
 	if err := engine.SteerBackgroundContinuationFailure(errors.New("provider unavailable")); err != nil {
 		t.Fatalf("steer background continuation failure: %v", err)
@@ -199,7 +202,7 @@ func TestBackgroundNoticeSchedulerSchedulingRaceWithEngineCloseDoesNotPanic(t *t
 
 func TestBackgroundNoticeSchedulerPreservesNoticeWhenMetaContextPreparationFails(t *testing.T) {
 	store := mustCreateTestSession(t)
-	engine := mustNewTestEngine(t, store, &fakeClient{}, newTestToolRegistry(t), Config{Model: "gpt-5"})
+	engine := mustNewTestEngine(t, store, &fakeClient{}, newTestToolRegistry(t), Config{Model: "gpt-6-sol"})
 	mustBlockTestEventLogAppends(t, store)
 	steps := &stubExclusiveStepLifecycle{busy: true}
 	scheduler := &defaultBackgroundNoticeScheduler{engine: engine, steps: steps}
@@ -227,14 +230,13 @@ func TestTerminalBackgroundUpdateQueuesAcrossClosingOrInterruptedStep(t *testing
 		{name: "interrupted", interrupted: true},
 	} {
 		t.Run(test.name, func(t *testing.T) {
-			engine := mustNewTestEngine(t, mustCreateTestSession(t), &fakeClient{}, tools.NewRegistry(), Config{Model: "gpt-5"})
+			engine := mustNewTestEngine(t, mustCreateTestSession(t), &fakeClient{}, tools.NewRegistry(), Config{Model: "gpt-6-sol"})
 			lifecycle := &defaultExclusiveStepLifecycle{
 				engine: engine,
 				active: &exclusiveRunState{
 					sequence:    1,
 					activeKind:  ActiveKindUserTurn,
 					cancel:      func() {},
-					runID:       "11111111-1111-4111-8111-111111111111",
 					stepID:      "22222222-2222-4222-8222-222222222222",
 					startedAt:   time.Now().UTC(),
 					closing:     test.closing,
@@ -301,7 +303,7 @@ func TestTerminalBackgroundUpdateQueuesAcrossClosingOrInterruptedStep(t *testing
 }
 
 func TestTerminalBackgroundUpdateDoesNotQueueWhenRuntimeIsClosed(t *testing.T) {
-	engine := mustNewTestEngine(t, mustCreateTestSession(t), &fakeClient{}, tools.NewRegistry(), Config{Model: "gpt-5"})
+	engine := mustNewTestEngine(t, mustCreateTestSession(t), &fakeClient{}, tools.NewRegistry(), Config{Model: "gpt-6-sol"})
 	engine.closed.Store(true)
 
 	engine.HandleBackgroundShellUpdate(BackgroundShellEvent{
@@ -316,7 +318,7 @@ func TestTerminalBackgroundUpdateDoesNotQueueWhenRuntimeIsClosed(t *testing.T) {
 }
 
 func TestRuntimeSteeringRejectsClosedEngineWithoutQueueing(t *testing.T) {
-	engine := mustNewTestEngine(t, mustCreateTestSession(t), &fakeClient{}, tools.NewRegistry(), Config{Model: "gpt-5"})
+	engine := mustNewTestEngine(t, mustCreateTestSession(t), &fakeClient{}, tools.NewRegistry(), Config{Model: "gpt-6-sol"})
 	engine.closed.Store(true)
 
 	err := engine.steerRuntime(
@@ -348,7 +350,7 @@ func TestBackgroundFinalAnswerAppliesRuntimeMutationAtStepBoundary(t *testing.T)
 		},
 	}
 	engine := mustNewTestEngine(t, mustCreateTestSession(t), client, tools.NewRegistry(), Config{
-		Model:                   "gpt-5",
+		Model:                   "gpt-6-sol",
 		SupportedThinkingValues: []string{"low", "medium"},
 	})
 	scheduler := engine.backgroundFlow.(*defaultBackgroundNoticeScheduler)
@@ -411,10 +413,10 @@ func TestBackgroundNoticeOwnershipFollowsWriteStdinCompletionCommitReceipt(t *te
 	} {
 		t.Run(tt.name, func(t *testing.T) {
 			store := mustCreateTestSession(t)
-			engine := mustNewTestEngine(t, store, &fakeClient{}, tools.NewRegistry(), Config{Model: "gpt-5"})
+			engine := mustNewTestEngine(t, store, &fakeClient{}, tools.NewRegistry(), Config{Model: "gpt-6-sol"})
 			steps := &stubExclusiveStepLifecycle{
 				busy:     true,
-				snapshot: &RunSnapshot{RunID: "11111111-1111-4111-8111-111111111111", StepID: "step"},
+				snapshot: &RunSnapshot{StepID: "step"},
 			}
 			scheduler := &defaultBackgroundNoticeScheduler{engine: engine, steps: steps}
 			engine.stepLifecycle = &stubExclusiveStepLifecycle{busy: true}
@@ -465,7 +467,7 @@ func TestInvalidWriteStdinCompletionProvenanceFailsWithoutPersistence(t *testing
 		t.Run(test.name, func(t *testing.T) {
 			store := mustCreateTestSession(t)
 			engine := mustNewTestEngine(t, store, &fakeClient{}, newTestToolRegistry(t), Config{
-				Model: "gpt-5",
+				Model: "gpt-6-sol",
 				Debug: test.debug,
 			})
 			presentation := transcript.NormalizeToolCallMeta(transcript.ToolCallMeta{ToolName: string(toolspec.ToolWriteStdin)})
@@ -514,11 +516,11 @@ func TestFlushPendingUserInjectionsRestoresOnlyLaterNoticeAfterCommittedObserver
 	observerErr := errors.New("background notice observer failed")
 	gate := sessiontest.NewPersistenceGate(runtimeTestSessionPersistence)
 	store := mustCreateTestSessionAt(t, t.TempDir(), session.WithPersistenceObserver(gate))
-	engine := mustNewTestEngine(t, store, &fakeClient{}, tools.NewRegistry(), Config{Model: "gpt-5"})
+	engine := mustNewTestEngine(t, store, &fakeClient{}, tools.NewRegistry(), Config{Model: "gpt-6-sol"})
 	stepID := runtimeTestStepID("background-notice-observer-failure")
 	steps := &stubExclusiveStepLifecycle{
 		busy:         true,
-		snapshot:     &RunSnapshot{RunID: "11111111-1111-4111-8111-111111111111", StepID: stepID},
+		snapshot:     &RunSnapshot{StepID: stepID},
 		activeStepID: stepID,
 	}
 	scheduler := &defaultBackgroundNoticeScheduler{engine: engine, steps: steps}

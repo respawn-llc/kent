@@ -1,17 +1,23 @@
 package app
 
 import (
-	"strings"
-
 	brand "core/shared/config"
+	"core/shared/runtimeids"
+	"core/shared/sessioncontract"
 )
 
 const defaultSessionTitle = brand.Command
 
-func sessionTitle(name string) string {
-	trimmed := strings.TrimSpace(name)
-	if trimmed == "" {
-		return defaultSessionTitle
+func (m *uiModel) sessionTitle() string {
+	return sessionDisplayTitle(m.sessionName, m.sessionCategory, m.sessionShortID, defaultSessionTitle)
+}
+
+func sessionDisplayTitle(name *string, category *sessioncontract.SessionCategory, shortID *runtimeids.SessionShortID, fallback string) string {
+	if name != nil {
+		return *name
 	}
-	return trimmed
+	if category != nil && *category == sessioncontract.SessionCategorySubagent && shortID != nil {
+		return "Subagent " + shortID.String()
+	}
+	return fallback
 }

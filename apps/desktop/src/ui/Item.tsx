@@ -1,9 +1,9 @@
 import type { ComponentProps } from "react";
 
-import { cx } from "./classes";
+import { cn, cx } from "./classes";
 
 // Local shadcn item adaptation. `shadcn add item` prompts for components.json in this package;
-// use `pnpm dlx shadcn@latest view item` unless we intentionally add shadcn config.
+// use `bunx shadcn@latest view item` unless we intentionally add shadcn config.
 export function ItemGroup({ className, ...props }: ComponentProps<"div">) {
   return (
     <div className={cx("group/item-group flex flex-col", className)} data-slot="item-group" {...props} />
@@ -37,7 +37,7 @@ export function ItemContent({ className, ...props }: ComponentProps<"div">) {
 export function ItemTitle({ className, ...props }: ComponentProps<"div">) {
   return (
     <div
-      className={cx("flex w-fit items-center gap-2 text-sm font-medium leading-snug", className)}
+      className={cn("flex w-fit items-center gap-2 text-sm font-medium leading-snug", className)}
       data-slot="item-title"
       {...props}
     />

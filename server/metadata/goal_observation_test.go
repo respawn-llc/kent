@@ -8,6 +8,7 @@ import (
 	"testing"
 	"time"
 
+	"core/internal/testharness/requestfixture"
 	"core/server/session"
 	runtimepb "core/shared/protoapi/gen/kent/api/runtime"
 	"core/shared/serverapi"
@@ -35,7 +36,7 @@ func TestGoalObservationHydratesDormantSessionAndPublishesLaterPersistence(t *te
 		t.Fatalf("session.Create: %v", err)
 	}
 	subscription, err := metadataStore.SubscribeGoalObservation(t.Context(), &runtimepb.GoalObserveRequest{
-		SessionId: sessionStore.Meta().SessionID,
+		SessionId: requestfixture.Selector(t, sessionStore.Meta().SessionID),
 	})
 	if err != nil {
 		t.Fatalf("SubscribeGoalObservation: %v", err)
@@ -65,7 +66,7 @@ func TestGoalObservationHydratesDormantSessionAndPublishesLaterPersistence(t *te
 		update.Status.Goal.Id != goal.ID {
 		t.Fatalf("update = %+v, want Goal %q", update, goal.ID)
 	}
-	if err := sessionStore.SetName("unrelated metadata"); err != nil {
+	if err := sessionStore.SetName(metadataStringPointer("unrelated metadata")); err != nil {
 		t.Fatalf("SetName: %v", err)
 	}
 	assertNoGoalObservation(t, subscription)
@@ -107,7 +108,7 @@ func TestGoalObservationPublishesAvailabilityOnlyContractChanges(t *testing.T) {
 		t.Fatalf("session.Create: %v", err)
 	}
 	subscription, err := metadataStore.SubscribeGoalObservation(t.Context(), &runtimepb.GoalObserveRequest{
-		SessionId: sessionStore.Meta().SessionID,
+		SessionId: requestfixture.Selector(t, sessionStore.Meta().SessionID),
 	})
 	if err != nil {
 		t.Fatalf("SubscribeGoalObservation: %v", err)
@@ -116,7 +117,7 @@ func TestGoalObservationPublishesAvailabilityOnlyContractChanges(t *testing.T) {
 	_, _ = subscription.Next(t.Context())
 
 	if err := sessionStore.MarkModelDispatchLocked(session.LockedContract{
-		Model:           "gpt-5",
+		Model:           "gpt-6-sol",
 		EnabledTools:    []string{string(toolspec.ToolExecCommand)},
 		HasEnabledTools: true,
 	}); err != nil {

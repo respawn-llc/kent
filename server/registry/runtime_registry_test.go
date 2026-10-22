@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"path/filepath"
 	"slices"
 	"sync"
 	"testing"
@@ -21,6 +22,7 @@ import (
 	"core/shared/protoapi"
 	attentionpb "core/shared/protoapi/gen/kent/api/attention"
 	runtimepb "core/shared/protoapi/gen/kent/api/runtime"
+	sharedpb "core/shared/protoapi/gen/kent/api/shared"
 	transcriptpb "core/shared/protoapi/gen/kent/api/transcript"
 	worktreepb "core/shared/protoapi/gen/kent/api/worktree"
 	"core/shared/runtimeids"
@@ -65,7 +67,6 @@ func (retention registryRetention) Close() error {
 }
 
 const (
-	registryTestRunID  = "11111111-1111-4111-8111-111111111111"
 	registryTestStepID = "22222222-2222-4222-8222-222222222222"
 )
 
@@ -74,10 +75,8 @@ func registryTestResourceRef(sessionID string) runtimeids.SessionResourceRef {
 	if err != nil {
 		panic(err)
 	}
-	ref, err := runtimeids.NewSessionResourceRef(id, 1)
-	if err != nil {
-		panic(err)
-	}
+	ref := runtimeids.NewSessionResourceRef(id, 1)
+
 	return ref
 }
 
@@ -107,6 +106,19 @@ func projectPendingPromptResourceForTest(
 	createdAt time.Time,
 ) {
 	id := resource.SessionID().String()
+	if batch := request.QuestionBatch; batch != nil {
+		prepared := false
+		for _, pending := range registry.ListPendingPrompts(id) {
+			if pending.Resource == resource && pending.Request.StepID == request.StepID && pending.Batch != nil {
+				prepared = true
+			}
+		}
+		if !prepared {
+			if err := registry.pendingPrompts.Prepare(resource, batch.StepID, batch.BatchToolCallIDs); err != nil {
+				panic(err)
+			}
+		}
+	}
 	projected := registry.withCurrentAuthorityEntry(resource, func(entry *authorityRuntimeEntry) bool {
 		snapshot, admitted := registry.pendingPrompts.Begin(id, resource, scopeID, request, createdAt)
 		if !admitted {
@@ -168,22 +180,32 @@ func closeRuntime(registry *RuntimeRegistry, sessionID string, _ *runtime.Engine
 }
 
 func TestSubscribeSessionTranscriptFailsExecutionTargetResolution(t *testing.T) {
-	registry := NewRuntimeRegistry()
+	registry := NewRuntimeRegistry(nil)
 	engine := newRegistryTestRuntime(t, nil)
-	registerReady(t, registry, engine.SessionID(), engine)
+	watching := make(registryRetention)
+	if err := registry.ResourceReady(t.Context(), registryTestResource(registryTestResourceRef(engine.SessionID())), engine, func() (io.Closer, error) {
+		return watching, nil
+	}); err != nil {
+		t.Fatal(err)
+	}
 	registry.WithExecutionTargetResolver(func(context.Context, string) (*worktreepb.SessionExecutionTarget, error) {
 		return nil, errors.New("execution target unavailable")
 	})
 
 	if _, err := registry.SubscribeSessionTranscript(context.Background(), &transcriptpb.SubscribeRequest{
-		SessionId: engine.SessionID(),
+		SessionId: &sharedpb.SessionSelector{Value: &sharedpb.SessionSelector_SessionId{SessionId: engine.SessionID()}},
 	}); err == nil {
 		t.Fatal("subscription succeeded despite execution-target resolution failure")
+	}
+	select {
+	case <-watching:
+	default:
+		t.Fatal("failed hydration kept watching Runtime")
 	}
 }
 
 func TestSubscriptionAndPromptResolutionWithPendingPromptDoNotDeadlock(t *testing.T) {
-	registry := NewRuntimeRegistry()
+	registry := NewRuntimeRegistry(nil)
 	engine := newRegistryTestRuntime(t, nil)
 	ref := registryTestResourceRef(engine.SessionID())
 	registerResource(t, registry, ref, engine)
@@ -208,7 +230,7 @@ func TestSubscriptionAndPromptResolutionWithPendingPromptDoNotDeadlock(t *testin
 	subscriptionDone := make(chan subscriptionResult, 1)
 	go func() {
 		sub, err := registry.SubscribeSessionTranscript(context.Background(), &transcriptpb.SubscribeRequest{
-			SessionId: engine.SessionID(),
+			SessionId: &sharedpb.SessionSelector{Value: &sharedpb.SessionSelector_SessionId{SessionId: engine.SessionID()}},
 		})
 		subscriptionDone <- subscriptionResult{sub: sub, err: err}
 	}()
@@ -255,7 +277,7 @@ func TestSubscriptionAndPromptResolutionWithPendingPromptDoNotDeadlock(t *testin
 }
 
 func TestRuntimeReadModelPublicationWaitsForHydrationAdmission(t *testing.T) {
-	registry := NewRuntimeRegistry()
+	registry := NewRuntimeRegistry(nil)
 	engine := newRegistryTestRuntime(t, nil)
 	registerReady(t, registry, engine.SessionID(), engine)
 	update, err := registry.RuntimeReadModelFeedSnapshot(context.Background(), engine.SessionID())
@@ -272,7 +294,7 @@ func TestRuntimeReadModelPublicationWaitsForHydrationAdmission(t *testing.T) {
 	subscriptionDone := make(chan error, 1)
 	go func() {
 		_, subscribeErr := registry.SubscribeSessionTranscript(context.Background(), &transcriptpb.SubscribeRequest{
-			SessionId: engine.SessionID(),
+			SessionId: &sharedpb.SessionSelector{Value: &sharedpb.SessionSelector_SessionId{SessionId: engine.SessionID()}},
 		})
 		subscriptionDone <- subscribeErr
 	}()
@@ -312,7 +334,7 @@ func TestRuntimeReadModelPublicationWaitsForHydrationAdmission(t *testing.T) {
 
 func newRegistryTestRuntime(t *testing.T, onEvent func(runtime.Event)) *runtime.Engine {
 	t.Helper()
-	return newRegistryRuntime(t, registryRuntimeFakeClient{}, askquestion.NewRegistry(), runtime.Config{Model: "gpt-5", ThinkingLevel: "medium"}, func(_ *runtime.Engine, evt runtime.Event) {
+	return newRegistryRuntime(t, registryRuntimeFakeClient{}, askquestion.NewRegistry(), runtime.Config{Model: "gpt-6-sol", ThinkingLevel: "medium"}, func(_ *runtime.Engine, evt runtime.Event) {
 		if onEvent != nil {
 			onEvent(evt)
 		}
@@ -322,6 +344,11 @@ func newRegistryTestRuntime(t *testing.T, onEvent func(runtime.Event)) *runtime.
 func newRegistryRuntime(t *testing.T, client llm.Client, toolRegistry *askquestion.Registry, cfg runtime.Config, onEvent func(*runtime.Engine, runtime.Event)) *runtime.Engine {
 	t.Helper()
 	store := newRegistryTestSession(t, t.TempDir(), "workspace", t.TempDir())
+	if cfg.ProjectWorkspaceContextReader == nil {
+		metadataStore := testharness.OpenStore(t, filepath.Dir(store.Dir()))
+		testharness.ImportSessionProjectWorkspaceContext(t, metadataStore, store)
+		cfg.ProjectWorkspaceContextReader = metadataStore
+	}
 	eventLog, err := store.MaterializeEventLog()
 	if err != nil {
 		t.Fatalf("materialize event log: %v", err)
@@ -340,50 +367,78 @@ func newRegistryRuntime(t *testing.T, client llm.Client, toolRegistry *askquesti
 	return engine
 }
 
-func TestAuthorityRuntimeDrainClosesSubscriptionsWithoutRetainingRuntime(t *testing.T) {
-	registry := NewRuntimeRegistry()
-	engine := newRegistryTestRuntime(t, nil)
-	retainCalls := 0
-	ref := registryTestResourceRef(engine.SessionID())
-	if err := registry.ResourceReady(context.Background(), registryTestResource(ref), engine, func() (io.Closer, error) {
-		retainCalls++
-		return make(registryRetention), nil
-	}); err != nil {
-		t.Fatalf("register authority runtime resource: %v", err)
-	}
-	sub, err := registry.SubscribeSessionTranscript(context.Background(), &transcriptpb.SubscribeRequest{SessionId: engine.SessionID()})
-	if err != nil {
-		t.Fatalf("subscribe authority transcript: %v", err)
-	}
-	if retainCalls != 0 {
-		t.Fatalf("transcript observation retained Runtime %d time(s), want none", retainCalls)
-	}
-	if err := registry.ResourceDraining(context.Background(), registryTestResource(ref)); err != nil {
-		t.Fatalf("drain authority runtime resource: %v", err)
-	}
-	var lastMessage *transcriptpb.Message
-	var nextErr error
-	for nextErr == nil {
-		var message *transcriptpb.Message
-		message, nextErr = sub.Next(context.Background())
-		if nextErr == nil {
-			lastMessage = message
-		}
-	}
-	if !errors.Is(nextErr, io.EOF) {
-		t.Fatalf("subscription close error = %v, want EOF", nextErr)
-	}
-	if lastMessage == nil || lastMessage.Event == nil {
-		t.Fatalf("no transcript message was delivered before EOF")
-	}
-	if lastMessage.Event.GetRuntimeReadModelUpdate() == nil ||
-		lastMessage.Event.GetRuntimeReadModelUpdate().Activity.State != runtimepb.ActivityState_RUNTIME_ACTIVITY_UNAVAILABLE {
-		t.Fatalf("last transcript message before EOF = %+v, want unavailable runtime read-model update", lastMessage)
+func TestAuthorityRuntimeDrainClosesSubscriptionsAndWatching(t *testing.T) {
+	for _, terminal := range []string{"drain", "close", "cancel", "overflow"} {
+		t.Run(terminal, func(t *testing.T) {
+			registry := NewRuntimeRegistry(nil)
+			engine := newRegistryTestRuntime(t, nil)
+			watching := make(registryRetention)
+			ref := registryTestResourceRef(engine.SessionID())
+			if err := registry.ResourceReady(context.Background(), registryTestResource(ref), engine, func() (io.Closer, error) {
+				return watching, nil
+			}); err != nil {
+				t.Fatalf("register authority runtime resource: %v", err)
+			}
+			ctx, cancel := context.WithCancel(t.Context())
+			defer cancel()
+			sub, err := registry.SubscribeSessionTranscript(ctx, &transcriptpb.SubscribeRequest{SessionId: &sharedpb.SessionSelector{Value: &sharedpb.SessionSelector_SessionId{SessionId: engine.SessionID()}}})
+			if err != nil {
+				t.Fatalf("subscribe authority transcript: %v", err)
+			}
+			wantErr := io.EOF
+			switch terminal {
+			case "drain":
+				if err := registry.ResourceDraining(context.Background(), registryTestResource(ref)); err != nil {
+					t.Fatalf("drain authority runtime resource: %v", err)
+				}
+			case "close":
+				if err := sub.Close(); err != nil {
+					t.Fatal(err)
+				}
+			case "cancel":
+				cancel()
+				wantErr = context.Canceled
+			case "overflow":
+				for range transcriptSubscriptionBufferSize + 1 {
+					if err := registry.PublishSessionStatus(engine.SessionID()); err != nil {
+						t.Fatal(err)
+					}
+				}
+				wantErr = serverapi.ErrStreamGap
+			}
+			select {
+			case <-watching:
+			case <-time.After(time.Second):
+				t.Fatal("terminal subscription kept watching Runtime")
+			}
+			var lastMessage *transcriptpb.Message
+			var nextErr error
+			for nextErr == nil {
+				var message *transcriptpb.Message
+				message, nextErr = sub.Next(context.Background())
+				if nextErr == nil {
+					lastMessage = message
+				}
+			}
+			if !errors.Is(nextErr, wantErr) {
+				t.Fatalf("subscription close error = %v, want %v", nextErr, wantErr)
+			}
+			if terminal != "drain" {
+				return
+			}
+			if lastMessage == nil || lastMessage.Event == nil {
+				t.Fatalf("no transcript message was delivered before EOF")
+			}
+			if lastMessage.Event.GetRuntimeReadModelUpdate() == nil ||
+				lastMessage.Event.GetRuntimeReadModelUpdate().Activity.State != runtimepb.ActivityState_RUNTIME_ACTIVITY_UNAVAILABLE {
+				t.Fatalf("last transcript message before EOF = %+v, want unavailable runtime read-model update", lastMessage)
+			}
+		})
 	}
 }
 
 func TestSessionTranscriptSubscriptionEstablishmentMayFinishWithTerminalDrain(t *testing.T) {
-	registry := NewRuntimeRegistry()
+	registry := NewRuntimeRegistry(nil)
 	engine := newRegistryTestRuntime(t, nil)
 	ref := registryTestResourceRef(engine.SessionID())
 	registerResource(t, registry, ref, engine)
@@ -401,7 +456,7 @@ func TestSessionTranscriptSubscriptionEstablishmentMayFinishWithTerminalDrain(t 
 	subscriptionDone := make(chan subscriptionResult, 1)
 	go func() {
 		sub, err := registry.SubscribeSessionTranscript(t.Context(), &transcriptpb.SubscribeRequest{
-			SessionId: engine.SessionID(),
+			SessionId: &sharedpb.SessionSelector{Value: &sharedpb.SessionSelector_SessionId{SessionId: engine.SessionID()}},
 		})
 		subscriptionDone <- subscriptionResult{sub: sub, err: err}
 	}()
@@ -448,11 +503,20 @@ func TestSessionTranscriptSubscriptionEstablishmentMayFinishWithTerminalDrain(t 
 }
 
 func TestSessionSettingPublicationBatchesAuthoritativeStateBeforeFeedback(t *testing.T) {
-	registry := NewRuntimeRegistry()
-	engine := newRegistryTestRuntime(t, nil)
+	registry := NewRuntimeRegistry(nil)
+	store := newRegistryTestSession(t, t.TempDir(), "workspace", t.TempDir())
+	eventLog, err := store.MaterializeEventLog()
+	if err != nil {
+		t.Fatal(err)
+	}
+	engine, err := runtime.New(store, eventLog, registryRuntimeFakeClient{}, askquestion.NewRegistry(), runtime.Config{Model: "gpt-6-sol", ThinkingLevel: "medium"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = engine.Close() })
 	registerReady(t, registry, engine.SessionID(), engine)
 	subscription, err := registry.SubscribeSessionTranscript(t.Context(), &transcriptpb.SubscribeRequest{
-		SessionId: engine.SessionID(),
+		SessionId: &sharedpb.SessionSelector{Value: &sharedpb.SessionSelector_SessionId{SessionId: engine.SessionID()}},
 	})
 	if err != nil {
 		t.Fatalf("SubscribeSessionTranscript: %v", err)
@@ -462,11 +526,11 @@ func TestSessionSettingPublicationBatchesAuthoritativeStateBeforeFeedback(t *tes
 	}
 
 	name := "renamed"
-	if _, err := engine.SetSessionName(t.Context(), name); err != nil {
+	if err := store.SetName(&name); err != nil {
 		t.Fatal(err)
 	}
 	feedback := &transcriptpb.SessionSettingFeedback{
-		Kind: transcriptpb.SessionSettingKind_SESSION_SETTING_KIND_SESSION_NAME, Changed: true, Value: &transcriptpb.SessionSettingFeedback_SessionName{SessionName: name},
+		Kind: transcriptpb.SessionSettingKind_SESSION_SETTING_KIND_SESSION_NAME, Changed: true, Value: &transcriptpb.SessionSettingFeedback_SessionName{SessionName: &transcriptpb.SessionNameValue{Name: &name}},
 	}
 	if err := registry.PublishSessionSettingFeedback(engine.SessionID(), feedback); err != nil {
 		t.Fatal(err)
@@ -501,16 +565,14 @@ func TestSessionSettingPublicationBatchesAuthoritativeStateBeforeFeedback(t *tes
 }
 
 func TestSessionTranscriptSubscriptionWaitsForReplacementRuntime(t *testing.T) {
-	registry := NewRuntimeRegistry()
+	registry := NewRuntimeRegistry(nil)
 	engine := newRegistryTestRuntime(t, nil)
 	sessionID, err := runtimeids.ParseSessionID(engine.SessionID())
 	if err != nil {
 		t.Fatalf("parse runtime Session ID: %v", err)
 	}
-	firstRef, err := runtimeids.NewSessionResourceRef(sessionID, 1)
-	if err != nil {
-		t.Fatalf("first resource reference: %v", err)
-	}
+	firstRef := runtimeids.NewSessionResourceRef(sessionID, 1)
+
 	registerResource(t, registry, firstRef, engine)
 	first := subscribeTranscriptForTest(t, registry, engine.SessionID())
 	_ = nextTranscriptMessage(t, first)
@@ -536,7 +598,7 @@ func TestSessionTranscriptSubscriptionWaitsForReplacementRuntime(t *testing.T) {
 	go func() {
 		sub, err := registry.SubscribeSessionTranscript(
 			subscribeCtx,
-			&transcriptpb.SubscribeRequest{SessionId: engine.SessionID()},
+			&transcriptpb.SubscribeRequest{SessionId: &sharedpb.SessionSelector{Value: &sharedpb.SessionSelector_SessionId{SessionId: engine.SessionID()}}},
 		)
 		result <- subscribeResult{sub: sub, err: err}
 	}()
@@ -546,10 +608,8 @@ func TestSessionTranscriptSubscriptionWaitsForReplacementRuntime(t *testing.T) {
 	case <-time.After(25 * time.Millisecond):
 	}
 
-	secondRef, err := runtimeids.NewSessionResourceRef(sessionID, 2)
-	if err != nil {
-		t.Fatalf("second resource reference: %v", err)
-	}
+	secondRef := runtimeids.NewSessionResourceRef(sessionID, 2)
+
 	registerResource(t, registry, secondRef, engine)
 	t.Cleanup(func() {
 		_ = registry.ResourceDraining(context.Background(), registryTestResource(secondRef))
@@ -571,7 +631,7 @@ func TestSessionTranscriptSubscriptionWaitsForReplacementRuntime(t *testing.T) {
 }
 
 func TestSessionTranscriptSubscriptionRacingInitialRuntimeReadyHydrates(t *testing.T) {
-	registry := NewRuntimeRegistry()
+	registry := NewRuntimeRegistry(nil)
 	engine := newRegistryTestRuntime(t, nil)
 	type subscribeResult struct {
 		sub serverapi.TranscriptSubscription
@@ -583,7 +643,7 @@ func TestSessionTranscriptSubscriptionRacingInitialRuntimeReadyHydrates(t *testi
 	go func() {
 		sub, err := registry.SubscribeSessionTranscript(
 			subscribeCtx,
-			&transcriptpb.SubscribeRequest{SessionId: engine.SessionID()},
+			&transcriptpb.SubscribeRequest{SessionId: &sharedpb.SessionSelector{Value: &sharedpb.SessionSelector_SessionId{SessionId: engine.SessionID()}}},
 		)
 		result <- subscribeResult{sub: sub, err: err}
 	}()
@@ -617,14 +677,14 @@ func TestSessionTranscriptSubscriptionRacingInitialRuntimeReadyHydrates(t *testi
 }
 
 func TestSessionTranscriptSubscriptionWaitStopsWithContext(t *testing.T) {
-	registry := NewRuntimeRegistry()
+	registry := NewRuntimeRegistry(nil)
 	sessionID := runtimeids.NewSessionID().String()
 	ctx, cancel := context.WithCancel(context.Background())
 	result := make(chan error, 1)
 	go func() {
 		_, err := registry.SubscribeSessionTranscript(
 			ctx,
-			&transcriptpb.SubscribeRequest{SessionId: sessionID},
+			&transcriptpb.SubscribeRequest{SessionId: &sharedpb.SessionSelector{Value: &sharedpb.SessionSelector_SessionId{SessionId: sessionID}}},
 		)
 		result <- err
 	}()
@@ -645,19 +705,15 @@ func TestSessionTranscriptSubscriptionWaitStopsWithContext(t *testing.T) {
 	}
 }
 
-func TestSessionTranscriptSubscriptionRejectsMissingSession(t *testing.T) {
-	registry := NewRuntimeRegistry()
-	_, err := registry.SubscribeSessionTranscript(
-		context.Background(),
-		&transcriptpb.SubscribeRequest{},
-	)
+func TestSessionTranscriptSubscriptionBoundaryRejectsMissingSession(t *testing.T) {
+	err := protoapi.Validate(&transcriptpb.SubscribeRequest{})
 	if err == nil {
 		t.Fatal("missing Session subscription did not fail")
 	}
 }
 
 func TestAuthorityRuntimeDrainCannotRestoreAggregateActivityAfterTerminalState(t *testing.T) {
-	registry := NewRuntimeRegistry()
+	registry := NewRuntimeRegistry(nil)
 	engine := newRegistryTestRuntime(t, nil)
 	ref := registryTestResourceRef(engine.SessionID())
 	if err := registry.ResourceReady(context.Background(), registryTestResource(ref), engine, func() (io.Closer, error) {
@@ -687,7 +743,7 @@ func TestAuthorityRuntimeDrainCannotRestoreAggregateActivityAfterTerminalState(t
 }
 
 func TestAuthorityEventFeedProjectsExactResourceGeneration(t *testing.T) {
-	registry := NewRuntimeRegistry()
+	registry := NewRuntimeRegistry(nil)
 	engine := newRegistryTestRuntime(t, nil)
 	ref := registryTestResourceRef(engine.SessionID())
 	registerReady(t, registry, engine.SessionID(), engine)
@@ -696,10 +752,8 @@ func TestAuthorityEventFeedProjectsExactResourceGeneration(t *testing.T) {
 	t.Cleanup(func() { _ = sub.Close() })
 	_ = nextTranscriptMessage(t, sub)
 
-	staleRef, err := runtimeids.NewSessionResourceRef(ref.SessionID(), ref.Generation()+1)
-	if err != nil {
-		t.Fatalf("new stale authority resource ref: %v", err)
-	}
+	staleRef := runtimeids.NewSessionResourceRef(ref.SessionID(), ref.Generation()+1)
+
 	registry.PublishAuthorityRuntimeEvent(staleRef, runtime.Event{
 		Kind:                       runtime.EventAssistantMessage,
 		StepID:                     textutil.Value(registryTestStepID),
@@ -759,7 +813,7 @@ func TestAuthorityEventFeedProjectsExactResourceGeneration(t *testing.T) {
 }
 
 func TestTranscriptHydrationRetiresStepOwnedStateWhenCanonicalRuntimeBecomesIdle(t *testing.T) {
-	registry := NewRuntimeRegistry()
+	registry := NewRuntimeRegistry(nil)
 	engine := newRegistryTestRuntime(t, nil)
 	ref := registryTestResourceRef(engine.SessionID())
 	registerReady(t, registry, engine.SessionID(), engine)
@@ -771,7 +825,6 @@ func TestTranscriptHydrationRetiresStepOwnedStateWhenCanonicalRuntimeBecomesIdle
 		StepID: textutil.Value(registryTestStepID),
 		RunState: &runtime.RunState{
 			Lifecycle:  runtime.RunningRunLifecycle(runtime.RunModeTurn),
-			RunID:      registryTestRunID,
 			ActiveKind: runtime.ActiveKindUserTurn,
 			Status:     runtime.RunStatusRunning,
 			StartedAt:  time.Now().UTC(),
@@ -853,13 +906,11 @@ func TestTranscriptHydrationRetiresStepOwnedStateWhenCanonicalRuntimeBecomesIdle
 }
 
 func TestExecutionPromptProjectionRetainsExactAuthorityGeneration(t *testing.T) {
-	registry := NewRuntimeRegistry()
+	registry := NewRuntimeRegistry(nil)
 	sessionID := runtimeids.NewSessionID()
 	predecessor := registryTestResourceRef(sessionID.String())
-	successor, err := runtimeids.NewSessionResourceRef(sessionID, 2)
-	if err != nil {
-		t.Fatalf("successor resource: %v", err)
-	}
+	successor := runtimeids.NewSessionResourceRef(sessionID, 2)
+
 	predecessorScope := runtimeids.NewExecutionScopeID()
 	successorScope := runtimeids.NewExecutionScopeID()
 	request := askquestion.AskQuestionRequest{ToolCallID: "ask-1", StepID: registryTestStepID, Question: "Proceed?"}
@@ -884,7 +935,7 @@ func TestExecutionPromptProjectionRetainsExactAuthorityGeneration(t *testing.T) 
 
 func TestResourceDrainingResolvesPendingPromptBeforeClosingStreams(t *testing.T) {
 	broker := attentionnotify.NewBroker()
-	registry := NewRuntimeRegistry().WithAttentionNotifications(broker, testharness.SessionNavigationBinding)
+	registry := NewRuntimeRegistry(testharness.OpenStore(t, t.TempDir())).WithAttentionNotifications(broker, testharness.SessionNavigationBinding)
 	engine := newRegistryTestRuntime(t, nil)
 	ref := registryTestResourceRef(engine.SessionID())
 	registerResource(t, registry, ref, engine)
@@ -973,25 +1024,27 @@ func TestPromptProjectionPreservesOrderedAccessTargets(t *testing.T) {
 }
 
 func TestRuntimeRegistryAggregatesSleepObserverAcrossAuthorityResources(t *testing.T) {
-	registry := NewRuntimeRegistry()
+	registry := NewRuntimeRegistry(nil)
 	engineA := &runtime.Engine{}
 	engineB := &runtime.Engine{}
-	registerReady(t, registry, "session-a", engineA)
-	registerReady(t, registry, "session-b", engineB)
-	t.Cleanup(func() { closeRuntime(registry, "session-a", engineA) })
-	t.Cleanup(func() { closeRuntime(registry, "session-b", engineB) })
+	const sessionA = "11111111-1111-4111-8111-111111111111"
+	const sessionB = "22222222-2222-4222-8222-222222222222"
+	registerReady(t, registry, sessionA, engineA)
+	registerReady(t, registry, sessionB, engineB)
+	t.Cleanup(func() { closeRuntime(registry, sessionA, engineA) })
+	t.Cleanup(func() { closeRuntime(registry, sessionB, engineB) })
 	notifications := make(chan bool, 2)
 	registry.SetSleepObserver(func(active bool) { notifications <- active })
 	defer registry.SetSleepObserver(nil)
 
-	publishRunState(registry, "session-a", true)
-	publishRunState(registry, "session-b", true)
-	publishRunState(registry, "session-a", false)
+	publishRunState(registry, sessionA, true)
+	publishRunState(registry, sessionB, true)
+	publishRunState(registry, sessionA, false)
 	if active := receiveSleepObserverState(t, notifications); !active {
 		t.Fatal("expected aggregate active notification")
 	}
 	assertNoSleepObserverState(t, notifications)
-	publishRunState(registry, "session-b", false)
+	publishRunState(registry, sessionB, false)
 	if active := receiveSleepObserverState(t, notifications); active {
 		t.Fatal("expected aggregate idle notification")
 	}
@@ -1024,10 +1077,6 @@ func publishRunState(registry *RuntimeRegistry, sessionID string, running bool) 
 		QueueAccepting: true,
 	}
 	if running {
-		runID, err := runtimeids.ParseRunID(registryTestRunID)
-		if err != nil {
-			panic(err)
-		}
 		stepID, err := runtimeids.ParseStepID(registryTestStepID)
 		if err != nil {
 			panic(err)
@@ -1036,7 +1085,6 @@ func publishRunState(registry *RuntimeRegistry, sessionID string, running bool) 
 			State:    runtimepb.ActivityState_RUNTIME_ACTIVITY_RUNNING,
 			Reviewer: runtimepb.ReviewerActivity_REVIEWER_ACTIVITY_INACTIVE,
 			ActiveStep: &runtimepb.ActiveStep{
-				RunId:      runID.String(),
 				StepId:     stepID.String(),
 				ActiveKind: runtimepb.ActivityActiveKind_RUNTIME_ACTIVITY_ACTIVE_KIND_USER_TURN,
 			},
@@ -1052,9 +1100,9 @@ func publishRunState(registry *RuntimeRegistry, sessionID string, running bool) 
 }
 
 func TestActiveRuntimeActivitySnapshotsExcludeRegisteredIdlePopulation(t *testing.T) {
-	registry := NewRuntimeRegistry()
-	for index := range 500 {
-		sessionID := fmt.Sprintf("idle-session-%03d", index)
+	registry := NewRuntimeRegistry(nil)
+	for range 500 {
+		sessionID := runtimeids.NewSessionID().String()
 		registerReady(t, registry, sessionID, &runtime.Engine{})
 	}
 	runningEngine, runningDone := startRegistryBlockingRuntime(t, registry)
@@ -1088,14 +1136,14 @@ func TestActiveRuntimeActivitySnapshotsExcludeRegisteredIdlePopulation(t *testin
 }
 
 func TestRuntimeReadModelPublicationRejectsProvablyOlderUpdate(t *testing.T) {
-	registry := NewRuntimeRegistry()
+	registry := NewRuntimeRegistry(nil)
 	engine := newRegistryTestRuntime(t, nil)
 	registerReady(t, registry, engine.SessionID(), engine)
 
 	newer := registryTestReadModelUpdate(t, 2, runtimepb.ActivityState_RUNTIME_ACTIVITY_RUNNING)
 	registry.PublishRuntimeReadModelUpdate(engine.SessionID(), newer)
 	subscription, err := registry.SubscribeSessionTranscript(context.Background(), &transcriptpb.SubscribeRequest{
-		SessionId: engine.SessionID(),
+		SessionId: &sharedpb.SessionSelector{Value: &sharedpb.SessionSelector_SessionId{SessionId: engine.SessionID()}},
 	})
 	if err != nil {
 		t.Fatalf("SubscribeSessionTranscript: %v", err)
@@ -1126,14 +1174,15 @@ func TestRuntimeReadModelPublicationRejectsProvablyOlderUpdate(t *testing.T) {
 }
 
 func TestRuntimeActivitySnapshotsDoNotShareActiveStep(t *testing.T) {
-	registry := NewRuntimeRegistry()
+	registry := NewRuntimeRegistry(nil)
 	engine := newRegistryTestRuntime(t, nil)
 	registerReady(t, registry, engine.SessionID(), engine)
 	update := registryTestReadModelUpdate(t, 2, runtimepb.ActivityState_RUNTIME_ACTIVITY_RUNNING)
 	registry.PublishRuntimeReadModelUpdate(engine.SessionID(), update)
 
 	view, ok := registry.RuntimeMainViewSnapshot(engine.SessionID())
-	if !ok || view.Activity.ActiveStep == nil {
+	if !ok || view.Activity.ActiveStep == nil ||
+		view.Activity.ActiveStep.StepId != registryTestStepID {
 		t.Fatalf("Runtime Main View = %+v, %t; want active step", view, ok)
 	}
 	view.Activity.ActiveStep.ActiveKind = runtimepb.ActivityActiveKind_RUNTIME_ACTIVITY_ACTIVE_KIND_BACKGROUND
@@ -1147,7 +1196,8 @@ func TestRuntimeActivitySnapshotsDoNotShareActiveStep(t *testing.T) {
 	if err != nil {
 		t.Fatalf("ActiveRuntimeActivitySnapshots: %v", err)
 	}
-	if len(snapshots) != 1 || snapshots[0].Activity.ActiveStep == nil {
+	if len(snapshots) != 1 || snapshots[0].Activity.ActiveStep == nil ||
+		snapshots[0].Activity.ActiveStep.StepId != registryTestStepID {
 		t.Fatalf("active snapshots = %+v, want one active step", snapshots)
 	}
 	snapshots[0].Activity.ActiveStep.ActiveKind = runtimepb.ActivityActiveKind_RUNTIME_ACTIVITY_ACTIVE_KIND_BACKGROUND
@@ -1167,26 +1217,18 @@ func registryTestReadModelUpdate(
 	state runtimepb.ActivityState,
 ) *runtimepb.ReadModelUpdate {
 	t.Helper()
-	version, err := protoapi.NewReadModelVersion("registry-publication-test", 1, sequence)
-	if err != nil {
-		t.Fatalf("NewReadModelVersion: %v", err)
-	}
+	version := protoapi.NewReadModelVersion("registry-publication-test", 1, sequence)
 	activity := &runtimepb.Activity{
 		State:          state,
 		Reviewer:       runtimepb.ReviewerActivity_REVIEWER_ACTIVITY_INACTIVE,
 		QueueAccepting: true,
 	}
 	if state == runtimepb.ActivityState_RUNTIME_ACTIVITY_RUNNING {
-		runID, err := runtimeids.ParseRunID(registryTestRunID)
-		if err != nil {
-			t.Fatalf("ParseRunID: %v", err)
-		}
 		stepID, err := runtimeids.ParseStepID(registryTestStepID)
 		if err != nil {
 			t.Fatalf("ParseStepID: %v", err)
 		}
 		activity.ActiveStep = &runtimepb.ActiveStep{
-			RunId:      runID.String(),
 			StepId:     stepID.String(),
 			ActiveKind: runtimepb.ActivityActiveKind_RUNTIME_ACTIVITY_ACTIVE_KIND_USER_TURN,
 		}
@@ -1201,7 +1243,7 @@ func startRegistryBlockingRuntime(t *testing.T, registry *RuntimeRegistry) (*run
 		t,
 		client,
 		askquestion.NewRegistry(),
-		runtime.Config{Model: "gpt-5", ThinkingLevel: "medium"},
+		runtime.Config{Model: "gpt-6-sol", ThinkingLevel: "medium"},
 		func(engine *runtime.Engine, evt runtime.Event) {
 			if err := registry.PublishAuthorityRuntimeEvent(registryTestResourceRef(engine.SessionID()), evt); err != nil {
 				t.Errorf("PublishAuthorityRuntimeEvent: %v", err)

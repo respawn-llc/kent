@@ -1,8 +1,10 @@
+import { recordProjectObservers } from "@/test-support/project-events";
 import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { RegistryProvider } from "@effect/atom-react";
 import { I18nextProvider } from "react-i18next";
 import userEvent from "@testing-library/user-event";
+import { beforeAll, beforeEach, describe, expect, it, mock, vi } from "bun:test";
 
 import { type ProjectTaskGroupCounts, type ProjectTaskGroupDefinition, type TaskListItem } from "@/api";
 import {
@@ -11,7 +13,8 @@ import {
   type SidebarDestination,
   type SidebarRootController,
 } from "@/app-facade";
-import { createTestServices } from "@/test-support/app-services";
+import { createTestServices, startupRoutes } from "@/test-support/app-services";
+import { installVirtualizedScrollGeometry } from "@/test-support/resize-observer";
 import type * as ProjectTaskListData from "./projectTaskListData";
 
 import { appI18n, initializeI18n } from "@/i18n";
@@ -32,7 +35,7 @@ type ActiveTaskDestination = Readonly<{
   taskID: string;
 }>;
 
-const fixture = vi.hoisted<{
+const fixture: {
   activeDestination: ActiveTaskDestination | null;
   board: {
     isError: boolean;
@@ -65,7 +68,7 @@ const fixture = vi.hoisted<{
   projectSubscriptions: number;
   assignmentRequests: number;
   resumeRequests: number;
-}>(() => ({
+} = {
   activeDestination: null,
   board: {
     isError: false,
@@ -109,88 +112,54 @@ const fixture = vi.hoisted<{
   projectSubscriptions: 0,
   assignmentRequests: 0,
   resumeRequests: 0,
-}));
+};
 
-vi.mock("@/app-facade", async (importOriginal) => ({
-  ...(await importOriginal()),
+const actualAppFacade = await import("@/app-facade");
+const actualProjectTaskListData = await import("./projectTaskListData");
+await mock.module("@/app-facade", () => ({
+  ...actualAppFacade,
   useAppNavigation: () => ({ openProject: vi.fn() }),
-  useAppServices: () => ({
-    api: {
-      listWorkflows: async () => ({
-        nextOffset: null,
-        workflows: fixture.board.data.workflows.map((workflow) => ({
-          description: workflow.description ?? "",
-          executionTargetPolicy: { customRef: null, mode: "default_branch" as const },
-          id: workflow.id,
-          name: workflow.name,
-          projectLink: { isDefault: workflow.isProjectDefault },
-          version: 1,
-        })),
-      }),
-      getTaskLabels: async (taskID: string) => {
-        fixture.assignmentRequests += 1;
-        return { taskID, labelIDs: [] };
-      },
-      listProjectLabels: async () => {
-        fixture.labelCatalogRequests += 1;
-        return {
-          projectID: "project-1",
-          labels: [{ id: "label-1", name: "Priority" }],
-        };
-      },
-      resumeTask: async () => {
-        fixture.resumeRequests += 1;
-        return { outcome: "applied" as const, applied: { currentNodes: [] } };
-      },
-    },
-    logger: { append: vi.fn() },
-    nativeBridge: { capabilities: { platform: "macos" } },
-    storageNamespace: null,
-  }),
   useOwnedSidebarRoots: () => ({ open: fixture.open }),
   useSidebarShell: () => ({ activeDestination: fixture.activeDestination }),
   useStatusController: () => ({ dismiss: vi.fn(), push: vi.fn() }),
 }));
 
-vi.mock("./projectTaskListData", async (importOriginal) => {
-  const actual = await importOriginal<typeof ProjectTaskListData>();
-  return {
-    ...actual,
-    useProjectTaskListEvents: () => ({ error: null, retry: vi.fn() }),
-    useProjectTaskListData: () => ({
-      counts: countsQuery(
-        fixture.counts,
-        fixture.countsError,
-        fixture.countsPending,
-        fixture.countsEstablished,
-      ),
-      active: {
-        ...groupData(
-          mockedActiveTasks ?? [
-            task("active-1", "KNT-1", "Active task"),
-            task("active-2", "KNT-2", "Running task"),
-          ],
-          fixture.initialGroupPagesEstablished,
-          fixture.initialGroupPagesError,
-          fixture.initialGroupPagesRefreshing,
-        ),
-        ...fixture.activeDataOverrides,
-      },
-      backlog: groupData(
-        fixture.backlogTasks,
+await mock.module("./projectTaskListData", () => ({
+  ...actualProjectTaskListData,
+  useProjectTaskListEvents: () => ({ error: null, retry: vi.fn() }),
+  useProjectTaskListData: () => ({
+    counts: countsQuery(
+      fixture.counts,
+      fixture.countsError,
+      fixture.countsPending,
+      fixture.countsEstablished,
+    ),
+    active: {
+      ...groupData(
+        mockedActiveTasks ?? [
+          task("active-1", "KNT-1", "Active task"),
+          task("active-2", "KNT-2", "Running task"),
+        ],
         fixture.initialGroupPagesEstablished,
         fixture.initialGroupPagesError,
         fixture.initialGroupPagesRefreshing,
       ),
-      done: {
-        ...groupData([task("done-1", "KNT-4", "Done task")]),
-        ...fixture.doneDataOverrides,
-      },
-    }),
-  };
-});
+      ...fixture.activeDataOverrides,
+    },
+    backlog: groupData(
+      fixture.backlogTasks,
+      fixture.initialGroupPagesEstablished,
+      fixture.initialGroupPagesError,
+      fixture.initialGroupPagesRefreshing,
+    ),
+    done: {
+      ...groupData([task("done-1", "KNT-4", "Done task")]),
+      ...fixture.doneDataOverrides,
+    },
+  }),
+}));
 
-import { ProjectTasksSurface } from "./ProjectTasksSurface";
+const { ProjectTasksSurface } = await import("./ProjectTasksSurface");
 
 beforeAll(async () => initializeI18n());
 
@@ -236,7 +205,7 @@ describe("ProjectTasksSurface", () => {
     renderSurface();
 
     const columnHeaders = screen.getAllByRole("columnheader");
-    expect(columnHeaders).toHaveLength(6);
+    expect(columnHeaders).toHaveLength(7);
     for (const columnHeader of columnHeaders) {
       expect(within(columnHeader).queryByRole("button")).not.toBeInTheDocument();
     }
@@ -283,7 +252,8 @@ describe("ProjectTasksSurface", () => {
     expect(getSortRadio(screen.getByRole("dialog"), "desc")).toBeChecked();
   });
 
-  it("opens the server-defined Status legend from keyboard focus", async () => {
+  it("opens the server-defined Status legend from hover, not keyboard focus", async () => {
+    const user = userEvent.setup();
     renderSurface();
 
     const statusLegendTriggers = screen.getAllByRole("button", { name: appI18n.t("task.status") });
@@ -292,7 +262,8 @@ describe("ProjectTasksSurface", () => {
       throw new Error("Expected a Task Status legend trigger.");
     }
     fireEvent.focus(statusLegendTrigger);
-
+    expect(screen.queryByRole("tooltip")).not.toBeInTheDocument();
+    await user.hover(statusLegendTrigger);
     expect(await screen.findByRole("tooltip")).toBeVisible();
   });
 
@@ -306,7 +277,6 @@ describe("ProjectTasksSurface", () => {
     expect(destination).toMatchObject({
       boardQueryWorkflowID: undefined,
       kind: "newTask",
-      mode: "shift",
       projectID: "project-1",
     });
     if (destination.kind !== "newTask") throw new Error("Expected New Task destination.");
@@ -336,7 +306,6 @@ describe("ProjectTasksSurface", () => {
     const destination = openedDestination();
     expect(destination).toMatchObject({
       kind: "linkWorkflow",
-      mode: "shift",
       projectID: "project-1",
     });
     if (destination.kind !== "linkWorkflow") throw new Error("Expected Link Workflow destination.");
@@ -377,7 +346,6 @@ describe("ProjectTasksSurface", () => {
     expect(destination).toMatchObject({
       boardQueryWorkflowID: undefined,
       kind: "newTask",
-      mode: "shift",
       projectID: "project-1",
     });
     if (destination.kind !== "newTask") throw new Error("Expected New Task destination.");
@@ -415,18 +383,14 @@ describe("ProjectTasksSurface", () => {
       await destination.onCompleted({ kind: "linked", workflowID: "workflow-3" });
     });
 
-    expect(fixture.invalidations).toEqual(
-      expect.arrayContaining([
-        {
-          queryKey: queryKeys.projectBoardsRoot("project-1"),
-          refetchType: "active",
-        },
-        {
-          queryKey: queryKeys.projectTaskListsRoot("project-1"),
-          refetchType: "active",
-        },
-      ]),
-    );
+    expect(fixture.invalidations).toContainEqual({
+      queryKey: queryKeys.projectBoardsRoot("project-1"),
+      refetchType: "active",
+    });
+    expect(fixture.invalidations).toContainEqual({
+      queryKey: queryKeys.projectTaskListsRoot("project-1"),
+      refetchType: "active",
+    });
   });
 
   it("preserves collapsed Backlog after New Task success and exposes no persistent New Task action", async () => {
@@ -467,8 +431,7 @@ describe("ProjectTasksSurface", () => {
   });
 
   it("restores retained pixels after remounted group pages establish their first results", () => {
-    vi.spyOn(HTMLElement.prototype, "scrollHeight", "get").mockReturnValue(1000);
-    vi.spyOn(HTMLElement.prototype, "offsetHeight", "get").mockReturnValue(44);
+    const geometry = installProjectTaskScrollGeometry();
     const originalScrollTop = Object.getOwnPropertyDescriptor(HTMLElement.prototype, "scrollTop");
     const scrollPositions = new WeakMap<HTMLElement, number>();
     let maximumScrollTop = Number.POSITIVE_INFINITY;
@@ -527,21 +490,25 @@ describe("ProjectTasksSurface", () => {
       } else {
         Object.defineProperty(HTMLElement.prototype, "scrollTop", originalScrollTop);
       }
+      geometry.restore();
     }
   });
 
   it("restores retained pixels while established group pages refresh", () => {
-    vi.spyOn(HTMLElement.prototype, "scrollHeight", "get").mockReturnValue(1000);
-    vi.spyOn(HTMLElement.prototype, "offsetHeight", "get").mockReturnValue(44);
-    const memory = createProjectTasksViewMemory();
-    memory.setScrollOffsets(200, 120);
-    fixture.initialGroupPagesRefreshing = true;
+    const geometry = installProjectTaskScrollGeometry();
+    try {
+      const memory = createProjectTasksViewMemory();
+      memory.setScrollOffsets(200, 120);
+      fixture.initialGroupPagesRefreshing = true;
 
-    renderSurface(memory);
+      renderSurface(memory);
 
-    const grid = screen.getByRole("grid", { name: appI18n.t("home.prototype.projectTasksGrid") });
-    expect(grid.scrollTop).toBe(200);
-    expect(grid.scrollLeft).toBe(0);
+      const grid = screen.getByRole("grid", { name: appI18n.t("home.prototype.projectTasksGrid") });
+      expect(grid.scrollTop).toBe(200);
+      expect(grid.scrollLeft).toBe(0);
+    } finally {
+      geometry.restore();
+    }
   });
 
   it("prefetches the next page when the last loaded page is visible", () => {
@@ -555,9 +522,9 @@ describe("ProjectTasksSurface", () => {
       nextRequestGeneration: "project-1:50",
     };
 
-    renderSurface(createProjectTasksViewMemory(), "shift", activeTasks);
+    renderSurface(createProjectTasksViewMemory(), activeTasks);
 
-    expect(fetchNextPage).toHaveBeenCalledOnce();
+    expect(fetchNextPage).toHaveBeenCalledTimes(1);
   });
 
   it("does not prefetch while an earlier loaded page remains visible", () => {
@@ -571,7 +538,7 @@ describe("ProjectTasksSurface", () => {
       nextRequestGeneration: "project-1:100",
     };
 
-    renderSurface(createProjectTasksViewMemory(), "shift", activeTasks);
+    renderSurface(createProjectTasksViewMemory(), activeTasks);
 
     expect(fetchNextPage).not.toHaveBeenCalled();
   });
@@ -605,19 +572,18 @@ describe("ProjectTasksSurface", () => {
     expect(screen.getAllByRole("button", { name: appI18n.t("app.retry") })).toHaveLength(1);
   });
 
-  it("opens Task Detail with the containing sidebar mode", () => {
-    renderSurface(createProjectTasksViewMemory(), "overlay", [task("active-1", "KNT-1", "Task")]);
+  it("opens Task Detail with automatic sidebar presentation", () => {
+    renderSurface(createProjectTasksViewMemory(), [task("active-1", "KNT-1", "Task")]);
 
     fireEvent.click(screen.getByRole("row", { name: "KNT-1 Task" }));
     expect(fixture.open).toHaveBeenCalledWith({
       kind: "taskDetail",
-      mode: "overlay",
       taskID: "active-1",
     });
   });
 
   it("keeps informational status icons from opening Task Detail", () => {
-    renderSurface(createProjectTasksViewMemory(), "shift", [task("active-1", "KNT-1", "Task")]);
+    renderSurface(createProjectTasksViewMemory(), [task("active-1", "KNT-1", "Task")]);
 
     fireEvent.click(screen.getByTestId("project-task-status-active-1"));
 
@@ -625,7 +591,7 @@ describe("ProjectTasksSurface", () => {
   });
 
   it("refreshes the Project Task list after Resume applies", async () => {
-    renderSurface(createProjectTasksViewMemory(), "shift", [
+    renderSurface(createProjectTasksViewMemory(), [
       task("active-1", "KNT-1", "Interrupted task", {
         status: {
           kind: "interrupted",
@@ -649,7 +615,7 @@ describe("ProjectTasksSurface", () => {
 
   it("opens Task Detail from the dependency chip and uses the active sidebar destination for selection", () => {
     fixture.activeDestination = { kind: "taskDetail", mode: "shift", taskID: "active-1" };
-    renderSurface(createProjectTasksViewMemory(), "overlay", [
+    renderSurface(createProjectTasksViewMemory(), [
       task("active-1", "KNT-1", "Selected task", {
         dependencyProgress: { satisfiedCount: 2, totalCount: 2 },
       }),
@@ -664,7 +630,6 @@ describe("ProjectTasksSurface", () => {
     );
     expect(fixture.open).toHaveBeenCalledWith({
       kind: "taskDetail",
-      mode: "overlay",
       taskID: "active-1",
     });
 
@@ -675,7 +640,7 @@ describe("ProjectTasksSurface", () => {
 
   it("keeps Labels subscribed and applies last-wins selection while the chooser is open", async () => {
     fixture.activeDestination = { kind: "taskDetail", mode: "shift", taskID: "active-1" };
-    renderSurface(createProjectTasksViewMemory(), "shift", [
+    renderSurface(createProjectTasksViewMemory(), [
       task("active-1", "KNT-1", "Detail selected"),
       task("active-2", "KNT-2", "Labels selected", {
         labels: [{ id: "label-1", name: "Priority" }],
@@ -721,16 +686,12 @@ describe("ProjectTasksSurface", () => {
   });
 });
 
-function renderSurface(
-  memory = createProjectTasksViewMemory(),
-  sidebarMode: "overlay" | "shift" = "shift",
-  activeTasks?: readonly TaskListItem[],
-) {
+function renderSurface(memory = createProjectTasksViewMemory(), activeTasks?: readonly TaskListItem[]) {
   if (activeTasks !== undefined) {
     fixture.counts = { active: activeTasks.length, backlog: 0, done: 0 };
     mockedActiveTasks = activeTasks;
   }
-  return render(withQueryClient(surface(memory, sidebarMode)));
+  return render(withQueryClient(surface(memory)));
 }
 
 function getSortTrigger(): HTMLElement {
@@ -753,27 +714,51 @@ function getSortRadio(dialog: HTMLElement, value: string): HTMLElement {
   return radio;
 }
 
-function surface(memory = createProjectTasksViewMemory(), sidebarMode: "overlay" | "shift" = "shift") {
+function surface(memory = createProjectTasksViewMemory()) {
   return (
     <I18nextProvider i18n={appI18n}>
-      <ProjectTasksSurface projectID="project-1" sidebarMode={sidebarMode} viewMemory={memory} />
+      <ProjectTasksSurface projectID="project-1" viewMemory={memory} />
     </I18nextProvider>
   );
 }
 
 function withQueryClient(children: React.ReactNode) {
-  const services = createTestServices([]);
-  const subscribe = services.transport.subscribe.bind(services.transport);
-  vi.spyOn(services.transport, "subscribe").mockImplementation((method, params, handler) => {
-    fixture.projectSubscriptions += 1;
-    const subscription = subscribe(method, params, handler);
+  const services = createTestServices(startupRoutes, undefined, { platform: "macos" });
+  vi.spyOn(services.api, "listWorkflows").mockImplementation(async () => ({
+    nextOffset: null,
+    workflows: fixture.board.data.workflows.map((workflow) => ({
+      description: workflow.description ?? "",
+      executionTargetPolicy: { customRef: null, mode: "default_branch" },
+      id: workflow.id,
+      name: workflow.name,
+      projectLink: { isDefault: workflow.isProjectDefault },
+      version: 1,
+    })),
+  }));
+  vi.spyOn(services.api, "getTaskLabels").mockImplementation(async (taskID) => {
+    fixture.assignmentRequests += 1;
+    return { taskID, labelIDs: [] };
+  });
+  vi.spyOn(services.api, "listProjectLabels").mockImplementation(async () => {
+    fixture.labelCatalogRequests += 1;
     return {
-      close() {
-        fixture.projectSubscriptions -= 1;
-        subscription.close();
-      },
+      projectID: "project-1",
+      labels: [{ id: "label-1", name: "Priority" }],
     };
   });
+  vi.spyOn(services.api, "resumeTask").mockImplementation(async () => {
+    fixture.resumeRequests += 1;
+    return { outcome: "applied", applied: { currentNodes: [] } };
+  });
+  recordProjectObservers(
+    services.transport,
+    () => {
+      fixture.projectSubscriptions += 1;
+    },
+    () => {
+      fixture.projectSubscriptions -= 1;
+    },
+  );
   const queryClient = new QueryClient({
     defaultOptions: { queries: { retry: false } },
   });
@@ -807,6 +792,22 @@ function openedDestination(): SidebarDestination {
   const destination = fixture.open.mock.lastCall?.[0];
   if (destination === undefined) throw new Error("Expected a Sidebar destination to open.");
   return destination;
+}
+
+function installProjectTaskScrollGeometry() {
+  const originalOffsetHeight = Object.getOwnPropertyDescriptor(HTMLElement.prototype, "offsetHeight");
+  const geometry = installVirtualizedScrollGeometry(44);
+  Object.defineProperties(HTMLElement.prototype, {
+    offsetHeight: { configurable: true, get: () => 44 },
+    scrollHeight: { configurable: true, get: () => 1000 },
+  });
+  return {
+    restore() {
+      geometry.restore();
+      if (originalOffsetHeight === undefined) Reflect.deleteProperty(HTMLElement.prototype, "offsetHeight");
+      else Object.defineProperty(HTMLElement.prototype, "offsetHeight", originalOffsetHeight);
+    },
+  };
 }
 
 function countsQuery(
@@ -879,6 +880,7 @@ function task(
     shortID,
     workflowID: "workflow-1",
     workflowName: "Delivery",
+    stageName: null,
     title,
     createdAt: 1,
     updatedAt: 1,

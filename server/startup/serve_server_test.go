@@ -5,8 +5,10 @@ import (
 	"database/sql"
 	"encoding/json"
 	"errors"
+	"io"
 	"net"
 	"net/http"
+	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -15,21 +17,28 @@ import (
 
 	"core/internal/testharness/testsetup"
 	"core/internal/testharness/workflowfixture"
+	"core/server/auth"
 	corepkg "core/server/core"
 	"core/server/metadata"
 	metadatamigrations "core/server/metadata/migrations"
+	"core/server/session"
+	"core/server/transport"
 	"core/server/workflow"
 	"core/server/workflowstore"
 	"core/shared/client"
 	"core/shared/config"
 	protoapi "core/shared/protoapi"
+	authpb "core/shared/protoapi/gen/kent/api/auth"
 	capabilitypb "core/shared/protoapi/gen/kent/api/capability"
 	onboardingpb "core/shared/protoapi/gen/kent/api/onboarding"
 	serverpb "core/shared/protoapi/gen/kent/api/server"
+	sessionpb "core/shared/protoapi/gen/kent/api/session"
 	pb "core/shared/protoapi/gen/kent/api/workflow_definition"
+	taskpb "core/shared/protoapi/gen/kent/api/workflow_task"
 	"core/shared/protocol"
 	"core/shared/runtimeids"
 	"core/shared/serverapi"
+	"core/shared/sessioncontract"
 
 	proto "google.golang.org/protobuf/proto"
 	"google.golang.org/protobuf/types/known/emptypb"
@@ -90,9 +99,101 @@ func TestStartServeServerRejectsSecondPersistenceRootOwner(t *testing.T) {
 	}
 }
 
-func TestCoreStartupRejectsSettingsRemovedAfterInitialResolution(t *testing.T) {
+func TestOccupiedRootDoesNotConvertProviderConfiguration(t *testing.T) {
+	root := t.TempDir()
+	path := filepath.Join(root, "config.toml")
+	body := []byte("model = \"gpt-6-sol\"\nprovider_override = \"openai\"\n")
+	if err := os.WriteFile(path, body, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	lease, err := corepkg.AcquireRootLock(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer lease.Close()
+	server, err := StartServeServer(context.Background(), Request{LoadOptions: config.LoadOptions{ConfigRoot: root}})
+	if server != nil {
+		_ = server.Close()
+		t.Fatal("occupied root started another server")
+	}
+	if !errors.Is(err, corepkg.ErrPersistenceRootBusy) {
+		t.Fatalf("occupied root must be rejected before configuration loading: %v", err)
+	}
+	after, err := os.ReadFile(path)
+	if err != nil || string(after) != string(body) {
+		t.Fatalf("occupied root configuration changed: %v", err)
+	}
+}
+
+func TestStartupConvertsOldSubscriptionAndRequiresSignIn(t *testing.T) {
+	for _, access := range []string{"", "provider_override = \"openai\"\n"} {
+		t.Run(access, func(t *testing.T) {
+			home := t.TempDir()
+			t.Setenv("HOME", home)
+			configureServeTestServerPort(t)
+			writeServeSettings(t, home, "model = \"gpt-6-sol\"\n"+access)
+			root := filepath.Join(home, config.ConfigDirName)
+			authPath := config.GlobalAuthConfigPath(config.App{PersistenceRoot: root})
+			if err := os.WriteFile(authPath, []byte(`{"scope":"global","method":{"type":"oauth","oauth":{"access_token":"discarded-fixture"}}}`), 0o600); err != nil {
+				t.Fatal(err)
+			}
+			server := startServeTestServer(t, Request{})
+			connection, err := server.Config().Settings.SelectedConnection()
+			if err != nil || connection.Protocol != config.ConnectionChatGPT {
+				t.Fatalf("converted subscription = %+v, %v", connection, err)
+			}
+			state, err := auth.NewFileStore(authPath).Load(context.Background())
+			if err != nil || len(state.Connections) != 0 {
+				t.Fatalf("old token survived cutover: %+v, %v", state, err)
+			}
+			id, err := server.Config().Settings.Connection.ConcreteID()
+			if err != nil {
+				t.Fatal(err)
+			}
+			status, err := server.AuthBootstrapClient().GetBootstrapStatus(context.Background(), &authpb.GetBootstrapStatusRequest{Target: protoapi.ExistingConnectionTarget(*id)})
+			if err != nil || status.AuthReady || !status.AuthRequired {
+				t.Fatalf("subscription must be available for sign-in: %+v, %v", status, err)
+			}
+		})
+	}
+}
+
+func TestStartupConversionFailureRetainsSelectionAndReleasesRoot(t *testing.T) {
+	root := t.TempDir()
+	path := filepath.Join(root, "config.toml")
+	authPath := config.GlobalAuthConfigPath(config.App{PersistenceRoot: root})
+	body := `provider_override = "openai"`
+	credentials := `{"scope":"global","method":{"type":"api_key","api_key":{"key":"discarded-fixture"}}}`
+	for name, contents := range map[string]string{path: body, authPath: credentials} {
+		if err := os.WriteFile(name, []byte(contents), 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	server, err := StartServeServer(context.Background(), Request{LoadOptions: config.LoadOptions{ConfigRoot: root}})
+	if server != nil {
+		_ = server.Close()
+	}
+	if err == nil {
+		t.Fatal("API-backed installation converted without an explicit reference")
+	}
+	for name, contents := range map[string]string{path: body, authPath: credentials} {
+		after, err := os.ReadFile(name)
+		if err != nil || string(after) != contents {
+			t.Fatalf("failed conversion changed %s: %v", name, err)
+		}
+	}
+	lease, err := corepkg.AcquireRootLock(root)
+	if err != nil {
+		t.Fatalf("startup failure retained root ownership: %v", err)
+	}
+	if err := lease.Close(); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestStartupOffersSetupAfterSettingsRemoved(t *testing.T) {
 	workspace := newServeWorkspace(t)
-	request := buildRequest(Request{WorkspaceRoot: workspace, WorkspaceRootExplicit: true})
+	request := Request{WorkspaceRoot: workspace, WorkspaceRootExplicit: true}
 	cfg, err := config.Load(workspace, workspace, config.LoadOptions{})
 	if err != nil {
 		t.Fatalf("config.Load: %v", err)
@@ -100,13 +201,9 @@ func TestCoreStartupRejectsSettingsRemovedAfterInitialResolution(t *testing.T) {
 	if err := os.Remove(cfg.Source.File(config.FileGlobal).Path); err != nil {
 		t.Fatalf("remove settings: %v", err)
 	}
-	appCore, err := startCoreWithBootstrap(context.Background(), request)
-	if appCore != nil {
-		_ = appCore.Close()
-		t.Fatal("core started without settings")
-	}
-	if !errors.Is(err, ErrOnboardingRequired) {
-		t.Fatalf("core startup error = %v, want ErrOnboardingRequired", err)
+	server := startServeTestServer(t, request)
+	if server.Core != nil || server.deps == nil {
+		t.Fatal("settings removal must reopen setup")
 	}
 }
 
@@ -115,7 +212,7 @@ func TestStartServeServerPanicsWhenWorkspaceChatDraftCutoverFails(t *testing.T) 
 	workspace := t.TempDir()
 	t.Setenv("HOME", home)
 	configureServeTestServerPort(t)
-	writeServeSettings(t, home, "model = \"gpt-5\"\n")
+	writeServeSettings(t, home, "model = \"gpt-6-sol\"\n")
 	cfg, err := config.Load(workspace, workspace, config.LoadOptions{})
 	if err != nil {
 		t.Fatalf("config.Load: %v", err)
@@ -239,6 +336,43 @@ func TestServeWaitsForContextCancellation(t *testing.T) {
 	}
 }
 
+func TestServeShutdownDisconnectsEstablishedClients(t *testing.T) {
+	workspace := newServeWorkspace(t)
+	server := startServeTestServer(t, Request{WorkspaceRoot: workspace, WorkspaceRootExplicit: true})
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	served := make(chan error, 1)
+	go func() {
+		releaseServeTestPortForConfig(server.Config())
+		served <- server.Serve(ctx)
+	}()
+	response := waitForServeResponse(t, http.DefaultClient, config.ServerHTTPBaseURL(server.Config())+protocol.HealthPath)
+	_ = response.Body.Close()
+	remote, err := client.DialRemoteURL(t.Context(), config.ServerRPCURL(server.Config()))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = remote.Close() }()
+	if _, err := remote.GetReadiness(t.Context(), &emptypb.Empty{}); err != nil {
+		t.Fatalf("read readiness before shutdown: %v", err)
+	}
+
+	cancel()
+	if err := <-served; !errors.Is(err, context.Canceled) {
+		t.Fatalf("Serve error = %v, want context cancellation", err)
+	}
+	requestCtx, requestCancel := context.WithTimeout(t.Context(), 2*time.Second)
+	defer requestCancel()
+	_, err = remote.GetReadiness(requestCtx, &emptypb.Empty{})
+	if errors.Is(err, context.DeadlineExceeded) || errors.Is(err, context.Canceled) {
+		t.Fatalf("request waited for its own cancellation instead of observing shutdown: %v", err)
+	}
+	var networkError net.Error
+	if !errors.Is(err, io.EOF) && !errors.As(err, &networkError) {
+		t.Fatalf("request after shutdown = %v, want a disconnected transport", err)
+	}
+}
+
 func TestStartServeServerLeavesAdmittedCurrentNodeUntouchedOnRestart(t *testing.T) {
 	workspace := newServeWorkspace(t)
 	request := Request{WorkspaceRoot: workspace, WorkspaceRootExplicit: true}
@@ -256,7 +390,7 @@ func TestStartServeServerLeavesAdmittedCurrentNodeUntouchedOnRestart(t *testing.
 		t.Fatalf("restart: %v", err)
 	}
 	t.Cleanup(func() { _ = restarted.Close() })
-	detail, err := restarted.WorkflowClient().GetWorkflowTask(context.Background(), serverapi.WorkflowTaskGetRequest{TaskID: string(taskID)})
+	detail, err := restarted.WorkflowClient().GetWorkflowTask(context.Background(), &taskpb.GetRequest{TaskId: proto.String(string(taskID))})
 	if err != nil {
 		t.Fatalf("GetWorkflowTask after restart: %v", err)
 	}
@@ -327,9 +461,9 @@ func createAdmittedCurrentNodeForRecovery(t *testing.T, server *ServeServer) (wo
 	if err != nil {
 		t.Fatal(err)
 	}
-	task, err := client.CreateWorkflowTask(ctx, serverapi.WorkflowTaskCreateRequest{
-		ProjectID:  server.ProjectID(),
-		WorkflowID: &workflowID,
+	task, err := client.CreateWorkflowTask(ctx, &taskpb.CreateRequest{
+		ProjectId:  server.ProjectID(),
+		WorkflowId: proto.String(workflowID.String()),
 		Title:      "Recover admitted current node",
 	})
 	if err != nil {
@@ -339,11 +473,11 @@ func createAdmittedCurrentNodeForRecovery(t *testing.T, server *ServeServer) (wo
 	if err != nil {
 		t.Fatalf("workflowstore.New: %v", err)
 	}
-	target, err := store.GetTaskExecutionTargetContext(ctx, workflow.TaskID(task.Task.ID))
+	target, err := store.GetTaskExecutionTargetContext(ctx, workflow.TaskID(task.Task.Id))
 	if err != nil {
 		t.Fatal(err)
 	}
-	plan, err := store.PlanTaskStart(ctx, workflow.TaskID(task.Task.ID), &workflowstore.ExecutionTargetCandidate{
+	plan, err := store.PlanTaskStart(ctx, workflow.TaskID(task.Task.Id), &workflowstore.ExecutionTargetCandidate{
 		Snapshot: workflowstore.ExecutionTargetSnapshot{Mode: workflow.ExecutionTargetModeNone, Provenance: workflowstore.ExecutionTargetProvenanceResolved},
 		Root:     workflowstore.ExecutionRoot{SourceWorkspaceID: target.SourceWorkspaceID, SourceWorkspaceRoot: target.SourceWorkspaceRoot},
 	})
@@ -358,7 +492,7 @@ func createAdmittedCurrentNodeForRecovery(t *testing.T, server *ServeServer) (wo
 		t.Fatalf("StartTask created current nodes = %+v, want one", started.Mutation.Created)
 	}
 	currentNode := started.Mutation.Created[0].Reference
-	return workflow.TaskID(task.Task.ID), currentNode
+	return workflow.TaskID(task.Task.Id), currentNode
 }
 
 func TestServeRequiresContext(t *testing.T) {
@@ -381,11 +515,165 @@ func TestServeExposesConfiguredHealthEndpoints(t *testing.T) {
 
 }
 
+func TestServerMuxStreamsViewedImageOriginal(t *testing.T) {
+	workspace := newServeWorkspace(t)
+	server := startServeTestServer(t, Request{WorkspaceRoot: workspace, WorkspaceRootExplicit: true})
+	metadataStore := server.MetadataStore()
+	imageSession, err := session.Create(
+		filepath.Join(server.Config().PersistenceRoot, "projects", server.ProjectID(), "sessions"),
+		filepath.Base(workspace),
+		workspace,
+		sessioncontract.SessionCategoryMain,
+		metadataStore.AuthoritativeSessionStoreOptions()...,
+	)
+	if err != nil {
+		t.Fatalf("create image Session: %v", err)
+	}
+	if err := imageSession.EnsureDurable(); err != nil {
+		t.Fatalf("persist image Session: %v", err)
+	}
+
+	const imageSize = (10 << 20) + 1
+	imagePath := filepath.Join(workspace, "large.png")
+	imageFile, err := os.Create(imagePath)
+	if err != nil {
+		t.Fatalf("create large original: %v", err)
+	}
+	if err := imageFile.Truncate(imageSize); err != nil {
+		_ = imageFile.Close()
+		t.Fatalf("size large original: %v", err)
+	}
+	if err := imageFile.Close(); err != nil {
+		t.Fatalf("close large original: %v", err)
+	}
+
+	gateway, err := transport.NewGateway(server.Core, newServerIdentity(server.Config()))
+	if err != nil {
+		t.Fatalf("create Gateway: %v", err)
+	}
+	imageServer := httptest.NewServer(buildServerMux(server.Core, newServerIdentity(server.Config()), gateway))
+	t.Cleanup(imageServer.Close)
+
+	unrelatedResponse, err := http.Get(imageServer.URL + "/unrelated")
+	if err != nil {
+		t.Fatalf("request unrelated listener path: %v", err)
+	}
+	_ = unrelatedResponse.Body.Close()
+	if unrelatedResponse.StatusCode != http.StatusNotFound {
+		t.Fatalf("unrelated listener path status = %d, want %d", unrelatedResponse.StatusCode, http.StatusNotFound)
+	}
+
+	remote, err := client.DialRemoteURLForProject(
+		context.Background(),
+		"ws"+imageServer.URL[len("http"):]+protocol.RPCPath,
+		server.ProjectID(),
+	)
+	if err != nil {
+		t.Fatalf("connect to Gateway: %v", err)
+	}
+	defer func() { _ = remote.Close() }()
+
+	source, err := remote.ResolveViewedImageOriginalSource(context.Background(), &sessionpb.ViewedImageOriginalSourceRequest{
+		SessionId: imageSession.Meta().SessionID,
+		Path:      "large.png",
+	})
+	if err != nil {
+		t.Fatalf("resolve viewed image source: %v", err)
+	}
+	imageURL := imageServer.URL + source.Url
+
+	response, err := http.Get(imageURL)
+	if err != nil {
+		t.Fatalf("request viewed image original: %v", err)
+	}
+	if response.StatusCode != http.StatusOK {
+		_ = response.Body.Close()
+		t.Fatalf("image response status = %d, want %d", response.StatusCode, http.StatusOK)
+	}
+	if response.ContentLength != imageSize {
+		_ = response.Body.Close()
+		t.Fatalf("image response length = %d, want %d", response.ContentLength, imageSize)
+	}
+	if response.Header.Get("Last-Modified") == "" {
+		_ = response.Body.Close()
+		t.Fatal("image response omitted Last-Modified")
+	}
+	if response.Header.Get("Cache-Control") != "private" {
+		_ = response.Body.Close()
+		t.Fatalf("image cache policy = %q, want private", response.Header.Get("Cache-Control"))
+	}
+
+	sink := &zeroOnlySink{}
+	if copied, err := io.CopyN(sink, response.Body, 32<<10); err != nil || copied != 32<<10 {
+		_ = response.Body.Close()
+		t.Fatalf("consume initial image response segment: copied=%d error=%v", copied, err)
+	}
+	if _, err := io.Copy(sink, response.Body); err != nil {
+		_ = response.Body.Close()
+		t.Fatalf("consume streamed image response: %v", err)
+	}
+	if err := response.Body.Close(); err != nil {
+		t.Fatalf("close image response: %v", err)
+	}
+	if sink.size != imageSize {
+		t.Fatalf("streamed image size = %d, want %d", sink.size, imageSize)
+	}
+
+	rangeRequest, err := http.NewRequest(http.MethodGet, imageURL, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	rangeRequest.Header.Set("Range", "bytes=3-6")
+	rangeResponse, err := http.DefaultClient.Do(rangeRequest)
+	if err != nil {
+		t.Fatalf("request image range: %v", err)
+	}
+	rangeBody, readErr := io.ReadAll(rangeResponse.Body)
+	_ = rangeResponse.Body.Close()
+	if readErr != nil {
+		t.Fatalf("read image range: %v", readErr)
+	}
+	if rangeResponse.StatusCode != http.StatusPartialContent ||
+		rangeResponse.Header.Get("Content-Range") != "bytes 3-6/10485761" ||
+		len(rangeBody) != 4 {
+		t.Fatalf("image range response = status %d, range %q, body size %d",
+			rangeResponse.StatusCode, rangeResponse.Header.Get("Content-Range"), len(rangeBody))
+	}
+
+	conditionalRequest, err := http.NewRequest(http.MethodGet, imageURL, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	conditionalRequest.Header.Set("If-Modified-Since", response.Header.Get("Last-Modified"))
+	conditionalResponse, err := http.DefaultClient.Do(conditionalRequest)
+	if err != nil {
+		t.Fatalf("request conditional image response: %v", err)
+	}
+	_ = conditionalResponse.Body.Close()
+	if conditionalResponse.StatusCode != http.StatusNotModified {
+		t.Fatalf("conditional image status = %d, want %d", conditionalResponse.StatusCode, http.StatusNotModified)
+	}
+}
+
+type zeroOnlySink struct {
+	size int64
+}
+
+func (s *zeroOnlySink) Write(data []byte) (int, error) {
+	for _, value := range data {
+		if value != 0 {
+			return 0, errors.New("streamed sparse image contains nonzero data")
+		}
+	}
+	s.size += int64(len(data))
+	return len(data), nil
+}
+
 func TestServeExposesDerivedLocalUnixSocketAndCleansStalePath(t *testing.T) {
 	workspace := newServeWorkspace(t)
 	server := startServeTestServer(t, Request{WorkspaceRoot: workspace, WorkspaceRootExplicit: true})
 	cfg := server.Config()
-	socketPath, ok, err := config.ServerLocalRPCSocketPath(cfg)
+	socketPath, ok, err := config.ServerLocalRPCSocketPath(cfg.PersistenceRoot)
 	if err != nil {
 		t.Fatalf("ServerLocalRPCSocketPath: %v", err)
 	}
@@ -428,7 +716,7 @@ func TestServeExposesDerivedLocalUnixSocketAndCleansStalePath(t *testing.T) {
 
 	var localRemote *client.Remote
 	if !testsetup.Until(deadline, 10*time.Millisecond, func() bool {
-		localRemote, err = client.DialConfiguredRemote(context.Background(), cfg)
+		localRemote, err = client.DialConfiguredRemote(context.Background(), cfg.Connection())
 		return err == nil
 	}) {
 		t.Fatalf("DialConfiguredRemote: %v", err)
@@ -484,17 +772,13 @@ protocol = "chatgpt-codex"
 	if err := json.NewDecoder(healthResp.Body).Decode(&healthBody); err != nil {
 		t.Fatalf("decode health body: %v", err)
 	}
-	if healthBody["auth_ready"] != false {
-		t.Fatalf("expected auth_ready=false health payload, got %+v", healthBody)
-	}
-
-	readyResp := requireServeResponse(t, http.DefaultClient, readyURL, http.StatusServiceUnavailable)
+	readyResp := requireServeResponse(t, http.DefaultClient, readyURL, http.StatusOK)
 	defer func() { _ = readyResp.Body.Close() }()
 	var readyBody map[string]any
 	if err := json.NewDecoder(readyResp.Body).Decode(&readyBody); err != nil {
 		t.Fatalf("decode ready body: %v", err)
 	}
-	if readyBody["ready"] != false || readyBody["auth_ready"] != false || readyBody["transport_ready"] != true {
+	if readyBody["ready"] != true {
 		t.Fatalf("unexpected readiness payload: %+v", readyBody)
 	}
 
@@ -505,7 +789,7 @@ func TestServeReadinessDoesNotRequireAuthForNonFirstPartyProvider(t *testing.T) 
 	workspace := t.TempDir()
 	t.Setenv("HOME", home)
 	writeServeSettings(t, home, `
-model = "gpt-5"
+model = "gpt-6-sol"
 connection = "local"
 [connections.local]
 protocol = "responses"
@@ -533,7 +817,7 @@ endpoint = "http://127.0.0.1:11434/v1"
 	if err := json.NewDecoder(resp.Body).Decode(&body); err != nil {
 		t.Fatalf("decode readiness body: %v", err)
 	}
-	if body["ready"] != true || body["auth_ready"] != false {
+	if body["ready"] != true {
 		t.Fatalf("readiness body = %+v, want ready without credentials", body)
 	}
 }
@@ -551,7 +835,7 @@ func TestMissingConfigServeStartsBootstrapSurfaceBeforeAuthReady(t *testing.T) {
 	startServingTestServer(t, server)
 	healthResp := waitForServeResponse(t, http.DefaultClient, config.ServerHTTPBaseURL(server.Config())+protocol.HealthPath)
 	_ = healthResp.Body.Close()
-	remote, err := client.DialConfiguredRemote(context.Background(), server.Config())
+	remote, err := client.DialConfiguredRemote(context.Background(), server.Config().Connection())
 	if err != nil {
 		t.Fatalf("DialConfiguredRemote: %v", err)
 	}
@@ -586,7 +870,7 @@ func TestMissingConfigServeStartsBootstrapSurfaceBeforeAuthReady(t *testing.T) {
 	}
 }
 
-func TestStartupControlSurfaceRejectsConfigThatAppearsBeforeRootLock(t *testing.T) {
+func TestStartupUsesConfigThatAppearsBeforeRootLock(t *testing.T) {
 	home := t.TempDir()
 	workspace := t.TempDir()
 	t.Setenv("HOME", home)
@@ -599,9 +883,9 @@ func TestStartupControlSurfaceRejectsConfigThatAppearsBeforeRootLock(t *testing.
 		t.Fatalf("write settings: %v", err)
 	}
 
-	_, _, err = buildStartupControlSurface(context.Background(), buildRequest(Request{WorkspaceRoot: workspace, WorkspaceRootExplicit: true}), loadCfg.PersistenceRoot)
-	if !errors.Is(err, errStartupControlSurfaceNotRequired) {
-		t.Fatalf("buildStartupControlSurface error = %v, want not required", err)
+	server := startServeTestServer(t, Request{WorkspaceRoot: workspace, WorkspaceRootExplicit: true})
+	if server.Core == nil {
+		t.Fatal("configuration present before startup must activate Core")
 	}
 }
 
@@ -610,7 +894,7 @@ func TestConfiguredRemoteGetsServerReadinessWhenAuthMissing(t *testing.T) {
 	workspace := t.TempDir()
 	t.Setenv("HOME", home)
 	writeServeSettings(t, home, `
-model = "gpt-5"
+model = "gpt-6-sol"
 connection = "subscription"
 
 [connections.subscription]
@@ -636,7 +920,7 @@ model = "blocked-model"
 	healthResp := waitForServeResponse(t, http.DefaultClient, healthURL)
 	_ = healthResp.Body.Close()
 
-	remote, err := client.DialConfiguredRemote(context.Background(), cfg)
+	remote, err := client.DialConfiguredRemote(context.Background(), cfg.Connection())
 	if err != nil {
 		t.Fatalf("DialConfiguredRemote: %v", err)
 	}
@@ -647,29 +931,19 @@ model = "blocked-model"
 		t.Fatalf("GetReadiness: %v", err)
 	}
 	readiness := readinessResponse.Readiness
-	if readiness.Ready {
-		t.Fatalf("ready = true, want false: %+v", readiness)
+	if !readiness.Ready {
+		t.Fatalf("working server is not ready: %+v", readiness)
 	}
 	if readiness.ServerId == "" || readiness.ProtocolVersion != protocol.Version || readiness.ServerVersion == "" {
 		t.Fatalf("missing readiness identity fields: %+v", readiness)
 	}
-	if readiness.AuthReady || !readiness.AuthRequired {
-		t.Fatalf("auth flags = ready:%t required:%t, want ready:false required:true", readiness.AuthReady, readiness.AuthRequired)
-	}
 	if readiness.Endpoint == "" {
 		t.Fatalf("expected endpoint in readiness response: %+v", readiness)
 	}
-	if len(readiness.Causes) != 1 {
-		t.Fatalf("cause count = %d, want 1: %+v", len(readiness.Causes), readiness.Causes)
+	if len(readiness.Causes) != 0 {
+		t.Fatalf("unexpected provider-based readiness causes: %+v", readiness.Causes)
 	}
 	assertReadinessRoles(t, readiness.SubagentRoles, []string{"default", "fast", "blocked", "coder"})
-	cause := readiness.Causes[0]
-	if cause.Code != "server_not_ready" ||
-		cause.Severity != serverpb.ReadinessSeverity_READINESS_SEVERITY_ERROR ||
-		cause.Summary != nil ||
-		cause.NextAction != nil {
-		t.Fatalf("unexpected generic readiness cause: %+v", cause)
-	}
 }
 
 func TestMissingConfigFinalizeActivationFailureIsTypedAndRetryConflicts(t *testing.T) {
@@ -682,10 +956,12 @@ func TestMissingConfigFinalizeActivationFailureIsTypedAndRetryConflicts(t *testi
 	if server.Core != nil || server.deps == nil {
 		t.Fatal("expected missing-config serve startup surface")
 	}
-	metadataBlocker := filepath.Join(server.cfg.PersistenceRoot, "db")
-	if err := os.Rename(metadataBlocker, filepath.Join(server.cfg.PersistenceRoot, "saved-db")); err != nil {
-		t.Fatalf("move metadata directory before blocking activation: %v", err)
+	if _, err := server.deps.ConnectionManagementClient().ConfigureConnection(t.Context(), &authpb.ConfigureConnectionRequest{Change: &authpb.ConfigureConnectionRequest_PendingSetup{
+		PendingSetup: &authpb.ConnectionDefinition{Id: "local", Protocol: authpb.ConnectionProtocol_CONNECTION_PROTOCOL_RESPONSES, Endpoint: proto.String("http://localhost:1234/v1")},
+	}}); err != nil {
+		t.Fatal(err)
 	}
+	metadataBlocker := filepath.Join(server.cfg.PersistenceRoot, "db")
 	if err := os.WriteFile(metadataBlocker, []byte("block metadata open"), 0o644); err != nil {
 		t.Fatalf("write metadata blocker: %v", err)
 	}

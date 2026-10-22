@@ -1,4 +1,10 @@
 import { create, operationName, type DescMethod } from "@app/server-api-contract";
+import type {
+  DeleteError as TaskDeleteError,
+  StartError as TaskStartError,
+  ResumeError as TaskResumeError,
+  MoveError as TaskMoveError,
+} from "@app/server-api-contract/gen/kent/api/workflow_task/lifecycle_pb";
 import {
   BranchCleanupMode,
   CreateErrorOwner,
@@ -13,20 +19,20 @@ import {
   SwitchOperationKind,
   TransitionService,
   type CreateError,
-  type CreateSuccess,
-  type CreateTargetResolveSuccess,
+  type CreateSuccessValid as CreateSuccess,
+  type CreateTargetResolveSuccessValid as CreateTargetResolveSuccess,
   type CreateTargetResolveError,
   type DeleteError,
   type DeletePreviewError,
   type DeleteSuccess,
   type EnterError,
   type LeaveError,
-  type ListSuccess,
+  type ListSuccessValid as ListSuccess,
   type ScheduledAcknowledgement,
   type SelectorResolveError,
-  type SelectorResolveSuccess,
+  type SelectorResolveSuccessValid as SelectorResolveSuccess,
   type SetupStartError,
-  type StatusSuccess,
+  type StatusSuccessValid as StatusSuccess,
 } from "@app/server-api-contract/gen/kent/api/worktree/worktree_pb";
 
 import { ContractError, RpcError } from "./errors";
@@ -42,34 +48,28 @@ import {
   type WorktreeDeletePreview,
   type WorktreeTransition,
 } from "./schemas/worktree";
-import type { DescriptorRpcTransport } from "./transport";
+import type { RpcTransport } from "./transport";
 
-export async function getWorktreeStatus(
-  transport: DescriptorRpcTransport,
-  sessionID: string,
-): Promise<StatusSuccess> {
+export async function getWorktreeStatus(transport: RpcTransport, sessionID: string): Promise<StatusSuccess> {
   const method = StatusService.method.get;
   return requireUnarySuccess(
     method,
     await transport.callDescriptorAttachedSession(
       { sessionID },
       method,
-      create(method.input, { sessionId: sessionID }),
+      create(method.input, { sessionId: { value: { case: "sessionId", value: sessionID } } }),
     ),
   );
 }
 
-export async function listWorktrees(
-  transport: DescriptorRpcTransport,
-  sessionID: string,
-): Promise<ListSuccess> {
+export async function listWorktrees(transport: RpcTransport, sessionID: string): Promise<ListSuccess> {
   const method = ListService.method.list;
   const success = requireUnarySuccess(
     method,
     await transport.callDescriptorAttachedSession(
       { sessionID },
       method,
-      create(method.input, { sessionId: sessionID }),
+      create(method.input, { sessionId: { value: { case: "sessionId", value: sessionID } } }),
     ),
   );
   success.worktrees.forEach(authorizeWorktreeListEntry);
@@ -77,7 +77,7 @@ export async function listWorktrees(
 }
 
 export async function resolveWorktreeSelector(
-  transport: DescriptorRpcTransport,
+  transport: RpcTransport,
   sessionID: string,
   selector: string,
 ): Promise<SelectorResolveSuccess> {
@@ -87,16 +87,16 @@ export async function resolveWorktreeSelector(
     await transport.callDescriptorAttachedSession(
       { sessionID },
       method,
-      create(method.input, { sessionId: sessionID, selector }),
+      create(method.input, { sessionId: { value: { case: "sessionId", value: sessionID } }, selector }),
     ),
   );
-  if (success.worktree !== undefined) authorizeWorktreeListEntry(success.worktree);
+  authorizeWorktreeListEntry(success.worktree);
   authorizeWorktreeSelectorResolution(success);
   return success;
 }
 
 export async function resolveWorktreeCreateTarget(
-  transport: DescriptorRpcTransport,
+  transport: RpcTransport,
   sessionID: string,
   target: string,
 ): Promise<CreateTargetResolveSuccess> {
@@ -106,15 +106,18 @@ export async function resolveWorktreeCreateTarget(
     await transport.callDescriptorAttachedSession(
       { sessionID },
       method,
-      create(method.input, { scope: { scope: { case: "sessionId", value: sessionID } }, target }),
+      create(method.input, {
+        scope: { scope: { case: "sessionId", value: { value: { case: "sessionId", value: sessionID } } } },
+        target,
+      }),
     ),
   );
-  authorizeWorktreeCreateTargetResolution(required(success.resolution));
+  authorizeWorktreeCreateTargetResolution(success.resolution);
   return success;
 }
 
 export async function previewWorktreeDelete(
-  transport: DescriptorRpcTransport,
+  transport: RpcTransport,
   sessionID: string,
   selector: string,
 ): Promise<WorktreeDeletePreview> {
@@ -125,17 +128,23 @@ export async function previewWorktreeDelete(
       await transport.callDescriptorAttachedSession(
         { sessionID },
         method,
-        create(method.input, { scope: { scope: { case: "sessionId", value: sessionID } }, selector }),
+        create(method.input, {
+          scope: { scope: { case: "sessionId", value: { value: { case: "sessionId", value: sessionID } } } },
+          selector,
+        }),
       ),
     ),
   );
 }
 
 export async function createWorktree(
-  transport: DescriptorRpcTransport,
+  transport: RpcTransport,
   input: WorktreeCreateInput,
 ): Promise<CreateSuccess> {
   const resolution = requireWorktreeAuthority(input.resolution, "create");
+  if (resolution.kind === CreateTargetResolutionKind.WORKTREE_CREATE_TARGET_RESOLUTION_KIND_INVALID) {
+    throw new TypeError("Cannot create a worktree from an invalid branch name or ref.");
+  }
   const createBranch =
     resolution.kind === CreateTargetResolutionKind.WORKTREE_CREATE_TARGET_RESOLUTION_KIND_NEW_BRANCH;
   if (createBranch !== (input.baseRef !== null)) {
@@ -149,7 +158,9 @@ export async function createWorktree(
       method,
       create(method.input, {
         setupOperationId: input.setupOperationID.toJSONValue(),
-        scope: { scope: { case: "sessionId", value: input.sessionID } },
+        scope: {
+          scope: { case: "sessionId", value: { value: { case: "sessionId", value: input.sessionID } } },
+        },
         spec: {
           baseRef: createBranch ? required(input.baseRef) : required(resolution.resolvedRef),
           createBranch,
@@ -162,39 +173,43 @@ export async function createWorktree(
   if (success.target === undefined) {
     throw new ContractError("Session Worktree creation returned no caller location.");
   }
-  if (success.worktree !== undefined) authorizeWorktreeListEntry(success.worktree);
+  authorizeWorktreeListEntry(success.worktree);
   return success;
 }
 
 export async function switchWorktree(
-  transport: DescriptorRpcTransport,
+  transport: RpcTransport,
   sessionID: string,
   operation: WorktreeTransition,
 ): Promise<ScheduledAcknowledgement> {
   const selector = transitionSelector(operation);
   const operationID = crypto.randomUUID();
-  const enter = selector !== null;
-  const target = enter ? required((await getWorktreeStatus(transport, sessionID)).target) : null;
-  const method = enter ? TransitionService.method.enter : TransitionService.method.leave;
-  const result = enter
-    ? await transport.callDescriptorAttachedSession(
-        { sessionID },
-        TransitionService.method.enter,
-        create(TransitionService.method.enter.input, {
-          operationId: operationID,
-          sessionId: sessionID,
-          selector: required(selector),
-          targetWorkspace: {
-            workspaceId: required(required(target).workspaceId),
-            workspaceRoot: required(target).workspaceRoot,
-          },
-        }),
-      )
-    : await transport.callDescriptorAttachedSession(
-        { sessionID },
-        TransitionService.method.leave,
-        create(TransitionService.method.leave.input, { operationId: operationID, sessionId: sessionID }),
-      );
+  const enter =
+    selector === null ? null : { selector, target: (await getWorktreeStatus(transport, sessionID)).target };
+  const method = enter !== null ? TransitionService.method.enter : TransitionService.method.leave;
+  const result =
+    enter !== null
+      ? await transport.callDescriptorAttachedSession(
+          { sessionID },
+          TransitionService.method.enter,
+          create(TransitionService.method.enter.input, {
+            operationId: operationID,
+            sessionId: { value: { case: "sessionId", value: sessionID } },
+            selector: enter.selector,
+            targetWorkspace: {
+              workspaceId: required(enter.target.workspaceId),
+              workspaceRoot: enter.target.workspaceRoot,
+            },
+          }),
+        )
+      : await transport.callDescriptorAttachedSession(
+          { sessionID },
+          TransitionService.method.leave,
+          create(TransitionService.method.leave.input, {
+            operationId: operationID,
+            sessionId: { value: { case: "sessionId", value: sessionID } },
+          }),
+        );
   const acknowledgement = requireWorktreeSuccess(method, result);
   if (acknowledgement.operationId !== operationID) {
     throw new ContractError("Server returned a different Worktree operation identity.");
@@ -205,10 +220,8 @@ export async function switchWorktree(
 function transitionSelector(operation: WorktreeTransition): string | null {
   if (operation.kind === "leave") return null;
   if (operation.kind === "resolved") {
-    const entry = required(requireWorktreeAuthority(operation.resolution, "selector").worktree);
-    return required(entry.topology).topology.case === "mainWorkspace"
-      ? null
-      : required(entry.projection).selector;
+    const entry = requireWorktreeAuthority(operation.resolution, "selector").worktree;
+    return entry.topology.topology.case === "mainWorkspace" ? null : entry.projection.selector;
   }
   const authority = requireWorktreeAuthority(operation, "switch");
   return authority.kind === SwitchOperationKind.WORKTREE_SWITCH_OPERATION_ENTER
@@ -217,7 +230,7 @@ function transitionSelector(operation: WorktreeTransition): string | null {
 }
 
 export async function deleteWorktree(
-  transport: DescriptorRpcTransport,
+  transport: RpcTransport,
   sessionID: string,
   preview: WorktreeDeletePreview,
   confirmation: WorktreeDeleteConfirmationChoice,
@@ -233,9 +246,9 @@ export async function deleteWorktree(
       { sessionID },
       method,
       create(method.input, {
-        scope: { scope: { case: "sessionId", value: sessionID } },
+        scope: { scope: { case: "sessionId", value: { value: { case: "sessionId", value: sessionID } } } },
         selector: authority.deletionSelector,
-        forceFolderRemoval: required(authority.cleanliness).kind !== DirtyStateKind.DIRTY_STATE_CLEAN,
+        forceFolderRemoval: authority.cleanliness.kind !== DirtyStateKind.DIRTY_STATE_CLEAN,
         branchCleanupPolicy:
           confirmation === "confirm"
             ? BranchCleanupMode.WORKTREE_BRANCH_CLEANUP_MODE_AUTO_IF_KENT_CREATED
@@ -253,6 +266,10 @@ export type WorktreeFailure =
   | EnterError
   | LeaveError
   | DeleteError
+  | TaskDeleteError
+  | TaskStartError
+  | TaskResumeError
+  | TaskMoveError
   | SetupStartError;
 
 export type WorktreeErrorDetail =
@@ -347,13 +364,13 @@ function projectWorktreeFailure(method: DescMethod, failure: WorktreeFailure): R
 }
 
 export function hasDeletableWorktreeBranch(preview: WorktreeDeletePreview): boolean {
-  const topology = required(preview.worktree).topology;
+  const topology = preview.worktree.topology;
   switch (topology.case) {
     case "mainWorkspace":
       return false;
     case "registered":
     case "external":
-      return topology.value.git?.branchName !== undefined;
+      return topology.value.git.branchName !== undefined;
     case "missing":
     case undefined:
       return false;

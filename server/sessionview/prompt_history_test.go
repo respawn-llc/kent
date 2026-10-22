@@ -7,6 +7,7 @@ import (
 	"testing"
 
 	sessionpb "core/shared/protoapi/gen/kent/api/session"
+	sharedpb "core/shared/protoapi/gen/kent/api/shared"
 	"core/shared/serverapi"
 )
 
@@ -25,9 +26,9 @@ func TestPromptHistoryReadWithoutRuntime(t *testing.T) {
 	for i := range history {
 		history[i] = "prompt"
 	}
-	service := NewService(newTestSessionResolver(store), nil, nil).
+	service := NewService(newTestSessionResolver(store), nil, nil, nil).
 		WithPromptHistoryReader(promptHistoryReaderStub{history: history})
-	result, err := service.GetPromptHistory(t.Context(), &sessionpb.PromptHistoryRequest{SessionId: store.Meta().SessionID})
+	result, err := service.GetPromptHistory(t.Context(), &sessionpb.PromptHistoryRequest{SessionId: &sharedpb.SessionSelector{Value: &sharedpb.SessionSelector_SessionId{SessionId: store.Meta().SessionID}}})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -39,9 +40,9 @@ func TestPromptHistoryReadWithoutRuntime(t *testing.T) {
 func TestPromptHistoryReadSurfacesFailure(t *testing.T) {
 	store := newSessionViewStore(t, t.TempDir(), "workspace", t.TempDir())
 	want := errors.New("history unavailable")
-	service := NewService(newTestSessionResolver(store), nil, nil).
+	service := NewService(newTestSessionResolver(store), nil, nil, nil).
 		WithPromptHistoryReader(promptHistoryReaderStub{err: want})
-	result, err := service.GetPromptHistory(t.Context(), &sessionpb.PromptHistoryRequest{SessionId: store.Meta().SessionID})
+	result, err := service.GetPromptHistory(t.Context(), &sessionpb.PromptHistoryRequest{SessionId: &sharedpb.SessionSelector{Value: &sharedpb.SessionSelector_SessionId{SessionId: store.Meta().SessionID}}})
 	if !errors.Is(err, want) || result != nil {
 		t.Fatalf("history result = %v, error = %v", result, err)
 	}

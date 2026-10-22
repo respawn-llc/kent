@@ -13,7 +13,7 @@ import (
 )
 
 func TestBuildAuthSupportUsesDefaultIssuerAndEnvClientID(t *testing.T) {
-	support, err := BuildAuthSupport(auth.NewMemoryStore(auth.EmptyState()), func(key string) (string, bool) {
+	support, err := BuildAuthSupport(t.Context(), t.TempDir(), auth.NewMemoryStore(auth.EmptyState()), func(key string) (string, bool) {
 		switch key {
 		case "KENT_OAUTH_CLIENT_ID":
 			return "client-test", true

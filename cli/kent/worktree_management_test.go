@@ -26,6 +26,7 @@ import (
 	"core/server/transport"
 	"core/shared/client"
 	"core/shared/config"
+	sharedpb "core/shared/protoapi/gen/kent/api/shared"
 	worktreepb "core/shared/protoapi/gen/kent/api/worktree"
 	"core/shared/protocol"
 	"core/shared/sessioncontract"
@@ -52,7 +53,7 @@ func newWorktreeCommandFixture(t *testing.T) worktreeCommandFixture {
 	if err != nil {
 		t.Fatal(err)
 	}
-	authSupport, err := bootstrap.BuildAuthSupport(auth.NewMemoryStore(auth.EmptyState()), nil)
+	authSupport, err := bootstrap.BuildAuthSupport(t.Context(), cfg.PersistenceRoot, auth.NewMemoryStore(auth.EmptyState()), nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -475,20 +476,31 @@ func TestWorktreeCommandSessionlessCreateFromDirectory(t *testing.T) {
 
 func TestWorktreeCommandCreateEnterHint(t *testing.T) {
 	f := newWorktreeCommandFixture(t)
-	for _, agent := range []bool{true, false} {
-		t.Run(fmt.Sprint(agent), func(t *testing.T) {
+	record, err := f.core.MetadataStore().ResolvePersistedSession(t.Context(), f.sessionID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	selector := record.ShortID.String()
+	for index, agent := range []bool{true, false, false} {
+		t.Run(fmt.Sprint(index), func(t *testing.T) {
+			if index == 2 {
+				if _, err := f.core.MetadataStore().DB().ExecContext(t.Context(), "UPDATE sessions SET short_id = NULL WHERE id = ?", f.sessionID); err != nil {
+					t.Fatal(err)
+				}
+				selector = f.sessionID
+			}
 			if agent {
 				t.Setenv("KENT_SESSION_ID", f.sessionID)
 			}
 			var out, stderr bytes.Buffer
-			root := filepath.Join(f.core.Config().Settings.Worktrees.BaseDir, fmt.Sprintf("worktree %t with ' quotes", agent))
-			args := []string{"create", "--project", f.b.ProjectID, "--session", f.sessionID, fmt.Sprintf("hint-%t", agent), root}
+			root := filepath.Join(f.core.Config().Settings.Worktrees.BaseDir, fmt.Sprintf("worktree %d with ' quotes", index))
+			args := []string{"create", "--project", f.b.ProjectID, "--session", f.sessionID, fmt.Sprintf("hint-%d", index), root}
 			if code := worktreeSubcommand(args, &out, &stderr); code != 0 {
 				t.Fatalf("create exit %d: %s", code, &stderr)
 			}
 			enter := []string{config.Command, "worktree", "enter"}
 			if !agent {
-				enter = append(enter, "--session", f.sessionID)
+				enter = append(enter, "--session", selector)
 			}
 			canonical, err := config.CanonicalWorkspaceRoot(root)
 			if err != nil {
@@ -633,13 +645,13 @@ func TestWorktreeCommandRejectedManagementLeavesStateUnchanged(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	remote, err := client.DialConfiguredRemoteForProjectWorkspaceID(context.Background(), cfg, f.b.ProjectID, f.b.WorkspaceID)
+	remote, err := client.DialConfiguredRemoteForProjectWorkspaceID(context.Background(), cfg.Connection(), f.b.ProjectID, f.b.WorkspaceID)
 	if err != nil {
 		t.Fatal(err)
 	}
 	defer func() { _ = remote.Close() }()
 	preview, err := remote.PreviewWorktreeDelete(context.Background(), &worktreepb.DeletePreviewRequest{
-		Scope:    worktreecontract.WorkspaceManagementScope(f.b.ProjectID, f.b.WorkspaceID, &f.sessionID),
+		Scope:    worktreecontract.WorkspaceManagementScope(f.b.ProjectID, f.b.WorkspaceID, &sharedpb.SessionSelector{Value: &sharedpb.SessionSelector_SessionId{SessionId: f.sessionID}}),
 		Selector: facts.Kent.WorktreeID,
 	})
 	if err != nil {
@@ -699,11 +711,43 @@ func TestWorktreeCommandRejectedManagementLeavesStateUnchanged(t *testing.T) {
 	}
 	out.Reset()
 	stderr.Reset()
-	if code := worktreeSubcommand([]string{"delete", "--project", f.b.ProjectID, "--force", facts.Kent.WorktreeID}, &out, &stderr); code != 0 {
+	if code := worktreeSubcommand([]string{"delete", "--timeout", "2m", "--project", f.b.ProjectID, "--force", facts.Kent.WorktreeID}, &out, &stderr); code != 0 {
 		t.Fatalf("authorized dirty deletion exit %d: %s", code, &stderr)
 	}
 	if _, err := os.Stat(facts.Git.CanonicalRoot); !errors.Is(err, os.ErrNotExist) {
 		t.Fatalf("authorized delete did not remove root: %v", err)
+	}
+}
+
+func TestWorktreeDeleteTimeoutRejectsInvalidDuration(t *testing.T) {
+	for _, timeout := range []string{"invalid", "0s", "-1s"} {
+		t.Run(timeout, func(t *testing.T) {
+			var out, stderr bytes.Buffer
+			if code := worktreeSubcommand([]string{"delete", "--timeout", timeout, "unused"}, &out, &stderr); code != 2 {
+				t.Fatalf("invalid timeout exit = %d, want 2", code)
+			}
+		})
+	}
+}
+
+func TestWorktreeDeleteExpiredTimeoutPreservesWorktree(t *testing.T) {
+	f := newWorktreeCommandFixture(t)
+	var out, stderr bytes.Buffer
+	if code := worktreeSubcommand([]string{"create", "--project", f.b.ProjectID, "--json", "timeout-test"}, &out, &stderr); code != 0 {
+		t.Fatalf("create exit %d: %s", code, &stderr)
+	}
+	var created worktreeCreateJSONOutput
+	if err := json.Unmarshal(out.Bytes(), &created); err != nil {
+		t.Fatal(err)
+	}
+	facts := created.Worktree.Topology.Registered
+	out.Reset()
+	stderr.Reset()
+	if code := worktreeSubcommand([]string{"delete", "--timeout", "1ns", "--project", f.b.ProjectID, facts.Kent.WorktreeID}, &out, &stderr); code != 1 {
+		t.Fatalf("expired timeout exit = %d, want 1: %s", code, &stderr)
+	}
+	if _, err := os.Stat(facts.Git.CanonicalRoot); err != nil {
+		t.Fatalf("expired deletion changed worktree: %v", err)
 	}
 }
 

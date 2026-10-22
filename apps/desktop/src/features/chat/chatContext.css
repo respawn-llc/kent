@@ -1,3 +1,13 @@
+.chat-context-popover {
+  max-height: var(--hover-popover-available-height);
+  overflow-y: auto;
+}
+
+.chat-context-popover .subscription-usage {
+  border-top: 1px solid var(--color-outline);
+  padding-top: var(--space-3);
+}
+
 @property --chat-context-angle {
   syntax: "<angle>";
   inherits: false;
@@ -23,7 +33,6 @@
 }
 
 .chat-context-popover {
-  width: max-content;
   max-width: var(--radix-popover-content-available-width);
 }
 
@@ -31,15 +40,34 @@
   color: var(--color-on-island);
 }
 
-.chat-context-bottom {
-  display: flex;
+.chat-context-progress {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
   align-items: center;
-  gap: var(--space-3);
+  gap: var(--space-1) var(--space-2);
+  font-variant-numeric: tabular-nums;
+}
+
+.chat-context-percent {
+  grid-column: 2;
+  grid-row: 1;
+  text-align: center;
+}
+
+.chat-context-used {
+  grid-column: 1;
+  grid-row: 2;
+}
+
+.chat-context-total {
+  grid-column: 3;
+  grid-row: 2;
 }
 
 .chat-context-track {
-  flex: 1;
-  min-width: var(--space-6);
+  grid-column: 2;
+  grid-row: 2;
+  min-width: 0;
   height: var(--space-2);
   overflow: hidden;
   border-radius: var(--radius-m);

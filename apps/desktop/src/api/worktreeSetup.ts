@@ -9,7 +9,7 @@ import {
 import { requireWorktreeSuccess } from "./clientWorktree";
 import { ContractError, TransportError } from "./errors";
 import type { SetupOperationID } from "./setupOperationID";
-import type { DescriptorRpcTransport, RpcSubscription } from "./transport";
+import type { RpcTransport, RpcSubscription } from "./transport";
 
 export type WorktreeSetupEventHandler = Readonly<{
   onOpen?(): void;
@@ -19,7 +19,7 @@ export type WorktreeSetupEventHandler = Readonly<{
 }>;
 
 export function subscribeWorktreeSetup(
-  transport: DescriptorRpcTransport,
+  transport: RpcTransport,
   setupOperationID: SetupOperationID,
   handler: WorktreeSetupEventHandler,
 ): RpcSubscription {
@@ -59,7 +59,8 @@ export function subscribeWorktreeSetup(
           finish(handler.onComplete);
           return;
         }
-        const diagnostic = required(completion.diagnostic);
+        const diagnostic = completion.diagnostic;
+        if (diagnostic === undefined) throw new ContractError("Required Worktree setup fact is missing.");
         finish(() => {
           handler.onError(
             new TransportError(`Worktree setup completed with code ${code.toString()}: ${diagnostic}`),
@@ -74,9 +75,4 @@ export function subscribeWorktreeSetup(
     },
   });
   return { close: finish };
-}
-
-function required<Value>(value: Value | undefined): Value {
-  if (value === undefined) throw new ContractError("Required Worktree setup fact is missing.");
-  return value;
 }

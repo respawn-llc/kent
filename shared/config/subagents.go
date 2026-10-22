@@ -116,8 +116,7 @@ type SubagentRoleLookup struct {
 }
 
 // LookupSubagentRole resolves a subagent selector to configured role identity.
-// It treats built-in roles as present and does not apply presentation filters
-// such as meaningful-diff or callability checks.
+// It treats built-in roles as present and does not apply callability checks.
 func LookupSubagentRole(settings Settings, rawSelector string) SubagentRoleLookup {
 	normalized := NormalizeSubagentSelector(rawSelector)
 	if normalized == "" {
@@ -259,9 +258,8 @@ func subagentRoleLookupSelector(selector string) *string {
 }
 
 // AvailableSubagentRoleNames returns presentation-ready role names. It filters
-// out the separately presented default role and configured roles that have no
-// runtime diff from the base settings, and can optionally filter non-callable
-// roles. Use LookupSubagentRole for existence.
+// out the separately presented default role and can optionally filter
+// non-callable roles. Use LookupSubagentRole for existence.
 func AvailableSubagentRoleNames(settings Settings, agentCallableOnly bool) []string {
 	return availableSubagentRoleNames(settings, func(name string, _ SubagentRole) bool {
 		if !agentCallableOnly {
@@ -282,9 +280,6 @@ func availableSubagentRoleNames(settings Settings, include func(string, Subagent
 		if normalized == "" || normalized == BuiltInSubagentRoleFast || normalized == DefaultSubagentRole {
 			continue
 		}
-		if !SubagentRoleHasMeaningfulDiff(settings, role) {
-			continue
-		}
 		if !include(normalized, role) {
 			continue
 		}
@@ -299,44 +294,4 @@ func availableSubagentRoleNames(settings Settings, include func(string, Subagent
 		}
 	}
 	return names
-}
-
-func SubagentRoleHasMeaningfulDiff(base Settings, role SubagentRole) bool {
-	for key := range role.Sources {
-		if subagentSourceDiffers(base, role, key) {
-			return true
-		}
-	}
-	return false
-}
-
-func subagentSourceDiffers(base Settings, role SubagentRole, key string) bool {
-	if subagentRoleSourceUsesValueComparison(key) {
-		if setting, ok := configRegistry.subagentRoleValues[key]; ok {
-			return setting.subagentRoleValueDiffers(
-				settingsState{Settings: base},
-				settingsState{Settings: role.Settings},
-			)
-		}
-	}
-	if strings.HasPrefix(key, "tools.") {
-		toolName := strings.TrimPrefix(key, "tools.")
-		if id, ok := toolspec.ParseConfigID(toolName); ok {
-			return base.EnabledTools[id] != role.Settings.EnabledTools[id]
-		}
-		return true
-	}
-	if strings.HasPrefix(key, "skills.") {
-		name := strings.TrimPrefix(key, "skills.")
-		return base.SkillToggles[name] != role.Settings.SkillToggles[name]
-	}
-	return true
-}
-
-func subagentRoleSourceUsesValueComparison(key string) bool {
-	switch key {
-	case "theme", "notification_method", "debug", "server_host", "server_port", "store", "allow_non_cwd_edits":
-		return false
-	}
-	return subagentRoleSessionSetting(key)
 }

@@ -1,5 +1,7 @@
 import { useMemo } from "react";
-import { useChatRuntimeSnapshot, type TranscriptRenderItem } from "@/app-facade";
+import type { ChatSessionTarget } from "@/api";
+import { useOptionalChatRuntimeSnapshot, type TranscriptRenderItem } from "@/app-facade";
+import { useComposerSurface } from "./ChatComposerSurface";
 import { ChatTranscriptTail } from "./ChatTailSurface";
 import { ChatUserMessage, type ChatMessageEditControl } from "./messageRows/ChatUserMessage";
 import { ChatAssistantMessage } from "./messageRows/ChatAssistantMessage";
@@ -19,18 +21,42 @@ export function ChatTranscriptContent({
   edit,
   openingVisible,
   bottomInset,
-}: Readonly<{ edit: ChatMessageEditControl; openingVisible: boolean; bottomInset: number }>) {
-  const { transcript } = useChatRuntimeSnapshot();
-  const neighbors = useMemo(() => messageNeighbors(transcript.items), [transcript.items]);
+  target,
+  effectiveWorkdir,
+}: Readonly<{
+  edit: ChatMessageEditControl;
+  openingVisible: boolean;
+  bottomInset: number;
+  target: ChatSessionTarget | null;
+  effectiveWorkdir: string | null;
+}>) {
+  const snapshot = useOptionalChatRuntimeSnapshot();
+  const { composer } = useComposerSurface();
+  const items = snapshot?.transcript.items;
+  const neighbors = useMemo(() => messageNeighbors(items ?? []), [items]);
+  const localMessages = useMemo(
+    () =>
+      composer.outgoing
+        .filter((input) => input.placement === "bubble")
+        .map((input) => ({
+          inputID: input.inputID.toJSONValue(),
+          content: <ChatUserMessage preview={input} />,
+        })),
+    [composer.outgoing],
+  );
   return (
     <ChatTranscriptTail
       bottomInset={bottomInset}
       openingVisible={openingVisible}
       estimateSize={estimateSize}
+      localMessages={localMessages}
       slots={{
         user: (item) => <ChatUserMessage item={item} neighbors={neighbors.get(item.key)} edit={edit} />,
         assistant: (item) => <ChatAssistantMessage item={item} neighbors={neighbors.get(item.key)} />,
-        tool: (item) => <Tool item={item} />,
+        tool: (item) => {
+          if (target === null) throw new Error("Transcript tool requires a Session.");
+          return <Tool item={item} target={target} effectiveWorkdir={effectiveWorkdir} />;
+        },
         reasoning: (item) => <TranscriptReasoningSlot item={item} />,
         notice: (item) => <TranscriptNoticeReviewerSlot row={item.row} />,
         thinkingStatus: (presentation) => <TranscriptThinkingStatus presentation={presentation} />,
@@ -39,7 +65,15 @@ export function ChatTranscriptContent({
   );
 }
 
-function Tool({ item }: Readonly<{ item: Extract<TranscriptRenderItem, { kind: "tool" }> }>) {
+function Tool({
+  item,
+  target,
+  effectiveWorkdir,
+}: Readonly<{
+  item: Extract<TranscriptRenderItem, { kind: "tool" }>;
+  target: ChatSessionTarget;
+  effectiveWorkdir: string | null;
+}>) {
   if (item.state === "committed" && isAskQuestionToolRow(item.row))
     return <TranscriptAskQuestionSlot row={item.row} />;
   const presentation = item.value.Presentation;
@@ -47,9 +81,15 @@ function Tool({ item }: Readonly<{ item: Extract<TranscriptRenderItem, { kind: "
   const nonQuestion =
     presentation == null ? null : { ...presentation, Presentation: presentation.Presentation };
   return item.state === "live" ? (
-    <TranscriptToolSlot item={{ kind: "live", tool: { ...item.value, Presentation: nonQuestion } }} />
+    <TranscriptToolSlot
+      target={target}
+      effectiveWorkdir={effectiveWorkdir}
+      item={{ kind: "live", tool: { ...item.value, Presentation: nonQuestion } }}
+    />
   ) : (
     <TranscriptToolSlot
+      target={target}
+      effectiveWorkdir={effectiveWorkdir}
       item={{
         kind: "committed",
         row: { ...item.row, Kind: "tool", Tool: { ...item.value, Presentation: nonQuestion } },

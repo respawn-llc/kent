@@ -10,10 +10,9 @@ import (
 )
 
 type Operation struct {
-	Name           string
-	LegacyWireName *string
-	Descriptor     protoreflect.MethodDescriptor
-	Options        *sharedpb.KentMethodOptions
+	Name       string
+	Descriptor protoreflect.MethodDescriptor
+	Options    *sharedpb.KentMethodOptions
 }
 
 type SubscriptionOperations struct {
@@ -118,19 +117,10 @@ func OperationFromDescriptor(descriptor protoreflect.MethodDescriptor) (Operatio
 	if err != nil {
 		return Operation{}, fmt.Errorf("%s: %w", descriptor.FullName(), err)
 	}
-	var legacyWireName *string
-	if options.LegacyWireName != nil {
-		value := options.GetLegacyWireName()
-		if value == "" {
-			return Operation{}, fmt.Errorf("%s legacy wire name must not be empty", descriptor.FullName())
-		}
-		legacyWireName = &value
-	}
 	return Operation{
-		Name:           name,
-		LegacyWireName: legacyWireName,
-		Descriptor:     descriptor,
-		Options:        options,
+		Name:       name,
+		Descriptor: descriptor,
+		Options:    options,
 	}, nil
 }
 

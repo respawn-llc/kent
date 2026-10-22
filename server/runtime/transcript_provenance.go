@@ -8,6 +8,7 @@ import (
 )
 
 type TranscriptCommittedRowProvenance struct {
+	QueueItemIDs      []string
 	EventSequence     int64
 	CommittedAtUnixMs *transcript.CommittedAtUnixMs
 	ProjectedOrdinal  *int64
@@ -33,13 +34,18 @@ func transcriptProvenanceFromRecord(record session.EventRecord) (TranscriptCommi
 	if record.Seq() <= 0 {
 		return TranscriptCommittedRowProvenance{}, fmt.Errorf("committed transcript provenance has invalid event sequence %d", record.Seq())
 	}
-	if _, err := record.Payload(); err != nil {
+	payload, err := record.Payload()
+	if err != nil {
 		return TranscriptCommittedRowProvenance{}, err
 	}
-	return TranscriptCommittedRowProvenance{
+	provenance := TranscriptCommittedRowProvenance{
 		EventSequence:     record.Seq(),
 		CommittedAtUnixMs: record.CommittedAtUnixMs(),
-	}, nil
+	}
+	if message, ok := payload.(session.MessageRecord); ok {
+		provenance.QueueItemIDs = append([]string(nil), message.QueueItemIDs...)
+	}
+	return provenance, nil
 }
 
 func cloneTranscriptCommittedRowProvenance(value *TranscriptCommittedRowProvenance) *TranscriptCommittedRowProvenance {
@@ -47,6 +53,7 @@ func cloneTranscriptCommittedRowProvenance(value *TranscriptCommittedRowProvenan
 		return nil
 	}
 	copyValue := *value
+	copyValue.QueueItemIDs = append([]string(nil), value.QueueItemIDs...)
 	if value.CommittedAtUnixMs != nil {
 		committedAt := *value.CommittedAtUnixMs
 		copyValue.CommittedAtUnixMs = &committedAt

@@ -7,7 +7,7 @@
     "outDir": "dist",
     "rootDir": "src",
     "target": "ES2022",
-    "lib": ["ES2022", "DOM", "DOM.Iterable"],
+    "lib": ["ES2022", "DOM", "DOM.Iterable", "ESNext.Disposable"],
     "module": "ESNext",
     "moduleResolution": "Bundler",
     "strict": true,
@@ -20,7 +20,7 @@
     "isolatedModules": true,
     "verbatimModuleSyntax": true,
     "jsx": "react-jsx",
-    "types": ["react", "react-dom", "vite/client", "vitest/globals", "@testing-library/jest-dom/vitest"]
+    "types": ["react", "react-dom", "vite/client", "../../test/bun-test.d.ts", "../../test/bun-test-dom.d.ts"]
   },
   "include": ["src"]
 }

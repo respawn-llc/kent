@@ -6,6 +6,7 @@ import (
 
 	"core/shared/apicontract"
 	processpb "core/shared/protoapi/gen/kent/api/process"
+	"core/shared/serverapi"
 	"google.golang.org/protobuf/proto"
 	"google.golang.org/protobuf/reflect/protoreflect"
 )
@@ -14,6 +15,11 @@ func registerProcessGatewayBinaryBindings(bindings map[string]gatewayBinaryBindi
 	view := processpb.File_kent_api_process_process_proto.Services().ByName("ViewService")
 	control := processpb.File_kent_api_process_process_proto.Services().ByName("ControlService")
 	return errors.Join(
+		registerSessionBinarySubscription(bindings, view, "Observe",
+			func() *processpb.ObserveRequest { return &processpb.ObserveRequest{} },
+			func(g *Gateway, ctx context.Context, request *processpb.ObserveRequest) (serverapi.ProcessObservationSubscription, error) {
+				return g.deps.ProcessObservationClient().ObserveProcesses(ctx, request)
+			}),
 		registerProcessUnary(bindings, view, "List", GatewayDependencies.ProcessViewClient,
 			func() *processpb.ListRequest { return &processpb.ListRequest{} },
 			func(request *processpb.ListRequest) (routeScopeParams, error) {
@@ -50,6 +56,6 @@ func registerProcessUnary[Client any, Request proto.Message, Success proto.Messa
 			return invoke(client(g.deps), ctx, request)
 		},
 		func(_ *Gateway, _ *connectionState, _ Request, err error) proto.Message {
-			return binaryAuthFailure(err)
+			return binaryAuthReadinessFailure(err)
 		})
 }

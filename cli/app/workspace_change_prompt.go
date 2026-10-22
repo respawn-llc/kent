@@ -9,11 +9,14 @@ import (
 	"path/filepath"
 	"strings"
 
+	"core/cli/internal/pathdisplay"
 	"core/shared/apicontract"
 	"core/shared/client"
 	"core/shared/clientui"
+	"core/shared/protoapi"
 	projectpb "core/shared/protoapi/gen/kent/api/project"
 	sessionlaunchpb "core/shared/protoapi/gen/kent/api/session_launch"
+	"core/shared/runtimeids"
 
 	tea "github.com/charmbracelet/bubbletea"
 )
@@ -103,7 +106,7 @@ type workspaceChangePromptModel struct {
 	result       workspaceChangePromptResult
 }
 
-func maybeHandlePickedSessionWorkspaceChange(ctx context.Context, server sessionWorkspaceChangeServer, sessionID string, executionTarget *worktreepb.SessionExecutionTarget) (sessionWorkspaceChangeAction, error) {
+func maybeHandlePickedSessionWorkspaceChange(ctx context.Context, server sessionLifecycleClientProvider, sessionID string, executionTarget *worktreepb.SessionExecutionTarget) (sessionWorkspaceChangeAction, error) {
 	if server == nil {
 		return sessionWorkspaceChangeProceed, errors.New("session server is required")
 	}
@@ -158,7 +161,11 @@ func retargetInteractiveSessionWorkspace(ctx context.Context, server sessionLife
 	if trimmedWorkspaceRoot == "" {
 		return errors.New("workspace root is required")
 	}
-	_, err := server.SessionLifecycleClient().RetargetSessionWorkspace(ctx, &sessionlaunchpb.SessionRetargetWorkspaceRequest{SessionId: trimmedSessionID, WorkspaceRoot: trimmedWorkspaceRoot})
+	target, err := runtimeids.ParseSessionSelector(trimmedSessionID)
+	if err != nil {
+		return err
+	}
+	_, err = server.SessionLifecycleClient().RetargetSessionWorkspace(ctx, &sessionlaunchpb.SessionRetargetWorkspaceRequest{SessionId: protoapi.SessionSelectorToProto(target), WorkspaceRoot: trimmedWorkspaceRoot})
 	return err
 }
 
@@ -267,7 +274,7 @@ func (m *workspaceChangePromptModel) moveCursor(delta int) {
 
 func (m *workspaceChangePromptModel) promptLines() []askPromptLine {
 	return []askPromptLine{
-		{Text: fmt.Sprintf("This session started in %q but Kent's current is %q. Continue in new location?", m.selectedRoot, m.currentRoot), Kind: askPromptLineKindQuestion},
+		{Text: fmt.Sprintf("This session started in %q but Kent's current is %q. Continue in new location?", pathdisplay.Compact(m.selectedRoot, nil), pathdisplay.Compact(m.currentRoot, nil)), Kind: askPromptLineKindQuestion},
 		{Text: "", Kind: askPromptLineKindQuestion},
 		{Text: fmt.Sprintf("%d. %s", 1, "Yes"), Kind: askPromptLineKindOption, Selected: m.cursor == 0},
 		{Text: fmt.Sprintf("%d. %s", 2, "No"), Kind: askPromptLineKindOption, Selected: m.cursor == 1},

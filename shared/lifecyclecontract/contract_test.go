@@ -10,7 +10,7 @@ import (
 )
 
 func TestEncodeClientLifecycleEvents(t *testing.T) {
-	sessionID, err := runtimeids.ParseSessionID("session-1")
+	sessionID, err := runtimeids.ParseSessionID("11111111-1111-4111-8111-111111111111")
 	if err != nil {
 		t.Fatalf("parse session ID: %v", err)
 	}
@@ -79,25 +79,5 @@ func TestEncodeOmitsAbsentLifecycleContext(t *testing.T) {
 	}
 	if len(decoded.Context) != 0 {
 		t.Fatalf("context = %#v, want empty object", decoded.Context)
-	}
-}
-
-func TestEncodeRejectsPresentBlankLifecycleContextFacts(t *testing.T) {
-	sessionID, err := runtimeids.ParseSessionID("session-1")
-	if err != nil {
-		t.Fatalf("parse session ID: %v", err)
-	}
-	blank := " \t "
-	taskID := WorkflowTaskID(blank)
-	tests := map[string]Context{
-		"session title":    {SessionID: &sessionID, SessionTitle: &blank},
-		"workflow task id": {SessionID: &sessionID, WorkflowTaskID: &taskID},
-	}
-	for name, context := range tests {
-		t.Run(name, func(t *testing.T) {
-			if _, err := Encode(NewSessionStart(time.Now(), false, context, OpeningKindNew)); err == nil {
-				t.Fatal("Encode succeeded with a present blank context fact")
-			}
-		})
 	}
 }

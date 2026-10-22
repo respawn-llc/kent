@@ -33,9 +33,6 @@ func (e *Engine) scheduleOperationalPendingWork(ctx context.Context, request ope
 	if err := e.requirePendingWorkCapacity(); err != nil {
 		return err
 	}
-	if err := request.item.Validate(); err != nil {
-		return err
-	}
 	if request.item.Kind == runtimeinput.PendingWorkItemKindManualCompaction {
 		if err := e.manualCompactionAdmissionError(); err != nil {
 			return err
@@ -62,6 +59,7 @@ func (e *Engine) scheduleOperationalPendingWork(ctx context.Context, request ope
 			return false, err
 		}
 		e.publishPendingWorkChanged()
+		e.runtimeWriteAccepted()
 		return true, nil
 	})
 	if err := commandAcceptanceResult(committed, acceptErr); err != nil {
@@ -98,21 +96,14 @@ func (e *Engine) scheduleOperationalPendingWork(ctx context.Context, request ope
 	return nil
 }
 
-func manualCompactionPendingWorkItem(id runtimeids.CompactionRequestID, payload runtimeinput.ManualCompactionAdmission) (runtimeinput.PendingWorkItem, error) {
-	itemID, err := serverapi.PendingWorkItemIDFromCompactionRequest(id)
-	if err != nil {
-		return runtimeinput.PendingWorkItem{}, err
-	}
+func manualCompactionPendingWorkItem(payload runtimeinput.ManualCompactionAdmission) (runtimeinput.PendingWorkItem, error) {
 	if payload.Guidance != nil {
 		guidance := *payload.Guidance
 		payload.Guidance = &guidance
 	}
-	canonical, err := payload.CanonicalInput()
-	if err != nil {
-		return runtimeinput.PendingWorkItem{}, err
-	}
+	canonical := payload.CanonicalInput()
 	item := runtimeinput.PendingWorkItem{
-		ID: itemID, Lane: runtimeinput.PendingWorkLaneSteer, Kind: runtimeinput.PendingWorkItemKindManualCompaction,
+		ID: runtimeids.NewQueueItemID(), Lane: runtimeinput.PendingWorkLaneSteer, Kind: runtimeinput.PendingWorkItemKindManualCompaction,
 		State: runtimeinput.PendingWorkItemStatePending, CanonicalInput: canonical, ManualCompaction: &payload,
 	}
 	return item, nil

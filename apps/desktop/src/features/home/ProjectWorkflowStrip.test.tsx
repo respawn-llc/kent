@@ -1,16 +1,11 @@
 import { fireEvent, render, screen } from "@testing-library/react";
 import { I18nextProvider } from "react-i18next";
-import { vi } from "vitest";
+import { beforeAll, describe, expect, it, vi } from "bun:test";
 
 import { appI18n, initializeI18n } from "@/i18n";
 import { ProjectWorkflowStrip } from "./ProjectWorkflowStrip";
 
-const openProject = vi.hoisted(() => vi.fn());
-
-vi.mock("@/app-facade", async (importOriginal) => ({
-  ...(await importOriginal()),
-  useAppNavigation: () => ({ openProject }),
-}));
+const selectWorkflow = vi.fn();
 
 beforeAll(async () => initializeI18n());
 
@@ -54,7 +49,7 @@ describe("ProjectWorkflowStrip", () => {
 
     fireEvent.click(screen.getByRole("button", { name: "Delivery" }));
 
-    expect(openProject).toHaveBeenCalledWith("project-1", "workflow-1");
+    expect(selectWorkflow).toHaveBeenCalledWith("workflow-1");
   });
 });
 
@@ -84,7 +79,7 @@ function renderStrip({
         onLoadPrevious={vi.fn()}
         onSortChange={vi.fn()}
         previousBoundary={undefined}
-        projectID="project-1"
+        onWorkflowSelect={selectWorkflow}
         sort={{ direction: "desc", field: "updated" }}
         workflows={workflows}
       />

@@ -1,7 +1,8 @@
-import type { DescMethod, Message, MessageShape } from "@app/server-api-contract";
+import type { DescMethod, Message, MessageValidType } from "@app/server-api-contract";
 import type { ChatOperationError as WireChatOperationError } from "@app/server-api-contract/gen/kent/api/chat/chat_pb";
 import { AgentPreparationCategory } from "@app/server-api-contract/gen/kent/api/chat_settings/chat_settings_pb";
 import type { ReadError } from "@app/server-api-contract/gen/kent/api/chat_settings/chat_settings_pb";
+import type { SessionTargetContext } from "@app/server-api-contract/gen/kent/api/shared/session_selector_pb";
 import type { GetCatalogError } from "@app/server-api-contract/gen/kent/api/prompt_command/prompt_command_pb";
 import { GoalService } from "@app/server-api-contract/gen/kent/api/runtime/runtime_pb";
 import type {
@@ -9,6 +10,7 @@ import type {
   ListPendingWorkError,
   LiveStopError,
   RemovePendingWorkError,
+  SetSessionNameError,
 } from "@app/server-api-contract/gen/kent/api/runtime/runtime_pb";
 import type {
   SessionResolveTransitionError,
@@ -22,7 +24,7 @@ import { protobufRpcError } from "./protobufRpc";
 export type ChatError =
   | Readonly<{ kind: "prompt_catalog_read"; command: string | null }>
   | Readonly<{ kind: "prompt_command_not_found" | "prompt_command_read"; command: string }>
-  | Readonly<{ kind: "session_not_found"; sessionID: string }>
+  | Readonly<{ kind: "session_not_found"; sessionID: string | null }>
   | Readonly<{ kind: "workspace_not_registered" }>
   | Readonly<{
       kind: "agent_preparation";
@@ -31,13 +33,13 @@ export type ChatError =
     }>
   | Readonly<{ kind: "auth_required" }>
   | Readonly<{ kind: "server_not_ready" }>
-  | Readonly<{ kind: "runtime_unavailable"; sessionID: string }>
+  | Readonly<{ kind: "runtime_unavailable"; sessionID: string | null }>
   | Readonly<{ kind: "internal_failure"; operation: string | null; cause: string | null }>
   | Readonly<{
       kind: "unknown";
       code: string;
       knownDetail: Readonly<
-        | { kind: "runtime_unavailable"; sessionID: string }
+        | { kind: "runtime_unavailable"; sessionID: string | null }
         | { kind: "internal_failure"; operation: string | null; cause: string | null }
       > | null;
     }>;
@@ -60,6 +62,7 @@ type ChatWireError =
   | ListPendingWorkError
   | LiveStopError
   | RemovePendingWorkError
+  | SetSessionNameError
   | SessionInitialInputError
   | SessionPersistInputDraftError
   | SessionResolveTransitionError;
@@ -72,7 +75,7 @@ type ChatRpcResult = Readonly<{
     | Readonly<{ case: undefined; value?: undefined }>;
 }>;
 type MethodOutcome<Method extends DescMethod> =
-  MessageShape<Method["output"]> extends Readonly<{ outcome: infer Outcome }> ? Outcome : never;
+  MessageValidType<Method["output"]> extends Readonly<{ outcome: infer Outcome }> ? Outcome : never;
 type MethodSuccess<Method extends DescMethod> =
   Extract<MethodOutcome<Method>, Readonly<{ case: "success" }>> extends Readonly<{
     value: infer Success;
@@ -82,7 +85,7 @@ type MethodSuccess<Method extends DescMethod> =
 
 export function requireChatSuccess<Method extends DescMethod>(
   method: Method,
-  result: ChatRpcResult,
+  result: MessageValidType<Method["output"]> & ChatRpcResult,
 ): MethodSuccess<Method>;
 export function requireChatSuccess(method: DescMethod, result: ChatRpcResult): Message {
   switch (result.outcome.case) {
@@ -146,22 +149,43 @@ type PromptCommandWireDetail = Extract<
   }
 >;
 
+type UnmappedChatWireDetail = Extract<
+  ChatWireError["detail"],
+  { case: "selfTarget" | "pendingWorkNotPending" | undefined }
+>;
+
 function chatErrorDetailFromWire(failure: ChatWireError): KnownChatError | null {
   const detail = failure.detail;
+  if (detail.case === undefined || detail.case === "selfTarget" || detail.case === "pendingWorkNotPending") {
+    return null;
+  }
   if (detail.case === "catalogRead" || detail.case === "commandNotFound" || detail.case === "commandRead") {
     return promptCommandErrorDetail(detail);
   }
   return standardChatErrorDetail(detail);
 }
 
+function capturedSessionID(context: SessionTargetContext | undefined): string | null {
+  const target = context?.stage;
+  switch (target?.case) {
+    case "canonicalSessionId":
+      return target.value;
+    case "projected":
+      return target.value.sessionId;
+    case "unresolved":
+    case undefined:
+      return null;
+  }
+}
+
 function standardChatErrorDetail(
-  detail: Exclude<ChatWireError["detail"], PromptCommandWireDetail>,
+  detail: Exclude<ChatWireError["detail"], PromptCommandWireDetail | UnmappedChatWireDetail>,
 ): KnownChatError | null {
   switch (detail.case) {
     case "sessionNotFound":
       return {
         kind: "session_not_found",
-        sessionID: detail.value.sessionId,
+        sessionID: capturedSessionID(detail.value.sessionTarget),
       };
     case "workspaceNotRegistered":
       return { kind: "workspace_not_registered" };
@@ -178,7 +202,7 @@ function standardChatErrorDetail(
     case "runtimeUnavailable":
       return {
         kind: "runtime_unavailable",
-        sessionID: detail.value.sessionId,
+        sessionID: capturedSessionID(detail.value.sessionTarget),
       };
     case "internalFailure":
       return {
@@ -186,9 +210,6 @@ function standardChatErrorDetail(
         operation: detail.value.operation ?? null,
         cause: detail.value.cause ?? null,
       };
-    case "pendingWorkNotPending":
-    case undefined:
-      return null;
   }
 }
 

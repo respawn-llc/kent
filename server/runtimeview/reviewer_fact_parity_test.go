@@ -9,6 +9,7 @@ import (
 	runtimepb "core/shared/protoapi/gen/kent/api/runtime"
 	transcriptpb "core/shared/protoapi/gen/kent/api/transcript"
 	"core/shared/runtimeids"
+	"core/shared/textutil"
 	"core/shared/toolspec"
 	"core/shared/transcript"
 	"google.golang.org/protobuf/proto"
@@ -35,10 +36,10 @@ func TestReviewerFactsMatchAcrossLiveHydrationAndPageProjection(t *testing.T) {
 	hydration := mustTranscriptHydration(t, runtime.TranscriptHydrationSnapshot{}, liveFacts)
 	page, err := TranscriptPageFromSegment(
 		"58e121b5-30f7-4d0f-a1fa-fb3e6695e39c",
-		"name",
+		textutil.Value("name"),
 		runtimepb.ConversationFreshness_CONVERSATION_FRESHNESS_ESTABLISHED,
-		runtime.TranscriptSegmentPage{Snapshot: snapshot},
-	)
+		runtime.TranscriptSegmentPage{Snapshot: snapshot}, nil)
+
 	if err != nil {
 		t.Fatalf("project page: %v", err)
 	}
@@ -62,7 +63,7 @@ func TestReviewerFactsMatchAcrossLiveHydrationAndPageProjection(t *testing.T) {
 			LocalEntry: &entries[index], LocalEntryProjected: true,
 			CommittedProvenance: entries[index].CommittedProvenance,
 		}
-		liveMessages, err := TranscriptMessagesFromRuntimeEventChecked(event)
+		liveMessages, err := TranscriptMessagesFromRuntimeEventChecked(event, nil)
 		if err != nil {
 			t.Fatalf("project live Reviewer event %d: %v", index, err)
 		}
@@ -120,10 +121,10 @@ func TestQuestionAnswerFactsMatchAcrossLiveHydrationAndPageProjection(t *testing
 	hydration := mustTranscriptHydration(t, runtime.TranscriptHydrationSnapshot{}, facts)
 	page, err := TranscriptPageFromSegment(
 		sessionID,
-		"name",
+		textutil.Value("name"),
 		runtimepb.ConversationFreshness_CONVERSATION_FRESHNESS_ESTABLISHED,
-		runtime.TranscriptSegmentPage{Snapshot: snapshot},
-	)
+		runtime.TranscriptSegmentPage{Snapshot: snapshot}, nil)
+
 	if err != nil {
 		t.Fatalf("project page: %v", err)
 	}
@@ -138,7 +139,8 @@ func TestQuestionAnswerFactsMatchAcrossLiveHydrationAndPageProjection(t *testing
 			QuestionAnswer: answer,
 		},
 		CommittedProvenance: provenance,
-	})
+	}, nil)
+
 	if err != nil {
 		t.Fatalf("project live Question event: %v", err)
 	}

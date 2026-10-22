@@ -1,6 +1,7 @@
 package pathutil_test
 
 import (
+	"os"
 	"path/filepath"
 	"testing"
 
@@ -26,21 +27,66 @@ func TestCompact(t *testing.T) {
 		{"dots in name", filepath.Join(cwd, "..notes", "file.md"), "./..notes/file.md"},
 	} {
 		t.Run(test.name, func(t *testing.T) {
-			if got := pathutil.Compact(test.target, cwd, home); got != filepath.ToSlash(test.want) {
+			if got := pathutil.Compact(test.target, &home, &cwd); got != filepath.ToSlash(test.want) {
 				t.Fatalf("Compact() = %q, want %q", got, test.want)
 			}
 		})
 	}
 }
 
-func TestCollapseHome(t *testing.T) {
+func TestCompactUsesCurrentWorkingDirectory(t *testing.T) {
+	cwd := t.TempDir()
+	t.Chdir(cwd)
+	home := filepath.Dir(cwd)
+	if got := pathutil.Compact(filepath.Join(cwd, "file"), &home, nil); got != "./file" {
+		t.Fatalf("Compact() = %q, want ./file", got)
+	}
+}
+
+func TestCompactHomeBoundaries(t *testing.T) {
 	home := t.TempDir()
 	target := filepath.Join(home, ".kent", "AGENTS.md")
-	if got := pathutil.CollapseHome(target, home); got != "~/.kent/AGENTS.md" {
-		t.Fatalf("CollapseHome() = %q", got)
+	if got := pathutil.Compact(target, &home, nil); got != "~/.kent/AGENTS.md" {
+		t.Fatalf("Compact() = %q", got)
 	}
 	other := home + "-other/file.md"
-	if got := pathutil.CollapseHome(other, home); got != filepath.ToSlash(other) {
+	if got := pathutil.Compact(other, &home, nil); got != filepath.ToSlash(other) {
 		t.Fatalf("home prefix collision shortened to %q", got)
+	}
+}
+
+func TestCompactHomeIgnoresWorkingDirectory(t *testing.T) {
+	home := t.TempDir()
+	cwd := filepath.Join(home, "project")
+	if err := os.Mkdir(cwd, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	t.Chdir(cwd)
+
+	for _, test := range []struct {
+		path string
+		want string
+	}{
+		{path: filepath.Join(cwd, "file"), want: "~/project/file"},
+		{path: filepath.Join(home, "other", "file"), want: "~/other/file"},
+		{path: home, want: "~"},
+		{path: home + "-external/file", want: home + "-external/file"},
+		{path: "relative/file", want: "relative/file"},
+	} {
+		if got := pathutil.CompactHome(test.path, &home); got != filepath.ToSlash(test.want) {
+			t.Fatalf("CompactHome(%q) = %q, want %q", test.path, got, filepath.ToSlash(test.want))
+		}
+	}
+}
+
+func TestCompactPreservesRelativePaths(t *testing.T) {
+	cwd := t.TempDir()
+	home := filepath.Dir(cwd)
+	for _, path := range []string{".", "..", "./file", "../file", "relative/file", "..notes/file"} {
+		t.Run(path, func(t *testing.T) {
+			if got := pathutil.Compact(path, &home, &cwd); got != filepath.ToSlash(path) {
+				t.Fatalf("Compact(%q) = %q", path, got)
+			}
+		})
 	}
 }

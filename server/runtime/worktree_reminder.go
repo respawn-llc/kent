@@ -13,7 +13,7 @@ import (
 )
 
 func (e *Engine) SteerWorktreeTransitionFailure(outcome clientui.WorktreeTransitionOutcome) error {
-	if err := outcome.Validate(); err != nil {
+	if err := outcome.ValidateSourceDiagnostic(); err != nil {
 		return fmt.Errorf("validate worktree transition outcome: %w", err)
 	}
 	if outcome.State != clientui.WorktreeTransitionFailed {
@@ -36,15 +36,63 @@ func (e *Engine) SteerWorktreeTransitionFailure(outcome clientui.WorktreeTransit
 }
 
 func (e *Engine) materializePendingWorktreeReminder(stepID string) error {
+	messages, err := e.worktreeSwitchMessages()
+	if err != nil {
+		return err
+	}
+	return e.steerMetaContextIfChanged(stepID, messages)
+}
+
+func (e *Engine) worktreeSwitchMessages() ([]llm.Message, error) {
 	state := session.CloneWorktreeReminderState(e.store.Meta().WorktreeReminder)
 	if state == nil {
-		return nil
+		return nil, nil
 	}
 	metaResult, err := e.activeMetaContextBuilder(e.currentModel(), e.cfg.SkillPolicy).Build(metaContextBuildOptions{
 		WorktreeReminder: state, WorktreePromptKind: prompts.WorktreePromptSwitch,
 	})
 	if err != nil {
-		return err
+		return nil, err
 	}
-	return e.steerMetaContextIfChanged(stepID, append(metaResult.Worktree, metaResult.WorktreeExit...))
+	return append(metaResult.Worktree, metaResult.WorktreeExit...), nil
+}
+
+type worktreeTransitionDeliveryError struct{ error }
+
+func (*worktreeTransitionDeliveryError) WorktreeTransitionApplied() {}
+
+func worktreeTargetChanged(previous, current *session.WorktreeReminderState) bool {
+	return current != nil && (previous == nil || !session.WorktreeReminderTargetEqual(*previous, *current))
+}
+
+func (e *Engine) steerWorktreeTransitionRaw(previous *session.WorktreeReminderState) error {
+	if !worktreeTargetChanged(previous, e.store.Meta().WorktreeReminder) {
+		return nil
+	}
+	messages, err := e.worktreeSwitchMessages()
+	if err == nil {
+		err = e.steerOrdered(sessionSteeringProvenance(), steerMessagesWithPersistenceIntent(
+			steeringPriorityRuntimeContext, steeringMessageEventDefault, true, messages,
+		))
+	}
+	if err != nil {
+		return &worktreeTransitionDeliveryError{err}
+	}
+	return nil
+}
+
+// The caller holds dormant Session admission and has already applied the target.
+func SteerPersistedWorktreeTransition(store *session.Store, previous *session.WorktreeReminderState) error {
+	engine, err := newPersistedSteeringEngine(store)
+	if err != nil {
+		return &worktreeTransitionDeliveryError{err}
+	}
+	recent, err := engine.eventLog.ReadRecentRecords(1)
+	if err != nil {
+		return &worktreeTransitionDeliveryError{err}
+	}
+	if len(recent.Records) == 0 {
+		return nil
+	}
+	return engine.steerWorktreeTransitionRaw(previous)
 }

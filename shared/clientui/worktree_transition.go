@@ -6,9 +6,7 @@ import (
 	"fmt"
 	"strings"
 
-	"buf.build/go/protovalidate"
 	worktreepb "core/shared/protoapi/gen/kent/api/worktree"
-	"core/shared/worktreecontract"
 	"github.com/google/uuid"
 )
 
@@ -16,6 +14,11 @@ type WorktreeTransitionID uuid.UUID
 
 func NewWorktreeTransitionID() WorktreeTransitionID {
 	return WorktreeTransitionID(uuid.New())
+}
+
+func WorktreeTransitionIDFromProto(value string) (WorktreeTransitionID, error) {
+	parsed, err := uuid.Parse(value)
+	return WorktreeTransitionID(parsed), err
 }
 
 func ParseWorktreeTransitionID(value string) (WorktreeTransitionID, error) {
@@ -97,48 +100,11 @@ type WorktreeTransitionOutcome struct {
 	Failure     *WorktreeTransitionFailure
 }
 
-func (outcome WorktreeTransitionOutcome) Validate() error {
-	if err := outcome.OperationID.Validate(); err != nil {
-		return err
-	}
-	switch outcome.Transition {
-	case WorktreeTransitionEnter, WorktreeTransitionLeave, WorktreeTransitionDelete:
-	default:
-		return errors.New("worktree transition kind is invalid")
-	}
-	switch outcome.State {
-	case WorktreeTransitionCompleted:
-		if outcome.Failure != nil {
-			return errors.New("completed worktree transition cannot contain failure facts")
-		}
-	case WorktreeTransitionFailed:
-		if outcome.Failure == nil {
-			return errors.New("failed worktree transition requires failure facts")
-		}
-		if strings.TrimSpace(outcome.Failure.Diagnostic) == "" {
-			return errors.New("worktree transition failure diagnostic is required")
-		}
-		if outcome.Failure.SelectorError != nil {
-			if err := protovalidate.Validate(outcome.Failure.SelectorError); err != nil {
-				return err
-			}
-		}
-		if outcome.Failure.DeletePrecondition != nil {
-			if outcome.Failure.SelectorError != nil {
-				return errors.New("worktree transition selector error cannot carry delete precondition")
-			}
-			precondition := outcome.Failure.DeletePrecondition
-			if err := worktreecontract.ValidateDeleteTransitionPrecondition(
-				worktreecontract.TransitionKind(outcome.Transition),
-				precondition.Kind,
-				precondition.DirtyFileCount,
-				precondition.UnknownCause,
-			); err != nil {
-				return err
-			}
-		}
-	default:
-		return errors.New("worktree transition state is invalid")
+func (outcome WorktreeTransitionOutcome) ValidateSourceDiagnostic() error {
+	// Selector failures omit the native diagnostic from their wire projection.
+	if outcome.Failure != nil && outcome.Failure.SelectorError != nil &&
+		strings.TrimSpace(outcome.Failure.Diagnostic) == "" {
+		return errors.New("worktree transition failure diagnostic is required")
 	}
 	return nil
 }

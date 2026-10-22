@@ -297,7 +297,7 @@ export function ThinkingShowcase() {
                   sendActivity({
                     ...fixtureRunning,
                     Reviewer: activity.Reviewer,
-                    ActiveStep: { RunID: "fixture-run", StepID: "fixture-step", ActiveKind: kind },
+                    ActiveStep: { StepID: "fixture-step", ActiveKind: kind },
                   });
                 }}
                 type="button"

@@ -81,7 +81,7 @@ func planCurrentNodeFanout(
 			TransitionBranchKey: branchKey,
 			Target: workflow.PendingApprovalTarget{
 				CurrentNode: targetCurrentNode,
-				DisplayName: workflow.NodeDisplayName(target.Node),
+				DisplayName: workflow.NodeDisplayLabel(target.Node),
 				NodeKind:    target.Node.Kind(),
 			},
 			EffectiveEdge:           target.Edge,
@@ -94,7 +94,7 @@ func planCurrentNodeFanout(
 			currentSource,
 			workflowVersion,
 			group,
-			workflow.NodeDisplayName(source),
+			workflow.NodeDisplayLabel(source),
 			commentary,
 			outputValues,
 			approvalBranches,

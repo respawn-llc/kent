@@ -10,6 +10,7 @@ import (
 func SessionRetargetErrorToProto(failure *serverapi.SessionRetargetError) (*sessionretargetpb.SessionRetargetWorkspaceError, error) {
 	facts := &sessionretargetpb.SessionRetargetFacts{
 		SessionId: failure.SessionID,
+		ShortId:   SessionShortIDToProto(failure.ShortID),
 		SourceProject: &sessionretargetpb.ProjectReference{
 			Id: failure.SourceProject.ID, Name: failure.SourceProject.Name,
 		},
@@ -64,8 +65,10 @@ func SessionRetargetErrorFromProto(failure *sessionretargetpb.SessionRetargetWor
 	default:
 		return fmt.Errorf("Session retarget failed with code %q", failure.Code)
 	}
+	shortID := SessionShortIDFromProto(facts.ShortId)
 	result := &serverapi.SessionRetargetError{
-		Reason: reason, SessionID: facts.SessionId, TargetRoot: facts.TargetRoot,
+		ShortID: shortID,
+		Reason:  reason, SessionID: facts.SessionId, TargetRoot: facts.TargetRoot,
 		SourceProject:   serverapi.ProjectReference{ID: facts.SourceProject.Id, Name: facts.SourceProject.Name},
 		WorkflowTaskIDs: facts.WorkflowTaskIds,
 	}

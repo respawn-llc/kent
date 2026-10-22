@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"core/shared/clientui"
+	attentionpb "core/shared/protoapi/gen/kent/api/attention"
 	"core/shared/runtimeids"
 	"core/shared/serverapi"
 )
@@ -116,9 +117,6 @@ func (b *Broker) PublishPending(scope RoutingScope, notification clientui.Attent
 		Type:    clientui.AttentionNotificationEventPending,
 		Pending: &notification,
 	}
-	if err := serverapi.ValidateAttentionNotificationEvent(withSequenceForValidation(event)); err != nil {
-		return err
-	}
 	return b.publish(scope, event)
 }
 
@@ -131,15 +129,12 @@ func (b *Broker) PublishResolved(scope RoutingScope, id clientui.AttentionNotifi
 		Kind:       kind,
 		OccurredAt: &resolvedAt,
 	}
-	if err := serverapi.ValidateAttentionNotificationEvent(withSequenceForValidation(event)); err != nil {
-		return err
-	}
 	return b.publish(scope, event)
 }
 
-func withSequenceForValidation(event clientui.AttentionNotificationEvent) clientui.AttentionNotificationEvent {
-	event.Sequence = 1
-	return event
+func (b *Broker) PublishSessionNamingFailure(failure *attentionpb.SessionNamingFailure) error {
+	event := clientui.AttentionNotificationEvent{Type: clientui.AttentionNotificationEventSessionNamingFailure, SessionNamingFailure: failure}
+	return b.publish(RoutingScope{Kind: RoutingSessionPrompt, ProjectID: failure.ProjectId, SessionID: failure.SessionId}, event)
 }
 
 func (b *Broker) publish(scope RoutingScope, event clientui.AttentionNotificationEvent) error {
@@ -270,7 +265,5 @@ func (s *Subscription) closeWithError(err error) {
 		onClose()
 	}
 }
-
-var _ serverapi.AttentionNotificationSubscription = (*Subscription)(nil)
 
 var ErrBatchNotFound = errors.New("question batch is not registered")

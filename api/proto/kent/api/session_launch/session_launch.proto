@@ -9,9 +9,25 @@ import "kent/api/chat_settings/chat_settings.proto";
 import "kent/api/project/project.proto";
 import "kent/api/server/server.proto";
 import "kent/api/shared/foundation.proto";
+import "kent/api/shared/session_selector.proto";
 import "kent/api/shared/validation.proto";
 
 option go_package = "core/shared/protoapi/gen/kent/api/session_launch;sessionlaunchpb";
+
+message SessionRuntimePreparationOptions {
+  ConnectionScope connection_scope = 11 [(buf.validate.field).required = true];
+  Settings active_settings = 3 [(buf.validate.field).required = true];
+  repeated ToolID enabled_tool_ids = 4 [(buf.validate.field).repeated.items.enum = {
+    defined_only: true
+    not_in: [0]
+  }];
+  optional bool questions_enabled = 5 [(buf.validate.field).required = true];
+  optional bool auto_compaction_enabled = 6 [(buf.validate.field).required = true];
+  bool thinking_override_explicit = 7;
+  SourceReport source = 8 [(buf.validate.field).required = true];
+  optional SessionRuntimeAgentSelection agent_selection = 9;
+  ToolSelection explicit_tool_selection = 10;
+}
 
 enum SessionLaunchMode {
   SESSION_LAUNCH_MODE_UNSPECIFIED = 0;
@@ -44,6 +60,23 @@ message SessionLaunchIntent {
       (buf.validate.field).string.uuid = true,
     (buf.validate.field).string.(kent.api.shared.canonical_uuid_v4) = true
     ];
+  }
+}
+
+message SessionCreateRequestOrigin {
+  oneof origin {
+    option (buf.validate.oneof).required = true;
+    google.protobuf.Empty independent = 1;
+    kent.api.shared.SessionSelector previous_session_id = 2;
+    kent.api.shared.SessionSelector parent_agent_session_id = 3;
+  }
+}
+
+message SessionLaunchRequestIntent {
+  oneof intent {
+    option (buf.validate.oneof).required = true;
+    SessionCreateRequestOrigin create_new = 1;
+    kent.api.shared.SessionSelector open_existing_session_id = 2;
   }
 }
 
@@ -141,19 +174,6 @@ message ModelCapabilitiesOverride {
   bool supports_vision_inputs = 2;
 }
 
-message ProviderCapabilitiesOverride {
-
-  string provider_id = 1;
-  bool supports_responses_api = 2;
-  bool supports_responses_compact = 3;
-  bool supports_prompt_cache_key = 5;
-  bool supports_native_web_search = 6;
-  bool supports_reasoning_encrypted = 7;
-  bool supports_server_side_context_edit = 8;
-  bool supports_provider_verbosity = 9;
-  bool is_openai_first_party = 10;
-}
-
 message TimeoutSettings {
   int32 model_request_seconds = 1 [(buf.validate.field).int32.gt = 0];
 }
@@ -195,18 +215,29 @@ message ReviewerSettings {
   ModelVerbosity model_verbosity = 4 [(buf.validate.field).enum.defined_only = true];
   ModelCapabilitiesOverride model_capabilities = 7 [(buf.validate.field).required = true];
   int32 model_context_window = 9 [(buf.validate.field).int32.gte = 40000];
-  optional string connection = 15 [(buf.validate.field).string.min_len = 1];
+  optional string connection = 15 [(buf.validate.field).string.(kent.api.shared.connection_id) = true];
   optional string system_prompt_file = 14 [(buf.validate.field).string.min_len = 1];
   int32 timeout_seconds = 12 [(buf.validate.field).int32.gt = 0];
   bool verbose_output = 13;
 }
 
 message SubagentRole {
+  option (buf.validate.message).cel = {
+    id: "kent.session_launch.subagent_role_connection_selection"
+    message: "subagent connections must use the role connection selection"
+    expression: "!has(this.settings.connection)"
+  };
   Settings settings = 1 [(buf.validate.field).required = true];
   repeated SourceFact sources = 8;
+  option (buf.validate.message).cel = {
+    id: "kent.session_launch.subagent_role_unique_source_keys"
+    message: "configuration source keys must be unique"
+    expression: "this.sources.map(fact, fact.key).unique()"
+  };
   string description = 3 [(buf.validate.field).string.max_len = 5000];
   bool agent_callable = 4;
   bool workflow_subagent = 6;
+  kent.api.auth.ConnectionSelection connection_selection = 9;
 }
 
 enum ConfigFileLayer {
@@ -231,7 +262,7 @@ message ConfigPropertyAddress {
 
 message ConfigOrigin {
   ConfigPropertyAddress property = 1 [(buf.validate.field).required = true];
-  optional string retained_session_id = 8 [(buf.validate.field).string.(kent.api.shared.canonical_uuid_v4) = true];
+  optional string retained_session_id = 8 [(buf.validate.field).string.uuid = true, (buf.validate.field).string.(kent.api.shared.canonical_uuid_v4) = true];
   oneof source {
     option (buf.validate.oneof).required = true;
     google.protobuf.Empty default_value = 2;
@@ -296,6 +327,21 @@ message ToolEnabledFact {
 
 message Settings {
   option (buf.validate.message).cel = {
+    id: "kent.session_launch.settings_unique_subagent_names"
+    message: "subagent names must be unique"
+    expression: "this.subagents.map(role, role.name).unique()"
+  };
+  option (buf.validate.message).cel = {
+    id: "kent.session_launch.settings_unique_skill_toggles"
+    message: "skill keys must be unique"
+    expression: "this.skill_toggles.map(fact, fact.key).unique()"
+  };
+  option (buf.validate.message).cel = {
+    id: "kent.session_launch.settings_unique_enabled_tools"
+    message: "enabled tool IDs must be unique"
+    expression: "this.enabled_tools.map(fact, fact.tool_id).unique()"
+  };
+  option (buf.validate.message).cel = {
     id: "kent.session_launch.compaction_threshold_below_model_window"
     message: "context_compaction_threshold_tokens must be less than model_context_window"
     expression: "this.context_compaction_threshold_tokens < this.model_context_window"
@@ -323,12 +369,12 @@ message Settings {
   ];
   string web_search = 14;
   string provider_identifier = 16;
-  optional string connection = 40 [(buf.validate.field).string.min_len = 1];
+  optional string connection = 40 [(buf.validate.field).string.(kent.api.shared.connection_id) = true];
   bool store = 19;
   bool allow_non_cwd_edits = 20;
   int32 model_context_window = 21 [(buf.validate.field).int32.gte = 40000];
   int32 context_compaction_threshold_tokens = 22 [(buf.validate.field).int32.gt = 0];
-  int32 pre_submit_compaction_lead_tokens = 23 [(buf.validate.field).int32.gt = 0];
+  optional int32 pre_submit_compaction_lead_tokens = 23 [(buf.validate.field).int32.gt = 0];
   int32 minimum_exec_to_bg_seconds = 24 [(buf.validate.field).int32.gt = 0];
   CompactionMode compaction_mode = 25 [(buf.validate.field).enum = {
     defined_only: true
@@ -362,6 +408,16 @@ message SourceReport {
   bool created_default_config = 3;
   repeated SourceFact sources = 10;
   repeated ConfigFileReport files = 11;
+  option (buf.validate.message).cel = {
+    id: "kent.session_launch.source_report_unique_source_keys"
+    message: "configuration source keys must be unique"
+    expression: "this.sources.map(fact, fact.key).unique()"
+  };
+  option (buf.validate.message).cel = {
+    id: "kent.session_launch.source_report_unique_file_layers"
+    message: "configuration file layers must be unique"
+    expression: "this.files.map(report, report.file.layer).unique()"
+  };
 }
 
 message ConfigFileReport {
@@ -378,8 +434,8 @@ message SessionPlanRequest {
       not_in: [0]
     }
   ];
-  SessionLaunchIntent intent = 2 [(buf.validate.field).required = true];
-  optional string caller_session_id = 3 [(buf.validate.field).string.min_len = 1];
+  SessionLaunchRequestIntent intent = 2 [(buf.validate.field).required = true];
+  optional string caller_session_id = 3 [(buf.validate.field).string.uuid = true, (buf.validate.field).string.(kent.api.shared.canonical_uuid_v4) = true];
   RunPromptOverrides overrides = 4;
   kent.api.chat_settings.InitialChatSettings initial_chat_settings = 5;
   optional string initial_input_draft = 6;
@@ -411,7 +467,19 @@ message SessionRuntimeAgentSelection {
   SessionRuntimeChatSettings baseline = 2 [(buf.validate.field).required = true];
 }
 
+message ConnectionScope {
+  option (buf.validate.message).cel = {
+    id: "kent.session_launch.connection_scope"
+    message: "an unavailable role cannot also supply a connection selection"
+    expression: "!has(this.selection) || !has(this.unavailable_role)"
+  };
+  kent.api.auth.ConnectionSelection selection = 1;
+  optional string unavailable_role = 2 [(buf.validate.field).string.min_len = 1];
+}
+
 message SessionPlan {
+  ConnectionScope connection_scope = 15 [(buf.validate.field).required = true];
+  optional int64 short_id = 14 [(buf.validate.field).int64 = {gt: 0 lte: 9007199254740991}];
   string session_id = 1 [
     (buf.validate.field).string.uuid = true,
     (buf.validate.field).string.(kent.api.shared.canonical_uuid_v4) = true

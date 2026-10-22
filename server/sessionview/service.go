@@ -3,18 +3,17 @@ package sessionview
 import (
 	"context"
 	"errors"
-	"fmt"
 	"strings"
 
 	"core/server/chatcontext"
 	"core/server/launch"
 	"core/server/llm"
+	"core/server/metadata"
 	"core/server/runtime"
 	"core/server/session"
 	servicecontract "core/shared/apicontract"
 	"core/shared/clientui"
 	"core/shared/config"
-	"core/shared/invariant"
 	"core/shared/protoapi"
 	contextpb "core/shared/protoapi/gen/kent/api/chat_context"
 	runtimepb "core/shared/protoapi/gen/kent/api/runtime"
@@ -54,6 +53,7 @@ type dormantChatProjection struct {
 }
 
 type Service struct {
+	metadata          *metadata.Store
 	promptHistory     promptHistoryReader
 	persisted         PersistedSessionResolver
 	mainViews         runtimeMainViewSnapshotProvider
@@ -69,16 +69,17 @@ func (s *Service) WithPromptHistoryReader(reader promptHistoryReader) *Service {
 }
 
 func (s *Service) GetPromptHistory(ctx context.Context, req *sessionpb.PromptHistoryRequest) (*sessionpb.PromptHistorySuccess, error) {
-	if err := protoapi.Validate(req); err != nil {
+	id, err := s.metadata.ResolveSessionTarget(ctx, req.SessionId)
+	if err != nil {
 		return nil, err
 	}
-	if _, err := session.ResolvePersistedSessionRecord(ctx, s.persisted, req.SessionId); err != nil {
+	if _, err := session.ResolvePersistedSessionRecord(ctx, s.persisted, id.String()); err != nil {
 		return nil, err
 	}
 	if s.promptHistory == nil {
 		return nil, errors.New("prompt history reader is required")
 	}
-	prompts, err := s.promptHistory.ReadPromptHistory(ctx, req.SessionId)
+	prompts, err := s.promptHistory.ReadPromptHistory(ctx, id.String())
 	if err != nil {
 		return nil, err
 	}
@@ -89,8 +90,10 @@ func NewService(
 	sessions PersistedSessionResolver,
 	mainViews runtimeMainViewSnapshotProvider,
 	targets ExecutionTargetResolver,
+	store *metadata.Store,
 ) *Service {
 	svc := &Service{
+		metadata:         store,
 		persisted:        sessions,
 		mainViews:        mainViews,
 		targets:          targets,
@@ -106,13 +109,14 @@ func (s *Service) SubscribeQuestionHistory(
 	ctx context.Context,
 	req *sessionpb.QuestionHistorySubscribeRequest,
 ) (serverapi.QuestionHistorySubscription, error) {
-	if err := protoapi.Validate(req); err != nil {
-		return nil, err
-	}
 	if s == nil || s.persisted == nil {
 		return nil, session.ErrPersistedSessionResolverRequired
 	}
-	record, err := s.persisted.ResolvePersistedSession(ctx, req.SessionId)
+	id, err := s.metadata.ResolveSessionTarget(ctx, req.SessionId)
+	if err != nil {
+		return nil, err
+	}
+	record, err := s.persisted.ResolvePersistedSession(ctx, id.String())
 	if err != nil {
 		return nil, err
 	}
@@ -120,7 +124,7 @@ func (s *Service) SubscribeQuestionHistory(
 	if err != nil {
 		return nil, err
 	}
-	return &questionHistorySubscription{cursor: cursor}, nil
+	return &questionHistorySubscription{cursor: cursor, metadata: s.metadata}, nil
 }
 
 func (s *Service) WithChatContextWorkspaceResolver(resolver chatContextWorkspaceResolver) *Service {
@@ -184,8 +188,11 @@ func (s *Service) resolveDormantChatProjection(ctx context.Context, snapshot ses
 	}
 	policy := chatcontext.ResolvePolicy(current.Settings, capabilities, snapshot.Meta.Locked)
 	usedTokens := int64(0)
-	if snapshot.Meta.UsageState != nil {
-		usedTokens = int64(snapshot.Meta.UsageState.InputTokens)
+	if state := snapshot.Meta.UsageState; state != nil {
+		usedTokens = int64(state.EstimatedProviderTokens)
+		if state.ReportedContextTokens != nil {
+			usedTokens = int64(*state.ReportedContextTokens)
+		}
 	}
 	completedCount := int64(0)
 	if snapshot.Facts.CompletedCompactionCount != nil {
@@ -236,11 +243,29 @@ func normalizeServiceCacheWarningMode(mode config.CacheWarningMode) config.Cache
 	}
 }
 
-func (s *Service) GetSessionMainView(ctx context.Context, req *sessionpb.MainViewRequest) (*sessionpb.MainViewSuccess, error) {
-	if err := protoapi.Validate(req); err != nil {
+func (s *Service) GetSessionIdentityLocation(ctx context.Context, req *sessionpb.IdentityLocationRequest) (*sessionpb.IdentityLocationSuccess, error) {
+	id, err := s.metadata.ResolveSessionTarget(ctx, req.SessionId)
+	if err != nil {
 		return nil, err
 	}
-	view, err := s.resolveMainView(ctx, req.SessionId)
+	record, err := session.ResolvePersistedSessionRecord(ctx, s.persisted, id.String())
+	if err != nil {
+		return nil, err
+	}
+	logPath := session.RunLogPath(record.SessionDir)
+	return &sessionpb.IdentityLocationSuccess{
+		SessionId: id.String(),
+		ShortId:   protoapi.SessionShortIDToProto(record.ShortID),
+		LogPath:   logPath,
+	}, nil
+}
+
+func (s *Service) GetSessionMainView(ctx context.Context, req *sessionpb.MainViewRequest) (*sessionpb.MainViewSuccess, error) {
+	id, err := s.metadata.ResolveSessionTarget(ctx, req.SessionId)
+	if err != nil {
+		return nil, err
+	}
+	view, err := s.resolveMainView(ctx, id.String())
 	if err != nil {
 		return nil, err
 	}
@@ -248,57 +273,37 @@ func (s *Service) GetSessionMainView(ctx context.Context, req *sessionpb.MainVie
 }
 
 func (s *Service) GetSessionTranscriptPage(ctx context.Context, req *transcriptpb.PageRequest) (*transcriptpb.PageSuccess, error) {
-	if err := protoapi.Validate(req); err != nil {
-		return nil, err
-	}
-	view, err := session.ResolvePersistedSessionView(ctx, s.persisted, req.SessionId)
+	id, err := s.metadata.ResolveSessionTarget(ctx, req.SessionId)
 	if err != nil {
 		return nil, err
 	}
-	page, err := (dormantSessionSnapshot{view: view, cacheWarningMode: s.cacheWarningMode}).TranscriptPage(ctx, req)
+	view, err := session.ResolvePersistedSessionView(ctx, s.persisted, id.String())
+	if err != nil {
+		return nil, err
+	}
+	page, err := (dormantSessionSnapshot{view: view, cacheWarningMode: s.cacheWarningMode, metadata: s.metadata}).TranscriptPage(ctx, req)
 	if err != nil {
 		return nil, err
 	}
 	response := &transcriptpb.PageSuccess{Transcript: page}
-	if err := validateSessionTranscriptPageResponse(response); err != nil {
-		return nil, err
-	}
 	return response, nil
 }
 
-func validateSessionTranscriptPageResponse(response *transcriptpb.PageSuccess) error {
-	if err := protoapi.Validate(response); err != nil {
-		invariant.NewPolicy().Check(false, invariant.ReadModelPublicationDiagnostic(
-			invariant.ReadModelPublicationDiagnosticInput{
-				Operation:        "session_view.transcript_page",
-				SessionID:        response.GetTranscript().GetSessionId(),
-				PublicationCause: err.Error(),
-				OwnerSnapshots:   "canonical_transcript_page",
-				ResolverInputs:   "session_transcript_page",
-			},
-		))
-		return fmt.Errorf("validate session transcript page response: %w", err)
-	}
-	return nil
-}
-
 func (s *Service) GetLatestCommittedAssistantFinalAnswer(ctx context.Context, req *transcriptpb.LatestFinalAnswerRequest) (*transcriptpb.LatestFinalAnswerSuccess, error) {
-	if err := protoapi.Validate(req); err != nil {
-		return nil, err
-	}
 	if s == nil {
 		return nil, session.ErrPersistedSessionResolverRequired
 	}
-	view, err := session.ResolvePersistedSessionView(ctx, s.persisted, req.SessionId)
+	id, err := s.metadata.ResolveSessionTarget(ctx, req.SessionId)
+	if err != nil {
+		return nil, err
+	}
+	view, err := session.ResolvePersistedSessionView(ctx, s.persisted, id.String())
 	if err != nil {
 		return nil, err
 	}
 	answer, err := runtime.LatestCommittedAssistantFinalAnswerFromEventLog(view)
 	if err != nil {
 		return nil, err
-	}
-	if answer != nil && strings.TrimSpace(*answer) == "" {
-		return nil, errors.New("latest committed assistant final answer must not be blank")
 	}
 	return &transcriptpb.LatestFinalAnswerSuccess{Answer: answer}, nil
 }

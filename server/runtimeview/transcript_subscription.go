@@ -1,7 +1,6 @@
 package runtimeview
 
 import (
-	"errors"
 	"fmt"
 	"strings"
 
@@ -40,9 +39,6 @@ func TranscriptHydrationFromSnapshotChecked(
 	if tailSegment == nil {
 		return nil, fmt.Errorf("transcript hydration tail segment is required")
 	}
-	if err := protoapi.Validate(tailSegment); err != nil {
-		return nil, fmt.Errorf("validate transcript hydration tail segment: %w", err)
-	}
 	assistant, err := transcriptAssistantStream(runtimeSnapshot)
 	if err != nil {
 		return nil, err
@@ -69,13 +65,6 @@ func TranscriptHydrationFromSnapshotChecked(
 	hydration.GoalStatus, err = transcriptGoalStatusFromRuntime(runtimeSnapshot.Goal, runtimeSnapshot.GoalSuspended)
 	if err != nil {
 		return nil, err
-	}
-	// The registry supplies Session identity/status and the canonical read model
-	// before validating the complete hydration and its ownership constraints.
-	if hydration.ActiveThinkingStatus != nil {
-		if err := protoapi.Validate(hydration.ActiveThinkingStatus); err != nil {
-			return nil, err
-		}
 	}
 	return hydration, nil
 }
@@ -107,9 +96,6 @@ func transcriptReasoningTracesFromRuntime(states []runtime.TranscriptReasoningTr
 			CompactText: presentation.CompactText,
 			Text:        presentation.Text,
 		}
-		if err := protoapi.Validate(trace); err != nil {
-			return nil, err
-		}
 		out = append(out, trace)
 	}
 	return out, nil
@@ -119,7 +105,7 @@ func transcriptCompactionStateFromRuntime(state *runtime.TranscriptCompactionSta
 	if state == nil {
 		return nil, nil
 	}
-	return transcriptCompactionProjection(&state.StepID, state.RequestID, state.Mode, state.Count, transcriptpb.CompactionState_COMPACTION_STATE_STARTED, nil)
+	return transcriptCompactionProjection(&state.StepID, state.Mode, state.Count, transcriptpb.CompactionState_COMPACTION_STATE_STARTED, nil)
 }
 
 func transcriptContextUsageFromRuntime(usage *runtime.ContextUsage) (*runtimepb.ContextUsage, error) {
@@ -145,7 +131,7 @@ func transcriptContextUsageFromRuntime(usage *runtime.ContextUsage) (*runtimepb.
 		}
 		projected.CacheHitPercent = &cacheHitPercent
 	}
-	return projected, protoapi.Validate(projected)
+	return projected, nil
 }
 
 func transcriptGoalStatusFromRuntime(goal *session.GoalState, suspended bool) (*runtimepb.GoalView, error) {
@@ -157,7 +143,7 @@ func transcriptGoalStatusFromRuntime(goal *session.GoalState, suspended bool) (*
 		return nil, err
 	}
 	projected := &runtimepb.GoalView{Goal: core, Suspended: suspended}
-	return projected, protoapi.Validate(projected)
+	return projected, nil
 }
 
 func transcriptToolStartsFromRuntime(starts []runtime.TranscriptLiveToolStart) ([]*transcriptpb.ToolStart, error) {
@@ -176,38 +162,23 @@ func transcriptToolStartsFromRuntime(starts []runtime.TranscriptLiveToolStart) (
 			ToolName:     strings.TrimSpace(start.ToolName),
 			Presentation: presentation,
 		}
-		if err := protoapi.Validate(projected); err != nil {
-			return nil, fmt.Errorf("in-flight tool %d: %w", index, err)
-		}
 		out = append(out, projected)
 	}
 	return out, nil
 }
 
-func TranscriptMessagesFromRuntimeEventChecked(evt runtime.Event) ([]*transcriptpb.Event, error) {
-	for index, fact := range runtime.TranscriptCommittedRowFactsFromEvent(evt) {
-		if err := fact.Locator.Validate(); err != nil {
-			return nil, fmt.Errorf("runtime committed row fact %d from event %q lacks valid provenance: %w", index, evt.Kind, err)
-		}
+func TranscriptMessagesFromRuntimeEventChecked(evt runtime.Event, identities map[runtimeids.SessionID]runtimeids.SessionIdentity) ([]*transcriptpb.Event, error) {
+	if evt.Kind == runtime.EventQuestionCandidateFinished {
+		return nil, nil
 	}
-	messages, err := transcriptMessagesFromRuntimeEvent(evt)
+	messages, err := transcriptMessagesFromRuntimeEvent(evt, identities)
 	if err != nil {
 		return nil, fmt.Errorf("runtime transcript event %q: %w", evt.Kind, err)
-	}
-	for index := range messages {
-		if err := protoapi.Validate(messages[index]); err != nil {
-			return nil, fmt.Errorf(
-				"runtime transcript event %q projection %d violates contract: %w",
-				evt.Kind,
-				index,
-				err,
-			)
-		}
 	}
 	return messages, nil
 }
 
-func transcriptMessagesFromRuntimeEvent(evt runtime.Event) ([]*transcriptpb.Event, error) {
+func transcriptMessagesFromRuntimeEvent(evt runtime.Event, identities map[runtimeids.SessionID]runtimeids.SessionIdentity) ([]*transcriptpb.Event, error) {
 	switch evt.Kind {
 	case runtime.EventAssistantDelta:
 		if evt.AssistantDelta == "" {
@@ -233,10 +204,7 @@ func transcriptMessagesFromRuntimeEvent(evt runtime.Event) ([]*transcriptpb.Even
 		if err != nil {
 			return nil, err
 		}
-		abortReason, err := transcriptAssistantAbortReason(reason)
-		if err != nil {
-			return nil, err
-		}
+		abortReason := transcriptAssistantAbortReason(reason)
 		abort := &transcriptpb.AssistantStreamAbort{
 			StepId: stepID, StreamId: evt.AssistantTranscriptStreamID.String(), Reason: abortReason,
 		}
@@ -307,9 +275,6 @@ func transcriptMessagesFromRuntimeEvent(evt runtime.Event) ([]*transcriptpb.Even
 	case runtime.EventLiveRunFinished:
 		return transcriptLiveRunFinishedMessages(evt)
 	case runtime.EventConnectionReplaced:
-		if evt.ConnectionReplacement == nil {
-			return nil, errors.New("connection replacement event has no binding change")
-		}
 		return []*transcriptpb.Event{{Payload: &transcriptpb.Event_ConnectionReplaced{ConnectionReplaced: transcriptConnectionReplacement(evt.ConnectionReplacement)}}}, nil
 	case runtime.EventSleepGuardFailed,
 		runtime.EventPromptHistoryPersistFailed,
@@ -325,14 +290,14 @@ func transcriptMessagesFromRuntimeEvent(evt runtime.Event) ([]*transcriptpb.Even
 		if err != nil {
 			return nil, err
 		}
-		rows, err := transcriptCommittedRowMessages(evt)
+		rows, err := transcriptCommittedRowMessages(evt, identities)
 		return append(append(messages, flushed...), rows...), err
 	default:
 		messages, err := transcriptFeedStateMessages(evt)
 		if err != nil {
 			return nil, err
 		}
-		rows, err := transcriptCommittedRowMessages(evt)
+		rows, err := transcriptCommittedRowMessages(evt, identities)
 		return append(messages, rows...), err
 	}
 }
@@ -355,16 +320,12 @@ func transcriptLiveRunFinishedMessages(evt runtime.Event) ([]*transcriptpb.Event
 		projected.Status = transcriptpb.LiveRunStatus_LIVE_RUN_STATUS_INTERRUPTED
 	case runtime.RunStatusFailed:
 		projected.Status = transcriptpb.LiveRunStatus_LIVE_RUN_STATUS_FAILED
-	default:
-		return nil, fmt.Errorf("unknown live run status %q", result.Status)
 	}
 	switch result.ResultKind {
 	case runtime.LiveRunResultAssistantFinalAnswer:
 		projected.ResultKind = transcriptpb.LiveRunResultKind_LIVE_RUN_RESULT_KIND_ASSISTANT_FINAL_ANSWER
 	case runtime.LiveRunResultNoFinalAnswer:
 		projected.ResultKind = transcriptpb.LiveRunResultKind_LIVE_RUN_RESULT_KIND_NO_FINAL_ANSWER
-	default:
-		return nil, fmt.Errorf("unknown live run result kind %q", result.ResultKind)
 	}
 	if result.ResultKind == runtime.LiveRunResultAssistantFinalAnswer {
 		if result.AssistantMessage.Content != nil {
@@ -430,7 +391,7 @@ func transcriptCompactionStatus(evt runtime.Event) (*transcriptpb.CompactionStat
 	default:
 		return nil, fmt.Errorf("runtime event %q carries compaction facts outside the compaction lifecycle", evt.Kind)
 	}
-	return transcriptCompactionProjection(evt.StepID, evt.Compaction.RequestID, evt.Compaction.Mode, evt.Compaction.Count, state, diagnostic)
+	return transcriptCompactionProjection(evt.StepID, evt.Compaction.Mode, evt.Compaction.Count, state, diagnostic)
 }
 
 func transcriptGoalStatus(update runtime.GoalStatusUpdate) (*runtimepb.GoalView, error) {
@@ -443,7 +404,6 @@ func transcriptGoalStatus(update runtime.GoalStatusUpdate) (*runtimepb.GoalView,
 type transcriptBackgroundActivityFacts struct {
 	activityID        runtimeids.BackgroundActivityID
 	processID         string
-	ownerRunID        runtimeids.RunID
 	ownerStepID       runtimeids.StepID
 	lifecycle         transcriptpb.BackgroundLifecycle
 	command           string
@@ -456,18 +416,14 @@ type transcriptBackgroundActivityFacts struct {
 }
 
 func transcriptBackgroundActivityFromFacts(facts transcriptBackgroundActivityFacts) (*transcriptpb.BackgroundActivity, error) {
-	var exitCode *int32
+	var exitCode *int64
 	if facts.exitCode != nil {
-		value, err := protoapi.Int32(*facts.exitCode, "background exit code")
-		if err != nil {
-			return nil, err
-		}
+		value := int64(*facts.exitCode)
 		exitCode = &value
 	}
 	projected := &transcriptpb.BackgroundActivity{
 		ActivityId:        facts.activityID.String(),
 		ProcessId:         facts.processID,
-		OwnerRunId:        facts.ownerRunID.String(),
 		OwnerStepId:       facts.ownerStepID.String(),
 		Lifecycle:         facts.lifecycle,
 		Command:           facts.command,
@@ -478,7 +434,7 @@ func transcriptBackgroundActivityFromFacts(facts transcriptBackgroundActivityFac
 		UserRequestedKill: facts.userRequestedKill,
 		NoticeSuppressed:  facts.noticeSuppressed,
 	}
-	return projected, protoapi.Validate(projected)
+	return projected, nil
 }
 
 func transcriptBackgroundActivity(evt runtime.BackgroundShellEvent) (*transcriptpb.BackgroundActivity, error) {
@@ -493,22 +449,17 @@ func transcriptBackgroundActivity(evt runtime.BackgroundShellEvent) (*transcript
 	default:
 		return nil, fmt.Errorf("runtime background activity has unknown lifecycle %q: process_id=%q activity_id=%q", evt.Type, evt.ID, evt.ActivityID)
 	}
-	activityID, err := runtimeids.ParseBackgroundActivityID(evt.ActivityID.String())
+	activityID, err := runtimeids.BackgroundActivityIDFromProto(evt.ActivityID.String())
 	if err != nil {
 		return nil, err
 	}
-	runID, err := runtimeids.ParseRunID(strings.TrimSpace(evt.OwnerRunID))
-	if err != nil {
-		return nil, err
-	}
-	stepID, err := runtimeids.ParseStepID(strings.TrimSpace(evt.OwnerStepID))
+	stepID, err := runtimeids.StepIDFromProto(strings.TrimSpace(evt.OwnerStepID))
 	if err != nil {
 		return nil, err
 	}
 	return transcriptBackgroundActivityFromFacts(transcriptBackgroundActivityFacts{
 		activityID:        activityID,
 		processID:         strings.TrimSpace(evt.ID),
-		ownerRunID:        runID,
 		ownerStepID:       stepID,
 		lifecycle:         lifecycle,
 		command:           evt.Command,
@@ -531,22 +482,17 @@ func TranscriptBackgroundActivitiesFromProcessSnapshots(
 		if !snapshot.Running || !snapshot.Backgrounded || strings.TrimSpace(snapshot.OwnerSessionID) != sessionID {
 			continue
 		}
-		activityID, err := runtimeids.ParseBackgroundActivityID(snapshot.ActivityID.String())
+		activityID, err := runtimeids.BackgroundActivityIDFromProto(snapshot.ActivityID.String())
 		if err != nil {
 			return nil, fmt.Errorf("background process %q activity id: %w", snapshot.ID, err)
 		}
-		runID, err := runtimeids.ParseRunID(snapshot.OwnerRunID)
-		if err != nil {
-			return nil, fmt.Errorf("background process %q owner run id: %w", snapshot.ID, err)
-		}
-		stepID, err := runtimeids.ParseStepID(snapshot.OwnerStepID)
+		stepID, err := runtimeids.StepIDFromProto(snapshot.OwnerStepID)
 		if err != nil {
 			return nil, fmt.Errorf("background process %q owner step id: %w", snapshot.ID, err)
 		}
 		projected, err := transcriptBackgroundActivityFromFacts(transcriptBackgroundActivityFacts{
 			activityID:  activityID,
 			processID:   strings.TrimSpace(snapshot.ID),
-			ownerRunID:  runID,
 			ownerStepID: stepID,
 			lifecycle:   transcriptpb.BackgroundLifecycle_BACKGROUND_LIFECYCLE_BACKGROUNDED,
 			command:     snapshot.Command,
@@ -571,28 +517,32 @@ func TranscriptSessionIdentityFromRuntime(
 	if err != nil {
 		return nil, err
 	}
-	sessionID, err := runtimeids.ParseSessionID(strings.TrimSpace(engine.SessionID()))
+	sessionID := runtimeids.SessionIDFromProto(engine.SessionID())
+	category, err := engine.SessionCategory()
+	if err != nil {
+		return nil, err
+	}
+	wireCategory, err := protoapi.SessionCategoryToProto(category)
 	if err != nil {
 		return nil, err
 	}
 	return &transcriptpb.SessionIdentity{
+		Category:              wireCategory,
+		ShortId:               protoapi.SessionShortIDToProto(engine.SessionIdentity().ShortID),
 		SessionId:             sessionID.String(),
-		SessionName:           textutil.OptionalTrimmedString(engine.SessionName()),
+		SessionName:           engine.SessionName(),
 		ConversationFreshness: ConversationFreshnessFromSession(freshness),
 	}, nil
 }
 
-func transcriptCommittedRowMessages(evt runtime.Event) ([]*transcriptpb.Event, error) {
+func transcriptCommittedRowMessages(evt runtime.Event, identities map[runtimeids.SessionID]runtimeids.SessionIdentity) ([]*transcriptpb.Event, error) {
 	rowFacts := runtime.TranscriptCommittedRowFactsFromEvent(evt)
 	if len(rowFacts) == 0 {
 		return nil, nil
 	}
 	out := make([]*transcriptpb.Event, 0, len(rowFacts))
 	for _, fact := range rowFacts {
-		if err := fact.Locator.Validate(); err != nil {
-			return nil, fmt.Errorf("runtime committed row lacks valid provenance: event_kind=%q fact=%+v error=%v", evt.Kind, fact, err)
-		}
-		row, err := transcriptRowFromFact(fact)
+		row, err := transcriptRowFromFact(fact, identities)
 		if err != nil {
 			return nil, err
 		}
@@ -601,45 +551,19 @@ func transcriptCommittedRowMessages(evt runtime.Event) ([]*transcriptpb.Event, e
 	return out, nil
 }
 
-func transcriptRowsFromFactsChecked(facts []runtime.TranscriptCommittedRowFact) ([]*transcriptpb.CommittedRow, error) {
+func transcriptRowsFromFactsChecked(facts []runtime.TranscriptCommittedRowFact, identities map[runtimeids.SessionID]runtimeids.SessionIdentity) ([]*transcriptpb.CommittedRow, error) {
 	if len(facts) == 0 {
 		return []*transcriptpb.CommittedRow{}, nil
 	}
 	rows := make([]*transcriptpb.CommittedRow, 0, len(facts))
-	for index, fact := range facts {
-		if err := fact.Locator.Validate(); err != nil {
-			return nil, fmt.Errorf(
-				"runtime hydrated committed row lacks valid provenance: fact_index=%d kind=%q provenance=%+v notice=%+v error=%v",
-				index,
-				fact.Kind,
-				fact.Provenance,
-				transcriptNoticeFactDiagnostic(fact.Notice),
-				err,
-			)
-		}
-		row, err := transcriptRowFromFact(fact)
+	for _, fact := range facts {
+		row, err := transcriptRowFromFact(fact, identities)
 		if err != nil {
 			return nil, err
-		}
-		if row.GetTool() != nil {
-			if err := protoapi.Validate(row.GetTool()); err != nil {
-				return nil, fmt.Errorf(
-					"runtime hydrated committed tool row %d violates transcript contract: %w",
-					index,
-					err,
-				)
-			}
 		}
 		rows = append(rows, row)
 	}
 	return rows, nil
-}
-
-func transcriptNoticeFactDiagnostic(notice *runtime.TranscriptNoticeRowFact) any {
-	if notice == nil {
-		return nil
-	}
-	return *notice
 }
 
 func transcriptAssistantStream(snapshot runtime.TranscriptHydrationSnapshot) (*transcriptpb.AssistantStream, error) {
@@ -665,7 +589,7 @@ func transcriptAssistantStream(snapshot runtime.TranscriptHydrationSnapshot) (*t
 		Text:     text,
 		Phase:    phase,
 	}
-	return projected, protoapi.Validate(projected)
+	return projected, nil
 }
 
 func transcriptToolStartMessages(starts []runtime.TranscriptLiveToolStart) ([]*transcriptpb.Event, error) {
@@ -685,17 +609,12 @@ func transcriptToolStartMessages(starts []runtime.TranscriptLiveToolStart) ([]*t
 }
 
 func transcriptToolAbortMessages(evt runtime.Event) ([]*transcriptpb.Event, error) {
-	if evt.ToolCall == nil {
-		return nil, fmt.Errorf("runtime tool abort is missing its tool call identity")
-	}
 	var reason transcriptpb.ToolAbortReason
 	switch strings.TrimSpace(evt.ToolAbortReason) {
 	case "", "interrupted", "canceled":
 		reason = transcriptpb.ToolAbortReason_TOOL_ABORT_REASON_CANCELED
 	case "failed":
 		reason = transcriptpb.ToolAbortReason_TOOL_ABORT_REASON_FAILED
-	default:
-		return nil, fmt.Errorf("unknown tool abort reason %q", evt.ToolAbortReason)
 	}
 	stepID, err := transcriptRequiredStepID(evt.StepID)
 	if err != nil {
@@ -729,18 +648,13 @@ func transcriptQueuedMessageStateMessages(evt runtime.Event) ([]*transcriptpb.Ev
 		state.Text = textutil.OptionalTrimmedString(status.Text)
 	case runtime.QueuedUserMessageFailed:
 		state.Status = transcriptpb.QueuedMessageStatus_QUEUED_MESSAGE_STATUS_FAILED
-		reason, err := transcriptQueuedFailureReason(status.FailureReason)
-		if err != nil {
-			return nil, err
-		}
+		reason := transcriptQueuedFailureReason(status.FailureReason)
 		state.FailureReason = &reason
 		state.Text = textutil.OptionalTrimmedString(status.Text)
 	case runtime.QueuedUserMessageSubmitted:
 		state.Status = transcriptpb.QueuedMessageStatus_QUEUED_MESSAGE_STATUS_SUBMITTED
 	case runtime.QueuedUserMessageDiscarded:
 		state.Status = transcriptpb.QueuedMessageStatus_QUEUED_MESSAGE_STATUS_DISCARDED
-	default:
-		return nil, fmt.Errorf("runtime queued-message event has unknown status %q", status.Status)
 	}
 	return []*transcriptpb.Event{{Payload: &transcriptpb.Event_QueuedMessageState{QueuedMessageState: state}}}, nil
 }
@@ -763,11 +677,6 @@ func transcriptUserMessageFlushedMessages(evt runtime.Event) ([]*transcriptpb.Ev
 	if len(evt.UserMessageBatchQueuedItems) == 0 {
 		return nil, nil
 	}
-	for index, item := range evt.UserMessageBatchQueuedItems {
-		if _, err := runtimeids.ParseQueueItemID(strings.TrimSpace(item.QueueItemID)); err != nil {
-			return nil, fmt.Errorf("flushed queued message %d: %w", index, err)
-		}
-	}
 	flushed := &transcriptpb.UserMessageFlushed{
 		StepId: textutil.Pointer(evt.StepID),
 	}
@@ -787,7 +696,6 @@ func transcriptStepStateMessages(evt runtime.Event) ([]*transcriptpb.Event, erro
 		return nil, err
 	}
 	state := &transcriptpb.StepState{
-		RunId:      strings.TrimSpace(evt.RunState.RunID),
 		StepId:     stepID,
 		ActiveKind: activeKind,
 	}
@@ -800,16 +708,12 @@ func transcriptStepStateMessages(evt runtime.Event) ([]*transcriptpb.Event, erro
 		state.Status = transcriptpb.RunStatus_RUN_STATUS_INTERRUPTED
 	case runtime.RunStatusFailed:
 		state.Status = transcriptpb.RunStatus_RUN_STATUS_FAILED
-	default:
-		return nil, fmt.Errorf("unknown run status %q", evt.RunState.Status)
 	}
 	switch evt.RunState.Lifecycle.Phase {
 	case runtime.RunLifecycleRunning:
 		state.Lifecycle = transcriptpb.StepLifecycle_STEP_LIFECYCLE_STARTED
 	case runtime.RunLifecycleFinished:
 		state.Lifecycle = transcriptpb.StepLifecycle_STEP_LIFECYCLE_FINISHED
-	default:
-		return nil, fmt.Errorf("runtime run state has unknown lifecycle phase %q", evt.RunState.Lifecycle.Phase)
 	}
 	return []*transcriptpb.Event{{Payload: &transcriptpb.Event_StepState{StepState: state}}}, nil
 }
@@ -825,13 +729,11 @@ func transcriptOperationalDiagnosticMessages(evt runtime.Event) ([]*transcriptpb
 		diagnostic.Code = transcriptpb.OperationalDiagnosticCode_OPERATIONAL_DIAGNOSTIC_CODE_CONTEXT_FACTS_PERSIST_FAILED
 	case runtime.EventInFlightClearFailed:
 		diagnostic.Code = transcriptpb.OperationalDiagnosticCode_OPERATIONAL_DIAGNOSTIC_CODE_IN_FLIGHT_CLEAR_FAILED
-	default:
-		return nil, fmt.Errorf("runtime event %q is not an operational diagnostic", evt.Kind)
 	}
 	return []*transcriptpb.Event{{Payload: &transcriptpb.Event_OperationalDiagnostic{OperationalDiagnostic: diagnostic}}}, nil
 }
 
-func transcriptRowFromFact(fact runtime.TranscriptCommittedRowFact) (*transcriptpb.CommittedRow, error) {
+func transcriptRowFromFact(fact runtime.TranscriptCommittedRowFact, identities map[runtimeids.SessionID]runtimeids.SessionIdentity) (*transcriptpb.CommittedRow, error) {
 	visibility, err := transcriptVisibility(fact.Visibility)
 	if err != nil {
 		return nil, err
@@ -851,14 +753,12 @@ func transcriptRowFromFact(fact runtime.TranscriptCommittedRowFact) (*transcript
 	}
 	switch fact.Kind {
 	case runtime.TranscriptCommittedRowFactUser:
-		if fact.User == nil {
-			return nil, fmt.Errorf("runtime transcript user row fact is missing its user payload")
-		}
 		committedAt, err := protoapi.CommittedTimeToProto(fact.User.CommittedAtUnixMs)
 		if err != nil {
 			return nil, err
 		}
 		row.Row = &transcriptpb.CommittedRow_User{User: &transcriptpb.UserRow{
+			QueueItemIds:     append([]string(nil), fact.User.QueueItemIDs...),
 			StepId:           textutil.Pointer(fact.StepID),
 			Text:             fact.User.Text,
 			CondensedText:    optionalNonBlankString(fact.User.CondensedText),
@@ -866,7 +766,7 @@ func transcriptRowFromFact(fact runtime.TranscriptCommittedRowFact) (*transcript
 			CommittedAt:      committedAt,
 		}}
 	case runtime.TranscriptCommittedRowFactAssistant:
-		if fact.Assistant == nil || fact.StepID == nil {
+		if fact.StepID == nil {
 			return nil, fmt.Errorf("runtime transcript assistant row fact is missing its payload or Step")
 		}
 		committedAt, err := protoapi.CommittedTimeToProto(fact.Assistant.CommittedAtUnixMs)
@@ -890,9 +790,6 @@ func transcriptRowFromFact(fact runtime.TranscriptCommittedRowFact) (*transcript
 		}
 		row.Row = &transcriptpb.CommittedRow_Assistant{Assistant: assistant}
 	case runtime.TranscriptCommittedRowFactTool:
-		if fact.Tool == nil {
-			return nil, fmt.Errorf("runtime transcript tool row fact is missing its tool payload")
-		}
 		presentation, err := transcriptToolPresentation(fact.Tool.ToolName, fact.Tool.Presentation)
 		if err != nil {
 			return nil, err
@@ -905,20 +802,27 @@ func transcriptRowFromFact(fact runtime.TranscriptCommittedRowFact) (*transcript
 		if err != nil {
 			return nil, err
 		}
+		var answererShortID *int64
+		if fact.Tool.AnsweredBySessionID != nil {
+			answererShortID = protoapi.SessionShortIDToProto(identities[*fact.Tool.AnsweredBySessionID].ShortID)
+		}
 		row.Row = &transcriptpb.CommittedRow_Tool{Tool: &transcriptpb.ToolRow{
-			StepId:         textutil.Pointer(fact.StepID),
-			ToolCallId:     textutil.OptionalTrimmedString(fact.Tool.ToolCallID),
-			ToolName:       textutil.OptionalTrimmedString(fact.Tool.ToolName),
-			Text:           fact.Tool.Text,
-			IsError:        fact.Tool.IsError,
-			ResultSummary:  optionalNonBlankString(fact.Tool.ResultSummary),
-			CondensedText:  optionalNonBlankString(fact.Tool.CondensedText),
-			Presentation:   presentation,
-			QuestionAnswer: answer,
-			WebSearch:      webSearch,
+			ViewedImageKind:          viewedImageKindToProto(fact.Tool.ViewedImageKind),
+			AnsweredBySessionShortId: answererShortID,
+			StepId:                   textutil.Pointer(fact.StepID),
+			ToolCallId:               textutil.OptionalTrimmedString(fact.Tool.ToolCallID),
+			ToolName:                 textutil.OptionalTrimmedString(fact.Tool.ToolName),
+			Text:                     fact.Tool.Text,
+			IsError:                  fact.Tool.IsError,
+			ResultSummary:            optionalNonBlankString(fact.Tool.ResultSummary),
+			CondensedText:            optionalNonBlankString(fact.Tool.CondensedText),
+			Presentation:             presentation,
+			QuestionAnswer:           answer,
+			AnsweredBySessionId:      protoapi.OptionalSessionIDToProto(fact.Tool.AnsweredBySessionID),
+			WebSearch:                webSearch,
 		}}
 	case runtime.TranscriptCommittedRowFactReasoningTrace:
-		if fact.ReasoningTrace == nil || fact.StepID == nil {
+		if fact.StepID == nil {
 			return nil, fmt.Errorf("runtime transcript reasoning row fact is missing its payload or Step")
 		}
 		identity, err := transcriptReasoningTraceIdentityFromRuntime(fact.ReasoningTrace.ProvisionalIdentity)
@@ -945,7 +849,7 @@ func transcriptRowFromFact(fact runtime.TranscriptCommittedRowFact) (*transcript
 		}
 		row.Row = &transcriptpb.CommittedRow_Notice{Notice: notice}
 	case runtime.TranscriptCommittedRowFactReviewerFeedback:
-		if fact.ReviewerFeedback == nil || fact.StepID == nil {
+		if fact.StepID == nil {
 			return nil, fmt.Errorf("runtime transcript Reviewer feedback row fact is missing its payload or Step")
 		}
 		count, err := protoapi.Int32(fact.ReviewerFeedback.SuggestionCount, "reviewer suggestion count")
@@ -959,7 +863,7 @@ func transcriptRowFromFact(fact runtime.TranscriptCommittedRowFact) (*transcript
 			SuggestionCount: count,
 		}}
 	case runtime.TranscriptCommittedRowFactReviewerError:
-		if fact.ReviewerError == nil || fact.StepID == nil {
+		if fact.StepID == nil {
 			return nil, fmt.Errorf("runtime transcript Reviewer error row fact is missing its payload or Step")
 		}
 		row.Row = &transcriptpb.CommittedRow_ReviewerError{ReviewerError: &transcriptpb.ReviewerErrorRow{
@@ -967,10 +871,16 @@ func transcriptRowFromFact(fact runtime.TranscriptCommittedRowFact) (*transcript
 			StepId: *fact.StepID,
 			Detail: fact.ReviewerError.Detail,
 		}}
-	default:
-		return nil, fmt.Errorf("runtime transcript row fact has unknown kind %q", fact.Kind)
 	}
 	return row, nil
+}
+
+func viewedImageKindToProto(kind *transcript.ViewedImageKind) *transcriptpb.ViewedImageKind {
+	if kind == nil {
+		return nil
+	}
+	value := transcriptpb.ViewedImageKind(*kind)
+	return &value
 }
 
 func transcriptQuestionAnswerFromRuntime(answer *tools.AskQuestionAnswer) (*promptpb.QuestionAnswer, error) {
@@ -1011,35 +921,29 @@ func transcriptReasoningTraceIdentityProjection(identity *runtime.TranscriptReas
 	case identity.Kent != nil:
 		projected.Identity = &transcriptpb.ReasoningTraceIdentity_KentTraceId{KentTraceId: identity.Kent.String()}
 	}
-	return projected, protoapi.Validate(projected)
+	return projected, nil
 }
 
 func transcriptNoticeFromFact(stepID *string, fact *runtime.TranscriptNoticeRowFact) (*transcriptpb.NoticeRow, error) {
-	if fact == nil {
-		return nil, fmt.Errorf("runtime transcript notice row fact is missing its notice payload")
-	}
 	reasons := map[string]transcriptpb.NoticeReason{
-		transcript.NoticeReasonCacheWarning:          transcriptpb.NoticeReason_NOTICE_REASON_CACHE_WARNING,
-		transcript.NoticeReasonCompaction:            transcriptpb.NoticeReason_NOTICE_REASON_COMPACTION,
-		transcript.NoticeReasonLegacyUntypedNotice:   transcriptpb.NoticeReason_NOTICE_REASON_LEGACY_UNTYPED_NOTICE,
-		transcript.NoticeReasonRuntimeDiagnostic:     transcriptpb.NoticeReason_NOTICE_REASON_RUNTIME_DIAGNOSTIC,
-		transcript.NoticeReasonToolOutputRepair:      transcriptpb.NoticeReason_NOTICE_REASON_TOOL_OUTPUT_REPAIR,
-		transcript.NoticeReasonProviderModelMismatch: transcriptpb.NoticeReason_NOTICE_REASON_PROVIDER_MODEL_MISMATCH,
-		transcript.NoticeReasonThinkingUpdate:        transcriptpb.NoticeReason_NOTICE_REASON_THINKING_UPDATE,
+		transcript.NoticeReasonCacheWarning:           transcriptpb.NoticeReason_NOTICE_REASON_CACHE_WARNING,
+		transcript.NoticeReasonCompaction:             transcriptpb.NoticeReason_NOTICE_REASON_COMPACTION,
+		transcript.NoticeReasonLegacyUntypedNotice:    transcriptpb.NoticeReason_NOTICE_REASON_LEGACY_UNTYPED_NOTICE,
+		transcript.NoticeReasonRuntimeDiagnostic:      transcriptpb.NoticeReason_NOTICE_REASON_RUNTIME_DIAGNOSTIC,
+		transcript.NoticeReasonToolOutputRepair:       transcriptpb.NoticeReason_NOTICE_REASON_TOOL_OUTPUT_REPAIR,
+		transcript.NoticeReasonProviderModelMismatch:  transcriptpb.NoticeReason_NOTICE_REASON_PROVIDER_MODEL_MISMATCH,
+		transcript.NoticeReasonThinkingUpdate:         transcriptpb.NoticeReason_NOTICE_REASON_THINKING_UPDATE,
+		transcript.NoticeReasonReasoningOmission:      transcriptpb.NoticeReason_NOTICE_REASON_REASONING_OMISSION,
+		transcript.NoticeReasonConnectionFallback:     transcriptpb.NoticeReason_NOTICE_REASON_CONNECTION_FALLBACK,
+		transcript.NoticeReasonConnectionsUnavailable: transcriptpb.NoticeReason_NOTICE_REASON_CONNECTIONS_UNAVAILABLE,
 	}
-	reason, ok := reasons[strings.TrimSpace(fact.Reason)]
-	if !ok {
-		return nil, fmt.Errorf("invalid notice reason %q", fact.Reason)
-	}
+	reason := reasons[strings.TrimSpace(fact.Reason)]
 	severities := map[string]transcriptpb.NoticeSeverity{
 		transcript.NoticeSeverityInfo:    transcriptpb.NoticeSeverity_NOTICE_SEVERITY_INFO,
 		transcript.NoticeSeverityWarning: transcriptpb.NoticeSeverity_NOTICE_SEVERITY_WARNING,
 		transcript.NoticeSeverityError:   transcriptpb.NoticeSeverity_NOTICE_SEVERITY_ERROR,
 	}
-	severity, ok := severities[strings.TrimSpace(fact.Severity)]
-	if !ok {
-		return nil, fmt.Errorf("invalid notice severity %q", fact.Severity)
-	}
+	severity := severities[strings.TrimSpace(fact.Severity)]
 	worktree, err := transcriptWorktreeContext(fact.MessageType, fact.WorktreeContext)
 	if err != nil {
 		return nil, err
@@ -1108,17 +1012,31 @@ func transcriptNoticeFromFact(stepID *string, fact *runtime.TranscriptNoticeRowF
 			RequestedModel: fact.ProviderModelMismatch.RequestedModel, ServedModel: fact.ProviderModelMismatch.ServedModel,
 		}
 	}
+	if fact.ReasoningOmission != nil {
+		count, err := protoapi.Int32(fact.ReasoningOmission.Count, "omitted reasoning count")
+		if err != nil {
+			return nil, err
+		}
+		notice.ReasoningOmission = &transcriptpb.ReasoningOmission{Count: count}
+	}
+	if fact.ConnectionFallback != nil {
+		notice.ConnectionFallback = &transcriptpb.ConnectionReplacement{
+			PreviousId: string(fact.ConnectionFallback.Previous), CurrentId: string(fact.ConnectionFallback.Current),
+		}
+	}
+	if fact.ConnectionsUnavailable != nil {
+		notice.ConnectionsUnavailable = &transcriptpb.ConnectionsUnavailable{Diagnostics: fact.ConnectionsUnavailable.Diagnostics}
+		for _, member := range fact.ConnectionsUnavailable.Members {
+			projected := &transcriptpb.UnavailableConnection{Id: string(member.ID)}
+			if member.AvailableAt != nil {
+				projected.AvailableAt = timestamppb.New(*member.AvailableAt)
+			}
+			notice.ConnectionsUnavailable.Members = append(notice.ConnectionsUnavailable.Members, projected)
+		}
+	}
 	diagnosticCode := strings.TrimSpace(fact.DiagnosticCode)
 	diagnosticDetail := fact.DiagnosticDetail
 	if diagnosticCode != "" || strings.TrimSpace(diagnosticDetail) != "" {
-		if diagnosticCode == "" || strings.TrimSpace(diagnosticDetail) == "" {
-			return nil, fmt.Errorf(
-				"runtime transcript notice has partial diagnostic facts: code=%q detail_present=%t reason=%q",
-				diagnosticCode,
-				diagnosticDetail != "",
-				fact.Reason,
-			)
-		}
 		notice.Diagnostic = &transcriptpb.Diagnostic{
 			Code:   diagnosticCode,
 			Detail: diagnosticDetail,
@@ -1127,22 +1045,12 @@ func transcriptNoticeFromFact(stepID *string, fact *runtime.TranscriptNoticeRowF
 	activityID := strings.TrimSpace(fact.BackgroundActivityID)
 	processID := strings.TrimSpace(fact.BackgroundProcessID)
 	if activityID != "" || processID != "" {
-		if activityID == "" || processID == "" {
-			return nil, fmt.Errorf(
-				"runtime transcript background notice has partial identity: activity_id=%q process_id=%q",
-				activityID,
-				processID,
-			)
-		}
 		notice.Background = &transcriptpb.BackgroundNoticeIdentity{
 			ActivityId: activityID,
 			ProcessId:  processID,
 		}
 		if fact.BackgroundExitCode != nil {
-			exitCode, err := protoapi.Int32(*fact.BackgroundExitCode, "background exit code")
-			if err != nil {
-				return nil, err
-			}
+			exitCode := int64(*fact.BackgroundExitCode)
 			notice.Background.ExitCode = &exitCode
 		}
 	}
@@ -1177,17 +1085,13 @@ func transcriptWorktreeContext(messageType llm.MessageType, context *session.Wor
 	}, nil
 }
 
-func transcriptAssistantAbortReason(reason string) (transcriptpb.AssistantAbortReason, error) {
-	switch strings.TrimSpace(reason) {
-	case string(runtime.AssistantStreamAbortSuperseded):
-		return transcriptpb.AssistantAbortReason_ASSISTANT_ABORT_REASON_SUPERSEDED, nil
-	case "interrupted", "canceled":
-		return transcriptpb.AssistantAbortReason_ASSISTANT_ABORT_REASON_INTERRUPTED, nil
-	case "failed":
-		return transcriptpb.AssistantAbortReason_ASSISTANT_ABORT_REASON_FAILED, nil
-	default:
-		return transcriptpb.AssistantAbortReason_ASSISTANT_ABORT_REASON_UNSPECIFIED, fmt.Errorf("runtime assistant stream abort has unknown reason %q", reason)
-	}
+func transcriptAssistantAbortReason(reason string) transcriptpb.AssistantAbortReason {
+	return map[string]transcriptpb.AssistantAbortReason{
+		string(runtime.AssistantStreamAbortSuperseded): transcriptpb.AssistantAbortReason_ASSISTANT_ABORT_REASON_SUPERSEDED,
+		"interrupted": transcriptpb.AssistantAbortReason_ASSISTANT_ABORT_REASON_INTERRUPTED,
+		"canceled":    transcriptpb.AssistantAbortReason_ASSISTANT_ABORT_REASON_INTERRUPTED,
+		"failed":      transcriptpb.AssistantAbortReason_ASSISTANT_ABORT_REASON_FAILED,
+	}[strings.TrimSpace(reason)]
 }
 
 func optionalNonBlankString(value string) *string {

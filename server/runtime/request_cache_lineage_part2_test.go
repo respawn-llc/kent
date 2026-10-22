@@ -42,8 +42,8 @@ func TestGenerateWithRetryClient_DoesNotInventCompactionCauseWithoutPriorLineage
 	if err != nil {
 		t.Fatalf("reopen store: %v", err)
 	}
-	client := &fakeClient{responses: []llm.Response{{Usage: llm.Usage{InputTokens: 12}}}}
-	eng := mustNewTestEngine(t, reopened, client, tools.NewRegistry(), Config{Model: "gpt-5", CacheWarningMode: config.CacheWarningModeVerbose})
+	client := &fakeClient{responses: []llm.Response{{Usage: llm.Usage{InputTokens: textutil.Value(12), ContextUsage: &llm.ContextUsage{Tokens: 12, MeasurementPoint: llm.ContextMeasurementInput}}}}}
+	eng := mustNewTestEngine(t, reopened, client, tools.NewRegistry(), Config{Model: "gpt-6-sol", CacheWarningMode: config.CacheWarningModeVerbose})
 
 	if _, err := generateTestActiveStep(context.Background(), eng, "step-1", client, testPromptCacheRequest(reopened.Meta().SessionID, "beta")); err != nil {
 		t.Fatalf("generate after reopen: %v", err)
@@ -61,11 +61,11 @@ func testPromptCacheRequest(cacheKey string, messages ...string) llm.Request {
 		items = append(items, llm.ItemsFromMessages([]llm.Message{{Role: llm.RoleUser, Content: textutil.Value(message)}})...)
 	}
 	return llm.Request{ToolChoiceMode: llm.ToolChoiceModeAutomatic,
-		Model:            "gpt-5",
+		Model:            "gpt-6-sol",
 		SystemPrompt:     "system",
 		PromptCacheKey:   cacheKey,
 		PromptCacheScope: transcript.CacheWarningScopeConversation,
-		Items:            items,
+		Items:            items, ReasoningEffort: "high",
 	}
 }
 

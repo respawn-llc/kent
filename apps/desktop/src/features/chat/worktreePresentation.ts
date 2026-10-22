@@ -1,21 +1,45 @@
 import type { ChatExecutionTarget, WorktreeListEntry, WorktreeList } from "@/api";
 
+interface WorktreeBadge {
+  label: "external" | "missing" | "inUse";
+  tone: "danger" | "neutral" | "warning";
+}
+
 export function worktreeRow(entry: WorktreeListEntry, workspaceName: string) {
-  const topology = entry.topology?.topology;
+  const topology = entry.topology.topology;
   const projection = entry.projection;
-  if (topology === undefined || projection === undefined) throw new Error("Worktree topology is required");
-  const { title, git, indicator } = rowFacts(topology, workspaceName, projection.fallbackIdentity);
-  if (title === undefined) throw new Error("Worktree identity is required");
+  const facts = rowFacts(topology, workspaceName, projection.fallbackIdentity);
+  const identity = worktreeIdentity(facts);
+  const { git, indicator } = facts;
   const ref = git?.branchName ?? git?.headObject;
+  const topologyIndicator = git?.pathAvailable === false ? ("missing" as const) : indicator;
   return {
     key: projection.selector,
-    title,
-    ref: ref === title ? undefined : ref,
-    indicator: git?.pathAvailable === false ? ("missing" as const) : indicator,
+    ...identity,
+    ref: ref === identity.title ? undefined : ref,
+    badges: worktreeBadges(topologyIndicator, projection.isInUse),
     selected: projection.isCurrent,
     switch: projection.switch,
     delete: projection.deletePreview,
   };
+}
+
+function worktreeBadges(indicator: "external" | "missing" | undefined, isInUse: boolean): WorktreeBadge[] {
+  const badges: WorktreeBadge[] = [];
+  if (indicator !== undefined) {
+    badges.push({
+      label: indicator,
+      tone: indicator === "missing" ? "danger" : "warning",
+    });
+  }
+  if (isInUse) badges.push({ label: "inUse", tone: "neutral" });
+  return badges;
+}
+
+function worktreeIdentity({ title, git, kent }: ReturnType<typeof rowFacts>) {
+  const path = git?.canonicalRoot ?? kent?.canonicalRoot;
+  if (title === undefined || path === undefined) throw new Error("Worktree identity is required");
+  return { title, path, originSessionID: kent?.originSessionId };
 }
 
 function rowFacts(
@@ -25,17 +49,28 @@ function rowFacts(
 ) {
   switch (topology.case) {
     case "mainWorkspace":
-      return { title: workspaceName, git: topology.value.git, indicator: undefined };
+      return { title: workspaceName, git: topology.value.git, kent: undefined, indicator: undefined };
     case "external":
       return {
-        title: topology.value.git?.branchName ?? fallbackIdentity,
+        title: topology.value.git.branchName ?? fallbackIdentity,
         git: topology.value.git,
+        kent: undefined,
         indicator: "external" as const,
       };
     case "registered":
-      return { title: topology.value.kent?.displayName, git: topology.value.git, indicator: undefined };
+      return {
+        title: topology.value.kent.displayName,
+        git: topology.value.git,
+        kent: topology.value.kent,
+        indicator: undefined,
+      };
     case "missing":
-      return { title: topology.value.kent?.displayName, git: undefined, indicator: "missing" as const };
+      return {
+        title: topology.value.kent.displayName,
+        git: undefined,
+        kent: topology.value.kent,
+        indicator: "missing" as const,
+      };
     case undefined:
       throw new Error("Worktree topology is required");
   }
@@ -48,14 +83,13 @@ export function worktreeTarget(target: ChatExecutionTarget, list: WorktreeList |
   }
   if (worktree.Availability !== "available") return { title: worktree.Name, warning: true };
   const match = list?.worktrees.find(({ topology }) => {
-    const facts = topology?.topology;
+    const facts = topology.topology;
     return (
-      (facts?.case === "registered" || facts?.case === "missing") &&
-      facts.value.kent?.worktreeId === worktree.ID
+      (facts.case === "registered" || facts.case === "missing") && facts.value.kent.worktreeId === worktree.ID
     );
-  })?.topology?.topology;
+  })?.topology.topology;
   return {
-    title: match?.case === "registered" ? (match.value.git?.branchName ?? worktree.Name) : undefined,
+    title: match?.case === "registered" ? (match.value.git.branchName ?? worktree.Name) : undefined,
     warning: false,
   };
 }

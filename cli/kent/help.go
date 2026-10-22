@@ -169,7 +169,7 @@ var (
 	goalClearUsage      = leafCommandUsage(config.Command+" goal clear [--session <id>]", "Remove a session goal.", "", "User-only; unavailable inside Kent shell commands.")
 	questionUsage       = commandUsage{helpFile: "question.txt"}
 	questionShowUsage   = leafCommandUsage(config.Command+" question (--session <id>|--task <task>) [--project <project>]", "Show the first pending question selected by Session or Workflow Task.")
-	questionAnswerUsage = leafCommandUsage(config.Command+" question answer (--session <id>|--task <task>) [--project <project>] [--option <number>] [--commentary <text>]", "Answer the first pending question selected by Session or Workflow Task.", "", "Provide --option, --commentary, or both.")
+	questionAnswerUsage = leafCommandUsage(config.Command+" question answer [--persistence-root <root>] (--session <id>|--task <task>) [--project <project>] [--option <number>] [--commentary <text>]", "Answer the first pending question selected by Session or Workflow Task.", "", "Provide --option, --commentary, or both.")
 	questionListUsage   = leafCommandUsage(config.Command+" questions list [--session <id>] [--max-handoffs <count>] [--json]", "List answered Questions from one Session, newest first.", "", "Tasks can have hundreds of sessions, use `kent task sessions` to find the one you need, then use `--session`.", "JSON Question-history output can be slow.")
 	worktreeUsage       = leafCommandUsage(config.Command+" worktree <status|list|create|enter|leave|delete> ...", "Inspect workspace worktrees and manage a session's execution target.")
 	worktreeStatusUsage = leafCommandUsage(config.Command+" worktree status [--session <id>] [--json]", "Inspect the selected session's recorded worktree target.")
@@ -181,7 +181,7 @@ var (
 	)
 	worktreeEnterUsage  = leafCommandUsage(config.Command+" worktree enter [--session <id>] [--json] <selector>", "Schedule the session to enter a worktree.")
 	worktreeLeaveUsage  = leafCommandUsage(config.Command+" worktree leave [--session <id>] [--json]", "Schedule the session to return to the main workspace.")
-	worktreeDeleteUsage = leafCommandUsage(config.Command+" worktree delete [--project <id>] [--workspace <id>] [--session <id>] [--force] [--delete-branch] [--force-delete-branch] [--json] <selector>", "Delete a worktree without requiring a Session; branches are retained unless deletion is explicitly requested.")
+	worktreeDeleteUsage = leafCommandUsage(config.Command+" worktree delete [--project <id>] [--workspace <id>] [--session <id>] [--timeout <duration>] [--force] [--delete-branch] [--force-delete-branch] [--json] <selector>", "Delete a worktree; branches are retained unless deletion is explicitly requested.")
 	workflowUsage       = commandUsage{helpFile: "workflow.txt"}
 	workflowCreateUsage = leafCommandUsage(config.Command+" workflow create [--description <text>] [--json] <name>", "Create a workflow with `backlog` start and `done` terminal nodes.")
 	workflowDeleteUsage = leafCommandUsage(config.Command+" workflow delete <uuid> [--confirm] [--json]", "Preview or permanently delete a workflow.", "", "Without `--confirm`, the command reports the deletion impact and makes no changes.")
@@ -242,8 +242,16 @@ var (
 	projectDefaultUsage     = commandUsage{helpFile: "project_default.txt", includeEmbeddedFlags: true}
 	detachUsage             = commandUsage{helpFile: "detach.txt", includeEmbeddedFlags: true}
 	projectListUsage        = commandUsage{helpFile: "project_list.txt"}
-	projectCreateUsage      = commandUsage{helpFile: "project_create.txt", includeEmbeddedFlags: true}
-	projectDeleteUsage      = leafCommandUsage(
+	projectWorkspacesUsage  = leafCommandUsage(
+		config.Command+" project workspaces [--project <id-or-workspace-path>] [--offset <n>] [--limit <n>] [--json]",
+		"List attached Workspaces in catalog order.",
+		"",
+		"Without --project, use the current Session's Project. Outside a Session, --project is required.",
+		"Returns one bounded page. Use the reported next offset to request the next page.",
+		"Plain output shortens paths under home. JSON includes canonical catalog paths.",
+	)
+	projectCreateUsage = commandUsage{helpFile: "project_create.txt", includeEmbeddedFlags: true}
+	projectDeleteUsage = leafCommandUsage(
 		config.Command+" project delete <project-id> [--confirm] [--json]",
 		"Delete a Project by canonical ID.",
 		"",

@@ -77,7 +77,6 @@ func applyWorkflowCompletionForTest(
 	}
 	return engine.ApplyWorkflowAgentCompletion(
 		req.Provenance.ScopeID,
-		req.Provenance.RunID,
 		req.Provenance.StepID,
 		func() (workflowruntime.CompletionResult, error) {
 			return result, nil
@@ -332,19 +331,14 @@ func bindExternalAgentCompletion(
 		if run == nil {
 			return errors.New("test Agent completion has no active Run")
 		}
-		runID, err := runtimeids.ParseRunID(run.RunID)
-		if err != nil {
-			return err
-		}
 		stepID, err := runtimeids.ParseStepID(run.StepID)
 		if err != nil {
 			return err
 		}
-		_, completionErr := engine.ApplyWorkflowAgentCompletion(scopeID, runID, stepID, func() (workflowruntime.CompletionResult, error) {
+		_, completionErr := engine.ApplyWorkflowAgentCompletion(scopeID, stepID, func() (workflowruntime.CompletionResult, error) {
 			return controller.acceptCompletionForTest(workflowruntime.AgentCompletionRequest{
 				Provenance: workflowruntime.AgentCompletionProvenance{
 					ScopeID: scopeID,
-					RunID:   runID,
 					StepID:  stepID,
 				},
 				SessionID: runtimeids.NewSessionID(),
@@ -528,7 +522,7 @@ func TestWorkflowRequiredToolChoiceIncludesLocalAndHostedTools(t *testing.T) {
 		tools.HandlerRegistration{ID: toolspec.ToolExecCommand, Handler: fakeTool{name: toolspec.ToolExecCommand}},
 		tools.HandlerRegistration{ID: toolspec.ToolWebSearch, Handler: fakeTool{name: toolspec.ToolWebSearch}},
 	), Config{
-		Model:         "gpt-5",
+		Model:         "gpt-6-sol",
 		EnabledTools:  []toolspec.ID{toolspec.ToolExecCommand, toolspec.ToolWebSearch},
 		WebSearchMode: "native",
 	})
@@ -551,7 +545,7 @@ func TestWorkflowRequiredToolChoiceAcceptsHostedWebSearchOnly(t *testing.T) {
 	eng := mustNewTestEngine(t, store, &fakeClient{}, newTestToolRegistry(t,
 		tools.HandlerRegistration{ID: toolspec.ToolWebSearch, Handler: fakeTool{name: toolspec.ToolWebSearch}},
 	), Config{
-		Model:         "gpt-5",
+		Model:         "gpt-6-sol",
 		EnabledTools:  []toolspec.ID{toolspec.ToolWebSearch},
 		WebSearchMode: "native",
 	})
@@ -569,7 +563,7 @@ func TestWorkflowRequiredToolChoiceRejectsEmptyEffectiveToolSet(t *testing.T) {
 	t.Parallel()
 	store := mustCreateTestSession(t)
 	eng := mustNewTestEngine(t, store, &fakeClient{}, tools.NewRegistry(), Config{
-		Model: "gpt-5",
+		Model: "gpt-6-sol",
 	})
 	publishTestWorkflowExecution(t, eng, testWorkflowConfig(&fakeWorkflowController{}, config.WorkflowCompletionModeShellCommand))
 	_, err := eng.buildRequest(context.Background(), "step", true)
@@ -630,21 +624,11 @@ func testAcceptedLiveWorkflowSteeringToolChoice(t *testing.T, useAutomaticToolCh
 	case <-time.After(runtimeTestSynchronizationTimeout):
 		t.Fatal("timed out waiting for active workflow request")
 	}
-	type steeringResult struct {
-		queued QueuedUserMessage
-		err    error
+	queued, err := eng.Steer(context.Background(), "steer active workflow", nil)
+	if err != nil {
+		t.Fatalf("Steer: %v", err)
 	}
-	steeringDone := make(chan steeringResult, 1)
-	go func() {
-		queued, err := eng.Steer(context.Background(), "steer active workflow", nil)
-		steeringDone <- steeringResult{queued: queued, err: err}
-	}()
 	releaseClient()
-	steering := <-steeringDone
-	if steering.err != nil {
-		t.Fatalf("Steer: %v", steering.err)
-	}
-	queued := steering.queued
 	if queued.ID == "" {
 		t.Fatal("expected accepted live steering to queue on active workflow")
 	}
@@ -1397,10 +1381,15 @@ func TestCompatibleProviderCommentaryFlushesAcceptedSteeringBeforeContinuing(t *
 		_, err := eng.Steer(context.Background(), "accepted steering", nil)
 		steeringDone <- err
 	}()
-	releaseRun()
-	if err := <-steeringDone; err != nil {
-		t.Fatalf("Steer: %v", err)
+	select {
+	case err := <-steeringDone:
+		if err != nil {
+			t.Fatalf("Steer: %v", err)
+		}
+	case <-time.After(runtimeTestSynchronizationTimeout):
+		t.Fatal("timed out waiting for steering acceptance")
 	}
+	releaseRun()
 	if err := <-submitDone; err != nil {
 		t.Fatalf("submit: %v", err)
 	}

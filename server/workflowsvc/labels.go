@@ -2,34 +2,26 @@ package workflowsvc
 
 import (
 	"context"
-	"errors"
 
 	"core/server/workflow"
 	"core/server/workflow/label"
 	"core/server/workflowstore"
-	"core/shared/protoapi"
 	pb "core/shared/protoapi/gen/kent/api/workflow_definition"
 	taskpb "core/shared/protoapi/gen/kent/api/workflow_task"
-	"core/shared/serverapi"
+	"core/shared/workflowcontract"
 )
 
 func (s *Service) CreateWorkflowProjectLabel(ctx context.Context, req *pb.ProjectLabelCreateRequest) (*pb.ProjectLabelCreateSuccess, error) {
-	if err := protoapi.Validate(req); err != nil {
-		return nil, err
-	}
 	record, err := s.store.CreateProjectLabel(ctx, req.ProjectId, req.Name)
 	if err != nil {
 		return nil, err
 	}
 	response := &pb.ProjectLabelCreateSuccess{Label: workflowProjectLabel(record)}
-	s.publishProjectEvent(ctx, req.ProjectId, serverapi.WorkflowProjectEventResourceLabel, serverapi.WorkflowProjectEventActionCreated, response.Label.Id)
+	s.publishProjectEvent(ctx, req.ProjectId, workflowcontract.EventResourceLabel, workflowcontract.EventActionCreated, response.Label.Id)
 	return response, nil
 }
 
 func (s *Service) ListWorkflowProjectLabels(ctx context.Context, req *pb.ProjectLabelCatalogRequest) (*pb.ProjectLabelCatalogSuccess, error) {
-	if err := protoapi.Validate(req); err != nil {
-		return nil, err
-	}
 	records, err := s.store.ListProjectLabels(ctx, req.ProjectId)
 	if err != nil {
 		return nil, err
@@ -47,10 +39,7 @@ func (s *Service) ListWorkflowProjectLabels(ctx context.Context, req *pb.Project
 }
 
 func (s *Service) RenameWorkflowProjectLabel(ctx context.Context, req *pb.ProjectLabelRenameRequest) (*pb.ProjectLabelRenameSuccess, error) {
-	if err := protoapi.Validate(req); err != nil {
-		return nil, err
-	}
-	id, err := label.ParseID(req.LabelId)
+	id, err := label.IDFromProto(req.LabelId)
 	if err != nil {
 		return nil, err
 	}
@@ -59,15 +48,12 @@ func (s *Service) RenameWorkflowProjectLabel(ctx context.Context, req *pb.Projec
 		return nil, err
 	}
 	response := &pb.ProjectLabelRenameSuccess{Label: workflowProjectLabel(record)}
-	s.publishProjectEvent(ctx, req.ProjectId, serverapi.WorkflowProjectEventResourceLabel, serverapi.WorkflowProjectEventActionRenamed, response.Label.Id)
+	s.publishProjectEvent(ctx, req.ProjectId, workflowcontract.EventResourceLabel, workflowcontract.EventActionRenamed, response.Label.Id)
 	return response, nil
 }
 
 func (s *Service) DeleteWorkflowProjectLabel(ctx context.Context, req *pb.ProjectLabelDeleteRequest) (*pb.ProjectLabelDeleteSuccess, error) {
-	if err := protoapi.Validate(req); err != nil {
-		return nil, err
-	}
-	id, err := label.ParseID(req.LabelId)
+	id, err := label.IDFromProto(req.LabelId)
 	if err != nil {
 		return nil, err
 	}
@@ -76,17 +62,14 @@ func (s *Service) DeleteWorkflowProjectLabel(ctx context.Context, req *pb.Projec
 		return nil, err
 	}
 	response := &pb.ProjectLabelDeleteSuccess{LabelId: record.ID.String()}
-	s.publishProjectEvent(ctx, req.ProjectId, serverapi.WorkflowProjectEventResourceLabel, serverapi.WorkflowProjectEventActionDeleted, response.LabelId)
+	s.publishProjectEvent(ctx, req.ProjectId, workflowcontract.EventResourceLabel, workflowcontract.EventActionDeleted, response.LabelId)
 	return response, nil
 }
 
 func (s *Service) ReorderWorkflowProjectLabels(ctx context.Context, req *pb.ProjectLabelReorderRequest) (*pb.ProjectLabelReorderSuccess, error) {
-	if err := protoapi.Validate(req); err != nil {
-		return nil, err
-	}
 	orderedIDs := make([]label.ID, 0, len(req.LabelIds))
 	for _, rawID := range req.LabelIds {
-		id, err := label.ParseID(rawID)
+		id, err := label.IDFromProto(rawID)
 		if err != nil {
 			return nil, err
 		}
@@ -110,8 +93,8 @@ func (s *Service) ReorderWorkflowProjectLabels(ctx context.Context, req *pb.Proj
 		s.publishProjectEvent(
 			ctx,
 			req.ProjectId,
-			serverapi.WorkflowProjectEventResourceLabel,
-			serverapi.WorkflowProjectEventActionReordered,
+			workflowcontract.EventResourceLabel,
+			workflowcontract.EventActionReordered,
 			req.ProjectId,
 		)
 	}
@@ -119,9 +102,6 @@ func (s *Service) ReorderWorkflowProjectLabels(ctx context.Context, req *pb.Proj
 }
 
 func (s *Service) GetWorkflowTaskLabels(ctx context.Context, req *taskpb.LabelsGetRequest) (*taskpb.LabelsGetSuccess, error) {
-	if err := protoapi.Validate(req); err != nil {
-		return nil, err
-	}
 	ids, err := s.store.GetTaskLabelIDs(ctx, workflow.TaskID(req.TaskId))
 	if err != nil {
 		return nil, err
@@ -135,9 +115,6 @@ func (s *Service) GetWorkflowTaskLabels(ctx context.Context, req *taskpb.LabelsG
 }
 
 func (s *Service) UpdateWorkflowTaskLabels(ctx context.Context, req *taskpb.LabelsUpdateRequest) (*taskpb.LabelsUpdateSuccess, error) {
-	if err := protoapi.Validate(req); err != nil {
-		return nil, err
-	}
 	scope, err := s.store.GetTaskLabelScope(ctx, workflow.TaskID(req.TaskId))
 	if err != nil {
 		return nil, err
@@ -156,7 +133,7 @@ func (s *Service) UpdateWorkflowTaskLabels(ctx context.Context, req *taskpb.Labe
 			LabelIds: labelIDs(ids),
 		},
 	}
-	s.publishProjectWorkflowEvent(ctx, scope.ProjectID, scope.WorkflowID, serverapi.WorkflowProjectEventResourceTask, serverapi.WorkflowProjectEventActionLabelsChanged, req.TaskId)
+	s.publishProjectWorkflowEvent(ctx, scope.ProjectID, scope.WorkflowID, workflowcontract.EventResourceTask, workflowcontract.EventActionLabelsChanged, req.TaskId)
 	return response, nil
 }
 
@@ -167,48 +144,8 @@ func workflowProjectLabel(record workflowstore.ProjectLabelRecord) *pb.ProjectLa
 	}
 }
 
-func workflowTaskLabelError(err error, projectID string) error {
-	var labelNotFound workflowstore.TaskLabelNotFoundError
-	if errors.As(err, &labelNotFound) {
-		labelID := labelNotFound.LabelID
-		return &serverapi.WorkflowLabelError{
-			Reason:  serverapi.WorkflowLabelErrorReasonLabelNotFound,
-			LabelID: &labelID,
-		}
-	}
-	var wrongProject workflowstore.TaskLabelWrongProjectError
-	if errors.As(err, &wrongProject) {
-		projectID := wrongProject.TaskProjectID
-		taskID := wrongProject.TaskID
-		labelID := wrongProject.LabelID
-		return &serverapi.WorkflowLabelError{
-			Reason:    serverapi.WorkflowLabelErrorReasonWrongProject,
-			ProjectID: &projectID,
-			TaskID:    &taskID,
-			LabelID:   &labelID,
-		}
-	}
-	var mutationErr workflowstore.TaskLabelMutationError
-	if errors.As(err, &mutationErr) {
-		field := mutationErr.Field
-		return &serverapi.WorkflowLabelError{
-			Reason:  serverapi.WorkflowLabelErrorReasonInvalidMutation,
-			LabelID: mutationErr.LabelID,
-			Field:   &field,
-			Limit:   mutationErr.Limit,
-		}
-	}
-	if errors.Is(err, serverapi.ErrProjectNotFound) {
-		return &serverapi.WorkflowLabelError{
-			Reason:    serverapi.WorkflowLabelErrorReasonProjectNotFound,
-			ProjectID: &projectID,
-		}
-	}
-	return err
-}
-
-func (s *Service) publishProjectEvent(ctx context.Context, projectID string, resource serverapi.WorkflowProjectEventResource, action serverapi.WorkflowProjectEventAction, primaryEntityID string, relatedIDs ...string) {
-	s.publishWorkflowEvent(ctx, workflowstore.WorkflowEventRecord{
+func (s *Service) publishProjectEvent(ctx context.Context, projectID string, resource workflowcontract.EventResource, action workflowcontract.EventAction, primaryEntityID string, relatedIDs ...string) {
+	s.publishWorkflowEvent(ctx, workflowcontract.Event{
 		ProjectID:       &projectID,
 		Resource:        resource,
 		Action:          action,

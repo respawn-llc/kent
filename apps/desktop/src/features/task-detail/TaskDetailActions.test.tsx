@@ -1,46 +1,44 @@
-import { act, screen, waitFor, within } from "@testing-library/react";
+import { expect, it, vi } from "bun:test";
+import { act, fireEvent, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 
-import type { TaskDetailSessionChatEntry } from "@/features/task-detail";
 import { appI18n } from "@/i18n";
 import {
   mountTaskDetailSurface,
   taskDetailResponse,
   taskDetailResponseWithCurrentScript,
+  taskActionFixture,
+  taskStartRoute,
+  taskStartApplied,
 } from "@/test-support/task-detail";
+import { projectEventsFixture } from "@/test-support/project-events";
+import { createBrowserNativeBridge } from "@/test-support/native-bridge";
 
-function taskWithActions(overrides: Record<string, unknown>) {
+function nativeDesktopBridge(openWindow = vi.fn(async () => "created" as const)) {
+  const bridge = createBrowserNativeBridge();
   return {
-    task: {
-      ...taskDetailResponse.task,
-      attention_count: 0,
-      ...overrides,
-    },
+    ...bridge,
+    capabilities: { ...bridge.capabilities, dialogWindows: true },
+    dialogs: { ...bridge.dialogs, openWindow },
   };
 }
 
-it("orders Start, Open, and targeted Interrupt in one wrapping action flow", async () => {
+it("orders Start, Open, and Task-wide Interrupt in one wrapping action flow", async () => {
   const sessionName = `${"👨‍👩‍👧‍👦".repeat(31)}e\u0301x`;
   mountTaskDetailSurface(
-    taskWithActions({
-      live_sessions: [
-        {
-          session_id: "session-1",
-          session_name: sessionName,
-          node_display_name: "Code Review",
-        },
-      ],
-      actions: {
-        ...taskDetailResponse.task.actions,
-        can_start: true,
+    taskActionFixture(taskDetailResponse, { canStart: true }, [
+      {
+        sessionID: "33333333-3333-4333-8333-333333333333",
+        sessionName,
+        nodeDisplayName: "Code Review",
       },
-    }),
+    ]),
   );
 
   const flow = await screen.findByTestId("task-detail-action-flow");
   const start = within(flow).getByTestId("task-detail-start");
   const openLabel = appI18n.t("task.openInCli", { name: sessionName });
-  const interruptLabel = appI18n.t("task.interruptChat", { name: sessionName });
+  const interruptLabel = appI18n.t("board.interrupt");
   const open = within(flow).getByRole("button", { name: openLabel });
   const interrupt = within(flow).getByRole("button", { name: interruptLabel });
   expect(within(flow).getAllByRole("button")).toEqual([start, open, interrupt]);
@@ -48,52 +46,157 @@ it("orders Start, Open, and targeted Interrupt in one wrapping action flow", asy
   expect(interrupt).toHaveAttribute("title", interruptLabel);
 });
 
-it("falls back to the Agent Node display name and keeps Task-wide Interrupt generic", async () => {
+it("opens the only Session directly without a picker", async () => {
+  const openSessionChat = vi.fn(async () => undefined);
+  const sessionID = "33333333-3333-4333-8333-333333333333";
   mountTaskDetailSurface(
-    taskWithActions({
-      live_sessions: [
-        {
-          session_id: "session-1",
-          node_display_name: "Implementation",
-        },
-        {
-          session_id: "session-2",
-          session_name: "Review",
-          node_display_name: "Code Review",
-        },
-      ],
+    taskActionFixture(taskDetailResponse, {}, [
+      {
+        sessionID,
+        sessionName: "Review",
+        nodeDisplayName: "Review",
+      },
+    ]),
+    { openSessionChat },
+  );
+  const user = userEvent.setup();
+  await user.click(await screen.findByRole("button", { name: appI18n.t("task.openInChat") }));
+  expect(openSessionChat).toHaveBeenCalledTimes(1);
+  expect(openSessionChat).toHaveBeenCalledWith({ projectID: "project-1", sessionID });
+  expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+});
+
+it("Shift-clicks the only Session into its native Chat window", async () => {
+  const openSessionChat = vi.fn(async () => undefined);
+  const sessionID = "33333333-3333-4333-8333-333333333333";
+  const openWindow = vi.fn(async () => "created" as const);
+  mountTaskDetailSurface(
+    taskActionFixture(taskDetailResponse, {}, [
+      {
+        sessionID,
+        sessionName: "Review",
+        nodeDisplayName: "Review",
+      },
+    ]),
+    {
+      nativeBridge: nativeDesktopBridge(openWindow),
+      openSessionChat,
+    },
+  );
+
+  fireEvent.click(await screen.findByRole("button", { name: appI18n.t("task.openInChat") }), {
+    shiftKey: true,
+  });
+
+  await waitFor(() => {
+    expect(openWindow).toHaveBeenCalledWith(
+      expect.objectContaining({
+        params: { projectID: "project-1", sessionID },
+      }),
+    );
+  });
+  expect(openSessionChat).not.toHaveBeenCalled();
+  expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+});
+
+it("Shift-clicks Open Chat then opens the ordinary picker selection natively", async () => {
+  const openings: string[] = [];
+  const openWindow = vi.fn(async () => "created" as const);
+  mountTaskDetailSurface(taskDetailResponse, {
+    nativeBridge: nativeDesktopBridge(openWindow),
+    openSessionChat: async (target) => {
+      openings.push(target.sessionID);
+    },
+  });
+
+  fireEvent.click(await screen.findByRole("button", { name: appI18n.t("task.openInChat") }), {
+    shiftKey: true,
+  });
+  const picker = within(screen.getByRole("dialog"));
+  const user = userEvent.setup();
+  await user.click(picker.getByRole("button", { name: "Review chat" }));
+  await user.click(screen.getByRole("button", { name: appI18n.t("task.openInChat") }));
+  const ordinaryPicker = within(screen.getByRole("dialog"));
+  await user.click(ordinaryPicker.getByRole("button", { name: "44444444-4444-4444-8444-444444444444" }));
+
+  await waitFor(() => {
+    expect(openWindow).toHaveBeenCalledTimes(1);
+  });
+  expect(openWindow).toHaveBeenCalledWith(
+    expect.objectContaining({
+      params: {
+        projectID: "project-1",
+        sessionID: "33333333-3333-4333-8333-333333333333",
+      },
     }),
+  );
+  expect(openings).toEqual(["44444444-4444-4444-8444-444444444444"]);
+  expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+});
+
+it("Shift-clicks a Session in the ordinary Open Chat picker natively", async () => {
+  const openings: string[] = [];
+  const openWindow = vi.fn(async () => "created" as const);
+  mountTaskDetailSurface(taskDetailResponse, {
+    nativeBridge: nativeDesktopBridge(openWindow),
+    openSessionChat: async (target) => {
+      openings.push(target.sessionID);
+    },
+  });
+  const user = userEvent.setup();
+  await user.click(await screen.findByRole("button", { name: appI18n.t("task.openInChat") }));
+  const picker = within(screen.getByRole("dialog"));
+  fireEvent.click(picker.getByRole("button", { name: "Review chat" }), { shiftKey: true });
+
+  await waitFor(() => {
+    expect(openWindow).toHaveBeenCalledWith(
+      expect.objectContaining({
+        params: {
+          projectID: "project-1",
+          sessionID: "33333333-3333-4333-8333-333333333333",
+        },
+      }),
+    );
+  });
+  expect(openings).toEqual([]);
+  expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+});
+
+it("offers a CLI Session picker and keeps Task-wide Interrupt generic", async () => {
+  mountTaskDetailSurface(
+    taskActionFixture(taskDetailResponse, {}, [
+      {
+        sessionID: "33333333-3333-4333-8333-333333333333",
+        nodeDisplayName: "Implementation",
+      },
+      {
+        sessionID: "44444444-4444-4444-8444-444444444444",
+        sessionName: "Review",
+        nodeDisplayName: "Code Review",
+      },
+    ]),
   );
 
   const flow = await screen.findByTestId("task-detail-action-flow");
-  const firstOpen = within(flow).getByRole("button", {
-    name: appI18n.t("task.openInCli", { name: "Implementation" }),
-  });
-  const secondOpen = within(flow).getByRole("button", {
-    name: appI18n.t("task.openInCli", { name: "Review" }),
-  });
+  const open = within(flow).getByRole("button", { name: appI18n.t("task.openInCli") });
   const interrupt = within(flow).getByRole("button", { name: appI18n.t("board.interrupt") });
-  expect(within(flow).getAllByRole("button")).toEqual([firstOpen, secondOpen, interrupt]);
+  expect(within(flow).getAllByRole("button")).toEqual([open, interrupt]);
+  await userEvent.setup().click(open);
+  const popup = within(screen.getByRole("dialog"));
+  expect(popup.getByRole("button", { name: "33333333-3333-4333-8333-333333333333" })).toBeInTheDocument();
+  expect(popup.getByRole("button", { name: "Review" })).toBeInTheDocument();
 });
 
 it("keeps Interrupt generic when a Script is the live target", async () => {
-  mountTaskDetailSurface({
-    task: {
-      ...taskDetailResponseWithCurrentScript.task,
-      actions: {
-        ...taskDetailResponseWithCurrentScript.task.actions,
-        can_interrupt: true,
-      },
-    },
-  });
+  mountTaskDetailSurface(taskActionFixture(taskDetailResponseWithCurrentScript, { canInterrupt: true }));
 
   const flow = await screen.findByTestId("task-detail-action-flow");
   const interrupt = within(flow).getByRole("button", { name: appI18n.t("board.interrupt") });
   expect(within(flow).getAllByRole("button").at(-1)).toBe(interrupt);
 });
 
-it("replaces Open in CLI with Open Chat for every live Session", async () => {
-  const targets: Parameters<TaskDetailSessionChatEntry>[0][] = [];
+it("selects one Session from the Open in Chat popup without opening the others", async () => {
+  const targets: { projectID: string; sessionID: string }[] = [];
   mountTaskDetailSurface(taskDetailResponse, {
     openSessionChat: async (target) => {
       targets.push(target);
@@ -101,14 +204,7 @@ it("replaces Open in CLI with Open Chat for every live Session", async () => {
   });
 
   const flow = await screen.findByTestId("task-detail-action-flow");
-  const openChatButtons = [
-    within(flow).getByRole("button", {
-      name: appI18n.t("task.openChat", { name: "Review chat" }),
-    }),
-    within(flow).getByRole("button", {
-      name: appI18n.t("task.openChat", { name: "Implementation" }),
-    }),
-  ];
+  const openChat = within(flow).getByRole("button", { name: appI18n.t("task.openInChat") });
   expect(
     within(flow).queryByRole("button", {
       name: appI18n.t("task.openInCli", { name: "Review chat" }),
@@ -120,36 +216,27 @@ it("replaces Open in CLI with Open Chat for every live Session", async () => {
     }),
   ).not.toBeInTheDocument();
   const user = userEvent.setup();
-  for (const openChat of openChatButtons) {
-    await user.click(openChat);
-  }
+  await user.click(openChat);
+  expect(targets).toEqual([]);
+  const popup = within(screen.getByRole("dialog"));
+  expect(popup.getByRole("button", { name: "44444444-4444-4444-8444-444444444444" })).toBeInTheDocument();
+  await user.click(popup.getByRole("button", { name: "Review chat" }));
 
-  expect(targets).toEqual([
-    { projectID: "project-1", sessionID: "session-1" },
-    { projectID: "project-1", sessionID: "session-2" },
-  ]);
+  expect(targets).toEqual([{ projectID: "project-1", sessionID: "33333333-3333-4333-8333-333333333333" }]);
 });
 
 it("shows Start loading, prevents duplicate requests, and permits it after an independent observation fails", async () => {
-  let resolveStart: ((value: unknown) => void) | undefined;
+  let resolveStart: ((value: ReturnType<typeof taskStartApplied>) => void) | undefined;
   const services = mountTaskDetailSurface(
-    taskWithActions({
-      live_sessions: [],
-      actions: {
-        ...taskDetailResponse.task.actions,
-        can_start: true,
-        can_interrupt: false,
-      },
-    }),
+    taskActionFixture(taskDetailResponse, { canStart: true, canInterrupt: false }, []),
     {
       routes: [
-        {
-          method: "workflow.task.start",
-          handler: async () =>
-            new Promise((resolve) => {
+        taskStartRoute(
+          async () =>
+            new Promise<ReturnType<typeof taskStartApplied>>((resolve) => {
               resolveStart = resolve;
             }),
-        },
+        ),
       ],
     },
   );
@@ -163,19 +250,14 @@ it("shows Start loading, prevents duplicate requests, and permits it after an in
   });
   expect(start).toBeEnabled();
   await user.click(start);
-  expect(startTask).toHaveBeenCalledOnce();
-  resolveStart?.({
-    outcome: "applied",
-    applied: {
-      current_nodes: [{ node_id: "node-1", transition_branch_key: null, session_id: null }],
-    },
-  });
+  expect(startTask).toHaveBeenCalledTimes(1);
+  resolveStart?.(taskStartApplied());
   await waitFor(() => {
     expect(start).toHaveAttribute("aria-busy", "false");
   });
 
   act(() => {
-    services.transport.fail("workflow.subscribeProject", new Error("offline"));
+    projectEventsFixture(services.transport).fail(new Error("offline"));
   });
   const error = await screen.findByTestId("error-state");
   expect(screen.queryByTestId("task-detail-start")).not.toBeInTheDocument();

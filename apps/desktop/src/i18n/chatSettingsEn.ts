@@ -1,6 +1,18 @@
 export const chatSettingsEnglish = {
+  switchAgent: "Invalidate caches?",
+  confirmSwitch: "Yes",
+  cancelSwitch: "No",
+  switchAgentWarning:
+    "Switching the role now will invalidate caches, causing ~10x cost for the next request and may lose model reasoning, degrading intelligence",
+  sessionConnection: "Session Connection: {{id}} ({{mode}})",
+  connectionModes: {
+    subscription: "Subscription",
+    api_key: "API Key",
+    no_auth: "No Auth",
+  },
   toParentChat: "To parent chat",
   copied: "Copied to clipboard",
+  clickToCopy: "Click to copy",
   copyFailed: "Could not copy Session ID",
   errors: {
     sessionNotFound: "This Session no longer exists.",
@@ -17,7 +29,6 @@ export const chatSettingsEnglish = {
     unknown: "Kent could not change Chat settings ({{code}}).",
   },
   open: "Chat settings",
-  agentName: "Agent: {{name}}",
   supervisor: "Supervisor",
   supervisorEdits: "Edits",
   supervisorAlways: "On",
@@ -27,11 +38,13 @@ export const chatSettingsEnglish = {
   autoCompaction: "Auto-compaction",
   commitThinking: "Save Thinking",
   workflowLock: "Locked by workflow",
-  cachingLock: "Locked by caching policy",
   required: "Required by workflow",
   policyDisabled: "Disabled by Session policy",
   thinking: "Thinking",
   operationFailed: "Could not change Chat settings",
+  connectionReplaced: "Session Connection is no longer configured",
+  connectionReplacement:
+    "Chat settings use {{current}} because {{previous}} is missing from configuration. This does not change a running Agent's Connection.",
   rejections: {
     agent_locked: "The Agent is locked for this Session.",
     agent_unavailable: "This Agent is no longer available.",

@@ -9,7 +9,6 @@ import (
 	"core/server/workflow"
 	"core/shared/clientui"
 	"core/shared/runtimeids"
-	"core/shared/serverapi"
 )
 
 func TestFinalizerPublishesCurrentNodeApprovalNotification(t *testing.T) {
@@ -59,13 +58,6 @@ func TestFinalizerPublishesCurrentNodeApprovalNotification(t *testing.T) {
 		got.Target.Focus.Kind != clientui.AttentionNotificationFocusApproval ||
 		got.Target.Focus.ApprovalID != approvalID.String() {
 		t.Fatalf("approval notification target = %+v, want approval focus on current node", got.Target)
-	}
-	if err := serverapi.ValidateAttentionNotificationEvent(clientui.AttentionNotificationEvent{
-		Sequence: 1,
-		Type:     clientui.AttentionNotificationEventPending,
-		Pending:  &got,
-	}); err != nil {
-		t.Fatalf("ValidateAttentionNotificationEvent approval: %v", err)
 	}
 
 	finalizer.FinalizeResolution(Resolution{Approvals: []ApprovalProjection{projection}})
@@ -174,13 +166,6 @@ func TestFinalizerPublishesAndResolvesInterruptedCurrentNode(t *testing.T) {
 		pending.Target.Focus.ApprovalID != "" {
 		t.Fatalf("interrupted notification = %+v, want Current Node focus and identity", pending)
 	}
-	if err := serverapi.ValidateAttentionNotificationEvent(clientui.AttentionNotificationEvent{
-		Sequence: 1,
-		Type:     clientui.AttentionNotificationEventPending,
-		Pending:  &pending,
-	}); err != nil {
-		t.Fatalf("ValidateAttentionNotificationEvent interrupted: %v", err)
-	}
 
 	finalizer.FinalizeResolution(Resolution{InterruptedCurrentNodes: []InterruptedCurrentNodeProjection{projection}})
 
@@ -193,15 +178,6 @@ func TestFinalizerPublishesAndResolvesInterruptedCurrentNode(t *testing.T) {
 	resolved := publisher.resolved[0]
 	if resolved.id != pending.ID || resolved.kind != clientui.AttentionNotificationKindInterruptedCurrentNode || resolved.occurredAt.IsZero() {
 		t.Fatalf("resolved notification = %+v, want interrupted Current Node identity", resolved)
-	}
-	if err := serverapi.ValidateAttentionNotificationEvent(clientui.AttentionNotificationEvent{
-		Sequence:   2,
-		Type:       clientui.AttentionNotificationEventResolved,
-		ID:         &resolved.id,
-		Kind:       resolved.kind,
-		OccurredAt: &resolved.occurredAt,
-	}); err != nil {
-		t.Fatalf("ValidateAttentionNotificationEvent resolution: %v", err)
 	}
 }
 

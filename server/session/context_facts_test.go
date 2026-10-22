@@ -153,7 +153,7 @@ func TestFailedContextFactWriteIsNotRetriedByOrdinaryMutation(t *testing.T) {
 	}
 	writer.err = nil
 
-	if err := store.SetName("ordinary mutation"); err != nil {
+	if err := store.SetName(stringPointer("ordinary mutation")); err != nil {
 		t.Fatalf("SetName: %v", err)
 	}
 	if writer.eligibilityWrites != 1 {
@@ -174,6 +174,7 @@ func TestOpenRestoresContextFactsOutsideRecoverableMeta(t *testing.T) {
 		"/workspace",
 		testSessionCategory,
 		WithPersistenceObserver(observer),
+		WithPersistedSessionResolver(observer),
 		WithSessionContextFactWriter(writer),
 	)
 	if err != nil {
@@ -220,6 +221,7 @@ func TestOpenNormalizesInvalidPersistedContextFactsWithoutWriting(t *testing.T) 
 		"/workspace",
 		testSessionCategory,
 		WithPersistenceObserver(observer),
+		WithPersistedSessionResolver(observer),
 		WithSessionContextFactWriter(writer),
 	)
 	if err != nil {
@@ -268,7 +270,7 @@ func TestForkAndCloneLeaveContextFactsAbsent(t *testing.T) {
 	if err != nil {
 		t.Fatalf("ForkAtUserMessage: %v", err)
 	}
-	cloned, err := CloneSession(log, "clone", testSessionCategory, ForkThinking{Desired: "medium", PreserveNativeUpdates: true})
+	cloned, err := CloneSession(log, new("clone"), testSessionCategory, ForkThinking{Desired: "medium", PreserveNativeUpdates: true})
 	if err != nil {
 		t.Fatalf("CloneSession: %v", err)
 	}

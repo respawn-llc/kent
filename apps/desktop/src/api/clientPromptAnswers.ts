@@ -13,15 +13,15 @@ import type {
 } from "./clientInputs";
 import { enumValue } from "./chatWire";
 import { requireUnarySuccess } from "./protobufRpc";
-import type { DescriptorRpcTransport } from "./transport";
+import type { RpcTransport } from "./transport";
 
 export async function answerPromptBatch(
-  transport: DescriptorRpcTransport,
+  transport: RpcTransport,
   input: PromptAnswerBatchInput,
 ): Promise<PromptAnswerBatchResponse> {
   const method = AnswerService.method.answerBatch;
   const request = create(method.input, {
-    sessionId: input.sessionID,
+    sessionId: { value: { case: "sessionId", value: input.sessionID } },
     stepId: input.stepID,
     entries: input.entries.map(encodeEntry),
   });

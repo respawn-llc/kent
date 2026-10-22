@@ -11,6 +11,7 @@ import (
 	"core/server/workflowstore"
 	"core/shared/runtimeids"
 	"core/shared/sessioncontract"
+	"core/shared/textutil"
 )
 
 // PrepareCurrentNodeSessions creates database cutover inputs without publishing
@@ -65,7 +66,7 @@ func PrepareCurrentNodeSessionArtifacts(
 		if err != nil {
 			t.Fatal(err)
 		}
-		creation, err = creation.WithListingMetadata("Current Node session", input.Task.Title)
+		creation, err = creation.WithListingMetadata(textutil.Value("Current Node session"), input.Task.Title)
 		if err != nil {
 			t.Fatal(err)
 		}

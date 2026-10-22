@@ -11,6 +11,7 @@ import (
 	"core/server/session/sessiontest"
 	"core/server/tools"
 	"core/shared/runtimeids"
+	"core/shared/textutil"
 	"core/shared/toolspec"
 	"core/shared/transcript"
 )
@@ -28,7 +29,7 @@ func TestAcceptedResponsePersistsProviderModelMismatchAndAdjustedUsage(t *testin
 			store := mustCreateTestSession(t)
 			response := finalTextResponse("done")
 			response.ServedModel = stringPointer("served-model")
-			response.Usage = llm.Usage{InputTokens: 42, OutputTokens: 3, WindowTokens: 200000}
+			response.Usage = llm.Usage{InputTokens: textutil.Value(42), OutputTokens: textutil.Value(3), WindowTokens: 200000, ContextUsage: &llm.ContextUsage{Tokens: 42, MeasurementPoint: llm.ContextMeasurementInput}}
 			engine := mustNewTestEngine(t, store, &fakeClient{responses: []llm.Response{response}}, newTestToolRegistry(t), Config{
 				Model: "requested-model",
 				Debug: test.debug,
@@ -46,7 +47,7 @@ func TestAcceptedResponsePersistsProviderModelMismatchAndAdjustedUsage(t *testin
 				warning.ProviderModelMismatch.ServedModel != "served-model" {
 				t.Fatalf("warning = %+v", warning)
 			}
-			if usage := store.Meta().UsageState; usage == nil || usage.InputTokens != 42 {
+			if usage := store.Meta().UsageState; usage == nil || usage.InputTokens == nil || *usage.InputTokens != 42 {
 				t.Fatalf("usage state = %+v, want accepted response usage", store.Meta().UsageState)
 			}
 		})
@@ -83,13 +84,10 @@ func TestQueuedAgentSteerStartsNewMismatchWarningStep(t *testing.T) {
 		done <- err
 	}()
 	<-started
-	steer, err := NewAgentSteer(runtimeids.NewSessionID(), "new instructions")
-	if err != nil {
-		t.Fatalf("NewAgentSteer: %v", err)
-	}
+	steer := NewAgentSteer(runtimeids.SessionIdentity{ID: runtimeids.NewSessionID()}, "new instructions")
 	queued := make(chan error, 1)
 	go func() {
-		_, accepted, err := engine.QueueAgentSteerForActiveRun(context.Background(), steer, nil)
+		_, accepted, err := engine.QueueAgentSteerForActiveRun(context.Background(), runtimeids.NewQueueItemID().String(), steer, nil)
 		if err == nil && !accepted {
 			err = errors.New("queue Agent Steer was not accepted")
 		}
@@ -167,7 +165,7 @@ func acceptedMismatchCandidate() successfulRequestCandidate {
 	return successfulRequestCandidate{
 		response: llm.Response{
 			ServedModel: stringPointer("served-model"),
-			Usage:       llm.Usage{InputTokens: 42, OutputTokens: 3, WindowTokens: 200000},
+			Usage:       llm.Usage{InputTokens: textutil.Value(42), OutputTokens: textutil.Value(3), WindowTokens: 200000, ContextUsage: &llm.ContextUsage{Tokens: 42, MeasurementPoint: llm.ContextMeasurementInput}},
 		},
 		requestedModel:          "requested-model",
 		estimatedProviderTokens: 17,

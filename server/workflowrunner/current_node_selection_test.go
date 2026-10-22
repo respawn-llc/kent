@@ -27,7 +27,7 @@ import (
 )
 
 func TestTransitionSelectedQuestionsSurviveRetainedToolsAndCompaction(t *testing.T) {
-	f, input := newMaterializedRoleSelectionStart(t)
+	f, input := newMaterializedRoleSelectionStartWithOptions(t, config.LoadOptions{Tools: "exec_command"})
 	client := NewCompactingScriptedClient(
 		llm.ProviderCapabilities{ProviderID: "test", SupportsResponsesAPI: true, SupportsResponsesCompact: true},
 		[]llm.CompactionResponse{workflowPostCompletionCompactionResponse("questions summary")},
@@ -37,13 +37,13 @@ func TestTransitionSelectedQuestionsSurviveRetainedToolsAndCompaction(t *testing
 		ScriptedFinalAnswer(`{"commentary":"done"}`),
 	)
 	f.client = client
-	unrestricted := f.starter.cfg
 	var err error
 	f.starter.cfg, err = config.ApplyLoadOptionsToSnapshot(f.starter.cfg, config.LoadOptions{Tools: "exec_command"})
 	if err != nil {
 		t.Fatal(err)
 	}
 	f.starter.cfg.Settings.CompactionMode = config.CompactionModeNative
+	writeCurrentNodeConfig(t, f.starter.cfg)
 	prepared, err := f.starter.PrepareCurrentNode(t.Context(), input, workflowruntime.TaskPromptDeliveryResume)
 	if err != nil {
 		t.Fatal(err)
@@ -94,7 +94,7 @@ func TestTransitionSelectedQuestionsSurviveRetainedToolsAndCompaction(t *testing
 	if before.Meta.RetainedToolSelection == nil || !reflect.DeepEqual(before.Meta.RetainedToolSelection.Tools, []toolspec.ID{toolspec.ToolExecCommand}) {
 		t.Fatal("execution-required Questions changed the original saved list")
 	}
-	attachment := f.openRetainedRuntime(t, id)
+	f.openRetainedRuntime(t, id)
 	if err := f.authority.WithCurrentRuntime(t.Context(), id, func(ctx context.Context, engine *agentruntime.Engine) error {
 		if err := engine.CompactContext(ctx, ""); err != nil {
 			return err
@@ -110,11 +110,9 @@ func TestTransitionSelectedQuestionsSurviveRetainedToolsAndCompaction(t *testing
 	}); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := attachment.Release(t.Context(), sessionruntime.RuntimeReleaseClose); err != nil {
-		t.Fatal(err)
-	}
-	f.starter.cfg = unrestricted
 	f.starter.cfg.Settings.CompactionMode = config.CompactionModeNative
+	writeCurrentNodeConfig(t, f.starter.cfg)
+	f.restartRuntime(t)
 	if _, err := f.controller.ResumeTask(t.Context(), input.Task.ID, nil); err != nil {
 		t.Fatal(err)
 	}
@@ -246,6 +244,7 @@ func TestCurrentNodeStartUsesConfiguredFallbackThinking(t *testing.T) {
 func TestCurrentNodeStartFailsWhenMaterializedRoleIsRemovedFromConfig(t *testing.T) {
 	f, input := newMaterializedRoleSelectionStart(t)
 	delete(f.starter.cfg.Settings.Subagents, "reviewer")
+	writeCurrentNodeConfig(t, f.starter.cfg)
 	if input.ExecutionRoot == nil {
 		t.Fatal("current node start context omitted execution root")
 	}
@@ -255,8 +254,12 @@ func TestCurrentNodeStartFailsWhenMaterializedRoleIsRemovedFromConfig(t *testing
 }
 
 func newMaterializedRoleSelectionStart(t *testing.T, steps ...ScriptedRuntimeStep) (*currentNodeRunnerFixture, workflowstore.CurrentNodeStartContext) {
+	return newMaterializedRoleSelectionStartWithOptions(t, config.LoadOptions{}, steps...)
+}
+
+func newMaterializedRoleSelectionStartWithOptions(t *testing.T, options config.LoadOptions, steps ...ScriptedRuntimeStep) (*currentNodeRunnerFixture, workflowstore.CurrentNodeStartContext) {
 	t.Helper()
-	f := newCurrentNodeRunnerFixture(t, steps...)
+	f := newCurrentNodeRunnerFixtureWithLoadOptions(t, options, steps...)
 	workflowID := createCurrentNodeRoleSelectionWorkflow(t, f.store)
 	task := f.createTask(t, workflowID)
 	started, err := f.commitTaskStart(context.Background(), task.ID)

@@ -75,7 +75,7 @@ func TestCompleteNodeBarrierCommitsReadySiblingBeforeWorkflowMutation(t *testing
 		&fakeClient{},
 		tools.NewRegistry(),
 		Config{
-			Model:              "gpt-5",
+			Model:              "gpt-6-sol",
 			DurabilityObserver: flushes,
 		},
 	)
@@ -83,7 +83,6 @@ func TestCompleteNodeBarrierCommitsReadySiblingBeforeWorkflowMutation(t *testing
 	publishTestWorkflowExecution(t, engine, workflowConfig)
 	engine.stepLifecycle = &stubExclusiveStepLifecycle{
 		snapshot: &RunSnapshot{
-			RunID:  "11111111-1111-4111-8111-111111111111",
 			StepID: "22222222-2222-4222-8222-222222222222",
 		},
 		activeStepID: "22222222-2222-4222-8222-222222222222",
@@ -132,7 +131,7 @@ func TestCompleteNodeValidatesBeforeEffectBarrier(t *testing.T) {
 		&fakeClient{},
 		tools.NewRegistry(),
 		Config{
-			Model:              "gpt-5",
+			Model:              "gpt-6-sol",
 			DurabilityObserver: flushes,
 		},
 	)
@@ -181,7 +180,7 @@ func TestCompleteNodeOperationalFailureDoesNotConsumeProtocolBudget(t *testing.T
 		mustCreateTestSession(t),
 		&fakeClient{},
 		tools.NewRegistry(),
-		Config{Model: "gpt-5"},
+		Config{Model: "gpt-6-sol"},
 	)
 	publishTestWorkflowExecution(t, engine, testWorkflowConfig(controller, config.WorkflowCompletionModeTool))
 	stepID := "22222222-2222-4222-8222-222222222222"

@@ -4,6 +4,7 @@ import (
 	"errors"
 	"fmt"
 	"strings"
+	"unicode"
 
 	"core/shared/runtimeids"
 )
@@ -71,150 +72,26 @@ type PendingWorkItem struct {
 	WorktreeTransition *PendingWorkWorktreeTransition `json:"worktree_transition,omitempty"`
 }
 
-func (i PendingWorkItem) Validate() error {
-	if i.ID.IsZero() {
-		return errors.New("Pending Work item id is required")
-	}
-	switch i.Lane {
-	case PendingWorkLaneSteer, PendingWorkLaneQueue:
-	default:
-		return fmt.Errorf("unknown Pending Work lane %q", i.Lane)
-	}
-	if i.State != PendingWorkItemStatePending {
-		return fmt.Errorf("unknown Pending Work state %q", i.State)
-	}
-	payloads := 0
-	if i.Message != nil {
-		payloads++
-	}
-	if i.ManualCompaction != nil {
-		payloads++
-	}
-	if i.WorktreeTransition != nil {
-		payloads++
-	}
-	if payloads != 1 {
-		return errors.New("Pending Work item requires exactly one payload")
-	}
-
-	var canonicalInput string
-	switch i.Kind {
-	case PendingWorkItemKindMessage:
-		if i.Message == nil || strings.TrimSpace(i.Message.Text) == "" {
-			return errors.New("Pending Work message text is required")
-		}
-		canonicalInput = i.Message.Text
-	case PendingWorkItemKindManualCompaction:
-		if i.Lane != PendingWorkLaneSteer {
-			return errors.New("Pending Work manual compaction must use the Steer lane")
-		}
-		if i.ManualCompaction == nil {
-			return errors.New("Pending Work manual compaction payload is required")
-		}
-		var err error
-		canonicalInput, err = i.ManualCompaction.CanonicalInput()
-		if err != nil {
-			return err
-		}
-	case PendingWorkItemKindWorktreeTransition:
-		if i.Lane != PendingWorkLaneSteer {
-			return errors.New("Pending Work Worktree transition must use the Steer lane")
-		}
-		if i.WorktreeTransition == nil {
-			return errors.New("Pending Work Worktree transition payload is required")
-		}
-		var err error
-		canonicalInput, err = i.WorktreeTransition.CanonicalInput()
-		if err != nil {
-			return err
-		}
-	default:
-		return fmt.Errorf("unknown Pending Work kind %q", i.Kind)
-	}
-	if i.CanonicalInput != canonicalInput {
-		return errors.New("Pending Work canonical input does not match its payload")
-	}
-	return nil
-}
-
-func (c ManualCompactionAdmission) Validate() error {
+func (c ManualCompactionAdmission) CanonicalInput() string {
 	if c.Guidance == nil {
-		return nil
+		return "/compact"
 	}
-	if *c.Guidance == "" {
-		return errors.New("Pending Work compaction guidance must not be blank")
-	}
-	if NormalizePendingWorkArgument(*c.Guidance) != *c.Guidance {
-		return errors.New("Pending Work compaction guidance must be normalized")
-	}
-	return nil
-}
-
-func (c ManualCompactionAdmission) CanonicalInput() (string, error) {
-	if err := c.Validate(); err != nil {
-		return "", err
-	}
-	if c.Guidance == nil {
-		return "/compact", nil
-	}
-	return "/compact " + *c.Guidance, nil
-}
-
-func (t PendingWorkWorktreeTransition) Validate() error {
-	switch t.Transition {
-	case PendingWorkWorktreeTransitionEnter:
-		if t.Selector == nil || *t.Selector == "" {
-			return errors.New("Pending Work Worktree enter selector is required")
-		}
-		if NormalizePendingWorkArgument(*t.Selector) != *t.Selector {
-			return errors.New("Pending Work Worktree enter selector must be normalized")
-		}
-	case PendingWorkWorktreeTransitionLeave:
-		if t.Selector != nil {
-			return errors.New("Pending Work Worktree leave selector is forbidden")
-		}
-	default:
-		return fmt.Errorf("unknown Pending Work Worktree transition %q", t.Transition)
-	}
-	return nil
+	return "/compact " + *c.Guidance
 }
 
 func (t PendingWorkWorktreeTransition) CanonicalInput() (string, error) {
-	if err := t.Validate(); err != nil {
-		return "", err
-	}
 	switch t.Transition {
 	case PendingWorkWorktreeTransitionEnter:
 		return "/wt switch " + *t.Selector, nil
 	case PendingWorkWorktreeTransitionLeave:
 		return "/wt leave", nil
 	default:
-		panic("validated Pending Work Worktree transition is exhaustive")
+		return "", fmt.Errorf("unknown Pending Work Worktree transition %q", t.Transition)
 	}
 }
 
 type PendingWork struct {
 	Items []PendingWorkItem `json:"items"`
-}
-
-func (c PendingWork) Validate() error {
-	seen := make(map[runtimeids.QueueItemID]struct{}, len(c.Items))
-	steerStarted := false
-	for index, item := range c.Items {
-		if err := item.Validate(); err != nil {
-			return fmt.Errorf("Pending Work item %d: %w", index, err)
-		}
-		if _, duplicate := seen[item.ID]; duplicate {
-			return fmt.Errorf("Pending Work item %d repeats id %s", index, item.ID)
-		}
-		seen[item.ID] = struct{}{}
-		if item.Lane == PendingWorkLaneSteer {
-			steerStarted = true
-		} else if steerStarted {
-			return errors.New("Pending Work Queue items must precede Steer items")
-		}
-	}
-	return nil
 }
 
 type PendingWorkRestoration struct {
@@ -228,50 +105,24 @@ type PendingWorkTechnicalRestoration struct {
 	CanonicalInput string                 `json:"canonical_input"`
 }
 
-func (i PendingWorkItem) Restoration() (PendingWorkRestoration, error) {
-	if err := i.Validate(); err != nil {
-		return PendingWorkRestoration{}, err
-	}
+func (i PendingWorkItem) Restoration() PendingWorkRestoration {
 	return PendingWorkRestoration{
 		Kind:           i.Kind,
 		CanonicalInput: i.CanonicalInput,
-	}, nil
+	}
 }
 
-func (r PendingWorkRestoration) Validate() error {
-	switch r.Kind {
-	case PendingWorkItemKindMessage, PendingWorkItemKindManualCompaction, PendingWorkItemKindWorktreeTransition:
-	default:
-		return fmt.Errorf("Pending Work restoration kind %q is invalid", r.Kind)
-	}
-	if strings.TrimSpace(r.CanonicalInput) == "" {
-		return errors.New("Pending Work restoration canonical input is required")
-	}
-	return nil
-}
-
-func (i PendingWorkItem) TechnicalRestoration() (PendingWorkTechnicalRestoration, error) {
-	restoration, err := i.Restoration()
-	if err != nil {
-		return PendingWorkTechnicalRestoration{}, err
-	}
+func (i PendingWorkItem) TechnicalRestoration() PendingWorkTechnicalRestoration {
+	restoration := i.Restoration()
 	return PendingWorkTechnicalRestoration{
 		ItemID:         i.ID,
 		Kind:           restoration.Kind,
 		CanonicalInput: restoration.CanonicalInput,
-	}, nil
-}
-
-func (r PendingWorkTechnicalRestoration) Validate() error {
-	if r.ItemID.IsZero() {
-		return errors.New("Pending Work technical restoration item id is required")
 	}
-	return (PendingWorkRestoration{
-		Kind:           r.Kind,
-		CanonicalInput: r.CanonicalInput,
-	}).Validate()
 }
 
 func NormalizePendingWorkArgument(value string) string {
-	return strings.Join(strings.Fields(value), " ")
+	return strings.Join(strings.FieldsFunc(value, func(character rune) bool {
+		return unicode.IsSpace(character) || character == '\uFEFF'
+	}), " ")
 }

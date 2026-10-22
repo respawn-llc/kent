@@ -31,12 +31,12 @@ func TestManualRemoteCompactionRebuildsCanonicalPrefixOrder(t *testing.T) {
 	const checkpointID = "remote-compaction-checkpoint"
 	store := mustCreateNamedTestSession(t, "ws", workspace)
 	client := &fakeCompactionClient{compactionResponses: []llm.CompactionResponse{{
-		Checkpoint: llm.ResponseItem{
+		OutputItems: []llm.ResponseItem{llm.ResponseItem{
 			Type:             llm.ResponseItemTypeCompaction,
 			ID:               textutil.Value(checkpointID),
 			EncryptedContent: textutil.Value("encrypted"),
-		},
-		Usage: llm.Usage{InputTokens: 1_000, OutputTokens: 100, WindowTokens: 200_000},
+		}},
+		Usage: llm.Usage{InputTokens: textutil.Value(1_000), OutputTokens: textutil.Value(100), WindowTokens: 200_000, ContextUsage: &llm.ContextUsage{Tokens: 1_000, MeasurementPoint: llm.ContextMeasurementInput}},
 	}}}
 	engine := mustNewTestEngine(
 		t,
@@ -45,7 +45,7 @@ func TestManualRemoteCompactionRebuildsCanonicalPrefixOrder(t *testing.T) {
 		newTestToolRegistry(t, tools.HandlerRegistration{
 			ID: toolspec.ToolExecCommand, Handler: fakeTool{name: toolspec.ToolExecCommand},
 		}),
-		Config{Model: "gpt-5", GlobalConfigDir: globalConfigDir},
+		Config{Model: "gpt-6-sol", GlobalConfigDir: globalConfigDir, HeadlessMode: true},
 	)
 	if err := store.SetHeadlessActive(true); err != nil {
 		t.Fatalf("enable headless context: %v", err)
@@ -68,7 +68,8 @@ func TestManualRemoteCompactionRebuildsCanonicalPrefixOrder(t *testing.T) {
 		t.Fatalf("compact remote context: receipt=%+v error=%v", receipt, err)
 	}
 
-	items := engine.transcriptRuntimeState().SnapshotItems()
+	buildActiveTurnRequestForTest(t, engine, nil, true)
+	items := compactionReplacementItems(t, engine)
 	if len(items) < 8 {
 		t.Fatalf("canonical replacement items = %+v, want remote output and canonical context", items)
 	}
@@ -206,4 +207,16 @@ func assertCompactionReplacementOrder(t *testing.T, items []llm.ResponseItem, wa
 	} else if *carryoverIndex != len(items)-1 {
 		t.Fatalf("replacement must end with carryover when no future-agent message is requested: %+v", items)
 	}
+}
+
+func compactionReplacementItems(t *testing.T, engine *Engine) []llm.ResponseItem {
+	t.Helper()
+	items, replacementEnd := engine.transcriptRuntimeState().SnapshotRequestItems()
+	if replacementEnd == nil {
+		t.Fatal("compaction replacement boundary is absent")
+	}
+	if *replacementEnd < 0 || *replacementEnd > len(items) {
+		t.Fatalf("compaction replacement boundary %d is outside %d request items", *replacementEnd, len(items))
+	}
+	return items[:*replacementEnd]
 }

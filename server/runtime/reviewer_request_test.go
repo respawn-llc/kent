@@ -2,6 +2,8 @@ package runtime
 
 import (
 	"context"
+	"errors"
+	"os"
 	"path/filepath"
 	"reflect"
 	"strings"
@@ -57,11 +59,11 @@ func TestReviewerSuggestions_ReusesStableMetaForPromptCachePrefix(t *testing.T) 
 	reviewerClient := &fakeClient{
 		caps: llm.ProviderCapabilities{ProviderID: "openai-compatible", SupportsResponsesAPI: true, SupportsPromptCacheKey: true},
 		responses: []llm.Response{
-			{Assistant: llm.Message{Role: llm.RoleAssistant, Content: textutil.Value(`{"suggestions":[]}`)}, Usage: llm.Usage{InputTokens: 10}},
-			{Assistant: llm.Message{Role: llm.RoleAssistant, Content: textutil.Value(`{"suggestions":[]}`)}, Usage: llm.Usage{InputTokens: 10}},
+			{Assistant: llm.Message{Role: llm.RoleAssistant, Content: textutil.Value(`{"suggestions":[]}`)}, Usage: llm.Usage{InputTokens: textutil.Value(10), ContextUsage: &llm.ContextUsage{Tokens: 10, MeasurementPoint: llm.ContextMeasurementInput}}},
+			{Assistant: llm.Message{Role: llm.RoleAssistant, Content: textutil.Value(`{"suggestions":[]}`)}, Usage: llm.Usage{InputTokens: textutil.Value(10), ContextUsage: &llm.ContextUsage{Tokens: 10, MeasurementPoint: llm.ContextMeasurementInput}}},
 		},
 	}
-	eng := mustNewTestEngine(t, store, engineClient, tools.NewRegistry(), Config{Model: "gpt-5", Reviewer: ReviewerConfig{Model: "gpt-5"}})
+	eng := mustNewTestEngine(t, store, engineClient, tools.NewRegistry(), Config{Model: "gpt-6-sol", Reviewer: ReviewerConfig{Model: "gpt-6-sol"}})
 
 	if _, err := runReviewerSuggestionsTestActiveStep(context.Background(), eng, "step-1", reviewerClient); err != nil {
 		t.Fatalf("first reviewer suggestions: %v", err)
@@ -85,9 +87,41 @@ func TestReviewerSuggestions_ReusesStableMetaForPromptCachePrefix(t *testing.T) 
 
 func TestBuildReviewerRequestUsesReviewerModelCapabilities(t *testing.T) {
 	t.Parallel()
+	for _, authored := range []bool{false, true} {
+		t.Run(map[bool]string{false: "omitted Grok effort", true: "authored empty Grok effort"}[authored], func(t *testing.T) {
+			root, workspace := t.TempDir(), t.TempDir()
+			source := "connection = \"grok\"\n[connections.grok]\nprotocol = \"grok-cli-proxy\"\n"
+			if authored {
+				source += "[reviewer]\nthinking_level = \"\"\n"
+			}
+			if err := os.WriteFile(filepath.Join(root, "config.toml"), []byte(source), 0o600); err != nil {
+				t.Fatal(err)
+			}
+			app, err := config.Load(workspace, workspace, config.LoadOptions{ConfigRoot: root})
+			if err != nil {
+				t.Fatal(err)
+			}
+			settings := app.Settings
+			if err := llm.ApplyConnectionModelDefaults(&settings, app.Source.Sources); err != nil {
+				t.Fatal(err)
+			}
+			engine := mustNewTestEngine(t, mustCreateTestSession(t), &fakeClient{}, tools.NewRegistry(), Config{
+				Model: settings.Model, ThinkingLevel: settings.ThinkingLevel,
+				Reviewer: ReviewerConfig{Model: settings.Reviewer.Model, ThinkingLevel: settings.Reviewer.ThinkingLevel},
+			})
+			request, err := engine.buildReviewerRequest(t.Context())
+			if authored {
+				if !errors.Is(err, llm.ErrInvalidRequest) {
+					t.Fatalf("authored disabled effort %q accepted: %v", request.ReasoningEffort, err)
+				}
+			} else if err != nil || request.ReasoningEffort != "high" {
+				t.Fatalf("omitted Supervisor effort = %q, %v", request.ReasoningEffort, err)
+			}
+		})
+	}
 	store := mustCreateTestSession(t)
 	eng := mustNewTestEngine(t, store, &fakeClient{}, tools.NewRegistry(), Config{
-		Model: "gpt-5",
+		Model: "gpt-6-sol",
 		Reviewer: ReviewerConfig{
 			Model: "local-reviewer",
 			ModelCapabilities: session.LockedModelCapabilities{
@@ -96,7 +130,7 @@ func TestBuildReviewerRequestUsesReviewerModelCapabilities(t *testing.T) {
 		},
 	})
 
-	req, err := eng.buildReviewerRequest(context.Background(), newObservedModelClient(&fakeClient{}))
+	req, err := eng.buildReviewerRequest(context.Background())
 	if err != nil {
 		t.Fatalf("build reviewer request: %v", err)
 	}
@@ -110,14 +144,14 @@ func TestBuildReviewerRequestPreservesTranscriptBytes(t *testing.T) {
 	seedContent := "review raw \x1b[31mansi\x1b[0m"
 	store := mustCreateTestSession(t)
 	eng := mustNewTestEngine(t, store, &fakeClient{}, tools.NewRegistry(), Config{
-		Model:    "gpt-5",
-		Reviewer: ReviewerConfig{Model: "gpt-5"},
+		Model:    "gpt-6-sol",
+		Reviewer: ReviewerConfig{Model: "gpt-6-sol"},
 	})
 	if err := steerTestActiveStep(eng, "seed-step", steerMessagesWithPersistenceIntent(steeringPriorityNormal, steeringMessageEventDefault, true, []llm.Message{{Role: llm.RoleUser, Content: textutil.Value(seedContent)}})); err != nil {
 		t.Fatalf("append seed message: %v", err)
 	}
 
-	req, err := eng.buildReviewerRequest(context.Background(), newObservedModelClient(&fakeClient{}))
+	req, err := eng.buildReviewerRequest(context.Background())
 	if err != nil {
 		t.Fatalf("build reviewer request: %v", err)
 	}
@@ -151,7 +185,7 @@ func TestReviewerRebuildRetainsGenerationSkillsWithoutMutatingMainTranscript(t *
 	disabledPolicy := config.ResolveSkillPolicy(config.Settings{SkillToggles: map[string]bool{"review-skill": false}})
 	rebuilt, err := buildReviewerRequestItemsWithBuilder(
 		items,
-		newMetaContextBuilder(workspace, "gpt-5", "medium", disabledPolicy, time.Now()),
+		newMetaContextBuilder(workspace, "gpt-6-sol", "medium", disabledPolicy, time.Now()),
 		false,
 	)
 	if err != nil {
@@ -173,11 +207,11 @@ func TestReviewerSuggestions_ReopenKeepsPromptCachePrefixStable(t *testing.T) {
 	reviewerClient := &fakeClient{
 		caps: llm.ProviderCapabilities{ProviderID: "openai-compatible", SupportsResponsesAPI: true, SupportsPromptCacheKey: true},
 		responses: []llm.Response{
-			{Assistant: llm.Message{Role: llm.RoleAssistant, Content: textutil.Value(`{"suggestions":[]}`)}, Usage: llm.Usage{InputTokens: 10}},
-			{Assistant: llm.Message{Role: llm.RoleAssistant, Content: textutil.Value(`{"suggestions":[]}`)}, Usage: llm.Usage{InputTokens: 10}},
+			{Assistant: llm.Message{Role: llm.RoleAssistant, Content: textutil.Value(`{"suggestions":[]}`)}, Usage: llm.Usage{InputTokens: textutil.Value(10), ContextUsage: &llm.ContextUsage{Tokens: 10, MeasurementPoint: llm.ContextMeasurementInput}}},
+			{Assistant: llm.Message{Role: llm.RoleAssistant, Content: textutil.Value(`{"suggestions":[]}`)}, Usage: llm.Usage{InputTokens: textutil.Value(10), ContextUsage: &llm.ContextUsage{Tokens: 10, MeasurementPoint: llm.ContextMeasurementInput}}},
 		},
 	}
-	eng := mustNewTestEngine(t, store, engineClient, tools.NewRegistry(), Config{Model: "gpt-5", Reviewer: ReviewerConfig{Model: "gpt-5"}})
+	eng := mustNewTestEngine(t, store, engineClient, tools.NewRegistry(), Config{Model: "gpt-6-sol", Reviewer: ReviewerConfig{Model: "gpt-6-sol"}})
 	t.Cleanup(func() { _ = eng.Close() })
 	if err := steerTestActiveStep(eng, "prep-1", steerMessagesWithPersistenceIntent(steeringPriorityNormal, steeringMessageEventDefault, true, []llm.Message{{Role: llm.RoleUser, Content: textutil.Value("first request")}})); err != nil {
 		t.Fatalf("append first message: %v", err)
@@ -193,7 +227,7 @@ func TestReviewerSuggestions_ReopenKeepsPromptCachePrefixStable(t *testing.T) {
 	if err != nil {
 		t.Fatalf("reopen store: %v", err)
 	}
-	reopenedEng := mustNewTestEngine(t, reopened, engineClient, tools.NewRegistry(), Config{Model: "gpt-5", Reviewer: ReviewerConfig{Model: "gpt-5"}})
+	reopenedEng := mustNewTestEngine(t, reopened, engineClient, tools.NewRegistry(), Config{Model: "gpt-6-sol", Reviewer: ReviewerConfig{Model: "gpt-6-sol"}})
 	t.Cleanup(func() { _ = reopenedEng.Close() })
 	if err := steerTestActiveStep(reopenedEng, "prep-2", steerMessagesWithPersistenceIntent(steeringPriorityNormal, steeringMessageEventDefault, true, []llm.Message{{Role: llm.RoleUser, Content: textutil.Value("second request")}})); err != nil {
 		t.Fatalf("append second message: %v", err)

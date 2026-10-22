@@ -1,17 +1,16 @@
 import { render, screen, waitFor } from "@testing-library/react";
 import { RouterProvider } from "@tanstack/react-router";
-import { afterEach, expect, it, vi } from "vitest";
+import { afterEach, expect, it, mock } from "bun:test";
 
 import { createTestServices, TestAppProviders } from "@/test-support/app-services";
 import { sessionChatRoutePath } from "@/app-facade";
-import { createAppRouter } from "./routes";
 
-const fixture = vi.hoisted(() => ({
+const fixture = {
   probeCatalogReturn: false,
   triggerCatalogNavigation: false,
-}));
+};
 
-vi.mock("./routeComponents", async () => {
+await mock.module("./routeComponents", async () => {
   const { Outlet } = await import("@tanstack/react-router");
   const { useEffect } = await import("react");
   const { SessionChatCatalogReturnProvider, useAppNavigation, useSessionChatCatalogReturn } =
@@ -58,6 +57,8 @@ vi.mock("./routeComponents", async () => {
   }
 });
 
+const { createAppRouter } = await import("./routes");
+
 afterEach(() => {
   fixture.probeCatalogReturn = false;
   fixture.triggerCatalogNavigation = false;
@@ -88,7 +89,12 @@ it("normalizes omitted Home project selection", () => {
 
 it("opens the standalone Project Task List route from its public URL", async () => {
   window.history.replaceState(null, "", "/projects/project-1/tasks");
-  render(<RouterProvider router={createAppRouter()} />);
+  const router = createAppRouter();
+  render(
+    <TestAppProviders services={createTestServices([])}>
+      <RouterProvider router={router} />
+    </TestAppProviders>,
+  );
 
   expect(await screen.findByTestId("standalone-project-tasks-route")).toBeInTheDocument();
 });
@@ -96,7 +102,11 @@ it("opens the standalone Project Task List route from its public URL", async () 
 it("opens the development-gated Session Chat route and uses ordinary Back", async () => {
   window.history.replaceState(null, "", "/projects/project-1/tasks");
   const router = createAppRouter();
-  render(<RouterProvider router={router} />);
+  render(
+    <TestAppProviders services={createTestServices([])}>
+      <RouterProvider router={router} />
+    </TestAppProviders>,
+  );
 
   await router.navigate({
     to: sessionChatRoutePath,
@@ -115,7 +125,11 @@ it("opens the development-gated Session Chat route and uses ordinary Back", asyn
 it("opens a direct Session Chat URL without a catalog origin", async () => {
   window.history.replaceState(null, "", "/projects/project-1/sessions/session-1");
   const router = createAppRouter();
-  render(<RouterProvider router={router} />);
+  render(
+    <TestAppProviders services={createTestServices([])}>
+      <RouterProvider router={router} />
+    </TestAppProviders>,
+  );
 
   expect(await screen.findByTestId("standalone-chat-route")).toBeInTheDocument();
   expect(Object.hasOwn(router.state.location.state, "sessionChat")).toBe(false);

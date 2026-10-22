@@ -3,6 +3,7 @@ package processview
 import (
 	"context"
 	"fmt"
+	"sync"
 
 	shelltool "core/server/tools/shell"
 	processpb "core/shared/protoapi/gen/kent/api/process"
@@ -16,10 +17,12 @@ type ProjectSessionMembership interface {
 type ProcessViewService struct {
 	processes  *shelltool.Manager
 	membership ProjectSessionMembership
+	mu         sync.Mutex
+	observers  map[*processObservation]struct{}
 }
 
 func NewProcessViewService(processes *shelltool.Manager, membership ProjectSessionMembership) *ProcessViewService {
-	return &ProcessViewService{processes: processes, membership: membership}
+	return &ProcessViewService{processes: processes, membership: membership, observers: make(map[*processObservation]struct{})}
 }
 
 func (s *ProcessViewService) ListProcesses(ctx context.Context, req *processpb.ListRequest) (*processpb.ListSuccess, error) {
@@ -46,24 +49,39 @@ func (s *ProcessViewService) ListProcesses(ctx context.Context, req *processpb.L
 	for _, sessionID := range projectSessionIDs {
 		projectSessions[sessionID] = struct{}{}
 	}
+	return listProcesses(snapshots, projectSessions, req.OwnerSessionId, req.OwnerStepId), nil
+}
+
+func (s *ProcessViewService) listSessionProcesses(sessionID string) (*processpb.ListSuccess, error) {
+	if s == nil || s.processes == nil {
+		return nil, fmt.Errorf("process source is required")
+	}
+	return listProcesses(s.processes.List(), map[string]struct{}{sessionID: {}}, nil, nil), nil
+}
+
+func listProcesses(
+	snapshots []shelltool.Snapshot,
+	sessionIDs map[string]struct{},
+	ownerSessionID *string,
+	ownerStepID *string,
+) *processpb.ListSuccess {
 	processes := make([]*processpb.BackgroundProcess, 0, len(snapshots))
 	for _, snapshot := range snapshots {
-		if _, matchesProject := projectSessions[snapshot.OwnerSessionID]; !matchesProject {
+		if !snapshot.Backgrounded {
 			continue
 		}
-		if req.OwnerSessionId != nil && snapshot.OwnerSessionID != *req.OwnerSessionId {
+		if _, inScope := sessionIDs[snapshot.OwnerSessionID]; !inScope {
 			continue
 		}
-		if req.OwnerRunId != nil && snapshot.OwnerRunID != *req.OwnerRunId {
+		if ownerSessionID != nil && snapshot.OwnerSessionID != *ownerSessionID {
 			continue
 		}
-		process, err := ProcessFromSnapshot(snapshot)
-		if err != nil {
-			return nil, err
+		if ownerStepID != nil && snapshot.OwnerStepID != *ownerStepID {
+			continue
 		}
-		processes = append(processes, process)
+		processes = append(processes, ProcessFromSnapshot(snapshot))
 	}
-	return &processpb.ListSuccess{Processes: processes}, nil
+	return &processpb.ListSuccess{Processes: processes}
 }
 
 func (s *ProcessViewService) GetProcess(_ context.Context, req *processpb.GetRequest) (*processpb.GetSuccess, error) {
@@ -74,11 +92,7 @@ func (s *ProcessViewService) GetProcess(_ context.Context, req *processpb.GetReq
 	if err != nil {
 		return nil, err
 	}
-	process, err := ProcessFromSnapshot(snapshot)
-	if err != nil {
-		return nil, err
-	}
-	return &processpb.GetSuccess{Process: process}, nil
+	return &processpb.GetSuccess{Process: ProcessFromSnapshot(snapshot)}, nil
 }
 
 func (s *ProcessViewService) KillProcess(ctx context.Context, req *processpb.KillRequest) (*emptypb.Empty, error) {

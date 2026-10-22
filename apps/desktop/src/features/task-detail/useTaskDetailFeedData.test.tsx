@@ -6,14 +6,14 @@ import { createTestServices } from "@/test-support/app-services";
 import type { TaskComment } from "@/api";
 import { appI18n } from "@/i18n";
 import { createTaskDetailViewModel, useTaskDetailReads } from "./TaskDetailViewModel";
-import { afterEach, vi } from "vitest";
+import { afterEach, describe, expect, it, vi } from "bun:test";
 
 type Request = Readonly<{ feed: "activity" | "comments"; offset: number }>;
 
-const testState = vi.hoisted((): { requests: Request[]; emptyNonzeroPage: boolean } => ({
+const testState: { requests: Request[]; emptyNonzeroPage: boolean } = {
   requests: [],
   emptyNonzeroPage: false,
-}));
+};
 
 function useFeeds(client: QueryClient) {
   const [model] = useState(() => {

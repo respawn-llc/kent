@@ -4,16 +4,22 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"io"
 	"log/slog"
+	"net/http"
+	"net/http/httptest"
+	"net/url"
 	"reflect"
 	"strings"
 	"testing"
 	"time"
 
+	"core/internal/testharness/httpclient"
 	"core/internal/testharness/testsetup"
 	"core/server/llm"
 	"core/server/session"
 	"core/server/tools"
+	"core/shared/config"
 	"core/shared/textutil"
 	"core/shared/toolspec"
 )
@@ -56,7 +62,7 @@ func malformedCompactionProviderError() *llm.ProviderAPIError {
 	return providerErr
 }
 
-func TestRemoteCompactionRetries413OverflowByCollapsingToolOutput(t *testing.T) {
+func TestSpeculativeRemoteCompactionRetries413OverflowByCollapsingToolOutput(t *testing.T) {
 	store := mustCreateTestSession(t)
 	client := &fakeCompactionClient{
 		compactionErrors: []error{
@@ -72,7 +78,7 @@ func TestRemoteCompactionRetries413OverflowByCollapsingToolOutput(t *testing.T) 
 		},
 	}
 	engine := mustNewTestEngine(t, store, client, tools.NewRegistry(), Config{
-		Model:               "gpt-5",
+		Model:               "gpt-6-sol",
 		CompactionMode:      "native",
 		ContextWindowTokens: 2_500,
 	})
@@ -97,10 +103,7 @@ func TestRemoteCompactionRetries413OverflowByCollapsingToolOutput(t *testing.T) 
 	}
 	restoreStep()
 
-	if err := engine.CompactContext(context.Background(), ""); err != nil {
-		t.Fatalf("schedule compaction after overflow: %v", err)
-	}
-	waitEngineLifecycleTasks(t, engine)
+	scheduleSpeculativeCompactionAndWait(t, engine)
 	if len(client.compactionCalls) != 2 || len(client.calls) != 0 {
 		t.Fatalf(
 			"remote/local compaction calls = %d/%d, want two/zero",
@@ -136,7 +139,7 @@ func TestMalformedRemoteCompactionFallbackUsesOverflowRepairedInput(t *testing.T
 		},
 	}
 	engine := mustNewTestEngine(t, store, client, newTestToolRegistry(t), Config{
-		Model:               "gpt-5",
+		Model:               "gpt-6-sol",
 		CompactionMode:      "native",
 		ContextWindowTokens: 2_500,
 	})
@@ -221,7 +224,7 @@ func TestMalformedRemoteCompactionCombinesRemoteAndLocalOverflowRepairFacts(t *t
 		},
 	}
 	engine := mustNewTestEngine(t, store, client, newTestToolRegistry(t), Config{
-		Model:               "gpt-5",
+		Model:               "gpt-6-sol",
 		CompactionMode:      "native",
 		ContextWindowTokens: 2_500,
 	})
@@ -267,18 +270,134 @@ func TestMalformedRemoteCompactionCombinesRemoteAndLocalOverflowRepairFacts(t *t
 }
 
 func TestRemoteCompactionInheritsEffectiveFastMode(t *testing.T) {
+	t.Run("OpenAI", testRemoteCompactionInheritsEffectiveFastMode)
+	for _, protocol := range []config.ConnectionProtocol{config.ConnectionGrokOAuthAPI, config.ConnectionGrokAPIKey} {
+		t.Run(string(protocol), func(t *testing.T) {
+			testGrokCompactionCacheDispatch(t, protocol)
+		})
+	}
+}
+
+type capturingCompactionClient struct {
+	llm.Client
+	llm.CompactionClient
+	llm.ProviderCapabilitiesClient
+	request llm.CompactionRequest
+}
+
+func (c *capturingCompactionClient) Compact(ctx context.Context, request llm.CompactionRequest) (llm.CompactionResponse, error) {
+	c.request = request
+	return c.CompactionClient.Compact(ctx, request)
+}
+
+func testGrokCompactionCacheDispatch(t *testing.T, protocol config.ConnectionProtocol) {
+	var wire struct {
+		Input        []json.RawMessage `json:"input"`
+		Tools        []json.RawMessage `json:"tools"`
+		CacheKey     string            `json:"prompt_cache_key"`
+		Tier         string            `json:"service_tier"`
+		Instructions string            `json:"instructions"`
+	}
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/v1/responses/compact" {
+			t.Errorf("unexpected path %s", r.URL.Path)
+		}
+		if err := json.NewDecoder(r.Body).Decode(&wire); err != nil {
+			t.Error(err)
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = io.WriteString(w, `{"output":[{"type":"compaction","encrypted_content":"opaque"}],"usage":{"input_tokens":10,"output_tokens":2}}`)
+	}))
+	defer server.Close()
+	definition := config.ProviderConnection{Protocol: protocol}
+	if protocol == config.ConnectionGrokAPIKey {
+		definition.EnvironmentVariable = textutil.Value("GROK_KEY")
+	}
+	registration, err := llm.ResolveConnectionVariant(definition)
+	if err != nil {
+		t.Fatal(err)
+	}
+	target, err := url.Parse(server.URL)
+	if err != nil {
+		t.Fatal(err)
+	}
+	provider, err := llm.NewProviderClient(llm.ProviderClientOptions{
+		Registration: registration, Auth: transportStaticAuth{},
+		HTTPClient:          &http.Client{Transport: httpclient.NewURLRewriteTransport(target, server.Client().Transport, "")},
+		ContextWindowTokens: 256_000,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	client := &capturingCompactionClient{Client: provider, CompactionClient: provider.(llm.CompactionClient), ProviderCapabilitiesClient: provider.(llm.ProviderCapabilitiesClient)}
+	store := mustCreateTestSession(t)
+	engine := mustNewTestEngine(t, store, client, newTestToolRegistry(t, tools.HandlerRegistration{
+		ID: toolspec.ToolExecCommand, Handler: fakeTool{name: toolspec.ToolExecCommand},
+	}), Config{
+		Model: "grok-4.7", ThinkingLevel: "high", CompactionMode: "native", FastModeEnabled: true,
+		EnabledTools: []toolspec.ID{toolspec.ToolExecCommand},
+	})
+	if err := steerTestActiveStep(engine, "input", steerMessagesWithPersistenceIntent(
+		steeringPriorityNormal, steeringMessageEventNone, true,
+		[]llm.Message{{Role: llm.RoleUser, Content: textutil.Value("compact")}},
+	)); err != nil {
+		t.Fatal(err)
+	}
+	scheduleManualCompactionAndWait(t, engine)
+	if len(client.request.Tools) != 1 || len(wire.Tools) != 1 || wire.CacheKey != engine.SessionID() ||
+		wire.Tier != "priority" || wire.Instructions != client.request.SystemPrompt || wire.Instructions == "" ||
+		len(wire.Input) != len(client.request.Items) {
+		t.Fatalf("observed/dispatch request mismatch: observed tools=%d wire tools=%s key=%q tier=%q observed items=%d wire items=%d",
+			len(client.request.Tools), wire.Tools, wire.CacheKey, wire.Tier, len(client.request.Items), len(wire.Input))
+	}
+	for index, item := range client.request.Items {
+		var observed, dispatched any
+		if err := json.Unmarshal(item.Raw, &observed); err != nil {
+			t.Fatal(err)
+		}
+		if err := json.Unmarshal(wire.Input[index], &dispatched); err != nil {
+			t.Fatal(err)
+		}
+		if !reflect.DeepEqual(observed, dispatched) {
+			t.Fatalf("wire input %d differs from observed item", index)
+		}
+	}
+	expected, err := summarizePromptCacheRequest(client.request)
+	if err != nil {
+		t.Fatal(err)
+	}
+	window, err := mustMaterializeTestEventLog(t, store).ReadRecentRecords(32)
+	if err != nil {
+		t.Fatal(err)
+	}
+	found := false
+	for _, event := range window.Records {
+		if record, ok := mustSessionEventPayload(event).(session.CacheRequestObservationRecord); ok {
+			found = true
+			if record.TerminalHash != expected.terminalHash || record.CacheKey != wire.CacheKey || record.ChunkCount != expected.chunkCount {
+				t.Fatalf("cache observation differs from dispatch: %+v", record)
+			}
+		}
+	}
+	if !found {
+		t.Fatal("missing compaction cache observation")
+	}
+}
+
+func testRemoteCompactionInheritsEffectiveFastMode(t *testing.T) {
 	store := mustCreateTestSession(t)
 	client := &fakeCompactionClient{
 		compactionResponses: []llm.CompactionResponse{remoteCompactionReplacement(1_000, 100, 2_500)},
 		caps: llm.ProviderCapabilities{
 			ProviderID:               "chatgpt-codex",
 			SupportsResponsesAPI:     true,
+			SupportsFastMode:         true,
 			SupportsResponsesCompact: true,
 			IsOpenAIFirstParty:       true,
 		},
 	}
 	engine := mustNewTestEngine(t, store, client, newTestToolRegistry(t), Config{
-		Model:           "gpt-5.6-sol",
+		Model:           "gpt-6-sol",
 		CompactionMode:  "native",
 		FastModeEnabled: true,
 	})
@@ -310,7 +429,7 @@ func TestRemoteCompactionPreservesNativeWebSearchDeclaration(t *testing.T) {
 		caps:                openAIFirstPartyNativeWebSearchCaps(),
 	}
 	engine := mustNewTestEngine(t, store, client, newTestToolRegistry(t), Config{
-		Model:          "gpt-5",
+		Model:          "gpt-6-sol",
 		CompactionMode: "native",
 		WebSearchMode:  "native",
 		EnabledTools:   []toolspec.ID{toolspec.ToolWebSearch},
@@ -347,7 +466,7 @@ func TestRemoteCompactionTransientRetryReusesUnchangedDispatchState(t *testing.T
 		compactionResponses: []llm.CompactionResponse{remoteCompactionReplacement(1_000, 100, 2_500)},
 	}
 	engine := mustNewTestEngine(t, store, client, newTestToolRegistry(t), Config{
-		Model:          "gpt-5",
+		Model:          "gpt-6-sol",
 		CompactionMode: "native",
 	})
 	if err := steerTestActiveStep(engine, "transient-retry-input", steerMessagesWithPersistenceIntent(
@@ -373,6 +492,41 @@ func TestRemoteCompactionTransientRetryReusesUnchangedDispatchState(t *testing.T
 	}
 	if first != second {
 		t.Fatal("unchanged transient retry allocated a fresh dispatch-state handle")
+	}
+}
+
+func TestStandaloneCompactionUsesItsOwnCodexTurnIdentity(t *testing.T) {
+	client := &fakeCompactionClient{
+		responses: []llm.Response{{
+			Assistant: llm.Message{
+				Role: llm.RoleAssistant, Content: textutil.Value("ordinary completion"),
+				Phase: textutil.Value(llm.MessagePhaseFinal),
+			},
+			Usage: llm.Usage{WindowTokens: 1_000},
+		}},
+		compactionResponses: []llm.CompactionResponse{remoteCompactionReplacement(1_000, 100, 2_500)},
+	}
+	engine := mustNewTestEngine(t, mustCreateTestSession(t), client, tools.NewRegistry(), Config{
+		Model: "gpt-6-sol", CompactionMode: "native", ContextWindowTokens: 200_000,
+	})
+	if _, err := engine.SubmitUserMessage(t.Context(), "ordinary work"); err != nil {
+		t.Fatalf("ordinary execution: %v", err)
+	}
+	if len(client.calls) != 1 {
+		t.Fatalf("ordinary generation calls = %d, want one", len(client.calls))
+	}
+	ordinaryTurnID := codexTurnIDForDispatch(t, client.calls[0].CodexDispatch)
+
+	if err := engine.CompactContext(t.Context(), ""); err != nil {
+		t.Fatalf("standalone compaction: %v", err)
+	}
+	waitEngineLifecycleTasks(t, engine)
+	if len(client.compactionCalls) != 1 {
+		t.Fatalf("standalone compaction calls = %d, want one", len(client.compactionCalls))
+	}
+	compactionTurnID := codexTurnIDForDispatch(t, client.compactionCalls[0].CodexDispatch)
+	if ordinaryTurnID == compactionTurnID {
+		t.Fatal("standalone compaction reused the prior execution identity")
 	}
 }
 
@@ -423,6 +577,7 @@ func TestRemoteCompactionFailureAndCheckpointFallback(t *testing.T) {
 			t.Fatalf("schedule compaction: %v", err)
 		}
 		waitEngineLifecycleTasks(t, engine)
+		buildActiveTurnRequestForTest(t, engine, nil, true)
 		summaries := 0
 		for _, item := range engine.transcriptRuntimeState().SnapshotItems() {
 			if item.Type == llm.ResponseItemTypeMessage &&
@@ -637,7 +792,7 @@ func TestMalformedRemoteCompactionJoinsLocalDispatchFailure(t *testing.T) {
 	}
 	client := &compactionCallbackClient{fakeCompactionClient: base}
 	engine := mustNewTestEngine(t, mustCreateTestSession(t), client, newTestToolRegistry(t), Config{
-		Model:          "gpt-5",
+		Model:          "gpt-6-sol",
 		CompactionMode: "native",
 	})
 	client.onCompact = func() {
@@ -668,15 +823,15 @@ func newRemoteCompactionFixture(
 		}},
 		compactionErrors: []error{compactionError},
 		compactionResponses: []llm.CompactionResponse{{
-			Checkpoint: llm.ResponseItem{
+			OutputItems: []llm.ResponseItem{llm.ResponseItem{
 				Type:             llm.ResponseItemTypeCompaction,
 				EncryptedContent: textutil.Value("checkpoint"),
-			},
-			Usage: llm.Usage{InputTokens: 1_000, OutputTokens: 100, WindowTokens: 200_000},
+			}},
+			Usage: llm.Usage{InputTokens: textutil.Value(1_000), OutputTokens: textutil.Value(100), WindowTokens: 200_000, ContextUsage: &llm.ContextUsage{Tokens: 1_000, MeasurementPoint: llm.ContextMeasurementInput}},
 		}},
 	}
 	engine := mustNewTestEngine(t, store, client, tools.NewRegistry(), Config{
-		Model:          "gpt-5",
+		Model:          "gpt-6-sol",
 		CompactionMode: "native",
 	})
 	restoreStep := setTestActiveStep(engine, "input")

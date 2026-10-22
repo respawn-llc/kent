@@ -6,6 +6,7 @@ import "buf/validate/validate.proto";
 import "kent/api/auth/auth.proto";
 import "kent/api/server/server.proto";
 import "kent/api/shared/foundation.proto";
+import "kent/api/shared/validation.proto";
 
 option go_package = "core/shared/protoapi/gen/kent/api/session_retarget;sessionretargetpb";
 
@@ -15,11 +16,12 @@ message ProjectReference {
 }
 
 message SessionRetargetFacts {
-  string session_id = 1 [(buf.validate.field).string.min_len = 1];
+  string session_id = 1 [(buf.validate.field).string.uuid = true, (buf.validate.field).string.(kent.api.shared.canonical_uuid_v4) = true];
   ProjectReference source_project = 2 [(buf.validate.field).required = true];
   string target_root = 3 [(buf.validate.field).string.min_len = 1];
   repeated ProjectReference candidate_projects = 4;
   repeated string workflow_task_ids = 5 [(buf.validate.field).repeated.items.string.min_len = 1];
+  optional int64 short_id = 6 [(buf.validate.field).int64 = {gt: 0 lte: 9007199254740991}];
 }
 
 message SessionRetargetTargetProjectRequiredDetails {
@@ -106,4 +108,3 @@ message SessionRetargetWorkspaceError {
     ];
   }
 }
-

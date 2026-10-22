@@ -2,14 +2,14 @@ package runtimeview
 
 import (
 	"core/server/runtime"
-	"core/shared/protoapi"
 	runtimepb "core/shared/protoapi/gen/kent/api/runtime"
 	transcriptpb "core/shared/protoapi/gen/kent/api/transcript"
+	"core/shared/runtimeids"
 	"core/shared/textutil"
 )
 
-func TranscriptPageFromSegment(sessionID, sessionName string, freshness runtimepb.ConversationFreshness, page runtime.TranscriptSegmentPage) (*transcriptpb.Page, error) {
-	segment, err := TranscriptTailSegmentFromSegment(page)
+func TranscriptPageFromSegment(sessionID string, sessionName *string, freshness runtimepb.ConversationFreshness, page runtime.TranscriptSegmentPage, identities map[runtimeids.SessionID]runtimeids.SessionIdentity) (*transcriptpb.Page, error) {
+	segment, err := TranscriptTailSegmentFromSegment(page, identities)
 	if err != nil {
 		return nil, err
 	}
@@ -22,7 +22,7 @@ func TranscriptPageFromSegment(sessionID, sessionName string, freshness runtimep
 	}
 	return &transcriptpb.Page{
 		SessionId:               sessionID,
-		SessionName:             textutil.OptionalExactString(sessionName),
+		SessionName:             textutil.Pointer(sessionName),
 		ConversationFreshness:   freshness,
 		OlderCursor:             segment.OlderCursor,
 		HasMoreAbove:            segment.HasMoreAbove,
@@ -33,11 +33,12 @@ func TranscriptPageFromSegment(sessionID, sessionName string, freshness runtimep
 	}, nil
 }
 
-func TranscriptTailSegmentFromSegment(page runtime.TranscriptSegmentPage) (*transcriptpb.TailSegment, error) {
+func TranscriptTailSegmentFromSegment(page runtime.TranscriptSegmentPage, identities map[runtimeids.SessionID]runtimeids.SessionIdentity) (*transcriptpb.TailSegment, error) {
 	return transcriptTailSegmentFromFactsChecked(
 		runtime.TranscriptCommittedRowFactsFromSnapshot(page.Snapshot),
 		transcriptCursor(page.HasMoreAbove, page.OlderCursor),
 		page.HasMoreAbove,
+		identities,
 	)
 }
 
@@ -45,8 +46,9 @@ func transcriptTailSegmentFromFactsChecked(
 	facts []runtime.TranscriptCommittedRowFact,
 	olderCursor *int64,
 	hasMoreAbove bool,
+	identities map[runtimeids.SessionID]runtimeids.SessionIdentity,
 ) (*transcriptpb.TailSegment, error) {
-	entries, err := transcriptRowsFromFactsChecked(facts)
+	entries, err := transcriptRowsFromFactsChecked(facts, identities)
 	if err != nil {
 		return nil, err
 	}
@@ -55,10 +57,17 @@ func transcriptTailSegmentFromFactsChecked(
 		HasMoreAbove: hasMoreAbove,
 		Entries:      entries,
 	}
-	if err := protoapi.Validate(segment); err != nil {
-		return nil, err
-	}
 	return segment, nil
+}
+
+func TranscriptReferencedSessions(facts []runtime.TranscriptCommittedRowFact) []runtimeids.SessionID {
+	var ids []runtimeids.SessionID
+	for _, fact := range facts {
+		if fact.Tool != nil && fact.Tool.AnsweredBySessionID != nil {
+			ids = append(ids, *fact.Tool.AnsweredBySessionID)
+		}
+	}
+	return ids
 }
 
 func transcriptCursor(hasMore bool, cursor int64) *int64 {

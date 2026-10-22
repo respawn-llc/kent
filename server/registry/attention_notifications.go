@@ -9,11 +9,14 @@ import (
 
 	"core/server/attentionnotify"
 	askquestion "core/server/tools"
+	"core/shared/apicontract"
 	"core/shared/clientui"
 	"core/shared/protoapi"
 	attentionpb "core/shared/protoapi/gen/kent/api/attention"
 	sessionlaunchpb "core/shared/protoapi/gen/kent/api/session_launch"
+	"core/shared/runtimeids"
 	"core/shared/serverapi"
+	"google.golang.org/protobuf/types/known/emptypb"
 )
 
 func (r *RuntimeRegistry) WithAttentionNotifications(broker *attentionnotify.Broker, navigation func(context.Context, string) (*sessionlaunchpb.SessionNavigationBinding, error)) *RuntimeRegistry {
@@ -28,20 +31,18 @@ func (r *RuntimeRegistry) WithAttentionNotifications(broker *attentionnotify.Bro
 	return r
 }
 
-func (r *RuntimeRegistry) SubscribeAttentionNotifications(_ context.Context, req serverapi.AttentionNotificationSubscribeRequest) (serverapi.AttentionNotificationSubscription, error) {
-	if err := req.Validate(); err != nil {
-		return nil, err
-	}
+func (r *RuntimeRegistry) SubscribeAttentionNotifications(_ context.Context, req *emptypb.Empty) (apicontract.AttentionNotificationSubscription, error) {
 	if r == nil || r.attentionBroker == nil {
 		return nil, fmt.Errorf("attention notification stream is unavailable: %w", serverapi.ErrStreamUnavailable)
 	}
-	return r.attentionBroker.SubscribeDesktop()
+	sub, err := r.attentionBroker.SubscribeDesktop()
+	if err != nil {
+		return nil, err
+	}
+	return &attentionSubscription{native: sub, registry: r}, nil
 }
 
 func (r *RuntimeRegistry) SubscribeSessionAttentionNotifications(_ context.Context, req *attentionpb.SubscribeRequest) (serverapi.SessionAttentionNotificationSubscription, error) {
-	if err := protoapi.Validate(req); err != nil {
-		return nil, err
-	}
 	if r == nil || r.attentionBroker == nil {
 		return nil, fmt.Errorf("attention notification stream is unavailable: %w", serverapi.ErrStreamUnavailable)
 	}
@@ -49,7 +50,16 @@ func (r *RuntimeRegistry) SubscribeSessionAttentionNotifications(_ context.Conte
 	if err != nil {
 		return nil, err
 	}
-	return &sessionAttentionSubscription{native: sub}, nil
+	return &sessionAttentionSubscription{native: sub, registry: r}, nil
+}
+
+func (r *RuntimeRegistry) attentionSessionShortID(ctx context.Context, raw string) (*int64, error) {
+	id := runtimeids.SessionIDFromProto(raw)
+	identity, err := r.metadata.SessionIdentity(ctx, id)
+	if err != nil {
+		return nil, err
+	}
+	return protoapi.SessionShortIDToProto(identity.ShortID), nil
 }
 
 func (r *RuntimeRegistry) publishAttentionPending(sessionID string, snapshot PendingPromptSnapshot) {

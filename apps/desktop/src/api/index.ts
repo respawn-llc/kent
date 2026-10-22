@@ -1,4 +1,14 @@
 export type { ApiService, ApiSubscription } from "./apiService";
+export { projectUpdateViolations } from "./projectValidation";
+export { taskCreateTitleViolations } from "./taskValidation";
+export type {
+  SubscriptionConnection,
+  SubscriptionBinding,
+  SubscriptionUsage,
+  SubscriptionWindow,
+} from "./subscriptionUsage";
+export { SubscriptionReadError } from "./subscriptionUsage";
+export { sessionDisplayID, sessionDisplayTitle } from "./sessionIdentity";
 export type { DesktopProcess } from "./processes";
 export type {
   ChatSettingsAgent,
@@ -38,9 +48,10 @@ export type {
   ChatNotAcceptedReason,
   ChatProjectTarget,
   ChatRuntimeActivity,
-  ChatRuntimeAttachment,
-  ChatRuntimeRelease,
   ChatSessionTarget,
+  ChatSessionNameMutation,
+  ChatSettingsSnapshot,
+  ChatSettingsObservation,
   ChatSettings,
   ChatSettingsTarget,
   ChatTranscriptCompletion,
@@ -93,7 +104,7 @@ export { workflowPageSize } from "./clientInputs";
 export type {
   AttentionNotification,
   AttentionNotificationEvent,
-  AttentionNotificationEventHandler,
+  AttentionNotificationLifecycle,
   AttentionNotificationID,
   AttentionNotificationQuestionState,
   AttentionNotificationTarget,
@@ -113,17 +124,13 @@ export {
   ContractError,
   ProtocolMismatchError,
   RpcError,
-  decodeExecutionTargetChoiceFailure,
+  executionTargetChoiceFailure,
   type ExecutionTargetChoiceFailure,
   WorkflowLabelError,
   WorkflowTaskCreateSelectionError,
   WorkflowTaskDependencyError,
   TaskSearchError,
-  decodeTaskSearchError,
-  decodeWorkflowLabelError,
-  decodeWorkflowTaskCreateSelectionError,
   isTaskContextSelectionRequiredError,
-  decodeWorkflowTaskDependencyError,
   isProjectMissingError,
   isTaskMissingError,
   ServerRootMismatchError,
@@ -139,29 +146,14 @@ export type { TaskSearchErrorReason } from "./errors";
 export { ChatOperationError } from "./chatErrors";
 export type { ChatError } from "./chatErrors";
 export { guiTaskCommentAuthor } from "./client";
-export type { JsonArray, JsonObject, JsonPrimitive, JsonValue } from "./json";
-export { newSetupOperationID, parseSetupOperationID, SetupOperationID } from "./setupOperationID";
-export {
-  parseCompactionRequestID,
-  parsePendingWorkItemID,
-  parseWorktreeOperationID,
-  pendingWorkItemSchema,
-  pendingWorkChangedEventSchema,
-  pendingWorkRestorationSchema,
-  pendingWorkSchema,
-  pendingWorkTechnicalRestorationEventSchema,
-  sessionSettingFeedbackSchema,
-} from "./pendingWork";
+export { newSetupOperationID, SetupOperationID } from "./setupOperationID";
+export { pendingWorkItemIDFromProto, worktreeOperationIDFromProto } from "./pendingWork";
 export type {
-  CompactionRequestID,
   PendingWork,
   PendingWorkIdentity,
   PendingWorkItem,
   PendingWorkItemID,
   PendingWorkRestoration,
-  PendingWorkChangedEvent,
-  PendingWorkTechnicalRestorationEvent,
-  SessionSettingFeedback,
 } from "./pendingWork";
 export type * from "./schemas/worktree";
 export {
@@ -170,13 +162,12 @@ export {
   CreateTargetResolutionKind,
   SelectorErrorKind,
 } from "@app/server-api-contract/gen/kent/api/worktree/worktree_pb";
-export { rpcErrorCodes } from "./rpcErrorCodes";
 export { WorktreeError, hasDeletableWorktreeBranch } from "./clientWorktree";
 export type { WorktreeErrorDetail } from "./clientWorktree";
 export { workflowIDSchema } from "./schemas/workflowID";
 export { nonBlankString } from "./schemas/common";
 export type { WorktreeSetupEventHandler } from "./worktreeSetup";
-export { decodeWorktreeSetupRetainedError, WorktreeSetupRetainedError } from "./schemas/workflowBoard";
+export { worktreeSetupRecovery, type WorktreeSetupRecovery } from "./taskWorktreeProjection";
 export type { WorkflowProjectEvent, WorkflowProjectEventHandler } from "./workflowProjectEvents";
 export type { ProjectObservation } from "./projectEvents";
 export { workflowLabelMaxIDs } from "./workflowLabelContract";

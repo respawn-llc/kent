@@ -6,7 +6,7 @@ import (
 	"fmt"
 	"sync/atomic"
 	"testing"
-	"time"
+	"testing/synctest"
 
 	"core/server/llm"
 )
@@ -16,17 +16,16 @@ type countingFailingStreamClient struct {
 	err   error
 }
 
+func (*countingFailingStreamClient) ProviderCapabilities(context.Context) (llm.ProviderCapabilities, error) {
+	return defaultTestProviderCapabilities(), nil
+}
+
 func (c *countingFailingStreamClient) Generate(context.Context, llm.Request, llm.StreamCallbacks) (llm.Response, error) {
 	c.calls.Add(1)
 	return llm.Response{}, c.err
 }
 
 func TestGenerateWithRetryRetryPolicyByToolChoice(t *testing.T) {
-	withGenerateRetryDelays(t, []time.Duration{0, 0, 0, 0, 0})
-	withIdleStallRetryDelays(t, []time.Duration{0})
-
-	store := mustCreateTestSession(t)
-	eng := mustNewTestEngine(t, store, &fakeClient{}, newTestToolRegistry(t), Config{Model: "gpt-5"})
 	tests := []struct {
 		name         string
 		request      llm.Request
@@ -35,25 +34,25 @@ func TestGenerateWithRetryRetryPolicyByToolChoice(t *testing.T) {
 	}{
 		{
 			name:         "automatic stall uses reduced budget",
-			request:      llm.Request{ToolChoiceMode: llm.ToolChoiceModeAutomatic, Model: "gpt-5"},
+			request:      llm.Request{ToolChoiceMode: llm.ToolChoiceModeAutomatic, Model: "gpt-6-sol", ReasoningEffort: "high"},
 			err:          fmt.Errorf("model stream stalled: %w", llm.ErrModelStreamStalled),
 			wantAttempts: int32(len(idleStallRetryDelays) + 1),
 		},
 		{
 			name:         "automatic retriable uses full budget",
-			request:      llm.Request{ToolChoiceMode: llm.ToolChoiceModeAutomatic, Model: "gpt-5"},
+			request:      llm.Request{ToolChoiceMode: llm.ToolChoiceModeAutomatic, Model: "gpt-6-sol", ReasoningEffort: "high"},
 			err:          &llm.ProviderAPIError{ProviderID: "openai", StatusCode: 503, Code: llm.UnifiedErrorCodeUnknown, Message: "overloaded"},
 			wantAttempts: int32(len(generateRetryDelays) + 1),
 		},
 		{
 			name: "required provider uses full budget",
 			request: llm.Request{
-				Model:          "gpt-5",
+				Model:          "gpt-6-sol",
 				ToolChoiceMode: llm.ToolChoiceModeRequired,
 				Tools: []llm.Tool{{
 					Name:   "complete_node",
 					Schema: mustTestFunctionSchema(t),
-				}},
+				}}, ReasoningEffort: "high",
 			},
 			err:          &llm.ProviderAPIError{StatusCode: 503, Code: llm.UnifiedErrorCodeUnknown},
 			wantAttempts: int32(len(generateRetryDelays) + 1),
@@ -61,12 +60,12 @@ func TestGenerateWithRetryRetryPolicyByToolChoice(t *testing.T) {
 		{
 			name: "required stall uses reduced budget",
 			request: llm.Request{
-				Model:          "gpt-5",
+				Model:          "gpt-6-sol",
 				ToolChoiceMode: llm.ToolChoiceModeRequired,
 				Tools: []llm.Tool{{
 					Name:   "complete_node",
 					Schema: mustTestFunctionSchema(t),
-				}},
+				}}, ReasoningEffort: "high",
 			},
 			err:          fmt.Errorf("model stream stalled: %w", llm.ErrModelStreamStalled),
 			wantAttempts: int32(len(idleStallRetryDelays) + 1),
@@ -74,14 +73,18 @@ func TestGenerateWithRetryRetryPolicyByToolChoice(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			retriable := &countingFailingStreamClient{err: tt.err}
+			synctest.Test(t, func(t *testing.T) {
+				store := mustCreateTestSession(t)
+				eng := mustNewTestEngine(t, store, &fakeClient{}, newTestToolRegistry(t), Config{Model: "gpt-6-sol"})
+				retriable := &countingFailingStreamClient{err: tt.err}
 
-			if _, err := eng.generateWithRetryClient(context.Background(), "step-1", newObservedModelClient(retriable), tt.request, nil, nil, nil); err == nil {
-				t.Fatal("expected retry-policy failure to surface")
-			}
-			if got := retriable.calls.Load(); got != tt.wantAttempts {
-				t.Fatalf("retry-policy attempts = %d, want %d", got, tt.wantAttempts)
-			}
+				if _, err := eng.generateWithRetryClient(context.Background(), "step-1", newObservedModelClient(retriable), tt.request, nil, nil, nil); err == nil {
+					t.Fatal("expected retry-policy failure to surface")
+				}
+				if got := retriable.calls.Load(); got != tt.wantAttempts {
+					t.Fatalf("retry-policy attempts = %d, want %d", got, tt.wantAttempts)
+				}
+			})
 		})
 	}
 }
@@ -101,28 +104,34 @@ func (c *retryingEventsClient) Generate(_ context.Context, _ llm.Request, callba
 	return llm.Response{}, nil
 }
 func TestRequiredRetryClearsIncompleteAssistantReasoningAndTools(t *testing.T) {
-	withGenerateRetryDelays(t, []time.Duration{0})
-	engine := mustNewTestEngine(t, mustCreateTestSession(t), &fakeClient{}, newTestToolRegistry(t), Config{Model: "gpt-5"})
+	synctest.Test(t, testRequiredRetryClearsIncompleteAssistantReasoningAndTools)
+}
+
+func testRequiredRetryClearsIncompleteAssistantReasoningAndTools(t *testing.T) {
+	engine := mustNewTestEngine(t, mustCreateTestSession(t), &fakeClient{}, newTestToolRegistry(t), Config{Model: "gpt-6-sol"})
 	var sequence []EventKind
 	resp, err := engine.generateWithRetryClient(context.Background(), runtimeTestStepID("step"), newObservedModelClient(&retryingEventsClient{}),
-		llm.Request{Model: "gpt-5", ToolChoiceMode: llm.ToolChoiceModeRequired},
+		llm.Request{Model: "gpt-6-sol", ToolChoiceMode: llm.ToolChoiceModeRequired, ReasoningEffort: "high"},
 		func(_ llm.AssistantDelta) { sequence = append(sequence, EventAssistantDelta) },
 		func(_ llm.ReasoningSummaryDelta) { sequence = append(sequence, EventReasoningDelta) },
 		func() { sequence = append(sequence, EventAssistantDeltaReset, EventReasoningDeltaReset) },
 	)
-	if err != nil || len(resp.ToolCalls) != 0 || len(sequence) != 6 || sequence[0] != EventAssistantDelta || sequence[1] != EventReasoningDelta || sequence[2] != EventAssistantDeltaReset || sequence[3] != EventReasoningDeltaReset || sequence[4] != EventAssistantDelta || sequence[5] != EventReasoningDelta {
+	if err != nil || len(resp.response.ToolCalls) != 0 || len(sequence) != 6 || sequence[0] != EventAssistantDelta || sequence[1] != EventReasoningDelta || sequence[2] != EventAssistantDeltaReset || sequence[3] != EventReasoningDeltaReset || sequence[4] != EventAssistantDelta || sequence[5] != EventReasoningDelta {
 		t.Fatalf("required retry = response:%+v error:%v sequence:%v", resp, err, sequence)
 	}
 }
 func TestRetryBudgetResetsAfterSuccessAndRetainsOverloadCause(t *testing.T) {
-	withGenerateRetryDelays(t, []time.Duration{0, 0, 0, 0, 0})
+	synctest.Test(t, testRetryBudgetResetsAfterSuccessAndRetainsOverloadCause)
+}
+
+func testRetryBudgetResetsAfterSuccessAndRetainsOverloadCause(t *testing.T) {
 	cause := &llm.ProviderAPIError{StatusCode: 200, Code: llm.UnifiedErrorCodeProviderOverload}
 	client := &fakeClient{errors: []error{&llm.ProviderAPIError{ProviderID: "openai", StatusCode: 503, Code: llm.UnifiedErrorCodeUnknown}, nil, cause, cause, cause, cause, cause, cause}}
-	engine := mustNewTestEngine(t, mustCreateTestSession(t), client, newTestToolRegistry(t), Config{Model: "gpt-5"})
-	if _, err := engine.generateWithRetryClient(context.Background(), runtimeTestStepID("first"), newObservedModelClient(client), llm.Request{Model: "gpt-5", ToolChoiceMode: llm.ToolChoiceModeAutomatic}, nil, nil, nil); err != nil {
+	engine := mustNewTestEngine(t, mustCreateTestSession(t), client, newTestToolRegistry(t), Config{Model: "gpt-6-sol"})
+	if _, err := engine.generateWithRetryClient(context.Background(), runtimeTestStepID("first"), newObservedModelClient(client), llm.Request{Model: "gpt-6-sol", ToolChoiceMode: llm.ToolChoiceModeAutomatic, ReasoningEffort: "high"}, nil, nil, nil); err != nil {
 		t.Fatalf("first generation: %v", err)
 	}
-	_, err := engine.generateWithRetryClient(context.Background(), runtimeTestStepID("second"), newObservedModelClient(client), llm.Request{Model: "gpt-5", ToolChoiceMode: llm.ToolChoiceModeAutomatic}, nil, nil, nil)
+	_, err := engine.generateWithRetryClient(context.Background(), runtimeTestStepID("second"), newObservedModelClient(client), llm.Request{Model: "gpt-6-sol", ToolChoiceMode: llm.ToolChoiceModeAutomatic, ReasoningEffort: "high"}, nil, nil, nil)
 	if !errors.Is(err, cause) || fakeClientCallCount(client) != 2+len(generateRetryDelays)+1 {
 		t.Fatalf("exhausted overload = %v, calls = %d", err, fakeClientCallCount(client))
 	}

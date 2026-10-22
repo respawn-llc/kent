@@ -148,7 +148,7 @@ export function WorkspaceRow({
       )}
       data-testid="workspace-row"
     >
-      <span className="min-w-0 truncate font-mono text-sm" title={workspace.rootPath}>
+      <span className="min-w-0 truncate font-mono text-sm" title={workspacePathLabel}>
         {workspacePathLabel}
       </span>
       <button
@@ -240,7 +240,7 @@ function WorkspaceUnlinkContent({
       <p className="m-0">{t("projectEdit.unlinkBody")}</p>
       <p
         className="m-0 break-words rounded-[var(--radius-m)] border border-[var(--color-outline)] bg-[var(--color-island-1)] p-[var(--space-3)] font-mono text-sm"
-        title={rootPath}
+        title={rootPathLabel}
       >
         {rootPathLabel}
       </p>

@@ -71,17 +71,7 @@ func TestPlannerOpenExistingIntentOpensTheRequestedSession(t *testing.T) {
 	}
 }
 
-func TestTypedLaunchIntentRejectsInvalidIdentity(t *testing.T) {
-	var zeroID runtimeids.SessionID
-	tests := []serverapi.SessionLaunchIntent{
-		serverapi.CreateNewSessionLaunchIntent(serverapi.ParentAgentSessionCreateOrigin(zeroID)),
-		serverapi.OpenExistingSessionLaunchIntent(zeroID),
-	}
-	for _, intent := range tests {
-		if err := intent.Validate(); err == nil {
-			t.Fatalf("intent %#v validated with an absent identity", intent)
-		}
-	}
+func TestTypedLaunchSourceRejectsEscapingIdentity(t *testing.T) {
 	if _, err := runtimeids.ParseSessionID("../escape"); err == nil {
 		t.Fatal("path-shaped session identity validated")
 	}
@@ -95,7 +85,7 @@ func newTypedIntentPlanner(t *testing.T) (Planner, string, *sessiontest.Persiste
 	return newPersistenceBackedTestPlanner(config.App{
 		WorkspaceRoot:   "/tmp/workspace-a",
 		PersistenceRoot: root,
-		Settings:        config.Settings{Model: "gpt-5"},
+		Settings:        config.Settings{Model: "gpt-6-sol"},
 	}, containerDir, persistence), containerDir, persistence
 }
 

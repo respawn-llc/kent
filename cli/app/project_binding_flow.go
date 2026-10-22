@@ -3,6 +3,7 @@ package app
 import (
 	"context"
 	"fmt"
+	"log"
 	"os"
 	"sort"
 	"strings"
@@ -281,7 +282,8 @@ func (m *projectBindingPickerModel) shouldShowGroupHeader(index int, groupRender
 
 func projectBindingHomeDir() string {
 	home, err := os.UserHomeDir()
-	if err != nil || strings.TrimSpace(home) == "" {
+	if err != nil {
+		log.Printf("resolve home directory for project path display: %v", err)
 		return ""
 	}
 	return home
@@ -346,16 +348,14 @@ func headerInsetFromRenderedHeader(rendered string) string {
 }
 
 func trimRenderedHeaderInset(rendered string) string {
-	trimmed := strings.TrimRight(rendered, "\n")
+	trimmed := strings.Trim(rendered, "\n")
 	inset := headerInsetFromRenderedHeader(trimmed)
 	if inset == "" {
 		return trimmed
 	}
 	lines := strings.Split(trimmed, "\n")
 	for i, line := range lines {
-		if strings.HasPrefix(line, inset) {
-			lines[i] = strings.TrimPrefix(line, inset)
-		}
+		lines[i] = ansi.TruncateLeft(line, lipgloss.Width(inset), "")
 	}
 	return strings.Join(lines, "\n")
 }

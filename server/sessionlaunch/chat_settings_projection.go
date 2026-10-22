@@ -52,9 +52,6 @@ func projectNewChatCatalog(catalog launch.PreparedChatAgentCatalog, mode config.
 			result.InitialSettings = baseline
 		}
 	}
-	if err := protoapi.Validate(result); err != nil {
-		return nil, err
-	}
 	return result, nil
 }
 
@@ -114,8 +111,6 @@ func projectSelectedChatSettings(
 	agentEditability := chatsettingspb.Editability_EDITABILITY_EDITABLE
 	if input.WorkflowLocked {
 		agentEditability = chatsettingspb.Editability_EDITABILITY_WORKFLOW_LOCK
-	} else if cachingLocked {
-		agentEditability = chatsettingspb.Editability_EDITABILITY_CACHING_LOCK
 	}
 	thinking := projectChatThinking(effective.Thinking, selectedSettings)
 	var fast *chatsettingspb.Fast
@@ -151,7 +146,7 @@ func projectSelectedChatSettings(
 			Editability: chatsettingspb.Editability_EDITABILITY_EDITABLE,
 		},
 		AutoCompaction: autoCompaction,
-		AgentLocked:    input.WorkflowLocked || cachingLocked,
+		AgentLocked:    input.WorkflowLocked,
 		WorkflowLocked: input.WorkflowLocked,
 		CachingLocked:  cachingLocked,
 	}, nil
@@ -162,12 +157,6 @@ func lockedPreparedChatSettings(
 	fallback launch.PreparedChatSettings,
 	effective session.ChatSettings,
 ) (launch.PreparedChatSettings, error) {
-	capabilities, ok := llm.ProviderCapabilitiesFromLocked(&locked)
-	if !ok {
-		return launch.PreparedChatSettings{}, errors.New(
-			"caching-locked Chat provider contract is required",
-		)
-	}
 	fallback.SupportedThinkingValues = nil
 	if llm.LockedContractSupportsReasoningEffort(&locked, locked.Model) {
 		fallback.SupportedThinkingValues = launch.SupportedChatThinkingValues(
@@ -178,7 +167,6 @@ func lockedPreparedChatSettings(
 	fallback.Baseline.Thinking = effective.Thinking
 	fallback.Baseline.Fast = effective.Fast
 	fallback.Baseline.Questions = effective.Questions
-	fallback.FastAvailable = llm.SupportsFastModeProvider(capabilities)
 	fallback.QuestionsAvailable = slices.Contains(
 		locked.EnabledTools,
 		string(toolspec.ToolAskQuestion),

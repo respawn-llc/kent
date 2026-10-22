@@ -1,5 +1,5 @@
 import type { QueryClient } from "@tanstack/react-query";
-import * as Atom from "effect/unstable/reactivity/Atom";
+import * as Atom from "effect/reactivity/Atom";
 import * as Effect from "effect/Effect";
 import * as Stream from "effect/Stream";
 import { errorMessage, type TaskDetail } from "@/api";
@@ -86,7 +86,10 @@ export function createTaskDetailObservation({
             return null;
           }),
         ),
-        Stream.scan<Error | null, Error | null>(null, (previous, error) => previous ?? error),
+        Stream.scan<Error | null, Error | null>(
+          () => null,
+          (previous, error) => previous ?? error,
+        ),
         Stream.prepend([null]),
       );
     },

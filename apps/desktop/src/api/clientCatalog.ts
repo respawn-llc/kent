@@ -3,7 +3,7 @@ import { create, operationName } from "@app/server-api-contract";
 import {
   SessionCatalogService,
   SessionCategory as GeneratedSessionCategory,
-  type SessionSummary,
+  type SessionSummaryValid,
 } from "@app/server-api-contract/gen/kent/api/project/session_catalog_pb";
 import {
   sessionCatalogPageSize,
@@ -12,7 +12,7 @@ import {
   type SessionCategory,
 } from "./models";
 import { requireUnarySuccess } from "./protobufRpc";
-import type { DescriptorRpcTransport } from "./transport";
+import type { RpcTransport } from "./transport";
 import { timestampMillis } from "./clientTime";
 
 export function requireCatalogProject(method: string, expected: string, actual: string): void {
@@ -20,7 +20,7 @@ export function requireCatalogProject(method: string, expected: string, actual: 
 }
 
 export async function listSessionPage(
-  transport: DescriptorRpcTransport,
+  transport: RpcTransport,
   projectID: string,
   category: SessionCategory,
   offset: number,
@@ -58,12 +58,10 @@ export async function listSessionPage(
   return response;
 }
 
-function sessionSummary(summary: SessionSummary): SessionCatalogSummary {
-  if (summary.updatedAt === undefined) {
-    throw new ContractError("Session catalog summary timestamp is required.");
-  }
+function sessionSummary(summary: SessionSummaryValid): SessionCatalogSummary {
   return {
     id: summary.sessionId,
+    shortID: summary.shortId ?? null,
     category: sessionCategoryFromGenerated(summary.category),
     name: summary.name ?? null,
     firstPromptPreview: summary.firstPromptPreview ?? null,
@@ -80,7 +78,7 @@ function sessionCategoryToGenerated(category: SessionCategory): GeneratedSession
   }
 }
 
-function sessionCategoryFromGenerated(category: GeneratedSessionCategory): SessionCategory {
+export function sessionCategoryFromGenerated(category: GeneratedSessionCategory): SessionCategory {
   switch (category) {
     case GeneratedSessionCategory.MAIN:
       return "main";

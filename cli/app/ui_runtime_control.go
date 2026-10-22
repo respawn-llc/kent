@@ -17,6 +17,7 @@ import (
 	"core/shared/textutil"
 
 	tea "github.com/charmbracelet/bubbletea"
+	"google.golang.org/protobuf/proto"
 )
 
 type runtimeInterruptCandidateClient interface {
@@ -225,16 +226,6 @@ var chatSettingsSupervisorNotices = map[chatsettingspb.SupervisorValue]string{ch
 
 var chatSettingsRejectionNotices = map[chatsettingspb.MutationRejectionReason]string{chatsettingspb.MutationRejectionReason_MUTATION_REJECTION_REASON_AGENT_LOCKED: "Agent is locked", chatsettingspb.MutationRejectionReason_MUTATION_REJECTION_REASON_AGENT_UNAVAILABLE: "Agent is unavailable", chatsettingspb.MutationRejectionReason_MUTATION_REJECTION_REASON_THINKING_UNAVAILABLE: "Thinking is unavailable", chatsettingspb.MutationRejectionReason_MUTATION_REJECTION_REASON_FAST_UNAVAILABLE: "Fast mode is unavailable", chatsettingspb.MutationRejectionReason_MUTATION_REJECTION_REASON_AUTO_COMPACTION_POLICY_LOCKED: "Auto-compaction is unavailable"}
 
-func (m *uiModel) setRuntimeSessionName(name string) error {
-	m.checkTUIBlockingOperation("runtime control mutation", "set session name")
-	if client := m.runtimeClient(); client != nil {
-		err := client.SetSessionName(name)
-		m.observeRuntimeRequestResult(err)
-		return err
-	}
-	return nil
-}
-
 func (m *uiModel) showRuntimeGoal() (*runtimepb.GoalView, error) {
 	m.checkTUIBlockingOperation("runtime control read", "show goal")
 	if client := m.runtimeClient(); client != nil {
@@ -313,14 +304,14 @@ func (m *uiModel) submitRuntimeShell(ctx context.Context, req clientui.RuntimeSh
 	return nil
 }
 
-func (m *uiModel) compactRuntimeInput(ctx context.Context, req clientui.RuntimeCompactRequest) error {
+func (m *uiModel) compactRuntimeInput(ctx context.Context, req clientui.RuntimeCompactRequest) (clientui.RuntimeCompactResult, error) {
 	m.checkTUIBlockingOperation("runtime control mutation", "compact")
 	if client := m.runtimeClient(); client != nil {
-		err := client.CompactRuntime(ctx, req)
+		result, err := client.CompactRuntime(ctx, req)
 		m.observeRuntimeRequestResult(err)
-		return err
+		return result, err
 	}
-	return nil
+	return clientui.RuntimeCompactResult{}, nil
 }
 
 func (m *uiModel) interruptRuntime() error {
@@ -381,8 +372,8 @@ func (m *uiModel) recordRuntimePromptHistory(text string) error {
 type runtimeControlPendingState struct {
 	sessionID    string
 	inFlight     bool
-	inFlightText string
-	desiredText  string
+	inFlightName *runtimepb.SessionNameMutation
+	desiredName  *runtimepb.SessionNameMutation
 }
 
 func (m *uiModel) nextRuntimeControlToken(operation runtimeControlOperation) uint64 {
@@ -404,12 +395,11 @@ func (m *uiModel) runtimeControlTokenFor(operation runtimeControlOperation) uint
 	return m.runtimeControlTokens[operation]
 }
 
-func (m *uiModel) beginRuntimeControlMutation(operation runtimeControlOperation, sessionID, text string, enabled bool, compactionMode string) (uint64, bool) {
+func (m *uiModel) beginRuntimeControlMutation(operation runtimeControlOperation, sessionID string, mutation *runtimepb.SessionNameMutation) (uint64, bool) {
 	if m == nil {
 		return 0, false
 	}
 	sessionID = strings.TrimSpace(sessionID)
-	text = strings.TrimSpace(text)
 	if operation != runtimeControlSetSessionName {
 		return m.nextRuntimeControlToken(operation), true
 	}
@@ -417,7 +407,7 @@ func (m *uiModel) beginRuntimeControlMutation(operation runtimeControlOperation,
 		m.runtimeControlPending = make(map[runtimeControlOperation]runtimeControlPendingState)
 	}
 	if pending, ok := m.runtimeControlPending[operation]; ok && pending.inFlight && pending.sessionID == sessionID {
-		pending.desiredText = text
+		pending.desiredName = mutation
 		m.runtimeControlPending[operation] = pending
 		return 0, false
 	}
@@ -425,8 +415,8 @@ func (m *uiModel) beginRuntimeControlMutation(operation runtimeControlOperation,
 	m.runtimeControlPending[operation] = runtimeControlPendingState{
 		sessionID:    sessionID,
 		inFlight:     true,
-		inFlightText: text,
-		desiredText:  text,
+		inFlightName: mutation,
+		desiredName:  mutation,
 	}
 	return token, true
 }
@@ -447,7 +437,7 @@ func runtimeControlOperationUsesTextTarget(operation runtimeControlOperation) bo
 	}
 }
 
-func (m *uiModel) runtimeControlCommand(operation runtimeControlOperation, text string, enabled bool, compactionMode string) tea.Cmd {
+func (m *uiModel) runtimeControlCommand(operation runtimeControlOperation, mutation *runtimepb.SessionNameMutation) tea.Cmd {
 	if m == nil {
 		return nil
 	}
@@ -460,16 +450,15 @@ func (m *uiModel) runtimeControlCommand(operation runtimeControlOperation, text 
 		interruptReq = runtimeInterruptRequestFromModel(m)
 	}
 	sessionID := strings.TrimSpace(m.sessionID)
-	text = strings.TrimSpace(text)
-	token, shouldStart := m.beginRuntimeControlMutation(operation, sessionID, text, enabled, compactionMode)
+	token, shouldStart := m.beginRuntimeControlMutation(operation, sessionID, mutation)
 	if !shouldStart {
 		return nil
 	}
 	return func() tea.Msg {
-		msg := runtimeControlDoneMsg{token: token, sessionID: sessionID, operation: operation, text: text}
+		msg := runtimeControlDoneMsg{token: token, sessionID: sessionID, operation: operation, name: mutation}
 		switch operation {
 		case runtimeControlSetSessionName:
-			msg.err = client.SetSessionName(text)
+			msg.err = client.SetSessionName(mutation)
 		case runtimeControlInterrupt:
 			msg.runtimeTuple, msg.err = executeRuntimeInterrupt(interruptReq)
 		}
@@ -507,18 +496,22 @@ func (m *uiModel) applyRuntimeControlDone(msg runtimeControlDoneMsg) tea.Cmd {
 	var followUpCmd tea.Cmd
 	if runtimeControlOperationUsesTextTarget(msg.operation) {
 		pending := m.runtimeControlPending[msg.operation]
-		if pending.inFlight && pending.desiredText != pending.inFlightText {
+		if pending.inFlight && !proto.Equal(pending.desiredName, pending.inFlightName) {
 			pending.inFlight = false
 			m.runtimeControlPending[msg.operation] = pending
-			followUpCmd = m.runtimeControlCommand(msg.operation, pending.desiredText, false, "")
+			followUpCmd = m.runtimeControlCommand(msg.operation, pending.desiredName)
 		} else {
 			m.clearRuntimeControlPending(msg.operation)
 		}
 	}
 	switch msg.operation {
 	case runtimeControlSetSessionName:
-		m.sessionName = strings.TrimSpace(msg.text)
-		return sequenceCmds(tea.SetWindowTitle(sessionTitle(m.sessionName)), followUpCmd)
+		name, err := protoapi.SessionNameFromMutation(msg.name)
+		if err != nil {
+			return m.sendTransientStatusWithNoticeID(err.Error(), uiStatusNoticeError, transientStatusDuration, uiStatusNoticeReplace, "")
+		}
+		m.sessionName = name
+		return sequenceCmds(tea.SetWindowTitle(m.sessionTitle()), followUpCmd)
 	case runtimeControlInterrupt:
 		var merge runtimeTupleMergeResult
 		if msg.runtimeTuple != nil {

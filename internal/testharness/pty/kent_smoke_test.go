@@ -105,48 +105,65 @@ func TestProductionKentBinaryPTYSmoke(t *testing.T) {
 	}
 }
 
-func TestPromptReadyRequiresCursorVisibilityAfterMostRecentAlternateExit(t *testing.T) {
+func TestPromptReadyRequiresNormalFrameAndVisibleCursor(t *testing.T) {
 	t.Parallel()
 
-	if !promptReady([]analyzer.PrivateModeChange{{Mode: 25, Enabled: true}}) {
-		t.Fatal("startup cursor-visible transition did not satisfy prompt readiness")
-	}
-	if promptReady([]analyzer.PrivateModeChange{
-		{Mode: 1049, Enabled: true},
-		{Mode: 25, Enabled: true},
-	}) {
-		t.Fatal("cursor-visible transition inside alternate screen satisfied prompt readiness")
-	}
-	if promptReady([]analyzer.PrivateModeChange{
-		{Mode: 25, Enabled: true},
-		{Mode: 1049, Enabled: true},
-		{Mode: 1049, Enabled: false},
-	}) {
-		t.Fatal("cursor transition before alternate exit satisfied prompt readiness")
-	}
-	if !promptReady([]analyzer.PrivateModeChange{
-		{Mode: 1049, Enabled: true},
-		{Mode: 1049, Enabled: false},
-		{Mode: 25, Enabled: true},
-	}) {
-		t.Fatal("cursor-visible transition after alternate exit did not satisfy prompt readiness")
+	for _, tc := range []struct {
+		name  string
+		bytes string
+		ready bool
+	}{
+		{name: "cursor without frame", bytes: "\x1b[?25h"},
+		{name: "alternate frame", bytes: "\x1b[?1049h\x1b[6;1H\x1b[?25h"},
+		{name: "cleanup cursor after old frame", bytes: "\x1b[6;1H\x1b[?25h\x1b[?1049h\x1b[?1049l\x1b[?25h"},
+		{name: "normal frame after cleanup", bytes: "\x1b[?1049h\x1b[?1049l\x1b[6;1H\x1b[?25h", ready: true},
+		{name: "normal frame without alternate screen", bytes: "\x1b[6;1H\x1b[?25h", ready: true},
+		{name: "hidden cursor", bytes: "\x1b[6;1H\x1b[?25h\x1b[?25l"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			payload := []byte(tc.bytes)
+			analysis, err := pty.Analyze(pty.Capture{
+				Dimensions: pty.MustDimensions(6, 10),
+				Chunks:     []pty.Chunk{pty.NewChunk(0, 0, payload)},
+				Raw:        payload,
+			})
+			if err != nil {
+				t.Fatal(err)
+			}
+			if got := promptReady(analysis); got != tc.ready {
+				t.Fatalf("prompt readiness = %v, want %v", got, tc.ready)
+			}
+		})
 	}
 }
 
-func promptReady(changes []analyzer.PrivateModeChange) bool {
+func promptReady(analysis analyzer.Analysis) bool {
 	alternateScreenActive := false
-	cursorVisibleAfterBoundary := false
-	for _, change := range changes {
+	cursorVisible := false
+	var after int64
+	for _, change := range analysis.PrivateModeChanges {
 		if change.Mode == 1049 {
 			alternateScreenActive = change.Enabled
-			cursorVisibleAfterBoundary = false
+			cursorVisible = false
+			after = change.ByteRange.End
 			continue
 		}
-		if change.Mode == 25 && change.Enabled && !alternateScreenActive {
-			cursorVisibleAfterBoundary = true
+		if change.Mode == 25 {
+			cursorVisible = change.Enabled
 		}
 	}
-	return !alternateScreenActive && cursorVisibleAfterBoundary
+	if alternateScreenActive || !cursorVisible {
+		return false
+	}
+	// Startup loading restores the cursor before chat has rendered. Only a
+	// normal-buffer frame after that restoration can accept the smoke input.
+	operations := analysis.Operations
+	analysis.Operations = nil
+	for _, operation := range operations {
+		analysis.Operations = append(analysis.Operations, pty.OperationRecords(operation)...)
+	}
+	_, ready := pty.LatestReadinessBoundaryAfter(analysis, analysis.Dimensions, pty.ReadinessRendererFrame, after)
+	return ready
 }
 
 type smokeStage string
@@ -201,7 +218,7 @@ func runModelBoundarySmoke(
 			}
 			switch stage {
 			case smokeAwaitingPrompt:
-				if event.Analysis != nil && promptReady(event.Analysis.PrivateModeChanges) {
+				if event.Analysis != nil && promptReady(*event.Analysis) {
 					if err := session.Enqueue(driver.SessionCommand{
 						ID: submitID, Kind: driver.SessionCommandWrite, Bytes: []byte(probe + "\r"),
 					}); err != nil {

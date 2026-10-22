@@ -1,0 +1,65 @@
+.subscription-usage {
+  display: grid;
+  min-width: 0;
+  gap: var(--space-3);
+}
+
+.subscription-usage-header,
+.subscription-usage-name,
+.subscription-usage-window-label,
+.subscription-usage-details {
+  display: flex;
+  min-width: 0;
+  justify-content: space-between;
+  align-items: center;
+  gap: var(--space-2);
+}
+
+.subscription-usage-header {
+  min-height: var(--space-6);
+}
+
+.subscription-usage-viewport {
+  height: min(
+    calc(var(--usage-row-count) * 7rem),
+    max(0px, calc(var(--radix-popover-content-available-height) - 5rem))
+  );
+  min-height: 0;
+}
+
+.subscription-usage-connection {
+  display: grid;
+  min-width: 0;
+  gap: var(--space-3);
+  padding-block: var(--space-3);
+  border-bottom: 1px solid var(--color-outline);
+}
+
+.subscription-usage-name > * {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.subscription-usage-name > span,
+.subscription-usage-details {
+  color: var(--color-muted);
+}
+
+.subscription-usage-window {
+  display: grid;
+  gap: var(--space-1);
+}
+
+.subscription-usage-window-label,
+.subscription-usage-details {
+  align-items: baseline;
+  flex-wrap: wrap;
+  overflow-wrap: anywhere;
+}
+
+.subscription-usage-error {
+  margin: 0;
+  color: var(--color-error);
+  overflow-wrap: anywhere;
+}

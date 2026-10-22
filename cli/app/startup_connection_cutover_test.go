@@ -1,0 +1,305 @@
+package app
+
+import (
+	"context"
+	"errors"
+	"fmt"
+	"io"
+	"net/http"
+	"net/http/httptest"
+	"os"
+	"path/filepath"
+	"reflect"
+	"sync/atomic"
+	"testing"
+
+	"core/cli/app/internal/startupconfig"
+	"core/internal/testharness/requestfixture"
+	"core/internal/testharness/testsetup"
+	serverstartup "core/server/startup"
+	"core/shared/apicontract"
+	"core/shared/client"
+	"core/shared/config"
+	"core/shared/protoapi"
+	authpb "core/shared/protoapi/gen/kent/api/auth"
+	chatsettingspb "core/shared/protoapi/gen/kent/api/chat_settings"
+	projectpb "core/shared/protoapi/gen/kent/api/project"
+	"core/shared/serverapi"
+	"core/shared/sessioncontract"
+)
+
+func TestInteractiveConnectionFallbackAndSharedCooldown(t *testing.T) {
+	_, workspace := newRegisteredAppWorkspace(t)
+	quota, err := os.ReadFile("../../server/llm/testdata/usage-exhaustion/openai-quota.json")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var exhaustedCalls atomic.Int32
+	exhausted := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost {
+			w.WriteHeader(http.StatusNotFound)
+			return
+		}
+		exhaustedCalls.Add(1)
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusTooManyRequests)
+		_, _ = w.Write(quota)
+	}))
+	defer exhausted.Close()
+	healthy, healthyCalls := newFakeResponsesServer(t, []string{"continued", "continued"})
+	defer healthy.Close()
+	cfg := loadAppTestConfig(t, workspace, config.LoadOptions{})
+	selection := config.ConnectionSelection{"a", "b"}
+	cfg.Settings.Connection = &selection
+	cfg.Settings.Connections = map[config.ConnectionID]config.ProviderConnection{
+		"a": {Protocol: config.ConnectionResponses, Endpoint: &exhausted.URL},
+		"b": {Protocol: config.ConnectionResponses, Endpoint: &healthy.URL},
+	}
+	testsetup.WriteProviderSettings(t, cfg.PersistenceRoot, cfg.Settings)
+	fixture := startConfiguredDaemonFixture(t, workspace, serverstartup.Request{WorkspaceRoot: workspace, WorkspaceRootExplicit: true})
+	server := fixture.attachRemoteSessionServer(t, Options{WorkspaceRoot: workspace}, newHeadlessAuthInteractor())
+	var plans []sessionLaunchPlan
+	var runtimes []*runtimeLaunchPlan
+	for range 3 {
+		plan, runtimePlan := prepareAppRuntimePlan(t, server, sessionLaunchRequest{
+			Mode:   launchModeInteractive,
+			Intent: requestfixture.LaunchIntent(t, serverapi.CreateNewSessionLaunchIntent(serverapi.IndependentSessionCreateOrigin())),
+		}, io.Discard, "fallback")
+		t.Cleanup(func() { closeRuntimeLaunchPlan(t, runtimePlan) })
+		plans = append(plans, plan)
+		runtimes = append(runtimes, runtimePlan)
+	}
+	for _, index := range []int{0, 2} {
+		store := openAuthoritativeWorkspaceSessionStore(t, workspace, plans[index].SessionID)
+		if id := store.Meta().ConnectionID; id == nil || *id != "a" {
+			t.Fatalf("initial binding = %v, want A", id)
+		}
+		submission, err := submitRuntimeClientForTest(t, runtimes[index].Wiring.runtimeClient, "hello")
+		requireQueuedAppTestUserTurn(t, submission, err)
+		waitForRemoteTranscriptAssistantFinal(t, runtimes[index].Wiring.eventDispatcher.transcriptEvents, "continued")
+		store = openAuthoritativeWorkspaceSessionStore(t, workspace, plans[index].SessionID)
+		if id := store.Meta().ConnectionID; id == nil || *id != "b" {
+			t.Fatalf("saved replacement = %v, want B", id)
+		}
+	}
+	if exhaustedCalls.Load() != 1 || healthyCalls.Load() != 2 {
+		t.Fatalf("provider requests: A=%d, B=%d", exhaustedCalls.Load(), healthyCalls.Load())
+	}
+}
+
+func TestStartupAndHeadlessUseSelectedConnectionDespiteUnavailableDefault(t *testing.T) {
+	_, workspace := newRegisteredAppWorkspace(t)
+	responses, hits := newFakeResponsesServer(t, []string{"selected connection reply"})
+	defer responses.Close()
+	cfg := loadAppTestConfig(t, workspace, config.LoadOptions{})
+	a, b := config.ConnectionID("a"), config.ConnectionID("b")
+	missing := "KENT_TEST_UNAVAILABLE_CONNECTION_KEY"
+	t.Setenv(missing, "")
+	cfg.Settings.Connection = config.SingleConnection(a)
+	cfg.Settings.Connections = map[config.ConnectionID]config.ProviderConnection{
+		a: {Protocol: config.ConnectionResponses, Endpoint: &responses.URL, EnvironmentVariable: &missing},
+		b: {Protocol: config.ConnectionResponses, Endpoint: &responses.URL},
+	}
+	testsetup.WriteProviderSettings(t, cfg.PersistenceRoot, cfg.Settings)
+	if err := os.MkdirAll(filepath.Join(workspace, config.ConfigDirName), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(workspace, config.ConfigDirName, "config.toml"), []byte("connection = \"b\"\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	fixture := startConfiguredDaemonFixture(t, workspace, serverstartup.Request{WorkspaceRoot: workspace, WorkspaceRootExplicit: true})
+	server := fixture.attachRemoteSessionServer(t, Options{WorkspaceRoot: workspace}, newHeadlessAuthInteractor())
+	statusA, err := server.remote.GetBootstrapStatus(t.Context(), &authpb.GetBootstrapStatusRequest{Target: protoapi.ExistingConnectionTarget(a)})
+	if err != nil || statusA.AuthReady {
+		t.Fatalf("fixture default A must be unavailable: %v, %v", statusA, err)
+	}
+	plan, err := newSessionLaunchPlanner(server).PlanSession(t.Context(), sessionLaunchRequest{
+		Mode: launchModeInteractive, Intent: requestfixture.LaunchIntent(t, serverapi.CreateNewSessionLaunchIntent(serverapi.IndependentSessionCreateOrigin())),
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !reflect.DeepEqual(plan.ActiveSettings.Connection, config.SingleConnection(b)) {
+		t.Fatalf("Session plan selected %v instead of B", plan.ActiveSettings.Connection)
+	}
+	interactor := &interactiveAuthInteractor{pickMethod: func(authInteraction) (authMethodPickerResult, error) {
+		t.Fatal("working B must not prompt for unavailable A")
+		return authMethodPickerResult{}, nil
+	}}
+	if err := server.EnsureAuthReady(t.Context(), plan.ActiveSettings, interactor); err != nil {
+		t.Fatal(err)
+	}
+	resumed := fixture.attachRemoteSessionServer(t, Options{WorkspaceRoot: workspace, SessionID: plan.SessionID}, interactor)
+	resumePlan, err := newSessionLaunchPlanner(resumed).PlanSession(t.Context(), sessionLaunchRequest{
+		Mode: launchModeInteractive, Intent: requestfixture.LaunchIntent(t, serverapi.OpenExistingSessionLaunchIntent(sessionLifecycleSessionID(t, plan.SessionID))),
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !reflect.DeepEqual(resumePlan.ActiveSettings.Connection, config.SingleConnection(b)) {
+		t.Fatalf("bound Session lost B: %v", resumePlan.ActiveSettings.Connection)
+	}
+	if err := resumed.EnsureAuthReady(t.Context(), resumePlan.ActiveSettings, newHeadlessAuthInteractor()); err != nil {
+		t.Fatalf("selected Session reauthentication: %v", err)
+	}
+	result, err := RunPrompt(t.Context(), Options{WorkspaceRoot: workspace, WorkspaceRootExplicit: true}, "hello", 0, nil)
+	if err != nil || requireRunPromptFinalAnswer(t, result) != "selected connection reply" || hits.Load() != 1 {
+		t.Fatalf("headless B dispatch: %+v, %v, hits=%d", result, err, hits.Load())
+	}
+}
+
+func TestStartupResumeKeepsInitialEndpointAndUsesServerSessionWorkspace(t *testing.T) {
+	_, workspace := newRegisteredAppWorkspace(t)
+	cfg := loadAppTestConfig(t, workspace, config.LoadOptions{})
+	store := createAuthoritativeAppSession(t, cfg.PersistenceRoot, workspace)
+	serverWorkspace, err := config.CanonicalWorkspaceRoot(workspace)
+	if err != nil {
+		t.Fatal(err)
+	}
+	startConfiguredDaemonFixture(t, workspace, serverstartup.Request{WorkspaceRoot: workspace, WorkspaceRootExplicit: true})
+	initialWorkspace := t.TempDir()
+	for root, body := range map[string]string{
+		initialWorkspace: fmt.Sprintf("server_host = %q\nserver_port = %d\nmodel = false\n", cfg.Settings.ServerHost, cfg.Settings.ServerPort),
+		workspace:        "server_host = \"127.0.0.1\"\nserver_port = 1\n",
+	} {
+		directory := filepath.Join(root, config.ConfigDirName)
+		if err := os.MkdirAll(directory, 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(filepath.Join(directory, "config.toml"), []byte(body), 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	t.Setenv("KENT_SERVER_HOST", "")
+	t.Setenv("KENT_SERVER_PORT", "")
+	opts := Options{WorkspaceRoot: initialWorkspace, SessionID: store.Meta().SessionID}
+	interactive, err := startSessionServer(t.Context(), opts, newHeadlessAuthInteractor(), false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer interactive.Close()
+	binding, attached := interactive.ProjectBinding()
+	if !attached || binding.WorkspaceRoot != serverWorkspace || interactive.Connection().WorkspaceRoot != initialWorkspace {
+		t.Fatalf("resume binding=%+v, initial=%+v", binding, interactive.Connection())
+	}
+	for _, headless := range []Options{
+		opts,
+		{WorkspaceRoot: initialWorkspace, WorkspaceContextSessionID: store.Meta().SessionID},
+	} {
+		service, closeRemote, err := startRunPromptClient(t.Context(), headless)
+		if err != nil {
+			t.Fatal(err)
+		}
+		remote := service.(*client.Remote)
+		binding, attached := remote.ProjectBinding()
+		_ = closeRemote()
+		if !attached || binding.WorkspaceRoot != serverWorkspace {
+			t.Fatalf("headless resume binding: %+v", binding)
+		}
+		intent, err := runPromptLaunchIntent(headless, headless.SessionID)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if headless.SessionID == "" && intent.GetCreateNew() == nil {
+			t.Fatalf("inherited context changed create intent: %v", intent)
+		}
+	}
+	for _, inherited := range []bool{false, true} {
+		missing := Options{WorkspaceRoot: initialWorkspace, SessionID: "eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee"}
+		if inherited {
+			missing.SessionID, missing.WorkspaceContextSessionID = "", "eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee"
+		}
+		_, _, err := startRunPromptClient(t.Context(), missing)
+		if !errors.Is(err, sessioncontract.ErrSessionNotFound) ||
+			errors.Is(err, startupconfig.ErrWorkspaceContextSessionMissing) != inherited {
+			t.Fatalf("missing Session guidance (inherited=%t): %v", inherited, err)
+		}
+	}
+	missingCaller := Options{WorkspaceRoot: workspace, WorkspaceRootExplicit: true, WorkspaceContextSessionID: "eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee"}
+	// The explicit workspace selects the endpoint here, so restore its actual
+	// address before exercising caller validation at RunPrompt.
+	t.Setenv("KENT_SERVER_HOST", cfg.Settings.ServerHost)
+	t.Setenv("KENT_SERVER_PORT", fmt.Sprint(cfg.Settings.ServerPort))
+	_, err = RunPrompt(t.Context(), missingCaller, "must not dispatch", 0, nil)
+	if !errors.Is(err, startupconfig.ErrWorkspaceContextSessionMissing) {
+		t.Fatalf("missing caller with explicit workspace lost guidance: %v", err)
+	}
+}
+
+func TestPreSessionChatSettingsUseServerBaselineWithoutCreatingSession(t *testing.T) {
+	_, workspace := newRegisteredAppWorkspace(t)
+	cfg := loadAppTestConfig(t, workspace, config.LoadOptions{})
+	cfg.Settings.Model = "gpt-5.4"
+	cfg.Settings = testsetup.WriteProviderSettings(t, cfg.PersistenceRoot, cfg.Settings)
+	if err := os.MkdirAll(filepath.Join(workspace, config.ConfigDirName), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(workspace, config.ConfigDirName, "config.toml"), []byte("model = \"gpt-5.4\"\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	fixture := startConfiguredDaemonFixture(t, workspace, serverstartup.Request{WorkspaceRoot: workspace, WorkspaceRootExplicit: true})
+	unbound := fixture.attachRemoteSessionServer(t, Options{WorkspaceRoot: workspace, Model: "client-request-only"}, newHeadlessAuthInteractor())
+	resolved, err := unbound.remote.ResolveProjectPath(t.Context(), &projectpb.ResolvePathRequest{Path: workspace})
+	if err != nil {
+		t.Fatal(err)
+	}
+	bound, err := unbound.BindProjectWorkspace(t.Context(), resolved.Binding.ProjectId, resolved.Binding.WorkspaceId)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer bound.Close()
+	readErr := errors.New("header settings unavailable")
+	planner := newSessionLaunchPlanner(failingHeaderSettingsServer{launchPlannerServer: bound, err: readErr})
+	planner.pickSession = func(ctx context.Context, loader sessionPageLoader, theme string, header sessionPickerHeaderInfo) (sessionPickerResult, error) {
+		model := newSessionPickerModel(ctx, loader, theme, header)
+		model.Init()
+		if model.main.bodyRequest == nil || model.subagents.bodyRequest == nil {
+			t.Fatal("both tab loads must start independently of header settings")
+		}
+		model.Update(model.collectHeaderFactsCmd()())
+		if model.main.bodyRequest == nil || model.subagents.bodyRequest == nil ||
+			!errors.Is(model.headerFactsErr, readErr) {
+			t.Fatal("header failure must remain visible without stopping tab loads")
+		}
+		return sessionPickerCancelResult{}, nil
+	}
+	if _, err := planner.selectSession(t.Context(), nil); err != nil {
+		t.Fatal(err)
+	}
+	planner = newSessionLaunchPlanner(bound)
+	header, err := planner.sessionPickerHeaderInfo()
+	if err != nil {
+		t.Fatal(err)
+	}
+	facts, err := header.loadHeaderFacts(t.Context())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if facts == nil || facts.Model == nil || facts.Model.Name == nil || *facts.Model.Name != cfg.Settings.Model {
+		t.Fatalf("pre-Session model did not follow server settings: %+v", facts)
+	}
+	page, err := bound.ProjectViewClient().ListSessionPage(t.Context(), &projectpb.SessionPageRequest{
+		ProjectId: resolved.Binding.ProjectId, Category: projectpb.SessionCategory_SESSION_CATEGORY_MAIN,
+	})
+	if err != nil || len(page.GetSessions()) != 0 {
+		t.Fatalf("reading settings created a Session: %v, %v", page, err)
+	}
+}
+
+type failingHeaderSettingsServer struct {
+	launchPlannerServer
+	err error
+}
+
+func (s failingHeaderSettingsServer) ChatSettingsClient() apicontract.ChatSettingsService {
+	return failingHeaderSettingsReader{ChatSettingsService: s.launchPlannerServer.ChatSettingsClient(), err: s.err}
+}
+
+type failingHeaderSettingsReader struct {
+	apicontract.ChatSettingsService
+	err error
+}
+
+func (s failingHeaderSettingsReader) ReadChatSettings(context.Context, *chatsettingspb.ReadRequest) (*chatsettingspb.ReadSuccess, error) {
+	return nil, s.err
+}

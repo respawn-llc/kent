@@ -13,6 +13,15 @@ import (
 	"core/shared/serverapi"
 )
 
+func optionalSessionDisplayID(id *string, shortID *int64) *string {
+	if id == nil {
+		return nil
+	}
+	identity := protoapi.SessionIdentityFromProto(*id, shortID)
+	display := identity.String()
+	return &display
+}
+
 func writeObservedQuestion(w io.Writer, question serverapi.ObservationQuestion, hint string) {
 	if question.Ask != nil {
 		fmt.Fprintln(w, question.Ask.Question)
@@ -54,10 +63,7 @@ func writeRunWatchResponse(w io.Writer, stderr io.Writer, response *promptpb.Liv
 	if stderr == nil {
 		stderr = io.Discard
 	}
-	if err := protoapi.Validate(response); err != nil {
-		fmt.Fprintln(stderr, err)
-		return 1
-	}
+	identity := protoapi.SessionIdentityFromProto(response.SessionId, response.ShortId)
 	var failure *promptpb.LiveWatchFailure
 	code := 1
 	switch outcome := response.Outcome.Outcome.(type) {
@@ -67,7 +73,7 @@ func writeRunWatchResponse(w io.Writer, stderr io.Writer, response *promptpb.Liv
 			fmt.Fprintln(stderr, err)
 			return 1
 		}
-		writeObservedQuestion(w, question, observationQuestionHint([]string{"--session", response.SessionId}, question))
+		writeObservedQuestion(w, question, observationQuestionHint([]string{"--session", identity.String()}, question))
 	case *promptpb.LiveWatchOutcome_FinalAnswer:
 		emitRunFinalText(w, nil, outcome.FinalAnswer.GetResult(), continueHint)
 	case *promptpb.LiveWatchOutcome_NoFinalResult:

@@ -1,6 +1,6 @@
 import { MutationObserver, QueryObserver, skipToken, type QueryClient } from "@tanstack/react-query";
 import * as Effect from "effect/Effect";
-import * as Atom from "effect/unstable/reactivity/Atom";
+import * as Atom from "effect/reactivity/Atom";
 import type { TFunction } from "i18next";
 
 import {
@@ -29,11 +29,13 @@ export function createComposerPendingViewModel({
   client,
   target,
   t,
+  interactionRestricted,
 }: Readonly<{
   services: AppServices;
   client: QueryClient;
   target: Atom.Atom<ChatSettingsTarget | null>;
   t: TFunction;
+  interactionRestricted: Atom.Atom<boolean>;
 }>) {
   const owner = crypto.randomUUID();
   const scope = Atom.make<string>(crypto.randomUUID());
@@ -123,6 +125,7 @@ export function createComposerPendingViewModel({
   const discard = Atom.fn<Omit<DiscardRequest, "target">>()(
     (input, get) =>
       Effect.gen(function* () {
+        if (get(interactionRestricted)) return;
         const selected = get(target);
         if (selected?.kind !== "session") return;
         discardObserver.setOptions({
@@ -145,6 +148,7 @@ export function createComposerPendingViewModel({
     discard,
     discarding,
     discardPending,
+    interactionRestricted,
   } as const;
 }
 export type ComposerPendingViewModel = ReturnType<typeof createComposerPendingViewModel>;

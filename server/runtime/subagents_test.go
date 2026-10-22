@@ -46,10 +46,10 @@ func TestRuntimeRoleProjectionUsesEnvironmentModelAboveDeclaration(t *testing.T)
 	}
 }
 
-func TestSubagentsMetaMessageRendersCallableNonNoopRoles(t *testing.T) {
+func TestSubagentCatalogPreservesEquivalentCallableRoles(t *testing.T) {
 	t.Parallel()
 	settings := config.Settings{
-		Model:         "gpt-5.6-sol",
+		Model:         "gpt-6-sol",
 		ThinkingLevel: "medium",
 		EnabledTools: map[toolspec.ID]bool{
 			toolspec.ToolExecCommand: true,
@@ -58,7 +58,7 @@ func TestSubagentsMetaMessageRendersCallableNonNoopRoles(t *testing.T) {
 		Subagents: map[string]config.SubagentRole{
 			"research": {
 				Settings: config.Settings{
-					Model:         "gpt-5.4-mini",
+					Model:         "gpt-6-luna",
 					ThinkingLevel: "high",
 					EnabledTools: map[toolspec.ID]bool{
 						toolspec.ToolExecCommand: true,
@@ -69,12 +69,12 @@ func TestSubagentsMetaMessageRendersCallableNonNoopRoles(t *testing.T) {
 				Description: "Repo research specialist.",
 			},
 			"placebo": {
-				Settings:    config.Settings{Model: "gpt-5.6-sol"},
+				Settings:    config.Settings{Model: "gpt-6-sol"},
 				Sources:     map[string]config.Origin{"model": {Kind: config.SourceInput, Property: config.PropertyAddress{Key: "model"}}},
 				Description: "Sounds useful, but no behavior differs.",
 			},
 			"blocked": {
-				Settings:      config.Settings{Model: "gpt-5.4-mini"},
+				Settings:      config.Settings{Model: "gpt-6-luna"},
 				Sources:       map[string]config.Origin{"model": {Kind: config.SourceInput, Property: config.PropertyAddress{Key: "model"}}, "agent_callable": {Kind: config.SourceInput, Property: config.PropertyAddress{Key: "agent_callable"}}},
 				AgentCallable: false,
 			},
@@ -83,41 +83,24 @@ func TestSubagentsMetaMessageRendersCallableNonNoopRoles(t *testing.T) {
 			},
 		},
 	}
-	builder := newMetaContextBuilder("/tmp/work", "gpt-5.6-sol", "medium", config.SkillPolicy{}, time.Unix(0, 0)).
+	builder := newMetaContextBuilder("/tmp/work", "gpt-6-sol", "medium", config.SkillPolicy{}, time.Unix(0, 0)).
 		withSubagents(testsetup.ProgrammaticConfig(t, settings), []toolspec.ID{toolspec.ToolExecCommand})
-	result, err := builder.Build(metaContextBuildOptions{
-		IncludeSubagents:          true,
-		SubagentInvocationContext: config.SubagentInvocationContextOrdinary,
-	})
+	roles, err := builder.renderableSubagentRoles(config.SubagentInvocationContextOrdinary)
 	if err != nil {
-		t.Fatalf("Build: %v", err)
+		t.Fatal(err)
 	}
-	if len(result.Subagents) != 1 {
-		t.Fatalf("subagent messages = %d, want 1", len(result.Subagents))
+	if len(roles) != 2 || roles[0].Name != "placebo" || roles[1].Name != "research" {
+		t.Fatalf("callable roles = %+v, want placebo and research", roles)
 	}
-	content := messageContent(result.Subagents[0])
-	for _, want := range []string{
-		"Available subagent roles:",
-		"- `default`: not specifying any role will invoke the default general-purpose agent",
-		"- `research`: Repo research specialist.",
-		"Invoke with `",
-		"--agent=<role> \"<prompt>\"`.",
-	} {
-		if !strings.Contains(content, want) {
-			t.Fatalf("content missing %q:\n%s", want, content)
-		}
-	}
-	for _, unwanted := range []string{"placebo", "blocked", "fast:"} {
-		if strings.Contains(content, unwanted) {
-			t.Fatalf("content should not include %q:\n%s", unwanted, content)
-		}
+	if roles[0].Settings.Model != settings.Model || roles[0].Settings.ThinkingLevel != settings.ThinkingLevel {
+		t.Fatalf("equivalent role lost inherited settings: %+v", roles[0])
 	}
 }
 
 func TestSubagentsMetaMessageUsesFallbackAndRequiresCallerShell(t *testing.T) {
 	t.Parallel()
 	settings := config.Settings{
-		Model:               "gpt-5.6-sol",
+		Model:               "gpt-6-sol",
 		ThinkingLevel:       "medium",
 		PriorityRequestMode: true,
 		EnabledTools: map[toolspec.ID]bool{
@@ -127,7 +110,7 @@ func TestSubagentsMetaMessageUsesFallbackAndRequiresCallerShell(t *testing.T) {
 		Subagents: map[string]config.SubagentRole{
 			"worker": {
 				Settings: config.Settings{
-					Model:               "gpt-5.4-mini",
+					Model:               "gpt-6-luna",
 					ThinkingLevel:       "high",
 					PriorityRequestMode: true,
 					EnabledTools: map[toolspec.ID]bool{
@@ -139,7 +122,7 @@ func TestSubagentsMetaMessageUsesFallbackAndRequiresCallerShell(t *testing.T) {
 			},
 		},
 	}
-	withShell := newMetaContextBuilder("/tmp/work", "gpt-5.6-sol", "medium", config.SkillPolicy{}, time.Unix(0, 0)).
+	withShell := newMetaContextBuilder("/tmp/work", "gpt-6-sol", "medium", config.SkillPolicy{}, time.Unix(0, 0)).
 		withSubagents(testsetup.ProgrammaticConfig(t, settings), []toolspec.ID{toolspec.ToolExecCommand})
 	result, err := withShell.Build(metaContextBuildOptions{
 		IncludeSubagents:          true,
@@ -148,11 +131,11 @@ func TestSubagentsMetaMessageUsesFallbackAndRequiresCallerShell(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Build: %v", err)
 	}
-	if len(result.Subagents) != 1 || !strings.Contains(messageContent(result.Subagents[0]), "- `worker`: gpt-5.4-mini, thinking high, fast mode on, can edit, can call shell") {
+	if len(result.Subagents) != 1 || !strings.Contains(messageContent(result.Subagents[0]), "- `worker`: gpt-6-luna, thinking high, fast mode on, can edit, can call shell") {
 		t.Fatalf("unexpected fallback content: %+v", result.Subagents)
 	}
 
-	withoutShell := newMetaContextBuilder("/tmp/work", "gpt-5.6-sol", "medium", config.SkillPolicy{}, time.Unix(0, 0)).
+	withoutShell := newMetaContextBuilder("/tmp/work", "gpt-6-sol", "medium", config.SkillPolicy{}, time.Unix(0, 0)).
 		withSubagents(testsetup.ProgrammaticConfig(t, settings), []toolspec.ID{toolspec.ToolPatch})
 	result, err = withoutShell.Build(metaContextBuildOptions{
 		IncludeSubagents:          true,
@@ -169,14 +152,14 @@ func TestSubagentsMetaMessageUsesFallbackAndRequiresCallerShell(t *testing.T) {
 func TestSubagentsMetaMessageCurrentNonCallableRoleDoesNotDisableOtherRoles(t *testing.T) {
 	t.Parallel()
 	settings := config.Settings{
-		Model:         "gpt-5.6-sol",
+		Model:         "gpt-6-sol",
 		ThinkingLevel: "medium",
 		EnabledTools: map[toolspec.ID]bool{
 			toolspec.ToolExecCommand: true,
 		},
 		Subagents: map[string]config.SubagentRole{
 			"current": {
-				Settings:      config.Settings{Model: "gpt-5.4-mini"},
+				Settings:      config.Settings{Model: "gpt-6-luna"},
 				Sources:       map[string]config.Origin{"model": {Kind: config.SourceInput, Property: config.PropertyAddress{Key: "model"}}, "agent_callable": {Kind: config.SourceInput, Property: config.PropertyAddress{Key: "agent_callable"}}},
 				AgentCallable: false,
 			},
@@ -187,7 +170,7 @@ func TestSubagentsMetaMessageCurrentNonCallableRoleDoesNotDisableOtherRoles(t *t
 			},
 		},
 	}
-	builder := newMetaContextBuilder("/tmp/work", "gpt-5.6-sol", "medium", config.SkillPolicy{}, time.Unix(0, 0)).
+	builder := newMetaContextBuilder("/tmp/work", "gpt-6-sol", "medium", config.SkillPolicy{}, time.Unix(0, 0)).
 		withSubagents(testsetup.ProgrammaticConfig(t, settings), []toolspec.ID{toolspec.ToolExecCommand})
 	result, err := builder.Build(metaContextBuildOptions{
 		IncludeSubagents:          true,
@@ -219,7 +202,7 @@ func TestSubagentCatalogAppliesInvocationContextPolicy(t *testing.T) {
 			sources["workflow_subagent"] = config.Origin{Kind: config.SourceInput, Property: config.PropertyAddress{Key: "workflow_subagent"}}
 		}
 		return config.Settings{
-			Model:         "gpt-5.5",
+			Model:         "gpt-6-astra",
 			ThinkingLevel: "medium",
 			Workflow:      config.WorkflowSettings{Subagents: globalEnabled},
 			Subagents: map[string]config.SubagentRole{
@@ -251,7 +234,7 @@ func TestSubagentCatalogAppliesInvocationContextPolicy(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			builder := newMetaContextBuilder("/tmp/work", "gpt-5.5", "medium", config.SkillPolicy{}, time.Unix(0, 0)).
+			builder := newMetaContextBuilder("/tmp/work", "gpt-6-astra", "medium", config.SkillPolicy{}, time.Unix(0, 0)).
 				withSubagents(testsetup.ProgrammaticConfig(t, tt.settings), []toolspec.ID{toolspec.ToolExecCommand})
 			result, err := builder.Build(metaContextBuildOptions{
 				IncludeSubagents:          true,
@@ -285,7 +268,7 @@ func TestSubagentCatalogUsesSamePolicyOnBaseInjectionAndCompaction(t *testing.T)
 			sources["workflow_subagent"] = config.Origin{Kind: config.SourceInput, Property: config.PropertyAddress{Key: "workflow_subagent"}}
 		}
 		return config.Settings{
-			Model:         "gpt-5.5",
+			Model:         "gpt-6-astra",
 			ThinkingLevel: "medium",
 			Workflow:      config.WorkflowSettings{Subagents: globalEnabled},
 			Subagents: map[string]config.SubagentRole{
@@ -313,7 +296,7 @@ func TestSubagentCatalogUsesSamePolicyOnBaseInjectionAndCompaction(t *testing.T)
 		t.Run(tt.name, func(t *testing.T) {
 			store := mustCreateTestSession(t)
 			cfg := Config{
-				Model:           "gpt-5.5",
+				Model:           "gpt-6-astra",
 				ThinkingLevel:   "medium",
 				EnabledTools:    []toolspec.ID{toolspec.ToolExecCommand},
 				SubagentCatalog: testsetup.ProgrammaticConfig(t, tt.settings),
@@ -331,7 +314,7 @@ func TestSubagentCatalogUsesSamePolicyOnBaseInjectionAndCompaction(t *testing.T)
 			if got := hasSubagentMetaMessage(eng.transcriptRuntimeState().SnapshotMessages()); got != tt.workerVisible {
 				t.Fatalf("base worker visibility = %t, want %t", got, tt.workerVisible)
 			}
-			projection, err := eng.compactionReinjectedMetaContextProjection(context.Background(), compactionModeManual)
+			projection, err := eng.generationMetaContextProjection(context.Background(), workflowTaskPromptTriggerCompaction)
 			if err != nil {
 				t.Fatalf("compaction reinjection: %v", err)
 			}
@@ -346,7 +329,7 @@ func TestSubagentCatalogUsesSamePolicyOnBaseInjectionAndCompaction(t *testing.T)
 func TestSubagentCatalogRemainsVisibleAcrossDepthPreservingSessionPathsAndLimits(t *testing.T) {
 	t.Parallel()
 	settings := config.Settings{
-		Model:            "gpt-5.5",
+		Model:            "gpt-6-astra",
 		ThinkingLevel:    "medium",
 		MaxSubagentDepth: 0,
 		EnabledTools: map[toolspec.ID]bool{
@@ -372,7 +355,7 @@ func TestSubagentCatalogRemainsVisibleAcrossDepthPreservingSessionPathsAndLimits
 			t.Parallel()
 			store := runtimeCatalogStoreForPath(t, path)
 			eng := mustNewExecTestEngine(t, store, &fakeClient{}, Config{
-				Model:           "gpt-5.5",
+				Model:           "gpt-6-astra",
 				ThinkingLevel:   "medium",
 				EnabledTools:    []toolspec.ID{toolspec.ToolExecCommand},
 				SubagentCatalog: testsetup.ProgrammaticConfig(t, settings),
@@ -386,7 +369,7 @@ func TestSubagentCatalogRemainsVisibleAcrossDepthPreservingSessionPathsAndLimits
 			if !hasSubagentMetaMessage(eng.transcriptRuntimeState().SnapshotMessages()) {
 				t.Fatal("base context hid the subagent catalog")
 			}
-			projection, err := eng.compactionReinjectedMetaContextProjection(context.Background(), compactionModeManual)
+			projection, err := eng.generationMetaContextProjection(context.Background(), workflowTaskPromptTriggerCompaction)
 			if err != nil {
 				t.Fatalf("compaction reinjection: %v", err)
 			}
@@ -406,13 +389,13 @@ func TestSubagentCatalogIgnoresPersistedCallerTargetPolicyInBaseAndCompaction(t 
 		t.Fatalf("SetContinuationContext: %v", err)
 	}
 	settings := config.Settings{
-		Model: "gpt-5.5",
+		Model: "gpt-6-astra",
 		EnabledTools: map[toolspec.ID]bool{
 			toolspec.ToolExecCommand: true,
 		},
 		Subagents: map[string]config.SubagentRole{
 			"current": {
-				Settings:      config.Settings{Model: "gpt-5.4-mini"},
+				Settings:      config.Settings{Model: "gpt-6-luna"},
 				Sources:       map[string]config.Origin{"model": {Kind: config.SourceInput, Property: config.PropertyAddress{Key: "model"}}, "agent_callable": {Kind: config.SourceInput, Property: config.PropertyAddress{Key: "agent_callable"}}},
 				AgentCallable: false,
 			},
@@ -424,7 +407,7 @@ func TestSubagentCatalogIgnoresPersistedCallerTargetPolicyInBaseAndCompaction(t 
 		},
 	}
 	eng := mustNewExecTestEngine(t, store, &fakeClient{}, Config{
-		Model:           "gpt-5.5",
+		Model:           "gpt-6-astra",
 		EnabledTools:    []toolspec.ID{toolspec.ToolExecCommand},
 		SubagentCatalog: testsetup.ProgrammaticConfig(t, settings),
 	})
@@ -437,7 +420,7 @@ func TestSubagentCatalogIgnoresPersistedCallerTargetPolicyInBaseAndCompaction(t 
 	if !hasSubagentMetaMessage(eng.transcriptRuntimeState().SnapshotMessages()) {
 		t.Fatal("base catalog must advertise eligible targets regardless of persisted caller callability")
 	}
-	projection, err := eng.compactionReinjectedMetaContextProjection(context.Background(), compactionModeManual)
+	projection, err := eng.generationMetaContextProjection(context.Background(), workflowTaskPromptTriggerCompaction)
 	if err != nil {
 		t.Fatalf("compaction reinjection: %v", err)
 	}
@@ -468,7 +451,7 @@ func runtimeCatalogStoreForPath(t *testing.T, path string) *session.Store {
 		}
 		return forked
 	case "workflow-fan-out-clone":
-		cloned, err := session.CloneSession(mustMaterializeTestEventLog(t, source), "workflow clone", sessioncontract.SessionCategorySubagent, session.ForkThinking{Desired: "medium", PreserveNativeUpdates: true})
+		cloned, err := session.CloneSession(mustMaterializeTestEventLog(t, source), new("workflow clone"), sessioncontract.SessionCategorySubagent, session.ForkThinking{Desired: "medium", PreserveNativeUpdates: true})
 		if err != nil {
 			t.Fatalf("CloneSession: %v", err)
 		}
@@ -512,7 +495,7 @@ func TestCompactionReinjectsSubagentsMetaContext(t *testing.T) {
 	workspace := t.TempDir()
 	store := mustCreateNamedTestSession(t, "ws", workspace)
 	settings := config.Settings{
-		Model:         "gpt-5.6-sol",
+		Model:         "gpt-6-sol",
 		ThinkingLevel: "medium",
 		EnabledTools: map[toolspec.ID]bool{
 			toolspec.ToolExecCommand: true,
@@ -526,13 +509,13 @@ func TestCompactionReinjectsSubagentsMetaContext(t *testing.T) {
 		},
 	}
 	eng := mustNewTestEngine(t, store, &fakeClient{}, newTestToolRegistry(t, tools.HandlerRegistration{ID: toolspec.ToolExecCommand, Handler: fakeTool{name: toolspec.ToolExecCommand}}), Config{
-		Model:           "gpt-5.6-sol",
+		Model:           "gpt-6-sol",
 		ThinkingLevel:   "medium",
 		EnabledTools:    []toolspec.ID{toolspec.ToolExecCommand},
 		SubagentCatalog: testsetup.ProgrammaticConfig(t, settings),
 	})
 
-	projection, err := eng.compactionReinjectedMetaContextProjection(context.Background(), compactionModeManual)
+	projection, err := eng.generationMetaContextProjection(context.Background(), workflowTaskPromptTriggerCompaction)
 	if err != nil {
 		t.Fatalf("compaction reinjection: %v", err)
 	}
@@ -572,10 +555,10 @@ func TestCompactionReinjectedSkillsFollowCurrentPolicy(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			store := mustCreateNamedTestSession(t, "ws", workspace)
 			eng := mustNewExecTestEngine(t, store, &fakeClient{}, Config{
-				Model:       "gpt-5",
+				Model:       "gpt-6-sol",
 				SkillPolicy: tt.policy,
 			})
-			projection, err := eng.compactionReinjectedMetaContextProjection(context.Background(), compactionModeManual)
+			projection, err := eng.generationMetaContextProjection(context.Background(), workflowTaskPromptTriggerCompaction)
 			if err != nil {
 				t.Fatalf("compaction reinjection: %v", err)
 			}
@@ -603,7 +586,7 @@ func TestManualCompactionPersistsSubagentCatalogInCanonicalTranscript(t *testing
 	workspace := t.TempDir()
 	store := mustCreateNamedTestSession(t, "ws", workspace)
 	settings := config.Settings{
-		Model:         "gpt-5.6-sol",
+		Model:         "gpt-6-sol",
 		ThinkingLevel: "medium",
 		EnabledTools: map[toolspec.ID]bool{
 			toolspec.ToolExecCommand: true,
@@ -617,7 +600,7 @@ func TestManualCompactionPersistsSubagentCatalogInCanonicalTranscript(t *testing
 		},
 	}
 	cfg := Config{
-		Model:           "gpt-5.6-sol",
+		Model:           "gpt-6-sol",
 		ThinkingLevel:   "medium",
 		CompactionMode:  "local",
 		EnabledTools:    []toolspec.ID{toolspec.ToolExecCommand},
@@ -625,7 +608,7 @@ func TestManualCompactionPersistsSubagentCatalogInCanonicalTranscript(t *testing
 	}
 	client := &fakeCompactionClient{responses: []llm.Response{{
 		Assistant: llm.Message{Role: llm.RoleAssistant, Content: textutil.Value("condensed summary")},
-		Usage:     llm.Usage{InputTokens: 1000, OutputTokens: 100, WindowTokens: 200000},
+		Usage:     llm.Usage{InputTokens: textutil.Value(1000), OutputTokens: textutil.Value(100), WindowTokens: 200000, ContextUsage: &llm.ContextUsage{Tokens: 1000, MeasurementPoint: llm.ContextMeasurementInput}},
 	}}}
 	eng := mustNewTestEngine(t, store, client, newTestToolRegistry(t, tools.HandlerRegistration{ID: toolspec.ToolExecCommand, Handler: fakeTool{name: toolspec.ToolExecCommand}}), cfg)
 	if err := eng.steerRuntime(steerMessagesWithPersistenceIntent(steeringPriorityNormal, steeringMessageEventDefault, true, []llm.Message{{Role: llm.RoleUser, Content: textutil.Value("seed")}})); err != nil {
@@ -634,6 +617,7 @@ func TestManualCompactionPersistsSubagentCatalogInCanonicalTranscript(t *testing
 
 	completeManualEligibilityAgentStep(t, eng)
 	scheduleManualCompactionAndWait(t, eng)
+	buildActiveTurnRequestForTest(t, eng, nil, true)
 	if !hasSubagentMetaMessage(eng.transcriptRuntimeState().SnapshotMessages()) {
 		t.Fatalf("expected in-memory canonical transcript to keep subagent catalog, got %+v", eng.transcriptRuntimeState().SnapshotMessages())
 	}
@@ -697,7 +681,7 @@ func TestReviewerPromptIncludesSubagentsMetaContext(t *testing.T) {
 		{Role: llm.RoleDeveloper, MessageType: textutil.Value(llm.MessageTypeSubagents), Content: textutil.Value("Available subagent roles:\n- worker: specialist")},
 		{Role: llm.RoleUser, Content: textutil.Value("request")},
 	}
-	got, err := buildReviewerRequestItemsWithBuilder(reviewerItemsFromMessages(messages), newMetaContextBuilder(t.TempDir(), "gpt-5.6-sol", "medium", config.SkillPolicy{}, time.Unix(0, 0)), false)
+	got, err := buildReviewerRequestItemsWithBuilder(reviewerItemsFromMessages(messages), newMetaContextBuilder(t.TempDir(), "gpt-6-sol", "medium", config.SkillPolicy{}, time.Unix(0, 0)), false)
 	if err != nil {
 		t.Fatalf("buildReviewerRequestItemsWithBuilder: %v", err)
 	}

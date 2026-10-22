@@ -8,21 +8,21 @@ import "google/protobuf/timestamp.proto";
 import "kent/api/auth/auth.proto";
 import "kent/api/server/server.proto";
 import "kent/api/shared/foundation.proto";
+import "kent/api/shared/validation.proto";
 
 option go_package = "core/shared/protoapi/gen/kent/api/process;processpb";
 
 message BackgroundProcess {
 
   string id = 1 [(buf.validate.field).string.min_len = 1];
-  string owner_session_id = 2 [(buf.validate.field).string.min_len = 1];
-  optional string owner_run_id = 3 [(buf.validate.field).string.min_len = 1];
+  string owner_session_id = 2 [(buf.validate.field).string.uuid = true, (buf.validate.field).string.(kent.api.shared.canonical_uuid_v4) = true];
   optional string owner_step_id = 4 [(buf.validate.field).string.min_len = 1];
   string state = 5 [(buf.validate.field).string.min_len = 1];
   string command = 6;
   string workdir = 7 [(buf.validate.field).string.min_len = 1];
   google.protobuf.Timestamp started_at = 8 [(buf.validate.field).required = true];
   optional google.protobuf.Timestamp finished_at = 9;
-  optional int32 exit_code = 10;
+  optional int64 exit_code = 10;
   string log_path = 11;
   bool running = 15;
   bool stdin_open = 16;
@@ -33,8 +33,8 @@ message BackgroundProcess {
 }
 
 message ListRequest {
-  optional string owner_session_id = 1 [(buf.validate.field).string.min_len = 1];
-  optional string owner_run_id = 2 [(buf.validate.field).string.min_len = 1];
+  optional string owner_session_id = 1 [(buf.validate.field).string.uuid = true, (buf.validate.field).string.(kent.api.shared.canonical_uuid_v4) = true];
+  optional string owner_step_id = 2 [(buf.validate.field).string.min_len = 1];
   string project_id = 3 [
     (buf.validate.field).string.min_len = 1,
     (buf.validate.field).cel = {
@@ -47,6 +47,18 @@ message ListRequest {
 
 message ListSuccess {
   repeated BackgroundProcess processes = 1 [(buf.validate.field).repeated.items.required = true];
+}
+
+message ObserveRequest {
+  string session_id = 2 [(buf.validate.field).string.uuid = true, (buf.validate.field).string.(kent.api.shared.canonical_uuid_v4) = true];
+}
+
+message ObserveResult {
+  oneof outcome {
+    option (buf.validate.oneof).required = true;
+    google.protobuf.Empty success = 1 [(kent.api.shared.kent_result_field).role = RESULT_FIELD_ROLE_SUCCESS];
+    KillError error = 2 [(kent.api.shared.kent_result_field).role = RESULT_FIELD_ROLE_ERROR];
+  }
 }
 
 message GetRequest {
@@ -207,6 +219,40 @@ message InlineOutputResult {
 }
 
 service ViewService {
+  rpc Observe(ObserveRequest) returns (ObserveResult) {
+    option (kent.api.shared.kent_method) = {
+      kind: OPERATION_KIND_SUBSCRIPTION
+      authentication_stage: AUTHENTICATION_STAGE_SERVER
+      scope_policy: SCOPE_POLICY_SESSION_ATTACHED_PROJECT
+      direction: DIRECTION_CLIENT_TO_SERVER
+      event: {
+        package: "kent.api.process"
+        service: "ViewService"
+        method: "Event"
+      }
+      completion: {
+        package: "kent.api.process"
+        service: "ViewService"
+        method: "Complete"
+      }
+    };
+  }
+  rpc Event(ListSuccess) returns (google.protobuf.Empty) {
+    option (kent.api.shared.kent_method) = {
+      kind: OPERATION_KIND_NOTIFICATION
+      authentication_stage: AUTHENTICATION_STAGE_NONE
+      scope_policy: SCOPE_POLICY_NOTIFICATION
+      direction: DIRECTION_SERVER_TO_CLIENT
+    };
+  }
+  rpc Complete(kent.api.shared.StreamCompletion) returns (google.protobuf.Empty) {
+    option (kent.api.shared.kent_method) = {
+      kind: OPERATION_KIND_NOTIFICATION
+      authentication_stage: AUTHENTICATION_STAGE_NONE
+      scope_policy: SCOPE_POLICY_NOTIFICATION
+      direction: DIRECTION_SERVER_TO_CLIENT
+    };
+  }
   rpc List(ListRequest) returns (ListResult) {
     option (kent.api.shared.kent_method) = {
       kind: OPERATION_KIND_UNARY

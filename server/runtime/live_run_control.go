@@ -17,6 +17,44 @@ import (
 
 var ErrNoActiveLiveRun = errors.New("no active live run")
 
+// LiveRunAdmissionUnavailable carries the live-group owner's next readiness
+// notification captured together with an unsuccessful admission.
+type LiveRunAdmissionUnavailable struct {
+	Ready <-chan struct{}
+}
+
+func (*LiveRunAdmissionUnavailable) Error() string { return ErrNoActiveLiveRun.Error() }
+func (*LiveRunAdmissionUnavailable) Unwrap() error { return ErrNoActiveLiveRun }
+
+func (e *LiveRunAdmissionUnavailable) Wait(
+	ctx context.Context,
+	executionDone <-chan struct{},
+) error {
+	if e == nil {
+		return errors.New("live run admission unavailable is required")
+	}
+	if e.Ready == nil && executionDone == nil {
+		return errors.New("live run admission has no readiness or execution-completion signal")
+	}
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	select {
+	case <-e.Ready:
+		return nil
+	case <-executionDone:
+		return nil
+	case <-ctx.Done():
+		if err := context.Cause(ctx); err != nil {
+			return err
+		}
+		if err := ctx.Err(); err != nil {
+			return err
+		}
+		return errors.New("wait context completed without a cancellation error")
+	}
+}
+
 var ErrLiveRunNoFinalAnswer = errors.New("live run completed without a final answer")
 
 type LiveRunResultKind string
@@ -42,7 +80,6 @@ const (
 
 type LiveRunResult struct {
 	GroupID          runtimeids.LiveRunGroupID
-	RunID            runtimeids.RunID
 	StepID           runtimeids.StepID
 	Status           RunStatus
 	WorkPerformed    bool
@@ -59,6 +96,7 @@ type LiveRunWaitHandle struct {
 	group       *liveRunGroup
 	done        <-chan struct{}
 	ctx         context.Context
+	cancel      context.CancelFunc
 }
 
 type liveRunCoordinator struct {
@@ -67,12 +105,12 @@ type liveRunCoordinator struct {
 	stoppedQueueItems           map[runtimeids.QueueItemID]struct{}
 	stoppedPublishingQueueItems map[runtimeids.QueueItemID]struct{}
 	onCompleted                 func(LiveRunResult)
+	readinessChanged            chan struct{}
 }
 
 type liveRunGroup struct {
 	supervisorTriggered bool
 	id                  runtimeids.LiveRunGroupID
-	runID               runtimeids.RunID
 	stepID              runtimeids.StepID
 	stepToolStarts      liveStepToolStartCount
 	workPerformed       bool
@@ -101,11 +139,16 @@ type liveRunAdmission struct {
 }
 
 func newLiveRunCoordinator(onCompleted ...func(LiveRunResult)) *liveRunCoordinator {
-	coordinator := &liveRunCoordinator{}
+	coordinator := &liveRunCoordinator{readinessChanged: make(chan struct{})}
 	if len(onCompleted) > 0 {
 		coordinator.onCompleted = onCompleted[0]
 	}
 	return coordinator
+}
+
+func (c *liveRunCoordinator) signalReadinessChangedLocked() {
+	close(c.readinessChanged)
+	c.readinessChanged = make(chan struct{})
 }
 
 func (c *liveRunCoordinator) supervisorTriggered() bool {
@@ -160,12 +203,13 @@ func (e *Engine) TryInterruptActiveRun() (bool, error) {
 	e.ensureOrchestrationCollaborators()
 	var (
 		liveRunInterrupted bool
-		taggedQueueItems   map[runtimeids.QueueItemID]struct{}
+		stoppedMessages    []QueuedUserMessage
 		goalLoop           bool
 		orphaned           bool
 	)
 	tracker := goalLoopInterruptTracker{engine: e}
 	interruptedSnapshot, err := e.stepLifecycle.InterruptCurrent(func(snapshot *RunSnapshot) {
+		var taggedQueueItems map[runtimeids.QueueItemID]struct{}
 		if snapshot == nil {
 			liveRunInterrupted, taggedQueueItems, goalLoop = e.liveRun.interruptWhere(func(group *liveRunGroup) bool {
 				orphaned = group.status == RunStatusRunning && !group.hasPendingContinuation()
@@ -177,12 +221,15 @@ func (e *Engine) TryInterruptActiveRun() (bool, error) {
 		} else {
 			liveRunInterrupted, taggedQueueItems, goalLoop = e.liveRun.interruptMatchingStep(snapshot)
 		}
+		// Cancellation can finish compaction and make queued work eligible.
+		// Remove this run's inputs before that boundary can be released.
+		stoppedMessages = e.messageFlow.DrainPendingUserInjectionsByID(stringQueueItemIDSet(taggedQueueItems))
 		tracker.match = !liveRunInterrupted || goalLoop
 		tracker.onSnapshot(snapshot)
 	})
 	tracker.resolve(err, interruptedSnapshot)
-	if liveRunInterrupted {
-		e.failStoppedLiveRunQueueItems(taggedQueueItems)
+	if len(stoppedMessages) != 0 {
+		e.removeStoppedLiveRunQueueItems(func() []QueuedUserMessage { return stoppedMessages })
 	}
 	if orphaned {
 		diagnostic := invariant.OperationalError(nil, e.cfg.Debug, "interrupt Runtime",
@@ -227,19 +274,51 @@ func (t *goalLoopInterruptTracker) resolve(err error, snapshot *RunSnapshot) {
 	t.engine.goalLoopState().ClearInterruptPending()
 }
 
-func (e *Engine) QueueUserMessageForActiveRun(ctx context.Context, text string, beforeQueue func() error) (QueuedUserMessage, bool, error) {
-	return e.queueMessageForActiveRun(ctx, llm.Message{Role: llm.RoleUser, Content: textutil.Value(text)}, nil, beforeQueue, nil)
+func (e *Engine) QueueUserMessageForActiveRun(ctx context.Context, id string, text string, beforeQueue func() error) (QueuedUserMessage, bool, error) {
+	return e.queueMessageForActiveRun(ctx, id, llm.Message{Role: llm.RoleUser, Content: textutil.Value(text)}, nil, beforeQueue, nil, nil)
 }
 
-func (e *Engine) QueueUserMessageForActiveRunWithAcceptance(ctx context.Context, text string, accept CommandAcceptance) (QueuedUserMessage, bool, error) {
-	return e.queueMessageForActiveRun(ctx, llm.Message{Role: llm.RoleUser, Content: textutil.Value(text)}, nil, nil, accept)
+func (e *Engine) QueueUserMessageForActiveRunWithAcceptance(ctx context.Context, id string, text string, accept CommandAcceptance) (QueuedUserMessage, bool, error) {
+	return e.queueMessageForActiveRun(ctx, id, llm.Message{Role: llm.RoleUser, Content: textutil.Value(text)}, nil, nil, accept, nil)
 }
 
-func (e *Engine) QueueAgentSteerForActiveRun(ctx context.Context, steer AgentSteer, beforeQueue func() error) (QueuedUserMessage, bool, error) {
-	return e.queueMessageForActiveRun(ctx, steer.Message(), nil, beforeQueue, nil)
+func (e *Engine) QueueAgentSteerForActiveRun(ctx context.Context, id string, steer AgentSteer, beforeQueue func() error) (QueuedUserMessage, bool, error) {
+	return e.queueMessageForActiveRun(ctx, id, steer.Message(), nil, beforeQueue, nil, nil)
 }
 
-func (e *Engine) queueMessageForActiveRun(ctx context.Context, message llm.Message, onActive func(), beforeQueue func() error, accept CommandAcceptance) (QueuedUserMessage, bool, error) {
+func (e *Engine) QueueUserMessageForActiveRunWithObservation(ctx context.Context, id string, text string, observerCtx context.Context, accept CommandAcceptance) (QueuedUserMessage, *LiveRunWaitHandle, bool, error) {
+	return e.queueMessageWithObservation(ctx, id, llm.Message{Role: llm.RoleUser, Content: textutil.Value(text)}, observerCtx, accept)
+}
+
+func (e *Engine) QueueAgentSteerForActiveRunWithObservation(ctx context.Context, id string, steer AgentSteer, observerCtx context.Context, accept CommandAcceptance) (QueuedUserMessage, *LiveRunWaitHandle, bool, error) {
+	return e.queueMessageWithObservation(ctx, id, steer.Message(), observerCtx, accept)
+}
+
+func (e *Engine) queueMessageWithObservation(ctx context.Context, id string, message llm.Message, observerCtx context.Context, accept CommandAcceptance) (QueuedUserMessage, *LiveRunWaitHandle, bool, error) {
+	if observerCtx == nil {
+		item, accepted, err := e.queueMessageForActiveRun(ctx, id, message, nil, nil, accept, nil)
+		return item, nil, accepted, err
+	}
+	waitCtx, cancel := context.WithCancel(observerCtx)
+	var handle *LiveRunWaitHandle
+	item, accepted, err := e.queueMessageForActiveRun(ctx, id, message, nil, nil, accept, func(admission liveRunAdmission) {
+		handle = e.liveRun.captureGroupWait(waitCtx, admission.group)
+		handle.cancel = cancel
+	})
+	if !accepted {
+		cancel()
+		if handle != nil {
+			_, _ = handle.Wait()
+		}
+		return item, nil, false, err
+	}
+	return item, handle, true, err
+}
+
+func (e *Engine) queueMessageForActiveRun(ctx context.Context, id string, message llm.Message, onActive func(), beforeQueue func() error, accept CommandAcceptance, observe func(liveRunAdmission)) (QueuedUserMessage, bool, error) {
+	if _, err := runtimeids.ParseCanonicalUUIDv4(id, "queue_item_id"); err != nil {
+		return QueuedUserMessage{}, false, err
+	}
 	if e == nil {
 		return QueuedUserMessage{}, false, ErrNoActiveLiveRun
 	}
@@ -259,12 +338,15 @@ func (e *Engine) queueMessageForActiveRun(ctx context.Context, message llm.Messa
 	if err := e.requirePendingWorkCapacity(); err != nil {
 		return QueuedUserMessage{}, false, err
 	}
-	admission, admitted := e.liveRun.beginAdmission()
+	admission, ready, admitted := e.liveRun.beginAdmission()
 	if !admitted {
-		return QueuedUserMessage{}, false, ErrNoActiveLiveRun
+		return QueuedUserMessage{}, false, &LiveRunAdmissionUnavailable{Ready: ready}
 	}
 	if onActive != nil {
 		onActive()
+	}
+	if observe != nil {
+		observe(admission)
 	}
 	committed := false
 	defer func() {
@@ -276,7 +358,7 @@ func (e *Engine) queueMessageForActiveRun(ctx context.Context, message llm.Messa
 		return QueuedUserMessage{}, false, err
 	}
 	item := QueuedUserMessage{
-		ID:                    runtimeids.NewQueueItemID().String(),
+		ID:                    id,
 		Message:               message,
 		CanonicalPresentation: *message.Content,
 	}
@@ -289,7 +371,10 @@ func (e *Engine) queueMessageForActiveRun(ctx context.Context, message llm.Messa
 		if err := context.Cause(ctx); err != nil {
 			return false, err
 		}
-		finalized := e.liveRun.finishAdmission(admission, mustQueueItemID(item.ID))
+		finalized, admissionErr := e.liveRun.finishAdmission(admission, mustQueueItemID(item.ID))
+		if admissionErr != nil {
+			return false, admissionErr
+		}
 		if !finalized {
 			return false, context.Canceled
 		}
@@ -304,16 +389,16 @@ func (e *Engine) queueMessageForActiveRun(ctx context.Context, message llm.Messa
 			e.completeQueuedUserMessages(map[string]struct{}{item.ID: {}})
 			return false, queueErr
 		}
+		queueItemID := mustQueueItemID(item.ID)
+		if e.liveRun.finishQueueItemPublication(queueItemID) {
+			e.failStoppedLiveRunQueueItems(map[runtimeids.QueueItemID]struct{}{queueItemID: {}})
+		} else {
+			e.scheduleQueuedUserInjections()
+		}
 		return true, nil
 	})
 	if err := commandAcceptanceResult(accepted, err); err != nil {
 		return QueuedUserMessage{}, false, err
-	}
-	queueItemID := mustQueueItemID(item.ID)
-	if e.liveRun.finishQueueItemPublication(queueItemID) {
-		e.failStoppedLiveRunQueueItems(map[runtimeids.QueueItemID]struct{}{queueItemID: {}})
-	} else {
-		e.scheduleQueuedUserInjectionsIfIdle()
 	}
 	return item, true, nil
 }
@@ -409,8 +494,8 @@ func (c *liveRunCoordinator) hasActive() bool {
 func (c *liveRunCoordinator) beginStep(snapshot *RunSnapshot) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
+	defer c.signalReadinessChangedLocked()
 	if c.current != nil {
-		c.current.runID = mustRunID(snapshot.RunID)
 		c.current.stepID = mustStepID(snapshot.StepID)
 		c.current.stepToolStarts = liveStepToolStartsNone
 		c.current.goalLoop = snapshot.GoalLoop
@@ -428,7 +513,6 @@ func (c *liveRunCoordinator) beginStep(snapshot *RunSnapshot) {
 	}
 	c.current = &liveRunGroup{
 		id:            runtimeids.NewLiveRunGroupID(),
-		runID:         mustRunID(snapshot.RunID),
 		stepID:        mustStepID(snapshot.StepID),
 		goalLoop:      snapshot.GoalLoop,
 		status:        RunStatusRunning,
@@ -450,10 +534,10 @@ func (c *liveRunCoordinator) finishStepDeferred(snapshot *RunSnapshot, status Ru
 	c.mu.Lock()
 	group := c.current
 	if group == nil {
+		c.signalReadinessChangedLocked()
 		c.mu.Unlock()
 		return nil, nil
 	}
-	group.runID = mustRunID(snapshot.RunID)
 	group.stepID = mustStepID(snapshot.StepID)
 	group.goalLoop = snapshot.GoalLoop
 	group.status = status
@@ -483,6 +567,7 @@ func (c *liveRunCoordinator) finishStepDeferred(snapshot *RunSnapshot, status Ru
 		group.publishingItems = nil
 		group.reservations = 0
 		c.current = nil
+		c.signalReadinessChangedLocked()
 		done = group.done
 		result := liveRunResultForGroup(group)
 		c.mu.Unlock()
@@ -492,6 +577,7 @@ func (c *liveRunCoordinator) finishStepDeferred(snapshot *RunSnapshot, status Ru
 	group.goalLoopHolding = snapshot.GoalLoop && holdGoalLoop
 	if !group.hasPendingContinuation() {
 		c.current = nil
+		c.signalReadinessChangedLocked()
 		done = group.done
 	}
 	c.mu.Unlock()
@@ -514,6 +600,7 @@ func (c *liveRunCoordinator) finishGoalLoop() {
 	group.goalLoopHolding = false
 	if group.status != RunStatusRunning && !group.hasPendingContinuation() {
 		c.current = nil
+		c.signalReadinessChangedLocked()
 		done = group.done
 	}
 	c.mu.Unlock()
@@ -565,40 +652,53 @@ func (c *liveRunCoordinator) takeStepResult(stepID string) (LiveRunResultKind, l
 	return c.current.stepResultKind, c.current.stepAssistant, true
 }
 
-func (c *liveRunCoordinator) beginAdmission() (liveRunAdmission, bool) {
+func (c *liveRunCoordinator) beginAdmission() (liveRunAdmission, <-chan struct{}, bool) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	if c.current == nil {
-		return liveRunAdmission{}, false
+		return liveRunAdmission{}, c.readinessChanged, false
 	}
 	if c.current.status == RunStatusFailed || c.current.status == RunStatusInterrupted {
-		return liveRunAdmission{}, false
+		return liveRunAdmission{}, c.readinessChanged, false
 	}
 	c.current.reservations++
-	return liveRunAdmission{group: c.current}, true
+	return liveRunAdmission{group: c.current}, nil, true
 }
 
-func (c *liveRunCoordinator) finishAdmission(admission liveRunAdmission, queueItemID runtimeids.QueueItemID) bool {
+func (c *liveRunCoordinator) finishAdmission(admission liveRunAdmission, queueItemID runtimeids.QueueItemID) (bool, error) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	if c.current == nil || c.current != admission.group || c.current.status == RunStatusFailed || c.current.status == RunStatusInterrupted {
-		return false
+		return false, nil
+	}
+	if _, exists := c.current.taggedQueueItems[queueItemID]; exists {
+		return false, errDuplicateQueuedUserMessageID
 	}
 	if c.current.reservations > 0 {
 		c.current.reservations--
 	}
 	c.current.trackQueuedItemForLiveRun(queueItemID, runtimeinput.PendingWorkLaneSteer)
-	return true
+	return true, nil
 }
 
-func (c *liveRunCoordinator) beginQueueItemPublication(queueItemID runtimeids.QueueItemID, lane runtimeinput.PendingWorkLane) bool {
+func (c *liveRunCoordinator) beginQueueItemPublication(
+	queueItemID runtimeids.QueueItemID,
+	lane runtimeinput.PendingWorkLane,
+	claim *queuedUserMessageClaim,
+) (bool, <-chan struct{}, error) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	if c.current == nil || (c.current.status != RunStatusRunning && c.current.status != RunStatusCompleted) {
-		return false
+		return false, c.readinessChanged, nil
+	}
+	if _, exists := c.current.taggedQueueItems[queueItemID]; exists {
+		if claim != nil {
+			return false, c.readinessChanged, nil
+		}
+		return false, nil, errDuplicateQueuedUserMessageID
 	}
 	c.current.trackQueuedItemForLiveRun(queueItemID, lane)
-	return true
+	return true, nil, nil
 }
 
 func (c *liveRunCoordinator) finishQueueItemPublication(queueItemID runtimeids.QueueItemID) bool {
@@ -668,6 +768,7 @@ func (c *liveRunCoordinator) rollbackAdmission(admission liveRunAdmission) {
 	}
 	if group.status != RunStatusRunning && !group.hasPendingContinuation() {
 		c.current = nil
+		c.signalReadinessChangedLocked()
 		done = group.done
 	}
 	c.mu.Unlock()
@@ -703,6 +804,7 @@ func (c *liveRunCoordinator) completeQueueItems(ids map[runtimeids.QueueItemID]s
 	}
 	if group.status != RunStatusRunning && !group.hasPendingContinuation() {
 		c.current = nil
+		c.signalReadinessChangedLocked()
 		done = group.done
 	}
 	c.mu.Unlock()
@@ -722,10 +824,9 @@ func (c *liveRunCoordinator) interruptMatchingStep(snapshot *RunSnapshot) (bool,
 	if snapshot == nil {
 		return false, nil, false
 	}
-	runID := mustRunID(snapshot.RunID)
 	stepID := mustStepID(snapshot.StepID)
 	return c.interruptWhere(func(group *liveRunGroup) bool {
-		return group.runID == runID && group.stepID == stepID
+		return group.stepID == stepID
 	})
 }
 
@@ -755,6 +856,7 @@ func (c *liveRunCoordinator) interruptWhere(matches func(*liveRunGroup) bool) (b
 	group.taggedQueueItems = nil
 	group.reservations = 0
 	c.current = nil
+	c.signalReadinessChangedLocked()
 	done := group.done
 	c.mu.Unlock()
 	close(done)
@@ -784,15 +886,23 @@ func (c *liveRunCoordinator) captureWait(ctx context.Context) (*LiveRunWaitHandl
 		c.mu.Unlock()
 		return nil, ErrNoActiveLiveRun
 	}
-	group.waiters++
-	done := group.done
 	c.mu.Unlock()
-	return &LiveRunWaitHandle{coordinator: c, group: group, done: done, ctx: ctx}, nil
+	return c.captureGroupWait(ctx, group), nil
+}
+
+func (c *liveRunCoordinator) captureGroupWait(ctx context.Context, group *liveRunGroup) *LiveRunWaitHandle {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	group.waiters++
+	return &LiveRunWaitHandle{coordinator: c, group: group, done: group.done, ctx: ctx}
 }
 
 func (h *LiveRunWaitHandle) Wait() (LiveRunResult, error) {
 	if h == nil || h.coordinator == nil || h.group == nil || h.done == nil {
 		return LiveRunResult{}, ErrNoActiveLiveRun
+	}
+	if h.cancel != nil {
+		defer h.cancel()
 	}
 	ctx := h.ctx
 	if ctx == nil {
@@ -816,7 +926,6 @@ func (h *LiveRunWaitHandle) Wait() (LiveRunResult, error) {
 	}
 	return LiveRunResult{
 		GroupID:          h.group.id,
-		RunID:            h.group.runID,
 		StepID:           h.group.stepID,
 		Status:           h.group.status,
 		WorkPerformed:    h.group.workPerformed,
@@ -832,7 +941,6 @@ func (h *LiveRunWaitHandle) Wait() (LiveRunResult, error) {
 func liveRunResultForGroup(group *liveRunGroup) LiveRunResult {
 	return LiveRunResult{
 		GroupID:          group.id,
-		RunID:            group.runID,
 		StepID:           group.stepID,
 		Status:           group.status,
 		WorkPerformed:    group.workPerformed,
@@ -864,14 +972,6 @@ func liveRunNoFinalAnswerReason(kind ActiveKind) LiveRunNoFinalAnswerReason {
 	default:
 		return LiveRunNoFinalAnswerReasonUnknown
 	}
-}
-
-func mustRunID(raw string) runtimeids.RunID {
-	id, err := runtimeids.ParseRunID(raw)
-	if err != nil {
-		panic(fmt.Sprintf("runtime generated invalid run id %q: %v", raw, err))
-	}
-	return id
 }
 
 func mustStepID(raw string) runtimeids.StepID {

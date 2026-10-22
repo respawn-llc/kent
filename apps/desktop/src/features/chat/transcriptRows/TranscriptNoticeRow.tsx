@@ -2,7 +2,7 @@ import { useTranslation } from "react-i18next";
 import { cx, StaticMarkdown } from "@/ui";
 
 import type { ChatTranscriptCommittedRow } from "@/api";
-import { basename } from "@/app-facade";
+import { basename, usePathFormatter } from "@/app-facade";
 import { firstPresent } from "@/shared/text";
 
 import { projectNotice, type TranscriptNotice, type TranscriptNoticeProse } from "./transcriptNoticePolicy";
@@ -11,11 +11,12 @@ import { TranscriptDiagnosticRow } from "./TranscriptDiagnosticRow";
 
 export function TranscriptNoticeRow({ row }: Readonly<{ row: ChatTranscriptCommittedRow }>) {
   const { t } = useTranslation();
+  const formatPath = usePathFormatter();
   if (row.Kind !== "notice") return null;
 
   const notice = row.Notice;
   if (notice === null) return null;
-  const policy = projectNotice(row, noticeProse(notice, t));
+  const policy = projectNotice(row, noticeProse(notice, t, formatPath));
   if (policy === null) return null;
   const Icon = policy.icon;
   if (policy.kind === "compact") {
@@ -25,7 +26,7 @@ export function TranscriptNoticeRow({ row }: Readonly<{ row: ChatTranscriptCommi
         data-transcript-collapsed
       >
         <Icon className="size-4 shrink-0" />
-        <span>{policy.summary}</span>
+        <span className="min-w-0 flex-1 whitespace-normal break-words">{policy.summary}</span>
       </p>
     );
   }
@@ -92,20 +93,34 @@ function worktreeIconAccent(notice: TranscriptNotice): string | undefined {
 
 type Translate = ReturnType<typeof useTranslation>["t"];
 
-function noticeProse(notice: TranscriptNotice, t: Translate): TranscriptNoticeProse {
+function noticeProse(
+  notice: TranscriptNotice,
+  t: Translate,
+  formatPath: (path: string) => string,
+): TranscriptNoticeProse {
   return {
-    expanded: structuredNoticeText(notice, t, true),
+    expanded: structuredNoticeText(notice, t, true, formatPath),
+    copyText: structuredNoticeText(notice, t, true, (path) => path),
+    sourcePath: notice.SourcePath == null ? null : formatPath(notice.SourcePath),
     compact:
       notice.MessageType === "agent_steer"
         ? t("chatTranscript.notice.agentSteer")
-        : structuredNoticeText(notice, t, false),
+        : notice.MessageType === "workspaces"
+          ? t("chatTranscript.notice.projectWorkspaces")
+          : structuredNoticeText(notice, t, false, formatPath),
   };
 }
 
-function structuredNoticeText(notice: TranscriptNotice, t: Translate, expanded: boolean): string {
+function structuredNoticeText(
+  notice: TranscriptNotice,
+  t: Translate,
+  expanded: boolean,
+  formatPath: (path: string) => string,
+): string {
+  const sourcePath = notice.SourcePath == null ? null : formatPath(notice.SourcePath);
   const reasonText = reasonNoticeText(notice, t, expanded);
   if (reasonText !== undefined) return reasonText;
-  const worktreeText = worktreeNoticeText(notice, t, expanded);
+  const worktreeText = worktreeNoticeText(notice, t, expanded, formatPath);
   if (worktreeText !== undefined) return worktreeText;
   if (notice.MessageType === "session_rebind" && notice.Diagnostic?.Detail === undefined) {
     return t("chatTranscript.notice.sessionRebind");
@@ -116,14 +131,14 @@ function structuredNoticeText(notice: TranscriptNotice, t: Translate, expanded: 
         notice.LegacyText,
         notice.CondensedText,
         notice.CompactLabel,
-        notice.SourcePath,
+        sourcePath,
         notice.Reason,
       ) ?? notice.Reason)
     : (firstPresent(
         notice.CondensedText,
         notice.LegacyText,
         notice.CompactLabel,
-        notice.SourcePath,
+        sourcePath,
         notice.Diagnostic?.Detail,
         notice.Reason,
       ) ?? notice.Reason);
@@ -141,10 +156,38 @@ function reasonNoticeText(notice: TranscriptNotice, t: Translate, expanded: bool
       return toolOutputRepairText(notice, t);
     case "provider_model_mismatch":
       return providerModelMismatchText(notice, t);
+    case "reasoning_omission":
+      return t("chatTranscript.notice.reasoningOmission");
+    case "connection_fallback":
+      return notice.ConnectionFallback == null
+        ? undefined
+        : t("chatTranscript.notice.connectionFallback", {
+            previous: notice.ConnectionFallback.previous_id,
+            current: notice.ConnectionFallback.current_id,
+          });
+    case "connections_unavailable":
+      return connectionsUnavailableText(notice, t);
     case "legacy_untyped_notice":
     case "runtime_diagnostic":
       return undefined;
   }
+}
+
+function connectionsUnavailableText(notice: TranscriptNotice, t: Translate): string | undefined {
+  const unavailable = notice.ConnectionsUnavailable;
+  if (unavailable == null) return undefined;
+  return [
+    t("chatTranscript.notice.connectionsUnavailable"),
+    ...unavailable.members.map((member) =>
+      member.available_at === null
+        ? t("chatTranscript.notice.connectionAlreadyAttempted", { id: member.id })
+        : t("chatTranscript.notice.connectionAvailableAfter", {
+            id: member.id,
+            time: new Date(member.available_at).toLocaleString(),
+          }),
+    ),
+    ...unavailable.diagnostics,
+  ].join("\n");
 }
 
 function cacheWarningText(notice: TranscriptNotice, t: Translate): string | undefined {
@@ -216,7 +259,12 @@ function providerModelMismatchText(notice: TranscriptNotice, t: Translate): stri
       });
 }
 
-function worktreeNoticeText(notice: TranscriptNotice, t: Translate, expanded: boolean): string | undefined {
+function worktreeNoticeText(
+  notice: TranscriptNotice,
+  t: Translate,
+  expanded: boolean,
+  formatPath: (path: string) => string,
+): string | undefined {
   const worktree = notice.Worktree;
   if (worktree === undefined || worktree === null) return undefined;
   if (expanded && notice.Diagnostic?.Detail !== undefined && notice.Diagnostic.Detail.trim() !== "") {
@@ -227,12 +275,12 @@ function worktreeNoticeText(notice: TranscriptNotice, t: Translate, expanded: bo
       firstPresent(worktree.Branch, basename(worktree.WorktreePath)) ?? t("chatTranscript.notice.worktree");
     return worktree.EffectiveCwd.trim().length === 0
       ? t("chatTranscript.notice.worktreeEnter", { name })
-      : t("chatTranscript.notice.worktreeEnterCwd", { cwd: worktree.EffectiveCwd, name });
+      : t("chatTranscript.notice.worktreeEnterCwd", { cwd: formatPath(worktree.EffectiveCwd), name });
   }
   if (notice.MessageType === "worktree_mode_exit") {
     return worktree.EffectiveCwd.trim().length === 0
       ? t("chatTranscript.notice.worktreeExit")
-      : t("chatTranscript.notice.worktreeExitCwd", { cwd: worktree.EffectiveCwd });
+      : t("chatTranscript.notice.worktreeExitCwd", { cwd: formatPath(worktree.EffectiveCwd) });
   }
   return undefined;
 }

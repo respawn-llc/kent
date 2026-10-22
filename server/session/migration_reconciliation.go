@@ -155,7 +155,7 @@ func (s *Store) currentEventLogReconciliationObservation(
 		if err != nil {
 			return currentEventLogReconciliationObservation{}, err
 		}
-		if kind == EventKindHistoryReplace {
+		if IsContextBoundary(kind) {
 			sequence := record.Seq()
 			latestCompactionSequence = &sequence
 			// The newest replacement is the bounded durable witness that the

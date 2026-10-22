@@ -1,6 +1,6 @@
 import { render, screen } from "@testing-library/react";
 import { I18nextProvider } from "react-i18next";
-import { beforeAll, describe, expect, it } from "vitest";
+import { beforeAll, describe, expect, it } from "bun:test";
 
 import { appI18n, initializeI18n } from "@/i18n";
 import { TaskCurrentNodeSelectionProperties } from "./TaskDetailRows";
@@ -19,6 +19,7 @@ describe("TaskCurrentNodeSelectionProperties", () => {
               effectiveAssignee: "reviewer",
               effectiveThinking: "high",
               nodeID: "node-1",
+              displayName: "Recon",
               sessionID: null,
               transitionBranchKey: null,
             }}
@@ -26,8 +27,12 @@ describe("TaskCurrentNodeSelectionProperties", () => {
         </dl>
       </I18nextProvider>,
     );
-    expect(screen.getByLabelText("Node node-1 effective assignee value")).toHaveTextContent("reviewer");
-    expect(screen.getByLabelText("Node node-1 effective thinking value")).toHaveTextContent("high");
+    expect(
+      screen.getByLabelText(`${appI18n.t("task.currentNodeAssignee", { nodeName: "Recon" })} value`),
+    ).toHaveTextContent("reviewer");
+    expect(
+      screen.getByLabelText(`${appI18n.t("task.currentNodeThinking", { nodeName: "Recon" })} value`),
+    ).toHaveTextContent("high");
   });
 
   it("omits effective selection for non-Agent current nodes", () => {
@@ -39,6 +44,7 @@ describe("TaskCurrentNodeSelectionProperties", () => {
               effectiveAssignee: null,
               effectiveThinking: null,
               nodeID: "script-1",
+              displayName: "QA",
               sessionID: null,
               transitionBranchKey: null,
             }}

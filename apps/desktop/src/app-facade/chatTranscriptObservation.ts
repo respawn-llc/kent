@@ -68,7 +68,7 @@ export class ChatTranscriptPhysicalObservation {
         if (!this.#accepts(generation, settled)) return;
         settled = true;
         this.#subscription = null;
-        if (completion.code === 0 && terminalUnavailable) {
+        if (completion.code === null && terminalUnavailable) {
           this.#openPhysicalSubscription();
           return;
         }
@@ -184,7 +184,7 @@ export class ChatTranscriptObservation {
       onComplete: (completion) => {
         this.#continuityFailure(
           new ContractError(
-            `Transcript observation completed with code ${completion.code.toString()}: ${completion.message}`,
+            `Transcript observation completed with code ${String(completion.code)}: ${String(completion.message)}`,
           ),
         );
       },

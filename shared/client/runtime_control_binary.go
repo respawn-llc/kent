@@ -2,14 +2,14 @@ package client
 
 import (
 	"context"
-	"errors"
 	"fmt"
-	"strings"
 
 	"core/shared/protoapi"
+	chatshellpb "core/shared/protoapi/gen/kent/api/chat_shell"
 	promptpb "core/shared/protoapi/gen/kent/api/prompt"
 	promptcommandpb "core/shared/protoapi/gen/kent/api/prompt_command"
 	runtimepb "core/shared/protoapi/gen/kent/api/runtime"
+	sharedpb "core/shared/protoapi/gen/kent/api/shared"
 	transcriptpb "core/shared/protoapi/gen/kent/api/transcript"
 	"core/shared/runtimeids"
 	"core/shared/serverapi"
@@ -21,9 +21,14 @@ type runtimeControlFailure interface {
 
 func runtimeControlGeneratedError(failure runtimeControlFailure) error {
 	if value, ok := failure.(interface {
+		GetSelfTarget() *sharedpb.SessionSelfTargetDetails
+	}); ok && value.GetSelfTarget() != nil {
+		return protoapi.SessionSelfTargetFromProto(value.GetSelfTarget())
+	}
+	if value, ok := failure.(interface {
 		GetRuntimeUnavailable() *runtimepb.RuntimeUnavailableDetails
 	}); ok && value.GetRuntimeUnavailable() != nil {
-		return serverapi.ErrRuntimeUnavailable
+		return protoapi.RuntimeUnavailableFromProto(value.GetRuntimeUnavailable())
 	}
 	if value, ok := failure.(interface {
 		GetRuntimeCommandNotAccepted() *runtimepb.RuntimeCommandNotAcceptedDetails
@@ -80,19 +85,17 @@ func (c *Remote) AppendCommittedEntry(ctx context.Context, request *transcriptpb
 	return err
 }
 
-func (c *Remote) ShouldCompactBeforeUserMessage(ctx context.Context, request *runtimepb.ShouldCompactRequest) (*runtimepb.ShouldCompactSuccess, error) {
-	return callGeneratedBinary(c, ctx, bootstrapMethod(runtimepb.File_kent_api_runtime_runtime_proto, "TurnService", "ShouldCompactBeforeUserMessage"), request, &runtimepb.ShouldCompactResult{},
-		func(failure *runtimepb.ShouldCompactError) error { return runtimeControlGeneratedError(failure) })
-}
-
 func (c *Remote) SubmitUserTurn(ctx context.Context, request *runtimepb.SubmitUserTurnRequest) (*runtimepb.SubmitUserTurnSuccess, error) {
 	return callGeneratedBinary(c, ctx, bootstrapMethod(runtimepb.File_kent_api_runtime_runtime_proto, "TurnService", "SubmitUserTurn"), request, &runtimepb.SubmitUserTurnResult{},
 		func(failure *runtimepb.SubmitUserTurnError) error { return runtimeControlGeneratedError(failure) })
 }
 
-func (c *Remote) SubmitUserShellCommand(ctx context.Context, request *runtimepb.ShellCommandRequest) error {
-	_, err := callGeneratedBinary(c, ctx, bootstrapMethod(runtimepb.File_kent_api_runtime_runtime_proto, "TurnService", "SubmitUserShellCommand"), request, &runtimepb.SubmitUserShellCommandResult{},
-		func(failure *runtimepb.SubmitUserShellCommandError) error {
+func (c *Remote) SubmitUserShellCommand(ctx context.Context, request *chatshellpb.ShellCommandRequest) error {
+	_, err := callGeneratedBinary(c, ctx, bootstrapMethod(chatshellpb.File_kent_api_chat_shell_chat_shell_proto, "ShellService", "SubmitUserShellCommand"), request, &chatshellpb.SubmitUserShellCommandResult{},
+		func(failure *chatshellpb.SubmitUserShellCommandError) error {
+			if failure.GetSessionNotFound() != nil || failure.GetWorkspaceNotRegistered() != nil || failure.GetChatSettingsAgentPreparation() != nil {
+				return protoapi.ChatSettingsErrorFromProto(failure)
+			}
 			return runtimeControlGeneratedError(failure)
 		})
 	return err
@@ -145,9 +148,6 @@ func (c *Remote) SetGoal(ctx context.Context, request *runtimepb.GoalSetRequest)
 		return result.GetSuccess(), nil
 	case protoapi.OperationKnownFailure, protoapi.OperationGenericFailure:
 		failure := result.GetError()
-		if failure == nil {
-			return nil, fmt.Errorf("%s classified a failure without an error value", method.FullName())
-		}
 		return nil, goalSetGeneratedError(failure)
 	default:
 		return nil, fmt.Errorf("classify %s result: unknown outcome %d", method.FullName(), classified.Outcome)
@@ -166,18 +166,9 @@ func (e *GoalSetGeneratedError) Error() string {
 }
 
 func goalSetGeneratedError(failure *runtimepb.GoalSetError) error {
-	if failure == nil {
-		return errors.New("Goal Set error is required")
-	}
-	if err := protoapi.Validate(failure); err != nil {
-		return fmt.Errorf("validate Goal Set error: %w", err)
-	}
 	switch failure.Code {
 	case "runtime_unavailable":
-		if detail := failure.GetRuntimeUnavailable(); detail != nil && strings.TrimSpace(detail.SessionId) != "" {
-			return fmt.Errorf("%w: %s", serverapi.ErrRuntimeUnavailable, detail.SessionId)
-		}
-		return serverapi.ErrRuntimeUnavailable
+		return protoapi.RuntimeUnavailableFromProto(failure.GetRuntimeUnavailable())
 	case "internal_failure":
 		return protoapi.InternalFailureFromProto(failure.GetInternalFailure())
 	default:

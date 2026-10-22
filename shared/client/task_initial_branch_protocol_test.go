@@ -33,7 +33,7 @@ func TestInitialBranchClientStopsAtOldServerHandshake(t *testing.T) {
 	if err == nil {
 		t.Fatal("old server handshake unexpectedly succeeded")
 	}
-	var mismatch *protocolVersionMismatchError
+	var mismatch *ProtocolVersionMismatchError
 	if !errors.As(err, &mismatch) {
 		t.Fatalf("old server handshake error = %T, want protocol version mismatch", err)
 	}

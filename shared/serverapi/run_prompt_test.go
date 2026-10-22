@@ -10,9 +10,6 @@ func TestRunPromptOverridesAgentRoleContract(t *testing.T) {
 		Prompt:    "hello",
 		Overrides: RunPromptOverrides{AgentRole: runPromptStringPtr("worker")},
 	}
-	if err := got.Validate(); err != nil {
-		t.Fatalf("Validate request: %v", err)
-	}
 	if !got.Overrides.HasAny() {
 		t.Fatal("AgentRole should count as an override")
 	}
@@ -28,7 +25,7 @@ func TestRunPromptOverridesRolePresenceAndAuth(t *testing.T) {
 		wantRoleName string
 	}{
 		{name: "empty", overrides: RunPromptOverrides{}, wantAny: false},
-		{name: "config only", overrides: RunPromptOverrides{Model: "gpt-5.6-sol"}, wantAny: true},
+		{name: "config only", overrides: RunPromptOverrides{Model: "gpt-6-sol"}, wantAny: true},
 		{name: "default", overrides: RunPromptOverrides{AgentRole: runPromptStringPtr("default")}, wantAny: true, wantAuth: false, wantDefault: true},
 		{name: "named", overrides: RunPromptOverrides{AgentRole: runPromptStringPtr(" Worker ")}, wantAny: true, wantAuth: true, wantRoleName: "worker"},
 	}

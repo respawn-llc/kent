@@ -1,10 +1,27 @@
 import { useTranslation } from "react-i18next";
 
+type AccessTarget = Readonly<{ requestedPath: string; resolvedPath: string }>;
+
 export function PromptAccessTargets({
   targets,
-}: Readonly<{ targets: readonly Readonly<{ requestedPath: string; resolvedPath: string }>[] }>) {
+  formatPath,
+}: Readonly<{
+  targets: readonly AccessTarget[];
+  formatPath: (path: string) => string;
+}>) {
   const { t } = useTranslation();
-  if (targets.length === 0) return null;
+  const first = targets[0];
+  if (first === undefined) return null;
+  if (targets.length === 1) {
+    return (
+      <>
+        <div className="min-w-0 break-words text-[var(--color-on-island)]">
+          {t("task.accessApprovalSingle", { path: displayAccessTarget(first, formatPath) })}
+        </div>
+        <div>{t("task.accessApprovalSingleQuestion")}</div>
+      </>
+    );
+  }
   return (
     <>
       <div>{t("task.accessApprovalIntro", { count: targets.length })}</div>
@@ -13,11 +30,17 @@ export function PromptAccessTargets({
           className="min-w-0 break-words text-[var(--color-on-island)]"
           key={`${String(index)}:${target.requestedPath}`}
         >
-          - {target.requestedPath}
-          {target.requestedPath === target.resolvedPath ? null : ` → ${target.resolvedPath}`}
+          - {displayAccessTarget(target, formatPath)}
         </div>
       ))}
       <div>{t("task.accessApprovalQuestion")}</div>
     </>
   );
+}
+
+function displayAccessTarget(target: AccessTarget, formatPath: (path: string) => string): string {
+  const requested = formatPath(target.requestedPath);
+  return target.requestedPath === target.resolvedPath
+    ? requested
+    : `${requested} → ${formatPath(target.resolvedPath)}`;
 }

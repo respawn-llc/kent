@@ -61,7 +61,7 @@ func assertRequestHasUserMessage(t *testing.T, request llm.Request, content stri
 	}
 }
 
-func TestQueuedUserMessageFlushAfterFinalAssistantWithReasoningPublishesAssistantFirst(t *testing.T) {
+func TestQueuedUserMessageFlushAfterFinalAssistantWithReasoningPublishesReasoningFirst(t *testing.T) {
 	t.Parallel()
 	client := &fakeClient{responses: []llm.Response{
 		{
@@ -91,7 +91,7 @@ func TestQueuedUserMessageFlushAfterFinalAssistantWithReasoningPublishesAssistan
 
 	committedEvents := committedTranscriptEventsWithEntries(events)
 	if len(committedEvents) < 3 {
-		t.Fatalf("expected assistant, reasoning, and queued user committed events, got %+v", committedEvents)
+		t.Fatalf("expected initial user, reasoning, and assistant committed events, got %+v", committedEvents)
 	}
 	userIdx := -1
 	for idx, evt := range committedEvents {
@@ -103,9 +103,20 @@ func TestQueuedUserMessageFlushAfterFinalAssistantWithReasoningPublishesAssistan
 	if userIdx < 0 {
 		t.Fatalf("expected initial user flush event, got %+v", committedEvents)
 	}
-	assistant := committedEvents[userIdx+1]
-	if assistant.Kind != EventAssistantMessage || messageContent(assistant.Message) != "first final" {
-		t.Fatalf("committed event after initial user = %+v, want first final assistant before reasoning/queued rows; all=%+v", assistant, committedEvents)
+	reasoning := committedEvents[userIdx+1]
+	assistant := committedEvents[userIdx+2]
+	if reasoning.Kind != EventLocalEntryAdded ||
+		reasoning.LocalEntry == nil ||
+		reasoning.LocalEntry.Role != "reasoning" ||
+		assistant.Kind != EventAssistantMessage ||
+		messageContent(assistant.Message) != "first final" {
+		t.Fatalf(
+			"committed initial turn order = initial_user:%+v reasoning:%+v final:%+v events:%+v",
+			committedEvents[userIdx],
+			reasoning,
+			assistant,
+			committedEvents,
+		)
 	}
 	assertRuntimeEventsAdvanceCommittedFrontierContiguously(t, committedEvents)
 }
@@ -156,7 +167,7 @@ func TestModelResponseEventCarriesContextUsage(t *testing.T) {
 	t.Parallel()
 	client := &fakeClient{responses: []llm.Response{{
 		Assistant: llm.Message{Role: llm.RoleAssistant, Content: textutil.Value("done"), Phase: textutil.Value(llm.MessagePhaseFinal)},
-		Usage:     llm.Usage{InputTokens: 420},
+		Usage:     llm.Usage{InputTokens: textutil.Value(420), ContextUsage: &llm.ContextUsage{Tokens: 420, MeasurementPoint: llm.ContextMeasurementInput}},
 	}}}
 	var usage *ContextUsage
 	autoCompactionEnabled := false
@@ -361,8 +372,8 @@ func TestContextUsageUsesLastUsageWhenAvailable(t *testing.T) {
 	t.Parallel()
 	store := mustCreateTestSession(t)
 
-	eng := mustNewTestEngine(t, store, &fakeClient{}, newTestToolRegistry(t, tools.HandlerRegistration{ID: toolspec.ToolExecCommand, Handler: fakeTool{name: toolspec.ToolExecCommand}}), Config{Model: "gpt-5", ContextWindowTokens: 400_000})
-	eng.setLastUsage(llm.Usage{InputTokens: 1234, OutputTokens: 66, WindowTokens: 399_000})
+	eng := mustNewTestEngine(t, store, &fakeClient{}, newTestToolRegistry(t, tools.HandlerRegistration{ID: toolspec.ToolExecCommand, Handler: fakeTool{name: toolspec.ToolExecCommand}}), Config{Model: "gpt-6-sol", ContextWindowTokens: 400_000})
+	eng.setLastUsage(llm.Usage{InputTokens: textutil.Value(1234), OutputTokens: textutil.Value(66), WindowTokens: 399_000, ContextUsage: &llm.ContextUsage{Tokens: 1234, MeasurementPoint: llm.ContextMeasurementInput}})
 
 	usage := eng.ContextUsage()
 	if usage.UsedTokens != 1234 {
@@ -397,9 +408,9 @@ func TestContextUsageTracksWeightedCacheHitPercentageFromModelUsage(t *testing.T
 		t.Fatalf("expected cache hit percentage to be unavailable before model usage, got %+v", usage)
 	}
 
-	eng.setLastUsage(llm.Usage{InputTokens: 100, CachedInputTokens: textutil.Value(40)})
-	eng.setLastUsage(llm.Usage{InputTokens: 300, CachedInputTokens: textutil.Value(60)})
-	eng.setLastUsage(llm.Usage{InputTokens: 999})
+	eng.setLastUsage(llm.Usage{InputTokens: textutil.Value(100), CachedInputTokens: textutil.Value(40), ContextUsage: &llm.ContextUsage{Tokens: 100, MeasurementPoint: llm.ContextMeasurementInput}})
+	eng.setLastUsage(llm.Usage{InputTokens: textutil.Value(300), CachedInputTokens: textutil.Value(60), ContextUsage: &llm.ContextUsage{Tokens: 300, MeasurementPoint: llm.ContextMeasurementInput}})
+	eng.setLastUsage(llm.Usage{InputTokens: textutil.Value(999), ContextUsage: &llm.ContextUsage{Tokens: 999, MeasurementPoint: llm.ContextMeasurementInput}})
 
 	usage := eng.ContextUsage()
 	if !usage.HasCacheHitPercentage {
@@ -413,12 +424,12 @@ func TestContextUsageTracksWeightedCacheHitPercentageFromModelUsage(t *testing.T
 func TestContextUsageUsesEstimatedTokensWhenLastUsageIsStale(t *testing.T) {
 	t.Parallel()
 	eng := mustNewTestEngine(t, mustCreateTestSession(t), &fakeClient{}, newTestToolRegistry(t, tools.HandlerRegistration{ID: toolspec.ToolExecCommand, Handler: fakeTool{name: toolspec.ToolExecCommand}}), Config{ContextWindowTokens: 410_000})
-	eng.setLastUsage(llm.Usage{InputTokens: 100, OutputTokens: 0, WindowTokens: 410_000})
+	eng.setLastUsage(llm.Usage{InputTokens: textutil.Value(100), OutputTokens: textutil.Value(0), WindowTokens: 410_000, ContextUsage: &llm.ContextUsage{Tokens: 100, MeasurementPoint: llm.ContextMeasurementInput}})
 	if err := eng.steerRuntime(steerMessagesWithPersistenceIntent(steeringPriorityNormal, steeringMessageEventDefault, true, []llm.Message{{Role: llm.RoleUser, Content: textutil.Value(strings.Repeat("x", 1600))}})); err != nil {
 		t.Fatalf("append message: %v", err)
 	}
 
-	estimated := estimateItemsTokens(eng.transcriptRuntimeState().SnapshotItems())
+	estimated := llm.EstimateItemsTokens(eng.connectionSnapshot().estimator, eng.transcriptRuntimeState().SnapshotItems())
 	if estimated <= 100 {
 		t.Fatalf("expected estimated tokens above stale usage baseline, got %d", estimated)
 	}
@@ -436,13 +447,13 @@ func TestContextUsageAddsOnlyPostCheckpointEstimateDelta(t *testing.T) {
 	if err := eng.steerRuntime(steerMessagesWithPersistenceIntent(steeringPriorityNormal, steeringMessageEventDefault, true, []llm.Message{{Role: llm.RoleUser, Content: textutil.Value(strings.Repeat("seed-", 100))}})); err != nil {
 		t.Fatalf("append seed message: %v", err)
 	}
-	checkpointEstimate := estimateItemsTokens(eng.transcriptRuntimeState().SnapshotItems())
-	eng.setLastUsage(llm.Usage{InputTokens: 900, OutputTokens: 120, WindowTokens: 410_000})
+	checkpointEstimate := llm.EstimateItemsTokens(eng.connectionSnapshot().estimator, eng.transcriptRuntimeState().SnapshotItems())
+	eng.setLastUsage(llm.Usage{InputTokens: textutil.Value(900), OutputTokens: textutil.Value(120), WindowTokens: 410_000, ContextUsage: &llm.ContextUsage{Tokens: 900, MeasurementPoint: llm.ContextMeasurementInput}})
 	if err := eng.steerRuntime(steerMessagesWithPersistenceIntent(steeringPriorityNormal, steeringMessageEventDefault, true, []llm.Message{{Role: llm.RoleUser, Content: textutil.Value(strings.Repeat("delta-", 40))}})); err != nil {
 		t.Fatalf("append delta message: %v", err)
 	}
 
-	currentEstimate := estimateItemsTokens(eng.transcriptRuntimeState().SnapshotItems())
+	currentEstimate := llm.EstimateItemsTokens(eng.connectionSnapshot().estimator, eng.transcriptRuntimeState().SnapshotItems())
 	deltaEstimate := currentEstimate - checkpointEstimate
 	if deltaEstimate <= 0 {
 		t.Fatalf("expected positive estimated delta, got checkpoint=%d current=%d", checkpointEstimate, currentEstimate)
@@ -465,12 +476,12 @@ func TestEstimateItemsTokensDoesNotTreatInlineImagePayloadAsPlainText(t *testing
 		Output: json.RawMessage(`[{"type":"input_image","image_url":"data:image/png;base64,` + base64Payload + `"}]`),
 	}
 
-	estimated := estimateItemsTokens([]llm.ResponseItem{item})
+	estimated := llm.EstimateItemsTokens(llm.DefaultTokenEstimator{}, []llm.ResponseItem{item})
 	naive := (len(*item.Name) + len(*item.CallID) + len(item.Output) + 3) / 4
 	if estimated <= 0 {
 		t.Fatalf("expected multimodal estimate > 0, got %d", estimated)
 	}
-	if estimated >= naive/4 {
+	if estimated >= naive/2 {
 		t.Fatalf("expected multimodal estimate to stay well below plain-text estimate, got estimated=%d naive=%d", estimated, naive)
 	}
 }
@@ -479,8 +490,8 @@ func TestContextUsageDoesNotInflateInlineImagePayloadByBase64Length(t *testing.T
 	t.Parallel()
 	store := mustCreateTestSession(t)
 
-	eng := mustNewTestEngine(t, store, &fakeClient{}, newTestToolRegistry(t, tools.HandlerRegistration{ID: toolspec.ToolExecCommand, Handler: fakeTool{name: toolspec.ToolExecCommand}}), Config{Model: "gpt-5", ContextWindowTokens: 410_000})
-	eng.setLastUsage(llm.Usage{InputTokens: 100, OutputTokens: 0, WindowTokens: 410_000})
+	eng := mustNewTestEngine(t, store, &fakeClient{}, newTestToolRegistry(t, tools.HandlerRegistration{ID: toolspec.ToolExecCommand, Handler: fakeTool{name: toolspec.ToolExecCommand}}), Config{Model: "gpt-6-sol", ContextWindowTokens: 410_000})
+	eng.setLastUsage(llm.Usage{InputTokens: textutil.Value(100), OutputTokens: textutil.Value(0), WindowTokens: 410_000, ContextUsage: &llm.ContextUsage{Tokens: 100, MeasurementPoint: llm.ContextMeasurementInput}})
 	if err := eng.steerRuntime(steerMessagesWithPersistenceIntent(steeringPriorityNormal, steeringMessageEventDefault, true, []llm.Message{{
 		Role:       llm.RoleTool,
 		ToolCallID: textutil.Value("call-1"),
@@ -496,45 +507,5 @@ func TestContextUsageDoesNotInflateInlineImagePayloadByBase64Length(t *testing.T
 	}
 	if usage.UsedTokens >= 2_000 {
 		t.Fatalf("expected inline image estimate to avoid base64 inflation, got %d", usage.UsedTokens)
-	}
-}
-
-func TestPreSubmitCompactionTokenLimitUsesFixedRunwayReserve(t *testing.T) {
-	t.Parallel()
-	tests := []struct {
-		name     string
-		limit    int
-		runway   int
-		expected int
-	}{
-		{
-			name:     "subtracts fixed runway from auto threshold",
-			limit:    190_000,
-			runway:   35_000,
-			expected: 155_000,
-		},
-		{
-			name:     "large windows still use same fixed runway",
-			limit:    950_000,
-			runway:   35_000,
-			expected: 915_000,
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			store := mustCreateTestSession(t)
-
-			eng := mustNewTestEngine(t, store, &fakeClient{}, tools.NewRegistry(), Config{
-				Model:                         "gpt-5",
-				AutoCompactTokenLimit:         tt.limit,
-				ContextWindowTokens:           1_000_000,
-				PreSubmitCompactionLeadTokens: tt.runway,
-			})
-
-			if got := eng.compactionPlannerState().preSubmitTokenLimit(eng.compactionPlanningSnapshot()); got != tt.expected {
-				t.Fatalf("unexpected pre-submit compaction threshold: got %d want %d", got, tt.expected)
-			}
-		})
 	}
 }

@@ -29,6 +29,9 @@ func (state *onboardingFlowState) updateSelections(
 }
 
 func (state *onboardingFlowState) chooseTheme(choiceID string) error {
+	if state.facts == nil {
+		return state.selections.chooseTheme(choiceID)
+	}
 	return state.updateSelections("apply_choice", onboardingStepTheme, func(selections *onboardingSelections) error {
 		return selections.chooseTheme(choiceID)
 	})
@@ -148,16 +151,14 @@ func (state *onboardingFlowState) recomputeSkillEnablement(selections *onboardin
 
 func (selections onboardingSelections) clone() onboardingSelections {
 	selections.skillEnablement = maps.Clone(selections.skillEnablement)
-	selections.preserved.enabledTools = maps.Clone(selections.preserved.enabledTools)
 	return selections
 }
 
 func (selections *onboardingSelections) chooseTheme(choiceID string) error {
 	normalizedChoice := theme.Normalize(choiceID)
-	if selections.theme.kind == onboardingThemeAuto && normalizedChoice == theme.Resolve(theme.Auto) {
-		return nil
-	}
 	switch normalizedChoice {
+	case theme.Auto:
+		selections.theme = onboardingThemeSelection{kind: onboardingThemeAuto}
 	case theme.Light:
 		selections.theme = onboardingThemeSelection{kind: onboardingThemeLight}
 	case theme.Dark:
@@ -206,10 +207,10 @@ func (selections *onboardingSelections) chooseContextWindow(choiceID string, fac
 		switch {
 		case fact.ContextWindowTokens != nil && *fact.ContextWindowTokens > 0:
 			selections.contextWindow = onboardingContextSelection{kind: onboardingContextDefault}
-		case selections.preserved.baselineModelContextWindow != nil:
+		case selections.baselineModelContextWindow != nil:
 			selections.contextWindow = onboardingContextSelection{
 				kind:   onboardingContextCustom,
-				tokens: *selections.preserved.baselineModelContextWindow,
+				tokens: *selections.baselineModelContextWindow,
 			}
 		default:
 			selections.contextWindow = onboardingContextSelection{kind: onboardingContextDefault}
@@ -223,6 +224,9 @@ func (selections *onboardingSelections) chooseContextWindow(choiceID string, fac
 func (selections *onboardingSelections) choosePrimaryThinking(choiceID string, facts *capabilitypb.Facts) error {
 	switch choiceID {
 	case "disable":
+		if !slices.Contains(modelFactForFacts(facts, selections.model.value).SupportedThinkingLevels, "none") {
+			return conversionError("thinking", choiceID, "unsupported thinking choice")
+		}
 		selections.thinking = onboardingThinkingSelection{kind: onboardingThinkingDisabled}
 		selections.pendingPrimaryThinking = onboardingThinkingEdit{kind: onboardingThinkingEditNone}
 	case "custom":
@@ -315,6 +319,9 @@ func (selections *onboardingSelections) submitReviewerModel(value string, facts 
 func (selections *onboardingSelections) chooseReviewerThinking(choiceID string, facts *capabilitypb.Facts) error {
 	switch choiceID {
 	case "disable":
+		if !slices.Contains(modelFactForFacts(facts, selections.reviewerModelValue()).SupportedThinkingLevels, "none") {
+			return conversionError("reviewer.thinking", choiceID, "unsupported thinking choice")
+		}
 		selections.supervisor.thinking = onboardingReviewerThinkingSelection{
 			kind:     onboardingReviewerThinkingOverridden,
 			override: onboardingThinkingSelection{kind: onboardingThinkingDisabled},

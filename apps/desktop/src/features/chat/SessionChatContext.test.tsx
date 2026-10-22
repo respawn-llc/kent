@@ -1,4 +1,6 @@
+import { expect, it, vi } from "bun:test";
 import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
 import type { ChatTranscriptHandler } from "@/api";
 import { ChatRuntimeProvider, useChatRuntimeOwner } from "@/app-facade";
 import { appI18n } from "@/i18n";
@@ -16,7 +18,7 @@ import { ChatComposerSurface } from "./ChatComposerSurface";
 import { ChatComposer } from "./ChatComposer";
 import { useChatComposer } from "./useChatComposer";
 import { useState } from "react";
-import * as Atom from "effect/unstable/reactivity/Atom";
+import * as Atom from "effect/reactivity/Atom";
 import { useQueryClient } from "@tanstack/react-query";
 import { createChatComposerViewModel } from "./ChatComposerViewModel";
 import type { ChatSettingsTarget } from "@/api";
@@ -34,7 +36,7 @@ it("presents admitted usage and policy updates from the ordinary observation", a
   render(
     <TestAppProviders services={services}>
       <ChatRuntimeProvider api={services.api} target={target} host={runtimeHost()}>
-        <SessionChatContext compact={vi.fn()} settings={{ kind: "loading-session", retry: vi.fn() }} />
+        <SessionChatContext compact={vi.fn()} />
       </ChatRuntimeProvider>
     </TestAppProviders>,
   );
@@ -59,14 +61,14 @@ it("presents admitted usage and policy updates from the ordinary observation", a
     }),
   );
   expect(await screen.findByRole("button", { name: "50%" })).toBeInTheDocument();
-  fireEvent.click(screen.getByRole("button", { name: "50%" }));
-  await waitFor(() =>
+  await userEvent.setup().hover(screen.getByRole("button", { name: "50%" }));
+  await waitFor(() => {
     expect(
       screen.getByRole("button", {
         name: appI18n.t("chatComposer.context.compact"),
       }),
-    ).toBeEnabled(),
-  );
+    ).toBeEnabled();
+  });
   act(() =>
     handlers[0]?.onEvent({
       sequence: 3,
@@ -77,13 +79,13 @@ it("presents admitted usage and policy updates from the ordinary observation", a
       },
     }),
   );
-  await waitFor(() =>
+  await waitFor(() => {
     expect(
       screen.getByRole("button", {
         name: appI18n.t("chatComposer.context.compact"),
       }),
-    ).toBeDisabled(),
-  );
+    ).toBeDisabled();
+  });
   act(() => {
     handlers[0]?.onEvent({ sequence: 4, kind: "session_status", payload: initial.SessionStatus });
     handlers[0]?.onEvent({
@@ -93,7 +95,7 @@ it("presents admitted usage and policy updates from the ordinary observation", a
         Version: { Epoch: "epoch-1", Generation: 1, Sequence: 3 },
         Activity: {
           ...initial.RuntimeReadModelUpdate.Activity,
-          ActiveStep: { RunID: "run", StepID: "compact", ActiveKind: "pre_submit_compaction" },
+          ActiveStep: { StepID: "compact", ActiveKind: "compaction" },
         },
       },
     });
@@ -123,7 +125,7 @@ it("retains admitted usage during a later Main View load", async () => {
         >
           Reload
         </button>
-        <SessionChatContext compact={vi.fn()} settings={{ kind: "loading-session", retry: vi.fn() }} />
+        <SessionChatContext compact={vi.fn()} />
       </>
     );
   }

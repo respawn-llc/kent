@@ -12,21 +12,20 @@ import (
 )
 
 type LockedContract struct {
-	Model                  string                                  `json:"model"`
-	Temperature            float64                                 `json:"temperature"`
-	MaxOutputToken         int                                     `json:"max_output_token"`
-	SystemPrompt           string                                  `json:"system_prompt"`
-	HasSystemPrompt        bool                                    `json:"has_system_prompt,omitempty"`
-	ReviewerPrompt         string                                  `json:"reviewer_prompt,omitempty"`
-	HasReviewerPrompt      bool                                    `json:"has_reviewer_prompt,omitempty"`
-	EnabledTools           []string                                `json:"enabled_tools,omitempty"`
-	HasEnabledTools        bool                                    `json:"has_enabled_tools,omitempty"`
-	WebSearchMode          string                                  `json:"web_search_mode,omitempty"`
-	ToolPreambles          *bool                                   `json:"tool_preambles,omitempty"`
-	WorkflowCompletionMode *sessioncontract.WorkflowCompletionMode `json:"workflow_completion_mode,omitempty"`
-	ModelCapabilities      LockedModelCapabilities                 `json:"model_capabilities,omitempty"`
-	ProviderContract       LockedProviderCapabilities              `json:"provider_contract,omitempty"`
-	LockedAt               time.Time                               `json:"locked_at"`
+	Model             string                     `json:"model"`
+	Temperature       float64                    `json:"temperature"`
+	MaxOutputToken    int                        `json:"max_output_token"`
+	SystemPrompt      string                     `json:"system_prompt"`
+	HasSystemPrompt   bool                       `json:"has_system_prompt,omitempty"`
+	ReviewerPrompt    string                     `json:"reviewer_prompt,omitempty"`
+	HasReviewerPrompt bool                       `json:"has_reviewer_prompt,omitempty"`
+	EnabledTools      []string                   `json:"enabled_tools,omitempty"`
+	HasEnabledTools   bool                       `json:"has_enabled_tools,omitempty"`
+	WebSearchMode     string                     `json:"web_search_mode,omitempty"`
+	ToolPreambles     *bool                      `json:"tool_preambles,omitempty"`
+	ModelCapabilities LockedModelCapabilities    `json:"model_capabilities,omitempty"`
+	ProviderContract  LockedProviderCapabilities `json:"provider_contract,omitempty"`
+	LockedAt          time.Time                  `json:"locked_at"`
 }
 
 func (c LockedContract) WithMainPromptSnapshot(snapshot LockedMainPromptSnapshot) LockedContract {
@@ -55,9 +54,8 @@ func (c LockedContract) WithRequestShape(fields LockedRequestShapeBackfill) Lock
 	return c
 }
 
-func (c LockedContract) WithWorkflowCompletionMode(mode sessioncontract.WorkflowCompletionMode) LockedContract {
-	c.WorkflowCompletionMode = &mode
-	return c
+type WorkflowSnapshot struct {
+	CompletionMode sessioncontract.WorkflowCompletionMode `json:"completion_mode"`
 }
 
 type LockedMainPromptSnapshot struct {
@@ -125,12 +123,12 @@ func NavigationTargetSessionID(meta Meta) *runtimeids.SessionID {
 }
 
 type UsageState struct {
-	InputTokens             int  `json:"input_tokens,omitempty"`
-	OutputTokens            int  `json:"output_tokens,omitempty"`
+	InputTokens             *int `json:"input_tokens"`
+	OutputTokens            *int `json:"output_tokens"`
 	WindowTokens            int  `json:"window_tokens,omitempty"`
-	CachedInputTokens       int  `json:"cached_input_tokens,omitempty"`
-	HasCachedInputTokens    bool `json:"has_cached_input_tokens,omitempty"`
+	CachedInputTokens       *int `json:"cached_input_tokens"`
 	EstimatedProviderTokens int  `json:"estimated_provider_tokens,omitempty"`
+	ReportedContextTokens   *int `json:"reported_context_tokens"`
 	TotalInputTokens        int  `json:"total_input_tokens,omitempty"`
 	TotalCachedInputTokens  int  `json:"total_cached_input_tokens,omitempty"`
 }
@@ -198,7 +196,7 @@ type Meta struct {
 	ConnectionID                    *config.ConnectionID             `json:"connection_id"`
 	SessionID                       string                           `json:"session_id"`
 	Category                        *sessioncontract.SessionCategory `json:"category,omitempty"`
-	Name                            string                           `json:"name,omitempty"`
+	Name                            *string                          `json:"name,omitempty"`
 	FirstPromptPreview              string                           `json:"first_prompt_preview,omitempty"`
 	InputDraft                      string                           `json:"input_draft,omitempty"`
 	ProtectedInputDraft             *string                          `json:"protected_input_draft,omitempty"`
@@ -224,8 +222,16 @@ type Meta struct {
 	UsageState                      *UsageState                      `json:"usage_state,omitempty"`
 	Goal                            *GoalState                       `json:"goal,omitempty"`
 	Locked                          *LockedContract                  `json:"locked,omitempty"`
+	WorkflowSnapshot                *WorkflowSnapshot                `json:"workflow_snapshot,omitempty"`
 	ActiveWorkflowAssignment        *MessageRecord                   `json:"active_workflow_assignment,omitempty"`
 	ActiveWorkflowAssignmentState   *ActiveWorkflowAssignmentState   `json:"active_workflow_assignment_state,omitempty"`
+}
+
+func (m Meta) EffectiveCategory() sessioncontract.SessionCategory {
+	if m.Category == nil {
+		return sessioncontract.SessionCategoryMain
+	}
+	return *m.Category
 }
 
 // ActiveWorkflowAssignmentState marks an authoritative projection, including
@@ -236,11 +242,12 @@ type ActiveWorkflowAssignmentState struct{}
 // change before a Workflow assignment commits.
 type PromptFacingMetadataSnapshot struct {
 	ConnectionID                  *config.ConnectionID
-	Name                          string
+	Name                          *string
 	FirstPromptPreview            string
 	Continuation                  *ContinuationContext
 	ChatSettings                  *ChatSettingsOverrides
 	Locked                        *LockedContract
+	WorkflowSnapshot              *WorkflowSnapshot
 	ActiveWorkflowAssignment      *MessageRecord
 	ActiveWorkflowAssignmentState *ActiveWorkflowAssignmentState
 }

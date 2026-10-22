@@ -10,13 +10,17 @@ import (
 
 	"core/shared/client"
 	"core/shared/config"
+	"core/shared/protoapi"
 	projectpb "core/shared/protoapi/gen/kent/api/project"
+	taskpb "core/shared/protoapi/gen/kent/api/workflow_task"
 	"core/shared/serverapi"
 	"core/shared/sessionenv"
+
+	"google.golang.org/protobuf/types/known/emptypb"
 )
 
 type projectDeleteOperations interface {
-	ListWorkflowTasks(context.Context, serverapi.WorkflowTaskListRequest) (serverapi.WorkflowTaskListResponse, error)
+	ListWorkflowTasks(context.Context, *taskpb.ListRequest) (*taskpb.ListSuccess, error)
 	DeleteProject(context.Context, *projectpb.DeleteProjectRequest) (*projectpb.DeleteProjectSuccess, error)
 }
 
@@ -146,26 +150,26 @@ func runProjectDeleteUseCase(
 
 func projectDeleteHasUnfinishedWork(ctx context.Context, operations projectDeleteOperations, projectID string) (bool, error) {
 	projectID = strings.TrimSpace(projectID)
-	limit := 1
+	limit := int32(1)
 	requestProjectID := projectID
-	response, err := operations.ListWorkflowTasks(ctx, serverapi.WorkflowTaskListRequest{
-		ProjectID:   &requestProjectID,
+	response, err := operations.ListWorkflowTasks(ctx, &taskpb.ListRequest{
+		ProjectId:   &requestProjectID,
 		StatusKinds: projectDeleteUnfinishedTaskStatuses(),
-		LabelFilter: serverapi.WorkflowTaskLabelFilterNone(),
+		LabelFilter: &taskpb.LabelFilter{Filter: &taskpb.LabelFilter_None{None: &emptypb.Empty{}}},
 		Limit:       &limit,
 	})
 	if err != nil {
-		var scopeErr *serverapi.WorkflowTaskListScopeError
-		if errors.As(err, &scopeErr) &&
-			scopeErr.Reason == serverapi.WorkflowTaskListScopeReasonNoLinkedWorkflows &&
-			scopeErr.ProjectID != nil &&
-			*scopeErr.ProjectID == projectID &&
-			scopeErr.WorkflowID == nil {
-			return false, nil
+		var listError *client.TaskListError
+		if errors.As(err, &listError) {
+			scope := listError.Failure.GetScopeError()
+			if scope != nil && scope.Reason == taskpb.ListScopeErrorReason_LIST_SCOPE_ERROR_REASON_NO_LINKED_WORKFLOWS &&
+				scope.ProjectId == projectID && scope.WorkflowId == nil {
+				return false, nil
+			}
 		}
 		return false, err
 	}
-	if response.Scope.ProjectID != projectID || response.Scope.WorkflowID != nil {
+	if response.Scope.ProjectId != projectID || response.Scope.WorkflowId != nil {
 		return false, errors.New("project deletion task preflight returned an unexpected scope")
 	}
 	if len(response.Tasks) > 1 {
@@ -175,24 +179,24 @@ func projectDeleteHasUnfinishedWork(ctx context.Context, operations projectDelet
 		return false, nil
 	}
 	task := response.Tasks[0]
-	expectedNativeState, valid := task.Status.Kind.NativeState()
-	if !valid || task.Status.Kind == serverapi.WorkflowTaskStatusKindDone ||
-		task.Status.NativeState == serverapi.WorkflowTaskNativeStateTerminal ||
+	expectedNativeState, err := protoapi.TaskNativeState(task.Status.Kind)
+	if err != nil || task.Status.Kind == taskpb.TaskStatusKind_TASK_STATUS_KIND_DONE ||
+		task.Status.NativeState == taskpb.TaskNativeState_TASK_NATIVE_STATE_TERMINAL ||
 		task.Status.NativeState != expectedNativeState {
 		return false, errors.New("project deletion task preflight returned an invalid task status")
 	}
 	return true, nil
 }
 
-func projectDeleteUnfinishedTaskStatuses() []serverapi.WorkflowTaskStatusKind {
-	return []serverapi.WorkflowTaskStatusKind{
-		serverapi.WorkflowTaskStatusKindWaitingQuestion,
-		serverapi.WorkflowTaskStatusKindWaitingApproval,
-		serverapi.WorkflowTaskStatusKindInterrupted,
-		serverapi.WorkflowTaskStatusKindRunning,
-		serverapi.WorkflowTaskStatusKindQueued,
-		serverapi.WorkflowTaskStatusKindBacklog,
-		serverapi.WorkflowTaskStatusKindActive,
+func projectDeleteUnfinishedTaskStatuses() []taskpb.TaskStatusKind {
+	return []taskpb.TaskStatusKind{
+		taskpb.TaskStatusKind_TASK_STATUS_KIND_WAITING_QUESTION,
+		taskpb.TaskStatusKind_TASK_STATUS_KIND_WAITING_APPROVAL,
+		taskpb.TaskStatusKind_TASK_STATUS_KIND_INTERRUPTED,
+		taskpb.TaskStatusKind_TASK_STATUS_KIND_RUNNING,
+		taskpb.TaskStatusKind_TASK_STATUS_KIND_QUEUED,
+		taskpb.TaskStatusKind_TASK_STATUS_KIND_BACKLOG,
+		taskpb.TaskStatusKind_TASK_STATUS_KIND_ACTIVE,
 	}
 }
 

@@ -1,7 +1,7 @@
 import { QueryObserver, skipToken, type QueryClient } from "@tanstack/react-query";
 import { useAtomMount, useAtomSet } from "@effect/atom-react";
 import * as Effect from "effect/Effect";
-import * as Atom from "effect/unstable/reactivity/Atom";
+import * as Atom from "effect/reactivity/Atom";
 import type { TFunction } from "i18next";
 
 import { errorMessage, type ChatSettingsTarget } from "@/api";
@@ -74,7 +74,7 @@ export function createComposerHistoryViewModel({
   const navigate = Atom.fn<-1 | 1>()((direction, get) =>
     Effect.gen(function* (): Effect.fn.Return<ComposerHistoryMovement> {
       const result = get(current).observer.getCurrentResult();
-      if (result.isFetching || get(pending) || get(draft.navigationPending) || result.data === undefined)
+      if (result.isFetching || get(pending) || get(draft.interactionRestricted) || result.data === undefined)
         return { kind: "none" };
       return yield* get.setResult(draft.navigate, { direction, entries: result.data });
     }),

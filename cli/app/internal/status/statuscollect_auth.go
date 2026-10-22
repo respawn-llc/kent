@@ -41,6 +41,9 @@ func UnavailableAuthStage(err error) AuthStageResult {
 }
 
 func authInfoFromFacts(facts *authpb.StatusFacts, failure *authpb.StatusFailure) AuthInfo {
+	if facts == nil {
+		return AuthInfo{}
+	}
 	provider := authProviderStatusLabel(facts.GetProvider())
 	details := make([]string, 0, 4)
 	if facts.GetProvider().GetKind() == authpb.ProviderKind_PROVIDER_KIND_OPENAI_COMPATIBLE {
@@ -49,18 +52,19 @@ func authInfoFromFacts(facts *authpb.StatusFacts, failure *authpb.StatusFailure)
 		}
 	}
 	info := AuthInfo{
-		Visible:  true,
-		Method:   facts.GetMethod(),
-		Provider: provider,
+		Connection: facts.GetSessionConnection(),
+		Visible:    facts != nil,
+		Method:     facts.GetMethod(),
+		Provider:   provider,
 	}
 	switch facts.GetMethod() {
 	case authpb.AuthMethod_AUTH_METHOD_OAUTH:
-		info.Summary = "Subscription"
+		info.Summary = ConnectionModeLabel(facts.GetMethod())
 		if facts.GetOauth() != nil && facts.GetOauth().Email != nil {
 			info.Summary = facts.GetOauth().GetEmail()
 		}
 	case authpb.AuthMethod_AUTH_METHOD_API_KEY:
-		info.Summary = "API Key"
+		info.Summary = ConnectionModeLabel(facts.GetMethod())
 		if facts.GetApiKey() != nil {
 			info.Summary += " (" + facts.GetApiKey().EnvironmentVariable + ")"
 		}
@@ -68,7 +72,7 @@ func authInfoFromFacts(facts *authpb.StatusFacts, failure *authpb.StatusFailure)
 			details = append(details, authProviderDetailLabel(facts.GetProvider()))
 		}
 	default:
-		info.Summary = "No Auth"
+		info.Summary = ConnectionModeLabel(facts.GetMethod())
 	}
 	if failure != nil {
 		details = append(details, strings.TrimSpace(failure.GetCause()))
@@ -77,22 +81,46 @@ func authInfoFromFacts(facts *authpb.StatusFacts, failure *authpb.StatusFailure)
 	return info
 }
 
+func ConnectionModeLabel(method authpb.AuthMethod) string {
+	switch method {
+	case authpb.AuthMethod_AUTH_METHOD_OAUTH:
+		return "Subscription"
+	case authpb.AuthMethod_AUTH_METHOD_API_KEY:
+		return "API Key"
+	case authpb.AuthMethod_AUTH_METHOD_NONE:
+		return "No Auth"
+	default:
+		panic(fmt.Sprintf("invalid Connection Auth method: %v", method))
+	}
+}
+
 func subscriptionInfoFromFacts(facts *authpb.SubscriptionFacts) SubscriptionInfo {
 	if !facts.GetApplicable() {
 		return SubscriptionInfo{}
 	}
 	if facts.GetFailure() != nil {
 		cause := strings.TrimSpace(facts.GetFailure().GetCause())
+		summary := "Subscription unavailable: " + cause
+		if facts.GetFailureClassification() == authpb.SubscriptionFailureClassification_SUBSCRIPTION_FAILURE_CLASSIFICATION_UNAVAILABLE_FOR_SIGN_IN_METHOD {
+			summary = "Quota unavailable for this sign-in method"
+			if cause != "" {
+				summary += ": " + cause
+			}
+		}
 		return SubscriptionInfo{
-			Applicable: true,
-			Summary:    "Subscription unavailable: " + cause,
-			Error:      cause,
+			Applicable:            true,
+			Summary:               summary,
+			Error:                 cause,
+			QuotaSource:           facts.QuotaSource,
+			FailureClassification: facts.FailureClassification,
 		}
 	}
 	return SubscriptionInfo{
-		Applicable: true,
-		Summary:    subscriptionPlanSummary(facts.Plan),
-		Windows:    subscriptionWindowsFromFacts(facts.GetWindows()),
+		Applicable:            true,
+		Summary:               subscriptionPlanSummary(facts.Plan),
+		QuotaSource:           facts.QuotaSource,
+		FailureClassification: facts.FailureClassification,
+		Windows:               subscriptionWindowsFromFacts(facts.GetWindows()),
 	}
 }
 
@@ -109,6 +137,12 @@ func subscriptionWindowsFromFacts(facts []*authpb.SubscriptionWindowFacts) []Sub
 		}
 		if fact.GetResetAt() != nil {
 			window.ResetAt = fact.GetResetAt().AsTime()
+		}
+		if contributions := fact.GetGrokContributions(); contributions != nil {
+			window.GrokContributions = &GrokUsageContribution{
+				BuildUsedPercent: contributions.BuildUsedPercent,
+				ChatUsedPercent:  contributions.ChatUsedPercent,
+			}
 		}
 		if fact.GetBucket() == authpb.SubscriptionWindowBucket_SUBSCRIPTION_WINDOW_BUCKET_ADDITIONAL {
 			window.Qualifier = subscriptionWindowQualifier(fact, qualifierCounts)

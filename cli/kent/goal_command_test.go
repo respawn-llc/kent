@@ -71,16 +71,19 @@ func TestGoalSetUsesPreserveRuntimeStateAndAvailableAgentIdentity(t *testing.T) 
 	tests := []struct {
 		name       string
 		sessionEnv string
-		runEnv     string
 		stepEnv    string
 		args       []string
 		actor      string
-		runID      string
 		stepID     string
 	}{
 		{
 			name:  "human exact Session",
 			args:  []string{"set", "--session", goalSetTestSessionID, "finish", "the", "task"},
+			actor: "user",
+		},
+		{
+			name:  "human numeric Session",
+			args:  []string{"set", "--session", "0007", "finish", "the", "task"},
 			actor: "user",
 		},
 		{
@@ -92,18 +95,15 @@ func TestGoalSetUsesPreserveRuntimeStateAndAvailableAgentIdentity(t *testing.T) 
 		{
 			name:       "agent with exact identity",
 			sessionEnv: goalSetTestSessionID,
-			runEnv:     "run-1",
 			stepEnv:    "step-1",
 			args:       []string{"set", "finish", "the", "task"},
 			actor:      "agent",
-			runID:      "run-1",
 			stepID:     "step-1",
 		},
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
 			t.Setenv(sessionenv.SessionIDEnv, test.sessionEnv)
-			t.Setenv(sessionenv.RunIDEnv, test.runEnv)
 			t.Setenv(sessionenv.StepIDEnv, test.stepEnv)
 			remote := &goalSetCaptureRemote{response: goalSetSuccessForTest(goalSetTestSessionID)}
 			previous := goalCommandRemoteOpener
@@ -119,14 +119,22 @@ func TestGoalSetUsesPreserveRuntimeStateAndAvailableAgentIdentity(t *testing.T) 
 			if remote.request == nil {
 				t.Fatal("Goal Set request was not sent")
 			}
+			target := remote.request.GetTarget().GetSession().SessionId
+			if test.name == "human numeric Session" {
+				if target.GetShortId() != 7 {
+					t.Fatalf("numeric target = %+v", target)
+				}
+			} else if target.GetSessionId() != goalSetTestSessionID {
+				t.Fatalf("UUID target = %+v", target)
+			}
 			if remote.request.ExecutionPolicy != runtimepb.GoalExecutionPolicy_GOAL_EXECUTION_POLICY_PRESERVE_RUNTIME_STATE {
 				t.Fatalf("execution policy = %s, want preserve_runtime_state", remote.request.ExecutionPolicy)
 			}
 			if remote.request.Actor != test.actor {
 				t.Fatalf("actor = %q, want %q", remote.request.Actor, test.actor)
 			}
-			if remote.request.GetRunId() != test.runID || remote.request.GetStepId() != test.stepID {
-				t.Fatalf("run/step identity = (%q, %q), want (%q, %q)", remote.request.GetRunId(), remote.request.GetStepId(), test.runID, test.stepID)
+			if remote.request.GetStepId() != test.stepID {
+				t.Fatalf("execution Step identity = %q, want %q", remote.request.GetStepId(), test.stepID)
 			}
 		})
 	}
@@ -167,7 +175,7 @@ func TestGoalCommandsPresentTimeoutWithoutReportingSuccess(t *testing.T) {
 					}
 					return goalTimeoutRemote{failRead: phase == "read"}, nil
 				}
-				args := []string{action, "--session", "session-1"}
+				args := []string{action, "--session", "7"}
 				if action == "set" {
 					args = append(args, "finish the task")
 				}
@@ -258,7 +266,7 @@ func TestGoalCompleteSharesFifteenSecondBudget(t *testing.T) {
 		remote.deadline = deadline
 		return remote, nil
 	}
-	if code := goalSubcommand([]string{"complete", "--session", "session-1", "--confirm"}, io.Discard, io.Discard); code != 0 {
+	if code := goalSubcommand([]string{"complete", "--session", "7", "--confirm"}, io.Discard, io.Discard); code != 0 {
 		t.Fatalf("exit code = %d", code)
 	}
 	if !remote.completed {
@@ -271,7 +279,6 @@ func TestGoalCompleteRejectsNonCompletedMutationResult(t *testing.T) {
 		name     string
 		response *runtimepb.GoalMutationSuccess
 	}{
-		{name: "invalid"},
 		{
 			name: "authoritative Clear",
 			response: &runtimepb.GoalMutationSuccess{
@@ -294,7 +301,7 @@ func TestGoalCompleteRejectsNonCompletedMutationResult(t *testing.T) {
 			}
 			var stdout, stderr bytes.Buffer
 			if code := goalSubcommand(
-				[]string{"complete", "--session", "session-1", "--confirm"},
+				[]string{"complete", "--session", "7", "--confirm"},
 				&stdout,
 				&stderr,
 			); code != 1 {

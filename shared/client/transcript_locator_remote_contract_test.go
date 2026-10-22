@@ -48,7 +48,7 @@ func TestRemoteTranscriptPageRejectsMalformedLocatorPayload(t *testing.T) {
 	defer func() { _ = remote.Close() }()
 
 	if _, err := remote.GetSessionTranscriptPage(context.Background(), &transcriptpb.PageRequest{
-		SessionId: "12345678-1234-4234-8234-123456789012",
+		SessionId: &sharedpb.SessionSelector{Value: &sharedpb.SessionSelector_SessionId{SessionId: "12345678-1234-4234-8234-123456789012"}},
 	}); err == nil {
 		t.Fatal("accepted transcript page with missing locator")
 	}
@@ -96,7 +96,7 @@ func TestRemoteTranscriptSubscriptionRejectsMalformedLocatorPayload(t *testing.T
 		t.Fatalf("dial remote: %v", err)
 	}
 	defer func() { _ = remote.Close() }()
-	sub, err := remote.SubscribeSessionTranscript(context.Background(), &transcriptpb.SubscribeRequest{SessionId: "session-1"})
+	sub, err := remote.SubscribeSessionTranscript(context.Background(), &transcriptpb.SubscribeRequest{SessionId: &sharedpb.SessionSelector{Value: &sharedpb.SessionSelector_SessionId{SessionId: "11111111-1111-4111-8111-111111111111"}}})
 	if err != nil {
 		t.Fatalf("subscribe transcript: %v", err)
 	}
@@ -143,7 +143,7 @@ func TestRemoteTranscriptSubscriptionDecodesProviderModelMismatchNotice(t *testi
 		t.Fatalf("dial remote: %v", err)
 	}
 	defer func() { _ = remote.Close() }()
-	sub, err := remote.SubscribeSessionTranscript(context.Background(), &transcriptpb.SubscribeRequest{SessionId: "session-1"})
+	sub, err := remote.SubscribeSessionTranscript(context.Background(), &transcriptpb.SubscribeRequest{SessionId: &sharedpb.SessionSelector{Value: &sharedpb.SessionSelector_SessionId{SessionId: "11111111-1111-4111-8111-111111111111"}}})
 	if err != nil {
 		t.Fatalf("subscribe transcript: %v", err)
 	}

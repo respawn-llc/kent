@@ -2,7 +2,6 @@ package runtimewire
 
 import (
 	"context"
-	"core/shared/protoapi"
 	"fmt"
 	"strings"
 
@@ -43,7 +42,6 @@ type stepLifecycleSink struct {
 
 func (s stepLifecycleSink) StepBegan(_ context.Context, snapshot runtime.StepLifecycleSnapshot) error {
 	active := &runtimeactivity.ActiveStepSnapshot{
-		RunID:      snapshot.RunID,
 		StepID:     snapshot.StepID,
 		ActiveKind: runtimeactivity.MustClientActiveKindFromRuntime(snapshot.ActiveKind),
 	}
@@ -128,8 +126,5 @@ func terminalRecoverySnapshot(sessionID string, registry runtimeactivity.Registr
 		return &runtimepb.ReadModelUpdate{}, err
 	}
 	update.Activity.DiagnosticRecovery = true
-	if err := protoapi.Validate(update); err != nil {
-		return &runtimepb.ReadModelUpdate{}, err
-	}
 	return update, nil
 }

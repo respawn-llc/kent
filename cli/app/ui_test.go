@@ -41,8 +41,8 @@ func TestEmptyEnterFlushesOnlyNextQueuedItem(t *testing.T) {
 	if cmd == nil {
 		t.Fatal("expected command from queued /name flush")
 	}
-	if updated.sessionName != "queued title" {
-		t.Fatalf("expected only first queued item to execute, got session name %q", updated.sessionName)
+	if updated.sessionName == nil || *updated.sessionName != "queued title" {
+		t.Fatalf("expected only first queued item to execute, got session name %v", updated.sessionName)
 	}
 	if updated.isBusy() {
 		t.Fatal("did not expect follow-up prompt submission from empty-enter flush")
@@ -63,8 +63,8 @@ func TestIdleTabWithExistingQueueFlushesOnlyNextQueuedItem(t *testing.T) {
 	if cmd == nil {
 		t.Fatal("expected command from queued /name flush")
 	}
-	if updated.sessionName != "queued title" {
-		t.Fatalf("expected queued /name to execute first, got %q", updated.sessionName)
+	if updated.sessionName == nil || *updated.sessionName != "queued title" {
+		t.Fatalf("expected queued /name to execute first, got %v", updated.sessionName)
 	}
 	if updated.isBusy() {
 		t.Fatal("did not expect appended prompt to auto-submit while idle tab is flushing one queued item")
@@ -309,7 +309,7 @@ func TestAskQuestionRecommendedOptionIsSelectedAndSubmitted(t *testing.T) {
 
 	updated, request := submitAskPromptKey(t, updated, control, tea.KeyMsg{Type: tea.KeyEnter})
 	entry := requireQuestionAnswerEntry(t, request)
-	if request.SessionId != transcriptPromptSessionID(event.prompt) || request.StepId != transcriptPromptStepID(event.prompt) ||
+	if request.SessionId.GetSessionId() != transcriptPromptSessionID(event.prompt) || request.StepId != transcriptPromptStepID(event.prompt) ||
 		entry.ToolCallId != transcriptPromptToolCallID(event.prompt) || entry.GetQuestionAnswer().SelectedOptionNumber == nil ||
 		*entry.GetQuestionAnswer().SelectedOptionNumber != recommended {
 		t.Fatalf("selected option = %+v, want %d", entry.GetQuestionAnswer().SelectedOptionNumber, recommended)
@@ -786,7 +786,7 @@ func TestDetailModeStatusLineOmitsActionForCompleteAssistantRow(t *testing.T) {
 			detailTestAssistantRow("line one\nline two\nline three\nline four")}, ConversationFreshness: runtimepb.ConversationFreshness_CONVERSATION_FRESHNESS_FRESH}
 	m := newProjectedStaticUIModel(
 		WithUISessionID(detailTestSessionID),
-		WithUIModelName("gpt-5"),
+		WithUIModelName("gpt-6-sol"),
 	)
 	m.statusConfig.SessionViews = &countingSessionViewClient{page: page}
 	m.terminalGeometry = terminalGeometryKnown(100, 16)

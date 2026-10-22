@@ -76,7 +76,7 @@ kent run --fast '<assignment>'
 - Continue an idle Session for follow-ups, re-reviews, or further discussion: `kent run --session <session-id> '<follow-up>'`
 - Interrupt a run forcibly: `kent run stop <session-id>`
 
-- Use the available agent roles and their descriptions to select a role. Omitting `--agent` selects the default agent. `--fast` selects the built-in fast, cheap role. Fast agents are suitable for menial tasks such as exploration and context gathering, not code review, plan review, or self-checks. Headless subagent Sessions cannot ask questions or get approvals.
+- Use the available agent roles and their descriptions to select a role. Omitting `--agent` selects the default agent. `--fast` selects the built-in fast, cheap role. Fast agents are suitable for menial tasks such as exploration and context gathering, not code review, plan review, or self-checks. When enabled, headless subagent Sessions can use `ask_question` to pause for a user decision; the Session continues after the user answers. Tools can also pause for access Approval through the existing prompt flow.
 - Reuse the existing Session for follow-up work; start a new Session for a separate task. Do not directly resume Workflow Task Sessions with `kent run --continue`; Workflow Tasks have their own resume operation.
 
 ## Observing and integrating

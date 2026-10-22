@@ -17,6 +17,7 @@ import (
 
 type ExecutionHandle interface {
 	Scope() ExecutionScope
+	Done() <-chan struct{}
 	RequestStop() bool
 	Stop(context.Context) error
 	Wait(context.Context) (ExecutionResult, error)
@@ -33,6 +34,13 @@ const (
 	executionPhaseQueued executionPhase = iota + 1
 	executionPhaseRunning
 	executionPhaseFinalizing
+)
+
+type executionAdmission uint8
+
+const (
+	executionProvisional executionAdmission = iota + 1
+	executionAccepted
 )
 
 type workflowExecutionActivity uint8
@@ -71,12 +79,11 @@ type execution struct {
 	stopErr  error
 	prompts  executionPromptStore
 
-	phase executionPhase
+	phase     executionPhase
+	admission executionAdmission
 
 	protocolViolations int64
 	onRetire           func()
-
-	closeResource bool
 }
 
 func (e *execution) workflowActivity() (workflowExecutionActivity, error) {
@@ -106,6 +113,13 @@ func (h executionHandle) Scope() ExecutionScope {
 		panic("execution handle is uninitialized")
 	}
 	return h.execution.scope
+}
+
+func (h executionHandle) Done() <-chan struct{} {
+	if h.execution == nil {
+		panic("execution handle is uninitialized")
+	}
+	return h.execution.done
 }
 
 func (h executionHandle) Stop(ctx context.Context) error {
@@ -209,9 +223,6 @@ func (e *execution) finish(result ExecutionResult, runErr error, stopErr error) 
 			} else {
 				e.resource.logger.Logf("runtime.execution.exit scope_id=%s ok", e.scope.ID())
 			}
-		}
-		if e.closeResource {
-			e.resource.requestRetirementIfOwnerless()
 		}
 		closeErr = e.resource.releasePin()
 		if abort {
@@ -329,15 +340,23 @@ func (e *execution) awaitModelWorkAndLockAdmission() (release func(), workErr er
 	// this execution may start more model work as the prior worker ends.
 	e.resource.turnMu.Lock()
 	engine := e.resource.engine
-	for context.Cause(e.ctx) == nil &&
-		(engine.HasScheduledQueuedUserWork() || engine.GoalLoopRunning()) {
-		e.resource.turnMu.Unlock()
-		workErr = engine.WaitForScheduledQueuedUserWork(e.ctx)
-		if workErr == nil {
-			workErr = engine.WaitForGoalLoop(e.ctx)
+	for engine.HasScheduledQueuedUserWork() || engine.GoalLoopRunning() {
+		waitCtx := e.ctx
+		if context.Cause(e.ctx) != nil {
+			// Queued work runs on the runtime lifecycle, so stopping this
+			// execution must stop and join it before releasing ownership.
+			_, interruptErr := engine.TryInterruptActiveRun()
+			workErr = errors.Join(workErr, interruptErr)
+			waitCtx = context.WithoutCancel(e.ctx)
 		}
+		e.resource.turnMu.Unlock()
+		waitErr := engine.WaitForScheduledQueuedUserWork(waitCtx)
+		if waitErr == nil {
+			waitErr = engine.WaitForGoalLoop(waitCtx)
+		}
+		workErr = errors.Join(workErr, waitErr)
 		e.resource.turnMu.Lock()
-		if workErr != nil {
+		if waitErr != nil && context.Cause(e.ctx) == nil {
 			break
 		}
 	}
@@ -355,6 +374,7 @@ func (e *execution) cleanup() error {
 		return errors.Join(promptErr, bindingErr)
 	}
 	resource := e.resource
+	pending, pendingErr := resource.engine.PendingWorkSnapshot()
 	resource.mu.Lock()
 	defer resource.mu.Unlock()
 	if resource.current != e {
@@ -368,14 +388,16 @@ func (e *execution) cleanup() error {
 			),
 		)
 	}
-	cleanupErr := errors.Join(promptErr, bindingErr)
+	cleanupErr := errors.Join(promptErr, bindingErr, pendingErr)
 	if resource.askBroker != nil {
 		resource.askBroker.SetLifecycleAskHandler(nil)
 	}
 	if resource.localTools != nil {
 		cleanupErr = errors.Join(cleanupErr, resource.localTools.BindExecutionCorrelation(nil))
 	}
+	resource.removeExecutionEventObservers(e.scope.ID())
 	resource.current = nil
+	resource.updateIdleLocked(len(pending.Items) != 0)
 	resource.signalLocked()
 	return cleanupErr
 }
@@ -455,9 +477,6 @@ func (s *executionPromptStore) Await(ctx context.Context, req tools.AskQuestionR
 		ctx = context.Background()
 	}
 	toolCallID := strings.TrimSpace(req.ToolCallID)
-	if toolCallID == "" {
-		return nil, errors.New("prompt tool call id is required")
-	}
 	snapshot := ExecutionPromptSnapshot{
 		Scope:     s.scope,
 		Request:   req.Clone(),

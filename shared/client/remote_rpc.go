@@ -2,9 +2,7 @@ package client
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
-	"fmt"
 	"io"
 	"net"
 	"os"
@@ -14,10 +12,9 @@ import (
 	"time"
 
 	"core/shared/config"
-	"core/shared/llmerrors"
 	"core/shared/protocol"
 	"core/shared/rpcwire"
-	"core/shared/serverapi"
+	"core/shared/runtimeids"
 )
 
 var errRemoteClosed = errors.New("remote client is closed")
@@ -75,7 +72,6 @@ type remoteControlConn struct {
 }
 
 type remoteControlResponse struct {
-	legacy *protocol.Response
 	binary *remoteBinaryResponse
 	err    error
 }
@@ -86,14 +82,14 @@ type remoteSessionControl struct {
 	initialControl *remoteControlConn
 }
 
-func configuredRemoteDialPlan(cfg config.App) (remoteDialPlan, error) {
-	tcpEndpoint, err := rpcwire.ParseWebSocketEndpoint(config.ServerRPCURL(cfg))
+func configuredRemoteDialPlan(cfg config.Connection) (remoteDialPlan, error) {
+	tcpEndpoint, err := rpcwire.ParseWebSocketEndpoint(cfg.RPCURL())
 	if err != nil {
 		return remoteDialPlan{}, err
 	}
 	endpoints := make([]rpcwire.Endpoint, 0, 2)
 	if shouldPreferConfiguredLocalSocket(cfg) {
-		if socketPath, ok, err := config.ServerLocalRPCSocketPath(cfg); err != nil {
+		if socketPath, ok, err := config.ServerLocalRPCSocketPath(cfg.PersistenceRoot); err != nil {
 			return remoteDialPlan{}, err
 		} else if ok {
 			if _, statErr := os.Stat(socketPath); statErr == nil {
@@ -109,13 +105,13 @@ func configuredRemoteDialPlan(cfg config.App) (remoteDialPlan, error) {
 	return remoteDialPlan{endpoints: endpoints}, nil
 }
 
-func shouldPreferConfiguredLocalSocket(cfg config.App) bool {
+func shouldPreferConfiguredLocalSocket(cfg config.Connection) bool {
 	// Explicit TCP target overrides must stay authoritative; the derived unix socket
 	// is only a default local optimization for the standard local attach target.
 	if hasExplicitTCPServerTarget(cfg) {
 		return false
 	}
-	host := strings.TrimSpace(cfg.Settings.ServerHost)
+	host := strings.TrimSpace(cfg.ServerHost)
 	if host == "" || strings.EqualFold(host, "localhost") {
 		return true
 	}
@@ -123,7 +119,7 @@ func shouldPreferConfiguredLocalSocket(cfg config.App) bool {
 	return ip != nil && (ip.IsLoopback() || ip.IsUnspecified())
 }
 
-func hasExplicitTCPServerTarget(cfg config.App) bool {
+func hasExplicitTCPServerTarget(cfg config.Connection) bool {
 	sources := cfg.Source.Sources
 	if len(sources) == 0 {
 		return false
@@ -175,8 +171,15 @@ func (p remoteDialPlan) dial(ctx context.Context, transport rpcwire.ClientTransp
 		if err == nil {
 			return conn, nil
 		}
+		if errors.Is(err, context.Canceled) || errors.Is(ctx.Err(), context.Canceled) {
+			return nil, err
+		}
+		var networkError net.Error
+		if errors.As(err, &networkError) || errors.Is(err, context.DeadlineExceeded) {
+			err = &ServerUnavailableError{Endpoint: endpoint.ServerURL, Cause: err}
+		}
 		if ctxErr := ctx.Err(); ctxErr != nil {
-			return nil, ctxErr
+			return nil, errors.Join(err, ctxErr)
 		}
 		dialErr = err
 	}
@@ -263,20 +266,13 @@ func (c *Remote) openSetupRPCConnForAttachment(
 	return conn, cleanup, state, nil
 }
 
-func (c *Remote) prepareDraftHandoff(ctx context.Context, sessionID string) (*remoteSessionControl, bool, error) {
-	sessionID = strings.TrimSpace(sessionID)
+func (c *Remote) prepareDraftHandoff(ctx context.Context, selector runtimeids.SessionSelector) (*remoteSessionControl, bool, error) {
+	sessionID := selector.String()
 	c.mu.Lock()
 	attachmentIntent := c.attachIntent
 	c.mu.Unlock()
-	attachedSessionID, attachedToSession := attachmentIntent.sessionID()
+	_, attachedToSession := attachmentIntent.sessionID()
 	if attachedToSession {
-		if attachedSessionID != sessionID {
-			return nil, false, fmt.Errorf(
-				"remote is attached to session %q, cannot prepare draft handoff for session %q",
-				attachedSessionID,
-				sessionID,
-			)
-		}
 		return nil, false, nil
 	}
 	if _, attachedToProject := attachmentIntent.projectRequest(); !attachedToProject {
@@ -285,10 +281,7 @@ func (c *Remote) prepareDraftHandoff(ctx context.Context, sessionID string) (*re
 	// A Project-attached control connection loses access as soon as the Session
 	// moves. Establish the exact-Session control while the source Project still
 	// owns it so the composer draft can be persisted before TUI reattachment.
-	intent, err := newRemoteSessionAttachmentIntent(sessionID)
-	if err != nil {
-		return nil, false, err
-	}
+	intent := sessionAttachmentIntent(selector)
 	c.mu.Lock()
 	if c.closed.Load() {
 		c.mu.Unlock()
@@ -324,7 +317,7 @@ func (c *Remote) prepareDraftHandoff(ctx context.Context, sessionID string) (*re
 	}
 	handoffRemote.expectedRootID.Store(c.rootID())
 	return &remoteSessionControl{
-		sessionID:      sessionID,
+		sessionID:      state.attachment.session.sessionID,
 		remote:         handoffRemote,
 		initialControl: handoffControl,
 	}, true, nil
@@ -407,15 +400,6 @@ func (c *Remote) TakeSessionHandoff(ctx context.Context, sessionID string) (*Rem
 	return handoff.remote, true, nil
 }
 
-func (c *Remote) callDedicated(ctx context.Context, requestID string, method string, params any, out any) error {
-	conn, cleanup, err := c.openRPCConn(ctx)
-	if err != nil {
-		return err
-	}
-	defer cleanup()
-	return callRPC(ctx, conn, requestID, method, params, out)
-}
-
 func newRemoteControlConn(conn rpcwire.Conn) *remoteControlConn {
 	control := &remoteControlConn{
 		conn:    conn,
@@ -424,45 +408,6 @@ func newRemoteControlConn(conn rpcwire.Conn) *remoteControlConn {
 	}
 	go control.readLoop()
 	return control
-}
-
-func (c *remoteControlConn) call(ctx context.Context, method string, params any, out any) error {
-	if ctx == nil {
-		ctx = context.Background()
-	}
-	if err := ctx.Err(); err != nil {
-		return err
-	}
-	data, err := json.Marshal(params)
-	if err != nil {
-		return err
-	}
-	id := fmt.Sprintf("rpc-%d", c.requestID.Add(1))
-	responseCh := make(chan remoteControlResponse, 1)
-	if err := c.registerPending(id, responseCh); err != nil {
-		return err
-	}
-	request := protocol.Request{JSONRPC: protocol.JSONRPCVersion, ID: id, Method: method, Params: data}
-	if err := c.conn.Send(ctx, rpcwire.FrameFromRequest(request)); err != nil {
-		c.removePending(id)
-		return err
-	}
-	select {
-	case response := <-responseCh:
-		if response.err != nil {
-			return response.err
-		}
-		if response.legacy == nil {
-			return fmt.Errorf("legacy operation %s received a binary response", method)
-		}
-		return decodeResponseFrame(*response.legacy, out)
-	case <-ctx.Done():
-		c.removePending(id)
-		return ctx.Err()
-	case <-c.done:
-		c.removePending(id)
-		return c.currentErr()
-	}
 }
 
 func (c *remoteControlConn) Close() error {
@@ -493,14 +438,6 @@ func (c *remoteControlConn) readLoop() {
 			response    remoteControlResponse
 		)
 		switch event.Frame.Kind {
-		case rpcwire.FrameText:
-			legacy, err := event.Frame.DecodeResponse()
-			if err != nil {
-				c.fail(err)
-				return
-			}
-			correlation = legacy.ID
-			response.legacy = &legacy
 		case rpcwire.FrameBinary:
 			binary, id, err := decodeBinaryEnvelope(event.Frame.Payload)
 			correlation = id
@@ -510,8 +447,7 @@ func (c *remoteControlConn) readLoop() {
 				response.binary = binary
 			}
 		default:
-			c.fail(fmt.Errorf("unsupported rpc frame kind %d", event.Frame.Kind))
-			return
+			continue
 		}
 		if strings.TrimSpace(correlation) == "" {
 			continue
@@ -595,39 +531,6 @@ func validateIdentityRoot(expectedRootID string, identity protocol.ServerIdentit
 	return nil
 }
 
-func callRPC(ctx context.Context, conn rpcwire.Conn, requestID string, method string, params any, out any) error {
-	data, err := json.Marshal(params)
-	if err != nil {
-		return err
-	}
-	request := protocol.Request{JSONRPC: protocol.JSONRPCVersion, ID: requestID, Method: method, Params: data}
-	if err := conn.Send(ctx, rpcwire.FrameFromRequest(request)); err != nil {
-		return err
-	}
-	response, err := receiveRPCResponse(ctx, conn, requestID)
-	if err != nil {
-		return err
-	}
-	return decodeResponseFrame(response, out)
-}
-
-func receiveRPCResponse(ctx context.Context, conn rpcwire.Conn, requestID string) (protocol.Response, error) {
-	for {
-		frame, err := receiveFrame(ctx, conn)
-		if err != nil {
-			return protocol.Response{}, err
-		}
-		response, err := frame.DecodeResponse()
-		if err != nil {
-			return protocol.Response{}, err
-		}
-		if response.ID != requestID {
-			continue
-		}
-		return response, nil
-	}
-}
-
 func receiveFrame(ctx context.Context, conn rpcwire.Conn) (rpcwire.Frame, error) {
 	if ctx == nil {
 		ctx = context.Background()
@@ -643,119 +546,5 @@ func receiveFrame(ctx context.Context, conn rpcwire.Conn) (rpcwire.Frame, error)
 			return rpcwire.Frame{}, event.Err
 		}
 		return event.Frame, nil
-	}
-}
-
-func decodeResponseFrame(resp protocol.Response, out any) error {
-	if resp.Error != nil {
-		return protocolError(resp.Error)
-	}
-	if out == nil || len(resp.Result) == 0 {
-		return nil
-	}
-	return json.Unmarshal(resp.Result, out)
-}
-
-func protocolError(resp *protocol.ResponseError) error {
-	if resp == nil {
-		return nil
-	}
-	message := strings.TrimSpace(resp.Message)
-	if resp.Code == protocol.ErrCodeServerNotReady && len(resp.Data) > 0 {
-		return serverapi.DecodeServerNotReadyError(resp.Data, message)
-	}
-	if resp.Code == protocol.ErrCodeWorkflowTaskListScope && len(resp.Data) > 0 {
-		return serverapi.DecodeWorkflowTaskListScopeError(resp.Data, message)
-	}
-	if resp.Code == protocol.ErrCodeWorkflowTaskSearch && len(resp.Data) > 0 {
-		return serverapi.DecodeTaskSearchError(resp.Data, message)
-	}
-	if resp.Code == protocol.ErrCodeWorkflowTaskContextSelectionRequired && len(resp.Data) > 0 {
-		return serverapi.DecodeWorkflowTaskContextSelectionRequiredError(resp.Data, message)
-	}
-	if resp.Code == protocol.ErrCodeWorkflowTaskCreateSelection && len(resp.Data) > 0 {
-		return serverapi.DecodeWorkflowTaskCreateSelectionError(resp.Data, message)
-	}
-	if resp.Code == protocol.ErrCodeWorkflowTaskCreateConflict && len(resp.Data) > 0 {
-		return serverapi.DecodeWorkflowTaskCreateConflictError(resp.Data, message)
-	}
-	if resp.Code == protocol.ErrCodeWorkflowTaskMutationSelfTarget && len(resp.Data) > 0 {
-		return serverapi.DecodeWorkflowTaskMutationSelfTargetError(resp.Data, message)
-	}
-	if resp.Code == protocol.ErrCodeWorkflowTaskStartConflict && len(resp.Data) > 0 {
-		return serverapi.DecodeWorkflowTaskStartConflictError(resp.Data, message)
-	}
-	if resp.Code == protocol.ErrCodeWorkflowTaskInitialBranch && len(resp.Data) > 0 {
-		return serverapi.DecodeWorkflowTaskInitialBranchError(resp.Data, message)
-	}
-	if resp.Code == protocol.ErrCodeWorktreeSetupRetained && len(resp.Data) > 0 {
-		return serverapi.DecodeWorkflowSetupRetainedError(resp.Data, message)
-	}
-	if resp.Code == protocol.ErrCodeWorkflowTaskDependency && len(resp.Data) > 0 {
-		return serverapi.DecodeWorkflowTaskDependencyError(resp.Data, message)
-	}
-	if resp.Code == protocol.ErrCodeWorkflowLabel && len(resp.Data) > 0 {
-		return serverapi.DecodeWorkflowLabelError(resp.Data, message)
-	}
-	if resp.Code == protocol.ErrCodeSubagentLaunchDenied && len(resp.Data) > 0 {
-		return serverapi.DecodeSubagentLaunchDeniedError(resp.Data, message)
-	}
-	if resp.Code == protocol.ErrCodeSubagentLaunchPolicy {
-		return protocol.DecodeSubagentLaunchPolicyError(resp.Data, message)
-	}
-	if resp.Code == protocol.ErrCodeWorkflowExecutionTargetResolution && len(resp.Data) > 0 {
-		return serverapi.DecodeWorkflowExecutionTargetResolutionError(resp.Data, message)
-	}
-	if resp.Code == protocol.ErrCodeWorkflowLockedExecutionTarget && len(resp.Data) > 0 {
-		return serverapi.DecodeWorkflowLockedExecutionTargetError(resp.Data, message)
-	}
-	if resp.Code == protocol.ErrCodeRequestCanceled {
-		return requestCanceledError{message: message}
-	}
-	if message == "" {
-		message = "protocol request failed"
-	}
-	switch resp.Code {
-	case protocol.ErrCodeMethodNotFound:
-		return errors.Join(serverapi.ErrMethodNotFound, errors.New(message))
-	case protocol.ErrCodeAuthRequired:
-		if message == serverapi.ErrServerAuthRequired.Error() {
-			return serverapi.ErrServerAuthRequired
-		}
-		return errors.Join(serverapi.ErrServerAuthRequired, errors.New(message))
-	case protocol.ErrCodeModelStreamStalled:
-		return errors.Join(llmerrors.ErrModelStreamStalled, errors.New(message))
-	case protocol.ErrCodeStreamGap:
-		return errors.Join(serverapi.ErrStreamGap, errors.New(message))
-	case protocol.ErrCodeWorkspaceNotRegistered:
-		return errors.Join(serverapi.ErrWorkspaceNotRegistered, errors.New(message))
-	case protocol.ErrCodeProjectNotFound:
-		return errors.Join(serverapi.ErrProjectNotFound, errors.New(message))
-	case protocol.ErrCodeProjectUnavailable:
-		return errors.Join(serverapi.ErrProjectUnavailable, errors.New(message))
-	case protocol.ErrCodeRuntimeUnavailable:
-		return protocol.NewSentinelErrorWithRendering(serverapi.ErrRuntimeUnavailable, message, protocol.SentinelErrorJoined)
-	case protocol.ErrCodeRuntimeNoActiveRun:
-		return protocol.NewSentinelErrorWithRendering(serverapi.ErrRuntimeNoActiveRun, message, protocol.SentinelErrorJoined)
-	case protocol.ErrCodeRuntimeNoFinalAnswer:
-		return protocol.NewSentinelErrorWithRendering(serverapi.ErrRuntimeNoFinalAnswer, message, protocol.SentinelErrorJoined)
-	case protocol.ErrCodeStreamUnavailable:
-		return errors.Join(serverapi.ErrStreamUnavailable, errors.New(message))
-	case protocol.ErrCodeStreamFailed:
-		return errors.Join(serverapi.ErrStreamFailed, errors.New(message))
-	case protocol.ErrCodePromptNotFound:
-		return errors.Join(serverapi.ErrPromptNotFound, errors.New(message))
-	case protocol.ErrCodePromptResolved:
-		return errors.Join(serverapi.ErrPromptAlreadyResolved, errors.New(message))
-	case protocol.ErrCodePromptUnsupported:
-		return errors.Join(serverapi.ErrPromptUnsupported, errors.New(message))
-	case protocol.ErrCodeWorkflowTaskNotFound:
-		return errors.Join(serverapi.ErrWorkflowTaskNotFound, errors.New(message))
-	case protocol.ErrCodeWorkflowTaskCompleteNotFound:
-		return errors.Join(serverapi.ErrWorkflowTaskCompleteTargetNotFound, errors.New(message))
-	case protocol.ErrCodeWorkflowTaskCompleteAmbiguous:
-		return errors.Join(serverapi.ErrWorkflowTaskCompleteSelectorAmbiguous, errors.New(message))
-	default:
-		return errors.New(message)
 	}
 }

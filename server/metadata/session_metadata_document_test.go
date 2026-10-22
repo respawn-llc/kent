@@ -1,18 +1,37 @@
 package metadata
 
 import (
+	"database/sql"
 	"encoding/json"
 	"reflect"
 	"testing"
 	"time"
 
+	"core/server/metadata/sqlitegen"
 	"core/server/session"
 )
+
+func TestStoredWorkflowSnapshotRejectsInvalidMode(t *testing.T) {
+	for _, payload := range []string{
+		`{"workflow_snapshot":{"completion_mode":""}}`,
+		`{"workflow_snapshot":{}}`,
+		`{"workflow_snapshot":{"completion_mode":"unsupported"}}`,
+		`{"workflow_snapshot":{"completion_mode":null}}`,
+	} {
+		_, err := sessionMetaFromRecordRow(sqlitegen.GetSessionRecordByIDRow{
+			ID: "invalid-snapshot", Category: sql.NullString{String: "main", Valid: true},
+			LockedJson: "{}", UsageStateJson: "{}", ContinuationJson: "{}", MetadataJson: payload,
+		})
+		if err == nil {
+			t.Fatalf("accepted invalid snapshot: %s", payload)
+		}
+	}
+}
 
 func TestStoredLockedContractPreservesCapabilitiesWithObsoleteCountingFields(t *testing.T) {
 	t.Parallel()
 	const stored = `{
-		"model":"gpt-5",
+		"model":"gpt-6-sol",
 		"provider_contract":{
 			"provider_id":"openai",
 			"supports_responses_api":true,
@@ -30,7 +49,7 @@ func TestStoredLockedContractPreservesCapabilitiesWithObsoleteCountingFields(t *
 	}`
 	verbosity := false
 	want := session.LockedContract{
-		Model: "gpt-5",
+		Model: "gpt-6-sol",
 		ProviderContract: session.LockedProviderCapabilities{
 			ProviderID:                    "openai",
 			SupportsResponsesAPI:          true,

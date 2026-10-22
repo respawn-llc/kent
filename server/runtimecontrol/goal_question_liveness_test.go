@@ -4,9 +4,11 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"path/filepath"
 	"testing"
 	"time"
 
+	"core/internal/testharness/requestfixture"
 	"core/server/llm"
 	"core/server/promptcontrol"
 	"core/server/runtime"
@@ -14,6 +16,8 @@ import (
 	promptpb "core/shared/protoapi/gen/kent/api/prompt"
 	runtimepb "core/shared/protoapi/gen/kent/api/runtime"
 	"core/shared/runtimeids"
+	"core/shared/serverapi"
+	"core/shared/sessioncontract"
 	"core/shared/textutil"
 	"core/shared/toolspec"
 )
@@ -29,6 +33,7 @@ const (
 	goalQuestionAnswer
 	goalQuestionDecline
 	goalQuestionInterrupt
+	goalQuestionRejectDirectParent
 )
 
 func TestGoalQuestionResolution(t *testing.T) {
@@ -43,6 +48,7 @@ func TestGoalQuestionResolution(t *testing.T) {
 			}{
 				{name: "answer", action: goalQuestionAnswer},
 				{name: "decline", action: goalQuestionDecline},
+				{name: "reject direct-parent answer", action: goalQuestionRejectDirectParent},
 				{name: "interrupt", action: goalQuestionInterrupt},
 				{name: "stop", action: goalQuestionStop},
 			} {
@@ -78,7 +84,7 @@ func exerciseGoalQuestion(t *testing.T, resume bool, action goalQuestionAction) 
 		if _, err := engine.SetGoalStatus(t.Context(), session.GoalStatusPaused, session.GoalActorUser); err != nil {
 			t.Fatal(err)
 		}
-		_, err = service.ResumeGoal(t.Context(), &runtimepb.GoalMutationRequest{SessionId: sessionID.String(), Actor: "user"})
+		_, err = service.ResumeGoal(t.Context(), &runtimepb.GoalMutationRequest{SessionId: requestfixture.Selector(t, sessionID.String()), Actor: "user"})
 	} else {
 		_, err = runtimeControlSetGoal(
 			t.Context(),
@@ -86,7 +92,6 @@ func exerciseGoalQuestion(t *testing.T, resume bool, action goalQuestionAction) 
 			sessionID.String(),
 			"ask before proceeding",
 			"user",
-			nil,
 			nil,
 		)
 	}
@@ -105,7 +110,7 @@ func exerciseGoalQuestion(t *testing.T, resume bool, action goalQuestionAction) 
 	select {
 	case <-prompts.pending:
 	case <-time.After(time.Second):
-		stopped, err := service.LiveStop(t.Context(), &runtimepb.LiveStopRequest{SessionId: store.Meta().SessionID})
+		stopped, err := service.LiveStop(t.Context(), &runtimepb.LiveStopRequest{SessionId: requestfixture.Selector(t, store.Meta().SessionID)})
 		t.Fatalf("model asked a Question but it never reached the Session prompt owner; stop=%+v error=%v", stopped, err)
 	}
 	execution, ok := service.authority.SessionExecution(sessionID)
@@ -113,7 +118,7 @@ func exerciseGoalQuestion(t *testing.T, resume bool, action goalQuestionAction) 
 		t.Fatal("pending Question has no interruptible execution")
 	}
 	switch action {
-	case goalQuestionAnswer, goalQuestionDecline:
+	case goalQuestionAnswer, goalQuestionDecline, goalQuestionRejectDirectParent:
 		active := engine.ActiveRun()
 		if active == nil {
 			t.Fatal("pending Question has no active model Step")
@@ -123,12 +128,54 @@ func exerciseGoalQuestion(t *testing.T, resume bool, action goalQuestionAction) 
 			t.Fatal(err)
 		}
 		entry := &promptpb.AnswerBatchEntry{ToolCallId: "goal-question", Answer: &promptpb.AnswerBatchEntry_Declined{Declined: &promptpb.Declined{}}}
-		if action == goalQuestionAnswer {
+		if action == goalQuestionAnswer || action == goalQuestionRejectDirectParent {
 			entry.Answer = &promptpb.AnswerBatchEntry_QuestionAnswer{QuestionAnswer: &promptpb.QuestionAnswer{Freeform: textutil.Value("proceed")}}
 		}
-		response, err := promptcontrol.NewPromptControlService(service.authority).AnswerPromptBatch(t.Context(), &promptpb.AnswerBatchRequest{
-			SessionId: sessionID.String(), StepId: stepID.String(), Entries: []*promptpb.AnswerBatchEntry{entry},
-		})
+		control := promptcontrol.NewPromptControlService(service.authority, nil, nil)
+		request := &promptpb.AnswerBatchRequest{
+			SessionId: requestfixture.Selector(t, sessionID.String()), StepId: stepID.String(), Entries: []*promptpb.AnswerBatchEntry{entry},
+		}
+		if action == goalQuestionRejectDirectParent {
+			caller, err := session.NewLazy(
+				filepath.Dir(store.Dir()),
+				store.Meta().WorkspaceContainer,
+				store.Meta().WorkspaceRoot,
+				sessioncontract.SessionCategorySubagent,
+				runtimeControlTestSessionPersistence.Options()...,
+			)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if err := session.InitializeCreationContext(
+				caller,
+				store,
+				session.SessionCreationSourceParentAgent,
+				session.ChildContextOptions{},
+			); err != nil {
+				t.Fatal(err)
+			}
+			if err := caller.EnsureDurable(); err != nil {
+				t.Fatal(err)
+			}
+			request.InvokingSessionId = textutil.Value(caller.Meta().SessionID)
+			control = promptcontrol.NewPromptControlService(
+				service.authority,
+				runtimeControlTestSessionPersistence, nil,
+			)
+			if _, err := control.AnswerPromptBatch(t.Context(), request); err == nil {
+				t.Fatal("direct child answered its parent's pending Question")
+			} else {
+				var rejected *serverapi.ParentQuestionAnswerRejectedError
+				if !errors.As(err, &rejected) ||
+					rejected.AnsweringSessionID.String() != caller.Meta().SessionID ||
+					rejected.QuestionSessionID != sessionID {
+					t.Fatalf("direct-parent rejection = %T %+v", err, err)
+				}
+			}
+			request.InvokingSessionId = nil
+			control = promptcontrol.NewPromptControlService(service.authority, nil, nil)
+		}
+		response, err := control.AnswerPromptBatch(t.Context(), request)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -142,7 +189,7 @@ func exerciseGoalQuestion(t *testing.T, resume bool, action goalQuestionAction) 
 			t.Fatal(err)
 		}
 	case goalQuestionStop:
-		stopped, err := service.LiveStop(t.Context(), &runtimepb.LiveStopRequest{SessionId: sessionID.String()})
+		stopped, err := service.LiveStop(t.Context(), &runtimepb.LiveStopRequest{SessionId: requestfixture.Selector(t, sessionID.String())})
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -150,8 +197,8 @@ func exerciseGoalQuestion(t *testing.T, resume bool, action goalQuestionAction) 
 			t.Fatalf("stop waiting Question = %+v", stopped)
 		}
 	}
-	if action == goalQuestionAnswer || action == goalQuestionDecline {
-		if _, err := service.LiveStop(t.Context(), &runtimepb.LiveStopRequest{SessionId: sessionID.String()}); err != nil {
+	if action == goalQuestionAnswer || action == goalQuestionDecline || action == goalQuestionRejectDirectParent {
+		if _, err := service.LiveStop(t.Context(), &runtimepb.LiveStopRequest{SessionId: requestfixture.Selector(t, sessionID.String())}); err != nil {
 			t.Fatal(err)
 		}
 	}
@@ -168,7 +215,7 @@ func exerciseGoalQuestion(t *testing.T, resume bool, action goalQuestionAction) 
 		t.Fatal(err)
 	}
 	nextSteeringExchange(t, client)
-	if _, err := service.LiveStop(t.Context(), &runtimepb.LiveStopRequest{SessionId: sessionID.String()}); err != nil {
+	if _, err := service.LiveStop(t.Context(), &runtimepb.LiveStopRequest{SessionId: requestfixture.Selector(t, sessionID.String())}); err != nil {
 		t.Fatal(err)
 	}
 }

@@ -3,10 +3,13 @@ package transport
 import (
 	"context"
 	"errors"
+	"strings"
 
 	"core/shared/apicontract"
 	sessionpb "core/shared/protoapi/gen/kent/api/session"
+	sharedpb "core/shared/protoapi/gen/kent/api/shared"
 	transcriptpb "core/shared/protoapi/gen/kent/api/transcript"
+	"core/shared/protocol"
 
 	"google.golang.org/protobuf/proto"
 	"google.golang.org/protobuf/reflect/protoreflect"
@@ -16,6 +19,10 @@ func registerSessionViewGatewayBinaryBindings(bindings map[string]gatewayBinaryB
 	sessionService := sessionpb.File_kent_api_session_session_proto.Services().ByName("ReadService")
 	transcriptService := transcriptpb.File_kent_api_transcript_transcript_proto.Services().ByName("ReadService")
 	return errors.Join(
+		registerViewedImageOriginalSource(bindings, sessionService),
+		registerSessionViewUnary(bindings, sessionService, "GetIdentityLocation",
+			func() *sessionpb.IdentityLocationRequest { return &sessionpb.IdentityLocationRequest{} },
+			apicontract.SessionViewService.GetSessionIdentityLocation),
 		registerSessionViewUnary(bindings, sessionService, "GetPromptHistory",
 			func() *sessionpb.PromptHistoryRequest { return &sessionpb.PromptHistoryRequest{} },
 			apicontract.SessionViewService.GetPromptHistory),
@@ -31,10 +38,59 @@ func registerSessionViewGatewayBinaryBindings(bindings map[string]gatewayBinaryB
 	)
 }
 
+func registerViewedImageOriginalSource(
+	bindings map[string]gatewayBinaryBinding,
+	service protoreflect.ServiceDescriptor,
+) error {
+	return registerGatewayBinaryUnary(
+		bindings,
+		service,
+		"ResolveViewedImageOriginalSource",
+		gatewayBinaryCoreActiveOrdinary,
+		func() *sessionpb.ViewedImageOriginalSourceRequest {
+			return &sessionpb.ViewedImageOriginalSourceRequest{}
+		},
+		func(request *sessionpb.ViewedImageOriginalSourceRequest) (routeScopeParams, error) {
+			return routeScopeParams{sessionID: request.SessionId}, nil
+		},
+		func(
+			g *Gateway,
+			ctx context.Context,
+			state *connectionState,
+			request *sessionpb.ViewedImageOriginalSourceRequest,
+		) (*sessionpb.ViewedImageOriginalSourceSuccess, error) {
+			projectID, err := g.activeProjectID(ctx, state)
+			if err != nil {
+				return nil, err
+			}
+			authority, err := g.sessionReattachAuthority()
+			if err != nil {
+				return nil, err
+			}
+			sourceURL, err := authority.issueViewedImageSourceURL(viewedImageSourceDescriptor{
+				ProjectID:       projectID,
+				SessionID:       strings.TrimSpace(request.SessionId),
+				Path:            request.Path,
+				ProtocolVersion: protocol.Version,
+			})
+			if err != nil {
+				return nil, err
+			}
+			return &sessionpb.ViewedImageOriginalSourceSuccess{Url: sourceURL}, nil
+		},
+		func(_ *Gateway, _ *connectionState, _ *sessionpb.ViewedImageOriginalSourceRequest, err error) proto.Message {
+			return binaryInternalFailure(err)
+		},
+	)
+}
+
 func registerSessionViewUnary[
+	Target interface {
+		string | *sharedpb.SessionSelector
+	},
 	Request interface {
 		proto.Message
-		GetSessionId() string
+		GetSessionId() Target
 	},
 	Success proto.Message,
 ](
@@ -47,7 +103,7 @@ func registerSessionViewUnary[
 	return registerGatewayBinaryUnary(
 		bindings, service, method, gatewayBinaryCoreActiveOrdinary, newRequest,
 		func(request Request) (routeScopeParams, error) {
-			return routeScopeParams{sessionID: request.GetSessionId()}, nil
+			return runtimeControlScope(request.GetSessionId()), nil
 		},
 		func(g *Gateway, ctx context.Context, _ *connectionState, request Request) (Success, error) {
 			client := g.deps.SessionViewClient()

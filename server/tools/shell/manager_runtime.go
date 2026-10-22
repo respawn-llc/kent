@@ -284,6 +284,7 @@ func (m *Manager) waitForExit(entry *processEntry) {
 		return
 	}
 	snapshot := entry.closeOnExit(exitCode, state)
+	m.notifyBackgroundListChange(snapshot)
 	eventType := EventCompleted
 	if snapshot.State == "killed" {
 		eventType = EventKilled
@@ -546,14 +547,23 @@ func (m *Manager) releaseProcessSlot() {
 
 func (m *Manager) releaseEntry(id string) {
 	m.mu.Lock()
-	defer m.mu.Unlock()
-	m.entries.Delete(id)
+	entry, found := m.entries.LoadAndDelete(id)
 	m.removeCompletedLocked(id)
+	m.mu.Unlock()
+	if found {
+		m.notifyBackgroundListChange(entry.(*processEntry).snapshot())
+	}
 }
 
 func (m *Manager) retainCompletedEntry(id string) {
+	var removed []Snapshot
 	m.mu.Lock()
-	defer m.mu.Unlock()
+	defer func() {
+		m.mu.Unlock()
+		for _, snapshot := range removed {
+			m.notifyBackgroundListChange(snapshot)
+		}
+	}()
 	entry, err := m.readEntry(id)
 	if err != nil || entry.isRunning() {
 		return
@@ -566,6 +576,7 @@ func (m *Manager) retainCompletedEntry(id string) {
 		m.completedRecency = m.completedRecency[1:]
 		evicted, err := m.readEntry(evictedID)
 		if err == nil && !evicted.isRunning() {
+			removed = append(removed, evicted.snapshot())
 			m.entries.Delete(evictedID)
 		}
 	}

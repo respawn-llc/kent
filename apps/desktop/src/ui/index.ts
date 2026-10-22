@@ -1,3 +1,4 @@
+export { SharedTextMotion } from "./SharedTextMotion";
 export { Badge } from "./Badge";
 export { PromptOptionRow } from "./PromptOptionRow";
 export { PromptAccessTargets } from "./PromptAccessTargets";
@@ -64,7 +65,7 @@ export type { IslandTabAction, IslandTabItem, IslandTabsProps } from "./IslandTa
 export { islandSurfaceClassName } from "./islandSurfaceStyles";
 export type { IslandLevel } from "./islandSurfaceStyles";
 export { chromeContentPaddingClassName, nativeChromeContentPaddingClassName } from "./chromePadding";
-export { StaticMarkdown, StreamingMarkdown, TaskBodyMarkdown } from "./MarkdownText";
+export { MarkdownLinkProvider, StaticMarkdown, StreamingMarkdown, TaskBodyMarkdown } from "./MarkdownText";
 export { CollapsibleMarkdownViewport } from "./CollapsibleMarkdownViewport";
 export type { StaticMarkdownProps, StreamingMarkdownProps, TaskBodyMarkdownProps } from "./MarkdownText";
 export { SyntaxHighlightedCode } from "./SyntaxHighlightedCode";
@@ -72,6 +73,8 @@ export type { SyntaxHighlightedCodeProps } from "./SyntaxHighlightedCode";
 export { compactExternalUrlLabel, safeExternalUrl } from "./externalLinks";
 export { readEffectiveTheme, type AppTheme } from "./theme";
 export { cx } from "./classes";
+export { SteppedSelector } from "./SteppedSelector";
+export { useTextOverflow } from "./useTextOverflow";
 export { motionDurationFromCSSVar, prefersReducedMotion, useOpacityExit } from "./motion";
 export {
   CollapsibleMarkdownField,
@@ -88,6 +91,7 @@ export {
   type TextFieldSubmitShortcutPolicy,
 } from "./textFieldSubmitShortcut";
 export { Spinner } from "./Spinner";
+export { LinearBar } from "./LinearBar";
 export type { SpinnerProps } from "./Spinner";
 export { Switch } from "./radix/switch";
 export { Checkbox } from "./radix/checkbox";
@@ -117,6 +121,7 @@ export {
 } from "./radix/dropdown-menu";
 export { Toaster } from "./Sonner";
 export { Popover, PopoverClose, PopoverContent, PopoverTrigger } from "./radix/popover";
+export { HoverPopover } from "./HoverPopover";
 export { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "./radix/tooltip";
 export { dismissStatusToast, showStatusToast } from "./statusToast";
 export {

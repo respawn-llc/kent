@@ -52,7 +52,7 @@ func TestHistoryReplacementCountsProjectedRowsAtCommittedBoundary(t *testing.T) 
 	if got := chat.committedEntryCount(); got != 15 {
 		t.Fatalf("committed entries = %d, want existing count plus projected row", got)
 	}
-	if got := chat.snapshotItems(); !reflect.DeepEqual(got, llm.PrepareOpenAIInputItems(items)) {
+	if got := chat.snapshotItems(); !reflect.DeepEqual(got, llm.PrepareResponsesInputItems(items)) {
 		t.Fatalf("replacement provider history = %+v, want %+v", got, items)
 	}
 }
@@ -110,7 +110,7 @@ func TestBuildRequestUsesLatestHistoryReplacementAndActiveTail(t *testing.T) {
 		t.Fatalf("append active-tail assistant message: %v", err)
 	}
 
-	engine := mustNewTestEngine(t, store, &fakeClient{}, tools.NewRegistry(), Config{Model: "gpt-5"})
+	engine := mustNewTestEngine(t, store, &fakeClient{}, tools.NewRegistry(), Config{Model: "gpt-6-sol"})
 	request, err := engine.buildRequest(context.Background(), "step", true)
 	if err != nil {
 		t.Fatalf("build request: %v", err)
@@ -127,6 +127,51 @@ func TestBuildRequestUsesLatestHistoryReplacementAndActiveTail(t *testing.T) {
 			item.MessageType == nil {
 			t.Fatalf("pre-compaction ordinary user item reached the rebuilt request: %+v", item)
 		}
+	}
+}
+
+func TestBuildRequestReplaysPersistedCustomToolCallWithoutCallIDAsItemID(t *testing.T) {
+	t.Parallel()
+	store := mustCreateTestSession(t)
+	callID := "call_UnbEo1BIBE40RjqhTkbs7Gxj"
+	if _, _, err := appendTestEvent(t, store, "step", llm.Message{
+		Role:      llm.RoleAssistant,
+		ToolCalls: []llm.ToolCall{{ID: callID, Name: string(toolspec.ToolPatch), Custom: true, CustomInput: textutil.Value("*** Begin Patch\n*** End Patch\n")}},
+	}); err != nil {
+		t.Fatalf("persist assistant custom tool call: %v", err)
+	}
+	if _, _, err := appendTestEvent(t, store, "step", llm.Message{
+		Role: llm.RoleTool, MessageType: textutil.Value(llm.MessageTypeCustomToolCallOutput),
+		ToolCallID: &callID, Name: textutil.Value(string(toolspec.ToolPatch)), Content: textutil.Value(`{"ok":true}`),
+	}); err != nil {
+		t.Fatalf("persist custom tool output: %v", err)
+	}
+	engine := mustNewTestEngine(t, store, &fakeClient{}, tools.NewRegistry(), Config{Model: "gpt-6-sol"})
+	request, err := engine.buildRequest(context.Background(), "step", true)
+	if err != nil {
+		t.Fatalf("build replayed request: %v", err)
+	}
+	var foundCall, foundOutput bool
+	for _, item := range request.Items {
+		if item.CallID == nil || *item.CallID != callID {
+			continue
+		}
+		var raw map[string]json.RawMessage
+		if err := json.Unmarshal(item.Raw, &raw); err != nil {
+			t.Fatalf("decode replayed input: %v", err)
+		}
+		switch item.Type {
+		case llm.ResponseItemTypeCustomToolCall:
+			foundCall = true
+			if _, present := raw["id"]; present {
+				t.Fatalf("custom tool call reused call_id as provider item id: %s", item.Raw)
+			}
+		case llm.ResponseItemTypeCustomToolOutput:
+			foundOutput = true
+		}
+	}
+	if !foundCall || !foundOutput {
+		t.Fatalf("replayed request lost custom tool pair: call=%t output=%t", foundCall, foundOutput)
 	}
 }
 
@@ -182,7 +227,7 @@ func TestConflictingAssistantToolCallStepReturnsError(t *testing.T) {
 
 	t.Run("before persistence", func(t *testing.T) {
 		store := mustCreateTestSession(t)
-		engine := mustNewTestEngine(t, store, &fakeClient{}, tools.NewRegistry(), Config{Model: "gpt-5"})
+		engine := mustNewTestEngine(t, store, &fakeClient{}, tools.NewRegistry(), Config{Model: "gpt-6-sol"})
 		intent := steerMessagesWithPersistenceIntent(steeringPriorityNormal, steeringMessageEventDefault, true, []llm.Message{message})
 		if err := steerTestActiveStep(engine, chatStoreTestStepID, intent); err != nil {
 			t.Fatalf("append initial tool call: %v", err)
@@ -220,7 +265,7 @@ func TestConflictingAssistantToolCallStepReturnsError(t *testing.T) {
 			mustMaterializeTestEventLog(t, store),
 			&fakeClient{},
 			tools.NewRegistry(),
-			Config{Model: "gpt-5"},
+			Config{Model: "gpt-6-sol"},
 		)
 		if err == nil {
 			if closeErr := engine.Close(); closeErr != nil {
@@ -289,7 +334,7 @@ func TestBuildRequestPreservesMaterializedToolOutputOrder(t *testing.T) {
 		}
 	}
 
-	engine := mustNewTestEngine(t, store, &fakeClient{}, tools.NewRegistry(), Config{Model: "gpt-5"})
+	engine := mustNewTestEngine(t, store, &fakeClient{}, tools.NewRegistry(), Config{Model: "gpt-6-sol"})
 	request, err := engine.buildRequest(context.Background(), "step", true)
 	if err != nil {
 		t.Fatalf("build request: %v", err)
@@ -371,7 +416,7 @@ func TestHistoryReplacementPrunesPriorToolWorkingState(t *testing.T) {
 		t.Fatalf("append active input: %v", err)
 	}
 
-	engine := mustNewTestEngine(t, store, &fakeClient{}, tools.NewRegistry(), Config{Model: "gpt-5"})
+	engine := mustNewTestEngine(t, store, &fakeClient{}, tools.NewRegistry(), Config{Model: "gpt-6-sol"})
 	for _, call := range calls {
 		if _, ok := engine.transcriptRuntimeState().ToolCompletionSnapshot(call.ID); ok {
 			t.Fatalf("history replacement retained prior tool completion %q", call.ID)

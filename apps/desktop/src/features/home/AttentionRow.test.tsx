@@ -1,34 +1,53 @@
 import { fireEvent, render, screen, within } from "@testing-library/react";
-import { I18nextProvider } from "react-i18next";
+import { useAtomSet } from "@effect/atom-react";
+import { QueryClient } from "@tanstack/react-query";
+import { beforeAll, beforeEach, expect, it, vi } from "bun:test";
 
 import type { ApprovalAttentionItem, AttentionItem, InterruptedCurrentNodeAttentionItem } from "@/api";
 import { appI18n, initializeI18n } from "@/i18n";
 import { AttentionRow } from "./AttentionRow";
+import { createHomeViewModel } from "./HomeViewModel";
+import { createTestServices, TestAppProviders } from "@/test-support/app-services";
+import { createTestSidebarController } from "@/test-support/sidebar";
 
-const fixture = vi.hoisted(() => ({
-  featureFlags: { desktopChatEnabled: true },
+const fixture = {
   openSessionChat: vi.fn(async () => undefined),
-}));
-
-vi.mock("@/shared/feature-flags", () => fixture.featureFlags);
-
-vi.mock("@/app-facade", async (importOriginal) => ({
-  ...(await importOriginal()),
-  useAppNavigation: () => ({ openSessionChat: fixture.openSessionChat }),
-}));
+};
 
 beforeAll(async () => initializeI18n());
 beforeEach(() => {
-  fixture.featureFlags.desktopChatEnabled = true;
   fixture.openSessionChat.mockClear();
 });
 
 function renderAttention(item: AttentionItem) {
-  const openSidebar = vi.fn();
+  const openSidebar = vi.fn(createTestSidebarController().open);
+  const services = createTestServices([]);
+  const model = createHomeViewModel({
+    services,
+    client: new QueryClient(),
+    push: vi.fn(),
+    t: appI18n.t,
+    openProject: vi.fn(async () => undefined),
+  });
+  function Row() {
+    const task = useAtomSet(model.attentionTask);
+    const chat = useAtomSet(model.attentionChat);
+    return (
+      <AttentionRow
+        item={item}
+        onTaskDetail={(item) => {
+          task({ item, open: openSidebar });
+        }}
+        onSessionChat={(target) => {
+          chat({ target, open: fixture.openSessionChat });
+        }}
+      />
+    );
+  }
   const view = render(
-    <I18nextProvider i18n={appI18n}>
-      <AttentionRow item={item} openSidebar={openSidebar} sidebarMode="shift" />
-    </I18nextProvider>,
+    <TestAppProviders services={services}>
+      <Row />
+    </TestAppProviders>,
   );
   return { openSidebar, view };
 }
@@ -45,7 +64,7 @@ it("opens Task Detail from the attention row and Chat only from its separate act
     projectID: "project-1",
     sessionID: "session-1",
   });
-  expect(openSidebar).toHaveBeenCalledOnce();
+  expect(openSidebar).toHaveBeenCalledTimes(1);
 });
 
 it("renders structured access approval paths without a message", () => {
@@ -148,17 +167,18 @@ it.each([
   } else {
     expect(screen.getAllByRole("button")).toHaveLength(1);
     fireEvent.click(screen.getByRole("button"));
-    expect(openSidebar).toHaveBeenCalledOnce();
+    expect(openSidebar).toHaveBeenCalledTimes(1);
   }
 });
 
-it("keeps production attention rows as one Task Detail interaction", () => {
-  fixture.featureFlags.desktopChatEnabled = false;
+it("opens the question Session in Chat", () => {
   const { openSidebar } = renderAttention(questionAttention);
   const row = screen.getByTestId("attention-row");
 
   expect(within(row).queryByTestId("attention-chat-header")).not.toBeInTheDocument();
-  expect(screen.getAllByRole("button")).toHaveLength(1);
-  fireEvent.click(screen.getByRole("button"));
-  expect(openSidebar).toHaveBeenCalledOnce();
+  fireEvent.click(
+    screen.getByRole("button", { name: appI18n.t("task.openChat", { name: questionAttention.taskTitle }) }),
+  );
+  expect(fixture.openSessionChat).toHaveBeenCalledWith({ projectID: "project-1", sessionID: "session-1" });
+  expect(openSidebar).not.toHaveBeenCalled();
 });

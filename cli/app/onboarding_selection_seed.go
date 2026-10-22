@@ -7,8 +7,8 @@ import (
 
 	"core/shared/config"
 	capabilitypb "core/shared/protoapi/gen/kent/api/capability"
+	onboardingpb "core/shared/protoapi/gen/kent/api/onboarding"
 	"core/shared/theme"
-	"core/shared/toolspec"
 )
 
 type onboardingSelectionConversionError struct {
@@ -21,8 +21,8 @@ func (e *onboardingSelectionConversionError) Error() string {
 	return fmt.Sprintf("convert onboarding selection %s (%v): %s", e.Field, e.Value, e.Reason)
 }
 
-func newOnboardingFlowState(cfg config.App, facts *capabilitypb.Facts) (onboardingFlowState, error) {
-	selections, err := onboardingSelectionsFromConfig(cfg, facts)
+func newOnboardingFlowState(local config.LocalPreferences, facts *capabilitypb.Facts) (onboardingFlowState, error) {
+	selections, err := onboardingSelectionsFromFacts(local, facts)
 	if err != nil {
 		return onboardingFlowState{}, err
 	}
@@ -31,7 +31,7 @@ func newOnboardingFlowState(cfg config.App, facts *capabilitypb.Facts) (onboardi
 		facts:         facts,
 		pendingAction: onboardingPendingActionNone,
 		imports:       onboardingImportDiscoveryFromFacts(facts.GetImports()),
-		debug:         cfg.Settings.Debug,
+		debug:         local.Debug,
 	}
 	if id := state.imports.commandRecommendationID; id != nil {
 		for _, choice := range state.imports.commandChoices {
@@ -48,83 +48,38 @@ func newOnboardingFlowState(cfg config.App, facts *capabilitypb.Facts) (onboardi
 	return state, nil
 }
 
-func onboardingSelectionsFromConfig(cfg config.App, facts *capabilitypb.Facts) (onboardingSelections, error) {
-	if err := validateOnboardingFacts(facts); err != nil {
-		return onboardingSelections{}, err
-	}
-	settings := cfg.Settings
-	model, err := onboardingModelSelectionFromValue(settings.Model, facts)
+func onboardingSelectionsFromFacts(local config.LocalPreferences, facts *capabilitypb.Facts) (onboardingSelections, error) {
+	defaults := facts.GetDefaults()
+	model := onboardingModelSelectionForModel(strings.TrimSpace(defaults.PrimaryModelId), facts)
+	themeSelection, err := seedThemeSelection(local.Theme)
 	if err != nil {
 		return onboardingSelections{}, err
 	}
-	themeSelection, err := seedThemeSelection(settings.Theme)
-	if err != nil {
-		return onboardingSelections{}, err
-	}
-	contextWindow, err := seedContextSelection(settings.ModelContextWindow, model.value, facts)
-	if err != nil {
-		return onboardingSelections{}, err
-	}
-	thinkingSource, err := requiredOnboardingSource(cfg.Source.Sources, "thinking_level")
-	if err != nil {
-		return onboardingSelections{}, err
-	}
-	if thinkingSource == "default" && strings.TrimSpace(settings.ThinkingLevel) != strings.TrimSpace(config.DefaultOnboardingSettings().ThinkingLevel) {
-		return onboardingSelections{}, conversionError("thinking_level", settings.ThinkingLevel, "resolved value does not match default provenance")
-	}
-	thinking, err := seedThinkingSelection(
-		settings.ThinkingLevel,
-		thinkingSource == "default",
-		modelFactForFacts(facts, model.value).SupportedThinkingLevels,
-	)
-	if err != nil {
-		return onboardingSelections{}, err
-	}
-	verbosity, err := seedVerbositySelection(settings.ModelVerbosity)
-	if err != nil {
-		return onboardingSelections{}, err
-	}
-	supervisor, err := seedSupervisorSelection(settings, cfg.Source.Sources, facts)
-	if err != nil {
-		return onboardingSelections{}, err
-	}
-	compaction, err := seedCompactionSelection(settings.CompactionMode)
-	if err != nil {
-		return onboardingSelections{}, err
-	}
-	if settings.Timeouts.ModelRequestSeconds <= 0 {
-		return onboardingSelections{}, conversionError("timeouts.model_request_seconds", settings.Timeouts.ModelRequestSeconds, "must be positive")
-	}
-	var modelTimeoutSeconds *int
-	if settings.Timeouts.ModelRequestSeconds != config.DefaultOnboardingSettings().Timeouts.ModelRequestSeconds {
-		value := settings.Timeouts.ModelRequestSeconds
-		modelTimeoutSeconds = &value
-	}
+	contextWindow := seedContextSelection(int(defaults.GetContextWindowTokens()), model.value, facts)
+	thinking := seedThinkingFact(defaults.Thinking, modelFactForFacts(facts, model.value).SupportedThinkingLevels)
+	verbosity := seedVerbositySelection(defaults.Verbosity)
+	supervisor := seedSupervisorSelection(defaults.Supervisor, facts)
+	compaction := seedCompactionSelection(config.CompactionMode(defaults.CompactionMode))
 	var baselineModelContextWindow *int
-	if settings.ModelContextWindow > 0 {
-		value := settings.ModelContextWindow
+	if defaults.ContextWindowTokens != nil {
+		value := int(*defaults.ContextWindowTokens)
 		baselineModelContextWindow = &value
 	}
-	enabledTools := resolvedOnboardingTools(settings.EnabledTools)
 	return onboardingSelections{
-		theme:                   themeSelection,
-		model:                   model,
-		contextWindow:           contextWindow,
-		thinking:                thinking,
-		verbosity:               verbosity,
-		askQuestion:             enabledTools[toolspec.ToolAskQuestion],
-		supervisor:              supervisor,
-		compaction:              compaction,
-		skillImport:             onboardingImportSelection{Mode: onboardingImportModeNone},
-		commandImport:           onboardingImportSelection{Mode: onboardingImportModeNone},
-		skillEnablement:         map[string]bool{},
-		pendingPrimaryThinking:  onboardingThinkingEdit{kind: onboardingThinkingEditNone},
-		pendingReviewerThinking: onboardingThinkingEdit{kind: onboardingThinkingEditNone},
-		preserved: onboardingPreservedInputs{
-			modelTimeoutSeconds:        modelTimeoutSeconds,
-			enabledTools:               enabledTools,
-			baselineModelContextWindow: baselineModelContextWindow,
-		},
+		theme:                      themeSelection,
+		model:                      model,
+		contextWindow:              contextWindow,
+		thinking:                   thinking,
+		verbosity:                  verbosity,
+		askQuestion:                defaults.AskQuestion,
+		supervisor:                 supervisor,
+		compaction:                 compaction,
+		skillImport:                onboardingImportSelection{Mode: onboardingImportModeNone},
+		commandImport:              onboardingImportSelection{Mode: onboardingImportModeNone},
+		skillEnablement:            map[string]bool{},
+		pendingPrimaryThinking:     onboardingThinkingEdit{kind: onboardingThinkingEditNone},
+		pendingReviewerThinking:    onboardingThinkingEdit{kind: onboardingThinkingEditNone},
+		baselineModelContextWindow: baselineModelContextWindow,
 	}, nil
 }
 
@@ -146,248 +101,109 @@ func onboardingModelSelectionFromValue(value string, facts *capabilitypb.Facts) 
 	if model == "" {
 		return onboardingModelSelection{}, conversionError("model", value, "must not be blank")
 	}
+	return onboardingModelSelectionForModel(model, facts), nil
+}
+
+func onboardingModelSelectionForModel(model string, facts *capabilitypb.Facts) onboardingModelSelection {
 	kind := onboardingModelCustom
 	if modelFactForFacts(facts, model).Known {
 		kind = onboardingModelKnown
 	}
-	return onboardingModelSelection{kind: kind, value: model}, nil
+	return onboardingModelSelection{kind: kind, value: model}
 }
 
-func seedContextSelection(tokens int, model string, facts *capabilitypb.Facts) (onboardingContextSelection, error) {
+func seedContextSelection(tokens int, model string, facts *capabilitypb.Facts) onboardingContextSelection {
 	fact := modelFactForFacts(facts, model)
 	switch {
 	case tokens == 0:
-		return onboardingContextSelection{kind: onboardingContextDefault}, nil
+		return onboardingContextSelection{kind: onboardingContextDefault}
 	case fact.ContextWindowTokens != nil && tokens == int(*fact.ContextWindowTokens):
-		return onboardingContextSelection{kind: onboardingContextDefault}, nil
+		return onboardingContextSelection{kind: onboardingContextDefault}
 	case fact.LargeWindow != nil && tokens == int(fact.LargeWindow.Tokens):
-		return onboardingContextSelection{kind: onboardingContextLarge}, nil
-	case tokens > 0:
-		return onboardingContextSelection{kind: onboardingContextCustom, tokens: tokens}, nil
+		return onboardingContextSelection{kind: onboardingContextLarge}
 	default:
-		return onboardingContextSelection{}, conversionError("model_context_window", tokens, "custom context window must be positive")
+		return onboardingContextSelection{kind: onboardingContextCustom, tokens: tokens}
 	}
 }
 
-func seedThinkingSelection(value string, useDefault bool, supportedLevels []string) (onboardingThinkingSelection, error) {
+func seedThinkingSelection(value string, supportedLevels []string) onboardingThinkingSelection {
 	trimmed := strings.TrimSpace(value)
-	if useDefault {
-		if trimmed == "" {
-			return onboardingThinkingSelection{}, conversionError("thinking_level", value, "default thinking value must not be blank")
-		}
-		return onboardingThinkingSelection{kind: onboardingThinkingDefault}, nil
-	}
 	if trimmed == "" {
-		return onboardingThinkingSelection{kind: onboardingThinkingDisabled}, nil
+		return onboardingThinkingSelection{kind: onboardingThinkingDisabled}
 	}
 	if slices.Contains(supportedLevels, trimmed) {
-		return onboardingThinkingSelection{kind: onboardingThinkingLevel, value: trimmed}, nil
+		return onboardingThinkingSelection{kind: onboardingThinkingLevel, value: trimmed}
 	}
-	return onboardingThinkingSelection{kind: onboardingThinkingCustom, value: trimmed}, nil
+	return onboardingThinkingSelection{kind: onboardingThinkingCustom, value: trimmed}
 }
 
-func seedVerbositySelection(value config.ModelVerbosity) (onboardingVerbositySelection, error) {
-	switch value {
-	case "":
-		return onboardingVerbositySelection{kind: onboardingVerbosityOmitted}, nil
-	case config.ModelVerbosityLow, config.ModelVerbosityMedium, config.ModelVerbosityHigh:
-		return onboardingVerbositySelection{kind: onboardingVerbosityLevel, value: string(value)}, nil
-	default:
-		return onboardingVerbositySelection{}, conversionError("model_verbosity", value, "unsupported verbosity")
+func seedVerbositySelection(value *capabilitypb.VerbosityDefaultFact) onboardingVerbositySelection {
+	if value == nil {
+		return onboardingVerbositySelection{kind: onboardingVerbosityOmitted}
 	}
+	return onboardingVerbositySelection{kind: onboardingVerbosityLevel, value: value.Level}
 }
 
-func seedSupervisorSelection(settings config.Settings, sources map[string]config.Origin, facts *capabilitypb.Facts) (onboardingSupervisorSelection, error) {
-	var frequency onboardingSupervisorFrequency
-	switch strings.TrimSpace(settings.Reviewer.Frequency) {
-	case "", "off":
-		frequency = onboardingSupervisorOff
-	case "edits":
-		frequency = onboardingSupervisorEdits
-	case "all":
-		frequency = onboardingSupervisorAll
-	default:
-		return onboardingSupervisorSelection{}, conversionError("reviewer.frequency", settings.Reviewer.Frequency, "unsupported frequency")
-	}
-	modelSource, err := requiredOnboardingSource(sources, "reviewer.model")
-	if err != nil {
-		return onboardingSupervisorSelection{}, err
-	}
-	thinkingSource, err := requiredOnboardingSource(sources, "reviewer.thinking_level")
-	if err != nil {
-		return onboardingSupervisorSelection{}, err
-	}
+func seedSupervisorSelection(choice *onboardingpb.SupervisorChoice, facts *capabilitypb.Facts) onboardingSupervisorSelection {
+	frequency := map[onboardingpb.SupervisorFrequency]onboardingSupervisorFrequency{
+		onboardingpb.SupervisorFrequency_SUPERVISOR_FREQUENCY_OFF:   onboardingSupervisorOff,
+		onboardingpb.SupervisorFrequency_SUPERVISOR_FREQUENCY_EDITS: onboardingSupervisorEdits,
+		onboardingpb.SupervisorFrequency_SUPERVISOR_FREQUENCY_ALL:   onboardingSupervisorAll,
+	}[choice.Frequency]
 	reviewerModel := onboardingReviewerModelSelection{kind: onboardingReviewerModelInherited}
-	if modelSource == "default" {
-		if strings.TrimSpace(settings.Reviewer.Model) != strings.TrimSpace(settings.Model) {
-			return onboardingSupervisorSelection{}, conversionError("reviewer.model", settings.Reviewer.Model, "resolved value does not match inherited provenance")
+	model := facts.Defaults.PrimaryModelId
+	if choice.Model != nil {
+		switch choice.Model.Kind {
+		case onboardingpb.ModelKind_MODEL_KIND_KNOWN:
+			model = choice.Model.GetModelId()
+		case onboardingpb.ModelKind_MODEL_KIND_CUSTOM:
+			model = choice.Model.GetAlias()
 		}
-	} else {
-		override, err := onboardingModelSelectionFromValue(settings.Reviewer.Model, facts)
-		if err != nil {
-			return onboardingSupervisorSelection{}, conversionError("reviewer.model", settings.Reviewer.Model, err.Error())
-		}
+		override := onboardingModelSelectionForModel(strings.TrimSpace(model), facts)
 		reviewerModel = onboardingReviewerModelSelection{kind: onboardingReviewerModelOverridden, override: override}
 	}
 	reviewerThinking := onboardingReviewerThinkingSelection{kind: onboardingReviewerThinkingInherited}
-	if thinkingSource == "default" {
-		if strings.TrimSpace(settings.Reviewer.ThinkingLevel) != strings.TrimSpace(settings.ThinkingLevel) {
-			return onboardingSupervisorSelection{}, conversionError("reviewer.thinking_level", settings.Reviewer.ThinkingLevel, "resolved value does not match inherited provenance")
+	if choice.Thinking != nil {
+		var thinkingFact capabilitypb.ThinkingDefaultFact
+		switch choice.Thinking.Kind {
+		case onboardingpb.ThinkingKind_THINKING_KIND_DEFAULT:
+			thinkingFact.Mode = "default"
+		case onboardingpb.ThinkingKind_THINKING_KIND_DISABLED:
+			thinkingFact.Mode = "disabled"
+		case onboardingpb.ThinkingKind_THINKING_KIND_LEVEL:
+			thinkingFact.Mode, thinkingFact.Level = "level", choice.Thinking.Level
+		case onboardingpb.ThinkingKind_THINKING_KIND_CUSTOM:
+			thinkingFact.Mode, thinkingFact.Value = "custom", choice.Thinking.Value
 		}
-	} else {
-		override, err := seedThinkingSelection(
-			settings.Reviewer.ThinkingLevel,
-			false,
-			modelFactForFacts(facts, settings.Reviewer.Model).SupportedThinkingLevels,
-		)
-		if err != nil {
-			return onboardingSupervisorSelection{}, conversionError("reviewer.thinking_level", settings.Reviewer.ThinkingLevel, err.Error())
-		}
+		override := seedThinkingFact(&thinkingFact, modelFactForFacts(facts, model).SupportedThinkingLevels)
 		reviewerThinking = onboardingReviewerThinkingSelection{kind: onboardingReviewerThinkingOverridden, override: override}
 	}
 	return onboardingSupervisorSelection{
 		frequency: frequency,
 		model:     reviewerModel,
 		thinking:  reviewerThinking,
-	}, nil
-}
-
-func seedCompactionSelection(value config.CompactionMode) (onboardingCompactionSelection, error) {
-	switch value {
-	case config.CompactionModeLocal:
-		return onboardingCompactionLocal, nil
-	case config.CompactionModeNative:
-		return onboardingCompactionNative, nil
-	case config.CompactionModeNone:
-		return onboardingCompactionManualOnly, nil
-	default:
-		return "", conversionError("compaction_mode", value, "unsupported compaction mode")
 	}
 }
 
-func requiredOnboardingSource(sources map[string]config.Origin, key string) (config.SourceKind, error) {
-	source, ok := sources[key]
-	if !ok {
-		return "", conversionError(key, nil, "source provenance is missing")
-	}
-	switch source.Kind {
-	case config.SourceDefault, config.SourceFileKind, config.SourceEnv, config.SourceCLI, config.SourceInput:
-		if !source.Declares(key) {
-			return config.SourceDefault, nil
-		}
-		return source.Kind, nil
-	default:
-		return "", conversionError(key, source, "unknown source provenance")
-	}
+func seedCompactionSelection(value config.CompactionMode) onboardingCompactionSelection {
+	return map[config.CompactionMode]onboardingCompactionSelection{
+		config.CompactionModeLocal:  onboardingCompactionLocal,
+		config.CompactionModeNative: onboardingCompactionNative,
+		config.CompactionModeNone:   onboardingCompactionManualOnly,
+	}[value]
 }
 
-func validateOnboardingFacts(facts *capabilitypb.Facts) error {
-	for index, fact := range facts.GetModels().GetKnownModels() {
-		if fact.ModelId == nil || strings.TrimSpace(*fact.ModelId) == "" {
-			return conversionError(fmt.Sprintf("facts.models.known_models[%d].model_id", index), fact.ModelId, "known model id must be present")
-		}
-		if !fact.Known {
-			return conversionError(fmt.Sprintf("facts.models.known_models[%d].known", index), fact.Known, "catalog model must be marked known")
-		}
-		if err := validateModelFactDimensions(fmt.Sprintf("facts.models.known_models[%d]", index), fact); err != nil {
-			return err
-		}
+func seedThinkingFact(fact *capabilitypb.ThinkingDefaultFact, levels []string) onboardingThinkingSelection {
+	if fact.Mode == "level" {
+		return seedThinkingSelection(fact.GetLevel(), levels)
 	}
-	if err := validateModelFactDimensions("facts.models.unknown_fallback", facts.GetModels().GetUnknownFallback()); err != nil {
-		return err
-	}
-	return validateOnboardingImportFacts(facts.GetImports())
-}
-
-func validateModelFactDimensions(field string, fact *capabilitypb.ModelFact) error {
-	if fact.ContextWindowTokens != nil && *fact.ContextWindowTokens <= 0 {
-		return conversionError(field+".context_window_tokens", *fact.ContextWindowTokens, "must be positive")
-	}
-	if fact.LargeWindow != nil && fact.LargeWindow.Tokens <= 0 {
-		return conversionError(field+".large_window.tokens", fact.LargeWindow.Tokens, "must be positive")
-	}
-	for index, level := range fact.SupportedThinkingLevels {
-		if strings.TrimSpace(level) == "" {
-			return conversionError(fmt.Sprintf("%s.supported_thinking_levels[%d]", field, index), level, "must not be blank")
-		}
-	}
-	for index, level := range fact.GetVerbosity().GetLevels() {
-		switch strings.TrimSpace(level) {
-		case string(config.ModelVerbosityLow), string(config.ModelVerbosityMedium), string(config.ModelVerbosityHigh):
-		default:
-			return conversionError(fmt.Sprintf("%s.verbosity.levels[%d]", field, index), level, "unsupported verbosity")
-		}
-	}
-	return nil
-}
-
-func validateOnboardingImportFacts(facts *capabilitypb.ImportFacts) error {
-	validateRef := func(field string, ref *capabilitypb.ImportChoiceRef) error {
-		switch onboardingImportModeFromProto(ref.GetMode()) {
-		case onboardingImportModeNone:
-			return nil
-		case onboardingImportModeSymlinkSource:
-			if ref.ImportProviderId == nil || strings.TrimSpace(*ref.ImportProviderId) == "" {
-				return conversionError(field+".import_provider_id", ref.ImportProviderId, "must be present and non-blank")
-			}
-			if ref.SourceRootPath == nil || strings.TrimSpace(*ref.SourceRootPath) == "" {
-				return conversionError(field+".source_root_path", ref.SourceRootPath, "must be present and non-blank")
-			}
-			return nil
-		default:
-			return conversionError(field+".mode", ref.GetMode(), "unsupported import mode")
-		}
-	}
-	for index, choice := range facts.GetSkills().GetChoices() {
-		field := fmt.Sprintf("facts.imports.skills.choices[%d]", index)
-		if err := validateImportChoice(field, choice, validateRef); err != nil {
-			return err
-		}
-	}
-	for index, choice := range facts.GetCommands().GetChoices() {
-		field := fmt.Sprintf("facts.imports.commands.choices[%d]", index)
-		if err := validateImportChoice(field, choice, validateRef); err != nil {
-			return err
-		}
-	}
-	for index, projection := range facts.GetSkillEnablement() {
-		field := fmt.Sprintf("facts.imports.skill_enablement[%d]", index)
-		if err := validateRef(field+".choice_ref", projection.GetChoiceRef()); err != nil {
-			return err
-		}
-		for candidateIndex, candidate := range projection.Candidates {
-			if strings.TrimSpace(candidate.GetRef().GetTargetName()) == "" {
-				return conversionError(
-					fmt.Sprintf("%s.candidates[%d].ref.target_name", field, candidateIndex),
-					candidate.GetRef().GetTargetName(),
-					"must not be blank",
-				)
-			}
-		}
-	}
-	return nil
-}
-
-func validateImportChoice(field string, choice *capabilitypb.ImportChoiceFact, validateRef func(string, *capabilitypb.ImportChoiceRef) error) error {
-	if err := validateRef(field+".ref", choice.GetRef()); err != nil {
-		return err
-	}
-	return nil
+	return map[string]onboardingThinkingSelection{
+		"default":  {kind: onboardingThinkingDefault},
+		"disabled": {kind: onboardingThinkingDisabled},
+		"custom":   {kind: onboardingThinkingCustom, value: fact.GetValue()},
+	}[fact.Mode]
 }
 
 func conversionError(field string, value any, reason string) error {
 	return &onboardingSelectionConversionError{Field: field, Value: value, Reason: reason}
-}
-
-func resolvedOnboardingTools(source map[toolspec.ID]bool) map[toolspec.ID]bool {
-	defaults := config.DefaultOnboardingSettings().EnabledTools
-	resolved := make(map[toolspec.ID]bool, len(toolspec.CatalogIDs()))
-	for _, id := range toolspec.CatalogIDs() {
-		value, ok := source[id]
-		if !ok {
-			value = defaults[id]
-		}
-		resolved[id] = value
-	}
-	return resolved
 }

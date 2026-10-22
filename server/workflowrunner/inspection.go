@@ -7,6 +7,7 @@ import (
 
 	"core/server/launch"
 	"core/server/llm"
+	"core/server/metadata"
 	"core/server/session"
 	"core/server/workflowruntime"
 	"core/server/workflowstore"
@@ -15,6 +16,8 @@ import (
 )
 
 func BuildCurrentNodeRuntimeConfig(
+	ctx context.Context,
+	metadataStore *metadata.Store,
 	input workflowstore.CurrentNodeStartContext,
 	scopeID runtimeids.ExecutionScopeID,
 	taskPromptDelivery workflowruntime.TaskPromptDelivery,
@@ -24,7 +27,7 @@ func BuildCurrentNodeRuntimeConfig(
 	controller workflowruntime.Controller,
 	taskAwarenessSource workflowruntime.TaskAwarenessSource,
 ) (*workflowruntime.CurrentNodeExecutionConfig, error) {
-	instructions, err := BuildCurrentSessionTaskInstructions(input)
+	instructions, err := BuildCurrentSessionTaskInstructions(ctx, metadataStore, input)
 	if err != nil {
 		return nil, err
 	}
@@ -55,6 +58,7 @@ type PersistedWorkflowInspection struct {
 // diagnostic Session copy for read-only source inspection.
 func BuildPersistedWorkflowInspection(
 	ctx context.Context,
+	metadataStore *metadata.Store,
 	app config.App,
 	sessionStore *session.Store,
 	store *workflowstore.Store,
@@ -87,7 +91,7 @@ func BuildPersistedWorkflowInspection(
 	if err != nil {
 		return PersistedWorkflowInspection{}, err
 	}
-	instructions, err := BuildCurrentSessionTaskInstructions(input)
+	instructions, err := BuildCurrentSessionTaskInstructions(ctx, metadataStore, input)
 	if err != nil {
 		return PersistedWorkflowInspection{}, err
 	}
@@ -124,8 +128,8 @@ func requireCurrentNodeExecutionRoot(input workflowstore.CurrentNodeStartContext
 }
 
 func persistedInspectionCompletionMode(plan launch.SessionPlan, input workflowstore.CurrentNodeStartContext) (workflowruntime.CompletionMode, error) {
-	if plan.Locked != nil && plan.Locked.WorkflowCompletionMode != nil {
-		mode, err := workflowruntime.ParseCompletionMode(string(*plan.Locked.WorkflowCompletionMode))
+	if plan.WorkflowSnapshot != nil {
+		mode, err := workflowruntime.ParseCompletionMode(string(plan.WorkflowSnapshot.CompletionMode))
 		if err != nil {
 			return "", fmt.Errorf("parse retained Session completion mode: %w", err)
 		}

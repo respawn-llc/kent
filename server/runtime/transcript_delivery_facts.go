@@ -7,6 +7,8 @@ import (
 	"core/server/llm"
 	"core/server/session"
 	"core/server/tools"
+	"core/shared/config"
+	"core/shared/rollbacktarget"
 	"core/shared/runtimeids"
 	"core/shared/textutil"
 	"core/shared/transcript"
@@ -43,6 +45,7 @@ type TranscriptCommittedRowFact struct {
 }
 
 type TranscriptUserRowFact struct {
+	QueueItemIDs      []string
 	Text              string
 	CondensedText     string
 	RollbackTargetID  *string
@@ -58,15 +61,17 @@ type TranscriptAssistantRowFact struct {
 }
 
 type TranscriptToolRowFact struct {
-	ToolCallID     string
-	ToolName       string
-	Text           string
-	IsError        bool
-	ResultSummary  string
-	CondensedText  string
-	Presentation   *transcript.ToolCallMeta
-	QuestionAnswer *tools.AskQuestionAnswer
-	WebSearch      *transcript.WebSearchDetail
+	ViewedImageKind     *transcript.ViewedImageKind
+	ToolCallID          string
+	ToolName            string
+	Text                string
+	IsError             bool
+	ResultSummary       string
+	CondensedText       string
+	Presentation        *transcript.ToolCallMeta
+	QuestionAnswer      *tools.AskQuestionAnswer
+	WebSearch           *transcript.WebSearchDetail
+	AnsweredBySessionID *runtimeids.SessionID
 }
 
 type TranscriptReasoningTraceRowFact struct {
@@ -77,25 +82,28 @@ type TranscriptReasoningTraceRowFact struct {
 }
 
 type TranscriptNoticeRowFact struct {
-	Reason                string
-	Severity              string
-	LegacyText            *string
-	NoticeID              *string
-	MessageType           llm.MessageType
-	SourcePath            string
-	WorktreeContext       *session.WorktreeContext
-	CondensedText         string
-	CompactLabel          string
-	BackgroundActivityID  string
-	BackgroundProcessID   string
-	BackgroundExitCode    *int
-	DiagnosticCode        string
-	DiagnosticDetail      string
-	CacheWarning          *TranscriptCacheWarningFact
-	Compaction            *TranscriptCompactionNoticeFact
-	ToolOutputRepair      *transcript.ToolOutputRepairNotice
-	ProviderModelMismatch *transcript.ProviderModelMismatchNotice
-	ThinkingEffort        *string
+	Reason                 string
+	Severity               string
+	LegacyText             *string
+	NoticeID               *string
+	MessageType            llm.MessageType
+	SourcePath             string
+	WorktreeContext        *session.WorktreeContext
+	CondensedText          string
+	CompactLabel           string
+	BackgroundActivityID   string
+	BackgroundProcessID    string
+	BackgroundExitCode     *int
+	DiagnosticCode         string
+	DiagnosticDetail       string
+	CacheWarning           *TranscriptCacheWarningFact
+	Compaction             *TranscriptCompactionNoticeFact
+	ToolOutputRepair       *transcript.ToolOutputRepairNotice
+	ProviderModelMismatch  *transcript.ProviderModelMismatchNotice
+	ReasoningOmission      *transcript.ReasoningOmissionNotice
+	ConnectionFallback     *config.ConnectionReplacement
+	ConnectionsUnavailable *transcript.ConnectionsUnavailableNotice
+	ThinkingEffort         *string
 }
 
 type TranscriptReviewerFeedbackRowFact struct {
@@ -144,7 +152,7 @@ func TranscriptCommittedRowFactsFromEvent(evt Event) []TranscriptCommittedRowFac
 		if evt.CacheWarning == nil {
 			return nil
 		}
-		facts = []TranscriptCommittedRowFact{transcriptCacheWarningFact(*evt.CacheWarning, evt.CacheWarningVisibility)}
+		facts = []TranscriptCommittedRowFact{transcriptCacheWarningFact(evt.StepID, *evt.CacheWarning, evt.CacheWarningVisibility)}
 	case EventLocalEntryAdded:
 		if evt.LocalEntry == nil {
 			return nil
@@ -189,6 +197,12 @@ func TranscriptCommittedRowFactsFromEvent(evt Event) []TranscriptCommittedRowFac
 		}
 		if facts[index].User != nil && facts[index].Provenance != nil {
 			facts[index].User.CommittedAtUnixMs = textutil.Pointer(facts[index].Provenance.CommittedAtUnixMs)
+		}
+		if facts[index].User != nil &&
+			evt.CommittedProvenance != nil &&
+			evt.CommittedProvenance.EventSequence > 0 {
+			targetID := rollbacktarget.EncodeUserMessageSeq(evt.CommittedProvenance.EventSequence)
+			facts[index].User.RollbackTargetID = &targetID
 		}
 		if facts[index].Assistant != nil && facts[index].Provenance != nil {
 			facts[index].Assistant.CommittedAtUnixMs = textutil.Pointer(facts[index].Provenance.CommittedAtUnixMs)
@@ -236,6 +250,9 @@ func locateTranscriptCommittedRowFacts(facts []TranscriptCommittedRowFact) []Tra
 		}
 		facts[index].Provenance = cloneTranscriptCommittedRowProvenance(provenance)
 		facts[index].Provenance.ProjectedOrdinal = nil
+		if facts[index].User != nil {
+			facts[index].User.QueueItemIDs = append([]string(nil), provenance.QueueItemIDs...)
+		}
 	}
 	return facts
 }
@@ -373,7 +390,15 @@ func transcriptCommittedRowFactsFromMessageUnlocated(msg llm.Message, streamID *
 			}
 			return nil
 		}
-		return []TranscriptCommittedRowFact{runtimeNoticeFactFromMessage(msg, transcript.NoticeSeverityInfo)}
+		entry, visible := visibleDeveloperChatEntry(msg)
+		if !visible {
+			return nil
+		}
+		fact, visible := transcriptCommittedRowFactFromChatEntry(entry)
+		if !visible {
+			return nil
+		}
+		return []TranscriptCommittedRowFact{fact}
 	default:
 		return nil
 	}
@@ -427,9 +452,6 @@ func transcriptCommittedRowFactFromChatEntryUnlocated(entry ChatEntry) (Transcri
 		text := entry.Text
 		if strings.TrimSpace(text) == "" {
 			text = firstNonBlankTranscriptValue(entry.CondensedText, entry.CompactLabel)
-		}
-		if entry.RollbackTargetID != nil && strings.TrimSpace(*entry.RollbackTargetID) == "" {
-			panic("transcript user entry has a present but empty rollback target id")
 		}
 		return TranscriptCommittedRowFact{
 			StepID: entry.StepID,
@@ -494,15 +516,17 @@ func transcriptCommittedRowFactFromChatEntryUnlocated(entry ChatEntry) (Transcri
 			Visibility: transcriptVisibilityForIntegrity(resolveTranscriptVisibility(visibility, transcript.EntryVisibilityOngoingCollapsed), integrity),
 			Integrity:  integrity,
 			Tool: &TranscriptToolRowFact{
-				ToolCallID:     strings.TrimSpace(entry.ToolCallID),
-				ToolName:       toolName,
-				Text:           entry.Text,
-				IsError:        role == "tool_result_error",
-				ResultSummary:  strings.TrimSpace(entry.ToolResultSummary),
-				CondensedText:  strings.TrimSpace(firstNonBlankTranscriptValue(entry.CondensedText, entry.CompactLabel)),
-				Presentation:   cloneTranscriptToolCallMeta(entry.ToolCall),
-				QuestionAnswer: cloneAskQuestionAnswer(entry.QuestionAnswer),
-				WebSearch:      entry.WebSearch,
+				ToolCallID:          strings.TrimSpace(entry.ToolCallID),
+				ToolName:            toolName,
+				Text:                entry.Text,
+				IsError:             role == "tool_result_error",
+				ResultSummary:       strings.TrimSpace(entry.ToolResultSummary),
+				CondensedText:       strings.TrimSpace(firstNonBlankTranscriptValue(entry.CondensedText, entry.CompactLabel)),
+				Presentation:        cloneTranscriptToolCallMeta(entry.ToolCall),
+				QuestionAnswer:      cloneAskQuestionAnswer(entry.QuestionAnswer),
+				WebSearch:           entry.WebSearch,
+				ViewedImageKind:     entry.ViewedImageKind,
+				AnsweredBySessionID: cloneOptionalRuntimeSessionID(entry.AnsweredBySessionID),
 			},
 		}, true
 	default:
@@ -528,7 +552,7 @@ func transcriptNoticeRowFactFromChatEntryUnlocated(entry ChatEntry) (TranscriptC
 		return TranscriptCommittedRowFact{}, false
 	}
 	if entry.CacheWarning != nil {
-		return transcriptCacheWarningFact(*entry.CacheWarning, visibility), true
+		return transcriptCacheWarningFact(entry.StepID, *entry.CacheWarning, visibility), true
 	}
 	role := transcript.EntryRole(strings.TrimSpace(entry.Role))
 	if role == transcript.EntryRoleReviewerSuggestions || role == transcript.EntryRoleReviewerError {
@@ -637,6 +661,24 @@ func transcriptToolEntryHasRecoverableText(entry ChatEntry) bool {
 }
 
 func transcriptNoticeEntryIntegrity(entry ChatEntry) transcript.RowIntegrity {
+	if entry.ConnectionsUnavailable != nil {
+		if entry.ConnectionsUnavailable.Valid() {
+			return transcript.RowIntegrityValid
+		}
+		return transcript.RowIntegrityUnrecoverableMalformed
+	}
+	if entry.ConnectionFallback != nil {
+		if entry.ConnectionFallback.Valid() {
+			return transcript.RowIntegrityValid
+		}
+		return transcript.RowIntegrityUnrecoverableMalformed
+	}
+	if entry.ReasoningOmission != nil {
+		if entry.ReasoningOmission.Valid() {
+			return transcript.RowIntegrityValid
+		}
+		return transcript.RowIntegrityUnrecoverableMalformed
+	}
 	if entry.ThinkingEffort != nil {
 		if strings.TrimSpace(*entry.ThinkingEffort) != "" {
 			return transcript.RowIntegrityValid
@@ -756,6 +798,24 @@ func firstNonBlankTranscriptValue(values ...string) string {
 }
 
 func localEntryNoticeFact(entry ChatEntry) TranscriptCommittedRowFact {
+	if entry.ConnectionsUnavailable != nil {
+		return TranscriptCommittedRowFact{
+			Kind: TranscriptCommittedRowFactNotice, Visibility: entry.Visibility,
+			Notice: &TranscriptNoticeRowFact{
+				Reason: transcript.NoticeReasonConnectionsUnavailable, Severity: transcript.NoticeSeverityError,
+				ConnectionsUnavailable: entry.ConnectionsUnavailable,
+			},
+		}
+	}
+	if entry.ConnectionFallback != nil {
+		return TranscriptCommittedRowFact{
+			Kind: TranscriptCommittedRowFactNotice, Visibility: entry.Visibility,
+			Notice: &TranscriptNoticeRowFact{
+				Reason: transcript.NoticeReasonConnectionFallback, Severity: transcript.NoticeSeverityInfo,
+				ConnectionFallback: textutil.Pointer(entry.ConnectionFallback),
+			},
+		}
+	}
 	if entry.ThinkingEffort != nil {
 		return TranscriptCommittedRowFact{
 			Kind: TranscriptCommittedRowFactNotice, Visibility: entry.Visibility,
@@ -773,6 +833,17 @@ func localEntryNoticeFact(entry ChatEntry) TranscriptCommittedRowFact {
 				Reason:                transcript.NoticeReasonProviderModelMismatch,
 				Severity:              transcript.NoticeSeverityWarning,
 				ProviderModelMismatch: textutil.Pointer(entry.ProviderModelMismatch),
+			},
+		}
+	}
+	if entry.ReasoningOmission != nil {
+		return TranscriptCommittedRowFact{
+			Kind:       TranscriptCommittedRowFactNotice,
+			Visibility: normalizeRuntimeEntryVisibility(entry.Visibility),
+			Notice: &TranscriptNoticeRowFact{
+				Reason:            transcript.NoticeReasonReasoningOmission,
+				Severity:          transcript.NoticeSeverityWarning,
+				ReasoningOmission: textutil.Pointer(entry.ReasoningOmission),
 			},
 		}
 	}
@@ -803,15 +874,17 @@ func transcriptToolRowFactFromResult(result tools.Result) TranscriptCommittedRow
 	condensedText, _ := textutil.OptionalTrimmed(result.CondensedText)
 	content := projectToolResultContent(result)
 	return TranscriptCommittedRowFact{Kind: TranscriptCommittedRowFactTool, Visibility: transcript.EntryVisibilityOngoingCollapsed, Tool: &TranscriptToolRowFact{
-		ToolCallID:     strings.TrimSpace(result.CallID),
-		ToolName:       strings.TrimSpace(string(result.Name)),
-		Text:           content.text,
-		IsError:        content.isError,
-		WebSearch:      content.webSearch,
-		ResultSummary:  resultSummary,
-		CondensedText:  condensedText,
-		Presentation:   cloneTranscriptToolCallMeta(result.Presentation),
-		QuestionAnswer: cloneAskQuestionAnswer(result.QuestionAnswer),
+		ToolCallID:          strings.TrimSpace(result.CallID),
+		ToolName:            strings.TrimSpace(string(result.Name)),
+		Text:                content.text,
+		IsError:             content.isError,
+		WebSearch:           content.webSearch,
+		ViewedImageKind:     content.viewedImageKind,
+		ResultSummary:       resultSummary,
+		CondensedText:       condensedText,
+		Presentation:        cloneTranscriptToolCallMeta(result.Presentation),
+		QuestionAnswer:      cloneAskQuestionAnswer(result.QuestionAnswer),
+		AnsweredBySessionID: cloneOptionalRuntimeSessionID(result.AnsweredBySessionID),
 	}}
 }
 
@@ -825,9 +898,9 @@ func cloneAskQuestionAnswer(answer *tools.AskQuestionAnswer) *tools.AskQuestionA
 	}
 }
 
-func transcriptCacheWarningFact(warning transcript.CacheWarning, visibility transcript.EntryVisibility) TranscriptCommittedRowFact {
+func transcriptCacheWarningFact(stepID *string, warning transcript.CacheWarning, visibility transcript.EntryVisibility) TranscriptCommittedRowFact {
 	normalized := resolveTranscriptVisibility(visibility, transcript.EntryVisibilityOngoing)
-	return TranscriptCommittedRowFact{Kind: TranscriptCommittedRowFactNotice, Visibility: normalized, Notice: &TranscriptNoticeRowFact{
+	return TranscriptCommittedRowFact{StepID: cloneOptionalStepID(stepID), Kind: TranscriptCommittedRowFactNotice, Visibility: normalized, Notice: &TranscriptNoticeRowFact{
 		Reason:   transcript.NoticeReasonCacheWarning,
 		Severity: transcript.NoticeSeverityWarning,
 		CacheWarning: &TranscriptCacheWarningFact{
@@ -855,32 +928,6 @@ func legacyUntypedNoticeFactFromLocalEntry(entry ChatEntry) TranscriptCommittedR
 		Severity:   transcript.LegacyNoticeSeverityForRole(entry.Role),
 		LegacyText: legacyTextPtr,
 		NoticeID:   noticeIDPtr,
-	}}
-}
-
-func runtimeNoticeFactFromMessage(msg llm.Message, severity string) TranscriptCommittedRowFact {
-	messageType, _ := textutil.OptionalValue(msg.MessageType)
-	code := strings.TrimSpace(string(messageType))
-	if code == "" {
-		code = "runtime_notice"
-	}
-	sourcePath, _ := textutil.OptionalTrimmed(msg.SourcePath)
-	condensedText, _ := textutil.OptionalTrimmed(msg.CompactContent)
-	backgroundActivityID, _ := textutil.OptionalTrimmed(msg.BackgroundActivityID)
-	backgroundProcessID, _ := textutil.OptionalTrimmed(msg.Name)
-	return TranscriptCommittedRowFact{Kind: TranscriptCommittedRowFactNotice, Visibility: messageTypeTranscriptVisibility(msg.MessageType), Notice: &TranscriptNoticeRowFact{
-		Reason:               transcript.NoticeReasonRuntimeDiagnostic,
-		Severity:             normalizeTranscriptNoticeSeverity(severity),
-		MessageType:          messageType,
-		SourcePath:           sourcePath,
-		WorktreeContext:      session.CloneWorktreeContext(msg.WorktreeContext),
-		CondensedText:        condensedText,
-		CompactLabel:         compactLabelForMessage(msg),
-		BackgroundActivityID: backgroundActivityID,
-		BackgroundProcessID:  backgroundProcessID,
-		BackgroundExitCode:   textutil.Pointer(msg.BackgroundExitCode),
-		DiagnosticCode:       code,
-		DiagnosticDetail:     *msg.Content,
 	}}
 }
 
@@ -926,12 +973,4 @@ func emptyDeveloperMessageDiagnosticFact(msg llm.Message) TranscriptCommittedRow
 		DiagnosticCode:   code,
 		DiagnosticDetail: "empty developer message",
 	}}
-}
-
-func normalizeTranscriptNoticeSeverity(severity string) string {
-	severity = strings.TrimSpace(severity)
-	if severity == "" {
-		return transcript.NoticeSeverityInfo
-	}
-	return severity
 }

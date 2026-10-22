@@ -2,18 +2,17 @@ package client
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
-	"fmt"
 	"io"
-	"strings"
 	"sync"
 
 	rpccontract "core/shared/apicontract"
-	"core/shared/clientui"
-	"core/shared/protocol"
+	sharedpb "core/shared/protoapi/gen/kent/api/shared"
+	pb "core/shared/protoapi/gen/kent/api/workflow_definition"
+	taskpb "core/shared/protoapi/gen/kent/api/workflow_task"
 	"core/shared/rpcwire"
-	"core/shared/serverapi"
+	"core/shared/runtimeids"
+	"google.golang.org/protobuf/types/known/emptypb"
 )
 
 type remoteSubscription[Event any] struct {
@@ -22,160 +21,43 @@ type remoteSubscription[Event any] struct {
 	once sync.Once
 }
 
-func (c *Remote) SubscribeAttentionNotifications(ctx context.Context, req serverapi.AttentionNotificationSubscribeRequest) (serverapi.AttentionNotificationSubscription, error) {
-	conn, route, err := c.subscribeRPC(ctx, protocol.MethodAttentionNotificationSubscribe, "subscribe-attention-notification", req, "", false)
-	if err != nil {
-		return nil, err
-	}
-	return newRemoteSubscription(conn, route, func(params protocol.AttentionNotificationEventParams) clientui.AttentionNotificationEvent {
-		return params.Event
-	}), nil
+func (c *Remote) SubscribeAttentionNotifications(ctx context.Context, req *emptypb.Empty) (rpccontract.AttentionNotificationSubscription, error) {
+	method := taskpb.File_kent_api_workflow_task_attention_proto.Services().ByName("AttentionNotificationService").Methods().ByName("Subscribe")
+	return subscribeGeneratedBinary(c, ctx, method, req, &taskpb.AttentionNotificationStartResult{},
+		func(failure *taskpb.AttentionNotificationStartError) error {
+			return generatedOperationFailure(failure.Code)
+		},
+		func() *taskpb.AttentionNotificationEvent { return &taskpb.AttentionNotificationEvent{} },
+		func() *sharedpb.StreamCompletion { return &sharedpb.StreamCompletion{} }, binaryStreamCompletionError, nil)
 }
 
-func (c *Remote) SubscribeWorkflowProject(ctx context.Context, req serverapi.WorkflowProjectSubscribeRequest) (serverapi.WorkflowProjectSubscription, error) {
-	conn, route, err := c.subscribeRPC(ctx, protocol.MethodWorkflowSubscribeProject, "subscribe-workflow-project", req, "", false)
-	if err != nil {
-		return nil, err
-	}
-	return newRemoteSubscriptionWithError(conn, route, func(params protocol.WorkflowProjectEventParams) (serverapi.WorkflowProjectEvent, error) {
-		return workflowProjectEventFromProtocol(params.Event)
-	}), nil
+func (c *Remote) SubscribeWorkflowProject(ctx context.Context, req *pb.ProjectSubscribeRequest) (rpccontract.WorkflowEventSubscription, error) {
+	return subscribeGeneratedBinary(c, ctx, workflowMethod("ProjectSubscriptionService", "Subscribe"), req,
+		&pb.ProjectSubscriptionStartResult{}, func(failure *pb.ProjectSubscriptionStartError) error {
+			return workflowEntityGeneratedError(failure.Code, failure.GetWorkflowNotFound())
+		},
+		func() *pb.ProjectEvent { return &pb.ProjectEvent{} },
+		func() *sharedpb.StreamCompletion { return &sharedpb.StreamCompletion{} }, binaryStreamCompletionError, nil)
 }
 
-func (c *Remote) SubscribeWorkflow(ctx context.Context, req serverapi.WorkflowSubscribeRequest) (serverapi.WorkflowSubscription, error) {
-	conn, route, err := c.subscribeRPC(ctx, protocol.MethodWorkflowSubscribe, "subscribe-workflow", req, "", false)
-	if err != nil {
-		return nil, err
-	}
-	return newRemoteSubscriptionWithError(conn, route, func(params protocol.WorkflowProjectEventParams) (serverapi.WorkflowProjectEvent, error) {
-		return workflowProjectEventFromProtocol(params.Event)
-	}), nil
+func (c *Remote) SubscribeWorkflow(ctx context.Context, req *pb.WorkflowSubscribeRequest) (rpccontract.WorkflowEventSubscription, error) {
+	return subscribeGeneratedBinary(c, ctx, workflowMethod("WorkflowSubscriptionService", "Subscribe"), req,
+		&pb.WorkflowSubscriptionStartResult{}, func(failure *pb.WorkflowSubscriptionStartError) error {
+			return workflowEntityGeneratedError(failure.Code, failure.GetWorkflowNotFound())
+		},
+		func() *pb.ProjectEvent { return &pb.ProjectEvent{} },
+		func() *sharedpb.StreamCompletion { return &sharedpb.StreamCompletion{} }, binaryStreamCompletionError, nil)
 }
 
-func workflowProjectEventFromProtocol(event protocol.WorkflowProjectEvent) (serverapi.WorkflowProjectEvent, error) {
-	decoded := serverapi.WorkflowProjectEvent{
-		ProjectID:        event.ProjectID,
-		WorkflowID:       event.WorkflowID,
-		Resource:         serverapi.WorkflowProjectEventResource(event.Resource),
-		Action:           serverapi.WorkflowProjectEventAction(event.Action),
-		PrimaryEntityID:  event.PrimaryEntityID,
-		RelatedIDs:       append([]string(nil), event.RelatedIDs...),
-		OccurredAtUnixMs: event.OccurredAtUnixMs,
-	}
-	if err := decoded.Validate(); err != nil {
-		return serverapi.WorkflowProjectEvent{}, err
-	}
-	return decoded, nil
-}
-
-func (c *Remote) subscribeRPC(ctx context.Context, method string, requestID string, req any, sessionID string, attachSession bool) (rpcwire.Conn, rpccontract.Route, error) {
-	route := mustRemoteRoute(method)
-	var additionalAttachmentIntent *remoteAttachmentIntent
-	if attachSession {
-		var err error
-		additionalAttachmentIntent, err = c.subscriptionAttachment(sessionID)
-		if err != nil {
-			return nil, rpccontract.Route{}, err
-		}
-	}
-	conn, cleanup, err := c.openRPCConnWithAdditionalAttachment(ctx, additionalAttachmentIntent)
-	if err != nil {
-		return nil, rpccontract.Route{}, err
-	}
-	var ack protocol.SubscribeResponse
-	if err := callRPC(ctx, conn, requestID, method, req, &ack); err != nil {
-		cleanup()
-		return nil, rpccontract.Route{}, err
-	}
-	return conn, route, nil
-}
-
-func (c *Remote) subscriptionAttachment(sessionID string) (*remoteAttachmentIntent, error) {
+func (c *Remote) subscriptionAttachment(selector runtimeids.SessionSelector) *remoteAttachmentIntent {
 	c.mu.Lock()
 	attachmentIntent := c.attachIntent
 	c.mu.Unlock()
-	attachedSessionID, attachedToSession := attachmentIntent.sessionID()
+	_, attachedToSession := attachmentIntent.sessionID()
 	if attachedToSession {
-		if attachedSessionID != strings.TrimSpace(sessionID) {
-			return nil, fmt.Errorf("remote is attached to session %q, cannot subscribe to session %q", attachedSessionID, strings.TrimSpace(sessionID))
-		}
-		return nil, nil
+		return nil
 	}
-	return newRemoteSessionAttachmentIntent(sessionID)
-}
-
-func newRemoteSubscription[Wire any, Event any](conn rpcwire.Conn, route rpccontract.Route, event func(Wire) Event) *remoteSubscription[Event] {
-	return newRemoteSubscriptionWithError(conn, route, func(wire Wire) (Event, error) {
-		return event(wire), nil
-	})
-}
-
-func newRemoteSubscriptionWithError[Wire any, Event any](conn rpcwire.Conn, route rpccontract.Route, event func(Wire) (Event, error)) *remoteSubscription[Event] {
-	return &remoteSubscription[Event]{
-		conn: conn,
-		next: func(ctx context.Context, conn rpcwire.Conn) (Event, error) {
-			return nextJSONSubscriptionEvent(ctx, conn, route, event)
-		},
-	}
-}
-
-func mustRemoteRoute(method string) rpccontract.Route {
-	route, ok := rpccontract.RouteByMethod(method)
-	if !ok {
-		panic(fmt.Sprintf("remote route %q is missing route contract", method))
-	}
-	return route
-}
-
-func nextJSONSubscriptionEvent[Wire any, Event any](
-	ctx context.Context,
-	conn rpcwire.Conn,
-	route rpccontract.Route,
-	event func(Wire) (Event, error),
-) (Event, error) {
-	frame, err := receiveFrame(ctx, conn)
-	if err != nil {
-		var zero Event
-		return zero, serverapi.NormalizeStreamError(err)
-	}
-	message, err := frame.DecodeRequest()
-	if err != nil {
-		var zero Event
-		return zero, errors.Join(serverapi.ErrStreamFailed, err)
-	}
-	switch message.Method {
-	case route.EventMethod:
-		var params Wire
-		if err := json.Unmarshal(message.Params, &params); err != nil {
-			var zero Event
-			return zero, errors.Join(serverapi.ErrStreamFailed, err)
-		}
-		decoded, err := event(params)
-		if err != nil {
-			var zero Event
-			return zero, errors.Join(serverapi.ErrStreamFailed, err)
-		}
-		return decoded, nil
-	case route.CompleteMethod:
-		var params protocol.StreamCompleteParams
-		if err := json.Unmarshal(message.Params, &params); err != nil {
-			var zero Event
-			return zero, errors.Join(serverapi.ErrStreamFailed, err)
-		}
-		_ = conn.Close()
-		var zero Event
-		if params.Code == 0 && strings.TrimSpace(params.Message) == "" {
-			return zero, io.EOF
-		}
-		terminalErr := protocolError(&protocol.ResponseError{Code: params.Code, Message: params.Message})
-		if reason := strings.TrimSpace(params.TranscriptCloseReason); reason != "" {
-			return zero, serverapi.NewTranscriptStreamError(serverapi.TranscriptCloseReason(reason), terminalErr)
-		}
-		return zero, terminalErr
-	default:
-		var zero Event
-		return zero, errors.Join(serverapi.ErrStreamFailed, fmt.Errorf("unexpected notification method %q", message.Method))
-	}
+	return sessionAttachmentIntent(selector)
 }
 
 func (s *remoteSubscription[Event]) Next(ctx context.Context) (Event, error) {

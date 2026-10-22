@@ -1,10 +1,8 @@
 package protocol
 
 import (
-	"encoding/json"
 	"errors"
 	"fmt"
-	"strings"
 
 	"core/shared/runtimeids"
 	"core/shared/textutil"
@@ -67,15 +65,6 @@ func (e *SubagentLaunchPolicyError) Validate() error {
 	}
 	switch e.Kind {
 	case SubagentLaunchPolicyMaxDepthExceeded:
-		if e.AttemptedDepth == nil || *e.AttemptedDepth < 1 {
-			return errors.New("max-depth policy error requires attempted_depth >= 1")
-		}
-		if e.MaxDepth == nil || *e.MaxDepth < 0 {
-			return errors.New("max-depth policy error requires max_depth >= 0")
-		}
-		if *e.AttemptedDepth <= *e.MaxDepth {
-			return errors.New("max-depth policy error requires attempted_depth greater than max_depth")
-		}
 		if e.RepeatedSessionID != nil || len(e.VisitedSessionIDs) != 0 {
 			return errors.New("max-depth policy error cannot contain lineage corruption facts")
 		}
@@ -83,53 +72,8 @@ func (e *SubagentLaunchPolicyError) Validate() error {
 		if e.AttemptedDepth != nil || e.MaxDepth != nil {
 			return errors.New("lineage-corrupt policy error cannot contain depth facts")
 		}
-		if e.RepeatedSessionID == nil || e.RepeatedSessionID.IsZero() {
-			return errors.New("lineage-corrupt policy error requires repeated_session_id")
-		}
-		if len(e.VisitedSessionIDs) == 0 {
-			return errors.New("lineage-corrupt policy error requires visited_session_ids")
-		}
-		for _, id := range e.VisitedSessionIDs {
-			if id.IsZero() {
-				return errors.New("lineage-corrupt policy error contains invalid visited_session_id")
-			}
-		}
 	default:
 		return errors.New("subagent launch policy error kind is invalid")
 	}
 	return nil
-}
-
-func (e *SubagentLaunchPolicyError) RPCErrorCode() int {
-	return ErrCodeSubagentLaunchPolicy
-}
-
-func (e *SubagentLaunchPolicyError) RPCErrorData() json.RawMessage {
-	if err := e.Validate(); err != nil {
-		panic("marshal subagent launch policy error: " + err.Error())
-	}
-	data, err := json.Marshal(e)
-	if err != nil {
-		panic("marshal subagent launch policy error: " + err.Error())
-	}
-	return data
-}
-
-func DecodeSubagentLaunchPolicyError(data json.RawMessage, fallback string) error {
-	generic := errors.New(genericSubagentPolicyMessage(fallback))
-	var decoded SubagentLaunchPolicyError
-	if err := DecodeStrictJSON(data, &decoded); err != nil {
-		return generic
-	}
-	if err := decoded.Validate(); err != nil {
-		return generic
-	}
-	return &decoded
-}
-
-func genericSubagentPolicyMessage(fallback string) string {
-	if message := strings.TrimSpace(fallback); message != "" {
-		return message
-	}
-	return "subagent launch rejected"
 }

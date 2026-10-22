@@ -17,7 +17,7 @@ func TestGenerateWithRetryPropagatesContextCancellation(t *testing.T) {
 		store,
 		cancellationAwareModelClient{started: started},
 		newTestToolRegistry(t),
-		Config{Model: "gpt-5"},
+		Config{Model: "gpt-6-sol"},
 	)
 
 	ctx, cancel := context.WithCancel(context.Background())
@@ -27,8 +27,8 @@ func TestGenerateWithRetryPropagatesContextCancellation(t *testing.T) {
 		_, err := engine.generateWithRetryClient(
 			ctx,
 			"step",
-			engine.llm,
-			llm.Request{ToolChoiceMode: llm.ToolChoiceModeAutomatic, Model: "gpt-5"},
+			engine.connectionSnapshot().client,
+			llm.Request{ToolChoiceMode: llm.ToolChoiceModeAutomatic, Model: "gpt-6-sol", ReasoningEffort: "high"},
 			nil,
 			nil,
 			nil,

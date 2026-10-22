@@ -38,8 +38,10 @@ type LocalToolRuntimeContext struct {
 	ExecutionCorrelation            *runtimeids.ExecutionCorrelation
 	ShellOutputMaxChars             int
 	ModelContextWindow              int
+	EstimateText                    func(string) int
 	AllowNonCwdEdits                bool
 	SupportsVision                  func() bool
+	RawImageOriginalDetail          func() bool
 	AskQuestionBroker               *askquestion.AskQuestionBroker
 	QuestionsEnabledGetter          func() bool
 	BackgroundShellManager          *shelltool.Manager
@@ -68,12 +70,13 @@ func BuildLocalRuntimeHandler(def tools.Definition, ctx LocalToolRuntimeContext)
 		return shelltool.NewExecCommandToolWithConfig(workingDirectory, ctx.ShellOutputMaxChars, ctx.ModelContextWindow, ctx.BackgroundShellManager, ctx.OwnerSessionID, shelltool.ExecCommandToolConfig{
 			Postprocessor:        ctx.ShellPostprocessor,
 			ExecutionCorrelation: ctx.ExecutionCorrelation,
+			EstimateText:         ctx.EstimateText,
 		}), nil
 	case tools.LocalRuntimeBuilderWriteStdin:
 		if ctx.BackgroundShellManager == nil {
 			return nil, fmt.Errorf("write_stdin background manager is unavailable")
 		}
-		return shelltool.NewWriteStdinTool(ctx.ShellOutputMaxChars, ctx.ModelContextWindow, ctx.BackgroundShellManager), nil
+		return shelltool.NewWriteStdinTool(ctx.ShellOutputMaxChars, ctx.ModelContextWindow, ctx.BackgroundShellManager, ctx.EstimateText), nil
 	case tools.LocalRuntimeBuilderPatch:
 		if ctx.OutsideWorkspaceEditApprover == nil {
 			return nil, fmt.Errorf("patch outside-workspace approver is unavailable")
@@ -117,6 +120,9 @@ func BuildLocalRuntimeHandler(def tools.Definition, ctx LocalToolRuntimeContext)
 		}
 		if ctx.ViewImageOutsideWorkspaceLogger != nil {
 			opts = append(opts, readimagetool.WithOutsideWorkspaceAuditLogger(ctx.ViewImageOutsideWorkspaceLogger))
+		}
+		if ctx.RawImageOriginalDetail != nil {
+			opts = append(opts, readimagetool.WithRawImageOriginalDetail(ctx.RawImageOriginalDetail))
 		}
 		return readimagetool.New(ctx.FilesystemContext, ctx.SupportsVision, opts...)
 	default:
@@ -250,8 +256,10 @@ type LocalToolRegistryOptions struct {
 	MinimumExecToBgTime      time.Duration
 	ShellOutputMaxChars      int
 	ModelContextWindow       int
+	EstimateText             func(string) int
 	AllowNonCwdEdits         bool
 	SupportsVision           func() bool
+	RawImageOriginalDetail   func() bool
 	Logger                   Logger
 	Background               *shelltool.Manager
 	ShellPostprocessor       *postprocess.Runner
@@ -308,8 +316,10 @@ func NewLocalToolRegistryBinding(opts LocalToolRegistryOptions) (*LocalToolRegis
 		ExecutionCorrelation:         opts.ExecutionCorrelation,
 		ShellOutputMaxChars:          opts.ShellOutputMaxChars,
 		ModelContextWindow:           opts.ModelContextWindow,
+		EstimateText:                 opts.EstimateText,
 		AllowNonCwdEdits:             opts.AllowNonCwdEdits,
 		SupportsVision:               opts.SupportsVision,
+		RawImageOriginalDetail:       opts.RawImageOriginalDetail,
 		AskQuestionBroker:            broker,
 		QuestionsEnabledGetter:       opts.QuestionsEnabledGetter,
 		BackgroundShellManager:       background,

@@ -10,7 +10,8 @@ import (
 	"core/shared/apicontract"
 	"core/shared/client"
 	"core/shared/config"
-	"core/shared/serverapi"
+	"core/shared/protoapi"
+	taskpb "core/shared/protoapi/gen/kent/api/workflow_task"
 )
 
 const taskSessionsDefaultLimit = 100
@@ -30,11 +31,7 @@ func taskSessionsSubcommand(args []string, stdout io.Writer, stderr io.Writer) i
 		fmt.Fprintln(stderr, "task sessions requires <short-id-or-task-id>")
 		return 2
 	}
-	if err := validateWorkflowPagination(*offset, *limit); err != nil {
-		fmt.Fprintln(stderr, err)
-		return 2
-	}
-	return runWorkflowCommandSession(stderr, func(cfg config.App, remote *client.Remote) int {
+	return runWorkflowCommandSession(stderr, func(cfg config.Connection, remote *client.Remote) int {
 		return runTaskSessions(
 			context.Background(),
 			cfg,
@@ -53,7 +50,7 @@ func taskSessionsSubcommand(args []string, stdout io.Writer, stderr io.Writer) i
 
 func runTaskSessions(
 	ctx context.Context,
-	cfg config.App,
+	cfg config.Connection,
 	projects apicontract.ProjectViewService,
 	workflows apicontract.WorkflowService,
 	projectRef string,
@@ -71,10 +68,20 @@ func runTaskSessions(
 	}
 	rpcCtx, cancel := context.WithTimeout(ctx, workflowCommandTimeout)
 	defer cancel()
-	response, err := workflows.ListWorkflowTaskSessions(rpcCtx, serverapi.WorkflowTaskOffsetPageRequest{
-		TaskID: taskID,
-		Offset: &offset,
-		Limit:  &limit,
+	pageOffset, err := protoapi.Int32(offset, "offset")
+	if err != nil {
+		fmt.Fprintln(stderr, err)
+		return 2
+	}
+	pageLimit, err := protoapi.Int32(limit, "limit")
+	if err != nil {
+		fmt.Fprintln(stderr, err)
+		return 2
+	}
+	response, err := workflows.ListWorkflowTaskSessions(rpcCtx, &taskpb.TaskOffsetPageRequest{
+		TaskId: taskID,
+		Offset: &pageOffset,
+		Limit:  &pageLimit,
 	})
 	if err != nil {
 		fmt.Fprintln(stderr, err)
@@ -86,11 +93,12 @@ func runTaskSessions(
 func writeTaskSessionsResponse(
 	stdout io.Writer,
 	stderr io.Writer,
-	response serverapi.WorkflowTaskSessionListResponse,
+	response *taskpb.SessionListSuccess,
 	jsonOut bool,
 ) int {
 	if jsonOut {
-		return writeCommandJSON(stdout, stderr, response)
+		output := taskSessionsOutput(response)
+		return writeCommandJSON(stdout, stderr, output)
 	}
 	for _, item := range response.Items {
 		label := item.AgentRole
@@ -106,9 +114,10 @@ func writeTaskSessionsResponse(
 			return 1
 		}
 		humanLabel := taskSessionHumanField(label)
-		humanSessionID := taskSessionHumanField(item.SessionID)
+		identity := protoapi.SessionIdentityFromProto(item.SessionId, item.ShortId)
+		humanSessionID := taskSessionHumanField(identity.String())
 		var writeErr error
-		if label == item.SessionID {
+		if label == item.SessionId {
 			_, writeErr = fmt.Fprintf(stdout, "%s: %s\n", humanSessionID, status)
 		} else {
 			_, writeErr = fmt.Fprintf(stdout, "%s (%s): %s\n", humanLabel, humanSessionID, status)
@@ -119,7 +128,7 @@ func writeTaskSessionsResponse(
 		}
 	}
 	if response.NextOffset != nil {
-		if err := writeNextOffset(stderr, *response.NextOffset); err != nil {
+		if err := writeNextOffset(stderr, int(*response.NextOffset)); err != nil {
 			return 1
 		}
 	}
@@ -176,13 +185,13 @@ func writeTaskSessionHex(escaped *strings.Builder, value uint32, width int) {
 	}
 }
 
-func taskSessionStatusText(status serverapi.WorkflowTaskSessionStatus) (string, error) {
+func taskSessionStatusText(status taskpb.SessionStatus) (string, error) {
 	switch status {
-	case serverapi.WorkflowTaskSessionStatusRunning:
+	case taskpb.SessionStatus_SESSION_STATUS_RUNNING:
 		return "Running", nil
-	case serverapi.WorkflowTaskSessionStatusQuestion:
+	case taskpb.SessionStatus_SESSION_STATUS_QUESTION:
 		return "Question", nil
-	case serverapi.WorkflowTaskSessionStatusIdle:
+	case taskpb.SessionStatus_SESSION_STATUS_IDLE:
 		return "Idle", nil
 	default:
 		return "", fmt.Errorf("unknown Task Session status %q", status)

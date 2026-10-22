@@ -55,6 +55,7 @@ type Store struct {
 	sessionDir              string
 	eventsFP                string
 	meta                    Meta
+	shortID                 *runtimeids.SessionShortID
 	contextFacts            SessionContextFacts
 	initialContextFacts     SessionContextFacts
 	conversationFreshness   ConversationFreshness
@@ -153,7 +154,7 @@ func NewCreateSessionDescriptor(
 	workspaceRoot string,
 	category sessioncontract.SessionCategory,
 ) (SessionDescriptor, error) {
-	if sessionID.IsZero() || !sessionID.IsCanonicalUUIDv4() {
+	if sessionID.IsZero() {
 		return SessionDescriptor{}, errors.New("new session id must be a canonical UUIDv4")
 	}
 	validatedCategory, err := sessioncontract.ParseSessionCategory(string(category))
@@ -215,6 +216,11 @@ func Create(workspaceContainerDir, workspaceContainerName, workspaceRoot string,
 	if err := s.observePersistence(observation); err != nil {
 		return nil, errors.Join(err, s.RemoveDurable())
 	}
+	record, err := ResolvePersistedSessionRecord(context.Background(), s.options.resolver, s.meta.SessionID)
+	if err != nil {
+		return nil, err
+	}
+	s.shortID = textutil.Pointer(record.ShortID)
 	return s, nil
 }
 
@@ -223,7 +229,7 @@ func NewLazy(workspaceContainerDir, workspaceContainerName, workspaceRoot string
 }
 
 func NewLazyWithID(sessionID runtimeids.SessionID, workspaceContainerDir, workspaceContainerName, workspaceRoot string, category sessioncontract.SessionCategory, options ...StoreOption) (*Store, error) {
-	if sessionID.IsZero() || !sessionID.IsCanonicalUUIDv4() {
+	if sessionID.IsZero() {
 		return nil, errors.New("new session id must be a canonical UUIDv4")
 	}
 	storeOpts := normalizeStoreOptions(options...)
@@ -312,6 +318,7 @@ func openPersistedSession(
 		return nil, ErrPersistedSessionResolverRequired
 	}
 	s.meta = cloneMeta(*record.Meta)
+	s.shortID = textutil.Pointer(record.ShortID)
 	s.contextFacts = normalizeSessionContextFacts(record.ContextFacts)
 	s.initialContextFacts = s.contextFacts.Clone()
 	if err := normalizeMetaContinuation(&s.meta); err != nil {
@@ -408,6 +415,9 @@ func validatePersistedSessionRecord(sessionID string, record PersistedSessionRec
 	}
 	if strings.TrimSpace(record.Meta.SessionID) == "" {
 		return fmt.Errorf("session %q: %w", id, errResolverRecordMissingSessionID)
+	}
+	if _, err := runtimeids.ParseSessionID(record.Meta.SessionID); err != nil {
+		return fmt.Errorf("persisted Session identity: %w", err)
 	}
 	if record.Meta.SessionID != id {
 		return fmt.Errorf(
@@ -521,6 +531,16 @@ type metaSnapshot struct {
 	conversationFreshness ConversationFreshness
 }
 
+func (s *Store) Identity() runtimeids.SessionIdentity {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	id, err := runtimeids.ParseSessionID(s.meta.SessionID)
+	if err != nil {
+		panic(err)
+	}
+	return runtimeids.SessionIdentity{ID: id, ShortID: textutil.Pointer(s.shortID)}
+}
+
 func (s *Store) Meta() Meta {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -539,6 +559,7 @@ func (s *Store) PromptFacingMetadataSnapshot() PromptFacingMetadataSnapshot {
 		Continuation:                  cloneContinuationContext(meta.Continuation),
 		ChatSettings:                  cloneChatSettingsOverrides(meta.ChatSettings),
 		Locked:                        cloneLockedContract(meta.Locked),
+		WorkflowSnapshot:              cloneWorkflowSnapshot(meta.WorkflowSnapshot),
 		ActiveWorkflowAssignment:      cloneMessageRecord(meta.ActiveWorkflowAssignment),
 		ActiveWorkflowAssignmentState: cloneActiveWorkflowAssignmentState(meta.ActiveWorkflowAssignmentState),
 	}
@@ -546,7 +567,7 @@ func (s *Store) PromptFacingMetadataSnapshot() PromptFacingMetadataSnapshot {
 
 func (s *Store) RestorePromptFacingMetadata(snapshot PromptFacingMetadataSnapshot) error {
 	return s.mutateAndPersist(func() error {
-		s.meta.Name = snapshot.Name
+		s.meta.Name = textutil.Pointer(snapshot.Name)
 		s.meta.ConnectionID = textutil.Pointer(snapshot.ConnectionID)
 		s.meta.FirstPromptPreview = snapshot.FirstPromptPreview
 		s.meta.Continuation = cloneContinuationContext(snapshot.Continuation)
@@ -559,6 +580,7 @@ func (s *Store) RestorePromptFacingMetadata(snapshot PromptFacingMetadataSnapsho
 		}
 		s.meta.ChatSettings = settings
 		s.meta.Locked = cloneLockedContract(snapshot.Locked)
+		s.meta.WorkflowSnapshot = cloneWorkflowSnapshot(snapshot.WorkflowSnapshot)
 		s.meta.ActiveWorkflowAssignment = cloneMessageRecord(snapshot.ActiveWorkflowAssignment)
 		s.meta.ActiveWorkflowAssignmentState = cloneActiveWorkflowAssignmentState(snapshot.ActiveWorkflowAssignmentState)
 		s.meta.UpdatedAt = time.Now().UTC()
@@ -691,17 +713,28 @@ type NameMutationResult struct {
 	Changed bool
 }
 
-func (s *Store) SetName(name string) error {
+func (s *Store) SetName(name *string) error {
 	_, err := s.MutateName(name)
 	return err
 }
 
-func (s *Store) MutateName(name string) (NameMutationResult, error) {
-	normalized := strings.TrimSpace(name)
+func (s *Store) MutateName(name *string) (NameMutationResult, error) {
+	return s.mutateName(name, false)
+}
+
+func (s *Store) MutateNameIfUnnamed(name string) (NameMutationResult, error) {
+	return s.mutateName(&name, true)
+}
+
+func (s *Store) mutateName(name *string, onlyUnnamed bool) (NameMutationResult, error) {
+	normalized, err := sessioncontract.NormalizeSessionName(name)
+	if err != nil {
+		return NameMutationResult{}, err
+	}
 	s.mutationMu.Lock()
 	defer s.mutationMu.Unlock()
 	s.mu.Lock()
-	if s.meta.Name == normalized {
+	if onlyUnnamed && s.meta.Name != nil || textutil.EqualOptional(s.meta.Name, normalized) {
 		s.mu.Unlock()
 		return NameMutationResult{}, nil
 	}
@@ -719,9 +752,13 @@ func (s *Store) MutateName(name string) (NameMutationResult, error) {
 	}, err
 }
 
-func (s *Store) SetListingMetadata(name string, firstPromptPreview string) error {
+func (s *Store) SetListingMetadata(name *string, firstPromptPreview string) error {
+	normalized, err := sessioncontract.NormalizeSessionName(name)
+	if err != nil {
+		return err
+	}
 	return s.mutateAndPersist(func() error {
-		s.meta.Name = strings.TrimSpace(name)
+		s.meta.Name = normalized
 		s.meta.FirstPromptPreview = normalizeFirstPromptPreview(firstPromptPreview)
 		s.meta.UpdatedAt = time.Now().UTC()
 		return nil
@@ -1057,18 +1094,12 @@ func prepareActiveGoalState(
 	now time.Time,
 ) (GoalState, error) {
 	goal.Objective = strings.TrimSpace(goal.Objective)
-	if goal.Objective == "" {
-		return GoalState{}, errors.New("goal objective is required")
-	}
 	goal.ID = strings.TrimSpace(goal.ID)
 	if goal.ID == "" {
 		goal.ID = uuid.NewString()
 	}
 	goal.Status = GoalStatusActive
-	normalizedActor, err := normalizeGoalActor(actor)
-	if err != nil {
-		return GoalState{}, err
-	}
+	normalizedActor := normalizeGoalActor(actor)
 	current = cloneGoalState(current)
 	if normalizedActor == GoalActorAgent && current != nil && current.Status != GoalStatusComplete {
 		return GoalState{}, GoalAgentOverwriteBlockedError{Goal: *current}
@@ -1095,9 +1126,6 @@ func prepareGoalStatusState(
 	if err != nil {
 		return GoalState{}, false, err
 	}
-	if _, err := normalizeGoalActor(actor); err != nil {
-		return GoalState{}, false, err
-	}
 	current = cloneGoalState(current)
 	if current == nil {
 		if allow != nil {
@@ -1114,9 +1142,6 @@ func prepareGoalStatusState(
 }
 
 func prepareGoalClearState(current *GoalState, actor GoalActor) (GoalState, error) {
-	if _, err := normalizeGoalActor(actor); err != nil {
-		return GoalState{}, err
-	}
 	current = cloneGoalState(current)
 	if current == nil {
 		return GoalState{}, errors.New("goal is not set")
@@ -1287,18 +1312,6 @@ func (s *Store) BackfillLockedRequestShape(fields LockedRequestShapeBackfill) (L
 	})
 }
 
-func (s *Store) BackfillLockedWorkflowCompletionMode(mode sessioncontract.WorkflowCompletionMode) (LockedContractMutationResult, error) {
-	parsed, err := sessioncontract.ParseWorkflowCompletionMode(string(mode))
-	if err != nil {
-		return LockedContractMutationResult{}, err
-	}
-	return s.mutateLockedContractWithCommitStatus(func(locked *LockedContract) {
-		if locked.WorkflowCompletionMode == nil {
-			*locked = locked.WithWorkflowCompletionMode(parsed)
-		}
-	})
-}
-
 func (s *Store) persistMetaLocked() (*persistenceObservation, error) {
 	if err := s.requireMetadataPersistenceLocked(); err != nil {
 		return nil, err
@@ -1438,20 +1451,24 @@ func normalizeUsageState(state *UsageState) *UsageState {
 		return nil
 	}
 	normalized := *state
-	if normalized.InputTokens < 0 {
-		normalized.InputTokens = 0
+	normalized.InputTokens = textutil.Pointer(state.InputTokens)
+	normalized.OutputTokens = textutil.Pointer(state.OutputTokens)
+	normalized.CachedInputTokens = textutil.Pointer(state.CachedInputTokens)
+	normalized.ReportedContextTokens = textutil.Pointer(state.ReportedContextTokens)
+	if normalized.InputTokens != nil && *normalized.InputTokens < 0 {
+		*normalized.InputTokens = 0
 	}
-	if normalized.OutputTokens < 0 {
-		normalized.OutputTokens = 0
+	if normalized.OutputTokens != nil && *normalized.OutputTokens < 0 {
+		*normalized.OutputTokens = 0
 	}
 	if normalized.WindowTokens < 0 {
 		normalized.WindowTokens = 0
 	}
-	if normalized.CachedInputTokens < 0 {
-		normalized.CachedInputTokens = 0
+	if normalized.CachedInputTokens != nil && *normalized.CachedInputTokens < 0 {
+		*normalized.CachedInputTokens = 0
 	}
-	if normalized.CachedInputTokens > normalized.InputTokens {
-		normalized.CachedInputTokens = normalized.InputTokens
+	if normalized.CachedInputTokens != nil && normalized.InputTokens != nil && *normalized.CachedInputTokens > *normalized.InputTokens {
+		*normalized.CachedInputTokens = *normalized.InputTokens
 	}
 	if normalized.EstimatedProviderTokens < 0 {
 		normalized.EstimatedProviderTokens = 0
@@ -1465,7 +1482,7 @@ func normalizeUsageState(state *UsageState) *UsageState {
 	if normalized.TotalCachedInputTokens > normalized.TotalInputTokens {
 		normalized.TotalCachedInputTokens = normalized.TotalInputTokens
 	}
-	if normalized.InputTokens == 0 && normalized.OutputTokens == 0 && normalized.WindowTokens == 0 && normalized.CachedInputTokens == 0 && !normalized.HasCachedInputTokens && normalized.EstimatedProviderTokens == 0 && normalized.TotalInputTokens == 0 && normalized.TotalCachedInputTokens == 0 {
+	if normalized.InputTokens == nil && normalized.OutputTokens == nil && normalized.WindowTokens == 0 && normalized.CachedInputTokens == nil && normalized.ReportedContextTokens == nil && normalized.EstimatedProviderTokens == 0 && normalized.TotalInputTokens == 0 && normalized.TotalCachedInputTokens == 0 {
 		return nil
 	}
 	return &normalized
@@ -1477,5 +1494,12 @@ func usageStatesEqual(left, right *UsageState) bool {
 	if left == nil || right == nil {
 		return left == nil && right == nil
 	}
-	return *left == *right
+	return textutil.EqualOptional(left.InputTokens, right.InputTokens) &&
+		textutil.EqualOptional(left.OutputTokens, right.OutputTokens) &&
+		textutil.EqualOptional(left.CachedInputTokens, right.CachedInputTokens) &&
+		textutil.EqualOptional(left.ReportedContextTokens, right.ReportedContextTokens) &&
+		left.WindowTokens == right.WindowTokens &&
+		left.EstimatedProviderTokens == right.EstimatedProviderTokens &&
+		left.TotalInputTokens == right.TotalInputTokens &&
+		left.TotalCachedInputTokens == right.TotalCachedInputTokens
 }

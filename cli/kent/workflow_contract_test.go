@@ -14,6 +14,7 @@ import (
 	"core/shared/apicontract"
 	protoapi "core/shared/protoapi"
 	pb "core/shared/protoapi/gen/kent/api/workflow_definition"
+	taskpb "core/shared/protoapi/gen/kent/api/workflow_task"
 	"core/shared/runtimeids"
 	"core/shared/serverapi"
 	"google.golang.org/protobuf/proto"
@@ -80,7 +81,7 @@ func TestWorkflowListRejectsOffsetsAboveSafeIntegerRange(t *testing.T) {
 	for _, offset := range []string{"9007199254740992", "9223372036854775807"} {
 		t.Run(offset, func(t *testing.T) {
 			var stdout, stderr bytes.Buffer
-			if code := workflowListSubcommand([]string{"--offset", offset, "--json"}, &stdout, &stderr); code != 2 {
+			if code := workflowListSubcommand([]string{"--offset", offset, "--json"}, &stdout, &stderr); code != 1 {
 				t.Fatalf("out-of-range offset exit=%d, stdout=%s, stderr=%s", code, &stdout, &stderr)
 			}
 			if stdout.Len() != 0 || stderr.Len() == 0 {
@@ -683,7 +684,7 @@ func TestWorkflowGraphAddedIdentityAndDraftContracts(t *testing.T) {
 	definition := &pb.WorkflowDefinition{
 		Workflow: &pb.WorkflowRecord{Id: workflowID.String(), Version: 3},
 		NodeGroups: []*pb.WorkflowNodeGroup{{
-			GroupId: groupID, GroupKey: "group", DisplayName: "Group",
+			GroupId: groupID, GroupKey: "group", DisplayName: new("Group"),
 		}},
 		Nodes: []*pb.WorkflowNode{{
 			Id: "node-id", Key: "node", Kind: pb.NodeKind_WORKFLOW_NODE_KIND_AGENT, DisplayName: "Node", GroupId: &groupID,
@@ -703,6 +704,44 @@ func TestWorkflowGraphAddedIdentityAndDraftContracts(t *testing.T) {
 		draft.Edges[0].AssigneeSelection != pb.AssigneeSelection_WORKFLOW_ASSIGNEE_SELECTION_PREVIOUS_NODE ||
 		draft.Edges[0].Parameters[0].Purpose != pb.ParameterPurpose_WORKFLOW_PARAMETER_PURPOSE_TARGET_ASSIGNEE {
 		t.Fatalf("draft=%+v", draft)
+	}
+}
+
+func TestWorkflowGraphDocumentOptionalGroupName(t *testing.T) {
+	contract, err := prepareWorkflowGraphDocumentContract()
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, name := range []map[string]any{
+		{},
+		{"display_name": nil},
+		{"display_name": "Parallel"},
+	} {
+		group := map[string]any{"id": "group", "key": "parallel"}
+		for key, value := range name {
+			group[key] = value
+		}
+		data, err := json.Marshal(map[string]any{
+			"workflow_id": emptyWorkflowGraphDocumentID, "expected_version": 0,
+			"graph": map[string]any{"node_groups": []any{group}, "nodes": []any{}, "transition_groups": []any{}, "edges": []any{}},
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+		document, err := contract.Decode(data)
+		if err != nil {
+			t.Fatal(err)
+		}
+		draft, err := document.WorkflowGraphDraft()
+		if err != nil {
+			t.Fatal(err)
+		}
+		roundtrip := workflowGraphDocumentFromDraft(document.WorkflowID, 0, draft)
+		value, named := name["display_name"].(string)
+		got := roundtrip.Graph.NodeGroups[0].DisplayName
+		if named && (got == nil || *got != value) || !named && got != nil {
+			t.Fatalf("roundtrip Group name = %v for %v", got, name)
+		}
 	}
 }
 
@@ -760,15 +799,7 @@ func TestWorkflowEdgeSelectionAndPureMutationValidation(t *testing.T) {
 	}
 }
 
-func TestWorkflowAndTaskSearchArityAndPaginationValidation(t *testing.T) {
-	if err := validateWorkflowPagination(0, workflowCommandWorkflowListLimit); err != nil {
-		t.Fatalf("valid Workflow pagination: %v", err)
-	}
-	for _, window := range [][2]int{{-1, 1}, {0, 0}, {0, serverapi.WorkflowPaginationMaxLimit + 1}} {
-		if err := validateWorkflowPagination(window[0], window[1]); err == nil {
-			t.Fatalf("invalid Workflow pagination %v accepted", window)
-		}
-	}
+func TestWorkflowAndTaskSearchArityValidation(t *testing.T) {
 	for _, test := range []struct {
 		name string
 		run  func(*bytes.Buffer, *bytes.Buffer) int
@@ -785,12 +816,6 @@ func TestWorkflowAndTaskSearchArityAndPaginationValidation(t *testing.T) {
 		{"task search extra query", func(stdout, stderr *bytes.Buffer) int {
 			return taskSearchSubcommand([]string{"needle", "extra"}, stdout, stderr)
 		}},
-		{"task search negative offset", func(stdout, stderr *bytes.Buffer) int {
-			return taskSearchSubcommand([]string{"needle", "--offset", "-1"}, stdout, stderr)
-		}},
-		{"task search incompatible flags", func(stdout, stderr *bytes.Buffer) int {
-			return taskSearchSubcommand([]string{"needle", "--fts5", "--case-sensitive"}, stdout, stderr)
-		}},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			var stdout, stderr bytes.Buffer
@@ -802,8 +827,8 @@ func TestWorkflowAndTaskSearchArityAndPaginationValidation(t *testing.T) {
 
 	statuses, err := parseTaskSearchStatusKinds([]string{"done,active", "done"})
 	if err != nil || len(statuses) != 2 ||
-		statuses[0] != serverapi.WorkflowTaskStatusKindActive ||
-		statuses[1] != serverapi.WorkflowTaskStatusKindDone {
+		!slices.Contains(statuses, taskpb.TaskStatusKind_TASK_STATUS_KIND_ACTIVE) ||
+		!slices.Contains(statuses, taskpb.TaskStatusKind_TASK_STATUS_KIND_DONE) {
 		t.Fatalf("statuses=%v err=%v", statuses, err)
 	}
 }

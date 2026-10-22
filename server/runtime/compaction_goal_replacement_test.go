@@ -20,11 +20,11 @@ func TestCompactionOmitsActiveGoalContinuationWhenGoalIsNotActive(t *testing.T) 
 		remoteCompactionReplacement(1_000, 100, 200_000),
 		remoteCompactionReplacement(1_000, 100, 200_000),
 	}}
-	engine := mustNewTestEngine(t, store, client, tools.NewRegistry(), Config{Model: "gpt-5"})
+	engine := mustNewTestEngine(t, store, client, tools.NewRegistry(), Config{Model: "gpt-6-sol"})
 	inputStepID := runtimeTestStepID("inactive-goal-compaction-input")
 	engine.stepLifecycle = &stubExclusiveStepLifecycle{
 		activeStepID: inputStepID,
-		snapshot:     &RunSnapshot{RunID: "11111111-1111-4111-8111-111111111111", StepID: inputStepID},
+		snapshot:     &RunSnapshot{StepID: inputStepID},
 	}
 
 	t.Run("inactive goal transition sequence", func(t *testing.T) {
@@ -67,12 +67,12 @@ func TestCompactionOmitsActiveGoalContinuationWhenGoalIsNotActive(t *testing.T) 
 				CompletionMode: workflowruntime.CompletionModeTool,
 				Controller:     &externallyCompletedWorkflowController{},
 			},
-			Config{Model: "gpt-5"},
+			Config{Model: "gpt-6-sol"},
 		)
 		workflowInputStepID := runtimeTestStepID("inactive-workflow-goal-compaction-input")
 		workflowEngine.stepLifecycle = &stubExclusiveStepLifecycle{
 			activeStepID: workflowInputStepID,
-			snapshot:     &RunSnapshot{RunID: "11111111-1111-4111-8111-111111111111", StepID: workflowInputStepID},
+			snapshot:     &RunSnapshot{StepID: workflowInputStepID},
 		}
 		if _, err := workflowEngine.SetGoal(t.Context(), "goal", session.GoalActorUser); err != nil {
 			t.Fatalf("set workflow goal: %v", err)
@@ -97,7 +97,11 @@ func assertInactiveGoalCompaction(t *testing.T, engine *Engine, name string) {
 	if err != nil || !receipt.Committed {
 		t.Fatalf("compact inactive goal context: receipt=%+v error=%v", receipt, err)
 	}
-	for _, item := range engine.transcriptRuntimeState().SnapshotItems() {
+	request, err := engine.buildActiveTurnDispatchRequest(t.Context(), stepID, nil, true)
+	if err != nil {
+		t.Fatalf("dispatch inactive goal context: %v", err)
+	}
+	for _, item := range request.Items {
 		if item.Type == llm.ResponseItemTypeMessage &&
 			item.MessageType != nil &&
 			*item.MessageType == llm.MessageTypeActiveGoalContinuation {

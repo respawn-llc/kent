@@ -1,0 +1,31 @@
+<script>
+  import { detectOperatingSystem, selectOperatingSystemTab } from "../platform";
+
+  interface OperatingSystemTabs extends HTMLElement {
+    tabs: HTMLAnchorElement[];
+    switchTab(tab: HTMLAnchorElement, index: number, shouldSync: boolean): void;
+  }
+
+  // Starlight owns manual switching, synchronization, and preference storage.
+  // Initialize each set without focusing a tab or persisting the detected OS.
+  async function initializeOperatingSystemTabs() {
+    await customElements.whenDefined("starlight-tabs");
+    const label = selectOperatingSystemTab(
+      detectOperatingSystem(navigator),
+      localStorage.getItem("starlight-synced-tabs__quickstart-os"),
+    );
+    if (label === undefined) return;
+
+    for (const tabs of document.querySelectorAll<OperatingSystemTabs>(
+      'starlight-tabs[data-sync-key="quickstart-os"]',
+    )) {
+      const index = tabs.tabs.findIndex(
+        (tab) => tab.textContent?.trim() === label,
+      );
+      const tab = tabs.tabs[index];
+      if (tab !== undefined) tabs.switchTab(tab, index, false);
+    }
+  }
+
+  initializeOperatingSystemTabs().catch(console.error);
+</script>

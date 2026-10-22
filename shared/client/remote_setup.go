@@ -9,6 +9,7 @@ import (
 	"core/shared/protocol"
 	"core/shared/rpcwire"
 	"core/shared/serverapi"
+	"core/shared/sessioncontract"
 
 	connectionpb "core/shared/protoapi/gen/kent/api/connection"
 	projectpb "core/shared/protoapi/gen/kent/api/project"
@@ -90,12 +91,12 @@ func handshakeBinaryRPC(ctx context.Context, conn rpcwire.Conn) (protocol.Server
 	}, nil
 }
 
-type protocolVersionMismatchError struct {
+type ProtocolVersionMismatchError struct {
 	clientVersion   string
 	requiredVersion string
 }
 
-func (e *protocolVersionMismatchError) Error() string {
+func (e *ProtocolVersionMismatchError) Error() string {
 	return fmt.Sprintf(
 		"server requires protocol version %q but this client uses %q; update the Kent client and server to the same build",
 		e.requiredVersion,
@@ -107,10 +108,7 @@ func handshakeGeneratedError(failure *connectionpb.HandshakeError) error {
 	switch failure.Code {
 	case "protocol_version_mismatch":
 		details := failure.GetProtocolVersionMismatch()
-		if err := protoapi.Validate(details); err != nil {
-			return err
-		}
-		return &protocolVersionMismatchError{
+		return &ProtocolVersionMismatchError{
 			clientVersion:   protocol.Version,
 			requiredVersion: details.RequiredProtocolVersion,
 		}
@@ -141,7 +139,7 @@ func attachRemoteBinaryRPC(
 			"attach-session",
 			method,
 			&connectionpb.AttachSessionRequest{
-				SessionId:          request.sessionID,
+				SessionId:          protoapi.SessionSelectorToProto(request.sessionID),
 				ReattachCapability: request.reattachCapability,
 			},
 			result,
@@ -206,20 +204,17 @@ func attachProjectGeneratedError(failure *connectionpb.AttachProjectError) error
 
 func attachSessionGeneratedError(failure *connectionpb.AttachSessionError) error {
 	switch failure.Code {
+	case "session_not_found":
+		details := failure.GetSessionNotFound()
+		return &sessioncontract.SessionNotFoundError{SessionID: details.SessionId}
 	case "project_not_found":
 		details := failure.GetProjectNotFound()
-		if err := protoapi.Validate(details); err != nil {
-			return err
-		}
 		return fmt.Errorf("%w: session %q", serverapi.ErrProjectNotFound, details.SessionId)
 	case "workspace_not_registered":
 		details := failure.GetWorkspaceNotRegistered()
-		if err := protoapi.Validate(details); err != nil {
-			return err
-		}
 		return fmt.Errorf("%w: session %q", serverapi.ErrWorkspaceNotRegistered, details.SessionId)
 	case "project_unavailable":
-		return projectUnavailableError(failure.GetProjectUnavailable())
+		return protoapi.ProjectUnavailableFromProto(failure.GetProjectUnavailable())
 	case "server_not_ready":
 		return protoapi.ServerNotReadyFromProto(failure.GetServerNotReady())
 	case "internal_failure":
@@ -243,7 +238,7 @@ func connectionAttachmentGeneratedError(
 	case "workspace_not_registered":
 		return protoapi.WorkspaceNotRegisteredFromProto(notRegistered)
 	case "project_unavailable":
-		return projectUnavailableError(unavailable)
+		return protoapi.ProjectUnavailableFromProto(unavailable)
 	case "server_not_ready":
 		return protoapi.ServerNotReadyFromProto(notReady)
 	case "internal_failure":

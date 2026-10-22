@@ -111,20 +111,7 @@ func (f *Field) moveVertical(width, delta int) bool {
 		return changed
 	}
 	targetLine := layout.lines[layout.cursorLine+delta]
-	targetCol := layout.cursorCol
-	prefixWidth := uniseg.StringWidth(f.Prefix)
-	currentHasPrefix := layout.lines[layout.cursorLine].Start < len(f.Prefix)
-	targetHasPrefix := targetLine.Start < len(f.Prefix)
-	switch {
-	case currentHasPrefix && !targetHasPrefix:
-		targetCol -= prefixWidth
-	case !currentHasPrefix && targetHasPrefix:
-		targetCol += prefixWidth
-	}
-	if targetCol < 0 {
-		targetCol = 0
-	}
-	targetDisplayOffset := cursorAtDisplayColumn(layout.text, targetLine, targetCol)
+	targetDisplayOffset := cursorAtDisplayColumn(layout.text, targetLine, layout.cursorCol)
 	next := layout.sourceCursor(targetDisplayOffset)
 	changed := f.Editor.Cursor() != next
 	f.Editor.SetCursor(next)

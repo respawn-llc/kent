@@ -1,13 +1,6 @@
-import {
-  createContext,
-  createElement,
-  useCallback,
-  useContext,
-  useEffect,
-  useMemo,
-  useState,
-  type ReactNode,
-} from "react";
+import { createContext, createElement, useContext, useEffect, useMemo, type ReactNode } from "react";
+import { useAtomValue } from "@effect/atom-react";
+import * as Atom from "effect/reactivity/Atom";
 import type { CreatedTaskSummary, TaskDependencyDirection, TaskStatus } from "@/api";
 import type { ResolvedSidebarWidth, SidebarSizePreference } from "./sidebarSizing";
 
@@ -52,7 +45,9 @@ export type LinkWorkflowCompletion =
 export type SidebarDestination =
   | Readonly<{
       kind: "worktree";
+      openSession(sessionID: string): void | Promise<void>;
       mode?: SidebarMode;
+      projectID: string;
       sessionID: string;
       page: "list" | "create";
     }>
@@ -127,10 +122,11 @@ export type SidebarDestination =
     }>
   | Readonly<{
       kind: "custom";
+      identity?: symbol;
       mode?: SidebarMode;
       sizing?: SidebarSizePreference | undefined;
       title: string;
-      content: ReactNode;
+      content: (navigator: SidebarPageNavigator) => ReactNode;
     }>;
 
 export type SidebarDestinationPolicy = Readonly<{
@@ -155,6 +151,7 @@ export type SidebarRootHandle = Readonly<{
 
 export type SidebarRootController = Readonly<{
   open(destination: SidebarDestination): SidebarRootHandle;
+  toggle(destination: SidebarDestination): SidebarRootHandle | null;
 }>;
 
 export type SidebarShellController = Readonly<{
@@ -193,26 +190,29 @@ export function useSidebarShell(): SidebarShellController {
 
 export function SidebarRootOwner({ children }: Readonly<{ children: ReactNode }>) {
   const roots = useSidebarRoots();
-  const [handles] = useState(() => new Set<SidebarRootHandle>());
-  const open = useCallback(
-    (destination: SidebarDestination) => {
-      const handle = roots.open(destination);
-      handles.add(handle);
-      void handle.lifecycle.finally(() => {
-        handles.delete(handle);
-      });
-      return handle;
-    },
-    [handles, roots],
+  const owner = useMemo(
+    () =>
+      Atom.make((get) => {
+        let handle: SidebarRootHandle | null = null;
+        get.addFinalizer(() => {
+          handle?.release();
+        });
+        return {
+          open: (destination: SidebarDestination) => {
+            // Opening a root settles its predecessor; only the latest handle can remain owned.
+            handle = roots.open(destination);
+            return handle;
+          },
+          toggle: (destination: SidebarDestination) => {
+            const opened = roots.toggle(destination);
+            if (opened !== null) handle = opened;
+            return opened;
+          },
+        };
+      }),
+    [roots],
   );
-  useEffect(
-    () => () => {
-      for (const handle of handles) handle.release();
-      handles.clear();
-    },
-    [handles],
-  );
-  const value = useMemo(() => ({ open }), [open]);
+  const value = useAtomValue(owner);
   return createElement(SidebarRootOwnerContext.Provider, { value }, children);
 }
 

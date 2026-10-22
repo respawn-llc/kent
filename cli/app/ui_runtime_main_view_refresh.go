@@ -4,7 +4,9 @@ import runtimepb "core/shared/protoapi/gen/kent/api/runtime"
 
 import (
 	"strings"
+	"time"
 
+	"core/cli/app/internal/runtimeattach"
 	"core/cli/tui"
 	"core/shared/protoapi"
 
@@ -72,6 +74,12 @@ func (m *uiModel) handleRuntimeMainViewRefreshed(msg runtimeMainViewRefreshedMsg
 	m.runtimeMainViewBusy = false
 	if msg.err != nil {
 		m.observeRuntimeRequestResult(msg.err)
+		if m.runtimeDisconnectStatusVisible() &&
+			(runtimeattach.IsRuntimeConnectionError(msg.err) || runtimeattach.IsRuntimeTimeoutError(msg.err)) {
+			return tea.Tick(transcriptSubscriptionRetryDelay, func(time.Time) tea.Msg {
+				return runtimeMainViewRetryMsg{token: msg.token}
+			})
+		}
 		return m.drainPendingRuntimeMainViewRefresh()
 	}
 	m.observeRuntimeRequestResult(nil)
@@ -102,9 +110,7 @@ func (m *uiModel) applyRuntimeSessionMetadata(session *runtimepb.SessionView) te
 	if nextSessionID != "" {
 		m.sessionID = nextSessionID
 	}
-	if strings.TrimSpace(session.GetSessionName()) != "" {
-		m.sessionName = strings.TrimSpace(session.GetSessionName())
-	}
+	m.sessionName = session.SessionName
 	m.conversationFreshness = session.ConversationFreshness
 	if previousSessionID == "" || nextSessionID == "" || previousSessionID == nextSessionID {
 		return nil

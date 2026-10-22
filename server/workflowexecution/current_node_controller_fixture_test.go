@@ -770,9 +770,10 @@ func newCurrentNodeQuestionFixtureWithPromptFeed(
 	store := &currentNodeControllerStore{}
 	var controller *CurrentNodeController
 	authority := sessionruntime.NewAuthority(sessionruntime.AuthorityOptions{
-		PersistenceRoot: appCfg.PersistenceRoot,
-		StoreOptions:    metadataStore.AuthoritativeSessionStoreOptions(),
-		PromptFeed:      promptFeed,
+		PersistenceRoot:               appCfg.PersistenceRoot,
+		ProjectWorkspaceContextReader: metadataStore,
+		StoreOptions:                  metadataStore.AuthoritativeSessionStoreOptions(),
+		PromptFeed:                    promptFeed,
 	})
 	controller = newCurrentNodeControllerForTest(t, store, &countingCurrentNodeRunner{}, authority, 1)
 	t.Cleanup(func() {
@@ -858,7 +859,7 @@ func (f currentNodeQuestionFixture) startAgentExecutionForSession(
 		t.Fatalf("NewOpenSessionDescriptor: %v", err)
 	}
 	settings := f.cfg.Settings
-	settings.Model = "gpt-5"
+	settings.Model = "gpt-6-sol"
 	settings.ModelContextWindow = 200_000
 	settings.Reviewer.Frequency = "off"
 	plan, err := sessionruntime.NewAgentRuntimePlan(sessionruntime.AgentRuntimePlanOptions{

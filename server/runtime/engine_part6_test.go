@@ -16,7 +16,7 @@ func TestAppendCommittedEntryEmitsRealtimeLocalEntryEvent(t *testing.T) {
 	store := mustCreateTestSession(t)
 	var events []Event
 	eng := mustNewTestEngine(t, store, &fakeClient{}, tools.NewRegistry(), Config{
-		Model:   "gpt-5",
+		Model:   "gpt-6-sol",
 		OnEvent: func(evt Event) { events = append(events, evt) },
 	})
 
@@ -49,7 +49,7 @@ func TestRestoreMessagesPreservesStoredLocalEntryNoticeID(t *testing.T) {
 		t.Fatalf("append local entry: %v", err)
 	}
 
-	restored := mustNewTestEngine(t, store, &fakeClient{}, newTestToolRegistry(t), Config{Model: "gpt-5"})
+	restored := mustNewTestEngine(t, store, &fakeClient{}, newTestToolRegistry(t), Config{Model: "gpt-6-sol"})
 	snapshot := restored.ChatSnapshot()
 	if len(snapshot.Entries) != 1 || snapshot.Entries[0].NoticeID != "notice-1" {
 		t.Fatalf("restored notice entry = %+v, want notice-1", snapshot.Entries)
@@ -64,7 +64,7 @@ func TestAppendPersistedLocalEntryRejectsInvalidRecords(t *testing.T) {
 		{Role: "system", Text: "feedback", AfterToolCallID: &blankCallID},
 	}
 	store := mustCreateTestSession(t)
-	eng := mustNewTestEngine(t, store, &fakeClient{}, tools.NewRegistry(), Config{Model: "gpt-5"})
+	eng := mustNewTestEngine(t, store, &fakeClient{}, tools.NewRegistry(), Config{Model: "gpt-6-sol"})
 	for _, entry := range tests {
 		if err := eng.steer(runtimeTestStepID("step-1"), steerLocalEntryIntent(entry)); err == nil {
 			t.Fatalf("invalid local entry persistence succeeded: %+v", entry)
@@ -86,7 +86,7 @@ func TestAppendCommittedEntryWithCondensedTextSkipsBlankEntries(t *testing.T) {
 	store := mustCreateTestSession(t)
 	var events []Event
 	eng := mustNewTestEngine(t, store, &fakeClient{}, newTestToolRegistry(t), Config{
-		Model:   "gpt-5",
+		Model:   "gpt-6-sol",
 		OnEvent: func(evt Event) { events = append(events, evt) },
 	})
 
@@ -118,7 +118,7 @@ func TestRestoreMessagesKeepsStoredToolCallPresentationPayload(t *testing.T) {
 		t.Fatalf("append assistant tool call: %v", err)
 	}
 
-	restored := mustNewTestEngine(t, store, &fakeClient{}, newTestToolRegistry(t), Config{Model: "gpt-5"})
+	restored := mustNewTestEngine(t, store, &fakeClient{}, newTestToolRegistry(t), Config{Model: "gpt-6-sol"})
 	for _, entry := range restored.ChatSnapshot().Entries {
 		if entry.Role != "tool_call" || entry.ToolCallID != "call-1" {
 			continue

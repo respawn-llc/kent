@@ -1,7 +1,6 @@
 package config
 
 import (
-	"core/shared/protocol"
 	"core/shared/toolspec"
 	"net"
 	"path/filepath"
@@ -181,8 +180,12 @@ func (p SkillPolicy) Equivalent(other SkillPolicy) bool {
 }
 
 type Settings struct {
-	Connection                       *ConnectionID
+	Nano                             *NanoSettings
+	NanoConcurrency                  int
+	Connection                       *ConnectionSelection
 	Connections                      map[ConnectionID]ProviderConnection
+	ConnectionOrder                  []ConnectionID
+	ConnectionUsageFallbackSeconds   int
 	Model                            string
 	ThinkingLevel                    string
 	ModelVerbosity                   ModelVerbosity
@@ -202,7 +205,7 @@ type Settings struct {
 	AllowNonCwdEdits                 bool
 	ModelContextWindow               int
 	ContextCompactionThresholdTokens int
-	PreSubmitCompactionLeadTokens    int
+	PreSubmitCompactionLeadTokens    *int
 	MinimumExecToBgSeconds           int
 	CompactionMode                   CompactionMode
 	EnabledTools                     map[toolspec.ID]bool
@@ -228,6 +231,7 @@ type ModelCapabilitiesOverride struct {
 type ProviderCapabilitiesOverride struct {
 	ProviderID                    string `toml:"provider_id"`
 	SupportsResponsesAPI          bool   `toml:"supports_responses_api"`
+	SupportsFastMode              bool   `toml:"supports_fast_mode"`
 	SupportsResponsesCompact      bool   `toml:"supports_responses_compact"`
 	SupportsPromptCacheKey        bool   `toml:"supports_prompt_cache_key"`
 	SupportsNativeWebSearch       bool   `toml:"supports_native_web_search"`
@@ -238,7 +242,7 @@ type ProviderCapabilitiesOverride struct {
 }
 
 type ReviewerSettings struct {
-	Connection         *ConnectionID
+	Connection         *ConnectionSelection
 	Frequency          string
 	Model              string
 	ThinkingLevel      string
@@ -292,7 +296,14 @@ func GlobalAuthConfigPath(cfg App) string {
 }
 
 func ServerRPCURL(cfg App) string {
-	return "ws://" + net.JoinHostPort(cfg.Settings.ServerHost, strconv.Itoa(cfg.Settings.ServerPort)) + protocol.RPCPath
+	return cfg.Connection().RPCURL()
+}
+
+func (cfg App) Connection() Connection {
+	return Connection{
+		WorkspaceRoot: cfg.WorkspaceRoot, PersistenceRoot: cfg.PersistenceRoot,
+		ServerHost: cfg.Settings.ServerHost, ServerPort: cfg.Settings.ServerPort, Source: cfg.Source,
+	}
 }
 
 func ServerHTTPBaseURL(cfg App) string {

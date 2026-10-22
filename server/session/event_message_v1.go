@@ -5,6 +5,8 @@ import (
 	"fmt"
 	"strings"
 
+	"core/shared/modelcontract"
+	"core/shared/runtimeids"
 	"core/shared/transcript"
 )
 
@@ -31,6 +33,7 @@ const (
 	MessageTypeHeadlessModeExit               MessageType = "headless_mode_exit"
 	MessageTypeWorkflowMode                   MessageType = "workflow_mode"
 	MessageTypeWorkflowModeExit               MessageType = "workflow_mode_exit"
+	MessageTypeWorkspaces                     MessageType = "workspaces"
 	MessageTypeWorktreeMode                   MessageType = "worktree_mode"
 	MessageTypeWorktreeModeExit               MessageType = "worktree_mode_exit"
 	MessageTypeSessionRebind                  MessageType = "session_rebind"
@@ -60,14 +63,17 @@ type MessageToolCallRecord struct {
 	Presentation json.RawMessage `json:"presentation,omitempty"`
 	Input        json.RawMessage `json:"input"`
 	CustomInput  *string         `json:"custom_input,omitempty"`
+	ProviderItem json.RawMessage `json:"provider_item,omitempty"`
 }
 
 type MessageReasoningRecord struct {
-	ID               string `json:"id"`
-	EncryptedContent string `json:"encrypted_content"`
+	Attribution      *modelcontract.ReasoningAttribution `json:"attribution,omitempty"`
+	ID               string                              `json:"id"`
+	EncryptedContent string                              `json:"encrypted_content"`
 }
 
 type MessageRecord struct {
+	QueueItemIDs         []string                 `json:"queue_item_ids,omitempty"`
 	Role                 MessageRole              `json:"role"`
 	MessageType          *MessageType             `json:"message_type,omitempty"`
 	SourcePath           *string                  `json:"source_path,omitempty"`
@@ -93,6 +99,19 @@ func (m MessageRecord) validate() error {
 }
 
 func normalizeMessageRecord(message MessageRecord) (MessageRecord, error) {
+	if len(message.QueueItemIDs) > 0 && message.Role != MessageRoleUser {
+		return MessageRecord{}, fmt.Errorf("source queue items require a user message")
+	}
+	seenIDs := make(map[string]struct{}, len(message.QueueItemIDs))
+	for _, id := range message.QueueItemIDs {
+		if _, err := runtimeids.ParseCanonicalUUIDv4(id, "queue_item_id"); err != nil {
+			return MessageRecord{}, err
+		}
+		if _, exists := seenIDs[id]; exists {
+			return MessageRecord{}, fmt.Errorf("source queue item identity is repeated")
+		}
+		seenIDs[id] = struct{}{}
+	}
 	if err := validateMessageRole(message.Role); err != nil {
 		return MessageRecord{}, err
 	}
@@ -153,6 +172,10 @@ func normalizeMessageRecord(message MessageRecord) (MessageRecord, error) {
 		message.ReasoningItems = append([]MessageReasoningRecord(nil), message.ReasoningItems...)
 		for index := range message.ReasoningItems {
 			reasoning := message.ReasoningItems[index]
+			if err := reasoning.Attribution.Validate(); err != nil {
+				return MessageRecord{}, err
+			}
+			reasoning.Attribution = reasoning.Attribution.Clone()
 			reasoning.ID = strings.TrimSpace(reasoning.ID)
 			reasoning.EncryptedContent = strings.TrimSpace(reasoning.EncryptedContent)
 			if reasoning.ID == "" {
@@ -209,7 +232,7 @@ func normalizeOptionalMessageType(messageType *MessageType) (*MessageType, error
 		MessageTypeCompactionSoonReminder, MessageTypeHandoffFutureMessage,
 		MessageTypeReviewerFeedback, MessageTypeBackgroundNotice, MessageTypeUserShellCommand, MessageTypeCustomToolCallOutput,
 		MessageTypeCompactionPreservedUserMessage, MessageTypeHeadlessMode, MessageTypeHeadlessModeExit,
-		MessageTypeWorkflowMode, MessageTypeWorkflowModeExit, MessageTypeWorktreeMode, MessageTypeWorktreeModeExit, MessageTypeSessionRebind,
+		MessageTypeWorkflowMode, MessageTypeWorkflowModeExit, MessageTypeWorkspaces, MessageTypeWorktreeMode, MessageTypeWorktreeModeExit, MessageTypeSessionRebind,
 		MessageTypeGoal, MessageTypeActiveGoalContinuation, MessageTypeAgentSteer:
 		value := *messageType
 		return &value, nil
@@ -255,6 +278,12 @@ func normalizeMessageToolCallRecord(call MessageToolCallRecord) (MessageToolCall
 		return MessageToolCallRecord{}, err
 	}
 	call.Input = append(json.RawMessage(nil), call.Input...)
+	if len(call.ProviderItem) > 0 {
+		if err := validateJSONValue("provider item", call.ProviderItem); err != nil {
+			return MessageToolCallRecord{}, err
+		}
+		call.ProviderItem = append(json.RawMessage(nil), call.ProviderItem...)
+	}
 	if len(call.Presentation) > 0 {
 		if err := validateJSONValue("presentation", call.Presentation); err != nil {
 			return MessageToolCallRecord{}, err

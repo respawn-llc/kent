@@ -2,15 +2,7 @@ import { createAutoNativeBridge, type NativePlatform } from "@app/native-bridge"
 import { z } from "zod";
 
 import { StartupConfigurationError } from "@/api";
-import {
-  ApiClient,
-  createJsonRpcTransport,
-  protocolVersion,
-  type DescriptorRpcTransport,
-  type JsonValue,
-  type RpcEventHandler,
-  type RpcSubscription,
-} from "@/api/composition";
+import { ApiClient, createRpcTransport, protocolVersion, type RpcTransport } from "@/api/composition";
 import { projectEventDiagnostics, type AppServices, type AppStorageNamespace } from "@/app-facade";
 import { readEffectiveTheme, type AppTheme } from "@/ui";
 import { createGuiLogger } from "../logging";
@@ -75,7 +67,15 @@ export async function createDefaultAppServices(): Promise<AppServices> {
   // default root (validation skipped).
   const expectedRootId = browserEndpoint === null ? context.persistenceRootId : "";
   const api = new ApiClient(
-    createJsonRpcTransport(endpoint, expectedRootId),
+    createRpcTransport(
+      endpoint,
+      (error) => {
+        void logger.append("error", "Invalid server response.", {
+          error: error instanceof Error ? (error.stack ?? error.message) : String(error),
+        });
+      },
+      expectedRootId,
+    ),
     projectEventDiagnostics(logger),
   );
   return {
@@ -172,6 +172,7 @@ export function applyConfiguredTheme(theme: string): void {
 }
 
 export function applyNativeDialogThemeOverride(): void {
+  if (!import.meta.env.DEV) return;
   const theme = readNativeDialogThemeOverride();
   if (theme !== null) {
     setInMemoryThemeOverride(theme);
@@ -226,15 +227,11 @@ export function installProductionContextMenuGuard(isProduction: boolean): void {
   });
 }
 
-class BootstrapErrorTransport implements DescriptorRpcTransport {
+class BootstrapErrorTransport implements RpcTransport {
   readonly #error: Error;
 
   constructor(error: Error) {
     this.#error = error;
-  }
-
-  async call(): Promise<unknown> {
-    throw this.#error;
   }
 
   async callDescriptor(): Promise<never> {
@@ -245,7 +242,7 @@ class BootstrapErrorTransport implements DescriptorRpcTransport {
     throw this.#error;
   }
 
-  readonly subscribeDescriptor: DescriptorRpcTransport["subscribeDescriptor"] = (input) => {
+  readonly subscribeDescriptor: RpcTransport["subscribeDescriptor"] = (input) => {
     input.handler.onError(this.#error);
     return {
       close() {
@@ -254,29 +251,8 @@ class BootstrapErrorTransport implements DescriptorRpcTransport {
     };
   };
 
-  async callDedicated(): Promise<unknown> {
-    throw this.#error;
-  }
-
   async callDescriptorAttachedSession(): Promise<never> {
     throw this.#error;
-  }
-
-  async callAttachedProject(): Promise<never> {
-    throw this.#error;
-  }
-
-  async runRuntimeOwner(): Promise<never> {
-    throw this.#error;
-  }
-
-  subscribe(_method: string, _params: JsonValue, handler: RpcEventHandler): RpcSubscription {
-    handler.onError(this.#error);
-    return {
-      close() {
-        return;
-      },
-    };
   }
 }
 

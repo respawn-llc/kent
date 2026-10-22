@@ -5,7 +5,7 @@ import {
   deleteNodeIDsInternal,
   refreshNodeGroupMembership,
   removeEdgesInternal,
-  transitionIDsForSource,
+  transitionIDsForWorkflow,
   transitionGroupDifference,
 } from "./workflowEditorGraphMutationHelpers";
 import {
@@ -120,11 +120,11 @@ export function createWorkflowNodeGroupFromNode(
   if (node.groupID !== null) {
     return unchanged(draft, workflowEditorGraphMutationWarnings.nodeGroupRequiresUngroupedNode);
   }
-  const groupName = input.groupName ?? `${node.name} parallel`;
+  const groupName = input.groupName ?? null;
   const groupKey =
     input.groupKey ??
     uniqueWorkflowModelKey(
-      groupName,
+      `${node.key}_parallel`,
       draft.nodeGroups.map((group) => group.key),
     );
   const joinKey = uniqueWorkflowModelKey(
@@ -411,7 +411,7 @@ function rehomeExtractedBranchFanoutEdge(
     id: rehomedTransitionGroupID,
     name: node.name,
     sourceNodeID: fanoutGroup.sourceNodeID,
-    transitionID: uniqueWorkflowModelKey(node.key, transitionIDsForSource(draft, fanoutGroup.sourceNodeID)),
+    transitionID: uniqueWorkflowModelKey(node.key, transitionIDsForWorkflow(draft)),
     workflowID: draft.workflow.id,
   };
   return {

@@ -368,7 +368,7 @@ func formatEditToolResult(result Result) string {
 }
 
 func formatViewImageToolResult(result Result) string {
-	if summary, ok := formatViewImageOutput(result.Output); ok {
+	if summary, _, ok := InterpretViewImageOutput(result.Output); ok {
 		return summary
 	}
 	return formatGenericToolResult(result)
@@ -752,6 +752,44 @@ func decodeHostedWebSearchOutput(item HostedToolOutput) (HostedExecution, bool) 
 	}, true
 }
 
+func decodeHostedCustomToolOutput(item HostedToolOutput) (HostedExecution, bool) {
+	if !json.Valid(item.Raw) {
+		return HostedExecution{}, false
+	}
+	var payload struct {
+		Type   string          `json:"type"`
+		CallID string          `json:"call_id"`
+		Name   string          `json:"name"`
+		Input  json.RawMessage `json:"input"`
+		Status string          `json:"status"`
+	}
+	if err := json.Unmarshal(item.Raw, &payload); err != nil || payload.Type != "custom_tool_call" {
+		return HostedExecution{}, false
+	}
+	callID := strings.TrimSpace(payload.CallID)
+	name := strings.TrimSpace(payload.Name)
+	if callID == "" || name == "" || len(payload.Input) == 0 {
+		return HostedExecution{}, false
+	}
+	input := payload.Input
+	if payload.Input[0] == '"' {
+		var encoded string
+		if err := json.Unmarshal(payload.Input, &encoded); err != nil {
+			return HostedExecution{}, false
+		}
+		if json.Valid([]byte(encoded)) {
+			input = json.RawMessage(encoded)
+		}
+	}
+	if !json.Valid(input) {
+		return HostedExecution{}, false
+	}
+	return HostedExecution{
+		Call:   HostedCall{ID: callID, Name: toolspec.ID(name), Input: append(json.RawMessage(nil), input...), ProviderItem: append(json.RawMessage(nil), item.Raw...)},
+		Result: Result{CallID: callID, Name: toolspec.ID(name), Output: append(json.RawMessage(nil), item.Raw...), IsError: strings.EqualFold(payload.Status, "failed"), ProviderItemOnly: true},
+	}, true
+}
+
 func formatToolInput(toolID toolspec.ID, raw json.RawMessage) (string, string) {
 	payload, err := jsoncontract.DecodeValue(raw)
 	if err != nil {
@@ -828,6 +866,9 @@ func formatOutputDefault(raw json.RawMessage) string {
 	if err != nil {
 		return strings.TrimSpace(string(raw))
 	}
+	if text, ok := payload.String(); ok {
+		return text
+	}
 	if _, err := payload.ObjectFields(); err != nil {
 		formatted, err := payload.CompactJSON()
 		if err != nil {
@@ -863,24 +904,30 @@ func formatOutputDefault(raw json.RawMessage) string {
 	return string(formatted)
 }
 
-func formatViewImageOutput(raw json.RawMessage) (string, bool) {
+// InterpretViewImageOutput derives display text and source kind from canonical content.
+func InterpretViewImageOutput(raw json.RawMessage) (string, *transcript.ViewedImageKind, bool) {
 	var items []struct {
 		Type     string `json:"type"`
 		Filename string `json:"filename"`
 	}
 	if err := json.Unmarshal(raw, &items); err != nil {
-		return "", false
+		return "", nil, false
 	}
 	if len(items) == 0 {
-		return "", false
+		return "", nil, false
 	}
 
 	labels := make([]string, 0, len(items))
+	var kind *transcript.ViewedImageKind
 	for _, item := range items {
 		switch strings.ToLower(strings.TrimSpace(item.Type)) {
 		case "input_image":
+			value := transcript.ViewedImageRaster
+			kind = &value
 			labels = append(labels, "attached image")
 		case "input_file":
+			value := transcript.ViewedImagePDF
+			kind = &value
 			filename := strings.TrimSpace(item.Filename)
 			if filename == "" {
 				labels = append(labels, "attached PDF")
@@ -892,9 +939,9 @@ func formatViewImageOutput(raw json.RawMessage) (string, bool) {
 		}
 	}
 	if len(labels) == 0 {
-		return "", false
+		return "", nil, false
 	}
-	return strings.Join(labels, "\n"), true
+	return strings.Join(labels, "\n"), kind, true
 }
 
 func formatRawJSON(raw json.RawMessage) string {

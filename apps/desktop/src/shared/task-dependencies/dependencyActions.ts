@@ -2,7 +2,7 @@ import { useMemo } from "react";
 import { useQueryClient, MutationObserver, type QueryClient } from "@tanstack/react-query";
 import { useAtomMount, useAtomSet, useAtomValue } from "@effect/atom-react";
 import { useTranslation } from "react-i18next";
-import * as Atom from "effect/unstable/reactivity/Atom";
+import * as Atom from "effect/reactivity/Atom";
 import * as Effect from "effect/Effect";
 import type { TaskDependencyDirection, TaskDependencyItem, TaskDetail } from "@/api";
 import { errorMessage } from "@/api";

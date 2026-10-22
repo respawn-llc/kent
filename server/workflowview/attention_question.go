@@ -6,6 +6,9 @@ import (
 	"time"
 
 	"core/shared/clientui"
+	"core/shared/protoapi"
+	promptpb "core/shared/protoapi/gen/kent/api/prompt"
+	taskpb "core/shared/protoapi/gen/kent/api/workflow_task"
 	"core/shared/runtimeids"
 	"core/shared/serverapi"
 	"core/shared/textutil"
@@ -32,59 +35,55 @@ type pendingQuestion struct {
 	message                string
 	suggestions            []string
 	recommendedOptionIndex *int
-	prompt                 *serverapi.WorkflowAttentionQuestionPrompt
+	prompt                 *taskpb.AttentionQuestionPrompt
 }
 
 func pendingQuestionFromPrompt(snapshot PendingPromptSnapshot) (pendingQuestion, bool, error) {
-	if err := snapshot.ToolCallID.Validate(); err != nil {
-		return pendingQuestion{}, true, fmt.Errorf("pending prompt identity: %w", err)
-	}
-	if snapshot.SessionID.IsZero() {
-		return pendingQuestion{}, true, fmt.Errorf("pending prompt %q has no session identity", snapshot.ToolCallID)
-	}
-	if snapshot.StepID.IsZero() {
-		return pendingQuestion{}, true, fmt.Errorf("pending prompt %q has no step identity", snapshot.ToolCallID)
-	}
 	if snapshot.Approval {
-		decisions := append([]clientui.ApprovalDecision(nil), snapshot.ApprovalDecisions...)
-		for _, decision := range decisions {
-			switch decision {
-			case clientui.ApprovalDecisionAllowOnce, clientui.ApprovalDecisionAllowSession, clientui.ApprovalDecisionDeny:
-			default:
-				return pendingQuestion{}, true, fmt.Errorf("pending approval question %q has invalid decision %q", snapshot.ToolCallID, decision)
+		decisions := make([]promptpb.ApprovalDecision, 0, len(snapshot.ApprovalDecisions))
+		for _, decision := range snapshot.ApprovalDecisions {
+			value, err := protoapi.ApprovalDecisionToProto(decision)
+			if err != nil {
+				return pendingQuestion{}, true, err
 			}
-		}
-		if len(decisions) == 0 {
-			return pendingQuestion{}, true, fmt.Errorf("pending approval question %q has no approval decisions", snapshot.ToolCallID)
+			decisions = append(decisions, value)
 		}
 		return pendingQuestion{
 			message: strings.TrimSpace(snapshot.Question),
-			prompt: &serverapi.WorkflowAttentionQuestionPrompt{
-				SessionID:         snapshot.SessionID,
-				StepID:            snapshot.StepID,
-				ToolCallID:        snapshot.ToolCallID,
-				Kind:              serverapi.WorkflowAttentionQuestionKindApproval,
-				ApprovalDecisions: decisions,
-				AccessTargets:     append([]clientui.FileAccessTarget(nil), snapshot.AccessTargets...),
+			prompt: &taskpb.AttentionQuestionPrompt{
+				SessionId:  snapshot.SessionID.String(),
+				StepId:     snapshot.StepID.String(),
+				ToolCallId: string(snapshot.ToolCallID),
+				Kind:       taskpb.AttentionQuestionKind_ATTENTION_QUESTION_KIND_APPROVAL,
+				Prompt: &taskpb.AttentionQuestionPrompt_Approval{Approval: &taskpb.ApprovalQuestion{
+					ApprovalDecisions: decisions,
+					AccessTargets:     protoapi.FileAccessTargetsToProto(snapshot.AccessTargets),
+				}},
 			},
 		}, true, nil
 	}
 	suggestions := normalizedPendingQuestionSuggestions(snapshot.Suggestions)
-	recommended, err := validatePendingQuestionRecommendation(snapshot.RecommendedOptionIndex, len(suggestions))
-	if err != nil {
-		return pendingQuestion{}, true, fmt.Errorf("pending question %q: %w", snapshot.ToolCallID, err)
+	recommended := snapshot.RecommendedOptionIndex
+	var index *int32
+	if recommended != nil {
+		value, err := protoapi.Int32(*recommended, "recommended option index")
+		if err != nil {
+			return pendingQuestion{}, true, err
+		}
+		index = &value
 	}
 	return pendingQuestion{
 		message:                strings.TrimSpace(snapshot.Question),
 		suggestions:            suggestions,
 		recommendedOptionIndex: recommended,
-		prompt: &serverapi.WorkflowAttentionQuestionPrompt{
-			SessionID:              snapshot.SessionID,
-			StepID:                 snapshot.StepID,
-			ToolCallID:             snapshot.ToolCallID,
-			Kind:                   serverapi.WorkflowAttentionQuestionKindOrdinary,
-			Suggestions:            suggestions,
-			RecommendedOptionIndex: textutil.Pointer(recommended),
+		prompt: &taskpb.AttentionQuestionPrompt{
+			SessionId:  snapshot.SessionID.String(),
+			StepId:     snapshot.StepID.String(),
+			ToolCallId: string(snapshot.ToolCallID),
+			Kind:       taskpb.AttentionQuestionKind_ATTENTION_QUESTION_KIND_ORDINARY,
+			Prompt: &taskpb.AttentionQuestionPrompt_Ordinary{Ordinary: &taskpb.OrdinaryQuestion{
+				Suggestions: suggestions, RecommendedOptionIndex: index,
+			}},
 		},
 	}, true, nil
 }

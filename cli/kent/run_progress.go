@@ -5,7 +5,9 @@ import (
 	"io"
 	"strings"
 
+	"core/cli/app"
 	"core/prompts"
+	"core/shared/protoapi"
 	runpromptpb "core/shared/protoapi/gen/kent/api/run_prompt"
 )
 
@@ -14,31 +16,44 @@ type runProgressRenderer struct {
 	stderr               io.Writer
 	wroteStdoutBlock     bool
 	finalResponseEmitted bool
+	mode                 runProgressMode
+	agentFlag            app.RunAgentFlag
 }
 
 func newRunProgressRenderer(stdout io.Writer, stderr io.Writer) *runProgressRenderer {
-	return &runProgressRenderer{stdout: stdout, stderr: stderr}
+	return &runProgressRenderer{stdout: stdout, stderr: stderr, mode: runProgressModeStderr}
 }
 
 func (r *runProgressRenderer) PublishRunPromptProgress(progress *runpromptpb.ProgressEvent) {
 	if r == nil {
 		return
 	}
+	if accepted := progress.GetActiveSteerAccepted(); accepted != nil {
+		warnings, err := app.RunAdmissionWarnings(accepted, r.agentFlag)
+		if err != nil {
+			fmt.Fprintln(r.stderr, err)
+			return
+		}
+		emitWarnings(r.stderr, warnings)
+		return
+	}
+	if r.mode == runProgressModeQuiet {
+		return
+	}
 	switch event := progress.GetPayload().(type) {
 	case *runpromptpb.ProgressEvent_SessionStarted:
+		identity := protoapi.SessionIdentityFromProto(event.SessionStarted.SessionId, event.SessionStarted.ShortId)
 		_, _ = fmt.Fprintf(
 			r.stderr,
 			"Started a new session, `%s run steer %s \"prompt\"` to send messages while it runs\n",
 			prompts.LaunchCommand(),
-			event.SessionStarted.SessionId,
+			identity.String(),
 		)
 	case *runpromptpb.ProgressEvent_AssistantMessage:
 		r.writeStdoutBlock(event.AssistantMessage.Content)
 		if event.AssistantMessage.Phase == runpromptpb.MessagePhase_MESSAGE_PHASE_FINAL {
 			r.finalResponseEmitted = true
 		}
-	case *runpromptpb.ProgressEvent_SteeredMessage:
-		_, _ = fmt.Fprintf(r.stderr, "Steered message: %s\n", event.SteeredMessage.Content)
 	case *runpromptpb.ProgressEvent_CompactionStarted:
 		_, _ = fmt.Fprintln(r.stderr, "Compacting context")
 	case *runpromptpb.ProgressEvent_CompactionFailed:

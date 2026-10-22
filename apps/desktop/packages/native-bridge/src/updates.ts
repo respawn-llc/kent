@@ -1,5 +1,9 @@
 import { relaunch } from "@tauri-apps/plugin-process";
 import { check as checkForUpdate, type Update } from "@tauri-apps/plugin-updater";
+import * as Effect from "effect/Effect";
+import * as Queue from "effect/Queue";
+import * as Stream from "effect/Stream";
+import { nativeEmitter, type NativeOverflowReporter } from "./observation";
 
 export type NativeUpdateAvailability =
   | Readonly<{ available: false }>
@@ -23,7 +27,9 @@ export type NativeUpdateBridge = Readonly<{
   // even though the updater capability is present.
   supported(): Promise<boolean>;
   check(): Promise<NativeUpdateAvailability>;
-  downloadAndInstall(onProgress?: (progress: NativeUpdateDownloadProgress) => void): Promise<void>;
+  downloadAndInstall(
+    reportOverflow: NativeOverflowReporter,
+  ): Stream.Stream<NativeUpdateDownloadProgress, Error>;
   relaunch(): Promise<void>;
 }>;
 
@@ -37,9 +43,7 @@ export function createBrowserUpdates(): NativeUpdateBridge {
     async check(): Promise<NativeUpdateAvailability> {
       return unavailableUpdate;
     },
-    async downloadAndInstall(): Promise<void> {
-      throw new Error("Application updates are unavailable in this shell.");
-    },
+    downloadAndInstall: () => Stream.fail(new Error("Application updates are unavailable in this shell.")),
     async relaunch(): Promise<void> {
       throw new Error("Application relaunch is unavailable in this shell.");
     },
@@ -68,22 +72,37 @@ export function createTauriUpdates(selfUpdateSupported: () => Promise<boolean>):
         publishedAt: parseUpdateDate(update.date),
       };
     },
-    async downloadAndInstall(onProgress?: (progress: NativeUpdateDownloadProgress) => void): Promise<void> {
-      if (pendingUpdate === null) {
-        throw new Error("No update is pending; call updates.check() first.");
-      }
-      let downloadedBytes = 0;
-      let totalBytes: number | null = null;
-      await pendingUpdate.downloadAndInstall((event) => {
-        if (event.event === "Started") {
-          totalBytes = event.data.contentLength ?? null;
-          downloadedBytes = 0;
-        } else if (event.event === "Progress") {
-          downloadedBytes += event.data.chunkLength;
-        }
-        onProgress?.({ downloadedBytes, totalBytes });
-      });
-    },
+    downloadAndInstall: (reportOverflow) =>
+      Stream.callback<NativeUpdateDownloadProgress, Error>(
+        (queue) => {
+          const emit = nativeEmitter(queue, reportOverflow);
+          return Effect.tryPromise({
+            try: async (signal) => {
+              if (pendingUpdate === null)
+                throw new Error("No update is pending; call updates.check() first.");
+              let downloadedBytes = 0;
+              let totalBytes: number | null = null;
+              await pendingUpdate.downloadAndInstall((event) => {
+                if (signal.aborted) return;
+                if (event.event === "Started") {
+                  totalBytes = event.data.contentLength ?? null;
+                  downloadedBytes = 0;
+                } else if (event.event === "Progress") {
+                  downloadedBytes += event.data.chunkLength;
+                }
+                emit({ downloadedBytes, totalBytes });
+              });
+            },
+            catch: (cause) => (cause instanceof Error ? cause : new Error(String(cause))),
+          }).pipe(
+            Effect.matchEffect({
+              onFailure: (error) => Queue.fail(queue, error),
+              onSuccess: () => Queue.end(queue),
+            }),
+          );
+        },
+        { bufferSize: 1000, strategy: "dropping" },
+      ),
     async relaunch(): Promise<void> {
       await relaunch();
     },

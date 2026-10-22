@@ -185,11 +185,11 @@ function boundaryEntry({
     onLoadMore:
       direction === "previous"
         ? () => {
-            void data.fetchPreviousPage();
+            data.fetchPreviousPage();
           }
         : direction === "next"
           ? () => {
-              void data.fetchNextPage();
+              data.fetchNextPage();
             }
           : undefined,
   };
@@ -217,11 +217,9 @@ function groupBoundary(
     loadingLabel: t("states.loading"),
     message: failed ? errorMessage(data.error) : "",
     onRetry: () => {
-      void (initial
-        ? data.refetch()
-        : direction === "previous"
-          ? data.fetchPreviousPage()
-          : data.fetchNextPage());
+      if (initial) data.refetch();
+      else if (direction === "previous") data.fetchPreviousPage();
+      else data.fetchNextPage();
     },
     retryLabel: t("app.retry"),
   });

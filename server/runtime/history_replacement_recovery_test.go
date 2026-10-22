@@ -24,11 +24,11 @@ import (
 func TestReplaceHistoryDoesNotMutateRuntimeStateWhenEventAppendFails(t *testing.T) {
 	t.Parallel()
 	store := mustCreateTestSession(t)
-	engine := mustNewTestEngine(t, store, &fakeClient{}, tools.NewRegistry(), Config{Model: "gpt-5"})
+	engine := mustNewTestEngine(t, store, &fakeClient{}, tools.NewRegistry(), Config{Model: "gpt-6-sol"})
 	if err := steerTestActiveStep(engine, "seed", steerMessagesWithPersistenceIntent(steeringPriorityNormal, steeringMessageEventNone, true, []llm.Message{{Role: llm.RoleUser, Content: textutil.Value("input")}})); err != nil {
 		t.Fatalf("persist seed message: %v", err)
 	}
-	usage := &session.UsageState{InputTokens: 42, WindowTokens: 100}
+	usage := &session.UsageState{InputTokens: textutil.Value(42), WindowTokens: 100, ReportedContextTokens: textutil.Value(42)}
 	if _, err := store.SetUsageState(usage); err != nil {
 		t.Fatalf("persist seed usage: %v", err)
 	}
@@ -44,16 +44,11 @@ func TestReplaceHistoryDoesNotMutateRuntimeStateWhenEventAppendFails(t *testing.
 	compactionStepID := runtimeTestStepID("compact")
 	err := runTestActiveStep(engine, compactionStepID, func() error {
 		var replaceErr error
-		receipt, replaceErr = newCompactionPersistence(engine).replaceHistory(
-			compactionStepID,
-			"local",
-			compactionModeManual,
-			llm.ItemsFromMessages([]llm.Message{{
-				Role:        llm.RoleDeveloper,
-				MessageType: textutil.Value(llm.MessageTypeCompactionSummary),
-				Content:     textutil.Value("summary"),
-			}}),
-		)
+		receipt, replaceErr = replaceTestPreparedHistory(engine, compactionStepID, "local", compactionModeManual, preparedCompactionHistory{items: llm.ItemsFromMessages([]llm.Message{{
+			Role:        llm.RoleDeveloper,
+			MessageType: textutil.Value(llm.MessageTypeCompactionSummary),
+			Content:     textutil.Value("summary"),
+		}})})
 		return replaceErr
 	})
 	if err == nil || receipt.Committed {
@@ -71,7 +66,7 @@ func TestReplaceHistoryDoesNotMutateRuntimeStateWhenEventAppendFails(t *testing.
 		t.Fatal("uncommitted replacement cleared compaction reminder")
 	}
 	storedUsage := store.Meta().UsageState
-	if storedUsage == nil || storedUsage.InputTokens != usage.InputTokens {
+	if storedUsage == nil || !textutil.EqualOptional(storedUsage.InputTokens, usage.InputTokens) {
 		t.Fatalf("uncommitted replacement changed persisted usage: %+v", storedUsage)
 	}
 }
@@ -111,7 +106,7 @@ func TestRestoreMessagesFailsOnMalformedHistoryReplacementPayload(t *testing.T) 
 		if len(window.Records) != 0 {
 			t.Fatalf("ignored legacy reviewer rollback records = %+v", window.Records)
 		}
-		engine, err := New(store, eventLog, &fakeClient{}, tools.NewRegistry(), Config{Model: "gpt-5"})
+		engine, err := New(store, eventLog, &fakeClient{}, tools.NewRegistry(), Config{Model: "gpt-6-sol"})
 		if err != nil {
 			t.Fatalf("restore legacy reviewer rollback: %v", err)
 		}
@@ -129,7 +124,7 @@ func TestRestoreMessagesFailsOnMalformedHistoryReplacementPayload(t *testing.T) 
 func TestHistoryReplacementResetsDiagnosticDedupe(t *testing.T) {
 	t.Parallel()
 	store := mustCreateTestSession(t)
-	engine := mustNewTestEngine(t, store, &fakeClient{}, tools.NewRegistry(), Config{Model: "gpt-5"})
+	engine := mustNewTestEngine(t, store, &fakeClient{}, tools.NewRegistry(), Config{Model: "gpt-6-sol"})
 	diagnosticKey := "test_diagnostic"
 	beforeStepID := runtimeTestStepID("before-compaction")
 	if err := runTestActiveStep(engine, beforeStepID, func() error {
@@ -147,16 +142,11 @@ func TestHistoryReplacementResetsDiagnosticDedupe(t *testing.T) {
 	compactionStepID := runtimeTestStepID("compaction")
 	err := runTestActiveStep(engine, compactionStepID, func() error {
 		var replaceErr error
-		receipt, replaceErr = newCompactionPersistence(engine).replaceHistory(
-			compactionStepID,
-			"local",
-			compactionModeManual,
-			llm.ItemsFromMessages([]llm.Message{{
-				Role:        llm.RoleDeveloper,
-				MessageType: textutil.Value(llm.MessageTypeCompactionSummary),
-				Content:     textutil.Value("summary"),
-			}}),
-		)
+		receipt, replaceErr = replaceTestPreparedHistory(engine, compactionStepID, "local", compactionModeManual, preparedCompactionHistory{items: llm.ItemsFromMessages([]llm.Message{{
+			Role:        llm.RoleDeveloper,
+			MessageType: textutil.Value(llm.MessageTypeCompactionSummary),
+			Content:     textutil.Value("summary"),
+		}})})
 		return replaceErr
 	})
 	if err != nil || !receipt.Committed {
@@ -188,7 +178,7 @@ func TestHistoryReplacementResetsDiagnosticDedupe(t *testing.T) {
 func TestReopenedSessionHistoryReplacementResetsDiagnosticDedupe(t *testing.T) {
 	t.Parallel()
 	store := mustCreateTestSession(t)
-	engine := mustNewTestEngine(t, store, &fakeClient{}, tools.NewRegistry(), Config{Model: "gpt-5"})
+	engine := mustNewTestEngine(t, store, &fakeClient{}, tools.NewRegistry(), Config{Model: "gpt-6-sol"})
 	diagnosticKey := "test_diagnostic"
 	beforeStepID := runtimeTestStepID("before-compaction")
 	if err := runTestActiveStep(engine, beforeStepID, func() error {
@@ -205,16 +195,11 @@ func TestReopenedSessionHistoryReplacementResetsDiagnosticDedupe(t *testing.T) {
 	compactionStepID := runtimeTestStepID("compaction")
 	err := runTestActiveStep(engine, compactionStepID, func() error {
 		var replaceErr error
-		receipt, replaceErr = newCompactionPersistence(engine).replaceHistory(
-			compactionStepID,
-			"local",
-			compactionModeManual,
-			llm.ItemsFromMessages([]llm.Message{{
-				Role:        llm.RoleDeveloper,
-				MessageType: textutil.Value(llm.MessageTypeCompactionSummary),
-				Content:     textutil.Value("summary"),
-			}}),
-		)
+		receipt, replaceErr = replaceTestPreparedHistory(engine, compactionStepID, "local", compactionModeManual, preparedCompactionHistory{items: llm.ItemsFromMessages([]llm.Message{{
+			Role:        llm.RoleDeveloper,
+			MessageType: textutil.Value(llm.MessageTypeCompactionSummary),
+			Content:     textutil.Value("summary"),
+		}})})
 		return replaceErr
 	})
 	if err != nil || !receipt.Committed {
@@ -222,7 +207,7 @@ func TestReopenedSessionHistoryReplacementResetsDiagnosticDedupe(t *testing.T) {
 	}
 
 	reopened := mustOpenTestSession(t, store.Dir())
-	restored := mustNewTestEngine(t, reopened, &fakeClient{}, tools.NewRegistry(), Config{Model: "gpt-5"})
+	restored := mustNewTestEngine(t, reopened, &fakeClient{}, tools.NewRegistry(), Config{Model: "gpt-6-sol"})
 	afterStepID := runtimeTestStepID("after-reopen")
 	if err := runTestActiveStep(restored, afterStepID, func() error {
 		return restored.steerPersistedDiagnosticEntry(
@@ -302,14 +287,14 @@ func TestCommittedCompactionHistoryReplacementInvalidatesUsageAcrossImmediateReo
 	observerErr := errors.New("history replacement metadata observer failure")
 	gate := sessiontest.NewPersistenceGate(runtimeTestSessionPersistence)
 	store := mustCreateTestSessionAt(t, t.TempDir(), session.WithPersistenceObserver(gate))
-	engine := mustNewExecTestEngine(t, store, &fakeClient{}, Config{Model: "gpt-5"})
+	engine := mustNewExecTestEngine(t, store, &fakeClient{}, Config{Model: "gpt-6-sol"})
 	if err := steerTestActiveStep(engine, "seed", steerMessagesWithPersistenceIntent(steeringPriorityNormal, steeringMessageEventNone, true, []llm.Message{{Role: llm.RoleUser, Content: textutil.Value("input")}})); err != nil {
 		t.Fatalf("persist seed message: %v", err)
 	}
 	previousUsage := llm.Usage{
-		InputTokens:       190_000,
+		InputTokens:       textutil.Value(190_000),
 		WindowTokens:      200_000,
-		CachedInputTokens: textutil.Value(190_000),
+		CachedInputTokens: textutil.Value(190_000), ContextUsage: &llm.ContextUsage{Tokens: 190_000, MeasurementPoint: llm.ContextMeasurementInput},
 	}
 	if receipt, err := engine.recordLastUsage(previousUsage); err != nil || !receipt.Committed {
 		t.Fatalf("persist previous usage: receipt=%+v error=%v", receipt, err)
@@ -322,16 +307,11 @@ func TestCommittedCompactionHistoryReplacementInvalidatesUsageAcrossImmediateReo
 	compactionStepID := runtimeTestStepID("compact")
 	err := runTestActiveStep(engine, compactionStepID, func() error {
 		var replaceErr error
-		receipt, replaceErr = newCompactionPersistence(engine).replaceHistory(
-			compactionStepID,
-			"local",
-			compactionModeManual,
-			llm.ItemsFromMessages([]llm.Message{{
-				Role:        llm.RoleDeveloper,
-				MessageType: textutil.Value(llm.MessageTypeCompactionSummary),
-				Content:     textutil.Value("summary"),
-			}}),
-		)
+		receipt, replaceErr = replaceTestPreparedHistory(engine, compactionStepID, "local", compactionModeManual, preparedCompactionHistory{items: llm.ItemsFromMessages([]llm.Message{{
+			Role:        llm.RoleDeveloper,
+			MessageType: textutil.Value(llm.MessageTypeCompactionSummary),
+			Content:     textutil.Value("summary"),
+		}})})
 		return replaceErr
 	})
 	if !receipt.Committed || !errors.Is(err, observerErr) {
@@ -342,9 +322,9 @@ func TestCommittedCompactionHistoryReplacementInvalidatesUsageAcrossImmediateReo
 	if usage := reopenedStore.Meta().UsageState; usage != nil {
 		t.Fatalf("immediate reopen restored pre-compaction usage: %+v", usage)
 	}
-	reopened := mustNewExecTestEngine(t, reopenedStore, &fakeClient{}, Config{Model: "gpt-5"})
+	reopened := mustNewExecTestEngine(t, reopenedStore, &fakeClient{}, Config{Model: "gpt-6-sol"})
 	usage := reopened.ContextUsage()
-	if usage.UsedTokens <= 0 || usage.UsedTokens >= previousUsage.InputTokens {
+	if usage.UsedTokens <= 0 || previousUsage.InputTokens == nil || usage.UsedTokens >= *previousUsage.InputTokens {
 		t.Fatalf("immediately reopened context usage = %+v, want compacted active-history estimate", usage)
 	}
 	if usage.HasCacheHitPercentage {
@@ -361,7 +341,7 @@ func TestHistoryReplacementAppendObserverFailureUpdatesLiveActiveListForNextTurn
 		Assistant: llm.Message{Role: llm.RoleAssistant, Content: textutil.Value("done")},
 		Usage:     llm.Usage{WindowTokens: 200_000},
 	}}}
-	engine := mustNewExecTestEngine(t, store, client, Config{Model: "gpt-5"})
+	engine := mustNewExecTestEngine(t, store, client, Config{Model: "gpt-6-sol"})
 	if err := steerTestActiveStep(engine, "seed", steerMessagesWithPersistenceIntent(steeringPriorityNormal, steeringMessageEventNone, true, []llm.Message{{Role: llm.RoleUser, Content: textutil.Value("input")}})); err != nil {
 		t.Fatalf("persist seed message: %v", err)
 	}
@@ -373,16 +353,11 @@ func TestHistoryReplacementAppendObserverFailureUpdatesLiveActiveListForNextTurn
 	compactionStepID := runtimeTestStepID("compact")
 	err := runTestActiveStep(engine, compactionStepID, func() error {
 		var replaceErr error
-		receipt, replaceErr = newCompactionPersistence(engine).replaceHistory(
-			compactionStepID,
-			"local",
-			compactionModeManual,
-			llm.ItemsFromMessages([]llm.Message{{
-				Role:        llm.RoleDeveloper,
-				MessageType: textutil.Value(llm.MessageTypeCompactionSummary),
-				Content:     textutil.Value("summary"),
-			}}),
-		)
+		receipt, replaceErr = replaceTestPreparedHistory(engine, compactionStepID, "local", compactionModeManual, preparedCompactionHistory{items: llm.ItemsFromMessages([]llm.Message{{
+			Role:        llm.RoleDeveloper,
+			MessageType: textutil.Value(llm.MessageTypeCompactionSummary),
+			Content:     textutil.Value("summary"),
+		}})})
 		return replaceErr
 	})
 	if !receipt.Committed || !errors.Is(err, observerErr) {
@@ -450,18 +425,18 @@ func newCommittedRemoteCompactionFixture(
 		store: mustCreateTestSessionAt(t, t.TempDir(), session.WithPersistenceObserver(observer)),
 		client: &fakeCompactionClient{
 			compactionResponses: []llm.CompactionResponse{{
-				Checkpoint: llm.ResponseItem{
+				OutputItems: []llm.ResponseItem{llm.ResponseItem{
 					Type:             llm.ResponseItemTypeCompaction,
 					ID:               textutil.Value("cmp-1"),
 					EncryptedContent: textutil.Value("encrypted"),
-				},
-				Usage: llm.Usage{InputTokens: 1_000, OutputTokens: 100, WindowTokens: 200_000},
+				}},
+				Usage: llm.Usage{InputTokens: textutil.Value(1_000), OutputTokens: textutil.Value(100), WindowTokens: 200_000, ContextUsage: &llm.ContextUsage{Tokens: 1_000, MeasurementPoint: llm.ContextMeasurementInput}},
 			}},
 		},
 		previousUsage: llm.Usage{
-			InputTokens:       190_000,
+			InputTokens:       textutil.Value(190_000),
 			WindowTokens:      200_000,
-			CachedInputTokens: textutil.Value(190_000),
+			CachedInputTokens: textutil.Value(190_000), ContextUsage: &llm.ContextUsage{Tokens: 190_000, MeasurementPoint: llm.ContextMeasurementInput},
 		},
 	}
 	if locked != nil {
@@ -470,7 +445,7 @@ func newCommittedRemoteCompactionFixture(
 		}
 	}
 	fixture.engine = mustNewTestEngine(t, fixture.store, fixture.client, tools.NewRegistry(), Config{
-		Model: "gpt-5",
+		Model: "gpt-6-sol",
 		OnEvent: func(event Event) {
 			fixture.events = append(fixture.events, event)
 		},
@@ -555,7 +530,7 @@ func TestCompactNowReconcilesLiveUsageWhenFinalUsageObserverFails(t *testing.T) 
 		usage := snapshot.Meta.UsageState
 		return usage != nil &&
 			usage.WindowTokens == fixture.previousUsage.WindowTokens &&
-			usage.InputTokens != fixture.previousUsage.InputTokens
+			!textutil.EqualOptional(usage.InputTokens, fixture.previousUsage.InputTokens)
 	}, observerErr)
 
 	var receipt session.CommitReceipt
@@ -576,12 +551,31 @@ func TestCompactNowReconcilesLiveUsageWhenFinalUsageObserverFails(t *testing.T) 
 	}
 
 	liveUsage := fixture.engine.ContextUsage()
-	expectedInputTokens := estimateItemsTokens(fixture.engine.transcriptRuntimeState().SnapshotItems())
+	window, err := mustMaterializeTestEventLog(t, fixture.store).ReadRecentRecords(16)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var compactedOutput *compactionOutput
+	for _, event := range window.Records {
+		replacement, ok := mustSessionEventPayload(event).(session.HistoryReplacementRecord)
+		if !ok || replacement.CompactedOutput == nil {
+			continue
+		}
+		output, err := compactionOutputFromRecord(*replacement.CompactedOutput)
+		if err != nil {
+			t.Fatal(err)
+		}
+		compactedOutput = &output
+	}
+	if compactedOutput == nil {
+		t.Fatal("committed compacted output missing")
+	}
+	expectedInputTokens := compactedOutput.estimateTokens(fixture.engine.connectionSnapshot().estimator)
 	if liveUsage.UsedTokens != expectedInputTokens {
 		t.Fatalf("live compacted usage = %+v, want estimated input tokens %d", liveUsage, expectedInputTokens)
 	}
 	if persisted := fixture.store.Meta().UsageState; persisted == nil ||
-		persisted.InputTokens != expectedInputTokens ||
+		persisted.ReportedContextTokens != nil || persisted.EstimatedProviderTokens != expectedInputTokens ||
 		persisted.WindowTokens != fixture.previousUsage.WindowTokens {
 		t.Fatalf("persisted compacted usage = %+v", persisted)
 	}
@@ -591,10 +585,10 @@ func TestCompactNowReconcilesLiveUsageWhenFinalUsageObserverFails(t *testing.T) 
 		mustOpenTestSession(t, fixture.store.Dir()),
 		&fakeClient{},
 		tools.NewRegistry(),
-		Config{Model: "gpt-5"},
+		Config{Model: "gpt-6-sol"},
 	)
 	reopenedUsage := reopened.ContextUsage()
-	if reopenedUsage.UsedTokens <= 0 || reopenedUsage.UsedTokens >= fixture.previousUsage.InputTokens {
+	if reopenedUsage.UsedTokens <= 0 || fixture.previousUsage.InputTokens == nil || reopenedUsage.UsedTokens >= *fixture.previousUsage.InputTokens {
 		t.Fatalf("reopened compacted usage = %+v", reopenedUsage)
 	}
 	if !reopenedUsage.HasCacheHitPercentage || reopenedUsage.CacheHitPercent != 100 {
@@ -607,7 +601,7 @@ func TestCompactNowClearsContractWhenMetadataObserverFails(t *testing.T) {
 	observerErr := errors.New("contract reset observer failure")
 	gate := sessiontest.NewPersistenceGate(runtimeTestSessionPersistence)
 	fixture := newCommittedRemoteCompactionFixture(t, gate, &session.LockedContract{
-		Model:             "gpt-5",
+		Model:             "gpt-6-sol",
 		SystemPrompt:      "persisted snapshot",
 		HasSystemPrompt:   true,
 		ReviewerPrompt:    "persisted reviewer snapshot",
@@ -642,9 +636,13 @@ func TestCompactNowClearsContractWhenMetadataObserverFails(t *testing.T) {
 		t.Fatalf("persisted contract after committed replacement = %+v, want absent", persisted)
 	}
 
+	if _, err := fixture.engine.buildRequest(context.Background(), "next", false); err == nil {
+		t.Fatal("context-free request prepared pending compaction")
+	}
+	buildActiveTurnRequestForTest(t, fixture.engine, nil, false)
 	request, requestErr := fixture.engine.buildRequest(context.Background(), "next", false)
 	if requestErr != nil {
-		t.Fatalf("build request after committed stale mutation: %v", requestErr)
+		t.Fatalf("inspect request after dispatch preparation: %v", requestErr)
 	}
 	if generation := fixture.engine.compactionRuntimeState().Count(); generation != 1 {
 		t.Fatalf("cache-key compaction generation = %d, want 1", generation)
@@ -671,9 +669,9 @@ func TestRealCompactionClearsPersistedCompactionSoonReminderStateAcrossReopenAnd
 			Role:    llm.RoleAssistant,
 			Content: textutil.Value("summary"),
 		},
-		Usage: llm.Usage{InputTokens: 200, WindowTokens: 2_000},
+		Usage: llm.Usage{InputTokens: textutil.Value(200), WindowTokens: 2_000, ContextUsage: &llm.ContextUsage{Tokens: 200, MeasurementPoint: llm.ContextMeasurementInput}},
 	}}}, tools.NewRegistry(), Config{
-		Model:                 "gpt-5",
+		Model:                 "gpt-6-sol",
 		ContextWindowTokens:   2_000,
 		AutoCompactTokenLimit: 1_000,
 		CompactionMode:        "local",
@@ -681,7 +679,7 @@ func TestRealCompactionClearsPersistedCompactionSoonReminderStateAcrossReopenAnd
 	if err := steerTestActiveStep(engine, "seed", steerMessagesWithPersistenceIntent(steeringPriorityNormal, steeringMessageEventNone, true, []llm.Message{{Role: llm.RoleUser, Content: textutil.Value("input")}})); err != nil {
 		t.Fatalf("persist seed message: %v", err)
 	}
-	engine.setLastUsage(llm.Usage{InputTokens: 890, WindowTokens: 2_000})
+	engine.setLastUsage(llm.Usage{InputTokens: textutil.Value(890), WindowTokens: 2_000, ContextUsage: &llm.ContextUsage{Tokens: 890, MeasurementPoint: llm.ContextMeasurementInput}})
 	reminderStepID := runtimeTestStepID("reminder")
 	if err := runTestActiveStep(engine, reminderStepID, func() error {
 		return newCompactionReminderCoordinator(engine).maybeAppend(context.Background(), reminderStepID)
@@ -725,7 +723,7 @@ func TestRealCompactionClearsPersistedCompactionSoonReminderStateAcrossReopenAnd
 
 	reopenedStore := mustOpenTestSession(t, store.Dir())
 	reopened := mustNewTestEngine(t, reopenedStore, &fakeClient{}, tools.NewRegistry(), Config{
-		Model:                 "gpt-5",
+		Model:                 "gpt-6-sol",
 		ContextWindowTokens:   2_000,
 		AutoCompactTokenLimit: 1_000,
 		CompactionMode:        "local",
@@ -792,7 +790,7 @@ func TestRealCompactionClearsPersistedCompactionSoonReminderStateAcrossReopenAnd
 		)
 	}
 	forked := mustNewTestEngine(t, forkedStore, &fakeClient{}, tools.NewRegistry(), Config{
-		Model:                 "gpt-5",
+		Model:                 "gpt-6-sol",
 		ContextWindowTokens:   2_000,
 		AutoCompactTokenLimit: 1_000,
 		CompactionMode:        "local",
@@ -802,19 +800,20 @@ func TestRealCompactionClearsPersistedCompactionSoonReminderStateAcrossReopenAnd
 	}
 }
 
-func TestRemoteCompactionTaskAwarenessErrorDoesNotReplaceHistory(t *testing.T) {
+func TestCompactionDispatchTaskAwarenessErrorRetainsPendingSummary(t *testing.T) {
 	t.Parallel()
 	store := mustCreateTestSession(t)
 	countErr := errors.New("workflow task comment count failure")
+	awareness := &failingWorkflowTaskAwarenessSource{}
 	scopeID := runtimeids.NewExecutionScopeID()
 	client := &fakeCompactionClient{
 		compactionResponses: []llm.CompactionResponse{{
-			Checkpoint: llm.ResponseItem{
+			OutputItems: []llm.ResponseItem{llm.ResponseItem{
 				Type:             llm.ResponseItemTypeCompaction,
 				ID:               textutil.Value("cmp-1"),
 				EncryptedContent: textutil.Value("encrypted"),
-			},
-			Usage: llm.Usage{InputTokens: 1_000, OutputTokens: 100, WindowTokens: 200_000},
+			}},
+			Usage: llm.Usage{InputTokens: textutil.Value(1_000), OutputTokens: textutil.Value(100), WindowTokens: 200_000, ContextUsage: &llm.ContextUsage{Tokens: 1_000, MeasurementPoint: llm.ContextMeasurementInput}},
 		}},
 	}
 	engine := mustNewWorkflowTestEngine(t, store, client, &workflowruntime.CurrentNodeExecutionConfig{
@@ -822,14 +821,12 @@ func TestRemoteCompactionTaskAwarenessErrorDoesNotReplaceHistory(t *testing.T) {
 		Contract:            workflowruntime.CompletionContract{},
 		CompletionMode:      workflowruntime.CompletionModeTool,
 		Controller:          &externallyCompletedWorkflowController{},
-		TaskAwarenessSource: failingWorkflowTaskAwarenessSource{err: countErr},
+		TaskAwarenessSource: awareness,
 		Instructions:        workflowruntime.TaskInstructions{CurrentNode: mustTestCurrentNodeReference(t, "task-1", "node-1", nil)},
-	}, Config{Model: "gpt-5"})
+	}, Config{Model: "gpt-6-sol"})
 	if err := steerTestActiveStep(engine, "seed", steerMessagesWithPersistenceIntent(steeringPriorityNormal, steeringMessageEventNone, true, []llm.Message{{Role: llm.RoleUser, Content: textutil.Value("input")}})); err != nil {
 		t.Fatalf("persist seed message: %v", err)
 	}
-	before := engine.transcriptRuntimeState().SnapshotItems()
-
 	var receipt session.CommitReceipt
 	compactionStepID := runtimeTestStepID("compact")
 	err := runTestActiveStep(engine, compactionStepID, func() error {
@@ -843,11 +840,20 @@ func TestRemoteCompactionTaskAwarenessErrorDoesNotReplaceHistory(t *testing.T) {
 		)
 		return compactErr
 	})
-	if receipt.Committed || !errors.Is(err, countErr) {
-		t.Fatalf("comment-count failure compaction outcome: receipt=%+v error=%v", receipt, err)
+	if !receipt.Committed || err != nil {
+		t.Fatalf("pending compaction outcome: receipt=%+v error=%v", receipt, err)
+	}
+	awareness.err = countErr
+	before := engine.transcriptRuntimeState().SnapshotItems()
+	err = withActiveTestRun(t, engine, ActiveKindUserTurn, func(ctx context.Context, stepID string) error {
+		_, err := engine.buildActiveTurnDispatchRequest(ctx, stepID, nil, true)
+		return err
+	})
+	if !errors.Is(err, countErr) {
+		t.Fatalf("comment-count failure dispatch outcome: %v", err)
 	}
 	if after := engine.transcriptRuntimeState().SnapshotItems(); !reflect.DeepEqual(after, before) {
-		t.Fatalf("comment-count failure changed active typed items: before=%+v after=%+v", before, after)
+		t.Fatalf("comment-count failure changed pending items: before=%+v after=%+v", before, after)
 	}
 
 	window, readErr := mustMaterializeTestEventLog(t, store).ReadRecentRecords(16)
@@ -855,9 +861,13 @@ func TestRemoteCompactionTaskAwarenessErrorDoesNotReplaceHistory(t *testing.T) {
 		t.Fatalf("read bounded recent records: %v", readErr)
 	}
 	for _, record := range window.Records {
-		if _, ok := mustSessionEventPayload(record).(session.HistoryReplacementRecord); ok {
-			t.Fatalf("comment-count failure persisted history replacement: %+v", window.Records)
+		if replacement, ok := mustSessionEventPayload(record).(session.HistoryReplacementRecord); ok &&
+			replacement.CompactedOutput == nil {
+			t.Fatalf("comment-count failure persisted generation preparation: %+v", window.Records)
 		}
+	}
+	if engine.CompactionCount() != 1 || len(client.compactionCalls) != 1 {
+		t.Fatal("failed preparation repeated compaction")
 	}
 }
 
@@ -875,14 +885,14 @@ func TestCommittedHistoryReplacementPreventsStaleUsageFromLaterMetadataPersisten
 	usageErr := errors.New("compacted usage observer failure")
 	gate := sessiontest.NewPersistenceGate(runtimeTestSessionPersistence)
 	store := mustCreateTestSessionAt(t, t.TempDir(), session.WithPersistenceObserver(gate))
-	engine := mustNewTestEngine(t, store, &fakeClient{}, tools.NewRegistry(), Config{Model: "gpt-5"})
+	engine := mustNewTestEngine(t, store, &fakeClient{}, tools.NewRegistry(), Config{Model: "gpt-6-sol"})
 	if err := steerTestActiveStep(engine, "seed", steerMessagesWithPersistenceIntent(steeringPriorityNormal, steeringMessageEventNone, true, []llm.Message{{Role: llm.RoleUser, Content: textutil.Value("input")}})); err != nil {
 		t.Fatalf("persist seed message: %v", err)
 	}
 	previousUsage := llm.Usage{
-		InputTokens:       190_000,
+		InputTokens:       textutil.Value(190_000),
 		WindowTokens:      200_000,
-		CachedInputTokens: textutil.Value(190_000),
+		CachedInputTokens: textutil.Value(190_000), ContextUsage: &llm.ContextUsage{Tokens: 190_000, MeasurementPoint: llm.ContextMeasurementInput},
 	}
 	if receipt, err := engine.recordLastUsage(previousUsage); err != nil || !receipt.Committed {
 		t.Fatalf("persist previous usage: receipt=%+v error=%v", receipt, err)
@@ -895,38 +905,33 @@ func TestCommittedHistoryReplacementPreventsStaleUsageFromLaterMetadataPersisten
 	compactionStepID := runtimeTestStepID("compact")
 	err := runTestActiveStep(engine, compactionStepID, func() error {
 		var replaceErr error
-		receipt, replaceErr = newCompactionPersistence(engine).replaceHistory(
-			compactionStepID,
-			"local",
-			compactionModeManual,
-			llm.ItemsFromMessages([]llm.Message{{
-				Role:        llm.RoleDeveloper,
-				MessageType: textutil.Value(llm.MessageTypeCompactionSummary),
-				Content:     textutil.Value("summary"),
-			}}),
-		)
+		receipt, replaceErr = replaceTestPreparedHistory(engine, compactionStepID, "local", compactionModeManual, preparedCompactionHistory{items: llm.ItemsFromMessages([]llm.Message{{
+			Role:        llm.RoleDeveloper,
+			MessageType: textutil.Value(llm.MessageTypeCompactionSummary),
+			Content:     textutil.Value("summary"),
+		}})})
 		return replaceErr
 	})
 	if !receipt.Committed || !errors.Is(err, replacementErr) {
 		t.Fatalf("committed replacement outcome: receipt=%+v error=%v", receipt, err)
 	}
 
-	compactedUsage := llm.Usage{InputTokens: 2_000, WindowTokens: previousUsage.WindowTokens}
+	compactedUsage := llm.Usage{InputTokens: textutil.Value(2_000), WindowTokens: previousUsage.WindowTokens, ContextUsage: &llm.ContextUsage{Tokens: 2_000, MeasurementPoint: llm.ContextMeasurementInput}}
 	gate.FailWhen(func(snapshot session.PersistedStoreSnapshot) bool {
 		usage := snapshot.Meta.UsageState
-		return usage != nil && usage.InputTokens == compactedUsage.InputTokens
+		return usage != nil && textutil.EqualOptional(usage.InputTokens, compactedUsage.InputTokens)
 	}, usageErr)
 	usageReceipt, recordErr := engine.recordLastUsage(compactedUsage)
 	if !usageReceipt.Committed || !errors.Is(recordErr, usageErr) {
 		t.Fatalf("committed compacted-usage outcome: receipt=%+v error=%v", usageReceipt, recordErr)
 	}
-	if err := store.SetName("metadata"); err != nil {
+	if err := store.SetName(textutil.Value("metadata")); err != nil {
 		t.Fatalf("persist later metadata: %v", err)
 	}
 
 	reopened := mustOpenTestSession(t, store.Dir())
 	usage := reopened.Meta().UsageState
-	if usage == nil || usage.InputTokens != compactedUsage.InputTokens || usage.WindowTokens != compactedUsage.WindowTokens {
+	if usage == nil || !textutil.EqualOptional(usage.InputTokens, compactedUsage.InputTokens) || usage.WindowTokens != compactedUsage.WindowTokens {
 		t.Fatalf("reopened usage after later metadata persistence: %+v", usage)
 	}
 }
@@ -944,7 +949,7 @@ func TestWorkflowBudgetResetFailureKeepsCommittedReplacementLive(t *testing.T) {
 		CompletionMode: workflowruntime.CompletionModeTool,
 		Controller:     controller,
 	}, Config{
-		Model: "gpt-5",
+		Model: "gpt-6-sol",
 		OnEvent: func(event Event) {
 			events = append(events, event)
 		},
@@ -957,16 +962,11 @@ func TestWorkflowBudgetResetFailureKeepsCommittedReplacementLive(t *testing.T) {
 	compactionStepID := runtimeTestStepID("compact")
 	err := runTestActiveStep(engine, compactionStepID, func() error {
 		var replaceErr error
-		receipt, replaceErr = newCompactionPersistence(engine).replaceHistory(
-			compactionStepID,
-			"local",
-			compactionModeManual,
-			llm.ItemsFromMessages([]llm.Message{{
-				Role:        llm.RoleDeveloper,
-				MessageType: textutil.Value(llm.MessageTypeCompactionSummary),
-				Content:     textutil.Value("summary"),
-			}}),
-		)
+		receipt, replaceErr = replaceTestPreparedHistory(engine, compactionStepID, "local", compactionModeManual, preparedCompactionHistory{items: llm.ItemsFromMessages([]llm.Message{{
+			Role:        llm.RoleDeveloper,
+			MessageType: textutil.Value(llm.MessageTypeCompactionSummary),
+			Content:     textutil.Value("summary"),
+		}})})
 		return replaceErr
 	})
 	if !receipt.Committed || !errors.Is(err, resetErr) {

@@ -22,9 +22,9 @@ func TestSuccessfulRequestCandidateAdjustsUsageBaseline(t *testing.T) {
 			{Type: llm.ResponseItemTypeFunctionCallOutput, CallID: textutil.Value("call-1"), Output: json.RawMessage(`"done"`)},
 		},
 	}
-	fullEstimate := estimateItemsTokens(request.Items)
-	priorEstimate := estimateItemsTokens([]llm.ResponseItem{prior})
-	omitted := newSuccessfulRequestCandidate(request, llm.Response{})
+	fullEstimate := llm.EstimateItemsTokens(llm.DefaultTokenEstimator{}, request.Items)
+	priorEstimate := llm.EstimateItemsTokens(llm.DefaultTokenEstimator{}, []llm.ResponseItem{prior})
+	omitted := newSuccessfulRequestCandidate(llm.DefaultTokenEstimator{}, request, llm.Response{})
 	if omitted.requestedModel != request.Model || omitted.estimatedProviderTokens != fullEstimate-priorEstimate {
 		t.Fatalf("candidate = %+v, want requested model and adjusted baseline %d", omitted, fullEstimate-priorEstimate)
 	}

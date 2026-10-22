@@ -63,7 +63,7 @@ func (p PreparedSessionSnapshot) ExecutionTarget() SessionExecutionTargetUpdate 
 // database-only cutover. Target ownership is checked again by the transaction.
 func (s *Store) PrepareSessionSnapshot(ctx context.Context, snapshot session.PersistedStoreSnapshot, target SessionExecutionTargetUpdate) (PreparedSessionSnapshot, error) {
 	id, err := runtimeids.ParseSessionID(snapshot.Meta.SessionID)
-	if err != nil || !id.IsCanonicalUUIDv4() {
+	if err != nil {
 		return PreparedSessionSnapshot{}, errors.New("prepared Session requires a UUIDv4 identity")
 	}
 	if target.SessionID != id.String() {
@@ -157,7 +157,7 @@ func InsertPreparedSession(ctx context.Context, tx *sql.Tx, prepared PreparedSes
 	} else if !errors.Is(err, sql.ErrNoRows) {
 		return err
 	}
-	if err := q.UpsertSession(ctx, prepared.params); err != nil {
+	if err := persistSessionWithShortID(ctx, q, prepared.params); err != nil {
 		return fmt.Errorf("insert prepared Session: %w", err)
 	}
 	return nil

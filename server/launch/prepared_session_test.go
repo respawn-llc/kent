@@ -7,13 +7,74 @@ import (
 	"reflect"
 	"testing"
 
+	"core/internal/testharness/testsetup"
+	"core/server/metadata"
 	"core/server/session"
+	"core/shared/config"
 	worktreepb "core/shared/protoapi/gen/kent/api/worktree"
 	"core/shared/runtimeids"
 	"core/shared/serverapi"
 	"core/shared/sessioncontract"
 	"core/shared/textutil"
 )
+
+func TestPreparePreviousSessionChildAllocatesFreshRoleConnection(t *testing.T) {
+	planner, _, persistence := newTypedIntentPlanner(t)
+	planner.Config = loadLaunchConfig(t, t.TempDir())
+	selection := config.ConnectionSelection{"a", "b", "c"}
+	planner.Config.Settings.Connection = &selection
+	planner.Config.Settings.ConnectionOrder = []config.ConnectionID{"a", "b", "c"}
+	definition := planner.Config.Settings.Connections["test"]
+	planner.Config.Settings.Connections = map[config.ConnectionID]config.ProviderConnection{
+		"a": definition, "b": definition, "c": definition,
+	}
+	roleSelection := config.ConnectionSelection{"a", "b"}
+	planner.Config.Settings.Subagents = map[string]config.SubagentRole{
+		"worker": {
+			Settings: config.Settings{Connection: &roleSelection},
+			Sources: map[string]config.Origin{
+				"connection": {Kind: config.SourceInput, Property: config.PropertyAddress{Key: "connection"}},
+			},
+		},
+	}
+	planner.Rotation = NewConnectionRotation(testsetup.OpenStore(t, t.TempDir()), 0)
+	parent, err := planner.PlanSession(t.Context(), SessionRequest{
+		Mode: ModeInteractive, Intent: serverapi.CreateNewSessionLaunchIntent(serverapi.IndependentSessionCreateOrigin()),
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	source := testStoreForPlannerPlan(t, planner, parent)
+	if err := source.SetContinuationContext(session.ContinuationContext{AgentRole: textutil.Value("worker")}); err != nil {
+		t.Fatal(err)
+	}
+	parentID := parent.Descriptor.SessionID()
+	prepared, err := planner.PrepareSession(t.Context(), SessionPreparationRequest{
+		Request: SessionRequest{
+			Mode: ModeHeadless, Intent: serverapi.CreateNewSessionLaunchIntent(serverapi.PreviousSessionCreateOrigin(parentID)),
+		},
+		SessionID: runtimeids.NewSessionID(), ProjectID: testProjectID,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !reflect.DeepEqual(prepared.Plan.ActiveSettings.Connection, config.SingleConnection("b")) {
+		t.Fatalf("child connection = %v; want b", prepared.Plan.ActiveSettings.Connection)
+	}
+	meta := prepared.Creation.Snapshot().Meta
+	if meta.PreviousSessionID == nil || *meta.PreviousSessionID != parentID ||
+		!reflect.DeepEqual(meta.Continuation, source.Meta().Continuation) || meta.ConnectionID != nil {
+		t.Fatalf("prepared child context = %+v", meta)
+	}
+	record, err := persistence.ResolvePersistedSession(t.Context(), parentID.String())
+	if err != nil || record.Meta.ConnectionID == nil || *record.Meta.ConnectionID != "a" {
+		t.Fatalf("parent binding changed: %+v, %v", record.Meta, err)
+	}
+	next, err := planner.Rotation.Prepare(t.Context(), planner.Config.Settings, true)
+	if err != nil || next != "c" {
+		t.Fatalf("next connection = %s, %v; want c after one child allocation", next, err)
+	}
+}
 
 func TestPrepareSessionDoesNotPublishIdentityOrArtifacts(t *testing.T) {
 	planner, container, persistence := newTypedIntentPlanner(t)
@@ -36,8 +97,8 @@ func TestPrepareSessionDoesNotPublishIdentityOrArtifacts(t *testing.T) {
 	if _, err := os.Stat(filepath.Join(container, id.String())); !errors.Is(err, os.ErrNotExist) {
 		t.Fatalf("preparation published artifacts: %v", err)
 	}
-	if prepared.Creation.Snapshot().Meta.Name == "" {
-		t.Fatal("preparation omitted headless listing metadata")
+	if prepared.Creation.Snapshot().Meta.Name != nil {
+		t.Fatal("private preparation assigned a name before the number was committed")
 	}
 }
 
@@ -63,5 +124,34 @@ func TestPlanPreparedRetainedSessionLeavesMetadataUnchanged(t *testing.T) {
 	}
 	if !reflect.DeepEqual(meta, *record.Meta) {
 		t.Fatal("retained preparation mutated committed metadata")
+	}
+}
+
+func TestSubagentCreationLeavesNameAbsentAndAllowsAuthoredName(t *testing.T) {
+	root, workspace := t.TempDir(), t.TempDir()
+	persistence, err := metadata.Open(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = persistence.Close() })
+	binding, err := persistence.RegisterWorkspaceBinding(t.Context(), workspace)
+	if err != nil {
+		t.Fatal(err)
+	}
+	store, err := session.Create(
+		filepath.Join(root, "projects", binding.ProjectID, "sessions"), binding.WorkspaceName,
+		workspace, sessioncontract.SessionCategorySubagent, persistence.AuthoritativeSessionStoreOptions()...,
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if store.Meta().Name != nil || store.Identity().ShortID == nil {
+		t.Fatalf("new subagent name/identity = %v, %v", store.Meta().Name, store.Identity())
+	}
+	if err := store.SetName(textutil.Value("authored name")); err != nil {
+		t.Fatal(err)
+	}
+	if store.Meta().Name == nil || *store.Meta().Name != "authored name" {
+		t.Fatal("existing name was replaced")
 	}
 }

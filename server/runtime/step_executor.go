@@ -13,6 +13,7 @@ import (
 	"core/server/workflowruntime"
 	"core/shared/textutil"
 	"core/shared/toolspec"
+	"core/shared/transcript"
 )
 
 type defaultStepExecutor struct {
@@ -285,7 +286,13 @@ func (s *defaultStepExecutor) runStepLoopWithOptions(ctx context.Context, stepID
 			ctx,
 			stepID,
 			func() (llm.Request, error) {
-				return s.buildActiveTurnRequestAtBoundary(ctx, stepID, options, &mismatchWarningCommitted)
+				request, err := s.buildActiveTurnRequestAtBoundary(ctx, stepID, options, &mismatchWarningCommitted)
+				if err == nil {
+					// The first request commits this turn's Queue item. Rebuilding
+					// that request may accept more Steers, never another Queue item.
+					options.UserInputSelection = steerUserInjections()
+				}
+				return request, err
 			},
 			func(delta llm.AssistantDelta) {
 				_ = e.steer(stepID, steerAssistantDeltaIntent(delta))
@@ -302,7 +309,6 @@ func (s *defaultStepExecutor) runStepLoopWithOptions(ctx context.Context, stepID
 		if err != nil {
 			return stepLoopResult{}, err
 		}
-		options.UserInputSelection = steerUserInjections()
 		if reasoningSteerErr != nil {
 			return stepLoopResult{}, fmt.Errorf("apply streamed reasoning update: %w", reasoningSteerErr)
 		}
@@ -325,8 +331,12 @@ func (s *defaultStepExecutor) runStepLoopWithOptions(ctx context.Context, stepID
 				return stepLoopResult{}, err
 			}
 		}
-		if err := s.resolveReasoningDisposition(stepID, prepared.next, prepared.response.Reasoning); err != nil {
-			return stepLoopResult{}, err
+		assistantPhase, _ := textutil.OptionalValue(prepared.assistant.Phase)
+		if prepared.next != completedResponseNextAccepted ||
+			transcript.ClassifyAssistantPhase(string(assistantPhase)) != transcript.AssistantPhaseFinal {
+			if err := s.resolveReasoningDisposition(stepID, prepared.next, prepared.response.Reasoning); err != nil {
+				return stepLoopResult{}, err
+			}
 		}
 		switch prepared.next {
 		case completedResponseNextExternalWorkflowTerminal:
@@ -349,6 +359,7 @@ func (s *defaultStepExecutor) runStepLoopWithOptions(ctx context.Context, stepID
 			if err != nil {
 				return stepLoopResult{}, err
 			}
+			e.submitSessionNaming(prepared.response)
 			e.cascadeCompleteActiveGoalOnWorkflowCompletion(stepID)
 			return stepLoopResult{FinalAnswer: textutil.Value(prepared.assistant), ExecutedToolCall: true}, nil
 		case completedResponseNextAccepted:
@@ -390,6 +401,7 @@ func (s *defaultStepExecutor) runStepLoopWithOptions(ctx context.Context, stepID
 			if err := e.stepLifecycle.CompleteAgentStepBoundary(ctx); err != nil {
 				return stepLoopResult{}, err
 			}
+			e.submitSessionNaming(resp)
 			patchEditsApplied = patchEditsApplied || applied
 			if terminal {
 				e.cascadeCompleteActiveGoalOnWorkflowCompletion(stepID)
@@ -398,6 +410,7 @@ func (s *defaultStepExecutor) runStepLoopWithOptions(ctx context.Context, stepID
 			continue
 		}
 
+		e.submitSessionNaming(resp)
 		if assistantMsg.Content == nil && responseContainsProgress(resp) {
 			if err := e.stepLifecycle.CompleteAgentStepBoundary(ctx); err != nil {
 				return stepLoopResult{}, err
@@ -543,6 +556,9 @@ func (s *defaultStepExecutor) prepareActiveTurnRequest(ctx context.Context, step
 	if err := s.prepareModelTurn(ctx, stepID, prepared.items...); err != nil {
 		return llm.Request{}, false, err
 	}
+	if err := s.engine.prepareRequestGenerationContext(ctx, stepID); err != nil {
+		return llm.Request{}, false, err
+	}
 	assembly, err := s.engine.assembleRequest(ctx, stepID, prepared.items, true, true)
 	if err != nil {
 		return llm.Request{}, false, err
@@ -625,7 +641,6 @@ func (s *defaultStepExecutor) prepareCompletedResponse(ctx context.Context, step
 	preparedLocalCalls, err := prepareExecutorToolCalls(
 		e,
 		stepID,
-		activeRunIDForStep(e, stepID),
 		e.currentNodeExecutionActive(),
 		acceptedCalls.local,
 	)
@@ -648,7 +663,10 @@ func (s *defaultStepExecutor) prepareCompletedResponse(ctx context.Context, step
 	assistantMsg.ToolCalls = acceptedCalls.toolCalls()
 	phaseTurn.Assistant = assistantMsg
 
-	finalAnswerWithToolCalls := messagePhaseIs(assistantMsg, llm.MessagePhaseFinal) &&
+	// Without a phase protocol, an answer with only completed hosted work is
+	// already final. Hosted observations do not require a model continuation.
+	finalAnswerWithToolCalls := (messagePhaseIs(assistantMsg, llm.MessagePhaseFinal) ||
+		(!phaseTurn.EnforcePhaseProtocol && phaseTurn.EffectivePhase.IsAbsent() && len(acceptedCalls.local) == 0)) &&
 		assistantMsg.Content != nil &&
 		strings.TrimSpace(*assistantMsg.Content) != "" &&
 		acceptedCalls.hasCalls()
@@ -679,9 +697,15 @@ func (s *defaultStepExecutor) prepareCompletedResponse(ctx context.Context, step
 		}
 	}
 
+	assistantPhase, _ := textutil.OptionalValue(assistantMsg.Phase)
+	if transcript.ClassifyAssistantPhase(string(assistantPhase)) == transcript.AssistantPhaseFinal {
+		if err := s.resolveReasoningDisposition(stepID, completedResponseNextAccepted, resp.Reasoning); err != nil {
+			return preparedCompletedResponse{}, err
+		}
+	}
+
 	if !silentFinalAnswer {
 		assistantChars := 0
-		assistantPhase, _ := textutil.OptionalValue(assistantMsg.Phase)
 		if assistantMsg.Content != nil {
 			assistantChars = len(*assistantMsg.Content)
 		}

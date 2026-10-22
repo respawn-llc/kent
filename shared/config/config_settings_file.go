@@ -7,6 +7,7 @@ import (
 	"github.com/BurntSushi/toml"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 )
 
@@ -105,6 +106,15 @@ func ensureSettingsDir(path string) error {
 }
 
 func writeSettingsFileIfMissing(path string, contents string) (bool, error) {
+	return installSettingsFile(path, contents, false)
+}
+
+func replaceSettingsFile(path string, contents string) error {
+	_, err := installSettingsFile(path, contents, true)
+	return err
+}
+
+func installSettingsFile(path string, contents string, replace bool) (bool, error) {
 	if err := ensureSettingsDir(path); err != nil {
 		return false, err
 	}
@@ -130,6 +140,13 @@ func writeSettingsFileIfMissing(path string, contents string) (bool, error) {
 	}
 	if err := temp.Close(); err != nil {
 		return false, fmt.Errorf("close settings temp file: %w", err)
+	}
+	if replace {
+		if err := os.Rename(tempPath, path); err != nil {
+			return false, fmt.Errorf("replace settings file: %w", err)
+		}
+		cleanupTemp = false
+		return true, nil
 	}
 	if err := os.Link(tempPath, path); err != nil {
 		if errors.Is(err, os.ErrExist) {
@@ -158,14 +175,23 @@ func RenderSettingsTOMLForOnboarding(settings Settings, options OnboardingWriteO
 	if err != nil {
 		return "", err
 	}
-	return settingsTOMLForOnboarding(normalized, options.PreservedDefaults), nil
+	var output bytes.Buffer
+	encoder := toml.NewEncoder(&output)
+	output.WriteString(settingsTOMLForOnboarding(normalized, options.PreservedDefaults))
+	if len(normalized.Connections) > 0 {
+		connections := map[string]any{}
+		for id, definition := range normalized.Connections {
+			connections[string(id)] = connectionSettingsTable(definition)
+		}
+		if err := encoder.Encode(map[string]any{"connections": connections}); err != nil {
+			return "", err
+		}
+	}
+	return output.String(), nil
 }
 
 func onboardingPreservedSources(preserved map[string]bool) map[string]Origin {
-	if len(preserved) == 0 {
-		return nil
-	}
-	sources := map[string]Origin{}
+	sources := configRegistry.defaultSourceMap()
 	for key, preserve := range preserved {
 		if preserve {
 			sources[key] = Origin{Kind: SourceInput, Property: PropertyAddress{Key: key}}
@@ -194,11 +220,11 @@ func WriteSettingsFileForOnboardingWithOptionsAt(path string, settings Settings,
 	if strings.TrimSpace(path) == "" {
 		return "", fmt.Errorf("settings path is required")
 	}
-	normalized, err := NormalizeSettingsForPersistenceWithSources(settings, onboardingPreservedSources(options.PreservedDefaults))
+	rendered, err := RenderSettingsTOMLForOnboarding(settings, options)
 	if err != nil {
 		return "", err
 	}
-	created, err := writeSettingsFileIfMissing(path, settingsTOMLForOnboarding(normalized, options.PreservedDefaults))
+	created, err := writeSettingsFileIfMissing(path, rendered)
 	if err != nil {
 		return "", err
 	}
@@ -208,17 +234,34 @@ func WriteSettingsFileForOnboardingWithOptionsAt(path string, settings Settings,
 	return path, nil
 }
 
-func readSettingsFile(path string) (settingsFile, error) {
+func readSettingsFile(path string) (settingsFile, []ConnectionID, error) {
 	data, err := os.ReadFile(path)
 	if err != nil {
-		return nil, fmt.Errorf("read settings file %s: %w", path, err)
+		return nil, nil, fmt.Errorf("read settings file %s: %w", path, err)
 	}
+	return decodeSettingsFile(path, data)
+}
+
+func decodeSettingsFile(path string, data []byte) (settingsFile, []ConnectionID, error) {
 	if strings.TrimSpace(string(data)) == "" {
-		return settingsFile{}, nil
+		return settingsFile{}, nil, nil
 	}
 	var raw settingsFile
-	if _, err := toml.NewDecoder(bytes.NewReader(data)).Decode(&raw); err != nil {
-		return nil, fmt.Errorf("parse settings file %s: %w", path, err)
+	metadata, err := toml.NewDecoder(bytes.NewReader(data)).Decode(&raw)
+	if err != nil {
+		return nil, nil, fmt.Errorf("parse settings file %s: %w", path, err)
 	}
-	return raw, nil
+	var order []ConnectionID
+	for _, key := range metadata.Keys() {
+		if len(key) >= 2 && key[0] == "connections" {
+			id, err := ParseConnectionID(key[1])
+			if err != nil {
+				return nil, nil, err
+			}
+			if !slices.Contains(order, id) {
+				order = append(order, id)
+			}
+		}
+	}
+	return raw, order, nil
 }

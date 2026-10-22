@@ -127,7 +127,6 @@ type subagentRoleApplicableSetting interface {
 type subagentRoleValueSetting interface {
 	subagentRoleKey() string
 	applySubagentRoleValue(*settingsState, settingsState)
-	subagentRoleValueDiffers(settingsState, settingsState) bool
 }
 
 type rootOnlySetting[T any] struct {
@@ -164,10 +163,6 @@ func (s scalarSetting[T]) applySubagentRoleValue(target *settingsState, role set
 	s.apply(target, s.get(role))
 }
 
-func (s scalarSetting[T]) subagentRoleValueDiffers(base settingsState, role settingsState) bool {
-	return !s.equal(s.get(base), s.get(role))
-}
-
 func (s optionalStringSetting) subagentRoleKey() string {
 	return s.key
 }
@@ -181,26 +176,67 @@ func (s optionalStringSetting) applySubagentRoleValue(target *settingsState, rol
 	s.apply(target, value)
 }
 
-func (s optionalStringSetting) subagentRoleValueDiffers(base settingsState, role settingsState) bool {
-	left := s.get(base)
-	right := s.get(role)
-	if left == nil || right == nil {
-		return left != right
+type clientSettingDefinitions struct {
+	serverHost           scalarSetting[string]
+	serverPort           scalarSetting[int]
+	theme                scalarSetting[string]
+	debug                scalarSetting[bool]
+	notificationMethod   scalarSetting[string]
+	tuiNativeProgressBar scalarSetting[bool]
+	lifecycle            clientLifecycleSetting
+}
+
+var sharedClientSettingDefinitions = newClientSettingDefinitions()
+
+func newClientSettingDefinitions() clientSettingDefinitions {
+	return clientSettingDefinitions{
+		serverHost: newStringSetting("server_host", defaultServerHost,
+			func(state *settingsState, value string) { state.Settings.ServerHost = value },
+			func(state settingsState) string { return state.Settings.ServerHost },
+			"KENT_SERVER_HOST", nil, nil, settingDocOptions{}),
+		serverPort: newIntSetting("server_port", defaultServerPort,
+			func(state *settingsState, value int) { state.Settings.ServerPort = value },
+			func(state settingsState) int { return state.Settings.ServerPort },
+			"KENT_SERVER_PORT", nil, settingDocOptions{}),
+		theme: newStringSetting("theme", defaultTheme,
+			func(state *settingsState, value string) { state.Settings.Theme = value },
+			func(state settingsState) string { return state.Settings.Theme },
+			"KENT_THEME",
+			func(opts LoadOptions) (string, bool, error) { return trimmedCLIString(opts.Theme) },
+			theme.Normalize,
+			settingDocOptions{cliOption: "--theme"}),
+		debug: newBoolSetting("debug", false,
+			func(state *settingsState, value bool) { state.Settings.Debug = value },
+			func(state settingsState) bool { return state.Settings.Debug },
+			"KENT_DEBUG", settingDocOptions{}),
+		notificationMethod: newStringSetting("notification_method", "auto",
+			func(state *settingsState, value string) { state.Settings.NotificationMethod = value },
+			func(state settingsState) string { return state.Settings.NotificationMethod },
+			"KENT_NOTIFICATION_METHOD", nil, nil, settingDocOptions{}),
+		tuiNativeProgressBar: newBoolSetting("tui_native_progress_bar", true,
+			func(state *settingsState, value bool) { state.Settings.TUINativeProgressBar = value },
+			func(state settingsState) bool { return state.Settings.TUINativeProgressBar },
+			"", settingDocOptions{}),
+		lifecycle: clientLifecycleSetting{},
 	}
-	return strings.TrimSpace(*left) != strings.TrimSpace(*right)
 }
 
 var configRegistry = newSettingsRegistry()
 
 func newSettingsRegistry() settingsRegistry {
 	settings := []registrySetting{
+		newNanoSectionSetting(),
+		globalOnlySetting[int]{rootOnlySetting[int]{newIntSetting("nano.concurrency", 5,
+			func(state *settingsState, value int) { state.Settings.NanoConcurrency = value },
+			func(state settingsState) int { return state.Settings.NanoConcurrency },
+			"", nil, settingDocOptions{omitInTOML: true})}},
 		connectionsSetting{},
-		newConnectionReference("connection",
-			func(state *settingsState, value *ConnectionID) { state.Settings.Connection = value },
-			func(state settingsState) *ConnectionID { return state.Settings.Connection }),
-		newConnectionReference("reviewer.connection",
-			func(state *settingsState, value *ConnectionID) { state.Settings.Reviewer.Connection = value },
-			func(state settingsState) *ConnectionID { return state.Settings.Reviewer.Connection }),
+		newConnectionReference("connection", true,
+			func(state *settingsState, value *ConnectionSelection) { state.Settings.Connection = value },
+			func(state settingsState) *ConnectionSelection { return state.Settings.Connection }),
+		newConnectionReference("reviewer.connection", false,
+			func(state *settingsState, value *ConnectionSelection) { state.Settings.Reviewer.Connection = value },
+			func(state settingsState) *ConnectionSelection { return state.Settings.Reviewer.Connection }),
 		newStringSetting("model", defaultModel,
 			func(state *settingsState, value string) { state.Settings.Model = value },
 			func(state settingsState) string { return state.Settings.Model },
@@ -235,25 +271,9 @@ func newSettingsRegistry() settingsRegistry {
 			func(state settingsState) bool { return state.Settings.ModelCapabilities.SupportsVisionInputs },
 			"KENT_MODEL_CAPABILITIES_SUPPORTS_VISION_INPUTS",
 			settingDocOptions{commented: true}),
-		newStringSetting("theme", defaultTheme,
-			func(state *settingsState, value string) { state.Settings.Theme = value },
-			func(state settingsState) string { return state.Settings.Theme },
-			"KENT_THEME",
-			func(opts LoadOptions) (string, bool, error) { return trimmedCLIString(opts.Theme) },
-			theme.Normalize,
-			settingDocOptions{cliOption: "--theme"}),
-		newStringSetting("notification_method", "auto",
-			func(state *settingsState, value string) { state.Settings.NotificationMethod = value },
-			func(state settingsState) string { return state.Settings.NotificationMethod },
-			"KENT_NOTIFICATION_METHOD",
-			nil,
-			nil,
-			settingDocOptions{}),
-		newBoolSetting("tui_native_progress_bar", true,
-			func(state *settingsState, value bool) { state.Settings.TUINativeProgressBar = value },
-			func(state settingsState) bool { return state.Settings.TUINativeProgressBar },
-			"",
-			settingDocOptions{}),
+		sharedClientSettingDefinitions.theme,
+		sharedClientSettingDefinitions.notificationMethod,
+		sharedClientSettingDefinitions.tuiNativeProgressBar,
 		newBoolSetting("tool_preambles", true,
 			func(state *settingsState, value bool) { state.Settings.ToolPreambles = value },
 			func(state settingsState) bool { return state.Settings.ToolPreambles },
@@ -264,24 +284,9 @@ func newSettingsRegistry() settingsRegistry {
 			func(state settingsState) bool { return state.Settings.PriorityRequestMode },
 			"",
 			settingDocOptions{}),
-		newBoolSetting("debug", false,
-			func(state *settingsState, value bool) { state.Settings.Debug = value },
-			func(state settingsState) bool { return state.Settings.Debug },
-			"KENT_DEBUG",
-			settingDocOptions{}),
-		newStringSetting("server_host", defaultServerHost,
-			func(state *settingsState, value string) { state.Settings.ServerHost = value },
-			func(state settingsState) string { return state.Settings.ServerHost },
-			"KENT_SERVER_HOST",
-			nil,
-			nil,
-			settingDocOptions{}),
-		newIntSetting("server_port", defaultServerPort,
-			func(state *settingsState, value int) { state.Settings.ServerPort = value },
-			func(state settingsState) int { return state.Settings.ServerPort },
-			"KENT_SERVER_PORT",
-			nil,
-			settingDocOptions{}),
+		sharedClientSettingDefinitions.debug,
+		sharedClientSettingDefinitions.serverHost,
+		sharedClientSettingDefinitions.serverPort,
 		newStringSetting("web_search", "native",
 			func(state *settingsState, value string) { state.Settings.WebSearch = value },
 			func(state settingsState) string { return state.Settings.WebSearch },
@@ -318,12 +323,15 @@ func newSettingsRegistry() settingsRegistry {
 			"KENT_CONTEXT_COMPACTION_THRESHOLD_TOKENS",
 			nil,
 			settingDocOptions{}),
-		newIntSetting("pre_submit_compaction_lead_tokens", defaultPreSubmitCompactionLeadTokens,
-			func(state *settingsState, value int) { state.Settings.PreSubmitCompactionLeadTokens = value },
-			func(state settingsState) int { return state.Settings.PreSubmitCompactionLeadTokens },
+		newOptionalIntSetting("pre_submit_compaction_lead_tokens",
+			func(state *settingsState, value *int) { state.Settings.PreSubmitCompactionLeadTokens = value },
+			func(state settingsState) *int { return state.Settings.PreSubmitCompactionLeadTokens },
 			"KENT_PRE_SUBMIT_COMPACTION_LEAD_TOKENS",
-			nil,
 			settingDocOptions{}),
+		globalOnlySetting[int]{rootOnlySetting[int]{newIntSetting("connection_usage_fallback_seconds", 300,
+			func(state *settingsState, value int) { state.Settings.ConnectionUsageFallbackSeconds = value },
+			func(state settingsState) int { return state.Settings.ConnectionUsageFallbackSeconds },
+			"", nil, settingDocOptions{})}},
 		newIntSetting("minimum_exec_to_bg_seconds", defaultMinimumExecToBgSec,
 			func(state *settingsState, value int) { state.Settings.MinimumExecToBgSeconds = value },
 			func(state settingsState) int { return state.Settings.MinimumExecToBgSeconds },
@@ -380,7 +388,7 @@ func newSettingsRegistry() settingsRegistry {
 			func(state *settingsState, value *string) { state.Settings.Shell.PostprocessHook = value },
 			func(state settingsState) *string { return state.Settings.Shell.PostprocessHook },
 			"KENT_SHELL_POSTPROCESS_HOOK", settingDocOptions{}),
-		clientLifecycleSetting{},
+		sharedClientSettingDefinitions.lifecycle,
 		newStringSetting("cache_warning_mode", CacheWarningMode(defaultCacheWarningMode),
 			func(state *settingsState, value CacheWarningMode) { state.Settings.CacheWarningMode = value },
 			func(state settingsState) CacheWarningMode { return state.Settings.CacheWarningMode },
@@ -440,6 +448,7 @@ func newSettingsRegistry() settingsRegistry {
 		rootOnlySetting[*int]{newOptionalIntSetting("workflow.pre_compaction_tokens",
 			func(state *settingsState, value *int) { state.Settings.Workflow.PreCompactionTokens = value },
 			func(state settingsState) *int { return state.Settings.Workflow.PreCompactionTokens },
+			"",
 			settingDocOptions{defaultValue: func(state settingsState) any {
 				return state.Settings.ContextCompactionThresholdTokens * 70 / 100
 			}})},
@@ -453,12 +462,12 @@ func newSettingsRegistry() settingsRegistry {
 			func(state settingsState) bool { return state.Settings.Workflow.Subagents },
 			"",
 			settingDocOptions{})},
-		rootOnlySetting[int]{newIntSetting("max_subagent_depth", defaultMaxSubagentDepth,
+		newIntSetting("max_subagent_depth", defaultMaxSubagentDepth,
 			func(state *settingsState, value int) { state.Settings.MaxSubagentDepth = value },
 			func(state settingsState) int { return state.Settings.MaxSubagentDepth },
 			"",
 			nil,
-			settingDocOptions{})},
+			settingDocOptions{}),
 		newStringSetting("reviewer.frequency", defaultReviewerFrequency,
 			func(state *settingsState, value string) { state.Settings.Reviewer.Frequency = value },
 			func(state settingsState) string { return state.Settings.Reviewer.Frequency },
@@ -571,11 +580,13 @@ func newSettingsRegistry() settingsRegistry {
 			{validateShellOutputMaxChars, []string{"shell_output_max_chars"}},
 			{validateShellMaxConcurrent, []string{"shell.max_concurrent"}},
 			{validateMinimumExecToBgSeconds, []string{"minimum_exec_to_bg_seconds"}},
+			{validateConnectionUsageFallbackSeconds, []string{"connection_usage_fallback_seconds"}},
 			{validateBGShellsOutput, []string{"bg_shells_output"}},
 			{validateShellPostprocessing, []string{"shell.postprocessing_mode", "shell.postprocess_hook"}},
 			{validateCacheWarningMode, []string{"cache_warning_mode"}},
 			{validateCompactionMode, []string{"compaction_mode"}},
 			{validateReviewer, nil},
+			{validateNano, nil},
 			{validateWorkflowSettings, []string{"workflow.completion_mode", "workflow.concurrency", "workflow.max_invalid_completion_attempts", "workflow.pre_compaction_tokens", "context_compaction_threshold_tokens"}},
 			{validateMaxSubagentDepth, []string{"max_subagent_depth"}},
 			{validateSleepPreventionMode, []string{"prevent_sleep"}},
@@ -634,6 +645,11 @@ func (r settingsRegistry) defaultSourceMap() map[string]Origin {
 }
 
 func (r settingsRegistry) applyFile(raw settingsFile, settingsPath string, layer FileLayer, state *settingsState, sources map[string]Origin) error {
+	if layer != FileGlobal {
+		if err := rejectWorkspaceLegacyAccess(raw, settingsPath); err != nil {
+			return err
+		}
+	}
 	for _, setting := range r.settings {
 		if settingAppliesToFileLayer(setting, layer) {
 			continue
@@ -1014,13 +1030,24 @@ func newOptionalIntSetting(
 	key string,
 	apply func(*settingsState, *int),
 	get func(settingsState) *int,
+	envName string,
 	doc settingDocOptions,
 ) scalarSetting[*int] {
+	if doc.defaultValue == nil {
+		doc.defaultValue = func(state settingsState) any {
+			if value := get(state); value != nil {
+				return *value
+			}
+			return nil
+		}
+	}
 	return scalarSetting[*int]{
 		key:          key,
 		defaultValue: nil,
 		apply:        apply,
 		get:          get,
+		envName:      envName,
+		decodeEnv:    parsePositiveIntString,
 		equal: func(left *int, right *int) bool {
 			switch {
 			case left == nil && right == nil:
@@ -1771,6 +1798,9 @@ func hasPathPrefix(path []string, prefix []string) bool {
 
 func writeDefaultLines(builder *strings.Builder, lines []defaultConfigLine) {
 	for _, line := range lines {
+		if line.Value == nil {
+			continue
+		}
 		assignment := line.Path[len(line.Path)-1] + " = " + renderTOMLValue(line.Value)
 		if line.Commented {
 			builder.WriteString("# ")

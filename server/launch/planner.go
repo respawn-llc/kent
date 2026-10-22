@@ -28,8 +28,6 @@ type Mode string
 const (
 	ModeInteractive Mode = "interactive"
 	ModeHeadless    Mode = "headless"
-
-	SubagentSessionSuffix = "subagent"
 )
 
 type SessionExecutionTargetResolver interface {
@@ -49,22 +47,19 @@ type SessionManagedWorktreeRootsResolver interface {
 type MetadataExecutionTargetStore interface {
 	SessionExecutionTargetResolver
 	UpdateSessionExecutionTarget(ctx context.Context, update metadata.SessionExecutionTargetUpdate) error
-	Close() error
 }
 
-// MetadataExecutionTargetStoreOpener opens metadata storage for launch planning.
-type MetadataExecutionTargetStoreOpener func(persistenceRoot string) (MetadataExecutionTargetStore, error)
-
 type Planner struct {
+	Rotation             *ConnectionRotation
 	Config               config.App
 	ContainerDir         string
 	StoreOptions         []session.StoreOption
 	ReloadConfig         func() (config.App, error)
 	PersistedSessions    session.PersistedSessionResolver
-	ExecutionTargets     SessionExecutionTargetResolver
+	CallerSessions       SessionCallerResolver
+	ExecutionTargets     MetadataExecutionTargetStore
 	SessionProjects      SessionProjectResolver
 	ManagedWorktreeRoots SessionManagedWorktreeRootsResolver
-	MetadataStoreOpener  MetadataExecutionTargetStoreOpener
 }
 
 type SessionRequest struct {
@@ -76,6 +71,7 @@ type SessionRequest struct {
 }
 
 type SessionPlan struct {
+	ConnectionScope                     config.ConnectionScope
 	Descriptor                          session.SessionDescriptor
 	ActiveSettings                      config.Settings
 	BaseSettings                        config.Settings
@@ -87,6 +83,7 @@ type SessionPlan struct {
 	WorktreeReminder                    *session.WorktreeReminderState
 	Continuation                        *session.ContinuationContext
 	Locked                              *session.LockedContract
+	WorkflowSnapshot                    *session.WorkflowSnapshot
 	ModelContractLocked                 bool
 	SkipContinuationAgentRoleValidation bool
 	WorkspaceRoot                       string
@@ -129,6 +126,7 @@ func sessionPlanWithMeta(plan SessionPlan, meta session.Meta, containerDir strin
 	plan.WorktreeReminder = meta.WorktreeReminder
 	plan.Continuation = meta.Continuation
 	plan.Locked = meta.Locked
+	plan.WorkflowSnapshot = meta.WorkflowSnapshot
 	plan.ModelContractLocked = meta.Locked != nil
 	return plan
 }
@@ -137,16 +135,6 @@ type RunPromptOverrideOptions struct {
 	AgentSelectionPersisted bool
 	RequiredTools           []toolspec.ID
 	WorkflowThinking        workflow.ThinkingMutation
-}
-
-func optionalSessionName(name string) (*string, error) {
-	if name == "" {
-		return nil, nil
-	}
-	if strings.TrimSpace(name) == "" {
-		return nil, errors.New("session name cannot be blank")
-	}
-	return &name, nil
 }
 
 // PreparedRunPromptOverrides is the immutable, snapshot-bound portion of a
@@ -163,23 +151,31 @@ type PreparedRunPromptOverrides struct {
 func (p PreparedRunPromptOverrides) PromptFacingTarget() *PreparedBaseTarget {
 	if p.NamedTarget != nil {
 		return &PreparedBaseTarget{
-			Settings:     p.NamedTarget.Settings,
-			Source:       p.NamedTarget.Source,
-			EnabledTools: p.NamedTarget.EnabledTools,
+			ConnectionScope: p.NamedTarget.ConnectionScope,
+			Settings:        p.NamedTarget.Settings,
+			Source:          p.NamedTarget.Source,
+			EnabledTools:    p.NamedTarget.EnabledTools,
 		}
 	}
 	return p.BaseTarget
 }
 
 type PreparedBaseTarget struct {
-	Settings     config.Settings
-	Source       config.SourceReport
-	EnabledTools []toolspec.ID
+	ConnectionScope config.ConnectionScope
+	Settings        config.Settings
+	Source          config.SourceReport
+	EnabledTools    []toolspec.ID
 }
 
 // RunPromptPreparationContext carries a selected session's immutable,
 // prompt-facing contract into pre-materialization target preparation.
 type RunPromptPreparationContext struct {
+	Rotation           *ConnectionRotation
+	AllocateConnection bool
+	ConnectionID       *config.ConnectionID
+	// A replacement retains its allocated choice, not an ordinary resume binding.
+	// It must still belong to the Agent's current connection set.
+	RetainedConnectionSelection     *config.ConnectionID
 	Mode                            Mode
 	ModelLock                       *session.LockedContract
 	ToolLock                        *session.LockedContract
@@ -188,11 +184,12 @@ type RunPromptPreparationContext struct {
 }
 
 type PreparedSubagentTarget struct {
-	Selector     string
-	Settings     config.Settings
-	Source       config.SourceReport
-	EnabledTools []toolspec.ID
-	Warning      *string
+	ConnectionScope config.ConnectionScope
+	Selector        string
+	Settings        config.Settings
+	Source          config.SourceReport
+	EnabledTools    []toolspec.ID
+	Warning         *string
 }
 
 type PromptFacingSnapshotResolution struct {
@@ -240,28 +237,39 @@ func resolveReadOnlySessionContextSettings(
 	meta session.Meta,
 	skipContinuationAgentRoleValidation bool,
 ) (config.Settings, config.SourceReport, session.ChatSettings, error) {
+	settings, source, chat, _, err := resolveSessionContextSettings(context.Background(), app, meta, skipContinuationAgentRoleValidation, nil, false)
+	return settings, source, chat, err
+}
+
+func resolveSessionContextSettings(ctx context.Context, app config.App, meta session.Meta, skipContinuationAgentRoleValidation bool, rotation *ConnectionRotation, allocate bool) (config.Settings, config.SourceReport, session.ChatSettings, config.ConnectionScope, error) {
 	var selectionErr error
 	app, selectionErr = ApplyRetainedToolSelection(app, meta)
 	if selectionErr != nil {
-		return config.Settings{}, config.SourceReport{}, session.ChatSettings{}, selectionErr
+		return config.Settings{}, config.SourceReport{}, session.ChatSettings{}, config.ConnectionScope{}, selectionErr
 	}
 	baseActive := EffectiveSettings(app.Settings, meta.Locked)
 	active, source := baseActive, app.Source
+	scope := config.ConnectionScope{Selection: baseActive.Connection}
 	if meta.Continuation != nil {
 		var err error
-		active, source, err = applyPersistedSubagentRoleSettings(baseActive, source, meta.Continuation.AgentRole, meta.ConnectionID, meta.Locked == nil, !skipContinuationAgentRoleValidation)
+		active, source, scope, err = applyPersistedSubagentRoleSettingsWithSelection(ctx, baseActive, source, meta.Continuation.AgentRole, meta.ConnectionID, meta.Locked == nil, !skipContinuationAgentRoleValidation, rotation, allocate)
 		if err != nil {
-			return config.Settings{}, config.SourceReport{}, session.ChatSettings{}, err
+			return config.Settings{}, config.SourceReport{}, session.ChatSettings{}, config.ConnectionScope{}, err
 		}
 	}
-	if err := projectSessionConnection(&active, source, meta); err != nil {
-		return config.Settings{}, config.SourceReport{}, session.ChatSettings{}, err
+	selected, _, err := rotation.ResolveSessionConnection(ctx, active, source, scope, meta.ConnectionID, allocate && session.ContinuationAgentRole(meta) == nil)
+	if err != nil {
+		return config.Settings{}, config.SourceReport{}, session.ChatSettings{}, config.ConnectionScope{}, err
+	}
+	active.Connection = config.SingleConnection(selected)
+	if err := projectSessionConnection(&active, source, session.Meta{ConnectionID: &selected, Locked: meta.Locked}); err != nil {
+		return config.Settings{}, config.SourceReport{}, session.ChatSettings{}, config.ConnectionScope{}, err
 	}
 	active, chatSettings, err := applySessionChatSettings(meta, active)
 	if err != nil {
-		return config.Settings{}, config.SourceReport{}, session.ChatSettings{}, err
+		return config.Settings{}, config.SourceReport{}, session.ChatSettings{}, config.ConnectionScope{}, err
 	}
-	return active, source, chatSettings, nil
+	return active, source, chatSettings, scope, nil
 }
 
 // ResolvePromptFacingSnapshotPlan reconstructs the request-facing session plan
@@ -294,7 +302,10 @@ func resolvePromptFacingSnapshotPlan(app config.App, store *session.Store, skipC
 	meta := store.Meta()
 	baseActive := EffectiveSettings(app.Settings, meta.Locked)
 	baseSource := app.Source
-	active, source, chatSettings, err := resolveReadOnlySessionContextSettings(app, meta, skipContinuationAgentRoleValidation)
+	if err := projectSessionConnection(&baseActive, baseSource, meta); err != nil {
+		return SessionPlan{}, err
+	}
+	active, source, chatSettings, scope, err := resolveSessionContextSettings(context.Background(), app, meta, skipContinuationAgentRoleValidation, nil, false)
 	if err != nil {
 		return SessionPlan{}, err
 	}
@@ -306,16 +317,13 @@ func resolvePromptFacingSnapshotPlan(app config.App, store *session.Store, skipC
 	if meta.Locked == nil {
 		configuredModelName = active.Model
 	}
-	sessionName, err := optionalSessionName(meta.Name)
-	if err != nil {
-		return SessionPlan{}, err
-	}
 	return sessionPlanWithMeta(SessionPlan{
+		ConnectionScope:                     scope,
 		ActiveSettings:                      active,
 		BaseSettings:                        baseActive,
 		EnabledTools:                        enabledTools,
 		ConfiguredModelName:                 configuredModelName,
-		SessionName:                         sessionName,
+		SessionName:                         textutil.Pointer(meta.Name),
 		ModelContractLocked:                 meta.Locked != nil,
 		SkipContinuationAgentRoleValidation: skipContinuationAgentRoleValidation,
 		WorkspaceRoot:                       app.WorkspaceRoot,
@@ -452,39 +460,45 @@ func (p Planner) planSessionWithExecutionContext(ctx context.Context, req Sessio
 			)
 		}
 	}
-	if req.Mode == ModeHeadless && (store != nil || preparedContext != nil) {
-		if store != nil {
-			if err := EnsureSubagentSessionName(store); err != nil {
-				return SessionPlan{}, err
-			}
-			meta = store.Meta()
-		} else if strings.TrimSpace(meta.Name) == "" {
-			meta.Name = subagentSessionName(meta)
-		}
-	}
 	baseActive := EffectiveSettings(p.Config.Settings, meta.Locked)
 	baseSource := p.Config.Source
+	if meta.ConnectionID != nil {
+		if err := projectSessionConnection(&baseActive, baseSource, meta); err != nil {
+			return SessionPlan{}, err
+		}
+	}
 	var continuationAgentRole *string
 	if meta.Continuation != nil {
 		continuationAgentRole = cloneContinuationRole(meta.Continuation.AgentRole)
 	}
 	active, source := baseActive, baseSource
+	scope := config.ConnectionScope{Selection: p.Config.Settings.Connection}
 	enabledTools := []toolspec.ID(nil)
 	var err error
 	if req.PreparedPromptFacingTarget != nil {
+		scope = req.PreparedPromptFacingTarget.ConnectionScope
 		active = cloneSettings(req.PreparedPromptFacingTarget.Settings)
 		source = cloneSourceReport(req.PreparedPromptFacingTarget.Source)
 		enabledTools = append([]toolspec.ID(nil), req.PreparedPromptFacingTarget.EnabledTools...)
 	} else if meta.Continuation != nil {
-		active, source, err = applyPersistedSubagentRoleSettings(baseActive, baseSource, continuationAgentRole, meta.ConnectionID, meta.Locked == nil, !req.SkipContinuationAgentRoleValidation)
+		active, source, scope, err = applyPersistedSubagentRoleSettingsWithSelection(ctx, baseActive, baseSource, continuationAgentRole, meta.ConnectionID, meta.Locked == nil, !req.SkipContinuationAgentRoleValidation, p.Rotation, true)
 		if err != nil {
 			return SessionPlan{}, err
 		}
 	}
-	if meta.ConnectionID != nil {
-		if err := projectSessionConnection(&active, source, meta); err != nil {
+	selected, _, err := p.Rotation.ResolveSessionConnection(ctx, active, source, scope, meta.ConnectionID, req.PreparedPromptFacingTarget == nil && continuationAgentRole == nil)
+	if err != nil {
+		return SessionPlan{}, err
+	}
+	active.Connection = config.SingleConnection(selected)
+	if err := projectSessionConnection(&active, source, session.Meta{ConnectionID: &selected, Locked: meta.Locked}); err != nil {
+		return SessionPlan{}, err
+	}
+	if store != nil && meta.ConnectionID == nil {
+		if err := store.SetConnectionID(selected); err != nil {
 			return SessionPlan{}, err
 		}
+		meta = store.Meta()
 	}
 	continuation := session.ContinuationContext{}
 	if meta.Continuation != nil {
@@ -530,20 +544,17 @@ func (p Planner) planSessionWithExecutionContext(ctx context.Context, req Sessio
 	if meta.Locked == nil {
 		configuredModelName = active.Model
 	}
-	sessionName, err := optionalSessionName(meta.Name)
-	if err != nil {
-		return SessionPlan{}, err
-	}
 	executionContext, err := p.resolveSessionPlanExecutionContext(ctx, meta.SessionID, preparedContext)
 	if err != nil {
 		return SessionPlan{}, err
 	}
 	return sessionPlanWithMeta(SessionPlan{
+		ConnectionScope:                     scope,
 		ActiveSettings:                      active,
 		BaseSettings:                        baseActive,
 		EnabledTools:                        enabledTools,
 		ConfiguredModelName:                 configuredModelName,
-		SessionName:                         sessionName,
+		SessionName:                         textutil.Pointer(meta.Name),
 		ModelContractLocked:                 meta.Locked != nil,
 		SkipContinuationAgentRoleValidation: req.SkipContinuationAgentRoleValidation,
 		WorkspaceRoot:                       p.Config.WorkspaceRoot,
@@ -561,9 +572,6 @@ func (p Planner) planSessionWithExecutionContext(ctx context.Context, req Sessio
 func (p Planner) resolvePlannedExecutionTarget(ctx context.Context, sessionID string) (*worktreepb.SessionExecutionTarget, error) {
 	resolver := p.ExecutionTargets
 	if resolver == nil {
-		resolver, _ = p.PersistedSessions.(SessionExecutionTargetResolver)
-	}
-	if resolver == nil {
 		return &worktreepb.SessionExecutionTarget{}, nil
 	}
 	target, err := resolver.ResolveSessionExecutionTarget(ctx, sessionID)
@@ -577,44 +585,50 @@ func (p Planner) resolvePlannedExecutionTarget(ctx context.Context, sessionID st
 	return target, nil
 }
 
-func applyPersistedSubagentRoleSettings(base config.Settings, source config.SourceReport, roleName *string, savedConnection *config.ConnectionID, allowModelOverride bool, validate bool) (config.Settings, config.SourceReport, error) {
+func applyPersistedSubagentRoleSettingsWithSelection(ctx context.Context, base config.Settings, source config.SourceReport, roleName *string, savedConnection *config.ConnectionID, allowModelOverride bool, validate bool, rotation *ConnectionRotation, allocate bool) (config.Settings, config.SourceReport, config.ConnectionScope, error) {
 	if roleName == nil {
-		return base, source, nil
+		return base, source, config.ConnectionScope{Selection: base.Connection}, nil
 	}
 	lookup := config.LookupSubagentRole(base, *roleName)
 	if lookup.Status == config.SubagentRoleLookupInvalid {
-		return base, source, nil
+		return base, source, config.ConnectionScope{UnavailableRole: roleName}, nil
 	}
 	if lookup.Status == config.SubagentRoleLookupMissing {
-		return base, source, nil
+		return base, source, config.ConnectionScope{UnavailableRole: roleName}, nil
 	}
 	providerSettings := cloneSettings(base)
 	providerSettings, err := config.OverlaySubagentRoleProviderSettings(config.App{Settings: providerSettings, Source: source}, lookup.Role)
 	if err != nil {
-		return config.Settings{}, config.SourceReport{}, err
+		return config.Settings{}, config.SourceReport{}, config.ConnectionScope{}, err
 	}
-	connection, _, err := ResolveSessionConnection(providerSettings, savedConnection)
+	scope := config.ConnectionScope{Selection: providerSettings.Connection}
+	connectionSource := subagentConnectionSource(source, lookup.Role)
+	connection, _, err := rotation.ResolveSessionConnection(ctx, providerSettings, connectionSource, scope, savedConnection, allocate)
 	if err != nil {
-		return config.Settings{}, config.SourceReport{}, err
+		return config.Settings{}, config.SourceReport{}, config.ConnectionScope{}, err
 	}
-	providerSettings.Connection = &connection
+	providerSettings.Connection = config.SingleConnection(connection)
 	providerID, err := persistedRoleProviderID(providerSettings)
 	if err != nil {
-		return config.Settings{}, config.SourceReport{}, err
+		return config.Settings{}, config.SourceReport{}, config.ConnectionScope{}, err
 	}
-	resolved, effectiveSource, _, err := resolveSubagentSettingsWithProviderID(base, source, *lookup.NormalizedSelector, providerID, allowModelOverride, validate)
+	prepared, err := prepareSubagentSettingsFromRole(base, source, *lookup.NormalizedSelector, lookup.Role, &providerID, &connection, allowModelOverride, validate)
 	if err != nil {
-		return config.Settings{}, config.SourceReport{}, err
+		return config.Settings{}, config.SourceReport{}, config.ConnectionScope{}, err
 	}
-	return resolved, effectiveSource, nil
+	return prepared.Settings, prepared.Source, scope, nil
 }
 
 func persistedRoleProviderID(settings config.Settings) (string, error) {
-	capabilities, err := llm.ResolveRuntimeProviderCapabilities(settings)
+	connection, err := settings.SelectedConnection()
 	if err != nil {
 		return "", err
 	}
-	return capabilities.ProviderID, nil
+	selected, err := llm.ResolveConnectionVariant(connection)
+	if err != nil {
+		return "", err
+	}
+	return selected.Variant.ProviderID, nil
 }
 
 // ApplyRunPromptOverridesWithStore applies overrides through an already-admitted
@@ -710,14 +724,15 @@ func (p Planner) applyRunPromptOverridesWithBudgetApplier(plan SessionPlan, stor
 	if locked != nil {
 		effectiveOverrides.AgentRole = nil
 	}
-	prepared, err := prepareRunPromptOverridesWithBudget(baseConfigForPlan(plan), effectiveOverrides, RunPromptPreparationContext{
+	prepared, err := prepareRunPromptOverridesWithBudget(context.Background(), baseConfigForPlan(plan), effectiveOverrides, RunPromptPreparationContext{
 		Mode:      ModeInteractive,
 		ModelLock: locked,
 		ToolLock:  locked,
 		OmittedTarget: &PreparedBaseTarget{
-			Settings:     plan.ActiveSettings,
-			Source:       plan.Source,
-			EnabledTools: plan.EnabledTools,
+			ConnectionScope: plan.ConnectionScope,
+			Settings:        plan.ActiveSettings,
+			Source:          plan.Source,
+			EnabledTools:    plan.EnabledTools,
 		},
 	}, applyBudget)
 
@@ -743,17 +758,17 @@ func baseConfigForPlan(plan SessionPlan) config.App {
 	}
 }
 
-type modelContextBudgetApplier func(settings *config.Settings, explicitSources map[string]config.Origin, originalModel string, allowModelOverride bool)
+type modelContextBudgetApplier func(settings *config.Settings, explicitSources map[string]config.Origin, originalModel string, allowModelOverride bool) error
 
 // PrepareRunPromptOverrides resolves every config-backed part of a RunPrompt
 // target from one loaded application snapshot. It intentionally performs no
 // store mutation, config reload, or session materialization.
 func PrepareRunPromptOverrides(app config.App, overrides serverapi.RunPromptOverrides) (PreparedRunPromptOverrides, error) {
-	return PrepareRunPromptOverridesWithContext(app, overrides, RunPromptPreparationContext{Mode: ModeInteractive})
+	return PrepareRunPromptOverridesWithContext(context.Background(), app, overrides, RunPromptPreparationContext{Mode: ModeInteractive})
 }
 
 func PrepareRunPromptOverridesForLockedSession(app config.App, overrides serverapi.RunPromptOverrides, locked *session.LockedContract) (PreparedRunPromptOverrides, error) {
-	return PrepareRunPromptOverridesWithContext(app, overrides, RunPromptPreparationContext{
+	return PrepareRunPromptOverridesWithContext(context.Background(), app, overrides, RunPromptPreparationContext{
 		Mode:      ModeInteractive,
 		ModelLock: locked,
 		ToolLock:  locked,
@@ -761,12 +776,12 @@ func PrepareRunPromptOverridesForLockedSession(app config.App, overrides servera
 
 }
 
-func PrepareRunPromptOverridesWithContext(app config.App, overrides serverapi.RunPromptOverrides, preparation RunPromptPreparationContext) (PreparedRunPromptOverrides, error) {
-	return prepareRunPromptOverridesWithBudget(app, overrides, preparation, applyDerivedModelContextBudgetOverrides)
+func PrepareRunPromptOverridesWithContext(ctx context.Context, app config.App, overrides serverapi.RunPromptOverrides, preparation RunPromptPreparationContext) (PreparedRunPromptOverrides, error) {
+	return prepareRunPromptOverridesWithBudget(ctx, app, overrides, preparation, applyDerivedModelContextBudgetOverrides)
 }
 
-func prepareRunPromptOverridesWithBudget(app config.App, overrides serverapi.RunPromptOverrides, preparation RunPromptPreparationContext, applyBudget modelContextBudgetApplier) (PreparedRunPromptOverrides, error) {
-	result, err := prepareAgent(app, overrides, preparation, applyBudget)
+func prepareRunPromptOverridesWithBudget(ctx context.Context, app config.App, overrides serverapi.RunPromptOverrides, preparation RunPromptPreparationContext, applyBudget modelContextBudgetApplier) (PreparedRunPromptOverrides, error) {
+	result, err := prepareAgent(ctx, app, overrides, preparation, applyBudget)
 	if err != nil {
 		return PreparedRunPromptOverrides{}, err
 	}
@@ -786,7 +801,7 @@ type agentPreparation struct {
 	Unavailable *unavailableAgent
 }
 
-func prepareAgent(app config.App, overrides serverapi.RunPromptOverrides, preparation RunPromptPreparationContext, applyBudget modelContextBudgetApplier) (agentPreparation, error) {
+func prepareAgent(ctx context.Context, app config.App, overrides serverapi.RunPromptOverrides, preparation RunPromptPreparationContext, applyBudget modelContextBudgetApplier) (agentPreparation, error) {
 	switch preparation.Mode {
 	case ModeInteractive, ModeHeadless:
 	default:
@@ -828,8 +843,12 @@ func prepareAgent(app config.App, overrides serverapi.RunPromptOverrides, prepar
 		} else {
 			resolved := EffectiveSettings(app.Settings, preparation.ModelLock)
 			source := cloneSourceReport(app.Source)
-			config.InheritReviewerSettings(&resolved, source.Sources)
+			scope := config.ConnectionScope{Selection: resolved.Connection}
+			connectionErr := preparation.prepareConnection(ctx, &resolved, source, scope)
 			capabilities, err := llm.ResolveRuntimeProviderCapabilities(resolved)
+			if connectionErr != nil {
+				err = connectionErr
+			}
 			if err != nil {
 				var reference *config.ConnectionReferenceError
 				if !errors.As(err, &reference) {
@@ -849,7 +868,7 @@ func prepareAgent(app config.App, overrides serverapi.RunPromptOverrides, prepar
 			if err != nil {
 				return agentPreparation{}, err
 			}
-			target := PreparedBaseTarget{Settings: resolved, Source: source, EnabledTools: tools}
+			target := PreparedBaseTarget{ConnectionScope: scope, Settings: resolved, Source: source, EnabledTools: tools}
 			if !preparation.SkipProviderReadinessValidation {
 				target, err = preparePreparedBaseTarget(target, overrideConfig, overrides, preparation.ModelLock, preparation.ToolLock, applyBudget)
 				if err != nil {
@@ -875,18 +894,28 @@ func prepareAgent(app config.App, overrides serverapi.RunPromptOverrides, prepar
 	if err != nil {
 		return agentPreparation{}, err
 	}
-	capabilities, err := llm.ResolveRuntimeProviderCapabilities(providerSettings)
+	scope := config.ConnectionScope{Selection: providerSettings.Connection}
+	connectionErr := preparation.prepareConnection(ctx, &providerSettings, subagentConnectionSource(overrideConfig.Source, lookup.Role), scope)
+	selectedProviderID, err := persistedRoleProviderID(providerSettings)
+	if connectionErr != nil {
+		err = connectionErr
+	}
 	var reference *config.ConnectionReferenceError
 	if err != nil && !errors.As(err, &reference) {
 		return agentPreparation{}, err
 	}
 	var providerID *string
+	var connection *config.ConnectionID
 	if reference == nil {
-		providerID = &capabilities.ProviderID
+		providerID = &selectedProviderID
+		connection, err = providerSettings.Connection.ConcreteID()
+		if err != nil {
+			return agentPreparation{}, err
+		}
 	}
 	roleSettings, err := prepareSubagentSettingsFromRole(
 		EffectiveSettings(app.Settings, preparation.ModelLock), app.Source,
-		*lookup.NormalizedSelector, lookup.Role, providerID, preparation.ModelLock == nil, false)
+		*lookup.NormalizedSelector, lookup.Role, providerID, connection, preparation.ModelLock == nil, false)
 	if err != nil {
 		return agentPreparation{}, err
 	}
@@ -910,8 +939,13 @@ func prepareAgent(app config.App, overrides serverapi.RunPromptOverrides, prepar
 	if err != nil {
 		return agentPreparation{}, err
 	}
+	target.ConnectionScope = scope
 	prepared.NamedTarget = &target
 	if !preparation.SkipProviderReadinessValidation {
+		capabilities, err := llm.ResolveRuntimeProviderCapabilities(providerSettings)
+		if err != nil {
+			return agentPreparation{}, err
+		}
 		prepared.ProviderCapabilities = &capabilities
 	}
 	return prepared, nil
@@ -932,7 +966,8 @@ func preparePreparedBaseTarget(target PreparedBaseTarget, overrideConfig config.
 			return PreparedBaseTarget{}, err
 		}
 	}
-	return PreparedBaseTarget{Settings: resolved, Source: source, EnabledTools: append([]toolspec.ID(nil), enabledTools...)}, nil
+	target.Settings, target.Source, target.EnabledTools = resolved, source, append([]toolspec.ID(nil), enabledTools...)
+	return target, nil
 }
 
 func prepareNamedTarget(
@@ -981,7 +1016,9 @@ func applyPreparedConfigOverrides(settings config.Settings, source config.Source
 				explicitSources[key] = value
 			}
 		}
-		applyBudget(&settings, explicitSources, originalModel, true)
+		if err := applyBudget(&settings, explicitSources, originalModel, true); err != nil {
+			return config.Settings{}, config.SourceReport{}, nil, err
+		}
 	}
 	if toolLock == nil && (strings.TrimSpace(overrides.Tools) != "" || strings.TrimSpace(overrides.Model) != "") {
 		var err error
@@ -1094,6 +1131,7 @@ func (p Planner) applyPreparedRunPromptOverridesWithBudgetApplier(plan SessionPl
 		roleOverride = serverapi.RunPromptAgentRoleOverride{}
 	}
 	if !roleOverride.Present && prepared.BaseTarget != nil {
+		next.ConnectionScope = prepared.BaseTarget.ConnectionScope
 		next.ActiveSettings = cloneSettings(prepared.BaseTarget.Settings)
 		next.Source = cloneSourceReport(prepared.BaseTarget.Source)
 		next.EnabledTools = append([]toolspec.ID(nil), prepared.BaseTarget.EnabledTools...)
@@ -1119,6 +1157,7 @@ func (p Planner) applyPreparedRunPromptOverridesWithBudgetApplier(plan SessionPl
 				return SessionPlan{}, nil, errors.New("prepared base target is required for explicit default selector")
 			}
 			next.ActiveSettings = cloneSettings(prepared.BaseTarget.Settings)
+			next.ConnectionScope = prepared.BaseTarget.ConnectionScope
 			next.Source = prepared.BaseTarget.Source
 			next.EnabledTools = append([]toolspec.ID(nil), prepared.BaseTarget.EnabledTools...)
 			if !plan.ModelContractLocked {
@@ -1137,6 +1176,7 @@ func (p Planner) applyPreparedRunPromptOverridesWithBudgetApplier(plan SessionPl
 			return SessionPlan{}, nil, errors.New("prepared named subagent target is required")
 		}
 		next.ActiveSettings = cloneSettings(prepared.NamedTarget.Settings)
+		next.ConnectionScope = prepared.NamedTarget.ConnectionScope
 		if !plan.ModelContractLocked {
 			next.ConfiguredModelName = next.ActiveSettings.Model
 		}
@@ -1245,8 +1285,8 @@ func (p Planner) openStore(ctx context.Context, req SessionRequest) (*session.St
 	}
 }
 
-func (p Planner) SelectedSessionPromptFacingTargetFromMeta(meta session.Meta) (PreparedBaseTarget, error) {
-	active, source, _, err := resolveReadOnlySessionContextSettings(p.Config, meta, false)
+func (p Planner) SelectedSessionPromptFacingTargetFromMeta(ctx context.Context, meta session.Meta, allocateReplacement bool) (PreparedBaseTarget, error) {
+	active, source, _, scope, err := resolveSessionContextSettings(ctx, p.Config, meta, false, p.Rotation, allocateReplacement)
 	if err != nil {
 		return PreparedBaseTarget{}, err
 	}
@@ -1255,9 +1295,10 @@ func (p Planner) SelectedSessionPromptFacingTargetFromMeta(meta session.Meta) (P
 		return PreparedBaseTarget{}, err
 	}
 	return PreparedBaseTarget{
-		Settings:     cloneSettings(active),
-		Source:       cloneSourceReport(source),
-		EnabledTools: append([]toolspec.ID(nil), enabledTools...),
+		ConnectionScope: scope,
+		Settings:        cloneSettings(active),
+		Source:          cloneSourceReport(source),
+		EnabledTools:    append([]toolspec.ID(nil), enabledTools...),
 	}, nil
 }
 
@@ -1293,23 +1334,15 @@ func (p Planner) createSession(
 	return created, nil
 }
 
-func (p Planner) openMetadataStore() (MetadataExecutionTargetStore, error) {
-	if p.MetadataStoreOpener != nil {
-		return p.MetadataStoreOpener(p.Config.PersistenceRoot)
-	}
-	return metadata.Open(p.Config.PersistenceRoot)
-}
-
 func (p Planner) resolveParentExecutionTarget(ctx context.Context, parentSessionID string) (*worktreepb.SessionExecutionTarget, bool, error) {
 	if err := ctx.Err(); err != nil {
 		return &worktreepb.SessionExecutionTarget{}, false, err
 	}
-	store, err := p.openMetadataStore()
-	if err != nil {
-		return &worktreepb.SessionExecutionTarget{}, false, err
+	resolver := p.ExecutionTargets
+	if resolver == nil {
+		return &worktreepb.SessionExecutionTarget{}, false, nil
 	}
-	defer func() { _ = store.Close() }()
-	target, err := store.ResolveSessionExecutionTarget(ctx, parentSessionID)
+	target, err := resolver.ResolveSessionExecutionTarget(ctx, parentSessionID)
 	if err != nil {
 		if errors.Is(err, sql.ErrNoRows) || errors.Is(err, session.ErrSessionNotFound) {
 			return &worktreepb.SessionExecutionTarget{}, false, nil
@@ -1323,27 +1356,10 @@ func (p Planner) updateChildExecutionTarget(ctx context.Context, childSessionID 
 	if err := ctx.Err(); err != nil {
 		return err
 	}
-	store, err := p.openMetadataStore()
-	if err != nil {
-		return err
+	if p.ExecutionTargets == nil {
+		return errors.New("Session execution-target mutation owner is required")
 	}
-	defer func() { _ = store.Close() }()
-	return store.UpdateSessionExecutionTarget(ctx, metadata.SessionExecutionTargetUpdateFromReadModel(childSessionID, target))
-}
-
-func EnsureSubagentSessionName(store *session.Store) error {
-	if store == nil {
-		return errors.New("session store is required")
-	}
-	meta := store.Meta()
-	if strings.TrimSpace(meta.Name) != "" {
-		return nil
-	}
-	return store.SetName(subagentSessionName(meta))
-}
-
-func subagentSessionName(meta session.Meta) string {
-	return strings.TrimSpace(meta.SessionID + " " + SubagentSessionSuffix)
+	return p.ExecutionTargets.UpdateSessionExecutionTarget(ctx, metadata.SessionExecutionTargetUpdateFromReadModel(childSessionID, target))
 }
 
 func EffectiveSettings(base config.Settings, locked *session.LockedContract) config.Settings {

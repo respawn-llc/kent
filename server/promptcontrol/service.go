@@ -5,6 +5,8 @@ import (
 	"errors"
 	"fmt"
 
+	"core/server/metadata"
+	"core/server/session"
 	"core/server/sessionruntime"
 	askquestion "core/server/tools"
 	servicecontract "core/shared/apicontract"
@@ -32,30 +34,53 @@ type PendingPromptResponder interface {
 }
 
 type PromptControlService struct {
-	prompts PendingPromptResponder
+	prompts          PendingPromptResponder
+	persistedSession session.PersistedSessionResolver
+	metadata         *metadata.Store
 }
 
-func NewPromptControlService(prompts PendingPromptResponder) *PromptControlService {
-	return &PromptControlService{prompts: prompts}
+func NewPromptControlService(
+	prompts PendingPromptResponder,
+	persistedSession session.PersistedSessionResolver,
+	store *metadata.Store,
+) *PromptControlService {
+	return &PromptControlService{prompts: prompts, persistedSession: persistedSession, metadata: store}
 }
 
 func (s *PromptControlService) AnswerPromptBatch(
 	ctx context.Context,
 	req *promptpb.AnswerBatchRequest,
 ) (*promptpb.AnswerBatchSuccess, error) {
-	if err := protoapi.Validate(req); err != nil {
-		return nil, err
-	}
 	if s == nil || s.prompts == nil {
 		return nil, errors.New("prompt responder is required")
 	}
-	sessionID, err := runtimeids.ParseSessionID(req.SessionId)
+	sessionID, err := promptTarget(ctx, s.metadata, req.SessionId, req.InvokingSessionId)
 	if err != nil {
 		return nil, err
 	}
 	stepID, err := runtimeids.ParseStepID(req.StepId)
 	if err != nil {
 		return nil, err
+	}
+	var answerer *runtimeids.SessionIdentity
+	if req.InvokingSessionId != nil {
+		id, err := runtimeids.ParseSessionID(*req.InvokingSessionId)
+		if err != nil {
+			return nil, err
+		}
+		caller, err := session.ResolvePersistedSessionRecord(ctx, s.persistedSession, id.String())
+		if err != nil {
+			return nil, err
+		}
+		if hasQuestionAnswerEntry(req.Entries) &&
+			caller.Meta.ParentAgentSessionID != nil &&
+			*caller.Meta.ParentAgentSessionID == sessionID {
+			return nil, &serverapi.ParentQuestionAnswerRejectedError{
+				AnsweringSessionID: id,
+				QuestionSessionID:  sessionID,
+			}
+		}
+		answerer = &runtimeids.SessionIdentity{ID: id, ShortID: caller.ShortID}
 	}
 	commands := make([]sessionruntime.PromptAnswerCommand, 0, len(req.Entries))
 	for _, entry := range req.Entries {
@@ -71,6 +96,7 @@ func (s *PromptControlService) AnswerPromptBatch(
 				Answer: askquestion.AskQuestionAnswer{
 					SelectedOptionNumber: selected,
 					Freeform:             answer.QuestionAnswer.Freeform,
+					Answerer:             answerer,
 				},
 			}
 		case *promptpb.AnswerBatchEntry_ApprovalAnswer:
@@ -121,17 +147,23 @@ func (s *PromptControlService) AnswerPromptBatch(
 	return response, nil
 }
 
+func hasQuestionAnswerEntry(entries []*promptpb.AnswerBatchEntry) bool {
+	for _, entry := range entries {
+		if entry.GetQuestionAnswer() != nil {
+			return true
+		}
+	}
+	return false
+}
+
 func (s *PromptControlService) SubscribeFollowUp(
 	ctx context.Context,
 	req *promptpb.FollowUpWatchRequest,
 ) (serverapi.PromptFollowUpSubscription, error) {
-	if err := protoapi.Validate(req); err != nil {
-		return nil, err
-	}
 	if s == nil || s.prompts == nil {
 		return nil, errors.New("prompt responder is required")
 	}
-	sessionID, err := runtimeids.ParseSessionID(req.SessionId)
+	sessionID, err := s.metadata.ResolveSessionTarget(ctx, req.SessionId)
 	if err != nil {
 		return nil, err
 	}

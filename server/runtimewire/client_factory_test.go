@@ -32,10 +32,10 @@ func TestRuntimeClientFactoryCreatesMainAndReviewerClients(t *testing.T) {
 		store,
 		materializedRuntimeWireEventLog(t, store),
 		config.Settings{
-			Model:              "gpt-5",
+			Model:              "gpt-6-sol",
 			ProviderIdentifier: "factory-agent",
 			ModelContextWindow: 200000,
-			Reviewer:           config.ReviewerSettings{Frequency: "all", Model: "gpt-5"},
+			Reviewer:           config.ReviewerSettings{Frequency: "all", Model: "gpt-6-sol"},
 			Timeouts:           config.Timeouts{ModelRequestSeconds: 1},
 			Shell:              config.ShellSettings{PostprocessingMode: config.ShellPostprocessingModeBuiltin},
 		},
@@ -63,7 +63,7 @@ func TestRuntimeClientFactoryRejectsDirectClientOverride(t *testing.T) {
 	_, err := newTestRuntimeWiringWithBackground(t,
 		store,
 		materializedRuntimeWireEventLog(t, store),
-		config.Settings{Model: "gpt-5", ModelContextWindow: 200000, Timeouts: config.Timeouts{ModelRequestSeconds: 1}},
+		config.Settings{Model: "gpt-6-sol", ModelContextWindow: 200000, Timeouts: config.Timeouts{ModelRequestSeconds: 1}},
 		nil,
 		nil,
 		nil,
@@ -95,9 +95,9 @@ func TestReviewerRuntimeClientFactoryCanPairWithDirectMainClient(t *testing.T) {
 		store,
 		materializedRuntimeWireEventLog(t, store),
 		config.Settings{
-			Model:              "gpt-5",
+			Model:              "gpt-6-sol",
 			ModelContextWindow: 200000,
-			Reviewer:           config.ReviewerSettings{Frequency: "all", Model: "gpt-5"},
+			Reviewer:           config.ReviewerSettings{Frequency: "all", Model: "gpt-6-sol"},
 			Timeouts:           config.Timeouts{ModelRequestSeconds: 1},
 			Shell:              config.ShellSettings{PostprocessingMode: config.ShellPostprocessingModeBuiltin},
 		},
@@ -136,7 +136,7 @@ func TestRuntimeClientFactoryReceivesActivationContext(t *testing.T) {
 		store,
 		materializedRuntimeWireEventLog(t, store),
 		config.Settings{
-			Model:              "gpt-5",
+			Model:              "gpt-6-sol",
 			ModelContextWindow: 200000,
 			Reviewer:           config.ReviewerSettings{Frequency: "off"},
 			Timeouts:           config.Timeouts{ModelRequestSeconds: 1},
@@ -230,7 +230,7 @@ func TestResumedMainClientPreservesLockedGenerationCapabilities(t *testing.T) {
 		materializedRuntimeWireEventLog(t, store),
 		config.Settings{
 			Model:      "operator-alias",
-			Connection: textutil.Value(config.ConnectionID("local")),
+			Connection: config.SingleConnection("local"),
 			Connections: map[config.ConnectionID]config.ProviderConnection{
 				"local": {Protocol: config.ConnectionResponses, Endpoint: textutil.Value(recorder.URL())},
 			},
@@ -258,7 +258,7 @@ func TestResumedMainClientPreservesLockedGenerationCapabilities(t *testing.T) {
 	}
 	request.CodexDispatch, err = llm.NewCodexDispatchContext(llm.CodexDispatchFacts{
 		SessionID:   *request.SessionID,
-		RunID:       uuid.NewString(),
+		StepID:      uuid.NewString(),
 		RequestKind: llm.CodexRequestKindTurn.Optional(),
 	})
 	if err != nil {

@@ -16,7 +16,7 @@ import (
 	"core/shared/invariant"
 	"core/shared/jsoncontract"
 	"core/shared/runtimeids"
-	"core/shared/serverapi"
+	"core/shared/workflowcontract"
 	"github.com/google/uuid"
 )
 
@@ -179,19 +179,17 @@ type NodeGroupRecord struct {
 	ID          string
 	WorkflowID  runtimeids.WorkflowID
 	Key         workflow.ModelKey
-	DisplayName string
+	DisplayName *string
 	SortOrder   int64
 }
 
-type WorkflowEventRecord = serverapi.WorkflowProjectEvent
-
 type WorkflowEventPublisher interface {
-	PublishWorkflowEvent(context.Context, WorkflowEventRecord) error
+	PublishWorkflowEvent(context.Context, workflowcontract.Event) error
 }
 
 type noopWorkflowEventPublisher struct{}
 
-func (noopWorkflowEventPublisher) PublishWorkflowEvent(context.Context, WorkflowEventRecord) error {
+func (noopWorkflowEventPublisher) PublishWorkflowEvent(context.Context, workflowcontract.Event) error {
 	return nil
 }
 
@@ -348,9 +346,6 @@ type ListWorkflowsResult struct {
 
 func (s *Store) CreateWorkflow(ctx context.Context, req CreateWorkflowRequest) (WorkflowRecord, error) {
 	name := strings.TrimSpace(req.Name)
-	if name == "" {
-		return WorkflowRecord{}, ErrWorkflowNameRequired
-	}
 	now := s.now().UnixMilli()
 	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
@@ -392,9 +387,6 @@ func (s *Store) CreateAndLinkWorkflow(ctx context.Context, req CreateAndLinkWork
 
 func insertWorkflow(ctx context.Context, q *sqlitegen.Queries, now int64, req CreateWorkflowRequest) (WorkflowRecord, error) {
 	name := strings.TrimSpace(req.Name)
-	if name == "" {
-		return WorkflowRecord{}, ErrWorkflowNameRequired
-	}
 	description := strings.TrimSpace(req.Description)
 	workflowID := runtimeids.NewWorkflowID()
 	startID := runtimeids.NewGraphEntityID()
@@ -422,9 +414,6 @@ func insertWorkflow(ctx context.Context, q *sqlitegen.Queries, now int64, req Cr
 
 func (s *Store) UpdateWorkflowInfo(ctx context.Context, workflowID runtimeids.WorkflowID, name string, description string) error {
 	name = strings.TrimSpace(name)
-	if name == "" {
-		return ErrWorkflowNameRequired
-	}
 	updated, err := s.queries.UpdateWorkflowInfo(ctx, sqlitegen.UpdateWorkflowInfoParams{ID: workflowID, Name: name, Description: strings.TrimSpace(description), UpdatedAtUnixMs: s.now().UnixMilli()})
 	if err != nil {
 		return fmt.Errorf("update workflow info: %w", err)
@@ -439,13 +428,10 @@ func (s *Store) ListWorkflows(ctx context.Context, req ListWorkflowsRequest) (Li
 	projectID := req.ProjectID
 	workflowID := req.WorkflowID
 	query := sqliteLowerASCII(strings.TrimSpace(req.Query))
-	if err := validateWorkflowListScopes(projectID, workflowID); err != nil {
-		return ListWorkflowsResult{}, err
-	}
 	rows, err := s.queries.ListWorkflowRecordsPage(ctx, sqlitegen.ListWorkflowRecordsPageParams{
 		PageLimit:   int64(req.Limit + 1),
 		PageOffset:  int64(req.Offset),
-		ProjectID:   nullableStringPointer(projectID),
+		ProjectID:   metadata.NullableString(projectID),
 		WorkflowID:  workflowID,
 		SearchQuery: query,
 	})
@@ -484,17 +470,6 @@ func (s *Store) ListWorkflows(ctx context.Context, req ListWorkflowsRequest) (Li
 		responseProjectID = &value
 	}
 	return ListWorkflowsResult{Workflows: out, ProjectID: responseProjectID, NextOffset: nextOffset}, nil
-}
-
-func validateWorkflowListScopes(projectID *string, workflowID *runtimeids.WorkflowID) error {
-	if projectID != nil &&
-		(strings.TrimSpace(*projectID) == "" || strings.TrimSpace(*projectID) != *projectID) {
-		return errors.New("workflow list project scope must be non-blank and unpadded")
-	}
-	if workflowID != nil && workflowID.IsZero() {
-		return errors.New("invalid workflow list workflow scope")
-	}
-	return nil
 }
 
 func validateNodeCompletionMode(kind workflow.NodeKind, mode string) error {
@@ -542,12 +517,12 @@ func (s *Store) SetWorkflowEventPublisher(publisher WorkflowEventPublisher) {
 	s.eventMu.Unlock()
 }
 
-func (s *Store) PublishWorkflowEvent(ctx context.Context, event WorkflowEventRecord) error {
+func (s *Store) PublishWorkflowEvent(ctx context.Context, event workflowcontract.Event) error {
 	occurredAt := event.OccurredAtUnixMs
 	if occurredAt == 0 {
 		occurredAt = s.now().UnixMilli()
 	}
-	normalized := WorkflowEventRecord{
+	normalized := workflowcontract.Event{
 		ProjectID:        cloneWorkflowEventID(event.ProjectID),
 		WorkflowID:       cloneWorkflowEventWorkflowID(event.WorkflowID),
 		Resource:         event.Resource,
@@ -555,9 +530,6 @@ func (s *Store) PublishWorkflowEvent(ctx context.Context, event WorkflowEventRec
 		PrimaryEntityID:  event.PrimaryEntityID,
 		RelatedIDs:       append([]string(nil), event.RelatedIDs...),
 		OccurredAtUnixMs: occurredAt,
-	}
-	if err := normalized.Validate(); err != nil {
-		return err
 	}
 	s.eventMu.RLock()
 	sink := s.eventSink

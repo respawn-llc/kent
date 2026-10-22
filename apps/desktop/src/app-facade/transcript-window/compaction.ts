@@ -4,7 +4,7 @@ import { isCompactionKind } from "../chatCompaction";
 import type { CommittedRow, CompactionStatus, Hydration, RuntimeActivity } from "./types";
 
 type ActiveStep = NonNullable<RuntimeActivity["ActiveStep"]>;
-type CompactionFacts = Pick<CompactionStatus, "StepID" | "Count" | "Mode" | "RequestID">;
+type CompactionFacts = Pick<CompactionStatus, "StepID" | "Count" | "Mode">;
 type CompactionAttempt = Readonly<{
   checkpoint: number;
   step: ActiveStep;
@@ -31,7 +31,7 @@ export function compactionStep(activity: RuntimeActivity): ActiveStep | null {
 }
 
 function sameStep(left: ActiveStep, right: ActiveStep): boolean {
-  return left.RunID === right.RunID && left.StepID === right.StepID && left.ActiveKind === right.ActiveKind;
+  return left.StepID === right.StepID && left.ActiveKind === right.ActiveKind;
 }
 
 export function activityContinues(
@@ -74,11 +74,7 @@ function bindActiveCompaction(attempt: CompactionAttempt, facts: CompactionStatu
 }
 
 function sameAttemptIdentity(left: CompactionFacts, right: CompactionFacts): boolean {
-  return (
-    left.StepID === right.StepID &&
-    left.Mode === right.Mode &&
-    (left.RequestID ?? null) === (right.RequestID ?? null)
-  );
+  return left.StepID === right.StepID && left.Mode === right.Mode;
 }
 
 export function sameCompaction(left: CompactionFacts, right: CompactionFacts): boolean {

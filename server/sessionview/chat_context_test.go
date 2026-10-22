@@ -7,13 +7,13 @@ import (
 	"testing"
 
 	"core/internal/testharness/testsetup"
-	"core/server/metadata"
 	"core/server/session"
 	"core/server/session/sessiontest"
 	"core/shared/config"
 	contextpb "core/shared/protoapi/gen/kent/api/chat_context"
 	"core/shared/runtimeids"
 	"core/shared/sessioncontract"
+	"core/shared/textutil"
 
 	"google.golang.org/protobuf/proto"
 )
@@ -38,7 +38,7 @@ func TestReadDormantSessionChatContextUsesExactExecutionRootAndBoundedFacts(t *t
 	workspaceRoot := t.TempDir()
 	executionRoot := t.TempDir()
 	store := newSessionViewStore(t, t.TempDir(), "workspace", workspaceRoot)
-	if _, err := store.SetUsageState(&session.UsageState{InputTokens: 125_000}); err != nil {
+	if _, err := store.SetUsageState(&session.UsageState{InputTokens: textutil.Value(125_000), ReportedContextTokens: textutil.Value(125_000)}); err != nil {
 		t.Fatalf("SetUsageState: %v", err)
 	}
 	if err := store.SetSessionContextFacts(3, true); err != nil {
@@ -52,7 +52,7 @@ func TestReadDormantSessionChatContextUsesExactExecutionRootAndBoundedFacts(t *t
 	settings.CompactionMode = config.CompactionModeLocal
 	resolver := &sessionChatContextWorkspaceResolver{app: testsetup.ProgrammaticConfig(t, settings)}
 	target := availableSessionExecutionTarget(executionRoot)
-	service := NewService(newTestSessionResolver(store), nil, staticExecutionTargetResolver{target: target}).
+	service := NewService(newTestSessionResolver(store), nil, staticExecutionTargetResolver{target: target}, nil).
 		WithChatContextWorkspaceResolver(resolver)
 
 	got, err := service.ReadSessionChatContext(t.Context(), sessionChatContextSessionID(t, store))
@@ -93,15 +93,15 @@ func TestReadDormantSessionChatContextUsesCurrentRoleBudgetWithLockedProvider(t 
 		t.Fatalf("MarkModelDispatchLocked: %v", err)
 	}
 	settings := config.DefaultOnboardingSettings()
-	settings.Model = "gpt-5.6-sol"
-	settings.Reviewer.Model = "gpt-5.6-sol"
+	settings.Model = "gpt-6-sol"
+	settings.Reviewer.Model = "gpt-6-sol"
 	settings.Reviewer.ModelContextWindow = 160_000
 	settings.ModelContextWindow = 160_000
 	settings.ContextCompactionThresholdTokens = 120_000
 	settings.CompactionMode = config.CompactionModeLocal
 	roleSettings := settings
-	roleSettings.Model = "gpt-5.6-sol"
-	roleSettings.Reviewer.Model = "gpt-5.6-sol"
+	roleSettings.Model = "gpt-6-sol"
+	roleSettings.Reviewer.Model = "gpt-6-sol"
 	roleSettings.Reviewer.ModelContextWindow = 140_000
 	roleSettings.ModelContextWindow = 140_000
 	roleSettings.ContextCompactionThresholdTokens = 110_000
@@ -123,7 +123,7 @@ func TestReadDormantSessionChatContextUsesCurrentRoleBudgetWithLockedProvider(t 
 	service := NewService(
 		newTestSessionResolver(store),
 		nil,
-		staticExecutionTargetResolver{target: availableSessionExecutionTarget(executionRoot)},
+		staticExecutionTargetResolver{target: availableSessionExecutionTarget(executionRoot)}, nil,
 	).WithChatContextWorkspaceResolver(resolver)
 
 	got, err := service.ReadSessionChatContext(t.Context(), sessionChatContextSessionID(t, store))
@@ -140,11 +140,7 @@ func TestReadDormantSessionChatContextUsesCurrentRoleBudgetWithLockedProvider(t 
 func TestReadDormantSessionChatContextUsesProductionPersistenceResolverWithoutEventLogMaterialization(t *testing.T) {
 	persistenceRoot := t.TempDir()
 	workspaceRoot := t.TempDir()
-	metadataStore, err := metadata.Open(persistenceRoot)
-	if err != nil {
-		t.Fatalf("metadata.Open: %v", err)
-	}
-	t.Cleanup(func() { _ = metadataStore.Close() })
+	metadataStore := testsetup.OpenStore(t, persistenceRoot)
 	binding, err := metadataStore.RegisterWorkspaceBinding(t.Context(), workspaceRoot)
 	if err != nil {
 		t.Fatalf("RegisterWorkspaceBinding: %v", err)
@@ -159,7 +155,7 @@ func TestReadDormantSessionChatContextUsesProductionPersistenceResolverWithoutEv
 	if err != nil {
 		t.Fatalf("session.Create: %v", err)
 	}
-	if _, err := store.SetUsageState(&session.UsageState{InputTokens: 42_000}); err != nil {
+	if _, err := store.SetUsageState(&session.UsageState{InputTokens: textutil.Value(42_000), ReportedContextTokens: textutil.Value(42_000)}); err != nil {
 		t.Fatalf("SetUsageState: %v", err)
 	}
 	if err := store.SetSessionContextFacts(2, true); err != nil {
@@ -175,7 +171,7 @@ func TestReadDormantSessionChatContextUsesProductionPersistenceResolverWithoutEv
 	service := NewService(
 		metadataStore,
 		nil,
-		metadataStore,
+		metadataStore, nil,
 	).WithChatContextWorkspaceResolver(&sessionChatContextWorkspaceResolver{
 		app: testsetup.ProgrammaticConfig(t, settings),
 	})
@@ -197,7 +193,7 @@ func TestReadDormantSessionChatContextPropagatesLoadFailures(t *testing.T) {
 	targets := staticExecutionTargetResolver{target: availableSessionExecutionTarget(t.TempDir())}
 
 	loadErr := errors.New("config unavailable")
-	service := NewService(newTestSessionResolver(store), nil, targets).
+	service := NewService(newTestSessionResolver(store), nil, targets, nil).
 		WithChatContextWorkspaceResolver(&sessionChatContextWorkspaceResolver{err: loadErr})
 	if _, err := service.ReadSessionChatContext(t.Context(), sessionID); !errors.Is(err, loadErr) {
 		t.Fatalf("load error = %v, want %v", err, loadErr)

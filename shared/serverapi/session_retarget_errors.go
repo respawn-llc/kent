@@ -5,6 +5,8 @@ import (
 	"fmt"
 	"sort"
 	"strings"
+
+	"core/shared/runtimeids"
 )
 
 var ErrSessionRetarget = errors.New("session workspace retarget failed")
@@ -27,6 +29,7 @@ type ProjectReference struct {
 type SessionRetargetError struct {
 	Reason            SessionRetargetErrorReason `json:"reason"`
 	SessionID         string                     `json:"session_id"`
+	ShortID           *runtimeids.SessionShortID `json:"-"`
 	SourceProject     ProjectReference           `json:"source_project"`
 	TargetRoot        string                     `json:"target_root"`
 	CandidateProjects []ProjectReference         `json:"candidate_projects,omitempty"`
@@ -42,39 +45,6 @@ func (e *SessionRetargetError) Error() string {
 
 func (e *SessionRetargetError) Is(target error) bool {
 	return target == ErrSessionRetarget
-}
-
-func (e *SessionRetargetError) Validate() error {
-	if e == nil {
-		return errors.New("session retarget error is required")
-	}
-	if strings.TrimSpace(e.SessionID) == "" {
-		return errors.New("session id is required")
-	}
-	if err := e.SourceProject.Validate(); err != nil {
-		return fmt.Errorf("source project: %w", err)
-	}
-	if strings.TrimSpace(e.TargetRoot) == "" {
-		return errors.New("target root is required")
-	}
-	switch e.Reason {
-	case SessionRetargetTargetProjectRequired,
-		SessionRetargetTargetProjectConflict:
-		if len(e.CandidateProjects) == 0 {
-			return errors.New("candidate projects are required")
-		}
-		for _, project := range e.CandidateProjects {
-			if err := project.Validate(); err != nil {
-				return fmt.Errorf("candidate project: %w", err)
-			}
-		}
-	case SessionRetargetWorkflowOwned,
-		SessionRetargetBackgroundProcess,
-		SessionRetargetRuntimeActive:
-	default:
-		return fmt.Errorf("invalid session retarget reason %q", e.Reason)
-	}
-	return nil
 }
 
 func (p ProjectReference) Validate() error {

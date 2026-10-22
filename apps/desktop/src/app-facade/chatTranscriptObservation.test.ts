@@ -1,4 +1,5 @@
-import { expect, it, vi } from "vitest";
+import { StreamFailureCode } from "@/test-support/api";
+import { expect, it, vi } from "bun:test";
 
 import type {
   ApiSubscription,
@@ -59,18 +60,18 @@ it("reopens one physical subscription after terminal Runtime unavailable and nor
   observation.start();
   expect(handlers).toHaveLength(1);
   handlers[0]?.onEvent(unavailableActivity());
-  handlers[0]?.onComplete({ code: 0, message: "", reason: null });
+  handlers[0]?.onComplete({ code: null, message: null, reason: null });
 
   expect(events).toHaveLength(1);
   expect(handlers).toHaveLength(2);
   expect(completions).toEqual([]);
   expect(errors).toEqual([]);
 
-  handlers[0]?.onComplete({ code: 0, message: "", reason: null });
+  handlers[0]?.onComplete({ code: null, message: null, reason: null });
   expect(handlers).toHaveLength(2);
 
   observation.close();
-  expect(closes[1]).toHaveBeenCalledOnce();
+  expect(closes[1]).toHaveBeenCalledTimes(1);
   handlers[1]?.onEvent(unavailableActivity());
   expect(events).toHaveLength(1);
 });
@@ -92,13 +93,13 @@ it("ends a sequence gap locally and opens one observation on explicit Retry", ()
   handlers[0]?.onEvent(hydrationMessage());
   handlers[0]?.onEvent({ ...unavailableActivity(), sequence: 3 });
   expect(handlers).toHaveLength(1);
-  expect(integrityFailures).toHaveBeenCalledOnce();
+  expect(integrityFailures).toHaveBeenCalledTimes(1);
   expect(observation.state.kind).toBe("error");
   handlers[0]?.onEvent(unavailableActivity());
-  handlers[0]?.onComplete({ code: 0, message: "", reason: null });
+  handlers[0]?.onComplete({ code: null, message: null, reason: null });
   expect(handlers).toHaveLength(1);
   expect(errors).toHaveLength(1);
-  expect(integrityFailures).toHaveBeenCalledOnce();
+  expect(integrityFailures).toHaveBeenCalledTimes(1);
   observation.retry();
   expect(handlers).toHaveLength(2);
   handlers[1]?.onOpen?.();
@@ -112,12 +113,12 @@ it("closes malformed-event observation and closes an explicit Retry on disposal"
 
   handlers[0]?.onError(new ContractError("Malformed transcript event."));
 
-  expect(closes[0]).toHaveBeenCalledOnce();
+  expect(closes[0]).toHaveBeenCalledTimes(1);
   expect(handlers).toHaveLength(1);
   observation.retry();
   expect(handlers).toHaveLength(2);
   observation.close();
-  expect(closes[1]).toHaveBeenCalledOnce();
+  expect(closes[1]).toHaveBeenCalledTimes(1);
 });
 
 it("does not replace a pending explicit Retry", () => {
@@ -131,7 +132,7 @@ it("does not replace a pending explicit Retry", () => {
   observation.retry();
   observation.retry();
 
-  expect(closes[0]).toHaveBeenCalledOnce();
+  expect(closes[0]).toHaveBeenCalledTimes(1);
   expect(closes[1]).not.toHaveBeenCalled();
   expect(handlers).toHaveLength(2);
   expect(observation.state.kind).toBe("loading");
@@ -153,7 +154,7 @@ it("rejects a live committed event that does not advance beyond hydration", () =
     },
   });
 
-  expect(failure).toHaveBeenCalledOnce();
+  expect(failure).toHaveBeenCalledTimes(1);
   expect(handlers).toHaveLength(1);
   expect(observation.state.kind).toBe("error");
 });
@@ -205,7 +206,7 @@ it.each([
     });
   });
 
-  expect(failure).toHaveBeenCalledOnce();
+  expect(failure).toHaveBeenCalledTimes(1);
   expect(handlers).toHaveLength(1);
 });
 
@@ -218,7 +219,7 @@ it("admits sequence-1 reattachment after normal Runtime stop", () => {
   handlers[0]?.onOpen?.();
   handlers[0]?.onEvent(hydrationMessage());
   handlers[0]?.onEvent(unavailableActivity());
-  handlers[0]?.onComplete({ code: 0, message: "", reason: null });
+  handlers[0]?.onComplete({ code: null, message: null, reason: null });
   handlers[1]?.onOpen?.();
   handlers[1]?.onEvent(hydrationMessage());
 
@@ -254,13 +255,17 @@ it.each([
   {
     name: "abnormal completion",
     trigger: (handler: ChatTranscriptHandler) => {
-      handler.onComplete({ code: 0, message: "", reason: null });
+      handler.onComplete({ code: null, message: null, reason: null });
     },
   },
   {
     name: "buffered stream failure",
     trigger: (handler: ChatTranscriptHandler) => {
-      handler.onComplete({ code: 17, message: "overflow", reason: "subscriber_overflow" });
+      handler.onComplete({
+        code: StreamFailureCode.STREAM_GAP,
+        message: "overflow",
+        reason: "subscriber_overflow",
+      });
     },
   },
 ])("ends the observation for $name", (testCase) => {
@@ -275,7 +280,7 @@ it.each([
   testCase.trigger(first);
 
   expect(handlers).toHaveLength(1);
-  expect(failure).toHaveBeenCalledOnce();
+  expect(failure).toHaveBeenCalledTimes(1);
   expect(observation.state.kind).toBe("error");
 });
 
@@ -286,6 +291,8 @@ function hydrationMessage(): Extract<ChatTranscriptMessage, { kind: "hydration" 
     payload: {
       ConnectionReplacement: null,
       SessionIdentity: {
+        Category: "main",
+        ShortID: null,
         SessionID: target.sessionID,
         SessionName: null,
         ConversationFreshness: 0,

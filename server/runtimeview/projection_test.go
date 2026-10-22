@@ -34,7 +34,7 @@ func (projectionFastClient) Generate(context.Context, llm.Request, llm.StreamCal
 }
 
 func (projectionFastClient) ProviderCapabilities(context.Context) (llm.ProviderCapabilities, error) {
-	return llm.ProviderCapabilities{ProviderID: "openai", SupportsResponsesAPI: true, IsOpenAIFirstParty: true}, nil
+	return llm.ProviderCapabilities{ProviderID: "openai", SupportsResponsesAPI: true, SupportsFastMode: true, IsOpenAIFirstParty: true}, nil
 }
 
 type projectionUnavailableFastClient struct{}
@@ -79,7 +79,7 @@ type projectionUsageClient struct{}
 func (projectionUsageClient) Generate(context.Context, llm.Request, llm.StreamCallbacks) (llm.Response, error) {
 	return llm.Response{
 		Assistant: llm.Message{Role: llm.RoleAssistant, Content: textutil.Value("done"), Phase: textutil.Value(llm.MessagePhaseFinal)},
-		Usage:     llm.Usage{InputTokens: 900, OutputTokens: 100, WindowTokens: 400_000},
+		Usage:     llm.Usage{InputTokens: textutil.Value(900), OutputTokens: textutil.Value(100), WindowTokens: 400_000, ContextUsage: &llm.ContextUsage{Tokens: 900, MeasurementPoint: llm.ContextMeasurementInput}},
 	}, nil
 }
 
@@ -96,9 +96,12 @@ func newRuntimeViewStore(t *testing.T) *session.Store {
 
 func newRuntimeViewEngine(t *testing.T, store *session.Store, client llm.Client, cfg ...runtime.Config) *runtime.Engine {
 	t.Helper()
-	engineConfig := runtime.Config{Model: "gpt-5"}
+	engineConfig := runtime.Config{Model: "gpt-6-sol"}
 	if len(cfg) > 0 {
 		engineConfig = cfg[0]
+	}
+	if engineConfig.ProjectWorkspaceContextReader == nil {
+		engineConfig.ProjectWorkspaceContextReader = testsetup.OpenSessionProjectWorkspaceContextReader(t, store)
 	}
 	eventLog, err := store.MaterializeEventLog()
 	if err != nil {
@@ -114,7 +117,7 @@ func newRuntimeViewEngine(t *testing.T, store *session.Store, client llm.Client,
 
 func TestStatusFromRuntimeIncludesSuspendedGoal(t *testing.T) {
 	client := newProjectionBlockingClient()
-	engine := newRuntimeViewEngine(t, newRuntimeViewStore(t), client, runtime.Config{Model: "gpt-5", EnabledTools: []toolspec.ID{toolspec.ToolAskQuestion}})
+	engine := newRuntimeViewEngine(t, newRuntimeViewStore(t), client, runtime.Config{Model: "gpt-6-sol", EnabledTools: []toolspec.ID{toolspec.ToolAskQuestion}})
 	if _, err := engine.SetGoal(t.Context(), "ship feature", session.GoalActorUser); err != nil {
 		t.Fatalf("set goal: %v", err)
 	}
@@ -142,7 +145,7 @@ func TestTranscriptSessionStatusDoesNotAdvertiseUnavailableFastMode(t *testing.T
 		newRuntimeViewStore(t),
 		projectionUnavailableFastClient{},
 		runtime.Config{
-			Model:           "gpt-5",
+			Model:           "gpt-6-sol",
 			FastModeEnabled: true,
 			ThinkingLevel:   "medium",
 			CompactionMode:  "auto",
@@ -167,7 +170,7 @@ func TestTranscriptSessionStatusDoesNotAdvertiseUnavailableFastMode(t *testing.T
 func TestMainViewFromRuntimeBundlesStatusAndSession(t *testing.T) {
 	dir := t.TempDir()
 	store, parentSessionID := newRuntimeViewParentAgentChild(t, dir, projectionWorkspaceID, dir)
-	if err := store.SetName("Session Name"); err != nil {
+	if err := store.SetName(textutil.Value("Session Name")); err != nil {
 		t.Fatalf("set name: %v", err)
 	}
 	role := "worker"
@@ -192,9 +195,12 @@ func TestMainViewFromRuntimeBundlesStatusAndSession(t *testing.T) {
 		t.Fatalf("append assistant message: %v", err)
 	}
 	eng := newRuntimeViewEngine(t, store, projectionFastClient{}, runtime.Config{
-		Model:                   "gpt-5",
+		Model:                   "gpt-6-sol",
 		ContextWindowTokens:     400_000,
 		SupportedThinkingValues: []string{"high"},
+		ProviderCapabilitiesOverride: &llm.ProviderCapabilities{
+			ProviderID: "openai", SupportsResponsesAPI: true, SupportsFastMode: true, IsOpenAIFirstParty: true,
+		},
 	})
 	if err := eng.SetThinkingLevel(t.Context(), "high"); err != nil {
 		t.Fatalf("set thinking level: %v", err)
@@ -262,7 +268,7 @@ func mainViewFromRuntimeForTest(t *testing.T, eng *runtime.Engine) *runtimepb.Ma
 func TestMainViewFromWorkflowRuntimeIncludesWorkflowStatus(t *testing.T) {
 	store := newRuntimeViewStore(t)
 	eng := newRuntimeViewEngine(t, store, projectionFastClient{}, runtime.Config{
-		Model: "gpt-5",
+		Model: "gpt-6-sol",
 	})
 	binding, err := eng.BindCurrentNodeExecution(
 		&workflowruntime.CurrentNodeExecutionConfig{
@@ -291,10 +297,10 @@ func TestMainViewFromWorkflowRuntimeIncludesWorkflowStatus(t *testing.T) {
 
 func TestStatusFromRuntimeUsesResponseUsage(t *testing.T) {
 	eng := newRuntimeViewEngine(t, newRuntimeViewStore(t), projectionUsageClient{}, runtime.Config{
-		Model:                         "gpt-5",
+		Model:                         "gpt-6-sol",
 		ContextWindowTokens:           400_000,
 		AutoCompactTokenLimit:         10_000,
-		PreSubmitCompactionLeadTokens: 100,
+		PreSubmitCompactionLeadTokens: textutil.Value(100),
 	})
 	if _, err := eng.SubmitUserMessage(context.Background(), "prompt"); err != nil {
 		t.Fatalf("submit user message: %v", err)

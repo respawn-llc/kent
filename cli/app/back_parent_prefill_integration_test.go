@@ -2,6 +2,7 @@ package app
 
 import (
 	"context"
+	"core/internal/testharness/requestfixture"
 	"core/server/session"
 	serverstartup "core/server/startup"
 	"core/shared/apicontract"
@@ -10,6 +11,7 @@ import (
 	runtimepb "core/shared/protoapi/gen/kent/api/runtime"
 	sessionpb "core/shared/protoapi/gen/kent/api/session"
 	sessionlaunchpb "core/shared/protoapi/gen/kent/api/session_launch"
+	sharedpb "core/shared/protoapi/gen/kent/api/shared"
 	worktreepb "core/shared/protoapi/gen/kent/api/worktree"
 	"core/shared/serverapi"
 	"core/shared/sessioncontract"
@@ -38,7 +40,7 @@ func TestBackParentPrefillOverServedRemote(t *testing.T) {
 	srv, err := serverstartup.StartServeServer(context.Background(), serverstartup.Request{
 		WorkspaceRoot:         workspace,
 		WorkspaceRootExplicit: true,
-		LoadOptions:           config.LoadOptions{Model: "gpt-5"},
+		LoadOptions:           config.LoadOptions{Model: "gpt-6-sol"},
 	})
 
 	if err != nil {
@@ -120,7 +122,7 @@ func TestRemoteBackRebindsToParentProjectBeforeRuntimePreparation(t *testing.T) 
 	}
 	sourceServer := boundServer.(*remoteAppServer)
 
-	parent := createAttachedAuthoritativeAppSession(t, sourceServer.Config().PersistenceRoot, sourceServer.ProjectID(), workspaceA)
+	parent := createAttachedAuthoritativeAppSession(t, sourceServer.Connection().PersistenceRoot, sourceServer.ProjectID(), workspaceA)
 	if err := parent.SetInputDraft("target project draft", nil); err != nil {
 		t.Fatalf("set target parent draft: %v", err)
 	}
@@ -128,7 +130,7 @@ func TestRemoteBackRebindsToParentProjectBeforeRuntimePreparation(t *testing.T) 
 	if err != nil {
 		t.Fatalf("materialize parent event log: %v", err)
 	}
-	child, err := session.CloneSession(parentLog, "", sessioncontract.SessionCategoryMain, session.ForkThinking{Desired: "medium", PreserveNativeUpdates: true})
+	child, err := session.CloneSession(parentLog, nil, sessioncontract.SessionCategoryMain, session.ForkThinking{Desired: "medium", PreserveNativeUpdates: true})
 	if err != nil {
 		t.Fatalf("clone source child: %v", err)
 	}
@@ -146,7 +148,7 @@ func TestRemoteBackRebindsToParentProjectBeforeRuntimePreparation(t *testing.T) 
 	targetProjectID := bindingB.ProjectID
 	if _, err := sourceServer.SessionLifecycleClient().RetargetSessionWorkspace(
 		context.Background(), &sessionlaunchpb.SessionRetargetWorkspaceRequest{
-			SessionId:     parent.Meta().SessionID,
+			SessionId:     requestfixture.Selector(t, parent.Meta().SessionID),
 			WorkspaceRoot: workspaceB,
 			ProjectId:     &targetProjectID,
 		},
@@ -155,7 +157,7 @@ func TestRemoteBackRebindsToParentProjectBeforeRuntimePreparation(t *testing.T) 
 	}
 
 	childView, err := sourceServer.SessionViewClient().GetSessionMainView(
-		context.Background(), &sessionpb.MainViewRequest{SessionId: child.Meta().SessionID})
+		context.Background(), &sessionpb.MainViewRequest{SessionId: &sharedpb.SessionSelector{Value: &sharedpb.SessionSelector_SessionId{SessionId: child.Meta().SessionID}}})
 	if err != nil {
 		t.Fatalf("load child main view: %v", err)
 	}
@@ -187,8 +189,8 @@ func TestRemoteBackRebindsToParentProjectBeforeRuntimePreparation(t *testing.T) 
 		t.Fatalf("target server context = rebound %t project %q, want project %q", rebound, targetServer.ProjectID(), bindingB.ProjectID)
 	}
 	defer func() { _ = targetServer.Close() }()
-	if targetServer.Config().WorkspaceRoot != sourceConfig.WorkspaceRoot {
-		t.Fatalf("remote bootstrap workspace root = %q, want retained source root %q", targetServer.Config().WorkspaceRoot, sourceConfig.WorkspaceRoot)
+	if targetServer.Connection().WorkspaceRoot != sourceConfig.WorkspaceRoot {
+		t.Fatalf("remote bootstrap workspace root = %q, want retained source root %q", targetServer.Connection().WorkspaceRoot, sourceConfig.WorkspaceRoot)
 	}
 	remoteRetargetContext := targetServer.(sessionWorkspaceRetargetContextProvider).workspaceRetargetContext()
 	if remoteRetargetContext == nil || comparableWorkspaceChangeRoot(remoteRetargetContext.workspaceRoot) != comparableWorkspaceChangeRoot(workspaceB) {
@@ -218,7 +220,7 @@ func TestRemoteBackRebindsToParentProjectBeforeRuntimePreparation(t *testing.T) 
 		t.Fatalf("workspace-change prompts after remote /back = %d, want 0", promptCalls)
 	}
 	planner := newSessionLaunchPlanner(targetServer)
-	plan, err := planner.PlanSession(context.Background(), sessionLaunchRequest{Mode: launchModeInteractive, Intent: intent})
+	plan, err := planner.PlanSession(context.Background(), sessionLaunchRequest{Mode: launchModeInteractive, Intent: requestfixture.LaunchIntent(t, intent)})
 	if err != nil {
 		t.Fatalf("plan target parent: %v", err)
 	}
@@ -238,7 +240,7 @@ func TestRemoteBackRebindsToParentProjectBeforeRuntimePreparation(t *testing.T) 
 	if err != nil {
 		t.Fatalf("prepare target parent UI: %v", err)
 	}
-	defer func() { _ = runtimePlan.Close() }()
+	defer runtimePlan.Close()
 	if request.initialInput != "target project draft" || request.active.Model != "target-project-model" {
 		t.Fatalf("prepared target UI input/model = %q/%q", request.initialInput, request.active.Model)
 	}
@@ -263,12 +265,12 @@ func runBackParentPrefillScenario(t *testing.T, server backParentPrefillScenario
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			parent := createAttachedAuthoritativeAppSession(t, server.Config().PersistenceRoot, server.ProjectID(), server.Config().WorkspaceRoot)
+			parent := createAttachedAuthoritativeAppSession(t, server.Connection().PersistenceRoot, server.ProjectID(), server.Connection().WorkspaceRoot)
 			parentLog, err := parent.MaterializeEventLog()
 			if err != nil {
 				t.Fatalf("materialize parent event log: %v", err)
 			}
-			child, err := session.CloneSession(parentLog, "", sessioncontract.SessionCategoryMain, session.ForkThinking{Desired: "medium", PreserveNativeUpdates: true})
+			child, err := session.CloneSession(parentLog, nil, sessioncontract.SessionCategoryMain, session.ForkThinking{Desired: "medium", PreserveNativeUpdates: true})
 			if err != nil {
 				t.Fatalf("clone child from parent: %v", err)
 			}
@@ -310,7 +312,7 @@ func runBackParentPrefillScenario(t *testing.T, server backParentPrefillScenario
 			}
 
 			childView, err := server.SessionViewClient().GetSessionMainView(
-				context.Background(), &sessionpb.MainViewRequest{SessionId: child.Meta().SessionID})
+				context.Background(), &sessionpb.MainViewRequest{SessionId: &sharedpb.SessionSelector{Value: &sharedpb.SessionSelector_SessionId{SessionId: child.Meta().SessionID}}})
 			if err != nil {
 				t.Fatalf("load child main view: %v", err)
 			}
@@ -360,9 +362,8 @@ func runBackParentPrefillScenario(t *testing.T, server backParentPrefillScenario
 				nil,
 				child.Meta().SessionID,
 				transition,
-				&runtimeLaunchPlan{close: func() error {
+				&runtimeLaunchPlan{stopEventStreams: func() {
 					originReleased = true
-					return nil
 				}},
 				nil,
 			)
@@ -380,7 +381,7 @@ func runBackParentPrefillScenario(t *testing.T, server backParentPrefillScenario
 			planner := newSessionLaunchPlanner(server)
 			parentPlan, err := planner.PlanSession(context.Background(), sessionLaunchRequest{
 				Mode:   launchModeInteractive,
-				Intent: serverapi.OpenExistingSessionLaunchIntent(sessionLifecycleSessionIDForTest(t, parent.Meta().SessionID)),
+				Intent: requestfixture.LaunchIntent(t, serverapi.OpenExistingSessionLaunchIntent(sessionLifecycleSessionIDForTest(t, parent.Meta().SessionID))),
 			})
 			if err != nil {
 				t.Fatalf("plan parent session: %v", err)
@@ -398,7 +399,7 @@ func runBackParentPrefillScenario(t *testing.T, server backParentPrefillScenario
 			if err != nil {
 				t.Fatalf("prepare parent UI: %v", err)
 			}
-			defer func() { _ = parentRuntimePlan.Close() }()
+			defer parentRuntimePlan.Close()
 
 			composition, err := composeUIProgram(request, io.Discard)
 			if err != nil {
@@ -423,8 +424,10 @@ func runBackParentPrefillScenario(t *testing.T, server backParentPrefillScenario
 			}
 			next, editCmd := parentModel.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'x'}})
 			edited := next.(*uiModel)
-			if editCmd != nil {
-				t.Fatal("normal parent composer edit created a runtime command")
+			for _, msg := range collectCmdMessages(t, editCmd) {
+				if done, ok := msg.(draftSaveDoneMsg); ok && done.err != nil {
+					t.Fatalf("save edited parent draft: %v", done.err)
+				}
 			}
 			if testMainInput(edited) != wantInput+"x" {
 				t.Fatalf("edited parent input = %q, want %q", testMainInput(edited), wantInput+"x")
@@ -433,7 +436,7 @@ func runBackParentPrefillScenario(t *testing.T, server backParentPrefillScenario
 			if err != nil {
 				t.Fatalf("refresh parent runtime after edit: %v", err)
 			}
-			if !proto.Equal(afterEdit.Activity, beforeEdit.Activity) || afterEdit.Activity.State != runtimepb.ActivityState_RUNTIME_ACTIVITY_REGISTERED_IDLE {
+			if !proto.Equal(afterEdit.Activity, beforeEdit.Activity) || afterEdit.Activity.State != runtimepb.ActivityState_RUNTIME_ACTIVITY_UNAVAILABLE {
 				t.Fatalf("normal edit changed parent runtime activity: before=%+v after=%+v", beforeEdit.Activity, afterEdit.Activity)
 			}
 		})

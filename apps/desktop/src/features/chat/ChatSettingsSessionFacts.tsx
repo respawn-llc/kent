@@ -1,10 +1,10 @@
 import { ChevronRight } from "lucide-react";
 import { useTranslation } from "react-i18next";
 
-import { errorMessage, type ChatSettingsSessionFacts as SessionFacts } from "@/api";
-import { useAppServices } from "@/app-facade";
+import { errorMessage, sessionDisplayID, type ChatSettingsSessionFacts as SessionFacts } from "@/api";
+import { useAppServices, useNativeChatOpening } from "@/app-facade";
 import { writeClipboardText } from "@/shared/native-clipboard";
-import { showStatusToast, Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/ui";
+import { showStatusToast, Spinner, Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/ui";
 
 import { SettingsRow } from "./ChatSettingsRows";
 import type { ChatSettingsNavigation } from "./useChatSettings";
@@ -20,10 +20,17 @@ export function ChatSettingsSessionFacts({
 }>) {
   const { t } = useTranslation();
   const { nativeBridge } = useAppServices();
-  const { sessionID, previousSessionID, task } = facts;
+  const nativeChat = useNativeChatOpening();
+  const { sessionID, previousSessionID, task, connection } = facts;
+  const parentPending = previousSessionID !== null && nativeChat.pendingSessionID === previousSessionID;
+  const displayID = sessionDisplayID(sessionID, facts.shortID);
+  const parentLabel = t("chatSettings.toParentChat");
+  const parentTooltip = nativeBridge.capabilities.dialogWindows
+    ? t("app.shiftClickToOpenInNewWindow", { action: parentLabel })
+    : parentLabel;
   async function copySessionID() {
     try {
-      await writeClipboardText(sessionID, nativeBridge);
+      await writeClipboardText(displayID, nativeBridge);
       showStatusToast({
         id: "chat-settings-copy",
         tone: "success",
@@ -44,15 +51,25 @@ export function ChatSettingsSessionFacts({
       {previousSessionID === null ? null : (
         <SettingsRow
           as="button"
-          onActivate={() => {
+          title={parentTooltip}
+          onActivate={(event) => {
+            if (parentPending) return;
+            if (event.shiftKey && nativeBridge.capabilities.dialogWindows) {
+              nativeChat.open({ projectID: navigation.projectID, sessionID: previousSessionID });
+              return;
+            }
             closeAndNavigate(() => {
               void navigation.openParentSession(previousSessionID);
             });
           }}
           reason={undefined}
         >
-          <span className="min-w-0 flex-1 truncate">{t("chatSettings.toParentChat")}</span>
-          <ChevronRight className="shrink-0 text-[var(--color-muted)]" size={14} />
+          <span className="min-w-0 flex-1 truncate">{parentLabel}</span>
+          {parentPending ? (
+            <Spinner size="sm" />
+          ) : (
+            <ChevronRight className="shrink-0 text-[var(--color-muted)]" size={14} />
+          )}
         </SettingsRow>
       )}
       {task === null ? null : (
@@ -69,6 +86,16 @@ export function ChatSettingsSessionFacts({
           <ChevronRight className="shrink-0 text-[var(--color-muted)]" size={14} />
         </SettingsRow>
       )}
+      {connection === undefined ? null : (
+        <SettingsRow reason={undefined}>
+          <span className="min-w-0 flex-1 truncate text-xs text-[var(--color-muted)]">
+            {t("chatSettings.sessionConnection", {
+              id: connection.id,
+              mode: t(`chatSettings.connectionModes.${connection.mode}`),
+            })}
+          </span>
+        </SettingsRow>
+      )}
       <TooltipProvider>
         <Tooltip>
           <TooltipTrigger asChild>
@@ -81,12 +108,12 @@ export function ChatSettingsSessionFacts({
                 reason={undefined}
               >
                 <span className="min-w-0 flex-1 truncate font-mono text-xs text-[var(--color-muted)]">
-                  {sessionID}
+                  {displayID}
                 </span>
               </SettingsRow>
             </div>
           </TooltipTrigger>
-          <TooltipContent className="font-mono">{sessionID}</TooltipContent>
+          <TooltipContent>{t("chatSettings.clickToCopy")}</TooltipContent>
         </Tooltip>
       </TooltipProvider>
     </div>

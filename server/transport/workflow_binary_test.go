@@ -1,21 +1,236 @@
 package transport
 
 import (
+	"context"
+	"database/sql"
 	"errors"
 	"net/http/httptest"
 	"slices"
 	"strings"
 	"testing"
+	"time"
 
 	"core/server/core"
+	"core/server/metadata"
+	"core/server/metadata/sqlitegen"
+	"core/server/workflowstore"
+	"core/shared/apicontract"
 	remoteclient "core/shared/client"
 	"core/shared/protoapi"
 	sharedpb "core/shared/protoapi/gen/kent/api/shared"
 	pb "core/shared/protoapi/gen/kent/api/workflow_definition"
 	taskpb "core/shared/protoapi/gen/kent/api/workflow_task"
-	"core/shared/protocol"
 	"core/shared/serverapi"
+	"core/shared/worktreecontract"
+
+	"github.com/google/uuid"
+	"golang.org/x/net/websocket"
+	"google.golang.org/protobuf/proto"
 )
+
+type taskCreateConflictService struct {
+	apicontract.WorkflowService
+}
+
+func (s *taskCreateConflictService) CreateWorkflowTask(context.Context, *taskpb.CreateRequest) (*taskpb.CreateSuccess, error) {
+	return nil, workflowstore.TaskCreateConflictError{Reason: workflowstore.TaskCreateConflictSerialization}
+}
+
+type taskStartResolutionFailureService struct {
+	apicontract.WorkflowService
+	failure error
+}
+
+func (s *taskStartResolutionFailureService) StartWorkflowTask(context.Context, *taskpb.StartRequest) (*taskpb.StartSuccess, error) {
+	return nil, s.failure
+}
+
+func TestTaskCreateSerializationConflictRoundTrip(t *testing.T) {
+	app, _ := newGatewayTestCore(t, true, true)
+	defer func() { _ = app.Close() }()
+	gateway, err := NewGateway(&gatewayCloseDependencies{
+		GatewayDependencies: app,
+		workflow:            &taskCreateConflictService{WorkflowService: app.WorkflowClient()},
+	}, gatewayTestIdentity())
+	if err != nil {
+		t.Fatal(err)
+	}
+	server := httptest.NewServer(gateway.Handler())
+	defer server.Close()
+	remote, err := remoteclient.DialRemoteURL(t.Context(), "ws"+server.URL[len("http"):])
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = remote.Close() }()
+	result, err := remote.CreateWorkflowTask(t.Context(), &taskpb.CreateRequest{
+		ProjectId: app.ProjectID(), Title: "Concurrent creation",
+	})
+	var conflict *remoteclient.TaskCreateError
+	if result != nil || !errors.As(err, &conflict) {
+		t.Fatalf("Create = %v, %T %v; want typed conflict", result, err, err)
+	}
+	if conflict.Failure.GetCreateConflict().GetReason() != taskpb.CreateConflictReason_CREATE_CONFLICT_REASON_SERIALIZATION {
+		t.Fatalf("Create lost serialization conflict detail: %v", conflict.Failure)
+	}
+}
+
+func TestTaskStartDefaultBranchResolutionFailureRoundTrip(t *testing.T) {
+	app, _ := newGatewayTestCore(t, true, true)
+	defer func() { _ = app.Close() }()
+	diagnostic := "local remote HEAD inspection failed"
+	gateway, err := NewGateway(&gatewayCloseDependencies{
+		GatewayDependencies: app,
+		workflow: &taskStartResolutionFailureService{
+			WorkflowService: app.WorkflowClient(),
+			failure: &serverapi.WorkflowExecutionTargetResolutionError{
+				Target: serverapi.WorkflowExecutionTargetResolutionDefaultBranch{},
+				Code:   serverapi.WorkflowExecutionTargetResolutionErrorGitFailure, Diagnostic: &diagnostic,
+			},
+		},
+	}, gatewayTestIdentity())
+	if err != nil {
+		t.Fatal(err)
+	}
+	server := httptest.NewServer(gateway.Handler())
+	defer server.Close()
+	remote, err := remoteclient.DialRemoteURL(t.Context(), "ws"+server.URL[len("http"):])
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = remote.Close() }()
+
+	response, err := remote.StartWorkflowTask(t.Context(), &taskpb.StartRequest{
+		TaskId:           uuid.NewString(),
+		SetupOperationId: worktreecontract.NewSetupOperationID().String(),
+		ExecutionTarget: &taskpb.ExecutionTargetSelection{
+			Mode: pb.ExecutionTargetMode_WORKFLOW_EXECUTION_TARGET_MODE_DEFAULT_BRANCH,
+		},
+	})
+	var resolutionErr *serverapi.WorkflowExecutionTargetResolutionError
+	if response != nil || !errors.As(err, &resolutionErr) {
+		t.Fatalf("StartWorkflowTask round trip = %+v, %T %v; want typed resolution failure", response, err, err)
+	}
+	_, isDefaultBranch := resolutionErr.Target.(serverapi.WorkflowExecutionTargetResolutionDefaultBranch)
+	if !isDefaultBranch ||
+		resolutionErr.Code != serverapi.WorkflowExecutionTargetResolutionErrorGitFailure ||
+		resolutionErr.Diagnostic == nil || *resolutionErr.Diagnostic != diagnostic {
+		t.Fatalf("StartWorkflowTask round trip = %+v, %T %+v; want default-branch Git failure with diagnostic", response, err, resolutionErr)
+	}
+}
+
+func TestWorkflowBinaryTaskUnicodeBodyCreateReadEditRoundTrip(t *testing.T) {
+	app, server := newGatewayTestServer(t)
+	defer server.Close()
+	defer func() { _ = app.Close() }()
+	remote, err := remoteclient.DialRemoteURL(t.Context(), "ws"+server.URL[len("http"):])
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = remote.Close() }()
+
+	_, err = app.WorkflowClient().CreateAndLinkWorkflowToProject(t.Context(), &pb.CreateAndLinkProjectRequest{
+		Name:          "Unicode preview Workflow",
+		ProjectId:     app.ProjectID(),
+		DefaultPolicy: pb.ProjectLinkDefaultMode_WORKFLOW_PROJECT_LINK_DEFAULT_MODE_IF_PROJECT_HAS_NONE.Enum(),
+	})
+	if err != nil {
+		t.Fatalf("CreateAndLinkWorkflowToProject: %v", err)
+	}
+
+	body := "a" + strings.Repeat("я", 60)
+	created, err := remote.CreateWorkflowTask(t.Context(), &taskpb.CreateRequest{
+		ProjectId: app.ProjectID(),
+		Title:     "Unicode body preview",
+		Body:      proto.String(body),
+	})
+	if err != nil {
+		t.Fatalf("CreateWorkflowTask: %v", err)
+	}
+	taskID := created.GetTask().GetId()
+	if got := created.GetTask().GetBodyPreview(); got != body {
+		t.Fatalf("created Task preview = %q, want %q", got, body)
+	}
+
+	initialDetail, err := remote.GetWorkflowTask(t.Context(), &taskpb.GetRequest{TaskId: proto.String(taskID)})
+	if err != nil {
+		t.Fatalf("GetWorkflowTask after create: %v", err)
+	}
+	if initialDetail.GetTask().GetBody() != body ||
+		initialDetail.GetTask().GetSummary().GetId() != taskID ||
+		initialDetail.GetTask().GetSummary().GetBodyPreview() != body {
+		t.Fatalf("created Task detail = %+v, want ID %q and full body %q", initialDetail.GetTask(), taskID, body)
+	}
+
+	updatedBody := "😀" + strings.Repeat("я", 96)
+	updatedPreview := "😀" + strings.Repeat("я", 95)
+	updated, err := remote.UpdateWorkflowTask(t.Context(), &taskpb.UpdateRequest{
+		TaskId: taskID,
+		Body:   proto.String(updatedBody),
+	})
+	if err != nil {
+		t.Fatalf("UpdateWorkflowTask: %v", err)
+	}
+	if updated.GetTask().GetId() != taskID || updated.GetTask().GetBodyPreview() != updatedPreview {
+		t.Fatalf("updated Task summary = %+v, want ID %q and preview %q", updated.GetTask(), taskID, updatedPreview)
+	}
+
+	updatedDetail, err := remote.GetWorkflowTask(t.Context(), &taskpb.GetRequest{TaskId: proto.String(taskID)})
+	if err != nil {
+		t.Fatalf("GetWorkflowTask after update: %v", err)
+	}
+	if updatedDetail.GetTask().GetBody() != updatedBody ||
+		updatedDetail.GetTask().GetSummary().GetId() != taskID ||
+		updatedDetail.GetTask().GetSummary().GetBodyPreview() != updatedPreview {
+		t.Fatalf("updated Task detail = %+v, want ID %q and full body %q", updatedDetail.GetTask(), taskID, updatedBody)
+	}
+}
+
+func TestTaskDeleteBlockedWorktreeRoundTrip(t *testing.T) {
+	app, server := newGatewayTestServer(t)
+	first := createGatewaySearchableTask(t, app)
+	second, err := app.WorkflowClient().CreateWorkflowTask(t.Context(), &taskpb.CreateRequest{
+		ProjectId: app.ProjectID(), Title: "Other Task managing the same Worktree",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	store := app.MetadataStore()
+	workspace, err := store.ResolveProjectSourceWorkspace(t.Context(), app.ProjectID())
+	if err != nil {
+		t.Fatal(err)
+	}
+	worktreeID := uuid.NewString()
+	if err := store.UpsertWorktreeRecord(t.Context(), metadata.WorktreeRecord{
+		ID: worktreeID, WorkspaceID: workspace.ID, CanonicalRoot: t.TempDir(), Managed: true,
+	}); err != nil {
+		t.Fatal(err)
+	}
+	for _, taskID := range []string{first.Id, second.Task.Id} {
+		updated, err := store.Queries().BindInitialTaskManagedWorktree(t.Context(), sqlitegen.BindInitialTaskManagedWorktreeParams{
+			TaskID: taskID, ManagedWorktreeID: sql.NullString{String: worktreeID, Valid: true},
+			UpdatedAtUnixMs: time.Now().UnixMilli(),
+		})
+		if err != nil || updated != 1 {
+			t.Fatalf("bind managed Worktree: rows=%d error=%v", updated, err)
+		}
+	}
+	remote, err := remoteclient.DialRemoteURL(t.Context(), "ws"+server.URL[len("http"):])
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = remote.Close() })
+	_, err = remote.DeleteWorkflowTask(t.Context(), &taskpb.DeleteRequest{TaskId: first.Id})
+	var blocked *worktreecontract.BlockedError
+	if !errors.Is(err, worktreecontract.ErrWorktreeBlocked) || !errors.As(err, &blocked) || blocked.Details == nil {
+		t.Fatalf("Task deletion lost the Worktree blocker: %T %v", err, err)
+	}
+	for _, expected := range []*taskpb.TaskSummary{first, second.Task} {
+		retained, err := remote.GetWorkflowTask(t.Context(), &taskpb.GetRequest{TaskId: proto.String(expected.Id)})
+		if err != nil || retained.GetTask().GetSummary().GetTitle() != expected.Title {
+			t.Fatalf("blocked deletion changed Task %q: %v, %v", expected.Id, retained, err)
+		}
+	}
+}
 
 type workflowCoreGate struct {
 	*core.Core
@@ -91,7 +306,7 @@ func requireMissingCustomRefDiagnostic(t *testing.T, results []*pb.ModeValidatio
 	t.Fatalf("missing custom-ref diagnostic: %v", results)
 }
 
-func TestWorkflowBinaryLabelsInteroperateWithTaskJSON(t *testing.T) {
+func TestWorkflowBinaryLabelsInteroperateWithTaskDetails(t *testing.T) {
 	app, server := newGatewayTestServer(t)
 	defer server.Close()
 	defer func() { _ = app.Close() }()
@@ -114,23 +329,23 @@ func TestWorkflowBinaryLabelsInteroperateWithTaskJSON(t *testing.T) {
 		t.Fatalf("duplicate label detail = %v", failure.Detail)
 	}
 	updated, err := remote.UpdateWorkflowTaskLabels(t.Context(), &taskpb.LabelsUpdateRequest{
-		TaskId: task.ID, AddLabelIds: []string{created.Label.Id},
+		TaskId: task.Id, AddLabelIds: []string{created.Label.Id},
 	})
 	if err != nil {
 		t.Fatal(err)
 	}
-	assignment, err := remote.GetWorkflowTaskLabels(t.Context(), &taskpb.LabelsGetRequest{TaskId: task.ID})
+	assignment, err := remote.GetWorkflowTaskLabels(t.Context(), &taskpb.LabelsGetRequest{TaskId: task.Id})
 	if err != nil {
 		t.Fatal(err)
 	}
-	detail, err := remote.GetWorkflowTask(t.Context(), serverapi.WorkflowTaskGetRequest{TaskID: task.ID})
+	detail, err := remote.GetWorkflowTask(t.Context(), &taskpb.GetRequest{TaskId: proto.String(task.Id)})
 	if err != nil {
 		t.Fatal(err)
 	}
 	if !slices.Equal(updated.Assignment.LabelIds, []string{created.Label.Id}) ||
 		!slices.Equal(assignment.Assignment.LabelIds, updated.Assignment.LabelIds) ||
-		!slices.Equal(detail.Task.LabelIDs, updated.Assignment.LabelIds) {
-		t.Fatalf("label assignments disagree: %v, %v, %v", updated, assignment, detail.Task.LabelIDs)
+		!slices.Equal(detail.Task.LabelIds, updated.Assignment.LabelIds) {
+		t.Fatalf("label assignments disagree: %v, %v, %v", updated, assignment, detail.Task.LabelIds)
 	}
 	normalized, err := remote.CreateWorkflowProjectLabel(t.Context(), &pb.ProjectLabelCreateRequest{
 		ProjectId: app.ProjectID(), Name: " " + strings.Repeat("e\u0301", 64) + " ",
@@ -153,9 +368,19 @@ func TestWorkflowBinaryRejectsWrongEncodingAndMalformedPayloadWithoutClosingConn
 	conn := dialGateway(t, server)
 	defer func() { _ = conn.Close() }()
 	handshakeGateway(t, conn)
-	failure := callGatewayExpectError(t, conn, "old-workflow-list", "workflow.list", struct{}{})
-	if failure.Code != protocol.ErrCodeMethodNotFound {
-		t.Fatalf("obsolete encoding = %v", failure)
+	if err := websocket.Message.Send(conn, "unsupported application frame"); err != nil {
+		t.Fatal(err)
+	}
+	var rejected []byte
+	if err := websocket.Message.Receive(conn, &rejected); err != nil {
+		t.Fatal(err)
+	}
+	failure, err := protoapi.DecodeEnvelope(rejected)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if failure.GetTransportFailure().GetCode() != sharedpb.TransportFailureCode_TRANSPORT_FAILURE_CODE_MALFORMED_ENVELOPE || failure.GetTransportFailure().Correlation != nil {
+		t.Fatalf("text rejection = %v", failure)
 	}
 	method := pb.File_kent_api_workflow_definition_workflow_definition_proto.Services().ByName("WorkflowDefinitionService").Methods().ByName("List")
 	envelope := callGatewayDescriptorPayload(t, conn, "malformed-workflow", method, []byte{0xff})
@@ -177,7 +402,6 @@ func TestWorkflowBinaryAuthenticationAndReadiness(t *testing.T) {
 		readiness error
 		want      error
 	}{
-		{name: "active unauthenticated", want: serverapi.ErrServerAuthRequired},
 		{name: "onboarding required", readiness: serverapi.NewServerNotReadyError(serverapi.ServerNotReadyOnboardingRequired, nil, nil), want: serverapi.ErrServerNotReadyOnboardingRequired},
 		{name: "activation failed", readiness: serverapi.NewServerNotReadyError(serverapi.ServerNotReadyActivationFailed, nil, errors.New("activation failed")), want: serverapi.ErrServerNotReadyActivationFailed},
 	} {
@@ -204,11 +428,7 @@ func TestWorkflowBinaryAuthenticationAndReadiness(t *testing.T) {
 				t.Fatalf("Task label update failure = %v, want %v", err, test.want)
 			}
 			list, err := remote.ListWorkflows(t.Context(), &pb.ListRequest{})
-			if test.readiness == nil {
-				if err != nil || list == nil {
-					t.Fatalf("active unauthenticated List = %v, %v", list, err)
-				}
-			} else if !errors.Is(err, test.want) {
+			if !errors.Is(err, test.want) || list != nil {
 				t.Fatalf("List failure = %v, want %v", err, test.want)
 			}
 		})

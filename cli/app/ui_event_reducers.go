@@ -92,10 +92,6 @@ func (m *uiModel) reduceInputAsyncMessage(msg tea.Msg) uiFeatureUpdateResult {
 		cmd := m.handleLatestFinalAnswerTimeout(msg)
 		m.layout().syncViewport()
 		return handledUIFeatureUpdate(m, cmd)
-	case authSlashCommandRefreshedMsg:
-		m.applyAuthSlashCommandRefreshed(msg)
-		m.layout().syncViewport()
-		return handledUIFeatureUpdate(m, nil)
 	case promptHistoryPersistErrMsg:
 		m.observeRuntimeRequestResult(msg.err)
 		if msg.err == nil {
@@ -197,11 +193,9 @@ func (m *uiModel) reduceProcessMessage(msg tea.Msg) uiFeatureUpdateResult {
 		m.layout().syncViewport()
 		return handledUIFeatureUpdate(m, cmd)
 	case openProcessLogsDoneMsg:
+		cmd := m.applyProcessLogsDone(msg)
 		m.layout().syncViewport()
-		if msg.err != nil {
-			return handledUIFeatureUpdate(m, m.sendTransientStatusWithNoticeID(msg.err.Error(), uiStatusNoticeError, transientStatusDuration, uiStatusNoticeReplace, ""))
-		}
-		return handledUIFeatureUpdate(m, nil)
+		return handledUIFeatureUpdate(m, cmd)
 	}
 	return uiFeatureUpdateResult{}
 }

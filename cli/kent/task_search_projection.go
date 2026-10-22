@@ -6,7 +6,7 @@ import (
 	"strconv"
 	"strings"
 
-	"core/shared/serverapi"
+	taskpb "core/shared/protoapi/gen/kent/api/workflow_task"
 )
 
 type taskSearchPlainProjection struct {
@@ -33,46 +33,43 @@ const (
 
 type taskSearchPlainLine struct {
 	Kind    taskSearchPlainLineKind
-	Literal *serverapi.TaskSearchLiteralHit
-	FTS5    *serverapi.TaskSearchFTS5Hit
+	Literal *taskpb.SearchLiteralHit
+	FTS5    *taskpb.SearchFts5Hit
 }
 
-func taskSearchPlainProjectionFromResponse(response serverapi.TaskSearchResponse) (taskSearchPlainProjection, error) {
-	if err := response.Validate(); err != nil {
-		return taskSearchPlainProjection{}, err
-	}
+func taskSearchPlainProjectionFromResponse(response *taskpb.SearchSuccess) taskSearchPlainProjection {
 	if len(response.Groups) == 0 {
-		return taskSearchPlainProjection{}, nil
+		return taskSearchPlainProjection{}
 	}
 	groups := make([]taskSearchPlainGroup, 0, len(response.Groups))
 	for _, group := range response.Groups {
 		lines := make([]taskSearchPlainLine, 0, len(group.Hits)+1)
 		commentHeadingWritten := false
 		for _, hit := range group.Hits {
-			if hit.Source.Kind == serverapi.TaskSearchSourceKindShortID {
+			if hit.Source.Kind == taskpb.SearchSourceKind_SEARCH_SOURCE_KIND_SHORT_ID {
 				continue
 			}
-			if hit.Source.Kind == serverapi.TaskSearchSourceKindComment && !commentHeadingWritten {
+			if hit.Source.Kind == taskpb.SearchSourceKind_SEARCH_SOURCE_KIND_COMMENT && !commentHeadingWritten {
 				lines = append(lines, taskSearchPlainLine{Kind: taskSearchPlainLineKindCommentHeading})
 				commentHeadingWritten = true
 			}
 			line := taskSearchPlainLine{Kind: taskSearchPlainLineKindHit}
-			if response.Mode == serverapi.TaskSearchModeLiteral {
-				line.Literal = hit.Literal
+			if response.Mode == taskpb.SearchMode_SEARCH_MODE_LITERAL {
+				line.Literal = hit.GetLiteral()
 			} else {
-				line.FTS5 = hit.FTS5
+				line.FTS5 = hit.GetFts5()
 			}
 			lines = append(lines, line)
 		}
 		lastOrdinal := group.Hits[len(group.Hits)-1].Ordinal
 		groups = append(groups, taskSearchPlainGroup{
-			ShortID:           group.ShortID,
+			ShortID:           group.ShortId,
 			Title:             group.Title,
 			Lines:             lines,
-			RemainingHitCount: group.TotalHitCount - lastOrdinal,
+			RemainingHitCount: int(group.TotalHitCount - lastOrdinal),
 		})
 	}
-	return taskSearchPlainProjection{Groups: groups}, nil
+	return taskSearchPlainProjection{Groups: groups}
 }
 
 func writeTaskSearchPlainProjection(stdout io.Writer, projection taskSearchPlainProjection) error {

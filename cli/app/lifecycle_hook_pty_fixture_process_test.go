@@ -9,11 +9,13 @@ import (
 
 	checkpoint "core/internal/testharness/pty/analyzer"
 	"core/internal/testharness/pty/appfixture"
+	"core/internal/testharness/requestfixture"
 	"core/server/metadata"
 	"core/server/session"
 	"core/shared/lifecyclecontract"
 	"core/shared/runtimeids"
 	"core/shared/serverapi"
+	"core/shared/textutil"
 )
 
 func runLifecycleHookPTYFixtureProcess(
@@ -80,7 +82,7 @@ func runLifecycleHookPTYFixtureProcess(
 	planner := newSessionLaunchPlanner(server)
 	plan, err := planner.PlanSession(ctx, sessionLaunchRequest{
 		Mode:   launchModeInteractive,
-		Intent: intent,
+		Intent: requestfixture.LaunchIntent(t, intent),
 	})
 	if err != nil {
 		return err
@@ -100,7 +102,7 @@ func runLifecycleHookPTYFixtureProcess(
 	if err != nil {
 		return err
 	}
-	defer func() { runErr = errors.Join(runErr, runtimePlan.Close()) }()
+	defer runtimePlan.Close()
 	composition, err := composeUIProgram(request, terminal)
 	if err != nil {
 		return err
@@ -252,7 +254,7 @@ func setLifecycleFixtureSessionName(persistenceRoot string, sessionID string) er
 	if err != nil {
 		return fmt.Errorf("open lifecycle fixture session: %w", err)
 	}
-	if err := store.SetName("Lifecycle fixture"); err != nil {
+	if err := store.SetName(textutil.Value("Lifecycle fixture")); err != nil {
 		return fmt.Errorf("name lifecycle fixture session: %w", err)
 	}
 	return nil

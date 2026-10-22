@@ -1,4 +1,4 @@
-model = "gpt-5"
+model = "gpt-6-sol"
 connection = "stub"
 
 [connections.stub]

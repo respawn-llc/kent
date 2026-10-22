@@ -7,7 +7,7 @@ func ApprovalDecisionLabel(decision clientui.ApprovalDecision) string {
 	case clientui.ApprovalDecisionAllowOnce:
 		return "Allow once"
 	case clientui.ApprovalDecisionAllowSession:
-		return "Allow for this session"
+		return "Allow all access for session"
 	case clientui.ApprovalDecisionDeny:
 		return "Deny"
 	default:

@@ -1,4 +1,4 @@
-import { beforeAll, describe, expect, it } from "vitest";
+import { beforeAll, describe, expect, it } from "bun:test";
 import { render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { initializeI18n, appI18n } from "@/i18n";
@@ -95,11 +95,14 @@ function questionRow(
     User: null,
     Assistant: null,
     Tool: {
+      ViewedImageKind: null,
       StepID: null,
       ToolCallID: "question-call",
       ToolName: "ask_question",
       Text: isError ? (freeform ?? "failed Question") : "answered",
       IsError: isError,
+      AnsweredBySessionID: null,
+      AnsweredBySessionShortID: null,
       ResultSummary: null,
       CondensedText: null,
       Presentation: {

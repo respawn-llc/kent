@@ -67,17 +67,18 @@ func TestTranscriptSessionIdentityUpdatesStatusExecutionTarget(t *testing.T) {
 		CwdRelpath:            ".",
 		EffectiveWorkdir:      "/repo/feature"}
 	runtimeClient := &sessionRuntimeClient{
-		sessionID:   "session-1",
-		mainView:    &runtimepb.MainView{Session: &runtimepb.SessionView{SessionId: "session-1"}, Status: &runtimepb.Status{}},
+		sessionID:   "11111111-1111-4111-8111-111111111111",
+		mainView:    &runtimepb.MainView{Session: &runtimepb.SessionView{SessionId: "11111111-1111-4111-8111-111111111111"}, Status: &runtimepb.Status{}},
 		hasMainView: true}
 	model := newProjectedTestUIModel(runtimeClient, WithUIStatusConfig(uiStatusConfig{
 		WorkspaceRoot:   initial.EffectiveWorkdir,
 		ExecutionTarget: initial}))
-	sessionID, err := runtimeids.ParseSessionID("session-1")
+	sessionID, err := runtimeids.ParseSessionID("11111111-1111-4111-8111-111111111111")
 	if err != nil {
 		t.Fatalf("ParseSessionId: %v", err)
 	}
 	if _, err := runtimeClient.admitTranscriptMessageState(transcriptTestMessage(0, &transcriptpb.SessionIdentity{SessionId: sessionID.String(),
+		Category:              projectpb.SessionCategory_SESSION_CATEGORY_MAIN,
 		ConversationFreshness: runtimepb.ConversationFreshness_CONVERSATION_FRESHNESS_ESTABLISHED,
 		ExecutionTarget:       entered})); err != nil {
 		t.Fatalf("admit transcript session identity: %v", err)
@@ -93,19 +94,20 @@ func TestTranscriptSessionIdentityUpdatesStatusExecutionTarget(t *testing.T) {
 }
 
 func TestTranscriptSessionIdentityReplacesConflictingConversationFreshnessCaches(t *testing.T) {
-	sessionID, err := runtimeids.ParseSessionID("session-1")
+	sessionID, err := runtimeids.ParseSessionID("11111111-1111-4111-8111-111111111111")
 	if err != nil {
 		t.Fatalf("ParseSessionId: %v", err)
 	}
 	runtimeClient := &sessionRuntimeClient{
-		sessionID: "session-1",
+		sessionID: "11111111-1111-4111-8111-111111111111",
 		mainView: &runtimepb.MainView{
-			Session: &runtimepb.SessionView{SessionId: "session-1",
+			Session: &runtimepb.SessionView{SessionId: "11111111-1111-4111-8111-111111111111",
 				ConversationFreshness: runtimepb.ConversationFreshness_CONVERSATION_FRESHNESS_ESTABLISHED},
 			Status: &runtimepb.Status{
 				ConversationFreshness: runtimepb.ConversationFreshness_CONVERSATION_FRESHNESS_ESTABLISHED}},
 		hasMainView: true}
 	_, err = runtimeClient.admitTranscriptMessageState(transcriptTestMessage(0, &transcriptpb.SessionIdentity{SessionId: sessionID.String(),
+		Category:              projectpb.SessionCategory_SESSION_CATEGORY_MAIN,
 		ConversationFreshness: runtimepb.ConversationFreshness_CONVERSATION_FRESHNESS_FRESH}))
 	if err != nil {
 		t.Fatalf("admit transcript session identity: %v", err)
@@ -138,7 +140,7 @@ func TestStatusRefreshUsesCurrentSessionAgentRoleWhenRuntimeCacheIsCold(t *testi
 	role := "qa_tester"
 	sessionViews := stubSessionViewClient{
 		getSessionMainView: func(_ context.Context, request *sessionpb.MainViewRequest) (*sessionpb.MainViewSuccess, error) {
-			if request.SessionId != "session-1" {
+			if request.SessionId.GetSessionId() != "session-1" {
 				t.Fatalf("current session view request = %+v, want session-1", request)
 			}
 			return &sessionpb.MainViewSuccess{
@@ -171,7 +173,7 @@ func TestStatusRefreshCmdSchedulesBaseEnrichmentForProgressiveCollector(t *testi
 	previousSessionID := runtimeids.NewSessionID()
 	sessionViews := stubSessionViewClient{
 		getSessionMainView: func(_ context.Context, request *sessionpb.MainViewRequest) (*sessionpb.MainViewSuccess, error) {
-			if request.SessionId != previousSessionID.String() {
+			if request.SessionId.GetSessionId() != previousSessionID.String() {
 				t.Fatalf("previous session view request = %+v, want %s", request, previousSessionID)
 			}
 			return &sessionpb.MainViewSuccess{
@@ -195,8 +197,8 @@ func TestStatusRefreshCmdSchedulesBaseEnrichmentForProgressiveCollector(t *testi
 	if !ok {
 		t.Fatalf("batched message type = %T, want statusBaseRefreshDoneMsg", batch[0]())
 	}
-	if baseMsg.snapshot.PreviousSessionName != "incident-root" {
-		t.Fatalf("previous session name = %q", baseMsg.snapshot.PreviousSessionName)
+	if baseMsg.snapshot.PreviousSessionName == nil || *baseMsg.snapshot.PreviousSessionName != "incident-root" {
+		t.Fatalf("previous session name = %v", baseMsg.snapshot.PreviousSessionName)
 	}
 }
 

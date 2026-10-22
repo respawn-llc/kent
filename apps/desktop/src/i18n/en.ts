@@ -4,9 +4,11 @@ import { chatSettingsEnglish } from "./chatSettingsEn";
 import { chatEnglish } from "./chatEn";
 import { chatGoalEnglish } from "./chatGoalEn";
 import { executionTargetEnglish } from "./executionTargetEn";
+import { subscriptionUsageEnglish } from "./subscriptionUsageEn";
 
 export const englishResources = {
   translation: {
+    subscriptionUsage: subscriptionUsageEnglish,
     chatComposer: chatComposerEnglish,
     chatSettings: chatSettingsEnglish,
     app: {
@@ -34,6 +36,7 @@ export const englishResources = {
       close: "Close",
       popOut: "Open in new window",
       popOutError: "Could not open the pop-out window",
+      shiftClickToOpenInNewWindow: "{{action}} · Shift-click to open in new window",
       inboxPrevious: "Previous inbox item",
       inboxNext: "Next inbox item",
       invalidNativeDialogTitle: "Invalid native dialog",
@@ -48,6 +51,8 @@ export const englishResources = {
       expand: "Expand",
       loadingMore: "Loading more",
       attention: {
+        sessionNamingFailed: "Session naming failed",
+        sessionNamingFailureHelp: "You can name this session manually. Check the server logs for details.",
         listenerFailed: "Live attention updates stopped",
         open: "Open",
         questionTitle: "Question",
@@ -71,6 +76,10 @@ export const englishResources = {
       copy: "Copy",
       copied: "Copied",
       copyFailed: "Could not copy transcript content.",
+      answeredByAgent: "Answered by agent",
+      copyAnswererSessionID: "Copy answering agent Session ID",
+      answererSessionIDCopied: "Copied to clipboard",
+      answererSessionIDCopyFailed: "Could not copy answering agent Session ID",
       edit: "Edit in a new Session",
       editFailed: "Could not create an edited Session.",
       editUnknownFailure: "Could not create an edited Session ({{code}}).",
@@ -97,6 +106,14 @@ export const englishResources = {
         toolCall: "tool call",
         toolCalls: "tool calls",
         providerModelMismatch: "The provider served the request with {{served}} instead of {{requested}}",
+        connectionFallback:
+          "Switched connection from {{previous}} to {{current}} because usage was exhausted",
+        connectionsUnavailable:
+          "Configured connections are unavailable. Retry after cooldown or update the configured connections.",
+        connectionAvailableAfter: "{{id}}: available after {{time}}",
+        connectionAlreadyAttempted: "{{id}}: already attempted",
+        reasoningOmission:
+          "Conversation was switched to another provider/model - reasoning was lost, degrading output quality",
         worktreeEnter: "Switched worktree to {{name}}{{cwd}}",
         worktreeEnterCwd: "Switched worktree to {{name}}: {{cwd}}",
         worktreeExit: "Switched worktree to main workspace{{cwd}}",
@@ -104,6 +121,7 @@ export const englishResources = {
         worktree: "worktree",
         sessionRebind: "Session rebound",
         agentSteer: "Message from another agent",
+        projectWorkspaces: "Project workspaces",
       },
     },
     labels: {
@@ -174,6 +192,7 @@ export const englishResources = {
       detailLabel: "Connection error",
     },
     home: {
+      subagentTitle: "Subagent {{id}}",
       title: "Projects",
       emptyTitle: "No projects yet",
       emptyBody: "Create or attach a workspace to start tracking workflow tasks.",
@@ -188,6 +207,8 @@ export const englishResources = {
       workspacePickerError: "Workspace picker failed",
       workspacePlanError: "Workspace check failed",
       projectCreateWindowError: "Project creation window failed",
+      projectCreationObservationOverflow:
+        "Project creation notifications stopped because too many events arrived.",
       workspaceSelectionRequired: "Choose an existing project",
       workspaceSelectionRequiredBody:
         "This workspace is already linked to Kent projects. Open one from the project list instead of creating another.",
@@ -205,6 +226,7 @@ export const englishResources = {
         newChatUnavailable: "New chat is not available in this prototype",
         projectTasksGrid: "Project tasks",
         dependenciesColumn: "Dependencies",
+        stageColumn: "Stage",
         idColumn: "ID",
         titleColumn: "Title",
         workflowColumn: "Workflow",
@@ -353,6 +375,8 @@ export const englishResources = {
       interruptFailed: "Task interrupt failed",
       resumeFailed: "Task resume failed",
       deleteFailed: "Task delete failed",
+      deleteTaskWorktreeBlocked:
+        "Task deletion is blocked by its worktree. Finish or move the other work using it, then retry.",
       invalidWorkflow: "Workflow validation blocks automation. Backlog tasks and comments remain available.",
       workflowIssues: "Workflow issues",
       invalidWorkflowUnknown: "Workflow must be fixed before automation can run.",
@@ -413,6 +437,8 @@ export const englishResources = {
       contextSelectionRequired:
         "Move this Task and choose its context to continue. Move replaces all parallel positions and Join progress; existing conversations and files are preserved.",
       accessApprovalIntro: "Agent wants to access a batch of files, but {{count}} are outside workspace dir:",
+      accessApprovalSingle: "Agent wants to access a file {{path}}.",
+      accessApprovalSingleQuestion: "Allow?",
       accessApprovalQuestion: "Allow this access?",
       sessionStarted: "Session started",
       title: "Task",
@@ -474,8 +500,8 @@ export const englishResources = {
       workspace: "Workspace",
       workflow: "Workflow",
       source: "Source",
-      currentNodeAssignee: "Node {{nodeID}} effective assignee",
-      currentNodeThinking: "Node {{nodeID}} effective thinking",
+      currentNodeAssignee: "Node {{nodeName}} effective assignee",
+      currentNodeThinking: "Node {{nodeName}} effective thinking",
       sourceWorkspaceLocked: "Source workspace locked after start.",
       validationError: "Task validation failed",
       start: "Start",
@@ -497,9 +523,9 @@ export const englishResources = {
       noActivityTitle: "No activity yet",
       noCommentsTitle: "No comments yet",
       sessions: "Sessions",
-      openInCli: "Open {{name}} in CLI",
+      openInCli: "Open in CLI",
       openChat: "Open {{name}} in Chat",
-      interruptChat: "Interrupt {{name}} Chat",
+      openInChat: "Open in Chat",
       openScript: "Open script",
       cliCommandCopied: "Copied command to clipboard",
       cliCommandUnavailable: "No task session is available yet.",
@@ -517,7 +543,7 @@ export const englishResources = {
       recommendedByAgent: "Recommended by the agent",
       neitherOption: "Neither",
       approvalDecisionAllowOnce: "Allow once",
-      approvalDecisionAllowSession: "Allow for this session",
+      approvalDecisionAllowSession: "Allow all access for session",
       approvalDecisionDeny: "Deny",
       approval: "Approval",
       approve: "Approve",

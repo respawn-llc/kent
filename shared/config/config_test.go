@@ -2,12 +2,14 @@ package config
 
 import (
 	"core/internal/testharness/testenv"
+	"core/shared/textutil"
 	"core/shared/toolspec"
 	"errors"
 	"os"
 	"path/filepath"
 	"reflect"
 	"runtime"
+	"slices"
 	"strings"
 	"testing"
 )
@@ -15,7 +17,7 @@ import (
 func TestProviderConnectionDefinitions(t *testing.T) {
 	_, _, app := loadConfigTestFileApp(t, `
 connection = "chatgpt-1"
-model = "gpt-5"
+model = "gpt-6-sol"
 [connections.chatgpt-1]
 protocol = "chatgpt-codex"
 [connections.local_1]
@@ -29,7 +31,7 @@ supports_responses_api = true
 connection = "local_1"
 model = "local-model"
 `, LoadOptions{})
-	if app.Settings.Connection == nil || *app.Settings.Connection != "chatgpt-1" {
+	if app.Settings.Connection == nil || !reflect.DeepEqual(*app.Settings.Connection, ConnectionSelection{"chatgpt-1"}) {
 		t.Fatalf("default connection = %v", app.Settings.Connection)
 	}
 	local := app.Settings.Connections["local_1"]
@@ -41,8 +43,108 @@ model = "local-model"
 		t.Fatal("connection capabilities must not become agent capability overrides")
 	}
 	role := app.Settings.Subagents["local"]
-	if role.Settings.Connection == nil || *role.Settings.Connection != "local_1" || role.Settings.Model != "local-model" || app.Settings.Model != "gpt-5" {
+	if role.Settings.Connection == nil || !reflect.DeepEqual(*role.Settings.Connection, ConnectionSelection{"local_1"}) || role.Settings.Model != "local-model" || app.Settings.Model != "gpt-6-sol" {
 		t.Fatalf("independent role declaration = %+v", role.Settings)
+	}
+}
+
+func TestProviderConnectionImplicitSelection(t *testing.T) {
+	for _, count := range []int{0, 1, 2} {
+		settings := Settings{Connections: map[ConnectionID]ProviderConnection{}}
+		for _, id := range []ConnectionID{"first", "second"}[:count] {
+			settings.Connections[id] = ProviderConnection{Protocol: ConnectionChatGPT}
+		}
+		members, err := settings.ConnectionMembers()
+		if count == 1 {
+			if err != nil || !reflect.DeepEqual(members, []ConnectionID{"first"}) {
+				t.Fatalf("sole connection selection = %v, %v", members, err)
+			}
+		} else {
+			var referenceErr *ConnectionReferenceError
+			if !errors.As(err, &referenceErr) {
+				t.Fatalf("%d connections must require selection, got %v, %v", count, members, err)
+			}
+		}
+		if settings.Connection != nil {
+			t.Fatal("implicit selection must not rewrite configured selection")
+		}
+	}
+}
+
+func TestProviderConnectionSetDeclarationOrder(t *testing.T) {
+	_, _, app := loadConfigTestFileApp(t, `
+connection = ["account-a", "account-z", "account-a", "unknown"]
+[connections.account-z]
+protocol = "chatgpt-codex"
+[connections.account-a]
+protocol = "responses"
+endpoint = "http://localhost:1234"
+`, LoadOptions{})
+	members, err := app.Settings.ConnectionMembers()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !reflect.DeepEqual(members, []ConnectionID{"account-z", "account-a"}) {
+		t.Fatalf("effective members = %v", members)
+	}
+}
+
+func TestProviderConnectionSetRejectsInvalidInput(t *testing.T) {
+	for _, body := range []string{
+		`connection = []`,
+		`connection = ["valid", "Invalid"]`,
+		`connection = ["valid", ""]`,
+		`connection = ["valid", 1]`,
+		"[reviewer]\nconnection = [\"valid\"]",
+	} {
+		t.Run(body, func(t *testing.T) {
+			_, workspace, path := newConfigTestFile(t)
+			writeConfigTestFile(t, path, body)
+			if _, err := Load(workspace, workspace, LoadOptions{}); err == nil {
+				t.Fatal("invalid selection accepted")
+			}
+		})
+	}
+}
+
+func TestProviderConnectionSetInheritanceAndEdits(t *testing.T) {
+	_, workspace, path := newConfigTestFile(t)
+	writeConfigTestFile(t, path, `
+connection = ["account-a", "unknown", "account-z", "account-a"]
+connections = { account-z = { protocol = "chatgpt-codex" }, account-a = { protocol = "chatgpt-codex" } }
+[subagents.inherited]
+thinking_level = "low"
+[subagents.override]
+connection = ["account-z", "account-z", "unknown"]
+`)
+	app := loadConfigTestApp(t, workspace, LoadOptions{})
+	inherited, _, err := OverlaySubagentRoleSettings(app, app.Settings.Subagents["inherited"], true)
+	if err != nil || !reflect.DeepEqual(inherited.Connection, app.Settings.Connection) {
+		t.Fatalf("inherited selection = %v, %v", inherited.Connection, err)
+	}
+	overridden, _, err := OverlaySubagentRoleSettings(app, app.Settings.Subagents["override"], true)
+	if err != nil || !reflect.DeepEqual(*overridden.Connection, ConnectionSelection{"account-z", "unknown"}) {
+		t.Fatalf("overridden selection = %v, %v", overridden.Connection, err)
+	}
+	members, err := app.Settings.ConnectionMembers()
+	if err != nil || !reflect.DeepEqual(members, []ConnectionID{"account-z", "account-a"}) {
+		t.Fatalf("inline declaration order = %v, %v", members, err)
+	}
+	if err := AddProviderConnection(path, "added", ProviderConnection{Protocol: ConnectionChatGPT}); err != nil {
+		t.Fatal(err)
+	}
+	reloaded := loadConfigTestApp(t, workspace, LoadOptions{})
+	if !reflect.DeepEqual(app.Settings.Connection, reloaded.Settings.Connection) {
+		t.Fatalf("unrelated edit changed configured membership: %v", reloaded.Settings.Connection)
+	}
+	rendered, err := RenderSettingsTOMLForOnboarding(app.Settings, OnboardingWriteOptions{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	writeConfigTestFile(t, path, rendered)
+	reloaded = loadConfigTestApp(t, workspace, LoadOptions{})
+	if !reflect.DeepEqual(app.Settings.Connection, reloaded.Settings.Connection) {
+		t.Fatalf("render changed configured membership: %v", reloaded.Settings.Connection)
 	}
 }
 
@@ -127,7 +229,7 @@ func TestProviderConnectionSelectionInheritance(t *testing.T) {
 	_, workspace, path := newConfigTestFile(t)
 	writeConfigTestFile(t, path, `
 connection = "chatgpt-1"
-model = "gpt-5"
+model = "gpt-6-sol"
 [connections.chatgpt-1]
 protocol = "chatgpt-codex"
 [connections.local]
@@ -144,16 +246,16 @@ thinking_level = "low"
 	if err != nil {
 		t.Fatal(err)
 	}
-	if child.Connection == nil || *child.Connection != "local" || child.Model != "local-model" {
+	if child.Connection == nil || !reflect.DeepEqual(*child.Connection, ConnectionSelection{"local"}) || child.Model != "local-model" {
 		t.Fatalf("child selection = %+v", child)
 	}
 	InheritReviewerSettings(&child, sources)
-	if child.Reviewer.Connection == nil || *child.Reviewer.Connection != "local" ||
+	if child.Reviewer.Connection == nil || !reflect.DeepEqual(*child.Reviewer.Connection, ConnectionSelection{"local"}) ||
 		!reflect.DeepEqual(sources["reviewer.connection"], sources["connection"]) {
 		t.Fatal("Supervisor must inherit the effective agent connection and its declaration")
 	}
 	inherited, _, err := OverlaySubagentRoleSettings(app, app.Settings.Subagents["inherited"], true)
-	if err != nil || inherited.Connection == nil || *inherited.Connection != "chatgpt-1" || inherited.Model != "gpt-5" {
+	if err != nil || inherited.Connection == nil || !reflect.DeepEqual(*inherited.Connection, ConnectionSelection{"chatgpt-1"}) || inherited.Model != "gpt-6-sol" {
 		t.Fatalf("default inheritance = %+v, %v", inherited, err)
 	}
 	private := filepath.Join(workspace, ConfigDirName, "config.local.toml")
@@ -169,7 +271,7 @@ connection = "chatgpt-1"
 	if err != nil {
 		t.Fatal(err)
 	}
-	if *app.Settings.Connection != "local" || *child.Connection != "chatgpt-1" || *app.Settings.Reviewer.Connection != "chatgpt-1" || child.Model != "local-model" {
+	if !reflect.DeepEqual(*app.Settings.Connection, ConnectionSelection{"local"}) || !reflect.DeepEqual(*child.Connection, ConnectionSelection{"chatgpt-1"}) || !reflect.DeepEqual(*app.Settings.Reviewer.Connection, ConnectionSelection{"chatgpt-1"}) || child.Model != "local-model" {
 		t.Fatal("private selections must overlay without changing agent model settings")
 	}
 	if origin := sources["connection"]; origin.File == nil || origin.File.Path != private || origin.Property.Role == nil || *origin.Property.Role != "child" {
@@ -179,10 +281,10 @@ connection = "chatgpt-1"
 
 func TestConfigurationOriginsDistinguishEqualFileValues(t *testing.T) {
 	_, workspace, globalPath := newConfigTestFile(t)
-	writeConfigTestFile(t, globalPath, "model = \"gpt-5\"\n")
+	writeConfigTestFile(t, globalPath, "model = \"gpt-6-sol\"\n")
 	global := loadConfigTestApp(t, workspace, LoadOptions{})
 	sharedPath := filepath.Join(workspace, ConfigDirName, "config.toml")
-	writeConfigTestFile(t, sharedPath, "model = \"gpt-5\"\n")
+	writeConfigTestFile(t, sharedPath, "model = \"gpt-6-sol\"\n")
 	shared := loadConfigTestApp(t, workspace, LoadOptions{})
 	if global.Settings.Model != shared.Settings.Model {
 		t.Fatal("equal declarations should resolve to the same model")
@@ -429,7 +531,7 @@ connection = "local"
 		t.Fatal(overlayErr)
 	}
 	if effective.ModelContextWindow != 110000 || effective.ContextCompactionThresholdTokens != 90000 ||
-		effective.Connection == nil || *effective.Connection != "local" {
+		effective.Connection == nil || !reflect.DeepEqual(*effective.Connection, ConnectionSelection{"local"}) {
 		t.Fatalf("assembled role = %+v", effective)
 	}
 	writeConfigTestFile(t, privatePath, "[subagents.worker]\nmodel_context_window = 85000\n")
@@ -502,7 +604,7 @@ func TestPreparePersistenceRootRefusesProcessStartRootUnderGoTest(t *testing.T) 
 		processStartAccountHome = originalAccountHome
 	})
 
-	_, err := preparePersistenceRoot(filepath.Join(processStartHome, ConfigDirName))
+	_, err := PreparePersistenceRoot(filepath.Join(processStartHome, ConfigDirName))
 	if err == nil {
 		t.Fatal("expected process-start persistence root to be refused under go test")
 	}
@@ -521,7 +623,7 @@ func TestPreparePersistenceRootAllowsIsolatedTempHomeUnderGoTest(t *testing.T) {
 		processStartAccountHome = originalAccountHome
 	})
 
-	if _, err := preparePersistenceRoot(filepath.Join(processStartHome, ConfigDirName)); err != nil {
+	if _, err := PreparePersistenceRoot(filepath.Join(processStartHome, ConfigDirName)); err != nil {
 		t.Fatalf("prepare temp persistence root: %v", err)
 	}
 }
@@ -593,8 +695,8 @@ func TestLoadUsesDefaultsWithoutCreatingConfigOnFirstUse(t *testing.T) {
 	if cfg.Settings.ContextCompactionThresholdTokens != defaultCompactionThreshold {
 		t.Fatalf("default compaction threshold mismatch: %d", cfg.Settings.ContextCompactionThresholdTokens)
 	}
-	if cfg.Settings.PreSubmitCompactionLeadTokens != 35_000 {
-		t.Fatalf("default pre-submit runway mismatch: %d", cfg.Settings.PreSubmitCompactionLeadTokens)
+	if got := SpeculativeCompactionTriggerTokens(200_000, cfg.Settings.PreSubmitCompactionLeadTokens); got != 176_000 {
+		t.Fatalf("default speculative trigger = %d, want 176000", got)
 	}
 	if cfg.Settings.MinimumExecToBgSeconds != defaultMinimumExecToBgSec {
 		t.Fatalf("default minimum_exec_to_bg_seconds mismatch: %d", cfg.Settings.MinimumExecToBgSeconds)
@@ -930,10 +1032,10 @@ func TestEnsureManagedRGConfigFilePreservesExistingContents(t *testing.T) {
 func TestLoadSubagentRoleFromFile(t *testing.T) {
 	home, workspace, configPath := newConfigTestFile(t)
 	contents := strings.Join([]string{
-		"model = \"gpt-5.6-sol\"",
+		"model = \"gpt-6-sol\"",
 		"",
 		"[subagents.fast]",
-		"model = \"gpt-5.4-mini\"",
+		"model = \"gpt-6-luna\"",
 		"thinking_level = \"low\"",
 		"",
 		"[subagents.fast.reviewer]",
@@ -949,8 +1051,8 @@ func TestLoadSubagentRoleFromFile(t *testing.T) {
 	if !ok {
 		t.Fatalf("expected fast subagent role, got %+v", cfg.Settings.Subagents)
 	}
-	if role.Settings.Model != "gpt-5.4-mini" {
-		t.Fatalf("role model = %q, want gpt-5.4-mini", role.Settings.Model)
+	if role.Settings.Model != "gpt-6-luna" {
+		t.Fatalf("role model = %q, want gpt-6-luna", role.Settings.Model)
 	}
 	if role.Settings.ThinkingLevel != "low" {
 		t.Fatalf("role thinking = %q, want low", role.Settings.ThinkingLevel)
@@ -1094,9 +1196,9 @@ func TestLoadSubagentRoleWorkflowSubagentMetadata(t *testing.T) {
 		want    bool
 		wantSet bool
 	}{
-		{name: "omitted defaults enabled", body: "[subagents.worker]\nmodel = \"gpt-5.4-mini\"\n", want: true},
-		{name: "explicit enabled", body: "[subagents.worker]\nworkflow_subagent = true\nmodel = \"gpt-5.4-mini\"\n", want: true, wantSet: true},
-		{name: "explicit disabled", body: "[subagents.worker]\nworkflow_subagent = false\nmodel = \"gpt-5.4-mini\"\n", wantSet: true},
+		{name: "omitted defaults enabled", body: "[subagents.worker]\nmodel = \"gpt-6-luna\"\n", want: true},
+		{name: "explicit enabled", body: "[subagents.worker]\nworkflow_subagent = true\nmodel = \"gpt-6-luna\"\n", want: true, wantSet: true},
+		{name: "explicit disabled", body: "[subagents.worker]\nworkflow_subagent = false\nmodel = \"gpt-6-luna\"\n", wantSet: true},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -1152,14 +1254,14 @@ func TestLoadSubagentRoleRejections(t *testing.T) {
 		body string
 		want configRejectionExpectation
 	}{
-		{name: "reserved name/none", body: "[subagents.none]\nmodel = \"gpt-5.6-sol\"\n", want: configErrorChainExpectation{errInvalidSubagentKey}},
-		{name: "reserved name/self", body: "[subagents.self]\nmodel = \"gpt-5.6-sol\"\n", want: configErrorChainExpectation{errInvalidSubagentKey}},
+		{name: "reserved name/none", body: "[subagents.none]\nmodel = \"gpt-6-sol\"\n", want: configErrorChainExpectation{errInvalidSubagentKey}},
+		{name: "reserved name/self", body: "[subagents.self]\nmodel = \"gpt-6-sol\"\n", want: configErrorChainExpectation{errInvalidSubagentKey}},
 		{name: "invalid metadata/description type", body: "[subagents.worker]\ndescription = 123\n", want: configKeyTypeExpectation("string")},
 		{name: "invalid metadata/agent callable type", body: "[subagents.worker]\nagent_callable = \"no\"\n", want: configKeyTypeExpectation("boolean")},
 		{name: "invalid metadata/workflow subagent type", body: "[subagents.worker]\nworkflow_subagent = \"no\"\n", want: configKeyTypeExpectation("boolean")},
 		{name: "invalid metadata/description length", body: "[subagents.worker]\ndescription = \"" + strings.Repeat("x", MaxSubagentDescriptionChars+1) + "\"\n", want: configErrorChainExpectation{errSubagentDescriptionTooLong}},
 		{name: "nested subagents table", body: strings.Join([]string{
-			"model = \"gpt-5.6-sol\"",
+			"model = \"gpt-6-sol\"",
 			"",
 			"[subagents.fast]",
 			"thinking_level = \"low\"",
@@ -1168,21 +1270,21 @@ func TestLoadSubagentRoleRejections(t *testing.T) {
 			"thinking_level = \"high\"",
 		}, "\n"), want: unknownConfigKeyExpectation("subagents.fast.subagents")},
 		{name: "unknown key/unknown toggle", body: strings.Join([]string{
-			"model = \"gpt-5.6-sol\"",
+			"model = \"gpt-6-sol\"",
 			"",
 			"[subagents.fast]",
 			"thinking_level = \"low\"",
 			"unknown_toggle = true",
 		}, "\n"), want: unknownConfigKeyExpectation("subagents.fast.unknown_toggle")},
 		{name: "unknown key/workflow subagent typo", body: strings.Join([]string{
-			"model = \"gpt-5.6-sol\"",
+			"model = \"gpt-6-sol\"",
 			"",
 			"[subagents.fast]",
 			"thinking_level = \"low\"",
 			"workflow_subagent_typo = true",
 		}, "\n"), want: unknownConfigKeyExpectation("subagents.fast.workflow_subagent_typo")},
 		{name: "invalid values", body: strings.Join([]string{
-			"model = \"gpt-5.6-sol\"",
+			"model = \"gpt-6-sol\"",
 			"",
 			"[subagents.fast]",
 			"connection = \"\"",
@@ -1197,7 +1299,7 @@ func TestLoadSubagentRoleRejections(t *testing.T) {
 			"model_context_window = 39999",
 		}, "\n"), want: configErrorChainExpectation{errSubagentRole, errModelContextWindowBelowMinimum}},
 		{name: "persistence root", body: strings.Join([]string{
-			"model = \"gpt-5.6-sol\"",
+			"model = \"gpt-6-sol\"",
 			"",
 			"[subagents.fast]",
 			"persistence_root = \"/tmp/custom\"",
@@ -1336,10 +1438,31 @@ func TestSkillOnlyRoleAffectsCatalogWithoutChangingCallability(t *testing.T) {
 		t.Fatal("callability metadata must remain authoritative")
 	}
 	if got := strings.Join(AvailableSubagentRoleNames(settings, false), ","); got != "fast,blocked,visible,worker" {
-		t.Fatalf("available roles = %q, want all meaningful roles", got)
+		t.Fatalf("available roles = %q, want all configured roles", got)
 	}
 	if got := strings.Join(AvailableSubagentRoleNames(settings, true), ","); got != "fast,visible,worker" {
 		t.Fatalf("callable roles = %q, want skill-only role and independent visible role", got)
+	}
+}
+
+func TestRoleCatalogPreservesEquivalentAndInheritedRoles(t *testing.T) {
+	_, _, app := loadConfigTestFileApp(t, `
+model = "gpt-6-sol"
+[subagents.default]
+model = "gpt-6-sol"
+[subagents.worker]
+model = "gpt-6-sol"
+[subagents.inherited]
+description = "Uses inherited settings."
+[subagents.blocked]
+model = "gpt-6-sol"
+agent_callable = false
+`, LoadOptions{})
+	if got := AvailableSubagentRoleNames(app.Settings, false); !slices.Equal(got, []string{"fast", "blocked", "inherited", "worker"}) {
+		t.Fatalf("human role catalog = %v", got)
+	}
+	if got := AvailableSubagentRoleNames(app.Settings, true); !slices.Equal(got, []string{"fast", "inherited", "worker"}) {
+		t.Fatalf("model-callable role catalog = %v", got)
 	}
 }
 
@@ -1472,25 +1595,43 @@ func TestLoadCreatesWorktreeBaseDir(t *testing.T) {
 }
 
 func TestSettingsTOMLRoundTripsCapabilityOverrides(t *testing.T) {
-	settings := configRegistry.defaultState().Settings
-	settings.ModelCapabilities.SupportsReasoningEffort = true
-	toml := settingsTOMLWithRenderingOptions(settings, true, nil, nil)
+	for _, test := range []struct {
+		name                     string
+		lead                     *int
+		triggerAfterWindowChange int
+	}{
+		{name: "absent lead", triggerAfterWindowChange: 352_000},
+		{name: "explicit lead", lead: textutil.Value(35_000), triggerAfterWindowChange: 365_000},
+		{name: "explicit lead equal to computed default", lead: textutil.Value(24_000), triggerAfterWindowChange: 376_000},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			settings := configRegistry.defaultState().Settings
+			settings.ModelCapabilities.SupportsReasoningEffort = true
+			settings.ModelContextWindow = 200_000
+			settings.ContextCompactionThresholdTokens = 190_000
+			settings.PreSubmitCompactionLeadTokens = test.lead
+			toml := settingsTOMLWithRenderingOptions(settings, true, nil, nil)
 
-	path := filepath.Join(t.TempDir(), "config.toml")
-	if err := os.WriteFile(path, []byte(toml), 0o644); err != nil {
-		t.Fatalf("write config: %v", err)
-	}
-	raw, err := readSettingsFile(path)
-	if err != nil {
-		t.Fatalf("read settings file: %v", err)
-	}
-	state := configRegistry.defaultState()
-	sources := configRegistry.defaultSourceMap()
-	if err := configRegistry.applyFile(raw, path, FileGlobal, &state, sources); err != nil {
-		t.Fatalf("apply file: %v", err)
-	}
-	if !state.Settings.ModelCapabilities.SupportsReasoningEffort {
-		t.Fatal("expected model capability override to round-trip")
+			path := filepath.Join(t.TempDir(), "config.toml")
+			if err := os.WriteFile(path, []byte(toml), 0o644); err != nil {
+				t.Fatalf("write config: %v", err)
+			}
+			raw, _, err := readSettingsFile(path)
+			if err != nil {
+				t.Fatalf("read settings file: %v", err)
+			}
+			state := configRegistry.defaultState()
+			sources := configRegistry.defaultSourceMap()
+			if err := configRegistry.applyFile(raw, path, FileGlobal, &state, sources); err != nil {
+				t.Fatalf("apply file: %v", err)
+			}
+			if !state.Settings.ModelCapabilities.SupportsReasoningEffort {
+				t.Fatal("expected model capability override to round-trip")
+			}
+			if got := SpeculativeCompactionTriggerTokens(400_000, state.Settings.PreSubmitCompactionLeadTokens); got != test.triggerAfterWindowChange {
+				t.Fatalf("rendered/reloaded trigger after changing window = %d, want %d", got, test.triggerAfterWindowChange)
+			}
+		})
 	}
 }
 
@@ -1532,7 +1673,7 @@ func TestPersistenceRootHashIsStableUniqueAndScopesSocket(t *testing.T) {
 	}
 	// On platforms with a local RPC socket (unix), the socket directory is
 	// scoped by the same hash so client and server agree on the instance.
-	socketPath, ok, err := ServerLocalRPCSocketPath(App{PersistenceRoot: root})
+	socketPath, ok, err := ServerLocalRPCSocketPath(root)
 	if err != nil {
 		t.Fatalf("ServerLocalRPCSocketPath: %v", err)
 	}
@@ -1668,21 +1809,21 @@ func TestExplicitPersistenceRootID(t *testing.T) {
 	t.Run("default source returns empty", func(t *testing.T) {
 		t.Setenv("HOME", home)
 		cfg := App{PersistenceRoot: isoRoot, Source: SourceReport{Sources: map[string]Origin{"persistence_root": {Kind: SourceDefault}}}}
-		if got := ExplicitPersistenceRootID(cfg); got != "" {
+		if got := ExplicitPersistenceRootID(cfg.Connection()); got != "" {
 			t.Fatalf("default-source id = %q, want empty", got)
 		}
 	})
 	t.Run("explicit default root returns empty", func(t *testing.T) {
 		t.Setenv("HOME", home)
 		cfg := App{PersistenceRoot: filepath.Join(home, ConfigDirName), Source: SourceReport{Sources: map[string]Origin{"persistence_root": {Kind: SourceCLI}}}}
-		if got := ExplicitPersistenceRootID(cfg); got != "" {
+		if got := ExplicitPersistenceRootID(cfg.Connection()); got != "" {
 			t.Fatalf("explicit-default id = %q, want empty", got)
 		}
 	})
 	t.Run("explicit isolated root returns hash", func(t *testing.T) {
 		t.Setenv("HOME", home)
 		cfg := App{PersistenceRoot: isoRoot, Source: SourceReport{Sources: map[string]Origin{"persistence_root": {Kind: SourceEnv}}}}
-		if got, want := ExplicitPersistenceRootID(cfg), PersistenceRootHash(isoRoot); got != want {
+		if got, want := ExplicitPersistenceRootID(cfg.Connection()), PersistenceRootHash(isoRoot); got != want {
 			t.Fatalf("explicit-iso id = %q, want %q", got, want)
 		}
 	})
@@ -1691,7 +1832,7 @@ func TestExplicitPersistenceRootID(t *testing.T) {
 		// root; the explicit root must stay pinned rather than disabling the check.
 		t.Setenv("HOME", "")
 		cfg := App{PersistenceRoot: isoRoot, Source: SourceReport{Sources: map[string]Origin{"persistence_root": {Kind: SourceCLI}}}}
-		if got, want := ExplicitPersistenceRootID(cfg), PersistenceRootHash(isoRoot); got != want {
+		if got, want := ExplicitPersistenceRootID(cfg.Connection()), PersistenceRootHash(isoRoot); got != want {
 			t.Fatalf("error-case id = %q, want %q (must pin on default-resolution failure)", got, want)
 		}
 	})

@@ -15,6 +15,7 @@ const (
 	onboardingScreenInput   onboardingScreenKind = "input"
 	onboardingScreenMulti   onboardingScreenKind = "multi"
 	onboardingScreenLoading onboardingScreenKind = "loading"
+	onboardingScreenPending onboardingScreenKind = "pending"
 )
 
 type onboardingOption struct {
@@ -33,6 +34,7 @@ type onboardingScreen struct {
 	Helper          string
 	ThemePreview    bool
 	Options         []onboardingOption
+	ChoiceKind      uiChoiceGroupKind
 	DefaultOptionID string
 	InputValue      string
 	Placeholder     string
@@ -47,10 +49,12 @@ type onboardingScreen struct {
 type onboardingPendingAction string
 
 const (
-	onboardingPendingActionNone          onboardingPendingAction = "none"
-	onboardingPendingActionWriteDefaults onboardingPendingAction = "write_defaults"
-	onboardingPendingActionWriteCustom   onboardingPendingAction = "write_custom"
-	onboardingPendingActionRestart       onboardingPendingAction = "restart"
+	onboardingPendingActionNone               onboardingPendingAction = "none"
+	onboardingPendingActionWriteDefaults      onboardingPendingAction = "write_defaults"
+	onboardingPendingActionWriteCustom        onboardingPendingAction = "write_custom"
+	onboardingPendingActionRestart            onboardingPendingAction = "restart"
+	onboardingPendingActionConnectionComplete onboardingPendingAction = "connection_complete"
+	onboardingPendingActionConnectionSetup    onboardingPendingAction = "connection_setup"
 )
 
 type onboardingImportProviderID string
@@ -59,6 +63,8 @@ const (
 	onboardingImportProviderClaudeCode onboardingImportProviderID = "claude_code"
 	onboardingImportProviderCodex      onboardingImportProviderID = "codex"
 	onboardingImportProviderAgents     onboardingImportProviderID = "agents"
+	onboardingImportProviderGrok       onboardingImportProviderID = "grok"
+	onboardingImportProviderCursor     onboardingImportProviderID = "cursor"
 )
 
 type onboardingImportMode string
@@ -106,6 +112,18 @@ func modelSupportsThinking(state *onboardingFlowState, model string) bool {
 
 func modelThinkingLevels(state *onboardingFlowState, model string) []string {
 	return append([]string(nil), modelFactFor(state, model).SupportedThinkingLevels...)
+}
+
+func thinkingOptions(levels []string) []onboardingOption {
+	options := make([]onboardingOption, 0, len(levels)+1)
+	for _, level := range levels {
+		if level == "none" {
+			options = append(options, onboardingOption{ID: "disable", Title: "Disable", Description: thinkingLevelEstimate("disable")})
+		} else {
+			options = append(options, onboardingOption{ID: level, Title: titleCaseThinking(level)})
+		}
+	}
+	return append(options, onboardingOption{ID: "custom", Title: "Enter a custom value"})
 }
 
 func modelSupportsVerbosity(state *onboardingFlowState, model string) bool {

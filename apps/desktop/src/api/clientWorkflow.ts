@@ -18,7 +18,7 @@ import type {
   WorkflowScriptPathValidateInput,
 } from "./clientInputs";
 import { workflowPageSize } from "./clientInputs";
-import type { DescriptorRpcTransport } from "./transport";
+import type { RpcTransport } from "./transport";
 import { requireUnarySuccess } from "./protobufRpc";
 import {
   projectWorkflowLink,
@@ -37,7 +37,7 @@ import {
 } from "./clientWorkflowGraph";
 import { workflowValidationMode } from "./workflowProtoValues";
 
-export async function getWorkflow(transport: DescriptorRpcTransport, workflowID: string) {
+export async function getWorkflow(transport: RpcTransport, workflowID: string) {
   const method = WorkflowDefinitionService.method.get;
   const success = requireUnarySuccess(
     method,
@@ -46,7 +46,7 @@ export async function getWorkflow(transport: DescriptorRpcTransport, workflowID:
   return workflowDefinition(success.definition);
 }
 
-export async function listWorkflows(transport: DescriptorRpcTransport, input: WorkflowListInput) {
+export async function listWorkflows(transport: RpcTransport, input: WorkflowListInput) {
   const method = WorkflowDefinitionService.method.list;
   const success = requireUnarySuccess(
     method,
@@ -63,7 +63,7 @@ export async function listWorkflows(transport: DescriptorRpcTransport, input: Wo
   return { workflows: success.workflows.map(workflowRecord), nextOffset: success.nextOffset ?? null };
 }
 
-export async function createWorkflow(transport: DescriptorRpcTransport, input: WorkflowCreateInput) {
+export async function createWorkflow(transport: RpcTransport, input: WorkflowCreateInput) {
   const method = WorkflowDefinitionService.method.create;
   const success = requireUnarySuccess(
     method,
@@ -76,7 +76,7 @@ export async function createWorkflow(transport: DescriptorRpcTransport, input: W
 }
 
 export async function createAndLinkWorkflowToProject(
-  transport: DescriptorRpcTransport,
+  transport: RpcTransport,
   input: WorkflowCreateAndLinkInput,
 ) {
   const method = WorkflowDefinitionService.method.createAndLinkProject;
@@ -95,10 +95,7 @@ export async function createAndLinkWorkflowToProject(
   return { workflow: workflowRecord(success.workflow), link: projectWorkflowLink(success.link) };
 }
 
-export async function linkWorkflowToProject(
-  transport: DescriptorRpcTransport,
-  input: WorkflowProjectLinkInput,
-) {
+export async function linkWorkflowToProject(transport: RpcTransport, input: WorkflowProjectLinkInput) {
   const method = ProjectLinkService.method.link;
   const success = requireUnarySuccess(
     method,
@@ -115,7 +112,7 @@ export async function linkWorkflowToProject(
 }
 
 export async function validateWorkflow(
-  transport: DescriptorRpcTransport,
+  transport: RpcTransport,
   workflowID: string,
   mode: "draft" | "task_creation" | "execution",
 ) {
@@ -135,7 +132,7 @@ export async function validateWorkflow(
 }
 
 export async function validateWorkflowScriptPath(
-  transport: DescriptorRpcTransport,
+  transport: RpcTransport,
   input: WorkflowScriptPathValidateInput,
 ) {
   const method = WorkflowDefinitionService.method.validateScriptPath;
@@ -155,7 +152,7 @@ export async function validateWorkflowScriptPath(
 }
 
 export async function validateWorkflowGraphDraft(
-  transport: DescriptorRpcTransport,
+  transport: RpcTransport,
   input: WorkflowGraphValidateDraftInput,
 ) {
   const method = WorkflowGraphService.method.validateDraft;
@@ -178,7 +175,7 @@ export async function validateWorkflowGraphDraft(
 }
 
 export async function deriveWorkflowGraphWiring(
-  transport: DescriptorRpcTransport,
+  transport: RpcTransport,
   input: WorkflowGraphDeriveWiringInput,
 ) {
   const method = WorkflowGraphService.method.deriveWiring;
@@ -196,7 +193,7 @@ export async function deriveWorkflowGraphWiring(
 }
 
 export async function previewWorkflowGraphSave(
-  transport: DescriptorRpcTransport,
+  transport: RpcTransport,
   input: WorkflowGraphSavePreviewInput,
 ) {
   const method = WorkflowGraphService.method.savePreview;
@@ -215,7 +212,7 @@ export async function previewWorkflowGraphSave(
   return workflowSavePreview(success);
 }
 
-export async function saveWorkflowGraph(transport: DescriptorRpcTransport, input: WorkflowGraphSaveInput) {
+export async function saveWorkflowGraph(transport: RpcTransport, input: WorkflowGraphSaveInput) {
   const method = WorkflowGraphService.method.save;
   const success = requireUnarySuccess(
     method,
@@ -237,7 +234,7 @@ export async function saveWorkflowGraph(transport: DescriptorRpcTransport, input
   };
 }
 
-export async function previewWorkflowDelete(transport: DescriptorRpcTransport, workflowID: string) {
+export async function previewWorkflowDelete(transport: RpcTransport, workflowID: string) {
   const method = WorkflowDefinitionService.method.deletePreview;
   const success = requireUnarySuccess(
     method,
@@ -246,7 +243,7 @@ export async function previewWorkflowDelete(transport: DescriptorRpcTransport, w
   return workflowDeleteImpact(success.impact);
 }
 
-export async function deleteWorkflow(transport: DescriptorRpcTransport, input: WorkflowDeleteInput) {
+export async function deleteWorkflow(transport: RpcTransport, input: WorkflowDeleteInput) {
   const method = WorkflowDefinitionService.method.delete;
   const success = requireUnarySuccess(
     method,
@@ -274,7 +271,7 @@ export async function deleteWorkflow(transport: DescriptorRpcTransport, input: W
   };
 }
 
-export async function listProjectWorkflowLinks(transport: DescriptorRpcTransport, projectID: string) {
+export async function listProjectWorkflowLinks(transport: RpcTransport, projectID: string) {
   const method = ProjectLinkService.method.list;
   const success = requireUnarySuccess(
     method,

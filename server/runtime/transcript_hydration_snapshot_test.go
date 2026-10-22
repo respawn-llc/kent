@@ -6,11 +6,12 @@ import (
 	"core/server/llm"
 	"core/server/session"
 	"core/server/tools"
+	"core/shared/textutil"
 )
 
 func newTranscriptHydrationSnapshotTestEngine(t *testing.T, client llm.Client) *Engine {
 	t.Helper()
-	return mustNewTestEngine(t, mustCreateTestSession(t), client, tools.NewRegistry(), Config{Model: "gpt-5"})
+	return mustNewTestEngine(t, mustCreateTestSession(t), client, tools.NewRegistry(), Config{Model: "gpt-6-sol"})
 }
 
 func hydrationSnapshot(t *testing.T, engine *Engine) TranscriptHydrationSnapshot {
@@ -98,12 +99,12 @@ func TestTranscriptHydrationSnapshotProjectsAndResetsRuntimeOwners(t *testing.T)
 	defer restoreStep()
 	engine.compactionRuntimeState().SetCount(7)
 	if err := engine.steer(stepID,
-		steerCompactionActivityIntent(true, nil, "remote", 8, ActiveKindCompaction),
+		steerCompactionActivityIntent(true, "remote", 8, ActiveKindCompaction),
 		steerEventIntent(Event{Kind: EventCompactionStarted, StepID: exactStepIDPointer(stepID), Compaction: &CompactionStatus{Mode: "remote", Count: 8}}),
 	); err != nil {
 		t.Fatalf("steer active owner events: %v", err)
 	}
-	engine.setLastUsage(llm.Usage{InputTokens: 123, WindowTokens: 1000})
+	engine.setLastUsage(llm.Usage{InputTokens: textutil.Value(123), WindowTokens: 1000, ContextUsage: &llm.ContextUsage{Tokens: 123, MeasurementPoint: llm.ContextMeasurementInput}})
 	if _, err := engine.SetGoal(t.Context(), "ship the owner snapshot", session.GoalActorUser); err != nil {
 		t.Fatalf("set goal: %v", err)
 	}
@@ -125,7 +126,7 @@ func TestTranscriptHydrationSnapshotProjectsAndResetsRuntimeOwners(t *testing.T)
 	}
 
 	if err := engine.steer(stepID,
-		steerCompactionActivityIntent(false, nil, "", 0, ActiveKindCompaction),
+		steerCompactionActivityIntent(false, "", 0, ActiveKindCompaction),
 		steerEventIntent(Event{Kind: EventCompactionCompleted, StepID: exactStepIDPointer(stepID)}),
 	); err != nil {
 		t.Fatalf("steer terminal owner events: %v", err)
@@ -139,7 +140,7 @@ func TestTranscriptHydrationSnapshotProjectsAndResetsRuntimeOwners(t *testing.T)
 func TestEngineCloseAbortsLiveToolsWithTheirRecordedExactStep(t *testing.T) {
 	var events []Event
 	engine := mustNewTestEngine(t, mustCreateTestSession(t), &fakeClient{}, tools.NewRegistry(), Config{
-		Model:   "gpt-5",
+		Model:   "gpt-6-sol",
 		OnEvent: func(event Event) { events = append(events, event) },
 	})
 	stepID := runtimeTestStepID("close-live-tool")

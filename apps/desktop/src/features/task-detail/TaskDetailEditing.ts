@@ -1,4 +1,4 @@
-import * as Atom from "effect/unstable/reactivity/Atom";
+import * as Atom from "effect/reactivity/Atom";
 import * as Option from "effect/Option";
 import { z } from "zod";
 import type { QueryObserverResult } from "@tanstack/react-query";

@@ -32,13 +32,17 @@ type transitionAuthority = sessionruntime.WorktreeTransitionAuthority
 type transitionTargetSync = sessionruntime.WorktreeTransitionTargetSync
 
 func (s *Service) EnterWorktree(ctx context.Context, req *worktreepb.EnterRequest) (*worktreepb.ScheduledAcknowledgement, error) {
-	operationID, err := clientui.ParseWorktreeTransitionID(req.OperationId)
+	id, err := s.metadata.ResolveSessionTarget(ctx, req.SessionId)
+	if err != nil {
+		return nil, err
+	}
+	operationID, err := clientui.WorktreeTransitionIDFromProto(req.OperationId)
 	if err != nil {
 		return nil, err
 	}
 	request := worktreeTransitionRequest{
 		operationID: operationID,
-		sessionID:   strings.TrimSpace(req.SessionId),
+		sessionID:   id.String(),
 		kind:        clientui.WorktreeTransitionEnter,
 		selector:    runtimeinput.NormalizePendingWorkArgument(req.Selector),
 	}
@@ -103,10 +107,10 @@ func (s *Service) enterWorktreeAcrossWorkspace(
 		_ = s.publishWorktreeTransitionResult(request, runErr, nil)
 	}
 	var runtimeOrigin *sessionlaunchpb.RuntimeStepOrigin
-	if origin != nil {
+	if origin != nil && origin.SessionId == request.sessionID {
 		runtimeOrigin = &sessionlaunchpb.RuntimeStepOrigin{
-			RunId:  strings.TrimSpace(origin.RunId),
-			StepId: strings.TrimSpace(origin.StepId),
+			SessionId: origin.SessionId,
+			StepId:    strings.TrimSpace(origin.StepId),
 		}
 	}
 	if _, err := s.sessionRetargeter.ScheduleWorkspaceRetargetResolutionWithCompletion(
@@ -185,13 +189,17 @@ func (s *Service) resolveCrossWorkspaceEnter(
 }
 
 func (s *Service) LeaveWorktree(ctx context.Context, req *worktreepb.LeaveRequest) (*worktreepb.ScheduledAcknowledgement, error) {
-	operationID, err := clientui.ParseWorktreeTransitionID(req.OperationId)
+	id, err := s.metadata.ResolveSessionTarget(ctx, req.SessionId)
+	if err != nil {
+		return nil, err
+	}
+	operationID, err := clientui.WorktreeTransitionIDFromProto(req.OperationId)
 	if err != nil {
 		return nil, err
 	}
 	request := worktreeTransitionRequest{
 		operationID: operationID,
-		sessionID:   strings.TrimSpace(req.SessionId),
+		sessionID:   id.String(),
 		kind:        clientui.WorktreeTransitionLeave,
 	}
 	return s.runWorktreeTransition(ctx, request, runtimeinput.PendingWorkWorktreeTransition{

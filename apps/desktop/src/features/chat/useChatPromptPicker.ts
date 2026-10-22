@@ -1,6 +1,6 @@
 import { useMemo } from "react";
 import { useAtomValue } from "@effect/atom-react";
-import * as Atom from "effect/unstable/reactivity/Atom";
+import * as Atom from "effect/reactivity/Atom";
 import { useQueryClient } from "@tanstack/react-query";
 import { errorMessage, type ChatSettingsTarget } from "@/api";
 import { useAppServices, useOptionalChatRuntimeOwner } from "@/app-facade";
@@ -8,7 +8,10 @@ import { showStatusToast } from "@/ui";
 import { appI18n } from "@/i18n";
 import { createPromptPickerViewModel } from "./PromptPickerViewModel";
 
-export function useChatPromptPicker(target: ChatSettingsTarget | null) {
+export function useChatPromptPicker(
+  target: ChatSettingsTarget | null,
+  interactionRestricted?: Atom.Atom<boolean>,
+) {
   const { api, logger } = useAppServices();
   const client = useQueryClient();
   const owner = useOptionalChatRuntimeOwner();
@@ -19,6 +22,7 @@ export function useChatPromptPicker(target: ChatSettingsTarget | null) {
       owner,
       client,
       api: api.chat,
+      ...(interactionRestricted === undefined ? {} : { interactionRestricted }),
       onError: (error) => {
         void logger.append("warn", "Chat prompt answer batch failed.", {
           error: errorMessage(error),
@@ -39,6 +43,6 @@ export function useChatPromptPicker(target: ChatSettingsTarget | null) {
       dispatch: model.dispatch,
       prompts: get(model.prompts),
     }));
-  }, [owner, client, api, logger, target]);
+  }, [owner, client, api, logger, target, interactionRestricted]);
   return useAtomValue(presentation);
 }

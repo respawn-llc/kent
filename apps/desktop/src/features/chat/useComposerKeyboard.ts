@@ -2,6 +2,7 @@ import { useEffect, useLayoutEffect, useRef, useState, type KeyboardEvent } from
 import { useTranslation } from "react-i18next";
 
 import { useAppServices, useWindowFocus } from "@/app-facade";
+import type { ChatRuntimeActivity } from "@/api";
 import { showStatusToast, motionDurationFromCSSVar, prefersReducedMotion } from "@/ui";
 import { advanceComposerStop, type ComposerStopEvent } from "./composerStop";
 import type { useChatComposer } from "./useChatComposer";
@@ -10,7 +11,7 @@ export function useComposerKeyboard(
   composer: ReturnType<typeof useChatComposer>,
   stoppable: boolean,
   observationError: Error | null,
-  enabled = true,
+  { enabled = true, activity }: Readonly<{ enabled?: boolean; activity?: ChatRuntimeActivity }> = {},
 ) {
   const { nativeBridge } = useAppServices();
   const { t } = useTranslation();
@@ -119,14 +120,18 @@ export function useComposerKeyboard(
       const unsupportedModifier = platform === "macos" ? event.ctrlKey : event.metaKey;
       if (event.key === "Enter" && !event.shiftKey && !event.altKey && !unsupportedModifier) {
         event.preventDefault();
-        composer.submit((platform === "macos" ? event.metaKey : event.ctrlKey) ? "queue" : "send");
+        composer.submit(
+          (platform === "macos" ? event.metaKey : event.ctrlKey) ? "queue" : "send",
+          "editor",
+          activity,
+        );
       }
     },
   };
 }
 
 function historyDirection(event: KeyboardEvent<HTMLTextAreaElement>): -1 | 1 | null {
-  if (event.shiftKey || event.altKey || event.metaKey || event.ctrlKey) return null;
+  if (!unmodified(event)) return null;
   if (event.key !== "ArrowUp" && event.key !== "ArrowDown") return null;
   const direction = event.key === "ArrowUp" ? -1 : 1;
   const editor = event.currentTarget;
@@ -134,6 +139,10 @@ function historyDirection(event: KeyboardEvent<HTMLTextAreaElement>): -1 | 1 | n
   return editor.selectionStart === editor.selectionEnd && editor.selectionStart === boundary
     ? direction
     : null;
+}
+
+function unmodified(event: KeyboardEvent): boolean {
+  return !event.shiftKey && !event.altKey && !event.metaKey && !event.ctrlKey;
 }
 
 function handled(event: KeyboardEvent): boolean {
@@ -150,6 +159,11 @@ function handlePickerKey(composer: ReturnType<typeof useChatComposer>, event: Ke
     composer.dismissPicker();
     event.preventDefault();
     event.stopPropagation();
+    return true;
+  }
+  if (event.key === "Tab" && unmodified(event) && composer.selectedCommand !== null) {
+    composer.edit(`${composer.selectedCommand.token} `);
+    event.preventDefault();
     return true;
   }
   if (composer.suggestions.length > 0 && (event.key === "ArrowUp" || event.key === "ArrowDown")) {

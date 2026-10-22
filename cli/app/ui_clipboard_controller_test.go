@@ -103,15 +103,12 @@ func TestClipboardPasteMainReturnsAutocompleteRefreshCommand(t *testing.T) {
 		Content:        uiClipboardText{Text: "o"},
 	})
 	updated := next.(*uiModel)
-	if cmd == nil || !updated.authSlashLoading {
-		t.Fatal("expected main clipboard paste to return the auth slash refresh command")
-	}
 	for _, msg := range collectCmdMessages(t, cmd) {
 		next, _ = updated.Update(msg)
 		updated = next.(*uiModel)
 	}
-	if authStatus.calls != 1 || updated.authSlashLoading {
-		t.Fatalf("auth refresh state = calls:%d loading:%v, want calls:1 loading:false", authStatus.calls, updated.authSlashLoading)
+	if !slashPickerContainsCommand(updated.slashCommandPicker(), "logout") {
+		t.Fatal("pasting a command prefix did not update its suggestions")
 	}
 }
 

@@ -24,7 +24,7 @@ func TestProviderUsageObservationsSurviveSessionReopen(t *testing.T) {
 				providerUsageTestResponse(2),
 				providerUsageTestResponse(5),
 			}}
-			engine := mustNewTestEngine(t, store, client, tools.NewRegistry(), Config{Model: "gpt-5"})
+			engine := mustNewTestEngine(t, store, client, tools.NewRegistry(), Config{Model: "gpt-6-sol"})
 
 			request := providerUsageTestRequest(store.Meta().SessionID, withPromptCache)
 			for index := range client.responses {
@@ -41,7 +41,7 @@ func TestProviderUsageObservationsSurviveSessionReopen(t *testing.T) {
 				t.Fatalf("reopen session: %v", err)
 			}
 			reopenedClient := &fakeClient{responses: []llm.Response{providerUsageTestResponse(7)}}
-			reopenedEngine := mustNewTestEngine(t, reopened, reopenedClient, tools.NewRegistry(), Config{Model: "gpt-5"})
+			reopenedEngine := mustNewTestEngine(t, reopened, reopenedClient, tools.NewRegistry(), Config{Model: "gpt-6-sol"})
 			if _, err := generateTestActiveStep(context.Background(), reopenedEngine, "usage-2", reopenedClient, request); err != nil {
 				t.Fatalf("generate response after reopen: %v", err)
 			}
@@ -70,9 +70,9 @@ func TestProviderUsageEvidenceCloneCopiesProviderID(t *testing.T) {
 
 func providerUsageTestRequest(sessionID string, withPromptCache bool) llm.Request {
 	request := llm.Request{
-		Model:          "gpt-5",
+		Model:          "gpt-6-sol",
 		ToolChoiceMode: llm.ToolChoiceModeAutomatic,
-		Items:          llm.ItemsFromMessages([]llm.Message{{Role: llm.RoleUser, Content: textutil.Value("retain usage")}}),
+		Items:          llm.ItemsFromMessages([]llm.Message{{Role: llm.RoleUser, Content: textutil.Value("retain usage")}}), ReasoningEffort: "high",
 	}
 	if withPromptCache {
 		request.PromptCacheKey = sessionID
@@ -89,7 +89,7 @@ func providerUsageTestResponse(outputTokens int) llm.Response {
 	))
 	return llm.Response{
 		Assistant:        llm.Message{Role: llm.RoleAssistant, Phase: textutil.Value(llm.MessagePhaseFinal), Content: textutil.Value("retained")},
-		Usage:            llm.Usage{InputTokens: 1, OutputTokens: outputTokens},
+		Usage:            llm.Usage{InputTokens: textutil.Value(1), OutputTokens: textutil.Value(outputTokens), ContextUsage: &llm.ContextUsage{Tokens: 1, MeasurementPoint: llm.ContextMeasurementInput}},
 		ProviderEvidence: modelcontract.ProviderUsageEvidence{ProviderID: textutil.Value("test-provider"), Usage: &raw},
 	}
 }
@@ -107,8 +107,8 @@ func providerUsageTestMixedResponse(outputTokens int) llm.Response {
 	createdAt := time.Unix(1_720_000_000+int64(outputTokens), 0).UTC()
 	response.ProviderEvidence = modelcontract.ProviderUsageEvidence{
 		ProviderID:           textutil.Value("mixed-provider"),
-		RequestedModel:       "gpt-5",
-		ServedModel:          textutil.Value("gpt-5-served"),
+		RequestedModel:       "gpt-6-sol",
+		ServedModel:          textutil.Value("custom-served-model"),
 		RequestedServiceTier: textutil.Value("priority"),
 		ServedServiceTier:    textutil.Value("default"),
 		ResponseID:           textutil.Value(fmt.Sprintf("mixed-response-%d", outputTokens)),

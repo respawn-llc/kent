@@ -7,31 +7,35 @@ import { SessionRuntimeService } from "@app/server-api-contract/gen/kent/api/ses
 
 import { ContractError } from "./errors";
 import { requireUnarySuccess } from "./protobufRpc";
-import type { RuntimeOwnerContext } from "./transport";
+import type { RpcTransport } from "./transport";
+import type { ChatSessionTarget } from "./chatTypes";
 
-export async function activateRuntime(
-  owner: RuntimeOwnerContext,
-  sessionID: string,
-): Promise<Readonly<{ sessionID: string; generation: number }>> {
+export async function activateRuntime(transport: RpcTransport, target: ChatSessionTarget): Promise<void> {
+  const sessionID = target.sessionID;
   const planMethod = SessionLaunchService.method.plan;
-  const result = await owner.callDescriptor(
+  const result = await transport.callDescriptorAttachedSession(
+    target,
     planMethod,
     create(planMethod.input, {
       mode: SessionLaunchMode.INTERACTIVE,
-      intent: { intent: { case: "openExistingSessionId", value: sessionID } },
+      intent: {
+        intent: { case: "openExistingSessionId", value: { value: { case: "sessionId", value: sessionID } } },
+      },
     }),
   );
   const plan = requireUnarySuccess(planMethod, result).plan;
-  if (plan?.sessionId !== sessionID)
+  if (plan.sessionId !== sessionID)
     throw new ContractError("Session Plan does not match the requested Session.");
-  try {
-    const method = SessionRuntimeService.method.activate;
-    const response = requireUnarySuccess(
+  const method = SessionRuntimeService.method.activate;
+  requireUnarySuccess(
+    method,
+    await transport.callDescriptorAttachedSession(
+      target,
       method,
-      await owner.callDescriptor(
-        method,
-        create(method.input, {
-          sessionId: sessionID,
+      create(method.input, {
+        sessionId: { value: { case: "sessionId", value: sessionID } },
+        options: {
+          connectionScope: plan.connectionScope,
           activeSettings: plan.activeSettings,
           enabledToolIds: plan.enabledToolIds,
           questionsEnabled: plan.questionsEnabled,
@@ -40,14 +44,8 @@ export async function activateRuntime(
           source: plan.source,
           agentSelection: plan.activationAgentSelection,
           explicitToolSelection: plan.explicitToolSelection,
-        }),
-      ),
-    );
-    if (response.attachment?.sessionId !== sessionID)
-      throw new ContractError("Runtime activation does not match the requested Session.");
-    return { sessionID: response.attachment.sessionId, generation: Number(response.attachment.generation) };
-  } catch (error) {
-    owner.poison();
-    throw error;
-  }
+        },
+      }),
+    ),
+  );
 }

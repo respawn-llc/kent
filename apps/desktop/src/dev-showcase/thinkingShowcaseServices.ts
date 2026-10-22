@@ -1,7 +1,7 @@
 import { createBrowserNativeBridge } from "@app/native-bridge";
 
-import { ApiClient, protocolVersion, type DescriptorRpcTransport } from "@/api/composition";
-import type { AppServices } from "@/app-facade";
+import { ApiClient, protocolVersion, type RpcTransport } from "@/api/composition";
+import { createAppLogger, type AppServices } from "@/app-facade";
 
 function unavailable(): never {
   throw new Error("This browser fixture does not connect to a Kent server.");
@@ -17,15 +17,10 @@ export function thinkingShowcaseServices(writeText: (value: string) => Promise<v
     },
     clipboard: { ...browser.clipboard, writeText },
   };
-  const transport: DescriptorRpcTransport = {
-    call: unavailable,
-    callDedicated: unavailable,
-    callAttachedProject: unavailable,
+  const transport: RpcTransport = {
     callDescriptorAttachedSession: unavailable,
     callDescriptor: unavailable,
     callDescriptorAttachedProject: unavailable,
-    runRuntimeOwner: unavailable,
-    subscribe: unavailable,
     subscribeDescriptor: unavailable,
   };
   return {
@@ -33,11 +28,9 @@ export function thinkingShowcaseServices(writeText: (value: string) => Promise<v
     debugThemeOverrideEnabled: false,
     endpoint: "fixture-only",
     homePath: "/fixture-only",
-    logger: {
-      append: async (level, message, context = {}) => {
-        await nativeBridge.logging.append({ level, message, context, occurredAt: new Date().toISOString() });
-      },
-    },
+    logger: createAppLogger(async (level, message, context = {}) => {
+      await nativeBridge.logging.append({ level, message, context, occurredAt: new Date().toISOString() });
+    }),
     nativeBridge,
     protocolVersion,
     storageNamespace: null,

@@ -22,27 +22,20 @@ type BootstrapPlan struct {
 	MainWorkspaceRoot *string
 }
 
-func ResolveSessionCaller(persistenceRoot string, sessionID string) (subagentpolicy.Caller, error) {
-	if _, err := openSessionByID(persistenceRoot, sessionID); err != nil {
+type SessionCallerResolver interface {
+	session.PersistedSessionResolver
+	SessionHasWorkflowTask(context.Context, string) (bool, error)
+}
+
+func ResolveSessionCaller(ctx context.Context, resolver SessionCallerResolver, sessionID string) (subagentpolicy.Caller, error) {
+	if _, err := session.ResolvePersistedSessionRecord(ctx, resolver, sessionID); err != nil {
 		return subagentpolicy.Caller{}, err
 	}
-	metadataStore, err := metadata.Open(persistenceRoot)
-	if err != nil {
-		return subagentpolicy.Caller{}, err
-	}
-	defer func() { _ = metadataStore.Close() }()
-	workflow, err := metadataStore.SessionHasWorkflowTask(context.Background(), sessionID)
+	workflow, err := resolver.SessionHasWorkflowTask(ctx, sessionID)
 	if err != nil {
 		return subagentpolicy.Caller{}, err
 	}
 	return subagentpolicy.Caller{Workflow: workflow}, nil
-}
-
-// ValidateSessionExists verifies a session reference without exposing its
-// persisted metadata to callers that only need provenance validation.
-func ValidateSessionExists(persistenceRoot string, sessionID string) error {
-	_, err := openSessionByID(persistenceRoot, sessionID)
-	return err
 }
 
 func ResolveBootstrapPlan(persistenceRoot string, req BootstrapRequest) (BootstrapPlan, error) {

@@ -1,82 +1,82 @@
+import { describe, expect, it, vi } from "bun:test";
 import { fireEvent, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 
-import { z } from "zod";
-
-import type { JsonValue } from "@/api";
 import { appI18n } from "@/i18n";
 import type { SidebarDestination } from "@/app-facade";
+import { installVirtualizedScrollGeometry } from "@/test-support/resize-observer";
 import { createTestSidebarController, createTestSidebarNavigator } from "@/test-support/sidebar";
 import {
-  activityResponse,
   commentListResponse,
   emptyTaskAttentionResponse,
   mountTaskDetailSurface,
-  questionAttention,
+  questionAttentionResponse,
+  taskGetRoute,
+  taskCommentRoute,
+  taskCommentPage,
+  taskActivityRoute,
+  taskActivityPage,
+  taskIdentityFixture,
+  taskBlockedByFixture,
   taskDetailResponse,
 } from "@/test-support/task-detail";
 
 describe("Task Detail retained sidebar state", () => {
   it("restores the selected Activity feed but opens back at the top after visiting another Task", async () => {
+    const geometry = installVirtualizedScrollGeometry(600);
     const pageNavigator = createTestSidebarNavigator();
-    const taskB = taskDetailWithID("task-2", "Dependency target");
+    const taskB = taskIdentityFixture(taskDetailResponse, "task-2", "Dependency target", "T-2");
     const services = mountTaskDetailSurface(taskDetailResponse, {
       attention: emptyTaskAttentionResponse,
       comments: commentListResponse,
       navigator: pageNavigator,
       routes: [
-        {
-          method: "workflow.task.get",
-          handler: (params) => (taskIDFromParams(params) === "task-2" ? taskB : taskDetailResponse),
-        },
-        {
-          method: "workflow.task.comment.list",
-          handler: (params) =>
-            taskIDFromParams(params) === "task-2"
-              ? { items: [], next_offset: null, total_count: 0 }
-              : commentListResponse,
-        },
-        {
-          method: "workflow.task.activity.list",
-          handler: (params) => activityPage(taskIDFromParams(params)),
-        },
+        taskGetRoute((taskID) => (taskID === "task-2" ? taskB : taskDetailResponse)),
+        taskCommentRoute((taskID) => (taskID === "task-2" ? taskCommentPage([]) : commentListResponse)),
+        taskActivityRoute((taskID) => taskActivityPage(taskID, 50)),
       ],
     });
-    const user = userEvent.setup();
+    try {
+      const user = userEvent.setup();
 
-    const activityTab = await screen.findByRole("tab", { name: appI18n.t("task.activity") });
-    await user.click(activityTab);
-    await waitFor(() => {
-      expect(activityTab).toHaveAttribute("aria-selected", "true");
-    });
-    const list = await screen.findByTestId("task-detail-island-stack");
-    list.scrollTop = 1200;
-    fireEvent.scroll(list);
+      const activityTab = await screen.findByRole("tab", { name: appI18n.t("task.activity") });
+      await user.click(activityTab);
+      await waitFor(() => {
+        expect(activityTab).toHaveAttribute("aria-selected", "true");
+      });
+      const list = await screen.findByTestId("task-detail-island-stack");
+      list.scrollTop = 1200;
+      fireEvent.scroll(list);
 
-    await waitFor(() => {
-      expect(pageNavigator.registerCapture).toHaveBeenCalled();
-    });
-    const capture = vi.mocked(pageNavigator.registerCapture).mock.lastCall?.[0];
-    if (capture === undefined) throw new Error("Expected Task Detail retained-state capture.");
-    const retainedState = capture();
-    expect(retainedState).toEqual(
-      expect.objectContaining({
-        selectedTab: "activity",
-      }),
-    );
-    expect(retainedState).not.toHaveProperty("scrollOffsetPx");
+      await waitFor(() => {
+        expect(pageNavigator.registerCapture).toHaveBeenCalled();
+      });
+      const registerCapture = vi.spyOn(pageNavigator, "registerCapture");
+      const capture = registerCapture.mock.lastCall?.[0];
+      if (capture === undefined) throw new Error("Expected Task Detail retained-state capture.");
+      const retainedState = capture();
+      expect(retainedState).toEqual(
+        expect.objectContaining({
+          selectedTab: "activity",
+        }),
+      );
+      expect(retainedState).not.toHaveProperty("scrollOffsetPx");
 
-    services.rerenderTaskDetail("task-2");
-    await screen.findByDisplayValue("Dependency target");
+      services.rerenderTaskDetail("task-2");
+      await screen.findByDisplayValue("Dependency target");
 
-    services.rerenderTaskDetail("task-1", retainedState);
-    const restoredActivityTab = await screen.findByRole("tab", {
-      name: appI18n.t("task.activity"),
-    });
-    await waitFor(() => {
-      expect(restoredActivityTab).toHaveAttribute("aria-selected", "true");
-      expect(screen.getByTestId("task-detail-island-stack").scrollTop).toBe(0);
-    });
+      services.rerenderTaskDetail("task-1", retainedState);
+      const restoredActivityTab = await screen.findByRole("tab", {
+        name: appI18n.t("task.activity"),
+      });
+      await waitFor(() => {
+        expect(restoredActivityTab).toHaveAttribute("aria-selected", "true");
+        expect(screen.getByTestId("task-detail-island-stack").scrollTop).toBe(0);
+      });
+    } finally {
+      services.unmountTaskDetail();
+      geometry.restore();
+    }
   });
 
   it("lets an attention deep-link override retained Task Detail state", async () => {
@@ -87,7 +87,7 @@ describe("Task Detail retained sidebar state", () => {
     });
 
     mountTaskDetailSurface(taskDetailResponse, {
-      attention: { generated_at_unix_ms: 3, items: [questionAttention] },
+      attention: questionAttentionResponse,
       initialFocus: { kind: "question", askIDs: ["ask-1"] },
       retainedState: {
         base: { body: "Need operator input", title: "Resolve blocker" },
@@ -131,7 +131,8 @@ describe("Task Detail retained sidebar state", () => {
     await waitFor(() => {
       expect(pageNavigator.registerCapture).toHaveBeenCalled();
     });
-    const calls = vi.mocked(pageNavigator.registerCapture).mock.calls;
+    const registerCapture = vi.spyOn(pageNavigator, "registerCapture");
+    const calls = registerCapture.mock.calls;
     const latest = calls.at(-1)?.[0];
     if (latest === undefined) throw new Error("Expected Task Detail retained-state capture.");
     expect(latest()).toEqual(
@@ -167,27 +168,11 @@ describe("Task Detail retained sidebar state", () => {
   it("preserves overlay composition without carrying the current Task callback to a dependency", async () => {
     const pageNavigator = createTestSidebarNavigator();
     const onMutated = vi.fn();
-    const blockedBy = taskDetailResponse.task.dependencies.directions[0];
-    const blocks = taskDetailResponse.task.dependencies.directions[1];
-    if (blockedBy === undefined || blocks === undefined) throw new Error("Expected dependency directions.");
-    const item = {
-      task_id: "task-2",
-      short_id: "T-2",
-      title: "Prepare",
-      workflow_id: "workflow-2",
-      status: { kind: "backlog", native_state: "active", node_ids: [], attention_types: [] },
-      satisfaction: "unsatisfied",
-    };
-    const dependencies = {
-      blocker_count: 1,
-      unsatisfied_blocker_count: 1,
-      directly_blocked_task_count: 0,
-      directions: [{ ...blockedBy, total_count: 1, unsatisfied_count: 1, items: [item] }, blocks],
-    };
-    mountTaskDetailSurface(
-      { task: { ...taskDetailResponse.task, dependencies } },
-      { navigator: pageNavigator, onMutated, sidebarMode: "overlay" },
-    );
+    mountTaskDetailSurface(taskBlockedByFixture(taskDetailResponse), {
+      navigator: pageNavigator,
+      onMutated,
+      sidebarMode: "overlay",
+    });
     const user = userEvent.setup();
 
     await user.click(await screen.findByTestId("dependency-row-task-2"));
@@ -209,7 +194,8 @@ describe("Task Detail retained sidebar state", () => {
     await waitFor(() => {
       expect(navigator.registerCapture).toHaveBeenCalled();
     });
-    const capture = vi.mocked(navigator.registerCapture).mock.lastCall?.[0];
+    const registerCapture = vi.spyOn(navigator, "registerCapture");
+    const capture = registerCapture.mock.lastCall?.[0];
     if (capture === undefined) throw new Error("Expected fallback-state capture.");
     expect(capture()).toEqual(
       expect.objectContaining({
@@ -237,61 +223,14 @@ describe("Task Detail retained sidebar state", () => {
       {
         initialPreparedDependency: {
           direction: "blocks",
-          shortID: taskDetailResponse.task.summary.short_id,
-          status: { kind: taskDetailResponse.task.status.kind },
+          shortID: "T-1",
+          status: { kind: "running" },
           taskID: "task-1",
-          title: taskDetailResponse.task.summary.title,
-          workflowID: taskDetailResponse.task.summary.workflow_id,
+          title: "Resolve blocker",
+          workflowID: "11111111-1111-4111-8111-111111111111",
         },
         kind: "newTask",
       },
     ]);
   });
 });
-
-function taskDetailWithID(taskID: string, title: string): JsonValue {
-  return {
-    task: {
-      ...taskDetailResponse.task,
-      summary: {
-        ...taskDetailResponse.task.summary,
-        id: taskID,
-        short_id: taskID === "task-2" ? "T-2" : taskDetailResponse.task.summary.short_id,
-        title,
-      },
-    },
-  };
-}
-
-function taskIDFromParams(params: JsonValue): string {
-  const result = z.object({ task_id: z.string() }).safeParse(params);
-  if (!result.success) {
-    throw new Error("Expected a Task-scoped RPC request.");
-  }
-  return result.data.task_id;
-}
-
-function activityPage(taskID: string) {
-  const baseActivity = activityResponse.items[0];
-  if (baseActivity === undefined) {
-    throw new Error("Expected an Activity fixture.");
-  }
-  return {
-    items: Array.from({ length: 50 }, (_value, index) => ({
-      ...baseActivity,
-      activity_id: `activity-${taskID}-${index.toString()}`,
-      task_id: taskID,
-      occurred_at_unix_ms: 1000 - index,
-      updated_at_unix_ms: 1000 - index,
-      comment: {
-        ...baseActivity.comment,
-        id: `comment-activity-${taskID}-${index.toString()}`,
-        task_id: taskID,
-        body: `Activity item ${index.toString()}`,
-        created_at_unix_ms: 1000 - index,
-        updated_at_unix_ms: 1000 - index,
-      },
-    })),
-    next_offset: null,
-  };
-}

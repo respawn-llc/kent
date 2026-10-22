@@ -34,7 +34,6 @@ func testFileAccessApprovalRequest() askquestion.FileAccessApprovalRequest {
 
 func testFileAccessApprovalContext(toolCallID string) context.Context {
 	ctx := askquestion.WithExecutionIdentity(context.Background(), askquestion.ExecutionIdentity{
-		RunID:      "11111111-1111-4111-8111-111111111111",
 		StepID:     "22222222-2222-4222-8222-222222222222",
 		ToolCallID: clientui.ToolCallID(toolCallID),
 	})

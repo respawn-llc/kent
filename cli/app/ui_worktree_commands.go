@@ -3,6 +3,7 @@ package app
 import runtimepb "core/shared/protoapi/gen/kent/api/runtime"
 
 import (
+	"fmt"
 	"strings"
 
 	worktreepb "core/shared/protoapi/gen/kent/api/worktree"
@@ -77,9 +78,6 @@ func (c uiInputController) handleWorktreeSwitchCommand(token string) (tea.Model,
 
 func (c uiInputController) handleWorktreeTransitionCommand(transition runtimeinput.PendingWorkWorktreeTransition) (tea.Model, tea.Cmd) {
 	m := c.model
-	if err := transition.Validate(); err != nil {
-		return m, sequenceCmds(c.model.appendLocalEntryWithNoticeID("error", worktreeUsageText, ""), c.model.sendTransientStatusWithNoticeID(worktreeUsageText, uiStatusNoticeError, transientStatusDuration, uiStatusNoticeReplace, ""))
-	}
 	if m.worktrees.switchPending {
 		queued := transition
 		m.worktrees.queuedTransition = &queued
@@ -114,22 +112,22 @@ func (m *uiModel) worktreeTransitionCommand(transition runtimeinput.PendingWorkW
 		case runtimeinput.PendingWorkWorktreeTransitionLeave:
 			ack, err = service.Leave()
 		default:
-			err = transition.Validate()
+			err = fmt.Errorf("unknown Pending Work Worktree transition %q", transition.Transition)
 		}
 		return worktreeSwitchDoneMsg{token: switchToken, sessionID: sessionID, transition: transition, ack: ack, err: err}
 	}
 }
 
-func (m *uiModel) suggestedWorktreeSessionName() string {
-	if trimmed := strings.TrimSpace(m.sessionName); trimmed != "" {
-		return trimmed
+func (m *uiModel) suggestedWorktreeSessionName() *string {
+	if m.sessionName != nil {
+		return m.sessionName
 	}
 	if cached, ok := m.runtimeClient().(interface {
 		CachedMainView() (*runtimepb.MainView, bool)
 	}); ok {
 		if view, hasCached := cached.CachedMainView(); hasCached {
-			return strings.TrimSpace(view.Session.GetSessionName())
+			return view.Session.SessionName
 		}
 	}
-	return ""
+	return nil
 }

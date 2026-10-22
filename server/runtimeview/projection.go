@@ -7,7 +7,6 @@ import (
 	"core/shared/protoapi"
 	runtimepb "core/shared/protoapi/gen/kent/api/runtime"
 	transcriptpb "core/shared/protoapi/gen/kent/api/transcript"
-	"core/shared/textutil"
 )
 
 func MainViewFromRuntimeActivity(
@@ -25,13 +24,6 @@ func MainViewFromRuntimeActivity(
 	status, err := StatusFromRuntime(engine)
 	if err != nil {
 		return &runtimepb.MainView{}, err
-	}
-	if err := protoapi.Validate(activity); err != nil {
-		activity = &runtimepb.Activity{
-			State:              runtimepb.ActivityState_RUNTIME_ACTIVITY_UNAVAILABLE,
-			Reviewer:           runtimepb.ReviewerActivity_REVIEWER_ACTIVITY_INACTIVE,
-			DiagnosticRecovery: true,
-		}
 	}
 	return &runtimepb.MainView{
 		Version:  version,
@@ -153,9 +145,19 @@ func SessionViewFromRuntime(engine *runtime.Engine) (*runtimepb.SessionView, err
 	if err != nil {
 		return &runtimepb.SessionView{}, err
 	}
+	category, err := engine.SessionCategory()
+	if err != nil {
+		return nil, err
+	}
+	wireCategory, err := protoapi.SessionCategoryToProto(category)
+	if err != nil {
+		return nil, err
+	}
 	return &runtimepb.SessionView{
+		Category:              wireCategory,
 		SessionId:             engine.SessionID(),
-		SessionName:           textutil.OptionalExactString(engine.SessionName()),
+		ShortId:               protoapi.SessionShortIDToProto(engine.SessionIdentity().ShortID),
+		SessionName:           engine.SessionName(),
 		AgentRole:             engine.ContinuationAgentRole(),
 		ConversationFreshness: ConversationFreshnessFromSession(freshness),
 	}, nil

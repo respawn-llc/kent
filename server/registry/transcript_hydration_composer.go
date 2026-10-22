@@ -6,7 +6,6 @@ import (
 
 	"core/server/runtime"
 	"core/server/runtimeview"
-	"core/shared/protoapi"
 	runtimepb "core/shared/protoapi/gen/kent/api/runtime"
 	transcriptpb "core/shared/protoapi/gen/kent/api/transcript"
 )
@@ -18,7 +17,11 @@ func (r *RuntimeRegistry) composeTranscriptHydration(
 	snapshot runtime.TranscriptHydrationSnapshot,
 	tailPage runtime.TranscriptSegmentPage,
 ) (*transcriptpb.Hydration, error) {
-	tailSegment, err := runtimeview.TranscriptTailSegmentFromSegment(tailPage)
+	identities, err := r.metadata.SessionIdentities(ctx, runtimeview.TranscriptReferencedSessions(runtime.TranscriptCommittedRowFactsFromSnapshot(tailPage.Snapshot)))
+	if err != nil {
+		return nil, err
+	}
+	tailSegment, err := runtimeview.TranscriptTailSegmentFromSegment(tailPage, identities)
 	if err != nil {
 		return nil, transcriptHydrationProjectionError{
 			cause: fmt.Errorf("project transcript hydration tail segment: %w", err),
@@ -59,11 +62,6 @@ func (r *RuntimeRegistry) composeTranscriptHydration(
 	if err != nil {
 		return nil, fmt.Errorf("build transcript background activities: %w", err)
 	}
-	if err := protoapi.Validate(hydration); err != nil {
-		return nil, transcriptHydrationProjectionError{
-			cause: fmt.Errorf("validate canonical transcript hydration: %w", err),
-		}
-	}
 	return hydration, nil
 }
 
@@ -75,7 +73,6 @@ func transcriptActiveStepFromRuntimeReadModel(
 		return nil
 	}
 	return &transcriptpb.StepState{
-		RunId:      active.RunId,
 		StepId:     active.StepId,
 		Lifecycle:  transcriptpb.StepLifecycle_STEP_LIFECYCLE_STARTED,
 		ActiveKind: active.ActiveKind,
@@ -113,8 +110,7 @@ func clearMismatchedActiveFacts(hydration *transcriptpb.Hydration) {
 		hydration.ActiveReasoningTraces = traces
 	}
 	if hydration.ActiveStep != nil &&
-		(hydration.ActiveStep.RunId != active.RunId ||
-			hydration.ActiveStep.StepId != active.StepId ||
+		(hydration.ActiveStep.StepId != active.StepId ||
 			hydration.ActiveStep.ActiveKind != active.ActiveKind) {
 		hydration.ActiveStep = nil
 	}

@@ -10,6 +10,7 @@ import (
 	"testing"
 	"time"
 
+	"core/internal/testharness/scriptedllm"
 	"core/internal/testharness/testsetup"
 	"core/server/llm"
 	"core/server/runtime"
@@ -36,7 +37,7 @@ func (*approvalActionClient) ProviderCapabilities(context.Context) (llm.Provider
 }
 func (c *approvalActionClient) Generate(context.Context, llm.Request, llm.StreamCallbacks) (llm.Response, error) {
 	if len(c.responses) == 0 {
-		return llm.Response{}, errors.New("unexpected provider request")
+		return llm.Response{}, scriptedllm.ErrScriptExhausted
 	}
 	response := c.responses[0]
 	c.responses = c.responses[1:]
@@ -133,10 +134,11 @@ func newApprovalActionHarness(t *testing.T, options approvalActionHarnessOptions
 	client := &approvalActionClient{responses: responses}
 	feed := newApprovalActionFeed(options)
 	authority := NewAuthority(AuthorityOptions{
-		WorkspaceMembership: fixture.metadata,
-		PersistenceRoot:     fixture.config.PersistenceRoot,
-		StoreOptions:        append(fixture.metadata.AuthoritativeSessionStoreOptions(), options.storeOptions...),
-		PromptFeed:          feed,
+		WorkspaceMembership:           fixture.metadata,
+		PersistenceRoot:               fixture.config.PersistenceRoot,
+		ProjectWorkspaceContextReader: fixture.metadata,
+		StoreOptions:                  append(fixture.metadata.AuthoritativeSessionStoreOptions(), options.storeOptions...),
+		PromptFeed:                    feed,
 	})
 	h := &approvalActionHarness{
 		authority: authority, feed: feed, sessionID: sessionID,

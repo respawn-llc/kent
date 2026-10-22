@@ -14,6 +14,7 @@ const (
 	ActionExit              Action = "exit"
 	ActionNew               Action = "new"
 	ActionResume            Action = "resume"
+	ActionLogin             Action = "login"
 	ActionLogout            Action = "logout"
 	ActionCompact           Action = "compact"
 	ActionSetName           Action = "set_name"
@@ -50,7 +51,6 @@ type Result struct {
 	User               string
 	PromptCommand      *runtimeinput.PromptCommand
 	FreshConversation  bool
-	SessionName        string
 	ThinkingLevel      string
 	FastMode           string
 	SupervisorMode     string
@@ -101,17 +101,17 @@ func NewDefaultRegistry() *Registry {
 	r.RegisterWithOptions("resume", "Go to startup screen (session picker)", RegisterOptions{ActiveRunPolicy: ActiveRunPolicyAllowed, PreservePromptHistoryDraft: true}, func(string) Result {
 		return Result{Handled: true, Action: ActionResume}
 	})
-	r.RegisterWithOptions("logout", "Open auth options", RegisterOptions{PreservePromptHistoryDraft: true}, func(string) Result {
+	r.RegisterWithOptions("logout", "Remove a provider connection", RegisterOptions{ActiveRunPolicy: ActiveRunPolicyAllowed, PreservePromptHistoryDraft: true}, func(string) Result {
 		return Result{Handled: true, Action: ActionLogout}
 	})
-	r.RegisterWithOptions("login", "Open auth options", RegisterOptions{PreservePromptHistoryDraft: true}, func(string) Result {
-		return Result{Handled: true, Action: ActionLogout}
+	r.RegisterWithOptions("login", "Manage provider connections", RegisterOptions{ActiveRunPolicy: ActiveRunPolicyAllowed, PreservePromptHistoryDraft: true}, func(string) Result {
+		return Result{Handled: true, Action: ActionLogin}
 	})
 	r.RegisterWithOptions("compact", "Compact the current context (optional: /compact <instructions>)", RegisterOptions{ActiveRunPolicy: ActiveRunPolicyAllowed, PreservePromptHistoryDraft: true}, func(args string) Result {
 		return Result{Handled: true, Action: ActionCompact, Args: strings.TrimSpace(args)}
 	})
 	r.RegisterWithOptions("name", "Set session title and terminal title (usage: /name <title>; empty resets)", RegisterOptions{ActiveRunPolicy: ActiveRunPolicyAllowed, PreservePromptHistoryDraft: true}, func(args string) Result {
-		return Result{Handled: true, Action: ActionSetName, SessionName: strings.TrimSpace(args)}
+		return Result{Handled: true, Action: ActionSetName, Args: strings.TrimSpace(args)}
 	})
 	r.RegisterWithOptions("thinking", "Set or show thinking level (usage: /thinking <low|medium|high|xhigh|max|ultra>; empty shows current)", RegisterOptions{ActiveRunPolicy: ActiveRunPolicyAllowed}, func(args string) Result {
 		return Result{Handled: true, Action: ActionSetThinking, ThinkingLevel: strings.ToLower(strings.TrimSpace(args))}

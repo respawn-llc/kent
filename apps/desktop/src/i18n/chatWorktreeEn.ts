@@ -1,4 +1,10 @@
 export const chatWorktreeEnglish = {
+  current: "Current",
+  copyPath: "Copy path: {{path}}",
+  pathCopied: "Path copied",
+  copyFailed: "Could not copy path",
+  openOriginSession: "Open origin Session: {{sessionID}}",
+  currentOriginSession: "Current Session: {{sessionID}}",
   title: "Worktree",
   sessionRequired: "Start a Session before managing worktrees.",
   commandUsage:
@@ -17,6 +23,7 @@ export const chatWorktreeEnglish = {
   rootRetained: "Directory retained: {{root}}",
   targetLabel: "Branch or ref",
   targetRequired: "Branch or ref is required",
+  targetInvalid: "Enter a valid Git branch name or ref. Branch names cannot contain spaces.",
   baseLabel: "Base ref",
   baseRequired: "Base ref is required",
   newBranch: "New branch",
@@ -34,6 +41,7 @@ export const chatWorktreeEnglish = {
   empty: "No worktrees",
   external: "External",
   missing: "Missing",
+  inUse: "In Use",
   requestPending: "Waiting for the current request",
   internalFailure: "The worktree operation failed. Try again. If it keeps failing, report the issue.",
   selectorNotFound: "Worktree “{{target}}” was not found. Refresh the list and choose another worktree.",

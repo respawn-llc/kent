@@ -4,16 +4,20 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"maps"
 	"math"
 	"strings"
 
+	"core/server/authservice"
 	"core/server/llm"
 	"core/server/onboardingimports"
 	"core/shared/clientui"
 	"core/shared/config"
 	capabilitypb "core/shared/protoapi/gen/kent/api/capability"
+	onboardingpb "core/shared/protoapi/gen/kent/api/onboarding"
 	"core/shared/serverapi"
 	"core/shared/textutil"
+	"core/shared/toolspec"
 )
 
 const (
@@ -28,23 +32,34 @@ const (
 type Options struct {
 	Config  config.App
 	HomeDir string
+	Setup   *authservice.BootstrapService
 }
 
 type Service struct {
 	cfg     config.App
 	homeDir string
+	setup   *authservice.BootstrapService
 }
 
 func NewService(opts Options) *Service {
-	return &Service{cfg: opts.Config, homeDir: opts.HomeDir}
+	return &Service{cfg: opts.Config, homeDir: opts.HomeDir, setup: opts.Setup}
 }
 
 func (s *Service) GetFacts(ctx context.Context, req *capabilitypb.GetFactsRequest) (*capabilitypb.Facts, error) {
-	if req == nil {
-		return nil, errors.New("capability facts request is required")
-	}
 	providerIDs := normalizedProviderIDs(req.ExplicitLlmProviderIds)
-	currentProvider, err := s.currentProviderFacts(ctx)
+	settings := s.cfg.Settings
+	if s.setup != nil {
+		var err error
+		settings, err = s.setup.PendingSettings(settings)
+		if err != nil {
+			return nil, err
+		}
+	}
+	sources := maps.Clone(s.cfg.Source.Sources)
+	if err := llm.ApplyConnectionModelDefaults(&settings, sources); err != nil {
+		return nil, err
+	}
+	currentProvider, err := llm.ResolveRuntimeProviderCapabilities(settings)
 	if err != nil {
 		return nil, err
 	}
@@ -52,7 +67,7 @@ func (s *Service) GetFacts(ctx context.Context, req *capabilitypb.GetFactsReques
 	if err != nil {
 		return nil, err
 	}
-	defaults, err := defaultFacts(s.cfg.Settings)
+	defaults, err := defaultFacts(settings, sources)
 	if err != nil {
 		return nil, err
 	}
@@ -60,12 +75,20 @@ func (s *Service) GetFacts(ctx context.Context, req *capabilitypb.GetFactsReques
 		ConfigRoot:    s.cfg.PersistenceRoot,
 		WorkspaceRoot: req.WorkspaceRoot,
 		HomeDir:       s.homeDir,
-		SkillPolicy:   config.ResolveSkillPolicy(s.cfg.Settings),
+		SkillPolicy:   config.ResolveSkillPolicy(settings),
 	})
 	if err != nil {
 		return nil, err
 	}
-	models, err := modelFacts(currentProvider)
+	connection, err := settings.SelectedConnection()
+	if err != nil {
+		return nil, err
+	}
+	actual, err := llm.ResolveConnectionVariant(connection)
+	if err != nil {
+		return nil, err
+	}
+	models, err := modelFacts(currentProvider, actual.Variant.ProviderID)
 	if err != nil {
 		return nil, err
 	}
@@ -95,10 +118,6 @@ func normalizedProviderIDs(values []string) []string {
 	return out
 }
 
-func (s *Service) currentProviderFacts(ctx context.Context) (llm.ProviderCapabilities, error) {
-	return llm.ResolveRuntimeProviderCapabilities(s.cfg.Settings)
-}
-
 func explicitProviderFacts(providerIDs []string) ([]*capabilitypb.ProviderFact, error) {
 	facts := make([]*capabilitypb.ProviderFact, 0, len(providerIDs))
 	for _, providerID := range providerIDs {
@@ -114,11 +133,11 @@ func explicitProviderFacts(providerIDs []string) ([]*capabilitypb.ProviderFact, 
 	return facts, nil
 }
 
-func modelFacts(providerCaps llm.ProviderCapabilities) (*capabilitypb.ModelFacts, error) {
+func modelFacts(providerCaps llm.ProviderCapabilities, actualProviderID string) (*capabilitypb.ModelFacts, error) {
 	contracts := llm.KnownModelCapabilityContracts()
 	known := make([]*capabilitypb.ModelFact, 0, len(contracts))
 	for _, contract := range contracts {
-		fact, err := modelFact(contract, providerCaps)
+		fact, err := modelFact(contract, providerCaps, actualProviderID)
 		if err != nil {
 			return nil, err
 		}
@@ -127,27 +146,31 @@ func modelFacts(providerCaps llm.ProviderCapabilities) (*capabilitypb.ModelFacts
 	return &capabilitypb.ModelFacts{KnownModels: known, UnknownFallback: unknownModelFallback(providerCaps)}, nil
 }
 
-func modelFact(contract llm.ModelCapabilityContract, providerCaps llm.ProviderCapabilities) (*capabilitypb.ModelFact, error) {
+func modelFact(contract llm.ModelCapabilityContract, providerCaps llm.ProviderCapabilities, actualProviderID string) (*capabilitypb.ModelFact, error) {
 	modelID := strings.TrimSpace(contract.Model)
 	if modelID == "" {
 		return nil, errBlankModelCatalogEntry
 	}
-	contextWindow, err := positiveUint32Ptr(contract.ContextWindowTokens, "model context window")
-	if err != nil {
-		return nil, err
-	}
+	metadata := contract.ContextMetadata(actualProviderID)
 	fact := &capabilitypb.ModelFact{
 		ModelId:                  &modelID,
 		Known:                    true,
-		ContextWindowTokens:      contextWindow,
 		SupportsThinking:         contract.SupportsReasoningEffort,
 		SupportedThinkingLevels:  cloneStrings(llm.SupportedThinkingLevelsModel(modelID)),
 		SupportsReasoningSummary: contract.SupportsReasoningSummary,
 		SupportsVisionInputs:     contract.SupportsVisionInputs,
 		Verbosity:                verbosityFact(llm.VerbositySupportForModelAndProvider(modelID, providerCaps)),
 	}
-	if contract.LargeContextWindowTokens > contract.ContextWindowTokens {
-		tokens, err := uint32Value(contract.LargeContextWindowTokens, "model large context window")
+	if metadata == nil {
+		return fact, nil
+	}
+	contextWindow, err := positiveUint32Ptr(metadata.ContextWindowTokens, "model context window")
+	if err != nil {
+		return nil, err
+	}
+	fact.ContextWindowTokens = contextWindow
+	if metadata.LargeContextWindowTokens != nil && *metadata.LargeContextWindowTokens > metadata.ContextWindowTokens {
+		tokens, err := uint32Value(*metadata.LargeContextWindowTokens, "model large context window")
 		if err != nil {
 			return nil, err
 		}
@@ -178,6 +201,7 @@ func providerFact(caps llm.ProviderCapabilities, role string) *capabilitypb.Prov
 		LlmProviderId:                 strings.TrimSpace(caps.ProviderID),
 		Role:                          role,
 		SupportsResponsesApi:          caps.SupportsResponsesAPI,
+		SupportsFastMode:              caps.SupportsFastMode,
 		SupportsNativeCompaction:      caps.SupportsResponsesCompact,
 		SupportsPromptCacheKey:        caps.SupportsPromptCacheKey,
 		SupportsNativeWebSearch:       caps.SupportsNativeWebSearch,
@@ -188,17 +212,66 @@ func providerFact(caps llm.ProviderCapabilities, role string) *capabilitypb.Prov
 	}
 }
 
-func defaultFacts(settings config.Settings) (*capabilitypb.DefaultFacts, error) {
+func defaultFacts(settings config.Settings, sources map[string]config.Origin) (*capabilitypb.DefaultFacts, error) {
 	modelID := strings.TrimSpace(settings.Model)
 	if modelID == "" {
 		return nil, errors.New("capability facts require a non-blank primary model")
 	}
+	supervisor, err := supervisorDefaults(settings, sources)
+	if err != nil {
+		return nil, err
+	}
+	window, err := positiveUint32Ptr(settings.ModelContextWindow, "default context window")
+	if err != nil {
+		return nil, err
+	}
+	thinking := thinkingDefaultFact(settings.ThinkingLevel)
+	if source, present := sources["thinking_level"]; present && source.Kind == config.SourceDefault {
+		thinking = &capabilitypb.ThinkingDefaultFact{Mode: "default"}
+	}
 	return &capabilitypb.DefaultFacts{
-		PrimaryModelId: modelID,
-		Thinking:       thinkingDefaultFact(settings.ThinkingLevel),
-		Verbosity:      verbosityDefaultFact(settings.ModelVerbosity),
-		CompactionMode: strings.TrimSpace(string(settings.CompactionMode)),
+		PrimaryModelId:      modelID,
+		Thinking:            thinking,
+		Verbosity:           verbosityDefaultFact(settings.ModelVerbosity),
+		CompactionMode:      strings.TrimSpace(string(settings.CompactionMode)),
+		ContextWindowTokens: window,
+		AskQuestion:         settings.EnabledTools[toolspec.ToolAskQuestion],
+		Supervisor:          supervisor,
 	}, nil
+}
+
+func supervisorDefaults(settings config.Settings, sources map[string]config.Origin) (*onboardingpb.SupervisorChoice, error) {
+	choice := &onboardingpb.SupervisorChoice{}
+	switch settings.Reviewer.Frequency {
+	case "", "off":
+		choice.Frequency = onboardingpb.SupervisorFrequency_SUPERVISOR_FREQUENCY_OFF
+	case "edits":
+		choice.Frequency = onboardingpb.SupervisorFrequency_SUPERVISOR_FREQUENCY_EDITS
+	case "all":
+		choice.Frequency = onboardingpb.SupervisorFrequency_SUPERVISOR_FREQUENCY_ALL
+	default:
+		return nil, fmt.Errorf("unsupported supervisor frequency %q", settings.Reviewer.Frequency)
+	}
+	if sources["reviewer.model"].Declares("reviewer.model") {
+		model := settings.Reviewer.Model
+		if _, known := llm.LookupModelCapabilityContract(model); known {
+			choice.Model = &onboardingpb.ModelChoice{Kind: onboardingpb.ModelKind_MODEL_KIND_KNOWN, ModelId: &model}
+		} else {
+			choice.Model = &onboardingpb.ModelChoice{Kind: onboardingpb.ModelKind_MODEL_KIND_CUSTOM, Alias: &model}
+		}
+	}
+	if sources["reviewer.thinking_level"].Declares("reviewer.thinking_level") {
+		fact := thinkingDefaultFact(settings.Reviewer.ThinkingLevel)
+		switch fact.Mode {
+		case thinkingModeDisabled:
+			choice.Thinking = &onboardingpb.ThinkingChoice{Kind: onboardingpb.ThinkingKind_THINKING_KIND_DISABLED}
+		case thinkingModeLevel:
+			choice.Thinking = &onboardingpb.ThinkingChoice{Kind: onboardingpb.ThinkingKind_THINKING_KIND_LEVEL, Level: fact.Level}
+		case thinkingModeCustom:
+			choice.Thinking = &onboardingpb.ThinkingChoice{Kind: onboardingpb.ThinkingKind_THINKING_KIND_CUSTOM, Value: fact.Value}
+		}
+	}
+	return choice, nil
 }
 
 func verbosityDefaultFact(raw config.ModelVerbosity) *capabilitypb.VerbosityDefaultFact {

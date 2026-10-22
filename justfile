@@ -26,12 +26,12 @@ setup *args: _node
         echo "Usage: just setup [--apply]" >&2
         exit 2
     fi
-    for tool in go pnpm cargo git jq python3 rg; do
+    for tool in go bun cargo git jq python3 rg; do
         command -v "$tool" >/dev/null || { echo "$tool is required" >&2; exit 2; }
     done
     if [ "$mode" = "" ]; then
         echo "Would download Go modules"
-        echo "Would install frozen apps and docs dependencies"
+        echo "Would install frozen Bun apps and docs dependencies"
         echo "Would fetch desktop Rust dependencies"
         echo "Would configure core.hooksPath=.githooks"
         exit 0
@@ -43,10 +43,10 @@ setup *args: _node
 
 # Regenerate metadata queries and protobuf-derived Go and TypeScript sources.
 gen:
-    @bash scripts/quiet-on-success.sh just _node _lint-protobuf _generate
+    @bash scripts/quiet-on-success.sh just _lint-protobuf _generate
     @bash scripts/quiet-on-success.sh just _gen-metadata
 
-# Run active tests, or select server, desktop, tui, or explicit frozen rust.
+# Run active tests, or select server, desktop, docs, tui, or explicit frozen rust.
 test *args:
     @bash scripts/quiet-on-success.sh --success pass bash scripts/test.sh {{ args }}
 

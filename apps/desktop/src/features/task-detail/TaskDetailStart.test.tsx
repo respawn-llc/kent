@@ -1,49 +1,65 @@
-import { screen, waitFor } from "@testing-library/react";
+import { expect, it, vi } from "bun:test";
+import { act, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 
 import { appI18n } from "@/i18n";
+import { RpcError } from "@/api";
+import { deferred } from "@/test-support/chat-runtime";
 import {
-  callParams,
-  getCallCount,
+  backlogTaskFixture,
+  taskStartRoute,
+  taskStartApplied,
+  taskStartFailure,
+  taskStartNeedsDependencies,
   mountTaskDetailSurface,
   taskDetailResponse,
 } from "@/test-support/task-detail";
 
+it("replaces Start with a visible loading spinner and restores the action after failure", async () => {
+  const services = mountTaskDetailSurface(backlogTaskFixture(taskDetailResponse), {
+    routes: [taskStartRoute(taskStartApplied)],
+  });
+  const request = deferred<Awaited<ReturnType<typeof services.api.startTask>>>();
+  const log = vi.spyOn(services.logger, "append");
+  vi.spyOn(services.api, "startTask").mockReturnValueOnce(request.promise);
+  const start = await screen.findByRole("button", { name: appI18n.t("task.start") });
+  await userEvent.click(start);
+  await waitFor(() => {
+    expect(start).toHaveAttribute("aria-busy", "true");
+  });
+  expect(within(start).getByText(appI18n.t("task.start"))).not.toBeVisible();
+  expect(within(start).getByTestId("spinner")).toBeVisible();
+  const failure = taskStartFailure;
+  const error = new RpcError({
+    code: failure.code,
+    method: "task.start",
+    message: "start rejected",
+    data: failure,
+  });
+  await act(async () => {
+    request.reject(error);
+  });
+  await waitFor(() => {
+    expect(start).toHaveAttribute("aria-busy", "false");
+  });
+  expect(within(start).getByTestId("spinner")).not.toBeVisible();
+  expect(within(start).getByText(appI18n.t("task.start"))).toBeVisible();
+  expect(start).toBeEnabled();
+  const diagnostic = log.mock.calls.find(([, , context]) => context?.action === "start");
+  expect(diagnostic?.[2]).toMatchObject({
+    action: "start",
+    method: error.method,
+    code: error.code,
+    details: JSON.stringify(failure),
+  });
+});
+
 it("starts the persisted Task without submitting a dirty title or description draft", async () => {
-  const services = mountTaskDetailSurface(
-    {
-      task: {
-        ...taskDetailResponse.task,
-        current_nodes: [],
-        live_sessions: [],
-        status: {
-          kind: "backlog",
-          native_state: "backlog",
-          node_ids: [],
-          attention_types: [],
-        },
-        actions: {
-          ...taskDetailResponse.task.actions,
-          can_start: true,
-          can_interrupt: false,
-        },
-        attention_count: 0,
-      },
-    },
-    {
-      routes: [
-        {
-          method: "workflow.task.start",
-          result: {
-            outcome: "applied",
-            applied: {
-              current_nodes: [{ node_id: "node-1", transition_branch_key: null, session_id: null }],
-            },
-          },
-        },
-      ],
-    },
-  );
+  const services = mountTaskDetailSurface(backlogTaskFixture(taskDetailResponse), {
+    routes: [taskStartRoute(taskStartApplied)],
+  });
+  const start = vi.spyOn(services.api, "startTask");
+  const update = vi.spyOn(services.api, "updateTask");
   const user = userEvent.setup();
 
   const title = await screen.findByRole("textbox", { name: appI18n.t("task.name") });
@@ -57,12 +73,12 @@ it("starts the persisted Task without submitting a dirty title or description dr
   await user.click(screen.getByTestId("task-detail-start"));
 
   await waitFor(() => {
-    expect(getCallCount(services.transport.calls, "workflow.task.start")).toBe(1);
+    expect(start).toHaveBeenCalledTimes(1);
   });
-  expect(getCallCount(services.transport.calls, "workflow.task.update")).toBe(0);
-  expect(callParams(services.transport.calls, "workflow.task.start")).toMatchObject({
-    task_id: "task-1",
-    proceed_despite_dependencies: false,
+  expect(update).not.toHaveBeenCalled();
+  expect(start.mock.calls[0]?.[0]).toMatchObject({
+    taskID: "task-1",
+    proceedDespiteDependencies: false,
   });
 });
 
@@ -72,38 +88,9 @@ it("focuses Dependencies in-place for every View deps request without a sidebar 
     configurable: true,
     value: scrollTo,
   });
-  mountTaskDetailSurface(
-    {
-      task: {
-        ...taskDetailResponse.task,
-        current_nodes: [],
-        live_sessions: [],
-        status: {
-          kind: "backlog",
-          native_state: "backlog",
-          node_ids: [],
-          attention_types: [],
-        },
-        actions: {
-          ...taskDetailResponse.task.actions,
-          can_start: true,
-          can_interrupt: false,
-        },
-        attention_count: 0,
-      },
-    },
-    {
-      routes: [
-        {
-          method: "workflow.task.start",
-          result: {
-            outcome: "dependency_confirmation_required",
-            unsatisfied_dependency_count: 1,
-          },
-        },
-      ],
-    },
-  );
+  mountTaskDetailSurface(backlogTaskFixture(taskDetailResponse), {
+    routes: [taskStartRoute(() => taskStartNeedsDependencies(1))],
+  });
   const user = userEvent.setup();
   const start = await screen.findByTestId("task-detail-start");
 

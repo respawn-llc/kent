@@ -14,8 +14,6 @@ kent worktree leave
 kent worktree delete <selector>
 ```
 
-Place worktree creation options before `<branch-or-ref>`. A literal destination whose name begins with `-` must use `./<name>` or an absolute path, even after `--`.
-
 ## Configuration
 
 Use a setup script to prepare new worktrees with local data such as `.env` files, encryption credentials, Gradle wrappers, installed dependencies, local skills, docs, or config.
@@ -44,7 +42,7 @@ Kent supplies these environment variables to the script:
 
 - `KENT_WORKTREE_SOURCE_WORKSPACE_ROOT` - Original/main workspace root that created the worktree, e.g. `/home/user/dev/app` or `C:\Users\user\dev\app`.
 - `KENT_WORKTREE_BRANCH_NAME` - Branch/ref name selected for the new worktree, e.g. `feature/search-fix`.
-- `KENT_WORKTREE_ROOT` - Opaque filesystem path to the created worktree. The setup script runs with this as cwd, for example `/home/user/.kent/worktrees/app/417`. Use this value instead of deriving a path from the branch name.
+- `KENT_WORKTREE_ROOT` - Opaque filesystem path to the created worktree. The setup script runs with this as cwd, for example `/home/user/.kent/worktrees/app/417`. Read the worktree path from this variable.
 - `KENT_WORKTREE_SESSION_ID` - Kent session id that requested the worktree, e.g. `b31234ab-78ce-43d1-8f4c-2d6c6d4adbc1`. This variable is present when a session initiates creation. Sessionless CLI creation and workflow task setup omit it.
 - `KENT_WORKTREE_PROJECT_ID` - Kent project id for the workspace/project, e.g. `project-94b18685-19ed-4513-96bb-bcffa10410ff`.
 - `KENT_WORKTREE_WORKSPACE_ID` - Kent workspace binding id for the source workspace, e.g. `workspace-2f7b6d4a`.

@@ -119,6 +119,13 @@ func validateShellOutputMaxChars(state settingsState, _ map[string]Origin) error
 	return nil
 }
 
+func validateConnectionUsageFallbackSeconds(state settingsState, _ map[string]Origin) error {
+	if state.Settings.ConnectionUsageFallbackSeconds < 0 {
+		return fmt.Errorf("connection_usage_fallback_seconds must be >= 0")
+	}
+	return nil
+}
+
 func validateMinimumExecToBgSeconds(state settingsState, _ map[string]Origin) error {
 	if state.Settings.MinimumExecToBgSeconds <= 0 {
 		return fmt.Errorf("minimum_exec_to_bg_seconds must be > 0")
@@ -211,7 +218,7 @@ func resolvedContextConstraints(settings Settings) contextConstraints {
 	return contextConstraints{
 		window:    &settings.ModelContextWindow,
 		threshold: &settings.ContextCompactionThresholdTokens,
-		lead:      &settings.PreSubmitCompactionLeadTokens,
+		lead:      settings.PreSubmitCompactionLeadTokens,
 	}
 }
 
@@ -241,35 +248,35 @@ func validateContextConstraints(constraints contextConstraints) error {
 	if constraints.lead != nil && *constraints.lead <= 0 {
 		return fmt.Errorf("pre_submit_compaction_lead_tokens must be > 0")
 	}
-	if constraints.window == nil || constraints.threshold == nil {
+	if constraints.window == nil {
 		return nil
 	}
-	window, threshold := *constraints.window, *constraints.threshold
-	if threshold >= window {
-		return fmt.Errorf("context_compaction_threshold_tokens must be < model_context_window")
-	}
+	window := *constraints.window
 	minimumThreshold := MinimumThresholdTokens(window)
-	if threshold < minimumThreshold {
-		return fmt.Errorf(
-			"%w: context_compaction_threshold_tokens must be >= %d (%d%% of model_context_window=%d)",
-			errCompactionThresholdBelowMinimum,
-			minimumThreshold,
-			MinimumWindowPercent,
-			window,
-		)
+	if constraints.threshold != nil {
+		threshold := *constraints.threshold
+		if threshold >= window {
+			return fmt.Errorf("context_compaction_threshold_tokens must be < model_context_window")
+		}
+		if threshold < minimumThreshold {
+			return fmt.Errorf(
+				"%w: context_compaction_threshold_tokens must be >= %d (%d%% of model_context_window=%d)",
+				errCompactionThresholdBelowMinimum,
+				minimumThreshold,
+				MinimumWindowPercent,
+				window,
+			)
+		}
 	}
 	if constraints.lead == nil {
 		return nil
 	}
-	effectivePreSubmitThreshold := EffectivePreSubmitThresholdTokens(
-		threshold,
-		*constraints.lead,
-	)
-	if effectivePreSubmitThreshold < minimumThreshold {
+	trigger := SpeculativeCompactionTriggerTokens(window, constraints.lead)
+	if trigger < minimumThreshold {
 		return fmt.Errorf(
-			"%w: pre_submit_compaction_lead_tokens makes the effective pre-submit threshold %d, below %d (%d%% of model_context_window=%d)",
-			errPreSubmitThresholdBelowMinimum,
-			effectivePreSubmitThreshold,
+			"%w: pre_submit_compaction_lead_tokens makes the speculative trigger %d, below %d (%d%% of model_context_window=%d)",
+			errSpeculativeTriggerBelowMinimum,
+			trigger,
 			minimumThreshold,
 			MinimumWindowPercent,
 			window,

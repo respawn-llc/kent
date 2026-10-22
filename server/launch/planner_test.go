@@ -3,6 +3,7 @@ package launch
 import (
 	"context"
 	"core/internal/testharness/testsetup"
+	"core/server/llm"
 	"core/server/metadata"
 	"core/server/session"
 	"core/server/session/sessiontest"
@@ -18,6 +19,7 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"testing"
 )
@@ -30,32 +32,106 @@ func TestSessionConnectionResumeBindingAndReplacement(t *testing.T) {
 	}
 	selected := config.ConnectionID("work")
 	settings := config.DefaultOnboardingSettings()
-	settings.Connection = &selected
+	settings.Connection = config.SingleConnection(selected)
+	settings.ConnectionOrder = []config.ConnectionID{"work", "local"}
 	settings.Connections = map[config.ConnectionID]config.ProviderConnection{
 		"work":  {Protocol: config.ConnectionChatGPT},
 		"local": {Protocol: config.ConnectionResponses, Endpoint: textutil.Value("http://localhost:1234")},
 	}
-	projected, notice, err := ResolveSessionConnection(settings, nil)
+	source := config.SourceReport{Sources: map[string]config.Origin{
+		"connection": {Kind: config.SourceInput, Property: config.PropertyAddress{Key: "connection"}},
+	}}
+	scope := config.ConnectionScope{Selection: settings.Connection}
+	projected, notice, err := ResolveSessionConnection(settings, source, scope, nil)
 	if err != nil || projected != "work" || notice != nil || store.Meta().ConnectionID != nil {
 		t.Fatalf("unbound read projection = %v, %v, %v", projected, notice, err)
 	}
-	if _, err := BindSessionConnection(store, &settings, nil); err != nil {
+	if _, err := BindSessionConnection(store, &settings, source.Sources, scope); err != nil {
 		t.Fatal(err)
 	}
 	selected = "local"
-	settings.Connection = &selected
-	id, notice, err := ResolveSessionConnection(settings, store.Meta().ConnectionID)
+	settings.Connection = config.SingleConnection(selected)
+	scope.Selection = settings.Connection
+	id, notice, err := ResolveSessionConnection(settings, source, scope, store.Meta().ConnectionID)
 	if err != nil || id != "work" || notice != nil {
 		t.Fatalf("resume followed changed default: %v, %v, %v", id, notice, err)
 	}
 	delete(settings.Connections, "work")
-	notice, err = BindSessionConnection(store, &settings, nil)
+	notice, err = BindSessionConnection(store, &settings, source.Sources, scope)
 	if err != nil || notice == nil || notice.Previous != "work" || notice.Current != "local" || *store.Meta().ConnectionID != "local" {
 		t.Fatalf("replacement = %+v, %v", notice, err)
 	}
+	if err := store.SetConnectionID("work"); err != nil {
+		t.Fatal(err)
+	}
+	settings.Connection = config.SingleConnection("work")
+	scope.Selection = settings.Connection
+	notice, err = BindSessionConnection(store, &settings, source.Sources, scope)
+	if err != nil || notice == nil || notice.Previous != "work" || notice.Current != "local" || *store.Meta().ConnectionID != "local" {
+		t.Fatalf("replacement from removed default = %+v, %v", notice, err)
+	}
+	if !reflect.DeepEqual(scope.Selection, config.SingleConnection("work")) {
+		t.Fatalf("removed default selector changed to %v", scope.Selection)
+	}
 	delete(settings.Connections, "local")
-	if _, err := BindSessionConnection(store, &settings, nil); err == nil || *store.Meta().ConnectionID != "local" {
+	if _, err := BindSessionConnection(store, &settings, source.Sources, scope); err == nil || *store.Meta().ConnectionID != "local" {
 		t.Fatal("missing replacement must fail without changing the binding")
+	}
+}
+
+func TestGrokSessionDefaultsPreserveSavedModel(t *testing.T) {
+	for _, authored := range []bool{false, true} {
+		t.Run(map[bool]string{false: "omitted", true: "authored empty"}[authored], func(t *testing.T) {
+			testGrokSessionDefaultsPreserveSavedModel(t, authored)
+		})
+	}
+}
+
+func testGrokSessionDefaultsPreserveSavedModel(t *testing.T, authored bool) {
+	root, workspace := t.TempDir(), t.TempDir()
+	source := `
+connection = "grok"
+[connections.grok]
+protocol = "grok-cli-proxy"
+`
+	if authored {
+		source = "thinking_level = \"\"\n" + source
+	}
+	if err := os.WriteFile(filepath.Join(root, "config.toml"), []byte(source), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	app, err := config.Load(workspace, workspace, config.LoadOptions{ConfigRoot: root})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, locked := range []*session.LockedContract{nil, {Model: "grok-future"}} {
+		if authored && locked != nil {
+			continue
+		}
+		result, err := ResolveReadOnlySessionContextSettings(app, session.Meta{Locked: locked}, false)
+		if authored && locked == nil {
+			if !errors.Is(err, llm.ErrInvalidRequest) {
+				t.Fatalf("authored empty Thinking became %q: %v", result.Settings.ThinkingLevel, err)
+			}
+			result, err = ResolveReadOnlySessionContextSettings(app, session.Meta{ChatSettings: &session.ChatSettingsOverrides{Thinking: textutil.Value("low")}}, false)
+			if err != nil || result.Settings.ThinkingLevel != "low" {
+				t.Fatalf("Session override did not win: %q, %v", result.Settings.ThinkingLevel, err)
+			}
+			continue
+		}
+		if err != nil {
+			t.Fatal(err)
+		}
+		wantModel := "grok-4.7"
+		if locked != nil {
+			wantModel = locked.Model
+		}
+		if result.Settings.Model != wantModel || result.Settings.ThinkingLevel != "high" || result.Settings.Reviewer.Model != wantModel {
+			t.Fatalf("resolved model/thinking/Supervisor = %s/%s/%s", result.Settings.Model, result.Settings.ThinkingLevel, result.Settings.Reviewer.Model)
+		}
+		if locked == nil && result.Settings.ModelContextWindow != 256_000 {
+			t.Fatalf("window = %d", result.Settings.ModelContextWindow)
+		}
 	}
 }
 
@@ -96,11 +172,8 @@ func TestPlannerHeadlessCreatesNewSessionAndAppliesContinuationContext(t *testin
 	if meta.SessionID == "" {
 		t.Fatal("expected session id")
 	}
-	if !strings.HasSuffix(meta.Name, " "+SubagentSessionSuffix) {
-		t.Fatalf("expected subagent session name, got %q", meta.Name)
-	}
-	if plan.SessionName == nil || *plan.SessionName != meta.Name {
-		t.Fatalf("expected plan session name %q, got %v", meta.Name, plan.SessionName)
+	if meta.Name != nil || plan.SessionName != nil {
+		t.Fatalf("new headless Session was synthetically named: %v, %v", meta.Name, plan.SessionName)
 	}
 	if plan.WorkspaceRoot != "/tmp/workspace-a" {
 		t.Fatalf("expected workspace root passthrough, got %q", plan.WorkspaceRoot)
@@ -253,7 +326,7 @@ func TestPlannerIgnoresMissingPersistedSubagentRoleOnResume(t *testing.T) {
 		WorkspaceRoot:   workspace,
 		PersistenceRoot: root,
 		Settings: config.Settings{
-			Model:         "gpt-5.6-sol",
+			Model:         "gpt-6-sol",
 			ThinkingLevel: "medium",
 		},
 	}, containerDir, persistence)
@@ -273,7 +346,7 @@ func TestPlannerIgnoresMissingPersistedSubagentRoleOnResume(t *testing.T) {
 func TestApplyRunPromptOverridesDefaultPreservesLockedRoleAfterSkippingPersistedRoleLookup(t *testing.T) {
 	workspace := t.TempDir()
 	settings := config.Settings{
-		Model:         "gpt-5.6-sol",
+		Model:         "gpt-6-sol",
 		ThinkingLevel: "medium",
 		EnabledTools:  map[toolspec.ID]bool{toolspec.ToolExecCommand: true},
 	}
@@ -299,10 +372,10 @@ func TestApplyRunPromptOverridesPreservesAgentRoleForLockedSession(t *testing.T)
 	workspace := t.TempDir()
 	loaded := loadLaunchConfig(t, workspace,
 		"[subagents.old_role]",
-		"model = \"gpt-5.6-sol\"",
+		"model = \"gpt-6-sol\"",
 		"",
 		"[subagents.worker]",
-		"model = \"gpt-5.4-mini\"",
+		"model = \"gpt-6-luna\"",
 	)
 
 	tests := []struct {
@@ -359,7 +432,7 @@ func TestApplyRunPromptOverridesAllowsSameAgentRoleForLockedSession(t *testing.T
 	workspace := t.TempDir()
 	loaded := loadLaunchConfig(t, workspace,
 		"[subagents.worker]",
-		"model = \"gpt-5.4-mini\"",
+		"model = \"gpt-6-luna\"",
 	)
 	plan := newLockedRoleOverridePlan(t, workspace, loaded.Settings, loaded.Source, sessiontest.AgentRole("worker"), session.LockedContract{
 		Model:        "locked-model",
@@ -378,7 +451,7 @@ func TestApplyRunPromptOverridesWithOptionsPreservesAgentRoleForLockedSession(t 
 	workspace := t.TempDir()
 	loaded := loadLaunchConfig(t, workspace,
 		"[subagents.worker]",
-		"model = \"gpt-5.4-mini\"",
+		"model = \"gpt-6-luna\"",
 	)
 	workerRole := loaded.Settings.Subagents["worker"]
 	workerRole.Settings.EnabledTools = map[toolspec.ID]bool{toolspec.ToolEdit: true}
@@ -423,7 +496,7 @@ func TestApplyRunPromptOverridesLockedSessionPreservesSnapshotSources(t *testing
 	baseSettings := loaded.Settings
 	baseSettings.Model = "locked-model"
 	workerSettings := cloneSettings(baseSettings)
-	workerSettings.Model = "gpt-5.4-mini"
+	workerSettings.Model = "gpt-6-luna"
 	workerSettings.ThinkingLevel = "high"
 	baseSettings.Subagents = map[string]config.SubagentRole{
 		"worker": {
@@ -482,11 +555,7 @@ func TestPlannerNewChildSessionPreservesParentWorktreeContext(t *testing.T) {
 	ctx := context.Background()
 	workspace := t.TempDir()
 	cfg := loadLaunchConfig(t, workspace)
-	metadataStore, err := metadata.Open(cfg.PersistenceRoot)
-	if err != nil {
-		t.Fatalf("metadata.Open: %v", err)
-	}
-	defer func() { _ = metadataStore.Close() }()
+	metadataStore := testsetup.OpenStore(t, cfg.PersistenceRoot)
 	binding, err := metadataStore.RegisterWorkspaceBinding(ctx, cfg.WorkspaceRoot)
 	if err != nil {
 		t.Fatalf("RegisterWorkspaceBinding: %v", err)
@@ -555,6 +624,7 @@ func TestPlannerNewChildSessionPreservesParentWorktreeContext(t *testing.T) {
 		ContainerDir:      containerDir,
 		StoreOptions:      metadataStore.AuthoritativeSessionStoreOptions(),
 		PersistedSessions: metadataStore,
+		ExecutionTargets:  metadataStore,
 		SessionProjects:   metadataStore, ManagedWorktreeRoots: metadataStore,
 	}
 
@@ -582,8 +652,8 @@ func TestPlannerNewChildSessionPreservesParentWorktreeContext(t *testing.T) {
 	if childMeta.Locked.ReviewerPrompt != "parent interactive reviewer prompt" || !childMeta.Locked.HasReviewerPrompt {
 		t.Fatalf("child reviewer prompt lock = %+v, want parent interactive reviewer prompt", childMeta.Locked)
 	}
-	if childMeta.ConnectionID == nil || *childMeta.ConnectionID != "test" || plan.ActiveSettings.Connection == nil || *plan.ActiveSettings.Connection != "test" {
-		t.Fatal("direct continuation did not retain the parent binding")
+	if childMeta.ConnectionID == nil || *childMeta.ConnectionID != "test" || plan.ActiveSettings.Connection == nil || !reflect.DeepEqual(plan.ActiveSettings.Connection, config.SingleConnection("test")) {
+		t.Fatal("direct continuation did not select the configured connection")
 	}
 	if plan.ActiveSettings.Model != "locked-parent-model" {
 		t.Fatalf("plan model = %q, want locked-parent-model", plan.ActiveSettings.Model)
@@ -635,9 +705,10 @@ func TestPlannerHeadlessChildWithRoleUsesFreshSystemPromptSnapshot(t *testing.T)
 		t.Fatalf("write role prompt: %v", err)
 	}
 	cfg.Settings.Subagents = map[string]config.SubagentRole{
+		"old_parent_role": {},
 		"code_review": {
 			Settings: config.Settings{
-				Model:            "gpt-5.4-mini",
+				Model:            "gpt-6-luna",
 				SystemPromptFile: &config.SystemPromptFile{Path: rolePrompt, Scope: config.SystemPromptFileScopeSubagent},
 				EnabledTools: map[toolspec.ID]bool{
 					toolspec.ToolExecCommand: true,
@@ -698,7 +769,7 @@ func TestPlannerHeadlessChildWithRoleUsesFreshSystemPromptSnapshot(t *testing.T)
 	if childLocked := updated.Locked; childLocked != nil {
 		t.Fatalf("child lock = %+v, want headless child to use its own role contract", childLocked)
 	}
-	if updated.ActiveSettings.Model != "gpt-5.4-mini" {
+	if updated.ActiveSettings.Model != "gpt-6-luna" {
 		t.Fatalf("active model = %q, want role model", updated.ActiveSettings.Model)
 	}
 	if containsTool(updated.EnabledTools, toolspec.ToolPatch) || !containsTool(updated.EnabledTools, toolspec.ToolEdit) {
@@ -794,7 +865,7 @@ func TestPlannerNewChildSessionResolvesPreviousSessionAcrossProjectContainers(t 
 		t.Fatalf("locked contract = %+v, want source session lock copied", childMeta.Locked)
 	}
 	if childMeta.ConnectionID == nil || *childMeta.ConnectionID != "test" {
-		t.Fatal("source Session connection binding was not copied")
+		t.Fatal("child Session did not select the configured connection")
 	}
 }
 
@@ -819,8 +890,8 @@ func TestPlannerInitializesChildFromSourceMetadataWithoutOpeningSessionDirectory
 				if meta.Locked == nil || meta.Locked.Model != "source-model" {
 					t.Fatalf("locked contract = %+v, want source model", meta.Locked)
 				}
-				if meta.ConnectionID == nil || *meta.ConnectionID != "test" {
-					t.Fatal("source connection binding was not retained")
+				if meta.ConnectionID == nil || *meta.ConnectionID != "a" {
+					t.Fatalf("fresh child binding = %v, want a", meta.ConnectionID)
 				}
 			},
 		},
@@ -840,6 +911,9 @@ func TestPlannerInitializesChildFromSourceMetadataWithoutOpeningSessionDirectory
 				}
 				if meta.Continuation != nil {
 					t.Fatalf("continuation = %+v, want fresh parent-agent continuation", meta.Continuation)
+				}
+				if meta.ConnectionID == nil || *meta.ConnectionID != "a" {
+					t.Fatalf("fresh child binding = %v, want a", meta.ConnectionID)
 				}
 			},
 		},
@@ -872,11 +946,19 @@ func TestPlannerInitializesChildFromSourceMetadataWithoutOpeningSessionDirectory
 				WorkspaceRoot:   "/tmp/child-workspace",
 				PersistenceRoot: root,
 				Settings: config.Settings{
-					Model:            "gpt-5",
+					Model:            "gpt-6-sol",
 					MaxSubagentDepth: 2,
 				},
 			}, containerDir, persistence)
 			planner.PersistedSessions = resolver
+			selection := config.ConnectionSelection{"a", "test"}
+			planner.Config.Settings.Connection = &selection
+			planner.Config.Settings.ConnectionOrder = []config.ConnectionID{"a", "test"}
+			planner.Config.Settings.Connections = map[config.ConnectionID]config.ProviderConnection{
+				"a":    {Protocol: config.ConnectionChatGPT},
+				"test": {Protocol: config.ConnectionChatGPT},
+			}
+			planner.Rotation = NewConnectionRotation(testsetup.OpenStore(t, t.TempDir()), 0)
 			sourceID := mustTypedIntentSessionID(t, source.Meta().SessionID)
 
 			plan, err := planner.PlanSession(context.Background(), SessionRequest{
@@ -891,6 +973,11 @@ func TestPlannerInitializesChildFromSourceMetadataWithoutOpeningSessionDirectory
 				t.Fatalf("child workspace = root %q container %q, want source metadata", childMeta.WorkspaceRoot, childMeta.WorkspaceContainer)
 			}
 			test.assertMeta(t, childMeta, sourceID)
+			next, err := planner.Rotation.Prepare(t.Context(), planner.Config.Settings, true)
+			want := config.ConnectionID("test")
+			if err != nil || next != want {
+				t.Fatalf("next allocation = %v, %v; want %v", next, err, want)
+			}
 		})
 	}
 }
@@ -899,11 +986,7 @@ func TestPlannerNewChildSessionRetainsDurableChildWhenExecutionTargetCopyFails(t
 	ctx := context.Background()
 	workspace := t.TempDir()
 	cfg := loadLaunchConfig(t, workspace)
-	metadataStore, err := metadata.Open(cfg.PersistenceRoot)
-	if err != nil {
-		t.Fatalf("metadata.Open: %v", err)
-	}
-	defer func() { _ = metadataStore.Close() }()
+	metadataStore := testsetup.OpenStore(t, cfg.PersistenceRoot)
 	binding, err := metadataStore.RegisterWorkspaceBinding(ctx, cfg.WorkspaceRoot)
 	if err != nil {
 		t.Fatalf("RegisterWorkspaceBinding: %v", err)
@@ -941,11 +1024,11 @@ func TestPlannerNewChildSessionRetainsDurableChildWhenExecutionTargetCopyFails(t
 	}
 	failingStore := &failingUpdateMetadataExecutionTargetStore{base: metadataStore, updateErr: session.ErrSessionNotFound}
 	planner := Planner{
-		Config:              cfg,
-		ContainerDir:        containerDir,
-		StoreOptions:        metadataStore.AuthoritativeSessionStoreOptions(),
-		PersistedSessions:   metadataStore,
-		MetadataStoreOpener: func(string) (MetadataExecutionTargetStore, error) { return failingStore, nil },
+		Config:            cfg,
+		ContainerDir:      containerDir,
+		StoreOptions:      metadataStore.AuthoritativeSessionStoreOptions(),
+		PersistedSessions: metadataStore,
+		ExecutionTargets:  failingStore,
 	}
 
 	_, err = planner.PlanSession(context.Background(), SessionRequest{
@@ -1036,18 +1119,18 @@ func TestApplyRunPromptOverridesOverridesHeadlessSettingsWithoutMutatingBasePlan
 	plan := newLoadedConfigPlan(t, workspace, loaded)
 
 	updated := applyRunPromptOverridesNoWarnings(t, plan, serverapi.RunPromptOverrides{
-		Model:               "gpt-5-mini",
+		Model:               "gpt-6-luna",
 		ThinkingLevel:       "medium",
 		Theme:               "light",
 		ModelTimeoutSeconds: 12,
 		Tools:               "shell,patch",
 	})
 
-	if updated.ActiveSettings.Model != "gpt-5-mini" {
-		t.Fatalf("model = %q, want gpt-5-mini", updated.ActiveSettings.Model)
+	if updated.ActiveSettings.Model != "gpt-6-luna" {
+		t.Fatalf("model = %q, want gpt-6-luna", updated.ActiveSettings.Model)
 	}
-	if updated.ConfiguredModelName != "gpt-5-mini" {
-		t.Fatalf("configured model = %q, want gpt-5-mini", updated.ConfiguredModelName)
+	if updated.ConfiguredModelName != "gpt-6-luna" {
+		t.Fatalf("configured model = %q, want gpt-6-luna", updated.ConfiguredModelName)
 	}
 	if updated.ActiveSettings.ThinkingLevel != "medium" {
 		t.Fatalf("thinking level = %q, want medium", updated.ActiveSettings.ThinkingLevel)
@@ -1099,7 +1182,7 @@ func TestApplyRunPromptOverridesRejectsPersistedThinkingUnsupportedByModelOverri
 	t.Setenv("HOME", t.TempDir())
 	workspace := t.TempDir()
 	loaded := loadLaunchConfig(t, workspace)
-	loaded.Settings.Model = "gpt-5.6-sol"
+	loaded.Settings.Model = "gpt-6-sol"
 	loaded.Settings.ThinkingLevel = "high"
 	plan := newLoadedConfigPlan(t, workspace, loaded)
 	store := testStoreForPlan(t, plan)
@@ -1108,12 +1191,12 @@ func TestApplyRunPromptOverridesRejectsPersistedThinkingUnsupportedByModelOverri
 	_, _, err := (Planner{ContainerDir: filepath.Dir(store.Dir())}).ApplyRunPromptOverridesWithStore(
 		plan,
 		store,
-		serverapi.RunPromptOverrides{Model: "gpt-5"},
+		serverapi.RunPromptOverrides{Model: "gpt-6-sol"},
 
 		RunPromptOverrideOptions{})
 
 	if err == nil {
-		t.Fatal("ApplyRunPromptOverridesWithStore accepted persisted ultra Thinking for gpt-5")
+		t.Fatal("ApplyRunPromptOverridesWithStore accepted persisted ultra Thinking for gpt-6-sol")
 	}
 }
 
@@ -1121,7 +1204,7 @@ func TestApplyRunPromptOverridesValidatesExplicitThinkingInsteadOfPersistedThink
 	t.Setenv("HOME", t.TempDir())
 	workspace := t.TempDir()
 	loaded := loadLaunchConfig(t, workspace)
-	loaded.Settings.Model = "gpt-5.6-sol"
+	loaded.Settings.Model = "gpt-6-sol"
 	loaded.Settings.ThinkingLevel = "high"
 	plan := newLoadedConfigPlan(t, workspace, loaded)
 	store := testStoreForPlan(t, plan)
@@ -1130,7 +1213,7 @@ func TestApplyRunPromptOverridesValidatesExplicitThinkingInsteadOfPersistedThink
 	updated, _, err := (Planner{ContainerDir: filepath.Dir(store.Dir())}).ApplyRunPromptOverridesWithStore(
 		plan,
 		store,
-		serverapi.RunPromptOverrides{Model: "gpt-5", ThinkingLevel: "high"},
+		serverapi.RunPromptOverrides{Model: "gpt-6-sol", ThinkingLevel: "high"},
 
 		RunPromptOverrideOptions{})
 
@@ -1146,7 +1229,7 @@ func TestApplyPreparedRunPromptOverridesRejectsPersistedFastUnsupportedByActiveP
 	t.Setenv("HOME", t.TempDir())
 	workspace := t.TempDir()
 	loaded := loadLaunchConfig(t, workspace,
-		"model = \"gpt-5.6-sol\"",
+		"model = \"gpt-6-sol\"",
 		"connection = \"custom\"",
 		"[connections.custom]",
 		"protocol = \"responses\"",
@@ -1176,14 +1259,14 @@ func TestApplyPreparedRunPromptOverridesRejectsPersistedThinkingUnsupportedAfter
 	t.Setenv("HOME", t.TempDir())
 	workspace := t.TempDir()
 	loaded := loadLaunchConfig(t, workspace)
-	loaded.Settings.Model = "gpt-5.6-sol"
+	loaded.Settings.Model = "gpt-6-sol"
 	loaded.Settings.ThinkingLevel = "high"
 	plan := newLoadedConfigPlan(t, workspace, loaded)
 	store := testStoreForPlan(t, plan)
 	sessiontest.CommitChatSettingsTestState(t, store, func(settings *session.ChatSettingsOverrides) { settings.Thinking = textutil.Value("ultra") })
 
 	reloaded := loaded
-	reloaded.Settings.Model = "gpt-5"
+	reloaded.Settings.Model = "gpt-6-sol"
 	prepared, err := PrepareRunPromptOverrides(reloaded, serverapi.RunPromptOverrides{})
 	if err != nil {
 		t.Fatalf("PrepareRunPromptOverrides: %v", err)
@@ -1197,7 +1280,7 @@ func TestApplyPreparedRunPromptOverridesRejectsPersistedThinkingUnsupportedAfter
 		RunPromptOverrideOptions{},
 	)
 	if err == nil {
-		t.Fatal("ApplyPreparedRunPromptOverridesWithStore accepted persisted ultra Thinking after config changed to gpt-5")
+		t.Fatal("ApplyPreparedRunPromptOverridesWithStore accepted persisted ultra Thinking after config changed to gpt-6-sol")
 	}
 }
 
@@ -1206,7 +1289,7 @@ func TestApplyPreparedRunPromptOverridesWithoutRolePreservesConfiguredModelAndCo
 	loaded := loadLaunchConfig(t, workspace)
 	plan := newLoadedConfigPlan(t, workspace, loaded)
 	overrides := serverapi.RunPromptOverrides{
-		Model: "gpt-5-mini",
+		Model: "gpt-6-luna",
 	}
 
 	prepared, err := PrepareRunPromptOverrides(loaded, overrides)
@@ -1218,11 +1301,11 @@ func TestApplyPreparedRunPromptOverridesWithoutRolePreservesConfiguredModelAndCo
 	if err != nil {
 		t.Fatalf("ApplyPreparedRunPromptOverrides: %v", err)
 	}
-	if updated.ActiveSettings.Model != "gpt-5-mini" {
-		t.Fatalf("model = %q, want gpt-5-mini", updated.ActiveSettings.Model)
+	if updated.ActiveSettings.Model != "gpt-6-luna" {
+		t.Fatalf("model = %q, want gpt-6-luna", updated.ActiveSettings.Model)
 	}
-	if updated.ConfiguredModelName != "gpt-5-mini" {
-		t.Fatalf("configured model = %q, want gpt-5-mini", updated.ConfiguredModelName)
+	if updated.ConfiguredModelName != "gpt-6-luna" {
+		t.Fatalf("configured model = %q, want gpt-6-luna", updated.ConfiguredModelName)
 	}
 }
 
@@ -1231,7 +1314,7 @@ func TestApplyRunPromptOverridesRejectsInvalidAgentRole(t *testing.T) {
 	workspace := t.TempDir()
 	for _, role := range []string{"fast!", "none", "self"} {
 		t.Run(role, func(t *testing.T) {
-			plan := newSettingsPlan(t, workspace, config.Settings{Model: "gpt-5.4"})
+			plan := newSettingsPlan(t, workspace, config.Settings{Model: "gpt-6-sol"})
 			_, _, err := ApplyRunPromptOverrides(plan, serverapi.RunPromptOverrides{AgentRole: launchTestStringPtr(role)})
 			if err == nil {
 				t.Fatal("expected invalid agent role to fail")
@@ -1261,7 +1344,7 @@ func TestApplyRunPromptOverridesKeepsExplicitToolSourcesWhenOnlyModelOverrides(t
 	workspace := t.TempDir()
 	loaded := loadLaunchConfig(t, workspace)
 	settings := loaded.Settings
-	settings.Model = "gpt-5.4"
+	settings.Model = "gpt-6-sol"
 	settings.EnabledTools = map[toolspec.ID]bool{toolspec.ToolExecCommand: true}
 	source := loaded.Source
 	source.Sources = cloneMapOrEmpty(loaded.Source.Sources)
@@ -1277,9 +1360,9 @@ func TestApplyRunPromptOverridesKeepsExplicitToolSourcesWhenOnlyModelOverrides(t
 
 	plan := newSettingsPlanWithSource(t, workspace, settings, source)
 
-	updated := applyRunPromptOverridesNoWarnings(t, plan, serverapi.RunPromptOverrides{Model: "gpt-5.3-codex"})
-	if updated.ActiveSettings.Model != "gpt-5.3-codex" {
-		t.Fatalf("model = %q, want gpt-5.3-codex", updated.ActiveSettings.Model)
+	updated := applyRunPromptOverridesNoWarnings(t, plan, serverapi.RunPromptOverrides{Model: "gpt-6-luna"})
+	if updated.ActiveSettings.Model != "gpt-6-luna" {
+		t.Fatalf("model = %q, want gpt-6-luna", updated.ActiveSettings.Model)
 	}
 	if len(updated.EnabledTools) != 1 || updated.EnabledTools[0] != toolspec.ToolExecCommand {
 		t.Fatalf("enabled tools = %+v, want shell only", updated.EnabledTools)
@@ -1290,25 +1373,38 @@ func TestApplyRunPromptOverridesKeepsExplicitToolSourcesWhenOnlyModelOverrides(t
 }
 
 func TestApplyRunPromptOverridesFastRoleWarnsWhenHeuristicDoesNothing(t *testing.T) {
-	workspace := t.TempDir()
-	loaded := loadLaunchConfig(t, workspace,
-		"model = \"gpt-5.4\"",
-		"connection = \"custom\"",
-		"[connections.custom]",
-		"protocol = \"responses\"",
-		"endpoint = \"https://example.test/v1\"",
-	)
-	plan := newLoadedConfigPlan(t, workspace, loaded)
+	for _, protocol := range []string{"responses", "grok-cli-proxy", "grok-oauth-api", "grok-api-key"} {
+		t.Run(protocol, func(t *testing.T) {
+			workspace := t.TempDir()
+			lines := []string{
+				"model = \"gpt-6-sol\"",
+				"connection = \"custom\"",
+				"[connections.custom]",
+				"protocol = \"" + protocol + "\"",
+			}
+			if protocol == "responses" {
+				lines = append(lines, "endpoint = \"https://example.test/v1\"")
+			} else {
+				lines[0] = "model = \"grok-4.7\""
+				if protocol == "grok-api-key" {
+					lines = append(lines, "environment_variable = \"XAI_API_KEY\"")
+				}
+				lines = append(lines, "[connections.custom.provider_capabilities]", "provider_id = \"openai\"", "supports_responses_api = true")
+			}
+			loaded := loadLaunchConfig(t, workspace, lines...)
+			plan := newLoadedConfigPlan(t, workspace, loaded)
 
-	updated, warnings, err := ApplyRunPromptOverrides(plan, serverapi.RunPromptOverrides{AgentRole: launchTestStringPtr(config.BuiltInSubagentRoleFast)})
-	if err != nil {
-		t.Fatalf("ApplyRunPromptOverrides: %v", err)
-	}
-	if updated.ActiveSettings.Model != loaded.Settings.Model {
-		t.Fatalf("model = %q, want %q", updated.ActiveSettings.Model, loaded.Settings.Model)
-	}
-	if len(warnings) != 1 || warnings[0] != fastRoleSameAsMainWarning {
-		t.Fatalf("unexpected warnings: %+v", warnings)
+			updated, warnings, err := ApplyRunPromptOverrides(plan, serverapi.RunPromptOverrides{AgentRole: launchTestStringPtr(config.BuiltInSubagentRoleFast)})
+			if err != nil {
+				t.Fatalf("ApplyRunPromptOverrides: %v", err)
+			}
+			if updated.ActiveSettings.Model != loaded.Settings.Model {
+				t.Fatalf("model = %q, want %q", updated.ActiveSettings.Model, loaded.Settings.Model)
+			}
+			if protocol == "responses" && (len(warnings) != 1 || warnings[0] != fastRoleSameAsMainWarning) {
+				t.Fatalf("unexpected warnings: %+v", warnings)
+			}
+		})
 	}
 }
 
@@ -1318,20 +1414,20 @@ func TestApplyRunPromptOverridesFastRoleAppliesBuiltInHeuristics(t *testing.T) {
 	plan := newLoadedConfigPlan(t, workspace, loaded)
 
 	updated := applyRunPromptOverridesNoWarnings(t, plan, serverapi.RunPromptOverrides{AgentRole: launchTestStringPtr(config.BuiltInSubagentRoleFast)})
-	if updated.ActiveSettings.Model != "gpt-5.6-terra" {
-		t.Fatalf("model = %q, want gpt-5.6-terra", updated.ActiveSettings.Model)
+	if updated.ActiveSettings.Model != "gpt-6-luna" {
+		t.Fatalf("model = %q, want gpt-6-luna", updated.ActiveSettings.Model)
 	}
 	if !updated.ActiveSettings.PriorityRequestMode {
 		t.Fatal("expected priority request mode enabled for fast role")
 	}
-	if updated.ActiveSettings.Reviewer.Model != "gpt-5.6-terra" {
-		t.Fatalf("reviewer model = %q, want gpt-5.6-terra", updated.ActiveSettings.Reviewer.Model)
+	if updated.ActiveSettings.Reviewer.Model != "gpt-6-luna" {
+		t.Fatalf("reviewer model = %q, want gpt-6-luna", updated.ActiveSettings.Reviewer.Model)
 	}
-	if updated.ActiveSettings.ModelContextWindow != 372_000 {
-		t.Fatalf("context window = %d, want 372000", updated.ActiveSettings.ModelContextWindow)
+	if updated.ActiveSettings.ModelContextWindow != 272_000 {
+		t.Fatalf("context window = %d, want 272000", updated.ActiveSettings.ModelContextWindow)
 	}
-	if updated.ConfiguredModelName != "gpt-5.6-terra" {
-		t.Fatalf("configured model = %q, want gpt-5.6-terra", updated.ConfiguredModelName)
+	if updated.ConfiguredModelName != "gpt-6-luna" {
+		t.Fatalf("configured model = %q, want gpt-6-luna", updated.ConfiguredModelName)
 	}
 }
 
@@ -1348,46 +1444,46 @@ func TestApplyRunPromptOverridesDerivesRoleContextBudgets(t *testing.T) {
 		{
 			name: "role model derives budget while preserving explicit base lead",
 			configLines: []string{
-				"model = \"gpt-5.4\"",
+				"model = \"gpt-6-sol\"",
 				"pre_submit_compaction_lead_tokens = 35000",
 				"[subagents.fast]",
-				"model = \"gpt-5.3-codex-spark\"",
+				"model = \"gpt-5.6-terra\"",
 			},
 			overrides:     serverapi.RunPromptOverrides{AgentRole: launchTestStringPtr(config.BuiltInSubagentRoleFast)},
-			wantModel:     "gpt-5.3-codex-spark",
-			wantWindow:    128_000,
-			wantThreshold: 121_600,
+			wantModel:     "gpt-5.6-terra",
+			wantWindow:    372_000,
+			wantThreshold: 353_400,
 			wantLead:      35_000,
 		},
 		{
 			name: "CLI model repairs role-derived window and preserves explicit role threshold",
 			configLines: []string{
-				"model = \"gpt-5.4\"",
+				"model = \"gpt-6-sol\"",
 				"[subagents.worker]",
-				"model = \"gpt-5.3-codex-spark\"",
+				"model = \"gpt-5.6-terra\"",
 				"context_compaction_threshold_tokens = 201000",
 				"pre_submit_compaction_lead_tokens = 1000",
 			},
 			overrides: serverapi.RunPromptOverrides{
 				AgentRole: launchTestStringPtr("worker"),
-				Model:     "gpt-5.3-codex",
+				Model:     "gpt-6-luna",
 			},
-			wantModel:     "gpt-5.3-codex",
-			wantWindow:    400_000,
+			wantModel:     "gpt-6-luna",
+			wantWindow:    272_000,
 			wantThreshold: 201_000,
 			wantLead:      1_000,
 		},
 		{
 			name: "explicit role window derives only the omitted threshold",
 			configLines: []string{
-				"model = \"gpt-5.4\"",
+				"model = \"gpt-6-sol\"",
 				"pre_submit_compaction_lead_tokens = 35000",
 				"[subagents.fast]",
-				"model = \"gpt-5.3-codex-spark\"",
+				"model = \"gpt-6-astra\"",
 				"model_context_window = 100000",
 			},
 			overrides:     serverapi.RunPromptOverrides{AgentRole: launchTestStringPtr(config.BuiltInSubagentRoleFast)},
-			wantModel:     "gpt-5.3-codex-spark",
+			wantModel:     "gpt-6-astra",
 			wantWindow:    100_000,
 			wantThreshold: 95_000,
 			wantLead:      35_000,
@@ -1410,8 +1506,8 @@ func TestApplyRunPromptOverridesDerivesRoleContextBudgets(t *testing.T) {
 			if got := updated.ActiveSettings.ContextCompactionThresholdTokens; got != tt.wantThreshold {
 				t.Fatalf("compaction threshold = %d, want %d", got, tt.wantThreshold)
 			}
-			if got := updated.ActiveSettings.PreSubmitCompactionLeadTokens; got != tt.wantLead {
-				t.Fatalf("pre-submit lead = %d, want %d", got, tt.wantLead)
+			if got := config.SpeculativeCompactionTriggerTokens(tt.wantWindow, updated.ActiveSettings.PreSubmitCompactionLeadTokens); got != tt.wantWindow-tt.wantLead {
+				t.Fatalf("speculative trigger = %d, want %d", got, tt.wantWindow-tt.wantLead)
 			}
 		})
 	}
@@ -1422,7 +1518,7 @@ func TestPrepareRunPromptOverridesLockedSessionFastRoleUsesLockedModelForProvide
 	loaded := loadLaunchConfig(t, workspace,
 		"model = \"claude-opus-4-6\"",
 	)
-	locked := &session.LockedContract{Model: "gpt-5.6-sol"}
+	locked := &session.LockedContract{Model: "gpt-6-sol"}
 
 	prepared, err := PrepareRunPromptOverridesForLockedSession(loaded, serverapi.RunPromptOverrides{
 		AgentRole: launchTestStringPtr(config.BuiltInSubagentRoleFast),
@@ -1478,7 +1574,7 @@ func TestPlannerResumePersistedRoleRejectsContextWindowBelowMinimum(t *testing.T
 func TestApplyRunPromptOverridesFailedConfigOverrideDoesNotPersistContinuation(t *testing.T) {
 	workspace := t.TempDir()
 	loaded := loadLaunchConfig(t, workspace,
-		"model = \"gpt-5.4\"",
+		"model = \"gpt-6-sol\"",
 		"",
 		"[subagents.worker]",
 		"connection = \"test\"",
@@ -1505,7 +1601,7 @@ func TestApplyRunPromptOverridesFailedConfigOverrideDoesNotPersistContinuation(t
 func TestApplyRunPromptOverridesRoleOnlyOverridePersistsContinuation(t *testing.T) {
 	workspace := t.TempDir()
 	loaded := loadLaunchConfig(t, workspace,
-		"model = \"gpt-5.4\"",
+		"model = \"gpt-6-sol\"",
 		"",
 		"[subagents.worker]",
 		"connection = \"test\"",
@@ -1525,23 +1621,23 @@ func TestApplyRunPromptOverridesCLIModelOverrideRecomputesBudgetAfterFastRole(t 
 
 	updated := applyRunPromptOverridesNoWarnings(t, plan, serverapi.RunPromptOverrides{
 		AgentRole: launchTestStringPtr(config.BuiltInSubagentRoleFast),
-		Model:     "gpt-5.3-codex-spark",
+		Model:     "gpt-5.6-terra",
 	})
 
-	if updated.ActiveSettings.Model != "gpt-5.3-codex-spark" {
-		t.Fatalf("model = %q, want gpt-5.3-codex-spark", updated.ActiveSettings.Model)
+	if updated.ActiveSettings.Model != "gpt-5.6-terra" {
+		t.Fatalf("model = %q, want gpt-5.6-terra", updated.ActiveSettings.Model)
 	}
-	if updated.ConfiguredModelName != "gpt-5.3-codex-spark" {
-		t.Fatalf("configured model = %q, want gpt-5.3-codex-spark", updated.ConfiguredModelName)
+	if updated.ConfiguredModelName != "gpt-5.6-terra" {
+		t.Fatalf("configured model = %q, want gpt-5.6-terra", updated.ConfiguredModelName)
 	}
-	if updated.ActiveSettings.ModelContextWindow != 128_000 {
-		t.Fatalf("context window = %d, want 128000", updated.ActiveSettings.ModelContextWindow)
+	if updated.ActiveSettings.ModelContextWindow != 372_000 {
+		t.Fatalf("context window = %d, want 372000", updated.ActiveSettings.ModelContextWindow)
 	}
-	if updated.ActiveSettings.ContextCompactionThresholdTokens != 121_600 {
-		t.Fatalf("compaction threshold = %d, want 121600", updated.ActiveSettings.ContextCompactionThresholdTokens)
+	if updated.ActiveSettings.ContextCompactionThresholdTokens != 353_400 {
+		t.Fatalf("compaction threshold = %d, want 353400", updated.ActiveSettings.ContextCompactionThresholdTokens)
 	}
-	if updated.ActiveSettings.PreSubmitCompactionLeadTokens != 35_000 {
-		t.Fatalf("pre-submit lead = %d, want 35000", updated.ActiveSettings.PreSubmitCompactionLeadTokens)
+	if got := config.SpeculativeCompactionTriggerTokens(372_000, updated.ActiveSettings.PreSubmitCompactionLeadTokens); got != 327_360 {
+		t.Fatalf("speculative trigger = %d, want 327360", got)
 	}
 	if !updated.ActiveSettings.PriorityRequestMode {
 		t.Fatal("expected fast-role priority mode to stay enabled")

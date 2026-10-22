@@ -16,14 +16,13 @@ export const fixtureIdle: FixtureActivity = {
 export const fixtureRunning: FixtureActivity = {
   ...fixtureIdle,
   State: "running",
-  ActiveStep: { RunID: "fixture-run", StepID: "fixture-step", ActiveKind: "user_turn" },
+  ActiveStep: { StepID: "fixture-step", ActiveKind: "user_turn" },
 };
 export const fixtureKindControls: readonly FixtureActiveKind[] = [
   "user_turn",
   "workflow_turn",
   "goal_loop",
   "compaction",
-  "pre_submit_compaction",
   "user_shell",
   "background",
   "runtime_maintenance",
@@ -48,6 +47,7 @@ function fixtureUserRow(sequence: number): ChatTranscriptPayloadByKind["committe
     Visibility: "ongoing",
     Integrity: 0,
     User: {
+      QueueItemIDs: [],
       Text: `Bounded history fixture ${String(sequence)}. Scroll past the reasoning row to unmount it.`,
     },
     Assistant: null,
@@ -99,6 +99,8 @@ export function fixtureHydration(
   return {
     ConnectionReplacement: null,
     SessionIdentity: {
+      Category: "main",
+      ShortID: null,
       SessionID: "fixture-session",
       SessionName: null,
       ConversationFreshness: 0,

@@ -10,6 +10,7 @@ import "kent/api/server/server.proto";
 import "kent/api/session_retarget/session_retarget.proto";
 import "kent/api/shared/foundation.proto";
 import "kent/api/shared/validation.proto";
+import "kent/api/shared/session_selector.proto";
 
 option go_package = "core/shared/protoapi/gen/kent/api/worktree;worktreepb";
 
@@ -64,6 +65,7 @@ enum CreateTargetResolutionKind {
   WORKTREE_CREATE_TARGET_RESOLUTION_KIND_NEW_BRANCH = 1;
   WORKTREE_CREATE_TARGET_RESOLUTION_KIND_EXISTING_BRANCH = 2;
   WORKTREE_CREATE_TARGET_RESOLUTION_KIND_DETACHED_REF = 3;
+  WORKTREE_CREATE_TARGET_RESOLUTION_KIND_INVALID = 4;
 }
 
 enum SelectorErrorKind {
@@ -119,7 +121,7 @@ message KentFacts {
   string display_name = 3 [(buf.validate.field).string.(kent.api.shared.nonblank) = true];
   bool managed = 4;
   bool created_branch = 5;
-  optional string origin_session_id = 6 [(buf.validate.field).string.(kent.api.shared.nonblank) = true];
+  optional string origin_session_id = 6 [(buf.validate.field).string.uuid = true, (buf.validate.field).string.(kent.api.shared.canonical_uuid_v4) = true];
 }
 
 message RegisteredFacts {
@@ -181,6 +183,7 @@ message ListProjection {
   optional SwitchOperation switch = 3;
   optional DeletePreviewOperation delete_preview = 4;
   optional string fallback_identity = 5 [(buf.validate.field).string.(kent.api.shared.nonblank) = true];
+  bool is_in_use = 6;
 }
 
 message ListEntry {
@@ -406,8 +409,9 @@ message CreateFailureDetails {
 }
 
 message BlockingSession {
-  string session_id = 1 [(buf.validate.field).string.(kent.api.shared.nonblank) = true];
+  string session_id = 1 [(buf.validate.field).string.uuid = true, (buf.validate.field).string.(kent.api.shared.canonical_uuid_v4) = true];
   optional string name = 2 [(buf.validate.field).string.(kent.api.shared.nonblank) = true];
+  optional int64 short_id = 3 [(buf.validate.field).int64 = {gt: 0 lte: 9007199254740991}];
 }
 
 message ActiveSessionBlockers {
@@ -425,7 +429,7 @@ message BlockedDetails {
 message PendingWorkCapacityDetails {}
 
 message StatusRequest {
-  string session_id = 1 [(buf.validate.field).string.(kent.api.shared.nonblank) = true];
+  kent.api.shared.SessionSelector session_id = 1 [(buf.validate.field).required = true];
 }
 
 message StatusSuccess {
@@ -468,7 +472,7 @@ message StatusResult {
 }
 
 message ListRequest {
-  string session_id = 1 [(buf.validate.field).string.(kent.api.shared.nonblank) = true];
+  kent.api.shared.SessionSelector session_id = 1 [(buf.validate.field).required = true];
 }
 
 message ListSuccess {
@@ -578,7 +582,7 @@ message WorkspaceListResult {
 }
 
 message SelectorResolveRequest {
-  string session_id = 1 [(buf.validate.field).string.(kent.api.shared.nonblank) = true];
+  kent.api.shared.SessionSelector session_id = 1 [(buf.validate.field).required = true];
   string selector = 2 [(buf.validate.field).string.(kent.api.shared.nonblank) = true];
 }
 
@@ -641,14 +645,14 @@ message SelectorResolveResult {
 message ManagementScope {
   oneof scope {
     option (buf.validate.oneof).required = true;
-    string session_id = 1 [(buf.validate.field).string.(kent.api.shared.nonblank) = true];
+    kent.api.shared.SessionSelector session_id = 1;
     WorkspaceManagementTarget workspace = 2;
   }
 }
 
 message WorkspaceManagementTarget {
   kent.api.project.SelectedProjectWorkspace target = 1 [(buf.validate.field).required = true];
-  optional string caller_session_id = 2 [(buf.validate.field).string.(kent.api.shared.nonblank) = true];
+  kent.api.shared.SessionSelector session_context = 2;
 }
 
 message DeletePreviewRequest {
@@ -734,9 +738,9 @@ message CreateTargetResolution {
 
   option (buf.validate.message).cel = {
     id: "kent.worktree.create_target_resolution"
-    message: "new branch omits resolved_ref and existing targets require it"
+    message: "new or invalid targets omit resolved_ref and existing targets require it"
     expression:
-      "(this.kind == 1 && !has(this.resolved_ref)) || "
+      "(this.kind in [1, 4] && !has(this.resolved_ref)) || "
       "(this.kind in [2, 3] && has(this.resolved_ref))"
   };
 }
@@ -822,6 +826,13 @@ message CreateRequest {
 message CreateSuccess {
   SessionExecutionTarget target = 1;
   ListEntry worktree = 2 [(buf.validate.field).required = true];
+  kent.api.shared.SessionIdentity session = 3;
+
+  option (buf.validate.message).cel = {
+    id: "kent.worktree.create_registered"
+    message: "created worktree must have registered topology"
+    expression: "has(this.worktree.topology.registered)"
+  };
 
   option (buf.validate.message).cel = {
     id: "kent.worktree.create_projection"
@@ -890,8 +901,8 @@ message EnterRequest {
     (buf.validate.field).string.uuid = true,
     (buf.validate.field).string.(kent.api.shared.canonical_uuid_v4) = true
   ];
-  string session_id = 2 [(buf.validate.field).string.(kent.api.shared.nonblank) = true];
-  string selector = 3 [(buf.validate.field).string.(kent.api.shared.nonblank) = true];
+  kent.api.shared.SessionSelector session_id = 2 [(buf.validate.field).required = true];
+  string selector = 3 [(buf.validate.field).string.(kent.api.shared.pending_work_nonblank) = true];
   TransitionWorkspace target_workspace = 4 [(buf.validate.field).required = true];
   optional TransitionRuntimeStepOrigin origin = 5;
 }
@@ -902,7 +913,7 @@ message TransitionWorkspace {
 }
 
 message TransitionRuntimeStepOrigin {
-  string run_id = 1 [
+  string session_id = 3 [
     (buf.validate.field).string.uuid = true,
     (buf.validate.field).string.(kent.api.shared.canonical_uuid_v4) = true
   ];
@@ -917,7 +928,7 @@ message LeaveRequest {
     (buf.validate.field).string.uuid = true,
     (buf.validate.field).string.(kent.api.shared.canonical_uuid_v4) = true
   ];
-  string session_id = 2 [(buf.validate.field).string.(kent.api.shared.nonblank) = true];
+  kent.api.shared.SessionSelector session_id = 2 [(buf.validate.field).required = true];
 }
 
 message EnterError {
@@ -1115,7 +1126,7 @@ message SetupNotRequired {
 }
 
 message SetupProcessExit {
-  int32 exit_code = 1;
+  int64 exit_code = 1;
   optional string stdout = 2;
   optional string stderr = 3;
 
@@ -1229,18 +1240,18 @@ message SetupStartResult {
 }
 
 message SetupCompletion {
-  // Legacy StreamCompleteParams.message becomes a client-neutral diagnostic.
-  // transcript_close_reason is excluded because Worktree setup is not a
-  // transcript stream and its completion path never produces that fact.
-  optional int32 code = 1;
+  optional kent.api.shared.StreamFailureCode code = 1 [(buf.validate.field).enum = {
+    defined_only: true
+    not_in: [0]
+  }];
   optional string diagnostic = 2 [(buf.validate.field).string.(kent.api.shared.nonblank) = true];
 
   option (buf.validate.message).cel = {
     id: "kent.worktree.setup_completion"
-    message: "setup completion code and diagnostic must be present together and code must be non-zero"
+    message: "setup completion code and diagnostic must be present together"
     expression:
       "(!has(this.code) && !has(this.diagnostic)) || "
-      "(has(this.code) && this.code != 0 && has(this.diagnostic))"
+      "(has(this.code) && has(this.diagnostic))"
   };
 }
 

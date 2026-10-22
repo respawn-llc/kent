@@ -10,6 +10,7 @@ import (
 
 	"core/cli/app/commands"
 	"core/shared/clientui"
+	"core/shared/protoapi"
 	"core/shared/runtimeids"
 	"core/shared/runtimeinput"
 
@@ -38,14 +39,8 @@ func (c uiInputController) applyCommandResultWithPreSubmitQueuePositionAndOrigin
 	m := c.model
 	if commandResult.PromptCommand != nil {
 		invocation := commandResult.PromptCommand
-		canonical, err := runtimeinput.CanonicalCommandText(invocation.Name, invocation.Arguments)
-		if err != nil {
-			return m, m.sendTransientStatusWithNoticeID(err.Error(), uiStatusNoticeError, transientStatusDuration, uiStatusNoticeReplace, "")
-		}
-		history, err := invocation.CanonicalHistoryText()
-		if err != nil {
-			return m, m.sendTransientStatusWithNoticeID(err.Error(), uiStatusNoticeError, transientStatusDuration, uiStatusNoticeReplace, "")
-		}
+		canonical := runtimeinput.CanonicalCommandText(invocation.Name, invocation.Arguments)
+		history := invocation.CanonicalHistoryText()
 		if commandResult.FreshConversation && (m.isBusy() || m.currentConversationFreshness() != runtimepb.ConversationFreshness_CONVERSATION_FRESHNESS_FRESH) {
 			previousSessionID, err := runtimeids.ParseSessionID(m.sessionID)
 			if err != nil {
@@ -118,11 +113,13 @@ func (c uiInputController) applyCommandResultWithPreSubmitQueuePositionAndOrigin
 	case commands.ActionBack:
 		next, cmd := c.handleBackCommand()
 		return next, sequenceCmds(prefixCmd, cmd)
-	case commands.ActionLogout:
+	case commands.ActionLogin:
 		m.exitAction = UIActionLogout
 		return m, sequenceCmds(prefixCmd, tea.Quit)
+	case commands.ActionLogout:
+		return m, sequenceCmds(prefixCmd, c.startConnectionRemovalFlowCmd())
 	case commands.ActionSetName:
-		next, cmd := c.handleSessionNameCommand(commandResult.SessionName)
+		next, cmd := c.handleSessionNameCommand(commandResult.Args)
 		return next, sequenceCmds(prefixCmd, cmd)
 	case commands.ActionSetThinking:
 		next, cmd := c.handleThinkingLevelCommand(commandResult.ThinkingLevel)
@@ -197,11 +194,19 @@ func (c uiInputController) handleCopyCommand() (tea.Model, tea.Cmd) {
 func (c uiInputController) handleSessionNameCommand(sessionName string) (tea.Model, tea.Cmd) {
 	m := c.model
 	sessionName = strings.TrimSpace(sessionName)
+	mutation := sessionNameCommandMutation(sessionName)
 	if m.hasRuntimeClient() {
-		return m, m.runtimeControlCommand(runtimeControlSetSessionName, sessionName, false, "")
+		return m, m.runtimeControlCommand(runtimeControlSetSessionName, mutation)
 	}
-	m.sessionName = sessionName
-	return m, tea.SetWindowTitle(sessionTitle(m.sessionName))
+	if err := protoapi.Validate(mutation); err != nil {
+		return m, m.sendTransientStatusWithNoticeID(err.Error(), uiStatusNoticeError, transientStatusDuration, uiStatusNoticeReplace, "")
+	}
+	name, err := protoapi.SessionNameFromMutation(mutation)
+	if err != nil {
+		return m, m.sendTransientStatusWithNoticeID(err.Error(), uiStatusNoticeError, transientStatusDuration, uiStatusNoticeReplace, "")
+	}
+	m.sessionName = name
+	return m, tea.SetWindowTitle(m.sessionTitle())
 }
 
 func (c uiInputController) handleThinkingLevelCommand(requested string) (tea.Model, tea.Cmd) {
@@ -214,7 +219,7 @@ func (c uiInputController) handleThinkingLevelCommand(requested string) (tea.Mod
 
 	normalized, ok := clientui.NormalizeThinkingLevel(requested)
 	if !ok {
-		errText := "invalid thinking level " + strconv.Quote(requested) + " (expected low|medium|high|xhigh|max|ultra)"
+		errText := "invalid thinking level " + strconv.Quote(requested) + " (expected none|low|medium|high|xhigh|max|ultra)"
 		return m, m.sendTransientStatusWithNoticeID(errText, uiStatusNoticeError, transientStatusDuration, uiStatusNoticeReplace, "")
 	}
 	return m, m.chatSettingsMutationCommand(&chatsettingspb.MutationOperation{

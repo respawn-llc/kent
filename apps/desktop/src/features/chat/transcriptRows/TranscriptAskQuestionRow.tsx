@@ -2,7 +2,8 @@ import { CornerDownRight, MessageCircleQuestionMark, Star } from "lucide-react";
 import { useId } from "react";
 import { useTranslation } from "react-i18next";
 
-import type { ChatTranscriptCommittedRow } from "@/api";
+import { sessionDisplayID, type ChatTranscriptCommittedRow } from "@/api";
+import { CopyableValue } from "@/shared/copyable-value";
 import { RadioGroup, RadioGroupItem, StaticMarkdown } from "@/ui";
 
 import { TranscriptCopyAction } from "./TranscriptCopyAction";
@@ -19,6 +20,10 @@ export function TranscriptAskQuestionRow({ row }: Readonly<{ row: ChatTranscript
   const tool = row.Tool;
   const presentation = tool.Presentation;
   const copyText = askQuestionCopyText(row);
+  const answererID =
+    tool.AnsweredBySessionID === null
+      ? null
+      : sessionDisplayID(tool.AnsweredBySessionID, tool.AnsweredBySessionShortID);
   return (
     <div className="chat-transcript-question-row text-sm">
       <MessageCircleQuestionMark
@@ -29,6 +34,25 @@ export function TranscriptAskQuestionRow({ row }: Readonly<{ row: ChatTranscript
           <p className="chat-transcript-row-body">{copyText}</p>
         ) : (
           <AskQuestionBody presentation={presentation} tool={tool} />
+        )}
+        {answererID === null ? null : (
+          <CopyableValue
+            accessibleLabel={t("chatTranscript.copyAnswererSessionID")}
+            className="mt-[var(--space-1)] inline-flex w-fit items-center gap-[var(--space-1)]"
+            clipboardValue={answererID}
+            copySucceeded={{
+              id: "chat-transcript-answerer-copy-succeeded",
+              title: t("chatTranscript.answererSessionIDCopied"),
+            }}
+            copyFailed={{
+              id: "chat-transcript-answerer-copy-failed",
+              title: t("chatTranscript.answererSessionIDCopyFailed"),
+            }}
+            size="xs"
+          >
+            <span>{t("chatTranscript.answeredByAgent")}</span>
+            <span className="font-mono">{answererID}</span>
+          </CopyableValue>
         )}
       </div>
       <TranscriptCopyAction

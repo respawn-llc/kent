@@ -7,11 +7,29 @@ import (
 	transcriptpb "core/shared/protoapi/gen/kent/api/transcript"
 )
 
+func (c *Remote) ResolveViewedImageOriginalSource(ctx context.Context, request *sessionpb.ViewedImageOriginalSourceRequest) (*sessionpb.ViewedImageOriginalSourceSuccess, error) {
+	return callGeneratedBinary(c, ctx,
+		bootstrapMethod(sessionpb.File_kent_api_session_session_proto, "ReadService", "ResolveViewedImageOriginalSource"),
+		request, &sessionpb.ViewedImageOriginalSourceResult{},
+		func(failure *sessionpb.ViewedImageOriginalSourceError) error {
+			return generatedOperationFailure(failure.Code)
+		})
+}
+
 func (c *Remote) GetPromptHistory(ctx context.Context, request *sessionpb.PromptHistoryRequest) (*sessionpb.PromptHistorySuccess, error) {
 	return callGeneratedBinary(c, ctx,
 		bootstrapMethod(sessionpb.File_kent_api_session_session_proto, "ReadService", "GetPromptHistory"),
 		request, &sessionpb.PromptHistoryResult{},
 		func(failure *sessionpb.PromptHistoryError) error {
+			return generatedOperationFailure(failure.Code)
+		})
+}
+
+func (c *Remote) GetSessionIdentityLocation(ctx context.Context, request *sessionpb.IdentityLocationRequest) (*sessionpb.IdentityLocationSuccess, error) {
+	return callGeneratedBinary(c, ctx,
+		bootstrapMethod(sessionpb.File_kent_api_session_session_proto, "ReadService", "GetIdentityLocation"),
+		request, &sessionpb.IdentityLocationResult{},
+		func(failure *sessionpb.IdentityLocationError) error {
 			return generatedOperationFailure(failure.Code)
 		})
 }

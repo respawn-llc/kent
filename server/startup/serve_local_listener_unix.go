@@ -14,7 +14,7 @@ import (
 )
 
 func listenLocalSocket(cfg config.App) (net.Listener, func(), bool, error) {
-	socketPath, ok, err := config.ServerLocalRPCSocketPath(cfg)
+	socketPath, ok, err := config.ServerLocalRPCSocketPath(cfg.PersistenceRoot)
 	if err != nil || !ok {
 		return nil, nil, ok, err
 	}

@@ -26,18 +26,9 @@ type sessionLifecycleClientProvider interface {
 	SessionLifecycleClient() apicontract.SessionLifecycleService
 }
 
-type sessionConfigProvider interface {
-	Config() config.App
-}
-
 type sessionTransitionServer interface {
 	sessionLifecycleClientProvider
-	Reauthenticate(ctx context.Context, interactor authInteractor, interactive bool) error
-}
-
-type sessionWorkspaceChangeServer interface {
-	sessionLifecycleClientProvider
-	sessionConfigProvider
+	Reauthenticate(ctx context.Context) error
 }
 
 type sessionReattachServer interface {
@@ -52,23 +43,28 @@ type promptCommandCatalogServer interface {
 type interactiveSessionServer interface {
 	Close() error
 	launchPlannerServer
-	sessionWorkspaceChangeServer
 	sessionTransitionServer
-	EnsureAuthReady(ctx context.Context, interactor authInteractor, interactive bool) error
+	EnsureAuthReady(ctx context.Context, settings config.Settings, interactor authInteractor) error
+	EnsureConnectionSetup(ctx context.Context) error
 	BindProjectWorkspace(ctx context.Context, projectID string, workspaceID string) (interactiveSessionServer, error)
 }
 
 type sessionLifecycleOptions struct {
-	Intent    *serverapi.SessionLaunchIntent
-	Overrides serverapi.RunPromptOverrides
+	Intent              *sessionlaunchpb.SessionLaunchRequestIntent
+	Overrides           serverapi.RunPromptOverrides
+	InvocationOverrides serverapi.RunPromptOverrides
 }
 
 func runSessionLifecycleWithOptions(ctx context.Context, server interactiveSessionServer, interactor authInteractor, opts sessionLifecycleOptions) error {
 	clientSettings := clientSettingsForInteractiveServer(server)
 	originalServer := server
-	boundServer, err := ensureInteractiveProjectBinding(ctx, server)
-	if err != nil {
-		return err
+	boundServer := server
+	var err error
+	if _, attached := server.ProjectBinding(); !attached {
+		boundServer, err = ensureInteractiveProjectBinding(ctx, server)
+		if err != nil {
+			return err
+		}
 	}
 	if shouldCloseReboundServer(originalServer, boundServer) {
 		defer func() { _ = boundServer.Close() }()
@@ -78,70 +74,67 @@ func runSessionLifecycleWithOptions(ctx context.Context, server interactiveSessi
 	next := &sessionlaunchpb.SessionDirective{Directive: &sessionlaunchpb.SessionDirective_SelectSession{
 		SelectSession: &sessionlaunchpb.SessionSelectDirective{Auth: sessionlaunchpb.SessionAuthPreparation_SESSION_AUTH_PREPARATION_KEEP_CURRENT_AUTH},
 	}}
-	if opts.Intent != nil {
-		next, err = defaultSessionLaunchDirective(*opts.Intent)
-		if err != nil {
-			return err
-		}
-	}
 	nextSessionOverrides := opts.Overrides
 	var pickerNotice *startupPickerNotice
 	for {
-		switch next.Directive.(type) {
-		case *sessionlaunchpb.SessionDirective_Stop:
-			return nil
-		case *sessionlaunchpb.SessionDirective_SelectSession:
-			picked, err := planner.selectSession(ctx, pickerNotice)
+		intent := opts.Intent
+		preparation := defaultSessionLaunchPreparation()
+		opts.Intent = nil
+		if intent == nil {
+			switch next.Directive.(type) {
+			case *sessionlaunchpb.SessionDirective_Stop:
+				return nil
+			case *sessionlaunchpb.SessionDirective_SelectSession:
+				picked, err := planner.selectSession(ctx, pickerNotice)
+				if err != nil {
+					return err
+				}
+				pickerNotice = nil
+				switch picked := picked.(type) {
+				case sessionPickerCancelResult:
+					next = &sessionlaunchpb.SessionDirective{Directive: &sessionlaunchpb.SessionDirective_Stop{Stop: &emptypb.Empty{}}}
+				case sessionPickerCreateResult:
+					next, err = defaultSessionLaunchDirective(serverapi.CreateNewSessionLaunchIntent(serverapi.IndependentSessionCreateOrigin()))
+					if err != nil {
+						return err
+					}
+				case sessionPickerOpenResult:
+					sessionID := picked.sessionID
+					executionTarget, err := loadSelectedSessionExecutionTarget(ctx, server.SessionViewClient(), sessionID.String())
+					if err != nil {
+						pickerNotice = &startupPickerNotice{
+							Text:       "Could not inspect the selected session. Try again.",
+							Kind:       startupPickerNoticeError,
+							Diagnostic: err,
+						}
+						continue
+					}
+					workspaceChangeAction, err := maybeHandlePickedSessionWorkspaceChange(ctx, server, sessionID.String(), executionTarget)
+					if err != nil {
+						return err
+					}
+					if workspaceChangeAction == sessionWorkspaceChangePickAgain {
+						continue
+					}
+					next, err = defaultSessionLaunchDirective(serverapi.OpenExistingSessionLaunchIntent(sessionID))
+					if err != nil {
+						return err
+					}
+				default:
+					return errors.New("session picker returned an invalid result")
+				}
+				continue
+			case *sessionlaunchpb.SessionDirective_Launch:
+			default:
+				return errors.New("session lifecycle returned no result")
+			}
+
+			canonicalIntent := protoapi.SessionLaunchIntentFromProto(next.GetLaunch().Intent)
+			intent, err = protoapi.SessionLaunchRequestIntentToProto(canonicalIntent)
 			if err != nil {
 				return err
 			}
-			pickerNotice = nil
-			switch picked := picked.(type) {
-			case sessionPickerCancelResult:
-				next = &sessionlaunchpb.SessionDirective{Directive: &sessionlaunchpb.SessionDirective_Stop{Stop: &emptypb.Empty{}}}
-			case sessionPickerCreateResult:
-				next, err = defaultSessionLaunchDirective(serverapi.CreateNewSessionLaunchIntent(serverapi.IndependentSessionCreateOrigin()))
-				if err != nil {
-					return err
-				}
-			case sessionPickerOpenResult:
-				sessionID := picked.sessionID
-				executionTarget, err := loadSelectedSessionExecutionTarget(ctx, server.SessionViewClient(), sessionID.String())
-				if err != nil {
-					pickerNotice = &startupPickerNotice{
-						Text:       "Could not inspect the selected session. Try again.",
-						Kind:       startupPickerNoticeError,
-						Diagnostic: err,
-					}
-					continue
-				}
-				workspaceChangeAction, err := maybeHandlePickedSessionWorkspaceChange(ctx, server, sessionID.String(), executionTarget)
-				if err != nil {
-					return err
-				}
-				if workspaceChangeAction == sessionWorkspaceChangePickAgain {
-					continue
-				}
-				next, err = defaultSessionLaunchDirective(serverapi.OpenExistingSessionLaunchIntent(sessionID))
-				if err != nil {
-					return err
-				}
-			default:
-				return errors.New("session picker returned an invalid result")
-			}
-			continue
-		case *sessionlaunchpb.SessionDirective_Launch:
-		default:
-			return errors.New("session lifecycle returned no result")
-		}
-
-		intent, err := protoapi.SessionLaunchIntentFromProto(next.GetLaunch().Intent)
-		if err != nil {
-			return err
-		}
-		preparation := next.GetLaunch().Preparation
-		if preparation == nil {
-			return errors.New("launch directive is missing preparation")
+			preparation = next.GetLaunch().Preparation
 		}
 		reboundServer, rebound, err := bindNavigationSessionContext(ctx, server, preparation)
 		if err != nil {
@@ -154,19 +147,29 @@ func runSessionLifecycleWithOptions(ctx context.Context, server interactiveSessi
 			server = reboundServer
 			planner = newSessionLaunchPlanner(server)
 		}
-		launchRequest, err := sessionLaunchRequestFromIntent(intent, nextSessionOverrides)
-		if err != nil {
+		launchRequest := sessionLaunchRequest{
+			Mode:      launchModeInteractive,
+			Intent:    intent,
+			Overrides: mergeSessionPlanOverrides(opts.InvocationOverrides, nextSessionOverrides),
+		}
+		if err := server.EnsureConnectionSetup(ctx); err != nil {
+			if errors.Is(err, ErrAuthCanceledByUser) {
+				return nil
+			}
 			return err
 		}
 		plan, err := planner.PlanSession(ctx, launchRequest)
 		if err != nil {
 			return err
 		}
+		if err := server.EnsureAuthReady(ctx, plan.ActiveSettings, interactor); err != nil {
+			return err
+		}
 		plan.ClientLifecycleCommand = clientSettings.Hooks.LifecycleCommand()
-		switch intent.Kind() {
-		case serverapi.SessionLaunchIntentCreateNew:
+		switch intent.Intent.(type) {
+		case *sessionlaunchpb.SessionLaunchRequestIntent_CreateNew:
 			plan.ClientLifecycleOpeningKind = lifecyclecontract.OpeningKindNew
-		case serverapi.SessionLaunchIntentOpenExisting:
+		case *sessionlaunchpb.SessionLaunchRequestIntent_OpenExistingSessionId:
 			plan.ClientLifecycleOpeningKind = lifecyclecontract.OpeningKindResumed
 		}
 		nextSessionOverrides = serverapi.RunPromptOverrides{}
@@ -189,26 +192,25 @@ func runSessionLifecycleWithOptions(ctx context.Context, server interactiveSessi
 		}
 		finalModel, runErr := runUILoop(request)
 		if runErr != nil {
-			return releaseRuntimePlanAfterUIResult(runtimePlan, finalModel, runErr)
+			runtimePlan.Close()
+			return runErr
 		}
 		transition := extractUITransition(finalModel)
 		if transition.SessionRetargeted {
 			reattacher, ok := server.(sessionReattachServer)
 			if !ok {
-				return releaseRuntimePlanAfterUIResult(runtimePlan, finalModel, errors.New("Session rebind requires a Remote server"))
+				runtimePlan.Close()
+				return errors.New("Session rebind requires a Remote server")
 			}
-			next, err = reopenRetargetedSession(ctx, reattacher, runtimePlan, plan.SessionID, finalModel)
+			next, err = reopenRetargetedSession(ctx, reattacher, runtimePlan, plan.SessionID)
 			if err != nil {
 				return err
 			}
 			continue
 		}
-		if err := persistSessionDraftToServer(ctx, server, plan.SessionID, finalModel); err != nil {
-			return releaseRuntimePlanAfterUIResult(runtimePlan, finalModel, err)
-		}
-
 		if transition.Exit {
-			return releaseRuntimePlanAfterUIResult(runtimePlan, finalModel, nil)
+			runtimePlan.Close()
+			return nil
 		}
 		resolved, err := resolveAndReleaseSessionAction(ctx, server, interactor, plan.SessionID, transition, runtimePlan, finalModel)
 		if err != nil {
@@ -223,21 +225,13 @@ func reopenRetargetedSession(
 	server sessionReattachServer,
 	runtimePlan *runtimeLaunchPlan,
 	rawSessionID string,
-	finalModel any,
 ) (*sessionlaunchpb.SessionDirective, error) {
+	defer runtimePlan.Close()
 	sessionID, err := runtimeids.ParseSessionID(rawSessionID)
 	if err != nil {
-		return &sessionlaunchpb.SessionDirective{}, releaseRuntimePlanAfterUIResult(runtimePlan, finalModel, err)
-	}
-	if err := persistSessionDraftToServer(ctx, server, rawSessionID, finalModel); err != nil {
-		return &sessionlaunchpb.SessionDirective{}, releaseRuntimePlanAfterUIResult(runtimePlan, finalModel, err)
-	}
-	if runtimePlan.stopEventStreams != nil {
-		runtimePlan.stopEventStreams()
-	}
-	if err := runtimePlan.Close(); err != nil {
 		return &sessionlaunchpb.SessionDirective{}, err
 	}
+	runtimePlan.Close()
 	if err := server.ReattachSession(ctx, rawSessionID); err != nil {
 		return &sessionlaunchpb.SessionDirective{}, err
 	}
@@ -245,10 +239,14 @@ func reopenRetargetedSession(
 }
 
 func defaultSessionLaunchDirective(intent serverapi.SessionLaunchIntent) (*sessionlaunchpb.SessionDirective, error) {
-	return protoapi.SessionLaunchDirectiveToProto(intent, &sessionlaunchpb.SessionLaunchPreparation{
+	return protoapi.SessionLaunchDirectiveToProto(intent, defaultSessionLaunchPreparation())
+}
+
+func defaultSessionLaunchPreparation() *sessionlaunchpb.SessionLaunchPreparation {
+	return &sessionlaunchpb.SessionLaunchPreparation{
 		Auth:        sessionlaunchpb.SessionAuthPreparation_SESSION_AUTH_PREPARATION_KEEP_CURRENT_AUTH,
 		InputPolicy: &sessionlaunchpb.SessionDraftDisposition{Disposition: &sessionlaunchpb.SessionDraftDisposition_RestoreStoredDraft{RestoreStoredDraft: &emptypb.Empty{}}},
-	})
+	}
 }
 
 func bindNavigationSessionContext(ctx context.Context, server interactiveSessionServer, preparation *sessionlaunchpb.SessionLaunchPreparation) (interactiveSessionServer, bool, error) {
@@ -273,8 +271,9 @@ func resolveAndReleaseSessionAction(
 	finalModel any,
 ) (*sessionlaunchpb.SessionDirective, error) {
 	resolved, err := resolveSessionAction(ctx, server, interactor, sessionID, transition)
-	if releaseErr := releaseRuntimePlanAfterUIResult(runtimePlan, finalModel, err); releaseErr != nil {
-		return &sessionlaunchpb.SessionDirective{}, releaseErr
+	runtimePlan.Close()
+	if err != nil {
+		return &sessionlaunchpb.SessionDirective{}, err
 	}
 	return resolved, nil
 }
@@ -289,6 +288,13 @@ func prepareSessionUIRun(
 	transitionInput string,
 	overrideStoredDraft bool,
 ) (*runtimeLaunchPlan, uiLoopRequest, error) {
+	id, err := runtimeids.ParseSessionID(plan.SessionID)
+	if err != nil {
+		return nil, uiLoopRequest{}, err
+	}
+	if _, err := server.SessionLifecycleClient().Promote(ctx, &sessionlaunchpb.SessionPromoteRequest{SessionId: protoapi.SessionSelectorToProto(id)}); err != nil {
+		return nil, uiLoopRequest{}, err
+	}
 	runtimePlan, err := planner.PrepareRuntime(ctx, plan, os.Stderr, "app.start session_id="+plan.SessionID+" workspace="+plan.ExecutionTarget.EffectiveWorkdir+" model="+plan.ActiveSettings.Model)
 	if err != nil {
 		return nil, uiLoopRequest{}, err
@@ -306,12 +312,9 @@ func prepareSessionUIRun(
 			promptCatalog = catalogClient
 			response, catalogErr := catalogClient.GetPromptCommandCatalog(ctx, &promptcommandpb.GetCatalogRequest{})
 			if catalogErr == nil {
-				var entries []commands.PromptCommandCatalogEntry
-				entries, catalogErr = promptCatalogSnapshot(response)
+				entries := promptCatalogSnapshot(response)
 				catalogEntries = entries
-				if catalogErr == nil {
-					commandRegistry = commands.NewDefaultRegistryWithPromptCatalog(entries)
-				}
+				commandRegistry = commands.NewDefaultRegistryWithPromptCatalog(entries)
 			}
 			if catalogErr != nil {
 				notice := "Custom prompt commands are unavailable for this session."
@@ -327,9 +330,11 @@ func prepareSessionUIRun(
 		overrideStoredDraft,
 	)
 	if err != nil {
-		return nil, uiLoopRequest{}, closeRuntimePlanAfterPreparationFailure(runtimePlan, err)
+		runtimePlan.Close()
+		return nil, uiLoopRequest{}, err
 	}
 	return runtimePlan, uiLoopRequest{
+		sessionLifecycle:             server.SessionLifecycleClient(),
 		ctx:                          ctx,
 		wiring:                       runtimePlan.Wiring,
 		projectID:                    strings.TrimSpace(server.ProjectID()),
@@ -342,36 +347,13 @@ func prepareSessionUIRun(
 		modelContractLocked:          plan.ModelContractLocked,
 		configuredModelName:          plan.ConfiguredModelName,
 		statusConfig:                 plan.StatusConfig,
+		connectionManagement:         server.ConnectionManagementClient(),
 		initialTransientStatus:       catalogStatus,
 		promptCatalog:                promptCatalog,
 		promptCatalogEntries:         catalogEntries,
 	}, nil
 }
 
-func closeRuntimePlanAfterPreparationFailure(runtimePlan *runtimeLaunchPlan, preparationErr error) error {
-	if closeErr := runtimePlan.Close(); closeErr != nil {
-		return errors.Join(preparationErr, closeErr)
-	}
-	return preparationErr
-}
-
-func closeRuntimePlanAfterUIExit(runtimePlan *runtimeLaunchPlan, finalModel any) error {
-	if ui, ok := finalModel.(*uiModel); ok && ui != nil && ui.forcedLocalExit {
-		return runtimePlan.DetachOnlyClose()
-	}
-	return runtimePlan.Close()
-}
-
-func releaseRuntimePlanAfterUIResult(runtimePlan *runtimeLaunchPlan, finalModel any, primaryErr error) error {
-	releaseErr := closeRuntimePlanAfterUIExit(runtimePlan, finalModel)
-	if primaryErr != nil && releaseErr != nil {
-		return errors.Join(primaryErr, releaseErr)
-	}
-	if primaryErr != nil {
-		return primaryErr
-	}
-	return releaseErr
-}
 func shouldCloseReboundServer(original, rebound interactiveSessionServer) bool {
 	return original != nil && rebound != nil && original != rebound
 }
@@ -403,41 +385,6 @@ func sessionLaunchInitialStateFromServer(
 		return sessionLaunchInitialState{}, err
 	}
 	return sessionLaunchInitialState{Input: resp.Input}, nil
-}
-
-func persistSessionDraftToServer(ctx context.Context, server sessionLifecycleClientProvider, sessionID string, model any) error {
-	if strings.TrimSpace(sessionID) == "" {
-		return nil
-	}
-	ui, ok := model.(*uiModel)
-	if !ok || ui == nil {
-		return nil
-	}
-	if server == nil || server.SessionLifecycleClient() == nil {
-		return nil
-	}
-	_, err := server.SessionLifecycleClient().PersistInputDraft(ctx, &sessionlaunchpb.SessionPersistInputDraftRequest{
-		SessionId: strings.TrimSpace(sessionID),
-		Input:     ui.mainEditor.Text(),
-	})
-	return err
-}
-
-func sessionLaunchRequestFromIntent(intent serverapi.SessionLaunchIntent, overrides serverapi.RunPromptOverrides) (sessionLaunchRequest, error) {
-	if err := intent.Validate(); err != nil {
-		return sessionLaunchRequest{}, err
-	}
-	request := sessionLaunchRequest{
-		Mode:      launchModeInteractive,
-		Intent:    intent,
-		Overrides: overrides,
-	}
-	switch intent.Kind() {
-	case serverapi.SessionLaunchIntentCreateNew, serverapi.SessionLaunchIntentOpenExisting:
-	default:
-		return sessionLaunchRequest{}, errors.New("session launch intent kind is invalid")
-	}
-	return request, nil
 }
 
 func sessionLaunchPreparationValues(preparation *sessionlaunchpb.SessionLaunchPreparation) (string, bool, string, bool, error) {
@@ -514,7 +461,7 @@ func resolveSessionAction(ctx context.Context, server sessionTransitionServer, i
 		return &sessionlaunchpb.SessionDirective{}, err
 	}
 	if authPreparation != nil && *authPreparation == sessionlaunchpb.SessionAuthPreparation_SESSION_AUTH_PREPARATION_REAUTHENTICATE {
-		if err := server.Reauthenticate(ctx, interactor, true); err != nil {
+		if err := server.Reauthenticate(ctx); err != nil {
 			return &sessionlaunchpb.SessionDirective{}, err
 		}
 	}

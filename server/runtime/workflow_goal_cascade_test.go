@@ -115,7 +115,7 @@ func TestWorkflowToolModeCascadeEmitsGoalCompletionAfterHostedToolResult(t *test
 	}}
 	client.caps = llm.ProviderCapabilities{ProviderID: "openai", SupportsResponsesAPI: true, SupportsNativeWebSearch: true, IsOpenAIFirstParty: true}
 	eng := mustNewWorkflowTestEngine(t, store, client, testWorkflowConfig(controller, config.WorkflowCompletionModeTool), Config{
-		Model:         "gpt-5",
+		Model:         "gpt-6-sol",
 		WebSearchMode: "native",
 		EnabledTools:  []toolspec.ID{toolspec.ToolWebSearch, toolspec.ToolAskQuestion},
 		HeadlessMode:  true,

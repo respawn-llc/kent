@@ -11,6 +11,8 @@ import "kent/api/prompt_command/validation.proto";
 import "kent/api/server/server.proto";
 import "kent/api/shared/foundation.proto";
 import "kent/api/shared/validation.proto";
+import "kent/api/shared/session_selector.proto";
+import "kent/api/session_launch/session_launch.proto";
 
 option go_package = "core/shared/protoapi/gen/kent/api/chat;chatpb";
 
@@ -19,6 +21,11 @@ message ExistingSessionTarget {
     (buf.validate.field).string.uuid = true,
     (buf.validate.field).string.(kent.api.shared.canonical_uuid_v4) = true
   ];
+}
+
+message ExistingSessionRequestTarget {
+  kent.api.shared.SessionSelector session_id = 1 [(buf.validate.field).required = true];
+  optional kent.api.session_launch.SessionRuntimePreparationOptions preparation = 2;
 }
 
 message NewChatTarget {
@@ -39,7 +46,7 @@ message ChatTarget {
   oneof target {
     option (buf.validate.oneof).required = true;
 
-    ExistingSessionTarget session = 1;
+    ExistingSessionRequestTarget session = 1;
     NewChatTarget new_chat = 2;
   }
 }
@@ -80,7 +87,7 @@ message Activation {
 
     string text = 1 [
       (buf.validate.field).string.min_len = 1,
-      (buf.validate.field).string.(kent.api.shared.nonblank) = true
+      (buf.validate.field).string.(kent.api.shared.pending_work_nonblank) = true
     ];
     CommandInvocation command = 2;
   }
@@ -111,13 +118,6 @@ message QueueItemIdentity {
   ];
 }
 
-message CompactionRequestIdentity {
-  string id = 1 [
-    (buf.validate.field).string.uuid = true,
-    (buf.validate.field).string.(kent.api.shared.canonical_uuid_v4) = true
-  ];
-}
-
 message PendingWorkCapacityDetails {}
 
 message RuntimeUnavailableDetails {}
@@ -131,9 +131,19 @@ message AcceptedDiagnostic {
   }
 }
 
+enum InputAdmissionDisposition {
+  INPUT_ADMISSION_DISPOSITION_UNSPECIFIED = 0;
+  INPUT_ADMISSION_DISPOSITION_STARTED_TURN = 1;
+  INPUT_ADMISSION_DISPOSITION_PENDING_STEER = 2;
+  INPUT_ADMISSION_DISPOSITION_PENDING_QUEUE = 3;
+}
+
 message InputAccepted {
   QueueItemIdentity queue_item = 1 [(buf.validate.field).required = true];
   optional AcceptedDiagnostic diagnostic = 2;
+  InputAdmissionDisposition disposition = 3 [
+    (buf.validate.field).enum = {defined_only: true, not_in: [0]}
+  ];
 }
 
 message InputNotAccepted {
@@ -234,11 +244,19 @@ message QueueResult {
 message SteerRequest {
   ChatTarget target = 1 [(buf.validate.field).required = true];
   Activation activation = 2 [(buf.validate.field).required = true];
+  string queue_item_id = 3 [
+    (buf.validate.field).string.uuid = true,
+    (buf.validate.field).string.(kent.api.shared.canonical_uuid_v4) = true
+  ];
 }
 
 message QueueRequest {
   ChatTarget target = 1 [(buf.validate.field).required = true];
   Activation activation = 2 [(buf.validate.field).required = true];
+  string queue_item_id = 3 [
+    (buf.validate.field).string.uuid = true,
+    (buf.validate.field).string.(kent.api.shared.canonical_uuid_v4) = true
+  ];
 }
 
 message ManualCompactionTooSoonDetails {}
@@ -248,7 +266,6 @@ message ManualCompactionDisabledDetails {}
 message ManualCompactionActiveDetails {}
 
 message CompactionAccepted {
-  CompactionRequestIdentity request = 1 [(buf.validate.field).required = true];
   optional AcceptedDiagnostic diagnostic = 2;
 }
 

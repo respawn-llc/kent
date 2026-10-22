@@ -4,8 +4,8 @@ import (
 	"core/server/llm"
 	"core/server/session"
 	"core/server/tools"
+	"core/shared/clientui"
 	"core/shared/config"
-	"core/shared/runtimeids"
 	"core/shared/runtimeinput"
 	"core/shared/transcript"
 	"fmt"
@@ -32,6 +32,7 @@ const (
 	EventModelResponse              EventKind = "model_response_received"
 	EventUserMessageFlushed         EventKind = "user_message_flushed"
 	EventToolCallStarted            EventKind = "tool_call_started"
+	EventQuestionCandidateFinished  EventKind = "question_candidate_finished"
 	EventToolCallCompleted          EventKind = "tool_call_completed"
 	EventToolCallAborted            EventKind = "tool_call_aborted"
 	EventRuntimeActivityChanged     EventKind = "runtime_activity_changed"
@@ -136,6 +137,8 @@ type Event struct {
 	Message                      llm.Message
 	ModelResponse                *ModelResponseTrace
 	ToolCall                     *llm.ToolCall
+	PreparedQuestionBatch        *tools.AskQuestionBatchMetadata
+	FinishedQuestionCandidate    *clientui.ToolCallID
 	ToolResult                   *tools.Result
 	ToolAbortReason              string
 	Compaction                   *CompactionStatus
@@ -195,7 +198,6 @@ type GoalStatusUpdate struct {
 
 type RunState struct {
 	Lifecycle  RunLifecycle
-	RunID      string
 	ActiveKind ActiveKind
 	Status     RunStatus
 	StartedAt  time.Time
@@ -206,7 +208,6 @@ type BackgroundShellEvent struct {
 	Type              BackgroundShellEventType
 	ID                string
 	ActivityID        uuid.UUID
-	OwnerRunID        string
 	OwnerStepID       string
 	State             string
 	Command           string
@@ -231,7 +232,6 @@ type ModelResponseTrace struct {
 
 type CompactionStatus struct {
 	Mode              string
-	RequestID         *runtimeids.CompactionRequestID
 	Engine            string
 	Provider          string
 	TrimmedItemsCount *int

@@ -1,10 +1,14 @@
 package runtimewire
 
 import (
+	"bytes"
 	"context"
+	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"fmt"
+	"image"
+	"image/png"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -64,6 +68,9 @@ func newTestRuntimeWiringWithBackground(t *testing.T, store *session.Store, even
 	t.Helper()
 	if options.GlobalConfigDir == "" {
 		options.GlobalConfigDir = t.TempDir()
+	}
+	if store != nil && options.ProjectWorkspaceContextReader == nil {
+		options.ProjectWorkspaceContextReader = testsetup.OpenSessionProjectWorkspaceContextReader(t, store)
 	}
 	active = testsetup.WriteProviderSettings(t, options.GlobalConfigDir, active)
 	config.InheritReviewerSettings(&active, options.Sources)
@@ -660,7 +667,6 @@ func TestOutsideWorkspaceToolsInheritTypedApprovalBarrierFromCallContext(t *test
 				},
 			)
 			ctx = tools.WithExecutionIdentity(ctx, tools.ExecutionIdentity{
-				RunID:      "11111111-1111-4111-8111-111111111111",
 				StepID:     "22222222-2222-4222-8222-222222222222",
 				ToolCallID: clientui.ToolCallID(toolCallID),
 			})
@@ -1112,7 +1118,6 @@ func callRuntimeWireTool(t *testing.T, registry *tools.Registry, id toolspec.ID,
 	}
 	toolCallID := "runtimewire-" + string(id)
 	ctx := tools.WithExecutionIdentity(context.Background(), tools.ExecutionIdentity{
-		RunID:      "11111111-1111-4111-8111-111111111111",
 		StepID:     "22222222-2222-4222-8222-222222222222",
 		ToolCallID: clientui.ToolCallID(toolCallID),
 	})
@@ -1346,7 +1351,7 @@ func runtimeWireShellSettings(mode config.ShellPostprocessingMode, hookPath *str
 		hook = &copy
 	}
 	return config.Settings{
-		Model:               "gpt-5",
+		Model:               "gpt-6-sol",
 		ModelContextWindow:  200_000,
 		Reviewer:            config.ReviewerSettings{Frequency: "off"},
 		Timeouts:            config.Timeouts{ModelRequestSeconds: 1},
@@ -1501,7 +1506,7 @@ func TestNewRuntimeWiringRejectsEmptyModelAfterBypassingConfigDefaults(t *testin
 
 func TestReviewerModelCapabilitiesHonorExplicitFalseSources(t *testing.T) {
 	locked := lockedModelCapabilitiesForConfig(
-		"gpt-5",
+		"gpt-6-sol",
 		config.ModelCapabilitiesOverride{SupportsReasoningEffort: false},
 		llm.ProviderCapabilities{},
 		map[string]config.Origin{"reviewer.model_capabilities.supports_reasoning_effort": {Kind: config.SourceInput, Property: config.PropertyAddress{Key: "reviewer.model_capabilities.supports_reasoning_effort"}}},
@@ -1549,12 +1554,12 @@ func TestRuntimeWiringVisionDefaults(t *testing.T) {
 			active := runtimeWireShellSettings(config.ShellPostprocessingModeBuiltin, nil)
 			active.Model = "gpt-unknown-future"
 			active = testsetup.ProviderSettings(active)
-			definition := active.Connections[*active.Connection]
+			definition := active.Connections[(*active.Connection)[0]]
 			definition.Capabilities = config.ProviderCapabilitiesOverride{
 				ProviderID: test.providerID, SupportsResponsesAPI: true,
 				IsOpenAIFirstParty: caps.IsOpenAIFirstParty,
 			}
-			active.Connections[*active.Connection] = definition
+			active.Connections[(*active.Connection)[0]] = definition
 			sources := map[string]config.Origin{}
 			if test.override != nil {
 				active.ModelCapabilities.SupportsVisionInputs = *test.override
@@ -1613,9 +1618,110 @@ func TestRuntimeWiringVisionDefaults(t *testing.T) {
 	}
 }
 
+func TestRuntimeWiringRawImageDetailUsesSelectedConnectionVariant(t *testing.T) {
+	for _, test := range []struct {
+		name       string
+		connection config.ProviderConnection
+		wantDetail string
+	}{
+		{
+			name: "first-party Responses despite capability override",
+			connection: config.ProviderConnection{
+				Protocol: config.ConnectionResponses, Endpoint: textutil.Value(config.DefaultOpenAIResponsesEndpoint),
+				Capabilities: config.ProviderCapabilitiesOverride{ProviderID: "compatible", SupportsResponsesAPI: true},
+			},
+			wantDetail: "original",
+		},
+		{
+			name: "ChatGPT despite capability override",
+			connection: config.ProviderConnection{
+				Protocol:     config.ConnectionChatGPT,
+				Capabilities: config.ProviderCapabilitiesOverride{ProviderID: "compatible", SupportsResponsesAPI: true},
+			},
+			wantDetail: "original",
+		},
+		{
+			name: "compatible endpoint despite first-party override",
+			connection: config.ProviderConnection{
+				Protocol: config.ConnectionResponses, Endpoint: textutil.Value("https://example.test/v1"),
+				Capabilities: config.ProviderCapabilitiesOverride{ProviderID: "openai", SupportsResponsesAPI: true, IsOpenAIFirstParty: true},
+			},
+			wantDetail: "auto",
+		},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			root := t.TempDir()
+			store := newRuntimeWireSession(t, root, "raw-image-detail")
+			id := config.ConnectionID("selected")
+			active := runtimeWireShellSettings(config.ShellPostprocessingModeBuiltin, nil)
+			active.Model = "gpt-6-luna"
+			active.ModelCapabilities.SupportsVisionInputs = true
+			active.Connection = config.SingleConnection(id)
+			active.ConnectionOrder = []config.ConnectionID{id}
+			active.Connections = map[config.ConnectionID]config.ProviderConnection{id: test.connection}
+
+			wiring, err := newTestRuntimeWiringWithBackground(t,
+				store, materializedRuntimeWireEventLog(t, store), active,
+				[]toolspec.ID{toolspec.ToolViewImage}, nil, nil, nil,
+				requiredRuntimeWireTestOptions(RuntimeWiringOptions{
+					Client:            &runtimewireCaptureClient{},
+					FilesystemContext: runtimeWireFilesystemContext(t, root),
+					GlobalConfigDir:   t.TempDir(),
+				}),
+			)
+			if err != nil {
+				t.Fatal(err)
+			}
+			t.Cleanup(func() {
+				if err := wiring.Close(); err != nil {
+					t.Error(err)
+				}
+			})
+
+			var imageBytes bytes.Buffer
+			if err := png.Encode(&imageBytes, image.NewRGBA(image.Rect(0, 0, 1, 1))); err != nil {
+				t.Fatal(err)
+			}
+			imagePath := filepath.Join(root, "image.png")
+			if err := os.WriteFile(imagePath, imageBytes.Bytes(), 0o600); err != nil {
+				t.Fatal(err)
+			}
+			handler, ok := wiring.LocalTools.registry.Get(toolspec.ToolViewImage)
+			if !ok {
+				t.Fatal("missing view_image handler")
+			}
+			result, err := handler.Call(context.Background(), tools.Call{
+				ID: "raw-image", Name: toolspec.ToolViewImage,
+				Input: json.RawMessage(`{"path":"image.png","raw":true}`),
+			})
+			if err != nil {
+				t.Fatal(err)
+			}
+			if result.IsError {
+				t.Fatalf("view_image failed: %s", result.Output)
+			}
+			var items []struct {
+				Type     string `json:"type"`
+				Detail   string `json:"detail"`
+				ImageURL string `json:"image_url"`
+			}
+			if err := json.Unmarshal(result.Output, &items); err != nil {
+				t.Fatal(err)
+			}
+			if len(items) != 1 || items[0].Type != "input_image" || items[0].Detail != test.wantDetail {
+				t.Fatalf("raw image content = %+v, want detail %q", items, test.wantDetail)
+			}
+			payload, err := base64.StdEncoding.DecodeString(strings.TrimPrefix(items[0].ImageURL, "data:image/png;base64,"))
+			if err != nil || !bytes.Equal(payload, imageBytes.Bytes()) {
+				t.Fatalf("raw image bytes = %d bytes, want original %d bytes: %v", len(payload), imageBytes.Len(), err)
+			}
+		})
+	}
+}
+
 func TestReviewerModelCapabilitiesHonorInheritedExplicitFalseSources(t *testing.T) {
 	locked := lockedModelCapabilitiesForConfig(
-		"gpt-5",
+		"gpt-6-sol",
 		config.ModelCapabilitiesOverride{SupportsReasoningEffort: false},
 		llm.ProviderCapabilities{},
 		map[string]config.Origin{"model_capabilities.supports_reasoning_effort": {Kind: config.SourceInput, Property: config.PropertyAddress{Key: "model_capabilities.supports_reasoning_effort"}}},
@@ -1730,7 +1836,7 @@ func newRuntimeWireBinding(t *testing.T, workspace string, enabled ...toolspec.I
 
 func newRuntimeWireEngine(t *testing.T, store *session.Store, client llm.Client, cfg ...runtime.Config) *runtime.Engine {
 	t.Helper()
-	engineConfig := runtime.Config{Model: "gpt-5"}
+	engineConfig := runtime.Config{Model: "gpt-6-sol"}
 	if len(cfg) > 0 {
 		engineConfig = cfg[0]
 	}
@@ -1803,7 +1909,7 @@ func (f *runtimewireCaptureClient) Generate(ctx context.Context, req llm.Request
 	defer f.mu.Unlock()
 	f.calls = append(f.calls, req)
 	if len(f.responses) == 0 {
-		return llm.Response{}, errors.New("no fake response configured")
+		return llm.Response{}, scriptedllm.ErrScriptExhausted
 	}
 	resp := f.responses[0]
 	f.responses = f.responses[1:]
@@ -1828,7 +1934,7 @@ func (f *busyToggleFakeClient) Generate(ctx context.Context, _ llm.Request, _ ll
 	defer f.mu.Unlock()
 	f.calls++
 	if len(f.responses) == 0 {
-		return llm.Response{}, errors.New("no fake response configured")
+		return llm.Response{}, scriptedllm.ErrScriptExhausted
 	}
 	resp := f.responses[0]
 	f.responses = f.responses[1:]

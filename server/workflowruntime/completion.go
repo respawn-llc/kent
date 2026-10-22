@@ -139,7 +139,6 @@ type TransitionInstruction struct {
 
 type AgentCompletionProvenance struct {
 	ScopeID runtimeids.ExecutionScopeID
-	RunID   runtimeids.RunID
 	StepID  runtimeids.StepID
 }
 

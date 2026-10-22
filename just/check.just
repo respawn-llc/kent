@@ -27,5 +27,5 @@ rust mode="":
 
 docs mode="":
     just _lint docs {{mode}}
-    node --test docs/scripts/sync-mirrored-docs.test.mjs
+    just test docs
     just build docs

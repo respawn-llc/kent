@@ -6,6 +6,7 @@ import (
 	"testing"
 
 	modelstub "core/internal/testharness/pty/blackbox"
+	"core/internal/testharness/requestfixture"
 	"core/internal/testharness/testsetup"
 	"core/server/auth"
 	"core/server/session"
@@ -30,7 +31,7 @@ func TestHeadlessDefaultSelectionSurvivesRuntimeActivation(t *testing.T) {
 		cfg.Settings = testsetup.WriteProviderSettings(t, cfg.PersistenceRoot, testsetup.WithResponsesProvider(cfg.Settings, provider.URL))
 		cfg.Settings.Reviewer.Frequency = "off"
 		cfg.Settings.Subagents[config.DefaultSubagentRole] = config.SubagentRole{
-			Settings: config.Settings{Model: "gpt-5-mini"},
+			Settings: config.Settings{Model: "gpt-6-luna"},
 			Sources:  map[string]config.Origin{"model": {Kind: config.SourceInput, Property: config.PropertyAddress{Key: "model"}}},
 		}
 		cfg.Settings.Subagents["worker"] = config.SubagentRole{}
@@ -43,16 +44,26 @@ func TestHeadlessDefaultSelectionSurvivesRuntimeActivation(t *testing.T) {
 			t.Fatal(err)
 		}
 		authManager := auth.NewManager(auth.NewMemoryStore(auth.EmptyState()), nil)
+		authority, liveRunObserver := newObservedTestHeadlessRuntimeAuthority(
+			t,
+			root,
+			store,
+			nil,
+			authManager,
+			nil,
+			persistence.Options()...,
+		)
 
 		client := NewInProcessRunPromptClient(HeadlessBootstrap{
-			SessionLaunch:    newTestHeadlessSessionLaunch(cfg, containerDir, authManager, persistence),
-			RuntimeAuthority: newTestHeadlessRuntimeAuthority(root, authManager, nil, persistence.Options()...),
+			SessionLaunch:    newTestHeadlessSessionLaunch(t, cfg, containerDir, authManager, persistence),
+			RuntimeAuthority: authority,
+			LiveRunObserver:  liveRunObserver,
 		})
-		_, err = client.RunPrompt(t.Context(), serverapi.RunPromptRequest{
+		_, err = client.RunPrompt(t.Context(), requestfixture.RunPrompt(t, serverapi.RunPromptRequest{
 			Intent:    serverapi.OpenExistingSessionLaunchIntent(mustRunPromptSessionID(t, store.Meta().SessionID)),
 			Prompt:    "finish",
 			Overrides: serverapi.RunPromptOverrides{AgentRole: textutil.Value(config.DefaultSubagentRole)},
-		}, nil)
+		}), nil)
 		if err != nil {
 			t.Fatal(err)
 		}

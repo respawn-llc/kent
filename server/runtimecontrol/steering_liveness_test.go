@@ -11,7 +11,6 @@ import (
 	"core/server/llm"
 	"core/server/runtime"
 	"core/server/tools"
-	"core/shared/config"
 	runtimepb "core/shared/protoapi/gen/kent/api/runtime"
 	"core/shared/textutil"
 	"core/shared/toolspec"
@@ -72,7 +71,7 @@ func TestServiceRepeatedConcurrentSteersDrainWithoutInterrupt(t *testing.T) {
 	})
 	exchange := nextSteeringExchange(t, client)
 	policy := engine.LiveChatContextSnapshot().Policy
-	nearThreshold := int(policy.AutomaticThresholdTokens) - config.DefaultPreSubmitRunwayTokens/2 - exchange.request.MaxTokens
+	nearThreshold := int(policy.AutomaticThresholdTokens) - 17_500 - exchange.request.MaxTokens
 	wantMessages := []string{"start"}
 	for round := range 12 {
 		done := make(chan error, 3)
@@ -115,7 +114,7 @@ func TestServiceRepeatedConcurrentSteersDrainWithoutInterrupt(t *testing.T) {
 				ID: fmt.Sprintf("call-%d", round), Name: string(toolspec.ToolExecCommand),
 				Input: json.RawMessage(`{"cmd":":"}`),
 			}},
-			Usage: llm.Usage{InputTokens: inputTokens, WindowTokens: int(policy.ContextWindowTokens)},
+			Usage: llm.Usage{InputTokens: textutil.Value(inputTokens), WindowTokens: int(policy.ContextWindowTokens), ContextUsage: &llm.ContextUsage{Tokens: inputTokens, MeasurementPoint: llm.ContextMeasurementInput}},
 		}
 		exchange = nextSteeringExchange(t, client)
 		var gotMessages []string

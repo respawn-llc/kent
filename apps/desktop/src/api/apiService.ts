@@ -1,4 +1,4 @@
-import type { AttentionNotificationEventHandler } from "./attentionNotifications";
+import type { AttentionNotificationLifecycle } from "./attentionNotifications";
 import type * as Stream from "effect/Stream";
 import type { ProjectObservation } from "./projectEvents";
 import type {
@@ -82,9 +82,9 @@ import type {
   CreateSuccess,
   CreateTargetResolveSuccess,
   DeleteSuccess,
-  ListSuccess,
+  ListSuccessValid as ListSuccess,
   ScheduledAcknowledgement,
-  SelectorResolveSuccess,
+  SelectorResolveSuccessValid as SelectorResolveSuccess,
   StatusSuccess,
 } from "@app/server-api-contract/gen/kent/api/worktree/worktree_pb";
 import type { WorkflowProjectEventHandler } from "./workflowProjectEvents";
@@ -92,16 +92,22 @@ import type { TaskSearchInput, TaskSearchResponse } from "./taskSearch";
 import type { ChatApi } from "./chat";
 import type { ChatSessionTarget } from "./chatTypes";
 import type { PendingPrompt } from "./promptModels";
-import type { DesktopProcess } from "./processes";
+import type { DesktopProcess, ProcessObservationError } from "./processes";
+import type { SubscriptionConnection, SubscriptionBinding, SubscriptionUsage } from "./subscriptionUsage";
 
 export type ApiSubscription = Readonly<{
   close(): void;
 }>;
 
 export interface ApiService {
+  getSubscriptionConnections(): Promise<readonly SubscriptionConnection[]>;
+  getSubscriptionBinding(sessionID: string): Promise<SubscriptionBinding | null>;
+  getSubscriptionUsage(connectionID: string): Promise<SubscriptionUsage | null>;
   readonly chat: ChatApi;
 
-  listProcesses(target: ChatSessionTarget): Promise<readonly DesktopProcess[]>;
+  observeProcesses(
+    target: ChatSessionTarget,
+  ): Stream.Stream<readonly DesktopProcess[], ProcessObservationError>;
   killProcess(processID: string): Promise<void>;
   getReadiness(): Promise<ServerReadiness>;
   listProjects(pageToken: string | null): Promise<ProjectPage>;
@@ -161,7 +167,7 @@ export interface ApiService {
   deleteWorkflow(input: WorkflowDeleteInput): Promise<WorkflowDeleteResponse>;
   listProjectWorkflowLinks(projectID: string): Promise<readonly ProjectWorkflowLink[]>;
   listBoardNodeCards(input: BoardNodeCardsInput): Promise<BoardNodeCardsPage>;
-  listAttention(pageToken: string): Promise<AttentionPage>;
+  listAttention(pageToken: string | null): Promise<AttentionPage>;
   listTaskAttention(taskID: string): Promise<TaskAttention>;
   createTask(input: TaskMutationInput): Promise<CreatedTaskSummary>;
   addTaskDependency(blockerTaskID: string, blockedTaskID: string): Promise<TaskDependencyMutationResponse>;
@@ -192,7 +198,9 @@ export interface ApiService {
   listPendingPrompts(sessionID: string): Promise<readonly PendingPrompt[]>;
   subscribeProject(projectID: string): Stream.Stream<ProjectObservation>;
   subscribeWorkflow(workflowID: string, handler: WorkflowProjectEventHandler): ApiSubscription;
-  subscribeAttentionNotifications(handler: AttentionNotificationEventHandler): ApiSubscription;
+  subscribeAttentionNotifications(
+    reportOverflow: () => Promise<void>,
+  ): Stream.Stream<AttentionNotificationLifecycle>;
   getWorktreeStatus(sessionID: string): Promise<StatusSuccess>;
   listWorktrees(sessionID: string): Promise<ListSuccess>;
   resolveWorktreeSelector(sessionID: string, selector: string): Promise<SelectorResolveSuccess>;

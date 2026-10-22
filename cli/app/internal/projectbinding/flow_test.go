@@ -15,12 +15,12 @@ import (
 )
 
 type testServer struct {
-	cfg       config.App
+	cfg       config.Connection
 	client    apicontract.ProjectViewService
 	bindCalls []serverapi.ProjectBinding
 }
 
-func (s *testServer) Config() config.App { return s.cfg }
+func (s *testServer) Connection() config.Connection { return s.cfg }
 
 func (s *testServer) PresentationTheme() string { return "dark" }
 func (s *testServer) ProjectViewClient() apicontract.ProjectViewService {
@@ -81,7 +81,7 @@ func TestEnsureInteractiveBindsExistingPlan(t *testing.T) {
 			WorkspaceStatus: projectpb.ProjectAvailability_PROJECT_AVAILABILITY_AVAILABLE,
 		},
 	}}
-	server := &testServer{cfg: config.App{WorkspaceRoot: "/workspace"}, client: projectClient}
+	server := &testServer{cfg: config.Connection{WorkspaceRoot: "/workspace"}, client: projectClient}
 
 	bound, err := EnsureInteractive[*testServer](context.Background(), Request[*testServer]{Server: server})
 	if err != nil {
@@ -107,7 +107,7 @@ func TestEnsureInteractiveCreatesProjectForLocalUnboundPath(t *testing.T) {
 			WorkspaceStatus: projectpb.ProjectAvailability_PROJECT_AVAILABILITY_AVAILABLE,
 		}},
 	}
-	server := &testServer{cfg: config.App{WorkspaceRoot: "/tmp/workspace"}, client: projectClient}
+	server := &testServer{cfg: config.Connection{WorkspaceRoot: "/tmp/workspace"}, client: projectClient}
 
 	_, err := EnsureInteractive[*testServer](context.Background(), Request[*testServer]{
 		Server: server,
@@ -136,7 +136,7 @@ func TestEnsureInteractiveCreatesProjectForLocalUnboundPath(t *testing.T) {
 
 func TestEnsureInteractivePropagatesCanceledPicker(t *testing.T) {
 	projectClient := &testProjectViewClient{plan: projectpb.PlanWorkspaceBindingSuccess{Kind: projectpb.WorkspaceBindingPlanKind_WORKSPACE_BINDING_PLAN_KIND_LOCAL_UNBOUND}}
-	server := &testServer{cfg: config.App{WorkspaceRoot: "/workspace"}, client: projectClient}
+	server := &testServer{cfg: config.Connection{WorkspaceRoot: "/workspace"}, client: projectClient}
 
 	_, err := EnsureInteractive[*testServer](context.Background(), Request[*testServer]{
 		Server: server,

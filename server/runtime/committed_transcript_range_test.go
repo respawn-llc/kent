@@ -24,7 +24,7 @@ func TestAssistantMessageAfterCacheWarningOwnsOnlyAssistantRange(t *testing.T) {
 		&fakeClient{},
 		tools.NewRegistry(),
 		Config{
-			Model:            "gpt-5",
+			Model:            "gpt-6-sol",
 			CacheWarningMode: config.CacheWarningModeVerbose,
 			OnEvent:          func(event Event) { events = append(events, event) },
 		},
@@ -32,7 +32,7 @@ func TestAssistantMessageAfterCacheWarningOwnsOnlyAssistantRange(t *testing.T) {
 	stepID := runtimeTestStepID("step")
 	restoreStep := setTestActiveStep(engine, stepID)
 	defer restoreStep()
-	if err := engine.observeProviderResponse(stepID, llm.Request{Model: "gpt-5"}, modelcontract.ProviderOperationPurposeGeneration, preparedCacheRequestObservation{
+	if err := engine.observeProviderResponse(stepID, llm.Request{Model: "gpt-6-sol", ReasoningEffort: "high"}, modelcontract.ProviderOperationPurposeGeneration, preparedCacheRequestObservation{
 		request: persistedCacheRequestObserved{
 			DigestVersion: requestCacheDigestVersion,
 			CacheKey:      "cache-key",
@@ -102,7 +102,7 @@ func TestFinalAnswerToolMaterializationPublishesToolCallBeforeLocalEntry(t *test
 			Handler: fakeTool{name: toolspec.ToolExecCommand},
 		}),
 		Config{
-			Model:   "gpt-5",
+			Model:   "gpt-6-sol",
 			OnEvent: func(event Event) { events = append(events, event) },
 		},
 	)
@@ -194,7 +194,7 @@ func TestStepLoopPublishesCommentaryToolEnvelopeBeforeReasoningAndToolResults(t 
 			Handler: fakeTool{name: toolspec.ToolExecCommand},
 		}),
 		Config{
-			Model:   "gpt-5",
+			Model:   "gpt-6-sol",
 			OnEvent: func(event Event) { events = append(events, event) },
 		},
 	)
@@ -265,7 +265,7 @@ func TestStepLoopPersistsReasoningAsDetailLocalEntry(t *testing.T) {
 		client,
 		tools.NewRegistry(),
 		Config{
-			Model:   "gpt-5",
+			Model:   "gpt-6-sol",
 			OnEvent: func(event Event) { events = append(events, event) },
 		},
 	)
@@ -317,6 +317,7 @@ func TestDeveloperContextTranscriptRowsRespectVisibilityMatrix(t *testing.T) {
 		visibility  transcript.EntryVisibility
 	}{
 		{llm.MessageTypeSubagents, transcript.EntryVisibilityDetail},
+		{llm.MessageTypeWorkspaces, transcript.EntryVisibilityDetail},
 		{llm.MessageTypeWorkflowMode, transcript.EntryVisibilityOngoingCollapsed},
 		{llm.MessageTypeWorktreeMode, transcript.EntryVisibilityOngoing},
 		{llm.MessageTypeWorktreeModeExit, transcript.EntryVisibilityOngoing},
@@ -425,7 +426,7 @@ func TestTranscriptHydrationRetainsAdjacentRowsAroundProviderEmptyAssistant(t *t
 		}
 	}
 
-	engine := mustNewTestEngine(t, store, &fakeClient{}, tools.NewRegistry(), Config{Model: "gpt-5"})
+	engine := mustNewTestEngine(t, store, &fakeClient{}, tools.NewRegistry(), Config{Model: "gpt-6-sol"})
 	restoreStep := setTestActiveStep(engine, "compaction")
 	defer restoreStep()
 	rows := mustNewestTranscriptFacts(t, engine)
@@ -443,7 +444,7 @@ func TestTranscriptHydrationRetainsAdjacentRowsAroundProviderEmptyAssistant(t *t
 func TestReopenedCompactionPublishesVisibleTranscriptCoordinates(t *testing.T) {
 	t.Parallel()
 	store := mustCreateTestSession(t)
-	engine := mustNewTestEngine(t, store, &fakeClient{}, tools.NewRegistry(), Config{Model: "gpt-5"})
+	engine := mustNewTestEngine(t, store, &fakeClient{}, tools.NewRegistry(), Config{Model: "gpt-6-sol"})
 	for _, role := range []string{
 		string(transcript.EntryRoleSystem),
 		string(transcript.EntryRoleSystem),
@@ -454,17 +455,11 @@ func TestReopenedCompactionPublishesVisibleTranscriptCoordinates(t *testing.T) {
 	}
 	if err := steerTestActiveStep(engine,
 		"compaction",
-		steerHistoryReplacementIntent(
-			"local",
-			compactionModeAuto,
-			1,
-			nil,
-			llm.ItemsFromMessages([]llm.Message{{
-				Role:        llm.RoleUser,
-				MessageType: textutil.Value(llm.MessageTypeCompactionSummary),
-				Content:     textutil.Value("summary"),
-			}}),
-		),
+		steerTestPreparedHistoryIntent("local", compactionModeAuto, 1, nil, preparedCompactionHistory{items: llm.ItemsFromMessages([]llm.Message{{
+			Role:        llm.RoleUser,
+			MessageType: textutil.Value(llm.MessageTypeCompactionSummary),
+			Content:     textutil.Value("summary"),
+		}})}),
 	); err != nil {
 		t.Fatalf("persist history replacement: %v", err)
 	}
@@ -482,7 +477,7 @@ func TestReopenedCompactionPublishesVisibleTranscriptCoordinates(t *testing.T) {
 		&fakeClient{},
 		tools.NewRegistry(),
 		Config{
-			Model:   "gpt-5",
+			Model:   "gpt-6-sol",
 			OnEvent: func(event Event) { events = append(events, event) },
 		},
 	)
@@ -518,7 +513,7 @@ func TestHistoryReplacementPublishesPreservedUserMessageBeforeFollowingLocalEntr
 		&fakeClient{},
 		tools.NewRegistry(),
 		Config{
-			Model:   "gpt-5",
+			Model:   "gpt-6-sol",
 			OnEvent: func(event Event) { events = append(events, event) },
 		},
 	)
@@ -528,20 +523,14 @@ func TestHistoryReplacementPublishesPreservedUserMessageBeforeFollowingLocalEntr
 	if !ok {
 		t.Fatal("expected typed compaction-preserved user message")
 	}
-	if err := engine.steer(runtimeTestStepID("compaction"), steerHistoryReplacementIntent(
-		"local",
-		compactionModeManual,
-		1,
-		nil,
-		llm.ItemsFromMessages([]llm.Message{
-			{
-				Role:        llm.RoleUser,
-				MessageType: textutil.Value(llm.MessageTypeCompactionSummary),
-				Content:     textutil.Value("summary"),
-			},
-			carryover,
-		}),
-	),
+	if err := engine.steer(runtimeTestStepID("compaction"), steerTestPreparedHistoryIntent("local", compactionModeManual, 1, nil, preparedCompactionHistory{items: llm.ItemsFromMessages([]llm.Message{
+		{
+			Role:        llm.RoleUser,
+			MessageType: textutil.Value(llm.MessageTypeCompactionSummary),
+			Content:     textutil.Value("summary"),
+		},
+		carryover,
+	})}),
 	); err != nil {
 		t.Fatalf("persist manual history replacement: %v", err)
 	}

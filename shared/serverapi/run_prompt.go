@@ -8,8 +8,17 @@ import (
 	"time"
 
 	"core/shared/config"
+	chatsettingspb "core/shared/protoapi/gen/kent/api/chat_settings"
 	runpromptpb "core/shared/protoapi/gen/kent/api/run_prompt"
 )
+
+type RunSelectionRejectedError struct {
+	Reason chatsettingspb.MutationRejectionReason
+}
+
+func (*RunSelectionRejectedError) Error() string {
+	return "Run selection rejected"
+}
 
 type RunPromptRequest struct {
 	Intent          SessionLaunchIntent `json:"intent"`
@@ -17,29 +26,6 @@ type RunPromptRequest struct {
 	Prompt          string              `json:"prompt"`
 	Timeout         time.Duration       `json:"timeout"`
 	Overrides       RunPromptOverrides  `json:"overrides,omitempty"`
-}
-
-func ValidateOptionalIdentifier(field string, value *string) error {
-	if value == nil {
-		return nil
-	}
-	if strings.TrimSpace(*value) == "" {
-		return fmt.Errorf("%s must not be empty", field)
-	}
-	return nil
-}
-
-func (r RunPromptRequest) Validate() error {
-	if strings.TrimSpace(r.Prompt) == "" {
-		return errors.New("prompt is required")
-	}
-	if err := r.Intent.Validate(); err != nil {
-		return fmt.Errorf("intent: %w", err)
-	}
-	if err := ValidateOptionalIdentifier("caller_session_id", r.CallerSessionID); err != nil {
-		return err
-	}
-	return r.Overrides.ValidateAgentRoleOverride()
 }
 
 type RunPromptOverrides struct {

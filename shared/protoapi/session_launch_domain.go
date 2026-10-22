@@ -17,39 +17,21 @@ import (
 )
 
 func SessionPlanErrorFromProto(failure *sessionlaunchpb.SessionPlanError) error {
-	if err := Validate(failure); err != nil {
-		return err
-	}
 	switch detail := failure.Detail.(type) {
 	case *sessionlaunchpb.SessionPlanError_WorkspaceNotRegistered:
 		return serverapi.ErrWorkspaceNotRegistered
 	case *sessionlaunchpb.SessionPlanError_SubagentLaunchDenied:
-		kind, err := subagentLaunchDenialKindFromProto(detail.SubagentLaunchDenied.Kind)
-		if err != nil {
-			return err
-		}
-		return &serverapi.SubagentLaunchDeniedError{
-			Kind:           kind,
-			Target:         clonePointer(detail.SubagentLaunchDenied.Target),
-			AvailableRoles: append([]string(nil), detail.SubagentLaunchDenied.AvailableRoles...),
-		}
+		return SubagentLaunchDeniedFromProto(detail.SubagentLaunchDenied)
 	case *sessionlaunchpb.SessionPlanError_MaxDepthExceeded:
 		return protocol.NewMaxDepthExceededSubagentLaunchPolicyError(
 			int(detail.MaxDepthExceeded.AttemptedDepth),
 			int(detail.MaxDepthExceeded.MaxDepth),
 		)
 	case *sessionlaunchpb.SessionPlanError_LineageCorrupt:
-		repeated, err := runtimeids.ParseSessionID(detail.LineageCorrupt.RepeatedSessionId)
-		if err != nil {
-			return err
-		}
+		repeated := runtimeids.SessionIDFromProto(detail.LineageCorrupt.RepeatedSessionId)
 		visited := make([]runtimeids.SessionID, 0, len(detail.LineageCorrupt.VisitedSessionIds))
 		for _, raw := range detail.LineageCorrupt.VisitedSessionIds {
-			sessionID, parseErr := runtimeids.ParseSessionID(raw)
-			if parseErr != nil {
-				return parseErr
-			}
-			visited = append(visited, sessionID)
+			visited = append(visited, runtimeids.SessionIDFromProto(raw))
 		}
 		return protocol.NewLineageCorruptSubagentLaunchPolicyError(repeated, visited)
 	default:
@@ -76,16 +58,13 @@ func SessionPlanErrorToProto(
 	default:
 		var denied *serverapi.SubagentLaunchDeniedError
 		if errors.As(err, &denied) {
-			kind, conversionErr := subagentLaunchDenialKindToProto(denied.Kind)
+			details, conversionErr := SubagentLaunchDeniedToProto(denied)
 			if conversionErr != nil {
 				return nil, true, conversionErr
 			}
 			failure.Code = "subagent_launch_denied"
 			failure.Detail = &sessionlaunchpb.SessionPlanError_SubagentLaunchDenied{
-				SubagentLaunchDenied: &sessionlaunchpb.SubagentLaunchDeniedDetails{
-					Kind: kind, Target: clonePointer(denied.Target),
-					AvailableRoles: append([]string(nil), denied.AvailableRoles...),
-				},
+				SubagentLaunchDenied: details,
 			}
 			break
 		}
@@ -128,77 +107,68 @@ func SessionPlanErrorToProto(
 			return nil, true, fmt.Errorf("subagent launch policy kind %q is unsupported", policy.Kind)
 		}
 	}
-	if validationErr := Validate(failure); validationErr != nil {
-		return nil, true, validationErr
-	}
 	return failure, true, nil
 }
 
-func SessionLaunchIntentToProto(intent serverapi.SessionLaunchIntent) (*sessionlaunchpb.SessionLaunchIntent, error) {
-	if err := intent.Validate(); err != nil {
+func SubagentLaunchDeniedFromProto(details *sessionlaunchpb.SubagentLaunchDeniedDetails) error {
+	kind := subagentLaunchDenialKindValues[details.Kind]
+	return &serverapi.SubagentLaunchDeniedError{
+		Kind:           kind,
+		Target:         clonePointer(details.Target),
+		AvailableRoles: append([]string(nil), details.AvailableRoles...),
+	}
+}
+
+func SubagentLaunchDeniedToProto(denied *serverapi.SubagentLaunchDeniedError) (*sessionlaunchpb.SubagentLaunchDeniedDetails, error) {
+	kind, err := subagentLaunchDenialKindToProto(denied.Kind)
+	if err != nil {
 		return nil, err
 	}
+	details := &sessionlaunchpb.SubagentLaunchDeniedDetails{
+		Kind: kind, Target: clonePointer(denied.Target),
+		AvailableRoles: append([]string(nil), denied.AvailableRoles...),
+	}
+	return details, nil
+}
+
+func SessionLaunchIntentToProto(intent serverapi.SessionLaunchIntent) (*sessionlaunchpb.SessionLaunchIntent, error) {
 	message := &sessionlaunchpb.SessionLaunchIntent{}
 	switch intent.Kind() {
 	case serverapi.SessionLaunchIntentCreateNew:
-		origin, present := intent.CreateOrigin()
-		if !present {
-			return nil, errors.New("session launch create origin is required")
-		}
+		origin, _ := intent.CreateOrigin()
 		converted, err := sessionCreateOriginToProto(origin)
 		if err != nil {
 			return nil, err
 		}
 		message.Intent = &sessionlaunchpb.SessionLaunchIntent_CreateNew{CreateNew: converted}
 	case serverapi.SessionLaunchIntentOpenExisting:
-		sessionID, present := intent.SessionID()
-		if !present {
-			return nil, errors.New("open-existing session id is required")
-		}
+		sessionID, _ := intent.SessionID()
 		message.Intent = &sessionlaunchpb.SessionLaunchIntent_OpenExistingSessionId{
 			OpenExistingSessionId: sessionID.String(),
 		}
 	default:
 		return nil, fmt.Errorf("session launch intent kind %q is unsupported", intent.Kind())
 	}
-	return message, Validate(message)
+	return message, nil
 }
 
-func SessionLaunchIntentFromProto(message *sessionlaunchpb.SessionLaunchIntent) (serverapi.SessionLaunchIntent, error) {
-	if message == nil {
-		return serverapi.SessionLaunchIntent{}, errors.New("generated Session launch intent is required")
-	}
+func SessionLaunchIntentFromProto(message *sessionlaunchpb.SessionLaunchIntent) serverapi.SessionLaunchIntent {
 	switch intent := message.Intent.(type) {
 	case *sessionlaunchpb.SessionLaunchIntent_CreateNew:
-		origin, err := sessionCreateOriginFromProto(intent.CreateNew)
-		if err != nil {
-			return serverapi.SessionLaunchIntent{}, err
-		}
-		return serverapi.CreateNewSessionLaunchIntent(origin), nil
-	case *sessionlaunchpb.SessionLaunchIntent_OpenExistingSessionId:
-		sessionID, err := runtimeids.ParseSessionID(intent.OpenExistingSessionId)
-		if err != nil {
-			return serverapi.SessionLaunchIntent{}, err
-		}
-		return serverapi.OpenExistingSessionLaunchIntent(sessionID), nil
+		return serverapi.CreateNewSessionLaunchIntent(sessionCreateOriginFromProto(intent.CreateNew))
 	default:
-		return serverapi.SessionLaunchIntent{}, fmt.Errorf("protobuf session launch intent %T is unsupported", message.Intent)
+		existing := message.Intent.(*sessionlaunchpb.SessionLaunchIntent_OpenExistingSessionId)
+		return serverapi.OpenExistingSessionLaunchIntent(runtimeids.SessionIDFromProto(existing.OpenExistingSessionId))
 	}
 }
 
 func sessionCreateOriginToProto(origin serverapi.SessionCreateOrigin) (*sessionlaunchpb.SessionCreateOrigin, error) {
-	if err := origin.Validate(); err != nil {
-		return nil, err
-	}
 	message := &sessionlaunchpb.SessionCreateOrigin{}
 	switch origin.Kind() {
 	case serverapi.SessionCreateOriginIndependent:
 		message.Origin = &sessionlaunchpb.SessionCreateOrigin_Independent{Independent: &emptypb.Empty{}}
 	case serverapi.SessionCreateOriginPreviousSession, serverapi.SessionCreateOriginParentAgent:
-		sessionID, present := origin.SessionID()
-		if !present {
-			return nil, fmt.Errorf("%s session create origin id is required", origin.Kind())
-		}
+		sessionID, _ := origin.SessionID()
 		if origin.Kind() == serverapi.SessionCreateOriginPreviousSession {
 			message.Origin = &sessionlaunchpb.SessionCreateOrigin_PreviousSessionId{PreviousSessionId: sessionID.String()}
 		} else {
@@ -207,27 +177,19 @@ func sessionCreateOriginToProto(origin serverapi.SessionCreateOrigin) (*sessionl
 	default:
 		return nil, fmt.Errorf("session create origin kind %q is unsupported", origin.Kind())
 	}
-	return message, Validate(message)
+	return message, nil
 }
 
-func sessionCreateOriginFromProto(message *sessionlaunchpb.SessionCreateOrigin) (serverapi.SessionCreateOrigin, error) {
+func sessionCreateOriginFromProto(message *sessionlaunchpb.SessionCreateOrigin) serverapi.SessionCreateOrigin {
 	switch origin := message.Origin.(type) {
 	case *sessionlaunchpb.SessionCreateOrigin_Independent:
-		return serverapi.IndependentSessionCreateOrigin(), nil
+		return serverapi.IndependentSessionCreateOrigin()
 	case *sessionlaunchpb.SessionCreateOrigin_PreviousSessionId:
-		sessionID, err := runtimeids.ParseSessionID(origin.PreviousSessionId)
-		if err != nil {
-			return serverapi.SessionCreateOrigin{}, err
-		}
-		return serverapi.PreviousSessionCreateOrigin(sessionID), nil
-	case *sessionlaunchpb.SessionCreateOrigin_ParentAgentSessionId:
-		sessionID, err := runtimeids.ParseSessionID(origin.ParentAgentSessionId)
-		if err != nil {
-			return serverapi.SessionCreateOrigin{}, err
-		}
-		return serverapi.ParentAgentSessionCreateOrigin(sessionID), nil
+		sessionID := runtimeids.SessionIDFromProto(origin.PreviousSessionId)
+		return serverapi.PreviousSessionCreateOrigin(sessionID)
 	default:
-		return serverapi.SessionCreateOrigin{}, fmt.Errorf("protobuf session create origin %T is unsupported", message.Origin)
+		parent := message.Origin.(*sessionlaunchpb.SessionCreateOrigin_ParentAgentSessionId)
+		return serverapi.ParentAgentSessionCreateOrigin(runtimeids.SessionIDFromProto(parent.ParentAgentSessionId))
 	}
 }
 
@@ -247,13 +209,10 @@ func RunPromptOverridesToProto(overrides serverapi.RunPromptOverrides) (*session
 		}
 		message.ModelTimeoutSeconds = &value
 	}
-	return message, Validate(message)
+	return message, nil
 }
 
 func RunPromptOverridesFromProto(message *sessionlaunchpb.RunPromptOverrides) (serverapi.RunPromptOverrides, error) {
-	if message == nil {
-		return serverapi.RunPromptOverrides{}, errors.New("generated Run Prompt overrides are required")
-	}
 	overrides := serverapi.RunPromptOverrides{
 		AgentRole:     clonePointer(message.AgentRole),
 		Model:         dereference(message.Model),
@@ -280,9 +239,6 @@ func SessionRuntimeAgentSelectionFromProto(
 ) (*serverapi.SessionRuntimeAgentSelection, error) {
 	if message == nil {
 		return nil, nil
-	}
-	if err := Validate(message); err != nil {
-		return nil, err
 	}
 	return &serverapi.SessionRuntimeAgentSelection{
 		AgentRole: clonePointer(message.AgentRole),
@@ -313,85 +269,33 @@ func SessionRuntimeAgentSelectionToProto(selection *serverapi.SessionRuntimeAgen
 }
 
 func SessionToolIDToProto(toolID toolspec.ID) (sessionlaunchpb.ToolID, error) {
-	switch toolID {
-	case toolspec.ToolExecCommand:
-		return sessionlaunchpb.ToolID_TOOL_ID_EXEC_COMMAND, nil
-	case toolspec.ToolWriteStdin:
-		return sessionlaunchpb.ToolID_TOOL_ID_WRITE_STDIN, nil
-	case toolspec.ToolViewImage:
-		return sessionlaunchpb.ToolID_TOOL_ID_VIEW_IMAGE, nil
-	case toolspec.ToolPatch:
-		return sessionlaunchpb.ToolID_TOOL_ID_PATCH, nil
-	case toolspec.ToolEdit:
-		return sessionlaunchpb.ToolID_TOOL_ID_EDIT, nil
-	case toolspec.ToolAskQuestion:
-		return sessionlaunchpb.ToolID_TOOL_ID_ASK_QUESTION, nil
-	case toolspec.ToolCompleteNode:
-		return sessionlaunchpb.ToolID_TOOL_ID_COMPLETE_NODE, nil
-	case toolspec.ToolTriggerHandoff:
-		return sessionlaunchpb.ToolID_TOOL_ID_TRIGGER_HANDOFF, nil
-	case toolspec.ToolWebSearch:
-		return sessionlaunchpb.ToolID_TOOL_ID_WEB_SEARCH, nil
-	default:
-		return 0, fmt.Errorf("tool id %q is unsupported", toolID)
-	}
+	return enumToProto(sessionToolIDValues, toolID, "tool id")
 }
 
-func SessionToolIDFromProto(toolID sessionlaunchpb.ToolID) (toolspec.ID, error) {
-	switch toolID {
-	case sessionlaunchpb.ToolID_TOOL_ID_EXEC_COMMAND:
-		return toolspec.ToolExecCommand, nil
-	case sessionlaunchpb.ToolID_TOOL_ID_WRITE_STDIN:
-		return toolspec.ToolWriteStdin, nil
-	case sessionlaunchpb.ToolID_TOOL_ID_VIEW_IMAGE:
-		return toolspec.ToolViewImage, nil
-	case sessionlaunchpb.ToolID_TOOL_ID_PATCH:
-		return toolspec.ToolPatch, nil
-	case sessionlaunchpb.ToolID_TOOL_ID_EDIT:
-		return toolspec.ToolEdit, nil
-	case sessionlaunchpb.ToolID_TOOL_ID_ASK_QUESTION:
-		return toolspec.ToolAskQuestion, nil
-	case sessionlaunchpb.ToolID_TOOL_ID_COMPLETE_NODE:
-		return toolspec.ToolCompleteNode, nil
-	case sessionlaunchpb.ToolID_TOOL_ID_TRIGGER_HANDOFF:
-		return toolspec.ToolTriggerHandoff, nil
-	case sessionlaunchpb.ToolID_TOOL_ID_WEB_SEARCH:
-		return toolspec.ToolWebSearch, nil
-	default:
-		return "", fmt.Errorf("protobuf tool id %v is unsupported", toolID)
-	}
+func SessionToolIDFromProto(toolID sessionlaunchpb.ToolID) toolspec.ID {
+	return sessionToolIDValues[toolID]
+}
+
+var sessionToolIDValues = map[sessionlaunchpb.ToolID]toolspec.ID{
+	sessionlaunchpb.ToolID_TOOL_ID_EXEC_COMMAND:    toolspec.ToolExecCommand,
+	sessionlaunchpb.ToolID_TOOL_ID_WRITE_STDIN:     toolspec.ToolWriteStdin,
+	sessionlaunchpb.ToolID_TOOL_ID_VIEW_IMAGE:      toolspec.ToolViewImage,
+	sessionlaunchpb.ToolID_TOOL_ID_PATCH:           toolspec.ToolPatch,
+	sessionlaunchpb.ToolID_TOOL_ID_EDIT:            toolspec.ToolEdit,
+	sessionlaunchpb.ToolID_TOOL_ID_ASK_QUESTION:    toolspec.ToolAskQuestion,
+	sessionlaunchpb.ToolID_TOOL_ID_COMPLETE_NODE:   toolspec.ToolCompleteNode,
+	sessionlaunchpb.ToolID_TOOL_ID_TRIGGER_HANDOFF: toolspec.ToolTriggerHandoff,
+	sessionlaunchpb.ToolID_TOOL_ID_WEB_SEARCH:      toolspec.ToolWebSearch,
 }
 
 func subagentLaunchDenialKindToProto(kind serverapi.SubagentLaunchDenialKind) (sessionlaunchpb.SubagentLaunchDenialKind, error) {
-	switch kind {
-	case serverapi.SubagentLaunchDenialInvalidTarget:
-		return sessionlaunchpb.SubagentLaunchDenialKind_SUBAGENT_LAUNCH_DENIAL_KIND_INVALID_TARGET, nil
-	case serverapi.SubagentLaunchDenialTargetMissing:
-		return sessionlaunchpb.SubagentLaunchDenialKind_SUBAGENT_LAUNCH_DENIAL_KIND_TARGET_MISSING, nil
-	case serverapi.SubagentLaunchDenialNotCallable:
-		return sessionlaunchpb.SubagentLaunchDenialKind_SUBAGENT_LAUNCH_DENIAL_KIND_NOT_CALLABLE, nil
-	case serverapi.SubagentLaunchDenialCallerMissing:
-		return sessionlaunchpb.SubagentLaunchDenialKind_SUBAGENT_LAUNCH_DENIAL_KIND_CALLER_MISSING, nil
-	case serverapi.SubagentLaunchDenialParentMissing:
-		return sessionlaunchpb.SubagentLaunchDenialKind_SUBAGENT_LAUNCH_DENIAL_KIND_PARENT_MISSING, nil
-	default:
-		return 0, fmt.Errorf("subagent launch denial kind %q is unsupported", kind)
-	}
+	return enumToProto(subagentLaunchDenialKindValues, kind, "subagent launch denial kind")
 }
 
-func subagentLaunchDenialKindFromProto(kind sessionlaunchpb.SubagentLaunchDenialKind) (serverapi.SubagentLaunchDenialKind, error) {
-	switch kind {
-	case sessionlaunchpb.SubagentLaunchDenialKind_SUBAGENT_LAUNCH_DENIAL_KIND_INVALID_TARGET:
-		return serverapi.SubagentLaunchDenialInvalidTarget, nil
-	case sessionlaunchpb.SubagentLaunchDenialKind_SUBAGENT_LAUNCH_DENIAL_KIND_TARGET_MISSING:
-		return serverapi.SubagentLaunchDenialTargetMissing, nil
-	case sessionlaunchpb.SubagentLaunchDenialKind_SUBAGENT_LAUNCH_DENIAL_KIND_NOT_CALLABLE:
-		return serverapi.SubagentLaunchDenialNotCallable, nil
-	case sessionlaunchpb.SubagentLaunchDenialKind_SUBAGENT_LAUNCH_DENIAL_KIND_CALLER_MISSING:
-		return serverapi.SubagentLaunchDenialCallerMissing, nil
-	case sessionlaunchpb.SubagentLaunchDenialKind_SUBAGENT_LAUNCH_DENIAL_KIND_PARENT_MISSING:
-		return serverapi.SubagentLaunchDenialParentMissing, nil
-	default:
-		return "", fmt.Errorf("protobuf subagent launch denial kind %v is unsupported", kind)
-	}
+var subagentLaunchDenialKindValues = map[sessionlaunchpb.SubagentLaunchDenialKind]serverapi.SubagentLaunchDenialKind{
+	sessionlaunchpb.SubagentLaunchDenialKind_SUBAGENT_LAUNCH_DENIAL_KIND_INVALID_TARGET: serverapi.SubagentLaunchDenialInvalidTarget,
+	sessionlaunchpb.SubagentLaunchDenialKind_SUBAGENT_LAUNCH_DENIAL_KIND_TARGET_MISSING: serverapi.SubagentLaunchDenialTargetMissing,
+	sessionlaunchpb.SubagentLaunchDenialKind_SUBAGENT_LAUNCH_DENIAL_KIND_NOT_CALLABLE:   serverapi.SubagentLaunchDenialNotCallable,
+	sessionlaunchpb.SubagentLaunchDenialKind_SUBAGENT_LAUNCH_DENIAL_KIND_CALLER_MISSING: serverapi.SubagentLaunchDenialCallerMissing,
+	sessionlaunchpb.SubagentLaunchDenialKind_SUBAGENT_LAUNCH_DENIAL_KIND_PARENT_MISSING: serverapi.SubagentLaunchDenialParentMissing,
 }

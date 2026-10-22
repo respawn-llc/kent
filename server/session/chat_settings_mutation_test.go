@@ -77,6 +77,26 @@ func TestMutateChatSettingsSelectsDifferentAgentWithCompleteBaselineAtomically(t
 	}
 }
 
+func TestAgentReplacementClearsOnlyFrozenConfiguration(t *testing.T) {
+	store, observer := newChatSettingsMutationStore(t, ChatDraftState{
+		Agent: "worker", Settings: completeChatSettingsOverrides("edits", "medium", false, true, true),
+	})
+	if err := store.MarkModelDispatchLocked(LockedContract{Model: "old-model"}); err != nil {
+		t.Fatal(err)
+	}
+	before := store.Meta()
+	target := ChatSettingsState{AgentRole: textutil.Value("reviewer"), Settings: completeChatSettingsOverrides("all", "high", false, true, true)}
+	receipt, err := store.CommitChatSettingsState(target)
+	if err != nil {
+		t.Fatal(err)
+	}
+	after := observer.snapshot.Meta
+	if !receipt.Committed || after.Locked != nil || after.SessionID != before.SessionID || after.LastSequence != before.LastSequence || after.ModelRequestCount != before.ModelRequestCount {
+		t.Fatalf("replacement changed conversation facts or retained frozen configuration: %+v", after)
+	}
+	assertChatSettingsStateFromMeta(t, after, target.AgentRole, target.Settings)
+}
+
 func TestMutateChatSettingsSelectingCurrentAgentIsNoWriteNoOp(t *testing.T) {
 	store, observer := newChatSettingsMutationStore(t, ChatDraftState{
 		Agent:    "worker",
@@ -116,19 +136,20 @@ func TestMutateChatSettingsPreservesLockedUnavailableAgent(t *testing.T) {
 		Agent:    "removed-agent",
 		Settings: completeChatSettingsOverrides("all", "custom-depth", true, false, false),
 	})
-	if err := store.MarkModelDispatchLocked(LockedContract{Model: "gpt-5"}); err != nil {
+	if err := store.MarkModelDispatchLocked(LockedContract{Model: "gpt-6-sol"}); err != nil {
 		t.Fatalf("MarkModelDispatchLocked: %v", err)
 	}
 	before := store.Meta()
 	observer.called = false
-	result, err := store.CommitChatSettingsState(ChatSettingsState{Settings: completeChatSettingsOverrides("edits", "medium", false, true, true)})
-	if !errors.Is(err, ErrChatAgentLocked) {
-		t.Fatalf("locked Agent mutation error = %v, want ErrChatAgentLocked", err)
+	target := ChatSettingsState{AgentRole: textutil.Value("removed-agent"), Settings: completeChatSettingsOverrides("edits", "medium", false, true, true)}
+	result, err := store.CommitChatSettingsState(target)
+	if err != nil {
+		t.Fatal(err)
 	}
-	if result.Changed || result.Committed || observer.called {
-		t.Fatalf("locked Agent result = %+v, observer called=%v", result, observer.called)
+	if !result.Changed || !result.Committed || !observer.called || store.Meta().Locked.Model != before.Locked.Model {
+		t.Fatalf("non-Agent edit did not preserve locked configuration: %+v", result)
 	}
-	assertChatSettingsStateFromMeta(t, store.Meta(), textutil.Value("removed-agent"), before.ChatSettings)
+	assertChatSettingsStateFromMeta(t, store.Meta(), target.AgentRole, target.Settings)
 }
 
 func TestMutateChatSettingsObserverFailurePublishesOnlyCompleteAggregate(t *testing.T) {

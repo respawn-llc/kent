@@ -44,7 +44,7 @@ export function CustomThinkingEditor({
   }
   return (
     <SettingsRow reason={reason}>
-      <div className="grid min-w-0 flex-1 gap-[var(--space-2)]">
+      <div className="grid min-w-0 flex-1 gap-[var(--space-1)]">
         <ThinkingHeading value={thinking.value} />
         <div
           className="relative"

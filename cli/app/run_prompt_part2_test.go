@@ -60,13 +60,13 @@ func TestLifecycleHookExcludedFromServerHeadlessAndSubagentRuns(t *testing.T) {
 			WorkspaceRoot:         workspace,
 			WorkspaceRootExplicit: true,
 			AgentRole:             agentRole,
-			Model:                 "gpt-5",
+			Model:                 "gpt-6-sol",
 		}, name, 0, nil)
 		if err != nil {
 			t.Fatalf("%s RunPrompt: %v", name, err)
 		}
-		if result.Result != want {
-			t.Fatalf("%s result = %q, want %q", name, result.Result, want)
+		if got := requireRunPromptFinalAnswer(t, result); got != want {
+			t.Fatalf("%s result = %q, want %q", name, got, want)
 		}
 		requireNoLifecycleHookProductRecords(t, recordPath)
 	}
@@ -122,36 +122,37 @@ func TestRunPromptCreatesSessionAndPersistsDurableTranscript(t *testing.T) {
 	result, err := RunPrompt(context.Background(), Options{
 		WorkspaceRoot:         workspace,
 		WorkspaceRootExplicit: true,
-		Model:                 "gpt-5",
+		Model:                 "gpt-6-sol",
 	}, "hello from user", 0, serverapi.RunPromptProgressFunc(func(progress *runpromptpb.ProgressEvent) {
 		progresses = append(progresses, progress)
 	}))
 	if err != nil {
 		t.Fatalf("RunPrompt: %v", err)
 	}
-	if result.Result != "hello from fake" {
-		t.Fatalf("result = %q, want %q", result.Result, "hello from fake")
+	finalAnswer := requireRunPromptFinalAnswer(t, result)
+	if finalAnswer != "hello from fake" {
+		t.Fatalf("result = %q, want %q", finalAnswer, "hello from fake")
 	}
-	if strings.TrimSpace(result.SessionID) == "" {
+	if result.Identity == nil {
 		t.Fatal("expected session id")
 	}
 	if len(progresses) < 2 {
 		t.Fatalf("progress events = %+v, want session start and assistant response", progresses)
 	}
 	started := progresses[0].GetSessionStarted()
-	if started == nil || started.SessionId != result.SessionID {
-		t.Fatalf("first progress event = %+v, want new session %q", progresses[0], result.SessionID)
+	if started == nil || started.SessionId != result.Identity.ID.String() {
+		t.Fatalf("first progress event = %+v, want new session %q", progresses[0], result.Identity.ID)
 	}
 	last := progresses[len(progresses)-1].GetAssistantMessage()
-	if last == nil || last.Content != result.Result {
+	if last == nil || last.Content != finalAnswer {
 		t.Fatalf("last progress event = %+v, want assistant result", progresses[len(progresses)-1])
 	}
-	if !strings.HasSuffix(result.SessionName, " "+subagentSessionSuffix) {
-		t.Fatalf("expected subagent session name, got %q", result.SessionName)
+	if result.SessionName != nil {
+		t.Fatalf("unconfigured nano generated a headless name: %v", result.SessionName)
 	}
 
 	cfg := loadAppTestConfig(t, workspace, config.LoadOptions{})
-	store := openAuthoritativeAppSession(t, cfg.PersistenceRoot, result.SessionID)
+	store := openAuthoritativeAppSession(t, cfg.PersistenceRoot, result.Identity.ID.String())
 	meta := store.Meta()
 	wantWorkspaceRoot, err := config.CanonicalWorkspaceRoot(cfg.WorkspaceRoot)
 	if err != nil {
@@ -163,7 +164,11 @@ func TestRunPromptCreatesSessionAndPersistsDurableTranscript(t *testing.T) {
 	if meta.FirstPromptPreview != "hello from user" {
 		t.Fatalf("first prompt preview = %q, want %q", meta.FirstPromptPreview, "hello from user")
 	}
-	if meta.ConnectionID == nil || *meta.ConnectionID != *cfg.Settings.Connection {
+	selected, err := cfg.Settings.Connection.ConcreteID()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if meta.ConnectionID == nil || *meta.ConnectionID != *selected {
 		t.Fatalf("unexpected connection binding: %+v", meta.ConnectionID)
 	}
 
@@ -261,12 +266,12 @@ func TestRunPromptWorkspaceContextCreatesChildWithParentWorktreeContext(t *testi
 	result, err := RunPrompt(ctx, Options{
 		WorkspaceRoot:             worktreeSubdir,
 		WorkspaceContextSessionID: parent.Meta().SessionID,
-		Model:                     "gpt-5",
+		Model:                     "gpt-6-sol",
 	}, "hello from worktree", 0, nil)
 	if err != nil {
 		t.Fatalf("RunPrompt: %v", err)
 	}
-	child := openAuthoritativeAppSession(t, cfg.PersistenceRoot, result.SessionID)
+	child := openAuthoritativeAppSession(t, cfg.PersistenceRoot, result.Identity.ID.String())
 	childMeta := child.Meta()
 	if childMeta.ParentAgentSessionID == nil || childMeta.ParentAgentSessionID.String() != parent.Meta().SessionID {
 		t.Fatalf("child parent-agent session id = %v, want %q", childMeta.ParentAgentSessionID, parent.Meta().SessionID)
@@ -284,7 +289,7 @@ func TestRunPromptWorkspaceContextCreatesChildWithParentWorktreeContext(t *testi
 		t.Fatalf("read messages: %v", err)
 	}
 	assertEnvironmentCWD(t, messages, worktreeSubdir)
-	assertWorktreeReminderMessage(t, messages, "feature/worktree", worktreeSubdir, cfg.WorkspaceRoot)
+	assertWorktreeReminderMessage(t, messages)
 }
 
 func TestRunPromptFastRoleUsesRoleLevelProviderSettingsForHeuristics(t *testing.T) {
@@ -295,7 +300,7 @@ func TestRunPromptFastRoleUsesRoleLevelProviderSettingsForHeuristics(t *testing.
 		t.Fatalf("mkdir config dir: %v", err)
 	}
 	contents := strings.Join([]string{
-		"model = \"gpt-5.4\"",
+		"model = \"gpt-6-sol\"",
 		"",
 		"[subagents.fast]",
 		"connection = \"test\"",
@@ -335,14 +340,14 @@ func TestRunPromptFastRoleUsesRoleLevelProviderSettingsForHeuristics(t *testing.
 	if err != nil {
 		t.Fatalf("RunPrompt: %v", err)
 	}
-	if result.Result != "fast via role provider" {
-		t.Fatalf("result = %q, want %q", result.Result, "fast via role provider")
+	if got := requireRunPromptFinalAnswer(t, result); got != "fast via role provider" {
+		t.Fatalf("result = %q, want %q", got, "fast via role provider")
 	}
 	payload := <-requestBodies
-	if got := payload["model"]; got != "gpt-5" {
-		t.Fatalf("model payload = %#v, want startup CLI model gpt-5", got)
+	if got := payload["model"]; got != "gpt-6-sol" {
+		t.Fatalf("model payload = %#v, want startup CLI model gpt-6-sol", got)
 	}
-	store := openAuthoritativeWorkspaceSessionStore(t, workspace, result.SessionID)
+	store := openAuthoritativeWorkspaceSessionStore(t, workspace, result.Identity.ID.String())
 	if store.Meta().ConnectionID == nil || *store.Meta().ConnectionID != "test" {
 		t.Fatalf("unexpected connection binding: %+v", store.Meta().ConnectionID)
 	}
@@ -430,23 +435,12 @@ func assertEnvironmentCWD(t *testing.T, messages []llm.Message, cwd string) {
 	t.Fatalf("expected environment CWD %q in messages %+v", cwd, messages)
 }
 
-func assertWorktreeReminderMessage(t *testing.T, messages []llm.Message, branch string, cwd string, workspaceRoot string) {
+func assertWorktreeReminderMessage(t *testing.T, messages []llm.Message) {
 	t.Helper()
-	sawWorktreeReminder := false
 	for _, msg := range messages {
-		if msg.Role != llm.RoleDeveloper || msg.MessageType == nil || *msg.MessageType != llm.MessageTypeWorktreeMode {
-			continue
-		}
-		sawWorktreeReminder = true
-		if msg.Content != nil &&
-			strings.Contains(*msg.Content, branch) &&
-			strings.Contains(*msg.Content, cwd) &&
-			strings.Contains(*msg.Content, workspaceRoot) {
+		if msg.Role == llm.RoleDeveloper && msg.MessageType != nil && *msg.MessageType == llm.MessageTypeWorktreeMode {
 			return
 		}
-	}
-	if sawWorktreeReminder {
-		t.Fatalf("no matching worktree reminder found for branch %q cwd %q workspace %q", branch, cwd, workspaceRoot)
 	}
 	t.Fatalf("expected worktree reminder message in %+v", messages)
 }

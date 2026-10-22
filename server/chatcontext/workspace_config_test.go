@@ -6,19 +6,67 @@ import (
 	"path/filepath"
 	"testing"
 
+	"core/internal/testharness/testsetup"
 	"core/server/metadata"
 	"core/shared/config"
 
 	"github.com/google/uuid"
 )
 
-func TestFixedRootWorkspaceResolverUsesMainWorkspacePrivateConfigForManagedWorktree(t *testing.T) {
-	root, main, worktree := t.TempDir(), t.TempDir(), t.TempDir()
-	binding, err := metadata.RegisterBinding(context.Background(), root, main)
+func TestResolveMainWorkspaceRootWithoutDatabaseDoesNotCreateStorage(t *testing.T) {
+	root, workspace := t.TempDir(), t.TempDir()
+	want, err := config.CanonicalWorkspaceRoot(workspace)
 	if err != nil {
 		t.Fatal(err)
 	}
-	store, err := metadata.Open(root)
+	got, err := ResolveMainWorkspaceRoot(root, workspace)
+	if err != nil || got != want {
+		t.Fatalf("workspace root = %q, error = %v, want %q", got, err, want)
+	}
+	entries, err := os.ReadDir(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(entries) != 0 {
+		t.Fatalf("read-only workspace resolution created storage: %+v", entries)
+	}
+}
+
+func TestWorkspaceNanoUnknownContextRejectedBeforeUse(t *testing.T) {
+	root, workspace := t.TempDir(), t.TempDir()
+	store := testsetup.OpenStore(t, root)
+	if _, err := store.RegisterWorkspaceBinding(t.Context(), workspace); err != nil {
+		t.Fatal(err)
+	}
+	global := "[connections.local]\nprotocol = \"responses\"\nendpoint = \"http://localhost:1234/v1\"\n"
+	if err := os.WriteFile(filepath.Join(root, "config.toml"), []byte(global), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(filepath.Join(workspace, ".kent"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	body := "[nano]\nconnection = \"local\"\nmodel = \"unknown-local\"\n[nano.features]\nsession_naming = false\n"
+	path := filepath.Join(workspace, ".kent", "config.toml")
+	if err := os.WriteFile(path, []byte(body), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	resolver := NewFixedRootWorkspaceResolver(store, "", config.LoadOptions{})
+	if _, err := resolver.Resolve(workspace); err == nil {
+		t.Fatal("unknown nano context accepted with naming disabled")
+	}
+	body = "[nano]\nconnection = \"local\"\nmodel = \"unknown-local\"\nmodel_context_window = 2500\n[nano.features]\nsession_naming = false\n"
+	if err := os.WriteFile(path, []byte(body), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := resolver.Resolve(workspace); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestFixedRootWorkspaceResolverUsesMainWorkspacePrivateConfigForManagedWorktree(t *testing.T) {
+	root, main, worktree := t.TempDir(), t.TempDir(), t.TempDir()
+	store := testsetup.OpenStore(t, root)
+	binding, err := store.RegisterWorkspaceBinding(context.Background(), main)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -27,29 +75,30 @@ func TestFixedRootWorkspaceResolverUsesMainWorkspacePrivateConfigForManagedWorkt
 	}); err != nil {
 		t.Fatal(err)
 	}
-	if err := store.Close(); err != nil {
-		t.Fatal(err)
-	}
 	for _, dir := range []string{main, worktree} {
 		if err := os.MkdirAll(filepath.Join(dir, ".kent"), 0o755); err != nil {
 			t.Fatal(err)
 		}
 	}
 	for path, contents := range map[string]string{
-		filepath.Join(main, ".kent", "config.local.toml"):     "model = \"private-main\"\n",
-		filepath.Join(worktree, ".kent", "config.toml"):       "thinking_level = \"high\"\n",
+		filepath.Join(root, "config.toml"):                    "[connections.local]\nprotocol = \"responses\"\nendpoint = \"http://localhost:1234\"\n",
+		filepath.Join(main, ".kent", "config.local.toml"):     "model = \"private-main\"\n[nano]\nconnection = \"local\"\nmodel = \"gpt-6-luna\"\n",
+		filepath.Join(worktree, ".kent", "config.toml"):       "thinking_level = \"high\"\n[nano.features]\nsession_naming = false\n",
 		filepath.Join(worktree, ".kent", "config.local.toml"): "this file must not be decoded",
 	} {
 		if err := os.WriteFile(path, []byte(contents), 0o600); err != nil {
 			t.Fatal(err)
 		}
 	}
-	app, err := NewFixedRootWorkspaceResolver(root, main, config.LoadOptions{}).Resolve(worktree)
+	app, err := NewFixedRootWorkspaceResolver(store, main, config.LoadOptions{}).Resolve(worktree)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if app.Settings.Model != "private-main" || app.Settings.ThinkingLevel != "high" {
 		t.Fatalf("workspace private/shared selection = %s / %s", app.Settings.Model, app.Settings.ThinkingLevel)
+	}
+	if app.Settings.Nano == nil || app.Settings.Nano.SessionNaming {
+		t.Fatal("worktree nano opt-out did not override main private configuration")
 	}
 	private := app.Source.File(config.FilePrivate)
 	if private == nil || private.Path != filepath.Join(binding.CanonicalRoot, ".kent", "config.local.toml") {
@@ -68,7 +117,7 @@ func TestFixedRootWorkspaceResolverRetainsStartupOverridesAcrossFreshLoads(t *te
 	); err != nil {
 		t.Fatalf("write startup config: %v", err)
 	}
-	resolver := NewFixedRootWorkspaceResolver(configRoot, workspace, config.LoadOptions{
+	resolver := NewFixedRootWorkspaceResolver(testsetup.OpenStore(t, configRoot), workspace, config.LoadOptions{
 		Model: "cli-model",
 	})
 
@@ -109,7 +158,7 @@ func TestFixedRootWorkspaceResolverReportsLoadFailure(t *testing.T) {
 		t.Fatalf("write invalid config: %v", err)
 	}
 
-	if _, err := NewFixedRootWorkspaceResolver(configRoot, workspace, config.LoadOptions{}).Resolve(workspace); err == nil {
+	if _, err := NewFixedRootWorkspaceResolver(testsetup.OpenStore(t, configRoot), workspace, config.LoadOptions{}).Resolve(workspace); err == nil {
 		t.Fatal("Resolve succeeded with invalid fixed-root config")
 	}
 }

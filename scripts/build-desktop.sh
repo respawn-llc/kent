@@ -217,8 +217,8 @@ if [ -z "$version" ]; then
 	exit 1
 fi
 
-if ! command -v pnpm >/dev/null 2>&1; then
-	echo "pnpm is required to build the desktop app." >&2
+if ! command -v bun >/dev/null 2>&1; then
+	echo "bun is required to build the desktop app." >&2
 	exit 2
 fi
 
@@ -283,7 +283,7 @@ build_config="$(jq -cn \
 	--argjson createUpdaterArtifacts "$create_updater_artifacts" \
 	'{version: $v, bundle: {icon: $icon, createUpdaterArtifacts: $createUpdaterArtifacts}}')"
 
-pnpm --dir apps/desktop exec tauri build \
+bun run --bun --cwd apps/desktop tauri build \
 	--config "$build_config" \
 	${tauri_args[@]+"${tauri_args[@]}"}
 

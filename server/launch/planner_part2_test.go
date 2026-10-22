@@ -5,7 +5,9 @@ import (
 	"core/server/session"
 	"core/server/session/sessiontest"
 	"core/shared/config"
+	"core/shared/runtimeids"
 	"core/shared/serverapi"
+	"core/shared/textutil"
 	"core/shared/toolspec"
 	"errors"
 	"os"
@@ -17,7 +19,7 @@ import (
 func TestApplyRunPromptOverridesCLIModelOverridePreservesExplicitThreshold(t *testing.T) {
 	workspace := t.TempDir()
 	loaded := loadLaunchConfig(t, workspace,
-		"model = \"gpt-5.4\"",
+		"model = \"gpt-6-sol\"",
 		"context_compaction_threshold_tokens = 221000",
 	)
 	store := createTestSession(t, workspace)
@@ -29,9 +31,9 @@ func TestApplyRunPromptOverridesCLIModelOverridePreservesExplicitThreshold(t *te
 		Source:              loaded.Source,
 	}, store, filepath.Dir(store.Dir()))
 
-	updated := applyRunPromptOverridesNoWarnings(t, plan, serverapi.RunPromptOverrides{Model: "gpt-5.4-mini"})
-	if updated.ActiveSettings.Model != "gpt-5.4-mini" {
-		t.Fatalf("model = %q, want gpt-5.4-mini", updated.ActiveSettings.Model)
+	updated := applyRunPromptOverridesNoWarnings(t, plan, serverapi.RunPromptOverrides{Model: "gpt-6-luna"})
+	if updated.ActiveSettings.Model != "gpt-6-luna" {
+		t.Fatalf("model = %q, want gpt-6-luna", updated.ActiveSettings.Model)
 	}
 	if updated.ActiveSettings.ModelContextWindow != 272_000 {
 		t.Fatalf("context window = %d, want 272000", updated.ActiveSettings.ModelContextWindow)
@@ -45,10 +47,11 @@ func TestApplyRunPromptOverridesRejectsDerivedContextWindowBelowMinimum(t *testi
 	workspace := t.TempDir()
 	loaded := loadLaunchConfig(t, workspace)
 	plan := newLoadedConfigPlan(t, workspace, loaded)
-	applier := func(settings *config.Settings, explicitSources map[string]config.Origin, originalModel string, allowModelOverride bool) {
+	applier := func(settings *config.Settings, explicitSources map[string]config.Origin, originalModel string, allowModelOverride bool) error {
 		settings.ModelContextWindow = 39_999
 		settings.ContextCompactionThresholdTokens = 38_000
-		settings.PreSubmitCompactionLeadTokens = 1_000
+		settings.PreSubmitCompactionLeadTokens = textutil.Value(1_000)
+		return nil
 	}
 
 	_, _, err := applyRunPromptOverridesWithBudgetApplier(plan, serverapi.RunPromptOverrides{Model: "local-model"}, RunPromptOverrideOptions{}, applier)
@@ -63,7 +66,7 @@ func TestPlannerInteractiveReopensSelectedSessionWithinActiveContainer(t *testin
 	containerB := filepath.Join(root, "projects", "project-b", "sessions")
 	persistence := sessiontest.NewPersistence()
 	selected := createTestSessionInContainer(t, containerA, "sessions", "/tmp/workspace-a", persistence.Options()...)
-	if err := selected.SetName("selected"); err != nil {
+	if err := selected.SetName(textutil.Value("selected")); err != nil {
 		t.Fatalf("persist selected session meta: %v", err)
 	}
 	writeSessionEventArtifact(t, filepath.Join(containerB, selected.Meta().SessionID))
@@ -89,7 +92,7 @@ func TestPlannerSelectedSessionUsesAuthoritativeMetadata(t *testing.T) {
 	container := filepath.Join(root, "projects", "project-a", "sessions")
 	persistence := sessiontest.NewPersistence()
 	selected := createTestSessionInContainer(t, container, "sessions", "/tmp/workspace-old", persistence.Options()...)
-	if err := selected.SetName("selected"); err != nil {
+	if err := selected.SetName(textutil.Value("selected")); err != nil {
 		t.Fatalf("persist selected session meta: %v", err)
 	}
 	authoritative := selected.Meta()
@@ -132,7 +135,7 @@ func TestPlannerSelectedSessionIDUsesAuthoritativePersistedIdentity(t *testing.T
 	containerB := filepath.Join(root, "projects", "project-b", "sessions")
 	persistence := sessiontest.NewPersistence()
 	selected := createTestSessionInContainer(t, containerA, "sessions", "/tmp/workspace-a", persistence.Options()...)
-	if err := selected.SetName("selected"); err != nil {
+	if err := selected.SetName(textutil.Value("selected")); err != nil {
 		t.Fatalf("persist selected session meta: %v", err)
 	}
 	writeSessionEventArtifact(t, filepath.Join(containerB, selected.Meta().SessionID))
@@ -158,7 +161,7 @@ func TestPlannerSelectedSessionIDDoesNotOpenAcrossProjectContainers(t *testing.T
 	}
 	persistence := sessiontest.NewPersistence()
 	otherProjectSession := createTestSessionInContainer(t, otherProjectContainer, "sessions", "/tmp/other-project-workspace", persistence.Options()...)
-	if err := otherProjectSession.SetName("other project session"); err != nil {
+	if err := otherProjectSession.SetName(textutil.Value("other project session")); err != nil {
 		t.Fatalf("persist other project session meta: %v", err)
 	}
 	planner := newPersistenceBackedTestPlanner(
@@ -182,7 +185,8 @@ func TestPlannerSelectedSessionIDRejectsSymlinkOutsideActiveContainer(t *testing
 	}
 	persistence := sessiontest.NewPersistence()
 	escaped := createTestSessionInContainer(t, containerB, "sessions", "/tmp/workspace-b", persistence.Options()...)
-	if err := os.Symlink(escaped.Dir(), filepath.Join(containerA, "escaped-link")); err != nil {
+	escapedID := runtimeids.NewSessionID()
+	if err := os.Symlink(escaped.Dir(), filepath.Join(containerA, escapedID.String())); err != nil {
 		t.Fatalf("symlink escaped session: %v", err)
 	}
 	planner := newPersistenceBackedTestPlanner(
@@ -191,7 +195,7 @@ func TestPlannerSelectedSessionIDRejectsSymlinkOutsideActiveContainer(t *testing
 		persistence,
 	)
 
-	if _, err := planner.PlanSession(context.Background(), SessionRequest{Mode: ModeInteractive, Intent: serverapi.OpenExistingSessionLaunchIntent(mustTypedIntentSessionID(t, "escaped-link"))}); err == nil {
+	if _, err := planner.PlanSession(context.Background(), SessionRequest{Mode: ModeInteractive, Intent: serverapi.OpenExistingSessionLaunchIntent(escapedID)}); err == nil {
 		t.Fatal("expected planner to reject symlinked selected session outside active container")
 	}
 }

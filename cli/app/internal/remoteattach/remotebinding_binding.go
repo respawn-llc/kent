@@ -12,7 +12,7 @@ import (
 type projectWorkspaceDialer func(context.Context, string, string) (*client.Remote, error)
 type sessionDialer func(context.Context, string) (*client.Remote, error)
 
-func BindProjectWorkspace(ctx context.Context, current *client.Remote, cfg config.App, projectID, workspaceID, rootID string) (*client.Remote, error) {
+func BindProjectWorkspace(ctx context.Context, current *client.Remote, cfg config.Connection, projectID, workspaceID, rootID string) (*client.Remote, error) {
 	return bindProjectWorkspace(ctx, current, projectID, workspaceID, rootID, func(ctx context.Context, projectID, workspaceID string) (*client.Remote, error) {
 		if workspaceID != "" {
 			return client.DialConfiguredRemoteForProjectWorkspaceID(ctx, cfg, projectID, workspaceID)
@@ -21,7 +21,7 @@ func BindProjectWorkspace(ctx context.Context, current *client.Remote, cfg confi
 	})
 }
 
-func BindSession(ctx context.Context, current *client.Remote, cfg config.App, sessionID, rootID string) (*client.Remote, error) {
+func BindSession(ctx context.Context, current *client.Remote, cfg config.Connection, sessionID, rootID string) (*client.Remote, error) {
 	return bindSession(ctx, current, sessionID, rootID, func(ctx context.Context, sessionID string) (*client.Remote, error) {
 		return client.DialConfiguredRemoteForSession(ctx, cfg, sessionID)
 	})

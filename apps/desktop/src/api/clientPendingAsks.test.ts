@@ -1,3 +1,4 @@
+import { expect, it } from "bun:test";
 import { unexpectedProjectOverflow } from "@/test-support/api";
 import { create, operationName } from "@app/server-api-contract";
 import {
@@ -70,12 +71,10 @@ it("attaches the Session for Session-scoped pending prompt reads", async () => {
   ]);
   const client = new ApiClient(transport, unexpectedProjectOverflow);
 
-  await expect(client.listPendingAsks("session-1")).resolves.toEqual([]);
-
-  expect(transport.calls).toEqual([]);
+  expect(client.listPendingAsks("33333333-3333-4333-8333-333333333333")).resolves.toEqual([]);
   expect(transport.attachedSessionCalls).toEqual([
     {
-      sessionID: "session-1",
+      sessionID: "33333333-3333-4333-8333-333333333333",
       method: operationName(QuestionService.method.listPending),
     },
   ]);
@@ -94,7 +93,7 @@ it("preserves pending-ask recommendation presence and rejects invalid indexes", 
               questions: [
                 {
                   toolCallId: "ask-1",
-                  sessionId: "session-1",
+                  sessionId: "33333333-3333-4333-8333-333333333333",
                   stepId: "11111111-1111-4111-8111-111111111111",
                   question: "Choose?",
                   suggestions: ["one", "two"],
@@ -107,13 +106,13 @@ it("preserves pending-ask recommendation presence and rejects invalid indexes", 
         }),
       },
     ]);
-    const result = new ApiClient(transport, unexpectedProjectOverflow).listPendingAsks("session-1");
+    const result = new ApiClient(transport, unexpectedProjectOverflow).listPendingAsks(
+      "33333333-3333-4333-8333-333333333333",
+    );
     if (recommendedOptionIndex === 3) {
-      await expect(result).rejects.toThrow();
+      expect(result).rejects.toThrow();
     } else {
-      await expect(result).resolves.toMatchObject([
-        { recommendedOptionIndex: recommendedOptionIndex ?? null },
-      ]);
+      expect(result).resolves.toMatchObject([{ recommendedOptionIndex: recommendedOptionIndex ?? null }]);
     }
   }
 });

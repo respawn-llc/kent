@@ -7,24 +7,43 @@ import (
 	"log/slog"
 	"time"
 
-	"core/server/metadata"
 	"core/server/session"
 	sessionlaunchpb "core/shared/protoapi/gen/kent/api/session_launch"
+	sharedpb "core/shared/protoapi/gen/kent/api/shared"
 	"core/shared/runtimeids"
+	"core/shared/serverapi"
 )
 
-const detachedArchiveGracePeriod = 5 * time.Minute
+const archiveTimeout = 5 * time.Minute
 
-var ErrDetachedArchiveGraceExpired = errors.New("detached Session archive grace period expired")
-
-type sessionRemovalMetadata interface {
-	session.PersistedSessionResolver
-	DeleteSession(context.Context, string) error
-}
+var ErrArchiveTimeout = errors.New("Session archive timeout exceeded")
 
 type SessionRemovalCleanupError struct {
 	RemainingPath string
 	Cause         error
+}
+
+type SessionRemovalError struct {
+	SessionID runtimeids.SessionID
+	ShortID   *runtimeids.SessionShortID
+	Cause     error
+}
+
+func (e *SessionRemovalError) Error() string { return e.Cause.Error() }
+func (e *SessionRemovalError) Unwrap() error { return e.Cause }
+
+func (s *SessionLifecycleService) removalTarget(ctx context.Context, target *sharedpb.SessionSelector, caller *string) (runtimeids.SessionID, error) {
+	if s == nil || s.metadata == nil {
+		return runtimeids.SessionID{}, errors.New("Session metadata is required")
+	}
+	id, err := s.metadata.ResolveSessionTarget(ctx, target)
+	if err != nil {
+		return runtimeids.SessionID{}, err
+	}
+	if caller != nil && *caller == id.String() {
+		return runtimeids.SessionID{}, &serverapi.SessionSelfTargetError{SessionID: id}
+	}
+	return id, nil
 }
 
 func (e *SessionRemovalCleanupError) Error() string {
@@ -39,15 +58,15 @@ func (e *SessionRemovalCleanupError) Unwrap() error {
 	return e.Cause
 }
 
-type ArchiveDetachExpiryDiagnostic struct {
+type ArchiveTimeoutDiagnostic struct {
 	SessionID  string
 	OutputPath string
 	Cause      error
 }
 
-func logArchiveDetachExpiry(diagnostic ArchiveDetachExpiryDiagnostic) {
+func logArchiveTimeout(diagnostic ArchiveTimeoutDiagnostic) {
 	slog.Error(
-		"accepted Session archive exceeded its detached lifetime",
+		"accepted Session archive exceeded its timeout",
 		"session_id", diagnostic.SessionID,
 		"output_path", diagnostic.OutputPath,
 		"error", diagnostic.Cause,
@@ -69,13 +88,10 @@ func (s *SessionLifecycleService) Archive(
 	if s == nil || s.authority == nil {
 		return errors.New("session runtime authority is required")
 	}
-	if s.removal == nil {
+	if s.metadata == nil {
 		return errors.New("Session removal metadata is required")
 	}
-	id, err := runtimeids.ParseSessionID(sessionID)
-	if err != nil {
-		return err
-	}
+	id := runtimeids.SessionIDFromProto(sessionID)
 	if invocationCtx == nil {
 		invocationCtx = context.Background()
 	}
@@ -83,7 +99,7 @@ func (s *SessionLifecycleService) Archive(
 		return err
 	}
 	result, err := s.authority.AcceptLifecycleTask(func(lifecycleCtx context.Context) error {
-		return s.runAcceptedArchive(lifecycleCtx, invocationCtx, id, outputPath)
+		return s.runAcceptedArchive(lifecycleCtx, id, outputPath)
 	})
 	if err != nil {
 		return err
@@ -95,13 +111,10 @@ func (s *SessionLifecycleService) Delete(invocationCtx context.Context, sessionI
 	if s == nil || s.authority == nil {
 		return errors.New("session runtime authority is required")
 	}
-	if s.removal == nil {
+	if s.metadata == nil {
 		return errors.New("Session removal metadata is required")
 	}
-	id, err := runtimeids.ParseSessionID(sessionID)
-	if err != nil {
-		return err
-	}
+	id := runtimeids.SessionIDFromProto(sessionID)
 	if invocationCtx == nil {
 		invocationCtx = context.Background()
 	}
@@ -127,11 +140,19 @@ func (s *SessionLifecycleService) ArchiveSession(
 	if request == nil {
 		return nil, errors.New("Session archive request is required")
 	}
-	if err := s.Archive(ctx, request.SessionId, request.OutputPath); err != nil {
+	id, err := s.removalTarget(ctx, request.SessionId, request.CallerSessionId)
+	if err != nil {
 		return nil, err
 	}
+	identity, err := s.metadata.SessionIdentity(ctx, id)
+	if err != nil {
+		return nil, err
+	}
+	if err := s.Archive(ctx, id.String(), request.OutputPath); err != nil {
+		return nil, &SessionRemovalError{SessionID: id, ShortID: identity.ShortID, Cause: err}
+	}
 	return &sessionlaunchpb.SessionArchiveSuccess{
-		SessionId:  request.SessionId,
+		SessionId:  id.String(),
 		OutputPath: request.OutputPath,
 	}, nil
 }
@@ -143,10 +164,18 @@ func (s *SessionLifecycleService) DeleteSession(
 	if request == nil {
 		return nil, errors.New("Session delete request is required")
 	}
-	if err := s.Delete(ctx, request.SessionId); err != nil {
+	id, err := s.removalTarget(ctx, request.SessionId, request.CallerSessionId)
+	if err != nil {
 		return nil, err
 	}
-	return &sessionlaunchpb.SessionDeleteSuccess{SessionId: request.SessionId}, nil
+	identity, err := s.metadata.SessionIdentity(ctx, id)
+	if err != nil {
+		return nil, err
+	}
+	if err := s.Delete(ctx, id.String()); err != nil {
+		return nil, &SessionRemovalError{SessionID: id, ShortID: identity.ShortID, Cause: err}
+	}
+	return &sessionlaunchpb.SessionDeleteSuccess{SessionId: id.String()}, nil
 }
 
 func waitForAcceptedSessionOperation(invocationCtx context.Context, result <-chan error) error {
@@ -160,11 +189,10 @@ func waitForAcceptedSessionOperation(invocationCtx context.Context, result <-cha
 
 func (s *SessionLifecycleService) runAcceptedArchive(
 	lifecycleCtx context.Context,
-	invocationCtx context.Context,
 	sessionID runtimeids.SessionID,
 	outputPath string,
 ) error {
-	operationCtx, cancelOperation := context.WithCancel(lifecycleCtx)
+	operationCtx, cancelOperation := context.WithTimeout(lifecycleCtx, archiveTimeout)
 	defer cancelOperation()
 	operationDone := make(chan error, 1)
 	go func() {
@@ -174,7 +202,7 @@ func (s *SessionLifecycleService) runAcceptedArchive(
 			func(runCtx context.Context) error {
 				record, err := session.ResolvePersistedSessionRecord(
 					runCtx,
-					s.removal,
+					s.metadata,
 					sessionID.String(),
 				)
 				if err != nil {
@@ -208,61 +236,40 @@ func (s *SessionLifecycleService) runAcceptedArchive(
 
 	select {
 	case err := <-operationDone:
+		if errors.Is(context.Cause(operationCtx), context.DeadlineExceeded) {
+			return s.archiveTimeoutFailure(sessionID, outputPath, errors.Join(context.DeadlineExceeded, err))
+		}
 		return err
-	case <-lifecycleCtx.Done():
-		cancelOperation()
-		return errors.Join(context.Cause(lifecycleCtx), <-operationDone)
-	case <-invocationCtx.Done():
-	}
-
-	graceCtx, cancelGrace := context.WithTimeout(context.Background(), detachedArchiveGracePeriod)
-	defer cancelGrace()
-	return s.waitForDetachedArchive(
-		lifecycleCtx,
-		graceCtx,
-		operationDone,
-		cancelOperation,
-		sessionID,
-		outputPath,
-	)
-}
-
-func (s *SessionLifecycleService) waitForDetachedArchive(
-	lifecycleCtx context.Context,
-	graceCtx context.Context,
-	operationDone <-chan error,
-	cancelOperation context.CancelFunc,
-	sessionID runtimeids.SessionID,
-	outputPath string,
-) error {
-	select {
-	case err := <-operationDone:
-		return err
-	case <-lifecycleCtx.Done():
-		cancelOperation()
-		return errors.Join(context.Cause(lifecycleCtx), <-operationDone)
-	case <-graceCtx.Done():
+	case <-operationCtx.Done():
 		cancelOperation()
 		operationErr := <-operationDone
-		cause := errors.Join(ErrDetachedArchiveGraceExpired, operationErr)
-		diagnostic := ArchiveDetachExpiryDiagnostic{
-			SessionID:  sessionID.String(),
-			OutputPath: outputPath,
-			Cause:      cause,
-		}
-		logArchiveDetachExpiry(diagnostic)
-		if s.debug {
-			panic(diagnostic)
+		cause := errors.Join(context.Cause(operationCtx), operationErr)
+		if errors.Is(context.Cause(operationCtx), context.DeadlineExceeded) {
+			return s.archiveTimeoutFailure(sessionID, outputPath, cause)
 		}
 		return cause
 	}
+}
+
+func (s *SessionLifecycleService) archiveTimeoutFailure(sessionID runtimeids.SessionID, outputPath string, err error) error {
+	cause := errors.Join(ErrArchiveTimeout, err)
+	diagnostic := ArchiveTimeoutDiagnostic{
+		SessionID:  sessionID.String(),
+		OutputPath: outputPath,
+		Cause:      cause,
+	}
+	logArchiveTimeout(diagnostic)
+	if s.debug {
+		panic(diagnostic)
+	}
+	return cause
 }
 
 func (s *SessionLifecycleService) removeSessionUnderAdmission(
 	ctx context.Context,
 	sessionID runtimeids.SessionID,
 ) error {
-	record, err := session.ResolvePersistedSessionRecord(ctx, s.removal, sessionID.String())
+	record, err := session.ResolvePersistedSessionRecord(ctx, s.metadata, sessionID.String())
 	if err != nil {
 		return err
 	}
@@ -270,7 +277,7 @@ func (s *SessionLifecycleService) removeSessionUnderAdmission(
 	if err != nil {
 		return err
 	}
-	if err := s.removal.DeleteSession(ctx, sessionID.String()); err != nil {
+	if err := s.metadata.DeleteSession(ctx, sessionID.String()); err != nil {
 		return err
 	}
 	if err := session.RemovePreflightedSessionArtifacts(schedule); err != nil {
@@ -285,5 +292,3 @@ func (s *SessionLifecycleService) removeSessionUnderAdmission(
 	}
 	return nil
 }
-
-var _ sessionRemovalMetadata = (*metadata.Store)(nil)

@@ -7,11 +7,13 @@ import (
 	"testing"
 	"time"
 
+	"core/internal/testharness/requestfixture"
 	"core/shared/apicontract"
 	"core/shared/protoapi"
 	promptpb "core/shared/protoapi/gen/kent/api/prompt"
 	sharedpb "core/shared/protoapi/gen/kent/api/shared"
 	transcriptpb "core/shared/protoapi/gen/kent/api/transcript"
+	worktreepb "core/shared/protoapi/gen/kent/api/worktree"
 	"core/shared/rpcwire"
 	"core/shared/runtimeids"
 	"core/shared/serverapi"
@@ -39,7 +41,7 @@ func TestPromptFollowUpSubscriptionInstallsBeforeSubscribeResponse(t *testing.T)
 	}
 	serveGeneratedStream(t, fixture.gateway, conn, &connectionState{attachedProject: fixture.bindingA.ProjectID},
 		promptpb.File_kent_api_prompt_prompt_proto.Services().ByName("FollowUpService").Methods().ByName("Watch"),
-		&promptpb.FollowUpWatchRequest{SessionId: fixture.ownSessionID, StepId: stepID.String(), ToolCallId: "prompt-1"},
+		&promptpb.FollowUpWatchRequest{SessionId: requestfixture.Selector(t, fixture.ownSessionID), StepId: stepID.String(), ToolCallId: "prompt-1"},
 	)
 	if conn.sent != 2 {
 		t.Fatalf("frames = %d, want SubscribeResponse and completion", conn.sent)
@@ -117,7 +119,7 @@ func TestSessionTranscriptSubscriptionPublishesLiveRunFinishedWithoutRewritingSe
 	}
 	method := transcriptpb.File_kent_api_transcript_transcript_proto.Services().ByName("StreamService").Methods().ByName("Subscribe")
 	serveGeneratedStream(t, fixture.gateway, conn, &connectionState{attachedProject: fixture.bindingA.ProjectID, attachedSession: &sessionID},
-		method, &transcriptpb.SubscribeRequest{SessionId: fixture.ownSessionID},
+		method, &transcriptpb.SubscribeRequest{SessionId: &sharedpb.SessionSelector{Value: &sharedpb.SessionSelector_SessionId{SessionId: fixture.ownSessionID}}},
 	)
 
 	associated, err := protoapi.ResolveSubscriptionOperations(method)
@@ -154,6 +156,35 @@ func TestSessionTranscriptSubscriptionPublishesLiveRunFinishedWithoutRewritingSe
 }
 
 type gatewayTranscriptServiceFunc func(context.Context, *transcriptpb.SubscribeRequest) (serverapi.TranscriptSubscription, error)
+
+func TestDeliveredInvalidInvariantNotificationsPanicInProduction(t *testing.T) {
+	t.Setenv("KENT_INVARIANT_MODE", "diagnostic")
+	for _, test := range []struct {
+		name    string
+		method  protoreflect.MethodDescriptor
+		payload proto.Message
+	}{
+		{"transcript", transcriptpb.File_kent_api_transcript_transcript_proto.Services().ByName("StreamService").Methods().ByName("Subscribe"), &transcriptpb.Message{}},
+		{"setup", worktreepb.File_kent_api_worktree_worktree_proto.Services().ByName("SetupService").Methods().ByName("Subscribe"), &worktreepb.SetupEvent{}},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			operations, err := protoapi.ResolveSubscriptionOperations(test.method)
+			if err != nil {
+				t.Fatal(err)
+			}
+			conn := &recordingGatewayConn{}
+			defer func() {
+				if recover() == nil {
+					t.Error("invalid delivered notification did not panic")
+				}
+				if len(conn.frames) != 0 {
+					t.Error("invalid delivered notification was sent")
+				}
+			}()
+			_ = sendBinaryNotification(t.Context(), conn, operations.Event, test.payload)
+		})
+	}
+}
 
 func (f gatewayTranscriptServiceFunc) SubscribeSessionTranscript(ctx context.Context, req *transcriptpb.SubscribeRequest) (serverapi.TranscriptSubscription, error) {
 	return f(ctx, req)

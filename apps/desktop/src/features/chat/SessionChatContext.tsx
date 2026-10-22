@@ -1,23 +1,29 @@
 import { isCompacting, useChatMainViewState } from "@/app-facade";
 import { ChatContextControl } from "./ChatContextControl";
-import { ChatAutoCompactionSwitch } from "./ChatAutoCompactionSwitch";
-import type { ChatSettingsFeature } from "./useChatSettings";
+import { useAtomSet } from "@effect/atom-react";
+import type { ChatMainView } from "@/api";
+import { UsageContent, useSubscriptionUsageModel } from "@/shared/subscription-usage";
 
-export function SessionChatContext({
-  compact,
-  settings,
-}: Readonly<{ compact(): void; settings: ChatSettingsFeature }>) {
+export function SessionChatContext({ compact }: Readonly<{ compact(): void }>) {
   const { data } = useChatMainViewState();
   if (data === undefined) return null;
+  return <SessionContext data={data} compact={compact} />;
+}
+
+function SessionContext({ data, compact }: Readonly<{ data: ChatMainView; compact(): void }>) {
+  const model = useSubscriptionUsageModel(data.sessionID);
+  const refresh = useAtomSet(model.open);
   return (
     <ChatContextControl
       used={data.status.contextUsage.usedTokens}
       window={data.status.contextUsage.windowTokens}
-      autoCompactionControl={<ChatAutoCompactionSwitch feature={settings} />}
       policyDisabled={data.status.compactionMode === "disabled"}
-      completedCount={data.status.compactionCount}
       compacting={isCompacting(data.activity)}
       compact={compact}
+      onOpenChange={(open) => {
+        if (open) refresh();
+      }}
+      subscriptionUsage={<UsageContent model={model} />}
     />
   );
 }

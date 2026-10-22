@@ -78,7 +78,7 @@ func TestSupervisorQuestionAfterOriginalExecutionRetires(t *testing.T) {
 		}
 	})
 	settings := fixture.config.Settings
-	settings.Model = "gpt-5"
+	settings.Model = "gpt-6-sol"
 	settings.ModelContextWindow = 200000
 	settings.Reviewer.Frequency = "all"
 	plan, err := NewAgentRuntimePlan(AgentRuntimePlanOptions{
@@ -96,9 +96,10 @@ func TestSupervisorQuestionAfterOriginalExecutionRetires(t *testing.T) {
 	}
 	feed := make(authorityPromptFeed, 4)
 	authority := NewAuthority(AuthorityOptions{
-		PersistenceRoot: fixture.config.PersistenceRoot,
-		StoreOptions:    fixture.metadata.AuthoritativeSessionStoreOptions(),
-		PromptFeed:      feed,
+		PersistenceRoot:               fixture.config.PersistenceRoot,
+		ProjectWorkspaceContextReader: fixture.metadata,
+		StoreOptions:                  fixture.metadata.AuthoritativeSessionStoreOptions(),
+		PromptFeed:                    feed,
 	})
 	var engine *runtime.Engine
 	t.Cleanup(func() {
@@ -123,7 +124,7 @@ func TestSupervisorQuestionAfterOriginalExecutionRetires(t *testing.T) {
 			t.Error("Supervisor runtime cleanup did not finish")
 		}
 	})
-	openLifecycleRuntime(t, authority, sessionID, "supervisor-test", &plan)
+	openLifecycleRuntime(t, authority, sessionID, &plan)
 	if err := authority.WithCurrentRuntime(ctx, sessionID, func(_ context.Context, current *runtime.Engine) error {
 		engine = current
 		return nil

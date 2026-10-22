@@ -1,13 +1,25 @@
 {
   "name": "@app/apps",
   "private": true,
-  "packageManager": "pnpm@11.11.0",
+  "trustedDependencies": [],
+  "packageManager": "bun@1.4.3",
   "engines": {
     "node": ">=22"
   },
   "devDependencies": {
     "@bufbuild/protoc-gen-es": "2.13.0",
-    "postcss": "8.5.25",
+    "postcss": "8.5.26",
     "prettier": "^3.9.6"
+  },
+  "workspaces": [
+    "desktop",
+    "desktop/packages/*",
+    "shared/*"
+  ],
+  "overrides": {
+    "@tanstack/history": "1.162.2"
+  },
+  "patchedDependencies": {
+    "streamdown@2.7.0": "patches/streamdown@2.7.0.patch"
   }
 }

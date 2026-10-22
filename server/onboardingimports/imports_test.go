@@ -38,6 +38,84 @@ func TestDiscoverWithoutWorkspaceReturnsGlobalAndGeneratedFactsAndRecomputes(t *
 	}
 }
 
+func TestDiscoverGrokPersonalSkillsAsUsableImportChoice(t *testing.T) {
+	const provider = ProviderGrok
+	configRoot := t.TempDir()
+	home := t.TempDir()
+	writeProviderSkill(t, home, provider, "skills", "review", "Review", "Review code")
+
+	result, err := Discover(Options{ConfigRoot: configRoot, HomeDir: home})
+	if err != nil {
+		t.Fatalf("Discover: %v", err)
+	}
+
+	root := filepath.Join(home, ".grok", "skills")
+	requireProviderChoice(t, result, ItemKindSkill, provider, root, "review")
+}
+
+func TestDiscoverGrokPersonalCommandsAsUsableImportChoice(t *testing.T) {
+	const provider = ProviderGrok
+	configRoot := t.TempDir()
+	home := t.TempDir()
+	writeProviderCommand(t, home, provider, "commands", "review.md")
+
+	result, err := Discover(Options{ConfigRoot: configRoot, HomeDir: home})
+	if err != nil {
+		t.Fatalf("Discover: %v", err)
+	}
+
+	root := filepath.Join(home, ".grok", "commands")
+	requireProviderChoice(t, result, ItemKindCommand, provider, root, "review.md")
+}
+
+func TestDiscoverDoesNotOfferGrokBundledSkills(t *testing.T) {
+	home := t.TempDir()
+	writeProviderSkill(t, home, ProviderGrok, filepath.Join("bundled", "skills"), "bundled-review", "Bundled Review", "Bundled skill")
+
+	result, err := Discover(Options{ConfigRoot: t.TempDir(), HomeDir: home})
+	if err != nil {
+		t.Fatalf("Discover: %v", err)
+	}
+	if hasProviderItem(result.Skills.Items, ProviderGrok) {
+		t.Fatalf("bundled Grok skill was discovered: %+v", result.Skills.Items)
+	}
+	for _, choice := range result.Skills.Choices {
+		if choice.ProviderID != nil && *choice.ProviderID == ProviderGrok {
+			t.Fatalf("bundled Grok skill produced an import choice: %+v", choice)
+		}
+	}
+}
+
+func TestDiscoverCursorPersonalSkillsAsUsableImportChoice(t *testing.T) {
+	const provider = ProviderCursor
+	configRoot := t.TempDir()
+	home := t.TempDir()
+	writeProviderSkill(t, home, provider, "skills", "review", "Review", "Review code")
+
+	result, err := Discover(Options{ConfigRoot: configRoot, HomeDir: home})
+	if err != nil {
+		t.Fatalf("Discover: %v", err)
+	}
+
+	root := filepath.Join(home, ".cursor", "skills")
+	requireProviderChoice(t, result, ItemKindSkill, provider, root, "review")
+}
+
+func TestDiscoverCursorPersonalCommandsAsUsableImportChoice(t *testing.T) {
+	const provider = ProviderCursor
+	configRoot := t.TempDir()
+	home := t.TempDir()
+	writeProviderCommand(t, home, provider, "commands", "review.md")
+
+	result, err := Discover(Options{ConfigRoot: configRoot, HomeDir: home})
+	if err != nil {
+		t.Fatalf("Discover: %v", err)
+	}
+
+	root := filepath.Join(home, ".cursor", "commands")
+	requireProviderChoice(t, result, ItemKindCommand, provider, root, "review.md")
+}
+
 func TestDiscoverInvalidWorkspaceReturnsStructuredErrorAndContinues(t *testing.T) {
 	configRoot := t.TempDir()
 	home := t.TempDir()
@@ -282,7 +360,7 @@ func TestSkillEnablementProjectionsShadowGeneratedAndMarkDefaults(t *testing.T) 
 
 func writeProviderSkill(t *testing.T, home string, provider ProviderID, sourceCandidate, dirName, name, description string) {
 	t.Helper()
-	providerHome := map[ProviderID]string{ProviderClaudeCode: ".claude", ProviderCodex: ".codex", ProviderAgents: ".agents"}[provider]
+	providerHome := map[ProviderID]string{ProviderClaudeCode: ".claude", ProviderCodex: ".codex", ProviderAgents: ".agents", ProviderGrok: ".grok", ProviderCursor: ".cursor"}[provider]
 	dir := filepath.Join(home, providerHome, sourceCandidate, dirName)
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		t.Fatalf("mkdir provider skill: %v", err)
@@ -296,7 +374,7 @@ func writeProviderSkill(t *testing.T, home string, provider ProviderID, sourceCa
 
 func writeProviderCommand(t *testing.T, home string, provider ProviderID, sourceCandidate, fileName string) {
 	t.Helper()
-	providerHome := map[ProviderID]string{ProviderClaudeCode: ".claude", ProviderCodex: ".codex", ProviderAgents: ".agents"}[provider]
+	providerHome := map[ProviderID]string{ProviderClaudeCode: ".claude", ProviderCodex: ".codex", ProviderAgents: ".agents", ProviderGrok: ".grok", ProviderCursor: ".cursor"}[provider]
 	dir := filepath.Join(home, providerHome, sourceCandidate)
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		t.Fatalf("mkdir provider command: %v", err)
@@ -322,6 +400,39 @@ func hasProviderItem(items []Item, provider ProviderID) bool {
 		}
 	}
 	return false
+}
+
+func hasProviderTargetItem(items []Item, provider ProviderID, root string, target string) bool {
+	for _, item := range items {
+		if item.Ref.ProviderID != nil && *item.Ref.ProviderID == provider &&
+			item.Ref.SourceRoot != nil && *item.Ref.SourceRoot == root &&
+			item.Ref.TargetName == target {
+			return true
+		}
+	}
+	return false
+}
+
+func requireProviderChoice(t *testing.T, result Result, kind ItemKind, provider ProviderID, root string, target string) Choice {
+	t.Helper()
+	group := result.Skills
+	if kind == ItemKindCommand {
+		group = result.Commands
+	}
+	for _, choice := range group.Choices {
+		if choice.ProviderID == nil || *choice.ProviderID != provider {
+			continue
+		}
+		if choice.SourceRoot == nil || *choice.SourceRoot != root || choice.ItemCount != 1 {
+			t.Fatalf("provider choice = %+v, want root %q and one item", choice, root)
+		}
+		if !hasProviderTargetItem(group.Items, provider, root, target) {
+			t.Fatalf("provider item %q from %q not discovered: %+v", target, root, group.Items)
+		}
+		return choice
+	}
+	t.Fatalf("provider choice %q not found: %+v", provider, group)
+	return Choice{}
 }
 
 func hasProviderError(errors []Error, provider ProviderID) bool {

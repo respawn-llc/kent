@@ -39,19 +39,32 @@ func (t FileAccessTarget) Validate() error {
 
 func FormatFileAccessApprovalMarkdown(targets []FileAccessTarget) string {
 	var formatted strings.Builder
-	fmt.Fprintf(&formatted, "Agent wants to access a batch of files, but %d are outside workspace dir:", len(targets))
-	formatted.WriteByte('\n')
+	single := len(targets) == 1
+	if single {
+		formatted.WriteString("Agent wants to access a file ")
+	} else {
+		fmt.Fprintf(&formatted, "Agent wants to access a batch of files, but %d are outside workspace dir:", len(targets))
+		formatted.WriteByte('\n')
+	}
 	for _, target := range targets {
-		fmt.Fprintf(&formatted, "\n- %s", target.RequestedPath)
+		if !single {
+			formatted.WriteString("\n- ")
+		}
+		formatted.WriteString(target.RequestedPath)
 		if target.RequestedPath != target.ResolvedPath {
 			fmt.Fprintf(&formatted, " → %s", target.ResolvedPath)
 		}
 	}
-	formatted.WriteString("\n\nAllow this access?")
+	if single {
+		formatted.WriteString(".\n\nAllow?")
+	} else {
+		formatted.WriteString("\n\nAllow this access?")
+	}
 	return formatted.String()
 }
 
 type PendingApproval struct {
+	ShortID       *runtimeids.SessionShortID
 	ToolCallID    ToolCallID
 	SessionID     runtimeids.SessionID
 	StepID        runtimeids.StepID
@@ -59,4 +72,5 @@ type PendingApproval struct {
 	Options       []ApprovalOption
 	AccessTargets []FileAccessTarget
 	CreatedAt     time.Time
+	Batch         *QuestionBatch
 }

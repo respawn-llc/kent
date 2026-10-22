@@ -1,3 +1,4 @@
+import { expect, it, vi } from "bun:test";
 import { RegistryProvider, useAtomValue } from "@effect/atom-react";
 import { QueryClient } from "@tanstack/react-query";
 import { act, renderHook, waitFor } from "@testing-library/react";
@@ -65,6 +66,32 @@ function setup(metadata = project) {
   return { ...view, ...context };
 }
 
+it("accepts eighty Unicode characters rather than eighty UTF-16 units", () => {
+  const view = setup();
+  act(() => {
+    view.result.current.editName("😀".repeat(80));
+  });
+  expect(view.result.current.state.nameErrors).toHaveLength(0);
+  expect(view.result.current.state.canSave).toBe(true);
+  act(() => {
+    view.result.current.editName("😀".repeat(81));
+  });
+  expect(view.result.current.state.nameErrors.length).toBeGreaterThan(0);
+  expect(view.result.current.state.canSave).toBe(false);
+});
+
+it.each([
+  ["\uFEFFKent\uFEFF", true],
+  ["\u0085Kent", false],
+])("uses generated Project name whitespace acceptance", (name, accepted) => {
+  const view = setup();
+  act(() => {
+    view.result.current.editName(name);
+  });
+  expect(view.result.current.state.canSave).toBe(accepted);
+  expect(view.result.current.state.nameErrors.length === 0).toBe(accepted);
+});
+
 it("admits only one Save when the public action binding is invoked twice in one turn", async () => {
   const view = setup();
   act(() => {
@@ -118,10 +145,10 @@ it("reports a request failure through the ordinary status notification", async (
   expect(view.update).toHaveBeenCalledTimes(1);
 });
 
-it("does not submit an invalid changed Project key", async () => {
+it.each(["invalid-key", ""])("does not submit an invalid changed Project key", async (key) => {
   const view = setup();
   act(() => {
-    view.result.current.editKey("invalid-key");
+    view.result.current.editKey(key);
     view.result.current.save(undefined);
   });
   await act(async () => undefined);
@@ -266,7 +293,7 @@ it("closes confirmation before reporting blockers and permits an explicit retry"
   await act(async () => {
     view.result.current.unlink({ workspaceID: "workspace-1", close });
   });
-  expect(close).toHaveBeenCalledOnce();
+  expect(close).toHaveBeenCalledTimes(1);
   expect(view.push).toHaveBeenCalledWith(expect.objectContaining({ tone: "danger" }));
   await act(async () => {
     view.result.current.unlink({ workspaceID: "workspace-1", close });
@@ -287,7 +314,8 @@ it("finishes Delete after navigation without taking over the replacement destina
     view.result.current.deleteProject({ close, openHome: view.openHome });
   });
   expect(remove).toHaveBeenCalledTimes(1);
-  vi.mocked(view.navigator.close).mockReturnValue("stale");
+  const navigatorClose = vi.spyOn(view.navigator, "close");
+  navigatorClose.mockReturnValue("stale");
   view.unmount();
   await act(async () => {
     response.resolve({ projectID: project.projectID, deleted: true, blockers: [] });
@@ -339,7 +367,9 @@ it("keeps Query failure feedback after the actual Atom owner is disposed", async
       view.result.current.save(undefined);
     });
     view.unmount();
-    await act(async () => vi.advanceTimersByTimeAsync(500));
+    act(() => {
+      vi.advanceTimersByTime(500);
+    });
     await act(async () => {
       view.response.reject(new Error("Save failed"));
       await view.response.promise.catch(() => undefined);
@@ -362,7 +392,9 @@ it("does not continue local picker work after its actual owner is disposed", asy
       view.result.current.chooseWorkspace(undefined);
     });
     view.unmount();
-    await act(async () => vi.advanceTimersByTimeAsync(500));
+    act(() => {
+      vi.advanceTimersByTime(500);
+    });
     await act(async () => {
       selection.resolve({ path: "/one" });
       await selection.promise;

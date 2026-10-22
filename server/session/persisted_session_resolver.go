@@ -7,6 +7,7 @@ import (
 	"strings"
 
 	"core/shared/config"
+	"core/shared/runtimeids"
 )
 
 // PersistedSessionRecord is the authoritative persisted session lookup result.
@@ -15,6 +16,7 @@ import (
 // not exist for an otherwise valid record.
 type PersistedSessionRecord struct {
 	SessionDir   string
+	ShortID      *runtimeids.SessionShortID
 	Meta         *Meta
 	ContextFacts SessionContextFacts
 }

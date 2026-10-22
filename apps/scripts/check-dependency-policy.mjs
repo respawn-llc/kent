@@ -14,33 +14,38 @@ export async function checkDependencyPolicy(
   workspaceRoot = defaultWorkspaceRoot,
 ) {
   const policyPath = join(workspaceRoot, "dependency-policy.json");
-  const workspacePath = join(workspaceRoot, "pnpm-workspace.yaml");
+  const bunfigPath = join(workspaceRoot, "bunfig.toml");
+  const rootPackagePath = join(workspaceRoot, "package.json");
   const policy = JSON.parse(await readFile(policyPath, "utf8"));
-  const workspaceConfig = await readFile(workspacePath, "utf8");
+  const bunfig = Bun.TOML.parse(await readFile(bunfigPath, "utf8"));
+  const rootPackage = JSON.parse(await readFile(rootPackagePath, "utf8"));
+  const installConfig = bunfig.install ?? {};
   const errors = [];
 
-  const releaseAgePattern = new RegExp(
-    `^minimumReleaseAge:\\s*${policy.minimumReleaseAgeMinutes}\\s*$`,
-    "m",
-  );
-  if (!releaseAgePattern.test(workspaceConfig)) {
+  if (installConfig.minimumReleaseAge !== policy.minimumReleaseAgeSeconds) {
     errors.push(
-      `pnpm-workspace.yaml must set minimumReleaseAge: ${policy.minimumReleaseAgeMinutes} to enforce dependency maturity.`,
+      `bunfig.toml must set install.minimumReleaseAge to ${policy.minimumReleaseAgeSeconds} seconds to enforce dependency maturity.`,
     );
   }
 
-  if (!/^onlyBuiltDependencies:\s*\[\]\s*$/m.test(workspaceConfig)) {
+  if (
+    !sameSortedValues(
+      installConfig.minimumReleaseAgeExcludes,
+      policy.minimumReleaseAgeExcludes,
+    )
+  ) {
     errors.push(
-      "pnpm-workspace.yaml must set onlyBuiltDependencies: [] so install scripts need explicit review.",
+      "bunfig.toml install.minimumReleaseAgeExcludes must match the approved package-name exceptions in dependency-policy.json.",
     );
   }
 
-  for (const dependencyName of policy.minimumReleaseAgeExclude ?? []) {
-    if (!workspaceConfig.includes(`- "${dependencyName}"`)) {
-      errors.push(
-        `pnpm-workspace.yaml must list approved minimumReleaseAgeExclude ${dependencyName}.`,
-      );
-    }
+  if (
+    !Array.isArray(rootPackage.trustedDependencies) ||
+    rootPackage.trustedDependencies.length > 0
+  ) {
+    errors.push(
+      "apps/package.json must keep trustedDependencies empty so install scripts require explicit review.",
+    );
   }
 
   const packagePaths = await findPackageJsonFiles(workspaceRoot);
@@ -125,6 +130,18 @@ async function findPackageJsonFiles(root) {
 
 function displayPath(workspaceRoot, path) {
   return relative(workspaceRoot, path);
+}
+
+function sameSortedValues(left, right) {
+  if (!Array.isArray(left) || !Array.isArray(right)) {
+    return false;
+  }
+  const sortedLeft = [...left].sort();
+  const sortedRight = [...right].sort();
+  return (
+    sortedLeft.length === sortedRight.length &&
+    sortedLeft.every((value, index) => value === sortedRight[index])
+  );
 }
 
 if (import.meta.url === pathToFileURL(process.argv[1]).href) {

@@ -201,9 +201,9 @@ func WithUIInitialInput(text string) UIOption {
 	}
 }
 
-func WithUISessionName(name string) UIOption {
+func WithUISessionName(name *string) UIOption {
 	return func(m *uiModel) {
-		m.sessionName = strings.TrimSpace(name)
+		m.sessionName = name
 	}
 }
 
@@ -223,6 +223,12 @@ func WithUIProcessClient(client clientui.ProcessClient) UIOption {
 func WithUIWorktreeClient(client apicontract.WorktreeService) UIOption {
 	return func(m *uiModel) {
 		m.worktreeClient = client
+	}
+}
+
+func WithUIConnectionManagementClient(client apicontract.ConnectionManagementService) UIOption {
+	return func(m *uiModel) {
+		m.connectionManagement = client
 	}
 }
 

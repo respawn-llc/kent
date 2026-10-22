@@ -4,11 +4,11 @@ import { motion, useReducedMotion } from "motion/react";
 
 import { motionDurationFromCSSVar, shimmerMotion } from "./motion";
 
-export function Shimmer({ children }: Readonly<{ children: string }>) {
+export function Shimmer({ children, className }: Readonly<{ children?: string; className?: string }>) {
   const reducedMotion = useReducedMotion();
   return (
     <motion.span
-      className="inline-block bg-clip-text text-transparent"
+      className={children === undefined ? className : "inline-block bg-clip-text text-transparent"}
       initial={{ backgroundPosition: "100% center" }}
       animate={{ backgroundPosition: reducedMotion ? "100% center" : "0% center" }}
       transition={{
@@ -22,7 +22,9 @@ export function Shimmer({ children }: Readonly<{ children: string }>) {
         backgroundRepeat: "no-repeat",
         backgroundImage: reducedMotion
           ? "linear-gradient(var(--color-muted), var(--color-muted))"
-          : `linear-gradient(90deg, transparent calc(50% - ${String(children.length * 2)}px), var(--color-on-background), transparent calc(50% + ${String(children.length * 2)}px)), linear-gradient(var(--color-muted), var(--color-muted))`,
+          : children === undefined
+            ? "linear-gradient(90deg, transparent, color-mix(in srgb, var(--color-on-background) 8%, transparent), transparent), linear-gradient(color-mix(in srgb, var(--color-muted) 12%, transparent), color-mix(in srgb, var(--color-muted) 12%, transparent))"
+            : `linear-gradient(90deg, transparent calc(50% - ${String(children.length * 2)}px), var(--color-on-background), transparent calc(50% + ${String(children.length * 2)}px)), linear-gradient(var(--color-muted), var(--color-muted))`,
       }}
     >
       {children}

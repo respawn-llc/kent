@@ -4,7 +4,9 @@ import (
 	"fmt"
 	"path/filepath"
 	"strings"
+	"time"
 
+	"core/cli/internal/pathdisplay"
 	"core/shared/clientui"
 	transcriptpb "core/shared/protoapi/gen/kent/api/transcript"
 	"core/shared/textutil"
@@ -19,6 +21,7 @@ const (
 	BackgroundedShellSuffix = "· " + backgroundedShellStatus
 	reviewerFeedbackGlyph   = "§"
 	reviewerErrorGlyph      = "!"
+	reasoningOmissionText   = "Conversation was switched to another provider/model - reasoning was lost, degrading output quality"
 )
 
 func RenderCommittedRow(row *transcriptpb.CommittedRow, width int, themeName string, mode Mode) Row {
@@ -129,7 +132,8 @@ func renderCommittedRow(
 		if thinkingUpdate {
 			options.forceFull = true
 		}
-		if row.GetNotice() != nil && row.GetNotice().Severity == transcriptpb.NoticeSeverity_NOTICE_SEVERITY_ERROR {
+		if notice := row.GetNotice(); notice != nil && (notice.Severity == transcriptpb.NoticeSeverity_NOTICE_SEVERITY_ERROR ||
+			notice.Severity == transcriptpb.NoticeSeverity_NOTICE_SEVERITY_WARNING) {
 			options.forceFull = true
 		}
 		if row.GetNotice() != nil && row.GetNotice().Reason == transcriptpb.NoticeReason_NOTICE_REASON_PROVIDER_MODEL_MISMATCH {
@@ -753,6 +757,28 @@ func noticeRoleAndText(row *transcriptpb.NoticeRow, visibility transcriptpb.Entr
 		}
 		return role, providerModelMismatchNoticeText(row.ProviderModelMismatch)
 	}
+	if row.Reason == transcriptpb.NoticeReason_NOTICE_REASON_REASONING_OMISSION && row.ReasoningOmission != nil {
+		if !isError {
+			role = StyleRoleWarning
+		}
+		return role, reasoningOmissionText
+	}
+	if row.Reason == transcriptpb.NoticeReason_NOTICE_REASON_CONNECTION_FALLBACK && row.ConnectionFallback != nil {
+		return role, fmt.Sprintf("Switched connection from %s to %s because usage was exhausted", row.ConnectionFallback.PreviousId, row.ConnectionFallback.CurrentId)
+	}
+	if row.Reason == transcriptpb.NoticeReason_NOTICE_REASON_CONNECTIONS_UNAVAILABLE && row.ConnectionsUnavailable != nil {
+		var lines []string
+		lines = append(lines, "Configured connections are unavailable. Retry after cooldown or update the configured connections.")
+		for _, member := range row.ConnectionsUnavailable.Members {
+			if member.AvailableAt == nil {
+				lines = append(lines, fmt.Sprintf("%s: already attempted", member.Id))
+			} else {
+				lines = append(lines, fmt.Sprintf("%s: available after %s", member.Id, member.AvailableAt.AsTime().Local().Format(time.RFC3339)))
+			}
+		}
+		lines = append(lines, row.ConnectionsUnavailable.Diagnostics...)
+		return role, strings.Join(lines, "\n")
+	}
 	if isError && row.Reason == transcriptpb.NoticeReason_NOTICE_REASON_LEGACY_UNTYPED_NOTICE && row.LegacyText != nil {
 		return role, *row.LegacyText
 	}
@@ -768,6 +794,14 @@ func noticeRoleAndText(row *transcriptpb.NoticeRow, visibility transcriptpb.Entr
 			return role, row.Diagnostic.Detail
 		}
 		return role, clientui.SessionRebindCompactLabel
+	}
+	if row.MessageType != nil && *row.MessageType == transcriptpb.NoticeMessageType_NOTICE_MESSAGE_TYPE_WORKSPACES {
+		if mode == ModeDetailCollapsed {
+			return role, clientui.ProjectWorkspacesCompactLabel
+		}
+		if mode == ModeDetailExpanded && row.Diagnostic != nil {
+			return role, row.Diagnostic.Detail
+		}
 	}
 	cacheWarningText := cacheWarningNoticeText(row.CacheWarning)
 	if isError {
@@ -789,11 +823,15 @@ func noticeRoleAndText(row *transcriptpb.NoticeRow, visibility transcriptpb.Entr
 			panic(fmt.Sprintf("render error notice with unsupported reason %q", row.Reason))
 		}
 	}
-	typedCompactText := firstNonEmpty(optionalString(row.CompactLabel), optionalString(row.CondensedText), noticeLegacyText(row), cacheWarningText, optionalString(row.SourcePath))
+	sourcePath := optionalString(row.SourcePath)
+	if sourcePath != "" {
+		sourcePath = pathdisplay.Compact(sourcePath, nil)
+	}
+	typedCompactText := firstNonEmpty(optionalString(row.CompactLabel), optionalString(row.CondensedText), noticeLegacyText(row), cacheWarningText, sourcePath)
 	compactText := firstNonEmpty(typedCompactText, noticeReasonLabel(row.Reason))
 	text := compactText
 	if mode == ModeDetailExpanded {
-		text = firstNonBlankPreservingWhitespace(noticeLegacyText(row), optionalString(row.CondensedText), optionalString(row.CompactLabel), cacheWarningText, optionalString(row.SourcePath))
+		text = firstNonBlankPreservingWhitespace(noticeLegacyText(row), optionalString(row.CondensedText), optionalString(row.CompactLabel), cacheWarningText, sourcePath)
 		if strings.TrimSpace(text) == "" {
 			text = noticeReasonLabel(row.Reason)
 		}
@@ -845,6 +883,9 @@ func worktreeNoticeText(row *transcriptpb.NoticeRow, mode Mode) (string, bool) {
 	effectiveCWD := strings.TrimSpace(context.EffectiveCwd)
 	if effectiveCWD == "" {
 		effectiveCWD = strings.TrimSpace(context.WorktreePath)
+	}
+	if effectiveCWD != "" {
+		effectiveCWD = pathdisplay.Compact(effectiveCWD, nil)
 	}
 	if row.MessageType == nil {
 		return "", false
@@ -898,7 +939,7 @@ func noticeStyleRole(row *transcriptpb.NoticeRow) StyleRole {
 		return StyleRoleWarning
 	case transcriptpb.NoticeMessageType_NOTICE_MESSAGE_TYPE_COMPACTION_SUMMARY, transcriptpb.NoticeMessageType_NOTICE_MESSAGE_TYPE_COMPACTION_PRESERVED_USER_MESSAGE:
 		return StyleRoleNoticeSecondary
-	case transcriptpb.NoticeMessageType_NOTICE_MESSAGE_TYPE_HANDOFF_FUTURE_MESSAGE, transcriptpb.NoticeMessageType_NOTICE_MESSAGE_TYPE_WORKTREE_MODE, transcriptpb.NoticeMessageType_NOTICE_MESSAGE_TYPE_SESSION_REBIND, transcriptpb.NoticeMessageType_NOTICE_MESSAGE_TYPE_SUBAGENTS:
+	case transcriptpb.NoticeMessageType_NOTICE_MESSAGE_TYPE_HANDOFF_FUTURE_MESSAGE, transcriptpb.NoticeMessageType_NOTICE_MESSAGE_TYPE_WORKTREE_MODE, transcriptpb.NoticeMessageType_NOTICE_MESSAGE_TYPE_SESSION_REBIND, transcriptpb.NoticeMessageType_NOTICE_MESSAGE_TYPE_SUBAGENTS, transcriptpb.NoticeMessageType_NOTICE_MESSAGE_TYPE_WORKSPACES:
 		return StyleRoleNotice
 	case transcriptpb.NoticeMessageType_NOTICE_MESSAGE_TYPE_GOAL, transcriptpb.NoticeMessageType_NOTICE_MESSAGE_TYPE_WORKFLOW_MODE:
 		return StyleRoleNoticePrimary
@@ -954,7 +995,7 @@ func noticeUsesMarkdown(row *transcriptpb.NoticeRow) bool {
 		return false
 	}
 	switch *row.MessageType {
-	case transcriptpb.NoticeMessageType_NOTICE_MESSAGE_TYPE_AGENTS_MD, transcriptpb.NoticeMessageType_NOTICE_MESSAGE_TYPE_SKILLS, transcriptpb.NoticeMessageType_NOTICE_MESSAGE_TYPE_SUBAGENTS, transcriptpb.NoticeMessageType_NOTICE_MESSAGE_TYPE_ENVIRONMENT, transcriptpb.NoticeMessageType_NOTICE_MESSAGE_TYPE_COMPACTION_SUMMARY, transcriptpb.NoticeMessageType_NOTICE_MESSAGE_TYPE_HEADLESS_MODE, transcriptpb.NoticeMessageType_NOTICE_MESSAGE_TYPE_HEADLESS_MODE_EXIT, transcriptpb.NoticeMessageType_NOTICE_MESSAGE_TYPE_WORKFLOW_MODE, transcriptpb.NoticeMessageType_NOTICE_MESSAGE_TYPE_ACTIVE_GOAL_CONTINUATION, transcriptpb.NoticeMessageType_NOTICE_MESSAGE_TYPE_AGENT_STEER:
+	case transcriptpb.NoticeMessageType_NOTICE_MESSAGE_TYPE_AGENTS_MD, transcriptpb.NoticeMessageType_NOTICE_MESSAGE_TYPE_SKILLS, transcriptpb.NoticeMessageType_NOTICE_MESSAGE_TYPE_SUBAGENTS, transcriptpb.NoticeMessageType_NOTICE_MESSAGE_TYPE_WORKSPACES, transcriptpb.NoticeMessageType_NOTICE_MESSAGE_TYPE_ENVIRONMENT, transcriptpb.NoticeMessageType_NOTICE_MESSAGE_TYPE_COMPACTION_SUMMARY, transcriptpb.NoticeMessageType_NOTICE_MESSAGE_TYPE_HEADLESS_MODE, transcriptpb.NoticeMessageType_NOTICE_MESSAGE_TYPE_HEADLESS_MODE_EXIT, transcriptpb.NoticeMessageType_NOTICE_MESSAGE_TYPE_WORKFLOW_MODE, transcriptpb.NoticeMessageType_NOTICE_MESSAGE_TYPE_ACTIVE_GOAL_CONTINUATION, transcriptpb.NoticeMessageType_NOTICE_MESSAGE_TYPE_AGENT_STEER:
 		return true
 	default:
 		return false
@@ -998,6 +1039,12 @@ func noticeReasonLabel(reason transcriptpb.NoticeReason) string {
 		return transcript.NoticeReasonToolOutputRepair
 	case transcriptpb.NoticeReason_NOTICE_REASON_PROVIDER_MODEL_MISMATCH:
 		return transcript.NoticeReasonProviderModelMismatch
+	case transcriptpb.NoticeReason_NOTICE_REASON_REASONING_OMISSION:
+		return transcript.NoticeReasonReasoningOmission
+	case transcriptpb.NoticeReason_NOTICE_REASON_CONNECTION_FALLBACK:
+		return transcript.NoticeReasonConnectionFallback
+	case transcriptpb.NoticeReason_NOTICE_REASON_CONNECTIONS_UNAVAILABLE:
+		return transcript.NoticeReasonConnectionsUnavailable
 	default:
 		return "notice"
 	}

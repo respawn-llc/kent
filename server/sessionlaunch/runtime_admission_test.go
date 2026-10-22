@@ -55,7 +55,7 @@ func TestServiceOpenExistingSessionDoesNotWaitForActiveRuntime(t *testing.T) {
 	service := newSessionLaunchTestService(config.App{
 		WorkspaceRoot:   workspace,
 		PersistenceRoot: root,
-		Settings:        config.Settings{Model: "gpt-5"},
+		Settings:        config.Settings{Model: "gpt-6-sol"},
 	}, containerDir)
 	filesystemContext, err := runtimewire.NewFilesystemContext(
 		workspace,
@@ -68,7 +68,7 @@ func TestServiceOpenExistingSessionDoesNotWaitForActiveRuntime(t *testing.T) {
 	runtimePlan, err := sessionruntime.NewAgentRuntimePlan(sessionruntime.AgentRuntimePlanOptions{
 		MainWorkspaceRoot: workspace,
 		Settings: testsetup.WriteProviderSettings(t, root, config.Settings{
-			Model:              "gpt-5",
+			Model:              "gpt-6-sol",
 			ModelContextWindow: 200_000,
 			Reviewer:           config.ReviewerSettings{Frequency: "off"},
 			Shell: config.ShellSettings{
@@ -85,21 +85,18 @@ func TestServiceOpenExistingSessionDoesNotWaitForActiveRuntime(t *testing.T) {
 	}
 	attachment, err := authority.OpenRuntime(context.Background(), sessionruntime.RuntimeOpenRequest{
 		SessionID: sessionID,
-		OwnerID:   "active-runtime-owner",
-		Runtime:   &runtimePlan,
+
+		Runtime: &runtimePlan,
 	})
 	if err != nil {
 		t.Fatalf("open runtime: %v", err)
 	}
-	t.Cleanup(func() {
-		_, _ = attachment.Release(context.Background(), sessionruntime.RuntimeReleaseDetach)
-	})
 
 	started := make(chan struct{})
 	release := make(chan struct{})
 	runtimeDone := make(chan error, 1)
 	go func() {
-		runtimeDone <- authority.WithRuntime(context.Background(), attachment.Resource(), func(context.Context, *runtime.Engine) error {
+		runtimeDone <- authority.WithRuntime(context.Background(), attachment, func(context.Context, *runtime.Engine) error {
 			close(started)
 			<-release
 			return nil

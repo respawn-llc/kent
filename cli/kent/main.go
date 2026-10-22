@@ -19,6 +19,7 @@ import (
 	"core/shared/client"
 	"core/shared/config"
 	"core/shared/imagefileio"
+	"core/shared/protoapi"
 	runtimepb "core/shared/protoapi/gen/kent/api/runtime"
 	"core/shared/runtimeids"
 	"core/shared/serverapi"
@@ -283,7 +284,7 @@ func runSubcommand(args []string) int {
 	flags := registerCommonFlags(runFS, true)
 	agentRoleRaw := runFS.String("agent", "", "role for this run; default selects the headless default, omission preserves a resumed role")
 	fastRole := runFS.Bool("fast", false, "use the built-in fast subagent role")
-	timeoutRaw := runFS.String("timeout", "", "maximum run duration, such as 30s or 2m")
+	timeoutRaw := runFS.String("timeout", "", "maximum run-completion time after launch preparation and prompt-history saving, such as 30s or 2m")
 	outputModeRaw := runFS.String("output-mode", string(runOutputModeFinalText), "result format: final-text|json")
 	progressModeRaw := runFS.String("progress-mode", string(runProgressModeStderr), "live output: stderr|quiet")
 	quiet := false
@@ -374,28 +375,40 @@ func runSubcommand(args []string) int {
 		Tools:                     flags.Tools,
 		ConfigRoot:                strings.TrimSpace(flags.PersistenceRoot),
 	}
+	if *fastRole {
+		opts.RunAgentFlag = app.RunAgentFlagFast
+	}
 
 	var progress serverapi.RunPromptProgressSink
 	var progressRenderer *runProgressRenderer
-	if progressMode == runProgressModeStderr {
-		progressRenderer = newRunProgressRenderer(os.Stdout, os.Stderr)
-		progress = progressRenderer
+	if outputMode != runOutputModeJSON {
+		renderer := newRunProgressRenderer(os.Stdout, os.Stderr)
+		renderer.mode, renderer.agentFlag = progressMode, opts.RunAgentFlag
+		progress = renderer
+		if progressMode == runProgressModeStderr {
+			progressRenderer = renderer
+		}
 	}
 	result, runErr := runPromptApp(ctx, opts, prompt, timeout, progress)
-	continueID := strings.TrimSpace(result.SessionID)
 	continueRoot := continueCommandPersistenceRoot(flags.PersistenceRoot)
-	continueCmd := prompts.ContinueRunCommandWithRoot(continueID, continueRoot)
-	continueHint := buildRunContinueHint(continueID, continueRoot)
+	var continueID, continueCmd *string
+	continueHint := ""
+	if result.Identity != nil {
+		id := result.Identity.ID.String()
+		command := prompts.ContinueRunCommandWithRoot(id, continueRoot)
+		continueID, continueCmd = &id, &command
+		continueHint = buildRunContinueHint(result.Identity.String(), continueRoot)
+	}
 	if runErr != nil {
 		code := runErrorCode(runErr)
 		if outputMode == runOutputModeJSON {
 			emitRunJSON(runJSONResult{
 				Status:      "error",
-				SessionID:   result.SessionID,
+				SessionID:   continueID,
 				SessionName: result.SessionName,
 				ContinueID:  continueID,
 				ContinueCmd: continueCmd,
-				Warnings:    append([]string(nil), result.Warnings...),
+				Warnings:    result.AllWarnings(),
 				DurationMS:  result.Duration.Milliseconds(),
 				Error:       newRunJSONError(runErr),
 			})
@@ -413,22 +426,47 @@ func runSubcommand(args []string) int {
 		return 1
 	}
 	if outputMode == runOutputModeJSON {
-		emitRunJSON(runJSONResult{
+		output := runJSONResult{
 			Status:      "ok",
-			Result:      result.Result,
-			SessionID:   result.SessionID,
+			SessionID:   continueID,
 			SessionName: result.SessionName,
 			ContinueID:  continueID,
 			ContinueCmd: continueCmd,
-			Warnings:    append([]string(nil), result.Warnings...),
+			Warnings:    result.AllWarnings(),
 			DurationMS:  result.Duration.Milliseconds(),
-		})
-	} else {
-		if progressRenderer != nil {
-			progressRenderer.Complete(result.Result, result.Warnings, continueHint)
-		} else {
-			emitRunFinalText(os.Stdout, result.Warnings, result.Result, continueHint)
 		}
+		switch outcome := result.Outcome.(type) {
+		case app.RunPromptFinalAnswer:
+			output.Result = outcome.Text
+		case app.RunPromptPendingQuestion:
+			question, err := projectObservationQuestion(outcome.Question, result.Identity.ID.String(), nil)
+			if err != nil {
+				fmt.Fprintln(os.Stderr, err)
+				return 1
+			}
+			output.Outcome = question
+		}
+		emitRunJSON(output)
+		return 0
+	}
+	switch outcome := result.Outcome.(type) {
+	case app.RunPromptFinalAnswer:
+		if progressRenderer != nil {
+			progressRenderer.Complete(outcome.Text, result.Warnings, continueHint)
+		} else {
+			emitRunFinalText(os.Stdout, result.Warnings, outcome.Text, continueHint)
+		}
+	case app.RunPromptPendingQuestion:
+		warningsWriter := io.Writer(os.Stdout)
+		if progressRenderer != nil {
+			warningsWriter = os.Stderr
+		}
+		emitWarnings(warningsWriter, result.Warnings)
+		writeObservedQuestion(
+			os.Stdout,
+			outcome.Question,
+			observationQuestionHint([]string{"--session", result.Identity.String()}, outcome.Question),
+		)
 	}
 	return 0
 }
@@ -450,8 +488,11 @@ func liveControlSubcommand(args []string) string {
 	if verb == "watch" {
 		return verb
 	}
-	sessionID, err := runtimeids.ParseSessionID(positionals[0])
-	if err != nil || !sessionID.IsCanonicalUUIDv4() {
+	if _, err := runtimeids.ParseSessionSelector(positionals[0]); err != nil {
+		var invalidNumber *runtimeids.InvalidSessionShortIDError
+		if errors.As(err, &invalidNumber) {
+			return verb
+		}
 		return ""
 	}
 	switch verb {
@@ -516,10 +557,6 @@ func runLiveSteerSubcommand(args []string) int {
 		emitRunUsageError(runOutputModeFinalText, "message is required")
 		return 2
 	}
-	if err := rejectSelfTarget(sessionID, "kent run steer "+strings.Join(args, " ")); err != nil {
-		emitRunUsageError(runOutputModeFinalText, err.Error())
-		return 2
-	}
 	if _, err := app.LiveSteerCallerSessionID(); err != nil {
 		emitRunUsageError(runOutputModeFinalText, err.Error())
 		return 2
@@ -531,10 +568,13 @@ func runLiveSteerSubcommand(args []string) int {
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
 	if _, err := runLiveSteerApp(ctx, app.Options{ConfigRoot: strings.TrimSpace(*persistenceRoot)}, sessionID, message); err != nil {
+		if code, denied := emitLiveSelfTargetUsage(runOutputModeFinalText, "kent run steer "+strings.Join(args, " "), err, nil); denied {
+			return code
+		}
 		fmt.Fprintln(os.Stderr, runErrorMessage(err))
 		if errors.Is(err, serverapi.ErrRuntimeNoActiveRun) {
 			fmt.Fprintln(os.Stderr)
-			fmt.Fprintf(os.Stderr, "To continue this session instead, execute `%s`.\n", buildRunSteerContinueCommand(sessionID.String(), continueCommandPersistenceRoot(*persistenceRoot), message))
+			fmt.Fprintf(os.Stderr, "To continue this session instead, execute `%s`.\n", buildRunSteerContinueCommand(liveErrorSelector(sessionID, err), continueCommandPersistenceRoot(*persistenceRoot), message))
 		}
 		return 1
 	}
@@ -561,10 +601,6 @@ func runLiveStopSubcommand(args []string) int {
 		emitRunUsageError(runOutputModeFinalText, err.Error())
 		return 2
 	}
-	if err := rejectSelfTarget(sessionID, "kent run stop "+strings.Join(args, " ")); err != nil {
-		emitRunUsageError(runOutputModeFinalText, err.Error())
-		return 2
-	}
 	if err := publishPersistenceRootEnv(*persistenceRoot); err != nil {
 		emitRunUsageError(runOutputModeFinalText, err.Error())
 		return 2
@@ -573,6 +609,9 @@ func runLiveStopSubcommand(args []string) int {
 	defer stop()
 	result, err := runLiveStopApp(ctx, app.Options{ConfigRoot: strings.TrimSpace(*persistenceRoot)}, sessionID)
 	if err != nil {
+		if code, denied := emitLiveSelfTargetUsage(runOutputModeFinalText, "kent run stop "+strings.Join(args, " "), err, nil); denied {
+			return code
+		}
 		fmt.Fprintln(os.Stderr, runErrorMessage(err))
 		return 1
 	}
@@ -604,12 +643,6 @@ func runLiveWaitSubcommand(args []string) int {
 	if err != nil {
 		return runObservationUsage(outputMode, err.Error())
 	}
-	if !sessionID.IsCanonicalUUIDv4() {
-		return runObservationUsage(outputMode, "session ID must be a canonical UUIDv4")
-	}
-	if err := rejectSelfTarget(sessionID, "kent run wait "+strings.Join(args, " ")); err != nil {
-		return runObservationUsage(outputMode, err.Error())
-	}
 	if err := publishPersistenceRootEnv(*persistenceRoot); err != nil {
 		return runObservationUsage(outputMode, err.Error())
 	}
@@ -625,8 +658,11 @@ func runLiveWaitSubcommand(args []string) int {
 		result, runErr = runLiveWaitApp(ctx, app.Options{ConfigRoot: strings.TrimSpace(*persistenceRoot)}, sessionID)
 	}
 	continueRoot := continueCommandPersistenceRoot(*persistenceRoot)
-	continueHint := buildRunContinueHint(sessionID.String(), continueRoot)
+	continueHint := buildRunContinueHint(liveErrorSelector(sessionID, runErr), continueRoot)
 	if runErr != nil {
+		if code, denied := emitLiveSelfTargetUsage(outputMode, "kent run wait "+strings.Join(args, " "), runErr, closeFn); denied {
+			return code
+		}
 		if outputMode == runOutputModeJSON {
 			return emitRunWaitJSON(os.Stdout, sessionID.String(), result, runErr, ctx, closeFn)
 		} else {
@@ -644,6 +680,8 @@ func runLiveWaitSubcommand(args []string) int {
 	if outputMode == runOutputModeJSON {
 		return emitRunWaitJSON(os.Stdout, sessionID.String(), result, nil, ctx, closeFn)
 	}
+	identity := protoapi.SessionIdentityFromProto(result.SessionId, result.ShortId)
+	continueHint = buildRunContinueHint(identity.String(), continueRoot)
 	emitRunFinalText(os.Stdout, nil, result.GetAssistantFinalAnswer().GetResult(), continueHint)
 	return 0
 }
@@ -652,7 +690,7 @@ func runLiveWatchSubcommand(args []string) int {
 	return runLiveWatchSubcommandWithCleanup(args, app.RunLiveWatchWithCleanup)
 }
 
-type liveWatchCleanupRunner func(context.Context, app.Options, runtimeids.SessionID) app.RunLiveWatchResult
+type liveWatchCleanupRunner func(context.Context, app.Options, runtimeids.SessionSelector) app.RunLiveWatchResult
 
 func runLiveWatchSubcommandWithCleanup(args []string, runWithCleanup liveWatchCleanupRunner) int {
 	var diagnostics bytes.Buffer
@@ -673,9 +711,6 @@ func runLiveWatchSubcommandWithCleanup(args []string, runWithCleanup liveWatchCl
 	if err != nil {
 		return runObservationUsage(outputMode, err.Error())
 	}
-	if err := rejectSelfTarget(sessionID, "kent run watch "+strings.Join(args, " ")); err != nil {
-		return runObservationUsage(outputMode, err.Error())
-	}
 	if err := publishPersistenceRootEnv(*persistenceRoot); err != nil {
 		return runObservationUsage(outputMode, err.Error())
 	}
@@ -684,22 +719,25 @@ func runLiveWatchSubcommandWithCleanup(args []string, runWithCleanup liveWatchCl
 	result := runWithCleanup(ctx, app.Options{ConfigRoot: strings.TrimSpace(*persistenceRoot)}, sessionID)
 	response := result.Response
 	if result.Error != nil {
+		if code, denied := emitLiveSelfTargetUsage(outputMode, "kent run watch "+strings.Join(args, " "), result.Error, result.Close); denied {
+			return code
+		}
 		if outputMode == runOutputModeJSON {
-			return emitObservationError(os.Stdout, observationOperationRunWatch, observationTargetSession(sessionID.String()), ctx, result.Error, nil, result.Close)
+			return emitObservationError(os.Stdout, observationOperationRunWatch, observationSessionErrorTarget(sessionID.String(), result.Error), ctx, result.Error, nil, result.Close)
 		}
 		if result.Close != nil {
 			_ = result.Close()
 		}
-		fmt.Fprintln(os.Stderr, result.Error)
+		fmt.Fprintln(os.Stderr, runErrorMessage(result.Error))
 		if errors.Is(result.Error, context.Canceled) {
 			return 130
 		}
 		return 1
 	}
 	if outputMode == runOutputModeJSON {
-		envelope, exitCode, projectionErr := projectRunWatchJSON(sessionID.String(), response)
+		envelope, exitCode, projectionErr := projectRunWatchJSON(response)
 		if projectionErr != nil {
-			return emitObservationError(os.Stdout, observationOperationRunWatch, observationTargetSession(sessionID.String()), ctx, &client.InvalidResponseError{
+			return emitObservationError(os.Stdout, observationOperationRunWatch, observationSessionErrorTarget(sessionID.String(), projectionErr), ctx, &client.InvalidResponseError{
 				Operation: "runtime live watch", Cause: projectionErr,
 			}, nil, result.Close)
 		}
@@ -708,7 +746,8 @@ func runLiveWatchSubcommandWithCleanup(args []string, runWithCleanup liveWatchCl
 	if result.Close != nil {
 		_ = result.Close()
 	}
-	return writeRunWatchResponse(os.Stdout, os.Stderr, response, buildRunContinueHint(response.SessionId, continueCommandPersistenceRoot(*persistenceRoot)))
+	identity := protoapi.SessionIdentityFromProto(response.SessionId, response.ShortId)
+	return writeRunWatchResponse(os.Stdout, os.Stderr, response, buildRunContinueHint(identity.String(), continueCommandPersistenceRoot(*persistenceRoot)))
 }
 
 func runLiveFlagError(err error) int {
@@ -717,6 +756,20 @@ func runLiveFlagError(err error) int {
 	}
 	emitRunUsageError(runOutputModeFinalText, err.Error())
 	return 2
+}
+
+func emitLiveSelfTargetUsage(mode runOutputMode, command string, err error, closeFn func() error) (int, bool) {
+	var denied *serverapi.SessionSelfTargetError
+	if !errors.As(err, &denied) {
+		return 0, false
+	}
+	message := prompts.RenderLiveControlSelfTargetDeniedPrompt(command)
+	if closeFn != nil {
+		if closeErr := closeFn(); closeErr != nil {
+			message += "\n" + closeErr.Error()
+		}
+	}
+	return runObservationUsage(mode, message), true
 }
 
 func runObservationUsage(mode runOutputMode, message string) int {
@@ -748,31 +801,8 @@ func parseObservationFlags(fs *flag.FlagSet, args []string, raw *string, diagnos
 	return mode, true, 0
 }
 
-func parseCLILiveSessionID(raw string) (runtimeids.SessionID, error) {
-	return runtimeids.ParseSessionID(raw)
-}
-
-func rejectSelfTarget(targetSessionID runtimeids.SessionID, commandText string) error {
-	currentID, ok := currentSessionIDForSelfTarget()
-	if !ok {
-		return nil
-	}
-	if currentID == targetSessionID {
-		return errors.New(prompts.RenderLiveControlSelfTargetDeniedPrompt(strings.TrimSpace(commandText)))
-	}
-	return nil
-}
-
-func currentSessionIDForSelfTarget() (runtimeids.SessionID, bool) {
-	current, ok := sessionenv.LookupSessionID(os.LookupEnv)
-	if !ok {
-		return runtimeids.SessionID{}, false
-	}
-	currentID, err := parseCLILiveSessionID(current)
-	if err != nil {
-		return runtimeids.SessionID{}, false
-	}
-	return currentID, true
+func parseCLILiveSessionID(raw string) (runtimeids.SessionSelector, error) {
+	return runtimeids.ParseSessionSelector(raw)
 }
 
 func registerCommonFlags(fs *flag.FlagSet, includeSession bool) *commonFlags {
@@ -782,7 +812,7 @@ func registerCommonFlags(fs *flag.FlagSet, includeSession bool) *commonFlags {
 		registerSessionFlagVars(fs, flags)
 	}
 	fs.StringVar(&flags.Model, "model", "", "model for this session")
-	fs.StringVar(&flags.ThinkingLevel, "thinking-level", "", "reasoning effort: low|medium|high|xhigh")
+	fs.StringVar(&flags.ThinkingLevel, "thinking-level", "", "reasoning effort supported by the selected model")
 	fs.StringVar(&flags.Theme, "theme", "", "theme: light|dark")
 	fs.IntVar(&flags.ModelTimeoutSeconds, "model-timeout-seconds", 0, "model request timeout in seconds")
 	fs.StringVar(&flags.Tools, "tools", "", "comma-separated enabled tool IDs, such as shell,patch")
@@ -802,8 +832,16 @@ func registerSessionFlagVars(fs *flag.FlagSet, flags *commonFlags) {
 }
 
 func effectiveSessionID(flags commonFlags) (string, error) {
-	sessionID := strings.TrimSpace(flags.SessionID)
-	continueID := strings.TrimSpace(flags.ContinueID)
+	sessionID, continueID := flags.SessionID, flags.ContinueID
+	for _, value := range []*string{&sessionID, &continueID} {
+		if *value != "" {
+			selector, err := runtimeids.ParseSessionSelector(*value)
+			if err != nil {
+				return "", err
+			}
+			*value = selector.String()
+		}
+	}
 	if sessionID != "" && continueID != "" && sessionID != continueID {
 		return "", fmt.Errorf("--session and --continue must match when both are provided")
 	}
@@ -831,7 +869,24 @@ func sessionIDSubcommand(args []string, stdout io.Writer, stderr io.Writer) int 
 		fmt.Fprintf(stderr, "%s is not set; this command only works inside "+config.Product+" shell commands\n", sessionenv.SessionIDEnv)
 		return 1
 	}
-	_, _ = fmt.Fprintln(stdout, sessionID)
+	id, err := runtimeids.ParseSessionID(sessionID)
+	if err != nil {
+		fmt.Fprintln(stderr, err)
+		return 1
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), bindingCommandRPCTimeout)
+	defer cancel()
+	remote, err := openConfiguredSessionRemote(ctx, id.String())
+	if err != nil {
+		fmt.Fprintln(stderr, err)
+		return 1
+	}
+	err = writeSessionIdentity(ctx, remote, id, stdout)
+	err = errors.Join(err, remote.Close())
+	if err != nil {
+		fmt.Fprintln(stderr, err)
+		return 1
+	}
 	return 0
 }
 

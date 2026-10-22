@@ -35,23 +35,24 @@ func (r *ConnectionResolver) Resolve(settings config.Settings) (ResolvedConnecti
 	if err != nil {
 		return ResolvedConnection{}, err
 	}
-	id := *settings.Connection
-	return ResolvedConnection{ID: id, Definition: definition, Auth: connectionAuth{owner: r, id: id}}, nil
-}
-
-func (r *ConnectionResolver) resolveTarget(raw *string) (ResolvedConnection, error) {
-	app, err := config.LoadGlobal(config.LoadOptions{ConfigRoot: r.root})
+	selected, err := settings.Connection.ConcreteID()
 	if err != nil {
 		return ResolvedConnection{}, err
 	}
-	if raw != nil {
-		id, err := config.ParseConnectionID(*raw)
-		if err != nil {
-			return ResolvedConnection{}, err
-		}
-		app.Settings.Connection = &id
+	id := *selected
+	return ResolvedConnection{ID: id, Definition: definition, Auth: connectionAuth{owner: r, id: id}}, nil
+}
+
+func (r *ConnectionResolver) resolveTarget(raw *string) (ResolvedConnection, config.Settings, error) {
+	app, err := config.LoadGlobal(config.LoadOptions{ConfigRoot: r.root})
+	if err != nil {
+		return ResolvedConnection{}, config.Settings{}, err
 	}
-	return r.Resolve(app.Settings)
+	if raw != nil {
+		app.Settings.Connection = config.SingleConnection(config.ConnectionID(*raw))
+	}
+	connection, err := r.Resolve(app.Settings)
+	return connection, app.Settings, err
 }
 
 func (r *ConnectionResolver) apiKey(id config.ConnectionID, name string) (string, error) {
@@ -64,17 +65,19 @@ func (r *ConnectionResolver) apiKey(id config.ConnectionID, name string) (string
 
 type connectionSnapshot struct {
 	connection ResolvedConnection
+	settings   config.Settings
 	oauth      *auth.OAuthMethod
 	failure    error
+	pending    *pendingConnection
 }
 
 func (r *ConnectionResolver) snapshot(ctx context.Context, raw *string) (connectionSnapshot, error) {
-	connection, err := r.resolveTarget(raw)
+	connection, settings, err := r.resolveTarget(raw)
 	if err != nil {
 		return connectionSnapshot{}, err
 	}
-	snapshot := connectionSnapshot{connection: connection}
-	if connection.Definition.Protocol == config.ConnectionChatGPT {
+	snapshot := connectionSnapshot{connection: connection, settings: settings}
+	if connection.Definition.Protocol.IsSubscription() {
 		if r.manager == nil {
 			snapshot.failure = auth.ErrAuthNotConfigured
 			return snapshot, nil
@@ -99,7 +102,12 @@ type connectionAuth struct {
 	id    config.ConnectionID
 }
 
-func (a connectionAuth) ResolveDispatchAuth(ctx context.Context) (*llm.DispatchAuth, error) {
+func (a connectionAuth) ResolveDispatchAuth(ctx context.Context) (result *llm.DispatchAuth, err error) {
+	defer func() {
+		if err != nil {
+			err = &llm.AuthError{ConnectionID: &a.id, Err: err}
+		}
+	}()
 	// Definition edits change credential references for future dispatches;
 	// a runtime client retains only the connection identity.
 	app, err := config.LoadGlobal(config.LoadOptions{ConfigRoot: a.owner.root})
@@ -111,7 +119,7 @@ func (a connectionAuth) ResolveDispatchAuth(ctx context.Context) (*llm.DispatchA
 		return nil, fmt.Errorf("provider connection %q is no longer defined", a.id)
 	}
 	switch definition.Protocol {
-	case config.ConnectionResponses:
+	case config.ConnectionResponses, config.ConnectionGrokAPIKey:
 		if definition.EnvironmentVariable == nil {
 			return nil, nil
 		}
@@ -121,17 +129,21 @@ func (a connectionAuth) ResolveDispatchAuth(ctx context.Context) (*llm.DispatchA
 			return nil, err
 		}
 		return &llm.DispatchAuth{Header: "Bearer " + value}, nil
-	case config.ConnectionChatGPT:
+	case config.ConnectionChatGPT, config.ConnectionGrokCLIProxy, config.ConnectionGrokOAuthAPI:
 		if a.owner.manager == nil {
 			return nil, fmt.Errorf("connection %s: %w", a.id, auth.ErrAuthNotConfigured)
 		}
-		credential, err := a.owner.manager.CurrentOAuth(ctx, a.id)
+		credential, err := a.owner.manager.CurrentOAuth(ctx, a.id, definition.Protocol)
 		if err != nil {
 			return nil, err
 		}
+		mode := llm.OpenAIAuthMode{IsOAuth: true}
+		if definition.Protocol == config.ConnectionChatGPT {
+			mode.AccountID = credential.AccountID
+		}
 		return &llm.DispatchAuth{
 			Header: "Bearer " + credential.AccessToken,
-			Mode:   llm.OpenAIAuthMode{IsOAuth: true, AccountID: credential.AccountID},
+			Mode:   mode,
 		}, nil
 	default:
 		return nil, fmt.Errorf("connection %s has unsupported protocol %q", a.id, definition.Protocol)

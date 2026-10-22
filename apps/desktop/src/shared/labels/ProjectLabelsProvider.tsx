@@ -63,7 +63,7 @@ export function ProjectLabelsProvider({
             await effects.consumeProjectEvent(observation.event).catch(reportBackgroundError);
             break;
           case "complete":
-            if (observation.code === 0)
+            if (observation.code === null)
               await effects.refreshAfterSubscriptionBoundary().catch(reportBackgroundError);
             break;
           case "error":

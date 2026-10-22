@@ -13,8 +13,8 @@ import (
 	"core/server/workflow"
 	"core/server/workflowexecution"
 	"core/server/workflowstore"
+	taskpb "core/shared/protoapi/gen/kent/api/workflow_task"
 	"core/shared/runtimeids"
-	"core/shared/serverapi"
 )
 
 type TaskStatusLiveObservationSource interface {
@@ -29,12 +29,12 @@ type TaskStatusObservation struct {
 type TaskStatusProjectionResult struct {
 	Task                         sqlitegen.TaskRecord
 	Definition                   definitionSnapshot
-	Status                       serverapi.WorkflowTaskStatus
+	Status                       *taskpb.TaskStatus
 	Done                         bool
 	CurrentNodes                 []workflow.CurrentNode
 	LiveExecutions               []sessionruntime.TaskExecution
 	PendingTransitionApprovalIDs []string
-	Actions                      serverapi.WorkflowTaskActions
+	Actions                      *taskpb.TaskActions
 	AttentionCount               int
 }
 
@@ -148,9 +148,6 @@ func (p *TaskStatusProjection) Project(
 	}
 	if queries == nil {
 		return nil, errors.New("workflow queries are required")
-	}
-	if !json.Valid([]byte(observation.LiveTaskStatesJSON)) {
-		return nil, errors.New("task status observation live task states are malformed")
 	}
 	encodedTaskIDs, err := encodeTaskIDs(taskIDs)
 	if err != nil {

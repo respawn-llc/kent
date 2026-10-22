@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"testing"
 
@@ -13,14 +14,99 @@ import (
 	"core/internal/testharness/workflowfixture"
 	"core/server/auth"
 	serverbootstrap "core/server/bootstrap"
-	"core/server/metadata"
 	"core/server/workflow"
 	"core/server/workflowstore"
 	"core/server/workflowsvc"
 	"core/server/worktree"
+	pb "core/shared/protoapi/gen/kent/api/workflow_definition"
+	taskpb "core/shared/protoapi/gen/kent/api/workflow_task"
 	"core/shared/serverapi"
 	"core/shared/worktreecontract"
 )
+
+func TestTaskStartReportsExplicitDefaultBranchFailureForNonGitSource(t *testing.T) {
+	ctx := context.Background()
+	workspace := t.TempDir()
+	if _, err := exec.CommandContext(ctx, "git", "-C", workspace, "rev-parse", "--show-toplevel").Output(); err == nil {
+		t.Fatalf("source workspace %q unexpectedly belongs to a Git repository", workspace)
+	}
+	t.Setenv("HOME", t.TempDir())
+	resolved, err := serverbootstrap.ResolveConfig(serverbootstrap.Request{WorkspaceRoot: workspace})
+	if err != nil {
+		t.Fatalf("ResolveConfig: %v", err)
+	}
+	metadataStore := testsetup.OpenStore(t, resolved.Config.PersistenceRoot)
+	binding, err := metadataStore.RegisterWorkspaceBinding(ctx, resolved.Config.WorkspaceRoot)
+	if err != nil {
+		t.Fatalf("RegisterBinding: %v", err)
+	}
+	appCore := newCoreTestAppWithOptions(t, resolved.Config, auth.EmptyState(), Options{MetadataStore: metadataStore})
+	if err := appCore.MetadataStore().SetProjectKey(ctx, binding.ProjectID, "DBR"); err != nil {
+		t.Fatalf("SetProjectKey: %v", err)
+	}
+	store, err := workflowstore.New(
+		appCore.MetadataStore(),
+		workflowstore.WithRoleResolver(configRoleResolver{app: resolved.Config}),
+	)
+	if err != nil {
+		t.Fatalf("workflowstore.New: %v", err)
+	}
+	taskID := createCoreInitialBranchTask(t, store, binding.ProjectID)
+	taskIDString := string(taskID)
+	initialNodes, err := store.ListCurrentNodes(ctx, taskID)
+	if err != nil {
+		t.Fatalf("ListCurrentNodes before Start: %v", err)
+	}
+
+	response, startErr := appCore.WorkflowClient().StartWorkflowTask(ctx, &taskpb.StartRequest{
+		TaskId:           string(taskID),
+		SetupOperationId: worktreecontract.NewSetupOperationID().String(),
+		ExecutionTarget:  &taskpb.ExecutionTargetSelection{Mode: pb.ExecutionTargetMode_WORKFLOW_EXECUTION_TARGET_MODE_DEFAULT_BRANCH},
+	})
+	if response != nil && response.GetApplied() != nil {
+		t.Errorf("StartWorkflowTask response = %+v, want no applied result", response)
+	}
+	var resolutionErr *serverapi.WorkflowExecutionTargetResolutionError
+	if !errors.As(startErr, &resolutionErr) {
+		t.Errorf("StartWorkflowTask error = %T %v, want typed default-branch resolution failure", startErr, startErr)
+	} else {
+		_, isDefaultBranch := resolutionErr.Target.(serverapi.WorkflowExecutionTargetResolutionDefaultBranch)
+		if !isDefaultBranch ||
+			resolutionErr.Code != serverapi.WorkflowExecutionTargetResolutionErrorGitFailure ||
+			resolutionErr.Diagnostic == nil ||
+			*resolutionErr.Diagnostic == "" {
+			t.Errorf("StartWorkflowTask error = %+v, want selected default branch, Git failure cause, and diagnostic", resolutionErr)
+		}
+	}
+
+	detail, err := appCore.WorkflowClient().GetWorkflowTask(ctx, &taskpb.GetRequest{TaskId: &taskIDString})
+	if err != nil {
+		t.Fatalf("GetWorkflowTask after failed Start: %v", err)
+	}
+	if detail.Task.Status.Kind != taskpb.TaskStatusKind_TASK_STATUS_KIND_BACKLOG {
+		t.Errorf("Task status = %s, want Backlog", detail.Task.Status.Kind)
+	}
+	targetContext, err := store.GetTaskExecutionTargetContext(ctx, taskID)
+	if err != nil {
+		t.Fatalf("GetTaskExecutionTargetContext after failed Start: %v", err)
+	}
+	if targetContext.Task.ExecutionTarget != nil {
+		t.Errorf("execution target = %+v, want unlocked", targetContext.Task.ExecutionTarget)
+	}
+	currentNodes, err := store.ListCurrentNodes(ctx, taskID)
+	if err != nil {
+		t.Fatalf("ListCurrentNodes after failed Start: %v", err)
+	}
+	if len(currentNodes) != len(initialNodes) {
+		t.Errorf("Current Nodes after failed Start = %+v, want unchanged Start Node state %+v", currentNodes, initialNodes)
+	} else {
+		for index := range currentNodes {
+			if !currentNodes[index].Reference.Equal(initialNodes[index].Reference) {
+				t.Errorf("Current Node after failed Start = %+v, want unchanged Start Node %v", currentNodes[index].Reference, initialNodes[index].Reference)
+			}
+		}
+	}
+}
 
 func TestTaskExecutionTargetInfrastructureCarriesPostCreationBranchAssertion(t *testing.T) {
 	ctx := context.Background()
@@ -36,11 +122,12 @@ func TestTaskExecutionTargetInfrastructureCarriesPostCreationBranchAssertion(t *
 	if err != nil {
 		t.Fatalf("ResolveConfig: %v", err)
 	}
-	binding, err := metadata.RegisterBinding(ctx, resolved.Config.PersistenceRoot, resolved.Config.WorkspaceRoot)
+	metadataStore := testsetup.OpenStore(t, resolved.Config.PersistenceRoot)
+	binding, err := metadataStore.RegisterWorkspaceBinding(ctx, resolved.Config.WorkspaceRoot)
 	if err != nil {
 		t.Fatalf("RegisterBinding: %v", err)
 	}
-	appCore := newCoreTestApp(t, resolved.Config, auth.EmptyState())
+	appCore := newCoreTestAppWithOptions(t, resolved.Config, auth.EmptyState(), Options{MetadataStore: metadataStore})
 	if err := appCore.bundles.Persistence.metadataStore.SetProjectKey(ctx, binding.ProjectID, "BRA"); err != nil {
 		t.Fatalf("SetProjectKey: %v", err)
 	}
@@ -155,15 +242,15 @@ func TestTaskExecutionTargetInfrastructureCarriesPostCreationBranchAssertion(t *
 	originalRoot := materialized.Worktree.GetRegistered().GetGit().GetCanonicalRoot()
 	testsetup.RunGit(t, workspace, "worktree", "remove", originalRoot)
 	testsetup.RunGit(t, workspace, "branch", "-D", branchA)
-	request := serverapi.WorkflowTaskMoveRequest{TaskID: string(taskID), TargetNodeID: string(source.NodeID)}
+	request := &taskpb.MoveRequest{TaskId: string(taskID), TargetNodeId: string(source.NodeID)}
 	selection, err := appCore.bundles.Workflows.workflows.MoveWorkflowTask(ctx, request)
-	if err != nil || selection.SelectionRequired == nil || selection.SelectionRequired.Details.GetOriginalTargetUnavailable() == nil {
+	if err != nil || selection.GetSelectionRequired() == nil || selection.GetSelectionRequired().GetOriginalTargetUnavailable() == nil {
 		t.Fatalf("missing original selection = %+v: %v", selection, err)
 	}
-	request.ExecutionTarget = &serverapi.WorkflowExecutionTargetSelection{Mode: serverapi.WorkflowExecutionTargetModeHead}
+	request.ExecutionTarget = &taskpb.ExecutionTargetSelection{Mode: pb.ExecutionTargetMode_WORKFLOW_EXECUTION_TARGET_MODE_HEAD}
 	request.BranchName = &branchB
 	applied, err := appCore.bundles.Workflows.workflows.MoveWorkflowTask(ctx, request)
-	if err != nil || applied.Applied == nil {
+	if err != nil || applied.GetApplied() == nil {
 		t.Fatalf("real replacement Move = %+v: %v", applied, err)
 	}
 	updated, err := store.GetTaskExecutionTargetContext(ctx, taskID)
@@ -225,7 +312,7 @@ func createCoreInitialBranchTask(t *testing.T, store *workflowstore.Store, proje
 			},
 		)
 	})
-	if _, err := store.LinkWorkflow(ctx, projectID, created.ID, true); err != nil {
+	if _, err := store.LinkWorkflowWithDefaultPolicy(ctx, projectID, created.ID, workflowstore.WorkflowLinkDefaultAlways); err != nil {
 		t.Fatalf("LinkWorkflow: %v", err)
 	}
 	task, err := store.CreateTask(ctx, workflowstore.CreateTaskRequest{

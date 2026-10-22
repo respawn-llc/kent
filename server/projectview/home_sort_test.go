@@ -43,7 +43,7 @@ func TestMetadataServiceSortsProjectHomeByLatestTaskActivityOrEdit(t *testing.T)
 	if err != nil {
 		t.Fatalf("CreateWorkflow: %v", err)
 	}
-	if _, err := workflowStore.LinkWorkflow(ctx, older.ProjectID, workflowRecord.ID, true); err != nil {
+	if _, err := workflowStore.LinkWorkflowWithDefaultPolicy(ctx, older.ProjectID, workflowRecord.ID, workflowstore.WorkflowLinkDefaultAlways); err != nil {
 		t.Fatalf("LinkWorkflow: %v", err)
 	}
 	if _, err := workflowStore.CreateTask(ctx, workflowstore.CreateTaskRequest{ProjectID: older.ProjectID, Title: "Recent task", Body: "Body"}); err != nil {
@@ -74,7 +74,7 @@ func TestMetadataServiceSortsProjectHomeByLatestTaskActivityOrEdit(t *testing.T)
 	if err != nil {
 		t.Fatalf("session.Create: %v", err)
 	}
-	if err := sess.SetName("Recent chat"); err != nil {
+	if err := sess.SetName(new("Recent chat")); err != nil {
 		t.Fatalf("SetName: %v", err)
 	}
 	sessionActivityUnixMs := taskActivityUnixMs + 2
@@ -181,7 +181,7 @@ func newProjectHomeActivityFixture(t *testing.T, ctx context.Context) projectHom
 	if err != nil {
 		t.Fatalf("CreateWorkflow: %v", err)
 	}
-	if _, err := workflowStore.LinkWorkflow(ctx, older.ProjectID, workflow.ID, true); err != nil {
+	if _, err := workflowStore.LinkWorkflowWithDefaultPolicy(ctx, older.ProjectID, workflow.ID, workflowstore.WorkflowLinkDefaultAlways); err != nil {
 		t.Fatalf("LinkWorkflow: %v", err)
 	}
 	task, err := workflowStore.CreateTask(ctx, workflowstore.CreateTaskRequest{ProjectID: older.ProjectID, Title: "Low task", Body: "Body"})

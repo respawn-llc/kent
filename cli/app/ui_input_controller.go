@@ -57,7 +57,7 @@ func (m *uiModel) shouldAnimateSpinner() bool {
 	if m == nil {
 		return false
 	}
-	return m.isBusy() || m.finalAnswerOperation != nil || m.isReviewerActive() || m.processListHasRunningEntries() || m.worktrees.isLoading() || m.worktrees.create.submitting || m.worktrees.deleteConfirm.submitting
+	return m.isBusy() || m.finalAnswerOperation != nil || m.isReviewerActive() || m.surfaceHasPendingOperation() || m.processListHasRunningEntries() || m.worktrees.isLoading() || m.worktrees.create.submitting || m.worktrees.deleteConfirm.submitting
 }
 
 func (m *uiModel) reconcileSpinnerTicking(force bool) tea.Cmd {
@@ -121,7 +121,7 @@ func (m *uiModel) scheduleSpinnerTick(token uint64, now time.Time) tea.Cmd {
 func (c uiInputController) interruptBusyRuntime() tea.Cmd {
 	m := c.model
 	m.setPendingInterrupt(true)
-	return m.runtimeControlCommand(runtimeControlInterrupt, "", false, "")
+	return m.runtimeControlCommand(runtimeControlInterrupt, nil)
 }
 
 func parseUserShellCommand(text string) (string, bool) {

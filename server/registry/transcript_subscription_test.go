@@ -7,8 +7,8 @@ import (
 	"testing"
 	"time"
 
-	"core/server/runtime"
 	"core/shared/protoapi"
+	projectpb "core/shared/protoapi/gen/kent/api/project"
 	runtimepb "core/shared/protoapi/gen/kent/api/runtime"
 	transcriptpb "core/shared/protoapi/gen/kent/api/transcript"
 	"core/shared/runtimeids"
@@ -23,16 +23,14 @@ func init() {
 
 func transcriptBrokerHydration(t *testing.T) *transcriptpb.Event {
 	t.Helper()
-	sessionID, err := runtimeids.ParseSessionID("session-1")
+	sessionID, err := runtimeids.ParseSessionID("11111111-1111-4111-8111-111111111111")
 	if err != nil {
 		t.Fatalf("ParseSessionID: %v", err)
 	}
-	version, err := protoapi.NewReadModelVersion("registry-test", 1, 1)
-	if err != nil {
-		t.Fatalf("NewReadModelVersion: %v", err)
-	}
+	version := protoapi.NewReadModelVersion("registry-test", 1, 1)
 	hydration := &transcriptpb.Hydration{
 		SessionIdentity: &transcriptpb.SessionIdentity{
+			Category:              projectpb.SessionCategory_SESSION_CATEGORY_MAIN,
 			SessionId:             sessionID.String(),
 			ConversationFreshness: runtimepb.ConversationFreshness_CONVERSATION_FRESHNESS_FRESH,
 		},
@@ -196,50 +194,6 @@ func TestTranscriptSubscriptionBrokerPublishesCommittedReasoningTraceRow(t *test
 	}
 }
 
-func TestSessionFeedSequencerRejectsInvalidBatchBeforePrefixMutation(t *testing.T) {
-	broker := newTranscriptSubscriptionBroker()
-	sequencer := newSessionFeedSequencer(broker)
-	hydration := transcriptBrokerHydration(t).GetHydration()
-	sub, err := sequencer.Subscribe(func() (*transcriptpb.Hydration, error) {
-		return hydration, nil
-	})
-	if err != nil {
-		t.Fatalf("Subscribe: %v", err)
-	}
-	_ = nextTranscriptMessage(t, sub)
-	valid := &transcriptpb.Event{Payload: &transcriptpb.Event_ToolStart{ToolStart: &transcriptpb.ToolStart{
-		StepId:     mustRegistryStepID(t).String(),
-		ToolCallId: "tool-call-prefix",
-		ToolName:   "exec_command",
-	}}}
-	defer func() {
-		if recovered := recover(); recovered == nil {
-			t.Fatal("invalid batch did not fail fast")
-		}
-		if _, err := nextTranscriptMessageTimeout(sub, 20*time.Millisecond); !errors.Is(err, context.DeadlineExceeded) {
-			t.Fatalf("valid prefix was delivered after invalid batch: %v", err)
-		}
-		hydratedSub, err := sequencer.Subscribe(func() (*transcriptpb.Hydration, error) {
-			return hydration, nil
-		})
-		if err != nil {
-			t.Fatalf("subscribe after rejected batch: %v", err)
-		}
-		defer func() { _ = hydratedSub.Close() }()
-		hydratedMessage := nextTranscriptMessage(t, hydratedSub)
-		hydrated := hydratedMessage.Event.GetHydration()
-		if hydrated == nil {
-			t.Fatalf("post-batch hydration payload = %T, want TranscriptHydration", hydratedMessage.Event.Payload)
-		}
-		for _, tool := range hydrated.InFlightTools {
-			if tool.ToolCallId == "tool-call-prefix" {
-				t.Fatalf("post-batch hydration contains rejected tool prefix: %+v", tool)
-			}
-		}
-	}()
-	sequencer.Publish([]*transcriptpb.Event{valid, {}})
-}
-
 func TestSessionFeedSequencerBuildsHydrationWithoutPriorRuntimeReadModel(t *testing.T) {
 	h := transcriptBrokerHydration(t).GetHydration()
 	sub, err := newSessionFeedSequencer(newTranscriptSubscriptionBroker()).Subscribe(func() (*transcriptpb.Hydration, error) {
@@ -283,90 +237,6 @@ func TestSessionFeedSequencerHydrationProjectionUsesContractFailurePolicy(t *tes
 	})
 }
 
-func TestRegistryHydrationCompositionUsesContractFailurePolicy(t *testing.T) {
-	registry := NewRuntimeRegistry()
-	tailPage := runtime.TranscriptSegmentPage{
-		Snapshot: runtime.ChatSnapshot{Entries: []runtime.ChatEntry{{
-			Role:                "user",
-			Text:                "malformed",
-			CommittedProvenance: &runtime.TranscriptCommittedRowProvenance{},
-		}}},
-	}
-	t.Run("production returns contract error", func(t *testing.T) {
-		restore := withTranscriptContractViolationPanic(false)
-		defer restore()
-		_, err := newSessionFeedSequencer(newTranscriptSubscriptionBroker()).Subscribe(func() (*transcriptpb.Hydration, error) {
-			return registry.composeTranscriptHydration(context.Background(), "", nil, runtime.TranscriptHydrationSnapshot{}, tailPage)
-		})
-		if err == nil {
-			t.Fatal("malformed hydration composition returned nil error")
-		}
-		reason, ok := serverapi.TranscriptCloseReasonOf(err)
-		if !ok || reason != serverapi.TranscriptCloseReasonContractViolation {
-			t.Fatalf("hydration composition close reason = %q ok=%t, want contract violation", reason, ok)
-		}
-	})
-	t.Run("development panics with contract diagnostic", func(t *testing.T) {
-		restore := withTranscriptContractViolationPanic(true)
-		defer restore()
-		defer func() {
-			if recover() == nil {
-				t.Fatal("malformed hydration composition did not panic")
-			}
-		}()
-		_, _ = newSessionFeedSequencer(newTranscriptSubscriptionBroker()).Subscribe(func() (*transcriptpb.Hydration, error) {
-			return registry.composeTranscriptHydration(context.Background(), "", nil, runtime.TranscriptHydrationSnapshot{}, tailPage)
-		})
-	})
-}
-
-func TestTranscriptBrokerRejectsUninitializedEventWithoutSequenceOrDelivery(t *testing.T) {
-	restore := withTranscriptContractViolationPanic(false)
-	defer restore()
-	broker := newTranscriptSubscriptionBroker()
-	sub, err := broker.Subscribe(transcriptBrokerHydration(t))
-	if err != nil {
-		t.Fatalf("Subscribe: %v", err)
-	}
-	_ = nextTranscriptMessage(t, sub)
-	broker.Publish([]*transcriptpb.Event{{}})
-	_, err = nextTranscriptMessageTimeout(sub, time.Second)
-	if err == nil {
-		t.Fatal("uninitialized event was delivered")
-	}
-	reason, ok := serverapi.TranscriptCloseReasonOf(err)
-	if !ok || reason != serverapi.TranscriptCloseReasonContractViolation {
-		t.Fatalf("close reason = %q ok=%t, want contract violation", reason, ok)
-	}
-}
-
-func TestTranscriptSubscriptionBrokerClosesOnContractViolationWhenPanicDisabled(t *testing.T) {
-	restore := withTranscriptContractViolationPanic(false)
-	defer restore()
-
-	broker := newTranscriptSubscriptionBroker()
-	sub, err := broker.Subscribe(transcriptBrokerHydration(t))
-	if err != nil {
-		t.Fatalf("Subscribe: %v", err)
-	}
-	_ = nextTranscriptMessage(t, sub)
-
-	broker.Publish([]*transcriptpb.Event{{Payload: &transcriptpb.Event_CommittedRow{CommittedRow: &transcriptpb.CommittedRow{
-		Visibility: transcriptpb.EntryVisibility_ENTRY_VISIBILITY_DETAIL,
-		Row: &transcriptpb.CommittedRow_Tool{Tool: &transcriptpb.ToolRow{
-			StepId: textutil.Value(mustRegistryStepID(t).String()),
-		}},
-	}}}})
-	_, err = sub.Next(context.Background())
-	if err == nil {
-		t.Fatal("contract-invalid tool completion was delivered")
-	}
-	reason, ok := serverapi.TranscriptCloseReasonOf(err)
-	if !ok || reason != serverapi.TranscriptCloseReasonContractViolation {
-		t.Fatalf("contract violation reason = %q ok=%t, want contract_violation; err=%v", reason, ok, err)
-	}
-}
-
 func TestTranscriptSubscriptionBoundaryValidatesCommittedRowIntegrity(t *testing.T) {
 	valid := &transcriptpb.CommittedRow{
 		Visibility: transcriptpb.EntryVisibility_ENTRY_VISIBILITY_DETAIL,
@@ -376,7 +246,7 @@ func TestTranscriptSubscriptionBoundaryValidatesCommittedRowIntegrity(t *testing
 			StepId: textutil.Value(mustRegistryStepID(t).String()), Text: "valid",
 		}},
 	}
-	if err := validateCommittedRow(valid); err != nil {
+	if err := protoapi.Validate(valid); err != nil {
 		t.Fatalf("valid integrity was rejected: %v", err)
 	}
 
@@ -384,13 +254,9 @@ func TestTranscriptSubscriptionBoundaryValidatesCommittedRowIntegrity(t *testing
 	invalidRows[0].Integrity = transcriptpb.RowIntegrity(255)
 	invalidRows[1].Visibility = transcriptpb.EntryVisibility_ENTRY_VISIBILITY_UNSPECIFIED
 	for _, invalid := range invalidRows {
-		err := validateCommittedRow(invalid)
+		err := protoapi.Validate(invalid)
 		if err == nil {
 			t.Fatalf("invalid committed row was accepted: %#v", invalid)
-		}
-		var violation transcriptContractViolation
-		if !errors.As(err, &violation) {
-			t.Fatalf("broker validation error = %T, want transcript contract violation", err)
 		}
 	}
 }

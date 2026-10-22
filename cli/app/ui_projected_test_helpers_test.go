@@ -23,6 +23,7 @@ import (
 	transcriptpb "core/shared/protoapi/gen/kent/api/transcript"
 	"core/shared/runtimeids"
 	"core/shared/textutil"
+	"path/filepath"
 	"testing"
 	"time"
 
@@ -141,6 +142,9 @@ func newRecordingPromptControl() *recordingPromptControl {
 }
 
 func (c *recordingPromptControl) AnswerPromptBatch(_ context.Context, request *promptpb.AnswerBatchRequest) (*promptpb.AnswerBatchSuccess, error) {
+	if err := protoapi.Validate(request); err != nil {
+		return nil, err
+	}
 	c.batchRequests <- request
 	return resolvedPromptBatchResponse(request), nil
 }
@@ -237,8 +241,10 @@ func newProjectedAuthorityRuntime(
 	root := t.TempDir()
 	settings = testsetup.WriteProviderSettings(t, root, settings)
 	settings.Reviewer.Frequency = "off"
+	metadataStore := testsetup.OpenStore(t, filepath.Dir(store.Dir()))
+	testsetup.ImportSessionProjectWorkspaceContext(t, metadataStore, store)
 	if cfg.Model == "" {
-		settings.Model = "gpt-5"
+		settings.Model = "gpt-6-sol"
 	} else {
 		settings.Model = cfg.Model
 	}
@@ -262,19 +268,20 @@ func newProjectedAuthorityRuntime(
 	if err != nil {
 		t.Fatalf("new projected runtime plan: %v", err)
 	}
-	activity := registry.NewRuntimeRegistry()
+	activity := registry.NewRuntimeRegistry(nil)
 	authority := sessionruntime.NewAuthority(sessionruntime.AuthorityOptions{
-		PersistenceRoot:   root,
-		StoreOptions:      persistence.Options(),
-		ResourceLifecycle: activity,
+		PersistenceRoot:               root,
+		StoreOptions:                  persistence.Options(),
+		ProjectWorkspaceContextReader: metadataStore,
+		ResourceLifecycle:             activity,
 		EventFeed: func(resource runtimeids.SessionResourceRef, event runtime.Event) {
 			activity.PublishAuthorityRuntimeEvent(resource, event)
 		},
 	})
 	if _, err := authority.OpenRuntime(t.Context(), sessionruntime.RuntimeOpenRequest{
 		SessionID: sessionID,
-		OwnerID:   "projected-ui-test",
-		Runtime:   &plan,
+
+		Runtime: &plan,
 	}); err != nil {
 		t.Fatalf("open projected runtime: %v", err)
 	}
@@ -283,8 +290,8 @@ func newProjectedAuthorityRuntime(
 			t.Errorf("close projected runtime: %v", err)
 		}
 	})
-	reads := sessionview.NewService(persistence, activity, nil)
-	controls := runtimecontrol.NewService(authority).WithRuntimeActivityResolver(activity)
+	reads := sessionview.NewService(persistence, activity, nil, nil)
+	controls := runtimecontrol.NewService(authority, nil).WithRuntimeActivityResolver(activity)
 	runtimeClient := newUIRuntimeClientWithReads(sessionID.String(), reads, controls, nil, nil).(*sessionRuntimeClient)
 	snapshot, err := activity.RuntimeReadModelFeedSnapshot(context.Background(), sessionID.String())
 	if err != nil {
@@ -313,8 +320,8 @@ func newProjectedAuthorityRuntime(
 }
 
 func newUnavailableRuntimeControlService() *runtimecontrol.Service {
-	activity := registry.NewRuntimeRegistry()
-	return runtimecontrol.NewService(sessionruntime.NewAuthority(sessionruntime.AuthorityOptions{})).
+	activity := registry.NewRuntimeRegistry(nil)
+	return runtimecontrol.NewService(sessionruntime.NewAuthority(sessionruntime.AuthorityOptions{}), nil).
 		WithRuntimeActivityResolver(activity)
 }
 

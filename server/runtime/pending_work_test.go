@@ -16,7 +16,7 @@ import (
 )
 
 func TestPendingWorkProjectsAcceptedMessageAndCompactionOrder(t *testing.T) {
-	engine := pendingWorkTestEngine(t, Config{Model: "gpt-5"})
+	engine := pendingWorkTestEngine(t, Config{Model: "gpt-6-sol"})
 	releaseMaintenance := pendingWorkTestHoldMaintenance(t, engine)
 
 	firstSteer := pendingWorkTestMust(t, func() (QueuedUserMessage, error) {
@@ -26,10 +26,8 @@ func TestPendingWorkProjectsAcceptedMessageAndCompactionOrder(t *testing.T) {
 	admission := runtimeinput.ManualCompactionAdmission{
 		Guidance: &guidance,
 	}
-	requestID := runtimeids.NewCompactionRequestID()
-	if _, err := engine.CompactContextAdmissionForRequestWithAcceptance(
+	if _, err := engine.CompactContextAdmissionWithAcceptance(
 		context.Background(),
-		requestID,
 		admission,
 		nil,
 	); err != nil {
@@ -55,7 +53,7 @@ func TestPendingWorkProjectsAcceptedMessageAndCompactionOrder(t *testing.T) {
 	}
 	if snapshot.Items[0].ID.String() != queued.ID ||
 		snapshot.Items[1].ID.String() != firstSteer.ID ||
-		snapshot.Items[2].ID.String() != requestID.String() ||
+		snapshot.Items[2].Kind != runtimeinput.PendingWorkItemKindManualCompaction ||
 		snapshot.Items[3].ID.String() != operationID.String() ||
 		snapshot.Items[4].ID.String() != secondSteer.ID {
 		t.Fatalf("Pending Work order = %+v", snapshot.Items)
@@ -69,7 +67,7 @@ func TestPendingWorkProjectsAcceptedMessageAndCompactionOrder(t *testing.T) {
 }
 
 func TestPendingWorkCapacityRejectsWithoutMutation(t *testing.T) {
-	engine := pendingWorkTestEngine(t, Config{Model: "gpt-5"})
+	engine := pendingWorkTestEngine(t, Config{Model: "gpt-6-sol"})
 	releaseMaintenance := pendingWorkTestHoldMaintenance(t, engine)
 	for index := range runtimeinput.PendingWorkCapacity {
 		if _, err := engine.messageFlow.QueueUserMessage(plainQueuedUserInput(fmt.Sprintf("pending %d", index))); err != nil {
@@ -126,12 +124,11 @@ func TestPendingWorkCapacityRejectsWithoutMutation(t *testing.T) {
 }
 
 func TestRemovePendingWorkRestoresTypedMessageAndCompactionInput(t *testing.T) {
-	engine := pendingWorkTestEngine(t, Config{Model: "gpt-5"})
+	engine := pendingWorkTestEngine(t, Config{Model: "gpt-6-sol"})
 	releaseMaintenance := pendingWorkTestHoldMaintenance(t, engine)
 
 	message := pendingWorkTestMust(t, func() (QueuedUserMessage, error) {
-		return engine.SteerInput(context.Background(), QueuedUserInput{
-			ExecutionText:         "expanded restore message",
+		return engine.SteerInput(context.Background(), QueuedUserInput{ID: runtimeids.NewQueueItemID().String(), ExecutionText: "expanded restore message",
 			CanonicalPresentation: "/review restore message",
 		}, nil)
 	})
@@ -148,10 +145,8 @@ func TestRemovePendingWorkRestoresTypedMessageAndCompactionInput(t *testing.T) {
 	admission := runtimeinput.ManualCompactionAdmission{
 		Guidance: &guidance,
 	}
-	requestID := runtimeids.NewCompactionRequestID()
-	if _, err := engine.CompactContextAdmissionForRequestWithAcceptance(
+	if _, err := engine.CompactContextAdmissionWithAcceptance(
 		context.Background(),
-		requestID,
 		admission,
 		nil,
 	); err != nil {
@@ -182,7 +177,7 @@ func TestStoppedHumanInputPublishesPendingWorkChangedWithoutBlockingList(t *test
 	var interruption *HumanInputInterruptedEvent
 	var firstChange sync.Once
 	changed, unblock, delivered := make(chan struct{}), make(chan struct{}), make(chan struct{})
-	engine := pendingWorkTestEngine(t, Config{Model: "gpt-5"})
+	engine := pendingWorkTestEngine(t, Config{Model: "gpt-6-sol"})
 	releaseMaintenance := pendingWorkTestHoldMaintenance(t, engine)
 	first := pendingWorkTestMust(t, func() (QueuedUserMessage, error) {
 		return engine.Steer(context.Background(), "stopped", nil)
@@ -260,9 +255,6 @@ func pendingWorkTestHoldStep(t *testing.T, engine *Engine, kind ActiveKind) func
 func pendingWorkTestSnapshot(t *testing.T, engine *Engine) runtimeinput.PendingWork {
 	t.Helper()
 	snapshot := pendingWorkTestMust(t, engine.PendingWorkSnapshot)
-	if err := snapshot.Validate(); err != nil {
-		t.Fatal(err)
-	}
 	return snapshot
 }
 

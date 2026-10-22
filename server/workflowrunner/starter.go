@@ -14,6 +14,7 @@ import (
 	"core/prompts"
 	"core/server/auth"
 	"core/server/authservice"
+	"core/server/chatcontext"
 	"core/server/launch"
 	"core/server/llm"
 	"core/server/metadata"
@@ -33,8 +34,6 @@ import (
 	"core/shared/serverapi"
 	"core/shared/textutil"
 	"core/shared/toolspec"
-
-	"github.com/google/uuid"
 )
 
 const (
@@ -53,8 +52,11 @@ type WorkflowAttentionRegistry interface {
 }
 
 type Starter struct {
+	recordUsage          runtimewire.ConnectionUsageRecorder
+	connectionRotation   *launch.ConnectionRotation
 	environment          func(string) (string, bool)
 	cfg                  config.App
+	workspaceConfig      chatcontext.FixedRootWorkspaceResolver
 	metadata             *metadata.Store
 	store                RuntimeStore
 	authManager          *auth.Manager
@@ -67,10 +69,13 @@ type Starter struct {
 }
 
 type StarterOptions struct {
-	Environment          func(string) (string, bool)
-	RuntimeClientFactory runtimewire.RuntimeClientFactory
-	RuntimeAuthority     *sessionruntime.Authority
-	TaskDependencies     TaskDependencyCounter
+	RecordUsage                runtimewire.ConnectionUsageRecorder
+	ConnectionRotation         *launch.ConnectionRotation
+	WorkspaceConfigLoadOptions config.LoadOptions
+	Environment                func(string) (string, bool)
+	RuntimeClientFactory       runtimewire.RuntimeClientFactory
+	RuntimeAuthority           *sessionruntime.Authority
+	TaskDependencies           TaskDependencyCounter
 }
 
 func NewStarter(cfg config.App, metadataStore *metadata.Store, store RuntimeStore, authManager *auth.Manager, attention WorkflowAttentionRegistry, opts StarterOptions) (*Starter, error) {
@@ -85,8 +90,11 @@ func NewStarter(cfg config.App, metadataStore *metadata.Store, store RuntimeStor
 		return nil, err
 	}
 	return &Starter{
+		recordUsage:          opts.RecordUsage,
+		connectionRotation:   opts.ConnectionRotation,
 		environment:          opts.Environment,
 		cfg:                  cfg,
+		workspaceConfig:      chatcontext.NewFixedRootWorkspaceResolver(metadataStore, cfg.WorkspaceRoot, opts.WorkspaceConfigLoadOptions),
 		metadata:             metadataStore,
 		store:                store,
 		authManager:          authManager,
@@ -136,18 +144,18 @@ func (s *currentNodeAgentAssignmentSteer) Prepare(ctx context.Context) error {
 	s.started = true
 	s.mu.Unlock()
 
-	err = s.planned.materialize(ctx, s.starter, s.input, &s.prepared)
+	err = s.planned.materialize(ctx, s.starter, s.input, &s.prepared, &s.assignment)
 	var steer runtime.WorkflowAssignmentSteer
 	var admission sessionruntime.DormantSessionStoreAdmission
 	if err == nil {
-		admission, err = s.starter.runtimeAuthority.WithDormantSessionStore(ctx, s.prepared.plan.Descriptor, func(_ context.Context, store *session.Store) error {
+		admission, err = s.starter.runtimeAuthority.WithDormantSessionStore(ctx, s.prepared.plan.Descriptor, func(operationCtx context.Context, store *session.Store) error {
 			var steerErr error
 			persistenceContext := s.starter.workflowAssignmentPersistenceContext(s.prepared)
 			persistenceContext.ThinkingMutation = thinkingMutation
 			if s.delivery == workflowruntime.TaskPromptDeliveryResume {
-				steer, steerErr = runtime.SteerPersistedWorkflowAssignmentForResume(store, s.assignment, persistenceContext)
+				steer, steerErr = runtime.SteerPersistedWorkflowAssignmentForResume(operationCtx, store, s.assignment, persistenceContext)
 			} else {
-				steer, steerErr = runtime.SteerPersistedWorkflowAssignment(store, s.assignment, persistenceContext)
+				steer, steerErr = runtime.SteerPersistedWorkflowAssignment(operationCtx, store, s.assignment, persistenceContext)
 			}
 			return steerErr
 		})
@@ -185,13 +193,14 @@ func (s *Starter) workflowAssignmentPersistenceContext(
 	prepared preparedCurrentNodeAgentSession,
 ) runtime.PersistedWorkflowAssignmentContext {
 	return runtime.PersistedWorkflowAssignmentContext{
-		Workdir:         prepared.root.EffectiveRoot(),
-		GlobalConfigDir: s.cfg.PersistenceRoot,
-		Model:           prepared.plan.ActiveSettings.Model,
-		ThinkingLevel:   prepared.plan.ActiveSettings.ThinkingLevel,
-		SkillPolicy:     config.ResolveSkillPolicy(prepared.plan.ActiveSettings),
-		SubagentCatalog: config.App{Settings: prepared.plan.ActiveSettings, Source: prepared.plan.Source},
-		EnabledTools:    workflowRuntimeEnabledTools(prepared.plan.EnabledTools),
+		Workdir:                       prepared.root.EffectiveRoot(),
+		GlobalConfigDir:               s.cfg.PersistenceRoot,
+		Model:                         prepared.plan.ActiveSettings.Model,
+		ThinkingLevel:                 prepared.plan.ActiveSettings.ThinkingLevel,
+		ProjectWorkspaceContextReader: s.metadata,
+		SkillPolicy:                   config.ResolveSkillPolicy(prepared.plan.ActiveSettings),
+		SubagentCatalog:               config.App{Settings: prepared.plan.ActiveSettings, Source: prepared.plan.Source},
+		EnabledTools:                  workflowRuntimeEnabledTools(prepared.plan.EnabledTools),
 	}
 }
 
@@ -227,10 +236,15 @@ func (s *Starter) StartAgentCurrentNode(
 	if !ok || assignment == nil || assignment.starter != s || !assignment.reference.Equal(reference) {
 		return nil, fmt.Errorf("current node %v received incompatible assignment %T", reference, assignmentSteer)
 	}
+	resource := sessionruntime.AgentResourceSelection(sessionruntime.CurrentAgentResource{})
+	if assignment.planned.outgoing != nil {
+		resource = sessionruntime.ReplaceAgentResource{}
+	}
 	return s.startCurrentNodeAgent(
 		ctx,
 		assignment.input,
 		assignment.prepared,
+		resource,
 		taskPromptDelivery,
 		onRetire,
 		controller,
@@ -291,6 +305,7 @@ func (s *Starter) startCurrentNodeAgent(
 	ctx context.Context,
 	input workflowstore.CurrentNodeStartContext,
 	prepared preparedCurrentNodeAgentSession,
+	resource sessionruntime.AgentResourceSelection,
 	taskPromptDelivery workflowruntime.TaskPromptDelivery,
 	onRetire func(),
 	controller workflowruntime.Controller,
@@ -306,7 +321,6 @@ func (s *Starter) startCurrentNodeAgent(
 	if err := s.applyCurrentNodeSessionExecutionTarget(ctx, input, prepared.plan.Descriptor); err != nil {
 		return nil, err
 	}
-	resource := sessionruntime.AgentResourceSelection(sessionruntime.CurrentAgentResource{})
 	var replacementPlan *sessionruntime.AgentRuntimePlan
 	err = s.runtimeAuthority.WithCurrentRuntime(ctx, prepared.plan.Descriptor.SessionID(), func(_ context.Context, engine *runtime.Engine) error {
 		if engine.CompactionMode() != string(prepared.plan.ActiveSettings.CompactionMode) {
@@ -328,6 +342,7 @@ func (s *Starter) startCurrentNodeAgent(
 		replacementPlan = &runtimePlan
 	}
 	runtimeConfig, err := BuildCurrentNodeRuntimeConfig(
+		ctx, s.metadata,
 		input,
 		runtimeids.NewExecutionScopeID(),
 		taskPromptDelivery,
@@ -372,7 +387,7 @@ func (s *Starter) currentNodeAgentAssignment(
 	input workflowstore.CurrentNodeStartContext,
 	prepared preparedCurrentNodeAgentSession,
 ) (runtime.WorkflowAssignment, error) {
-	instructions, err := BuildCurrentSessionTaskInstructions(input)
+	instructions, err := BuildCurrentSessionTaskInstructions(ctx, s.metadata, input)
 	if err != nil {
 		return runtime.WorkflowAssignment{}, err
 	}
@@ -414,6 +429,7 @@ func (s *Starter) buildCurrentNodeAgentRuntimePlan(
 		return sessionruntime.AgentRuntimePlan{}, err
 	}
 	return sessionruntime.NewAgentRuntimePlan(sessionruntime.AgentRuntimePlanOptions{
+		ConnectionScope:       prepared.plan.ConnectionScope,
 		MainWorkspaceRoot:     prepared.plan.ExecutionTarget.WorkspaceRoot,
 		ExplicitToolSelection: prepared.plan.ExplicitToolSelection,
 		RequiredTools:         prepared.plan.RequiredTools,
@@ -576,19 +592,15 @@ func (s *Starter) compactOutgoingCurrentNodeSession(ctx context.Context, input w
 	if err != nil {
 		return err
 	}
-	attachment, err := s.runtimeAuthority.OpenRuntime(ctx, sessionruntime.RuntimeOpenRequest{
-		SessionID: plan.Descriptor.SessionID(), OwnerID: uuid.NewString(), Runtime: &runtimePlan,
+	ref, err := s.runtimeAuthority.OpenRuntime(ctx, sessionruntime.RuntimeOpenRequest{
+		SessionID: plan.Descriptor.SessionID(), Runtime: &runtimePlan,
 	})
 	if err != nil {
 		return err
 	}
-	defer func() {
-		_, releaseErr := attachment.Release(context.WithoutCancel(ctx), sessionruntime.RuntimeReleaseCloseIfIdle)
-		resultErr = errors.Join(resultErr, releaseErr)
-	}()
 	required = false
 	var resource sessionruntime.AgentResourceSelection = sessionruntime.CurrentAgentResource{}
-	err = s.runtimeAuthority.WithRuntime(ctx, attachment.Resource(), func(_ context.Context, engine *runtime.Engine) error {
+	err = s.runtimeAuthority.WithRuntime(ctx, ref, func(_ context.Context, engine *runtime.Engine) error {
 		required = engine.WorkflowContinuationCompactionRequired()
 		if engine.CompactionMode() != string(plan.ActiveSettings.CompactionMode) {
 			resource = sessionruntime.ReplaceAgentResource{}
@@ -635,24 +647,24 @@ type currentNodeSessionPolicy struct {
 
 func resolveCurrentNodeSessionPolicy(input workflowstore.CurrentNodeStartContext) (currentNodeSessionPolicy, error) {
 	source := workflow.CanonicalContextSource(input.EnteringEdge.ContextSource)
-	targetOwned := false
 	switch source.Kind {
 	case workflow.ContextSourceImmediateSource, workflow.ContextSourceSelectedNode:
 	case workflow.ContextSourcePreviousTarget, workflow.ContextSourcePreviousTargetOrNew:
-		targetOwned = true
 	default:
 		return currentNodeSessionPolicy{}, fmt.Errorf("current node session policy does not support context source %q", source.Kind)
 	}
-	assignee, err := workflow.ResolveAssigneeSessionPolicy(workflow.AssigneeSessionPolicyRequest{
+	request := workflow.AssigneeSessionPolicyRequest{
 		ContextMode:           input.ContextMode,
 		ContextSource:         source,
 		TargetSessionResolved: input.CurrentNode.SessionID != nil,
-	})
+		FanoutBranch:          input.IsFanoutBranch,
+	}
+	assignee, err := workflow.ResolveAssigneeSessionPolicy(request)
 	if err != nil {
 		return currentNodeSessionPolicy{}, err
 	}
 	return currentNodeSessionPolicy{
-		cloneRetainedSession: input.IsFanoutBranch && !targetOwned && input.ContextMode != workflow.ContextModeNewSession,
+		cloneRetainedSession: request.CopiesSourceSession(),
 		assignee:             assignee,
 	}, nil
 }
@@ -718,21 +730,17 @@ func workflowSessionNameFromCurrentNode(input workflowstore.CurrentNodeStartCont
 	return fmt.Sprintf("%s: %s -> %s", taskID, input.AcceptedTransitionPath.SourceNodeDisplayName, input.AcceptedTransitionPath.TargetNodeDisplayName), nil
 }
 
-func renderCurrentNodePrompt(text string, input workflowstore.CurrentNodeStartContext) (string, error) {
-	source := ""
-	if input.SourceSessionID != nil {
-		source = input.SourceSessionID.String()
+func renderCurrentNodePrompt(ctx context.Context, store *metadata.Store, text string, input workflowstore.CurrentNodeStartContext) (string, error) {
+	prepared, err := workflowPromptInputFromContext(ctx, store, input)
+	if err != nil {
+		return "", err
 	}
-	promptSession := ""
-	if input.PromptSessionID != nil {
-		promptSession = input.PromptSessionID.String()
-	}
-	return renderWorkflowPrompt(text, workflowPromptInput{Task: input.Task, Workflow: input.Workflow, Node: input.Node, CurrentNode: input.CurrentNode.Reference, ContextMode: input.ContextMode, SourceSessionID: source, PromptSessionID: promptSession, PriorSessionIDs: input.PriorSessionIDs, TransitionOptions: input.TransitionOptions, TransitionIDs: input.TransitionIDs, TransitionPrompt: text, ParameterValues: input.ParameterValues, PriorValues: input.CurrentNode.PriorValues})
+	return renderWorkflowPrompt(text, prepared)
 }
 
 func (s *Starter) resolveCurrentNodeCompletionMode(ctx context.Context, input workflowstore.CurrentNodeStartContext, plan launch.SessionPlan) (workflowruntime.CompletionMode, error) {
-	if plan.Locked != nil && plan.Locked.WorkflowCompletionMode != nil {
-		mode, err := workflowruntime.ParseCompletionMode(string(*plan.Locked.WorkflowCompletionMode))
+	if plan.WorkflowSnapshot != nil {
+		mode, err := workflowruntime.ParseCompletionMode(string(plan.WorkflowSnapshot.CompletionMode))
 		if err != nil {
 			return "", fmt.Errorf("parse retained Session completion mode: %w", err)
 		}
@@ -787,6 +795,7 @@ func (s *Starter) newWorkflowProviderClient(ctx context.Context, plan launch.Ses
 		ActiveSettings: active, EnabledTools: plan.EnabledTools,
 		Sources: plan.Source.Sources, Connection: connection,
 		RequestCapabilities: capabilities,
+		RecordUsage:         s.recordUsage,
 	})
 }
 
@@ -800,8 +809,8 @@ func workflowPromptOverrides(role string) serverapi.RunPromptOverrides {
 	return serverapi.RunPromptOverrides{AgentRole: &role}
 }
 
-func (s *Starter) validateRole(role string) error {
-	if workflow.IsDefaultAgentRole(role) || config.LookupSubagentRole(s.cfg.Settings, strings.TrimSpace(role)).Status == config.SubagentRoleLookupPresent {
+func validateRole(settings config.Settings, role string) error {
+	if workflow.IsDefaultAgentRole(role) || config.LookupSubagentRole(settings, strings.TrimSpace(role)).Status == config.SubagentRoleLookupPresent {
 		return nil
 	}
 	return fmt.Errorf("workflow validation failed: [%s]", workflow.CodeAgentRoleMissing)
@@ -863,16 +872,40 @@ func toolIDEnabled(enabled []toolspec.ID, want toolspec.ID) bool {
 	return false
 }
 
-func BuildCurrentSessionTaskInstructions(input workflowstore.CurrentNodeStartContext) (workflowruntime.TaskInstructions, error) {
-	source := ""
-	if input.SourceSessionID != nil {
-		source = input.SourceSessionID.String()
+func BuildCurrentSessionTaskInstructions(ctx context.Context, store *metadata.Store, input workflowstore.CurrentNodeStartContext) (workflowruntime.TaskInstructions, error) {
+	prepared, err := workflowPromptInputFromContext(ctx, store, input)
+	if err != nil {
+		return workflowruntime.TaskInstructions{}, err
 	}
-	promptSession := ""
-	if input.PromptSessionID != nil {
-		promptSession = input.PromptSessionID.String()
+	return buildWorkflowTaskInstructions(prepared)
+}
+
+func workflowPromptInputFromContext(ctx context.Context, store *metadata.Store, input workflowstore.CurrentNodeStartContext) (workflowPromptInput, error) {
+	ids := make([]runtimeids.SessionID, 0, len(input.PriorSessionIDs)+2)
+	references := []*runtimeids.SessionID{input.SourceSessionID, input.PromptSessionID}
+	for _, id := range input.PriorSessionIDs {
+		references = append(references, id)
 	}
-	return buildWorkflowTaskInstructions(workflowPromptInput{Task: input.Task, Workflow: input.Workflow, Node: input.Node, CurrentNode: input.CurrentNode.Reference, ContextMode: input.ContextMode, SourceSessionID: source, PromptSessionID: promptSession, PriorSessionIDs: input.PriorSessionIDs, TransitionOptions: input.TransitionOptions, TransitionIDs: input.TransitionIDs, TransitionPrompt: input.TransitionPrompt, ParameterValues: input.ParameterValues, PriorValues: input.CurrentNode.PriorValues})
+	for _, id := range references {
+		if id != nil {
+			ids = append(ids, *id)
+		}
+	}
+	identities, err := store.SessionIdentities(ctx, ids)
+	if err != nil {
+		return workflowPromptInput{}, err
+	}
+	selector := func(id *runtimeids.SessionID) string {
+		if id == nil {
+			return ""
+		}
+		return identities[*id].String()
+	}
+	prior := make(map[workflow.ModelKey]string, len(input.PriorSessionIDs))
+	for key, id := range input.PriorSessionIDs {
+		prior[key] = selector(id)
+	}
+	return workflowPromptInput{Task: input.Task, Workflow: input.Workflow, Node: input.Node, CurrentNode: input.CurrentNode.Reference, ContextMode: input.ContextMode, SourceSessionID: selector(input.SourceSessionID), PromptSessionID: selector(input.PromptSessionID), PriorSessionIDs: prior, TransitionOptions: input.TransitionOptions, TransitionIDs: input.TransitionIDs, TransitionPrompt: input.TransitionPrompt, ParameterValues: input.ParameterValues, PriorValues: input.CurrentNode.PriorValues}, nil
 }
 
 type workflowPromptInput struct {
@@ -883,7 +916,7 @@ type workflowPromptInput struct {
 	ContextMode       workflow.ContextMode
 	SourceSessionID   string
 	PromptSessionID   string
-	PriorSessionIDs   map[workflow.ModelKey]*runtimeids.SessionID
+	PriorSessionIDs   map[workflow.ModelKey]string
 	TransitionOptions []workflowstore.TransitionOption
 	TransitionIDs     []string
 	TransitionPrompt  string
@@ -985,7 +1018,7 @@ func renderWorkflowPrompt(text string, input workflowPromptInput) (string, error
 func promptParameterData(
 	current map[string]string,
 	prior map[workflow.ModelKey]map[string]string,
-	priorSessionIDs map[workflow.ModelKey]*runtimeids.SessionID,
+	priorSessionIDs map[workflow.ModelKey]string,
 ) map[string]promptParameterNamespace {
 	out := map[string]promptParameterNamespace{workflow.RuntimePromptParameterCommentary: {currentParameterValueKey: ""}}
 	for transition, values := range prior {
@@ -1003,10 +1036,7 @@ func promptParameterData(
 		if namespace == nil {
 			namespace = promptParameterNamespace{}
 		}
-		namespace[workflow.RuntimePromptParameterSessionID] = ""
-		if sessionID != nil {
-			namespace[workflow.RuntimePromptParameterSessionID] = sessionID.String()
-		}
+		namespace[workflow.RuntimePromptParameterSessionID] = sessionID
 		out[string(transition)] = namespace
 	}
 	for key, value := range current {

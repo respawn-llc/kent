@@ -34,7 +34,7 @@ func TestServiceDeletesProjectMetadataAndSessionArtifacts(t *testing.T) {
 	if err != nil {
 		t.Fatalf("create session: %v", err)
 	}
-	if err := created.SetName("delete-me"); err != nil {
+	if err := created.SetName(new("delete-me")); err != nil {
 		t.Fatalf("persist session: %v", err)
 	}
 	if err := os.WriteFile(filepath.Join(created.Dir(), "events.jsonl"), []byte("{}\n"), 0o644); err != nil {
@@ -71,7 +71,7 @@ func TestServiceDeletesProjectWithBacklogTasks(t *testing.T) {
 	if err != nil {
 		t.Fatalf("CreateWorkflow: %v", err)
 	}
-	if _, err := workflowStore.LinkWorkflow(ctx, binding.ProjectID, workflow.ID, true); err != nil {
+	if _, err := workflowStore.LinkWorkflowWithDefaultPolicy(ctx, binding.ProjectID, workflow.ID, workflowstore.WorkflowLinkDefaultAlways); err != nil {
 		t.Fatalf("LinkWorkflow: %v", err)
 	}
 	if _, err := workflowStore.CreateTask(ctx, workflowstore.CreateTaskRequest{ProjectID: binding.ProjectID, Title: "Backlog", Body: "Body"}); err != nil {
@@ -102,7 +102,7 @@ func TestServiceProjectDeleteRevalidatesWorkflowTasksAtCommit(t *testing.T) {
 	if err != nil {
 		t.Fatalf("CreateWorkflow: %v", err)
 	}
-	if _, err := workflowStore.LinkWorkflow(ctx, binding.ProjectID, workflowRecord.ID, true); err != nil {
+	if _, err := workflowStore.LinkWorkflowWithDefaultPolicy(ctx, binding.ProjectID, workflowRecord.ID, workflowstore.WorkflowLinkDefaultAlways); err != nil {
 		t.Fatalf("LinkWorkflow: %v", err)
 	}
 	if _, err := workflowStore.CreateTask(ctx, workflowstore.CreateTaskRequest{ProjectID: binding.ProjectID, Title: "Blocked", Body: "Body"}); err != nil {
@@ -126,7 +126,7 @@ func TestServiceDeleteProjectBlocksActiveSession(t *testing.T) {
 	if err != nil {
 		t.Fatalf("create session: %v", err)
 	}
-	if err := created.SetName("active"); err != nil {
+	if err := created.SetName(new("active")); err != nil {
 		t.Fatalf("persist session: %v", err)
 	}
 	svc := newProjectViewMetadataService(t, store)
@@ -246,10 +246,7 @@ func TestMetadataServiceSetsDefaultWorkspaceByProjectScopedPath(t *testing.T) {
 	if err != nil {
 		t.Fatalf("AttachWorkspaceToProject shared path: %v", err)
 	}
-	selector, err := serverapi.NewProjectWorkspaceSelectorForRoot(binding.CanonicalRoot)
-	if err != nil {
-		t.Fatalf("workspace selector: %v", err)
-	}
+	selector := serverapi.NewProjectWorkspaceSelectorForRoot(binding.CanonicalRoot)
 
 	svc := newProjectViewMetadataService(t, store)
 	updated, err := svc.SetDefaultWorkspace(context.Background(), &projectpb.SetDefaultWorkspaceRequest{
@@ -271,10 +268,8 @@ func TestMetadataServiceDefaultWorkspaceSelectorPreservesTrueNoOp(t *testing.T) 
 	if err != nil {
 		t.Fatalf("GetProjectHomeSummary before: %v", err)
 	}
-	selector, err := serverapi.NewProjectWorkspaceSelectorForID(binding.WorkspaceID)
-	if err != nil {
-		t.Fatalf("workspace selector: %v", err)
-	}
+	selector := serverapi.NewProjectWorkspaceSelectorForID(binding.WorkspaceID)
+
 	if _, err := svc.SetDefaultWorkspace(context.Background(), &projectpb.SetDefaultWorkspaceRequest{
 		ProjectId: binding.ProjectID,
 		Workspace: generatedProjectWorkspaceSelector(selector),
@@ -294,10 +289,8 @@ func TestMetadataServiceWorkspaceSelectorDistinguishesProjectAndBindingFailures(
 	store, _, binding := newProjectViewMetadataStore(t)
 	svc := newProjectViewMetadataService(t, store)
 
-	unknownProjectSelector, err := serverapi.NewProjectWorkspaceSelectorForID(binding.WorkspaceID)
-	if err != nil {
-		t.Fatalf("workspace selector: %v", err)
-	}
+	unknownProjectSelector := serverapi.NewProjectWorkspaceSelectorForID(binding.WorkspaceID)
+
 	if _, err := svc.SetDefaultWorkspace(context.Background(), &projectpb.SetDefaultWorkspaceRequest{
 		ProjectId: "project-missing",
 		Workspace: generatedProjectWorkspaceSelector(unknownProjectSelector),
@@ -305,10 +298,8 @@ func TestMetadataServiceWorkspaceSelectorDistinguishesProjectAndBindingFailures(
 		t.Fatalf("unknown project error = %v, want ErrProjectNotFound", err)
 	}
 
-	unattachedSelector, err := serverapi.NewProjectWorkspaceSelectorForRoot(filepath.Join(t.TempDir(), "unattached"))
-	if err != nil {
-		t.Fatalf("workspace selector: %v", err)
-	}
+	unattachedSelector := serverapi.NewProjectWorkspaceSelectorForRoot(filepath.Join(t.TempDir(), "unattached"))
+
 	if _, err := svc.SetDefaultWorkspace(context.Background(), &projectpb.SetDefaultWorkspaceRequest{
 		ProjectId: binding.ProjectID,
 		Workspace: generatedProjectWorkspaceSelector(unattachedSelector),
@@ -320,10 +311,8 @@ func TestMetadataServiceWorkspaceSelectorDistinguishesProjectAndBindingFailures(
 func TestMetadataServiceRepeatedAttachReturnsTypedAlreadyAttachedOutcome(t *testing.T) {
 	store, _, binding := newProjectViewMetadataStore(t)
 	svc := newProjectViewMetadataService(t, store)
-	selector, err := serverapi.NewProjectWorkspaceSelectorForID(binding.WorkspaceID)
-	if err != nil {
-		t.Fatalf("workspace selector: %v", err)
-	}
+	selector := serverapi.NewProjectWorkspaceSelectorForID(binding.WorkspaceID)
+
 	exact, err := svc.GetProjectWorkspace(
 		context.Background(),
 		generatedGetProjectWorkspaceRequest(binding.ProjectID, selector),
@@ -359,10 +348,8 @@ func TestMetadataServiceRepeatedAttachReturnsTypedAlreadyAttachedOutcome(t *test
 func TestMetadataServiceWorkspaceSelectorCanonicalizesMissingPath(t *testing.T) {
 	missingRoot := filepath.Join(t.TempDir(), "missing", "nested")
 	store, _, binding := newProjectViewMetadataStoreForWorkspace(t, missingRoot)
-	selector, err := serverapi.NewProjectWorkspaceSelectorForRoot(missingRoot)
-	if err != nil {
-		t.Fatalf("workspace selector: %v", err)
-	}
+	selector := serverapi.NewProjectWorkspaceSelectorForRoot(missingRoot)
+
 	resolved, err := store.ResolveProjectWorkspaceSelector(context.Background(), binding.ProjectID, selector)
 	if err != nil {
 		t.Fatalf("ResolveProjectWorkspaceSelector: %v", err)
@@ -387,10 +374,8 @@ func TestMetadataServiceWorkspaceSelectorCanonicalizesMissingPathThroughSymlinke
 	if err := os.Remove(workspaceRoot); err != nil {
 		t.Fatalf("remove workspace root: %v", err)
 	}
-	selector, err := serverapi.NewProjectWorkspaceSelectorForRoot(workspaceRoot)
-	if err != nil {
-		t.Fatalf("workspace selector: %v", err)
-	}
+	selector := serverapi.NewProjectWorkspaceSelectorForRoot(workspaceRoot)
+
 	resolved, err := store.ResolveProjectWorkspaceSelector(context.Background(), binding.ProjectID, selector)
 	if err != nil {
 		t.Fatalf("ResolveProjectWorkspaceSelector: %v", err)
@@ -418,11 +403,9 @@ func TestMetadataServiceWorkspaceSelectorRejectsDanglingSymlinkAncestor(t *testi
 	if err := os.Remove(realParent); err != nil {
 		t.Fatalf("remove symlink target: %v", err)
 	}
-	selector, err := serverapi.NewProjectWorkspaceSelectorForRoot(workspaceRoot)
-	if err != nil {
-		t.Fatalf("workspace selector: %v", err)
-	}
-	_, err = store.ResolveProjectWorkspaceSelector(context.Background(), binding.ProjectID, selector)
+	selector := serverapi.NewProjectWorkspaceSelectorForRoot(workspaceRoot)
+
+	_, err := store.ResolveProjectWorkspaceSelector(context.Background(), binding.ProjectID, selector)
 	if !errors.Is(err, serverapi.ErrWorkspacePathIdentity) {
 		t.Fatalf("dangling symlink selector error = %v, want ErrWorkspacePathIdentity", err)
 	}
@@ -442,11 +425,9 @@ func TestMetadataServiceWorkspaceSelectorRejectsDanglingSelectedSymlink(t *testi
 	if err := os.Remove(targetRoot); err != nil {
 		t.Fatalf("remove symlink target: %v", err)
 	}
-	selector, err := serverapi.NewProjectWorkspaceSelectorForRoot(selectedRoot)
-	if err != nil {
-		t.Fatalf("workspace selector: %v", err)
-	}
-	_, err = store.ResolveProjectWorkspaceSelector(context.Background(), binding.ProjectID, selector)
+	selector := serverapi.NewProjectWorkspaceSelectorForRoot(selectedRoot)
+
+	_, err := store.ResolveProjectWorkspaceSelector(context.Background(), binding.ProjectID, selector)
 	if !errors.Is(err, serverapi.ErrWorkspacePathIdentity) {
 		t.Fatalf("dangling selected symlink error = %v, want ErrWorkspacePathIdentity", err)
 	}
@@ -463,11 +444,9 @@ func TestMetadataServiceWorkspaceSelectorRejectsStaleLexicalBindingAfterSymlinkR
 		t.Fatalf("replace workspace root with symlink: %v", err)
 	}
 
-	selector, err := serverapi.NewProjectWorkspaceSelectorForRoot(originalRoot)
-	if err != nil {
-		t.Fatalf("workspace selector: %v", err)
-	}
-	_, err = store.ResolveProjectWorkspaceSelector(context.Background(), binding.ProjectID, selector)
+	selector := serverapi.NewProjectWorkspaceSelectorForRoot(originalRoot)
+
+	_, err := store.ResolveProjectWorkspaceSelector(context.Background(), binding.ProjectID, selector)
 	if !errors.Is(err, serverapi.ErrWorkspaceNotRegistered) {
 		t.Fatalf("stale lexical selector error = %v, want ErrWorkspaceNotRegistered", err)
 	}
@@ -486,11 +465,9 @@ func TestMetadataServiceWorkspaceSelectorRejectsStaleLexicalBindingAfterDangling
 		t.Fatalf("replace workspace root with dangling symlink: %v", err)
 	}
 
-	selector, err := serverapi.NewProjectWorkspaceSelectorForRoot(originalRoot)
-	if err != nil {
-		t.Fatalf("workspace selector: %v", err)
-	}
-	_, err = store.ResolveProjectWorkspaceSelector(context.Background(), binding.ProjectID, selector)
+	selector := serverapi.NewProjectWorkspaceSelectorForRoot(originalRoot)
+
+	_, err := store.ResolveProjectWorkspaceSelector(context.Background(), binding.ProjectID, selector)
 	if !errors.Is(err, serverapi.ErrWorkspacePathIdentity) {
 		t.Fatalf("stale lexical dangling symlink error = %v, want ErrWorkspacePathIdentity", err)
 	}
@@ -509,10 +486,8 @@ func TestMetadataServiceWorkspaceSelectorUsesExactRootFallbackWhenCanonicalizati
 	}); err != nil {
 		t.Fatalf("update workspace root fixture: %v", err)
 	}
-	selector, err := serverapi.NewProjectWorkspaceSelectorForRoot(loopRoot)
-	if err != nil {
-		t.Fatalf("workspace selector: %v", err)
-	}
+	selector := serverapi.NewProjectWorkspaceSelectorForRoot(loopRoot)
+
 	resolved, err := store.ResolveProjectWorkspaceSelector(context.Background(), binding.ProjectID, selector)
 	if err != nil {
 		t.Fatalf("ResolveProjectWorkspaceSelector: %v", err)
@@ -525,10 +500,8 @@ func TestMetadataServiceWorkspaceSelectorUsesExactRootFallbackWhenCanonicalizati
 	if err := os.Symlink("loop", unknownLoopRoot); err != nil {
 		t.Fatalf("create unknown symlink loop: %v", err)
 	}
-	unknownSelector, err := serverapi.NewProjectWorkspaceSelectorForRoot(unknownLoopRoot)
-	if err != nil {
-		t.Fatalf("unknown workspace selector: %v", err)
-	}
+	unknownSelector := serverapi.NewProjectWorkspaceSelectorForRoot(unknownLoopRoot)
+
 	_, err = store.ResolveProjectWorkspaceSelector(context.Background(), binding.ProjectID, unknownSelector)
 	if !errors.Is(err, serverapi.ErrWorkspacePathIdentity) {
 		t.Fatalf("unknown inaccessible path error = %v, want ErrWorkspacePathIdentity", err)
@@ -568,10 +541,7 @@ func TestMetadataServiceUnlinksOnlySelectedProjectBindingByPath(t *testing.T) {
 	if err != nil {
 		t.Fatalf("AttachWorkspaceToProject shared path: %v", err)
 	}
-	selector, err := serverapi.NewProjectWorkspaceSelectorForRoot(binding.CanonicalRoot)
-	if err != nil {
-		t.Fatalf("workspace selector: %v", err)
-	}
+	selector := serverapi.NewProjectWorkspaceSelectorForRoot(binding.CanonicalRoot)
 
 	svc := newProjectViewMetadataService(t, store)
 	unlinked, err := svc.UnlinkWorkspaceFromProject(context.Background(), &projectpb.UnlinkWorkspaceRequest{
@@ -596,10 +566,8 @@ func TestMetadataServiceUnlinksOnlySelectedProjectBindingByPath(t *testing.T) {
 func TestMetadataServiceRepeatedWorkspaceDetachSucceeds(t *testing.T) {
 	store, _, binding := newProjectViewMetadataStore(t)
 	attached := attachProjectViewWorkspace(t, store, binding.ProjectID)
-	selector, err := serverapi.NewProjectWorkspaceSelectorForID(attached.WorkspaceID)
-	if err != nil {
-		t.Fatal(err)
-	}
+	selector := serverapi.NewProjectWorkspaceSelectorForID(attached.WorkspaceID)
+
 	svc := newProjectViewMetadataService(t, store)
 	for range 2 {
 		response, err := svc.UnlinkWorkspaceFromProject(t.Context(), &projectpb.UnlinkWorkspaceRequest{
@@ -620,10 +588,8 @@ func TestMetadataServiceRepeatedWorkspaceDetachSucceeds(t *testing.T) {
 func TestMetadataServiceConcurrentWorkspaceDetachSucceeds(t *testing.T) {
 	store, _, binding := newProjectViewMetadataStore(t)
 	attached := attachProjectViewWorkspace(t, store, binding.ProjectID)
-	selector, err := serverapi.NewProjectWorkspaceSelectorForID(attached.WorkspaceID)
-	if err != nil {
-		t.Fatal(err)
-	}
+	selector := serverapi.NewProjectWorkspaceSelectorForID(attached.WorkspaceID)
+
 	svc := newProjectViewMetadataService(t, store)
 	start := make(chan struct{})
 	results := make(chan error, 2)
@@ -653,10 +619,8 @@ func TestMetadataServiceUnlinkWrongProjectIDSelectorDoesNotMutate(t *testing.T) 
 	if err != nil {
 		t.Fatalf("CreateProjectForWorkspace: %v", err)
 	}
-	selector, err := serverapi.NewProjectWorkspaceSelectorForID(binding.WorkspaceID)
-	if err != nil {
-		t.Fatalf("workspace selector: %v", err)
-	}
+	selector := serverapi.NewProjectWorkspaceSelectorForID(binding.WorkspaceID)
+
 	svc := newProjectViewMetadataService(t, store)
 	_, err = svc.UnlinkWorkspaceFromProject(context.Background(), &projectpb.UnlinkWorkspaceRequest{
 		ProjectId: other.ProjectID,
@@ -677,10 +641,8 @@ func TestMetadataServiceUnlinkWorkspaceBlocksActiveRuntimeSession(t *testing.T) 
 	svc := newProjectViewMetadataService(t, store)
 	svc.WithRuntimeAuthority(newProjectViewActiveRuntimeAuthority(t, store, cfg, created))
 
-	selector, err := serverapi.NewProjectWorkspaceSelectorForID(attached.WorkspaceID)
-	if err != nil {
-		t.Fatalf("workspace selector: %v", err)
-	}
+	selector := serverapi.NewProjectWorkspaceSelectorForID(attached.WorkspaceID)
+
 	unlinked, err := svc.UnlinkWorkspaceFromProject(context.Background(), &projectpb.UnlinkWorkspaceRequest{
 		ProjectId: binding.ProjectID,
 		Workspace: generatedProjectWorkspaceSelector(selector),
@@ -726,7 +688,7 @@ func TestMetadataServiceListsProjectHomeForGUI(t *testing.T) {
 	if err != nil {
 		t.Fatalf("CreateWorkflow: %v", err)
 	}
-	if _, err := workflowStore.LinkWorkflow(context.Background(), created.Binding.ProjectId, workflow.ID, true); err != nil {
+	if _, err := workflowStore.LinkWorkflowWithDefaultPolicy(context.Background(), created.Binding.ProjectId, workflow.ID, workflowstore.WorkflowLinkDefaultAlways); err != nil {
 		t.Fatalf("LinkWorkflow: %v", err)
 	}
 
@@ -938,7 +900,7 @@ func createProjectViewSession(t testing.TB, store *metadata.Store, cfg config.Ap
 	if err != nil {
 		t.Fatalf("create session: %v", err)
 	}
-	if err := created.SetName(name); err != nil {
+	if err := created.SetName(new(name)); err != nil {
 		t.Fatalf("persist session: %v", err)
 	}
 	return created
@@ -986,8 +948,9 @@ func newProjectViewRuntimeAuthority(
 		t.Fatalf("parse session ID: %v", err)
 	}
 	authority := sessionruntime.NewAuthority(sessionruntime.AuthorityOptions{
-		PersistenceRoot: cfg.PersistenceRoot,
-		StoreOptions:    store.AuthoritativeSessionStoreOptions(),
+		PersistenceRoot:               cfg.PersistenceRoot,
+		ProjectWorkspaceContextReader: store,
+		StoreOptions:                  store.AuthoritativeSessionStoreOptions(),
 	})
 	t.Cleanup(func() {
 		if err := authority.Close(context.Background()); err != nil {
@@ -997,7 +960,7 @@ func newProjectViewRuntimeAuthority(
 
 	settings := cfg.Settings
 	settings = testsetup.WriteProviderSettings(t, cfg.PersistenceRoot, settings)
-	settings.Model = "gpt-5"
+	settings.Model = "gpt-6-sol"
 	settings.ModelContextWindow = 200000
 	settings.Reviewer.Frequency = "off"
 	plan, err := sessionruntime.NewAgentRuntimePlan(sessionruntime.AgentRuntimePlanOptions{

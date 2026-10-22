@@ -1,6 +1,6 @@
 import { render, screen } from "@testing-library/react";
 import { I18nextProvider } from "react-i18next";
-import { afterEach, beforeAll, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeAll, describe, expect, it, vi } from "bun:test";
 import type { QuestionAttentionItem } from "@/api";
 import { AppServicesProvider } from "@/app-facade";
 import { appI18n, initializeI18n } from "@/i18n";
@@ -13,11 +13,17 @@ import { QuestionFormView } from "./TaskDetailQuestionFormView";
 const services = createTestServices([], undefined, { platform: "macos" });
 const baseQuestion = parsedQuestionAttention();
 beforeAll(async () => initializeI18n());
-afterEach(() => vi.restoreAllMocks());
+afterEach(() => {
+  vi.restoreAllMocks();
+});
 describe("Task Detail prompt primary controls", () => {
   it("replaces and unregisters exact-key controls without fallback", () => {
     const registry = new PromptPrimaryControlRegistry();
-    const key: PromptAnswerKey = { sessionID: "session-1", stepID: "step-1", toolCallID: "prompt-1" };
+    const key: PromptAnswerKey = {
+      sessionID: "33333333-3333-4333-8333-333333333333",
+      stepID: "step-1",
+      toolCallID: "prompt-1",
+    };
     const [first, second] = [vi.fn(), vi.fn()];
     const unregisterFirst = registry.register(key, { focusPrimary: first });
     const unregisterSecond = registry.register({ ...key }, { focusPrimary: second });

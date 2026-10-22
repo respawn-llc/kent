@@ -3,6 +3,7 @@ package tools
 import (
 	"context"
 	"core/shared/clientui"
+	"core/shared/runtimeids"
 	"core/shared/textutil"
 	"core/shared/toolspec"
 	"encoding/json"
@@ -27,7 +28,6 @@ func testApprovalRequest(id string) AskQuestionRequest {
 
 func testApprovalContext(parent context.Context, toolCallID string) context.Context {
 	ctx := WithExecutionIdentity(parent, ExecutionIdentity{
-		RunID:      "11111111-1111-4111-8111-111111111111",
 		StepID:     "22222222-2222-4222-8222-222222222222",
 		ToolCallID: clientui.ToolCallID(toolCallID),
 	})
@@ -36,6 +36,19 @@ func testApprovalContext(parent context.Context, toolCallID string) context.Cont
 
 func testQuestionAnswer(text string) AskQuestionAnswer {
 	return AskQuestionAnswer{Freeform: textutil.Value(text)}
+}
+
+func assertCanceledQuestionResult(t *testing.T, result Result) {
+	t.Helper()
+	if !result.IsError {
+		t.Fatalf("result = %+v, want error result", result)
+	}
+	if result.QuestionAnswer != nil {
+		t.Fatalf("canceled Question result includes an answer: %+v", result.QuestionAnswer)
+	}
+	if result.AnsweredBySessionID != nil {
+		t.Fatalf("canceled Question result includes answer provenance: %s", *result.AnsweredBySessionID)
+	}
 }
 
 func TestUnboundAskFailsWithoutWaitingForCancellation(t *testing.T) {
@@ -152,7 +165,6 @@ func TestToolCallBarrierFailureRunsBatchCleanup(t *testing.T) {
 		Input: json.RawMessage(`{"question":"Continue?"}`),
 		AskQuestionBatch: &AskQuestionBatchMetadata{
 			Origin:              AskQuestionOriginModelTool,
-			RunID:               "run-1",
 			StepID:              "step-1",
 			ToolCallID:          "queued-question",
 			BatchToolCallIDs:    []string{"queued-question"},
@@ -192,7 +204,6 @@ func TestAskQuestionToolSkipsPreparedBatchWhenBrokerReturnsBeforeHandler(t *test
 		Input: mustAskQuestionInput(t, "two?"),
 		AskQuestionBatch: &AskQuestionBatchMetadata{
 			Origin:              AskQuestionOriginModelTool,
-			RunID:               "run-1",
 			StepID:              "step-1",
 			ToolCallID:          "ask-2",
 			BatchToolCallIDs:    []string{"ask-1", "ask-2"},
@@ -206,9 +217,7 @@ func TestAskQuestionToolSkipsPreparedBatchWhenBrokerReturnsBeforeHandler(t *test
 	if err != nil {
 		t.Fatalf("Call returned unexpected handler error: %v", err)
 	}
-	if !result.IsError {
-		t.Fatalf("result = %+v, want error result", result)
-	}
+	assertCanceledQuestionResult(t, result)
 	if handlerCalled {
 		t.Fatal("ask handler was called after context cancellation")
 	}
@@ -234,7 +243,6 @@ func TestAskQuestionToolDeclineKeepsPreparedSuccessorsPending(t *testing.T) {
 		Input: mustAskQuestionInput(t, "one?"),
 		AskQuestionBatch: &AskQuestionBatchMetadata{
 			Origin:              AskQuestionOriginModelTool,
-			RunID:               "run-1",
 			StepID:              "step-1",
 			ToolCallID:          "ask-1",
 			BatchToolCallIDs:    []string{"ask-1", "ask-2"},
@@ -248,9 +256,7 @@ func TestAskQuestionToolDeclineKeepsPreparedSuccessorsPending(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Call returned unexpected error: %v", err)
 	}
-	if !result.IsError {
-		t.Fatalf("result = %+v, want declined error result", result)
-	}
+	assertCanceledQuestionResult(t, result)
 	if len(skipped) != 0 {
 		t.Fatalf("decline marked prepared successors skipped: %+v", skipped)
 	}
@@ -538,7 +544,6 @@ func TestToolCallPassesPreparedBatchMetadataToAskBroker(t *testing.T) {
 	tool := NewAskQuestionTool(b, func() bool { return true })
 	meta := &AskQuestionBatchMetadata{
 		Origin:              AskQuestionOriginModelTool,
-		RunID:               "run-1",
 		StepID:              "step-1",
 		ToolCallID:          "ask-1",
 		BatchToolCallIDs:    []string{"ask-1", "ask-2"},
@@ -549,7 +554,6 @@ func TestToolCallPassesPreparedBatchMetadataToAskBroker(t *testing.T) {
 		ID:               "ask-1",
 		Name:             toolspec.ToolAskQuestion,
 		Input:            json.RawMessage(`{"question":"one?"}`),
-		RunID:            "run-1",
 		StepID:           "step-1",
 		AskQuestionBatch: meta,
 	})
@@ -559,7 +563,7 @@ func TestToolCallPassesPreparedBatchMetadataToAskBroker(t *testing.T) {
 	if got.QuestionBatch == nil || got.QuestionBatch.StepID != "step-1" || got.QuestionBatch.PreparedPromptCount != 2 {
 		t.Fatalf("broker metadata = %+v", got)
 	}
-	if got.Origin != AskQuestionOriginModelTool || got.RunID != "run-1" || got.StepID != "step-1" || got.ToolCallID != "ask-1" {
+	if got.Origin != AskQuestionOriginModelTool || got.StepID != "step-1" || got.ToolCallID != "ask-1" {
 		t.Fatalf("broker request identity = %+v", got)
 	}
 }
@@ -568,7 +572,6 @@ func TestToolCallReportsPreparedBatchSkippedWhenQuestionsBecomeDisabled(t *testi
 	tool := NewAskQuestionTool(NewAskQuestionBroker(), func() bool { return false })
 	meta := &AskQuestionBatchMetadata{
 		Origin:              AskQuestionOriginModelTool,
-		RunID:               "run-1",
 		StepID:              "step-1",
 		ToolCallID:          "ask-1",
 		BatchToolCallIDs:    []string{"ask-1"},
@@ -580,7 +583,6 @@ func TestToolCallReportsPreparedBatchSkippedWhenQuestionsBecomeDisabled(t *testi
 		ID:               "ask-1",
 		Name:             toolspec.ToolAskQuestion,
 		Input:            json.RawMessage(`{"question":"one?"}`),
-		RunID:            "run-1",
 		StepID:           "step-1",
 		AskQuestionBatch: meta,
 		OnAskQuestionBatchSkipped: func(metadata AskQuestionBatchMetadata) {
@@ -686,6 +688,29 @@ func callAskQuestionTool(t *testing.T, b *AskQuestionBroker, id string, input st
 		t.Fatalf("unexpected call error: %v", err)
 	}
 	return result
+}
+
+func TestAskQuestionToolCarriesAnswererSeparatelyFromAnswerContent(t *testing.T) {
+	answerer := runtimeids.NewSessionID()
+	answerText := "Keep the current behavior."
+	broker := NewAskQuestionBroker()
+	broker.SetLifecycleAskHandler(func(context.Context, AskQuestionRequest) (AskQuestionResolution, error) {
+		return AskQuestionAnswer{
+			Freeform: &answerText,
+			Answerer: &runtimeids.SessionIdentity{ID: answerer},
+		}, nil
+	})
+
+	result := callAskQuestionTool(t, broker, "agent-answer", `{"question":"What should we do?"}`)
+	if result.AnsweredBySessionID == nil || *result.AnsweredBySessionID != answerer {
+		t.Fatalf("result answerer = %v, want %s", result.AnsweredBySessionID, answerer)
+	}
+	if result.QuestionAnswer == nil ||
+		result.QuestionAnswer.Answerer != nil ||
+		result.QuestionAnswer.Freeform == nil ||
+		*result.QuestionAnswer.Freeform != answerText {
+		t.Fatalf("structured Question answer = %+v, want answer content without a duplicate actor", result.QuestionAnswer)
+	}
 }
 
 func TestToolCallSerializesResponsesAsPlainText(t *testing.T) {

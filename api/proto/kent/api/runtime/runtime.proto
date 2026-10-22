@@ -10,8 +10,10 @@ import "kent/api/auth/auth.proto";
 import "kent/api/chat/chat.proto";
 import "kent/api/prompt_command/prompt_command.proto";
 import "kent/api/prompt_command/validation.proto";
+import "kent/api/project/session_catalog.proto";
 import "kent/api/server/server.proto";
 import "kent/api/shared/foundation.proto";
+import "kent/api/shared/session_selector.proto";
 import "kent/api/shared/validation.proto";
 import "kent/api/worktree/worktree.proto";
 
@@ -71,7 +73,6 @@ enum ActivityActiveKind {
   RUNTIME_ACTIVITY_ACTIVE_KIND_WORKFLOW_TURN = 2;
   RUNTIME_ACTIVITY_ACTIVE_KIND_GOAL_LOOP = 3;
   RUNTIME_ACTIVITY_ACTIVE_KIND_COMPACTION = 4;
-  RUNTIME_ACTIVITY_ACTIVE_KIND_PRE_SUBMIT_COMPACTION = 5;
   RUNTIME_ACTIVITY_ACTIVE_KIND_USER_SHELL = 6;
   RUNTIME_ACTIVITY_ACTIVE_KIND_BACKGROUND = 7;
   RUNTIME_ACTIVITY_ACTIVE_KIND_RUNTIME_MAINTENANCE = 8;
@@ -104,10 +105,6 @@ message ReadModelVersion {
 }
 
 message ActiveStep {
-  string run_id = 1 [
-    (buf.validate.field).string.uuid = true,
-    (buf.validate.field).string.(kent.api.shared.canonical_uuid_v4) = true
-  ];
   string step_id = 2 [
     (buf.validate.field).string.uuid = true,
     (buf.validate.field).string.(kent.api.shared.canonical_uuid_v4) = true
@@ -186,9 +183,9 @@ message Status {
     defined_only: true
     not_in: [0]
   }];
-  optional string previous_session_id = 8 [(buf.validate.field).string.min_len = 1];
-  optional string parent_agent_session_id = 9 [(buf.validate.field).string.min_len = 1];
-  optional string navigation_target_session_id = 10 [(buf.validate.field).string.min_len = 1];
+  optional string previous_session_id = 8 [(buf.validate.field).string.uuid = true, (buf.validate.field).string.(kent.api.shared.canonical_uuid_v4) = true];
+  optional string parent_agent_session_id = 9 [(buf.validate.field).string.uuid = true, (buf.validate.field).string.(kent.api.shared.canonical_uuid_v4) = true];
+  optional string navigation_target_session_id = 10 [(buf.validate.field).string.uuid = true, (buf.validate.field).string.(kent.api.shared.canonical_uuid_v4) = true];
   string thinking_level = 12 [(buf.validate.field).string.min_len = 1];
   string compaction_mode = 13 [(buf.validate.field).string = {
     in: [
@@ -210,7 +207,11 @@ message Status {
 }
 
 message SessionView {
-  string session_id = 1 [(buf.validate.field).string.min_len = 1];
+  kent.api.project.SessionCategory category = 7 [(buf.validate.field).enum = {
+    defined_only: true
+    not_in: [0]
+  }];
+  string session_id = 1 [(buf.validate.field).string.uuid = true, (buf.validate.field).string.(kent.api.shared.canonical_uuid_v4) = true];
   optional string session_name = 2 [(buf.validate.field).string.min_len = 1];
   optional string agent_role = 3 [(buf.validate.field).string.min_len = 1];
   ConversationFreshness conversation_freshness = 4 [(buf.validate.field).enum = {
@@ -218,6 +219,7 @@ message SessionView {
     not_in: [0]
   }];
   kent.api.worktree.SessionExecutionTarget execution_target = 5 [(buf.validate.field).required = true];
+  optional int64 short_id = 6 [(buf.validate.field).int64 = {gt: 0 lte: 9007199254740991}];
 }
 
 message MainView {
@@ -228,7 +230,7 @@ message MainView {
 }
 
 message RuntimeUnavailableDetails {
-  string session_id = 1 [(buf.validate.field).string.min_len = 1];
+  optional kent.api.shared.SessionTargetContext session_target = 3;
 }
 
 message RuntimeCommandNotAcceptedDetails {
@@ -248,24 +250,20 @@ message RuntimeCommandNotAcceptedDetails {
   }
 }
 
+message SessionNameMutation {
+  oneof action {
+    option (buf.validate.oneof).required = true;
+    string set = 1 [(buf.validate.field).string.(kent.api.shared.nonblank) = true];
+    google.protobuf.Empty clear = 2;
+  }
+}
+
 message SetSessionNameRequest {
   string session_id = 1 [
-    (buf.validate.field).string.min_len = 1,
-    (buf.validate.field).string.(kent.api.shared.nonblank) = true
+    (buf.validate.field).string.uuid = true,
+    (buf.validate.field).string.(kent.api.shared.canonical_uuid_v4) = true
   ];
-  string name = 2;
-}
-
-message ShouldCompactRequest {
-  string session_id = 1 [
-    (buf.validate.field).string.min_len = 1,
-    (buf.validate.field).string.(kent.api.shared.nonblank) = true
-  ];
-  string text = 2;
-}
-
-message ShouldCompactSuccess {
-  bool should_compact = 1;
+  SessionNameMutation mutation = 2 [(buf.validate.field).required = true];
 }
 
 message PromptCommandInput {
@@ -278,11 +276,7 @@ message UserTurnInput {
     option (buf.validate.oneof).required = true;
     string text = 1 [
       (buf.validate.field).string.min_len = 1,
-      (buf.validate.field).cel = {
-        id: "kent.runtime.user_turn_text_nonblank"
-        message: "text must not be blank"
-        expression: "this.trim() != ''"
-      }
+      (buf.validate.field).string.(kent.api.shared.pending_work_nonblank) = true
     ];
     PromptCommandInput prompt_command = 2;
   }
@@ -290,14 +284,14 @@ message UserTurnInput {
 
 message SubmitUserTurnRequest {
   string session_id = 1 [
-    (buf.validate.field).string.min_len = 1,
-    (buf.validate.field).cel = {
-      id: "kent.runtime.submit_user_turn_session_id_nonblank"
-      message: "session_id must not be blank"
-      expression: "this.trim() != ''"
-    }
+    (buf.validate.field).string.uuid = true,
+    (buf.validate.field).string.(kent.api.shared.canonical_uuid_v4) = true
   ];
   UserTurnInput input = 2 [(buf.validate.field).required = true];
+  string queue_item_id = 3 [
+    (buf.validate.field).string.uuid = true,
+    (buf.validate.field).string.(kent.api.shared.canonical_uuid_v4) = true
+  ];
 }
 
 message SubmitUserTurnQueued {
@@ -305,7 +299,6 @@ message SubmitUserTurnQueued {
     (buf.validate.field).string.uuid = true,
     (buf.validate.field).string.(kent.api.shared.canonical_uuid_v4) = true
   ];
-  bool compacted = 2;
   bool steered = 3;
 
   option (buf.validate.message).cel = {
@@ -315,9 +308,7 @@ message SubmitUserTurnQueued {
   };
 }
 
-message SubmitUserTurnNoFinal {
-  bool compacted = 1;
-}
+message SubmitUserTurnNoFinal {}
 
 message SubmitUserTurnAssistantFinal {
   string message = 1 [
@@ -328,12 +319,10 @@ message SubmitUserTurnAssistantFinal {
       expression: "this.trim() != ''"
     }
   ];
-  bool compacted = 2;
 }
 
 message SubmitUserTurnSilentFinal {
   string message = 1 [(buf.validate.field).string.const = ""];
-  bool compacted = 2;
 }
 
 message SubmitUserTurnSuccess {
@@ -346,27 +335,9 @@ message SubmitUserTurnSuccess {
   }
 }
 
-message ShellCommandRequest {
-  string session_id = 1 [
-    (buf.validate.field).string.min_len = 1,
-    (buf.validate.field).string.(kent.api.shared.nonblank) = true
-  ];
-  string command = 2 [
-    (buf.validate.field).string.min_len = 1,
-    (buf.validate.field).cel = {
-      id: "kent.runtime.shell_command_nonblank"
-      message: "command must be non-blank"
-      expression: "this.trim() != ''"
-    }
-  ];
-}
 
 message CompactContextRequest {
   string session_id = 1 [
-    (buf.validate.field).string.min_len = 1,
-    (buf.validate.field).string.(kent.api.shared.nonblank) = true
-  ];
-  string request_id = 2 [
     (buf.validate.field).string.uuid = true,
     (buf.validate.field).string.(kent.api.shared.canonical_uuid_v4) = true
   ];
@@ -376,19 +347,14 @@ message CompactContextRequest {
 message ManualCompactionAdmission {
   optional string guidance = 1 [
     (buf.validate.field).string.min_len = 1,
-    (buf.validate.field).string.(kent.api.shared.nonblank) = true
+    (buf.validate.field).string.(kent.api.shared.pending_work_argument) = true
   ];
-  option (buf.validate.message).cel = {
-    id: "kent.runtime.manual_compaction_guidance_normalized"
-    message: "guidance must be normalized"
-    expression: "!has(this.guidance) || this.guidance == this.guidance.trim()"
-  };
 }
 
 message InterruptRequest {
   string session_id = 1 [
-    (buf.validate.field).string.min_len = 1,
-    (buf.validate.field).string.(kent.api.shared.nonblank) = true
+    (buf.validate.field).string.uuid = true,
+    (buf.validate.field).string.(kent.api.shared.canonical_uuid_v4) = true
   ];
 }
 
@@ -398,10 +364,7 @@ message ReadModelUpdate {
 }
 
 message LiveSteerRequest {
-  string session_id = 1 [
-    (buf.validate.field).string.uuid = true,
-    (buf.validate.field).string.(kent.api.shared.canonical_uuid_v4) = true
-  ];
+  kent.api.shared.SessionSelector session_id = 1 [(buf.validate.field).required = true];
   optional string caller_session_id = 2 [
     (buf.validate.field).string.uuid = true,
     (buf.validate.field).string.(kent.api.shared.canonical_uuid_v4) = true
@@ -413,6 +376,10 @@ message LiveSteerRequest {
       message: "text must be non-blank"
       expression: "this.trim() != ''"
     }
+  ];
+  string queue_item_id = 4 [
+    (buf.validate.field).string.uuid = true,
+    (buf.validate.field).string.(kent.api.shared.canonical_uuid_v4) = true
   ];
 }
 
@@ -432,7 +399,8 @@ message LiveSteerSuccess {
 }
 
 message LiveStopRequest {
-  string session_id = 1 [
+  kent.api.shared.SessionSelector session_id = 1 [(buf.validate.field).required = true];
+  optional string caller_session_id = 2 [
     (buf.validate.field).string.uuid = true,
     (buf.validate.field).string.(kent.api.shared.canonical_uuid_v4) = true
   ];
@@ -452,7 +420,8 @@ message LiveStopSuccess {
 }
 
 message LiveWaitRequest {
-  string session_id = 1 [
+  kent.api.shared.SessionSelector session_id = 1 [(buf.validate.field).required = true];
+  optional string caller_session_id = 2 [
     (buf.validate.field).string.uuid = true,
     (buf.validate.field).string.(kent.api.shared.canonical_uuid_v4) = true
   ];
@@ -481,11 +450,12 @@ message LiveWaitNoFinalAnswer {
 }
 
 message LiveWaitSuccess {
+  optional int64 short_id = 10 [(buf.validate.field).int64 = {gt: 0 lte: 9007199254740991}];
   string session_id = 1 [
     (buf.validate.field).string.uuid = true,
     (buf.validate.field).string.(kent.api.shared.canonical_uuid_v4) = true
   ];
-  string session_name = 2 [
+  optional string session_name = 2 [
     (buf.validate.field).string.min_len = 1,
     (buf.validate.field).cel = {
       id: "kent.runtime.live_wait_session_name_nonblank"
@@ -498,10 +468,6 @@ message LiveWaitSuccess {
     (buf.validate.field).duration.gte = {}
   ];
   string live_run_group_id = 4 [
-    (buf.validate.field).string.uuid = true,
-    (buf.validate.field).string.(kent.api.shared.canonical_uuid_v4) = true
-  ];
-  string terminal_run_id = 5 [
     (buf.validate.field).string.uuid = true,
     (buf.validate.field).string.(kent.api.shared.canonical_uuid_v4) = true
   ];
@@ -551,7 +517,7 @@ enum PendingWorkWorktreeTransitionKind {
 message PendingWorkMessage {
   string text = 1 [
     (buf.validate.field).string.min_len = 1,
-    (buf.validate.field).string.(kent.api.shared.nonblank) = true
+    (buf.validate.field).string.(kent.api.shared.pending_work_nonblank) = true
   ];
 }
 
@@ -562,13 +528,13 @@ message PendingWorkWorktreeTransition {
   }];
   optional string selector = 2 [
     (buf.validate.field).string.min_len = 1,
-    (buf.validate.field).string.(kent.api.shared.nonblank) = true
+    (buf.validate.field).string.(kent.api.shared.pending_work_argument) = true
   ];
   option (buf.validate.message).cel = {
     id: "kent.runtime.pending_work_worktree_transition_payload"
     message: "Worktree enter requires a normalized selector and leave forbids one"
     expression:
-      "(this.transition == 1 && has(this.selector) && this.selector == this.selector.trim()) || "
+      "(this.transition == 1 && has(this.selector)) || "
       "(this.transition == 2 && !has(this.selector))"
   };
 }
@@ -598,7 +564,7 @@ message PendingWorkItem {
   }];
   string canonical_input = 7 [
     (buf.validate.field).string.min_len = 1,
-    (buf.validate.field).string.(kent.api.shared.nonblank) = true
+    (buf.validate.field).string.(kent.api.shared.pending_work_nonblank) = true
   ];
   option (buf.validate.message).cel = {
     id: "kent.runtime.pending_work_item_payload"
@@ -617,12 +583,20 @@ message PendingWork {
     message: "Pending Work item identities must be unique"
     expression: "this.items.map(item, item.id).unique()"
   };
+  option (buf.validate.message).cel = {
+    id: "kent.runtime.pending_work_lane_order"
+    message: "Pending Work Queue items must precede Steer items"
+    expression:
+      "this.items.map(item, item.lane) == "
+      "this.items.filter(item, item.lane == 2).map(item, item.lane) + "
+      "this.items.filter(item, item.lane == 1).map(item, item.lane)"
+  };
 }
 
 message ListPendingWorkRequest {
   string session_id = 1 [
-    (buf.validate.field).string.min_len = 1,
-    (buf.validate.field).string.(kent.api.shared.nonblank) = true
+    (buf.validate.field).string.uuid = true,
+    (buf.validate.field).string.(kent.api.shared.canonical_uuid_v4) = true
   ];
 }
 
@@ -632,8 +606,8 @@ message ListPendingWorkSuccess {
 
 message RemovePendingWorkRequest {
   string session_id = 1 [
-    (buf.validate.field).string.min_len = 1,
-    (buf.validate.field).string.(kent.api.shared.nonblank) = true
+    (buf.validate.field).string.uuid = true,
+    (buf.validate.field).string.(kent.api.shared.canonical_uuid_v4) = true
   ];
   string item_id = 2 [
     (buf.validate.field).string.uuid = true,
@@ -648,7 +622,7 @@ message PendingWorkRestoration {
   }];
   string canonical_input = 2 [
     (buf.validate.field).string.min_len = 1,
-    (buf.validate.field).string.(kent.api.shared.nonblank) = true
+    (buf.validate.field).string.(kent.api.shared.pending_work_nonblank) = true
   ];
 }
 
@@ -688,17 +662,11 @@ message Goal {
 }
 
 message GoalShowRequest {
-  string session_id = 1 [
-    (buf.validate.field).string.min_len = 1,
-    (buf.validate.field).string.(kent.api.shared.nonblank) = true
-  ];
+  kent.api.shared.SessionSelector session_id = 1 [(buf.validate.field).required = true];
 }
 
 message GoalMutationRequest {
-  string session_id = 1 [
-    (buf.validate.field).string.min_len = 1,
-    (buf.validate.field).string.(kent.api.shared.nonblank) = true
-  ];
+  kent.api.shared.SessionSelector session_id = 1 [(buf.validate.field).required = true];
   string actor = 2 [
     (buf.validate.field).string.min_len = 1,
     (buf.validate.field).cel = {
@@ -707,8 +675,15 @@ message GoalMutationRequest {
       expression: "this.trim() in ['user', 'agent', 'system']"
     }
   ];
-  optional string run_id = 3 [(buf.validate.field).string.min_len = 1];
   optional string step_id = 4 [(buf.validate.field).string.min_len = 1];
+
+  option (buf.validate.message).cel = {
+    id: "kent.runtime.goal_mutation_actor_step"
+    message: "Goal mutation execution identity must be present only for agent actors"
+    expression:
+      "(this.actor.trim() == 'agent' && has(this.step_id)) || "
+      "(this.actor.trim() != 'agent' && !has(this.step_id))"
+  };
 }
 
 message GoalSetRequest {
@@ -734,14 +709,6 @@ message GoalSetRequest {
     not_in: [0]
   }];
   optional string initial_input_draft = 5;
-  optional string run_id = 6 [
-    (buf.validate.field).string.min_len = 1,
-    (buf.validate.field).cel = {
-      id: "kent.runtime.goal_set_run_id_nonblank"
-      message: "run_id must not be blank when present"
-      expression: "this.trim() != ''"
-    }
-  ];
   optional string step_id = 7 [
     (buf.validate.field).string.min_len = 1,
     (buf.validate.field).cel = {
@@ -756,21 +723,18 @@ message GoalSetRequest {
     message: "Goal Set target, actor, execution policy, draft, and execution identity must form a legal combination"
     expression:
       "has(this.target.new_chat) && this.execution_policy == 1 && this.actor.trim() == 'user' && "
-      "!has(this.run_id) && !has(this.step_id) || "
+      "!has(this.step_id) || "
       "has(this.target.session) && !has(this.initial_input_draft) && ("
-      "(this.execution_policy == 1 && this.actor.trim() == 'user' && !has(this.run_id) && !has(this.step_id)) || "
+      "(this.execution_policy == 1 && this.actor.trim() == 'user' && !has(this.step_id)) || "
       "(this.execution_policy == 2 && ("
-      "(this.actor.trim() == 'agent' && has(this.run_id) && has(this.step_id)) || "
-      "(this.actor.trim() != 'agent' && !has(this.run_id) && !has(this.step_id))"
+      "(this.actor.trim() == 'agent' && has(this.step_id)) || "
+      "(this.actor.trim() != 'agent' && !has(this.step_id))"
       ")))"
   };
 }
 
 message GoalClearRequest {
-  string session_id = 1 [
-    (buf.validate.field).string.min_len = 1,
-    (buf.validate.field).string.(kent.api.shared.nonblank) = true
-  ];
+  kent.api.shared.SessionSelector session_id = 1 [(buf.validate.field).required = true];
   string actor = 2 [
     (buf.validate.field).string.min_len = 1,
     (buf.validate.field).cel = {
@@ -808,10 +772,7 @@ message GoalMutationSuccess {
 }
 
 message GoalObserveRequest {
-  string session_id = 1 [
-    (buf.validate.field).string.min_len = 1,
-    (buf.validate.field).string.(kent.api.shared.nonblank) = true
-  ];
+  kent.api.shared.SessionSelector session_id = 1 [(buf.validate.field).required = true];
 }
 
 message GoalProjection {
@@ -823,7 +784,10 @@ message GoalProjection {
 }
 
 message GoalObservation {
-  uint64 sequence = 1 [(buf.validate.field).uint64.gt = 0];
+  uint64 sequence = 1 [(buf.validate.field).uint64 = {
+    gt: 0
+    lte: 9007199254740991
+  }];
   GoalObservationKind kind = 2 [(buf.validate.field).enum = {
     defined_only: true
     not_in: [0]
@@ -864,31 +828,6 @@ message SetSessionNameError {
   }
 }
 
-message ShouldCompactError {
-  string code = 1 [
-    (buf.validate.field).string.min_len = 1,
-    (kent.api.shared.kent_result_field).role = RESULT_FIELD_ROLE_ERROR_CODE
-  ];
-  oneof detail {
-    RuntimeUnavailableDetails runtime_unavailable = 2 [(kent.api.shared.kent_result_field) = {
-      role: RESULT_FIELD_ROLE_ERROR_DETAIL
-      error_code: "runtime_unavailable"
-    }];
-    kent.api.shared.InternalFailureDetails internal_failure = 3 [(kent.api.shared.kent_result_field) = {
-      role: RESULT_FIELD_ROLE_ERROR_DETAIL
-      error_code: "internal_failure"
-    }];
-    kent.api.auth.AuthRequiredDetails auth_required = 4 [(kent.api.shared.kent_result_field) = {
-      role: RESULT_FIELD_ROLE_ERROR_DETAIL
-      error_code: "auth_required"
-    }];
-
-    kent.api.server.ServerNotReadyDetails server_not_ready = 5 [(kent.api.shared.kent_result_field) = {
-      role: RESULT_FIELD_ROLE_ERROR_DETAIL
-      error_code: "server_not_ready"
-    }];
-  }
-}
 message ListPendingWorkError {
   string code = 1 [
     (buf.validate.field).string.min_len = 1,
@@ -995,35 +934,6 @@ message SubmitUserTurnError {
   }
 }
 
-message SubmitUserShellCommandError {
-  string code = 1 [
-    (buf.validate.field).string.min_len = 1,
-    (kent.api.shared.kent_result_field).role = RESULT_FIELD_ROLE_ERROR_CODE
-  ];
-  oneof detail {
-    RuntimeCommandNotAcceptedDetails runtime_command_not_accepted = 2 [(kent.api.shared.kent_result_field) = {
-      role: RESULT_FIELD_ROLE_ERROR_DETAIL
-      error_code: "runtime_command_not_accepted"
-    }];
-    RuntimeUnavailableDetails runtime_unavailable = 3 [(kent.api.shared.kent_result_field) = {
-      role: RESULT_FIELD_ROLE_ERROR_DETAIL
-      error_code: "runtime_unavailable"
-    }];
-    kent.api.shared.InternalFailureDetails internal_failure = 4 [(kent.api.shared.kent_result_field) = {
-      role: RESULT_FIELD_ROLE_ERROR_DETAIL
-      error_code: "internal_failure"
-    }];
-    kent.api.auth.AuthRequiredDetails auth_required = 5 [(kent.api.shared.kent_result_field) = {
-      role: RESULT_FIELD_ROLE_ERROR_DETAIL
-      error_code: "auth_required"
-    }];
-
-    kent.api.server.ServerNotReadyDetails server_not_ready = 6 [(kent.api.shared.kent_result_field) = {
-      role: RESULT_FIELD_ROLE_ERROR_DETAIL
-      error_code: "server_not_ready"
-    }];
-  }
-}
 message InterruptError {
   string code = 1 [
     (buf.validate.field).string.min_len = 1,
@@ -1103,11 +1013,15 @@ message LiveSteerError {
     (kent.api.shared.kent_result_field).role = RESULT_FIELD_ROLE_ERROR_CODE
   ];
   oneof detail {
+    kent.api.shared.SessionSelfTargetDetails self_target = 7 [(kent.api.shared.kent_result_field) = {
+      role: RESULT_FIELD_ROLE_ERROR_DETAIL
+      error_code: "self_target"
+    }];
     RuntimeUnavailableDetails runtime_unavailable = 2 [(kent.api.shared.kent_result_field) = {
       role: RESULT_FIELD_ROLE_ERROR_DETAIL
       error_code: "runtime_unavailable"
     }];
-    google.protobuf.Empty no_active_run = 3 [(kent.api.shared.kent_result_field) = {
+    kent.api.shared.SessionIdentity no_active_run = 3 [(kent.api.shared.kent_result_field) = {
       role: RESULT_FIELD_ROLE_ERROR_DETAIL
       error_code: "no_active_run"
     }];
@@ -1134,6 +1048,10 @@ message LiveStopError {
     (kent.api.shared.kent_result_field).role = RESULT_FIELD_ROLE_ERROR_CODE
   ];
   oneof detail {
+    kent.api.shared.SessionSelfTargetDetails self_target = 6 [(kent.api.shared.kent_result_field) = {
+      role: RESULT_FIELD_ROLE_ERROR_DETAIL
+      error_code: "self_target"
+    }];
     kent.api.shared.InternalFailureDetails internal_failure = 2 [(kent.api.shared.kent_result_field) = {
       role: RESULT_FIELD_ROLE_ERROR_DETAIL
       error_code: "internal_failure"
@@ -1161,15 +1079,19 @@ message LiveWaitError {
     (kent.api.shared.kent_result_field).role = RESULT_FIELD_ROLE_ERROR_CODE
   ];
   oneof detail {
+    kent.api.shared.SessionSelfTargetDetails self_target = 8 [(kent.api.shared.kent_result_field) = {
+      role: RESULT_FIELD_ROLE_ERROR_DETAIL
+      error_code: "self_target"
+    }];
     RuntimeUnavailableDetails runtime_unavailable = 2 [(kent.api.shared.kent_result_field) = {
       role: RESULT_FIELD_ROLE_ERROR_DETAIL
       error_code: "runtime_unavailable"
     }];
-    google.protobuf.Empty no_active_run = 3 [(kent.api.shared.kent_result_field) = {
+    kent.api.shared.SessionIdentity no_active_run = 3 [(kent.api.shared.kent_result_field) = {
       role: RESULT_FIELD_ROLE_ERROR_DETAIL
       error_code: "no_active_run"
     }];
-    google.protobuf.Empty no_final_answer = 4 [(kent.api.shared.kent_result_field) = {
+    kent.api.shared.SessionIdentity no_final_answer = 4 [(kent.api.shared.kent_result_field) = {
       role: RESULT_FIELD_ROLE_ERROR_DETAIL
       error_code: "no_final_answer"
     }];
@@ -1396,27 +1318,12 @@ message SetSessionNameResult {
   }
 }
 
-message SubmitUserShellCommandResult {
-  oneof outcome {
-    option (buf.validate.oneof).required = true;
-    google.protobuf.Empty success = 1 [(kent.api.shared.kent_result_field).role = RESULT_FIELD_ROLE_SUCCESS];
-    SubmitUserShellCommandError error = 2 [(kent.api.shared.kent_result_field).role = RESULT_FIELD_ROLE_ERROR];
-  }
-}
 
 message CompactContextResult {
   oneof outcome {
     option (buf.validate.oneof).required = true;
     google.protobuf.Empty success = 1 [(kent.api.shared.kent_result_field).role = RESULT_FIELD_ROLE_SUCCESS];
     CompactContextError error = 2 [(kent.api.shared.kent_result_field).role = RESULT_FIELD_ROLE_ERROR];
-  }
-}
-
-message ShouldCompactResult {
-  oneof outcome {
-    option (buf.validate.oneof).required = true;
-    ShouldCompactSuccess success = 1 [(kent.api.shared.kent_result_field).role = RESULT_FIELD_ROLE_SUCCESS];
-    ShouldCompactError error = 2 [(kent.api.shared.kent_result_field).role = RESULT_FIELD_ROLE_ERROR];
   }
 }
 
@@ -1541,25 +1448,7 @@ service SettingsService {
 }
 
 service TurnService {
-  rpc ShouldCompactBeforeUserMessage(ShouldCompactRequest) returns (ShouldCompactResult) {
-    option (kent.api.shared.kent_method) = {
-      kind: OPERATION_KIND_UNARY
-      authentication_stage: AUTHENTICATION_STAGE_SERVER
-      scope_policy: SCOPE_POLICY_SESSION_ACTIVE_PROJECT
-      direction: DIRECTION_CLIENT_TO_SERVER
-      unary_connection: UNARY_CONNECTION_MULTIPLEXED
-    };
-  }
   rpc SubmitUserTurn(SubmitUserTurnRequest) returns (SubmitUserTurnResult) {
-    option (kent.api.shared.kent_method) = {
-      kind: OPERATION_KIND_UNARY
-      authentication_stage: AUTHENTICATION_STAGE_SERVER
-      scope_policy: SCOPE_POLICY_SESSION_ACTIVE_PROJECT
-      direction: DIRECTION_CLIENT_TO_SERVER
-      unary_connection: UNARY_CONNECTION_DEDICATED
-    };
-  }
-  rpc SubmitUserShellCommand(ShellCommandRequest) returns (SubmitUserShellCommandResult) {
     option (kent.api.shared.kent_method) = {
       kind: OPERATION_KIND_UNARY
       authentication_stage: AUTHENTICATION_STAGE_SERVER

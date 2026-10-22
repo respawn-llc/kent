@@ -1,23 +1,21 @@
-import { create, validate } from "@app/server-api-contract";
+import { create } from "@app/server-api-contract";
 import * as R from "@app/server-api-contract/gen/kent/api/runtime/runtime_pb";
 import {
   ChatTargetSchema,
-  ExistingSessionTargetSchema,
+  ExistingSessionRequestTargetSchema,
   NewChatTargetSchema,
 } from "@app/server-api-contract/gen/kent/api/chat/chat_pb";
 import { StreamCompletionSchema } from "@app/server-api-contract/gen/kent/api/shared/foundation_pb";
 import { requireProjectAttachment } from "./chatAttachment";
-import { isValidChatSessionID, requireChatSessionID } from "./chatTarget";
 import { initialChatSettingsToWire } from "./chatSettings";
-import { enumValue, required, safeNumber } from "./chatWire";
+import { enumValue, required } from "./chatWire";
 import { timestampMillis } from "./clientTime";
 import { ContractError } from "./errors";
 import { chatOperationError, type ChatOperationError } from "./chatErrors";
 import { requireUnarySuccess, streamCompletionFailure } from "./protobufRpc";
-import { defaultSubscriptionEstablishmentTimeoutMs } from "./jsonRpcSubscription";
 import type { ChatApi, ChatSessionTarget, InitialChatSettings } from "./chatTypes";
 import type { ChatGoalFacts } from "./chatTranscriptTypes";
-import type { DescriptorRpcTransport } from "./transport";
+import type { RpcTransport } from "./transport";
 
 export type ChatGoalAvailability = "available" | "agent_capability_missing";
 export type ChatGoalStatus = "active" | "paused" | "complete";
@@ -72,7 +70,7 @@ export function goalAvailability(value: R.GoalAvailability | undefined): ChatGoa
       });
 }
 
-function goal(value: R.Goal): ChatGoal {
+function goal(value: R.GoalValid): ChatGoal {
   return {
     id: value.id,
     objective: value.objective,
@@ -81,13 +79,13 @@ function goal(value: R.Goal): ChatGoal {
       [R.GoalStatus.RUNTIME_GOAL_STATUS_PAUSED]: "paused",
       [R.GoalStatus.RUNTIME_GOAL_STATUS_COMPLETE]: "complete",
     }),
-    createdAt: new Date(timestampMillis(required(value.createdAt))).toISOString(),
-    updatedAt: new Date(timestampMillis(required(value.updatedAt))).toISOString(),
+    createdAt: new Date(timestampMillis(value.createdAt)).toISOString(),
+    updatedAt: new Date(timestampMillis(value.updatedAt)).toISOString(),
   };
 }
 
 export function goalFactFromWire(
-  value: R.GoalView | R.GoalProjection | R.GoalShowSuccess | undefined,
+  value: R.GoalViewValid | R.GoalProjectionValid | R.GoalShowSuccessValid | undefined,
 ): ChatGoalFact {
   return {
     goal: value?.goal === undefined ? null : goal(value.goal),
@@ -95,7 +93,7 @@ export function goalFactFromWire(
   };
 }
 
-export function goalFacts(value: R.GoalView): ChatGoalFacts {
+export function goalFacts(value: R.GoalViewValid): ChatGoalFacts {
   const fact = goalFactFromWire(value);
   return {
     Goal:
@@ -129,45 +127,37 @@ export function goalFactFromTranscript(input: ChatGoalFacts): ChatGoalFact {
   };
 }
 
-export function goalMutationFromGenerated(value: R.GoalMutationSuccess): ChatGoalMutationResult {
+export function goalMutationFromGenerated(value: R.GoalMutationSuccessValid): ChatGoalMutationResult {
   const availability = goalAvailability(value.availability);
   switch (value.kind) {
     case R.GoalMutationResultKind.AUTHORITATIVE_GOAL:
       return { kind: "authoritative_goal", fact: { goal: goal(required(value.goal)), availability } };
     case R.GoalMutationResultKind.AUTHORITATIVE_CLEAR:
-      if (value.goal !== undefined) throw new ContractError("Cleared Goal result contains a Goal.");
       return { kind: "authoritative_clear", fact: { goal: null, availability } };
     case R.GoalMutationResultKind.UNSPECIFIED:
       throw new ContractError("Goal mutation result is invalid.");
   }
 }
 
-function observation(value: R.GoalObservation): ChatGoalObservation {
+function observation(value: R.GoalObservationValid): ChatGoalObservation {
   const kind = enumValue(value.kind, {
     [R.GoalObservationKind.HYDRATION]: "hydration",
     [R.GoalObservationKind.UPDATE]: "update",
   });
-  const sequence = safeNumber(value.sequence);
-  if ((kind === "hydration" && sequence !== 1) || (kind === "update" && sequence < 2))
-    throw new ContractError("Goal observation sequence does not match kind.");
-  return { sequence, kind, fact: goalFactFromWire(required(value.status)) };
+  const sequence = Number(value.sequence);
+  return { sequence, kind, fact: goalFactFromWire(value.status) };
 }
 
 export function chatGoalSetResultFromGenerated(
-  result: R.GoalSetResult,
+  result: R.GoalSetResultValid,
   requestedSessionID?: string,
 ): ChatGoalSetResult {
-  try {
-    validate(R.GoalSetResultSchema, result);
-  } catch {
-    throw new ContractError("Goal Set result did not match the GUI contract.");
-  }
   switch (result.outcome.case) {
     case "error":
       throw chatOperationError(R.GoalService.method.set, result.outcome.value);
     case "success": {
       const success = result.outcome.value;
-      const sessionID = goalSetSessionID(success.session?.sessionId, requestedSessionID);
+      const sessionID = goalSetSessionID(success.session.sessionId, requestedSessionID);
       return { sessionID, outcome: goalSetOutcome(success) };
     }
     case undefined:
@@ -175,17 +165,14 @@ export function chatGoalSetResultFromGenerated(
   }
 }
 
-function goalSetSessionID(sessionID: string | undefined, requestedSessionID?: string): string {
-  if (sessionID === undefined || sessionID.trim().length === 0) {
-    throw new ContractError("Goal Set success Session is required.");
-  }
+function goalSetSessionID(sessionID: string, requestedSessionID?: string): string {
   if (requestedSessionID !== undefined && sessionID !== requestedSessionID) {
     throw new ContractError("Goal Set success Session does not match the requested Session.");
   }
   return sessionID;
 }
 
-function goalSetOutcome(success: R.GoalSetSuccess): ChatGoalSetResult["outcome"] {
+function goalSetOutcome(success: R.GoalSetSuccessValid): ChatGoalSetResult["outcome"] {
   switch (success.outcome.case) {
     case "mutation": {
       const mutation = goalMutationFromGenerated(success.outcome.value);
@@ -202,9 +189,6 @@ function goalSetOutcome(success: R.GoalSetSuccess): ChatGoalSetResult["outcome"]
       };
     }
     case "rejected":
-      if (success.diagnostic !== undefined) {
-        throw new ContractError("Goal Set rejection cannot include a diagnostic.");
-      }
       return {
         kind: "rejected",
         error: chatOperationError(R.GoalService.method.set, success.outcome.value),
@@ -215,7 +199,7 @@ function goalSetOutcome(success: R.GoalSetSuccess): ChatGoalSetResult["outcome"]
 }
 
 export function createChatGoalApi(
-  transport: DescriptorRpcTransport,
+  transport: RpcTransport,
 ): Pick<
   ChatApi,
   "getGoal" | "setGoal" | "pauseGoal" | "resumeGoal" | "completeGoal" | "clearGoal" | "subscribeGoal"
@@ -228,11 +212,11 @@ export function createChatGoalApi(
       | typeof R.GoalService.method.complete
       | typeof R.GoalService.method.clear,
   ) => {
-    const sessionId = requireChatSessionID(target);
+    const sessionId = target.sessionID;
     const result = await transport.callDescriptorAttachedSession(
       target,
       method,
-      create(method.input, { sessionId, actor: "user" }),
+      create(method.input, { sessionId: { value: { case: "sessionId", value: sessionId } }, actor: "user" }),
     );
     const mutation = goalMutationFromGenerated(requireUnarySuccess(method, result));
     const expectedKind = method === R.GoalService.method.clear ? "authoritative_clear" : "authoritative_goal";
@@ -243,27 +227,28 @@ export function createChatGoalApi(
   };
   return {
     async getGoal(target) {
-      const sessionId = requireChatSessionID(target);
+      const sessionId = target.sessionID;
       const method = R.GoalService.method.show;
       const result = await transport.callDescriptorAttachedSession(
         target,
         method,
-        create(method.input, { sessionId }),
+        create(method.input, { sessionId: { value: { case: "sessionId", value: sessionId } } }),
       );
       return goalFactFromWire(requireUnarySuccess(method, result));
     },
     async setGoal(target, objective) {
       if (target.kind === "session") {
         const sessionID = target.sessionID.trim();
-        if (!isValidChatSessionID(sessionID)) throw new TypeError("Session ID is required.");
         const result = await transport.callDescriptorAttachedSession(
-          { sessionID, ...(target.projectID === undefined ? {} : { projectID: target.projectID }) },
+          { sessionID },
           R.GoalService.method.set,
           create(R.GoalSetRequestSchema, {
             target: create(ChatTargetSchema, {
               target: {
                 case: "session",
-                value: create(ExistingSessionTargetSchema, { sessionId: sessionID }),
+                value: create(ExistingSessionRequestTargetSchema, {
+                  sessionId: { value: { case: "sessionId", value: sessionID } },
+                }),
               },
             }),
             objective,
@@ -308,13 +293,13 @@ export function createChatGoalApi(
     completeGoal: async (target) => mutate(target, R.GoalService.method.complete),
     clearGoal: async (target) => mutate(target, R.GoalService.method.clear),
     subscribeGoal(target, handler) {
-      const sessionID = requireChatSessionID(target);
+      const sessionID = target.sessionID;
       const method = R.GoalService.method.observe;
       return transport.subscribeDescriptor({
         method,
-        request: create(method.input, { sessionId: sessionID }),
-        attachment: { projectID: target.projectID, sessionID },
-        establishmentTimeoutMs: defaultSubscriptionEstablishmentTimeoutMs,
+        request: create(method.input, { sessionId: { value: { case: "sessionId", value: sessionID } } }),
+        attachment: { sessionID },
+        establishmentTimeoutMs: 30_000,
         eventDescriptor: R.GoalObservationSchema,
         completionDescriptor: StreamCompletionSchema,
         onStart: (result) => {
@@ -326,7 +311,7 @@ export function createChatGoalApi(
             handler.onEvent(observation(value));
           },
           onComplete(value) {
-            handler.onComplete(value.code ?? 0, value.message ?? "");
+            handler.onComplete(value.code ?? null, value.message ?? null);
             return streamCompletionFailure(value);
           },
           onError: handler.onError,

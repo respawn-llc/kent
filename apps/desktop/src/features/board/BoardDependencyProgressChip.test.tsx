@@ -1,6 +1,6 @@
 import { render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { vi } from "vitest";
+import { describe, expect, it, vi } from "bun:test";
 
 import { BoardDependencyProgressChip } from "./BoardDependencyProgressChip";
 
@@ -22,12 +22,14 @@ describe("BoardDependencyProgressChip", () => {
     const chip = screen.getByRole("button");
     await user.tab();
     expect(chip).toHaveFocus();
+    expect(screen.queryByRole("tooltip")).not.toBeInTheDocument();
+    await user.hover(chip);
     const tooltip = await screen.findByRole("tooltip");
     expect(tooltip).not.toBeEmptyDOMElement();
 
     await user.click(chip);
 
-    expect(onActivate).toHaveBeenCalledOnce();
+    expect(onActivate).toHaveBeenCalledTimes(1);
     expect(onCardActivate).not.toHaveBeenCalled();
     expect(screen.getByRole("progressbar")).toHaveAttribute("aria-valuenow", "1");
     expect(screen.getByRole("progressbar")).toHaveAttribute("aria-valuemax", "2");

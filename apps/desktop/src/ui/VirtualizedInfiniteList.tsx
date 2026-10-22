@@ -11,15 +11,22 @@ import {
 import { type VirtualItem, useVirtualizer } from "@tanstack/react-virtual";
 import { useVirtualizedEndAnchoring, type VirtualizedEndAnchoring } from "./virtualizedEndAnchoring";
 
-import type { VirtualizedInfiniteListBoundaryState } from "./InfiniteListBoundary";
+import {
+  useVirtualizedListBoundaries,
+  type VirtualizedInfiniteListBoundaryState,
+} from "./InfiniteListBoundary";
 import { resolveVirtualizedInitialScroll } from "./virtualizedInfiniteListInitialScroll";
 import {
   resolveNextLoadEdge,
   resolvePreviousLoadEdge,
   useVirtualizedLoadMore,
 } from "./virtualizedInfiniteListLoadMore";
-import { pinnedVirtualRangeExtractor } from "./virtualizedPinnedRange";
-import { shouldAdjustScrollForVirtualizedResize } from "./virtualizedResizePolicy";
+import {
+  pinnedVirtualRangeExtractor,
+  virtualizedVisibleIndexes,
+  resolveVirtualizedFlowBlock,
+} from "./virtualizedPinnedRange";
+import { resolveVirtualizedResizePolicy } from "./virtualizedResizePolicy";
 import {
   requireVirtualizedPixelOffsetRequest,
   type VirtualizedPixelOffsetRequest,
@@ -36,12 +43,12 @@ import {
 } from "./virtualizedLeadingAnchor";
 import {
   renderVirtualizedInfiniteListRow,
-  renderVirtualizedPlaceholder,
   resolveVirtualizedInfiniteListLayout,
   resolveHorizontalBoundary,
   resolveVirtualizedContainerClassName,
   resolveVirtualizedInnerClassName,
   resolveVirtualizedInnerStyle,
+  renderVirtualizedRowsContent,
   renderVirtualizedRow,
   type VirtualizedInfiniteListLayout,
   virtualizedScrollOffsetProperty,
@@ -63,7 +70,7 @@ export type VirtualizedInfiniteListProps<TItem> = Readonly<{
   empty?: ReactNode | undefined;
   hasNextPage: boolean;
   isFetchingNextPage: boolean;
-  loadingLabel: string;
+  loadingLabel?: string;
   loadMoreKey?: string | undefined;
   onLoadMore: () => void;
   estimateSize: () => number;
@@ -190,6 +197,15 @@ function VirtualizedInfiniteListContent<TItem>({
   endAnchoring,
 }: VirtualizedInfiniteListResolvedProps<TItem>) {
   const horizontal = orientation === "horizontal";
+  const boundaries = useVirtualizedListBoundaries({
+    anchored: endAnchoring !== undefined,
+    horizontal,
+    hasNextPage,
+    previousBoundary,
+    nextBoundary,
+    paddingStart,
+    paddingEnd,
+  });
   const getItemAnchorKeyForItem = getItemAnchorKey ?? getItemKey;
   const getItemOccurrenceKeyForItem = getItemOccurrenceKey ?? getItemKey;
   const validatedPixelOffsetRequest = requireVirtualizedPixelOffsetRequest(pixelOffsetRequest);
@@ -210,12 +226,10 @@ function VirtualizedInfiniteListContent<TItem>({
   const wasFetchingNextPageRef = useRef(false);
   const layout: VirtualizedInfiniteListLayout = resolveVirtualizedInfiniteListLayout({
     empty,
-    hasNextPage,
+    ...boundaries.layout,
     header,
     horizontal,
     itemsLength: items.length,
-    nextBoundary,
-    previousBoundary,
   });
   const { count, itemStartIndex } = layout;
   const retainedItemKeys = useMemo(
@@ -234,16 +248,19 @@ function VirtualizedInfiniteListContent<TItem>({
     });
     return indexes;
   }, [getItemKey, itemStartIndex, items, retainedItemKeys]);
-  const { applyScrollRequest, options: endOptions } = useVirtualizedEndAnchoring(endAnchoring);
-  const directPositioning = endAnchoring !== undefined;
+  const {
+    applyScrollRequest,
+    cancelScrollRequest,
+    options: endOptions,
+  } = useVirtualizedEndAnchoring(endAnchoring);
+  const flowLayout = endAnchoring !== undefined && !horizontal;
   const virtualizer = useVirtualizer({
     count,
     getScrollElement: () => scrollRef.current,
     estimateSize,
-    paddingEnd,
-    paddingStart,
-    useFlushSync: false,
-    directDomUpdates: directPositioning,
+    paddingEnd: boundaries.paddingEnd,
+    paddingStart: boundaries.paddingStart,
+    useFlushSync: flowLayout,
     getItemKey: (index) =>
       virtualizedRowKey({
         getItemKey,
@@ -253,19 +270,25 @@ function VirtualizedInfiniteListContent<TItem>({
       }),
     ...(horizontal ? {} : { overscan: 6 }),
     horizontal,
-    rangeExtractor: (range) => pinnedVirtualRangeExtractor(range, pinnedIndexes),
+    rangeExtractor: (range) =>
+      pinnedVirtualRangeExtractor(
+        endAnchoring === undefined
+          ? range
+          : { ...range, overscan: Math.max(range.overscan, range.endIndex - range.startIndex + 1) },
+        pinnedIndexes,
+      ),
     ...endOptions,
   });
   useLayoutEffect(() => {
     applyScrollRequest(virtualizer);
   }, [endAnchoring?.scrollRequest, applyScrollRequest, virtualizer]);
-  virtualizer.shouldAdjustScrollPositionOnItemSizeChange =
-    nonAdjustingResizeItemKey === undefined
-      ? undefined
-      : (item: VirtualItem) =>
-          shouldAdjustScrollForVirtualizedResize(nonAdjustingResizeItemKey, String(item.key));
+  virtualizer.shouldAdjustScrollPositionOnItemSizeChange = resolveVirtualizedResizePolicy(
+    nonAdjustingResizeItemKey,
+    endAnchoring !== undefined,
+  );
   const virtualItems = virtualizer.getVirtualItems();
-  const visibleIndexes = virtualItems.map((item) => item.index);
+  const flowBlock = resolveVirtualizedFlowBlock(virtualItems, virtualizer.range, flowLayout);
+  const visibleIndexes = virtualizedVisibleIndexes(virtualizer);
 
   useEffect(() => {
     if (initialScrollKey === undefined) {
@@ -386,11 +409,14 @@ function VirtualizedInfiniteListContent<TItem>({
       rowSpacing,
       stickyItemKeys,
       virtualItem,
-      directPositioning,
+      flowBlock,
     }),
   );
   const hasHorizontalBoundary = resolveHorizontalBoundary(horizontal, layout, nextBoundary);
   const containerClassName = resolveVirtualizedContainerClassName(className, horizontal);
+  const onScrollIntent = () => {
+    cancelScrollRequest(virtualizer);
+  };
   return (
     <div
       aria-label={ariaLabel}
@@ -398,19 +424,26 @@ function VirtualizedInfiniteListContent<TItem>({
       data-testid={testId}
       id={id}
       onScroll={onScroll}
+      onWheel={onScrollIntent}
+      onTouchStart={onScrollIntent}
+      onPointerDown={onScrollIntent}
       ref={setScrollElement}
       role={role}
+      style={endAnchoring === undefined ? undefined : { overflowAnchor: "none" }}
     >
       <div
-        ref={virtualizer.containerRef}
         className={resolveVirtualizedInnerClassName(horizontal, hasHorizontalBoundary)}
-        style={resolveVirtualizedInnerStyle(horizontal, virtualizer.getTotalSize(), directPositioning)}
+        style={resolveVirtualizedInnerStyle(horizontal, virtualizer.getTotalSize())}
       >
-        {virtualItems.length > 0
-          ? renderedRows
-          : items.length > 0
-            ? renderVirtualizedPlaceholder({ loading: true, loadingLabel })
-            : empty}
+        {boundaries.leading}
+        {renderVirtualizedRowsContent({
+          renderedRows,
+          hasItems: items.length > 0,
+          empty,
+          loadingLabel,
+          flowBlock,
+        })}
+        {boundaries.trailing}
       </div>
       {footer}
     </div>

@@ -1,6 +1,7 @@
 package llm
 
 import (
+	"slices"
 	"strings"
 
 	"core/shared/config"
@@ -10,6 +11,15 @@ import (
 type ModelMetadata = modelcontract.ModelMetadata
 
 var defaultSupportedThinkingLevels = []string{"low", "medium", "high"}
+
+// ProviderThinkingEffort resolves disabled Thinking to an explicit effort only
+// when the model supports it, before request or settings materialization.
+func ProviderThinkingEffort(model, desired string) string {
+	if desired == "" && slices.Contains(SupportedThinkingLevelsModel(model), "none") {
+		return "none"
+	}
+	return desired
+}
 
 func SupportsNativeThinkingUpdates(model string, capabilities ProviderCapabilities) bool {
 	contract, ok := LookupModelCapabilityContract(model)
@@ -102,23 +112,38 @@ func LookupModelMetadata(model string) (ModelMetadata, bool) {
 	if !ok {
 		return ModelMetadata{}, false
 	}
-	return ModelMetadata{
-		ContextWindowTokens:      contract.ContextWindowTokens,
-		LargeContextWindowTokens: contract.LargeContextWindowTokens,
-	}, contract.ContextWindowTokens > 0 || contract.LargeContextWindowTokens > 0
+	return *contract.ContextMetadata(""), contract.ContextWindowTokens > 0
 }
 
-func ApplyDerivedModelContextBudget(settings *config.Settings, model string, fallbackWindow, fallbackThreshold int) {
-	if settings == nil {
-		return
+func ModelContextForSettings(settings config.Settings, model string) (*ModelMetadata, error) {
+	connection, err := settings.SelectedConnection()
+	if err != nil {
+		return nil, err
 	}
-	if meta, ok := LookupModelMetadata(model); ok && meta.ContextWindowTokens > 0 {
+	selected, err := ResolveConnectionVariant(connection)
+	if err != nil {
+		return nil, err
+	}
+	contract, known := LookupModelCapabilityContract(model)
+	if !known {
+		return nil, nil
+	}
+	return contract.ContextMetadata(selected.Variant.ProviderID), nil
+}
+
+func ApplyDerivedModelContextBudget(settings *config.Settings, model string, fallbackWindow, fallbackThreshold int) error {
+	meta, err := ModelContextForSettings(*settings, model)
+	if err != nil {
+		return err
+	}
+	if meta != nil && meta.ContextWindowTokens > 0 {
 		settings.ModelContextWindow = meta.ContextWindowTokens
 		settings.ContextCompactionThresholdTokens = meta.ContextWindowTokens * 95 / 100
-		return
+		return nil
 	}
 	settings.ModelContextWindow = fallbackWindow
 	settings.ContextCompactionThresholdTokens = fallbackThreshold
+	return nil
 }
 
 func SupportedThinkingLevelsModel(model string) []string {

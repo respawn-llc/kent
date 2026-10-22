@@ -3,7 +3,7 @@ dist
 .astro
 src/.generated
 public
-pnpm-lock.yaml
+bun.lock
 dev/specs
 dev/rust
 dev/rust-tui-tests.md

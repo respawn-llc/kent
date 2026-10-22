@@ -19,7 +19,6 @@ import (
 	pb "core/shared/protoapi/gen/kent/api/workflow_definition"
 	"core/shared/runtimeids"
 	"core/shared/serverapi"
-	"core/shared/workflowkey"
 
 	"github.com/google/uuid"
 	proto "google.golang.org/protobuf/proto"
@@ -57,7 +56,7 @@ type workflowEdgeOutput struct {
 	Version           int64                 `json:"version"`
 }
 
-func runWorkflowCommandSession(stderr io.Writer, run func(config.App, *client.Remote) int) int {
+func runWorkflowCommandSession(stderr io.Writer, run func(config.Connection, *client.Remote) int) int {
 	cfg, remote, err := openBindingCommandRemote(context.Background(), ".")
 	if err != nil {
 		fmt.Fprintln(stderr, err)
@@ -148,7 +147,7 @@ func workflowGraphInspectSubcommand(args []string, stdout io.Writer, stderr io.W
 		fmt.Fprintln(stderr, err)
 		return 2
 	}
-	return runWorkflowCommandSession(stderr, func(_ config.App, remote *client.Remote) int {
+	return runWorkflowCommandSession(stderr, func(_ config.Connection, remote *client.Remote) int {
 		definition, err := resolveWorkflowDefinition(context.Background(), remote, selector)
 		if err != nil {
 			fmt.Fprintln(stderr, err)
@@ -191,7 +190,7 @@ func workflowUpdateSubcommand(args []string, stdout io.Writer, stderr io.Writer)
 		fmt.Fprintln(stderr, err)
 		return 2
 	}
-	return runWorkflowCommandSession(stderr, func(_ config.App, remote *client.Remote) int {
+	return runWorkflowCommandSession(stderr, func(_ config.Connection, remote *client.Remote) int {
 		def, err := resolveWorkflowDefinition(context.Background(), remote, selector)
 		if err != nil {
 			fmt.Fprintln(stderr, err)
@@ -253,7 +252,7 @@ func workflowCreateSubcommand(args []string, stdout io.Writer, stderr io.Writer)
 		fmt.Fprintln(stderr, "workflow create requires <name>")
 		return 2
 	}
-	return runWorkflowCommandSession(stderr, func(_ config.App, remote *client.Remote) int {
+	return runWorkflowCommandSession(stderr, func(_ config.Connection, remote *client.Remote) int {
 		ctx, cancel := context.WithTimeout(context.Background(), workflowCommandTimeout)
 		defer cancel()
 		resp, err := remote.CreateWorkflow(ctx, &pb.CreateRequest{Name: name, Description: *description})
@@ -292,18 +291,14 @@ func workflowListSubcommand(args []string, stdout io.Writer, stderr io.Writer) i
 		fmt.Fprintln(stderr, "workflow list --project requires a non-blank value")
 		return 2
 	}
-	if err := validateWorkflowPagination(*offset, *limit); err != nil {
+	limitValue, err := protoapi.Int32(*limit, "limit")
+	if err != nil {
 		fmt.Fprintln(stderr, err)
 		return 2
 	}
 	offsetValue := int64(*offset)
-	limitValue := int32(*limit)
 	request := &pb.ListRequest{Offset: &offsetValue, Limit: &limitValue}
-	if err := protoapi.Validate(request); err != nil {
-		fmt.Fprintln(stderr, err)
-		return 2
-	}
-	return runWorkflowCommandSession(stderr, func(cfg config.App, remote *client.Remote) int {
+	return runWorkflowCommandSession(stderr, func(cfg config.Connection, remote *client.Remote) int {
 		var projectID *string
 		if projectProvided {
 			resolved, err := resolveWorkflowProjectID(context.Background(), cfg, remote, *project)
@@ -365,11 +360,6 @@ func writeWorkflowListResponse(
 		}
 	}
 	return 0
-}
-
-func validateWorkflowPagination(offset int, limit int) error {
-	_, err := serverapi.ResolveWorkflowOffsetWindow(&offset, &limit)
-	return err
 }
 
 type workflowListExpectedScope struct {
@@ -455,7 +445,7 @@ func workflowNodeAddSubcommand(args []string, stdout io.Writer, stderr io.Writer
 		return 2
 	}
 	nodeID := uuid.NewString()
-	return runWorkflowCommandSession(stderr, func(_ config.App, remote *client.Remote) int {
+	return runWorkflowCommandSession(stderr, func(_ config.Connection, remote *client.Remote) int {
 		ctx, cancel := context.WithTimeout(context.Background(), workflowCommandTimeout)
 		defer cancel()
 		node := &pb.GraphDraftNode{
@@ -485,11 +475,7 @@ func workflowNodeAddSubcommand(args []string, stdout io.Writer, stderr io.Writer
 			fmt.Fprintln(stderr, err)
 			return 1
 		}
-		projected, err := workflowDocumentNode(added)
-		if err != nil {
-			fmt.Fprintln(stderr, err)
-			return 1
-		}
+		projected := workflowDocumentNode(added)
 		if *jsonOut {
 			return writeCommandJSON(stdout, stderr, workflowNodeOutput{WorkflowID: selector, NodeID: added.Id, Key: added.Key, Kind: projected.Kind, ScriptPath: added.ScriptPath, Version: result.Version})
 		}
@@ -516,7 +502,7 @@ func workflowNodeUpdateSubcommand(args []string, stdout io.Writer, stderr io.Wri
 		fmt.Fprintln(stderr, err)
 		return 2
 	}
-	return runWorkflowCommandSession(stderr, func(_ config.App, remote *client.Remote) int {
+	return runWorkflowCommandSession(stderr, func(_ config.Connection, remote *client.Remote) int {
 		update := workflowNodeUpdateDraftMutation{NodeKey: positionals[1]}
 		if strings.TrimSpace(*key) != "" {
 			value := strings.TrimSpace(*key)
@@ -549,11 +535,7 @@ func workflowNodeUpdateSubcommand(args []string, stdout io.Writer, stderr io.Wri
 			fmt.Fprintln(stderr, err)
 			return 1
 		}
-		projected, err := workflowDocumentNode(updated)
-		if err != nil {
-			fmt.Fprintln(stderr, err)
-			return 1
-		}
+		projected := workflowDocumentNode(updated)
 		if *jsonOut {
 			return writeCommandJSON(stdout, stderr, workflowNodeOutput{WorkflowID: selector, NodeID: updated.Id, Key: updated.Key, Kind: projected.Kind, ScriptPath: updated.ScriptPath, Version: result.Version})
 		}
@@ -667,7 +649,7 @@ func workflowEdgeAddSubcommand(args []string, stdout io.Writer, stderr io.Writer
 	}
 	edgeID := uuid.NewString()
 	newTransitionGroupID := uuid.NewString()
-	return runWorkflowCommandSession(stderr, func(_ config.App, remote *client.Remote) int {
+	return runWorkflowCommandSession(stderr, func(_ config.Connection, remote *client.Remote) int {
 		mode, err := protoapi.WorkflowContextMode.Encode(*contextMode)
 		if err != nil {
 			fmt.Fprintln(stderr, err)
@@ -703,11 +685,7 @@ func workflowEdgeAddSubcommand(args []string, stdout io.Writer, stderr io.Writer
 		if *jsonOut {
 			return writeCommandJSON(stdout, stderr, workflowEdgeOutput{WorkflowID: selector, EdgeID: added.Edge.Id, TransitionGroupID: added.Group.Id, Key: added.Edge.Key, TransitionID: added.Group.TransitionId, Version: result.Version})
 		}
-		projected, err := workflowDocumentEdge(added.Edge)
-		if err != nil {
-			fmt.Fprintln(stderr, err)
-			return 1
-		}
+		projected := workflowDocumentEdge(added.Edge)
 		fmt.Fprintf(stdout, "Added edge `%s` (%s) on transition `%s`: `%s` → `%s` (%s).\n", added.Edge.Key, added.Edge.Id, added.Group.TransitionId, *fromKey, *toKey, workflowEdgeContextDetail(projected.ContextMode, added.Edge.RequiresApproval, projected.ContextSource))
 		return 0
 	})
@@ -832,7 +810,7 @@ func workflowEdgeUpdateSubcommand(args []string, stdout io.Writer, stderr io.Wri
 	if flagExplicit(fs, "prompt") {
 		update.PromptTemplate = workflowStringMutation{Set: true, Value: *prompt}
 	}
-	return runWorkflowCommandSession(stderr, func(_ config.App, remote *client.Remote) int {
+	return runWorkflowCommandSession(stderr, func(_ config.Connection, remote *client.Remote) int {
 		ctx, cancel := context.WithTimeout(context.Background(), workflowCommandTimeout)
 		defer cancel()
 		updated, result, err := runWorkflowGraphMutation(ctx, remote, selector, updateWorkflowEdgeDraftMutation(update))
@@ -848,11 +826,7 @@ func workflowEdgeUpdateSubcommand(args []string, stdout io.Writer, stderr io.Wri
 		if *jsonOut {
 			return writeCommandJSON(stdout, stderr, workflowEdgeOutput{WorkflowID: selector, EdgeID: updated.Edge.Id, TransitionGroupID: updated.Group.Id, Key: updated.Edge.Key, TransitionID: updated.Group.TransitionId, Version: result.Version})
 		}
-		projected, err := workflowDocumentEdge(updated.Edge)
-		if err != nil {
-			fmt.Fprintln(stderr, err)
-			return 1
-		}
+		projected := workflowDocumentEdge(updated.Edge)
 		fmt.Fprintf(stdout, "Updated edge `%s`: `%s` → `%s` (%s).\n", updated.Edge.Key, updated.Group.TransitionId, updated.TargetNodeKey, workflowEdgeContextDetail(projected.ContextMode, updated.Edge.RequiresApproval, projected.ContextSource))
 		return 0
 	})
@@ -871,7 +845,7 @@ func workflowLinkSubcommand(args []string, stdout io.Writer, stderr io.Writer) i
 		fmt.Fprintln(stderr, err)
 		return 2
 	}
-	return runWorkflowCommandSession(stderr, func(cfg config.App, remote *client.Remote) int {
+	return runWorkflowCommandSession(stderr, func(cfg config.Connection, remote *client.Remote) int {
 		projectID, err := resolveWorkflowProjectID(context.Background(), cfg, remote, positionals[0])
 		if err != nil {
 			fmt.Fprintln(stderr, err)
@@ -922,7 +896,7 @@ func workflowUnlinkSubcommand(args []string, stdout io.Writer, stderr io.Writer)
 		fmt.Fprintln(stderr, err)
 		return 2
 	}
-	return runWorkflowCommandSession(stderr, func(cfg config.App, remote *client.Remote) int {
+	return runWorkflowCommandSession(stderr, func(cfg config.Connection, remote *client.Remote) int {
 		link, err := resolveWorkflowProjectLink(context.Background(), cfg, remote, remote, positionals[0], selector)
 		if err != nil {
 			fmt.Fprintln(stderr, err)
@@ -964,7 +938,7 @@ func workflowDefaultSubcommand(args []string, stdout io.Writer, stderr io.Writer
 		fmt.Fprintln(stderr, err)
 		return 2
 	}
-	return runWorkflowCommandSession(stderr, func(cfg config.App, remote *client.Remote) int {
+	return runWorkflowCommandSession(stderr, func(cfg config.Connection, remote *client.Remote) int {
 		projectID, err := resolveWorkflowProjectID(context.Background(), cfg, remote, positionals[0])
 		if err != nil {
 			fmt.Fprintln(stderr, err)
@@ -1004,7 +978,7 @@ func workflowValidateSubcommand(args []string, stdout io.Writer, stderr io.Write
 		fmt.Fprintln(stderr, err)
 		return 2
 	}
-	return runWorkflowCommandSession(stderr, func(_ config.App, remote *client.Remote) int {
+	return runWorkflowCommandSession(stderr, func(_ config.Connection, remote *client.Remote) int {
 		workflowID := selector
 		ctx, cancel := context.WithTimeout(context.Background(), workflowCommandTimeout)
 		defer cancel()
@@ -1090,7 +1064,7 @@ func workflowInspectSubcommand(args []string, stdout io.Writer, stderr io.Writer
 		fmt.Fprintln(stderr, err)
 		return 2
 	}
-	return runWorkflowCommandSession(stderr, func(_ config.App, remote *client.Remote) int {
+	return runWorkflowCommandSession(stderr, func(_ config.Connection, remote *client.Remote) int {
 		if *summary {
 			limit := int32(1)
 			persistedWorkflowID := selector.String()
@@ -1280,9 +1254,6 @@ func parseWorkflowContextSourceSelector(raw string) (*pb.ContextSource, error) {
 	prefix := "node:"
 	if strings.HasPrefix(trimmed, prefix) {
 		nodeKey := strings.TrimSpace(strings.TrimPrefix(trimmed, prefix))
-		if nodeKey == "" {
-			return &pb.ContextSource{}, errors.New("context source selector node key is required")
-		}
 		return &pb.ContextSource{Kind: pb.ContextSourceKind_WORKFLOW_CONTEXT_SOURCE_KIND_SELECTED_NODE, NodeKey: proto.String(nodeKey)}, nil
 	}
 	return &pb.ContextSource{}, fmt.Errorf("context source selector must be immediate_source, previous_target, previous_target_or_new, or node:<node-key>")
@@ -1304,24 +1275,13 @@ func (f *repeatedStringFlag) Set(value string) error {
 // reference guaranteed-prior transitions as {{.Params.<transition_id>.<key>}}.
 func parseWorkflowParameters(raw []string) ([]*pb.Parameter, error) {
 	parameters := make([]*pb.Parameter, 0, len(raw))
-	seen := make(map[string]bool, len(raw))
 	for _, entry := range raw {
 		key, description, found := strings.Cut(entry, "=")
 		key = strings.TrimSpace(key)
 		description = strings.TrimSpace(description)
-		if !found || key == "" || description == "" {
+		if !found {
 			return nil, fmt.Errorf("parameter %q must be key=description with a non-empty key and description", entry)
 		}
-		if !workflowkey.Valid(key) {
-			return nil, fmt.Errorf("parameter key %q is invalid; it must %s", key, workflowkey.Description)
-		}
-		if workflowkey.ReservedParameter(key) {
-			return nil, fmt.Errorf("parameter key %q is reserved and cannot be declared", key)
-		}
-		if seen[key] {
-			return nil, fmt.Errorf("parameter key %q is declared more than once", key)
-		}
-		seen[key] = true
 		parameters = append(parameters, &pb.Parameter{Key: key, Description: description, Purpose: pb.ParameterPurpose_WORKFLOW_PARAMETER_PURPOSE_ORDINARY})
 	}
 	return parameters, nil
@@ -1344,14 +1304,8 @@ func parseWorkflowProtectedParameterFlag(fs *flag.FlagSet, name, raw string, pur
 	key, description, found := strings.Cut(raw, "=")
 	key = strings.TrimSpace(key)
 	description = strings.TrimSpace(description)
-	if !found || key == "" {
+	if !found {
 		return nil, fmt.Errorf("--%s must be key=description with a non-empty key", name)
-	}
-	if !workflowkey.Valid(key) {
-		return nil, fmt.Errorf("parameter key %q is invalid; it must %s", key, workflowkey.Description)
-	}
-	if workflowkey.ReservedParameter(key) {
-		return nil, fmt.Errorf("parameter key %q is reserved and cannot be declared", key)
 	}
 	return &pb.Parameter{Key: key, Description: description, Purpose: purpose}, nil
 }
@@ -1415,11 +1369,6 @@ func workflowParametersWithProtectedDefaults(parameters []*pb.Parameter, assigne
 		parameter := &pb.Parameter{Key: item.key, Purpose: item.purpose}
 		if item.custom != nil {
 			parameter = item.custom
-		}
-		for _, existing := range result {
-			if existing.Key == parameter.Key {
-				return nil, fmt.Errorf("parameter key %q is declared more than once", parameter.Key)
-			}
 		}
 		result = append(result, parameter)
 	}
@@ -1501,7 +1450,7 @@ func listWorkflowPage(ctx context.Context, remote apicontract.WorkflowService, r
 	return resp, nil
 }
 
-func resolveWorkflowProjectID(ctx context.Context, cfg config.App, remote apicontract.ProjectViewService, ref string) (string, error) {
+func resolveWorkflowProjectID(ctx context.Context, cfg config.Connection, remote apicontract.ProjectViewService, ref string) (string, error) {
 	trimmed := strings.TrimSpace(ref)
 	if trimmed == "" {
 		return "", errors.New("project is required")
@@ -1533,7 +1482,7 @@ func resolveWorkflowProjectID(ctx context.Context, cfg config.App, remote apicon
 // workspace id. A path-like reference (".", a path separator, or an existing
 // path) is resolved through its project binding; any other value is treated as
 // an explicit workspace id.
-func resolveWorkflowSourceWorkspaceID(ctx context.Context, cfg config.App, remote apicontract.ProjectViewService, ref string) (string, error) {
+func resolveWorkflowSourceWorkspaceID(ctx context.Context, cfg config.Connection, remote apicontract.ProjectViewService, ref string) (string, error) {
 	trimmed := strings.TrimSpace(ref)
 	if trimmed == "" {
 		return "", errors.New("source workspace is required")
@@ -1563,7 +1512,7 @@ func resolveWorkflowSourceWorkspaceID(ctx context.Context, cfg config.App, remot
 
 func resolveWorkflowProjectLink(
 	ctx context.Context,
-	cfg config.App,
+	cfg config.Connection,
 	projects apicontract.ProjectViewService,
 	workflows apicontract.WorkflowService,
 	projectRef string,

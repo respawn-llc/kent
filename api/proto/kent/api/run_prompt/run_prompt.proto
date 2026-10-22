@@ -6,8 +6,11 @@ import "buf/validate/validate.proto";
 import "google/protobuf/duration.proto";
 import "google/protobuf/empty.proto";
 import "kent/api/auth/auth.proto";
+import "kent/api/chat_settings/chat_settings.proto";
+import "kent/api/prompt/prompt.proto";
 import "kent/api/server/server.proto";
 import "kent/api/session_launch/session_launch.proto";
+import "kent/api/session_launch/session_lifecycle.proto";
 import "kent/api/shared/foundation.proto";
 import "kent/api/shared/validation.proto";
 
@@ -19,9 +22,30 @@ enum MessagePhase {
   MESSAGE_PHASE_FINAL = 2;
 }
 
+enum RunSelectionWarning {
+  RUN_SELECTION_WARNING_UNSPECIFIED = 0;
+  RUN_SELECTION_WARNING_AGENT_IGNORED_TO_PRESERVE_CACHE = 1;
+  RUN_SELECTION_WARNING_MODEL_IGNORED_TO_PRESERVE_CACHE = 2;
+}
+
+enum IgnoredRunSetting {
+  IGNORED_RUN_SETTING_UNSPECIFIED = 0;
+  IGNORED_RUN_SETTING_AGENT = 1;
+  IGNORED_RUN_SETTING_MODEL = 2;
+  IGNORED_RUN_SETTING_TOOLS = 3;
+  IGNORED_RUN_SETTING_THEME = 4;
+  IGNORED_RUN_SETTING_MODEL_TIMEOUT = 5;
+}
+
+message ActiveSteerAccepted {
+  repeated IgnoredRunSetting ignored_settings = 1 [
+    (buf.validate.field).repeated.items.enum = {defined_only: true not_in: [0]}
+  ];
+}
+
 message Request {
-  kent.api.session_launch.SessionLaunchIntent intent = 1 [(buf.validate.field).required = true];
-  optional string caller_session_id = 2 [(buf.validate.field).string.min_len = 1];
+  kent.api.session_launch.SessionLaunchRequestIntent intent = 1 [(buf.validate.field).required = true];
+  optional string caller_session_id = 2 [(buf.validate.field).string.uuid = true, (buf.validate.field).string.(kent.api.shared.canonical_uuid_v4) = true];
   string prompt = 3 [
     (buf.validate.field).string.min_len = 1,
     (buf.validate.field).cel = {
@@ -32,14 +56,30 @@ message Request {
   ];
   google.protobuf.Duration timeout = 4;
   kent.api.session_launch.RunPromptOverrides overrides = 5;
+
+  option (buf.validate.message).cel = {
+    id: "kent.run_prompt.pending_work_prompt_nonblank"
+    message: "caller-absent Pending Work prompt must not be blank"
+    expression:
+      "has(this.caller_session_id) || "
+      "this.prompt.split('').exists(character, character != '\\uFEFF' && character.trim() != '')"
+  };
 }
 
 message Success {
-  string session_id = 1 [(buf.validate.field).string.min_len = 1];
-  string session_name = 2;
+  optional int64 short_id = 8 [(buf.validate.field).int64 = {gt: 0 lte: 9007199254740991}];
+  string session_id = 1 [(buf.validate.field).string.uuid = true, (buf.validate.field).string.(kent.api.shared.canonical_uuid_v4) = true];
+  optional string session_name = 2 [(buf.validate.field).string.(kent.api.shared.nonblank) = true];
   google.protobuf.Duration duration = 3 [(buf.validate.field).required = true];
   repeated string warnings = 4;
-  string result = 5;
+  repeated RunSelectionWarning selection_warnings = 6 [
+    (buf.validate.field).repeated.items.enum = {defined_only: true not_in: [0]}
+  ];
+  oneof outcome {
+    option (buf.validate.oneof).required = true;
+    string final_answer = 5;
+    kent.api.prompt.ObservationQuestion question = 7;
+  }
 }
 
 message Error {
@@ -48,6 +88,14 @@ message Error {
     (kent.api.shared.kent_result_field).role = RESULT_FIELD_ROLE_ERROR_CODE
   ];
   oneof detail {
+    kent.api.session_launch.SubagentLaunchDeniedDetails subagent_launch_denied = 6 [(kent.api.shared.kent_result_field) = {
+      role: RESULT_FIELD_ROLE_ERROR_DETAIL
+      error_code: "subagent_launch_denied"
+    }];
+    kent.api.session_launch.SessionNotFoundDetails caller_session_not_found = 5 [(kent.api.shared.kent_result_field) = {
+      role: RESULT_FIELD_ROLE_ERROR_DETAIL
+      error_code: "caller_session_not_found"
+    }];
     kent.api.shared.InternalFailureDetails internal_failure = 2 [(kent.api.shared.kent_result_field) = {
       role: RESULT_FIELD_ROLE_ERROR_DETAIL
       error_code: "internal_failure"
@@ -59,6 +107,10 @@ message Error {
     kent.api.server.ServerNotReadyDetails server_not_ready = 4 [(kent.api.shared.kent_result_field) = {
       role: RESULT_FIELD_ROLE_ERROR_DETAIL
       error_code: "server_not_ready"
+    }];
+    kent.api.chat_settings.MutationRejected selection_rejected = 7 [(kent.api.shared.kent_result_field) = {
+      role: RESULT_FIELD_ROLE_ERROR_DETAIL
+      error_code: "selection_rejected"
     }];
   }
 }
@@ -72,6 +124,7 @@ message Result {
 }
 
 message SessionStarted {
+  optional int64 short_id = 2 [(buf.validate.field).int64 = {gt: 0 lte: 9007199254740991}];
   string session_id = 1 [
     (buf.validate.field).string.uuid = true,
     (buf.validate.field).string.(kent.api.shared.canonical_uuid_v4) = true
@@ -84,17 +137,6 @@ message AssistantMessage {
     not_in: [0]
   }];
   string content = 2 [(buf.validate.field).string.(kent.api.shared.nonblank) = true];
-}
-
-message SteeredMessage {
-  string content = 1 [
-    (buf.validate.field).string.min_len = 1,
-    (buf.validate.field).cel = {
-      id: "kent.run_prompt.steered_message_nonblank"
-      message: "content must be non-blank"
-      expression: "this.trim() != ''"
-    }
-  ];
 }
 
 message ProgressFailure {
@@ -113,11 +155,11 @@ message ProgressEvent {
     option (buf.validate.oneof).required = true;
     SessionStarted session_started = 1;
     AssistantMessage assistant_message = 2;
-    SteeredMessage steered_message = 3;
     google.protobuf.Empty compaction_started = 4;
     ProgressFailure compaction_failed = 5;
     ProgressFailure run_logging_failed = 6;
     ProgressFailure run_cleanup_failed = 7;
+    ActiveSteerAccepted active_steer_accepted = 8;
   }
 }
 

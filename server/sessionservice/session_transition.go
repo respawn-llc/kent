@@ -6,12 +6,14 @@ import (
 	"strconv"
 	"strings"
 
+	"core/server/launch"
 	"core/server/session"
 	"core/shared/protoapi"
 	sessionlaunchpb "core/shared/protoapi/gen/kent/api/session_launch"
 	"core/shared/runtimeids"
 	"core/shared/serverapi"
 	"core/shared/sessioncontract"
+	"core/shared/textutil"
 	"google.golang.org/protobuf/types/known/emptypb"
 )
 
@@ -26,25 +28,22 @@ type sessionTransition struct {
 }
 
 type sessionTransitionResolveRequest struct {
-	Store        *session.Store
-	Transition   sessionTransition
-	ForkThinking session.ForkThinking
+	Store      *session.Store
+	Transition sessionTransition
+	ForkTarget launch.InteractiveForkTarget
 }
 
-func sessionTransitionFromProto(value *sessionlaunchpb.SessionTransition) (sessionTransition, error) {
+func sessionTransitionFromProto(value *sessionlaunchpb.SessionTransition) sessionTransition {
 	transition := sessionTransition{
 		Action: value.Action, InitialPrompt: value.InitialPrompt,
 		InitialPromptHistoryRecorded: value.InitialPromptHistoryRecorded,
 		InitialInput:                 value.InitialInput, TargetSessionID: value.GetTargetSessionId(),
 	}
 	if value.PreviousSessionId != nil {
-		id, err := runtimeids.ParseSessionID(*value.PreviousSessionId)
-		if err != nil {
-			return sessionTransition{}, err
-		}
+		id := runtimeids.SessionIDFromProto(*value.PreviousSessionId)
 		transition.PreviousSessionID = &id
 	}
-	return transition, nil
+	return transition
 }
 
 func initialSessionInput(meta session.Meta, transitionInput string) string {
@@ -74,10 +73,7 @@ func resolveSessionTransition(_ context.Context, req sessionTransitionResolveReq
 			SelectSession: &sessionlaunchpb.SessionSelectDirective{Auth: sessionlaunchpb.SessionAuthPreparation_SESSION_AUTH_PREPARATION_KEEP_CURRENT_AUTH},
 		}}, nil
 	case sessionlaunchpb.SessionTransitionAction_SESSION_TRANSITION_ACTION_OPEN_SESSION:
-		targetID, err := runtimeids.ParseSessionID(strings.TrimSpace(req.Transition.TargetSessionID))
-		if err != nil {
-			return &sessionlaunchpb.SessionDirective{}, err
-		}
+		targetID := runtimeids.SessionIDFromProto(req.Transition.TargetSessionID)
 		return protoapi.SessionLaunchDirectiveToProto(
 			serverapi.OpenExistingSessionLaunchIntent(targetID),
 			sessionLaunchPreparation(nil, req.Transition.InitialInput, sessionlaunchpb.SessionAuthPreparation_SESSION_AUTH_PREPARATION_KEEP_CURRENT_AUTH),
@@ -93,29 +89,26 @@ func resolveForkRollback(req sessionTransitionResolveRequest) (*sessionlaunchpb.
 	if req.Store == nil {
 		return &sessionlaunchpb.SessionDirective{}, errors.New("current store is required for rollback fork")
 	}
-	if req.Transition.ForkUserMessageSeq <= 0 {
-		return &sessionlaunchpb.SessionDirective{}, errors.New("rollback fork user message seq must be > 0")
-	}
 	parentMeta := req.Store.Meta()
-	baseName := strings.TrimSpace(parentMeta.Name)
-	if baseName == "" {
-		baseName = parentMeta.SessionID
+	baseName := parentMeta.SessionID
+	if parentMeta.Name != nil {
+		baseName = *parentMeta.Name
 	}
 	eventLog, err := req.Store.MaterializeEventLog()
 	if err != nil {
 		return &sessionlaunchpb.SessionDirective{}, err
 	}
-	forkedStore, forkOrdinal, err := session.ForkAtUserMessage(eventLog, req.Transition.ForkUserMessageSeq, baseName, sessioncontract.SessionCategoryMain, req.ForkThinking)
+	forkedStore, forkOrdinal, err := session.ForkAtUserMessage(eventLog, req.Transition.ForkUserMessageSeq, baseName, sessioncontract.SessionCategoryMain, req.ForkTarget.Thinking)
 	if err != nil {
 		return &sessionlaunchpb.SessionDirective{}, err
 	}
-	if err := forkedStore.SetName(strings.TrimSpace(baseName + " \u2192 edit u" + strconv.Itoa(forkOrdinal))); err != nil {
+	if err := forkedStore.SetConnectionID(req.ForkTarget.ConnectionID); err != nil {
 		return &sessionlaunchpb.SessionDirective{}, errors.Join(err, forkedStore.RemoveDurable())
 	}
-	forkID, err := runtimeids.ParseSessionID(forkedStore.Meta().SessionID)
-	if err != nil {
+	if err := forkedStore.SetName(textutil.Value(strings.TrimSpace(baseName + " \u2192 edit u" + strconv.Itoa(forkOrdinal)))); err != nil {
 		return &sessionlaunchpb.SessionDirective{}, errors.Join(err, forkedStore.RemoveDurable())
 	}
+	forkID := runtimeids.SessionIDFromProto(forkedStore.Meta().SessionID)
 	prompt, err := sessionInitialPromptMetadata(req.Transition.InitialPrompt, req.Transition.InitialPromptHistoryRecorded)
 	if err != nil {
 		return &sessionlaunchpb.SessionDirective{}, errors.Join(err, forkedStore.RemoveDurable())

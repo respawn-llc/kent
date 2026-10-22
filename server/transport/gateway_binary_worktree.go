@@ -9,6 +9,7 @@ import (
 	"core/shared/protoapi"
 	authpb "core/shared/protoapi/gen/kent/api/auth"
 	projectpb "core/shared/protoapi/gen/kent/api/project"
+	sharedpb "core/shared/protoapi/gen/kent/api/shared"
 	worktreepb "core/shared/protoapi/gen/kent/api/worktree"
 	"core/shared/serverapi"
 	"core/shared/worktreecontract"
@@ -163,11 +164,11 @@ func registerWorktreeUnary[
 
 type worktreeSessionRequest interface {
 	proto.Message
-	GetSessionId() string
+	GetSessionId() *sharedpb.SessionSelector
 }
 
 func worktreeSessionScope[Request worktreeSessionRequest](request Request) (routeScopeParams, error) {
-	return routeScopeParams{sessionID: request.GetSessionId()}, nil
+	return routeScopeParams{sessionSelector: request.GetSessionId()}, nil
 }
 
 func worktreeWorkspaceScope(request *worktreepb.WorkspaceListRequest) (routeScopeParams, error) {
@@ -289,7 +290,6 @@ func worktreeSetupCompletion(err error) *worktreepb.SetupCompletion {
 	if err == nil || errors.Is(err, io.EOF) {
 		return &worktreepb.SetupCompletion{}
 	}
-	rawCode, diagnostic := protocolError(err)
-	code := int32(rawCode)
-	return &worktreepb.SetupCompletion{Code: &code, Diagnostic: &diagnostic}
+	code, diagnostic := streamFailure(err)
+	return &worktreepb.SetupCompletion{Code: code.Enum(), Diagnostic: &diagnostic}
 }

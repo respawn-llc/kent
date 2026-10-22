@@ -29,6 +29,7 @@ type uiProgramComposition struct {
 }
 
 type uiLoopRequest struct {
+	sessionLifecycle             apicontract.SessionLifecycleService
 	ctx                          context.Context
 	wiring                       *runtimeWiring
 	projectID                    string
@@ -41,6 +42,7 @@ type uiLoopRequest struct {
 	modelContractLocked          bool
 	configuredModelName          *string
 	statusConfig                 uiStatusConfig
+	connectionManagement         apicontract.ConnectionManagementService
 	initialTransientStatus       *string
 	promptCatalog                apicontract.PromptCommandCatalogService
 	promptCatalogEntries         []commands.PromptCommandCatalogEntry
@@ -55,6 +57,10 @@ func runUILoop(request uiLoopRequest) (tea.Model, error) {
 }
 
 func terminalSupportsNativeProgress(output io.Writer) bool {
+	return terminalOutputIsTerminal(output)
+}
+
+func terminalOutputIsTerminal(output io.Writer) bool {
 	file, ok := output.(terminalCursorFile)
 	return ok && term.IsTerminal(int(file.Fd()))
 }
@@ -106,6 +112,11 @@ func composeUIProgram(request uiLoopRequest, output io.Writer) (*uiProgramCompos
 	// Preserve terminal-file identity (Fd/Read/Close) so Bubble Tea can detect
 	// the real terminal and emit WindowSizeMsg.
 	terminalOutput := newUITerminalOutputFile(output)
+	keyboardReporting := newUITerminalKeyboardReportingOwner(
+		terminalOutput.uiTerminalOutput,
+		terminalOutputIsTerminal(output),
+	)
+	terminalOutput.keyboardReporting = keyboardReporting
 	terminalCapabilities := currentTerminalCapabilities()
 	ongoingSurface := ongoing.NewSurfaceWithOptions(
 		terminalOutput,
@@ -172,6 +183,7 @@ func composeUIProgram(request uiLoopRequest, output io.Writer) (*uiProgramCompos
 		WithUITurnQueueHook(request.wiring.turnQueueHook),
 		WithUIProcessClient(newUIProcessClientWithReads(request.projectID, request.wiring.processViews, request.wiring.processControls)),
 		WithUIWorktreeClient(request.wiring.worktrees),
+		WithUIConnectionManagementClient(request.connectionManagement),
 		WithUIStartupSubmit(request.initialPrompt),
 		WithUIStartupSubmitPromptHistoryRecorded(request.initialPromptHistoryRecorded),
 		WithUIInitialInput(request.initialInput),
@@ -186,7 +198,7 @@ func composeUIProgram(request uiLoopRequest, output io.Writer) (*uiProgramCompos
 		WithUITerminalFocusState(request.wiring.terminalFocus),
 	}
 	if request.sessionTitle != nil {
-		uiOptions = append(uiOptions, WithUISessionName(*request.sessionTitle))
+		uiOptions = append(uiOptions, WithUISessionName(request.sessionTitle))
 	}
 	rawModel := NewProjectedUIModel(runtimeClient, uiOptions...)
 	model, ok := rawModel.(*uiModel)
@@ -196,6 +208,8 @@ func composeUIProgram(request uiLoopRequest, output io.Writer) (*uiProgramCompos
 		}
 		return nil, errors.New("projected UI model has unexpected type")
 	}
+	model.keyboardReporting = keyboardReporting
+	model.drafts = newUIDraftPersistence(request.sessionLifecycle, sessionID, model.mainEditor.Text())
 	if request.initialTransientStatus != nil {
 		model.startupCmds = append(model.startupCmds, model.showTransientStatusNotice(uiStatusNotice{
 			Text:     *request.initialTransientStatus,
@@ -207,6 +221,11 @@ func composeUIProgram(request uiLoopRequest, output io.Writer) (*uiProgramCompos
 		enqueueRuntimeConnectionStateChange(model.runtimeConnectionEvents, err)
 	})
 	model.promptAttention = request.wiring.promptAttention
+	if request.wiring.attentionNotifications == nil {
+		return nil, errors.New("Session attention client is required")
+	}
+	attentionEvents, stopAttention := startSessionAttentionEvents(programContext, sessionID, request.wiring.attentionNotifications)
+	model.eventDispatcher.attentionEvents = attentionEvents
 	sessionClient, ok := runtimeClient.(*sessionRuntimeClient)
 	if !ok {
 		return nil, errors.New("projected UI model runtime client has unexpected type")
@@ -225,6 +244,10 @@ func composeUIProgram(request uiLoopRequest, output io.Writer) (*uiProgramCompos
 		terminalOutput:        nativeProgressOutput,
 		nativeProgressEnabled: nativeProgressEnabled,
 		close: func() {
+			stopAttention()
+			if err := keyboardReporting.Close(); err != nil && uiLogger != nil {
+				uiLogger.Logf("app.exit keyboard_reporting_reset_error=%q", err.Error())
+			}
 			model.Close()
 			if tuiLogger != nil {
 				_ = tuiLogger.Close()

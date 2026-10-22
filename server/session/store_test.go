@@ -11,6 +11,7 @@ import (
 	"core/internal/testharness/filemode"
 	"core/shared/runtimeids"
 	"core/shared/sessioncontract"
+	"core/shared/textutil"
 )
 
 func appendSessionTestRecord(
@@ -33,18 +34,16 @@ func appendSessionTestRecord(
 
 func sessionTestLockedContract() LockedContract {
 	toolPreambles := true
-	workflowCompletionMode := sessioncontract.WorkflowCompletionModeTool
 	return LockedContract{
-		Model:                  "gpt-5",
-		SystemPrompt:           "prompt",
-		HasSystemPrompt:        true,
-		ReviewerPrompt:         "reviewer",
-		HasReviewerPrompt:      true,
-		EnabledTools:           []string{"shell"},
-		HasEnabledTools:        true,
-		WebSearchMode:          "native",
-		ToolPreambles:          &toolPreambles,
-		WorkflowCompletionMode: &workflowCompletionMode,
+		Model:             "gpt-6-sol",
+		SystemPrompt:      "prompt",
+		HasSystemPrompt:   true,
+		ReviewerPrompt:    "reviewer",
+		HasReviewerPrompt: true,
+		EnabledTools:      []string{"shell"},
+		HasEnabledTools:   true,
+		WebSearchMode:     "native",
+		ToolPreambles:     &toolPreambles,
 	}
 }
 
@@ -99,7 +98,7 @@ func TestSessionCategoryUnaffectedByUnrelatedMetadataMutations(t *testing.T) {
 		}
 	}
 
-	if err := store.SetName("renamed session"); err != nil {
+	if err := store.SetName(stringPointer("renamed session")); err != nil {
 		t.Fatalf("rename: %v", err)
 	}
 	assertSubagent("rename")
@@ -122,6 +121,11 @@ func TestSessionCategoryPromotionIsOneWayAndAdvancesRecencyOnce(t *testing.T) {
 	if err != nil {
 		t.Fatalf("create store: %v", err)
 	}
+	savedName := "retained title"
+	if _, err := store.MutateName(&savedName); err != nil {
+		t.Fatal(err)
+	}
+	now = store.Meta().UpdatedAt
 	createdAt := store.Meta().UpdatedAt
 
 	now = now.Add(time.Hour)
@@ -133,6 +137,9 @@ func TestSessionCategoryPromotionIsOneWayAndAdvancesRecencyOnce(t *testing.T) {
 		t.Fatal("first promotion reported no change")
 	}
 	promoted := store.Meta()
+	if promoted.Name == nil || *promoted.Name != savedName {
+		t.Fatalf("promotion changed saved name: %v", promoted.Name)
+	}
 	if promoted.Category == nil || *promoted.Category != sessioncontract.SessionCategoryMain {
 		t.Fatalf("promoted category = %v, want main", promoted.Category)
 	}
@@ -211,25 +218,32 @@ func TestInputDraftPersistsAcrossReopenAndCanBeCleared(t *testing.T) {
 }
 
 func TestSetUsageStatePersistsAcrossReopen(t *testing.T) {
-	store := newSessionTestLazyStore(t)
-	if _, err := store.SetUsageState(&UsageState{
-		InputTokens:             900,
-		OutputTokens:            120,
+	for _, state := range []UsageState{{
+		InputTokens:             textutil.Value(900),
+		OutputTokens:            textutil.Value(120),
 		WindowTokens:            400_000,
-		CachedInputTokens:       50,
-		HasCachedInputTokens:    true,
+		CachedInputTokens:       textutil.Value(50),
 		EstimatedProviderTokens: 180,
 		TotalInputTokens:        1_200,
 		TotalCachedInputTokens:  60,
-	}); err != nil {
-		t.Fatalf("set usage state: %v", err)
-	}
-	reopened := mustOpenSessionTestStore(t, store)
-	if reopened.Meta().UsageState == nil {
-		t.Fatal("expected persisted usage state")
-	}
-	if got := reopened.Meta().UsageState; got.InputTokens != 900 || got.EstimatedProviderTokens != 180 || got.TotalInputTokens != 1_200 {
-		t.Fatalf("unexpected usage state after reopen: %+v", got)
+		ReportedContextTokens:   textutil.Value(900),
+	}, {
+		InputTokens: textutil.Value(0), OutputTokens: textutil.Value(0),
+		CachedInputTokens: textutil.Value(0), ReportedContextTokens: textutil.Value(0),
+	}} {
+		store := newSessionTestLazyStore(t)
+		if _, err := store.SetUsageState(&state); err != nil {
+			t.Fatalf("set usage state: %v", err)
+		}
+		reopened := mustOpenSessionTestStore(t, store)
+		got := reopened.Meta().UsageState
+		if got == nil || !textutil.EqualOptional(got.InputTokens, state.InputTokens) ||
+			!textutil.EqualOptional(got.OutputTokens, state.OutputTokens) ||
+			!textutil.EqualOptional(got.CachedInputTokens, state.CachedInputTokens) ||
+			!textutil.EqualOptional(got.ReportedContextTokens, state.ReportedContextTokens) ||
+			got.EstimatedProviderTokens != state.EstimatedProviderTokens || got.TotalInputTokens != state.TotalInputTokens {
+			t.Fatalf("unexpected usage state after reopen: %+v, want %+v", got, state)
+		}
 	}
 }
 
@@ -249,9 +263,6 @@ func TestLockedContractPersistenceIncludesPromptAndRequestSnapshots(t *testing.T
 	if !locked.HasEnabledTools || len(locked.EnabledTools) != 0 || locked.WebSearchMode != "native" {
 		t.Fatalf("locked request shape = %+v, want explicit zero tools and native web search", locked)
 	}
-	if locked.WorkflowCompletionMode == nil || *locked.WorkflowCompletionMode != sessioncontract.WorkflowCompletionModeTool {
-		t.Fatalf("locked workflow completion mode = %v, want tool", locked.WorkflowCompletionMode)
-	}
 }
 
 func TestCompactionReplacementPersistsFreshContractBoundary(t *testing.T) {
@@ -262,7 +273,7 @@ func TestCompactionReplacementPersistsFreshContractBoundary(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, receipt, err := log.AppendCompactionHistoryReplacement(nil, HistoryReplacementRecord{
+	if _, receipt, err := log.AppendHistoryReplacement(nil, HistoryReplacementRecord{
 		Engine: "local", Mode: CompactionModeManual,
 	}); err != nil || !receipt.Committed {
 		t.Fatalf("commit compaction replacement: receipt=%+v error=%v", receipt, err)
@@ -276,6 +287,44 @@ func TestCompactionReplacementPersistsFreshContractBoundary(t *testing.T) {
 	}
 }
 
+func TestGenerationPreparationPreservesCurrentContract(t *testing.T) {
+	store := newSessionTestStore(t)
+	log := mustMaterializeSessionTestEventLog(t, store)
+	count, start := 1, 0
+	summary := []ProviderHistoryItem{{
+		Type: ProviderHistoryItemTypeCompaction,
+		Raw:  []byte(`{ "type": "compaction", "encrypted_content": "checkpoint" }`),
+	}}
+	record := HistoryReplacementRecord{
+		Engine: "remote", Mode: CompactionModeWorkflowPostCompletion,
+		CompactionNumber: &count, CommittedEntryStart: &start,
+		CompactedOutput: &CompactedOutput{Summary: summary},
+	}
+	if _, receipt, err := log.AppendHistoryReplacement(nil, record); err != nil || !receipt.Committed {
+		t.Fatalf("save compaction: %+v, %v", receipt, err)
+	}
+	markSessionTestLocked(t, store, sessionTestLockedContract())
+	if err := store.AdoptOriginalThinkingEffort("medium"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := store.SetUsageState(&UsageState{InputTokens: textutil.Value(42)}); err != nil {
+		t.Fatal(err)
+	}
+	before := store.Meta()
+	context := GenerationContextRecord{AfterSummary: []MessageRecord{{
+		Role: MessageRoleDeveloper, Content: stringPointer("operation context"),
+	}}}
+	if _, receipt, err := log.AppendRecord(nil, context); err != nil || !receipt.Committed {
+		t.Fatalf("prepare generation: %+v, %v", receipt, err)
+	}
+	after := mustOpenSessionTestStore(t, store).Meta()
+	if !reflect.DeepEqual(before.Locked, after.Locked) ||
+		!reflect.DeepEqual(before.OriginalThinkingEffort, after.OriginalThinkingEffort) ||
+		!reflect.DeepEqual(before.UsageState, after.UsageState) {
+		t.Fatal("generation preparation reset the selected contract or compacted usage")
+	}
+}
+
 func TestCompactedMetadataProjectionPreservesRetainedContextWithoutMutation(t *testing.T) {
 	store := newSessionTestStore(t)
 	markSessionTestLocked(t, store, sessionTestLockedContract())
@@ -283,7 +332,7 @@ func TestCompactedMetadataProjectionPreservesRetainedContextWithoutMutation(t *t
 		t.Fatal(err)
 	}
 	before := store.Meta()
-	projected := ProjectCompactedMeta(before)
+	projected := ProjectSnapshotBoundary(before, SnapshotBoundaryCompaction)
 	if projected.Locked != nil || projected.OriginalThinkingEffort != nil || projected.UsageState != nil {
 		t.Fatal("compaction projection retained the previous generation contract")
 	}
@@ -294,7 +343,7 @@ func TestCompactedMetadataProjectionPreservesRetainedContextWithoutMutation(t *t
 		t.Fatal("compaction projection mutated retained metadata")
 	}
 	log := mustMaterializeSessionTestEventLog(t, store)
-	if _, receipt, err := log.AppendCompactionHistoryReplacement(nil, HistoryReplacementRecord{
+	if _, receipt, err := log.AppendHistoryReplacement(nil, HistoryReplacementRecord{
 		Engine: "local", Mode: CompactionModeManual,
 	}); err != nil || !receipt.Committed {
 		t.Fatalf("commit compaction: %+v, %v", receipt, err)
@@ -308,7 +357,7 @@ func TestCompactedMetadataProjectionPreservesRetainedContextWithoutMutation(t *t
 func TestLockedPromptSnapshotsPopulateIndependently(t *testing.T) {
 	store := newSessionTestStore(t)
 	toolPreambles := true
-	markSessionTestLocked(t, store, LockedContract{Model: "gpt-5"})
+	markSessionTestLocked(t, store, LockedContract{Model: "gpt-6-sol"})
 	refreshed, err := store.RefreshLockedMainPromptSnapshot(LockedMainPromptSnapshot{
 		SystemPrompt:    "prompt B",
 		HasSystemPrompt: true,
@@ -329,13 +378,13 @@ func TestLockedPromptSnapshotsPopulateIndependently(t *testing.T) {
 	}
 }
 
-func TestLockedRequestShapeBackfillPersistsTogether(t *testing.T) {
+func TestLockedRequestShapeBackfillPreservesDispatchedTools(t *testing.T) {
 	parent := newSessionTestStore(t)
-	if err := parent.MarkModelDispatchLocked(LockedContract{Model: "gpt-5", SystemPrompt: "prompt", HasSystemPrompt: true}); err != nil {
+	if err := parent.MarkModelDispatchLocked(LockedContract{Model: "gpt-6-sol", EnabledTools: []string{"patch"}}); err != nil {
 		t.Fatalf("mark model dispatch locked: %v", err)
 	}
 	store := newSessionTestLazyStore(t)
-	if err := InitializeCreationContext(store, parent, SessionCreationSourcePreviousSession, ChildContextOptions{LockedContract: InheritContractWithoutTools}); err != nil {
+	if err := InitializeCreationContext(store, parent, SessionCreationSourcePreviousSession, ChildContextOptions{LockedContract: InheritFullContract}); err != nil {
 		t.Fatal(err)
 	}
 	if err := store.EnsureDurable(); err != nil {
@@ -349,45 +398,41 @@ func TestLockedRequestShapeBackfillPersistsTogether(t *testing.T) {
 	if err != nil {
 		t.Fatalf("backfill request shape: %v", err)
 	}
-	if !result.Committed || result.Locked == nil || !result.Locked.HasEnabledTools || strings.Join(result.Locked.EnabledTools, ",") != "shell,patch" || result.Locked.WebSearchMode != "native" {
+	if !result.Committed || result.Locked == nil || !result.Locked.HasEnabledTools || strings.Join(result.Locked.EnabledTools, ",") != "patch" || result.Locked.WebSearchMode != "native" {
 		t.Fatalf("request shape result = %+v", result)
 	}
 	opened := mustOpenSessionTestStore(t, store)
-	if locked := opened.Meta().Locked; locked == nil || !locked.HasEnabledTools || locked.WebSearchMode != "native" || len(locked.EnabledTools) != 2 {
+	if locked := opened.Meta().Locked; locked == nil || !locked.HasEnabledTools || locked.WebSearchMode != "native" || len(locked.EnabledTools) != 1 {
 		t.Fatalf("persisted request shape = %+v", locked)
 	}
 }
 
-func TestLockedWorkflowCompletionModeBackfillPersists(t *testing.T) {
+func TestWorkflowSnapshotReplacementPersists(t *testing.T) {
 	store := newSessionTestStore(t)
-	if err := store.MarkModelDispatchLocked(LockedContract{Model: "gpt-5", SystemPrompt: "prompt", HasSystemPrompt: true}); err != nil {
+	if err := store.MarkModelDispatchLocked(LockedContract{Model: "gpt-6-sol", SystemPrompt: "prompt", HasSystemPrompt: true}); err != nil {
 		t.Fatalf("mark model dispatch locked: %v", err)
 	}
-	result, err := store.BackfillLockedWorkflowCompletionMode(sessioncontract.WorkflowCompletionModeShellCommand)
-	if err != nil {
-		t.Fatalf("backfill workflow completion mode: %v", err)
-	}
-	if !result.Committed ||
-		result.Locked == nil ||
-		result.Locked.WorkflowCompletionMode == nil ||
-		*result.Locked.WorkflowCompletionMode != sessioncontract.WorkflowCompletionModeShellCommand {
-		t.Fatalf("workflow completion mode result = %+v", result)
+	for _, mode := range []sessioncontract.WorkflowCompletionMode{
+		sessioncontract.WorkflowCompletionModeTool, sessioncontract.WorkflowCompletionModeShellCommand,
+	} {
+		if err := store.SetWorkflowSnapshot(WorkflowSnapshot{CompletionMode: mode}); err != nil {
+			t.Fatal(err)
+		}
 	}
 	opened := mustOpenSessionTestStore(t, store)
-	if locked := opened.Meta().Locked; locked == nil ||
-		locked.WorkflowCompletionMode == nil ||
-		*locked.WorkflowCompletionMode != sessioncontract.WorkflowCompletionModeShellCommand {
-		t.Fatalf("persisted workflow completion mode = %+v", locked)
+	if snapshot := opened.Meta().WorkflowSnapshot; snapshot == nil ||
+		snapshot.CompletionMode != sessioncontract.WorkflowCompletionModeShellCommand {
+		t.Fatalf("persisted workflow snapshot = %+v", snapshot)
 	}
 }
 
 func TestLockedContractMutationObserverCommitSemantics(t *testing.T) {
 	observer := &recordingPersistenceObserver{}
-	store, err := Create(t.TempDir(), "ws", t.TempDir(), testSessionCategory, WithPersistenceObserver(observer))
+	store, err := Create(t.TempDir(), "ws", t.TempDir(), testSessionCategory, WithPersistenceObserver(observer), WithPersistedSessionResolver(observer))
 	if err != nil {
 		t.Fatalf("create store: %v", err)
 	}
-	if err := store.MarkModelDispatchLocked(LockedContract{Model: "gpt-5", SystemPrompt: "prompt A", HasSystemPrompt: true}); err != nil {
+	if err := store.MarkModelDispatchLocked(LockedContract{Model: "gpt-6-sol", SystemPrompt: "prompt A", HasSystemPrompt: true}); err != nil {
 		t.Fatalf("initial lock: %v", err)
 	}
 	before := store.Meta().Locked
@@ -460,18 +505,18 @@ func TestAppendTypedRecordPersistsFirstPromptPreview(t *testing.T) {
 func TestSetListingMetadataPersistsNameAndFirstPromptPreview(t *testing.T) {
 	root := t.TempDir()
 	observer := &recordingPersistenceObserver{}
-	store, err := Create(root, "workspace-x", "/tmp/work", testSessionCategory, WithPersistenceObserver(observer))
+	store, err := Create(root, "workspace-x", "/tmp/work", testSessionCategory, WithPersistenceObserver(observer), WithPersistedSessionResolver(observer))
 	if err != nil {
 		t.Fatalf("create store: %v", err)
 	}
-	if err := store.SetListingMetadata("  Workflow Session  ", "\n  Rendered workflow prompt\nsecond line"); err != nil {
+	if err := store.SetListingMetadata(stringPointer("  Workflow Session  "), "\n  Rendered workflow prompt\nsecond line"); err != nil {
 		t.Fatalf("SetListingMetadata: %v", err)
 	}
 	meta := storeTestMeta(store)
-	if meta.Name != "Workflow Session" || meta.FirstPromptPreview != "Rendered workflow prompt" {
-		t.Fatalf("metadata = name %q preview %q, want trimmed name and normalized preview", meta.Name, meta.FirstPromptPreview)
+	if meta.Name == nil || *meta.Name != "Workflow Session" || meta.FirstPromptPreview != "Rendered workflow prompt" {
+		t.Fatalf("metadata = name %v preview %q, want trimmed name and normalized preview", meta.Name, meta.FirstPromptPreview)
 	}
-	if !observer.called || observer.snapshot.Meta.Name != "Workflow Session" || observer.snapshot.Meta.FirstPromptPreview != "Rendered workflow prompt" {
+	if !observer.called || observer.snapshot.Meta.Name == nil || *observer.snapshot.Meta.Name != "Workflow Session" || observer.snapshot.Meta.FirstPromptPreview != "Rendered workflow prompt" {
 		t.Fatalf("observer snapshot = %+v, called %v", observer.snapshot.Meta, observer.called)
 	}
 
@@ -481,7 +526,7 @@ func TestSetListingMetadataPersistsNameAndFirstPromptPreview(t *testing.T) {
 	}
 
 	longPreview := strings.Repeat("x", firstPromptPreviewMaxChars+5)
-	if err := store.SetListingMetadata("Updated", longPreview); err != nil {
+	if err := store.SetListingMetadata(stringPointer("Updated"), longPreview); err != nil {
 		t.Fatalf("SetListingMetadata overwrite: %v", err)
 	}
 	wantTruncated := strings.Repeat("x", firstPromptPreviewMaxChars-1) + "…"
@@ -489,10 +534,10 @@ func TestSetListingMetadataPersistsNameAndFirstPromptPreview(t *testing.T) {
 		t.Fatalf("truncated preview = %q, want %q", got, wantTruncated)
 	}
 
-	if err := store.SetListingMetadata("  ", " \n\t "); err != nil {
+	if err := store.SetListingMetadata(nil, " \n\t "); err != nil {
 		t.Fatalf("SetListingMetadata clear: %v", err)
 	}
-	if store.Meta().Name != "" || store.Meta().FirstPromptPreview != "" {
+	if store.Meta().Name != nil || store.Meta().FirstPromptPreview != "" {
 		t.Fatalf("cleared metadata = %+v, want empty name and preview", store.Meta())
 	}
 
@@ -503,7 +548,7 @@ func TestSetListingMetadataPersistsNameAndFirstPromptPreview(t *testing.T) {
 	if err != nil {
 		t.Fatalf("open store: %v", err)
 	}
-	if reopened.Meta().Name != "" || reopened.Meta().FirstPromptPreview != "" {
+	if reopened.Meta().Name != nil || reopened.Meta().FirstPromptPreview != "" {
 		t.Fatalf("reopened metadata = %+v, want empty name and preview", reopened.Meta())
 	}
 }
@@ -521,10 +566,7 @@ func TestMetaSnapshotDeepCopiesSessionProvenance(t *testing.T) {
 		t.Fatal("snapshot parent-agent session id is nil")
 	}
 	original := *snapshot.ParentAgentSessionID
-	mutated, err := runtimeids.ParseSessionID("mutated-snapshot")
-	if err != nil {
-		t.Fatalf("ParseSessionID mutated snapshot: %v", err)
-	}
+	mutated := runtimeids.NewSessionID()
 	*snapshot.ParentAgentSessionID = mutated
 
 	if got := store.Meta().ParentAgentSessionID; got == nil || *got != original {
@@ -671,6 +713,7 @@ func TestAppendTypedBatchReportsCommittedObserverFailure(t *testing.T) {
 		t.TempDir(),
 		testSessionCategory,
 		WithPersistenceObserver(observer),
+		WithPersistedSessionResolver(observer),
 	)
 	if err != nil {
 		t.Fatalf("create observed store: %v", err)
@@ -762,17 +805,14 @@ func TestForkAtUserMessageCopiesPrefixBeforeSelectedMessage(t *testing.T) {
 	if meta.PreviousSessionID == nil || *meta.PreviousSessionID != parentID {
 		t.Fatalf("expected fork previous session id, got %v", meta.PreviousSessionID)
 	}
-	if meta.Name != "Parent → edit u2" {
-		t.Fatalf("expected fork name, got %q", meta.Name)
+	if meta.Name == nil || *meta.Name != "Parent → edit u2" {
+		t.Fatalf("expected fork name, got %v", meta.Name)
 	}
 	if meta.FirstPromptPreview != "u1" {
 		t.Fatalf("expected fork preview to persist first user message, got %q", meta.FirstPromptPreview)
 	}
-	if meta.Locked == nil || meta.Locked.SystemPrompt != "parent prompt snapshot" || !meta.Locked.HasSystemPrompt {
-		t.Fatalf("fork locked system prompt = %+v, want replay fork to preserve parent prompt snapshot", meta.Locked)
-	}
-	if meta.Locked.ReviewerPrompt != "parent reviewer prompt snapshot" || !meta.Locked.HasReviewerPrompt {
-		t.Fatalf("fork locked reviewer prompt = %+v, want replay fork to preserve parent reviewer prompt snapshot", meta.Locked)
+	if meta.Locked != nil {
+		t.Fatalf("interactive fork retained generation snapshot: %+v", meta.Locked)
 	}
 }
 
@@ -1024,7 +1064,7 @@ func TestInitializeChildFromParentCopiesContextWithoutConversationState(t *testi
 	if err := parent.SetContinuationContext(ContinuationContext{AgentRole: &role}); err != nil {
 		t.Fatalf("SetContinuationContext parent: %v", err)
 	}
-	if _, err := parent.SetUsageState(&UsageState{InputTokens: 123}); err != nil {
+	if _, err := parent.SetUsageState(&UsageState{InputTokens: textutil.Value(123), ReportedContextTokens: textutil.Value(123)}); err != nil {
 		t.Fatalf("SetUsageState parent: %v", err)
 	}
 	if err := parent.SetWorktreeReminderState(&WorktreeReminderState{

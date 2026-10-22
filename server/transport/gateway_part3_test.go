@@ -2,6 +2,7 @@ package transport
 
 import (
 	"context"
+	"core/internal/testharness/requestfixture"
 	"core/internal/testharness/testsetup"
 	serverbootstrap "core/server/bootstrap"
 	"core/server/core"
@@ -22,7 +23,6 @@ import (
 	"core/shared/runtimeids"
 	"core/shared/serverapi"
 	"core/shared/sessioncontract"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"net/http/httptest"
@@ -72,7 +72,7 @@ func TestGatewaySessionAttachEstablishesProjectForUnboundServer(t *testing.T) {
 	defer func() { _ = remote.Close() }()
 	status, err := remote.GetWorktreeStatus(
 		context.Background(),
-		&worktreepb.StatusRequest{SessionId: store.Meta().SessionID},
+		&worktreepb.StatusRequest{SessionId: &sharedpb.SessionSelector{Value: &sharedpb.SessionSelector_SessionId{SessionId: store.Meta().SessionID}}},
 	)
 	if err != nil {
 		t.Fatalf("GetWorktreeStatus: %v", err)
@@ -129,10 +129,14 @@ func newGatewayTestCore(t *testing.T, bindWorkspace bool, ready bool) (*core.Cor
 	if err != nil {
 		t.Fatalf("ResolveConfig: %v", err)
 	}
-	authSupport := newGatewayTestAuthSupport(t, ready)
+	authSupport := newGatewayTestAuthSupport(t, resolved.Config.PersistenceRoot, ready)
 	resolved.Config.Settings = testsetup.ProviderSettings(resolved.Config.Settings)
 	if !ready {
-		resolved.Config.Settings.Connections[*resolved.Config.Settings.Connection] = config.ProviderConnection{
+		id, err := resolved.Config.Settings.Connection.ConcreteID()
+		if err != nil {
+			t.Fatal(err)
+		}
+		resolved.Config.Settings.Connections[*id] = config.ProviderConnection{
 			Protocol: config.ConnectionChatGPT,
 		}
 	}
@@ -254,7 +258,7 @@ func TestGatewayReturnsCompleteDormantMainViewWithActiveGoal(t *testing.T) {
 	defer func() { _ = remote.Close() }()
 
 	contextResponse, err := remote.GetChatContext(t.Context(), &contextpb.GetRequest{
-		Target: &contextpb.Target{Target: &contextpb.Target_Session{Session: &contextpb.SessionTarget{SessionId: sessionID.String()}}},
+		Target: &contextpb.Target{Target: &contextpb.Target_Session{Session: &contextpb.SessionTarget{SessionId: &sharedpb.SessionSelector{Value: &sharedpb.SessionSelector_SessionId{SessionId: sessionID.String()}}}}},
 	})
 	if err != nil {
 		t.Fatalf("GetChatContext: %v", err)
@@ -266,16 +270,13 @@ func TestGatewayReturnsCompleteDormantMainViewWithActiveGoal(t *testing.T) {
 	generated := &sessionpb.MainViewResult{}
 	callGatewayDescriptor(t, conn, "main-view",
 		sessionpb.File_kent_api_session_session_proto.Services().ByName("ReadService").Methods().ByName("GetMainView"),
-		&sessionpb.MainViewRequest{SessionId: sessionID.String()}, generated)
+		&sessionpb.MainViewRequest{SessionId: &sharedpb.SessionSelector{Value: &sharedpb.SessionSelector_SessionId{SessionId: sessionID.String()}}}, generated)
 	if generated.GetSuccess().GetMainView().GetActivity().GetReviewer() != runtimepb.ReviewerActivity_REVIEWER_ACTIVITY_INACTIVE ||
 		generated.GetSuccess().GetMainView().GetStatus().GetGoal().GetGoal().GetObjective() != "ship the dormant projection" {
 		t.Fatalf("generated dormant Main View lost current facts: %v", generated)
 	}
-	if failure := callGatewayExpectError(t, conn, "retired-session-json", "session.getMainView", map[string]string{"session_id": sessionID.String()}); failure.Code != protocol.ErrCodeMethodNotFound {
-		t.Fatalf("retired Session JSON operation = %v", failure)
-	}
 	response, err := remote.GetSessionMainView(t.Context(), &sessionpb.MainViewRequest{
-		SessionId: sessionID.String(),
+		SessionId: &sharedpb.SessionSelector{Value: &sharedpb.SessionSelector_SessionId{SessionId: sessionID.String()}},
 	})
 	if err != nil {
 		t.Fatalf("GetSessionMainView: %v", err)
@@ -324,7 +325,7 @@ func TestGatewayGoalObservationHydratesDormantSessionAndPublishesMutation(t *tes
 	}
 	defer func() { _ = remote.Close() }()
 	subscription, err := remote.SubscribeGoalObservation(t.Context(), &runtimepb.GoalObserveRequest{
-		SessionId: store.Meta().SessionID,
+		SessionId: requestfixture.Selector(t, store.Identity().String()),
 	})
 	if err != nil {
 		t.Fatalf("SubscribeGoalObservation: %v", err)
@@ -426,7 +427,7 @@ func attachGatewaySession(
 		conn,
 		correlation,
 		method,
-		&connectionpb.AttachSessionRequest{SessionId: sessionID},
+		&connectionpb.AttachSessionRequest{SessionId: protoapi.SessionSelectorToProto(requestfixture.SessionID(t, sessionID))},
 		result,
 	)
 	return result
@@ -466,21 +467,7 @@ func callGatewayDescriptor(
 ) {
 	t.Helper()
 	operation := sendGatewayDescriptor(t, conn, correlation, method, request)
-	var responseFrame []byte
-	if err := websocket.Message.Receive(conn, &responseFrame); err != nil {
-		t.Fatalf("receive %s: %v", operation.Name, err)
-	}
-	envelope, err := protoapi.DecodeEnvelope(responseFrame)
-	if err != nil {
-		t.Fatalf("decode %s response envelope: %v", operation.Name, err)
-	}
-	if failure := envelope.GetTransportFailure(); failure != nil {
-		t.Fatalf("%s transport failure: %+v", operation.Name, failure)
-	}
-	response := envelope.GetResult()
-	if response == nil {
-		t.Fatalf("%s result is required", operation.Name)
-	}
+	response := receiveGatewayDescriptorResult(t, conn)
 	if response.Operation != operation.Name || response.GetCorrelation() != correlation {
 		t.Fatalf("%s result identity = %+v", operation.Name, response)
 	}
@@ -490,6 +477,26 @@ func callGatewayDescriptor(
 	if err := protoapi.Validate(result); err != nil {
 		t.Fatalf("validate %s result: %v", operation.Name, err)
 	}
+}
+
+func receiveGatewayDescriptorResult(t *testing.T, conn *websocket.Conn) *sharedpb.Result {
+	t.Helper()
+	var responseFrame []byte
+	if err := websocket.Message.Receive(conn, &responseFrame); err != nil {
+		t.Fatalf("receive generated result: %v", err)
+	}
+	envelope, err := protoapi.DecodeEnvelope(responseFrame)
+	if err != nil {
+		t.Fatalf("decode result envelope: %v", err)
+	}
+	if failure := envelope.GetTransportFailure(); failure != nil {
+		t.Fatalf("transport failure: %+v", failure)
+	}
+	response := envelope.GetResult()
+	if response == nil {
+		t.Fatal("generated result is required")
+	}
+	return response
 }
 
 func sendGatewayDescriptor(t *testing.T, conn *websocket.Conn, correlation string, method protoreflect.MethodDescriptor, request proto.Message) protoapi.Operation {
@@ -638,40 +645,6 @@ func callGatewayAuthStatus(
 	return result.GetSuccess()
 }
 
-func callGateway(t *testing.T, conn *websocket.Conn, id string, method string, params any, out any) {
-	t.Helper()
-	if err := websocket.JSON.Send(conn, protocol.Request{JSONRPC: protocol.JSONRPCVersion, ID: id, Method: method, Params: mustJSON(t, params)}); err != nil {
-		t.Fatalf("send %s: %v", method, err)
-	}
-	var resp protocol.Response
-	if err := websocket.JSON.Receive(conn, &resp); err != nil {
-		t.Fatalf("receive %s: %v", method, err)
-	}
-	if resp.Error != nil {
-		t.Fatalf("%s error: %+v", method, resp.Error)
-	}
-	if out != nil && len(resp.Result) > 0 {
-		if err := json.Unmarshal(resp.Result, out); err != nil {
-			t.Fatalf("decode %s: %v", method, err)
-		}
-	}
-}
-
-func callGatewayExpectError(t *testing.T, conn *websocket.Conn, id string, method string, params any) *protocol.ResponseError {
-	t.Helper()
-	if err := websocket.JSON.Send(conn, protocol.Request{JSONRPC: protocol.JSONRPCVersion, ID: id, Method: method, Params: mustJSON(t, params)}); err != nil {
-		t.Fatalf("send %s: %v", method, err)
-	}
-	var resp protocol.Response
-	if err := websocket.JSON.Receive(conn, &resp); err != nil {
-		t.Fatalf("receive %s: %v", method, err)
-	}
-	if resp.Error == nil {
-		t.Fatalf("%s unexpectedly succeeded", method)
-	}
-	return resp.Error
-}
-
 func TestGatewayWorkflowProjectLabelsRoundTrip(t *testing.T) {
 	appCore, server := newGatewayTestServer(t)
 	defer func() { _ = appCore.Close() }()
@@ -745,29 +718,4 @@ func TestGatewayWorkflowProjectLabelsRoundTrip(t *testing.T) {
 	if invalidDelete.GetError().GetInvalidMutation().GetField() != "label_id" {
 		t.Fatalf("invalid deletion error = %v", &invalidDelete)
 	}
-}
-
-func receiveGatewayNotification(t *testing.T, conn *websocket.Conn, method string, label string, out any) {
-	t.Helper()
-	var notif protocol.Request
-	if err := websocket.JSON.Receive(conn, &notif); err != nil {
-		t.Fatalf("receive %s: %v", label, err)
-	}
-	if notif.Method != method {
-		t.Fatalf("%s method = %q", label, notif.Method)
-	}
-	if out != nil {
-		if err := json.Unmarshal(notif.Params, out); err != nil {
-			t.Fatalf("decode %s params: %v", label, err)
-		}
-	}
-}
-
-func mustJSON(t *testing.T, value any) json.RawMessage {
-	t.Helper()
-	data, err := json.Marshal(value)
-	if err != nil {
-		t.Fatalf("marshal params: %v", err)
-	}
-	return data
 }

@@ -2,6 +2,7 @@ package core
 
 import (
 	"context"
+	"core/internal/testharness/requestfixture"
 	"core/internal/testharness/testsetup"
 	"sync"
 	"testing"
@@ -10,14 +11,15 @@ import (
 	"core/server/auth"
 	serverbootstrap "core/server/bootstrap"
 	"core/server/llm"
-	"core/server/metadata"
 	"core/server/runtimewire"
 	brand "core/shared/config"
 	"core/shared/protoapi"
+	chatpb "core/shared/protoapi/gen/kent/api/chat"
 	chatsettingspb "core/shared/protoapi/gen/kent/api/chat_settings"
 	runtimepb "core/shared/protoapi/gen/kent/api/runtime"
 	sessionpb "core/shared/protoapi/gen/kent/api/session"
 	sessionlaunchpb "core/shared/protoapi/gen/kent/api/session_launch"
+	sharedpb "core/shared/protoapi/gen/kent/api/shared"
 	"core/shared/runtimeids"
 	"core/shared/runtimeinput"
 	"core/shared/serverapi"
@@ -25,10 +27,11 @@ import (
 )
 
 type chatSettingsBoundaryLLMClient struct {
-	started     chan struct{}
-	startedOnce sync.Once
-	release     chan struct{}
-	releaseOnce sync.Once
+	started      chan struct{}
+	startedOnce  sync.Once
+	release      chan struct{}
+	releaseOnce  sync.Once
+	firstContext context.Context
 }
 
 func newChatSettingsBoundaryLLMClient() *chatSettingsBoundaryLLMClient {
@@ -43,7 +46,7 @@ func (c *chatSettingsBoundaryLLMClient) Generate(
 	_ llm.Request,
 	_ llm.StreamCallbacks,
 ) (llm.Response, error) {
-	c.startedOnce.Do(func() { close(c.started) })
+	c.startedOnce.Do(func() { c.firstContext = ctx; close(c.started) })
 	select {
 	case <-c.release:
 		return llm.Response{
@@ -72,6 +75,14 @@ func (c *chatSettingsBoundaryLLMClient) unblock() {
 }
 
 func TestChatSettingsMutationReturnsAfterRuntimeAcceptance(t *testing.T) {
+	testChatSettingsRuntimeMutation(t, false)
+}
+
+func TestChatSettingsAgentReplacementStopsActiveRun(t *testing.T) {
+	testChatSettingsRuntimeMutation(t, true)
+}
+
+func testChatSettingsRuntimeMutation(t *testing.T, switchAgent bool) {
 	workspace := t.TempDir()
 	resolved, err := serverbootstrap.ResolveConfig(serverbootstrap.Request{
 		WorkspaceRoot: workspace,
@@ -80,11 +91,12 @@ func TestChatSettingsMutationReturnsAfterRuntimeAcceptance(t *testing.T) {
 	if err != nil {
 		t.Fatalf("ResolveConfig: %v", err)
 	}
-	binding, err := metadata.RegisterBinding(t.Context(), resolved.Config.PersistenceRoot, workspace)
+	metadataStore := testsetup.OpenStore(t, resolved.Config.PersistenceRoot)
+	binding, err := metadataStore.RegisterWorkspaceBinding(t.Context(), workspace)
 	if err != nil {
 		t.Fatalf("RegisterBinding: %v", err)
 	}
-	authSupport, err := serverbootstrap.BuildAuthSupport(auth.NewMemoryStore(auth.EmptyState()), func(string) (string, bool) { return "", false })
+	authSupport, err := serverbootstrap.BuildAuthSupport(t.Context(), resolved.Config.PersistenceRoot, auth.NewMemoryStore(auth.EmptyState()), func(string) (string, bool) { return "", false })
 	if err != nil {
 		t.Fatalf("BuildAuthSupport: %v", err)
 	}
@@ -96,6 +108,7 @@ func TestChatSettingsMutationReturnsAfterRuntimeAcceptance(t *testing.T) {
 	t.Cleanup(func() { _ = background.Close() })
 	model := newChatSettingsBoundaryLLMClient()
 	appCore, err := NewWithContextOptions(t.Context(), resolved.Config, authSupport, background, Options{
+		MetadataStore: metadataStore,
 		RuntimeClientFactory: runtimewire.RuntimeClientFactoryFunc(func(
 			context.Context,
 			runtimewire.RuntimeClientRequest,
@@ -112,7 +125,7 @@ func TestChatSettingsMutationReturnsAfterRuntimeAcceptance(t *testing.T) {
 	if err != nil {
 		t.Fatalf("SessionLaunchClientForProjectWorkspace: %v", err)
 	}
-	intent, err := protoapi.SessionLaunchIntentToProto(
+	intent, err := protoapi.SessionLaunchRequestIntentToProto(
 		serverapi.CreateNewSessionLaunchIntent(serverapi.IndependentSessionCreateOrigin()),
 	)
 	if err != nil {
@@ -131,7 +144,7 @@ func TestChatSettingsMutationReturnsAfterRuntimeAcceptance(t *testing.T) {
 	}
 	chatSettings := appCore.ChatSettingsClient()
 	before, err := chatSettings.ReadChatSettings(t.Context(), &chatsettingspb.ReadRequest{
-		Target: &chatsettingspb.ReadRequest_Session{Session: &chatsettingspb.SessionTarget{SessionId: sessionID.String()}},
+		Target: &chatsettingspb.ReadRequest_Session{Session: &chatsettingspb.SessionTarget{SessionId: &sharedpb.SessionSelector{Value: &sharedpb.SessionSelector_SessionId{SessionId: sessionID.String()}}}},
 	})
 	if err != nil {
 		t.Fatalf("ReadChatSettings before mutation: %v", err)
@@ -139,26 +152,16 @@ func TestChatSettingsMutationReturnsAfterRuntimeAcceptance(t *testing.T) {
 	initialQuestions := before.GetSession().Settings.Questions.Enabled
 	requestedQuestions := !initialQuestions
 
-	const ownerID = "chat-settings-acceptance-test"
-	activation, err := appCore.SessionRuntimeClient().ActivateSessionRuntime(t.Context(), serverapi.SessionRuntimeActivateRequest{
-		SessionID:             sessionID.String(),
-		OwnerID:               ownerID,
-		ActiveSettings:        resolved.Config.Settings,
-		QuestionsEnabled:      textutil.Value(initialQuestions),
-		AutoCompactionEnabled: textutil.Value(before.GetSession().Settings.AutoCompaction.Effective),
-		Source:                resolved.Config.Source,
+	err = appCore.SessionRuntimeClient().ActivateSessionRuntime(t.Context(), serverapi.SessionRuntimeActivateRequest{
+		SessionID: requestfixture.SessionID(t, sessionID.String()), SessionRuntimePreparationOptions: serverapi.SessionRuntimePreparationOptions{ActiveSettings: resolved.Config.Settings,
+			QuestionsEnabled:      textutil.Value(initialQuestions),
+			AutoCompactionEnabled: textutil.Value(before.GetSession().Settings.AutoCompaction.Effective),
+			Source:                resolved.Config.Source},
 	})
 	if err != nil {
 		t.Fatalf("ActivateSessionRuntime: %v", err)
 	}
-	t.Cleanup(func() {
-		_, _ = appCore.SessionRuntimeClient().ReleaseSessionRuntime(context.Background(), serverapi.SessionRuntimeReleaseRequest{
-			Attachment:  activation,
-			OwnerID:     ownerID,
-			DropOwner:   true,
-			ClosePolicy: serverapi.SessionRuntimeReleaseClosePolicyDetachOnly,
-		})
-	})
+
 	t.Cleanup(model.unblock)
 
 	turnDone := make(chan error, 1)
@@ -167,9 +170,8 @@ func TestChatSettingsMutationReturnsAfterRuntimeAcceptance(t *testing.T) {
 		t.Fatal(err)
 	}
 	go func() {
-		_, submitErr := appCore.RuntimeControlClient().SubmitUserTurn(t.Context(), &runtimepb.SubmitUserTurnRequest{
-			SessionId: sessionID.String(),
-			Input:     input,
+		_, submitErr := appCore.RuntimeControlClient().SubmitUserTurn(t.Context(), &runtimepb.SubmitUserTurnRequest{QueueItemId: runtimeids.NewQueueItemID().String(), SessionId: sessionID.String(),
+			Input: input,
 		})
 		turnDone <- submitErr
 	}()
@@ -177,6 +179,73 @@ func TestChatSettingsMutationReturnsAfterRuntimeAcceptance(t *testing.T) {
 	case <-model.started:
 	case <-time.After(5 * time.Second):
 		t.Fatal("Agent Step did not reach the model request")
+	}
+	if switchAgent {
+		for _, role := range []string{"unavailable-agent", brand.DefaultSubagentRole} {
+			result, err := chatSettings.MutateChatSettings(t.Context(), &chatsettingspb.MutationRequest{
+				Session: &chatsettingspb.SessionTarget{SessionId: &sharedpb.SessionSelector{Value: &sharedpb.SessionSelector_SessionId{SessionId: sessionID.String()}}},
+				Operation: &chatsettingspb.MutationOperation{
+					Operation: &chatsettingspb.MutationOperation_AgentRole{AgentRole: role},
+				},
+			})
+			if err != nil {
+				t.Fatal(err)
+			}
+			if role == brand.DefaultSubagentRole {
+				if result.Result.GetApplied() == nil {
+					t.Fatalf("current Agent selection was rejected: %+v", result)
+				}
+			} else if result.Result.GetRejected() == nil {
+				t.Fatalf("unavailable Agent accepted: %+v", result)
+			}
+			if err := context.Cause(model.firstContext); err != nil {
+				t.Fatalf("rejected/no-op selection stopped current run: %v", err)
+			}
+		}
+		switched, err := chatSettings.MutateChatSettings(t.Context(), &chatsettingspb.MutationRequest{
+			Session: &chatsettingspb.SessionTarget{SessionId: &sharedpb.SessionSelector{Value: &sharedpb.SessionSelector_SessionId{SessionId: sessionID.String()}}},
+			Operation: &chatsettingspb.MutationOperation{
+				Operation: &chatsettingspb.MutationOperation_AgentRole{AgentRole: brand.BuiltInSubagentRoleFast},
+			},
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if switched.Result.GetApplied() == nil || switched.Settings.SelectedAgent.Role != brand.BuiltInSubagentRoleFast || switched.Settings.CachingLocked {
+			t.Fatalf("Agent was not replaced: %+v", switched)
+		}
+		if context.Cause(model.firstContext) == nil {
+			t.Fatal("old model request was not canceled")
+		}
+		record, err := appCore.MetadataStore().ResolvePersistedSession(t.Context(), sessionID.String())
+		if err != nil {
+			t.Fatal(err)
+		}
+		if record.Meta.SessionID != sessionID.String() || record.Meta.Continuation == nil || record.Meta.Continuation.AgentRole == nil || *record.Meta.Continuation.AgentRole != brand.BuiltInSubagentRoleFast || record.Meta.Locked != nil {
+			t.Fatalf("persisted Agent replacement: %+v", record.Meta)
+		}
+		model.unblock()
+		sent, err := appCore.ChatMutationClient().Steer(t.Context(), &chatpb.SteerRequest{QueueItemId: runtimeids.NewQueueItemID().String(), Target: chatCommandTarget(sessionID.String()),
+			Activation: &chatpb.Activation{Input: &chatpb.Activation_Text{Text: "continue with the new Agent"}},
+		})
+		if err != nil || sent.GetAccepted() == nil {
+			t.Fatalf("next send after replacement: %v, %v", sent, err)
+		}
+		deadline := time.Now().Add(5 * time.Second)
+		for {
+			record, err = appCore.MetadataStore().ResolvePersistedSession(t.Context(), sessionID.String())
+			if err != nil {
+				t.Fatal(err)
+			}
+			if record.Meta.Locked != nil && record.Meta.Locked.Model == switched.Settings.SelectedAgent.Model {
+				break
+			}
+			if time.Now().After(deadline) {
+				t.Fatalf("next request did not rebuild the selected model: %+v", record.Meta.Locked)
+			}
+			time.Sleep(time.Millisecond)
+		}
+		return
 	}
 
 	type mutationResult struct {
@@ -186,7 +255,7 @@ func TestChatSettingsMutationReturnsAfterRuntimeAcceptance(t *testing.T) {
 	mutationDone := make(chan mutationResult, 1)
 	go func() {
 		response, mutationErr := chatSettings.MutateChatSettings(t.Context(), &chatsettingspb.MutationRequest{
-			Session: &chatsettingspb.SessionTarget{SessionId: sessionID.String()},
+			Session: &chatsettingspb.SessionTarget{SessionId: &sharedpb.SessionSelector{Value: &sharedpb.SessionSelector_SessionId{SessionId: sessionID.String()}}},
 			Operation: &chatsettingspb.MutationOperation{
 				Operation: &chatsettingspb.MutationOperation_QuestionsEnabled{QuestionsEnabled: requestedQuestions},
 			},
@@ -232,7 +301,7 @@ func TestChatSettingsMutationReturnsAfterRuntimeAcceptance(t *testing.T) {
 func currentCoreRuntimeQuestions(t *testing.T, appCore *Core, sessionID runtimeids.SessionID) bool {
 	t.Helper()
 	response, err := appCore.SessionViewClient().GetSessionMainView(t.Context(), &sessionpb.MainViewRequest{
-		SessionId: sessionID.String(),
+		SessionId: &sharedpb.SessionSelector{Value: &sharedpb.SessionSelector_SessionId{SessionId: sessionID.String()}},
 	})
 	if err != nil {
 		t.Fatalf("GetSessionMainView: %v", err)

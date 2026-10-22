@@ -10,14 +10,37 @@ import (
 	authpb "core/shared/protoapi/gen/kent/api/auth"
 	chatpb "core/shared/protoapi/gen/kent/api/chat"
 	chatsettingspb "core/shared/protoapi/gen/kent/api/chat_settings"
+	chatshellpb "core/shared/protoapi/gen/kent/api/chat_shell"
+	sharedpb "core/shared/protoapi/gen/kent/api/shared"
 	"core/shared/serverapi"
 
 	"google.golang.org/protobuf/proto"
 	"google.golang.org/protobuf/reflect/protoreflect"
+	"google.golang.org/protobuf/types/known/emptypb"
 )
 
 func registerChatGatewayBinaryBindings(bindings map[string]gatewayBinaryBinding) error {
 	service := chatpb.File_kent_api_chat_chat_proto.Services().ByName("ChatService")
+	if err := registerGatewayBinaryUnary(bindings, chatshellpb.File_kent_api_chat_shell_chat_shell_proto.Services().ByName("ShellService"), "SubmitUserShellCommand",
+		gatewayBinaryCoreActiveOrdinary,
+		func() *chatshellpb.ShellCommandRequest { return &chatshellpb.ShellCommandRequest{} },
+		chatTargetScope[*chatshellpb.ShellCommandRequest],
+		func(g *Gateway, ctx context.Context, _ *connectionState, request *chatshellpb.ShellCommandRequest) (*emptypb.Empty, error) {
+			if err := g.deps.ChatMutationClient().SubmitUserShellCommand(ctx, request); err != nil {
+				return nil, err
+			}
+			return &emptypb.Empty{}, nil
+		},
+		func(_ *Gateway, _ *connectionState, _ *chatshellpb.ShellCommandRequest, err error) proto.Message {
+			detail := binaryChatDomainFailure(err)
+			if _, internal := detail.(*sharedpb.InternalFailureDetails); internal {
+				return binaryRuntimeControlFailure(err)
+			}
+			return detail
+		},
+	); err != nil {
+		return err
+	}
 	if err := registerChatUnary(
 		bindings,
 		service,
@@ -81,28 +104,19 @@ func registerChatUnary[
 }
 
 func chatTargetScope[Request protoapi.ChatTargetRequest](request Request) (routeScopeParams, error) {
-	target, err := protoapi.ChatTargetFromRequest(request)
-	if err != nil {
-		return routeScopeParams{}, err
-	}
-	return routeScopeParams{chatTarget: target}, nil
+	return routeScopeParams{chatTarget: request.GetTarget()}, nil
 }
 
 func binaryChatFailure[Request protoapi.ChatTargetRequest](
 	_ *Gateway,
 	_ *connectionState,
-	request Request,
+	_ Request,
 	err error,
 ) proto.Message {
-	var sessionID *string
-	target, targetErr := protoapi.ChatTargetFromRequest(request)
-	if targetErr == nil && target.GetSession() != nil {
-		sessionID = &target.GetSession().SessionId
-	}
-	return binaryChatDomainFailure(sessionID, err)
+	return binaryChatDomainFailure(err)
 }
 
-func binaryChatDomainFailure(sessionID *string, err error) proto.Message {
+func binaryChatDomainFailure(err error) proto.Message {
 	var agentPreparationErr *serverapi.ChatSettingsAgentPreparationError
 	switch {
 	case errors.Is(err, serverapi.ErrServerAuthRequired):
@@ -124,9 +138,7 @@ func binaryChatDomainFailure(sessionID *string, err error) proto.Message {
 		}
 	case errors.Is(err, session.ErrSessionNotFound),
 		errors.Is(err, errSessionOutsideActiveProject):
-		if sessionID != nil {
-			return &chatsettingspb.SessionNotFoundDetails{SessionId: *sessionID}
-		}
+		return &chatsettingspb.SessionNotFoundDetails{SessionTarget: protoapi.SessionTargetErrorContext(err)}
 	}
 	return binaryInternalFailure(err)
 }

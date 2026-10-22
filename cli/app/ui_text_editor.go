@@ -27,6 +27,20 @@ func newSingleLineEditor(value string) tuiinput.Editor {
 	return editor
 }
 
+func updateInputFieldWithAppKeys(field *tuiinput.Field, width int, msg tea.Msg) tea.Cmd {
+	if key, ok := msg.(tea.KeyMsg); ok {
+		switch key.Type {
+		case tea.KeyUp:
+			field.MoveUp(width)
+			return nil
+		case tea.KeyDown:
+			field.MoveDown(width)
+			return nil
+		}
+	}
+	return updateSingleLineEditorWithAppKeys(&field.Editor, msg)
+}
+
 func updateSingleLineEditorWithAppKeys(editor *tuiinput.Editor, msg tea.Msg) tea.Cmd {
 	key, ok := msg.(tea.KeyMsg)
 	if !ok {
@@ -63,11 +77,6 @@ func renderSingleLineEditor(width int, maxContentLines int, editor tuiinput.Edit
 }
 
 func renderSingleLineEditorFramedSoftCursorLines(width int, maxContentLines int, editor tuiinput.Editor, prefix string, renderCursor bool, lineStyle lipgloss.Style, borderStyle lipgloss.Style, mask rune, placeholder string) []string {
-	border := borderStyle.Render(strings.Repeat("─", max(0, width)))
-	lines := tuiinput.RenderSoftCursorLines(width, renderSingleLineEditor(width, maxContentLines, editor, prefix, renderCursor, mask, placeholder), lineStyle)
-	out := make([]string, 0, len(lines)+2)
-	out = append(out, border)
-	out = append(out, lines...)
-	out = append(out, border)
-	return out
+	rendered := renderSingleLineEditor(width, maxContentLines, editor, prefix, renderCursor, mask, placeholder)
+	return renderFramedInputField(width, rendered, lineStyle, borderStyle, true).Lines
 }

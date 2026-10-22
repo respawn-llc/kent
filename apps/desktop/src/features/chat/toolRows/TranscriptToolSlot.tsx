@@ -1,10 +1,9 @@
-import { BroomSparkles, Copy, Globe, Image, PenLine, Terminal, Wrench } from "lucide-react";
-import type { ReactNode } from "react";
+import { BroomSparkles, Copy, Globe, PenLine, Terminal, Wrench } from "lucide-react";
 import { AnimatePresence } from "motion/react";
 import { useTranslation } from "react-i18next";
 
-import { errorMessage } from "@/api";
-import { useAppServices, useOpenExternalLink } from "@/app-facade";
+import { errorMessage, type ChatSessionTarget } from "@/api";
+import { useAppServices, useOpenExternalLink, usePathFormatter } from "@/app-facade";
 import { writeClipboardText } from "@/shared/native-clipboard";
 import {
   cx,
@@ -15,7 +14,6 @@ import {
   Spinner,
   SyntaxHighlightedCode,
   TranscriptDisclosure,
-  type TranscriptDisclosureIconTone,
 } from "@/ui";
 import {
   resolveToolPresentation,
@@ -25,9 +23,20 @@ import {
 } from "./toolPresentation";
 import type { TranscriptToolSlotItem } from "./toolSlotTypes";
 import "./TranscriptToolSlot.css";
+import { ViewedImageRow } from "./ViewedImageRow";
+import { StaticToolRow } from "./StaticToolRow";
 
-export function TranscriptToolSlot({ item }: Readonly<{ item: TranscriptToolSlotItem }>) {
+export function TranscriptToolSlot({
+  item,
+  target,
+  effectiveWorkdir,
+}: Readonly<{
+  item: TranscriptToolSlotItem;
+  target: ChatSessionTarget;
+  effectiveWorkdir: string | null;
+}>) {
   const { t } = useTranslation();
+  const formatPath = usePathFormatter();
   const presentation = resolveToolPresentation(item, {
     backgrounded: t("chat.toolRows.backgrounded"),
     editFailed: t("chat.toolRows.editFailed"),
@@ -36,13 +45,22 @@ export function TranscriptToolSlot({ item }: Readonly<{ item: TranscriptToolSlot
     patchFailed: t("chat.toolRows.patchFailed"),
     searchedWeb: (query) => t("chat.toolRows.searchedWeb", { query }),
     viewedImage: (path) => t("chat.toolRows.viewedImage", { path }),
+    formatPath,
   });
   switch (presentation.kind) {
     case "generic":
     case "shell-input":
-    case "view-image":
     case "shell-command":
       return <ExpandableToolRow presentation={presentation} />;
+    case "view-image":
+      return (
+        <ViewedImageRow
+          presentation={presentation}
+          item={item}
+          target={target}
+          effectiveWorkdir={effectiveWorkdir}
+        />
+      );
     case "patch-changes":
       return <PatchChangesRow presentation={presentation} />;
     case "patch-invalid-input":
@@ -144,6 +162,7 @@ type ExpandableToolPresentation = Exclude<
   | Readonly<{ kind: "patch-changes" }>
   | Readonly<{ kind: "patch-invalid-input" }>
   | Readonly<{ kind: "web-search" }>
+  | Readonly<{ kind: "view-image" }>
 >;
 
 function PatchInvalidInputRow({
@@ -171,28 +190,6 @@ function PatchInvalidInputRow({
       summary={presentation.compact}
       textTone="secondary"
     />
-  );
-}
-
-function StaticToolRow({
-  compact,
-  icon,
-  iconTone,
-}: Readonly<{
-  compact: string | null;
-  icon: ReactNode;
-  iconTone: TranscriptDisclosureIconTone;
-}>) {
-  return (
-    <div className="transcript-tool-static-row min-h-9" data-transcript-collapsed>
-      <span
-        aria-hidden="true"
-        className={cx("transcript-tool-static-icon size-5", `transcript-disclosure-icon--${iconTone}`)}
-      >
-        {icon}
-      </span>
-      <span className="min-w-0 truncate text-sm text-[var(--color-muted)]">{compact}</span>
-    </div>
   );
 }
 
@@ -337,8 +334,6 @@ function ExpandableToolRow({ presentation }: Readonly<{ presentation: Expandable
           <Spinner size="sm" />
         ) : presentation.icon === "terminal" ? (
           <Terminal aria-hidden="true" className="size-4" strokeWidth={1.8} />
-        ) : presentation.icon === "image" ? (
-          <Image aria-hidden="true" className="size-4" strokeWidth={1.8} />
         ) : presentation.icon === "broom-sparkles" ? (
           <BroomSparkles aria-hidden="true" className="size-4" strokeWidth={1.8} />
         ) : (

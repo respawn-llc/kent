@@ -1,6 +1,6 @@
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { useAtomSet, useAtomValue } from "@effect/atom-react";
-import * as Atom from "effect/unstable/reactivity/Atom";
+import * as Atom from "effect/reactivity/Atom";
 import { useQueryClient } from "@tanstack/react-query";
 import { useTranslation } from "react-i18next";
 import { useAppServices } from "@/app-facade";
@@ -74,5 +74,11 @@ export function useChatSettings(options: ChatSettingsOptions) {
 }
 
 function testNavigation(options: ChatSettingsOptions): ChatSettingsNavigation {
-  return "openTask" in options ? options : { openTask: () => undefined, openParentSession: () => undefined };
+  return "openTask" in options
+    ? options
+    : {
+        projectID: options.target.projectID,
+        openTask: () => undefined,
+        openParentSession: () => undefined,
+      };
 }

@@ -1,3 +1,4 @@
+import type { StreamFailureCode } from "@app/server-api-contract/gen/kent/api/shared/foundation_pb";
 import type { FileAccessTarget } from "./promptModels";
 
 export type AttentionNotificationKind =
@@ -70,6 +71,13 @@ export type AttentionNotification = Readonly<{
 
 export type AttentionNotificationEvent =
   | Readonly<{
+      type: "session_naming_failure";
+      sequence: number;
+      shortID: number | null;
+      target: Readonly<{ kind: "session_prompt"; projectID: string; sessionID: string }>;
+      error: Readonly<{ cause: string | null }>;
+    }>
+  | Readonly<{
       type: "pending";
       sequence: number;
       pending: AttentionNotification;
@@ -84,9 +92,12 @@ export type AttentionNotificationEvent =
 
 export type AttentionNotificationEventParams = Readonly<{ event: AttentionNotificationEvent }>;
 
-export type AttentionNotificationEventHandler = Readonly<{
-  onOpen?(): void;
-  onEvent(event: AttentionNotificationEvent): void;
-  onComplete(code: number, message: string): void;
-  onError(error: Error): void;
-}>;
+export type AttentionNotificationLifecycle =
+  | Readonly<{ kind: "open" }>
+  | Readonly<{ kind: "event"; event: AttentionNotificationEvent }>
+  | Readonly<{
+      kind: "complete";
+      code: StreamFailureCode | null;
+      message: string | null;
+    }>
+  | Readonly<{ kind: "error"; error: Error }>;

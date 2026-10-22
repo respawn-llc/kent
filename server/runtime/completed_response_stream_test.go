@@ -30,7 +30,7 @@ func TestCompletedResponseActiveStreamFinalizesOnce(t *testing.T) {
 		mustCreateTestSession(t),
 		scriptedllm.NewClient(scriptedllm.Script{Steps: []scriptedllm.Step{step}}),
 		Config{
-			Model:   "gpt-5",
+			Model:   "gpt-6-sol",
 			OnEvent: func(event Event) { events = append(events, event) },
 		},
 	)
@@ -100,6 +100,305 @@ func TestCompletedResponseActiveStreamFinalizesOnce(t *testing.T) {
 	}
 }
 
+func TestCompletedFinalAnswerRecordsReasoningBeforeAssistant(t *testing.T) {
+	t.Parallel()
+	const reasoningText = "synthetic completed reasoning"
+	step := scriptedllm.FinalAnswer("completed")
+	step.Response.Reasoning = []llm.ReasoningEntry{{
+		Role: textutil.Value(string(transcript.EntryRoleReasoning)),
+		Text: reasoningText,
+	}}
+	var events []Event
+	store := mustCreateTestSession(t)
+	engine := mustNewExecTestEngine(
+		t,
+		store,
+		scriptedllm.NewClient(scriptedllm.Script{Steps: []scriptedllm.Step{step}}),
+		Config{
+			Model:   "gpt-6-sol",
+			OnEvent: func(event Event) { events = append(events, event) },
+		},
+	)
+
+	if _, err := engine.SubmitUserMessage(context.Background(), "turn"); err != nil {
+		t.Fatalf("submit user turn: %v", err)
+	}
+
+	assertReasoningPrecedesFinalAnswer(
+		t,
+		events,
+		store,
+		reasoningText,
+		"completed",
+		textutil.Value(llm.MessagePhaseFinal),
+	)
+}
+
+func TestNonFirstPartyPhaseAbsentAnswerRecordsReasoningBeforeAssistant(t *testing.T) {
+	t.Parallel()
+	const reasoningText = "synthetic phase-absent reasoning"
+	step := scriptedllm.FinalAnswer("completed")
+	step.Response.Assistant.Phase = nil
+	step.Response.ProviderPhase = llm.AbsentProviderPhase()
+	step.Response.Reasoning = []llm.ReasoningEntry{{
+		Role: textutil.Value(string(transcript.EntryRoleReasoning)),
+		Text: reasoningText,
+	}}
+	capabilities := llm.ProviderCapabilities{
+		ProviderID:           string(llm.ProviderGrok),
+		SupportsResponsesAPI: true,
+		IsOpenAIFirstParty:   false,
+	}
+	var events []Event
+	store := mustCreateTestSession(t)
+	engine := mustNewExecTestEngine(
+		t,
+		store,
+		scriptedllm.NewClient(scriptedllm.Script{
+			Capabilities: &capabilities,
+			Steps:        []scriptedllm.Step{step},
+		}),
+		Config{
+			Model:         "grok-4.7",
+			ThinkingLevel: "high",
+			OnEvent:       func(event Event) { events = append(events, event) },
+		},
+	)
+
+	if _, err := engine.SubmitUserMessage(context.Background(), "turn"); err != nil {
+		t.Fatalf("submit user turn: %v", err)
+	}
+	if step.Response.ProviderPhase == nil || !step.Response.ProviderPhase.IsAbsent() {
+		t.Fatalf("scripted provider phase = %v, want explicit absence", step.Response.ProviderPhase)
+	}
+	assertReasoningPrecedesFinalAnswer(
+		t,
+		events,
+		store,
+		reasoningText,
+		"completed",
+		nil,
+	)
+}
+
+func TestEarlyStreamedReasoningPrecedesCompletedFinalAnswer(t *testing.T) {
+	t.Parallel()
+	var events []Event
+	store := mustCreateTestSession(t)
+	engine := mustNewExecTestEngine(
+		t,
+		store,
+		fakeReasoningStreamClient{},
+		Config{
+			Model:   "gpt-6-sol",
+			OnEvent: func(event Event) { events = append(events, event) },
+		},
+	)
+
+	if _, err := engine.SubmitUserMessage(context.Background(), "turn"); err != nil {
+		t.Fatalf("submit user turn: %v", err)
+	}
+
+	var reasoningDeltaIndex, assistantDeltaIndex *int
+	for index, event := range events {
+		switch event.Kind {
+		case EventReasoningDelta:
+			if reasoningDeltaIndex == nil {
+				eventIndex := index
+				reasoningDeltaIndex = &eventIndex
+			}
+		case EventAssistantDelta:
+			if assistantDeltaIndex == nil {
+				eventIndex := index
+				assistantDeltaIndex = &eventIndex
+			}
+		}
+	}
+	if reasoningDeltaIndex == nil || assistantDeltaIndex == nil || *reasoningDeltaIndex >= *assistantDeltaIndex {
+		t.Fatalf("early provider delta order is invalid: events:%+v", events)
+	}
+	assertReasoningPrecedesFinalAnswer(
+		t,
+		events,
+		store,
+		"Plan summary",
+		"done",
+		nil,
+	)
+}
+
+func TestLateStreamedReasoningDoesNotDelayAssistantAndPrecedesFinalHistory(t *testing.T) {
+	t.Parallel()
+	const reasoningText = "synthetic late reasoning"
+	outputIndex, partIndex := int64(0), int64(0)
+	coordinate := &llm.ReasoningSourceCoordinate{
+		OutputIndex: &outputIndex,
+		PartIndex:   &partIndex,
+	}
+	step := scriptedllm.FinalAnswer("completed")
+	step.StreamDeltas = []llm.AssistantDelta{{
+		Text:  "answer started",
+		Phase: llm.MessagePhaseFinal,
+	}}
+	step.ReasoningDeltas = []llm.ReasoningSummaryDelta{{
+		SourceCoordinate: coordinate,
+		Role:             string(transcript.EntryRoleReasoning),
+		Text:             reasoningText,
+	}}
+	step.Response.Reasoning = []llm.ReasoningEntry{{
+		Role:             textutil.Value(string(transcript.EntryRoleReasoning)),
+		Text:             reasoningText,
+		SourceCoordinate: coordinate,
+	}}
+	var events []Event
+	store := mustCreateTestSession(t)
+	engine := mustNewExecTestEngine(
+		t,
+		store,
+		scriptedllm.NewClient(scriptedllm.Script{Steps: []scriptedllm.Step{step}}),
+		Config{
+			Model:   "gpt-6-sol",
+			OnEvent: func(event Event) { events = append(events, event) },
+		},
+	)
+
+	if _, err := engine.SubmitUserMessage(context.Background(), "turn"); err != nil {
+		t.Fatalf("submit user turn: %v", err)
+	}
+
+	var assistantDeltaIndex, reasoningDeltaIndex *int
+	for index, event := range events {
+		switch event.Kind {
+		case EventAssistantDelta:
+			if assistantDeltaIndex == nil {
+				eventIndex := index
+				assistantDeltaIndex = &eventIndex
+			}
+		case EventReasoningDelta:
+			if reasoningDeltaIndex == nil {
+				eventIndex := index
+				reasoningDeltaIndex = &eventIndex
+			}
+		}
+	}
+	if assistantDeltaIndex == nil || reasoningDeltaIndex == nil || *assistantDeltaIndex >= *reasoningDeltaIndex {
+		t.Fatalf("late provider delta order is invalid: events:%+v", events)
+	}
+	assertReasoningPrecedesFinalAnswer(
+		t,
+		events,
+		store,
+		reasoningText,
+		"completed",
+		textutil.Value(llm.MessagePhaseFinal),
+	)
+}
+
+func assertReasoningPrecedesFinalAnswer(
+	t *testing.T,
+	events []Event,
+	store *session.Store,
+	reasoningText string,
+	assistantText string,
+	assistantPhase *llm.MessagePhase,
+) {
+	t.Helper()
+	committed := durableTranscriptProjectionEvents(events)
+	var reasoningEventIndex, assistantEventIndex *int
+	reasoningEventCount, assistantEventCount := 0, 0
+	for index, event := range committed {
+		switch event.Kind {
+		case EventLocalEntryAdded:
+			if event.LocalEntry != nil && event.LocalEntry.Role == string(transcript.EntryRoleReasoning) {
+				reasoningEventCount++
+				if event.LocalEntry.Text != reasoningText {
+					t.Fatalf("committed reasoning text = %q, want unchanged provider text", event.LocalEntry.Text)
+				}
+				eventIndex := index
+				reasoningEventIndex = &eventIndex
+			}
+		case EventAssistantMessage:
+			phase, _ := textutil.OptionalValue(event.Message.Phase)
+			if event.Message.Role == llm.RoleAssistant &&
+				transcript.ClassifyAssistantPhase(string(phase)) == transcript.AssistantPhaseFinal {
+				assistantEventCount++
+				eventIndex := index
+				assistantEventIndex = &eventIndex
+				if (event.Message.Phase == nil) != (assistantPhase == nil) ||
+					(assistantPhase != nil && *event.Message.Phase != *assistantPhase) {
+					t.Fatalf("committed assistant phase = %v, want %v", event.Message.Phase, assistantPhase)
+				}
+				if messageContent(event.Message) != assistantText {
+					t.Fatalf("committed assistant text = %q, want %q", messageContent(event.Message), assistantText)
+				}
+			}
+		}
+	}
+	if reasoningEventIndex == nil ||
+		reasoningEventCount != 1 ||
+		assistantEventCount != 1 ||
+		assistantEventIndex == nil ||
+		*reasoningEventIndex >= *assistantEventIndex {
+		t.Fatalf(
+			"committed reasoning/final order is invalid: reasoning_count:%d final_count:%d events:%+v",
+			reasoningEventCount,
+			assistantEventCount,
+			committed,
+		)
+	}
+
+	window, err := mustMaterializeTestEventLog(t, store).ReadRecentRecords(16)
+	if err != nil {
+		t.Fatalf("read bounded final-answer history: %v", err)
+	}
+	var persistedReasoningIndex, persistedAssistantIndex *int
+	persistedReasoningCount, persistedAssistantCount := 0, 0
+	for index, record := range window.Records {
+		switch payload := mustSessionEventPayload(record).(type) {
+		case session.LocalEntryRecord:
+			if payload.Role == string(transcript.EntryRoleReasoning) && payload.Text != nil {
+				persistedReasoningCount++
+				if *payload.Text != reasoningText {
+					t.Fatalf("persisted reasoning text = %q, want unchanged provider text", *payload.Text)
+				}
+				recordIndex := index
+				persistedReasoningIndex = &recordIndex
+			}
+		case session.MessageRecord:
+			message, restoreErr := llmMessageFromSessionRecord(payload)
+			if restoreErr != nil {
+				t.Fatalf("restore persisted message: %v", restoreErr)
+			}
+			phase, _ := textutil.OptionalValue(message.Phase)
+			if message.Role == llm.RoleAssistant &&
+				transcript.ClassifyAssistantPhase(string(phase)) == transcript.AssistantPhaseFinal {
+				persistedAssistantCount++
+				recordIndex := index
+				persistedAssistantIndex = &recordIndex
+				if (message.Phase == nil) != (assistantPhase == nil) ||
+					(assistantPhase != nil && *message.Phase != *assistantPhase) {
+					t.Fatalf("persisted assistant phase = %v, want %v", message.Phase, assistantPhase)
+				}
+				if messageContent(message) != assistantText {
+					t.Fatalf("persisted assistant text = %q, want %q", messageContent(message), assistantText)
+				}
+			}
+		}
+	}
+	if persistedReasoningIndex == nil ||
+		persistedReasoningCount != 1 ||
+		persistedAssistantCount != 1 ||
+		persistedAssistantIndex == nil ||
+		*persistedReasoningIndex >= *persistedAssistantIndex {
+		t.Fatalf(
+			"persisted reasoning/final order is invalid: reasoning_count:%d final_count:%d records:%+v",
+			persistedReasoningCount,
+			persistedAssistantCount,
+			window.Records,
+		)
+	}
+}
+
 func TestCompletedResponseWithoutActiveStreamPublishesNoStreamTerminal(t *testing.T) {
 	t.Parallel()
 	var events []Event
@@ -110,7 +409,7 @@ func TestCompletedResponseWithoutActiveStreamPublishesNoStreamTerminal(t *testin
 			scriptedllm.FinalAnswer("completed"),
 		}}),
 		Config{
-			Model:   "gpt-5",
+			Model:   "gpt-6-sol",
 			OnEvent: func(event Event) { events = append(events, event) },
 		},
 	)
@@ -189,7 +488,7 @@ func TestCompletedResponseWorkflowPreflightAbortsBeforeContinuation(t *testing.T
 			Controller:                   controller,
 		},
 		Config{
-			Model:   "gpt-5",
+			Model:   "gpt-6-sol",
 			OnEvent: func(event Event) { events = append(events, event) },
 		},
 	)
@@ -243,7 +542,7 @@ func TestCompletedResponsePersistsOnlyPlannedAcceptedCalls(t *testing.T) {
 			Usage: llm.Usage{WindowTokens: 200000},
 		},
 	}}
-	engine := mustNewExecTestEngine(t, store, client, Config{Model: "gpt-5"})
+	engine := mustNewExecTestEngine(t, store, client, Config{Model: "gpt-6-sol"})
 
 	if _, err := engine.SubmitUserMessage(context.Background(), "turn"); err != nil {
 		t.Fatalf("submit user turn: %v", err)
@@ -308,7 +607,7 @@ func TestCompletedResponseReasoningOnlyAbortsBeforeContinuation(t *testing.T) {
 		mustCreateTestSession(t),
 		scriptedllm.NewClient(scriptedllm.Script{Steps: []scriptedllm.Step{reasoning, final}}),
 		Config{
-			Model:   "gpt-5",
+			Model:   "gpt-6-sol",
 			OnEvent: func(event Event) { events = append(events, event) },
 		},
 	)
@@ -423,7 +722,7 @@ func TestCompletedResponseFinalAnswerWithToolsFinalizesAfterToolPersistence(t *t
 		store,
 		scriptedllm.NewClient(scriptedllm.Script{Steps: []scriptedllm.Step{step}}),
 		Config{
-			Model:   "gpt-5",
+			Model:   "gpt-6-sol",
 			OnEvent: func(event Event) { events = append(events, event) },
 		},
 	)
@@ -596,7 +895,7 @@ func TestSubmitUserMessageFinalAnswerWithMixedToolCallsMaterializesAllToolsBefor
 	var events []Event
 	store := mustCreateTestSession(t)
 	engine := mustNewExecTestEngine(t, store, scriptedllm.NewClient(scriptedllm.Script{Steps: []scriptedllm.Step{step}}), Config{
-		Model:   "gpt-5",
+		Model:   "gpt-6-sol",
 		OnEvent: func(event Event) { events = append(events, event) },
 	})
 	if _, err := engine.SubmitUserMessage(context.Background(), "turn"); err != nil {
@@ -605,6 +904,7 @@ func TestSubmitUserMessageFinalAnswerWithMixedToolCallsMaterializesAllToolsBefor
 
 	starts, completions := map[string]int{}, map[string]int{}
 	finalIndex, terminalIndex, reasoningRows := -1, -1, 0
+	var reasoningIndex *int
 	for index, event := range events {
 		switch event.Kind {
 		case EventToolCallStarted:
@@ -627,20 +927,37 @@ func TestSubmitUserMessageFinalAnswerWithMixedToolCallsMaterializesAllToolsBefor
 		case EventLocalEntryAdded:
 			if event.LocalEntry != nil && event.LocalEntry.Role == string(transcript.EntryRoleReasoning) {
 				reasoningRows++
+				eventIndex := index
+				reasoningIndex = &eventIndex
+				if event.LocalEntry.Text != "final tools reasoning" {
+					t.Fatalf("final-answer-with-tools reasoning text = %q", event.LocalEntry.Text)
+				}
 			}
 		}
 	}
 	if finalIndex < 0 || terminalIndex <= finalIndex {
 		t.Fatalf("final/terminal order = final:%d terminal:%d events:%+v", finalIndex, terminalIndex, events)
 	}
-	if reasoningRows != 1 {
-		t.Fatalf("final-answer-with-tools reasoning rows = %d, want one", reasoningRows)
+	if reasoningRows != 1 || reasoningIndex == nil || *reasoningIndex >= finalIndex {
+		t.Fatalf(
+			"final-answer-with-tools reasoning/final order is invalid: final:%d reasoning_rows:%d events:%+v",
+			finalIndex,
+			reasoningRows,
+			events,
+		)
 	}
 	for _, call := range calls {
 		start, started := starts[call.ID]
 		completion, completed := completions[call.ID]
-		if !started || !completed || start >= completion || completion >= finalIndex {
-			t.Fatalf("tool materialization %s = start:%d completion:%d final:%d events:%+v", call.ID, start, completion, finalIndex, events)
+		if !started || !completed || start >= completion || completion >= *reasoningIndex || *reasoningIndex >= finalIndex {
+			t.Fatalf(
+				"tool/reasoning/final order %s = start:%d completion:%d final:%d events:%+v",
+				call.ID,
+				start,
+				completion,
+				finalIndex,
+				events,
+			)
 		}
 	}
 	window, err := mustMaterializeTestEventLog(t, store).ReadRecentRecords(16)
@@ -648,23 +965,56 @@ func TestSubmitUserMessageFinalAnswerWithMixedToolCallsMaterializesAllToolsBefor
 		t.Fatalf("read bounded records: %v", err)
 	}
 	recordCompletions, persistedFinalIndex := map[string]int{}, -1
+	var persistedReasoningIndex *int
+	persistedFinalCount, persistedReasoningCount := 0, 0
 	for index, record := range window.Records {
 		switch payload := mustSessionEventPayload(record).(type) {
 		case session.ToolCompletionRecord:
 			recordCompletions[payload.CallID] = index
+		case session.LocalEntryRecord:
+			if payload.Role == string(transcript.EntryRoleReasoning) && payload.Text != nil {
+				persistedReasoningCount++
+				recordIndex := index
+				persistedReasoningIndex = &recordIndex
+				if *payload.Text != "final tools reasoning" {
+					t.Fatalf("persisted final-answer-with-tools reasoning text = %q", *payload.Text)
+				}
+			}
 		case session.MessageRecord:
 			message, restoreErr := llmMessageFromSessionRecord(payload)
 			if restoreErr != nil {
 				t.Fatalf("restore message: %v", restoreErr)
 			}
 			if message.Role == llm.RoleAssistant && message.Phase != nil && *message.Phase == llm.MessagePhaseFinal {
+				persistedFinalCount++
 				persistedFinalIndex = index
 			}
 		}
 	}
+	if persistedReasoningCount != 1 ||
+		persistedReasoningIndex == nil ||
+		persistedFinalCount != 1 ||
+		persistedFinalIndex < 0 ||
+		*persistedReasoningIndex >= persistedFinalIndex {
+		t.Fatalf(
+			"persisted final-answer-with-tools reasoning/final order is invalid: final:%d reasoning_count:%d final_count:%d records:%+v",
+			persistedFinalIndex,
+			persistedReasoningCount,
+			persistedFinalCount,
+			window.Records,
+		)
+	}
 	for _, call := range calls {
-		if completion, ok := recordCompletions[call.ID]; !ok || persistedFinalIndex < 0 || completion >= persistedFinalIndex {
-			t.Fatalf("persisted tool/final order %s = completion:%d final:%d records:%+v", call.ID, completion, persistedFinalIndex, window.Records)
+		if completion, ok := recordCompletions[call.ID]; !ok ||
+			completion >= *persistedReasoningIndex ||
+			*persistedReasoningIndex >= persistedFinalIndex {
+			t.Fatalf(
+				"persisted tool/reasoning/final order %s = completion:%d final:%d records:%+v",
+				call.ID,
+				completion,
+				persistedFinalIndex,
+				window.Records,
+			)
 		}
 	}
 }
@@ -673,7 +1023,7 @@ func TestBlankStreamedFinalSkipsFinalPublication(t *testing.T) {
 	t.Parallel()
 	var events []Event
 	engine := mustNewExecTestEngine(t, mustCreateTestSession(t), fakeNoopStreamClient{}, Config{
-		Model:   "gpt-5",
+		Model:   "gpt-6-sol",
 		OnEvent: func(event Event) { events = append(events, event) },
 	})
 	if _, err := engine.SubmitUserMessage(context.Background(), "turn"); err != nil {
@@ -720,7 +1070,7 @@ func TestWorkflowInvalidCompletionFailClosedWhenConfiguredCapInvalid(t *testing.
 			Controller:                   controller,
 		},
 		Config{
-			Model: "gpt-5",
+			Model: "gpt-6-sol",
 		},
 	)
 
@@ -771,7 +1121,7 @@ func TestWorkflowCompletionControllerFailureEndsTurnWithoutProtocolViolation(t *
 			Controller:                   controller,
 		},
 		Config{
-			Model: "gpt-5",
+			Model: "gpt-6-sol",
 		},
 	)
 
@@ -803,7 +1153,7 @@ func TestCompletedResponseFinalizationUsesActiveSegmentCoordinatesAfterCompactio
 		mustCreateTestSession(t),
 		scriptedllm.NewClient(scriptedllm.Script{Steps: []scriptedllm.Step{first, second}}),
 		Config{
-			Model:   "gpt-5",
+			Model:   "gpt-6-sol",
 			OnEvent: func(event Event) { events = append(events, event) },
 		},
 	)
@@ -813,7 +1163,7 @@ func TestCompletedResponseFinalizationUsesActiveSegmentCoordinatesAfterCompactio
 	}
 	if err := steerTestActiveStep(engine,
 		"compaction",
-		steerHistoryReplacementIntent("local", compactionModeAuto, 1, nil, nil),
+		steerTestPreparedHistoryIntent("local", compactionModeAuto, 1, nil, preparedCompactionHistory{items: nil}),
 	); err != nil {
 		t.Fatalf("persist history replacement: %v", err)
 	}

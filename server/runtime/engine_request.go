@@ -73,7 +73,7 @@ func prepareNativeThinking(items []llm.ResponseItem, replacementEnd *int, desire
 	if len(items) > 0 && items[len(items)-1].Type == llm.ResponseItemTypeConfigurationUpdate {
 		return projection, nil
 	}
-	item := llm.PrepareOpenAIInputItems([]llm.ResponseItem{{
+	item := llm.PrepareResponsesInputItems([]llm.ResponseItem{{
 		Type: llm.ResponseItemTypeConfigurationUpdate, ConfigurationEffort: &desired,
 	}})[0]
 	projection.update = &item
@@ -81,10 +81,12 @@ func prepareNativeThinking(items []llm.ResponseItem, replacementEnd *int, desire
 }
 
 type dispatchRequestIdentity struct {
-	SessionID            string
-	RunID                string
-	CompactionGeneration int
-	RequestKind          *llm.CodexRequestKind
+	SessionID               string
+	StepID                  string
+	CompactionGeneration    int
+	RequestKind             *llm.CodexRequestKind
+	TurnStateLifetime       *llm.CodexTurnStateLifetime
+	SharedTurnStateLifetime *llm.CodexTurnStateLifetime
 }
 
 type dispatchRequestFactory struct {
@@ -120,6 +122,9 @@ func (e *Engine) buildDispatchRequest(ctx context.Context, stepID string, extra 
 	if err != nil {
 		return llm.Request{}, err
 	}
+	if err := e.prepareRequestGenerationContext(ctx, stepID); err != nil {
+		return llm.Request{}, err
+	}
 	assembly, err := e.assembleRequest(ctx, stepID, extra, allowTools, true)
 	if err != nil {
 		return llm.Request{}, err
@@ -132,6 +137,9 @@ func (e *Engine) buildActiveTurnDispatchRequest(ctx context.Context, stepID stri
 	if err != nil {
 		return llm.Request{}, err
 	}
+	if err := e.prepareRequestGenerationContext(ctx, stepID); err != nil {
+		return llm.Request{}, err
+	}
 	assembly, err := e.assembleRequest(ctx, stepID, extra, allowTools, true)
 	if err != nil {
 		return llm.Request{}, err
@@ -140,6 +148,9 @@ func (e *Engine) buildActiveTurnDispatchRequest(ctx context.Context, stepID stri
 }
 
 func (e *Engine) assembleRequest(ctx context.Context, stepID string, extra []llm.ResponseItem, allowTools bool, refreshPrompt bool) (requestAssembly, error) {
+	if _, pending := e.generationContextSnapshot().(pendingGenerationContext); pending {
+		return requestAssembly{}, errors.New("compacted output requires generation context before request assembly")
+	}
 	locked, err := e.ensureLocked()
 	if err != nil {
 		return requestAssembly{}, err
@@ -177,7 +188,11 @@ func (e *Engine) assembleRequest(ctx context.Context, stepID string, extra []llm
 	if err != nil {
 		return requestAssembly{}, err
 	}
-	thinking, err := prepareNativeThinking(items, replacementEnd, e.ThinkingLevel(), e.store.Meta().OriginalThinkingEffort, llm.SupportsNativeThinkingUpdates(locked.Model, caps))
+	effort := llm.ProviderThinkingEffort(locked.Model, e.ThinkingLevel())
+	if err := llm.ValidateModelReasoningEffort(locked.Model, effort); err != nil {
+		return requestAssembly{}, err
+	}
+	thinking, err := prepareNativeThinking(items, replacementEnd, effort, e.store.Meta().OriginalThinkingEffort, llm.SupportsNativeThinkingUpdates(locked.Model, caps))
 	if err != nil {
 		return requestAssembly{}, err
 	}
@@ -259,16 +274,30 @@ func newDispatchRequestFactory(identity dispatchRequestIdentity) (dispatchReques
 }
 
 func (e *Engine) activeDispatchRequestFactory(stepID string, requestKind *llm.CodexRequestKind) (dispatchRequestFactory, error) {
-	runID := activeRunIDForStep(e, stepID)
-	if runID == "" {
-		return dispatchRequestFactory{}, fmt.Errorf("%w: active Run identity is required for dispatch", llm.ErrInvalidRequest)
+	active := e.ActiveRun()
+	if active == nil || active.StepID != stepID {
+		return dispatchRequestFactory{}, fmt.Errorf("%w: active Step identity is required for dispatch", llm.ErrInvalidRequest)
+	}
+	lifetime, ok := e.stepLifecycle.TurnStateLifetimeForStep(stepID)
+	if !ok {
+		return dispatchRequestFactory{}, fmt.Errorf("%w: active Step routing lifetime is required for dispatch", llm.ErrInvalidRequest)
 	}
 	return newDispatchRequestFactory(dispatchRequestIdentity{
 		SessionID:            e.SessionID(),
-		RunID:                runID,
+		StepID:               stepID,
 		CompactionGeneration: e.compactionRuntimeState().Count(),
 		RequestKind:          requestKind,
+		TurnStateLifetime:    lifetime,
 	})
+}
+
+func (e *Engine) localCompactionDispatchRequestFactory(stepID string) (dispatchRequestFactory, error) {
+	factory, err := e.activeDispatchRequestFactory(stepID, nil)
+	if err != nil {
+		return dispatchRequestFactory{}, err
+	}
+	factory.identity.TurnStateLifetime = llm.NewCodexTurnStateLifetime()
+	return factory, nil
 }
 
 func (f dispatchRequestFactory) generation(base llm.Request) (llm.Request, error) {
@@ -298,10 +327,12 @@ func (f dispatchRequestFactory) compaction(base llm.CompactionRequest) (llm.Comp
 
 func (i dispatchRequestIdentity) newDispatchContext() (*llm.CodexDispatchContext, error) {
 	return llm.NewCodexDispatchContext(llm.CodexDispatchFacts{
-		SessionID:            i.SessionID,
-		RunID:                i.RunID,
-		CompactionGeneration: i.CompactionGeneration,
-		RequestKind:          i.RequestKind,
+		SessionID:               i.SessionID,
+		StepID:                  i.StepID,
+		CompactionGeneration:    i.CompactionGeneration,
+		RequestKind:             i.RequestKind,
+		TurnStateLifetime:       i.TurnStateLifetime,
+		SharedTurnStateLifetime: i.SharedTurnStateLifetime,
 	})
 }
 
@@ -436,11 +467,11 @@ func (e *Engine) workflowCompletionMode(ctx context.Context) (workflowruntime.Co
 	if err != nil {
 		return "", err
 	}
-	locked, lockedConfigured := e.lockedContractState().Snapshot()
-	if !lockedConfigured || locked.WorkflowCompletionMode == nil {
+	snapshot := e.store.Meta().WorkflowSnapshot
+	if snapshot == nil {
 		return promptMode, nil
 	}
-	lockedMode, err := workflowruntime.ParseCompletionMode(string(*locked.WorkflowCompletionMode))
+	lockedMode, err := workflowruntime.ParseCompletionMode(string(snapshot.CompletionMode))
 	if err != nil {
 		return "", fmt.Errorf("parse Session-locked workflow completion mode: %w", err)
 	}
@@ -528,9 +559,10 @@ func hostedToolExecutionsFromOutputItems(items []llm.ResponseItem, defs []tools.
 		for _, execution := range decoded {
 			out = append(out, hostedToolExecution{
 				Call: llm.ToolCall{
-					ID:    execution.Call.ID,
-					Name:  string(execution.Call.Name),
-					Input: execution.Call.Input,
+					ID:           execution.Call.ID,
+					Name:         string(execution.Call.Name),
+					Input:        execution.Call.Input,
+					ProviderItem: append(json.RawMessage(nil), execution.Call.ProviderItem...),
 				},
 				Result:         execution.Result,
 				outputPosition: position,

@@ -6,7 +6,6 @@ import (
 	"strings"
 	"time"
 
-	"core/server/metadata"
 	servicecontract "core/shared/apicontract"
 	runpromptpb "core/shared/protoapi/gen/kent/api/run_prompt"
 	"core/shared/serverapi"
@@ -18,50 +17,32 @@ type inProcessRunPromptService struct {
 	launcher *headlessPromptLauncher
 }
 
-func (s *inProcessRunPromptService) RunPrompt(ctx context.Context, req serverapi.RunPromptRequest, progress serverapi.RunPromptProgressSink) (*runpromptpb.Success, error) {
-	return s.runPrompt(ctx, req, progress)
-}
-
-func (s *inProcessRunPromptService) runPrompt(ctx context.Context, req serverapi.RunPromptRequest, progress serverapi.RunPromptProgressSink) (response *runpromptpb.Success, err error) {
-	if s == nil || s.launcher == nil {
+func (s *inProcessRunPromptService) RunPrompt(ctx context.Context, req *runpromptpb.Request, progress serverapi.RunPromptProgressSink) (*runpromptpb.Success, error) {
+	if s == nil || s.launcher == nil || s.launcher.boot.SessionLaunch == nil {
 		return nil, errors.New("run prompt service is not configured")
 	}
-	req.Prompt = strings.TrimSpace(req.Prompt)
-	if err := req.Validate(); err != nil {
-		return nil, err
-	}
-
-	runtimeHandle, err := s.launcher.prepareHeadlessPrompt(ctx, req, progress)
+	input, err := s.launcher.boot.SessionLaunch.ResolveRunPromptRequest(ctx, req)
 	if err != nil {
 		return nil, err
 	}
-	defer func() {
-		err = errors.Join(err, runtimeHandle.plan.CloseWithFailure(err != nil))
-	}()
+	return s.runPrompt(ctx, input, progress)
+}
 
-	runCtx := ctx
-	if req.Timeout > 0 {
-		var cancel context.CancelFunc
-		runCtx, cancel = context.WithTimeout(ctx, req.Timeout)
-		defer cancel()
+func (s *inProcessRunPromptService) runPrompt(ctx context.Context, req serverapi.RunPromptRequest, progress serverapi.RunPromptProgressSink) (response *runpromptpb.Success, err error) {
+	req.Prompt = strings.TrimSpace(req.Prompt)
+
+	delivery := newRunPromptProgressDelivery(progress)
+	defer delivery.Close()
+	runtimeHandle, err := s.launcher.prepareHeadlessPrompt(ctx, req, delivery)
+	if err != nil {
+		return nil, err
 	}
-
 	startedAt := time.Now()
-	if history := s.launcher.boot.PromptHistory; history != nil {
-		_, err := history.RecordPromptHistoryEntry(runCtx, metadata.PromptHistoryEntry{
-			SessionID: runtimeHandle.plan.sessionID,
-			Text:      runtimeHandle.plan.PromptHistoryText(req.Prompt),
-		})
-		if err != nil {
-			return nil, err
-		}
+	response, err = runtimeHandle.Complete(req.Timeout)
+	if response != nil {
+		response.Duration = durationpb.New(time.Since(startedAt))
 	}
-	response, runErr := runtimeHandle.submitUserMessage(runCtx, req.Prompt)
-	response.Duration = durationpb.New(time.Since(startedAt))
-	if runErr != nil {
-		return response, runErr
-	}
-	return response, nil
+	return response, err
 }
 
 var _ servicecontract.RunPromptService = (*inProcessRunPromptService)(nil)

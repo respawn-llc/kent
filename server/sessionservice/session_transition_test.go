@@ -5,6 +5,7 @@ import (
 	"path/filepath"
 	"testing"
 
+	"core/server/launch"
 	"core/server/session"
 	"core/server/session/sessiontest"
 	sessionlaunchpb "core/shared/protoapi/gen/kent/api/session_launch"
@@ -74,7 +75,7 @@ func TestResolveForkRollbackCreatesForkedSession(t *testing.T) {
 	if err != nil {
 		t.Fatalf("create session store: %v", err)
 	}
-	if err := store.SetName("parent"); err != nil {
+	if err := store.SetName(textutil.Value("parent")); err != nil {
 		t.Fatalf("set session name: %v", err)
 	}
 	appendSessionMessage(t, store, "s1", session.MessageRoleUser, "u1")
@@ -83,8 +84,8 @@ func TestResolveForkRollbackCreatesForkedSession(t *testing.T) {
 	appendSessionMessage(t, store, "s2", session.MessageRoleAssistant, "a2")
 
 	resolved, err := resolveSessionTransition(context.Background(), sessionTransitionResolveRequest{
-		Store:        store,
-		ForkThinking: session.ForkThinking{Desired: "medium"},
+		Store:      store,
+		ForkTarget: launch.InteractiveForkTarget{ConnectionID: "interactive", Thinking: session.ForkThinking{Desired: "medium"}},
 		Transition: sessionTransition{
 			Action:             sessionlaunchpb.SessionTransitionAction_SESSION_TRANSITION_ACTION_FORK_ROLLBACK,
 			InitialPrompt:      "edited user message",
@@ -107,8 +108,8 @@ func TestResolveForkRollbackCreatesForkedSession(t *testing.T) {
 	if err != nil {
 		t.Fatalf("open forked session: %v", err)
 	}
-	if got := child.Meta().Name; got != "parent \u2192 edit u2" {
-		t.Fatalf("forked session name = %q", got)
+	if got := child.Meta().Name; got == nil || *got != "parent \u2192 edit u2" {
+		t.Fatalf("forked session name = %v", got)
 	}
 }
 
@@ -125,8 +126,8 @@ func TestResolveForkRollbackPreservesIntentionalEmptyDraftOverride(t *testing.T)
 	appendSessionMessage(t, store, "s2", session.MessageRoleAssistant, "a2")
 
 	resolved, err := resolveSessionTransition(context.Background(), sessionTransitionResolveRequest{
-		Store:        store,
-		ForkThinking: session.ForkThinking{Desired: "medium"},
+		Store:      store,
+		ForkTarget: launch.InteractiveForkTarget{ConnectionID: "interactive", Thinking: session.ForkThinking{Desired: "medium"}},
 		Transition: sessionTransition{
 			Action:             sessionlaunchpb.SessionTransitionAction_SESSION_TRANSITION_ACTION_FORK_ROLLBACK,
 			InitialInput:       textutil.Value(""),
