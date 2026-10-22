@@ -80,12 +80,6 @@ func (a *Authority) ResolvePromptBatch(
 	if a == nil {
 		return nil, errors.New("session runtime authority is required")
 	}
-	if sessionID.IsZero() {
-		return nil, errors.New("session id is required")
-	}
-	if stepID.IsZero() {
-		return nil, errors.New("step id is required")
-	}
 	if err := context.Cause(ctx); err != nil {
 		return nil, err
 	}
@@ -117,9 +111,6 @@ func (s *executionPromptStore) resolvePromptBatch(
 	}
 	if s == nil || s.authority == nil {
 		return nil, errors.New("session runtime authority is required")
-	}
-	if stepID.IsZero() {
-		return nil, errors.New("step id is required")
 	}
 	if err := context.Cause(ctx); err != nil {
 		return nil, err
