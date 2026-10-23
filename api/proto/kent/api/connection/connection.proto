@@ -148,7 +148,10 @@ message ProjectAttachment {
 }
 
 message SessionAttachment {
-  string project_id = 1 [(buf.validate.field).string.min_len = 1];
+  string project_id = 1 [
+    (buf.validate.field).string.min_len = 1,
+    (buf.validate.field).string.(kent.api.shared.nonblank) = true
+  ];
   string workspace_id = 2 [(buf.validate.field).string.min_len = 1];
   string workspace_root = 3 [(buf.validate.field).string.min_len = 1];
   string session_id = 4 [(buf.validate.field).string.uuid = true, (buf.validate.field).string.(kent.api.shared.canonical_uuid_v4) = true];

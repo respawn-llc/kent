@@ -38,6 +38,24 @@ it("rejects sign-in polling intervals that overflow a duration", () => {
 });
 
 describe("Session attachment capabilities", () => {
+  it("requires nonblank Project identity without trimming substantive IDs", () => {
+    for (const projectId of ["project-1", " project-1 ", "", " \t", "\u0085"]) {
+      const attachment = create(SessionAttachmentSchema, {
+        projectId,
+        workspaceId: "workspace-1",
+        workspaceRoot: "/workspace",
+        sessionId: "00000000-0000-4000-8000-000000000001",
+        reattachCapability: "signed-capability",
+      });
+      const check = () => validate(SessionAttachmentSchema, attachment);
+      if (projectId === "project-1" || projectId === " project-1 ") {
+        expect(check).not.toThrow();
+      } else {
+        expect(check).toThrow();
+      }
+    }
+  });
+
   it("accepts nonempty capabilities without surrounding whitespace", () => {
     for (const capability of [
       "signed-capability",

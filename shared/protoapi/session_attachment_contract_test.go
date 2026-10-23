@@ -47,3 +47,34 @@ func TestSessionAttachmentCapabilityBoundary(t *testing.T) {
 		})
 	}
 }
+
+func TestSessionAttachmentProjectIdentityBoundary(t *testing.T) {
+	for _, test := range []struct {
+		projectID string
+		accepted  bool
+	}{
+		{projectID: "project-1", accepted: true},
+		{projectID: " project-1 ", accepted: true},
+		{projectID: ""},
+		{projectID: " \t"},
+		{projectID: "\u0085"},
+	} {
+		t.Run(test.projectID, func(t *testing.T) {
+			attachment := &connectionpb.SessionAttachment{
+				ProjectId:          test.projectID,
+				WorkspaceId:        "workspace-1",
+				WorkspaceRoot:      "/workspace",
+				SessionId:          runtimeids.NewSessionID().String(),
+				ReattachCapability: "signed-capability",
+			}
+			encoded, err := protoapi.Marshal(attachment)
+			if err != nil {
+				t.Fatal(err)
+			}
+			err = protoapi.Decode(encoded, &connectionpb.SessionAttachment{})
+			if (err == nil) != test.accepted {
+				t.Errorf("Project identity acceptance = %v, want %t", err, test.accepted)
+			}
+		})
+	}
+}
