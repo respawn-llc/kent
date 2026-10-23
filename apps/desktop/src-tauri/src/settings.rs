@@ -119,14 +119,14 @@ impl From<tauri_plugin_store::Error> for SettingsError {
 
 pub struct SettingsOwner {
     path: PathBuf,
-    lock: Mutex<()>,
+    lock: Mutex<Option<DesktopSettings>>,
 }
 
 impl SettingsOwner {
     pub fn new(path: PathBuf) -> Self {
         Self {
             path,
-            lock: Mutex::new(()),
+            lock: Mutex::new(None),
         }
     }
 
@@ -149,7 +149,10 @@ impl SettingsOwner {
         &self,
         app: &tauri::AppHandle<R>,
     ) -> Result<DesktopSettings, SettingsError> {
-        let _lock = self.lock.lock().expect("settings lock poisoned");
+        let recovery = self.lock.lock().expect("settings lock poisoned");
+        if let Some(settings) = recovery.as_ref() {
+            return Ok(settings.clone());
+        }
         self.load(app).map(|(_, settings)| settings)
     }
 
@@ -197,8 +200,15 @@ impl SettingsOwner {
         app: &tauri::AppHandle<R>,
         change: SettingsChange,
     ) -> Result<DesktopSettings, SettingsError> {
-        let _lock = self.lock.lock().expect("settings lock poisoned");
-        let (store, mut settings) = self.load(app)?;
+        let mut recovery = self.lock.lock().expect("settings lock poisoned");
+        let (store, mut settings) = match recovery.as_ref() {
+            Some(settings) => (
+                app.store_builder(&self.path).disable_auto_save().build()?,
+                settings.clone(),
+            ),
+            None => self.load(app)?,
+        };
+        let applied = settings.clone();
         match change {
             SettingsChange::SelfUpdate(value) => settings.self_update = value,
             SettingsChange::ServerAddress(value) => settings.server_address = value,
@@ -212,12 +222,15 @@ impl SettingsOwner {
         let previous = store.entries();
         write_record(&store, &settings)?;
         if let Err(error) = store.save() {
+            // Do not reload a possibly truncated file until an explicit save succeeds.
+            *recovery = Some(applied);
             store.clear();
             for (key, value) in previous {
                 store.set(key, value);
             }
             return Err(error.into());
         }
+        *recovery = None;
         app.emit("desktop-settings-changed", ())
             .map_err(|error| SettingsError::Storage(error.to_string()))?;
         Ok(settings)
@@ -496,6 +509,18 @@ mod tests {
         let after: std::collections::HashMap<_, _> = store.entries().into_iter().collect();
         assert_eq!(before, after);
         assert_eq!(owner.read(app.handle()).unwrap(), saved);
+        use std::os::unix::fs::PermissionsExt;
+        std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o600)).unwrap();
+        // A failed in-place write can leave only a fragment on disk.
+        std::fs::write(&path, b"{").unwrap();
+        assert_eq!(owner.read(app.handle()).unwrap(), saved);
+        let retried = owner
+            .change(app.handle(), SettingsChange::Theme(Theme::Light))
+            .unwrap();
+        assert_eq!(retried.self_update, saved.self_update);
+        assert_eq!(retried.server_address, saved.server_address);
+        assert_eq!(retried.theme, Theme::Light);
+        assert_eq!(owner.read(app.handle()).unwrap(), retried);
     }
 
     #[test]

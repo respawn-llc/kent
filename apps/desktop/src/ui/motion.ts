@@ -51,8 +51,12 @@ export function useOpacityExit(
   return phase;
 }
 
-export function motionDurationFromCSSVar(name: string, fallbackMs: number): number {
-  if (prefersReducedMotion()) {
+export function motionDurationFromCSSVar(
+  name: string,
+  fallbackMs: number,
+  reducedMotion = prefersReducedMotion(),
+): number {
+  if (reducedMotion) {
     return 0;
   }
   const raw = window.getComputedStyle(document.documentElement).getPropertyValue(name);

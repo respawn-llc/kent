@@ -1,9 +1,9 @@
 import { ChevronRight } from "lucide-react";
-import { AnimatePresence, motion, useIsPresent, useReducedMotion } from "motion/react";
+import { AnimatePresence, motion, useIsPresent } from "motion/react";
 import { useId, useState, type ReactNode } from "react";
 
 import { cx } from "./classes";
-import { motionDurationFromCSSVar } from "./motion";
+import { motionDurationFromCSSVar, useReducedMotion } from "./motion";
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "./radix/collapsible";
 import "./TranscriptDisclosure.css";
 

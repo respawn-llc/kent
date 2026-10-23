@@ -110,7 +110,6 @@ function HomeRouteContent({ destination, settingsPage, settingsSidebar }: HomeRo
           onCategorySelect={(nextCategory) => {
             selectCategory({
               category: nextCategory,
-              selectedProjectID,
               selectProject: navigation.selectHomeProject,
             });
           }}

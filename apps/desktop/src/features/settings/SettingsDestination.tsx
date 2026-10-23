@@ -145,6 +145,7 @@ function SettingsPage({
           <PreferenceRow label={t("settings.lowPower")} disabledReason={busy}>
             <Switch
               checked={saved.lowPower}
+              aria-label={t("settings.lowPower")}
               onCheckedChange={(value) => {
                 submit({ field: "lowPower", value });
               }}
@@ -153,6 +154,7 @@ function SettingsPage({
           <PreferenceRow label={t("settings.transparency")} disabledReason={overridden}>
             <Switch
               checked={saved.transparency}
+              aria-label={t("settings.transparency")}
               disabled={saved.lowPower || change.isPending}
               onCheckedChange={(value) => {
                 submit({ field: "transparency", value });
@@ -162,6 +164,7 @@ function SettingsPage({
           <PreferenceRow label={t("settings.reducedMotion")} disabledReason={overridden}>
             <Switch
               checked={saved.reducedMotion}
+              aria-label={t("settings.reducedMotion")}
               disabled={saved.lowPower || change.isPending}
               onCheckedChange={(value) => {
                 submit({ field: "reducedMotion", value });

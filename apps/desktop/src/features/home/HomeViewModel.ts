@@ -38,13 +38,11 @@ export function createHomeViewModel(
   const selectCategory = Atom.fn<
     Readonly<{
       category: HomeSidebarCategory;
-      selectedProjectID: string | null;
       selectProject: (projectID: string | null) => Promise<void>;
     }>
   >()(
     (input, get) =>
       Effect.gen(function* () {
-        if (get(category) === input.category && input.selectedProjectID === null) return;
         get.set(category, input.category);
         yield* Effect.promise(async () => input.selectProject(null));
       }),

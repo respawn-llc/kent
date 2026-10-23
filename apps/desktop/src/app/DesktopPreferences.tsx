@@ -13,7 +13,6 @@ import {
   useStatusController,
 } from "@/app-facade";
 import { ReducedMotionContext, useSystemReducedMotion } from "@/ui";
-import { MotionConfig } from "motion/react";
 import { errorMessage } from "@/api";
 import { applyConfiguredTheme } from "./startup/appEnvironment";
 
@@ -69,8 +68,6 @@ export function DesktopPreferences({ children }: Readonly<{ children: ReactNode 
     );
   }, [settings.saved.theme, appearance.reducedMotion, appearance.lowPower, appearance.transparent, services]);
   return (
-    <ReducedMotionContext.Provider value={appearance.reducedMotion}>
-      <MotionConfig skipAnimations={appearance.reducedMotion}>{children}</MotionConfig>
-    </ReducedMotionContext.Provider>
+    <ReducedMotionContext.Provider value={appearance.reducedMotion}>{children}</ReducedMotionContext.Provider>
   );
 }

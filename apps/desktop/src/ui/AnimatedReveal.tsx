@@ -1,7 +1,7 @@
-import { motion, useIsPresent, useReducedMotion } from "motion/react";
+import { motion, useIsPresent } from "motion/react";
 import type { CSSProperties, ReactNode } from "react";
 
-import { motionDurationFromCSSVar } from "./motion";
+import { motionDurationFromCSSVar, useReducedMotion } from "./motion";
 
 const revealStyles = {
   expand: { overflow: "hidden" },
