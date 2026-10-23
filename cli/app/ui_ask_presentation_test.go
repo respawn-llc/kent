@@ -243,6 +243,43 @@ func TestAskDedicatedFreeformReadingAndEditing(t *testing.T) {
 	}
 }
 
+func TestAskDedicatedEditorNavigationKeepsTargetRowAtWrapBoundary(t *testing.T) {
+	for _, draft := range []string{
+		strings.Repeat("a", 798),
+		strings.Repeat("界", 399),
+		strings.Repeat("e\u0301", 798),
+		strings.Repeat("a", 78) + "\n" + strings.Repeat("b", 720),
+	} {
+		for _, width := range []int{40, 80} {
+			model := sizedTestUIModel(newProjectedStaticUIModel(WithUITerminalCursorState(newUITerminalCursorState())), width, 10)
+			model = updateUIModel(t, model, askEventMsg{event: testQuestionAskEvent("editor-wrap", "Question")})
+			model.ask.activeProjection.rows = make([]string, 12)
+			model = updateUIModel(t, model, tea.WindowSizeMsg{Width: width, Height: 10})
+			model = updateUIModel(t, model, tea.KeyMsg{Type: tea.KeyRunes, Paste: true, Runes: []rune(draft)})
+			row := model.layout().askDocument(width).cursor.Row
+			page := askDocumentCapacity(10)
+			for _, step := range []struct {
+				key   tea.KeyType
+				delta int
+			}{{tea.KeyPgUp, -page}, {tea.KeyDown, 1}, {tea.KeyUp, -1}, {tea.KeyPgDown, page}} {
+				row += step.delta
+				model = updateUIModel(t, model, tea.KeyMsg{Type: step.key})
+				document := model.layout().askDocument(width)
+				if !document.cursor.Visible || document.cursor.Row != row {
+					t.Fatalf("width %d, %v: editor cursor row = %d, want %d", width, step.key, document.cursor.Row, row)
+				}
+				frame := model.layout().composeAskFrame(width, 10, uiThemeStyles(model.theme))
+				if !frame.inputCursor.Visible || frame.inputCursor.Row != framedInputContentCursorRow(row-model.ask.dedicated.scroll) {
+					t.Fatal("editor cursor and visible navigation position diverged")
+				}
+			}
+			if model.ask.editor.Text() != draft {
+				t.Fatal("navigation modified the draft")
+			}
+		}
+	}
+}
+
 func TestAskDedicatedTabRoundTripRestoresReading(t *testing.T) {
 	model := sizedTestUIModel(newProjectedStaticUIModel(), 80, 10)
 	model = updateUIModel(t, model, askEventMsg{event: testQuestionAskEvent("reading-tab", "Question", "First")})

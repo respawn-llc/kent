@@ -121,6 +121,10 @@ func (f *Field) moveVertical(width, delta int) bool {
 func (f *Field) moveToRow(layout fieldLayout, row int) bool {
 	targetLine := layout.lines[row]
 	targetDisplayOffset := cursorAtDisplayColumn(layout.text, targetLine, layout.cursorCol)
+	if targetDisplayOffset == targetLine.End && row+1 < len(layout.lines) && layout.lines[row+1].Start == targetLine.End {
+		// A soft-wrap end belongs to the next row; keep the caret on the target row.
+		targetDisplayOffset = previousGraphemeBoundary(layout.text, targetDisplayOffset)
+	}
 	next := layout.sourceCursor(targetDisplayOffset)
 	changed := f.Editor.Cursor() != next
 	f.Editor.SetCursor(next)
