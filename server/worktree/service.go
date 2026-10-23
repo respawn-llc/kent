@@ -366,17 +366,6 @@ const (
 	sessionStartAdmissionTry
 )
 
-func parseSessionStartAdmissionIDs(raw []string) ([]runtimeids.SessionID, error) {
-	ids, err := sessionruntime.ParseSessionIDs(raw)
-	if err != nil {
-		return nil, err
-	}
-	if len(ids) == 0 {
-		return nil, errors.New("session ids are required")
-	}
-	return ids, nil
-}
-
 func (s *Service) acquireSessionStartAdmission(
 	ctx context.Context,
 	sessionIDs []runtimeids.SessionID,
