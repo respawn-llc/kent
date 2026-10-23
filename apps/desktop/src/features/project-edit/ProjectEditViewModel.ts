@@ -24,7 +24,6 @@ import {
   invalidateProjectEditQueries,
   invalidateProjectWorkspaceOwners,
   invalidateProjectWorkspaceMetadata,
-  projectDeleteMutationOptions,
 } from "./useProjectEditData";
 
 const explicitRequestOptions = { retry: false, networkMode: "always" } as const;
@@ -185,9 +184,9 @@ export function createProjectEditViewModel({
   });
   const unlinking = queryAtom(unlinkObserver);
   const deleteObserver = new MutationObserver(client, {
-    ...projectDeleteMutationOptions(services.api, projectID),
+    mutationFn: async () => services.api.deleteProject(projectID),
     ...explicitRequestOptions,
-    onSuccess: async (response, input: { close(): void; openHome: () => Promise<void> }) => {
+    onSuccess: async (response, input: { openHome: () => Promise<void> }) => {
       if (!response.deleted) {
         await invalidateProjectEditQueries(client, projectID);
         push({
@@ -198,7 +197,6 @@ export function createProjectEditViewModel({
         });
         return;
       }
-      input.close();
       const outcome = navigator?.close();
       await completeProjectDeletion({
         projectID,
@@ -219,7 +217,7 @@ export function createProjectEditViewModel({
     },
   });
   const deleting = queryAtom(deleteObserver);
-  const deleteProject = Atom.fn<{ close(): void; openHome: () => Promise<void> }>()(
+  const deleteProject = Atom.fn<{ openHome: () => Promise<void> }>()(
     (input, get) =>
       Effect.gen(function* () {
         if (navigator === undefined || requestPending() || get(picker).waiting) return;
@@ -227,11 +225,10 @@ export function createProjectEditViewModel({
       }),
     { concurrent: true },
   );
-  const unlink = Atom.fn<{ workspaceID: string; close(): void }>()(
+  const unlink = Atom.fn<{ workspaceID: string }>()(
     (input, get) =>
       Effect.gen(function* () {
         if (requestPending() || get(picker).waiting) return;
-        input.close();
         yield* Effect.tryPromise(async () => unlinkObserver.mutate(input.workspaceID)).pipe(Effect.ignore);
       }),
     { concurrent: true },
@@ -311,6 +308,7 @@ export function createProjectEditViewModel({
       ...draft,
       pending,
       unlinkPending: get(unlinking).isPending,
+      deletePending: get(deleting).isPending,
       canSave: draft.dirty && draft.nameErrors.length === 0 && draft.keyErrors.length === 0 && !pending,
     };
   });

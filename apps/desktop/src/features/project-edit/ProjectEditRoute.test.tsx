@@ -41,7 +41,6 @@ await mock.module("@/app-facade", () => ({
   useSidebarBackWhen: sidebarBackWhen,
   useSidebarHeaderOffset: () => 0,
   useStatusController: () => ({ push: statusPush }),
-  useNativeDialogFallback: () => ({ fallback: null, open: vi.fn(async () => undefined) }),
   useWindowChromeTitle: () => undefined,
 }));
 
@@ -132,7 +131,10 @@ it("confirms workspace detach above the destination and refreshes the sidebar li
     nextOffset: null,
   });
   const response = deferred<Awaited<ReturnType<typeof services.api.unlinkWorkspace>>>();
-  const unlink = vi.spyOn(services.api, "unlinkWorkspace").mockReturnValue(response.promise);
+  const unlink = vi.spyOn(services.api, "unlinkWorkspace").mockImplementation(async () => {
+    expect(screen.queryByRole("dialog") === null).toBe(true);
+    return response.promise;
+  });
   const nativeWindow = vi.spyOn(services.nativeBridge.dialogs, "openWindow");
   const view = mount();
   const button = await screen.findByRole("button", {
@@ -166,6 +168,26 @@ it("confirms workspace detach above the destination and refreshes the sidebar li
   await waitFor(() => {
     expect(button).not.toBeInTheDocument();
   });
+});
+
+it("dismisses an unconfirmed workspace removal when Project Settings is left", async () => {
+  listWorkspaces.mockResolvedValue({
+    projectID: project.projectID,
+    offset: 0,
+    workspaces: [workspace],
+    nextOffset: null,
+  });
+  const unlink = vi.spyOn(services.api, "unlinkWorkspace");
+  const view = mount();
+  fireEvent.click(
+    await screen.findByRole("button", {
+      name: appI18n.t("projectEdit.unlinkWorkspace", { path: workspace.rootPath }),
+    }),
+  );
+  expect(screen.queryByRole("dialog") !== null).toBe(true);
+  view.unmount();
+  expect(screen.queryByRole("dialog") === null).toBe(true);
+  expect(unlink).not.toHaveBeenCalled();
 });
 
 it("reports a detach failure in the destination after closing confirmation", async () => {

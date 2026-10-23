@@ -159,31 +159,23 @@ it("does not create when revalidation requires workspace selection", async () =>
   expect(view.push).toHaveBeenCalledWith(expect.objectContaining({ tone: "info" }));
 });
 
-it("does not open inline creation after native launch fails following disposal", async () => {
+it("does not open creation after workspace planning finishes following disposal", async () => {
   vi.useFakeTimers();
   try {
     const view = setup();
-    Object.defineProperty(view.services.nativeBridge.capabilities, "projectCreationWindow", {
-      configurable: true,
-      value: true,
-      writable: true,
-    });
-    const launch = deferred<undefined>();
-    const openWindow = vi
-      .spyOn(view.services.nativeBridge.projectCreation, "openWindow")
-      .mockReturnValue(launch.promise);
+    const planning = deferred<Awaited<ReturnType<typeof view.services.api.planWorkspace>>>();
     view.select.mockResolvedValue({ path: "/Kent" });
-    view.plan.mockResolvedValue({ kind: "local_unbound", canonicalRoot: "/Kent", binding: null });
+    view.plan.mockReturnValue(planning.promise);
     await act(async () => {
       view.result.current.chooseWorkspace(view.context);
     });
-    expect(openWindow).toHaveBeenCalledTimes(1);
+    expect(view.plan).toHaveBeenCalledTimes(1);
     view.unmount();
     await act(async () => {
       vi.advanceTimersByTime(500);
     });
     await act(async () => {
-      launch.reject(new Error("Launch failed"));
+      planning.resolve({ kind: "local_unbound", canonicalRoot: "/Kent", binding: null });
     });
     expect(view.context.openDraft).not.toHaveBeenCalled();
     expect(view.push).not.toHaveBeenCalled();

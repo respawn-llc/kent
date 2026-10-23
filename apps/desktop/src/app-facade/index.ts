@@ -46,7 +46,6 @@ export * from "./transcript-window";
 export * from "./useAppServices";
 export * from "./usePathFormatter";
 export * from "./chatPromptPresence";
-export * from "./useNativeDialogFallback";
 export * from "./useRetainedQueryData";
 export * from "./useStatusController";
 export * from "./useTaskSearch";
