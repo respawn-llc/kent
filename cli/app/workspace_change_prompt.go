@@ -10,7 +10,6 @@ import (
 	"strings"
 
 	"core/cli/internal/pathdisplay"
-	"core/shared/apicontract"
 	"core/shared/client"
 	"core/shared/clientui"
 	"core/shared/protoapi"
@@ -47,53 +46,11 @@ type sessionWorkspaceRetargetContextProvider interface {
 	workspaceRetargetContext() *sessionWorkspaceRetargetContext
 }
 
-func newSessionWorkspaceRetargetContext(workspaceRoot string, theme string) (*sessionWorkspaceRetargetContext, error) {
-	normalizedRoot := normalizeWorkspaceChangeDisplayRoot(workspaceRoot)
-	if normalizedRoot == "" {
-		return nil, errors.New("workspace retarget root is required")
-	}
-	return &sessionWorkspaceRetargetContext{
-		workspaceRoot: normalizedRoot,
-		theme:         strings.TrimSpace(theme),
-	}, nil
-}
-
 func sessionWorkspaceRetargetContextFromBinding(binding client.ProjectAttachment, theme string) *sessionWorkspaceRetargetContext {
 	return &sessionWorkspaceRetargetContext{
 		workspaceRoot: normalizeWorkspaceChangeDisplayRoot(binding.WorkspaceRoot),
 		theme:         strings.TrimSpace(theme),
 	}
-}
-
-func resolveSessionWorkspaceRetargetContext(
-	ctx context.Context,
-	projectViews apicontract.ProjectViewService,
-	projectID string,
-	workspaceID string,
-	theme string,
-) (*sessionWorkspaceRetargetContext, error) {
-	if projectViews == nil {
-		return nil, errors.New("project view client is required for workspace retarget context")
-	}
-	trimmedProjectID := strings.TrimSpace(projectID)
-	if trimmedProjectID == "" {
-		return nil, errors.New("project id is required for workspace retarget context")
-	}
-	trimmedWorkspaceID := strings.TrimSpace(workspaceID)
-	if trimmedWorkspaceID == "" {
-		return nil, errors.New("workspace id is required for workspace retarget context")
-	}
-	result, err := projectViews.GetProjectWorkspace(ctx, &projectpb.GetProjectWorkspaceRequest{
-		ProjectId: trimmedProjectID,
-		Selector:  &projectpb.GetProjectWorkspaceRequest_WorkspaceId{WorkspaceId: trimmedWorkspaceID},
-	})
-	if err != nil {
-		return nil, err
-	}
-	if result.Workspace != nil {
-		return newSessionWorkspaceRetargetContext(result.Workspace.RootPath, theme)
-	}
-	return nil, fmt.Errorf("workspace %q is not attached to project %q", trimmedWorkspaceID, trimmedProjectID)
 }
 
 type workspaceChangePromptModel struct {
