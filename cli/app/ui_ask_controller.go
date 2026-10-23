@@ -58,7 +58,7 @@ func (c uiAskController) acceptEvent(evt askEvent) tea.Cmd {
 		return c.resolvePrompt(evt.toolCallID())
 	}
 	incomingToolCallID := strings.TrimSpace(transcriptPromptToolCallID(evt.prompt))
-	if incomingToolCallID != "" && m.ask.hasCurrent() && strings.TrimSpace(transcriptPromptToolCallID(m.ask.current.prompt)) == incomingToolCallID {
+	if m.ask.hasCurrent() && strings.TrimSpace(transcriptPromptToolCallID(m.ask.current.prompt)) == incomingToolCallID {
 		m.ask.current.prompt = evt.prompt
 		return m.scheduleCurrentQuestionProjection()
 	}
@@ -77,9 +77,6 @@ func (c uiAskController) acceptEvent(evt askEvent) tea.Cmd {
 func (c uiAskController) resolvePrompt(toolCallID string) tea.Cmd {
 	m := c.model
 	targetID := strings.TrimSpace(toolCallID)
-	if targetID == "" {
-		return nil
-	}
 	filteredQueue := m.ask.queue[:0]
 	for _, queued := range m.ask.queue {
 		if strings.TrimSpace(transcriptPromptToolCallID(queued.prompt)) == targetID {
@@ -398,7 +395,7 @@ func (c uiAskController) answer(resp clientui.PromptAnswer, err error) (bool, bo
 	} else {
 		resp.ToolCallID = clientui.ToolCallID(answerToolCallID)
 	}
-	if m.promptAnswers == nil || transcriptPromptSessionID(m.ask.current.prompt) == "" || currentToolCallID == "" {
+	if m.promptAnswers == nil {
 		cmd := c.resolvePrompt(currentToolCallID)
 		return true, m.ask.hasCurrent(), cmd
 	}
