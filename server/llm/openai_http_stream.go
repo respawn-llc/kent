@@ -267,10 +267,6 @@ func (a *responseStreamAccumulator) Response() (ResponsesResponse, error) {
 	usage := Usage{WindowTokens: a.windowTokens}
 	streamText, streamPhase, streamProviderPhase, streamOutputIndex, streamDeltaText, hasResolvedStream := a.assistantMessages.Resolve()
 	rawDeltaText := a.assistantText.String()
-	streamedDeltaText := ""
-	if a.callbacks.OnAssistantDelta != nil {
-		streamedDeltaText = rawDeltaText
-	}
 	finalText := textutil.Pointer(streamText)
 	finalTextPresent := hasResolvedStream && streamText != nil
 	if hasResolvedStream && streamText == nil && streamDeltaText != "" {
@@ -339,42 +335,6 @@ func (a *responseStreamAccumulator) Response() (ResponsesResponse, error) {
 		// one native message's deltas with another message's terminal text.
 		finalText = parsedText
 		finalTextPresent = parsedText != nil
-	} else {
-		parsedTextValue := ""
-		if parsedText != nil {
-			parsedTextValue = *parsedText
-		}
-		reconciliationText := streamDeltaText
-		if !hasResolvedStream {
-			reconciliationText = streamedDeltaText
-		}
-		if a.callbacks.OnAssistantDelta == nil && parsedText != nil {
-			reconciliationText = ""
-		}
-		// A done-only stream can resolve an explicit empty text item before the
-		// completed payload supplies its authoritative final phase. Preserve that
-		// presence only for a fully resolved stream; pending unmatched deltas must
-		// continue to fail reconciliation.
-		reconciled := parsedText != nil &&
-			(completedAssistantTextReconcilesStream(reconciliationText, parsedTextValue) ||
-				(hasResolvedStream && reconciliationText == "" && parsedTextValue == ""))
-		if reconciled {
-			finalText = textutil.Value(reconciledCompletedAssistantText(reconciliationText, parsedTextValue))
-			finalTextPresent = true
-		} else if parsedText != nil && !hasResolvedStream && rawDeltaText == "" {
-			finalText = textutil.Pointer(parsedText)
-			finalTextPresent = true
-		}
-		streamDeltaConflict := streamDeltaText != "" &&
-			(parsedText == nil || !completedAssistantTextReconcilesStream(streamDeltaText, parsedTextValue))
-		if responseItemsContainAssistantMessage(parsedItems) && !reconciled &&
-			(optionalStringsDiffer(finalText, parsedText) || streamDeltaConflict) {
-			return ResponsesResponse{}, fmt.Errorf(
-				"completed assistant content conflicts with streamed assistant content: streamed bytes=%d completed bytes=%d",
-				lenOptionalString(finalText),
-				lenOptionalString(parsedText),
-			)
-		}
 	}
 	if parsedPhase != "" {
 		finalPhase = parsedPhase
@@ -512,20 +472,6 @@ func responseItemsContainAssistantMessage(items []ResponseItem) bool {
 		}
 	}
 	return false
-}
-
-func lenOptionalString(value *string) int {
-	if value == nil {
-		return 0
-	}
-	return len(*value)
-}
-
-func optionalStringsDiffer(left *string, right *string) bool {
-	if left == nil || right == nil {
-		return left != right
-	}
-	return *left != *right
 }
 
 func AssistantResponseTextExtendsStream(streamed string, candidate string) bool {
