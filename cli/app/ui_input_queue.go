@@ -125,9 +125,6 @@ func (m *uiModel) retainUnownedQueuedTerminalState(state *transcriptpb.QueuedMes
 		return
 	}
 	serverID := strings.TrimSpace(state.QueueItemId)
-	if serverID == "" {
-		return
-	}
 	if m.unownedQueuedTerminalStates == nil {
 		m.unownedQueuedTerminalStates = make(map[string]*transcriptpb.QueuedMessageState)
 	}
