@@ -1,5 +1,6 @@
 import type { QueryClient } from "@tanstack/react-query";
 import { projectMarkdownText } from "@/ui";
+import { turnCompletionPresentation } from "./turnCompletionPresentation";
 import type { TFunction } from "i18next";
 import * as Effect from "effect/Effect";
 import * as Stream from "effect/Stream";
@@ -243,27 +244,14 @@ export function createAttentionViewModel({
       (event) =>
         Effect.gen(function* () {
           const completed = event.type === "session_turn_end";
-          const completionTitle = completed
-            ? Array.from(event.sessionName ?? t("app.attention.sessionFallback"))
-                .slice(0, 75)
-                .join("")
-            : "";
-          const completionText = completed
-            ? Array.from(
-                t("app.attention.turnCompletionMessage", {
-                  title: completionTitle,
-                  body: projectMarkdownText(event.assistantContent) || t("app.attention.turnComplete"),
-                }),
-              )
-            : [];
           const notification = completed
             ? {
                 id: `session-turn-end-${event.sequence.toString()}`,
-                title: completionTitle,
-                body:
-                  completionText.length > 80
-                    ? completionText.slice(Array.from(completionTitle).length + 2, 77).join("") + "..."
-                    : completionText.slice(Array.from(completionTitle).length + 2).join(""),
+                ...turnCompletionPresentation({
+                  title: event.sessionName ?? t("app.attention.sessionFallback"),
+                  body: projectMarkdownText(event.assistantContent) || t("app.attention.turnComplete"),
+                  separator: t("app.attention.turnCompletionSeparator"),
+                }),
                 target: event.target,
               }
             : {

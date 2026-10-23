@@ -54,7 +54,7 @@ export const englishResources = {
       attention: {
         turnComplete: "turn complete",
         sessionFallback: "kent",
-        turnCompletionMessage: "{{title}}: {{body}}",
+        turnCompletionSeparator: ": ",
         sessionNamingFailed: "Session naming failed",
         sessionNamingFailureHelp: "You can name this session manually. Check the server logs for details.",
         listenerFailed: "Live attention updates stopped",

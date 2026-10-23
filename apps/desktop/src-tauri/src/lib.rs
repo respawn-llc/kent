@@ -53,7 +53,7 @@ struct AttentionNotificationRequest {
     backend_id: u32,
     id: String,
     title: String,
-    body: String,
+    body: Option<String>,
     target: serde_json::Value,
 }
 
@@ -230,8 +230,11 @@ fn send_attention_notification(
     };
     let backend_id = notification.backend_id;
     let token = state.next_token.fetch_add(1, Ordering::Relaxed);
-    let native_notification =
-        attention_native_notification(backend_id, &notification.title, &notification.body);
+    let native_notification = attention_native_notification(
+        backend_id,
+        &notification.title,
+        notification.body.as_deref(),
+    );
     show_attention_notification(
         app,
         state.active.clone(),
@@ -317,10 +320,13 @@ async fn request_attention_native_notification_permission(
 fn attention_native_notification(
     backend_id: u32,
     title: &str,
-    body: &str,
+    body: Option<&str>,
 ) -> notify_rust::Notification {
     let mut notification = notify_rust::Notification::new();
-    notification.appname("Kent").summary(title).body(body);
+    notification.appname("Kent").summary(title);
+    if let Some(body) = body {
+        notification.body(body);
+    }
     configure_attention_notification_identity(&mut notification, backend_id);
     configure_attention_notification_actions(&mut notification);
     configure_attention_notification_sound(&mut notification);
