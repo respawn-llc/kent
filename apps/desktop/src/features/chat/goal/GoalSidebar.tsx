@@ -1,30 +1,18 @@
-import { useCallback, useEffect, useRef, useState, type ReactElement } from "react";
+import { useEffect, useRef, useState, type ReactElement } from "react";
 import { useTranslation } from "react-i18next";
 import { useAtomValue } from "@effect/atom-react";
+import type * as Atom from "effect/reactivity/Atom";
+import { useQueryClient } from "@tanstack/react-query";
 import { AnimatePresence } from "motion/react";
 
-import type {
-  ChatApi,
-  ChatGoalFact,
-  ChatGoalMutationResult,
-  ChatGoalSetResult,
-  ChatGoalStatus,
-  ChatSessionTarget,
-} from "@/api";
-import { ChatOperationError, ContractError, errorMessage } from "@/api";
+import type { ChatApi, ChatGoalFact, ChatGoalSetResult, ChatSessionTarget } from "@/api";
+import { ContractError, errorMessage } from "@/api";
 import { recoverOrThrowDebugFailure, useAppServices, useStatusController } from "@/app-facade";
 import { AnimatedReveal, ErrorState, LoadingState, Spinner } from "@/ui";
 import { type NewChatGoalBinding } from "./goalBinding";
-import {
-  deriveGoalSidebarState,
-  localDraftForFact,
-  reconcileDraftState,
-  type DraftState,
-  type GoalMutationIntent,
-  type GoalObservationState,
-} from "./goalSidebarState";
 import { GoalMarkdownField } from "./GoalMarkdownField";
-import { GoalActions, GoalMetadata, GoalSaveButton, goalLifecycleAction } from "./GoalSidebarParts";
+import { GoalActions, GoalMetadata, GoalSaveButton } from "./GoalSidebarParts";
+import { createGoalSidebarViewModel, useGoalSidebarActions } from "./GoalSidebarViewModel";
 import {
   goalErrorMessage,
   goalSetDiagnosticNotificationID,
@@ -99,9 +87,7 @@ function NewChatGoalSidebar({
       .catch((cause: unknown) => {
         const nextError = cause instanceof Error ? cause : new Error(errorMessage(cause));
         const recover = () => {
-          if (mounted.current) {
-            setEditing(true);
-          }
+          if (mounted.current) setEditing(true);
           push({
             id: "goal-set-failed",
             title: t("chat.goal.setFailed"),
@@ -165,174 +151,72 @@ function ExactGoalSidebar({
   api,
   initialDraft = "",
   target,
-}: Readonly<{
-  api: GoalSidebarApi;
-  initialDraft?: string | undefined;
-  target: ChatSessionTarget;
-}>) {
-  const model = useExactGoalSidebarModel({ api, initialDraft, target });
-
-  if (model.observation.kind === "loading" && model.fact === null) {
-    return <LoadingState surface="plain" title={model.t("chat.goal.loading")} />;
+}: Readonly<{ api: GoalSidebarApi; initialDraft?: string | undefined; target: ChatSessionTarget }>) {
+  const { t } = useTranslation();
+  const { logger } = useAppServices();
+  const { push } = useStatusController();
+  const client = useQueryClient();
+  const [owner] = useState(() =>
+    createGoalSidebarViewModel({ api, initialDraft, target, client, logger, push, t }),
+  );
+  const state = useAtomValue(owner.state);
+  const act = useGoalSidebarActions(owner);
+  const now = useGoalMinuteClock(state.fact);
+  const model = {
+    ...state,
+    t,
+    now,
+    replaceObservation: () => {
+      act({ kind: "retry" });
+    },
+    setDraft: (value: string) => {
+      act({ kind: "draft", value });
+    },
+    setEditing: (value: boolean) => {
+      act({ kind: "editing", value });
+    },
+    setExpanded: (value: boolean) => {
+      act({ kind: "expanded", value });
+    },
+    save: () => {
+      act({ kind: "save" });
+    },
+    runLifecycle: () => {
+      act({ kind: "lifecycle" });
+    },
+    clear: () => {
+      act({ kind: "clear" });
+    },
+  };
+  if (state.observation.kind === "loading" && state.fact === null) {
+    return <LoadingState surface="plain" title={t("chat.goal.loading")} />;
   }
-  if (model.observation.kind === "error" || model.observation.kind === "loading_retryable") {
+  if (state.observation.kind === "error" || state.observation.kind === "loading_retryable") {
     return (
       <ErrorState
         surface="plain"
-        body={model.observation.error.message}
+        body={state.observation.error.message}
         onRetry={model.replaceObservation}
-        retryLabel={model.t("app.retry")}
-        title={model.t("chat.goal.loadFailed")}
+        retryLabel={t("app.retry")}
+        title={t("chat.goal.loadFailed")}
       />
     );
   }
-  if (model.fact === null) return null;
+  if (state.fact === null) return null;
   return <ExactGoalContent model={model} />;
 }
 
-type ExactGoalSidebarModel = Readonly<{
-  observation: GoalObservationState;
-  draftState: DraftState;
-  editing: boolean;
-  expanded: boolean;
-  fact: ChatGoalFact | null;
-  now: number;
-  pendingIntent: GoalMutationIntent | null;
-  displayedStatus: ChatGoalStatus | null;
-  displayedCreatedAt: string | null;
-  displayedObjective: string;
-  dirty: boolean;
-  unavailable: boolean;
-  saveAvailable: boolean;
-  actionsDisabled: boolean;
-  t: ReturnType<typeof useTranslation>["t"];
-  replaceObservation: () => void;
-  setDraft: (value: string) => void;
-  setEditing: (value: boolean) => void;
-  setExpanded: (value: boolean) => void;
-  save: () => void;
-  runLifecycle: () => void;
-  clear: () => void;
-}>;
-
-type GoalMutationOperationResult = Readonly<{
-  mutation: ChatGoalMutationResult;
-  diagnostic: ChatOperationError | null;
-}>;
-
-type GoalMutationRunnerInput = Readonly<{
-  actionsDisabled: boolean;
-  currentFact: () => ChatGoalFact | null;
-  draftState: DraftState;
-  draftRevision: Readonly<{ current: number }>;
-  editing: boolean;
-  expanded: boolean;
-  logger: ReturnType<typeof useAppServices>["logger"];
-  mounted: Readonly<{ current: boolean }>;
-  pendingIntent: GoalMutationIntent | null;
-  push: ReturnType<typeof useStatusController>["push"];
-  setExpanded: (expanded: boolean) => void;
-  setEditing: (editing: boolean) => void;
-  setLocalDraft: React.Dispatch<React.SetStateAction<DraftState>>;
-  setPendingIntent: (intent: GoalMutationIntent | null) => void;
-  t: ReturnType<typeof useTranslation>["t"];
-}>;
-
-function useGoalMutationRunner(input: GoalMutationRunnerInput) {
-  return useCallback(
-    async (intent: GoalMutationIntent, operation: () => Promise<GoalMutationOperationResult>) => {
-      if (input.actionsDisabled || input.pendingIntent !== null || !input.mounted.current) {
-        return;
-      }
-      const action = intent.kind;
-      const submittedDraftRevision = input.draftRevision.current;
-      const previous = { draft: input.draftState.draft, editing: input.editing, expanded: input.expanded };
-      input.setPendingIntent(intent);
-      if (intent.kind === "clear") {
-        input.setLocalDraft({ base: "", draft: "" });
-        input.setEditing(true);
-        input.setExpanded(true);
-      }
-      try {
-        const result = await operation();
-        settleGoalMutation(input, action, submittedDraftRevision);
-        if (action === "set" && result.diagnostic !== null) {
-          reportGoalSetDiagnostic(input.push, input.t, result.diagnostic, goalSetDiagnosticNotificationID());
-        }
-      } catch (cause: unknown) {
-        const failure = goalMutationFailure(cause, input.t);
-        const recover = () => {
-          restoreGoalMutation(input, action, previous);
-        };
-        if (cause instanceof ContractError) {
-          void recoverOrThrowDebugFailure({
-            context: { operation: `Goal ${action}` },
-            error: cause,
-            logger: input.logger,
-            message: "Goal mutation response was malformed.",
-            recover,
-          });
-        } else {
-          recover();
-        }
-        reportGoalMutationFailure(input, action, failure);
-      }
-    },
-    [input],
-  );
-}
-
-function settleGoalMutation(
-  input: GoalMutationRunnerInput,
-  action: "set" | "pause" | "resume" | "reopen" | "clear",
-  submittedDraftRevision: number,
-): void {
-  if (!input.mounted.current) return;
-  input.setPendingIntent(null);
-  const fact = input.currentFact();
-  const draftChangedAfterSubmit = input.draftRevision.current !== submittedDraftRevision;
-  input.setLocalDraft((current) =>
-    (action === "set" || action === "clear") && !draftChangedAfterSubmit
-      ? localDraftForFact(fact)
-      : reconcileDraftState(current, fact, null),
-  );
-}
-
-function restoreGoalMutation(
-  input: GoalMutationRunnerInput,
-  action: "set" | "pause" | "resume" | "reopen" | "clear",
-  previous: Readonly<{ draft: string; editing: boolean; expanded: boolean }>,
-): void {
-  if (!input.mounted.current) return;
-  input.setPendingIntent(null);
-  input.setLocalDraft((currentDraft) => ({ ...currentDraft, draft: previous.draft }));
-  if (action === "set") {
-    input.setEditing(true);
-    input.setExpanded(true);
-  } else {
-    input.setEditing(previous.editing);
-    input.setExpanded(previous.expanded);
-  }
-}
-
-function reportGoalMutationFailure(
-  input: GoalMutationRunnerInput,
-  action: "set" | "pause" | "resume" | "reopen" | "clear",
-  failure: Error,
-): void {
-  input.push({
-    id: `goal-${action}-failed`,
-    title: action === "clear" ? input.t("chat.goal.clearFailed") : input.t("chat.goal.mutationFailed"),
-    body: failure.message,
-    tone: "danger",
-  });
-}
-
-function goalMutationFailure(cause: unknown, t: ReturnType<typeof useTranslation>["t"]): Error {
-  if (cause instanceof ChatOperationError) return new Error(goalErrorMessage(cause.detail, t));
-  if (cause instanceof Error) return cause;
-  return new Error(errorMessage(cause));
-}
+type ExactGoalSidebarModel = Atom.Type<ReturnType<typeof createGoalSidebarViewModel>["state"]> &
+  Readonly<{
+    t: ReturnType<typeof useTranslation>["t"];
+    now: number;
+    setDraft(value: string): void;
+    setEditing(value: boolean): void;
+    setExpanded(value: boolean): void;
+    save(): void;
+    runLifecycle(): void;
+    clear(): void;
+  }>;
 
 function useGoalMinuteClock(fact: ChatGoalFact | null): number {
   const [now, setNow] = useState(() => Date.now());
@@ -348,235 +232,8 @@ function useGoalMinuteClock(fact: ChatGoalFact | null): number {
   return now;
 }
 
-function useExactGoalSidebarModel(
-  input: Readonly<{
-    api: GoalSidebarApi;
-    initialDraft: string;
-    target: ChatSessionTarget;
-  }>,
-): ExactGoalSidebarModel {
-  const { api, initialDraft, target } = input;
-  const { t } = useTranslation();
-  const observation = useGoalObservation(api, target);
-  const [localDraft, setLocalDraft] = useState<DraftState>({ base: "", draft: initialDraft });
-  const draftRevision = useRef(0);
-  const [pendingIntent, setPendingIntent] = useState<GoalMutationIntent | null>(null);
-  const latestFact = useRef<ChatGoalFact | null>(observation.fact);
-  const { push } = useStatusController();
-  const { logger } = useAppServices();
-  const mounted = useRef(false);
-  const [editing, setEditing] = useState(false);
-  const [expanded, setExpanded] = useState(false);
-
-  useEffect(() => {
-    mounted.current = true;
-    return () => {
-      mounted.current = false;
-    };
-  }, []);
-
-  useEffect(() => {
-    latestFact.current = observation.fact;
-  }, [observation.fact]);
-
-  const reconciledDraftState = reconcileDraftState(localDraft, observation.fact, pendingIntent);
-  const derived = deriveGoalSidebarState(observation.observation, pendingIntent, reconciledDraftState);
-  const {
-    actionsDisabled,
-    dirty,
-    displayedCreatedAt,
-    displayedObjective,
-    displayedStatus,
-    draftState,
-    fact,
-    saveAvailable,
-    unavailable,
-  } = derived;
-  const now = useGoalMinuteClock(fact);
-  const creationMode = fact?.goal === null;
-
-  const runMutation = useGoalMutationRunner({
-    actionsDisabled,
-    currentFact: () => latestFact.current,
-    draftRevision,
-    draftState,
-    editing: (creationMode && pendingIntent === null) || editing,
-    expanded: (creationMode && pendingIntent === null) || expanded,
-    logger,
-    mounted,
-    pendingIntent,
-    push,
-    setExpanded,
-    setEditing,
-    setLocalDraft,
-    setPendingIntent,
-    t,
-  });
-
-  const save = () => {
-    if (actionsDisabled) return;
-    setEditing(false);
-    void runMutation(
-      {
-        kind: "set",
-        preview: { objective: draftState.draft, status: "active" },
-      },
-      async () => {
-        const result = await api.setGoal({ kind: "session", sessionID: target.sessionID }, draftState.draft);
-        if (result.outcome.kind === "rejected") throw result.outcome.error;
-        return { mutation: result.outcome.mutation, diagnostic: result.outcome.diagnostic };
-      },
-    );
-  };
-
-  const lifecycle = goalLifecycleAction(displayedStatus);
-  const runLifecycle = () => {
-    void runMutation(
-      {
-        kind: lifecycle,
-        preview: {
-          objective: fact?.goal?.objective ?? draftState.draft,
-          status: lifecycle === "pause" ? "paused" : "active",
-        },
-      },
-      lifecycle === "pause"
-        ? async () => ({ mutation: await api.pauseGoal(target), diagnostic: null })
-        : async () => ({ mutation: await api.resumeGoal(target), diagnostic: null }),
-    );
-  };
-
-  const clear = () => {
-    void runMutation({ kind: "clear" }, async () => ({
-      mutation: await api.clearGoal(target),
-      diagnostic: null,
-    }));
-  };
-  const setDraft = useCallback(
-    (value: string) => {
-      draftRevision.current += 1;
-      setLocalDraft((current) => {
-        const synchronized = reconcileDraftState(current, observation.fact, pendingIntent);
-        return { ...synchronized, draft: value };
-      });
-    },
-    [observation.fact, pendingIntent],
-  );
-
-  return {
-    actionsDisabled,
-    clear,
-    dirty,
-    draftState,
-    displayedCreatedAt,
-    displayedObjective,
-    displayedStatus,
-    editing: (creationMode && pendingIntent === null) || editing,
-    expanded: (creationMode && pendingIntent === null) || expanded,
-    fact,
-    now,
-    observation: observation.observation,
-    pendingIntent,
-    replaceObservation: observation.replace,
-    runLifecycle,
-    save,
-    saveAvailable,
-    setDraft,
-    setEditing,
-    setExpanded,
-    t,
-    unavailable,
-  };
-}
-
-function useGoalObservation(
-  api: GoalSidebarApi,
-  target: ChatSessionTarget,
-): Readonly<{
-  fact: ChatGoalFact | null;
-  observation: GoalObservationState;
-  replace: () => void;
-}> {
-  const [attempt, setAttempt] = useState(0);
-  const [observation, setObservation] = useState<GoalObservationState>({
-    kind: "loading",
-    fact: null,
-  });
-  const replace = useCallback(() => {
-    setObservation((current) => ({ kind: "loading", fact: current.fact }));
-    setAttempt((current) => current + 1);
-  }, []);
-
-  useEffect(() => {
-    let live = true;
-    let hasObserved = false;
-    let nextSequence = 0;
-    let subscription: ReturnType<GoalSidebarApi["subscribeGoal"]> | null = null;
-    const fail = (error: Error) => {
-      if (!live) return;
-      if (hasObserved) {
-        live = false;
-        subscription?.close();
-        subscription = null;
-        setObservation({ kind: "loading_retryable", error, fact: null });
-        return;
-      }
-      live = false;
-      subscription?.close();
-      subscription = null;
-      setObservation({ kind: "error", error, fact: null });
-    };
-
-    subscription = api.subscribeGoal(target, {
-      onOpen: () => {
-        if (!live) return;
-        nextSequence = 0;
-        setObservation((current) => ({ kind: "loading", fact: current.fact }));
-      },
-      onEvent: (event) => {
-        if (!live) return;
-        if (!validGoalObservationSequence(nextSequence, event.sequence, event.kind)) {
-          fail(new ContractError("Goal observation sequence is not continuous."));
-          return;
-        }
-        nextSequence = event.sequence;
-        hasObserved = true;
-        setObservation({ kind: "observed", fact: event.fact });
-      },
-      onComplete: (code, message) => {
-        fail(
-          new ContractError(
-            code === null
-              ? "Goal observation completed unexpectedly."
-              : `Goal observation completed with code ${code.toString()}: ${String(message)}`,
-          ),
-        );
-      },
-      onError: fail,
-    });
-
-    return () => {
-      live = false;
-      subscription?.close();
-      subscription = null;
-    };
-  }, [api, attempt, target]);
-
-  return { fact: observation.fact, observation, replace };
-}
-
-function validGoalObservationSequence(
-  previous: number,
-  sequence: number,
-  kind: "hydration" | "update",
-): boolean {
-  if (previous === 0) return kind === "hydration" && sequence === 1;
-  return kind === "update" && sequence === previous + 1;
-}
-
 function ExactGoalContent({ model }: Readonly<{ model: ExactGoalSidebarModel }>) {
-  const { fact } = model;
-  if (fact === null) return null;
-  const showActions = model.displayedStatus !== null;
+  if (model.fact === null) return null;
   return (
     <div className="flex min-h-0 flex-col">
       <div className="min-h-0 shrink-0">
@@ -598,7 +255,7 @@ function ExactGoalContent({ model }: Readonly<{ model: ExactGoalSidebarModel }>)
         />
       </div>
       <AnimatePresence initial={false}>
-        {showActions ? (
+        {model.displayedStatus !== null ? (
           <AnimatedReveal key="metadata" variant="fade">
             <div className="flex flex-col gap-[var(--space-3)] pt-[var(--space-3)]">
               <GoalMetadata

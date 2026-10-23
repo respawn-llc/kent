@@ -16,6 +16,7 @@ import {
 import { row } from "@/test-support/transcript-window";
 import { transcriptSource, type ChatTranscriptHandler } from "./observation";
 export { transcriptSource, observeTranscript, type ChatTranscriptHandler } from "./observation";
+export { goalSource, observeGoal, type GoalObservationHandler } from "./goalObservation";
 export { RuntimeHarness } from "./runtime";
 export { TranscriptHarness } from "./transcript";
 

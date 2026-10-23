@@ -1,6 +1,5 @@
 import type { StreamFailureCode } from "@app/server-api-contract/gen/kent/api/shared/foundation_pb";
 import type { SessionCategory } from "./models";
-import type { ApiSubscription } from "./apiService";
 import type * as Stream from "effect/Stream";
 import type { PendingPrompt } from "./promptModels";
 import type { PromptAnswerBatchInput, PromptAnswerBatchResponse } from "./clientInputs";
@@ -194,12 +193,11 @@ export type ChatTranscriptObservation =
   | Readonly<{ kind: "event"; event: ChatTranscriptMessage }>
   | Readonly<{ kind: "complete"; completion: ChatTranscriptCompletion }>
   | Readonly<{ kind: "error"; error: Error }>;
-export type ChatGoalObservationHandler = Readonly<{
-  onOpen?(): void;
-  onEvent(observation: ChatGoalObservation): void;
-  onComplete(code: StreamFailureCode | null, message: string | null): void;
-  onError(error: Error): void;
-}>;
+export type ChatGoalStreamObservation =
+  | Readonly<{ kind: "open" }>
+  | Readonly<{ kind: "event"; event: ChatGoalObservation }>
+  | Readonly<{ kind: "complete"; code: StreamFailureCode | null; message: string | null }>
+  | Readonly<{ kind: "error"; error: Error }>;
 export type ChatSessionNameMutation = Readonly<{ kind: "set"; name: string }> | Readonly<{ kind: "clear" }>;
 export type ChatSettingsSnapshot = Readonly<{
   sessionName: string | null;
@@ -264,5 +262,8 @@ export type ChatApi = Readonly<{
     target: ChatSessionTarget,
     reportOverflow: () => Promise<void>,
   ): Stream.Stream<ChatTranscriptObservation>;
-  subscribeGoal(target: ChatSessionTarget, handler: ChatGoalObservationHandler): ApiSubscription;
+  subscribeGoal(
+    target: ChatSessionTarget,
+    reportOverflow: (value: ChatGoalStreamObservation) => Promise<void>,
+  ): Stream.Stream<ChatGoalStreamObservation>;
 }>;

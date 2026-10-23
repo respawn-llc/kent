@@ -1,4 +1,4 @@
-import { observeTranscript } from "@/test-support/chat-runtime";
+import { observeTranscript, observeGoal } from "@/test-support/chat-runtime";
 import { describe, expect, it } from "bun:test";
 import { StreamFailureCode } from "@app/server-api-contract/gen/kent/api/shared/foundation_pb";
 import { unexpectedProjectOverflow } from "@/test-support/api";
@@ -526,11 +526,12 @@ describe("Desktop Chat read client", () => {
 
     const observations: unknown[] = [];
     const observationErrors: Error[] = [];
-    client.chat.subscribeGoal(target, {
+    const goalObservation = observeGoal(client.chat, target, {
       onEvent: (observation) => observations.push(observation),
       onComplete: () => undefined,
       onError: (error) => observationErrors.push(error),
     });
+    await goalObservation.flush();
     transport.emitDescriptor(
       R.GoalService.method.observe,
       R.GoalService.method.observation,
@@ -540,6 +541,7 @@ describe("Desktop Chat read client", () => {
         status: { availability: R.GoalAvailability.AVAILABLE },
       }),
     );
+    await goalObservation.flush();
     expect(observations).toEqual([
       {
         sequence: 1,
@@ -552,9 +554,11 @@ describe("Desktop Chat read client", () => {
       new RpcError({ code: "internal_failure", message: "Session unavailable", method: "goal.observe" }),
     );
     transport.failDescriptor(R.GoalService.method.observe, new TransportError("Subscription socket closed."));
+    await goalObservation.flush();
     expect(observationErrors).toHaveLength(2);
     expect(observationErrors[0]).toBeInstanceOf(RpcError);
     expect(observationErrors[1]).toBeInstanceOf(TransportError);
+    goalObservation.close();
   });
 
   it("reads bounded transcript pages in both cursor directions", async () => {
