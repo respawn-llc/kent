@@ -187,6 +187,12 @@ func (c uiAskController) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			m.ask.freeform = false
 			if presentation := m.ask.dedicated; presentation != nil && presentation.freeformReturn != nil {
 				presentation.focus = *presentation.freeformReturn
+				if presentation.focus == askFocusReading {
+					presentation.row = 0
+					presentation.scroll = 0
+				} else if rows, ok := m.layout().askDocument(m.layout().effectiveWidth()).options[m.ask.cursor]; ok {
+					presentation.row = rows.start
+				}
 				presentation.freeformReturn = nil
 			}
 			return m, nil

@@ -14,6 +14,7 @@ const (
 
 type askDedicatedPresentation struct {
 	scroll         int
+	row            int
 	focus          askAnswerFocus
 	freeformReturn *askAnswerFocus
 }
@@ -74,9 +75,17 @@ func (m *uiModel) prepareAskPresentation(message *transcriptpb.Message) {
 		m.helpVisible = false
 	}
 	document := m.layout().askDocument(size.width)
-	m.ask.dedicated.scroll = min(max(0, m.ask.dedicated.scroll), max(0, len(document.lines)-askDocumentCapacity(size.height)))
 	if m.askHasAnswerFocus() && !m.ask.freeform {
-		m.askController().revealFocusedAnswer(document, askDocumentCapacity(size.height))
+		// Preserve the selected option's anchor when Markdown or wrapping changes.
+		if rows, ok := document.options[m.ask.cursor]; ok {
+			m.ask.dedicated.row = min(max(m.ask.dedicated.row, rows.start), rows.end-1)
+		}
+	}
+	m.ask.dedicated.row = min(max(0, m.ask.dedicated.row), max(0, len(document.lines)-1))
+	m.ask.dedicated.scroll = min(max(0, m.ask.dedicated.scroll), max(0, len(document.lines)-askDocumentCapacity(size.height)))
+	if !m.ask.freeform || !m.askHasAnswerFocus() {
+		m.askController().focusReadingRow(document)
+		m.askController().revealAskRow(document, askDocumentCapacity(size.height))
 	}
 }
 
@@ -91,6 +100,9 @@ func (l uiViewLayout) composeAskFrame(width, height int, style uiStyles) uiRende
 	}
 	document := l.askDocument(width)
 	viewport := document.viewport(l.model.ask.dedicated.scroll, askDocumentCapacity(height), l.model.ask.dedicated.focus)
+	if !l.model.ask.freeform || !l.model.askHasAnswerFocus() {
+		viewport.cursor = uiInputFieldCursor{Visible: true, Row: l.model.ask.dedicated.row - l.model.ask.dedicated.scroll}
+	}
 	pane := l.renderAskViewport(width, viewport, style)
 	frame.inputPane = pane.Lines
 	frame.inputCursor = pane.Cursor

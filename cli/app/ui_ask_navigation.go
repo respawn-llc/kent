@@ -1,6 +1,10 @@
 package app
 
-import tea "github.com/charmbracelet/bubbletea"
+import (
+	tuiinput "core/cli/tui/input"
+
+	tea "github.com/charmbracelet/bubbletea"
+)
 
 func (c uiAskController) handleDedicatedNavigation(msg tea.KeyMsg) bool {
 	m := c.model
@@ -10,55 +14,62 @@ func (c uiAskController) handleDedicatedNavigation(msg tea.KeyMsg) bool {
 	}
 	document := m.layout().askDocument(m.layout().effectiveWidth())
 	capacity := askDocumentCapacity(m.layout().effectiveHeight())
-	bottom := max(0, len(document.lines)-capacity)
+	delta := 0
 	switch msg.Type {
 	case tea.KeyPgUp, tea.KeyPgDown:
-		presentation.focus = askFocusReading
-		delta := capacity
+		delta = capacity
 		if msg.Type == tea.KeyPgUp {
 			delta = -delta
 		}
-		presentation.scroll = min(bottom, max(0, presentation.scroll+delta))
-		return true
 	case tea.KeyUp, tea.KeyDown:
-		delta := 1
+		delta = 1
 		if msg.Type == tea.KeyUp {
 			delta = -1
 		}
-		if presentation.focus == askFocusReading {
-			if delta > 0 && presentation.scroll == bottom {
-				presentation.focus = askFocusAnswer
-				m.ask.freeform = askOptionCount(m.ask.current.prompt) == 0
-				m.ask.cursor = 0
-				c.chooseFocusedApproval()
-				document = m.layout().askDocument(m.layout().effectiveWidth())
-				c.revealFocusedAnswer(document, capacity)
-			} else {
-				presentation.scroll = min(bottom, max(0, presentation.scroll+delta))
-			}
-			return true
-		}
-		if m.ask.freeform {
+		if m.ask.freeform && m.askHasAnswerFocus() {
 			if m.moveAskCursorVertical(delta) {
-				c.revealFocusedAnswer(m.layout().askDocument(m.layout().effectiveWidth()), capacity)
-			} else {
-				presentation.focus = askFocusReading
-				presentation.scroll = min(bottom, max(0, presentation.scroll+delta))
+				document = m.layout().askDocument(m.layout().effectiveWidth())
+				presentation.row = document.cursor.Row
+				c.revealAskRow(document, capacity)
+				return true
 			}
-			return true
 		}
-		next := m.ask.cursor + delta
-		if next >= 0 && next < askOptionCount(m.ask.current.prompt) {
-			m.ask.cursor = next
-			c.chooseFocusedApproval()
-			c.revealFocusedAnswer(document, capacity)
-		} else {
-			presentation.focus = askFocusReading
-			presentation.scroll = min(bottom, max(0, presentation.scroll+delta))
-		}
-		return true
+	default:
+		return false
 	}
-	return false
+	if m.ask.freeform && m.askHasAnswerFocus() {
+		presentation.row = document.cursor.Row
+	}
+	presentation.row = min(max(0, presentation.row+delta), max(0, len(document.lines)-1))
+	c.focusReadingRow(document)
+	c.revealAskRow(document, capacity)
+	return true
+}
+
+func (c uiAskController) focusReadingRow(document askDocument) {
+	m := c.model
+	presentation := m.ask.dedicated
+	presentation.focus = askFocusReading
+	if m.ask.freeform {
+		if document.editor != nil && presentation.row >= document.editor.start && presentation.row < document.editor.end {
+			// The Field remains the authority for positions within wrapped editor rows.
+			presentation.focus = askFocusAnswer
+			field := tuiinput.NewField()
+			field.Editor = m.ask.editor
+			field.Prefix = document.lines[document.editor.start].prompt.InputPrefix
+			field.MoveToRow(m.layout().effectiveWidth(), presentation.row-document.editor.start)
+			m.ask.editor = field.Editor
+		}
+		return
+	}
+	for option, rows := range document.options {
+		if presentation.row >= rows.start && presentation.row < rows.end {
+			presentation.focus = askFocusAnswer
+			m.ask.cursor = option
+			c.chooseFocusedApproval()
+			return
+		}
+	}
 }
 
 func (c uiAskController) chooseFocusedApproval() {
@@ -91,32 +102,16 @@ func (m *uiModel) focusDedicatedAskEditor() {
 	}
 	m.ask.dedicated.focus = askFocusAnswer
 	document := m.layout().askDocument(m.layout().effectiveWidth())
+	m.ask.dedicated.row = document.cursor.Row
 	m.ask.dedicated.scroll = max(0, len(document.lines)-askDocumentCapacity(m.layout().effectiveHeight()))
 }
 
-func (c uiAskController) revealFocusedAnswer(document askDocument, capacity int) {
-	m := c.model
-	var target askDocumentRange
-	if m.ask.freeform {
-		if document.editor == nil {
-			return
-		}
-		target = *document.editor
-		if document.cursor.Visible {
-			target = askDocumentRange{start: document.cursor.Row, end: document.cursor.Row + 1}
-		}
-	} else {
-		var exists bool
-		target, exists = document.options[m.ask.cursor]
-		if !exists {
-			return
-		}
+func (c uiAskController) revealAskRow(document askDocument, capacity int) {
+	presentation := c.model.ask.dedicated
+	if presentation.row < presentation.scroll {
+		presentation.scroll = presentation.row
+	} else if presentation.row >= presentation.scroll+capacity {
+		presentation.scroll = presentation.row - capacity + 1
 	}
-	presentation := m.ask.dedicated
-	if target.start < presentation.scroll {
-		presentation.scroll = target.start
-	} else if target.end > presentation.scroll+capacity {
-		presentation.scroll = max(target.start, target.end-capacity)
-	}
-	presentation.scroll = min(presentation.scroll, max(0, len(document.lines)-capacity))
+	presentation.scroll = min(max(0, presentation.scroll), max(0, len(document.lines)-capacity))
 }

@@ -124,45 +124,63 @@ func TestAskCompletePromptFitBoundaries(t *testing.T) {
 	}
 }
 
-func TestAskDedicatedDownReachesBottomBeforeFocusingFirstOption(t *testing.T) {
-	model := sizedTestUIModel(newProjectedStaticUIModel(), 80, 10)
+func TestAskDedicatedNavigationFollowsRenderedRows(t *testing.T) {
+	model, control := newProjectedPromptTestUIModel(t, WithUITerminalCursorState(newUITerminalCursorState()))
+	model = sizedTestUIModel(model, 80, 10)
 	event := testQuestionAskEvent("navigation", "Question", strings.Repeat("first wrapped choice ", 12), strings.Repeat("second wrapped choice ", 12))
 	testSetActiveAsk(model, &event)
 	model.ask.activeProjection.rows = make([]string, 12)
 	model = updateUIModel(t, model, tea.WindowSizeMsg{Width: 80, Height: 10})
-	bottom := len(model.layout().askDocument(80).lines) - askDocumentCapacity(10)
-	for index := 0; index < bottom; index++ {
+	document := model.layout().askDocument(80)
+	checkRow := func(row int) {
+		t.Helper()
+		document = model.layout().askDocument(80)
+		var option *int
+		for index, rows := range document.options {
+			if row >= rows.start && row < rows.end {
+				selected := index
+				option = &selected
+			}
+		}
+		if model.askHasAnswerFocus() != (option != nil) || (option != nil && model.ask.cursor != *option) {
+			t.Fatalf("row %d did not select only the option under the reading cursor", row)
+		}
+		frame := model.layout().composeAskFrame(80, 10, uiThemeStyles(model.theme))
+		if !frame.inputCursor.Visible || frame.inputCursor.Row != framedInputContentCursorRow(row-model.ask.dedicated.scroll) {
+			t.Fatalf("row %d did not retain a visible reading cursor", row)
+		}
+	}
+	checkRow(0)
+	model = updateUIModel(t, model, tea.KeyMsg{Type: tea.KeyEnter})
+	if len(control.batchRequests) != 0 {
+		t.Fatal("reading cursor on question text submitted an answer")
+	}
+	for row := 1; row < len(document.lines); row++ {
+		model = updateUIModel(t, model, tea.KeyMsg{Type: tea.KeyDown})
+		checkRow(row)
+	}
+	for row := len(document.lines) - 2; row >= 0; row-- {
+		model = updateUIModel(t, model, tea.KeyMsg{Type: tea.KeyUp})
+		checkRow(row)
+	}
+	for row := 0; row < len(document.lines)-1; {
+		row = min(row+askDocumentCapacity(10), len(document.lines)-1)
+		model = updateUIModel(t, model, tea.KeyMsg{Type: tea.KeyPgDown})
+		checkRow(row)
+	}
+	for row := len(document.lines) - 1; row > 0; {
+		row = max(0, row-askDocumentCapacity(10))
+		model = updateUIModel(t, model, tea.KeyMsg{Type: tea.KeyPgUp})
+		checkRow(row)
+	}
+	for row := 0; row < document.options[1].start; row++ {
 		model = updateUIModel(t, model, tea.KeyMsg{Type: tea.KeyDown})
 	}
-	if model.ask.dedicated.scroll != bottom || model.askHasAnswerFocus() {
-		t.Fatal("bottom-reaching step selected an answer or did not scroll to bottom")
-	}
-	model = updateUIModel(t, model, tea.KeyMsg{Type: tea.KeyDown})
-	if !model.askHasAnswerFocus() || model.ask.cursor != 0 {
-		t.Fatal("extra downward step did not focus option one")
-	}
-	model = updateUIModel(t, model, tea.KeyMsg{Type: tea.KeyDown})
-	if model.ask.cursor != 1 {
-		t.Fatal("focused arrow did not traverse options")
-	}
-	selected := model.layout().askDocument(80).options[1]
-	if selected.end-selected.start < 2 || selected.start < model.ask.dedicated.scroll || selected.end > model.ask.dedicated.scroll+askDocumentCapacity(10) {
-		t.Fatal("wrapped selected option was not kept in the document window")
-	}
-	model = updateUIModel(t, model, tea.KeyMsg{Type: tea.KeyPgUp})
-	if model.askHasAnswerFocus() {
-		t.Fatal("page navigation kept answer focus")
-	}
-	for step := 0; step <= len(model.layout().askDocument(80).lines) && model.ask.dedicated.scroll < bottom; step++ {
-		model = updateUIModel(t, model, tea.KeyMsg{Type: tea.KeyDown})
-	}
-	model = updateUIModel(t, model, tea.KeyMsg{Type: tea.KeyDown})
-	if model.ask.cursor != 0 || !model.askHasAnswerFocus() {
-		t.Fatal("reading restored the earlier option instead of option one")
-	}
-	model = updateUIModel(t, model, tea.KeyMsg{Type: tea.KeyUp})
-	if model.askHasAnswerFocus() || model.ask.dedicated.scroll >= bottom {
-		t.Fatal("Up above option one did not enter document reading")
+	next, command := model.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	runPromptDeliveryCommand(t, next.(*uiModel), command)
+	answer := requireQuestionAnswerEntry(t, requirePromptAnswerBatchRequest(t, control)).GetQuestionAnswer()
+	if answer.GetSelectedOptionNumber() != 2 {
+		t.Fatalf("Enter did not submit the option under the reading cursor: %+v", answer)
 	}
 }
 
@@ -206,6 +224,22 @@ func TestAskDedicatedFreeformReadingAndEditing(t *testing.T) {
 	model = updateUIModel(t, model, tea.KeyMsg{Type: tea.KeyEnter})
 	if testActiveAsk(model) == nil || model.transientStatusKind == uiStatusNoticeError {
 		t.Fatal("Enter attempted submission with an editor cursor outside the document window")
+	}
+	document = model.layout().askDocument(80)
+	draft := model.ask.editor.Text()
+	for step := 0; step < len(document.lines); step += askDocumentCapacity(10) {
+		model = updateUIModel(t, model, tea.KeyMsg{Type: tea.KeyPgUp})
+	}
+	for row := 0; row < len(document.lines)-1; {
+		row = min(row+askDocumentCapacity(10), len(document.lines)-1)
+		model = updateUIModel(t, model, tea.KeyMsg{Type: tea.KeyPgDown})
+		frame := model.layout().composeAskFrame(80, 10, uiThemeStyles(model.theme))
+		if !frame.inputCursor.Visible || frame.inputCursor.Row != framedInputContentCursorRow(row-model.ask.dedicated.scroll) {
+			t.Fatal("page movement through the editor lost the rendered-row cursor")
+		}
+	}
+	if model.ask.editor.Text() != draft {
+		t.Fatal("page movement through the editor changed the draft")
 	}
 }
 
@@ -320,10 +354,11 @@ func TestAskDedicatedApprovalReadingKeepsChosenCommentary(t *testing.T) {
 	model = updateUIModel(t, model, tea.KeyMsg{Type: tea.KeyTab})
 	model = updateUIModel(t, model, tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("deny draft")})
 	model = updateUIModel(t, model, tea.KeyMsg{Type: tea.KeyPgUp})
-	for step := 0; step <= len(model.layout().askDocument(80).lines) && model.ask.dedicated.scroll < len(model.layout().askDocument(80).lines)-askDocumentCapacity(10); step++ {
+	model = updateUIModel(t, model, tea.KeyMsg{Type: tea.KeyTab})
+	model = updateUIModel(t, model, tea.KeyMsg{Type: tea.KeyTab})
+	for step := 0; step <= len(model.layout().askDocument(80).lines) && !model.askHasAnswerFocus(); step++ {
 		model = updateUIModel(t, model, tea.KeyMsg{Type: tea.KeyDown})
 	}
-	model = updateUIModel(t, model, tea.KeyMsg{Type: tea.KeyDown})
 	if model.ask.freeform || model.ask.cursor != 0 || model.ask.editor.Text() != "deny draft" {
 		t.Fatal("reading did not return to option one with the commentary draft intact")
 	}

@@ -4,13 +4,12 @@
 - A collapsed transcript entry for a Question shows only the Question.
 - The active question is Markdown-rendered and wraps within its surface. Inline answer options take viewport priority. Inline question lines use the available capacity after options and follow the live region's collapse/truncation behavior. Pure freeform prompts use cursor-anchored viewport behavior.
 - The dedicated surface must show the complete active prompt as one scrollable document. It must use the inline prompt presentation without a separate title, transcript, tools, or unrelated Mutable Band content.
-- Each dedicated prompt must open at the beginning of its Markdown question in reading mode, with no option selected and no editor cursor.
-- `Up`/`Down`, including alternate-scroll wheel input, must form one continuous vertical interaction. They move through focused options or editor rows before entering document reading at the boundary. Moving above the first option must clear visible selection and scroll upward.
-- In reading mode, downward movement must reach the document bottom before one additional downward step focuses the first option or editor. `Enter` must submit only a focused answer.
+- Each dedicated prompt must open at the beginning of its Markdown question in reading mode, with no option selected and no editor cursor. Kent must visibly indicate the reading cursor's position relative to question text and answer options.
+- While reading a dedicated prompt, `Up`/`Down` and alternate-scroll wheel input must move the reading cursor by one rendered prompt row. `PgUp`/`PgDn` must move the same cursor by one viewport page and update option selection to match the cursor's rendered row.
+- The option whose rendered row contains the reading cursor must be selected and remain visible. Moving the reading cursor onto question text must clear option selection. `Enter` must submit only the selected option under the cursor and must do nothing while the cursor is on question text.
 - Typing, paste, and freeform editing or cursor movement other than `Up`/`Down` and `PgUp`/`PgDn` must focus the editor, jump to the document bottom, discard the reading position, and apply the operation. `Enter` must do nothing while the editor cursor is hidden.
 - While reading an ordinary Question, `Tab` must focus freeform input. While reading an Approval, `Tab` must do nothing until a decision has been chosen. Returning from freeform entered through reading must restore reading with no visible option selection.
-- `PgUp`/`PgDn` must enter reading mode and scroll by a viewport page. They must clear visible answer focus. After scrolling reaches the bottom, one additional downward step must focus the first option or editor.
-- Approval commentary must stay associated with its chosen decision and draft while reading hides answer focus. Returning to first-option focus after page reading must not reassign that commentary.
+- Approval commentary must stay associated with its chosen decision and draft while reading hides answer focus. Reading cursor movement must not reassign that commentary.
 - Dedicated rendering must follow the universal size rule in `tui-terminal-environment.md`, including its blank owned frame below minimum size. This rule takes precedence over prompt-specific fallback content.
 - The dedicated surface must use the shared status line with scrolling guidance in its help slot. General help must be unavailable there. Where the universal size rule permits rendering, if the terminal cannot fit one framed prompt-content row plus status, the surface must show only a resize instruction, omit status and answer cursor, and leave the prompt pending.
 - Promotion must be one-way for the active FIFO group. After promotion, later queued prompts must use the same surface until the group closes, even when resize, refresh, or a later prompt would fit inline. The final close must restore the untouched Ongoing Mode normal-buffer transcript.
@@ -39,7 +38,7 @@
 
 ## Keys
 
-- `Up`/`Down` move the option cursor while answer focus is active. Dedicated prompts use the document-boundary interaction above. `Enter` submits the focused selection (option number, approval decision, or freeform text).
+- `Up`/`Down` move the option cursor while answer focus is active. On dedicated prompts, reading navigation follows the rendered-row interaction above. `Enter` submits the focused selection (option number, approval decision, or freeform text).
 - `Tab` toggles between the option picker and freeform text entry. For Approvals, freeform is commentary for the selected decision. Toggling back shows the typed draft dimmed below the options for a non-Approval prompt without changing it.
 - Freeform entry uses the same editing and clipboard behavior as the main composer.
 - Choosing the "Freeform answer" option with empty text enters freeform mode. Submitting it with empty text is rejected with an error notice + bell.

@@ -94,6 +94,11 @@ func (f *Field) MoveDown(width int) bool {
 	return f.moveVertical(width, 1)
 }
 
+func (f *Field) MoveToRow(width, row int) bool {
+	layout := f.layout(max(1, width))
+	return f.moveToRow(layout, min(max(0, row), len(layout.lines)-1))
+}
+
 func (f *Field) moveVertical(width, delta int) bool {
 	if width < 1 {
 		width = 1
@@ -110,7 +115,11 @@ func (f *Field) moveVertical(width, delta int) bool {
 		f.Editor.SetCursor(next)
 		return changed
 	}
-	targetLine := layout.lines[layout.cursorLine+delta]
+	return f.moveToRow(layout, layout.cursorLine+delta)
+}
+
+func (f *Field) moveToRow(layout fieldLayout, row int) bool {
+	targetLine := layout.lines[row]
 	targetDisplayOffset := cursorAtDisplayColumn(layout.text, targetLine, layout.cursorCol)
 	next := layout.sourceCursor(targetDisplayOffset)
 	changed := f.Editor.Cursor() != next
