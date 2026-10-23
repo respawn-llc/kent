@@ -646,6 +646,7 @@
 
 [data-dependencies-visible="false"] [data-project-task-column="dependencies"],
 [data-labels-visible="false"] [data-project-task-column="labels"],
+[data-stage-visible="false"] [data-project-task-column="stage"],
 [data-title-visible="false"] [data-project-task-column="title"],
 [data-workflow-visible="false"] [data-project-task-column="workflow"] {
   display: none;

@@ -6313,6 +6313,78 @@ func (q *Queries) ListTaskPendingApprovalsByTasks(ctx context.Context, taskIdsJs
 	return items, nil
 }
 
+const listTaskStageNamesByTasks = `-- name: ListTaskStageNamesByTasks :many
+SELECT
+    task.id AS task_id,
+    CAST(CASE WHEN node.group_id IS NULL
+        THEN COALESCE(NULLIF(trim(node.display_name), ''), node.node_key)
+        ELSE COALESCE(node_group.display_name, (
+            SELECT COALESCE(NULLIF(trim(member.display_name), ''), member.node_key)
+            FROM workflow_nodes member
+            WHERE member.group_id = node.group_id
+            ORDER BY member.sort_order, member.rowid
+            LIMIT 1
+        ))
+    END AS TEXT) AS stage_name
+FROM tasks task
+JOIN task_current_nodes current_node ON current_node.rowid = COALESCE(
+    (
+        SELECT serial.rowid
+        FROM task_current_nodes serial
+        WHERE serial.task_id = task.id AND serial.transition_branch_key IS NULL
+    ),
+    (
+        SELECT parallel.rowid
+        FROM task_current_nodes parallel
+        WHERE parallel.task_id = task.id AND parallel.transition_branch_key IS NOT NULL
+        ORDER BY parallel.transition_branch_key
+        LIMIT 1
+    )
+)
+JOIN workflow_nodes node ON node.id = current_node.node_id
+LEFT JOIN workflow_node_groups node_group ON node_group.id = node.group_id
+WHERE task.id IN (/*SLICE:task_ids*/?)
+`
+
+type ListTaskStageNamesByTasksRow struct {
+	TaskID    string
+	StageName string
+}
+
+func (q *Queries) ListTaskStageNamesByTasks(ctx context.Context, taskIds []string) ([]ListTaskStageNamesByTasksRow, error) {
+	query := listTaskStageNamesByTasks
+	var queryParams []interface{}
+	if len(taskIds) > 0 {
+		for _, v := range taskIds {
+			queryParams = append(queryParams, v)
+		}
+		query = strings.Replace(query, "/*SLICE:task_ids*/?", strings.Repeat(",?", len(taskIds))[1:], 1)
+	} else {
+		query = strings.Replace(query, "/*SLICE:task_ids*/?", "NULL", 1)
+	}
+	rows, err := q.db.QueryContext(ctx, query, queryParams...)
+	err = recordQueryError(ctx, err, query, 1)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []ListTaskStageNamesByTasksRow
+	for rows.Next() {
+		var i ListTaskStageNamesByTasksRow
+		if err := recordQueryError(ctx, rows.Scan(&i.TaskID, &i.StageName), query, 1); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := recordQueryError(ctx, rows.Close(), query, 1); err != nil {
+		return nil, err
+	}
+	if err := recordQueryError(ctx, rows.Err(), query, 1); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const listTasksByIDs = `-- name: ListTasksByIDs :many
 SELECT
     id,
@@ -9918,7 +9990,7 @@ type UpsertWorkflowNodeGroupParams struct {
 	ID          string
 	WorkflowID  runtimeids.WorkflowID
 	GroupKey    string
-	DisplayName string
+	DisplayName sql.NullString
 	SortOrder   int64
 }
 

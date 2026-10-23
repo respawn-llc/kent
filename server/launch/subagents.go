@@ -15,19 +15,19 @@ import (
 const fastRoleSameAsMainWarning = "Warning: user configuration for fast agents is the same as for other agents. Consider asking the user to edit their config to pick a faster, smaller model at the end of your task. More info at " + config.DocsURL
 
 func resolveSubagentSettingsWithProviderID(base config.Settings, baseSource config.SourceReport, roleName string, providerID string, allowModelOverride bool, validate bool) (config.Settings, config.SourceReport, *string, error) {
-	lookup := config.LookupSubagentRole(base, roleName)
-	switch lookup.Status {
-	case config.SubagentRoleLookupInvalid:
-		return config.Settings{}, config.SourceReport{}, nil, fmt.Errorf("invalid subagent role %q", roleName)
-	case config.SubagentRoleLookupMissing:
-		return config.Settings{}, config.SourceReport{}, nil, fmt.Errorf("Unrecognized role %q. It may have been removed by the user during the session. Available roles: [%s]", *lookup.NormalizedSelector, strings.Join(config.AvailableSubagentRoleNames(base, false), ", "))
+	selector, role, err := lookupSubagentRole(base, roleName)
+	if err != nil {
+		return config.Settings{}, config.SourceReport{}, nil, err
 	}
-	providerSettings, err := config.OverlaySubagentRoleProviderSettings(config.App{Settings: base, Source: baseSource}, lookup.Role)
+	providerSettings, err := config.OverlaySubagentRoleProviderSettings(config.App{Settings: base, Source: baseSource}, role)
 	if err != nil {
 		return config.Settings{}, config.SourceReport{}, nil, err
 	}
 	var connection *config.ConnectionID
-	selected, _, err := ResolveSessionConnection(providerSettings, nil)
+	scope := config.ConnectionScope{Selection: providerSettings.Connection}
+	selected, _, err := ResolveSessionConnection(
+		providerSettings, subagentConnectionSource(baseSource, role), scope, nil,
+	)
 	var unavailable *config.ConnectionReferenceError
 	if err != nil && !errors.As(err, &unavailable) {
 		return config.Settings{}, config.SourceReport{}, nil, err
@@ -39,14 +39,30 @@ func resolveSubagentSettingsWithProviderID(base config.Settings, baseSource conf
 	prepared, err := prepareSubagentSettingsFromRole(
 		base,
 		baseSource,
-		*lookup.NormalizedSelector,
-		lookup.Role,
+		selector,
+		role,
 		&providerID,
 		connection,
 		allowModelOverride,
 		validate,
 	)
 	return prepared.Settings, prepared.Source, prepared.Warning, err
+}
+
+func lookupSubagentRole(settings config.Settings, roleName string) (string, config.SubagentRole, error) {
+	lookup := config.LookupSubagentRole(settings, roleName)
+	switch lookup.Status {
+	case config.SubagentRoleLookupInvalid:
+		return "", config.SubagentRole{}, fmt.Errorf("invalid subagent role %q", roleName)
+	case config.SubagentRoleLookupMissing:
+		return "", config.SubagentRole{}, fmt.Errorf(
+			"Unrecognized role %q. It may have been removed by the user during the session. Available roles: [%s]",
+			*lookup.NormalizedSelector,
+			strings.Join(config.AvailableSubagentRoleNames(settings, false), ", "),
+		)
+	default:
+		return *lookup.NormalizedSelector, lookup.Role, nil
+	}
 }
 
 // ResolveConfiguredSubagentSettings resolves one configured role against the

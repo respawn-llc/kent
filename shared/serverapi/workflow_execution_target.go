@@ -30,14 +30,31 @@ const (
 type WorkflowExecutionTargetResolutionErrorCode string
 
 const (
-	WorkflowExecutionTargetResolutionErrorInvalidRevision WorkflowExecutionTargetResolutionErrorCode = "invalid_revision"
-	WorkflowExecutionTargetResolutionErrorNonCommit       WorkflowExecutionTargetResolutionErrorCode = "non_commit"
-	WorkflowExecutionTargetResolutionErrorGitFailure      WorkflowExecutionTargetResolutionErrorCode = "git_failure"
+	WorkflowExecutionTargetResolutionErrorInvalidRevision        WorkflowExecutionTargetResolutionErrorCode = "invalid_revision"
+	WorkflowExecutionTargetResolutionErrorNonCommit              WorkflowExecutionTargetResolutionErrorCode = "non_commit"
+	WorkflowExecutionTargetResolutionErrorGitFailure             WorkflowExecutionTargetResolutionErrorCode = "git_failure"
+	WorkflowExecutionTargetResolutionErrorDefaultBranchMissing   WorkflowExecutionTargetResolutionErrorCode = "default_branch_missing"
+	WorkflowExecutionTargetResolutionErrorDefaultBranchAmbiguous WorkflowExecutionTargetResolutionErrorCode = "default_branch_ambiguous"
 )
 
-type WorkflowExecutionTargetResolutionError struct {
-	Code         WorkflowExecutionTargetResolutionErrorCode
+type WorkflowExecutionTargetResolutionTarget interface {
+	isWorkflowExecutionTargetResolutionTarget()
+}
+
+type WorkflowExecutionTargetResolutionCustomRef struct {
 	RequestedRef string
+}
+
+func (WorkflowExecutionTargetResolutionCustomRef) isWorkflowExecutionTargetResolutionTarget() {}
+
+type WorkflowExecutionTargetResolutionDefaultBranch struct{}
+
+func (WorkflowExecutionTargetResolutionDefaultBranch) isWorkflowExecutionTargetResolutionTarget() {}
+
+type WorkflowExecutionTargetResolutionError struct {
+	Target     WorkflowExecutionTargetResolutionTarget
+	Code       WorkflowExecutionTargetResolutionErrorCode
+	Diagnostic *string
 }
 
 type WorkflowLockedExecutionTargetCause string

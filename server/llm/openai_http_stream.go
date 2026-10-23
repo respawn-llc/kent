@@ -64,7 +64,7 @@ func (a *responseStreamAccumulator) Consume(evt responses.ResponseStreamEventUni
 	switch evt.Type {
 	case "response.created":
 		created := evt.AsResponseCreated()
-		a.attempt.observeResponse(created.Response, a.windowTokens)
+		a.attempt.observeResponse(evt.Type, created.Response, a.windowTokens)
 		observeStandardServedModel(&a.standardServedModel, string(created.Response.Model))
 	case "response.output_text.delta":
 		if evt.Delta == "" {
@@ -139,7 +139,7 @@ func (a *responseStreamAccumulator) Consume(evt responses.ResponseStreamEventUni
 		a.emitReasoningSummaryDelta(coordinate)
 	case "response.completed":
 		completedEvent := evt.AsResponseCompleted()
-		a.attempt.observeResponse(completedEvent.Response, a.windowTokens)
+		a.attempt.observeResponse(evt.Type, completedEvent.Response, a.windowTokens)
 		if !responseCompletedEventHasValidPayload(completedEvent) {
 			a.responseError = &responseStreamError{
 				Raw: completedEvent.RawJSON(),
@@ -154,11 +154,11 @@ func (a *responseStreamAccumulator) Consume(evt responses.ResponseStreamEventUni
 		a.completed = &completed
 	case "response.failed":
 		failed := evt.AsResponseFailed()
-		a.attempt.observeResponse(failed.Response, a.windowTokens)
+		a.attempt.observeResponse(evt.Type, failed.Response, a.windowTokens)
 		a.responseError = &responseStreamError{Raw: failed.RawJSON()}
 	case "response.incomplete":
 		incomplete := evt.AsResponseIncomplete()
-		a.attempt.observeResponse(incomplete.Response, a.windowTokens)
+		a.attempt.observeResponse(evt.Type, incomplete.Response, a.windowTokens)
 		raw := incomplete.RawJSON()
 		if strings.TrimSpace(incomplete.Response.IncompleteDetails.Reason) == "" {
 			a.responseError = &responseStreamError{

@@ -495,15 +495,30 @@ enum ConnectionFailureReason {
   CONNECTION_FAILURE_REASON_FINISH_ACCEPTED = 8;
   CONNECTION_FAILURE_REASON_SETUP_CHANGED = 9;
   CONNECTION_FAILURE_REASON_SELECTION_REQUIRED = 10;
+  CONNECTION_FAILURE_REASON_CREDENTIAL_CLEAR_FAILED = 11;
+  CONNECTION_FAILURE_REASON_DEFINITION_REMOVE_FAILED = 12;
 }
 
 message ConnectionFailureDetails {
   ConnectionFailureReason reason = 1 [(buf.validate.field).enum = {defined_only: true, not_in: [0]}];
   optional string connection_id = 2 [(buf.validate.field).string.(kent.api.shared.connection_id) = true];
+  optional string diagnostic = 3 [
+    (buf.validate.field).string.min_len = 1,
+    (buf.validate.field).cel = {
+      id: "kent.auth.connection_failure.diagnostic_nonblank"
+      message: "diagnostic must be non-blank when present"
+      expression: "this.trim() != ''"
+    }
+  ];
   option (buf.validate.message).cel = {
     id: "kent.auth.connection_failure.identity"
     message: "connection-specific failures require a connection ID; setup failures have no connection ID"
-    expression: "(this.reason in [1, 2, 3, 4, 5]) == has(this.connection_id)"
+    expression: "(this.reason in [1, 2, 3, 4, 5, 11, 12]) == has(this.connection_id)"
+  };
+  option (buf.validate.message).cel = {
+    id: "kent.auth.connection_failure.removal_diagnostic"
+    message: "connection removal failures require a diagnostic"
+    expression: "(this.reason in [11, 12]) == has(this.diagnostic)"
   };
 }
 
@@ -605,6 +620,7 @@ message ConfigureConnectionRequest {
     ConnectionDefinition add = 3;
     ConnectionReferenceEdit reference = 4;
     string default_connection_id = 5 [(buf.validate.field).string.(kent.api.shared.connection_id) = true];
+    string remove_connection_id = 6 [(buf.validate.field).string.(kent.api.shared.connection_id) = true];
   }
 }
 

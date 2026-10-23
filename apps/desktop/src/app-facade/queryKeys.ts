@@ -52,6 +52,9 @@ const worktreeOperationKey = (
 
 export const queryKeys = {
   speechAvailability: ["speech", "availability"],
+  subscriptionCatalog: () => ["subscription", "catalog"] as const,
+  subscriptionBinding: (sessionID: string) => ["subscription", "binding", sessionID] as const,
+  subscriptionUsage: (connectionID: string) => ["subscription", "usage", connectionID] as const,
   startup: ["startup"],
   readiness: ["startup", "readiness"],
   projects: ["projects"],

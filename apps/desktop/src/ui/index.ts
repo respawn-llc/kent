@@ -94,6 +94,7 @@ export {
   type TextFieldSubmitShortcutPolicy,
 } from "./textFieldSubmitShortcut";
 export { Spinner } from "./Spinner";
+export { LinearBar } from "./LinearBar";
 export type { SpinnerProps } from "./Spinner";
 export { Switch } from "./radix/switch";
 export { Checkbox } from "./radix/checkbox";

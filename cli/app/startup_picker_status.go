@@ -265,7 +265,19 @@ func projectStartupPickerStatusRender(projection startupPickerStatusProjection) 
 }
 
 func renderStartupPickerNotice(notice startupPickerNotice, width int) string {
-	return renderStartupPickerStatus(startupPickerStatusProjection{Notice: notice}, width)
+	text := strings.TrimSpace(notice.Text)
+	if text == "" {
+		return ""
+	}
+	if width < 1 {
+		width = 1
+	}
+	style := lipgloss.NewStyle().Foreground(uiPalette("dark").foreground)
+	if notice.Kind == startupPickerNoticeError {
+		style = lipgloss.NewStyle().Foreground(sharedtheme.DefaultPalette().Status.Error.Adaptive()).Bold(true)
+	}
+	wrapped := wrapLine(text, width)
+	return style.Render(strings.Join(wrapped, "\n"))
 }
 
 func sessionPickerFailureOperatorText(kind sessionPickerFailureKind) string {

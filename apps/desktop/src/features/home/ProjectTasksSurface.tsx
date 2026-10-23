@@ -425,6 +425,7 @@ function ProjectTasksContent({
           className="h-full min-h-0"
           data-dependencies-visible={visibleColumns.dependencies}
           data-labels-visible={visibleColumns.labelsPx !== null}
+          data-stage-visible={visibleColumns.stage}
           data-testid="project-task-list-layout"
           data-title-visible={visibleColumns.title}
           data-workflow-visible={visibleColumns.workflow}
