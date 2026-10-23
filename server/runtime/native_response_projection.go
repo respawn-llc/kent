@@ -46,7 +46,7 @@ func nativeResponseMessages(message llm.Message) []nativeResponseMessage {
 	}
 	var projected []nativeResponseMessage
 	presentation := message.NativeResponse.ReasoningPresentation()
-	for _, item := range llm.ItemsFromMessages([]llm.Message{message}) {
+	for _, item := range message.NativeResponse.PresentationItems() {
 		if item.Type == llm.ResponseItemTypeReasoning {
 			for _, summary := range item.ReasoningSummary {
 				if summary.Text == "" {

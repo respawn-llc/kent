@@ -3,6 +3,8 @@ package llm
 import (
 	"encoding/json"
 	"fmt"
+	"strings"
+	"unicode"
 
 	"core/server/session"
 	"core/shared/modelcontract"
@@ -14,8 +16,9 @@ import (
 // NativeResponse owns immutable accepted output. Presentation is derived once;
 // its prepared items retain the original bytes, independent of local phase/UI.
 type NativeResponse struct {
-	body  session.NativeResponseBody
-	items []ResponseItem
+	body         session.NativeResponseBody
+	items        []ResponseItem
+	displayItems []ResponseItem
 }
 
 func (n *NativeResponse) Record() *session.NativeResponseBody {
@@ -24,10 +27,45 @@ func (n *NativeResponse) Record() *session.NativeResponseBody {
 	}
 	body := session.NativeResponseBody{Format: n.body.Format, Items: make([][]byte, len(n.body.Items)), ReasoningType: textutil.Pointer(n.body.ReasoningType)}
 	body.ReasoningPresentation = n.ReasoningPresentation()
+	body.AssistantPresentation = append([]session.NativeAssistantPresentation(nil), n.body.AssistantPresentation...)
 	for i, raw := range n.body.Items {
 		body.Items[i] = append([]byte(nil), raw...)
 	}
 	return &body
+}
+
+// PresentationItems changes only local display text, never prepared native input.
+func (n *NativeResponse) PresentationItems() []ResponseItem {
+	return append([]ResponseItem(nil), n.displayItems...)
+}
+
+func newNativeResponse(body session.NativeResponseBody, items []ResponseItem) (*NativeResponse, error) {
+	n := &NativeResponse{body: body, items: items}
+	display := append([]ResponseItem(nil), items...)
+	byIndex := make(map[int64]*ResponseItem, len(display))
+	for i := range display {
+		if display[i].Type == ResponseItemTypeMessage {
+			byIndex[display[i].OutputIndex] = &display[i]
+		}
+	}
+	seen := make(map[int64]struct{}, len(n.body.AssistantPresentation))
+	for _, fact := range n.body.AssistantPresentation {
+		if _, duplicate := seen[fact.OutputIndex]; duplicate {
+			return nil, fmt.Errorf("duplicate native assistant presentation coordinate")
+		}
+		seen[fact.OutputIndex] = struct{}{}
+		source := byIndex[fact.OutputIndex]
+		if source == nil || source.Content == nil || fact.LeadingBytes <= 0 || fact.LeadingBytes > len(*source.Content) {
+			return nil, fmt.Errorf("invalid native assistant presentation source")
+		}
+		text := *source.Content
+		if len(text)-len(strings.TrimLeftFunc(text, unicode.IsSpace)) != fact.LeadingBytes {
+			return nil, fmt.Errorf("invalid native assistant whitespace offset")
+		}
+		source.Content = textutil.Value(text[fact.LeadingBytes:])
+	}
+	n.displayItems = display
+	return n, nil
 }
 
 func (n *NativeResponse) WithReasoningPresentation(presentation []session.NativeReasoningPresentation) *NativeResponse {
@@ -47,7 +85,9 @@ func (n *NativeResponse) ReasoningPresentation() []session.NativeReasoningPresen
 }
 
 func (n *NativeResponse) WithReasoningType(typ *modelcontract.ReasoningType) *NativeResponse {
-	cloned := &NativeResponse{body: n.body, items: CloneResponseItems(n.items)}
+	copy := *n
+	cloned := &copy
+	cloned.items = CloneResponseItems(n.items)
 	cloned.body.ReasoningType = textutil.Pointer(typ)
 	for i := range cloned.items {
 		item := &cloned.items[i]
@@ -101,7 +141,10 @@ func MessageFromNativeResponse(body session.NativeResponseBody) (Message, error)
 	if err != nil {
 		return Message{}, err
 	}
-	native := &NativeResponse{body: body, items: items}
+	native, err := newNativeResponse(body, items)
+	if err != nil {
+		return Message{}, err
+	}
 	native.body = *native.Record()
 	projected.Assistant.NativeResponse = native.WithReasoningType(body.ReasoningType)
 	for i := range projected.Assistant.ReasoningItems {

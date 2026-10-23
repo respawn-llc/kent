@@ -317,40 +317,79 @@ func (a *responseStreamAccumulator) Response() (ResponsesResponse, error) {
 	if err != nil {
 		return ResponsesResponse{}, err
 	}
-	parsedTextValue := ""
-	if parsedText != nil {
-		parsedTextValue = *parsedText
-	}
-	reconciliationText := streamDeltaText
-	if !hasResolvedStream {
-		reconciliationText = streamedDeltaText
-	}
-	if a.callbacks.OnAssistantDelta == nil && parsedText != nil {
-		reconciliationText = ""
-	}
-	// A done-only stream can resolve an explicit empty text item before the
-	// completed payload supplies its authoritative final phase. Preserve that
-	// presence only for a fully resolved stream; pending unmatched deltas must
-	// continue to fail reconciliation.
-	reconciled := parsedText != nil &&
-		(completedAssistantTextReconcilesStream(reconciliationText, parsedTextValue) ||
-			(hasResolvedStream && reconciliationText == "" && parsedTextValue == ""))
-	if reconciled {
-		finalText = textutil.Value(reconciledCompletedAssistantText(reconciliationText, parsedTextValue))
-		finalTextPresent = true
-	} else if parsedText != nil && !hasResolvedStream && rawDeltaText == "" {
-		finalText = textutil.Pointer(parsedText)
-		finalTextPresent = true
-	}
-	streamDeltaConflict := streamDeltaText != "" &&
-		(parsedText == nil || !completedAssistantTextReconcilesStream(streamDeltaText, parsedTextValue))
-	if responseItemsContainAssistantMessage(parsedItems) && !reconciled &&
-		(optionalStringsDiffer(finalText, parsedText) || streamDeltaConflict) {
-		return ResponsesResponse{}, fmt.Errorf(
-			"completed assistant content conflicts with streamed assistant content: streamed bytes=%d completed bytes=%d",
-			lenOptionalString(finalText),
-			lenOptionalString(parsedText),
-		)
+	var assistantPresentation []session.NativeAssistantPresentation
+	if responseItemsContainAssistantMessage(parsedItems) {
+		var segments []assistantOutputSegment
+		for _, item := range parsedItems {
+			if item.Type != ResponseItemTypeMessage || item.Content == nil {
+				continue
+			}
+			text := *item.Content
+			streamed := ""
+			if observed, ok := a.assistantMessages.byIndex[item.OutputIndex]; ok && observed.deltaText != nil {
+				streamed = observed.deltaText.String()
+			} else if pending := a.assistantMessages.pendingDeltas[item.OutputIndex]; pending != nil {
+				streamed = pending.String()
+			}
+			if streamed != "" {
+				if !completedAssistantTextReconcilesStream(streamed, text) {
+					return ResponsesResponse{}, fmt.Errorf("completed assistant item %d conflicts with streamed assistant content", item.OutputIndex)
+				}
+				display := reconciledCompletedAssistantText(streamed, text)
+				if display != text && display == strings.TrimLeftFunc(text, unicode.IsSpace) {
+					assistantPresentation = append(assistantPresentation, session.NativeAssistantPresentation{
+						OutputIndex: item.OutputIndex, LeadingBytes: len(text) - len(display),
+					})
+				}
+				text = display
+			}
+			phase, _ := textutil.OptionalValue(item.Phase)
+			segments = append(segments, assistantOutputSegment{
+				Text: text, Content: textutil.Value(text), Phase: phase, OutputIndex: item.OutputIndex,
+				ProviderPhase: parsedProviderPhase,
+			})
+		}
+		parsedText, _, _, _, _, _ = resolveAssistantOutput(segments)
+		// Reconciliation is item-local; aggregate phase selection must not compare
+		// one native message's deltas with another message's terminal text.
+		finalText = parsedText
+		finalTextPresent = parsedText != nil
+	} else {
+		parsedTextValue := ""
+		if parsedText != nil {
+			parsedTextValue = *parsedText
+		}
+		reconciliationText := streamDeltaText
+		if !hasResolvedStream {
+			reconciliationText = streamedDeltaText
+		}
+		if a.callbacks.OnAssistantDelta == nil && parsedText != nil {
+			reconciliationText = ""
+		}
+		// A done-only stream can resolve an explicit empty text item before the
+		// completed payload supplies its authoritative final phase. Preserve that
+		// presence only for a fully resolved stream; pending unmatched deltas must
+		// continue to fail reconciliation.
+		reconciled := parsedText != nil &&
+			(completedAssistantTextReconcilesStream(reconciliationText, parsedTextValue) ||
+				(hasResolvedStream && reconciliationText == "" && parsedTextValue == ""))
+		if reconciled {
+			finalText = textutil.Value(reconciledCompletedAssistantText(reconciliationText, parsedTextValue))
+			finalTextPresent = true
+		} else if parsedText != nil && !hasResolvedStream && rawDeltaText == "" {
+			finalText = textutil.Pointer(parsedText)
+			finalTextPresent = true
+		}
+		streamDeltaConflict := streamDeltaText != "" &&
+			(parsedText == nil || !completedAssistantTextReconcilesStream(streamDeltaText, parsedTextValue))
+		if responseItemsContainAssistantMessage(parsedItems) && !reconciled &&
+			(optionalStringsDiffer(finalText, parsedText) || streamDeltaConflict) {
+			return ResponsesResponse{}, fmt.Errorf(
+				"completed assistant content conflicts with streamed assistant content: streamed bytes=%d completed bytes=%d",
+				lenOptionalString(finalText),
+				lenOptionalString(parsedText),
+			)
+		}
 	}
 	if parsedPhase != "" {
 		finalPhase = parsedPhase
@@ -373,6 +412,7 @@ func (a *responseStreamAccumulator) Response() (ResponsesResponse, error) {
 	}
 
 	body := session.NativeResponseBody{Format: session.NativeResponseOpenAI, Items: make([][]byte, len(a.completed.Output))}
+	body.AssistantPresentation = assistantPresentation
 	switch a.policy.(type) {
 	case grokResponsesPolicy, grokCLIResponsesPolicy:
 		body.Format = session.NativeResponseGrok
@@ -382,7 +422,11 @@ func (a *responseStreamAccumulator) Response() (ResponsesResponse, error) {
 	}
 	var native *NativeResponse
 	if len(body.Items) > 0 {
-		native = (&NativeResponse{body: body, items: parsedItems}).WithReasoningType(body.ReasoningType)
+		native, err = newNativeResponse(body, parsedItems)
+		if err != nil {
+			return ResponsesResponse{}, err
+		}
+		native = native.WithReasoningType(body.ReasoningType)
 	}
 	return ResponsesResponse{
 		NativeResponse:   native,

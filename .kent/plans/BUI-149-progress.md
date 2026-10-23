@@ -1,5 +1,8 @@
 # October 23 review remediation — native reasoning boundary
 
+- Native leading-whitespace remediation: real Runtime regression with distinct streamed commentary/unstreamed final identities failed on aggregate reconciliation. Per-item reconciliation now records only the suppressed leading-byte offset as local presentation metadata, validates it when constructing/loading native bodies, and derives display projections shared by live commit/page/reload. Unstreamed later-message whitespace and every native Raw byte remain unchanged.
+- Same test sends the actual Runtime stream and accepted-row texts through Ongoing finalization; no scrollback rewrite or weakened final-prefix check. Final focused Runtime/LLM/Session/Ongoing `Native|LeadingWhitespace|PreservesResumedOutputWhitespace` passes (shell 5767). Initial test compile typo corrected before meaningful red.
+
 - New approved plan reopens items 2/4/5/7/8/9; retain implemented baseline `a0765f9a0` and inherited dirty plan/spec edits. No restart or rebase of retained implementation.
 - `TestNativeStreamOnlyReasoningRemainsReadableAfterReload` reproduces a dangling native reasoning reference on live page reads (red: `native reasoning presentation has no unique summary source`). Native presentation now reconciles terminal-backed summaries only, validates the same native reader contract before commit, and leaves unmatched visual traces to the existing post-commit reset. Raw terminal reasoning stays unchanged across prepared input and reopen.
 - Focused Runtime native omission, native tool-loop and Reasoning checks pass via Just (nested quoting required for regex test filter).

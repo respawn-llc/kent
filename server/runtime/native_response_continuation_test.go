@@ -12,6 +12,7 @@ import (
 	"sync/atomic"
 	"testing"
 
+	"core/cli/tui/ongoing"
 	"core/internal/testharness/httpclient"
 	"core/server/llm"
 	"core/server/session"
@@ -19,6 +20,7 @@ import (
 	"core/server/tools"
 	"core/shared/config"
 	"core/shared/modelcontract"
+	transcriptpb "core/shared/protoapi/gen/kent/api/transcript"
 	"core/shared/textutil"
 	"core/shared/toolspec"
 	"github.com/coder/websocket"
@@ -263,6 +265,83 @@ func TestNativeStreamOnlyReasoningRemainsReadableAfterReload(t *testing.T) {
 		}
 		if len(reasoning) != 1 || !bytes.Equal(reasoning[0].Raw, native) {
 			t.Fatalf("stream-only summary changed native API input: %+v", reasoning)
+		}
+	}
+	check(engine)
+	if err := engine.Close(); err != nil {
+		t.Fatal(err)
+	}
+	check(mustNewTestEngine(t, mustOpenTestSession(t, store.Dir()), client, tools.NewRegistry(), Config{Model: "gpt-6-sol"}))
+}
+
+func TestNativeLeadingWhitespacePresentationSurvivesReload(t *testing.T) {
+	t.Parallel()
+	output := []json.RawMessage{
+		json.RawMessage(`{"type":"message","id":"msg_first","role":"assistant","phase":"commentary","content":[{"type":"output_text","text":"\n\nHello world","annotations":[]}]}`),
+		json.RawMessage(`{"type":"message","id":"msg_second","role":"assistant","phase":"final_answer","content":[{"type":"output_text","text":"\n  unchanged","annotations":[]}]}`),
+	}
+	client := nativeResponseTestClient(t, nativeResponsesSocketHandler(t, func(json.RawMessage) []string {
+		return []string{
+			`{"type":"response.output_item.added","output_index":0,"item":{"type":"message","id":"msg_first","role":"assistant","phase":"commentary","content":[]}}`,
+			`{"type":"response.output_text.delta","output_index":0,"delta":"\n\nHello"}`,
+			`{"type":"response.output_text.delta","output_index":0,"delta":" world"}`,
+			fmt.Sprintf(`{"type":"response.output_item.done","output_index":0,"item":%s}`, output[0]),
+			fmt.Sprintf(`{"type":"response.completed","response":{"id":"resp_whitespace","status":"completed","output":[%s]}}`, bytes.Join(nativeBytes(output), []byte(","))),
+		}
+	}))
+	store := mustCreateTestSession(t)
+	var streamed string
+	surface := ongoing.NewSurface(&bytes.Buffer{})
+	frame := ongoing.FrameInput{Size: ongoing.Size{Width: 80, Height: 24}}
+	apply := func(event *transcriptpb.Event) {
+		t.Helper()
+		if _, err := surface.ApplyTerminalMessage(&transcriptpb.Message{Event: event}, frame); err != nil {
+			t.Fatal(err)
+		}
+	}
+	engine := mustNewTestEngine(t, store, client, tools.NewRegistry(), Config{
+		Model: "gpt-6-sol", OnEvent: func(event Event) {
+			if event.Kind == EventAssistantDelta {
+				streamed += event.AssistantDelta
+				apply(&transcriptpb.Event{Payload: &transcriptpb.Event_AssistantDelta{AssistantDelta: &transcriptpb.AssistantDelta{
+					StreamId: event.AssistantTranscriptStreamID.String(), Delta: event.AssistantDelta,
+					Phase: transcriptpb.AssistantPhase_ASSISTANT_PHASE_COMMENTARY,
+				}}})
+			}
+			for _, row := range TranscriptCommittedRowFactsFromEvent(event) {
+				if row.Assistant != nil && row.Assistant.StreamID != nil {
+					id := row.Assistant.StreamID.String()
+					apply(&transcriptpb.Event{Payload: &transcriptpb.Event_CommittedRow{CommittedRow: &transcriptpb.CommittedRow{
+						Row: &transcriptpb.CommittedRow_Assistant{Assistant: &transcriptpb.AssistantRow{
+							StreamId: &id, Text: row.Assistant.Text, Phase: transcriptpb.AssistantPhase_ASSISTANT_PHASE_COMMENTARY,
+						}},
+					}}})
+				}
+			}
+		},
+	})
+	if _, err := engine.SubmitUserMessage(t.Context(), "first"); err != nil {
+		t.Fatal(err)
+	}
+	check := func(engine *Engine) {
+		t.Helper()
+		var answers []string
+		for _, row := range TranscriptCommittedRowFactsFromSnapshot(mustEngineNewestSegmentPage(t, engine).Snapshot) {
+			if row.Assistant != nil {
+				answers = append(answers, row.Assistant.Text)
+			}
+		}
+		if !reflect.DeepEqual(answers, []string{streamed, "\n  unchanged"}) {
+			t.Fatalf("native per-item display changed streamed prefix or unstreamed whitespace: %q", answers)
+		}
+		next := 0
+		for _, item := range buildActiveTurnRequestForTest(t, engine, nil, true).Items {
+			if next < len(output) && bytes.Equal(item.Raw, output[next]) {
+				next++
+			}
+		}
+		if next != len(output) {
+			t.Fatal("presentation changed native API bytes")
 		}
 	}
 	check(engine)
