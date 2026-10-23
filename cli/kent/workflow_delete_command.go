@@ -83,10 +83,6 @@ func runWorkflowDelete(
 		fmt.Fprintf(stderr, "workflow deletion result identity %q does not match requested workflow %q\n", resp.Impact.WorkflowId, workflowDisplayID)
 		return 1
 	}
-	if resp.Deleted == (len(resp.Blockers) > 0) {
-		fmt.Fprintf(stderr, "workflow deletion returned inconsistent result: deleted=%t blockers=%d workflow=%q\n", resp.Deleted, len(resp.Blockers), workflowDisplayID)
-		return 1
-	}
 	output, err := workflowDeleteResponseForCLI(resp)
 	if err != nil {
 		fmt.Fprintln(stderr, err)

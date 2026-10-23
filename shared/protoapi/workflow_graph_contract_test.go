@@ -8,6 +8,23 @@ import (
 	"google.golang.org/protobuf/proto"
 )
 
+func TestWorkflowDeleteOutcomeRequiresBlockersExactlyWhenNotDeleted(t *testing.T) {
+	for _, deleted := range []bool{false, true} {
+		for _, blocked := range []bool{false, true} {
+			response := &pb.DeleteSuccess{
+				Deleted: deleted,
+				Impact: &pb.DeleteImpact{WorkflowId: "11111111-1111-4111-8111-111111111111"},
+			}
+			if blocked {
+				response.Blockers = []*pb.DeleteBlocker{{Code: "busy", Message: "Busy", Count: 1}}
+			}
+			if err := protoapi.Validate(response); (err == nil) != (deleted != blocked) {
+				t.Errorf("deleted=%t blocked=%t acceptance=%v", deleted, blocked, err)
+			}
+		}
+	}
+}
+
 func TestWorkflowDraftNodeGroupKeyResolvesUnlessExplicitIDOverrides(t *testing.T) {
 	for _, test := range []struct {
 		key   string

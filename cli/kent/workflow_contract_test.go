@@ -253,11 +253,6 @@ func TestWorkflowDeleteRejectsMismatchedOrInconsistentIdentity(t *testing.T) {
 		{name: "result identity", preview: valid, result: &pb.DeleteSuccess{
 			Deleted: true, Impact: &pb.DeleteImpact{WorkflowId: otherID.String(), Version: 1},
 		}},
-		{name: "deleted with blocker", preview: valid, result: &pb.DeleteSuccess{
-			Deleted: true, Impact: valid,
-			Blockers: []*pb.DeleteBlocker{{Code: "busy", Message: "busy", Count: 1}},
-		}},
-		{name: "not deleted without blocker", preview: valid, result: &pb.DeleteSuccess{Impact: valid}},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			remote := &workflowDeleteStub{
