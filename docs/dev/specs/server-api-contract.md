@@ -37,7 +37,7 @@
 - Connection-local correlation values must not reach service or domain code, persistence, replay, memoization, or reconciliation.
 - Notifications and events must not carry connection-local correlation values.
 - Every unary method must declare either multiplexed or dedicated connection policy. An unspecified policy is invalid.
-- Server Update Status, Workflow Task Search, Runtime Submit User Turn, Chat Submit User Shell Command, Runtime Compact Context, Runtime Interrupt, Runtime Live Stop, Runtime Live Wait, and Runtime Live Watch use dedicated unary connections.
+- Server Update Status, Workflow Task Search, Runtime Submit User Turn, Chat Submit User Shell Command, Runtime Compact Context, Runtime Live Stop, Runtime Live Wait, and Runtime Live Watch use dedicated unary connections.
 - Interactive Session opening must promote a Subagent Session through an explicit Session mutation without loading a Runtime. Session planning is data-only.
 - Subscription, progress, and notification connection behavior derives from operation kind.
 - A dedicated unary call owns one WebSocket and performs the applicable handshake, authentication, and attachment steps on that connection.

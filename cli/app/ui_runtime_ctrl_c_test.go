@@ -3,11 +3,101 @@ package app
 import runtimepb "core/shared/protoapi/gen/kent/api/runtime"
 
 import (
+	"context"
 	"core/shared/runtimeids"
+	"errors"
 
 	tea "github.com/charmbracelet/bubbletea"
 	"testing"
 )
+
+func TestAcceptedStopReadFailureRemainsVisibleWithoutReplayingStop(t *testing.T) {
+	for _, readErr := range []error{errors.New("read failed"), context.DeadlineExceeded} {
+		t.Run(readErr.Error(), func(t *testing.T) {
+			controls := &reconnectRetryRuntimeControlClient{stopStatus: runtimepb.LiveStopStatus_RUNTIME_LIVE_STOP_STATUS_IDLE}
+			reads := &flakySessionViewClient{errs: []error{readErr}}
+			client := newTestSessionRuntimeClient(reads, controls)
+			client.storeMainView(runtimeTupleTestView(10, runtimeTupleTestRunningActivity()))
+			model := newProjectedTestUIModel(client)
+			model.setRuntimeActivityBusyForTest(true)
+			model.setPendingInterrupt(true)
+			stop := model.runtimeControlCommand(runtimeControlInterrupt, nil)
+			done := stop().(runtimeControlDoneMsg)
+			if done.err != nil {
+				t.Fatalf("Stop was not accepted: %v", done.err)
+			}
+			refresh := model.applyRuntimeControlDone(done)
+			for _, msg := range collectCmdMessages(t, refresh) {
+				next, _ := model.Update(msg)
+				model = next.(*uiModel)
+			}
+			if model.transientStatus == "" || model.transientStatusKind != uiStatusNoticeError {
+				t.Fatal("failed authoritative read after accepted Stop did not surface an error")
+			}
+			if !model.runtimeActivityBusy() || !model.hasPendingInterrupt() {
+				t.Fatal("failed read fabricated an idle projection")
+			}
+			if reads.count != 1 || model.runtimeMainViewBusy || model.runtimeMainViewPendingSet {
+				t.Fatal("failed read scheduled automatic recovery")
+			}
+			_, exit := model.inputController().handleRuntimeCtrlC(nil)
+			messages := collectCmdMessages(t, exit)
+			if len(messages) != 1 {
+				t.Fatalf("second Ctrl+C returned %d messages, want Quit", len(messages))
+			}
+			if _, quits := messages[0].(tea.QuitMsg); !quits || controls.stopCalls != 1 {
+				t.Fatal("second Ctrl+C did not exit without replaying Stop")
+			}
+		})
+	}
+}
+
+func TestAcceptedStopRefreshesAuthoritativeActivity(t *testing.T) {
+	for _, test := range []struct {
+		name            string
+		status          runtimepb.LiveStopStatus
+		readBusy        bool
+		wantBusy        bool
+		currentSequence uint64
+	}{
+		{"stopped-idle", runtimepb.LiveStopStatus_RUNTIME_LIVE_STOP_STATUS_STOPPED, false, false, 10},
+		{"stopped-still-busy", runtimepb.LiveStopStatus_RUNTIME_LIVE_STOP_STATUS_STOPPED, true, true, 10},
+		{"idle-stale-busy", runtimepb.LiveStopStatus_RUNTIME_LIVE_STOP_STATUS_IDLE, false, false, 10},
+		{"idle-successor-busy", runtimepb.LiveStopStatus_RUNTIME_LIVE_STOP_STATUS_IDLE, true, true, 10},
+		{"stale-idle-read", runtimepb.LiveStopStatus_RUNTIME_LIVE_STOP_STATUS_STOPPED, false, true, 30},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			controls := &reconnectRetryRuntimeControlClient{stopStatus: test.status}
+			reads := &countingSessionViewClient{}
+			client := newTestSessionRuntimeClient(reads, controls)
+			client.storeMainView(runtimeTupleTestView(test.currentSequence, runtimeTupleTestRunningActivity()))
+			model := newProjectedTestUIModel(client)
+			model.setRuntimeActivityBusyForTest(true)
+			model.setPendingInterrupt(true)
+			activity := runtimeTupleTestIdleActivity()
+			if test.readBusy {
+				activity = runtimeTupleTestRunningActivity()
+			}
+			reads.view = runtimeTupleTestView(20, activity)
+			stop := model.runtimeControlCommand(runtimeControlInterrupt, nil)
+			done := stop().(runtimeControlDoneMsg)
+			refresh := model.applyRuntimeControlDone(done)
+			if refresh == nil {
+				t.Fatal("accepted Stop did not schedule an independent Runtime read")
+			}
+			if !model.hasPendingInterrupt() || !model.runtimeActivityBusy() {
+				t.Fatal("Stop status cleared busy state before an authoritative read")
+			}
+			for _, msg := range collectCmdMessages(t, refresh) {
+				next, _ := model.Update(msg)
+				model = next.(*uiModel)
+			}
+			if model.runtimeActivityBusy() != test.wantBusy || model.hasPendingInterrupt() != test.wantBusy {
+				t.Fatalf("refreshed busy/pending = %t/%t, want %t", model.runtimeActivityBusy(), model.hasPendingInterrupt(), test.wantBusy)
+			}
+		})
+	}
+}
 
 func TestRuntimeCtrlCInterruptsRestartedAgentLoopInsteadOfQuitting(t *testing.T) {
 	client := &runtimeControlFakeClient{}

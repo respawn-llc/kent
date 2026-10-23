@@ -99,20 +99,8 @@ var runtimeControlOpenAICapabilities = llm.ProviderCapabilities{
 	IsOpenAIFirstParty:       true,
 }
 
-type sequenceRuntimeActivityResolver struct {
-	snapshots []*runtimepb.ReadModelUpdate
-	calls     int
-}
-
 type runtimeControlSettingPublisher struct {
 	feedback []*transcriptpb.SessionSettingFeedback
-}
-
-func (p *runtimeControlSettingPublisher) RuntimeReadModelFeedSnapshot(
-	context.Context,
-	string,
-) (*runtimepb.ReadModelUpdate, error) {
-	return nil, nil
 }
 
 func (p *runtimeControlSettingPublisher) PublishSessionSettingFeedback(
@@ -163,15 +151,6 @@ func (f *runtimeControlPromptFeed) Counts() (pending int, resolved int) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	return f.pendingCount, f.resolvedCount
-}
-
-func (r *sequenceRuntimeActivityResolver) RuntimeReadModelFeedSnapshot(context.Context, string) (*runtimepb.ReadModelUpdate, error) {
-	if r.calls >= len(r.snapshots) {
-		return r.snapshots[len(r.snapshots)-1], nil
-	}
-	snapshot := r.snapshots[r.calls]
-	r.calls++
-	return snapshot, nil
 }
 
 type missingMetadataPersistedSessionResolver struct{}
@@ -987,8 +966,8 @@ func TestServicePendingQuestionInterruptsAndAllowsNextTurn(t *testing.T) {
 	case <-time.After(3 * time.Second):
 		t.Fatal("timed out waiting for pending Question publication")
 	}
-	if _, err := service.Interrupt(context.Background(), &runtimepb.InterruptRequest{
-		SessionId: store.Meta().SessionID,
+	if _, err := service.LiveStop(context.Background(), &runtimepb.LiveStopRequest{
+		SessionId: requestfixture.Selector(t, store.Meta().SessionID),
 	}); err != nil {
 		t.Fatalf("Interrupt pending Question: %v", err)
 	}
@@ -1039,42 +1018,28 @@ func TestServicePendingQuestionInterruptsAndAllowsNextTurn(t *testing.T) {
 	}
 }
 
-func TestServiceInterruptWithoutEngineRequestsResynchronization(t *testing.T) {
-	service := NewService(sessionruntime.NewAuthority(sessionruntime.AuthorityOptions{}), nil)
-	response, err := service.Interrupt(context.Background(), &runtimepb.InterruptRequest{
-		SessionId: "018fdd67-89ab-4cde-8123-456789abcdef",
+func TestServiceLiveStopWithoutEngineReturnsIdle(t *testing.T) {
+	store, service := newNumberedRuntimeControlFixture(t)
+	response, err := service.LiveStop(context.Background(), &runtimepb.LiveStopRequest{
+		SessionId: requestfixture.Selector(t, store.Meta().SessionID),
 	})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !response.Activity.DiagnosticRecovery {
-		t.Fatal("missing activity must request resynchronization")
+	if response.Status != runtimepb.LiveStopStatus_RUNTIME_LIVE_STOP_STATUS_IDLE {
+		t.Fatalf("Stop without engine = %v, want idle", response.Status)
 	}
 }
 
-type failingRuntimeActivityResolver struct {
-	err             error
-	observedContext context.Context
-}
-
-func (r *failingRuntimeActivityResolver) RuntimeReadModelFeedSnapshot(ctx context.Context, _ string) (*runtimepb.ReadModelUpdate, error) {
-	r.observedContext = ctx
-	return nil, r.err
-}
-
-func TestServiceInterruptReturnsDiagnosticActivityWhenPostInterruptSnapshotFails(t *testing.T) {
+func TestServiceLiveStopReturnsBeforeActiveTurnFinishes(t *testing.T) {
 	client := newCancelObservingRuntimeControlClient()
 	var releaseOnce sync.Once
 	release := func() { releaseOnce.Do(func() { close(client.release) }) }
 	defer release()
 	store, engine, service := newRuntimeControlTestService(t, client, nil, runtime.Config{})
-	snapshotErr := errors.New("activity snapshot failed")
-	resolver := &failingRuntimeActivityResolver{err: snapshotErr}
-	service.WithRuntimeActivityResolver(resolver)
-
 	submission, err := service.SubmitUserTurn(
 		context.Background(),
-		runtimeControlUserTurnRequest(store, "interrupt-snapshot-failure", "keep running"),
+		runtimeControlUserTurnRequest(store, "stop-before-turn-finishes", "keep running"),
 	)
 	if err != nil {
 		t.Fatalf("SubmitUserTurn: %v", err)
@@ -1088,22 +1053,14 @@ func TestServiceInterruptReturnsDiagnosticActivityWhenPostInterruptSnapshotFails
 		t.Fatal("active turn did not reach model thinking")
 	}
 
-	type interruptContextKey struct{}
-	interruptCtx := context.WithValue(context.Background(), interruptContextKey{}, "interrupt-context")
-	resp, err := service.Interrupt(interruptCtx, &runtimepb.InterruptRequest{
-		SessionId: store.Meta().SessionID,
+	resp, err := service.LiveStop(t.Context(), &runtimepb.LiveStopRequest{
+		SessionId: requestfixture.Selector(t, store.Meta().SessionID),
 	})
 	if err != nil {
 		t.Fatalf("Interrupt: %v", err)
 	}
-	if err := protoapi.Validate(resp.Version); err != nil {
-		t.Fatalf("fallback version: %v", err)
-	}
-	if resp.Activity.State != runtimepb.ActivityState_RUNTIME_ACTIVITY_UNAVAILABLE || !resp.Activity.DiagnosticRecovery {
-		t.Fatalf("fallback activity = %+v, want diagnostic unavailable", resp.Activity)
-	}
-	if resolver.observedContext == nil || resolver.observedContext.Value(interruptContextKey{}) != "interrupt-context" {
-		t.Fatal("post-interrupt snapshot did not receive the caller context")
+	if resp.Status != runtimepb.LiveStopStatus_RUNTIME_LIVE_STOP_STATUS_STOPPED {
+		t.Fatalf("Stop active turn = %v, want stopped", resp.Status)
 	}
 	release()
 	waitForRuntimeControlIdle(t, engine)
@@ -1377,29 +1334,6 @@ func runtimeControlPromptHistoryStoresLoad(t *testing.T, sessionID string) *runt
 		t.Fatalf("prompt history store type = %T", registered)
 	}
 	return store
-}
-
-func TestServiceInterruptIdleReturnsAuthoritativeIdle(t *testing.T) {
-	store, _, service := newRuntimeControlTestService(t, nil, nil, runtime.Config{})
-	service.WithRuntimeActivityResolver(&sequenceRuntimeActivityResolver{
-		snapshots: []*runtimepb.ReadModelUpdate{{
-			Version: &runtimepb.ReadModelVersion{Epoch: "epoch-1", Generation: 1, Sequence: 1},
-			Activity: &runtimepb.Activity{
-				State:          runtimepb.ActivityState_RUNTIME_ACTIVITY_REGISTERED_IDLE,
-				Reviewer:       runtimepb.ReviewerActivity_REVIEWER_ACTIVITY_INACTIVE,
-				QueueAccepting: true,
-			},
-		}},
-	})
-	response, err := service.Interrupt(context.Background(), &runtimepb.InterruptRequest{
-		SessionId: store.Meta().SessionID,
-	})
-	if err != nil {
-		t.Fatal(err)
-	}
-	if response.Activity.State != runtimepb.ActivityState_RUNTIME_ACTIVITY_REGISTERED_IDLE {
-		t.Fatalf("Interrupt idle activity = %v", response.Activity)
-	}
 }
 
 func runtimeControlSetGoal(
@@ -2966,8 +2900,8 @@ func TestServiceSubmitUserTurnRecordsCommittedAtFlushBeforeAssistantCompletion(t
 	if got := countUserMessagesWithContent(t, store, "flush before model completes"); got != 1 {
 		t.Fatalf("committed user message count before assistant completion = %d, want 1", got)
 	}
-	if _, err := service.Interrupt(context.Background(), &runtimepb.InterruptRequest{
-		SessionId: req.SessionId,
+	if _, err := service.LiveStop(context.Background(), &runtimepb.LiveStopRequest{
+		SessionId: requestfixture.Selector(t, req.SessionId),
 	}); err != nil {
 		t.Fatalf("Interrupt: %v", err)
 	}
@@ -3010,7 +2944,7 @@ func TestServiceInterruptForegroundShellAllowsNextTurn(t *testing.T) {
 	case <-time.After(3 * time.Second):
 		t.Fatal("foreground shell did not start")
 	}
-	if _, err := service.Interrupt(t.Context(), &runtimepb.InterruptRequest{SessionId: store.Meta().SessionID}); err != nil {
+	if _, err := service.LiveStop(t.Context(), &runtimepb.LiveStopRequest{SessionId: requestfixture.Selector(t, store.Meta().SessionID)}); err != nil {
 		t.Fatal(err)
 	}
 	select {
@@ -3395,8 +3329,8 @@ func TestServiceInterruptCompactionAllowsNextTurnWithoutRestart(t *testing.T) {
 		t.Fatal("compaction did not start")
 	}
 
-	if _, err := service.Interrupt(context.Background(), &runtimepb.InterruptRequest{
-		SessionId: store.Meta().SessionID,
+	if _, err := service.LiveStop(context.Background(), &runtimepb.LiveStopRequest{
+		SessionId: requestfixture.Selector(t, store.Meta().SessionID),
 	}); err != nil {
 		t.Fatalf("Interrupt while compacting: %v", err)
 	}
@@ -3473,8 +3407,8 @@ func TestServiceInterruptRestoresEveryPendingSteerWithoutRestart(t *testing.T) {
 		ids = append(ids, response.GetQueued().GetQueueItemId())
 	}
 
-	_, err = service.Interrupt(context.Background(), &runtimepb.InterruptRequest{
-		SessionId: store.Meta().SessionID,
+	_, err = service.LiveStop(context.Background(), &runtimepb.LiveStopRequest{
+		SessionId: requestfixture.Selector(t, store.Meta().SessionID),
 	})
 	if err != nil {
 		t.Fatalf("Interrupt: %v", err)
@@ -3534,7 +3468,7 @@ func TestSetSessionNamePublishesChangedAndUnchangedFeedback(t *testing.T) {
 	store, _, service := newRuntimeControlTestService(t, nil, nil, runtime.Config{})
 	beforeSequence := store.Meta().LastSequence
 	publisher := &runtimeControlSettingPublisher{}
-	service.WithRuntimeActivityResolver(publisher)
+	service.WithSessionSettingFeedbackPublisher(publisher)
 	request := &runtimepb.SetSessionNameRequest{
 		SessionId: store.Meta().SessionID,
 		Mutation:  &runtimepb.SessionNameMutation{Action: &runtimepb.SessionNameMutation_Set{Set: "renamed"}},

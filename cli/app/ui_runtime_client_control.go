@@ -269,22 +269,10 @@ func (c *sessionRuntimeClient) CompactRuntime(ctx context.Context, req clientui.
 }
 
 func (c *sessionRuntimeClient) Interrupt() error {
-	_, err := c.interruptRuntimeCandidate()
-	return err
-}
-
-func (c *sessionRuntimeClient) interruptRuntimeCandidate() (runtimeTupleCandidate, error) {
-	resp, err := runtimeControlCall(func(ctx context.Context) (*runtimepb.ReadModelUpdate, error) {
-		return c.controls.Interrupt(ctx, &runtimepb.InterruptRequest{SessionId: c.sessionID})
+	_, err := runtimeControlCall(func(ctx context.Context) (*runtimepb.LiveStopSuccess, error) {
+		return c.liveControls.LiveStop(ctx, &runtimepb.LiveStopRequest{SessionId: protoapi.SessionSelectorToProto(runtimeids.SessionIDFromProto(c.sessionID))})
 	})
-	if err != nil {
-		return runtimeTupleCandidate{}, err
-	}
-	candidate := runtimeTupleCandidate{
-		Version:  resp.Version,
-		Activity: resp.Activity,
-	}
-	return candidate, nil
+	return err
 }
 
 func (c *sessionRuntimeClient) DiscardQueuedUserMessage(queueItemID string) bool {
