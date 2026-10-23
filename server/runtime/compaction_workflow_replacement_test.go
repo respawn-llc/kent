@@ -269,7 +269,7 @@ func TestWorkflowPostCompletionCompactionKeepsCommittedReceiptAfterFinalizationD
 	if err := fixture.store.AdoptOriginalThinkingEffort("medium"); err != nil {
 		t.Fatal(err)
 	}
-	gate.FailWhen(func(snapshot session.PersistedStoreSnapshot) bool {
+	gate.FailAfterCommitWhen(func(snapshot session.PersistedStoreSnapshot) bool {
 		return snapshot.Meta.LastSequence >= 2 && snapshot.Meta.UsageState == nil
 	}, diagnostic)
 

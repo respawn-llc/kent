@@ -63,7 +63,7 @@ func OpenDiagnosticSessionCopy(
 			resultErr = errors.Join(resultErr, os.RemoveAll(root))
 		}
 	}()
-	copyDir := filepath.Join(root, "session")
+	copyDir := filepath.Join(root, record.Meta.SessionID)
 	if err := os.Mkdir(copyDir, 0o700); err != nil {
 		return nil, fmt.Errorf("create diagnostic Session copy: %w", err)
 	}

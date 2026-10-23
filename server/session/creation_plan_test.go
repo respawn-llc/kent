@@ -330,7 +330,12 @@ func TestCommittedCreationRejectsDamagedEstablishedArtifacts(t *testing.T) {
 				t.Fatal(err)
 			}
 			before, beforeErr := os.ReadFile(path)
-			if _, err := MaterializeCommittedCreation(t.Context(), plan, options...); err == nil {
+			_, materializeErr := MaterializeCommittedCreation(t.Context(), plan, options...)
+			if damage == "incomplete" {
+				if materializeErr != nil {
+					t.Fatalf("uncommitted suffix blocked committed history: %v", materializeErr)
+				}
+			} else if materializeErr == nil {
 				t.Fatal("damaged established artifact was accepted")
 			}
 			after, afterErr := os.ReadFile(path)

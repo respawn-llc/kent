@@ -45,7 +45,7 @@ func TestPersistedMessageAppliesProjectionByCommitReceipt(t *testing.T) {
 			Model:   "gpt-6-sol",
 			OnEvent: func(event Event) { events = append(events, event) },
 		})
-		gate.FailNext(observerErr)
+		gate.FailAfterCommit(observerErr)
 
 		err := eng.steer(runtimeTestStepID("step-1"), steerMessagesWithPersistenceIntent(steeringPriorityNormal, steeringMessageEventDefault, true, []llm.Message{{Role: llm.RoleUser, Content: textutil.Value("committed")}}))
 		if !errors.Is(err, observerErr) {

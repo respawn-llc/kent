@@ -184,7 +184,7 @@ func TestPromptCacheResponseAppliesLineageByCommitReceipt(t *testing.T) {
 		ChunkCount:    1,
 		TerminalHash:  "0000000000000000000000000000000000000000000000000000000000000000",
 	}}
-	gate.FailNext(observerErr)
+	gate.FailAfterCommit(observerErr)
 
 	stepID := runtimeTestStepID("step-1")
 	err := runTestActiveStep(eng, stepID, func() error {

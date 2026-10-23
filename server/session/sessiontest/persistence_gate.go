@@ -19,10 +19,11 @@ type PersistenceGate struct {
 }
 
 type persistenceGateStep struct {
-	entered chan struct{}
-	release chan struct{}
-	err     error
-	match   func(session.PersistedStoreSnapshot) bool
+	entered     chan struct{}
+	release     chan struct{}
+	err         error
+	match       func(session.PersistedStoreSnapshot) bool
+	afterCommit bool
 }
 
 func NewPersistenceGate(delegate session.PersistenceObserver) *PersistenceGate {
@@ -35,6 +36,20 @@ func (g *PersistenceGate) FailNext(err error) {
 		panic("test persistence gate failure requires an error")
 	}
 	g.arm(&persistenceGateStep{entered: make(chan struct{}), err: err})
+}
+
+func (g *PersistenceGate) FailAfterCommit(err error) {
+	if err == nil {
+		panic("test persistence gate failure requires an error")
+	}
+	g.arm(&persistenceGateStep{entered: make(chan struct{}), err: err, afterCommit: true})
+}
+
+func (g *PersistenceGate) FailAfterCommitWhen(match func(session.PersistedStoreSnapshot) bool, err error) {
+	if match == nil || err == nil {
+		panic("test postcommit failure requires predicate and error")
+	}
+	g.arm(&persistenceGateStep{entered: make(chan struct{}), err: err, match: match, afterCommit: true})
 }
 
 func (g *PersistenceGate) FailWhen(match func(session.PersistedStoreSnapshot) bool, err error) {
@@ -108,6 +123,10 @@ func (g *PersistenceGate) ObservePersistedStore(ctx context.Context, snapshot se
 			}
 		}
 		if step.err != nil {
+			if step.afterCommit {
+				receipt, err := g.delegate.ObservePersistedStore(ctx, snapshot)
+				return receipt, errors.Join(err, step.err)
+			}
 			return session.CommitReceipt{}, session.DefinitelyUncommittedMutation(step.err)
 		}
 	}

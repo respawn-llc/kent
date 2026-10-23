@@ -67,7 +67,7 @@ func TestQueuedInputBatchRemainsCommittedOnObserverFailure(t *testing.T) {
 	restoreStep()
 	queued := queueMessageLifecycleTestSteers(t, engine, "first", "second", "third")
 	baselineSequence := store.Meta().LastSequence
-	gate.FailWhen(func(snapshot session.PersistedStoreSnapshot) bool {
+	gate.FailAfterCommitWhen(func(snapshot session.PersistedStoreSnapshot) bool {
 		return snapshot.Meta.LastSequence > baselineSequence
 	}, observerErr)
 

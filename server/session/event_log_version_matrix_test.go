@@ -267,7 +267,7 @@ func TestEventLogVersionMatrixOpenedLogsRetainVersionAcrossReconcileReadAndAppen
 			writeVersionedEventLog(t, path, version, []EventRecord{first})
 
 			meta := storeTestMeta(store)
-			meta.LastSequence = 0
+			meta.LastSequence = 1
 			persistence := &testSessionMetadata{records: map[string]PersistedSessionRecord{
 				meta.SessionID: {SessionDir: store.Dir(), Meta: &meta},
 			}}
@@ -321,6 +321,15 @@ func TestEventLogVersionMatrixForkCloneAndDiagnosticCopyPreserveSourceVersion(t 
 				mustVersionMatrixRecord(t, 2, MessageRoleUser, "fork target"),
 			}
 			writeVersionedEventLog(t, filepath.Join(store.Dir(), eventsFile), version, records)
+			meta := store.Meta()
+			meta.LastSequence = 2
+			if _, err := persistence.ObservePersistedStore(t.Context(), PersistedStoreSnapshot{SessionDir: store.Dir(), Meta: meta}); err != nil {
+				t.Fatal(err)
+			}
+			store, err = Open(store.Dir(), persistence.options()...)
+			if err != nil {
+				t.Fatal(err)
+			}
 			parent := mustMaterializeSessionTestEventLog(t, store)
 
 			forked, _, err := ForkAtUserMessage(parent, 2, "fork", sessioncontract.SessionCategoryMain, ForkThinking{Desired: "medium", PreserveNativeUpdates: true})

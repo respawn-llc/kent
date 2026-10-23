@@ -365,6 +365,9 @@ func materializeCreationArtifacts(ctx context.Context, plan CreationPlan, record
 		if log.boundaryIncomplete || log.lastSequence != record.Meta.LastSequence {
 			return errors.New("created Session event log does not match committed metadata")
 		}
+		if source != nil && record.Meta.LastSequence == 0 && info.Size() > log.lastCompleteOffset {
+			return errors.New("clone metadata was not committed; discard the incomplete clone before trying again")
+		}
 		return nil
 	} else if !errors.Is(err, os.ErrNotExist) {
 		return err
