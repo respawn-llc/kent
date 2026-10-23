@@ -13,7 +13,7 @@ func TestWorkflowDeleteOutcomeRequiresBlockersExactlyWhenNotDeleted(t *testing.T
 		for _, blocked := range []bool{false, true} {
 			response := &pb.DeleteSuccess{
 				Deleted: deleted,
-				Impact: &pb.DeleteImpact{WorkflowId: "11111111-1111-4111-8111-111111111111"},
+				Impact:  &pb.DeleteImpact{WorkflowId: "11111111-1111-4111-8111-111111111111"},
 			}
 			if blocked {
 				response.Blockers = []*pb.DeleteBlocker{{Code: "busy", Message: "Busy", Count: 1}}
