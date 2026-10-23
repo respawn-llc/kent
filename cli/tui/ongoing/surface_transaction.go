@@ -2,6 +2,7 @@ package ongoing
 
 import (
 	"io"
+	"iter"
 	"strings"
 
 	"core/cli/tui/transcriptrender"
@@ -144,15 +145,24 @@ func (s *Surface) AllocateFrame(frame FrameInput) FrameAllocation {
 	return s.allocateFrame(frame, 0)
 }
 
-// AllocateMessageFrame includes the incoming content without consuming it or
-// advancing the surface's grouping, assistant stream, or terminal state.
-func (s *Surface) AllocateMessageFrame(message *transcriptpb.Message, frame FrameInput) FrameAllocation {
-	next := *s
-	content := next.prepareTerminalMessage(message, frame)
-	if content == nil {
-		return next.AllocateFrame(frame)
+// AllocateMessageFrames measures each incoming frame in order without consuming
+// the messages or advancing the surface's grouping, stream, or terminal state.
+func (s *Surface) AllocateMessageFrames(messages []*transcriptpb.Message, frame FrameInput) iter.Seq[FrameAllocation] {
+	return func(yield func(FrameAllocation) bool) {
+		next := *s
+		for _, message := range messages {
+			content := next.prepareTerminalMessage(message, frame)
+			var allocation FrameAllocation
+			if content == nil {
+				allocation = next.AllocateFrame(frame)
+			} else {
+				allocation = next.allocateFrame(frame, len(content.immutableRows))
+			}
+			if !yield(allocation) {
+				return
+			}
+		}
 	}
-	return next.allocateFrame(frame, len(content.immutableRows))
 }
 
 func (s *Surface) allocateFrame(frame FrameInput, immutableRowCount int) FrameAllocation {

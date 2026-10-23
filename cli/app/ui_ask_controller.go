@@ -139,15 +139,15 @@ func (c uiAskController) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	if c.handleDedicatedNavigation(msg) {
 		return m, nil
 	}
-	if m.ask.freeform && isClipboardPasteKey(msg) {
+	if m.askEditorAcceptsInput() && isClipboardPasteKey(msg) {
 		m.focusDedicatedAskEditor()
 		return m, m.pasteClipboardCmd(uiClipboardPasteTargetAsk)
 	}
-	if m.ask.freeform && applySharedInputEditKeyForGOOS(msg, &m.ask.editor, runtime.GOOS).Handled {
+	if m.askEditorAcceptsInput() && applySharedInputEditKeyForGOOS(msg, &m.ask.editor, runtime.GOOS).Handled {
 		m.focusDedicatedAskEditor()
 		return m, nil
 	}
-	if m.ask.freeform && applySharedInputMovementKey(msg, &m.ask.editor) {
+	if m.askEditorAcceptsInput() && applySharedInputMovementKey(msg, &m.ask.editor) {
 		m.focusDedicatedAskEditor()
 		return m, nil
 	}
@@ -171,16 +171,17 @@ func (c uiAskController) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 					return m, nil
 				}
 				m.ask.freeformMode = askFreeformModeApprovalCommentary
-			} else {
-				focus := askFocusReading
-				presentation.freeformReturn = &focus
 			}
+			focus := askFocusReading
+			presentation.freeformReturn = &focus
 			m.ask.freeform = true
 			m.focusDedicatedAskEditor()
 			return m, nil
 		}
 		if m.ask.freeform {
-			if !askSupportsDraftRoundTrip(req) {
+			presentation := m.ask.dedicated
+			dedicatedApprovalReturn := transcriptPromptIsApproval(req) && presentation != nil && presentation.freeformReturn != nil
+			if !askSupportsDraftRoundTrip(req) && !dedicatedApprovalReturn {
 				return m, nil
 			}
 			m.ask.freeform = false
@@ -317,7 +318,7 @@ func (c uiAskController) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		}
 		return m, nil
 	case tea.KeyCtrlJ, keyTypeShiftEnterCSI:
-		if !m.ask.freeform {
+		if !m.askEditorAcceptsInput() {
 			return m, nil
 		}
 		m.insertAskInputRunes([]rune{'\n'})
@@ -326,31 +327,31 @@ func (c uiAskController) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		}
 		return m, nil
 	case tea.KeySpace:
-		if m.ask.freeform {
+		if m.askEditorAcceptsInput() {
 			m.insertAskInputRunes([]rune{' '})
 		}
 		return m, nil
 	case tea.KeyHome, tea.KeyCtrlA:
-		if m.ask.freeform {
+		if m.askEditorAcceptsInput() {
 			m.ask.editor.MoveLineStart()
 			m.focusDedicatedAskEditor()
 		}
 		return m, nil
 	case tea.KeyEnd, tea.KeyCtrlE, tea.KeyCtrlEnd:
-		if m.ask.freeform {
+		if m.askEditorAcceptsInput() {
 			m.ask.editor.MoveLineEnd()
 			m.focusDedicatedAskEditor()
 		}
 		return m, nil
 	default:
 		if isShiftEnterKey(msg) {
-			if !m.ask.freeform {
+			if !m.askEditorAcceptsInput() {
 				return m, nil
 			}
 			m.insertAskInputRunes([]rune{'\n'})
 			return m, nil
 		}
-		if m.ask.freeform && msg.Type == tea.KeyRunes {
+		if m.askEditorAcceptsInput() && msg.Type == tea.KeyRunes {
 			m.insertAskInputRunes(msg.Runes)
 			return m, nil
 		}

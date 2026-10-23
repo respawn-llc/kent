@@ -71,9 +71,20 @@ func (c uiAskController) chooseFocusedApproval() {
 	}
 }
 
+func (m *uiModel) askEditorAcceptsInput() bool {
+	return m.ask.freeform || (m.surface() == uiSurfaceAsk &&
+		m.ask.dedicated != nil && m.ask.dedicated.focus == askFocusReading &&
+		!transcriptPromptIsApproval(m.ask.current.prompt))
+}
+
 func (m *uiModel) focusDedicatedAskEditor() {
-	if m.ask.dedicated == nil || !m.ask.freeform {
+	if m.ask.dedicated == nil || !m.askEditorAcceptsInput() {
 		return
+	}
+	if !m.ask.freeform {
+		focus := askFocusReading
+		m.ask.dedicated.freeformReturn = &focus
+		m.ask.freeform = true
 	}
 	m.ask.dedicated.focus = askFocusAnswer
 	document := m.layout().askDocument(m.layout().effectiveWidth())
