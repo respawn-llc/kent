@@ -151,15 +151,12 @@ type setupScriptPayload struct {
 	CreatedBranch       bool    `json:"created_branch"`
 }
 
-func normalizeSetupSessionID(sessionID *string) (*string, error) {
+func normalizeSetupSessionID(sessionID *string) *string {
 	if sessionID == nil {
-		return nil, nil
+		return nil
 	}
 	normalized := strings.TrimSpace(*sessionID)
-	if normalized == "" {
-		return nil, errors.New("setup session_id must be non-empty when present")
-	}
-	return &normalized, nil
+	return &normalized
 }
 
 type TaskExecutionRootPreparationPurpose uint8
@@ -1993,10 +1990,7 @@ func (s *Service) CreateWorktree(ctx context.Context, req *worktreepb.CreateRequ
 		return nil, err
 	}
 	cleanup.worktreeID = strings.TrimSpace(created.record.ID)
-	setupSessionID, err := normalizeSetupSessionID(management.sessionID())
-	if err != nil {
-		return nil, err
-	}
+	setupSessionID := normalizeSetupSessionID(management.sessionID())
 	branchName, named := worktreeNamedBranch(created.git)
 	if !named {
 		return nil, errors.New("created managed worktree does not have a named branch")
@@ -2456,10 +2450,7 @@ func (s *Service) prepareSetupAttempt(req setupExecutionRequest) (*preparedSetup
 			WorktreeRoot: strings.TrimSpace(req.WorktreeRoot),
 		}
 	}
-	sessionID, err := normalizeSetupSessionID(req.ScriptPayload.SessionID)
-	if err != nil {
-		return nil, err
-	}
+	sessionID := normalizeSetupSessionID(req.ScriptPayload.SessionID)
 	payload := setupScriptPayload{
 		SourceWorkspaceRoot: strings.TrimSpace(req.SourceWorkspaceRoot),
 		BranchName:          strings.TrimSpace(req.BranchName),
