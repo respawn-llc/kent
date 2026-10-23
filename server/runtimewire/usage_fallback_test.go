@@ -49,7 +49,7 @@ func TestUsageFallbackContinuesAfterBareGrokSocketExhaustion(t *testing.T) {
 			event := `{"type":"response.completed","response":{"id":"healthy","output":[{"type":"message","id":"answer","role":"assistant","phase":"final_answer","content":[{"type":"output_text","text":"done","annotations":[]}]}]}}`
 			if exhausted {
 				exhaustedCalls.Add(1)
-				event = `{"error":{"code":"personal-team-blocked:spending-limit","type":"allowance","message":"unavailable"}}`
+				event = `{"error":{"code":"429","type":"allowance","message":"[WKE=personal-team-blocked:spending-limit] unavailable"}}`
 			} else {
 				healthyCalls.Add(1)
 			}

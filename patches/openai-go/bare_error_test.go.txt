@@ -38,7 +38,7 @@ func TestKentWebsocketEnvelopeValidation(t *testing.T) {
 		{"invalid type", `{"type":42,"error":{"code":"code","message":"failure"}}`, true},
 		{"empty explicit type", `{"type":"","error":{"code":"code","message":"failure"}}`, true},
 		{"null explicit type", `{"type":null,"error":{"code":"code","message":"failure"}}`, true},
-		{"invalid error", `{"error":{"code":42,"message":"failure"}}`, true},
+		{"numeric error code", `{"type":"error","error":{"code":42,"message":"failure"}}`, false},
 		{"missing error", `{"stream_id":"lane"}`, true},
 	} {
 		t.Run(test.name, func(t *testing.T) {

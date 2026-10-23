@@ -174,10 +174,11 @@ func (t *HTTPTransport) generateWebsocket(ctx context.Context, request Responses
 			if !ok {
 				return result, fmt.Errorf("Responses provider has no structured error reducer")
 			}
-			return result, responsesReducer.providerError(status, responsesErrorPayload{
-				Code: failure.Error.Code, Type: failure.Error.Type,
-				Param: failure.Error.Param, Message: failure.Error.Message,
-			}, failure.RawJSON(), nil)
+			reduced, ok := responsesReducer.reducePayload([]byte(failure.RawJSON()), nil, status)
+			if !ok {
+				return result, fmt.Errorf("Responses provider emitted an invalid structured error")
+			}
+			return result, reduced
 		}
 		var streamEvent responses.ResponseStreamEventUnion
 		if err := json.Unmarshal([]byte(event.RawJSON()), &streamEvent); err != nil {

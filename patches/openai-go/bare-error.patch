@@ -1,15 +1,18 @@
 --- a/responses/responses_websocket.go
 +++ b/responses/responses_websocket.go
 @@ -68,6 +68,32 @@
- 	}
- 	// Typed decoding uses the first exact key; keep legacy envelope validation too.
- 	kind := gjson.GetBytes(data, "type")
+-	}
+-	// Typed decoding uses the first exact key; keep legacy envelope validation too.
+-	kind := gjson.GetBytes(data, "type")
++	}
++	// Typed decoding uses the first exact key; keep legacy envelope validation too.
++	kind := gjson.GetBytes(data, "type")
 +	// xAI can emit a bare structured error without the Responses event type.
 +	// Remove this exception when upstream or xAI supports the standard envelope.
 +	if !kind.Exists() {
 +		var bare struct {
 +			Error *struct {
-+				Code    *string `json:"code"`
++				Code    json.RawMessage `json:"code"`
 +				Type    *string `json:"type"`
 +				Message *string `json:"message"`
 +			} `json:"error"`
@@ -30,6 +33,9 @@
 +			return decodeResponseWebsocketEvent(typed)
 +		}
 +	}
- 	if envelope.Type == "" || (kind.Exists() && (kind.Type != gjson.String || kind.Str == "")) {
- 		return event, errors.New("responses websocket event is missing type")
- 	}
+-	if envelope.Type == "" || (kind.Exists() && (kind.Type != gjson.String || kind.Str == "")) {
+-		return event, errors.New("responses websocket event is missing type")
+-	}
++	if envelope.Type == "" || (kind.Exists() && (kind.Type != gjson.String || kind.Str == "")) {
++		return event, errors.New("responses websocket event is missing type")
++	}

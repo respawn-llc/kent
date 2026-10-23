@@ -137,22 +137,39 @@ func TestResponsesCompactionReplacesContextWithoutReplacingSocket(t *testing.T) 
 }
 
 func TestGrokSocketBareExhaustionKeepsStructuredClassification(t *testing.T) {
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		serveResponsesTestWebsocket(t, w, r, func(json.RawMessage) []string {
-			return []string{`{"error":{"code":"personal-team-blocked:spending-limit","type":"allowance","message":"allowance unavailable"}}`}
+	for _, test := range []struct {
+		code      string
+		message   string
+		exhausted bool
+	}{
+		{`"personal-team-blocked:spending-limit"`, "unavailable", true},
+		{`"429"`, "[WKE=personal-team-blocked:spending-limit] unavailable", true},
+		{`429`, "[WKE=personal-team-blocked:spending-limit] unavailable", true},
+		{`"429"`, "rate limited", false},
+		{`429`, "rate limited", false},
+	} {
+		t.Run(test.code+test.message, func(t *testing.T) {
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				serveResponsesTestWebsocket(t, w, r, func(json.RawMessage) []string {
+					return []string{fmt.Sprintf(`{"error":{"code":%s,"type":"allowance","message":%q}}`, test.code, test.message)}
+				})
+			}))
+			defer server.Close()
+			registration := testConnectionRegistration(t, config.ProviderConnection{Protocol: config.ConnectionGrokOAuthAPI})
+			registration.Variant.BaseURL = textutil.Value(server.URL + "/v1")
+			transport := newTestHTTPTransport(t, oauthStaticAuth{}, registration)
+			_, err := transport.Generate(t.Context(), ResponsesRequest{Model: "grok-4.7", SessionID: textutil.Value("session"), ReasoningEffort: "high", ToolChoiceMode: ToolChoiceModeAutomatic}, StreamCallbacks{})
+			var providerErr *ProviderAPIError
+			if !errors.As(err, &providerErr) || IsUsageExhaustionError(err) != test.exhausted {
+				t.Fatalf("structured exhaustion lost: %T %v", err, err)
+			}
+			if test.exhausted && providerErr.ProviderCode != "personal-team-blocked:spending-limit" {
+				t.Fatalf("normalized exhaustion code = %q", providerErr.ProviderCode)
+			}
+			if providerErr.StatusCode != nil {
+				t.Fatalf("absent provider status became %v", *providerErr.StatusCode)
+			}
 		})
-	}))
-	defer server.Close()
-	registration := testConnectionRegistration(t, config.ProviderConnection{Protocol: config.ConnectionGrokOAuthAPI})
-	registration.Variant.BaseURL = textutil.Value(server.URL + "/v1")
-	transport := newTestHTTPTransport(t, oauthStaticAuth{}, registration)
-	_, err := transport.Generate(t.Context(), ResponsesRequest{Model: "grok-4.7", SessionID: textutil.Value("session"), ReasoningEffort: "high", ToolChoiceMode: ToolChoiceModeAutomatic}, StreamCallbacks{})
-	var providerErr *ProviderAPIError
-	if !errors.As(err, &providerErr) || providerErr.ProviderCode != "personal-team-blocked:spending-limit" || !IsUsageExhaustionError(err) {
-		t.Fatalf("structured exhaustion lost: %T %v", err, err)
-	}
-	if providerErr.StatusCode != nil {
-		t.Fatalf("absent provider status became %v", *providerErr.StatusCode)
 	}
 }
 
