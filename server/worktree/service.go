@@ -1904,10 +1904,7 @@ func (s *Service) CreateWorktree(ctx context.Context, req *worktreepb.CreateRequ
 	workspaceCtx := management.binding
 	var selectedSession *sharedpb.SessionIdentity
 	if management.caller != nil {
-		id, err := runtimeids.ParseSessionID(management.caller.sessionID)
-		if err != nil {
-			return nil, err
-		}
+		id := runtimeids.SessionIDFromProto(management.caller.sessionID)
 		identity, err := s.metadata.SessionIdentity(ctx, id)
 		if err != nil {
 			return nil, err
