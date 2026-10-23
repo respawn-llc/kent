@@ -213,10 +213,7 @@ func (a *Authority) RunSessionMaintenanceAtStepBoundary(
 	if fn == nil {
 		return nil
 	}
-	id, err := runtimeids.ParseSessionID(strings.TrimSpace(sessionID))
-	if err != nil {
-		return err
-	}
+	id := runtimeids.SessionIDFromProto(strings.TrimSpace(sessionID))
 	admission := maintenanceAdmissionAuthorized
 	if origin != nil {
 		admission = maintenanceAdmissionExactStepBoundary
