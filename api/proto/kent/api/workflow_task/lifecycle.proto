@@ -288,7 +288,10 @@ message ResumeSuccess {
 }
 
 message ApproveRequest {
-  string approval_id = 1 [(buf.validate.field).string.min_len = 1];
+  string approval_id = 1 [
+    (buf.validate.field).string.uuid = true,
+    (buf.validate.field).string.(kent.api.shared.canonical_uuid_v4) = true
+  ];
   optional string invoking_session_id = 2 [(buf.validate.field).string.uuid = true, (buf.validate.field).string.(kent.api.shared.canonical_uuid_v4) = true];
 }
 

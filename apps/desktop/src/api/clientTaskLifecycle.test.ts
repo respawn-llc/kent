@@ -92,7 +92,7 @@ describe("task lifecycle client", () => {
       outcome: "applied",
       applied: { currentNodes: [{ nodeID: "node-2" }] },
     });
-    expect(client.approveApproval("approval-1")).resolves.toMatchObject({
+    expect(client.approveApproval("11111111-1111-4111-8111-111111111111")).resolves.toMatchObject({
       outcome: "applied",
       applied: { taskID: "task-1", currentNodes: [{ nodeID: "node-3" }] },
     });
@@ -102,7 +102,9 @@ describe("task lifecycle client", () => {
     });
     expect(transport.descriptorCalls[2]).toMatchObject({
       descriptor: lifecycle.TaskLifecycleService.method.approve,
-      request: create(lifecycle.ApproveRequestSchema, { approvalId: "approval-1" }),
+      request: create(lifecycle.ApproveRequestSchema, {
+        approvalId: "11111111-1111-4111-8111-111111111111",
+      }),
       options: { timeoutMs: null },
     });
   });
