@@ -26,7 +26,7 @@ const (
 // schedule, retry, or own accepted Runtime work.
 type injectedRuntimeQueueItem struct {
 	Request   clientui.RuntimeSubmitRequest
-	SessionID runtimeids.SessionID
+	SessionID string
 	Text      string
 	State     injectedRuntimeQueueState
 	Terminal  *transcriptpb.QueuedMessageState
@@ -40,7 +40,7 @@ func (m *uiModel) enqueueInput(text string, input runtimeinput.Input, intent run
 		Request: clientui.RuntimeSubmitRequest{
 			Input: input, Intent: intent, QueueItemID: runtimeids.NewQueueItemID(),
 		},
-		SessionID: m.pendingWorkRefresh.sessionID,
+		SessionID: m.sessionID,
 		Text:      text, State: injectedRuntimeQueuePendingCreate,
 	}
 	m.injectedQueue = append(m.injectedQueue, pending)
@@ -124,7 +124,7 @@ func (c uiInputController) handleInjectedQueueCreateDone(msg injectedQueueCreate
 		return m, nil
 	}
 	item := m.injectedQueue[index]
-	if item.SessionID != m.pendingWorkRefresh.sessionID {
+	if item.SessionID != m.sessionID {
 		m.removeInjectedQueueItemAt(index)
 		return m, nil
 	}
@@ -165,7 +165,7 @@ func (c uiInputController) handleInjectedQueueCreateDone(msg injectedQueueCreate
 	if item.Terminal != nil {
 		terminalCmd = m.applyTranscriptQueuedMessageState(item.Terminal)
 	}
-	return m, tea.Batch(terminalCmd, m.requestPendingWorkRefreshIfSuccessful(item.SessionID, true),
+	return m, tea.Batch(terminalCmd, m.requestPendingWorkRefreshIfSuccessful(m.pendingWorkRefresh.sessionID, true),
 		m.acceptedSubmissionDiagnosticCmd(msg.diagnostic), m.reconcileSpinnerTicking(false))
 }
 
