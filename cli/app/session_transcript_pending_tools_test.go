@@ -5,9 +5,11 @@ import (
 	"core/cli/tui/transcriptrender"
 	transcriptpb "core/shared/protoapi/gen/kent/api/transcript"
 	"core/shared/textutil"
+	"github.com/charmbracelet/lipgloss"
 
 	"google.golang.org/protobuf/proto"
 	"reflect"
+	"strings"
 	"testing"
 )
 
@@ -98,6 +100,17 @@ func TestPendingToolsRenderInServerArrivalOrder(t *testing.T) {
 	}
 	if got, want := surface.lastFrameSectionLines(ongoing.FrameSectionPendingTools), []string{"⢎  beta"}; !reflect.DeepEqual(got, want) {
 		t.Fatalf("pending tool lines after abort = %v, want %v", got, want)
+	}
+	if _, err := controller.Accept(transcriptTestMessage(5, &transcriptpb.ToolStart{
+		StepId: ongoingTestStepID().String(), ToolCallId: "tool-long",
+		ToolName: strings.Repeat("question ", 30),
+	})); err != nil {
+		t.Fatal(err)
+	}
+	for _, line := range surface.lastFrameStyledSection(ongoing.FrameSectionPendingTools) {
+		if got := lipgloss.Width(line.Plain()); got > 80 {
+			t.Fatalf("pending tool row width %d exceeds 80: %q", got, line.Plain())
+		}
 	}
 }
 
