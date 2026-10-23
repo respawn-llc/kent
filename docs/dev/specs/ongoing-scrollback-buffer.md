@@ -9,9 +9,9 @@
 - After the TUI emits content into the Immutable Area, it treats that content as unavailable. It must not store or compare emitted lines, rendered text, entry identities, counts, or terminal bytes to decide future output.
 - The mutable band is an absolute-positioned viewport anchored to the visible terminal bottom. Every render and erase establishes geometry, resets origin mode and scroll margins, and derives the band top from the submitted frame height. It must not depend on the current cursor position.
 - Immutable writes use OSC 133 output semantics. The mutable band is one OSC 133 redrawable semantic-prompt region, so supporting terminals clear it before resize reflow and the resize event repaints it from mutable frame state. Retired mutable rows return to output semantics before erase, so semantic-prompt marking never survives into immutable rows or permits history replay.
-- The client resolves one terminal-resize policy at startup. Exact `TERM_PROGRAM=ghostty` or a non-empty `KITTY_WINDOW_ID` selects OSC 133 repaint unless non-empty `TMUX` is present. Tmux, every other identity, and absent identity select debounced width rehydration. Terminal identity matching is exact, with no substring inference from `TERM` or process names.
+- The client resolves one terminal-resize policy at startup. Exact `TERM_PROGRAM=ghostty` or a non-empty `KITTY_WINDOW_ID` selects OSC 133 repaint unless non-empty `TMUX` is present. Tmux, every other identity, and absent identity select debounced resize rehydration for both width and height changes. Terminal identity matching is exact, with no substring inference from `TERM` or process names.
 - Each event, streaming update, or status change produces one uninterrupted terminal update: erase only the Mutable Band, append rows that have become stable, and repaint the Mutable Band from current state.
-- There is no clock-based repainting. Animations produce state changes and those changes schedule renders. When no state changes exist, the surface stops rendering. Debounced width rehydration coalesces width changes for one second before Scratch Rehydration. It must not act as a repaint timer.
+- There is no clock-based repainting. Animations produce state changes and those changes schedule renders. When no state changes exist, the surface stops rendering. Debounced resize rehydration coalesces width and height changes for one second before Scratch Rehydration. It must not act as a repaint timer.
 
 ## Mutable band height
 
@@ -100,8 +100,10 @@
 - Scratch rehydration is the only path that re-issues already-shown content. The trigger list is exhaustive:
   - The received event seq is discontiguous with the last received seq, or the connection/subscription was lost. The emitted history may misrepresent the conversation and appending cannot repair it.
   - The arrival-order queue exceeded 1000 events.
-  - A width change under debounced width rehydration, after the one-second debounce.
-- Height changes always repaint the mutable band. Width changes use OSC 133 repaint only for exact Ghostty or kitty capability evidence outside tmux. All other environments use debounced width rehydration.
+  - A width or height change under debounced resize rehydration, after the one-second debounce.
+- Width and height changes use OSC 133 repaint only for exact Ghostty or kitty capability evidence outside tmux. All other environments must start a visually separated rehydrated view after resizing settles.
+- Terminals without effective native redraw support can move mutable input, divider, Question, or steering rows into native Scrollback during resizing, before Kent can update the screen. A later repaint or cursor report cannot reliably recover the old mutable boundary or remove fragments already in Scrollback. The compromise is a coherent rehydrated conversation below a clear boundary, rather than a torn continuation. Recent messages may repeat across that boundary. Fragments before the boundary are accepted.
+- Resize rehydration must leave existing Scrollback untouched and must not guess which rows are safe to erase. It must not attempt to reconstruct or repair old Scrollback. Ongoing Mode must not switch to Alternate Screen, enable Mouse Capture, or exit the production TUI because resize positioning cannot be established.
 - Never triggers. Each of these is an ordinary append or a bug to fix at its cause, and re-emitting in response to any of them is banned:
   - New content arrived: a delta, a tool call, a notice, any addition.
   - The needed change is addition-only.
@@ -113,7 +115,7 @@
   - The cursor is not where erasing would be convenient.
   - A large paste filled the screen.
 - Outside the exhaustive trigger list, a bug is never resolved by re-emitting committed state, in any code path, under any severity.
-- Rehydration erases only the Mutable Band, reopens the Session, and appends the received active segment below Scrollback. It never clears Scrollback, changes emitted content, or compares the received segment with terminal output. Duplicate-looking output after rehydration is acceptable.
+- Rehydration reopens the Session and appends the received active segment below Scrollback. Resize rehydration must start its separated view below the previous viewport without erasing an inferred old Mutable Band. Other rehydration erases only the Mutable Band. Rehydration never clears Scrollback, changes emitted content, or compares the received segment with terminal output. Duplicate-looking output after rehydration is acceptable.
 - Only the operator's local input and navigation state survives rehydration. Kent reopens the ordered transcript subscription and independently reloads the latest completed server-owned projections for RuntimeActivity, Session identity and status, execution target, active execution, reasoning, Reviewer, compaction, tool, Queue, prompt, background-process, context-usage, and Goal state. Those non-transcript projections may be stale or represent different completed moments. A runtime transport failure keeps the TUI open under the connection-loss contract while Kent retries reopening the subscription. Any other rehydration failure exits the TUI with a clear error without fabricating empty state.
 
 ## Errors
