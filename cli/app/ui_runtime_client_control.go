@@ -297,9 +297,6 @@ func (c *sessionRuntimeClient) ListPendingWork(sessionID runtimeids.SessionID) (
 	if c == nil {
 		return runtimeinput.PendingWork{}, errors.New("runtime client is required")
 	}
-	if sessionID.IsZero() {
-		return runtimeinput.PendingWork{}, errors.New("Pending Work Session ID is required")
-	}
 	if sessionID.String() != c.sessionID {
 		return runtimeinput.PendingWork{}, fmt.Errorf(
 			"Pending Work Session ID %q does not match runtime client Session %q",
