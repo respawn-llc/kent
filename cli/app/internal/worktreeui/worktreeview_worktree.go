@@ -39,9 +39,6 @@ func ProjectItems(entries []*worktreepb.ListEntry) ([]Item, error) {
 }
 
 func ProjectItem(entry *worktreepb.ListEntry) (Item, error) {
-	if entry == nil || entry.Topology == nil || entry.Projection == nil {
-		return Item{}, errors.New("worktree list entry is incomplete")
-	}
 	item := Item{
 		Entry:     entry,
 		IsCurrent: entry.Projection.IsCurrent,
@@ -89,9 +86,6 @@ func ProjectItem(entry *worktreepb.ListEntry) (Item, error) {
 }
 
 func ProjectSelectorPreview(response *worktreepb.SelectorResolveSuccess) (Item, error) {
-	if response == nil {
-		return Item{}, errors.New("worktree selector response is empty")
-	}
 	return ProjectItem(response.Worktree)
 }
 
