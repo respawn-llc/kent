@@ -1,7 +1,6 @@
 package workflowview
 
 import (
-	"context"
 	"strings"
 	"time"
 
@@ -11,10 +10,6 @@ import (
 	taskpb "core/shared/protoapi/gen/kent/api/workflow_task"
 	"core/shared/runtimeids"
 )
-
-type SessionActiveTranscriptProvider interface {
-	SessionNewestActiveSegmentQuestions(ctx context.Context, sessionID string) ([]PendingQuestionTranscriptEntry, error)
-}
 
 type PendingPromptSnapshot struct {
 	ToolCallID             clientui.ToolCallID
@@ -27,13 +22,6 @@ type PendingPromptSnapshot struct {
 	Approval               bool
 	ApprovalDecisions      []clientui.ApprovalDecision
 	AccessTargets          []clientui.FileAccessTarget
-}
-
-type PendingQuestionTranscriptEntry struct {
-	AskID                  string
-	Question               string
-	Suggestions            []string
-	RecommendedOptionIndex *int
 }
 
 type PendingPromptSource interface {

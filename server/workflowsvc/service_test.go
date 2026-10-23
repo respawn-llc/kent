@@ -3241,7 +3241,7 @@ func bindWorkflowServiceManagedWorktree(
 
 func TestNewRejectsEveryMissingReadModelCapability(t *testing.T) {
 	service, _, metadataStore := newWorkflowServiceTestServiceWithMetadata(t)
-	complete := newWorkflowServiceReadModels(t, metadataStore, service.store, service.roleResolver, nil, nil)
+	complete := newWorkflowServiceReadModels(t, metadataStore, service.store, service.roleResolver, nil)
 	tests := []struct {
 		name       string
 		readModels ReadModels
@@ -3289,7 +3289,7 @@ func newWorkflowServiceTestServiceWithRoleResolver(t *testing.T, resolver workfl
 	if err != nil {
 		t.Fatalf("workflowstore.New: %v", err)
 	}
-	readModels := newWorkflowServiceReadModels(t, metadataStore, store, resolver, nil, nil)
+	readModels := newWorkflowServiceReadModels(t, metadataStore, store, resolver, nil)
 	execution := &currentNodeCompletionExecutionStub{
 		store:                 store,
 		manualMoveAssignments: workflowServiceTestManualMoveAssignments(t, metadataStore),
@@ -3308,7 +3308,6 @@ func newWorkflowServiceReadModels(
 	metadataStore *metadata.Store,
 	store *workflowstore.Store,
 	resolver workflow.RoleResolver,
-	transcripts workflowview.SessionActiveTranscriptProvider,
 	prompts workflowview.PendingPromptSource,
 ) ReadModels {
 	t.Helper()
