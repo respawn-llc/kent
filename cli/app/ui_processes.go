@@ -94,16 +94,10 @@ func mergeBackgroundProcessCacheEntry(existing, update *processpb.BackgroundProc
 	if update.OwnerStepId != nil {
 		next.OwnerStepId = update.OwnerStepId
 	}
-	if update.State != "" {
-		next.State = update.State
-		next.Running = update.Running
-	}
-	if update.Command != "" {
-		next.Command = update.Command
-	}
-	if update.Workdir != "" {
-		next.Workdir = update.Workdir
-	}
+	next.State = update.State
+	next.Running = update.Running
+	next.Command = update.Command
+	next.Workdir = update.Workdir
 	if update.LogPath != "" {
 		next.LogPath = update.LogPath
 	}
