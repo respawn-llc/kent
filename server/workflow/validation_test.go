@@ -135,7 +135,7 @@ func TestDefinitionRejectsMissingChildWorkflowIDs(t *testing.T) {
 					WorkflowID:  def.ID,
 					ID:          "group-test",
 					Key:         "test",
-					DisplayName: "Test",
+					DisplayName: new("Test"),
 				})
 				def.NodeGroups[0].WorkflowID = runtimeids.WorkflowID{}
 			},
@@ -1239,7 +1239,7 @@ func addV1NodeGroup(def *workflow.Definition) {
 		WorkflowID:  def.ID,
 		ID:          "group_parallel",
 		Key:         "parallel",
-		DisplayName: "Parallel",
+		DisplayName: new("Parallel"),
 	})
 	def.Nodes = setNodeGroup(def.Nodes, "node_impl_a", "group_parallel")
 	def.Nodes = setNodeGroup(def.Nodes, "node_impl_b", "group_parallel")

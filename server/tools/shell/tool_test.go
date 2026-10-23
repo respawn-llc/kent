@@ -620,7 +620,7 @@ func TestWriteStdinPollingPreservesTerminalLifecycleForAllCompletionShapes(t *te
 	}
 }
 
-func TestWriteStdinShortOutputPollUsesDefaultWindow(t *testing.T) {
+func TestWriteStdinNonpositiveOutputPollDoesNotWait(t *testing.T) {
 	milliseconds := func(value int) *int { return &value }
 	for _, test := range []struct {
 		name          string
@@ -629,9 +629,6 @@ func TestWriteStdinShortOutputPollUsesDefaultWindow(t *testing.T) {
 	}{
 		{name: "negative", yieldTimeMS: milliseconds(-1), includeWaitMS: true},
 		{name: "zero", yieldTimeMS: milliseconds(0), includeWaitMS: true},
-		{name: "250 milliseconds", yieldTimeMS: milliseconds(250), includeWaitMS: true},
-		{name: "1,000 milliseconds", yieldTimeMS: milliseconds(1_000), includeWaitMS: true},
-		{name: "1,100 milliseconds", yieldTimeMS: milliseconds(1_100), includeWaitMS: true},
 		{name: "omitted"},
 		{name: "null", includeWaitMS: true},
 	} {
@@ -669,11 +666,8 @@ func TestWriteStdinShortOutputPollUsesDefaultWindow(t *testing.T) {
 			if poll.IsError {
 				t.Fatalf("unexpected write_stdin error: %s", string(poll.Output))
 			}
-			if elapsed < 200*time.Millisecond {
-				t.Fatalf("poll returned before the default collection window: %s", elapsed)
-			}
-			if elapsed > 750*time.Millisecond {
-				t.Fatalf("poll exceeded the default collection window: %s", elapsed)
+			if elapsed >= 200*time.Millisecond {
+				t.Fatalf("output-only poll waited for output: %s", elapsed)
 			}
 			if snapshot, err := manager.Snapshot(snapshots[0].ID); err != nil || !snapshot.Running {
 				t.Fatalf("expected process to remain running: snapshot=%+v err=%v", snapshot, err)
@@ -702,7 +696,11 @@ func TestWriteStdinRejectsShortTimedOutputPolls(t *testing.T) {
 		name        string
 		yieldTimeMS int
 	}{
-		{name: "threshold plus one", yieldTimeMS: 1_101},
+		{name: "one millisecond", yieldTimeMS: 1},
+		{name: "250 milliseconds", yieldTimeMS: 250},
+		{name: "one second", yieldTimeMS: 1_000},
+		{name: "1,100 milliseconds", yieldTimeMS: 1_100},
+		{name: "1,101 milliseconds", yieldTimeMS: 1_101},
 		{name: "three seconds", yieldTimeMS: 3_000},
 		{name: "below minimum wait", yieldTimeMS: 14_999},
 		{name: "above maximum", yieldTimeMS: 86_400_001},

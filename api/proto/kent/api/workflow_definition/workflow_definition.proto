@@ -383,7 +383,7 @@ message WorkflowNodeGroup {
     (buf.validate.field).string.(kent.api.shared.canonical_uuid_v4) = true
   ];
   string group_key = 3 [(buf.validate.field).string.min_len = 1];
-  string display_name = 4 [(buf.validate.field).string.min_len = 1];
+  optional string display_name = 4 [(buf.validate.field).string.min_len = 1];
   int32 sort_order = 5;
 }
 
@@ -554,7 +554,7 @@ message WorkflowDefinition {
 message GraphDraftNodeGroup {
   string id = 1;
   string key = 2;
-  string display_name = 3;
+  optional string display_name = 3;
 }
 
 message GraphDraftNode {

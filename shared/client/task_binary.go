@@ -57,8 +57,17 @@ func taskExecutionGeneratedError[Failure interface {
 
 func taskExecutionResolutionGeneratedError(detail *taskpb.ExecutionTargetResolutionDetails) error {
 	code := protoapi.TaskExecutionResolutionCode.FromProto(detail.Code)
+	var target serverapi.WorkflowExecutionTargetResolutionTarget
+	switch selectedTarget := detail.Target.(type) {
+	case *taskpb.ExecutionTargetResolutionDetails_RequestedRef:
+		target = serverapi.WorkflowExecutionTargetResolutionCustomRef{RequestedRef: selectedTarget.RequestedRef}
+	case *taskpb.ExecutionTargetResolutionDetails_DefaultBranch:
+		target = serverapi.WorkflowExecutionTargetResolutionDefaultBranch{}
+	default:
+		return fmt.Errorf("execution target resolution details omitted a supported target")
+	}
 	return &serverapi.WorkflowExecutionTargetResolutionError{
-		Code: serverapi.WorkflowExecutionTargetResolutionErrorCode(code), RequestedRef: detail.RequestedRef,
+		Target: target, Code: serverapi.WorkflowExecutionTargetResolutionErrorCode(code), Diagnostic: detail.Diagnostic,
 	}
 }
 

@@ -257,6 +257,7 @@ func responseFromStreamAccumulator(
 		)
 	}
 	response.ServedModel = servedModelMetadata(rawResp, optionalStringValue(response.ServedModel))
+	response.attemptDiagnostic = accumulator.attempt
 	response.ReasoningIncluded = reasoningIncludedMetadata(rawResp)
 	response.ProviderEvidence.ProviderID = requestEvidence.ProviderID
 	response.ProviderEvidence.RequestedModel = requestEvidence.RequestedModel

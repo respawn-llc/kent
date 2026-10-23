@@ -13,6 +13,7 @@ import (
 	"core/shared/worktreecontract"
 
 	"google.golang.org/protobuf/proto"
+	"google.golang.org/protobuf/types/known/emptypb"
 )
 
 func registerWorkflowTaskGatewayBinaryBindings(bindings map[string]gatewayBinaryBinding) error {
@@ -183,7 +184,16 @@ func binaryTaskExecutionDetail(err error) proto.Message {
 		if conversionErr != nil {
 			return binaryInternalFailure(conversionErr)
 		}
-		return &taskpb.ExecutionTargetResolutionDetails{Code: code, RequestedRef: resolution.RequestedRef}
+		detail := &taskpb.ExecutionTargetResolutionDetails{Code: code, Diagnostic: resolution.Diagnostic}
+		switch target := resolution.Target.(type) {
+		case serverapi.WorkflowExecutionTargetResolutionCustomRef:
+			detail.Target = &taskpb.ExecutionTargetResolutionDetails_RequestedRef{RequestedRef: target.RequestedRef}
+		case serverapi.WorkflowExecutionTargetResolutionDefaultBranch:
+			detail.Target = &taskpb.ExecutionTargetResolutionDetails_DefaultBranch{DefaultBranch: &emptypb.Empty{}}
+		default:
+			return binaryInternalFailure(errors.New("execution target resolution error has no supported target"))
+		}
+		return detail
 	case errors.As(err, &locked):
 		return serverapi.WorkflowLockedTargetDetails(locked.Cause)
 	case errors.As(err, &branch):

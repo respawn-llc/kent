@@ -1,7 +1,9 @@
 package config
 
 import (
+	"errors"
 	"fmt"
+	"os"
 )
 
 type ConnectionAlreadyExistsError struct{ ID ConnectionID }
@@ -61,6 +63,16 @@ func SetDefaultProviderConnection(path string, id ConnectionID) error {
 		}
 		return document.set([]string{"connection"}, string(id))
 	})
+}
+
+func RemoveProviderConnection(path string, id ConnectionID) error {
+	err := editConnectionDocument(path, id, func(document *settingsDocument, _ map[ConnectionID]ProviderConnection) error {
+		return document.delete([]string{"connections", string(id)})
+	})
+	if errors.Is(err, os.ErrNotExist) {
+		return nil
+	}
+	return err
 }
 
 func editConnectionDocument(path string, id ConnectionID, edit func(*settingsDocument, map[ConnectionID]ProviderConnection) error) error {

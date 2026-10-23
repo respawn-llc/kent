@@ -3,7 +3,7 @@ title: Sandboxing and Security
 description: Kent's default trust model, outside-workspace edit prompts, and remote/container server setup.
 ---
 
-:::warning
+:::caution
 Kent is YOLO by default: it does not run tools inside a built-in sandbox.
 The agent executes shell commands and file tools in the environment where the Kent server runs.
 If that environment can read secrets, reach networks, or modify files, the agent can do the same.
@@ -45,7 +45,7 @@ FROM debian:bookworm-slim
 ENV DEBIAN_FRONTEND=noninteractive
 ENV HOME=/home/kent
 ENV SHELL=/bin/bash
-ENV KENT_VERSION=
+ARG KENT_VERSION=
 
 RUN apt-get update \
   && apt-get install -y --no-install-recommends \

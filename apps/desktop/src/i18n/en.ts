@@ -4,9 +4,11 @@ import { chatSettingsEnglish } from "./chatSettingsEn";
 import { chatEnglish } from "./chatEn";
 import { chatGoalEnglish } from "./chatGoalEn";
 import { executionTargetEnglish } from "./executionTargetEn";
+import { subscriptionUsageEnglish } from "./subscriptionUsageEn";
 
 export const englishResources = {
   translation: {
+    subscriptionUsage: subscriptionUsageEnglish,
     chatComposer: chatComposerEnglish,
     chatSettings: chatSettingsEnglish,
     app: {
@@ -35,6 +37,7 @@ export const englishResources = {
       popOut: "Open in new window",
       popOutError: "Could not open the pop-out window",
       shiftClickToOpenInNewWindow: "{{action}} · Shift-click to open in new window",
+      fileOpenFailed: "Could not open the file",
       inboxPrevious: "Previous inbox item",
       inboxNext: "Next inbox item",
       invalidNativeDialogTitle: "Invalid native dialog",
@@ -221,9 +224,9 @@ export const englishResources = {
         tasks: "Tasks",
         sessions: "Sessions",
         subagents: "Subagents",
-        newChatUnavailable: "New chat is not available in this prototype",
         projectTasksGrid: "Project tasks",
         dependenciesColumn: "Dependencies",
+        stageColumn: "Stage",
         idColumn: "ID",
         titleColumn: "Title",
         workflowColumn: "Workflow",

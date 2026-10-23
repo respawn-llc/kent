@@ -1,5 +1,5 @@
 ---
-title: Bash Hooks
+title: Bash hooks
 description: Configure Kent's shell command post-processing and ship your own hook.
 ---
 

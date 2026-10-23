@@ -6,6 +6,7 @@ import (
 	"path/filepath"
 	"reflect"
 	"testing"
+	"time"
 
 	"core/internal/testharness/testsetup"
 	"core/server/metadata"
@@ -17,6 +18,77 @@ import (
 	"core/shared/sessioncontract"
 	"core/shared/textutil"
 )
+
+func TestPlanPreparedRetainedRoleConnectionFallback(t *testing.T) {
+	for _, test := range []struct {
+		name            string
+		roleSettings    []string
+		locked          bool
+		wantReplacement *config.ConnectionID
+	}{
+		{name: "inherited set", wantReplacement: textutil.Value(config.ConnectionID("b"))},
+		{name: "inherited set with locked model", locked: true, wantReplacement: textutil.Value(config.ConnectionID("b"))},
+		{name: "explicit exhausted singleton", roleSettings: []string{`connection = "a"`}},
+		{name: "explicit alternative singleton", roleSettings: []string{`connection = "c"`}, wantReplacement: textutil.Value(config.ConnectionID("c"))},
+		{name: "explicit set", roleSettings: []string{`connection = ["a", "c"]`}, wantReplacement: textutil.Value(config.ConnectionID("c"))},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			planner, container, persistence := newTypedIntentPlanner(t)
+			lines := []string{
+				`connection = ["a", "b"]`,
+				`[connections.a]`, `protocol = "chatgpt-codex"`,
+				`[connections.b]`, `protocol = "chatgpt-codex"`,
+				`[connections.c]`, `protocol = "chatgpt-codex"`,
+				`[subagents.worker]`, `model = "gpt-6-sol"`,
+			}
+			planner.Config = loadLaunchConfig(t, t.TempDir(), append(lines, test.roleSettings...)...)
+			planner.Rotation = NewConnectionRotation(testsetup.OpenStore(t, t.TempDir()), time.Minute)
+			store := createTypedIntentSession(t, container, sessioncontract.SessionCategoryMain, persistence)
+			if err := store.SetContinuationContext(session.ContinuationContext{AgentRole: textutil.Value("worker")}); err != nil {
+				t.Fatal(err)
+			}
+			if err := store.SetConnectionID("a"); err != nil {
+				t.Fatal(err)
+			}
+			if test.locked {
+				if err := store.MarkModelDispatchLocked(session.LockedContract{
+					Model: "gpt-6-sol", HasEnabledTools: true, EnabledTools: []string{"exec_command"}, WebSearchMode: "native",
+				}); err != nil {
+					t.Fatal(err)
+				}
+			}
+			meta := store.Meta()
+			id := mustTypedIntentSessionID(t, meta.SessionID)
+			plan, err := planner.PlanPreparedSession(t.Context(), SessionRequest{
+				Mode: ModeHeadless, Intent: serverapi.OpenExistingSessionLaunchIntent(id),
+			}, meta, PreparedExecutionContext{ProjectID: testProjectID})
+			if err != nil {
+				t.Fatal(err)
+			}
+			selected, err := plan.ActiveSettings.Connection.ConcreteID()
+			if err != nil || selected == nil || *selected != "a" {
+				t.Fatalf("retained dispatch connection = %v, %v; want a", selected, err)
+			}
+			planner.Rotation.RecordExhaustion("a")
+			replacement, err := planner.Rotation.SelectReplacement(t.Context(), plan.ActiveSettings, plan.ConnectionScope, map[config.ConnectionID]struct{}{"a": {}})
+			if test.wantReplacement == nil {
+				var unavailable *ConnectionsUnavailableError
+				if !errors.As(err, &unavailable) {
+					t.Fatalf("exhausted singleton replacement error = %v", err)
+				}
+			} else if err != nil || replacement != *test.wantReplacement {
+				t.Fatalf("role replacement = %q, %v; want %q", replacement, err, *test.wantReplacement)
+			}
+			record, err := persistence.ResolvePersistedSession(t.Context(), id.String())
+			if err != nil {
+				t.Fatal(err)
+			}
+			if !reflect.DeepEqual(meta, *record.Meta) {
+				t.Fatal("planning or selecting a replacement changed retained Session metadata")
+			}
+		})
+	}
+}
 
 func TestPreparePreviousSessionChildAllocatesFreshRoleConnection(t *testing.T) {
 	planner, _, persistence := newTypedIntentPlanner(t)

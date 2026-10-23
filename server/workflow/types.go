@@ -134,7 +134,7 @@ type NodeGroup struct {
 	WorkflowID    runtimeids.WorkflowID
 	ID            string
 	Key           ModelKey
-	DisplayName   string
+	DisplayName   *string
 	SortOrder     int64
 	MemberNodeIDs []NodeID
 }

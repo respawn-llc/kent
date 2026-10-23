@@ -18,6 +18,7 @@ type uiInputMode string
 const (
 	uiInputModeMain              uiInputMode = "main"
 	uiInputModeAsk               uiInputMode = "ask"
+	uiInputModeConnectionRemoval uiInputMode = "connection_removal"
 	uiInputModeStatus            uiInputMode = "status"
 	uiInputModeGoal              uiInputMode = "goal"
 	uiInputModeWorktree          uiInputMode = "worktree"
@@ -160,6 +161,10 @@ func (m *uiModel) setInputMode(mode uiInputMode) {
 
 func (m *uiModel) restorePrimaryInputMode() {
 	if m == nil {
+		return
+	}
+	if m.connectionRemoval.isOpen() {
+		m.setInputMode(uiInputModeConnectionRemoval)
 		return
 	}
 	if m.ask.hasCurrent() && (m.view.Mode() == "" || m.view.Mode() == tui.ModeOngoing) {

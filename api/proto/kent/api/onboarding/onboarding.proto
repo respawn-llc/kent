@@ -179,10 +179,6 @@ message ImportSelection {
       not_in: [0]
     }
   ];
-  optional string provider_uuid = 2 [
-    (buf.validate.field).string.uuid = true,
-    (buf.validate.field).string.(kent.api.shared.canonical_uuid_v4) = true
-  ];
   optional string import_provider_id = 3 [(buf.validate.field).string.min_len = 1];
   optional string source_root_path = 4 [(buf.validate.field).string.min_len = 1];
 
@@ -190,10 +186,8 @@ message ImportSelection {
     id: "kent.onboarding.import_selection"
     message: "import selection payload must match its mode and identify one source"
     expression:
-      "this.mode == 1 ? (!has(this.provider_uuid) && !has(this.import_provider_id) && !has(this.source_root_path)) : "
-      "this.mode == 2 ? "
-      "(has(this.provider_uuid) ? (!has(this.import_provider_id) && !has(this.source_root_path)) : "
-      "(has(this.import_provider_id) && has(this.source_root_path))) : false"
+      "this.mode == 1 ? (!has(this.import_provider_id) && !has(this.source_root_path)) : "
+      "this.mode == 2 ? (has(this.import_provider_id) && has(this.source_root_path)) : false"
   };
 }
 
@@ -258,7 +252,6 @@ message ImportUnavailableDetails {
       not_in: [0]
     }
   ];
-  optional string provider_uuid = 3 [(buf.validate.field).string.uuid = true];
   optional string import_provider_id = 4 [(buf.validate.field).string.min_len = 1];
   optional string source_root_path = 5 [(buf.validate.field).string.min_len = 1];
   ImportUnavailableReason reason = 6 [
@@ -276,7 +269,6 @@ message ImportFailedDetails {
       not_in: [0]
     }
   ];
-  optional string provider_uuid = 2 [(buf.validate.field).string.uuid = true];
   optional string import_provider_id = 3 [(buf.validate.field).string.min_len = 1];
   optional string source_root_path = 4 [(buf.validate.field).string.min_len = 1];
   ImportOperation operation = 5 [

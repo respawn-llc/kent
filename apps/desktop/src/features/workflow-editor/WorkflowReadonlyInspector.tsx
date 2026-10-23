@@ -143,13 +143,20 @@ export function GroupDetails({
   definition,
   group,
   validation,
-}: Readonly<{ definition: WorkflowDefinition; group: WorkflowNodeGroup; validation: WorkflowValidation }>) {
+  nameField,
+}: Readonly<{
+  definition: WorkflowDefinition;
+  group: WorkflowNodeGroup;
+  validation: WorkflowValidation;
+  nameField?: React.ReactNode;
+}>) {
   const { t } = useTranslation();
   const members = definition.nodes.filter((node) => node.groupID === group.id);
   const errors = validation.errors.filter((error) => error.relatedIDs.includes(group.id));
   return (
     <InspectorStack>
       <DetailSection title={t("workflowEditor.inspectorIdentity")}>
+        {nameField}
         <DetailRow label={t("workflowEditor.key")} mono value={group.key} />
         <DetailRow label={t("workflowEditor.id")} mono value={group.id} />
       </DetailSection>

@@ -216,7 +216,6 @@ func importUnavailableDetailsToProto(details serverapi.OnboardingImportUnavailab
 	return &onboardingpb.ImportUnavailableDetails{
 		ImportKind:       kind,
 		Mode:             mode,
-		ProviderUuid:     uuidToString(details.ProviderUUID),
 		ImportProviderId: cloneBootstrapErrorPointer(details.ImportProviderID),
 		SourceRootPath:   cloneBootstrapErrorPointer(details.SourceRootPath),
 		Reason:           reason,
@@ -227,14 +226,9 @@ func importUnavailableDetailsFromProto(details *onboardingpb.ImportUnavailableDe
 	kind := importKindValues[details.ImportKind]
 	mode := onboardingImportModeValues[details.Mode]
 	reason := importUnavailableReasonValues[details.Reason]
-	provider, err := uuidFromString(details.ProviderUuid)
-	if err != nil {
-		return serverapi.OnboardingImportUnavailableDetails{}, err
-	}
 	return serverapi.OnboardingImportUnavailableDetails{
 		ImportKind:       kind,
 		Mode:             mode,
-		ProviderUUID:     provider,
 		ImportProviderID: cloneBootstrapErrorPointer(details.ImportProviderId),
 		SourceRootPath:   cloneBootstrapErrorPointer(details.SourceRootPath),
 		ReasonCode:       reason,
@@ -256,7 +250,6 @@ func importFailedDetailsToProto(details serverapi.OnboardingImportFailedDetails)
 	}
 	return &onboardingpb.ImportFailedDetails{
 		ImportKind:       kind,
-		ProviderUuid:     uuidToString(details.ProviderUUID),
 		ImportProviderId: cloneBootstrapErrorPointer(details.ImportProviderID),
 		SourceRootPath:   cloneBootstrapErrorPointer(details.SourceRootPath),
 		Operation:        operation,
@@ -270,13 +263,8 @@ func importFailedDetailsFromProto(details *onboardingpb.ImportFailedDetails) (se
 		kind = importKindValues[*details.ImportKind]
 	}
 	operation := importOperationValues[details.Operation]
-	provider, err := uuidFromString(details.ProviderUuid)
-	if err != nil {
-		return serverapi.OnboardingImportFailedDetails{}, err
-	}
 	return serverapi.OnboardingImportFailedDetails{
 		ImportKind:       kind,
-		ProviderUUID:     provider,
 		ImportProviderID: cloneBootstrapErrorPointer(details.ImportProviderId),
 		SourceRootPath:   cloneBootstrapErrorPointer(details.SourceRootPath),
 		Operation:        operation,

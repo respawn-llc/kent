@@ -35,6 +35,12 @@ func ConnectionFailureText(err error) (string, bool) {
 		return "This setup was changed or discarded. Select the connection again.", true
 	case authpb.ConnectionFailureReason_CONNECTION_FAILURE_REASON_SELECTION_REQUIRED:
 		return "Select the first provider connection before continuing.", true
+	case authpb.ConnectionFailureReason_CONNECTION_FAILURE_REASON_CREDENTIAL_CLEAR_FAILED:
+		return fmt.Sprintf("Could not clear saved credentials for connection %q. Its definition was not removed. %s",
+			details.GetConnectionId(), details.GetDiagnostic()), true
+	case authpb.ConnectionFailureReason_CONNECTION_FAILURE_REASON_DEFINITION_REMOVE_FAILED:
+		return fmt.Sprintf("Saved credentials for connection %q were cleared, but its definition could not be removed. %s",
+			details.GetConnectionId(), details.GetDiagnostic()), true
 	default:
 		return "", false
 	}

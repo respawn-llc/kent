@@ -33,7 +33,7 @@ export function createProjectTasksViewMemory(): ProjectTasksViewMemory {
       value = { ...value, disclosure };
     },
     setScrollOffsets(verticalOffsetPx, horizontalOffsetPx) {
-      value = { ...value, horizontalOffsetPx, verticalOffsetPx };
+      value = { ...value, horizontalOffsetPx, verticalOffsetPx: Math.max(0, verticalOffsetPx) };
     },
     setSort(sort) {
       value = { ...value, sort };

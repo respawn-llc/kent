@@ -100,7 +100,7 @@ func TestWorkflowGraphSaveAllowsRemovingNodeGroupWithoutConfirmation(t *testing.
 		ID:          removedGroupID,
 		WorkflowID:  f.workflowID,
 		Key:         "parallel",
-		DisplayName: "Parallel",
+		DisplayName: new("Parallel"),
 	})
 	for _, nodeID := range []workflow.NodeID{
 		testNodeID("node-impl-a-" + f.workflowID.String()),
@@ -906,7 +906,7 @@ func TestWorkflowGraphSaveConfirmationIncludesNodeGroupCountAndImpactChangedEnti
 		ID:          nodeGroupID,
 		WorkflowID:  f.workflowID,
 		Key:         "parallel",
-		DisplayName: "Parallel",
+		DisplayName: new("Parallel"),
 	})
 	for _, nodeID := range []workflow.NodeID{
 		testNodeID("node-impl-a-" + f.workflowID.String()),
@@ -1275,7 +1275,7 @@ func TestWorkflowGraphSaveValidatesAndPersistsV1NodeGroups(t *testing.T) {
 	f := newGraphSaveFixture(t, createFanoutJoinWorkflow)
 	groupID := testGraphEntityID("group-parallel-" + f.workflowID.String())
 	req := f.request(f.record.Version, false, f.def)
-	req.NodeGroups = append(req.NodeGroups, NodeGroupRecord{ID: groupID, WorkflowID: f.workflowID, Key: "parallel", DisplayName: "Parallel"})
+	req.NodeGroups = append(req.NodeGroups, NodeGroupRecord{ID: groupID, WorkflowID: f.workflowID, Key: "parallel", DisplayName: new("Parallel")})
 	req.Nodes = setWorkflowGraphSaveNodeGroup(req.Nodes, testNodeID("node-impl-a-"+f.workflowID.String()), groupID)
 	req.Nodes = setWorkflowGraphSaveNodeGroup(req.Nodes, testNodeID("node-impl-b-"+f.workflowID.String()), groupID)
 	req.Nodes = setWorkflowGraphSaveNodeGroup(req.Nodes, testNodeID("node-join-"+f.workflowID.String()), groupID)
@@ -1300,6 +1300,40 @@ func TestWorkflowGraphSaveValidatesAndPersistsV1NodeGroups(t *testing.T) {
 	invalidResult := f.save(t, invalid)
 	if invalidResult.Saved || workflowGraphSaveBlockerCount(invalidResult.Blockers, "validation_failed") == 0 {
 		t.Fatalf("invalid node group graph save = %+v, want validation blocker", invalidResult)
+	}
+}
+
+func TestWorkflowGraphSaveOptionalGroupNameRoundtrip(t *testing.T) {
+	f := newGraphSaveFixture(t, createFanoutJoinWorkflow)
+	groupID := testGraphEntityID("optional-group-" + f.workflowID.String())
+	req := f.request(f.record.Version, false, f.def)
+	req.NodeGroups = append(req.NodeGroups, NodeGroupRecord{ID: groupID, WorkflowID: f.workflowID, Key: "parallel"})
+	for _, key := range []string{"node-impl-a-", "node-impl-b-", "node-join-"} {
+		req.Nodes = setWorkflowGraphSaveNodeGroup(req.Nodes, testNodeID(key+f.workflowID.String()), groupID)
+	}
+	for _, name := range []*string{nil, new("Parallel"), nil} {
+		req.NodeGroups[0].DisplayName = name
+		result := f.save(t, req)
+		if !result.Saved {
+			t.Fatalf("save name %v: %+v", name, result)
+		}
+		definition, record := f.current(t)
+		if !reflect.DeepEqual(definition.NodeGroups[0].DisplayName, name) {
+			t.Fatalf("roundtrip name = %v, want %v", definition.NodeGroups[0].DisplayName, name)
+		}
+		req = f.request(record.Version, false, definition)
+		unchanged := f.save(t, req)
+		if !unchanged.Saved {
+			t.Fatalf("unchanged graph save: %+v", unchanged)
+		}
+		_, after := f.current(t)
+		if after.Version != record.Version {
+			t.Fatalf("unchanged optional name advanced version: %d -> %d", record.Version, after.Version)
+		}
+	}
+	req.NodeGroups[0].DisplayName = new("")
+	if result := f.save(t, req); result.Saved {
+		t.Fatal("present empty Group name accepted")
 	}
 }
 

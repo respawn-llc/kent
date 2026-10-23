@@ -142,7 +142,7 @@ export function renderVirtualizedRow<TItem>({
   isFetchingNextPage: boolean;
   item: TItem | undefined;
   layout: VirtualizedInfiniteListLayout;
-  loadingLabel: string;
+  loadingLabel: string | undefined;
   nextBoundary: VirtualizedInfiniteListBoundaryState | undefined;
   previousBoundary: VirtualizedInfiniteListBoundaryState | undefined;
   renderItem: (item: TItem, itemIndex: number) => ReactNode;
@@ -324,7 +324,7 @@ export function renderVirtualizedRowsContent({
   renderedRows: readonly ReactNode[];
   hasItems: boolean;
   empty: ReactNode;
-  loadingLabel: string;
+  loadingLabel: string | undefined;
   flowBlock: VirtualizedFlowBlock | undefined;
 }>): ReactNode {
   if (renderedRows.length === 0)
@@ -422,7 +422,7 @@ function resolveVirtualizedRowStyle({
 export function renderVirtualizedPlaceholder({
   loading,
   loadingLabel,
-}: Readonly<{ loading: boolean; loadingLabel: string }>) {
+}: Readonly<{ loading: boolean; loadingLabel: string | undefined }>) {
   return (
     <div
       aria-label={loading ? loadingLabel : undefined}
