@@ -206,6 +206,25 @@ func TestOngoingTranscriptControllerQueueOverflowRequestsScratchRehydrationOnRes
 	if len(surface.calls) != 0 {
 		t.Fatalf("surface calls after overflow restore = %v, want no partial drain", surface.calls)
 	}
+	result, err = controller.Accept(transcriptTestMessage(ongoingTranscriptQueueLimit+2, &transcriptpb.AssistantDelta{
+		StepId: ongoingTestStepID().String(), StreamId: runtimeids.NewAssistantStreamID().String(), Delta: "buffered",
+		Phase: transcriptpb.AssistantPhase_ASSISTANT_PHASE_COMMENTARY,
+	}))
+	if err != nil {
+		t.Fatalf("accept buffered old delivery: %v", err)
+	}
+	if result.Action != ongoing.ResultRequestScratchRehydration || len(surface.calls) != 0 {
+		t.Fatalf("old delivery after overflow: result=%+v calls=%v, want recovery without terminal delivery", result, surface.calls)
+	}
+	if _, err := controller.AcceptCutover(ongoing.RehydrateReasonQueueOverflow); err != nil {
+		t.Fatalf("apply recovery cutover: %v", err)
+	}
+	if _, err := controller.Accept(ongoingHydrationMessage(1)); err != nil {
+		t.Fatalf("accept replacement hydration: %v", err)
+	}
+	if !controller.acceptedHydration(ongoingHydrationMessage(1)) {
+		t.Fatal("replacement hydration was not admitted")
+	}
 }
 
 func TestOngoingTranscriptControllerQueuesOnlyTerminalWorkWhileUnowned(t *testing.T) {

@@ -3,6 +3,7 @@ package app
 import (
 	"errors"
 	"fmt"
+	"strconv"
 
 	"core/cli/app/internal/runtimeattach"
 	"core/cli/tui/ongoing"
@@ -47,7 +48,14 @@ func (m *uiModel) handleOngoingTranscriptEvent(event ongoingTranscriptEvent) tea
 	switch event.Kind {
 	case ongoingTranscriptEventCutover:
 		if event.Reason == nil {
-			panic("transcript cutover requires reset reason")
+			frame := m.ongoingFrameInput()
+			return m.handleOngoingDeveloperError(ongoing.NewDeveloperError(
+				"transcript_cutover", "transcript cutover requires reset reason", map[string]any{
+					"terminal_size":  frame.Size,
+					"quoted_payload": strconv.Quote(fmt.Sprintf("%+v", event)),
+					"quoted_frame":   strconv.Quote(fmt.Sprintf("%+v", frame)),
+				},
+			))
 		}
 		if m.ongoingRehydration.reopen != nil {
 			*m.ongoingRehydration.reopen = ongoingReopenHydrating

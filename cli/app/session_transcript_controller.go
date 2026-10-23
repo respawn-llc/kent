@@ -126,9 +126,7 @@ func (c *ongoingTranscriptController) SetNormalBufferOwned(owned bool) (ongoing.
 		return ongoing.Result{}, nil
 	}
 	if c.queueOverflowed {
-		c.queue = nil
-		c.queueOverflowed = false
-		c.renderPending = false
+		c.ResetForScratchHydration()
 		return ongoing.Result{Action: ongoing.ResultRequestScratchRehydration, Reason: ongoing.RehydrateReasonQueueOverflow}, nil
 	}
 	if len(c.queue) == 0 {
@@ -171,7 +169,15 @@ func (c *ongoingTranscriptController) applyTerminalWork(work ongoingTerminalWork
 	case ongoingTerminalReset:
 		return c.surface.ResetForScratchHydration(work.reason, c.frameInput())
 	default:
-		panic(fmt.Sprintf("invalid ongoing terminal work %T", work))
+		frame := c.frameInput()
+		ongoing.PanicDeveloperError(ongoing.NewDeveloperError(
+			"apply_terminal_work", "invalid ongoing terminal work", map[string]any{
+				"terminal_size":  frame.Size,
+				"quoted_payload": strconv.Quote(fmt.Sprintf("%#v", work)),
+				"quoted_frame":   strconv.Quote(fmt.Sprintf("%+v", frame)),
+			},
+		))
+		return ongoing.Result{}, nil
 	}
 }
 
