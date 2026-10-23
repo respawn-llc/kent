@@ -1,3 +1,11 @@
+# October 23 review remediation — native reasoning boundary
+
+- New approved plan reopens items 2/4/5/7/8/9; retain implemented baseline `a0765f9a0` and inherited dirty plan/spec edits. No restart or rebase of retained implementation.
+- `TestNativeStreamOnlyReasoningRemainsReadableAfterReload` reproduces a dangling native reasoning reference on live page reads (red: `native reasoning presentation has no unique summary source`). Native presentation now reconciles terminal-backed summaries only, validates the same native reader contract before commit, and leaves unmatched visual traces to the existing post-commit reset. Raw terminal reasoning stays unchanged across prepared input and reopen.
+- Focused Runtime native omission, native tool-loop and Reasoning checks pass via Just (nested quoting required for regex test filter).
+- Initial fixture lacked `final_answer` phase and looped until 300s timeout; corrected fixture phase before obtaining the meaningful red above. One misquoted Just filter also exited 127; corrected invocation passed.
+- Remaining approved remediation is unchecked in the plan. No manual QA or review performed.
+
 ### Implementation and automated verification complete
 
 - Final scoped rerun of both previously failing full packages passes: `GOMAXPROCS=4 just test server --timeout 1200 --workers 1 -- ./server/runtime ./cli/app/internal/ptyfixture`. This executes all Runtime and PTY tests after the earlier Runtime panic, not just the reproduced failures.

@@ -236,6 +236,42 @@ func nativeBytes(items []json.RawMessage) [][]byte {
 	return result
 }
 
+func TestNativeStreamOnlyReasoningRemainsReadableAfterReload(t *testing.T) {
+	t.Parallel()
+	native := json.RawMessage(`{"type":"reasoning","id":"rs_empty","summary":[],"encrypted_content":"opaque"}`)
+	answer := json.RawMessage(`{"type":"message","id":"msg_answer","role":"assistant","phase":"final_answer","content":[{"type":"output_text","text":"done","annotations":[]}]}`)
+	client := nativeResponseTestClient(t, nativeResponsesSocketHandler(t, func(json.RawMessage) []string {
+		return []string{
+			`{"type":"response.output_item.added","output_index":0,"item":{"type":"reasoning","id":"rs_empty","summary":[]}}`,
+			`{"type":"response.reasoning_summary_text.delta","output_index":0,"summary_index":0,"item_id":"rs_empty","delta":"visual only"}`,
+			fmt.Sprintf(`{"type":"response.completed","response":{"id":"resp_empty","status":"completed","output":[%s,%s]}}`, native, answer),
+		}
+	}))
+	store := mustCreateTestSession(t)
+	engine := mustNewTestEngine(t, store, client, tools.NewRegistry(), Config{Model: "gpt-6-sol"})
+	if _, err := engine.SubmitUserMessage(t.Context(), "first"); err != nil {
+		t.Fatal(err)
+	}
+	check := func(engine *Engine) {
+		t.Helper()
+		mustEngineNewestSegmentPage(t, engine)
+		var reasoning []llm.ResponseItem
+		for _, item := range buildActiveTurnRequestForTest(t, engine, nil, true).Items {
+			if item.Type == llm.ResponseItemTypeReasoning {
+				reasoning = append(reasoning, item)
+			}
+		}
+		if len(reasoning) != 1 || !bytes.Equal(reasoning[0].Raw, native) {
+			t.Fatalf("stream-only summary changed native API input: %+v", reasoning)
+		}
+	}
+	check(engine)
+	if err := engine.Close(); err != nil {
+		t.Fatal(err)
+	}
+	check(mustNewTestEngine(t, mustOpenTestSession(t, store.Dir()), client, tools.NewRegistry(), Config{Model: "gpt-6-sol"}))
+}
+
 func TestNativeOutputPresentationKeepsInterleavedHostedCalls(t *testing.T) {
 	t.Parallel()
 	output := []json.RawMessage{

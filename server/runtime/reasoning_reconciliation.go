@@ -16,7 +16,7 @@ type resolvedReasoningEntry struct {
 	durationMs *int64
 }
 
-func (s *defaultStepExecutor) resolveReasoningEntries(stepID string, entries []llm.ReasoningEntry) ([]resolvedReasoningEntry, error) {
+func (s *defaultStepExecutor) resolveReasoningEntries(stepID string, entries []llm.ReasoningEntry, requireAllTraces bool) ([]resolvedReasoningEntry, error) {
 	_, provisional := s.engine.transcriptRuntimeState().ReasoningSnapshot()
 	type provisionalTrace struct {
 		trace   TranscriptReasoningTraceState
@@ -93,14 +93,14 @@ func (s *defaultStepExecutor) resolveReasoningEntries(stepID string, entries []l
 		}
 		resolved = append(resolved, resolvedReasoningEntry{entry: entry})
 	}
-	if matched != len(provisional) {
+	if requireAllTraces && matched != len(provisional) {
 		return nil, fmt.Errorf("accepted response left provisional reasoning traces unresolved")
 	}
 	return resolved, nil
 }
 
 func (s *defaultStepExecutor) reconcileReasoning(stepID string, entries []llm.ReasoningEntry) error {
-	resolved, err := s.resolveReasoningEntries(stepID, entries)
+	resolved, err := s.resolveReasoningEntries(stepID, entries, true)
 	if err != nil {
 		return err
 	}
@@ -130,8 +130,14 @@ func (s *defaultStepExecutor) reconcileReasoning(stepID string, entries []llm.Re
 	return nil
 }
 
-func (s *defaultStepExecutor) prepareNativeReasoning(stepID string, native *llm.NativeResponse, entries []llm.ReasoningEntry) (*llm.NativeResponse, error) {
-	resolved, err := s.resolveReasoningEntries(stepID, entries)
+func (s *defaultStepExecutor) prepareNativeReasoning(stepID string, native *llm.NativeResponse) (*llm.NativeResponse, error) {
+	var entries []llm.ReasoningEntry
+	for _, item := range llm.ItemsFromMessages([]llm.Message{{NativeResponse: native}}) {
+		entries = append(entries, item.ReasoningSummary...)
+	}
+	// Stream-only summaries finish through the provisional display lifecycle.
+	// Only terminal-backed coordinates can carry durable presentation facts.
+	resolved, err := s.resolveReasoningEntries(stepID, entries, false)
 	if err != nil {
 		return nil, err
 	}
@@ -150,7 +156,11 @@ func (s *defaultStepExecutor) prepareNativeReasoning(stepID string, native *llm.
 		}
 		presentation = append(presentation, fact)
 	}
-	return native.WithReasoningPresentation(presentation), nil
+	prepared := native.WithReasoningPresentation(presentation)
+	if _, err := llm.MessageFromNativeResponse(*prepared.Record()); err != nil {
+		return nil, err
+	}
+	return prepared, nil
 }
 
 func (s *defaultStepExecutor) resolveReasoningDisposition(

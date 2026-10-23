@@ -726,7 +726,7 @@ func (s *defaultStepExecutor) prepareCompletedResponse(ctx context.Context, step
 
 	assistantPhase, _ := textutil.OptionalValue(assistantMsg.Phase)
 	if assistantMsg.NativeResponse != nil {
-		native, err := s.prepareNativeReasoning(stepID, assistantMsg.NativeResponse, resp.Reasoning)
+		native, err := s.prepareNativeReasoning(stepID, assistantMsg.NativeResponse)
 		if err != nil {
 			return preparedCompletedResponse{}, err
 		}
