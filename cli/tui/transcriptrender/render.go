@@ -106,7 +106,7 @@ func renderCommittedRow(
 			Lines: renderTextBlock(StyleRoleNoticeForegroundFaint, text, width, mode),
 		}
 	case *transcriptpb.CommittedRow_Notice:
-		thinkingUpdate := row.GetNotice() != nil && row.GetNotice().Reason == transcriptpb.NoticeReason_NOTICE_REASON_THINKING_UPDATE
+		thinkingUpdate := row.GetNotice().Reason == transcriptpb.NoticeReason_NOTICE_REASON_THINKING_UPDATE
 		if thinkingUpdate {
 			if mode != ModeDetailCollapsed && mode != ModeDetailExpanded {
 				return Row{Group: GroupNotice}
@@ -123,7 +123,7 @@ func renderCommittedRow(
 			meta.SymbolText = &symbol
 		}
 		group := GroupNotice
-		if row.GetNotice() != nil && row.GetNotice().MessageType != nil && *row.GetNotice().MessageType == transcriptpb.NoticeMessageType_NOTICE_MESSAGE_TYPE_BACKGROUND_NOTICE {
+		if row.GetNotice().MessageType != nil && *row.GetNotice().MessageType == transcriptpb.NoticeMessageType_NOTICE_MESSAGE_TYPE_BACKGROUND_NOTICE {
 			symbolRole := StyleRoleNoticePrimary
 			meta.SymbolStyleRole = &symbolRole
 			group = GroupTool
@@ -132,11 +132,11 @@ func renderCommittedRow(
 		if thinkingUpdate {
 			options.forceFull = true
 		}
-		if notice := row.GetNotice(); notice != nil && (notice.Severity == transcriptpb.NoticeSeverity_NOTICE_SEVERITY_ERROR ||
-			notice.Severity == transcriptpb.NoticeSeverity_NOTICE_SEVERITY_WARNING) {
+		if notice := row.GetNotice(); notice.Severity == transcriptpb.NoticeSeverity_NOTICE_SEVERITY_ERROR ||
+			notice.Severity == transcriptpb.NoticeSeverity_NOTICE_SEVERITY_WARNING {
 			options.forceFull = true
 		}
-		if row.GetNotice() != nil && row.GetNotice().Reason == transcriptpb.NoticeReason_NOTICE_REASON_PROVIDER_MODEL_MISMATCH {
+		if row.GetNotice().Reason == transcriptpb.NoticeReason_NOTICE_REASON_PROVIDER_MODEL_MISMATCH {
 			options.forceFull = true
 		}
 		if isReviewerNotice(row.GetNotice()) {
@@ -690,7 +690,7 @@ func roleSymbolText(role StyleRole, meta toolMeta) string {
 }
 
 func noticeUsesConfigurationSymbol(row *transcriptpb.NoticeRow) bool {
-	if row == nil || row.Severity != transcriptpb.NoticeSeverity_NOTICE_SEVERITY_INFO {
+	if row.Severity != transcriptpb.NoticeSeverity_NOTICE_SEVERITY_INFO {
 		return false
 	}
 	if row.Reason == transcriptpb.NoticeReason_NOTICE_REASON_THINKING_UPDATE {
@@ -709,9 +709,6 @@ func noticeUsesConfigurationSymbol(row *transcriptpb.NoticeRow) bool {
 }
 
 func noticeRoleAndText(row *transcriptpb.NoticeRow, visibility transcriptpb.EntryVisibility, mode Mode) (StyleRole, string) {
-	if row == nil {
-		return StyleRoleNotice, "notice"
-	}
 	isError := row.Severity == transcriptpb.NoticeSeverity_NOTICE_SEVERITY_ERROR
 	role := noticeStyleRoleForMode(row, mode)
 	if row.Reason == transcriptpb.NoticeReason_NOTICE_REASON_THINKING_UPDATE {
@@ -908,9 +905,6 @@ func worktreeNoticeText(row *transcriptpb.NoticeRow, mode Mode) (string, bool) {
 }
 
 func noticeStyleRole(row *transcriptpb.NoticeRow) StyleRole {
-	if row == nil {
-		return StyleRoleNotice
-	}
 	if row.Severity == transcriptpb.NoticeSeverity_NOTICE_SEVERITY_ERROR {
 		return StyleRoleError
 	}
@@ -955,7 +949,7 @@ func noticeStyleRoleForMode(row *transcriptpb.NoticeRow, mode Mode) StyleRole {
 }
 
 func isExpandedCompactionNotice(row *transcriptpb.NoticeRow) bool {
-	if row == nil || row.MessageType == nil {
+	if row.MessageType == nil {
 		return false
 	}
 	switch *row.MessageType {
@@ -969,20 +963,19 @@ func isExpandedCompactionNotice(row *transcriptpb.NoticeRow) bool {
 }
 
 func noticeDiagnosticHasReviewerRole(row *transcriptpb.NoticeRow) bool {
-	if row == nil || row.Diagnostic == nil {
+	if row.Diagnostic == nil {
 		return false
 	}
 	return transcript.IsReviewerEntryRole(strings.TrimSpace(string(row.Diagnostic.Code)))
 }
 
 func isReviewerNotice(row *transcriptpb.NoticeRow) bool {
-	return row != nil &&
-		((row.MessageType != nil && *row.MessageType == transcriptpb.NoticeMessageType_NOTICE_MESSAGE_TYPE_REVIEWER_FEEDBACK) ||
-			noticeDiagnosticHasReviewerRole(row))
+	return (row.MessageType != nil && *row.MessageType == transcriptpb.NoticeMessageType_NOTICE_MESSAGE_TYPE_REVIEWER_FEEDBACK) ||
+		noticeDiagnosticHasReviewerRole(row)
 }
 
 func noticeUsesMarkdown(row *transcriptpb.NoticeRow) bool {
-	if row == nil || row.MessageType == nil {
+	if row.MessageType == nil {
 		return false
 	}
 	switch *row.MessageType {
@@ -994,7 +987,7 @@ func noticeUsesMarkdown(row *transcriptpb.NoticeRow) bool {
 }
 
 func noticeLegacyText(row *transcriptpb.NoticeRow) string {
-	if row == nil || row.LegacyText == nil {
+	if row.LegacyText == nil {
 		return ""
 	}
 	return *row.LegacyText
