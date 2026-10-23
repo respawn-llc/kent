@@ -4,9 +4,11 @@ import {
   readLastProjectRoute,
   writeLastProjectContentTab,
   writeLastProjectRoute,
+  projectOpeningTab,
 } from "./projectRoutePersistence";
 
-const storageKey = "desktop.lastProjectRoute";
+const serverA = { kind: "server-address", identity: "ws://localhost:1000/rpc" } as const;
+const serverB = { kind: "server-address", identity: "ws://localhost:2000/rpc" } as const;
 const canonicalWorkflowID = "7e8d24d2-8a98-4dcf-a197-6214db1cb3c0";
 const originalLocalStorage = Object.getOwnPropertyDescriptor(globalThis, "localStorage");
 
@@ -25,35 +27,14 @@ afterEach(() => {
   Object.defineProperty(globalThis, "localStorage", originalLocalStorage);
 });
 
-it("restores an omitted workflow selector", () => {
-  localStorage.setItem(storageKey, JSON.stringify({ kind: "workflow_board", projectId: "project-1" }));
-
-  expect(readLastProjectRoute()).toEqual({ kind: "workflow_board", projectId: "project-1" });
-});
-
-it("rejects a legacy Home Project route without a content tab", () => {
-  localStorage.setItem(storageKey, JSON.stringify({ kind: "home_project", projectId: "project-1" }));
-
-  expect(readLastProjectRoute()).toBeNull();
-});
-
-it("rejects a persisted malformed present workflow selector", () => {
-  localStorage.setItem(
-    storageKey,
-    JSON.stringify({ kind: "workflow_board", projectId: "project-1", workflowId: "workflow-1" }),
-  );
-
-  expect(readLastProjectRoute()).toBeNull();
-});
-
 it("writes a canonical workflow selector unchanged", () => {
-  writeLastProjectRoute({
+  writeLastProjectRoute(serverA, {
     kind: "workflow_board",
     projectId: "project-1",
     workflowId: canonicalWorkflowID,
   });
 
-  expect(readLastProjectRoute()).toEqual({
+  expect(readLastProjectRoute(serverA)).toEqual({
     kind: "workflow_board",
     projectId: "project-1",
     workflowId: canonicalWorkflowID,
@@ -61,25 +42,30 @@ it("writes a canonical workflow selector unchanged", () => {
 });
 
 it("writes a Home Project destination unchanged", () => {
-  writeLastProjectRoute({ contentTab: "sessions", kind: "home_project", projectId: "project-1" });
+  writeLastProjectRoute(serverA, { kind: "home_project", projectId: "project-1" });
 
-  expect(readLastProjectRoute()).toEqual({
-    contentTab: "sessions",
+  expect(readLastProjectRoute(serverA)).toEqual({
     kind: "home_project",
     projectId: "project-1",
   });
 });
 
-it("updates the persisted Home Project content tab", () => {
-  writeLastProjectRoute({ contentTab: "tasks", kind: "home_project", projectId: "project-1" });
+it("remembers each Project tab per server, with Tasks for unseen Projects", () => {
+  writeLastProjectContentTab(serverA, "project-1", "subagents");
+  writeLastProjectContentTab(serverA, "project-2", "sessions");
+  writeLastProjectContentTab(serverB, "project-1", "tasks");
+  expect(projectOpeningTab(serverA, "project-1", "lastUsed", null)).toBe("subagents");
+  expect(projectOpeningTab(serverA, "project-2", "lastUsed", null)).toBe("sessions");
+  expect(projectOpeningTab(serverB, "project-1", "lastUsed", null)).toBe("tasks");
+  expect(projectOpeningTab(serverB, "unseen", "lastUsed", null)).toBe("tasks");
+});
 
-  writeLastProjectContentTab("project-1", "sessions");
-
-  expect(readLastProjectRoute()).toEqual({
-    contentTab: "sessions",
-    kind: "home_project",
-    projectId: "project-1",
-  });
+it("honors explicit destinations before Project opening overrides", () => {
+  writeLastProjectContentTab(serverA, "project-1", "subagents");
+  expect(projectOpeningTab(serverA, "project-1", "tasks", null)).toBe("tasks");
+  expect(projectOpeningTab(serverA, "project-1", "sessions", null)).toBe("sessions");
+  expect(projectOpeningTab(serverA, "project-1", "tasks", "sessions")).toBe("sessions");
+  expect(projectOpeningTab(serverA, "project-1", "sessions", "subagents")).toBe("subagents");
 });
 
 class TestStorage implements Storage {

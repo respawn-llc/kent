@@ -1,4 +1,5 @@
 import type { RefObject } from "react";
+import { prefersReducedMotion } from "@/ui";
 
 import type { PendingBoardCardMove } from "./BoardCardMotionModel";
 
@@ -154,11 +155,4 @@ function motionDurationMs(tokenName: string, fallbackMs: number): number {
     return Number.parseFloat(durationToken) * 1000;
   }
   return fallbackMs;
-}
-
-function prefersReducedMotion(): boolean {
-  return (
-    globalThis.matchMedia instanceof Function &&
-    globalThis.matchMedia("(prefers-reduced-motion: reduce)").matches
-  );
 }

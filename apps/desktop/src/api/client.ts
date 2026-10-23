@@ -423,6 +423,7 @@ export class ApiClient implements ApiService {
 
 function projectReadiness(readiness: Readiness): ServerReadiness {
   return {
+    globalConfigPath: readiness.globalConfigPath ?? null,
     ready: readiness.ready,
     serverID: readiness.serverId,
     serverVersion: readiness.serverVersion,

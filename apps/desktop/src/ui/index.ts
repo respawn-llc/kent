@@ -75,7 +75,14 @@ export { readEffectiveTheme, type AppTheme } from "./theme";
 export { cx } from "./classes";
 export { SteppedSelector } from "./SteppedSelector";
 export { useTextOverflow } from "./useTextOverflow";
-export { motionDurationFromCSSVar, prefersReducedMotion, useOpacityExit } from "./motion";
+export {
+  motionDurationFromCSSVar,
+  prefersReducedMotion,
+  useOpacityExit,
+  ReducedMotionContext,
+  useReducedMotion,
+  useSystemReducedMotion,
+} from "./motion";
 export {
   CollapsibleMarkdownField,
   MarkdownField,
@@ -94,6 +101,7 @@ export { Spinner } from "./Spinner";
 export { LinearBar } from "./LinearBar";
 export type { SpinnerProps } from "./Spinner";
 export { Switch } from "./radix/switch";
+export { PreferenceRow } from "./PreferenceRow";
 export { Checkbox } from "./radix/checkbox";
 export { RadioGroup, RadioGroupItem } from "./radix/radio-group";
 export {

@@ -7,6 +7,7 @@ import type { NativeBridge } from "@app/native-bridge";
 import { errorMessage } from "@/api";
 import type { AppObservationLogger } from "@/app-facade";
 import { checkForDesktopUpdate } from "./desktopUpdate";
+import { useAppServices } from "@/app-facade";
 
 type UpdateState =
   | Readonly<{ phase: "none" }>
@@ -19,6 +20,7 @@ export function useDesktopUpdate(
   nativeBridge: NativeBridge,
   logger: AppObservationLogger,
 ): DesktopUpdateState {
+  const { initialSettings } = useAppServices();
   const description = useMemo(
     () =>
       Atom.make((get) => {
@@ -26,7 +28,7 @@ export function useDesktopUpdate(
         get.mount(state);
         const check = Atom.make(
           Effect.gen(function* () {
-            const result = yield* checkForDesktopUpdate(nativeBridge, logger);
+            const result = yield* checkForDesktopUpdate(nativeBridge, logger, initialSettings.saved);
             if (result.available) get.set(state, { phase: "available", version: result.version });
             return null;
           }),
@@ -93,7 +95,7 @@ export function useDesktopUpdate(
         );
         return { state: Atom.make((read) => read(state)), check, install, dismiss };
       }),
-    [nativeBridge, logger],
+    [nativeBridge, logger, initialSettings],
   );
   const model = useAtomValue(description);
   useAtomSuspense(model.check);

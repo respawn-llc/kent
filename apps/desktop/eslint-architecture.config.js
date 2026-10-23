@@ -168,6 +168,8 @@ const ownerDependencyMatrix = [
     ...vendorDependencies,
   ),
   ownerDependencies(architectureOwners.UI_KIT, dependencyTargets.UI_KIT),
+  // App primitives share foundational visual behavior through the UI-kit public seam.
+  ownerDependencies(architectureOwners.UI, dependencyTargets.UI_KIT),
   ownerDependencies(
     architectureOwners.SERVER_API_CONTRACT,
     dependencyTarget(architectureOwners.SERVER_API_CONTRACT),

@@ -1,5 +1,5 @@
 import { type ReactNode, useMemo } from "react";
-import { Check, Folder, Plus, Workflow } from "lucide-react";
+import { Check, Folder, Plus, Settings, Workflow } from "lucide-react";
 import { useTranslation } from "react-i18next";
 
 import type { ProjectSummary } from "@/api";
@@ -22,6 +22,7 @@ export function HomeSidebar({
   projectsQuery,
   selectedCategory,
   selectedProjectID,
+  settingsSidebar,
 }: Readonly<{
   onCategorySelect: (category: HomeSidebarCategory) => void;
   onChooseWorkspace: () => void;
@@ -29,8 +30,9 @@ export function HomeSidebar({
   onProjectSelect: (projectID: string) => void;
   projectItems: readonly ProjectSummary[];
   projectsQuery: ReturnType<typeof useProjectPages>;
-  selectedCategory: HomeSidebarCategory;
+  selectedCategory: HomeSidebarCategory | "settings";
   selectedProjectID: string | null;
+  settingsSidebar?: ReactNode;
 }>) {
   const { t } = useTranslation();
   const navigation = useAppNavigation();
@@ -84,10 +86,20 @@ export function HomeSidebar({
           }}
           selected={selectedCategory === "workflows"}
         />
+        <CategoryRow
+          icon={<Settings size={18} strokeWidth={1.5} />}
+          label={t("settings.title")}
+          selected={selectedCategory === "settings"}
+          onSelect={() => {
+            void navigation.openSettings();
+          }}
+        />
       </div>
       <div className="relative -mt-[var(--space-3)] min-h-0 flex-1">
         <OverlappingCrossfade contentKey={selectedCategory}>
-          {selectedCategory === "projects" ? (
+          {selectedCategory === "settings" ? (
+            settingsSidebar
+          ) : selectedCategory === "projects" ? (
             <VirtualizedInfiniteList
               className="home-sidebar-scroll h-full min-h-0 overflow-auto hide-scrollbar contain-strict [-webkit-overflow-scrolling:touch]"
               empty={empty}
@@ -158,10 +170,10 @@ function CategoryRow({
   onSelect,
   selected,
 }: Readonly<{
-  actionLabel: string;
+  actionLabel?: string;
   icon: ReactNode;
   label: string;
-  onAction: () => void;
+  onAction?: () => void;
   onSelect: () => void;
   selected: boolean;
 }>) {
@@ -182,14 +194,16 @@ function CategoryRow({
         <CategoryIcon icon={icon} selected={selected} />
         <strong className="min-w-0 truncate">{label}</strong>
       </button>
-      <button
-        aria-label={actionLabel}
-        className="absolute right-[calc(var(--space-3)/2)] top-1/2 grid h-10 w-10 -translate-y-1/2 place-items-center justify-items-end rounded-full text-[var(--color-on-island)] disabled:opacity-55"
-        onClick={onAction}
-        type="button"
-      >
-        <Plus aria-hidden="true" size={14} strokeWidth={1.5} />
-      </button>
+      {onAction !== undefined && (
+        <button
+          aria-label={actionLabel}
+          className="absolute right-[calc(var(--space-3)/2)] top-1/2 grid h-10 w-10 -translate-y-1/2 place-items-center justify-items-end rounded-full text-[var(--color-on-island)] disabled:opacity-55"
+          onClick={onAction}
+          type="button"
+        >
+          <Plus aria-hidden="true" size={14} strokeWidth={1.5} />
+        </button>
+      )}
     </div>
   );
 }

@@ -1,85 +1,136 @@
-import { load as loadTauriStore } from "@tauri-apps/plugin-store";
+import { invoke } from "@tauri-apps/api/core";
+import { listen } from "@tauri-apps/api/event";
+import type * as Stream from "effect/Stream";
 import { z } from "zod";
-
-// Desktop-local client settings: device/install-scoped preferences only (never
-// server-authoritative state, never synced). Persisted by the native bridge to a
-// flat JSON file in the Tauri app data dir (plugin-store BaseDirectory::AppData):
-// macOS ~/Library/Application Support/sh.kent/settings.json, Linux
-// ~/.local/share/sh.kent/settings.json. See docs/dev/specs/release-distribution.md.
+import { nativeObservation, type NativeOverflowReporter } from "./observation";
 
 export type DesktopSelfUpdate = "enabled" | "disabled";
-
 export type DesktopSettings = Readonly<{
-  // Schema version of the persisted file; bump + extend parseDesktopSettings to
-  // migrate when the shape changes.
   version: 1;
-  // Whether the in-app self-updater runs. Homebrew installs ship "disabled" (the
-  // cask postflight writes it) so brew owns updates and stays in lockstep with the
-  // server; direct-download installs leave it "enabled".
   selfUpdate: DesktopSelfUpdate;
+  serverAddress: string;
+  theme: "system" | "light" | "dark";
+  reducedMotion: boolean;
+  transparency: boolean;
+  lowPower: boolean;
+  notifications: "automatic" | "native" | "inApp";
+  projectOpening: "lastUsed" | "tasks" | "sessions";
 }>;
 
-export const desktopSettingsVersion = 1 as const;
+export type LaunchAppearance = Readonly<{ transparency: boolean; lowPower: boolean }>;
+export type SettingsSnapshot = Readonly<{
+  saved: DesktopSettings;
+  launch: LaunchAppearance | null;
+  activeAddress: string | null;
+}>;
+export type SettingsChange = {
+  [K in Exclude<keyof DesktopSettings, "version">]: Readonly<{ field: K; value: DesktopSettings[K] }>;
+}[Exclude<keyof DesktopSettings, "version">];
 
-export const defaultDesktopSettings: DesktopSettings = {
-  version: desktopSettingsVersion,
-  selfUpdate: "enabled",
-};
+export type DesktopSettingsBridge = Readonly<{
+  read(): Promise<SettingsSnapshot>;
+  change(change: SettingsChange): Promise<DesktopSettings>;
+  changes(reportOverflow: NativeOverflowReporter): Stream.Stream<undefined, Error>;
+  connect(address: string, mode: "mainStartup" | "restart"): Promise<DesktopSettings>;
+}>;
 
-const desktopSettingsSchema = z.object({
-  selfUpdate: z.unknown().optional(),
-});
+const settingsFailure = z.discriminatedUnion("kind", [
+  z.object({ kind: z.literal("storage"), detail: z.string() }),
+  z.object({
+    kind: z.literal("address"),
+    detail: z.enum(["invalidUrl", "unsupportedScheme", "missingHost"]),
+  }),
+]);
 
-// parseDesktopSettings validates untyped persisted JSON into typed settings,
-// filling defaults for missing/invalid fields and normalizing the schema version.
-// It never throws: unknown or corrupt shapes degrade to defaults so a hand-edited
-// or partially-written file can't brick startup. Unknown extra fields are ignored,
-// so a newer on-disk file stays forward-readable by an older build.
-export function parseDesktopSettings(raw: unknown): DesktopSettings {
-  const parsed = desktopSettingsSchema.safeParse(raw);
-  return {
-    version: desktopSettingsVersion,
-    selfUpdate: parseSelfUpdate(parsed.success ? parsed.data.selfUpdate : undefined),
-  };
-}
-
-function parseSelfUpdate(value: unknown): DesktopSelfUpdate {
-  return value === "disabled" ? "disabled" : "enabled";
-}
-
-// plugin-store file in the Tauri app data dir; fields are stored flat (not
-// nested) so the Homebrew cask postflight can write the file as plain JSON.
-const desktopSettingsStoreFile = "settings.json";
-const desktopSettingsVersionKey = "version";
-const desktopSettingsSelfUpdateKey = "selfUpdate";
-// Browser QA shell only; the real gate runs on Tauri via plugin-store.
-const desktopSettingsBrowserStorageKey = "kent.desktop.settings";
-
-export async function readTauriDesktopSettings(): Promise<DesktopSettings> {
-  const store = await loadTauriStore(desktopSettingsStoreFile);
-  const [version, selfUpdate] = await Promise.all([
-    store.get(desktopSettingsVersionKey),
-    store.get(desktopSettingsSelfUpdateKey),
-  ]);
-  return parseDesktopSettings({ version, selfUpdate });
-}
-
-export async function writeTauriDesktopSettings(next: DesktopSettings): Promise<void> {
-  const store = await loadTauriStore(desktopSettingsStoreFile);
-  await store.set(desktopSettingsVersionKey, next.version);
-  await store.set(desktopSettingsSelfUpdateKey, next.selfUpdate);
-  await store.save();
-}
-
-export function readBrowserDesktopSettings(): DesktopSettings {
-  try {
-    const raw = globalThis.localStorage.getItem(desktopSettingsBrowserStorageKey);
-    return raw === null ? defaultDesktopSettings : parseDesktopSettings(JSON.parse(raw));
-  } catch {
-    return defaultDesktopSettings;
+export class SettingsCommandError extends Error {
+  constructor(readonly failure: z.infer<typeof settingsFailure>) {
+    super(failure.detail);
+    this.name = "SettingsCommandError";
   }
 }
 
-export function writeBrowserDesktopSettings(next: DesktopSettings): void {
-  globalThis.localStorage.setItem(desktopSettingsBrowserStorageKey, JSON.stringify(next));
+export function parseBrowserServerAddress(address: string): string {
+  let parsed: URL;
+  try {
+    parsed = new URL(address.trim());
+  } catch {
+    throw new SettingsCommandError({ kind: "address", detail: "invalidUrl" });
+  }
+  if (parsed.protocol !== "ws:" && parsed.protocol !== "wss:") {
+    throw new SettingsCommandError({ kind: "address", detail: "unsupportedScheme" });
+  }
+  return parsed.toString();
+}
+
+async function settingsCommand<T>(command: string, args?: Record<string, unknown>): Promise<T> {
+  try {
+    return await invoke<T>(command, args);
+  } catch (error) {
+    const parsed = settingsFailure.safeParse(error);
+    if (parsed.success) throw new SettingsCommandError(parsed.data);
+    throw error instanceof Error ? error : new Error(String(error));
+  }
+}
+
+export const browserSettingsFixture: SettingsSnapshot = {
+  saved: {
+    version: 1,
+    selfUpdate: "enabled",
+    serverAddress: "ws://127.0.0.1:53082/rpc",
+    theme: "system",
+    reducedMotion: false,
+    transparency: true,
+    lowPower: false,
+    notifications: "automatic",
+    projectOpening: "lastUsed",
+  },
+  launch: { transparency: true, lowPower: false },
+  activeAddress: "ws://127.0.0.1:53082/rpc",
+};
+
+export function createTauriSettings(): DesktopSettingsBridge {
+  return {
+    read: async () => settingsCommand<SettingsSnapshot>("read_desktop_settings"),
+    change: async (change) => settingsCommand<DesktopSettings>("change_desktop_setting", { change }),
+    connect: async (address, mode) =>
+      settingsCommand<DesktopSettings>("connect_desktop_server", { address, mode }),
+    changes: (reportOverflow) =>
+      nativeObservation<undefined>(
+        async (emit) =>
+          listen("desktop-settings-changed", () => {
+            emit(undefined);
+          }),
+        reportOverflow,
+      ),
+  };
+}
+
+// A browser development fixture, not a persistence codec or native startup policy.
+export function createBrowserSettings(
+  endpoint = browserSettingsFixture.saved.serverAddress,
+): DesktopSettingsBridge {
+  let saved = { ...browserSettingsFixture.saved, serverAddress: endpoint };
+  const listeners = new Set<(value: undefined) => void>();
+  let activeAddress = saved.serverAddress;
+  return {
+    read: async () => ({ ...browserSettingsFixture, saved, activeAddress }),
+    connect: async (address, mode) => {
+      saved = { ...saved, serverAddress: parseBrowserServerAddress(address) };
+      if (mode === "mainStartup") activeAddress = saved.serverAddress;
+      for (const listener of listeners) listener(undefined);
+      return saved;
+    },
+    change: async (change) => {
+      saved = { ...saved, [change.field]: change.value };
+      for (const listener of listeners) listener(undefined);
+      return saved;
+    },
+    changes: (reportOverflow) =>
+      nativeObservation<undefined>(async (emit) => {
+        listeners.add(emit);
+        return () => {
+          listeners.delete(emit);
+        };
+      }, reportOverflow),
+  };
 }

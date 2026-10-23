@@ -6,7 +6,6 @@ import { useTranslation } from "react-i18next";
 
 import { TaskSearchGlobalTrigger, TaskSearchHost, TaskSearchProvider } from "@/features/board";
 import { AttentionController } from "./AttentionController";
-import { WindowChromeThemeToggle } from "./WindowChromeThemeToggle";
 import { AppUpdateChip } from "./AppUpdateChip";
 import { AppSubscriptionUsage } from "./AppSubscriptionUsage";
 import { useDesktopUpdate, type DesktopUpdateState } from "./useDesktopUpdate";
@@ -91,7 +90,6 @@ function AppChromeContent({
           <AppChromeGlobalSearch macOS={macOS} position="trailing" />
           {action}
           <AppSubscriptionUsage />
-          <WindowChromeThemeToggle />
         </>
       }
     >
@@ -140,7 +138,7 @@ function ProjectDeletionEventHandler() {
   const { t } = useTranslation();
   const location = useLocation();
   const queryClient = useQueryClient();
-  const { nativeBridge } = useAppServices();
+  const { nativeBridge, storageNamespace } = useAppServices();
   const navigation = useAppNavigation();
   const { push } = useStatusController();
   useProjectDeletedEvents(
@@ -153,6 +151,7 @@ function ProjectDeletionEventHandler() {
           event.projectID,
         );
         return completeProjectDeletion({
+          storageNamespace,
           navigateHome: routeMatches ? navigation.openHome : undefined,
           projectID: event.projectID,
           pushDeletedToast: () => {
@@ -165,7 +164,7 @@ function ProjectDeletionEventHandler() {
           queryClient,
         });
       },
-      [location.pathname, location.searchStr, navigation.openHome, push, queryClient, t],
+      [location.pathname, location.searchStr, navigation.openHome, push, queryClient, t, storageNamespace],
     ),
   );
   return null;

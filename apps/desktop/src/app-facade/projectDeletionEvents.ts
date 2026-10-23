@@ -12,6 +12,7 @@ import { clearLastProjectRoute } from "./projectRoutePersistence";
 import { queryKeys } from "./queryKeys";
 import { removeProjectTaskSearches } from "./taskSearchQueries";
 import { useAppServices } from "./useAppServices";
+import type { AppStorageNamespace } from "./services";
 
 export function useProjectDeletedEvents(
   nativeBridge: NativeBridge,
@@ -66,14 +67,16 @@ export async function completeProjectDeletion({
   projectID,
   pushDeletedToast,
   queryClient,
+  storageNamespace,
 }: Readonly<{
   navigateHome?: (() => Promise<void>) | undefined;
   projectID: string;
   pushDeletedToast: () => void;
   queryClient: QueryClient;
+  storageNamespace: AppStorageNamespace | null;
 }>): Promise<void> {
   await invalidateProjectDeleteQueries(queryClient, projectID);
-  clearLastProjectRoute(projectID);
+  clearLastProjectRoute(storageNamespace, projectID);
   if (navigateHome !== undefined) await navigateHome();
   pushDeletedToast();
 }

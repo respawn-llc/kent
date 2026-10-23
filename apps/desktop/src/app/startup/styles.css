@@ -290,10 +290,38 @@
   color-scheme: dark;
 }
 
+:root[data-opaque="true"] {
+  background: var(--background);
+  --window-glass-tint: var(--background);
+}
+
+:root[data-low-power="true"] *,
+:root[data-low-power="true"] *::before,
+:root[data-low-power="true"] *::after {
+  backdrop-filter: none !important;
+  filter: none !important;
+}
+
+:root[data-reduced-motion="true"] {
+  --motion-fast: 0ms ease;
+  --motion-normal: 0ms ease;
+  --motion-expressive: 0ms ease;
+  --motion-morph: 0ms ease-in-out;
+  --motion-morph-stage-delay: 0ms;
+  --motion-morph-stage: 0ms ease-in-out;
+}
+
+:root[data-reduced-motion="true"] *,
+:root[data-reduced-motion="true"] *::before,
+:root[data-reduced-motion="true"] *::after {
+  animation: none !important;
+  transition: none !important;
+  scroll-behavior: auto !important;
+}
+
 @media (prefers-reduced-motion: reduce) {
   :root {
     --motion-fast: 0ms ease;
-    --motion-shimmer-duration: 0ms;
     --motion-normal: 0ms ease;
     --motion-expressive: 0ms ease;
     --motion-morph: 0ms ease-in-out;

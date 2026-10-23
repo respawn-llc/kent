@@ -8,6 +8,9 @@ import { createProjectTasksViewMemory, HomeRoute, ProjectTasksSurface } from "@/
 import { StartupGate } from "@/features/startup";
 import { StandaloneTaskRoute } from "@/features/task-detail";
 import { LoadingState } from "@/ui";
+import { SettingsDestination } from "@/features/settings";
+import { useQuery } from "@tanstack/react-query";
+import { queryKeys, useAppServices, type HomeDestination } from "@/app-facade";
 import { AppChrome } from "./AppChrome";
 import {
   readBrowserStorage,
@@ -20,6 +23,7 @@ import {
   useOwnedSidebarRoots,
   writeBrowserStorage,
   writeLastProjectRoute,
+  appStorageKey,
 } from "@/app-facade";
 import { RouteTransitionFrame } from "./RouteTransitionFrame";
 import { useWindowChromeTitle } from "@/app-facade";
@@ -68,17 +72,22 @@ export function RootRoute() {
 }
 
 function RoutePersistence() {
+  const { storageNamespace } = useAppServices();
   const navigate = rootRouteApi.useNavigate();
   const homeMatch = useMatch({ from: "/", shouldThrow: false });
   const homeProjectId = homeMatch?.search.projectId ?? null;
-  const isUnselectedHomeRoute = homeMatch !== undefined && homeMatch.search.projectId === undefined;
+  const isUnselectedHomeRoute =
+    homeMatch !== undefined &&
+    homeMatch.search.projectId === undefined &&
+    homeMatch.search.view === undefined;
   const projectMatch = useMatch({ from: "/projects/$projectId", shouldThrow: false });
   const projectId = projectMatch?.params.projectId ?? null;
   const workflowId = projectMatch?.search.workflowId;
 
   useEffect(() => {
-    if (claimRouteRestoreCheck()) {
-      const restored = readLastProjectRoute();
+    if (storageNamespace === null) return;
+    if (claimRouteRestoreCheck(appStorageKey(storageNamespace, routeRestoreSessionKey))) {
+      const restored = readLastProjectRoute(storageNamespace);
       if (isUnselectedHomeRoute && restored !== null) {
         // Session restore is startup state hydration, not a user-initiated destination change, so it
         // intentionally bypasses the animated app navigation API.
@@ -97,25 +106,20 @@ function RoutePersistence() {
       }
     }
     if (homeProjectId !== null) {
-      const current = readLastProjectRoute();
-      writeLastProjectRoute({
-        contentTab:
-          current?.kind === "home_project" && current.projectId === homeProjectId
-            ? current.contentTab
-            : "tasks",
+      writeLastProjectRoute(storageNamespace, {
         kind: "home_project",
         projectId: homeProjectId,
       });
     } else if (projectId !== null) {
-      writeLastProjectRoute({ kind: "workflow_board", projectId, workflowId });
+      writeLastProjectRoute(storageNamespace, { kind: "workflow_board", projectId, workflowId });
     }
-  }, [homeProjectId, isUnselectedHomeRoute, projectId, workflowId, navigate]);
+  }, [homeProjectId, isUnselectedHomeRoute, projectId, workflowId, navigate, storageNamespace]);
 
   return null;
 }
 
-function claimRouteRestoreCheck(): boolean {
-  const stored = readBrowserStorage("session", routeRestoreSessionKey);
+function claimRouteRestoreCheck(key: string): boolean {
+  const stored = readBrowserStorage("session", key);
   if (!stored.ok) {
     const shouldRestore = !routeRestoreCheckedFallback;
     routeRestoreCheckedFallback = true;
@@ -124,7 +128,7 @@ function claimRouteRestoreCheck(): boolean {
   if (stored.value !== null) {
     return false;
   }
-  const written = writeBrowserStorage("session", routeRestoreSessionKey, "1");
+  const written = writeBrowserStorage("session", key, "1");
   if (!written.ok) {
     const shouldRestore = !routeRestoreCheckedFallback;
     routeRestoreCheckedFallback = true;
@@ -158,8 +162,29 @@ export function ProjectTasksRoute() {
 
 export function HomeShellRoute() {
   const search = homeRouteApi.useSearch();
+  const services = useAppServices();
+  const readiness = useQuery({
+    queryKey: queryKeys.readiness,
+    queryFn: async () => services.api.getReadiness(),
+    enabled: false,
+  });
+  const destination: HomeDestination =
+    search.view === "settings"
+      ? { kind: "settings" }
+      : search.projectId === undefined
+        ? { kind: "inbox" }
+        : { kind: "project", projectID: search.projectId };
   useWindowChromeTitle(null);
-  return <HomeRoute selectedProjectID={search.projectId ?? null} />;
+  return (
+    <SettingsDestination
+      active={destination.kind === "settings"}
+      configPath={readiness.data?.globalConfigPath ?? null}
+    >
+      {({ page, sidebar }) => (
+        <HomeRoute destination={destination} settingsPage={page} settingsSidebar={sidebar} />
+      )}
+    </SettingsDestination>
+  );
 }
 
 export function WorkflowEditorShellRoute() {

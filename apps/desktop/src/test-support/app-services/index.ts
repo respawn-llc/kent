@@ -1,4 +1,4 @@
-import { createBrowserNativeBridge, type NativePlatform } from "@app/native-bridge";
+import { browserSettingsFixture, createBrowserNativeBridge, type NativePlatform } from "@app/native-bridge";
 import { create } from "@app/server-api-contract";
 import {
   GetReadinessResultSchema,
@@ -59,7 +59,6 @@ export type TestAppServices = Omit<AppServices, "logger"> &
   }>;
 
 export type CreateTestServicesOptions = Readonly<{
-  debugThemeOverrideEnabled?: boolean | undefined;
   homePath?: string | undefined;
   platform?: NativePlatform | undefined;
 }>;
@@ -123,14 +122,14 @@ export function createTestServices(
     createBrowserNativeBridge(options.platform === undefined ? {} : { platform: options.platform });
   return {
     api: new ApiClient(transport, projectEventDiagnostics(logger)),
-    debugThemeOverrideEnabled: options.debugThemeOverrideEnabled ?? false,
+    initialSettings: browserSettingsFixture,
     endpoint: "ws://127.0.0.1:53082/rpc",
     homePath: options.homePath ?? "",
     logger,
     nativeBridge: resolvedNativeBridge,
     protocolVersion,
     storageNamespace: {
-      kind: "browser-endpoint",
+      kind: "server-address",
       identity: "ws://127.0.0.1:53082/rpc",
     },
     transport,

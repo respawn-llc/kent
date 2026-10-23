@@ -60,7 +60,6 @@ dependencies = [
  "objc2-foundation",
  "serde",
  "serde_json",
- "sha2",
  "tauri",
  "tauri-build",
  "tauri-plugin-clipboard-manager",
@@ -72,7 +71,6 @@ dependencies = [
  "tauri-plugin-updater",
  "tempfile",
  "tokio",
- "toml 0.9.12+spec-1.1.0",
  "windows",
 ]
 

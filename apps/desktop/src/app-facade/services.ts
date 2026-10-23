@@ -1,21 +1,16 @@
-import type { NativeBridge } from "@app/native-bridge";
+import type { NativeBridge, SettingsSnapshot } from "@app/native-bridge";
 
 import type { ApiService } from "@/api";
 import type { AppObservationLogger } from "./logging";
 
-export type AppStorageNamespace =
-  | Readonly<{
-      kind: "native-persistence-root";
-      identity: string;
-    }>
-  | Readonly<{
-      kind: "browser-endpoint";
-      identity: string;
-    }>;
+export type AppStorageNamespace = Readonly<{
+  kind: "server-address";
+  identity: string;
+}>;
 
 export type AppServices = Readonly<{
   api: ApiService;
-  debugThemeOverrideEnabled: boolean;
+  initialSettings: SettingsSnapshot;
   endpoint: string;
   homePath: string;
   logger: AppObservationLogger;

@@ -1,8 +1,8 @@
-import { AnimatePresence, motion, useReducedMotion } from "motion/react";
+import { AnimatePresence, motion } from "motion/react";
 import { useTranslation } from "react-i18next";
 
 import type { ThinkingStatusPresentation } from "@/app-facade";
-import { Spinner, motionDurationFromCSSVar } from "@/ui";
+import { Spinner, motionDurationFromCSSVar, useReducedMotion } from "@/ui";
 
 export function TranscriptThinkingStatus({
   presentation,

@@ -67,6 +67,22 @@ func TestGetServerReadinessReadyWhenStartupAuthNotRequired(t *testing.T) {
 	}
 }
 
+func TestReadinessReportsItsGlobalConfigPath(t *testing.T) {
+	path := "/server/config/config.toml"
+	readiness := requireServerReadiness(t, config.App{
+		Source: config.SourceReport{Files: []config.ConfigFileReport{
+			{SourceFile: config.SourceFile{Layer: config.FileGlobal, Path: path}},
+		}},
+	})
+	if readiness.GlobalConfigPath == nil || *readiness.GlobalConfigPath != path {
+		t.Fatalf("global config path = %v, want %q", readiness.GlobalConfigPath, path)
+	}
+	withoutSource := requireServerReadiness(t, config.App{})
+	if withoutSource.GlobalConfigPath != nil {
+		t.Fatalf("global config path without source = %v", withoutSource.GlobalConfigPath)
+	}
+}
+
 func TestGetServerReadinessDoesNotRequireDefaultConnectionCredentials(t *testing.T) {
 	readiness := requireServerReadiness(t, config.App{
 		Settings: config.Settings{Connection: config.SingleConnection("work"), Connections: map[config.ConnectionID]config.ProviderConnection{

@@ -1,4 +1,4 @@
-import { createBrowserNativeBridge } from "@app/native-bridge";
+import { browserSettingsFixture, createBrowserNativeBridge } from "@app/native-bridge";
 
 import { ApiClient, protocolVersion, type RpcTransport } from "@/api/composition";
 import { createAppLogger, type AppServices } from "@/app-facade";
@@ -25,7 +25,7 @@ export function thinkingShowcaseServices(writeText: (value: string) => Promise<v
   };
   return {
     api: new ApiClient(transport, unavailable),
-    debugThemeOverrideEnabled: false,
+    initialSettings: browserSettingsFixture,
     endpoint: "fixture-only",
     homePath: "/fixture-only",
     logger: createAppLogger(async (level, message, context = {}) => {
