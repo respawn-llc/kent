@@ -169,14 +169,13 @@ func TestCompactionDispatchPreparationEmbedsBaseMetaAndPreservedUserMessageAtomi
 	if _, _, err := eng.compactNow(context.Background(), stepID, compactionModeManual, compactionInstructionsInput{}, true); err != nil {
 		t.Fatalf("compactNow: %v", err)
 	}
-	request, err := eng.buildActiveTurnDispatchRequest(t.Context(), stepID, nil, true)
-	if err != nil {
+	if _, err := eng.buildActiveTurnDispatchRequest(t.Context(), stepID, nil, true); err != nil {
 		t.Fatalf("prepare dispatch: %v", err)
 	}
-	replacement := historyReplacementPayload{Items: request.Items}
+	replacementItems := compactionReplacementItems(t, eng)
 	environmentIndex, goalIndex, worktreeIndex, carryoverIndex, reminderIndex := -1, -1, -1, -1, -1
 	goalCount := 0
-	for idx, item := range replacement.Items {
+	for idx, item := range replacementItems {
 		if item.Type == llm.ResponseItemTypeMessage &&
 			item.Role != nil &&
 			*item.Role == llm.RoleDeveloper &&
@@ -218,10 +217,10 @@ func TestCompactionDispatchPreparationEmbedsBaseMetaAndPreservedUserMessageAtomi
 		}
 	}
 	if environmentIndex < 0 || goalIndex < 0 || worktreeIndex < 0 || carryoverIndex < 0 || reminderIndex < 0 || goalCount != 1 {
-		t.Fatalf("replacement payload must embed base meta, one active-goal continuation, worktree context, running-shell reminder, environment, and compaction-preserved user message: %+v", replacement.Items)
+		t.Fatalf("replacement payload must embed base meta, one active-goal continuation, worktree context, running-shell reminder, environment, and compaction-preserved user message: %+v", replacementItems)
 	}
-	if !(worktreeIndex < goalIndex && goalIndex < reminderIndex && reminderIndex < environmentIndex && environmentIndex < carryoverIndex) || carryoverIndex != len(replacement.Items)-1 {
-		t.Fatalf("replacement payload order must be stable meta, environment, then carryover: %+v", replacement.Items)
+	if !(worktreeIndex < goalIndex && goalIndex < reminderIndex && reminderIndex < environmentIndex && environmentIndex < carryoverIndex) || carryoverIndex != len(replacementItems)-1 {
+		t.Fatalf("replacement payload order must be stable meta, environment, then carryover: %+v", replacementItems)
 	}
 
 	reopenedStore := mustOpenTestSession(t, store.Dir())

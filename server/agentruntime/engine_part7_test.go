@@ -483,12 +483,13 @@ func TestFinalAssistantBeforeSameTurnBackgroundNoticeKeepsCommittedFrontierConti
 	store := mustCreateTestSessionAt(t, dir)
 
 	var (
-		mu                  sync.Mutex
-		events              []Event
-		queueOnce           sync.Once
-		eng                 *Engine
-		backgroundID        = "1000"
-		backgroundCommitted = make(chan struct{}, 1)
+		mu           sync.Mutex
+		events       []Event
+		queueOnce    sync.Once
+		eng          *Engine
+		backgroundID = "1000"
+		updateDone   = make(chan struct{})
+		noticeReady  = make(chan struct{}, 1)
 	)
 	var client *hookClient
 	client = &hookClient{
@@ -504,12 +505,15 @@ func TestFinalAssistantBeforeSameTurnBackgroundNoticeKeepsCommittedFrontierConti
 					Usage:     llm.Usage{WindowTokens: 200000},
 				}
 				client.mu.Unlock()
-				eng.HandleBackgroundShellUpdate(BackgroundShellEvent{
-					Type:       BackgroundShellEventCompleted,
-					ID:         backgroundID,
-					State:      "completed",
-					NoticeText: "Background shell 1000 completed.\nExit code: 0\nOutput:\ndone",
-				}, true)
+				go func() {
+					eng.HandleBackgroundShellUpdate(BackgroundShellEvent{
+						Type:       BackgroundShellEventCompleted,
+						ID:         backgroundID,
+						State:      "completed",
+						NoticeText: "Background shell 1000 completed.\nExit code: 0\nOutput:\ndone",
+					}, true)
+					close(updateDone)
+				}()
 			})
 			return nil
 		},
@@ -520,15 +524,30 @@ func TestFinalAssistantBeforeSameTurnBackgroundNoticeKeepsCommittedFrontierConti
 			mu.Lock()
 			events = append(events, evt)
 			mu.Unlock()
-			if evt.Kind == EventConversationUpdated && evt.Message.MessageType != nil && *evt.Message.MessageType == llm.MessageTypeBackgroundNotice {
-				backgroundCommitted <- struct{}{}
+			if evt.Kind == EventConversationUpdated &&
+				evt.CommittedTranscriptChanged &&
+				evt.Message.MessageType != nil &&
+				*evt.Message.MessageType == llm.MessageTypeBackgroundNotice {
+				select {
+				case noticeReady <- struct{}{}:
+				default:
+				}
 			}
 		},
 	})
 	if _, err := eng.SubmitUserMessage(context.Background(), "run task"); err != nil {
 		t.Fatalf("submit: %v", err)
 	}
-	<-backgroundCommitted
+	select {
+	case <-updateDone:
+	case <-time.After(runtimeTestSynchronizationTimeout):
+		t.Fatal("background terminal update did not complete after the Step boundary")
+	}
+	select {
+	case <-noticeReady:
+	case <-time.After(runtimeTestSynchronizationTimeout):
+		t.Fatal("background notice did not reach the committed event stream")
+	}
 	waitEngineLifecycleTasks(t, eng)
 
 	mu.Lock()

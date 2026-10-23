@@ -88,7 +88,7 @@ func TestStartSessionServerUsesConfiguredDaemonForProcessFlows(t *testing.T) {
 	fixture.daemon.Background().SetMinimumExecToBgTime(time.Millisecond)
 
 	server := fixture.attachRemoteSessionServer(t, Options{WorkspaceRoot: workspace, WorkspaceRootExplicit: true}, newHeadlessAuthInteractor())
-	processes := server.RuntimeAttachmentClients()
+	processes := server.SessionUIClients()
 
 	planner := newSessionLaunchPlanner(server)
 	plan, err := planner.PlanSession(context.Background(), sessionLaunchRequest{Mode: launchModeInteractive, Intent: requestfixture.LaunchIntent(t, serverapi.CreateNewSessionLaunchIntent(serverapi.IndependentSessionCreateOrigin()))})

@@ -53,6 +53,7 @@ func (e *CompactionCheckpointContractError) Error() string {
 const (
 	UnifiedErrorCodeUnknown               = llmerrors.UnifiedErrorCodeUnknown
 	UnifiedErrorCodeAuthentication        = llmerrors.UnifiedErrorCodeAuthentication
+	UnifiedErrorCodeUsageExhausted        = llmerrors.UnifiedErrorCodeUsageExhausted
 	UnifiedErrorCodeContextLengthOverflow = llmerrors.UnifiedErrorCodeContextLengthOverflow
 	UnifiedErrorCodeProviderContract      = llmerrors.UnifiedErrorCodeProviderContract
 	UnifiedErrorCodeProviderOverload      = llmerrors.UnifiedErrorCodeProviderOverload
@@ -61,6 +62,8 @@ const (
 func IsAuthenticationError(err error) bool {
 	return llmerrors.IsAuthenticationError(err)
 }
+
+func IsUsageExhaustionError(err error) bool { return llmerrors.IsUsageExhaustionError(err) }
 
 func IsNonRetriableModelError(err error) bool {
 	return errors.Is(err, ErrInvalidRequest) || errors.Is(err, ErrUnsupportedToolChoicePolicy) || llmerrors.IsNonRetriableModelError(err)

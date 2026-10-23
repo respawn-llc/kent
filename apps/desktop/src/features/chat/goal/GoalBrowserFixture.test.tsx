@@ -1,31 +1,18 @@
 import { describe, expect, it, vi } from "bun:test";
-import { MotionConfig } from "motion/react";
 import { useState } from "react";
 import userEvent from "@testing-library/user-event";
 import { act, render, screen, waitFor, waitForElementToBeRemoved, within } from "@testing-library/react";
 
 import { ChatPromptPresenceProvider } from "@/app-facade";
 import { appI18n } from "@/i18n";
-import {
-  createTestServices,
-  startupRoutes,
-  TestAppProviders as AppProviders,
-} from "@/test-support/app-services";
+import { createTestServices, startupRoutes, TestAppProviders } from "@/test-support/app-services";
 import { TestSidebar } from "@/test-support/sidebar-rendering";
 import { GoalBrowserFixture, type GoalBrowserPendingPrompt } from "./GoalBrowserFixture";
-
-function TestAppProviders(props: Parameters<typeof AppProviders>[0]) {
-  return (
-    <MotionConfig skipAnimations>
-      <AppProviders {...props} />
-    </MotionConfig>
-  );
-}
 
 function renderFixture() {
   const services = createTestServices(startupRoutes);
   render(
-    <TestAppProviders services={services}>
+    <TestAppProviders skipAnimations services={services}>
       <ChatPromptPresenceProvider>
         <TestSidebar>
           <GoalBrowserFixtureHarness />
@@ -50,7 +37,7 @@ function GoalBrowserFixtureHarness() {
 }
 
 async function selectFixture(label: string, value: string) {
-  await userEvent.setup({ delay: null }).selectOptions(screen.getByRole("combobox", { name: label }), value);
+  await userEvent.setup().selectOptions(screen.getByRole("combobox", { name: label }), value);
 }
 
 describe("Goal browser fixture", () => {
@@ -87,13 +74,11 @@ describe("Goal browser fixture", () => {
       await selectFixture("Goal mutation outcome", "pending");
 
       await userEvent
-        .setup({ delay: null })
+        .setup()
         .click(await screen.findByRole("button", { name: appI18n.t(`chat.goal.${action}`) }));
       expect(screen.queryByTestId("goal-mutation-pending")).not.toBeInTheDocument();
       expect(screen.getByRole("button", { name: appI18n.t(`chat.goal.${next}`) })).toBeDisabled();
-      await userEvent
-        .setup({ delay: null })
-        .click(screen.getByRole("button", { name: "Resolve pending Goal action" }));
+      await userEvent.setup().click(screen.getByRole("button", { name: "Resolve pending Goal action" }));
 
       expect(await screen.findByRole("button", { name: appI18n.t(`chat.goal.${next}`) })).toBeInTheDocument();
       await waitFor(() => {
@@ -106,7 +91,7 @@ describe("Goal browser fixture", () => {
     renderFixture();
     await selectFixture("Goal fixture state", "active");
     await selectFixture("Goal mutation outcome", "pending");
-    const user = userEvent.setup({ delay: null });
+    const user = userEvent.setup();
     await user.click(await screen.findByRole("button", { name: "Clear" }));
     const pendingSpinner = screen.getByTestId("goal-mutation-pending");
     expect(pendingSpinner).toBeInTheDocument();
@@ -122,12 +107,12 @@ describe("Goal browser fixture", () => {
     renderFixture();
     await selectFixture("Goal fixture state", "loading");
     expect(await screen.findByTestId("loading-state")).toBeInTheDocument();
-    await userEvent.setup({ delay: null }).click(screen.getByRole("button", { name: "Hydrate Goal" }));
+    await userEvent.setup().click(screen.getByRole("button", { name: "Hydrate Goal" }));
     expect(await screen.findByText("Deterministic Goal fixture")).toBeInTheDocument();
 
     await selectFixture("Goal fixture state", "error-retry");
-    await userEvent.setup({ delay: null }).click(await screen.findByRole("button", { name: "Try again" }));
-    await userEvent.setup({ delay: null }).click(screen.getByRole("button", { name: "Hydrate Goal" }));
+    await userEvent.setup().click(await screen.findByRole("button", { name: "Try again" }));
+    await userEvent.setup().click(screen.getByRole("button", { name: "Hydrate Goal" }));
     expect(await screen.findByText("Deterministic Goal fixture")).toBeInTheDocument();
   });
 
@@ -136,7 +121,7 @@ describe("Goal browser fixture", () => {
     await selectFixture("Goal fixture state", "new-chat");
     await selectFixture("New Chat Set outcome", "rejection");
 
-    const user = userEvent.setup({ delay: null });
+    const user = userEvent.setup();
     const objective = "Preserve this New Chat draft";
     await user.type(await screen.findByRole("textbox", { name: "Goal" }), objective);
     await user.click(screen.getByTestId("goal-save"));

@@ -26,6 +26,35 @@ type LiveRunAdmissionUnavailable struct {
 func (*LiveRunAdmissionUnavailable) Error() string { return ErrNoActiveLiveRun.Error() }
 func (*LiveRunAdmissionUnavailable) Unwrap() error { return ErrNoActiveLiveRun }
 
+func (e *LiveRunAdmissionUnavailable) Wait(
+	ctx context.Context,
+	executionDone <-chan struct{},
+) error {
+	if e == nil {
+		return errors.New("live run admission unavailable is required")
+	}
+	if e.Ready == nil && executionDone == nil {
+		return errors.New("live run admission has no readiness or execution-completion signal")
+	}
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	select {
+	case <-e.Ready:
+		return nil
+	case <-executionDone:
+		return nil
+	case <-ctx.Done():
+		if err := context.Cause(ctx); err != nil {
+			return err
+		}
+		if err := ctx.Err(); err != nil {
+			return err
+		}
+		return errors.New("wait context completed without a cancellation error")
+	}
+}
+
 var ErrLiveRunNoFinalAnswer = errors.New("live run completed without a final answer")
 
 type LiveRunResultKind string
@@ -115,6 +144,11 @@ func newLiveRunCoordinator(onCompleted ...func(LiveRunResult)) *liveRunCoordinat
 		coordinator.onCompleted = onCompleted[0]
 	}
 	return coordinator
+}
+
+func (c *liveRunCoordinator) signalReadinessChangedLocked() {
+	close(c.readinessChanged)
+	c.readinessChanged = make(chan struct{})
 }
 
 func (c *liveRunCoordinator) supervisorTriggered() bool {
@@ -460,10 +494,7 @@ func (c *liveRunCoordinator) hasActive() bool {
 func (c *liveRunCoordinator) beginStep(snapshot *RunSnapshot) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
-	defer func() {
-		close(c.readinessChanged)
-		c.readinessChanged = make(chan struct{})
-	}()
+	defer c.signalReadinessChangedLocked()
 	if c.current != nil {
 		c.current.stepID = mustStepID(snapshot.StepID)
 		c.current.stepToolStarts = liveStepToolStartsNone
@@ -503,6 +534,7 @@ func (c *liveRunCoordinator) finishStepDeferred(snapshot *RunSnapshot, status Ru
 	c.mu.Lock()
 	group := c.current
 	if group == nil {
+		c.signalReadinessChangedLocked()
 		c.mu.Unlock()
 		return nil, nil
 	}
@@ -535,6 +567,7 @@ func (c *liveRunCoordinator) finishStepDeferred(snapshot *RunSnapshot, status Ru
 		group.publishingItems = nil
 		group.reservations = 0
 		c.current = nil
+		c.signalReadinessChangedLocked()
 		done = group.done
 		result := liveRunResultForGroup(group)
 		c.mu.Unlock()
@@ -544,6 +577,7 @@ func (c *liveRunCoordinator) finishStepDeferred(snapshot *RunSnapshot, status Ru
 	group.goalLoopHolding = snapshot.GoalLoop && holdGoalLoop
 	if !group.hasPendingContinuation() {
 		c.current = nil
+		c.signalReadinessChangedLocked()
 		done = group.done
 	}
 	c.mu.Unlock()
@@ -566,6 +600,7 @@ func (c *liveRunCoordinator) finishGoalLoop() {
 	group.goalLoopHolding = false
 	if group.status != RunStatusRunning && !group.hasPendingContinuation() {
 		c.current = nil
+		c.signalReadinessChangedLocked()
 		done = group.done
 	}
 	c.mu.Unlock()
@@ -646,20 +681,24 @@ func (c *liveRunCoordinator) finishAdmission(admission liveRunAdmission, queueIt
 	return true, nil
 }
 
-func (c *liveRunCoordinator) beginQueueItemPublication(queueItemID runtimeids.QueueItemID, lane runtimeinput.PendingWorkLane, claim *queuedUserMessageClaim) (bool, error) {
+func (c *liveRunCoordinator) beginQueueItemPublication(
+	queueItemID runtimeids.QueueItemID,
+	lane runtimeinput.PendingWorkLane,
+	claim *queuedUserMessageClaim,
+) (bool, <-chan struct{}, error) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	if c.current == nil || (c.current.status != RunStatusRunning && c.current.status != RunStatusCompleted) {
-		return false, nil
+		return false, c.readinessChanged, nil
 	}
 	if _, exists := c.current.taggedQueueItems[queueItemID]; exists {
 		if claim != nil {
-			return false, nil
+			return false, c.readinessChanged, nil
 		}
-		return false, errDuplicateQueuedUserMessageID
+		return false, nil, errDuplicateQueuedUserMessageID
 	}
 	c.current.trackQueuedItemForLiveRun(queueItemID, lane)
-	return true, nil
+	return true, nil, nil
 }
 
 func (c *liveRunCoordinator) finishQueueItemPublication(queueItemID runtimeids.QueueItemID) bool {
@@ -729,6 +768,7 @@ func (c *liveRunCoordinator) rollbackAdmission(admission liveRunAdmission) {
 	}
 	if group.status != RunStatusRunning && !group.hasPendingContinuation() {
 		c.current = nil
+		c.signalReadinessChangedLocked()
 		done = group.done
 	}
 	c.mu.Unlock()
@@ -764,6 +804,7 @@ func (c *liveRunCoordinator) completeQueueItems(ids map[runtimeids.QueueItemID]s
 	}
 	if group.status != RunStatusRunning && !group.hasPendingContinuation() {
 		c.current = nil
+		c.signalReadinessChangedLocked()
 		done = group.done
 	}
 	c.mu.Unlock()
@@ -815,6 +856,7 @@ func (c *liveRunCoordinator) interruptWhere(matches func(*liveRunGroup) bool) (b
 	group.taggedQueueItems = nil
 	group.reservations = 0
 	c.current = nil
+	c.signalReadinessChangedLocked()
 	done := group.done
 	c.mu.Unlock()
 	close(done)

@@ -4,9 +4,11 @@ import { chatSettingsEnglish } from "./chatSettingsEn";
 import { chatEnglish } from "./chatEn";
 import { chatGoalEnglish } from "./chatGoalEn";
 import { executionTargetEnglish } from "./executionTargetEn";
+import { subscriptionUsageEnglish } from "./subscriptionUsageEn";
 
 export const englishResources = {
   translation: {
+    subscriptionUsage: subscriptionUsageEnglish,
     chatComposer: chatComposerEnglish,
     chatSettings: chatSettingsEnglish,
     app: {
@@ -34,6 +36,7 @@ export const englishResources = {
       close: "Close",
       popOut: "Open in new window",
       popOutError: "Could not open the pop-out window",
+      shiftClickToOpenInNewWindow: "{{action}} · Shift-click to open in new window",
       inboxPrevious: "Previous inbox item",
       inboxNext: "Next inbox item",
       invalidNativeDialogTitle: "Invalid native dialog",
@@ -103,6 +106,12 @@ export const englishResources = {
         toolCall: "tool call",
         toolCalls: "tool calls",
         providerModelMismatch: "The provider served the request with {{served}} instead of {{requested}}",
+        connectionFallback:
+          "Switched connection from {{previous}} to {{current}} because usage was exhausted",
+        connectionsUnavailable:
+          "Configured connections are unavailable. Retry after cooldown or update the configured connections.",
+        connectionAvailableAfter: "{{id}}: available after {{time}}",
+        connectionAlreadyAttempted: "{{id}}: already attempted",
         reasoningOmission:
           "Conversation was switched to another provider/model - reasoning was lost, degrading output quality",
         worktreeEnter: "Switched worktree to {{name}}{{cwd}}",
@@ -217,6 +226,7 @@ export const englishResources = {
         newChatUnavailable: "New chat is not available in this prototype",
         projectTasksGrid: "Project tasks",
         dependenciesColumn: "Dependencies",
+        stageColumn: "Stage",
         idColumn: "ID",
         titleColumn: "Title",
         workflowColumn: "Workflow",

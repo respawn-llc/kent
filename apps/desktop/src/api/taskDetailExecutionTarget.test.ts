@@ -5,6 +5,7 @@ import { AttentionCurrentNodeSchema } from "@app/server-api-contract/gen/kent/ap
 import { ExecutionTargetMode } from "@app/server-api-contract/gen/kent/api/workflow_definition/workflow_definition_pb";
 import { taskDetailResponse } from "@/test-support/task-detail";
 import { FakeRpcTransport, unexpectedProjectOverflow } from "@/test-support/api";
+import { requireValue } from "@/test-support/chat-runtime";
 import { ApiClient } from "./client";
 
 async function getTask(task: pb.TaskDetail) {
@@ -86,7 +87,7 @@ describe("task detail execution target contract", () => {
       create(AttentionCurrentNodeSchema, {
         nodeId: `node-${id}`,
         nodeDisplayName: `Review ${id}`,
-        sessionId: `session-${id}`,
+        sessionId: `00000000-0000-4000-8000-${id.padStart(12, "0")}`,
       }),
     );
     const currentScripts = executionIDs.map((id) =>
@@ -127,7 +128,10 @@ describe("task detail execution target contract", () => {
           ...taskDetailResponse.task,
           currentScripts: [
             create(pb.CurrentScriptSchema, {
-              currentNode: { nodeId: "node-script", sessionId: "session-1" },
+              currentNode: {
+                nodeId: "node-script",
+                sessionId: "11111111-1111-4111-8111-111111111111",
+              },
               path: "scripts/run",
             }),
           ],
@@ -136,8 +140,3 @@ describe("task detail execution target contract", () => {
     ).rejects.toThrow();
   });
 });
-
-function requireValue<Value>(value: Value | undefined): Value {
-  if (value === undefined) throw new Error("Expected test fixture value is missing.");
-  return value;
-}

@@ -210,7 +210,6 @@ func steerPreparedModelInputIntent(ctx context.Context, prepared *preparedUserIn
 
 type steeringCompactionActivity struct {
 	active     bool
-	requestID  *runtimeids.CompactionRequestID
 	mode       string
 	count      int
 	activeKind ActiveKind
@@ -371,7 +370,7 @@ func steerEventIntent(evt Event) steeringIntent {
 
 func steerCompactionActivityIntent(
 	active bool,
-	requestID *runtimeids.CompactionRequestID,
+
 	mode string,
 	count int,
 	activeKind ActiveKind,
@@ -380,7 +379,6 @@ func steerCompactionActivityIntent(
 		priority: steeringPriorityRuntimeEvent,
 		items: []steeringItem{{compactionActivity: &steeringCompactionActivity{
 			active:     active,
-			requestID:  requestID,
 			mode:       strings.TrimSpace(mode),
 			count:      count,
 			activeKind: activeKind,
@@ -754,7 +752,7 @@ func (e *Engine) applySteeringItem(provenance steeringProvenance, item steeringI
 			if !activity.activeKind.Valid() {
 				return errors.New("compaction activity requires a valid active kind")
 			}
-			e.compactionRuntimeState().SetActive(stepID, activity.requestID, activity.mode, activity.count, activity.activeKind)
+			e.compactionRuntimeState().SetActive(stepID, activity.mode, activity.count, activity.activeKind)
 		} else {
 			e.compactionRuntimeState().ClearActive(stepID)
 		}

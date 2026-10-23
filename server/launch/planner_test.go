@@ -687,6 +687,7 @@ func TestPlannerHeadlessChildWithRoleUsesFreshSystemPromptSnapshot(t *testing.T)
 		t.Fatalf("write role prompt: %v", err)
 	}
 	cfg.Settings.Subagents = map[string]config.SubagentRole{
+		"old_parent_role": {},
 		"code_review": {
 			Settings: config.Settings{
 				Model:            "gpt-6-luna",
@@ -939,7 +940,7 @@ func TestPlannerInitializesChildFromSourceMetadataWithoutOpeningSessionDirectory
 				"a":    {Protocol: config.ConnectionChatGPT},
 				"test": {Protocol: config.ConnectionChatGPT},
 			}
-			planner.Rotation = new(ConnectionRotation)
+			planner.Rotation = NewConnectionRotation(testsetup.OpenStore(t, t.TempDir()), 0)
 			sourceID := mustTypedIntentSessionID(t, source.Meta().SessionID)
 
 			plan, err := planner.PlanSession(context.Background(), SessionRequest{
@@ -954,7 +955,7 @@ func TestPlannerInitializesChildFromSourceMetadataWithoutOpeningSessionDirectory
 				t.Fatalf("child workspace = root %q container %q, want source metadata", childMeta.WorkspaceRoot, childMeta.WorkspaceContainer)
 			}
 			test.assertMeta(t, childMeta, sourceID)
-			next, err := planner.Rotation.Prepare(planner.Config.Settings, true)
+			next, err := planner.Rotation.Prepare(t.Context(), planner.Config.Settings, true)
 			want := config.ConnectionID("test")
 			if err != nil || next != want {
 				t.Fatalf("next allocation = %v, %v; want %v", next, err, want)

@@ -14,16 +14,16 @@ esac
 
 usage() {
 	cat <<'USAGE'
-Usage: just test [server|desktop|docs|tui|rust] [--timeout SECONDS] [--workers COUNT] [--inherit-env] [-- TOOL-ARGS...]
+Usage: just test [server|desktop|integration|docs|tui|rust] [--timeout SECONDS] [--workers COUNT] [--inherit-env] [-- TOOL-ARGS...]
 
-The timeout controls Go package and Bun per-test execution. Go's emergency process deadline also covers TestMain preparation.
+The timeout controls Go package and Bun per-test execution, not total command runtime.
 Without an explicit timeout, Bun uses its native per-test default.
-Bare `just test` runs server and desktop tests concurrently.
+Bare `just test` runs server, desktop, and production-binary integration tests concurrently.
 USAGE
 }
 
 target="default"
-timeout_seconds=180
+timeout_seconds=300
 workers=""
 desktop_workers=8
 native_timeout_args=()
@@ -32,7 +32,7 @@ tool_args=()
 
 while [ "$#" -gt 0 ]; do
 	case "$1" in
-	server | desktop | docs | tui | rust)
+	server | desktop | integration | docs | tui | rust)
 		[ "$target" = "default" ] || { echo "Select one test target" >&2; exit 2; }
 		target="$1"
 		shift
@@ -110,7 +110,6 @@ logs=()
 suite_labels=()
 suite_pids=()
 next_suite=0
-test_temp_root=""
 go_test_timeout_args=(-timeout "${timeout_seconds}s")
 
 finish_suites() {
@@ -152,12 +151,6 @@ cleanup() {
 	for log in "${logs[@]}"; do
 		unlink "$log" 2>/dev/null || true
 	done
-	if [ -n "$test_temp_root" ]; then
-		if ! find "$test_temp_root" -mindepth 1 -depth -delete; then
-			status=1
-		fi
-		rmdir "$test_temp_root" || status=1
-	fi
 	exit "$status"
 }
 trap cleanup EXIT
@@ -166,39 +159,6 @@ trap 'exit 143' TERM
 
 case "$target" in
 default | desktop | docs) just _node ;;
-esac
-
-prepare_test_storage() {
-	# Keep compiler workspaces separate from test fixtures, including on noexec tmpfs.
-	export GOTMPDIR="${GOTMPDIR:-${TMPDIR:-/tmp}}"
-	case "$(uname -s)" in
-	Darwin)
-		test_temp_root="$(python3 "$repo_root/scripts/test-storage.py")"
-		;;
-	Linux)
-		[ "$(stat -f -c %T /dev/shm)" = "tmpfs" ] || {
-			echo "Tests require a memory-backed /dev/shm for filesystem fixtures." >&2
-			exit 2
-		}
-		python3 -c 'import os,sys; sys.exit(bool(os.statvfs("/dev/shm").f_flag & os.ST_NOEXEC))' || {
-			echo "Tests require executable RAM storage: /dev/shm is mounted noexec. Configure its mount with exec enabled." >&2
-			exit 2
-		}
-		test_temp_root="$(mktemp -d /dev/shm/kent-tests.XXXXXX)"
-		;;
-	*)
-		echo "Memory-backed test storage is not configured for this platform." >&2
-		exit 2
-		;;
-	esac
-	mkdir "$test_temp_root/tmp" "$test_temp_root/outside"
-	export TMPDIR="$test_temp_root/tmp"
-	export TMP="$TMPDIR"
-	export TEMP="$TMPDIR"
-	export KENT_TEST_NON_TEMPORARY_ROOT="$test_temp_root/outside"
-}
-case "$target" in
-default | server | tui) prepare_test_storage ;;
 esac
 
 run_suite() {
@@ -219,17 +179,64 @@ run_server() {
 		args=(./...)
 	fi
 	mkdir -p "$repo_root/.generated/test-binaries"
-	run_suite server go test -count=1 -ldflags="-s -w" -o "$repo_root/.generated/test-binaries/" -exec "bash \"$repo_root/scripts/test-exec.sh\"" -p "$workers" "${go_test_timeout_args[@]}" "${args[@]}"
+	run_suite server go test -count=1 -ldflags="-s -w" -o "$repo_root/.generated/test-binaries/" -p "$workers" "${go_test_timeout_args[@]}" "${args[@]}"
+}
+
+run_desktop_tests() {
+	local status=0
+	bun test "$@" '--path-ignore-patterns=**/*.test.tsx' "${native_timeout_args[@]}" "${tool_args[@]}" || status=$?
+	bun test "$@" --preload=./test/setup.ts '--path-ignore-patterns=**/*.test.ts' "${native_timeout_args[@]}" "${tool_args[@]}" || status=$?
+	return "$status"
 }
 
 run_desktop() {
+	local argument
+	for argument in "${tool_args[@]}"; do
+		case "$argument" in
+		--reporter-outfile | --reporter-outfile=*)
+			echo "--reporter-outfile requires separate Bun environments; the combined desktop target cannot write both reports to one file." >&2
+			exit 2
+			;;
+		esac
+	done
 	just --quiet _gen-typescript
-	run_suite desktop bun run --cwd apps/desktop tooling/run-tests.ts "--workers=$desktop_workers" "${native_timeout_args[@]}" "${tool_args[@]}"
+	local protocol_version
+	protocol_version="$(jq -ce '.version | strings | select(length > 0)' shared/protocol/version.json)"
+	local args=(
+		--cwd apps/desktop
+		"--parallel=$desktop_workers" --isolate
+		--tsconfig-override=tsconfig.json
+		--preload=./test/commonSetup.ts
+		"--define=__KENT_PROTOCOL_VERSION__=$protocol_version"
+		"--define=import.meta.env=globalThis.__KENT_TEST_ENV__"
+		'--path-ignore-patterns=test/**'
+		'--path-ignore-patterns=eslint-fixtures/**'
+		'--path-ignore-patterns=**/node_modules/**'
+		'--path-ignore-patterns=**/dist/**'
+		'--path-ignore-patterns=**/gen/**'
+		'--path-ignore-patterns=**/*.spec.*'
+		'--path-ignore-patterns=**/*_spec.*'
+		'--path-ignore-patterns=**/*_test.*'
+		'--path-ignore-patterns=**/*.test.js'
+		'--path-ignore-patterns=**/*.test.jsx'
+		'--path-ignore-patterns=**/*.test.mjs'
+		'--path-ignore-patterns=**/*.test.cjs'
+		'--path-ignore-patterns=**/*.test.mts'
+		'--path-ignore-patterns=**/*.test.cts'
+		--pass-with-no-tests
+	)
+	run_suite desktop run_desktop_tests "${args[@]}"
 }
 
 run_tui() {
 	mkdir -p "$repo_root/.generated/test-binaries"
-	run_suite tui go test -count=1 -ldflags="-s -w" -o "$repo_root/.generated/test-binaries/" -exec "bash \"$repo_root/scripts/test-exec.sh\"" -p "$workers" "${go_test_timeout_args[@]}" ./cli/tui/... "${tool_args[@]}"
+	run_suite tui go test -count=1 -ldflags="-s -w" -o "$repo_root/.generated/test-binaries/" -p "$workers" "${go_test_timeout_args[@]}" ./cli/tui/... "${tool_args[@]}"
+}
+
+run_integration() {
+	just --quiet build go
+	mkdir -p "$repo_root/.generated/test-binaries"
+	run_suite integration go test -count=1 -ldflags="-s -w" -o "$repo_root/.generated/test-binaries/" -p "$workers" "${go_test_timeout_args[@]}" -tags=integration ./internal/testharness/pty "${tool_args[@]}"
 }
 
 run_docs() {
@@ -244,9 +251,11 @@ case "$target" in
 default)
 	run_server
 	run_desktop
+	run_integration
 	;;
 server) run_server ;;
 desktop) run_desktop ;;
+integration) run_integration ;;
 docs) run_docs ;;
 tui) run_tui ;;
 rust) run_rust ;;

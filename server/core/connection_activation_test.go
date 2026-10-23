@@ -42,10 +42,9 @@ func TestConnectionReplacementIsHydratedAfterCoreActivation(t *testing.T) {
 	if err := store.SetConnectionID("removed"); err != nil {
 		t.Fatal(err)
 	}
-	_, err = app.SessionRuntimeClient().ActivateSessionRuntime(t.Context(), serverapi.SessionRuntimeActivateRequest{
-		SessionID: requestfixture.SessionID(t, store.Meta().SessionID), OwnerID: "connection-notice",
-		ActiveSettings: cfg.Settings, Source: cfg.Source,
-		QuestionsEnabled: textutil.Value(true), AutoCompactionEnabled: textutil.Value(true),
+	err = app.SessionRuntimeClient().ActivateSessionRuntime(t.Context(), serverapi.SessionRuntimeActivateRequest{
+		SessionID: requestfixture.SessionID(t, store.Meta().SessionID), SessionRuntimePreparationOptions: serverapi.SessionRuntimePreparationOptions{ActiveSettings: cfg.Settings, Source: cfg.Source,
+			QuestionsEnabled: textutil.Value(true), AutoCompactionEnabled: textutil.Value(true)},
 	})
 	if err != nil {
 		t.Fatal(err)

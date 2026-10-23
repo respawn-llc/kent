@@ -56,21 +56,17 @@ yay -S kent-bin
 </TabItem>
 </Tabs>
 
-Standalone binaries are **not auto-updated**. Re-run the install script to update.
+These versions are **not auto-updated**. Please keep them updated manually by re-running install scripts.
 
 Check the installed version with: `kent --version`
 
 ## 2. Install the background service
 
-Kent consists of two apps: whatever client you prefer, and the **server**.
+:::note
+Kent consists of two apps: whatever client you prefer, and the **server**. To use Kent, you first need to have a running server. Run `kent serve` every time, or install a system service once.
+:::
 
 If the install script did not install the background service, or you used a package manager, install it below.
-
-:::note
-
-To use Kent, you first need to have a running server. Run `kent serve` every time, or install a system service once.
-
-:::
 
 <Tabs syncKey="quickstart-os">
 <TabItem label="Windows">
@@ -116,17 +112,28 @@ brew install --cask respawn-llc/tap/kent-desktop
 
 Homebrew installs update through `brew upgrade`, standalone installs self-update.
 
+:::note
+The desktop app, due to the asynchronous nature of workflows, needs a [server](../server/) to connect to.
+
+:::
+
 ## First use
 
 :::danger[Security Warning]
-Out of the box, Kent runs without a sandbox or tool-calling permissions. **Using Kent is equivalent to running `claude --dangerously-skip-permissions` or `codex --yolo`.** The model will have **full access** to your entire computer. By using Kent, you accept full responsibility for what the model does on your computer. If you want to safely run Kent in a real sandbox, see [Sandboxing](../sandboxing/).
+Out of the box, Kent does not ship a sandbox, and does not enforce tool calling permissions. **Using Kent is equivalent to running `claude --dangerously-skip-permissions` or `codex --yolo`.** The model will have **full access** to your entire computer. By using Kent, you accept full responsibility for what the model does on your computer. If you want to safely run Kent in a real sandbox, see [Sandboxing](../sandboxing/).
 :::
 
-After the server is running, run `kent` to start the TUI. Add your first provider connection for inference.
+Start Kent CLI with: `kent`. The first run will ask you to pick auth option and walk you through onboarding.
+The session picker shows when a newer Kent server release is available; update Kent through the installation channel you used.
 
-After that, you can add multiple subscriptions or model providers. See [Authentication and connections](../authentication/) for further configuration.
+Supported auth options:
 
-## Main terminal workflows
+- OpenAI/Codex subscription OAuth via the startup sign-in picker.
+- No auth for custom providers. This option supports any provider like `ollama`, `omlx` local models, or third-party providers like GLM coding plan. The only requirement is that the provider supports the OpenAI Responses format.
+
+:::note
+Anthropic or Gemini subscriptions/models will not be supported until these companies allow third-party harnesses in their ToS.
+:::
 
 - Press `F1` to invoke the help menu.
 - Use `Enter` to steer the model, `Tab` to queue messages. Slash commands can be queued too!
@@ -167,7 +174,7 @@ Changes take effect when a session starts or after compaction.
 
 ## Supervisor
 
-- Use `/supervisor` to toggle reviews for the current session. It reviews the model's work and adds about 15% to costs when it uses the main model. See [Configuration](../config/) to choose its model.
+- Use `/supervisor` to toggle its invocation for the current session. Supervisor is a feature that will automatically review the work done by the model. It increases costs by ~15% (if using the main model) but improves results. By default supervisor uses the same model as the main one. That may be too costly / too slow for you. [Configuration](../config/) page contains instructions on how to change supervisor model.
 
 ## Advanced
 

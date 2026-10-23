@@ -71,6 +71,10 @@ func normalizeCacheWarningMode(mode config.CacheWarningMode) (config.CacheWarnin
 }
 
 type Config struct {
+	InitialConnection               *PreparedConnection
+	ConnectionID                    *config.ConnectionID
+	ResolveConnection               ConnectionResolver
+	RawImageOriginalDetail          bool
 	SessionNaming                   *SessionNamingConfig
 	Model                           string
 	TokenEstimator                  llm.TokenEstimator
@@ -114,21 +118,26 @@ type Config struct {
 	GlobalConfigDir       string
 	OnEvent               func(Event)
 	StepLifecycle         StepLifecycleSink
-	LifecycleTaskFinished func() error
+	LifecycleTaskFinished func()
+	RuntimeWriteAccepted  func()
 	LifecycleRuntimeAbort func() error
 	SubmitAgentSteer      func(context.Context, AgentSteer) error
 	DurabilityObserver    ResultGroupDurabilityObserver
 }
 
 type ReviewerConfig struct {
-	Frequency         string
-	Model             string
-	ThinkingLevel     string
-	ModelCapabilities session.LockedModelCapabilities
-	SystemPromptFile  *string
-	VerboseOutput     bool
-	Client            llm.Client
-	ClientFactory     func() (llm.Client, error)
+	Frequency               string
+	Model                   string
+	ThinkingLevel           string
+	ModelCapabilities       session.LockedModelCapabilities
+	SystemPromptFile        *string
+	VerboseOutput           bool
+	Client                  llm.Client
+	ClientFactory           func() (llm.Client, error)
+	InheritsConnection      bool
+	ConnectionClientFactory func(config.ConnectionID) (llm.Client, error)
+	ConnectionID            *config.ConnectionID
+	ResolveConnection       ConnectionResolver
 }
 
 type ContextUsage struct {
@@ -157,7 +166,7 @@ type Engine struct {
 
 	store                       *session.Store
 	eventLog                    session.MaterializedEventLog
-	llm                         *observedModelClient
+	connection                  *connectionBundle
 	registry                    *tools.Registry
 	cfg                         Config
 	reviewerSuggestionsContract jsoncontract.Structured
@@ -268,11 +277,39 @@ func New(
 	reviewerState := newReviewerRuntimeState(cfg.Reviewer.Client, cfg.Reviewer.ClientFactory)
 	cfg.Reviewer.Client = nil
 	cfg.Reviewer.ClientFactory = nil
+	prepared := cfg.InitialConnection
+	if prepared == nil {
+		transportCapabilities, err := newObservedModelClient(client).capabilities(context.Background())
+		if err != nil {
+			return nil, fmt.Errorf("resolve destination provider capabilities: %w", err)
+		}
+		requestCapabilities := transportCapabilities
+		if historical, present := llm.ProviderCapabilitiesFromLocked(store.Meta().Locked); present {
+			requestCapabilities = historical
+		}
+		if cfg.ProviderCapabilitiesOverride != nil {
+			requestCapabilities = *cfg.ProviderCapabilitiesOverride
+		}
+		prepared = &PreparedConnection{
+			ID: cfg.ConnectionID, Client: client, TokenEstimator: cfg.TokenEstimator,
+			RequestCapabilities:   llm.EffectiveProviderCapabilities(&requestCapabilities, transportCapabilities),
+			TransportCapabilities: transportCapabilities, RawImageOriginalDetail: cfg.RawImageOriginalDetail,
+		}
+	}
+	connection := newConnectionBundle(*prepared)
+	cfg.InitialConnection = nil
+	if cfg.Reviewer.InheritsConnection && reviewerState.client != nil {
+		reviewerState.connection = connection
+	}
+	cfg.ConnectionID = nil
+	cfg.TokenEstimator = nil
+	cfg.ProviderCapabilitiesOverride = nil
+	cfg.RawImageOriginalDetail = false
 	eng := &Engine{
 		generationContext:           freshGenerationContext{},
 		store:                       store,
 		eventLog:                    eventLog,
-		llm:                         newObservedModelClient(client),
+		connection:                  connection,
 		registry:                    registry,
 		cfg:                         cfg,
 		reviewerSuggestionsContract: reviewerSuggestionsContract,
@@ -298,21 +335,9 @@ func New(
 		eng.sessionNaming = &pendingSessionNaming{config: *cfg.SessionNaming}
 		eng.cfg.SessionNaming = nil
 	}
-	eng.transcriptState.chatProjection().bindTokenEstimator(cfg.TokenEstimator)
+	eng.transcriptState.chatProjection().bindTokenEstimator(connection.estimator)
 	eng.compactionRuntimeState().SetContextFacts(store.ContextFacts())
-	providerCapabilities, err := eng.providerCapabilities(context.Background())
-	if err != nil {
-		return nil, fmt.Errorf("resolve provider capabilities during runtime construction: %w", err)
-	}
-	modelContract, knownModel := llm.LookupModelCapabilityContract(eng.cfg.Model)
-	if knownModel && modelContract.SupportsNativeThinkingUpdates && (cfg.ProviderCapabilitiesOverride != nil || store.Meta().Locked != nil) {
-		resolved, err := eng.llm.capabilities(context.Background())
-		if err != nil {
-			return nil, fmt.Errorf("resolve native provider capabilities: %w", err)
-		}
-		providerCapabilities.SupportsNativeThinkingUpdates = resolved.SupportsNativeThinkingUpdates
-	}
-	eng.cfg.ProviderCapabilitiesOverride = &providerCapabilities
+	providerCapabilities := connection.requestCapabilities
 	if eng.cfg.ModelCapabilities == nil {
 		capabilities := llm.LockedModelCapabilitiesForModel(cfg.Model, providerCapabilities)
 		eng.cfg.ModelCapabilities = &capabilities
@@ -538,7 +563,7 @@ func (e *Engine) launchLifecycleTaskWithCompletion(
 			// tasks, so this task must leave the wait group before callbacks run.
 			e.lifecycleWG.Done()
 			if e.cfg.LifecycleTaskFinished != nil {
-				e.surfaceRunError(e.cfg.LifecycleTaskFinished())
+				e.cfg.LifecycleTaskFinished()
 			}
 			if runtimeAbort != nil && e.cfg.LifecycleRuntimeAbort != nil {
 				e.surfaceRunError(e.cfg.LifecycleRuntimeAbort())
@@ -571,9 +596,6 @@ func (i QueuedUserInput) Validate() error {
 	}
 	if strings.TrimSpace(i.ExecutionText) == "" {
 		return errors.New("queued user input requires execution text")
-	}
-	if strings.TrimSpace(i.CanonicalPresentation) == "" {
-		return errors.New("queued user input requires canonical presentation")
 	}
 	return nil
 }
@@ -651,11 +673,17 @@ func (e *Engine) queueMessageRaw(id string, message llm.Message, presentation st
 	for {
 		var item QueuedUserMessage
 		livePublication := false
+		var liveRunReady <-chan struct{}
 		committed, err := runCommandAcceptance(accept, func() (bool, error) {
-			publishing, publicationErr := e.liveRun.beginQueueItemPublication(mustQueueItemID(liveItem.ID), lane, nil)
+			publishing, ready, publicationErr := e.liveRun.beginQueueItemPublication(
+				mustQueueItemID(liveItem.ID),
+				lane,
+				nil,
+			)
 			if publicationErr != nil {
 				return false, publicationErr
 			}
+			liveRunReady = ready
 			if !publishing {
 				return false, nil
 			}
@@ -689,7 +717,10 @@ func (e *Engine) queueMessageRaw(id string, message llm.Message, presentation st
 		}
 		if forceAutoDrain && e.waitingForLiveRunStepStart() {
 			if accept != nil {
-				return QueuedUserMessage{}, context.Canceled
+				if liveRunReady == nil {
+					return QueuedUserMessage{}, errors.New("live run admission is unavailable without a readiness notification")
+				}
+				return QueuedUserMessage{}, &LiveRunAdmissionUnavailable{Ready: liveRunReady}
 			}
 			e.outputMutationMu.Lock()
 			e.emitInterruptedHumanInputs([]QueuedUserMessage{liveItem})
@@ -758,6 +789,7 @@ func (e *Engine) acceptPendingMessage(item QueuedUserMessage, lane runtimeinput.
 	}
 	e.outputMutationMu.Unlock()
 	if err == nil {
+		e.runtimeWriteAccepted()
 		e.publishPendingWorkChanged()
 	}
 	return queued, err
@@ -1094,17 +1126,7 @@ func (e *Engine) ensureLocked() (session.LockedContract, error) {
 	if locked, ok := e.lockedContractState().Snapshot(); ok {
 		return locked, nil
 	}
-	var providerContract llm.ProviderCapabilities
-	hasProviderContract := false
-	if e.cfg.ProviderCapabilitiesOverride != nil {
-		providerContract = *e.cfg.ProviderCapabilitiesOverride
-		hasProviderContract = true
-	} else if e.llm != nil {
-		if caps, err := e.llm.capabilities(context.Background()); err == nil {
-			providerContract = caps
-			hasProviderContract = true
-		}
-	}
+	providerContract := e.connectionSnapshot().requestCapabilities
 
 	lock := session.LockedContract{
 		Model:             e.cfg.Model,
@@ -1125,9 +1147,7 @@ func (e *Engine) ensureLocked() (session.LockedContract, error) {
 			}
 		}
 	}
-	if hasProviderContract {
-		lock.ProviderContract = llm.LockedProviderCapabilitiesFromContract(providerContract)
-	}
+	lock.ProviderContract = llm.LockedProviderCapabilitiesFromContract(providerContract)
 	reloaded, err := e.reloadPromptFacingSnapshotConfig(context.Background())
 	if err != nil {
 		return session.LockedContract{}, err
@@ -1160,6 +1180,16 @@ func (e *Engine) ensureLocked() (session.LockedContract, error) {
 // 400 is unrelated to missing outputs (nothing to repair), the original error is
 // returned unchanged.
 func (e *Engine) generateWithMissingToolOutputRepair(ctx context.Context, stepID string, rebuild func() (llm.Request, error), onDelta func(llm.AssistantDelta), onReasoningDelta func(llm.ReasoningSummaryDelta), onAttemptReset func()) (successfulRequestCandidate, error) {
+	return withConnectionFallback(ctx,
+		func(ctx context.Context, selection ConnectionSelectionRequest) (*connectionBundle, error) {
+			return e.selectConnection(ctx, stepID, selection)
+		},
+		func(connection *connectionBundle) (successfulRequestCandidate, error) {
+			return e.generateRepairAttempt(ctx, stepID, connection, rebuild, onDelta, onReasoningDelta, onAttemptReset)
+		})
+}
+
+func (e *Engine) generateRepairAttempt(ctx context.Context, stepID string, connection *connectionBundle, rebuild func() (llm.Request, error), onDelta func(llm.AssistantDelta), onReasoningDelta func(llm.ReasoningSummaryDelta), onAttemptReset func()) (successfulRequestCandidate, error) {
 	for {
 		req, err := rebuild()
 		if err != nil {
@@ -1184,11 +1214,11 @@ func (e *Engine) generateWithMissingToolOutputRepair(ctx context.Context, stepID
 				onReasoningDelta(delta)
 			}
 		}
-		candidate, err := e.generateWithRetryClient(ctx, stepID, e.llm, req, wrappedDelta, wrappedReasoningDelta, onAttemptReset)
+		candidate, err := e.generateWithRetryClient(ctx, stepID, connection.client, req, wrappedDelta, wrappedReasoningDelta, onAttemptReset)
 		if err == nil {
 			return candidate, nil
 		}
-		if !llm.HasHTTPStatus(err, 400) {
+		if !llm.HasHTTPStatus(err, 400) || llm.IsUsageExhaustionError(err) {
 			return successfulRequestCandidate{}, err
 		}
 		if emitted.Load() && onAttemptReset != nil {
@@ -1212,6 +1242,7 @@ func (e *Engine) generateWithRetryClient(ctx context.Context, stepID string, cli
 }
 
 func (e *Engine) generateWithRetryPolicy(ctx context.Context, stepID string, client *observedModelClient, req llm.Request, retryPolicy modelRequestRetryPolicy, onDelta func(llm.AssistantDelta), onReasoningDelta func(llm.ReasoningSummaryDelta), onAttemptReset func()) (successfulRequestCandidate, error) {
+	estimator := e.connectionSnapshot().estimator
 	observed, err := e.prepareCacheObservedRequest(
 		ctx,
 		stepID,
@@ -1227,7 +1258,7 @@ func (e *Engine) generateWithRetryPolicy(ctx context.Context, stepID string, cli
 	if err != nil {
 		return successfulRequestCandidate{}, err
 	}
-	return newSuccessfulRequestCandidate(e.cfg.TokenEstimator, observed.request, resp), nil
+	return newSuccessfulRequestCandidate(estimator, observed.request, resp), nil
 }
 
 func (e *Engine) generateObservedWithRetry(ctx context.Context, stepID string, client *observedModelClient, observed cacheObservedRequest, retryPolicy modelRequestRetryPolicy, onDelta func(llm.AssistantDelta), onReasoningDelta func(llm.ReasoningSummaryDelta), onAttemptReset func()) (llm.Response, error) {

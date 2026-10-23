@@ -40,10 +40,7 @@ func TestNamingSubagentResumeContext(t *testing.T) {
 				return wiring
 			}
 			initial := wire()
-			assignment, err := runtime.NewAgentSteer(runtimeids.SessionIdentity{ID: runtimeids.NewSessionID()}, "Fix invoice totals")
-			if err != nil {
-				t.Fatal(err)
-			}
+			assignment := runtime.NewAgentSteer(runtimeids.SessionIdentity{ID: runtimeids.NewSessionID()}, "Fix invoice totals")
 			if _, err := initial.Engine.SubmitAgentSteerWithHooks(t.Context(), assignment, nil, nil); err != nil {
 				t.Fatal(err)
 			}

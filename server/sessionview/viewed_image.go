@@ -5,7 +5,6 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
-	"strings"
 
 	"core/server/sessionstore"
 	"core/shared/imagefileio"
@@ -46,12 +45,6 @@ func (s *Service) resolveViewedImageOriginalPath(
 ) (string, error) {
 	if err := ctx.Err(); err != nil {
 		return "", err
-	}
-	if strings.TrimSpace(sessionID) == "" {
-		return "", errors.New("Session id is required")
-	}
-	if strings.TrimSpace(requestedPath) == "" {
-		return "", errors.New("image path is required")
 	}
 	if _, err := session.ResolvePersistedSessionRecord(ctx, s.persisted, sessionID); err != nil {
 		return "", err

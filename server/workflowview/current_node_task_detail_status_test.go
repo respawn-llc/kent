@@ -471,7 +471,7 @@ func TestProjectWideTaskListPreservesCardinalityOwnedRowVisibility(t *testing.T)
 	}
 
 	secondWorkflowID := currentNodeViewWorkflow(t, fixture.store, false)
-	if _, err := fixture.store.LinkWorkflow(fixture.ctx, fixture.binding.ProjectID, secondWorkflowID, false); err != nil {
+	if _, err := fixture.store.LinkWorkflowWithDefaultPolicy(fixture.ctx, fixture.binding.ProjectID, secondWorkflowID, workflowstore.WorkflowLinkDefaultNever); err != nil {
 		t.Fatalf("LinkWorkflow second workflow: %v", err)
 	}
 	if _, err := fixture.store.CreateTask(fixture.ctx, workflowstore.CreateTaskRequest{
@@ -482,7 +482,7 @@ func TestProjectWideTaskListPreservesCardinalityOwnedRowVisibility(t *testing.T)
 		t.Fatalf("CreateTask second workflow: %v", err)
 	}
 	thirdWorkflowID := currentNodeViewWorkflow(t, fixture.store, false)
-	if _, err := fixture.store.LinkWorkflow(fixture.ctx, fixture.binding.ProjectID, thirdWorkflowID, false); err != nil {
+	if _, err := fixture.store.LinkWorkflowWithDefaultPolicy(fixture.ctx, fixture.binding.ProjectID, thirdWorkflowID, workflowstore.WorkflowLinkDefaultNever); err != nil {
 		t.Fatalf("LinkWorkflow third workflow: %v", err)
 	}
 	if _, err := fixture.store.CreateTask(fixture.ctx, workflowstore.CreateTaskRequest{
@@ -562,7 +562,7 @@ func TestProjectTaskGroupCountsObserveLiveStatusesAcrossLinkedWorkflows(t *testi
 	active := fixture.startTask(t, "Active")
 	fixture.createBacklogTask(t, "Backlog")
 	secondWorkflowID := currentNodeViewWorkflow(t, fixture.store, false)
-	if _, err := fixture.store.LinkWorkflow(fixture.ctx, fixture.binding.ProjectID, secondWorkflowID, false); err != nil {
+	if _, err := fixture.store.LinkWorkflowWithDefaultPolicy(fixture.ctx, fixture.binding.ProjectID, secondWorkflowID, workflowstore.WorkflowLinkDefaultNever); err != nil {
 		t.Fatalf("LinkWorkflow second workflow: %v", err)
 	}
 	if _, err := fixture.store.CreateTask(fixture.ctx, workflowstore.CreateTaskRequest{

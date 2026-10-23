@@ -100,8 +100,8 @@ func newSessionViewRuntimeFixture(t *testing.T, store *session.Store, client llm
 	})
 	if _, err := authority.OpenRuntime(t.Context(), sessionruntime.RuntimeOpenRequest{
 		SessionID: sessionID,
-		OwnerID:   "sessionview-test",
-		Runtime:   &plan,
+
+		Runtime: &plan,
 	}); err != nil {
 		t.Fatalf("open runtime: %v", err)
 	}

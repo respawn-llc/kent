@@ -81,10 +81,12 @@ func prepareNativeThinking(items []llm.ResponseItem, replacementEnd *int, desire
 }
 
 type dispatchRequestIdentity struct {
-	SessionID            string
-	StepID               string
-	CompactionGeneration int
-	RequestKind          *llm.CodexRequestKind
+	SessionID               string
+	StepID                  string
+	CompactionGeneration    int
+	RequestKind             *llm.CodexRequestKind
+	TurnStateLifetime       *llm.CodexTurnStateLifetime
+	SharedTurnStateLifetime *llm.CodexTurnStateLifetime
 }
 
 type dispatchRequestFactory struct {
@@ -276,12 +278,26 @@ func (e *Engine) activeDispatchRequestFactory(stepID string, requestKind *llm.Co
 	if active == nil || active.StepID != stepID {
 		return dispatchRequestFactory{}, fmt.Errorf("%w: active Step identity is required for dispatch", llm.ErrInvalidRequest)
 	}
+	lifetime, ok := e.stepLifecycle.TurnStateLifetimeForStep(stepID)
+	if !ok {
+		return dispatchRequestFactory{}, fmt.Errorf("%w: active Step routing lifetime is required for dispatch", llm.ErrInvalidRequest)
+	}
 	return newDispatchRequestFactory(dispatchRequestIdentity{
 		SessionID:            e.SessionID(),
 		StepID:               stepID,
 		CompactionGeneration: e.compactionRuntimeState().Count(),
 		RequestKind:          requestKind,
+		TurnStateLifetime:    lifetime,
 	})
+}
+
+func (e *Engine) localCompactionDispatchRequestFactory(stepID string) (dispatchRequestFactory, error) {
+	factory, err := e.activeDispatchRequestFactory(stepID, nil)
+	if err != nil {
+		return dispatchRequestFactory{}, err
+	}
+	factory.identity.TurnStateLifetime = llm.NewCodexTurnStateLifetime()
+	return factory, nil
 }
 
 func (f dispatchRequestFactory) generation(base llm.Request) (llm.Request, error) {
@@ -311,10 +327,12 @@ func (f dispatchRequestFactory) compaction(base llm.CompactionRequest) (llm.Comp
 
 func (i dispatchRequestIdentity) newDispatchContext() (*llm.CodexDispatchContext, error) {
 	return llm.NewCodexDispatchContext(llm.CodexDispatchFacts{
-		SessionID:            i.SessionID,
-		StepID:               i.StepID,
-		CompactionGeneration: i.CompactionGeneration,
-		RequestKind:          i.RequestKind,
+		SessionID:               i.SessionID,
+		StepID:                  i.StepID,
+		CompactionGeneration:    i.CompactionGeneration,
+		RequestKind:             i.RequestKind,
+		TurnStateLifetime:       i.TurnStateLifetime,
+		SharedTurnStateLifetime: i.SharedTurnStateLifetime,
 	})
 }
 

@@ -161,30 +161,6 @@ func TestTranscriptCompactionProjectionCarriesTypedFactsWithoutServerPresentatio
 	}
 }
 
-func TestTranscriptCompactionStatusPreservesInitiatingRequestIdentity(t *testing.T) {
-	requestID := runtimeids.NewCompactionRequestID()
-	messages, err := TranscriptMessagesFromRuntimeEventChecked(runtime.Event{
-		Kind:   runtime.EventCompactionCompleted,
-		StepID: runtimeStepIDPointer(transcriptProjectionStepID),
-		Compaction: &runtime.CompactionStatus{
-			Mode:      "manual",
-			RequestID: &requestID,
-			Count:     1,
-		},
-	}, nil)
-
-	if err != nil {
-		t.Fatalf("project compaction status: %v", err)
-	}
-	if len(messages) != 1 {
-		t.Fatalf("compaction messages = %+v, want one", messages)
-	}
-	status := messages[0].GetCompactionStatus()
-	if status.RequestId == nil || *status.RequestId != requestID.String() {
-		t.Fatalf("projected request identity = %v, want %s", status.RequestId, requestID.String())
-	}
-}
-
 func TestTranscriptPendingWorkTechnicalRestorationProjection(t *testing.T) {
 	itemID := runtimeids.NewQueueItemID()
 	restoration := runtimeinput.PendingWorkTechnicalRestoration{
@@ -1474,26 +1450,6 @@ func TestTranscriptWorkspacesNoticePreservesTypedMessageAndVisibility(t *testing
 		row.GetNotice().GetMessageType() != transcriptpb.NoticeMessageType_NOTICE_MESSAGE_TYPE_WORKSPACES ||
 		row.Visibility != transcriptpb.EntryVisibility_ENTRY_VISIBILITY_DETAIL {
 		t.Fatalf("Workspaces notice projection = %+v, want typed detail notice", row)
-	}
-}
-
-func TestTranscriptBackgroundActivityRejectsMissingRuntimeActivityID(t *testing.T) {
-	_, err := TranscriptMessagesFromRuntimeEventChecked(runtime.Event{
-		Kind:   runtime.EventBackgroundUpdated,
-		StepID: runtimeStepIDPointer(transcriptProjectionStepID),
-		Background: &runtime.BackgroundShellEvent{
-			Type:        runtime.BackgroundShellEventBackgrounded,
-			ID:          uuid.NewString(),
-			OwnerStepID: transcriptProjectionStepID,
-			State:       "running",
-			Command:     "go test ./...",
-			Workdir:     "/tmp/workspace",
-			Preview:     "tests",
-		},
-	}, nil)
-
-	if err == nil {
-		t.Fatal("expected missing background activity id to be rejected")
 	}
 }
 

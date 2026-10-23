@@ -34,6 +34,7 @@ import (
 	authpb "core/shared/protoapi/gen/kent/api/auth"
 	chatpb "core/shared/protoapi/gen/kent/api/chat"
 	chatsettingspb "core/shared/protoapi/gen/kent/api/chat_settings"
+	chatshellpb "core/shared/protoapi/gen/kent/api/chat_shell"
 	connectionpb "core/shared/protoapi/gen/kent/api/connection"
 	projectpb "core/shared/protoapi/gen/kent/api/project"
 	runtimepb "core/shared/protoapi/gen/kent/api/runtime"
@@ -89,36 +90,19 @@ func (r *gatewayChatLifecycleResolver) Resolve(
 	}
 }
 
-type gatewayChatLifecyclePlanner struct {
-	attachment chatmutation.RuntimeAttachment
-}
+type gatewayChatLifecyclePlanner struct{}
 
 func (p gatewayChatLifecyclePlanner) Open(
 	context.Context,
 	runtimeids.SessionID,
-) (chatmutation.RuntimeAttachment, error) {
-	return p.attachment, nil
-}
-
-type gatewayChatLifecycleAttachment struct {
-	sessionID runtimeids.SessionID
-	released  chan sessionruntime.RuntimeReleasePolicy
-}
-
-func (a *gatewayChatLifecycleAttachment) SessionID() runtimeids.SessionID {
-	return a.sessionID
-}
-
-func (a *gatewayChatLifecycleAttachment) Release(
-	_ context.Context,
-	policy sessionruntime.RuntimeReleasePolicy,
+	*serverapi.SessionRuntimePreparationOptions,
 ) error {
-	a.released <- policy
 	return nil
 }
 
 type gatewayChatLifecycleAdmission struct {
 	queueItemID runtimeids.QueueItemID
+	accepted    chan struct{}
 }
 
 type gatewayChatLifecycleGoal struct{}
@@ -139,6 +123,7 @@ func (a gatewayChatLifecycleAdmission) AdmitChatUserTurn(
 	string,
 	runtimecontrol.PreparedUserTurn,
 ) (serverapi.ChatInputAdmissionResult, error) {
+	close(a.accepted)
 	return serverapi.ChatInputAdmissionResult{
 		QueueItemID: a.queueItemID,
 		Accepted:    true,
@@ -162,6 +147,14 @@ func (gatewayChatLifecycleAdmission) AdmitManualCompaction(
 
 type gatewayChatAuthorizationService struct {
 	sessionID string
+}
+
+func (gatewayChatAuthorizationService) SubmitUserShellCommand(context.Context, *chatshellpb.ShellCommandRequest) error {
+	panic("unexpected shell command")
+}
+
+func (gatewayChatLifecycleAdmission) AdmitUserShellCommand(context.Context, runtimeids.SessionID, string) error {
+	panic("unexpected shell command")
 }
 
 func (s gatewayChatAuthorizationService) Steer(
@@ -310,25 +303,19 @@ func TestGatewayDisconnectStopsDeliveryWithoutCancelingChatOperation(t *testing.
 	if err != nil {
 		t.Fatalf("parse Session ID: %v", err)
 	}
-	owner, err := chatmutation.NewOperationOwner(time.Second)
-	if err != nil {
-		t.Fatalf("NewOperationOwner: %v", err)
-	}
+	owner := chatmutation.NewOperationOwner()
 	t.Cleanup(func() { _ = owner.Close() })
 	resolver := &gatewayChatLifecycleResolver{
 		started: make(chan context.Context, 1),
 		proceed: make(chan struct{}),
 		target:  chatmutation.ResolvedTarget{SessionID: sessionID},
 	}
-	attachment := &gatewayChatLifecycleAttachment{
-		sessionID: sessionID,
-		released:  make(chan sessionruntime.RuntimeReleasePolicy, 1),
-	}
+	accepted := make(chan struct{})
 	service := chatmutation.NewService(
 		owner,
 		resolver,
-		gatewayChatLifecyclePlanner{attachment: attachment},
-		gatewayChatLifecycleAdmission{queueItemID: runtimeids.NewQueueItemID()},
+		gatewayChatLifecyclePlanner{},
+		gatewayChatLifecycleAdmission{queueItemID: runtimeids.NewQueueItemID(), accepted: accepted},
 		gatewayChatLifecycleGoal{},
 	)
 	gateway, err := NewGateway(
@@ -389,10 +376,7 @@ func TestGatewayDisconnectStopsDeliveryWithoutCancelingChatOperation(t *testing.
 	}
 	close(resolver.proceed)
 	select {
-	case policy := <-attachment.released:
-		if policy != sessionruntime.RuntimeReleaseDetach {
-			t.Fatalf("release policy = %v, want detach", policy)
-		}
+	case <-accepted:
 	case <-time.After(time.Second):
 		t.Fatal("Chat operation did not finish after Gateway disconnect")
 	}
@@ -536,37 +520,21 @@ func newGatewayTestAuthSupport(t *testing.T, root string, ready bool) serverboot
 	return authSupport
 }
 
-func activateGatewayController(t *testing.T, appCore *core.Core, sessionID string) serverapi.SessionRuntimeAttachment {
+func activateGatewayController(t *testing.T, appCore *core.Core, sessionID string) {
 	t.Helper()
 	settings := appCore.Config().Settings
 	if strings.TrimSpace(settings.Model) == "" {
 		settings.Model = "gpt-6-sol"
 	}
 	settings = testsetup.WriteProviderSettings(t, appCore.Config().PersistenceRoot, settings)
-	response, err := appCore.SessionRuntimeClient().ActivateSessionRuntime(context.Background(), serverapi.SessionRuntimeActivateRequest{
-		SessionID:             requestfixture.SessionID(t, strings.TrimSpace(sessionID)),
-		OwnerID:               "gateway-test-owner",
-		ActiveSettings:        settings,
-		QuestionsEnabled:      textutil.Value(true),
-		AutoCompactionEnabled: textutil.Value(true),
-		Source:                appCore.Config().Source,
+	err := appCore.SessionRuntimeClient().ActivateSessionRuntime(context.Background(), serverapi.SessionRuntimeActivateRequest{
+		SessionID: requestfixture.SessionID(t, strings.TrimSpace(sessionID)), SessionRuntimePreparationOptions: serverapi.SessionRuntimePreparationOptions{ActiveSettings: settings,
+			QuestionsEnabled:      textutil.Value(true),
+			AutoCompactionEnabled: textutil.Value(true),
+			Source:                appCore.Config().Source},
 	})
 	if err != nil {
 		t.Fatalf("ActivateSessionRuntime: %v", err)
-	}
-	if err := response.ValidateForSession(sessionID); err != nil {
-		t.Fatalf("validate activation response: %v", err)
-	}
-	return response
-}
-
-func releaseGatewayController(t *testing.T, appCore *core.Core, attachment serverapi.SessionRuntimeAttachment) {
-	t.Helper()
-	if _, err := appCore.SessionRuntimeClient().ReleaseSessionRuntime(context.Background(), serverapi.SessionRuntimeReleaseRequest{
-		Attachment: attachment,
-		OwnerID:    "gateway-test-owner",
-	}); err != nil {
-		t.Fatalf("ReleaseSessionRuntime: %v", err)
 	}
 }
 
@@ -581,56 +549,16 @@ func gatewayRuntimeActivateRequest(appCore *core.Core, sessionID string) servera
 	}
 	settings = testsetup.ProviderSettings(settings)
 	return serverapi.SessionRuntimeActivateRequest{
-		SessionID:             id,
-		ActiveSettings:        settings,
-		QuestionsEnabled:      textutil.Value(true),
-		AutoCompactionEnabled: textutil.Value(true),
-		Source:                appCore.Config().Source,
+		SessionID: id, SessionRuntimePreparationOptions: serverapi.SessionRuntimePreparationOptions{ActiveSettings: settings,
+			QuestionsEnabled:      textutil.Value(true),
+			AutoCompactionEnabled: textutil.Value(true),
+			Source:                appCore.Config().Source},
 	}
 }
 
 func waitForGatewayCondition(t *testing.T, label string, condition func() bool) {
 	t.Helper()
 	testsetup.RequireUntil(t, time.Now().Add(3*time.Second), 10*time.Millisecond, condition, "timed out waiting for %s", label)
-}
-
-type countingSessionRuntimeClient struct {
-	apicontract.SessionRuntimeService
-	releaseCount        atomic.Int32
-	activateRequests    chan serverapi.SessionRuntimeActivateRequest
-	releaseRequests     chan serverapi.SessionRuntimeReleaseRequest
-	activateAttachments []*serverapi.SessionRuntimeAttachment
-	releaseResponse     *sessionlaunchpb.SessionRuntimeReleaseSuccess
-}
-
-func (c *countingSessionRuntimeClient) ActivateSessionRuntime(ctx context.Context, req serverapi.SessionRuntimeActivateRequest) (serverapi.SessionRuntimeAttachment, error) {
-	if c.activateRequests != nil {
-		c.activateRequests <- req
-	}
-	if len(c.activateAttachments) != 0 {
-		attachment := c.activateAttachments[0]
-		c.activateAttachments = c.activateAttachments[1:]
-		if attachment == nil {
-			return serverapi.SessionRuntimeAttachment{}, nil
-		}
-		value := *attachment
-		value.SessionID = req.SessionID.String()
-		return value, nil
-	}
-	return c.SessionRuntimeService.ActivateSessionRuntime(ctx, req)
-}
-
-func (c *countingSessionRuntimeClient) ReleaseSessionRuntime(ctx context.Context, req serverapi.SessionRuntimeReleaseRequest) (*sessionlaunchpb.SessionRuntimeReleaseSuccess, error) {
-	defer func() {
-		c.releaseCount.Add(1)
-		if c.releaseRequests != nil {
-			c.releaseRequests <- req
-		}
-	}()
-	if c.releaseResponse != nil {
-		return c.releaseResponse, nil
-	}
-	return c.SessionRuntimeService.ReleaseSessionRuntime(ctx, req)
 }
 
 type gatewayRuntimeClientOverride struct {
@@ -649,8 +577,8 @@ type closedAuthoritySessionRuntimeClient struct {
 func (closedAuthoritySessionRuntimeClient) ActivateSessionRuntime(
 	context.Context,
 	serverapi.SessionRuntimeActivateRequest,
-) (serverapi.SessionRuntimeAttachment, error) {
-	return serverapi.SessionRuntimeAttachment{}, sessionruntime.ErrAuthorityClosed
+) error {
+	return sessionruntime.ErrAuthorityClosed
 }
 
 func TestGatewayActivationTransportsClosedAuthorityAsRuntimeUnavailable(t *testing.T) {
@@ -671,210 +599,15 @@ func TestGatewayActivationTransportsClosedAuthorityAsRuntimeUnavailable(t *testi
 	}
 	defer func() { _ = remote.Close() }()
 
-	_, err = remote.ActivateSessionRuntime(t.Context(), gatewayRuntimeActivateRequest(appCore, store.Meta().SessionID))
+	err = remote.ActivateSessionRuntime(t.Context(), gatewayRuntimeActivateRequest(appCore, store.Meta().SessionID))
 	if !errors.Is(err, serverapi.ErrRuntimeUnavailable) {
 		t.Fatalf("activation error = %v, want runtime unavailable", err)
 	}
 }
 
-func TestGatewayConnectionCloseDetachesOwnedRuntime(t *testing.T) {
+func TestGatewayDisconnectKeepsRuntimeAvailable(t *testing.T) {
 	appCore, _ := newGatewayTestCore(t, true, true)
-	counter := &countingSessionRuntimeClient{
-		SessionRuntimeService: appCore.SessionRuntimeClient(),
-		activateRequests:      make(chan serverapi.SessionRuntimeActivateRequest, 2),
-		releaseRequests:       make(chan serverapi.SessionRuntimeReleaseRequest, 3),
-		activateAttachments:   []*serverapi.SessionRuntimeAttachment{{Generation: 1}, {Generation: 2}},
-		releaseResponse:       &sessionlaunchpb.SessionRuntimeReleaseSuccess{Released: true},
-	}
-	gateway, err := NewGateway(&gatewayRuntimeClientOverride{Core: appCore, runtimeClient: counter}, gatewayTestIdentity())
-	if err != nil {
-		t.Fatalf("NewGateway: %v", err)
-	}
-	server := httptest.NewServer(gateway.Handler())
-	defer func() { _ = appCore.Close() }()
-	defer server.Close()
-	store := createGatewayAuthoritativeSession(t, appCore)
-
-	conn, err := remoteclient.DialRemoteURL(t.Context(), "ws"+server.URL[len("http"):])
-	if err != nil {
-		t.Fatal(err)
-	}
-	request := gatewayRuntimeActivateRequest(appCore, store.Meta().SessionID)
-	request.OwnerID = "client-spoof"
-	request.AgentSelection = &serverapi.SessionRuntimeAgentSelection{
-		AgentRole: textutil.Value("worker"),
-		Baseline: serverapi.SessionRuntimeChatSettings{
-			Supervisor: "off", Thinking: "high", Fast: true, Questions: false, AutoCompaction: true,
-		},
-	}
-	activation, err := conn.ActivateSessionRuntime(t.Context(), request)
-	if err != nil {
-		t.Fatal(err)
-	}
-	var activationRequest serverapi.SessionRuntimeActivateRequest
-	select {
-	case activationRequest = <-counter.activateRequests:
-		if activationRequest.OwnerID == "" || activationRequest.OwnerID == "client-spoof" {
-			t.Fatalf("gateway did not inject connection owner id: %+v", activationRequest)
-		}
-		if activationRequest.AgentSelection == nil ||
-			!textutil.EqualOptional(activationRequest.AgentSelection.AgentRole, request.AgentSelection.AgentRole) ||
-			activationRequest.AgentSelection.Baseline != request.AgentSelection.Baseline {
-			t.Fatalf("planned Agent selection changed: %v", activationRequest.AgentSelection)
-		}
-	case <-time.After(time.Second):
-		t.Fatal("timed out waiting for activation request")
-	}
-	successor, err := conn.ActivateSessionRuntime(t.Context(), gatewayRuntimeActivateRequest(appCore, store.Meta().SessionID))
-	if err != nil {
-		t.Fatal(err)
-	}
-	if (<-counter.activateRequests).AgentSelection != nil {
-		t.Fatal("absent Agent selection became present")
-	}
-	_, err = conn.ReleaseSessionRuntime(t.Context(), serverapi.SessionRuntimeReleaseRequest{
-		Attachment:  activation,
-		OwnerID:     "client-spoof",
-		DropOwner:   true,
-		ClosePolicy: serverapi.SessionRuntimeReleaseClosePolicyDetachOnly,
-	})
-	if err != nil {
-		t.Fatal(err)
-	}
-	select {
-	case request := <-counter.releaseRequests:
-		if request.Attachment != activation || request.OwnerID != activationRequest.OwnerID {
-			t.Fatalf("explicit stale release request = %+v", request)
-		}
-	case <-time.After(time.Second):
-		t.Fatal("timed out waiting for stale explicit release")
-	}
-	if err := conn.Close(); err != nil {
-		t.Fatalf("close gateway connection: %v", err)
-	}
-	select {
-	case request := <-counter.releaseRequests:
-		if request.Attachment != successor {
-			t.Fatalf("disconnect release attachment = %+v, want successor %+v", request.Attachment, successor)
-		}
-		if request.OwnerID != activationRequest.OwnerID || !request.DropOwner || request.ClosePolicy != serverapi.SessionRuntimeReleaseClosePolicyDetachOnly {
-			t.Fatalf("disconnect release request = %+v, want exact detach-only owner drop", request)
-		}
-	case <-time.After(time.Second):
-		t.Fatal("timed out waiting for disconnect runtime release")
-	}
-	gateway.Close()
-	select {
-	case request := <-counter.releaseRequests:
-		t.Fatalf("disconnect released stale attachment too: %+v", request.Attachment)
-	default:
-	}
-}
-
-func TestGatewayDetachOnlyReleaseInjectsOwnerAndSkipsDisconnectRelease(t *testing.T) {
-	appCore, _ := newGatewayTestCore(t, true, true)
-	counter := &countingSessionRuntimeClient{
-		SessionRuntimeService: appCore.SessionRuntimeClient(),
-		releaseRequests:       make(chan serverapi.SessionRuntimeReleaseRequest, 4),
-		activateAttachments:   []*serverapi.SessionRuntimeAttachment{{Generation: 1}},
-		releaseResponse:       &sessionlaunchpb.SessionRuntimeReleaseSuccess{Active: true},
-	}
-	gateway, err := NewGateway(&gatewayRuntimeClientOverride{Core: appCore, runtimeClient: counter}, gatewayTestIdentity())
-	if err != nil {
-		t.Fatalf("NewGateway: %v", err)
-	}
-	server := httptest.NewServer(gateway.Handler())
-	defer func() { _ = appCore.Close() }()
-	defer server.Close()
-	store := createGatewayAuthoritativeSession(t, appCore)
-
-	conn := dialGatewayRemote(t, server)
-	activation, err := conn.ActivateSessionRuntime(t.Context(), gatewayRuntimeActivateRequest(appCore, store.Meta().SessionID))
-	if err != nil {
-		t.Fatal(err)
-	}
-	release, err := conn.ReleaseSessionRuntime(t.Context(), serverapi.SessionRuntimeReleaseRequest{
-		Attachment:  activation,
-		OwnerID:     "client-spoof",
-		DropOwner:   true,
-		ClosePolicy: serverapi.SessionRuntimeReleaseClosePolicyDetachOnly,
-	})
-	if err != nil {
-		t.Fatal(err)
-	}
-	if release.Released || !release.Active {
-		t.Fatalf("detach-only release response = %+v, want active unreleased response", release)
-	}
-	select {
-	case req := <-counter.releaseRequests:
-		if req.OwnerID == "" || req.OwnerID == "client-spoof" {
-			t.Fatalf("gateway did not inject connection owner id: %+v", req)
-		}
-		if !req.DropOwner || req.ClosePolicy != serverapi.SessionRuntimeReleaseClosePolicyDetachOnly {
-			t.Fatalf("gateway release request = %+v, want detach-only drop owner", req)
-		}
-	case <-time.After(time.Second):
-		t.Fatal("timed out waiting for explicit detach-only release")
-	}
-	if err := conn.Close(); err != nil {
-		t.Fatalf("close gateway connection: %v", err)
-	}
-	gateway.Close()
-	if got := counter.releaseCount.Load(); got != 1 {
-		t.Fatalf("runtime release call count = %d, want only explicit detach-only release", got)
-	}
-}
-
-func TestGatewayCloseIfIdleReleasePropagatesPolicy(t *testing.T) {
-	appCore, _ := newGatewayTestCore(t, true, true)
-	counter := &countingSessionRuntimeClient{
-		SessionRuntimeService: appCore.SessionRuntimeClient(),
-		releaseRequests:       make(chan serverapi.SessionRuntimeReleaseRequest, 4),
-		activateAttachments:   []*serverapi.SessionRuntimeAttachment{{Generation: 1}},
-		releaseResponse:       &sessionlaunchpb.SessionRuntimeReleaseSuccess{Released: true},
-	}
-	gateway, err := NewGateway(&gatewayRuntimeClientOverride{Core: appCore, runtimeClient: counter}, gatewayTestIdentity())
-	if err != nil {
-		t.Fatalf("NewGateway: %v", err)
-	}
-	server := httptest.NewServer(gateway.Handler())
-	defer func() { _ = appCore.Close() }()
-	defer server.Close()
-	store := createGatewayAuthoritativeSession(t, appCore)
-
-	conn := dialGatewayRemote(t, server)
-	activation, err := conn.ActivateSessionRuntime(t.Context(), gatewayRuntimeActivateRequest(appCore, store.Meta().SessionID))
-	if err != nil {
-		t.Fatal(err)
-	}
-	release, err := conn.ReleaseSessionRuntime(t.Context(), serverapi.SessionRuntimeReleaseRequest{
-		Attachment:  activation,
-		DropOwner:   true,
-		ClosePolicy: serverapi.SessionRuntimeReleaseClosePolicyCloseIfIdle,
-	})
-	if err != nil {
-		t.Fatal(err)
-	}
-	if !release.Released {
-		t.Fatalf("close-if-idle release response = %+v, want released", release)
-	}
-	select {
-	case req := <-counter.releaseRequests:
-		if req.OwnerID == "" {
-			t.Fatalf("gateway did not inject owner id: %+v", req)
-		}
-		if req.Attachment != activation || !req.DropOwner || req.ClosePolicy != serverapi.SessionRuntimeReleaseClosePolicyCloseIfIdle {
-			t.Fatalf("gateway release request = %+v, want explicit close-if-idle drop owner", req)
-		}
-	case <-time.After(time.Second):
-		t.Fatal("timed out waiting for explicit close-if-idle release")
-	}
-}
-
-func TestGatewayDisconnectKeepsRuntimeAvailableUntilExplicitCloseIfIdle(t *testing.T) {
-	appCore, _ := newGatewayTestCore(t, true, true)
-	counter := &countingSessionRuntimeClient{SessionRuntimeService: appCore.SessionRuntimeClient()}
-	gateway, err := NewGateway(&gatewayRuntimeClientOverride{Core: appCore, runtimeClient: counter}, gatewayTestIdentity())
+	gateway, err := NewGateway(appCore, gatewayTestIdentity())
 	if err != nil {
 		t.Fatalf("NewGateway: %v", err)
 	}
@@ -884,71 +617,22 @@ func TestGatewayDisconnectKeepsRuntimeAvailableUntilExplicitCloseIfIdle(t *testi
 	store := createGatewayAuthoritativeSession(t, appCore)
 
 	first := dialGatewayRemote(t, server)
-	firstActivation, err := first.ActivateSessionRuntime(t.Context(), gatewayRuntimeActivateRequest(appCore, store.Meta().SessionID))
+	err = first.ActivateSessionRuntime(t.Context(), gatewayRuntimeActivateRequest(appCore, store.Meta().SessionID))
 	if err != nil {
 		t.Fatal(err)
 	}
 	if err := first.Close(); err != nil {
 		t.Fatalf("close first gateway connection: %v", err)
 	}
-	waitForGatewayCondition(t, "completed first connection owner release", func() bool {
-		return counter.releaseCount.Load() == 1
-	})
 
 	second := dialGatewayRemote(t, server)
 	defer second.Close()
-	secondActivation, err := second.ActivateSessionRuntime(t.Context(), gatewayRuntimeActivateRequest(appCore, store.Meta().SessionID))
+	view, err := second.GetSessionMainView(t.Context(), &sessionpb.MainViewRequest{SessionId: requestfixture.Selector(t, store.Meta().SessionID)})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if secondActivation.Generation != firstActivation.Generation {
-		t.Fatalf(
-			"disconnect replaced the runtime: first generation %d, second generation %d",
-			firstActivation.Generation,
-			secondActivation.Generation,
-		)
-	}
-
-	release, err := second.ReleaseSessionRuntime(t.Context(),
-		serverapi.SessionRuntimeReleaseRequest{
-			Attachment:  secondActivation,
-			DropOwner:   true,
-			ClosePolicy: serverapi.SessionRuntimeReleaseClosePolicyCloseIfIdle,
-		},
-	)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if !release.Released || release.Active {
-		t.Fatalf("explicit close-if-idle release = %+v, want released inactive runtime", release)
-	}
-}
-
-func TestGatewayMissingActivationAttachmentDoesNotRecordRuntimeOwnership(t *testing.T) {
-	appCore, _ := newGatewayTestCore(t, true, true)
-	counter := &countingSessionRuntimeClient{
-		SessionRuntimeService: appCore.SessionRuntimeClient(),
-		activateAttachments:   []*serverapi.SessionRuntimeAttachment{nil},
-	}
-	gateway, err := NewGateway(&gatewayRuntimeClientOverride{Core: appCore, runtimeClient: counter}, gatewayTestIdentity())
-	if err != nil {
-		t.Fatalf("NewGateway: %v", err)
-	}
-	server := httptest.NewServer(gateway.Handler())
-	defer func() { _ = appCore.Close() }()
-	defer server.Close()
-	store := createGatewayAuthoritativeSession(t, appCore)
-
-	conn := dialGatewayRemote(t, server)
-	if _, err := conn.ActivateSessionRuntime(t.Context(), gatewayRuntimeActivateRequest(appCore, store.Meta().SessionID)); err == nil {
-		t.Fatal("activation without an attachment succeeded")
-	}
-	if err := conn.Close(); err != nil {
-		t.Fatalf("close gateway connection: %v", err)
-	}
-	gateway.Close()
-	if got := counter.releaseCount.Load(); got != 0 {
-		t.Fatalf("runtime release call count after invalid activation response = %d, want 0", got)
+	if view.GetMainView().GetActivity().GetState() != runtimepb.ActivityState_RUNTIME_ACTIVITY_REGISTERED_IDLE {
+		t.Fatalf("reconnected read lost idle Runtime: %v", view)
 	}
 }
 
@@ -1266,8 +950,7 @@ func TestGatewaySessionTranscriptSubscriptionReturnsHydrationOnDedicatedRoute(t 
 	appCore, server := newGatewayTestServer(t)
 	defer func() { _ = appCore.Close() }()
 	store := createGatewayAuthoritativeSession(t, appCore)
-	attachment := activateGatewayController(t, appCore, store.Meta().SessionID)
-	defer releaseGatewayController(t, appCore, attachment)
+	activateGatewayController(t, appCore, store.Meta().SessionID)
 	defer server.Close()
 
 	conn := dialGateway(t, server)
@@ -1640,8 +1323,8 @@ func TestGatewayAllowsOptionalSessionLifecycleRequestsWithoutSessionID(t *testin
 	if err != nil {
 		t.Fatalf("ResolveTransition: %v", err)
 	}
-	intent, err := protoapi.SessionLaunchIntentFromProto(resolvedTransition.GetLaunch().GetIntent())
-	if err != nil || intent.Kind() != serverapi.SessionLaunchIntentCreateNew {
+	intent := protoapi.SessionLaunchIntentFromProto(resolvedTransition.GetLaunch().GetIntent())
+	if intent.Kind() != serverapi.SessionLaunchIntentCreateNew {
 		t.Fatalf("unexpected transition response: %+v", resolvedTransition)
 	}
 	preparation := resolvedTransition.GetLaunch().GetPreparation()

@@ -30,7 +30,7 @@ func (s *questionHistorySubscription) Next(ctx context.Context) (*sessionpb.Ques
 		event := &sessionpb.QuestionHistoryEvent{
 			Event: &sessionpb.QuestionHistoryEvent_Started{Started: &sessionpb.QuestionHistoryStarted{LargeHistory: large}},
 		}
-		return event, protoapi.Validate(event)
+		return event, nil
 	}
 	for !s.completed {
 		if err := ctx.Err(); err != nil {
@@ -46,7 +46,7 @@ func (s *questionHistorySubscription) Next(ctx context.Context) (*sessionpb.Ques
 			event := &sessionpb.QuestionHistoryEvent{
 				Event: &sessionpb.QuestionHistoryEvent_Completed{Completed: &sessionpb.QuestionHistoryCompleted{HistoryOmitted: omitted}},
 			}
-			return event, protoapi.Validate(event)
+			return event, nil
 		}
 		question, err := projectQuestionHistoryRecord(*record, s.cursor.Version())
 		if err != nil {
@@ -86,7 +86,7 @@ func (s *questionHistorySubscription) Next(ctx context.Context) (*sessionpb.Ques
 				AnsweredBySessionId:      protoapi.OptionalSessionIDToProto(question.AnsweredBySessionID),
 			}},
 		}
-		return event, protoapi.Validate(event)
+		return event, nil
 	}
 	return nil, io.EOF
 }

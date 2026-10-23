@@ -2,7 +2,6 @@ package runtimeview
 
 import (
 	"core/server/agentruntime"
-	"core/shared/protoapi"
 	runtimepb "core/shared/protoapi/gen/kent/api/runtime"
 	transcriptpb "core/shared/protoapi/gen/kent/api/transcript"
 	"core/shared/runtimeids"
@@ -59,9 +58,6 @@ func transcriptTailSegmentFromFactsChecked(
 		OlderCursor:  olderCursor,
 		HasMoreAbove: hasMoreAbove,
 		Entries:      entries,
-	}
-	if err := protoapi.Validate(segment); err != nil {
-		return nil, err
 	}
 	return segment, nil
 }

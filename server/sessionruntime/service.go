@@ -6,14 +6,13 @@ import (
 	"fmt"
 	"strings"
 
+	"core/server/agentruntime"
 	"core/server/metadata"
 	"core/server/runlog"
 	"core/server/runtimewire"
 	"core/server/sessionstore"
 	"core/server/tools"
 	servicecontract "core/shared/apicontract"
-	sessionlaunchpb "core/shared/protoapi/gen/kent/api/session_launch"
-	"core/shared/runtimeids"
 	"core/shared/serverapi"
 	"core/shared/textutil"
 	"core/shared/toolspec"
@@ -78,36 +77,28 @@ func applyAgentSelection(store *session.Store, target *session.ChatSettingsState
 	return result.Changed, err
 }
 
-func (s *API) ActivateSessionRuntime(ctx context.Context, req serverapi.SessionRuntimeActivateRequest) (result serverapi.SessionRuntimeAttachment, err error) {
+func (s *API) ActivateSessionRuntime(ctx context.Context, req serverapi.SessionRuntimeActivateRequest) (err error) {
 	var target serverapi.SessionTarget = serverapi.UnresolvedSessionTarget{}
 	defer func() { err = serverapi.WithSessionTarget(target, err) }()
 	if err := req.Validate(); err != nil {
-		return serverapi.SessionRuntimeAttachment{}, err
-	}
-	ownerID := strings.TrimSpace(req.OwnerID)
-	if ownerID == "" {
-		return serverapi.SessionRuntimeAttachment{}, runtimeOwnerIDRequiredError()
+		return err
 	}
 	if s == nil || s.authority == nil {
-		return serverapi.SessionRuntimeAttachment{}, errors.New("session runtime authority is required")
+		return errors.New("session runtime authority is required")
 	}
 	sessionID, err := s.metadataStore.ResolveSessionSelector(ctx, req.SessionID)
 	if err != nil {
-		return serverapi.SessionRuntimeAttachment{}, err
+		return err
 	}
 	target = serverapi.CanonicalSessionTarget{ID: sessionID}
 	identity, err := s.metadataStore.SessionIdentity(ctx, sessionID)
 	if err != nil {
-		return serverapi.SessionRuntimeAttachment{}, err
+		return err
 	}
 	target = serverapi.ProjectedSessionTarget{Identity: identity}
-	attachment, err := s.authority.openRuntime(ctx, RuntimeOpenRequest{
+	resource, err := s.authority.openRuntime(ctx, RuntimeOpenRequest{
 		SessionID: sessionID,
-		OwnerID:   ownerID,
 	}, func(activationCtx context.Context, store *session.Store) (*AgentRuntimePlan, AgentResourceSelection, error) {
-		if _, err := store.PromoteSubagentToMain(); err != nil {
-			return nil, nil, err
-		}
 		agentSelectionChanged := false
 		if req.AgentSelection != nil {
 			target, targetErr := session.ChatSettingsStateFromRole(
@@ -172,15 +163,14 @@ func (s *API) ActivateSessionRuntime(ctx context.Context, req serverapi.SessionR
 		}
 		return &plan, OpenAgentResource{}, nil
 	})
-	if err != nil {
-		return serverapi.SessionRuntimeAttachment{}, err
+	if err == nil && req.ThinkingOverrideExplicit {
+		// The FIFO may wait for the current Step. Do not hold Session admission
+		// while that Step's tools may still need it.
+		return s.authority.WithRuntime(ctx, resource, func(ctx context.Context, engine *runtime.Engine) error {
+			return engine.SetThinkingLevel(ctx, req.ActiveSettings.ThinkingLevel)
+		})
 	}
-	resource := attachment.Resource()
-	return serverapi.SessionRuntimeAttachment{
-			SessionID:  resource.SessionID().String(),
-			Generation: uint64(resource.Generation()),
-		},
-		nil
+	return err
 }
 
 func (s *API) interactiveRuntimePlan(ctx context.Context, req serverapi.SessionRuntimeActivateRequest, sessionID string) (AgentRuntimePlan, error) {
@@ -242,6 +232,7 @@ func (s *API) interactiveRuntimePlan(ctx context.Context, req serverapi.SessionR
 		}
 	}
 	return NewAgentRuntimePlan(AgentRuntimePlanOptions{
+		ConnectionScope:          req.ConnectionScope,
 		MainWorkspaceRoot:        target.WorkspaceRoot,
 		Settings:                 req.ActiveSettings,
 		EnabledTools:             enabledTools,
@@ -256,54 +247,7 @@ func (s *API) interactiveRuntimePlan(ctx context.Context, req serverapi.SessionR
 	})
 }
 
-func (s *API) ReleaseSessionRuntime(ctx context.Context, req serverapi.SessionRuntimeReleaseRequest) (response *sessionlaunchpb.SessionRuntimeReleaseSuccess, err error) {
-	if err := req.Validate(); err != nil {
-		return &sessionlaunchpb.SessionRuntimeReleaseSuccess{}, err
-	}
-	ownerID := strings.TrimSpace(req.OwnerID)
-	if ownerID == "" {
-		return &sessionlaunchpb.SessionRuntimeReleaseSuccess{}, runtimeOwnerIDRequiredError()
-	}
-	if s == nil || s.authority == nil {
-		return &sessionlaunchpb.SessionRuntimeReleaseSuccess{}, errors.New("session runtime authority is required")
-	}
-	sessionID, err := runtimeids.ParseSessionID(strings.TrimSpace(req.Attachment.SessionID))
-	if err != nil {
-		return &sessionlaunchpb.SessionRuntimeReleaseSuccess{}, err
-	}
-	defer func() { err = serverapi.WithSessionTarget(serverapi.CanonicalSessionTarget{ID: sessionID}, err) }()
-	resource, err := runtimeids.NewSessionResourceRef(sessionID, runtimeids.ResourceGeneration(req.Attachment.Generation))
-	if err != nil {
-		return &sessionlaunchpb.SessionRuntimeReleaseSuccess{}, err
-	}
-	var policy RuntimeReleasePolicy
-	switch req.EffectiveClosePolicy() {
-	case "":
-		policy = RuntimeReleaseClose
-	case serverapi.SessionRuntimeReleaseClosePolicyCloseIfIdle:
-		policy = RuntimeReleaseCloseIfIdle
-	case serverapi.SessionRuntimeReleaseClosePolicyDetachOnly:
-		policy = RuntimeReleaseDetach
-	default:
-		panic(fmt.Sprintf("validated runtime release has unsupported close policy %q", req.ClosePolicy))
-	}
-	result, err := s.authority.ReleaseRuntime(ctx, RuntimeReleaseRequest{
-		Resource:  resource,
-		OwnerID:   ownerID,
-		DropOwner: req.DropOwner,
-		Policy:    policy,
-	})
-	if err != nil {
-		return &sessionlaunchpb.SessionRuntimeReleaseSuccess{}, err
-	}
-	return &sessionlaunchpb.SessionRuntimeReleaseSuccess{
-		Released: result.Released,
-		Active:   result.Active,
-	}, nil
-}
-
 var errUnknownToolID = errors.New("unknown tool id")
-var ErrRuntimeOwnerIDRequired = errors.New("runtime owner id is required")
 
 func parseToolIDs(raw []string) ([]toolspec.ID, error) {
 	if len(raw) == 0 {
@@ -318,10 +262,6 @@ func parseToolIDs(raw []string) ([]toolspec.ID, error) {
 		ids = append(ids, id)
 	}
 	return ids, nil
-}
-
-func runtimeOwnerIDRequiredError() error {
-	return errors.Join(ErrRuntimeOwnerIDRequired, errors.New("runtime owner_id is required; upgrade the client or connect through the current Kent gateway"))
 }
 
 func runtimeUnavailableErr(sessionID string) error {

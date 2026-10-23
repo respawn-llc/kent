@@ -159,10 +159,36 @@ function reasonNoticeText(notice: TranscriptNotice, t: Translate, expanded: bool
       return providerModelMismatchText(notice, t);
     case "reasoning_omission":
       return t("chatTranscript.notice.reasoningOmission");
+    case "connection_fallback":
+      return notice.ConnectionFallback == null
+        ? undefined
+        : t("chatTranscript.notice.connectionFallback", {
+            previous: notice.ConnectionFallback.previous_id,
+            current: notice.ConnectionFallback.current_id,
+          });
+    case "connections_unavailable":
+      return connectionsUnavailableText(notice, t);
     case "legacy_untyped_notice":
     case "runtime_diagnostic":
       return undefined;
   }
+}
+
+function connectionsUnavailableText(notice: TranscriptNotice, t: Translate): string | undefined {
+  const unavailable = notice.ConnectionsUnavailable;
+  if (unavailable == null) return undefined;
+  return [
+    t("chatTranscript.notice.connectionsUnavailable"),
+    ...unavailable.members.map((member) =>
+      member.available_at === null
+        ? t("chatTranscript.notice.connectionAlreadyAttempted", { id: member.id })
+        : t("chatTranscript.notice.connectionAvailableAfter", {
+            id: member.id,
+            time: new Date(member.available_at).toLocaleString(),
+          }),
+    ),
+    ...unavailable.diagnostics,
+  ].join("\n");
 }
 
 function cacheWarningText(notice: TranscriptNotice, t: Translate): string | undefined {

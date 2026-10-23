@@ -1,12 +1,12 @@
 import { afterEach, beforeEach, expect, it, vi } from "bun:test";
 import { installChatStorageFixture } from "./chatStorageFixture";
-import { act, fireEvent, renderHook, screen, waitFor } from "@testing-library/react";
+import { act, renderHook, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { QueryClient } from "@tanstack/react-query";
 import { RegistryProvider } from "@effect/atom-react";
 import type { ReactNode } from "react";
 
-import { parsePendingWorkItemID, type ChatInputMutationResult, type ChatSettingsRead } from "@/api";
+import { pendingWorkItemIDFromProto, type ChatInputMutationResult, type ChatSettingsRead } from "@/api";
 import { createTestServices, TestAppProviders } from "@/test-support/app-services";
 import { deferred } from "@/test-support/chat-runtime";
 import {
@@ -160,7 +160,7 @@ it("hides Processes discovery until adoption while rejecting typed activation wi
     outcome: {
       kind: "accepted",
       disposition: "started_turn",
-      queueItemID: parsePendingWorkItemID("99999999-9999-4999-8999-999999999999"),
+      queueItemID: pendingWorkItemIDFromProto("99999999-9999-4999-8999-999999999999"),
       diagnostic: null,
     },
   });
@@ -325,7 +325,7 @@ it("keeps the current catalog and ready settings on same-Session prompt success"
     outcome: {
       kind: "accepted",
       disposition: "started_turn",
-      queueItemID: parsePendingWorkItemID("99999999-9999-4999-8999-999999999999"),
+      queueItemID: pendingWorkItemIDFromProto("99999999-9999-4999-8999-999999999999"),
       diagnostic: null,
     },
   });
@@ -403,7 +403,7 @@ it("opens an accepted child with new typing and preserves an independently saved
       outcome: {
         kind: "accepted",
         disposition: "started_turn",
-        queueItemID: parsePendingWorkItemID("99999999-9999-4999-8999-999999999999"),
+        queueItemID: pendingWorkItemIDFromProto("99999999-9999-4999-8999-999999999999"),
         diagnostic: null,
       },
     });
@@ -540,7 +540,7 @@ it("applies an existing-Session command's late result against the currently disp
     outcome: {
       kind: "accepted",
       disposition: "started_turn",
-      queueItemID: parsePendingWorkItemID("99999999-9999-4999-8999-999999999999"),
+      queueItemID: pendingWorkItemIDFromProto("99999999-9999-4999-8999-999999999999"),
       diagnostic: null,
     },
   });
@@ -575,7 +575,7 @@ it.each(["settings", "workspace"] as const)(
     const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
     renderDestination(services, client, opening);
     const user = userEvent.setup({ delay: null });
-    fireEvent.change(await screen.findByRole("textbox"), { target: { value: "unsent input" } });
+    await user.type(await screen.findByRole("textbox"), "unsent input");
     if (source === "workspace") {
       await user.click(screen.getByRole("button", { name: opening.workspace.name }));
       await waitFor(() => {
@@ -777,7 +777,7 @@ it("adopts accepted Send in place and saves only the visible unsent editor to it
       outcome: {
         kind: "accepted",
         disposition: "started_turn",
-        queueItemID: parsePendingWorkItemID("79f762c8-0998-402a-bc80-6b42f3e241ed"),
+        queueItemID: pendingWorkItemIDFromProto("79f762c8-0998-402a-bc80-6b42f3e241ed"),
         diagnostic: null,
       },
     });
@@ -996,7 +996,7 @@ it("restores a late creation failure into the Session already adopted by another
       outcome: {
         kind: "accepted",
         disposition: "started_turn",
-        queueItemID: parsePendingWorkItemID("79f762c8-0998-402a-bc80-6b42f3e241ed"),
+        queueItemID: pendingWorkItemIDFromProto("79f762c8-0998-402a-bc80-6b42f3e241ed"),
         diagnostic: null,
       },
     });
@@ -1051,7 +1051,7 @@ it("keeps text but replaces edited settings when selecting another workspace bef
     view.result.current.composer.submit("send");
   });
   await waitFor(() => {
-    expect(view.steer.mock.calls.map(([target, input]) => [target, input])).toContainEqual([
+    expect(view.steer).toHaveBeenCalledWith(
       {
         kind: "new_chat",
         projectID: opening.projectID,
@@ -1059,7 +1059,8 @@ it("keeps text but replaces edited settings when selecting another workspace bef
         initialSettings: changed,
       },
       { kind: "text", text: "keep me" },
-    ]);
+      expect.anything(),
+    );
   });
 });
 

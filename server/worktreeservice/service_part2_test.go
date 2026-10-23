@@ -202,14 +202,14 @@ func (l serviceTestResourceLifecycle) ResourceReady(
 	ctx context.Context,
 	resource sessionruntime.AgentResourceDescriptor,
 	engine *runtime.Engine,
-	retain sessionruntime.AgentResourceRetainer,
+	observe sessionruntime.AgentResourceObserver,
 ) error {
 	if l.delegate != nil {
-		if err := l.delegate.ResourceReady(ctx, resource, engine, retain); err != nil {
+		if err := l.delegate.ResourceReady(ctx, resource, engine, observe); err != nil {
 			return err
 		}
 	}
-	return l.registry.ResourceReady(ctx, resource, engine, retain)
+	return l.registry.ResourceReady(ctx, resource, engine, observe)
 }
 
 func (l serviceTestResourceLifecycle) ResourceDraining(ctx context.Context, resource sessionruntime.AgentResourceDescriptor) error {

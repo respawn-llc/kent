@@ -24,12 +24,16 @@ import (
 	"core/server/sessionstore"
 	"core/shared/apicontract"
 	"core/shared/config"
+	"core/shared/protoapi"
+	chatpb "core/shared/protoapi/gen/kent/api/chat"
 	chatsettingspb "core/shared/protoapi/gen/kent/api/chat_settings"
+	chatshellpb "core/shared/protoapi/gen/kent/api/chat_shell"
 	runpromptpb "core/shared/protoapi/gen/kent/api/run_prompt"
 	sharedpb "core/shared/protoapi/gen/kent/api/shared"
 	"core/shared/runtimeids"
 	"core/shared/serverapi"
 	"core/shared/textutil"
+	"core/shared/toolspec"
 )
 
 func newRunThinkingSession(t *testing.T, handler http.HandlerFunc) (*Core, *session.Store, apicontract.RunPromptService) {
@@ -74,6 +78,26 @@ thinking_level = "medium"
 		t.Fatal(err)
 	}
 	return app, store, client
+}
+
+func TestChatShellPreparesDormantSessionWithoutModel(t *testing.T) {
+	app, store, _ := newRunThinkingSession(t, nil)
+	id, err := runtimeids.ParseSessionID(store.Meta().SessionID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	output := filepath.Join(store.Meta().WorkspaceRoot, "shell-first-action")
+	if err := app.ChatMutationClient().SubmitUserShellCommand(t.Context(), &chatshellpb.ShellCommandRequest{
+		Target: &chatpb.ChatTarget{Target: &chatpb.ChatTarget_Session{
+			Session: &chatpb.ExistingSessionRequestTarget{SessionId: protoapi.SessionSelectorToProto(id)},
+		}},
+		Command: "touch " + output,
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(output); err != nil {
+		t.Fatalf("shell returned before command completed: %v", err)
+	}
 }
 
 func TestRunThinkingExplicitDefaultSurvivesFailedContinuation(t *testing.T) {
@@ -163,7 +187,7 @@ func TestRunThinkingOnlySelectionReachesProvider(t *testing.T) {
 }
 
 func TestRunThinkingPreparedActivationUsesPersistedSelection(t *testing.T) {
-	app, store, _ := newRunThinkingSession(t, nil)
+	app, store, _, requests := newRunThinkingRecordingSession(t)
 	id, err := runtimeids.ParseSessionID(store.Meta().SessionID)
 	if err != nil {
 		t.Fatal(err)
@@ -193,13 +217,95 @@ func TestRunThinkingPreparedActivationUsesPersistedSelection(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	activation, err := sessionruntime.ActivationRequestFromSessionPlan(planned.Plan, "run-thinking-contract")
+	activation, err := sessionruntime.ActivationRequestFromSessionPlan(planned.Plan)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if activation.ThinkingOverrideExplicit || activation.AgentSelection != nil ||
 		activation.ActiveSettings.ThinkingLevel != "high" || activation.ActiveSettings.Model != "gpt-5.6-sol" {
 		t.Fatalf("activation did not consume saved selection: %+v", activation)
+	}
+	result, err := app.ChatMutationClient().Steer(t.Context(), &chatpb.SteerRequest{
+		QueueItemId: runtimeids.NewQueueItemID().String(),
+		Target:      chatCommandTarget(id.String()),
+		Activation:  &chatpb.Activation{Input: &chatpb.Activation_Text{Text: "use saved choices"}},
+	})
+	if err != nil || result.GetAccepted() == nil {
+		t.Fatalf("Chat admission = %v, %v", result, err)
+	}
+	if request := <-requests; request.Model != "gpt-5-mini" || request.Reasoning.Effort != "high" {
+		t.Fatalf("Chat ignored saved selection: %+v", request)
+	}
+}
+
+func TestChatActionAppliesInvocationSelection(t *testing.T) {
+	testChatActionInvocationSelection(t, false)
+}
+
+func TestChatActionAppliesInvocationSelectionToLoadedRuntime(t *testing.T) {
+	testChatActionInvocationSelection(t, true)
+}
+
+func testChatActionInvocationSelection(t *testing.T, alreadyLoaded bool) {
+	t.Helper()
+	app, store, _, requests := newRunThinkingRecordingSession(t)
+	id := store.Identity().ID
+	service, err := (chatSettingsService{core: app}).sessionSettingsService(t.Context(), id.String())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if alreadyLoaded {
+		planned, err := service.PlanLaunchSession(t.Context(), sessionlaunch.PlanRequest{
+			Mode: launch.ModeInteractive, Intent: serverapi.OpenExistingSessionLaunchIntent(id),
+			Overrides: serverapi.RunPromptOverrides{AgentRole: textutil.Value("worker"), ThinkingLevel: "low", Tools: "patch"},
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+		activation, err := sessionruntime.ActivationRequestFromSessionPlan(planned.Plan)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := app.SessionRuntimeClient().ActivateSessionRuntime(t.Context(), activation); err != nil {
+			t.Fatal(err)
+		}
+	}
+	planned, err := service.PlanLaunchSession(t.Context(), sessionlaunch.PlanRequest{
+		Mode: launch.ModeInteractive, Intent: serverapi.OpenExistingSessionLaunchIntent(id),
+		Overrides: serverapi.RunPromptOverrides{
+			AgentRole: textutil.Value("worker"), ThinkingLevel: "high", Tools: "patch",
+		},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	activation, err := sessionruntime.ActivationRequestFromSessionPlan(planned.Plan)
+	if err != nil {
+		t.Fatal(err)
+	}
+	preparation, err := protoapi.SessionRuntimePreparationToProto(activation.SessionRuntimePreparationOptions)
+	if err != nil {
+		t.Fatal(err)
+	}
+	target := chatCommandTarget(id.String())
+	target.GetSession().Preparation = preparation
+	result, err := app.ChatMutationClient().Steer(t.Context(), &chatpb.SteerRequest{
+		QueueItemId: runtimeids.NewQueueItemID().String(),
+		Target:      target,
+		Activation:  &chatpb.Activation{Input: &chatpb.Activation_Text{Text: "use invocation choices"}},
+	})
+	if err != nil || result.GetAccepted() == nil {
+		t.Fatalf("Chat admission = %v, %v", result, err)
+	}
+	if request := <-requests; request.Model != "gpt-5-mini" || request.Reasoning.Effort != "high" {
+		t.Fatalf("Chat ignored invocation selection: %+v", request)
+	}
+	record, err := app.MetadataStore().ResolvePersistedSession(t.Context(), id.String())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if record.Meta.RetainedToolSelection == nil || !reflect.DeepEqual(record.Meta.RetainedToolSelection.Tools, []toolspec.ID{toolspec.ToolPatch}) {
+		t.Fatalf("Chat discarded explicit tools: %+v", record.Meta.RetainedToolSelection)
 	}
 }
 

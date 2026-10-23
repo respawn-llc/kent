@@ -54,7 +54,7 @@ func (output compactionOutput) estimateTokens(estimator llm.TokenEstimator) int 
 func (e *Engine) estimatedProviderHistoryTokens() int {
 	estimated := e.transcriptRuntimeState().EstimatedProviderTokens()
 	if pending, ok := e.generationContextSnapshot().(pendingGenerationContext); ok {
-		estimated += pending.replacement.Output.estimateTokens(e.cfg.TokenEstimator)
+		estimated += pending.replacement.Output.estimateTokens(e.connectionSnapshot().estimator)
 	}
 	return estimated
 }

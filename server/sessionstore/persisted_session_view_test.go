@@ -8,7 +8,7 @@ import (
 )
 
 func TestPersistedSessionViewCapturesMetadataAndEventLogIndependently(t *testing.T) {
-	sessionDir := filepath.Join(t.TempDir(), "session-1")
+	sessionDir := filepath.Join(t.TempDir(), "550e8400-e29b-41d4-a716-446655440000")
 	if err := os.MkdirAll(sessionDir, 0o755); err != nil {
 		t.Fatalf("create session directory: %v", err)
 	}
@@ -34,7 +34,7 @@ func TestPersistedSessionViewCapturesMetadataAndEventLogIndependently(t *testing
 		t.Fatalf("close partially appended current event log: %v", err)
 	}
 
-	meta := Meta{SessionID: "session-1"}
+	meta := Meta{SessionID: "550e8400-e29b-41d4-a716-446655440000"}
 	view, err := ResolvePersistedSessionView(
 		context.Background(),
 		stubPersistedSessionResolver{record: PersistedSessionRecord{

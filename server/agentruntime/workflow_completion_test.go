@@ -622,23 +622,16 @@ func testAcceptedLiveWorkflowSteeringToolChoice(t *testing.T, useAutomaticToolCh
 		_, err := eng.SubmitWorkflowTurn(context.Background())
 		submitDone <- err
 	}()
-	<-client.started
-	type steeringResult struct {
-		queued QueuedUserMessage
-		err    error
+	select {
+	case <-client.started:
+	case <-time.After(runtimeTestSynchronizationTimeout):
+		t.Fatal("timed out waiting for active workflow request")
 	}
-	steeringDone := make(chan steeringResult, 1)
-	go func() {
-		queued, err := eng.Steer(context.Background(), "steer active workflow", nil)
-		steeringDone <- steeringResult{queued: queued, err: err}
-	}()
-	synctest.Wait()
+	queued, err := eng.Steer(context.Background(), "steer active workflow", nil)
+	if err != nil {
+		t.Fatalf("Steer: %v", err)
+	}
 	releaseClient()
-	steering := <-steeringDone
-	if steering.err != nil {
-		t.Fatalf("Steer: %v", steering.err)
-	}
-	queued := steering.queued
 	if queued.ID == "" {
 		t.Fatal("expected accepted live steering to queue on active workflow")
 	}

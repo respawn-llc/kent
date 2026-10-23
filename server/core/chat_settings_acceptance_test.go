@@ -152,26 +152,16 @@ func testChatSettingsRuntimeMutation(t *testing.T, switchAgent bool) {
 	initialQuestions := before.GetSession().Settings.Questions.Enabled
 	requestedQuestions := !initialQuestions
 
-	const ownerID = "chat-settings-acceptance-test"
-	activation, err := appCore.SessionRuntimeClient().ActivateSessionRuntime(t.Context(), serverapi.SessionRuntimeActivateRequest{
-		SessionID:             requestfixture.SessionID(t, sessionID.String()),
-		OwnerID:               ownerID,
-		ActiveSettings:        resolved.Config.Settings,
-		QuestionsEnabled:      textutil.Value(initialQuestions),
-		AutoCompactionEnabled: textutil.Value(before.GetSession().Settings.AutoCompaction.Effective),
-		Source:                resolved.Config.Source,
+	err = appCore.SessionRuntimeClient().ActivateSessionRuntime(t.Context(), serverapi.SessionRuntimeActivateRequest{
+		SessionID: requestfixture.SessionID(t, sessionID.String()), SessionRuntimePreparationOptions: serverapi.SessionRuntimePreparationOptions{ActiveSettings: resolved.Config.Settings,
+			QuestionsEnabled:      textutil.Value(initialQuestions),
+			AutoCompactionEnabled: textutil.Value(before.GetSession().Settings.AutoCompaction.Effective),
+			Source:                resolved.Config.Source},
 	})
 	if err != nil {
 		t.Fatalf("ActivateSessionRuntime: %v", err)
 	}
-	t.Cleanup(func() {
-		_, _ = appCore.SessionRuntimeClient().ReleaseSessionRuntime(context.Background(), serverapi.SessionRuntimeReleaseRequest{
-			Attachment:  activation,
-			OwnerID:     ownerID,
-			DropOwner:   true,
-			ClosePolicy: serverapi.SessionRuntimeReleaseClosePolicyDetachOnly,
-		})
-	})
+
 	t.Cleanup(model.unblock)
 
 	turnDone := make(chan error, 1)

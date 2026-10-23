@@ -47,8 +47,7 @@ func TestServiceListsPendingAsksBySession(t *testing.T) {
 
 func TestAskViewServiceRejectsMalformedPendingToolCallIdentity(t *testing.T) {
 	for name, request := range map[string]askquestion.AskQuestionRequest{
-		"prompt": {ToolCallID: " ask-1", StepID: promptViewStepID, Question: "one?"},
-		"step":   {ToolCallID: "ask-1", StepID: "step-1", Question: "one?"},
+		"step": {ToolCallID: "ask-1", StepID: "step-1", Question: "one?"},
 	} {
 		t.Run(name, func(t *testing.T) {
 			svc := NewAskViewService(&stubAskPendingPromptSource{items: []registry.PendingPromptSnapshot{{Request: request}}}, testsetup.OpenStore(t, t.TempDir()))
@@ -79,30 +78,5 @@ func TestServiceEncodesAbsentPendingAskRecommendationAsNil(t *testing.T) {
 	}
 	if len(resp.Questions) != 1 || resp.Questions[0].RecommendedOptionIndex != nil {
 		t.Fatalf("pending asks = %+v, want absent recommendation", resp.Questions)
-	}
-}
-
-func TestServiceRejectsInvalidPendingAskRecommendation(t *testing.T) {
-	svc := NewAskViewService(&stubAskPendingPromptSource{items: []registry.PendingPromptSnapshot{{
-		Request: askquestion.AskQuestionRequest{
-			ToolCallID:             "ask-1",
-			StepID:                 promptViewStepID,
-			Question:               "one?",
-			Suggestions:            []string{"a"},
-			RecommendedOptionIndex: 2,
-		},
-	}}}, testsetup.OpenStore(t, t.TempDir()))
-
-	if _, err := svc.ListPendingAsksBySession(
-		context.Background(),
-		&promptpb.ListPendingRequest{SessionId: requestfixture.Selector(t, "33333333-3333-4333-8333-333333333333")},
-	); err == nil {
-		t.Fatal("accepted pending ask recommendation outside suggestions")
-	}
-}
-
-func TestAskViewServiceRequiresSessionID(t *testing.T) {
-	if _, err := NewAskViewService(&stubAskPendingPromptSource{}, testsetup.OpenStore(t, t.TempDir())).ListPendingAsksBySession(context.Background(), &promptpb.ListPendingRequest{}); err == nil {
-		t.Fatal("expected validation error")
 	}
 }

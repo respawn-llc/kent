@@ -801,6 +801,7 @@ function pageResponse(group: TaskGroup, offset: number): TaskListPage {
         shortID: ["KNT", offset + 1].join("-"),
         workflowID: "workflow-1",
         workflowName: "Default",
+        stageName: null,
         title: "Task",
         createdAt: 1,
         updatedAt: 1,

@@ -122,7 +122,7 @@ func TestPreparingCompactionCountsSavedOutputOnce(t *testing.T) {
 				t.Fatalf("compaction: receipt=%+v error=%v", receipt, err)
 			}
 			buildActiveTurnRequestForTest(t, engine, nil, false)
-			want := llm.EstimateItemsTokens(engine.cfg.TokenEstimator, engine.transcriptRuntimeState().SnapshotItems())
+			want := llm.EstimateItemsTokens(engine.connectionSnapshot().estimator, engine.transcriptRuntimeState().SnapshotItems())
 			if got := engine.ContextUsage().UsedTokens; got != want {
 				t.Fatalf("prepared context usage = %d, want %d without counting saved output twice", got, want)
 			}

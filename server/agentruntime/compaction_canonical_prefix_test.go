@@ -68,7 +68,8 @@ func TestManualRemoteCompactionRebuildsCanonicalPrefixOrder(t *testing.T) {
 		t.Fatalf("compact remote context: receipt=%+v error=%v", receipt, err)
 	}
 
-	items := buildActiveTurnRequestForTest(t, engine, nil, true).Items
+	buildActiveTurnRequestForTest(t, engine, nil, true)
+	items := compactionReplacementItems(t, engine)
 	if len(items) < 8 {
 		t.Fatalf("canonical replacement items = %+v, want remote output and canonical context", items)
 	}
@@ -206,4 +207,16 @@ func assertCompactionReplacementOrder(t *testing.T, items []llm.ResponseItem, wa
 	} else if *carryoverIndex != len(items)-1 {
 		t.Fatalf("replacement must end with carryover when no future-agent message is requested: %+v", items)
 	}
+}
+
+func compactionReplacementItems(t *testing.T, engine *Engine) []llm.ResponseItem {
+	t.Helper()
+	items, replacementEnd := engine.transcriptRuntimeState().SnapshotRequestItems()
+	if replacementEnd == nil {
+		t.Fatal("compaction replacement boundary is absent")
+	}
+	if *replacementEnd < 0 || *replacementEnd > len(items) {
+		t.Fatalf("compaction replacement boundary %d is outside %d request items", *replacementEnd, len(items))
+	}
+	return items[:*replacementEnd]
 }

@@ -59,25 +59,9 @@ type runtimeControlFakeClient struct {
 	err                   error
 	appendErr             error
 	submitErr             error
+	submitDiagnostic      error
 	interruptErr          error
 	collaborative         bool
-}
-
-func TestUserTurnSubmissionFromResponsePreservesMessagePresence(t *testing.T) {
-	t.Parallel()
-	blank := ""
-	withBlank := userTurnSubmissionFromResponse(&runtimepb.SubmitUserTurnSuccess{Result: &runtimepb.SubmitUserTurnSuccess_SilentFinal{SilentFinal: &runtimepb.SubmitUserTurnSilentFinal{Message: blank}}}, "turn")
-	if withBlank.Message == nil || *withBlank.Message != "" {
-		t.Fatalf("blank submission message = %v, want present empty message", withBlank.Message)
-	}
-	if withBlank.ResultKind != clientui.UserTurnResultKindSilentFinal {
-		t.Fatalf("blank submission result kind = %v, want silent final", withBlank.ResultKind)
-	}
-
-	withoutMessage := userTurnSubmissionFromResponse(&runtimepb.SubmitUserTurnSuccess{Result: &runtimepb.SubmitUserTurnSuccess_NoFinal{NoFinal: &runtimepb.SubmitUserTurnNoFinal{}}}, "turn")
-	if withoutMessage.Message != nil {
-		t.Fatalf("omitted submission message = %v, want absent", withoutMessage.Message)
-	}
 }
 
 type timeoutNetError struct{}
@@ -245,7 +229,7 @@ func (f *runtimeControlFakeClient) AppendCommittedEntryWithNoticeID(role, text, 
 }
 func (f *runtimeControlFakeClient) submitUserMessage(_ context.Context, text string) (clientui.UserTurnSubmission, error) {
 	f.submitText = text
-	result := clientui.UserTurnSubmission{Message: textutil.Value(f.submitResult)}
+	result := clientui.UserTurnSubmission{Message: textutil.Value(f.submitResult), Diagnostic: f.submitDiagnostic}
 	if f.submitErr != nil {
 		return result, f.submitErr
 	}
@@ -273,13 +257,10 @@ func (f *runtimeControlFakeClient) compactContext(_ context.Context, args string
 	_ = args
 	return f.err
 }
-func (f *runtimeControlFakeClient) CompactRuntime(ctx context.Context, req clientui.RuntimeCompactRequest) error {
+func (f *runtimeControlFakeClient) CompactRuntime(ctx context.Context, req clientui.RuntimeCompactRequest) (clientui.RuntimeCompactResult, error) {
 	f.compactRequest = req
-	input, err := req.Admission.CanonicalInput()
-	if err != nil {
-		return err
-	}
-	return f.compactContext(ctx, input)
+	input := req.Admission.CanonicalInput()
+	return clientui.RuntimeCompactResult{}, f.compactContext(ctx, input)
 }
 func (f *runtimeControlFakeClient) Interrupt() error {
 	f.interruptCalls++
@@ -546,9 +527,9 @@ func TestInterruptedHumanInputRestoresServerOrderBeforeComposer(t *testing.T) {
 	m := newProjectedClosedUIModel(&runtimeControlFakeClient{})
 	firstID := runtimeids.NewQueueItemID()
 	secondID := runtimeids.NewQueueItemID()
-	m.injectedQueue = []injectedRuntimeQueueItem{
-		{LocalID: firstID.String(), ServerID: firstID.String(), Text: "local stale first", State: injectedRuntimeQueueEnqueued},
-		{LocalID: secondID.String(), ServerID: secondID.String(), Text: "local stale second", State: injectedRuntimeQueueEnqueued}}
+	m.injectedQueue = []*injectedRuntimeQueueItem{
+		{ServerID: textutil.Value(firstID.String()), Text: "local stale first", State: injectedRuntimeQueueEnqueued},
+		{ServerID: textutil.Value(secondID.String()), Text: "local stale second", State: injectedRuntimeQueueEnqueued}}
 	testSetMainInput(m, "composer")
 
 	cmd := m.applyTranscriptHumanInputInterrupted(&transcriptpb.HumanInputInterrupted{

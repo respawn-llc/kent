@@ -7,6 +7,7 @@ import (
 	"core/shared/runtimeids"
 	"core/shared/runtimeinput"
 	"core/shared/serverapi"
+	"core/shared/textutil"
 	"errors"
 	"fmt"
 	tea "github.com/charmbracelet/bubbletea"
@@ -46,7 +47,8 @@ func applyFirstInjectedQueueCreateDoneForTest(t *testing.T, m *uiModel, cmd tea.
 }
 
 func TestBusyEnterUsesAuthoritativeSubmitPath(t *testing.T) {
-	client := &runtimeControlFakeClient{submitQueuedID: "busy-submit-queue"}
+	disableTransientStatusClearForTest(t)
+	client := &runtimeControlFakeClient{submitQueuedID: "busy-submit-queue", submitDiagnostic: errors.New("history persistence failed")}
 	model := newProjectedTestUIModel(client)
 	model.setRuntimeActivityBusyForTest(true)
 	submittedText := "  steer while\nthinking  "
@@ -66,6 +68,16 @@ func TestBusyEnterUsesAuthoritativeSubmitPath(t *testing.T) {
 	}
 	if client.submitCalls != 1 {
 		t.Fatalf("authoritative submit calls = %d, want 1", client.submitCalls)
+	}
+	if testMainInput(model) != "" {
+		t.Fatal("accepted steering was restored for resend")
+	}
+	if len(model.injectedQueue) != 1 || model.injectedQueue[0].ServerID == nil || *model.injectedQueue[0].ServerID != client.submitQueuedID ||
+		model.injectedQueue[0].State != injectedRuntimeQueueEnqueued {
+		t.Fatalf("accepted Queue Item tracking lost: %+v", model.injectedQueue)
+	}
+	if model.transientStatus == "" {
+		t.Fatal("accepted diagnostic was not surfaced")
 	}
 }
 
@@ -151,9 +163,9 @@ func TestTranscriptQueuedStateOnlyMutatesMatchingLocalRestorationOwnership(t *te
 			model := newProjectedTestUIModel(client)
 			testSetMainInput(model, "existing draft")
 			queueID := ongoingTestQueueItemID()
-			model.injectedQueue = []injectedRuntimeQueueItem{{
-				LocalID:         "local-queue-item",
-				ServerID:        queueID.String(),
+			model.injectedQueue = []*injectedRuntimeQueueItem{{
+
+				ServerID:        textutil.Value(queueID.String()),
 				Text:            localText,
 				State:           injectedRuntimeQueueEnqueued,
 				submissionOrder: inputSubmissionOrder{sequence: 1},
@@ -197,19 +209,19 @@ func TestTranscriptQueuedStateOnlyMutatesMatchingLocalRestorationOwnership(t *te
 func TestTranscriptQueueStateWaitsForMatchingRPCOwnership(t *testing.T) {
 	model := newProjectedTestUIModel(&runtimeControlFakeClient{})
 	secondID := runtimeids.NewQueueItemID()
-	model.injectedQueue = []injectedRuntimeQueueItem{
+	model.injectedQueue = []*injectedRuntimeQueueItem{
 		{
-			LocalID:         "first-local",
-			Text:            "first",
-			State:           injectedRuntimeQueuePendingCreate,
-			CreateToken:     1,
+
+			Text:  "first",
+			State: injectedRuntimeQueuePendingCreate,
+
 			submissionOrder: inputSubmissionOrder{sequence: 1},
 		},
 		{
-			LocalID:         "second-local",
-			Text:            "second",
-			State:           injectedRuntimeQueuePendingCreate,
-			CreateToken:     2,
+
+			Text:  "second",
+			State: injectedRuntimeQueuePendingCreate,
+
 			submissionOrder: inputSubmissionOrder{sequence: 2},
 		},
 	}
@@ -218,13 +230,12 @@ func TestTranscriptQueueStateWaitsForMatchingRPCOwnership(t *testing.T) {
 		Status: transcriptpb.QueuedMessageStatus_QUEUED_MESSAGE_STATUS_ACCEPTED})
 	model.applyTranscriptQueuedMessageState(&transcriptpb.QueuedMessageState{QueueItemId: secondID.String(),
 		Status: transcriptpb.QueuedMessageStatus_QUEUED_MESSAGE_STATUS_SUBMITTED})
-	if model.injectedQueue[0].ServerID != "" || model.injectedQueue[1].ServerID != "" {
+	if model.injectedQueue[0].ServerID != nil || model.injectedQueue[1].ServerID != nil {
 		t.Fatalf("transcript event guessed pending ownership: %+v", model.injectedQueue)
 	}
 
 	next, cmd := model.inputController().handleInjectedQueueCreateDone(injectedQueueCreateDoneMsg{
-		token:   2,
-		localID: "second-local",
+		pending: model.injectedQueue[1],
 		item:    clientui.QueuedUserMessage{ID: secondID.String(), Text: "second"},
 	})
 	model = next.(*uiModel)
@@ -232,8 +243,8 @@ func TestTranscriptQueueStateWaitsForMatchingRPCOwnership(t *testing.T) {
 		model = updateUIModel(t, model, msg)
 	}
 	if len(model.injectedQueue) != 1 ||
-		model.injectedQueue[0].LocalID != "first-local" ||
-		model.injectedQueue[0].ServerID != "" ||
+		model.injectedQueue[0].Text != "first" ||
+		model.injectedQueue[0].ServerID != nil ||
 		model.injectedQueue[0].State != injectedRuntimeQueuePendingCreate {
 		t.Fatalf("terminal second submission mutated first ownership: %+v", model.injectedQueue)
 	}
@@ -245,11 +256,11 @@ func TestTranscriptQueueStateWaitsForMatchingRPCOwnership(t *testing.T) {
 func TestInterruptedHumanInputWaitsForMatchingRPCOwnership(t *testing.T) {
 	model := newProjectedTestUIModel(&runtimeControlFakeClient{})
 	queueID := runtimeids.NewQueueItemID()
-	model.injectedQueue = []injectedRuntimeQueueItem{{
-		LocalID:         "local",
-		Text:            "interrupted",
-		State:           injectedRuntimeQueuePendingCreate,
-		CreateToken:     1,
+	model.injectedQueue = []*injectedRuntimeQueueItem{{
+
+		Text:  "interrupted",
+		State: injectedRuntimeQueuePendingCreate,
+
 		submissionOrder: inputSubmissionOrder{sequence: 1},
 	}}
 
@@ -261,8 +272,7 @@ func TestInterruptedHumanInputWaitsForMatchingRPCOwnership(t *testing.T) {
 	}
 
 	next, cmd := model.inputController().handleInjectedQueueCreateDone(injectedQueueCreateDoneMsg{
-		token:   1,
-		localID: "local",
+		pending: model.injectedQueue[0],
 		item:    clientui.QueuedUserMessage{ID: queueID.String(), Text: "interrupted"},
 	})
 	model = next.(*uiModel)
@@ -340,9 +350,9 @@ func TestDisconnectedQueuedFlushRestoresTextWithTransientStatus(t *testing.T) {
 	model.setRuntimeActivityBusyForTest(true)
 	model.setRuntimeDisconnected(true)
 	model.queued = queuedInputsForTest("queued message")
-	model.injectedQueue = []injectedRuntimeQueueItem{{
-		LocalID:         "steer-1",
-		ServerID:        "steer-1",
+	model.injectedQueue = []*injectedRuntimeQueueItem{{
+
+		ServerID:        textutil.Value("steer-1"),
 		Text:            "accepted steer",
 		State:           injectedRuntimeQueueEnqueued,
 		submissionOrder: inputSubmissionOrder{sequence: 1},

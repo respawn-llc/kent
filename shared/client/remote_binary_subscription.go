@@ -49,15 +49,32 @@ func subscribeGeneratedBinary[
 	if err != nil {
 		return nil, err
 	}
+	frame, _, err := binaryCallFrame(operations.Subscribe.Name, method, request, startResult)
+	if err != nil {
+		return nil, err
+	}
+	return subscribePreparedBinary(c, ctx, operations, frame, startResult, decodeFailure,
+		newEvent, newCompletion, completionError, attachment)
+}
+
+func subscribePreparedBinary[
+	Success any, Failure comparableProtoMessage,
+	Result generatedUnaryResult[Success, Failure], Event proto.Message, Completion proto.Message,
+](
+	c *Remote, ctx context.Context, operations protoapi.SubscriptionOperations, frame rpcwire.Frame,
+	startResult Result, decodeFailure func(Failure) error,
+	newEvent func() Event, newCompletion func() Completion, completionError func(Completion) error,
+	attachment *remoteAttachmentIntent,
+) (*remoteSubscription[Event], error) {
 	conn, cleanup, err := c.openRPCConnWithAdditionalAttachment(ctx, attachment)
 	if err != nil {
 		return nil, err
 	}
-	if err := callBinaryRPC(ctx, conn, operations.Subscribe.Name, method, request, startResult); err != nil {
+	if err := callPreparedBinaryRPC(ctx, conn, operations.Subscribe.Name, frame, operations.Subscribe, startResult, false); err != nil {
 		cleanup()
 		return nil, errors.Join(serverapi.ErrStreamFailed, err)
 	}
-	if _, err := decodeGeneratedResult(method, startResult, decodeFailure); err != nil {
+	if _, err := decodeGeneratedResult(operations.Subscribe.Descriptor, startResult, decodeFailure); err != nil {
 		cleanup()
 		return nil, err
 	}

@@ -12,10 +12,7 @@ func PendingAskFromSnapshot(sessionID runtimeids.SessionID, item PendingPromptSn
 	if err != nil {
 		return clientui.PendingAsk{}, fmt.Errorf("pending ask identity: %w", err)
 	}
-	recommendedOptionIndex, err := DecodeLegacyRecommendedOptionIndex(item.Request.RecommendedOptionIndex, len(item.Request.Suggestions))
-	if err != nil {
-		return clientui.PendingAsk{}, fmt.Errorf("pending ask %q: %w", item.Request.ToolCallID, err)
-	}
+	recommendedOptionIndex := RecommendedOptionIndexFromSnapshot(item.Request.RecommendedOptionIndex)
 	return clientui.PendingAsk{
 		ToolCallID: toolCallID, SessionID: sessionID, StepID: stepID,
 		Question: item.Request.Question, Suggestions: append([]string(nil), item.Request.Suggestions...),
@@ -43,10 +40,7 @@ func PendingApprovalFromSnapshot(sessionID runtimeids.SessionID, item PendingPro
 
 func pendingToolCallIdentity(rawToolCallID, rawStepID string) (clientui.ToolCallID, runtimeids.StepID, error) {
 	toolCallID := clientui.ToolCallID(rawToolCallID)
-	if err := toolCallID.Validate(); err != nil {
-		return "", runtimeids.StepID{}, err
-	}
-	stepID, err := runtimeids.ParseStepID(rawStepID)
+	stepID, err := runtimeids.StepIDFromProto(rawStepID)
 	if err != nil {
 		return "", runtimeids.StepID{}, err
 	}

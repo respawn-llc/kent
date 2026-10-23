@@ -51,9 +51,6 @@ func (s *PromptControlService) AnswerPromptBatch(
 	ctx context.Context,
 	req *promptpb.AnswerBatchRequest,
 ) (*promptpb.AnswerBatchSuccess, error) {
-	if err := protoapi.Validate(req); err != nil {
-		return nil, err
-	}
 	if s == nil || s.prompts == nil {
 		return nil, errors.New("prompt responder is required")
 	}
@@ -163,9 +160,6 @@ func (s *PromptControlService) SubscribeFollowUp(
 	ctx context.Context,
 	req *promptpb.FollowUpWatchRequest,
 ) (serverapi.PromptFollowUpSubscription, error) {
-	if err := protoapi.Validate(req); err != nil {
-		return nil, err
-	}
 	if s == nil || s.prompts == nil {
 		return nil, errors.New("prompt responder is required")
 	}

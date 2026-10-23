@@ -1,14 +1,24 @@
 package protoapi
 
 import (
-	"fmt"
-
+	"core/shared/config"
 	sessionlaunchpb "core/shared/protoapi/gen/kent/api/session_launch"
 	"core/shared/serverapi"
 	"core/shared/toolspec"
 )
 
 func SessionRuntimeActivateToProto(request serverapi.SessionRuntimeActivateRequest) (*sessionlaunchpb.SessionRuntimeActivateRequest, error) {
+	options, err := SessionRuntimePreparationToProto(request.SessionRuntimePreparationOptions)
+	if err != nil {
+		return nil, err
+	}
+	return &sessionlaunchpb.SessionRuntimeActivateRequest{
+		SessionId: SessionSelectorToProto(request.SessionID),
+		Options:   options,
+	}, nil
+}
+
+func SessionRuntimePreparationToProto(request serverapi.SessionRuntimePreparationOptions) (*sessionlaunchpb.SessionRuntimePreparationOptions, error) {
 	settings, err := SessionSettingsToProto(request.ActiveSettings)
 	if err != nil {
 		return nil, err
@@ -17,8 +27,12 @@ func SessionRuntimeActivateToProto(request serverapi.SessionRuntimeActivateReque
 	if err != nil {
 		return nil, err
 	}
-	result := &sessionlaunchpb.SessionRuntimeActivateRequest{
-		SessionId: SessionSelectorToProto(request.SessionID), ActiveSettings: settings, Source: source,
+	result := &sessionlaunchpb.SessionRuntimePreparationOptions{
+		ConnectionScope: &sessionlaunchpb.ConnectionScope{
+			Selection:       ConnectionSelectionToProto(request.ConnectionScope.Selection),
+			UnavailableRole: request.ConnectionScope.UnavailableRole,
+		},
+		ActiveSettings: settings, Source: source,
 		QuestionsEnabled: request.QuestionsEnabled, AutoCompactionEnabled: request.AutoCompactionEnabled,
 		ThinkingOverrideExplicit: request.ThinkingOverrideExplicit,
 		AgentSelection:           SessionRuntimeAgentSelectionToProto(request.AgentSelection),
@@ -38,80 +52,42 @@ func SessionRuntimeActivateToProto(request serverapi.SessionRuntimeActivateReque
 }
 
 func SessionRuntimeActivateFromProto(request *sessionlaunchpb.SessionRuntimeActivateRequest) (serverapi.SessionRuntimeActivateRequest, error) {
-	selector, err := SessionSelectorFromProto(request.SessionId)
+	selector := SessionSelectorFromProto(request.SessionId)
+	options, err := SessionRuntimePreparationFromProto(request.Options)
 	if err != nil {
 		return serverapi.SessionRuntimeActivateRequest{}, err
 	}
+	return serverapi.SessionRuntimeActivateRequest{SessionID: selector, SessionRuntimePreparationOptions: options}, nil
+}
+
+func SessionRuntimePreparationFromProto(request *sessionlaunchpb.SessionRuntimePreparationOptions) (serverapi.SessionRuntimePreparationOptions, error) {
 	settings, err := SessionSettingsFromProto(request.ActiveSettings)
 	if err != nil {
-		return serverapi.SessionRuntimeActivateRequest{}, err
+		return serverapi.SessionRuntimePreparationOptions{}, err
 	}
 	source, err := SessionSourceReportFromProto(request.Source)
 	if err != nil {
-		return serverapi.SessionRuntimeActivateRequest{}, err
+		return serverapi.SessionRuntimePreparationOptions{}, err
 	}
 	selection, err := SessionRuntimeAgentSelectionFromProto(request.AgentSelection)
 	if err != nil {
-		return serverapi.SessionRuntimeActivateRequest{}, err
+		return serverapi.SessionRuntimePreparationOptions{}, err
 	}
-	result := serverapi.SessionRuntimeActivateRequest{
-		SessionID: selector, ActiveSettings: settings, Source: source,
+	result := serverapi.SessionRuntimePreparationOptions{
+		ActiveSettings: settings, Source: source,
 		QuestionsEnabled: request.QuestionsEnabled, AutoCompactionEnabled: request.AutoCompactionEnabled,
 		ThinkingOverrideExplicit: request.ThinkingOverrideExplicit, AgentSelection: selection,
+		ConnectionScope: config.ConnectionScope{
+			Selection:       ConnectionSelectionFromProto(request.ConnectionScope.Selection),
+			UnavailableRole: request.ConnectionScope.UnavailableRole,
+		},
 	}
 	result.ExplicitToolSelection, err = ToolSelectionFromProto(request.ExplicitToolSelection)
 	if err != nil {
-		return serverapi.SessionRuntimeActivateRequest{}, err
+		return serverapi.SessionRuntimePreparationOptions{}, err
 	}
 	for _, id := range request.EnabledToolIds {
-		tool, err := SessionToolIDFromProto(id)
-		if err != nil {
-			return serverapi.SessionRuntimeActivateRequest{}, err
-		}
-		result.EnabledToolIDs = append(result.EnabledToolIDs, string(tool))
-	}
-	return result, nil
-}
-
-func SessionRuntimeAttachmentToProto(attachment serverapi.SessionRuntimeAttachment) *sessionlaunchpb.SessionRuntimeAttachment {
-	return &sessionlaunchpb.SessionRuntimeAttachment{SessionId: attachment.SessionID, Generation: attachment.Generation}
-}
-
-func SessionRuntimeAttachmentFromProto(attachment *sessionlaunchpb.SessionRuntimeAttachment) serverapi.SessionRuntimeAttachment {
-	return serverapi.SessionRuntimeAttachment{SessionID: attachment.SessionId, Generation: attachment.Generation}
-}
-
-func SessionRuntimeReleaseToProto(request serverapi.SessionRuntimeReleaseRequest) (*sessionlaunchpb.SessionRuntimeReleaseRequest, error) {
-	result := &sessionlaunchpb.SessionRuntimeReleaseRequest{
-		Attachment: SessionRuntimeAttachmentToProto(request.Attachment),
-		DropOwner:  request.DropOwner,
-	}
-	switch request.ClosePolicy {
-	case "":
-	case serverapi.SessionRuntimeReleaseClosePolicyCloseIfIdle:
-		result.ClosePolicy = sessionlaunchpb.SessionRuntimeReleaseClosePolicy_SESSION_RUNTIME_RELEASE_CLOSE_POLICY_CLOSE_IF_IDLE.Enum()
-	case serverapi.SessionRuntimeReleaseClosePolicyDetachOnly:
-		result.ClosePolicy = sessionlaunchpb.SessionRuntimeReleaseClosePolicy_SESSION_RUNTIME_RELEASE_CLOSE_POLICY_DETACH_ONLY.Enum()
-	default:
-		return nil, fmt.Errorf("invalid Runtime release close policy %q", request.ClosePolicy)
-	}
-	return result, nil
-}
-
-func SessionRuntimeReleaseFromProto(request *sessionlaunchpb.SessionRuntimeReleaseRequest) (serverapi.SessionRuntimeReleaseRequest, error) {
-	result := serverapi.SessionRuntimeReleaseRequest{
-		Attachment: SessionRuntimeAttachmentFromProto(request.Attachment),
-		DropOwner:  request.DropOwner,
-	}
-	if request.ClosePolicy != nil {
-		switch *request.ClosePolicy {
-		case sessionlaunchpb.SessionRuntimeReleaseClosePolicy_SESSION_RUNTIME_RELEASE_CLOSE_POLICY_CLOSE_IF_IDLE:
-			result.ClosePolicy = serverapi.SessionRuntimeReleaseClosePolicyCloseIfIdle
-		case sessionlaunchpb.SessionRuntimeReleaseClosePolicy_SESSION_RUNTIME_RELEASE_CLOSE_POLICY_DETACH_ONLY:
-			result.ClosePolicy = serverapi.SessionRuntimeReleaseClosePolicyDetachOnly
-		default:
-			return serverapi.SessionRuntimeReleaseRequest{}, fmt.Errorf("invalid Runtime release close policy %v", *request.ClosePolicy)
-		}
+		result.EnabledToolIDs = append(result.EnabledToolIDs, string(SessionToolIDFromProto(id)))
 	}
 	return result, nil
 }

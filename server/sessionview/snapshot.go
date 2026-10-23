@@ -50,7 +50,7 @@ func (s *Service) resolveMainView(ctx context.Context, sessionID string) (*runti
 	}
 	if s.mainViews != nil {
 		if view, ok := s.mainViews.RuntimeMainViewSnapshot(sessionID); ok {
-			if s.targets != nil && strings.TrimSpace(view.Session.SessionId) != "" {
+			if s.targets != nil {
 				target, err := s.targets.ResolveSessionExecutionTarget(ctx, view.Session.SessionId)
 				if err != nil {
 					return nil, err
@@ -91,14 +91,11 @@ func (s dormantSessionSnapshot) MainView(ctx context.Context) (*runtimepb.MainVi
 	}
 	meta := s.view.Meta()
 	sessionFreshness := s.view.ConversationFreshness()
-	version, err := protoapi.NewReadModelVersion(
+	version := protoapi.NewReadModelVersion(
 		"persisted-session-"+meta.SessionID,
 		1,
 		uint64(meta.LastSequence)+1,
 	)
-	if err != nil {
-		return nil, err
-	}
 	freshness := runtimeview.ConversationFreshnessFromSession(sessionFreshness)
 	goalAvailability, err := session.GoalAvailabilityFromMeta(meta)
 	if err != nil {

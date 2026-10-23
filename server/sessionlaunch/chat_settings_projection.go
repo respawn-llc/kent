@@ -52,9 +52,6 @@ func projectNewChatCatalog(catalog launch.PreparedChatAgentCatalog, mode config.
 			result.InitialSettings = baseline
 		}
 	}
-	if err := protoapi.Validate(result); err != nil {
-		return nil, err
-	}
 	return result, nil
 }
 

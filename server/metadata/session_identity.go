@@ -52,10 +52,7 @@ func (s *Store) SessionIdentities(ctx context.Context, ids []runtimeids.SessionI
 }
 
 func (s *Store) ResolveSessionTarget(ctx context.Context, target *sharedpb.SessionSelector) (runtimeids.SessionID, error) {
-	selector, err := protoapi.SessionSelectorFromProto(target)
-	if err != nil {
-		return runtimeids.SessionID{}, err
-	}
+	selector := protoapi.SessionSelectorFromProto(target)
 	return s.ResolveSessionSelector(ctx, selector)
 }
 
@@ -91,7 +88,7 @@ func sessionShortID(value sql.NullInt64) (*runtimeids.SessionShortID, error) {
 func (s *Store) ResolveSessionSelector(ctx context.Context, selector runtimeids.SessionSelector) (runtimeids.SessionID, error) {
 	switch value := selector.(type) {
 	case runtimeids.SessionID:
-		if !value.IsCanonicalUUIDv4() {
+		if value.IsZero() {
 			return runtimeids.SessionID{}, errors.New("Session selector requires a canonical UUIDv4")
 		}
 		return value, nil

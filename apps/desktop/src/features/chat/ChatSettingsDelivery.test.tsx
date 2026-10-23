@@ -28,7 +28,6 @@ function TitleProbe() {
 it.each(["unavailable", "registered_idle"] as const)(
   "updates two %s Chats from real settings messages without resetting drafts or transcript observation",
   async (state) => {
-    const user = userEvent.setup({ delay: null });
     let name: string | null = null;
     let sequence = 1;
     const views = [0, 1].map(() =>
@@ -54,11 +53,11 @@ it.each(["unavailable", "registered_idle"] as const)(
       for (const view of views) {
         expect(view.handlers).toHaveLength(1);
         expect(hasSessionSettingsSubscription(view.services.transport)).toBe(true);
-        expect(view.client.isFetching()).toBe(0);
       }
     });
     for (const view of views) openSessionSettingsSubscription(view.services.transport);
     const editors = await screen.findAllByRole("textbox");
+    const user = userEvent.setup({ delay: null });
     for (const [index, editor] of editors.entries()) {
       await user.click(editor);
       await user.paste(`independent draft ${index.toString()}`);

@@ -189,8 +189,8 @@ func exerciseQuestionResolution(t *testing.T, answer, delayedSupervisor bool) {
 			t.Errorf("close authority: %v", err)
 		}
 	})
-	attachment, err := authority.OpenRuntime(t.Context(), sessionruntime.RuntimeOpenRequest{
-		SessionID: id, OwnerID: "original-client", Runtime: &plan,
+	_, err = authority.OpenRuntime(t.Context(), sessionruntime.RuntimeOpenRequest{
+		SessionID: id, Runtime: &plan,
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -263,11 +263,8 @@ func exerciseQuestionResolution(t *testing.T, answer, delayedSupervisor bool) {
 		if err := subscription.Close(); err != nil {
 			t.Fatal(err)
 		}
-		if _, err := attachment.Release(t.Context(), sessionruntime.RuntimeReleaseDetach); err != nil {
-			t.Fatal(err)
-		}
 		if _, err := authority.OpenRuntime(t.Context(), sessionruntime.RuntimeOpenRequest{
-			SessionID: id, OwnerID: "reopened-client", Runtime: &plan,
+			SessionID: id, Runtime: &plan,
 		}); err != nil {
 			t.Fatal(err)
 		}

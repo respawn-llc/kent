@@ -11,6 +11,7 @@ import (
 	pb "core/shared/protoapi/gen/kent/api/workflow_definition"
 	taskpb "core/shared/protoapi/gen/kent/api/workflow_task"
 	"core/shared/rpcwire"
+	"core/shared/runtimeids"
 	"google.golang.org/protobuf/types/known/emptypb"
 )
 
@@ -48,15 +49,15 @@ func (c *Remote) SubscribeWorkflow(ctx context.Context, req *pb.WorkflowSubscrib
 		func() *sharedpb.StreamCompletion { return &sharedpb.StreamCompletion{} }, binaryStreamCompletionError, nil)
 }
 
-func (c *Remote) subscriptionAttachment(sessionID string) (*remoteAttachmentIntent, error) {
+func (c *Remote) subscriptionAttachment(selector runtimeids.SessionSelector) *remoteAttachmentIntent {
 	c.mu.Lock()
 	attachmentIntent := c.attachIntent
 	c.mu.Unlock()
 	_, attachedToSession := attachmentIntent.sessionID()
 	if attachedToSession {
-		return nil, nil
+		return nil
 	}
-	return newRemoteSessionAttachmentIntent(sessionID)
+	return sessionAttachmentIntent(selector)
 }
 
 func (s *remoteSubscription[Event]) Next(ctx context.Context) (Event, error) {

@@ -83,12 +83,7 @@ func worktreeStatusSubcommand(args []string, stdout io.Writer, stderr io.Writer)
 		}
 		fmt.Fprintln(stdout, status.GetWorktree().GetRecordedRoot())
 		for _, problem := range status.Problems {
-			kind, err := worktreeStatusProblemKindJSON(problem.Kind)
-			if err != nil {
-				fmt.Fprintln(stderr, err)
-				return 1
-			}
-			fmt.Fprintln(stdout, kind)
+			fmt.Fprintln(stdout, worktreeStatusProblemKindJSON(problem.Kind))
 		}
 		return 0
 	})
@@ -256,13 +251,7 @@ func worktreeCreateSubcommand(args []string, stdout io.Writer, stderr io.Writer)
 	case worktreepb.CreateTargetResolutionKind_WORKTREE_CREATE_TARGET_RESOLUTION_KIND_EXISTING_BRANCH,
 		worktreepb.CreateTargetResolutionKind_WORKTREE_CREATE_TARGET_RESOLUTION_KIND_DETACHED_REF:
 		base := strings.TrimSpace(resolution.GetResolution().GetResolvedRef())
-		if base == "" {
-			base = target
-		}
 		request.Spec.BaseRef = &base
-	default:
-		fmt.Fprintf(stderr, "unsupported worktree target resolution: %s\n", resolution.GetResolution().GetKind())
-		return 1
 	}
 	response, err := remote.CreateWorktree(context.Background(), request)
 	if err != nil {
@@ -274,21 +263,13 @@ func worktreeCreateSubcommand(args []string, stdout io.Writer, stderr io.Writer)
 		return writeWorktreeJSON(stdout, stderr, output, err)
 	}
 	registered := response.GetWorktree().GetTopology().GetRegistered()
-	if registered == nil {
-		fmt.Fprintln(stderr, "create returned a non-registered worktree")
-		return 1
-	}
 	fmt.Fprintln(stdout, registered.GetGit().GetCanonicalRoot())
 	if response.Session == nil {
 		return 0
 	}
 	enter := []string{config.Command, "worktree", "enter"}
 	if _, agent := sessionenv.LookupSessionID(os.LookupEnv); !agent {
-		identity, err := protoapi.SessionIdentityFromProto(response.Session.SessionId, response.Session.ShortId)
-		if err != nil {
-			fmt.Fprintln(stderr, err)
-			return 1
-		}
+		identity := protoapi.SessionIdentityFromProto(response.Session.SessionId, response.Session.ShortId)
 		enter = append(enter, "--session", identity.String())
 	}
 	enter = append(enter, registered.GetGit().GetCanonicalRoot())
@@ -318,11 +299,7 @@ func worktreeEnterSubcommand(args []string, stdout io.Writer, stderr io.Writer) 
 		fmt.Fprintln(stderr, err)
 		return 1
 	}
-	origin, err := sessionRetargetRuntimeOrigin()
-	if err != nil {
-		fmt.Fprintln(stderr, err)
-		return 1
-	}
+	origin := sessionRetargetRuntimeOrigin()
 	var transitionOrigin *worktreepb.TransitionRuntimeStepOrigin
 	if origin != nil {
 		transitionOrigin = &worktreepb.TransitionRuntimeStepOrigin{
@@ -492,11 +469,7 @@ func writeWorktreeDeleteError(stderr io.Writer, err error) {
 		if session.Name != nil {
 			name = *session.Name
 		}
-		identity, err := protoapi.SessionIdentityFromProto(session.SessionId, session.ShortId)
-		if err != nil {
-			fmt.Fprintln(stderr, err)
-			return
-		}
+		identity := protoapi.SessionIdentityFromProto(session.SessionId, session.ShortId)
 		fmt.Fprintf(stderr, "- %s (%s)\n", name, identity.String())
 	}
 	if details.HasMore {
@@ -556,21 +529,14 @@ func worktreeTopologyVariantJSON(topology *worktreepb.TopologyEntry) (string, er
 	}
 }
 
-func worktreeStatusProblemKindJSON(kind worktreepb.StatusProblemKind) (string, error) {
-	switch kind {
-	case worktreepb.StatusProblemKind_WORKTREE_STATUS_PROBLEM_ROOT_MISSING:
-		return "root_missing", nil
-	case worktreepb.StatusProblemKind_WORKTREE_STATUS_PROBLEM_ROOT_INACCESSIBLE:
-		return "root_inaccessible", nil
-	case worktreepb.StatusProblemKind_WORKTREE_STATUS_PROBLEM_GIT_BINDING_MISSING:
-		return "git_binding_missing", nil
-	case worktreepb.StatusProblemKind_WORKTREE_STATUS_PROBLEM_GIT_BINDING_MISMATCHED:
-		return "git_binding_mismatched", nil
-	case worktreepb.StatusProblemKind_WORKTREE_STATUS_PROBLEM_RECORDED_REF_MISSING:
-		return "recorded_ref_missing", nil
-	default:
-		return "", fmt.Errorf("unsupported worktree status problem %s", kind)
-	}
+func worktreeStatusProblemKindJSON(kind worktreepb.StatusProblemKind) string {
+	return map[worktreepb.StatusProblemKind]string{
+		worktreepb.StatusProblemKind_WORKTREE_STATUS_PROBLEM_ROOT_MISSING:           "root_missing",
+		worktreepb.StatusProblemKind_WORKTREE_STATUS_PROBLEM_ROOT_INACCESSIBLE:      "root_inaccessible",
+		worktreepb.StatusProblemKind_WORKTREE_STATUS_PROBLEM_GIT_BINDING_MISSING:    "git_binding_missing",
+		worktreepb.StatusProblemKind_WORKTREE_STATUS_PROBLEM_GIT_BINDING_MISMATCHED: "git_binding_mismatched",
+		worktreepb.StatusProblemKind_WORKTREE_STATUS_PROBLEM_RECORDED_REF_MISSING:   "recorded_ref_missing",
+	}[kind]
 }
 
 func withWorktreeCommandRemote(stderr io.Writer, sessionID runtimeids.SessionSelector, fn func(apicontract.WorktreeService) int) int {

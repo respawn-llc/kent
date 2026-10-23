@@ -6,8 +6,6 @@ import (
 
 	"core/cli/app/internal/runtimeattach"
 	"core/cli/app/internal/worktreeui"
-	"core/shared/invariant"
-	"core/shared/protoapi"
 	transcriptpb "core/shared/protoapi/gen/kent/api/transcript"
 	"core/shared/runtimeinput"
 	"core/shared/worktreecontract"
@@ -322,7 +320,7 @@ func (m *uiModel) applyWorktreeCreateError(err error) {
 	if m == nil {
 		return
 	}
-	placement := classifyWorktreeCreateError(err, worktreeCreateInvariantPolicy(m.debugMode))
+	placement := classifyWorktreeCreateError(err)
 	m.worktrees.create.baseRefErrorText = ""
 	m.worktrees.create.errorText = ""
 	if placement == nil {
@@ -338,47 +336,19 @@ func (m *uiModel) applyWorktreeCreateError(err error) {
 	}
 }
 
-func classifyWorktreeCreateError(err error, policy invariant.Policy) *worktreeCreateErrorPlacement {
+func classifyWorktreeCreateError(err error) *worktreeCreateErrorPlacement {
 	if err == nil {
 		return nil
 	}
-	if contractErr := protoapi.ValidateWorktreeCreateErrorBoundary(err, "cli.worktree.create", policy); contractErr != nil {
-		return &worktreeCreateErrorPlacement{
-			owner:      worktreecontract.CreateErrorOwnerForm,
-			diagnostic: runtimeattach.FormatSubmissionError(contractErr),
-		}
-	}
 	var typed *worktreecontract.CreateError
 	if errors.As(err, &typed) {
-		if typed == nil {
-			return &worktreeCreateErrorPlacement{
-				owner:      worktreecontract.CreateErrorOwnerForm,
-				diagnostic: runtimeattach.FormatSubmissionError(err),
-			}
-		}
-		switch typed.Owner {
-		case worktreecontract.CreateErrorOwnerBaseRef:
-			return &worktreeCreateErrorPlacement{
-				owner:      worktreecontract.CreateErrorOwnerBaseRef,
-				diagnostic: typed.Diagnostic,
-			}
-		case worktreecontract.CreateErrorOwnerForm:
-			return &worktreeCreateErrorPlacement{
-				owner:      worktreecontract.CreateErrorOwnerForm,
-				diagnostic: typed.Diagnostic,
-			}
+		return &worktreeCreateErrorPlacement{
+			owner:      typed.Owner,
+			diagnostic: typed.Diagnostic,
 		}
 	}
 	return &worktreeCreateErrorPlacement{
 		owner:      worktreecontract.CreateErrorOwnerForm,
 		diagnostic: runtimeattach.FormatSubmissionError(err),
 	}
-}
-
-func worktreeCreateInvariantPolicy(debugMode bool) invariant.Policy {
-	mode := invariant.ModeDiagnostic
-	if debugMode {
-		mode = invariant.ModePanic
-	}
-	return invariant.NewPolicy(invariant.WithMode(mode))
 }

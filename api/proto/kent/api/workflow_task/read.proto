@@ -248,6 +248,7 @@ message ListItem {
   TaskStatus status = 9 [(buf.validate.field).required = true];
   repeated kent.api.workflow_definition.ProjectLabel labels = 10 [(buf.validate.field).repeated.max_items = 100];
   optional DependencyProgress dependency_progress = 11;
+  optional string stage_name = 12 [(buf.validate.field).string.min_len = 1];
 
   option (buf.validate.message).cel = {
     id: "kent.workflow_task.list_labels_unique"
@@ -486,7 +487,7 @@ message SearchSuccess {
 }
 
 message BoardGetRequest {
-  string project_id = 1 [(buf.validate.field).string.min_len = 1];
+  string project_id = 1 [(buf.validate.field).string.min_len = 1, (buf.validate.field).string.(kent.api.shared.nonblank) = true];
   optional string workflow_id = 2 [
     (buf.validate.field).string.uuid = true,
     (buf.validate.field).string.(kent.api.shared.canonical_uuid_v4) = true
@@ -548,7 +549,7 @@ message BoardGroup {
     (buf.validate.field).string.(kent.api.shared.canonical_uuid_v4) = true
   ];
   string key = 2 [(buf.validate.field).string.min_len = 1];
-  string display_name = 3 [(buf.validate.field).string.min_len = 1];
+  optional string display_name = 3 [(buf.validate.field).string.min_len = 1];
   int32 sort_order = 4;
   repeated string node_ids = 5 [(buf.validate.field).repeated.items.string.min_len = 1];
 }
@@ -780,7 +781,7 @@ message ExecutionTarget {
 
 message LiveSession {
   optional int64 short_id = 4 [(buf.validate.field).int64 = {gt: 0 lte: 9007199254740991}];
-  string session_id = 1 [(buf.validate.field).string.(kent.api.shared.nonblank) = true];
+  string session_id = 1 [(buf.validate.field).string.uuid = true, (buf.validate.field).string.(kent.api.shared.canonical_uuid_v4) = true];
   optional string session_name = 2 [(buf.validate.field).string.(kent.api.shared.nonblank) = true];
   string node_display_name = 3 [(buf.validate.field).string.(kent.api.shared.nonblank) = true];
 }
@@ -1218,7 +1219,7 @@ message LabelsGetResult {
 }
 
 message ProjectTaskGroupCountsRequest {
-  string project_id = 1 [(buf.validate.field).string.min_len = 1];
+  string project_id = 1 [(buf.validate.field).string.(kent.api.shared.nonblank) = true];
 }
 
 message ProjectTaskGroupDefinition {

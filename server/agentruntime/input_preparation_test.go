@@ -136,12 +136,8 @@ func testInputPreparationOutcome(t *testing.T, stop bool) {
 					_, err := engine.Steer(t.Context(), "pending input", nil)
 					done <- err
 				} else if submission == "agent" {
-					steer, err := NewAgentSteer(runtimeids.SessionIdentity{ID: runtimeids.NewSessionID()}, "pending input")
-					if err != nil {
-						done <- err
-						return
-					}
-					_, err = engine.SubmitAgentSteerWithHooks(t.Context(), steer, nil, func() { flushed.Add(1) })
+					steer := NewAgentSteer(runtimeids.SessionIdentity{ID: runtimeids.NewSessionID()}, "pending input")
+					_, err := engine.SubmitAgentSteerWithHooks(t.Context(), steer, nil, func() { flushed.Add(1) })
 					done <- err
 				} else {
 					_, err := engine.SubmitUserMessageWithHooks(t.Context(), "pending input", nil, func() { flushed.Add(1) })

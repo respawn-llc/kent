@@ -34,7 +34,7 @@ var supportedImageMIMEs = map[string]struct{}{
 type Tool struct {
 	fileAccess             *tools.FileAccessPolicy
 	outsideWorkspaceAudit  OutsideWorkspaceAuditLogger
-	rawImageOriginalDetail bool
+	rawImageOriginalDetail func() bool
 	supported              func() bool
 }
 
@@ -51,7 +51,7 @@ type options struct {
 	allowOutsideWorkspace    bool
 	outsideWorkspaceApprover tools.FileAccessApprover
 	outsideWorkspaceAudit    OutsideWorkspaceAuditLogger
-	rawImageOriginalDetail   bool
+	rawImageOriginalDetail   func() bool
 }
 
 func WithWorkspacePermissions(permissions *tools.WorkspacePermissions) Option {
@@ -78,9 +78,9 @@ func WithOutsideWorkspaceAuditLogger(logger OutsideWorkspaceAuditLogger) Option 
 	}
 }
 
-func WithRawImageOriginalDetail() Option {
+func WithRawImageOriginalDetail(enabled func() bool) Option {
 	return func(options *options) {
-		options.rawImageOriginalDetail = true
+		options.rawImageOriginalDetail = enabled
 	}
 }
 
@@ -182,7 +182,7 @@ func (t *Tool) Call(ctx context.Context, c tools.Call) (tools.Result, error) {
 	}
 
 	detail := "auto"
-	if in.Raw && t.rawImageOriginalDetail {
+	if in.Raw && t.rawImageOriginalDetail != nil && t.rawImageOriginalDetail() {
 		detail = "original"
 	}
 	items, buildErr := buildContentItemsForFile(resolvedPath, contentMIME, contentData, detail)

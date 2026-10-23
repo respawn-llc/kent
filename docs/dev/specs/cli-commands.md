@@ -146,9 +146,9 @@
 - Delete and archive never remove unknown files or directories from a Session directory.
 - Kent removes the Session directory only when it is empty. A non-empty directory survives removal without making the removed Session visible or resumable.
 - A missing Session fails with a readable message.
-- A connected archive caller waits without a fixed mutation deadline.
-- After caller cancellation or disconnection, an accepted archive runs under the Kent server lifetime for at most five additional minutes.
-- Kent cancels an archive that has not finished when that grace period expires.
+- An accepted archive has an overall five-minute timeout under the Kent server lifetime.
+- Caller cancellation or disconnection stops only that caller's waiting and delivery and must not change the archive timeout.
+- Kent cancels an archive that exceeds its timeout, logs the failure, and fails fast in debug mode.
 - Detached archive work has no durable job status, reconnectable outcome, retry, or restart recovery.
 - Caller cancellation or disconnection after delete acceptance stops only that caller's waiting and delivery. The accepted delete runs until completion or server shutdown.
 - Successful plain output is exactly `done`.
@@ -471,6 +471,7 @@
 ### Workflow selection and discovery
 
 - Workflow selectors are bare canonical UUID v4 values. Workflow display names and prefixed identifiers are not selectors.
+- Workflow authoring must allow operators to omit Node Group names. Optional Group names follow [Workflow rules](workflow-orchestration.md).
 - Every command that accepts a Workflow selector uses the same syntax and emits copyable bare UUIDs in human and JSON output.
 - `kent workflow list` is paginated.
 - `--project <path-or-id>` filters Workflow list to Workflows linked to the resolved Project.
@@ -780,7 +781,8 @@ Blocked by:
 - A literal query must contain at least one searchable trigram after search normalization.
 - A raw expression follows FTS5 behavior for shorter terms.
 - Command-local validation failures use exit code 2.
-- These include missing or extra positional queries, blank or overlong queries, malformed or unknown flags, invalid `--status`, invalid `--context`, invalid `--page-size`, invalid `--offset`, invalid flag combinations, and normalized-too-short literal queries.
+- These include missing or extra positional queries, malformed or unknown flags, integer conversion failures, invalid `--status`, and normalized-too-short literal queries.
+- Request values rejected by the generated API contract, including blank raw expressions, overlong queries, combining `--case-sensitive` with `--fts5`, and out-of-range `--context`, `--page-size`, and `--offset`, use exit code 1.
 - An unresolved Project selector, transport failure, schema or index failure, database busy or interruption, and every raw FTS5 evaluation failure use exit code 1.
 - SQLite reports malformed raw FTS5 syntax and some FTS schema or configuration failures through the same runtime error class.
 - Kent reports every raw FTS5 SQLite evaluation error as one generic operational failure with exit code 1.

@@ -41,11 +41,9 @@ func TestParseTaskIDRejectsMissingIdentifier(t *testing.T) {
 	}
 }
 
-func TestParseSessionIDAcceptsCanonicalUUIDv4AndSupportedLegacyIDs(t *testing.T) {
+func TestParseSessionIDAcceptsCanonicalUUIDv4(t *testing.T) {
 	for _, raw := range []string{
 		"7fd3bc93-f11c-4814-87d0-b60f10e6dd5c",
-		"session-1",
-		"legacy_session.2024",
 	} {
 		t.Run(raw, func(t *testing.T) {
 			id, err := ParseSessionID(raw)
@@ -70,6 +68,13 @@ func TestParseSessionIDRejectsEmptyPaddedAndPathEscapingValues(t *testing.T) {
 		"../session-1",
 		"nested/session-1",
 		`nested\session-1`,
+		"session-1",
+		"legacy_session.2024",
+		"7FD3BC93-F11C-4814-87D0-B60F10E6DD5C",
+		"7fd3bc93f11c481487d0b60f10e6dd5c",
+		"urn:uuid:7fd3bc93-f11c-4814-87d0-b60f10e6dd5c",
+		"{7fd3bc93-f11c-4814-87d0-b60f10e6dd5c}",
+		"11111111-1111-1111-8111-111111111111",
 	} {
 		t.Run(raw, func(t *testing.T) {
 			if _, err := ParseSessionID(raw); err == nil {
@@ -90,23 +95,6 @@ func TestNewSessionIDIsCanonicalUUIDv4(t *testing.T) {
 	}
 }
 
-func TestSessionIDTracksCanonicalUUIDv4WithoutRejectingLegacyIDs(t *testing.T) {
-	canonical, err := ParseSessionID("7fd3bc93-f11c-4814-87d0-b60f10e6dd5c")
-	if err != nil {
-		t.Fatalf("ParseSessionID canonical: %v", err)
-	}
-	if !canonical.IsCanonicalUUIDv4() {
-		t.Fatal("canonical UUIDv4 session ID was not marked canonical")
-	}
-	legacy, err := ParseSessionID("session-1")
-	if err != nil {
-		t.Fatalf("ParseSessionID legacy: %v", err)
-	}
-	if legacy.IsCanonicalUUIDv4() {
-		t.Fatal("legacy session ID was marked canonical UUIDv4")
-	}
-}
-
 func TestRuntimeUUIDIDsRoundTripAsJSONString(t *testing.T) {
 	stepID, err := ParseStepID("22222222-2222-4222-8222-222222222222")
 	if err != nil {
@@ -122,7 +110,6 @@ func TestRuntimeUUIDIDsRoundTripAsJSONString(t *testing.T) {
 	}
 
 	assertRuntimeUUIDJSONRoundTrip(t, NewQueueItemID(), new(QueueItemID))
-	assertRuntimeUUIDJSONRoundTrip(t, NewCompactionRequestID(), new(CompactionRequestID))
 	assertRuntimeUUIDJSONRoundTrip(t, NewLiveRunGroupID(), new(LiveRunGroupID))
 	assertRuntimeUUIDJSONRoundTrip(t, stepID, new(StepID))
 	assertRuntimeUUIDJSONRoundTrip(t, streamID, new(AssistantStreamID))

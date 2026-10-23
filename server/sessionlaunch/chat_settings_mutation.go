@@ -47,7 +47,7 @@ func (s *Service) MutateChatSettings(ctx context.Context, sessionID runtimeids.S
 			var selectedAgent launch.PreparedChatAgentCatalogEntry
 			var selectionErr error
 			if selectedConnection == nil {
-				selectedAgent, selectionErr = launch.PrepareChatAgentSelection(input.Configuration, projected.State.AgentSelector(), store.Meta(), s.planner.Rotation)
+				selectedAgent, selectionErr = launch.PrepareChatAgentSelection(ctx, input.Configuration, projected.State.AgentSelector(), store.Meta(), s.planner.Rotation)
 			} else {
 				selectedAgent, selectionErr = launch.RevalidateChatAgentSelection(input.Configuration, projected.State.AgentSelector(), store.Meta(), *selectedConnection)
 			}
@@ -196,10 +196,7 @@ func transcriptSessionSettingFeedback(
 	case *chatsettingspb.MutationOperation_AgentRole:
 		return nil, false, nil
 	case *chatsettingspb.MutationOperation_Supervisor:
-		value, err := protoapi.ChatSettingsSupervisorFromProto(settings.Supervisor.Value)
-		if err != nil {
-			return nil, false, err
-		}
+		value := protoapi.ChatSettingsSupervisorFromProto(settings.Supervisor.Value)
 		feedback.Kind = transcriptpb.SessionSettingKind_SESSION_SETTING_KIND_SUPERVISOR
 		feedback.Value = &transcriptpb.SessionSettingFeedback_Supervisor{Supervisor: value}
 	case *chatsettingspb.MutationOperation_Thinking:
@@ -220,9 +217,6 @@ func transcriptSessionSettingFeedback(
 		feedback.Value = &transcriptpb.SessionSettingFeedback_AutoCompaction{AutoCompaction: settings.AutoCompaction.Stored}
 	default:
 		return nil, false, errors.New("applied Chat settings operation kind is invalid")
-	}
-	if err := protoapi.Validate(feedback); err != nil {
-		return nil, false, err
 	}
 	return feedback, true, nil
 }

@@ -173,10 +173,7 @@ func requireSessionDirectiveWireEqual(t *testing.T, got *sessionlaunchpb.Session
 
 func requireSessionLifecycleLaunch(t *testing.T, result *sessionlaunchpb.SessionDirective) (serverapi.SessionLaunchIntent, *sessionlaunchpb.SessionLaunchPreparation) {
 	t.Helper()
-	intent, err := protoapi.SessionLaunchIntentFromProto(result.GetLaunch().GetIntent())
-	if err != nil {
-		t.Fatal(err)
-	}
+	intent := protoapi.SessionLaunchIntentFromProto(result.GetLaunch().GetIntent())
 	preparation := result.GetLaunch().GetPreparation()
 	if preparation == nil {
 		t.Fatal("launch result omitted preparation")

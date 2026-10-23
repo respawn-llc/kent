@@ -8,9 +8,9 @@ import (
 
 	"core/server/promptcommands"
 	"core/server/runtimecontrol"
-	"core/server/sessionruntime"
 	"core/shared/protoapi"
 	chatpb "core/shared/protoapi/gen/kent/api/chat"
+	chatshellpb "core/shared/protoapi/gen/kent/api/chat_shell"
 	promptcommandpb "core/shared/protoapi/gen/kent/api/prompt_command"
 	runtimepb "core/shared/protoapi/gen/kent/api/runtime"
 	sharedpb "core/shared/protoapi/gen/kent/api/shared"
@@ -28,10 +28,11 @@ type TargetResolutionService interface {
 }
 
 type RuntimeOpeningService interface {
-	Open(context.Context, runtimeids.SessionID) (RuntimeAttachment, error)
+	Open(context.Context, runtimeids.SessionID, *serverapi.SessionRuntimePreparationOptions) error
 }
 
 type RuntimeAdmissionService interface {
+	AdmitUserShellCommand(context.Context, runtimeids.SessionID, string) error
 	PrepareUserTurn(context.Context, string, runtimeinput.Input) (runtimecontrol.PreparedUserTurn, error)
 	AdmitChatUserTurn(
 		context.Context,
@@ -47,6 +48,23 @@ type RuntimeAdmissionService interface {
 		context.Context,
 		*runtimepb.CompactContextRequest,
 	) (bool, error)
+}
+
+func (s *Service) SubmitUserShellCommand(ctx context.Context, request *chatshellpb.ShellCommandRequest) error {
+	if err := protoapi.Validate(request); err != nil {
+		return err
+	}
+	operation, err := s.operations.Start(ctx, func(scope OperationScope) error {
+		target, err := s.prepareRuntimeWithDraft(scope, request.Target, nil)
+		if err != nil {
+			return err
+		}
+		return s.admissions.AdmitUserShellCommand(scope.Context(), target.SessionID, request.Command)
+	})
+	if err != nil {
+		return err
+	}
+	return operation.Await(ctx)
 }
 
 type ResolvedGoalSetInvoker interface {
@@ -81,9 +99,6 @@ func (s *Service) SetGoal(
 	ctx context.Context,
 	request *runtimepb.GoalSetRequest,
 ) (*runtimepb.GoalSetSuccess, error) {
-	if err := protoapi.Validate(request); err != nil {
-		return nil, err
-	}
 	if s == nil || s.operations == nil {
 		return nil, errors.New("Chat operation owner is required")
 	}
@@ -111,39 +126,28 @@ func (s *Service) setGoal(
 		return settleGoalSetError(target, err)
 	}
 	if request.ExecutionPolicy == runtimepb.GoalExecutionPolicy_GOAL_EXECUTION_POLICY_PRESERVE_RUNTIME_STATE {
-		return s.settleGoalSet(scope, request, target, nil)
+		return s.settleGoalSet(scope, request, target)
 	}
-	_, attachment, err := s.openRuntime(scope, target)
+	_, err = s.openRuntime(scope, target)
 	if err != nil {
 		return settleGoalSetError(target, err)
 	}
-	return s.settleGoalSet(scope, request, target, attachment)
+	return s.settleGoalSet(scope, request, target)
 }
 
 func (s *Service) settleGoalSet(
 	scope OperationScope,
 	request *runtimepb.GoalSetRequest,
 	target ResolvedTarget,
-	attachment RuntimeAttachment,
 ) (*runtimepb.GoalSetSuccess, error) {
 	invocation, invocationErr := s.invokeGoal(scope, request, target)
-	releasePolicy := sessionruntime.RuntimeReleaseCloseIfIdle
-	if invocationErr == nil {
-		releasePolicy = sessionruntime.RuntimeReleaseDetach
-	}
-	var releaseErr error
-	if attachment != nil {
-		releaseErr = scope.FinalizeAttachment(func(finalizationCtx context.Context) error {
-			return attachment.Release(finalizationCtx, releasePolicy)
-		})
-	}
 	if invocationErr != nil {
-		return settleGoalSetError(target, errors.Join(invocationErr, releaseErr))
+		return settleGoalSetError(target, invocationErr)
 	}
 	return goalSetSuccess(
 		target.SessionID,
 		invocation.mutation,
-		goalSetTargetError(target, errors.Join(invocation.diagnostic, releaseErr)),
+		goalSetTargetError(target, invocation.diagnostic),
 	), nil
 }
 
@@ -200,9 +204,6 @@ func (s *Service) invokeGoal(
 	if response.Mutation == nil {
 		return goalSetInvocation{}, errors.New("resolved Goal Set commit requires a mutation")
 	}
-	if err := protoapi.Validate(response.Mutation); err != nil {
-		return goalSetInvocation{}, fmt.Errorf("validate resolved Goal Set mutation: %w", err)
-	}
 	return goalSetInvocation{
 		mutation:   proto.Clone(response.Mutation).(*runtimepb.GoalMutationSuccess),
 		diagnostic: response.Diagnostic,
@@ -228,10 +229,10 @@ func (s *Service) prepareRuntimeWithDraft(
 	scope OperationScope,
 	targetRequest *chatpb.ChatTarget,
 	initialDraft *string,
-) (ResolvedTarget, RuntimeAttachment, error) {
+) (ResolvedTarget, error) {
 	target, err := s.resolveTarget(scope, targetRequest, initialDraft)
 	if err != nil {
-		return target, nil, err
+		return target, err
 	}
 	return s.openRuntime(scope, target)
 }
@@ -257,33 +258,11 @@ func (s *Service) resolveTarget(
 func (s *Service) openRuntime(
 	scope OperationScope,
 	target ResolvedTarget,
-) (ResolvedTarget, RuntimeAttachment, error) {
+) (ResolvedTarget, error) {
 	if s == nil || s.runtimes == nil {
-		return target, nil, errors.New("Session Runtime planner is required")
+		return target, errors.New("Session Runtime planner is required")
 	}
-	attachment, err := s.runtimes.Open(scope.Context(), target.SessionID)
-	if err != nil {
-		if attachment == nil {
-			return target, nil, err
-		}
-		releaseErr := scope.FinalizeAttachment(func(finalizationCtx context.Context) error {
-			return attachment.Release(finalizationCtx, sessionruntime.RuntimeReleaseCloseIfIdle)
-		})
-		return target, nil, errors.Join(err, releaseErr)
-	}
-	if attachment == nil {
-		return target, nil, errors.New("Session Runtime attachment is required")
-	}
-	if attachment.SessionID() != target.SessionID {
-		releaseErr := scope.FinalizeAttachment(func(finalizationCtx context.Context) error {
-			return attachment.Release(finalizationCtx, sessionruntime.RuntimeReleaseCloseIfIdle)
-		})
-		return target, nil, errors.Join(
-			errors.New("Session Runtime attachment targets another Session"),
-			releaseErr,
-		)
-	}
-	return target, attachment, nil
+	return target, s.runtimes.Open(scope.Context(), target.SessionID, target.Preparation)
 }
 
 func goalSetSuccessRejected(
@@ -302,9 +281,6 @@ func (s *Service) Steer(
 	ctx context.Context,
 	request *chatpb.SteerRequest,
 ) (*chatpb.InputMutationSuccess, error) {
-	if err := protoapi.Validate(request); err != nil {
-		return nil, err
-	}
 	return s.runInputMutation(ctx, request.Target, request.Activation, request.QueueItemId, inputMutationSteer)
 }
 
@@ -312,9 +288,6 @@ func (s *Service) Queue(
 	ctx context.Context,
 	request *chatpb.QueueRequest,
 ) (*chatpb.InputMutationSuccess, error) {
-	if err := protoapi.Validate(request); err != nil {
-		return nil, err
-	}
 	return s.runInputMutation(ctx, request.Target, request.Activation, request.QueueItemId, inputMutationQueue)
 }
 
@@ -322,9 +295,6 @@ func (s *Service) Compact(
 	ctx context.Context,
 	request *chatpb.CompactRequest,
 ) (*chatpb.CompactionMutationSuccess, error) {
-	if err := protoapi.Validate(request); err != nil {
-		return nil, err
-	}
 	draft, admission, err := compactionInvocation(request.Invocation)
 	if err != nil {
 		return nil, err
@@ -335,7 +305,7 @@ func (s *Service) Compact(
 	var result *chatpb.CompactionMutationSuccess
 	operation, err := s.operations.Start(ctx, func(scope OperationScope) error {
 		var operationErr error
-		result, operationErr = s.compact(scope, request.Target, draft, admission)
+		result, operationErr = s.compact(scope, request, draft, admission)
 		return operationErr
 	})
 	if err != nil {
@@ -349,12 +319,12 @@ func (s *Service) Compact(
 
 func (s *Service) compact(
 	scope OperationScope,
-	targetRequest *chatpb.ChatTarget,
+	request *chatpb.CompactRequest,
 	draft string,
 	admission runtimeinput.ManualCompactionAdmission,
 ) (*chatpb.CompactionMutationSuccess, error) {
 	ctx := scope.Context()
-	target, attachment, err := s.prepareRuntime(scope, targetRequest, draft)
+	target, err := s.prepareRuntime(scope, request.Target, draft)
 	if err != nil {
 		if target.SessionID.IsZero() {
 			return nil, err
@@ -362,48 +332,21 @@ func (s *Service) compact(
 		return compactionNotAccepted(target.SessionID, err), nil
 	}
 	if s.admissions == nil {
-		releaseErr := scope.FinalizeAttachment(func(finalizationCtx context.Context) error {
-			return attachment.Release(finalizationCtx, sessionruntime.RuntimeReleaseCloseIfIdle)
-		})
 		return compactionNotAcceptedInternal(
 			target.SessionID,
-			"release_chat_runtime",
-			errors.Join(errors.New("manual-compaction admission service is required"), releaseErr),
+			"chat_compact",
+			errors.New("manual-compaction admission service is required"),
 		), nil
 	}
-	requestID := runtimeids.NewCompactionRequestID()
 	accepted, admissionErr := s.admissions.AdmitManualCompaction(ctx, &runtimepb.CompactContextRequest{
 		SessionId: target.SessionID.String(),
-		RequestId: requestID.String(),
 		Admission: protoapi.ManualCompactionAdmissionToProto(admission),
 	})
-	releasePolicy := sessionruntime.RuntimeReleaseCloseIfIdle
-	if accepted {
-		releasePolicy = sessionruntime.RuntimeReleaseDetach
-	}
-	releaseErr := scope.FinalizeAttachment(func(finalizationCtx context.Context) error {
-		return attachment.Release(finalizationCtx, releasePolicy)
-	})
 	if !accepted {
-		if releaseErr != nil {
-			return compactionNotAcceptedInternal(
-				target.SessionID,
-				"release_chat_runtime",
-				errors.Join(admissionErr, releaseErr),
-			), nil
-		}
 		return compactionNotAccepted(target.SessionID, admissionErr), nil
 	}
-	acceptedResult := &chatpb.CompactionAccepted{
-		Request: &chatpb.CompactionRequestIdentity{Id: requestID.String()},
-	}
-	switch {
-	case releaseErr != nil:
-		acceptedResult.Diagnostic = acceptedDiagnostic(
-			"release_chat_runtime",
-			errors.Join(admissionErr, releaseErr),
-		)
-	case admissionErr != nil:
+	acceptedResult := &chatpb.CompactionAccepted{}
+	if admissionErr != nil {
 		acceptedResult.Diagnostic = acceptedDiagnostic("chat_compact", admissionErr)
 	}
 	return &chatpb.CompactionMutationSuccess{
@@ -453,33 +396,18 @@ func (s *Service) mutateInput(
 	if prepared.Placement == promptcommands.PlacementFresh {
 		operation = inputMutationSteer
 	}
-	target, attachment, err := s.openRuntime(scope, target)
+	target, err = s.openRuntime(scope, target)
 	if err != nil {
 		return inputNotAccepted(target.SessionID, operation, err), nil
 	}
 	admissionResult, admissionErr := s.admitInput(ctx, operation, target.SessionID.String(), prepared)
-	releasePolicy := sessionruntime.RuntimeReleaseCloseIfIdle
-	if admissionResult.Accepted {
-		releasePolicy = sessionruntime.RuntimeReleaseDetach
-	}
-	releaseErr := scope.FinalizeAttachment(func(finalizationCtx context.Context) error {
-		return attachment.Release(finalizationCtx, releasePolicy)
-	})
 	if !admissionResult.Accepted {
-		if releaseErr != nil {
-			return inputNotAcceptedInternal(
-				target.SessionID,
-				"release_chat_runtime",
-				errors.Join(admissionErr, releaseErr),
-			), nil
-		}
-		return inputNotAccepted(target.SessionID, operation, errors.Join(admissionErr, releaseErr)), nil
+		return inputNotAccepted(target.SessionID, operation, admissionErr), nil
 	}
 	if admissionResult.QueueItemID.IsZero() {
 		return nil, errors.Join(
 			fmt.Errorf("accepted Chat %s Queue Item identity is required", operation),
 			admissionErr,
-			releaseErr,
 		)
 	}
 	acceptedResult := &chatpb.InputAccepted{
@@ -496,11 +424,6 @@ func (s *Service) mutateInput(
 		return nil, fmt.Errorf("accepted Chat %s admission disposition is invalid: %q", operation, admissionResult.Disposition)
 	}
 	switch {
-	case releaseErr != nil:
-		acceptedResult.Diagnostic = acceptedDiagnostic(
-			"release_chat_runtime",
-			errors.Join(admissionErr, releaseErr),
-		)
 	case admissionResult.PromptHistoryFailure != nil:
 		acceptedResult.Diagnostic = promptHistoryFailureDiagnostic(
 			errors.Join(admissionResult.PromptHistoryFailure, admissionErr),
@@ -543,7 +466,7 @@ func (s *Service) prepareRuntime(
 	scope OperationScope,
 	targetRequest *chatpb.ChatTarget,
 	initialDraft string,
-) (ResolvedTarget, RuntimeAttachment, error) {
+) (ResolvedTarget, error) {
 	return s.prepareRuntimeWithDraft(scope, targetRequest, &initialDraft)
 }
 
@@ -567,16 +490,10 @@ func (s *Service) admitInput(
 }
 
 func activationInput(activation *chatpb.Activation) (string, runtimeinput.Input, error) {
-	if err := protoapi.Validate(activation); err != nil {
-		return "", runtimeinput.Input{}, err
-	}
 	if text, ok := activation.Input.(*chatpb.Activation_Text); ok {
 		return text.Text, runtimeinput.Text(text.Text), nil
 	}
 	command := activation.GetCommand()
-	if command == nil {
-		return "", runtimeinput.Input{}, errors.New("Chat activation selection is required")
-	}
 	draft := command.Token + command.SeparatorWhitespace + command.Arguments
 	return draft, runtimeinput.Command(command.CatalogIdentity, command.Arguments), nil
 }
@@ -584,9 +501,6 @@ func activationInput(activation *chatpb.Activation) (string, runtimeinput.Input,
 func compactionInvocation(
 	invocation *chatpb.CompactionInvocation,
 ) (string, runtimeinput.ManualCompactionAdmission, error) {
-	if err := protoapi.Validate(invocation); err != nil {
-		return "", runtimeinput.ManualCompactionAdmission{}, err
-	}
 	draft := invocation.Token + invocation.SeparatorWhitespace + invocation.RawGuidance
 	normalizedGuidance := runtimeinput.NormalizePendingWorkArgument(invocation.RawGuidance)
 	admission := runtimeinput.ManualCompactionAdmission{}
@@ -685,23 +599,6 @@ func inputNotAccepted(
 		Session: &chatpb.ExistingSessionTarget{SessionId: sessionID.String()},
 		Outcome: &chatpb.InputMutationSuccess_NotAccepted{
 			NotAccepted: inputNotAcceptedForCause(operation, cause),
-		},
-	}
-}
-
-func inputNotAcceptedInternal(
-	sessionID runtimeids.SessionID,
-	operation string,
-	cause error,
-) *chatpb.InputMutationSuccess {
-	return &chatpb.InputMutationSuccess{
-		Session: &chatpb.ExistingSessionTarget{SessionId: sessionID.String()},
-		Outcome: &chatpb.InputMutationSuccess_NotAccepted{
-			NotAccepted: &chatpb.InputNotAccepted{
-				Reason: &chatpb.InputNotAccepted_InternalFailure{
-					InternalFailure: internalFailure(operation, cause),
-				},
-			},
 		},
 	}
 }

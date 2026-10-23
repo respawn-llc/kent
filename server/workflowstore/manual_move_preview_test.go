@@ -4,7 +4,6 @@ import (
 	"context"
 	"database/sql"
 	"errors"
-	"strings"
 	"testing"
 	"time"
 
@@ -1571,17 +1570,6 @@ func TestManualMovePreviewPrefillsAndOverridesPendingApprovalValues(t *testing.T
 	})
 	if !errors.Is(err, ErrManualMoveValuesInvalid) {
 		t.Fatalf("extra empty value node error = %v, want values-invalid", err)
-	}
-	_, err = store.PreviewManualMove(ctx, ManualMoveRequest{
-		TaskID:        task.ID,
-		TargetNodeID:  workflow.NodeIDOf(target),
-		TransitionKey: &selected,
-		Values: map[workflow.ModelKey]map[string]string{
-			"plan": {"prior_summary": strings.Repeat("x", workflow.MaxOutputValueBytes+1)},
-		},
-	})
-	if !errors.Is(err, ErrManualMoveValuesInvalid) {
-		t.Fatalf("oversized nested value error = %v, want values-invalid", err)
 	}
 }
 

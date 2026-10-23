@@ -25,7 +25,7 @@ func testAgentChangeShutdown(t *testing.T, abort bool) {
 	id := lifecycleSessionID(t, fixture)
 	client := &interruptReplacementLLMClient{entered: make(chan context.Context, 1)}
 	plan := authorityTestRuntimePlan(t, fixture, client)
-	openLifecycleRuntime(t, fixture.authority, id, "agent-change", &plan)
+	openLifecycleRuntime(t, fixture.authority, id, &plan)
 	canceled, release := make(chan struct{}), make(chan struct{})
 	defer close(release)
 	handle, err := fixture.authority.StartAgentExecution(t.Context(), AgentExecutionRequest{

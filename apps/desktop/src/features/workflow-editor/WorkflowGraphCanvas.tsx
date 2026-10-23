@@ -71,8 +71,8 @@ export type WorkflowGraphCanvasProps = Readonly<{
   onGroupInspect: (groupID: string) => void;
   onNodeInspect: (nodeID: string) => void;
   onWorkflowInspect: () => void;
-  graphSelectionRequest?: Readonly<{ requestID: string; edgeID: string }> | null | undefined;
-  onGraphSelectionConsumed?: ((requestID: string) => void) | undefined;
+  graphSelectionRequest?: Readonly<{ edgeID: string }> | null | undefined;
+  onGraphSelectionConsumed?: ((edgeID: string) => void) | undefined;
 }>;
 
 type RenderNodesState = Readonly<{
@@ -184,8 +184,8 @@ function WorkflowGraphCanvasInner({
   onReconnectEdge: ((input: WorkflowGraphReconnectEdgeInput) => void) | undefined;
   onRemoveNodeFromGroup: ((nodeID: string) => void) | undefined;
   onWorkflowInspect: () => void;
-  graphSelectionRequest: Readonly<{ requestID: string; edgeID: string }> | null;
-  onGraphSelectionConsumed: ((requestID: string) => void) | undefined;
+  graphSelectionRequest: Readonly<{ edgeID: string }> | null;
+  onGraphSelectionConsumed: ((edgeID: string) => void) | undefined;
   nodes: readonly WorkflowGraphNode[];
   toolbarPositionStrategy: "absolute" | "fixed";
 }>) {
@@ -196,7 +196,6 @@ function WorkflowGraphCanvasInner({
     null,
   );
   const suppressedCreationHandleRef = useRef<string | null>(null);
-  const consumedGraphSelectionRequestIDRef = useRef<string | null>(null);
   const graphSelectionRequestRef = useRef(graphSelectionRequest);
   useLayoutEffect(() => {
     graphSelectionRequestRef.current = graphSelectionRequest;
@@ -220,9 +219,9 @@ function WorkflowGraphCanvasInner({
       dragAwareRenderNodes.map((node) => ({
         ...node,
         selected:
-          selection?.kind === "node" && node.data.entityKind === "node"
-            ? selection.nodeID === node.data.entityID
-            : false,
+          node.data.entityKind === "group"
+            ? selection?.kind === "group" && selection.groupID === node.data.entityID
+            : selection?.kind === "node" && selection.nodeID === node.data.entityID,
       })),
     [dragAwareRenderNodes, selection],
   );
@@ -316,10 +315,6 @@ function WorkflowGraphCanvasInner({
   );
   useEffect(() => {
     if (graphSelectionRequest === null) {
-      consumedGraphSelectionRequestIDRef.current = null;
-      return;
-    }
-    if (consumedGraphSelectionRequestIDRef.current === graphSelectionRequest.requestID) {
       return;
     }
     if (!edges.some((edge) => edge.data?.entityID === graphSelectionRequest.edgeID)) {
@@ -327,15 +322,11 @@ function WorkflowGraphCanvasInner({
     }
     queueMicrotask(() => {
       const currentRequest = graphSelectionRequestRef.current;
-      if (
-        currentRequest?.requestID !== graphSelectionRequest.requestID ||
-        currentRequest.edgeID !== graphSelectionRequest.edgeID
-      ) {
+      if (currentRequest?.edgeID !== graphSelectionRequest.edgeID) {
         return;
       }
-      consumedGraphSelectionRequestIDRef.current = currentRequest.requestID;
       setSelection({ edgeID: currentRequest.edgeID, kind: "edge" });
-      onGraphSelectionConsumed?.(currentRequest.requestID);
+      onGraphSelectionConsumed?.(currentRequest.edgeID);
     });
   }, [edges, graphSelectionRequest, onGraphSelectionConsumed]);
   useEffect(() => {

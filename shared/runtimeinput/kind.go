@@ -1,11 +1,5 @@
 package runtimeinput
 
-import (
-	"errors"
-	"fmt"
-	"strings"
-)
-
 type Kind string
 
 const (
@@ -45,24 +39,4 @@ func BuiltinCommand(command BuiltinPromptCommand, arguments string) Input {
 		Kind:          KindPromptCommand,
 		PromptCommand: &prompt,
 	}
-}
-
-func (i Input) Validate() error {
-	switch i.Kind {
-	case KindText:
-		if i.Text == nil || i.PromptCommand != nil || strings.TrimSpace(*i.Text) == "" {
-			return errors.New("text user-turn input requires non-empty text only")
-		}
-	case KindPromptCommand:
-		if i.Text != nil || i.PromptCommand == nil {
-			return errors.New("prompt-command user-turn input requires prompt_command only")
-		}
-		_, err := ParsePromptCommandName(i.PromptCommand.Name)
-		if err != nil {
-			return err
-		}
-	default:
-		return fmt.Errorf("user-turn input kind %q is invalid", i.Kind)
-	}
-	return nil
 }

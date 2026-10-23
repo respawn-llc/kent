@@ -158,12 +158,13 @@ func (s *remoteAppServer) ProjectID() string {
 	return s.remote.ProjectID()
 }
 
-func (s *remoteAppServer) RuntimeAttachmentClients() runtimeAttachmentClients {
+func (s *remoteAppServer) SessionUIClients() sessionUIClients {
 	if s == nil {
-		return runtimeAttachmentClients{}
+		return sessionUIClients{}
 	}
-	return runtimeAttachmentClients{
+	return sessionUIClients{
 		AttentionNotifications: s.remote,
+		ChatMutations:          s.remote,
 		ProcessControls:        s.remote,
 		ProcessViews:           s.remote,
 		PromptControl:          s.remote,
@@ -171,7 +172,6 @@ func (s *remoteAppServer) RuntimeAttachmentClients() runtimeAttachmentClients {
 		GoalSet:                s.remote,
 		ChatSettings:           s.remote,
 		SessionTranscript:      s.remote,
-		SessionRuntime:         s.remote,
 		SessionViews:           s.remote,
 		Worktrees:              s.remote,
 	}

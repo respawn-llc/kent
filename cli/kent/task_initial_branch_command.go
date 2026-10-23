@@ -35,8 +35,9 @@ func parseInitialBranchExecutionOptions(
 	return executionTarget, branchName, true
 }
 
-func writeWorkflowTaskTargetOrBranchError(stderr io.Writer, err error) bool {
-	return writeWorkflowExecutionTargetError(stderr, err) || writeWorkflowTaskInitialBranchError(stderr, err)
+func writeWorkflowTaskTargetOrBranchError(stderr io.Writer, taskSelector string, err error) bool {
+	return writeWorkflowExecutionTargetError(stderr, taskSelector, err) ||
+		writeWorkflowTaskInitialBranchError(stderr, err)
 }
 
 func rejectInitialBranchForMoveNoOp(stderr io.Writer, branchName *string) bool {
@@ -61,10 +62,6 @@ func writeWorkflowTaskInitialBranchError(stderr io.Writer, err error) bool {
 	var branchErr *serverapi.WorkflowTaskInitialBranchError
 	if !errors.As(err, &branchErr) {
 		return false
-	}
-	if validationErr := branchErr.Validate(); validationErr != nil {
-		fmt.Fprintf(stderr, "Invalid workflow task branch error: %v.\n", validationErr)
-		return true
 	}
 	switch branchErr.Reason {
 	case serverapi.WorkflowTaskInitialBranchErrorReasonInvalidName:

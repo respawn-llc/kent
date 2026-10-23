@@ -5,7 +5,7 @@ import { FakeRpcTransport, unexpectedProjectOverflow } from "@/test-support/api"
 import { ApiClient } from "./client";
 import { ChatService, InputAdmissionDisposition } from "@app/server-api-contract/gen/kent/api/chat/chat_pb";
 import { ContractError } from "./errors";
-import { parsePendingWorkItemID } from "./pendingWork";
+import { pendingWorkItemIDFromProto } from "./pendingWork";
 
 it("reads command names and previews from the selected workspace or exact Session", async () => {
   const method = PromptCommandService.method.getCatalog;
@@ -83,7 +83,7 @@ it("accepts a server-selected child for prompt Send and Queue but rejects text a
           case: "success",
           value: {
             session: { sessionId: child },
-            outcome: { case: "accepted", value: { request: { id: "323e4567-e89b-42d3-a456-426614174000" } } },
+            outcome: { case: "accepted", value: {} },
           },
         },
       }),
@@ -97,7 +97,7 @@ it("accepts a server-selected child for prompt Send and Queue but rejects text a
     separatorWhitespace: " ",
     arguments: "src",
   } as const;
-  const queueItemID = parsePendingWorkItemID("323e4567-e89b-42d3-a456-426614174000");
+  const queueItemID = pendingWorkItemIDFromProto("323e4567-e89b-42d3-a456-426614174000");
   for (const method of [api.steer, api.queue]) {
     const accepted = await method(target, command, queueItemID);
     expect(accepted).toMatchObject({

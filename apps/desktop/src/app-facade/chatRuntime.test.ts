@@ -346,8 +346,7 @@ describe("mounted Chat Runtime owner", () => {
       pages: [Promise.resolve(transcriptPage(null))],
     });
     const activateRuntime = vi.fn();
-    const releaseRuntime = vi.fn();
-    const api = { ...fixture.api, activateRuntime, releaseRuntime };
+    const api = { ...fixture.api, activateRuntime };
     const queryClient = new QueryClient();
     const owner = new ChatRuntimeOwner(api, target, queryClient, runtimeHost());
 
@@ -365,7 +364,6 @@ describe("mounted Chat Runtime owner", () => {
     expect(fixture.subscribeTranscript).toHaveBeenCalledTimes(1);
     await onOwnerSnapshot(owner, (snapshot) => snapshot.transcript.opening.kind === "ready");
     expect(activateRuntime).not.toHaveBeenCalled();
-    expect(releaseRuntime).not.toHaveBeenCalled();
 
     await owner.retryMainView();
     expect(fixture.getMainView).toHaveBeenCalledTimes(2);

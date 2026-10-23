@@ -8,7 +8,7 @@ import {
 } from "@app/server-api-contract/gen/kent/api/worktree/worktree_pb";
 import type { ChatTranscriptMessage, ChatTranscriptPayloadByKind as Payloads } from "./chatTranscriptTypes";
 import type { ChatTranscriptPage } from "./chatTypes";
-import { enumValue, required, safeNumber } from "./chatWire";
+import { enumValue, safeNumber } from "./chatWire";
 import {
   activeKind,
   contextUsage,
@@ -59,10 +59,10 @@ function thinking(value: T.ThinkingStatusUpdate): Payloads["thinking_status_upda
   return { StepID: value.stepId, Text: value.text };
 }
 
-function reasoning(value: T.ReasoningTraceUpdate): Payloads["reasoning_trace_update"] {
+function reasoning(value: T.ReasoningTraceUpdateValid): Payloads["reasoning_trace_update"] {
   return {
     StepID: value.stepId,
-    Identity: reasoningIdentity(required(value.identity)),
+    Identity: reasoningIdentity(value.identity),
     CompactText: value.compactText,
     Text: value.text,
   };
@@ -88,7 +88,6 @@ function step(value: T.StepState): Payloads["step_state"] {
 function compaction(value: T.CompactionStatus): Payloads["compaction_status"] {
   return {
     StepID: value.stepId,
-    RequestID: value.requestId ?? null,
     State: enumValue(value.state, {
       [T.CompactionState.STARTED]: "started",
       [T.CompactionState.COMPLETED]: "completed",
@@ -135,7 +134,7 @@ function background(value: T.BackgroundActivity): Payloads["background_activity"
   };
 }
 
-function prompt(value: T.Prompt): Payloads["prompt"] {
+function prompt(value: T.PromptValid): Payloads["prompt"] {
   const branch = value.prompt;
   if (branch.case === undefined) throw new ContractError("Transcript prompt is missing.");
   if (value.status === T.PromptStatus.RESOLVED) {
@@ -151,14 +150,14 @@ function connectionReplacement(value: T.ConnectionReplacement): Payloads["connec
   return { PreviousID: value.previousId, CurrentID: value.currentId };
 }
 
-function hydration(value: T.Hydration): Payloads["hydration"] {
-  const tail = required(value.tailSegment);
+function hydration(value: T.HydrationValid): Payloads["hydration"] {
+  const tail = value.tailSegment;
   return {
     ConnectionReplacement:
       value.connectionReplacement === undefined ? null : connectionReplacement(value.connectionReplacement),
-    SessionIdentity: sessionIdentity(required(value.sessionIdentity)),
-    SessionStatus: sessionStatus(required(value.sessionStatus)),
-    RuntimeReadModelUpdate: readModelUpdate(required(value.runtimeReadModelUpdate)),
+    SessionIdentity: sessionIdentity(value.sessionIdentity),
+    SessionStatus: sessionStatus(value.sessionStatus),
+    RuntimeReadModelUpdate: readModelUpdate(value.runtimeReadModelUpdate),
     TailSegment: {
       OlderCursor: tail.olderCursor === undefined ? null : safeNumber(tail.olderCursor),
       HasMoreAbove: tail.hasMoreAbove,
@@ -186,10 +185,9 @@ function hydration(value: T.Hydration): Payloads["hydration"] {
   };
 }
 
-function worktreeOutcome(value: T.WorktreeTransitionOutcome): Payloads["worktree_transition_outcome"] {
+function worktreeOutcome(value: T.WorktreeTransitionOutcomeValid): Payloads["worktree_transition_outcome"] {
   const failure = value.failureDetail;
-  const dirty =
-    value.deletePrecondition === undefined ? undefined : required(value.deletePrecondition.dirtyState);
+  const dirty = value.deletePrecondition === undefined ? undefined : value.deletePrecondition.dirtyState;
   return {
     OperationID: value.operationId,
     Transition: enumValue(value.transition, {
@@ -238,17 +236,15 @@ function worktreeOutcome(value: T.WorktreeTransitionOutcome): Payloads["worktree
   };
 }
 
-export function transcriptMessage(value: T.Message, sessionID: string): ChatTranscriptMessage {
-  const event = required(value.event).payload;
+export function transcriptMessage(value: T.MessageValid, sessionID: string): ChatTranscriptMessage {
+  const event = value.event.payload;
   const sequence = safeNumber(value.sequence);
-  if ((event.case === "hydration" && sequence !== 1) || (event.case !== "hydration" && sequence < 2))
-    throw new ContractError("Transcript sequence does not match event kind.");
   if (event.case === undefined) throw new ContractError("Transcript event payload is missing.");
   return projectEvent(event, sequence, sessionID);
 }
 
-type EventKind = Exclude<T.Event["payload"]["case"], undefined>;
-type EventValue<Kind extends EventKind> = Extract<T.Event["payload"], { case: Kind }>["value"];
+type EventKind = Exclude<T.EventValid["payload"]["case"], undefined>;
+type EventValue<Kind extends EventKind> = Extract<T.EventValid["payload"], { case: Kind }>["value"];
 type PresentEvent<Kind extends EventKind> = {
   [Key in Kind]: Readonly<{ case: Key; value: EventValue<Key> }>;
 }[Kind];
@@ -269,7 +265,7 @@ const eventProjections: {
   ) => ChatTranscriptMessage;
 } = {
   hydration: (value, sequence, sessionID) => {
-    if (required(value.sessionIdentity).sessionId !== sessionID)
+    if (value.sessionIdentity.sessionId !== sessionID)
       throw new ContractError("Transcript hydration does not match the requested Session.");
     return { sequence, kind: "hydration", payload: hydration(value) };
   },
@@ -356,7 +352,7 @@ const eventProjections: {
   }),
   pendingWorkChanged: (_, sequence) => ({ sequence, kind: "pending_work_changed", payload: {} }),
   pendingWorkRestored: (value, sequence) => {
-    const restoration = required(value.restoration);
+    const restoration = value.restoration;
     return {
       sequence,
       kind: "pending_work_restored",
@@ -465,13 +461,13 @@ const eventProjections: {
       WorkPerformed: value.workPerformed,
       FinalAnswer: value.finalAnswer ?? null,
       Failure: value.failure ?? null,
-      StartedAt: new Date(timestampMillis(required(value.startedAt))).toISOString(),
-      FinishedAt: new Date(timestampMillis(required(value.finishedAt))).toISOString(),
+      StartedAt: new Date(timestampMillis(value.startedAt)).toISOString(),
+      FinishedAt: new Date(timestampMillis(value.finishedAt)).toISOString(),
     },
   }),
 };
 
-export function transcriptPage(value: T.Page, sessionID: string): ChatTranscriptPage {
+export function transcriptPage(value: T.PageValid, sessionID: string): ChatTranscriptPage {
   if (value.sessionId !== sessionID)
     throw new ContractError("Transcript page does not match the requested Session.");
   return {

@@ -124,7 +124,7 @@ func TestSupervisorQuestionAfterOriginalExecutionRetires(t *testing.T) {
 			t.Error("Supervisor runtime cleanup did not finish")
 		}
 	})
-	openLifecycleRuntime(t, authority, sessionID, "supervisor-test", &plan)
+	openLifecycleRuntime(t, authority, sessionID, &plan)
 	if err := authority.WithCurrentRuntime(ctx, sessionID, func(_ context.Context, current *runtime.Engine) error {
 		engine = current
 		return nil

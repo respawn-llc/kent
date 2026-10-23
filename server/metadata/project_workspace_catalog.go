@@ -35,18 +35,6 @@ func (s *Store) ListProjectWorkspaceCatalogPage(
 		return ProjectWorkspaceCatalogPage{}, errors.New("metadata store is required")
 	}
 	projectID = strings.TrimSpace(projectID)
-	if projectID == "" {
-		return ProjectWorkspaceCatalogPage{}, errors.New("project id is required")
-	}
-	if offset < 0 {
-		return ProjectWorkspaceCatalogPage{}, errors.New("offset must be non-negative")
-	}
-	if limit < 1 || limit > MaxProjectWorkspacePageSize {
-		return ProjectWorkspaceCatalogPage{}, fmt.Errorf(
-			"limit must be between 1 and %d",
-			MaxProjectWorkspacePageSize,
-		)
-	}
 	rows, err := s.queries.ListProjectWorkspaceCatalogPage(ctx, sqlitegen.ListProjectWorkspaceCatalogPageParams{
 		ProjectID:  projectID,
 		OffsetRows: int64(offset),

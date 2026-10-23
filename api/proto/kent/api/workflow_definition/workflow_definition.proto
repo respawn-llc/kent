@@ -236,7 +236,6 @@ enum ProjectEventAction {
   WORKFLOW_PROJECT_EVENT_ACTION_RESUMED = 12;
   WORKFLOW_PROJECT_EVENT_ACTION_APPROVED = 13;
   WORKFLOW_PROJECT_EVENT_ACTION_MOVED = 14;
-  WORKFLOW_PROJECT_EVENT_ACTION_CANCELED = 15;
   WORKFLOW_PROJECT_EVENT_ACTION_COMPLETED = 16;
   WORKFLOW_PROJECT_EVENT_ACTION_COMMENT_ADDED = 17;
   WORKFLOW_PROJECT_EVENT_ACTION_COMMENT_UPDATED = 18;
@@ -384,7 +383,7 @@ message WorkflowNodeGroup {
     (buf.validate.field).string.(kent.api.shared.canonical_uuid_v4) = true
   ];
   string group_key = 3 [(buf.validate.field).string.min_len = 1];
-  string display_name = 4 [(buf.validate.field).string.min_len = 1];
+  optional string display_name = 4 [(buf.validate.field).string.min_len = 1];
   int32 sort_order = 5;
 }
 
@@ -555,7 +554,7 @@ message WorkflowDefinition {
 message GraphDraftNodeGroup {
   string id = 1;
   string key = 2;
-  string display_name = 3;
+  optional string display_name = 3;
 }
 
 message GraphDraftNode {
@@ -637,6 +636,14 @@ message GraphDraft {
   repeated GraphDraftNode nodes = 2 [(buf.validate.field).repeated.max_items = 200];
   repeated GraphDraftTransitionGroup transition_groups = 3 [(buf.validate.field).repeated.max_items = 1000];
   repeated GraphDraftEdge edges = 4 [(buf.validate.field).repeated.max_items = 1000];
+
+  option (buf.validate.message).cel = {
+    id: "kent.workflow_definition.draft_node_group_key_membership"
+    message: "node group keys must identify a group when no explicit group ID is supplied"
+    expression:
+      "this.nodes.all(node, has(node.group_id) || node.group_key.trim() == '' || "
+      "this.node_groups.exists(group, group.key.trim() == node.group_key.trim()))"
+  };
 }
 
 message GraphMetadata {
@@ -890,7 +897,10 @@ message ListRequest {
     lte: 100
   }];
   string query = 3;
-  optional string project_id = 4 [(buf.validate.field).string.min_len = 1];
+  optional string project_id = 4 [
+    (buf.validate.field).string.(kent.api.shared.nonblank) = true,
+    (buf.validate.field).string.(kent.api.shared.trimmed) = true
+  ];
   optional string workflow_id = 5 [
     (buf.validate.field).string.uuid = true,
     (buf.validate.field).string.(kent.api.shared.canonical_uuid_v4) = true
@@ -1132,6 +1142,25 @@ message GraphDeriveWiringSuccess {
 }
 
 message GraphSavePreviewRequest {
+  option (buf.validate.message).cel = {
+    id: "kent.workflow_definition.save_preview_node_group_membership"
+    message: "saved node group IDs must identify a group after normalization"
+    expression:
+      "this.graph.nodes.all(node, !has(node.group_id) || "
+      "this.graph.node_groups.exists(group, group.id.trim() == node.group_id.trim()))"
+  };
+  option (buf.validate.message).cel = {
+    id: "kent.workflow_definition.save_preview_group_identity_unique"
+    message: "saved node group IDs and keys must be unique after normalization"
+    expression:
+      "this.graph.node_groups.map(group, group.id.trim()).unique() && "
+      "this.graph.node_groups.map(group, group.key.trim()).unique()"
+  };
+  option (buf.validate.message).cel = {
+    id: "kent.workflow_definition.save_preview_group_identity"
+    message: "saved node groups require substantive IDs and keys"
+    expression: "this.graph.node_groups.all(group, group.id.trim() != '' && group.key.trim() != '')"
+  };
   string workflow_id = 1 [
     (buf.validate.field).string.uuid = true,
     (buf.validate.field).string.(kent.api.shared.canonical_uuid_v4) = true
@@ -1145,6 +1174,25 @@ message GraphSavePreviewRequest {
 }
 
 message GraphSaveRequest {
+  option (buf.validate.message).cel = {
+    id: "kent.workflow_definition.save_node_group_membership"
+    message: "saved node group IDs must identify a group after normalization"
+    expression:
+      "this.graph.nodes.all(node, !has(node.group_id) || "
+      "this.graph.node_groups.exists(group, group.id.trim() == node.group_id.trim()))"
+  };
+  option (buf.validate.message).cel = {
+    id: "kent.workflow_definition.save_group_identity_unique"
+    message: "saved node group IDs and keys must be unique after normalization"
+    expression:
+      "this.graph.node_groups.map(group, group.id.trim()).unique() && "
+      "this.graph.node_groups.map(group, group.key.trim()).unique()"
+  };
+  option (buf.validate.message).cel = {
+    id: "kent.workflow_definition.save_group_identity"
+    message: "saved node groups require substantive IDs and keys"
+    expression: "this.graph.node_groups.all(group, group.id.trim() != '' && group.key.trim() != '')"
+  };
   string workflow_id = 1 [
     (buf.validate.field).string.uuid = true,
     (buf.validate.field).string.(kent.api.shared.canonical_uuid_v4) = true
@@ -1178,6 +1226,11 @@ message GraphSavePreviewSuccess {
 }
 
 message GraphSaveSuccess {
+  option (buf.validate.message).cel = {
+    id: "kent.workflow_definition.graph_save_blockers"
+    message: "saved graphs forbid blockers and unsaved graphs require blockers"
+    expression: "this.saved == (size(this.blockers) == 0)"
+  };
   bool saved = 1;
   bool changed = 2;
   optional WorkflowDefinition definition = 3;
@@ -1238,7 +1291,7 @@ message ProjectLabelCatalog {
 }
 
 message ProjectLabelCatalogRequest {
-  string project_id = 1 [(buf.validate.field).string.min_len = 1];
+  string project_id = 1 [(buf.validate.field).string.(kent.api.shared.nonblank) = true];
 }
 
 message ProjectLabelCatalogSuccess {
@@ -1246,7 +1299,7 @@ message ProjectLabelCatalogSuccess {
 }
 
 message ProjectLabelCreateRequest {
-  string project_id = 1 [(buf.validate.field).string.min_len = 1];
+  string project_id = 1 [(buf.validate.field).string.(kent.api.shared.nonblank) = true];
   string name = 2 [
     (buf.validate.field).string.min_len = 1,
     (buf.validate.field).cel = {
@@ -1262,7 +1315,7 @@ message ProjectLabelCreateSuccess {
 }
 
 message ProjectLabelRenameRequest {
-  string project_id = 1 [(buf.validate.field).string.min_len = 1];
+  string project_id = 1 [(buf.validate.field).string.(kent.api.shared.nonblank) = true];
   string label_id = 2 [
     (buf.validate.field).string.uuid = true,
     (buf.validate.field).string.(kent.api.shared.canonical_uuid_v4) = true
@@ -1282,7 +1335,7 @@ message ProjectLabelRenameSuccess {
 }
 
 message ProjectLabelDeleteRequest {
-  string project_id = 1 [(buf.validate.field).string.min_len = 1];
+  string project_id = 1 [(buf.validate.field).string.(kent.api.shared.nonblank) = true];
   string label_id = 2 [
     (buf.validate.field).string.uuid = true,
     (buf.validate.field).string.(kent.api.shared.canonical_uuid_v4) = true
@@ -1297,7 +1350,7 @@ message ProjectLabelDeleteSuccess {
 }
 
 message ProjectLabelReorderRequest {
-  string project_id = 1 [(buf.validate.field).string.min_len = 1];
+  string project_id = 1 [(buf.validate.field).string.(kent.api.shared.nonblank) = true];
   repeated string label_ids = 2 [
     (buf.validate.field).repeated = {
       max_items: 100

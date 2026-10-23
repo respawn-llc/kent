@@ -10,6 +10,12 @@ import (
 	"core/shared/runtimeids"
 )
 
+type ConnectionConsumption struct {
+	ConnectionID  string
+	HourStartUnix int64
+	Score         int64
+}
+
 type MigrationCurrentNodeValueEnvironment struct {
 	PlacementID            string
 	CurrentInputValuesJson string
@@ -396,7 +402,7 @@ type WorkflowNodeGroup struct {
 	ID          string
 	WorkflowID  runtimeids.WorkflowID
 	GroupKey    string
-	DisplayName string
+	DisplayName sql.NullString
 	SortOrder   int64
 }
 

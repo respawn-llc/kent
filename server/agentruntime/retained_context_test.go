@@ -19,6 +19,7 @@ import (
 )
 
 func TestDispatchOmitsForeignReasoningAndPreservesConversation(t *testing.T) {
+	t.Parallel()
 	store := mustCreateTestSession(t)
 	items := llm.PrepareResponsesInputItems([]llm.ResponseItem{
 		{Type: llm.ResponseItemTypeMessage, Role: textutil.Value(llm.RoleUser), Content: textutil.Value("retained user")},
@@ -72,6 +73,7 @@ func persistRetainedItems(t *testing.T, store *session.Store, items []llm.Respon
 }
 
 func TestAgentProviderChangeRejectsIncompatibleCheckpoint(t *testing.T) {
+	t.Parallel()
 	store := mustCreateTestSession(t)
 	persistRetainedItems(t, store, []llm.ResponseItem{{
 		Type:             llm.ResponseItemTypeCompaction,
@@ -93,6 +95,7 @@ func TestAgentProviderChangeRejectsIncompatibleCheckpoint(t *testing.T) {
 }
 
 func TestRetainedReasoningDispatchCompatibility(t *testing.T) {
+	t.Parallel()
 	for _, test := range []struct {
 		name        string
 		attribution *modelcontract.ReasoningAttribution
@@ -145,6 +148,7 @@ func TestRetainedReasoningDispatchCompatibility(t *testing.T) {
 }
 
 func TestActiveCheckpointIsBlockedRatherThanOmitted(t *testing.T) {
+	t.Parallel()
 	for _, test := range []struct {
 		name      string
 		origin    *modelcontract.ReasoningAttribution
@@ -207,6 +211,7 @@ func TestActiveCheckpointIsBlockedRatherThanOmitted(t *testing.T) {
 }
 
 func TestLegacyCheckpointAttributionUsesOnlyActiveCompactionEvidence(t *testing.T) {
+	t.Parallel()
 	for _, test := range []struct {
 		name        string
 		purpose     modelcontract.ProviderOperationPurpose
@@ -269,22 +274,27 @@ func TestLegacyCheckpointAttributionUsesOnlyActiveCompactionEvidence(t *testing.
 }
 
 func TestLegacyReasoningUsesProducingStepEvidence(t *testing.T) {
+	t.Parallel()
 	testLegacyReasoningEvidence(t, []string{"openai"}, textutil.Value(modelcontract.ReasoningTypeOpenAI))
 }
 
 func TestLegacyReasoningStaysUnknownAcrossSuccessiveBackfills(t *testing.T) {
+	t.Parallel()
 	testLegacyReasoningEvidence(t, nil, nil)
 }
 
 func TestLegacyReasoningConflictingEvidenceStaysUnknown(t *testing.T) {
+	t.Parallel()
 	testLegacyReasoningEvidence(t, []string{"openai", "anthropic"}, nil)
 }
 
 func TestLegacyReasoningUnknownFormatEvidenceStaysUnknown(t *testing.T) {
+	t.Parallel()
 	testLegacyReasoningEvidence(t, []string{"openai-compatible"}, nil)
 }
 
 func TestLegacyReasoningIgnoresUnrelatedEvidence(t *testing.T) {
+	t.Parallel()
 	for _, scope := range []struct {
 		name    string
 		stepID  string
@@ -382,10 +392,12 @@ func testLegacyReasoningEvidence(t *testing.T, providers []string, want *modelco
 }
 
 func TestProducedCheckpointAttributionSurvivesResume(t *testing.T) {
+	t.Parallel()
 	testProducedCheckpointAttributionSurvivesResume(t, defaultTestProviderCapabilities(), textutil.Value(modelcontract.ReasoningTypeOpenAI), textutil.Value("openai"))
 }
 
 func TestRecordedUnknownCheckpointSurvivesResume(t *testing.T) {
+	t.Parallel()
 	for _, provider := range []*string{nil, textutil.Value("openai-compatible"), textutil.Value("unregistered-provider")} {
 		testProducedCheckpointAttributionSurvivesResume(t, defaultTestProviderCapabilities(), nil, provider)
 	}
@@ -433,10 +445,12 @@ func testProducedCheckpointAttributionSurvivesResume(t *testing.T, caps llm.Prov
 }
 
 func TestProducedReasoningAttributionSurvivesResume(t *testing.T) {
+	t.Parallel()
 	testProducedReasoningAttributionSurvivesResume(t, defaultTestProviderCapabilities(), textutil.Value(modelcontract.ReasoningTypeOpenAI), textutil.Value("openai"))
 }
 
 func TestRecordedUnknownReasoningDoesNotInheritOldContractOnResume(t *testing.T) {
+	t.Parallel()
 	for _, provider := range []*string{nil, textutil.Value("openai-compatible"), textutil.Value("unregistered-provider")} {
 		testProducedReasoningAttributionSurvivesResume(t, defaultTestProviderCapabilities(), nil, provider)
 	}

@@ -5,7 +5,6 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
-	"strings"
 
 	"core/server/metadata/sqlitegen"
 	"core/server/workflow"
@@ -52,12 +51,6 @@ type TaskDependencyRemoveResult struct {
 }
 
 func (s *Store) AddTaskDependency(ctx context.Context, req TaskDependencyAddRequest) (TaskDependencyAddResult, error) {
-	if strings.TrimSpace(string(req.BlockerTaskID)) == "" {
-		return TaskDependencyAddResult{}, errors.New("blocker task id is required")
-	}
-	if strings.TrimSpace(string(req.BlockedTaskID)) == "" {
-		return TaskDependencyAddResult{}, errors.New("blocked task id is required")
-	}
 
 	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
@@ -135,12 +128,6 @@ func attachTaskDependencyWithQueries(
 }
 
 func (s *Store) RemoveTaskDependency(ctx context.Context, req TaskDependencyRemoveRequest) (TaskDependencyRemoveResult, error) {
-	if strings.TrimSpace(string(req.BlockerTaskID)) == "" {
-		return TaskDependencyRemoveResult{}, errors.New("blocker task id is required")
-	}
-	if strings.TrimSpace(string(req.BlockedTaskID)) == "" {
-		return TaskDependencyRemoveResult{}, errors.New("blocked task id is required")
-	}
 
 	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {

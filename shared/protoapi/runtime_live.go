@@ -3,7 +3,6 @@ package protoapi
 import (
 	promptpb "core/shared/protoapi/gen/kent/api/prompt"
 	"core/shared/serverapi"
-	"fmt"
 )
 
 func ObservationQuestionFromProto(question *promptpb.ObservationQuestion) (serverapi.ObservationQuestion, error) {
@@ -14,21 +13,17 @@ func ObservationQuestionFromProto(question *promptpb.ObservationQuestion) (serve
 			return serverapi.ObservationQuestion{}, err
 		}
 		return serverapi.ObservationQuestion{Ask: &ask}, nil
-	case *promptpb.ObservationQuestion_Approval:
-		approval, err := PendingApprovalFromApproval(selected.Approval)
+	default:
+		selectedApproval := question.Question.(*promptpb.ObservationQuestion_Approval)
+		approval, err := PendingApprovalFromApproval(selectedApproval.Approval)
 		if err != nil {
 			return serverapi.ObservationQuestion{}, err
 		}
 		return serverapi.ObservationQuestion{Approval: &approval}, nil
-	default:
-		return serverapi.ObservationQuestion{}, fmt.Errorf("observation Question is required")
 	}
 }
 
 func ObservationQuestionToProto(question serverapi.ObservationQuestion) (*promptpb.ObservationQuestion, error) {
-	if err := question.Validate(); err != nil {
-		return nil, err
-	}
 	if question.Ask != nil {
 		ask, err := QuestionFromPendingAsk(*question.Ask)
 		if err != nil {

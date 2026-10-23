@@ -1,12 +1,11 @@
 import { afterEach, describe, expect, it, vi } from "bun:test";
-import { MotionConfig } from "motion/react";
 import { act, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { StrictMode } from "react";
 
 import type { ChatGoalObservationHandler, ChatSessionTarget } from "@/api";
 import { ChatOperationError, RpcError } from "@/api";
-import { createTestServices, TestAppProviders as AppProviders } from "@/test-support/app-services";
+import { createTestServices, TestAppProviders } from "@/test-support/app-services";
 import * as ui from "@/ui";
 import type { NewChatGoalHostDelivery } from "./goalBinding";
 import { createGoalFixtureOwner, GoalFixturePage } from "./goalBindingFixtures";
@@ -21,14 +20,6 @@ const target = {
   projectID: "project-1",
   sessionID,
 } as const;
-
-function TestAppProviders(props: Parameters<typeof AppProviders>[0]) {
-  return (
-    <MotionConfig skipAnimations>
-      <AppProviders {...props} />
-    </MotionConfig>
-  );
-}
 
 async function enterGoalEditor(user: ReturnType<typeof userEvent.setup>) {
   await user.click(await screen.findByRole("textbox", { name: "Goal" }));
@@ -56,7 +47,7 @@ describe("Goal sidebar", () => {
     };
     const api = createGoalSidebarApi({ goal: null, subscribeGoal });
     const view = render(
-      <TestAppProviders services={services}>
+      <TestAppProviders skipAnimations services={services}>
         <StrictMode>
           <GoalSidebarPage input={{ kind: "session", api, target }} />
         </StrictMode>
@@ -81,7 +72,7 @@ describe("Goal sidebar", () => {
     expect(closes.slice(0, firstOpeningCount).every((close) => close.mock.calls.length === 1)).toBe(true);
 
     const { unmount: unmountReopened } = render(
-      <TestAppProviders services={services}>
+      <TestAppProviders skipAnimations services={services}>
         <StrictMode>
           <GoalSidebarPage input={{ kind: "session", api, target }} />
         </StrictMode>
@@ -117,7 +108,7 @@ describe("Goal sidebar", () => {
       subscribeGoal,
     });
     render(
-      <TestAppProviders services={services}>
+      <TestAppProviders skipAnimations services={services}>
         <GoalSidebarPage input={{ kind: "session", api, target }} />
       </TestAppProviders>,
     );
@@ -141,7 +132,7 @@ describe("Goal sidebar", () => {
     expect(handlers).toHaveLength(1);
     expect(closes[0]).toHaveBeenCalledTimes(1);
 
-    await userEvent.setup({ delay: null }).click(screen.getByRole("button", { name: "Try again" }));
+    await userEvent.setup().click(screen.getByRole("button", { name: "Try again" }));
     await waitFor(() => {
       expect(handlers).toHaveLength(2);
     });
@@ -170,13 +161,13 @@ describe("Goal sidebar", () => {
       subscribeGoal,
     });
     render(
-      <TestAppProviders services={services}>
+      <TestAppProviders skipAnimations services={services}>
         <GoalSidebarPage input={{ kind: "session", api, target }} />
       </TestAppProviders>,
     );
 
     await screen.findByText("saved objective");
-    await userEvent.setup({ delay: null }).click(screen.getByRole("button", { name: "Pause" }));
+    await userEvent.setup().click(screen.getByRole("button", { name: "Pause" }));
     expect(await screen.findByRole("button", { name: "Resume" })).toBeInTheDocument();
     pauseResult.resolve({
       kind: "authoritative_goal",
@@ -212,7 +203,7 @@ describe("Goal sidebar", () => {
       subscribeGoal,
     });
     render(
-      <TestAppProviders services={services}>
+      <TestAppProviders skipAnimations services={services}>
         <GoalSidebarPage input={{ kind: "session", api, target }} />
       </TestAppProviders>,
     );
@@ -263,7 +254,7 @@ describe("Goal sidebar", () => {
       subscribeGoal,
     });
     render(
-      <TestAppProviders services={services}>
+      <TestAppProviders skipAnimations services={services}>
         <GoalSidebarPage input={{ kind: "session", api, target }} />
       </TestAppProviders>,
     );
@@ -307,13 +298,13 @@ describe("Goal sidebar", () => {
       target: newChatTarget(),
     });
     render(
-      <TestAppProviders services={services}>
+      <TestAppProviders skipAnimations services={services}>
         <GoalFixturePage api={api} owner={owner} delivered={hostDelivery} />
       </TestAppProviders>,
     );
 
     const objective = "Preserve this rejected draft";
-    const user = userEvent.setup({ delay: null });
+    const user = userEvent.setup();
     await user.type(screen.getByRole("textbox", { name: "Goal" }), objective);
     await user.click(screen.getByTestId("goal-save"));
 
@@ -339,12 +330,12 @@ describe("Goal sidebar", () => {
       unsupported: true,
     });
     render(
-      <TestAppProviders services={services}>
+      <TestAppProviders skipAnimations services={services}>
         <GoalFixturePage api={api} owner={owner} delivered={() => undefined} />
       </TestAppProviders>,
     );
 
-    const user = userEvent.setup({ delay: null });
+    const user = userEvent.setup();
     await user.type(screen.getByRole("textbox", { name: "Goal" }), "unsupported Agent Goal");
 
     const save = screen.getByTestId("goal-save");
@@ -373,12 +364,12 @@ describe("Goal sidebar", () => {
       target: newChatTarget(),
     });
     render(
-      <TestAppProviders services={services}>
+      <TestAppProviders skipAnimations services={services}>
         <GoalFixturePage api={api} owner={owner} delivered={hostDelivery} />
       </TestAppProviders>,
     );
 
-    const user = userEvent.setup({ delay: null });
+    const user = userEvent.setup();
     await user.type(screen.getByRole("textbox", { name: "Goal" }), "New Chat Goal");
     await user.click(screen.getByTestId("goal-save"));
 
@@ -412,18 +403,22 @@ describe("Goal sidebar", () => {
       target: newChatTarget(),
     });
     const view = render(
-      <TestAppProviders services={services}>
+      <TestAppProviders skipAnimations services={services}>
         <GoalFixturePage api={api} owner={owner} delivered={hostDelivery} />
       </TestAppProviders>,
     );
-    const user = userEvent.setup({ delay: null });
+    const user = userEvent.setup();
     await user.type(screen.getByRole("textbox", { name: "Goal" }), "close-safe success");
     await user.click(screen.getByTestId("goal-save"));
     // Closing a sidebar does not close its window or replace the window's Atom registry.
-    view.rerender(<TestAppProviders services={services}>{null}</TestAppProviders>);
+    view.rerender(
+      <TestAppProviders skipAnimations services={services}>
+        {null}
+      </TestAppProviders>,
+    );
 
     view.rerender(
-      <TestAppProviders services={services}>
+      <TestAppProviders skipAnimations services={services}>
         <GoalFixturePage api={api} owner={owner} delivered={hostDelivery} />
       </TestAppProviders>,
     );

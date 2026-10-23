@@ -124,7 +124,7 @@ func TestCompactAndContinuePreservesAccountDespiteChangedAssignmentOrder(t *test
 	f.waitForTaskQuiescence(t, task.ID)
 	source := f.onlyProjectSessionMeta(t)
 	for _, member := range []config.ConnectionID{"b", "a"} {
-		selected, err := f.starter.connectionRotation.Prepare(cfg.Settings, true)
+		selected, err := f.starter.connectionRotation.Prepare(t.Context(), cfg.Settings, true)
 		if err != nil || selected != member {
 			t.Fatalf("competing allocation = %s, %v, want %s", selected, err, member)
 		}
@@ -156,7 +156,7 @@ func TestCompactAndContinuePreservesAccountDespiteChangedAssignmentOrder(t *test
 		meta.WorkflowSnapshot == nil || meta.WorkflowSnapshot.CompletionMode != workflowruntime.CompletionModeUnstructuredOutput {
 		t.Fatalf("continuation did not preserve Session account and its completion capabilities: %+v", meta)
 	}
-	selected, err := f.starter.connectionRotation.Prepare(cfg.Settings, true)
+	selected, err := f.starter.connectionRotation.Prepare(t.Context(), cfg.Settings, true)
 	if err != nil || selected != "b" {
 		t.Fatalf("continuation changed assignment order: next allocation = %s, %v, want b", selected, err)
 	}

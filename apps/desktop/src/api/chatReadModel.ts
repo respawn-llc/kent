@@ -11,7 +11,7 @@ import type { ChatMainViewRead, ChatRuntimeStatus } from "./chatTypes";
 import { chatExecutionTarget, chatRuntimeActivity } from "./chatProjection";
 import { goalFactFromWire } from "./chatGoal";
 import { ContractError } from "./errors";
-import { enumValue, required, safeNumber } from "./chatWire";
+import { enumValue, safeNumber } from "./chatWire";
 import { projectAvailability } from "./clientProject";
 
 export function conversationFreshness(value: R.ConversationFreshness): 0 | 1 {
@@ -79,16 +79,16 @@ export function activityFacts(value: R.Activity): ChatActivityFacts {
 }
 
 export function readModelUpdate(
-  value: R.ReadModelUpdate,
+  value: R.ReadModelUpdateValid,
 ): ChatTranscriptPayloadByKind["runtime_read_model_update"] {
-  const version = required(value.version);
+  const version = value.version;
   return {
     Version: {
       Epoch: version.epoch,
       Generation: safeNumber(version.generation),
       Sequence: safeNumber(version.sequence),
     },
-    Activity: activityFacts(required(value.activity)),
+    Activity: activityFacts(value.activity),
   };
 }
 
@@ -100,8 +100,8 @@ export function contextUsage(value: R.ContextUsage): ChatTranscriptPayloadByKind
   };
 }
 
-function runtimeStatus(value: R.Status): ChatRuntimeStatus {
-  const usage = required(value.contextUsage);
+function runtimeStatus(value: R.StatusValid): ChatRuntimeStatus {
+  const usage = value.contextUsage;
   return {
     reviewerFrequency: value.reviewerFrequency,
     reviewerEnabled: value.reviewerEnabled,
@@ -132,12 +132,12 @@ function runtimeStatus(value: R.Status): ChatRuntimeStatus {
   };
 }
 
-export function mainView(value: R.MainView, sessionID: string): ChatMainViewRead {
-  const session = required(value.session);
+export function mainView(value: R.MainViewValid, sessionID: string): ChatMainViewRead {
+  const session = value.session;
   if (session.sessionId !== sessionID)
     throw new ContractError("Session Main View does not match the requested Session.");
-  const version = required(value.version);
-  const status = required(value.status);
+  const version = value.version;
+  const status = value.status;
   return {
     mainView: {
       version: {
@@ -150,8 +150,8 @@ export function mainView(value: R.MainView, sessionID: string): ChatMainViewRead
       sessionName: session.sessionName ?? null,
       category: sessionCategoryFromGenerated(session.category),
       shortID: session.shortId ?? null,
-      executionTarget: chatExecutionTarget(executionFacts(required(session.executionTarget))),
-      activity: chatRuntimeActivity(activityFacts(required(value.activity))),
+      executionTarget: chatExecutionTarget(executionFacts(session.executionTarget)),
+      activity: chatRuntimeActivity(activityFacts(value.activity)),
     },
     goal: goalFactFromWire(status.goal),
   };

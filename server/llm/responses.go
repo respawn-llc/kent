@@ -90,11 +90,14 @@ type ResponsesProviderCapabilitiesTransport interface {
 }
 
 type ResponsesClient struct {
-	transport ResponsesTransport
+	transport     ResponsesTransport
+	usageObserver UsageObserver
 }
 
-func NewResponsesClient(transport ResponsesTransport) *ResponsesClient {
-	return &ResponsesClient{transport: transport}
+type UsageObserver func(context.Context, string, Usage)
+
+func NewResponsesClient(transport ResponsesTransport, observer UsageObserver) *ResponsesClient {
+	return &ResponsesClient{transport: transport, usageObserver: observer}
 }
 
 func (c *ResponsesClient) Generate(ctx context.Context, request Request, callbacks StreamCallbacks) (Response, error) {
@@ -111,8 +114,18 @@ func (c *ResponsesClient) Generate(ctx context.Context, request Request, callbac
 	if err != nil {
 		return Response{}, fmt.Errorf("responses generate: %w", err)
 	}
-
+	// Runtime acceptance can still fail; the provider has already consumed these tokens.
+	c.observeUsage(ctx, request.Model, providerResp.ServedModel, providerResp.Usage)
 	return responseFromResponses(providerResp)
+}
+
+func (c *ResponsesClient) observeUsage(ctx context.Context, model string, servedModel *string, usage Usage) {
+	if c.usageObserver != nil {
+		if servedModel != nil {
+			model = *servedModel
+		}
+		c.usageObserver(ctx, model, usage)
+	}
 }
 
 func responseFromResponses(providerResp ResponsesResponse) (Response, error) {
@@ -172,6 +185,7 @@ func (c *ResponsesClient) Compact(ctx context.Context, request CompactionRequest
 	if err != nil {
 		return CompactionResponse{}, fmt.Errorf("responses compact: %w", err)
 	}
+	c.observeUsage(ctx, request.Model, providerResp.ProviderEvidence.ServedModel, providerResp.Usage)
 	return CompactionResponse{
 		OutputItems:      CloneResponseItems(providerResp.OutputItems),
 		Usage:            providerResp.Usage,

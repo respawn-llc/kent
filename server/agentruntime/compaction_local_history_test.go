@@ -8,7 +8,6 @@ import (
 
 	"core/server/llm"
 	"core/server/tools"
-	"core/shared/runtimeids"
 	"core/shared/runtimeinput"
 	"core/shared/serverapi"
 	"core/shared/textutil"
@@ -213,10 +212,8 @@ func TestManualCompactionDisabledWhenModeNone(t *testing.T) {
 		t.Fatalf("persist compaction input: %v", err)
 	}
 
-	requestID := runtimeids.NewCompactionRequestID()
-	if _, err := engine.CompactContextAdmissionForRequestWithAcceptance(
+	if _, err := engine.CompactContextAdmissionWithAcceptance(
 		context.Background(),
-		requestID,
 		runtimeinput.ManualCompactionAdmission{},
 		nil,
 	); !errors.Is(err, serverapi.ErrManualCompactionDisabled) {

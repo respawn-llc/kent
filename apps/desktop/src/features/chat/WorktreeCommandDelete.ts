@@ -21,7 +21,7 @@ export function createWorktreeCommandDelete({
       const resolved =
         selector === null
           ? (await api.getWorktreeStatus(sessionID)).worktree?.recordedRoot
-          : (await api.resolveWorktreeSelector(sessionID, selector)).worktree?.projection?.selector;
+          : (await api.resolveWorktreeSelector(sessionID, selector)).worktree.projection.selector;
       if (resolved === undefined) throw new Error("Worktree read returned no target identity");
       return api.previewWorktreeDelete(sessionID, resolved);
     },

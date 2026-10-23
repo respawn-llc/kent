@@ -127,6 +127,5 @@ func (a *sessionReattachAuthority) authorizes(sessionID string, capability *stri
 	if err != nil {
 		return false
 	}
-	actual := strings.TrimSpace(*capability)
-	return actual == *capability && hmac.Equal([]byte(actual), []byte(expected))
+	return hmac.Equal([]byte(*capability), []byte(expected))
 }

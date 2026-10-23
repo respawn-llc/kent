@@ -43,12 +43,14 @@ export function NativeChatRoute({
   const navigation = useMemo(
     () => ({
       openTask: async (taskID: string) => requestMainNavigation({ kind: "taskDetail", taskID }),
-      openParentSession: async (previousSessionID: string) =>
-        requestMainNavigation({
+      projectID,
+      openParentSession: async (previousSessionID: string) => {
+        await requestMainNavigation({
           kind: "sessionChat",
           projectID,
           sessionID: previousSessionID,
-        }),
+        });
+      },
       openEditedSession: openChildSession,
     }),
     [projectID, requestMainNavigation, openChildSession],

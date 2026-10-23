@@ -1,8 +1,7 @@
 import { afterEach, expect, it, vi } from "bun:test";
-import { MotionConfig } from "motion/react";
-import { act, fireEvent, render, renderHook, screen, waitFor, within } from "@testing-library/react";
+import { act, render, renderHook, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import type { ReactNode } from "react";
+import { createElement } from "react";
 
 import {
   ChatOperationError,
@@ -13,7 +12,7 @@ import {
   type ChatSettingsRead,
   type InitialChatSettings,
 } from "@/api";
-import { createTestServices, TestAppProviders as AppProviders } from "@/test-support/app-services";
+import { createTestServices, TestAppProviders } from "@/test-support/app-services";
 import type { ChatSettingsFeature } from "./index";
 import { useChatSettings, type ChatSettingsOptions } from "./chatSettingsTestOwner";
 import * as ui from "@/ui";
@@ -24,17 +23,14 @@ afterEach(() => {
   vi.restoreAllMocks();
 });
 
-function TestAppProviders(props: Parameters<typeof AppProviders>[0]) {
-  return (
-    <MotionConfig skipAnimations>
-      <AppProviders {...props} />
-    </MotionConfig>
-  );
-}
-
 const sessionID = "123e4567-e89b-42d3-a456-426614174000";
-const target = { kind: "session", projectID: "project-1", sessionID } as const;
+const target = {
+  kind: "session",
+  projectID: "project-1",
+  sessionID,
+} as const;
 const navigation = {
+  projectID: target.projectID,
   openTask: vi.fn<(taskID: string) => void>(),
   openParentSession: vi.fn<(previousSessionID: string) => void>(),
 };
@@ -139,22 +135,22 @@ it("requires confirmation before switching a cached Session Agent", async () => 
   const mutate = vi.spyOn(services.api.chat, "mutateSettings").mockReturnValue(pending.promise);
   const user = userEvent.setup({ skipHover: true });
   render(
-    <TestAppProviders services={services}>
+    <TestAppProviders skipAnimations services={services}>
       <SessionSettingsChipHost />
     </TestAppProviders>,
   );
-  fireEvent.mouseEnter(await screen.findByRole("button", { name: appI18n.t("chatSettings.open") }));
-  fireEvent.click(screen.getByText("default"));
-  fireEvent.click(await screen.findByText("reviewer"));
+  await user.hover(await screen.findByRole("button", { name: appI18n.t("chatSettings.open") }));
+  await user.click(screen.getByText("default"));
+  await user.click(await screen.findByText("reviewer"));
   expect(mutate).not.toHaveBeenCalled();
   let dialog = await screen.findByRole("dialog", { name: appI18n.t("chatSettings.switchAgent") });
   expect(within(dialog).getByRole("button", { name: appI18n.t("chatSettings.cancelSwitch") })).toHaveFocus();
   await user.keyboard("{Enter}");
   expect(dialog).not.toBeInTheDocument();
   expect(mutate).not.toHaveBeenCalled();
-  fireEvent.mouseEnter(screen.getByRole("button", { name: appI18n.t("chatSettings.open") }));
-  fireEvent.click(screen.getByText("default"));
-  fireEvent.click(await screen.findByText("reviewer"));
+  await user.hover(screen.getByRole("button", { name: appI18n.t("chatSettings.open") }));
+  await user.click(screen.getByText("default"));
+  await user.click(await screen.findByText("reviewer"));
   dialog = await screen.findByRole("dialog", { name: appI18n.t("chatSettings.switchAgent") });
   await user.click(within(dialog).getByRole("button", { name: appI18n.t("chatSettings.confirmSwitch") }));
   expect(mutate).toHaveBeenCalledTimes(1);
@@ -181,9 +177,11 @@ it.each(["subscription", "api_key", "no_auth"] as const)(
       session: { ...initialRead.session, connection },
     });
     render(<SessionSettingsChipHost />, {
-      wrapper: ({ children }) => <TestAppProviders services={services}>{children}</TestAppProviders>,
+      wrapper: ({ children }) =>
+        createElement(TestAppProviders, { services, skipAnimations: true, children }),
     });
-    fireEvent.mouseEnter(await screen.findByRole("button", { name: appI18n.t("chatSettings.open") }));
+    const user = userEvent.setup({ skipHover: true });
+    await user.hover(await screen.findByRole("button", { name: appI18n.t("chatSettings.open") }));
     expect(
       await screen.findByText(
         appI18n.t("chatSettings.sessionConnection", {
@@ -199,9 +197,9 @@ it("omits the Session Connection row when the server does not project it", async
   const services = createTestServices([]);
   vi.spyOn(services.api.chat, "getSettings").mockResolvedValue(initialRead);
   render(<SessionSettingsChipHost />, {
-    wrapper: ({ children }) => <TestAppProviders services={services}>{children}</TestAppProviders>,
+    wrapper: ({ children }) => createElement(TestAppProviders, { services, skipAnimations: true, children }),
   });
-  fireEvent.mouseEnter(await screen.findByRole("button", { name: appI18n.t("chatSettings.open") }));
+  await userEvent.setup().hover(await screen.findByRole("button", { name: appI18n.t("chatSettings.open") }));
   expect(
     screen.queryByText(
       appI18n.t("chatSettings.sessionConnection", {
@@ -234,22 +232,21 @@ it("keeps Auto-compaction changes and rollback in Settings, outside Context", as
       </>
     );
   }
+  const user = userEvent.setup({ skipHover: true });
   render(
-    <TestAppProviders services={services}>
+    <TestAppProviders skipAnimations services={services}>
       <Host />
     </TestAppProviders>,
   );
   await screen.findByRole("button", { name: appI18n.t("chatSettings.open") });
-  fireEvent.mouseEnter(screen.getByRole("button", { name: "20%" }));
+  await user.hover(screen.getByRole("button", { name: "20%" }));
   expect(screen.queryByRole("switch")).not.toBeInTheDocument();
-  fireEvent.mouseEnter(screen.getByRole("button", { name: appI18n.t("chatSettings.open") }));
+  await user.hover(screen.getByRole("button", { name: appI18n.t("chatSettings.open") }));
   const toggle = screen.getByRole("switch", { name: appI18n.t("chatSettings.autoCompaction") });
   expect(toggle).toBeChecked();
-  fireEvent.click(toggle);
+  await user.click(toggle);
   expect(toggle).not.toBeChecked();
-  await waitFor(() => {
-    expect(mutate).toHaveBeenCalledTimes(1);
-  });
+  expect(mutate).toHaveBeenCalledTimes(1);
   expect(mutate).toHaveBeenCalledWith(target, { kind: "auto_compaction", enabled: false });
   await act(async () => {
     mutation.reject(typedSettingsFailure());
@@ -266,11 +263,11 @@ it("activates nested Settings controls once", async () => {
   const mutate = vi.spyOn(services.api.chat, "mutateSettings").mockResolvedValue(response());
   const user = userEvent.setup({ skipHover: true });
   render(
-    <TestAppProviders services={services}>
+    <TestAppProviders skipAnimations services={services}>
       <SessionSettingsChipHost />
     </TestAppProviders>,
   );
-  fireEvent.mouseEnter(await screen.findByRole("button", { name: appI18n.t("chatSettings.open") }));
+  await user.hover(await screen.findByRole("button", { name: appI18n.t("chatSettings.open") }));
   const popover = screen.getByRole("dialog");
   await user.click(within(popover).getByRole("radio", { name: appI18n.t("chatSettings.supervisorAlways") }));
   expect(mutate).toHaveBeenCalledTimes(1);
@@ -320,9 +317,9 @@ it.each([
     ...initialRead,
     settings: { ...settings, autoCompaction },
   });
-  const user = userEvent.setup({ delay: null, skipHover: true });
+  const user = userEvent.setup({ skipHover: true });
   render(
-    <TestAppProviders services={services}>
+    <TestAppProviders skipAnimations services={services}>
       <SessionSettingsChipHost />
     </TestAppProviders>,
   );
@@ -343,21 +340,19 @@ it("sends repeated Supervisor segment activations while an earlier request is pe
     .spyOn(services.api.chat, "mutateSettings")
     .mockReturnValueOnce(first.promise)
     .mockReturnValueOnce(second.promise);
+  const user = userEvent.setup({ skipHover: true });
   render(
-    <TestAppProviders services={services}>
+    <TestAppProviders skipAnimations services={services}>
       <SessionSettingsChipHost />
     </TestAppProviders>,
   );
-  fireEvent.mouseEnter(await screen.findByRole("button", { name: appI18n.t("chatSettings.open") }));
+  await user.hover(await screen.findByRole("button", { name: appI18n.t("chatSettings.open") }));
   const always = within(screen.getByRole("dialog")).getByRole("radio", {
     name: appI18n.t("chatSettings.supervisorAlways"),
   });
-  fireEvent.click(always);
+  await user.click(always);
   expect(always).toBeChecked();
-  await waitFor(() => {
-    expect(mutate).toHaveBeenCalledTimes(1);
-  });
-  fireEvent.click(always);
+  await user.click(always);
   await waitFor(() => {
     expect(mutate).toHaveBeenCalledTimes(2);
   });
@@ -389,9 +384,9 @@ it("omits Thinking when the Agent offers only one level", async () => {
   const mutate = vi
     .spyOn(services.api.chat, "mutateSettings")
     .mockResolvedValue(response(singleValueThinking));
-  const user = userEvent.setup({ delay: null, skipHover: true });
+  const user = userEvent.setup({ skipHover: true });
   render(
-    <TestAppProviders services={services}>
+    <TestAppProviders skipAnimations services={services}>
       <SessionSettingsChipHost />
     </TestAppProviders>,
   );
@@ -409,9 +404,7 @@ it("surfaces typed Chat operation diagnostics for an ordinary mutation failure",
   vi.spyOn(services.api.chat, "mutateSettings").mockRejectedValue(failure);
   const notice = vi.spyOn(ui, "showStatusToast").mockImplementation(() => undefined);
   const { result } = renderHook(() => useChatSettings({ ...connected, target, onContextChange: vi.fn() }), {
-    wrapper: ({ children }: Readonly<{ children: ReactNode }>) => (
-      <TestAppProviders services={services}>{children}</TestAppProviders>
-    ),
+    wrapper: ({ children }) => createElement(TestAppProviders, { services, skipAnimations: true, children }),
   });
   await waitFor(() => {
     expect(result.current.kind).toBe("ready-session");
@@ -432,9 +425,7 @@ it("loads ordinary Session Settings through the same feature boundary", async ()
   const read = deferred<ChatSettingsRead>();
   const getSettings = vi.spyOn(services.api.chat, "getSettings").mockReturnValue(read.promise);
   const { result } = renderHook(() => useChatSettings({ ...connected, target, onContextChange: vi.fn() }), {
-    wrapper: ({ children }: Readonly<{ children: ReactNode }>) => (
-      <TestAppProviders services={services}>{children}</TestAppProviders>
-    ),
+    wrapper: ({ children }) => createElement(TestAppProviders, { services, skipAnimations: true, children }),
   });
   expect(result.current).toMatchObject({ kind: "loading-session" });
   await act(async () => {
@@ -456,9 +447,7 @@ it("keeps the current Agent until the server completes the switch and exposes re
   const pending = deferred<ChatSettingsMutationResponse>();
   const mutate = vi.spyOn(services.api.chat, "mutateSettings").mockReturnValue(pending.promise);
   const { result } = renderHook(() => useChatSettings({ ...connected, target, onContextChange: vi.fn() }), {
-    wrapper: ({ children }: Readonly<{ children: ReactNode }>) => (
-      <TestAppProviders services={services}>{children}</TestAppProviders>
-    ),
+    wrapper: ({ children }) => createElement(TestAppProviders, { services, skipAnimations: true, children }),
   });
   await waitFor(() => {
     expect(result.current.kind).toBe("ready-session");
@@ -502,9 +491,7 @@ it("applies overlapping successes in delivery order and reports each mutation Co
     .mockReturnValueOnce(second.promise);
   const onContextChange = vi.fn<(value: ChatContext) => void>();
   const { result } = renderHook(() => useChatSettings({ ...connected, target, onContextChange }), {
-    wrapper: ({ children }: Readonly<{ children: ReactNode }>) => (
-      <TestAppProviders services={services}>{children}</TestAppProviders>
-    ),
+    wrapper: ({ children }) => createElement(TestAppProviders, { services, skipAnimations: true, children }),
   });
   await waitFor(() => {
     expect(result.current.kind).toBe("ready-session");
@@ -552,9 +539,7 @@ it("applies a late typed rejection as complete authoritative state and reports i
   const notice = vi.spyOn(ui, "showStatusToast").mockImplementation(() => undefined);
   const onContextChange = vi.fn<(value: ChatContext) => void>();
   const { result } = renderHook(() => useChatSettings({ ...connected, target, onContextChange }), {
-    wrapper: ({ children }: Readonly<{ children: ReactNode }>) => (
-      <TestAppProviders services={services}>{children}</TestAppProviders>
-    ),
+    wrapper: ({ children }) => createElement(TestAppProviders, { services, skipAnimations: true, children }),
   });
   await waitFor(() => {
     expect(result.current.kind).toBe("ready-session");
@@ -599,9 +584,8 @@ it.each(["applied", "rejected"] as const)(
     const notice = vi.spyOn(ui, "showStatusToast").mockImplementation(() => undefined);
     const onContextChange = vi.fn<(value: ChatContext) => void>();
     const { result } = renderHook(() => useChatSettings({ ...connected, target, onContextChange }), {
-      wrapper: ({ children }: Readonly<{ children: ReactNode }>) => (
-        <TestAppProviders services={services}>{children}</TestAppProviders>
-      ),
+      wrapper: ({ children }) =>
+        createElement(TestAppProviders, { services, skipAnimations: true, children }),
     });
     await waitFor(() => {
       expect(result.current.kind).toBe("ready-session");
@@ -661,9 +645,8 @@ it("drops old Session completions after target replacement and installs the newl
     (options) => useChatSettings(options),
     {
       initialProps: { ...connected, target, onContextChange },
-      wrapper: ({ children }: Readonly<{ children: ReactNode }>) => (
-        <TestAppProviders services={services}>{children}</TestAppProviders>
-      ),
+      wrapper: ({ children }) =>
+        createElement(TestAppProviders, { services, skipAnimations: true, children }),
     },
   );
   await waitFor(() => {
@@ -748,9 +731,8 @@ it("replaces New Chat selection with ordinary Session loading before installing 
         target: { kind: "new_chat", projectID: target.projectID, workspace: { workspaceID: "workspace-1" } },
         onInitialSettingsChange: vi.fn(),
       },
-      wrapper: ({ children }: Readonly<{ children: ReactNode }>) => (
-        <TestAppProviders services={services}>{children}</TestAppProviders>
-      ),
+      wrapper: ({ children }) =>
+        createElement(TestAppProviders, { services, skipAnimations: true, children }),
     },
   );
   await waitFor(() => {
@@ -792,9 +774,7 @@ it("exposes whole-Chat Session read failure without retained Settings", async ()
   const read = deferred<ChatSettingsRead>();
   vi.spyOn(services.api.chat, "getSettings").mockReturnValue(read.promise);
   const { result } = renderHook(() => useChatSettings({ ...connected, target, onContextChange: vi.fn() }), {
-    wrapper: ({ children }: Readonly<{ children: ReactNode }>) => (
-      <TestAppProviders services={services}>{children}</TestAppProviders>
-    ),
+    wrapper: ({ children }) => createElement(TestAppProviders, { services, skipAnimations: true, children }),
   });
   const failure = new Error("Session unavailable");
   await act(async () => {
@@ -817,9 +797,7 @@ it("preserves exact custom Thinking input and returns distinct completions for t
     .mockRejectedValueOnce(error);
   const notice = vi.spyOn(ui, "showStatusToast").mockImplementation(() => undefined);
   const { result } = renderHook(() => useChatSettings({ ...connected, target, onContextChange: vi.fn() }), {
-    wrapper: ({ children }: Readonly<{ children: ReactNode }>) => (
-      <TestAppProviders services={services}>{children}</TestAppProviders>
-    ),
+    wrapper: ({ children }) => createElement(TestAppProviders, { services, skipAnimations: true, children }),
   });
   await waitFor(() => {
     expect(result.current.kind).toBe("ready-session");
@@ -910,9 +888,8 @@ it("starts one read per changed host input and keeps mutations available during 
         ...navigation,
         authoritativeRefreshGeneration: initialGeneration,
       },
-      wrapper: ({ children }: Readonly<{ children: ReactNode }>) => (
-        <TestAppProviders services={services}>{children}</TestAppProviders>
-      ),
+      wrapper: ({ children }) =>
+        createElement(TestAppProviders, { services, skipAnimations: true, children }),
     },
   );
   await waitFor(() => {
@@ -958,9 +935,8 @@ it("exposes cached refresh failure and retries only the read without replaying a
     (options) => useChatSettings(options),
     {
       initialProps: { ...connected, target, onContextChange: vi.fn() },
-      wrapper: ({ children }: Readonly<{ children: ReactNode }>) => (
-        <TestAppProviders services={services}>{children}</TestAppProviders>
-      ),
+      wrapper: ({ children }) =>
+        createElement(TestAppProviders, { services, skipAnimations: true, children }),
     },
   );
   await waitFor(() => {
@@ -1016,9 +992,8 @@ it.each(["refresh-first", "mutation-first"] as const)(
       (options) => useChatSettings(options),
       {
         initialProps: { ...connected, target, onContextChange },
-        wrapper: ({ children }: Readonly<{ children: ReactNode }>) => (
-          <TestAppProviders services={services}>{children}</TestAppProviders>
-        ),
+        wrapper: ({ children }) =>
+          createElement(TestAppProviders, { services, skipAnimations: true, children }),
       },
     );
     await waitFor(() => {
@@ -1077,9 +1052,8 @@ it("discards old reads and mutations through A to B to A target replacement", as
     (options) => useChatSettings(options),
     {
       initialProps: { ...connected, target, onContextChange },
-      wrapper: ({ children }: Readonly<{ children: ReactNode }>) => (
-        <TestAppProviders services={services}>{children}</TestAppProviders>
-      ),
+      wrapper: ({ children }) =>
+        createElement(TestAppProviders, { services, skipAnimations: true, children }),
     },
   );
   await waitFor(() => {

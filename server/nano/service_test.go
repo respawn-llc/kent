@@ -17,6 +17,7 @@ import (
 	"time"
 
 	"core/internal/testharness/httpclient"
+	"core/internal/testharness/testsetup"
 	"core/server/authmanager"
 	"core/server/authservice"
 	"core/server/launch"
@@ -116,9 +117,10 @@ func TestNanoChatGPTDispatchIdentityAndRetry(t *testing.T) {
 			ContextWindowTokens: request.ActiveSettings.ModelContextWindow,
 			HTTPClient:          &http.Client{Transport: httpclient.NewURLRewriteTransport(targetURL, server.Client().Transport, "")},
 			RequestCapabilities: &request.RequestCapabilities,
+			UsageObserver:       request.UsageObserver,
 		})
 	})
-	service, err := NewService(5, &launch.ConnectionRotation{}, resolver, factory)
+	service, err := NewService(5, launch.NewConnectionRotation(testsetup.OpenStore(t, t.TempDir()), 0), resolver, factory)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -174,7 +176,7 @@ func TestNanoToolsAndStructuredResultForwarding(t *testing.T) {
 	}))
 	defer server.Close()
 	settings, resolver := nanoTestConfig(t, server.URL+"/v1")
-	service, err := NewService(5, &launch.ConnectionRotation{}, resolver, nil)
+	service, err := NewService(5, launch.NewConnectionRotation(testsetup.OpenStore(t, t.TempDir()), 0), resolver, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -214,7 +216,7 @@ func TestNanoOversizedInputRejected(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { calls.Add(1) }))
 	defer server.Close()
 	settings, resolver := nanoTestConfig(t, server.URL+"/v1")
-	service, err := NewService(5, &launch.ConnectionRotation{}, resolver, nil)
+	service, err := NewService(5, launch.NewConnectionRotation(testsetup.OpenStore(t, t.TempDir()), 0), resolver, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -239,7 +241,7 @@ func TestNanoOversizedSchemasRejected(t *testing.T) {
 			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { calls.Add(1) }))
 			defer server.Close()
 			settings, resolver := nanoTestConfig(t, server.URL+"/v1")
-			service, err := NewService(5, &launch.ConnectionRotation{}, resolver, nil)
+			service, err := NewService(5, launch.NewConnectionRotation(testsetup.OpenStore(t, t.TempDir()), 0), resolver, nil)
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -283,7 +285,7 @@ func TestNanoUnsupportedVisionRejected(t *testing.T) {
 	settings, resolver := nanoTestConfig(t, server.URL+"/v1")
 	settings.Nano.ModelContextWindow = textutil.Value(20000)
 	settings.Nano.SupportsVisionInputs = textutil.Value(false)
-	service, err := NewService(5, &launch.ConnectionRotation{}, resolver, nil)
+	service, err := NewService(5, launch.NewConnectionRotation(testsetup.OpenStore(t, t.TempDir()), 0), resolver, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -315,7 +317,7 @@ func TestNanoAdmissionCapacityAndWaitingDeadline(t *testing.T) {
 	}))
 	defer server.Close()
 	settings, resolver := nanoTestConfig(t, server.URL+"/v1")
-	service, err := NewService(2, &launch.ConnectionRotation{}, resolver, nil)
+	service, err := NewService(2, launch.NewConnectionRotation(testsetup.OpenStore(t, t.TempDir()), 0), resolver, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -396,7 +398,7 @@ func TestNanoAnonymousOneStep(t *testing.T) {
 	}))
 	defer server.Close()
 	settings, resolver := nanoTestConfig(t, server.URL+"/v1")
-	service, err := NewService(5, &launch.ConnectionRotation{}, resolver, nil)
+	service, err := NewService(5, launch.NewConnectionRotation(testsetup.OpenStore(t, t.TempDir()), 0), resolver, nil)
 	if err != nil {
 		t.Fatal(err)
 	}

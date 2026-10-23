@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"strings"
 
+	"core/server/llm"
 	"core/shared/modelcontract"
 	"core/shared/runtimeids"
 	"core/shared/transcriptmodel"
@@ -50,25 +51,24 @@ func (r *defaultReviewerPipeline) Prepare(
 	if err != nil {
 		return preparedReviewerRequest{}, err
 	}
-	req, err := r.engine.buildReviewerDispatchRequest(ctx, stepID, reviewerClient)
+	bundle := r.engine.connectionSnapshot()
+	if r.engine.cfg.Reviewer.InheritsConnection && bundle.id != nil {
+		reviewerClient, err = r.engine.reviewerClientForConnection(bundle)
+		if err != nil {
+			return preparedReviewerRequest{}, err
+		}
+	} else {
+		bundle = &connectionBundle{id: r.engine.cfg.Reviewer.ConnectionID, client: reviewerClient}
+	}
+	req, err := r.engine.buildReviewerDispatchRequest(ctx, stepID)
 	if err != nil {
 		return preparedReviewerRequest{}, fmt.Errorf("build Reviewer request: %w", err)
-	}
-	observed, err := r.engine.prepareCacheObservedRequest(
-		ctx,
-		stepID,
-		reviewerClient,
-		req,
-		modelcontract.ProviderOperationPurposeReviewer,
-		cacheResponseObservationRuntime,
-	)
-	if err != nil {
-		return preparedReviewerRequest{}, err
 	}
 	return preparedReviewerRequest{
 		originStepID: originStepID,
 		client:       reviewerClient,
-		request:      observed,
+		source:       req,
+		connection:   bundle,
 	}, nil
 }
 
@@ -76,7 +76,7 @@ func (r *defaultReviewerPipeline) Run(
 	ctx context.Context,
 	prepared preparedReviewerRequest,
 ) reviewerProviderResult {
-	resp, err := generateWithRetryClient(ctx, prepared.client, prepared.request, modelRequestRetriesAllowed, nil, nil, nil, nil)
+	resp, err := r.runPrepared(ctx, prepared)
 	if err != nil {
 		return reviewerProviderResult{err: err}
 	}
@@ -90,6 +90,72 @@ func (r *defaultReviewerPipeline) Run(
 	return reviewerProviderResult{
 		suggestions: result,
 	}
+}
+
+func (e *Engine) reviewerClientForConnection(bundle *connectionBundle) (*observedModelClient, error) {
+	return e.reviewerRuntimeState().clientForConnection(bundle, func() (llm.Client, error) {
+		return e.cfg.Reviewer.ConnectionClientFactory(*bundle.id)
+	})
+}
+
+func (r *defaultReviewerPipeline) runPrepared(ctx context.Context, prepared preparedReviewerRequest) (llm.Response, error) {
+	e := r.engine
+	var attempt reviewerAttempt
+	return withConnectionFallback(ctx, func(ctx context.Context, request ConnectionSelectionRequest) (*connectionBundle, error) {
+		deferred := submitEngineRuntimeOperation(e, func(ctx context.Context) (*connectionBundle, error) {
+			prepare := func(bundle *connectionBundle) error {
+				var err error
+				attempt, err = e.prepareReviewerAttempt(ctx, prepared, bundle)
+				return err
+			}
+			if e.cfg.Reviewer.InheritsConnection {
+				return e.selectConnectionWithPreparation(ctx, prepared.originStepID.String(), request, prepare)
+			}
+			bundle := prepared.connection
+			if bundle.id != nil && e.cfg.Reviewer.ResolveConnection != nil {
+				request.Current = *bundle.id
+				replacement, err := e.cfg.Reviewer.ResolveConnection(ctx, request)
+				if err != nil {
+					return nil, err
+				}
+				if replacement != nil {
+					return nil, errors.New("explicit Reviewer singleton unexpectedly selected a replacement")
+				}
+			}
+			return bundle, prepare(bundle)
+		})
+		return deferred.Await(ctx)
+	}, func(*connectionBundle) (llm.Response, error) {
+		return generateWithRetryClient(ctx, attempt.client, attempt.request, modelRequestRetriesAllowed, nil, nil, nil, nil)
+	})
+}
+
+type reviewerAttempt struct {
+	client  *observedModelClient
+	request cacheObservedRequest
+}
+
+func (e *Engine) prepareReviewerAttempt(ctx context.Context, prepared preparedReviewerRequest, bundle *connectionBundle) (reviewerAttempt, error) {
+	client := prepared.client
+	var err error
+	if e.cfg.Reviewer.InheritsConnection && bundle.id != nil {
+		client, err = e.reviewerClientForConnection(bundle)
+		if err != nil {
+			return reviewerAttempt{}, err
+		}
+	}
+	capabilities, err := client.capabilities(ctx)
+	if err != nil {
+		return reviewerAttempt{}, err
+	}
+	req := prepared.source
+	req.FastMode = req.FastMode && capabilities.SupportsFastMode
+	if !supportsPromptCacheKeyForClient(ctx, client) {
+		req.PromptCacheKey = ""
+		req.PromptCacheScope = ""
+	}
+	observed, err := e.prepareCacheObservedRequest(ctx, prepared.originStepID.String(), client, req, modelcontract.ProviderOperationPurposeReviewer, cacheResponseObservationRuntime)
+	return reviewerAttempt{client: client, request: observed}, err
 }
 
 func (e *Engine) startReviewer(

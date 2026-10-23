@@ -12,18 +12,17 @@ import (
 	runtimepb "core/shared/protoapi/gen/kent/api/runtime"
 	transcriptpb "core/shared/protoapi/gen/kent/api/transcript"
 	"core/shared/runtimeids"
-
-	"github.com/google/uuid"
 )
 
 type submitDoneMsg struct {
-	token         uint64
-	sessionID     runtimeids.SessionID
-	message       string
-	submittedText string
-	resultKind    *clientui.UserTurnResultKind
-	queued        clientui.QueuedUserMessage
-	err           error
+	diagnostic        error
+	selectedSessionID *string
+	token             uint64
+	message           string
+	submittedText     string
+	resultKind        *clientui.UserTurnResultKind
+	queued            clientui.QueuedUserMessage
+	err               error
 }
 
 func newSubmitDoneMsg(token uint64, message string, submittedText string, err error) submitDoneMsg {
@@ -40,7 +39,6 @@ type promptHistoryPersistErrMsg struct {
 }
 
 type promptCatalogRefreshDoneMsg struct {
-	token   *uuid.UUID
 	entries []commands.PromptCommandCatalogEntry
 	err     error
 }
@@ -101,24 +99,20 @@ type chatSettingsDoneMsg struct {
 }
 
 type injectedQueueCreateDoneMsg struct {
-	token     uint64
-	sessionID runtimeids.SessionID
-	localID   string
-	item      clientui.QueuedUserMessage
-	completed bool
-	err       error
+	diagnostic error
+	pending    *injectedRuntimeQueueItem
+	item       clientui.QueuedUserMessage
+	completed  bool
+	err        error
 }
 
 type injectedQueueDiscardDoneMsg struct {
-	token     uint64
-	sessionID runtimeids.SessionID
-	localID   string
-	serverID  string
+	item      *injectedRuntimeQueueItem
 	discarded bool
 }
 
 type compactDoneMsg struct {
-	requestID     runtimeids.CompactionRequestID
+	diagnostic    error
 	sessionID     runtimeids.SessionID
 	submittedText string
 	invoked       bool
@@ -183,11 +177,6 @@ type runtimeConnectionStateChangedMsg struct {
 	err error
 }
 
-type runtimeReconnectWarningMsg struct {
-	text       string
-	visibility clientui.EntryVisibility
-}
-
 type runtimeMainViewRefreshedMsg struct {
 	token                    uint64
 	interruptedSubmitToken   *uint64
@@ -196,10 +185,14 @@ type runtimeMainViewRefreshedMsg struct {
 	err                      error
 }
 
+type runtimeMainViewRetryMsg struct {
+	token uint64
+}
+
 type detailTranscriptLoadMsg struct {
-	requestID uuid.UUID
-	page      *transcriptpb.Page
-	err       error
+	pending *uiPendingDetailTranscriptRequest
+	page    *transcriptpb.Page
+	err     error
 }
 
 type terminalSequenceWriteErrMsg struct {
@@ -265,11 +258,11 @@ const (
 )
 
 type uiStatusNotice struct {
-	Text      string
-	Kind      uiStatusNoticeKind
-	Duration  time.Duration
-	NoticeID  string
-	RequestID *uuid.UUID
+	Text          string
+	Kind          uiStatusNoticeKind
+	Duration      time.Duration
+	NoticeID      string
+	DetailRequest *uiPendingDetailTranscriptRequest
 }
 
 type uiStatusNoticeDelivery uint8

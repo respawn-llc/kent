@@ -149,7 +149,7 @@ func TestWorkflowPostCompletionCompactionDefersGenerationContextUntilNextRequest
 	if request.Model != "gpt-6.1-sol" {
 		t.Fatalf("target model = %q", request.Model)
 	}
-	assertCompactionReplacementOrder(t, target.transcriptRuntimeState().SnapshotItems(), false)
+	assertCompactionReplacementOrder(t, compactionReplacementItems(t, target), false)
 	if target.CompactionCount() != 1 || len(client.compactionCalls) != 1 {
 		t.Fatal("target hydration repeated compaction")
 	}
@@ -796,7 +796,7 @@ func TestWorkflowPostCompletionCompactionUsesLocalGenerateClient(t *testing.T) {
 		t.Fatal(err)
 	}
 	buildActiveTurnRequestForTest(t, engine, nil, true)
-	assertCompactionReplacementOrder(t, engine.transcriptRuntimeState().SnapshotItems(), false)
+	assertCompactionReplacementOrder(t, compactionReplacementItems(t, engine), false)
 }
 
 func commitWorkflowPostCompletionTestSummary(t *testing.T, engine *Engine) {

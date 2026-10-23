@@ -5,7 +5,12 @@ import { useForm, useWatch } from "react-hook-form";
 import { useTranslation } from "react-i18next";
 import { z } from "zod";
 
-import { WorkflowTaskDependencyError, errorMessage, isProjectMissingError } from "@/api";
+import {
+  WorkflowTaskDependencyError,
+  errorMessage,
+  isProjectMissingError,
+  taskCreateTitleViolations,
+} from "@/api";
 import {
   useAppServices,
   useStatusController,
@@ -40,13 +45,17 @@ import {
 import { cx } from "@/ui";
 import { useNewTaskWorkspaceCatalog } from "./NewTaskWorkspaceModel";
 
-const newTaskSchema = z.object({
-  title: z.string().trim().min(1),
-  body: z.string(),
-  sourceWorkspaceID: z.string().trim().min(1).optional(),
-});
+const newTaskSchema = (projectID: string) =>
+  z.object({
+    title: z
+      .string()
+      .trim()
+      .refine((title) => taskCreateTitleViolations(projectID, title).length === 0),
+    body: z.string(),
+    sourceWorkspaceID: z.string().trim().min(1).optional(),
+  });
 
-type NewTaskFormValues = z.output<typeof newTaskSchema>;
+type NewTaskFormValues = z.output<ReturnType<typeof newTaskSchema>>;
 
 const retainedStatusSchema = z.object({
   kind: z.enum([
@@ -189,7 +198,7 @@ function NewTaskFormContent({
   }, [catalog.data, selectedLabelIDs]);
   const { selectedWorkspace, workspaceItems, workspaceProjection, workspaceSelection } = workspaceCatalog;
   const form = useForm<NewTaskFormValues>({
-    resolver: zodResolver(newTaskSchema),
+    resolver: zodResolver(newTaskSchema(projectID)),
     defaultValues: restored?.formValues ?? {
       title: "",
       body: "",

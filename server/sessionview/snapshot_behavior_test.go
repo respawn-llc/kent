@@ -42,9 +42,9 @@ func TestCategorylessSessionMainView(t *testing.T) {
 		app: testsetup.ProgrammaticConfig(t, config.DefaultOnboardingSettings()),
 	})
 	view := mustMainView(t, service, meta.SessionID)
-	category, err := protoapi.SessionCategoryFromProto(view.Session.Category)
-	if err != nil || category != sessioncontract.SessionCategoryMain {
-		t.Fatalf("category = %v, %v", category, err)
+	category := protoapi.SessionCategoryFromProto(view.Session.Category)
+	if category != sessioncontract.SessionCategoryMain {
+		t.Fatalf("category = %v", category)
 	}
 }
 

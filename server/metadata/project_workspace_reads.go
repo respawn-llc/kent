@@ -24,9 +24,6 @@ func (s *Store) GetProjectEditMetadata(
 		return ProjectEditMetadata{}, errors.New("metadata store is required")
 	}
 	projectID = strings.TrimSpace(projectID)
-	if projectID == "" {
-		return ProjectEditMetadata{}, errors.New("project id is required")
-	}
 	row, err := s.queries.GetProjectEditMetadata(ctx, projectID)
 	if err != nil {
 		if errors.Is(err, sql.ErrNoRows) {

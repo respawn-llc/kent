@@ -17,14 +17,22 @@ func ResolveEffectiveProviderCapabilities(locked *session.LockedContract, settin
 	if err != nil {
 		return ProviderCapabilities{}, err
 	}
+	contract, present := ProviderCapabilitiesFromLocked(locked)
+	if !present {
+		return actual, nil
+	}
+	return EffectiveProviderCapabilities(&contract, actual), nil
+}
+
+func EffectiveProviderCapabilities(contract *ProviderCapabilities, actual ProviderCapabilities) ProviderCapabilities {
 	effective := actual
-	if contract, present := ProviderCapabilitiesFromLocked(locked); present {
-		effective = contract
+	if contract != nil {
+		effective = *contract
 		effective.SupportsNativeThinkingUpdates = actual.SupportsNativeThinkingUpdates
 		effective.SupportsFastMode = actual.SupportsFastMode
 		effective.ReasoningType = actual.ReasoningType
 	}
-	return effective, nil
+	return effective
 }
 
 func ResolveRuntimeProviderCapabilities(settings config.Settings) (ProviderCapabilities, error) {

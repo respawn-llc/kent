@@ -108,9 +108,6 @@ func handshakeGeneratedError(failure *connectionpb.HandshakeError) error {
 	switch failure.Code {
 	case "protocol_version_mismatch":
 		details := failure.GetProtocolVersionMismatch()
-		if err := protoapi.Validate(details); err != nil {
-			return err
-		}
 		return &ProtocolVersionMismatchError{
 			clientVersion:   protocol.Version,
 			requiredVersion: details.RequiredProtocolVersion,
@@ -209,24 +206,15 @@ func attachSessionGeneratedError(failure *connectionpb.AttachSessionError) error
 	switch failure.Code {
 	case "session_not_found":
 		details := failure.GetSessionNotFound()
-		if err := protoapi.Validate(details); err != nil {
-			return err
-		}
 		return &sessioncontract.SessionNotFoundError{SessionID: details.SessionId}
 	case "project_not_found":
 		details := failure.GetProjectNotFound()
-		if err := protoapi.Validate(details); err != nil {
-			return err
-		}
 		return fmt.Errorf("%w: session %q", serverapi.ErrProjectNotFound, details.SessionId)
 	case "workspace_not_registered":
 		details := failure.GetWorkspaceNotRegistered()
-		if err := protoapi.Validate(details); err != nil {
-			return err
-		}
 		return fmt.Errorf("%w: session %q", serverapi.ErrWorkspaceNotRegistered, details.SessionId)
 	case "project_unavailable":
-		return projectUnavailableError(failure.GetProjectUnavailable())
+		return protoapi.ProjectUnavailableFromProto(failure.GetProjectUnavailable())
 	case "server_not_ready":
 		return protoapi.ServerNotReadyFromProto(failure.GetServerNotReady())
 	case "internal_failure":
@@ -250,7 +238,7 @@ func connectionAttachmentGeneratedError(
 	case "workspace_not_registered":
 		return protoapi.WorkspaceNotRegisteredFromProto(notRegistered)
 	case "project_unavailable":
-		return projectUnavailableError(unavailable)
+		return protoapi.ProjectUnavailableFromProto(unavailable)
 	case "server_not_ready":
 		return protoapi.ServerNotReadyFromProto(notReady)
 	case "internal_failure":

@@ -1,4 +1,4 @@
-//go:build !windows
+//go:build integration && !windows
 
 package pty_test
 
@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"path/filepath"
 	"testing"
 	"time"
 
@@ -22,20 +23,11 @@ const (
 	smokeCleanupWait = 5 * time.Second
 )
 
-var kentBinary string
-
-func TestMain(m *testing.M) {
-	var err error
-	kentBinary, err = pty.PrepareKentFixture()
-	if err != nil {
-		fmt.Fprintln(os.Stderr, err)
-		os.Exit(1)
-	}
-	os.Exit(m.Run())
-}
-
 func TestProductionKentBinaryPTYSmoke(t *testing.T) {
-	binary := kentBinary
+	binary, err := filepath.Abs("../../../bin/kent")
+	if err != nil {
+		t.Fatalf("locate worktree Kent binary: %v", err)
+	}
 	probe := uuid.New().String()
 	output := "ok"
 	environment, err := blackbox.NewIsolatedEnvironment(binary, []blackbox.RequiredOperation{{

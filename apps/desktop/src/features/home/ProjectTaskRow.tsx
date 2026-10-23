@@ -9,7 +9,7 @@ import { Spinner, type VirtualizedInfiniteListBoundaryState } from "@/ui";
 import type { ProjectTaskGroup } from "./projectTaskListData";
 import { ProjectTaskLabelsCell } from "./ProjectTaskLabelsCell";
 
-export const projectTaskColumnCount = 6;
+export const projectTaskColumnCount = 7;
 
 export type ProjectTaskGridCell = Readonly<{
   key: string;
@@ -84,6 +84,7 @@ export function projectTaskColumnEntry(t: ReturnType<typeof useTranslation>["t"]
         content: <GitBranch aria-hidden="true" size={14} strokeWidth={1.7} />,
         className: "flex h-full items-center justify-center",
       },
+      { key: "stage", content: t("home.prototype.stageColumn") },
       { key: "labels", content: t("labels.filter") },
       { key: "workflow", content: t("home.prototype.workflowColumn") },
     ],
@@ -204,6 +205,15 @@ export function projectTaskEntry({
               size="compact"
             />
           ),
+      },
+      {
+        key: "stage",
+        className: "min-w-0 truncate text-xs text-[var(--color-muted)]",
+        content: (
+          <span className="block truncate" title={task.stageName ?? undefined}>
+            {task.stageName}
+          </span>
+        ),
       },
       {
         key: "labels",

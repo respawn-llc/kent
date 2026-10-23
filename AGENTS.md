@@ -61,6 +61,13 @@ Just is the sole public developer command interface. Do not add standalone devel
 # Critical Rules - Authoritative Guidance Applicable Always and Everywhere.
 ---
 
+- Public documentation edits are prohibited without Nikita's prior approval of the exact, line-by-line before/after diff. This includes additions, deletions, rewrites, and review fixes. Task approval, implementation approval, reviewer requests, and documentation-update requirements do not authorize public documentation edits. Present the proposed diff and wait for explicit approval before editing. Any subsequent change requires approval of its revised diff.
+- Treat human-authored documentation as read-only outside the exact approved diff. Do not polish, simplify, correct grammar, capitalize domain terms, restructure, or delete surrounding text. Preserve the author's wording and tone.
+- Public documentation must never narrate agent work, completed changes, implementation progress, internal architecture, or the virtues of a solution. Do not add claims about what Kent preserves, now supports, continues to do, or handles internally merely because code changed.
+- A code change, a passing test, a reviewer suggestion, or a linter finding is not permission to edit prose. Mechanical lint corrections must be isolated to the reported syntax or formatting issue and included in the proposed diff. Do not rewrite surrounding sentences to satisfy a wording checker.
+- Before requesting approval, map each proposed documentation hunk to the explicit user request it serves. For each added sentence, state the reader's concrete question and the action its answer enables. Delete proposals without both.
+- During review, compare the complete final diff with the approved diff and the human-authored baseline. Reject every unapproved wording change, removal, and addition. Check meaning, not just banned words. If validation conflicts with approved human wording, report the conflict and stop; do not rewrite it.
+
 - `docs/dev/specs/` is authoritative for locked product and product-architecture decisions. Do not create or change a spec without prior explicit user approval, and do not alter a spec to match implementation drift.
   - When the user explicitly changes product behavior or architecture, update the owning spec.
   - Before writing, rewriting, reviewing, or validating specs, read and follow `.kent/skills/spec-writing/SKILL.md`.

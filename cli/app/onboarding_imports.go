@@ -182,6 +182,10 @@ func importProviderDisplayLabel(provider *onboardingImportProviderID, sourceKind
 		return "Codex"
 	case onboardingImportProviderAgents:
 		return "Agents"
+	case onboardingImportProviderGrok:
+		return "Grok"
+	case onboardingImportProviderCursor:
+		return "Cursor"
 	default:
 		return string(*provider)
 	}
@@ -238,13 +242,21 @@ func noneChoiceID(choices []onboardingImportChoice) (string, bool) {
 }
 
 func optionIDForSelection(choices []onboardingImportChoice, selection onboardingImportSelection) (string, bool) {
+	choice, ok := importChoiceForSelection(choices, selection)
+	if !ok {
+		return "", false
+	}
+	return choice.OptionID, true
+}
+
+func importChoiceForSelection(choices []onboardingImportChoice, selection onboardingImportSelection) (onboardingImportChoice, bool) {
 	for _, choice := range choices {
 		candidate := onboardingImportSelection{Mode: choice.Mode, ChoiceRef: choice.Ref}
 		if importSelectionsEqual(candidate, selection) {
-			return choice.OptionID, true
+			return choice, true
 		}
 	}
-	return "", false
+	return onboardingImportChoice{}, false
 }
 
 func importSelectionsEqual(left, right onboardingImportSelection) bool {
@@ -481,10 +493,14 @@ func skillImportSummary(state *onboardingFlowState) string {
 	if state.selections.skillImport.Mode != onboardingImportModeSymlinkSource {
 		return ""
 	}
+	choice, ok := importChoiceForSelection(state.imports.skillChoices, state.selections.skillImport)
+	if !ok {
+		return ""
+	}
 	return fmt.Sprintf(
 		"Symlink %d skills from %s",
-		len(skillSelectionCandidates(state)),
-		importProviderDisplayLabel(providerIDFromPtr(state.selections.skillImport.ChoiceRef.ImportProviderId), "external_provider"),
+		choice.Count,
+		importProviderDisplayLabel(providerIDFromPtr(choice.Ref.ImportProviderId), "external_provider"),
 	)
 }
 

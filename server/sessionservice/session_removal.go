@@ -14,9 +14,9 @@ import (
 	"core/shared/serverapi"
 )
 
-const detachedArchiveGracePeriod = 5 * time.Minute
+const archiveTimeout = 5 * time.Minute
 
-var ErrDetachedArchiveGraceExpired = errors.New("detached Session archive grace period expired")
+var ErrArchiveTimeout = errors.New("Session archive timeout exceeded")
 
 type SessionRemovalCleanupError struct {
 	RemainingPath string
@@ -58,15 +58,15 @@ func (e *SessionRemovalCleanupError) Unwrap() error {
 	return e.Cause
 }
 
-type ArchiveDetachExpiryDiagnostic struct {
+type ArchiveTimeoutDiagnostic struct {
 	SessionID  string
 	OutputPath string
 	Cause      error
 }
 
-func logArchiveDetachExpiry(diagnostic ArchiveDetachExpiryDiagnostic) {
+func logArchiveTimeout(diagnostic ArchiveTimeoutDiagnostic) {
 	slog.Error(
-		"accepted Session archive exceeded its detached lifetime",
+		"accepted Session archive exceeded its timeout",
 		"session_id", diagnostic.SessionID,
 		"output_path", diagnostic.OutputPath,
 		"error", diagnostic.Cause,
@@ -91,10 +91,7 @@ func (s *SessionLifecycleService) Archive(
 	if s.metadata == nil {
 		return errors.New("Session removal metadata is required")
 	}
-	id, err := runtimeids.ParseSessionID(sessionID)
-	if err != nil {
-		return err
-	}
+	id := runtimeids.SessionIDFromProto(sessionID)
 	if invocationCtx == nil {
 		invocationCtx = context.Background()
 	}
@@ -102,7 +99,7 @@ func (s *SessionLifecycleService) Archive(
 		return err
 	}
 	result, err := s.authority.AcceptLifecycleTask(func(lifecycleCtx context.Context) error {
-		return s.runAcceptedArchive(lifecycleCtx, invocationCtx, id, outputPath)
+		return s.runAcceptedArchive(lifecycleCtx, id, outputPath)
 	})
 	if err != nil {
 		return err
@@ -117,10 +114,7 @@ func (s *SessionLifecycleService) Delete(invocationCtx context.Context, sessionI
 	if s.metadata == nil {
 		return errors.New("Session removal metadata is required")
 	}
-	id, err := runtimeids.ParseSessionID(sessionID)
-	if err != nil {
-		return err
-	}
+	id := runtimeids.SessionIDFromProto(sessionID)
 	if invocationCtx == nil {
 		invocationCtx = context.Background()
 	}
@@ -195,11 +189,10 @@ func waitForAcceptedSessionOperation(invocationCtx context.Context, result <-cha
 
 func (s *SessionLifecycleService) runAcceptedArchive(
 	lifecycleCtx context.Context,
-	invocationCtx context.Context,
 	sessionID runtimeids.SessionID,
 	outputPath string,
 ) error {
-	operationCtx, cancelOperation := context.WithCancel(lifecycleCtx)
+	operationCtx, cancelOperation := context.WithTimeout(lifecycleCtx, archiveTimeout)
 	defer cancelOperation()
 	operationDone := make(chan error, 1)
 	go func() {
@@ -243,54 +236,33 @@ func (s *SessionLifecycleService) runAcceptedArchive(
 
 	select {
 	case err := <-operationDone:
+		if errors.Is(context.Cause(operationCtx), context.DeadlineExceeded) {
+			return s.archiveTimeoutFailure(sessionID, outputPath, errors.Join(context.DeadlineExceeded, err))
+		}
 		return err
-	case <-lifecycleCtx.Done():
-		cancelOperation()
-		return errors.Join(context.Cause(lifecycleCtx), <-operationDone)
-	case <-invocationCtx.Done():
-	}
-
-	graceCtx, cancelGrace := context.WithTimeout(context.Background(), detachedArchiveGracePeriod)
-	defer cancelGrace()
-	return s.waitForDetachedArchive(
-		lifecycleCtx,
-		graceCtx,
-		operationDone,
-		cancelOperation,
-		sessionID,
-		outputPath,
-	)
-}
-
-func (s *SessionLifecycleService) waitForDetachedArchive(
-	lifecycleCtx context.Context,
-	graceCtx context.Context,
-	operationDone <-chan error,
-	cancelOperation context.CancelFunc,
-	sessionID runtimeids.SessionID,
-	outputPath string,
-) error {
-	select {
-	case err := <-operationDone:
-		return err
-	case <-lifecycleCtx.Done():
-		cancelOperation()
-		return errors.Join(context.Cause(lifecycleCtx), <-operationDone)
-	case <-graceCtx.Done():
+	case <-operationCtx.Done():
 		cancelOperation()
 		operationErr := <-operationDone
-		cause := errors.Join(ErrDetachedArchiveGraceExpired, operationErr)
-		diagnostic := ArchiveDetachExpiryDiagnostic{
-			SessionID:  sessionID.String(),
-			OutputPath: outputPath,
-			Cause:      cause,
-		}
-		logArchiveDetachExpiry(diagnostic)
-		if s.debug {
-			panic(diagnostic)
+		cause := errors.Join(context.Cause(operationCtx), operationErr)
+		if errors.Is(context.Cause(operationCtx), context.DeadlineExceeded) {
+			return s.archiveTimeoutFailure(sessionID, outputPath, cause)
 		}
 		return cause
 	}
+}
+
+func (s *SessionLifecycleService) archiveTimeoutFailure(sessionID runtimeids.SessionID, outputPath string, err error) error {
+	cause := errors.Join(ErrArchiveTimeout, err)
+	diagnostic := ArchiveTimeoutDiagnostic{
+		SessionID:  sessionID.String(),
+		OutputPath: outputPath,
+		Cause:      cause,
+	}
+	logArchiveTimeout(diagnostic)
+	if s.debug {
+		panic(diagnostic)
+	}
+	return cause
 }
 
 func (s *SessionLifecycleService) removeSessionUnderAdmission(

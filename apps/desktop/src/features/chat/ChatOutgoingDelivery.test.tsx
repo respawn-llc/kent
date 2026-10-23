@@ -1,5 +1,5 @@
 import { expect, it, vi } from "bun:test";
-import { act, fireEvent, screen, waitFor, within } from "@testing-library/react";
+import { act, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import type { ChatInputMutationResult, PendingWorkItemID } from "@/api";
 import { appI18n } from "@/i18n";
@@ -28,7 +28,7 @@ it("releases a busy submission after two seconds and keeps subsequent typing thr
     await act(async () => {
       view.handlers[0]?.onEvent({ sequence: 1, kind: "hydration", payload: hydration() });
     });
-    const user = userEvent.setup();
+    const user = userEvent.setup({ delay: null });
     await user.type(editor, "Busy submission");
     await user.click(screen.getByRole("button", { name: appI18n.t("chatComposer.send") }));
     expect(editor).toHaveValue("Busy submission");
@@ -41,7 +41,7 @@ it("releases a busy submission after two seconds and keeps subsequent typing thr
       { timeout: 3000 },
     );
     expect(await screen.findByText("Busy submission")).toBeInTheDocument();
-    fireEvent.change(editor, { target: { value: "next draft" } });
+    await user.type(editor, "next draft");
     const submittedID = inputID;
     if (submittedID === undefined) throw new Error("Missing submitted identity");
     await act(async () => {
@@ -98,8 +98,9 @@ it("shows an idle submission before its response and adopts commitment once with
         },
       });
     });
-    fireEvent.change(editor, { target: { value: "Optimistic message" } });
-    fireEvent.click(screen.getByRole("button", { name: appI18n.t("chatComposer.send") }));
+    const user = userEvent.setup({ delay: null });
+    await user.type(editor, "Optimistic message");
+    await user.click(screen.getByRole("button", { name: appI18n.t("chatComposer.send") }));
     act(() => {
       geometry.resize(80);
     });
@@ -107,7 +108,7 @@ it("shows an idle submission before its response and adopts commitment once with
     expect(await within(list).findByText("Optimistic message")).toBeInTheDocument();
     expect(editor).toHaveValue("");
     expect(editor).not.toHaveAttribute("readonly");
-    fireEvent.change(editor, { target: { value: "next draft" } });
+    await user.type(editor, "next draft");
     const submittedID = inputID;
     if (submittedID === undefined) throw new Error("Missing submitted identity");
     await act(async () => {

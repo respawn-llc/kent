@@ -18,7 +18,7 @@ func TestNilIrreconcilableRecoveryDetailStillIdentifiesRecoveryRequirement(t *te
 }
 
 func TestOpenResolvedReportsIrreconcilableMetadataRecovery(t *testing.T) {
-	sessionDir := filepath.Join(t.TempDir(), "session-1")
+	sessionDir := filepath.Join(t.TempDir(), "550e8400-e29b-41d4-a716-446655440000")
 	if err := os.MkdirAll(sessionDir, 0o755); err != nil {
 		t.Fatalf("create session directory: %v", err)
 	}
@@ -88,7 +88,7 @@ func TestOpenResolvedReportsIrreconcilableMetadataRecovery(t *testing.T) {
 }
 
 func TestOpenResolvedReportsIrreconcilableCommittedSuffixRecovery(t *testing.T) {
-	sessionDir := filepath.Join(t.TempDir(), "session-1")
+	sessionDir := filepath.Join(t.TempDir(), "550e8400-e29b-41d4-a716-446655440000")
 	if err := os.MkdirAll(sessionDir, 0o755); err != nil {
 		t.Fatalf("create session directory: %v", err)
 	}
@@ -294,7 +294,7 @@ func marshalRecoveryDetailMetadata(t *testing.T, meta Meta) []byte {
 
 func recoveryDetailTestMeta(now time.Time) Meta {
 	return Meta{
-		SessionID:          "session-1",
+		SessionID:          "550e8400-e29b-41d4-a716-446655440000",
 		WorkspaceRoot:      "/workspace",
 		WorkspaceContainer: "/workspace",
 		CreatedAt:          now,

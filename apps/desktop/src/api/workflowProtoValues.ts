@@ -231,6 +231,8 @@ export const taskExecutionResolutionCode = workflowEnum([
   [ExecutionTargetResolutionCode.INVALID_REVISION, "invalid_revision"],
   [ExecutionTargetResolutionCode.NON_COMMIT, "non_commit"],
   [ExecutionTargetResolutionCode.GIT_FAILURE, "git_failure"],
+  [ExecutionTargetResolutionCode.DEFAULT_BRANCH_MISSING, "default_branch_missing"],
+  [ExecutionTargetResolutionCode.DEFAULT_BRANCH_AMBIGUOUS, "default_branch_ambiguous"],
 ]);
 
 export const taskMovePreviewBlocker = workflowEnum([

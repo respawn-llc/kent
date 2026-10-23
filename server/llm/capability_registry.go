@@ -24,6 +24,7 @@ type ModelKnowledgeCutoff struct {
 
 type ModelCapabilityContract struct {
 	Model                         string
+	TokenPricing                  *TokenPricing
 	DefaultReasoningEffort        *string
 	ContextWindowTokens           int
 	LargeContextWindowTokens      *int

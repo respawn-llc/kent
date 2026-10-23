@@ -4,7 +4,7 @@ import { useState } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import { useAtomValue } from "@effect/atom-react";
 import * as Atom from "effect/reactivity/Atom";
-import { parsePendingWorkItemID, type PendingWorkItemID } from "@/api";
+import { pendingWorkItemIDFromProto, type PendingWorkItemID } from "@/api";
 import { createTestServices } from "@/test-support/app-services";
 import { composerWrapper } from "@/test-support/composer";
 import { appI18n } from "@/i18n";
@@ -61,7 +61,7 @@ it.each(["accepted", "not_accepted", "error"] as const)(
     const ids: PendingWorkItemID[] = [];
     const prepared = vi.fn((id: PendingWorkItemID) => {
       expect(result.current.text).toBe("same");
-      expect(parsePendingWorkItemID(id.toJSONValue()).toJSONValue()).toBe(id.toJSONValue());
+      expect(pendingWorkItemIDFromProto(id.toJSONValue()).toJSONValue()).toBe(id.toJSONValue());
       ids.push(id);
     });
     const rejected = vi.fn<(id: PendingWorkItemID) => void>();

@@ -144,7 +144,7 @@ func TestCommittedRowLocatorNumbersProjectedRowsAfterFiltering(t *testing.T) {
 	}
 }
 
-func TestCheckedTranscriptProjectionReturnsMalformedLocatorErrors(t *testing.T) {
+func TestGeneratedTranscriptValidationRejectsMalformedProjectedLocators(t *testing.T) {
 	const sessionID = "12345678-1234-4234-8234-123456789012"
 	const stepID = "22222222-2222-4222-8222-222222222222"
 	malformed := &runtime.TranscriptCommittedRowProvenance{}
@@ -152,16 +152,21 @@ func TestCheckedTranscriptProjectionReturnsMalformedLocatorErrors(t *testing.T) 
 		CommittedRows: []runtime.TranscriptCommittedRowFact{{
 			StepID:     runtimeStepIDPointer(stepID),
 			Kind:       runtime.TranscriptCommittedRowFactUser,
+			Visibility: transcript.EntryVisibilityOngoing,
 			Locator:    transcript.CommittedRowLocator{},
 			Provenance: malformed,
 			User:       &runtime.TranscriptUserRowFact{Text: "malformed"},
 		}},
 	}
-	if _, err := transcriptTailSegmentFromFactsChecked(snapshot.CommittedRows, nil, false, nil); err == nil {
-		t.Fatal("checked hydration projection accepted malformed locator")
+	tail, err := transcriptTailSegmentFromFactsChecked(snapshot.CommittedRows, nil, false, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := protoapi.Validate(tail); err == nil {
+		t.Fatal("generated hydration validation accepted malformed locator")
 	}
 
-	_, err := TranscriptPageFromSegment(
+	page, err := TranscriptPageFromSegment(
 		sessionID,
 		textutil.Value("session"),
 		runtimepb.ConversationFreshness_CONVERSATION_FRESHNESS_ESTABLISHED,
@@ -173,18 +178,26 @@ func TestCheckedTranscriptProjectionReturnsMalformedLocatorErrors(t *testing.T) 
 			CommittedProvenance: malformed,
 		}}}}, nil)
 
-	if err == nil {
-		t.Fatal("checked page projection accepted malformed locator")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := protoapi.Validate(page); err == nil {
+		t.Fatal("generated page validation accepted malformed locator")
 	}
 
-	_, err = TranscriptMessagesFromRuntimeEventChecked(runtime.Event{
+	events, err := TranscriptMessagesFromRuntimeEventChecked(runtime.Event{
 		Kind:                runtime.EventUserMessageFlushed,
 		StepID:              runtimeStepIDPointer(stepID),
 		UserMessage:         "malformed",
 		CommittedProvenance: malformed,
 	}, nil)
 
-	if err == nil {
-		t.Fatal("checked live projection accepted malformed locator")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, event := range events {
+		if err := protoapi.Validate(event); err == nil {
+			t.Fatal("generated live validation accepted malformed locator")
+		}
 	}
 }

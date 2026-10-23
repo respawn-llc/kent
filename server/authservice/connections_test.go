@@ -17,6 +17,7 @@ import (
 	"testing"
 
 	"core/internal/testharness/httpclient"
+	"core/internal/testharness/testsetup"
 	"core/server/authmanager"
 	"core/server/launch"
 	"core/server/llm"
@@ -327,8 +328,8 @@ endpoint = "http://127.0.0.1:1/v1"
 		t.Fatal(err)
 	}
 	for _, present := range []bool{false, true} {
-		rotation := new(launch.ConnectionRotation)
-		id, err := rotation.Prepare(app.Settings, true)
+		rotation := launch.NewConnectionRotation(testsetup.OpenStore(t, t.TempDir()), 0)
+		id, err := rotation.Prepare(t.Context(), app.Settings, true)
 		if err != nil || id != "api" {
 			t.Fatalf("selected member = %v, %v", id, err)
 		}
@@ -356,7 +357,7 @@ endpoint = "http://127.0.0.1:1/v1"
 		if err == nil {
 			t.Fatal("missing or empty key must block dispatch")
 		}
-		next, err := rotation.Prepare(app.Settings, true)
+		next, err := rotation.Prepare(t.Context(), app.Settings, true)
 		if err != nil || next != "local" {
 			t.Fatalf("credential failure consumed another member: %v, %v", next, err)
 		}
@@ -400,8 +401,8 @@ endpoint = %q
 			"b": {Protocol: config.ConnectionResponses, Endpoint: &endpoint.URL},
 		},
 	}
-	rotation := new(launch.ConnectionRotation)
-	id, err := rotation.Prepare(settings, true)
+	rotation := launch.NewConnectionRotation(testsetup.OpenStore(t, t.TempDir()), 0)
+	id, err := rotation.Prepare(t.Context(), settings, true)
 	if err != nil || id != "a" {
 		t.Fatalf("selected member = %v, %v", id, err)
 	}
@@ -427,7 +428,7 @@ endpoint = %q
 	if !errors.As(err, &providerErr) || providerErr.StatusCode != http.StatusBadRequest || requests.Load() != 1 {
 		t.Fatalf("selected-provider failure = %v, requests=%d", err, requests.Load())
 	}
-	next, err := rotation.Prepare(settings, true)
+	next, err := rotation.Prepare(t.Context(), settings, true)
 	if err != nil || next != "b" {
 		t.Fatalf("provider rejection consumed another member: %v, %v", next, err)
 	}

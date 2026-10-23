@@ -83,7 +83,7 @@ export function projectNotice(
   if (notice.Reason === "thinking_update") {
     return { kind: "compact", summary: prose.compact, icon: Settings };
   }
-  if (notice.Reason === "reasoning_omission") {
+  if (notice.Reason === "reasoning_omission" || notice.Reason === "connection_fallback") {
     return { kind: "compact", summary: prose.expanded, icon: noticeIcon(notice) };
   }
 
@@ -258,6 +258,8 @@ function noticeReasonIcon(notice: TranscriptNotice): LucideIcon | undefined {
     case "tool_output_repair":
       return Wrench;
     case "provider_model_mismatch":
+    case "connection_fallback":
+    case "connections_unavailable":
       return Server;
     case "legacy_untyped_notice":
     case "runtime_diagnostic":

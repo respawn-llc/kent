@@ -37,10 +37,7 @@ func TestTaskSearchPlainProjectionPreservesHitKindsAndRemainingCount(t *testing.
 		}},
 	}
 
-	projection, err := taskSearchPlainProjectionFromResponse(response)
-	if err != nil {
-		t.Fatalf("taskSearchPlainProjectionFromResponse: %v", err)
-	}
+	projection := taskSearchPlainProjectionFromResponse(response)
 	if len(projection.Groups) != 1 {
 		t.Fatalf("group count = %d, want 1", len(projection.Groups))
 	}
@@ -87,10 +84,7 @@ func TestTaskSearchPlainProjectionUsesHeaderForShortIDHit(t *testing.T) {
 		}},
 	}
 
-	projection, err := taskSearchPlainProjectionFromResponse(response)
-	if err != nil {
-		t.Fatalf("taskSearchPlainProjectionFromResponse: %v", err)
-	}
+	projection := taskSearchPlainProjectionFromResponse(response)
 	group := projection.Groups[0]
 	if len(group.Lines) != 0 || group.RemainingHitCount != 3 {
 		t.Fatalf("Short ID plain projection = %#v, want header-only hit with 3 remaining", group)
@@ -175,10 +169,7 @@ func TestTaskSearchPlainProjectionOmitsConditionalCommentAndRemainingLines(t *te
 			},
 		}},
 	}
-	projection, err := taskSearchPlainProjectionFromResponse(response)
-	if err != nil {
-		t.Fatalf("taskSearchPlainProjectionFromResponse: %v", err)
-	}
+	projection := taskSearchPlainProjectionFromResponse(response)
 	group := projection.Groups[0]
 	if len(group.Lines) != 2 ||
 		group.Lines[0].Kind != taskSearchPlainLineKindHit ||

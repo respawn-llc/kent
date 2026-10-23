@@ -28,9 +28,6 @@ type pendingConnection struct {
 }
 
 func (s *BootstrapService) GetConnections(_ context.Context, req *authpb.GetConnectionsRequest) (*authpb.ConnectionCatalog, error) {
-	if req == nil {
-		return nil, errors.New("connection catalog request is required")
-	}
 	app, err := config.LoadGlobal(config.LoadOptions{ConfigRoot: s.connections.root})
 	if err != nil {
 		return nil, err
@@ -62,9 +59,6 @@ func (s *BootstrapService) GetConnections(_ context.Context, req *authpb.GetConn
 }
 
 func (s *BootstrapService) ConfigureConnection(_ context.Context, req *authpb.ConfigureConnectionRequest) (*emptypb.Empty, error) {
-	if req == nil {
-		return nil, errors.New("connection change is required")
-	}
 	s.writeMu.Lock()
 	defer s.writeMu.Unlock()
 	if err := s.ctx.Err(); err != nil {
@@ -104,9 +98,6 @@ func (s *BootstrapService) ConfigureConnection(_ context.Context, req *authpb.Co
 			return nil, err
 		}
 	case *authpb.ConfigureConnectionRequest_Reference:
-		if change.Reference == nil {
-			return nil, errors.New("connection reference edit is required")
-		}
 		if err := config.SetProviderConnectionEnvironment(path, config.ConnectionID(change.Reference.ConnectionId), change.Reference.EnvironmentVariable); err != nil {
 			return nil, err
 		}
@@ -114,8 +105,6 @@ func (s *BootstrapService) ConfigureConnection(_ context.Context, req *authpb.Co
 		if err := config.SetDefaultProviderConnection(path, config.ConnectionID(change.DefaultConnectionId)); err != nil {
 			return nil, err
 		}
-	default:
-		return nil, errors.New("connection change is required")
 	}
 	return &emptypb.Empty{}, nil
 }
@@ -190,9 +179,6 @@ func requireMissingSettings(path string) error {
 }
 
 func (s *BootstrapService) targetSnapshot(ctx context.Context, target *authpb.ConnectionTarget) (connectionSnapshot, error) {
-	if target == nil {
-		return connectionSnapshot{}, errors.New("connection target is required")
-	}
 	switch value := target.Target.(type) {
 	case *authpb.ConnectionTarget_ConnectionId:
 		return s.connections.snapshot(ctx, &value.ConnectionId)

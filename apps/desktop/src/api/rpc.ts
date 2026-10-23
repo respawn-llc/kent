@@ -12,6 +12,7 @@ import {
   type DescMessage,
   type DescMethod,
   type MessageShape,
+  type MessageValidType,
 } from "@app/server-api-contract";
 import {
   openSocket,
@@ -20,7 +21,6 @@ import {
   setupSocket,
   requireSessionAttachment,
 } from "./rpcSocket";
-import { RpcRuntimeOwner } from "./rpcRuntimeOwner";
 import { TerminalSubscriptionError } from "./subscriptionErrors";
 import { requireProjectAttachment } from "./chatAttachment";
 import type {
@@ -33,8 +33,6 @@ import type {
   ProjectAttachment,
   SessionAttachment,
   SessionAttachmentTarget,
-  RuntimeOwnerContext,
-  RuntimeOwnerOptions,
 } from "./transport";
 
 const socketOpenTimeoutMs = 10_000;
@@ -51,8 +49,12 @@ type PendingRequest = PendingRequestBase &
     complete(response: ReturnType<typeof decodeDescriptorResponse>): void;
   }>;
 
-export function createRpcTransport(endpoint: string, expectedRootId = ""): RpcTransport {
-  return new RpcWebSocketTransport(endpoint, expectedRootId);
+export function createRpcTransport(
+  endpoint: string,
+  reportInvalidResponse: (error: unknown) => void,
+  expectedRootId = "",
+): RpcTransport {
+  return new RpcWebSocketTransport(endpoint, reportInvalidResponse, expectedRootId);
 }
 
 class RpcWebSocketTransport implements RpcTransport {
@@ -62,19 +64,19 @@ class RpcWebSocketTransport implements RpcTransport {
   #opening: Promise<WebSocket> | null = null;
   #nextID = 1;
   #pending = new Map<string, PendingRequest>();
-  #runtimeOwner: RpcRuntimeOwner;
+  #reportInvalidResponse: (error: unknown) => void;
 
-  constructor(endpoint: string, expectedRootId: string) {
+  constructor(endpoint: string, reportInvalidResponse: (error: unknown) => void, expectedRootId: string) {
     this.#endpoint = endpoint;
+    this.#reportInvalidResponse = reportInvalidResponse;
     this.#expectedRootId = expectedRootId;
-    this.#runtimeOwner = new RpcRuntimeOwner(endpoint, expectedRootId);
   }
 
   async callDescriptor<Method extends DescMethod>(
     method: Method,
     request: MessageShape<Method["input"]>,
     options?: RpcDedicatedCallOptions,
-  ): Promise<MessageShape<Method["output"]>> {
+  ): Promise<MessageValidType<Method["output"]>> {
     switch (unaryConnectionPolicy(method)) {
       case "multiplexed": {
         if (options?.signal !== undefined) {
@@ -93,7 +95,7 @@ class RpcWebSocketTransport implements RpcTransport {
   async callDescriptorAttachedProject<Method extends DescMethod>(
     input: AttachedProjectDescriptorCall<Method>,
     options?: RpcDedicatedCallOptions,
-  ): Promise<Readonly<{ result: MessageShape<Method["output"]>; attachment: ProjectAttachment }>> {
+  ): Promise<Readonly<{ result: MessageValidType<Method["output"]>; attachment: ProjectAttachment }>> {
     const { projectID, selector, method, createRequest } = input;
     return this.#withDedicatedSocket(
       options,
@@ -118,7 +120,7 @@ class RpcWebSocketTransport implements RpcTransport {
     method: Method,
     request: MessageShape<Method["input"]>,
     options?: RpcDedicatedCallOptions,
-  ): Promise<MessageShape<Method["output"]>> {
+  ): Promise<MessageValidType<Method["output"]>> {
     const attachedSessionID = target.sessionID.trim();
     if (attachedSessionID.length === 0) {
       throw new TransportError("Session attachment requires a Session ID.");
@@ -126,19 +128,11 @@ class RpcWebSocketTransport implements RpcTransport {
     return this.#withDedicatedSocket(
       options,
       async (socket, requestOptions, attachment) => {
-        requireSessionAttachment(attachment, { ...target, sessionID: attachedSessionID });
+        requireSessionAttachment(attachment, { sessionID: attachedSessionID });
         return sendSocketDescriptorRequest(socket, method, request, requestOptions);
       },
       { sessionID: attachedSessionID },
     );
-  }
-
-  async runRuntimeOwner<Result>(
-    sessionID: string,
-    options: RuntimeOwnerOptions,
-    run: (context: RuntimeOwnerContext) => Promise<Result>,
-  ): Promise<Result> {
-    return this.#runtimeOwner.run(sessionID, options, run);
   }
 
   async #withDedicatedSocket<Result>(
@@ -240,14 +234,14 @@ class RpcWebSocketTransport implements RpcTransport {
     method: Method,
     request: MessageShape<Method["input"]>,
     options?: RpcCallOptions,
-  ): Promise<MessageShape<Method["output"]>> {
+  ): Promise<MessageValidType<Method["output"]>> {
     if (socket.readyState !== WebSocket.OPEN) {
       throw new TransportError("WebSocket is not open.");
     }
     const id = `gui-${this.#nextID.toString()}`;
     this.#nextID += 1;
     const { operation, bytes } = encodeDescriptorCall(method, request, id);
-    return new Promise<MessageShape<Method["output"]>>((resolve, reject) => {
+    return new Promise<MessageValidType<Method["output"]>>((resolve, reject) => {
       const timeoutMs = options?.timeoutMs === undefined ? rpcRequestTimeoutMs : options.timeoutMs;
       const timeout =
         timeoutMs === null
@@ -303,6 +297,7 @@ class RpcWebSocketTransport implements RpcTransport {
         );
       }
     } catch (error) {
+      this.#reportInvalidResponse(error);
       const correlation = descriptorResponseCorrelation(bytes);
       if (correlation === undefined) {
         return;
@@ -351,7 +346,7 @@ class RpcWebSocketTransport implements RpcTransport {
     run: (socket: WebSocket) => Promise<void>,
     onError: (error: Error) => void,
     signal: AbortSignal,
-    attachmentTarget?: Readonly<{ sessionID?: string; projectID?: string }>,
+    attachmentTarget?: SessionAttachmentTarget,
   ): Promise<void> {
     try {
       await this.#withSubscriptionSocket(signal, run, attachmentTarget);
@@ -366,7 +361,7 @@ class RpcWebSocketTransport implements RpcTransport {
   async #withSubscriptionSocket(
     signal: AbortSignal,
     run: (socket: WebSocket) => Promise<void>,
-    attachmentTarget?: Readonly<{ sessionID?: string; projectID?: string }>,
+    attachmentTarget?: SessionAttachmentTarget,
   ): Promise<void> {
     const socket = await openSocket(this.#endpoint, socketOpenTimeoutMs, signal);
     const abort = () => {
@@ -378,13 +373,10 @@ class RpcWebSocketTransport implements RpcTransport {
         timeoutMilliseconds: rpcRequestTimeoutMs,
         expectedRootId: this.#expectedRootId,
         signal,
-        ...(attachmentTarget?.sessionID === undefined ? {} : { sessionID: attachmentTarget.sessionID }),
+        ...(attachmentTarget === undefined ? {} : { sessionID: attachmentTarget.sessionID }),
       });
-      if (attachmentTarget?.sessionID !== undefined) {
-        requireSessionAttachment(attachment, {
-          ...(attachmentTarget.projectID === undefined ? {} : { projectID: attachmentTarget.projectID }),
-          sessionID: attachmentTarget.sessionID,
-        });
+      if (attachmentTarget !== undefined) {
+        requireSessionAttachment(attachment, attachmentTarget);
       }
       await run(socket);
     } finally {

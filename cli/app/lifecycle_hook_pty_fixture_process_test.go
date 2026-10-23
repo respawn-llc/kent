@@ -102,7 +102,7 @@ func runLifecycleHookPTYFixtureProcess(
 	if err != nil {
 		return err
 	}
-	defer func() { runErr = errors.Join(runErr, runtimePlan.Close()) }()
+	defer runtimePlan.Close()
 	composition, err := composeUIProgram(request, terminal)
 	if err != nil {
 		return err

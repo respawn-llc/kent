@@ -36,7 +36,7 @@ func TestPreparePreviousSessionChildAllocatesFreshRoleConnection(t *testing.T) {
 			},
 		},
 	}
-	planner.Rotation = new(ConnectionRotation)
+	planner.Rotation = NewConnectionRotation(testsetup.OpenStore(t, t.TempDir()), 0)
 	parent, err := planner.PlanSession(t.Context(), SessionRequest{
 		Mode: ModeInteractive, Intent: serverapi.CreateNewSessionLaunchIntent(serverapi.IndependentSessionCreateOrigin()),
 	})
@@ -69,7 +69,7 @@ func TestPreparePreviousSessionChildAllocatesFreshRoleConnection(t *testing.T) {
 	if err != nil || record.Meta.ConnectionID == nil || *record.Meta.ConnectionID != "a" {
 		t.Fatalf("parent binding changed: %+v, %v", record.Meta, err)
 	}
-	next, err := planner.Rotation.Prepare(planner.Config.Settings, true)
+	next, err := planner.Rotation.Prepare(t.Context(), planner.Config.Settings, true)
 	if err != nil || next != "c" {
 		t.Fatalf("next connection = %s, %v; want c after one child allocation", next, err)
 	}

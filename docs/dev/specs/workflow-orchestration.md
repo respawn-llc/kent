@@ -223,6 +223,7 @@
 - `node_key`, `transition_id`, `edge_key`, Parameter Keys, and binding names match `^[a-z][a-z0-9_]{0,63}$`.
 - Workflow display names are trimmed non-empty labels capped at 120 chars. They cannot serve as references.
 - Node display labels may be empty. They must be trimmed and capped at 120 characters.
+- Node Group names must be optional and represent absence as null. A supplied Group name must survive save and reload.
 
 ## Node Completion
 
@@ -343,7 +344,7 @@
 - A pending compacted context must carry the identity of its in-progress assignment, when present, so later activation can distinguish continuation from a new assignment. Existing pending summaries without that identity must receive new-assignment instructions. Kent must not infer the missing identity or rewrite saved conversation history.
 - Post-completion compaction has no current executable assignment. Its replacement contains the completed-assignment summary and general Workflow instructions without a current-assignment reminder. Every later executable Node entry, including a return to the same Node key, appends reassignment instructions before its first model request.
 - Prompt explains task identity, node role/assignee, selected completion behavior, question behavior, handoff/transition mechanics, task comments, and why ordinary final answers are invalid when the selected mode rejects them.
-- Agent Sessions created by Workflow Execution begin at subagent depth `0`. Delegation from a Workflow agent follows the global subagent-depth policy.
+- Delegation from a Workflow agent must follow the caller-role and absolute-depth policy in [Headless Mode And Shared Control](core-runtime-tools.md#headless-mode-and-shared-control).
 - Ordinary final response text cannot bypass the selected completion mode.
 - Existing user goal state is not reused as workflow autonomy state.
 - Workflow Task Sessions expose ordinary human `/goal` control. Goal mutations follow the same live Steering or dormant Store ownership as other Sessions.
@@ -616,6 +617,7 @@
 - An unresolvable configured target asks the operator to select a concrete target and explains which configured target failed and why. During Task Start, this happens before cutover and leaves the Task at Start. Resume requests a concrete target before it requeues an unlocked Current Node.
 - Selection-required results must distinguish Workflow-required selection, an unavailable configured target, and an original target that cannot be safely restored. The original-target reason applies to completed-Task reopening and unfinished Task execution. Every selection flow offers all four concrete modes.
 - Failure to resolve an explicitly selected custom ref is a validation failure. During Task Start it occurs before cutover and leaves the Task at Start. Kent must not recursively request selection or fall back to another target. A later Start may select another concrete target.
+- Failure to resolve an explicitly selected repository default branch during Task Start must be a validation failure that identifies the selected target, explains the cause, and includes the diagnostic and guidance to retry or choose another concrete target through Task Start. The Task must stay at Start with its target unlocked and no execution started. Kent must not automatically retry, request selection again, or fall back to another target. Unrelated internal failures must use their ordinary error handling and diagnostics.
 - A Task must lock target-selection provenance only after preparation establishes a usable Execution Root and any required setup succeeds. Start, Resume, and Move must commit applicable target changes with their Current Nodes and exact Agent Session bindings at cutover.
 - A Task with recorded managed-worktree facts but no locked execution-target provenance must not infer an execution root from its recorded `HEAD`. It is readable but requires an explicit target selection before execution.
 - An unlocked Task follows its configured Workflow execution-target policy. Kent must not use recorded managed-worktree facts as a source-`HEAD` fallback.

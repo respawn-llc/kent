@@ -1,3 +1,10 @@
+CREATE TABLE connection_consumption (
+    connection_id TEXT NOT NULL CHECK (length(connection_id) > 0),
+    hour_start_unix INTEGER NOT NULL,
+    score INTEGER NOT NULL CHECK (typeof(score) = 'integer' AND score >= 0),
+    PRIMARY KEY (connection_id, hour_start_unix)
+);
+
 CREATE TABLE goose_db_version (
 		id INTEGER PRIMARY KEY AUTOINCREMENT,
 		version_id INTEGER NOT NULL,
@@ -334,7 +341,7 @@ CREATE TABLE "workflow_node_groups" (
     workflow_id BLOB NOT NULL REFERENCES workflows(id) ON DELETE CASCADE
         CHECK (typeof(workflow_id) = 'blob' AND length(workflow_id) = 16),
     group_key TEXT NOT NULL CHECK (length(group_key) BETWEEN 1 AND 64),
-    display_name TEXT NOT NULL CHECK (length(trim(display_name)) BETWEEN 1 AND 120),
+    display_name TEXT CHECK (display_name IS NULL OR length(trim(display_name)) BETWEEN 1 AND 120),
     sort_order INTEGER NOT NULL DEFAULT 0 CHECK (sort_order >= 0),
     UNIQUE (workflow_id, id),
     UNIQUE (workflow_id, group_key)
@@ -688,6 +695,9 @@ CREATE INDEX workflow_edges_transition_group_sort_idx
 
 CREATE INDEX workflow_node_groups_workflow_sort_idx
     ON workflow_node_groups(workflow_id, sort_order);
+
+CREATE INDEX workflow_nodes_group_sort_idx
+    ON workflow_nodes(group_id, sort_order);
 
 CREATE UNIQUE INDEX workflow_nodes_one_start_idx
     ON workflow_nodes(workflow_id)

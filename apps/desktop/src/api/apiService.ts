@@ -82,9 +82,9 @@ import type {
   CreateSuccess,
   CreateTargetResolveSuccess,
   DeleteSuccess,
-  ListSuccess,
+  ListSuccessValid as ListSuccess,
   ScheduledAcknowledgement,
-  SelectorResolveSuccess,
+  SelectorResolveSuccessValid as SelectorResolveSuccess,
   StatusSuccess,
 } from "@app/server-api-contract/gen/kent/api/worktree/worktree_pb";
 import type { WorkflowProjectEventHandler } from "./workflowProjectEvents";
@@ -93,12 +93,16 @@ import type { ChatApi } from "./chat";
 import type { ChatSessionTarget } from "./chatTypes";
 import type { PendingPrompt } from "./promptModels";
 import type { DesktopProcess, ProcessObservationError } from "./processes";
+import type { SubscriptionConnection, SubscriptionBinding, SubscriptionUsage } from "./subscriptionUsage";
 
 export type ApiSubscription = Readonly<{
   close(): void;
 }>;
 
 export interface ApiService {
+  getSubscriptionConnections(): Promise<readonly SubscriptionConnection[]>;
+  getSubscriptionBinding(sessionID: string): Promise<SubscriptionBinding | null>;
+  getSubscriptionUsage(connectionID: string): Promise<SubscriptionUsage | null>;
   readonly chat: ChatApi;
 
   observeProcesses(

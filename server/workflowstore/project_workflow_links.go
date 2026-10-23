@@ -15,14 +15,6 @@ import (
 
 const projectWorkflowUnlinkTaskPreviewLimit = 10
 
-func (s *Store) LinkWorkflow(ctx context.Context, projectID string, workflowID runtimeids.WorkflowID, isDefault bool) (ProjectWorkflowLinkRecord, error) {
-	policy := WorkflowLinkDefaultNever
-	if isDefault {
-		policy = WorkflowLinkDefaultAlways
-	}
-	return s.LinkWorkflowWithDefaultPolicy(ctx, projectID, workflowID, policy)
-}
-
 func (s *Store) LinkWorkflowWithDefaultPolicy(ctx context.Context, projectID string, workflowID runtimeids.WorkflowID, policy WorkflowLinkDefaultPolicy) (ProjectWorkflowLinkRecord, error) {
 	now := s.now().UnixMilli()
 	tx, err := s.db.BeginTx(ctx, nil)
@@ -115,10 +107,8 @@ func (s *Store) shouldSetWorkflowLinkDefault(ctx context.Context, q *sqlitegen.Q
 			return false, err
 		}
 		return false, nil
-	case "", WorkflowLinkDefaultNever:
-		return false, nil
 	default:
-		return false, fmt.Errorf("invalid workflow link default policy")
+		return false, nil
 	}
 }
 

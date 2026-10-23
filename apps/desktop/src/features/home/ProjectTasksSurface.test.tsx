@@ -205,7 +205,7 @@ describe("ProjectTasksSurface", () => {
     renderSurface();
 
     const columnHeaders = screen.getAllByRole("columnheader");
-    expect(columnHeaders).toHaveLength(6);
+    expect(columnHeaders).toHaveLength(7);
     for (const columnHeader of columnHeaders) {
       expect(within(columnHeader).queryByRole("button")).not.toBeInTheDocument();
     }
@@ -894,6 +894,7 @@ function task(
     shortID,
     workflowID: "workflow-1",
     workflowName: "Delivery",
+    stageName: null,
     title,
     createdAt: 1,
     updatedAt: 1,

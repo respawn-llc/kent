@@ -11,12 +11,10 @@ import (
 	"core/internal/testharness/testsetup"
 	"core/server/metadata"
 	"core/server/runtimecontrol"
-	"core/server/sessionruntime"
 	"core/server/sessionstore"
 	runtimepb "core/shared/protoapi/gen/kent/api/runtime"
 	worktreepb "core/shared/protoapi/gen/kent/api/worktree"
 	"core/shared/runtimeids"
-	"core/shared/serverapi"
 	"core/shared/worktreecontract"
 )
 
@@ -59,17 +57,13 @@ func TestDeleteWorktreeRetainsAcceptedWorkAfterEarlierSessionMoveAndRetries(t *t
 	blockedSessionID := laterPage.Sessions[0].SessionID
 	blockedState := captureDeleteTargetState(t, env, blockedSessionID, target)
 	client := newDeleteActivityGatedLLMClient()
-	attachment, engine := openDeleteActivityRuntime(t, env, target, blockedSessionID, "delete-accepted-work-progress", client)
+	_, engine := openDeleteActivityRuntime(t, env, target, blockedSessionID, "delete-accepted-work-progress", client)
 	t.Cleanup(func() {
 		client.unblock()
 		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 		defer cancel()
 		if err := engine.WaitForScheduledQueuedUserWork(ctx); err != nil {
 			t.Errorf("finish accepted user work: %v", err)
-		}
-		if _, err := attachment.Release(ctx, sessionruntime.RuntimeReleaseClose); err != nil &&
-			!errors.Is(err, serverapi.ErrRuntimeUnavailable) {
-			t.Errorf("release accepted-work Runtime: %v", err)
 		}
 	})
 

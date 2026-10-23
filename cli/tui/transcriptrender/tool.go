@@ -395,9 +395,6 @@ func renderPatchTool(
 	meta toolMeta,
 	syntax *syntaxProjector,
 ) []Line {
-	if presentation == nil || !presentation.Valid() {
-		panic("render Patch/Edit tool without valid presentation")
-	}
 	switch presentation.Variant {
 	case patchformat.PresentationVariantChanges:
 		if mode == ModeDetailExpanded {

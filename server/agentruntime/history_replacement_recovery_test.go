@@ -570,7 +570,7 @@ func TestCompactNowReconcilesLiveUsageWhenFinalUsageObserverFails(t *testing.T) 
 	if compactedOutput == nil {
 		t.Fatal("committed compacted output missing")
 	}
-	expectedInputTokens := compactedOutput.estimateTokens(fixture.engine.cfg.TokenEstimator)
+	expectedInputTokens := compactedOutput.estimateTokens(fixture.engine.connectionSnapshot().estimator)
 	if liveUsage.UsedTokens != expectedInputTokens {
 		t.Fatalf("live compacted usage = %+v, want estimated input tokens %d", liveUsage, expectedInputTokens)
 	}

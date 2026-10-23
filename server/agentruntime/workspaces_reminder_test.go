@@ -6,6 +6,7 @@ import (
 	"path/filepath"
 	"testing"
 
+	"core/internal/testharness/testsetup"
 	"core/server/llm"
 	"core/server/metadata"
 	"core/server/sessionstore"
@@ -322,15 +323,7 @@ func newWorkspaceReminderSession(
 ) (*metadata.Store, *session.Store, []metadata.Binding) {
 	t.Helper()
 	persistenceRoot := t.TempDir()
-	metadataStore, err := metadata.Open(persistenceRoot)
-	if err != nil {
-		t.Fatalf("open metadata store: %v", err)
-	}
-	t.Cleanup(func() {
-		if err := metadataStore.Close(); err != nil {
-			t.Errorf("close metadata store: %v", err)
-		}
-	})
+	metadataStore := testsetup.OpenStore(t, persistenceRoot)
 
 	project, err := metadataStore.CreateProjectForWorkspace(t.Context(), t.TempDir(), "Workspace Context Project")
 	if err != nil {

@@ -19,7 +19,11 @@ import {
 
 export function workflowGraphDraftPayload(graph: WorkflowGraphDraft) {
   return create(GraphDraftSchema, {
-    nodeGroups: graph.nodeGroups.map((group) => ({ id: group.id, key: group.key, displayName: group.name })),
+    nodeGroups: graph.nodeGroups.map((group) => ({
+      id: group.id,
+      key: group.key,
+      displayName: group.name ?? undefined,
+    })),
     nodes: graph.nodes.map((node) => ({
       id: node.id,
       key: node.key,

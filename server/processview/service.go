@@ -40,26 +40,37 @@ func (s *ProcessViewService) ListProcesses(ctx context.Context, req *processpb.L
 	for _, sessionID := range projectSessionIDs {
 		projectSessions[sessionID] = struct{}{}
 	}
+	return s.listProcesses(projectSessions, req.OwnerSessionId, req.OwnerStepId)
+}
+
+func (s *ProcessViewService) listSessionProcesses(sessionID string) (*processpb.ListSuccess, error) {
+	if s == nil || s.processes == nil {
+		return nil, fmt.Errorf("process source is required")
+	}
+	return s.listProcesses(map[string]struct{}{sessionID: {}}, nil, nil)
+}
+
+func (s *ProcessViewService) listProcesses(
+	sessionIDs map[string]struct{},
+	ownerSessionID *string,
+	ownerStepID *string,
+) (*processpb.ListSuccess, error) {
 	snapshots := s.processes.List()
 	processes := make([]*processpb.BackgroundProcess, 0, len(snapshots))
 	for _, snapshot := range snapshots {
 		if !snapshot.Backgrounded {
 			continue
 		}
-		if _, matchesProject := projectSessions[snapshot.OwnerSessionID]; !matchesProject {
+		if _, inScope := sessionIDs[snapshot.OwnerSessionID]; !inScope {
 			continue
 		}
-		if req.OwnerSessionId != nil && snapshot.OwnerSessionID != *req.OwnerSessionId {
+		if ownerSessionID != nil && snapshot.OwnerSessionID != *ownerSessionID {
 			continue
 		}
-		if req.OwnerStepId != nil && snapshot.OwnerStepID != *req.OwnerStepId {
+		if ownerStepID != nil && snapshot.OwnerStepID != *ownerStepID {
 			continue
 		}
-		process, err := ProcessFromSnapshot(snapshot)
-		if err != nil {
-			return nil, err
-		}
-		processes = append(processes, process)
+		processes = append(processes, ProcessFromSnapshot(snapshot))
 	}
 	return &processpb.ListSuccess{Processes: processes}, nil
 }
@@ -72,11 +83,7 @@ func (s *ProcessViewService) GetProcess(_ context.Context, req *processpb.GetReq
 	if err != nil {
 		return nil, err
 	}
-	process, err := ProcessFromSnapshot(snapshot)
-	if err != nil {
-		return nil, err
-	}
-	return &processpb.GetSuccess{Process: process}, nil
+	return &processpb.GetSuccess{Process: ProcessFromSnapshot(snapshot)}, nil
 }
 
 func (s *ProcessViewService) KillProcess(ctx context.Context, req *processpb.KillRequest) (*emptypb.Empty, error) {

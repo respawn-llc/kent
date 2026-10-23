@@ -34,13 +34,11 @@ type ongoingTranscriptEventStream struct {
 }
 
 type sessionTranscriptSubscriber func(context.Context, *transcriptpb.SubscribeRequest) (serverapi.TranscriptSubscription, error)
-type sessionTranscriptReactivator func(context.Context) error
 
 func startSessionTranscriptEvents(
 	ctx context.Context,
 	sessionID string,
 	subscribe sessionTranscriptSubscriber,
-	reactivate sessionTranscriptReactivator,
 	observers ...func(*transcriptpb.Message),
 ) ongoingTranscriptEventStream {
 	out := make(chan ongoingTranscriptEvent, 64)
@@ -53,41 +51,13 @@ func startSessionTranscriptEvents(
 	go func() {
 		defer close(out)
 		connectionFailureReported := false
-		reactivationRequired := false
 		for {
-			if reactivationRequired && reactivate != nil {
-				if err := reactivate(pollCtx); err != nil {
-					if (errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded)) && pollCtx.Err() != nil {
-						return
-					}
-					if runtimeattach.IsRuntimeTimeoutError(err) || errors.Is(err, serverapi.ErrRuntimeUnavailable) {
-						if waitForTranscriptSubscriptionRetry(pollCtx) {
-							continue
-						}
-						return
-					}
-					if runtimeattach.IsRuntimeConnectionError(err) {
-						if !connectionFailureReported {
-							emitSessionTranscriptFailure(pollCtx, out, err)
-							connectionFailureReported = true
-						}
-						if waitForTranscriptSubscriptionRetry(pollCtx) {
-							continue
-						}
-						return
-					}
-					emitSessionTranscriptFailure(pollCtx, out, err)
-					return
-				}
-				reactivationRequired = false
-			}
 			sub, err := subscribeSessionTranscript(pollCtx, sessionID, subscribe)
 			if err != nil {
 				if (errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded)) && pollCtx.Err() != nil {
 					return
 				}
 				if runtimeattach.IsRuntimeConnectionError(err) {
-					reactivationRequired = true
 					if !connectionFailureReported {
 						emitSessionTranscriptFailure(pollCtx, out, err)
 						connectionFailureReported = true
@@ -101,14 +71,13 @@ func startSessionTranscriptEvents(
 				return
 			}
 			connectionFailureReported = false
-			reopen, stop, lossErr := pumpSessionTranscriptSubscription(pollCtx, sub, out, requests, observers...)
+			reopen, stop, _ := pumpSessionTranscriptSubscription(pollCtx, sub, out, requests, observers...)
 			if stop {
 				return
 			}
 			if !reopen {
 				return
 			}
-			reactivationRequired = runtimeattach.IsRuntimeConnectionError(lossErr)
 		}
 	}()
 	requestRehydration := func() {

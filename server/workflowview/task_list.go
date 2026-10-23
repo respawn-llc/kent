@@ -45,16 +45,13 @@ func (l *TaskList) List(ctx context.Context, req *taskpb.ListRequest) (*taskpb.L
 	if l == nil {
 		return nil, errors.New("task list is required")
 	}
-	if err := protoapi.Validate(req); err != nil {
-		return nil, err
-	}
 	window := serverapi.OffsetWindow{Offset: int(req.GetOffset()), Limit: serverapi.OffsetPaginationMaxLimit}
 	if req.Limit != nil {
 		window.Limit = int(*req.Limit)
 	}
 	var workflowSelector *runtimeids.WorkflowID
 	if req.WorkflowId != nil {
-		value, err := runtimeids.ParseWorkflowID(*req.WorkflowId)
+		value, err := runtimeids.WorkflowIDFromProto(*req.WorkflowId)
 		if err != nil {
 			return nil, err
 		}
@@ -163,11 +160,24 @@ func (l *TaskList) List(ctx context.Context, req *taskpb.ListRequest) (*taskpb.L
 	if err != nil {
 		return nil, err
 	}
+	stageByTask := make(map[string]string, len(pageTaskIDs))
+	if workflowID == nil && len(pageTaskIDs) > 0 {
+		stages, err := l.queries.ListTaskStageNamesByTasks(ctx, pageTaskIDs)
+		if err != nil {
+			return nil, err
+		}
+		for _, stage := range stages {
+			stageByTask[stage.TaskID] = stage.StageName
+		}
+	}
 	responseItems := make([]*taskpb.ListItem, 0, len(pageItems))
 	for _, row := range pageItems {
 		item := row.item
 		item.Labels = labelsByTask[item.TaskId]
 		item.DependencyProgress = dependencyProgressByTask[item.TaskId]
+		if name, exists := stageByTask[item.TaskId]; exists {
+			item.StageName = &name
+		}
 		responseItems = append(responseItems, item)
 	}
 	var nextOffset *int32
@@ -193,9 +203,6 @@ func (l *TaskList) List(ctx context.Context, req *taskpb.ListRequest) (*taskpb.L
 func (l *TaskList) CountGroups(ctx context.Context, req *taskpb.ProjectTaskGroupCountsRequest) (*taskpb.ProjectTaskGroupCountsSuccess, error) {
 	if l == nil {
 		return nil, errors.New("task list is required")
-	}
-	if err := protoapi.Validate(req); err != nil {
-		return nil, err
 	}
 	if _, err := l.metadata.GetProjectEditMetadata(ctx, req.ProjectId); err != nil {
 		return nil, err

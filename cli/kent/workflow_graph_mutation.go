@@ -53,9 +53,6 @@ func runWorkflowGraphMutation[T any](
 	if err != nil {
 		return zero, workflowGraphMutationResult{}, err
 	}
-	if err := protoapi.Validate(preview.Response); err != nil {
-		return zero, workflowGraphMutationResult{}, fmt.Errorf("validate Workflow graph save preview: %w", err)
-	}
 	if preview.Response.ConfirmationRequired || len(preview.Response.Blockers) != 0 || !preview.Response.CanSave {
 		return zero, workflowGraphMutationResult{}, workflowGraphMutationBlocked(workflowID, preview.Response.Blockers)
 	}
@@ -66,9 +63,6 @@ func runWorkflowGraphMutation[T any](
 	})
 	if err != nil {
 		return zero, workflowGraphMutationResult{}, err
-	}
-	if err := protoapi.Validate(response); err != nil {
-		return zero, workflowGraphMutationResult{}, fmt.Errorf("validate Workflow graph save response: %w", err)
 	}
 	if !response.Saved || response.ConfirmationRequired || len(response.Blockers) != 0 || !response.CanSave {
 		return zero, workflowGraphMutationResult{}, workflowGraphMutationBlocked(workflowID, response.Blockers)

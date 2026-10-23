@@ -8,7 +8,6 @@ import (
 	"sync"
 
 	"core/shared/apicontract"
-	"core/shared/protoapi"
 	chatsettingspb "core/shared/protoapi/gen/kent/api/chat_settings"
 	"core/shared/runtimeids"
 	"core/shared/serverapi"
@@ -52,13 +51,7 @@ func (b *SettingsBroadcaster) Subscribe(sessionID runtimeids.SessionID) (apicont
 }
 
 func (b *SettingsBroadcaster) Publish(snapshot *chatsettingspb.SettingsSnapshot) (err error) {
-	if err := protoapi.Validate(snapshot); err != nil {
-		return err
-	}
-	sessionID, err := runtimeids.ParseSessionID(snapshot.Session.SessionId)
-	if err != nil {
-		return err
-	}
+	sessionID := runtimeids.SessionIDFromProto(snapshot.Session.SessionId)
 	defer func() { err = errors.Join(err, b.catalogChanged(sessionID)) }()
 	b.mu.Lock()
 	defer b.mu.Unlock()

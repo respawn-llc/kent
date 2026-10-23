@@ -25,10 +25,6 @@ func (e *PendingWorkNotPendingError) Error() string {
 }
 func (*PendingWorkNotPendingError) Unwrap() error { return ErrPendingWorkNotPending }
 
-func PendingWorkItemIDFromCompactionRequest(id runtimeids.CompactionRequestID) (runtimeids.QueueItemID, error) {
-	return runtimeids.ParseQueueItemID(id.String())
-}
-
 func PendingWorkItemIDFromWorktreeOperation(id clientui.WorktreeTransitionID) (runtimeids.QueueItemID, error) {
-	return runtimeids.ParseQueueItemID(id.String())
+	return runtimeids.QueueItemIDFromProto(id.String())
 }

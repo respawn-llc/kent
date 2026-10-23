@@ -350,7 +350,7 @@ func TestReactivateWorkflowSessionReturnsOwnQueuedStartHandle(t *testing.T) {
 		<-ctx.Done()
 		return context.Cause(ctx)
 	})
-	attachment, err := runtime.authority.OpenRuntime(t.Context(), sessionruntime.RuntimeOpenRequest{SessionID: sessionID, OwnerID: "retained-reactivation-test"})
+	_, err := runtime.authority.OpenRuntime(t.Context(), sessionruntime.RuntimeOpenRequest{SessionID: sessionID})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -367,9 +367,6 @@ func TestReactivateWorkflowSessionReturnsOwnQueuedStartHandle(t *testing.T) {
 	}
 	t.Cleanup(func() {
 		if err := controller.Close(); err != nil {
-			t.Error(err)
-		}
-		if _, err := attachment.Release(context.Background(), sessionruntime.RuntimeReleaseClose); err != nil {
 			t.Error(err)
 		}
 	})

@@ -1,22 +1,13 @@
 import { expect, it, vi } from "bun:test";
-import { MotionConfig } from "motion/react";
 import { QueryClient } from "@tanstack/react-query";
 import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { StrictMode } from "react";
 
 import { deferred } from "@/test-support/chat-runtime";
-import { createTestServices, TestAppProviders as AppProviders } from "@/test-support/app-services";
+import { createTestServices, TestAppProviders } from "@/test-support/app-services";
 import { ViewedImageRow } from "./ViewedImageRow";
 import type { TranscriptToolSlotItem } from "./toolSlotTypes";
 import type { ToolPresentation } from "./toolPresentation";
-
-function TestAppProviders(props: Parameters<typeof AppProviders>[0]) {
-  return (
-    <MotionConfig skipAnimations>
-      <AppProviders {...props} />
-    </MotionConfig>
-  );
-}
 
 function fixture() {
   const services = createTestServices([]);
@@ -74,7 +65,7 @@ function renderPreview(context: ReturnType<typeof fixture>, strict = false) {
     {
       wrapper: ({ children }) => {
         const providers = (
-          <TestAppProviders services={context.services} queryClient={context.client}>
+          <TestAppProviders skipAnimations services={context.services} queryClient={context.client}>
             {children}
           </TestAppProviders>
         );
@@ -180,7 +171,7 @@ it("offers native Open for an available absolute PDF without a working directory
     />,
     {
       wrapper: ({ children }) => (
-        <TestAppProviders services={services} queryClient={context.client}>
+        <TestAppProviders skipAnimations services={services} queryClient={context.client}>
           {children}
         </TestAppProviders>
       ),

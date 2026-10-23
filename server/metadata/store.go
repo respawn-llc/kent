@@ -374,13 +374,7 @@ func (s *Store) ResolveProjectWorkspaceSelector(ctx context.Context, projectID s
 	if s == nil || s.queries == nil {
 		return Binding{}, errors.New("metadata store is required")
 	}
-	if err := selector.Validate(); err != nil {
-		return Binding{}, err
-	}
 	trimmedProjectID := strings.TrimSpace(projectID)
-	if trimmedProjectID == "" {
-		return Binding{}, errors.New("project id is required")
-	}
 	if _, err := s.queries.GetProjectDisplayName(ctx, trimmedProjectID); err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
 			return Binding{}, fmt.Errorf("%w: %q", serverapi.ErrProjectNotFound, trimmedProjectID)
@@ -398,9 +392,6 @@ func (s *Store) ResolveProjectWorkspaceSelector(ctx context.Context, projectID s
 		return binding, nil
 	}
 	workspaceRootValue := selector.WorkspaceRootValue()
-	if workspaceRootValue == nil {
-		return Binding{}, errors.New("workspace root selector is required")
-	}
 	workspaceRoot := *workspaceRootValue
 	absoluteRoot, absErr := filepath.Abs(filepath.Clean(workspaceRoot))
 	lookupByRoot := func(root string) (Binding, error) {
@@ -810,9 +801,6 @@ func (s *Store) CreateProjectForWorkspaceWithKey(ctx context.Context, workspaceR
 		return Binding{}, errors.New("metadata store is required")
 	}
 	trimmedProjectName := strings.TrimSpace(projectName)
-	if trimmedProjectName == "" {
-		return Binding{}, errors.New("project name is required")
-	}
 	canonicalRoot, err := config.CanonicalWorkspaceRoot(workspaceRoot)
 	if err != nil {
 		return Binding{}, err
@@ -839,9 +827,6 @@ func (s *Store) AttachWorkspaceToProjectWithResult(ctx context.Context, projectI
 		return ProjectWorkspaceAttachResult{}, errors.New("metadata store is required")
 	}
 	trimmedProjectID := strings.TrimSpace(projectID)
-	if trimmedProjectID == "" {
-		return ProjectWorkspaceAttachResult{}, errors.New("project id is required")
-	}
 	canonicalRoot, err := config.CanonicalWorkspaceRoot(workspaceRoot)
 	if err != nil {
 		return ProjectWorkspaceAttachResult{}, err
@@ -874,16 +859,9 @@ func (s *Store) UpdateProjectMetadata(ctx context.Context, projectID string, dis
 		return errors.New("metadata store is required")
 	}
 	trimmedProjectID := strings.TrimSpace(projectID)
-	if trimmedProjectID == "" {
-		return errors.New("project id is required")
-	}
 	var normalizedKey string
 	if strings.TrimSpace(projectKey) != "" {
-		var err error
-		normalizedKey, err = normalizeProjectKey(projectKey)
-		if err != nil {
-			return err
-		}
+		normalizedKey = normalizeProjectKey(projectKey)
 	}
 	now := time.Now().UTC().UnixMilli()
 	tx, err := s.db.BeginTx(ctx, nil)
@@ -938,12 +916,6 @@ func (s *Store) SetProjectDefaultWorkspaceAndGetSummary(ctx context.Context, pro
 	}
 	trimmedProjectID := strings.TrimSpace(projectID)
 	trimmedWorkspaceID := strings.TrimSpace(workspaceID)
-	if trimmedProjectID == "" {
-		return serverapi.ProjectHomeSummary{}, errors.New("project id is required")
-	}
-	if trimmedWorkspaceID == "" {
-		return serverapi.ProjectHomeSummary{}, errors.New("workspace id is required")
-	}
 	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
 		return serverapi.ProjectHomeSummary{}, fmt.Errorf("begin default workspace tx: %w", err)
@@ -1015,12 +987,6 @@ func (s *Store) UnlinkProjectWorkspaceWithRuntimeBlockers(ctx context.Context, p
 	}
 	trimmedProjectID := strings.TrimSpace(projectID)
 	trimmedWorkspaceID := strings.TrimSpace(workspaceID)
-	if trimmedProjectID == "" {
-		return nil, errors.New("project id is required")
-	}
-	if trimmedWorkspaceID == "" {
-		return nil, errors.New("workspace id is required")
-	}
 	if _, err := s.queries.GetProjectDisplayName(ctx, trimmedProjectID); err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
 			return nil, serverapi.ErrProjectNotFound
@@ -1621,10 +1587,7 @@ func setInitialProjectKey(ctx context.Context, q *sqlitegen.Queries, projectID s
 		}
 		return strings.TrimSpace(state.ProjectKey), nil
 	}
-	normalizedKey, err := normalizeProjectKey(trimmedKey)
-	if err != nil {
-		return "", err
-	}
+	normalizedKey := normalizeProjectKey(trimmedKey)
 	updated, err := q.SetProjectKey(ctx, sqlitegen.SetProjectKeyParams{ProjectKey: normalizedKey, UpdatedAtUnixMs: updatedAtUnixMs, ProjectID: projectID})
 	if err != nil {
 		if IsSQLiteUniqueConstraint(err) {
@@ -1646,10 +1609,7 @@ func (s *Store) SetProjectKey(ctx context.Context, projectID string, projectKey 
 	if trimmedProjectID == "" {
 		return errors.New("project id is required")
 	}
-	normalizedKey, err := normalizeProjectKey(projectKey)
-	if err != nil {
-		return err
-	}
+	normalizedKey := normalizeProjectKey(projectKey)
 	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
 		return fmt.Errorf("begin set project key tx: %w", err)
@@ -1723,12 +1683,8 @@ func (s *Store) AllocateProjectTaskSequence(ctx context.Context, projectID strin
 	return key, row.NextTaskSeq - 1, nil
 }
 
-func normalizeProjectKey(raw string) (string, error) {
-	key := strings.ToUpper(strings.TrimSpace(raw))
-	if !isValidProjectKey(key) {
-		return "", fmt.Errorf("%w: must match ^[A-Z][A-Z0-9]{1,7}$", ErrInvalidProjectKey)
-	}
-	return key, nil
+func normalizeProjectKey(raw string) string {
+	return strings.ToUpper(strings.TrimSpace(raw))
 }
 
 func isValidProjectKey(key string) bool {
@@ -2094,11 +2050,8 @@ func (s *Store) ProjectWorkspaceAttached(ctx context.Context, projectID string, 
 	if projectID == "" {
 		return false, errors.New("project id is required")
 	}
-	selector, err := serverapi.NewProjectWorkspaceSelectorForRoot(root)
-	if err != nil {
-		return false, err
-	}
-	_, err = s.ResolveProjectWorkspaceSelector(ctx, projectID, selector)
+	selector := serverapi.NewProjectWorkspaceSelectorForRoot(root)
+	_, err := s.ResolveProjectWorkspaceSelector(ctx, projectID, selector)
 	if errors.Is(err, serverapi.ErrWorkspaceNotRegistered) {
 		return false, nil
 	}

@@ -236,7 +236,7 @@ func TestCompactionReestablishesThinking(t *testing.T) {
 					t.Fatalf("request effort=%s updates=%d", request.ReasoningEffort, count)
 				}
 			}
-			reviewer, err := engine.buildReviewerRequest(t.Context(), newObservedModelClient(client))
+			reviewer, err := engine.buildReviewerRequest(t.Context())
 			if err != nil {
 				t.Fatal(err)
 			}

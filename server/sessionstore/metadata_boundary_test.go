@@ -8,8 +8,26 @@ import (
 	"time"
 )
 
+func TestOpenResolvedRejectsNoncanonicalSessionIdentity(t *testing.T) {
+	for _, id := range []string{"550e8400-e29b-41d4-a716-446655440000", "session-1", "550E8400-E29B-41D4-A716-446655440000", "550e8400-e29b-11d4-a716-446655440000"} {
+		t.Run(id, func(t *testing.T) {
+			dir := filepath.Join(t.TempDir(), id)
+			writeSessionFixtureEvents(t, dir, nil)
+			now := time.Now().UTC()
+			_, err := OpenResolved(PersistedSessionRecord{
+				SessionDir: dir,
+				Meta:       &Meta{SessionID: id, CreatedAt: now, UpdatedAt: now},
+			})
+			valid := id == "550e8400-e29b-41d4-a716-446655440000"
+			if (err == nil) != valid {
+				t.Fatalf("persisted identity acceptance = %v, want valid=%t", err, valid)
+			}
+		})
+	}
+}
+
 func TestOpenResolvedDoesNotReadOrMutateEventLog(t *testing.T) {
-	sessionDir := filepath.Join(t.TempDir(), "session-1")
+	sessionDir := filepath.Join(t.TempDir(), "550e8400-e29b-41d4-a716-446655440000")
 	if err := os.MkdirAll(sessionDir, 0o755); err != nil {
 		t.Fatalf("create session directory: %v", err)
 	}
@@ -27,7 +45,7 @@ func TestOpenResolvedDoesNotReadOrMutateEventLog(t *testing.T) {
 	store, err := OpenResolved(PersistedSessionRecord{
 		SessionDir: sessionDir,
 		Meta: &Meta{
-			SessionID: "session-1",
+			SessionID: "550e8400-e29b-41d4-a716-446655440000",
 			CreatedAt: now,
 			UpdatedAt: now,
 		},
@@ -35,7 +53,7 @@ func TestOpenResolvedDoesNotReadOrMutateEventLog(t *testing.T) {
 	if err != nil {
 		t.Fatalf("open metadata-bound store: %v", err)
 	}
-	if store.Meta().SessionID != "session-1" {
+	if store.Meta().SessionID != "550e8400-e29b-41d4-a716-446655440000" {
 		t.Fatalf("opened session identity = %q", store.Meta().SessionID)
 	}
 	after := eventLogFingerprint(t, eventsPath)
@@ -45,7 +63,7 @@ func TestOpenResolvedDoesNotReadOrMutateEventLog(t *testing.T) {
 }
 
 func TestMetadataMutationsLeaveOpaqueEventLogUnchanged(t *testing.T) {
-	sessionDir := filepath.Join(t.TempDir(), "session-1")
+	sessionDir := filepath.Join(t.TempDir(), "550e8400-e29b-41d4-a716-446655440000")
 	if err := os.MkdirAll(sessionDir, 0o755); err != nil {
 		t.Fatalf("create session directory: %v", err)
 	}
@@ -64,7 +82,7 @@ func TestMetadataMutationsLeaveOpaqueEventLogUnchanged(t *testing.T) {
 		PersistedSessionRecord{
 			SessionDir: sessionDir,
 			Meta: &Meta{
-				SessionID: "session-1",
+				SessionID: "550e8400-e29b-41d4-a716-446655440000",
 				CreatedAt: now,
 				UpdatedAt: now,
 			},
@@ -88,7 +106,7 @@ func TestMetadataMutationsLeaveOpaqueEventLogUnchanged(t *testing.T) {
 }
 
 func TestCurrentMetadataOperationsLeaveEventLogUnchanged(t *testing.T) {
-	sessionDir := filepath.Join(t.TempDir(), "session-1")
+	sessionDir := filepath.Join(t.TempDir(), "550e8400-e29b-41d4-a716-446655440000")
 	if err := os.MkdirAll(sessionDir, 0o755); err != nil {
 		t.Fatalf("create session directory: %v", err)
 	}
@@ -109,7 +127,7 @@ func TestCurrentMetadataOperationsLeaveEventLogUnchanged(t *testing.T) {
 		PersistedSessionRecord{
 			SessionDir: sessionDir,
 			Meta: &Meta{
-				SessionID:               "session-1",
+				SessionID:               "550e8400-e29b-41d4-a716-446655440000",
 				CreatedAt:               now,
 				UpdatedAt:               now,
 				LastSequence:            1,

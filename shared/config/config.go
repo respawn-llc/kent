@@ -185,6 +185,7 @@ type Settings struct {
 	Connection                       *ConnectionSelection
 	Connections                      map[ConnectionID]ProviderConnection
 	ConnectionOrder                  []ConnectionID
+	ConnectionUsageFallbackSeconds   int
 	Model                            string
 	ThinkingLevel                    string
 	ModelVerbosity                   ModelVerbosity

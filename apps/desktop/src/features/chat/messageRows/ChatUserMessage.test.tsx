@@ -1,7 +1,7 @@
 import { act, render, screen, within } from "@testing-library/react";
 import { expect, it, vi } from "bun:test";
 
-import { parsePendingWorkItemID } from "@/api";
+import { pendingWorkItemIDFromProto } from "@/api";
 import { createTestServices, TestAppProviders } from "@/test-support/app-services";
 import { row } from "@/test-support/transcript-window";
 import { SharedTextMotion } from "@/ui";
@@ -18,7 +18,7 @@ it.each([100, 400])("preserves the original text flight when commitment arrives 
   const motion = new SharedTextMotion();
   const services = createTestServices([]);
   const input: OutgoingInput = {
-    inputID: parsePendingWorkItemID(crypto.randomUUID()),
+    inputID: pendingWorkItemIDFromProto(crypto.randomUUID()),
     text: "A submitted message",
     intent: "send",
     placement: "bubble",

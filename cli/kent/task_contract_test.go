@@ -107,14 +107,6 @@ func TestTaskListPureFilterSortAndPaginationContracts(t *testing.T) {
 		t.Fatalf("label mode=%q err=%v", mode, err)
 	}
 
-	if err := validateWorkflowPagination(0, taskListDefaultLimit); err != nil {
-		t.Fatalf("valid pagination: %v", err)
-	}
-	for _, window := range [][2]int{{-1, 1}, {0, 0}, {0, serverapi.WorkflowPaginationMaxLimit + 1}} {
-		if err := validateWorkflowPagination(window[0], window[1]); err == nil {
-			t.Fatalf("invalid pagination %v accepted", window)
-		}
-	}
 }
 
 func TestTaskListDependencyFilterAndRetryArguments(t *testing.T) {
@@ -252,14 +244,11 @@ func TestTaskListAndCommentPaginationSuccess(t *testing.T) {
 	}
 }
 
-func TestTaskListCommandRejectsPaginationAndRemovedFlagsBeforeRemote(t *testing.T) {
+func TestTaskListCommandRejectsRemovedFlagsAndPositionalsBeforeRemote(t *testing.T) {
 	for _, test := range []struct {
 		args []string
 		code int
 	}{
-		{args: []string{"--offset", "-1"}, code: 2},
-		{args: []string{"--limit", "0"}, code: 2},
-		{args: []string{"--limit", "101"}, code: 2},
 		{args: []string{"--page-token", "legacy"}, code: 2},
 		{args: []string{"--page-size", "1"}, code: 2},
 		{args: []string{"extra"}, code: 2},
@@ -268,21 +257,6 @@ func TestTaskListCommandRejectsPaginationAndRemovedFlagsBeforeRemote(t *testing.
 		if code := taskListSubcommand(test.args, &stdout, &stderr); code != test.code ||
 			stdout.Len() != 0 || stderr.Len() == 0 {
 			t.Fatalf("args=%q exit=%d stdout=%q stderr=%q", test.args, code, stdout.String(), stderr.String())
-		}
-	}
-}
-
-func TestTaskCommentListRejectsInvalidPaginationBeforeRemote(t *testing.T) {
-	for _, args := range [][]string{
-		{"DIS-1", "--offset", "-1"},
-		{"DIS-1", "--limit", "0"},
-		{"DIS-1", "--limit", "101"},
-	} {
-		var stdout, stderr bytes.Buffer
-		if code := taskCommentListSubcommand(args, &stdout, &stderr); code != 2 ||
-			stdout.Len() != 0 ||
-			stderr.Len() == 0 {
-			t.Fatalf("args=%q exit=%d stdout=%q stderr=%q", args, code, stdout.String(), stderr.String())
 		}
 	}
 }
@@ -626,17 +600,17 @@ func TestTaskMoveSetupRecoveryPreservesStructuredInput(t *testing.T) {
 		t.Fatalf("move setup guidance=%+v err=%v", guidance, err)
 	}
 	decoded.Details.Diagnostic = " "
-	if _, err := projectRetainedSetupGuidance(base, target, decoded); err == nil {
+	if err := protoapi.Validate(decoded.Details); err == nil {
 		t.Fatal("missing retained setup diagnostic accepted")
 	}
 	decoded.Details.Diagnostic = setupErr.Details.Diagnostic
 	decoded.Details.Worktree.Kent.CanonicalRoot = "/tmp/different"
-	if _, err := projectRetainedSetupGuidance(base, target, decoded); err == nil {
+	if err := protoapi.Validate(decoded.Details); err == nil {
 		t.Fatal("mismatched retained setup root accepted")
 	}
 	decoded.Details.Worktree.Kent.CanonicalRoot = decoded.Details.Worktree.Git.CanonicalRoot
 	decoded.Details.RetainedPreviousWorktree.Worktree.Kent.CanonicalRoot = "/tmp/different"
-	if _, err := projectRetainedSetupGuidance(base, target, decoded); err == nil {
+	if err := protoapi.Validate(decoded.Details); err == nil {
 		t.Fatal("mismatched previous retained setup root accepted")
 	}
 }
@@ -666,10 +640,7 @@ func TestTaskMoveReplacementSetupFailureRequiresFreshBranch(t *testing.T) {
 		}
 	}
 	var stdout, stderr bytes.Buffer
-	output, err := taskSetupRetainedOutput(setupErr.Details)
-	if err != nil {
-		t.Fatal(err)
-	}
+	output := taskSetupRetainedOutput(setupErr.Details)
 	if code := writeCommandJSON(&stdout, &stderr, output); code != 0 {
 		t.Fatalf("structured failure serialization = %d: %s", code, stderr.String())
 	}

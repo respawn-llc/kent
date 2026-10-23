@@ -163,7 +163,7 @@ func TestTriggerHandoffSchedulesCompactionAndAppendsFutureMessageWithPreservedUs
 		t.Fatalf("expected one local-summary model call, got %d", len(client.calls))
 	}
 	buildActiveTurnRequestForTest(t, eng, nil, true)
-	assertCompactionReplacementOrder(t, eng.transcriptRuntimeState().SnapshotItems(), true)
+	assertCompactionReplacementOrder(t, compactionReplacementItems(t, eng), true)
 
 	messages := eng.transcriptRuntimeState().SnapshotMessages()
 	var futureMessage *llm.Message
@@ -242,7 +242,7 @@ func TestTriggerHandoffWithProviderCompactionCarriesPreservedUserMessageInOrder(
 		t.Fatalf("provider compaction calls = %d, want one", len(client.compactionCalls))
 	}
 	buildActiveTurnRequestForTest(t, eng, nil, true)
-	assertCompactionReplacementOrder(t, eng.transcriptRuntimeState().SnapshotItems(), true)
+	assertCompactionReplacementOrder(t, compactionReplacementItems(t, eng), true)
 }
 
 func TestTriggerHandoffWithBlankFutureMessageAppendsNoFutureMessage(t *testing.T) {

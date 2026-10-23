@@ -186,7 +186,7 @@ func TestProjectTaskObservationJSONPreservesQuestionNodeAndKeepsDoneEmpty(t *tes
 }
 
 func TestProjectObservationJSONStatusPrecedenceAndNoFinalProjection(t *testing.T) {
-	noFinal, code, err := projectRunWatchJSON(&promptpb.LiveWatchSuccess{SessionId: "session", Outcome: &promptpb.LiveWatchOutcome{Outcome: &promptpb.LiveWatchOutcome_NoFinalResult{NoFinalResult: &promptpb.LiveWatchFailure{Reason: "no final"}}}})
+	noFinal, code, err := projectRunWatchJSON(&promptpb.LiveWatchSuccess{SessionId: "550e8400-e29b-41d4-a716-446655440000", Outcome: &promptpb.LiveWatchOutcome{Outcome: &promptpb.LiveWatchOutcome_NoFinalResult{NoFinalResult: &promptpb.LiveWatchFailure{Reason: "no final"}}}})
 	rawNoFinal, marshalErr := json.Marshal(noFinal)
 	if err != nil || marshalErr != nil || code != 0 || noFinal.Status != "success" {
 		t.Fatalf("no-final projection = %#v, code=%d, err=%v", noFinal, code, err)
@@ -288,9 +288,6 @@ func TestTaskFailureJSONPreservesTypedDiscriminatorMetadata(t *testing.T) {
 }
 
 func TestMalformedObservationProjectionReturnsError(t *testing.T) {
-	if _, _, err := projectRunWatchJSON(&promptpb.LiveWatchSuccess{SessionId: "session", Outcome: &promptpb.LiveWatchOutcome{Outcome: &promptpb.LiveWatchOutcome_Question{Question: nil}}}); err == nil {
-		t.Fatal("Run malformed question unexpectedly projected successfully")
-	}
 	if _, _, err := projectTaskObservationJSON("task", &taskpb.ObserveSuccess{
 		TaskId: "task", TaskShortId: "T-1",
 		Outcomes: []*taskpb.ObserveOutcome{{Outcome: &taskpb.ObserveOutcome_ExecutionError{ExecutionError: &taskpb.ObserveFailure{}}}},

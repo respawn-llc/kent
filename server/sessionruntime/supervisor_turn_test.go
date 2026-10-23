@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"testing"
+	"testing/synctest"
 	"time"
 
 	"core/server/agentruntime"
@@ -34,8 +35,14 @@ type supervisorTurnHarness struct {
 
 func newSupervisorTurnHarness(t *testing.T, additionalTools ...toolspec.ID) *supervisorTurnHarness {
 	t.Helper()
-	fixture := newSessionRuntimeFixture(t)
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	t.Cleanup(cancel)
+	return newSupervisorTurnHarnessContext(t, ctx, additionalTools...)
+}
+
+func newSupervisorTurnHarnessContext(t *testing.T, ctx context.Context, additionalTools ...toolspec.ID) *supervisorTurnHarness {
+	t.Helper()
+	fixture := newSessionRuntimeFixture(t)
 	h := &supervisorTurnHarness{
 		fixture: fixture, sessionID: lifecycleSessionID(t, fixture), ctx: ctx,
 		main: make(chan supervisorModelExchange, 8), reviewer: make(chan supervisorModelExchange, 8),
@@ -92,7 +99,6 @@ func newSupervisorTurnHarness(t *testing.T, additionalTools ...toolspec.ID) *sup
 		PromptFeed:                    h.prompts,
 	})
 	t.Cleanup(func() {
-		cancel()
 		done := make(chan error, 1)
 		go func() {
 			var closeErr error
@@ -110,7 +116,7 @@ func newSupervisorTurnHarness(t *testing.T, additionalTools ...toolspec.ID) *sup
 			t.Error("Supervisor harness cleanup timed out")
 		}
 	})
-	openLifecycleRuntime(t, h.authority, h.sessionID, "supervisor-turn-test", &plan)
+	openLifecycleRuntime(t, h.authority, h.sessionID, &plan)
 	if err := h.authority.WithCurrentRuntime(ctx, h.sessionID, func(_ context.Context, engine *runtime.Engine) error {
 		h.engine = engine
 		return nil
@@ -173,45 +179,56 @@ func (h *supervisorTurnHarness) finishOriginal(t *testing.T) supervisorModelExch
 }
 
 func TestSupervisorStartedQuestionCanBeInterrupted(t *testing.T) {
-	h := newSupervisorTurnHarness(t)
-	review := h.finishOriginal(t)
-	review.reply <- supervisorFinalResponse(`{"suggestions":["Ask before proceeding."]}`)
-	h.awaitModel(t, h.main).reply <- llm.Response{
-		Assistant: llm.Message{Role: llm.RoleAssistant, Phase: textutil.Value(llm.MessagePhaseCommentary)},
-		ToolCalls: []llm.ToolCall{{
-			ID: "supervisor-interrupt-question", Name: string(toolspec.ToolAskQuestion),
-			Input: json.RawMessage(`{"question":"Proceed?"}`),
-		}},
-		Usage: llm.Usage{WindowTokens: 200000},
-	}
-	var pending authorityPromptEvent
-	select {
-	case pending = <-h.prompts:
-	case <-h.ctx.Done():
-		t.Fatal("Supervisor question was not published")
-	}
-	handle, live := h.authority.SessionExecution(h.sessionID)
-	if !live || handle.Scope().ID() != pending.scopeID {
-		t.Fatal("Supervisor question has no current exact execution")
-	}
-	if interrupted, err := h.authority.InterruptSession(h.ctx, h.sessionID); err != nil || !interrupted {
-		t.Fatalf("interrupt Supervisor question = (%t, %v)", interrupted, err)
-	}
-	if _, err := handle.Wait(h.ctx); !errors.Is(err, context.Canceled) {
-		t.Fatalf("Supervisor execution result = %v, want canceled", err)
-	}
-	select {
-	case resolved := <-h.prompts:
-		if !resolved.resolved || resolved.requestID != pending.requestID {
-			t.Fatalf("question resolution = %+v", resolved)
+	synctest.Test(t, func(t *testing.T) {
+		h := newSupervisorTurnHarnessContext(t, t.Context())
+		review := h.finishOriginal(t)
+		review.reply <- supervisorFinalResponse(`{"suggestions":["Ask before proceeding."]}`)
+		h.awaitModel(t, h.main).reply <- llm.Response{
+			Assistant: llm.Message{Role: llm.RoleAssistant, Phase: textutil.Value(llm.MessagePhaseCommentary)},
+			ToolCalls: []llm.ToolCall{{
+				ID: "supervisor-interrupt-question", Name: string(toolspec.ToolAskQuestion),
+				Input: json.RawMessage(`{"question":"Proceed?"}`),
+			}},
+			Usage: llm.Usage{WindowTokens: 200000},
 		}
-	case <-h.ctx.Done():
-		t.Fatal("interrupted question remained pending")
-	}
-	if _, live := h.authority.SessionExecution(h.sessionID); live {
-		t.Fatal("interrupted Supervisor execution remained current")
-	}
-	h.awaitActivity(t, runtimepb.ReviewerActivity_REVIEWER_ACTIVITY_INACTIVE)
+		var pending authorityPromptEvent
+		select {
+		case pending = <-h.prompts:
+		case <-h.ctx.Done():
+			t.Fatal("Supervisor question was not published")
+		}
+		handle, live := h.authority.SessionExecution(h.sessionID)
+		if !live || handle.Scope().ID() != pending.scopeID {
+			t.Fatal("Supervisor question has no current exact execution")
+		}
+		time.Sleep(4 * time.Minute)
+		assertLifecycleRuntimeAvailable(t, h.authority, h.sessionID, true)
+		if interrupted, err := h.authority.InterruptSession(h.ctx, h.sessionID); err != nil || !interrupted {
+			t.Fatalf("interrupt Supervisor question = (%t, %v)", interrupted, err)
+		}
+		if _, err := handle.Wait(h.ctx); !errors.Is(err, context.Canceled) {
+			t.Fatalf("Supervisor execution result = %v, want canceled", err)
+		}
+		select {
+		case resolved := <-h.prompts:
+			if !resolved.resolved || resolved.requestID != pending.requestID {
+				t.Fatalf("question resolution = %+v", resolved)
+			}
+		case <-h.ctx.Done():
+			t.Fatal("interrupted question remained pending")
+		}
+		if _, live := h.authority.SessionExecution(h.sessionID); live {
+			t.Fatal("interrupted Supervisor execution remained current")
+		}
+		if activity := h.engine.ReviewerActivity(); activity != runtimepb.ReviewerActivity_REVIEWER_ACTIVITY_INACTIVE {
+			t.Fatalf("idle Supervisor activity = %s", activity)
+		}
+		time.Sleep(3*time.Minute - time.Second)
+		assertLifecycleRuntimeAvailable(t, h.authority, h.sessionID, true)
+		time.Sleep(time.Second)
+		synctest.Wait()
+		assertLifecycleRuntimeAvailable(t, h.authority, h.sessionID, false)
+	})
 }
 
 func (h *supervisorTurnHarness) awaitActivity(t *testing.T, want runtimepb.ReviewerActivity) {
@@ -261,10 +278,7 @@ func supervisorRequestHasMessage(request llm.Request, kind llm.MessageType) bool
 
 func (h *supervisorTurnHarness) queueOrdinarySteer(t *testing.T) <-chan error {
 	t.Helper()
-	steer, err := runtime.NewAgentSteer(runtimeids.SessionIdentity{ID: runtimeids.NewSessionID()}, "Also verify the result.")
-	if err != nil {
-		t.Fatal(err)
-	}
+	steer := runtime.NewAgentSteer(runtimeids.SessionIdentity{ID: runtimeids.NewSessionID()}, "Also verify the result.")
 	if h.engine.HasPendingRuntimeOperations() {
 		t.Fatal("unexpected pending operation before ordinary steer")
 	}

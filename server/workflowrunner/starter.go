@@ -34,8 +34,6 @@ import (
 	"core/shared/serverapi"
 	"core/shared/textutil"
 	"core/shared/toolspec"
-
-	"github.com/google/uuid"
 )
 
 const (
@@ -54,6 +52,7 @@ type WorkflowAttentionRegistry interface {
 }
 
 type Starter struct {
+	recordUsage          runtimewire.ConnectionUsageRecorder
 	connectionRotation   *launch.ConnectionRotation
 	environment          func(string) (string, bool)
 	cfg                  config.App
@@ -70,6 +69,7 @@ type Starter struct {
 }
 
 type StarterOptions struct {
+	RecordUsage                runtimewire.ConnectionUsageRecorder
 	ConnectionRotation         *launch.ConnectionRotation
 	WorkspaceConfigLoadOptions config.LoadOptions
 	Environment                func(string) (string, bool)
@@ -90,6 +90,7 @@ func NewStarter(cfg config.App, metadataStore *metadata.Store, store RuntimeStor
 		return nil, err
 	}
 	return &Starter{
+		recordUsage:          opts.RecordUsage,
 		connectionRotation:   opts.ConnectionRotation,
 		environment:          opts.Environment,
 		cfg:                  cfg,
@@ -428,6 +429,7 @@ func (s *Starter) buildCurrentNodeAgentRuntimePlan(
 		return sessionruntime.AgentRuntimePlan{}, err
 	}
 	return sessionruntime.NewAgentRuntimePlan(sessionruntime.AgentRuntimePlanOptions{
+		ConnectionScope:       prepared.plan.ConnectionScope,
 		MainWorkspaceRoot:     prepared.plan.ExecutionTarget.WorkspaceRoot,
 		ExplicitToolSelection: prepared.plan.ExplicitToolSelection,
 		RequiredTools:         prepared.plan.RequiredTools,
@@ -590,19 +592,15 @@ func (s *Starter) compactOutgoingCurrentNodeSession(ctx context.Context, input w
 	if err != nil {
 		return err
 	}
-	attachment, err := s.runtimeAuthority.OpenRuntime(ctx, sessionruntime.RuntimeOpenRequest{
-		SessionID: plan.Descriptor.SessionID(), OwnerID: uuid.NewString(), Runtime: &runtimePlan,
+	ref, err := s.runtimeAuthority.OpenRuntime(ctx, sessionruntime.RuntimeOpenRequest{
+		SessionID: plan.Descriptor.SessionID(), Runtime: &runtimePlan,
 	})
 	if err != nil {
 		return err
 	}
-	defer func() {
-		_, releaseErr := attachment.Release(context.WithoutCancel(ctx), sessionruntime.RuntimeReleaseCloseIfIdle)
-		resultErr = errors.Join(resultErr, releaseErr)
-	}()
 	required = false
 	var resource sessionruntime.AgentResourceSelection = sessionruntime.CurrentAgentResource{}
-	err = s.runtimeAuthority.WithRuntime(ctx, attachment.Resource(), func(_ context.Context, engine *runtime.Engine) error {
+	err = s.runtimeAuthority.WithRuntime(ctx, ref, func(_ context.Context, engine *runtime.Engine) error {
 		required = engine.WorkflowContinuationCompactionRequired()
 		if engine.CompactionMode() != string(plan.ActiveSettings.CompactionMode) {
 			resource = sessionruntime.ReplaceAgentResource{}
@@ -797,6 +795,7 @@ func (s *Starter) newWorkflowProviderClient(ctx context.Context, plan launch.Ses
 		ActiveSettings: active, EnabledTools: plan.EnabledTools,
 		Sources: plan.Source.Sources, Connection: connection,
 		RequestCapabilities: capabilities,
+		RecordUsage:         s.recordUsage,
 	})
 }
 

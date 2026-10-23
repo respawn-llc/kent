@@ -303,7 +303,7 @@ func TestWorkflowTaskMutationRejectsUnknownInvokingSession(t *testing.T) {
 	workflowID := createWorkflowServiceValidWorkflow(t, ctx, service)
 	linkDefaultWorkflowServiceProject(t, ctx, service, binding.ProjectID, workflowID)
 	task := createDefaultWorkflowServiceTask(t, ctx, service, binding.ProjectID)
-	unknownSessionID, err := runtimeids.ParseSessionID("unknown-session")
+	unknownSessionID, err := runtimeids.ParseSessionID("11111111-1111-4111-8111-111111111111")
 	if err != nil {
 		t.Fatalf("ParseSessionID: %v", err)
 	}

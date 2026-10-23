@@ -56,10 +56,8 @@ func TestReviewerActivityPublishesInvocationAndTerminalStateToTUI(t *testing.T) 
 			if err != nil {
 				t.Fatalf("parse Session ID: %v", err)
 			}
-			resource, err := runtimeids.NewSessionResourceRef(sessionID, 1)
-			if err != nil {
-				t.Fatalf("create Runtime resource: %v", err)
-			}
+			resource := runtimeids.NewSessionResourceRef(sessionID, 1)
+
 			if err := activity.ResourceReady(
 				context.Background(),
 				sessionruntime.AgentResourceDescriptor{Ref: resource, State: sessionruntime.AgentResourceReady},

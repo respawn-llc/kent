@@ -22,7 +22,9 @@ function OwnedStandaloneTaskRoute({ taskId }: StandaloneTaskRouteProps) {
   const { t } = useTranslation();
   const navigation = useAppNavigation();
   const { open } = useOwnedSidebarRoots();
-  const openSessionChat: TaskDetailSessionChatEntry = async (target) => navigation.openSessionChat(target);
+  const openSessionChat: TaskDetailSessionChatEntry = async (target) => {
+    await navigation.openSessionChat(target);
+  };
   const onDeleteDismiss = useExactTaskDetailDeleteDismissal(taskId, async () => {
     await navigation.openHome();
   });

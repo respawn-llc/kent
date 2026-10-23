@@ -191,7 +191,7 @@ func TestServiceListWorkflowTasksValidatesAndDelegates(t *testing.T) {
 	ctx, service, projectID, workflowID, taskID := newWorkflowServiceOrdinaryTaskFixture(t)
 
 	blankProjectID := " "
-	if _, err := service.ListWorkflowTasks(ctx, &taskpb.ListRequest{
+	if err := protoapi.Validate(&taskpb.ListRequest{
 		LabelFilter: noLabelFilter(), ProjectId: &blankProjectID}); !isWorkflowServiceRequestFieldError(err, "project_id") {
 		t.Fatalf("blank project error = %#v, want project_id validation", err)
 	}
@@ -311,13 +311,13 @@ func TestServiceTaskCommentListPaginatesOffsetWindows(t *testing.T) {
 		{name: "limit above maximum", offset: &offset, limit: &aboveLimit, field: "limit"},
 	} {
 		t.Run(tt.name, func(t *testing.T) {
-			_, err := service.ListWorkflowTaskComments(ctx, &taskpb.TaskOffsetPageRequest{
+			err := protoapi.Validate(&taskpb.TaskOffsetPageRequest{
 				TaskId: taskID,
 				Offset: tt.offset,
 				Limit:  tt.limit,
 			})
 			if !isWorkflowServiceRequestFieldError(err, tt.field) {
-				t.Fatalf("ListWorkflowTaskComments error = %T %v, want %s validation", err, err, tt.field)
+				t.Fatalf("TaskOffsetPageRequest error = %T %v, want %s validation", err, err, tt.field)
 			}
 		})
 	}
@@ -483,13 +483,10 @@ func TestServiceCompletedReopenRequestsReplacementWithoutMovingTask(t *testing.T
 					t.Fatal("target resolution failure applied Move")
 				}
 				infrastructure.resolveErr = nil
-				retained, err := worktreecontract.NewSetupRetainedError(&worktreepb.RegisteredFacts{
+				retained := worktreecontract.NewSetupRetainedError(&worktreepb.RegisteredFacts{
 					Git:  &worktreepb.GitFacts{CanonicalRoot: replacementRoot, HeadObject: commit},
 					Kent: &worktreepb.KentFacts{WorktreeId: replacementID, CanonicalRoot: replacementRoot, DisplayName: branch},
 				}, "/setup.sh", "setup failed", nil, errors.New("setup process failed"))
-				if err != nil {
-					t.Fatal(err)
-				}
 				retained.Details.RecoveryDisposition = worktreepb.SetupRecoveryDisposition_SETUP_RECOVERY_DISPOSITION_FRESH_REPLACEMENT
 				infrastructure.materializeErr = retained
 				var failure *worktreecontract.SetupRetainedError
@@ -1632,6 +1629,132 @@ func TestServiceTaskResumePromotesConcurrencyQueuedCurrentNodes(t *testing.T) {
 	}
 }
 
+func TestServiceTaskStartReportsTypedExplicitDefaultBranchFailure(t *testing.T) {
+	gitDiagnostic := errors.New("default branch metadata lookup failed")
+	tests := []struct {
+		name           string
+		resolutionErr  error
+		wantCode       serverapi.WorkflowExecutionTargetResolutionErrorCode
+		wantDiagnostic *string
+	}{
+		{
+			name: "missing metadata",
+			resolutionErr: &worktree.GitDefaultBranchResolutionError{
+				Kind: worktree.GitDefaultBranchResolutionErrorMissing,
+			},
+			wantCode: serverapi.WorkflowExecutionTargetResolutionErrorDefaultBranchMissing,
+		},
+		{
+			name: "ambiguous metadata",
+			resolutionErr: &worktree.GitDefaultBranchResolutionError{
+				Kind: worktree.GitDefaultBranchResolutionErrorAmbiguous,
+			},
+			wantCode: serverapi.WorkflowExecutionTargetResolutionErrorDefaultBranchAmbiguous,
+		},
+		{
+			name: "Git failure",
+			resolutionErr: &worktree.GitDefaultBranchResolutionError{
+				Kind:  worktree.GitDefaultBranchResolutionErrorGitFailure,
+				Cause: gitDiagnostic,
+			},
+			wantCode:       serverapi.WorkflowExecutionTargetResolutionErrorGitFailure,
+			wantDiagnostic: proto.String(gitDiagnostic.Error()),
+		},
+		{
+			name: "discovered branch ref failure",
+			resolutionErr: &worktree.GitRevisionResolutionError{
+				Kind:         worktree.GitRevisionResolutionErrorInvalidRevision,
+				RequestedRef: "refs/remotes/upstream/trunk",
+			},
+			wantCode: serverapi.WorkflowExecutionTargetResolutionErrorInvalidRevision,
+		},
+	}
+	for _, test := range tests {
+		test := test
+		t.Run(test.name, func(t *testing.T) {
+			assertServiceTaskStartDefaultBranchFailure(t, test.resolutionErr, test.wantCode, test.wantDiagnostic)
+		})
+	}
+}
+
+func assertServiceTaskStartDefaultBranchFailure(
+	t *testing.T,
+	resolutionCause error,
+	wantCode serverapi.WorkflowExecutionTargetResolutionErrorCode,
+	wantDiagnostic *string,
+) {
+	t.Helper()
+	ctx, service, _, _, taskID := newWorkflowServiceOrdinaryTaskFixture(t)
+	service.executionTargets = &recordingExecutionTargetInfrastructure{resolveErr: resolutionCause}
+	initialNodes, err := service.store.ListCurrentNodes(ctx, workflow.TaskID(taskID))
+	if err != nil {
+		t.Fatalf("ListCurrentNodes before Start: %v", err)
+	}
+
+	response, err := service.StartWorkflowTask(ctx, &taskpb.StartRequest{
+		SetupOperationId: worktreecontract.NewSetupOperationID().String(),
+		TaskId:           taskID,
+		ExecutionTarget: &taskpb.ExecutionTargetSelection{
+			Mode: pb.ExecutionTargetMode_WORKFLOW_EXECUTION_TARGET_MODE_DEFAULT_BRANCH,
+		},
+	})
+	if response != nil && (response.GetApplied() != nil || response.GetSelectionRequired() != nil) {
+		t.Errorf("StartWorkflowTask response = %+v, want no applied or selection-required result", response)
+	}
+	var resolutionErr *serverapi.WorkflowExecutionTargetResolutionError
+	if !errors.As(err, &resolutionErr) {
+		t.Errorf("StartWorkflowTask error = %T %v, want typed explicit default-branch failure", err, err)
+	} else {
+		_, isDefaultBranch := resolutionErr.Target.(serverapi.WorkflowExecutionTargetResolutionDefaultBranch)
+		diagnosticMatches := resolutionErr.Diagnostic == nil && wantDiagnostic == nil ||
+			resolutionErr.Diagnostic != nil && wantDiagnostic != nil &&
+				*resolutionErr.Diagnostic == *wantDiagnostic
+		if !isDefaultBranch ||
+			resolutionErr.Code != wantCode ||
+			!diagnosticMatches {
+			t.Errorf("StartWorkflowTask error = %+v, want default-branch target and cause %q with diagnostic %v", resolutionErr, wantCode, wantDiagnostic)
+		}
+	}
+	targetContext, err := service.store.GetTaskExecutionTargetContext(ctx, workflow.TaskID(taskID))
+	if err != nil {
+		t.Fatalf("GetTaskExecutionTargetContext after failed Start: %v", err)
+	}
+	if targetContext.Task.ExecutionTarget != nil {
+		t.Errorf("execution target = %+v, want unlocked", targetContext.Task.ExecutionTarget)
+	}
+	currentNodes, err := service.store.ListCurrentNodes(ctx, workflow.TaskID(taskID))
+	if err != nil {
+		t.Fatalf("ListCurrentNodes after failed Start: %v", err)
+	}
+	if len(currentNodes) != len(initialNodes) {
+		t.Errorf("Current Nodes after failed Start = %+v, want unchanged state %+v", currentNodes, initialNodes)
+	} else {
+		for index := range currentNodes {
+			if !currentNodes[index].Reference.Equal(initialNodes[index].Reference) {
+				t.Errorf("Current Node after failed Start = %+v, want unchanged state %+v", currentNodes[index], initialNodes[index])
+			}
+		}
+	}
+}
+
+func TestServiceTaskStartPropagatesUnexpectedDefaultBranchResolutionError(t *testing.T) {
+	ctx, service, _, _, taskID := newWorkflowServiceOrdinaryTaskFixture(t)
+	unexpected := errors.New("execution target resolver invariant failed")
+	service.executionTargets = &recordingExecutionTargetInfrastructure{resolveErr: unexpected}
+
+	response, err := service.StartWorkflowTask(ctx, &taskpb.StartRequest{
+		SetupOperationId: worktreecontract.NewSetupOperationID().String(),
+		TaskId:           taskID,
+		ExecutionTarget: &taskpb.ExecutionTargetSelection{
+			Mode: pb.ExecutionTargetMode_WORKFLOW_EXECUTION_TARGET_MODE_DEFAULT_BRANCH,
+		},
+	})
+	var resolutionErr *serverapi.WorkflowExecutionTargetResolutionError
+	if response != nil || !errors.Is(err, unexpected) || errors.As(err, &resolutionErr) {
+		t.Fatalf("StartWorkflowTask = %+v, %T %v; want ordinary resolver error with diagnostics", response, err, err)
+	}
+}
+
 func TestServiceTaskStartReturnsTypedErrorForInvalidExplicitCustomRef(t *testing.T) {
 	ctx, service, _, _, taskID := newWorkflowServiceOrdinaryTaskFixture(t)
 	customRef := "missing-ref"
@@ -1655,8 +1778,11 @@ func TestServiceTaskStartReturnsTypedErrorForInvalidExplicitCustomRef(t *testing
 	}
 	var resolutionErr *serverapi.WorkflowExecutionTargetResolutionError
 	if !errors.As(err, &resolutionErr) ||
-		resolutionErr.Code != serverapi.WorkflowExecutionTargetResolutionErrorInvalidRevision ||
-		resolutionErr.RequestedRef != customRef {
+		resolutionErr.Code != serverapi.WorkflowExecutionTargetResolutionErrorInvalidRevision {
+		t.Fatalf("StartWorkflowTask error = %v, want typed invalid custom ref", err)
+	}
+	customTarget, ok := resolutionErr.Target.(serverapi.WorkflowExecutionTargetResolutionCustomRef)
+	if !ok || customTarget.RequestedRef != customRef {
 		t.Fatalf("StartWorkflowTask error = %v, want typed invalid custom ref", err)
 	}
 	targetContext, contextErr := service.store.GetTaskExecutionTargetContext(ctx, workflow.TaskID(taskID))
@@ -2080,13 +2206,11 @@ func TestServiceMapsWorkflowTaskLabelScopeFailures(t *testing.T) {
 	for index := range raw101 {
 		raw101[index] = "not-a-uuid"
 	}
-	_, err = service.UpdateWorkflowTaskLabels(ctx, &taskpb.LabelsUpdateRequest{
+	err = protoapi.Validate(&taskpb.LabelsUpdateRequest{
 		TaskId:      task.Task.Id,
 		AddLabelIds: raw101,
 	})
-	mutationErr := protoapi.WorkflowTaskLabelValidationDetail(task.Task.Id, err)
-	if mutationErr == nil || mutationErr.Reason != taskpb.LabelErrorReason_LABEL_ERROR_REASON_INVALID_MUTATION ||
-		mutationErr.GetField() != "add_label_ids" {
+	if !isWorkflowServiceRequestFieldError(err, "add_label_ids") {
 		t.Fatalf("invalid mutation error = %T %+v", err, err)
 	}
 }
@@ -3070,7 +3194,7 @@ func addWorkflowGraphAtomicParallelNodeGroup(
 	groupID := workflowServiceGraphEntityID("group-parallel-" + workflowID.String())
 	graph = protoapi.WorkflowGraphDraftFromDefinition(current)
 	graph.NodeGroups = append(graph.NodeGroups, &pb.GraphDraftNodeGroup{
-		Id: groupID, Key: "parallel", DisplayName: "Parallel",
+		Id: groupID, Key: "parallel", DisplayName: new("Parallel"),
 	})
 	for index := range graph.Nodes {
 		switch graph.Nodes[index].Id {

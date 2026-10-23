@@ -36,11 +36,23 @@
 
 ## ChatGPT Codex Turn State
 
-- ChatGPT Codex provider turn state is opaque retry-local routing state. Kent never trims, decodes, canonicalizes, joins, logs, persists, or presents its value.
-- Kent observes one `x-codex-turn-state` value from the initial HTTP response headers.
+- ChatGPT Codex provider turn state must be opaque Agent Turn-scoped routing state. Kent must never trim, decode, canonicalize, join, log, persist, or present its value.
+- Kent must observe one `x-codex-turn-state` value from each dispatch's initial HTTP response headers.
 - A provider turn-state value must be nonempty, must have no leading or trailing space or horizontal tab, and must be valid as an outbound HTTP header value.
-- A bounded retry of the same unchanged logical dispatch replays the accepted value exactly as `x-codex-turn-state`.
-- Every changed-payload request starts with empty provider turn state.
+- Kent must retain the first accepted value for the routing lifetime. Later response values must not replace it.
+- Each Agent Turn must start without provider turn state. Until Kent accepts a valid value, requests must omit `x-codex-turn-state`.
+- Subsequent requests within the same Agent Turn must replay the accepted value exactly as `x-codex-turn-state`, including retries, tool-loop continuations, and changed-payload repairs.
+- Each Nano invocation must start without provider turn state and replay its first accepted value exactly on retries of that invocation.
+- Nano routing state must not be shared with its parent Agent Turn or another Nano invocation.
+- Steered input within an Agent Turn must retain that turn's routing lifetime. Queued input must start a new Agent Turn with fresh routing state.
+- Provider turn state must not cross unrelated Sessions, ChatGPT accounts, or provider endpoints. An authentication ownership change must clear the routing state.
+- If Kent cannot identify the ChatGPT account, it must omit outbound provider turn state and must not accept returned provider turn state for replay. Missing account identity must not introduce a model-request failure.
+- Reviewer work on the same ChatGPT account and provider endpoint must share the enclosing main Agent Turn's routing state while retaining its separate Reviewer metadata identity. The first accepted value from either main-agent or Reviewer work must become their shared turn value.
+- Reviewer work on a different ChatGPT account or provider endpoint must start with independent routing state.
+- Remote compaction within an Agent Turn must share that turn's routing state. Generation after compaction must retain the same first accepted value.
+- Standalone compaction must start with fresh routing state.
+- Separate local generation-based compaction must use its own routing state across its retries. Returning to main-agent generation must retain the main Agent Turn's routing state.
+- Kent must continue sending the complete prepared conversation. Provider turn state must not authorize trimming or rewriting conversation history.
 - Provider turn-state absence or invalidity never changes the original model success, provider error, stream error, or cancellation result.
 - Invalid state produces one redacted operator warning and one best-effort live `provider_turn_state_invalid` operational diagnostic per logical dispatch.
 - The warning and diagnostic must not contain provider state, credentials, account data, request or response bodies, model output, or encrypted payloads.

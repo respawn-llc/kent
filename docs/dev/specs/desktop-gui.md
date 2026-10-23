@@ -1,6 +1,6 @@
 ## Authority, connection, and shared behavior
 
-- Across all destinations, the global sidebar owner selects shifting only when the measured main pane can retain at least 400 pixels after reserving the sidebar's preferred width and inset, and selects overlay otherwise. Destinations may explicitly require a mode. Home measures its inner main pane, excluding the Project catalog. A shifted sidebar cannot be widened far enough to reduce the main pane below 400 pixels. Any sidebar closes when its available width falls below 400 pixels. An open sidebar keeps its chosen mode until it closes.
+- Across all destinations, the global sidebar owner selects shifting only when the measured main pane has at least 400 pixels after reserving the sidebar's preferred width and inset, and selects overlay otherwise. Destinations may explicitly require a mode. Home measures its inner main pane, excluding the Project catalog. A shifted sidebar cannot be widened far enough to reduce the main pane below 400 pixels. Any sidebar closes when its available width falls below 400 pixels. An open sidebar keeps its chosen mode until it closes.
 
 - Read-only filesystem paths projected from structured data are home-relative when inside the user's home directory. This applies to labels, tooltips, execution-target facts, approvals, and image-tool labels. Editable path fields, clipboard values, and action/link targets must use their canonical values.
 - Model-visible arbitrary text, conversation bodies, errors, and diagnostics are not path-rewritten. Patch labels must show absolute paths supplied by the model exactly. General environment CWD and Session rebind target-directory context must be absolute.
@@ -48,7 +48,7 @@
 - The shortcut must do nothing when the focused text field has no submission action.
 - The shortcut must not change the field's ordinary Enter behavior.
 - Desktop uses localized user-facing text, accessible controls, standard compact loading, error, and empty states, and motion that respects reduced-motion preference. On macOS, Linux, and browser presentation, top chrome uses a contrast fade for readability. Windows uses progressive blur without a darkening fade.
-- Dialogs, popups, confirmation flows, and dropdowns only collect an operator result. They close before returning that result to their parent destination. The parent destination owns navigation, server requests, pending state, failures, and retries through its action paths.
+- Dialogs, popups, confirmation flows, and dropdowns only collect an operator result, except for read-only subscription-usage inspection. Result-collecting surfaces close before returning that result to their parent destination. The parent destination owns navigation, server requests, pending state, failures, and retries through its action paths.
 - Cards are reserved for board Task cards. Navigation, browsing, and selection collections use list rows.
 - Workflow browsing rows show the Workflow name, description, version, and an Edit action. Selecting the row opens the Workflow editor. Edit opens Workflow settings without loading the Workflow graph.
 
@@ -59,6 +59,13 @@
 - Workflow Mode entry/exit notices must use a graph icon. Headless Mode entry/exit notices must use an information icon. Worktree Mode entry/exit notices must use a branch icon, and Session rebind notices must use an information icon.
 
 ## Home and navigation
+
+- Navigation Chrome must show a small gauge icon beside the theme control with a `Subscription usage` tooltip when at least one configured connection supports subscription usage. It must hide this control when no configured connection supports subscription usage. Determining visibility must not fetch provider quota.
+- When the loaded catalog has no supported subscriptions and the control is hidden, Desktop must discover connections added while it is hidden only after restart or reload. Desktop must not add focus refresh, periodic catalog polling, or background quota requests for this discovery. Opening an available usage popup must refresh its catalog.
+- Clicking this control must open a read-only popup listing all supported subscription connections. Clicking the control again, clicking outside, or pressing Escape must close it.
+- The popup must use the existing UI kit and a lazy list. Its height must be capped at roughly five connection entries and reduced to fit smaller windows.
+- Connection entries must use compact rows without nested cards. Each entry must show its name and muted plan on one line, with thin quota-window bars and subtle separators between connections.
+- Subscription loading, quota presentation, and icon Retry must follow [Desktop subscription usage](provider-connections.md#desktop-subscription-usage).
 
 - Home opens on Inbox unless a valid last-opened Project or Workflow destination can be restored. Back and forward use available navigation history. Otherwise Back returns Home.
 - Home has compact navigation and content side by side when both are usable, otherwise navigation stacks above content. It has no resizable splitter or temporary navigation drawer.
@@ -112,14 +119,15 @@
 - The default Project Task order is `Updated Desc`. At that default, the chip is neutral and says `Sort`. Any other order makes the chip primary and changes its text to `Sort · Field · Asc` or `Sort · Field · Desc`.
 - One selected order applies inside Active, Backlog, and Done. Status sorting uses the server's Task-status order inside each group and never changes group membership. Workflow Column sorting is not available for the Project-wide list.
 - Each containing Project workspace or standalone Project Tasks destination starts at `Updated Desc`. That mounted container owns its selection, which resets when the container remounts and is not synchronized with another mounted Project Task-list destination or persisted across relaunches.
-- The fixed column order is Status, Short ID, Title, Dependencies, Labels, and Workflow. Users cannot resize, reorder, add, or remove columns.
+- The fixed column order is Status, Short ID, Title, Dependencies, Stage, Labels, and Workflow. Users cannot resize, reorder, add, or remove columns.
 - Every Task is one compact, single-line row with no divider or zebra striping. Hover, focus, press, and selection use rounded animated row treatments.
-- Status uses a fixed-size icon column. Dependencies, ID, Workflow, and Labels reserve only the width required by the widest loaded row, within bounded display limits. Their high-water widths do not shrink while bounded pages rotate. Title uses the available width after other columns and gives up width first.
+- Status uses a fixed-size icon column. Dependencies, ID, Stage, Workflow, and Labels reserve only the width required by the widest loaded row, within bounded display limits. Their high-water widths do not shrink while bounded pages rotate. Title uses the available width after other columns and gives up width first.
 - ID shows the complete Task Short ID when it fits. When space is constrained, start ellipsis must show its numeric suffix. Its complete value must be available in a tooltip and to assistive technology.
-- Title, Workflow name, and Labels do not wrap. Workflow name uses end ellipsis.
+- Title, Stage, Workflow name, and Labels do not wrap. Stage and Workflow name use end ellipsis. Stage uses muted text and a tooltip containing its full value.
+- Stage must show one name per Task. For a grouped Current Node, Stage must show the Group name when present, otherwise the first listed member Node's name, otherwise that member's Node Key. An ungrouped Current Node must use its own name or Node Key. Parallel Nodes within one Group must show one Stage.
 - Labels use the same fitting-chip and `+N` overflow presentation as board cards, with compact vertical padding readable in a single-line row.
 - A Task with direct Blocker Tasks shows the board's dependency-progress chip. A Task without direct Blocker Tasks leaves the Dependencies cell empty.
-- The server supplies dependency progress and assigned Label display data in each bounded Task-list row. Desktop must not derive dependency progress or load a separate Project Label catalog to render rows.
+- The server supplies Stage, dependency progress, and assigned Label display data in each bounded Task-list row. Stage reads must be bounded to the returned Task page and must not read complete Workflow definitions. Desktop must not derive dependency progress or load a separate Project Label catalog to render rows.
 - Each section status icon has the accessible name `Status` and opens a tooltip listing every canonical state icon and name without group subheadings or duplicate descriptions.
 - Rows are grouped in the order `Active`, `Backlog`, and `Done`. Active contains Waiting for question, Waiting for approval, Interrupted, Running, Queued, and Active. Backlog contains Backlog. Done contains Done.
 - Active starts expanded. Backlog and Done start collapsed. The mounted Project workspace owns disclosure state, which resets when it remounts.
@@ -140,8 +148,8 @@
 - When its Task moves off-screen or into a collapsed group, an open Task Detail must not close. Live reordering must not scroll to keep the selected Task visible.
 - The visual vertical scrollbar is hidden while wheel, trackpad, touch, and keyboard scrolling are available. The Task list never scrolls horizontally.
 - Task-list scrolling is smooth, including programmatic position restoration and live-refresh anchoring. Reduced-motion presentation positions the list immediately.
-- When exactly one Workflow is linked, the Task list hides Workflow because every Task belongs to that Workflow. With multiple linked Workflows, responsive Task columns hide Workflow first, before otherwise-fitting Label chips collapse into their `+N` counter. Labels then hide, followed by Dependencies, as available width narrows. Title receives the width available after other columns and truncates. It hides only when that width fits fewer than seven characters. Status and Short ID never hide. Group headers span the full list width.
-- Every Interrupted status icon offers Resume through the board operation, including its pending, error, dependency-confirmation, and Execution Target continuation behavior. The server is authoritative, and an unavailable Resume uses the ordinary failure treatment. Other status icons are informational. Activating Dependencies, ID, Title, or Workflow opens the Task's general Task Detail. The Dependencies chip must not focus the Dependencies section from this list.
+- When exactly one Workflow is linked, the Task list hides Workflow because every Task belongs to that Workflow. With multiple linked Workflows, responsive Task columns hide Workflow first, before otherwise-fitting Label chips collapse into their `+N` counter. Labels then hide, followed by Stage, then Dependencies, as available width narrows. Title receives the width available after other columns and truncates. It hides only when that width fits fewer than seven characters. Status and Short ID never hide. Group headers span the full list width.
+- Every Interrupted status icon offers Resume through the board operation, including its pending, error, dependency-confirmation, and Execution Target continuation behavior. The server is authoritative, and an unavailable Resume uses the ordinary failure treatment. Other status icons are informational. Activating Dependencies, ID, Title, Stage, or Workflow opens the Task's general Task Detail. The Dependencies chip must not focus the Dependencies section from this list.
 - Activating Labels opens the Task Label assignment chooser without opening Task Detail. Successful assignment updates the row. Pending and failure behavior follows the assignment flow.
 - An open Task Detail or Label chooser gives its Task row the selected treatment. Only the last-opened interaction shows selection. Closing a Label chooser restores an already-open Task Detail's selection when its row is visible.
 - Task Detail uses the global sidebar presentation policy.
@@ -161,12 +169,13 @@
 
 - A board is scoped to one Project and one Workflow, and shows Tasks from all attached workspaces. Workspace supplies context without restricting the board scope.
 - Workflow selection orders the Project default first, then Workflows by last use, then display name. Backlog is fixed left, Workflow Nodes follow their defined order, and Done is fixed right. Join Nodes are not columns. Groups follow their Workflow grouping.
+- An unnamed Node Group must have a blank board header. Its columns must keep the existing vertical offset below that header.
 - A Task card shows Task Short ID, title, server-native status text, and workspace context only when the Project has multiple workspaces and the Task source differs from the default workspace. It must not show Execution Target facts.
 - A Task card with one or more direct Blocker Tasks shows a dependency-progress chip before its Labels.
 - The dependency-progress chip uses a circular progress indicator and `satisfied blockers / total blockers` text.
 - The chip uses the primary tone while any direct dependency is unsatisfied and the success tone when every direct dependency is satisfied.
 - The chip's accessible name is `Dependencies: N of M complete.`.
-- Hovering the chip shows `N of M dependencies satisfied`.
+- Hovering or focusing the chip shows `N of M dependencies satisfied`.
 - When every direct dependency is satisfied, the tooltip appends `. Time to cook!`.
 - A Task card with no direct Blocker Tasks omits the chip.
 - The server supplies both dependency-progress counts. Desktop never derives them from loaded relationship rows.

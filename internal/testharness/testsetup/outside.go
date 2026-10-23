@@ -23,17 +23,13 @@ func NonTemporaryDirectory(
 		t.Fatal("temporary-path classifier is required")
 	}
 
-	base, configured := os.LookupEnv("KENT_TEST_NON_TEMPORARY_ROOT")
-	if !configured {
-		if processHomeErr != nil {
-			t.Fatalf("resolve home directory for non-temporary fixture: %v", processHomeErr)
-		}
-		base = processHome
+	if processHomeErr != nil {
+		t.Fatalf("resolve home directory for non-temporary fixture: %v", processHomeErr)
 	}
-	if strings.TrimSpace(base) == "" {
+	if strings.TrimSpace(processHome) == "" {
 		t.Fatal("non-temporary fixture root is required")
 	}
-	dir, err := os.MkdirTemp(base, prefix)
+	dir, err := os.MkdirTemp(processHome, prefix)
 	if err != nil {
 		t.Fatalf("create non-temporary fixture: %v", err)
 	}
@@ -44,7 +40,7 @@ func NonTemporaryDirectory(
 	})
 	absolute, err := filepath.Abs(dir)
 	if err != nil {
-		t.Fatalf("resolve non-temporary RAM fixture: %v", err)
+		t.Fatalf("resolve non-temporary fixture: %v", err)
 	}
 	if isTemporary(absolute) {
 		t.Fatalf("non-temporary fixture %q is classified as temporary", absolute)

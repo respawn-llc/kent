@@ -6,6 +6,7 @@ import (
 	transcriptpb "core/shared/protoapi/gen/kent/api/transcript"
 	"core/shared/serverapi"
 	"errors"
+	"io"
 	"net"
 	"reflect"
 	"testing"
@@ -40,7 +41,7 @@ func TestStartSessionTranscriptEventsWaitsForExplicitRehydrationAfterLoss(t *tes
 				messages: []*transcriptpb.Message{ongoingHydrationMessage(1)},
 				err:      serverapi.ErrStreamGap},
 			{messages: []*transcriptpb.Message{ongoingHydrationMessage(1)}}}}
-	stream := startSessionTranscriptEvents(context.Background(), "session-1", subscriber.SubscribeSessionTranscript, nil)
+	stream := startSessionTranscriptEvents(context.Background(), "session-1", subscriber.SubscribeSessionTranscript)
 	defer stream.Stop()
 
 	first := nextTranscriptEvent(t, stream.Events)
@@ -69,7 +70,7 @@ func TestStartSessionTranscriptEventsWaitsForExplicitRehydrationAfterLoss(t *tes
 
 func TestStartSessionTranscriptEventsLocalCancelClosesChannel(t *testing.T) {
 	subscriber := &recordingTranscriptSubscriber{subs: []*scriptedTranscriptSubscription{{}}}
-	stream := startSessionTranscriptEvents(context.Background(), "session-1", subscriber.SubscribeSessionTranscript, nil)
+	stream := startSessionTranscriptEvents(context.Background(), "session-1", subscriber.SubscribeSessionTranscript)
 
 	stream.Stop()
 
@@ -88,7 +89,7 @@ func TestStartSessionTranscriptEventsReopensOnLocalRehydrationRequest(t *testing
 		subs: []*scriptedTranscriptSubscription{
 			{messages: []*transcriptpb.Message{ongoingHydrationMessage(1)}},
 			{messages: []*transcriptpb.Message{ongoingHydrationMessage(1)}}}}
-	stream := startSessionTranscriptEvents(context.Background(), "session-1", subscriber.SubscribeSessionTranscript, nil)
+	stream := startSessionTranscriptEvents(context.Background(), "session-1", subscriber.SubscribeSessionTranscript)
 	defer stream.Stop()
 
 	first := nextTranscriptEvent(t, stream.Events)
@@ -115,7 +116,7 @@ func TestStartSessionTranscriptEventsSurfacesSubscriptionOpenFailure(t *testing.
 		func(context.Context, *transcriptpb.SubscribeRequest) (serverapi.TranscriptSubscription, error) {
 			return nil, subscribeErr
 		},
-		nil)
+	)
 	defer stream.Stop()
 
 	failure := nextTranscriptEvent(t, stream.Events)
@@ -139,8 +140,7 @@ func TestStartSessionTranscriptEventsRetriesTransportFailureUntilServerReturns(t
 	recovered := &scriptedTranscriptSubscription{
 		messages: []*transcriptpb.Message{ongoingHydrationMessage(1)}}
 	attempt := 0
-	reactivationAttempts := 0
-	reactivationFailure := &net.OpError{Op: "dial", Net: "tcp", Err: errors.New("connection refused")}
+	connectionFailure := errors.Join(serverapi.ErrStreamFailed, io.EOF)
 	stream := startSessionTranscriptEvents(
 		context.Background(),
 		"session-1",
@@ -149,16 +149,11 @@ func TestStartSessionTranscriptEventsRetriesTransportFailureUntilServerReturns(t
 			switch attempt {
 			case 1:
 				return initial, nil
+			case 2:
+				return nil, connectionFailure
 			default:
 				return recovered, nil
 			}
-		},
-		func(context.Context) error {
-			reactivationAttempts++
-			if reactivationAttempts == 1 {
-				return reactivationFailure
-			}
-			return nil
 		})
 	defer stream.Stop()
 
@@ -171,106 +166,15 @@ func TestStartSessionTranscriptEventsRetriesTransportFailureUntilServerReturns(t
 
 	stream.RequestRehydration()
 	failure := nextTranscriptEvent(t, stream.Events)
-	if failure.Kind != ongoingTranscriptEventFailure || !errors.Is(failure.Err, reactivationFailure) {
+	if failure.Kind != ongoingTranscriptEventFailure || !errors.Is(failure.Err, connectionFailure) {
 		t.Fatalf("reopen failure = %+v, want transport failure", failure)
 	}
 	hydration := nextTranscriptEvent(t, stream.Events)
 	if hydration.Kind != ongoingTranscriptEventMessage || reflect.TypeOf(hydration.Message.Event.Payload) != reflect.TypeFor[*transcriptpb.Event_Hydration]() {
 		t.Fatalf("recovered event = %+v, want hydration", hydration)
 	}
-	if attempt != 2 {
-		t.Fatalf("subscription attempts = %d, want 2", attempt)
-	}
-	if reactivationAttempts != 2 {
-		t.Fatalf("reactivation attempts = %d, want 2", reactivationAttempts)
-	}
-}
-
-func TestStartSessionTranscriptEventsRetriesReactivationTimeoutUntilServerReturns(t *testing.T) {
-	initial := &scriptedTranscriptSubscription{
-		messages: []*transcriptpb.Message{ongoingHydrationMessage(1)},
-		err:      &net.OpError{Op: "read", Net: "tcp", Err: errors.New("connection reset by peer")}}
-	recovered := &scriptedTranscriptSubscription{
-		messages: []*transcriptpb.Message{ongoingHydrationMessage(1)}}
-	subscriptionAttempts := 0
-	reactivationAttempts := 0
-	stream := startSessionTranscriptEvents(
-		context.Background(),
-		"session-1",
-		func(context.Context, *transcriptpb.SubscribeRequest) (serverapi.TranscriptSubscription, error) {
-			subscriptionAttempts++
-			if subscriptionAttempts == 1 {
-				return initial, nil
-			}
-			return recovered, nil
-		},
-		func(context.Context) error {
-			reactivationAttempts++
-			if reactivationAttempts == 1 {
-				return context.DeadlineExceeded
-			}
-			return nil
-		})
-	defer stream.Stop()
-
-	if event := nextTranscriptEvent(t, stream.Events); event.Kind != ongoingTranscriptEventMessage {
-		t.Fatalf("initial event = %+v, want hydration", event)
-	}
-	if event := nextTranscriptEvent(t, stream.Events); event.Kind != ongoingTranscriptEventLoss {
-		t.Fatalf("disconnect event = %+v, want subscription loss", event)
-	}
-
-	stream.RequestRehydration()
-	hydration := nextTranscriptEvent(t, stream.Events)
-	if hydration.Kind != ongoingTranscriptEventMessage || reflect.TypeOf(hydration.Message.Event.Payload) != reflect.TypeFor[*transcriptpb.Event_Hydration]() {
-		t.Fatalf("recovered event = %+v, want hydration", hydration)
-	}
-	if subscriptionAttempts != 2 {
-		t.Fatalf("subscription attempts = %d, want 2", subscriptionAttempts)
-	}
-	if reactivationAttempts != 2 {
-		t.Fatalf("reactivation attempts = %d, want 2", reactivationAttempts)
-	}
-}
-
-func TestStartSessionTranscriptEventsRetriesRuntimeUnavailableReactivationUntilServerReturns(t *testing.T) {
-	initial := &scriptedTranscriptSubscription{
-		messages: []*transcriptpb.Message{ongoingHydrationMessage(1)},
-		err:      &net.OpError{Op: "read", Net: "tcp", Err: errors.New("connection reset by peer")}}
-	recovered := &scriptedTranscriptSubscription{
-		messages: []*transcriptpb.Message{ongoingHydrationMessage(1)}}
-	subscriber := &recordingTranscriptSubscriber{subs: []*scriptedTranscriptSubscription{initial, recovered}}
-	reactivationAttempts := 0
-	stream := startSessionTranscriptEvents(
-		context.Background(),
-		"session-1",
-		subscriber.SubscribeSessionTranscript,
-		func(context.Context) error {
-			reactivationAttempts++
-			if reactivationAttempts == 1 {
-				return serverapi.ErrRuntimeUnavailable
-			}
-			return nil
-		})
-	defer stream.Stop()
-
-	if event := nextTranscriptEvent(t, stream.Events); event.Kind != ongoingTranscriptEventMessage {
-		t.Fatalf("initial event = %+v, want hydration", event)
-	}
-	if event := nextTranscriptEvent(t, stream.Events); event.Kind != ongoingTranscriptEventLoss {
-		t.Fatalf("disconnect event = %+v, want subscription loss", event)
-	}
-
-	stream.RequestRehydration()
-	hydration := nextTranscriptEvent(t, stream.Events)
-	if hydration.Kind != ongoingTranscriptEventMessage || reflect.TypeOf(hydration.Message.Event.Payload) != reflect.TypeFor[*transcriptpb.Event_Hydration]() {
-		t.Fatalf("recovered event = %+v, want hydration", hydration)
-	}
-	if got, want := subscriber.sessionIDs, []string{"session-1", "session-1"}; !reflect.DeepEqual(got, want) {
-		t.Fatalf("subscribe session IDs = %v, want %v", got, want)
-	}
-	if reactivationAttempts != 2 {
-		t.Fatalf("reactivation attempts = %d, want 2", reactivationAttempts)
+	if attempt != 3 {
+		t.Fatalf("subscription attempts = %d, want 3", attempt)
 	}
 }
 

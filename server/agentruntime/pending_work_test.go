@@ -26,10 +26,8 @@ func TestPendingWorkProjectsAcceptedMessageAndCompactionOrder(t *testing.T) {
 	admission := runtimeinput.ManualCompactionAdmission{
 		Guidance: &guidance,
 	}
-	requestID := runtimeids.NewCompactionRequestID()
-	if _, err := engine.CompactContextAdmissionForRequestWithAcceptance(
+	if _, err := engine.CompactContextAdmissionWithAcceptance(
 		context.Background(),
-		requestID,
 		admission,
 		nil,
 	); err != nil {
@@ -55,7 +53,7 @@ func TestPendingWorkProjectsAcceptedMessageAndCompactionOrder(t *testing.T) {
 	}
 	if snapshot.Items[0].ID.String() != queued.ID ||
 		snapshot.Items[1].ID.String() != firstSteer.ID ||
-		snapshot.Items[2].ID.String() != requestID.String() ||
+		snapshot.Items[2].Kind != runtimeinput.PendingWorkItemKindManualCompaction ||
 		snapshot.Items[3].ID.String() != operationID.String() ||
 		snapshot.Items[4].ID.String() != secondSteer.ID {
 		t.Fatalf("Pending Work order = %+v", snapshot.Items)
@@ -147,10 +145,8 @@ func TestRemovePendingWorkRestoresTypedMessageAndCompactionInput(t *testing.T) {
 	admission := runtimeinput.ManualCompactionAdmission{
 		Guidance: &guidance,
 	}
-	requestID := runtimeids.NewCompactionRequestID()
-	if _, err := engine.CompactContextAdmissionForRequestWithAcceptance(
+	if _, err := engine.CompactContextAdmissionWithAcceptance(
 		context.Background(),
-		requestID,
 		admission,
 		nil,
 	); err != nil {
@@ -259,9 +255,6 @@ func pendingWorkTestHoldStep(t *testing.T, engine *Engine, kind ActiveKind) func
 func pendingWorkTestSnapshot(t *testing.T, engine *Engine) runtimeinput.PendingWork {
 	t.Helper()
 	snapshot := pendingWorkTestMust(t, engine.PendingWorkSnapshot)
-	if err := snapshot.Validate(); err != nil {
-		t.Fatal(err)
-	}
 	return snapshot
 }
 

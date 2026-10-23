@@ -37,7 +37,6 @@ enum MovePreviewBlocker {
   MOVE_PREVIEW_BLOCKER_INVALID_WORKFLOW = 1;
   MOVE_PREVIEW_BLOCKER_NO_SOURCE_POSITION = 2;
   MOVE_PREVIEW_BLOCKER_UNSUPPORTED_DESTINATION = 3;
-  MOVE_PREVIEW_BLOCKER_WAITING_QUESTION = 4;
   MOVE_PREVIEW_BLOCKER_LIFECYCLE_CONFLICT = 5;
   MOVE_PREVIEW_BLOCKER_CONTEXT_SESSION_UNAVAILABLE = 6;
   MOVE_PREVIEW_BLOCKER_NO_USABLE_TRANSITION = 7;
@@ -114,6 +113,8 @@ enum ExecutionTargetResolutionCode {
   EXECUTION_TARGET_RESOLUTION_CODE_INVALID_REVISION = 1;
   EXECUTION_TARGET_RESOLUTION_CODE_NON_COMMIT = 2;
   EXECUTION_TARGET_RESOLUTION_CODE_GIT_FAILURE = 3;
+  EXECUTION_TARGET_RESOLUTION_CODE_DEFAULT_BRANCH_MISSING = 4;
+  EXECUTION_TARGET_RESOLUTION_CODE_DEFAULT_BRANCH_AMBIGUOUS = 5;
 }
 
 enum InitialBranchErrorReason {
@@ -169,6 +170,11 @@ message CreateRequest {
   repeated DependencyCreateIntent dependency_intents = 8 [
     (buf.validate.field).repeated.max_items = 100
   ];
+  option (buf.validate.message).cel = {
+    id: "kent.workflow_task.create_dependency_role_limits"
+    message: "dependency intents must not exceed 50 per role"
+    expression: "this.dependency_intents.filter(intent, intent.new_task_role == 1).size() <= 50 && this.dependency_intents.filter(intent, intent.new_task_role == 2).size() <= 50"
+  };
 }
 
 message CreateSuccess {
@@ -229,7 +235,7 @@ message DependencyConfirmationRequired {
 
 message StartRequest {
   string task_id = 1 [(buf.validate.field).string.(kent.api.shared.nonblank) = true];
-  optional string invoking_session_id = 2 [(buf.validate.field).string.min_len = 1];
+  optional string invoking_session_id = 2 [(buf.validate.field).string.uuid = true, (buf.validate.field).string.(kent.api.shared.canonical_uuid_v4) = true];
   string setup_operation_id = 3 [
     (buf.validate.field).string.uuid = true,
     (buf.validate.field).string.(kent.api.shared.canonical_uuid_v4) = true
@@ -254,14 +260,14 @@ message StartSuccess {
 
 message InterruptRequest {
   string task_id = 1 [(buf.validate.field).string.(kent.api.shared.nonblank) = true];
-  optional string invoking_session_id = 2 [(buf.validate.field).string.min_len = 1];
+  optional string invoking_session_id = 2 [(buf.validate.field).string.uuid = true, (buf.validate.field).string.(kent.api.shared.canonical_uuid_v4) = true];
   kent.api.shared.SessionSelector session_id = 3;
   optional string reason = 4;
 }
 
 message ResumeRequest {
   string task_id = 1 [(buf.validate.field).string.(kent.api.shared.nonblank) = true];
-  optional string invoking_session_id = 2 [(buf.validate.field).string.min_len = 1];
+  optional string invoking_session_id = 2 [(buf.validate.field).string.uuid = true, (buf.validate.field).string.(kent.api.shared.canonical_uuid_v4) = true];
   string setup_operation_id = 3 [
     (buf.validate.field).string.uuid = true,
     (buf.validate.field).string.(kent.api.shared.canonical_uuid_v4) = true
@@ -285,7 +291,7 @@ message ResumeSuccess {
 
 message ApproveRequest {
   string approval_id = 1 [(buf.validate.field).string.min_len = 1];
-  optional string invoking_session_id = 2 [(buf.validate.field).string.min_len = 1];
+  optional string invoking_session_id = 2 [(buf.validate.field).string.uuid = true, (buf.validate.field).string.(kent.api.shared.canonical_uuid_v4) = true];
 }
 
 message ApproveApplied {
@@ -388,11 +394,11 @@ message NodeOutputValues {
 
 message MoveRequest {
   string task_id = 1 [(buf.validate.field).string.(kent.api.shared.nonblank) = true];
-  optional string invoking_session_id = 2 [(buf.validate.field).string.min_len = 1];
+  optional string invoking_session_id = 2 [(buf.validate.field).string.uuid = true, (buf.validate.field).string.(kent.api.shared.canonical_uuid_v4) = true];
   string target_node_id = 3 [(buf.validate.field).string.min_len = 1];
   optional string transition_key = 4 [(buf.validate.field).string.min_len = 1];
   repeated NodeOutputValues values = 5;
-  optional string commentary = 6;
+  optional string commentary = 6 [(buf.validate.field).string.max_bytes = 65536];
   optional ExecutionTargetSelection execution_target = 7;
   optional string branch_name = 8 [(buf.validate.field).string.min_len = 1];
   bool proceed_despite_dependencies = 9;
@@ -429,12 +435,12 @@ message CompleteRequest {
   optional string task_id = 2 [(buf.validate.field).string.(kent.api.shared.nonblank) = true];
   optional string transition_id = 3 [(buf.validate.field).string.min_len = 1];
   repeated NamedValue output_values = 4;
-  optional string commentary = 5;
+  optional string commentary = 5 [(buf.validate.field).string.max_bytes = 65536];
   CompleteActorKind actor_kind = 6 [(buf.validate.field).enum = {
     defined_only: true
     not_in: [0]
   }];
-  optional string agent_session_id = 7 [(buf.validate.field).string.min_len = 1];
+  optional string agent_session_id = 7 [(buf.validate.field).string.uuid = true, (buf.validate.field).string.(kent.api.shared.canonical_uuid_v4) = true];
   bool force = 8;
   optional string step_id = 10 [
     (buf.validate.field).string.uuid = true,
@@ -560,7 +566,7 @@ message Comment {
 
 message CommentAddRequest {
   string task_id = 1 [(buf.validate.field).string.(kent.api.shared.nonblank) = true];
-  string body = 2 [(buf.validate.field).string.min_len = 1];
+  string body = 2 [(buf.validate.field).string.min_len = 1, (buf.validate.field).string.(kent.api.shared.nonblank) = true];
   CommentAuthorKind author = 3 [(buf.validate.field).enum = {
     defined_only: true
     not_in: [0]
@@ -589,7 +595,7 @@ message CommentListSuccess {
 
 message CommentReplaceRequest {
   string comment_id = 1 [(buf.validate.field).string.min_len = 1];
-  string body = 2 [(buf.validate.field).string.min_len = 1];
+  string body = 2 [(buf.validate.field).string.min_len = 1, (buf.validate.field).string.(kent.api.shared.nonblank) = true];
 }
 
 message CommentDeleteRequest {
@@ -597,7 +603,7 @@ message CommentDeleteRequest {
 }
 
 message SessionStarted {
-  string session_id = 1 [(buf.validate.field).string.min_len = 1];
+  string session_id = 1 [(buf.validate.field).string.uuid = true, (buf.validate.field).string.(kent.api.shared.canonical_uuid_v4) = true];
   string name = 2 [(buf.validate.field).string.min_len = 1];
 }
 
@@ -620,7 +626,7 @@ message ActivityListSuccess {
 
 message SessionItem {
   optional int64 short_id = 6 [(buf.validate.field).int64 = {gt: 0 lte: 9007199254740991}];
-  string session_id = 1 [(buf.validate.field).string.min_len = 1];
+  string session_id = 1 [(buf.validate.field).string.uuid = true, (buf.validate.field).string.(kent.api.shared.canonical_uuid_v4) = true];
   optional string session_name = 2 [(buf.validate.field).string.min_len = 1];
   optional string node_name = 3 [(buf.validate.field).string.min_len = 1];
   string agent_role = 4 [(buf.validate.field).string.min_len = 1];
@@ -676,22 +682,32 @@ message ObserveRequest {
 }
 
 message ObserveDone {
-  optional string session_id = 1 [(buf.validate.field).string.min_len = 1];
+  optional string session_id = 1 [(buf.validate.field).string.uuid = true, (buf.validate.field).string.(kent.api.shared.canonical_uuid_v4) = true];
   optional string script_path = 2 [(buf.validate.field).string.min_len = 1];
   optional string node_key = 3 [(buf.validate.field).string.min_len = 1];
 }
 
 message ObserveQuestion {
+  option (buf.validate.message).cel = {
+    id: "kent.workflow_task.observe_question_session_number"
+    message: "short_id requires session_id"
+    expression: "!has(this.short_id) || has(this.session_id)"
+  };
   optional int64 short_id = 5 [(buf.validate.field).int64 = {gt: 0 lte: 9007199254740991}];
-  optional string session_id = 1 [(buf.validate.field).string.min_len = 1];
+  optional string session_id = 1 [(buf.validate.field).string.uuid = true, (buf.validate.field).string.(kent.api.shared.canonical_uuid_v4) = true];
   optional string script_path = 2 [(buf.validate.field).string.min_len = 1];
   optional string node_key = 3 [(buf.validate.field).string.min_len = 1];
   kent.api.prompt.ObservationQuestion question = 4 [(buf.validate.field).required = true];
 }
 
 message ObserveFailure {
+  option (buf.validate.message).cel = {
+    id: "kent.workflow_task.observe_failure_session_number"
+    message: "short_id requires session_id"
+    expression: "!has(this.short_id) || has(this.session_id)"
+  };
   optional int64 short_id = 5 [(buf.validate.field).int64 = {gt: 0 lte: 9007199254740991}];
-  optional string session_id = 1 [(buf.validate.field).string.min_len = 1];
+  optional string session_id = 1 [(buf.validate.field).string.uuid = true, (buf.validate.field).string.(kent.api.shared.canonical_uuid_v4) = true];
   optional string script_path = 2 [(buf.validate.field).string.min_len = 1];
   optional string node_key = 3 [(buf.validate.field).string.min_len = 1];
   kent.api.prompt.LiveWatchFailure failure = 4 [(buf.validate.field).required = true];
@@ -822,7 +838,20 @@ message ExecutionTargetResolutionDetails {
     defined_only: true
     not_in: [0]
   }];
-  string requested_ref = 2 [(buf.validate.field).string.min_len = 1];
+  oneof target {
+    option (buf.validate.oneof).required = true;
+    string requested_ref = 2 [(buf.validate.field).string.min_len = 1];
+    google.protobuf.Empty default_branch = 3;
+  }
+  optional string diagnostic = 4 [(buf.validate.field).string.min_len = 1];
+
+  option (buf.validate.message).cel = {
+    id: "kent.workflow_task.execution_target_resolution_facts"
+    message: "execution target resolution facts must match the selected target"
+    expression:
+      "(has(this.requested_ref) && this.code in [1, 2, 3] && !has(this.diagnostic)) || "
+      "(has(this.default_branch) && this.code in [1, 2, 3, 4, 5])"
+  };
 }
 
 message InitialBranchDetails {

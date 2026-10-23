@@ -14,7 +14,6 @@ const activeCompaction: ChatTranscriptPayloadByKind["compaction_status"] = {
   State: "started",
   Mode: "manual",
   Count: 1,
-  RequestID: "request",
 };
 const started: ChatTranscriptPayloadByKind["compaction_status"] = {
   ...activeCompaction,

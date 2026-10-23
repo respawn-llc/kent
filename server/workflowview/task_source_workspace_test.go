@@ -121,10 +121,7 @@ func assertTaskSource(t *testing.T, f currentNodeViewFixture, task workflowstore
 		t.Fatalf("cards = %+v", page.Cards)
 	}
 	for _, source := range []*taskpb.TaskSourceWorkspace{detail.SourceWorkspace, page.Cards[0].SourceWorkspace} {
-		actualAvailability, err := protoapi.ProjectAvailabilityFromProto(source.Availability)
-		if err != nil {
-			t.Fatal(err)
-		}
+		actualAvailability := protoapi.ProjectAvailabilityFromProto(source.Availability)
 		if source.WorkspaceId != workspaceID || source.RootPath != root || string(actualAvailability) != availability {
 			t.Errorf("source = %+v; want %s %s %s", source, workspaceID, root, availability)
 		}

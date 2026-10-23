@@ -20,6 +20,7 @@ import (
 	"core/server/llm"
 	"core/server/onboardingservice"
 	"core/shared/config"
+	"core/shared/protoapi"
 	authpb "core/shared/protoapi/gen/kent/api/auth"
 	capabilitypb "core/shared/protoapi/gen/kent/api/capability"
 	onboardingpb "core/shared/protoapi/gen/kent/api/onboarding"
@@ -505,6 +506,53 @@ func TestFinalizerImportsSkillsAndCommandsBeforeConfigWrite(t *testing.T) {
 	assertSymlink(t, filepath.Join(root, "prompts"))
 }
 
+func TestFinalizerImportsGrokPersonalSourcesAndSkillEnablement(t *testing.T) {
+	assertFinalizesPersonalProviderImports(t, ".grok")
+}
+
+func TestFinalizerImportsCursorPersonalSourcesAndSkillEnablement(t *testing.T) {
+	assertFinalizesPersonalProviderImports(t, ".cursor")
+}
+
+func assertFinalizesPersonalProviderImports(t *testing.T, homeEntry string) {
+	t.Helper()
+	root := t.TempDir()
+	home := t.TempDir()
+	skillUUID := createProviderSkillSource(t, home, homeEntry)
+	commandUUID := createProviderCommandSource(t, home, homeEntry)
+
+	resp, err := newTestFinalizer(t, root, home).Finalize(context.Background(), &onboardingpb.FinalizeRequest{
+		SkillsImport:       &onboardingpb.ImportSelection{Mode: onboardingpb.ImportMode_IMPORT_MODE_SYMLINK_SOURCE, ProviderUuid: ptr(skillUUID.String())},
+		CommandsImport:     &onboardingpb.ImportSelection{Mode: onboardingpb.ImportMode_IMPORT_MODE_SYMLINK_SOURCE, ProviderUuid: ptr(commandUUID.String())},
+		DisabledSkillNames: []string{"Example"},
+	})
+	if err != nil {
+		t.Fatalf("Finalize: %v", err)
+	}
+	if !resp.Completed {
+		t.Fatal("expected finalize completion")
+	}
+	skillsTarget, err := os.Readlink(filepath.Join(root, "skills"))
+	if err != nil {
+		t.Fatalf("read skills symlink: %v", err)
+	}
+	expectedSkillsRoot := filepath.Join(home, homeEntry, "skills")
+	if skillsTarget != expectedSkillsRoot {
+		t.Fatalf("skills symlink target = %q, want selected personal root %q", skillsTarget, expectedSkillsRoot)
+	}
+	commandsTarget, err := os.Readlink(filepath.Join(root, "prompts"))
+	if err != nil {
+		t.Fatalf("read commands symlink: %v", err)
+	}
+	expectedCommandsRoot := filepath.Join(home, homeEntry, "commands")
+	if commandsTarget != expectedCommandsRoot {
+		t.Fatalf("commands symlink target = %q, want selected personal root %q", commandsTarget, expectedCommandsRoot)
+	}
+	if enabled, ok := loadFinalizedConfig(t, root).Settings.SkillToggles["example"]; !ok || enabled {
+		t.Fatalf("imported skill enablement = %t, present=%t, want disabled", enabled, ok)
+	}
+}
+
 func TestFinalizerImportsSelectedCapabilityFactSkillRoot(t *testing.T) {
 	root := t.TempDir()
 	home := t.TempDir()
@@ -804,16 +852,14 @@ func TestFinalizerRestoresPreexistingEmptyTargetDirectoryOnRollback(t *testing.T
 	}
 }
 
-func TestFinalizerRejectsNonV4ProviderUUID(t *testing.T) {
-	root := t.TempDir()
-	home := t.TempDir()
+func TestFinalizeBoundaryRejectsNonV4ProviderUUID(t *testing.T) {
 	v1UUID := uuid.MustParse("6ba7b810-9dad-11d1-80b4-00c04fd430c8")
 
-	_, err := newTestFinalizer(t, root, home).Finalize(context.Background(), &onboardingpb.FinalizeRequest{
+	err := protoapi.Validate(&onboardingpb.FinalizeRequest{
 		SkillsImport: &onboardingpb.ImportSelection{Mode: onboardingpb.ImportMode_IMPORT_MODE_SYMLINK_SOURCE, ProviderUuid: ptr(v1UUID.String())},
 	})
-	if !errors.Is(err, serverapi.ErrOnboardingFinalizeInvalidRequest) {
-		t.Fatalf("error = %v, want invalid_request", err)
+	if err == nil {
+		t.Fatal("non-v4 provider identity accepted at generated boundary")
 	}
 }
 

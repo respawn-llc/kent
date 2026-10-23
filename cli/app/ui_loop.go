@@ -29,6 +29,7 @@ type uiProgramComposition struct {
 }
 
 type uiLoopRequest struct {
+	sessionLifecycle             apicontract.SessionLifecycleService
 	ctx                          context.Context
 	wiring                       *runtimeWiring
 	projectID                    string
@@ -206,6 +207,7 @@ func composeUIProgram(request uiLoopRequest, output io.Writer) (*uiProgramCompos
 		return nil, errors.New("projected UI model has unexpected type")
 	}
 	model.keyboardReporting = keyboardReporting
+	model.drafts = newUIDraftPersistence(request.sessionLifecycle, sessionID, model.mainEditor.Text())
 	if request.initialTransientStatus != nil {
 		model.startupCmds = append(model.startupCmds, model.showTransientStatusNotice(uiStatusNotice{
 			Text:     *request.initialTransientStatus,

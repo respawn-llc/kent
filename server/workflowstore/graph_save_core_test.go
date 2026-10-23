@@ -3,7 +3,6 @@ package workflowstore
 import (
 	"context"
 	"database/sql"
-	"errors"
 	"reflect"
 	"slices"
 	"sync"
@@ -68,50 +67,6 @@ func (f graphSaveFixture) current(t *testing.T) (workflow.Definition, WorkflowRe
 	return def, record
 }
 
-func TestWorkflowGraphSaveRejectsMissingNestedWorkflowIDs(t *testing.T) {
-	f := newGraphSaveFixture(t, createValidWorkflow)
-	tests := []struct {
-		name   string
-		mutate func(*WorkflowGraphSaveRequest)
-	}{
-		{
-			name: "node group",
-			mutate: func(req *WorkflowGraphSaveRequest) {
-				req.NodeGroups = append(req.NodeGroups, NodeGroupRecord{ID: "missing-workflow-id-group", WorkflowID: runtimeids.WorkflowID{}, Key: "missing_workflow_id", DisplayName: "Missing workflow ID"})
-			},
-		},
-		{
-			name: "node",
-			mutate: func(req *WorkflowGraphSaveRequest) {
-				req.Nodes[0].WorkflowID = runtimeids.WorkflowID{}
-			},
-		},
-		{
-			name: "transition group",
-			mutate: func(req *WorkflowGraphSaveRequest) {
-				req.TransitionGroups[0].WorkflowID = runtimeids.WorkflowID{}
-			},
-		},
-		{
-			name: "edge",
-			mutate: func(req *WorkflowGraphSaveRequest) {
-				req.Edges[0].WorkflowID = runtimeids.WorkflowID{}
-			},
-		},
-	}
-
-	for _, test := range tests {
-		t.Run(test.name, func(t *testing.T) {
-			req := f.request(f.record.Version, false, f.def)
-			test.mutate(&req)
-			_, err := f.store.PreviewWorkflowGraphSave(f.ctx, req)
-			if !errors.Is(err, ErrWorkflowIDRequired) {
-				t.Fatalf("PreviewWorkflowGraphSave error = %v, want missing nested workflow identity rejection", err)
-			}
-		})
-	}
-}
-
 func TestWorkflowGraphSaveReportsRemovedTransitionBranchImpact(t *testing.T) {
 	f := newGraphSaveFixture(t, createFanoutJoinWorkflow)
 	removedEdgeID := testEdgeID("edge-split-b-" + f.workflowID.String())
@@ -145,7 +100,7 @@ func TestWorkflowGraphSaveAllowsRemovingNodeGroupWithoutConfirmation(t *testing.
 		ID:          removedGroupID,
 		WorkflowID:  f.workflowID,
 		Key:         "parallel",
-		DisplayName: "Parallel",
+		DisplayName: new("Parallel"),
 	})
 	for _, nodeID := range []workflow.NodeID{
 		testNodeID("node-impl-a-" + f.workflowID.String()),
@@ -951,7 +906,7 @@ func TestWorkflowGraphSaveConfirmationIncludesNodeGroupCountAndImpactChangedEnti
 		ID:          nodeGroupID,
 		WorkflowID:  f.workflowID,
 		Key:         "parallel",
-		DisplayName: "Parallel",
+		DisplayName: new("Parallel"),
 	})
 	for _, nodeID := range []workflow.NodeID{
 		testNodeID("node-impl-a-" + f.workflowID.String()),
@@ -1320,7 +1275,7 @@ func TestWorkflowGraphSaveValidatesAndPersistsV1NodeGroups(t *testing.T) {
 	f := newGraphSaveFixture(t, createFanoutJoinWorkflow)
 	groupID := testGraphEntityID("group-parallel-" + f.workflowID.String())
 	req := f.request(f.record.Version, false, f.def)
-	req.NodeGroups = append(req.NodeGroups, NodeGroupRecord{ID: groupID, WorkflowID: f.workflowID, Key: "parallel", DisplayName: "Parallel"})
+	req.NodeGroups = append(req.NodeGroups, NodeGroupRecord{ID: groupID, WorkflowID: f.workflowID, Key: "parallel", DisplayName: new("Parallel")})
 	req.Nodes = setWorkflowGraphSaveNodeGroup(req.Nodes, testNodeID("node-impl-a-"+f.workflowID.String()), groupID)
 	req.Nodes = setWorkflowGraphSaveNodeGroup(req.Nodes, testNodeID("node-impl-b-"+f.workflowID.String()), groupID)
 	req.Nodes = setWorkflowGraphSaveNodeGroup(req.Nodes, testNodeID("node-join-"+f.workflowID.String()), groupID)
@@ -1345,6 +1300,40 @@ func TestWorkflowGraphSaveValidatesAndPersistsV1NodeGroups(t *testing.T) {
 	invalidResult := f.save(t, invalid)
 	if invalidResult.Saved || workflowGraphSaveBlockerCount(invalidResult.Blockers, "validation_failed") == 0 {
 		t.Fatalf("invalid node group graph save = %+v, want validation blocker", invalidResult)
+	}
+}
+
+func TestWorkflowGraphSaveOptionalGroupNameRoundtrip(t *testing.T) {
+	f := newGraphSaveFixture(t, createFanoutJoinWorkflow)
+	groupID := testGraphEntityID("optional-group-" + f.workflowID.String())
+	req := f.request(f.record.Version, false, f.def)
+	req.NodeGroups = append(req.NodeGroups, NodeGroupRecord{ID: groupID, WorkflowID: f.workflowID, Key: "parallel"})
+	for _, key := range []string{"node-impl-a-", "node-impl-b-", "node-join-"} {
+		req.Nodes = setWorkflowGraphSaveNodeGroup(req.Nodes, testNodeID(key+f.workflowID.String()), groupID)
+	}
+	for _, name := range []*string{nil, new("Parallel"), nil} {
+		req.NodeGroups[0].DisplayName = name
+		result := f.save(t, req)
+		if !result.Saved {
+			t.Fatalf("save name %v: %+v", name, result)
+		}
+		definition, record := f.current(t)
+		if !reflect.DeepEqual(definition.NodeGroups[0].DisplayName, name) {
+			t.Fatalf("roundtrip name = %v, want %v", definition.NodeGroups[0].DisplayName, name)
+		}
+		req = f.request(record.Version, false, definition)
+		unchanged := f.save(t, req)
+		if !unchanged.Saved {
+			t.Fatalf("unchanged graph save: %+v", unchanged)
+		}
+		_, after := f.current(t)
+		if after.Version != record.Version {
+			t.Fatalf("unchanged optional name advanced version: %d -> %d", record.Version, after.Version)
+		}
+	}
+	req.NodeGroups[0].DisplayName = new("")
+	if result := f.save(t, req); result.Saved {
+		t.Fatal("present empty Group name accepted")
 	}
 }
 
@@ -1489,7 +1478,7 @@ func TestWorkflowGraphSaveChecksVersionBeforePreparingDraftRecords(t *testing.T)
 	_, current := f.current(t)
 
 	stale := f.request(f.record.Version, false, f.def)
-	stale.Nodes[0].WorkflowID = runtimeids.WorkflowID{}
+	stale.Nodes = append(stale.Nodes, stale.Nodes[0])
 	preview := f.preview(t, stale)
 	if workflowGraphSaveBlockerCount(preview.Blockers, "version_changed") != current.Version {
 		t.Fatalf("stale preview = %+v, want current-version blocker", preview)
@@ -1501,8 +1490,8 @@ func TestWorkflowGraphSaveChecksVersionBeforePreparingDraftRecords(t *testing.T)
 
 	currentVersion := stale
 	currentVersion.ExpectedVersion = current.Version
-	if _, err := f.store.PreviewWorkflowGraphSave(f.ctx, currentVersion); !errors.Is(err, ErrWorkflowIDRequired) {
-		t.Fatalf("current-version preview error = %v, want invalid nested Workflow identity", err)
+	if result := f.preview(t, currentVersion); workflowGraphSaveBlockerCount(result.Blockers, "validation_failed") == 0 {
+		t.Fatalf("current-version preview = %+v, want reportable invalid draft blocker", result)
 	}
 }
 

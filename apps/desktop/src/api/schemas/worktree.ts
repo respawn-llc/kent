@@ -1,16 +1,16 @@
 import type {
   CreateTargetResolution,
-  DeletePreviewSuccess,
-  ListEntry,
+  DeletePreviewSuccessValid as DeletePreviewSuccess,
+  ListEntryValid as ListEntry,
   SwitchOperation,
-  SelectorResolveSuccess,
+  SelectorResolveSuccessValid as SelectorResolveSuccess,
 } from "@app/server-api-contract/gen/kent/api/worktree/worktree_pb";
 
 import type { SetupOperationID } from "../setupOperationID";
 
 export type {
-  ListEntry as WorktreeListEntry,
-  ListSuccess as WorktreeList,
+  ListEntryValid as WorktreeListEntry,
+  ListSuccessValid as WorktreeList,
   DeletePreviewOperation as WorktreeDeletePreviewOperation,
 } from "@app/server-api-contract/gen/kent/api/worktree/worktree_pb";
 
@@ -42,7 +42,7 @@ export type WorktreeCreateInput = Readonly<{
 }>;
 
 export function authorizeWorktreeListEntry(entry: ListEntry): void {
-  const operation = entry.projection?.switch;
+  const operation = entry.projection.switch;
   if (operation !== undefined) authorize("switch", operation);
 }
 

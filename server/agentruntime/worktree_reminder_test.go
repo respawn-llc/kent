@@ -395,6 +395,8 @@ func TestManualCompactionReinjectsWorktreeReminderExactlyOnce(t *testing.T) {
 	case <-time.After(runtimeTestSynchronizationTimeout):
 		t.Fatal("timed out waiting for compaction")
 	}
+	// The completion event precedes release of the compaction's active step.
+	waitEngineLifecycleTasks(t, eng)
 
 	if _, err := eng.SubmitUserMessage(t.Context(), "continue after compaction"); err != nil {
 		t.Fatalf("submit post-compaction request: %v", err)
@@ -945,7 +947,11 @@ func TestSubmitUserMessageMaterializesWorktreeReminderBeforeModelFailure(t *test
 	assertWorktreeReminderEntryCount(t, eng.ChatSnapshot(), 1)
 
 	successClient := &fakeClient{responses: []llm.Response{finalOutputItemResponse("ok")}}
-	eng.llm = newObservedModelClient(successClient)
+	connection := *eng.connectionSnapshot()
+	connection.client = newObservedModelClient(successClient)
+	eng.mu.Lock()
+	eng.connection = &connection
+	eng.mu.Unlock()
 
 	if _, err := eng.SubmitUserMessage(context.Background(), "continue again"); err != nil {
 		t.Fatalf("submit retry: %v", err)

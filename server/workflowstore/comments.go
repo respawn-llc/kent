@@ -3,7 +3,6 @@ package workflowstore
 import (
 	"context"
 	"database/sql"
-	"errors"
 	"strings"
 
 	"core/server/metadata/sqlitegen"
@@ -13,15 +12,7 @@ import (
 
 func (s *Store) AddComment(ctx context.Context, taskID workflow.TaskID, body string, authorKind string, authorID string) (CommentRecord, error) {
 	trimmed := strings.TrimSpace(body)
-	if trimmed == "" {
-		return CommentRecord{}, errors.New("comment body is required")
-	}
 	trimmedAuthorKind := strings.TrimSpace(authorKind)
-	switch trimmedAuthorKind {
-	case "user", "agent":
-	default:
-		return CommentRecord{}, ErrCommentAuthorKindInvalid
-	}
 	now := s.now().UnixMilli()
 	id := prefixedID("comment")
 	if err := s.queries.InsertTaskComment(ctx, sqlitegen.InsertTaskCommentParams{ID: id, TaskID: string(taskID), Body: trimmed, AuthorKind: trimmedAuthorKind, AuthorID: strings.TrimSpace(authorID), CreatedAtUnixMs: now, UpdatedAtUnixMs: now}); err != nil {
@@ -32,9 +23,6 @@ func (s *Store) AddComment(ctx context.Context, taskID workflow.TaskID, body str
 
 func (s *Store) ReplaceComment(ctx context.Context, commentID string, body string) error {
 	trimmed := strings.TrimSpace(body)
-	if trimmed == "" {
-		return errors.New("comment body is required")
-	}
 	updated, err := s.queries.UpdateTaskCommentBody(ctx, sqlitegen.UpdateTaskCommentBodyParams{ID: strings.TrimSpace(commentID), Body: trimmed, UpdatedAtUnixMs: s.now().UnixMilli()})
 	if err != nil {
 		return err
@@ -73,9 +61,6 @@ func (s *Store) ListComments(ctx context.Context, taskID workflow.TaskID) ([]Com
 }
 
 func (s *Store) ListCommentsPage(ctx context.Context, taskID workflow.TaskID, offset int, limit int) ([]CommentRecord, error) {
-	if limit < 1 {
-		return nil, errors.New("comment limit must be positive")
-	}
 	return s.listComments(ctx, taskID, offset, limit)
 }
 

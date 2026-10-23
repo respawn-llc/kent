@@ -134,10 +134,7 @@ func TestNamingWorkflowAgentExcludedButSubagentAllowed(t *testing.T) {
 					completeNodeCall("complete", json.RawMessage(`{"commentary":"complete","summary":"done"}`)))}
 				publishTestWorkflowExecution(t, engine, testWorkflowConfig(&externallyCompletedWorkflowController{}, config.WorkflowCompletionModeTool))
 			}
-			steer, err := NewAgentSteer(runtimeids.SessionIdentity{ID: runtimeids.NewSessionID()}, "Fix invoices")
-			if err != nil {
-				t.Fatal(err)
-			}
+			steer := NewAgentSteer(runtimeids.SessionIdentity{ID: runtimeids.NewSessionID()}, "Fix invoices")
 			if _, err := engine.SubmitAgentSteerWithHooks(t.Context(), steer, nil, nil); err != nil {
 				t.Fatal(err)
 			}

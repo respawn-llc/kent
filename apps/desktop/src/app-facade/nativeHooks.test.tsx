@@ -117,6 +117,51 @@ it("releases a native focus registration that completes after its observation le
   });
 });
 
+it("releases a native focus registration that completes after its observation leaves", async () => {
+  const registration = deferred<() => void>();
+  const unlisten = vi.fn();
+  const nativeWindow = {
+    isFocused: vi.fn(async () => false),
+    onFocusChanged: vi.fn(async () => registration.promise),
+  };
+  currentWindow = nativeWindow;
+  const nativeFocus = createTauriWindowFocusControls();
+  const browserBridge = createBrowserNativeBridge();
+  const services = createTestServices([], {
+    ...browserBridge,
+    window: {
+      ...browserBridge.window,
+      isFocused: nativeFocus.isFocused,
+      focusChanges: nativeFocus.focusChanges,
+    },
+  });
+  const view = render(
+    <TestAppProviders services={services}>
+      <Reader id="focus" />
+    </TestAppProviders>,
+  );
+  await waitFor(() => {
+    expect(nativeWindow.onFocusChanged).toHaveBeenCalledTimes(1);
+  });
+
+  vi.useFakeTimers();
+  try {
+    await act(async () => {
+      view.unmount();
+      vi.runAllTimers();
+    });
+    await act(async () => {
+      registration.resolve(unlisten);
+    });
+  } finally {
+    vi.useRealTimers();
+  }
+
+  await waitFor(() => {
+    expect(unlisten).toHaveBeenCalledTimes(1);
+  });
+});
+
 it("keeps an observed focus event when the initial read completes later", async () => {
   const bridge = createBrowserNativeBridge();
   const initial = deferred<boolean>();

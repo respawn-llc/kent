@@ -47,6 +47,7 @@ export type SidebarDestination =
       kind: "worktree";
       openSession(sessionID: string): void | Promise<void>;
       mode?: SidebarMode;
+      projectID: string;
       sessionID: string;
       page: "list" | "create";
     }>

@@ -240,7 +240,7 @@ func TestRemoteBackRebindsToParentProjectBeforeRuntimePreparation(t *testing.T) 
 	if err != nil {
 		t.Fatalf("prepare target parent UI: %v", err)
 	}
-	defer func() { _ = runtimePlan.Close() }()
+	defer runtimePlan.Close()
 	if request.initialInput != "target project draft" || request.active.Model != "target-project-model" {
 		t.Fatalf("prepared target UI input/model = %q/%q", request.initialInput, request.active.Model)
 	}
@@ -362,9 +362,8 @@ func runBackParentPrefillScenario(t *testing.T, server backParentPrefillScenario
 				nil,
 				child.Meta().SessionID,
 				transition,
-				&runtimeLaunchPlan{close: func() error {
+				&runtimeLaunchPlan{stopEventStreams: func() {
 					originReleased = true
-					return nil
 				}},
 				nil,
 			)
@@ -400,7 +399,7 @@ func runBackParentPrefillScenario(t *testing.T, server backParentPrefillScenario
 			if err != nil {
 				t.Fatalf("prepare parent UI: %v", err)
 			}
-			defer func() { _ = parentRuntimePlan.Close() }()
+			defer parentRuntimePlan.Close()
 
 			composition, err := composeUIProgram(request, io.Discard)
 			if err != nil {
@@ -425,8 +424,10 @@ func runBackParentPrefillScenario(t *testing.T, server backParentPrefillScenario
 			}
 			next, editCmd := parentModel.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'x'}})
 			edited := next.(*uiModel)
-			if editCmd != nil {
-				t.Fatal("normal parent composer edit created a runtime command")
+			for _, msg := range collectCmdMessages(t, editCmd) {
+				if done, ok := msg.(draftSaveDoneMsg); ok && done.err != nil {
+					t.Fatalf("save edited parent draft: %v", done.err)
+				}
 			}
 			if testMainInput(edited) != wantInput+"x" {
 				t.Fatalf("edited parent input = %q, want %q", testMainInput(edited), wantInput+"x")
@@ -435,7 +436,7 @@ func runBackParentPrefillScenario(t *testing.T, server backParentPrefillScenario
 			if err != nil {
 				t.Fatalf("refresh parent runtime after edit: %v", err)
 			}
-			if !proto.Equal(afterEdit.Activity, beforeEdit.Activity) || afterEdit.Activity.State != runtimepb.ActivityState_RUNTIME_ACTIVITY_REGISTERED_IDLE {
+			if !proto.Equal(afterEdit.Activity, beforeEdit.Activity) || afterEdit.Activity.State != runtimepb.ActivityState_RUNTIME_ACTIVITY_UNAVAILABLE {
 				t.Fatalf("normal edit changed parent runtime activity: before=%+v after=%+v", beforeEdit.Activity, afterEdit.Activity)
 			}
 		})

@@ -31,16 +31,10 @@ func ServerNotReadyToProto(err *serverapi.ServerNotReadyError) (*serverpb.Server
 	default:
 		return nil, fmt.Errorf("server-not-ready details type %T is unsupported", err.Details)
 	}
-	if validationErr := Validate(details); validationErr != nil {
-		return nil, validationErr
-	}
 	return details, nil
 }
 
 func ServerNotReadyFromProto(details *serverpb.ServerNotReadyDetails) error {
-	if err := Validate(details); err != nil {
-		return err
-	}
 	reason, err := serverNotReadyReasonFromProto(details.Reason)
 	if err != nil {
 		return err
@@ -129,16 +123,10 @@ func OnboardingFinalizeErrorToProto(err *serverapi.OnboardingFinalizeError) (*on
 	default:
 		return nil, fmt.Errorf("onboarding finalize error code %q is unsupported", err.Code)
 	}
-	if validationErr := Validate(result); validationErr != nil {
-		return nil, validationErr
-	}
 	return result, nil
 }
 
 func OnboardingFinalizeErrorFromProto(message *onboardingpb.FinalizeError) error {
-	if err := Validate(message); err != nil {
-		return err
-	}
 	code := serverapi.OnboardingFinalizeErrorCode(message.Code)
 	var details any
 	switch detail := message.Detail.(type) {
@@ -192,9 +180,6 @@ func InternalFailureToProto(err error) *sharedpb.InternalFailureDetails {
 }
 
 func InternalFailureFromProto(details *sharedpb.InternalFailureDetails) error {
-	if err := Validate(details); err != nil {
-		return err
-	}
 	cause := errors.New("server operation failed")
 	if details.Cause != nil {
 		cause = errors.New(*details.Cause)

@@ -2,6 +2,7 @@ package worktree
 
 import (
 	"context"
+	"core/shared/runtimeids"
 	"errors"
 	"os"
 	"path/filepath"
@@ -271,15 +272,15 @@ func TestWorktreeTransitionTerminalCases(t *testing.T) {
 					unavailable <- status.QueueItemID
 				}
 			}
-			var attachment sessionruntime.RuntimeAttachment
+			var attachment runtimeids.SessionResourceRef
 			var engine *runtime.Engine
 			var release func()
 			if !test.dormant {
 				plan := deleteActivityRuntimePlan(t, env, env.workspaceRoot, deleteActivityTestLLMClient{}, "off", nil, observe)
 				var err error
-				attachment, err = env.authority.OpenRuntime(t.Context(), sessionruntime.RuntimeOpenRequest{SessionID: openDeleteActivitySessionDescriptor(t, env.session.Meta().SessionID).SessionID(), OwnerID: "worktree-terminal-table", Runtime: &plan})
+				attachment, err = env.authority.OpenRuntime(t.Context(), sessionruntime.RuntimeOpenRequest{SessionID: openDeleteActivitySessionDescriptor(t, env.session.Meta().SessionID).SessionID(), Runtime: &plan})
 				requireTerminal(t, err == nil, "open Runtime: %v", err)
-				err = env.authority.WithRuntime(t.Context(), attachment.Resource(), func(_ context.Context, current *runtime.Engine) error { engine = current; return nil })
+				err = env.authority.WithRuntime(t.Context(), attachment, func(_ context.Context, current *runtime.Engine) error { engine = current; return nil })
 				requireTerminal(t, err == nil, "capture Runtime: %v", err)
 				started, unblock, done := make(chan struct{}, 1), make(chan struct{}), make(chan error, 1)
 				go func() {
@@ -333,7 +334,7 @@ func TestWorktreeTransitionTerminalCases(t *testing.T) {
 						if test.rollback == nil {
 							return pageErr == nil && page.Snapshot.StreamingError == test.surface.Error()
 						}
-						retireErr = env.authority.WithRuntime(t.Context(), attachment.Resource(), func(context.Context, *runtime.Engine) error { return nil })
+						retireErr = env.authority.WithRuntime(t.Context(), attachment, func(context.Context, *runtime.Engine) error { return nil })
 						return pageErr == nil && page.Snapshot.StreamingError == test.surface.Error() && errors.Is(retireErr, serverapi.ErrRuntimeUnavailable)
 					}, "Runtime diagnostic/retirement = %q/%v/%v, want %q/unavailable", page.Snapshot.StreamingError, pageErr, retireErr, test.surface)
 				}

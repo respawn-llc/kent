@@ -56,28 +56,28 @@ func taskExecutionGeneratedError[Failure interface {
 }
 
 func taskExecutionResolutionGeneratedError(detail *taskpb.ExecutionTargetResolutionDetails) error {
-	code, err := protoapi.TaskExecutionResolutionCode.Decode(detail.Code)
-	if err != nil {
-		return err
+	code := protoapi.TaskExecutionResolutionCode.FromProto(detail.Code)
+	var target serverapi.WorkflowExecutionTargetResolutionTarget
+	switch selectedTarget := detail.Target.(type) {
+	case *taskpb.ExecutionTargetResolutionDetails_RequestedRef:
+		target = serverapi.WorkflowExecutionTargetResolutionCustomRef{RequestedRef: selectedTarget.RequestedRef}
+	case *taskpb.ExecutionTargetResolutionDetails_DefaultBranch:
+		target = serverapi.WorkflowExecutionTargetResolutionDefaultBranch{}
+	default:
+		return fmt.Errorf("execution target resolution details omitted a supported target")
 	}
 	return &serverapi.WorkflowExecutionTargetResolutionError{
-		Code: serverapi.WorkflowExecutionTargetResolutionErrorCode(code), RequestedRef: detail.RequestedRef,
+		Target: target, Code: serverapi.WorkflowExecutionTargetResolutionErrorCode(code), Diagnostic: detail.Diagnostic,
 	}
 }
 
 func taskLockedTargetGeneratedError(detail *taskpb.LockedExecutionTargetDetails) error {
-	cause, err := serverapi.WorkflowLockedTargetCause(detail.Cause)
-	if err != nil {
-		return err
-	}
+	cause := serverapi.WorkflowLockedTargetCause(detail.Cause)
 	return &serverapi.WorkflowLockedExecutionTargetError{Cause: cause}
 }
 
 func taskInitialBranchGeneratedError(detail *taskpb.InitialBranchDetails) error {
-	reason, err := protoapi.TaskInitialBranchReason.Decode(detail.Reason)
-	if err != nil {
-		return err
-	}
+	reason := protoapi.TaskInitialBranchReason.FromProto(detail.Reason)
 	return &serverapi.WorkflowTaskInitialBranchError{
 		Reason: serverapi.WorkflowTaskInitialBranchErrorReason(reason), BranchName: detail.BranchName,
 		Ref: detail.Ref, Remote: detail.Remote, ExistingBranchName: detail.ExistingBranchName,
@@ -93,10 +93,7 @@ type TaskDependencyError struct {
 }
 
 func (e *TaskDependencyError) Error() string {
-	reason, err := protoapi.TaskDependencyErrorReason.Decode(e.Detail.Reason)
-	if err != nil {
-		return err.Error()
-	}
+	reason := protoapi.TaskDependencyErrorReason.FromProto(e.Detail.Reason)
 	if e.Detail.MissingTaskId != nil {
 		return fmt.Sprintf("workflow task dependency error: %s (%s)", reason, *e.Detail.MissingTaskId)
 	}

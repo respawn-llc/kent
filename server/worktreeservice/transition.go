@@ -36,7 +36,7 @@ func (s *Service) EnterWorktree(ctx context.Context, req *worktreepb.EnterReques
 	if err != nil {
 		return nil, err
 	}
-	operationID, err := clientui.ParseWorktreeTransitionID(req.OperationId)
+	operationID, err := clientui.WorktreeTransitionIDFromProto(req.OperationId)
 	if err != nil {
 		return nil, err
 	}
@@ -193,7 +193,7 @@ func (s *Service) LeaveWorktree(ctx context.Context, req *worktreepb.LeaveReques
 	if err != nil {
 		return nil, err
 	}
-	operationID, err := clientui.ParseWorktreeTransitionID(req.OperationId)
+	operationID, err := clientui.WorktreeTransitionIDFromProto(req.OperationId)
 	if err != nil {
 		return nil, err
 	}

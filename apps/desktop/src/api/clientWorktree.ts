@@ -19,20 +19,20 @@ import {
   SwitchOperationKind,
   TransitionService,
   type CreateError,
-  type CreateSuccess,
-  type CreateTargetResolveSuccess,
+  type CreateSuccessValid as CreateSuccess,
+  type CreateTargetResolveSuccessValid as CreateTargetResolveSuccess,
   type CreateTargetResolveError,
   type DeleteError,
   type DeletePreviewError,
   type DeleteSuccess,
   type EnterError,
   type LeaveError,
-  type ListSuccess,
+  type ListSuccessValid as ListSuccess,
   type ScheduledAcknowledgement,
   type SelectorResolveError,
-  type SelectorResolveSuccess,
+  type SelectorResolveSuccessValid as SelectorResolveSuccess,
   type SetupStartError,
-  type StatusSuccess,
+  type StatusSuccessValid as StatusSuccess,
 } from "@app/server-api-contract/gen/kent/api/worktree/worktree_pb";
 
 import { ContractError, RpcError } from "./errors";
@@ -90,7 +90,7 @@ export async function resolveWorktreeSelector(
       create(method.input, { sessionId: { value: { case: "sessionId", value: sessionID } }, selector }),
     ),
   );
-  if (success.worktree !== undefined) authorizeWorktreeListEntry(success.worktree);
+  authorizeWorktreeListEntry(success.worktree);
   authorizeWorktreeSelectorResolution(success);
   return success;
 }
@@ -112,7 +112,7 @@ export async function resolveWorktreeCreateTarget(
       }),
     ),
   );
-  authorizeWorktreeCreateTargetResolution(required(success.resolution));
+  authorizeWorktreeCreateTargetResolution(success.resolution);
   return success;
 }
 
@@ -173,7 +173,7 @@ export async function createWorktree(
   if (success.target === undefined) {
     throw new ContractError("Session Worktree creation returned no caller location.");
   }
-  if (success.worktree !== undefined) authorizeWorktreeListEntry(success.worktree);
+  authorizeWorktreeListEntry(success.worktree);
   return success;
 }
 
@@ -184,31 +184,32 @@ export async function switchWorktree(
 ): Promise<ScheduledAcknowledgement> {
   const selector = transitionSelector(operation);
   const operationID = crypto.randomUUID();
-  const enter = selector !== null;
-  const target = enter ? required((await getWorktreeStatus(transport, sessionID)).target) : null;
-  const method = enter ? TransitionService.method.enter : TransitionService.method.leave;
-  const result = enter
-    ? await transport.callDescriptorAttachedSession(
-        { sessionID },
-        TransitionService.method.enter,
-        create(TransitionService.method.enter.input, {
-          operationId: operationID,
-          sessionId: { value: { case: "sessionId", value: sessionID } },
-          selector: required(selector),
-          targetWorkspace: {
-            workspaceId: required(required(target).workspaceId),
-            workspaceRoot: required(target).workspaceRoot,
-          },
-        }),
-      )
-    : await transport.callDescriptorAttachedSession(
-        { sessionID },
-        TransitionService.method.leave,
-        create(TransitionService.method.leave.input, {
-          operationId: operationID,
-          sessionId: { value: { case: "sessionId", value: sessionID } },
-        }),
-      );
+  const enter =
+    selector === null ? null : { selector, target: (await getWorktreeStatus(transport, sessionID)).target };
+  const method = enter !== null ? TransitionService.method.enter : TransitionService.method.leave;
+  const result =
+    enter !== null
+      ? await transport.callDescriptorAttachedSession(
+          { sessionID },
+          TransitionService.method.enter,
+          create(TransitionService.method.enter.input, {
+            operationId: operationID,
+            sessionId: { value: { case: "sessionId", value: sessionID } },
+            selector: enter.selector,
+            targetWorkspace: {
+              workspaceId: required(enter.target.workspaceId),
+              workspaceRoot: enter.target.workspaceRoot,
+            },
+          }),
+        )
+      : await transport.callDescriptorAttachedSession(
+          { sessionID },
+          TransitionService.method.leave,
+          create(TransitionService.method.leave.input, {
+            operationId: operationID,
+            sessionId: { value: { case: "sessionId", value: sessionID } },
+          }),
+        );
   const acknowledgement = requireWorktreeSuccess(method, result);
   if (acknowledgement.operationId !== operationID) {
     throw new ContractError("Server returned a different Worktree operation identity.");
@@ -219,10 +220,8 @@ export async function switchWorktree(
 function transitionSelector(operation: WorktreeTransition): string | null {
   if (operation.kind === "leave") return null;
   if (operation.kind === "resolved") {
-    const entry = required(requireWorktreeAuthority(operation.resolution, "selector").worktree);
-    return required(entry.topology).topology.case === "mainWorkspace"
-      ? null
-      : required(entry.projection).selector;
+    const entry = requireWorktreeAuthority(operation.resolution, "selector").worktree;
+    return entry.topology.topology.case === "mainWorkspace" ? null : entry.projection.selector;
   }
   const authority = requireWorktreeAuthority(operation, "switch");
   return authority.kind === SwitchOperationKind.WORKTREE_SWITCH_OPERATION_ENTER
@@ -249,7 +248,7 @@ export async function deleteWorktree(
       create(method.input, {
         scope: { scope: { case: "sessionId", value: { value: { case: "sessionId", value: sessionID } } } },
         selector: authority.deletionSelector,
-        forceFolderRemoval: required(authority.cleanliness).kind !== DirtyStateKind.DIRTY_STATE_CLEAN,
+        forceFolderRemoval: authority.cleanliness.kind !== DirtyStateKind.DIRTY_STATE_CLEAN,
         branchCleanupPolicy:
           confirmation === "confirm"
             ? BranchCleanupMode.WORKTREE_BRANCH_CLEANUP_MODE_AUTO_IF_KENT_CREATED
@@ -365,13 +364,13 @@ function projectWorktreeFailure(method: DescMethod, failure: WorktreeFailure): R
 }
 
 export function hasDeletableWorktreeBranch(preview: WorktreeDeletePreview): boolean {
-  const topology = required(preview.worktree).topology;
+  const topology = preview.worktree.topology;
   switch (topology.case) {
     case "mainWorkspace":
       return false;
     case "registered":
     case "external":
-      return topology.value.git?.branchName !== undefined;
+      return topology.value.git.branchName !== undefined;
     case "missing":
     case undefined:
       return false;

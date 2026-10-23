@@ -159,7 +159,7 @@ func buildReviewerDispatchRequestForTest(
 	var request llm.Request
 	err := withActiveTestRun(t, engine, ActiveKindUserTurn, func(ctx context.Context, stepID string) error {
 		var buildErr error
-		request, buildErr = engine.buildReviewerDispatchRequest(ctx, stepID, newObservedModelClient(reviewerClient))
+		request, buildErr = engine.buildReviewerDispatchRequest(ctx, stepID)
 		return buildErr
 	})
 	if err != nil {

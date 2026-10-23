@@ -26,10 +26,9 @@ func TestAutoCompactionRecomputesUsageFromReplacementHistory(t *testing.T) {
 	if _, err := engine.SetGoal(t.Context(), "goal", session.GoalActorUser); err != nil {
 		t.Fatalf("set active goal: %v", err)
 	}
-	// Goal metadata commits before its queued notice; finish setup before
-	// compacting directly outside the runtime operation queue.
+	// SetGoal accepts asynchronous notice delivery; finish setup before compaction.
 	if err := engine.drainRuntimeOperations(t.Context()); err != nil {
-		t.Fatalf("persist active goal notice: %v", err)
+		t.Fatalf("drain goal setup: %v", err)
 	}
 	if err := steerTestActiveStep(engine, "input", steerMessagesWithPersistenceIntent(steeringPriorityNormal, steeringMessageEventNone, true, []llm.Message{{Role: llm.RoleUser, Content: textutil.Value("input")}})); err != nil {
 		t.Fatalf("persist compaction input: %v", err)
@@ -76,7 +75,7 @@ func TestAutoCompactionRecomputesUsageFromReplacementHistory(t *testing.T) {
 	if got := codexTurnIDForDispatch(t, client.compactionCalls[0].CodexDispatch); got != stepID {
 		t.Fatalf("inline compaction dispatch identity = %q, want enclosing Step %q", got, stepID)
 	}
-	assertCompactionReplacementOrder(t, engine.transcriptRuntimeState().SnapshotItems(), false)
+	assertCompactionReplacementOrder(t, compactionReplacementItems(t, engine), false)
 	if got, want := request.PromptCacheKey, engine.SessionID(); got != want {
 		t.Fatalf("automatic compaction prompt cache key = %q, want stable Session ID %q", got, want)
 	}
@@ -124,7 +123,7 @@ func TestAutoCompactionLocalCarriesPreservedUserMessageInOrder(t *testing.T) {
 		t.Fatalf("local Generate calls = %d, want one", len(client.calls))
 	}
 	buildActiveTurnRequestForTest(t, engine, nil, true)
-	assertCompactionReplacementOrder(t, engine.transcriptRuntimeState().SnapshotItems(), false)
+	assertCompactionReplacementOrder(t, compactionReplacementItems(t, engine), false)
 }
 
 func remoteCompactionReplacement(

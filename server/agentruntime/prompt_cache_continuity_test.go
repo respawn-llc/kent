@@ -56,13 +56,13 @@ func TestBuildRequest_ReopenPreservesPromptCachePrefix(t *testing.T) {
 func TestBuildReviewerRequest_ReopenPreservesPromptCachePrefix(t *testing.T) {
 	fixture := newPromptCacheContinuityFixture(t)
 	fixture.assertPersistedProjectionParity(t)
-	originalReq, err := fixture.engine.buildReviewerRequest(context.Background(), newObservedModelClient(fixture.reviewerClient))
+	originalReq, err := fixture.engine.buildReviewerRequest(context.Background())
 	if err != nil {
 		t.Fatalf("build original reviewer request: %v", err)
 	}
 	reloaded, reopenedStore := fixture.reopen(t)
 	assertPersistedProjectionMatchesRuntime(t, capturePersistedProjectionFromStore(t, reopenedStore), captureRuntimeProjection(t, reloaded))
-	reloadedReq, err := reloaded.buildReviewerRequest(context.Background(), newObservedModelClient(fixture.reviewerClient))
+	reloadedReq, err := reloaded.buildReviewerRequest(context.Background())
 	if err != nil {
 		t.Fatalf("build reloaded reviewer request: %v", err)
 	}
@@ -194,7 +194,7 @@ func TestSkillsPolicyChangesOnlyAtMainContextReconstruction(t *testing.T) {
 	}
 
 	mainBeforeReviewer := disabled.transcriptRuntimeState().SnapshotMessages()
-	reviewerRequest, err := disabled.buildReviewerRequest(context.Background(), newObservedModelClient(disabledClient))
+	reviewerRequest, err := disabled.buildReviewerRequest(context.Background())
 	if err != nil {
 		t.Fatalf("build reviewer request: %v", err)
 	}
@@ -266,7 +266,7 @@ func TestLiveReloadedSkillsPolicyAppliesOnlyAtCompaction(t *testing.T) {
 		t.Fatal("changing reloaded settings mutated the active main transcript")
 	}
 
-	reviewerDisabled, err := eng.buildReviewerRequest(context.Background(), newObservedModelClient(client))
+	reviewerDisabled, err := eng.buildReviewerRequest(context.Background())
 	if err != nil {
 		t.Fatalf("build disabled reviewer request: %v", err)
 	}
@@ -284,7 +284,7 @@ func TestLiveReloadedSkillsPolicyAppliesOnlyAtCompaction(t *testing.T) {
 	if !found || postCompactionSkills == generationSkills {
 		t.Fatalf("post-compaction active transcript did not apply live-reloaded per-skill policy: %+v", eng.transcriptRuntimeState().SnapshotMessages())
 	}
-	reviewerAfterCompaction, err := eng.buildReviewerRequest(context.Background(), newObservedModelClient(client))
+	reviewerAfterCompaction, err := eng.buildReviewerRequest(context.Background())
 	if err != nil {
 		t.Fatalf("build post-compaction reviewer request: %v", err)
 	}

@@ -54,7 +54,7 @@ func newPacedStreamTransport(t *testing.T, events ...pacedStreamEvent) *HTTPTran
 
 func newPacedWatchdogClient(t *testing.T, idle time.Duration, events ...pacedStreamEvent) *idleWatchdogClient {
 	t.Helper()
-	return newIdleWatchdogClient(NewResponsesClient(newPacedStreamTransport(t, events...)), idle)
+	return newIdleWatchdogClient(NewResponsesClient(newPacedStreamTransport(t, events...), nil), idle)
 }
 
 func completedStreamEvent(delay time.Duration) pacedStreamEvent {

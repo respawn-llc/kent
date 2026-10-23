@@ -43,6 +43,7 @@ type sessionLaunchRequest struct {
 }
 
 type sessionLaunchPlan struct {
+	ConnectionScope            config.ConnectionScope
 	Mode                       launchMode
 	SessionID                  string
 	ActiveSettings             config.Settings
@@ -65,10 +66,7 @@ type sessionLaunchPlan struct {
 type runtimeLaunchPlan struct {
 	Wiring           *runtimeWiring
 	stopEventStreams func()
-	close            func() error
-	detachClose      func() error
 	closeOnce        sync.Once
-	closeErr         error
 }
 
 func validateLaunchSessionTitle(value *string) (*string, error) {
@@ -82,29 +80,15 @@ func validateLaunchSessionTitle(value *string) (*string, error) {
 	return &title, nil
 }
 
-func (p *runtimeLaunchPlan) Close() error {
-	return p.closeWithPolicy(false)
-}
-
-func (p *runtimeLaunchPlan) DetachOnlyClose() error {
-	return p.closeWithPolicy(true)
-}
-
-func (p *runtimeLaunchPlan) closeWithPolicy(detachOnly bool) error {
+func (p *runtimeLaunchPlan) Close() {
 	if p == nil {
-		return nil
+		return
 	}
 	p.closeOnce.Do(func() {
 		if p.stopEventStreams != nil {
 			p.stopEventStreams()
 		}
-		if detachOnly && p.detachClose != nil {
-			p.closeErr = p.detachClose()
-		} else if p.close != nil {
-			p.closeErr = p.close()
-		}
 	})
-	return p.closeErr
 }
 
 type sessionPickerRunner func(context.Context, sessionPageLoader, string, sessionPickerHeaderInfo) (sessionPickerResult, error)
@@ -170,14 +154,8 @@ func (l projectScopedSessionPageLoader) ListSessionPage(ctx context.Context, req
 	if err != nil {
 		return sessionPageResponse{}, err
 	}
-	responseCategory, err := protoapi.SessionCategoryFromProto(response.Category)
-	if err != nil {
-		return sessionPageResponse{}, err
-	}
-	sessions, err := client.SessionSummariesFromProto(response.Sessions)
-	if err != nil {
-		return sessionPageResponse{}, err
-	}
+	responseCategory := protoapi.SessionCategoryFromProto(response.Category)
+	sessions := client.SessionSummariesFromProto(response.Sessions)
 	page := sessionPageResponse{
 		ProjectID: response.ProjectId,
 		Category:  responseCategory,
@@ -193,9 +171,6 @@ func (l projectScopedSessionPageLoader) ListSessionPage(ctx context.Context, req
 func (p *launchPlanner) PlanSession(ctx context.Context, req sessionLaunchRequest) (sessionLaunchPlan, error) {
 	if p == nil || p.server == nil || p.server.SessionLaunchClient() == nil {
 		return sessionLaunchPlan{}, errors.New("launch planner bootstrap is required")
-	}
-	if err := protoapi.Validate(req.Intent); err != nil {
-		return sessionLaunchPlan{}, err
 	}
 	var mode sessionlaunchpb.SessionLaunchMode
 	switch req.Mode {
@@ -219,9 +194,6 @@ func (p *launchPlanner) PlanSession(ctx context.Context, req sessionLaunchReques
 	if err != nil {
 		return sessionLaunchPlan{}, err
 	}
-	if resp == nil || resp.Plan == nil {
-		return sessionLaunchPlan{}, errors.New("Session launch plan is required")
-	}
 	settings, err := protoapi.SessionSettingsFromProto(resp.Plan.ActiveSettings)
 	if err != nil {
 		return sessionLaunchPlan{}, err
@@ -236,10 +208,7 @@ func (p *launchPlanner) PlanSession(ctx context.Context, req sessionLaunchReques
 	}
 	enabledTools := make([]toolspec.ID, 0, len(resp.Plan.EnabledToolIds))
 	for _, generated := range resp.Plan.EnabledToolIds {
-		id, err := protoapi.SessionToolIDFromProto(generated)
-		if err != nil {
-			return sessionLaunchPlan{}, err
-		}
+		id := protoapi.SessionToolIDFromProto(generated)
 		enabledTools = append(enabledTools, id)
 	}
 	cfg := p.server.Connection()
@@ -263,7 +232,9 @@ func (p *launchPlanner) PlanSession(ctx context.Context, req sessionLaunchReques
 	if err != nil {
 		return sessionLaunchPlan{}, err
 	}
+	scopeSelection := protoapi.ConnectionSelectionFromProto(resp.Plan.ConnectionScope.Selection)
 	return sessionLaunchPlan{
+		ConnectionScope:          config.ConnectionScope{Selection: scopeSelection, UnavailableRole: resp.Plan.ConnectionScope.UnavailableRole},
 		Mode:                     req.Mode,
 		SessionID:                resp.Plan.SessionId,
 		ActiveSettings:           activeSettings,
@@ -305,7 +276,7 @@ func (p *launchPlanner) PrepareRuntime(ctx context.Context, plan sessionLaunchPl
 	if p == nil || p.server == nil {
 		return nil, io.ErrClosedPipe
 	}
-	runtimeServer, ok := p.server.(runtimeAttachmentSource)
+	runtimeServer, ok := p.server.(sessionUISource)
 	if !ok {
 		return nil, errors.New("runtime attachment server is required")
 	}

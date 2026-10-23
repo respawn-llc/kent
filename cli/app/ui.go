@@ -8,7 +8,6 @@ import (
 	"core/cli/tui"
 	"core/shared/clientui"
 	worktreepb "core/shared/protoapi/gen/kent/api/worktree"
-	"core/shared/textutil"
 
 	tea "github.com/charmbracelet/bubbletea"
 )
@@ -34,15 +33,6 @@ func NewProjectedUIModel(runtimeClient clientui.RuntimeClient, opts ...UIOption)
 			enqueueRuntimeConnectionStateChange(runtimeConnectionEvents, err)
 		})
 	}
-	if configurable, ok := m.engine.(interface {
-		SetRuntimeReconnectWarningObserver(func(string, clientui.EntryVisibility))
-	}); ok {
-		runtimeReconnectWarning := make(chan runtimeReconnectWarningMsg, 1)
-		m.runtimeReconnectWarning = runtimeReconnectWarning
-		configurable.SetRuntimeReconnectWarningObserver(func(text string, visibility clientui.EntryVisibility) {
-			enqueueRuntimeReconnectWarning(runtimeReconnectWarning, text, visibility)
-		})
-	}
 	if gitStartupCmd := m.statusLineGitRefreshCmd(); gitStartupCmd != nil {
 		m.statusGitBackgroundInFlight = true
 		m.startupCmds = append(m.startupCmds, gitStartupCmd)
@@ -64,15 +54,13 @@ func (m *uiModel) Init() tea.Cmd {
 		tea.SetWindowTitle(m.sessionTitle()),
 		tea.WindowSize(),
 		m.loadPromptHistoryCmd(),
+		m.startRuntimeMainViewRefresh(nil),
 	}
 	if cmd := m.reconcileOngoingOwnership(); cmd != nil {
 		cmds = append(cmds, cmd)
 	}
 	if m.runtimeConnectionEvents != nil {
 		cmds = append(cmds, waitRuntimeConnectionStateChange(m.runtimeConnectionEvents))
-	}
-	if m.runtimeReconnectWarning != nil {
-		cmds = append(cmds, waitRuntimeReconnectWarning(m.runtimeReconnectWarning))
 	}
 	cmds = append([]tea.Cmd{tea.ClearScreen}, cmds...)
 	if startupSubmitCmd := m.startupSubmitCmd(); startupSubmitCmd != nil {
@@ -108,6 +96,9 @@ func (m *uiModel) startupSubmitCmd() tea.Cmd {
 
 func (m *uiModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	defer m.enterUIMainThread("Update")()
+	if done, ok := msg.(draftSaveDoneMsg); ok {
+		return finalizeUIUpdate(m, m.finishDraftSave(done))
+	}
 	if probe, ok := msg.(uiModelProbeMessage); ok {
 		probe.probeUIModel(m)
 		return m, m.reconcileNativeProgress()
@@ -138,6 +129,10 @@ func finalizeUIUpdate(model *uiModel, cmd tea.Cmd) (tea.Model, tea.Cmd) {
 		return model, cmd
 	}
 	progressCmd := model.reconcileNativeProgress()
+	draftCmd := model.saveEditedDraft()
+	if draftCmd != nil {
+		cmd = tea.Batch(cmd, draftCmd, model.renderNativeOngoingSurface())
+	}
 	if cmd == nil {
 		return model, progressCmd
 	}
@@ -270,7 +265,7 @@ func (m *uiModel) showTransientStatusNotice(notice uiStatusNotice) tea.Cmd {
 	m.transientStatus = strings.TrimSpace(notice.Text)
 	m.transientStatusKind = notice.Kind
 	m.transientStatusNoticeID = strings.TrimSpace(notice.NoticeID)
-	m.transientStatusRequestID = textutil.Pointer(notice.RequestID)
+	m.transientStatusDetailRequest = notice.DetailRequest
 	if notice.Duration <= 0 {
 		return nil
 	}
@@ -281,7 +276,7 @@ func (m *uiModel) advanceTransientStatusQueue() tea.Cmd {
 	m.transientStatus = ""
 	m.transientStatusKind = uiStatusNoticeInfo
 	m.transientStatusNoticeID = ""
-	m.transientStatusRequestID = nil
+	m.transientStatusDetailRequest = nil
 	if len(m.transientStatusQueue) == 0 {
 		m.layout().syncViewport()
 		return nil

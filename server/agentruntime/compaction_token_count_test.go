@@ -22,7 +22,7 @@ func TestCompletedResponseContextMeasurementAnchorsAcceptedOutput(t *testing.T) 
 		)); err != nil {
 			t.Fatal(err)
 		}
-		candidate := newSuccessfulRequestCandidate(engine.cfg.TokenEstimator, llm.Request{Model: "grok-4.7", Items: requestItems, ReasoningEffort: "high"}, llm.Response{
+		candidate := newSuccessfulRequestCandidate(engine.connectionSnapshot().estimator, llm.Request{Model: "grok-4.7", Items: requestItems, ReasoningEffort: "high"}, llm.Response{
 			OutputItems: output,
 			Usage: llm.Usage{InputTokens: textutil.Value(12), OutputTokens: textutil.Value(8), ContextUsage: &llm.ContextUsage{
 				Tokens: count, MeasurementPoint: llm.ContextMeasurementCompletedResponse,
@@ -40,7 +40,7 @@ func TestCompletedResponseContextMeasurementAnchorsAcceptedOutput(t *testing.T) 
 		)); err != nil {
 			t.Fatal(err)
 		}
-		want := count + llm.EstimateItemsTokens(engine.cfg.TokenEstimator, llm.ItemsFromMessages([]llm.Message{later}))
+		want := count + llm.EstimateItemsTokens(engine.connectionSnapshot().estimator, llm.ItemsFromMessages([]llm.Message{later}))
 		if got := engine.ContextUsage().UsedTokens; got != want {
 			t.Fatalf("grown context = %d, want %d without repeating accepted output", got, want)
 		}
@@ -64,13 +64,13 @@ func TestMissingContextMeasurementUsesEstimateInsteadOfBilling(t *testing.T) {
 		t.Fatal(err)
 	}
 	items := engine.transcriptRuntimeState().SnapshotItems()
-	candidate := newSuccessfulRequestCandidate(engine.cfg.TokenEstimator, llm.Request{Model: "grok-4.7", Items: items, ReasoningEffort: "high"}, llm.Response{
+	candidate := newSuccessfulRequestCandidate(engine.connectionSnapshot().estimator, llm.Request{Model: "grok-4.7", Items: items, ReasoningEffort: "high"}, llm.Response{
 		Usage: llm.Usage{InputTokens: textutil.Value(1900), OutputTokens: textutil.Value(100)},
 	})
 	if _, err := engine.commitAcceptedResponseCandidate("accepted", candidate, false); err != nil {
 		t.Fatal(err)
 	}
-	if got, want := engine.ContextUsage().UsedTokens, llm.EstimateItemsTokens(engine.cfg.TokenEstimator, items); got != want {
+	if got, want := engine.ContextUsage().UsedTokens, llm.EstimateItemsTokens(engine.connectionSnapshot().estimator, items); got != want {
 		t.Fatalf("context = %d, want estimate %d", got, want)
 	}
 }

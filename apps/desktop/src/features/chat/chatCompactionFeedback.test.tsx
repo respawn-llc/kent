@@ -38,7 +38,6 @@ it.each([false, true])(
       kind: "compaction_status",
       payload: {
         StepID: "step",
-        RequestID: "request",
         Mode: "manual",
         Count: 3,
         State: "completed",

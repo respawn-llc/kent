@@ -27,6 +27,7 @@ var ErrAgentRuntimePlanRequired = errors.New("agent runtime plan is required")
 
 type AuthorityOptions struct {
 	SubmitSessionNaming           func(runtimeids.SessionID, string, runtime.SessionNamingInput)
+	RecordUsage                   runtimewire.ConnectionUsageRecorder
 	ConnectionRotation            *launch.ConnectionRotation
 	Environment                   func(string) (string, bool)
 	WorkspaceMembership           runtimewire.WorkspaceMembership

@@ -4,6 +4,7 @@ import (
 	"core/server/llm"
 	"core/server/sessionstore"
 	"core/server/tools"
+	"core/shared/config"
 	"core/shared/runtimeids"
 	"core/shared/textutil"
 	"core/shared/toolspec"
@@ -19,38 +20,40 @@ import (
 )
 
 type ChatEntry struct {
-	StepID                *string
-	Visibility            transcript.EntryVisibility
-	RollbackTargetID      *string
-	Role                  string
-	Text                  string
-	DurationMs            *int64
-	CondensedText         string
-	Phase                 llm.MessagePhase
-	MessageType           llm.MessageType
-	CompactionNumber      *int
-	SourcePath            string
-	WorktreeContext       *session.WorktreeContext
-	CompactLabel          string
-	ToolResultSummary     string
-	ViewedImageKind       *transcript.ViewedImageKind
-	ToolCallID            string
-	QuestionAnswer        *tools.AskQuestionAnswer
-	AnsweredBySessionID   *runtimeids.SessionID
-	WebSearch             *transcript.WebSearchDetail
-	NoticeID              string
-	BackgroundActivityID  string
-	BackgroundProcessID   string
-	BackgroundExitCode    *int
-	CacheWarning          *transcript.CacheWarning
-	ToolOutputRepair      *transcript.ToolOutputRepairNotice
-	ProviderModelMismatch *transcript.ProviderModelMismatchNotice
-	ReasoningOmission     *transcript.ReasoningOmissionNotice
-	ThinkingEffort        *string
-	ToolCall              *transcript.ToolCallMeta
-	CommittedProvenance   *TranscriptCommittedRowProvenance
-	ReviewerFeedback      *ReviewerFeedbackChatEntry
-	ReviewerError         *ReviewerErrorChatEntry
+	StepID                 *string
+	Visibility             transcript.EntryVisibility
+	RollbackTargetID       *string
+	Role                   string
+	Text                   string
+	DurationMs             *int64
+	CondensedText          string
+	Phase                  llm.MessagePhase
+	MessageType            llm.MessageType
+	CompactionNumber       *int
+	SourcePath             string
+	WorktreeContext        *session.WorktreeContext
+	CompactLabel           string
+	ToolResultSummary      string
+	ViewedImageKind        *transcript.ViewedImageKind
+	ToolCallID             string
+	QuestionAnswer         *tools.AskQuestionAnswer
+	AnsweredBySessionID    *runtimeids.SessionID
+	WebSearch              *transcript.WebSearchDetail
+	NoticeID               string
+	BackgroundActivityID   string
+	BackgroundProcessID    string
+	BackgroundExitCode     *int
+	CacheWarning           *transcript.CacheWarning
+	ToolOutputRepair       *transcript.ToolOutputRepairNotice
+	ProviderModelMismatch  *transcript.ProviderModelMismatchNotice
+	ReasoningOmission      *transcript.ReasoningOmissionNotice
+	ConnectionFallback     *config.ConnectionReplacement
+	ConnectionsUnavailable *transcript.ConnectionsUnavailableNotice
+	ThinkingEffort         *string
+	ToolCall               *transcript.ToolCallMeta
+	CommittedProvenance    *TranscriptCommittedRowProvenance
+	ReviewerFeedback       *ReviewerFeedbackChatEntry
+	ReviewerError          *ReviewerErrorChatEntry
 }
 
 type ReviewerFeedbackChatEntry struct {
@@ -593,7 +596,7 @@ func cloneTranscriptStreamID(streamID *uuid.UUID) *uuid.UUID {
 }
 
 func (s *chatStore) appendLocalEntryRecord(entry ChatEntry, afterToolCallID *string, provenances ...*TranscriptCommittedRowProvenance) {
-	if strings.TrimSpace(entry.Text) == "" && entry.CacheWarning == nil && entry.ToolOutputRepair == nil && entry.ProviderModelMismatch == nil && entry.ReasoningOmission == nil && entry.ReviewerFeedback == nil && entry.ReviewerError == nil {
+	if strings.TrimSpace(entry.Text) == "" && entry.CacheWarning == nil && entry.ToolOutputRepair == nil && entry.ProviderModelMismatch == nil && entry.ReasoningOmission == nil && entry.ConnectionFallback == nil && entry.ConnectionsUnavailable == nil && entry.ReviewerFeedback == nil && entry.ReviewerError == nil {
 		return
 	}
 	entry.Visibility = normalizeRuntimeEntryVisibility(entry.Visibility)
@@ -603,6 +606,8 @@ func (s *chatStore) appendLocalEntryRecord(entry ChatEntry, afterToolCallID *str
 	entry.ToolOutputRepair = textutil.Pointer(entry.ToolOutputRepair)
 	entry.ProviderModelMismatch = textutil.Pointer(entry.ProviderModelMismatch)
 	entry.ReasoningOmission = textutil.Pointer(entry.ReasoningOmission)
+	entry.ConnectionFallback = textutil.Pointer(entry.ConnectionFallback)
+	entry.ConnectionsUnavailable = textutil.Pointer(entry.ConnectionsUnavailable)
 	if entry.ReviewerFeedback != nil {
 		feedback := *entry.ReviewerFeedback
 		feedback.Suggestions = append([]string(nil), entry.ReviewerFeedback.Suggestions...)

@@ -251,21 +251,60 @@ func TestArchiveDestinationCreatedAfterPreflightRetainsSession(t *testing.T) {
 	}
 }
 
-func TestDetachedArchiveGraceExpiryCancelsAndDiagnosesAcceptedWork(t *testing.T) {
-	if os.Getenv("KENT_ARCHIVE_GRACE_DEBUG_HELPER") == "1" {
-		runDetachedArchiveGraceExpiryCase(t, true)
+func TestDisconnectedArchiveTimeoutCancelsAndDiagnosesAcceptedWork(t *testing.T) {
+	if os.Getenv("KENT_ARCHIVE_TIMEOUT_DEBUG_HELPER") == "1" {
+		runDisconnectedArchiveTimeoutCase(t, true)
 		return
 	}
-	runDetachedArchiveGraceExpiryCase(t, false)
+	runDisconnectedArchiveTimeoutCase(t, false)
 
-	command := exec.Command(os.Args[0], "-test.run=^TestDetachedArchiveGraceExpiryCancelsAndDiagnosesAcceptedWork$")
-	command.Env = append(os.Environ(), "KENT_ARCHIVE_GRACE_DEBUG_HELPER=1")
+	command := exec.Command(os.Args[0], "-test.run=^TestDisconnectedArchiveTimeoutCancelsAndDiagnosesAcceptedWork$")
+	command.Env = append(os.Environ(), "KENT_ARCHIVE_TIMEOUT_DEBUG_HELPER=1")
 	if err := command.Run(); err == nil {
 		t.Fatal("debug detached archive grace expiry did not panic")
 	}
 }
 
-func runDetachedArchiveGraceExpiryCase(t *testing.T, debug bool) {
+func TestConnectedArchiveHasOverallTimeout(t *testing.T) {
+	cfg, metadataStore, _, persisted := createAuthoritativeSessionLifecycleSession(t, t.TempDir())
+	synctest.Test(t, func(t *testing.T) {
+		authority := sessionruntime.NewAuthority(sessionruntime.AuthorityOptions{
+			PersistenceRoot: cfg.PersistenceRoot,
+			StoreOptions:    metadataStore.AuthoritativeSessionStoreOptions(),
+		})
+		defer func() {
+			if err := authority.Close(context.Background()); err != nil {
+				t.Error(err)
+			}
+		}()
+		started := make(chan struct{})
+		service := NewGlobalSessionLifecycleService(cfg.PersistenceRoot, authority, nil, sessionRemovalMetadataDelegate{
+			Store: metadataStore,
+			resolve: func(ctx context.Context, _ string) (session.PersistedSessionRecord, error) {
+				close(started)
+				<-ctx.Done()
+				return session.PersistedSessionRecord{}, context.Cause(ctx)
+			},
+		})
+		done := make(chan error, 1)
+		go func() {
+			done <- service.Archive(context.Background(), persisted.Meta().SessionID, filepath.Join(t.TempDir(), "session.tar.zst"))
+		}()
+		<-started
+		time.Sleep(5 * time.Minute)
+		synctest.Wait()
+		select {
+		case err := <-done:
+			if !errors.Is(err, context.DeadlineExceeded) {
+				t.Fatalf("archive timeout = %v, want deadline exceeded", err)
+			}
+		default:
+			t.Fatal("connected archive exceeded its overall timeout")
+		}
+	})
+}
+
+func runDisconnectedArchiveTimeoutCase(t *testing.T, debug bool) {
 	t.Helper()
 	cfg, metadataStore, _, persisted := createAuthoritativeSessionLifecycleSession(t, t.TempDir())
 	outputDir := t.TempDir()
@@ -304,6 +343,7 @@ func runDetachedArchiveGraceExpiryCase(t *testing.T, debug bool) {
 			)
 		}()
 		<-resolveStarted
+		time.Sleep(time.Minute)
 		cancelInvocation()
 		if err := <-archiveDone; !errors.Is(err, context.Canceled) {
 			t.Fatalf("detached Archive result = %v, want context canceled", err)
@@ -328,8 +368,8 @@ func runDetachedArchiveGraceExpiryCase(t *testing.T, debug bool) {
 		default:
 		}
 
-		// synctest advances the fixed product grace period without changing production timing.
-		time.Sleep(detachedArchiveGracePeriod)
+		// Disconnecting must not restart the operation's deadline.
+		time.Sleep(archiveTimeout - time.Minute)
 		synctest.Wait()
 		if debug {
 			t.Fatal("debug detached archive grace expiry did not panic")
@@ -339,7 +379,7 @@ func runDetachedArchiveGraceExpiryCase(t *testing.T, debug bool) {
 		}
 		select {
 		case diagnosticErr := <-diagnosticErrors:
-			if !errors.Is(diagnosticErr, ErrDetachedArchiveGraceExpired) {
+			if !errors.Is(diagnosticErr, ErrArchiveTimeout) {
 				t.Fatalf("detached archive diagnostic = %v, want grace-expiry cause", diagnosticErr)
 			}
 		default:

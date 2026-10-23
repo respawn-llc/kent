@@ -70,7 +70,7 @@ export type VirtualizedInfiniteListProps<TItem> = Readonly<{
   empty?: ReactNode | undefined;
   hasNextPage: boolean;
   isFetchingNextPage: boolean;
-  loadingLabel: string;
+  loadingLabel?: string;
   loadMoreKey?: string | undefined;
   onLoadMore: () => void;
   estimateSize: () => number;

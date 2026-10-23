@@ -83,10 +83,7 @@ func runPromptSenderProvenanceCase(t *testing.T, agent bool, create bool) {
 	wantContent := prompt
 	wantRole := session.MessageRoleUser
 	if agent {
-		steer, err := runtime.NewAgentSteer(*callerIdentity, prompt)
-		if err != nil {
-			t.Fatalf("NewAgentSteer: %v", err)
-		}
+		steer := runtime.NewAgentSteer(*callerIdentity, prompt)
 		message := steer.Message()
 		if message.Content == nil {
 			t.Fatal("NewAgentSteer returned absent content")

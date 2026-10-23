@@ -4,7 +4,10 @@ import (
 	"testing"
 
 	"core/shared/protoapi"
+	chatpb "core/shared/protoapi/gen/kent/api/chat"
+	chatshellpb "core/shared/protoapi/gen/kent/api/chat_shell"
 	runtimepb "core/shared/protoapi/gen/kent/api/runtime"
+	sharedpb "core/shared/protoapi/gen/kent/api/shared"
 	"core/shared/runtimeids"
 	"google.golang.org/protobuf/types/known/timestamppb"
 )
@@ -57,8 +60,11 @@ func TestRuntimeGoalMutationResponseCarriesClosedAuthoritativeClear(t *testing.T
 }
 
 func TestRuntimeSubmitUserShellCommandRejectsBlankCommand(t *testing.T) {
-	err := protoapi.Validate(&runtimepb.ShellCommandRequest{
-		SessionId: "session-1", Command: " \t\n",
+	err := protoapi.Validate(&chatshellpb.ShellCommandRequest{
+		Target: &chatpb.ChatTarget{Target: &chatpb.ChatTarget_Session{Session: &chatpb.ExistingSessionRequestTarget{
+			SessionId: &sharedpb.SessionSelector{Value: &sharedpb.SessionSelector_SessionId{SessionId: "550e8400-e29b-41d4-a716-446655440000"}},
+		}}},
+		Command: " \t\n",
 	})
 	if err == nil {
 		t.Fatal("Shell command accepted a blank command")
@@ -66,8 +72,10 @@ func TestRuntimeSubmitUserShellCommandRejectsBlankCommand(t *testing.T) {
 }
 
 func TestRuntimeSubmitUserTurnRequestUsesInputAndRejectsMissingInput(t *testing.T) {
-	req := &runtimepb.SubmitUserTurnRequest{QueueItemId: runtimeids.NewQueueItemID().String(), SessionId: "session-1",
-		Input: &runtimepb.UserTurnInput{Input: &runtimepb.UserTurnInput_Text{Text: "hello"}},
+	req := &runtimepb.SubmitUserTurnRequest{
+		QueueItemId: runtimeids.NewQueueItemID().String(),
+		SessionId:   "11111111-1111-4111-8111-111111111111",
+		Input:       &runtimepb.UserTurnInput{Input: &runtimepb.UserTurnInput_Text{Text: "hello"}},
 	}
 	if err := protoapi.Validate(req); err != nil {
 		t.Fatalf("valid request: %v", err)

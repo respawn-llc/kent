@@ -20,10 +20,10 @@ import (
 	"core/shared/sessioncontract"
 
 	tea "github.com/charmbracelet/bubbletea"
-	"github.com/google/uuid"
 )
 
 type uiModel struct {
+	drafts          *uiDraftPersistence
 	eventDispatcher *uiEventDispatcher
 	uiRuntimeFeatureState
 	uiInputFeatureState
@@ -47,7 +47,6 @@ type uiRuntimeFeatureState struct {
 
 	pathReferenceEvents        <-chan uiPathReferenceSearchEvent
 	runtimeConnectionEvents    chan runtimeConnectionStateChangedMsg
-	runtimeReconnectWarning    <-chan runtimeReconnectWarningMsg
 	runtimeContextUsage        *runtimepb.ContextUsage
 	runtimeContextUsageSession string
 	runtimeActivityProjection  *runtimepb.Activity
@@ -82,13 +81,11 @@ type uiInputFeatureState struct {
 	// UI-side post-turn input queue. It may contain slash commands, shell
 	// commands, and other client-only actions; server queues only runtime
 	// injected user work.
-	queued                      []queuedInputItem
-	pendingCompactionRequestIDs map[runtimeids.CompactionRequestID]struct{}
-	submitToken                 uint64
-	activeSubmit                activeSubmitState
+	queued       []queuedInputItem
+	submitToken  uint64
+	activeSubmit activeSubmitState
 
-	injectedQueue               []injectedRuntimeQueueItem
-	injectedQueueToken          uint64
+	injectedQueue               []*injectedRuntimeQueueItem
 	unownedQueuedTerminalStates map[string]*transcriptpb.QueuedMessageState
 	pendingInputSubmissionOrder uint64
 	interruptLifecycle          uiInterruptLifecycle
@@ -109,7 +106,6 @@ type uiInputFeatureState struct {
 	commandRegistry           *commands.Registry
 	promptCatalog             apicontract.PromptCommandCatalogService
 	promptCatalogEntries      []commands.PromptCommandCatalogEntry
-	promptCatalogRefreshToken *uuid.UUID
 	finalAnswerOperation      *uiFinalAnswerOperation
 	finalAnswerOperationToken uint64
 	slashCommandFilter        string
@@ -188,15 +184,15 @@ type uiStatusFeatureState struct {
 	clipboardPaster             uiClipboardPaster
 	clipboardTextCopier         uiClipboardTextCopier
 
-	transientStatus          string
-	transientStatusKind      uiStatusNoticeKind
-	transientStatusNoticeID  string
-	transientStatusRequestID *uuid.UUID
-	transientStatusToken     uint64
-	transientStatusQueue     []uiStatusNotice
-	localNoticeSequence      uint64
-	debugKeys                bool
-	debugMode                bool
+	transientStatus              string
+	transientStatusKind          uiStatusNoticeKind
+	transientStatusNoticeID      string
+	transientStatusDetailRequest *uiPendingDetailTranscriptRequest
+	transientStatusToken         uint64
+	transientStatusQueue         []uiStatusNotice
+	localNoticeSequence          uint64
+	debugKeys                    bool
+	debugMode                    bool
 }
 
 type uiTranscriptFeatureState struct {

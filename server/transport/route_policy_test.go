@@ -77,13 +77,15 @@ func TestChatTargetSemanticUnion(t *testing.T) {
 		},
 	} {
 		t.Run(test.name, func(t *testing.T) {
-			_, err := protoapi.ChatTargetFromRequest(&chatpb.SteerRequest{QueueItemId: runtimeids.NewQueueItemID().String(), Target: test.target,
+			err := protoapi.Validate(&chatpb.SteerRequest{
+				QueueItemId: runtimeids.NewQueueItemID().String(),
+				Target:      test.target,
 				Activation: &chatpb.Activation{
 					Input: &chatpb.Activation_Text{Text: "continue"},
 				},
 			})
 			if (err != nil) != test.wantErr {
-				t.Fatalf("ChatTargetFromRequest error = %v, want error %t", err, test.wantErr)
+				t.Fatalf("request validation error = %v, want error %t", err, test.wantErr)
 			}
 		})
 	}
@@ -137,12 +139,23 @@ func TestChatResultClassification(t *testing.T) {
 		},
 	} {
 		t.Run(test.name, func(t *testing.T) {
-			classified, err := protoapi.ClassifyResult(test.result)
+			encoded, err := protoapi.Encode(test.result)
 			if (err != nil) != test.wantErr {
-				t.Fatalf("ClassifyResult error = %v, want error %t", err, test.wantErr)
+				t.Fatalf("result encoding error = %v, want error %t", err, test.wantErr)
 			}
 			if test.wantErr {
 				return
+			}
+			decoded := &chatpb.SteerResult{}
+			if err := protoapi.Decode(encoded, decoded); err != nil {
+				t.Fatal(err)
+			}
+			if err := protoapi.ValidateResultErrorDetail(decoded); err != nil {
+				t.Fatal(err)
+			}
+			classified, err := protoapi.ClassifyResult(decoded)
+			if err != nil {
+				t.Fatal(err)
 			}
 			if classified.Outcome != test.wantOutcome {
 				t.Fatalf("outcome = %v, want %v", classified.Outcome, test.wantOutcome)
@@ -236,6 +249,7 @@ func TestRoutePolicyAuthorizesSessionScopesWithoutWebSocket(t *testing.T) {
 	}
 
 	for _, method := range []protoreflect.MethodDescriptor{
+		sessionlaunchpb.File_kent_api_session_launch_session_lifecycle_proto.Services().ByName("SessionLifecycleService").Methods().ByName("Promote"),
 		sessionpb.File_kent_api_session_session_proto.Services().ByName("ReadService").Methods().ByName("GetMainView"),
 		transcriptpb.File_kent_api_transcript_transcript_proto.Services().ByName("ReadService").Methods().ByName("GetPage"),
 		transcriptpb.File_kent_api_transcript_transcript_proto.Services().ByName("ReadService").Methods().ByName("GetLatestFinalAnswer"),
@@ -414,26 +428,6 @@ func TestRoutePolicyFailuresRetainEstablishedSessionFacts(t *testing.T) {
 	}
 }
 
-func TestRoutePolicyAllowsRuntimeReleaseAfterSessionMovesProjects(t *testing.T) {
-	fixture := newRoutePolicyFixture(t)
-	operation, err := protoapi.OperationFromDescriptor(sessionlaunchpb.File_kent_api_session_launch_session_lifecycle_proto.Services().ByName("SessionRuntimeService").Methods().ByName("Release"))
-	if err != nil {
-		t.Fatal(err)
-	}
-	// The handler injects the connection-owned runtime owner ID; Project scope
-	// must not reject the release before Runtime authority validates that owner.
-	err = newRoutePolicyExecutor(fixture.gateway).authorizeScopeFacts(
-		context.Background(),
-		&connectionState{attachedProject: fixture.bindingA.ProjectID},
-		operation.Options.ScopePolicy,
-		operation.Name,
-		routeScopeParams{sessionID: fixture.foreignSessionID},
-	)
-	if err != nil {
-		t.Fatalf("authorize moved Session runtime release: %v", err)
-	}
-}
-
 func TestRoutePolicyAuthorizesGoalExceptionWithoutWebSocket(t *testing.T) {
 	appCore, server := newUnboundGatewayTestServer(t)
 	server.Close()
@@ -445,7 +439,7 @@ func TestRoutePolicyAuthorizesGoalExceptionWithoutWebSocket(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	err = newRoutePolicyExecutor(gateway).authorizeScopeFacts(context.Background(), &connectionState{}, operation.Options.ScopePolicy, operation.Name, routeScopeParams{sessionID: "missing-session"})
+	err = newRoutePolicyExecutor(gateway).authorizeScopeFacts(context.Background(), &connectionState{}, operation.Options.ScopePolicy, operation.Name, routeScopeParams{sessionID: runtimeids.NewSessionID().String()})
 	if err != nil {
 		t.Fatalf("unbound goal scope: %v", err)
 	}

@@ -38,6 +38,7 @@ type ProviderClientOptions struct {
 	ContextWindowTokens          int
 	ProviderCapabilitiesOverride *ProviderCapabilities
 	RequestCapabilities          *ProviderCapabilities
+	UsageObserver                UsageObserver
 }
 
 type ProviderClientFactory func(opts ProviderClientOptions) (Client, error)
@@ -197,17 +198,22 @@ func providerContracts() []ProviderContract {
 						SupportsProviderVerbosity:     true,
 						IsOpenAIFirstParty:            true,
 					},
-					NewErrorReducer: newOpenAICompatibleErrorReducer,
+					NewErrorReducer: newChatGPTErrorReducer,
 				},
 			},
 			ModelContracts: []ModelCapabilityContract{
-				gpt6ModelContract("gpt-6-astra", time.April, []string{"low", "medium", "high", "xhigh", "max"}),
-				gpt6ModelContract("gpt-6.1-sol", time.April, []string{"low", "medium", "high", "xhigh", "max"}),
-				gpt6ModelContract("gpt-6-sol", time.April, []string{"none", "low", "medium", "high", "xhigh", "max"}),
-				gpt6ModelContract("gpt-6-luna", time.May, []string{"none", "low", "medium", "high", "xhigh", "max"}),
-				{Model: "gpt-5.6-sol", ContextWindowTokens: 372_000, LargeContextWindowTokens: textutil.Value(372_000), KnowledgeCutoff: &ModelKnowledgeCutoff{Month: time.February, Year: 2026}, SupportsReasoningEffort: true, SupportedReasoningEfforts: []string{"low", "medium", "high", "xhigh", "max", "ultra"}, SupportsReasoningSummary: true, SupportsVerbosity: true, SupportedVerbosityLevels: []string{"low", "medium", "high"}, SupportsVisionInputs: true},
-				{Model: "gpt-5.6-terra", ContextWindowTokens: 372_000, LargeContextWindowTokens: textutil.Value(372_000), KnowledgeCutoff: &ModelKnowledgeCutoff{Month: time.February, Year: 2026}, SupportsReasoningEffort: true, SupportedReasoningEfforts: []string{"low", "medium", "high", "xhigh", "max", "ultra"}, SupportsReasoningSummary: true, SupportsVerbosity: true, SupportedVerbosityLevels: []string{"low", "medium", "high"}, SupportsVisionInputs: true},
-				{Model: "gpt-5.6-luna", ContextWindowTokens: 372_000, LargeContextWindowTokens: textutil.Value(372_000), KnowledgeCutoff: &ModelKnowledgeCutoff{Month: time.February, Year: 2026}, SupportsReasoningEffort: true, SupportedReasoningEfforts: []string{"low", "medium", "high", "xhigh", "max"}, SupportsReasoningSummary: true, SupportsVerbosity: true, SupportedVerbosityLevels: []string{"low", "medium", "high"}, SupportsVisionInputs: true},
+				// Standard short-context API rates verified 2026-10-15:
+				// https://developers.openai.com/api/docs/pricing
+				// https://developers.openai.com/api/docs/models/gpt-6-sol
+				// https://developers.openai.com/api/docs/models/gpt-5.6-terra
+				// https://developers.openai.com/api/docs/models/gpt-5.6-luna
+				gpt6ModelContract("gpt-6-astra", time.April, []string{"low", "medium", "high", "xhigh", "max"}, TokenPricing{10_000, 1_000, 50_000}),
+				gpt6ModelContract("gpt-6.1-sol", time.April, []string{"low", "medium", "high", "xhigh", "max"}, TokenPricing{2_000, 100, 10_000}),
+				gpt6ModelContract("gpt-6-sol", time.April, []string{"none", "low", "medium", "high", "xhigh", "max"}, TokenPricing{2_000, 200, 10_000}),
+				gpt6ModelContract("gpt-6-luna", time.May, []string{"none", "low", "medium", "high", "xhigh", "max"}, TokenPricing{100, 10, 500}),
+				{Model: "gpt-5.6-sol", TokenPricing: &TokenPricing{4_000, 400, 20_000}, ContextWindowTokens: 372_000, LargeContextWindowTokens: textutil.Value(372_000), KnowledgeCutoff: &ModelKnowledgeCutoff{Month: time.February, Year: 2026}, SupportsReasoningEffort: true, SupportedReasoningEfforts: []string{"low", "medium", "high", "xhigh", "max", "ultra"}, SupportsReasoningSummary: true, SupportsVerbosity: true, SupportedVerbosityLevels: []string{"low", "medium", "high"}, SupportsVisionInputs: true},
+				{Model: "gpt-5.6-terra", TokenPricing: &TokenPricing{2_000, 200, 12_000}, ContextWindowTokens: 372_000, LargeContextWindowTokens: textutil.Value(372_000), KnowledgeCutoff: &ModelKnowledgeCutoff{Month: time.February, Year: 2026}, SupportsReasoningEffort: true, SupportedReasoningEfforts: []string{"low", "medium", "high", "xhigh", "max", "ultra"}, SupportsReasoningSummary: true, SupportsVerbosity: true, SupportedVerbosityLevels: []string{"low", "medium", "high"}, SupportsVisionInputs: true},
+				{Model: "gpt-5.6-luna", TokenPricing: &TokenPricing{200, 20, 1_200}, ContextWindowTokens: 372_000, LargeContextWindowTokens: textutil.Value(372_000), KnowledgeCutoff: &ModelKnowledgeCutoff{Month: time.February, Year: 2026}, SupportsReasoningEffort: true, SupportedReasoningEfforts: []string{"low", "medium", "high", "xhigh", "max"}, SupportsReasoningSummary: true, SupportsVerbosity: true, SupportedVerbosityLevels: []string{"low", "medium", "high"}, SupportsVisionInputs: true},
 			},
 		},
 	}
@@ -234,6 +240,8 @@ func grokVariant(protocol config.ConnectionProtocol, endpoint string, policy res
 func grokModelContract(model string, cutoff time.Month, proxyContext *ModelMetadata) ModelCapabilityContract {
 	return ModelCapabilityContract{
 		Model: model, ContextWindowTokens: 500_000,
+		// https://docs.x.ai/developers/pricing (standard short context, 2026-10-15).
+		TokenPricing:            &TokenPricing{2_000, 500, 6_000},
 		DefaultReasoningEffort:  textutil.Value("high"),
 		VariantContexts:         map[string]*ModelMetadata{string(config.ConnectionGrokCLIProxy): proxyContext},
 		KnowledgeCutoff:         &ModelKnowledgeCutoff{Month: cutoff, Year: 2026},
@@ -242,10 +250,11 @@ func grokModelContract(model string, cutoff time.Month, proxyContext *ModelMetad
 	}
 }
 
-func gpt6ModelContract(model string, cutoff time.Month, efforts []string) ModelCapabilityContract {
+func gpt6ModelContract(model string, cutoff time.Month, efforts []string, pricing TokenPricing) ModelCapabilityContract {
 	return ModelCapabilityContract{
 		Model:                         model,
 		DefaultReasoningEffort:        textutil.Value("medium"),
+		TokenPricing:                  &pricing,
 		ContextWindowTokens:           272_000,
 		LargeContextWindowTokens:      textutil.Value(1_050_000),
 		VariantContexts:               map[string]*ModelMetadata{"chatgpt-codex": {ContextWindowTokens: 272_000, LargeContextWindowTokens: textutil.Value(872_000)}},
@@ -307,6 +316,9 @@ func mustBuildProviderRegistry(contracts []ProviderContract) providerRegistry {
 		}
 
 		for _, modelContract := range contract.ModelContracts {
+			if price := modelContract.TokenPricing; price != nil && (price.Input < 0 || price.CachedInput < 0 || price.Output < 0) {
+				panic(fmt.Sprintf("model %q has invalid token pricing", modelContract.Model))
+			}
 			normalizedModel := strings.ToLower(strings.TrimSpace(modelContract.Model))
 			if normalizedModel == "" {
 				panic(fmt.Sprintf("provider %q has empty model contract key", contract.Provider))
@@ -344,7 +356,7 @@ func newResponsesProviderClient(opts ProviderClientOptions) (Client, error) {
 	if err != nil {
 		return nil, err
 	}
-	return newIdleWatchdogClient(NewResponsesClient(transport), transport.Client.Timeout), nil
+	return newIdleWatchdogClient(NewResponsesClient(transport, opts.UsageObserver), transport.Client.Timeout), nil
 }
 
 func newResponsesHTTPTransport(opts ProviderClientOptions) (*HTTPTransport, error) {

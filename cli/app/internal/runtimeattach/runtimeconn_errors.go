@@ -20,7 +20,7 @@ func IsRuntimeConnectionError(err error) bool {
 	if err == nil {
 		return false
 	}
-	if errors.Is(err, serverapi.ErrStreamGap) || errors.Is(err, serverapi.ErrStreamUnavailable) || errors.Is(err, serverapi.ErrStreamFailed) {
+	if errors.Is(err, serverapi.ErrStreamGap) || errors.Is(err, serverapi.ErrStreamUnavailable) {
 		return false
 	}
 	if IsRuntimeTimeoutError(err) {

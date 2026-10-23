@@ -1,0 +1,17 @@
+.linear-bar {
+  display: flex;
+  overflow: hidden;
+  height: var(--space-1);
+  border-radius: var(--radius-s);
+  background: var(--color-outline);
+}
+
+.linear-bar-segment {
+  flex-shrink: 0;
+  background: var(--color-primary);
+  transition: width var(--motion-fast);
+}
+
+.linear-bar-segment:nth-child(even) {
+  background: var(--color-secondary);
+}

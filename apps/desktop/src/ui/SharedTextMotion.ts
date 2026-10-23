@@ -170,7 +170,7 @@ export class SharedTextMotion {
     });
     const controls: AnimationPlaybackControls[] = [];
     const stop = () => {
-      // Stopping Motion controls cancels WAAPI animations and rejects their finished promises.
+      // Motion's controls cancel WAAPI animations, which rejects their native `finished` promises.
       for (const element of [source.element, destination.element, visual]) {
         for (const animation of element.getAnimations()) observeExpectedCancellation(animation);
       }

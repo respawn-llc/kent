@@ -6,6 +6,7 @@ import (
 	"testing"
 
 	"core/shared/clientui"
+	"core/shared/protoapi"
 	projectpb "core/shared/protoapi/gen/kent/api/project"
 	"core/shared/serverapi"
 )
@@ -26,40 +27,11 @@ func TestProjectAttachmentUnavailableError(t *testing.T) {
 	}
 }
 
-func TestProjectErrorRejectsMissingDetails(t *testing.T) {
-	for _, tt := range []struct {
-		name     string
-		decode   func() error
-		sentinel error
-	}{
-		{"ambiguous binding", func() error { return workspaceBindingAmbiguousError(nil) }, serverapi.ErrWorkspaceBindingAmbiguous},
-		{"unavailable project", func() error { return projectUnavailableError(nil) }, serverapi.ErrProjectUnavailable},
-		{"attachment workspace", func() error {
-			return connectionAttachmentGeneratedError("workspace_not_registered", nil, nil, nil, nil, nil)
-		}, serverapi.ErrWorkspaceNotRegistered},
-		{"mutation", func() error {
-			return projectWorkspaceMutationGeneratedError("workspace_mutation_failed", nil, nil, nil, nil, nil)
-		}, serverapi.ErrWorkspaceMutationFailed},
-		{"detach conflict", func() error {
-			return projectWorkspaceMutationGeneratedError("workspace_detach_conflict", nil, nil, nil, nil, nil)
-		}, serverapi.ErrWorkspaceDetachConflict},
-		{"path identity", func() error {
-			return projectWorkspaceMutationGeneratedError("workspace_path_identity", nil, nil, nil, nil, nil)
-		}, serverapi.ErrWorkspacePathIdentity},
-	} {
-		t.Run(tt.name, func(t *testing.T) {
-			if err := tt.decode(); err == nil || errors.Is(err, tt.sentinel) {
-				t.Fatalf("missing details decoded as domain error: %v", err)
-			}
-		})
-	}
-}
-
 func TestAmbiguousProjectErrorOwnsProjectIDs(t *testing.T) {
 	details := &projectpb.WorkspaceBindingAmbiguousDetails{
 		CanonicalRoot: "/workspace", ProjectIds: []string{"first", "second"},
 	}
-	err := workspaceBindingAmbiguousError(details)
+	var err error = protoapi.WorkspaceBindingAmbiguousFromProto(details)
 	var ambiguous serverapi.WorkspaceBindingAmbiguousError
 	if !errors.Is(err, serverapi.ErrWorkspaceBindingAmbiguous) || !errors.As(err, &ambiguous) {
 		t.Fatalf("binding error = %v, want typed ambiguous binding", err)

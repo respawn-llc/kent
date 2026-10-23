@@ -116,15 +116,6 @@ func (r *pendingQuestionResolver) questionFromPendingPrompt(sessionID string, as
 }
 
 func pendingQuestionFromPrompt(snapshot PendingPromptSnapshot) (pendingQuestion, bool, error) {
-	if err := snapshot.ToolCallID.Validate(); err != nil {
-		return pendingQuestion{}, true, fmt.Errorf("pending prompt identity: %w", err)
-	}
-	if snapshot.SessionID.IsZero() {
-		return pendingQuestion{}, true, fmt.Errorf("pending prompt %q has no session identity", snapshot.ToolCallID)
-	}
-	if snapshot.StepID.IsZero() {
-		return pendingQuestion{}, true, fmt.Errorf("pending prompt %q has no step identity", snapshot.ToolCallID)
-	}
 	if snapshot.Approval {
 		decisions := make([]promptpb.ApprovalDecision, 0, len(snapshot.ApprovalDecisions))
 		for _, decision := range snapshot.ApprovalDecisions {
@@ -133,9 +124,6 @@ func pendingQuestionFromPrompt(snapshot PendingPromptSnapshot) (pendingQuestion,
 				return pendingQuestion{}, true, err
 			}
 			decisions = append(decisions, value)
-		}
-		if len(decisions) == 0 {
-			return pendingQuestion{}, true, fmt.Errorf("pending approval question %q has no approval decisions", snapshot.ToolCallID)
 		}
 		return pendingQuestion{
 			message: strings.TrimSpace(snapshot.Question),
@@ -152,10 +140,7 @@ func pendingQuestionFromPrompt(snapshot PendingPromptSnapshot) (pendingQuestion,
 		}, true, nil
 	}
 	suggestions := normalizedPendingQuestionSuggestions(snapshot.Suggestions)
-	recommended, err := validatePendingQuestionRecommendation(snapshot.RecommendedOptionIndex, len(suggestions))
-	if err != nil {
-		return pendingQuestion{}, true, fmt.Errorf("pending question %q: %w", snapshot.ToolCallID, err)
-	}
+	recommended := snapshot.RecommendedOptionIndex
 	var index *int32
 	if recommended != nil {
 		value, err := protoapi.Int32(*recommended, "recommended option index")

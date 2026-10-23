@@ -310,7 +310,7 @@ func (e *Engine) prepareCacheObservedRequest(
 		return cacheObservedRequest{}, err
 	}
 	var omitted int
-	request.Items, omitted, err = prepareRetainedContext(request.Items, destination)
+	request.Items, omitted, err = prepareRetainedContext(llm.CloneResponseItems(request.Items), destination)
 	if err != nil {
 		return cacheObservedRequest{}, err
 	}
