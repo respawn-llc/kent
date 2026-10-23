@@ -374,66 +374,17 @@ func TestProjectDeletePlainOutputFailureReturnsNonZero(t *testing.T) {
 
 func TestProjectDeletePlainBlockerRenderingPreservesOptionalCount(t *testing.T) {
 	var withoutCount bytes.Buffer
-	absent, err := projectDeleteBlockerCount(nil)
-	if err != nil {
-		t.Fatalf("absent count rejected: %v", err)
-	}
+	absent := projectDeleteBlockerCount(nil)
 	writeWorkflowBlockerLine(&withoutCount, "blocked", "message", absent)
 
 	positive := 2
 	var withCount bytes.Buffer
-	present, err := projectDeleteBlockerCount(&positive)
-	if err != nil {
-		t.Fatalf("positive count rejected: %v", err)
-	}
+	present := projectDeleteBlockerCount(&positive)
 	writeWorkflowBlockerLine(&withCount, "blocked", "message", present)
 
 	if withoutCount.Len() == 0 || withCount.Len() <= withoutCount.Len() || bytes.Equal(withoutCount.Bytes(), withCount.Bytes()) {
 		t.Fatalf("plain blocker outputs have unexpected count shapes: absent=%q positive=%q", withoutCount.String(), withCount.String())
 	}
-}
-
-func TestProjectDeletePlainOutputRejectsInvalidPresentBlockerCounts(t *testing.T) {
-	const projectID = "project-123"
-	for _, nonpositive := range []int{0, -1} {
-		outcome := projectDeleteOutcome{
-			Error: &projectDeleteError{
-				Code:      "project_delete_blocked",
-				Message:   "blocked",
-				ProjectID: projectID,
-				Blockers: []projectDeleteBlocker{{
-					Code:    "blocked",
-					Message: "message",
-					Count:   &nonpositive,
-				}},
-			},
-		}
-		var stdout bytes.Buffer
-		var stderr bytes.Buffer
-		if exitCode := writeProjectDeleteOutcome(&stdout, &stderr, outcome, false); exitCode != 1 {
-			t.Fatalf("count %d exit code = %d, want 1", nonpositive, exitCode)
-		}
-		if stdout.Len() != 0 || stderr.Len() == 0 {
-			t.Fatalf("count %d streams = stdout %q stderr %q, want diagnostic-only failure", nonpositive, stdout.String(), stderr.String())
-		}
-	}
-}
-
-func TestProjectDeleteRejectsNegativeServerBlockerCount(t *testing.T) {
-	const projectID = "project-123"
-	remote := &projectDeleteTestOperations{
-		listResponse: projectDeleteTaskListResponse(projectID),
-		deleteResponse: &projectpb.DeleteProjectSuccess{
-			ProjectId: projectID,
-			Blockers: []*projectpb.ProjectDeleteBlocker{
-				{Code: "non_terminal_tasks", Count: -1},
-			},
-		},
-	}
-
-	outcome := runProjectDeleteUseCase(context.Background(), remote, projectID, true, false)
-
-	assertProjectDeleteFailure(t, outcome, "request_failed", projectID)
 }
 
 func TestProjectDeleteMapsNotFoundAndDeleteFailures(t *testing.T) {
