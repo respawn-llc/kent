@@ -9,6 +9,7 @@ import (
 	"core/shared/runtimeids"
 	"core/shared/textutil"
 	"errors"
+	"fmt"
 	tea "github.com/charmbracelet/bubbletea"
 	"google.golang.org/protobuf/proto"
 	"google.golang.org/protobuf/types/known/timestamppb"
@@ -224,6 +225,47 @@ func TestOngoingTranscriptControllerQueueOverflowRequestsScratchRehydrationOnRes
 	}
 	if !controller.acceptedHydration(ongoingHydrationMessage(1)) {
 		t.Fatal("replacement hydration was not admitted")
+	}
+}
+
+func TestOngoingTranscriptControllerResizeCutoverAfterLossRestoresQueuedDelivery(t *testing.T) {
+	for _, owned := range []bool{true, false} {
+		t.Run(fmt.Sprintf("owned=%t", owned), func(t *testing.T) {
+			surface := &ongoingSurfaceSpy{}
+			controller := newTestOngoingTranscriptController(surface, ongoingTestFrameProvider)
+			if _, err := controller.Accept(ongoingHydrationMessage(1)); err != nil {
+				t.Fatal(err)
+			}
+			if _, err := controller.SetNormalBufferOwned(owned); err != nil {
+				t.Fatal(err)
+			}
+			controller.HandleSubscriptionLoss()
+			if _, err := controller.AcceptCutover(ongoing.RehydrateReasonResize); err != nil {
+				t.Fatal(err)
+			}
+			if _, err := controller.Accept(ongoingHydrationMessage(1)); err != nil {
+				t.Fatal(err)
+			}
+			if _, err := controller.SetNormalBufferOwned(false); err != nil {
+				t.Fatal(err)
+			}
+			message := ongoingTranscriptMessage(2, reflect.TypeFor[*transcriptpb.Event_CommittedRow]())
+			if _, err := controller.Accept(message); err != nil {
+				t.Fatal(err)
+			}
+			surface.calls = nil
+			result, err := controller.SetNormalBufferOwned(true)
+			if err != nil || result.Action != ongoing.ResultNoop {
+				t.Fatalf("restore after recovered subscription: result=%+v err=%v", result, err)
+			}
+			delivered := false
+			for _, call := range surface.calls {
+				delivered = delivered || call.message == message
+			}
+			if !delivered {
+				t.Fatal("committed message after recovery was not delivered on return")
+			}
+		})
 	}
 }
 

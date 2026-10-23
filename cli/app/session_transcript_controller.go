@@ -149,7 +149,7 @@ func (c *ongoingTranscriptController) resetAdmission() {
 }
 
 func (c *ongoingTranscriptController) AcceptCutover(reason ongoing.RehydrateReason) (ongoing.Result, error) {
-	if reason == ongoing.RehydrateReasonResize {
+	if reason == ongoing.RehydrateReasonResize && !c.queueOverflowed {
 		c.resetAdmission()
 	} else {
 		c.ResetForScratchHydration()
