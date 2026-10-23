@@ -680,17 +680,13 @@ func newRoutePolicyFixture(t *testing.T) routePolicyFixture {
 	if err != nil {
 		t.Fatalf("ResolveConfig A: %v", err)
 	}
-	bindingA := registerGatewayTestBinding(t, resolvedA.Config)
+	metadataStore := testsetup.OpenStore(t, resolvedA.Config.PersistenceRoot)
+	bindingA := registerGatewayTestBinding(t, metadataStore, resolvedA.Config)
 	resolvedB, err := serverbootstrap.ResolveConfig(serverbootstrap.Request{WorkspaceRoot: workspaceB})
 	if err != nil {
 		t.Fatalf("ResolveConfig B: %v", err)
 	}
-	bindingB := registerGatewayTestBinding(t, resolvedB.Config)
-	metadataStore, err := metadata.Open(resolvedA.Config.PersistenceRoot)
-	if err != nil {
-		t.Fatalf("metadata.Open: %v", err)
-	}
-	t.Cleanup(func() { _ = metadataStore.Close() })
+	bindingB := registerGatewayTestBinding(t, metadataStore, resolvedB.Config)
 	authSupport := newGatewayTestAuthSupport(t, resolvedA.Config.PersistenceRoot, true)
 	resolvedA.Config.Settings = testsetup.WriteProviderSettings(t, resolvedA.Config.PersistenceRoot, resolvedA.Config.Settings)
 	background, err := serverbootstrap.BuildShellManager(resolvedA.Config)
@@ -698,7 +694,9 @@ func newRoutePolicyFixture(t *testing.T) routePolicyFixture {
 		t.Fatalf("BuildShellManager: %v", err)
 	}
 	t.Cleanup(func() { _ = background.Close() })
-	appCore, err := core.New(resolvedA.Config, authSupport, background)
+	appCore, err := core.NewWithContextOptions(t.Context(), resolvedA.Config, authSupport, background, core.Options{
+		MetadataStore: metadataStore,
+	})
 	if err != nil {
 		t.Fatalf("core.New: %v", err)
 	}

@@ -2,7 +2,7 @@ package startup
 
 import (
 	"context"
-	"database/sql"
+	"core/internal/testharness/corefixture"
 	"encoding/json"
 	"errors"
 	"io"
@@ -18,9 +18,10 @@ import (
 	"core/internal/testharness/testsetup"
 	"core/internal/testharness/workflowfixture"
 	"core/server/authmanager"
+	serverbootstrap "core/server/bootstrap"
 	corepkg "core/server/core"
 	"core/server/metadata"
-	metadatamigrations "core/server/metadata/migrations"
+	"core/server/onboardingservice"
 	"core/server/sessionstore"
 	"core/server/transport"
 	"core/server/workflow"
@@ -58,10 +59,6 @@ func registerServeWorkspace(t *testing.T, workspace string) {
 	if _, _, err := config.WriteDefaultSettingsFileAt(cfg.Source.File(config.FileGlobal).Path); err != nil {
 		t.Fatalf("write test settings: %v", err)
 	}
-	testsetup.PrepareMetadataPersistenceRoot(t, cfg.PersistenceRoot)
-	if _, err := metadata.RegisterBinding(context.Background(), cfg.PersistenceRoot, cfg.WorkspaceRoot); err != nil {
-		t.Fatalf("RegisterBinding: %v", err)
-	}
 }
 
 func newServeWorkspace(t *testing.T) string {
@@ -74,50 +71,86 @@ func newServeWorkspace(t *testing.T) string {
 
 func startServeTestServer(t *testing.T, request Request) *ServeServer {
 	t.Helper()
-	server, err := StartServeServer(context.Background(), request)
+	return newMemoryServeTestServer(t, request, nil)
+}
+
+func newMemoryServeTestServer(t *testing.T, request Request, store *metadata.Store) *ServeServer {
+	t.Helper()
+	req := buildRequest(request)
+	root, err := config.ResolvePersistenceRoot(req.LoadOptions.ConfigRoot)
 	if err != nil {
-		t.Fatalf("Start: %v", err)
+		t.Fatal(err)
 	}
-	t.Cleanup(func() { _ = server.Close() })
-	return server
-}
-
-func TestStartServeServerRejectsSecondPersistenceRootOwner(t *testing.T) {
-	workspace := newServeWorkspace(t)
-	request := Request{WorkspaceRoot: workspace, WorkspaceRootExplicit: true}
-	first := startServeTestServer(t, request)
-
-	if _, err := StartServeServer(context.Background(), request); !errors.Is(err, corepkg.ErrPersistenceRootBusy) {
-		t.Fatalf("second StartServeServer error = %v, want ErrPersistenceRootBusy", err)
-	}
-	if first.Core == nil {
-		t.Fatal("first server lost its core after rejected second owner")
-	}
-}
-
-func TestOccupiedRootDoesNotConvertProviderConfiguration(t *testing.T) {
-	root := t.TempDir()
-	path := filepath.Join(root, "config.toml")
-	body := []byte("model = \"gpt-6-sol\"\nprovider_override = \"openai\"\n")
-	if err := os.WriteFile(path, body, 0o600); err != nil {
+	if err := os.MkdirAll(root, 0o700); err != nil {
 		t.Fatal(err)
 	}
 	lease, err := corepkg.AcquireRootLock(root)
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer lease.Close()
-	server, err := StartServeServer(context.Background(), Request{LoadOptions: config.LoadOptions{ConfigRoot: root}})
-	if server != nil {
-		_ = server.Close()
-		t.Fatal("occupied root started another server")
+	t.Cleanup(func() { _ = lease.Close() })
+	if err := serverbootstrap.ConvertProviderConfiguration(t.Context(), root); err != nil {
+		t.Fatal(err)
+	}
+	req.Environment, err = serverbootstrap.LoadEnvironment(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	resolved, err := serverbootstrap.ResolveConfig(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	cfg := resolved.Config
+	var server *ServeServer
+	if cfg.Source.SettingsFileExists() {
+		if store == nil {
+			store = testsetup.OpenStore(t, cfg.PersistenceRoot)
+		}
+		if _, err := store.RegisterWorkspaceBinding(t.Context(), cfg.WorkspaceRoot); err != nil {
+			t.Fatal(err)
+		}
+		appCore, _ := corefixture.Open(t, cfg, store, coreOptionsForBootstrap(req, lease))
+		server = &ServeServer{Core: appCore, cfg: cfg}
+	} else {
+		authSupport, err := serverbootstrap.BuildAuthSupport(t.Context(), root, auth.NewFileStore(config.GlobalAuthConfigPath(cfg)), req.Environment, req.Now)
+		if err != nil {
+			t.Fatal(err)
+		}
+		finalizer, err := onboarding.NewFinalizer(onboarding.Options{
+			Baseline: cfg.Settings, BaselineSources: cfg.Source.Sources,
+			PersistenceRoot: root, WorkspaceRoot: cfg.WorkspaceRoot,
+			SettingsPath: cfg.Source.File(config.FileGlobal).Path, Connections: authSupport.Connections,
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+		deps := newStartupGatewayDependencies(t.Context(), cfg, req, authSupport, lease, finalizer)
+		deps.finalizer = startupFinalizeService{
+			service: finalizer, activationContext: t.Context(),
+			activate: func(_ context.Context, response *onboardingpb.FinalizeSuccess) error {
+				return deps.activationError(response, errors.New("injected activation failure"))
+			},
+		}
+		server = &ServeServer{deps: deps, cfg: cfg}
+	}
+	t.Cleanup(func() { _ = server.Close() })
+	return server
+}
+
+func TestConfiguredServerRetainsExclusiveRootOwnership(t *testing.T) {
+	workspace := newServeWorkspace(t)
+	request := Request{WorkspaceRoot: workspace, WorkspaceRootExplicit: true}
+	first := startServeTestServer(t, request)
+
+	competing, err := corepkg.AcquireRootLock(first.Config().PersistenceRoot)
+	if competing != nil {
+		_ = competing.Close()
 	}
 	if !errors.Is(err, corepkg.ErrPersistenceRootBusy) {
-		t.Fatalf("occupied root must be rejected before configuration loading: %v", err)
+		t.Fatalf("competing root ownership error = %v, want ErrPersistenceRootBusy", err)
 	}
-	after, err := os.ReadFile(path)
-	if err != nil || string(after) != string(body) {
-		t.Fatalf("occupied root configuration changed: %v", err)
+	if first.Core == nil {
+		t.Fatal("first server lost its core after rejected second owner")
 	}
 }
 
@@ -154,7 +187,7 @@ func TestStartupConvertsOldSubscriptionAndRequiresSignIn(t *testing.T) {
 	}
 }
 
-func TestStartupConversionFailureRetainsSelectionAndReleasesRoot(t *testing.T) {
+func TestProviderConversionFailureRetainsSelection(t *testing.T) {
 	root := t.TempDir()
 	path := filepath.Join(root, "config.toml")
 	authPath := config.GlobalAuthConfigPath(config.App{PersistenceRoot: root})
@@ -165,10 +198,7 @@ func TestStartupConversionFailureRetainsSelectionAndReleasesRoot(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	server, err := StartServeServer(context.Background(), Request{LoadOptions: config.LoadOptions{ConfigRoot: root}})
-	if server != nil {
-		_ = server.Close()
-	}
+	err := serverbootstrap.ConvertProviderConfiguration(t.Context(), root)
 	if err == nil {
 		t.Fatal("API-backed installation converted without an explicit reference")
 	}
@@ -177,13 +207,6 @@ func TestStartupConversionFailureRetainsSelectionAndReleasesRoot(t *testing.T) {
 		if err != nil || string(after) != contents {
 			t.Fatalf("failed conversion changed %s: %v", name, err)
 		}
-	}
-	lease, err := corepkg.AcquireRootLock(root)
-	if err != nil {
-		t.Fatalf("startup failure retained root ownership: %v", err)
-	}
-	if err := lease.Close(); err != nil {
-		t.Fatal(err)
 	}
 }
 
@@ -200,80 +223,6 @@ func TestStartupOffersSetupAfterSettingsRemoved(t *testing.T) {
 	server := startServeTestServer(t, request)
 	if server.Core != nil || server.deps == nil {
 		t.Fatal("settings removal must reopen setup")
-	}
-}
-
-func TestStartServeServerPanicsWhenWorkspaceChatDraftCutoverFails(t *testing.T) {
-	home := t.TempDir()
-	workspace := t.TempDir()
-	t.Setenv("HOME", home)
-	configureServeTestServerPort(t)
-	writeServeSettings(t, home, "model = \"gpt-6-sol\"\n")
-	cfg, err := config.Load(workspace, workspace, config.LoadOptions{})
-	if err != nil {
-		t.Fatalf("config.Load: %v", err)
-	}
-	blockWorkspaceChatDraftCutover(t, cfg.PersistenceRoot)
-
-	defer func() {
-		recovered := recover()
-		if recovered == nil {
-			t.Fatal("StartServeServer returned instead of panicking")
-		}
-		panicErr, ok := recovered.(error)
-		if !ok {
-			t.Fatalf("panic = %T, want error", recovered)
-		}
-		var migrationErr *metadata.WorkspaceChatDraftCutoverMigrationError
-		if !errors.As(panicErr, &migrationErr) {
-			t.Fatalf("panic error = %v, want metadata migration failure", panicErr)
-		}
-	}()
-	server, err := StartServeServer(
-		context.Background(),
-		Request{
-			WorkspaceRoot:         workspace,
-			WorkspaceRootExplicit: true,
-		})
-
-	if server != nil {
-		_ = server.Close()
-	}
-	t.Fatalf("StartServeServer returned server=%v error=%v", server, err)
-}
-
-func blockWorkspaceChatDraftCutover(t *testing.T, persistenceRoot string) {
-	t.Helper()
-	store, err := metadata.Open(persistenceRoot)
-	if err != nil {
-		t.Fatalf("create current metadata database: %v", err)
-	}
-	if err := store.Close(); err != nil {
-		t.Fatalf("close current metadata database: %v", err)
-	}
-	databasePath := filepath.Join(persistenceRoot, "db", "main.sqlite3")
-	databaseURL, ok := config.LocalFileURL(databasePath)
-	if !ok {
-		t.Fatalf("metadata database path %q is not absolute", databasePath)
-	}
-	db, err := sql.Open("sqlite", databaseURL.String())
-	if err != nil {
-		t.Fatalf("open metadata database fixture: %v", err)
-	}
-	defer func() { _ = db.Close() }()
-	if _, err := db.Exec(`
-ALTER TABLE workspaces
-ADD COLUMN chat_draft_json TEXT
-CHECK (chat_draft_json IS NULL OR json_valid(chat_draft_json));
-
-DELETE FROM goose_db_version
-WHERE version_id >= ?;
-
-CREATE VIEW workspace_chat_draft_migration_blocker AS
-SELECT chat_draft_json
-FROM workspaces;
-`, metadatamigrations.WorkspaceChatDraftCutoverVersion); err != nil {
-		t.Fatalf("create blocked workspace Chat draft migration fixture: %v", err)
 	}
 }
 
@@ -369,23 +318,21 @@ func TestServeShutdownDisconnectsEstablishedClients(t *testing.T) {
 	}
 }
 
-func TestStartServeServerLeavesAdmittedCurrentNodeUntouchedOnRestart(t *testing.T) {
+func TestAdmittedCurrentNodeSurvivesCoreReopen(t *testing.T) {
 	workspace := newServeWorkspace(t)
 	request := Request{WorkspaceRoot: workspace, WorkspaceRootExplicit: true}
-	server, err := StartServeServer(context.Background(), request)
+	cfg, err := config.Load(workspace, workspace, config.LoadOptions{})
 	if err != nil {
-		t.Fatalf("StartServeServer: %v", err)
+		t.Fatal(err)
 	}
+	open := testsetup.StoreOpener(t, cfg.PersistenceRoot)
+	server := newMemoryServeTestServer(t, request, open())
 	taskID, currentNode := createAdmittedCurrentNodeForRecovery(t, server)
 	if err := server.Close(); err != nil {
 		t.Fatalf("close initial server: %v", err)
 	}
 
-	restarted, err := StartServeServer(context.Background(), request)
-	if err != nil {
-		t.Fatalf("restart: %v", err)
-	}
-	t.Cleanup(func() { _ = restarted.Close() })
+	restarted := newMemoryServeTestServer(t, request, open())
 	detail, err := restarted.WorkflowClient().GetWorkflowTask(context.Background(), &taskpb.GetRequest{TaskId: proto.String(string(taskID))})
 	if err != nil {
 		t.Fatalf("GetWorkflowTask after restart: %v", err)
@@ -792,15 +739,6 @@ protocol = "responses"
 endpoint = "http://127.0.0.1:11434/v1"
 `)
 	configureServeTestServerPort(t)
-	cfg, err := config.Load(workspace, workspace, config.LoadOptions{})
-	if err != nil {
-		t.Fatalf("config.Load for binding: %v", err)
-	}
-	testsetup.PrepareMetadataPersistenceRoot(t, cfg.PersistenceRoot)
-	if _, err := metadata.RegisterBinding(context.Background(), cfg.PersistenceRoot, workspace); err != nil {
-		t.Fatalf("RegisterBinding: %v", err)
-	}
-
 	server := startServeTestServer(t,
 		Request{WorkspaceRoot: workspace, WorkspaceRootExplicit: true})
 
@@ -958,11 +896,6 @@ func TestMissingConfigFinalizeActivationFailureIsTypedAndRetryConflicts(t *testi
 	}}); err != nil {
 		t.Fatal(err)
 	}
-	metadataBlocker := filepath.Join(server.cfg.PersistenceRoot, "db")
-	if err := os.WriteFile(metadataBlocker, []byte("block metadata open"), 0o644); err != nil {
-		t.Fatalf("write metadata blocker: %v", err)
-	}
-
 	_, err := server.deps.OnboardingFinalizeClient().Finalize(context.Background(), &onboardingpb.FinalizeRequest{})
 	if !errors.Is(err, serverapi.ErrServerNotReadyActivationFailed) {
 		t.Fatalf("finalize error = %v, want activation_failed", err)

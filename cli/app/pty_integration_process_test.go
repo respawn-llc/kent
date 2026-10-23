@@ -7,7 +7,6 @@ import (
 	"time"
 
 	"core/internal/testharness/pty/appfixture"
-	"core/internal/testharness/testsetup"
 )
 
 const (
@@ -33,7 +32,6 @@ func ptyFixtureProcessEnv(
 	observationPath string,
 ) string {
 	t.Helper()
-	testsetup.PrepareMetadataPersistenceRoot(t, persistenceRoot)
 	configPath := filepath.Join(root, "process.json")
 	reportFixtureDiagnosticsOnFailure(t, configPath)
 	if err := appfixture.WriteProcessConfig(configPath, appfixture.ProcessConfig{

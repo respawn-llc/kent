@@ -4,19 +4,14 @@ import (
 	"context"
 	"database/sql"
 	"errors"
-	"io/fs"
-	"os"
-	"path/filepath"
 	"reflect"
-	"runtime"
-	"strings"
 	"testing"
-	"testing/fstest"
 	"time"
 
+	"core/internal/testharness/databaseseed"
 	"core/internal/testharness/testsetup"
 	"core/server/metadata"
-	"core/server/metadata/sqlitegen"
+	metadatamigrations "core/server/metadata/migrations"
 	"core/server/workflow"
 	"core/shared/runtimeids"
 
@@ -26,8 +21,7 @@ import (
 
 func TestMigratedSerialApprovalWithMissingEnteringEdgeRequiresMove(t *testing.T) {
 	root := t.TempDir()
-	databasePath := filepath.Join(root, "db", "main.sqlite3")
-	db := openLegacyCurrentStateMigrationDatabase(t, root, databasePath)
+	db := openLegacyCurrentStateMigrationDatabase(t)
 	now := time.Now().UTC().UnixMilli()
 	const sourceSessionID = "550e8400-e29b-41d4-a716-446655440091"
 	execLegacyMigrationSeed(t, db, "project", `
@@ -241,15 +235,7 @@ INSERT INTO workflow_edges (id,transition_group_id,edge_key,target_node_id,requi
 ('edge-replacement-a','group-replacement-a','next','node-target-b',0,'new_session','[]','[]'),
 ('edge-replacement-b','group-replacement-b','done','node-done',0,'new_session','[]','[]');
 UPDATE workflow_edges SET prompt_template = 'Continue the task' WHERE target_node_id != 'node-done'`)
-	if err := db.Close(); err != nil {
-		t.Fatalf("close legacy migration database: %v", err)
-	}
-
-	metadataStore, err := metadata.Open(root)
-	if err != nil {
-		t.Fatalf("migrate legacy approval fanout database: %v", err)
-	}
-	t.Cleanup(func() { _ = metadataStore.Close() })
+	metadataStore := migrateLegacyCurrentStateDatabase(t, root, db)
 	if _, err := metadataStore.DB().ExecContext(t.Context(), `UPDATE tasks SET execution_target_mode = 'none', execution_target_provenance = 'resolved', pending_initial_managed_branch_name = NULL WHERE id = ?`, "task-migrated-approval-fanout"); err != nil {
 		t.Fatal(err)
 	}
@@ -366,8 +352,7 @@ UPDATE workflow_edges SET prompt_template = 'Continue the task' WHERE target_nod
 
 func TestResolveCurrentSessionStartContextUsesMigratedDirectOwnership(t *testing.T) {
 	root := t.TempDir()
-	databasePath := filepath.Join(root, "db", "main.sqlite3")
-	db := openLegacyCurrentStateMigrationDatabase(t, root, databasePath)
+	db := openLegacyCurrentStateMigrationDatabase(t)
 	now := time.Now().UTC().UnixMilli()
 	const (
 		projectID  = "project-migrated-session-context"
@@ -496,15 +481,7 @@ INSERT INTO task_runs (
 		now+1,
 		snapshotJSON,
 	)
-	if err := db.Close(); err != nil {
-		t.Fatalf("close legacy migration database: %v", err)
-	}
-
-	metadataStore, err := metadata.Open(root)
-	if err != nil {
-		t.Fatalf("migrate legacy session context database: %v", err)
-	}
-	t.Cleanup(func() { _ = metadataStore.Close() })
+	metadataStore := migrateLegacyCurrentStateDatabase(t, root, db)
 	store, err := New(metadataStore)
 	if err != nil {
 		t.Fatalf("workflowstore.New: %v", err)
@@ -551,30 +528,28 @@ INSERT INTO task_runs (
 	}
 }
 
-func openLegacyCurrentStateMigrationDatabase(t *testing.T, root string, databasePath string) *sql.DB {
+func migrateLegacyCurrentStateDatabase(t *testing.T, root string, db *sql.DB) *metadata.Store {
 	t.Helper()
-	if err := sqlitegen.RegisterSQLiteExtensions(); err != nil {
-		t.Fatalf("initialize metadata SQLite extensions: %v", err)
-	}
-	if err := os.MkdirAll(filepath.Dir(databasePath), 0o755); err != nil {
-		t.Fatalf("create migration database directory: %v", err)
-	}
-	db, err := sql.Open("sqlite", "file:"+databasePath+"?_pragma=foreign_keys(1)")
+	provider, err := metadatamigrations.NewProvider(db, goose.NopLogger())
 	if err != nil {
-		t.Fatalf("open legacy migration database: %v", err)
+		t.Fatal(err)
 	}
+	if _, err := provider.Up(t.Context()); err != nil {
+		t.Fatal(err)
+	}
+	store, err := metadata.NewStore(root, db)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = store.Close() })
+	return store
+}
+
+func openLegacyCurrentStateMigrationDatabase(t *testing.T) *sql.DB {
+	t.Helper()
+	db := databaseseed.OpenEmptyMetadataDatabase(t)
 	t.Cleanup(func() { _ = db.Close() })
-	migrations, err := legacyCurrentStateMigrationFiles()
-	if err != nil {
-		t.Fatalf("read metadata migrations: %v", err)
-	}
-	provider, err := goose.NewProvider(
-		goose.DialectSQLite3,
-		db,
-		migrations,
-		goose.WithLogger(goose.NopLogger()),
-		goose.WithDisableGlobalRegistry(true),
-	)
+	provider, err := metadatamigrations.NewProvider(db, goose.NopLogger())
 	if err != nil {
 		t.Fatalf("create migration provider: %v", err)
 	}
@@ -582,30 +557,6 @@ func openLegacyCurrentStateMigrationDatabase(t *testing.T, root string, database
 		t.Fatalf("apply migrations through version 58: %v", err)
 	}
 	return db
-}
-
-func legacyCurrentStateMigrationFiles() (fs.FS, error) {
-	_, file, _, ok := runtime.Caller(0)
-	if !ok {
-		return nil, os.ErrNotExist
-	}
-	migrationFiles := os.DirFS(filepath.Join(filepath.Dir(file), "..", "metadata", "migrations"))
-	entries, err := fs.ReadDir(migrationFiles, ".")
-	if err != nil {
-		return nil, err
-	}
-	upMigrations := make(fstest.MapFS)
-	for _, entry := range entries {
-		if entry.IsDir() || !strings.HasSuffix(entry.Name(), ".up.sql") {
-			continue
-		}
-		contents, err := fs.ReadFile(migrationFiles, entry.Name())
-		if err != nil {
-			return nil, err
-		}
-		upMigrations[entry.Name()] = &fstest.MapFile{Data: contents}
-	}
-	return upMigrations, nil
 }
 
 func execLegacyMigrationSeed(t *testing.T, db *sql.DB, label string, statement string, args ...any) {

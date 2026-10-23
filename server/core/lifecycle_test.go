@@ -97,14 +97,16 @@ func TestNewWithContextNamesMissingAuthBundleResource(t *testing.T) {
 			Shell: config.ShellSettings{MaxConcurrent: config.DefaultMaxConcurrentShells, PostprocessingMode: config.ShellPostprocessingModeBuiltin},
 		},
 	}
-	testsetup.PrepareMetadataPersistenceRoot(t, cfg.PersistenceRoot)
+	metadataStore := testsetup.OpenStore(t, cfg.PersistenceRoot)
 	background, err := serverbootstrap.BuildShellManager(cfg)
 	if err != nil {
 		t.Fatalf("BuildShellManager: %v", err)
 	}
 	t.Cleanup(func() { _ = background.Close() })
 
-	_, err = NewWithContext(t.Context(), cfg, serverbootstrap.AuthSupport{}, background)
+	_, err = NewWithContextOptions(t.Context(), cfg, serverbootstrap.AuthSupport{}, background, Options{
+		MetadataStore: metadataStore,
+	})
 	if err == nil {
 		t.Fatal("expected NewWithContext error")
 	}
@@ -116,13 +118,15 @@ func TestNewWithContextNamesMissingAuthBundleResource(t *testing.T) {
 
 func TestNewWithContextNamesMissingRuntimeBundleResource(t *testing.T) {
 	cfg := config.App{PersistenceRoot: t.TempDir()}
-	testsetup.PrepareMetadataPersistenceRoot(t, cfg.PersistenceRoot)
+	metadataStore := testsetup.OpenStore(t, cfg.PersistenceRoot)
 	authSupport, err := serverbootstrap.BuildAuthSupport(t.Context(), cfg.PersistenceRoot, auth.NewMemoryStore(auth.EmptyState()), nil, nil)
 	if err != nil {
 		t.Fatalf("BuildAuthSupport: %v", err)
 	}
 
-	_, err = NewWithContext(t.Context(), cfg, authSupport, nil)
+	_, err = NewWithContextOptions(t.Context(), cfg, authSupport, nil, Options{
+		MetadataStore: metadataStore,
+	})
 	if err == nil {
 		t.Fatal("expected NewWithContext error")
 	}
@@ -141,14 +145,16 @@ func TestNewWithContextCleansPersistenceOnAuthBundleFailure(t *testing.T) {
 			Workflow:        config.WorkflowSettings{Concurrency: 1},
 		},
 	}
-	testsetup.PrepareMetadataPersistenceRoot(t, cfg.PersistenceRoot)
+	metadataStore := testsetup.OpenStore(t, cfg.PersistenceRoot)
 	background, err := serverbootstrap.BuildShellManager(cfg)
 	if err != nil {
 		t.Fatalf("BuildShellManager first: %v", err)
 	}
 	t.Cleanup(func() { _ = background.Close() })
 
-	_, err = NewWithContext(t.Context(), cfg, serverbootstrap.AuthSupport{}, background)
+	_, err = NewWithContextOptions(t.Context(), cfg, serverbootstrap.AuthSupport{}, background, Options{
+		MetadataStore: metadataStore,
+	})
 	if err == nil {
 		t.Fatal("expected first NewWithContext error")
 	}
@@ -161,7 +167,9 @@ func TestNewWithContextCleansPersistenceOnAuthBundleFailure(t *testing.T) {
 	if err != nil {
 		t.Fatalf("BuildShellManager second: %v", err)
 	}
-	appCore, err := NewWithContext(t.Context(), cfg, authSupport, backgroundSecond)
+	appCore, err := NewWithContextOptions(t.Context(), cfg, authSupport, backgroundSecond, Options{
+		MetadataStore: testsetup.OpenStore(t, cfg.PersistenceRoot),
+	})
 	if err != nil {
 		t.Fatalf("NewWithContext after failed construction: %v", err)
 	}

@@ -31,32 +31,24 @@ func sessionLifecycleSessionID(t *testing.T, raw string) runtimeids.SessionID {
 	return sessionID
 }
 
-func createAttachedAuthoritativeAppSession(t *testing.T, persistenceRoot, projectID, workspaceRoot string) *session.Store {
+func createAttachedAuthoritativeAppSession(t *testing.T, metadataStore *metadata.Store, projectID, workspaceRoot string) *session.Store {
 	t.Helper()
-	metadataStore, err := metadata.Open(persistenceRoot)
-	if err != nil {
-		t.Fatalf("metadata.Open: %v", err)
-	}
 	if _, err := metadataStore.AttachWorkspaceToProject(context.Background(), projectID, workspaceRoot); err != nil {
-		_ = metadataStore.Close()
 		t.Fatalf("AttachWorkspaceToProject: %v", err)
 	}
 	store, err := session.Create(
-		filepath.Join(persistenceRoot, "projects", projectID, "sessions"),
+		filepath.Join(metadataStore.PersistenceRoot(), "projects", projectID, "sessions"),
 		filepath.Base(filepath.Clean(workspaceRoot)),
 		workspaceRoot,
 		sessioncontract.SessionCategoryMain,
 		metadataStore.AuthoritativeSessionStoreOptions()...,
 	)
 	if err != nil {
-		_ = metadataStore.Close()
 		t.Fatalf("session.Create: %v", err)
 	}
 	if err := store.EnsureDurable(); err != nil {
-		_ = metadataStore.Close()
 		t.Fatalf("EnsureDurable: %v", err)
 	}
-	t.Cleanup(func() { _ = metadataStore.Close() })
 	return store
 }
 

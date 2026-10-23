@@ -21,7 +21,7 @@ import (
 )
 
 func TestStartSessionServerListsPendingPromptSnapshotOverRemoteReads(t *testing.T) {
-	_, workspace := newRegisteredAppWorkspace(t)
+	_, workspace := newConfiguredAppWorkspace(t)
 	t.Setenv("KENT_REVIEWER_FREQUENCY", "off")
 	model := newAppTestModelServer(t,
 		appTestModelStep{Calls: []appTestModelToolCall{
@@ -38,7 +38,7 @@ func TestStartSessionServerListsPendingPromptSnapshotOverRemoteReads(t *testing.
 		WorkspaceRoot:         workspace,
 		WorkspaceRootExplicit: true,
 		Model:                 "gpt-6-sol",
-	})
+	}, nil)
 
 	server := fixture.attachRemoteSessionServer(t, Options{WorkspaceRoot: workspace, WorkspaceRootExplicit: true}, newHeadlessAuthInteractor())
 	_, runtimePlan := prepareAppRuntimePlan(t, server, sessionLaunchRequest{Mode: launchModeInteractive, Intent: requestfixture.LaunchIntent(t, serverapi.CreateNewSessionLaunchIntent(serverapi.IndependentSessionCreateOrigin()))}, io.Discard, "test remote prompt snapshot reads")
@@ -77,13 +77,13 @@ func TestStartSessionServerListsPendingPromptSnapshotOverRemoteReads(t *testing.
 }
 
 func TestStartSessionServerUsesConfiguredDaemonForProcessFlows(t *testing.T) {
-	_, workspace := newRegisteredAppWorkspace(t)
+	_, workspace := newConfiguredAppWorkspace(t)
 
 	fixture := startConfiguredDaemonFixture(t, workspace, serverstartup.Request{
 		WorkspaceRoot:         workspace,
 		WorkspaceRootExplicit: true,
 		Model:                 "gpt-6-sol",
-	})
+	}, nil)
 
 	fixture.daemon.Background().SetMinimumExecToBgTime(time.Millisecond)
 

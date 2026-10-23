@@ -4,18 +4,15 @@ import (
 	"path/filepath"
 	"testing"
 
-	"core/server/metadata"
+	"core/internal/testharness/testsetup"
 	"core/server/sessionstore"
 	"core/shared/sessioncontract"
 )
 
 func TestSessionConnectionBindingSurvivesReopen(t *testing.T) {
 	root, workspace := t.TempDir(), t.TempDir()
-	persistence, err := metadata.Open(root)
-	if err != nil {
-		t.Fatal(err)
-	}
-	t.Cleanup(func() { _ = persistence.Close() })
+	open := testsetup.StoreOpener(t, root)
+	persistence := open()
 	binding, err := persistence.RegisterWorkspaceBinding(t.Context(), workspace)
 	if err != nil {
 		t.Fatal(err)
@@ -37,11 +34,7 @@ func TestSessionConnectionBindingSurvivesReopen(t *testing.T) {
 	if err := persistence.Close(); err != nil {
 		t.Fatal(err)
 	}
-	reopenedPersistence, err := metadata.Open(root)
-	if err != nil {
-		t.Fatal(err)
-	}
-	t.Cleanup(func() { _ = reopenedPersistence.Close() })
+	reopenedPersistence := open()
 	reopened, err := session.Open(store.Dir(), reopenedPersistence.AuthoritativeSessionStoreOptions()...)
 	if err != nil {
 		t.Fatal(err)

@@ -30,7 +30,7 @@ func TestProductionKentBinaryPTYSmoke(t *testing.T) {
 	}
 	probe := uuid.New().String()
 	output := "ok"
-	environment, err := blackbox.NewIsolatedEnvironment(binary, []blackbox.RequiredOperation{{
+	environment := newMemorySmokeEnvironment(t, []blackbox.RequiredOperation{{
 		ID:              uuid.New(),
 		Route:           blackbox.RouteResponses,
 		Probe:           &probe,
@@ -40,14 +40,9 @@ func TestProductionKentBinaryPTYSmoke(t *testing.T) {
 		SessionCacheKey: true,
 	}})
 	var session *driver.Session
-	if environment != nil {
-		t.Cleanup(func() {
-			cleanupPTYSmoke(t, session, environment)
-		})
-	}
-	if err != nil {
-		t.Fatalf("start isolated configured server: %v; %s", err, smokeDiagnostics(session, environment))
-	}
+	t.Cleanup(func() {
+		cleanupPTYSmoke(t, session, environment)
+	})
 	if err := environment.WaitReady(); err != nil {
 		t.Fatalf("wait for isolated server readiness: %v; %s", err, smokeDiagnostics(session, environment))
 	}
@@ -140,7 +135,7 @@ const (
 
 func runModelBoundarySmoke(
 	session *driver.Session,
-	environment *blackbox.IsolatedEnvironment,
+	environment *memorySmokeEnvironment,
 	probe string,
 ) (*analyzer.ProcessExit, error) {
 	submitID := uuid.New()
@@ -204,11 +199,6 @@ func runModelBoundarySmoke(
 			}
 			return nil, fmt.Errorf("client PTY reported an unknown failure during %s", stage)
 		case <-environment.Stub.Events():
-		case <-environment.Server.Failure():
-			if err := environment.Server.Error(); err != nil {
-				return nil, fmt.Errorf("isolated server failed during %s: %w", stage, err)
-			}
-			return nil, fmt.Errorf("isolated server reported an unknown failure during %s", stage)
 		case <-environment.Server.Done():
 			return nil, fmt.Errorf("isolated server exited during %s", stage)
 		case <-deadline.C:
@@ -217,9 +207,8 @@ func runModelBoundarySmoke(
 	}
 }
 
-func cleanupPTYSmoke(t *testing.T, session *driver.Session, environment *blackbox.IsolatedEnvironment) {
+func cleanupPTYSmoke(t *testing.T, session *driver.Session, environment *memorySmokeEnvironment) {
 	t.Helper()
-	ownersStopped := true
 	if session != nil {
 		if err := session.Close(); err != nil && !errors.Is(err, os.ErrClosed) {
 			t.Errorf("close client PTY admission: %v", err)
@@ -230,13 +219,11 @@ func cleanupPTYSmoke(t *testing.T, session *driver.Session, environment *blackbo
 		default:
 			killAttempted = true
 			if err := session.ForceKill(); err != nil {
-				ownersStopped = false
 				t.Errorf("force-kill client PTY: %v", err)
 			}
 			select {
 			case <-session.Done():
 			case <-time.After(smokeCleanupWait):
-				ownersStopped = false
 				t.Errorf("client PTY did not stop within %s", smokeCleanupWait)
 			}
 		}
@@ -247,21 +234,17 @@ func cleanupPTYSmoke(t *testing.T, session *driver.Session, environment *blackbo
 					t.Errorf("force-kill reactor-failed client PTY: %v", err)
 				}
 			}
-			ownersStopped = false
-			t.Errorf("client process exit could not be confirmed; retaining isolated run root: %v", captureErr)
+			t.Errorf("client process exit could not be confirmed: %v", captureErr)
 		}
 	}
 	if environment.Server != nil {
 		select {
 		case <-environment.Server.Done():
 		default:
-			if err := environment.Server.ForceKill(); err != nil {
-				t.Errorf("force-kill isolated server: %v", err)
-			}
+			environment.Server.cancel()
 			select {
 			case <-environment.Server.Done():
 			case <-time.After(smokeCleanupWait):
-				ownersStopped = false
 				t.Errorf("isolated server did not stop within %s", smokeCleanupWait)
 			}
 		}
@@ -273,22 +256,12 @@ func cleanupPTYSmoke(t *testing.T, session *driver.Session, environment *blackbo
 		select {
 		case <-environment.Stub.Done():
 		case <-time.After(smokeCleanupWait):
-			ownersStopped = false
 			t.Errorf("Responses stub did not stop within %s", smokeCleanupWait)
-		}
-	}
-	if !ownersStopped {
-		t.Logf("retaining isolated run root after incomplete owner cleanup: %s", environment.Root)
-		return
-	}
-	if environment.Root != "" {
-		if err := os.RemoveAll(environment.Root); err != nil {
-			t.Errorf("remove isolated run root %q: %v", environment.Root, err)
 		}
 	}
 }
 
-func smokeDiagnostics(session *driver.Session, environment *blackbox.IsolatedEnvironment) string {
+func smokeDiagnostics(session *driver.Session, environment *memorySmokeEnvironment) string {
 	if environment == nil {
 		return "environment=<nil>"
 	}

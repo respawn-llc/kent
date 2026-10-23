@@ -8,6 +8,7 @@ import (
 	"core/server/llm"
 	"core/server/tools"
 	"core/server/workflow"
+	"core/shared/config"
 )
 
 func TestThinkingChangesPreserveDispatchedPrefix(t *testing.T) {
@@ -45,6 +46,9 @@ func testThinkingChangesPreserveDispatchedPrefix(t *testing.T, selectThinking fu
 			engine := mustNewTestEngine(t, mustCreateTestSession(t), client, tools.NewRegistry(), Config{
 				Model: "gpt-6-astra", ThinkingLevel: "xhigh",
 				SupportedThinkingValues: []string{"low", "medium", "high", "xhigh"},
+				SystemPromptFile: &config.SystemPromptFile{
+					Path: "testdata/minimal-system-prompt.txt", Scope: config.SystemPromptFileScopeWorkspaceConfig,
+				},
 			})
 			submit := func(text string) {
 				t.Helper()

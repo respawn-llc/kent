@@ -1,11 +1,8 @@
 package testsetup
 
 import (
-	"errors"
-	"fmt"
-	"os"
+	"database/sql"
 	"path/filepath"
-	"sync"
 	"testing"
 
 	"core/internal/testharness/databaseseed"
@@ -13,21 +10,21 @@ import (
 	"core/server/sessionstore"
 )
 
-type metadataPersistenceRootLock struct {
-	mutex      sync.Mutex
-	references int
-}
-
-var metadataPersistenceRootLocks = struct {
-	sync.Mutex
-	locks map[string]*metadataPersistenceRootLock
-}{
-	locks: make(map[string]*metadataPersistenceRootLock),
-}
-
 func OpenStore(t testing.TB, persistenceRoot string) *metadata.Store {
 	t.Helper()
-	db := databaseseed.OpenCurrentMetadataDatabase(t)
+	return openStoreDatabase(t, persistenceRoot, databaseseed.OpenCurrentMetadataDatabase(t))
+}
+
+func StoreOpener(t testing.TB, persistenceRoot string) func() *metadata.Store {
+	t.Helper()
+	open := databaseseed.CurrentMetadataDatabaseOpener(t)
+	return func() *metadata.Store {
+		return openStoreDatabase(t, persistenceRoot, open())
+	}
+}
+
+func openStoreDatabase(t testing.TB, persistenceRoot string, db *sql.DB) *metadata.Store {
+	t.Helper()
 	store, err := metadata.NewStore(persistenceRoot, db)
 	if err != nil {
 		_ = db.Close()
@@ -64,69 +61,4 @@ func ImportSessionProjectWorkspaceContext(
 	}); err != nil {
 		t.Fatalf("import Session Project Workspace context: %v", err)
 	}
-}
-
-func PrepareMetadataPersistenceRoot(t testing.TB, persistenceRoot string) {
-	t.Helper()
-	if err := prepareMetadataPersistenceRoot(persistenceRoot); err != nil {
-		t.Fatalf("prepare metadata persistence root: %v", err)
-	}
-}
-
-func prepareMetadataPersistenceRoot(persistenceRoot string) error {
-	absolutePersistenceRoot, err := filepath.Abs(persistenceRoot)
-	if err != nil {
-		return fmt.Errorf("resolve metadata persistence root %q: %w", persistenceRoot, err)
-	}
-	release := acquireMetadataPersistenceRootLock(absolutePersistenceRoot)
-	defer release()
-
-	databasePath := filepath.Join(absolutePersistenceRoot, databaseseed.CurrentMetadataDatabaseRelativePath)
-	if _, err := os.Stat(databasePath); err == nil {
-		return validateMetadataPersistenceRoot(absolutePersistenceRoot)
-	} else if !errors.Is(err, os.ErrNotExist) {
-		return fmt.Errorf("stat metadata database %q: %w", databasePath, err)
-	}
-	if err := materializeCurrentMetadataDatabase(absolutePersistenceRoot); err != nil {
-		return fmt.Errorf("materialize migrated metadata database seed: %w", err)
-	}
-	return validateMetadataPersistenceRoot(absolutePersistenceRoot)
-}
-
-func acquireMetadataPersistenceRootLock(persistenceRoot string) func() {
-	metadataPersistenceRootLocks.Lock()
-	rootLock := metadataPersistenceRootLocks.locks[persistenceRoot]
-	if rootLock == nil {
-		rootLock = &metadataPersistenceRootLock{}
-		metadataPersistenceRootLocks.locks[persistenceRoot] = rootLock
-	}
-	rootLock.references++
-	metadataPersistenceRootLocks.Unlock()
-
-	rootLock.mutex.Lock()
-	return func() {
-		rootLock.mutex.Unlock()
-
-		metadataPersistenceRootLocks.Lock()
-		defer metadataPersistenceRootLocks.Unlock()
-		rootLock.references--
-		if rootLock.references == 0 {
-			delete(metadataPersistenceRootLocks.locks, persistenceRoot)
-		}
-	}
-}
-
-func validateMetadataPersistenceRoot(persistenceRoot string) error {
-	store, err := metadata.Open(persistenceRoot)
-	if err != nil {
-		return fmt.Errorf("open metadata database: %w", err)
-	}
-	if err := store.Close(); err != nil {
-		return fmt.Errorf("close metadata database: %w", err)
-	}
-	return nil
-}
-
-func materializeCurrentMetadataDatabase(persistenceRoot string) error {
-	return databaseseed.MaterializeCurrentMetadataDatabase(persistenceRoot, metadata.Open)
 }

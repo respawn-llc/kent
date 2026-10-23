@@ -1556,7 +1556,7 @@ func TestInProcessRunPromptTimeoutCoversHistoryAndRunCleanup(t *testing.T) {
 			t.Fatal("queued provider request did not start")
 		}
 		// Exercise deadline cleanup after queued work actually starts. The scope
-		// timer's deadline propagation is tested separately with a virtual clock.
+		// timer's expiry and real execution cleanup are tested with a virtual clock.
 		cancel(context.DeadlineExceeded)
 		select {
 		case err := <-done:

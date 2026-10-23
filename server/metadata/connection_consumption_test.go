@@ -6,7 +6,6 @@ import (
 	"time"
 
 	"core/internal/testharness/testsetup"
-	"core/server/metadata"
 	"core/shared/config"
 )
 
@@ -59,10 +58,8 @@ func TestConnectionConsumptionExpiresWithoutWrites(t *testing.T) {
 
 func TestConnectionConsumptionReloads(t *testing.T) {
 	root := t.TempDir()
-	store, err := metadata.Open(root)
-	if err != nil {
-		t.Fatal(err)
-	}
+	open := testsetup.StoreOpener(t, root)
+	store := open()
 	ctx := context.Background()
 	now := time.Now()
 	totals, err := store.ConnectionConsumption(ctx, []config.ConnectionID{"a"}, now)
@@ -75,11 +72,7 @@ func TestConnectionConsumptionReloads(t *testing.T) {
 	if err := store.Close(); err != nil {
 		t.Fatal(err)
 	}
-	store, err = metadata.Open(root)
-	if err != nil {
-		t.Fatal(err)
-	}
-	t.Cleanup(func() { _ = store.Close() })
+	store = open()
 	totals, err = store.ConnectionConsumption(ctx, []config.ConnectionID{"a"}, now)
 	if err != nil || totals["a"] != 42 {
 		t.Fatalf("reloaded totals = %v, error = %v", totals, err)

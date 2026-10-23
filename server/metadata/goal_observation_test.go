@@ -88,11 +88,7 @@ func TestGoalObservationHydratesDormantSessionAndPublishesLaterPersistence(t *te
 func TestGoalObservationPublishesAvailabilityOnlyContractChanges(t *testing.T) {
 	root := t.TempDir()
 	workspace := t.TempDir()
-	metadataStore, err := Open(root)
-	if err != nil {
-		t.Fatalf("Open: %v", err)
-	}
-	t.Cleanup(func() { _ = metadataStore.Close() })
+	metadataStore := openInMemoryMetadataTestStore(t, root)
 	binding, err := metadataStore.RegisterWorkspaceBinding(t.Context(), workspace)
 	if err != nil {
 		t.Fatalf("RegisterWorkspaceBinding: %v", err)

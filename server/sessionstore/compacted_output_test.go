@@ -6,7 +6,7 @@ import (
 	"reflect"
 	"testing"
 
-	"core/server/metadata"
+	"core/internal/testharness/testsetup"
 	"core/server/sessionstore"
 	"core/server/workflow"
 	"core/shared/rollbacktarget"
@@ -18,11 +18,7 @@ func TestCompactedOutputSurvivesReopenAndClone(t *testing.T) {
 	for _, engine := range []session.CompactionEngine{session.CompactionEngineLocal, session.CompactionEngineRemote} {
 		t.Run(string(engine), func(t *testing.T) {
 			root, workspace := t.TempDir(), t.TempDir()
-			persistence, err := metadata.Open(root)
-			if err != nil {
-				t.Fatal(err)
-			}
-			t.Cleanup(func() { _ = persistence.Close() })
+			persistence := testsetup.OpenStore(t, root)
 			binding, err := persistence.RegisterWorkspaceBinding(t.Context(), workspace)
 			if err != nil {
 				t.Fatal(err)

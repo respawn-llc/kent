@@ -117,12 +117,8 @@ func (r *Runtime) Close() error {
 	return r.provider.Stop()
 }
 
-func (r *Runtime) SeedSession(ctx context.Context, persistenceRoot string, workspaceRoot string) (string, error) {
-	store, err := metadata.Open(persistenceRoot)
-	if err != nil {
-		return "", fmt.Errorf("open metadata store for seed session: %w", err)
-	}
-	defer func() { _ = store.Close() }()
+func (r *Runtime) SeedSession(ctx context.Context, store *metadata.Store, workspaceRoot string) (string, error) {
+	persistenceRoot := store.PersistenceRoot()
 	binding, err := store.EnsureWorkspaceBinding(ctx, workspaceRoot)
 	if err != nil {
 		return "", fmt.Errorf("resolve seed workspace binding: %w", err)

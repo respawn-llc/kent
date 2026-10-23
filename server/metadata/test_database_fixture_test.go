@@ -28,6 +28,19 @@ func openLatestMetadataTestDatabase(t testing.TB) *sql.DB {
 	return databaseseed.OpenCurrentMetadataDatabase(t)
 }
 
+func metadataTestStoreOpener(t *testing.T, persistenceRoot string) func() *Store {
+	t.Helper()
+	open := databaseseed.CurrentMetadataDatabaseOpener(t)
+	return func() *Store {
+		store, err := NewStore(persistenceRoot, open())
+		if err != nil {
+			t.Fatalf("NewStore: %v", err)
+		}
+		t.Cleanup(func() { _ = store.Close() })
+		return store
+	}
+}
+
 func openEmptyMetadataTestDatabase(t testing.TB) *sql.DB {
 	t.Helper()
 	return databaseseed.OpenEmptyMetadataDatabase(t)
