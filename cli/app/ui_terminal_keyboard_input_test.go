@@ -6,6 +6,7 @@ import (
 	"testing"
 
 	"core/shared/clientui"
+	"core/shared/runtimeinput"
 	tea "github.com/charmbracelet/bubbletea"
 )
 
@@ -99,6 +100,9 @@ func TestProgramXtermCtrlEnterSubmitsDraft(t *testing.T) {
 	result := runTerminalInputProgramAfterKeys(t, model, "\x1b[27;5;13~\x03", 1)
 	if len(result.injectedQueue) != 1 || testMainInput(result) != "" {
 		t.Fatal("xterm Ctrl+Enter did not submit the composer")
+	}
+	if result.injectedQueue[0].Request.Intent != runtimeinput.PendingWorkLaneQueue {
+		t.Fatal("xterm Ctrl+Enter did not select Queue")
 	}
 }
 
