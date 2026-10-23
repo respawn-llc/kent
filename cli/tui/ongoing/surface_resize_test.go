@@ -197,10 +197,20 @@ func TestDirectTerminalExpansionErasesPreviousMutableBand(t *testing.T) {
 	if err != nil {
 		t.Fatalf("new terminal stream: %v", err)
 	}
+	var retired []string
 	feedFrame := func(operation string) {
 		t.Helper()
-		if err := stream.Feed(output.Bytes()); err != nil {
-			t.Fatalf("%s terminal bytes: %v", operation, err)
+		for _, b := range output.Bytes() {
+			before, err := stream.ScreenSnapshot()
+			if err != nil {
+				t.Fatal(err)
+			}
+			if err := stream.Feed([]byte{b}); err != nil {
+				t.Fatalf("%s terminal bytes: %v", operation, err)
+			}
+			if b == '\n' && before.Cursor.Row == 27 {
+				retired = append(retired, screenRow(before, 0))
+			}
 		}
 		output.Reset()
 	}
@@ -223,6 +233,11 @@ func TestDirectTerminalExpansionErasesPreviousMutableBand(t *testing.T) {
 		t.Fatalf("resize direct-terminal live band: %v", err)
 	}
 	feedFrame("resize direct-terminal live band")
+	for _, witness := range []string{"IMMUTABLE", "OLD_LIVE_TOP", "OLD_LIVE_BOTTOM"} {
+		if !strings.Contains(strings.Join(retired, "\n"), witness) {
+			t.Fatalf("fresh viewport lost %q: retired=%q", witness, retired)
+		}
+	}
 	snapshot, err := stream.ScreenSnapshot()
 	if err != nil {
 		t.Fatalf("snapshot after expansion: %v", err)
@@ -236,6 +251,18 @@ func TestDirectTerminalExpansionErasesPreviousMutableBand(t *testing.T) {
 	}
 	if got := screenRow(snapshot, 27); got != "NEW_LIVE_BOTTOM" {
 		t.Fatalf("expanded live band bottom row = %q, want NEW_LIVE_BOTTOM", got)
+	}
+	retired = nil
+	surface.ObserveResize(Size{Width: 80, Height: 29})
+	surface.ObserveResize(expanded.Size)
+	if _, err := surface.Render(expanded); err != nil {
+		t.Fatal(err)
+	}
+	feedFrame("unpainted resize round trip")
+	for _, witness := range []string{"NEW_LIVE_TOP", "NEW_LIVE_BOTTOM"} {
+		if !strings.Contains(strings.Join(retired, "\n"), witness) {
+			t.Fatalf("resize round trip lost %q: retired=%q", witness, retired)
+		}
 	}
 }
 
