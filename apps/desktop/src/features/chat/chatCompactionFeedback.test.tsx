@@ -1,7 +1,8 @@
+import { act } from "@testing-library/react";
 import { expect, it, vi } from "bun:test";
 import { QueryClient } from "@tanstack/react-query";
 import { waitFor } from "@testing-library/react";
-import { ChatRuntimeOwner } from "@/app-facade";
+import { RuntimeHarness } from "@/test-support/chat-runtime";
 import { createTestServices } from "@/test-support/app-services";
 import { hydration, runtimeApi, runtimeHost, target } from "@/test-support/chat-runtime";
 import { chatCompactionFeedback } from "./chatCompactionFeedback";
@@ -16,50 +17,58 @@ it.each([false, true])(
     const notify = vi.spyOn(services.nativeBridge.notifications, "notify").mockResolvedValue();
     const fixture = runtimeApi();
     const host = chatCompactionFeedback(services, target);
-    const owner = new ChatRuntimeOwner(fixture.api, target, new QueryClient(), runtimeHost(host));
+    const owner = new RuntimeHarness(fixture.api, target, new QueryClient(), runtimeHost(host));
     owner.start();
     const initial = hydration();
-    fixture.handlers[0]?.onEvent({
-      sequence: 1,
-      kind: "hydration",
-      payload: {
-        ...initial,
-        RuntimeReadModelUpdate: {
-          ...initial.RuntimeReadModelUpdate,
-          Activity: {
-            ...initial.RuntimeReadModelUpdate.Activity,
-            ActiveStep: { StepID: "step", ActiveKind: "compaction" },
+    await act(async () => {
+      fixture.handlers[0]?.onEvent({
+        sequence: 1,
+        kind: "hydration",
+        payload: {
+          ...initial,
+          RuntimeReadModelUpdate: {
+            ...initial.RuntimeReadModelUpdate,
+            Activity: {
+              ...initial.RuntimeReadModelUpdate.Activity,
+              ActiveStep: { StepID: "step", ActiveKind: "compaction" },
+            },
           },
         },
-      },
+      });
     });
-    fixture.handlers[0]?.onEvent({
-      sequence: 2,
-      kind: "compaction_status",
-      payload: {
-        StepID: "step",
-        Mode: "manual",
-        Count: 3,
-        State: "completed",
-      },
+    await act(async () => {
+      fixture.handlers[0]?.onEvent({
+        sequence: 2,
+        kind: "compaction_status",
+        payload: {
+          StepID: "step",
+          Mode: "manual",
+          Count: 3,
+          State: "completed",
+        },
+      });
     });
     expect(notify).not.toHaveBeenCalled();
-    fixture.handlers[1]?.onOpen?.();
-    fixture.handlers[1]?.onEvent({
-      sequence: 1,
-      kind: "hydration",
-      payload: {
-        ...initial,
-        SessionStatus: { ...initial.SessionStatus, CompactionCount: 3 },
-        RuntimeReadModelUpdate: {
-          Version: { Epoch: "epoch-1", Generation: 1, Sequence: 3 },
-          Activity: {
-            ...initial.RuntimeReadModelUpdate.Activity,
-            State: "registered_idle",
-            ActiveStep: null,
+    await act(async () => {
+      fixture.handlers[1]?.onOpen?.();
+    });
+    await act(async () => {
+      fixture.handlers[1]?.onEvent({
+        sequence: 1,
+        kind: "hydration",
+        payload: {
+          ...initial,
+          SessionStatus: { ...initial.SessionStatus, CompactionCount: 3 },
+          RuntimeReadModelUpdate: {
+            Version: { Epoch: "epoch-1", Generation: 1, Sequence: 3 },
+            Activity: {
+              ...initial.RuntimeReadModelUpdate.Activity,
+              State: "registered_idle",
+              ActiveStep: null,
+            },
           },
         },
-      },
+      });
     });
     await waitFor(() => {
       expect(services.nativeBridge.window.isFocused).toHaveBeenCalledTimes(1);
@@ -76,7 +85,7 @@ it.each([false, true])(
         target: { kind: "session_prompt", projectID: target.projectID, sessionID: target.sessionID },
       }),
     );
-    await owner.dispose();
+    owner.dispose();
   },
 );
 

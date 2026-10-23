@@ -3,7 +3,6 @@ import { vi, type Mock } from "bun:test";
 import type {
   ChatMainViewRead,
   ChatSessionTarget,
-  ChatTranscriptHandler,
   ChatTranscriptPage,
   ChatTranscriptPayloadByKind,
 } from "@/api";
@@ -15,6 +14,10 @@ import {
   type ChatRuntimeHost,
 } from "@/app-facade";
 import { row } from "@/test-support/transcript-window";
+import { transcriptSource, type ChatTranscriptHandler } from "./observation";
+export { transcriptSource, observeTranscript, type ChatTranscriptHandler } from "./observation";
+export { RuntimeHarness } from "./runtime";
+export { TranscriptHarness } from "./transcript";
 
 export const target: ChatSessionTarget = {
   projectID: "project-1",
@@ -289,10 +292,12 @@ export function runtimeApi({
     const page = pages[pageIndex++];
     return page ?? Promise.reject(new Error("Unexpected transcript page call."));
   });
-  const subscribeTranscript = vi.fn((_target: ChatSessionTarget, handler: ChatTranscriptHandler) => {
-    handlers.push(handler);
-    return { close: vi.fn() };
-  });
+  const subscribeTranscript = vi.fn(() =>
+    transcriptSource((handler) => {
+      handlers.push(handler);
+      return { close: vi.fn() };
+    }),
+  );
   const api: ChatRuntimeApi = { getMainView, getTranscriptPage, subscribeTranscript };
   return { api, getMainView, getTranscriptPage, subscribeTranscript, handlers };
 }

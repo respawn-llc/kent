@@ -189,13 +189,11 @@ export type ChatTranscriptCompletion = Readonly<{
   message: string | null;
   reason: "subscriber_overflow" | "contract_violation" | null;
 }>;
-export type ChatTranscriptHandler = Readonly<{
-  onOpen?(): void;
-  onTransportLoss?(): void;
-  onEvent(event: ChatTranscriptMessage): void;
-  onComplete(completion: ChatTranscriptCompletion): void;
-  onError(error: Error): void;
-}>;
+export type ChatTranscriptObservation =
+  | Readonly<{ kind: "open" }>
+  | Readonly<{ kind: "event"; event: ChatTranscriptMessage }>
+  | Readonly<{ kind: "complete"; completion: ChatTranscriptCompletion }>
+  | Readonly<{ kind: "error"; error: Error }>;
 export type ChatGoalObservationHandler = Readonly<{
   onOpen?(): void;
   onEvent(observation: ChatGoalObservation): void;
@@ -262,6 +260,9 @@ export type ChatApi = Readonly<{
     cursor?: Readonly<{ direction: "older" | "newer"; value: number }>,
   ): Promise<ChatTranscriptPage>;
   activateRuntime(target: ChatSessionTarget): Promise<void>;
-  subscribeTranscript(target: ChatSessionTarget, handler: ChatTranscriptHandler): ApiSubscription;
+  subscribeTranscript(
+    target: ChatSessionTarget,
+    reportOverflow: () => Promise<void>,
+  ): Stream.Stream<ChatTranscriptObservation>;
   subscribeGoal(target: ChatSessionTarget, handler: ChatGoalObservationHandler): ApiSubscription;
 }>;
