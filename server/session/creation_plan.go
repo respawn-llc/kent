@@ -209,7 +209,7 @@ func publishCreationMetadata(ctx context.Context, plan CreationPlan, options ...
 		}
 		return err
 	}
-	if err := opts.observer.ObservePersistedStore(ctx, plan.Snapshot()); err != nil {
+	if _, err := opts.observer.ObservePersistedStore(ctx, plan.Snapshot()); err != nil {
 		return err
 	}
 	return nil
@@ -358,7 +358,7 @@ func materializeCreationArtifacts(ctx context.Context, plan CreationPlan, record
 		if info.Size() == 0 {
 			return errors.New("created Session event log is empty")
 		}
-		log, err := openCurrentEventLog(eventsPath, currentEventLogPersistedSnapshot)
+		log, err := openCommittedEventLog(eventsPath, currentEventLogPersistedSnapshot, record.Meta.LastSequence)
 		if err != nil {
 			return err
 		}
@@ -423,7 +423,8 @@ func materializeCreationArtifacts(ctx context.Context, plan CreationPlan, record
 		return fmt.Errorf("publish created Session event log: %w", err)
 	}
 	if cloneSnapshot != nil {
-		return opts.observer.ObservePersistedStore(ctx, *cloneSnapshot)
+		_, err := opts.observer.ObservePersistedStore(ctx, *cloneSnapshot)
+		return err
 	}
 	return nil
 }

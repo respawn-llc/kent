@@ -1822,6 +1822,14 @@ SET updated_at_unix_ms = updated_at_unix_ms
 WHERE project_id = sqlc.arg(project_id)
   AND id = sqlc.arg(workspace_id);
 
+-- name: ListAppendJournalCutoverSessionIDs :many
+SELECT id
+FROM sessions
+WHERE CAST(sqlc.narg(after_id) AS TEXT) IS NULL
+   OR id > CAST(sqlc.narg(after_id) AS TEXT)
+ORDER BY id
+LIMIT 100;
+
 -- name: ListWorkspaceSessionIDs :many
 SELECT id
 FROM sessions

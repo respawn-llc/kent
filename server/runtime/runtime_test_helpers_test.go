@@ -329,11 +329,13 @@ type testPersistenceObserver struct {
 func (o testPersistenceObserver) ObservePersistedStore(
 	ctx context.Context,
 	snapshot session.PersistedStoreSnapshot,
-) error {
-	return errors.Join(
-		o.reconciler.ObservePersistedStore(ctx, snapshot),
-		o.observer.ObservePersistedStore(ctx, snapshot),
-	)
+) (session.CommitReceipt, error) {
+	receipt, err := o.reconciler.ObservePersistedStore(ctx, snapshot)
+	if err != nil {
+		return receipt, err
+	}
+	_, observationErr := o.observer.ObservePersistedStore(ctx, snapshot)
+	return receipt, observationErr
 }
 
 func (o testPersistenceObserver) ObserveEventLogReconciliation(

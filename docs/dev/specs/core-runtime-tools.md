@@ -227,6 +227,8 @@ You can use `kent run steer <source-session-id> "message"` to respond.
 - Before another provider request, Agent Step completion, history replacement, compaction, Question, Approval, or Workflow effect, every compatible complete tool result already owned by the current Agent Step is durable. A delayed background result becomes durable through its own Steering delivery rather than as part of an unrelated Agent Step.
 - Interruption, user cancellation, provider failure, validation failure, and other recoverable errors finish the Agent Step. Kent makes their honest interruption or error results, notices, and warnings durable before it exposes committed transcript entries or terminal presentation for that outcome.
 - A persistence failure before a Result Group becomes durable leaves that Result Group absent from the committed transcript and from committed client presentation. Kent surfaces the persistence error and ends the Exact Execution Scope without retrying that persistence operation or creating pending-persistence state. It must not invent a semantic terminal transcript outcome for the absent group.
+- A complete Result Group and the Session state it changes share one authoritative commit decision.
+- Reopening a Session must not promote uncommitted transcript content into committed history.
 - Once a Result Group is durable, later persistence observation or live-delivery failure never rolls it back or causes Kent to append it again. Reconnect and reopen hydration restore the authoritative committed Result Group.
 - A failure while making an effect barrier durable blocks its pending Question, Approval, or Workflow effect and ends the Exact Execution Scope. Any already-durable Result Group is authoritative and is never appended again.
 - A failure that prevents a model turn from starting is persisted as a user-visible developer diagnostic. Local command and validation failures that do not block a turn are ordinary errors.
@@ -453,6 +455,7 @@ You can use `kent run steer <source-session-id> "message"` to respond.
 
 ## Compaction
 
+- Reopening a Session must not resume an unfinished handoff or compaction.
 - Compaction starts a new bounded active conversation while retaining the full durable Session history. Every successful compaction must commit its immutable output independently of later model work. Kent must show the compaction summary when compaction finishes. The first live request using that output must prepare and commit only its fresh generation context without modifying or saving another copy of the output.
 - All compaction triggers must share one context-replacement operation. Preparing a saved summary for its next operation must not run compaction again, increment the completed-compaction count, or repeat compaction completion feedback.
 - When configuration selects no mode, `compaction_mode=dynamic` must be the default. Explicit `local`, `native`, and `none` selections must use their defined behavior.

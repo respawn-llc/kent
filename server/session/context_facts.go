@@ -83,6 +83,14 @@ func (s *Store) SetSessionContextFacts(completedCompactionCount int, manualCompa
 	if completedCompactionCount < 0 {
 		return errors.New("completed compaction count must be non-negative")
 	}
+	s.mutationMu.Lock()
+	defer s.mutationMu.Unlock()
+	s.mu.Lock()
+	err := s.terminalPersistenceError
+	s.mu.Unlock()
+	if err != nil {
+		return err
+	}
 	if s.options.contextFactWriter == nil {
 		return errors.New("Session Context-fact writer is required")
 	}
@@ -107,6 +115,14 @@ func (s *Store) SetSessionContextFacts(completedCompactionCount int, manualCompa
 func (s *Store) SetManualCompactEligibility(eligible bool) error {
 	if s == nil {
 		return errors.New("session store is required")
+	}
+	s.mutationMu.Lock()
+	defer s.mutationMu.Unlock()
+	s.mu.Lock()
+	err := s.terminalPersistenceError
+	s.mu.Unlock()
+	if err != nil {
+		return err
 	}
 	if s.options.contextFactWriter == nil {
 		return errors.New("Session Context-fact writer is required")

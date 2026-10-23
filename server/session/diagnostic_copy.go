@@ -67,8 +67,7 @@ func OpenDiagnosticSessionCopy(
 	if err := os.Mkdir(copyDir, 0o700); err != nil {
 		return nil, fmt.Errorf("create diagnostic Session copy: %w", err)
 	}
-	record, err = copyDiagnosticSessionEvents(ctx, resolver, id, record, copyDir)
-	if err != nil {
+	if err := copyDiagnosticSessionEvents(record, copyDir); err != nil {
 		return nil, err
 	}
 	authority := &diagnosticCopyPersistence{
@@ -136,44 +135,23 @@ func (c *DiagnosticSessionCopy) Close() error {
 }
 
 func copyDiagnosticSessionEvents(
-	ctx context.Context,
-	resolver PersistedSessionResolver,
-	sessionID string,
-	initial PersistedSessionRecord,
+	record PersistedSessionRecord,
 	destinationDir string,
-) (_ PersistedSessionRecord, resultErr error) {
-	lock, stableLockPath, err := acquireEventLogPersistenceLock(initial.SessionDir)
-	if err != nil {
-		return PersistedSessionRecord{}, err
-	}
-	defer joinEventLogPersistenceLockRelease(&resultErr, lock, stableLockPath)
-	record, err := resolver.ResolvePersistedSession(ctx, sessionID)
-	if err != nil {
-		return PersistedSessionRecord{}, err
-	}
-	if err := validatePersistedSessionRecord(sessionID, record); err != nil {
-		return PersistedSessionRecord{}, err
-	}
-	if record.SessionDir != initial.SessionDir {
-		return PersistedSessionRecord{}, fmt.Errorf(
-			"diagnostic Session source moved from %q to %q",
-			initial.SessionDir,
-			record.SessionDir,
-		)
-	}
+) error {
 	if err := copyDiagnosticEventLog(
 		filepath.Join(record.SessionDir, eventsFile),
 		filepath.Join(destinationDir, eventsFile),
+		record.Meta.LastSequence,
 	); err != nil {
-		return PersistedSessionRecord{}, err
+		return err
 	}
 	if err := initializeEventLogPersistenceLock(destinationDir); err != nil {
-		return PersistedSessionRecord{}, err
+		return err
 	}
-	return record, nil
+	return nil
 }
 
-func copyDiagnosticEventLog(sourcePath, destinationPath string) (resultErr error) {
+func copyDiagnosticEventLog(sourcePath, destinationPath string, sequence int64) (resultErr error) {
 	classification, err := classifyEventLogSource(sourcePath)
 	if err != nil {
 		return fmt.Errorf("classify source event log for diagnostic copy: %w", err)
@@ -193,7 +171,7 @@ func copyDiagnosticEventLog(sourcePath, destinationPath string) (resultErr error
 			classification.source,
 		)
 	}
-	log, err := openCurrentEventLog(sourcePath, currentEventLogReadOnly)
+	log, err := openCommittedEventLog(sourcePath, currentEventLogReadOnly, sequence)
 	if err != nil {
 		return fmt.Errorf("open source event log for diagnostic copy: %w", err)
 	}
@@ -277,14 +255,14 @@ func (p *diagnosticCopyPersistence) ResolvePersistedSession(
 func (p *diagnosticCopyPersistence) ObservePersistedStore(
 	_ context.Context,
 	snapshot PersistedStoreSnapshot,
-) error {
+) (CommitReceipt, error) {
 	p.mu.Lock()
 	defer p.mu.Unlock()
 	p.record = PersistedSessionRecord{
 		SessionDir: snapshot.SessionDir,
 		Meta:       diagnosticCopyMeta(&snapshot.Meta),
 	}
-	return nil
+	return CommitReceipt{Committed: true}, nil
 }
 
 func (p *diagnosticCopyPersistence) ObserveEventLogReconciliation(

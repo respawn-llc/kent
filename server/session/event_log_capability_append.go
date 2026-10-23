@@ -3,8 +3,6 @@ package session
 import (
 	"errors"
 	"fmt"
-	"io"
-	"os"
 	"time"
 
 	"core/shared/transcript"
@@ -258,7 +256,15 @@ func (c MaterializedEventLog) appendRecordInputsAtomic(
 		return recordAppendOutcome{}, err
 	}
 	defer joinEventLogPersistenceLockRelease(&resultErr, lock, lockPath)
+	currentMeta, err := resolvePersistedSessionMetaForDir(s.sessionDir, s.options)
+	if err != nil {
+		return recordAppendOutcome{}, err
+	}
 	s.mu.Lock()
+	if err := s.requireMetadataPersistenceLocked(); err != nil {
+		s.mu.Unlock()
+		return recordAppendOutcome{}, err
+	}
 	log := s.materializedEventLog
 	if c.log == nil || log != c.log {
 		s.mu.Unlock()
@@ -274,6 +280,10 @@ func (c MaterializedEventLog) appendRecordInputsAtomic(
 			s.meta.LastSequence,
 		)
 	}
+	if currentMeta.LastSequence != log.lastSequence {
+		s.mu.Unlock()
+		return recordAppendOutcome{}, errors.New("Session transcript advanced through another writer")
+	}
 	appendNow := storeTimestamp(s.options)
 	records, err := buildAppendRecords(inputs, log.version, log.lastSequence, appendNow)
 	if err != nil {
@@ -282,6 +292,7 @@ func (c MaterializedEventLog) appendRecordInputsAtomic(
 	}
 
 	previousMeta := cloneMeta(s.meta)
+	previousVersion := s.metadataVersion
 	previousFreshness := s.conversationFreshness
 	if err := s.advanceAppendedRecordMetadataLocked(records); err != nil {
 		s.meta = previousMeta
@@ -304,17 +315,11 @@ func (c MaterializedEventLog) appendRecordInputsAtomic(
 			return recordAppendOutcome{}, nil
 		}
 	}
-	if err := s.requireMetadataPersistenceLocked(); err != nil {
-		s.meta = previousMeta
-		s.conversationFreshness = previousFreshness
-		s.mu.Unlock()
-		return recordAppendOutcome{records: records}, err
-	}
-
 	postMeta := cloneMeta(s.meta)
 	postMeta.LastSequence = records[len(records)-1].Seq()
 	postMeta.UpdatedAt = appendNow
-	endOffset, err := s.appendCurrentRecordsLocked(log, records, previousMeta, postMeta)
+	candidate := *log
+	endOffset, err := candidate.appendRecords(records)
 	if err != nil {
 		s.meta = previousMeta
 		s.conversationFreshness = previousFreshness
@@ -323,23 +328,36 @@ func (c MaterializedEventLog) appendRecordInputsAtomic(
 	}
 	endByteCursor := &endOffset
 	s.meta = postMeta
-	observation, err := s.persistMetaAfterRecoveryVerifiedLocked()
+	observation, err := s.preparePersistenceObservationLocked()
 	if err != nil {
+		s.meta = previousMeta
+		s.conversationFreshness = previousFreshness
 		s.mu.Unlock()
-		return recordAppendOutcome{
-			records:       records,
-			committed:     true,
-			endByteCursor: endByteCursor,
-		}, err
+		return recordAppendOutcome{records: records}, err
+	}
+	s.meta = previousMeta
+	s.conversationFreshness = previousFreshness
+	s.mu.Unlock()
+	receipt, persistErr := s.observePersistenceReceipt(observation)
+	if !receipt.Committed {
+		s.mu.Lock()
+		s.metadataVersion = previousVersion
+		s.mu.Unlock()
+		return recordAppendOutcome{records: records}, persistErr
+	}
+	s.mu.Lock()
+	*log = candidate
+	s.meta = postMeta
+	if postMeta.ConversationEstablished {
+		s.conversationFreshness = ConversationFreshnessEstablished
 	}
 	s.mu.Unlock()
-
 	outcome = recordAppendOutcome{
 		records:       records,
 		committed:     true,
 		endByteCursor: endByteCursor,
 	}
-	return outcome, s.observePersistenceAndClearAppendRecovery(observation)
+	return outcome, persistErr
 }
 
 func buildAppendRecords(inputs []EventRecordAppendInput, version int, previousSequence int64, now time.Time) ([]EventRecord, error) {
@@ -458,46 +476,6 @@ func advanceActiveWorkflowAssignmentFromRecords(meta *Meta, records []EventRecor
 		}
 	}
 	return nil
-}
-
-func (s *Store) appendCurrentRecordsLocked(log *currentEventLog, records []EventRecord, preMeta Meta, postMeta Meta) (int64, error) {
-	var recovery appendRecoveryRecord
-	return log.appendRecordsWithTransaction(records, &currentEventLogAppendTransaction{
-		prepare: func(startOffset int64, payload []byte) error {
-			record, err := s.newAppendRecoveryRecord(preMeta, postMeta, appendRecoveryPrepared, &appendRecoveryEvents{
-				StartOffset: startOffset, EndOffset: startOffset + int64(len(payload)),
-				EventCount: len(records), FirstSequence: records[0].Seq(),
-				LastSequence: records[len(records)-1].Seq(), SHA256: digestBytes(payload),
-			})
-			if err != nil {
-				return err
-			}
-			recovery = record
-			return s.writeAppendRecoveryRecord(recovery)
-		},
-		commit: func() error {
-			recovery.Phase = appendRecoveryCommitted
-			return s.writeAppendRecoveryRecord(recovery)
-		},
-		rollback: s.rollbackPreparedCurrentEventAppend,
-	})
-}
-
-func (s *Store) rollbackPreparedCurrentEventAppend(fp *os.File, startOffset int64, appendErr error) error {
-	rollbackErr := fp.Truncate(startOffset)
-	if rollbackErr == nil {
-		rollbackErr = fp.Sync()
-	}
-	if rollbackErr == nil {
-		_, rollbackErr = fp.Seek(0, io.SeekEnd)
-	}
-	if rollbackErr == nil {
-		rollbackErr = s.clearAppendRecoveryRecord()
-	}
-	if rollbackErr != nil {
-		return s.closeMutationAuthorityLocked("rollback failed current event append", errors.Join(appendErr, rollbackErr))
-	}
-	return appendErr
 }
 
 func (s *Store) captureFirstPromptPreviewFromRecordsLocked(records []EventRecord) error {

@@ -89,7 +89,7 @@ func (g *PersistenceGate) arm(step *persistenceGateStep) {
 	g.next = step
 }
 
-func (g *PersistenceGate) ObservePersistedStore(ctx context.Context, snapshot session.PersistedStoreSnapshot) error {
+func (g *PersistenceGate) ObservePersistedStore(ctx context.Context, snapshot session.PersistedStoreSnapshot) (session.CommitReceipt, error) {
 	g.mu.Lock()
 	step := g.next
 	if step != nil && (step.match == nil || step.match(snapshot)) {
@@ -104,11 +104,11 @@ func (g *PersistenceGate) ObservePersistedStore(ctx context.Context, snapshot se
 			select {
 			case <-step.release:
 			case <-ctx.Done():
-				return ctx.Err()
+				return session.CommitReceipt{}, session.DefinitelyUncommittedMutation(ctx.Err())
 			}
 		}
 		if step.err != nil {
-			return step.err
+			return session.CommitReceipt{}, session.DefinitelyUncommittedMutation(step.err)
 		}
 	}
 	return g.delegate.ObservePersistedStore(ctx, snapshot)

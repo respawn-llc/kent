@@ -45,7 +45,7 @@ func TestCommittedCloneReplaysThroughTheOwningSourceStore(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := sessionTestPersistence.ObservePersistedStore(t.Context(), plan.Snapshot()); err != nil {
+	if _, err := sessionTestPersistence.ObservePersistedStore(t.Context(), plan.Snapshot()); err != nil {
 		t.Fatal(err)
 	}
 	foreign := newSessionTestStoreAt(t, t.TempDir())
@@ -113,7 +113,7 @@ func TestResumeCreationPreservesCommittedCloneAndSource(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := sessionTestPersistence.ObservePersistedStore(t.Context(), plan.Snapshot()); err != nil {
+	if _, err := sessionTestPersistence.ObservePersistedStore(t.Context(), plan.Snapshot()); err != nil {
 		t.Fatal(err)
 	}
 	record, err := ResolvePersistedSessionRecord(t.Context(), sessionTestPersistence, id.String())
@@ -187,7 +187,7 @@ func TestCommittedCreationPreservesExistingConversation(t *testing.T) {
 	if _, err := MaterializeCommittedCreation(t.Context(), plan, options...); !errors.Is(err, ErrSessionNotFound) {
 		t.Fatalf("uncommitted creation = %v", err)
 	}
-	if err := sessionTestPersistence.ObservePersistedStore(t.Context(), snapshot); err != nil {
+	if _, err := sessionTestPersistence.ObservePersistedStore(t.Context(), snapshot); err != nil {
 		t.Fatal(err)
 	}
 	store, err := MaterializeCommittedCreation(t.Context(), plan, options...)
@@ -266,7 +266,7 @@ func TestCommittedClonePreservesSourceContextAndDoesNotReplayTwice(t *testing.T)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := sessionTestPersistence.ObservePersistedStore(t.Context(), plan.Snapshot()); err != nil {
+	if _, err := sessionTestPersistence.ObservePersistedStore(t.Context(), plan.Snapshot()); err != nil {
 		t.Fatal(err)
 	}
 	options := []StoreOption{WithPersistenceObserver(sessionTestPersistence), WithPersistedSessionResolver(sessionTestPersistence)}
@@ -343,8 +343,8 @@ func TestCommittedCreationRejectsDamagedEstablishedArtifacts(t *testing.T) {
 
 type failedCloneObserver struct{}
 
-func (failedCloneObserver) ObservePersistedStore(context.Context, PersistedStoreSnapshot) error {
-	return os.ErrPermission
+func (failedCloneObserver) ObservePersistedStore(context.Context, PersistedStoreSnapshot) (CommitReceipt, error) {
+	return CommitReceipt{}, DefinitelyUncommittedMutation(os.ErrPermission)
 }
 
 func (failedCloneObserver) ObserveEventLogReconciliation(ctx context.Context, reconciliation PersistedEventLogReconciliation) error {
@@ -366,7 +366,7 @@ func TestCommittedCloneDoesNotHideFailedMetadataPublication(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := sessionTestPersistence.ObservePersistedStore(t.Context(), plan.Snapshot()); err != nil {
+	if _, err := sessionTestPersistence.ObservePersistedStore(t.Context(), plan.Snapshot()); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := MaterializeCommittedClone(t.Context(), plan, log, WithPersistenceObserver(failedCloneObserver{}), WithPersistedSessionResolver(sessionTestPersistence)); err == nil {
@@ -390,7 +390,7 @@ func TestConcurrentCommittedCreationUsesOneArtifact(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := sessionTestPersistence.ObservePersistedStore(t.Context(), plan.Snapshot()); err != nil {
+	if _, err := sessionTestPersistence.ObservePersistedStore(t.Context(), plan.Snapshot()); err != nil {
 		t.Fatal(err)
 	}
 	var workers sync.WaitGroup
@@ -414,7 +414,7 @@ func TestCommittedCreationDoesNotAdoptIncompleteEmptyFile(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := sessionTestPersistence.ObservePersistedStore(t.Context(), plan.Snapshot()); err != nil {
+	if _, err := sessionTestPersistence.ObservePersistedStore(t.Context(), plan.Snapshot()); err != nil {
 		t.Fatal(err)
 	}
 	if err := os.MkdirAll(plan.Snapshot().SessionDir, 0o755); err != nil {

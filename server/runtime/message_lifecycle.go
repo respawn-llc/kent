@@ -2,7 +2,6 @@ package runtime
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"strings"
@@ -33,7 +32,6 @@ func newDefaultMessageLifecycle(engine *Engine) *defaultMessageLifecycle {
 func (m *defaultMessageLifecycle) RestoreMessages() error {
 	e := m.engine
 	meta := e.store.Meta()
-	recoveredHandoff := newPersistedHandoffRecovery()
 	reminderIssued := meta.CompactionSoonReminderIssued
 	var matchErr error
 	activeWindow, err := e.eventLog.ReadNewestSegmentBackward(compactionBoundaryMatcher(&matchErr))
@@ -111,7 +109,6 @@ func (m *defaultMessageLifecycle) RestoreMessages() error {
 				((msg.Content != nil && strings.TrimSpace(*msg.Content) != "") || len(msg.ReasoningItems) > 0) {
 				manualEligible = true
 			}
-			recoveredHandoff.ApplyMessage(msg)
 			if isCompactionSoonReminderMessage(msg) {
 				reminderIssued = true
 			}
@@ -127,13 +124,6 @@ func (m *defaultMessageLifecycle) RestoreMessages() error {
 				if _, ok := generation.expected[payload.CallID]; ok {
 					generation.completed[payload.CallID] = struct{}{}
 				}
-			}
-			completion, err := storedToolCompletionFromSessionRecord(payload)
-			if err != nil {
-				return fmt.Errorf("restore session tool completion record: %w", err)
-			}
-			if err := recoveredHandoff.ApplyToolCompletion(completion); err != nil {
-				return err
 			}
 		case session.LocalEntryRecord:
 			entry, err := storedLocalEntryFromSessionRecord(payload)
@@ -195,10 +185,6 @@ func (m *defaultMessageLifecycle) RestoreMessages() error {
 				return err
 			}
 			rollbackLocator.ObserveCompaction(replacement.LatestRollbackCandidate)
-			recoveredHandoff.ClearSatisfiedByCompaction()
-			if replacement.PendingHandoffFutureMessage != nil {
-				recoveredHandoff.SeedFutureMessage(*replacement.PendingHandoffFutureMessage)
-			}
 			e.resetPromptCacheObservationBaselines()
 			reminderIssued = false
 		case session.GenerationContextRecord:
@@ -229,12 +215,6 @@ func (m *defaultMessageLifecycle) RestoreMessages() error {
 	e.compactionRuntimeState().SetManualCompactionEligible(manualEligible)
 	if err := e.store.SetCompactionSoonReminderIssued(reminderIssued); err != nil {
 		return err
-	}
-	if futureMessage := recoveredHandoff.PendingFutureMessage(); futureMessage != "" {
-		e.handoffRuntimeState().QueueFutureMessage(futureMessage)
-	}
-	if req, ok := recoveredHandoff.PendingRequest(); ok {
-		e.handoffRuntimeState().QueueRequest(req.summarizerPrompt, req.futureAgentMessage)
 	}
 	return nil
 }
@@ -274,126 +254,6 @@ func isCompactionSoonReminderMessage(msg llm.Message) bool {
 		*msg.MessageType == llm.MessageTypeCompactionSoonReminder &&
 		msg.Content != nil &&
 		strings.TrimSpace(*msg.Content) != ""
-}
-
-type persistedHandoffRecovery struct {
-	toolCalls            map[string]llm.ToolCall
-	pending              *handoffRequest
-	pendingFutureMessage string
-}
-
-func newPersistedHandoffRecovery() *persistedHandoffRecovery {
-	return &persistedHandoffRecovery{toolCalls: make(map[string]llm.ToolCall)}
-}
-
-func (r *persistedHandoffRecovery) ApplyMessage(msg llm.Message) {
-	if r == nil {
-		return
-	}
-	if msg.MessageType != nil &&
-		*msg.MessageType == llm.MessageTypeHandoffFutureMessage &&
-		msg.Content != nil &&
-		strings.TrimSpace(*msg.Content) != "" {
-		r.pendingFutureMessage = ""
-	}
-	if msg.Role != llm.RoleAssistant {
-		return
-	}
-	for _, call := range msg.ToolCalls {
-		if toolspec.ID(strings.TrimSpace(call.Name)) != toolspec.ToolTriggerHandoff {
-			continue
-		}
-		callID := strings.TrimSpace(call.ID)
-		if callID == "" {
-			continue
-		}
-		r.toolCalls[callID] = llm.ToolCall{
-			ID:    callID,
-			Name:  string(toolspec.ToolTriggerHandoff),
-			Input: append(json.RawMessage(nil), call.Input...),
-		}
-	}
-}
-
-func (r *persistedHandoffRecovery) ApplyToolCompletion(completion storedToolCompletion) error {
-	if r == nil {
-		return nil
-	}
-	if toolspec.ID(strings.TrimSpace(completion.Name)) != toolspec.ToolTriggerHandoff || completion.IsError {
-		delete(r.toolCalls, strings.TrimSpace(completion.CallID))
-		return nil
-	}
-	callID := strings.TrimSpace(completion.CallID)
-	if callID == "" {
-		return nil
-	}
-	call, ok := r.toolCalls[callID]
-	if !ok {
-		return nil
-	}
-	delete(r.toolCalls, callID)
-	req, ok := handoffRequestFromToolCall(call)
-	if !ok {
-		return nil
-	}
-	r.pending = req
-	return nil
-}
-
-func (r *persistedHandoffRecovery) SeedFutureMessage(message string) {
-	if r == nil {
-		return
-	}
-	if trimmed := strings.TrimSpace(message); trimmed != "" {
-		r.pendingFutureMessage = trimmed
-	}
-}
-
-func (r *persistedHandoffRecovery) ClearSatisfiedByCompaction() {
-	if r == nil {
-		return
-	}
-	if r.pending != nil {
-		if futureMessage := strings.TrimSpace(r.pending.futureAgentMessage); futureMessage != "" {
-			r.pendingFutureMessage = futureMessage
-		}
-	}
-	r.pending = nil
-	r.toolCalls = make(map[string]llm.ToolCall)
-}
-
-func (r *persistedHandoffRecovery) PendingFutureMessage() string {
-	if r == nil {
-		return ""
-	}
-	return strings.TrimSpace(r.pendingFutureMessage)
-}
-
-func (r *persistedHandoffRecovery) PendingRequest() (*handoffRequest, bool) {
-	if r == nil || r.pending == nil {
-		return nil, false
-	}
-	req := *r.pending
-	return &req, true
-}
-
-func handoffRequestFromToolCall(call llm.ToolCall) (*handoffRequest, bool) {
-	if toolspec.ID(strings.TrimSpace(call.Name)) != toolspec.ToolTriggerHandoff {
-		return nil, false
-	}
-	var input struct {
-		SummarizerPrompt   string `json:"summarizer_prompt,omitempty"`
-		FutureAgentMessage string `json:"future_agent_message,omitempty"`
-	}
-	if len(call.Input) > 0 {
-		if err := json.Unmarshal(call.Input, &input); err != nil {
-			return nil, false
-		}
-	}
-	return &handoffRequest{
-		summarizerPrompt:   strings.TrimSpace(input.SummarizerPrompt),
-		futureAgentMessage: strings.TrimSpace(input.FutureAgentMessage),
-	}, true
 }
 
 func queuedUserMessageText(message QueuedUserMessage) string {

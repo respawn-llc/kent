@@ -333,11 +333,11 @@ func (p *lifecycleStepProbe) StepEnded(
 	return nil
 }
 
-func (o *lifecycleReminderQueueObserver) ObservePersistedStore(_ context.Context, snapshot session.PersistedStoreSnapshot) error {
+func (o *lifecycleReminderQueueObserver) ObservePersistedStore(_ context.Context, snapshot session.PersistedStoreSnapshot) (session.CommitReceipt, error) {
 	if snapshot.Meta.WorktreeReminder != nil {
 		o.once.Do(o.queue)
 	}
-	return nil
+	return session.CommitReceipt{Committed: true}, nil
 }
 
 type lifecycleRequestCaptureClient chan llm.Request
@@ -359,11 +359,11 @@ type lifecycleBarrierFailureObserver struct {
 func (o *lifecycleBarrierFailureObserver) ObservePersistedStore(
 	context.Context,
 	session.PersistedStoreSnapshot,
-) error {
+) (session.CommitReceipt, error) {
 	if o.armed.CompareAndSwap(true, false) {
-		return o.failure
+		return session.CommitReceipt{}, session.DefinitelyUncommittedMutation(o.failure)
 	}
-	return nil
+	return session.CommitReceipt{Committed: true}, nil
 }
 
 type lifecycleQuestionBarrierClient struct {
@@ -785,12 +785,12 @@ type lifecyclePersistenceObserver struct {
 	failuresRemaining atomic.Int32
 }
 
-func (o *lifecyclePersistenceObserver) ObservePersistedStore(context.Context, session.PersistedStoreSnapshot) error {
+func (o *lifecyclePersistenceObserver) ObservePersistedStore(context.Context, session.PersistedStoreSnapshot) (session.CommitReceipt, error) {
 	if o.failuresRemaining.Load() > 0 {
 		o.failuresRemaining.Add(-1)
-		return errors.New("worktree reminder persistence failed")
+		return session.CommitReceipt{}, session.DefinitelyUncommittedMutation(errors.New("worktree reminder persistence failed"))
 	}
-	return nil
+	return session.CommitReceipt{Committed: true}, nil
 }
 
 type authorityStartBarrierLifecycle struct {

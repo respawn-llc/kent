@@ -351,12 +351,12 @@ func TestEventLogVersionMatrixForkCloneAndDiagnosticCopyPreserveSourceVersion(t 
 	}
 }
 
-func TestEventLogVersionMatrixMigrationWorkspaceRecoveryInstallsStagedV1(t *testing.T) {
-	assertMigrationWorkspaceRecovery(t, EventLogVersionV1)
+func TestEventLogVersionMatrixDiscardsUninstalledStagedV1(t *testing.T) {
+	assertMigrationWorkspaceDiscard(t, EventLogVersionV1)
 }
 
-func TestEventLogVersionMatrixMigrationWorkspaceRecoveryPreservesStagedV2(t *testing.T) {
-	assertMigrationWorkspaceRecovery(t, expectedEventLogVersionV2)
+func TestEventLogVersionMatrixDiscardsUninstalledStagedV2(t *testing.T) {
+	assertMigrationWorkspaceDiscard(t, expectedEventLogVersionV2)
 }
 
 func TestEventLogV2QuestionCompletionRoundTrip(t *testing.T) {
@@ -507,12 +507,17 @@ func TestEventLogV2QuestionCompletionPreservesAuthoredFreeformWhitespace(t *test
 	}
 }
 
-func assertMigrationWorkspaceRecovery(t *testing.T, version int) {
+func assertMigrationWorkspaceDiscard(t *testing.T, version int) {
 	t.Helper()
 	store := newSessionTestStore(t)
 	path := filepath.Join(store.Dir(), eventsFile)
-	if err := os.Remove(path); err != nil && !errors.Is(err, os.ErrNotExist) {
-		t.Fatalf("remove source event log: %v", err)
+	log := mustMaterializeSessionTestEventLog(t, store)
+	if _, _, err := log.AppendRecord(nil, userMessagePayload(t, "committed")); err != nil {
+		t.Fatal(err)
+	}
+	before, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
 	}
 	workspace := eventLogMigrationWorkspacePath(store.Dir())
 	if err := ensureOwnedEventLogMigrationWorkspace(workspace); err != nil {
@@ -522,19 +527,29 @@ func assertMigrationWorkspaceRecovery(t *testing.T, version int) {
 	writeVersionedEventLog(t, stagedPath, version, []EventRecord{
 		mustVersionMatrixRecord(t, 1, MessageRoleUser, "staged"),
 	})
-	if err := markStagedCurrentEventLogReady(workspace); err != nil {
+	if err := os.WriteFile(filepath.Join(workspace, eventLogMigrationReadyMarkerFile), []byte("kent.session.events.migration.ready.v1\n"), 0o600); err != nil {
 		t.Fatalf("mark staged event log ready: %v", err)
 	}
 
-	log := mustMaterializeSessionTestEventLog(t, store)
+	reopened := mustOpenSessionTestStore(t, store)
+	log = mustMaterializeSessionTestEventLog(t, reopened)
 	window, err := log.ReadRecentRecords(1)
 	if err != nil {
-		t.Fatalf("read recovered v%d staged log: %v", version, err)
+		t.Fatalf("read committed log with abandoned v%d stage: %v", version, err)
 	}
 	if len(window.Records) != 1 || window.Records[0].Seq() != 1 {
-		t.Fatalf("recovered v%d staged records = %#v", version, window.Records)
+		t.Fatalf("committed records = %#v", window.Records)
 	}
-	assertEventLogVersion(t, path, version)
+	after, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !bytes.Equal(before, after) {
+		t.Fatal("reopen replaced committed history with abandoned stage")
+	}
+	if _, err := os.Stat(stagedPath); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("abandoned owned stage was not discarded: %v", err)
+	}
 }
 
 func assertV2QuestionCompletion(
