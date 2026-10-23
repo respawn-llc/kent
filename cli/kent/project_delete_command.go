@@ -317,8 +317,8 @@ func (outcome projectDeleteOutcome) validate() error {
 			return errors.New("project deletion non-blocked outcome must omit blockers")
 		}
 		for _, blocker := range outcome.Error.Blockers {
-			if strings.TrimSpace(blocker.Code) == "" || strings.TrimSpace(blocker.Message) == "" {
-				return errors.New("project deletion blocker requires code and message")
+			if strings.TrimSpace(blocker.Message) == "" {
+				return errors.New("project deletion blocker requires a message")
 			}
 		}
 	}
