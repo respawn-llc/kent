@@ -51,9 +51,6 @@ type RuntimeAdmissionService interface {
 }
 
 func (s *Service) SubmitUserShellCommand(ctx context.Context, request *chatshellpb.ShellCommandRequest) error {
-	if err := protoapi.Validate(request); err != nil {
-		return err
-	}
 	operation, err := s.operations.Start(ctx, func(scope OperationScope) error {
 		target, err := s.prepareRuntimeWithDraft(scope, request.Target, nil)
 		if err != nil {
