@@ -142,13 +142,13 @@ func (m *uiModel) detailTranscriptResponseCurrent(requestSessionID, responseSess
 	currentSessionID := strings.TrimSpace(m.currentRuntimeSessionID())
 	requestSessionID = strings.TrimSpace(requestSessionID)
 	responseSessionID = strings.TrimSpace(responseSessionID)
-	if currentSessionID != "" && requestSessionID != "" && currentSessionID != requestSessionID {
+	if currentSessionID != "" && currentSessionID != requestSessionID {
 		return false
 	}
-	if currentSessionID != "" && responseSessionID != "" && currentSessionID != responseSessionID {
+	if currentSessionID != "" && currentSessionID != responseSessionID {
 		return false
 	}
-	if requestSessionID != "" && responseSessionID != "" && requestSessionID != responseSessionID {
+	if requestSessionID != responseSessionID {
 		return false
 	}
 	return true
