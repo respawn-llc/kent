@@ -2,16 +2,11 @@ package app
 
 import (
 	"fmt"
-	"time"
 
 	"core/cli/tui/ongoing"
 
 	tea "github.com/charmbracelet/bubbletea"
 )
-
-type ongoingWidthRehydrationDebounceMsg struct {
-	token uint64
-}
 
 type ongoingNormalBufferOwnedMsg struct {
 	owned bool
@@ -37,7 +32,7 @@ func WithUIClientLifecycleIssues(issues <-chan lifecycleHookIssue, done <-chan s
 	}
 }
 
-func WithUIOngoingTranscriptReopen(request func()) UIOption {
+func WithUIOngoingTranscriptReopen(request func(ongoing.RehydrateReason)) UIOption {
 	return func(m *uiModel) {
 		m.requestOngoingOpen = request
 	}
@@ -50,17 +45,6 @@ func (m *uiModel) nativeOngoingSurfaceActive() bool {
 
 func (m *uiModel) nativeOngoingSurfaceSelected() bool {
 	return m != nil && m.ongoingSurface != nil && m.surface() == uiSurfaceOngoingTranscript
-}
-
-func (m *uiModel) scheduleOngoingWidthRehydration() tea.Cmd {
-	if m == nil {
-		return nil
-	}
-	m.ongoingWidthToken++
-	token := m.ongoingWidthToken
-	return tea.Tick(time.Second, func(time.Time) tea.Msg {
-		return ongoingWidthRehydrationDebounceMsg{token: token}
-	})
 }
 
 func (m *uiModel) handleOngoingSurfaceError(err error) tea.Cmd {
@@ -114,58 +98,25 @@ func (m *uiModel) setOngoingNormalBufferOwned(owned bool) tea.Cmd {
 	if m == nil || m.ongoingTranscript == nil {
 		return nil
 	}
-	var widthRehydrationCmd tea.Cmd
-	if owned {
-		if cmd := m.applyPendingOngoingScratchReset(); cmd != nil {
-			return cmd
-		}
-		if m.pendingOngoingWidthReset {
-			m.pendingOngoingWidthReset = false
-			m.pendingOngoingResizeRepaint = false
-			widthRehydrationCmd = m.scheduleOngoingWidthRehydration()
-		}
-	}
-	resizeRepaint := owned && m.pendingOngoingResizeRepaint && widthRehydrationCmd == nil
-	if resizeRepaint {
-		m.pendingOngoingResizeRepaint = false
-	}
 	result, err := m.ongoingTranscript.SetNormalBufferOwned(owned)
 	if err != nil {
 		return m.handleOngoingSurfaceError(err)
 	}
 	resultCmd := m.handleOngoingResult(result)
-	if resizeRepaint && result.Action == ongoing.ResultNoop {
-		repaintResult, repaintErr := m.ongoingTranscript.Render()
-		if repaintErr != nil {
-			return m.handleOngoingSurfaceError(repaintErr)
-		}
-		return tea.Batch(resultCmd, widthRehydrationCmd, m.handleOngoingResult(repaintResult))
+	if owned {
+		m.admitDueOngoingResize()
 	}
-	return tea.Batch(resultCmd, widthRehydrationCmd)
+	return resultCmd
 }
 
 func (m *uiModel) handleOngoingResult(result ongoing.Result) tea.Cmd {
 	switch result.Action {
 	case ongoing.ResultNoop:
 		return nil
-	case ongoing.ResultScheduleWidthRehydration:
-		return m.scheduleOngoingWidthRehydration()
+	case ongoing.ResultScheduleResizeRehydration:
+		return m.scheduleOngoingResizeRehydration()
 	case ongoing.ResultRequestScratchRehydration:
-		if m != nil && m.ongoingSurface != nil && m.nativeOngoingSurfaceActive() {
-			if _, err := m.ongoingSurface.ResetForScratchHydration(result.Reason, m.ongoingFrameInput()); err != nil {
-				return m.handleOngoingSurfaceError(err)
-			}
-			m.pendingOngoingScratchReset = nil
-		} else if m != nil {
-			reason := result.Reason
-			m.pendingOngoingScratchReset = &reason
-		}
-		if m != nil && m.ongoingTranscript != nil {
-			m.ongoingTranscript.ResetForScratchHydration()
-		}
-		if m != nil && m.requestOngoingOpen != nil {
-			m.requestOngoingOpen()
-		}
+		m.admitOngoingRehydration(result.Reason)
 		return nil
 	default:
 		if m != nil && m.debugMode {
@@ -173,22 +124,6 @@ func (m *uiModel) handleOngoingResult(result ongoing.Result) tea.Cmd {
 		}
 		return nil
 	}
-}
-
-func (m *uiModel) applyPendingOngoingScratchReset() tea.Cmd {
-	if m == nil || m.pendingOngoingScratchReset == nil {
-		return nil
-	}
-	reason := *m.pendingOngoingScratchReset
-	m.pendingOngoingScratchReset = nil
-	m.pendingOngoingResizeRepaint = false
-	if m.ongoingSurface == nil {
-		return nil
-	}
-	if _, err := m.ongoingSurface.ResetForScratchHydration(reason, m.ongoingFrameInput()); err != nil {
-		return m.handleOngoingSurfaceError(err)
-	}
-	return nil
 }
 
 func (m *uiModel) ongoingFrameInput() ongoing.FrameInput {

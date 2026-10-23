@@ -360,6 +360,11 @@ func (s *ongoingSurfaceSpy) Resize(_ ongoing.Size, frame ongoing.FrameInput) (on
 	return ongoing.Result{}, s.err
 }
 
+func (s *ongoingSurfaceSpy) ResetForScratchHydration(_ ongoing.RehydrateReason, frame ongoing.FrameInput) (ongoing.Result, error) {
+	s.calls = append(s.calls, ongoingSurfaceCall{name: "reset", frame: frame})
+	return ongoing.Result{}, s.err
+}
+
 func (s *ongoingSurfaceSpy) appliedKinds() []reflect.Type {
 	kinds := make([]reflect.Type, 0, len(s.calls))
 	for _, call := range s.calls {

@@ -21,16 +21,14 @@ func resolveTerminalCapabilities(lookup func(string) (string, bool)) terminalCap
 		lookup = os.LookupEnv
 	}
 	capabilities := terminalCapabilities{
-		ResizePolicy:  ongoing.TerminalResizeWidthRehydration,
+		ResizePolicy:  ongoing.TerminalResizeRehydration,
 		MarkdownLinks: transcriptrender.MarkdownLinkLabelAndDestination,
 	}
 
 	tmux := lookupTerminalEnvironment(lookup, "TMUX")
 	termProgram := lookupTerminalEnvironment(lookup, "TERM_PROGRAM")
 	kittyWindowID := lookupTerminalEnvironment(lookup, "KITTY_WINDOW_ID")
-	if tmux.NonEmpty() {
-		capabilities.ResizePolicy = ongoing.TerminalResizeTmuxWidthRehydration
-	} else {
+	if !tmux.NonEmpty() {
 		switch {
 		case termProgram.Equals("ghostty"), kittyWindowID.NonEmpty():
 			capabilities.ResizePolicy = ongoing.TerminalResizeSemanticPrompt

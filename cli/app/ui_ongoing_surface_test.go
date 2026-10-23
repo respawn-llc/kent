@@ -540,7 +540,7 @@ func TestScratchRehydrationResultRequestsTranscriptReopen(t *testing.T) {
 	m := sizedTestUIModel(newProjectedStaticUIModel(
 		WithUIOngoingSurface(surface),
 		withUIOngoingTranscriptController(controller),
-		WithUIOngoingTranscriptReopen(func() { reopened = true })), 40, 10)
+		WithUIOngoingTranscriptReopen(func(ongoing.RehydrateReason) { reopened = true })), 40, 10)
 
 	cmd := m.handleOngoingResult(ongoing.Result{
 		Action: ongoing.ResultRequestScratchRehydration,
@@ -552,6 +552,8 @@ func TestScratchRehydrationResultRequestsTranscriptReopen(t *testing.T) {
 	if !reopened {
 		t.Fatal("scratch rehydration did not request transcript subscription reopen")
 	}
+	reason := ongoing.RehydrateReasonSequenceGap
+	m.handleOngoingTranscriptEvent(ongoingTranscriptEvent{Kind: ongoingTranscriptEventCutover, Reason: &reason})
 	if result, _, err := controller.Accept(ongoingHydrationMessage(1)); err != nil || result.Action != ongoing.ResultNoop {
 		t.Fatalf("post-reopen hydration result=%+v err=%v, want accepted hydration", result, err)
 	}
@@ -565,7 +567,7 @@ func TestAwaitingPromptWithoutPromptRequestsTranscriptRehydration(t *testing.T) 
 	m := sizedTestUIModel(newProjectedStaticUIModel(
 		WithUIOngoingSurface(surface),
 		withUIOngoingTranscriptController(controller),
-		WithUIOngoingTranscriptReopen(func() { reopened++ })), 40, 10)
+		WithUIOngoingTranscriptReopen(func(ongoing.RehydrateReason) { reopened++ })), 40, 10)
 	activity := runtimeTupleTestRunningActivity()
 	activity.State = runtimepb.ActivityState_RUNTIME_ACTIVITY_AWAITING_PROMPT
 	command := m.applyAdmittedTranscriptMessageState(

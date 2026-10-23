@@ -89,7 +89,7 @@ type ResultAction string
 const (
 	ResultNoop                      ResultAction = ""
 	ResultRequestScratchRehydration ResultAction = "request_scratch_rehydration"
-	ResultScheduleWidthRehydration  ResultAction = "schedule_width_rehydration"
+	ResultScheduleResizeRehydration ResultAction = "schedule_resize_rehydration"
 )
 
 type RehydrateReason string
@@ -97,7 +97,7 @@ type RehydrateReason string
 const (
 	RehydrateReasonSequenceGap   RehydrateReason = "sequence_gap"
 	RehydrateReasonQueueOverflow RehydrateReason = "queue_overflow"
-	RehydrateReasonWidthChange   RehydrateReason = "width_change"
+	RehydrateReasonResize        RehydrateReason = "resize"
 	RehydrateReasonMissingPrompt RehydrateReason = "missing_prompt"
 )
 
@@ -105,13 +105,12 @@ type TerminalResizePolicy uint8
 
 const (
 	TerminalResizeSemanticPrompt TerminalResizePolicy = iota + 1
-	TerminalResizeWidthRehydration
-	TerminalResizeTmuxWidthRehydration
+	TerminalResizeRehydration
 )
 
-func (p TerminalResizePolicy) usesWidthRehydration() bool {
+func (p TerminalResizePolicy) usesResizeRehydration() bool {
 	switch p {
-	case TerminalResizeWidthRehydration, TerminalResizeTmuxWidthRehydration:
+	case TerminalResizeRehydration:
 		return true
 	case TerminalResizeSemanticPrompt:
 		return false
@@ -129,7 +128,7 @@ type Surface struct {
 	markdownLinks      transcriptrender.MarkdownLinkPresentation
 	lastPaintedSize    *Size
 	lastObservedSize   *Size
-	viewportInvalid   bool
+	viewportInvalid    bool
 }
 
 type activeAssistantState struct {
@@ -169,7 +168,7 @@ func NewSurfaceWithOptions(writer io.Writer, options SurfaceOptions) *Surface {
 		writer = io.Discard
 	}
 	switch options.TerminalResize {
-	case TerminalResizeSemanticPrompt, TerminalResizeWidthRehydration, TerminalResizeTmuxWidthRehydration:
+	case TerminalResizeSemanticPrompt, TerminalResizeRehydration:
 	default:
 		panic(fmt.Sprintf("ongoing surface received invalid terminal resize policy %d", options.TerminalResize))
 	}
@@ -391,18 +390,18 @@ func (s *Surface) observeResize(size Size) Result {
 	previous := s.lastObservedSize
 	if size.Width <= 0 || size.Height <= 0 {
 		s.lastObservedSize = nil
-		if s.terminalResize.usesWidthRehydration() && s.lastPaintedSize != nil {
+		if s.terminalResize.usesResizeRehydration() && s.lastPaintedSize != nil {
 			s.viewportInvalid = true
 		}
 		return Result{}
 	}
 	s.lastObservedSize = &size
-	if s.terminalResize.usesWidthRehydration() &&
+	if s.terminalResize.usesResizeRehydration() &&
 		((previous != nil && *previous != size) || (previous == nil && s.viewportInvalid)) {
 		if s.lastPaintedSize != nil {
 			s.viewportInvalid = true
 		}
-		return Result{Action: ResultScheduleWidthRehydration, Reason: RehydrateReasonWidthChange}
+		return Result{Action: ResultScheduleResizeRehydration, Reason: RehydrateReasonResize}
 	}
 	return Result{}
 }
@@ -415,7 +414,7 @@ func (s *Surface) ResetForScratchHydration(reason RehydrateReason, frame FrameIn
 	s.validateRenderFrame(frame, "reset_for_scratch_hydration")
 	s.observeResize(frame.Size)
 	var transaction strings.Builder
-	if s.viewportInvalid || reason == RehydrateReasonWidthChange {
+	if s.viewportInvalid || reason == RehydrateReasonResize {
 		writeFreshViewport(&transaction, frame.Size.Height)
 	} else {
 		transaction.WriteString(resetScrollRegionAndOriginMode())

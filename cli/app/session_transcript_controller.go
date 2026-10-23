@@ -19,7 +19,15 @@ type ongoingTranscriptSurface interface {
 	ApplyTerminalMessage(*transcriptpb.Message, ongoing.FrameInput) (ongoing.Result, error)
 	Render(ongoing.FrameInput) (ongoing.Result, error)
 	Resize(ongoing.Size, ongoing.FrameInput) (ongoing.Result, error)
+	ResetForScratchHydration(ongoing.RehydrateReason, ongoing.FrameInput) (ongoing.Result, error)
 }
+
+type ongoingTerminalWork interface{ ongoingTerminalWork() }
+type ongoingTerminalMessage struct{ message *transcriptpb.Message }
+type ongoingTerminalReset struct{ reason ongoing.RehydrateReason }
+
+func (ongoingTerminalMessage) ongoingTerminalWork() {}
+func (ongoingTerminalReset) ongoingTerminalWork()   {}
 
 type ongoingFrameProvider func() ongoing.FrameInput
 
@@ -35,7 +43,7 @@ type ongoingTranscriptController struct {
 	normalOwned      bool
 	hydrated         bool
 	lastSequence     uint64
-	queue            []*transcriptpb.Message
+	queue            []ongoingTerminalWork
 	queueOverflowed  bool
 	renderPending    bool
 	liveReadModel    ongoingTranscriptReadModel
@@ -80,7 +88,7 @@ func (c *ongoingTranscriptController) Accept(message *transcriptpb.Message) (ong
 	stateCmd := c.stateObserver(message, admission)
 	if !c.normalOwned {
 		if !isAppOwnedOngoingMessage(message.Event) {
-			c.enqueue(message)
+			c.enqueue(ongoingTerminalMessage{message: message})
 		}
 		c.renderPending = c.renderPending || stateChanged
 		return ongoing.Result{}, stateCmd, nil
@@ -123,16 +131,48 @@ func (c *ongoingTranscriptController) SetNormalBufferOwned(owned bool) (ongoing.
 		c.renderPending = false
 		return ongoing.Result{Action: ongoing.ResultRequestScratchRehydration, Reason: ongoing.RehydrateReasonQueueOverflow}, nil
 	}
+	if len(c.queue) == 0 {
+		c.renderPending = true
+	}
 	return c.drainQueued()
 }
 
 func (c *ongoingTranscriptController) ResetForScratchHydration() {
 	c.queue = nil
 	c.queueOverflowed = false
+	c.resetAdmission()
+}
+
+func (c *ongoingTranscriptController) resetAdmission() {
 	c.hydrated = false
 	c.lastSequence = 0
 	c.renderPending = false
 	c.liveReadModel.reset()
+}
+
+func (c *ongoingTranscriptController) AcceptCutover(reason ongoing.RehydrateReason) (ongoing.Result, error) {
+	if reason == ongoing.RehydrateReasonResize {
+		c.resetAdmission()
+	} else {
+		c.ResetForScratchHydration()
+	}
+	work := ongoingTerminalReset{reason: reason}
+	if !c.normalOwned {
+		c.enqueue(work)
+		return ongoing.Result{}, nil
+	}
+	return c.applyTerminalWork(work)
+}
+
+func (c *ongoingTranscriptController) applyTerminalWork(work ongoingTerminalWork) (ongoing.Result, error) {
+	switch work := work.(type) {
+	case ongoingTerminalMessage:
+		return c.surface.ApplyTerminalMessage(work.message, c.frameInput())
+	case ongoingTerminalReset:
+		return c.surface.ResetForScratchHydration(work.reason, c.frameInput())
+	default:
+		panic(fmt.Sprintf("invalid ongoing terminal work %T", work))
+	}
 }
 
 func (c *ongoingTranscriptController) Render() (ongoing.Result, error) {
@@ -186,13 +226,10 @@ func (c *ongoingTranscriptController) acceptedHydration(message *transcriptpb.Me
 func (c *ongoingTranscriptController) requestScratchRehydration() {
 	c.queue = nil
 	c.queueOverflowed = true
-	c.hydrated = false
-	c.lastSequence = 0
-	c.renderPending = false
-	c.liveReadModel.reset()
+	c.resetAdmission()
 }
 
-func (c *ongoingTranscriptController) enqueue(message *transcriptpb.Message) {
+func (c *ongoingTranscriptController) enqueue(work ongoingTerminalWork) {
 	if c.queueOverflowed {
 		return
 	}
@@ -201,7 +238,7 @@ func (c *ongoingTranscriptController) enqueue(message *transcriptpb.Message) {
 		c.queueOverflowed = true
 		return
 	}
-	c.queue = append(c.queue, message)
+	c.queue = append(c.queue, work)
 }
 
 func (c *ongoingTranscriptController) drainQueued() (ongoing.Result, error) {
@@ -209,8 +246,8 @@ func (c *ongoingTranscriptController) drainQueued() (ongoing.Result, error) {
 	c.queue = nil
 	needsRender := c.renderPending
 	c.renderPending = false
-	for _, message := range queued {
-		if _, err := c.surface.ApplyTerminalMessage(message, c.frameInput()); err != nil {
+	for _, work := range queued {
+		if _, err := c.applyTerminalWork(work); err != nil {
 			return ongoing.Result{}, err
 		}
 	}
@@ -229,7 +266,7 @@ func (c *ongoingTranscriptController) applyNow(message *transcriptpb.Message, st
 	}
 	if message.Event.GetHydration() != nil {
 		hydration := message.Event.GetHydration()
-		result, err := c.surface.ApplyTerminalMessage(message, c.frameInput())
+		result, err := c.applyTerminalWork(ongoingTerminalMessage{message: message})
 		if err != nil {
 			return ongoing.Result{}, err
 		}
@@ -238,7 +275,7 @@ func (c *ongoingTranscriptController) applyNow(message *transcriptpb.Message, st
 		}
 		return result, nil
 	}
-	return c.surface.ApplyTerminalMessage(message, c.frameInput())
+	return c.applyTerminalWork(ongoingTerminalMessage{message: message})
 }
 
 func (c *ongoingTranscriptController) applyState(message *transcriptpb.Message) bool {
