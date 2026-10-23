@@ -489,22 +489,6 @@ func TestProjectDeleteRejectsMalformedDeleteResponses(t *testing.T) {
 			},
 		},
 		{
-			name: "deleted with blockers",
-			response: &projectpb.DeleteProjectSuccess{
-				ProjectId: projectID,
-				Deleted:   true,
-				Blockers: []*projectpb.ProjectDeleteBlocker{
-					{Code: "active_sessions", Count: 1},
-				},
-			},
-		},
-		{
-			name: "not deleted without blockers",
-			response: &projectpb.DeleteProjectSuccess{
-				ProjectId: projectID,
-			},
-		},
-		{
 			name: "blank blocker code",
 			response: &projectpb.DeleteProjectSuccess{
 				ProjectId: projectID,

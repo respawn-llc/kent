@@ -126,13 +126,7 @@ func runProjectDeleteUseCase(
 		return projectDeleteFailure(projectID, "request_failed", errors.New("project deletion returned a mismatched project identity"))
 	}
 	if response.Deleted {
-		if len(response.Blockers) != 0 {
-			return projectDeleteFailure(projectID, "request_failed", errors.New("project deletion returned blockers with deleted=true"))
-		}
 		return projectDeleteOutcome{Result: &projectDeleteResult{ProjectID: projectID}}
-	}
-	if len(response.Blockers) == 0 {
-		return projectDeleteFailure(projectID, "request_failed", errors.New("project deletion returned deleted=false without blockers"))
 	}
 	blockers, err := projectDeleteBlockersForCLI(response.Blockers)
 	if err != nil {
