@@ -1,5 +1,10 @@
 # October 23 review remediation — native reasoning boundary
 
+- Item 4 removed obsolete streamed call reconstruction, all argument/custom-input buffers, unused Merge, synthesized successful nonterminal branch, discarded output merger and their three implementation-only tests. Terminal parser remains accepted-call authority; HTTP compaction passthrough remains.
+- Broader focused Runtime native/reasoning/compaction tests passed (shells 5843/5920), while LLM tests exposed display regressions: preserve nil non-final content; reject emptied terminal messages after deltas; avoid reconciliation when no delta consumer; and align an old fixture's output indexes with terminal array positions. All `TestGenerate` cases pass after correction.
+- Preserved the existing trailing-whitespace display reconciliation too: local per-item metadata carries only retained whitespace bytes when terminal text omitted them, never duplicated answer text. Constructors validate whitespace facts and keep Raw/native context unchanged. These repairs extend item 2's same display boundary; no new product behavior.
+- Codex source pulled cleanly from `90894a780d` to `d4bdafd378` for item 5; routing implementation unchanged by intervening commits. Item 5 implementation has not started.
+
 - Native leading-whitespace remediation: real Runtime regression with distinct streamed commentary/unstreamed final identities failed on aggregate reconciliation. Per-item reconciliation now records only the suppressed leading-byte offset as local presentation metadata, validates it when constructing/loading native bodies, and derives display projections shared by live commit/page/reload. Unstreamed later-message whitespace and every native Raw byte remain unchanged.
 - Same test sends the actual Runtime stream and accepted-row texts through Ongoing finalization; no scrollback rewrite or weakened final-prefix check. Final focused Runtime/LLM/Session/Ongoing `Native|LeadingWhitespace|PreservesResumedOutputWhitespace` passes (shell 5767). Initial test compile typo corrected before meaningful red.
 

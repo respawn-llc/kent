@@ -28,6 +28,9 @@ func (n *NativeResponse) Record() *session.NativeResponseBody {
 	body := session.NativeResponseBody{Format: n.body.Format, Items: make([][]byte, len(n.body.Items)), ReasoningType: textutil.Pointer(n.body.ReasoningType)}
 	body.ReasoningPresentation = n.ReasoningPresentation()
 	body.AssistantPresentation = append([]session.NativeAssistantPresentation(nil), n.body.AssistantPresentation...)
+	for i := range body.AssistantPresentation {
+		body.AssistantPresentation[i].TrailingWhitespace = append([]byte(nil), body.AssistantPresentation[i].TrailingWhitespace...)
+	}
 	for i, raw := range n.body.Items {
 		body.Items[i] = append([]byte(nil), raw...)
 	}
@@ -55,14 +58,15 @@ func newNativeResponse(body session.NativeResponseBody, items []ResponseItem) (*
 		}
 		seen[fact.OutputIndex] = struct{}{}
 		source := byIndex[fact.OutputIndex]
-		if source == nil || source.Content == nil || fact.LeadingBytes <= 0 || fact.LeadingBytes > len(*source.Content) {
+		if source == nil || source.Content == nil || fact.LeadingBytes < 0 || fact.LeadingBytes > len(*source.Content) ||
+			(fact.LeadingBytes == 0 && len(fact.TrailingWhitespace) == 0) || strings.TrimSpace(string(fact.TrailingWhitespace)) != "" {
 			return nil, fmt.Errorf("invalid native assistant presentation source")
 		}
 		text := *source.Content
-		if len(text)-len(strings.TrimLeftFunc(text, unicode.IsSpace)) != fact.LeadingBytes {
+		if fact.LeadingBytes > 0 && len(text)-len(strings.TrimLeftFunc(text, unicode.IsSpace)) != fact.LeadingBytes {
 			return nil, fmt.Errorf("invalid native assistant whitespace offset")
 		}
-		source.Content = textutil.Value(text[fact.LeadingBytes:])
+		source.Content = textutil.Value(text[fact.LeadingBytes:] + string(fact.TrailingWhitespace))
 	}
 	n.displayItems = display
 	return n, nil

@@ -90,8 +90,9 @@ type NativeResponseBody struct {
 }
 
 type NativeAssistantPresentation struct {
-	OutputIndex  int64 `json:"output_index"`
-	LeadingBytes int   `json:"leading_bytes"`
+	OutputIndex        int64  `json:"output_index"`
+	LeadingBytes       int    `json:"leading_bytes"`
+	TrailingWhitespace []byte `json:"trailing_whitespace,omitempty"`
 }
 
 type NativeReasoningPresentation struct {
@@ -162,6 +163,9 @@ func normalizeMessageRecord(message MessageRecord) (MessageRecord, error) {
 		cloned := &NativeResponseBody{Format: body.Format, Items: make([][]byte, len(body.Items)), ReasoningType: body.ReasoningType}
 		cloned.ReasoningPresentation = append([]NativeReasoningPresentation(nil), body.ReasoningPresentation...)
 		cloned.AssistantPresentation = append([]NativeAssistantPresentation(nil), body.AssistantPresentation...)
+		for i := range cloned.AssistantPresentation {
+			cloned.AssistantPresentation[i].TrailingWhitespace = append([]byte(nil), body.AssistantPresentation[i].TrailingWhitespace...)
+		}
 		for _, presentation := range cloned.ReasoningPresentation {
 			if presentation.OutputIndex < 0 || presentation.OutputIndex >= int64(len(body.Items)) || presentation.PartIndex < 0 {
 				return MessageRecord{}, fmt.Errorf("invalid native reasoning presentation coordinate")

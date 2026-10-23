@@ -931,13 +931,13 @@ func TestGenerate_UsesFinalizedOutputTextWhenProviderOmitsDeltas(t *testing.T) {
 
 func TestGenerate_DeliversTrailingWhitespaceBeforeToolCallWithoutBuffering(t *testing.T) {
 	transport := newOpenAIStreamTestTransport(t,
-		`{"type":"response.output_item.added","output_index":1,"item":{"id":"msg_1","type":"message","role":"assistant","phase":"commentary","content":[]}}`,
-		`{"type":"response.output_text.delta","item_id":"msg_1","output_index":1,"content_index":0,"delta":"I will run it.\n\n"}`,
-		`{"type":"response.output_item.done","output_index":1,"item":{"id":"msg_1","type":"message","role":"assistant","phase":"commentary","content":[{"type":"output_text","text":"I will run it.\n\n"}]}}`,
-		`{"type":"response.output_item.added","output_index":2,"item":{"id":"fc_1","type":"function_call","call_id":"call_1","name":"shell","arguments":""}}`,
-		`{"type":"response.function_call_arguments.delta","item_id":"fc_1","output_index":2,"delta":"{\"command\":\"pwd\"}"}`,
-		`{"type":"response.function_call_arguments.done","item_id":"fc_1","output_index":2,"arguments":"{\"command\":\"pwd\"}"}`,
-		`{"type":"response.output_item.done","output_index":2,"item":{"id":"fc_1","type":"function_call","call_id":"call_1","name":"shell","arguments":"{\"command\":\"pwd\"}"}}`,
+		`{"type":"response.output_item.added","output_index":0,"item":{"id":"msg_1","type":"message","role":"assistant","phase":"commentary","content":[]}}`,
+		`{"type":"response.output_text.delta","item_id":"msg_1","output_index":0,"content_index":0,"delta":"I will run it.\n\n"}`,
+		`{"type":"response.output_item.done","output_index":0,"item":{"id":"msg_1","type":"message","role":"assistant","phase":"commentary","content":[{"type":"output_text","text":"I will run it.\n\n"}]}}`,
+		`{"type":"response.output_item.added","output_index":1,"item":{"id":"fc_1","type":"function_call","call_id":"call_1","name":"shell","arguments":""}}`,
+		`{"type":"response.function_call_arguments.delta","item_id":"fc_1","output_index":1,"delta":"{\"command\":\"pwd\"}"}`,
+		`{"type":"response.function_call_arguments.done","item_id":"fc_1","output_index":1,"arguments":"{\"command\":\"pwd\"}"}`,
+		`{"type":"response.output_item.done","output_index":1,"item":{"id":"fc_1","type":"function_call","call_id":"call_1","name":"shell","arguments":"{\"command\":\"pwd\"}"}}`,
 		`{"type":"response.completed","response":{"output":[{"id":"msg_1","type":"message","role":"assistant","phase":"commentary","content":[{"type":"output_text","text":"I will run it."}]},{"id":"fc_1","type":"function_call","call_id":"call_1","name":"shell","arguments":"{\"command\":\"pwd\"}"}]}}`,
 		`[DONE]`,
 	)
@@ -1240,38 +1240,6 @@ func TestGenerate_ParsesCustomPatchToolCall(t *testing.T) {
 	}
 }
 
-func TestStreamFallbackCustomPatchToolCallDoesNotInventProviderItemID(t *testing.T) {
-	output := buildOutputItemsFromStream(nil, false, "", []ToolCall{{ID: "call_1", Name: "patch", Custom: true, CustomInput: textutil.Value("patch input")}}, nil, nil)
-	if len(output) != 1 || output[0].Type != ResponseItemTypeCustomToolCall {
-		t.Fatalf("missing custom tool call: %+v", output)
-	}
-	prepared := PrepareResponsesInputItems(output)
-	var raw map[string]json.RawMessage
-	if err := json.Unmarshal(prepared[0].Raw, &raw); err != nil {
-		t.Fatalf("decode prepared call: %v", err)
-	}
-	if _, hasID := raw["id"]; hasID {
-		t.Fatalf("stream fallback invented a provider item ID: %s", prepared[0].Raw)
-	}
-	if string(raw["call_id"]) != `"call_1"` {
-		t.Fatalf("stream fallback lost call_id: %s", prepared[0].Raw)
-	}
-}
-
-func TestToolCallAccumulatorMergesCompletedCustomInputWithoutJSONInput(t *testing.T) {
-	accumulator := newToolCallAccumulator()
-	accumulator.Merge([]ToolCall{{ID: "call-1", Name: "patch", Custom: true, CustomInput: textutil.Value("partial")}})
-	accumulator.Merge([]ToolCall{{ID: "call-1", Name: "patch", Custom: true, CustomInput: textutil.Value("complete")}})
-
-	calls := accumulator.ToToolCalls(openAIResponsesPolicy{})
-	if len(calls) != 1 {
-		t.Fatalf("expected one call, got %+v", calls)
-	}
-	if !calls[0].Custom || calls[0].CustomInput == nil || *calls[0].CustomInput != "complete" {
-		t.Fatalf("expected completed custom input to replace partial input, got %+v", calls[0])
-	}
-}
-
 func TestGenerate_PartitionsReasoningStatusFromTrace(t *testing.T) {
 	transport := newOpenAIStreamTestTransport(t,
 		`{"type":"response.reasoning_summary_text.delta","item_id":"rs_1","output_index":0,"summary_index":0,"delta":"**Preparing patch**\n\nPlain summary text"}`,
@@ -1471,16 +1439,6 @@ func TestGenerate_RejectsEmptyCompletedMessageAfterAssistantDeltas(t *testing.T)
 	}
 	if providerErr.Code != UnifiedErrorCodeProviderContract {
 		t.Fatalf("provider code = %q, want %q", providerErr.Code, UnifiedErrorCodeProviderContract)
-	}
-}
-
-func TestBuildOutputItemsFromStreamPreservesAbsentPhase(t *testing.T) {
-	items := buildOutputItemsFromStream(textutil.Value("streamed text"), true, "", nil, nil, nil)
-	if len(items) != 1 {
-		t.Fatalf("output items = %+v, want one assistant message", items)
-	}
-	if items[0].Phase != nil {
-		t.Fatalf("assistant output phase = %v, want absent", items[0].Phase)
 	}
 }
 

@@ -24,7 +24,6 @@ type responseStreamAccumulator struct {
 	assistantText            strings.Builder
 	assistantStartedByOutput map[int64]bool
 	assistantMessages        *assistantMessageAccumulator
-	toolCalls                *toolCallAccumulator
 	reasoning                *reasoningAccumulator
 	passthrough              *passthroughOutputAccumulator
 	standardServedModel      *string
@@ -47,7 +46,6 @@ func newResponseStreamAccumulator(callbacks StreamCallbacks, windowTokens int, p
 		callbacks:         callbacks,
 		windowTokens:      windowTokens,
 		assistantMessages: newAssistantMessageAccumulator(),
-		toolCalls:         newToolCallAccumulator(),
 		reasoning:         newReasoningAccumulator(),
 		passthrough:       newPassthroughOutputAccumulator(),
 	}
@@ -81,7 +79,6 @@ func (a *responseStreamAccumulator) Consume(evt responses.ResponseStreamEventUni
 			}
 			return
 		}
-		a.toolCalls.UpsertFromOutput(evt.Item)
 		a.reasoning.UpsertReasoningItem(evt.Item, evt.OutputIndex)
 		a.recordReasoningAccumulatorError()
 		a.passthrough.Upsert(evt.Item, evt.OutputIndex, a.policy)
@@ -96,14 +93,6 @@ func (a *responseStreamAccumulator) Consume(evt responses.ResponseStreamEventUni
 				a.callbacks.OnOutputItem(item)
 			}
 		}
-	case "response.function_call_arguments.delta":
-		a.toolCalls.AppendArguments(evt.ItemID, evt.Delta)
-	case "response.function_call_arguments.done":
-		a.toolCalls.SetArguments(evt.ItemID, evt.Arguments)
-	case "response.custom_tool_call_input.delta":
-		a.toolCalls.AppendCustomInput(evt.ItemID, evt.Delta)
-	case "response.custom_tool_call_input.done":
-		a.toolCalls.SetCustomInput(evt.ItemID, evt.Input)
 	case "response.reasoning_summary_text.delta":
 		coordinate, coordinateErr := reasoningSourceCoordinate(evt.OutputIndex, evt.SummaryIndex)
 		if coordinateErr != nil {
@@ -272,6 +261,9 @@ func (a *responseStreamAccumulator) recordReasoningAccumulatorError() {
 }
 
 func (a *responseStreamAccumulator) Response() (ResponsesResponse, error) {
+	if a.completed == nil {
+		return ResponsesResponse{}, fmt.Errorf("Responses output requested before completion")
+	}
 	usage := Usage{WindowTokens: a.windowTokens}
 	streamText, streamPhase, streamProviderPhase, streamOutputIndex, streamDeltaText, hasResolvedStream := a.assistantMessages.Resolve()
 	rawDeltaText := a.assistantText.String()
@@ -291,22 +283,8 @@ func (a *responseStreamAccumulator) Response() (ResponsesResponse, error) {
 	}
 	finalPhase := streamPhase
 	finalProviderPhase := streamProviderPhase
-	finalCalls := a.toolCalls.ToToolCalls(a.policy)
 	finalReasoning := a.reasoning.Entries()
 	finalReasoningItems := a.reasoning.Items()
-	finalOutputItems := mergePassthroughOutputItems(buildOutputItemsFromStream(finalText, finalTextPresent, finalPhase, finalCalls, finalReasoning, finalReasoningItems), a.passthrough.Items())
-
-	if a.completed == nil {
-		return ResponsesResponse{
-			AssistantText:  finalText,
-			ProviderPhase:  finalProviderPhase,
-			ToolCalls:      finalCalls,
-			Reasoning:      a.policy.reasoningEntries(finalReasoning),
-			ReasoningItems: finalReasoningItems,
-			OutputItems:    finalOutputItems,
-			Usage:          usage,
-		}, nil
-	}
 
 	var err error
 	usage, err = a.policy.usage(a.completed.Usage, a.windowTokens)
@@ -321,31 +299,38 @@ func (a *responseStreamAccumulator) Response() (ResponsesResponse, error) {
 	if responseItemsContainAssistantMessage(parsedItems) {
 		var segments []assistantOutputSegment
 		for _, item := range parsedItems {
-			if item.Type != ResponseItemTypeMessage || item.Content == nil {
+			if item.Type != ResponseItemTypeMessage {
 				continue
 			}
-			text := *item.Content
+			text := optionalStringValue(item.Content)
 			streamed := ""
 			if observed, ok := a.assistantMessages.byIndex[item.OutputIndex]; ok && observed.deltaText != nil {
 				streamed = observed.deltaText.String()
 			} else if pending := a.assistantMessages.pendingDeltas[item.OutputIndex]; pending != nil {
 				streamed = pending.String()
 			}
+			if a.callbacks.OnAssistantDelta == nil && item.Content != nil {
+				streamed = ""
+			}
 			if streamed != "" {
 				if !completedAssistantTextReconcilesStream(streamed, text) {
 					return ResponsesResponse{}, fmt.Errorf("completed assistant item %d conflicts with streamed assistant content", item.OutputIndex)
 				}
 				display := reconciledCompletedAssistantText(streamed, text)
-				if display != text && display == strings.TrimLeftFunc(text, unicode.IsSpace) {
-					assistantPresentation = append(assistantPresentation, session.NativeAssistantPresentation{
-						OutputIndex: item.OutputIndex, LeadingBytes: len(text) - len(display),
-					})
+				if display != text {
+					fact := session.NativeAssistantPresentation{OutputIndex: item.OutputIndex}
+					if display == strings.TrimLeftFunc(text, unicode.IsSpace) {
+						fact.LeadingBytes = len(text) - len(display)
+					} else {
+						fact.TrailingWhitespace = []byte(display[len(text):])
+					}
+					assistantPresentation = append(assistantPresentation, fact)
 				}
 				text = display
 			}
 			phase, _ := textutil.OptionalValue(item.Phase)
 			segments = append(segments, assistantOutputSegment{
-				Text: text, Content: textutil.Value(text), Phase: phase, OutputIndex: item.OutputIndex,
+				Text: text, Content: resolveAssistantContent(RoleAssistant, phase, textutil.Value(text)), Phase: phase, OutputIndex: item.OutputIndex,
 				ProviderPhase: parsedProviderPhase,
 			})
 		}
@@ -397,14 +382,14 @@ func (a *responseStreamAccumulator) Response() (ResponsesResponse, error) {
 	}
 	// Stream events are previews. The terminal response is the complete output,
 	// so omitted calls must not become accepted executions or replayed history.
-	finalCalls = parsedCalls
+	finalCalls := parsedCalls
 	mergedReasoning, mergeErr := mergeReasoningEntries(parsedReasoning, finalReasoning)
 	if mergeErr != nil {
 		return ResponsesResponse{}, mergeErr
 	}
 	finalReasoning = a.policy.reasoningEntries(mergedReasoning)
 	finalReasoningItems = mergeReasoningItems(parsedReasoningItems, finalReasoningItems)
-	finalOutputItems = repairAssistantOutputItems(parsedItems, finalText, finalTextPresent, finalPhase, streamOutputIndex, hasResolvedStream)
+	finalOutputItems := repairAssistantOutputItems(parsedItems, finalText, finalTextPresent, finalPhase, streamOutputIndex, hasResolvedStream)
 
 	providerEvidence, evidenceErr := providerUsageEvidenceFromResponse(*a.completed, finalOutputItems)
 	if evidenceErr != nil {
@@ -789,237 +774,6 @@ func (a *assistantMessageAccumulator) Phase(outputIndex int64) MessagePhase {
 	return providerPhaseProjection(item.providerPhase)
 }
 
-type toolCallAccumulator struct {
-	byKey     map[string]*toolCallState
-	itemToKey map[string]string
-	order     []string
-}
-
-type toolCallState struct {
-	OutputIndex *int64
-	CallID      string
-	Name        string
-	Args        strings.Builder
-	Custom      strings.Builder
-	IsCustom    bool
-}
-
-func newToolCallAccumulator() *toolCallAccumulator {
-	return &toolCallAccumulator{
-		byKey:     map[string]*toolCallState{},
-		itemToKey: map[string]string{},
-		order:     []string{},
-	}
-}
-
-func (a *toolCallAccumulator) ensure(key string) *toolCallState {
-	if key == "" {
-		return nil
-	}
-	if state, ok := a.byKey[key]; ok {
-		return state
-	}
-	state := &toolCallState{CallID: key}
-	a.byKey[key] = state
-	a.order = append(a.order, key)
-	return state
-}
-
-func (a *toolCallAccumulator) UpsertFromOutput(item responses.ResponseOutputItemUnion) {
-	if item.Type != "function_call" && item.Type != "custom_tool_call" {
-		return
-	}
-	callID := ""
-	id := ""
-	name := ""
-	args := ""
-	isCustom := item.Type == "custom_tool_call"
-	if isCustom {
-		call := item.AsCustomToolCall()
-		callID = call.CallID
-		id = call.ID
-		name = call.Name
-		args = call.Input
-	} else {
-		call := item.AsFunctionCall()
-		callID = call.CallID
-		id = call.ID
-		name = call.Name
-		args = call.Arguments
-	}
-	key := textutil.FirstNonEmpty(strings.TrimSpace(callID), strings.TrimSpace(id))
-	if key == "" {
-		return
-	}
-	state := a.ensure(key)
-	if state == nil {
-		return
-	}
-	if v := strings.TrimSpace(callID); v != "" {
-		state.CallID = v
-	}
-	if v := strings.TrimSpace(name); v != "" {
-		state.Name = v
-	}
-	if id != "" {
-		a.itemToKey[id] = key
-	}
-	if isCustom {
-		state.IsCustom = true
-		if strings.TrimSpace(args) != "" {
-			state.Custom.Reset()
-			state.Custom.WriteString(args)
-		}
-	} else if strings.TrimSpace(args) != "" {
-		state.Args.Reset()
-		state.Args.WriteString(args)
-	}
-}
-
-func (a *toolCallAccumulator) AppendArguments(itemID, delta string) {
-	key := textutil.FirstNonEmpty(strings.TrimSpace(a.itemToKey[itemID]), strings.TrimSpace(itemID))
-	state := a.ensure(key)
-	if state == nil || delta == "" {
-		return
-	}
-	state.Args.WriteString(delta)
-}
-
-func (a *toolCallAccumulator) SetArguments(itemID, arguments string) {
-	key := textutil.FirstNonEmpty(strings.TrimSpace(a.itemToKey[itemID]), strings.TrimSpace(itemID))
-	state := a.ensure(key)
-	if state == nil {
-		return
-	}
-	state.Args.Reset()
-	state.Args.WriteString(arguments)
-}
-
-func (a *toolCallAccumulator) AppendCustomInput(itemID, delta string) {
-	key := textutil.FirstNonEmpty(strings.TrimSpace(a.itemToKey[itemID]), strings.TrimSpace(itemID))
-	state := a.ensure(key)
-	if state == nil || delta == "" {
-		return
-	}
-	state.IsCustom = true
-	state.Custom.WriteString(delta)
-}
-
-func (a *toolCallAccumulator) SetCustomInput(itemID, input string) {
-	key := textutil.FirstNonEmpty(strings.TrimSpace(a.itemToKey[itemID]), strings.TrimSpace(itemID))
-	state := a.ensure(key)
-	if state == nil {
-		return
-	}
-	state.IsCustom = true
-	state.Custom.Reset()
-	state.Custom.WriteString(input)
-}
-
-func (a *toolCallAccumulator) Merge(calls []ToolCall) {
-	for _, call := range calls {
-		key := textutil.FirstNonEmpty(strings.TrimSpace(call.ID), strings.TrimSpace(call.Name))
-		state := a.ensure(key)
-		if state == nil {
-			continue
-		}
-		state.OutputIndex = textutil.Pointer(call.OutputIndex)
-		if v := strings.TrimSpace(call.ID); v != "" {
-			state.CallID = v
-		}
-		if v := strings.TrimSpace(call.Name); v != "" {
-			state.Name = v
-		}
-		if call.Custom {
-			state.IsCustom = true
-			if call.CustomInput != nil {
-				state.Custom.Reset()
-				state.Custom.WriteString(*call.CustomInput)
-			}
-		} else if len(call.Input) > 0 {
-			state.Args.Reset()
-			state.Args.WriteString(normalizeToolArguments(string(call.Input)))
-		}
-	}
-}
-
-func (a *toolCallAccumulator) ToToolCalls(policy responsesPolicy) []ToolCall {
-	out := make([]ToolCall, 0, len(a.order))
-	for _, key := range a.order {
-		state, ok := a.byKey[key]
-		if !ok {
-			continue
-		}
-		callID := textutil.FirstNonEmpty(strings.TrimSpace(state.CallID), key)
-		if state.IsCustom && policy.isHostedCustomToolCall(callID) {
-			continue
-		}
-		if callID == "" && strings.TrimSpace(state.Name) == "" {
-			continue
-		}
-		input := normalizeToolInput(state.Args.String())
-		if state.IsCustom {
-			input = normalizeToolInput(state.Custom.String())
-		}
-		out = append(out, ToolCall{
-			ID: callID, Name: state.Name, Input: input, Custom: state.IsCustom,
-			OutputIndex: textutil.Pointer(state.OutputIndex),
-			CustomInput: textutil.OptionalExactString(state.Custom.String()),
-		})
-	}
-	return out
-}
-
-func buildOutputItemsFromStream(text *string, textPresent bool, phase MessagePhase, toolCalls []ToolCall, reasoning []ReasoningEntry, reasoningItems []ReasoningItem) []ResponseItem {
-	items := make([]ResponseItem, 0, 1+len(toolCalls)+len(reasoningItems))
-	if textPresent {
-		items = append(items, ResponseItem{
-			Type: ResponseItemTypeMessage, Role: textutil.Value(RoleAssistant),
-			Phase: optionalMessagePhase(phase), Content: textutil.Pointer(text),
-		})
-	}
-	for _, call := range toolCalls {
-		callID := textutil.FirstNonEmpty(strings.TrimSpace(call.ID), strings.TrimSpace(call.Name))
-		if callID == "" {
-			continue
-		}
-		if call.Custom {
-			items = append(items, ResponseItem{
-				Type:   ResponseItemTypeCustomToolCall,
-				CallID: textutil.Value(callID), Name: textutil.Value(call.Name),
-				CustomInput: textutil.Pointer(call.CustomInput),
-			})
-		} else {
-			items = append(items, ResponseItem{
-				Type: ResponseItemTypeFunctionCall, ID: textutil.Value(callID),
-				CallID: textutil.Value(callID), Name: textutil.Value(call.Name),
-				Arguments: normalizeToolInput(string(call.Input)),
-			})
-		}
-	}
-	summaries := make([]ReasoningEntry, 0, len(reasoning))
-	for _, entry := range reasoning {
-		if strings.TrimSpace(entry.Text) == "" {
-			continue
-		}
-		summaries = append(summaries, ReasoningEntry{Role: entry.Role, Text: entry.Text})
-	}
-	for _, item := range reasoningItems {
-		id := strings.TrimSpace(item.ID)
-		encrypted := strings.TrimSpace(item.EncryptedContent)
-		if id == "" || encrypted == "" {
-			continue
-		}
-		items = append(items, ResponseItem{
-			Type:             ResponseItemTypeReasoning,
-			ID:               textutil.Value(id),
-			EncryptedContent: textutil.Value(encrypted),
-			ReasoningSummary: append([]ReasoningEntry(nil), summaries...),
-		})
-	}
-	return items
-}
-
 func optionalMessagePhase(phase MessagePhase) *MessagePhase {
 	if strings.TrimSpace(string(phase)) == "" {
 		return nil
@@ -1085,51 +839,6 @@ func (a *passthroughOutputAccumulator) Items() []ResponseItem {
 	for _, outputIndex := range a.order {
 		item, ok := a.byIndex[outputIndex]
 		if !ok {
-			continue
-		}
-		copyItem := item
-		copyItem.Raw = append(json.RawMessage(nil), item.Raw...)
-		out = append(out, copyItem)
-	}
-	return out
-}
-
-func mergePassthroughOutputItems(items []ResponseItem, passthrough []ResponseItem) []ResponseItem {
-	if len(passthrough) == 0 {
-		return items
-	}
-	out := CloneResponseItems(items)
-	seenIDs := make(map[string]struct{}, len(out))
-	seenUnidentifiedIndexes := make(map[int64]struct{})
-	seenCompactionIndexes := make(map[int64]struct{})
-	register := func(item ResponseItem) bool {
-		if item.Type == ResponseItemTypeCompaction {
-			_, exists := seenCompactionIndexes[item.OutputIndex]
-			seenCompactionIndexes[item.OutputIndex] = struct{}{}
-			return exists
-		}
-		if item.Type != ResponseItemTypeOther {
-			return false
-		}
-		if item.ID != nil {
-			_, exists := seenIDs[*item.ID]
-			seenIDs[*item.ID] = struct{}{}
-			return exists
-		}
-		_, exists := seenUnidentifiedIndexes[item.OutputIndex]
-		seenUnidentifiedIndexes[item.OutputIndex] = struct{}{}
-		return exists
-	}
-	// Completed output owns the final payload. JSON bytes can change between
-	// output_item.done and response.completed without changing item identity.
-	for _, item := range out {
-		register(item)
-	}
-	for _, item := range passthrough {
-		if (item.Type != ResponseItemTypeOther && item.Type != ResponseItemTypeCompaction) || len(item.Raw) == 0 {
-			continue
-		}
-		if register(item) {
 			continue
 		}
 		copyItem := item
