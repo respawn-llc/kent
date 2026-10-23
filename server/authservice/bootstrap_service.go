@@ -139,9 +139,6 @@ func (s *BootstrapService) CompleteBootstrap(_ context.Context, req *authpb.Comp
 			credential, err = auth.CompleteOpenAIBrowserFlow(ctx, s.oauthOptions, session, req.GetCallbackInput())
 		case authpb.BootstrapMode_BOOTSTRAP_MODE_DEVICE_CODE:
 			device := req.Continuation.GetDevice()
-			if device.PollIntervalSeconds > int64((1<<63-1)/time.Second) {
-				return nil, auth.ErrInvalidAuthMethod
-			}
 			code := auth.DeviceCode{Code: device.Code, UserCode: device.UserCode, PollInterval: time.Duration(device.PollIntervalSeconds) * time.Second}
 			if device.ExpiresAt != nil {
 				code.ExpiresAt = textutil.Value(device.ExpiresAt.AsTime())

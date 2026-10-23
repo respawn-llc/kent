@@ -7,6 +7,7 @@ import {
   AuthMethod,
   BootstrapCompletionSchema,
   BootstrapStatusSchema,
+  DeviceBootstrapContinuationSchema,
   ConnectionFactsSchema,
   ConnectionFailureDetailsSchema,
   ConnectionFailureReason,
@@ -19,6 +20,22 @@ import {
   ProviderKind,
   StatusFactsSchema,
 } from "@app/server-api-contract/gen/kent/api/auth/auth_pb";
+
+it("rejects sign-in polling intervals that overflow a duration", () => {
+  for (const pollIntervalSeconds of [9223372036n, 9223372037n]) {
+    const continuation = create(DeviceBootstrapContinuationSchema, {
+      code: "device-code",
+      userCode: "user-code",
+      pollIntervalSeconds,
+    });
+    const check = () => validate(DeviceBootstrapContinuationSchema, continuation);
+    if (pollIntervalSeconds === 9223372036n) {
+      expect(check).not.toThrow();
+    } else {
+      expect(check).toThrow();
+    }
+  }
+});
 
 describe("Session attachment capabilities", () => {
   it("accepts nonempty capabilities without surrounding whitespace", () => {
