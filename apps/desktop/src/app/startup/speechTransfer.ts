@@ -1,5 +1,6 @@
 import type { NativeBridge } from "@app/native-bridge";
-import { SpeechOperationError, SpeechTransportError, type SpeechResult } from "@/api";
+import limitAlert from "./speech-limit.m4a?no-inline";
+import { errorMessage, SpeechOperationError, SpeechTransportError, type SpeechResult } from "@/api";
 import { assertSpeechSize, decodeSpeechResult, speechUploadURL, uploadSpeechBlob } from "@/api/composition";
 import { speechSourceBytes, type SpeechRequest, type SpeechSource, type SpeechTransfer } from "@/app-facade";
 
@@ -26,7 +27,7 @@ export function createSpeechTransfer(bridge: NativeBridge, endpoint: string): Sp
   };
   return {
     begin: async (available, encoding) => {
-      const url = speechUploadURL(endpoint, available.uploadUrl);
+      const url = native === null ? available.uploadUrl : speechUploadURL(endpoint, available.uploadUrl);
       if (native !== null) {
         const recording = await native.create({ ...encoding, maxBytes: available.maxBytes, uploadUrl: url });
         return {
@@ -66,7 +67,7 @@ export function createSpeechTransfer(bridge: NativeBridge, endpoint: string): Sp
     },
     retry: async (source, available) => {
       assertSpeechSize(speechSourceBytes(source), available);
-      const url = speechUploadURL(endpoint, available.uploadUrl);
+      const url = native === null ? available.uploadUrl : speechUploadURL(endpoint, available.uploadUrl);
       if (source.kind === "native") {
         if (native === null) throw new Error("Native speech is unavailable.");
         return nativeRequest(await native.uploadOriginal(source.original, url, available.maxBytes));
@@ -97,6 +98,20 @@ export function createSpeechTransfer(bridge: NativeBridge, endpoint: string): Sp
         if (outcome.kind === "original-path") throw new SpeechOperationError("originalPath");
       }
     },
-    limitSound: async () => native?.limitSound() ?? false,
+    limitSound: async () => {
+      const failures: unknown[] = [];
+      try {
+        if (await native?.limitSound()) return true;
+      } catch (error) {
+        failures.push(error);
+      }
+      try {
+        await new Audio(limitAlert).play();
+      } catch (error) {
+        failures.push(error);
+        throw new AggregateError(failures, failures.map(errorMessage).join("\n"), { cause: error });
+      }
+      return true;
+    },
   };
 }

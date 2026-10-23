@@ -4,7 +4,12 @@ export const speechEnglish = {
     "The provider rejected this recording (HTTP {{status}}). Check this connection’s access, or retry using another speech-capable global default. You can save your recording.",
   errors: {
     originalPath: "Choose a different location for the recording copy.",
-    format: "This device cannot record an accepted audio format.",
+    format: "No supported recording codec is available. Check your system multimedia components.",
+    captureUnavailable:
+      "Microphone capture is unavailable. Update your system WebView and multimedia components.",
+    permission:
+      "Microphone access was denied. Allow Kent to use the microphone in your system privacy settings and try again.",
+    device: "The microphone could not be opened. Check that it is connected and available, then try again.",
     size: "The complete recording exceeds the provider upload limit.",
     closed: "The recording destination was closed.",
     unavailable: "No speech-capable default connection is available.",
@@ -20,6 +25,7 @@ export const speechEnglish = {
   unavailable: "Select a speech-capable default connection in global configuration.",
   failed: "Speech input failed",
   limit: "Recording limit reached",
+  soundFailed: "Recording stopped, but the alert sound could not play",
   limitBody: "Recording stopped. Kent will transcribe it if the complete file fits the upload limit.",
   recoveryTitle: "Your recording is preserved",
   browserTemporary: "This recording is kept only in this browser page. Download it before closing the page.",

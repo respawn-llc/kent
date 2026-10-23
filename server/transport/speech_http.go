@@ -8,7 +8,6 @@ import (
 	"log/slog"
 	"net/http"
 	"net/url"
-	"strconv"
 	"sync"
 	"time"
 
@@ -27,43 +26,15 @@ func (a *sessionReattachAuthority) speechUploadURL(version string) string {
 	return (&url.URL{Path: SpeechUploadPath, RawQuery: query.Encode()}).RequestURI()
 }
 
-func speechOriginAllowed(origin string) bool {
-	parsed, err := url.Parse(origin)
-	if err != nil || parsed.Scheme != "http" || parsed.User != nil ||
-		parsed.Path != "" || parsed.RawQuery != "" || parsed.Fragment != "" ||
-		(parsed.Hostname() != "localhost" && parsed.Hostname() != "127.0.0.1") {
-		return false
-	}
-	if parsed.Port() != "" {
-		port, err := strconv.ParseUint(parsed.Port(), 10, 16)
-		return err == nil && port > 0
-	}
-	return parsed.Host == parsed.Hostname()
-}
-
 func (g *Gateway) SpeechHandler() http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Cache-Control", "no-store")
-		if origin := r.Header.Get("Origin"); origin != "" {
-			w.Header().Add("Vary", "Origin")
-			if !speechOriginAllowed(origin) {
-				writeSpeechFailure(w, http.StatusForbidden, errors.New("speech origin is not allowed"))
-				return
-			}
-			w.Header().Set("Access-Control-Allow-Origin", origin)
-		}
 		if r.URL.Path != SpeechUploadPath {
 			http.NotFound(w, r)
 			return
 		}
-		if r.Method == http.MethodOptions {
-			w.Header().Set("Access-Control-Allow-Methods", "POST")
-			w.Header().Set("Access-Control-Allow-Headers", "Content-Type")
-			w.WriteHeader(http.StatusNoContent)
-			return
-		}
 		if r.Method != http.MethodPost {
-			w.Header().Set("Allow", "POST, OPTIONS")
+			w.Header().Set("Allow", "POST")
 			writeSpeechFailure(w, http.StatusMethodNotAllowed, errors.New("speech upload requires POST"))
 			return
 		}

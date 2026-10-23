@@ -53,6 +53,7 @@ version = "0.0.0"
 dependencies = [
  "arboard",
  "futures-util",
+ "gtk",
  "image",
  "mac-usernotifications",
  "notify-rust",
@@ -76,6 +77,7 @@ dependencies = [
  "tokio",
  "tokio-util",
  "toml 0.9.12+spec-1.1.0",
+ "webkit2gtk",
  "windows",
 ]
 

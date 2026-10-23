@@ -428,15 +428,32 @@ pub async fn speech_save_copy(
 }
 
 #[tauri::command]
-pub fn speech_limit_sound() -> bool {
+pub fn speech_limit_sound() -> Result<bool, String> {
     #[cfg(target_os = "macos")]
     {
         objc2_app_kit::NSBeep();
-        true
+        Ok(true)
     }
-    #[cfg(not(target_os = "macos"))]
+    #[cfg(windows)]
     {
-        false
+        use windows::Win32::System::Diagnostics::Debug::MessageBeep;
+        use windows::Win32::UI::WindowsAndMessaging::MB_OK;
+        unsafe { MessageBeep(MB_OK) }.map_err(|error| error.to_string())?;
+        Ok(true)
+    }
+    #[cfg(target_os = "linux")]
+    {
+        if let Some(display) = gtk::gdk::Display::default() {
+            // GDK accepts the bell request without reporting physical playback.
+            display.beep();
+            Ok(true)
+        } else {
+            Ok(false)
+        }
+    }
+    #[cfg(not(any(target_os = "macos", target_os = "linux", windows)))]
+    {
+        Ok(false)
     }
 }
 

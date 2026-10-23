@@ -8,12 +8,16 @@ use std::sync::{
     atomic::{AtomicU64, Ordering},
     Arc, Mutex,
 };
-use tauri::{Emitter, Manager};
+use tauri::Emitter;
+#[cfg(any(target_os = "macos", windows))]
+use tauri::Manager;
 use tauri_plugin_dialog::DialogExt;
 
 mod clipboard;
 mod native_glass;
 mod speech;
+#[cfg(target_os = "linux")]
+mod speech_linux;
 
 const CONFIG_FILE_NAME: &str = "config.toml";
 const DEFAULT_PERSISTENCE_ROOT: &str = "~/.kent";
@@ -630,7 +634,10 @@ pub fn run() {
         }
         context
     };
-    tauri::Builder::default()
+    let builder = tauri::Builder::default();
+    #[cfg(target_os = "linux")]
+    let builder = builder.plugin(speech_linux::init());
+    builder
         .plugin(tauri_plugin_clipboard_manager::init())
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_notification::init())
@@ -650,9 +657,9 @@ pub fn run() {
                 speech::close_window(&webview.window());
             }
         })
-        .setup(|app| {
+        .setup(|_app| {
             #[cfg(any(target_os = "macos", windows))]
-            if let Some(window) = app.get_webview_window("main") {
+            if let Some(window) = _app.get_webview_window("main") {
                 if let Err(error) = native_glass::apply_to_window_now(&window) {
                     eprintln!("Apply native window glass failed: {error}");
                 }

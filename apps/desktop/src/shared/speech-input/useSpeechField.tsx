@@ -49,7 +49,14 @@ export function SpeechDestinationProvider({ children }: Readonly<{ children: Rea
       report,
       onLimit: () => {
         push({ id: "speech-limit", title: t("speech.limit"), body: t("speech.limitBody"), tone: "info" });
-        void services.speech.limitSound().catch(report);
+        void services.speech.limitSound().catch((error: unknown) => {
+          push({
+            id: "speech-sound-failed",
+            title: t("speech.soundFailed"),
+            body: errorMessage(error),
+            tone: "danger",
+          });
+        });
       },
     });
   });

@@ -9,8 +9,6 @@ import { createGuiLogger } from "../logging";
 import { createSpeechTransfer } from "./speechTransfer";
 
 const defaultServerEndpoint = "ws://127.0.0.1:53082/rpc";
-const browserRpcEndpointSearchParam = "appRpcEndpoint";
-const browserRpcEndpointEnvVar = "VITE_APP_RPC_ENDPOINT";
 const platformAttribute = "data-platform";
 const themeAttribute = "data-theme";
 const nativeDialogThemeSearchParam = "__appTheme";
@@ -46,23 +44,8 @@ export async function createDefaultAppServices(): Promise<AppServices> {
   }
   applyConfiguredTheme(context.theme);
   applyNativeDialogThemeOverride();
-  const browserEndpoint = nativeBridge.capabilities.platform === "browser" ? readBrowserRpcEndpoint() : null;
-  if (browserEndpoint instanceof Error) {
-    await logger.append("error", "Browser RPC endpoint configuration failed.", {
-      error: browserEndpoint.message,
-    });
-    return {
-      api: new ApiClient(new BootstrapErrorTransport(browserEndpoint), projectEventDiagnostics(logger)),
-      speech: createSpeechTransfer(nativeBridge, defaultServerEndpoint),
-      debugThemeOverrideEnabled: import.meta.env.DEV,
-      endpoint: defaultServerEndpoint,
-      homePath: context.homePath,
-      logger,
-      nativeBridge,
-      protocolVersion,
-      storageNamespace: null,
-    };
-  }
+  const browserEndpoint =
+    nativeBridge.capabilities.platform === "browser" ? __KENT_BROWSER_RPC_ENDPOINT__ : null;
   const endpoint =
     browserEndpoint ?? (context.serverEndpoint.length > 0 ? context.serverEndpoint : defaultServerEndpoint);
   // Browser QA points at an arbitrary endpoint, so root validation only applies
@@ -126,44 +109,6 @@ export function applyNativePlatform(platform: NativePlatform): void {
   document.documentElement.setAttribute(platformAttribute, platform);
 }
 
-export function readBrowserRpcEndpoint(): string | null | StartupConfigurationError {
-  const raw = firstNonEmptyString(
-    readBrowserRpcEndpointSearchParam(),
-    import.meta.env[browserRpcEndpointEnvVar],
-  );
-  if (raw === null) {
-    return defaultServerEndpoint;
-  }
-  const endpoint = parseBrowserRpcEndpoint(raw);
-  if (endpoint instanceof Error) {
-    return endpoint;
-  }
-  return endpoint;
-}
-
-export function parseBrowserRpcEndpoint(raw: string): string | StartupConfigurationError {
-  const trimmed = raw.trim();
-  if (trimmed.length === 0) {
-    return new StartupConfigurationError("Browser RPC endpoint is empty.");
-  }
-  let parsed: URL;
-  try {
-    parsed = new URL(trimmed);
-  } catch {
-    return new StartupConfigurationError("Browser RPC endpoint must be an absolute ws:// or wss:// URL.");
-  }
-  if (parsed.protocol !== "ws:" && parsed.protocol !== "wss:") {
-    return new StartupConfigurationError("Browser RPC endpoint must use ws:// or wss://.");
-  }
-  if (parsed.username.length > 0 || parsed.password.length > 0) {
-    return new StartupConfigurationError("Browser RPC endpoint must not include credentials.");
-  }
-  if (parsed.hash.length > 0) {
-    return new StartupConfigurationError("Browser RPC endpoint must not include a URL fragment.");
-  }
-  return parsed.toString();
-}
-
 export function applyConfiguredTheme(theme: string): void {
   if (typeof document === "undefined") {
     return;
@@ -188,23 +133,6 @@ export function setInMemoryThemeOverride(theme: AppTheme): void {
     return;
   }
   document.documentElement.setAttribute(themeAttribute, theme);
-}
-
-function readBrowserRpcEndpointSearchParam(): string | null {
-  if (typeof window === "undefined") {
-    return null;
-  }
-  return new URLSearchParams(window.location.search).get(browserRpcEndpointSearchParam);
-}
-
-function firstNonEmptyString(...values: readonly unknown[]): string | null {
-  for (const value of values) {
-    const parsed = stringValueSchema.safeParse(value);
-    if (parsed.success && parsed.data.trim().length > 0) {
-      return parsed.data;
-    }
-  }
-  return null;
 }
 
 function readNativeDialogThemeOverride(): AppTheme | null {

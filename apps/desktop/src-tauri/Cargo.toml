@@ -46,7 +46,11 @@ objc2-app-kit = { version = "0.3.2", features = ["NSColor", "NSGraphics", "NSGla
 objc2-foundation = { version = "0.3.2", features = ["NSProcessInfo"] }
 
 [target.'cfg(windows)'.dependencies]
-windows = { version = "0.61.3", features = ["UI_Notifications"] }
+windows = { version = "0.61.3", features = ["UI_Notifications", "Win32_System_Diagnostics_Debug", "Win32_UI_WindowsAndMessaging"] }
+
+[target.'cfg(target_os = "linux")'.dependencies]
+webkit2gtk = { version = "2.0.2", features = ["v2_40"] }
+gtk = "0.18"
 
 [profile.release]
 codegen-units = 1

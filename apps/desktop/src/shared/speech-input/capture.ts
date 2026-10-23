@@ -25,6 +25,13 @@ export const captureMicrophone = Effect.fn("captureMicrophone")(function* (
   available: SpeechAvailable,
   { onStop, onLimit, report }: Readonly<{ onStop(): void; onLimit(): void; report(error: Error): void }>,
 ) {
+  if (
+    !("MediaRecorder" in globalThis) ||
+    !("mediaDevices" in navigator) ||
+    !("getUserMedia" in navigator.mediaDevices)
+  ) {
+    return yield* Effect.fail(new SpeechActionError(new SpeechOperationError("captureUnavailable")));
+  }
   const encoding = yield* speechSync(() =>
     available.encodings.find((candidate) => MediaRecorder.isTypeSupported(candidate.mimeType)),
   );
