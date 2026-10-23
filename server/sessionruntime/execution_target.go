@@ -288,10 +288,7 @@ func runActiveRuntimeMaintenance(
 }
 
 func (a *Authority) ClearWorktreeReminder(ctx context.Context, sessionID string) error {
-	id, err := runtimeids.ParseSessionID(strings.TrimSpace(sessionID))
-	if err != nil {
-		return err
-	}
+	id := runtimeids.SessionIDFromProto(strings.TrimSpace(sessionID))
 	return a.withMaintenanceResource(ctx, id, func(_ context.Context, store *session.Store, _ *agentResource, _ *runtime.Engine) (bool, error) {
 		return false, store.SetWorktreeReminderState(nil)
 	})
