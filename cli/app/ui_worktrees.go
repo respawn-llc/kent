@@ -305,9 +305,7 @@ func (m *uiModel) applyWorktreeListResponse(resp *worktreepb.ListSuccess) error 
 	if resp == nil {
 		return errors.New("worktree list response is empty")
 	}
-	if err := m.recordWorktreeSelection(); err != nil {
-		return err
-	}
+	m.recordWorktreeSelection()
 	m.worktrees.target = resp.Target
 	entries, err := worktreeui.ProjectItems(resp.Worktrees)
 	if err != nil {
@@ -320,10 +318,7 @@ func (m *uiModel) applyWorktreeListResponse(resp *worktreepb.ListSuccess) error 
 	}
 	m.clampWorktreeSelection()
 	if m.worktrees.phase == uiWorktreeOverlayPhaseDeleteConfirm {
-		targetIdentity, err := worktreeui.SelectionIdentityForItem(m.worktrees.deleteConfirm.target)
-		if err != nil {
-			return err
-		}
+		targetIdentity := worktreeui.SelectionIdentityForItem(m.worktrees.deleteConfirm.target)
 		item, idx, ok, err := worktreeui.FindByIdentity(m.worktrees.entries, targetIdentity)
 		if err != nil {
 			return err
@@ -369,11 +364,7 @@ func (m *uiModel) applyWorktreeIntent() tea.Cmd {
 		m.worktrees.errorText = runtimeattach.FormatSubmissionError(err)
 		return nil
 	}
-	targetIdentity, err := worktreeui.SelectionIdentityForItem(target)
-	if err != nil {
-		m.worktrees.errorText = runtimeattach.FormatSubmissionError(err)
-		return nil
-	}
+	targetIdentity := worktreeui.SelectionIdentityForItem(target)
 	_, idx, ok, err := worktreeui.FindByIdentity(m.worktrees.entries, targetIdentity)
 	if err != nil {
 		m.worktrees.errorText = runtimeattach.FormatSubmissionError(err)
@@ -382,10 +373,7 @@ func (m *uiModel) applyWorktreeIntent() tea.Cmd {
 	if ok {
 		m.worktrees.selection = idx + 1
 	}
-	if err := m.recordWorktreeSelection(); err != nil {
-		m.worktrees.errorText = runtimeattach.FormatSubmissionError(err)
-		return nil
-	}
+	m.recordWorktreeSelection()
 	m.openDeleteWorktreeDialog(
 		target,
 		intent.PreferDeleteBranch,
@@ -541,11 +529,7 @@ func (m *uiModel) worktreeSwitchCmd(target worktreeui.Item) tea.Cmd {
 	if m == nil {
 		return nil
 	}
-	selector, err := worktreeui.StableMutationSelector(target)
-	if err != nil {
-		m.worktrees.errorText = runtimeattach.FormatSubmissionError(err)
-		return nil
-	}
+	selector := worktreeui.StableMutationSelector(target)
 	if m.worktrees.switchPending {
 		queued := runtimeinput.PendingWorkWorktreeTransition{
 			Transition: runtimeinput.PendingWorkWorktreeTransitionEnter,
@@ -581,15 +565,12 @@ func (m *uiModel) worktreeDeleteCmd(target worktreeui.Item, deleteBranch bool) t
 	m.worktrees.deleteConfirm.errorText = ""
 	m.worktrees.deleteConfirm.submitting = true
 	service := m.worktreeMutationService()
-	selector, selectorErr := worktreeui.StableMutationSelector(target)
+	selector := worktreeui.StableMutationSelector(target)
 	cleanupPolicy := worktreepb.BranchCleanupMode_WORKTREE_BRANCH_CLEANUP_MODE_AUTO_IF_KENT_CREATED
 	if deleteBranch {
 		cleanupPolicy = worktreepb.BranchCleanupMode_WORKTREE_BRANCH_CLEANUP_MODE_DELETE_SAFE
 	}
 	return func() tea.Msg {
-		if selectorErr != nil {
-			return worktreeDeleteDoneMsg{token: token, target: worktreeui.DisplayName(target), err: selectorErr}
-		}
 		resp, err := service.Delete(selector, m.worktrees.deleteConfirm.forceFolderRemoval, cleanupPolicy)
 		return worktreeDeleteDoneMsg{token: token, target: worktreeui.DisplayName(target), resp: resp, err: err}
 	}
