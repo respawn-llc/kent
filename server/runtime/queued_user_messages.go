@@ -89,7 +89,7 @@ func (s *queuedUserMessageStore) Discard(queueItemID string) bool {
 
 func (s *queuedUserMessageStore) DiscardItem(queueItemID string) (queuedUserMessage, bool) {
 	id := strings.TrimSpace(queueItemID)
-	if id == "" || s == nil {
+	if s == nil {
 		return queuedUserMessage{}, false
 	}
 	s.mu.Lock()
