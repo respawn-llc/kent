@@ -126,6 +126,42 @@ func TestInputAdmissionsSettleIndependently(t *testing.T) {
 	}
 }
 
+func TestInputAdmissionSurvivesSameSessionHydration(t *testing.T) {
+	for _, accepted := range []bool{false, true} {
+		t.Run(fmt.Sprint(accepted), func(t *testing.T) {
+			disableTransientStatusClearForTest(t)
+			model := newProjectedTestUIModel(&runtimeControlFakeClient{})
+			model.applyTranscriptHydration(ongoingHydrationMessage(1).Event.GetHydration(), runtimeTupleMergeResult{})
+			model.enqueueInput("invocation", runtimeinput.Text("invocation"), runtimeinput.PendingWorkLaneQueue)
+			pending := model.injectedQueue[0]
+			testSetMainInput(model, "new draft")
+			model.applyTranscriptHydration(ongoingHydrationMessage(2).Event.GetHydration(), runtimeTupleMergeResult{})
+			problem := errors.New("admission diagnostic")
+			result := injectedQueueCreateDoneMsg{pending: pending}
+			if accepted {
+				child := runtimeids.NewSessionID().String()
+				result.selectedSessionID = &child
+				result.item = clientui.QueuedUserMessage{ID: pending.Request.QueueItemID.String()}
+				result.diagnostic = problem
+			} else {
+				result.err = problem
+			}
+			_, command := model.inputController().handleInjectedQueueCreateDone(result)
+			if accepted {
+				if model.nextSessionID != *result.selectedSessionID || model.exitAction != UIActionOpenSession || command == nil {
+					t.Fatal("hydration dropped accepted Session handoff or diagnostic")
+				}
+			} else if model.mainEditor.Text() != "new draft\n\ninvocation" ||
+				model.transientStatus != runtimeattach.FormatSubmissionError(problem) {
+				t.Fatal("hydration dropped rejection restoration or diagnostic")
+			}
+			if len(model.injectedQueue) != 0 {
+				t.Fatal("settled admission remained outstanding")
+			}
+		})
+	}
+}
+
 func TestQueueShortcutKeepsCompactionOnDedicatedOperation(t *testing.T) {
 	client := &runtimeControlFakeClient{}
 	model := newProjectedTestUIModel(client)

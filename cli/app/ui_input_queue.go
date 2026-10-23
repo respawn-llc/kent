@@ -25,12 +25,11 @@ const (
 // Admission records correlate transport and transcript results; they never
 // schedule, retry, or own accepted Runtime work.
 type injectedRuntimeQueueItem struct {
-	Request    clientui.RuntimeSubmitRequest
-	SessionID  runtimeids.SessionID
-	Generation uint64
-	Text       string
-	State      injectedRuntimeQueueState
-	Terminal   *transcriptpb.QueuedMessageState
+	Request   clientui.RuntimeSubmitRequest
+	SessionID runtimeids.SessionID
+	Text      string
+	State     injectedRuntimeQueueState
+	Terminal  *transcriptpb.QueuedMessageState
 }
 
 func (m *uiModel) enqueueInput(text string, input runtimeinput.Input, intent runtimeinput.PendingWorkLane) tea.Cmd {
@@ -41,8 +40,8 @@ func (m *uiModel) enqueueInput(text string, input runtimeinput.Input, intent run
 		Request: clientui.RuntimeSubmitRequest{
 			Input: input, Intent: intent, QueueItemID: runtimeids.NewQueueItemID(),
 		},
-		SessionID: m.pendingWorkRefresh.sessionID, Generation: m.pendingWorkRefresh.generation,
-		Text: text, State: injectedRuntimeQueuePendingCreate,
+		SessionID: m.pendingWorkRefresh.sessionID,
+		Text:      text, State: injectedRuntimeQueuePendingCreate,
 	}
 	m.injectedQueue = append(m.injectedQueue, pending)
 	client := m.runtimeClient()
@@ -125,7 +124,7 @@ func (c uiInputController) handleInjectedQueueCreateDone(msg injectedQueueCreate
 		return m, nil
 	}
 	item := m.injectedQueue[index]
-	if item.SessionID != m.pendingWorkRefresh.sessionID || item.Generation != m.pendingWorkRefresh.generation {
+	if item.SessionID != m.pendingWorkRefresh.sessionID {
 		m.removeInjectedQueueItemAt(index)
 		return m, nil
 	}
