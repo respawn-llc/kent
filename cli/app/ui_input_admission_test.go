@@ -162,6 +162,35 @@ func TestInputAdmissionSurvivesSameSessionHydration(t *testing.T) {
 	}
 }
 
+func TestRejectedChildAdmissionRestoresInvocationWithoutChangingRunningActivity(t *testing.T) {
+	disableTransientStatusClearForTest(t)
+	model := newProjectedTestUIModel(&runtimeControlFakeClient{})
+	model.applyTranscriptHydration(ongoingHydrationMessage(1).Event.GetHydration(), runtimeTupleMergeResult{})
+	model.setRuntimeActivityBusyForTest(true)
+	beforeActivity := model.activity
+	model.enqueueInput("/review", runtimeinput.BuiltinCommand(runtimeinput.BuiltinPromptCommandReview, ""), runtimeinput.PendingWorkLaneQueue)
+	pending := model.injectedQueue[0]
+	testSetMainInput(model, "new draft")
+	child := runtimeids.NewSessionID().String()
+	problem := errors.New("child admission rejected")
+	model.inputController().handleInjectedQueueCreateDone(injectedQueueCreateDoneMsg{
+		pending: pending, selectedSessionID: &child, err: problem,
+	})
+	if model.mainEditor.Text() != "new draft\n\n/review" ||
+		model.transientStatus != runtimeattach.FormatSubmissionError(problem) {
+		t.Fatal("rejected child hid the original invocation or diagnostic")
+	}
+	if model.exitAction == UIActionOpenSession || model.nextSessionID == child {
+		t.Fatal("rejected admission took the accepted Session handoff")
+	}
+	if model.activity != beforeActivity {
+		t.Fatal("admission rejection replaced server-authoritative running activity")
+	}
+	if len(model.injectedQueue) != 0 {
+		t.Fatal("rejection remained outstanding")
+	}
+}
+
 func TestQueueShortcutKeepsCompactionOnDedicatedOperation(t *testing.T) {
 	client := &runtimeControlFakeClient{}
 	model := newProjectedTestUIModel(client)

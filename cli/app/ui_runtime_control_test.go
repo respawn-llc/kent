@@ -668,8 +668,8 @@ func TestSubmitErrorShowsTransientStatusWithoutPersisting(t *testing.T) {
 	next, cmd := m.Update(injectedQueueCreateDoneMsg{pending: m.injectedQueue[0], err: errors.New("submit failed")})
 	updated := next.(*uiModel)
 
-	if updated.activity != uiActivityError {
-		t.Fatalf("expected error activity, got %v", updated.activity)
+	if updated.activity != uiActivityRunning {
+		t.Fatalf("expected authoritative running activity, got %v", updated.activity)
 	}
 	for _, msg := range collectCmdMessages(t, cmd) {
 		next, _ = updated.Update(msg)

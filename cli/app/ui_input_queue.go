@@ -129,15 +129,6 @@ func (c uiInputController) handleInjectedQueueCreateDone(msg injectedQueueCreate
 		return m, nil
 	}
 	m.observeRuntimeRequestResult(msg.err)
-	if msg.selectedSessionID != nil && *msg.selectedSessionID != m.sessionID {
-		m.removeInjectedQueueItemAt(index)
-		m.nextSessionID = *msg.selectedSessionID
-		m.exitAction = UIActionOpenSession
-		if msg.diagnostic != nil {
-			return m, tea.Sequence(m.appendLocalEntryWithNoticeID("error", msg.diagnostic.Error(), ""), tea.Quit)
-		}
-		return m, tea.Quit
-	}
 	if msg.err != nil {
 		var terminalCmd tea.Cmd
 		if item.Terminal != nil {
@@ -147,7 +138,6 @@ func (c uiInputController) handleInjectedQueueCreateDone(msg injectedQueueCreate
 			c.restoreSubmittedTextIntoInput(item.Text)
 			m.removeInjectedQueueItemAt(index)
 		}
-		m.activity = uiActivityError
 		detail := runtimeattach.FormatSubmissionError(msg.err)
 		m.logf("input_admission.error err=%q", detail)
 		status := m.sendTransientStatusWithNoticeID(detail, uiStatusNoticeError, transientStatusDuration, uiStatusNoticeReplace, "")
@@ -155,6 +145,15 @@ func (c uiInputController) handleInjectedQueueCreateDone(msg injectedQueueCreate
 			return m, tea.Batch(terminalCmd, status, m.startPromptCatalogRefresh(*notFound.Command))
 		}
 		return m, tea.Batch(terminalCmd, status)
+	}
+	if msg.selectedSessionID != nil && *msg.selectedSessionID != m.sessionID {
+		m.removeInjectedQueueItemAt(index)
+		m.nextSessionID = *msg.selectedSessionID
+		m.exitAction = UIActionOpenSession
+		if msg.diagnostic != nil {
+			return m, tea.Sequence(m.appendLocalEntryWithNoticeID("error", msg.diagnostic.Error(), ""), tea.Quit)
+		}
+		return m, tea.Quit
 	}
 	if msg.item.ID != item.Request.QueueItemID.String() {
 		err := errors.New("accepted input changed its Queue Item identity")
