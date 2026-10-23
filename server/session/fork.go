@@ -122,9 +122,6 @@ func (b *forkReplayBatch) validateDrained() error {
 // user message among the parent's visible user messages (for naming/display).
 // User-driven forks select a fresh interactive contract, not a continuation.
 func ForkAtUserMessage(parentLog MaterializedEventLog, userMessageSeq int64, forkName string, category sessioncontract.SessionCategory, thinking ForkThinking) (*Store, int, error) {
-	if userMessageSeq <= 0 {
-		return nil, 0, fmt.Errorf("user message seq must be >= 1")
-	}
 	return streamChildFromParent(parentLog, forkName, category, ChildContextOptions{
 		InheritGoal: true,
 	}, userMessageSeq, thinking)
