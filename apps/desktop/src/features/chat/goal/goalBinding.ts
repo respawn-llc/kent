@@ -50,8 +50,6 @@ export function createNewChatGoalBinding(
       networkMode: "always",
       mutationFn: async (input: GoalRequest) => options.api.setGoal(input.target, input.objective),
       onSuccess: (result, input) => {
-        if (result.sessionID.trim().length === 0)
-          throw new ContractError("Goal Set success Session is required.");
         const goal = result.outcome.kind === "mutation" ? committedGoal(result.outcome.mutation) : null;
         input.delivered({
           target: { projectID: input.target.projectID, sessionID: result.sessionID },
