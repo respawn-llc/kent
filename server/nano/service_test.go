@@ -62,7 +62,6 @@ func TestNanoChatGPTDispatchIdentityAndRetry(t *testing.T) {
 	var observations sync.Mutex
 	released := make(chan struct{})
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		w.Header().Set("x-codex-turn-state", "opaque,state=value")
 		socket, err := websocket.Accept(w, r, nil)
 		if err != nil {
 			t.Error(err)
@@ -88,8 +87,11 @@ func TestNanoChatGPTDispatchIdentityAndRetry(t *testing.T) {
 		}
 		received = append(received, facts)
 		identities = append(identities, r.Header.Get("session-id"))
-		states = append(states, r.Header.Get("x-codex-turn-state"))
+		states = append(states, body.ClientMetadata["x-codex-turn-state"])
 		if len(received) == 1 {
+			if err := socket.Write(t.Context(), websocket.MessageText, []byte(`{"type":"response.metadata","headers":{"x-codex-turn-state":"opaque,state=value"}}`)); err != nil {
+				t.Error(err)
+			}
 			endParent()
 			if err := socket.Write(t.Context(), websocket.MessageText, []byte(`{"type":"error","status":503,"error":{"message":"retry","type":"server_error"}}`)); err != nil {
 				t.Error(err)

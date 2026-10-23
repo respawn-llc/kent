@@ -111,7 +111,7 @@
 - If a terminal Session has saved OAuth credentials, opening it must not attempt refresh. An expired refresh token must not close the terminal, block chat or `/login`, or require deleting saved credentials.
 - If refreshing a terminal Session's saved OAuth credentials fails during a request, Kent must persist a transcript error identifying the Provider Connection, preserving readable original diagnostics, and directing the user to sign in. The error must read: "Failed to authenticate the provider connection: <readable Go error>. Run /login to authenticate connection <conn-id>, used for this session."
 - Provider authentication failure must not automatically retry or replay the failed request or select another connection.
-- Re-authentication must be allowed during execution. Already-sent requests must continue. Subsequent requests must use the credentials saved by re-authentication without reopening the terminal Session. Re-authentication must not cancel, replay, or reroute work or change unrelated connections.
+- Re-authentication must be allowed during execution. Already-sent requests must continue. Subsequent HTTP requests and new WebSocket handshakes must use the credentials saved by re-authentication without reopening the terminal Session. Re-authentication must not replace credentials on an open WebSocket, cancel, replay, or reroute work, or change unrelated connections.
 
 ## Server Environment
 

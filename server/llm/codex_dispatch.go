@@ -71,6 +71,7 @@ type codexTurnStateSource string
 
 const (
 	codexTurnStateSourceHTTPHeader codexTurnStateSource = "http_header"
+	codexTurnStateSourceMetadata   codexTurnStateSource = "response_metadata"
 )
 
 type codexTurnMetadata struct {

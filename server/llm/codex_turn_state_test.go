@@ -14,11 +14,39 @@ import (
 	"core/shared/textutil"
 )
 
-func TestCodexTurnStateUsesInitialHTTPHeaderAndIgnoresMetadata(t *testing.T) {
+func TestCodexSocketTurnStateComesFromMetadataAndContinuesInBand(t *testing.T) {
+	var creates int
+	var openings int
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		openings++
+		if len(r.Header.Values(codexTurnStateHeader)) != 0 {
+			t.Error("socket opening replayed turn state")
+		}
 		w.Header().Set(codexTurnStateHeader, "header-state")
-		serveResponsesTestWebsocket(t, w, r, func(json.RawMessage) []string {
-			return []string{`{"type":"response.metadata","headers":{"x-codex-turn-state":"metadata-state"}}`, completedResponseSSEJSON}
+		serveResponsesTestWebsocket(t, w, r, func(raw json.RawMessage) []string {
+			creates++
+			var create struct {
+				Metadata map[string]string `json:"client_metadata"`
+				Previous *string           `json:"previous_response_id"`
+			}
+			if err := json.Unmarshal(raw, &create); err != nil {
+				t.Error(err)
+			}
+			state, present := create.Metadata[codexTurnStateHeader]
+			if creates == 2 {
+				if !present || state != "metadata-state" || create.Previous == nil {
+					t.Errorf("next create lost state or incremental continuation: %s", raw)
+				}
+			} else if present {
+				t.Error("turn state leaked into a new Agent Turn")
+			}
+			return []string{
+				`{"type":"response.metadata","headers":{}}`,
+				`{"type":"response.metadata","headers":{"x-codex-turn-state":" bad"}}`,
+				`{"type":"response.metadata","headers":{"x-codex-turn-state":"metadata-state"}}`,
+				`{"type":"response.metadata","headers":{"x-codex-turn-state":"later-conflict"}}`,
+				completedResponseSSEJSON,
+			}
 		})
 	}))
 	t.Cleanup(server.Close)
@@ -28,11 +56,20 @@ func TestCodexTurnStateUsesInitialHTTPHeaderAndIgnoresMetadata(t *testing.T) {
 	if _, err := transport.Generate(context.Background(), testCodexResponsesRequest(dispatch), StreamCallbacks{}); err != nil {
 		t.Fatalf("Generate: %v", err)
 	}
-	if got, ok := dispatch.currentTurnState(); !ok || got != "header-state" {
-		t.Fatalf("turn state = (%q, %v), want initial HTTP header", got, ok)
+	if got, ok := dispatch.currentTurnState(); !ok || got != "metadata-state" {
+		t.Fatalf("turn state = (%q, %v), want first valid metadata", got, ok)
 	}
-	if diagnostics := dispatch.TurnStateDiagnostics(); len(diagnostics) != 0 {
-		t.Fatalf("metadata affected turn-state diagnostics: %v", diagnostics)
+	if _, err := transport.Generate(t.Context(), testCodexResponsesRequest(dispatch), StreamCallbacks{}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := transport.Generate(t.Context(), testCodexResponsesRequest(newTestCodexDispatch(t)), StreamCallbacks{}); err != nil {
+		t.Fatal(err)
+	}
+	if openings != 1 || creates != 3 {
+		t.Fatalf("routing changed socket lifetime: %d openings, %d creates", openings, creates)
+	}
+	if diagnostics := dispatch.TurnStateDiagnostics(); len(diagnostics) != 1 || diagnostics[0] != CodexTurnStateDiagnosticInvalid {
+		t.Fatalf("invalid metadata diagnostics = %v", diagnostics)
 	}
 }
 

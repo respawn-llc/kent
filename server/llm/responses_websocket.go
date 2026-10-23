@@ -106,7 +106,12 @@ func (t *HTTPTransport) generateWebsocket(ctx context.Context, request Responses
 	if len(input) > 0 {
 		create.Input.OfResponse = &input
 	}
-	applyCodexClientMetadata(&create, preparation.projection)
+	observer := codexTurnStateObserver(preparation.projection, request.CodexDispatch)
+	var turnState *string
+	if value, present := observer.turnStateForRequest(); present {
+		turnState = textutil.Value(value)
+	}
+	applyCodexClientMetadata(&create, preparation.projection, turnState)
 	var handshake *http.Response
 	evidence := t.providerUsageRequestEvidence(request, preparation, payload)
 	attempt := t.startProviderAttempt(ctx, request, preparation, evidence.RequestedServiceTier, providerAttemptGenerate)
@@ -117,12 +122,10 @@ func (t *HTTPTransport) generateWebsocket(ctx context.Context, request Responses
 	defer func() { attempt.finish(ctx, handshake, err) }()
 	if t.socket == nil {
 		service := responses.NewResponseService(option.WithBaseURL(t.serviceBaseURL()), option.WithHTTPClient(t.streamingHTTPClient()), option.WithMaxRetries(0))
-		options := append(t.buildRequestOptions(request, preparation), option.WithResponseInto(&handshake))
+		options := append(t.buildRequestOptions(request, preparation), option.WithHeaderDel(codexTurnStateHeader), option.WithResponseInto(&handshake))
 		connection, err := service.Connect(ctx, responses.ResponseConnectionOptions{
 			MaxMessageBytes: responsesSocketMessageBytes, MaxBufferedBytes: responsesSocketBufferedBytes, MaxBufferedEvents: responsesSocketBufferedEvents,
 		}, options...)
-		headersObserved := false
-		observeCodexTurnStateResponseHeader(codexTurnStateObserver(preparation.projection, request.CodexDispatch), handshake, &headersObserved)
 		if err != nil {
 			return result, newResponsesRequestErrorMapper(preparation.variant.ProviderID).Map(err, handshake, "open responses websocket")
 		}
@@ -143,6 +146,19 @@ func (t *HTTPTransport) generateWebsocket(ctx context.Context, request Responses
 		}
 		if callbacks.OnStreamActivity != nil {
 			callbacks.OnStreamActivity()
+		}
+		if event.Type == "response.metadata" && observer != nil {
+			var metadata struct {
+				Headers struct {
+					TurnState *string `json:"x-codex-turn-state"`
+				} `json:"headers"`
+			}
+			if err := json.Unmarshal([]byte(event.RawJSON()), &metadata); err != nil {
+				return result, err
+			}
+			if metadata.Headers.TurnState != nil {
+				observer.observeTurnStateCandidate(*metadata.Headers.TurnState, codexTurnStateSourceMetadata)
+			}
 		}
 		if event.JSON.OfResponsesServerEventResponseWsError.Valid() {
 			failure := event.OfResponsesServerEventResponseWsError

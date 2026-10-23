@@ -460,7 +460,7 @@ func (t *HTTPTransport) compactResponsesTriggerV2(ctx context.Context, request R
 	if err != nil {
 		return ResponsesCompactionResponse{}, err
 	}
-	applyCodexClientMetadata(&payload, projection)
+	applyCodexClientMetadata(&payload, projection, nil)
 	compressionOption := requestCompressionOption(variant)
 	service := responses.NewResponseService(
 		option.WithBaseURL(t.serviceBaseURL()),

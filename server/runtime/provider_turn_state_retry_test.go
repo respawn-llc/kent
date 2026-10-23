@@ -25,6 +25,36 @@ type providerTurnStateOAuthAuth struct {
 	next       int
 }
 
+func providerTurnStateSocketHandler(t *testing.T, state string, respond func(json.RawMessage) []string) http.Handler {
+	t.Helper()
+	return nativeResponsesSocketHandler(t, func(raw json.RawMessage) []string {
+		return append([]string{providerTurnStateEvent(t, state)}, respond(raw)...)
+	})
+}
+
+func providerTurnStateEvent(t *testing.T, state string) string {
+	t.Helper()
+	metadata, err := json.Marshal(struct {
+		Type    string            `json:"type"`
+		Headers map[string]string `json:"headers"`
+	}{Type: "response.metadata", Headers: map[string]string{"x-codex-turn-state": state}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	return string(metadata)
+}
+
+func providerCreateTurnState(t *testing.T, raw json.RawMessage) string {
+	t.Helper()
+	var create struct {
+		Metadata map[string]string `json:"client_metadata"`
+	}
+	if err := json.Unmarshal(raw, &create); err != nil {
+		t.Error(err)
+	}
+	return create.Metadata["x-codex-turn-state"]
+}
+
 func (a *providerTurnStateOAuthAuth) ResolveDispatchAuth(context.Context) (*llm.DispatchAuth, error) {
 	a.mu.Lock()
 	defer a.mu.Unlock()
@@ -44,10 +74,9 @@ func TestToolLoopContinuationReplaysProviderTurnState(t *testing.T) {
 		states []string
 	)
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, request *http.Request) {
-		w.Header().Set("x-codex-turn-state", firstState)
-		nativeResponsesSocketHandler(t, func(json.RawMessage) []string {
+		providerTurnStateSocketHandler(t, firstState, func(raw json.RawMessage) []string {
 			mu.Lock()
-			states = append(states, request.Header.Get("x-codex-turn-state"))
+			states = append(states, providerCreateTurnState(t, raw))
 			attempt := len(states)
 			mu.Unlock()
 			if attempt <= 2 {
@@ -81,7 +110,7 @@ func TestToolLoopContinuationReplaysProviderTurnState(t *testing.T) {
 	mu.Lock()
 	gotStates := append([]string(nil), states...)
 	mu.Unlock()
-	if fmt.Sprint(gotStates) != fmt.Sprint([]string{"", "", ""}) {
+	if fmt.Sprint(gotStates) != fmt.Sprint([]string{"", firstState, firstState}) {
 		t.Fatalf("tool-loop routing headers changed from socket opening: %q", gotStates)
 	}
 }
@@ -93,10 +122,9 @@ func TestNewAgentTurnStartsWithoutProviderTurnState(t *testing.T) {
 		states []string
 	)
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, request *http.Request) {
-		w.Header().Set("x-codex-turn-state", firstTurnState)
-		nativeResponsesSocketHandler(t, func(json.RawMessage) []string {
+		providerTurnStateSocketHandler(t, firstTurnState, func(raw json.RawMessage) []string {
 			mu.Lock()
-			states = append(states, request.Header.Get("x-codex-turn-state"))
+			states = append(states, providerCreateTurnState(t, raw))
 			attempt := len(states)
 			mu.Unlock()
 			if attempt == 1 {
@@ -127,7 +155,7 @@ func TestNewAgentTurnStartsWithoutProviderTurnState(t *testing.T) {
 	mu.Lock()
 	gotStates := append([]string(nil), states...)
 	mu.Unlock()
-	if fmt.Sprint(gotStates) != fmt.Sprint([]string{"", "", ""}) {
+	if fmt.Sprint(gotStates) != fmt.Sprint([]string{"", firstTurnState, ""}) {
 		t.Fatalf("successive Agent Turn routing headers changed from socket opening: %q", gotStates)
 	}
 }
@@ -140,10 +168,9 @@ func TestSocketKeepsOpeningAccountDespiteLaterCredentialChanges(t *testing.T) {
 		accounts []string
 	)
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, request *http.Request) {
-		w.Header().Set("x-codex-turn-state", firstAccountState)
-		nativeResponsesSocketHandler(t, func(json.RawMessage) []string {
+		providerTurnStateSocketHandler(t, firstAccountState, func(raw json.RawMessage) []string {
 			mu.Lock()
-			states = append(states, request.Header.Get("x-codex-turn-state"))
+			states = append(states, providerCreateTurnState(t, raw))
 			accounts = append(accounts, request.Header.Get("ChatGPT-Account-Id"))
 			attempt := len(states)
 			mu.Unlock()
@@ -174,7 +201,7 @@ func TestSocketKeepsOpeningAccountDespiteLaterCredentialChanges(t *testing.T) {
 	gotStates := append([]string(nil), states...)
 	gotAccounts := append([]string(nil), accounts...)
 	mu.Unlock()
-	if fmt.Sprint(gotStates) != fmt.Sprint([]string{"", "", ""}) {
+	if fmt.Sprint(gotStates) != fmt.Sprint([]string{"", firstAccountState, firstAccountState}) {
 		t.Fatalf("socket opening routing headers changed: %q", gotStates)
 	}
 	if fmt.Sprint(gotAccounts) != fmt.Sprint([]string{"account-a", "account-a", "account-a"}) {
@@ -190,10 +217,9 @@ func TestUnidentifiedAccountOmitsAndDoesNotAcceptProviderTurnState(t *testing.T)
 		accounts []string
 	)
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, request *http.Request) {
-		w.Header().Set("x-codex-turn-state", accountState)
-		nativeResponsesSocketHandler(t, func(json.RawMessage) []string {
+		providerTurnStateSocketHandler(t, accountState, func(raw json.RawMessage) []string {
 			mu.Lock()
-			states = append(states, request.Header.Get("x-codex-turn-state"))
+			states = append(states, providerCreateTurnState(t, raw))
 			accounts = append(accounts, request.Header.Get("ChatGPT-Account-Id"))
 			attempt := len(states)
 			mu.Unlock()
@@ -240,10 +266,9 @@ func TestConcurrentSessionsKeepProviderTurnStateIsolatedByAccount(t *testing.T) 
 	)
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, request *http.Request) {
 		accountID := request.Header.Get("ChatGPT-Account-Id")
-		w.Header().Set("x-codex-turn-state", accountID+"-turn-state")
-		nativeResponsesSocketHandler(t, func(json.RawMessage) []string {
+		providerTurnStateSocketHandler(t, accountID+"-turn-state", func(raw json.RawMessage) []string {
 			mu.Lock()
-			states[accountID] = append(states[accountID], request.Header.Get("x-codex-turn-state"))
+			states[accountID] = append(states[accountID], providerCreateTurnState(t, raw))
 			sessionID[accountID] = request.Header.Get("session-id")
 			attempt := len(states[accountID])
 			mu.Unlock()
@@ -292,8 +317,8 @@ func TestConcurrentSessionsKeepProviderTurnStateIsolatedByAccount(t *testing.T) 
 	firstSession := sessionID["account-a"]
 	secondSession := sessionID["account-b"]
 	mu.Unlock()
-	if fmt.Sprint(firstStates) != fmt.Sprint([]string{"", ""}) ||
-		fmt.Sprint(secondStates) != fmt.Sprint([]string{"", ""}) {
+	if fmt.Sprint(firstStates) != fmt.Sprint([]string{"", "account-a-turn-state"}) ||
+		fmt.Sprint(secondStates) != fmt.Sprint([]string{"", "account-b-turn-state"}) {
 		t.Fatalf("concurrent per-account request states = %q / %q, want each Session's own token", firstStates, secondStates)
 	}
 	if firstSession == "" || secondSession == "" || firstSession == secondSession {
@@ -312,10 +337,9 @@ func TestReviewerSharesMainAgentTurnProviderTurnState(t *testing.T) {
 		sessionIDs []string
 	)
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, request *http.Request) {
-		w.Header().Set("x-codex-turn-state", firstState)
-		nativeResponsesSocketHandler(t, func(json.RawMessage) []string {
+		providerTurnStateSocketHandler(t, firstState, func(raw json.RawMessage) []string {
 			mu.Lock()
-			states = append(states, request.Header.Get("x-codex-turn-state"))
+			states = append(states, providerCreateTurnState(t, raw))
 			sessionIDs = append(sessionIDs, request.Header.Get("session-id"))
 			mu.Unlock()
 			if request.Header.Get("session-id") == reviewerSession {
@@ -375,7 +399,7 @@ func TestReviewerSharesMainAgentTurnProviderTurnState(t *testing.T) {
 	gotStates := append([]string(nil), states...)
 	gotSessionIDs := append([]string(nil), sessionIDs...)
 	mu.Unlock()
-	if fmt.Sprint(gotStates) != fmt.Sprint([]string{"", firstState, "", firstState, ""}) {
+	if fmt.Sprint(gotStates) != fmt.Sprint([]string{"", firstState, firstState, "", firstState}) {
 		t.Fatalf("main/Reviewer turn states = %q, want shared first value in either request order and fresh state on the next turn", gotStates)
 	}
 	if fmt.Sprint(gotSessionIDs) != fmt.Sprint([]string{mainSessionID, reviewerSession, mainSessionID, reviewerSession, mainSessionID}) {
@@ -395,20 +419,20 @@ func TestReviewerMismatchedRouteKeepsInvocationStateIsolated(t *testing.T) {
 		{
 			name:               "different account",
 			reviewerAccountIDs: []string{"account-b", "account-b"},
-			wantStates:         []string{"", "", "reviewer-route-state", ""},
+			wantStates:         []string{"", "", "", "main-route-state"},
 			wantAccounts:       []string{"account-a", "account-b", "account-b", "account-a"},
 		},
 		{
 			name:               "different endpoint",
 			reviewerAccountIDs: []string{"account-a", "account-a"},
 			reviewerEndpoint:   textutil.Value("https://chatgpt-alt.invalid/backend-api/codex/responses"),
-			wantStates:         []string{"", "", "reviewer-route-state", ""},
+			wantStates:         []string{"", "", "", "main-route-state"},
 			wantAccounts:       []string{"account-a", "account-a", "account-a", "account-a"},
 		},
 		{
 			name:               "unidentified account",
 			reviewerAccountIDs: []string{"", ""},
-			wantStates:         []string{"", "", "", ""},
+			wantStates:         []string{"", "", "", "main-route-state"},
 			wantAccounts:       []string{"account-a", "", "", "account-a"},
 		},
 	}
@@ -425,32 +449,31 @@ func TestReviewerMismatchedRouteKeepsInvocationStateIsolated(t *testing.T) {
 				reviewerOpenings int
 			)
 			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, request *http.Request) {
-				record := func() {
+				record := func(state string) {
 					mu.Lock()
 					defer mu.Unlock()
-					states = append(states, request.Header.Get("x-codex-turn-state"))
+					states = append(states, state)
 					accounts = append(accounts, request.Header.Get("ChatGPT-Account-Id"))
 					sessionIDs = append(sessionIDs, request.Header.Get("session-id"))
 				}
 				isReviewer := request.Header.Get("session-id") == reviewerSession
+				state := "main-route-state"
 				if isReviewer {
+					state = "reviewer-route-state"
 					mu.Lock()
 					reviewerOpenings++
 					first := reviewerOpenings == 1
 					mu.Unlock()
-					w.Header().Set("x-codex-turn-state", "reviewer-route-state")
 					if first {
-						record()
+						record(request.Header.Get("x-codex-turn-state"))
 						w.Header().Set("Content-Type", "application/json")
 						w.WriteHeader(http.StatusServiceUnavailable)
 						_, _ = w.Write([]byte(`{"error":{"message":"retry reviewer request","type":"server_error"}}`))
 						return
 					}
-				} else {
-					w.Header().Set("x-codex-turn-state", "main-route-state")
 				}
-				nativeResponsesSocketHandler(t, func(json.RawMessage) []string {
-					record()
+				providerTurnStateSocketHandler(t, state, func(raw json.RawMessage) []string {
+					record(providerCreateTurnState(t, raw))
 					if isReviewer {
 						return []string{runtimeFinalAnswerEvent(`{"suggestions":[]}`)}
 					}
@@ -531,26 +554,18 @@ func TestLocalCompactionKeepsRoutingStateSeparateFromMainTurn(t *testing.T) {
 		states []string
 	)
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, request *http.Request) {
-		mu.Lock()
-		first := len(states) == 0
-		mu.Unlock()
-		if first {
-			w.Header().Set("x-codex-turn-state", mainTurnState)
-		} else {
-			w.Header().Set("x-codex-turn-state", localCompactState)
-		}
-		nativeResponsesSocketHandler(t, func(json.RawMessage) []string {
+		nativeResponsesSocketHandler(t, func(raw json.RawMessage) []string {
 			mu.Lock()
-			states = append(states, request.Header.Get("x-codex-turn-state"))
+			states = append(states, providerCreateTurnState(t, raw))
 			attempt := len(states)
 			mu.Unlock()
 			if attempt == 2 {
-				return []string{`{"type":"error","status":503,"error":{"code":"server_error","type":"server_error","message":"retry local compaction"}}`}
+				return []string{providerTurnStateEvent(t, localCompactState), `{"type":"error","status":503,"error":{"code":"server_error","type":"server_error","message":"retry local compaction"}}`}
 			}
 			if attempt == 3 {
 				return []string{runtimeFinalAnswerEvent("local summary")}
 			}
-			return []string{runtimeFinalAnswerEvent("main response")}
+			return []string{providerTurnStateEvent(t, mainTurnState), runtimeFinalAnswerEvent("main response")}
 		}).ServeHTTP(w, request)
 	}))
 	t.Cleanup(server.Close)
@@ -596,7 +611,7 @@ func TestLocalCompactionKeepsRoutingStateSeparateFromMainTurn(t *testing.T) {
 	mu.Lock()
 	gotStates := append([]string(nil), states...)
 	mu.Unlock()
-	wantStates := []string{"", "", "", ""}
+	wantStates := []string{"", "", localCompactState, mainTurnState}
 	if fmt.Sprint(gotStates) != fmt.Sprint(wantStates) {
 		t.Fatalf("main/local-compaction request states = %q, want separate local retry state and unchanged main-turn state %q", gotStates, wantStates)
 	}
@@ -614,10 +629,9 @@ func TestRemoteCompactionRetryAndLocalFallbackKeepTurnStateScopes(t *testing.T) 
 	)
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, request *http.Request) {
 		if request.Header.Get("Upgrade") == "websocket" {
-			w.Header().Set("x-codex-turn-state", mainTurnState)
-			nativeResponsesSocketHandler(t, func(json.RawMessage) []string {
+			providerTurnStateSocketHandler(t, mainTurnState, func(raw json.RawMessage) []string {
 				mu.Lock()
-				states = append(states, request.Header.Get("x-codex-turn-state"))
+				states = append(states, providerCreateTurnState(t, raw))
 				attempt := len(states)
 				mu.Unlock()
 				if attempt == 4 {
@@ -691,7 +705,7 @@ func TestRemoteCompactionRetryAndLocalFallbackKeepTurnStateScopes(t *testing.T) 
 	mu.Lock()
 	gotStates := append([]string(nil), states...)
 	mu.Unlock()
-	wantStates := []string{"", mainTurnState, mainTurnState, "", "", ""}
+	wantStates := []string{"", mainTurnState, mainTurnState, "", mainTurnState, mainTurnState}
 	if fmt.Sprint(gotStates) != fmt.Sprint(wantStates) {
 		t.Fatalf("generation/remote-compaction/local-fallback request states = %q, want turn-state replay and isolated local fallback %q", gotStates, wantStates)
 	}
@@ -705,10 +719,9 @@ func TestStandaloneCompactionStartsWithoutPriorAgentTurnState(t *testing.T) {
 	)
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, request *http.Request) {
 		if request.Header.Get("Upgrade") == "websocket" {
-			w.Header().Set("x-codex-turn-state", mainTurnState)
-			nativeResponsesSocketHandler(t, func(json.RawMessage) []string {
+			providerTurnStateSocketHandler(t, mainTurnState, func(raw json.RawMessage) []string {
 				mu.Lock()
-				states = append(states, request.Header.Get("x-codex-turn-state"))
+				states = append(states, providerCreateTurnState(t, raw))
 				mu.Unlock()
 				return []string{runtimeFinalAnswerEvent("ordinary work")}
 			}).ServeHTTP(w, request)
@@ -779,7 +792,7 @@ func TestInvalidProviderTurnStateDoesNotChangeSuccessfulModelOutcome(t *testing.
 	}
 }
 
-func TestGenerateWithRetryReplaysExactProviderTurnState(t *testing.T) {
+func TestGenerateWithRetryIgnoresRejectedHandshakeTurnState(t *testing.T) {
 	withGenerateRetryDelays(t, []time.Duration{0})
 	const turnState = "opaque,state=value"
 	var mu sync.Mutex
@@ -827,12 +840,12 @@ func TestGenerateWithRetryReplaysExactProviderTurnState(t *testing.T) {
 	mu.Lock()
 	gotStates := append([]string(nil), states...)
 	mu.Unlock()
-	if fmt.Sprint(gotStates) != fmt.Sprint([]string{"", turnState}) {
-		t.Fatalf("received turn states = %q, want exact bounded-retry replay", gotStates)
+	if fmt.Sprint(gotStates) != fmt.Sprint([]string{"", ""}) {
+		t.Fatalf("received turn states = %q, want no rejected-handshake state replay", gotStates)
 	}
 }
 
-func TestGenerationMissingOutputRebuildReplaysProviderTurnState(t *testing.T) {
+func TestGenerationMissingOutputRebuildIgnoresRejectedHandshakeTurnState(t *testing.T) {
 	var states []string
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, request *http.Request) {
 		if len(states) == 0 {
@@ -862,8 +875,8 @@ func TestGenerationMissingOutputRebuildReplaysProviderTurnState(t *testing.T) {
 	if err != nil {
 		t.Fatalf("generation repair: %v", err)
 	}
-	if fmt.Sprint(states) != fmt.Sprint([]string{"", "generation-repair-state"}) {
-		t.Fatalf("changed generation payload states = %q, want same-turn state replay", states)
+	if fmt.Sprint(states) != fmt.Sprint([]string{"", ""}) {
+		t.Fatalf("changed generation payload states = %q, want no rejected-handshake state replay", states)
 	}
 }
 
