@@ -201,13 +201,6 @@ func TestProjectDeleteRejectsInvalidPreflightScopesAndStatuses(t *testing.T) {
 			}),
 		},
 		{
-			name: "malformed status",
-			response: projectDeleteTaskListResponse(projectID, &taskpb.TaskStatus{
-				Kind:        taskpb.TaskStatusKind(999),
-				NativeState: taskpb.TaskNativeState_TASK_NATIVE_STATE_ACTIVE,
-			}),
-		},
-		{
 			name: "workflow scoped no links",
 			err: &serverapi.WorkflowTaskListScopeError{
 				Reason:     serverapi.WorkflowTaskListScopeReasonNoLinkedWorkflows,

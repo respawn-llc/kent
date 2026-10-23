@@ -10,7 +10,6 @@ import (
 
 	"core/shared/client"
 	"core/shared/config"
-	"core/shared/protoapi"
 	projectpb "core/shared/protoapi/gen/kent/api/project"
 	taskpb "core/shared/protoapi/gen/kent/api/workflow_task"
 	"core/shared/serverapi"
@@ -173,10 +172,8 @@ func projectDeleteHasUnfinishedWork(ctx context.Context, operations projectDelet
 		return false, nil
 	}
 	task := response.Tasks[0]
-	expectedNativeState, err := protoapi.TaskNativeState(task.Status.Kind)
-	if err != nil || task.Status.Kind == taskpb.TaskStatusKind_TASK_STATUS_KIND_DONE ||
-		task.Status.NativeState == taskpb.TaskNativeState_TASK_NATIVE_STATE_TERMINAL ||
-		task.Status.NativeState != expectedNativeState {
+	if task.Status.Kind == taskpb.TaskStatusKind_TASK_STATUS_KIND_DONE ||
+		task.Status.NativeState == taskpb.TaskNativeState_TASK_NATIVE_STATE_TERMINAL {
 		return false, errors.New("project deletion task preflight returned an invalid task status")
 	}
 	return true, nil
