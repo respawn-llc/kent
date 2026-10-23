@@ -67,9 +67,6 @@ func maybeHandlePickedSessionWorkspaceChange(ctx context.Context, server session
 	if server == nil {
 		return sessionWorkspaceChangeProceed, errors.New("session server is required")
 	}
-	if strings.TrimSpace(sessionID) == "" {
-		return sessionWorkspaceChangeProceed, errors.New("session id is required")
-	}
 	executionTarget = clientui.NormalizeSessionExecutionTarget(executionTarget)
 	if executionTarget.GetWorkspaceAvailability() != projectpb.ProjectAvailability_PROJECT_AVAILABILITY_AVAILABLE {
 		return sessionWorkspaceChangeProceed, nil
@@ -111,18 +108,12 @@ func retargetInteractiveSessionWorkspace(ctx context.Context, server sessionLife
 		return errors.New("session lifecycle client is required")
 	}
 	trimmedSessionID := strings.TrimSpace(sessionID)
-	if trimmedSessionID == "" {
-		return errors.New("session id is required")
-	}
 	trimmedWorkspaceRoot := strings.TrimSpace(workspaceRoot)
 	if trimmedWorkspaceRoot == "" {
 		return errors.New("workspace root is required")
 	}
-	target, err := runtimeids.ParseSessionSelector(trimmedSessionID)
-	if err != nil {
-		return err
-	}
-	_, err = server.SessionLifecycleClient().RetargetSessionWorkspace(ctx, &sessionlaunchpb.SessionRetargetWorkspaceRequest{SessionId: protoapi.SessionSelectorToProto(target), WorkspaceRoot: trimmedWorkspaceRoot})
+	target := runtimeids.SessionIDFromProto(trimmedSessionID)
+	_, err := server.SessionLifecycleClient().RetargetSessionWorkspace(ctx, &sessionlaunchpb.SessionRetargetWorkspaceRequest{SessionId: protoapi.SessionSelectorToProto(target), WorkspaceRoot: trimmedWorkspaceRoot})
 	return err
 }
 
