@@ -1,3 +1,4 @@
+import { prefersReducedMotion } from "@/ui";
 export type ViewTransitionScope = "route" | "board-card";
 
 export type ViewTransitionOptions = Readonly<{
@@ -57,13 +58,6 @@ function canStartViewTransition(): boolean {
     return false;
   }
   return !prefersReducedMotion();
-}
-
-function prefersReducedMotion(): boolean {
-  return (
-    globalThis.matchMedia instanceof Function &&
-    globalThis.matchMedia("(prefers-reduced-motion: reduce)").matches
-  );
 }
 
 function immediateViewTransitionResult(): ViewTransitionResult {

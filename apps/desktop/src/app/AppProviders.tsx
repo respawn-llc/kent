@@ -15,6 +15,7 @@ import { TaskSearchMemoryProvider } from "@/app-facade";
 import { WindowFocusProvider } from "@/app-facade";
 import { WindowChromeTitleProvider } from "@/app-facade";
 import { ChatPromptPresenceProvider } from "@/app-facade";
+import { DesktopPreferences } from "./DesktopPreferences";
 
 void initializeI18n();
 
@@ -36,8 +37,10 @@ export function AppProviders({ services, children }: AppProvidersProps) {
                 <StatusProvider>
                   <TaskSearchMemoryProvider>
                     <ChatPromptPresenceProvider>
-                      <NativeWindowObservations services={services} />
-                      {children}
+                      <DesktopPreferences>
+                        <NativeWindowObservations services={services} />
+                        {children}
+                      </DesktopPreferences>
                     </ChatPromptPresenceProvider>
                   </TaskSearchMemoryProvider>
                 </StatusProvider>

@@ -1,4 +1,11 @@
 import { useEffect, useState } from "react";
+import { prefersReducedMotion } from "@app/ui-kit";
+export {
+  prefersReducedMotion,
+  useReducedMotion,
+  useSystemReducedMotion,
+  ReducedMotionContext,
+} from "@app/ui-kit";
 
 const motionFastVarName = "--motion-fast";
 const fallbackMotionFastMs = 140;
@@ -50,12 +57,6 @@ export function motionDurationFromCSSVar(name: string, fallbackMs: number): numb
   }
   const raw = window.getComputedStyle(document.documentElement).getPropertyValue(name);
   return firstDurationMs(raw) ?? fallbackMs;
-}
-
-export function prefersReducedMotion(): boolean {
-  return (
-    window.matchMedia instanceof Function && window.matchMedia("(prefers-reduced-motion: reduce)").matches
-  );
 }
 
 function firstDurationMs(value: string): number | null {

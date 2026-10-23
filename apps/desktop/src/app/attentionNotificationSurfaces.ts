@@ -8,7 +8,7 @@ import type {
   AttentionNotificationTaskDetailFocus,
 } from "@/api";
 import { errorMessage } from "@/api";
-import type { AppServices } from "@/app-facade";
+import type { AppServices, DesktopSettings } from "@/app-facade";
 import type { TaskDetailInitialFocus } from "@/app-facade";
 import type { StatusController } from "@/app-facade";
 import { recoverOrThrowDebugFailure } from "@/app-facade";
@@ -75,21 +75,25 @@ export const readCurrentPendingSurface = Effect.fn("readCurrentPendingSurface")(
 export const deliverPendingSurface = Effect.fn("deliverPendingSurface")(function* ({
   get,
   focused,
+  delivery,
   hasNativeNotifications,
   logger,
   notification,
   notifications,
   showToast,
+  dismissToast,
   surfaced,
   t,
 }: Readonly<{
   focused: boolean;
+  delivery: DesktopSettings["notifications"];
   get: Atom.AtomContext;
   hasNativeNotifications: boolean;
   logger: Logger;
   notification: AttentionNotification;
   notifications: NativeNotifications;
   showToast: (notification: AttentionNotification) => void;
+  dismissToast: () => void;
   surfaced: SurfaceState;
   t: Translate;
 }>): Effect.fn.Return<SurfaceOutcome> {
@@ -105,15 +109,24 @@ export const deliverPendingSurface = Effect.fn("deliverPendingSurface")(function
   const latest = get.once(surfaced).get(attentionNotificationIDKey(notification.id));
   if (latest?.state !== "surfacing") return { status: "done" };
   if (latest.notification.revision !== notification.revision) return { status: "retry" };
-  if (focused || !hasNativeNotifications) {
+  if (attentionDelivery(delivery, focused, hasNativeNotifications) === "inApp") {
     yield* removeActiveNotification(notifications, logger, attentionNotificationIDKey(notification.id));
     if (get.once(surfaced).get(attentionNotificationIDKey(notification.id)) !== latest)
       return { status: "retry" };
     showToast(notification);
     return { status: "done" };
   }
+  dismissToast();
   return yield* deliverNativePendingSurface({ get, logger, notification, notifications, surfaced, t });
 });
+
+export function attentionDelivery(
+  mode: DesktopSettings["notifications"],
+  focused: boolean,
+  nativeCapable: boolean,
+): "native" | "inApp" {
+  return nativeCapable && (mode === "native" || (mode === "automatic" && !focused)) ? "native" : "inApp";
+}
 
 export function dismissSurface(
   get: Atom.AtomContext,

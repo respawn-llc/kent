@@ -1,4 +1,6 @@
 export { useLocalSubscription } from "./useLocalSubscription";
+export * from "./desktopSettings";
+export * from "./settingsFeedback";
 export { createAppLogger, type AppLogger, type AppLogLevel, type AppObservationLogger } from "./logging";
 export * from "./boardQueries";
 export * from "./browserStorage";

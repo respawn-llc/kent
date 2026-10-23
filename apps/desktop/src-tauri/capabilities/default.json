@@ -8,7 +8,6 @@
     "notification:default",
     "updater:default",
     "process:allow-restart",
-    "store:default",
     "clipboard-manager:allow-read-text",
     "clipboard-manager:allow-write-text",
     "dialog:allow-open",

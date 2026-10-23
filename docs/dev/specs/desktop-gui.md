@@ -13,7 +13,8 @@
 - File drops must never replace the application with the dropped file or create attachments. Windows and browser presentation must ignore file drops and support internal board dragging.
 
 - Desktop is a thin remote-control client of an already-running Kent server. The server is authoritative for Projects, workspaces, Workflows, Tasks, runtime, Workflow Execution live state, validation, Approvals, Questions, comments, worktrees, and durable state.
-- Desktop never starts or bundles the Kent server. It connects using Kent's configured host and port without storing a separate endpoint. It maps configured listener host `0.0.0.0` to `127.0.0.1` and `::` to `::1`, uses the configured port, and leaves concrete hosts unchanged. It must not edit Kent configuration.
+- Desktop must never start or bundle the Kent server or edit server configuration. Desktop must connect using its locally saved WebSocket address, defaulting to `ws://127.0.0.1:53082/rpc`. Address acceptance must match CLI and server WebSocket behavior. Desktop must not read connection or theme preferences from config.toml or environment or import those values into Desktop settings.
+- The saved address must select the server without requiring its data root to match a local Desktop path.
 - A compatible, ready server is required before feature content opens. If protocols are incompatible, show `Update Kent`, the client and server protocol values, instructions to update the service and desktop from the same build, and Retry. Use the same blocker whichever side is newer.
 - If the server is unavailable or authentication is not ready, show a concise failure and next action, including instructions to run the server when unreachable.
 - When startup fails, the application shell must be available. Home omits endpoint, version, authentication mode, and other runtime identity.
@@ -69,11 +70,11 @@
 
 - Home opens on Inbox unless a valid last-opened Project or Workflow destination can be restored. Back and forward use available navigation history. Otherwise Back returns Home.
 - Home has compact navigation and content side by side when both are usable, otherwise navigation stacks above content. It has no resizable splitter or temporary navigation drawer.
-- Home navigation provides Projects and Workflows catalog controls above the active catalog's infinite-scrolling list.
+- Home navigation must provide Projects and Workflows catalog controls and a Settings destination above the active catalog's infinite-scrolling list. Settings must follow Projects and Workflows.
 - Home shows no destination title in the global window chrome.
 - Selecting a Project opens its workspace. Selecting the open Project again or selecting a catalog control returns Home content to aggregate Inbox.
 - A Project workspace has no repeated Project identity header or header action.
-- A Project workspace has `Tasks`, `Sessions`, and `Subagents` tabs. `Tasks` is the default. The mounted Project workspace owns the selected tab, which resets when that workspace remounts.
+- A Project workspace has `Tasks`, `Sessions`, and `Subagents` tabs. The Project opening preference must offer Last used, Tasks, and Sessions and default to Last used. Last used must remember each Project's tab, including Subagents, across restarts and isolate this memory by server. A Project without a remembered tab must open Tasks. Explicit deep links must open their requested destination.
 - Switching among a Project workspace's `Tasks`, `Sessions`, and `Subagents` tabs crossfades overlapping outgoing and incoming content and respects reduced-motion preference.
 - Selecting an Inbox item opens Task Detail using the global adaptive sidebar presentation without replacing Home content or navigating away from Home.
 - An Inbox item shows at most five lines of its detail message before truncation. Selecting the item opens its complete Task Detail.
@@ -82,6 +83,27 @@
 - Board actions belong in board chrome. Workflow selection uses a click-controlled non-modal popover that closes after selection or outside activation. Desktop has no default browser-style hover effects beyond explicitly designed interaction feedback.
 - An empty Inbox says `All caught up` without showing recent Projects or choosing a Project automatically.
 - Project navigation rows show Project identity and editing. Project name and default-workspace path use at most two lines. Selection is communicated accessibly as well as visually.
+
+## Desktop settings
+
+- Desktop settings must contain only Desktop-local preferences. The server owns context, Agent, model, and Workflow configuration.
+- Selecting Settings must replace Home's detail pane and replace the sidebar catalog with a table of contents. The Projects, Workflows, and Settings destination rows must be above it. The table of contents must contain only category heading titles. Selecting a title must smoothly scroll the single Settings page to that section, respecting reduced-motion preference. When the page fits without overflow, selecting a title must not scroll.
+- Settings must use one scrollable page. Appearance must group Theme, Low-power mode, Transparency, and Reduced motion. Categories with fewer than three options must not have headings.
+- The connection field must have an explicit save action. Other preferences must save on change. A failed save must not change the effective setting and must show failure feedback.
+- Every startup blocker, including protocol mismatch and authentication or setup failure, must provide the connection form, its failure explanation, and Retry. An unreachable server must show server-start guidance. During the main window's initial startup, Connect must validate and save the address even when unreachable, then make one connection attempt without restarting or automatically retrying.
+- A connection change from a secondary window's startup blocker must require whole-app restart. Secondary windows must use the main window's active server even when another address is saved for the next restart.
+- A connection change from Settings must save for the next restart and keep the current server active until then. Switching servers must not mix server-specific local client state or stop server work. The unsent New Chat draft must be shared across servers.
+- Settings must show the connected server's config path in a compact information notice, not a card. When that exact path exists locally, Desktop must offer Open in the default platform application, including for remote connections, without machine verification.
+- Theme must offer System, Light, and Dark and default to System. System must follow OS theme changes. The theme setting must replace the debug theme toggle.
+- Reduced motion must offer Off and On and default to Off. On must disable animations. OS reduced motion must disable animations even when Off is selected.
+- Transparency must default to On. Off must make the window opaque without disabling in-window blur.
+- When Transparency is Off or Low-power mode is enabled, Desktop must create opaque native windows rather than painting opaque content over transparent windows.
+- Low-power mode must be a boolean defaulting to Off. When enabled, it must disable all blur, behind-window transparency, and animations. Enabling it must not change the saved Transparency and Reduced motion values. Their controls must be disabled with tooltips showing `Low-power mode overrides this`.
+- Connection changes from Settings, Transparency, and Low-power mode must require restart and show a dismissible Sonner with Restart. Theme, Reduced motion, Notifications, and Project opening changes must apply immediately. Global settings must govern every Desktop window after taking effect.
+- Permission, I/O, memory, and disk-storage failures must not trigger settings recreation and must show failure with Retry.
+- Adding settings must not change valid saved preferences, including self-update. Missing preferences and unknown enum values must use that preference's default. Unknown fields must be ignored. Only a missing or structurally invalid whole document must trigger recreation with defaults.
+- A crash during a Desktop preference write may cause the next launch to reset those preferences to defaults.
+- When a settings read failure prevents normal startup, Desktop must show an opaque error shell with Retry without overwriting the file or connecting with guessed settings. After Retry reads the settings successfully, Desktop must offer Restart to create the window with those settings.
 
 ## Projects and workspaces
 
@@ -466,8 +488,10 @@
 - Interrupt acts immediately without confirmation.
 - Task Detail opened from Inbox must not close after resolution while Inbox updates in the background.
 - Desktop attention includes workflow Questions, workflow Approvals, ordinary Session Questions and Approvals with a Desktop response surface, and executable Nodes interrupted by errors. It excludes user interruptions.
-- A focused window shows a persistent in-app attention notification. Selecting it opens Task Detail or Session Chat at the relevant attention item. Every notification can be closed regardless of duration. An ordinary Session prompt must not show a duplicate notification while its owning Session Chat and picker are already the focused destination.
-- An unfocused window attempts a system notification when available. Activation focuses the main window and opens the matching Task Detail or Session Chat target. Question notifications select the first unresolved Question in their batch. Approval and error-interruption notifications select their matching item.
+- Notifications must offer Automatic, Native, and In-app and default to Automatic. This setting must not change ordinary action and error feedback.
+- In Automatic mode, a focused window must show a persistent in-app attention notification. An ordinary Session prompt must not show a duplicate notification while its owning Session Chat and picker are already the focused destination. An unfocused window must attempt a system notification when available.
+- Native mode must send native-capable attention alerts to the OS even when focused, without duplicate Sonners. In-app mode must deliver attention alerts as Sonners even when unfocused.
+- Selecting an in-app attention notification must open Task Detail or Session Chat at the relevant attention item. Every notification can be closed regardless of duration. System notification activation must focus the main window and open the matching Task Detail or Session Chat target. Question notifications must select the first unresolved Question in their batch. Approval and error-interruption notifications must select their matching item.
 - Notification batches are server-authoritative. Resolved notifications dismiss matching persistent in-app notifications. Notification delivery never changes Workflow state. Development failures fail immediately with diagnostics, while production proceeds without delivery.
 - Notification messages are optional structured context. Desktop owns and localizes fallback copy when a message is absent. The server never supplies fallback UI copy.
 

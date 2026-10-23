@@ -8,7 +8,6 @@ export type NativeDialogWindowOptions = Readonly<{
   title: string;
   route: string;
   params: Readonly<Record<string, string>>;
-  theme?: NativeDialogTheme;
   initialWidth?: number;
   initialHeight?: number;
   maximizable?: boolean;
@@ -19,23 +18,15 @@ export type NativeDialogWindowOptions = Readonly<{
 
 export type NativeDialogOpenResult = "created" | "reused";
 
-export type NativeDialogTheme = "light" | "dark";
-
 export type NativeDialogContentSize = Readonly<{
   width: number;
   height: number;
 }>;
 
-const nativeDialogThemeSearchParam = "__appTheme";
-const themeAttribute = "data-theme";
-
 export async function openNativeDialogWindow(
   options: NativeDialogWindowOptions,
 ): Promise<NativeDialogOpenResult> {
-  const url = routeWithParams(
-    options.route,
-    withDialogTheme(options.params, options.theme ?? readEffectiveParentTheme()),
-  );
+  const url = routeWithParams(options.route, options.params);
   const label = options.label.startsWith("native-dialog-") ? options.label : `native-dialog-${options.label}`;
   const existing = await WebviewWindow.getByLabel(label);
   if (existing !== null) {
@@ -43,6 +34,9 @@ export async function openNativeDialogWindow(
     return "reused";
   }
   const placement = await centeredOnCurrentWindow(options);
+  const appearance = await invoke<{ transparency: boolean; lowPower: boolean } | null>(
+    "desktop_launch_appearance",
+  );
   await new Promise<void>((resolve, reject) => {
     const window = new WebviewWindow(label, {
       alwaysOnTop: options.presentation !== "content",
@@ -62,7 +56,7 @@ export async function openNativeDialogWindow(
       titleBarStyle: "overlay",
       trafficLightPosition:
         options.chrome === "app" ? new LogicalPosition(12, 22) : new LogicalPosition(20, 18),
-      transparent: true,
+      transparent: appearance !== null && appearance.transparency && !appearance.lowPower,
       url,
       visible: false,
       width: placement.width,
@@ -173,28 +167,4 @@ function routeWithParams(route: string, params: Readonly<Record<string, string>>
   }
   const suffix = search.size > 0 ? `?${search.toString()}` : "";
   return `${route}${suffix}`;
-}
-
-function withDialogTheme(
-  params: Readonly<Record<string, string>>,
-  theme: NativeDialogTheme,
-): Readonly<Record<string, string>> {
-  if (params[nativeDialogThemeSearchParam] !== undefined) {
-    return params;
-  }
-  return {
-    ...params,
-    [nativeDialogThemeSearchParam]: theme,
-  };
-}
-
-function readEffectiveParentTheme(): NativeDialogTheme {
-  const configured = document.documentElement.getAttribute(themeAttribute);
-  if (configured === "light" || configured === "dark") {
-    return configured;
-  }
-  if (!(window.matchMedia instanceof Function)) {
-    return "dark";
-  }
-  return window.matchMedia("(prefers-color-scheme: light)").matches ? "light" : "dark";
 }

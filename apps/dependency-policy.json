@@ -91,7 +91,6 @@
         "@tauri-apps/plugin-clipboard-manager",
         "@tauri-apps/plugin-notification",
         "@tauri-apps/plugin-process",
-        "@tauri-apps/plugin-store",
         "@tauri-apps/plugin-updater",
         "effect",
         "zod"

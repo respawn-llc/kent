@@ -73,10 +73,12 @@ const allowedPaths = Object.freeze([
   "src/test-support/harness/index.ts",
   "src/types/global.d.ts",
   "src/ui/allowed-owner-local.ts",
+  "src/ui/allowed-ui-kit.ts",
   "tooling/allowed-declaration.ts",
 ]);
 
 const forbiddenDependencyPaths = Object.freeze([
+  "packages/ui-kit/src/forbidden-ui.ts",
   "packages/native-bridge/src/forbidden-ui.ts",
   "src/api/forbidden-ui.ts",
   "src/app-facade/forbidden-api-composition.ts",

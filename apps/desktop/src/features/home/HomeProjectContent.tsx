@@ -12,7 +12,8 @@ import {
   type ProjectContentTab,
   useSessionChatCatalogReturn,
   useAppNavigation,
-  readLastProjectRoute,
+  projectOpeningTab,
+  useDesktopSettings,
   writeLastProjectContentTab,
 } from "@/app-facade";
 import {
@@ -64,18 +65,19 @@ function ProjectContentTabs({
 }>) {
   const navigation = useAppNavigation();
   const { t } = useTranslation();
+  const { storageNamespace } = useAppServices();
+  const settings = useDesktopSettings();
   const [tab, setTab] = useState<ProjectContentTab>(() => {
-    if (catalogReturn === "main") return "sessions";
-    if (catalogReturn === "subagent") return "subagents";
-    const lastProjectRoute = readLastProjectRoute();
-    if (lastProjectRoute?.kind === "home_project" && lastProjectRoute.projectId === projectID) {
-      return lastProjectRoute.contentTab;
-    }
-    return "tasks";
+    return projectOpeningTab(
+      storageNamespace,
+      projectID,
+      settings.saved.projectOpening,
+      catalogReturn === "main" ? "sessions" : catalogReturn === "subagent" ? "subagents" : null,
+    );
   });
   useEffect(() => {
-    writeLastProjectContentTab(projectID, tab);
-  }, [projectID, tab]);
+    writeLastProjectContentTab(storageNamespace, projectID, tab);
+  }, [storageNamespace, projectID, tab]);
   const mainSessionsQuery = useHomeSessionPages(projectID, "main", tab === "sessions");
   const subagentSessionsQuery = useHomeSessionPages(projectID, "subagent", tab === "subagents");
 

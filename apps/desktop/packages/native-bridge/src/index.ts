@@ -13,13 +13,7 @@ import {
   type NativeDialogWindowOptions,
   type NativeDialogOpenResult,
 } from "./dialogs";
-import {
-  readBrowserDesktopSettings,
-  readTauriDesktopSettings,
-  writeBrowserDesktopSettings,
-  writeTauriDesktopSettings,
-  type DesktopSettings,
-} from "./desktopSettings";
+import { createBrowserSettings, createTauriSettings, type DesktopSettingsBridge } from "./desktopSettings";
 import {
   createBrowserDirectoryBridge,
   createBrowserFileBridge,
@@ -44,12 +38,7 @@ import { createBrowserWindowFocusControls, createTauriWindowFocusControls } from
 import { createBrowserUpdates, createTauriUpdates, type NativeUpdateBridge } from "./updates";
 export { nativeObservation, type NativeOverflowReporter } from "./observation";
 
-export type {
-  NativeDialogContentSize,
-  NativeDialogTheme,
-  NativeDialogWindowOptions,
-  NativeDialogOpenResult,
-} from "./dialogs";
+export type { NativeDialogContentSize, NativeDialogWindowOptions, NativeDialogOpenResult } from "./dialogs";
 export type {
   NativeDirectoryPickerOptions,
   NativeDirectorySelection,
@@ -57,13 +46,14 @@ export type {
   NativeFileSelection,
   NativeFileTarget,
 } from "./fileSystem";
-export {
-  defaultDesktopSettings,
-  desktopSettingsVersion,
-  parseDesktopSettings,
-  type DesktopSelfUpdate,
-  type DesktopSettings,
+export type {
+  DesktopSelfUpdate,
+  DesktopSettings,
+  SettingsSnapshot,
+  SettingsChange,
+  LaunchAppearance,
 } from "./desktopSettings";
+export { browserSettingsFixture, SettingsCommandError, parseBrowserServerAddress } from "./desktopSettings";
 export {
   createBrowserCapabilities,
   createTauriCapabilities,
@@ -117,13 +107,12 @@ export type NativeBridge = Readonly<{
     append(entry: NativeLogEntry): Promise<void>;
   }>;
   updates: NativeUpdateBridge;
-  settings: Readonly<{
-    read(): Promise<DesktopSettings>;
-    write(next: DesktopSettings): Promise<void>;
-  }>;
+  settings: DesktopSettingsBridge;
   app: Readonly<{
     resolvePlatform(): Promise<NativePlatform>;
     resolveContext(): Promise<NativeContext>;
+    isMainWindow(): boolean;
+    reloadHome(address: string): void;
   }>;
   window: Readonly<{
     setTitle(title: string): Promise<void>;
@@ -176,18 +165,9 @@ export type NativeLogEntry = Readonly<{
   occurredAt: string;
 }>;
 
-export type NativeTheme = "auto" | "light" | "dark";
-
 export type NativeContext = Readonly<{
   serverEndpoint: string;
-  persistenceRoot: string;
-  // persistenceRootId is the id a connected server must report
-  // (HandshakeResult.identity.persistenceRootId) for the GUI to trust it
-  // serves this root. Empty when validation should be skipped (default root or
-  // KENT_PERSISTENCE_ROOT unset).
-  persistenceRootId: string;
   platform: NativePlatform;
-  theme: NativeTheme;
   homePath: string;
 }>;
 
@@ -216,12 +196,10 @@ declare global {
 
 export type BrowserNativeBridgeOptions = Readonly<{
   platform?: NativePlatform | undefined;
+  serverEndpoint?: string | undefined;
 }>;
 
 export function createBrowserNativeBridge(options: BrowserNativeBridgeOptions = {}): NativeBridge {
-  // Settings persist via localStorage so the browser QA shell (dev:browser) can
-  // exercise settings-driven UI; the self-update gate never relies on this since
-  // the browser shell is not updater-capable.
   const capabilities = createBrowserCapabilities(options.platform ?? "browser");
   const projectDeletionHandlers = new Set<(event: NativeProjectDeleted) => void>();
   const browserWindowFocus = createBrowserWindowFocusControls();
@@ -250,25 +228,21 @@ export function createBrowserNativeBridge(options: BrowserNativeBridgeOptions = 
       },
     },
     updates: createBrowserUpdates(),
-    settings: {
-      async read(): Promise<DesktopSettings> {
-        return readBrowserDesktopSettings();
-      },
-      async write(next: DesktopSettings): Promise<void> {
-        writeBrowserDesktopSettings(next);
-      },
-    },
+    settings: createBrowserSettings(options.serverEndpoint),
     app: {
+      isMainWindow: () => !window.location.pathname.startsWith("/native-dialog/"),
+      reloadHome: (address) => {
+        const url = new URL("/", window.location.href);
+        url.searchParams.set("appRpcEndpoint", address);
+        window.location.assign(url);
+      },
       async resolvePlatform(): Promise<NativePlatform> {
         return capabilities.platform;
       },
       async resolveContext(): Promise<NativeContext> {
         return {
           serverEndpoint: "ws://127.0.0.1:53082/rpc",
-          persistenceRoot: "",
-          persistenceRootId: "",
           platform: capabilities.platform,
-          theme: "auto",
           homePath: "",
         };
       },
@@ -362,11 +336,12 @@ export function createTauriNativeBridge(platform: NativePlatform = "unknown"): N
       },
     },
     updates: createTauriUpdates(async () => invoke<boolean>("self_update_supported")),
-    settings: {
-      read: readTauriDesktopSettings,
-      write: writeTauriDesktopSettings,
-    },
+    settings: createTauriSettings(),
     app: {
+      isMainWindow: () => getCurrentWindow().label === "main",
+      reloadHome: () => {
+        window.location.assign("/");
+      },
       async resolvePlatform(): Promise<NativePlatform> {
         return normalizeNativePlatform(await invoke<string>("resolve_native_platform"));
       },
@@ -461,10 +436,13 @@ export function createTauriNativeBridge(platform: NativePlatform = "unknown"): N
   };
 }
 
-export function createAutoNativeBridge(platform: NativePlatform = "unknown"): NativeBridge {
+export function createAutoNativeBridge(
+  platform: NativePlatform = "unknown",
+  browserEndpoint?: string,
+): NativeBridge {
   return isTauriRuntime()
     ? createTauriNativeBridge(platform)
-    : createBrowserNativeBridge({ platform: "browser" });
+    : createBrowserNativeBridge({ platform: "browser", serverEndpoint: browserEndpoint });
 }
 
 function isTauriRuntime(): boolean {

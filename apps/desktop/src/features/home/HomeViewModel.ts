@@ -46,7 +46,7 @@ export function createHomeViewModel(
       Effect.gen(function* () {
         if (get(category) === input.category && input.selectedProjectID === null) return;
         get.set(category, input.category);
-        if (input.selectedProjectID !== null) yield* Effect.promise(async () => input.selectProject(null));
+        yield* Effect.promise(async () => input.selectProject(null));
       }),
     { concurrent: true },
   );
