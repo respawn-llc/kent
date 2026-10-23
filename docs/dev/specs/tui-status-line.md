@@ -1,6 +1,6 @@
 ## Placement and composition
 
-- The status line is the bottom row of the main surface and part of the Mutable Band. It uses exactly one line in Ongoing Mode and Detail Mode.
+- The status line is the bottom row of the main surface and part of the Mutable Band. It uses exactly one line in Ongoing Mode and Detail Mode. The dedicated ask surface must use the same status line, except for its minimum-size resize-instruction frame.
 - It contains an activity indicator, optional Git branch, model label, process information, help slot, reasoning-or-notice slot, and context meter.
 - Space contract: every status-line item has a fixed priority. As width shrinks, lower-priority items yield their space in full before any higher-priority item degrades. Priority descending, each with its own degradation behavior:
   1. Activity spinner/dot — always shown, never truncates.
@@ -12,7 +12,7 @@
   7. Thinking Status — disappears whole.
   8. Model label (model id / thinking level / fast) — disappears whole.
   9. Git branch — disappears whole.
-  10. Help slot: idle help hint, or in detail mode the `Enter to expand`/`Enter to collapse` hint (one shown at a time) — disappears whole, yields first.
+  10. Help slot: idle help hint, detail `Enter to expand`/`Enter to collapse` hint, or dedicated-ask scrolling guidance (one shown at a time) — disappears whole, yields first.
 
 ## Activity indicator
 
@@ -35,7 +35,7 @@
 - Live Thinking Status while the model is reasoning (ladder rung 7), in a right-aligned slot immediately before the context meter. Visibility is governed by the space ladder.
 - While a Question or Approval waits for the operator, Thinking Status is hidden. Resumed model work begins without retaining the stale pre-prompt Thinking Status.
 - Post-interrupt feedback appears as the ordinary status notice `interrupted`.
-- The help slot shows one item at a time. In Detail Mode it shows `Enter to expand` or `Enter to collapse`. Otherwise it shows the idle help hint. The hint is hidden while busy, compacting, reviewing, or while help is open.
+- The help slot shows one item at a time. In Detail Mode it shows `Enter to expand` or `Enter to collapse`. On the dedicated ask surface it must show scrolling guidance. Otherwise it shows the idle help hint. The hint is hidden while busy, compacting, reviewing, or while help is open.
 
 ## Notices
 

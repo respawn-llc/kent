@@ -44,7 +44,9 @@ func TestSurfaceBlankFinalAbortClearsDeferredStream(t *testing.T) {
 		phase:    transcriptpb.AssistantPhase_ASSISTANT_PHASE_FINAL,
 	}
 
-	if _, err := surface.abortAssistantStream(streamID, blankFinalFrame()); err != nil {
+	if _, err := surface.ApplyTerminalMessage(&transcriptpb.Message{Event: &transcriptpb.Event{
+		Payload: &transcriptpb.Event_AssistantStreamAbort{AssistantStreamAbort: &transcriptpb.AssistantStreamAbort{StreamId: streamID}},
+	}}, blankFinalFrame()); err != nil {
 		t.Fatalf("abort assistant stream: %v", err)
 	}
 	if surface.activeAssistant.streamID != nil || surface.activeAssistantPromotionDeferred() {
@@ -76,7 +78,11 @@ func TestSurfaceBlankFinalOrdinaryTextStillPromotes(t *testing.T) {
 		phase:    transcriptpb.AssistantPhase_ASSISTANT_PHASE_FINAL,
 	}
 
-	if _, err := surface.finalizeAssistantStream(streamID, "ordinary final", blankFinalFrame()); err != nil {
+	if _, err := surface.ApplyTerminalMessage(&transcriptpb.Message{Event: &transcriptpb.Event{
+		Payload: &transcriptpb.Event_CommittedRow{CommittedRow: &transcriptpb.CommittedRow{
+			Row: &transcriptpb.CommittedRow_Assistant{Assistant: &transcriptpb.AssistantRow{StreamId: &streamID, Text: "ordinary final"}},
+		}},
+	}}, blankFinalFrame()); err != nil {
 		t.Fatalf("finalize ordinary assistant stream: %v", err)
 	}
 	if surface.activeAssistant.streamID != nil {

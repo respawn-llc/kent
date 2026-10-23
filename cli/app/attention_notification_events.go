@@ -69,7 +69,7 @@ func notifyTranscriptPromptActivation(hook promptAttentionSink, prompt *transcri
 
 func (m *uiModel) notifyPendingTranscriptPromptActivation() {
 	if m == nil ||
-		m.surface() != uiSurfaceOngoingTranscript ||
+		(m.surface() != uiSurfaceOngoingTranscript && m.surface() != uiSurfaceAsk) ||
 		m.inputMode() != uiInputModeAsk ||
 		m.ask.current == nil ||
 		m.ask.activeProjection == nil ||

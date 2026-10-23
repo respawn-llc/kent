@@ -152,12 +152,18 @@ func (a *transcriptPromptAnswerer) submitter(
 }
 
 func newTranscriptPromptKey(prompt *transcriptpb.Prompt) (transcriptPromptKey, error) {
-	sessionID := runtimeids.SessionIDFromProto(transcriptPromptSessionID(prompt))
+	sessionID, err := runtimeids.ParseSessionID(transcriptPromptSessionID(prompt))
+	if err != nil {
+		return transcriptPromptKey{}, errors.New("prompt answer session id is required")
+	}
 	stepID, err := runtimeids.StepIDFromProto(transcriptPromptStepID(prompt))
 	if err != nil {
 		return transcriptPromptKey{}, errors.New("prompt answer step id is required")
 	}
 	rawToolCallID := transcriptPromptToolCallID(prompt)
+	if rawToolCallID == "" {
+		return transcriptPromptKey{}, errors.New("prompt answer tool call id is required")
+	}
 	return transcriptPromptKey{
 		sessionID:  sessionID,
 		stepID:     stepID,

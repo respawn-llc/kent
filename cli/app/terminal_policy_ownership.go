@@ -43,12 +43,15 @@ const (
 	terminalDestinationRollback terminalDestination = "rollback"
 )
 
-func desiredOngoingOwnership(geometry terminalGeometry, destination terminalDestination) bool {
-	size := geometry.Size()
+func (g terminalGeometry) canRenderOwnedFrame() bool {
+	size := g.Size()
 	return size != nil &&
 		size.width >= 40 &&
-		size.height >= 10 &&
-		destination == terminalDestinationOngoing
+		size.height >= 10
+}
+
+func desiredOngoingOwnership(geometry terminalGeometry, destination terminalDestination) bool {
+	return geometry.canRenderOwnedFrame() && destination == terminalDestinationOngoing
 }
 
 type ownershipAppliedState struct {
