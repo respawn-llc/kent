@@ -84,11 +84,6 @@ func (m *ongoingTranscriptReadModel) removeSection(kind ongoing.FrameSectionKind
 
 func (m *ongoingTranscriptReadModel) addPendingTool(tool *transcriptpb.ToolStart) {
 	toolCallID := strings.TrimSpace(string(tool.ToolCallId))
-	if toolCallID == "" {
-		panicOngoingTranscriptReadModelDeveloperError("pending_tool_start", "missing tool call id", map[string]any{
-			"tool_name": tool.ToolName,
-		})
-	}
 	if index, exists := m.pendingToolIndex[toolCallID]; exists {
 		m.pendingTools[index].tool = tool
 		m.refreshPendingToolSection(80, 0, "")
@@ -131,10 +126,7 @@ func (m *ongoingTranscriptReadModel) refreshPendingToolSection(width int, spinne
 }
 
 func (m *ongoingTranscriptReadModel) applyPendingPrompt(prompt *transcriptpb.Prompt) {
-	if prompt == nil {
-		return
-	}
-	id := parseOngoingToolCallID(transcriptPromptToolCallID(prompt))
+	id := ongoingToolCallID(strings.TrimSpace(transcriptPromptToolCallID(prompt)))
 	if prompt.Status != transcriptpb.PromptStatus_PROMPT_STATUS_PENDING {
 		m.pendingPrompts.remove(id)
 		m.refreshPendingPromptSection(80)
@@ -181,14 +173,6 @@ func (items keyedOngoingLiveItems[K, T]) values() []T {
 		}
 	}
 	return out
-}
-
-func parseOngoingToolCallID(raw string) ongoingToolCallID {
-	id := strings.TrimSpace(string(raw))
-	if id == "" {
-		panicOngoingTranscriptReadModelDeveloperError("pending_tool_call_id", "missing id", nil)
-	}
-	return ongoingToolCallID(id)
 }
 
 func panicOngoingTranscriptReadModelDeveloperError(operation, reason string, facts map[string]any) {
