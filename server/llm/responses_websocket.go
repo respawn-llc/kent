@@ -148,17 +148,7 @@ func (t *HTTPTransport) generateWebsocket(ctx context.Context, request Responses
 			callbacks.OnStreamActivity()
 		}
 		if event.Type == "response.metadata" && observer != nil {
-			var metadata struct {
-				Headers struct {
-					TurnState *string `json:"x-codex-turn-state"`
-				} `json:"headers"`
-			}
-			if err := json.Unmarshal([]byte(event.RawJSON()), &metadata); err != nil {
-				return result, err
-			}
-			if metadata.Headers.TurnState != nil {
-				observer.observeTurnStateCandidate(*metadata.Headers.TurnState, codexTurnStateSourceMetadata)
-			}
+			observer.observeTurnStateMetadata([]byte(event.RawJSON()))
 		}
 		if event.JSON.OfResponsesServerEventResponseWsError.Valid() {
 			failure := event.OfResponsesServerEventResponseWsError

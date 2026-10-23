@@ -1,5 +1,14 @@
 # October 23 review remediation — native reasoning boundary
 
+## Follow-up optional-metadata finding — resolved
+
+- Compliance P2 was valid: directly unmarshalling the optional header into `*string` turned numeric/object/array-valued metadata into a generation error. Codex `d4bdafd378` uses `json_value_as_string` (`sse/responses.rs:324`) to accept strings and recursively the first array value. Its header-name matching is case-insensitive.
+- Scoped correction: the existing turn-state owner now uses Go JSON decoding of the selected header value. Strings and first-array values use existing validation/first-value acceptance. Invalid JSON field shapes and unsupported values invoke the same redacted diagnostic owner without returning a generation error. No new parser, SDK patch, socket owner, fallback or recovery path.
+- SDK-boundary red/green regression covers numeric/object values, a malformed headers shape, array strings and nested arrays with a case-varied header name. Each case completes two generations, checks the next create's exact state or absence, and verifies scoped invalid diagnostics are emitted once. All five cases failed before the correction.
+- Focused LLM/Runtime/Nano Codex/turn-state/routing/retry cases, final server lint and alternate build all passed (7135). Full baseline whitespace checking passes. Production envelope is now **3,135 changed lines**, below 4,000. Prior whole-server pass (6667) is reused, not represented as a new whole-suite run. No client/wire/dependency/spec change in this follow-up.
+- Cumulative review work remains within the approved correction approach and size limit. Correctness and architecture reviews had no remaining findings, and this follow-up removes one optional-field decoding failure. No replacement design or expanded scope was needed.
+- Manual QA remains downstream and unexecuted. `bin/qa/kent-BUI-149` was rebuilt for this correction (October 23, 2026). Use the same protocol-218 isolated cloud-only setup and Testing checklist. No live inference, production changes, publication or extra review agent.
+
 ## Final remediation handoff
 
 - Planning items 1–9 complete. Manual QA checklist remains unchecked and belongs downstream. Work retained and amended, never restarted. Latest production envelope: **3,098 changed lines**, below the approved 4,000 cap.

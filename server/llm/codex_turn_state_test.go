@@ -92,6 +92,60 @@ func TestCodexTurnStateInvalidWarningIsRedacted(t *testing.T) {
 	}
 }
 
+func TestCodexSocketOptionalMetadataDoesNotChangeGeneration(t *testing.T) {
+	for _, test := range []struct {
+		name    string
+		headers string
+		want    *string
+		invalid bool
+	}{
+		{"number", `{"x-codex-turn-state":42}`, nil, true},
+		{"object", `{"x-codex-turn-state":{"value":"opaque"}}`, nil, true},
+		{"invalid headers", `42`, nil, true},
+		{"array", `{"x-codex-turn-state":["opaque,state=value","ignored"]}`, textutil.Value("opaque,state=value"), false},
+		{"nested array", `{"X-Codex-Turn-State":[["opaque-state"]]}`, textutil.Value("opaque-state"), false},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			var creates int
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				serveResponsesTestWebsocket(t, w, r, func(raw json.RawMessage) []string {
+					creates++
+					if creates == 2 {
+						var create struct {
+							Metadata map[string]string `json:"client_metadata"`
+						}
+						if err := json.Unmarshal(raw, &create); err != nil {
+							t.Error(err)
+						}
+						state, present := create.Metadata[codexTurnStateHeader]
+						if present != (test.want != nil) || (test.want != nil && state != *test.want) {
+							t.Errorf("next create metadata = %v", create.Metadata)
+						}
+					}
+					return []string{fmt.Sprintf(`{"type":"response.metadata","headers":%s}`, test.headers), completedResponseSSEJSON}
+				})
+			}))
+			t.Cleanup(server.Close)
+			transport := newCanonicalOAuthTestTransport(t, server)
+			t.Cleanup(func() { _ = transport.Close() })
+			dispatch := newTestCodexDispatch(t)
+			for range 2 {
+				if _, err := transport.Generate(t.Context(), testCodexResponsesRequest(dispatch), StreamCallbacks{}); err != nil {
+					t.Fatalf("optional metadata changed generation outcome: %v", err)
+				}
+			}
+			diagnostics := dispatch.TurnStateDiagnostics()
+			if test.invalid {
+				if len(diagnostics) != 1 || diagnostics[0] != CodexTurnStateDiagnosticInvalid {
+					t.Fatalf("invalid state diagnostics = %v", diagnostics)
+				}
+			} else if len(diagnostics) != 0 {
+				t.Fatalf("valid state diagnostics = %v", diagnostics)
+			}
+		})
+	}
+}
+
 const completedResponseSSEJSON = `{"type":"response.completed","response":{"id":"response-test","usage":{"input_tokens":1,"output_tokens":1,"total_tokens":2},"output":[]}}`
 const completedCompactionSSEJSON = `{"type":"response.completed","response":{"id":"compact-test","usage":{"input_tokens":1,"output_tokens":1,"total_tokens":2},"output":[{"type":"compaction","id":"checkpoint","encrypted_content":"opaque-checkpoint"}]}}`
 

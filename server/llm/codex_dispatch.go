@@ -185,17 +185,21 @@ func (c *CodexDispatchContext) observeTurnStateCandidate(value string, source co
 	turnState := c.state.turnState
 	c.state.mu.Unlock()
 	if validateCodexHeaderValue(value) != nil {
-		c.state.mu.Lock()
-		shouldWarn := c.state.recordDiagnosticLocked(CodexTurnStateDiagnosticInvalid)
-		requestKind := c.facts.RequestKind
-		c.state.mu.Unlock()
-		c.warnUnusableTurnState(shouldWarn, CodexTurnStateDiagnosticInvalid, source, requestKind)
+		c.observeInvalidTurnState(source)
 		return
 	}
 	if turnState == nil {
 		return
 	}
 	turnState.accept(value)
+}
+
+func (c *CodexDispatchContext) observeInvalidTurnState(source codexTurnStateSource) {
+	c.state.mu.Lock()
+	shouldWarn := c.state.recordDiagnosticLocked(CodexTurnStateDiagnosticInvalid)
+	requestKind := c.facts.RequestKind
+	c.state.mu.Unlock()
+	c.warnUnusableTurnState(shouldWarn, CodexTurnStateDiagnosticInvalid, source, requestKind)
 }
 
 func (l *CodexTurnStateLifetime) currentState() *CodexTurnState {
