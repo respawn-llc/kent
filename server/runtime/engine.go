@@ -642,9 +642,6 @@ func (e *Engine) QueueAgentSteer(ctx context.Context, steer AgentSteer, accept C
 }
 
 func (e *Engine) queueMessage(ctx context.Context, id string, message llm.Message, presentation string, forceAutoDrain, autoStart bool, accept CommandAcceptance) (QueuedUserMessage, error) {
-	if _, err := runtimeids.ParseCanonicalUUIDv4(id, "queue_item_id"); err != nil {
-		return QueuedUserMessage{}, err
-	}
 	if e == nil || e.closed.Load() {
 		return QueuedUserMessage{}, ErrEngineClosed
 	}
