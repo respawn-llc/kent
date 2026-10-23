@@ -34,14 +34,15 @@ type providerAttemptLog struct {
 
 func TestProviderAttemptDiagnosticsPreserveIdentityAndReportedUsage(t *testing.T) {
 	tests := []struct {
-		name     string
-		status   int
-		event    string
-		failed   bool
-		hasUsage bool
-		canceled bool
-		compact  bool
-		debugOff bool
+		name        string
+		status      int
+		event       string
+		failed      bool
+		hasUsage    bool
+		canceled    bool
+		compact     bool
+		debugOff    bool
+		errorStatus *int
 	}{
 		{
 			name: "generation without debug", status: http.StatusOK, debugOff: true,
@@ -62,6 +63,14 @@ func TestProviderAttemptDiagnosticsPreserveIdentityAndReportedUsage(t *testing.T
 		{
 			name: "incomplete with reported usage", status: http.StatusOK, failed: true, hasUsage: true,
 			event: `{"type":"response.incomplete","response":{"id":"response-1","model":"gpt-6-sol","incomplete_details":{"reason":"max_output_tokens"},"usage":{"input_tokens":10,"input_tokens_details":{"cached_tokens":0},"output_tokens":4,"total_tokens":14},"output":[]}}`,
+		},
+		{
+			name: "protocol rejection without status", status: http.StatusOK, failed: true,
+			event: `{"type":"error","error":{"code":"insufficient_quota","type":"allowance","message":"unavailable"}}`,
+		},
+		{
+			name: "protocol rate limit", status: http.StatusOK, failed: true, errorStatus: textutil.Value(429),
+			event: `{"type":"error","status":429,"error":{"code":"rate_limit_exceeded","type":"rate_limit","message":"retry later"}}`,
 		},
 		{
 			name: "caller cancellation", status: http.StatusOK, failed: true, canceled: true,
@@ -166,6 +175,10 @@ func TestProviderAttemptDiagnosticsPreserveIdentityAndReportedUsage(t *testing.T
 					if finished.HTTPStatus == nil || *finished.HTTPStatus != test.status {
 						t.Fatalf("HTTP attempt status = %+v", finished.HTTPStatus)
 					}
+				} else if test.failed {
+					if (finished.HTTPStatus == nil) != (test.errorStatus == nil) || (finished.HTTPStatus != nil && *finished.HTTPStatus != *test.errorStatus) {
+						t.Fatalf("failure diagnostic status=%v expected=%v", finished.HTTPStatus, test.errorStatus)
+					}
 				} else if finished.HTTPStatus != nil {
 					if *finished.HTTPStatus != http.StatusSwitchingProtocols {
 						t.Fatalf("WebSocket handshake status = %d", *finished.HTTPStatus)
@@ -198,7 +211,7 @@ func TestProviderAttemptDiagnosticsPreserveIdentityAndReportedUsage(t *testing.T
 			if !test.compact && test.status == http.StatusOK {
 				expectedUpgrades := 1
 				if test.failed {
-					expectedUpgrades = 2
+					expectedUpgrades = 0
 				}
 				if upgrades != expectedUpgrades {
 					t.Fatalf("handshake attempts = %d, want %d", upgrades, expectedUpgrades)

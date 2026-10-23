@@ -108,6 +108,7 @@ func (a *providerAttemptDiagnostic) finish(ctx context.Context, response *http.R
 	var code *UnifiedErrorCode
 	var providerError *ProviderAPIError
 	if errors.As(err, &providerError) {
+		status = providerError.StatusCode
 		code = &providerError.Code
 		if requestID == nil {
 			requestID = providerError.ProviderRequestID

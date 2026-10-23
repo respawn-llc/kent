@@ -1,3 +1,16 @@
+### October 23 full-suite reconciliation
+
+- Release compilation passed all five supported targets through `just release cli`; archives/checksums are ignored under `.kent/tmp/BUI-149-release`. Nothing published. Alternate QA build and four owning-spec Markdown pages also pass.
+- Full server command completed (1138s) with most packages passing, including llm, runtimewire, sessionruntime, Nano, CLI app, registry, transport and workflows. Remaining failures: two PTY expectations for the approved call/result split; authservice's remaining mixed HTTP/socket fixture; a 10ms real-clock cooldown test under load; Runtime Close on a zero Engine; a 3s steering test wait under host contention; and runtimeview's old single-correlation expectation.
+- Fixed optional main-resource cleanup after reproducing zero-Engine Close panic in existing background scheduler tests. Those background close/race tests plus main/Reviewer cleanup pass focused verification.
+- Auth isolation now uses actual sockets for Codex and verifies sticky opening auth, followed by new credentials after explicit transport close. Generic HTTP env-backed auth remains per-dispatch. Focused auth test passes.
+- Runtimeview parity now checks the committed multi-stream correlations; focused parity passes.
+- Cooldown expiry test now uses standard Go synctest virtual time; no production clock/test seam added. Focused cooldown and steering-liveness tests pass; the latter allows 15s for an actual shell/tool continuation rather than imposing an unrelated 3s completion limit.
+- PTY expectations now require the original accepted Question call and separate shell result emission; retain single call append and derive expected result copy from the shared renderer. Focused PTY verification remains pending.
+- Final diagnostic audit caught failed WebSocket attempts reporting upgrade 101. Existing structured diagnostic regression reproduced missing/429/incomplete/cancel status errors; diagnostics now use the structured provider error's optional status. Focused diagnostics pass.
+- PM host-load quiet window requested no new broad jobs until 13:12 CEST (or earlier release). Both preexisting full-suite and release jobs finished and PM Session 177 was informed. Only read-only/focused lightweight work started during that window.
+- Do not mark step 9 complete yet: scoped failed-package verification (especially Runtime after the early panic and PTY), final lint and updated alternate build remain.
+
 ### Step 9 verification checkpoint
 
 - Required affected-package run failed: llm retained old SSE-only identity/metadata/phase/compression fixtures plus expectations accepting items omitted by terminal output; runtime hit the package-wide 300s timeout; runtimewire retained SSE-only reauthentication/native-compaction fixtures. Full diagnostics: shell 20721 log under `/var/folders/4y/3b8zshg92kn3ryxd1x2f1rs00000gn/T/kent-bg-shells-2841299037/20721.log`.
