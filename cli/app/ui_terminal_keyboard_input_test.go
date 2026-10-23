@@ -94,10 +94,10 @@ func TestProgramXtermShiftEnterInsertsNewline(t *testing.T) {
 }
 
 func TestProgramXtermCtrlEnterSubmitsDraft(t *testing.T) {
-	model := newProjectedStaticUIModel()
+	model := newProjectedTestUIModel(&runtimeControlFakeClient{})
 	testSetMainInput(model, "draft")
 	result := runTerminalInputProgramAfterKeys(t, model, "\x1b[27;5;13~\x03", 1)
-	if !result.hasPendingInputAdmission() {
+	if len(result.injectedQueue) != 1 || testMainInput(result) != "" {
 		t.Fatal("xterm Ctrl+Enter did not submit the composer")
 	}
 }
