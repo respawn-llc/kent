@@ -29,7 +29,7 @@ func TestUIUpdateRoutesWorktreeMessagesThroughReducer(t *testing.T) {
 	m.worktrees.listPending = true
 	m.worktreeListGeneration = 7
 
-	next, _ := m.Update(worktreeListDoneMsg{token: 7})
+	next, _ := m.Update(worktreeListDoneMsg{token: 7, resp: testLinkedWorktreeListResponse()})
 	updated := next.(*uiModel)
 
 	if updated.worktrees.isLoading() {

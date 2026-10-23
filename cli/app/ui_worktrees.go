@@ -302,9 +302,6 @@ func (m *uiModel) applyWorktreeListResponse(resp *worktreepb.ListSuccess) error 
 	if m == nil {
 		return nil
 	}
-	if resp == nil {
-		return errors.New("worktree list response is empty")
-	}
 	m.recordWorktreeSelection()
 	m.worktrees.target = resp.Target
 	entries, err := worktreeui.ProjectItems(resp.Worktrees)
