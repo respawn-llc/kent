@@ -39,8 +39,9 @@ func TestTranscriptHydrationSnapshotProjectsAndResetsOwnerLiveFacts(t *testing.T
 		t.Fatalf("reasoning: %v", err)
 	}
 	for _, call := range []llm.ToolCall{{ID: "call-1", Name: "shell"}, {ID: "call-2", Name: "patch"}} {
-		if _, err := engine.transcriptRuntimeState().RecordLiveToolStart(stepID, call); err != nil { t.Fatalf("tool %s: %v", call.ID, err)
- }
+		if _, err := engine.transcriptRuntimeState().RecordLiveToolStart(stepID, call); err != nil {
+			t.Fatalf("tool %s: %v", call.ID, err)
+		}
 	}
 	snapshot := hydrationSnapshot(t, engine)
 	if snapshot.ActiveThinkingStatus == nil || snapshot.ActiveThinkingStatus.StepID != stepID ||
@@ -119,8 +120,9 @@ func TestEngineCloseAbortsLiveToolsWithTheirRecordedExactStep(t *testing.T) {
 	})
 	stepID := runtimeTestStepID("close-live-tool")
 	call := llm.ToolCall{ID: "call-close", Name: "shell"}
-	if _, err := engine.transcriptRuntimeState().RecordLiveToolStart(stepID, call); err != nil { t.Fatalf("record live tool: %v", err)
- }
+	if _, err := engine.transcriptRuntimeState().RecordLiveToolStart(stepID, call); err != nil {
+		t.Fatalf("record live tool: %v", err)
+	}
 
 	if err := engine.Close(); err != nil {
 		t.Fatalf("close engine: %v", err)

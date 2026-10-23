@@ -59,7 +59,7 @@ func newPacedWatchdogClient(t *testing.T, idle time.Duration, events ...pacedStr
 }
 
 func completedStreamEvent(delay time.Duration) pacedStreamEvent {
-	return pacedStreamEvent{delay: delay, data: `{"type":"response.completed","response":{"usage":{"input_tokens":1,"output_tokens":1,"total_tokens":2},"output":[{"type":"message","role":"assistant","phase":"final_answer","content":[{"type":"output_text","text":"Done"}]}]}}`}
+	return pacedStreamEvent{delay: delay, data: `{"type":"response.completed","response":{"id":"paced-response","usage":{"input_tokens":1,"output_tokens":1,"total_tokens":2},"output":[{"type":"message","role":"assistant","phase":"final_answer","content":[{"type":"output_text","text":"Done"}]}]}}`}
 }
 
 func TestOAuthGenerateSurvivesConfiguredHTTPClientTimeout(t *testing.T) {

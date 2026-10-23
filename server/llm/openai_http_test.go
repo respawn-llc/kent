@@ -710,7 +710,7 @@ func TestGenerateSendsConfiguredProviderIdentityHeaders(t *testing.T) {
 	requestHeaders := make(chan http.Header, 1)
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		requestHeaders <- r.Header.Clone()
-		writeCompletedResponseSSE(w)
+		serveResponsesTestWebsocket(t, w, r, func(json.RawMessage) []string { return []string{completedResponseSSEJSON} })
 	}))
 	defer server.Close()
 

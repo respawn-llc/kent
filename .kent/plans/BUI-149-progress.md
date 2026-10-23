@@ -1,3 +1,15 @@
+### Step 9 verification checkpoint
+
+- Required affected-package run failed: llm retained old SSE-only identity/metadata/phase/compression fixtures plus expectations accepting items omitted by terminal output; runtime hit the package-wide 300s timeout; runtimewire retained SSE-only reauthentication/native-compaction fixtures. Full diagnostics: shell 20721 log under `/var/folders/4y/3b8zshg92kn3ryxd1x2f1rs00000gn/T/kent-bg-shells-2841299037/20721.log`.
+- Corrected all reported llm fixtures to real SDK-compatible sockets and complete terminal output. Omitted streamed hosted items are not accepted or counted as terminal usage evidence. All failing llm cases pass focused verification.
+- Reauthentication now completes through an actual socket using the renewed credential. Native compaction fallback now exercises successful socket generation → HTTP quota rejection → replacement connection's HTTP compaction checkpoint. Both pass.
+- Runtime timeout showed only just-started Thinking tests inside filesystem/SQLite work, not a persistent blocked test. Those exact Thinking cases pass focused. The earlier package-wide run used GOMAXPROCS=2 and a 300s total package limit; full verification now uses GOMAXPROCS=4, two package workers and 1200s.
+- Lint initially caught three retained formatting issues and the temporary migration utility; formatted exactly those files. It then treated ignored SDK module source as Kent and rejected upstream recover calls.
+- User explicitly approved option 1: honor nested go.mod boundaries rather than an SDK allowlist. Red fixture reproduced the dependency violation, then generic module-boundary traversal passed all architectureguard tests, including checking violations when that nested module itself is the selected root.
+- A subsequent lint pass found one shared-status test call needing the llm qualifier; fixed. `just lint server --dry-run` now passes, including generation, protobuf lint, architecture policies and whole-module go vet.
+- SDK `TestKent` decoder regression passes. Both owning specs validate with Markdown tooling; independent review remains for downstream gate.
+- Full `just test server --timeout 1200 --workers 2` and release-entry compilation (`just release cli --dist-dir .kent/tmp/BUI-149-release`, no publication) are running. Do not claim them passed yet.
+
 ### Step 8 complete / final verification in progress
 
 - Conservative whole-diff count against baseline 2a591451e: 2,622 changed non-test/non-doc lines (2,033 added + 589 deleted), including go.mod/go.sum, Just, preparer, decoder patch and protocol changes. This overcounts test-support sources and remains below 4,000. Unchanged ignored SDK excluded.

@@ -82,8 +82,9 @@ func prepareSimpleResultGroupCall(
 	if err := engine.steer(stepID, steerMessagesWithPersistenceIntent(steeringPriorityNormal, steeringMessageEventNone, true, []llm.Message{{Role: llm.RoleAssistant, ToolCalls: []llm.ToolCall{call}}})); err != nil {
 		t.Fatalf("persist result group call %s: %v", callID, err)
 	}
-	if _, err := engine.transcriptRuntimeState().RecordLiveToolStart(stepID, call); err != nil { t.Fatalf("record live result group call %s: %v", callID, err)
- }
+	if _, err := engine.transcriptRuntimeState().RecordLiveToolStart(stepID, call); err != nil {
+		t.Fatalf("record live result group call %s: %v", callID, err)
+	}
 }
 
 func reportAndFlushSimpleResultGroup(
@@ -282,8 +283,9 @@ func TestResultGroupFlushCommitsOutOfOrderReadyResultsInRosterOrder(t *testing.T
 		t.Fatalf("persist result group calls: %v", err)
 	}
 	for _, call := range normalized {
-		if _, err := engine.transcriptRuntimeState().RecordLiveToolStart(runtimeTestStepID("step"), call); err != nil { t.Fatalf("record live tool %s: %v", call.ID, err)
- }
+		if _, err := engine.transcriptRuntimeState().RecordLiveToolStart(runtimeTestStepID("step"), call); err != nil {
+			t.Fatalf("record live tool %s: %v", call.ID, err)
+		}
 	}
 	collector, err := newResultGroupCollector([]resultGroupCallIdentity{
 		{CallID: "first", Name: toolspec.ToolExecCommand, OutputKind: session.ToolOutputKindFunction},

@@ -92,7 +92,7 @@ func TestGenerateOpenAIAPIKeyLeavesLargeResponsesBodyUncompressed(t *testing.T) 
 	var requestEncoding string
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		requestEncoding = r.Header.Get("Content-Encoding")
-		writeCompletedResponseSSE(w)
+		serveResponsesTestWebsocket(t, w, r, func(json.RawMessage) []string { return []string{completedResponseSSEJSON} })
 	}))
 	defer server.Close()
 

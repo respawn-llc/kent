@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"net/http/httputil"
@@ -540,7 +541,46 @@ func TestUsageFallbackContinuesLocalCompaction(t *testing.T) {
 }
 
 func TestUsageFallbackContinuesNativeCompaction(t *testing.T) {
-	testUsageFallbackCompaction(t, config.CompactionModeNative)
+	var attempts, compactions atomic.Int32
+	a := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		attempts.Add(1)
+		if r.Header.Get("Upgrade") != "websocket" {
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusTooManyRequests)
+			_, _ = w.Write(usageExhaustionFixture(t))
+			return
+		}
+		socket, err := websocket.Accept(w, r, nil)
+		if err != nil {
+			return
+		}
+		defer socket.CloseNow()
+		if _, _, err := socket.Read(t.Context()); err != nil {
+			return
+		}
+		_ = socket.Write(t.Context(), websocket.MessageText, []byte(`{"type":"response.completed","response":{"id":"seed","output":[{"type":"message","id":"seed-message","role":"assistant","phase":"final_answer","content":[{"type":"output_text","text":"done","annotations":[]}]}]}}`))
+		_, _, _ = socket.Read(t.Context())
+	}))
+	t.Cleanup(a.Close)
+	b := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		compactions.Add(1)
+		if r.Method != http.MethodPost || r.Header.Get("Upgrade") == "websocket" {
+			t.Error("compaction must remain HTTP")
+		}
+		w.Header().Set("Content-Type", "text/event-stream")
+		_, _ = io.WriteString(w, `data: {"type":"response.completed","response":{"id":"compact","output":[{"type":"compaction","id":"checkpoint","encrypted_content":"opaque"}]}}`+"\n\n")
+	}))
+	t.Cleanup(b.Close)
+	wiring, store := newUsageFallbackRuntime(t, launch.NewConnectionRotation(testsetup.OpenStore(t, t.TempDir()), time.Minute), a.URL, b.URL, config.CompactionModeNative)
+	if _, err := wiring.Engine.SubmitUserMessage(t.Context(), "hello"); err != nil {
+		t.Fatal(err)
+	}
+	if err := wiring.Engine.CompactContextForWorkflowContinuation(t.Context()); err != nil {
+		t.Fatal(err)
+	}
+	if *store.Meta().ConnectionID != "b" || attempts.Load() != 2 || compactions.Load() != 1 {
+		t.Fatalf("native compaction binding=%v attempts=%d compactions=%d", store.Meta().ConnectionID, attempts.Load(), compactions.Load())
+	}
 }
 
 func testUsageFallbackCompaction(t *testing.T, mode config.CompactionMode) {

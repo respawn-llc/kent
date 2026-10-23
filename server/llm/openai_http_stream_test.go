@@ -751,7 +751,7 @@ func TestGenerate_PreservesWhitespaceOnlyFunctionArgumentDelta(t *testing.T) {
 		fmt.Sprintf(`{"type":"response.function_call_arguments.delta","item_id":"fc_1","delta":%q}`, inputPrefix),
 		fmt.Sprintf(`{"type":"response.function_call_arguments.delta","item_id":"fc_1","delta":%q}`, " "),
 		fmt.Sprintf(`{"type":"response.function_call_arguments.delta","item_id":"fc_1","delta":%q}`, inputSuffix),
-		`{"type":"response.completed","response":{"output":[]}}`,
+		fmt.Sprintf(`{"type":"response.completed","response":{"output":[{"type":"function_call","id":"fc_1","call_id":"call_1","name":"write_stdin","arguments":%q}]}}`, inputPrefix+" "+inputSuffix),
 		`[DONE]`,
 	)
 
@@ -913,7 +913,7 @@ func TestGenerate_OmitsNonFinalEmptyAssistantContentBeforeToolCall(t *testing.T)
 func TestGenerate_UsesFinalizedOutputTextWhenProviderOmitsDeltas(t *testing.T) {
 	transport := newOpenAIStreamTestTransport(t,
 		`{"type":"response.output_text.done","item_id":"msg_1","output_index":0,"content_index":0,"text":"Compaction summary"}`,
-		`{"type":"response.completed","response":{"output":[]}}`,
+		`{"type":"response.completed","response":{"output":[{"type":"message","id":"msg_1","role":"assistant","content":[{"type":"output_text","text":"Compaction summary"}]}]}}`,
 		`[DONE]`,
 	)
 
