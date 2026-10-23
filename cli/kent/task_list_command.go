@@ -227,15 +227,13 @@ func writeTaskListResponse(stdout io.Writer, stderr io.Writer, response *taskpb.
 			}
 			fmt.Fprintln(stdout)
 		}
-		if response.MatchingWorkflowCardinality == taskpb.MatchingWorkflowCardinality_MATCHING_WORKFLOW_CARDINALITY_MULTIPLE &&
-			task.WorkflowName != nil {
+		if response.MatchingWorkflowCardinality == taskpb.MatchingWorkflowCardinality_MATCHING_WORKFLOW_CARDINALITY_MULTIPLE {
 			fmt.Fprintf(stdout, "Workflow: %s\n", *task.WorkflowName)
 		}
 		if task.ColumnKeys != nil {
 			fmt.Fprintf(stdout, "Current nodes: %s\n", taskListColumnKeysText(*task.ColumnKeys))
 		}
 		if task.DependencyProgress != nil &&
-			task.DependencyProgress.TotalCount > 0 &&
 			task.DependencyProgress.SatisfiedCount < task.DependencyProgress.TotalCount {
 			fmt.Fprintf(
 				stdout,
@@ -255,7 +253,7 @@ func writeTaskListResponse(stdout io.Writer, stderr io.Writer, response *taskpb.
 
 func writeTaskListError(stderr io.Writer, err error, commandContext taskListCommandContext) {
 	var listError *client.TaskListError
-	if !errors.As(err, &listError) || listError.Failure.GetScopeError() == nil {
+	if !errors.As(err, &listError) {
 		fmt.Fprintln(stderr, err)
 		return
 	}
