@@ -100,7 +100,8 @@ type currentNodeStore interface {
 	PlanCurrentNodeCompletion(context.Context, workflowstore.CurrentNodeCompletionRequest) (workflowstore.CurrentNodeCompletionPlan, error)
 	CommitCurrentNodeCompletion(context.Context, workflowstore.CurrentNodeCompletionPlan, []workflowstore.PlannedCurrentNodeSession) (workflowstore.CurrentNodeCompletionOutcome, error)
 	ValidateCurrentNodeSessionBinding(context.Context, runtimeids.SessionID, workflow.CurrentNodeReference) error
-	ResolveCurrentSessionStartContext(context.Context, runtimeids.SessionID) (workflowstore.CurrentNodeStartContext, error)
+	ResolveCurrentSessionNode(context.Context, runtimeids.SessionID) (*workflow.CurrentNode, error)
+	CurrentNodeAwaitingApproval(context.Context, workflow.CurrentNodeReference) (bool, error)
 	TaskExecutionScope(context.Context, workflow.TaskID) (workflowstore.TaskExecutionScope, error)
 }
 

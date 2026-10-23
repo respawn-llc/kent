@@ -50,17 +50,6 @@ type WorkflowTaskSessionResolver interface {
 	SessionHasWorkflowTask(ctx context.Context, sessionID string) (bool, error)
 }
 
-type WorkflowSessionReactivator interface {
-	ReactivateWorkflowSession(
-		context.Context,
-		runtimeids.SessionID,
-	) (sessionruntime.ExecutionHandle, error)
-}
-
-type WorkflowSessionPreparationReader interface {
-	WorkflowSessionPreparing(context.Context, runtimeids.SessionID) (bool, error)
-}
-
 var errWorkflowTaskSessionAutoCompactionDisable = errors.New("auto-compaction cannot be disabled for workflow task sessions")
 
 type Service struct {
@@ -70,8 +59,6 @@ type Service struct {
 	promptStore    PromptHistoryStore
 	promptCommands PromptCommandResolver
 	workflowTasks  WorkflowTaskSessionResolver
-	reactivator    WorkflowSessionReactivator
-	preparations   WorkflowSessionPreparationReader
 	persisted      session.PersistedSessionResolver
 	pendingPrompts promptcontrol.PendingPromptSource
 	attention      servicecontract.AttentionNotificationService
@@ -95,23 +82,7 @@ func (s *Service) WithSessionSettingsPublisher(publisher SessionSettingsPublishe
 	return s
 }
 
-func (s *Service) runAgentExecution(
-	ctx context.Context,
-	sessionID string,
-	run func(context.Context, *runtime.Engine) error,
-) error {
-	if s == nil || s.authority == nil {
-		return errors.New("session runtime authority is required")
-	}
-	id := runtimeids.SessionIDFromProto(sessionID)
-	descriptor, err := session.NewOpenSessionDescriptor(id)
-	if err != nil {
-		return err
-	}
-	err = s.authority.RunCurrentAgentExecution(ctx, descriptor, run)
-	if err == nil {
-		return nil
-	}
+func agentCommandError(err error) error {
 	if errors.Is(err, sessionruntime.ErrSessionRunActive) ||
 		errors.Is(err, sessionruntime.ErrSessionWorkflowActivationActive) {
 		return errors.Join(serverapi.ErrSessionRunStarting, err)
@@ -148,22 +119,6 @@ func (s *Service) WithWorkflowTaskSessionResolver(resolver WorkflowTaskSessionRe
 		return nil
 	}
 	s.workflowTasks = resolver
-	return s
-}
-
-func (s *Service) WithWorkflowSessionReactivator(reactivator WorkflowSessionReactivator) *Service {
-	if s == nil {
-		return nil
-	}
-	s.reactivator = reactivator
-	return s
-}
-
-func (s *Service) WithWorkflowSessionPreparationReader(reader WorkflowSessionPreparationReader) *Service {
-	if s == nil {
-		return nil
-	}
-	s.preparations = reader
 	return s
 }
 
@@ -369,11 +324,12 @@ func (s *Service) AdmitUserShellCommand(ctx context.Context, sessionID runtimeid
 	_, err := runRuntimeCommand(ctx, func(ctx context.Context) (struct{}, bool, error) {
 		attempt := newRuntimeCommandAttempt(ctx)
 		defer attempt.Finish()
-		commandErr := s.runAgentExecution(attempt.Context(), sessionID.String(), func(runCtx context.Context, engine *runtime.Engine) error {
-			_, err := engine.SubmitUserShellCommandWithAcceptance(runCtx, command, attempt.Accept)
-			return err
-		})
-		return struct{}{}, attempt.Accepted(), commandErr
+		descriptor, err := session.NewOpenSessionDescriptor(sessionID)
+		if err != nil {
+			return struct{}{}, false, err
+		}
+		commandErr := s.authority.SubmitShellCommand(attempt.Context(), descriptor, command, attempt.Accept)
+		return struct{}{}, attempt.Accepted(), agentCommandError(commandErr)
 	})
 	return err
 }
@@ -382,10 +338,12 @@ func (s *Service) CompactContext(ctx context.Context, req *runtimepb.CompactCont
 	_, err := runRuntimeCommand(ctx, func(ctx context.Context) (struct{}, bool, error) {
 		attempt := newRuntimeCommandAttempt(ctx)
 		defer attempt.Finish()
-		commandErr := s.runAgentExecution(attempt.Context(), req.SessionId, func(runCtx context.Context, engine *runtime.Engine) error {
-			return admitManualCompaction(runCtx, engine, req, attempt.Accept)
-		})
-		return struct{}{}, attempt.Accepted(), commandErr
+		descriptor, err := session.NewOpenSessionDescriptor(runtimeids.SessionIDFromProto(req.SessionId))
+		if err != nil {
+			return struct{}{}, false, err
+		}
+		commandErr := s.authority.CompactSession(attempt.Context(), descriptor, protoapi.ManualCompactionAdmissionFromProto(req.Admission), attempt.Accept)
+		return struct{}{}, attempt.Accepted(), agentCommandError(commandErr)
 	})
 	return err
 }

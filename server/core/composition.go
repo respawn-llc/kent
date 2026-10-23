@@ -328,8 +328,7 @@ func NewWithContextOptions(ctx context.Context, cfg config.App, authSupport serv
 		cleanupNewFailure()
 		return nil, fmt.Errorf("workflow bundle: current node controller: %w", err)
 	}
-	runtimeControlService.WithWorkflowSessionReactivator(workflowController)
-	runtimeControlService.WithWorkflowSessionPreparationReader(workflowController)
+	runtimeAuthority.SetWorkflowSessionExecutionOwner(workflowController)
 	workflowTaskStatusProjection, err := workflowview.NewTaskStatusProjection(
 		workflowStore,
 		workflowTaskProjector,

@@ -588,36 +588,37 @@ func (s *currentNodeControllerStore) ValidateCurrentNodeSessionBinding(ctx conte
 	return s.bindingErr
 }
 
-func (s *currentNodeControllerStore) ResolveCurrentSessionStartContext(
+func (s *currentNodeControllerStore) CurrentNodeAwaitingApproval(ctx context.Context, reference workflow.CurrentNodeReference) (bool, error) {
+	if s.Store != nil {
+		return s.Store.CurrentNodeAwaitingApproval(ctx, reference)
+	}
+	return false, nil
+}
+
+func (s *currentNodeControllerStore) ResolveCurrentSessionNode(
 	ctx context.Context,
 	sessionID runtimeids.SessionID,
-) (workflowstore.CurrentNodeStartContext, error) {
+) (*workflow.CurrentNode, error) {
 	if s.queueFixture != nil {
-		return s.Store.ResolveCurrentSessionStartContext(ctx, sessionID)
+		return s.Store.ResolveCurrentSessionNode(ctx, sessionID)
 	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	if s.sessionTaskID == nil || s.sessionAssociation == nil ||
 		s.sessionAssociation.SessionID != sessionID {
-		return workflowstore.CurrentNodeStartContext{}, workflowstore.ErrSessionNotCurrentWorkflowNode
+		return nil, nil
 	}
 	for _, currentNode := range s.interrupted {
 		if currentNode.Reference.Equal(s.sessionAssociation.CurrentNode) {
-			return workflowstore.CurrentNodeStartContext{
-				Task:        workflowstore.TaskRecord{ID: *s.sessionTaskID},
-				CurrentNode: currentNode,
-			}, nil
+			return &currentNode, nil
 		}
 	}
 	for _, currentNode := range s.currentNodes {
 		if currentNode.Reference.Equal(s.sessionAssociation.CurrentNode) {
-			return workflowstore.CurrentNodeStartContext{
-				Task:        workflowstore.TaskRecord{ID: *s.sessionTaskID},
-				CurrentNode: currentNode,
-			}, nil
+			return &currentNode, nil
 		}
 	}
-	return workflowstore.CurrentNodeStartContext{}, workflowstore.ErrSessionNotCurrentWorkflowNode
+	return nil, nil
 }
 
 func (s *currentNodeControllerStore) admitCount() int {

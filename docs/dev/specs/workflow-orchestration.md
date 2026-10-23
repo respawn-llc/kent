@@ -541,11 +541,11 @@
 - If startup admission is in progress, an otherwise authorized Task Interrupt waits for that short Workflow decision to finish, then interrupts matching live work if present.
 - A Workflow-completed Agent Step and a finalizing Agent are not interruptible while their Exact Execution Scope exists only for Step closure or retirement.
 - Start and Resume admit selected parallel branches independently. A failed branch must not undo or block a sibling that started successfully.
-- Resume starts a fresh Exact Execution Scope only after the previous scope has fully stopped. Steering must stay within the current scope.
+- Resume must preserve an already-running matching Exact Execution Scope and succeed without restarting it. Resume starts a fresh Exact Execution Scope only after the previous scope has fully stopped. Steering must stay within the current scope.
 - Restart must not restore live Questions, live Approvals, Automatic Intents, or Exact Execution Scopes.
 - Restart must not repair Current Nodes, recover execution, or emit interruption notifications.
 - A Task with executable Current Nodes and no live or queued execution must offer Resume unless a pending Transition Approval owns its next action. The explicit action must include required Execution Target selection.
-- When the operator explicitly resumes a Task, Workflow Execution must verify that its execution is quiescent before reconciling saved executable Current Nodes to interrupted state and continuing Resume. Reconciliation must leave pending Transition Approvals intact and must not emit interruption notifications.
+- When the operator explicitly resumes a Task, Workflow Execution must reconcile only saved executable Current Nodes without live or queued execution to interrupted state and continue Resume for eligible Nodes independently of already-running siblings. Reconciliation must leave pending Transition Approvals intact and must not emit interruption notifications.
 - Opening or reconnecting a client must not reconstruct or replay attention notifications from saved Workflow state or pending prompts. Notification subscriptions must deliver live events only and must not store notifications for disconnected clients.
 - A pending Transition Approval survives restart with the exact frozen Transition that the operator saw.
 - Resume must not replay answers or apply a Workflow effect blocked by a prior durability failure.

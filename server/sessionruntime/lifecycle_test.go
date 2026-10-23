@@ -488,10 +488,11 @@ func TestRuntimeAbortRetiresCurrentOpenAndReplaceResourceGenerations(t *testing.
 				failedResource := authority.resources[sessionID]
 				authority.mu.Unlock()
 				failedRef := failedResource.ref
-				runErr := authority.RunCurrentAgentExecution(
+				runErr := authority.RunCurrentTurn(
 					context.Background(),
 					mustOpenSessionDescriptor(t, sessionID),
-					func(context.Context, *runtime.Engine) error {
+					func(commit func() (bool, error)) (bool, error) { return commit() },
+					func(context.Context, *runtime.Engine, runtime.CommandAcceptance) error {
 						return abort
 					},
 				)
@@ -620,12 +621,14 @@ func TestGoalLifecycleDurabilityAbortRetiresCurrentGeneration(t *testing.T) {
 		t.Fatal("current runtime callback did not become active")
 	}
 
-	if err := authority.RunCurrentAgentExecution(
+	if err := authority.RunCurrentTurn(
 		context.Background(),
 		mustOpenSessionDescriptor(t, sessionID),
+		func(commit func() (bool, error)) (bool, error) { return commit() },
 		func(
 			_ context.Context,
 			engine *runtime.Engine,
+			_ runtime.CommandAcceptance,
 		) error {
 			if _, err := engine.SetGoal(t.Context(), "continue autonomously", session.GoalActorUser); err != nil {
 				return err
