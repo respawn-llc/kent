@@ -94,7 +94,7 @@ func renderCommittedRow(
 			),
 		}
 	case *transcriptpb.CommittedRow_ReasoningTrace:
-		if row.GetReasoningTrace() == nil || (mode != ModeDetailCollapsed && mode != ModeDetailExpanded) {
+		if mode != ModeDetailCollapsed && mode != ModeDetailExpanded {
 			return Row{Group: GroupReasoningTrace}
 		}
 		text := row.GetReasoningTrace().CompactText
@@ -161,18 +161,12 @@ func renderCommittedRow(
 			Lines: renderTextBlockWithOptions(role, text, "", width, mode, meta, options),
 		}
 	case *transcriptpb.CommittedRow_ReviewerFeedback:
-		if row.GetReviewerFeedback() == nil {
-			panic(fmt.Sprintf("render reviewer feedback row missing payload at locator %+v", row.Locator))
-		}
 		text := fmt.Sprintf("%d suggestions", row.GetReviewerFeedback().SuggestionCount)
 		if mode == ModeOngoing || mode == ModeOngoingFull || mode == ModeDetailExpanded {
 			text = reviewerFeedbackText(row.GetReviewerFeedback().Suggestions)
 		}
 		return Row{Group: GroupReviewerFeedback, Lines: renderMarkdownTextBlock(StyleRoleNoticeReviewer, text, width, mode, toolMeta{}, textBlockOptions{}, linkPresentation)}
 	case *transcriptpb.CommittedRow_ReviewerError:
-		if row.GetReviewerError() == nil {
-			panic(fmt.Sprintf("render reviewer error row missing payload at locator %+v", row.Locator))
-		}
 		return Row{Group: GroupReviewerError, Lines: renderTextBlock(StyleRoleError, row.GetReviewerError().Detail, width, mode)}
 	default:
 		return Row{Group: GroupNotice, Lines: renderTextBlock(StyleRoleNotice, "unknown transcript row", width, mode)}
@@ -721,9 +715,6 @@ func noticeRoleAndText(row *transcriptpb.NoticeRow, visibility transcriptpb.Entr
 	isError := row.Severity == transcriptpb.NoticeSeverity_NOTICE_SEVERITY_ERROR
 	role := noticeStyleRoleForMode(row, mode)
 	if row.Reason == transcriptpb.NoticeReason_NOTICE_REASON_THINKING_UPDATE {
-		if row.ThinkingEffort == nil {
-			panic("Thinking-update notice is missing its effort")
-		}
 		return role, fmt.Sprintf("Thinking set: %s", *row.ThinkingEffort)
 	}
 	if isError {
@@ -738,35 +729,35 @@ func noticeRoleAndText(row *transcriptpb.NoticeRow, visibility transcriptpb.Entr
 		}
 		return StyleRoleUser, "Message from another agent"
 	}
-	if row.Reason == transcriptpb.NoticeReason_NOTICE_REASON_COMPACTION && row.Compaction != nil {
+	if row.Reason == transcriptpb.NoticeReason_NOTICE_REASON_COMPACTION {
 		text := compactionNoticeText(row.Compaction.Count)
 		if row.Compaction.Detail != nil && (isError || mode == ModeDetailExpanded) {
 			text = *row.Compaction.Detail
 		}
 		return role, text
 	}
-	if row.Reason == transcriptpb.NoticeReason_NOTICE_REASON_TOOL_OUTPUT_REPAIR && row.ToolOutputRepair != nil {
+	if row.Reason == transcriptpb.NoticeReason_NOTICE_REASON_TOOL_OUTPUT_REPAIR {
 		if !isError {
 			role = StyleRoleWarning
 		}
 		return role, toolOutputRepairNoticeText(row.ToolOutputRepair)
 	}
-	if row.Reason == transcriptpb.NoticeReason_NOTICE_REASON_PROVIDER_MODEL_MISMATCH && row.ProviderModelMismatch != nil {
+	if row.Reason == transcriptpb.NoticeReason_NOTICE_REASON_PROVIDER_MODEL_MISMATCH {
 		if !isError {
 			role = StyleRoleWarning
 		}
 		return role, providerModelMismatchNoticeText(row.ProviderModelMismatch)
 	}
-	if row.Reason == transcriptpb.NoticeReason_NOTICE_REASON_REASONING_OMISSION && row.ReasoningOmission != nil {
+	if row.Reason == transcriptpb.NoticeReason_NOTICE_REASON_REASONING_OMISSION {
 		if !isError {
 			role = StyleRoleWarning
 		}
 		return role, reasoningOmissionText
 	}
-	if row.Reason == transcriptpb.NoticeReason_NOTICE_REASON_CONNECTION_FALLBACK && row.ConnectionFallback != nil {
+	if row.Reason == transcriptpb.NoticeReason_NOTICE_REASON_CONNECTION_FALLBACK {
 		return role, fmt.Sprintf("Switched connection from %s to %s because usage was exhausted", row.ConnectionFallback.PreviousId, row.ConnectionFallback.CurrentId)
 	}
-	if row.Reason == transcriptpb.NoticeReason_NOTICE_REASON_CONNECTIONS_UNAVAILABLE && row.ConnectionsUnavailable != nil {
+	if row.Reason == transcriptpb.NoticeReason_NOTICE_REASON_CONNECTIONS_UNAVAILABLE {
 		var lines []string
 		lines = append(lines, "Configured connections are unavailable. Retry after cooldown or update the configured connections.")
 		for _, member := range row.ConnectionsUnavailable.Members {
