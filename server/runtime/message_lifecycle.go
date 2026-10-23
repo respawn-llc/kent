@@ -486,15 +486,16 @@ func (m *defaultMessageLifecycle) claimPendingInputs(selection userInjectionSele
 	}
 }
 
-func (m *defaultMessageLifecycle) ProcessPendingShellActions(ctx context.Context, stepID string, selection userInjectionSelection) error {
+func (m *defaultMessageLifecycle) ProcessPendingShellActions(ctx context.Context, stepID string, selection userInjectionSelection) (*queuedUserMessageClaim, error) {
 	claim, err := m.claimPendingInputs(selection)
 	if err != nil || claim == nil {
-		return err
+		return claim, err
 	}
-	defer func() {
+	if err := m.executeClaimShells(ctx, stepID, claim); err != nil {
 		m.engine.removeStoppedLiveRunQueueItems(func() []QueuedUserMessage { return m.queue.ReleaseClaim(claim) })
-	}()
-	return m.executeClaimShells(ctx, stepID, claim)
+		return nil, err
+	}
+	return claim, nil
 }
 
 func (m *defaultMessageLifecycle) FinalizeShellOutcomes(stepID string) error {
@@ -502,11 +503,7 @@ func (m *defaultMessageLifecycle) FinalizeShellOutcomes(stepID string) error {
 	return m.settleCompletedShells(stepID, claim)
 }
 
-func (m *defaultMessageLifecycle) PreparePendingUserInjections(selection userInjectionSelection) (*preparedUserInjections, error) {
-	claim, err := m.claimPendingInputs(selection)
-	if err != nil {
-		return nil, err
-	}
+func (m *defaultMessageLifecycle) PreparePendingUserInjections(claim *queuedUserMessageClaim) (*preparedUserInjections, error) {
 	prepared := &preparedUserInjections{queue: m.queue, claim: claim}
 	if claim == nil {
 		return prepared, nil
@@ -533,9 +530,9 @@ func (m *defaultMessageLifecycle) PreparePendingUserInjections(selection userInj
 	return prepared, nil
 }
 
-func (m *defaultMessageLifecycle) ReleasePreparedUserInjections(prepared *preparedUserInjections) {
+func (m *defaultMessageLifecycle) ReleasePendingInputClaim(claim *queuedUserMessageClaim) {
 	m.engine.removeStoppedLiveRunQueueItems(func() []QueuedUserMessage {
-		return m.queue.ReleaseClaim(prepared.claim)
+		return m.queue.ReleaseClaim(claim)
 	})
 }
 

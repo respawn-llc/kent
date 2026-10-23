@@ -422,6 +422,51 @@ func TestShellOutcomeSurvivesPreparationRebuild(t *testing.T) {
 	}
 }
 
+func TestShellAdmittedDuringBoundaryExecutionIsProcessedBeforePreparation(t *testing.T) {
+	started, release := make(chan struct{}), make(chan struct{})
+	releaseOnce := sync.OnceFunc(func() { close(release) })
+	defer releaseOnce()
+	commands := make(chan string, 4)
+	client := &fakeClient{responses: []llm.Response{finalTextResponse("done")}}
+	engine := mustNewTestEngine(t, mustCreateTestSession(t), client, newTestToolRegistry(t, tools.HandlerRegistration{
+		ID: toolspec.ToolExecCommand,
+		Handler: userShellTestTool{commands: commands, run: func(ctx context.Context, command string) error {
+			if command == "A" {
+				close(started)
+				select {
+				case <-release:
+				case <-ctx.Done():
+					return ctx.Err()
+				}
+			}
+			return nil
+		}},
+	}), Config{Model: "gpt-6-sol"})
+	resume := pendingWorkTestHoldMaintenance(t, engine)
+	_, err := engine.Steer(t.Context(), "start", nil)
+	pendingWorkTestNoError(t, err)
+	_, err = engine.QueueShellInput(t.Context(), runtimeids.NewQueueItemID(), runtimeinput.ShellCommand{Command: "A"}, runtimeinput.PendingWorkLaneSteer, nil)
+	pendingWorkTestNoError(t, err)
+	resume()
+	pendingWorkTestWait(t, started, "Shell A")
+	_, err = engine.QueueShellInput(t.Context(), runtimeids.NewQueueItemID(), runtimeinput.ShellCommand{Command: "B"}, runtimeinput.PendingWorkLaneSteer, nil)
+	pendingWorkTestNoError(t, err)
+	releaseOnce()
+	pendingWorkTestNoError(t, engine.WaitForScheduledQueuedUserWork(t.Context()))
+	if len(commands) != 2 || <-commands != "A" || <-commands != "B" || len(client.calls) != 1 {
+		t.Fatal("late Shell did not execute once before provider progress")
+	}
+	var outputs []string
+	for _, message := range requestMessages(client.calls[0]) {
+		if message.MessageType != nil && *message.MessageType == llm.MessageTypeUserShellCommand {
+			outputs = append(outputs, *message.CompactContent)
+		}
+	}
+	if len(outputs) != 2 || outputs[0] != "A" || outputs[1] != "B" {
+		t.Fatalf("Shell context order = %v", outputs)
+	}
+}
+
 func shellPreparationTestEngine(t *testing.T, client *fakeClient, preparation *heldPromptPreparation, commands chan string, config Config) *Engine {
 	t.Helper()
 	store := mustCreateTestSession(t)

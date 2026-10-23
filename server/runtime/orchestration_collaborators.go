@@ -135,11 +135,11 @@ type toolExecutor interface {
 
 type messageLifecycle interface {
 	RestoreMessages() error
-	PreparePendingUserInjections(selection userInjectionSelection) (*preparedUserInjections, error)
+	PreparePendingUserInjections(claim *queuedUserMessageClaim) (*preparedUserInjections, error)
 	ConsumeShellPrefix(ctx context.Context, stepID string) (bool, error)
-	ProcessPendingShellActions(ctx context.Context, stepID string, selection userInjectionSelection) error
+	ProcessPendingShellActions(ctx context.Context, stepID string, selection userInjectionSelection) (*queuedUserMessageClaim, error)
 	FinalizeShellOutcomes(stepID string) error
-	ReleasePreparedUserInjections(prepared *preparedUserInjections)
+	ReleasePendingInputClaim(claim *queuedUserMessageClaim)
 	CommitPreparedUserInjections(ctx context.Context, stepID string, prepared *preparedUserInjections, thinking nativeThinkingProjection) (userInjectionCommitResult, error)
 	DrainPendingUserInjections() []QueuedUserMessage
 	DrainPendingUserInjectionsByID(ids map[string]struct{}) []QueuedUserMessage
