@@ -12,11 +12,18 @@ type ongoingPendingResize struct {
 	deadline time.Time
 	due      bool
 }
+type ongoingReopenPhase uint8
+
+const (
+	ongoingReopenRequested ongoingReopenPhase = iota
+	ongoingReopenHydrating
+)
+
 type ongoingRehydrationState struct {
-	token    uint64
-	pending  *ongoingPendingResize
-	inFlight bool
-	closed   bool
+	token   uint64
+	pending *ongoingPendingResize
+	reopen  *ongoingReopenPhase
+	closed  bool
 }
 
 func (s ongoingRehydrationState) resizeDue() bool {
@@ -35,14 +42,15 @@ func (m *uiModel) scheduleOngoingResizeRehydration() tea.Cmd {
 
 func (m *uiModel) admitOngoingRehydration(reason ongoing.RehydrateReason) {
 	state := &m.ongoingRehydration
-	if state.closed || state.inFlight || m.requestOngoingOpen == nil {
+	if state.closed || state.reopen != nil || m.requestOngoingOpen == nil {
 		return
 	}
 	if state.resizeDue() && m.nativeOngoingSurfaceActive() {
 		reason = ongoing.RehydrateReasonResize
 		state.pending = nil
 	}
-	state.inFlight = true
+	phase := ongoingReopenRequested
+	state.reopen = &phase
 	m.requestOngoingOpen(reason)
 }
 
@@ -54,13 +62,16 @@ func (m *uiModel) admitDueOngoingResize() {
 }
 
 func (m *uiModel) finishOngoingRehydration() {
-	m.ongoingRehydration.inFlight = false
+	if m.ongoingRehydration.reopen != nil && *m.ongoingRehydration.reopen == ongoingReopenRequested {
+		return
+	}
+	m.ongoingRehydration.reopen = nil
 	m.admitDueOngoingResize()
 }
 
 func (m *uiModel) closeOngoingRehydration() {
 	m.ongoingRehydration.closed = true
-	m.ongoingRehydration.inFlight = false
+	m.ongoingRehydration.reopen = nil
 	m.ongoingRehydration.pending = nil
 	m.ongoingRehydration.token++
 }

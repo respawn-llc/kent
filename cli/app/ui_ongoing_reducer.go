@@ -49,6 +49,9 @@ func (m *uiModel) handleOngoingTranscriptEvent(event ongoingTranscriptEvent) tea
 		if event.Reason == nil {
 			panic("transcript cutover requires reset reason")
 		}
+		if m.ongoingRehydration.reopen != nil {
+			*m.ongoingRehydration.reopen = ongoingReopenHydrating
+		}
 		result, err = m.ongoingTranscript.AcceptCutover(*event.Reason)
 	case ongoingTranscriptEventMessage:
 		wasRuntimeDisconnected := m.runtimeDisconnectStatusVisible()
@@ -75,7 +78,7 @@ func (m *uiModel) handleOngoingTranscriptEvent(event ongoingTranscriptEvent) tea
 		}
 		return tea.Batch(stateCmd, m.handleOngoingResult(result), m.reconcileSpinnerTicking(true), connectionStatusCmd)
 	case ongoingTranscriptEventLoss:
-		m.ongoingRehydration.inFlight = false
+		m.ongoingRehydration.reopen = nil
 		if runtimeattach.IsRuntimeConnectionError(event.Err) {
 			m.observeRuntimeRequestResult(event.Err)
 			recovery = m.startRuntimeMainViewRefresh(nil)

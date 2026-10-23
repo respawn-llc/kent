@@ -76,8 +76,32 @@ func TestOngoingResizeCoalescesWhileHydrationPending(t *testing.T) {
 	}
 	m.handleOngoingTranscriptEvent(ongoingTranscriptEvent{Kind: ongoingTranscriptEventClosed})
 	resize(16)
-	if len(reasons) != 4 || m.ongoingRehydration.inFlight {
+	if len(reasons) != 4 || m.ongoingRehydration.reopen != nil {
 		t.Fatal("closed observation admitted stale reopen")
+	}
+}
+
+func TestOngoingResizeCompletesOnlyAfterItsOrderedCutover(t *testing.T) {
+	surface := ongoing.NewSurfaceWithOptions(nil, ongoing.SurfaceOptions{
+		TerminalResize: ongoing.TerminalResizeRehydration, MarkdownLinks: transcriptrender.MarkdownLinkLabelOnly,
+	})
+	var reasons []ongoing.RehydrateReason
+	m := sizedTestUIModel(newProjectedStaticUIModel(WithUIOngoingSurface(surface),
+		WithUIOngoingTranscriptReopen(func(reason ongoing.RehydrateReason) { reasons = append(reasons, reason) })), 80, 11)
+	m.ongoingTranscript = newNoopOngoingTranscriptController(surface, m.ongoingFrameInput)
+	surface.Render(m.ongoingFrameInput())
+	for _, height := range []int{12, 13} {
+		m.reduceWindowMessage(tea.WindowSizeMsg{Width: 80, Height: height})
+		m.reduceOngoingMessage(ongoingResizeDebounceMsg{token: m.ongoingRehydration.token})
+	}
+	m.handleOngoingTranscriptEvent(ongoingTranscriptEvent{Kind: ongoingTranscriptEventMessage, Message: ongoingHydrationMessage(1)})
+	if len(reasons) != 1 {
+		t.Fatal("initial hydration completed a reopen whose marker has not arrived")
+	}
+	m.handleOngoingTranscriptEvent(ongoingTranscriptEvent{Kind: ongoingTranscriptEventCutover, Reason: &reasons[0]})
+	m.handleOngoingTranscriptEvent(ongoingTranscriptEvent{Kind: ongoingTranscriptEventMessage, Message: ongoingHydrationMessage(1)})
+	if len(reasons) != 2 {
+		t.Fatal("replacement hydration did not release the pending resize")
 	}
 }
 
