@@ -11,12 +11,14 @@ import (
 )
 
 func TestThinkingChangesPreserveDispatchedPrefix(t *testing.T) {
+	t.Parallel()
 	testThinkingChangesPreserveDispatchedPrefix(t, func(engine *Engine, effort string) error {
 		return engine.SetThinkingLevel(t.Context(), effort)
 	})
 }
 
 func TestWorkflowNativeThinkingChangesPreserveDispatchedPrefix(t *testing.T) {
+	t.Parallel()
 	testThinkingChangesPreserveDispatchedPrefix(t, func(engine *Engine, effort string) error {
 		value, err := workflow.NewThinkingValue(effort)
 		if err != nil {

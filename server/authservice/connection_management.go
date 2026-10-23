@@ -105,6 +105,19 @@ func (s *BootstrapService) ConfigureConnection(_ context.Context, req *authpb.Co
 		if err := config.SetDefaultProviderConnection(path, config.ConnectionID(change.DefaultConnectionId)); err != nil {
 			return nil, err
 		}
+	case *authpb.ConfigureConnectionRequest_RemoveConnectionId:
+		id := config.ConnectionID(change.RemoveConnectionId)
+		if s.connections.manager == nil {
+			return nil, serverapi.NewConnectionRemovalFailure(
+				id, serverapi.ConnectionRemovalCredentialClearFailure, errors.New("OAuth credential manager is required"),
+			)
+		}
+		if err := s.connections.manager.RemoveOAuth(s.ctx, id); err != nil {
+			return nil, serverapi.NewConnectionRemovalFailure(id, serverapi.ConnectionRemovalCredentialClearFailure, err)
+		}
+		if err := config.RemoveProviderConnection(path, id); err != nil {
+			return nil, serverapi.NewConnectionRemovalFailure(id, serverapi.ConnectionRemovalDefinitionRemoveFailure, err)
+		}
 	}
 	return &emptypb.Empty{}, nil
 }

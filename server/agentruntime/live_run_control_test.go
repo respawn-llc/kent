@@ -280,6 +280,7 @@ func TestLiveRunWaitIdleReturnsNoActive(t *testing.T) {
 }
 
 func TestActiveSteeringObservesAcceptingRun(t *testing.T) {
+	t.Parallel()
 	for _, attributed := range []bool{false, true} {
 		t.Run(fmt.Sprintf("agent=%t", attributed), func(t *testing.T) {
 			started, release := make(chan struct{}), make(chan struct{})

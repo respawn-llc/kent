@@ -1,3 +1,8 @@
 import { createContext } from "react";
 
-export const MarkdownLinkContext = createContext<((url: string) => void) | null>(null);
+export type MarkdownLinkActions = Readonly<{
+  openExternal(url: string): void;
+  openFile?: ((path: string) => void) | undefined;
+}>;
+
+export const MarkdownLinkContext = createContext<MarkdownLinkActions | null>(null);

@@ -13,6 +13,7 @@ import (
 )
 
 func TestProviderCompactionFailurePreservesThinkingBaseline(t *testing.T) {
+	t.Parallel()
 	synctest.Test(t, testProviderCompactionFailurePreservesThinkingBaseline)
 }
 
@@ -79,6 +80,7 @@ func testProviderCompactionFailurePreservesThinkingBaseline(t *testing.T) {
 }
 
 func TestLocalCompactionKeepsCommittedThinkingAcrossToolRetry(t *testing.T) {
+	t.Parallel()
 	for _, adjacent := range []bool{false, true} {
 		name := "new update"
 		if adjacent {
@@ -163,6 +165,7 @@ func TestLocalCompactionKeepsCommittedThinkingAcrossToolRetry(t *testing.T) {
 }
 
 func TestIndependentSessionsAdoptIndependentThinking(t *testing.T) {
+	t.Parallel()
 	for _, effort := range []string{"high", "low"} {
 		client := &fakeClient{
 			caps:      llm.ProviderCapabilities{ProviderID: "openai", SupportsResponsesAPI: true, SupportsNativeThinkingUpdates: true},
@@ -181,6 +184,7 @@ func TestIndependentSessionsAdoptIndependentThinking(t *testing.T) {
 }
 
 func TestCompactionReestablishesThinking(t *testing.T) {
+	t.Parallel()
 	for _, mode := range []string{"native", "local"} {
 		t.Run(mode, func(t *testing.T) {
 			client := &fakeCompactionClient{
@@ -253,6 +257,7 @@ func TestCompactionReestablishesThinking(t *testing.T) {
 }
 
 func TestUnsupportedThinkingCompactionIgnoresNativeBaseline(t *testing.T) {
+	t.Parallel()
 	for _, tc := range []struct {
 		name     string
 		model    string
@@ -321,6 +326,7 @@ func TestUnsupportedThinkingCompactionIgnoresNativeBaseline(t *testing.T) {
 }
 
 func TestCompactionThinkingBaselineReopensBeforeNextRequest(t *testing.T) {
+	t.Parallel()
 	client := &fakeCompactionClient{
 		caps: llm.ProviderCapabilities{
 			ProviderID: "openai", SupportsResponsesAPI: true, SupportsResponsesCompact: true, SupportsNativeThinkingUpdates: true,

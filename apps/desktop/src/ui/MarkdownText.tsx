@@ -1,8 +1,11 @@
 import { createContext, useContext, useMemo, type ComponentProps, type MouseEvent } from "react";
 import remarkBreaks from "remark-breaks";
 import remarkGfm from "remark-gfm";
+import rehypeSanitize, { type Options as SanitizeOptions } from "rehype-sanitize";
 import {
   Streamdown,
+  defaultRehypePlugins,
+  defaultUrlTransform,
   type AnimateOptions,
   type Components,
   type CustomRendererProps,
@@ -11,7 +14,7 @@ import {
 } from "streamdown";
 
 import { Checkbox } from "./radix/checkbox";
-import { safeExternalUrl } from "./externalLinks";
+import { markdownLinkTarget } from "./markdownLinkTarget";
 import { syntaxHighlightingLanguageHints } from "./syntaxHighlighting";
 import { SyntaxHighlightedCode } from "./SyntaxHighlightedCode";
 import { projectMarkdownText } from "./taskBodyMarkdownText";
@@ -48,6 +51,28 @@ const markdownPlugins = {
 const markdownRemarkPlugins = [[remarkGfm, {}], remarkBreaks] satisfies NonNullable<
   ComponentProps<typeof Streamdown>["remarkPlugins"]
 >;
+const streamdownSanitize = defaultRehypePlugins.sanitize;
+const streamdownRaw = defaultRehypePlugins.raw;
+if (streamdownRaw === undefined || !Array.isArray(streamdownSanitize)) {
+  throw new Error("Streamdown must supply its raw HTML and sanitizer configuration.");
+}
+const streamdownSanitizeParameters: readonly unknown[] = streamdownSanitize.slice(1);
+// Harden unconditionally blocks file: URLs. Keep the HTML/image sanitizer;
+// MarkdownExternalLink validates every anchor before making it interactive.
+const markdownRehypePlugins = [
+  streamdownRaw,
+  [markdownFileSanitize, ...streamdownSanitizeParameters],
+] satisfies NonNullable<ComponentProps<typeof Streamdown>["rehypePlugins"]>;
+
+function markdownFileSanitize(options: SanitizeOptions) {
+  return rehypeSanitize({
+    ...options,
+    protocols: {
+      ...options.protocols,
+      href: [...(options.protocols?.href ?? []), "file"],
+    },
+  });
+}
 const markdownAnimation = {
   animation: "blurIn",
   duration: 50,
@@ -116,6 +141,8 @@ function MarkdownCore({
         mode={animated ? "streaming" : "static"}
         plugins={markdownPlugins}
         remarkPlugins={markdownRemarkPlugins}
+        rehypePlugins={markdownRehypePlugins}
+        urlTransform={markdownUrlTransform}
         {...(onChange === undefined ? {} : { parseMarkdownIntoBlocksFn: singleMarkdownBlock })}
       >
         {value}
@@ -124,15 +151,27 @@ function MarkdownCore({
   );
 }
 
+const markdownUrlTransform: NonNullable<ComponentProps<typeof Streamdown>["urlTransform"]> = (
+  url,
+  key,
+  node,
+) => {
+  if (node.tagName === "a" && key === "href" && markdownLinkTarget(url) !== undefined) return url;
+  return defaultUrlTransform(url, key, node);
+};
+
 function MarkdownExternalLink({ children, href, className, title }: ComponentProps<"a">) {
-  const openExternal = useContext(MarkdownLinkContext);
-  const url = safeExternalUrl(href);
-  if (url === undefined) return <span>{children}</span>;
-  if (openExternal === null) throw new Error("MarkdownLinkProvider is required for external links.");
+  const actions = useContext(MarkdownLinkContext);
+  const target = markdownLinkTarget(href);
+  if (target === undefined) return <span>{children}</span>;
+  if (actions === null) throw new Error("MarkdownLinkProvider is required for links.");
+  if (target.kind === "file" && actions.openFile === undefined) return <span>{children}</span>;
+  const url = target.kind === "external" ? target.url : href;
   const openLink = (event: MouseEvent<HTMLAnchorElement>) => {
     if (event.button > 1) return;
     event.preventDefault();
-    openExternal(url);
+    if (target.kind === "external") actions.openExternal(target.url);
+    else actions.openFile?.(target.path);
   };
   return (
     <a

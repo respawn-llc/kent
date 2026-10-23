@@ -762,9 +762,9 @@ func TestCurrentContextWindowPreservesSystemPromptAndCacheAcrossResume(t *testin
 }
 
 func TestSystemPromptSnapshotUsesLocalFileAndSurvivesMidSessionFileChanges(t *testing.T) {
+	t.Parallel()
 	home := t.TempDir()
 	workspace := t.TempDir()
-	t.Setenv("HOME", home)
 	for _, dir := range []string{filepath.Join(home, agentsGlobalDirName), filepath.Join(workspace, agentsGlobalDirName)} {
 		if err := os.MkdirAll(dir, 0o755); err != nil {
 			t.Fatalf("mkdir %s: %v", dir, err)
@@ -784,6 +784,7 @@ func TestSystemPromptSnapshotUsesLocalFileAndSurvivesMidSessionFileChanges(t *te
 		EnabledTools:         []toolspec.ID{toolspec.ToolExecCommand},
 		ContextWindowTokens:  272_000,
 		TranscriptWorkingDir: workspace,
+		GlobalConfigDir:      filepath.Join(home, agentsGlobalDirName),
 	})
 	if _, err := eng.SubmitUserMessage(context.Background(), "first"); err != nil {
 		t.Fatalf("submit first: %v", err)
@@ -814,6 +815,7 @@ func TestSystemPromptSnapshotUsesLocalFileAndSurvivesMidSessionFileChanges(t *te
 		EnabledTools:         []toolspec.ID{toolspec.ToolExecCommand},
 		ContextWindowTokens:  400_000,
 		TranscriptWorkingDir: workspace,
+		GlobalConfigDir:      filepath.Join(home, agentsGlobalDirName),
 	})
 	if _, err := reopenedEngine.SubmitUserMessage(context.Background(), "second"); err != nil {
 		t.Fatalf("submit second: %v", err)
@@ -830,9 +832,8 @@ func TestSystemPromptSnapshotUsesLocalFileAndSurvivesMidSessionFileChanges(t *te
 }
 
 func TestSystemPromptSnapshotRefreshesAfterCompaction(t *testing.T) {
-	home := t.TempDir()
+	t.Parallel()
 	workspace := t.TempDir()
-	t.Setenv("HOME", home)
 	systemDir := filepath.Join(workspace, agentsGlobalDirName)
 	if err := os.MkdirAll(systemDir, 0o755); err != nil {
 		t.Fatalf("mkdir system dir: %v", err)
@@ -926,9 +927,8 @@ func TestSystemPromptRefreshFailureKeepsContractAbsentAndRetries(t *testing.T) {
 }
 
 func TestPendingSystemPromptRefreshRunsAfterReopen(t *testing.T) {
-	home := t.TempDir()
+	t.Parallel()
 	workspace := t.TempDir()
-	t.Setenv("HOME", home)
 	systemDir := filepath.Join(workspace, agentsGlobalDirName)
 	if err := os.MkdirAll(systemDir, 0o755); err != nil {
 		t.Fatalf("mkdir system dir: %v", err)

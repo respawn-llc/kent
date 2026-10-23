@@ -13,6 +13,7 @@ import (
 )
 
 func TestThinkingForkPortability(t *testing.T) {
+	t.Parallel()
 	for _, checkpoint := range []bool{false, true} {
 		for _, supported := range []bool{false, true} {
 			name := "ordinary"

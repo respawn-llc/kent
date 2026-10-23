@@ -2,6 +2,7 @@ package authservice
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
@@ -9,12 +10,14 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
+	"sync"
 	"testing"
 
 	"core/internal/testharness/httpclient"
 	"core/server/authmanager"
 	"core/shared/config"
 	authpb "core/shared/protoapi/gen/kent/api/auth"
+	"core/shared/serverapi"
 	"core/shared/textutil"
 
 	"google.golang.org/protobuf/types/known/emptypb"
@@ -65,6 +68,152 @@ endpoint = "http://localhost:1234/v1"
 	}
 }
 
+func TestConfigureConnectionRemovesSelectedDefinitionAndCredentials(t *testing.T) {
+	initial := auth.EmptyState()
+	initial.Connections["work"] = auth.OAuthMethod{
+		AccessToken: "work-token", RefreshToken: "work-refresh",
+		AccountID: "work-account", Email: "work@example.invalid",
+	}
+	initial.Connections["personal"] = auth.OAuthMethod{
+		AccessToken: "personal-token", RefreshToken: "personal-refresh",
+		AccountID: "personal-account", Email: "personal@example.invalid",
+	}
+	manager := auth.NewManager(auth.NewMemoryStore(initial), nil)
+	resolver := authServiceResolver(t, manager, func(string) (string, bool) {
+		t.Fatal("removing a connection read an environment secret")
+		return "", false
+	})
+	service := NewBootstrapService(context.Background(), resolver, auth.OpenAIOAuthOptions{})
+	request := &authpb.ConfigureConnectionRequest{
+		Change: &authpb.ConfigureConnectionRequest_RemoveConnectionId{RemoveConnectionId: "work"},
+	}
+
+	if _, err := service.ConfigureConnection(t.Context(), request); err != nil {
+		t.Fatal(err)
+	}
+
+	app, err := config.LoadGlobal(config.LoadOptions{ConfigRoot: resolver.root})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, present := app.Settings.Connections["work"]; present {
+		t.Fatal("removed connection definition remains")
+	}
+	if _, present := app.Settings.Connections["personal"]; !present {
+		t.Fatal("unrelated connection definition was removed")
+	}
+	api := app.Settings.Connections["api"]
+	if api.EnvironmentVariable == nil || *api.EnvironmentVariable != "SERVER_KEY" {
+		t.Fatalf("unrelated API-key reference changed: %+v", api)
+	}
+	if app.Settings.Connection == nil || !reflect.DeepEqual(*app.Settings.Connection, config.ConnectionSelection{"work"}) {
+		t.Fatalf("existing default reference changed: %v", app.Settings.Connection)
+	}
+
+	state, err := manager.Load(t.Context())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !reflect.DeepEqual(state, auth.State{Connections: map[config.ConnectionID]auth.OAuthMethod{
+		"personal": initial.Connections["personal"],
+	}}) {
+		t.Fatalf("OAuth records after removal = %+v", state)
+	}
+
+	if _, err := service.ConfigureConnection(t.Context(), request); err != nil {
+		t.Fatalf("repeating removal should succeed: %v", err)
+	}
+}
+
+func TestConfigureConnectionCredentialRemovalFailurePreservesDefinition(t *testing.T) {
+	saveErr := errors.New("credential store write failed")
+	initial := auth.EmptyState()
+	initial.Connections["work"] = auth.OAuthMethod{AccessToken: "work-token", AccountID: "work-account"}
+	store := connectionRemovalFailingStore{MemoryStore: auth.NewMemoryStore(initial), saveErr: saveErr}
+	manager := auth.NewManager(store, nil)
+	resolver := authServiceResolver(t, manager, nil)
+	service := NewBootstrapService(context.Background(), resolver, auth.OpenAIOAuthOptions{})
+
+	_, err := service.ConfigureConnection(t.Context(), &authpb.ConfigureConnectionRequest{
+		Change: &authpb.ConfigureConnectionRequest_RemoveConnectionId{RemoveConnectionId: "work"},
+	})
+	var failure *serverapi.ConnectionFailure
+	if !errors.As(err, &failure) ||
+		failure.Details.Reason != authpb.ConnectionFailureReason_CONNECTION_FAILURE_REASON_CREDENTIAL_CLEAR_FAILED ||
+		failure.Details.GetConnectionId() != "work" ||
+		failure.Details.GetDiagnostic() != saveErr.Error() {
+		t.Fatalf("credential removal failure details = %+v, want typed credential-clear failure: %v", failure, err)
+	}
+
+	app, configErr := config.LoadGlobal(config.LoadOptions{ConfigRoot: resolver.root})
+	if configErr != nil {
+		t.Fatal(configErr)
+	}
+	if _, present := app.Settings.Connections["work"]; !present {
+		t.Fatal("credential write failure removed the connection definition")
+	}
+	state, stateErr := manager.Load(t.Context())
+	if stateErr != nil || state.Connections["work"] != initial.Connections["work"] {
+		t.Fatalf("credentials after failed clear = %+v, %v", state, stateErr)
+	}
+}
+
+func TestConfigureConnectionDefinitionRemovalFailureReportsClearedCredentials(t *testing.T) {
+	initial := auth.EmptyState()
+	initial.Connections["work"] = auth.OAuthMethod{
+		AccessToken: "work-token", RefreshToken: "work-refresh",
+		AccountID: "work-account", Email: "work@example.invalid",
+	}
+	manager := auth.NewManager(auth.NewMemoryStore(initial), nil)
+	resolver := authServiceResolver(t, manager, nil)
+	if err := os.Chmod(resolver.root, 0o500); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() {
+		if err := os.Chmod(resolver.root, 0o700); err != nil {
+			t.Error(err)
+		}
+	})
+	probe, probeErr := os.CreateTemp(resolver.root, "write-permission-probe-*")
+	if probeErr == nil {
+		probePath := probe.Name()
+		if err := probe.Close(); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.Remove(probePath); err != nil {
+			t.Fatal(err)
+		}
+		t.Skip("directory permission changes do not prevent writes for this user")
+	}
+	service := NewBootstrapService(context.Background(), resolver, auth.OpenAIOAuthOptions{})
+
+	_, err := service.ConfigureConnection(t.Context(), &authpb.ConfigureConnectionRequest{
+		Change: &authpb.ConfigureConnectionRequest_RemoveConnectionId{RemoveConnectionId: "work"},
+	})
+	var failure *serverapi.ConnectionFailure
+	if !errors.As(err, &failure) ||
+		failure.Details.Reason != authpb.ConnectionFailureReason_CONNECTION_FAILURE_REASON_DEFINITION_REMOVE_FAILED ||
+		failure.Details.GetConnectionId() != "work" ||
+		failure.Details.GetDiagnostic() == "" {
+		t.Fatalf("definition removal failure details = %+v, want typed failure with a diagnostic: %v", failure, err)
+	}
+
+	state, stateErr := manager.Load(t.Context())
+	if stateErr != nil || len(state.Connections) != 0 {
+		t.Fatalf("credentials after definition write failure = %+v, %v", state, stateErr)
+	}
+	if err := os.Chmod(resolver.root, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	app, configErr := config.LoadGlobal(config.LoadOptions{ConfigRoot: resolver.root})
+	if configErr != nil {
+		t.Fatal(configErr)
+	}
+	if _, present := app.Settings.Connections["work"]; !present {
+		t.Fatal("definition changed despite the failed settings write")
+	}
+}
+
 func TestConnectionReferenceSavingDoesNotCheckCredentials(t *testing.T) {
 	resolver := authServiceResolver(t, auth.NewManager(auth.NewMemoryStore(auth.EmptyState()), nil), func(string) (string, bool) {
 		t.Error("saving a variable reference looked up a credential")
@@ -103,6 +252,15 @@ func TestConnectionReferenceSavingDoesNotCheckCredentials(t *testing.T) {
 	if _, err := connection.Auth.ResolveDispatchAuth(t.Context()); err == nil {
 		t.Fatal("missing credentials must fail when the saved connection is used")
 	}
+}
+
+type connectionRemovalFailingStore struct {
+	*auth.MemoryStore
+	saveErr error
+}
+
+func (s connectionRemovalFailingStore) Save(context.Context, auth.State) error {
+	return s.saveErr
 }
 
 func TestFirstAddedConnectionBecomesDefault(t *testing.T) {
@@ -202,5 +360,80 @@ func TestPendingOAuthSurvivesObserverLossButNotExplicitDiscard(t *testing.T) {
 				t.Fatalf("accepted sign-in lost after disconnect: %+v %v", status, err)
 			}
 		})
+	}
+}
+
+func TestLateOAuthSignInDoesNotRestoreRemovedConnection(t *testing.T) {
+	accepted, release := make(chan struct{}), make(chan struct{})
+	var releaseOnce sync.Once
+	releaseExchange := func() { releaseOnce.Do(func() { close(release) }) }
+	defer releaseExchange()
+
+	oauth := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		close(accepted)
+		<-release
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = fmt.Fprint(w, `{"access_token":"late-token","refresh_token":"refresh","token_type":"Bearer","expires_in":3600}`)
+	}))
+	defer oauth.Close()
+	endpoint, err := url.Parse(oauth.URL)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	initial := auth.EmptyState()
+	initial.Connections["work"] = auth.OAuthMethod{AccessToken: "old-work-token", AccountID: "work-account"}
+	initial.Connections["personal"] = auth.OAuthMethod{AccessToken: "personal-token", AccountID: "personal-account"}
+	manager := auth.NewManager(auth.NewMemoryStore(initial), nil)
+	service := NewBootstrapService(t.Context(), authServiceResolver(t, manager, nil), auth.OpenAIOAuthOptions{
+		HTTPClient: &http.Client{Transport: httpclient.RoundTripFunc(func(r *http.Request) (*http.Response, error) {
+			request := r.Clone(r.Context())
+			request.URL.Scheme, request.URL.Host = endpoint.Scheme, endpoint.Host
+			return oauth.Client().Transport.RoundTrip(request)
+		})},
+	})
+	target := &authpb.ConnectionTarget{Target: &authpb.ConnectionTarget_ConnectionId{ConnectionId: "work"}}
+	start, err := service.StartBootstrap(t.Context(), &authpb.StartBootstrapRequest{
+		Target: target, Mode: authpb.BootstrapMode_BOOTSTRAP_MODE_BROWSER_CALLBACK_CODE,
+		RedirectUri: textutil.Value("http://localhost:1455/auth/callback"),
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	completed := make(chan error, 1)
+	go func() {
+		_, err := service.CompleteBootstrap(t.Context(), &authpb.CompleteBootstrapRequest{
+			Target: target, Mode: authpb.BootstrapMode_BOOTSTRAP_MODE_BROWSER_CALLBACK_CODE,
+			Force: true, CallbackInput: textutil.Value("grant"), Continuation: start.Continuation,
+		})
+		completed <- err
+	}()
+	<-accepted
+
+	if _, err := service.ConfigureConnection(t.Context(), &authpb.ConfigureConnectionRequest{
+		Change: &authpb.ConfigureConnectionRequest_RemoveConnectionId{RemoveConnectionId: "work"},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	releaseExchange()
+	if err := <-completed; err == nil {
+		t.Fatal("late sign-in succeeded after its selected connection was removed")
+	}
+
+	state, err := manager.Load(t.Context())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !reflect.DeepEqual(state, auth.State{Connections: map[config.ConnectionID]auth.OAuthMethod{
+		"personal": initial.Connections["personal"],
+	}}) {
+		t.Fatalf("OAuth records after late sign-in = %+v", state)
+	}
+	app, err := config.LoadGlobal(config.LoadOptions{ConfigRoot: service.connections.root})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, present := app.Settings.Connections["work"]; present {
+		t.Fatal("late sign-in restored the removed definition")
 	}
 }

@@ -55,8 +55,8 @@ func TestStandaloneNullKeyboardRuneDoesNotBlockSlashCommand(t *testing.T) {
 			if inputAfterNull != "" {
 				t.Errorf("composer input after standalone NUL = %q, want empty", inputAfterNull)
 			}
-			if updated.exitAction != UIActionLogout {
-				t.Errorf("slash command action = %q, want %q", updated.exitAction, UIActionLogout)
+			if !updated.connectionRemoval.isOpen() || updated.surface() != uiSurfaceConnectionRemoval {
+				t.Errorf("slash command did not open connection removal: open=%t surface=%q", updated.connectionRemoval.isOpen(), updated.surface())
 			}
 			if updated.isBusy() {
 				t.Error("standalone NUL caused the slash command to submit as a prompt")
@@ -151,16 +151,14 @@ func TestSlashCommandPickerShowsResumeWhenCurrentSessionIsOnlyKnownSession(t *te
 	}
 }
 
-func TestSlashCommandPickerProjectsAuthCommand(t *testing.T) {
+func TestSlashCommandPickerShowsAuthCommandsForEveryMethod(t *testing.T) {
 	cases := []struct {
-		name    string
-		method  authpb.AuthMethod
-		visible string
-		hidden  string
+		name   string
+		method authpb.AuthMethod
 	}{
-		{name: "no auth", method: authpb.AuthMethod_AUTH_METHOD_NONE, visible: "login", hidden: "logout"},
-		{name: "api key", method: authpb.AuthMethod_AUTH_METHOD_API_KEY, visible: "login", hidden: "logout"},
-		{name: "oauth", method: authpb.AuthMethod_AUTH_METHOD_OAUTH, visible: "logout", hidden: "login"},
+		{name: "no auth", method: authpb.AuthMethod_AUTH_METHOD_NONE},
+		{name: "api key", method: authpb.AuthMethod_AUTH_METHOD_API_KEY},
+		{name: "oauth", method: authpb.AuthMethod_AUTH_METHOD_OAUTH},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -172,10 +170,7 @@ func TestSlashCommandPickerProjectsAuthCommand(t *testing.T) {
 			refreshSlashCommandFilterForTest(t, m)
 
 			state := m.slashCommandPicker()
-			if !slashPickerContainsCommand(state, tc.visible) {
-				t.Fatalf("expected /%s in slash picker, got %+v", tc.visible, slashPickerCommandNames(state))
-			}
-			if !slashPickerContainsCommand(state, tc.hidden) || slashPickerContainsCommand(state, "fast") {
+			if !slashPickerContainsCommand(state, "login") || !slashPickerContainsCommand(state, "logout") || slashPickerContainsCommand(state, "fast") {
 				t.Fatalf("unexpected gated command in slash picker: %+v", slashPickerCommandNames(state))
 			}
 		})
@@ -192,7 +187,9 @@ func TestBothAuthSlashCommandsExecute(t *testing.T) {
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			m := newProjectedStaticUIModel()
+			m := newProjectedStaticUIModel(WithUIConnectionManagementClient(
+				pickerConnectionCatalogClient{catalog: &authpb.ConnectionCatalog{}},
+			))
 			testSetMainInput(m, tc.input)
 
 			next, cmd := m.Update(tea.KeyMsg{Type: tea.KeyEnter})
@@ -200,8 +197,11 @@ func TestBothAuthSlashCommandsExecute(t *testing.T) {
 			if cmd == nil {
 				t.Fatalf("expected %s to execute", tc.input)
 			}
-			if updated.exitAction != UIActionLogout {
-				t.Fatalf("expected %s to execute logout/login transition, got %q", tc.input, updated.exitAction)
+			if tc.input == "/login" && updated.exitAction != UIActionLogout {
+				t.Fatalf("expected /login to keep its existing connection-management transition, got %q", updated.exitAction)
+			}
+			if tc.input == "/logout" && (!updated.connectionRemoval.isOpen() || updated.surface() != uiSurfaceConnectionRemoval) {
+				t.Fatalf("expected /logout to open the in-session removal flow, open=%t surface=%q", updated.connectionRemoval.isOpen(), updated.surface())
 			}
 		})
 	}

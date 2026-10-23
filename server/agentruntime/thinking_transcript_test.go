@@ -16,6 +16,7 @@ import (
 )
 
 func TestWorkflowThinkingTranscriptAfterCompaction(t *testing.T) {
+	t.Parallel()
 	for _, mode := range []string{"native", "local"} {
 		t.Run(mode, func(t *testing.T) {
 			completion := func(id string) llm.Response {

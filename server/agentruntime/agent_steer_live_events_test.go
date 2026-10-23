@@ -9,6 +9,7 @@ import (
 )
 
 func TestAgentSteerLiveEventsProjectTheCommittedMessage(t *testing.T) {
+	t.Parallel()
 	t.Run("direct submission", func(t *testing.T) {
 		var events []Event
 		eng := mustNewTestEngine(t, mustCreateTestSession(t), &fakeClient{responses: []llm.Response{finalTextResponse("done")}}, tools.NewRegistry(), Config{

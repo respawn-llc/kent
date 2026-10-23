@@ -630,7 +630,7 @@ func (e *Engine) queueUserInput(
 	if err := input.Validate(); err != nil {
 		return QueuedUserMessage{}, err
 	}
-	return e.queueMessage(ctx, input.ID, llm.Message{Role: llm.RoleUser, Content: textutil.Value(input.ExecutionText)}, input.CanonicalPresentation, forceAutoDrain, autoStart, accept)
+	return e.queueMessage(ctx, input.ID, llm.Message{Role: llm.RoleUser, Content: textutil.Value(input.ExecutionText)}, input.CanonicalPresentation, textutil.Value(input.ExecutionText), forceAutoDrain, autoStart, accept)
 }
 
 func (e *Engine) QueueAgentSteer(ctx context.Context, steer AgentSteer, accept CommandAcceptance) (QueuedUserMessage, error) {
@@ -638,10 +638,10 @@ func (e *Engine) QueueAgentSteer(ctx context.Context, steer AgentSteer, accept C
 	if message.Content == nil {
 		return QueuedUserMessage{}, errInvalidQueuedUserMessage
 	}
-	return e.queueMessage(ctx, runtimeids.NewQueueItemID().String(), message, *message.Content, true, true, accept)
+	return e.queueMessage(ctx, runtimeids.NewQueueItemID().String(), message, *message.Content, steer.initialPrompt, true, true, accept)
 }
 
-func (e *Engine) queueMessage(ctx context.Context, id string, message llm.Message, presentation string, forceAutoDrain, autoStart bool, accept CommandAcceptance) (QueuedUserMessage, error) {
+func (e *Engine) queueMessage(ctx context.Context, id string, message llm.Message, presentation string, namingTask *string, forceAutoDrain, autoStart bool, accept CommandAcceptance) (QueuedUserMessage, error) {
 	if _, err := runtimeids.ParseCanonicalUUIDv4(id, "queue_item_id"); err != nil {
 		return QueuedUserMessage{}, err
 	}
@@ -653,10 +653,10 @@ func (e *Engine) queueMessage(ctx context.Context, id string, message llm.Messag
 			return QueuedUserMessage{}, err
 		}
 	}
-	return e.queueMessageRaw(id, message, presentation, forceAutoDrain, autoStart, accept)
+	return e.queueMessageRaw(id, message, presentation, namingTask, forceAutoDrain, autoStart, accept)
 }
 
-func (e *Engine) queueMessageRaw(id string, message llm.Message, presentation string, forceAutoDrain, autoStart bool, accept CommandAcceptance) (QueuedUserMessage, error) {
+func (e *Engine) queueMessageRaw(id string, message llm.Message, presentation string, namingTask *string, forceAutoDrain, autoStart bool, accept CommandAcceptance) (QueuedUserMessage, error) {
 	e.ensureOrchestrationCollaborators()
 	if err := e.requirePendingWorkCapacity(); err != nil {
 		return QueuedUserMessage{}, err
@@ -688,7 +688,7 @@ func (e *Engine) queueMessageRaw(id string, message llm.Message, presentation st
 				return false, nil
 			}
 			livePublication = true
-			queuedItem, queueErr := e.acceptPendingMessage(liveItem, lane, autoStart)
+			queuedItem, queueErr := e.acceptPendingMessage(liveItem, lane, namingTask, autoStart)
 			if queueErr == nil {
 				item = queuedItem
 			}
@@ -732,7 +732,7 @@ func (e *Engine) queueMessageRaw(id string, message llm.Message, presentation st
 	var item QueuedUserMessage
 	committed, err := runCommandAcceptance(accept, func() (bool, error) {
 		var queueErr error
-		item, queueErr = e.acceptPendingMessage(liveItem, lane, autoStart)
+		item, queueErr = e.acceptPendingMessage(liveItem, lane, namingTask, autoStart)
 		return queueErr == nil, queueErr
 	})
 	if err := commandAcceptanceResult(committed, err); err != nil {
@@ -744,7 +744,7 @@ func (e *Engine) queueMessageRaw(id string, message llm.Message, presentation st
 	return item, nil
 }
 
-func (e *Engine) acceptPendingMessage(item QueuedUserMessage, lane runtimeinput.PendingWorkLane, autoStart bool) (QueuedUserMessage, error) {
+func (e *Engine) acceptPendingMessage(item QueuedUserMessage, lane runtimeinput.PendingWorkLane, namingTask *string, autoStart bool) (QueuedUserMessage, error) {
 	e.lifecycleMu.Lock()
 	if e.closed.Load() || e.lifecycleClosed {
 		e.lifecycleMu.Unlock()
@@ -778,9 +778,8 @@ func (e *Engine) acceptPendingMessage(item QueuedUserMessage, lane runtimeinput.
 	queued.Disposition = disposition
 	e.lifecycleMu.Unlock()
 	if err == nil {
-		if queued.Message.Content != nil && (queued.Message.Role == llm.RoleUser ||
-			queued.Message.MessageType != nil && *queued.Message.MessageType == llm.MessageTypeAgentSteer) {
-			e.captureSessionNamingRaw(*queued.Message.Content)
+		if namingTask != nil {
+			e.captureSessionNamingRaw(*namingTask)
 		}
 		if association.steerAdmission != nil {
 			e.markSupervisorSteerRaw(queued.Message)
@@ -894,7 +893,7 @@ func (e *Engine) SubmitAgentSteerWithHooks(ctx context.Context, steer AgentSteer
 				return err
 			}
 		}
-		item, err := e.queueMessage(stepCtx, runtimeids.NewQueueItemID().String(), message, *message.Content, true, false, nil)
+		item, err := e.queueMessage(stepCtx, runtimeids.NewQueueItemID().String(), message, *message.Content, steer.initialPrompt, true, false, nil)
 		if err != nil {
 			return err
 		}

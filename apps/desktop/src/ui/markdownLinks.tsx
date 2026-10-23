@@ -1,9 +1,11 @@
-import type { ReactNode } from "react";
-import { MarkdownLinkContext } from "./MarkdownLinkContext";
+import { useMemo, type ReactNode } from "react";
+import { MarkdownLinkContext, type MarkdownLinkActions } from "./MarkdownLinkContext";
 
 export function MarkdownLinkProvider({
   children,
   openExternal,
-}: Readonly<{ children: ReactNode; openExternal(url: string): void }>) {
-  return <MarkdownLinkContext.Provider value={openExternal}>{children}</MarkdownLinkContext.Provider>;
+  openFile,
+}: MarkdownLinkActions & Readonly<{ children: ReactNode }>) {
+  const actions = useMemo(() => ({ openExternal, openFile }), [openExternal, openFile]);
+  return <MarkdownLinkContext.Provider value={actions}>{children}</MarkdownLinkContext.Provider>;
 }

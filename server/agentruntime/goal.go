@@ -605,6 +605,7 @@ func (e *Engine) surfaceRunErrorWith(
 	}
 	if err == nil ||
 		errors.Is(err, context.Canceled) ||
+		errors.Is(err, errPendingOperationalWorkRemoved) ||
 		errors.Is(err, ErrAgentBusy) ||
 		errors.Is(err, errGoalLoopInactive) ||
 		errors.Is(err, ErrEngineClosed) {

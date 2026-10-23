@@ -16,6 +16,7 @@ import (
 )
 
 func TestFreshModelRequestIncludesProjectWorkspacesContext(t *testing.T) {
+	t.Parallel()
 	metadataStore, store, attached := newWorkspaceReminderSession(t, 2)
 	worktreeRoot := t.TempDir()
 	mustSetWorktreeReminderState(t, store, testWorktreeReminderState(
@@ -80,6 +81,7 @@ func TestFreshModelRequestIncludesProjectWorkspacesContext(t *testing.T) {
 }
 
 func TestFreshModelRequestOmitsProjectWorkspacesContextForSingleWorkspace(t *testing.T) {
+	t.Parallel()
 	metadataStore, store, _ := newWorkspaceReminderSession(t, 1)
 	client := &fakeClient{responses: []llm.Response{finalOutputItemResponse("ready")}}
 	engine := mustNewTestEngine(
@@ -98,6 +100,7 @@ func TestFreshModelRequestOmitsProjectWorkspacesContextForSingleWorkspace(t *tes
 }
 
 func TestProjectWorkspaceContextOmitsUnavailableFirstFiveWithoutBackfill(t *testing.T) {
+	t.Parallel()
 	metadataStore, store, _ := newWorkspaceReminderSession(t, 6)
 	projectID, err := metadataStore.ResolveSessionProjectID(t.Context(), store.Meta().SessionID)
 	if err != nil {
@@ -150,6 +153,7 @@ func TestProjectWorkspaceContextOmitsUnavailableFirstFiveWithoutBackfill(t *test
 }
 
 func TestProjectWorkspacesReadFailurePreventsModelDispatch(t *testing.T) {
+	t.Parallel()
 	metadataStore, store, _ := newWorkspaceReminderSession(t, 2)
 	if err := metadataStore.Close(); err != nil {
 		t.Fatalf("close metadata store to exercise read failure: %v", err)
@@ -173,6 +177,7 @@ func TestProjectWorkspacesReadFailurePreventsModelDispatch(t *testing.T) {
 }
 
 func TestFreshPostCompactionRequestIncludesProjectWorkspacesContext(t *testing.T) {
+	t.Parallel()
 	metadataStore, store, _ := newWorkspaceReminderSession(t, 2)
 	client := &fakeCompactionClient{
 		responses: []llm.Response{
@@ -215,6 +220,7 @@ func TestFreshPostCompactionRequestIncludesProjectWorkspacesContext(t *testing.T
 }
 
 func TestProjectWorkspacesContextIsReusedForProviderRetry(t *testing.T) {
+	t.Parallel()
 	metadataStore, store, _ := newWorkspaceReminderSession(t, 2)
 	client := &fakeCompactionClient{
 		errors:    []error{errors.New("temporary provider failure")},
@@ -247,6 +253,7 @@ func TestProjectWorkspacesContextIsReusedForProviderRetry(t *testing.T) {
 }
 
 func TestReopenedSessionReusesProjectWorkspacesContext(t *testing.T) {
+	t.Parallel()
 	metadataStore, store, _ := newWorkspaceReminderSession(t, 2)
 	firstClient := &fakeClient{responses: []llm.Response{finalOutputItemResponse("ready")}}
 	engine := mustNewTestEngine(
@@ -289,6 +296,7 @@ func TestReopenedSessionReusesProjectWorkspacesContext(t *testing.T) {
 }
 
 func TestFreshDormantWorkflowAssignmentFailsBeforeContextCommitWhenWorkspaceReadFails(t *testing.T) {
+	t.Parallel()
 	metadataStore, store, _ := newWorkspaceReminderSession(t, 2)
 	if err := metadataStore.Close(); err != nil {
 		t.Fatalf("close metadata store to exercise read failure: %v", err)

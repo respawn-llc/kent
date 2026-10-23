@@ -222,7 +222,6 @@ func importUnavailableDetailsToProto(details serverapi.OnboardingImportUnavailab
 	return &onboardingpb.ImportUnavailableDetails{
 		ImportKind:       kind,
 		Mode:             mode,
-		ProviderUuid:     uuidToString(details.ProviderUUID),
 		ImportProviderId: cloneBootstrapErrorPointer(details.ImportProviderID),
 		SourceRootPath:   cloneBootstrapErrorPointer(details.SourceRootPath),
 		Reason:           reason,
@@ -242,14 +241,9 @@ func importUnavailableDetailsFromProto(details *onboardingpb.ImportUnavailableDe
 	if err != nil {
 		return serverapi.OnboardingImportUnavailableDetails{}, err
 	}
-	provider, err := uuidFromString(details.ProviderUuid)
-	if err != nil {
-		return serverapi.OnboardingImportUnavailableDetails{}, err
-	}
 	return serverapi.OnboardingImportUnavailableDetails{
 		ImportKind:       kind,
 		Mode:             mode,
-		ProviderUUID:     provider,
 		ImportProviderID: cloneBootstrapErrorPointer(details.ImportProviderId),
 		SourceRootPath:   cloneBootstrapErrorPointer(details.SourceRootPath),
 		ReasonCode:       reason,
@@ -271,7 +265,6 @@ func importFailedDetailsToProto(details serverapi.OnboardingImportFailedDetails)
 	}
 	return &onboardingpb.ImportFailedDetails{
 		ImportKind:       kind,
-		ProviderUuid:     uuidToString(details.ProviderUUID),
 		ImportProviderId: cloneBootstrapErrorPointer(details.ImportProviderID),
 		SourceRootPath:   cloneBootstrapErrorPointer(details.SourceRootPath),
 		Operation:        operation,
@@ -292,13 +285,8 @@ func importFailedDetailsFromProto(details *onboardingpb.ImportFailedDetails) (se
 	if err != nil {
 		return serverapi.OnboardingImportFailedDetails{}, err
 	}
-	provider, err := uuidFromString(details.ProviderUuid)
-	if err != nil {
-		return serverapi.OnboardingImportFailedDetails{}, err
-	}
 	return serverapi.OnboardingImportFailedDetails{
 		ImportKind:       kind,
-		ProviderUUID:     provider,
 		ImportProviderID: cloneBootstrapErrorPointer(details.ImportProviderId),
 		SourceRootPath:   cloneBootstrapErrorPointer(details.SourceRootPath),
 		Operation:        operation,

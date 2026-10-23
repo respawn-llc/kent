@@ -106,6 +106,13 @@ func ensureSettingsDir(path string) error {
 }
 
 func writeSettingsFileIfMissing(path string, contents string) (bool, error) {
+	exists, err := settingsFileExists(path)
+	if err != nil {
+		return false, err
+	}
+	if exists {
+		return false, nil
+	}
 	return installSettingsFile(path, contents, false)
 }
 

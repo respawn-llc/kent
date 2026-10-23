@@ -895,6 +895,7 @@ func TestGenerateWithRetryClient_CompactionPreservesMetadataChangeEvidence(t *te
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
 			schema, err := jsoncontract.NewPreparer(true).Structured("cache test", struct {
 				Completed bool `json:"completed"`
 			}{})

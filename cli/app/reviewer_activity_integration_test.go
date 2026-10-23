@@ -106,17 +106,23 @@ func TestReviewerActivityPublishesInvocationAndTerminalStateToTUI(t *testing.T) 
 				subscription, runtimepb.ReviewerActivity_REVIEWER_ACTIVITY_INACTIVE)
 
 			submitDone := make(chan error, 1)
+			submitFailed := make(chan error, 1)
 			go func() {
 				answer, submitErr := engine.SubmitUserMessage(context.Background(), "review this")
 				if submitErr == nil && (answer.Content == nil || *answer.Content != "main answer") {
 					submitErr = errors.New("main answer was not returned")
 				}
 				submitDone <- submitErr
+				if submitErr != nil {
+					submitFailed <- submitErr
+				}
 			}()
 			select {
 			case <-reviewer.started:
-			case <-time.After(3 * time.Second):
-				t.Fatal("Reviewer did not start")
+			case err := <-submitFailed:
+				t.Fatalf("start Reviewer: %v", err)
+			case <-t.Context().Done():
+				t.Fatalf("wait for Reviewer: %v", context.Cause(t.Context()))
 			}
 			applyReviewerActivityUntil(
 				t,

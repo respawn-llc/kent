@@ -12,6 +12,7 @@ import (
 )
 
 func TestThinkingInputCommitFailureBoundaries(t *testing.T) {
+	t.Parallel()
 	for _, queued := range []bool{false, true} {
 		for _, providerFailure := range []bool{false, true} {
 			name := "direct"
@@ -113,6 +114,7 @@ func TestThinkingInputCommitFailureBoundaries(t *testing.T) {
 }
 
 func TestStopAfterInputCommitPreservesSubmittedInput(t *testing.T) {
+	t.Parallel()
 	started, release := make(chan struct{}), make(chan struct{})
 	client := &hookClient{response: finalOutputItemResponse("done"), beforeReturn: func() error {
 		close(started)

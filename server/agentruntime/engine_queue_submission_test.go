@@ -16,10 +16,12 @@ import (
 )
 
 func TestPostTurnQueueDeliversOneItemPerTurnWhileSteersBatch(t *testing.T) {
+	t.Parallel()
 	testPostTurnQueueDeliversOneItemPerTurn(t, false)
 }
 
 func TestPostTurnQueueDoesNotConsumeAnotherItemOnProviderRetry(t *testing.T) {
+	t.Parallel()
 	testPostTurnQueueDeliversOneItemPerTurn(t, true)
 }
 
@@ -130,6 +132,7 @@ func testPostTurnQueueDeliversOneItemPerTurn(t *testing.T, retryQueuedRequest bo
 }
 
 func TestStopRestoresSteerAndPostTurnQueueWithoutContinuation(t *testing.T) {
+	t.Parallel()
 	client := newBlockingThenQueuedClient()
 	var mu sync.Mutex
 	var restored []InterruptedHumanInput
@@ -185,6 +188,7 @@ func TestStopRestoresSteerAndPostTurnQueueWithoutContinuation(t *testing.T) {
 }
 
 func TestPostTurnQueueStartsAfterActiveTurnCompletes(t *testing.T) {
+	t.Parallel()
 	client := &fakeClient{responses: []llm.Response{{Assistant: llm.Message{Role: llm.RoleAssistant, Content: textutil.Value("queued work handled"), Phase: textutil.Value(llm.MessagePhaseFinal)}}}}
 	engine := mustNewTestEngine(t, mustCreateTestSession(t), client, tools.NewRegistry(), Config{Model: "gpt-6-sol"})
 	started := make(chan struct{})
@@ -246,6 +250,7 @@ func TestPostTurnQueueStartsAfterActiveTurnCompletes(t *testing.T) {
 }
 
 func TestPostTurnQueueStartsImmediatelyWhenRuntimeIsIdle(t *testing.T) {
+	t.Parallel()
 	client := &fakeClient{responses: []llm.Response{{
 		Assistant: llm.Message{
 			Role:    llm.RoleAssistant,
@@ -272,6 +277,7 @@ func TestPostTurnQueueStartsImmediatelyWhenRuntimeIsIdle(t *testing.T) {
 }
 
 func TestPostTurnQueueDoesNotHoldCompletedLiveRun(t *testing.T) {
+	t.Parallel()
 	for _, test := range []struct {
 		name      string
 		autoStart bool
@@ -330,6 +336,7 @@ func TestPostTurnQueueDoesNotHoldCompletedLiveRun(t *testing.T) {
 }
 
 func TestQueuedUserMessageCallerCancellationStopsWaitAndPreventsLaterAcceptance(t *testing.T) {
+	t.Parallel()
 	engine := mustNewExecTestEngine(t, mustCreateTestSession(t), &fakeClient{}, Config{Model: "gpt-6-sol"})
 	caller, cancel := context.WithCancel(t.Context())
 	defer cancel()
@@ -361,6 +368,7 @@ func TestQueuedUserMessageCallerCancellationStopsWaitAndPreventsLaterAcceptance(
 }
 
 func TestConcurrentQueueRemovalDoesNotKeepLaterSendRunning(t *testing.T) {
+	t.Parallel()
 	for _, fail := range []bool{false, true} {
 		t.Run(fmt.Sprintf("fail=%t", fail), func(t *testing.T) {
 			client, started, release := newGatedHookClient(finalTextResponse("initial"), finalTextResponse("later"))

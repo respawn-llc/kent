@@ -33,30 +33,48 @@ func TestSessionConnectionResumeBindingAndReplacement(t *testing.T) {
 	selected := config.ConnectionID("work")
 	settings := config.DefaultOnboardingSettings()
 	settings.Connection = config.SingleConnection(selected)
+	settings.ConnectionOrder = []config.ConnectionID{"work", "local"}
 	settings.Connections = map[config.ConnectionID]config.ProviderConnection{
 		"work":  {Protocol: config.ConnectionChatGPT},
 		"local": {Protocol: config.ConnectionResponses, Endpoint: textutil.Value("http://localhost:1234")},
 	}
-	projected, notice, err := ResolveSessionConnection(settings, nil)
+	source := config.SourceReport{Sources: map[string]config.Origin{
+		"connection": {Kind: config.SourceInput, Property: config.PropertyAddress{Key: "connection"}},
+	}}
+	scope := config.ConnectionScope{Selection: settings.Connection}
+	projected, notice, err := ResolveSessionConnection(settings, source, scope, nil)
 	if err != nil || projected != "work" || notice != nil || store.Meta().ConnectionID != nil {
 		t.Fatalf("unbound read projection = %v, %v, %v", projected, notice, err)
 	}
-	if _, err := BindSessionConnection(store, &settings, nil); err != nil {
+	if _, err := BindSessionConnection(store, &settings, source.Sources, scope); err != nil {
 		t.Fatal(err)
 	}
 	selected = "local"
 	settings.Connection = config.SingleConnection(selected)
-	id, notice, err := ResolveSessionConnection(settings, store.Meta().ConnectionID)
+	scope.Selection = settings.Connection
+	id, notice, err := ResolveSessionConnection(settings, source, scope, store.Meta().ConnectionID)
 	if err != nil || id != "work" || notice != nil {
 		t.Fatalf("resume followed changed default: %v, %v, %v", id, notice, err)
 	}
 	delete(settings.Connections, "work")
-	notice, err = BindSessionConnection(store, &settings, nil)
+	notice, err = BindSessionConnection(store, &settings, source.Sources, scope)
 	if err != nil || notice == nil || notice.Previous != "work" || notice.Current != "local" || *store.Meta().ConnectionID != "local" {
 		t.Fatalf("replacement = %+v, %v", notice, err)
 	}
+	if err := store.SetConnectionID("work"); err != nil {
+		t.Fatal(err)
+	}
+	settings.Connection = config.SingleConnection("work")
+	scope.Selection = settings.Connection
+	notice, err = BindSessionConnection(store, &settings, source.Sources, scope)
+	if err != nil || notice == nil || notice.Previous != "work" || notice.Current != "local" || *store.Meta().ConnectionID != "local" {
+		t.Fatalf("replacement from removed default = %+v, %v", notice, err)
+	}
+	if !reflect.DeepEqual(scope.Selection, config.SingleConnection("work")) {
+		t.Fatalf("removed default selector changed to %v", scope.Selection)
+	}
 	delete(settings.Connections, "local")
-	if _, err := BindSessionConnection(store, &settings, nil); err == nil || *store.Meta().ConnectionID != "local" {
+	if _, err := BindSessionConnection(store, &settings, source.Sources, scope); err == nil || *store.Meta().ConnectionID != "local" {
 		t.Fatal("missing replacement must fail without changing the binding")
 	}
 }

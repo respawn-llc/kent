@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 
-	"core/prompts"
 	"core/server/llm"
 	"core/server/sessionstore"
 	"core/server/tools"
@@ -21,8 +20,8 @@ import (
 )
 
 func TestInjectsGlobalAndWorkspaceAgentsBeforeFirstUserMessage(t *testing.T) {
+	t.Parallel()
 	home := t.TempDir()
-	t.Setenv("HOME", home)
 
 	globalDir := filepath.Join(home, brand.ConfigDirName)
 	if err := os.MkdirAll(globalDir, 0o755); err != nil {
@@ -52,7 +51,7 @@ func TestInjectsGlobalAndWorkspaceAgentsBeforeFirstUserMessage(t *testing.T) {
 			Usage:     llm.Usage{WindowTokens: 200000},
 		},
 	}}
-	eng := mustNewTestEngine(t, store, client, newTestToolRegistry(t, tools.HandlerRegistration{ID: toolspec.ToolExecCommand, Handler: fakeTool{name: toolspec.ToolExecCommand}}), Config{Model: "gpt-6-sol"})
+	eng := mustNewTestEngine(t, store, client, newTestToolRegistry(t, tools.HandlerRegistration{ID: toolspec.ToolExecCommand, Handler: fakeTool{name: toolspec.ToolExecCommand}}), Config{Model: "gpt-6-sol", GlobalConfigDir: globalDir})
 
 	if _, err := eng.SubmitUserMessage(context.Background(), "first"); err != nil {
 		t.Fatalf("first submit: %v", err)
@@ -103,8 +102,8 @@ func TestInjectsGlobalAndWorkspaceAgentsBeforeFirstUserMessage(t *testing.T) {
 }
 
 func TestFreshChildSessionReinjectsDeveloperContextEvenWhenParentAlreadyInjected(t *testing.T) {
+	t.Parallel()
 	home := t.TempDir()
-	t.Setenv("HOME", home)
 
 	globalDir := filepath.Join(home, brand.ConfigDirName)
 	if err := os.MkdirAll(globalDir, 0o755); err != nil {
@@ -142,7 +141,7 @@ func TestFreshChildSessionReinjectsDeveloperContextEvenWhenParentAlreadyInjected
 		Assistant: llm.Message{Role: llm.RoleAssistant, Content: textutil.Value("ok")},
 		Usage:     llm.Usage{WindowTokens: 200000},
 	}}}
-	eng := mustNewTestEngine(t, child, client, newTestToolRegistry(t, tools.HandlerRegistration{ID: toolspec.ToolExecCommand, Handler: fakeTool{name: toolspec.ToolExecCommand}}), Config{Model: "gpt-6-sol"})
+	eng := mustNewTestEngine(t, child, client, newTestToolRegistry(t, tools.HandlerRegistration{ID: toolspec.ToolExecCommand, Handler: fakeTool{name: toolspec.ToolExecCommand}}), Config{Model: "gpt-6-sol", GlobalConfigDir: globalDir})
 	if _, err := eng.SubmitUserMessage(context.Background(), "first child turn"); err != nil {
 		t.Fatalf("submit: %v", err)
 	}
@@ -172,8 +171,8 @@ func TestFreshChildSessionReinjectsDeveloperContextEvenWhenParentAlreadyInjected
 }
 
 func TestInjectsSkillsContextBeforeEnvironmentAndPersists(t *testing.T) {
+	t.Parallel()
 	home := t.TempDir()
-	t.Setenv("HOME", home)
 
 	workspace := t.TempDir()
 	writeTestSkill(t, filepath.Join(home, brand.ConfigDirName, "skills", "home-skill"), "home-skill", "from home")
@@ -186,7 +185,7 @@ func TestInjectsSkillsContextBeforeEnvironmentAndPersists(t *testing.T) {
 		{Assistant: llm.Message{Role: llm.RoleAssistant, Content: textutil.Value("ok-1")}, Usage: llm.Usage{WindowTokens: 200000}},
 		{Assistant: llm.Message{Role: llm.RoleAssistant, Content: textutil.Value("ok-2")}, Usage: llm.Usage{WindowTokens: 200000}},
 	}}
-	eng := mustNewTestEngine(t, store, client, newTestToolRegistry(t, tools.HandlerRegistration{ID: toolspec.ToolExecCommand, Handler: fakeTool{name: toolspec.ToolExecCommand}}), Config{Model: "gpt-6-sol"})
+	eng := mustNewTestEngine(t, store, client, newTestToolRegistry(t, tools.HandlerRegistration{ID: toolspec.ToolExecCommand, Handler: fakeTool{name: toolspec.ToolExecCommand}}), Config{Model: "gpt-6-sol", GlobalConfigDir: filepath.Join(home, brand.ConfigDirName)})
 
 	if _, err := eng.SubmitUserMessage(context.Background(), "first"); err != nil {
 		t.Fatalf("first submit: %v", err)
@@ -239,8 +238,8 @@ func TestInjectsSkillsContextBeforeEnvironmentAndPersists(t *testing.T) {
 }
 
 func TestDisabledSkillsAreNotInjectedIntoNewSessions(t *testing.T) {
+	t.Parallel()
 	home := t.TempDir()
-	t.Setenv("HOME", home)
 
 	workspace := t.TempDir()
 	const enabledSkillName = "home-skill"
@@ -252,8 +251,9 @@ func TestDisabledSkillsAreNotInjectedIntoNewSessions(t *testing.T) {
 
 	client := &fakeClient{responses: []llm.Response{{Assistant: llm.Message{Role: llm.RoleAssistant, Content: textutil.Value("ok")}, Usage: llm.Usage{WindowTokens: 200000}}}}
 	eng := mustNewTestEngine(t, store, client, newTestToolRegistry(t, tools.HandlerRegistration{ID: toolspec.ToolExecCommand, Handler: fakeTool{name: toolspec.ToolExecCommand}}), Config{
-		Model:       "gpt-6-sol",
-		SkillPolicy: skillPolicyWithDisabled("workspace skill"),
+		Model:           "gpt-6-sol",
+		SkillPolicy:     skillPolicyWithDisabled("workspace skill"),
+		GlobalConfigDir: filepath.Join(home, brand.ConfigDirName),
 	})
 
 	if _, err := eng.SubmitUserMessage(context.Background(), "first"); err != nil {
@@ -279,8 +279,7 @@ func TestDisabledSkillsAreNotInjectedIntoNewSessions(t *testing.T) {
 }
 
 func TestBrokenSymlinkedSkillsAreSkippedAndWarnedInTranscript(t *testing.T) {
-	home := t.TempDir()
-	t.Setenv("HOME", home)
+	t.Parallel()
 
 	workspace := t.TempDir()
 	brokenLinkPath := filepath.Join(workspace, brand.ConfigDirName, "skills", "broken-skill")
@@ -378,8 +377,7 @@ func TestNewRejectsEmptyModel(t *testing.T) {
 }
 
 func TestSubmitInjectsEnvironmentLineWithLabeledModelIdentifier(t *testing.T) {
-	home := t.TempDir()
-	t.Setenv("HOME", home)
+	t.Parallel()
 
 	workspace := t.TempDir()
 	store := mustCreateNamedTestSessionAt(t, t.TempDir(), "ws", workspace)
@@ -476,14 +474,7 @@ func TestManualCompactionReinjectsOnlyActiveHeadlessState(t *testing.T) {
 }
 
 func TestSubmitUserMessagePersistsHeadlessModeTransitions(t *testing.T) {
-	prevHeadlessPrompt := prompts.HeadlessModePrompt
-	prevExitPrompt := prompts.HeadlessModeExitPrompt
-	prompts.HeadlessModePrompt = "headless mode instructions"
-	prompts.HeadlessModeExitPrompt = "interactive mode instructions"
-	defer func() {
-		prompts.HeadlessModePrompt = prevHeadlessPrompt
-		prompts.HeadlessModeExitPrompt = prevExitPrompt
-	}()
+	t.Parallel()
 
 	runTransition := func(t *testing.T, store *session.Store, name string, headless bool, messageTypes []llm.MessageType) {
 		t.Helper()

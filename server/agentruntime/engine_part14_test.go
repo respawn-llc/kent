@@ -125,8 +125,8 @@ func TestManualCompactionPreservesLastVisibleUserMessage(t *testing.T) {
 }
 
 func TestManualLocalCompactionRebuildsCanonicalContextOrder(t *testing.T) {
+	t.Parallel()
 	home := t.TempDir()
-	t.Setenv("HOME", home)
 	globalDir := filepath.Join(home, agentsGlobalDirName)
 	if err := os.MkdirAll(globalDir, 0o755); err != nil {
 		t.Fatalf("mkdir global agents dir: %v", err)
@@ -148,7 +148,7 @@ func TestManualLocalCompactionRebuildsCanonicalContextOrder(t *testing.T) {
 		Assistant: llm.Message{Role: llm.RoleAssistant, Content: textutil.Value("condensed summary")},
 		Usage:     llm.Usage{InputTokens: textutil.Value(1000), OutputTokens: textutil.Value(100), WindowTokens: 200000, ContextUsage: &llm.ContextUsage{Tokens: 1000, MeasurementPoint: llm.ContextMeasurementInput}},
 	}}}
-	eng := mustNewTestEngine(t, store, client, newTestToolRegistry(t, tools.HandlerRegistration{ID: toolspec.ToolExecCommand, Handler: fakeTool{name: toolspec.ToolExecCommand}}), Config{Model: "gpt-6-sol", CompactionMode: "local"})
+	eng := mustNewTestEngine(t, store, client, newTestToolRegistry(t, tools.HandlerRegistration{ID: toolspec.ToolExecCommand, Handler: fakeTool{name: toolspec.ToolExecCommand}}), Config{Model: "gpt-6-sol", CompactionMode: "local", GlobalConfigDir: globalDir})
 	if err := eng.steerRuntime(steerMessagesWithPersistenceIntent(steeringPriorityNormal, steeringMessageEventDefault, true, []llm.Message{{Role: llm.RoleUser, Content: textutil.Value("please keep tests green")}})); err != nil {
 		t.Fatalf("append user message: %v", err)
 	}

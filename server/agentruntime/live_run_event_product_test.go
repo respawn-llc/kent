@@ -14,6 +14,7 @@ import (
 )
 
 func TestEnginePublishesLiveRunTerminalFactsThroughSubmitSeam(t *testing.T) {
+	t.Parallel()
 	t.Run("completed final answer", func(t *testing.T) {
 		store := mustCreateTestSession(t)
 		events := &liveRunEventCollector{}
@@ -35,8 +36,7 @@ func TestEnginePublishesLiveRunTerminalFactsThroughSubmitSeam(t *testing.T) {
 
 	t.Run("runtime failure", func(t *testing.T) {
 		store := mustCreateTestSession(t)
-		withGenerateRetryDelays(t, nil)
-		failure := errors.New("provider failed")
+		failure := errors.Join(llm.ErrInvalidRequest, errors.New("provider failed"))
 		events := &liveRunEventCollector{}
 		eng := mustNewTestEngine(t, store, &fakeClient{errors: []error{failure}}, tools.NewRegistry(), Config{
 			Model:   "gpt-6-sol",

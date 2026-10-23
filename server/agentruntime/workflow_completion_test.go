@@ -590,6 +590,7 @@ func TestWorkflowRequiredToolChoiceRejectsNonResponsesAdapter(t *testing.T) {
 }
 
 func TestAcceptedLiveWorkflowSteeringKeepsConfiguredToolChoice(t *testing.T) {
+	t.Parallel()
 	for _, test := range []struct {
 		name                   string
 		useAutomaticToolChoice bool
@@ -1344,6 +1345,7 @@ func TestCompatibleProviderCommentaryContinuesWithoutCompletionSideEffects(t *te
 }
 
 func TestCompatibleProviderCommentaryFlushesAcceptedSteeringBeforeContinuing(t *testing.T) {
+	t.Parallel()
 	synctest.Test(t, func(t *testing.T) {
 		store := mustCreateTestSession(t)
 		controller := &fakeWorkflowController{}
@@ -1416,6 +1418,7 @@ func TestCompatibleProviderCommentaryFlushesAcceptedSteeringBeforeContinuing(t *
 }
 
 func TestWorkflowTerminalCompletionFailsQueuedSteeringAtRunRelease(t *testing.T) {
+	t.Parallel()
 	store := mustCreateTestSession(t)
 	controller := &fakeWorkflowController{}
 	started := make(chan struct{})

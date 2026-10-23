@@ -2,6 +2,7 @@ import { StrictMode } from "react";
 import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { describe, expect, it, vi } from "bun:test";
+import { Toaster as SonnerToaster } from "sonner";
 
 import { StaticMarkdown, StreamingMarkdown, TaskBodyMarkdown } from "./markdown";
 import { createTestServices, TestAppProviders } from "@/test-support/app-services";
@@ -16,6 +17,20 @@ function renderedText(view: ReturnType<typeof render>): string {
 
 function codeText(view: ReturnType<typeof render>): string[] {
   return Array.from(view.container.getElementsByTagName("code"), (element) => element.textContent);
+}
+
+function fileLinkServices() {
+  const base = createTestServices([]);
+  return {
+    ...base,
+    nativeBridge: {
+      ...base.nativeBridge,
+      capabilities: {
+        ...base.nativeBridge.capabilities,
+        files: { ...base.nativeBridge.capabilities.files, open: true },
+      },
+    },
+  };
 }
 
 describe("Markdown adapters", () => {
@@ -88,6 +103,141 @@ describe("Markdown adapters", () => {
     expect(screen.getByRole("link", { name: "safe" })).toBeInTheDocument();
     expect(screen.queryByRole("link", { name: "unsafe" })).not.toBeInTheDocument();
     expect(screen.queryByRole("link", { name: "data-unsafe" })).not.toBeInTheDocument();
+  });
+
+  it.each([
+    [StaticMarkdown, "/Users/nek/My Project/源.ts"],
+    [StreamingMarkdown, "/Users/nek/My%20Project/%E6%BA%90.ts"],
+    [StaticMarkdown, "file:///Users/nek/My%20Project/%E6%BA%90.ts"],
+    [StreamingMarkdown, "file:///Users/nek/My%20Project/%E6%BA%90.ts"],
+  ] as const)(
+    "opens absolute Markdown file links in the OS-default application",
+    async (Markdown, destination) => {
+      const user = userEvent.setup();
+      const services = fileLinkServices();
+      const open = vi.spyOn(services.nativeBridge.files, "openDefault").mockResolvedValue();
+      const external = vi.spyOn(services.nativeBridge.links, "openExternal").mockResolvedValue();
+      render(
+        <TestAppProviders services={services}>
+          <Markdown value={`[Source](<${destination}>)`} />
+        </TestAppProviders>,
+      );
+
+      await user.click(await screen.findByRole("link"));
+
+      expect(open).toHaveBeenCalledWith({ path: "/Users/nek/My Project/源.ts" });
+      expect(external).not.toHaveBeenCalled();
+    },
+  );
+
+  it("opens middle-clicked local file links in the OS-default application", async () => {
+    const user = userEvent.setup();
+    const services = fileLinkServices();
+    const open = vi.spyOn(services.nativeBridge.files, "openDefault").mockResolvedValue();
+    render(
+      <TestAppProviders services={services}>
+        <StaticMarkdown value="[Source](file:///Users/nek/source.ts)" />
+      </TestAppProviders>,
+    );
+
+    await user.pointer({ keys: "[MouseMiddle]", target: screen.getByRole("link") });
+
+    expect(open).toHaveBeenCalledTimes(1);
+    expect(open).toHaveBeenCalledWith({ path: "/Users/nek/source.ts" });
+  });
+
+  it.each([StaticMarkdown, StreamingMarkdown])(
+    "keeps local file destinations inert in the browser shell",
+    async (Markdown) => {
+      const services = createTestServices([]);
+      const open = vi.spyOn(services.nativeBridge.files, "openDefault");
+      render(
+        <TestAppProviders services={services}>
+          <Markdown value="[Path](/Users/nek/source.ts) [URI](file:///Users/nek/source.ts)" />
+        </TestAppProviders>,
+      );
+
+      expect(screen.queryByRole("link")).not.toBeInTheDocument();
+      expect(open).not.toHaveBeenCalled();
+    },
+  );
+
+  it("keeps unsafe, nonlocal and relative file destinations inert", () => {
+    const services = fileLinkServices();
+    render(
+      <TestAppProviders services={services}>
+        <StaticMarkdown
+          value={
+            "[Remote](file://example.com/source.ts) [Network](//example.com/source.ts) [Relative](source.ts) [Malformed](file:source.ts) [Unsafe](javascript:alert(1)) [Data](data:text/html,unsafe) [FTP](ftp://example.com/source.ts)"
+          }
+        />
+      </TestAppProviders>,
+    );
+
+    expect(screen.queryByRole("link")).not.toBeInTheDocument();
+  });
+
+  it("does not turn plain-text file paths into links", () => {
+    render(
+      <TestAppProviders services={fileLinkServices()}>
+        <StaticMarkdown value="/Users/nek/source.ts and file:///Users/nek/source.ts" />
+      </TestAppProviders>,
+    );
+
+    expect(screen.queryByRole("link")).not.toBeInTheDocument();
+  });
+
+  it("keeps unfinished streaming file links inert until the destination is complete", async () => {
+    const user = userEvent.setup();
+    const services = fileLinkServices();
+    const open = vi.spyOn(services.nativeBridge.files, "openDefault").mockResolvedValue();
+    const content = (value: string) => (
+      <TestAppProviders services={services}>
+        <StreamingMarkdown value={value} />
+      </TestAppProviders>
+    );
+    const view = render(content("[Source](file:///Users/nek/"));
+    expect(screen.queryByRole("link")).not.toBeInTheDocument();
+
+    view.rerender(content("[Source](file:///Users/nek/source.ts)"));
+    await user.click(await screen.findByRole("link"));
+
+    expect(open).toHaveBeenCalledTimes(1);
+    expect(open).toHaveBeenCalledWith({ path: "/Users/nek/source.ts" });
+  });
+
+  it("reports a failed local file opening through a visible notification", async () => {
+    const user = userEvent.setup();
+    const services = fileLinkServices();
+    const failure = new Error("The file no longer exists");
+    vi.spyOn(services.nativeBridge.files, "openDefault").mockRejectedValue(failure);
+    render(
+      <TestAppProviders services={services}>
+        <StaticMarkdown value="[Source](file:///Users/nek/source.ts)" />
+        <SonnerToaster />
+      </TestAppProviders>,
+    );
+
+    await user.click(screen.getByRole("link"));
+
+    expect(await screen.findByText(failure.message)).toBeInTheDocument();
+  });
+
+  it("does not allow local-file or executable image sources", () => {
+    render(
+      <TestAppProviders services={fileLinkServices()}>
+        <StaticMarkdown
+          value={
+            "![File](file:///Users/nek/image.png) ![Script](javascript:alert(1)) ![Data](data:image/svg+xml,unsafe) ![Safe](https://example.com/image.png)"
+          }
+        />
+      </TestAppProviders>,
+    );
+
+    for (const image of screen.getAllByRole("img")) {
+      const source = image.getAttribute("src");
+      expect(source === null || source === "https://example.com/image.png").toBe(true);
+    }
   });
 
   it.each([StaticMarkdown, StreamingMarkdown])(

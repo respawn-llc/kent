@@ -31,14 +31,17 @@ func (p *heldPromptPreparation) ReloadPromptFacingSnapshotConfig(context.Context
 }
 
 func TestInputRemainsPendingUntilPreparationCompletes(t *testing.T) {
+	t.Parallel()
 	testInputPreparationOutcome(t, false)
 }
 
 func TestStopBeforeInputCommitReleasesClaim(t *testing.T) {
+	t.Parallel()
 	testInputPreparationOutcome(t, true)
 }
 
 func TestBackgroundCompletionDuringPreparationFinishesWithinSubmission(t *testing.T) {
+	t.Parallel()
 	store := mustCreateTestSession(t)
 	seed := mustNewTestEngine(t, store, &fakeClient{responses: []llm.Response{finalOutputItemResponse("seed")}}, tools.NewRegistry(), Config{})
 	if _, err := seed.SubmitUserMessage(t.Context(), "seed"); err != nil {

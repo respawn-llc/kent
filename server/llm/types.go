@@ -526,22 +526,24 @@ func HasEffectiveAdvertisedTools(tools []Tool, enableNativeWebSearch bool) bool 
 }
 
 type Request struct {
-	Model                   string                       `json:"model"`
-	Temperature             float64                      `json:"temperature"`
-	MaxTokens               int                          `json:"max_tokens"`
-	ReasoningEffort         string                       `json:"reasoning_effort,omitempty"`
-	SupportsReasoningEffort bool                         `json:"supports_reasoning_effort,omitempty"`
-	FastMode                bool                         `json:"fast_mode,omitempty"`
-	EnableNativeWebSearch   bool                         `json:"enable_native_web_search,omitempty"`
-	SystemPrompt            string                       `json:"system_prompt"`
-	PromptCacheKey          string                       `json:"prompt_cache_key,omitempty"`
-	PromptCacheScope        transcript.CacheWarningScope `json:"prompt_cache_scope,omitempty"`
-	SessionID               *string                      `json:"session_id,omitempty"`
-	CodexDispatch           *CodexDispatchContext        `json:"-"`
-	Items                   []ResponseItem               `json:"items,omitempty"`
-	Tools                   []Tool                       `json:"tools,omitempty"`
-	ToolChoiceMode          ToolChoiceMode               `json:"tool_choice_mode"`
-	StructuredOutput        *StructuredOutput            `json:"structured_output,omitempty"`
+	// Purpose is local dispatch metadata, never part of the provider payload.
+	Purpose                 *modelcontract.ProviderOperationPurpose `json:"-"`
+	Model                   string                                  `json:"model"`
+	Temperature             float64                                 `json:"temperature"`
+	MaxTokens               int                                     `json:"max_tokens"`
+	ReasoningEffort         string                                  `json:"reasoning_effort,omitempty"`
+	SupportsReasoningEffort bool                                    `json:"supports_reasoning_effort,omitempty"`
+	FastMode                bool                                    `json:"fast_mode,omitempty"`
+	EnableNativeWebSearch   bool                                    `json:"enable_native_web_search,omitempty"`
+	SystemPrompt            string                                  `json:"system_prompt"`
+	PromptCacheKey          string                                  `json:"prompt_cache_key,omitempty"`
+	PromptCacheScope        transcript.CacheWarningScope            `json:"prompt_cache_scope,omitempty"`
+	SessionID               *string                                 `json:"session_id,omitempty"`
+	CodexDispatch           *CodexDispatchContext                   `json:"-"`
+	Items                   []ResponseItem                          `json:"items,omitempty"`
+	Tools                   []Tool                                  `json:"tools,omitempty"`
+	ToolChoiceMode          ToolChoiceMode                          `json:"tool_choice_mode"`
+	StructuredOutput        *StructuredOutput                       `json:"structured_output,omitempty"`
 }
 
 func (r Request) Validate() error {

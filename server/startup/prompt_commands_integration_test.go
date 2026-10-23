@@ -15,6 +15,7 @@ import (
 	"core/server/authmanager"
 	"core/server/authservice"
 	"core/server/metadata"
+	"core/server/onboardingimports"
 	"core/server/onboardingservice"
 	"core/shared/client"
 	"core/shared/config"
@@ -61,12 +62,7 @@ func TestRemotePromptCommandStartupCatalogAndInvocationUseImportedServerContent(
 	if err := os.WriteFile(filepath.Join(sourceRoot, "remote_demo.md"), []byte("server body $ARGUMENTS"), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	providers := onboarding.ProductionProviderCatalog()
-	providerIndex := slices.IndexFunc(providers, func(provider onboarding.Provider) bool { return provider.HomeEntry == ".claude" })
-	if providerIndex < 0 {
-		t.Fatal("Claude Code provider UUID is missing")
-	}
-	providerUUID := providers[providerIndex].UUID.String()
+	providerID := string(onboardingimports.ProviderClaudeCode)
 	connections := authservice.NewBootstrapService(t.Context(), authservice.NewConnectionResolver(cfg.PersistenceRoot, auth.NewManager(auth.NewMemoryStore(auth.EmptyState()), nil), nil), auth.OpenAIOAuthOptions{})
 	endpoint := "http://localhost:1234/v1"
 	if _, err := connections.ConfigureConnection(t.Context(), &authpb.ConfigureConnectionRequest{Change: &authpb.ConfigureConnectionRequest_PendingSetup{
@@ -80,8 +76,9 @@ func TestRemotePromptCommandStartupCatalogAndInvocationUseImportedServerContent(
 	}
 	if _, err := finalizer.Finalize(context.Background(), &onboardingpb.FinalizeRequest{
 		CommandsImport: &onboardingpb.ImportSelection{
-			Mode:         onboardingpb.ImportMode_IMPORT_MODE_SYMLINK_SOURCE,
-			ProviderUuid: &providerUUID,
+			Mode:             onboardingpb.ImportMode_IMPORT_MODE_SYMLINK_SOURCE,
+			ImportProviderId: &providerID,
+			SourceRootPath:   &sourceRoot,
 		},
 	}); err != nil {
 		t.Fatalf("Finalize: %v", err)

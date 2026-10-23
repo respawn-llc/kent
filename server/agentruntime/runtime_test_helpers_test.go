@@ -421,6 +421,9 @@ func mustOpenTestSession(t *testing.T, dir string) *session.Store {
 
 func mustNewTestEngine(t *testing.T, store *session.Store, client llm.Client, registry *tools.Registry, cfg Config) *Engine {
 	t.Helper()
+	if cfg.GlobalConfigDir == "" {
+		cfg.GlobalConfigDir = t.TempDir()
+	}
 	if cfg.ProjectWorkspaceContextReader == nil {
 		cfg.ProjectWorkspaceContextReader = newRuntimeTestProjectWorkspaceContextReader(t, store)
 	}

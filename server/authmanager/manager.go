@@ -49,6 +49,26 @@ func (m *Manager) SaveOAuth(ctx context.Context, id config.ConnectionID, credent
 	return m.save(ctx, state, id, credential)
 }
 
+func (m *Manager) RemoveOAuth(ctx context.Context, id config.ConnectionID) error {
+	if _, err := config.ParseConnectionID(string(id)); err != nil {
+		return err
+	}
+	m.mutationMu.Lock()
+	defer m.mutationMu.Unlock()
+	state, err := m.Load(ctx)
+	if err != nil {
+		return err
+	}
+	if _, present := state.Connections[id]; !present {
+		return nil
+	}
+	if m.store == nil {
+		return errors.New("OAuth credential store is required")
+	}
+	delete(state.Connections, id)
+	return m.store.Save(ctx, state)
+}
+
 func (m *Manager) CurrentOAuth(ctx context.Context, id config.ConnectionID, protocol config.ConnectionProtocol) (OAuthMethod, error) {
 	if _, err := config.ParseConnectionID(string(id)); err != nil {
 		return OAuthMethod{}, err

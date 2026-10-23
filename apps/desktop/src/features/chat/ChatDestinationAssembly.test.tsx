@@ -247,7 +247,8 @@ it("keeps streamed output and drafts usable when reviewer suggestions are follow
     });
     const editor = await screen.findByRole("textbox");
     const user = userEvent.setup({ delay: null });
-    await user.type(editor, "Keep this draft");
+    await user.click(editor);
+    await user.paste("Keep this draft");
     await act(async () => {
       view.handlers[0]?.onEvent({
         sequence: 1,
@@ -815,12 +816,11 @@ it("shows every accepted Pending Work item and restores only a discarded item", 
   const last = accepted.at(-1);
   const button = discard.at(-1);
   if (last === undefined || button === undefined) throw new Error("Missing accepted item.");
+  const editor = screen.getByRole<HTMLTextAreaElement>("textbox");
   await userEvent.setup({ delay: null }).click(button);
   await waitFor(() => {
-    expect(screen.getByRole("textbox")).toHaveValue(last.canonicalInput);
-  });
-  await waitFor(() => {
-    expect(button).not.toBeInTheDocument();
+    expect(editor.value).toBe(last.canonicalInput);
+    expect(button.isConnected).toBe(false);
   });
   expect(screen.getAllByRole("button", { name: appI18n.t("chatComposer.discard") })).toHaveLength(104);
   view.unmount();

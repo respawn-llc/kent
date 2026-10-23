@@ -37,6 +37,7 @@ func (a *providerTurnStateOAuthAuth) ResolveDispatchAuth(context.Context) (*llm.
 }
 
 func TestToolLoopContinuationReplaysProviderTurnState(t *testing.T) {
+	t.Parallel()
 	const firstState = "first-turn-state"
 	const laterState = "later-turn-state"
 	var (
@@ -92,6 +93,7 @@ func TestToolLoopContinuationReplaysProviderTurnState(t *testing.T) {
 }
 
 func TestNewAgentTurnStartsWithoutProviderTurnState(t *testing.T) {
+	t.Parallel()
 	const firstTurnState = "first-turn-state"
 	var (
 		mu     sync.Mutex
@@ -140,6 +142,7 @@ func TestNewAgentTurnStartsWithoutProviderTurnState(t *testing.T) {
 }
 
 func TestProviderAccountChangeStartsFreshRoutingState(t *testing.T) {
+	t.Parallel()
 	const (
 		firstAccountState  = "account-a-state"
 		secondAccountState = "account-b-state"
@@ -198,6 +201,7 @@ func TestProviderAccountChangeStartsFreshRoutingState(t *testing.T) {
 }
 
 func TestUnidentifiedAccountOmitsAndDoesNotAcceptProviderTurnState(t *testing.T) {
+	t.Parallel()
 	const accountState = "identified-account-state"
 	var (
 		mu       sync.Mutex
@@ -253,6 +257,7 @@ func TestUnidentifiedAccountOmitsAndDoesNotAcceptProviderTurnState(t *testing.T)
 }
 
 func TestConcurrentSessionsKeepProviderTurnStateIsolatedByAccount(t *testing.T) {
+	t.Parallel()
 	var (
 		mu        sync.Mutex
 		states    = make(map[string][]string)

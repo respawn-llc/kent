@@ -231,16 +231,18 @@ func TestBindingOneAllowedConnectionParticipatesInGlobalLRU(t *testing.T) {
 	allocator := NewConnectionRotation(testsetup.OpenStore(t, t.TempDir()), 0)
 	persistence := sessiontest.NewPersistence()
 	store := createTestSessionInContainer(t, t.TempDir(), "sessions", app.WorkspaceRoot, persistence.Options()...)
-	if _, err := allocator.BindSessionConnection(t.Context(), store, &app.Settings, app.Source.Sources); err != nil {
+	scope := config.ConnectionScope{Selection: app.Settings.Connection}
+	if _, err := allocator.BindSessionConnection(t.Context(), store, &app.Settings, app.Source.Sources, scope); err != nil {
 		t.Fatal(err)
 	}
 	selection := config.ConnectionSelection{"a", "b"}
 	app.Settings.Connection = &selection
+	scope.Selection = &selection
 	got, err := allocator.Prepare(t.Context(), app.Settings, true)
 	if err != nil || got != "b" {
 		t.Fatalf("allocation after binding a = %q, %v; want b", got, err)
 	}
-	if _, err := allocator.BindSessionConnection(t.Context(), store, &app.Settings, app.Source.Sources); err != nil {
+	if _, err := allocator.BindSessionConnection(t.Context(), store, &app.Settings, app.Source.Sources, scope); err != nil {
 		t.Fatal(err)
 	}
 	app.Settings.Connection = &selection
@@ -310,12 +312,34 @@ func TestFreshLaunchUsesAllocatedConnectionWithoutSecondSelection(t *testing.T) 
 		}
 		store := testStoreForPlannerPlan(t, planner, plan)
 		settings := plan.ActiveSettings
-		if _, err := BindSessionConnection(store, &settings, plan.Source.Sources); err != nil {
+		if _, err := BindSessionConnection(store, &settings, plan.Source.Sources, plan.ConnectionScope); err != nil {
 			t.Fatal(err)
 		}
 		if store.Meta().ConnectionID == nil || *store.Meta().ConnectionID != want {
 			t.Fatalf("bound connection = %v; want %s", store.Meta().ConnectionID, want)
 		}
+	}
+	app.Settings.Connection = config.SingleConnection("a")
+	delete(app.Settings.Connections, "a")
+	planner.Config = app
+	plan, err := planner.PlanSession(t.Context(), SessionRequest{
+		Mode: ModeInteractive, Intent: serverapi.CreateNewSessionLaunchIntent(serverapi.IndependentSessionCreateOrigin()),
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !reflect.DeepEqual(plan.ActiveSettings.Connection, config.SingleConnection("b")) {
+		t.Fatalf("fresh Session with a removed single-ID default selected %v; want b", plan.ActiveSettings.Connection)
+	}
+	if !reflect.DeepEqual(planner.Config.Settings.Connection, config.SingleConnection("a")) {
+		t.Fatalf("removed default selector changed to %v", planner.Config.Settings.Connection)
+	}
+	if !reflect.DeepEqual(plan.ConnectionScope.Selection, config.SingleConnection("a")) {
+		t.Fatalf("launch selector changed to %v", plan.ConnectionScope.Selection)
+	}
+	store := testStoreForPlannerPlan(t, planner, plan)
+	if store.Meta().ConnectionID == nil || *store.Meta().ConnectionID != "b" {
+		t.Fatalf("fresh Session binding = %v; want b", store.Meta().ConnectionID)
 	}
 }
 
@@ -329,7 +353,7 @@ func TestSavedConnectionPrecedesCurrentRoleProviderPreparation(t *testing.T) {
 	}{
 		{name: "undefined role connection", currentDefault: "work", roleConnection: launchTestStringPtr("missing"), saved: "work"},
 		{name: "undefined inherited default", currentDefault: "missing", saved: "work"},
-		{name: "removed binding with undefined replacement", currentDefault: "missing", saved: "removed", wantError: true},
+		{name: "removed binding falls back from a missing top-level selector", currentDefault: "missing", saved: "removed"},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			workspace := t.TempDir()
