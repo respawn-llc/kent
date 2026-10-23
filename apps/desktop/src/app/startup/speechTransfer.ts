@@ -27,7 +27,7 @@ export function createSpeechTransfer(bridge: NativeBridge, endpoint: string): Sp
   };
   return {
     begin: async (available, encoding) => {
-      const url = native === null ? available.uploadUrl : speechUploadURL(endpoint, available.uploadUrl);
+      const url = speechUploadURL(native === null ? window.location.origin : endpoint, available.uploadUrl);
       if (native !== null) {
         const recording = await native.create({ ...encoding, maxBytes: available.maxBytes, uploadUrl: url });
         return {
@@ -67,7 +67,7 @@ export function createSpeechTransfer(bridge: NativeBridge, endpoint: string): Sp
     },
     retry: async (source, available) => {
       assertSpeechSize(speechSourceBytes(source), available);
-      const url = native === null ? available.uploadUrl : speechUploadURL(endpoint, available.uploadUrl);
+      const url = speechUploadURL(native === null ? window.location.origin : endpoint, available.uploadUrl);
       if (source.kind === "native") {
         if (native === null) throw new Error("Native speech is unavailable.");
         return nativeRequest(await native.uploadOriginal(source.original, url, available.maxBytes));
