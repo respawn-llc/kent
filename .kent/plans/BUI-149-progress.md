@@ -1,3 +1,26 @@
+### Implementation and automated verification complete
+
+- Final scoped rerun of both previously failing full packages passes: `GOMAXPROCS=4 just test server --timeout 1200 --workers 1 -- ./server/runtime ./cli/app/internal/ptyfixture`. This executes all Runtime and PTY tests after the earlier Runtime panic, not just the reproduced failures.
+- Every other failure reported by the full-server run has a passing focused recheck: auth credential isolation, virtual-time cooldown expiry, steering liveness, persisted/live correlation parity and structured attempt diagnostics. Other packages passed in the full run. The full-server command itself originally exited nonzero; it was not repeated wholesale after these repairs, following the instruction to use scoped rechecks and avoid repeated full-suite load.
+- Final `just lint server --dry-run` and `just build go --output ./bin/qa/kent-BUI-149` pass after all production changes. QA binary was rebuilt October 23 at 13:20 CEST.
+- SDK decoder regression passes. Release entry compiled all five targets successfully; no publication. Four owning-spec pages validated. Independent code/spec review and all manual QA remain downstream, not claimed as executed here.
+- Production envelope: 2,635 conservative changed non-test/non-doc lines against baseline 2a591451e, including dependency prep/patch/Just/protocol overhead.
+- Reviewer focus: complete native terminal output is acceptance/continuation authority (verified against Grok Build and official xAI docs); empty terminal output must not resurrect streamed calls. Native output and its display are distinct projections, and saved events remain append-only.
+- QA setup: use `bin/qa/kent-BUI-149`, isolated harness state and private copies of explicitly authorized production credentials without refresh tokens. Follow the unchanged plan Testing checklist for gpt-6-luna and supported Grok models. Do not target/restart production. Existing debug attempt fields `incremental` and `transmitted_items` distinguish suffix sends without logging bodies. No live inference was performed; xAI allowance may still prevent live generation.
+- Protocol 218 requires clients built from this branch. SDK preparation is automatic through Just, rooted at ignored `.generated/openai-sdk`. KENT-639 native steering and user-owned KENT-788 upstream submission remain separate.
+
+### Requirement-to-artifact map for review and QA
+
+- SDK ownership/selection/limits: `server/llm/responses_websocket.go`, `provider_factory.go`; real-socket first-party/Grok/auth/bounds tests. Broker/generic and compaction retain HTTP. No retry/replay/reconnect/steering implementation added.
+- Exact native acceptance/persistence: `server/llm/native_response.go`, `openai_http_stream.go`, `server/session/event_message_v1.go`; all five `native_response_continuation_test.go` Runtime fixtures verify native bytes/order through actual acceptance, tool results and reload.
+- Ordered live/committed delivery: Runtime output steering/transcript projections, shared protocol 218, active CLI/TUI and Desktop transcript-window consumers. Existing mounted/window/interleaving tests and PTY fixtures cover call identity/order and append-only call/result delivery. Frozen Rust untouched.
+- Continuation/cache: socket-owned latest Raw-prefix/settings checkpoint and original prepared-input override in `responses_websocket.go`; actual Runtime answer/human and tool/result tests, settings/non-prefix/HTTP-compaction reset test, existing cache warning and persisted-digest tests. No new continuation hash or transcript reads.
+- Lifetime/auth: optional io.Closer through Responses/watchdog/observed wrappers; existing Engine, connection replacement, Reviewer and Nano owners. Real socket cancellation/reuse/sticky-auth tests and Runtime close/resource-error/background close/race tests. Generic HTTP auth remains per-dispatch.
+- Errors/fallback: common optional status in `shared/llmerrors`, existing Responses/Grok reducers, typed protocol event handling; absence/429/quota/failed/incomplete/receive/retry and actual RuntimeWiring bare-xAI replacement tests. Structured attempt diagnostics prefer provider error status over successful upgrade 101.
+- Dependency reproducibility: pinned SDK, checksum file, narrow decoder patch, one Just preparer wired to existing generation/build/test/lint/release paths. Fresh/repeat/bad-patch/bad-checksum evidence recorded below; SDK public decoder tests pass. User-approved nested-module architecture-guard boundary has red/green fixture coverage.
+- Scope: latest conservative production envelope is 2,635 changed lines against baseline, below 4,000. No public docs, credential/config mutation, live inference, release publication or manual QA.
+- Remaining completion evidence belongs to step 9: finish scoped failed-package checks, final lint and rebuilt alternate binary, then hand off manual QA and independent spec/code review.
+
 ### October 23 full-suite reconciliation
 
 - Release compilation passed all five supported targets through `just release cli`; archives/checksums are ignored under `.kent/tmp/BUI-149-release`. Nothing published. Alternate QA build and four owning-spec Markdown pages also pass.
