@@ -283,7 +283,7 @@ func (c *sessionRuntimeClient) DiscardQueuedUserMessage(queueItemID string) bool
 	if !ok {
 		return false
 	}
-	itemID, err := runtimeids.ParseQueueItemID(queueItemID)
+	itemID, err := runtimeids.QueueItemIDFromProto(queueItemID)
 	if err != nil {
 		return false
 	}
