@@ -67,7 +67,11 @@ func ProjectItem(entry *worktreepb.ListEntry) (Item, error) {
 		item.CreatedBranch = kent.CreatedBranch
 	case entry.Topology.GetExternal() != nil:
 		git := entry.Topology.GetExternal().Git
-		item.DisplayName = filepath.Base(git.CanonicalRoot)
+		if git.BranchName == nil {
+			item.DisplayName = *entry.Projection.FallbackIdentity
+		} else {
+			item.DisplayName = filepath.Base(git.CanonicalRoot)
+		}
 		item.CanonicalRoot = git.CanonicalRoot
 		item.BranchName = git.BranchName
 		item.Detached = git.Detached
