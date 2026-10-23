@@ -500,6 +500,7 @@ mod tests {
         let store = app.get_store(&path).unwrap();
         let previous_cache = store.entries();
         let mut permissions = std::fs::metadata(&path).unwrap().permissions();
+        let original_permissions = permissions.clone();
         permissions.set_readonly(true);
         std::fs::set_permissions(&path, permissions).unwrap();
         assert!(owner
@@ -509,8 +510,7 @@ mod tests {
         let after: std::collections::HashMap<_, _> = store.entries().into_iter().collect();
         assert_eq!(before, after);
         assert_eq!(owner.read(app.handle()).unwrap(), saved);
-        use std::os::unix::fs::PermissionsExt;
-        std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o600)).unwrap();
+        std::fs::set_permissions(&path, original_permissions).unwrap();
         // A failed in-place write can leave only a fragment on disk.
         std::fs::write(&path, b"{").unwrap();
         assert_eq!(owner.read(app.handle()).unwrap(), saved);
