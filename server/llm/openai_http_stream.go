@@ -305,7 +305,7 @@ func (a *responseStreamAccumulator) Response() (ResponsesResponse, error) {
 			} else if pending := a.assistantMessages.pendingDeltas[item.OutputIndex]; pending != nil {
 				streamed = pending.String()
 			}
-			if a.callbacks.OnAssistantDelta == nil && item.Content != nil {
+			if a.callbacks.OnAssistantDelta == nil && item.Content != nil && *item.Content != "" {
 				streamed = ""
 			}
 			if streamed != "" {
@@ -325,8 +325,12 @@ func (a *responseStreamAccumulator) Response() (ResponsesResponse, error) {
 				text = display
 			}
 			phase, _ := textutil.OptionalValue(item.Phase)
+			content := textutil.Pointer(item.Content)
+			if content != nil {
+				content = textutil.Value(text)
+			}
 			segments = append(segments, assistantOutputSegment{
-				Text: text, Content: resolveAssistantContent(RoleAssistant, phase, textutil.Value(text)), Phase: phase, OutputIndex: item.OutputIndex,
+				Text: text, Content: content, Phase: phase, OutputIndex: item.OutputIndex,
 				ProviderPhase: parsedProviderPhase,
 			})
 		}
