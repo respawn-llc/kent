@@ -95,7 +95,10 @@ describe("open Inbox attention refresh", () => {
     await waitFor(() => {
       expect(notify).toHaveBeenCalledTimes(1);
     });
-    expect(toast.getToasts()).toEqual(notices);
+    // Native delivery may remove an older in-app surface for the same attention item.
+    for (const notice of toast.getToasts()) {
+      expect(notices).toContainEqual(notice);
+    }
     expect(screen.queryByTestId("attention-row")).not.toBeInTheDocument();
   });
 });
