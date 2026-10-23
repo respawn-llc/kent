@@ -340,6 +340,31 @@ func TestAskDedicatedApprovalReadingKeepsChosenCommentary(t *testing.T) {
 	if len(control.batchRequests) != 0 || !model.ask.hasCurrent() {
 		t.Fatal("Enter after returning from Approval commentary submitted an answer")
 	}
+	for _, key := range []tea.KeyMsg{
+		{Type: tea.KeyRunes, Runes: []rune("!")},
+		{Type: tea.KeyBackspace},
+		{Type: tea.KeyRunes, Paste: true, Runes: []rune("!")},
+		{Type: tea.KeyBackspace},
+		{Type: tea.KeyLeft},
+		{Type: tea.KeyRight},
+	} {
+		model = updateUIModel(t, model, key)
+		document := model.layout().askDocument(80)
+		if !model.ask.freeform || !model.askHasAnswerFocus() ||
+			model.ask.dedicated.scroll != max(0, len(document.lines)-askDocumentCapacity(10)) {
+			t.Fatalf("chosen Approval reading did not focus the bottom editor for %v", key)
+		}
+		if model.ask.chosenApproval == nil || *model.ask.chosenApproval != clientui.ApprovalDecisionDeny {
+			t.Fatal("editing from reading rebound the chosen Approval decision")
+		}
+		model = updateUIModel(t, model, tea.KeyMsg{Type: tea.KeyTab})
+		if model.ask.freeform || model.askHasAnswerFocus() {
+			t.Fatal("editing from reading lost its reading return destination")
+		}
+	}
+	if model.ask.editor.Text() != "deny draft" {
+		t.Fatal("editing from reading did not apply operations to the existing draft")
+	}
 	model = updateUIModel(t, model, tea.KeyMsg{Type: tea.KeyTab})
 	next, cmd := model.Update(tea.KeyMsg{Type: tea.KeyEnter})
 	model = runPromptDeliveryCommand(t, next.(*uiModel), cmd)
