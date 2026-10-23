@@ -994,7 +994,6 @@ func (e *Engine) SubmitWorkflowTurn(ctx context.Context) (result WorkflowTurnRes
 }
 
 type userShellOutcome struct {
-	result  tools.Result
 	message *llm.Message
 }
 
@@ -1013,7 +1012,7 @@ func (e *Engine) executeUserShell(ctx context.Context, stepID string, command ru
 		}
 		result = shelltool.ErrorResult(tools.Call{ID: call.ID, Name: toolspec.ToolExecCommand}, execErr.Error())
 	}
-	outcome := userShellOutcome{result: result}
+	outcome := userShellOutcome{}
 	var output string
 	if err := json.Unmarshal(result.Output, &output); err != nil {
 		return outcome, errors.Join(execErr, fmt.Errorf("shell tool returned non-text output: %w", err))
