@@ -70,7 +70,7 @@ func TestClientProxyUsesExactCWD(t *testing.T) {
 		filepath.Join(selected, ".kent", "config.toml"):  "[proxy]\nhttp='selected:80'\n",
 		filepath.Join(parent, ".kent", "config.toml"):    "[proxy]\nno_proxy='parent.test'\n",
 		filepath.Join(cwd, ".kent", "config.toml"):       "[proxy]\nhttp='shared:80'\nhttps='shared:443'\n",
-		filepath.Join(cwd, ".kent", "config.local.toml"): "model=false\nserver_port=false\n[proxy]\nhttp='private:80'\nhttps=''\n",
+		filepath.Join(cwd, ".kent", "config.local.toml"): "model=false\nserver_port=false\n[connections.'not a valid id']\nprotocol=false\n[proxy]\nhttp='private:80'\nhttps=''\n",
 	} {
 		if err := os.WriteFile(path, []byte(body), 0o600); err != nil {
 			t.Fatal(err)
@@ -88,6 +88,17 @@ func TestClientProxyUsesExactCWD(t *testing.T) {
 	}
 	if got.Sources["proxy.http"].File.Path != filepath.Join(cwd, ".kent", "config.local.toml") {
 		t.Fatal("private CWD source missing")
+	}
+	t.Setenv("no_proxy", "")
+	connection, err = config.LoadConnectionDiscovery(selected, config.LoadOptions{ConfigRoot: root})
+	if err != nil || connection.Proxy.NoProxy == nil || *connection.Proxy.NoProxy != "global.test" {
+		t.Fatal("missing CWD keys must inherit global, not parent or selected workspace")
+	}
+	t.Setenv("HTTP_PROXY", "upper:80")
+	t.Setenv("http_proxy", "lower:80")
+	connection, err = config.LoadConnectionDiscovery(selected, config.LoadOptions{ConfigRoot: root})
+	if err != nil || connection.Proxy.HTTP == nil || *connection.Proxy.HTTP != "upper:80" {
+		t.Fatal("uppercase process proxy must beat lowercase and CWD-private")
 	}
 }
 

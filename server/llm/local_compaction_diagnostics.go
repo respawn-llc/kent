@@ -78,7 +78,7 @@ func (a *providerAttemptDiagnostic) diagnoseEmptyLocalCompaction(ctx context.Con
 			phase = textutil.Value(string(*item.Phase))
 		}
 		items = append(items, compactionOutputItemDiagnostic{
-			Type: string(item.Type), Phase: phase, TextBytes: lenOptionalString(item.Content),
+			Type: string(item.Type), Phase: phase, TextBytes: len(optionalStringValue(item.Content)),
 		})
 	}
 	output := a.compactionOutput
@@ -97,11 +97,11 @@ func (a *providerAttemptDiagnostic) diagnoseEmptyLocalCompaction(ctx context.Con
 		"provider_output_truncated", output.itemCount > len(output.items),
 		"provider_text_bytes", output.textBytes,
 		"provider_refusal_present", output.refusalPresent,
-		"transport_assistant_bytes", lenOptionalString(provider.AssistantText),
+		"transport_assistant_bytes", len(optionalStringValue(provider.AssistantText)),
 		"normalized_output_count", len(normalized.OutputItems),
 		"normalized_output_items", items,
 		"normalized_output_truncated", len(normalized.OutputItems) > len(items),
-		"normalized_assistant_bytes", lenOptionalString(normalized.Assistant.Content),
+		"normalized_assistant_bytes", len(optionalStringValue(normalized.Assistant.Content)),
 		"extracted_summary_bytes", summaryBytes,
 		"usage_reported", a.usage != nil,
 		"input_tokens", diagnosticOptional(usage.InputTokens),
@@ -114,11 +114,4 @@ func (a *providerAttemptDiagnostic) diagnoseEmptyLocalCompaction(ctx context.Con
 
 func boundedDiagnosticMetadata(value string) string {
 	return value[:min(len(value), 64)]
-}
-
-func lenOptionalString(value *string) int {
-	if value == nil {
-		return 0
-	}
-	return len(*value)
 }

@@ -292,10 +292,9 @@ func decodeSettingsFile(path string, data []byte) (settingsFile, []ConnectionID,
 	var order []ConnectionID
 	for _, key := range metadata.Keys() {
 		if len(key) >= 2 && key[0] == "connections" {
-			id, err := ParseConnectionID(key[1])
-			if err != nil {
-				return nil, nil, err
-			}
+			// Preserve declaration order here. The consuming connections setting
+			// validates IDs; proxy-only clients must not validate unrelated data.
+			id := ConnectionID(key[1])
 			if !slices.Contains(order, id) {
 				order = append(order, id)
 			}

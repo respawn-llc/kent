@@ -54,7 +54,7 @@ func normalize(raw *string, key string, sources map[string]config.Origin) (strin
 	}
 	value := *raw
 	parsed, err := url.Parse(value)
-	if err == nil && parsed.Host == "" && (parsed.Scheme == "" || parsed.Opaque != "") {
+	if err != nil || (parsed.Host == "" && (parsed.Scheme == "" || parsed.Opaque != "")) {
 		value = "http://" + value
 		parsed, err = url.Parse(value)
 	}

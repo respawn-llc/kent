@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"log/slog"
 	"net"
 	"net/http"
 	"net/url"
@@ -84,11 +85,24 @@ func (WebSocketTransport) Dial(ctx context.Context, endpoint Endpoint) (Conn, er
 
 func (WebSocketTransport) Handler(handler func(context.Context, Conn)) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		controller := http.NewResponseController(w)
+		if err := controller.SetWriteDeadline(time.Now().Add(webSocketHandshakeTimeout(r.Context()))); err != nil {
+			slog.ErrorContext(r.Context(), "set websocket handshake deadline", "error", err)
+			http.Error(w, http.StatusText(http.StatusInternalServerError), http.StatusInternalServerError)
+			return
+		}
 		socket, err := websocket.Accept(w, r, &websocket.AcceptOptions{
 			// Preserve the existing server's unrestricted Origin policy.
 			InsecureSkipVerify: true, CompressionMode: websocket.CompressionDisabled,
 		})
+		// The deadline bounds the upgrade, never the connection's lifetime.
+		deadlineErr := controller.SetWriteDeadline(time.Time{})
 		if err != nil {
+			return
+		}
+		if deadlineErr != nil {
+			_ = socket.CloseNow()
+			slog.ErrorContext(r.Context(), "clear websocket handshake deadline", "error", deadlineErr)
 			return
 		}
 		adapter := newWebSocketConn(socket)
@@ -181,7 +195,7 @@ func webSocketHTTPTransport(ctx context.Context, endpoint Endpoint) (http.RoundT
 			return (&net.Dialer{}).DialContext(ctx, "unix", endpoint.Address)
 		}}, nil
 	}
-	if endpoint.TLSConfig == nil {
+	if !endpoint.UseTLS || endpoint.TLSConfig == nil {
 		return http.DefaultTransport, nil
 	}
 	base, ok := http.DefaultTransport.(*http.Transport)

@@ -127,6 +127,10 @@ func TestInvalidProxyErrorsIdentifySourceWithoutCredentials(t *testing.T) {
 		if err == nil || strings.Contains(err.Error(), "synthetic-user") || strings.Contains(err.Error(), "synthetic-secret") {
 			t.Fatalf("invalid address must fail safely: %v", err)
 		}
+		var configurationError *proxyhttp.ConfigurationError
+		if !errors.As(err, &configurationError) || configurationError.Key != "proxy.http" || configurationError.Origin.Kind != config.SourceEnv {
+			t.Fatal("invalid address must identify its setting and source structurally")
+		}
 	}
 }
 
@@ -159,5 +163,19 @@ func TestHTTPRoutingAndProxyCredentials(t *testing.T) {
 	selected, err := transport.Proxy(request)
 	if err != nil || selected != nil {
 		t.Fatal("HTTP proxy must not apply to HTTPS")
+	}
+}
+
+func TestProxyAddressShorthand(t *testing.T) {
+	for _, address := range []string{"127.0.0.1:8080", "proxy.test:8080", "[::1]:8080"} {
+		transport, err := proxyhttp.NewTransport(config.Proxy{HTTP: &address})
+		if err != nil {
+			t.Fatal(err)
+		}
+		request, _ := http.NewRequest(http.MethodGet, "http://destination.test/", nil)
+		selected, err := transport.Proxy(request)
+		if err != nil || selected == nil || selected.Scheme != "http" || selected.Host != address {
+			t.Fatalf("shorthand %q not normalized: %v, %v", address, selected, err)
+		}
 	}
 }
