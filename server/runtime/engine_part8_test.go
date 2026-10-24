@@ -751,7 +751,7 @@ func TestExecuteToolCallsAppliesToolCompletionByCommitReceipt(t *testing.T) {
 			gate := sessiontest.NewPersistenceGate(runtimeTestSessionPersistence)
 			store := mustCreateNamedTestSession(t, "ws", t.TempDir(), session.WithPersistenceObserver(gate))
 			eng := mustNewTestEngine(t, store, &fakeClient{}, tc.registry, Config{Model: "gpt-6-sol"})
-			gate.FailNext(observerErr)
+			gate.FailAfterCommit(observerErr)
 			stepID := runtimeTestStepID(tc.name + "/committed-observer-error")
 			restoreStep := setTestActiveStep(eng, stepID)
 			defer restoreStep()

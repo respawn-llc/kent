@@ -153,9 +153,13 @@ type legacyCacheWarningV0 struct {
 func installLegacyCurrentEventLog(
 	eventsPath string,
 	workspace string,
+	commitMetadata func(*currentEventLog) error,
 	onCommitted func(),
 ) error {
-	return installCurrentEventLog(eventsPath, workspace, onCommitted, func(stage *os.File) error {
+	if commitMetadata == nil {
+		return errors.New("legacy conversion metadata commit authority is required")
+	}
+	return installCurrentEventLog(eventsPath, workspace, onCommitted, commitMetadata, func(stage *os.File) error {
 		source, err := openRegularSessionFile(eventsPath, "legacy session event log")
 		if err != nil {
 			return fmt.Errorf("open legacy session event log: %w", err)

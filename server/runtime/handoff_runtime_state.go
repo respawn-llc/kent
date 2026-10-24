@@ -6,9 +6,8 @@ import (
 )
 
 type handoffRuntimeState struct {
-	mu            sync.Mutex
-	request       *handoffRequest
-	futureMessage string
+	mu      sync.Mutex
+	request *handoffRequest
 }
 
 func newHandoffRuntimeState() *handoffRuntimeState {
@@ -47,31 +46,4 @@ func (s *handoffRuntimeState) RequestSnapshot() *handoffRequest {
 	}
 	req := *s.request
 	return &req
-}
-
-func (s *handoffRuntimeState) QueueFutureMessage(message string) {
-	if s == nil {
-		return
-	}
-	s.mu.Lock()
-	s.futureMessage = strings.TrimSpace(message)
-	s.mu.Unlock()
-}
-
-func (s *handoffRuntimeState) ClearFutureMessage() {
-	if s == nil {
-		return
-	}
-	s.mu.Lock()
-	s.futureMessage = ""
-	s.mu.Unlock()
-}
-
-func (s *handoffRuntimeState) FutureMessageSnapshot() string {
-	if s == nil {
-		return ""
-	}
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	return strings.TrimSpace(s.futureMessage)
 }

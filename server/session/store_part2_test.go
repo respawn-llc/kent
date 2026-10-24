@@ -176,6 +176,9 @@ func TestRunArtifactRelocationUpdatesPathsAndWorkspaceAfterCallback(t *testing.T
 	if meta.WorktreeReminder != nil {
 		t.Fatalf("worktree reminder = %+v, want nil", meta.WorktreeReminder)
 	}
+	if err := store.EnsureDurable(); err != nil {
+		t.Fatal(err)
+	}
 	if _, _, err := log.AppendRecord(stringPointer("step-1"), sessionTestMessage(MessageRoleUser, "after move")); err != nil {
 		t.Fatalf("AppendEvent after move: %v", err)
 	}
@@ -462,15 +465,15 @@ func TestEventUseReconcilesMetaLastSequenceFromEventLog(t *testing.T) {
 	if err != nil {
 		t.Fatalf("materialize event log: %v", err)
 	}
-	if mustMaterializedRevision(reopenedLog) != 2 {
-		t.Fatalf("expected reconciled last sequence 2, got %d", mustMaterializedRevision(reopenedLog))
+	if mustMaterializedRevision(reopenedLog) != 0 {
+		t.Fatalf("uncommitted records were promoted: %d", mustMaterializedRevision(reopenedLog))
 	}
 	next, _, err := reopenedLog.AppendRecord(stringPointer("s3"), sessionTestMessage(MessageRoleUser, "u2"))
 	if err != nil {
 		t.Fatalf("append event after reconcile: %v", err)
 	}
-	if next.Seq() != 3 {
-		t.Fatalf("expected seq=3 after reopen reconciliation, got %d", next.Seq())
+	if next.Seq() != 1 {
+		t.Fatalf("expected seq=1 after discarding uncommitted suffix, got %d", next.Seq())
 	}
 }
 

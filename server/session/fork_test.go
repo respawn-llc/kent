@@ -97,11 +97,8 @@ func newForkReplayCountingPersistence() *forkReplayCountingPersistence {
 func (p *forkReplayCountingPersistence) ObservePersistedStore(
 	ctx context.Context,
 	snapshot PersistedStoreSnapshot,
-) error {
-	if err := p.base.ObservePersistedStore(ctx, snapshot); err != nil {
-		return err
-	}
-	return nil
+) (CommitReceipt, error) {
+	return p.base.ObservePersistedStore(ctx, snapshot)
 }
 
 func (p *forkReplayCountingPersistence) ObserveEventLogReconciliation(

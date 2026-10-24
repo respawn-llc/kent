@@ -42,9 +42,10 @@ func (o *callbackPersistenceObserver) Arm(callback func()) {
 func (o *callbackPersistenceObserver) ObservePersistedStore(
 	ctx context.Context,
 	snapshot session.PersistedStoreSnapshot,
-) error {
-	if err := o.delegate.ObservePersistedStore(ctx, snapshot); err != nil {
-		return err
+) (session.CommitReceipt, error) {
+	receipt, err := o.delegate.ObservePersistedStore(ctx, snapshot)
+	if err != nil {
+		return receipt, err
 	}
 	o.mu.Lock()
 	callback := o.callback
@@ -53,7 +54,7 @@ func (o *callbackPersistenceObserver) ObservePersistedStore(
 	if callback != nil {
 		callback()
 	}
-	return nil
+	return receipt, nil
 }
 
 func (o *callbackPersistenceObserver) ObserveEventLogReconciliation(

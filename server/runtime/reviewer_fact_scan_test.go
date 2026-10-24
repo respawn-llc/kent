@@ -286,7 +286,7 @@ func TestReviewerFactSteeringCommitFenceMatrix(t *testing.T) {
 				engine := mustNewTestEngine(t, store, &fakeClient{}, tools.NewRegistry(), Config{Model: "gpt-6-sol"})
 				restoreStep := setTestActiveStep(engine, "22222222-2222-4222-8222-222222222222")
 				defer restoreStep()
-				gate.FailNext(observerErr)
+				gate.FailAfterCommit(observerErr)
 				err := engine.steer(runtimeTestStepID("22222222-2222-4222-8222-222222222222"), testCase.intent())
 				if !errors.Is(err, observerErr) {
 					t.Fatalf("committed typed Reviewer error = %v, want %v", err, observerErr)
