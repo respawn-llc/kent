@@ -371,6 +371,21 @@ You can use `kent run steer <source-session-id> "message"` to respond.
 - Main-agent, subagent, Supervisor, Workflow, worktree-setup, and read-only settings operations must use the same configuration resolution rules. Worktree setup must validate the full configuration, including agent settings.
 - If global and workspace settings resolve to the same physical file, Kent must apply it once as global settings, disable that shared workspace layer, and provide diagnostics for both resolved locations.
 
+### Proxy configuration
+
+- Proxy configuration must follow this subsection. General configuration precedence and private-file discovery rules must apply to other settings.
+- The server must resolve each proxy setting in descending precedence from process environment, the persistence-root `.env`, and global configuration. Workspace files must not configure the server proxy.
+- CLI/TUI clients must resolve each proxy setting in descending precedence from process environment, `.kent/config.local.toml` in the process's current directory, `.kent/config.toml` in that directory, and global configuration. Clients must not search parent directories or obtain proxy settings from the server.
+- TOML proxy settings must use `[proxy]` keys `http`, `https`, and `no_proxy`, corresponding to `HTTP_PROXY`, `HTTPS_PROXY`, and `NO_PROXY`. Missing and empty values must inherit independently from the next source. Uppercase environment names must take precedence over their lowercase equivalents within the same source.
+- Each process must resolve proxy settings once at startup. Changes must require restarting that process, including changes used by TUI reconnects.
+- All Kent-owned outbound HTTP(S) and CLI/TUI server connections must use the process's resolved proxy rules. Provider, authentication, status, catalog, and release requests must use those rules.
+- HTTP and `ws://` destinations must use the HTTP proxy setting. HTTPS and `wss://` destinations must use the HTTPS proxy setting. An omitted HTTPS proxy must not inherit the HTTP proxy.
+- Localhost, loopback addresses, and destinations matched by `NO_PROXY` must connect directly.
+- Kent must support HTTP and HTTPS proxy URLs with optional URL username/password and normal certificate verification. Kent must accept `host:port` shorthand for an HTTP proxy.
+- `NO_PROXY` must use Go's existing host/domain, IP/range, optional-port, and wildcard matching rules. The library must ignore invalid entries. `NO_PROXY=*` must bypass all proxies.
+- Kent must perform only basic proxy-address validation and must not probe connectivity at startup. Network failures must follow existing operation-specific error presentation, timeouts, and retries. Kent must not fall back to a direct connection when a selected proxy fails. Diagnostics must not disclose proxy credentials.
+- Agent-run commands and external browsers must use their existing environment behavior. Kent must not inject proxy settings resolved from `.env` or TOML into agent shells.
+
 ## Model Requests And Cache Continuity
 
 - Kent must group captured Session properties by Snapshot Policy. Refresh eligibility must be separate from permission to apply a change to the active context.
