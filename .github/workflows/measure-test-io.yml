@@ -10,11 +10,12 @@ permissions:
 jobs:
   measure:
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    timeout-minutes: 29
     steps:
       - uses: actions/checkout@v7.0.0
         with:
           persist-credentials: false
+          fetch-depth: 5
       - uses: actions/setup-go@v6.5.0
         with:
           go-version-file: go.mod
@@ -32,7 +33,9 @@ jobs:
           report="$RUNNER_TEMP/test-io"
           mkdir "$report"
           {
-            git rev-parse HEAD HEAD^
+            git rev-parse HEAD
+            git merge-base --is-ancestor f470b8b852cf2bf1b8bc742767ee3d5dccf2c0bc HEAD
+            git merge-base --is-ancestor 7723f21b0c6925a990657976da4830d9e42c9f20 HEAD
             echo "Product source: stacked merge152e77b596deefd7a9767bc605339875b353e2c3"
             echo "Includes PR984 f470b8b852cf2bf1b8bc742767ee3d5dccf2c0bc and PR1025 7723f21b0c6925a990657976da4830d9e42c9f20."
             uname -a
