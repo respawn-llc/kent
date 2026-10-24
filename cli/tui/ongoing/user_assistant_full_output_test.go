@@ -75,7 +75,7 @@ func TestStreamingAssistantCommentaryShowsCompleteReceivedSource(t *testing.T) {
 
 	if _, err := surface.applyAssistantDelta(
 		streamID,
-		source, transcriptpb.AssistantPhase_ASSISTANT_PHASE_COMMENTARY, FrameInput{Size: Size{Width: 48, Height: 24}},
+		source, transcriptpb.AssistantPhase_ASSISTANT_PHASE_COMMENTARY, nil, FrameInput{Size: Size{Width: 48, Height: 24}},
 	); err != nil {
 		t.Fatalf("apply assistant commentary delta: %v", err)
 	}

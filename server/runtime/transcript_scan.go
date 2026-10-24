@@ -72,7 +72,7 @@ func (s *inMemoryTranscriptScan) ApplyMessage(msg llm.Message, provenance *Trans
 		}
 		entry.StepID = cloneOptionalStepID(stepID)
 		entry.CommittedProvenance = cloneTranscriptCommittedRowProvenance(provenance)
-		if len(owners) > 0 && entry.ToolCallID != "" {
+		if len(owners) > 0 && entry.ToolCallID != "" && msg.NativeResponse == nil {
 			if owner := owners[0][entry.ToolCallID]; owner != nil {
 				entry.CommittedProvenance = cloneTranscriptCommittedRowProvenance(owner)
 			}

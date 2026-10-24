@@ -7,10 +7,12 @@ import (
 	"sync"
 
 	"core/server/llm"
+	"core/shared/textutil"
 	"core/shared/transcript"
 )
 
 type TranscriptLiveToolStart struct {
+	OutputIndex  *int64
 	StepID       string
 	ToolCallID   string
 	ToolName     string
@@ -32,13 +34,13 @@ func newTranscriptLiveToolLedger() *transcriptLiveToolLedger {
 	}
 }
 
-func (l *transcriptLiveToolLedger) RecordStart(start TranscriptLiveToolStart) error {
+func (l *transcriptLiveToolLedger) RecordStart(start TranscriptLiveToolStart) (bool, error) {
 	if l == nil {
-		return nil
+		return false, nil
 	}
 	normalized, err := normalizeTranscriptLiveToolStart(start)
 	if err != nil {
-		return err
+		return false, err
 	}
 	l.mu.Lock()
 	defer l.mu.Unlock()
@@ -52,11 +54,11 @@ func (l *transcriptLiveToolLedger) RecordStart(start TranscriptLiveToolStart) er
 		l.nodes = make(map[string]*list.Element)
 	}
 	if _, ok := l.inFlight[normalized.ToolCallID]; ok {
-		return nil
+		return false, nil
 	}
 	l.inFlight[normalized.ToolCallID] = normalized
 	l.nodes[normalized.ToolCallID] = l.order.PushBack(normalized.ToolCallID)
-	return nil
+	return true, nil
 }
 
 func (l *transcriptLiveToolLedger) Complete(callID string) {
@@ -141,6 +143,7 @@ func (l *transcriptLiveToolLedger) Seed(starts []TranscriptLiveToolStart) {
 
 func normalizeTranscriptLiveToolStart(start TranscriptLiveToolStart) (TranscriptLiveToolStart, error) {
 	normalized := TranscriptLiveToolStart{
+		OutputIndex:  textutil.Pointer(start.OutputIndex),
 		StepID:       strings.TrimSpace(start.StepID),
 		ToolCallID:   strings.TrimSpace(start.ToolCallID),
 		ToolName:     strings.TrimSpace(start.ToolName),
@@ -166,6 +169,7 @@ func transcriptLiveToolStartFromCallChecked(stepID string, call llm.ToolCall) (T
 		return TranscriptLiveToolStart{}, fmt.Errorf("project live tool start: %w", err)
 	}
 	return TranscriptLiveToolStart{
+		OutputIndex:  textutil.Pointer(call.OutputIndex),
 		StepID:       strings.TrimSpace(stepID),
 		ToolCallID:   strings.TrimSpace(call.ID),
 		ToolName:     strings.TrimSpace(call.Name),
@@ -175,6 +179,7 @@ func transcriptLiveToolStartFromCallChecked(stepID string, call llm.ToolCall) (T
 
 func cloneTranscriptLiveToolStart(start TranscriptLiveToolStart) TranscriptLiveToolStart {
 	return TranscriptLiveToolStart{
+		OutputIndex:  textutil.Pointer(start.OutputIndex),
 		StepID:       start.StepID,
 		ToolCallID:   start.ToolCallID,
 		ToolName:     start.ToolName,

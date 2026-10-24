@@ -34,8 +34,12 @@ func (s *reviewerRuntimeState) clientForConnection(bundle *connectionBundle, fac
 	}
 	observed := newObservedModelClient(client)
 	s.mu.Lock()
+	previous := s.client
 	s.client, s.connection = observed, bundle
 	s.mu.Unlock()
+	if err := previous.Close(); err != nil {
+		return nil, err
+	}
 	return observed, nil
 }
 
@@ -237,7 +241,8 @@ func (s *reviewerRuntimeState) EnsureClient() error {
 	s.mu.Lock()
 	if s.client == nil {
 		s.client = client
+		client = nil
 	}
 	s.mu.Unlock()
-	return nil
+	return client.Close()
 }

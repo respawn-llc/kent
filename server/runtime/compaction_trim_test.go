@@ -85,7 +85,7 @@ func TestRemoteCompactionCollapsesToolPayloadAfterOverflowAndPersistsCacheWarnin
 	store := mustCreateTestSession(t)
 	client := &fakeCompactionClient{
 		compactionErrors: []error{
-			&llm.ProviderAPIError{ProviderID: "openai", StatusCode: 400, Code: llm.UnifiedErrorCodeContextLengthOverflow, ProviderCode: "context_length_exceeded", Message: "prompt exceeded"},
+			&llm.ProviderAPIError{ProviderID: "openai", StatusCode: textutil.Value(400), Code: llm.UnifiedErrorCodeContextLengthOverflow, ProviderCode: "context_length_exceeded", Message: "prompt exceeded"},
 			nil,
 		},
 		compactionResponses: []llm.CompactionResponse{{
@@ -136,7 +136,7 @@ func TestRemoteCompactionCollapsesToolPayloadAfterOverflowAndPersistsCacheWarnin
 		_, err := eng.generateWithRetryClient(context.Background(), cacheStepID, newObservedModelClient(&fakeClient{responses: []llm.Response{{
 			Assistant: llm.Message{Role: llm.RoleAssistant, Content: textutil.Value("seeded")},
 			Usage:     llm.Usage{CachedInputTokens: textutil.Value(512)},
-		}}}), seedRequest, nil, nil, nil)
+		}}}), seedRequest, llm.StreamCallbacks{}, nil)
 		return err
 	}); err != nil {
 		t.Fatalf("seed cache lineage: %v", err)
@@ -198,7 +198,7 @@ func TestRemoteCompactionDoesNotRepairUnsupportedViewImagePayload(t *testing.T) 
 	store := mustCreateTestSession(t)
 	client := &fakeCompactionClient{
 		compactionErrors: []error{
-			&llm.ProviderAPIError{ProviderID: "openai", StatusCode: 400, Code: llm.UnifiedErrorCodeContextLengthOverflow, ProviderCode: "context_length_exceeded", Message: "prompt exceeded"},
+			&llm.ProviderAPIError{ProviderID: "openai", StatusCode: textutil.Value(400), Code: llm.UnifiedErrorCodeContextLengthOverflow, ProviderCode: "context_length_exceeded", Message: "prompt exceeded"},
 			nil,
 		},
 	}
@@ -265,7 +265,7 @@ func TestRemoteCompactionFailsFastWhenOverflowHasNoCollapsibleToolPayload(t *tes
 	store := mustCreateTestSession(t)
 	client := &fakeCompactionClient{
 		compactionErrors: []error{
-			&llm.ProviderAPIError{ProviderID: "openai", StatusCode: 400, Code: llm.UnifiedErrorCodeContextLengthOverflow, ProviderCode: "context_length_exceeded", Message: "prompt exceeded"},
+			&llm.ProviderAPIError{ProviderID: "openai", StatusCode: textutil.Value(400), Code: llm.UnifiedErrorCodeContextLengthOverflow, ProviderCode: "context_length_exceeded", Message: "prompt exceeded"},
 			nil,
 		},
 	}

@@ -126,7 +126,7 @@ func (r *defaultReviewerPipeline) runPrepared(ctx context.Context, prepared prep
 		})
 		return deferred.Await(ctx)
 	}, func(*connectionBundle) (llm.Response, error) {
-		return generateWithRetryClient(ctx, attempt.client, attempt.request, modelRequestRetriesAllowed, nil, nil, nil, nil)
+		return generateWithRetryClient(ctx, attempt.client, attempt.request, modelRequestRetriesAllowed, llm.StreamCallbacks{}, nil, nil)
 	})
 }
 

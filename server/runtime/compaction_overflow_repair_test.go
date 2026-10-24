@@ -175,7 +175,7 @@ func TestSpeculativeLocalCompactionCollapsesToolPayloadAfterOverflow(t *testing.
 	store := mustCreateTestSession(t)
 	client := &fakeCompactionClient{
 		errors: []error{
-			&llm.ProviderAPIError{ProviderID: "openai", StatusCode: 400, Code: llm.UnifiedErrorCodeContextLengthOverflow, ProviderCode: "context_length_exceeded", Message: "prompt exceeded"},
+			&llm.ProviderAPIError{ProviderID: "openai", StatusCode: textutil.Value(400), Code: llm.UnifiedErrorCodeContextLengthOverflow, ProviderCode: "context_length_exceeded", Message: "prompt exceeded"},
 			nil,
 		},
 		responses: []llm.Response{{
@@ -233,7 +233,7 @@ func TestLocalCompactionFailsFastWhenOverflowHasNoCollapsibleToolPayload(t *test
 	store := mustCreateTestSession(t)
 	client := &fakeCompactionClient{
 		errors: []error{
-			&llm.ProviderAPIError{ProviderID: "openai", StatusCode: 400, Code: llm.UnifiedErrorCodeContextLengthOverflow, ProviderCode: "context_length_exceeded", Message: "prompt exceeded"},
+			&llm.ProviderAPIError{ProviderID: "openai", StatusCode: textutil.Value(400), Code: llm.UnifiedErrorCodeContextLengthOverflow, ProviderCode: "context_length_exceeded", Message: "prompt exceeded"},
 			nil,
 		},
 		responses: []llm.Response{{
@@ -269,9 +269,9 @@ func TestLocalCompactionUsesTenTwentyFortyPercentRepairScheduleFromConfiguredCon
 	store := mustCreateTestSession(t)
 	client := &fakeCompactionClient{
 		errors: []error{
-			&llm.ProviderAPIError{ProviderID: "openai", StatusCode: 0, Code: llm.UnifiedErrorCodeContextLengthOverflow, ProviderCode: "context_length_exceeded", Message: "prompt exceeded"},
-			&llm.ProviderAPIError{ProviderID: "openai", StatusCode: 0, Code: llm.UnifiedErrorCodeContextLengthOverflow, ProviderCode: "context_length_exceeded", Message: "prompt exceeded"},
-			&llm.ProviderAPIError{ProviderID: "openai", StatusCode: 0, Code: llm.UnifiedErrorCodeContextLengthOverflow, ProviderCode: "context_length_exceeded", Message: "prompt exceeded"},
+			&llm.ProviderAPIError{ProviderID: "openai", StatusCode: nil, Code: llm.UnifiedErrorCodeContextLengthOverflow, ProviderCode: "context_length_exceeded", Message: "prompt exceeded"},
+			&llm.ProviderAPIError{ProviderID: "openai", StatusCode: nil, Code: llm.UnifiedErrorCodeContextLengthOverflow, ProviderCode: "context_length_exceeded", Message: "prompt exceeded"},
+			&llm.ProviderAPIError{ProviderID: "openai", StatusCode: nil, Code: llm.UnifiedErrorCodeContextLengthOverflow, ProviderCode: "context_length_exceeded", Message: "prompt exceeded"},
 			nil,
 		},
 		responses: []llm.Response{{
@@ -338,7 +338,7 @@ func TestGenerateWithRetryDoesNotRetryContextOverflow(t *testing.T) {
 	store := mustCreateTestSession(t)
 	client := &fakeClient{
 		errors: []error{
-			&llm.ProviderAPIError{ProviderID: "openai", StatusCode: 0, Code: llm.UnifiedErrorCodeContextLengthOverflow, ProviderCode: "context_length_exceeded", Message: "prompt exceeded"},
+			&llm.ProviderAPIError{ProviderID: "openai", StatusCode: nil, Code: llm.UnifiedErrorCodeContextLengthOverflow, ProviderCode: "context_length_exceeded", Message: "prompt exceeded"},
 			nil,
 		},
 		responses: []llm.Response{{Assistant: llm.Message{Role: llm.RoleAssistant, Content: textutil.Value("unexpected")}}},
@@ -346,7 +346,7 @@ func TestGenerateWithRetryDoesNotRetryContextOverflow(t *testing.T) {
 	eng := mustNewTestEngine(t, store, client, newTestToolRegistry(t, tools.HandlerRegistration{ID: toolspec.ToolExecCommand, Handler: fakeTool{name: toolspec.ToolExecCommand}}), Config{Model: "gpt-6-sol"})
 	req := llm.Request{ToolChoiceMode: llm.ToolChoiceModeAutomatic, Model: "gpt-6-sol", Items: llm.ItemsFromMessages([]llm.Message{{Role: llm.RoleUser, Content: textutil.Value("hello")}}), ReasoningEffort: "high"}
 
-	_, err := eng.generateWithRetryClient(context.Background(), "step-context-overflow", newObservedModelClient(client), req, nil, nil, nil)
+	_, err := eng.generateWithRetryClient(context.Background(), "step-context-overflow", newObservedModelClient(client), req, llm.StreamCallbacks{}, nil)
 	if err == nil {
 		t.Fatal("expected context overflow error")
 	}

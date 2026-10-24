@@ -20,9 +20,9 @@ func newResponsesRequestErrorMapper(providerID string) responsesRequestErrorMapp
 func (m responsesRequestErrorMapper) Map(err error, rawResp *http.Response, prefix string) error {
 	reducer, reducerErr := providerErrorReducerForID(m.providerID)
 	if reducerErr != nil {
-		statusCode := 0
+		var statusCode *int
 		if rawResp != nil {
-			statusCode = rawResp.StatusCode
+			statusCode = &rawResp.StatusCode
 			if rawResp.Body != nil {
 				rawResp.Body.Close()
 				rawResp.Body = nil

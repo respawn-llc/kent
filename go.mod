@@ -1,5 +1,7 @@
 module core
 
+replace github.com/openai/openai-go/v3 => ./.generated/openai-sdk
+
 go 1.26.4
 
 require (
@@ -23,7 +25,7 @@ require (
 	github.com/lxzan/gws v1.10.1
 	github.com/mattn/go-runewidth v0.0.27
 	github.com/muesli/termenv v0.16.0
-	github.com/openai/openai-go/v3 v3.56.0
+	github.com/openai/openai-go/v3 v3.84.1
 	github.com/pelletier/go-toml/v2 v2.4.4-0.20260711173024-cbe6f88bcc08
 	github.com/pressly/goose/v3 v3.27.3
 	github.com/rivo/uniseg v0.4.7
@@ -31,10 +33,10 @@ require (
 	github.com/santhosh-tekuri/jsonschema/v6 v6.0.3
 	github.com/tursodatabase/libsql-client-go v0.0.0-20260528064733-9d5d30a29a60
 	golang.org/x/image v0.44.0
-	golang.org/x/net v0.57.0
-	golang.org/x/sys v0.47.0
-	golang.org/x/term v0.45.0
-	golang.org/x/tools v0.48.0
+	golang.org/x/net v0.60.0
+	golang.org/x/sys v0.48.0
+	golang.org/x/term v0.46.0
+	golang.org/x/tools v0.49.0
 	google.golang.org/protobuf v1.36.12
 	gopkg.in/yaml.v3 v3.0.1
 	modernc.org/sqlite v1.56.0
@@ -49,6 +51,7 @@ require (
 	github.com/charmbracelet/ultraviolet v0.0.0-20260803092147-8b693049ce2a // indirect
 	github.com/charmbracelet/x/termios v0.1.1 // indirect
 	github.com/charmbracelet/x/windows v0.2.2 // indirect
+	github.com/coder/websocket v1.8.15 // indirect
 	github.com/go-faster/errors v0.7.1 // indirect
 	github.com/google/cel-go v0.30.0 // indirect
 	github.com/pb33f/ordered-map/v2 v2.3.1 // indirect
@@ -96,9 +99,9 @@ require (
 	github.com/yuin/goldmark v1.8.5
 	github.com/yuin/goldmark-emoji v1.0.6 // indirect
 	go.uber.org/multierr v1.11.0 // indirect
-	golang.org/x/mod v0.38.0
-	golang.org/x/sync v0.22.0 // indirect
-	golang.org/x/text v0.40.0
+	golang.org/x/mod v0.41.0 // indirect
+	golang.org/x/sync v0.23.0
+	golang.org/x/text v0.42.0
 	modernc.org/libc v1.74.4 // indirect
 	modernc.org/mathutil v1.7.1 // indirect
 	modernc.org/memory v1.11.0 // indirect

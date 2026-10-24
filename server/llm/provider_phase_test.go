@@ -2,6 +2,7 @@ package llm
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"net/http"
@@ -183,8 +184,9 @@ func newProviderPhaseResponseTransport(t *testing.T, phaseField string) *HTTPTra
 			w.WriteHeader(http.StatusNotFound)
 			return
 		}
-		w.Header().Set("Content-Type", "text/event-stream")
-		_, _ = fmt.Fprintf(w, "data: {\"type\":\"response.completed\",\"response\":{\"id\":\"resp_phase\",\"object\":\"response\",\"output\":[{\"type\":\"message\",\"id\":\"msg_phase\",\"role\":\"assistant\"%s,\"status\":\"completed\",\"content\":[{\"type\":\"output_text\",\"text\":\"done\"}]}],\"usage\":{\"input_tokens\":1,\"output_tokens\":1,\"total_tokens\":2}}}\n\ndata: [DONE]\n\n", phaseField)
+		serveResponsesTestWebsocket(t, w, r, func(json.RawMessage) []string {
+			return []string{fmt.Sprintf(`{"type":"response.completed","response":{"id":"resp_phase","object":"response","output":[{"type":"message","id":"msg_phase","role":"assistant"%s,"status":"completed","content":[{"type":"output_text","text":"done"}]}],"usage":{"input_tokens":1,"output_tokens":1,"total_tokens":2}}}`, phaseField)}
+		})
 	}))
 	t.Cleanup(server.Close)
 

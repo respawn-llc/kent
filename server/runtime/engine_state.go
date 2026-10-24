@@ -24,9 +24,8 @@ func (e *Engine) overlayLiveStreaming(snapshot *ChatSnapshot) {
 	if e == nil || snapshot == nil {
 		return
 	}
-	streaming, streamingErr, streamingMetadata := e.transcriptRuntimeState().StreamingSnapshot()
+	streaming, streamingErr := e.transcriptRuntimeState().StreamingSnapshot()
 	snapshot.Streaming = streaming
-	snapshot.StreamingMetadata = streamingMetadata
 	snapshot.StreamingError = streamingErr
 }
 
@@ -1034,6 +1033,9 @@ func (e *Engine) emitRaw(evt Event) error {
 }
 
 func (e *Engine) emitRawAtRevision(evt Event, revision int64) error {
+	if evt.Kind == EventToolCallCompleted && evt.ToolResult != nil {
+		evt.NativeToolCallLocator = e.transcriptRuntimeState().chatProjection().nativeToolCallLocator(evt.ToolResult.CallID)
+	}
 	evt.TranscriptRevision = revision
 	carriesCommittedRange := eventShouldCarryCommittedEntryCount(evt)
 	if !carriesCommittedRange {

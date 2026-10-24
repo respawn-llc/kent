@@ -17,6 +17,11 @@ import (
 
 type EventKind string
 
+type AssistantStreamCorrelation struct {
+	OutputIndex *int64
+	StreamID    uuid.UUID
+}
+
 type AssistantStreamAbortReason string
 
 type BackgroundShellEventType string
@@ -127,7 +132,9 @@ type Event struct {
 	AssistantDeltaPhase          llm.MessagePhase
 	AssistantStreamMetadata      *AssistantStreamMetadata
 	AssistantTranscriptStreamID  *uuid.UUID
+	AssistantStreamCorrelations  []AssistantStreamCorrelation
 	AssistantStreamAbortReason   string
+	NativeToolCallLocator        *transcript.CommittedRowLocator
 	ReasoningDelta               *llm.ReasoningSummaryDelta
 	ReasoningTraceIdentity       *TranscriptReasoningTraceIdentity
 	UserMessage                  string

@@ -7,7 +7,6 @@ import (
 	"reflect"
 	"testing"
 
-	"core/shared/modelcontract"
 	"core/shared/textutil"
 )
 
@@ -48,10 +47,9 @@ func TestGenerateHostedSearchKeepsCompletedPayloadAndDistinctCalls(t *testing.T)
 	completed := `{"id":"ws_final","type":"web_search_call","status":"completed","action":{"type":"search","query":"kent"},"usage":{"searches":1}}`
 	other := `{"id":"ws_other","type":"web_search_call","status":"completed","action":{"type":"search","query":"kent"},"usage":{"searches":2}}`
 	for _, test := range []struct {
-		name         string
-		streamed     string
-		outputIndex  int
-		wantStreamed bool
+		name        string
+		streamed    string
+		outputIndex int
 	}{
 		{
 			name:        "completed payload replaces in-progress item",
@@ -64,10 +62,9 @@ func TestGenerateHostedSearchKeepsCompletedPayloadAndDistinctCalls(t *testing.T)
 			outputIndex: 1,
 		},
 		{
-			name:         "distinct call omitted from completed output is retained",
-			streamed:     other,
-			outputIndex:  0,
-			wantStreamed: true,
+			name:        "distinct call omitted from completed output is not accepted",
+			streamed:    other,
+			outputIndex: 0,
 		},
 	} {
 		t.Run(test.name, func(t *testing.T) {
@@ -85,31 +82,23 @@ func TestGenerateHostedSearchKeepsCompletedPayloadAndDistinctCalls(t *testing.T)
 				t.Fatal(err)
 			}
 			expected := []string{completed}
-			if test.wantStreamed {
-				expected = append(expected, test.streamed)
-			}
 			if len(response.OutputItems) != len(expected) {
 				t.Fatalf("got %d output items, want %d", len(response.OutputItems), len(expected))
 			}
-			if test.wantStreamed && len(response.ProviderEvidence.HostedTools) != 2 {
-				t.Fatalf("hosted tool evidence = %+v, want completed and streamed calls", response.ProviderEvidence.HostedTools)
+			if len(response.ProviderEvidence.HostedTools) != 1 {
+				t.Fatalf("hosted tool evidence = %+v, want terminal call only", response.ProviderEvidence.HostedTools)
 			}
-			if test.wantStreamed {
-				hostedByID := make(map[string]modelcontract.HostedToolUsageEvidence, len(response.ProviderEvidence.HostedTools))
-				for _, hosted := range response.ProviderEvidence.HostedTools {
-					if hosted.ID == nil || hosted.Type == nil || hosted.Status == nil || hosted.ActionKind == nil {
-						t.Fatalf("hosted tool evidence = %+v, want complete identity", response.ProviderEvidence.HostedTools)
-					}
-					hostedByID[*hosted.ID] = hosted
-					if *hosted.Type != "web_search_call" || *hosted.Status != "completed" || *hosted.ActionKind != "search" {
-						t.Fatalf("hosted tool evidence = %+v, want web search identity", hosted)
-					}
+			for _, hosted := range response.ProviderEvidence.HostedTools {
+				if hosted.ID == nil || hosted.Type == nil || hosted.Status == nil || hosted.ActionKind == nil {
+					t.Fatalf("hosted tool evidence = %+v, want complete identity", response.ProviderEvidence.HostedTools)
 				}
-				if len(hostedByID) != 2 {
-					t.Fatalf("hosted tool evidence IDs = %v, want two distinct calls", hostedByID)
+				if *hosted.ID != "ws_final" {
+					t.Fatalf("accepted omitted streamed call: %+v", hosted)
 				}
-				assertJSONField(t, hostedByID["ws_final"].Usage, "searches", "1")
-				assertJSONField(t, hostedByID["ws_other"].Usage, "searches", "2")
+				if *hosted.Type != "web_search_call" || *hosted.Status != "completed" || *hosted.ActionKind != "search" {
+					t.Fatalf("hosted tool evidence = %+v, want web search identity", hosted)
+				}
+				assertJSONField(t, hosted.Usage, "searches", "1")
 			}
 			for i, item := range response.OutputItems {
 				var got, want any

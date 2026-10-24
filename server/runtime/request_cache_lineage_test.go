@@ -1079,10 +1079,10 @@ func TestGenerateWithRetryClient_CompactionResetsConversationAndReviewerCacheBas
 	reviewerKey := reviewerSessionID(cacheKey)
 	compactionStepID := runtimeTestStepID("step-compact")
 
-	if _, err := eng.generateWithRetryClient(context.Background(), runtimeTestStepID("main-before"), newObservedModelClient(client), testPromptCacheRequest(cacheKey, "alpha"), nil, nil, nil); err != nil {
+	if _, err := eng.generateWithRetryClient(context.Background(), runtimeTestStepID("main-before"), newObservedModelClient(client), testPromptCacheRequest(cacheKey, "alpha"), llm.StreamCallbacks{}, nil); err != nil {
 		t.Fatalf("main baseline generate: %v", err)
 	}
-	if _, err := eng.generateWithRetryClient(context.Background(), runtimeTestStepID("reviewer-before"), newObservedModelClient(client), testReviewerPromptCacheRequest(reviewerKey, "review"), nil, nil, nil); err != nil {
+	if _, err := eng.generateWithRetryClient(context.Background(), runtimeTestStepID("reviewer-before"), newObservedModelClient(client), testReviewerPromptCacheRequest(reviewerKey, "review"), llm.StreamCallbacks{}, nil); err != nil {
 		t.Fatalf("reviewer baseline generate: %v", err)
 	}
 	if _, err := replaceTestPreparedHistory(eng, compactionStepID, "local", compactionModeManual, preparedCompactionHistory{items: llm.ItemsFromMessages([]llm.Message{{
@@ -1092,10 +1092,10 @@ func TestGenerateWithRetryClient_CompactionResetsConversationAndReviewerCacheBas
 	}})}); err != nil {
 		t.Fatalf("replace history: %v", err)
 	}
-	if _, err := eng.generateWithRetryClient(context.Background(), runtimeTestStepID("main-after"), newObservedModelClient(client), testPromptCacheRequest(cacheKey, "beta"), nil, nil, nil); err != nil {
+	if _, err := eng.generateWithRetryClient(context.Background(), runtimeTestStepID("main-after"), newObservedModelClient(client), testPromptCacheRequest(cacheKey, "beta"), llm.StreamCallbacks{}, nil); err != nil {
 		t.Fatalf("main post-compaction generate: %v", err)
 	}
-	if _, err := eng.generateWithRetryClient(context.Background(), runtimeTestStepID("reviewer-after"), newObservedModelClient(client), testReviewerPromptCacheRequest(reviewerKey, "follow-up review"), nil, nil, nil); err != nil {
+	if _, err := eng.generateWithRetryClient(context.Background(), runtimeTestStepID("reviewer-after"), newObservedModelClient(client), testReviewerPromptCacheRequest(reviewerKey, "follow-up review"), llm.StreamCallbacks{}, nil); err != nil {
 		t.Fatalf("reviewer post-compaction generate: %v", err)
 	}
 	if warnings := persistedCacheWarnings(t, store); len(warnings) != 0 {
@@ -1114,10 +1114,10 @@ func TestGenerateWithRetryClient_ReplayedCompactionResetsConversationAndReviewer
 	reviewerKey := reviewerSessionID(cacheKey)
 	compactionStepID := runtimeTestStepID("step-compact")
 
-	if _, err := eng.generateWithRetryClient(context.Background(), runtimeTestStepID("main-before"), newObservedModelClient(client), testPromptCacheRequest(cacheKey, "alpha"), nil, nil, nil); err != nil {
+	if _, err := eng.generateWithRetryClient(context.Background(), runtimeTestStepID("main-before"), newObservedModelClient(client), testPromptCacheRequest(cacheKey, "alpha"), llm.StreamCallbacks{}, nil); err != nil {
 		t.Fatalf("main baseline generate: %v", err)
 	}
-	if _, err := eng.generateWithRetryClient(context.Background(), runtimeTestStepID("reviewer-before"), newObservedModelClient(client), testReviewerPromptCacheRequest(reviewerKey, "review"), nil, nil, nil); err != nil {
+	if _, err := eng.generateWithRetryClient(context.Background(), runtimeTestStepID("reviewer-before"), newObservedModelClient(client), testReviewerPromptCacheRequest(reviewerKey, "review"), llm.StreamCallbacks{}, nil); err != nil {
 		t.Fatalf("reviewer baseline generate: %v", err)
 	}
 	if _, err := replaceTestPreparedHistory(eng, compactionStepID, "local", compactionModeManual, preparedCompactionHistory{items: llm.ItemsFromMessages([]llm.Message{{
@@ -1141,10 +1141,10 @@ func TestGenerateWithRetryClient_ReplayedCompactionResetsConversationAndReviewer
 		Reviewer:         ReviewerConfig{Model: "gpt-6-sol"},
 		CacheWarningMode: config.CacheWarningModeDefault,
 	})
-	if _, err := replayed.generateWithRetryClient(context.Background(), runtimeTestStepID("main-after"), newObservedModelClient(replayClient), testPromptCacheRequest(cacheKey, "beta"), nil, nil, nil); err != nil {
+	if _, err := replayed.generateWithRetryClient(context.Background(), runtimeTestStepID("main-after"), newObservedModelClient(replayClient), testPromptCacheRequest(cacheKey, "beta"), llm.StreamCallbacks{}, nil); err != nil {
 		t.Fatalf("main replay generate: %v", err)
 	}
-	if _, err := replayed.generateWithRetryClient(context.Background(), runtimeTestStepID("reviewer-after"), newObservedModelClient(replayClient), testReviewerPromptCacheRequest(reviewerKey, "follow-up review"), nil, nil, nil); err != nil {
+	if _, err := replayed.generateWithRetryClient(context.Background(), runtimeTestStepID("reviewer-after"), newObservedModelClient(replayClient), testReviewerPromptCacheRequest(reviewerKey, "follow-up review"), llm.StreamCallbacks{}, nil); err != nil {
 		t.Fatalf("reviewer replay generate: %v", err)
 	}
 	if warnings := persistedCacheWarnings(t, reopened); len(warnings) != 0 {

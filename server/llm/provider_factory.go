@@ -54,7 +54,15 @@ type ProviderTransportEndpoint struct {
 
 type ProviderTransportVariantResolver func(endpoint ProviderTransportEndpoint, mode OpenAIAuthMode) (string, error)
 
+type responsesGenerationProtocol uint8
+
+const (
+	responsesSSE responsesGenerationProtocol = iota
+	responsesWebsocket
+)
+
 type ProviderVariantContract struct {
+	generationProtocol responsesGenerationProtocol
 	DefaultModel       *string
 	ReasoningType      *modelcontract.ReasoningType
 	ProviderID         string
@@ -143,6 +151,7 @@ func providerContracts() []ProviderContract {
 			ProviderVariants: []ProviderVariantContract{
 				{
 					ProviderID:         "openai",
+					generationProtocol: responsesWebsocket,
 					ResponsesPolicy:    openAIResponsesPolicy{},
 					TokenEstimator:     OpenAITokenEstimator{},
 					ReasoningType:      textutil.Value(modelcontract.ReasoningTypeOpenAI),
@@ -181,6 +190,7 @@ func providerContracts() []ProviderContract {
 				},
 				{
 					ProviderID:         "chatgpt-codex",
+					generationProtocol: responsesWebsocket,
 					ResponsesPolicy:    openAIResponsesPolicy{},
 					TokenEstimator:     OpenAITokenEstimator{},
 					ReasoningType:      textutil.Value(modelcontract.ReasoningTypeOpenAI),
@@ -221,8 +231,14 @@ func providerContracts() []ProviderContract {
 
 func grokVariant(protocol config.ConnectionProtocol, endpoint string, policy responsesPolicy, nativeCompaction bool) ProviderVariantContract {
 	id := string(protocol)
+	generation := responsesSSE
+	switch protocol {
+	case config.ConnectionGrokOAuthAPI, config.ConnectionGrokAPIKey:
+		generation = responsesWebsocket
+	}
 	return ProviderVariantContract{
-		ProviderID: id, BaseURL: textutil.Value(endpoint),
+		generationProtocol: generation,
+		ProviderID:         id, BaseURL: textutil.Value(endpoint),
 		DefaultModel:       textutil.Value("grok-4.7"),
 		ReasoningType:      textutil.Value(modelcontract.ReasoningTypeGrok),
 		ResponsesPolicy:    policy,

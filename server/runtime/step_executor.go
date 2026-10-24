@@ -281,7 +281,8 @@ func (s *defaultStepExecutor) runStepLoopWithOptions(ctx context.Context, stepID
 		}
 		e.assertWorkflowInstructionsPresent(stepNo)
 
-		var reasoningSteerErr error
+		var streamSteerErr error
+		var unacceptedLocalCallIndex *int64
 		candidate, err := e.generateWithMissingToolOutputRepair(
 			ctx,
 			stepID,
@@ -294,23 +295,50 @@ func (s *defaultStepExecutor) runStepLoopWithOptions(ctx context.Context, stepID
 				}
 				return request, err
 			},
-			func(delta llm.AssistantDelta) {
-				_ = e.steer(stepID, steerAssistantDeltaIntent(delta))
-			},
-			func(delta llm.ReasoningSummaryDelta) {
-				if reasoningSteerErr == nil {
-					reasoningSteerErr = e.steer(stepID, steerReasoningDeltaIntent(delta))
-				}
+			llm.StreamCallbacks{
+				OnAssistantDelta: func(delta llm.AssistantDelta) {
+					if unacceptedLocalCallIndex != nil && delta.OutputIndex != nil && *delta.OutputIndex > *unacceptedLocalCallIndex {
+						// Acceptance publishes the native call and subsequent text together.
+						// A provider preview must not imply local execution has started.
+						return
+					}
+					if streamSteerErr == nil {
+						streamSteerErr = e.steer(stepID, steerAssistantDeltaIntent(delta))
+					}
+				},
+				OnReasoningSummaryDelta: func(delta llm.ReasoningSummaryDelta) {
+					if unacceptedLocalCallIndex != nil && delta.SourceCoordinate != nil && delta.SourceCoordinate.OutputIndex != nil && *delta.SourceCoordinate.OutputIndex > *unacceptedLocalCallIndex {
+						return
+					}
+					if streamSteerErr == nil {
+						streamSteerErr = e.steer(stepID, steerReasoningDeltaIntent(delta))
+					}
+				},
+				OnOutputItem: func(item llm.ResponseItem) {
+					if item.Type == llm.ResponseItemTypeFunctionCall || item.Type == llm.ResponseItemTypeCustomToolCall {
+						if unacceptedLocalCallIndex == nil || item.OutputIndex < *unacceptedLocalCallIndex {
+							index := item.OutputIndex
+							unacceptedLocalCallIndex = &index
+						}
+					}
+					if unacceptedLocalCallIndex != nil && item.OutputIndex >= *unacceptedLocalCallIndex {
+						return
+					}
+					if streamSteerErr == nil {
+						streamSteerErr = e.steerProviderOutputItem(stepID, item)
+					}
+				},
 			},
 			func() {
+				unacceptedLocalCallIndex = nil
 				_ = e.resetReasoningAndClearStreamingState(stepID)
 			},
 		)
 		if err != nil {
 			return stepLoopResult{}, err
 		}
-		if reasoningSteerErr != nil {
-			return stepLoopResult{}, fmt.Errorf("apply streamed reasoning update: %w", reasoningSteerErr)
+		if streamSteerErr != nil {
+			return stepLoopResult{}, fmt.Errorf("apply streamed output: %w", streamSteerErr)
 		}
 		resp := candidate.response
 
@@ -332,8 +360,8 @@ func (s *defaultStepExecutor) runStepLoopWithOptions(ctx context.Context, stepID
 			}
 		}
 		assistantPhase, _ := textutil.OptionalValue(prepared.assistant.Phase)
-		if prepared.next != completedResponseNextAccepted ||
-			transcript.ClassifyAssistantPhase(string(assistantPhase)) != transcript.AssistantPhaseFinal {
+		if prepared.next != completedResponseNextAccepted || (prepared.assistant.NativeResponse == nil &&
+			transcript.ClassifyAssistantPhase(string(assistantPhase)) != transcript.AssistantPhaseFinal) {
 			if err := s.resolveReasoningDisposition(stepID, prepared.next, prepared.response.Reasoning); err != nil {
 				return stepLoopResult{}, err
 			}
@@ -407,7 +435,11 @@ func (s *defaultStepExecutor) runStepLoopWithOptions(ctx context.Context, stepID
 				e.cascadeCompleteActiveGoalOnWorkflowCompletion(stepID)
 				return stepLoopResult{ExecutedToolCall: true}, nil
 			}
-			continue
+			if assistantMsg.NativeResponse == nil || !responseCompletesAfterTools(assistantMsg, phaseTurn, acceptedCalls) {
+				continue
+			}
+			localToolCalls = nil
+			hostedToolExecutions = nil
 		}
 
 		e.submitSessionNaming(resp)
@@ -665,13 +697,8 @@ func (s *defaultStepExecutor) prepareCompletedResponse(ctx context.Context, step
 
 	// Without a phase protocol, an answer with only completed hosted work is
 	// already final. Hosted observations do not require a model continuation.
-	finalAnswerWithToolCalls := (messagePhaseIs(assistantMsg, llm.MessagePhaseFinal) ||
-		(!phaseTurn.EnforcePhaseProtocol && phaseTurn.EffectivePhase.IsAbsent() && len(acceptedCalls.local) == 0)) &&
-		assistantMsg.Content != nil &&
-		strings.TrimSpace(*assistantMsg.Content) != "" &&
-		acceptedCalls.hasCalls()
 	patchEditsApplied := false
-	if finalAnswerWithToolCalls {
+	if assistantMsg.NativeResponse == nil && responseCompletesAfterTools(assistantMsg, phaseTurn, acceptedCalls) {
 		applied, terminal, err := s.materializeFinalAnswerToolCalls(ctx, stepID, acceptedCalls, options)
 		if err != nil {
 			return preparedCompletedResponse{}, err
@@ -698,7 +725,13 @@ func (s *defaultStepExecutor) prepareCompletedResponse(ctx context.Context, step
 	}
 
 	assistantPhase, _ := textutil.OptionalValue(assistantMsg.Phase)
-	if transcript.ClassifyAssistantPhase(string(assistantPhase)) == transcript.AssistantPhaseFinal {
+	if assistantMsg.NativeResponse != nil {
+		native, err := s.prepareNativeReasoning(stepID, assistantMsg.NativeResponse)
+		if err != nil {
+			return preparedCompletedResponse{}, err
+		}
+		assistantMsg.NativeResponse = native
+	} else if transcript.ClassifyAssistantPhase(string(assistantPhase)) == transcript.AssistantPhaseFinal {
 		if err := s.resolveReasoningDisposition(stepID, completedResponseNextAccepted, resp.Reasoning); err != nil {
 			return preparedCompletedResponse{}, err
 		}
@@ -738,6 +771,11 @@ func (s *defaultStepExecutor) prepareCompletedResponse(ctx context.Context, step
 	}
 	assistantCommittedCoordinate := assistantCommitResult.coordinate
 	assistantProvenance := assistantCommitResult.provenance
+	if assistantMsg.NativeResponse != nil {
+		if err := s.resetProvisionalReasoning(stepID); err != nil {
+			return preparedCompletedResponse{}, err
+		}
+	}
 	if !acceptedCalls.hasCalls() {
 		e.compactionRuntimeState().SetManualCompactionEligible(true)
 		e.persistManualCompactEligibilityBestEffort(stepID, true)
@@ -765,6 +803,12 @@ func classifyCompletedResponsePreflightRejection(workflowActive bool, calls acce
 		return nil
 	}
 	return &completedResponsePreflightRejection{cause: err}
+}
+
+func responseCompletesAfterTools(assistant llm.Message, phase phaseProtocolTurn, calls acceptedResponseCalls) bool {
+	return (messagePhaseIs(assistant, llm.MessagePhaseFinal) ||
+		(!phase.EnforcePhaseProtocol && phase.EffectivePhase.IsAbsent() && len(calls.local) == 0)) &&
+		assistant.Content != nil && strings.TrimSpace(*assistant.Content) != "" && calls.hasCalls()
 }
 
 func (s *defaultStepExecutor) materializeFinalAnswerToolCalls(ctx context.Context, stepID string, calls acceptedResponseCalls, options stepLoopOptions) (bool, bool, error) {
@@ -1050,7 +1094,7 @@ func committedStartsForPersistedAssistantMessage(e *Engine, msg llm.Message, exe
 	}
 	toolCallStarts := make(map[string]int)
 	for idx, entry := range entries {
-		if strings.TrimSpace(entry.Role) != "tool_call" {
+		if !isToolCallEntryRole(strings.TrimSpace(entry.Role)) {
 			continue
 		}
 		callID := strings.TrimSpace(entry.ToolCallID)

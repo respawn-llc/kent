@@ -31,7 +31,7 @@ func testPostTurnQueueDeliversOneItemPerTurn(t *testing.T, retryQueuedRequest bo
 	var call int
 	client := &hookClient{response: finalTextResponse("done")}
 	if retryQueuedRequest {
-		client.errors = []error{nil, nil, &llm.ProviderAPIError{ProviderID: "openai", StatusCode: 503, Code: llm.UnifiedErrorCodeUnknown}}
+		client.errors = []error{nil, nil, &llm.ProviderAPIError{ProviderID: "openai", StatusCode: textutil.Value(503), Code: llm.UnifiedErrorCodeUnknown}}
 	}
 	client.beforeReturn = func() error {
 		call++

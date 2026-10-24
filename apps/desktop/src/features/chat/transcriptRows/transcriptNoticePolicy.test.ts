@@ -195,6 +195,7 @@ function noticeRow(input: Partial<Notice> & { Visibility?: ChatTranscriptCommitt
     User: null,
     Assistant: null,
     Tool: null,
+    ToolCall: null,
     ReasoningTrace: null,
     Notice: {
       Reason: "legacy_untyped_notice",

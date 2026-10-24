@@ -106,7 +106,7 @@ export function hydration(): ChatTranscriptPayloadByKind["hydration"] {
       },
     },
     TailSegment: { OlderCursor: null, HasMoreAbove: false, Entries: [] },
-    ActiveAssistant: null,
+    ActiveAssistants: [],
     ActiveThinkingStatus: null,
     ActiveReasoningTraces: [],
     ActiveStep: null,

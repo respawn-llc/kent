@@ -29,8 +29,7 @@ type GenerationRetryOptions struct {
 	Schedule          GenerationRetrySchedule
 	SingleAttempt     bool
 	NonRetryable      func(error) bool
-	OnDelta           func(AssistantDelta)
-	OnReasoningDelta  func(ReasoningSummaryDelta)
+	Callbacks         StreamCallbacks
 	OnAttemptReset    func()
 	OnAttemptFinished func()
 }
@@ -42,23 +41,32 @@ func GenerateWithRetry(ctx context.Context, attempt GenerationAttempt, options G
 	for i := 0; ; i++ {
 		var emitted, reasoningEmitted bool
 		var done atomic.Bool
-		callbacks := StreamCallbacks{}
-		if options.OnDelta != nil {
+		callbacks := options.Callbacks
+		if options.Callbacks.OnAssistantDelta != nil {
 			callbacks.OnAssistantDelta = func(delta AssistantDelta) {
 				if done.Load() || delta.Text == "" {
 					return
 				}
 				emitted = true
-				options.OnDelta(delta)
+				options.Callbacks.OnAssistantDelta(delta)
 			}
 		}
-		if options.OnReasoningDelta != nil {
+		if options.Callbacks.OnReasoningSummaryDelta != nil {
 			callbacks.OnReasoningSummaryDelta = func(delta ReasoningSummaryDelta) {
 				if done.Load() || strings.TrimSpace(delta.Text) == "" {
 					return
 				}
 				reasoningEmitted = true
-				options.OnReasoningDelta(delta)
+				options.Callbacks.OnReasoningSummaryDelta(delta)
+			}
+		}
+		if options.Callbacks.OnOutputItem != nil {
+			callbacks.OnOutputItem = func(item ResponseItem) {
+				if done.Load() {
+					return
+				}
+				emitted = true
+				options.Callbacks.OnOutputItem(item)
 			}
 		}
 		resp, err := attempt(ctx, callbacks, func() {

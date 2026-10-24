@@ -1,6 +1,7 @@
 package runtime
 
 import (
+	"cmp"
 	"core/server/llm"
 	"core/server/session"
 	"core/server/tools"
@@ -12,6 +13,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
+	"slices"
 	"sort"
 	"strings"
 	"sync"
@@ -67,16 +69,23 @@ type ReviewerErrorChatEntry struct {
 }
 
 type ChatSnapshot struct {
-	Entries           []ChatEntry
-	Streaming         string
-	StreamingMetadata *AssistantStreamMetadata
-	StreamingError    string
+	Entries        []ChatEntry
+	Streaming      []AssistantStreamSnapshot
+	StreamingError string
 }
 
 type AssistantStreamMetadata struct {
+	OutputIndex             *int64
 	StepID                  string
 	BaseRevision            int64
 	BaseCommittedEntryCount int
+}
+
+type AssistantStreamSnapshot struct {
+	Text     string
+	Metadata AssistantStreamMetadata
+	StreamID uuid.UUID
+	Phase    llm.MessagePhase
 }
 
 type TranscriptWindowSnapshot struct {
@@ -115,7 +124,7 @@ type chatStore struct {
 	synthesizedToolResults            map[string]struct{}
 	assistantStreamIDsByEntry         map[int]uuid.UUID
 	activeSegmentEntryStart           int
-	streaming                         *assistantStreamingState
+	streaming                         []AssistantStreamSnapshot
 	streamingError                    string
 	cwd                               string
 	lastCommittedAssistantFinalAnswer *string
@@ -142,18 +151,9 @@ type localChatEntry struct {
 	Provenance        *TranscriptCommittedRowProvenance
 }
 
-type assistantStreamingState struct {
-	text               string
-	metadata           *AssistantStreamMetadata
-	transcriptStreamID *uuid.UUID
-	phase              llm.MessagePhase
-}
-
 type assistantStreamingAppend struct {
-	metadata           *AssistantStreamMetadata
-	transcriptStreamID *uuid.UUID
-	supersededMetadata *AssistantStreamMetadata
-	supersededStreamID *uuid.UUID
+	stream     *AssistantStreamSnapshot
+	superseded []AssistantStreamSnapshot
 }
 
 type compactionCheckpoint struct {
@@ -454,44 +454,73 @@ func (s *chatStore) recordToolCompletionWithProviderItems(res tools.Result, prov
 	}
 }
 
-func (s *chatStore) appendStreamingDelta(stepID string, baseRevision int64, baseCommittedEntryCount int, delta string, phase llm.MessagePhase) assistantStreamingAppend {
-	if delta == "" {
+func (s *chatStore) appendStreamingDelta(stepID string, baseRevision int64, baseCommittedEntryCount int, delta llm.AssistantDelta) assistantStreamingAppend {
+	if delta.Text == "" {
 		return assistantStreamingAppend{}
 	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	nextMetadata := newAssistantStreamMetadata(stepID, baseRevision, baseCommittedEntryCount)
-	var supersededMetadata *AssistantStreamMetadata
-	var supersededStreamID *uuid.UUID
-	if s.streaming != nil &&
-		s.streaming.phase != "" &&
-		phase != "" &&
-		s.streaming.phase != phase {
-		supersededMetadata = cloneAssistantStreamMetadata(s.streaming.metadata)
-		supersededStreamID = cloneTranscriptStreamID(s.streaming.transcriptStreamID)
+	nextMetadata.OutputIndex = textutil.Pointer(delta.OutputIndex)
+	var superseded []AssistantStreamSnapshot
+	if len(s.streaming) > 0 && assistantStreamingSegmentChanged(&s.streaming[0].Metadata, nextMetadata) {
+		superseded = s.streamingSnapshotLocked()
 		s.streaming = nil
 	}
-	if s.streaming == nil || assistantStreamingSegmentChanged(s.streaming.metadata, nextMetadata) {
-		streamID := uuid.New()
-		s.streaming = &assistantStreamingState{metadata: nextMetadata, transcriptStreamID: &streamID}
+	var stream *AssistantStreamSnapshot
+	for i := range s.streaming {
+		if textutil.EqualOptional(s.streaming[i].Metadata.OutputIndex, delta.OutputIndex) {
+			stream = &s.streaming[i]
+			break
+		}
 	}
-	s.streaming.text += delta
-	if phase != "" {
-		s.streaming.phase = phase
+	if stream != nil && delta.OutputIndex == nil && stream.Phase != "" && delta.Phase != "" && stream.Phase != delta.Phase {
+		superseded = append(superseded, *stream)
+		*stream = AssistantStreamSnapshot{Metadata: *nextMetadata, StreamID: uuid.New()}
 	}
-	return assistantStreamingAppend{
-		metadata:           cloneAssistantStreamMetadata(s.streaming.metadata),
-		transcriptStreamID: cloneTranscriptStreamID(s.streaming.transcriptStreamID),
-		supersededMetadata: supersededMetadata,
-		supersededStreamID: supersededStreamID,
+	if stream == nil {
+		s.streaming = append(s.streaming, AssistantStreamSnapshot{Metadata: *nextMetadata, StreamID: uuid.New()})
+		stream = &s.streaming[len(s.streaming)-1]
 	}
+	stream.Text += delta.Text
+	if delta.Phase != "" {
+		stream.Phase = delta.Phase
+	}
+	result := *stream
+	result.Metadata = *cloneAssistantStreamMetadata(&stream.Metadata)
+	return assistantStreamingAppend{stream: &result, superseded: superseded}
 }
 
-func (s *chatStore) streamingSnapshot() (string, string, *AssistantStreamMetadata) {
+func (s *chatStore) streamingSnapshot() ([]AssistantStreamSnapshot, string) {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
-	streaming, metadata := s.streamingSnapshotLocked()
-	return streaming, s.streamingError, metadata
+	return s.streamingSnapshotLocked(), s.streamingError
+}
+
+func (s *chatStore) nativeToolCallLocator(callID string) *transcript.CommittedRowLocator {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	var locator *transcript.CommittedRowLocator
+	s.walkProjectionLocked(func(record chatMessageRecord) {
+		if record.Message.NativeResponse == nil {
+			return
+		}
+		for _, call := range record.Message.ToolCalls {
+			if call.ID != callID {
+				continue
+			}
+			rows := locateTranscriptCommittedRowFacts(transcriptCommittedRowFactsFromMessage(
+				*record.Message, nil, nil, nil, transcriptMessageProjectionContext{Provenance: record.Provenance},
+			))
+			for _, row := range rows {
+				if row.ToolCall != nil && row.ToolCall.ToolCallID == callID {
+					locator = textutil.Value(row.Locator)
+					return
+				}
+			}
+		}
+	}, func(localChatEntry) {}, nil)
+	return locator
 }
 
 func (s *chatStore) recordAssistantStreamFinalization(committedEntryStart int, streamID *uuid.UUID) {
@@ -506,13 +535,12 @@ func (s *chatStore) recordAssistantStreamFinalization(committedEntryStart int, s
 	s.assistantStreamIDsByEntry[committedEntryStart] = *streamID
 }
 
-func (s *chatStore) discardStreaming() (*AssistantStreamMetadata, *uuid.UUID) {
+func (s *chatStore) discardStreaming() []AssistantStreamSnapshot {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	metadata := cloneAssistantStreamMetadata(s.streamingMetadataLocked())
-	streamID := cloneTranscriptStreamID(s.streamingStreamIDLocked())
+	streams := s.streamingSnapshotLocked()
 	s.streaming = nil
-	return metadata, streamID
+	return streams
 }
 
 func (s *chatStore) setStreamingError(text string) {
@@ -551,32 +579,18 @@ func assistantStreamingSegmentChanged(current *AssistantStreamMetadata, next *As
 		current.BaseCommittedEntryCount != next.BaseCommittedEntryCount
 }
 
-func (s *chatStore) streamingSnapshotLocked() (string, *AssistantStreamMetadata) {
-	if s.streaming == nil {
-		return "", nil
+func (s *chatStore) streamingSnapshotLocked() []AssistantStreamSnapshot {
+	streams := slices.Clone(s.streaming)
+	for i := range streams {
+		streams[i].Metadata = *cloneAssistantStreamMetadata(&streams[i].Metadata)
 	}
-	return s.streaming.text, cloneAssistantStreamMetadata(s.streaming.metadata)
-}
-
-func (s *chatStore) streamingMetadataLocked() *AssistantStreamMetadata {
-	if s.streaming == nil {
-		return nil
-	}
-	return s.streaming.metadata
-}
-
-func (s *chatStore) streamingStreamIDLocked() *uuid.UUID {
-	if s.streaming == nil {
-		return nil
-	}
-	return s.streaming.transcriptStreamID
-}
-
-func (s *chatStore) streamingPhaseLocked() llm.MessagePhase {
-	if s.streaming == nil {
-		return ""
-	}
-	return s.streaming.phase
+	slices.SortStableFunc(streams, func(a, b AssistantStreamSnapshot) int {
+		if a.Metadata.OutputIndex == nil || b.Metadata.OutputIndex == nil {
+			return 0
+		}
+		return cmp.Compare(*a.Metadata.OutputIndex, *b.Metadata.OutputIndex)
+	})
+	return streams
 }
 
 func cloneAssistantStreamMetadata(metadata *AssistantStreamMetadata) *AssistantStreamMetadata {
@@ -584,6 +598,7 @@ func cloneAssistantStreamMetadata(metadata *AssistantStreamMetadata) *AssistantS
 		return nil
 	}
 	copyMetadata := *metadata
+	copyMetadata.OutputIndex = textutil.Pointer(metadata.OutputIndex)
 	return &copyMetadata
 }
 
@@ -997,11 +1012,8 @@ func applyLastCommittedAssistantFinalAnswer(current *string, msg llm.Message) *s
 }
 
 type transcriptDeliverySnapshot struct {
-	Rows              []TranscriptCommittedRowFact
-	Streaming         string
-	StreamingMetadata *AssistantStreamMetadata
-	StreamingStreamID *uuid.UUID
-	StreamingPhase    llm.MessagePhase
+	Rows      []TranscriptCommittedRowFact
+	Streaming []AssistantStreamSnapshot
 }
 
 type transcriptDeliveryFactScan struct {
@@ -1011,6 +1023,7 @@ type transcriptDeliveryFactScan struct {
 	materializedToolCalls    map[string]struct{}
 	streamIDsByEntry         map[int]uuid.UUID
 	currentEntryIndex        int
+	nativeCalls              map[string]struct{}
 }
 
 func newTranscriptDeliveryFactScan(completions map[string]tools.Result, completionProvenance map[string]*TranscriptCommittedRowProvenance, materializedToolCalls map[string]struct{}, streamIDsByEntry map[int]uuid.UUID, currentEntryIndex int) *transcriptDeliveryFactScan {
@@ -1021,17 +1034,40 @@ func (s *transcriptDeliveryFactScan) ApplyMessage(stepID *string, msg llm.Messag
 	if s == nil {
 		return
 	}
-	var streamID *uuid.UUID
-	if id, ok := s.streamIDsByEntry[s.currentEntryIndex]; ok {
-		streamID = &id
+	if msg.Role == llm.RoleTool && msg.ToolCallID != nil {
+		if _, native := s.nativeCalls[*msg.ToolCallID]; native {
+			return
+		}
+	}
+	materialized := s.materializedToolCalls
+	if msg.NativeResponse != nil {
+		materialized = nil
+		if s.nativeCalls == nil {
+			s.nativeCalls = make(map[string]struct{})
+		}
+		for _, call := range msg.ToolCalls {
+			s.nativeCalls[call.ID] = struct{}{}
+		}
+	}
+	var correlations []AssistantStreamCorrelation
+	if msg.NativeResponse != nil {
+		offset := 0
+		for _, projected := range nativeResponseMessages(msg) {
+			if id, ok := s.streamIDsByEntry[s.currentEntryIndex+offset]; ok {
+				correlations = append(correlations, AssistantStreamCorrelation{OutputIndex: textutil.Value(projected.OutputIndex), StreamID: id})
+			}
+			offset += projected.entryCount()
+		}
+	} else if id, ok := s.streamIDsByEntry[s.currentEntryIndex]; ok {
+		correlations = append(correlations, AssistantStreamCorrelation{StreamID: id})
 	}
 	facts := transcriptCommittedRowFactsForStep(
 		stepID,
 		transcriptCommittedRowFactsFromMessage(
 			msg,
-			streamID,
+			correlations,
 			s.toolCompletions,
-			s.materializedToolCalls,
+			materialized,
 			transcriptMessageProjectionContext{
 				Provenance:           provenance,
 				CompletionProvenance: s.toolCompletionProvenance,
@@ -1039,7 +1075,7 @@ func (s *transcriptDeliveryFactScan) ApplyMessage(stepID *string, msg llm.Messag
 		),
 	)
 	s.rows = append(s.rows, facts...)
-	s.currentEntryIndex += transcriptCommittedEntryCountFromMessage(msg, s.toolCompletions, s.materializedToolCalls)
+	s.currentEntryIndex += transcriptCommittedEntryCountFromMessage(msg, s.toolCompletions, materialized)
 }
 
 func (s *transcriptDeliveryFactScan) ApplyLocalEntry(entry ChatEntry, projected bool) {
@@ -1141,12 +1177,8 @@ func (s *chatStore) deliverySnapshot() transcriptDeliverySnapshot {
 		},
 		scan.MarkCompactionBoundary,
 	)
-	streaming, metadata := s.streamingSnapshotLocked()
 	return transcriptDeliverySnapshot{
-		Rows:              scan.Snapshot(),
-		Streaming:         streaming,
-		StreamingMetadata: metadata,
-		StreamingStreamID: cloneTranscriptStreamID(s.streamingStreamIDLocked()),
-		StreamingPhase:    s.streamingPhaseLocked(),
+		Rows:      scan.Snapshot(),
+		Streaming: s.streamingSnapshotLocked(),
 	}
 }
