@@ -2,9 +2,11 @@ package ongoing
 
 import (
 	"io"
+	"iter"
 	"strings"
 
 	"core/cli/tui/transcriptrender"
+	transcriptpb "core/shared/protoapi/gen/kent/api/transcript"
 )
 
 type terminalRowRange struct {
@@ -66,20 +68,9 @@ func (s *Surface) validateRenderFrame(frame FrameInput, operation string) {
 }
 
 func (s *Surface) writeFrameTransaction(frame FrameInput, immutableRows []string) (Result, error) {
-	liveLayout := s.liveBandLayout(frame)
-	liveLines := liveBandLineTexts(liveLayout)
-	if !s.minimumLiveBandFits(frame, liveLines) {
-		liveLayout = nil
-		frame.Cursor = Cursor{}
-	} else {
-		liveLayout = s.shrinkLiveBandLayoutToFrame(frame, liveLayout)
-	}
-	liveLines = liveBandLineTexts(liveLayout)
-	frame.Cursor = cursorForVisibleLiveBand(frame.Cursor, frame.Size.Height, liveLayout)
-	if len(immutableRows) > 0 && len(liveLines) >= frame.Size.Height {
-		liveLines = nil
-		frame.Cursor = Cursor{}
-	}
+	allocation := s.allocateFrame(frame, len(immutableRows))
+	liveLines := liveBandLineTexts(allocation.layout)
+	frame.Cursor = allocation.cursor
 	previousHeight := s.previousMutableBandHeightAtBottom(frame.Size)
 	contentHeight := len(liveLines)
 	releasableHeight := max(0, previousHeight-contentHeight)
@@ -130,6 +121,66 @@ func (s *Surface) writeFrameTransaction(frame FrameInput, immutableRows []string
 	paintedSize := frame.Size
 	s.lastPaintedSize = &paintedSize
 	return Result{}, nil
+}
+
+// FrameAllocation is the final live-band geometry used by the terminal painter.
+type FrameAllocation struct {
+	layout []liveBandLine
+	cursor Cursor
+}
+
+// SectionRows returns the surviving one-based row identities of a frame section.
+func (a FrameAllocation) SectionRows(kind FrameSectionKind) []int {
+	var rows []int
+	for _, line := range a.layout {
+		if line.sectionKind == kind {
+			rows = append(rows, line.sectionRow)
+		}
+	}
+	return rows
+}
+
+// AllocateFrame measures a repaint without writing or changing transcript state.
+func (s *Surface) AllocateFrame(frame FrameInput) FrameAllocation {
+	return s.allocateFrame(frame, 0)
+}
+
+// AllocateMessageFrames measures each incoming frame in order without consuming
+// the messages or advancing the surface's grouping, stream, or terminal state.
+func (s *Surface) AllocateMessageFrames(messages []*transcriptpb.Message, frame FrameInput) iter.Seq[FrameAllocation] {
+	return func(yield func(FrameAllocation) bool) {
+		next := *s
+		for _, message := range messages {
+			content := next.prepareTerminalMessage(message, frame)
+			var allocation FrameAllocation
+			if content == nil {
+				allocation = next.AllocateFrame(frame)
+			} else {
+				allocation = next.allocateFrame(frame, len(content.immutableRows))
+			}
+			if !yield(allocation) {
+				return
+			}
+		}
+	}
+}
+
+func (s *Surface) allocateFrame(frame FrameInput, immutableRowCount int) FrameAllocation {
+	liveLayout := s.liveBandLayout(frame)
+	liveLines := liveBandLineTexts(liveLayout)
+	if !s.minimumLiveBandFits(frame, liveLines) {
+		liveLayout = nil
+		frame.Cursor = Cursor{}
+	} else {
+		liveLayout = s.shrinkLiveBandLayoutToFrame(frame, liveLayout)
+	}
+	liveLines = liveBandLineTexts(liveLayout)
+	frame.Cursor = cursorForVisibleLiveBand(frame.Cursor, frame.Size.Height, liveLayout)
+	if immutableRowCount > 0 && len(liveLines) >= frame.Size.Height {
+		liveLayout = nil
+		frame.Cursor = Cursor{}
+	}
+	return FrameAllocation{layout: liveLayout, cursor: frame.Cursor}
 }
 
 func validateFrameTransactionGeometry(

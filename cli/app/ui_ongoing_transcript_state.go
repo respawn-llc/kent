@@ -18,10 +18,13 @@ import (
 func (m *uiModel) applyAdmittedTranscriptMessageState(
 	message *transcriptpb.Message,
 	admission runtimeTupleMergeResult,
-) tea.Cmd {
+) (command tea.Cmd) {
 	if m == nil {
 		return nil
 	}
+	defer func() {
+		command = tea.Batch(command, m.reconcileAskPresentationForMessage(message))
+	}()
 	if m.turnQueueHook != nil {
 		if message.Event.GetHydration() != nil {
 			m.turnQueueHook.OnTurnQueueAborted()
