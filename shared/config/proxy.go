@@ -45,7 +45,7 @@ func ResolveServerProxy(root string, dotenv func(string) (string, bool)) (Proxy,
 	return result, nil
 }
 
-func resolveClientProxy(root string) (Proxy, error) {
+func ResolveClientProxy(root string) (Proxy, error) {
 	cwd, err := os.Getwd()
 	if err != nil {
 		return Proxy{}, err

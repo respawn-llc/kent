@@ -72,7 +72,7 @@ func resolveClientConfiguration(sharedRoot string, opts LoadOptions, registry se
 		ServerHost: state.Settings.ServerHost, ServerPort: state.Settings.ServerPort,
 		Source: SourceReport{Files: locations.files, Sources: sources},
 	}
-	connection.Proxy, err = resolveClientProxy(locations.persistenceRoot)
+	connection.Proxy, err = ResolveClientProxy(locations.persistenceRoot)
 	if err != nil {
 		return Connection{}, LocalPreferences{}, err
 	}
