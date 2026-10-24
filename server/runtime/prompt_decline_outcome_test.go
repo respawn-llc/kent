@@ -14,7 +14,7 @@ import (
 
 func TestDeclinedQuestionProducesErrorToolCompletionWithoutSyntheticUserMessage(t *testing.T) {
 	broker := tools.NewAskQuestionBroker()
-	broker.SetAskHandler(func(context.Context, tools.AskQuestionRequest) (tools.AskQuestionResolution, error) {
+	broker.SetLifecycleAskHandler(func(context.Context, tools.AskQuestionRequest) (tools.AskQuestionResolution, error) {
 		return nil, context.Canceled
 	})
 	var eventMu sync.Mutex
@@ -76,7 +76,7 @@ func TestDeclinedQuestionAllowsPreparedSuccessorToMaterialize(t *testing.T) {
 	broker := tools.NewAskQuestionBroker()
 	var mu sync.Mutex
 	var materialized []string
-	broker.SetAskHandler(func(_ context.Context, req tools.AskQuestionRequest) (tools.AskQuestionResolution, error) {
+	broker.SetLifecycleAskHandler(func(_ context.Context, req tools.AskQuestionRequest) (tools.AskQuestionResolution, error) {
 		mu.Lock()
 		materialized = append(materialized, req.ToolCallID)
 		mu.Unlock()

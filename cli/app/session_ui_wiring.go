@@ -31,6 +31,7 @@ type sessionUIClients struct {
 	ProcessViews           apicontract.ProcessViewService
 	PromptControl          apicontract.PromptControlService
 	RuntimeControls        apicontract.RuntimeControlService
+	RuntimeLiveControls    apicontract.RuntimeLiveControlService
 	ChatMutations          apicontract.ChatMutationService
 	GoalSet                goalSetClient
 	ChatSettings           apicontract.ChatSettingsService
@@ -97,6 +98,7 @@ func prepareSharedRuntimeWiring(
 		clients.ChatSettings,
 	).(*sessionRuntimeClient)
 	runtimeClient.chatMutations = clients.ChatMutations
+	runtimeClient.liveControls = clients.RuntimeLiveControls
 	runtimeClient.preparation = preparation
 	terminalFocus := newTerminalFocusState()
 	initialLifecycleContext := lifecyclecontract.Context{}

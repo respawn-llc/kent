@@ -33,7 +33,7 @@ export function useSessionSettingsObservation(
                 Effect.gen(function* () {
                   if (value.kind === "snapshot") {
                     yield* get.setResult(settings.receive, value.snapshot);
-                    yield* Effect.promise(async () => owner.forceMainViewRead());
+                    get.set(owner.forceMainViewRead, undefined);
                   } else {
                     showStatusToast({
                       id: "chat-settings-observation",

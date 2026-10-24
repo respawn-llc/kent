@@ -212,7 +212,7 @@ func NewWithContextOptions(ctx context.Context, cfg config.App, authSupport serv
 	runtimeRegistry.WithExecutionTargetResolver(metadataStore.ResolveOptionalSessionExecutionTarget)
 	runtimeRegistry.WithBackgroundProcessSnapshots(background.List)
 	runtimeControlService := runtimecontrol.NewService(runtimeAuthority, metadataStore).
-		WithRuntimeActivityResolver(runtimeRegistry).
+		WithSessionSettingFeedbackPublisher(runtimeRegistry).
 		WithPromptHistoryStore(metadataStore).
 		WithWorkflowTaskSessionResolver(metadataStore).
 		WithPersistedSessionResolver(metadataStore).
@@ -244,7 +244,7 @@ func NewWithContextOptions(ctx context.Context, cfg config.App, authSupport serv
 		WithPromptHistoryReader(metadataStore).
 		WithChatContextWorkspaceResolver(workspaceConfigResolver).
 		WithCacheWarningMode(cfg.Settings.CacheWarningMode)
-	sessionLifecycleService := sessionservice.NewGlobalSessionLifecycleService(cfg.PersistenceRoot, runtimeAuthority, authSupport.AuthManager, metadataStore).
+	sessionLifecycleService := sessionservice.NewGlobalSessionLifecycleService(cfg.PersistenceRoot, runtimeAuthority, metadataStore).
 		WithConnectionRotation(connectionRotation).
 		WithDebugMode(cfg.Settings.Debug).
 		WithWorkspaceRetargeter(sessionWorkspaceRetargeter).
@@ -330,8 +330,7 @@ func NewWithContextOptions(ctx context.Context, cfg config.App, authSupport serv
 		cleanupNewFailure()
 		return nil, fmt.Errorf("workflow bundle: current node controller: %w", err)
 	}
-	runtimeControlService.WithWorkflowSessionReactivator(workflowController)
-	runtimeControlService.WithWorkflowSessionPreparationReader(workflowController)
+	runtimeAuthority.SetWorkflowSessionExecutionOwner(workflowController)
 	workflowTaskStatusProjection, err := workflowview.NewTaskStatusProjection(
 		workflowStore,
 		workflowTaskProjector,

@@ -98,7 +98,7 @@ INSERT INTO task_comments (id, task_id, body, author_kind, author_id, created_at
 VALUES ('comment-project-deleted', 'task-project-deleted', 'project delete comment yak', 'user', 'operator', ?, ?)`, now, now); err != nil {
 		t.Fatalf("create project deletion comment: %v", err)
 	}
-	other, err := store.CreateProjectForWorkspace(t.Context(), t.TempDir(), "Task search survivor")
+	other, err := store.CreateProjectForWorkspaceWithKey(t.Context(), t.TempDir(), "Task search survivor", "")
 	if err != nil {
 		t.Fatalf("create survivor project: %v", err)
 	}

@@ -189,7 +189,7 @@ func newRealSessionRetargetFixture(t *testing.T, useBlockingObserver bool, sourc
 	if err != nil {
 		t.Fatalf("RegisterWorkspaceBinding source: %v", err)
 	}
-	targetProject, err := metadataStore.CreateProjectForWorkspace(ctx, targetRoot, "Target")
+	targetProject, err := metadataStore.CreateProjectForWorkspaceWithKey(ctx, targetRoot, "Target", "")
 	if err != nil {
 		t.Fatalf("CreateProjectForWorkspace target: %v", err)
 	}
@@ -783,11 +783,15 @@ func TestSessionWorkspaceRetargeterPublishesFailureBeforeQueuedModelWorkResumes(
 
 func projectContainsWorkspaceRoot(t *testing.T, store *metadata.Store, projectID string, workspaceRoot string) bool {
 	t.Helper()
-	attached, err := store.ProjectWorkspaceAttached(context.Background(), projectID, canonicalRetargetTestPath(t, workspaceRoot))
-	if err != nil {
-		t.Fatalf("ProjectWorkspaceAttached: %v", err)
+	selector := serverapi.NewProjectWorkspaceSelectorForRoot(canonicalRetargetTestPath(t, workspaceRoot))
+	_, err := store.ResolveProjectWorkspaceSelector(context.Background(), projectID, selector)
+	if errors.Is(err, serverapi.ErrWorkspaceNotRegistered) {
+		return false
 	}
-	return attached
+	if err != nil {
+		t.Fatalf("ResolveProjectWorkspaceSelector: %v", err)
+	}
+	return true
 }
 
 func canonicalRetargetTestPath(t *testing.T, path string) string {
@@ -867,10 +871,7 @@ func TestSessionWorkspaceRetargeterMovesRealArtifactAndMetadataAcrossProjects(t 
 	if !projectContainsWorkspaceRoot(t, fixture.metadata, targetProjectID, result.Binding.CanonicalRoot) {
 		t.Fatalf("target project does not contain auto-attached workspace %q", result.Binding.CanonicalRoot)
 	}
-	sourceAttached, err := fixture.metadata.ProjectWorkspaceAttached(context.Background(), fixture.sourceBinding.ProjectID, result.Binding.CanonicalRoot)
-	if err != nil {
-		t.Fatalf("ProjectWorkspaceAttached source: %v", err)
-	}
+	sourceAttached := projectContainsWorkspaceRoot(t, fixture.metadata, fixture.sourceBinding.ProjectID, result.Binding.CanonicalRoot)
 	if sourceAttached {
 		t.Fatalf("source project unexpectedly retained target workspace %q", result.Binding.CanonicalRoot)
 	}
@@ -960,7 +961,7 @@ func TestSessionRetargetSelectorFailureIdentity(t *testing.T) {
 	if err != nil || identity.ShortID == nil {
 		t.Fatalf("numbered fixture: %v", err)
 	}
-	service := NewGlobalSessionLifecycleService(t.TempDir(), f.authority, nil, f.metadata).
+	service := NewGlobalSessionLifecycleService(t.TempDir(), f.authority, f.metadata).
 		WithWorkspaceRetargeter(f.retargeter(f.metadata, retargetProcessSource{{ID: "blocking", OwnerSessionID: f.childID.String(), Running: true}}))
 	for _, numbered := range []bool{true, false} {
 		selectors := []runtimeids.SessionSelector{identity.ID}

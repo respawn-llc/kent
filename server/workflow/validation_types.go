@@ -48,6 +48,9 @@ func IsDefaultAgentRole(role string) bool {
 type ValidationOptions struct {
 	Context      ValidationContext
 	RoleResolver RoleResolver
+	// ExecutionNodes limits live role availability checks during partial execution.
+	// Nil validates availability for the entire definition.
+	ExecutionNodes map[NodeID]bool
 }
 
 type ValidationErrorCode string

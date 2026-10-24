@@ -1,61 +1,43 @@
-import { useCallback, useRef, useState } from "react";
+import { useState } from "react";
+import { flushSync } from "react-dom";
 import { useTranslation } from "react-i18next";
 import { useAtomValue } from "@effect/atom-react";
 import { Trash2 } from "lucide-react";
 
-import { errorMessage } from "@/api";
-import { useAppServices } from "@/app-facade";
-import { useNativeDialogFallback } from "@/app-facade";
-import { useStatusController } from "@/app-facade";
-import { NativeDialogWindow } from "@/shared/native-dialog";
 import { Button, compactDialogWidth, Dialog } from "@/ui";
-import { useProjectDelete } from "./useProjectEditData";
 import { useProjectEditActions, type ProjectEditViewModel } from "./ProjectEditViewModel";
 
-const projectDeleteNativeDialogPath = "/native-dialog/project-delete";
-const projectDeleteDialogWidth = compactDialogWidth;
-
-type ProjectDeleteTarget = Readonly<{
-  projectID: string;
-}>;
+type ProjectDeleteResult = "cancel" | "confirm";
 
 export function ProjectDeleteButton({
   model,
-  projectID,
   openHome,
-}: Readonly<{ model: ProjectEditViewModel; projectID: string; openHome(): Promise<void> }>) {
+}: Readonly<{ model: ProjectEditViewModel; openHome(): Promise<void> }>) {
   const { t } = useTranslation();
-  const { nativeBridge } = useAppServices();
-  const disabled = useAtomValue(model.state).pending;
+  const state = useAtomValue(model.state);
+  const disabled = state.pending;
   const { deleteProject } = useProjectEditActions(model);
-
-  const deleteDialog = useNativeDialogFallback<ProjectDeleteTarget>({
-    errorNoticeID: "project-delete-window-error",
-    errorTitle: t("projectEdit.deleteWindowError"),
-    nativeAvailable: nativeBridge.capabilities.dialogWindows,
-    openNative: async (target) => {
-      await nativeBridge.dialogs.openWindow(projectDeleteWindowOptions(target, t("projectEdit.deleteTitle")));
-    },
-    renderFallback: (_target, close) => (
-      <ProjectDeleteConfirmationFallbackDialog
-        disabled={disabled}
-        onClose={close}
-        onConfirm={() => {
-          deleteProject({ close, openHome });
-        }}
-      />
-    ),
-  });
-
+  const [confirming, setConfirming] = useState(false);
   return (
     <>
-      {deleteDialog.fallback}
+      {confirming ? (
+        <ProjectDeleteConfirmation
+          disabled={disabled}
+          onResult={(result) => {
+            flushSync(() => {
+              setConfirming(false);
+            });
+            if (result === "confirm") deleteProject({ openHome });
+          }}
+        />
+      ) : null}
       <Button
         aria-label={t("projectEdit.deleteProject")}
         className="justify-self-end"
         disabled={disabled}
+        loading={state.deletePending}
         onClick={() => {
-          void deleteDialog.open({ projectID });
+          setConfirming(true);
         }}
         size="icon"
         title={t("projectEdit.deleteProject")}
@@ -67,155 +49,45 @@ export function ProjectDeleteButton({
   );
 }
 
-export function ProjectDeleteWindowRoute({ projectID }: ProjectDeleteTarget) {
-  const { t } = useTranslation();
-  const { nativeBridge } = useAppServices();
-  const { push } = useStatusController();
-  const mutation = useProjectDelete(projectID, { invalidateOnDeleted: false });
-  const [actionError, setActionError] = useState("");
-  const [committed, setCommitted] = useState(false);
-  const submittedRef = useRef(false);
-  const confirmDelete = useCallback(async (): Promise<void> => {
-    if (committed || submittedRef.current) {
-      return;
-    }
-    submittedRef.current = true;
-    setActionError("");
-    try {
-      const response = await mutation.mutateAsync();
-      if (!response.deleted) {
-        submittedRef.current = false;
-        setActionError(
-          response.blockers.map((blocker) => blocker.message).join("\n") || t("projectEdit.deleteBlocked"),
-        );
-        return;
-      }
-      setCommitted(true);
-      try {
-        await nativeBridge.projectDeletion.notifyDeleted({ projectID });
-      } catch (error) {
-        const message = t("projectEdit.deleteCommittedNotifyError", { message: errorMessage(error) });
-        setActionError(message);
-        push({
-          id: "project-delete-committed-notify-error",
-          tone: "warning",
-          title: t("projectEdit.deleteWindowError"),
-          body: message,
-        });
-        return;
-      }
-      try {
-        await nativeBridge.window.closeCurrent();
-      } catch (error) {
-        const message = t("projectEdit.deleteCommittedCloseError", { message: errorMessage(error) });
-        setActionError(message);
-        push({
-          id: "project-delete-committed-close-error",
-          tone: "warning",
-          title: t("projectEdit.deleteWindowError"),
-          body: message,
-        });
-      }
-    } catch (error) {
-      submittedRef.current = false;
-      setActionError(errorMessage(error));
-      push({
-        id: "project-delete-window-error",
-        tone: "danger",
-        title: t("projectEdit.deleteWindowError"),
-        body: errorMessage(error),
-      });
-    }
-  }, [committed, mutation, nativeBridge.projectDeletion, nativeBridge.window, projectID, push, t]);
-
-  return (
-    <NativeDialogWindow
-      contentMaxWidth={`${projectDeleteDialogWidth.toString()}px`}
-      title={t("projectEdit.deleteTitle")}
-    >
-      <ProjectDeleteConfirmationContent
-        actionError={actionError}
-        committed={committed}
-        disabled={mutation.isPending}
-        onCancel={() => {
-          void nativeBridge.window.closeCurrent();
-        }}
-        onConfirm={() => void confirmDelete()}
-      />
-    </NativeDialogWindow>
-  );
-}
-
-function ProjectDeleteConfirmationFallbackDialog({
+function ProjectDeleteConfirmation({
   disabled,
-  onClose,
-  onConfirm,
-}: Readonly<{
-  disabled: boolean;
-  onClose: () => void;
-  onConfirm: () => void;
-}>) {
+  onResult,
+}: Readonly<{ disabled: boolean; onResult(result: ProjectDeleteResult): void }>) {
   const { t } = useTranslation();
   return (
     <Dialog
       closeLabel={t("app.close")}
-      onClose={onClose}
+      onClose={() => {
+        onResult("cancel");
+      }}
       open
       title={t("projectEdit.deleteTitle")}
-      width={projectDeleteDialogWidth}
+      width={compactDialogWidth}
     >
-      <ProjectDeleteConfirmationContent disabled={disabled} onCancel={onClose} onConfirm={onConfirm} />
-    </Dialog>
-  );
-}
-
-function ProjectDeleteConfirmationContent({
-  actionError,
-  committed = false,
-  disabled,
-  onCancel,
-  onConfirm,
-}: Readonly<{
-  actionError?: string | undefined;
-  committed?: boolean | undefined;
-  disabled: boolean;
-  onCancel: () => void;
-  onConfirm: () => void;
-}>) {
-  const { t } = useTranslation();
-  return (
-    <div className="grid gap-[var(--space-3)]">
-      <p className="m-0 text-sm text-[var(--color-on-island)]">{t("projectEdit.deleteBody")}</p>
-      {actionError === undefined || actionError.length === 0 ? null : (
-        <p className="m-0 whitespace-pre-wrap text-sm text-[var(--color-error)]">{actionError}</p>
-      )}
-      {committed ? (
-        <Button className="justify-self-end" onClick={onCancel}>
-          {t("app.close")}
-        </Button>
-      ) : (
+      <div className="grid gap-[var(--space-3)]">
+        <p className="m-0 text-sm text-[var(--color-on-island)]">{t("projectEdit.deleteBody")}</p>
         <div className="grid grid-cols-2 gap-[var(--space-2)]">
-          <Button className="w-full" disabled={disabled} onClick={onCancel}>
+          <Button
+            className="w-full"
+            disabled={disabled}
+            onClick={() => {
+              onResult("cancel");
+            }}
+          >
             {t("app.cancel")}
           </Button>
-          <Button className="w-full" disabled={disabled} onClick={onConfirm} variant="danger">
+          <Button
+            className="w-full"
+            disabled={disabled}
+            onClick={() => {
+              onResult("confirm");
+            }}
+            variant="danger"
+          >
             {t("projectEdit.deleteConfirm")}
           </Button>
         </div>
-      )}
-    </div>
+      </div>
+    </Dialog>
   );
-}
-
-function projectDeleteWindowOptions(target: ProjectDeleteTarget, title: string) {
-  return {
-    initialHeight: 260,
-    initialWidth: projectDeleteDialogWidth,
-    label: `project-delete-${target.projectID}`,
-    params: {
-      projectID: target.projectID,
-    },
-    route: projectDeleteNativeDialogPath,
-    title,
-  };
 }

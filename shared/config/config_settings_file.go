@@ -165,37 +165,6 @@ func installSettingsFile(path string, contents string, replace bool) (bool, erro
 	return true, nil
 }
 
-func WriteDefaultSettingsFile() (path string, created bool, err error) {
-	path, err = resolveSettingsFilePathInRoot("")
-	if err != nil {
-		return "", false, err
-	}
-	return WriteDefaultSettingsFileAt(path)
-}
-
-// WriteDefaultSettingsFileAt writes the default settings file at an explicit
-// settings path. Callers that resolved a non-default config+data root (via
-// --persistence-root / KENT_PERSISTENCE_ROOT) pass that root's config.toml path
-// so first-run defaults land in the selected root rather than the default ~/.kent.
-func WriteDefaultSettingsFileAt(path string) (string, bool, error) {
-	trimmed := strings.TrimSpace(path)
-	if trimmed == "" {
-		return "", false, fmt.Errorf("settings path is required")
-	}
-	exists, err := settingsFileExists(trimmed)
-	if err != nil {
-		return "", false, err
-	}
-	if exists {
-		return trimmed, false, nil
-	}
-	created, err := writeSettingsFileIfMissing(trimmed, settingsTOMLWithRenderingOptions(configRegistry.defaultState().Settings, true, nil, nil))
-	if err != nil {
-		return "", false, fmt.Errorf("write default settings file: %w", err)
-	}
-	return trimmed, created, nil
-}
-
 func WriteSettingsFileForOnboarding(settings Settings) (string, error) {
 	return WriteSettingsFileForOnboardingWithOptions(settings, OnboardingWriteOptions{})
 }

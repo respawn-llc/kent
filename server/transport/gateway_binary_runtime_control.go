@@ -86,9 +86,6 @@ func registerRuntimeControlGatewayBinaryBindings(bindings map[string]gatewayBina
 				}
 				return &emptypb.Empty{}, nil
 			}),
-		registerRuntimeControlUnary(bindings, GatewayDependencies.RuntimeControlClient, runtimepb.File_kent_api_runtime_runtime_proto.Services().ByName("TurnService"), "Interrupt",
-			func() *runtimepb.InterruptRequest { return &runtimepb.InterruptRequest{} },
-			apicontract.RuntimeControlService.Interrupt),
 		registerRuntimeControlUnary(bindings, runtimePendingWorkClient, runtimepb.File_kent_api_runtime_runtime_proto.Services().ByName("TurnService"), "ListPendingWork",
 			func() *runtimepb.ListPendingWorkRequest { return &runtimepb.ListPendingWorkRequest{} },
 			apicontract.RuntimePendingWorkService.ListPendingWork),

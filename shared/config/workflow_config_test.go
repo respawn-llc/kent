@@ -2,7 +2,6 @@ package config
 
 import (
 	"errors"
-	"strings"
 	"testing"
 )
 
@@ -110,44 +109,6 @@ pre_compaction_tokens = 12345
 	}
 	if !unknownSettingsKeyReported(err, "subagents.fast.workflow.pre_compaction_tokens") {
 		t.Fatalf("Load error = %v, want root-only pre-compaction setting rejection", err)
-	}
-}
-
-func TestDefaultSettingsTOMLRendersWorkflowDefaults(t *testing.T) {
-	lines := configRegistry.defaultLines(configRegistry.defaultState())
-	values := make(map[string]any, len(lines))
-	for _, line := range lines {
-		values[strings.Join(line.Path, ".")] = line.Value
-	}
-	for key, want := range map[string]any{
-		"workflow.completion_mode":                 WorkflowCompletionModeAuto,
-		"workflow.concurrency":                     5,
-		"workflow.max_invalid_completion_attempts": 5,
-		"workflow.use_required_tool_calls":         true,
-		"workflow.subagents":                       false,
-	} {
-		if got, ok := values[key]; !ok || got != want {
-			t.Fatalf("default registry value %q = %#v, want %#v", key, got, want)
-		}
-	}
-	var defaultValue any
-	for _, setting := range configRegistry.settings {
-		keyed, ok := setting.(keyedRegistrySetting)
-		if !ok || keyed.registryKey() != "workflow.pre_compaction_tokens" {
-			continue
-		}
-		root, ok := setting.(rootOnlySetting[*int])
-		if !ok {
-			t.Fatalf("pre-compaction registry setting = %T, want root-only optional integer", setting)
-		}
-		defaultValue = root.defaultDocValue(configRegistry.defaultState())
-		break
-	}
-	if defaultValue != 180880 {
-		t.Fatalf("default registry pre-compaction threshold = %#v, want 180880", defaultValue)
-	}
-	if _, ok := values["workflow.max_final_answer_violations"]; ok {
-		t.Fatal("default registry should not contain removed final-answer cap")
 	}
 }
 

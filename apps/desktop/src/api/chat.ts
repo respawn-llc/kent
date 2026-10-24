@@ -19,6 +19,7 @@ import { createChatCommandApi } from "./chatCommands";
 import { createChatDraftApi } from "./chatDrafts";
 import { createChatNameApi } from "./chatName";
 import { chatSettingsObservation } from "./chatSettingsObservation";
+import { subscriptionStream } from "./subscriptionStream";
 import { listPendingPrompts } from "./clientPendingPrompts";
 import { answerPromptBatch } from "./clientPromptAnswers";
 import { ContractError, RpcError, TransportError } from "./errors";
@@ -26,7 +27,7 @@ import { mainView } from "./chatReadModel";
 import { transcriptMessage, transcriptPage } from "./chatTranscript";
 import { enumValue } from "./chatWire";
 import { InvalidTranscriptEventError } from "./subscriptionErrors";
-import type { ChatApi, ChatTranscriptMessage } from "./chatTypes";
+import type { ChatApi, ChatTranscriptMessage, ChatTranscriptObservation } from "./chatTypes";
 import type { RpcTransport } from "./transport";
 export type {
   ChatApi,
@@ -55,8 +56,8 @@ export type {
   ChatSettingsTarget,
   ChatTranscriptCompletion,
   ChatTranscriptCommittedRow,
-  ChatTranscriptHandler,
-  ChatGoalObservationHandler,
+  ChatTranscriptObservation,
+  ChatGoalStreamObservation,
   ChatTranscriptKind,
   ChatTranscriptMessage,
   ChatTranscriptMessageByKind,
@@ -162,53 +163,70 @@ export function createChatApi(transport: RpcTransport): ChatApi {
     async activateRuntime(target) {
       return activateRuntime(transport, target);
     },
-    subscribeTranscript(target, handler) {
-      const sessionID = target.sessionID;
-      const method = StreamService.method.subscribe;
-      return transport.subscribeDescriptor({
-        method,
-        request: create(method.input, { sessionId: { value: { case: "sessionId", value: sessionID } } }),
-        attachment: { sessionID },
-        establishmentTimeoutMs: null,
-        eventDescriptor: MessageSchema,
-        completionDescriptor: StreamCompletionSchema,
-        onStart: (result) => {
-          requireUnarySuccess(method, result);
-        },
-        transcriptRejection: { onInvalidEvent: handler.onError },
-        handler: {
-          ...(handler.onOpen === undefined ? {} : { onOpen: handler.onOpen }),
-          onEvent(value) {
-            let event: ChatTranscriptMessage;
-            try {
-              event = transcriptMessage(value, sessionID);
-            } catch (cause) {
-              if (cause instanceof ContractError) throw new InvalidTranscriptEventError(cause);
-              throw cause;
-            }
-            handler.onEvent(event);
+    subscribeTranscript(target, reportOverflow) {
+      return subscriptionStream<ChatTranscriptObservation>((emit) => {
+        const sessionID = target.sessionID;
+        const method = StreamService.method.subscribe;
+        return transport.subscribeDescriptor({
+          method,
+          request: create(method.input, { sessionId: { value: { case: "sessionId", value: sessionID } } }),
+          attachment: { sessionID },
+          establishmentTimeoutMs: null,
+          eventDescriptor: MessageSchema,
+          completionDescriptor: StreamCompletionSchema,
+          onStart: (result) => {
+            requireUnarySuccess(method, result);
           },
-          onComplete(value) {
-            handler.onComplete({
-              code: value.code ?? null,
-              message: value.message ?? null,
-              reason:
-                value.transcriptCloseReason === undefined
-                  ? null
-                  : enumValue(value.transcriptCloseReason, {
-                      [TranscriptCloseReason.SUBSCRIBER_OVERFLOW]: "subscriber_overflow",
-                      [TranscriptCloseReason.CONTRACT_VIOLATION]: "contract_violation",
-                    }),
-            });
-            return streamCompletionFailure(value);
+          transcriptRejection: {
+            onInvalidEvent: (error) => {
+              emit({ kind: "error", error });
+            },
           },
-          onError(error) {
-            if (error instanceof TransportError) handler.onTransportLoss?.();
-            else if (error instanceof ContractError || error instanceof RpcError) handler.onError(error);
-            else handler.onError(new ContractError("Transcript subscription is invalid."));
+          handler: {
+            onOpen: () => {
+              emit({ kind: "open" });
+            },
+            onEvent(value) {
+              let event: ChatTranscriptMessage;
+              try {
+                event = transcriptMessage(value, sessionID);
+              } catch (cause) {
+                if (cause instanceof ContractError) throw new InvalidTranscriptEventError(cause);
+                throw cause;
+              }
+              emit({ kind: "event", event });
+            },
+            onComplete(value) {
+              emit({
+                kind: "complete",
+                completion: {
+                  code: value.code ?? null,
+                  message: value.message ?? null,
+                  reason:
+                    value.transcriptCloseReason === undefined
+                      ? null
+                      : enumValue(value.transcriptCloseReason, {
+                          [TranscriptCloseReason.SUBSCRIBER_OVERFLOW]: "subscriber_overflow",
+                          [TranscriptCloseReason.CONTRACT_VIOLATION]: "contract_violation",
+                        }),
+                },
+              });
+              return streamCompletionFailure(value);
+            },
+            onError(error) {
+              emit({
+                kind: "error",
+                error:
+                  error instanceof TransportError ||
+                  error instanceof ContractError ||
+                  error instanceof RpcError
+                    ? error
+                    : new ContractError("Transcript subscription is invalid."),
+              });
+            },
           },
-        },
-      });
+        });
+      }, reportOverflow);
     },
   };
 }

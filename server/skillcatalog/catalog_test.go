@@ -4,6 +4,7 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 
@@ -20,17 +21,11 @@ func TestDiscoverOrdersRootsAndReadsEmbeddedGeneratedWhenUnseeded(t *testing.T) 
 	if err != nil {
 		t.Fatalf("Discover: %v", err)
 	}
-	if len(result.Roots) != 3 {
-		t.Fatalf("roots = %+v, want global/workspace/generated", result.Roots)
-	}
-	if result.Roots[0].Kind != SourceKindGlobal || result.Roots[1].Kind != SourceKindWorkspace || result.Roots[2].Kind != SourceKindGenerated {
-		t.Fatalf("root order = %+v", result.Roots)
-	}
-	requireSkillPath(t, result.Skills, canonicalSlashPath(t, globalSkillPath))
-	requireSkillPath(t, result.Skills, canonicalSlashPath(t, workspaceSkillPath))
+	requireSkillPath(t, result.PromptSkills(), canonicalSlashPath(t, globalSkillPath))
+	requireSkillPath(t, result.PromptSkills(), canonicalSlashPath(t, workspaceSkillPath))
 	generatedRoot := filepath.Join(root, ".generated", SkillsDirName)
 	foundGenerated := false
-	for _, skill := range result.Skills {
+	for _, skill := range result.PromptSkills() {
 		if skill.SourceKind == SourceKindGenerated {
 			foundGenerated = true
 			if !strings.HasPrefix(skill.Path, filepath.ToSlash(generatedRoot)+"/") {
@@ -39,7 +34,7 @@ func TestDiscoverOrdersRootsAndReadsEmbeddedGeneratedWhenUnseeded(t *testing.T) 
 		}
 	}
 	if !foundGenerated {
-		t.Fatalf("expected embedded generated skills, got %+v", result.Skills)
+		t.Fatalf("expected embedded generated skills, got %+v", result.PromptSkills())
 	}
 }
 
@@ -57,14 +52,11 @@ func TestDiscoverDisabledSkillNamedEnabledStillEnumeratesCatalog(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Discover: %v", err)
 	}
-	if len(result.Roots) != 2 {
-		t.Fatalf("roots = %+v, want global and generated roots", result.Roots)
-	}
 	disabledPath := canonicalSlashPath(t, enabledPath)
-	requireSkillPath(t, result.Skills, canonicalSlashPath(t, otherPath))
-	for _, skill := range result.Skills {
+	requireSkillPath(t, result.PromptSkills(), canonicalSlashPath(t, otherPath))
+	for _, skill := range result.PromptSkills() {
 		if skill.Path == disabledPath {
-			t.Fatalf("disabled skill named enabled remained model-visible: %+v", result.Skills)
+			t.Fatalf("disabled skill named enabled remained model-visible: %+v", result.PromptSkills())
 		}
 	}
 	var disabled Inspection
@@ -74,7 +66,7 @@ func TestDiscoverDisabledSkillNamedEnabledStillEnumeratesCatalog(t *testing.T) {
 			break
 		}
 	}
-	if !disabled.Loaded || !disabled.Disabled {
+	if !disabled.Loaded() || !disabled.Disabled {
 		t.Fatalf("disabled inspection = %+v, want loaded and disabled", disabled)
 	}
 }
@@ -95,7 +87,7 @@ func TestDiscoverGeneratedShadowedByUserSkillAndDisabled(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Discover: %v", err)
 	}
-	for _, skill := range result.Skills {
+	for _, skill := range result.PromptSkills() {
 		if strings.EqualFold(skill.Name, "skill-creator") {
 			t.Fatalf("disabled/shadowed skill loaded: %+v", skill)
 		}
@@ -107,7 +99,7 @@ func TestDiscoverGeneratedShadowedByUserSkillAndDisabled(t *testing.T) {
 			break
 		}
 	}
-	if !generated.Loaded || !generated.Shadowed || !generated.Disabled {
+	if !generated.Loaded() || !generated.Shadowed || !generated.Disabled {
 		t.Fatalf("generated inspection = %+v, want loaded shadowed disabled", generated)
 	}
 }
@@ -131,17 +123,61 @@ func TestDiscoverDeduplicatesResolvedSkillPaths(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Discover: %v", err)
 	}
-	if len(result.Skills) != 1 {
-		t.Fatalf("loaded skills = %+v, want exactly one resolved path", result.Skills)
+	if len(result.PromptSkills()) != 1 {
+		t.Fatalf("loaded skills = %+v, want exactly one resolved path", result.PromptSkills())
 	}
 	duplicates := 0
 	for _, inspection := range result.Inspections {
-		if inspection.Reason == "duplicate resolved SKILL.md path" {
+		if inspection.Failure != nil && inspection.Failure.Kind == FailureDuplicate {
 			duplicates++
 		}
 	}
 	if duplicates != 1 {
 		t.Fatalf("duplicate inspections = %d, inspections=%+v", duplicates, result.Inspections)
+	}
+}
+
+func TestDiscoverFirstAliasOwnsSkillEnablement(t *testing.T) {
+	root := t.TempDir()
+	target := writeSkill(t, filepath.Join(t.TempDir(), "target"), "", "shared")
+	skillsRoot := filepath.Join(root, SkillsDirName)
+	if err := os.MkdirAll(skillsRoot, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	for _, name := range []string{"a", "b"} {
+		if err := os.Symlink(filepath.Dir(target), filepath.Join(skillsRoot, name)); err != nil {
+			t.Fatal(err)
+		}
+	}
+	for _, enabled := range []bool{false, true} {
+		result, err := Discover(Options{
+			ConfigRoot: root,
+			Policy: brand.ResolveSkillPolicy(brand.Settings{
+				SkillToggles: map[string]bool{"a": enabled},
+			}),
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+		skills := result.PromptSkills()
+		if enabled {
+			if len(skills) != 1 || skills[0].Name != "a" {
+				t.Fatalf("enabled first alias prompt skills = %+v, want a", skills)
+			}
+		} else if len(skills) != 0 {
+			t.Fatalf("duplicate bypassed disabled first alias: %+v", skills)
+		}
+		if len(result.Inspections) != 2 {
+			t.Fatalf("inspections = %+v, want both aliases", result.Inspections)
+		}
+		first, second := result.Inspections[0], result.Inspections[1]
+		if first.Name != "a" || !first.Loaded() || first.Disabled == enabled {
+			t.Fatalf("first alias enabled=%v inspection=%+v", enabled, first)
+		}
+		if second.Name != "b" || second.Loaded() || second.Disabled ||
+			second.Failure == nil || second.Failure.Kind != FailureDuplicate {
+			t.Fatalf("second alias inspection=%+v, want unloaded duplicate", second)
+		}
 	}
 }
 
@@ -155,13 +191,55 @@ func TestDiscoverReportsBrokenSymlinkedSkillDirectory(t *testing.T) {
 	if err := os.Symlink(filepath.Join(t.TempDir(), "missing-skill-dir"), brokenLinkPath); err != nil {
 		t.Fatalf("symlink broken skill dir: %v", err)
 	}
+	invalidPath := writeSkill(t, filepath.Join(skillsRoot, "invalid"), "invalid", "")
 
 	result, err := Discover(Options{ConfigRoot: root})
 	if err != nil {
 		t.Fatalf("Discover: %v", err)
 	}
-	if len(result.Issues) != 1 || result.Issues[0].Path != filepath.ToSlash(brokenLinkPath) || strings.TrimSpace(result.Issues[0].Reason) == "" {
-		t.Fatalf("broken symlink issues = %+v, want one structured issue", result.Issues)
+	issues := result.DiscoveryWarnings()
+	if len(issues) != 1 || issues[0].Path != filepath.ToSlash(brokenLinkPath) || strings.TrimSpace(issues[0].Reason) == "" {
+		t.Fatalf("broken symlink issues = %+v, want one structured issue", issues)
+	}
+	if len(result.PromptSkills()) != 0 || len(result.Inspections) != 2 {
+		t.Fatalf("invalid entries must remain status-only: %+v", result)
+	}
+	paths := []string{result.Inspections[0].Path, result.Inspections[1].Path}
+	if !slices.Contains(paths, filepath.ToSlash(filepath.Join(brokenLinkPath, SkillFileName))) ||
+		!slices.Contains(paths, canonicalSlashPath(t, invalidPath)) {
+		t.Fatalf("inspection paths = %v", paths)
+	}
+}
+
+func TestDiscoverPromptOrderIsRootThenEntryOrder(t *testing.T) {
+	root, workspace := t.TempDir(), t.TempDir()
+	want := []string{"global-z", "global-a", "workspace-z", "workspace-a", "generated-z", "generated-a"}
+	for idx, dir := range []string{
+		filepath.Join(root, SkillsDirName),
+		filepath.Join(workspace, brand.ConfigDirName, SkillsDirName),
+		filepath.Join(root, ".generated", SkillsDirName),
+	} {
+		writeSkill(t, filepath.Join(dir, "a"), want[idx*2], "first")
+		writeSkill(t, filepath.Join(dir, "z"), want[idx*2+1], "second")
+	}
+	result, err := Discover(Options{WorkspaceRoot: workspace, ConfigRoot: root})
+	if err != nil {
+		t.Fatal(err)
+	}
+	var names []string
+	status := result.StatusInspections()
+	var statusPaths []string
+	for _, skill := range status {
+		statusPaths = append(statusPaths, skill.Path)
+	}
+	if !slices.IsSorted(statusPaths) {
+		t.Fatalf("status paths are not sorted: %v", statusPaths)
+	}
+	for _, skill := range result.PromptSkills() {
+		names = append(names, skill.Name)
+	}
+	if !slices.Equal(names, want) {
+		t.Fatalf("prompt order = %v, want %v", names, want)
 	}
 }
 
@@ -185,7 +263,7 @@ func TestDiscoverReportsUnreadableRootAsStructuredError(t *testing.T) {
 	}
 }
 
-func requireSkillPath(t *testing.T, skills []Skill, path string) {
+func requireSkillPath(t *testing.T, skills []Inspection, path string) {
 	t.Helper()
 	for _, skill := range skills {
 		if skill.Path == path {

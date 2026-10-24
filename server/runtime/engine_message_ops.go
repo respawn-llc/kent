@@ -98,7 +98,6 @@ func (e *Engine) applyPreparedFinalizedToolCompletion(
 		prepared.storedCompletion,
 		prepared.backgroundSessionID,
 		prepared.hasBackgroundSession,
-		&completionProvenance,
 	)
 	applied := appliedFinalizedToolCompletion{
 		completionProvenance: completionProvenance,
@@ -112,10 +111,8 @@ func (e *Engine) applyPreparedFinalizedToolCompletion(
 	if err != nil {
 		return appliedFinalizedToolCompletion{}, err
 	}
-	e.transcriptRuntimeState().AppendLocalEntryRecord(
+	e.transcriptRuntimeState().CountLocalEntry(
 		*localEntryChatEntryForStep(*prepared.feedback, stepID),
-		prepared.feedback.AfterToolCallID,
-		&feedbackProvenance,
 	)
 	applied.feedbackProvenance = &feedbackProvenance
 	applied.feedbackCount = e.CommittedTranscriptEntryCount()
@@ -211,9 +208,8 @@ func (e *Engine) applyCommittedStoredToolCompletion(
 	payload storedToolCompletion,
 	backgroundSessionID string,
 	hasBackgroundSession bool,
-	provenance *TranscriptCommittedRowProvenance,
 ) {
-	e.transcriptRuntimeState().RecordStoredToolCompletion(payload, provenance)
+	e.transcriptRuntimeState().RecordStoredToolCompletion(payload)
 	if hasBackgroundSession {
 		e.ensureOrchestrationCollaborators()
 		e.backgroundFlow.ConsumePendingBackgroundNotice(backgroundSessionID)
@@ -331,7 +327,7 @@ func (e *Engine) appendPersistedLocalEntryRecordRaw(
 		}
 		provenance = &value
 		projected := localEntryChatEntryForStep(entry, stepID)
-		e.transcriptRuntimeState().AppendLocalEntryRecord(*projected, entry.AfterToolCallID, provenance)
+		e.transcriptRuntimeState().CountLocalEntry(*projected)
 		e.emitRaw(Event{
 			Kind:                       EventLocalEntryAdded,
 			LocalEntry:                 projected,
@@ -459,8 +455,8 @@ func (e *Engine) prepareMessageProjection(stepID *string, msg llm.Message) (prep
 	return preparedMessageProjection{message: msg, record: record}, nil
 }
 
-func (e *Engine) applyPreparedMessageProjection(stepID *string, prepared preparedMessageProjection, provenance *TranscriptCommittedRowProvenance) error {
-	return e.transcriptRuntimeState().AppendMessage(stepID, prepared.message, provenance)
+func (e *Engine) applyPreparedMessageProjection(stepID *string, prepared preparedMessageProjection) error {
+	return e.transcriptRuntimeState().AppendMessage(stepID, prepared.message)
 }
 
 func (e *Engine) appendMessageRaw(
@@ -491,7 +487,7 @@ func (e *Engine) appendMessageRaw(
 		}
 		provenance = &value
 	}
-	if projectionErr := e.applyPreparedMessageProjection(stepID, prepared, provenance); projectionErr != nil {
+	if projectionErr := e.applyPreparedMessageProjection(stepID, prepared); projectionErr != nil {
 		return receipt, errors.Join(appendErr, fmt.Errorf("append message projection: %w", projectionErr))
 	}
 	if provenanceDestination != nil {
@@ -660,7 +656,7 @@ func (e *Engine) appendPreparedModelInput(stepID *string, input steeringPrepared
 		if err != nil {
 			return appended.CommitReceipt, errors.Join(appendErr, err)
 		}
-		e.transcriptRuntimeState().AppendConfigurationItem(stepID, *input.thinking.update, &provenance)
+		e.transcriptRuntimeState().AppendConfigurationItem(*input.thinking.update)
 		entry := configurationUpdateChatEntry(*input.thinking.update)
 		entry.StepID = cloneOptionalStepID(stepID)
 		entry.CommittedProvenance = &provenance
@@ -684,7 +680,7 @@ func (e *Engine) appendPreparedModelInput(stepID *string, input steeringPrepared
 				UserMessageSeq: record.Seq(), CandidatePageEndByte: *appended.EndByteCursor,
 			})
 		}
-		if err := e.applyPreparedMessageProjection(stepID, projection, &provenance); err != nil {
+		if err := e.applyPreparedMessageProjection(stepID, projection); err != nil {
 			return appended.CommitReceipt, errors.Join(appendErr, err)
 		}
 		group := input.prepared.groups[i]
@@ -891,9 +887,6 @@ func (e *Engine) resolveCompletedResponseStreamRaw(stepID string, instruction co
 	clearedMetadata, clearedStreamID := e.clearStreamingAssistantStateRaw()
 	if instruction.kind == completedResponseResolutionInstructionFinalize {
 		committed := instruction.committedAssistant
-		if clearedStreamID != nil {
-			e.transcriptRuntimeState().RecordAssistantStreamFinalization(committed.coordinate.start, clearedStreamID)
-		}
 		if err := e.emitCommittedAssistantMessageEventRaw(stepID, steeringCommittedAssistantMessage{
 			message:    committed.message,
 			coordinate: cloneCommittedAssistantCoordinate(committed.coordinate),

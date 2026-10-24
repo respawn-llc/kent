@@ -243,7 +243,7 @@ function chatReadState(
   if (composer.draft.kind === "failed") return readFailure(composer.draft.error, composer.retryDraft);
   if (mainView.kind === "session" && mainView.status === "error")
     return readFailure(mainView.error, () => {
-      void mainView.retry();
+      mainView.retry();
     });
   if (composer.pending.query.isError)
     return readFailure(composer.pending.query.error, composer.pending.refresh);

@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"path/filepath"
 	"strings"
 	"sync"
 	"testing"
@@ -12,6 +13,8 @@ import (
 
 	"core/internal/testharness/postprocessfixture"
 	"core/internal/testharness/testsetup"
+	"core/server/metadata"
+	"core/server/session"
 	"core/server/tools"
 	shelltool "core/server/tools/shell"
 	"core/server/tools/shell/postprocess"
@@ -23,7 +26,6 @@ import (
 )
 
 const processViewTestWaitTimeout = 10 * time.Second
-const processViewTestProjectID = "project-1"
 
 func TestServiceListProcessesIncludesStepOwnership(t *testing.T) {
 	fixture := newProcessViewFixture(t)
@@ -46,7 +48,7 @@ func TestServiceListProcessesIncludesStepOwnership(t *testing.T) {
 	ownerSessionID := "session-1"
 	ownerStepID := "step-1"
 	resp, err := fixture.service.ListProcesses(context.Background(), &processpb.ListRequest{
-		ProjectId:      processViewTestProjectID,
+		ProjectId:      fixture.projectID,
 		OwnerSessionId: &ownerSessionID,
 		OwnerStepId:    &ownerStepID,
 	})
@@ -97,7 +99,7 @@ func TestServiceListExcludesForegroundProcesses(t *testing.T) {
 		done <- fixture.startCommand(t, "foreground", "sleep 1", "step-1")
 	}()
 	waitForProcessCount(t, fixture.manager, 1)
-	list, err := fixture.service.ListProcesses(context.Background(), &processpb.ListRequest{ProjectId: processViewTestProjectID})
+	list, err := fixture.service.ListProcesses(context.Background(), &processpb.ListRequest{ProjectId: fixture.projectID})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -151,7 +153,7 @@ func TestObservationReplacesWithLatestCompletedListInServerOrder(t *testing.T) {
 		t.Fatal(err)
 	}
 	current, err := fixture.service.ListProcesses(ctx, &processpb.ListRequest{
-		ProjectId: processViewTestProjectID, OwnerSessionId: proto.String("session-1"),
+		ProjectId: fixture.projectID, OwnerSessionId: proto.String("session-1"),
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -193,12 +195,9 @@ func TestObservationInitialSessionScopeAndClose(t *testing.T) {
 
 func TestObservationFollowsSessionAfterProjectMembershipChanges(t *testing.T) {
 	sessionID := "session-1"
-	membership := &mutableProjectSessionMembership{
-		byProject: map[string][]string{
-			processViewTestProjectID: {sessionID},
-		},
-	}
+	membership := &mutableProjectSessionMembership{byProject: make(map[string][]string)}
 	fixture := newProcessViewFixtureWithMembership(t, membership)
+	membership.setProject(fixture.projectID, sessionID)
 	if result := fixture.startCommand(t, "moved-session", "sleep 30", "step-1"); result.IsError {
 		t.Fatalf("expected successful tool result, got %+v", result)
 	}
@@ -224,7 +223,7 @@ func TestObservationFollowsSessionAfterProjectMembershipChanges(t *testing.T) {
 		t.Fatalf("initial observation: %+v (%v)", initial, err)
 	}
 
-	membership.setProject(processViewTestProjectID)
+	membership.setProject(fixture.projectID)
 	membership.setProject("project-2", sessionID)
 	fixture.service.BackgroundListChanged(sessionID)
 	updated, err := openedBeforeMove.Next(ctx)
@@ -337,13 +336,14 @@ func TestObservationFailsWhenReplacementCannotBeDelivered(t *testing.T) {
 }
 
 type processViewFixture struct {
-	manager *shelltool.Manager
-	tool    tools.Handler
-	service *ProcessViewService
+	manager   *shelltool.Manager
+	tool      tools.Handler
+	service   *ProcessViewService
+	projectID string
 }
 
 func newProcessViewFixture(t *testing.T) processViewFixture {
-	return newProcessViewFixtureWithMembership(t, allProjectSessionMembership{})
+	return newProcessViewFixtureWithMembership(t, nil)
 }
 
 func newProcessViewFixtureWithMembership(
@@ -358,13 +358,41 @@ func newProcessViewFixtureWithMembership(
 	t.Cleanup(func() { _ = manager.Close() })
 
 	workspace := t.TempDir()
+	root := t.TempDir()
+	owner, err := metadata.Open(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() {
+		if err := owner.Close(); err != nil {
+			t.Error(err)
+		}
+	})
+	binding, err := owner.RegisterWorkspaceBinding(t.Context(), workspace)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := owner.ImportSessionSnapshot(t.Context(), session.PersistedStoreSnapshot{
+		SessionDir: filepath.Join(root, "projects", binding.ProjectID, "sessions", "session-1"),
+		Meta: session.Meta{
+			SessionID: "session-1", Name: proto.String("session-1"),
+			WorkspaceRoot: workspace, WorkspaceContainer: filepath.Base(workspace),
+			CreatedAt: time.Now(), UpdatedAt: time.Now(),
+		},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if membership == nil {
+		membership = owner
+	}
 	tool := shelltool.NewExecCommandToolWithPostprocessor(workspace, 16_000, 200_000, manager, "session-1", postprocessfixture.NewRunner(t, postprocess.Settings{Mode: config.ShellPostprocessingModeBuiltin}))
 	service := NewProcessViewService(manager, membership)
 	manager.SetBackgroundListChangeHandler(service.BackgroundListChanged)
 	return processViewFixture{
-		manager: manager,
-		tool:    tool,
-		service: service,
+		manager:   manager,
+		tool:      tool,
+		service:   service,
+		projectID: binding.ProjectID,
 	}
 }
 
@@ -401,7 +429,7 @@ func TestServiceListProcessesFiltersByOwnerStepID(t *testing.T) {
 
 	ownerStepID := "step-b"
 	resp, err := fixture.service.ListProcesses(context.Background(), &processpb.ListRequest{
-		ProjectId:   processViewTestProjectID,
+		ProjectId:   fixture.projectID,
 		OwnerStepId: &ownerStepID,
 	})
 	if err != nil {
@@ -464,13 +492,52 @@ func TestServiceKillProcessHonorsCancellationAndSignalsManagerEntry(t *testing.T
 	waitForProcessKilled(t, fixture.manager, id)
 }
 
-type allProjectSessionMembership struct{}
+func TestServiceListProcessesMembershipAndFilters(t *testing.T) {
+	fixture := newProcessViewFixture(t)
+	for _, stepID := range []string{"step-a", "step-b"} {
+		if result := fixture.startCommand(t, stepID, "sleep 30", stepID); result.IsError {
+			t.Fatalf("start: %+v", result)
+		}
+	}
+	for _, test := range []struct {
+		name    string
+		project string
+		session *string
+		want    int
+	}{
+		{"members", fixture.projectID, nil, 2},
+		{"foreign project", "foreign", nil, 0},
+		{"session filter", fixture.projectID, new("foreign"), 0},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			got, err := fixture.service.ListProcesses(t.Context(), &processpb.ListRequest{
+				ProjectId: test.project, OwnerSessionId: test.session,
+			})
+			if err != nil {
+				t.Fatal(err)
+			}
+			if len(got.Processes) != test.want {
+				t.Fatalf("process count = %d, want %d", len(got.Processes), test.want)
+			}
+			if test.want == 2 {
+				for i, snapshot := range fixture.manager.List() {
+					if got.Processes[i].Id != snapshot.ID {
+						t.Fatal("process ordering differs from manager")
+					}
+				}
+			}
+		})
+	}
+}
 
-func (allProjectSessionMembership) ListProjectSessionIDs(
-	_ context.Context,
-	_ string,
-) ([]string, error) {
-	return []string{"session-1"}, nil
+func TestServiceListProcessesPropagatesMembershipError(t *testing.T) {
+	fixture := newProcessViewFixture(t)
+	ctx, cancel := context.WithCancel(t.Context())
+	cancel()
+	_, err := fixture.service.ListProcesses(ctx, &processpb.ListRequest{ProjectId: fixture.projectID})
+	if !errors.Is(err, context.Canceled) {
+		t.Fatalf("error = %v, want canceled", err)
+	}
 }
 
 type mutableProjectSessionMembership struct {
@@ -478,13 +545,23 @@ type mutableProjectSessionMembership struct {
 	byProject map[string][]string
 }
 
-func (m *mutableProjectSessionMembership) ListProjectSessionIDs(
+func (m *mutableProjectSessionMembership) FilterProjectSessionIDs(
 	_ context.Context,
 	projectID string,
+	sessionIDs []string,
 ) ([]string, error) {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
-	return append([]string{}, m.byProject[projectID]...), nil
+	result := make([]string, 0, len(sessionIDs))
+	for _, sessionID := range sessionIDs {
+		for _, member := range m.byProject[projectID] {
+			if sessionID == member {
+				result = append(result, sessionID)
+				break
+			}
+		}
+	}
+	return result, nil
 }
 
 func (m *mutableProjectSessionMembership) setProject(projectID string, sessionIDs ...string) {
