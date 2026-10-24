@@ -35,7 +35,7 @@ import (
 	"core/server/sessionservice"
 	"core/server/sessionview"
 	"core/server/sleepguard"
-	"core/server/speech"
+	"core/server/speechservice"
 	shelltool "core/server/tools/shell"
 	"core/server/workflow"
 	"core/server/workflowattention"
