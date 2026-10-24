@@ -213,10 +213,7 @@ type toolMeta struct {
 }
 
 func projectedToolMeta(toolName string, presentation *transcriptpb.ToolPresentation) toolMeta {
-	in, err := protoapi.ToolPresentationFromProto(toolName, presentation)
-	if err != nil {
-		panic(fmt.Sprintf("render invalid tool presentation: %v", err))
-	}
+	in := protoapi.ToolPresentationFromProto(toolName, presentation)
 	adapted := transcript.ToolCallMeta{ToolName: strings.TrimSpace(toolName)}
 	if in != nil {
 		adapted = *in

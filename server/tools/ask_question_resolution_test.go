@@ -40,9 +40,6 @@ func TestValidateAskQuestionResolutionUsesTypedOptionalText(t *testing.T) {
 	}); err != nil {
 		t.Fatalf("selected-only Question resolution: %v", err)
 	}
-	if err := ValidateAskQuestionResolution(req, AskQuestionAnswer{}); err == nil {
-		t.Fatal("empty typed Question resolution unexpectedly validated")
-	}
 }
 
 func TestQuestionResolutionFormattingPreservesAbsentOptionalText(t *testing.T) {

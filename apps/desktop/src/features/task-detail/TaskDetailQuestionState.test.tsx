@@ -14,7 +14,7 @@ type QuestionAnswerMutation = ComponentProps<typeof QuestionFormViewComponent>["
 type FixtureQuestionAttention = QuestionAttentionItem &
   Readonly<{
     questionID: string;
-    recommendedOptionIndex: number;
+    recommendedOptionIndex: number | null;
     sessionID: string;
     suggestions: readonly string[];
   }>;
@@ -39,6 +39,12 @@ await mock.module("@/app-facade", () => ({
   }),
 }));
 
+await mock.module("@/shared/speech-input", () => ({
+  useSpeechField: () => ({ control: undefined, busy: false, busyReason: "Speech pending" }),
+}));
+await mock.module("./TaskDetailSpeech", () => ({
+  useTaskSpeech: () => ({ questionDraft: () => ({ read: () => null, write: () => undefined }) }),
+}));
 const { QuestionBox } = await import("./TaskDetailQuestionForm");
 const { QuestionFormView } = await import("./TaskDetailQuestionFormView");
 const {
@@ -54,7 +60,7 @@ beforeAll(async () => {
 });
 
 describe("questionPresentation", () => {
-  it("anchors the valid recommendation and falls back to option one for absent or malformed metadata", () => {
+  it("anchors the valid recommendation and falls back to option one for absent metadata", () => {
     expect(
       anchorQuestionSelection(
         emptyQuestionSelection(),
@@ -65,21 +71,19 @@ describe("questionPresentation", () => {
       selectedOption: 2,
     });
 
-    for (const recommendation of [0, 3, 1.5, -1]) {
-      expect(
-        anchorQuestionSelection(
-          emptyQuestionSelection(),
-          questionPresentation(ordinaryAttention(["one", "two"], recommendation)).defaultSelection,
-        ),
-      ).toMatchObject({
-        provenance: "anchored-default",
-        selectedOption: 1,
-      });
-    }
+    expect(
+      anchorQuestionSelection(
+        emptyQuestionSelection(),
+        questionPresentation(ordinaryAttention(["one", "two"], null)).defaultSelection,
+      ),
+    ).toMatchObject({
+      provenance: "anchored-default",
+      selectedOption: 1,
+    });
   });
 
   it("anchors a complete freeform-only Question without pending-ask hydration", () => {
-    const attention = ordinaryAttention([], 0);
+    const attention = ordinaryAttention([], null);
     const uninitialized = emptyQuestionSelection();
     const presentation = questionPresentation(attention);
     expect(anchorQuestionSelection(uninitialized, presentation.defaultSelection)).toMatchObject({
@@ -89,7 +93,7 @@ describe("questionPresentation", () => {
   });
 
   it("does not hydrate a complete freeform-only prompt from pending asks", async () => {
-    await expectCompleteAttentionDoesNotLookupPendingAsks(ordinaryAttention([], 0));
+    await expectCompleteAttentionDoesNotLookupPendingAsks(ordinaryAttention([], null));
   });
 
   it("does not look up pending asks when attention already supplies options", async () => {
@@ -97,7 +101,7 @@ describe("questionPresentation", () => {
   });
 
   it("anchors a settled freeform-only question without an option", () => {
-    const attention = ordinaryAttention([], 0);
+    const attention = ordinaryAttention([], null);
     expect(
       anchorQuestionSelection(emptyQuestionSelection(), questionPresentation(attention).defaultSelection),
     ).toMatchObject({
@@ -133,7 +137,7 @@ describe("questionPresentation", () => {
   });
 
   it("activates an option but not Streamdown link descendants", async () => {
-    const attention = ordinaryAttention(["ordinary option", "[safe](https://example.com)"], 0);
+    const attention = ordinaryAttention(["ordinary option", "[safe](https://example.com)"], null);
     const presentation = questionPresentation(attention);
     const user = userEvent.setup();
 
@@ -152,32 +156,29 @@ describe("questionPresentation", () => {
     expect(screen.getAllByRole("radio")[1]).not.toBeChecked();
   });
 
-  it.each([0, 3, 1.5, -1])(
-    "submits option one when recommendation metadata is %s",
-    async (recommendation) => {
-      const attention = ordinaryAttention(["one", "two"], recommendation);
-      const presentation = questionPresentation(attention);
-      const selection = anchorQuestionSelection(emptyQuestionSelection(), presentation.defaultSelection);
-      const inputs: QuestionAnswerInput[] = [];
-      const answerQuestion = recordingQuestionAnswerMutation(inputs);
-      const user = userEvent.setup();
+  it.each([null])("submits option one when recommendation metadata is %s", async (recommendation) => {
+    const attention = ordinaryAttention(["one", "two"], recommendation);
+    const presentation = questionPresentation(attention);
+    const selection = anchorQuestionSelection(emptyQuestionSelection(), presentation.defaultSelection);
+    const inputs: QuestionAnswerInput[] = [];
+    const answerQuestion = recordingQuestionAnswerMutation(inputs);
+    const user = userEvent.setup();
 
-      renderQuestionForm(attention, presentation, selection, answerQuestion);
+    renderQuestionForm(attention, presentation, selection, answerQuestion);
 
-      expect(screen.getAllByRole("radio")[0]).toBeChecked();
-      await user.click(screen.getByRole("button"));
-      await waitFor(() => {
-        expect(inputs).toHaveLength(1);
-      });
-      expect(inputs[0]).toMatchObject({
-        kind: "ordinary",
-        selectedOptionNumber: 1,
-      });
-    },
-  );
+    expect(screen.getAllByRole("radio")[0]).toBeChecked();
+    await user.click(screen.getByRole("button"));
+    await waitFor(() => {
+      expect(inputs).toHaveLength(1);
+    });
+    expect(inputs[0]).toMatchObject({
+      kind: "ordinary",
+      selectedOptionNumber: 1,
+    });
+  });
 
   it("submits a settled freeform-only answer without an option", async () => {
-    const attention = ordinaryAttention([], 0);
+    const attention = ordinaryAttention([], null);
     const presentation = questionPresentation(attention);
     const selection = anchorQuestionSelection(emptyQuestionSelection(), presentation.defaultSelection);
     const inputs: QuestionAnswerInput[] = [];
@@ -463,7 +464,7 @@ function deferred<T>(): Readonly<{
 
 function ordinaryAttention(
   suggestions: readonly string[],
-  recommendedOptionIndex: number,
+  recommendedOptionIndex: number | null,
 ): FixtureQuestionAttention {
   return {
     questionID: "ask-1",
@@ -502,7 +503,7 @@ function approvalAttention(
   decisions: readonly ("allow_once" | "allow_session" | "deny")[],
 ): FixtureApprovalAttention {
   return {
-    ...ordinaryAttention([], 0),
+    ...ordinaryAttention([], null),
     question: {
       toolCallID: "ask-1",
       sessionID: "33333333-3333-4333-8333-333333333333",

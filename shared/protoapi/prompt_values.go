@@ -1,8 +1,6 @@
 package protoapi
 
 import (
-	"fmt"
-
 	"core/shared/clientui"
 	promptpb "core/shared/protoapi/gen/kent/api/prompt"
 	"core/shared/runtimeids"
@@ -46,10 +44,7 @@ func PendingApprovalFromApproval(value *promptpb.Approval) (clientui.PendingAppr
 		Batch:     questionBatchFromProto(value.Batch),
 	}
 	for _, option := range value.Options {
-		decision, err := ApprovalDecisionFromProto(option.Decision)
-		if err != nil {
-			return clientui.PendingApproval{}, err
-		}
+		decision := ApprovalDecisionFromProto(option.Decision)
 		result.Options = append(result.Options, clientui.ApprovalOption{Decision: decision})
 	}
 	return result, nil
@@ -109,30 +104,18 @@ func questionBatchToProto(value *clientui.QuestionBatch) *promptpb.QuestionBatch
 	}
 }
 
-func ApprovalDecisionToProto(value clientui.ApprovalDecision) (promptpb.ApprovalDecision, error) {
-	switch value {
-	case clientui.ApprovalDecisionAllowOnce:
-		return promptpb.ApprovalDecision_APPROVAL_DECISION_ALLOW_ONCE, nil
-	case clientui.ApprovalDecisionAllowSession:
-		return promptpb.ApprovalDecision_APPROVAL_DECISION_ALLOW_SESSION, nil
-	case clientui.ApprovalDecisionDeny:
-		return promptpb.ApprovalDecision_APPROVAL_DECISION_DENY, nil
-	default:
-		return promptpb.ApprovalDecision_APPROVAL_DECISION_UNSPECIFIED, fmt.Errorf("invalid approval decision %q", value)
-	}
+var approvalDecisionValues = map[promptpb.ApprovalDecision]clientui.ApprovalDecision{
+	promptpb.ApprovalDecision_APPROVAL_DECISION_ALLOW_ONCE:    clientui.ApprovalDecisionAllowOnce,
+	promptpb.ApprovalDecision_APPROVAL_DECISION_ALLOW_SESSION: clientui.ApprovalDecisionAllowSession,
+	promptpb.ApprovalDecision_APPROVAL_DECISION_DENY:          clientui.ApprovalDecisionDeny,
 }
 
-func ApprovalDecisionFromProto(value promptpb.ApprovalDecision) (clientui.ApprovalDecision, error) {
-	switch value {
-	case promptpb.ApprovalDecision_APPROVAL_DECISION_ALLOW_ONCE:
-		return clientui.ApprovalDecisionAllowOnce, nil
-	case promptpb.ApprovalDecision_APPROVAL_DECISION_ALLOW_SESSION:
-		return clientui.ApprovalDecisionAllowSession, nil
-	case promptpb.ApprovalDecision_APPROVAL_DECISION_DENY:
-		return clientui.ApprovalDecisionDeny, nil
-	default:
-		return "", fmt.Errorf("invalid approval decision %v", value)
-	}
+func ApprovalDecisionToProto(value clientui.ApprovalDecision) (promptpb.ApprovalDecision, error) {
+	return enumToProto(approvalDecisionValues, value, "approval decision")
+}
+
+func ApprovalDecisionFromProto(value promptpb.ApprovalDecision) clientui.ApprovalDecision {
+	return approvalDecisionValues[value]
 }
 
 func FileAccessTargetsToProto(values []clientui.FileAccessTarget) []*promptpb.FileAccessTarget {

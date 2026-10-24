@@ -181,12 +181,11 @@ func (m *uiModel) missingPromptRecoveryScopeFor(sessionID string) (missingPrompt
 		sessionID == "" ||
 		m.runtimeActivityProjection == nil ||
 		m.runtimeActivityProjection.State != runtimepb.ActivityState_RUNTIME_ACTIVITY_AWAITING_PROMPT ||
-		m.runtimeActivityProjection.ActiveStep == nil ||
 		m.ask.hasCurrent() {
 		return missingPromptRecoveryScope{}, false
 	}
 	activeStep := m.runtimeActivityProjection.ActiveStep
-	stepID, err := runtimeids.ParseStepID(activeStep.StepId)
+	stepID, err := runtimeids.StepIDFromProto(activeStep.StepId)
 	if err != nil {
 		panic(err)
 	}

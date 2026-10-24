@@ -80,7 +80,7 @@ function ordinaryQuestionPresentation(
     defaultSelection: ordinaryQuestionSelectionDefault(suggestions.length, recommendation),
     kind: "ordinary",
     question,
-    recommendedOption: recommendedOptionNumber(suggestions.length, recommendation),
+    recommendedOption: recommendation,
     suggestions,
   };
 }
@@ -148,8 +148,7 @@ function ordinaryQuestionSelectionDefault(
 ): QuestionSelectionDefault {
   return {
     kind: "ordinary",
-    selectedOption:
-      suggestionCount === 0 ? null : (recommendedOptionNumber(suggestionCount, recommendation) ?? 1),
+    selectedOption: suggestionCount === 0 ? null : (recommendation ?? 1),
   };
 }
 
@@ -158,13 +157,4 @@ function approvalQuestionSelectionDefault(decisions: readonly ApprovalDecision[]
     approvalDecision: decisions.find((decision) => decision === "allow_once") ?? decisions[0] ?? null,
     kind: "approval",
   };
-}
-
-function recommendedOptionNumber(suggestionCount: number, recommendation: number | null): number | null {
-  return recommendation !== null &&
-    Number.isInteger(recommendation) &&
-    recommendation >= 1 &&
-    recommendation <= suggestionCount
-    ? recommendation
-    : null;
 }

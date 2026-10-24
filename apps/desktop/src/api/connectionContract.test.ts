@@ -1,10 +1,13 @@
 import { describe, expect, it } from "bun:test";
 import { create, validate } from "@app/server-api-contract";
+import { SessionAttachmentSchema } from "@app/server-api-contract/gen/kent/api/connection/connection_pb";
+import { ConnectionReplacementSchema } from "@app/server-api-contract/gen/kent/api/chat_settings/chat_settings_pb";
 import {
   ConnectionDefinitionSchema,
   AuthMethod,
   BootstrapCompletionSchema,
   BootstrapStatusSchema,
+  DeviceBootstrapContinuationSchema,
   ConnectionFactsSchema,
   ConnectionFailureDetailsSchema,
   ConnectionFailureReason,
@@ -18,7 +21,86 @@ import {
   StatusFactsSchema,
 } from "@app/server-api-contract/gen/kent/api/auth/auth_pb";
 
+it("rejects sign-in polling intervals that overflow a duration", () => {
+  for (const pollIntervalSeconds of [9223372036n, 9223372037n]) {
+    const continuation = create(DeviceBootstrapContinuationSchema, {
+      code: "device-code",
+      userCode: "user-code",
+      pollIntervalSeconds,
+    });
+    const check = () => validate(DeviceBootstrapContinuationSchema, continuation);
+    if (pollIntervalSeconds === 9223372036n) {
+      expect(check).not.toThrow();
+    } else {
+      expect(check).toThrow();
+    }
+  }
+});
+
+describe("Session attachment capabilities", () => {
+  it("requires nonblank Project identity without trimming substantive IDs", () => {
+    for (const projectId of ["project-1", " project-1 ", "", " \t", "\u0085"]) {
+      const attachment = create(SessionAttachmentSchema, {
+        projectId,
+        workspaceId: "workspace-1",
+        workspaceRoot: "/workspace",
+        sessionId: "00000000-0000-4000-8000-000000000001",
+        reattachCapability: "signed-capability",
+      });
+      const check = () => validate(SessionAttachmentSchema, attachment);
+      if (projectId === "project-1" || projectId === " project-1 ") {
+        expect(check).not.toThrow();
+      } else {
+        expect(check).toThrow();
+      }
+    }
+  });
+
+  it("accepts nonempty capabilities without surrounding whitespace", () => {
+    for (const capability of [
+      "signed-capability",
+      "",
+      " signed-capability",
+      "signed-capability\t",
+      "\u0085signed-capability",
+      " \t",
+    ]) {
+      const attachment = create(SessionAttachmentSchema, {
+        projectId: "project-1",
+        workspaceId: "workspace-1",
+        workspaceRoot: "/workspace",
+        sessionId: "00000000-0000-4000-8000-000000000001",
+        reattachCapability: capability,
+      });
+      const check = () => validate(SessionAttachmentSchema, attachment);
+      if (capability === "signed-capability") {
+        expect(check).not.toThrow();
+      } else {
+        expect(check).toThrow();
+      }
+    }
+  });
+});
+
 describe("Connection Selection identities", () => {
+  it("requires Connection IDs in Chat Settings replacements", () => {
+    for (const id of ["openai", "local-2_api", "", "Bad", " padded ", "bad/name", "\uFEFF"]) {
+      for (const field of ["previous", "current"] as const) {
+        const replacement = create(ConnectionReplacementSchema, {
+          previous: "openai",
+          current: "local",
+          [field]: id,
+        });
+        const check = () => validate(ConnectionReplacementSchema, replacement);
+        if (id === "openai" || id === "local-2_api") {
+          expect(check).not.toThrow();
+        } else {
+          expect(check).toThrow();
+        }
+      }
+    }
+  });
+
   it("requires the same alphabet in Connection outputs", () => {
     for (const id of ["openai", "local-2_api", "Bad", " padded ", "bad/name", "é"]) {
       const checks = [

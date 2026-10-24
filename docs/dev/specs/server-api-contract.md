@@ -4,6 +4,7 @@
 - Generated Protobuf messages are the API-boundary contract for official Go and TypeScript clients.
 - Kent carries serialized Protobuf API messages in typed binary WebSocket envelopes. gRPC and Connect transport semantics are outside this contract.
 - Viewed-image original bodies may use authenticated streaming HTTP delivery with the same Session access checks and protocol-version gating. Normal API messages must use their existing transport.
+- Speech recording bodies may use a dedicated authenticated HTTP upload under the [Speech Input contract](speech-input.md). Speech capability metadata and upload results must use generated Protobuf contracts and the protocol-version gate.
 - Kent's protocol version is the sole compatibility authority for API schema changes.
 - Every contract change must increment the protocol version.
 - Clients and servers must use the same protocol version.
@@ -45,6 +46,7 @@
 - Caller cancellation never terminates a Chat Operation, rolls back a committed Session, changes accepted work, changes the client's multiplexed control connection, or changes another operation.
 - The transport must not add a cancel-frame variant for server-owned work.
 - Their operation specifications own call, notification, subscription, progress, authentication, attachment, and cancellation semantics.
+- Speech requests must use the connection-bound cancellation exception defined in [Speech Input](speech-input.md). This exception must not change other server-owned work.
 - Subscription and progress operations use the terminal completion and failure behavior defined by their owning operation specifications. Transport framing adds no generic terminal product outcome.
 
 ## Message Design

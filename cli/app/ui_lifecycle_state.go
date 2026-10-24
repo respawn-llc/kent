@@ -77,8 +77,7 @@ func runtimeRunModeFromActivityKind(kind runtimepb.ActivityActiveKind) clientui.
 
 func (m *uiModel) isCompacting() bool {
 	if m == nil ||
-		m.runtimeActivityProjection.GetState() != runtimepb.ActivityState_RUNTIME_ACTIVITY_RUNNING ||
-		m.runtimeActivityProjection.ActiveStep == nil {
+		m.runtimeActivityProjection.GetState() != runtimepb.ActivityState_RUNTIME_ACTIVITY_RUNNING {
 		return false
 	}
 	switch m.runtimeActivityProjection.ActiveStep.ActiveKind {

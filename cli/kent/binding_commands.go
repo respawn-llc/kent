@@ -163,10 +163,6 @@ func rebindSubcommand(args []string, stdout io.Writer, stderr io.Writer) int {
 		_, _ = fmt.Fprintln(stdout, "Session rebind scheduled between agent steps.")
 		return 0
 	}
-	if response.Binding == nil {
-		fmt.Fprintln(stderr, "session rebind response omitted its result")
-		return 1
-	}
 	_, _ = fmt.Fprintln(stdout, response.Binding.WorkspaceId)
 	if response.WorkspaceBindingCreated {
 		_, _ = fmt.Fprintf(

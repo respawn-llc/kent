@@ -25,6 +25,14 @@ export function thinkingShowcaseServices(writeText: (value: string) => Promise<v
   };
   return {
     api: new ApiClient(transport, unavailable),
+    speech: {
+      begin: unavailable,
+      retry: unavailable,
+      discard: unavailable,
+      reveal: unavailable,
+      saveCopy: unavailable,
+      limitSound: unavailable,
+    },
     debugThemeOverrideEnabled: false,
     endpoint: "fixture-only",
     homePath: "/fixture-only",

@@ -14,9 +14,6 @@ type Reasoning = Hydration["ActiveReasoningTraces"][number];
 function reasoningKey(stepID: string, identity: Reasoning["Identity"]): string {
   const provider = identity.Provider;
   const kent = identity.Kent;
-  if ((provider != null) === (kent != null)) {
-    throw new ContractError("Reasoning correlation must identify exactly one provider or Kent trace.");
-  }
   return provider != null
     ? JSON.stringify(["reasoning", stepID, "provider", provider.ItemID, provider.SummaryIndex])
     : JSON.stringify(["reasoning", stepID, "kent", kent]);

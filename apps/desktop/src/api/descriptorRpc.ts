@@ -45,7 +45,12 @@ export function encodeDescriptorCall<Method extends DescMethod>(
 }
 
 export function decodeDescriptorResponse(bytes: Uint8Array): DescriptorResponse {
-  const envelope = decodeEnvelope(bytes);
+  return descriptorResponseFromEnvelope(decodeEnvelope(bytes));
+}
+
+export function descriptorResponseFromEnvelope(
+  envelope: ReturnType<typeof decodeEnvelope>,
+): DescriptorResponse {
   switch (envelope.frame.case) {
     case "result": {
       const correlation = envelope.frame.value.correlation;

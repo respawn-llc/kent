@@ -11,15 +11,7 @@ export function compareRows(left: CommittedRow, right: CommittedRow): number {
   );
 }
 
-function validateBoundary(hasMore: boolean, cursor: number | null): void {
-  if (hasMore !== (cursor !== null) || (cursor !== null && (!Number.isInteger(cursor) || cursor <= 0))) {
-    throw new ContractError("Transcript boundary must carry a positive cursor exactly when history exists.");
-  }
-}
-
 export function validateSegment(segment: Segment): void {
-  validateBoundary(segment.hasMoreAbove, segment.olderCursor);
-  validateBoundary(segment.hasMoreBelow, segment.newerCursor);
   let previous: CommittedRow | null = null;
   for (const row of segment.entries) {
     committedItem(row);

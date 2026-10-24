@@ -31,7 +31,7 @@ type pendingWorkListClient interface {
 }
 
 func (m *uiModel) advancePendingWorkRefreshScope(sessionID runtimeids.SessionID) tea.Cmd {
-	if m == nil || sessionID.IsZero() {
+	if m == nil {
 		return nil
 	}
 	generation := m.pendingWorkRefresh.generation + 1

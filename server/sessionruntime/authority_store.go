@@ -236,9 +236,6 @@ func normalizeSessionStartBlockSessionIDs(sessionIDs []runtimeids.SessionID) ([]
 	seen := make(map[runtimeids.SessionID]struct{}, len(sessionIDs))
 	normalized := make([]runtimeids.SessionID, 0, len(sessionIDs))
 	for _, sessionID := range sessionIDs {
-		if sessionID.IsZero() {
-			return nil, errors.New("session id is required")
-		}
 		if _, exists := seen[sessionID]; exists {
 			continue
 		}
@@ -334,9 +331,6 @@ func (a *Authority) WithDestructiveSessionAdmission(
 	if err := context.Cause(ctx); err != nil {
 		return err
 	}
-	if sessionID.IsZero() {
-		return errors.New("session id is required")
-	}
 	if callback == nil {
 		return errors.New("destructive Session callback is required")
 	}
@@ -405,9 +399,6 @@ func (a *Authority) WithSessionStore(ctx context.Context, descriptor session.Ses
 		return err
 	}
 	sessionID := descriptor.SessionID()
-	if sessionID.IsZero() {
-		return errors.New("session id is required")
-	}
 	if callback == nil {
 		return errors.New("session store callback is required")
 	}
@@ -454,9 +445,6 @@ func (a *Authority) WithDormantSessionStore(
 		return DormantSessionStoreAdmission{}, err
 	}
 	sessionID := descriptor.SessionID()
-	if sessionID.IsZero() {
-		return DormantSessionStoreAdmission{}, errors.New("session id is required")
-	}
 	if callback == nil {
 		return DormantSessionStoreAdmission{}, errors.New("session store callback is required")
 	}
@@ -495,10 +483,7 @@ func (a *Authority) WithSessionChatSettings(
 	if callback == nil {
 		return errors.New("Session Chat settings callback is required")
 	}
-	id, err := runtimeids.ParseSessionID(strings.TrimSpace(sessionID))
-	if err != nil {
-		return err
-	}
+	id := runtimeids.SessionIDFromProto(strings.TrimSpace(sessionID))
 	return a.withMaintenanceResourceAdmission(ctx, id, maintenanceAdmissionSessionChatSettings, true, func(
 		runCtx context.Context,
 		store *session.Store,

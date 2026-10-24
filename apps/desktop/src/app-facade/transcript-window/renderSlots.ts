@@ -70,19 +70,6 @@ export function committedItem(
   key = locatorKey(row),
   activity: ChatTranscriptPayloadByKind["tool_start"] | null = null,
 ): TranscriptCommittedItem {
-  const payloads = [
-    row.User,
-    row.Assistant,
-    row.Tool,
-    row.ToolCall,
-    row.ReasoningTrace,
-    row.Notice,
-    row.ReviewerFeedback,
-    row.ReviewerError,
-  ];
-  if (payloads.filter((payload) => payload !== null).length !== 1) {
-    throw new ContractError("Transcript row must contain exactly one payload.");
-  }
   const base = { state: "committed", key, row } as const;
   switch (row.Kind) {
     case "user":

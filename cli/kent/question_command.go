@@ -440,9 +440,6 @@ func questionBatchAnswer(
 ) (*promptpb.AnswerBatchEntry, error) {
 	entry := &promptpb.AnswerBatchEntry{ToolCallId: string(question.ToolCallID)}
 	if question.Kind == taskpb.AttentionQuestionKind_ATTENTION_QUESTION_KIND_APPROVAL {
-		if question.Approval == nil {
-			return nil, errors.New("pending Approval has no authoritative options")
-		}
 		if option == nil {
 			return nil, &questionAnswerUsageError{message: "question answer requires --option for an access request"}
 		}

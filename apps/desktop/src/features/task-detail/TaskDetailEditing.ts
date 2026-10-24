@@ -11,7 +11,8 @@ import {
 } from "./TaskDetailDescriptionPresentation";
 
 type TaskDraftState = Readonly<{ base: TaskDraft; draft: TaskDraft }>;
-export type EditingComment = Readonly<{ id: string; body: string }> | null;
+export type EditingComment = Readonly<{ id: string; body: string; lifetime: symbol }> | null;
+type CommentEditInput = Readonly<{ id: string; body: string }> | null;
 
 const retainedSchema = z.object({
   base: z.object({ body: z.string(), title: z.string() }),
@@ -45,7 +46,14 @@ export function createTaskDetailEditing(
       );
     },
   );
-  const editingComment = Atom.make<EditingComment>(restored?.editingComment ?? null);
+  const editingComment = Atom.make<EditingComment>(
+    restored?.editingComment == null
+      ? null
+      : {
+          ...restored.editingComment,
+          lifetime: Symbol("comment-edit"),
+        },
+  );
   const newCommentBody = Atom.make(restored?.newCommentBody ?? "");
   const descriptionPresentation = Atom.make<DescriptionPresentationState>(
     restored?.descriptionPresentation ?? initialDescriptionPresentationState,
@@ -54,7 +62,7 @@ export function createTaskDetailEditing(
   const dependencyFocus = Atom.make<number | null>(null);
   const retained = Atom.make((get) => ({
     ...get(drafts),
-    editingComment: get(editingComment),
+    editingComment: commentEditContent(get(editingComment)),
     newCommentBody: get(newCommentBody),
     descriptionPresentation: get(descriptionPresentation),
     selectedTab: get(selectedTab),
@@ -67,6 +75,7 @@ export function createTaskDetailEditing(
     const dirty = task !== undefined && draftState !== null && !sameTaskDraft(draftState.draft, task);
     return {
       ...values,
+      editingComment: get(editingComment),
       drafts: draftState,
       dependencyFocus: get(dependencyFocus),
       dirty,
@@ -77,7 +86,18 @@ export function createTaskDetailEditing(
     state,
     capture,
     editDraft: Atom.fn<TaskDraft>()((value) => Atom.set(drafts, value)),
-    editComment: Atom.fn<EditingComment>()((value) => Atom.set(editingComment, value)),
+    editComment: Atom.fnSync<CommentEditInput>()((value, get) => {
+      const current = get(editingComment);
+      get.set(
+        editingComment,
+        value === null
+          ? null
+          : {
+              ...value,
+              lifetime: current?.id === value.id ? current.lifetime : Symbol("comment-edit"),
+            },
+      );
+    }),
     editNewComment: Atom.fn<string>()((value) => Atom.set(newCommentBody, value)),
     presentDescription: Atom.fn<DescriptionPresentationState>()((value) =>
       Atom.set(descriptionPresentation, value),
@@ -88,6 +108,10 @@ export function createTaskDetailEditing(
     ),
   } as const;
   return { drafts, editingComment, newCommentBody, view } as const;
+}
+
+function commentEditContent(value: EditingComment): CommentEditInput {
+  return value === null ? null : { id: value.id, body: value.body };
 }
 
 export function sameTaskDraft(a: TaskDraft | undefined, b: TaskDraft | undefined): boolean {

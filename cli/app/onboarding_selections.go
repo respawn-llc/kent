@@ -149,7 +149,7 @@ type onboardingSelections struct {
 func modelFactForFacts(facts *capabilitypb.Facts, model string) *capabilitypb.ModelFact {
 	trimmed := strings.TrimSpace(model)
 	for _, fact := range facts.GetModels().GetKnownModels() {
-		if fact.ModelId != nil && strings.EqualFold(strings.TrimSpace(*fact.ModelId), trimmed) {
+		if strings.EqualFold(strings.TrimSpace(*fact.ModelId), trimmed) {
 			return fact
 		}
 	}

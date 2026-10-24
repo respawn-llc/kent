@@ -230,9 +230,6 @@ func (c *CurrentNodeController) CompleteSessionCurrentNode(
 	if c == nil {
 		return workflowruntime.CompletionResult{}, errors.New("current node workflow controller is required")
 	}
-	if sessionID.IsZero() {
-		return workflowruntime.CompletionResult{}, errors.New("session id is required")
-	}
 	handle, live := c.authority.SessionExecution(sessionID)
 	if !live || handle.Scope().Kind() != sessionruntime.ExecutionScopeAgent {
 		return workflowruntime.CompletionResult{}, sessionruntime.ErrExecutionNoLongerLive
@@ -614,20 +611,6 @@ func runCurrentNodeTaskMutation[T any](
 		return err
 	})
 	return result, err
-}
-
-func (c *CurrentNodeController) requireLiveScope(scopeID runtimeids.ExecutionScopeID) error {
-	if c == nil || scopeID.IsZero() {
-		return errors.New("workflow exact execution scope id is required")
-	}
-	handle, exists := c.authority.ExecutionByScope(scopeID)
-	if !exists {
-		return sessionruntime.ErrExecutionNoLongerLive
-	}
-	if _, workflowScoped := handle.Scope().Workflow(); !workflowScoped {
-		return sessionruntime.ErrExecutionNoLongerLive
-	}
-	return nil
 }
 
 var _ workflowruntime.Controller = (*CurrentNodeController)(nil)
