@@ -16,6 +16,8 @@ import { useStatusController } from "@/app-facade";
 import { ProjectLabelsProvider, TaskLabelAssignmentProvider } from "@/shared/labels";
 import { ErrorState, LoadingState } from "@/ui";
 import { TaskDetailContent } from "./TaskDetailContent";
+import { SpeechDestinationProvider } from "@/shared/speech-input";
+import { TaskSpeechProvider, useTaskDetailSpeech } from "./TaskDetailSpeech";
 import type { TaskDetailDeleteDismissal } from "./taskDetailDismissal";
 import type { TaskDetailSessionChatEntry } from "./taskDetailSessionChat";
 import type { SessionChatOpeningIntent } from "@/app-facade";
@@ -52,7 +54,11 @@ export type TaskDetailSurfaceProps = TaskDetailSurfaceCommonProps &
   );
 
 export function TaskDetailSurface(props: TaskDetailSurfaceProps) {
-  return <TaskDetailDestination key={props.taskId} {...props} />;
+  return (
+    <SpeechDestinationProvider key={props.taskId}>
+      <TaskDetailDestination {...props} />
+    </SpeechDestinationProvider>
+  );
 }
 
 function TaskDetailDestination({
@@ -78,6 +84,7 @@ function TaskDetailDestination({
   );
   const { detail, attention, activity, comments } = useTaskDetailReads(model, enabled);
   const actions = useTaskDetailActions(model);
+  const speech = useTaskDetailSpeech(model, actions);
   const observation = useTaskDetailObservation(model);
   const capture = useAtomValue(model.editing.capture);
   useEffect(() => {
@@ -130,24 +137,26 @@ function TaskDetailDestination({
       subscribeToProject={false}
     >
       <TaskLabelAssignmentProvider key={detail.data.id} taskID={detail.data.id}>
-        <TaskDetailContent
-          key={detail.data.id}
-          activity={activity}
-          attention={attention}
-          comments={comments}
-          detail={detail.data}
-          model={model}
-          actions={actions}
-          initialFocus={initialFocus}
-          navigator={navigator}
-          onDeleteDismiss={deleteDismissal}
-          onMutated={onMutated}
-          openSessionChat={openSessionChat}
-          sessionChatDefaultIntent={sessionChatDefaultIntent}
-          openSidebar={openSidebar}
-          sidebarDestination={sidebarDestination}
-          sidebarMode={sidebarMode}
-        />
+        <TaskSpeechProvider value={speech}>
+          <TaskDetailContent
+            key={detail.data.id}
+            activity={activity}
+            attention={attention}
+            comments={comments}
+            detail={detail.data}
+            model={model}
+            actions={actions}
+            initialFocus={initialFocus}
+            navigator={navigator}
+            onDeleteDismiss={deleteDismissal}
+            onMutated={onMutated}
+            openSessionChat={openSessionChat}
+            sessionChatDefaultIntent={sessionChatDefaultIntent}
+            openSidebar={openSidebar}
+            sidebarDestination={sidebarDestination}
+            sidebarMode={sidebarMode}
+          />
+        </TaskSpeechProvider>
       </TaskLabelAssignmentProvider>
     </ProjectLabelsProvider>
   );

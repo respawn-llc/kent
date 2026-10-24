@@ -109,6 +109,9 @@ func connectionSettingsTable(connection ProviderConnection) map[string]any {
 	if connection.EnvironmentVariable != nil {
 		table["environment_variable"] = *connection.EnvironmentVariable
 	}
+	if connection.SpeechToTextModel != nil {
+		table["speech_to_text_model"] = *connection.SpeechToTextModel
+	}
 	if connection.Capabilities != (ProviderCapabilitiesOverride{}) {
 		table["provider_capabilities"] = connection.Capabilities
 	}

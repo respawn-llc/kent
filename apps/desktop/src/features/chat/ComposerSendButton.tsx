@@ -7,11 +7,22 @@ import { canConfirmPicker } from "./promptPickerState";
 import type { useChatPromptPicker } from "./useChatPromptPicker";
 
 export function ComposerSendButton() {
-  const { t } = useTranslation();
-  const { composer, promptPicker, activity } = useComposerSurface();
+  const { composer, promptPicker, speech } = useComposerSurface();
   if (promptPicker !== null && promptPicker.state.current !== null) {
-    return <PromptSendButton picker={promptPicker} restricted={composer.interactionRestricted} />;
+    return (
+      <PromptSendButton
+        picker={promptPicker}
+        restricted={composer.interactionRestricted || speech.busy}
+        reason={speech.busy ? speech.busyReason : undefined}
+      />
+    );
   }
+  return <OrdinarySendButton />;
+}
+
+function OrdinarySendButton() {
+  const { t } = useTranslation();
+  const { composer, activity, speech } = useComposerSurface();
   const reason = composer.heldReadonly
     ? t("chatComposer.awaitingConfirmation")
     : !composer.canPrepare
@@ -27,7 +38,7 @@ export function ComposerSendButton() {
     <SendButton
       enabled={composer.canSubmit}
       pending={composer.inputPending || composer.interactionRestricted}
-      tooltip={composer.canSubmit ? t("chatComposer.send") : reason}
+      tooltip={speech.busy ? speech.busyReason : composer.canSubmit ? t("chatComposer.send") : reason}
       onClick={() => {
         composer.submit("send", "editor", activity ?? undefined);
       }}
@@ -38,14 +49,19 @@ export function ComposerSendButton() {
 function PromptSendButton({
   picker,
   restricted,
-}: Readonly<{ picker: NonNullable<ReturnType<typeof useChatPromptPicker>>; restricted: boolean }>) {
+  reason,
+}: Readonly<{
+  picker: NonNullable<ReturnType<typeof useChatPromptPicker>>;
+  restricted: boolean;
+  reason?: string | undefined;
+}>) {
   const { t } = useTranslation();
   const dispatch = useAtomSet(picker.dispatch);
   return (
     <SendButton
       enabled={!restricted && !picker.request.isPending && canConfirmPicker(picker.state)}
       pending={restricted || picker.request.isPending}
-      tooltip={restricted ? t("chat.navigationPending") : t("chatComposer.send")}
+      tooltip={restricted ? (reason ?? t("chat.navigationPending")) : t("chatComposer.send")}
       onClick={() => {
         dispatch({ action: { kind: "confirm" } });
       }}

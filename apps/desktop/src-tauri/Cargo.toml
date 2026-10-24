@@ -16,6 +16,9 @@ tauri-build = { version = "2", features = [] }
 [dependencies]
 arboard = { version = "3.6.1", features = ["wayland-data-control"] }
 image = { version = "0.25", default-features = false, features = ["png"] }
+futures-util = "0.3"
+reqwest = { version = "0.13", default-features = false, features = ["rustls", "stream"] }
+tokio-util = { version = "0.7", features = ["io", "rt"] }
 tempfile = "3"
 serde = { version = "1", features = ["derive"] }
 # Required at the crate root by tauri::generate_context! once the updater plugin
@@ -33,17 +36,21 @@ tauri-plugin-notification = "2.3.3"
 tauri-plugin-process = "2"
 tauri-plugin-store = "2"
 tauri-plugin-updater = "2"
-tokio = { version = "1", features = ["sync"] }
+tokio = { version = "1", features = ["sync", "fs", "io-util", "macros"] }
 toml = "0.9"
 
 [target.'cfg(target_os = "macos")'.dependencies]
 mac-usernotifications = "0.3.1"
 objc2 = "0.6.4"
-objc2-app-kit = { version = "0.3.2", features = ["NSColor", "NSGlassEffectView", "NSResponder", "NSView", "NSVisualEffectView", "NSWindow"] }
+objc2-app-kit = { version = "0.3.2", features = ["NSColor", "NSGraphics", "NSGlassEffectView", "NSResponder", "NSView", "NSVisualEffectView", "NSWindow"] }
 objc2-foundation = { version = "0.3.2", features = ["NSProcessInfo"] }
 
 [target.'cfg(windows)'.dependencies]
-windows = { version = "0.61.3", features = ["UI_Notifications"] }
+windows = { version = "0.61.3", features = ["UI_Notifications", "Win32_System_Diagnostics_Debug", "Win32_UI_WindowsAndMessaging"] }
+
+[target.'cfg(target_os = "linux")'.dependencies]
+webkit2gtk = { version = "2.0.2", features = ["v2_40"] }
+gtk = "0.18"
 
 [profile.release]
 codegen-units = 1

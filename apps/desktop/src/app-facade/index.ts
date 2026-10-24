@@ -1,3 +1,6 @@
+export { nativeObservation } from "@app/native-bridge";
+export type { SpeechCapture, SpeechRequest, SpeechSource, SpeechTransfer } from "./speech";
+export { speechSourceBytes } from "./speech";
 export { useLocalSubscription } from "./useLocalSubscription";
 export { createAppLogger, type AppLogger, type AppLogLevel, type AppObservationLogger } from "./logging";
 export * from "./boardQueries";
