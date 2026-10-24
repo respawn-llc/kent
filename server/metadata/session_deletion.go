@@ -22,9 +22,6 @@ func (s *Store) DeleteSession(ctx context.Context, sessionID string) error {
 		return errors.New("metadata store is required")
 	}
 	sessionID = strings.TrimSpace(sessionID)
-	if sessionID == "" {
-		return errors.New("Session ID is required")
-	}
 	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
 		return fmt.Errorf("begin Session deletion: %w", err)

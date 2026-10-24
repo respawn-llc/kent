@@ -319,7 +319,7 @@ function QuestionFormFrame({
       {accessTargets === undefined ? null : (
         <PromptAccessTargets targets={accessTargets} formatPath={formatPath} />
       )}
-      {!hasAccessTargets && question !== undefined && question.length > 0 ? (
+      {!hasAccessTargets && question !== undefined ? (
         <div className="min-w-0 text-[var(--color-on-island)]">
           <StaticMarkdown value={question} />
         </div>

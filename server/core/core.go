@@ -74,9 +74,6 @@ func (s *Core) ProjectExists(ctx context.Context, projectID string) error {
 
 func (s *Core) SessionBelongsToProject(ctx context.Context, sessionID string, projectID string) error {
 	trimmedSessionID := strings.TrimSpace(sessionID)
-	if trimmedSessionID == "" {
-		return fmt.Errorf("session id is required")
-	}
 	trimmedProjectID := strings.TrimSpace(projectID)
 	if trimmedProjectID == "" {
 		return fmt.Errorf("project id is required")

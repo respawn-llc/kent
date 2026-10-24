@@ -64,10 +64,7 @@ func TestPersistedShellCompletionHydratesFullExitStatus(t *testing.T) {
 				if err := proto.Unmarshal(encoded, decoded); err != nil {
 					t.Fatal(err)
 				}
-				native, err := protoapi.ToolPresentationFromProto("exec_command", decoded)
-				if err != nil {
-					t.Fatal(err)
-				}
+				native := protoapi.ToolPresentationFromProto("exec_command", decoded)
 				if native.ShellExitCode == nil || *native.ShellExitCode != status {
 					t.Fatalf("exit status = %v, want %d", native.ShellExitCode, status)
 				}

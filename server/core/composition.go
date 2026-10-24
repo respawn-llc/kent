@@ -53,7 +53,6 @@ import (
 	"core/shared/runtimeids"
 	"core/shared/serverapi"
 	"core/shared/textutil"
-	"core/shared/toolspec"
 	"core/shared/workflowcontract"
 )
 
@@ -742,42 +741,6 @@ type workflowViewPendingPromptSource struct {
 	prompts interface {
 		ListPendingPrompts(sessionID string) []registry.PendingPromptSnapshot
 	}
-}
-
-type workflowViewActiveTranscriptSource struct {
-	views *sessionview.Service
-}
-
-func (s workflowViewActiveTranscriptSource) SessionNewestActiveSegmentQuestions(ctx context.Context, sessionID string) ([]workflowview.PendingQuestionTranscriptEntry, error) {
-	if s.views == nil {
-		return nil, errors.New("session view service is required")
-	}
-	entries, err := s.views.SessionTranscriptTailEntries(ctx, sessionID)
-	if err != nil {
-		return nil, err
-	}
-	questions := make([]workflowview.PendingQuestionTranscriptEntry, 0, len(entries))
-	for _, entry := range entries {
-		if entry.Role != "tool_call" ||
-			entry.ToolCall == nil ||
-			entry.ToolCall.ToolName != string(toolspec.ToolAskQuestion) {
-			continue
-		}
-		recommendedOptionIndex, err := registry.DecodeLegacyRecommendedOptionIndex(
-			entry.ToolCall.RecommendedOptionIndex,
-			len(entry.ToolCall.Suggestions),
-		)
-		if err != nil {
-			return nil, fmt.Errorf("session %q pending ask %q: %w", sessionID, entry.ToolCallID, err)
-		}
-		questions = append(questions, workflowview.PendingQuestionTranscriptEntry{
-			AskID:                  entry.ToolCallID,
-			Question:               entry.ToolCall.Question,
-			Suggestions:            append([]string(nil), entry.ToolCall.Suggestions...),
-			RecommendedOptionIndex: recommendedOptionIndex,
-		})
-	}
-	return questions, nil
 }
 
 func (s workflowViewPendingPromptSource) ListPendingPrompts(sessionID string) ([]workflowview.PendingPromptSnapshot, error) {

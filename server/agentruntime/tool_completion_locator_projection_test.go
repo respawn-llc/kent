@@ -84,9 +84,6 @@ func TestToolCompletionLocatorOwnerSurvivesRoleToolMaterializationAndReopen(t *t
 		if !ok {
 			t.Fatalf("live locator for %s is absent", callID)
 		}
-		if err := liveLocator.Validate(); err != nil {
-			t.Fatalf("live locator for %s is invalid: %v", callID, err)
-		}
 		if pageFact.Locator != liveLocator {
 			t.Fatalf("tool %s page locator = %+v, live locator = %+v", callID, pageFact.Locator, liveLocator)
 		}

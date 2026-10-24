@@ -498,7 +498,7 @@ function shellCommandLanguage(meta: ToolMeta | null | undefined): string | undef
 }
 
 function sourceResultLanguage(meta: ToolMeta | null | undefined): string | undefined {
-  return meta?.RenderHint?.Kind === "source" ? meaningful(meta.RenderHint.Path) : undefined;
+  return meta?.RenderHint?.Kind === "source" ? meta.RenderHint.Path : undefined;
 }
 
 function toolIconTone(

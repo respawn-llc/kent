@@ -28,10 +28,7 @@ func SessionSelfTargetToProto(err error, self *serverapi.SessionSelfTargetError)
 func SessionSelfTargetFromProto(details *sharedpb.SessionSelfTargetDetails) error {
 	self := &serverapi.SessionSelfTargetError{}
 	captured := SessionTargetContextErrorFromProto(details.SessionTarget, self)
-	var target *serverapi.SessionTargetError
-	if !errors.As(captured, &target) || target.SessionID() == nil {
-		return errors.New("self-target rejection requires a canonical Session identity")
-	}
+	target := captured.(*serverapi.SessionTargetError)
 	self.SessionID = *target.SessionID()
 	return captured
 }

@@ -356,11 +356,8 @@ func (e bindingMutationJSONError) validate() error {
 		return errors.New("binding mutation blockers must be absent or non-empty")
 	}
 	for _, blocker := range e.Blockers {
-		if strings.TrimSpace(blocker.Code) == "" || strings.TrimSpace(blocker.Message) == "" || strings.TrimSpace(blocker.Guidance) == "" {
+		if strings.TrimSpace(blocker.Message) == "" || strings.TrimSpace(blocker.Guidance) == "" {
 			return errors.New("binding mutation blocker requires code, message, and guidance")
-		}
-		if blocker.Count != nil && *blocker.Count <= 0 {
-			return errors.New("binding mutation blocker count must be positive when present")
 		}
 	}
 	return nil

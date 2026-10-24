@@ -24,10 +24,7 @@ func registerPromptCatalogGatewayBinaryBindings(bindings map[string]gatewayBinar
 			}
 			var sessionID *runtimeids.SessionID
 			if request.SessionId != nil {
-				parsed, err := runtimeids.ParseSessionID(*request.SessionId)
-				if err != nil {
-					return nil, err
-				}
+				parsed := runtimeids.SessionIDFromProto(*request.SessionId)
 				sessionID = &parsed
 			}
 			workspaceRoot, err := g.promptCommandWorkspaceRootForCatalog(ctx, state, sessionID)

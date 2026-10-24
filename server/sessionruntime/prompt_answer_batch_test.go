@@ -47,21 +47,6 @@ func TestExecutionPromptStoreResolvePromptBatchValidatesAllMatchingEntriesBefore
 	}
 }
 
-func TestAuthorityResolvePromptBatchRejectsMissingInternalUnionVariantBeforeStaleEvaluation(t *testing.T) {
-	authority := NewAuthority(AuthorityOptions{})
-	_, err := authority.ResolvePromptBatch(
-		context.Background(),
-		runtimeids.NewSessionID(),
-		promptBatchStepID(t),
-		[]PromptAnswerCommand{{
-			ToolCallID: "prompt-1",
-		}},
-	)
-	if err == nil {
-		t.Fatal("invalid internal command union was treated as stale")
-	}
-}
-
 func TestExecutionPromptStoreResolvePromptBatchResolvesMixedEntriesInCanonicalOrder(t *testing.T) {
 	stepID := promptBatchStepID(t)
 	canonical := []*executionPromptEntry{

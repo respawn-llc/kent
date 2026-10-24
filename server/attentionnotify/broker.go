@@ -83,9 +83,6 @@ func (b *Broker) SubscribeDesktop() (*Subscription, error) {
 }
 
 func (b *Broker) SubscribeSession(sessionID string) (*Subscription, error) {
-	if sessionID == "" {
-		return nil, fmt.Errorf("attention notification session subscription: %w", serverapi.ErrSessionIDRequired)
-	}
 	return b.subscribe(deliveryFilter{sessionID: sessionID})
 }
 

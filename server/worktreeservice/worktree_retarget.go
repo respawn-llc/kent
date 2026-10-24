@@ -139,10 +139,7 @@ func (s *Service) switchSessionTargetWithSync(
 		return &worktreepb.SessionExecutionTarget{}, worktreeUnappliedTechnical(errors.New("execution target synchronizer is required"))
 	}
 	if stepAuthority == nil {
-		sessionIDs, err := parseSessionStartAdmissionIDs([]string{workspaceCtx.sessionID})
-		if err != nil {
-			return &worktreepb.SessionExecutionTarget{}, worktreeUnappliedTechnical(err)
-		}
+		sessionIDs := []runtimeids.SessionID{runtimeids.SessionIDFromProto(workspaceCtx.sessionID)}
 		release, err := s.acquireSessionStartAdmission(ctx, sessionIDs, sessionStartAdmissionWait)
 		if err != nil {
 			return &worktreepb.SessionExecutionTarget{}, worktreeUnappliedTechnical(err)

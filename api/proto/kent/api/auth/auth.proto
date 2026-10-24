@@ -63,7 +63,7 @@ message BrowserBootstrapContinuation {
 message DeviceBootstrapContinuation {
   string code = 1 [(buf.validate.field).string.min_len = 1];
   string user_code = 2 [(buf.validate.field).string.min_len = 1];
-  int64 poll_interval_seconds = 3 [(buf.validate.field).int64.gt = 0];
+  int64 poll_interval_seconds = 3 [(buf.validate.field).int64 = {gt: 0, lte: 9223372036}];
   google.protobuf.Timestamp expires_at = 4;
 }
 

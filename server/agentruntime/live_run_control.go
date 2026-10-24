@@ -316,9 +316,6 @@ func (e *Engine) queueMessageWithObservation(ctx context.Context, id string, mes
 }
 
 func (e *Engine) queueMessageForActiveRun(ctx context.Context, id string, message llm.Message, namingTask *string, onActive func(), beforeQueue func() error, accept CommandAcceptance, observe func(liveRunAdmission)) (QueuedUserMessage, bool, error) {
-	if _, err := runtimeids.ParseCanonicalUUIDv4(id, "queue_item_id"); err != nil {
-		return QueuedUserMessage{}, false, err
-	}
 	if e == nil {
 		return QueuedUserMessage{}, false, ErrNoActiveLiveRun
 	}

@@ -70,9 +70,6 @@ func ArchiveSessionDirectory(
 	sessionDir string,
 	outputPath string,
 ) error {
-	if sessionID.IsZero() {
-		return errors.New("Session ID is required")
-	}
 	if !filepath.IsAbs(sessionDir) {
 		return errors.New("Session directory must be absolute")
 	}

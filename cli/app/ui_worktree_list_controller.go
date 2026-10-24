@@ -4,7 +4,6 @@ import (
 	"errors"
 	"strings"
 
-	"core/cli/app/internal/runtimeattach"
 	"core/cli/app/internal/worktreeui"
 	tea "github.com/charmbracelet/bubbletea"
 )
@@ -56,23 +55,18 @@ func (m *uiModel) selectedWorktreeRow() (worktreeui.Item, bool) {
 	return worktreeui.SelectedWorktree(m.worktrees.entries, m.worktrees.selection)
 }
 
-func (m *uiModel) selectedWorktreeIdentity() (worktreeui.SelectionIdentity, error) {
+func (m *uiModel) selectedWorktreeIdentity() worktreeui.SelectionIdentity {
 	if m == nil {
-		return worktreeui.SelectionIdentity{Kind: worktreeui.SelectionIdentityKindCreateRow}, nil
+		return worktreeui.SelectionIdentity{Kind: worktreeui.SelectionIdentityKindCreateRow}
 	}
 	return worktreeui.SelectedIdentity(m.worktrees.entries, m.worktrees.selection)
 }
 
-func (m *uiModel) recordWorktreeSelection() error {
+func (m *uiModel) recordWorktreeSelection() {
 	if m == nil {
-		return nil
+		return
 	}
-	identity, err := m.selectedWorktreeIdentity()
-	if err != nil {
-		return err
-	}
-	m.worktrees.selectedIdentity = identity
-	return nil
+	m.worktrees.selectedIdentity = m.selectedWorktreeIdentity()
 }
 
 func (m *uiModel) restoreWorktreeSelection() error {
@@ -180,11 +174,7 @@ func (c uiInputController) startSelectedWorktreeDelete(preferDeleteBranch bool) 
 		}
 		return m, nil
 	}
-	identity, err := worktreeui.SelectionIdentityForItem(target)
-	if err != nil {
-		status := runtimeattach.FormatSubmissionError(err)
-		return m, c.model.sendTransientStatusWithNoticeID(status, uiStatusNoticeError, transientStatusDuration, uiStatusNoticeReplace, "")
-	}
+	identity := worktreeui.SelectionIdentityForItem(target)
 	m.invalidateWorktreeDeleteTargetResolution()
 	m.worktrees.intent = uiWorktreeOpenIntent{
 		OpenDelete: true,

@@ -137,10 +137,7 @@ func TestWorktreeListControllerDeleteKeysSetIntent(t *testing.T) {
 	if cmd == nil {
 		t.Fatal("expected refresh command for delete intent")
 	}
-	wantIdentity, err := worktreeui.SelectionIdentityForItem(fixture.model.worktrees.entries[0])
-	if err != nil {
-		t.Fatalf("SelectionIdentityForItem: %v", err)
-	}
+	wantIdentity := worktreeui.SelectionIdentityForItem(fixture.model.worktrees.entries[0])
 	target := fixture.model.worktrees.intent.DeleteTarget
 	if !fixture.model.worktrees.intent.OpenDelete ||
 		target.kind != uiWorktreeDeleteIntentTargetIdentity ||
@@ -352,10 +349,7 @@ func TestNewListDeleteIntentSupersedesPendingSelectorResolution(t *testing.T) {
 	if fixture.model.worktrees.phase != uiWorktreeOverlayPhaseList {
 		t.Fatalf("phase = %q, want newer list delete intent to retain ownership", fixture.model.worktrees.phase)
 	}
-	wantIdentity, err := worktreeui.SelectionIdentityForItem(fixture.model.worktrees.entries[1])
-	if err != nil {
-		t.Fatalf("SelectionIdentityForItem: %v", err)
-	}
+	wantIdentity := worktreeui.SelectionIdentityForItem(fixture.model.worktrees.entries[1])
 	if fixture.model.worktrees.intent.DeleteTarget.identity != wantIdentity {
 		t.Fatalf("delete intent = %+v, want selected current worktree", fixture.model.worktrees.intent)
 	}

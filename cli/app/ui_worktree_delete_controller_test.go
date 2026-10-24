@@ -228,7 +228,12 @@ func TestWorktreeDeleteCompletionStopsSpinnerAfterOverlayError(t *testing.T) {
 func TestWorktreeDeleteCompletionPreservesSpinnerForFollowUpListLoading(t *testing.T) {
 	withDeterministicSpinnerClock(t)
 
-	client := &worktreeCommandTestClient{listResp: testMainWorktreeListResponse()}
+	client := &worktreeCommandTestClient{
+		listResp: testMainWorktreeListResponse(),
+		deleteResp: &worktreepb.DeleteSuccess{Cleanup: &worktreepb.BranchCleanupOutcome{
+			Kind: worktreepb.BranchCleanupOutcomeKind_WORKTREE_BRANCH_CLEANUP_OUTCOME_NOT_REQUESTED,
+		}},
+	}
 	model := newWorktreeDeleteControllerTestModel(t, client)
 	model.worktrees.deleteConfirm.selectedAction = uiWorktreeDeleteActionDelete
 

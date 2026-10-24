@@ -306,32 +306,36 @@ test("the repository policy checks HTML scripts and Astro frontmatter, scripts a
   }
 });
 
-test("Astro policy checks escape filenames in compiler metadata", { timeout: 30_000 }, async () => {
-  // Windows separators require encoding; other platforms need a quoted component.
-  const directory = await mkdtemp(
-    join(
-      fixtureRoot,
-      process.platform === "win32" ? "escaped-path-" : 'quoted"path-',
-    ),
-  );
-  try {
-    const path = join(directory, "component.astro");
-    await copyFile(
-      join(fixtureRoot, "tooling/escaped path#fragment/component.astro"),
-      path,
-    );
-    const [result] = await checkEffectPolicy([path]);
-    assert.ok(result.errorCount > 0);
-    assert.equal(result.fatalErrorCount, 0);
-    assert.ok(
-      result.messages.some(
-        (message) => message.ruleId === "app/no-unowned-effect",
+test(
+  "Astro policy checks escape filenames in compiler metadata",
+  { timeout: 30_000 },
+  async () => {
+    // Windows separators require encoding; other platforms need a quoted component.
+    const directory = await mkdtemp(
+      join(
+        fixtureRoot,
+        process.platform === "win32" ? "escaped-path-" : 'quoted"path-',
       ),
     );
-  } finally {
-    await rm(directory, { recursive: true });
-  }
-});
+    try {
+      const path = join(directory, "component.astro");
+      await copyFile(
+        join(fixtureRoot, "tooling/escaped path#fragment/component.astro"),
+        path,
+      );
+      const [result] = await checkEffectPolicy([path]);
+      assert.ok(result.errorCount > 0);
+      assert.equal(result.fatalErrorCount, 0);
+      assert.ok(
+        result.messages.some(
+          (message) => message.ruleId === "app/no-unowned-effect",
+        ),
+      );
+    } finally {
+      await rm(directory, { recursive: true });
+    }
+  },
+);
 
 test("HTML script data remains data while JavaScript scripts are checked", () => {
   const results = effectResultsFor([
@@ -422,21 +426,25 @@ for (const fixture of justRejectionFixtures)
     );
   });
 
-test("the required Just policy command rejects the forbidden Effect fixtures", { timeout: 30_000 }, () => {
-  const result = spawnSync(
-    "just",
-    [
-      "_lint",
-      "_effect-policy",
-      ...justRejectionFixtures.map(
-        (fixture) => `apps/desktop/eslint-fixtures/architecture/${fixture}`,
-      ),
-    ],
-    {
-      cwd: fileURLToPath(new URL("../..", import.meta.url)),
-      encoding: "utf8",
-    },
-  );
-  assert.ifError(result.error);
-  assert.equal(result.status, 1, result.stderr);
-});
+test(
+  "the required Just policy command rejects the forbidden Effect fixtures",
+  { timeout: 30_000 },
+  () => {
+    const result = spawnSync(
+      "just",
+      [
+        "_lint",
+        "_effect-policy",
+        ...justRejectionFixtures.map(
+          (fixture) => `apps/desktop/eslint-fixtures/architecture/${fixture}`,
+        ),
+      ],
+      {
+        cwd: fileURLToPath(new URL("../..", import.meta.url)),
+        encoding: "utf8",
+      },
+    );
+    assert.ifError(result.error);
+    assert.equal(result.status, 1, result.stderr);
+  },
+);

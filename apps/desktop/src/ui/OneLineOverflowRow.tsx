@@ -22,13 +22,6 @@ export function OneLineOverflowRow({
   renderOverflow,
   ...props
 }: OneLineOverflowRowProps) {
-  const itemIDs = new Set<string>();
-  for (const item of items) {
-    if (itemIDs.has(item.id)) {
-      throw new Error(`One-line overflow row "${ariaLabel}" contains duplicate item ID "${item.id}".`);
-    }
-    itemIDs.add(item.id);
-  }
   const rowRef = useRef<HTMLDivElement | null>(null);
   const gapStartRef = useRef<HTMLSpanElement | null>(null);
   const gapEndRef = useRef<HTMLSpanElement | null>(null);

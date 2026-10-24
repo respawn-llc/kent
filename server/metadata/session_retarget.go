@@ -58,9 +58,6 @@ func (s *Store) PlanSessionWorkspaceRetarget(ctx context.Context, req SessionWor
 		return SessionWorkspaceRetargetPlan{}, errors.New("metadata store is required")
 	}
 	sessionID := strings.TrimSpace(req.SessionID)
-	if sessionID == "" {
-		return SessionWorkspaceRetargetPlan{}, errors.New("session id is required")
-	}
 	targetRoot, err := canonicalFilesystemPath(req.WorkspaceRoot)
 	if err != nil {
 		return SessionWorkspaceRetargetPlan{}, err

@@ -207,11 +207,7 @@ function cacheWarningText(notice: TranscriptNotice, t: Translate): string | unde
             : "chatTranscript.notice.cacheReasonReuseDropped"
           : "chatTranscript.notice.cacheReasonUnknown";
   const reasonText = t(reasonKey, { reason: warning.Reason });
-  if (
-    warning.LostInputTokens === undefined ||
-    warning.LostInputTokens === null ||
-    warning.LostInputTokens <= 0
-  ) {
+  if (warning.LostInputTokens === undefined || warning.LostInputTokens === null) {
     return t("chatTranscript.notice.cacheMiss", { reason: reasonText });
   }
   return t("chatTranscript.notice.cacheMissWithTokens", {

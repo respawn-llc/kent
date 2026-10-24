@@ -675,7 +675,10 @@ message GoalMutationRequest {
       expression: "this.trim() in ['user', 'agent', 'system']"
     }
   ];
-  optional string step_id = 4 [(buf.validate.field).string.min_len = 1];
+  optional string step_id = 4 [
+    (buf.validate.field).string.uuid = true,
+    (buf.validate.field).string.(kent.api.shared.canonical_uuid_v4) = true
+  ];
 
   option (buf.validate.message).cel = {
     id: "kent.runtime.goal_mutation_actor_step"
@@ -710,12 +713,8 @@ message GoalSetRequest {
   }];
   optional string initial_input_draft = 5;
   optional string step_id = 7 [
-    (buf.validate.field).string.min_len = 1,
-    (buf.validate.field).cel = {
-      id: "kent.runtime.goal_set_step_id_nonblank"
-      message: "step_id must not be blank when present"
-      expression: "this.trim() != ''"
-    }
+    (buf.validate.field).string.uuid = true,
+    (buf.validate.field).string.(kent.api.shared.canonical_uuid_v4) = true
   ];
 
   option (buf.validate.message).cel = {
@@ -1161,14 +1160,6 @@ message GoalSetError {
     }];
   }
 
-  option (buf.validate.message).cel = {
-    id: "kent.runtime.goal_set_error_detail"
-    message: "Goal Set error code and detail must match"
-    expression:
-      "(this.code == 'runtime_unavailable' && has(this.runtime_unavailable)) || "
-      "(this.code == 'internal_failure' && has(this.internal_failure)) || "
-      "(this.code != 'runtime_unavailable' && this.code != 'internal_failure')"
-  };
 }
 
 message GoalSetSuccess {

@@ -3,7 +3,6 @@ package runtimecontrol
 import (
 	"context"
 	"errors"
-	"fmt"
 	"log/slog"
 	"strings"
 	"sync"
@@ -361,24 +360,6 @@ func (s *Service) AppendCommittedEntry(ctx context.Context, req *transcriptpb.Ap
 			return engine.AppendCommittedEntry(callbackCtx, req.Role, req.Text)
 		}
 		return engine.AppendCommittedEntryWithVisibility(callbackCtx, req.Role, req.Text, visibility)
-	})
-}
-
-func (s *Service) AppendSessionEntry(ctx context.Context, sessionID string, role string, text string) error {
-	trimmedSessionID := strings.TrimSpace(sessionID)
-	trimmedRole := strings.TrimSpace(role)
-	trimmedText := strings.TrimSpace(text)
-	if trimmedSessionID == "" {
-		return fmt.Errorf("session id is required")
-	}
-	if trimmedRole == "" {
-		return fmt.Errorf("role is required")
-	}
-	if trimmedText == "" {
-		return fmt.Errorf("text is required")
-	}
-	return s.withRuntime(ctx, trimmedSessionID, func(callbackCtx context.Context, engine *runtime.Engine) error {
-		return engine.AppendCommittedEntry(callbackCtx, trimmedRole, trimmedText)
 	})
 }
 
