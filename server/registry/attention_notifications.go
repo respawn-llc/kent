@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"core/server/attentionnotify"
+	"core/server/runtime"
 	askquestion "core/server/tools"
 	"core/shared/apicontract"
 	"core/shared/clientui"
@@ -17,7 +18,30 @@ import (
 	"core/shared/runtimeids"
 	"core/shared/serverapi"
 	"google.golang.org/protobuf/types/known/emptypb"
+	"google.golang.org/protobuf/types/known/timestamppb"
 )
+
+func (r *RuntimeRegistry) publishTurnEndAttention(entry *authorityRuntimeEntry, result *runtime.LiveRunResult) error {
+	if r.attentionBroker == nil || result == nil || result.Status != runtime.RunStatusCompleted ||
+		result.ResultKind != runtime.LiveRunResultAssistantFinalAnswer || !result.WorkPerformed {
+		return nil
+	}
+	id := entry.ref.SessionID()
+	binding, err := r.attentionNavigation(context.Background(), id.String())
+	if err != nil {
+		return fmt.Errorf("resolve turn-end Session navigation: %w", err)
+	}
+	identity := entry.engine.SessionIdentity()
+	content := ""
+	if result.AssistantMessage.Content != nil {
+		content = *result.AssistantMessage.Content
+	}
+	return r.attentionBroker.PublishSessionTurnEnd(&attentionpb.SessionTurnEnd{
+		ProjectId: binding.ProjectId, SessionId: id.String(),
+		ShortId: protoapi.SessionShortIDToProto(identity.ShortID), SessionName: entry.engine.SessionName(),
+		AssistantContent: content, CompletedAt: timestamppb.New(result.FinishedAt),
+	})
+}
 
 func (r *RuntimeRegistry) WithAttentionNotifications(broker *attentionnotify.Broker, navigation func(context.Context, string) (*sessionlaunchpb.SessionNavigationBinding, error)) *RuntimeRegistry {
 	if r == nil {

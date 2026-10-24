@@ -37,6 +37,7 @@ const (
 	PendingWorkLaneQueue PendingWorkLane = "queue"
 
 	PendingWorkItemKindMessage            PendingWorkItemKind = "message"
+	PendingWorkItemKindShell              PendingWorkItemKind = "shell"
 	PendingWorkItemKindManualCompaction   PendingWorkItemKind = "manual_compaction"
 	PendingWorkItemKindWorktreeTransition PendingWorkItemKind = "worktree_transition"
 
@@ -49,6 +50,14 @@ const (
 type PendingWorkMessage struct {
 	Text string `json:"text"`
 }
+
+// ShellCommand is executable human input, never a model prompt. Its admission
+// lane determines execution timing; acceptance does not report process completion.
+type ShellCommand struct {
+	Command string `json:"command"`
+}
+
+func (s ShellCommand) CanonicalInput() string { return "$" + s.Command }
 
 type ManualCompactionAdmission struct {
 	Guidance *string `json:"guidance,omitempty"`
@@ -68,6 +77,7 @@ type PendingWorkItem struct {
 	State              PendingWorkItemState           `json:"state"`
 	CanonicalInput     string                         `json:"canonical_input"`
 	Message            *PendingWorkMessage            `json:"message,omitempty"`
+	Shell              *ShellCommand                  `json:"shell,omitempty"`
 	ManualCompaction   *PendingWorkManualCompaction   `json:"manual_compaction,omitempty"`
 	WorktreeTransition *PendingWorkWorktreeTransition `json:"worktree_transition,omitempty"`
 }

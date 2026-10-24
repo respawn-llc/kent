@@ -12,7 +12,6 @@ import (
 	"core/shared/protoapi"
 	chatpb "core/shared/protoapi/gen/kent/api/chat"
 	chatsettingspb "core/shared/protoapi/gen/kent/api/chat_settings"
-	chatshellpb "core/shared/protoapi/gen/kent/api/chat_shell"
 	promptpb "core/shared/protoapi/gen/kent/api/prompt"
 	runtimepb "core/shared/protoapi/gen/kent/api/runtime"
 	sharedpb "core/shared/protoapi/gen/kent/api/shared"
@@ -190,6 +189,12 @@ func (c *sessionRuntimeClient) AppendCommittedEntryWithNoticeID(role, text, noti
 }
 
 func (c *sessionRuntimeClient) SubmitRuntimeInput(ctx context.Context, req clientui.RuntimeSubmitRequest) (clientui.UserTurnSubmission, error) {
+	if req.QueueItemID.IsZero() {
+		return clientui.UserTurnSubmission{}, errors.New("input admission requires a Queue Item identity")
+	}
+	if req.Intent != runtimeinput.PendingWorkLaneSteer && req.Intent != runtimeinput.PendingWorkLaneQueue {
+		return clientui.UserTurnSubmission{}, fmt.Errorf("invalid input intent %q", req.Intent)
+	}
 	activation, err := chatActivationFromInput(req.Input)
 	if err != nil {
 		return clientui.UserTurnSubmission{}, err
@@ -198,14 +203,24 @@ func (c *sessionRuntimeClient) SubmitRuntimeInput(ctx context.Context, req clien
 	if err != nil {
 		return clientui.UserTurnSubmission{}, err
 	}
-	resp, err := c.chatMutations.Steer(ctx, &chatpb.SteerRequest{
-		Target: target, Activation: activation, QueueItemId: runtimeids.NewQueueItemID().String(),
-	})
+	var resp *chatpb.InputMutationSuccess
+	switch req.Intent {
+	case runtimeinput.PendingWorkLaneSteer:
+		resp, err = c.chatMutations.Steer(ctx, &chatpb.SteerRequest{
+			Target: target, Activation: activation, QueueItemId: req.QueueItemID.String(),
+		})
+	case runtimeinput.PendingWorkLaneQueue:
+		resp, err = c.chatMutations.Queue(ctx, &chatpb.QueueRequest{
+			Target: target, Activation: activation, QueueItemId: req.QueueItemID.String(),
+		})
+	default:
+		return clientui.UserTurnSubmission{}, fmt.Errorf("invalid input intent %q", req.Intent)
+	}
 	if err != nil {
 		return clientui.UserTurnSubmission{}, err
 	}
 	if rejected := resp.GetNotAccepted(); rejected != nil {
-		return clientui.UserTurnSubmission{}, protoapi.ChatNotAcceptedFromProto(rejected)
+		return clientui.UserTurnSubmission{SessionID: &resp.Session.SessionId}, protoapi.ChatNotAcceptedFromProto(rejected)
 	}
 	accepted := resp.GetAccepted()
 	return clientui.UserTurnSubmission{
@@ -217,6 +232,9 @@ func (c *sessionRuntimeClient) SubmitRuntimeInput(ctx context.Context, req clien
 }
 
 func chatActivationFromInput(input runtimeinput.Input) (*chatpb.Activation, error) {
+	if input.Kind == runtimeinput.KindShell {
+		return &chatpb.Activation{Input: &chatpb.Activation_Shell{Shell: &chatpb.ShellCommand{Command: input.Shell.Command}}}, nil
+	}
 	if input.Kind == runtimeinput.KindText {
 		return &chatpb.Activation{Input: &chatpb.Activation_Text{Text: *input.Text}}, nil
 	}
@@ -233,17 +251,6 @@ func chatActivationFromInput(input runtimeinput.Input) (*chatpb.Activation, erro
 
 func runtimeSubmitInputText(input clientui.RuntimeSubmitRequest) string {
 	return input.Input.CanonicalHistoryText()
-}
-
-func (c *sessionRuntimeClient) RunUserShell(ctx context.Context, req clientui.RuntimeShellRequest) error {
-	target, err := c.takeChatTarget()
-	if err != nil {
-		return err
-	}
-	return c.chatMutations.SubmitUserShellCommand(ctx, &chatshellpb.ShellCommandRequest{
-		Target:  target,
-		Command: req.Command,
-	})
 }
 
 func (c *sessionRuntimeClient) CompactRuntime(ctx context.Context, req clientui.RuntimeCompactRequest) (clientui.RuntimeCompactResult, error) {

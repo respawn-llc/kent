@@ -469,10 +469,14 @@ func (e *Engine) appendMessageRaw(
 	eventPolicy steeringMessageEventPolicy,
 	persist bool,
 	provenanceDestination **TranscriptCommittedRowProvenance,
+	queueItemID *runtimeids.QueueItemID,
 ) (session.CommitReceipt, error) {
 	prepared, err := e.prepareMessageProjection(stepID, msg)
 	if err != nil {
 		return session.CommitReceipt{}, err
+	}
+	if queueItemID != nil {
+		prepared.record.QueueItemIDs = []string{queueItemID.String()}
 	}
 	previousCommittedCount := e.CommittedTranscriptEntryCount()
 	receipt := session.CommitReceipt{}
@@ -594,7 +598,8 @@ func (e *Engine) publishQueuedInput(stepID *string, prepared preparedMessageProj
 		Message:                    prepared.message,
 		CommittedProvenance:        &provenance,
 	}.withStepID(stepID)
-	if prepared.message.Role == llm.RoleUser {
+	if prepared.message.Role == llm.RoleUser &&
+		(prepared.message.MessageType == nil || *prepared.message.MessageType != llm.MessageTypeUserShellCommand) {
 		event = Event{
 			Kind:                         EventUserMessageFlushed,
 			UserMessage:                  *prepared.message.Content,

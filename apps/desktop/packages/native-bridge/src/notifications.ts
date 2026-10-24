@@ -43,7 +43,7 @@ export type NativeNotificationTarget =
 export type NativeNotification = Readonly<{
   id: string;
   title: string;
-  body: string;
+  body?: string;
   target: NativeNotificationTarget;
 }>;
 
@@ -81,7 +81,7 @@ type TauriNotificationRequest = Readonly<{
   backendId: number;
   id: string;
   title: string;
-  body: string;
+  body?: string;
   target: NativeNotificationTarget;
 }>;
 
@@ -140,7 +140,7 @@ export function validateNativeNotification(message: NativeNotification): void {
   if (message.title.length === 0) {
     throw new Error("Native notification title must be a non-empty string.");
   }
-  if (message.body.length === 0) {
+  if (message.body?.length === 0) {
     throw new Error("Native notification body must be a non-empty string.");
   }
 }
@@ -176,7 +176,7 @@ function createWebNativeNotifications(runtime: WebNotificationRuntime): NativeNo
       activeNotifications.get(message.id)?.close();
       mapper.resolveBackendID(message.id);
       const notification = new NotificationConstructor(message.title, {
-        body: message.body,
+        ...(message.body === undefined ? {} : { body: message.body }),
         data: activation,
         requireInteraction: true,
         tag: message.id,
@@ -221,7 +221,7 @@ function createTauriDesktopNativeNotifications(backend: TauriNotificationBackend
       }
       await backend.send({
         backendId: mapper.resolveBackendID(message.id),
-        body: message.body,
+        ...(message.body === undefined ? {} : { body: message.body }),
         id: message.id,
         target: message.target,
         title: message.title,

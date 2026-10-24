@@ -55,8 +55,6 @@ func (m *uiModel) handleOngoingTranscriptEvent(event ongoingTranscriptEvent) tea
 		if acceptedHydration {
 			m.observeRuntimeRequestResult(nil)
 		}
-		stateCmd = sequenceCmds(stateCmd, m.inputController().resumeQueuedInputsAfterIdleRuntime())
-		m.inputController().notifyTurnQueueDrainedIfIdle()
 		m.layout().syncViewport()
 		var connectionStatusCmd tea.Cmd
 		if wasRuntimeDisconnected && acceptedHydration {
@@ -66,10 +64,7 @@ func (m *uiModel) handleOngoingTranscriptEvent(event ongoingTranscriptEvent) tea
 	case ongoingTranscriptEventLoss:
 		if runtimeattach.IsRuntimeConnectionError(event.Err) {
 			m.observeRuntimeRequestResult(event.Err)
-			recovery = m.startRuntimeMainViewRefresh(nil)
-		}
-		if m.turnQueueHook != nil {
-			m.turnQueueHook.OnTurnQueueAborted()
+			recovery = m.startRuntimeMainViewRefresh()
 		}
 		result = m.ongoingTranscript.HandleSubscriptionLoss()
 	case ongoingTranscriptEventFailure:
@@ -84,7 +79,7 @@ func (m *uiModel) handleOngoingTranscriptEvent(event ongoingTranscriptEvent) tea
 		if runtimeattach.IsRuntimeConnectionError(event.Err) {
 			m.observeRuntimeRequestResult(event.Err)
 			m.layout().syncViewport()
-			return tea.Batch(m.renderNativeOngoingSurface(), m.startRuntimeMainViewRefresh(nil))
+			return tea.Batch(m.renderNativeOngoingSurface(), m.startRuntimeMainViewRefresh())
 		}
 		return m.handleFatalUIError(fmt.Sprintf("ongoing transcript failed: %v", err), err)
 	default:

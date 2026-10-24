@@ -61,6 +61,7 @@ type steeringItem struct {
 }
 
 type steeringMessage struct {
+	queueItemID           *runtimeids.QueueItemID
 	message               llm.Message
 	eventPolicy           steeringMessageEventPolicy
 	persist               bool
@@ -852,7 +853,7 @@ func (e *Engine) applySteeringItem(provenance steeringProvenance, item steeringI
 				}
 			}
 		}
-		receipt, err := e.appendMessageRaw(exactStepIDPointer(stepID), commit.message, steeringMessageEventNone, true, &commit.result.provenance)
+		receipt, err := e.appendMessageRaw(exactStepIDPointer(stepID), commit.message, steeringMessageEventNone, true, &commit.result.provenance, nil)
 		item.recordCommitReceipt(receipt)
 		if err != nil || !receipt.Committed {
 			return err
@@ -895,6 +896,7 @@ func (e *Engine) applySteeringItem(provenance steeringProvenance, item steeringI
 			item.message.eventPolicy,
 			item.message.persist,
 			item.message.provenanceDestination,
+			item.message.queueItemID,
 		)
 		item.recordCommitReceipt(receipt)
 		return err
@@ -906,6 +908,7 @@ func (e *Engine) applySteeringItem(provenance steeringProvenance, item steeringI
 			notice.message,
 			steeringMessageEventDefault,
 			true,
+			nil,
 			nil,
 		)
 		item.recordCommitReceipt(receipt)

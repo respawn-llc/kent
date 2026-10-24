@@ -1149,33 +1149,14 @@ func TestForegroundShellReleasesRuntimeFIFOAfterScheduling(t *testing.T) {
 		Config{Model: "gpt-6-sol", SupportedThinkingValues: []string{"low"}},
 	)
 
-	firstStarted := make(chan struct{})
-	releaseFirst := make(chan struct{})
-	first := submitEngineRuntimeOperation(engine, func(context.Context) (struct{}, error) {
-		close(firstStarted)
-		<-releaseFirst
-		return struct{}{}, nil
-	})
-	select {
-	case <-firstStarted:
-	case <-time.After(runtimeTestSynchronizationTimeout):
-		t.Fatal("timed out waiting for preceding Runtime mutation")
-	}
+	release := sync.OnceFunc(func() { close(handler.release) })
+	t.Cleanup(release)
 
 	shellDone := make(chan error, 1)
 	go func() {
-		_, err := engine.SubmitUserShellCommand(t.Context(), "pwd")
+		err := executeTestShell(t.Context(), engine, "pwd")
 		shellDone <- err
 	}()
-	select {
-	case <-handler.started:
-		t.Fatal("foreground shell started before the preceding Runtime mutation")
-	case <-time.After(25 * time.Millisecond):
-	}
-	close(releaseFirst)
-	if _, err := first.Await(t.Context()); err != nil {
-		t.Fatalf("complete preceding Runtime mutation: %v", err)
-	}
 	select {
 	case <-handler.started:
 	case <-time.After(runtimeTestSynchronizationTimeout):
@@ -1195,74 +1176,9 @@ func TestForegroundShellReleasesRuntimeFIFOAfterScheduling(t *testing.T) {
 		t.Fatal("foreground shell retained the Runtime FIFO head")
 	}
 
-	close(handler.release)
+	release()
 	if err := <-shellDone; err != nil {
 		t.Fatalf("foreground shell: %v", err)
-	}
-}
-
-func TestForegroundShellTerminalEffectReentersAtTheCurrentRuntimeTail(t *testing.T) {
-	handler := &heldRuntimeShell{
-		started:  make(chan struct{}),
-		release:  make(chan struct{}),
-		returned: make(chan struct{}),
-	}
-	engine := mustNewTestEngine(
-		t,
-		mustCreateTestSession(t),
-		&fakeClient{},
-		newTestToolRegistry(t, tools.HandlerRegistration{
-			ID:      toolspec.ToolExecCommand,
-			Handler: handler,
-		}),
-		Config{Model: "gpt-6-sol"},
-	)
-	shellDone := make(chan error, 1)
-	go func() {
-		_, err := engine.SubmitUserShellCommand(t.Context(), "pwd")
-		shellDone <- err
-	}()
-	select {
-	case <-handler.started:
-	case <-time.After(runtimeTestSynchronizationTimeout):
-		t.Fatal("timed out waiting for foreground shell")
-	}
-
-	laterStarted := make(chan struct{})
-	releaseLater := make(chan struct{})
-	later := submitEngineRuntimeOperation(engine, func(context.Context) (struct{}, error) {
-		close(laterStarted)
-		<-releaseLater
-		return struct{}{}, nil
-	})
-	select {
-	case <-laterStarted:
-	case <-time.After(runtimeTestSynchronizationTimeout):
-		t.Fatal("timed out waiting for later Runtime mutation")
-	}
-	close(handler.release)
-	select {
-	case <-handler.returned:
-	case <-time.After(runtimeTestSynchronizationTimeout):
-		t.Fatal("foreground shell process did not exit")
-	}
-	select {
-	case err := <-shellDone:
-		t.Fatalf("foreground shell completed before its terminal FIFO effect: %v", err)
-	case <-time.After(25 * time.Millisecond):
-	}
-
-	close(releaseLater)
-	if _, err := later.Await(t.Context()); err != nil {
-		t.Fatalf("later Runtime mutation: %v", err)
-	}
-	select {
-	case err := <-shellDone:
-		if err != nil {
-			t.Fatalf("foreground shell: %v", err)
-		}
-	case <-time.After(runtimeTestSynchronizationTimeout):
-		t.Fatal("foreground shell terminal FIFO effect did not apply")
 	}
 }
 

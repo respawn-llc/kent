@@ -4,6 +4,7 @@ import runtimepb "core/shared/protoapi/gen/kent/api/runtime"
 
 import (
 	"context"
+	"core/shared/runtimeids"
 	"errors"
 	"strings"
 
@@ -278,7 +279,8 @@ func (m *uiModel) clearRuntimeGoal() (*runtimepb.GoalMutationSuccess, error) {
 
 func (m *uiModel) submitRuntimeUserMessage(ctx context.Context, text string) (clientui.UserTurnSubmission, error) {
 	return m.submitRuntimeInput(ctx, clientui.RuntimeSubmitRequest{
-		Input: runtimeinput.Text(text),
+		Input:  runtimeinput.Text(text),
+		Intent: runtimeinput.PendingWorkLaneSteer, QueueItemID: runtimeids.NewQueueItemID(),
 	})
 }
 
@@ -289,19 +291,6 @@ func (m *uiModel) submitRuntimeInput(ctx context.Context, req clientui.RuntimeSu
 		return submission, err
 	}
 	return clientui.UserTurnSubmission{}, nil
-}
-
-func (m *uiModel) submitRuntimeUserShellCommand(ctx context.Context, command string) error {
-	return m.submitRuntimeShell(ctx, clientui.RuntimeShellRequest{Command: command})
-}
-
-func (m *uiModel) submitRuntimeShell(ctx context.Context, req clientui.RuntimeShellRequest) error {
-	if client := m.runtimeClient(); client != nil {
-		err := client.RunUserShell(ctx, req)
-		m.observeRuntimeRequestResult(err)
-		return err
-	}
-	return nil
 }
 
 func (m *uiModel) compactRuntimeInput(ctx context.Context, req clientui.RuntimeCompactRequest) (clientui.RuntimeCompactResult, error) {
@@ -480,11 +469,7 @@ func (m *uiModel) applyRuntimeControlDone(msg runtimeControlDoneMsg) tea.Cmd {
 		var recovery tea.Cmd
 		if msg.operation == runtimeControlInterrupt {
 			m.setPendingInterrupt(false)
-			var interruptedSubmitToken *uint64
-			if m.hasLocalDispatchPending() {
-				interruptedSubmitToken = textutil.Value(m.activeSubmit.token)
-			}
-			recovery = m.startRuntimeMainViewRefresh(interruptedSubmitToken)
+			recovery = m.startRuntimeMainViewRefresh()
 		}
 		errText := runtimeattach.FormatSubmissionError(msg.err)
 		return sequenceCmds(
@@ -520,7 +505,7 @@ func (m *uiModel) applyRuntimeControlDone(msg runtimeControlDoneMsg) tea.Cmd {
 			}
 		}
 		if merge.decision == runtimeTupleRefresh {
-			return tea.Batch(followUpCmd, m.startRuntimeMainViewRefresh(nil))
+			return tea.Batch(followUpCmd, m.startRuntimeMainViewRefresh())
 		}
 		if view := m.cachedRuntimeMainView(); view.Activity != nil && !protoapi.RuntimeActivityActiveForControl(view.Activity) && m.hasPendingInterrupt() {
 			if err := m.applyRuntimeActivityProjection(view.Activity); err != nil {

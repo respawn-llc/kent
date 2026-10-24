@@ -10,7 +10,6 @@ import (
 	"core/shared/client"
 	"core/shared/clientui"
 	chatpb "core/shared/protoapi/gen/kent/api/chat"
-	chatshellpb "core/shared/protoapi/gen/kent/api/chat_shell"
 	runtimepb "core/shared/protoapi/gen/kent/api/runtime"
 	sessionlaunchpb "core/shared/protoapi/gen/kent/api/session_launch"
 	sharedpb "core/shared/protoapi/gen/kent/api/shared"
@@ -21,8 +20,9 @@ import (
 
 type shellPreparationClient struct {
 	apicontract.ChatMutationService
-	requests          []*chatshellpb.ShellCommandRequest
 	inputs            []*chatpb.SteerRequest
+	queues            []*chatpb.QueueRequest
+	inputError        error
 	compactions       []*chatpb.CompactRequest
 	selectedSessionID *string
 	diagnostic        *chatpb.AcceptedDiagnostic
@@ -38,6 +38,9 @@ func (c *shellPreparationClient) Compact(_ context.Context, request *chatpb.Comp
 
 func (c *shellPreparationClient) Steer(_ context.Context, request *chatpb.SteerRequest) (*chatpb.InputMutationSuccess, error) {
 	c.inputs = append(c.inputs, request)
+	if c.inputError != nil {
+		return nil, c.inputError
+	}
 	id := request.Target.GetSession().SessionId.GetSessionId()
 	if c.selectedSessionID != nil {
 		id = *c.selectedSessionID
@@ -52,31 +55,34 @@ func (c *shellPreparationClient) Steer(_ context.Context, request *chatpb.SteerR
 	}, nil
 }
 
-func (c *shellPreparationClient) SubmitUserShellCommand(_ context.Context, request *chatshellpb.ShellCommandRequest) error {
-	c.requests = append(c.requests, request)
-	if len(c.requests) == 1 {
-		return serverapi.ErrRuntimeUnavailable
-	}
-	return nil
+func (c *shellPreparationClient) Queue(ctx context.Context, request *chatpb.QueueRequest) (*chatpb.InputMutationSuccess, error) {
+	c.queues = append(c.queues, request)
+	return &chatpb.InputMutationSuccess{
+		Session: &chatpb.ExistingSessionTarget{SessionId: request.Target.GetSession().SessionId.GetSessionId()},
+		Outcome: &chatpb.InputMutationSuccess_Accepted{Accepted: &chatpb.InputAccepted{
+			QueueItem:   &chatpb.QueueItemIdentity{Id: request.QueueItemId},
+			Disposition: chatpb.InputAdmissionDisposition_INPUT_ADMISSION_DISPOSITION_PENDING_QUEUE,
+		}},
+	}, c.inputError
 }
 
 func TestRuntimeClientConsumesLaunchIntentOnFailedFirstDispatch(t *testing.T) {
 	client := newTestSessionRuntimeClientWithControls(&reconnectRetryRuntimeControlClient{})
 	client.sessionID = ongoingTestSessionID().String()
-	chat := &shellPreparationClient{}
+	chat := &shellPreparationClient{inputError: serverapi.ErrRuntimeUnavailable}
 	client.chatMutations = chat
 	client.preparation = &sessionlaunchpb.SessionRuntimePreparationOptions{ThinkingOverrideExplicit: true}
-	request := clientui.RuntimeShellRequest{Command: "pwd"}
-	if err := client.RunUserShell(t.Context(), request); !errors.Is(err, serverapi.ErrRuntimeUnavailable) {
+	request := clientui.RuntimeSubmitRequest{Input: runtimeinput.Shell("pwd"), Intent: runtimeinput.PendingWorkLaneSteer, QueueItemID: runtimeids.NewQueueItemID()}
+	if _, err := client.SubmitRuntimeInput(t.Context(), request); !errors.Is(err, serverapi.ErrRuntimeUnavailable) {
 		t.Fatalf("first shell error = %v", err)
 	}
 	if _, err := client.CompactRuntime(t.Context(), clientui.RuntimeCompactRequest{}); err != nil {
 		t.Fatal(err)
 	}
-	if len(chat.requests) != 1 || len(chat.compactions) != 1 ||
-		chat.requests[0].Target.GetSession().Preparation == nil ||
+	if len(chat.inputs) != 1 || len(chat.compactions) != 1 ||
+		chat.inputs[0].Target.GetSession().Preparation == nil ||
 		chat.compactions[0].Target.GetSession().Preparation != nil {
-		t.Fatalf("launch choices must be consumed even when first dispatch fails: %+v", chat.requests)
+		t.Fatalf("launch choices must be consumed even when first dispatch fails: %+v", chat.inputs)
 	}
 }
 
@@ -176,7 +182,8 @@ func TestRuntimeClientInputMakesOneExplicitCall(t *testing.T) {
 	runtimeClient.chatMutations = chat
 
 	submission, err := runtimeClient.SubmitRuntimeInput(context.Background(), clientui.RuntimeSubmitRequest{
-		Input: runtimeinput.Text("hello"),
+		Input:  runtimeinput.Text("hello"),
+		Intent: runtimeinput.PendingWorkLaneSteer, QueueItemID: runtimeids.NewQueueItemID(),
 	})
 	if err != nil {
 		t.Fatalf("SubmitRuntimeInput: %v", err)
@@ -193,5 +200,43 @@ func TestRuntimeClientInputMakesOneExplicitCall(t *testing.T) {
 	compaction, err := runtimeClient.CompactRuntime(t.Context(), clientui.RuntimeCompactRequest{})
 	if err != nil || compaction.Diagnostic == nil {
 		t.Fatalf("accepted compaction diagnostic = %+v, error = %v", compaction, err)
+	}
+}
+
+func TestRuntimeClientQueuesTypedInputWithCallerIdentity(t *testing.T) {
+	for _, input := range []runtimeinput.Input{
+		runtimeinput.Text("text"), runtimeinput.Command("prompt:check", "arguments"), runtimeinput.Shell("echo ready"),
+	} {
+		t.Run(string(input.Kind), func(t *testing.T) {
+			runtimeClient := newTestSessionRuntimeClientWithControls(&reconnectRetryRuntimeControlClient{})
+			runtimeClient.sessionID = ongoingTestSessionID().String()
+			chat := &shellPreparationClient{}
+			runtimeClient.chatMutations = chat
+			id := runtimeids.NewQueueItemID()
+			result, err := runtimeClient.SubmitRuntimeInput(t.Context(), clientui.RuntimeSubmitRequest{
+				Input: input, Intent: runtimeinput.PendingWorkLaneQueue, QueueItemID: id,
+			})
+			if err != nil {
+				t.Fatal(err)
+			}
+			if len(chat.inputs) != 0 || len(chat.queues) != 1 || chat.queues[0].QueueItemId != id.String() || result.Queued.ID != id.String() {
+				t.Fatalf("Queue admission = %+v", result)
+			}
+			activation := chat.queues[0].Activation
+			switch input.Kind {
+			case runtimeinput.KindText:
+				if activation.GetText() != *input.Text {
+					t.Fatal("ordinary input changed")
+				}
+			case runtimeinput.KindPromptCommand:
+				if activation.GetCommand().CatalogIdentity != input.PromptCommand.Name {
+					t.Fatal("prompt command lost its typed identity")
+				}
+			case runtimeinput.KindShell:
+				if activation.GetShell().Command != input.Shell.Command {
+					t.Fatal("Shell command became model input")
+				}
+			}
+		})
 	}
 }

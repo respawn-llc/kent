@@ -13,6 +13,7 @@ const (
 	AttentionNotificationEventPending              AttentionNotificationEventType = "pending"
 	AttentionNotificationEventResolved             AttentionNotificationEventType = "resolved"
 	AttentionNotificationEventSessionNamingFailure AttentionNotificationEventType = "session_naming_failure"
+	AttentionNotificationEventSessionTurnEnd       AttentionNotificationEventType = "session_turn_end"
 )
 
 type AttentionNotificationKind string
@@ -40,6 +41,7 @@ const (
 )
 
 type AttentionNotificationEvent struct {
+	SessionTurnEnd       *attentionpb.SessionTurnEnd       `json:"session_turn_end,omitempty"`
 	SessionNamingFailure *attentionpb.SessionNamingFailure `json:"session_naming_failure,omitempty"`
 	Sequence             uint64                            `json:"sequence"`
 	Type                 AttentionNotificationEventType    `json:"type"`

@@ -2,8 +2,6 @@ package app
 
 import worktreepb "core/shared/protoapi/gen/kent/api/worktree"
 
-import transcriptpb "core/shared/protoapi/gen/kent/api/transcript"
-
 import runtimepb "core/shared/protoapi/gen/kent/api/runtime"
 
 import (
@@ -79,19 +77,10 @@ type uiInputFeatureState struct {
 	runtimeControlTokens   map[runtimeControlOperation]uint64
 	runtimeControlPending  map[runtimeControlOperation]runtimeControlPendingState
 
-	// UI-side post-turn input queue. It may contain slash commands, shell
-	// commands, and other client-only actions; server queues only runtime
-	// injected user work.
-	queued       []queuedInputItem
-	submitToken  uint64
-	activeSubmit activeSubmitState
-
-	injectedQueue               []*injectedRuntimeQueueItem
-	unownedQueuedTerminalStates map[string]*transcriptpb.QueuedMessageState
-	pendingInputSubmissionOrder uint64
-	interruptLifecycle          uiInterruptLifecycle
-	currentStepID               string
-	interruptStepID             string
+	injectedQueue      []*injectedRuntimeQueueItem
+	interruptLifecycle uiInterruptLifecycle
+	currentStepID      string
+	interruptStepID    string
 
 	modelName                 string
 	configuredModelName       *string
@@ -197,14 +186,13 @@ type uiStatusFeatureState struct {
 }
 
 type uiTranscriptFeatureState struct {
-	runtimeConnection                            clientui.RuntimeConnectionLifecycle
-	pendingWorkRefresh                           pendingWorkRefreshOwner
-	runtimeMainViewToken                         uint64
-	runtimeMainViewBusy                          bool
-	runtimeMainViewPendingSet                    bool
-	runtimeMainViewPendingInterruptedSubmitToken *uint64
-	detailTranscript                             uiDetailTranscriptWindow
-	pendingDetailTranscript                      *uiPendingDetailTranscriptRequest
+	runtimeConnection         clientui.RuntimeConnectionLifecycle
+	pendingWorkRefresh        pendingWorkRefreshOwner
+	runtimeMainViewToken      uint64
+	runtimeMainViewBusy       bool
+	runtimeMainViewPendingSet bool
+	detailTranscript          uiDetailTranscriptWindow
+	pendingDetailTranscript   *uiPendingDetailTranscriptRequest
 }
 
 type uiKeyboardFeatureState struct {

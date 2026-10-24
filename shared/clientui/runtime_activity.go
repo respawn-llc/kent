@@ -1,15 +1,14 @@
 package clientui
 
 import (
+	"core/shared/runtimeids"
 	"core/shared/runtimeinput"
 )
 
 type RuntimeSubmitRequest struct {
-	Input runtimeinput.Input
-}
-
-type RuntimeShellRequest struct {
-	Command string
+	Input       runtimeinput.Input
+	Intent      runtimeinput.PendingWorkLane
+	QueueItemID runtimeids.QueueItemID
 }
 
 type RuntimeCompactRequest struct {

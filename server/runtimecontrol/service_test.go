@@ -9,6 +9,8 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"os"
+	"path/filepath"
 	"slices"
 	"sync"
 	"sync/atomic"
@@ -3164,45 +3166,29 @@ func TestServiceSubmitUserTurnRecordsCommittedAtFlushBeforeAssistantCompletion(t
 }
 
 func TestServiceInterruptForegroundShellAllowsNextTurn(t *testing.T) {
-	started := make(chan struct{})
-	markStarted := sync.OnceFunc(func() { close(started) })
 	client := &runtimeControlFakeClient{responses: []llm.Response{{
 		Assistant: llm.Message{Role: llm.RoleAssistant, Content: textutil.Value("next turn completed"), Phase: textutil.Value(llm.MessagePhaseFinal)},
 		Usage:     llm.Usage{WindowTokens: 200000},
 	}}}
 	store, engine, service := newRuntimeControlTestService(t, client,
-		newTestToolRegistry(t, tools.HandlerRegistration{ID: toolspec.ToolExecCommand, Handler: fakeShellHandler{}}), runtime.Config{
-			OnEvent: func(event runtime.Event) {
-				if event.Kind == runtime.EventRunStateChanged && event.RunState != nil &&
-					event.RunState.ActiveKind == runtime.ActiveKindUserShell {
-					markStarted()
-				}
-			},
-		})
-	shellDone := make(chan error, 1)
-	go func() {
-		id, err := runtimeids.ParseSessionID(store.Meta().SessionID)
-		if err != nil {
-			shellDone <- err
-			return
-		}
-		shellDone <- service.AdmitUserShellCommand(t.Context(), id, "sleep 120")
-	}()
-	select {
-	case <-started:
-	case <-time.After(3 * time.Second):
-		t.Fatal("foreground shell did not start")
+		newTestToolRegistry(t, tools.HandlerRegistration{ID: toolspec.ToolExecCommand, Handler: fakeShellHandler{}}), runtime.Config{})
+	id, err := runtimeids.ParseSessionID(store.Meta().SessionID)
+	if err != nil {
+		t.Fatal(err)
 	}
+	_, err = service.AdmitChatShellInput(t.Context(), id, runtimeids.NewQueueItemID(), runtimeinput.ShellCommand{Command: "touch shell-started; sleep 120"}, runtimeinput.PendingWorkLaneSteer)
+	if err != nil {
+		t.Fatal(err)
+	}
+	testsetup.RequireUntil(t, time.Now().Add(3*time.Second), time.Millisecond, func() bool {
+		_, err := os.Stat(filepath.Join(store.Meta().WorkspaceRoot, "shell-started"))
+		return err == nil
+	}, "foreground Shell process did not start")
 	if _, err := service.Interrupt(t.Context(), &runtimepb.InterruptRequest{SessionId: store.Meta().SessionID}); err != nil {
 		t.Fatal(err)
 	}
-	select {
-	case err := <-shellDone:
-		if err != nil && !errors.Is(err, context.Canceled) {
-			t.Fatal(err)
-		}
-	case <-time.After(3 * time.Second):
-		t.Fatal("interrupted foreground shell did not finish")
+	if err := engine.WaitForScheduledQueuedUserWork(t.Context()); err != nil && !errors.Is(err, context.Canceled) {
+		t.Fatal(err)
 	}
 	waitForRuntimeControlIdle(t, engine)
 	if _, err := service.SubmitUserTurn(t.Context(), runtimeControlUserTurnRequest(store, "after-shell", "continue")); err != nil {
@@ -3217,15 +3203,17 @@ func TestServiceSubmitUserShellCommandDoesNotRecordPromptHistory(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := service.AdmitUserShellCommand(context.Background(), id, "pwd"); err != nil {
+	if _, err := service.AdmitChatShellInput(t.Context(), id, runtimeids.NewQueueItemID(), runtimeinput.ShellCommand{Command: "pwd"}, runtimeinput.PendingWorkLaneSteer); err != nil {
 		t.Fatalf("SubmitUserShellCommand: %v", err)
 	}
 	history := service.promptStore.(*runtimeControlPromptHistoryStore)
-	if err := service.AdmitUserShellCommand(context.Background(), id, "pwd"); err != nil {
+	if _, err := service.AdmitChatShellInput(t.Context(), id, runtimeids.NewQueueItemID(), runtimeinput.ShellCommand{Command: "pwd"}, runtimeinput.PendingWorkLaneSteer); err != nil {
 		t.Fatalf("SubmitUserShellCommand second: %v", err)
 	}
-	if got := history.CountText("$ pwd"); got != 0 {
-		t.Fatalf("shell prompt history count = %d, want 0", got)
+	history.mu.Lock()
+	defer history.mu.Unlock()
+	if len(history.records) != 0 {
+		t.Fatalf("Shell recorded prompt history: %+v", history.records)
 	}
 }
 

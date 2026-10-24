@@ -311,7 +311,9 @@ func TestGatewayConcurrentUnaryResponsesAreCorrelated(t *testing.T) {
 	}
 	sendGatewayDescriptor(t, conn, "fast", method, &taskpb.GetRequest{TaskId: proto.String("task-2")})
 
-	if err := conn.SetReadDeadline(time.Now().Add(250 * time.Millisecond)); err != nil {
+	// The held first request proves independence; the deadline only bounds a
+	// deadlock, rather than imposing a scheduler-latency assertion.
+	if err := conn.SetReadDeadline(time.Now().Add(5 * time.Second)); err != nil {
 		t.Fatalf("SetReadDeadline: %v", err)
 	}
 	response := receiveGatewayDescriptorResult(t, conn)

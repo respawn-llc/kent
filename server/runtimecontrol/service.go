@@ -382,19 +382,6 @@ func (s *Service) AppendSessionEntry(ctx context.Context, sessionID string, role
 	})
 }
 
-func (s *Service) AdmitUserShellCommand(ctx context.Context, sessionID runtimeids.SessionID, command string) error {
-	_, err := runRuntimeCommand(ctx, func(ctx context.Context) (struct{}, bool, error) {
-		attempt := newRuntimeCommandAttempt(ctx)
-		defer attempt.Finish()
-		commandErr := s.runAgentExecution(attempt.Context(), sessionID.String(), func(runCtx context.Context, engine *runtime.Engine) error {
-			_, err := engine.SubmitUserShellCommandWithAcceptance(runCtx, command, attempt.Accept)
-			return err
-		})
-		return struct{}{}, attempt.Accepted(), commandErr
-	})
-	return err
-}
-
 func (s *Service) CompactContext(ctx context.Context, req *runtimepb.CompactContextRequest) error {
 	_, err := runRuntimeCommand(ctx, func(ctx context.Context) (struct{}, bool, error) {
 		attempt := newRuntimeCommandAttempt(ctx)

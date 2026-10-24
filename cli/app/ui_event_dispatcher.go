@@ -64,6 +64,12 @@ func (m *uiModel) reduceDispatchedEvent(message tea.Msg) uiFeatureUpdateResult {
 	}
 	if dispatched.attention != nil {
 		event := dispatched.attention
+		if event.turnEnd != nil {
+			if m.turnQueueHook != nil {
+				m.turnQueueHook.OnSessionTurnEnd(event.turnEnd.AssistantContent)
+			}
+			return handledUIFeatureUpdate(m, m.eventDispatcher.wait())
+		}
 		message := "Session naming failed"
 		if event.err != nil {
 			m.logf("attention.subscription.failed err=%q", event.err.Error())

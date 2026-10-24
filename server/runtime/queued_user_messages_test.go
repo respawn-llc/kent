@@ -15,7 +15,7 @@ func TestQueuedUserMessageStorePreservesTypedAgentSteer(t *testing.T) {
 	message := steer.Message()
 	item, err := (&queuedUserMessageStore{}).QueueItem(QueuedUserMessage{
 		ID:                    runtimeids.NewQueueItemID().String(),
-		Message:               message,
+		Message:               &message,
 		CanonicalPresentation: "report status",
 	})
 	if err != nil {
@@ -32,7 +32,7 @@ func TestQueuedUserMessageStoreRejectsDuplicatePendingIdentity(t *testing.T) {
 	item := QueuedUserMessage{
 		ID:                    runtimeids.NewQueueItemID().String(),
 		CanonicalPresentation: "first",
-		Message: llm.Message{
+		Message: &llm.Message{
 			Role:    llm.RoleUser,
 			Content: textutil.Value("first"),
 		},
@@ -53,10 +53,10 @@ func TestQueuedUserMessageFlushGroupsKeepAgentSteersSeparate(t *testing.T) {
 	firstMessage := first.Message()
 	secondMessage := second.Message()
 	pending := []queuedUserMessage{
-		{message: QueuedUserMessage{ID: "h1", Message: human, CanonicalPresentation: "human"}},
-		{message: QueuedUserMessage{ID: "a1", Message: firstMessage, CanonicalPresentation: "first"}},
-		{message: QueuedUserMessage{ID: "a2", Message: secondMessage, CanonicalPresentation: "second"}},
-		{message: QueuedUserMessage{ID: "h2", Message: human, CanonicalPresentation: "human"}},
+		{message: QueuedUserMessage{ID: "h1", Message: &human, CanonicalPresentation: "human"}},
+		{message: QueuedUserMessage{ID: "a1", Message: &firstMessage, CanonicalPresentation: "first"}},
+		{message: QueuedUserMessage{ID: "a2", Message: &secondMessage, CanonicalPresentation: "second"}},
+		{message: QueuedUserMessage{ID: "h2", Message: &human, CanonicalPresentation: "human"}},
 	}
 	groups := queuedUserMessageFlushGroups(pending)
 	if len(groups) != 4 {

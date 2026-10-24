@@ -294,12 +294,9 @@ func TestSubmitUserShellCommandKeepsCompactHumanPresentation(t *testing.T) {
 
 	eng := mustNewTestEngine(t, store, &fakeClient{}, newTestToolRegistry(t, tools.HandlerRegistration{ID: toolspec.ToolExecCommand, Handler: fakeTool{name: toolspec.ToolExecCommand, out: mustJSON("fixture output")}}), Config{Model: "gpt-6-sol"})
 
-	result, err := eng.SubmitUserShellCommand(context.Background(), "pwd")
+	err := executeTestShell(t.Context(), eng, "pwd")
 	if err != nil {
 		t.Fatalf("submit user shell command: %v", err)
-	}
-	if result.Name != toolspec.ToolExecCommand {
-		t.Fatalf("unexpected tool result name: %+v", result)
 	}
 
 	snapshot := eng.ChatSnapshot()
@@ -318,51 +315,6 @@ func TestSubmitUserShellCommandKeepsCompactHumanPresentation(t *testing.T) {
 	if !foundUserShellCall {
 		t.Fatalf("expected a typed user shell notice in transcript snapshot, entries=%+v", snapshot.Entries)
 	}
-}
-
-func TestSubmitUserShellCommandSurfacesPersistenceFailure(t *testing.T) {
-	handler := &closeEngineBeforeResultReportHandler{}
-	engine := mustNewTestEngine(
-		t,
-		mustCreateTestSession(t),
-		&fakeClient{},
-		newTestToolRegistry(t, tools.HandlerRegistration{
-			ID:      toolspec.ToolExecCommand,
-			Handler: handler,
-		}),
-		Config{Model: "gpt-6-sol"},
-	)
-	handler.engine = engine
-
-	_, err := engine.SubmitUserShellCommand(context.Background(), "pwd")
-	if !errors.Is(err, ErrEngineClosed) {
-		t.Fatalf("shell command error = %v, want preserved engine-closed cause", err)
-	}
-}
-
-func TestSubmitUserShellCommandReturnsUnknownToolErrorWhenShellNotRegistered(t *testing.T) {
-	store := mustCreateTestSession(t)
-
-	eng, err := New(store, mustMaterializeTestEventLog(t, store), &fakeClient{}, tools.NewRegistry(), Config{
-		Model:                         "gpt-6-sol",
-		ProjectWorkspaceContextReader: newRuntimeTestProjectWorkspaceContextReader(t, store),
-	})
-
-	result, err := eng.SubmitUserShellCommand(context.Background(), "pwd")
-	if !errors.Is(err, errUnknownTool) {
-		t.Fatalf("expected errUnknownTool, got %v", err)
-	}
-	if result.Name != toolspec.ToolExecCommand || !result.IsError {
-		t.Fatalf("expected shell error result, got %+v", result)
-	}
-	var payload string
-	if unmarshalErr := json.Unmarshal(result.Output, &payload); unmarshalErr != nil {
-		t.Fatalf("decode result output: %v", unmarshalErr)
-	}
-	if payload != errUnknownTool.Error() {
-		t.Fatalf("expected unknown tool output payload, got %v", payload)
-	}
-
 }
 
 func TestParallelToolsReturnDeclaredOrder(t *testing.T) {

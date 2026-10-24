@@ -5,6 +5,7 @@ type Kind string
 const (
 	KindText          Kind = "text"
 	KindPromptCommand Kind = "prompt_command"
+	KindShell         Kind = "shell"
 )
 
 type PromptCommand struct {
@@ -16,6 +17,11 @@ type Input struct {
 	Kind          Kind           `json:"kind"`
 	Text          *string        `json:"text,omitempty"`
 	PromptCommand *PromptCommand `json:"prompt_command,omitempty"`
+	Shell         *ShellCommand  `json:"shell,omitempty"`
+}
+
+func Shell(command string) Input {
+	return Input{Kind: KindShell, Shell: &ShellCommand{Command: command}}
 }
 
 func Text(text string) Input {

@@ -60,8 +60,8 @@ func TestOperationOwnerShutdownRejectsCancelsAndJoins(t *testing.T) {
 
 type lifecycleContextKey struct{}
 
-func (lifecycleAdmission) AdmitUserShellCommand(context.Context, runtimeids.SessionID, string) error {
-	return errors.New("unexpected shell command")
+func (lifecycleAdmission) AdmitChatShellInput(context.Context, runtimeids.SessionID, runtimeids.QueueItemID, runtimeinput.ShellCommand, runtimeinput.PendingWorkLane) (serverapi.ChatInputAdmissionResult, error) {
+	return serverapi.ChatInputAdmissionResult{}, errors.New("unexpected Shell admission")
 }
 
 type lifecycleRecorder struct {

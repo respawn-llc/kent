@@ -1,4 +1,5 @@
 export { SharedTextMotion } from "./SharedTextMotion";
+export { projectMarkdownText } from "./taskBodyMarkdownText";
 export { Badge } from "./Badge";
 export { PromptOptionRow } from "./PromptOptionRow";
 export { PromptAccessTargets } from "./PromptAccessTargets";

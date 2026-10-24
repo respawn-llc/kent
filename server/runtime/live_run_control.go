@@ -359,7 +359,7 @@ func (e *Engine) queueMessageForActiveRun(ctx context.Context, id string, messag
 	}
 	item := QueuedUserMessage{
 		ID:                    id,
-		Message:               message,
+		Message:               &message,
 		CanonicalPresentation: *message.Content,
 	}
 	accepted, err := runCommandAcceptance(accept, func() (bool, error) {

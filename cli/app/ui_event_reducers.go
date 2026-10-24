@@ -135,16 +135,6 @@ func (m *uiModel) reduceInputAsyncMessage(msg tea.Msg) uiFeatureUpdateResult {
 		nextModel := next.(*uiModel)
 		nextModel.layout().syncViewport()
 		return handledUIFeatureUpdate(nextModel, cmd)
-	case injectedQueueDiscardDoneMsg:
-		next, cmd := m.inputController().handleInjectedQueueDiscardDone(msg)
-		nextModel := next.(*uiModel)
-		nextModel.layout().syncViewport()
-		return handledUIFeatureUpdate(nextModel, cmd)
-	case submitDoneMsg:
-		next, cmd := m.inputController().handleSubmitDone(msg)
-		nextModel := next.(*uiModel)
-		nextModel.layout().syncViewport()
-		return handledUIFeatureUpdate(nextModel, cmd)
 	case compactDoneMsg:
 		next, cmd := m.inputController().handleCompactDone(msg)
 		nextModel := next.(*uiModel)

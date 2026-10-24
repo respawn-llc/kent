@@ -155,9 +155,6 @@ func (c uiInputController) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		submittedText := m.mainEditor.Text()
 		trimmedText := strings.TrimSpace(submittedText)
 		if trimmedText == "" {
-			if !m.blocksRuntimeInput() && len(m.queued) > 0 {
-				return c.flushQueuedInputs(queueDrainOne)
-			}
 			return m, nil
 		}
 		if errText, blocked := m.slashCommandInputBlocked(trimmedText); blocked {
@@ -171,23 +168,7 @@ func (c uiInputController) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		if blocked, disconnectCmd := c.blockDisconnectedSubmission(false, ""); blocked {
 			return m, disconnectCmd
 		}
-		_, isUserShell := parseUserShellCommand(trimmedText)
 		draft := m.capturePromptHistoryDraftForReuse()
-		if m.blocksRuntimeInput() {
-			if isUserShell {
-				m.queueInput(submittedText)
-				m.restoreCapturedPromptHistoryDraft(draft)
-				return m, nil
-			}
-			cmd := m.queueInjectedInput(submittedText)
-			m.restoreCapturedPromptHistoryDraft(draft)
-			return m, cmd
-		}
-		if len(m.queued) > 0 {
-			m.queueInput(submittedText)
-			m.restoreCapturedPromptHistoryDraft(draft)
-			return c.flushQueuedInputs(queueDrainOne)
-		}
 		if handled, next, cmd := c.handleEnteredSlashCommandInput(trimmedText, submittedText); handled {
 			return next, cmd
 		}
@@ -195,12 +176,12 @@ func (c uiInputController) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			command, _ := m.commandRegistry.Command(trimmedText)
 			recordCmd := m.recordPromptHistory(trimmedText)
 			m.clearCommandInput(command, draft)
-			next, cmd := c.applyCommandResultWithPreSubmitQueuePositionAndSubmittedText(commandResult, preSubmitQueueBack, activeSubmitOriginDirect, submittedText)
+			next, cmd := c.applyCommandResult(commandResult, submittedText)
 			return next, finalizeSlashCommandCmd(commandResult.Action, cmd, recordCmd)
 		}
 		m.clearInput()
 		m.restoreCapturedPromptHistoryDraft(draft)
-		return m, c.startSubmissionWithPromptHistoryAndQueuePositionAndID(submittedText, preSubmitQueueBack, "")
+		return m, c.startSubmission(submittedText)
 	case tea.KeyCtrlJ, keyTypeShiftEnterCSI:
 		m.insertInputRunes([]rune{'\n'})
 		if msg.Type == keyTypeShiftEnterCSI {
