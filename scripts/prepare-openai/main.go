@@ -9,7 +9,8 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
-	"syscall"
+
+	"github.com/gofrs/flock"
 )
 
 func main() {
@@ -33,12 +34,9 @@ func prepare() (result error) {
 	if err := os.MkdirAll(".generated", 0o755); err != nil {
 		return err
 	}
-	lock, err := os.OpenFile(".generated/openai-sdk.lock", os.O_CREATE|os.O_RDWR, 0o600)
-	if err != nil {
-		return err
-	}
+	lock := flock.New(".generated/openai-sdk.lock")
 	defer func() { result = errors.Join(result, lock.Close()) }()
-	if err := syscall.Flock(int(lock.Fd()), syscall.LOCK_EX); err != nil {
+	if err := lock.Lock(); err != nil {
 		return err
 	}
 	data, err := command("go", "mod", "edit", "-json")
