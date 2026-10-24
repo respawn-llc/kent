@@ -9,12 +9,16 @@ import {
   PromptOptionRow as QuestionOption,
   PromptAccessTargets,
   StaticMarkdown,
+  TextArea,
+  ControlTooltip,
 } from "@/ui";
-import { cx, fieldInputClassNameForRadius } from "@/ui";
+import { useSpeechField } from "@/shared/speech-input";
+import { useTaskSpeech } from "./TaskDetailSpeech";
+import { promptAnswerKey } from "./PromptAnswerState";
+import { taskDetailAttentionRowKey } from "./TaskDetailAttentionRowKey";
 import { approvalDecisionLabel } from "@/shared/prompt-presentation";
 import type { QuestionAnswerAction } from "./TaskDetailQuestionAnswer";
 import type { PromptPrimaryControl } from "./PromptPrimaryControlRegistry";
-import { taskDetailIslandRadius } from "./taskDetailIslandStyles";
 import {
   canSubmitApprovalAnswer,
   canSubmitOrdinaryAnswer,
@@ -121,6 +125,7 @@ function OrdinaryQuestionForm({
 
   return (
     <QuestionFormFrame
+      attention={attention}
       answer={answer}
       answerID={answerID}
       answerRef={suggestions.length === 0 ? primaryControlRef : undefined}
@@ -225,6 +230,7 @@ function ApprovalQuestionForm({
 
   return (
     <QuestionFormFrame
+      attention={attention}
       accessTargets={accessTargets}
       answer={answer}
       answerID={answerID}
@@ -255,6 +261,7 @@ function ApprovalQuestionForm({
 }
 
 function QuestionFormFrame({
+  attention,
   accessTargets,
   answer,
   answerID,
@@ -267,6 +274,7 @@ function QuestionFormFrame({
   question,
   radioValue,
 }: Readonly<{
+  attention: QuestionAttentionItem;
   accessTargets?: readonly FileAccessTarget[] | undefined;
   answer: string;
   answerID: string;
@@ -280,10 +288,30 @@ function QuestionFormFrame({
   radioValue: string;
 }>) {
   const { t } = useTranslation();
+  const taskSpeech = useTaskSpeech();
+  const editor = useRef<HTMLTextAreaElement>(null);
+  const speech = useSpeechField({
+    identity: taskDetailAttentionRowKey(attention),
+    value: answer,
+    onChange: onAnswerChange,
+    editorRef: editor,
+    captureDraft: () => ({
+      ...taskSpeech.questionDraft(promptAnswerKey(attention)),
+      editor: () => editor.current,
+    }),
+  });
+  const submitEnabled = canSubmit && !speech.busy;
+  const bindEditor = useCallback(
+    (element: HTMLTextAreaElement | null) => {
+      editor.current = element;
+      return answerRef?.(element);
+    },
+    [answerRef],
+  );
   const hasAccessTargets = accessTargets !== undefined && accessTargets.length > 0;
   const formatPath = usePathFormatter();
   const formShortcut = useTextFieldSubmitShortcut({
-    available: canSubmit,
+    available: submitEnabled,
     kind: "form",
   });
   return (
@@ -292,7 +320,7 @@ function QuestionFormFrame({
       onKeyDown={formShortcut}
       onSubmit={(event) => {
         event.preventDefault();
-        if (canSubmit) onSubmit();
+        if (submitEnabled) onSubmit();
       }}
     >
       {accessTargets === undefined ? null : (
@@ -315,21 +343,25 @@ function QuestionFormFrame({
           </RadioGroup>
         </fieldset>
       )}
-      <textarea
+      <TextArea
+        label={t("task.commentary")}
+        floatingAction={speech.control}
         aria-label={t("task.commentary")}
-        className={cx(fieldInputClassNameForRadius(taskDetailIslandRadius), "min-h-24")}
+        className="min-h-24"
         id={answerID}
         onChange={(event) => {
           onAnswerChange(event.target.value);
         }}
         placeholder={t("task.answerPlaceholder")}
-        ref={answerRef}
+        ref={bindEditor}
         rows={3}
         value={answer}
       />
-      <Button disabled={!canSubmit} type="submit" variant="primary">
-        {t("task.submitAnswer")}
-      </Button>
+      <ControlTooltip label={speech.busy ? speech.busyReason : t("task.submitAnswer")}>
+        <Button disabled={!submitEnabled} type="submit" variant="primary">
+          {t("task.submitAnswer")}
+        </Button>
+      </ControlTooltip>
     </form>
   );
 }

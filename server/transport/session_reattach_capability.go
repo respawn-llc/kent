@@ -114,9 +114,14 @@ func (a *sessionReattachAuthority) issue(sessionID string) (string, error) {
 	if a == nil {
 		return "", errors.New("Session reattach authority is required")
 	}
+	return base64.RawURLEncoding.EncodeToString(a.signCapability(nil, []byte(sessionID))), nil
+}
+
+func (a *sessionReattachAuthority) signCapability(purpose, payload []byte) []byte {
 	mac := hmac.New(sha256.New, a.key[:])
-	_, _ = mac.Write([]byte(sessionID))
-	return base64.RawURLEncoding.EncodeToString(mac.Sum(nil)), nil
+	_, _ = mac.Write(purpose)
+	_, _ = mac.Write(payload)
+	return mac.Sum(nil)
 }
 
 func (a *sessionReattachAuthority) authorizes(sessionID string, capability *string) bool {

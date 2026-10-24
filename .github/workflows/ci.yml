@@ -264,6 +264,33 @@ jobs:
           path: apps/desktop/src-tauri/target/release/bundle/dmg/*.dmg
           if-no-files-found: error
 
+  gui-native-windows:
+    runs-on: windows-latest
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@v7.0.0
+        with:
+          persist-credentials: false
+      - uses: actions/setup-go@v6.5.0
+        with:
+          go-version-file: go.mod
+      - uses: dtolnay/rust-toolchain@1.95.0
+      - uses: Swatinem/rust-cache@v2.9.1
+        with:
+          workspaces: apps/desktop/src-tauri
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version-file: apps/package.json
+      - uses: extractions/setup-just@v3
+      - name: Install GUI dependencies
+        run: just install _apps-dependencies
+      - name: Prepare Desktop web assets
+        run: just build _desktop-web
+      - name: Check Windows native Desktop
+        run: just _lint _desktop-native check
+
   desktop_bundle:
     # Catch desktop packaging breakage (bundling, AppImage/deb generation, updater
     # artifact signing) on PRs — gui-native only cargo-checks the Rust shell. Linux

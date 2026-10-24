@@ -39,6 +39,12 @@ await mock.module("@/app-facade", () => ({
   }),
 }));
 
+await mock.module("@/shared/speech-input", () => ({
+  useSpeechField: () => ({ control: undefined, busy: false, busyReason: "Speech pending" }),
+}));
+await mock.module("./TaskDetailSpeech", () => ({
+  useTaskSpeech: () => ({ questionDraft: () => ({ read: () => null, write: () => undefined }) }),
+}));
 const { QuestionBox } = await import("./TaskDetailQuestionForm");
 const { QuestionFormView } = await import("./TaskDetailQuestionFormView");
 const {
