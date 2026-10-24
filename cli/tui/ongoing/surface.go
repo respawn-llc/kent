@@ -36,15 +36,24 @@ type CursorTarget struct {
 }
 
 type FrameSection struct {
-	Kind        FrameSectionKind
-	Lines       []string
-	StyledLines []transcriptrender.Line
+	Kind          FrameSectionKind
+	Lines         []string
+	StyledLines   []transcriptrender.Line
+	OutputIndexes []*int64
+}
+
+func (s FrameSection) outputIndex(row int) *int64 {
+	if s.OutputIndexes == nil {
+		return nil
+	}
+	return s.OutputIndexes[row]
 }
 
 type liveBandLine struct {
 	text        string
 	sectionKind FrameSectionKind
 	sectionRow  int
+	outputIndex *int64
 }
 
 type FrameSectionKind string
@@ -124,12 +133,15 @@ type Surface struct {
 	retainedBandHeight int
 	groupRegister      *transcriptrender.Group
 	activeAssistant    activeAssistantState
+	pendingAssistants  []activeAssistantState
+	emittedNativeCalls map[string]*transcriptpb.ToolStart
 	terminalResize     TerminalResizePolicy
 	markdownLinks      transcriptrender.MarkdownLinkPresentation
 	lastPaintedSize    *Size
 }
 
 type activeAssistantState struct {
+	outputIndex            *int64
 	streamID               *string
 	source                 string
 	phase                  transcriptpb.AssistantPhase
@@ -187,10 +199,32 @@ func (s *Surface) ApplyTerminalMessage(message *transcriptpb.Message, frame Fram
 		return s.applyHydration(payload.Hydration, frame)
 	case *transcriptpb.Event_AssistantDelta:
 		delta := payload.AssistantDelta
-		return s.applyAssistantDelta(delta.StreamId, delta.Delta, delta.Phase, frame)
+		return s.applyAssistantDelta(delta.StreamId, delta.Delta, delta.Phase, delta.OutputIndex, frame)
 	case *transcriptpb.Event_AssistantStreamAbort:
 		return s.abortAssistantStream(payload.AssistantStreamAbort.StreamId, frame)
+	case *transcriptpb.Event_StepState:
+		if payload.StepState.Lifecycle == transcriptpb.StepLifecycle_STEP_LIFECYCLE_FINISHED {
+			s.emittedNativeCalls = nil
+		}
+		return s.Render(frame)
 	case *transcriptpb.Event_CommittedRow:
+		if call := payload.CommittedRow.GetToolCall(); call != nil {
+			if s.emittedNativeCalls == nil {
+				s.emittedNativeCalls = make(map[string]*transcriptpb.ToolStart)
+			}
+			s.emittedNativeCalls[call.ToolCallId] = call
+		}
+		if result := payload.CommittedRow.GetTool(); result != nil && result.ToolCallId != nil {
+			if call := s.emittedNativeCalls[*result.ToolCallId]; call != nil {
+				delete(s.emittedNativeCalls, *result.ToolCallId)
+				rendered := transcriptrender.RenderToolCompletion(call, result, frame.Size.Width, frame.Theme)
+				lines := make([]string, 0, len(rendered.Lines))
+				for _, line := range rendered.Lines {
+					lines = append(lines, encodeTranscriptLine(line, frame.Theme))
+				}
+				return s.writeFrameTransaction(frame, s.renderGroupedRows(rendered.Group, lines, false))
+			}
+		}
 		if assistant := payload.CommittedRow.GetAssistant(); assistant != nil && assistant.StreamId != nil {
 			return s.finalizeAssistantStream(*assistant.StreamId, assistant.Text, frame)
 		}
@@ -203,8 +237,25 @@ func (s *Surface) ApplyTerminalMessage(message *transcriptpb.Message, frame Fram
 }
 
 func (s *Surface) applyHydration(hydration *transcriptpb.Hydration, frame FrameInput) (Result, error) {
+	s.emittedNativeCalls = make(map[string]*transcriptpb.ToolStart)
+	for _, row := range hydration.TailSegment.Entries {
+		if call := row.GetToolCall(); call != nil {
+			s.emittedNativeCalls[call.ToolCallId] = call
+		}
+	}
 	lines := s.hydrationImmutableLines(hydration, frame.Size.Width, frame.Theme)
-	activeStreamHydrated := s.hydrateActiveAssistantStream(hydration.ActiveAssistant)
+	s.pendingAssistants = nil
+	var first *transcriptpb.AssistantStream
+	if len(hydration.ActiveAssistants) > 0 {
+		first = hydration.ActiveAssistants[0]
+		for _, stream := range hydration.ActiveAssistants[1:] {
+			id := stream.StreamId
+			s.pendingAssistants = append(s.pendingAssistants, activeAssistantState{
+				streamID: &id, source: stream.Text, phase: stream.Phase, outputIndex: stream.OutputIndex,
+			})
+		}
+	}
+	activeStreamHydrated := s.hydrateActiveAssistantStream(first)
 	if activeStreamHydrated && !s.activeAssistantPromotionDeferred() {
 		projection := newMarkdownProjector(nil, frame.Theme, s.markdownLinks).Project(markdownProjectionInput{
 			Source:           s.activeAssistant.source,
@@ -223,7 +274,7 @@ func (s *Surface) applyHydration(hydration *transcriptpb.Hydration, frame FrameI
 		s.activeAssistant.promotedSourceBoundary = projection.PromotedBoundary
 		lines = append(lines, promotedRows...)
 	}
-	if len(lines) == 0 && !activeStreamHydrated {
+	if len(lines) == 0 && !activeStreamHydrated && len(s.pendingAssistants) == 0 {
 		return Result{}, nil
 	}
 	return s.writeFrameTransaction(frame, lines)
@@ -236,6 +287,7 @@ func (s *Surface) hydrateActiveAssistantStream(stream *transcriptpb.AssistantStr
 	}
 	streamIDCopy := stream.StreamId
 	s.activeAssistant = activeAssistantState{
+		outputIndex:      stream.OutputIndex,
 		streamID:         &streamIDCopy,
 		source:           stream.Text,
 		phase:            stream.Phase,
@@ -244,17 +296,28 @@ func (s *Surface) hydrateActiveAssistantStream(stream *transcriptpb.AssistantStr
 	return stream.Text != ""
 }
 
-func (s *Surface) applyAssistantDelta(streamID string, delta string, phase transcriptpb.AssistantPhase, frame FrameInput) (Result, error) {
+func (s *Surface) applyAssistantDelta(streamID string, delta string, phase transcriptpb.AssistantPhase, outputIndex *int64, frame FrameInput) (Result, error) {
 	if s.activeAssistant.streamID == nil {
 		streamIDCopy := streamID
 		s.activeAssistant.streamID = &streamIDCopy
+		s.activeAssistant.outputIndex = outputIndex
 	} else if *s.activeAssistant.streamID != streamID {
-		panicOngoingDeveloperError("assistant_delta", "stream id does not match active stream", map[string]any{
-			"active_stream_id":  *s.activeAssistant.streamID,
-			"message_stream_id": streamID,
-			"width":             frame.Size.Width,
-			"height":            frame.Size.Height,
+		for index := range s.pendingAssistants {
+			stream := &s.pendingAssistants[index]
+			if *stream.streamID == streamID {
+				if stream.phase != phase {
+					stream.phase = phase
+					stream.phaseSourceStart = len(stream.source)
+				}
+				stream.source += delta
+				return s.writeFrameTransaction(frame, nil)
+			}
+		}
+		id := streamID
+		s.pendingAssistants = append(s.pendingAssistants, activeAssistantState{
+			streamID: &id, source: delta, phase: phase, outputIndex: outputIndex,
 		})
+		return s.writeFrameTransaction(frame, nil)
 	}
 	if s.activeAssistant.phase != phase {
 		s.activeAssistant.phase = phase
@@ -286,6 +349,11 @@ func (s *Surface) applyAssistantDelta(streamID string, delta string, phase trans
 }
 
 func (s *Surface) activeAssistantPromotionDeferred() bool {
+	if s.activeAssistant.outputIndex != nil && *s.activeAssistant.outputIndex > 0 {
+		// Earlier native items may not be accepted yet. Keep this tail mutable
+		// until source-ordered committed rows establish its scrollback position.
+		return true
+	}
 	if s.activeAssistant.phase != transcriptpb.AssistantPhase_ASSISTANT_PHASE_FINAL {
 		return false
 	}
@@ -299,15 +367,29 @@ func (s *Surface) activeAssistantPromotionDeferred() bool {
 
 func (s *Surface) abortAssistantStream(streamID string, frame FrameInput) (Result, error) {
 	if s.activeAssistant.streamID != nil && *s.activeAssistant.streamID != streamID {
-		panicOngoingDeveloperError("assistant_abort", "stream id does not match active stream", map[string]any{
+		for index, stream := range s.pendingAssistants {
+			if *stream.streamID == streamID {
+				s.pendingAssistants = append(s.pendingAssistants[:index], s.pendingAssistants[index+1:]...)
+				return s.Render(frame)
+			}
+		}
+		panicOngoingDeveloperError("assistant_abort", "stream id does not match active streams", map[string]any{
 			"active_stream_id":  *s.activeAssistant.streamID,
 			"message_stream_id": streamID,
 			"width":             frame.Size.Width,
 			"height":            frame.Size.Height,
 		})
 	}
-	s.activeAssistant = activeAssistantState{}
+	s.advanceAssistantStream()
 	return s.Render(frame)
+}
+
+func (s *Surface) advanceAssistantStream() {
+	s.activeAssistant = activeAssistantState{}
+	if len(s.pendingAssistants) > 0 {
+		s.activeAssistant = s.pendingAssistants[0]
+		s.pendingAssistants = s.pendingAssistants[1:]
+	}
 }
 
 func (s *Surface) finalizeAssistantStream(streamID string, text string, frame FrameInput) (Result, error) {
@@ -342,7 +424,7 @@ func (s *Surface) finalizeAssistantStream(streamID string, text string, frame Fr
 		rows = newMarkdownProjector(nil, frame.Theme, s.markdownLinks).renderer.RenderStable(unpromoted, frameWidthOrDefault(frame))
 	}
 	promotedRows := s.renderAssistantPromotedRows(rows, frame.Theme)
-	s.activeAssistant = activeAssistantState{}
+	s.advanceAssistantStream()
 	return s.writeFrameTransaction(frame, promotedRows)
 }
 
@@ -419,6 +501,8 @@ func (s *Surface) ResetForScratchHydration(reason RehydrateReason, frame FrameIn
 	}
 	s.retainedBandHeight = 0
 	s.activeAssistant = activeAssistantState{}
+	s.pendingAssistants = nil
+	s.emittedNativeCalls = nil
 	s.groupRegister = nil
 	paintedSize := frame.Size
 	s.lastPaintedSize = &paintedSize
@@ -568,6 +652,7 @@ func committedRowLines(
 	case *transcriptpb.CommittedRow_User,
 		*transcriptpb.CommittedRow_Assistant,
 		*transcriptpb.CommittedRow_Tool,
+		*transcriptpb.CommittedRow_ToolCall,
 		*transcriptpb.CommittedRow_Notice,
 		*transcriptpb.CommittedRow_ReviewerFeedback,
 		*transcriptpb.CommittedRow_ReviewerError:

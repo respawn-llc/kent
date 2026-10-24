@@ -7,6 +7,7 @@ import (
 
 	"core/server/llm"
 	"core/server/tools"
+	"core/shared/textutil"
 )
 
 func TestGenerateWithRetryRejectsNonRetriableModelErrorsWithoutRetry(t *testing.T) {
@@ -34,7 +35,7 @@ func TestGenerateWithRetryRejectsNonRetriableModelErrorsWithoutRetry(t *testing.
 		},
 		{
 			name:  "status-400",
-			cause: &llm.ProviderAPIError{ProviderID: "openai", StatusCode: 400, Code: llm.UnifiedErrorCodeUnknown},
+			cause: &llm.ProviderAPIError{ProviderID: "openai", StatusCode: textutil.Value(400), Code: llm.UnifiedErrorCodeUnknown},
 			assertCategory: func(t *testing.T, err error) {
 				t.Helper()
 				if !llm.HasHTTPStatus(err, 400) {
@@ -44,7 +45,7 @@ func TestGenerateWithRetryRejectsNonRetriableModelErrorsWithoutRetry(t *testing.
 		},
 		{
 			name:  "status-401",
-			cause: &llm.ProviderAPIError{ProviderID: "openai", StatusCode: 401, Code: llm.UnifiedErrorCodeAuthentication},
+			cause: &llm.ProviderAPIError{ProviderID: "openai", StatusCode: textutil.Value(401), Code: llm.UnifiedErrorCodeAuthentication},
 			assertCategory: func(t *testing.T, err error) {
 				t.Helper()
 				if !llm.HasHTTPStatus(err, 401) {
@@ -54,7 +55,7 @@ func TestGenerateWithRetryRejectsNonRetriableModelErrorsWithoutRetry(t *testing.
 		},
 		{
 			name:  "status-403",
-			cause: &llm.ProviderAPIError{ProviderID: "openai", StatusCode: 403, Code: llm.UnifiedErrorCodeAuthentication},
+			cause: &llm.ProviderAPIError{ProviderID: "openai", StatusCode: textutil.Value(403), Code: llm.UnifiedErrorCodeAuthentication},
 			assertCategory: func(t *testing.T, err error) {
 				t.Helper()
 				if !llm.HasHTTPStatus(err, 403) {
@@ -64,7 +65,7 @@ func TestGenerateWithRetryRejectsNonRetriableModelErrorsWithoutRetry(t *testing.
 		},
 		{
 			name:  "status-404",
-			cause: &llm.ProviderAPIError{ProviderID: "openai", StatusCode: 404, Code: llm.UnifiedErrorCodeUnknown},
+			cause: &llm.ProviderAPIError{ProviderID: "openai", StatusCode: textutil.Value(404), Code: llm.UnifiedErrorCodeUnknown},
 			assertCategory: func(t *testing.T, err error) {
 				t.Helper()
 				if !llm.HasHTTPStatus(err, 404) {
@@ -92,15 +93,10 @@ func TestGenerateWithRetryRejectsNonRetriableModelErrorsWithoutRetry(t *testing.
 		t.Run(test.name, func(t *testing.T) {
 			client := &fakeClient{errors: []error{test.cause}}
 
-			_, err := engine.generateWithRetryClient(
-				context.Background(),
+			_, err := engine.generateWithRetryClient(context.Background(),
 				"",
 				newObservedModelClient(client),
-				llm.Request{Model: "gpt-6-sol", ToolChoiceMode: llm.ToolChoiceModeAutomatic, ReasoningEffort: "high"},
-				nil,
-				nil,
-				nil,
-			)
+				llm.Request{Model: "gpt-6-sol", ToolChoiceMode: llm.ToolChoiceModeAutomatic, ReasoningEffort: "high"}, llm.StreamCallbacks{}, nil)
 			if !errors.Is(err, test.cause) {
 				t.Fatalf("generation error = %v, want original typed cause", err)
 			}

@@ -22,7 +22,7 @@ func TestMissingToolOutputRepairAppendsSyntheticOutputAndRetries(t *testing.T) {
 	t.Parallel()
 	store := mustCreateTestSession(t)
 	client := &fakeClient{
-		errors: []error{&llm.ProviderAPIError{ProviderID: "openai", StatusCode: 400, Code: llm.UnifiedErrorCodeUnknown, Message: "tool call without output"}},
+		errors: []error{&llm.ProviderAPIError{ProviderID: "openai", StatusCode: textutil.Value(400), Code: llm.UnifiedErrorCodeUnknown, Message: "tool call without output"}},
 		responses: []llm.Response{{
 			Assistant: llm.Message{Role: llm.RoleAssistant, Phase: textutil.Value(llm.MessagePhaseFinal), Content: textutil.Value("repaired")},
 			Usage:     llm.Usage{InputTokens: textutil.Value(10), OutputTokens: textutil.Value(2), WindowTokens: 100, ContextUsage: &llm.ContextUsage{Tokens: 10, MeasurementPoint: llm.ContextMeasurementInput}},
@@ -91,8 +91,8 @@ func TestNormalGenerationLive400RepairWaitsForMatchingStartThenRetriesOnce(t *te
 	store := mustCreateTestSession(t)
 	client := &fakeClient{
 		errors: []error{
-			&llm.ProviderAPIError{ProviderID: "openai", StatusCode: 400, Code: llm.UnifiedErrorCodeUnknown},
-			&llm.ProviderAPIError{ProviderID: "openai", StatusCode: 400, Code: llm.UnifiedErrorCodeUnknown},
+			&llm.ProviderAPIError{ProviderID: "openai", StatusCode: textutil.Value(400), Code: llm.UnifiedErrorCodeUnknown},
+			&llm.ProviderAPIError{ProviderID: "openai", StatusCode: textutil.Value(400), Code: llm.UnifiedErrorCodeUnknown},
 		},
 		responses: []llm.Response{finalTextResponse("repaired")},
 	}
@@ -173,7 +173,7 @@ func TestMissingToolOutputRepairRetryPreservesQueuedSteeringBoundary(t *testing.
 	queueDone := make(chan error, 1)
 	var eng *Engine
 	client := &hookClient{
-		errors:   []error{&llm.ProviderAPIError{ProviderID: "openai", StatusCode: 400, Code: llm.UnifiedErrorCodeUnknown}},
+		errors:   []error{&llm.ProviderAPIError{ProviderID: "openai", StatusCode: textutil.Value(400), Code: llm.UnifiedErrorCodeUnknown}},
 		response: finalTextResponse("result"),
 		beforeReturn: func() error {
 			if queued {
@@ -257,7 +257,7 @@ func TestMissingToolOutputRepairLeavesUnrelated400Unrepaired(t *testing.T) {
 	t.Parallel()
 	store := mustCreateTestSession(t)
 	client := &fakeClient{
-		errors: []error{&llm.ProviderAPIError{ProviderID: "openai", StatusCode: 400, Code: llm.UnifiedErrorCodeUnknown, Message: "malformed request"}},
+		errors: []error{&llm.ProviderAPIError{ProviderID: "openai", StatusCode: textutil.Value(400), Code: llm.UnifiedErrorCodeUnknown, Message: "malformed request"}},
 	}
 	eng := mustNewTestEngine(t, store, client, tools.NewRegistry(), Config{Model: "gpt-6-sol"})
 
@@ -274,8 +274,8 @@ func TestRequiredToolChoiceRepairsDanglingOutputAndRebuildsRequest(t *testing.T)
 	store := mustCreateTestSession(t)
 	client := &fakeClient{
 		errors: []error{
-			&llm.ProviderAPIError{ProviderID: "openai", StatusCode: 400, Code: llm.UnifiedErrorCodeUnknown},
-			&llm.ProviderAPIError{ProviderID: "openai", StatusCode: 401, Code: llm.UnifiedErrorCodeAuthentication},
+			&llm.ProviderAPIError{ProviderID: "openai", StatusCode: textutil.Value(400), Code: llm.UnifiedErrorCodeUnknown},
+			&llm.ProviderAPIError{ProviderID: "openai", StatusCode: textutil.Value(401), Code: llm.UnifiedErrorCodeAuthentication},
 		},
 	}
 	eng := mustNewWorkflowTestEngine(
@@ -366,7 +366,7 @@ func TestCompactionMissingToolOutputRepairAppendsAndRetries(t *testing.T) {
 	t.Parallel()
 	store := mustCreateTestSession(t)
 	client := &fakeCompactionClient{
-		compactionErrors: []error{&llm.ProviderAPIError{ProviderID: "openai", StatusCode: 400, Code: llm.UnifiedErrorCodeUnknown}, nil},
+		compactionErrors: []error{&llm.ProviderAPIError{ProviderID: "openai", StatusCode: textutil.Value(400), Code: llm.UnifiedErrorCodeUnknown}, nil},
 		compactionResponses: []llm.CompactionResponse{{
 			Usage: llm.Usage{WindowTokens: 100},
 		}},
@@ -406,10 +406,10 @@ func TestCompactionCheckpointContractErrorReturnsExactRepairedInput(t *testing.T
 	}
 	client := &fakeCompactionClient{
 		compactionErrors: []error{
-			&llm.ProviderAPIError{ProviderID: "openai", StatusCode: 400, Code: llm.UnifiedErrorCodeUnknown},
+			&llm.ProviderAPIError{ProviderID: "openai", StatusCode: textutil.Value(400), Code: llm.UnifiedErrorCodeUnknown},
 			&llm.ProviderAPIError{
 				ProviderID: "openai",
-				StatusCode: 502,
+				StatusCode: textutil.Value(502),
 				Code:       llm.UnifiedErrorCodeProviderContract,
 				Err:        checkpointErr,
 			},
@@ -454,7 +454,7 @@ func TestMalformedRemoteCompactionFallbackUsesMissingToolRepairedInput(t *testin
 			Assistant: llm.Message{Role: llm.RoleAssistant, Content: textutil.Value("local summary")},
 		}},
 		compactionErrors: []error{
-			&llm.ProviderAPIError{ProviderID: "openai", StatusCode: 400, Code: llm.UnifiedErrorCodeUnknown, Message: "tool call without output"},
+			&llm.ProviderAPIError{ProviderID: "openai", StatusCode: textutil.Value(400), Code: llm.UnifiedErrorCodeUnknown, Message: "tool call without output"},
 			malformedCompactionProviderError(),
 		},
 	}
@@ -485,7 +485,7 @@ func TestGenerationMissingToolOutputRebuildKeepsIdentityAndAllocatesFreshState(t
 	t.Parallel()
 	store := mustCreateTestSession(t)
 	client := &fakeClient{
-		errors: []error{&llm.ProviderAPIError{ProviderID: "openai", StatusCode: 400, Code: llm.UnifiedErrorCodeUnknown}, nil},
+		errors: []error{&llm.ProviderAPIError{ProviderID: "openai", StatusCode: textutil.Value(400), Code: llm.UnifiedErrorCodeUnknown}, nil},
 		responses: []llm.Response{{
 			Assistant: llm.Message{
 				Role:    llm.RoleAssistant,
@@ -503,16 +503,11 @@ func TestGenerationMissingToolOutputRebuildKeepsIdentityAndAllocatesFreshState(t
 		context.Background(),
 		exclusiveStepOptions{ActiveKind: ActiveKindUserTurn},
 		func(ctx context.Context, stepID string) error {
-			_, generateErr := engine.generateWithMissingToolOutputRepair(
-				ctx,
+			_, generateErr := engine.generateWithMissingToolOutputRepair(ctx,
 				stepID,
 				func() (llm.Request, error) {
 					return engine.buildActiveTurnDispatchRequest(ctx, stepID, nil, true)
-				},
-				nil,
-				nil,
-				nil,
-			)
+				}, llm.StreamCallbacks{}, nil)
 			return generateErr
 		},
 	)
@@ -536,11 +531,11 @@ func TestCompactionMissingOutputAfterCollapsePanics(t *testing.T) {
 		compactionErrors: []error{
 			&llm.ProviderAPIError{
 				ProviderID:   "openai",
-				StatusCode:   400,
+				StatusCode:   textutil.Value(400),
 				Code:         llm.UnifiedErrorCodeContextLengthOverflow,
 				ProviderCode: "context_length_exceeded",
 			},
-			&llm.ProviderAPIError{ProviderID: "openai", StatusCode: 400, Code: llm.UnifiedErrorCodeUnknown},
+			&llm.ProviderAPIError{ProviderID: "openai", StatusCode: textutil.Value(400), Code: llm.UnifiedErrorCodeUnknown},
 		},
 	}
 	eng := mustNewExecTestEngine(t, store, client, Config{Model: "gpt-6-sol"})

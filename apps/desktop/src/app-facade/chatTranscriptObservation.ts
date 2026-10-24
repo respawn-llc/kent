@@ -7,6 +7,7 @@ import type {
   ChatTranscriptPayloadByKind,
 } from "@/api";
 import { ContractError, TransportError } from "@/api";
+import { completesNativeCall } from "./transcript-window/segments";
 
 type TranscriptSubscriber = Pick<ChatApi, "subscribeTranscript">;
 
@@ -123,6 +124,7 @@ export class ChatTranscriptObservation {
   #nextSequence = 0;
   #hydratedCommittedEventSequence: number | null = null;
   #lastLiveCommittedLocator: CommittedRowLocator | null = null;
+  #nativeToolCalls = new Map<string, ChatTranscriptPayloadByKind["committed_row"]>();
   #hasHydrated = false;
   #disposed = false;
 
@@ -174,6 +176,7 @@ export class ChatTranscriptObservation {
         this.#nextSequence = 0;
         this.#hydratedCommittedEventSequence = null;
         this.#lastLiveCommittedLocator = null;
+        this.#nativeToolCalls.clear();
       },
       onEvent: (event) => {
         this.#admit(event);
@@ -226,6 +229,11 @@ export class ChatTranscriptObservation {
     this.#hydratedCommittedEventSequence =
       event.payload.TailSegment.Entries.at(-1)?.Locator.event_sequence ?? null;
     this.#lastLiveCommittedLocator = null;
+    for (const row of event.payload.TailSegment.Entries) {
+      if (row.ToolCall !== null && row.Visibility !== "hidden") {
+        this.#nativeToolCalls.set(row.ToolCall.ToolCallID, row);
+      }
+    }
     this.#nextSequence = 1;
     this.#hydrationKind = "initial";
     this.#hasHydrated = true;
@@ -241,7 +249,11 @@ export class ChatTranscriptObservation {
     let committedLocator: CommittedRowLocator | null = null;
     try {
       if (event.kind === "committed_row") {
-        committedLocator = this.#nextCommittedRowLocator(event.payload.Locator);
+        committedLocator = this.#admitCommittedRow(event.payload);
+      } else if (event.kind === "tool_abort") {
+        this.#nativeToolCalls.delete(event.payload.ToolCallID);
+      } else if (event.kind === "step_state" && event.payload.Lifecycle === "finished") {
+        this.#forgetNativeToolCallsForStep(event.payload.StepID);
       }
       this.#host.onEvent(event);
     } catch (error) {
@@ -252,6 +264,30 @@ export class ChatTranscriptObservation {
     }
     if (committedLocator !== null) this.#lastLiveCommittedLocator = committedLocator;
     this.#nextSequence = event.sequence;
+  }
+
+  #admitCommittedRow(row: ChatTranscriptPayloadByKind["committed_row"]): CommittedRowLocator | null {
+    const resultID = row.Tool?.ToolCallID;
+    const source = resultID == null ? undefined : this.#nativeToolCalls.get(resultID);
+    if (resultID != null && source !== undefined) {
+      if (!completesNativeCall(source, row))
+        throw new ContractError("Native result does not match its accepted call source.");
+      this.#nativeToolCalls.delete(resultID);
+      return null;
+    }
+    const locator = this.#nextCommittedRowLocator(row.Locator);
+    if (row.ToolCall !== null) {
+      if (this.#nativeToolCalls.has(row.ToolCall.ToolCallID))
+        throw new ContractError("Native call repeats a pending identity.");
+      this.#nativeToolCalls.set(row.ToolCall.ToolCallID, row);
+    }
+    return locator;
+  }
+
+  #forgetNativeToolCallsForStep(stepID: string): void {
+    for (const [id, row] of this.#nativeToolCalls) {
+      if (row.ToolCall?.StepID === stepID) this.#nativeToolCalls.delete(id);
+    }
   }
 
   #nextCommittedRowLocator(

@@ -160,13 +160,19 @@ func runLocalCompactionDiagnostic(t *testing.T, output []json.RawMessage, debug 
 		t.Fatal(err)
 	}
 	var requests atomic.Int32
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
-		requests.Add(1)
-		w.Header().Set("Content-Type", "text/event-stream")
-		_, _ = fmt.Fprintf(w, "data: %s\n\ndata: [DONE]\n\n", event)
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		serveResponsesTestWebsocket(t, w, r, func(json.RawMessage) []string {
+			requests.Add(1)
+			return []string{string(event)}
+		})
 	}))
 	t.Cleanup(server.Close)
 	transport := newCanonicalOAuthTestTransport(t, server)
+	t.Cleanup(func() {
+		if err := transport.Close(); err != nil {
+			t.Error(err)
+		}
+	})
 	transport.Debug = debug
 	client := NewResponsesClient(transport, nil)
 	response, err := client.Generate(context.Background(), Request{

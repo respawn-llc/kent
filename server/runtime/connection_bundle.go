@@ -74,7 +74,7 @@ func (e *Engine) selectConnection(ctx context.Context, stepID string, request Co
 	return e.selectConnectionWithPreparation(ctx, stepID, request, nil)
 }
 
-func (e *Engine) selectConnectionWithPreparation(ctx context.Context, stepID string, request ConnectionSelectionRequest, prepare func(*connectionBundle) error) (*connectionBundle, error) {
+func (e *Engine) selectConnectionWithPreparation(ctx context.Context, stepID string, request ConnectionSelectionRequest, prepare func(*connectionBundle) error) (_ *connectionBundle, resultErr error) {
 	current := e.connectionSnapshot()
 	var replacement *PreparedConnection
 	if e.cfg.ResolveConnection != nil && current.id != nil {
@@ -86,11 +86,14 @@ func (e *Engine) selectConnectionWithPreparation(ctx context.Context, stepID str
 		}
 	}
 	next := current
+	release := current.client
 	if replacement != nil {
+		next = newConnectionBundle(*replacement)
+		release = next.client
+		defer func() { resultErr = errors.Join(resultErr, release.Close()) }()
 		if err := ValidateSessionProviderChange(e.eventLog, replacement.TransportCapabilities); err != nil {
 			return nil, err
 		}
-		next = newConnectionBundle(*replacement)
 	}
 	if prepare != nil {
 		if err := prepare(next); err != nil {
@@ -107,6 +110,7 @@ func (e *Engine) selectConnectionWithPreparation(ctx context.Context, stepID str
 	e.connection = next
 	e.transcriptState.chatProjection().bindTokenEstimator(next.estimator)
 	e.mu.Unlock()
+	release = current.client
 	notice := config.ConnectionReplacement{Previous: *current.id, Current: *replacement.ID}
 	if err := e.steer(stepID, steerLocalEntryIntent(storedLocalEntry{
 		Visibility: transcript.EntryVisibilityOngoing, Role: string(transcript.EntryRoleSystem),

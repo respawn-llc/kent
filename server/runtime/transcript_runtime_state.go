@@ -120,15 +120,15 @@ func (s *transcriptRuntimeState) liveToolLedger() *transcriptLiveToolLedger {
 	return s.liveTools
 }
 
-func (s *transcriptRuntimeState) RecordLiveToolStart(stepID string, call llm.ToolCall) error {
+func (s *transcriptRuntimeState) RecordLiveToolStart(stepID string, call llm.ToolCall) (bool, error) {
 	if ledger := s.liveToolLedger(); ledger != nil {
 		start, err := transcriptLiveToolStartFromCallChecked(stepID, call)
 		if err != nil {
-			return err
+			return false, err
 		}
 		return ledger.RecordStart(start)
 	}
-	return nil
+	return false, nil
 }
 
 func (s *transcriptRuntimeState) CompleteLiveTool(callID string) {
@@ -461,11 +461,11 @@ func (s *transcriptRuntimeState) CommittedEntryCount() int {
 	return 0
 }
 
-func (s *transcriptRuntimeState) StreamingSnapshot() (string, string, *AssistantStreamMetadata) {
+func (s *transcriptRuntimeState) StreamingSnapshot() ([]AssistantStreamSnapshot, string) {
 	if chat := s.chatProjection(); chat != nil {
 		return chat.streamingSnapshot()
 	}
-	return "", "", nil
+	return nil, ""
 }
 
 func (s *transcriptRuntimeState) LastCommittedAssistantFinalAnswer() *string {
@@ -548,8 +548,8 @@ func (s *transcriptRuntimeState) AppendCommittedCacheWarning(stepID *string, war
 	}, nil, provenances...)
 }
 
-func (s *transcriptRuntimeState) AppendStreamingDelta(stepID string, baseRevision int64, baseCommittedEntryCount int, delta string, phase llm.MessagePhase) assistantStreamingAppend {
-	return s.chatProjection().appendStreamingDelta(stepID, baseRevision, baseCommittedEntryCount, delta, phase)
+func (s *transcriptRuntimeState) AppendStreamingDelta(stepID string, baseRevision int64, baseCommittedEntryCount int, delta llm.AssistantDelta) assistantStreamingAppend {
+	return s.chatProjection().appendStreamingDelta(stepID, baseRevision, baseCommittedEntryCount, delta)
 }
 
 func (s *transcriptRuntimeState) RecordAssistantStreamFinalization(committedEntryStart int, streamID *uuid.UUID) {
@@ -593,11 +593,11 @@ func (s *transcriptRuntimeState) BeginGeneration(stepID *string, committedEntryS
 	s.chatProjection().beginGeneration(stepID, committedEntryStart, entries)
 }
 
-func (s *transcriptRuntimeState) ClearStreamingAssistantState() (*AssistantStreamMetadata, *uuid.UUID) {
+func (s *transcriptRuntimeState) ClearStreamingAssistantState() []AssistantStreamSnapshot {
 	chat := s.chatProjection()
-	metadata, streamID := chat.discardStreaming()
+	streams := chat.discardStreaming()
 	chat.clearStreamingError()
-	return metadata, streamID
+	return streams
 }
 
 func (s *transcriptRuntimeState) SetStreamingError(text string) {

@@ -203,7 +203,7 @@ func TestPersistedTranscriptMatchesActualEngineLiveDelivery(t *testing.T) {
 			hasAssistantStream := false
 			hasReasoningIdentity := false
 			for _, event := range events {
-				hasAssistantStream = hasAssistantStream || event.AssistantTranscriptStreamID != nil
+				hasAssistantStream = hasAssistantStream || event.AssistantTranscriptStreamID != nil || len(event.AssistantStreamCorrelations) > 0
 				hasReasoningIdentity = hasReasoningIdentity || event.ReasoningTraceIdentity != nil
 			}
 			if hasAssistantStream != fixture.wantAssistantStream || hasReasoningIdentity != fixture.wantReasoningIdentity {

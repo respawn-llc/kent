@@ -137,6 +137,9 @@ func stampParsedOutputIndex(parsed *parsedResponseOutputItem, outputIndex int64)
 	for idx := range parsed.CanonicalItems {
 		parsed.CanonicalItems[idx].OutputIndex = outputIndex
 	}
+	for idx := range parsed.ToolCalls {
+		parsed.ToolCalls[idx].OutputIndex = textutil.Value(outputIndex)
+	}
 	for idx := range parsed.AssistantSegments {
 		parsed.AssistantSegments[idx].OutputIndex = outputIndex
 	}

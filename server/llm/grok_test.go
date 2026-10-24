@@ -19,22 +19,19 @@ import (
 
 func TestGrokToollessRequestOmitsToolChoice(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		var payload map[string]json.RawMessage
-		if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
-			t.Error(err)
-			w.WriteHeader(http.StatusBadRequest)
-			return
-		}
-		if _, present := payload["tool_choice"]; present {
-			t.Error("toolless request contains tool_choice")
-			w.WriteHeader(http.StatusBadRequest)
-			return
-		}
-		if _, present := payload["tools"]; present {
-			t.Error("toolless request contains tools")
-		}
-		w.Header().Set("Content-Type", "text/event-stream")
-		_, _ = io.WriteString(w, "data: {\"type\":\"response.completed\",\"response\":{\"id\":\"review\",\"status\":\"completed\",\"output\":[]}}\n\n")
+		serveResponsesTestWebsocket(t, w, r, func(raw json.RawMessage) []string {
+			var payload map[string]json.RawMessage
+			if err := json.Unmarshal(raw, &payload); err != nil {
+				t.Error(err)
+			}
+			if _, present := payload["tool_choice"]; present {
+				t.Error("toolless request contains tool_choice")
+			}
+			if _, present := payload["tools"]; present {
+				t.Error("toolless request contains tools")
+			}
+			return []string{`{"type":"response.completed","response":{"id":"review","status":"completed","output":[]}}`}
+		})
 	}))
 	defer server.Close()
 	selected, err := ResolveConnectionVariant(config.ProviderConnection{Protocol: config.ConnectionGrokOAuthAPI})
@@ -212,7 +209,7 @@ func TestGrokFailuresKeepDiagnosticsWithoutRetryOrAuthFallback(t *testing.T) {
 				Model: "grok-4.7", SessionID: textutil.Value("fixture"), ToolChoiceMode: ToolChoiceModeAutomatic, ReasoningEffort: "high",
 			}, StreamCallbacks{})
 			var failure *ProviderAPIError
-			if !errors.As(err, &failure) || failure.ProviderID != "grok-cli-proxy" || failure.StatusCode != test.status || failure.ProviderCode != test.code || failure.Message == "" ||
+			if !errors.As(err, &failure) || failure.ProviderID != "grok-cli-proxy" || !HasHTTPStatus(failure, test.status) || failure.ProviderCode != test.code || failure.Message == "" ||
 				failure.ConnectionID == nil || *failure.ConnectionID != "selected-grok" {
 				t.Fatalf("provider failure = %#v, %v", failure, err)
 			}
@@ -443,7 +440,7 @@ func TestGrokDispatchUsesSelectedRouteAndSupportedPayload(t *testing.T) {
 			}
 			requests := 0
 			var dispatched map[string]any
-			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			validatePayload := func(raw json.RawMessage) []string {
 				requests++
 				var body struct {
 					Model       string                           `json:"model"`
@@ -456,10 +453,6 @@ func TestGrokDispatchUsesSelectedRouteAndSupportedPayload(t *testing.T) {
 					MaxTokens   *int                             `json:"max_output_tokens"`
 					Temperature *float64                         `json:"temperature"`
 					Metadata    json.RawMessage                  `json:"client_metadata"`
-				}
-				raw, err := io.ReadAll(r.Body)
-				if err != nil {
-					t.Fatal(err)
 				}
 				if err := json.Unmarshal(raw, &dispatched); err != nil {
 					t.Fatal(err)
@@ -479,8 +472,22 @@ func TestGrokDispatchUsesSelectedRouteAndSupportedPayload(t *testing.T) {
 				if body.MaxTokens == nil || *body.MaxTokens != 128 || body.Temperature == nil || *body.Temperature != 0.4 {
 					t.Errorf("OAuth suppressed supported generation controls: %+v", body)
 				}
+				return []string{`{"type":"response.completed","response":{"id":"r","status":"completed","output":[]}}`}
+			}
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				if protocol != config.ConnectionGrokCLIProxy {
+					serveResponsesTestWebsocket(t, w, r, validatePayload)
+					return
+				}
+				raw, err := io.ReadAll(r.Body)
+				if err != nil {
+					t.Error(err)
+					return
+				}
 				w.Header().Set("Content-Type", "text/event-stream")
-				_, _ = io.WriteString(w, "data: {\"type\":\"response.completed\",\"response\":{\"id\":\"r\",\"status\":\"completed\",\"output\":[]}}\n\ndata: [DONE]\n\n")
+				for _, event := range validatePayload(raw) {
+					_, _ = fmt.Fprintf(w, "data: %s\n\n", event)
+				}
 			}))
 			defer server.Close()
 			rewrite := newRewritingHTTPClient(t, server)
@@ -552,6 +559,7 @@ func TestGrokDispatchUsesSelectedRouteAndSupportedPayload(t *testing.T) {
 			}
 			// Streaming is selected by the SDK dispatch method, not payload preparation.
 			delete(dispatched, "stream")
+			delete(dispatched, "type")
 			if !reflect.DeepEqual(inspected, dispatched) {
 				t.Fatalf("offline/live payload mismatch: inspected=%v dispatched=%v", inspected, dispatched)
 			}

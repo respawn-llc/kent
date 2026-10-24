@@ -119,10 +119,15 @@ func (m *ongoingTranscriptReadModel) refreshPendingToolSection(width int, spinne
 		width = 80
 	}
 	lines := make([]transcriptrender.Line, 0, len(m.pendingTools))
+	indexes := make([]*int64, 0, len(m.pendingTools))
 	for _, tool := range m.pendingTools {
 		lines = append(lines, transcriptrender.RenderPendingTool(tool.tool, width, themeName, padSpinnerIndicator(pendingToolSpinnerFrame(spinnerFrame))))
+		indexes = append(indexes, tool.tool.OutputIndex)
 	}
 	m.setStyledSection(ongoing.FrameSectionPendingTools, lines)
+	section := m.sections[ongoing.FrameSectionPendingTools]
+	section.OutputIndexes = indexes
+	m.sections[ongoing.FrameSectionPendingTools] = section
 }
 
 func (m *ongoingTranscriptReadModel) applyPendingPrompt(prompt *transcriptpb.Prompt) {

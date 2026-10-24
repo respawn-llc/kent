@@ -4,6 +4,7 @@ import (
 	"context"
 	"core/shared/config"
 	"core/shared/textutil"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"net/http"
@@ -46,7 +47,7 @@ func newPacedStreamTransport(t *testing.T, events ...pacedStreamEvent) *HTTPTran
 	}))
 	t.Cleanup(server.Close)
 
-	transport := newTestHTTPTransport(t, staticAuthHeader{}, testConnectionRegistration(t, config.ProviderConnection{Protocol: config.ConnectionResponses, Endpoint: textutil.Value(defaultOpenAIBaseURL)}))
+	transport := newTestHTTPTransport(t, staticAuthHeader{}, testConnectionRegistration(t, config.ProviderConnection{Protocol: config.ConnectionResponses, Endpoint: textutil.Value(server.URL + "/v1")}))
 
 	transport.Client = newRewritingHTTPClient(t, server)
 	return transport
@@ -58,12 +59,19 @@ func newPacedWatchdogClient(t *testing.T, idle time.Duration, events ...pacedStr
 }
 
 func completedStreamEvent(delay time.Duration) pacedStreamEvent {
-	return pacedStreamEvent{delay: delay, data: `{"type":"response.completed","response":{"usage":{"input_tokens":1,"output_tokens":1,"total_tokens":2},"output":[{"type":"message","role":"assistant","phase":"final_answer","content":[{"type":"output_text","text":"Done"}]}]}}`}
+	return pacedStreamEvent{delay: delay, data: `{"type":"response.completed","response":{"id":"paced-response","usage":{"input_tokens":1,"output_tokens":1,"total_tokens":2},"output":[{"type":"message","role":"assistant","phase":"final_answer","content":[{"type":"output_text","text":"Done"}]}]}}`}
 }
 
 func TestOAuthGenerateSurvivesConfiguredHTTPClientTimeout(t *testing.T) {
-	transport := newPacedStreamTransport(t, completedStreamEvent(150*time.Millisecond), pacedStreamEvent{data: `[DONE]`})
-	transport.Auth = oauthStaticAuth{}
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		serveResponsesTestWebsocket(t, w, r, func(json.RawMessage) []string {
+			time.Sleep(150 * time.Millisecond)
+			return []string{completedStreamEvent(0).data}
+		})
+	}))
+	t.Cleanup(server.Close)
+	transport := newTestHTTPTransport(t, oauthStaticAuth{}, testConnectionRegistration(t, config.ProviderConnection{Protocol: config.ConnectionChatGPT}))
+	transport.Client = newRewritingHTTPClient(t, server)
 	transport.Client.Timeout = 50 * time.Millisecond
 	dispatch, err := NewCodexDispatchContext(CodexDispatchFacts{
 		SessionID: "session-1", StepID: "step-1", RequestKind: CodexRequestKindTurn.Optional(),

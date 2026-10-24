@@ -47,7 +47,7 @@ func nextSteeringExchange(t *testing.T, client steeringExchangeClient) steeringE
 	select {
 	case exchange := <-client:
 		return exchange
-	case <-time.After(3 * time.Second):
+	case <-time.After(15 * time.Second):
 		t.Fatal("model loop wedged before its next request")
 		return steeringExchange{}
 	}

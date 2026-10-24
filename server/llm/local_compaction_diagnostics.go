@@ -10,6 +10,13 @@ import (
 
 const compactionDiagnosticItemLimit = 32
 
+func lenOptionalString(value *string) int {
+	if value == nil {
+		return 0
+	}
+	return len(*value)
+}
+
 // Retain only bounded metadata, never provider text, reasoning, or raw payloads.
 type compactionOutputItemDiagnostic struct {
 	Type      string  `json:"type"`

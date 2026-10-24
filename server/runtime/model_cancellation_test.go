@@ -24,15 +24,10 @@ func TestGenerateWithRetryPropagatesContextCancellation(t *testing.T) {
 	defer cancel()
 	done := make(chan error, 1)
 	go func() {
-		_, err := engine.generateWithRetryClient(
-			ctx,
+		_, err := engine.generateWithRetryClient(ctx,
 			"step",
 			engine.connectionSnapshot().client,
-			llm.Request{ToolChoiceMode: llm.ToolChoiceModeAutomatic, Model: "gpt-6-sol", ReasoningEffort: "high"},
-			nil,
-			nil,
-			nil,
-		)
+			llm.Request{ToolChoiceMode: llm.ToolChoiceModeAutomatic, Model: "gpt-6-sol", ReasoningEffort: "high"}, llm.StreamCallbacks{}, nil)
 		done <- err
 	}()
 
