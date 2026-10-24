@@ -11,7 +11,7 @@ import { orderedAssignedLabels } from "@/shared/labels";
 export type KanbanGroupVM = Readonly<{
   id: string;
   key: string;
-  name: string;
+  name: string | null;
 }>;
 
 export type KanbanColumnVM = Readonly<{

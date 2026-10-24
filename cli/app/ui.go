@@ -221,14 +221,14 @@ func (m *uiModel) inputController() uiInputController {
 
 func worktreeDeleteSuccessStatus(target string, result *worktreepb.DeleteSuccess) string {
 	status := "Deleted worktree " + strings.TrimSpace(target)
-	if result != nil && result.Cleanup != nil && result.Cleanup.Diagnostic != nil {
+	if result.Cleanup.Diagnostic != nil {
 		status += ". Kept branch: " + strings.TrimSpace(*result.Cleanup.Diagnostic)
 	}
 	return status
 }
 
 func worktreeDeleteForceConfirmation(state *worktreepb.DirtyState) string {
-	if state != nil && state.Kind == worktreepb.DirtyStateKind_DIRTY_STATE_DIRTY && state.DirtyFileCount != nil {
+	if state.Kind == worktreepb.DirtyStateKind_DIRTY_STATE_DIRTY {
 		return fmt.Sprintf("Worktree has %d modified or untracked file(s). Press Delete again to force folder removal.", *state.DirtyFileCount)
 	}
 	return "Worktree cleanliness could not be determined. Press Delete again to force folder removal."

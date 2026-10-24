@@ -101,7 +101,7 @@ export async function getProjectWorkspace(
   if (success.result === ProjectWorkspaceGetResult.ATTACHED && success.workspace !== undefined) {
     return { kind: "attached", workspace: projectWorkspaceCatalog(success.workspace) };
   }
-  if (success.result === ProjectWorkspaceGetResult.NOT_ATTACHED && success.workspace === undefined) {
+  if (success.result === ProjectWorkspaceGetResult.NOT_ATTACHED) {
     return { kind: "not_attached" };
   }
   throw CatalogContractError.malformedResponse(

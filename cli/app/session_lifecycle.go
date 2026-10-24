@@ -227,10 +227,7 @@ func reopenRetargetedSession(
 	rawSessionID string,
 ) (*sessionlaunchpb.SessionDirective, error) {
 	defer runtimePlan.Close()
-	sessionID, err := runtimeids.ParseSessionID(rawSessionID)
-	if err != nil {
-		return &sessionlaunchpb.SessionDirective{}, err
-	}
+	sessionID := runtimeids.SessionIDFromProto(rawSessionID)
 	runtimePlan.Close()
 	if err := server.ReattachSession(ctx, rawSessionID); err != nil {
 		return &sessionlaunchpb.SessionDirective{}, err
@@ -288,10 +285,7 @@ func prepareSessionUIRun(
 	transitionInput string,
 	overrideStoredDraft bool,
 ) (*runtimeLaunchPlan, uiLoopRequest, error) {
-	id, err := runtimeids.ParseSessionID(plan.SessionID)
-	if err != nil {
-		return nil, uiLoopRequest{}, err
-	}
+	id := runtimeids.SessionIDFromProto(plan.SessionID)
 	if _, err := server.SessionLifecycleClient().Promote(ctx, &sessionlaunchpb.SessionPromoteRequest{SessionId: protoapi.SessionSelectorToProto(id)}); err != nil {
 		return nil, uiLoopRequest{}, err
 	}
@@ -347,6 +341,7 @@ func prepareSessionUIRun(
 		modelContractLocked:          plan.ModelContractLocked,
 		configuredModelName:          plan.ConfiguredModelName,
 		statusConfig:                 plan.StatusConfig,
+		connectionManagement:         server.ConnectionManagementClient(),
 		initialTransientStatus:       catalogStatus,
 		promptCatalog:                promptCatalog,
 		promptCatalogEntries:         catalogEntries,

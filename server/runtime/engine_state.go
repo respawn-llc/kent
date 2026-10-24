@@ -45,9 +45,6 @@ type TranscriptEventLogReader interface {
 }
 
 func TranscriptSegmentPageFromEventLog(eventLog TranscriptEventLogReader, cursor int64, cacheWarningMode config.CacheWarningMode) (TranscriptSegmentPage, error) {
-	if cursor <= 0 {
-		return TranscriptSegmentPage{}, fmt.Errorf("transcript segment cursor must be positive, got %d", cursor)
-	}
 	var matchErr error
 	window, err := eventLog.ReadSegmentBackward(cursor, compactionBoundaryMatcher(&matchErr))
 	if err != nil {

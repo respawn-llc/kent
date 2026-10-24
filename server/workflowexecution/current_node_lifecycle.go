@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"strings"
 
 	"core/server/sessionruntime"
 	"core/server/workflow"
@@ -237,9 +236,6 @@ func (c *CurrentNodeController) PromoteConcurrencyQueuedTask(
 ) ([]workflow.CurrentNode, bool, error) {
 	if c == nil {
 		return nil, false, errors.New("current node workflow controller is required")
-	}
-	if strings.TrimSpace(string(taskID)) == "" {
-		return nil, false, errors.New("workflow task id is required")
 	}
 	var promoted []workflow.CurrentNode
 	err := c.runTaskMutation(ctx, taskID, func(context.Context) error {

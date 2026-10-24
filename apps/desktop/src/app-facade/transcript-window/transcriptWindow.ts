@@ -352,9 +352,6 @@ export class TranscriptWindow {
     };
     validateTail(segment);
     const checkpoint = hydration.SessionStatus.CompactionCount;
-    if (!Number.isInteger(checkpoint) || checkpoint < 0) {
-      throw new ContractError("Hydration completed compaction count must be nonnegative.");
-    }
     if (reattachment && this.state.checkpoint !== null && checkpoint < this.state.checkpoint) {
       throw new ContractError("Reattachment completed compaction count regressed.");
     }

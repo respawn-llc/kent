@@ -219,9 +219,9 @@ function WorkflowGraphCanvasInner({
       dragAwareRenderNodes.map((node) => ({
         ...node,
         selected:
-          selection?.kind === "node" && node.data.entityKind === "node"
-            ? selection.nodeID === node.data.entityID
-            : false,
+          node.data.entityKind === "group"
+            ? selection?.kind === "group" && selection.groupID === node.data.entityID
+            : selection?.kind === "node" && selection.nodeID === node.data.entityID,
       })),
     [dragAwareRenderNodes, selection],
   );

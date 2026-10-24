@@ -35,10 +35,6 @@ func ParseSetupOperationID(value string) (SetupOperationID, error) {
 
 func (id SetupOperationID) String() string { return uuidV4String(uuid.UUID(id)) }
 
-func (id SetupOperationID) Validate() error {
-	return validateUUIDv4(uuid.UUID(id), "setup_operation_id")
-}
-
 func parseUUIDv4(value string, field string) (uuid.UUID, error) {
 	parsed, err := uuid.Parse(strings.TrimSpace(value))
 	if err != nil {

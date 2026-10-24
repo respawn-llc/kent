@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"time"
 
+	"core/shared/modelcontract"
 	"core/shared/textutil"
 	"github.com/google/uuid"
 	"github.com/openai/openai-go/v3/responses"
@@ -32,6 +33,8 @@ type providerAttemptDiagnostic struct {
 	reasoningTokens  *int64
 	incremental      *bool
 	transmittedItems *int
+	localCompaction  bool
+	compactionOutput *compactionOutputDiagnostic
 }
 
 func (t *HTTPTransport) startProviderAttempt(
@@ -46,6 +49,8 @@ func (t *HTTPTransport) startProviderAttempt(
 	}
 	attempt := &providerAttemptDiagnostic{
 		started: time.Now(),
+		localCompaction: operation == providerAttemptGenerate && request.Purpose != nil &&
+			*request.Purpose == modelcontract.ProviderOperationPurposeCompaction,
 		logger: slog.Default().With(
 			"attempt_id", uuid.NewString(),
 			"operation", operation,
@@ -62,9 +67,12 @@ func (t *HTTPTransport) startProviderAttempt(
 	return attempt
 }
 
-func (a *providerAttemptDiagnostic) observeResponse(response responses.Response, windowTokens int) {
+func (a *providerAttemptDiagnostic) observeResponse(eventType string, response responses.Response, windowTokens int) {
 	if a == nil {
 		return
+	}
+	if a.localCompaction {
+		a.compactionOutput = describeCompactionOutput(eventType, response)
 	}
 	if id := textutil.OptionalTrimmedString(response.ID); id != nil {
 		a.responseID = id

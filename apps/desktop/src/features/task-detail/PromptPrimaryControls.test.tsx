@@ -10,6 +10,12 @@ import { PromptPrimaryControlRegistry, type PromptPrimaryControl } from "./Promp
 import type { PromptAnswerKey } from "./PromptAnswerState";
 import { questionPresentation, emptyQuestionSelection } from "./TaskDetailQuestionState";
 import { QuestionFormView } from "./TaskDetailQuestionFormView";
+await vi.mock("@/shared/speech-input", () => ({
+  useSpeechField: () => ({ control: undefined, busy: false, busyReason: "Speech pending" }),
+}));
+await vi.mock("./TaskDetailSpeech", () => ({
+  useTaskSpeech: () => ({ questionDraft: () => ({ read: () => null, write: () => undefined }) }),
+}));
 const services = createTestServices([], undefined, { platform: "macos" });
 const baseQuestion = parsedQuestionAttention();
 beforeAll(async () => initializeI18n());

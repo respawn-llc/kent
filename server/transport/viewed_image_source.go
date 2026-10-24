@@ -41,18 +41,12 @@ func (d viewedImageSourceDescriptor) validate() error {
 func (a *sessionReattachAuthority) issueViewedImageSourceURL(
 	descriptor viewedImageSourceDescriptor,
 ) (string, error) {
-	if err := descriptor.validate(); err != nil {
-		return "", err
-	}
 	payload, err := json.Marshal(descriptor)
 	if err != nil {
 		return "", fmt.Errorf("encode viewed image source descriptor: %w", err)
 	}
-	mac := hmac.New(sha256.New, a.key[:])
-	_, _ = mac.Write([]byte(viewedImageSourceSignaturePurpose))
-	_, _ = mac.Write(payload)
 	query := url.Values{
-		"signature": {base64.RawURLEncoding.EncodeToString(mac.Sum(nil))},
+		"signature": {base64.RawURLEncoding.EncodeToString(a.signCapability([]byte(viewedImageSourceSignaturePurpose), payload))},
 		"source":    {base64.RawURLEncoding.EncodeToString(payload)},
 	}
 	return (&url.URL{Path: ViewedImageBodyPath, RawQuery: query.Encode()}).RequestURI(), nil
@@ -73,10 +67,7 @@ func (a *sessionReattachAuthority) verifyViewedImageSource(
 	if len(signature) != sha256.Size {
 		return viewedImageSourceDescriptor{}, errors.New("viewed image source signature length is invalid")
 	}
-	mac := hmac.New(sha256.New, a.key[:])
-	_, _ = mac.Write([]byte(viewedImageSourceSignaturePurpose))
-	_, _ = mac.Write(payload)
-	if !hmac.Equal(signature, mac.Sum(nil)) {
+	if !hmac.Equal(signature, a.signCapability([]byte(viewedImageSourceSignaturePurpose), payload)) {
 		return viewedImageSourceDescriptor{}, errors.New("viewed image source signature is invalid")
 	}
 	var descriptor viewedImageSourceDescriptor

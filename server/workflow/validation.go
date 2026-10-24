@@ -127,7 +127,7 @@ func (s *validationState) indexNodeGroups() {
 		} else {
 			seenKeys[key] = id
 		}
-		if !validDisplayName(group.DisplayName) {
+		if group.DisplayName != nil && !validDisplayName(*group.DisplayName) {
 			s.addHard(CodeInvalidDisplayName, "node group display name must be non-empty and at most 120 characters", ref)
 		}
 		s.nodeGroupsByID[id] = group

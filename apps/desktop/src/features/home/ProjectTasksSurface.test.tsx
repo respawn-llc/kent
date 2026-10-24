@@ -205,7 +205,7 @@ describe("ProjectTasksSurface", () => {
     renderSurface();
 
     const columnHeaders = screen.getAllByRole("columnheader");
-    expect(columnHeaders).toHaveLength(6);
+    expect(columnHeaders).toHaveLength(7);
     for (const columnHeader of columnHeaders) {
       expect(within(columnHeader).queryByRole("button")).not.toBeInTheDocument();
     }
@@ -490,6 +490,26 @@ describe("ProjectTasksSurface", () => {
       } else {
         Object.defineProperty(HTMLElement.prototype, "scrollTop", originalScrollTop);
       }
+      geometry.restore();
+    }
+  });
+
+  it("restores at the top after a negative rubber-band scroll event", () => {
+    const geometry = installProjectTaskScrollGeometry();
+    try {
+      const memory = createProjectTasksViewMemory();
+      const view = renderSurface(memory);
+      const grid = screen.getByRole("grid", { name: appI18n.t("home.prototype.projectTasksGrid") });
+      Object.defineProperty(grid, "scrollTop", { configurable: true, writable: true, value: -24 });
+      fireEvent.scroll(grid);
+      view.unmount();
+
+      renderSurface(memory);
+
+      expect(screen.getByRole("grid", { name: appI18n.t("home.prototype.projectTasksGrid") }).scrollTop).toBe(
+        0,
+      );
+    } finally {
       geometry.restore();
     }
   });
@@ -880,6 +900,7 @@ function task(
     shortID,
     workflowID: "workflow-1",
     workflowName: "Delivery",
+    stageName: null,
     title,
     createdAt: 1,
     updatedAt: 1,

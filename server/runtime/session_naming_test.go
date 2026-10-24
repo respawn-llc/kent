@@ -86,6 +86,71 @@ func TestNamingSilentToolStep(t *testing.T) {
 	}
 }
 
+func TestNamingSubagentUsesAssignmentWithoutChangingSteer(t *testing.T) {
+	for _, queued := range []bool{false, true} {
+		t.Run(map[bool]string{false: "direct", true: "queued"}[queued], func(t *testing.T) {
+			const assignment = "Fix invoice totals\nReport rounding errors"
+			const commentary = "Checking invoice rounding"
+			submitted := make(chan SessionNamingInput, 1)
+			var events []Event
+			client := &fakeClient{responses: []llm.Response{finalTextResponse(commentary)}}
+			engine := mustNewTestEngine(t, mustCreateTestSession(t), client, newTestToolRegistry(t), Config{
+				Model: "gpt-6-sol",
+				SessionNaming: &SessionNamingConfig{MaxInputRunes: 1000, Submit: func(input SessionNamingInput) {
+					submitted <- input
+				}},
+				OnEvent: func(event Event) { events = append(events, event) },
+			})
+			steer := NewAgentSteer(runtimeids.SessionIdentity{ID: runtimeids.NewSessionID()}, assignment)
+			var err error
+			if queued {
+				_, err = engine.QueueAgentSteer(t.Context(), steer, nil)
+				waitEngineLifecycleTasks(t, engine)
+			} else {
+				_, err = engine.SubmitAgentSteerWithHooks(t.Context(), steer, nil, nil)
+			}
+			if err != nil {
+				t.Fatal(err)
+			}
+			select {
+			case input := <-submitted:
+				if input.Task != assignment || input.Commentary == nil || *input.Commentary != commentary {
+					t.Errorf("naming input = %+v, want raw assignment and first Step commentary", input)
+				}
+			default:
+				t.Fatal("subagent naming was not submitted")
+			}
+			assertAgentSteerConversationEvent(t, events)
+			want := steer.Message()
+			assertSteer := func(messages []llm.Message) {
+				t.Helper()
+				for _, message := range messages {
+					if message.MessageType == nil || *message.MessageType != llm.MessageTypeAgentSteer {
+						continue
+					}
+					if message.Role != llm.RoleDeveloper || message.Content == nil ||
+						*message.Content != *want.Content || *message.Content == assignment {
+						t.Fatalf("agent steer wrapper was changed: %+v", message)
+					}
+					return
+				}
+				t.Fatal("typed agent steer is missing")
+			}
+			if len(client.calls) != 1 {
+				t.Fatalf("model calls = %d, want one", len(client.calls))
+			}
+			assertSteer(requestMessages(client.calls[0]))
+			var committed []llm.Message
+			for _, event := range events {
+				if event.Kind == EventConversationUpdated {
+					committed = append(committed, event.Message)
+				}
+			}
+			assertSteer(committed)
+		})
+	}
+}
+
 func TestNamingResumeAndGoalInput(t *testing.T) {
 	for _, useGoal := range []bool{false, true} {
 		t.Run(map[bool]string{false: "resume preview", true: "initial goal"}[useGoal], func(t *testing.T) {

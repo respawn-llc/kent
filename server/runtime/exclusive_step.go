@@ -588,7 +588,7 @@ func (s *defaultExclusiveStepLifecycle) claimNextWaiter(
 }
 
 func validateExclusiveStepStart(ctx context.Context, options exclusiveStepOptions) error {
-	if err := ctx.Err(); err != nil {
+	if err := context.Cause(ctx); err != nil {
 		return err
 	}
 	if !options.ActiveKind.Valid() {

@@ -8,16 +8,6 @@ import (
 	"core/shared/runtimeids"
 )
 
-func validateChatTargetID(field string, value *string) error {
-	if value == nil || strings.TrimSpace(*value) == "" {
-		return fmt.Errorf("%s is required", field)
-	}
-	if strings.TrimSpace(*value) != *value {
-		return fmt.Errorf("%s must not have leading or trailing whitespace", field)
-	}
-	return nil
-}
-
 type ChatSettingsTaskIdentity struct {
 	TaskID      string
 	TaskShortID string
@@ -57,18 +47,4 @@ type ChatSettingsAgentPreparationError struct {
 
 func (e *ChatSettingsAgentPreparationError) Error() string {
 	return fmt.Sprintf("Chat settings Agent preparation failed: %s (%s)", e.Agent, e.Category)
-}
-
-func (e *ChatSettingsAgentPreparationError) Validate() error {
-	if e == nil || strings.TrimSpace(e.Agent) == "" || strings.TrimSpace(e.Agent) != e.Agent {
-		return errors.New("Chat settings Agent is invalid")
-	}
-	switch e.Category {
-	case ChatSettingsAgentInvalidConfiguration,
-		ChatSettingsAgentProviderUnavailable,
-		ChatSettingsAgentInternalPreparation:
-		return nil
-	default:
-		return errors.New("Chat settings Agent preparation category is invalid")
-	}
 }

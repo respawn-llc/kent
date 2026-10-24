@@ -42,6 +42,11 @@ func (c uiInputController) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		next.(*uiModel).layout().syncViewport()
 		return next, cmd
 	}
+	if inputState.Mode == uiInputModeConnectionRemoval {
+		next, cmd := c.handleConnectionRemovalKey(msg)
+		next.(*uiModel).layout().syncViewport()
+		return next, cmd
+	}
 	if m.view.Mode() == tui.ModeDetail {
 		switch msg.Type {
 		case tea.KeyUp, tea.KeyDown, tea.KeyPgUp, tea.KeyPgDown:

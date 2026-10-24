@@ -3,8 +3,6 @@ package serverapi
 import (
 	"context"
 	"strings"
-
-	"github.com/google/uuid"
 )
 
 type OnboardingImportMode string
@@ -60,7 +58,6 @@ type OnboardingConfigAlreadyExistsDetails struct {
 type OnboardingImportUnavailableDetails struct {
 	ImportKind       OnboardingImportKind              `json:"import_kind"`
 	Mode             OnboardingImportMode              `json:"mode"`
-	ProviderUUID     *uuid.UUID                        `json:"provider_uuid,omitempty"`
 	ImportProviderID *string                           `json:"import_provider_id,omitempty"`
 	SourceRootPath   *string                           `json:"source_root_path,omitempty"`
 	ReasonCode       OnboardingImportUnavailableReason `json:"reason_code"`
@@ -68,7 +65,6 @@ type OnboardingImportUnavailableDetails struct {
 
 type OnboardingImportFailedDetails struct {
 	ImportKind       OnboardingImportKind      `json:"import_kind"`
-	ProviderUUID     *uuid.UUID                `json:"provider_uuid,omitempty"`
 	ImportProviderID *string                   `json:"import_provider_id,omitempty"`
 	SourceRootPath   *string                   `json:"source_root_path,omitempty"`
 	Operation        OnboardingImportOperation `json:"operation"`

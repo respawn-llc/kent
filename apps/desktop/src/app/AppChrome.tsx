@@ -8,6 +8,7 @@ import { TaskSearchGlobalTrigger, TaskSearchHost, TaskSearchProvider } from "@/f
 import { AttentionController } from "./AttentionController";
 import { WindowChromeThemeToggle } from "./WindowChromeThemeToggle";
 import { AppUpdateChip } from "./AppUpdateChip";
+import { AppSubscriptionUsage } from "./AppSubscriptionUsage";
 import { useDesktopUpdate, type DesktopUpdateState } from "./useDesktopUpdate";
 import { WindowChromeFrame } from "./WindowChromeFrame";
 import { MainWindowNavigation } from "./MainWindowNavigation";
@@ -89,6 +90,7 @@ function AppChromeContent({
           ) : null}
           <AppChromeGlobalSearch macOS={macOS} position="trailing" />
           {action}
+          <AppSubscriptionUsage />
           <WindowChromeThemeToggle />
         </>
       }

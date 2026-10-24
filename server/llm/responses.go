@@ -12,6 +12,7 @@ import (
 )
 
 type ResponsesRequest struct {
+	Purpose                 *modelcontract.ProviderOperationPurpose `json:"-"`
 	Model                   string
 	Temperature             float64
 	MaxTokens               int
@@ -40,6 +41,7 @@ func RequestAsResponses(request Request) ResponsesRequest {
 		structuredOutput = &cloned
 	}
 	return ResponsesRequest{
+		Purpose:                 request.Purpose,
 		Model:                   request.Model,
 		Temperature:             request.Temperature,
 		MaxTokens:               request.MaxTokens,
@@ -60,6 +62,7 @@ func RequestAsResponses(request Request) ResponsesRequest {
 
 type ResponsesResponse struct {
 	NativeResponse    *NativeResponse
+	attemptDiagnostic *providerAttemptDiagnostic
 	AssistantText     *string
 	ProviderPhase     *ProviderPhase
 	ServedModel       *string
@@ -125,7 +128,11 @@ func (c *ResponsesClient) Generate(ctx context.Context, request Request, callbac
 	}
 	// Runtime acceptance can still fail; the provider has already consumed these tokens.
 	c.observeUsage(ctx, request.Model, providerResp.ServedModel, providerResp.Usage)
-	return responseFromResponses(providerResp)
+	response, err := responseFromResponses(providerResp)
+	if err == nil {
+		providerResp.attemptDiagnostic.diagnoseEmptyLocalCompaction(ctx, providerResp, response)
+	}
+	return response, err
 }
 
 func (c *ResponsesClient) observeUsage(ctx context.Context, model string, servedModel *string, usage Usage) {

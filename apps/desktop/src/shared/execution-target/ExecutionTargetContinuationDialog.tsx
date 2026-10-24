@@ -415,6 +415,22 @@ function ExecutionTargetChoiceFailureMessage({
 }: Readonly<{ failure: ExecutionTargetChoiceFailure | null }>) {
   const { t } = useTranslation();
   if (failure === null) return null;
+  if (failure.kind === "default_branch") {
+    return (
+      <div
+        data-testid="execution-target-choice-error"
+        className="grid gap-[var(--space-1)] text-sm text-[var(--color-error)]"
+      >
+        <p className="m-0">{t(`executionTargetContinuation.defaultBranchResolution.${failure.reason}`)}</p>
+        <p className="m-0">{t("executionTargetContinuation.defaultBranchResolution.guidance")}</p>
+        {failure.diagnostic === undefined ? null : (
+          <p className="m-0 break-all whitespace-pre-wrap font-mono">
+            {t("executionTargetContinuation.defaultBranchResolution.diagnostic")}: {failure.diagnostic}
+          </p>
+        )}
+      </div>
+    );
+  }
   return (
     <p data-testid="execution-target-choice-error" className="m-0 text-sm text-[var(--color-error)]">
       {failure.kind === "branch"

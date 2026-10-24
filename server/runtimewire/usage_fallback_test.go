@@ -612,7 +612,25 @@ func testUsageFallbackCompaction(t *testing.T, mode config.CompactionMode) {
 	if err := wiring.Engine.CompactContextForWorkflowContinuation(t.Context()); err != nil {
 		t.Fatal(err)
 	}
-	if *store.Meta().ConnectionID != "b" || attempts.Load() != 2 || !b.Snapshot().RequiredConsumed() {
-		t.Fatalf("compaction binding/requests = %v, %d, %+v", store.Meta().ConnectionID, attempts.Load(), b.Snapshot())
+	deadline := time.NewTimer(10 * time.Second)
+	defer deadline.Stop()
+	var snapshot blackbox.StubSnapshot
+	for {
+		snapshot = b.Snapshot()
+		if snapshot.Failure != nil {
+			t.Fatalf("compaction request failed: %v", snapshot.Failure)
+		}
+		if snapshot.RequiredConsumed() {
+			break
+		}
+		select {
+		case <-b.Events():
+		case <-deadline.C:
+			t.Fatalf("timed out waiting for compaction request completion: required %d/%d, active %d", snapshot.RequiredIndex, snapshot.RequiredTotal, snapshot.ActiveRequests)
+		}
+	}
+	connectionID := store.Meta().ConnectionID
+	if connectionID == nil || *connectionID != "b" || attempts.Load() != 2 || !snapshot.RequiredConsumed() {
+		t.Fatalf("compaction binding/requests = %v, %d, required %d/%d, active %d", connectionID, attempts.Load(), snapshot.RequiredIndex, snapshot.RequiredTotal, snapshot.ActiveRequests)
 	}
 }

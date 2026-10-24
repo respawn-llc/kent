@@ -72,9 +72,6 @@ func SessionPlanErrorToProto(
 		if !errors.As(err, &policy) {
 			return nil, false, nil
 		}
-		if validationErr := policy.Validate(); validationErr != nil {
-			return nil, true, validationErr
-		}
 		switch policy.Kind {
 		case protocol.SubagentLaunchPolicyMaxDepthExceeded:
 			attempted, conversionErr := Int32(*policy.AttemptedDepth, "attempted subagent depth")

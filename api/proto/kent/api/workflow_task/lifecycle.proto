@@ -113,6 +113,8 @@ enum ExecutionTargetResolutionCode {
   EXECUTION_TARGET_RESOLUTION_CODE_INVALID_REVISION = 1;
   EXECUTION_TARGET_RESOLUTION_CODE_NON_COMMIT = 2;
   EXECUTION_TARGET_RESOLUTION_CODE_GIT_FAILURE = 3;
+  EXECUTION_TARGET_RESOLUTION_CODE_DEFAULT_BRANCH_MISSING = 4;
+  EXECUTION_TARGET_RESOLUTION_CODE_DEFAULT_BRANCH_AMBIGUOUS = 5;
 }
 
 enum InitialBranchErrorReason {
@@ -288,7 +290,10 @@ message ResumeSuccess {
 }
 
 message ApproveRequest {
-  string approval_id = 1 [(buf.validate.field).string.min_len = 1];
+  string approval_id = 1 [
+    (buf.validate.field).string.uuid = true,
+    (buf.validate.field).string.(kent.api.shared.canonical_uuid_v4) = true
+  ];
   optional string invoking_session_id = 2 [(buf.validate.field).string.uuid = true, (buf.validate.field).string.(kent.api.shared.canonical_uuid_v4) = true];
 }
 
@@ -836,7 +841,20 @@ message ExecutionTargetResolutionDetails {
     defined_only: true
     not_in: [0]
   }];
-  string requested_ref = 2 [(buf.validate.field).string.min_len = 1];
+  oneof target {
+    option (buf.validate.oneof).required = true;
+    string requested_ref = 2 [(buf.validate.field).string.min_len = 1];
+    google.protobuf.Empty default_branch = 3;
+  }
+  optional string diagnostic = 4 [(buf.validate.field).string.min_len = 1];
+
+  option (buf.validate.message).cel = {
+    id: "kent.workflow_task.execution_target_resolution_facts"
+    message: "execution target resolution facts must match the selected target"
+    expression:
+      "(has(this.requested_ref) && this.code in [1, 2, 3] && !has(this.diagnostic)) || "
+      "(has(this.default_branch) && this.code in [1, 2, 3, 4, 5])"
+  };
 }
 
 message InitialBranchDetails {

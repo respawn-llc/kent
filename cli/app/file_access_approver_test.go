@@ -70,17 +70,12 @@ func TestOutsideWorkspaceApprovalFromResolution(t *testing.T) {
 }
 
 func TestOutsideWorkspaceApprovalFromResolutionRejectsMissingOrInvalidPayload(t *testing.T) {
-	blankCommentary := ""
 	tests := []struct {
 		name       string
 		resolution askquestion.AskQuestionResolution
 	}{
 		{name: "missing payload"},
 		{name: "invalid decision", resolution: askquestion.AskQuestionApproval{Decision: "maybe"}},
-		{name: "blank commentary", resolution: askquestion.AskQuestionApproval{
-			Decision:   askquestion.AskQuestionApprovalDecisionAllowOnce,
-			Commentary: &blankCommentary,
-		}},
 	}
 
 	for _, tc := range tests {

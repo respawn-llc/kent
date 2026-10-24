@@ -25,8 +25,3 @@ func IdentityForCurrentNode(reference workflow.CurrentNodeReference) (CurrentNod
 	}
 	return identity, nil
 }
-
-func (i CurrentNodeIdentity) Validate() error {
-	_, err := workflow.NewCurrentNodeReference(i.TaskID, i.NodeID, i.TransitionBranchKey)
-	return err
-}

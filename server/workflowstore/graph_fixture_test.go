@@ -24,14 +24,14 @@ func TestNewWorkflowGraphSaveRequestPreservesProductGraph(t *testing.T) {
 				WorkflowID:  workflowID,
 				ID:          groupID,
 				Key:         "parallel",
-				DisplayName: "Parallel",
+				DisplayName: new("Parallel"),
 				MemberNodeIDs: []workflow.NodeID{
 					agentID,
 					scriptID,
 					joinID,
 				},
 			},
-			{WorkflowID: workflowID, ID: testGraphEntityID("group-followup"), Key: "followup", DisplayName: "Follow-up"},
+			{WorkflowID: workflowID, ID: testGraphEntityID("group-followup"), Key: "followup", DisplayName: new("Follow-up")},
 		},
 		Nodes: []workflow.Node{
 			workflow.StartNode{NodeIdentity: workflow.NodeIdentity{WorkflowID: workflowID, ID: testNodeID("node-start"), Key: "start", DisplayName: "Start"}},
@@ -84,8 +84,8 @@ func TestNewWorkflowGraphSaveRequestPreservesProductGraph(t *testing.T) {
 		t.Fatalf("request metadata = %+v, want version 7 unconfirmed", req)
 	}
 	if len(req.NodeGroups) != 2 ||
-		req.NodeGroups[0].ID != groupID || req.NodeGroups[0].Key != "parallel" || req.NodeGroups[0].DisplayName != "Parallel" || req.NodeGroups[0].SortOrder != 0 ||
-		req.NodeGroups[1].ID != testGraphEntityID("group-followup") || req.NodeGroups[1].Key != "followup" || req.NodeGroups[1].DisplayName != "Follow-up" || req.NodeGroups[1].SortOrder != 100 {
+		req.NodeGroups[0].ID != groupID || req.NodeGroups[0].Key != "parallel" || req.NodeGroups[0].DisplayName == nil || *req.NodeGroups[0].DisplayName != "Parallel" || req.NodeGroups[0].SortOrder != 0 ||
+		req.NodeGroups[1].ID != testGraphEntityID("group-followup") || req.NodeGroups[1].Key != "followup" || req.NodeGroups[1].DisplayName == nil || *req.NodeGroups[1].DisplayName != "Follow-up" || req.NodeGroups[1].SortOrder != 100 {
 		t.Fatalf("node groups = %+v, want canonical order with normalized sort values", req.NodeGroups)
 	}
 	agent := workflowGraphSaveNodeRecord(t, req.Nodes, agentID)

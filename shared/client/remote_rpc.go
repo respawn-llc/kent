@@ -142,11 +142,7 @@ func dialRemoteWithTransport(ctx context.Context, plan remoteDialPlan, transport
 		return nil, err
 	}
 	if state.attachment != nil && state.attachment.session != nil {
-		attachIntent, err = newRemoteSessionReattachmentIntent(*state.attachment.session)
-		if err != nil {
-			cleanup()
-			return nil, err
-		}
+		attachIntent = newRemoteSessionReattachmentIntent(*state.attachment.session)
 	}
 	control := newRemoteControlConn(conn)
 	return &Remote{
@@ -301,11 +297,7 @@ func (c *Remote) prepareDraftHandoff(ctx context.Context, selector runtimeids.Se
 		cleanup()
 		return nil, false, errors.New("Session handoff attachment is required")
 	}
-	handoffIntent, err := newRemoteSessionReattachmentIntent(*state.attachment.session)
-	if err != nil {
-		cleanup()
-		return nil, false, err
-	}
+	handoffIntent := newRemoteSessionReattachmentIntent(*state.attachment.session)
 	handoffControl := newRemoteControlConn(conn)
 	handoffRemote := &Remote{
 		plan:         c.plan,

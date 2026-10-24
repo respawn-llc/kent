@@ -76,6 +76,7 @@ type initiatingActionTargetPreflight struct {
 	purpose                worktree.TaskExecutionRootPreparationPurpose
 	context                workflowstore.TaskExecutionTargetContext
 	selection              workflow.ExecutionTargetSelection
+	resolvedSnapshot       *workflowstore.ExecutionTargetSnapshot
 	explicit               bool
 	initialBranchAssertion *string
 	pendingBranchReplaced  bool
@@ -817,7 +818,7 @@ func (s *Service) startWorkflowTask(ctx context.Context, req *taskpb.StartReques
 			return initiatingActionPreflight{}, err
 		}
 		if req.ProceedDespiteDependencies {
-			target, err := s.preflightInitiatingActionTarget(ctx, taskID, selection, req.BranchName)
+			target, err := s.preflightTaskStartTarget(ctx, taskID, selection, req.BranchName)
 			return initiatingActionPreflight{target: target}, err
 		}
 		count, err := s.readModels.TaskDependencies.CountUnsatisfiedBlockers(ctx, req.TaskId)
@@ -827,7 +828,7 @@ func (s *Service) startWorkflowTask(ctx context.Context, req *taskpb.StartReques
 		if count > 0 {
 			return initiatingActionPreflight{unsatisfiedDependencyCount: count}, nil
 		}
-		target, err := s.preflightInitiatingActionTarget(ctx, taskID, selection, req.BranchName)
+		target, err := s.preflightTaskStartTarget(ctx, taskID, selection, req.BranchName)
 		return initiatingActionPreflight{target: target}, err
 	})
 	if err != nil {
@@ -1002,6 +1003,44 @@ func (s *Service) preflightInitiatingActionTarget(
 	explicit *workflow.ExecutionTargetSelection,
 	requestedBranchName *string,
 ) (initiatingActionTargetPreflight, error) {
+	preflight, err := s.prepareInitiatingActionTargetSelection(ctx, taskID, explicit, requestedBranchName)
+	if err != nil {
+		return initiatingActionTargetPreflight{}, err
+	}
+	return s.preflightInitiatingActionInitialBranch(ctx, preflight, requestedBranchName)
+}
+
+func (s *Service) preflightTaskStartTarget(
+	ctx context.Context,
+	taskID workflow.TaskID,
+	explicit *workflow.ExecutionTargetSelection,
+	requestedBranchName *string,
+) (initiatingActionTargetPreflight, error) {
+	preflight, err := s.prepareInitiatingActionTargetSelection(ctx, taskID, explicit, requestedBranchName)
+	if err != nil {
+		return initiatingActionTargetPreflight{}, err
+	}
+	if preflight.explicit &&
+		preflight.selection.Mode == workflow.ExecutionTargetModeDefaultBranch &&
+		preflight.context.Task.ExecutionTarget == nil {
+		snapshot, selectionRequired, err := s.resolveTaskStartExecutionTarget(ctx, preflight)
+		if err != nil {
+			return initiatingActionTargetPreflight{}, err
+		}
+		if selectionRequired != nil {
+			return initiatingActionTargetPreflight{}, errors.New("explicit execution target unexpectedly requires selection")
+		}
+		preflight.resolvedSnapshot = snapshot
+	}
+	return s.preflightInitiatingActionInitialBranch(ctx, preflight, requestedBranchName)
+}
+
+func (s *Service) prepareInitiatingActionTargetSelection(
+	ctx context.Context,
+	taskID workflow.TaskID,
+	explicit *workflow.ExecutionTargetSelection,
+	requestedBranchName *string,
+) (initiatingActionTargetPreflight, error) {
 	targetContext, err := s.store.GetTaskExecutionTargetContext(ctx, taskID)
 	if err != nil {
 		return initiatingActionTargetPreflight{}, err
@@ -1040,15 +1079,9 @@ func (s *Service) preflightInitiatingActionTarget(
 		if explicit != nil {
 			return initiatingActionTargetPreflight{}, workflowstore.ErrExecutionTargetAlreadyLocked
 		}
-		branchAssertion, pendingBranchReplaced, err := s.preflightInitialTaskBranch(ctx, targetContext, selection, requestedBranchName)
-		if err != nil {
-			return initiatingActionTargetPreflight{}, err
-		}
 		return initiatingActionTargetPreflight{
-			context:                targetContext,
-			selection:              selection,
-			initialBranchAssertion: branchAssertion,
-			pendingBranchReplaced:  pendingBranchReplaced,
+			context:   targetContext,
+			selection: selection,
 		}, nil
 	}
 	selection := workflow.ExecutionTargetSelection{
@@ -1069,17 +1102,33 @@ func (s *Service) preflightInitiatingActionTarget(
 			return initiatingActionTargetPreflight{}, errExecutionTargetInfrastructureRequired
 		}
 	}
-	branchAssertion, pendingBranchReplaced, err := s.preflightInitialTaskBranch(ctx, targetContext, selection, requestedBranchName)
+	return initiatingActionTargetPreflight{
+		context:   targetContext,
+		selection: selection,
+		explicit:  explicit != nil,
+	}, nil
+}
+
+func (s *Service) preflightInitiatingActionInitialBranch(
+	ctx context.Context,
+	preflight initiatingActionTargetPreflight,
+	requestedBranchName *string,
+) (initiatingActionTargetPreflight, error) {
+	if preflight.purpose == worktree.TaskExecutionRootReplacement ||
+		(preflight.context.Task.ExecutionTarget == nil &&
+			!preflight.explicit &&
+			preflight.context.Policy.Mode == workflow.ExecutionTargetModeAskOnFirstExecution) {
+		return preflight, nil
+	}
+	branchAssertion, pendingBranchReplaced, err := s.preflightInitialTaskBranch(
+		ctx, preflight.context, preflight.selection, requestedBranchName,
+	)
 	if err != nil {
 		return initiatingActionTargetPreflight{}, err
 	}
-	return initiatingActionTargetPreflight{
-		context:                targetContext,
-		selection:              selection,
-		explicit:               explicit != nil,
-		initialBranchAssertion: branchAssertion,
-		pendingBranchReplaced:  pendingBranchReplaced,
-	}, nil
+	preflight.initialBranchAssertion = branchAssertion
+	preflight.pendingBranchReplaced = pendingBranchReplaced
+	return preflight, nil
 }
 
 func (s *Service) preflightInitialTaskBranch(
@@ -1181,9 +1230,14 @@ func (s *Service) initiatingActionTarget(ctx context.Context, taskID workflow.Ta
 }
 
 func (s *Service) resolveAndMaterializeInitiatingActionTarget(ctx context.Context, taskID workflow.TaskID, setupOperationID *worktreecontract.SetupOperationID, preflight initiatingActionTargetPreflight) (initiatingActionTargetDecision, error) {
-	snapshot, selectionRequired, err := s.resolveInitiatingActionTarget(ctx, preflight)
-	if err != nil || selectionRequired != nil {
-		return initiatingActionTargetDecision{selectionRequired: selectionRequired}, err
+	snapshot := preflight.resolvedSnapshot
+	if snapshot == nil {
+		var selectionRequired *taskpb.SelectionRequired
+		var err error
+		snapshot, selectionRequired, err = s.resolveInitiatingActionTarget(ctx, preflight)
+		if err != nil || selectionRequired != nil {
+			return initiatingActionTargetDecision{selectionRequired: selectionRequired}, err
+		}
 	}
 	prepared, err := s.materializeInitiatingActionTarget(ctx, taskID, setupOperationID, preflight, snapshot, worktreecontract.SetupRequirementRequired)
 	return initiatingActionTargetDecision{prepared: &prepared}, err
@@ -1226,7 +1280,7 @@ func (s *Service) resolveInitiatingActionTarget(
 			}
 		}
 		if preflight.explicit && selection.Mode == workflow.ExecutionTargetModeCustomRef {
-			if resolutionErr, ok := explicitExecutionTargetResolutionError(err); ok {
+			if resolutionErr, ok := explicitExecutionTargetResolutionError(selection, err); ok {
 				return nil, nil, resolutionErr
 			}
 		}
@@ -1244,6 +1298,20 @@ func (s *Service) resolveInitiatingActionTarget(
 		}
 	}
 	return &snapshot, nil, nil
+}
+
+func (s *Service) resolveTaskStartExecutionTarget(
+	ctx context.Context,
+	preflight initiatingActionTargetPreflight,
+) (*workflowstore.ExecutionTargetSnapshot, *taskpb.SelectionRequired, error) {
+	snapshot, selectionRequired, err := s.resolveInitiatingActionTarget(ctx, preflight)
+	if err == nil || !preflight.explicit || preflight.selection.Mode != workflow.ExecutionTargetModeDefaultBranch {
+		return snapshot, selectionRequired, err
+	}
+	if resolutionErr, ok := explicitExecutionTargetResolutionError(preflight.selection, err); ok {
+		return nil, nil, resolutionErr
+	}
+	return nil, nil, err
 }
 
 func (s *Service) materializeInitiatingActionTarget(
@@ -1403,26 +1471,91 @@ func executionTargetUnavailableCause(err error) (workflow.ExecutionTargetUnavail
 	return "", false
 }
 
-func explicitExecutionTargetResolutionError(err error) (*serverapi.WorkflowExecutionTargetResolutionError, bool) {
-	var revisionErr *worktree.GitRevisionResolutionError
-	if !errors.As(err, &revisionErr) {
-		return nil, false
-	}
-	code := serverapi.WorkflowExecutionTargetResolutionErrorCode("")
-	switch revisionErr.Kind {
-	case worktree.GitRevisionResolutionErrorInvalidRevision:
-		code = serverapi.WorkflowExecutionTargetResolutionErrorInvalidRevision
-	case worktree.GitRevisionResolutionErrorNonCommit:
-		code = serverapi.WorkflowExecutionTargetResolutionErrorNonCommit
-	case worktree.GitRevisionResolutionErrorGitFailure:
-		code = serverapi.WorkflowExecutionTargetResolutionErrorGitFailure
+func explicitExecutionTargetResolutionError(
+	selection workflow.ExecutionTargetSelection,
+	err error,
+) (*serverapi.WorkflowExecutionTargetResolutionError, bool) {
+	var target serverapi.WorkflowExecutionTargetResolutionTarget
+	switch selection.Mode {
+	case workflow.ExecutionTargetModeCustomRef:
+		if selection.CustomRef == nil {
+			return nil, false
+		}
+		var revisionErr *worktree.GitRevisionResolutionError
+		if !errors.As(err, &revisionErr) {
+			return nil, false
+		}
+		code, ok := executionTargetResolutionCodeForRevision(revisionErr.Kind)
+		if !ok {
+			return nil, false
+		}
+		target = serverapi.WorkflowExecutionTargetResolutionCustomRef{RequestedRef: *selection.CustomRef}
+		return &serverapi.WorkflowExecutionTargetResolutionError{Target: target, Code: code}, true
+	case workflow.ExecutionTargetModeDefaultBranch:
+		var defaultBranchErr *worktree.GitDefaultBranchResolutionError
+		if errors.As(err, &defaultBranchErr) {
+			code, ok := executionTargetResolutionCodeForDefaultBranch(defaultBranchErr.Kind)
+			if !ok {
+				return nil, false
+			}
+			target = serverapi.WorkflowExecutionTargetResolutionDefaultBranch{}
+			return &serverapi.WorkflowExecutionTargetResolutionError{
+				Target: target, Code: code, Diagnostic: executionTargetResolutionDiagnostic(defaultBranchErr.Cause),
+			}, true
+		}
+		var revisionErr *worktree.GitRevisionResolutionError
+		if !errors.As(err, &revisionErr) {
+			return nil, false
+		}
+		code, ok := executionTargetResolutionCodeForRevision(revisionErr.Kind)
+		if !ok {
+			return nil, false
+		}
+		target = serverapi.WorkflowExecutionTargetResolutionDefaultBranch{}
+		return &serverapi.WorkflowExecutionTargetResolutionError{
+			Target: target, Code: code, Diagnostic: executionTargetResolutionDiagnostic(revisionErr.Cause),
+		}, true
 	default:
 		return nil, false
 	}
-	return &serverapi.WorkflowExecutionTargetResolutionError{
-		Code:         code,
-		RequestedRef: revisionErr.RequestedRef,
-	}, true
+}
+
+func executionTargetResolutionCodeForRevision(
+	kind worktree.GitRevisionResolutionErrorKind,
+) (serverapi.WorkflowExecutionTargetResolutionErrorCode, bool) {
+	switch kind {
+	case worktree.GitRevisionResolutionErrorInvalidRevision:
+		return serverapi.WorkflowExecutionTargetResolutionErrorInvalidRevision, true
+	case worktree.GitRevisionResolutionErrorNonCommit:
+		return serverapi.WorkflowExecutionTargetResolutionErrorNonCommit, true
+	case worktree.GitRevisionResolutionErrorGitFailure:
+		return serverapi.WorkflowExecutionTargetResolutionErrorGitFailure, true
+	default:
+		return "", false
+	}
+}
+
+func executionTargetResolutionCodeForDefaultBranch(
+	kind worktree.GitDefaultBranchResolutionErrorKind,
+) (serverapi.WorkflowExecutionTargetResolutionErrorCode, bool) {
+	switch kind {
+	case worktree.GitDefaultBranchResolutionErrorMissing:
+		return serverapi.WorkflowExecutionTargetResolutionErrorDefaultBranchMissing, true
+	case worktree.GitDefaultBranchResolutionErrorAmbiguous:
+		return serverapi.WorkflowExecutionTargetResolutionErrorDefaultBranchAmbiguous, true
+	case worktree.GitDefaultBranchResolutionErrorGitFailure:
+		return serverapi.WorkflowExecutionTargetResolutionErrorGitFailure, true
+	default:
+		return "", false
+	}
+}
+
+func executionTargetResolutionDiagnostic(cause error) *string {
+	if cause == nil {
+		return nil
+	}
+	diagnostic := cause.Error()
+	return &diagnostic
 }
 
 func (s *Service) InterruptWorkflowTask(ctx context.Context, req *taskpb.InterruptRequest) (*emptypb.Empty, error) {
@@ -1628,10 +1761,7 @@ func (s *Service) approveWorkflowTask(ctx context.Context, req *taskpb.ApproveRe
 	if s.currentNodeExecution == nil {
 		return nil, errors.New("current node workflow execution is required")
 	}
-	approvalID, err := workflow.ParseApprovalID(req.ApprovalId)
-	if err != nil {
-		return nil, err
-	}
+	approvalID := workflow.ApprovalID(req.ApprovalId)
 	if req.InvokingSessionId != nil {
 		approval, err := s.store.PendingApproval(ctx, approvalID)
 		if err != nil {

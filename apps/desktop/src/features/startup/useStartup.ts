@@ -103,7 +103,7 @@ function readinessCause(readiness: ServerReadiness, fallbackBody: string): strin
     return fallbackBody;
   }
   const body = [cause.summary, cause.nextAction]
-    .filter((part): part is string => part !== undefined && part.length > 0)
+    .filter((part): part is string => part !== undefined)
     .join(" ");
   return body.length > 0 ? body : fallbackBody;
 }

@@ -310,9 +310,6 @@ func (c *ongoingTranscriptController) applyAppOwnedMessage(message *transcriptpb
 }
 
 func (c *ongoingTranscriptController) applyHydrationAppOwnedFacts(hydration *transcriptpb.Hydration) bool {
-	if hydration == nil {
-		return false
-	}
 	changed := false
 	if len(hydration.InFlightTools) > 0 {
 		for _, tool := range hydration.InFlightTools {
@@ -330,9 +327,6 @@ func (c *ongoingTranscriptController) applyHydrationAppOwnedFacts(hydration *tra
 }
 
 func hydrationHasNoTerminalRows(hydration *transcriptpb.Hydration) bool {
-	if hydration == nil {
-		return true
-	}
 	if len(hydration.ActiveAssistants) > 0 {
 		return false
 	}
@@ -361,50 +355,8 @@ func (c *ongoingTranscriptController) frameInput() ongoing.FrameInput {
 	return frame
 }
 
-func queuedOrSteeredText(state *transcriptpb.QueuedMessageState) string {
-	if state == nil {
-		return ""
-	}
-	if state.Text != nil && strings.TrimSpace(*state.Text) != "" {
-		return *state.Text
-	}
-	failureReason := ""
-	if state.FailureReason != nil {
-		switch *state.FailureReason {
-		case transcriptpb.QueuedMessageFailureReason_QUEUED_MESSAGE_FAILURE_REASON_CLOSING:
-			failureReason = "closing"
-		case transcriptpb.QueuedMessageFailureReason_QUEUED_MESSAGE_FAILURE_REASON_TERMINAL_WORKFLOW_COMPLETION:
-			failureReason = "terminal_workflow_completion"
-		case transcriptpb.QueuedMessageFailureReason_QUEUED_MESSAGE_FAILURE_REASON_RUNTIME_UNAVAILABLE:
-			failureReason = "runtime_unavailable"
-		case transcriptpb.QueuedMessageFailureReason_QUEUED_MESSAGE_FAILURE_REASON_STOPPED:
-			failureReason = "stopped"
-		default:
-			panic("invalid queued message failure reason")
-		}
-	}
-	status := ""
-	switch state.Status {
-	case transcriptpb.QueuedMessageStatus_QUEUED_MESSAGE_STATUS_ACCEPTED:
-		status = "accepted"
-	case transcriptpb.QueuedMessageStatus_QUEUED_MESSAGE_STATUS_SUBMITTED:
-		status = "submitted"
-	case transcriptpb.QueuedMessageStatus_QUEUED_MESSAGE_STATUS_FAILED:
-		status = "failed"
-	case transcriptpb.QueuedMessageStatus_QUEUED_MESSAGE_STATUS_DISCARDED:
-		status = "discarded"
-	default:
-		panic("invalid queued message status")
-	}
-	lines := joinFacts(compactNonEmptyStrings(humanizeTranscriptFact(status), humanizeTranscriptFact(failureReason)))
-	if len(lines) == 0 {
-		return ""
-	}
-	return lines[0]
-}
-
 func pendingPromptLines(prompt *transcriptpb.Prompt) []string {
-	if prompt == nil || prompt.Status != transcriptpb.PromptStatus_PROMPT_STATUS_PENDING {
+	if prompt.Status != transcriptpb.PromptStatus_PROMPT_STATUS_PENDING {
 		return nil
 	}
 	return joinFacts(compactNonEmptyStrings(transcriptPromptQuestion(prompt)))

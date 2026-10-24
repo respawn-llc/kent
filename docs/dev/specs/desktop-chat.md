@@ -359,7 +359,7 @@
 ## Composer and pending work
 
 - The composer and its attached panels must overlay the transcript with a blurred backdrop. Scrolling history must pass beneath them and be visible around their rounded edges. The transcript's bottom padding must track the full overlay height during resize animation so the latest content stays clear of the composer.
-- The composer must use a rounded island with a bottom controls row. The existing Settings picker trigger must align left. Send/Steer must use a circled icon at the right. When Stop is relevant, its smaller, non-circled icon must appear immediately to the left of Send/Steer. The microphone control must be absent.
+- The composer must use a rounded island with a bottom controls row. The existing Settings picker trigger must align left. Send/Steer must use a circled icon at the right. When Stop is relevant, its smaller, non-circled icon must appear to the left of Send/Steer. The microphone placement and behavior must follow [Speech Input](speech-input.md).
 - The composer Stop icon must use the error color.
 - Slash-command suggestions must use the same peeking island as Pending Work, replacing its content while command selection is active. Selecting a command, entering arguments, or pressing Escape must restore the Pending Work presentation when items exist.
 - The peeking island's horizontal inset must match the composer's corner radius so it meets the straight top edge without a gap or stacked translucent backgrounds.
@@ -445,6 +445,8 @@
 - Hovering, clicking, or tapping the Context meter must open a compact pop-up above the trigger with detailed context-window usage and a `Compact now` action. When normal browser focus is on the meter, its ordinary button Enter and Space behavior also opens the pop-up. These keys are not Context shortcuts elsewhere.
 - Escape or clicking away closes the Context pop-up.
 - The pop-up must show used-context percentage and used and total token counts against the complete context window. It must omit the Auto-compaction toggle, completed compaction count, and automatic-compaction threshold. Auto-compaction is available in Settings.
+- The Context pop-up must also show the Session's current Provider Connection subscription usage below its existing context and compaction controls when that connection supports subscription usage. This block must use the same compact usage presentation as navigation Chrome and follow [Desktop subscription usage](provider-connections.md#desktop-subscription-usage).
+- Subscription usage must load independently from context data. Its loading and icon Retry must not change the context display or `Compact now` behavior. The context-data loading and Retry restrictions below apply only to context data.
 - Context must present facts delivered through ordinary Chat snapshots and updates without an independent Context request. Before information is available, the trigger must show zero-like progress and must not open the pop-up. During later loads, Context must show the last known state. Context must not add a separate loading pop-up or Retry control.
 - Context must display whole-number percentages. Token counts below one thousand must be exact. Larger counts must use a `k` suffix with one decimal place, such as `28.5k`.
 - Authoritative used-context tokens may exceed the context window. In that state, the text must show used context above 100% and the complete used-token total without capping either value. The ring and bar must stop at their full extent without overlapping rendering.

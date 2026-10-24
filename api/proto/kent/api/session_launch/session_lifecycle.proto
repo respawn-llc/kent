@@ -192,6 +192,11 @@ message SessionTransition {
   ];
   string initial_prompt = 2;
   bool initial_prompt_history_recorded = 3;
+  option (buf.validate.message).cel = {
+    id: "kent.session_launch.recorded_transition_prompt"
+    message: "recorded prompt history requires initial prompt text for new-session and rollback transitions"
+    expression: "!(this.action in [2, 5]) || !this.initial_prompt_history_recorded || this.initial_prompt.trim() != ''"
+  };
   optional string initial_input = 4;
   optional string target_session_id = 5 [(buf.validate.field).string.uuid = true, (buf.validate.field).string.(kent.api.shared.canonical_uuid_v4) = true];
   optional string fork_rollback_target_id = 6 [(buf.validate.field).string.min_len = 1];

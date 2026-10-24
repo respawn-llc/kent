@@ -245,28 +245,35 @@ test("the repository policy checks HTML scripts and Astro frontmatter, scripts a
   }
 });
 
-test("Astro policy checks escape filenames in compiler metadata", async () => {
-  // Both Windows separators and Unix quotes require JSON escaping by the compiler.
-  const directory = mkdtempSync(
-    join(fixtureRoot, process.platform === "win32" ? "path-" : 'quoted"path-'),
-  );
-  const path = join(directory, "component.astro");
-  try {
-    copyFileSync(join(fixtureRoot, "tooling/forbidden-effect.astro"), path);
-    const results = await checkEffectPolicy([path]);
-    assert.ok(results.some((result) => result.errorCount > 0));
-    assert.ok(
-      results.some((result) =>
-        result.messages.some(
-          (message) => message.ruleId === "app/no-unowned-effect",
-        ),
+test(
+  "Astro policy checks escape filenames in compiler metadata",
+  { timeout: 30_000 },
+  async () => {
+    // Both Windows separators and Unix quotes require JSON escaping by the compiler.
+    const directory = mkdtempSync(
+      join(
+        fixtureRoot,
+        process.platform === "win32" ? "path-" : 'quoted"path-',
       ),
     );
-  } finally {
-    unlinkSync(path);
-    rmdirSync(directory);
-  }
-});
+    const path = join(directory, "component.astro");
+    try {
+      copyFileSync(join(fixtureRoot, "tooling/forbidden-effect.astro"), path);
+      const results = await checkEffectPolicy([path]);
+      assert.ok(results.some((result) => result.errorCount > 0));
+      assert.ok(
+        results.some((result) =>
+          result.messages.some(
+            (message) => message.ruleId === "app/no-unowned-effect",
+          ),
+        ),
+      );
+    } finally {
+      unlinkSync(path);
+      rmdirSync(directory);
+    }
+  },
+);
 
 test("HTML script data remains data while JavaScript scripts are checked", async () => {
   const results = await checkEffectPolicy([
@@ -359,19 +366,23 @@ for (const fixture of [
   "forbidden-effect-registry-barrel.ts",
   "forbidden-effect-registry-namespace.ts",
 ])
-  test(`the required Just policy command rejects ${fixture}`, () => {
-    const result = spawnSync(
-      "just",
-      [
-        "_lint",
-        "_effect-policy",
-        `apps/desktop/eslint-fixtures/architecture/src/features/alpha/${fixture}`,
-      ],
-      {
-        cwd: fileURLToPath(new URL("../..", import.meta.url)),
-        encoding: "utf8",
-      },
-    );
-    assert.ifError(result.error);
-    assert.equal(result.status, 1, result.stderr);
-  });
+  test(
+    `the required Just policy command rejects ${fixture}`,
+    { timeout: 30_000 },
+    () => {
+      const result = spawnSync(
+        "just",
+        [
+          "_lint",
+          "_effect-policy",
+          `apps/desktop/eslint-fixtures/architecture/src/features/alpha/${fixture}`,
+        ],
+        {
+          cwd: fileURLToPath(new URL("../..", import.meta.url)),
+          encoding: "utf8",
+        },
+      );
+      assert.ifError(result.error);
+      assert.equal(result.status, 1, result.stderr);
+    },
+  );

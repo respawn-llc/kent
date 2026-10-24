@@ -230,8 +230,8 @@ func TestDetailTranscriptLoadMergesAdjacentCursorPages(t *testing.T) {
 		HasMoreBelow: true,
 		Entries:      []*transcriptpb.CommittedRow{detailTestUserRow("older")}}
 
-	model.applyDetailTranscriptLoad("", &transcriptpb.PageRequest{}, newest)
-	model.applyDetailTranscriptLoad("", &transcriptpb.PageRequest{Direction: &transcriptpb.PageRequest_Cursor{Cursor: *appInt64Ptr(40)}}, older)
+	model.applyDetailTranscriptLoad(detailTestSessionID, &transcriptpb.PageRequest{}, newest)
+	model.applyDetailTranscriptLoad(detailTestSessionID, &transcriptpb.PageRequest{Direction: &transcriptpb.PageRequest_Cursor{Cursor: *appInt64Ptr(40)}}, older)
 
 	got := model.detailTranscript.page()
 	wantEntries := []*transcriptpb.CommittedRow{
@@ -260,9 +260,9 @@ func TestDetailTranscriptLoadIgnoresDuplicateAdjacentCursorResponse(t *testing.T
 		Entries:      []*transcriptpb.CommittedRow{detailTestUserRow("older")}}
 	request := &transcriptpb.PageRequest{Direction: &transcriptpb.PageRequest_Cursor{Cursor: *appInt64Ptr(40)}}
 
-	model.applyDetailTranscriptLoad("", &transcriptpb.PageRequest{}, newest)
-	model.applyDetailTranscriptLoad("", request, older)
-	model.applyDetailTranscriptLoad("", request, older)
+	model.applyDetailTranscriptLoad(detailTestSessionID, &transcriptpb.PageRequest{}, newest)
+	model.applyDetailTranscriptLoad(detailTestSessionID, request, older)
+	model.applyDetailTranscriptLoad(detailTestSessionID, request, older)
 
 	got := model.detailTranscript.page().Entries
 	want := []*transcriptpb.CommittedRow{
@@ -291,9 +291,9 @@ func TestDetailTranscriptNewestRefreshReplacesResidentWindow(t *testing.T) {
 	refreshedNewest.Entries = []*transcriptpb.CommittedRow{
 		detailTestAssistantRow("newer refreshed\nline two\nline three\nline four")}
 
-	model.applyDetailTranscriptLoad("", &transcriptpb.PageRequest{}, newest)
-	model.applyDetailTranscriptLoad("", &transcriptpb.PageRequest{Direction: &transcriptpb.PageRequest_Cursor{Cursor: *appInt64Ptr(40)}}, older)
-	model.applyDetailTranscriptLoad("", &transcriptpb.PageRequest{}, refreshedNewest)
+	model.applyDetailTranscriptLoad(detailTestSessionID, &transcriptpb.PageRequest{}, newest)
+	model.applyDetailTranscriptLoad(detailTestSessionID, &transcriptpb.PageRequest{Direction: &transcriptpb.PageRequest_Cursor{Cursor: *appInt64Ptr(40)}}, older)
+	model.applyDetailTranscriptLoad(detailTestSessionID, &transcriptpb.PageRequest{}, refreshedNewest)
 
 	got := model.detailTranscript.page().Entries
 	want := refreshedNewest.Entries
@@ -327,14 +327,14 @@ func TestDetailTranscriptNewestRefreshReplacesChangedSelectedRow(t *testing.T) {
 	refreshedNewest.Entries = []*transcriptpb.CommittedRow{
 		detailTestAssistantRow("newer refreshed\nline two\nline three\nline four")}
 
-	model.applyDetailTranscriptLoad("", &transcriptpb.PageRequest{}, newest)
-	model.applyDetailTranscriptLoad("", &transcriptpb.PageRequest{Direction: &transcriptpb.PageRequest_Cursor{Cursor: *appInt64Ptr(40)}}, older)
+	model.applyDetailTranscriptLoad(detailTestSessionID, &transcriptpb.PageRequest{}, newest)
+	model.applyDetailTranscriptLoad(detailTestSessionID, &transcriptpb.PageRequest{Direction: &transcriptpb.PageRequest_Cursor{Cursor: *appInt64Ptr(40)}}, older)
 	model.view = mustUpdateTUIModel(t, model.view, tea.KeyMsg{Type: tea.KeyEnter})
 	if got := model.view.DetailSelectionAction(); got != tui.DetailSelectionActionNone {
 		t.Fatalf("detail selection action after Enter = %v, want no action for complete row", got)
 	}
 
-	model.applyDetailTranscriptLoad("", &transcriptpb.PageRequest{}, refreshedNewest)
+	model.applyDetailTranscriptLoad(detailTestSessionID, &transcriptpb.PageRequest{}, refreshedNewest)
 
 	if got := model.view.DetailSelectionAction(); got != tui.DetailSelectionActionNone {
 		t.Fatalf("detail selection action after newest refresh = %v, want no action for complete row", got)
@@ -437,7 +437,7 @@ func TestDetailTranscriptPageDeepClonesPatchPresentation(t *testing.T) {
 					PatchPresentation: sourcePatch,
 				}})}}
 
-	model.applyDetailTranscriptLoad("", &transcriptpb.PageRequest{}, page)
+	model.applyDetailTranscriptLoad(detailTestSessionID, &transcriptpb.PageRequest{}, page)
 	sourcePatch.GetChanges().Files[0].Operations[0].GetUpdate().Groups[0].Lines[0].Content = "source changed"
 	firstRead := model.detailTranscript.page()
 	if got := firstRead.Entries[0].GetTool().Presentation.PatchPresentation.GetChanges().Files[0].Operations[0].GetUpdate().Groups[0].Lines[0].Content; got != "old" {
@@ -471,7 +471,7 @@ func TestDetailTranscriptPagePreservesKnownZeroDeletionCount(t *testing.T) {
 					PatchPresentation: detailTestPatchPresentation(0),
 				}})}}
 
-	model.applyDetailTranscriptLoad("", &transcriptpb.PageRequest{}, page)
+	model.applyDetailTranscriptLoad(detailTestSessionID, &transcriptpb.PageRequest{}, page)
 	stored := model.detailTranscript.page()
 	file := stored.Entries[0].GetTool().Presentation.PatchPresentation.GetChanges().Files[0]
 	if removed := file.Removed; removed == nil || *removed != 0 {

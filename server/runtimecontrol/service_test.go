@@ -5,6 +5,7 @@ import (
 	"core/internal/testharness/requestfixture"
 	"core/internal/testharness/scriptedllm"
 	"core/internal/testharness/testsetup"
+	"core/internal/testharness/workflowreactivator"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -74,7 +75,9 @@ func TestCommittedRuntimeWriteRefreshesIdleLifetime(t *testing.T) {
 			t.Fatal(err)
 		}
 		time.Sleep(2 * time.Minute)
-		if err := service.AppendSessionEntry(t.Context(), sessionID.String(), "system", "accepted"); err != nil {
+		if err := service.AppendCommittedEntry(t.Context(), &transcriptpb.AppendCommittedEntryRequest{
+			SessionId: sessionID.String(), Role: "system", Text: "accepted",
+		}); err != nil {
 			t.Fatal(err)
 		}
 		time.Sleep(2 * time.Minute)
@@ -437,18 +440,6 @@ type staticRuntimeControlWorkflowTaskResolver struct {
 
 func (r staticRuntimeControlWorkflowTaskResolver) SessionHasWorkflowTask(context.Context, string) (bool, error) {
 	return r.workflow, nil
-}
-
-type runtimeControlWorkflowSessionReactivatorFunc func(
-	context.Context,
-	runtimeids.SessionID,
-) (sessionruntime.ExecutionHandle, error)
-
-func (f runtimeControlWorkflowSessionReactivatorFunc) ReactivateWorkflowSession(
-	ctx context.Context,
-	sessionID runtimeids.SessionID,
-) (sessionruntime.ExecutionHandle, error) {
-	return f(ctx, sessionID)
 }
 
 type runtimeControlFakeClient struct {
@@ -913,7 +904,7 @@ func TestServiceSubmitUserTurnReactivatesRetainedWorkflowSessionBeforeSubmitting
 		t.Fatalf("parse session id: %v", err)
 	}
 	reactivations := 0
-	service.WithWorkflowSessionReactivator(runtimeControlWorkflowSessionReactivatorFunc(
+	service.WithWorkflowSessionReactivator(workflowreactivator.Func(
 		func(_ context.Context, got runtimeids.SessionID) (sessionruntime.ExecutionHandle, error) {
 			reactivations++
 			if got != sessionID {
@@ -1003,7 +994,7 @@ func TestServiceSubmitUserTurnRejectsMismatchedReactivatedWorkflowExecution(t *t
 	if err != nil {
 		t.Fatalf("create mismatched Current Node: %v", err)
 	}
-	service.WithWorkflowSessionReactivator(runtimeControlWorkflowSessionReactivatorFunc(
+	service.WithWorkflowSessionReactivator(workflowreactivator.Func(
 		func(_ context.Context, got runtimeids.SessionID) (sessionruntime.ExecutionHandle, error) {
 			if got != sessionID {
 				t.Fatalf("reactivated session = %s, want %s", got, sessionID)

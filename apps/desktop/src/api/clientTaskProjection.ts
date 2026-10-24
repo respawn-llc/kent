@@ -73,6 +73,7 @@ export function taskListPage(value: pb.ListSuccessValid): TaskListPage {
         shortID: task.shortId,
         workflowID: task.workflowId,
         workflowName: task.workflowName ?? null,
+        stageName: task.stageName ?? null,
         title: task.title,
         createdAt: timestampMillis(task.createdAt),
         updatedAt: timestampMillis(task.updatedAt),
@@ -164,7 +165,7 @@ export function workflowBoard(value: pb.BoardValid): WorkflowBoard {
       .map((group) => ({
         id: group.groupId,
         key: group.key,
-        name: group.displayName,
+        name: group.displayName ?? null,
         sortOrder: group.sortOrder,
         nodeIDs: group.nodeIds.filter((nodeID) => visibleNodeIDs.has(nodeID)),
       }))
