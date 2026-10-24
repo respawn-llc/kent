@@ -115,3 +115,10 @@ func (a *providerAttemptDiagnostic) diagnoseEmptyLocalCompaction(ctx context.Con
 func boundedDiagnosticMetadata(value string) string {
 	return value[:min(len(value), 64)]
 }
+
+func lenOptionalString(value *string) int {
+	if value == nil {
+		return 0
+	}
+	return len(*value)
+}

@@ -78,10 +78,11 @@ func StartServeServer(ctx context.Context, req Request) (*ServeServer, error) {
 	if err := serverbootstrap.ConvertProviderConfiguration(ctx, root); err != nil {
 		return nil, err
 	}
-	bootstrapReq.Environment, err = serverbootstrap.LoadEnvironment(root)
+	environment, err := serverbootstrap.LoadEnvironment(root)
 	if err != nil {
 		return nil, err
 	}
+	bootstrapReq.Environment = environment.Lookup
 	resolved, err := serverbootstrap.ResolveConfig(bootstrapReq)
 	if err != nil {
 		panicOnMetadataMigrationFailure(err)
