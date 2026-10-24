@@ -795,6 +795,9 @@ func encodeBinaryResult(operation protoapi.Operation, correlation *string, resul
 	if err != nil {
 		return nil, err
 	}
+	if err := protoapi.ValidateResultErrorDetail(result); err != nil {
+		return nil, err
+	}
 	presentPayload := make([]byte, len(payload))
 	copy(presentPayload, payload)
 	return protoapi.EncodeEnvelope(&sharedpb.Envelope{

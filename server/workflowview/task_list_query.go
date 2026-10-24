@@ -92,10 +92,7 @@ func (l *TaskList) queryRows(ctx context.Context, req workflowTaskListQueryReque
 	}
 	statusKinds := make([]string, 0, len(req.statusKinds))
 	for _, kind := range req.statusKinds {
-		name, err := protoapi.TaskStatusKind.Decode(kind)
-		if err != nil {
-			return workflowTaskListPageResult{}, err
-		}
+		name := protoapi.TaskStatusKind.FromProto(kind)
 		statusKinds = append(statusKinds, name)
 	}
 	statusKindsJSON, err := workflowTaskKindsJSON(statusKinds)
@@ -104,10 +101,7 @@ func (l *TaskList) queryRows(ctx context.Context, req workflowTaskListQueryReque
 	}
 	attentionKinds := make([]string, 0, len(req.attentionKinds))
 	for _, kind := range req.attentionKinds {
-		name, err := protoapi.TaskAttentionKind.Decode(kind)
-		if err != nil {
-			return workflowTaskListPageResult{}, err
-		}
+		name := protoapi.TaskAttentionKind.FromProto(kind)
 		attentionKinds = append(attentionKinds, name)
 	}
 	attentionKindsJSON, err := workflowTaskKindsJSON(attentionKinds)
@@ -116,10 +110,7 @@ func (l *TaskList) queryRows(ctx context.Context, req workflowTaskListQueryReque
 	}
 	var sortFields [7]string
 	for index, selector := range req.sortSelectors {
-		name, err := protoapi.TaskListSortField.Decode(selector.Field)
-		if err != nil {
-			return workflowTaskListPageResult{}, err
-		}
+		name := protoapi.TaskListSortField.FromProto(selector.Field)
 		sortFields[index] = name
 	}
 	labelFilterArgs := req.labelFilter

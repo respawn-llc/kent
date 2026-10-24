@@ -693,7 +693,7 @@ func (a *Authority) AwaitPromptResolution(
 }
 
 func (a *Authority) sessionExecution(sessionID runtimeids.SessionID) *execution {
-	if a == nil || sessionID.IsZero() {
+	if a == nil {
 		return nil
 	}
 	a.mu.Lock()

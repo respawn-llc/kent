@@ -26,10 +26,7 @@ import (
 func (c *sessionRuntimeClient) sessionRuntimeBoundary() {}
 
 func (c *sessionRuntimeClient) takeChatTarget() (*chatpb.ChatTarget, error) {
-	id, err := runtimeids.ParseSessionID(c.sessionID)
-	if err != nil {
-		return nil, err
-	}
+	id := runtimeids.SessionIDFromProto(c.sessionID)
 	c.mu.Lock()
 	preparation := c.preparation
 	c.preparation = nil
@@ -42,10 +39,7 @@ func (c *sessionRuntimeClient) takeChatTarget() (*chatpb.ChatTarget, error) {
 }
 
 func (c *sessionRuntimeClient) ReadChatSettings() (*chatsettingspb.Settings, error) {
-	sessionID, err := runtimeids.ParseSessionID(strings.TrimSpace(c.sessionID))
-	if err != nil {
-		return nil, err
-	}
+	sessionID := runtimeids.SessionIDFromProto(strings.TrimSpace(c.sessionID))
 	ctx, cancel := context.WithTimeout(context.Background(), uiChatSettingsTimeout)
 	defer cancel()
 	response, err := c.chatSettings.ReadChatSettings(ctx, &chatsettingspb.ReadRequest{
@@ -58,10 +52,7 @@ func (c *sessionRuntimeClient) ReadChatSettings() (*chatsettingspb.Settings, err
 }
 
 func (c *sessionRuntimeClient) MutateChatSettings(operation *chatsettingspb.MutationOperation) (*chatsettingspb.MutationSuccess, error) {
-	sessionID, err := runtimeids.ParseSessionID(strings.TrimSpace(c.sessionID))
-	if err != nil {
-		return nil, err
-	}
+	sessionID := runtimeids.SessionIDFromProto(strings.TrimSpace(c.sessionID))
 	ctx, cancel := context.WithTimeout(context.Background(), uiChatSettingsTimeout)
 	defer cancel()
 	response, err := c.chatSettings.MutateChatSettings(ctx, &chatsettingspb.MutationRequest{
@@ -280,7 +271,7 @@ func (c *sessionRuntimeClient) DiscardQueuedUserMessage(queueItemID string) bool
 	if !ok {
 		return false
 	}
-	itemID, err := runtimeids.ParseQueueItemID(queueItemID)
+	itemID, err := runtimeids.QueueItemIDFromProto(queueItemID)
 	if err != nil {
 		return false
 	}
@@ -293,9 +284,6 @@ func (c *sessionRuntimeClient) DiscardQueuedUserMessage(queueItemID string) bool
 func (c *sessionRuntimeClient) ListPendingWork(sessionID runtimeids.SessionID) (runtimeinput.PendingWork, error) {
 	if c == nil {
 		return runtimeinput.PendingWork{}, errors.New("runtime client is required")
-	}
-	if sessionID.IsZero() {
-		return runtimeinput.PendingWork{}, errors.New("Pending Work Session ID is required")
 	}
 	if sessionID.String() != c.sessionID {
 		return runtimeinput.PendingWork{}, fmt.Errorf(

@@ -77,9 +77,6 @@ func (a *OutsideWorkspaceApprover) Approve(ctx context.Context, req tools.FileAc
 func OutsideWorkspaceApprovalFromResolution(
 	resolution tools.AskQuestionResolution,
 ) (tools.FileAccessApproval, error) {
-	if err := tools.ValidateAskQuestionResolutionShape(resolution); err != nil {
-		return tools.FileAccessApproval{}, fmt.Errorf("validate approval resolution: %w", err)
-	}
 	answer, ok := resolution.(tools.AskQuestionApproval)
 	if !ok {
 		return tools.FileAccessApproval{}, errors.New("missing approval payload")

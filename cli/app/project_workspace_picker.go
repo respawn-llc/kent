@@ -108,9 +108,6 @@ func newProjectWorkspacePickerModel(
 	if loader == nil {
 		panic("project Workspace picker requires a page loader")
 	}
-	if strings.TrimSpace(projectID) == "" {
-		panic("project Workspace picker requires a Project ID")
-	}
 	return &projectWorkspacePickerModel{
 		requestContext: requestContext,
 		loader:         loader,
@@ -859,9 +856,6 @@ func occurrenceIndex(occurrence *projectWorkspacePickerOccurrence, segments []pr
 func cloneProjectWorkspaceCatalogRows(rows []*projectpb.ProjectWorkspaceCatalogSummary) []*projectpb.ProjectWorkspaceCatalogSummary {
 	cloned := make([]*projectpb.ProjectWorkspaceCatalogSummary, 0, len(rows))
 	for _, row := range rows {
-		if row == nil {
-			continue
-		}
 		cloned = append(cloned, proto.Clone(row).(*projectpb.ProjectWorkspaceCatalogSummary))
 	}
 	return cloned
@@ -949,7 +943,7 @@ func (m *projectWorkspacePickerModel) hasPreview(index int) bool {
 	if index < 0 || index >= len(workspaces) {
 		return false
 	}
-	return strings.TrimSpace(workspaces[index].RootPath) != ""
+	return true
 }
 
 func runProjectWorkspacePicker(ctx context.Context, loader projectbinding.WorkspacePageLoader, projectID string, theme string) (projectWorkspacePickerResult, error) {

@@ -15,6 +15,7 @@ import {
   binaryFramePayload,
   completeDescriptorResponse,
   decodeDescriptorResponse,
+  descriptorResponseFromEnvelope,
   encodeDescriptorCall,
 } from "./descriptorRpc";
 import { ContractError, ProtocolMismatchError, ServerRootMismatchError, TransportError } from "./errors";
@@ -150,8 +151,8 @@ export async function runSocketDescriptorSubscription<
       if (failure === undefined) resolve();
       else reject(failure);
     };
-    const handleResponse = (frame: Uint8Array) => {
-      const response = decodeDescriptorResponse(frame);
+    const handleResponse = (envelope: ReturnType<typeof decodeEnvelope>) => {
+      const response = descriptorResponseFromEnvelope(envelope);
       if (input.transcriptRejection !== undefined && (acknowledged || response.correlation !== correlation))
         throw new ContractError("Transcript subscription received an unexpected result.");
       if (response.correlation !== correlation) return;
@@ -202,7 +203,7 @@ export async function runSocketDescriptorSubscription<
         switch (envelope.frame.case) {
           case "result":
           case "transportFailure":
-            handleResponse(frame);
+            handleResponse(envelope);
             return;
           case "notificationEvent":
             handleNotification(envelope.frame.value);

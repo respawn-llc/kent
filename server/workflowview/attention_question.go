@@ -1,7 +1,6 @@
 package workflowview
 
 import (
-	"fmt"
 	"strings"
 	"time"
 
@@ -10,8 +9,6 @@ import (
 	promptpb "core/shared/protoapi/gen/kent/api/prompt"
 	taskpb "core/shared/protoapi/gen/kent/api/workflow_task"
 	"core/shared/runtimeids"
-	"core/shared/serverapi"
-	"core/shared/textutil"
 )
 
 type PendingPromptSnapshot struct {
@@ -93,18 +90,4 @@ func normalizedPendingQuestionSuggestions(in []string) []string {
 		return nil
 	}
 	return append([]string(nil), in...)
-}
-
-func validatePendingQuestionRecommendation(index *int, suggestionCount int) (*int, error) {
-	if index == nil {
-		return nil, nil
-	}
-	if *index < 1 || *index > suggestionCount {
-		return nil, serverapi.WorkflowRequestValidationError{
-			Code:    serverapi.WorkflowRequestErrorInvalidValue,
-			Field:   "recommended_option_index",
-			Message: fmt.Sprintf("recommended option %d is invalid for %d suggestions", *index, suggestionCount),
-		}
-	}
-	return textutil.Pointer(index), nil
 }

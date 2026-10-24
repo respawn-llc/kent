@@ -7,7 +7,13 @@ import {
   type DescOneof,
   type Message,
 } from "@bufbuild/protobuf";
-import { reflect } from "@bufbuild/protobuf/reflect";
+import {
+  isReflectList,
+  isReflectMap,
+  isReflectMessage,
+  reflect,
+  type ReflectMessage,
+} from "@bufbuild/protobuf/reflect";
 import {
   kent_result_field,
   ResultFieldRole,
@@ -31,12 +37,34 @@ export function classifyResultFailure(
 }
 
 export function validateResultErrorDetail(resultDescriptor: DescMessage, result: Message): void {
-  const errorDescriptor = inspectResultError(resultDescriptor);
-  const reflectedResult = reflect(resultDescriptor, result);
-  if (reflectedResult.oneofCase(resultOutcome(withResultOptions(errorDescriptor))) !== errorDescriptor)
-    return;
-  const convention = inspectError(errorDescriptor.message);
-  const reflected = reflectedResult.get(errorDescriptor);
+  inspectResultError(resultDescriptor);
+  validateMessageErrorDetails(reflect(resultDescriptor, result));
+}
+
+function validateMessageErrorDetails(reflected: ReflectMessage): void {
+  if (
+    reflected.fields.some(
+      (field) =>
+        hasOption(field, kent_result_field) &&
+        getOption(field, kent_result_field).role === ResultFieldRole.ERROR_CODE,
+    )
+  ) {
+    validateErrorDetail(reflected, inspectError(reflected.desc));
+  }
+  for (const field of reflected.fields) {
+    if (reflected.isSet(field)) validateNestedErrorDetails(reflected.get(field));
+  }
+}
+
+function validateNestedErrorDetails(value: unknown): void {
+  if (isReflectMessage(value)) {
+    validateMessageErrorDetails(value);
+  } else if (isReflectList(value) || isReflectMap(value)) {
+    for (const nested of value.values()) validateNestedErrorDetails(nested);
+  }
+}
+
+function validateErrorDetail(reflected: ReflectMessage, convention: ErrorConvention): void {
   const code = reflected.get(convention.code);
   const selectedDetail = reflected.oneofCase(convention.detail);
   const requiredDetail = convention.detailByCode.get(code);
@@ -45,12 +73,12 @@ export function validateResultErrorDetail(resultDescriptor: DescMessage, result:
   }
   if (selectedDetail === undefined) {
     throw new Error(
-      `${errorDescriptor.message.typeName} known error code ${code} requires detail ${requiredDetail.name}`,
+      `${reflected.desc.typeName} known error code ${code} requires detail ${requiredDetail.name}`,
     );
   }
   if (selectedDetail !== requiredDetail) {
     throw new Error(
-      `${errorDescriptor.message.typeName} known error code ${code} requires detail ${requiredDetail.name}, got ${selectedDetail.name}`,
+      `${reflected.desc.typeName} known error code ${code} requires detail ${requiredDetail.name}, got ${selectedDetail.name}`,
     );
   }
 }

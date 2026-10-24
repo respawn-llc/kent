@@ -1109,6 +1109,11 @@ message DeleteProjectRequest {
 }
 
 message DeleteProjectSuccess {
+  option (buf.validate.message).cel = {
+    id: "project_delete.outcome"
+    message: "deleted must be true exactly when there are no blockers"
+    expression: "this.deleted == (size(this.blockers) == 0)"
+  };
   string project_id = 1 [(buf.validate.field).string.min_len = 1];
   bool deleted = 2;
   repeated ProjectDeleteBlocker blockers = 3 [(buf.validate.field).repeated.max_items = 2];

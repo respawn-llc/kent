@@ -38,7 +38,7 @@ func runtimeControlGeneratedError(failure runtimeControlFailure) error {
 	if value, ok := failure.(interface {
 		GetPendingWorkNotPending() *runtimepb.PendingWorkNotPendingDetails
 	}); ok && value.GetPendingWorkNotPending() != nil {
-		id, err := runtimeids.ParseQueueItemID(value.GetPendingWorkNotPending().ItemId)
+		id, err := runtimeids.QueueItemIDFromProto(value.GetPendingWorkNotPending().ItemId)
 		if err != nil {
 			return err
 		}

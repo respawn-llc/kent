@@ -317,19 +317,24 @@ function nativeNotification(notification: AttentionNotification, t: Translate): 
 function nativeTarget(target: AttentionNotification["target"]): NativeNotificationTarget | null {
   if (target.kind === "session_prompt") return target;
   const focus = taskDetailInitialFocus(target.focus);
-  if (focus.kind === "question" && focus.askIDs.length === 0) {
-    return null;
-  }
   if (focus.kind === "dependencies") {
     return null;
+  }
+  if (focus.kind === "question") {
+    const firstAskID = focus.askIDs[0];
+    if (firstAskID === undefined) {
+      return null;
+    }
+    return {
+      kind: "task_detail",
+      taskID: target.taskID,
+      focus: { kind: "question", askIDs: [firstAskID, ...focus.askIDs.slice(1)] },
+    };
   }
   return {
     kind: "task_detail",
     taskID: target.taskID,
-    focus:
-      focus.kind === "question"
-        ? { kind: "question", askIDs: [focus.askIDs[0] ?? "", ...focus.askIDs.slice(1)] }
-        : focus,
+    focus,
   };
 }
 

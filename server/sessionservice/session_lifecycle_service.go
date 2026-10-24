@@ -112,9 +112,6 @@ func (s *SessionLifecycleService) resolvePersistedSessionMeta(ctx context.Contex
 }
 
 func (s *SessionLifecycleService) Promote(ctx context.Context, req *sessionlaunchpb.SessionPromoteRequest) (*emptypb.Empty, error) {
-	if err := protoapi.Validate(req); err != nil {
-		return nil, err
-	}
 	id, err := s.metadata.ResolveSessionTarget(ctx, req.SessionId)
 	if err != nil {
 		return nil, err

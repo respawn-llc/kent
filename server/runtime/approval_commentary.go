@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"strings"
 
 	"core/server/llm"
 	"core/server/tools"
@@ -16,9 +15,6 @@ import (
 func (e *Engine) SubmitExactApprovalCommentary(identity tools.ExecutionIdentity, commentary string) error {
 	if e == nil {
 		return ErrEngineClosed
-	}
-	if strings.TrimSpace(commentary) == "" {
-		return errors.New("Approval commentary is required")
 	}
 	if err := e.validateExactApprovalCommentary(identity); err != nil {
 		return err

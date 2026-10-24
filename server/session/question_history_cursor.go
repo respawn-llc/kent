@@ -25,9 +25,6 @@ func OpenQuestionHistoryCursor(
 	sessionDir string,
 	maxHandoffs int,
 ) (_ *QuestionHistoryCursor, resultErr error) {
-	if maxHandoffs < 1 {
-		return nil, fmt.Errorf("maximum handoffs must be positive: %d", maxHandoffs)
-	}
 	path := filepath.Join(sessionDir, eventsFile)
 	fp, err := openRegularSessionFile(path, "Question-history event log")
 	if err != nil {

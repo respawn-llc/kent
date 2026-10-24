@@ -74,7 +74,9 @@ func TestCommittedRuntimeWriteRefreshesIdleLifetime(t *testing.T) {
 			t.Fatal(err)
 		}
 		time.Sleep(2 * time.Minute)
-		if err := service.AppendSessionEntry(t.Context(), sessionID.String(), "system", "accepted"); err != nil {
+		if err := service.AppendCommittedEntry(t.Context(), &transcriptpb.AppendCommittedEntryRequest{
+			SessionId: sessionID.String(), Role: "system", Text: "accepted",
+		}); err != nil {
 			t.Fatal(err)
 		}
 		time.Sleep(2 * time.Minute)

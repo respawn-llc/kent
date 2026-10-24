@@ -47,17 +47,11 @@ func (c Collector) CollectBase(req Request) Snapshot {
 			contextInfo.AvailableTokens = 0
 		}
 		if status.PreviousSessionId != nil {
-			id, err := runtimeids.ParseSessionID(*status.PreviousSessionId)
-			if err != nil {
-				panic(err)
-			}
+			id := runtimeids.SessionIDFromProto(*status.PreviousSessionId)
 			previousSessionID = &id
 		}
 		if status.ParentAgentSessionId != nil {
-			id, err := runtimeids.ParseSessionID(*status.ParentAgentSessionId)
-			if err != nil {
-				panic(err)
-			}
+			id := runtimeids.SessionIDFromProto(*status.ParentAgentSessionId)
 			parentAgentSessionID = &id
 		}
 		compactionCount = int(status.CompactionCount)

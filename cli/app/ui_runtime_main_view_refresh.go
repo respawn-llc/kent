@@ -113,12 +113,10 @@ func (m *uiModel) applyRuntimeSessionMetadata(session *runtimepb.SessionView) te
 	}
 	previousSessionID := strings.TrimSpace(m.sessionID)
 	nextSessionID := strings.TrimSpace(session.SessionId)
-	if nextSessionID != "" {
-		m.sessionID = nextSessionID
-	}
+	m.sessionID = nextSessionID
 	m.sessionName = session.SessionName
 	m.conversationFreshness = session.ConversationFreshness
-	if previousSessionID == "" || nextSessionID == "" || previousSessionID == nextSessionID {
+	if previousSessionID == "" || previousSessionID == nextSessionID {
 		return nil
 	}
 	rollbackCmd := m.discardRollbackStateForSessionReplacement()

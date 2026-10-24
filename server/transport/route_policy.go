@@ -70,10 +70,7 @@ func (e routePolicyExecutor) authorizeScopeFacts(
 		scopeParams.sessionID = id.String()
 	}
 	if scopeParams.sessionID != "" {
-		id, err := runtimeids.ParseSessionID(scopeParams.sessionID)
-		if err != nil {
-			return err
-		}
+		id := runtimeids.SessionIDFromProto(scopeParams.sessionID)
 		return e.gateway.authorizeResolvedSession(ctx, id, func() error {
 			return e.authorizeResolvedScope(ctx, state, scope, method, scopeParams)
 		})
@@ -200,9 +197,6 @@ func (g *Gateway) requireSessionInActiveProject(ctx context.Context, state *conn
 	if err != nil {
 		return err
 	}
-	if trimmedSessionID == "" {
-		return fmt.Errorf("session id is required")
-	}
 	metadataStore := g.deps.MetadataStore()
 	if metadataStore == nil {
 		return errors.New("metadata store is required")
@@ -286,9 +280,6 @@ func (g *Gateway) requireProjectWorkspaceBinding(
 
 func (g *Gateway) requireRuntimeLiveSession(ctx context.Context, sessionID string) error {
 	trimmedSessionID := strings.TrimSpace(sessionID)
-	if trimmedSessionID == "" {
-		return serverapi.ErrRuntimeUnavailable
-	}
 	metadataStore := g.deps.MetadataStore()
 	if metadataStore == nil {
 		return serverapi.ErrRuntimeUnavailable

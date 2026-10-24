@@ -581,7 +581,7 @@ describe("mounted Chat Runtime owner", () => {
       pages: [
         Promise.resolve({
           ...transcriptPage(null),
-          hasMoreAbove: true,
+          entries: [row(11), row(10)],
         }),
       ],
     });

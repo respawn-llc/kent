@@ -1911,18 +1911,6 @@ func (s *Store) ListSessionPage(
 		return SessionPage{}, errors.New("metadata store is required")
 	}
 	trimmedProjectID := strings.TrimSpace(projectID)
-	if trimmedProjectID == "" || trimmedProjectID != projectID {
-		return SessionPage{}, errors.New("project_id is invalid")
-	}
-	if _, err := sessioncontract.ParseSessionCategory(string(category)); err != nil {
-		return SessionPage{}, err
-	}
-	if offset < 0 {
-		return SessionPage{}, errors.New("offset must be non-negative")
-	}
-	if limit < 1 || limit > MaxSessionPageSize {
-		return SessionPage{}, fmt.Errorf("limit must be between 1 and %d", MaxSessionPageSize)
-	}
 	rows, err := s.queries.ListSessionPage(ctx, sqlitegen.ListSessionPageParams{
 		ProjectID:  trimmedProjectID,
 		Category:   sql.NullString{String: string(category), Valid: true},

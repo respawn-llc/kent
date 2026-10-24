@@ -111,8 +111,8 @@ func writeSessionReattachAuthorityKey(path string, key []byte) error {
 
 func (a *sessionReattachAuthority) issue(sessionID string) (string, error) {
 	sessionID = strings.TrimSpace(sessionID)
-	if a == nil || sessionID == "" {
-		return "", errors.New("Session reattach authority and Session ID are required")
+	if a == nil {
+		return "", errors.New("Session reattach authority is required")
 	}
 	return base64.RawURLEncoding.EncodeToString(a.signCapability(nil, []byte(sessionID))), nil
 }

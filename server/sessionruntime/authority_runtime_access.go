@@ -35,9 +35,6 @@ func (a *Authority) WithCurrentRuntime(ctx context.Context, sessionID runtimeids
 	if a == nil {
 		return errors.New("session runtime authority is required")
 	}
-	if sessionID.IsZero() {
-		return errors.New("session id is required")
-	}
 	a.mu.Lock()
 	resource := a.resources[sessionID]
 	a.mu.Unlock()
@@ -177,9 +174,6 @@ func (a *Authority) InterruptSession(
 ) (bool, error) {
 	if a == nil {
 		return false, errors.New("session runtime authority is required")
-	}
-	if sessionID.IsZero() {
-		return false, errors.New("session id is required")
 	}
 	if ctx == nil {
 		ctx = context.Background()
