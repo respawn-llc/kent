@@ -1,0 +1,108 @@
+name: One-off current test I/O
+
+on:
+  push:
+    branches: [measure/combined-test-writes]
+
+permissions:
+  contents: read
+
+jobs:
+  measure:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v7.0.0
+        with:
+          persist-credentials: false
+      - uses: actions/setup-go@v6.5.0
+        with:
+          go-version-file: go.mod
+          cache: false
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version-file: apps/package.json
+      - uses: extractions/setup-just@v3
+      - name: Install test tool
+        run: sudo apt-get update && sudo apt-get install -y ripgrep
+      - name: Measure native counters across phases
+        shell: bash
+        run: |
+          set -euo pipefail
+          report="$RUNNER_TEMP/test-io"
+          mkdir "$report"
+          {
+            git rev-parse HEAD HEAD^
+            echo "Product source: stacked merge152e77b596deefd7a9767bc605339875b353e2c3"
+            echo "Includes PR984 f470b8b852cf2bf1b8bc742767ee3d5dccf2c0bc and PR1025 7723f21b0c6925a990657976da4830d9e42c9f20."
+            uname -a
+            go version
+            bun --version
+            just --version
+            nproc
+            findmnt -T "$GITHUB_WORKSPACE" -o SOURCE,FSTYPE,MAJ:MIN,OPTIONS
+            lsblk --json -o NAME,MAJ:MIN,TYPE,PKNAME,MOUNTPOINTS
+            cat /proc/self/cgroup /sys/fs/cgroup/cgroup.controllers
+          } > "$report/environment.txt"
+          test "$(stat -fc %T /sys/fs/cgroup)" = cgroup2fs
+          sudo sh -c 'echo +io > /sys/fs/cgroup/cgroup.subtree_control'
+          group="/sys/fs/cgroup/kent-measure-$GITHUB_RUN_ID"
+          sudo mkdir "$group"
+          test -r "$group/io.stat"
+          echo "$$" | sudo tee "$group/cgroup.procs"
+          export GOCACHE="$RUNNER_TEMP/measured-go-cache"
+          export GOMODCACHE="$RUNNER_TEMP/measured-go-modules"
+          export BUN_INSTALL_CACHE_DIR="$RUNNER_TEMP/measured-bun-cache"
+          {
+            echo "GOCACHE=$GOCACHE"
+            echo "GOMODCACHE=$GOMODCACHE"
+            echo "BUN_INSTALL_CACHE_DIR=$BUN_INSTALL_CACHE_DIR"
+            cat "$group/cgroup.controllers" "$group/cgroup.events"
+          } > "$report/measurement.txt"
+          snapshot() {
+            sync
+            cp "$group/io.stat" "$report/$1.io.stat"
+            cp "/proc/$$/io" "$report/$1.proc.io"
+            date --iso-8601=ns > "$report/$1.time"
+          }
+          phase() {
+            local name="$1" status
+            shift
+            echo "$name: $*" >> "$report/commands.txt"
+            snapshot "$name.before"
+            set +e
+            "$@" > "$report/$name.log" 2>&1
+            status=$?
+            set -e
+            snapshot "$name.after"
+            echo "$status" > "$report/$name.exit"
+            if [ "$status" -ne 0 ]; then
+              cat "$report/$name.log"
+              return "$status"
+            fi
+          }
+          phase dependencies just install _go-dependencies
+          phase apps-dependencies just install _apps-dependencies
+          phase compile-and-package-init just test server -- ./... -run "'^$'"
+          # Remove result-cache entries only. Compiler cache stays warm.
+          go clean -testcache
+          phase warm-default-tests just test
+          {
+            echo "Cgroup io.stat counters are per-device block I/O, not SSD wear."
+            echo "proc write_bytes is page-dirty accounting; wchar includes pipes."
+            echo "One cgroup retains dependency/compiler/test inode ownership."
+            echo "Phase sync includes delayed writeback; reused toolchain/inodes may be charged elsewhere."
+            echo "proc counters include waited-for descendants, not escaped orphan processes."
+            echo "Compile phase runs package initialization but selects no tests; skips PTY fixture preparation."
+            echo "Warm default command executes all Go, PTY/integration and Desktop tests after result-cache clearing."
+            echo "Warm command includes normal fixture builds, generation, test output and measurement overhead."
+            echo "Toolchain setup and apt installation are outside the measured cgroup."
+            echo "No comparison baseline; this is remaining current-run cost on this Linux runner, not macOS SSD writes."
+            echo "Combined PR984+PR1025 stack only; neither PR nor main was merged or modified."
+          } > "$report/limits.txt"
+      - uses: actions/upload-artifact@v7.0.1
+        if: always()
+        with:
+          name: current-test-io
+          path: ${{ runner.temp }}/test-io
+          if-no-files-found: error
