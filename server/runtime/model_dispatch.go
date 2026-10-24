@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io"
 
 	"core/server/llm"
 )
@@ -21,6 +22,7 @@ func (e *cacheObservationDispatchError) Unwrap() error {
 }
 
 type observedModelClient struct {
+	close                func() error
 	generate             func(context.Context, cacheObservedRequest, llm.StreamCallbacks, func()) (llm.Response, error)
 	compact              func(context.Context, cacheObservedRequest, func()) (llm.CompactionResponse, error)
 	providerCapabilities func(context.Context) (llm.ProviderCapabilities, error)
@@ -63,7 +65,17 @@ func newObservedModelClient(client llm.Client) *observedModelClient {
 	if provider, ok := client.(llm.ProviderCapabilitiesClient); ok {
 		observed.providerCapabilities = provider.ProviderCapabilities
 	}
+	if closer, ok := client.(io.Closer); ok {
+		observed.close = closer.Close
+	}
 	return observed
+}
+
+func (c *observedModelClient) Close() error {
+	if c == nil || c.close == nil {
+		return nil
+	}
+	return c.close()
 }
 
 func (c *observedModelClient) generateObserved(ctx context.Context, request cacheObservedRequest, callbacks llm.StreamCallbacks, onProviderReturn func()) (llm.Response, error) {

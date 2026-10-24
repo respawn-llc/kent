@@ -151,7 +151,15 @@ export type ChatNotice = Readonly<{
 export type ChatCommittedRow = Readonly<{
   Visibility: "ongoing" | "ongoing_collapsed" | "detail" | "hidden";
   Integrity: 0 | 1 | 2;
-  Kind: "user" | "assistant" | "tool" | "reasoning_trace" | "notice" | "reviewer_feedback" | "reviewer_error";
+  Kind:
+    | "user"
+    | "assistant"
+    | "tool"
+    | "tool_call"
+    | "reasoning_trace"
+    | "notice"
+    | "reviewer_feedback"
+    | "reviewer_error";
   Locator: Readonly<{ event_sequence: number; row_ordinal: number }>;
   User: Readonly<{
     StepID?: string | null;
@@ -184,6 +192,7 @@ export type ChatCommittedRow = Readonly<{
     AnsweredBySessionShortID: bigint | null;
     WebSearch?: ChatWebSearchDetail | null;
   }> | null;
+  ToolCall: ChatTranscriptPayloadByKind["tool_start"] | null;
   ReasoningTrace: Readonly<{
     StepID: string;
     CompactText: string;
@@ -200,7 +209,12 @@ export type ChatCommittedRow = Readonly<{
   }> | null;
   ReviewerError: Readonly<{ ID: string; StepID: string; Detail: string }> | null;
 }>;
-type AssistantFacts = Readonly<{ StepID: string; StreamID: string; Phase: "commentary" | "final_answer" }>;
+type AssistantFacts = Readonly<{
+  StepID: string;
+  StreamID: string;
+  Phase: "commentary" | "final_answer";
+  OutputIndex?: number;
+}>;
 export interface ChatTranscriptPayloadByKind {
   hydration: Readonly<{
     ConnectionReplacement: ChatTranscriptPayloadByKind["connection_replaced"] | null;
@@ -212,7 +226,7 @@ export interface ChatTranscriptPayloadByKind {
       HasMoreAbove: boolean;
       Entries: readonly ChatCommittedRow[];
     }>;
-    ActiveAssistant: (AssistantFacts & Readonly<{ Text: string }>) | null;
+    ActiveAssistants: readonly (AssistantFacts & Readonly<{ Text: string }>)[];
     ActiveThinkingStatus: ChatTranscriptPayloadByKind["thinking_status_update"] | null;
     ActiveReasoningTraces: readonly ChatTranscriptPayloadByKind["reasoning_trace_update"][];
     ActiveStep: ChatTranscriptPayloadByKind["step_state"] | null;
@@ -233,6 +247,7 @@ export interface ChatTranscriptPayloadByKind {
   }>;
   thinking_status_update: Readonly<{ StepID: string; Text: string }>;
   reasoning_trace_update: Readonly<{
+    OutputIndex?: number;
     StepID: string;
     Identity: ChatReasoningIdentity;
     CompactText: string;
@@ -240,6 +255,7 @@ export interface ChatTranscriptPayloadByKind {
   }>;
   reasoning_trace_reset: Readonly<{ StepID: string }>;
   tool_start: Readonly<{
+    OutputIndex?: number;
     StepID: string;
     ToolCallID: string;
     ToolName: string;

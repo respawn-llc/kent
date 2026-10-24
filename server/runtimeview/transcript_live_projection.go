@@ -34,6 +34,9 @@ func transcriptAssistantIdentity(step *string, stream *uuid.UUID, phase llm.Mess
 	if stream == nil {
 		return "", "", transcriptpb.AssistantPhase_ASSISTANT_PHASE_UNSPECIFIED, fmt.Errorf("runtime assistant stream is missing its identity")
 	}
+	if _, err := runtimeids.ParseAssistantStreamID(stream.String()); err != nil {
+		return "", "", transcriptpb.AssistantPhase_ASSISTANT_PHASE_UNSPECIFIED, err
+	}
 	projectedPhase, err := transcriptAssistantPhase(transcript.AssistantPhase(phase))
 	if err != nil {
 		return "", "", transcriptpb.AssistantPhase_ASSISTANT_PHASE_UNSPECIFIED, err

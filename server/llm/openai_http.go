@@ -69,6 +69,8 @@ type HTTPTransport struct {
 
 	mu                  sync.RWMutex
 	modelContextWindows map[string]int
+	generationMu        sync.Mutex
+	socket              *responsesGenerationSocket
 }
 
 func NewHTTPTransport(auth DispatchAuthProvider, registration ProviderVariantRegistration) (*HTTPTransport, error) {
@@ -95,6 +97,9 @@ func (t *HTTPTransport) Generate(ctx context.Context, request ResponsesRequest, 
 	defer func() { t.identifyProviderError(err) }()
 	if t.Client == nil {
 		t.Client = NewHTTPClient(120 * time.Second)
+	}
+	if t.registration.Variant.generationProtocol == responsesWebsocket {
+		return t.generateWebsocket(ctx, request, callbacks)
 	}
 	preparation, err := t.prepareDispatch(
 		ctx,
@@ -317,19 +322,6 @@ type responsesStatus struct {
 	Code int
 }
 
-type providerContractErrorWithoutStatus struct {
-	ProviderID string
-	Err        error
-}
-
-func (e *providerContractErrorWithoutStatus) Error() string {
-	return fmt.Sprintf("%s provider contract error without HTTP response status: %v", e.ProviderID, e.Err)
-}
-
-func (e *providerContractErrorWithoutStatus) Unwrap() error {
-	return e.Err
-}
-
 func newResponsesStatus(rawResp *http.Response) *responsesStatus {
 	if rawResp == nil {
 		return nil
@@ -338,10 +330,11 @@ func newResponsesStatus(rawResp *http.Response) *responsesStatus {
 }
 
 func newOpenAIProviderContractError(providerID string, rawResp *http.Response, cause error) error {
-	if rawResp == nil {
-		return &providerContractErrorWithoutStatus{ProviderID: providerID, Err: cause}
+	var status *int
+	if rawResp != nil && rawResp.StatusCode != http.StatusSwitchingProtocols {
+		status = &rawResp.StatusCode
 	}
-	providerErr := llmerrors.NewProviderContractError(providerID, rawResp.StatusCode, cause)
+	providerErr := llmerrors.NewProviderContractError(providerID, status, cause)
 	enrichProviderAPIErrorFromResponseHeaders(providerErr, rawResp)
 	return providerErr
 }
@@ -350,7 +343,7 @@ func newOpenAIResponsesStreamPrematureEndError(providerID string, rawResp *http.
 	message := cause.Error()
 	providerErr := &ProviderAPIError{
 		ProviderID: providerID,
-		StatusCode: rawResp.StatusCode,
+		StatusCode: textutil.Value(rawResp.StatusCode),
 		Code:       UnifiedErrorCodeUnknown,
 		Message:    message,
 		Raw:        message,
@@ -370,7 +363,7 @@ func callerCanceledStreamRead(ctx context.Context) bool {
 func (t *HTTPTransport) streamingHTTPClient() *http.Client {
 	transport := t.Client.Transport
 	if transport == nil {
-		transport = sharedHTTPTransport
+		transport = http.DefaultTransport
 	}
 	return &http.Client{Transport: transport}
 }
@@ -418,20 +411,30 @@ func (t *HTTPTransport) prepareDispatch(
 	dispatch *CodexDispatchContext,
 	fastMode bool,
 ) (responsesDispatchPreparation, error) {
-	if sessionID == nil {
-		return responsesDispatchPreparation{}, fmt.Errorf("%w: Session identity is required for dispatch", ErrInvalidRequest)
-	}
-	if err := validateSessionDispatchPairing(sessionID, dispatch); err != nil {
+	if err := validateResponsesDispatchIdentity(sessionID, dispatch); err != nil {
 		return responsesDispatchPreparation{}, err
 	}
 	authHeader, mode, err := t.resolveAuth(ctx)
 	if err != nil {
 		return responsesDispatchPreparation{}, err
 	}
+	preparation, err := t.projectDispatch(*sessionID, model, dispatch, fastMode, mode)
+	preparation.authHeader = authHeader
+	return preparation, err
+}
+
+func validateResponsesDispatchIdentity(sessionID *string, dispatch *CodexDispatchContext) error {
+	if sessionID == nil {
+		return fmt.Errorf("%w: Session identity is required for dispatch", ErrInvalidRequest)
+	}
+	return validateSessionDispatchPairing(sessionID, dispatch)
+}
+
+func (t *HTTPTransport) projectDispatch(sessionID string, model string, dispatch *CodexDispatchContext, fastMode bool, mode OpenAIAuthMode) (responsesDispatchPreparation, error) {
 	variant := t.registration.Variant
 	providerCaps := t.providerCapabilitiesForVariant(variant)
 	projection, err := variant.ResponsesPolicy.prepareDispatch(
-		*sessionID,
+		sessionID,
 		model,
 		dispatch,
 		effectiveServiceTier(fastMode, t.effectiveRequestCapabilities(providerCaps)),
@@ -448,7 +451,6 @@ func (t *HTTPTransport) prepareDispatch(
 		dispatch.bindTurnState(accountID, t.serviceBaseURL())
 	}
 	return responsesDispatchPreparation{
-		authHeader:   authHeader,
 		mode:         mode,
 		variant:      variant,
 		providerCaps: providerCaps,
@@ -461,7 +463,7 @@ func (t *HTTPTransport) compactResponsesTriggerV2(ctx context.Context, request R
 	if err != nil {
 		return ResponsesCompactionResponse{}, err
 	}
-	applyCodexClientMetadata(&payload, projection)
+	applyCodexClientMetadata(&payload, projection, nil)
 	compressionOption := requestCompressionOption(variant)
 	service := responses.NewResponseService(
 		option.WithBaseURL(t.serviceBaseURL()),
@@ -514,7 +516,12 @@ func (t *HTTPTransport) compactResponsesTriggerV2(ctx context.Context, request R
 	if err != nil {
 		return ResponsesCompactionResponse{}, err
 	}
-	checkpoint, err := requireSingleEncryptedCompactionOutput(response.OutputItems)
+	// Compaction's HTTP checkpoint stream retains its existing done-item contract.
+	outputItems := response.OutputItems
+	if len(outputItems) == 0 {
+		outputItems = accumulator.passthrough.Items()
+	}
+	checkpoint, err := requireSingleEncryptedCompactionOutput(outputItems)
 	if err != nil {
 		return ResponsesCompactionResponse{}, newOpenAIProviderContractError(variant.ProviderID, rawResp, err)
 	}

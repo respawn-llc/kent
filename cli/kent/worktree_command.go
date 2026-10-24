@@ -575,10 +575,14 @@ func openWorktreeCommandRemote(ctx context.Context, sessionID runtimeids.Session
 	if err != nil {
 		return nil, err
 	}
-	cfg, err := config.LoadConnectionDiscovery(configRoot, config.LoadOptions{})
+	cfg, err := loadCommandConnection(configRoot)
 	if err != nil {
 		return nil, err
 	}
+	return dialWorktreeSessionRemote(ctx, cfg, sessionID)
+}
+
+func dialWorktreeSessionRemote(ctx context.Context, cfg config.Connection, sessionID runtimeids.SessionSelector) (*client.Remote, error) {
 	dialCtx, cancel := context.WithTimeout(ctx, worktreeCommandTimeout)
 	defer cancel()
 	remote, err := client.DialConfiguredRemoteForSession(dialCtx, cfg, sessionID.String())
@@ -646,7 +650,7 @@ func openWorktreeManagementRemote(ctx context.Context, selection worktreeSelecti
 			binding.WorkspaceID = response.Workspaces[0].WorkspaceId
 		}
 	} else if sessionID != nil {
-		sessionRemote, err := openWorktreeCommandRemote(ctx, sessionID)
+		sessionRemote, err := dialWorktreeSessionRemote(ctx, cfg, sessionID)
 		if err != nil {
 			return nil, serverapi.ProjectBinding{}, err
 		}

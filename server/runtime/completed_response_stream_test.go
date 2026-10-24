@@ -68,7 +68,7 @@ func TestCompletedResponseActiveStreamFinalizesOnce(t *testing.T) {
 	if delta == nil || assistant == nil || reset == nil ||
 		delta.AssistantTranscriptStreamID == nil ||
 		reset.AssistantTranscriptStreamID == nil ||
-		assistant.AssistantTranscriptStreamID != nil ||
+		len(assistant.AssistantStreamCorrelations) != 0 ||
 		assistant.Message.Role != llm.RoleAssistant ||
 		assistant.Message.Phase == nil ||
 		*assistant.Message.Phase != llm.MessagePhaseFinal ||
@@ -435,7 +435,7 @@ func TestCompletedResponseWithoutActiveStreamPublishesNoStreamTerminal(t *testin
 	if assistant == nil ||
 		resetCount != 0 ||
 		assistant.AssistantStreamMetadata != nil ||
-		assistant.AssistantTranscriptStreamID != nil ||
+		len(assistant.AssistantStreamCorrelations) != 0 ||
 		assistant.Message.Role != llm.RoleAssistant ||
 		assistant.Message.Phase == nil ||
 		*assistant.Message.Phase != llm.MessagePhaseFinal ||
@@ -661,7 +661,7 @@ func assertSupersededStreamPrecedesFinalContinuation(t *testing.T, events []Even
 		firstDelta.AssistantTranscriptStreamID == nil ||
 		firstReset.AssistantTranscriptStreamID == nil ||
 		secondDelta.AssistantTranscriptStreamID == nil ||
-		finalAssistant.AssistantTranscriptStreamID == nil ||
+		len(finalAssistant.AssistantStreamCorrelations) != 1 ||
 		finalAssistant.Message.Role != llm.RoleAssistant ||
 		finalAssistant.Message.Phase == nil ||
 		*finalAssistant.Message.Phase != llm.MessagePhaseFinal ||
@@ -677,14 +677,14 @@ func assertSupersededStreamPrecedesFinalContinuation(t *testing.T, events []Even
 	}
 	if *firstDelta.AssistantTranscriptStreamID != *firstReset.AssistantTranscriptStreamID ||
 		*firstDelta.AssistantTranscriptStreamID == *secondDelta.AssistantTranscriptStreamID ||
-		*secondDelta.AssistantTranscriptStreamID != *finalAssistant.AssistantTranscriptStreamID {
+		*secondDelta.AssistantTranscriptStreamID != finalAssistant.AssistantStreamCorrelations[0].StreamID {
 		t.Fatalf(
 			"%s stream UUIDs = first:%s reset:%s second:%s final:%s",
 			label,
 			*firstDelta.AssistantTranscriptStreamID,
 			*firstReset.AssistantTranscriptStreamID,
 			*secondDelta.AssistantTranscriptStreamID,
-			*finalAssistant.AssistantTranscriptStreamID,
+			finalAssistant.AssistantStreamCorrelations[0].StreamID,
 		)
 	}
 	if firstDeltaIndex >= firstResetIndex ||
@@ -782,7 +782,7 @@ func TestCompletedResponseFinalAnswerWithToolsFinalizesAfterToolPersistence(t *t
 
 	if delta == nil || toolStart == nil || toolCompletion == nil || finalAssistant == nil || terminal == nil ||
 		delta.AssistantTranscriptStreamID == nil ||
-		finalAssistant.AssistantTranscriptStreamID == nil ||
+		len(finalAssistant.AssistantStreamCorrelations) != 1 ||
 		terminal.AssistantTranscriptStreamID == nil ||
 		finalAssistant.Message.Role != llm.RoleAssistant ||
 		finalAssistant.Message.Phase == nil ||
@@ -811,12 +811,12 @@ func TestCompletedResponseFinalAnswerWithToolsFinalizesAfterToolPersistence(t *t
 			events,
 		)
 	}
-	if *delta.AssistantTranscriptStreamID != *finalAssistant.AssistantTranscriptStreamID ||
+	if *delta.AssistantTranscriptStreamID != finalAssistant.AssistantStreamCorrelations[0].StreamID ||
 		*delta.AssistantTranscriptStreamID != *terminal.AssistantTranscriptStreamID {
 		t.Fatalf(
 			"final-attached tool stream UUIDs = delta:%s final:%s terminal:%s",
 			*delta.AssistantTranscriptStreamID,
-			*finalAssistant.AssistantTranscriptStreamID,
+			finalAssistant.AssistantStreamCorrelations[0].StreamID,
 			*terminal.AssistantTranscriptStreamID,
 		)
 	}
@@ -1192,14 +1192,14 @@ func TestCompletedResponseFinalizationUsesActiveSegmentCoordinatesAfterCompactio
 	}
 	if delta == nil || finalized == nil ||
 		delta.AssistantTranscriptStreamID == nil ||
-		finalized.AssistantTranscriptStreamID == nil ||
+		len(finalized.AssistantStreamCorrelations) != 1 ||
 		delta.AssistantStreamMetadata == nil ||
 		!finalized.CommittedEntryStartSet {
 		t.Fatalf("post-compaction stream finalization events = %+v", events)
 	}
 	if delta.AssistantStreamMetadata.BaseCommittedEntryCount != finalized.CommittedEntryStart ||
 		finalized.CommittedEntryStart < activeSegmentStart ||
-		*delta.AssistantTranscriptStreamID != *finalized.AssistantTranscriptStreamID {
+		*delta.AssistantTranscriptStreamID != finalized.AssistantStreamCorrelations[0].StreamID {
 		t.Fatalf(
 			"post-compaction stream coordinates = delta:%+v finalized:%+v active_segment_start=%d",
 			delta,
@@ -1227,11 +1227,11 @@ func TestCompletedResponseFinalizationUsesActiveSegmentCoordinatesAfterCompactio
 	if hydratedAssistant == nil ||
 		hydratedAssistant.Assistant == nil ||
 		hydratedAssistant.Assistant.StreamID == nil ||
-		*hydratedAssistant.Assistant.StreamID != *finalized.AssistantTranscriptStreamID {
+		*hydratedAssistant.Assistant.StreamID != finalized.AssistantStreamCorrelations[0].StreamID {
 		t.Fatalf(
 			"hydrated post-compaction assistant = %+v, finalized stream=%+v",
 			hydratedAssistant,
-			finalized.AssistantTranscriptStreamID,
+			finalized.AssistantStreamCorrelations[0].StreamID,
 		)
 	}
 }

@@ -67,7 +67,7 @@ func (t *HTTPTransport) buildDispatchPayload(
 	if err != nil {
 		return responses.ResponseNewParams{}, err
 	}
-	applyCodexClientMetadata(&payload, projection)
+	applyCodexClientMetadata(&payload, projection, nil)
 	return payload, nil
 }
 
@@ -152,15 +152,15 @@ func (b responsesRequestPayloadBuilder) BuildCompactV2(request ResponsesRequest,
 	return out, nil
 }
 
-func applyCodexClientMetadata(payload *responses.ResponseNewParams, projection *codexDispatchProjection) {
+func applyCodexClientMetadata(payload interface{ SetExtraFields(map[string]any) }, projection *codexDispatchProjection, turnState *string) {
 	if projection == nil {
 		return
 	}
-	payload.SetExtraFields(map[string]any{
-		"client_metadata": map[string]string{
-			"x-codex-turn-metadata": projection.TurnMetadataJSON,
-		},
-	})
+	metadata := map[string]string{"x-codex-turn-metadata": projection.TurnMetadataJSON}
+	if turnState != nil {
+		metadata[codexTurnStateHeader] = *turnState
+	}
+	payload.SetExtraFields(map[string]any{"client_metadata": metadata})
 }
 
 func (b responsesRequestPayloadBuilder) buildTools(requestTools []Tool, enableNativeWebSearch bool) ([]responses.ToolUnionParam, error) {

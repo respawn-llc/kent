@@ -1,5 +1,9 @@
 set working-directory := ".."
 
+[private]
+_prepare-openai:
+    GOOS= GOARCH= go run ./scripts/prepare-openai
+
 desktop:
     @bash scripts/quiet-on-success.sh just install _desktop
 
@@ -49,6 +53,7 @@ _go-dependencies:
 
 [private]
 _go-dependencies-implementation:
+    just install _prepare-openai
     go mod download
     go mod download -modfile=tools.mod
 

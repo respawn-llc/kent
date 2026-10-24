@@ -86,7 +86,7 @@ func clearMismatchedActiveFacts(hydration *transcriptpb.Hydration) {
 	}
 	active := hydration.RuntimeReadModelUpdate.Activity.ActiveStep
 	if active == nil {
-		hydration.ActiveAssistant = nil
+		hydration.ActiveAssistants = nil
 		hydration.ActiveThinkingStatus = nil
 		hydration.ActiveReasoningTraces = nil
 		hydration.ActiveStep = nil
@@ -94,9 +94,13 @@ func clearMismatchedActiveFacts(hydration *transcriptpb.Hydration) {
 		hydration.InFlightTools = nil
 		return
 	}
-	if hydration.ActiveAssistant != nil && hydration.ActiveAssistant.StepId != active.StepId {
-		hydration.ActiveAssistant = nil
+	assistants := hydration.ActiveAssistants[:0]
+	for _, assistant := range hydration.ActiveAssistants {
+		if assistant.StepId == active.StepId {
+			assistants = append(assistants, assistant)
+		}
 	}
+	hydration.ActiveAssistants = assistants
 	if hydration.ActiveThinkingStatus != nil && hydration.ActiveThinkingStatus.StepId != active.StepId {
 		hydration.ActiveThinkingStatus = nil
 	}

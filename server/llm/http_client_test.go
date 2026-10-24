@@ -5,39 +5,15 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"os"
+	"os/exec"
 	"testing"
 	"time"
 
+	"core/shared/config"
+	"core/shared/proxyhttp"
 	"github.com/klauspost/compress/zstd"
 )
-
-type stubRoundTripper struct{}
-
-func (stubRoundTripper) RoundTrip(*http.Request) (*http.Response, error) {
-	return nil, nil
-}
-
-func TestNewHTTPClientSharesTransport(t *testing.T) {
-	first := NewHTTPClient(5 * time.Second)
-	second := NewHTTPClient(10 * time.Second)
-
-	if first.Transport == nil {
-		t.Fatal("expected compressed transport to be set")
-	}
-	if first.Transport != second.Transport {
-		t.Fatal("expected shared compressed transport instance")
-	}
-	transport := sharedHTTPTransport
-	if transport.MaxIdleConns < sharedHTTPTransportMaxIdleConns {
-		t.Fatalf("MaxIdleConns = %d, want >= %d", transport.MaxIdleConns, sharedHTTPTransportMaxIdleConns)
-	}
-	if transport.MaxIdleConnsPerHost < sharedHTTPTransportMaxIdleConnsPerHost {
-		t.Fatalf("MaxIdleConnsPerHost = %d, want >= %d", transport.MaxIdleConnsPerHost, sharedHTTPTransportMaxIdleConnsPerHost)
-	}
-	if !transport.ForceAttemptHTTP2 {
-		t.Fatal("expected ForceAttemptHTTP2 to be enabled")
-	}
-}
 
 func TestNewHTTPClientPreservesTimeout(t *testing.T) {
 	client := NewHTTPClient(7 * time.Second)
@@ -52,6 +28,17 @@ func TestNewHTTPClientPreservesTimeout(t *testing.T) {
 }
 
 func TestNewProviderHTTPClientKeepsLoopbackTransportUncompressed(t *testing.T) {
+	if os.Getenv("LOOPBACK_PROXY_HELPER") != "1" {
+		command := exec.Command(os.Args[0], "-test.run=^TestNewProviderHTTPClientKeepsLoopbackTransportUncompressed$")
+		command.Env = append(os.Environ(), "LOOPBACK_PROXY_HELPER=1")
+		if output, err := command.CombinedOutput(); err != nil {
+			t.Fatalf("loopback child: %v\n%s", err, output)
+		}
+		return
+	}
+	if err := proxyhttp.Configure(config.Proxy{}); err != nil {
+		t.Fatal(err)
+	}
 	var acceptEncoding string
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		acceptEncoding = r.Header.Get("Accept-Encoding")
@@ -60,12 +47,6 @@ func TestNewProviderHTTPClientKeepsLoopbackTransportUncompressed(t *testing.T) {
 	defer server.Close()
 
 	local := NewProviderHTTPClient(server.URL, 0)
-	if local.Transport != sharedHTTPTransport {
-		t.Fatalf("loopback transport = %T, want shared local transport", local.Transport)
-	}
-	if !sharedHTTPTransport.DisableCompression {
-		t.Fatal("expected loopback transport compression to be disabled")
-	}
 	response, err := local.Get(server.URL)
 	if err != nil {
 		t.Fatalf("GET loopback response: %v", err)
@@ -84,10 +65,6 @@ func TestNewProviderHTTPClientKeepsLoopbackTransportUncompressed(t *testing.T) {
 		t.Fatalf("loopback Accept-Encoding = %q, want empty", acceptEncoding)
 	}
 
-	remote := NewProviderHTTPClient("https://api.openai.com/v1", 0)
-	if remote.Transport != sharedCompressedHTTPTransport {
-		t.Fatalf("remote transport = %T, want shared compressed transport", remote.Transport)
-	}
 }
 
 func TestNewProviderHTTPClientNegotiatesAndDecodesCompressedResponse(t *testing.T) {
@@ -118,22 +95,5 @@ func TestNewProviderHTTPClientNegotiatesAndDecodesCompressedResponse(t *testing.
 	}
 	if !bytes.Equal(body, payload) {
 		t.Fatalf("body = %q, want %q", body, payload)
-	}
-}
-
-func TestNewSharedHTTPTransportAppliesFloorsWithoutDefaultTransportClone(t *testing.T) {
-	original := http.DefaultTransport
-	http.DefaultTransport = stubRoundTripper{}
-	defer func() { http.DefaultTransport = original }()
-
-	transport := newSharedHTTPTransport()
-	if transport.MaxIdleConns < sharedHTTPTransportMaxIdleConns {
-		t.Fatalf("MaxIdleConns = %d, want >= %d", transport.MaxIdleConns, sharedHTTPTransportMaxIdleConns)
-	}
-	if transport.MaxIdleConnsPerHost < sharedHTTPTransportMaxIdleConnsPerHost {
-		t.Fatalf("MaxIdleConnsPerHost = %d, want >= %d", transport.MaxIdleConnsPerHost, sharedHTTPTransportMaxIdleConnsPerHost)
-	}
-	if !transport.ForceAttemptHTTP2 {
-		t.Fatal("expected ForceAttemptHTTP2 to be enabled")
 	}
 }

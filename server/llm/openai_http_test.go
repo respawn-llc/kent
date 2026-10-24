@@ -710,7 +710,7 @@ func TestGenerateSendsConfiguredProviderIdentityHeaders(t *testing.T) {
 	requestHeaders := make(chan http.Header, 1)
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		requestHeaders <- r.Header.Clone()
-		writeCompletedResponseSSE(w)
+		serveResponsesTestWebsocket(t, w, r, func(json.RawMessage) []string { return []string{completedResponseSSEJSON} })
 	}))
 	defer server.Close()
 
@@ -740,8 +740,8 @@ func TestNewOpenAIProviderContractErrorPreservesMissingResponseStatus(t *testing
 	if !errors.Is(err, cause) {
 		t.Fatalf("provider contract error does not preserve cause: %v", err)
 	}
-	var missingStatus *providerContractErrorWithoutStatus
-	if !errors.As(err, &missingStatus) {
+	var missingStatus *ProviderAPIError
+	if !errors.As(err, &missingStatus) || missingStatus.StatusCode != nil {
 		t.Fatalf("error = %T, want typed missing-status provider contract error", err)
 	}
 }

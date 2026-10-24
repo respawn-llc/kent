@@ -12,7 +12,6 @@ import (
 	"core/shared/clientui"
 	transcriptpb "core/shared/protoapi/gen/kent/api/transcript"
 	"core/shared/serverapi"
-	"core/shared/textutil"
 )
 
 const transcriptSubscriptionBufferSize = 256
@@ -210,11 +209,12 @@ func transcriptProjectionContractError(err error) error {
 
 type transcriptSubscriptionContract struct {
 	hydrated                 bool
-	activeStream             *string
+	activeStreams            map[string]struct{}
 	inFlightTools            map[clientui.ToolCallID]struct{}
 	hydratedEventSequence    int64
 	hasHydratedEventSequence bool
 	liveLocator              *transcriptpb.CommittedRowLocator
+	nativeToolCalls          map[clientui.ToolCallID]*transcriptpb.CommittedRow
 }
 
 func (c *transcriptSubscriptionContract) Validate(message *transcriptpb.Message) error {
@@ -233,8 +233,10 @@ func (c *transcriptSubscriptionContract) Validate(message *transcriptpb.Message)
 }
 
 func (c *transcriptSubscriptionContract) validateHydration(hydration *transcriptpb.Hydration) error {
-	if hydration.ActiveAssistant != nil {
-		c.activeStream = textutil.Value(hydration.ActiveAssistant.StreamId)
+	for _, assistant := range hydration.ActiveAssistants {
+		if err := c.matchOrStartStream(assistant.StreamId, 1, "hydrated assistant"); err != nil {
+			return err
+		}
 	}
 	for _, tool := range hydration.InFlightTools {
 		if err := c.trackToolStart(tool, "hydration in-flight tool"); err != nil {
@@ -242,6 +244,11 @@ func (c *transcriptSubscriptionContract) validateHydration(hydration *transcript
 		}
 	}
 	for _, row := range hydration.TailSegment.Entries {
+		if row.GetToolCall() != nil {
+			if err := c.trackNativeToolCall(row); err != nil {
+				return err
+			}
+		}
 		if !c.hasHydratedEventSequence || row.Locator.EventSequence > c.hydratedEventSequence {
 			c.hydratedEventSequence = row.Locator.EventSequence
 			c.hasHydratedEventSequence = true
@@ -258,31 +265,67 @@ func (c *transcriptSubscriptionContract) validateLiveMessage(message *transcript
 		if err := c.matchActiveStream(payload.AssistantStreamAbort.StreamId, message.Sequence, "assistant_stream_abort"); err != nil {
 			return err
 		}
-		c.activeStream = nil
+		delete(c.activeStreams, payload.AssistantStreamAbort.StreamId)
 		return nil
 	case *transcriptpb.Event_ToolStart:
 		return c.trackToolStart(payload.ToolStart, fmt.Sprintf("tool_start at seq=%d", message.Sequence))
 	case *transcriptpb.Event_ToolAbort:
-		return c.trackToolTerminal(clientui.ToolCallID(payload.ToolAbort.ToolCallId), fmt.Sprintf("tool_abort at seq=%d", message.Sequence))
+		id := clientui.ToolCallID(payload.ToolAbort.ToolCallId)
+		delete(c.nativeToolCalls, id)
+		return c.trackToolTerminal(id, fmt.Sprintf("tool_abort at seq=%d", message.Sequence))
+	case *transcriptpb.Event_StepState:
+		if payload.StepState.Lifecycle == transcriptpb.StepLifecycle_STEP_LIFECYCLE_FINISHED {
+			for id, row := range c.nativeToolCalls {
+				if row.GetToolCall().StepId == payload.StepState.StepId {
+					delete(c.nativeToolCalls, id)
+				}
+			}
+		}
 	case *transcriptpb.Event_CommittedRow:
 		row := payload.CommittedRow
+		if tool := row.GetTool(); tool != nil && tool.ToolCallId != nil {
+			id := clientui.ToolCallID(*tool.ToolCallId)
+			if source := c.nativeToolCalls[id]; source != nil {
+				if row.Locator.EventSequence != source.Locator.EventSequence || row.Locator.RowOrdinal != source.Locator.RowOrdinal ||
+					tool.GetToolName() != source.GetToolCall().ToolName {
+					return errTranscriptContractViolation("native result does not match its accepted call source")
+				}
+				delete(c.nativeToolCalls, id)
+				return c.trackToolTerminal(id, "native tool result update")
+			}
+		}
 		if err := c.validateLiveLocator(row.Locator); err != nil {
 			return err
+		}
+		if row.GetToolCall() != nil {
+			if err := c.trackNativeToolCall(row); err != nil {
+				return err
+			}
 		}
 		if assistant := row.GetAssistant(); assistant != nil {
 			if assistant.StreamId != nil {
 				if err := c.matchActiveStream(*assistant.StreamId, message.Sequence, "committed assistant row"); err != nil {
 					return err
 				}
-				c.activeStream = nil
-			} else if c.activeStream != nil {
-				return errTranscriptContractViolation(fmt.Sprintf("committed assistant row at seq=%d has nil stream_id while stream %s is active", message.Sequence, *c.activeStream))
+				delete(c.activeStreams, *assistant.StreamId)
 			}
 		}
 		if tool := row.GetTool(); tool != nil && tool.ToolCallId != nil {
 			return c.trackToolTerminal(clientui.ToolCallID(*tool.ToolCallId), fmt.Sprintf("committed tool row at seq=%d", message.Sequence))
 		}
 	}
+	return nil
+}
+
+func (c *transcriptSubscriptionContract) trackNativeToolCall(row *transcriptpb.CommittedRow) error {
+	if c.nativeToolCalls == nil {
+		c.nativeToolCalls = make(map[clientui.ToolCallID]*transcriptpb.CommittedRow)
+	}
+	id := clientui.ToolCallID(row.GetToolCall().ToolCallId)
+	if c.nativeToolCalls[id] != nil {
+		return errTranscriptContractViolation("native call repeats a pending tool identity")
+	}
+	c.nativeToolCalls[id] = row
 	return nil
 }
 
@@ -312,19 +355,16 @@ func (c *transcriptSubscriptionContract) validateLiveLocator(locator *transcript
 }
 
 func (c *transcriptSubscriptionContract) matchOrStartStream(streamID string, seq uint64, op string) error {
-	if c.activeStream == nil {
-		c.activeStream = &streamID
-		return nil
+	if c.activeStreams == nil {
+		c.activeStreams = make(map[string]struct{})
 	}
-	return c.matchActiveStream(streamID, seq, op)
+	c.activeStreams[streamID] = struct{}{}
+	return nil
 }
 
 func (c *transcriptSubscriptionContract) matchActiveStream(streamID string, seq uint64, op string) error {
-	if c.activeStream == nil {
+	if _, exists := c.activeStreams[streamID]; !exists {
 		return errTranscriptContractViolation(fmt.Sprintf("%s at seq=%d has stream_id %s with no active assistant stream", op, seq, streamID))
-	}
-	if *c.activeStream != streamID {
-		return errTranscriptContractViolation(fmt.Sprintf("%s at seq=%d has stream_id %s, active stream_id is %s", op, seq, streamID, *c.activeStream))
 	}
 	return nil
 }

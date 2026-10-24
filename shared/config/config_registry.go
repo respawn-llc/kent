@@ -225,6 +225,7 @@ var configRegistry = newSettingsRegistry()
 
 func newSettingsRegistry() settingsRegistry {
 	settings := []registrySetting{
+		proxySetting{},
 		newNanoSectionSetting(),
 		globalOnlySetting[int]{rootOnlySetting[int]{newIntSetting("nano.concurrency", 5,
 			func(state *settingsState, value int) { state.Settings.NanoConcurrency = value },

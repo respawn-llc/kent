@@ -306,6 +306,9 @@ You can use `kent run steer <source-session-id> "message"` to respond.
 - Session listings expose the first-prompt preview when available. Clients decide whether to display it.
 - Immediately before a Session's first model request, and after every compaction before subsequent model work, Kent locks or refreshes the model/provider setup, generation parameters, effective tool declarations and enabled tool set, system and developer context, skills, workspace information, current model-facing date/time, and conversation context for the current Session Contract. The main prompt-cache key is the Kent Session ID throughout.
 - Transcript order is immutable for prompt-cache stability. A pre-commit Result Group persistence failure ends the Exact Execution Scope and makes no committed transcript change. Kent must not replay or reconcile a lost Session operation. A later explicit invocation is a new operation. Process death may lose the current Agent Step and process-local pending Steering as defined by the Runtime Steering specification.
+- When Kent accepts a provider response, it must save native item identities, content and ordering once. Subsequent provider requests must use those items unchanged. Visible answer and tool presentation must derive from that saved content. Kent must not rewrite existing Message history to recover unavailable native information.
+- An accepted native tool call must keep its original transcript position while its result is pending and when the result completes. Result delivery must update that tool's presentation without rewriting saved events or changing tool execution and Result Group timing.
+- Before Kent accepts a local tool call, commentary after that call must stay hidden. Acceptance must publish the call and subsequent commentary in provider order without changing subsequent provider input or cache continuity.
 - An explicit confirmed Agent replacement is an exception to the frozen Session Contract. The server must reject unavailable or known incompatible targets before stopping where possible, apply ordinary Stop semantics including input restoration, wait for execution shutdown, and revalidate before replacing the Agent with its complete baseline. New execution must not start during replacement. The server must rebuild the runtime configuration without rewriting historical content, changing the Session ID, forcing compaction, or automatically resuming. Workflow-controlled Agents must be locked. Accepted replacement must survive client disconnection.
 
 ## Automatic Session Naming
@@ -372,6 +375,21 @@ You can use `kent run steer <source-session-id> "message"` to respond.
 - Main-agent, subagent, Supervisor, Workflow, worktree-setup, and read-only settings operations must use the same configuration resolution rules. Worktree setup must validate the full configuration, including agent settings.
 - If global and workspace settings resolve to the same physical file, Kent must apply it once as global settings, disable that shared workspace layer, and provide diagnostics for both resolved locations.
 
+### Proxy configuration
+
+- Proxy configuration must follow this subsection. General configuration precedence and private-file discovery rules must apply to other settings.
+- The server must resolve each proxy setting in descending precedence from process environment, the persistence-root `.env`, and global configuration. Workspace files must not configure the server proxy.
+- CLI/TUI clients must resolve each proxy setting in descending precedence from process environment, `.kent/config.local.toml` in the process's current directory, `.kent/config.toml` in that directory, and global configuration. Clients must not search parent directories or obtain proxy settings from the server.
+- TOML proxy settings must use `[proxy]` keys `http`, `https`, and `no_proxy`, corresponding to `HTTP_PROXY`, `HTTPS_PROXY`, and `NO_PROXY`. Missing and empty values must inherit independently from the next source. Uppercase environment names must take precedence over their lowercase equivalents within the same source.
+- Each process must resolve proxy settings once at startup. Changes must require restarting that process, including changes used by TUI reconnects.
+- All Kent-owned outbound HTTP(S) and CLI/TUI server connections must use the process's resolved proxy rules. Provider, authentication, status, catalog, and release requests must use those rules.
+- HTTP and `ws://` destinations must use the HTTP proxy setting. HTTPS and `wss://` destinations must use the HTTPS proxy setting. An omitted HTTPS proxy must not inherit the HTTP proxy.
+- Localhost, loopback addresses, and destinations matched by `NO_PROXY` must connect directly.
+- Kent must support HTTP and HTTPS proxy URLs with optional URL username/password and normal certificate verification. Kent must accept `host:port` shorthand for an HTTP proxy.
+- `NO_PROXY` must use Go's existing host/domain, IP/range, optional-port, and wildcard matching rules. The library must ignore invalid entries. `NO_PROXY=*` must bypass all proxies.
+- Kent must perform only basic proxy-address validation and must not probe connectivity at startup. Network failures must follow existing operation-specific error presentation, timeouts, and retries. Kent must not fall back to a direct connection when a selected proxy fails. Diagnostics must not disclose proxy credentials.
+- Agent-run commands and external browsers must use their existing environment behavior. Kent must not inject proxy settings resolved from `.env` or TOML into agent shells.
+
 ## Model Requests And Cache Continuity
 
 - Kent must group captured Session properties by Snapshot Policy. Refresh eligibility must be separate from permission to apply a change to the active context.
@@ -381,8 +399,12 @@ You can use `kent run steer <source-session-id> "message"` to respond.
 - Every model generation request uses the provider's streaming response protocol. Kent has no non-streaming generation or fallback path.
 - Callers that expose only a completed response consume the generation stream internally and return the assembled response only after the stream completes successfully.
 - One generation-stream contract carries assistant output, reasoning output, provider-hosted output, and stream activity.
-- When Kent records a response, its Reasoning Traces must precede assistant `final` text from the same Agent Turn in persisted transcript order. Reasoning Traces may follow assistant `commentary` text from that Agent Turn.
-- This persisted-order requirement must not buffer or reorder TUI Ongoing Mode output. Assistant text must continue streaming immediately.
+- Responses-native output must have the provider's complete item order through streaming, acceptance, saved history, presentation, and subsequent model requests. Each assistant message must have a separate identity across intervening local or provider-hosted tool calls.
+- Kent must not regroup native output by assistant phase or move tool calls around a final answer. Provider-hosted calls must occupy their original positions before, between, or after assistant messages.
+- Native output must be saved once without changing its item bytes. Answer, reasoning, and tool presentation must be derived from that output without a second saved representation of its text or tool arguments. Existing saved generic Messages must keep their existing reader and prepared input.
+- Existing tool parallelism and Result Group persistence timing must be unchanged. Concurrent completion order must not reorder the provider's original output.
+- For other response bodies, recorded Reasoning Traces must precede assistant `final` text from the same Agent Turn and may follow assistant `commentary` text.
+- Assistant text must continue streaming immediately. TUI Ongoing Mode must not rewrite emitted scrollback.
 - Every generation request has a required tool-choice mode: automatic or required. Missing or unknown modes are invalid.
 - Required tool choice validates against the complete advertised tool set, including local, custom, and enabled provider-hosted tools. An empty set is invalid. A provider that cannot represent required choice returns a policy error before dispatch. Automatic and required requests use the same bounded provider- and transport-failure retry policy. A retry must use the request's tool-choice mode and advertised tools unchanged. Kent never falls back from required to automatic choice.
 - Tool-choice mode changes only tool selection. It never changes the advertised tools or their order, parallel-tool behavior, or prompt-cache identity. Exact counting of a built request must use its tool mode and complete tool set unchanged. Standalone estimation uses automatic choice.
@@ -513,6 +535,7 @@ You can use `kent run steer <source-session-id> "message"` to respond.
 - Human-facing text calls this operation `compact`. Model-facing context calls it `handoff`. Manual compaction carries the last visible user prompt. Agent handoff may carry a future-agent message visible only in detail.
 - The main-agent prompt-cache key is always the Kent Session ID. Compaction and Session Contract changes add no cache-key suffix, namespace, or generation. Reviewer requests use the Session's reviewer key.
 - Every production model dispatch must record the exact dispatched cache lineage before sending and the provider-reported cache reuse after a successful response. Generation, Reviewer, local compaction, and provider-native compaction provide no unobserved dispatch path.
+- For incremental WebSocket requests, cache lineage must describe the effective prepared context, including the prefix already available on that connection. Sending only appended items must not itself produce a cache-invalidation warning.
 - Native and local compaction requests must use saved history unchanged within their protocol's request shape. OpenAI V2 compaction must use the maximal unchanged prefix of the preceding model request, using the ordinary Session Contract, system prompt, tools, and active history before its compaction trigger. Local compaction must use the maximal unchanged prefix and include the complete current active history, including the prior compaction replacement.
 - Every provider's compaction request must use the original tool declarations, system prompt, and other cache-snapshotted content unchanged. Kent must not rebuild the system prompt or insert a substitute system message during compaction.
 - Grok native compaction must use the actual Session cache key, effective priority tier, instructions, and configured controls. It must omit the OpenAI compaction trigger.

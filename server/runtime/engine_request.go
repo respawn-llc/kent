@@ -559,6 +559,7 @@ func hostedToolExecutionsFromOutputItems(items []llm.ResponseItem, defs []tools.
 		for _, execution := range decoded {
 			out = append(out, hostedToolExecution{
 				Call: llm.ToolCall{
+					OutputIndex:  textutil.Value(item.OutputIndex),
 					ID:           execution.Call.ID,
 					Name:         string(execution.Call.Name),
 					Input:        execution.Call.Input,

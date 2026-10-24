@@ -7,7 +7,7 @@ type TranscriptToolPresentation = NonNullable<TranscriptTool["Presentation"]>;
 export type TranscriptNonQuestionToolPresentation = Omit<TranscriptToolPresentation, "Presentation"> &
   Readonly<{ Presentation: "default" | "shell" }>;
 
-export type TranscriptLiveToolRow = Omit<TranscriptToolStart, "Presentation"> &
+export type TranscriptToolCall = Omit<TranscriptToolStart, "Presentation"> &
   Readonly<{ Presentation?: TranscriptNonQuestionToolPresentation | null }>;
 
 export type TranscriptCommittedToolRow = Omit<ChatTranscriptCommittedRow, "Kind" | "Tool"> &
@@ -18,5 +18,5 @@ export type TranscriptCommittedToolRow = Omit<ChatTranscriptCommittedRow, "Kind"
   }>;
 
 export type TranscriptToolSlotItem =
-  | Readonly<{ kind: "live"; tool: TranscriptLiveToolRow }>
+  | Readonly<{ kind: "call"; tool: TranscriptToolCall; activity: "active" | "inactive" }>
   | Readonly<{ kind: "committed"; row: TranscriptCommittedToolRow }>;

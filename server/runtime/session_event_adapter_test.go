@@ -70,6 +70,34 @@ func TestSessionMessageRecordAdapterRoundTrip(t *testing.T) {
 	}
 }
 
+func TestNativeResponseRecordKeepsLocalCallPresentationWithoutDuplicatingArguments(t *testing.T) {
+	t.Parallel()
+	raw := []byte(`{"type":"function_call","id":"native_item","call_id":"native_call","name":"exec_command","arguments":"{\"cmd\":\"pwd\"}"}`)
+	message, err := llm.MessageFromNativeResponse(session.NativeResponseBody{Format: session.NativeResponseOpenAI, Items: [][]byte{raw}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	presentation := json.RawMessage(`{"ToolName":"exec_command","Command":"pwd","CompactText":"pwd"}`)
+	message.ToolCalls[0].Presentation = presentation
+	record, err := sessionMessageRecordFromLLM(message)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if record.Content != nil || len(record.ToolCalls) != 0 || len(record.ReasoningItems) != 0 {
+		t.Fatal("native output has a second saved message body")
+	}
+	restored, err := llmMessageFromSessionRecord(record)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !bytes.Equal(restored.ToolCalls[0].Presentation, presentation) {
+		t.Fatal("local call presentation lost during native response reload")
+	}
+	if items := llm.ItemsFromMessages([]llm.Message{restored}); len(items) != 1 || !bytes.Equal(items[0].Raw, raw) {
+		t.Fatal("local presentation changed provider input")
+	}
+}
+
 func TestSessionMessageRecordAdapterPersistsToolCallWithoutSemanticContent(t *testing.T) {
 	t.Parallel()
 	message := llm.Message{

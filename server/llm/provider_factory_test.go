@@ -2,8 +2,8 @@ package llm
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
-	"io"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -111,14 +111,15 @@ func TestNewProviderClient_OpenAI(t *testing.T) {
 	}
 }
 
-func TestNewProviderClient_ResponsesClientPathCompressesCodexRequest(t *testing.T) {
+func TestNewProviderClient_ResponsesClientPathUsesCodexWebsocket(t *testing.T) {
 	var requestEncoding string
 	var acceptEncoding string
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		requestEncoding = r.Header.Get("Content-Encoding")
 		acceptEncoding = r.Header.Get("Accept-Encoding")
-		_, _ = io.Copy(io.Discard, r.Body)
-		writeCompletedResponseSSE(w)
+		serveResponsesTestWebsocket(t, w, r, func(json.RawMessage) []string {
+			return []string{completedResponseSSEJSON}
+		})
 	}))
 	defer server.Close()
 
@@ -141,22 +142,23 @@ func TestNewProviderClient_ResponsesClientPathCompressesCodexRequest(t *testing.
 	}, StreamCallbacks{}); err != nil {
 		t.Fatalf("Generate: %v", err)
 	}
-	if requestEncoding != "zstd" {
-		t.Fatalf("Content-Encoding = %q, want zstd", requestEncoding)
+	if requestEncoding != "" {
+		t.Fatalf("WebSocket handshake unexpectedly advertises Content-Encoding %q", requestEncoding)
 	}
 	if acceptEncoding == "zstd,gzip" {
 		t.Fatalf("injected client unexpectedly received Kent response negotiation: %q", acceptEncoding)
 	}
 }
 
-func TestNewProviderClient_OAuthPathCompressesCodexRequest(t *testing.T) {
+func TestNewProviderClient_OAuthPathUsesCodexWebsocket(t *testing.T) {
 	var requestEncoding string
 	var acceptEncoding string
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		requestEncoding = r.Header.Get("Content-Encoding")
 		acceptEncoding = r.Header.Get("Accept-Encoding")
-		_, _ = io.Copy(io.Discard, r.Body)
-		writeCompletedResponseSSE(w)
+		serveResponsesTestWebsocket(t, w, r, func(json.RawMessage) []string {
+			return []string{completedResponseSSEJSON}
+		})
 	}))
 	defer server.Close()
 
@@ -179,8 +181,8 @@ func TestNewProviderClient_OAuthPathCompressesCodexRequest(t *testing.T) {
 	}, StreamCallbacks{}); err != nil {
 		t.Fatalf("Generate: %v", err)
 	}
-	if requestEncoding != "zstd" {
-		t.Fatalf("Content-Encoding = %q, want zstd", requestEncoding)
+	if requestEncoding != "" {
+		t.Fatalf("WebSocket handshake unexpectedly advertises Content-Encoding %q", requestEncoding)
 	}
 	if acceptEncoding == "zstd,gzip" {
 		t.Fatalf("injected client unexpectedly received Kent response negotiation: %q", acceptEncoding)
@@ -289,18 +291,6 @@ func TestNewProviderClient_KeepsExplicitOpenAIBaseURLExplicit(t *testing.T) {
 	transport := httpTransportFromResponsesClient(t, openAIClient)
 	if transport.serviceBaseURL() != defaultOpenAIBaseURL {
 		t.Fatal("expected configured OpenAI URL")
-	}
-}
-
-func TestNewProviderClient_LocalBaseURLUsesUncompressedTransportByDefault(t *testing.T) {
-	openAIClient := newResponsesClientFromOptions(t, ProviderClientOptions{
-		Model:        "vendor-custom-model",
-		Auth:         providerTestMissingAuth{},
-		Registration: testConnectionRegistration(t, config.ProviderConnection{Protocol: config.ConnectionResponses, Endpoint: textutil.Value("http://127.0.0.1:11434/v1")}),
-	})
-	transport := httpTransportFromResponsesClient(t, openAIClient)
-	if transport.Client.Transport != sharedHTTPTransport {
-		t.Fatalf("local provider transport = %T, want shared uncompressed transport", transport.Client.Transport)
 	}
 }
 

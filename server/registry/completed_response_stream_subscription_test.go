@@ -11,12 +11,71 @@ import (
 	"core/internal/testharness/testsetup"
 	"core/server/llm"
 	"core/server/runtime"
+	"core/server/session"
 	"core/server/tools"
 	transcriptpb "core/shared/protoapi/gen/kent/api/transcript"
 	"core/shared/runtimeids"
 	"core/shared/serverapi"
+	"core/shared/textutil"
 	"core/shared/toolspec"
 )
+
+func TestNativeToolResultUpdatesItsAcceptedSourceRow(t *testing.T) {
+	message, err := llm.MessageFromNativeResponse(session.NativeResponseBody{
+		Format: session.NativeResponseOpenAI,
+		Items: [][]byte{
+			[]byte(`{"type":"function_call","id":"item_native","call_id":"call-native","name":"exec_command","arguments":"{\"cmd\":\"pwd\"}"}`),
+			[]byte(`{"type":"message","id":"message_native","role":"assistant","phase":"final_answer","content":[{"type":"output_text","text":"answer","annotations":[]}]}`),
+		},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	handler := newControlledToolHandler("call-native")
+	fixture := newStreamSubscriptionFixture(t,
+		scriptedllm.NewClient(scriptedllm.Script{Steps: []scriptedllm.Step{{
+			Response:     llm.Response{Assistant: message, ToolCalls: message.ToolCalls, OutputItems: llm.ItemsFromMessages([]llm.Message{message})},
+			StreamDeltas: []llm.AssistantDelta{{Text: "answer", Phase: llm.MessagePhaseFinal, OutputIndex: textutil.Value(int64(1))}},
+		}}}),
+		newTestToolRegistry(t, tools.HandlerRegistration{ID: toolspec.ToolExecCommand, Handler: handler}),
+		[]toolspec.ID{toolspec.ToolExecCommand},
+	)
+	done := fixture.submitUserMessage("run")
+	var accepted *transcriptpb.CommittedRowLocator
+	for accepted == nil {
+		row := nextTranscriptMessage(t, fixture.sub).Event.GetCommittedRow()
+		if row != nil && row.GetToolCall() != nil {
+			accepted = row.Locator
+		}
+	}
+	handler.waitEntered(t, "call-native")
+	page, err := fixture.engine.TranscriptNewestSegmentPage()
+	if err != nil {
+		t.Fatal(err)
+	}
+	pendingFromPage := false
+	for _, row := range runtime.TranscriptCommittedRowFactsFromSnapshot(page.Snapshot) {
+		if row.ToolCall != nil && row.ToolCall.ToolCallID == "call-native" {
+			pendingFromPage = row.Locator.EventSequence == accepted.EventSequence && row.Locator.RowOrdinal == int64(accepted.RowOrdinal)
+		}
+	}
+	if !pendingFromPage {
+		t.Fatal("pending native call lost its source locator in bounded history")
+	}
+	handler.release("call-native")
+	for {
+		row := nextTranscriptMessage(t, fixture.sub).Event.GetCommittedRow()
+		if row == nil || row.GetTool() == nil {
+			continue
+		}
+		if row.Locator.EventSequence != accepted.EventSequence || row.Locator.RowOrdinal != accepted.RowOrdinal {
+			t.Fatal("completed tool moved away from its accepted source locator")
+		}
+		break
+	}
+	fixture.awaitSubmission(done)
+	_ = fixture.freshCleanHydration()
+}
 
 func TestSessionTranscriptSubscriptionContinuesAfterConcurrentLocalToolsWithoutStreamCollision(t *testing.T) {
 	handler := newControlledToolHandler("call-a", "call-b")
@@ -160,7 +219,7 @@ func (f *streamSubscriptionFixture) freshCleanHydration() *transcriptpb.Hydratio
 	defer func() { _ = fresh.Close() }()
 	message := nextTranscriptMessage(f.t, fresh)
 	hydration := message.Event.GetHydration()
-	if hydration.ActiveAssistant != nil {
+	if len(hydration.ActiveAssistants) != 0 {
 		f.t.Fatalf("fresh hydration active stream = %+v, want none", hydration)
 	}
 	return hydration
