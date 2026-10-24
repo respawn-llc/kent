@@ -549,6 +549,11 @@ type hostedToolExecution struct {
 func hostedToolExecutionsFromOutputItems(items []llm.ResponseItem, defs []tools.Definition) []hostedToolExecution {
 	out := make([]hostedToolExecution, 0, len(items))
 	for position, item := range items {
+		switch item.Type {
+		case llm.ResponseItemTypeFunctionCall, llm.ResponseItemTypeCustomToolCall:
+			// The provider parser already classified these as local calls.
+			continue
+		}
 		id, _ := textutil.OptionalTrimmed(item.ID)
 		callID, _ := textutil.OptionalTrimmed(item.CallID)
 		decoded := tools.HostedExecutionsFromOutputs([]tools.HostedToolOutput{{

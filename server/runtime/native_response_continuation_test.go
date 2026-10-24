@@ -2,22 +2,29 @@ package runtime
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
+	"os"
+	"path/filepath"
 	"reflect"
 	"slices"
 	"sync/atomic"
 	"testing"
+	"time"
 
 	"core/cli/tui/ongoing"
 	"core/internal/testharness/httpclient"
+	"core/internal/testharness/runtimewirefixture"
 	"core/server/llm"
 	"core/server/session"
 	"core/server/session/sessiontest"
 	"core/server/tools"
+	patchtool "core/server/tools/patch"
 	"core/shared/config"
 	"core/shared/modelcontract"
 	transcriptpb "core/shared/protoapi/gen/kent/api/transcript"
@@ -236,6 +243,105 @@ func nativeBytes(items []json.RawMessage) [][]byte {
 		result[i] = item
 	}
 	return result
+}
+
+func TestNativeCustomPatchExecutesOnceAndContinuesWithOneResult(t *testing.T) {
+	t.Parallel()
+	workspace := t.TempDir()
+	patch, err := patchtool.New(runtimewirefixture.FilesystemContext(t, workspace))
+	if err != nil {
+		t.Fatal(err)
+	}
+	patchInput := "*** Begin Patch\n*** Add File: marker.txt\n+marker\n*** End Patch\n"
+	raw, err := json.Marshal(map[string]any{
+		"type": "custom_tool_call", "id": "patch_item", "call_id": "patch_call",
+		"name": "patch", "input": patchInput,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	var calls atomic.Int32
+	var started atomic.Int32
+	client := nativeResponseTestClient(t, nativeResponsesSocketHandler(t, func(create json.RawMessage) []string {
+		if calls.Add(1) == 1 {
+			return []string{runtimeCompletedResponseEvent([]byte("[" + string(raw) + "]"))}
+		}
+		var request struct {
+			Input []struct {
+				Type   string `json:"type"`
+				CallID string `json:"call_id"`
+			} `json:"input"`
+		}
+		if err := json.Unmarshal(create, &request); err != nil {
+			t.Error(err)
+		}
+		if len(request.Input) != 1 || request.Input[0].Type != "custom_tool_call_output" || request.Input[0].CallID != "patch_call" {
+			t.Errorf("custom patch continuation lost its single result: %s", create)
+		}
+		return []string{runtimeFinalAnswerEvent("done")}
+	}))
+	engine := mustNewTestEngine(t, mustCreateTestSession(t), client,
+		newTestToolRegistry(t, tools.HandlerRegistration{ID: toolspec.ToolPatch, Handler: patch}),
+		Config{Model: "gpt-6-sol", TranscriptWorkingDir: workspace, EnabledTools: []toolspec.ID{toolspec.ToolPatch}, OnEvent: func(event Event) {
+			if event.Kind == EventToolCallStarted && event.ToolCall != nil && event.ToolCall.ID == "patch_call" {
+				started.Add(1)
+			}
+		}})
+	if _, err := engine.SubmitUserMessage(t.Context(), "patch"); err != nil {
+		t.Fatal(err)
+	}
+	if started.Load() != 1 || calls.Load() != 2 {
+		t.Fatalf("custom patch starts=%d requests=%d", started.Load(), calls.Load())
+	}
+	marker, err := os.ReadFile(filepath.Join(workspace, "marker.txt"))
+	if err != nil || string(marker) != "marker\n" {
+		t.Fatalf("custom patch effect=%q err=%v", marker, err)
+	}
+}
+
+func TestStopCancelsResponsesSocketRetry(t *testing.T) {
+	withGenerateRetryDelays(t, []time.Duration{0})
+	retrying := make(chan struct{})
+	disconnected := make(chan struct{})
+	var openings atomic.Int32
+	client := nativeResponseTestClient(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		socket, err := websocket.Accept(w, r, nil)
+		if err != nil {
+			return
+		}
+		defer socket.CloseNow()
+		if _, _, err := socket.Read(t.Context()); err != nil {
+			return
+		}
+		if openings.Add(1) == 1 {
+			_ = socket.Write(t.Context(), websocket.MessageText, []byte(`{"type":"error","status":503,"error":{"code":"server_error","message":"retry"}}`))
+			return
+		}
+		close(retrying)
+		_, _, err = socket.Read(t.Context())
+		if err == nil {
+			t.Error("retry socket did not terminate")
+		}
+		close(disconnected)
+	}))
+	engine := mustNewTestEngine(t, mustCreateTestSession(t), client, tools.NewRegistry(), Config{Model: "gpt-6-sol"})
+	result := make(chan error, 1)
+	go func() {
+		_, err := engine.SubmitUserMessage(t.Context(), "retry then stop")
+		result <- err
+	}()
+	select {
+	case <-retrying:
+	case <-t.Context().Done():
+		t.Fatal(t.Context().Err())
+	}
+	if interrupted, err := engine.TryInterruptActiveRun(); err != nil || !interrupted {
+		t.Fatalf("retry live Stop interrupted=%t err=%v", interrupted, err)
+	}
+	if err := <-result; !errors.Is(err, context.Canceled) {
+		t.Fatalf("retry Stop result = %v", err)
+	}
+	<-disconnected
 }
 
 func TestNativeStreamOnlyReasoningRemainsReadableAfterReload(t *testing.T) {

@@ -98,6 +98,11 @@ func (t *HTTPTransport) generateWebsocket(ctx context.Context, request Responses
 			if matches {
 				start = len(prior.items)
 				create.PreviousResponseID = param.NewOpt(prior.responseID)
+				if _, grok := preparation.variant.ResponsesPolicy.(grokResponsesPolicy); grok {
+					// xAI retains instructions with the response and rejects them
+					// alongside previous_response_id. Settings still compare above.
+					create.Instructions = param.Opt[string]{}
+				}
 			}
 		}
 	}

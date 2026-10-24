@@ -22,62 +22,78 @@ import (
 )
 
 func TestResponsesSocketContinuesExactNativePrefixWithOnlyNewInput(t *testing.T) {
-	native := json.RawMessage(`{"type":"message","id":"native","role":"assistant","content":[{"type":"output_text","text":"answer","annotations":[]}],"provider_extension":{"opaque":"retained"}}`)
-	next := json.RawMessage(`{"type":"message","role":"user","content":[{"type":"input_text","text":"next"}]}`)
-	var turns int
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		serveResponsesTestWebsocket(t, w, r, func(raw json.RawMessage) []string {
-			turns++
-			var create struct {
-				Input    []json.RawMessage `json:"input"`
-				Previous *string           `json:"previous_response_id"`
+	for _, protocol := range []config.ConnectionProtocol{config.ConnectionResponses, config.ConnectionGrokAPIKey, config.ConnectionGrokOAuthAPI} {
+		t.Run(string(protocol), func(t *testing.T) {
+			native := json.RawMessage(`{"type":"message","id":"native","role":"assistant","content":[{"type":"output_text","text":"answer","annotations":[]}],"provider_extension":{"opaque":"retained"}}`)
+			next := json.RawMessage(`{"type":"message","role":"user","content":[{"type":"input_text","text":"next"}]}`)
+			var turns int
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				serveResponsesTestWebsocket(t, w, r, func(raw json.RawMessage) []string {
+					turns++
+					var create struct {
+						Input        []json.RawMessage `json:"input"`
+						Previous     *string           `json:"previous_response_id"`
+						Instructions *string           `json:"instructions"`
+					}
+					if err := json.Unmarshal(raw, &create); err != nil {
+						t.Error(err)
+					}
+					wantInstructions := turns != 2 || protocol == config.ConnectionResponses
+					if (create.Instructions != nil) != wantInstructions {
+						t.Errorf("create instructions presence=%t want=%t: %s", create.Instructions != nil, wantInstructions, raw)
+					}
+					if turns == 2 {
+						if create.Previous == nil || *create.Previous != "response-native" || len(create.Input) != 1 {
+							t.Errorf("next request retransmitted prefix: %s", raw)
+						}
+						if len(create.Input) == 1 && !bytes.Equal(create.Input[0], next) {
+							t.Errorf("new input missing: %s", raw)
+						}
+					}
+					if turns == 3 && (create.Previous != nil || len(create.Input) != 4) {
+						t.Errorf("changed controls did not reset to full context: %s", raw)
+					}
+					if turns == 4 && (create.Previous != nil || len(create.Input) != 1) {
+						t.Errorf("replacement context did not reset: %s", raw)
+					}
+					return []string{fmt.Sprintf(`{"type":"response.completed","response":{"id":"response-native","output":[%s]}}`, native)}
+				})
+			}))
+			defer server.Close()
+			connection := config.ProviderConnection{Protocol: protocol}
+			if protocol == config.ConnectionResponses {
+				connection.Endpoint = textutil.Value(defaultOpenAIBaseURL)
+			} else if protocol == config.ConnectionGrokAPIKey {
+				connection.EnvironmentVariable = textutil.Value("KENT_TEST_GROK_KEY")
 			}
-			if err := json.Unmarshal(raw, &create); err != nil {
-				t.Error(err)
+			registration := testConnectionRegistration(t, connection)
+			registration.Variant.BaseURL = textutil.Value(server.URL + "/v1")
+			transport := newTestHTTPTransport(t, staticAuthHeader{}, registration)
+			defer transport.Close()
+			request := ResponsesRequest{Model: "gpt-6-sol", ReasoningEffort: "high", SessionID: textutil.Value("session"), ToolChoiceMode: ToolChoiceModeAutomatic,
+				SystemPrompt: "initial instructions",
+				Items:        []ResponseItem{{Raw: json.RawMessage(`{"type":"message","role":"user","content":[{"type":"input_text","text":"first"}]}`)}},
 			}
-			if turns == 2 {
-				if create.Previous == nil || *create.Previous != "response-native" || len(create.Input) != 1 {
-					t.Errorf("next request retransmitted prefix: %s", raw)
-				}
-				if len(create.Input) == 1 && !bytes.Equal(create.Input[0], next) {
-					t.Errorf("new input missing: %s", raw)
-				}
+			response, err := transport.Generate(t.Context(), request, StreamCallbacks{})
+			if err != nil {
+				t.Fatal(err)
 			}
-			if turns == 3 && (create.Previous != nil || len(create.Input) != 4) {
-				t.Errorf("changed controls did not reset to full context: %s", raw)
+			request.Items = append(request.Items, response.OutputItems...)
+			request.Items = append(request.Items, ResponseItem{Raw: next})
+			response, err = transport.Generate(t.Context(), request, StreamCallbacks{})
+			if err != nil {
+				t.Fatal(err)
 			}
-			if turns == 4 && (create.Previous != nil || len(create.Input) != 1) {
-				t.Errorf("replacement context did not reset: %s", raw)
+			request.Items = append(request.Items, response.OutputItems...)
+			request.SystemPrompt = "changed instructions"
+			if _, err := transport.Generate(t.Context(), request, StreamCallbacks{}); err != nil {
+				t.Fatal(err)
 			}
-			return []string{fmt.Sprintf(`{"type":"response.completed","response":{"id":"response-native","output":[%s]}}`, native)}
+			request.Items = []ResponseItem{{Raw: next}}
+			if _, err := transport.Generate(t.Context(), request, StreamCallbacks{}); err != nil {
+				t.Fatal(err)
+			}
 		})
-	}))
-	defer server.Close()
-	registration := testConnectionRegistration(t, config.ProviderConnection{Protocol: config.ConnectionResponses, Endpoint: textutil.Value(defaultOpenAIBaseURL)})
-	registration.Variant.BaseURL = textutil.Value(server.URL + "/v1")
-	transport := newTestHTTPTransport(t, staticAuthHeader{}, registration)
-	defer transport.Close()
-	request := ResponsesRequest{Model: "gpt-6-sol", ReasoningEffort: "high", SessionID: textutil.Value("session"), ToolChoiceMode: ToolChoiceModeAutomatic,
-		Items: []ResponseItem{{Raw: json.RawMessage(`{"type":"message","role":"user","content":[{"type":"input_text","text":"first"}]}`)}},
-	}
-	response, err := transport.Generate(t.Context(), request, StreamCallbacks{})
-	if err != nil {
-		t.Fatal(err)
-	}
-	request.Items = append(request.Items, response.OutputItems...)
-	request.Items = append(request.Items, ResponseItem{Raw: next})
-	response, err = transport.Generate(t.Context(), request, StreamCallbacks{})
-	if err != nil {
-		t.Fatal(err)
-	}
-	request.Items = append(request.Items, response.OutputItems...)
-	request.MaxTokens = 256
-	if _, err := transport.Generate(t.Context(), request, StreamCallbacks{}); err != nil {
-		t.Fatal(err)
-	}
-	request.Items = []ResponseItem{{Raw: next}}
-	if _, err := transport.Generate(t.Context(), request, StreamCallbacks{}); err != nil {
-		t.Fatal(err)
 	}
 }
 
