@@ -4,24 +4,195 @@ import (
 	"bytes"
 	"core/cli/tui/ongoing"
 	"core/cli/tui/transcriptrender"
+	"core/internal/testharness/pty"
+	"core/internal/testharness/pty/analyzer"
 	transcriptpb "core/shared/protoapi/gen/kent/api/transcript"
 	"fmt"
 	tea "github.com/charmbracelet/bubbletea"
+	"io"
+	"net"
 	"reflect"
+	"slices"
+	"strings"
 	"testing"
 )
 
+func TestOngoingResizeCoalescesWhileHydrationPending(t *testing.T) {
+	surface := ongoing.NewSurfaceWithOptions(nil, ongoing.SurfaceOptions{
+		TerminalResize: ongoing.TerminalResizeRehydration,
+		MarkdownLinks:  transcriptrender.MarkdownLinkLabelOnly,
+	})
+	var reasons []ongoing.RehydrateReason
+	m := sizedTestUIModel(newProjectedStaticUIModel(
+		WithUIOngoingSurface(surface),
+		WithUIOngoingTranscriptReopen(func(reason ongoing.RehydrateReason) { reasons = append(reasons, reason) }),
+	), 80, 11)
+	m.ongoingTranscript = newNoopOngoingTranscriptController(surface, m.ongoingFrameInput)
+	if _, _, err := m.ongoingTranscript.Accept(ongoingHydrationMessage(1)); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := surface.Render(m.ongoingFrameInput()); err != nil {
+		t.Fatal(err)
+	}
+	resize := func(height int) {
+		m.reduceWindowMessage(tea.WindowSizeMsg{Width: 80, Height: height})
+		m.reduceOngoingMessage(ongoingResizeDebounceMsg{token: m.ongoingRehydration.token})
+	}
+	resize(12)
+	resize(13)
+	if len(reasons) != 1 {
+		t.Fatalf("concurrent reopen count=%d", len(reasons))
+	}
+	m.handleOngoingTranscriptEvent(ongoingTranscriptEvent{Kind: ongoingTranscriptEventLoss, Err: io.EOF})
+	if len(reasons) != 2 {
+		t.Fatalf("pre-hydration loss failed to admit recovery: %v", reasons)
+	}
+	m.handleOngoingTranscriptEvent(ongoingTranscriptEvent{Kind: ongoingTranscriptEventCutover, Reason: &reasons[1]})
+	m.handleOngoingTranscriptEvent(ongoingTranscriptEvent{Kind: ongoingTranscriptEventMessage, Message: ongoingHydrationMessage(1)})
+	if len(reasons) != 2 {
+		t.Fatalf("shared due resize reopened twice: %v", reasons)
+	}
+	resize(14)
+	if len(reasons) != 3 {
+		t.Fatalf("subsequent resize was not admitted: %v", reasons)
+	}
+	m.handleOngoingTranscriptEvent(ongoingTranscriptEvent{Kind: ongoingTranscriptEventFailure, Err: &net.OpError{Op: "dial", Net: "tcp", Err: io.EOF}})
+	resize(15)
+	if len(reasons) != 3 {
+		t.Fatalf("transport retry admitted a parallel reopen: %v", reasons)
+	}
+	m.handleOngoingTranscriptEvent(ongoingTranscriptEvent{Kind: ongoingTranscriptEventCutover, Reason: &reasons[2]})
+	m.handleOngoingTranscriptEvent(ongoingTranscriptEvent{Kind: ongoingTranscriptEventMessage, Message: ongoingHydrationMessage(1)})
+	if len(reasons) != 4 {
+		t.Fatalf("pending resize was not admitted after retry hydration: %v", reasons)
+	}
+	m.reduceWindowMessage(tea.WindowSizeMsg{Width: 80, Height: 16})
+	stale := m.ongoingRehydration.token
+	m.reduceWindowMessage(tea.WindowSizeMsg{})
+	m.reduceOngoingMessage(ongoingResizeDebounceMsg{token: stale})
+	m.reduceWindowMessage(tea.WindowSizeMsg{Width: 80, Height: 16})
+	if m.ongoingRehydration.token == stale || m.ongoingRehydration.pending == nil || m.ongoingRehydration.pending.due {
+		t.Fatal("unknown geometry did not restart the unsettled resize")
+	}
+	m.handleOngoingTranscriptEvent(ongoingTranscriptEvent{Kind: ongoingTranscriptEventClosed})
+	resize(16)
+	if len(reasons) != 4 || m.ongoingRehydration.reopen != nil {
+		t.Fatal("closed observation admitted stale reopen")
+	}
+}
+
+func TestOngoingResizeCompletesOnlyAfterItsOrderedCutover(t *testing.T) {
+	surface := ongoing.NewSurfaceWithOptions(nil, ongoing.SurfaceOptions{
+		TerminalResize: ongoing.TerminalResizeRehydration, MarkdownLinks: transcriptrender.MarkdownLinkLabelOnly,
+	})
+	var reasons []ongoing.RehydrateReason
+	m := sizedTestUIModel(newProjectedStaticUIModel(WithUIOngoingSurface(surface),
+		WithUIOngoingTranscriptReopen(func(reason ongoing.RehydrateReason) { reasons = append(reasons, reason) })), 80, 11)
+	m.ongoingTranscript = newNoopOngoingTranscriptController(surface, m.ongoingFrameInput)
+	surface.Render(m.ongoingFrameInput())
+	for _, height := range []int{12, 13} {
+		m.reduceWindowMessage(tea.WindowSizeMsg{Width: 80, Height: height})
+		m.reduceOngoingMessage(ongoingResizeDebounceMsg{token: m.ongoingRehydration.token})
+	}
+	m.handleOngoingTranscriptEvent(ongoingTranscriptEvent{Kind: ongoingTranscriptEventMessage, Message: ongoingHydrationMessage(1)})
+	if len(reasons) != 1 {
+		t.Fatal("initial hydration completed a reopen whose marker has not arrived")
+	}
+	m.handleOngoingTranscriptEvent(ongoingTranscriptEvent{Kind: ongoingTranscriptEventCutover, Reason: &reasons[0]})
+	m.handleOngoingTranscriptEvent(ongoingTranscriptEvent{Kind: ongoingTranscriptEventMessage, Message: ongoingHydrationMessage(1)})
+	if len(reasons) != 2 {
+		t.Fatal("replacement hydration did not release the pending resize")
+	}
+}
+
+func TestWindowResizeRoundTripPreservesQueuedOutputBeforeDebounce(t *testing.T) {
+	for _, offSurface := range []bool{false, true} {
+		t.Run(fmt.Sprintf("offSurface=%t", offSurface), func(t *testing.T) {
+			var output bytes.Buffer
+			surface := ongoing.NewSurfaceWithOptions(&output, ongoing.SurfaceOptions{
+				TerminalResize: ongoing.TerminalResizeRehydration, MarkdownLinks: transcriptrender.MarkdownLinkLabelOnly,
+			})
+			var reopens int
+			m := sizedTestUIModel(newProjectedStaticUIModel(WithUIOngoingSurface(surface),
+				WithUIOngoingTranscriptReopen(func(ongoing.RehydrateReason) { reopens++ })), 80, 11)
+			m.ongoingTranscript = newNoopOngoingTranscriptController(surface, m.ongoingFrameInput)
+			if _, _, err := m.ongoingTranscript.Accept(ongoingHydrationMessage(1)); err != nil {
+				t.Fatal(err)
+			}
+			if _, err := surface.Render(m.ongoingFrameInput()); err != nil {
+				t.Fatal(err)
+			}
+			terminal, err := analyzer.NewStream(pty.MustDimensions(11, 80))
+			if err != nil {
+				t.Fatal(err)
+			}
+			if err := terminal.Feed(output.Bytes()); err != nil {
+				t.Fatal(err)
+			}
+			before, err := terminal.ScreenSnapshot()
+			if err != nil {
+				t.Fatal(err)
+			}
+			output.Reset()
+			height := 3
+			if offSurface {
+				m.activeSurface = uiSurfaceTranscriptDetail
+				m.reconcileOngoingOwnership()
+				height = 4
+			}
+			m.reduceWindowMessage(tea.WindowSizeMsg{Width: 80, Height: height})
+			old := committedMessageForOngoingResizeTest()
+			old.Sequence = 2
+			if _, _, err := m.ongoingTranscript.Accept(old); err != nil {
+				t.Fatal(err)
+			}
+			if output.Len() != 0 {
+				t.Fatal("unowned resize/delivery wrote terminal output")
+			}
+			m.reduceWindowMessage(tea.WindowSizeMsg{Width: 80, Height: 11})
+			if offSurface {
+				m.activeSurface = uiSurfaceOngoingTranscript
+				m.reconcileOngoingOwnership()
+			}
+			if reopens != 0 {
+				t.Fatal("restoration reopened before debounce")
+			}
+			var retired []string
+			for _, b := range output.Bytes() {
+				prior, err := terminal.ScreenSnapshot()
+				if err != nil {
+					t.Fatal(err)
+				}
+				if err := terminal.Feed([]byte{b}); err != nil {
+					t.Fatal(err)
+				}
+				if b == '\n' && prior.Cursor.Row == 10 {
+					retired = append(retired, strings.Split(prior.RenderText(), "\n")[0])
+				}
+			}
+			for _, row := range strings.Split(before.RenderText(), "\n") {
+				if !slices.Contains(retired, row) {
+					t.Fatalf("round trip lost displaced row %q", row)
+				}
+			}
+			if !strings.Contains(output.String(), old.GetEvent().GetCommittedRow().GetUser().Text) {
+				t.Fatal("restoration lost queued committed output")
+			}
+		})
+	}
+}
+
 func TestOngoingWidthRehydrationDebounceTokenRestarts(t *testing.T) {
 	m := newProjectedStaticUIModel()
-	if cmd := m.scheduleOngoingWidthRehydration(); cmd == nil {
+	if cmd := m.scheduleOngoingResizeRehydration(); cmd == nil {
 		t.Fatal("first width rehydration schedule returned nil command")
 	}
-	first := m.ongoingWidthToken
-	if cmd := m.scheduleOngoingWidthRehydration(); cmd == nil {
+	first := m.ongoingRehydration.token
+	if cmd := m.scheduleOngoingResizeRehydration(); cmd == nil {
 		t.Fatal("second width rehydration schedule returned nil command")
 	}
-	if m.ongoingWidthToken == first {
-		t.Fatalf("width debounce token did not advance: %d", m.ongoingWidthToken)
+	if m.ongoingRehydration.token == first {
+		t.Fatalf("width debounce token did not advance: %d", m.ongoingRehydration.token)
 	}
 }
 
@@ -74,9 +245,6 @@ func TestWindowResizeWhileDetailOwnsTerminalRepaintsOnReturn(t *testing.T) {
 			if raw.Len() != 0 {
 				t.Fatalf("ongoing surface wrote raw bytes while detail owned terminal: %q", raw.String())
 			}
-			if !m.pendingOngoingResizeRepaint {
-				t.Fatal("off-surface resize did not mark pending ongoing repaint")
-			}
 
 			if cmd := m.activateSurface(uiSurfaceOngoingTranscript); cmd == nil {
 				t.Fatal("expected ongoing activation command")
@@ -95,9 +263,6 @@ func TestWindowResizeWhileDetailOwnsTerminalRepaintsOnReturn(t *testing.T) {
 			if frame.Size != target {
 				t.Fatalf("repaint frame size = %+v, want %+v", frame.Size, target)
 			}
-			if m.pendingOngoingResizeRepaint {
-				t.Fatal("pending resize repaint marker was not cleared")
-			}
 		})
 	}
 }
@@ -107,7 +272,7 @@ func TestAppleTerminalWidthResizeWhileDetailOwnsTerminalRehydratesOnReturn(t *te
 	nativeSurface := ongoing.NewSurfaceWithOptions(
 		&raw,
 		ongoing.SurfaceOptions{
-			TerminalResize: ongoing.TerminalResizeWidthRehydration,
+			TerminalResize: ongoing.TerminalResizeRehydration,
 			MarkdownLinks:  transcriptrender.MarkdownLinkLabelOnly})
 	if _, err := nativeSurface.ApplyTerminalMessage(
 		committedMessageForOngoingResizeTest(),
@@ -124,7 +289,7 @@ func TestAppleTerminalWidthResizeWhileDetailOwnsTerminalRehydratesOnReturn(t *te
 	m := newProjectedStaticUIModel(
 		WithUIOngoingSurface(nativeSurface),
 		withUIOngoingTranscriptController(controller),
-		WithUIOngoingTranscriptReopen(func() { reopenCount++ }))
+		WithUIOngoingTranscriptReopen(func(ongoing.RehydrateReason) { reopenCount++ }))
 
 	if cmd := m.activateSurface(uiSurfaceTranscriptDetail); cmd == nil {
 		t.Fatal("expected detail activation command")
@@ -136,26 +301,22 @@ func TestAppleTerminalWidthResizeWhileDetailOwnsTerminalRehydratesOnReturn(t *te
 	if raw.Len() != 0 {
 		t.Fatalf("ongoing surface wrote raw bytes while detail owned terminal: %q", raw.String())
 	}
-	if !m.pendingOngoingWidthReset {
+	if m.ongoingRehydration.pending == nil {
 		t.Fatal("off-surface width change did not mark pending width rehydration")
 	}
 
 	if cmd := m.activateSurface(uiSurfaceOngoingTranscript); cmd == nil {
 		t.Fatal("expected ongoing activation command")
 	}
-	if _, cmd := m.Update(ongoingNormalBufferOwnedMsg{owned: true}); cmd == nil {
-		t.Fatal("ownership restore did not schedule width rehydration")
-	}
-	if raw.Len() != 0 {
-		t.Fatalf("ongoing surface wrote before width debounce elapsed: %q", raw.String())
-	}
+	m.Update(ongoingNormalBufferOwnedMsg{owned: true})
+	raw.Reset()
 
-	token := m.ongoingWidthToken
-	if _, cmd := m.Update(ongoingWidthRehydrationDebounceMsg{token: token}); cmd != nil {
+	token := m.ongoingRehydration.token
+	if _, cmd := m.Update(ongoingResizeDebounceMsg{token: token}); cmd != nil {
 		t.Fatalf("debounced width rehydration returned command, want nil")
 	}
-	if raw.Len() == 0 {
-		t.Fatal("width fallback did not reset mutable band")
+	if raw.Len() != 0 {
+		t.Fatal("timer reset terminal before ordered cutover marker")
 	}
 	if reopenCount != 1 {
 		t.Fatalf("reopen count = %d, want 1", reopenCount)

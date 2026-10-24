@@ -113,6 +113,9 @@ func RenderPendingTool(tool *transcriptpb.ToolStart, width int, themeName string
 	meta := projectedToolMeta(tool.ToolName, tool.Presentation)
 	syntax := newSyntaxProjector(themeName)
 	meta.syntax = &syntax
+	if spinner != "" {
+		meta.SymbolText = &spinner
+	}
 	role := toolRole(meta)
 	text := compactToolText(meta, tool.ToolName)
 	inlineMeta := ""
@@ -139,11 +142,7 @@ func RenderPendingTool(tool *transcriptpb.ToolStart, width int, themeName string
 	if len(lines) == 0 {
 		return Line{}
 	}
-	line := lines[0]
-	if spinner == "" {
-		return line
-	}
-	return line.WithLeadingSymbolText(spinner)
+	return lines[0]
 }
 
 type toolMeta struct {

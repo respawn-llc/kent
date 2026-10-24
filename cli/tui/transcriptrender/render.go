@@ -655,7 +655,7 @@ func roleSymbol(role StyleRole) string {
 }
 
 func roleSymbolText(role StyleRole, meta toolMeta) string {
-	if role == StyleRoleToolPatch {
+	if role == StyleRoleToolPatch && meta.SymbolText == nil {
 		return "⇄"
 	}
 	if meta.IsError && role != StyleRoleToolShell {

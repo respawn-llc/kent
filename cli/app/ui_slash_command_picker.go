@@ -147,23 +147,16 @@ func (m *uiModel) slashCommandPicker() slashCommandPickerState {
 	if len(matches) > 0 {
 		selection = clampSlashPickerIndex(m.slashCommandSelection, 0, len(matches)-1)
 	}
-	start := 0
-	if len(matches) > slashCommandPickerLines {
-		start = selection - (slashCommandPickerLines / 2)
-		maxStart := len(matches) - slashCommandPickerLines
-		if start < 0 {
-			start = 0
-		}
-		if start > maxStart {
-			start = maxStart
-		}
-	}
 	return slashCommandPickerState{
 		visible:   true,
 		matches:   matches,
 		selection: selection,
-		start:     start,
+		start:     pickerViewportStart(selection, len(matches), slashCommandPickerLines),
 	}
+}
+
+func pickerViewportStart(selection, total, height int) int {
+	return min(max(0, selection-height/2), max(0, total-height))
 }
 
 func (m *uiModel) resolveSlashCommandSelection(input string) slashCommandSelection {

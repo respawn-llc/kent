@@ -8,7 +8,6 @@ const (
 	ansiHideCursor        = "\x1b[?25l"
 	ansiClearLine         = "\x1b[2K"
 	statusContextBarWidth = 10
-	queuedMessagesLimit   = 5
 )
 
 type uiViewLayout struct {
@@ -33,7 +32,7 @@ type uiRenderFrame struct {
 func (m *uiModel) View() string {
 	defer m.enterUIMainThread("View")()
 	m.syncRendererOutputGate()
-	if m.nativeOngoingSurfaceActive() {
+	if m.nativeOngoingSurfaceSelected() {
 		if m.terminalCursor != nil {
 			m.terminalCursor.Clear()
 		}
@@ -46,7 +45,7 @@ func (m *uiModel) syncRendererOutputGate() {
 	if m == nil || m.rendererOutputGate == nil {
 		return
 	}
-	m.rendererOutputGate.SetSuppressRendererWrites(m.nativeOngoingSurfaceActive())
+	m.rendererOutputGate.SetSuppressRendererWrites(m.nativeOngoingSurfaceSelected())
 }
 
 func (l uiViewLayout) render() string {

@@ -334,8 +334,9 @@ func ongoingTargetFinalDrainCandidate(
 		!appModel.nativeOngoingSurfaceActive() {
 		return ptyOngoingTargetFinalDrainCandidate{}
 	}
-	for _, message := range appModel.ongoingTranscript.queue {
-		if message.Sequence == targetSequence && isCommittedAssistantFinal(message) {
+	for _, work := range appModel.ongoingTranscript.queue {
+		message, ok := work.(ongoingTerminalMessage)
+		if ok && message.message.Sequence == targetSequence && isCommittedAssistantFinal(message.message) {
 			return ptyOngoingTargetFinalDrainCandidate{
 				sequence: targetSequence,
 				valid:    true}

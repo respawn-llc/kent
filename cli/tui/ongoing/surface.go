@@ -20,7 +20,7 @@ type FrameInput struct {
 	Theme        string
 	SpinnerFrame int
 	Sections     []FrameSection
-	Cursor       Cursor
+	Overlay      *FrameDemand
 }
 
 type Cursor struct {
@@ -39,6 +39,21 @@ type FrameSection struct {
 	Kind        FrameSectionKind
 	Lines       []string
 	StyledLines []transcriptrender.Line
+	Demand      *FrameDemand
+}
+
+// FrameDemand projects frame-local content only after the whole band's budget
+// is known. Editor and selection state remain owned by the caller.
+type FrameDemand struct {
+	PreferredHeight int
+	MinimumHeight   int
+	Project         func(height int) SectionProjection
+}
+
+type SectionProjection struct {
+	Lines       []string
+	StyledLines []transcriptrender.Line
+	Cursor      Cursor
 }
 
 type liveBandLine struct {
@@ -57,9 +72,6 @@ const (
 	FrameSectionGoal            FrameSectionKind = "goal"
 	FrameSectionStatus          FrameSectionKind = "status"
 	FrameSectionInput           FrameSectionKind = "input"
-	FrameSectionPicker          FrameSectionKind = "picker"
-	FrameSectionHelp            FrameSectionKind = "help"
-	FrameSectionPromptHistory   FrameSectionKind = "prompt_history"
 	FrameSectionPendingTools    FrameSectionKind = "pending_tools"
 	FrameSectionRunState        FrameSectionKind = "run_state"
 	FrameSectionSessionStatus   FrameSectionKind = "session_status"
@@ -77,7 +89,7 @@ type ResultAction string
 const (
 	ResultNoop                      ResultAction = ""
 	ResultRequestScratchRehydration ResultAction = "request_scratch_rehydration"
-	ResultScheduleWidthRehydration  ResultAction = "schedule_width_rehydration"
+	ResultScheduleResizeRehydration ResultAction = "schedule_resize_rehydration"
 )
 
 type RehydrateReason string
@@ -85,7 +97,7 @@ type RehydrateReason string
 const (
 	RehydrateReasonSequenceGap   RehydrateReason = "sequence_gap"
 	RehydrateReasonQueueOverflow RehydrateReason = "queue_overflow"
-	RehydrateReasonWidthChange   RehydrateReason = "width_change"
+	RehydrateReasonResize        RehydrateReason = "resize"
 	RehydrateReasonMissingPrompt RehydrateReason = "missing_prompt"
 )
 
@@ -93,26 +105,14 @@ type TerminalResizePolicy uint8
 
 const (
 	TerminalResizeSemanticPrompt TerminalResizePolicy = iota + 1
-	TerminalResizeWidthRehydration
-	TerminalResizeTmuxWidthRehydration
+	TerminalResizeRehydration
 )
 
-func (p TerminalResizePolicy) usesWidthRehydration() bool {
+func (p TerminalResizePolicy) usesResizeRehydration() bool {
 	switch p {
-	case TerminalResizeWidthRehydration, TerminalResizeTmuxWidthRehydration:
+	case TerminalResizeRehydration:
 		return true
 	case TerminalResizeSemanticPrompt:
-		return false
-	default:
-		panic(fmt.Sprintf("ongoing surface received invalid terminal resize policy %d", p))
-	}
-}
-
-func (p TerminalResizePolicy) bottomAnchorsVerticalExpansion() bool {
-	switch p {
-	case TerminalResizeTmuxWidthRehydration:
-		return true
-	case TerminalResizeSemanticPrompt, TerminalResizeWidthRehydration:
 		return false
 	default:
 		panic(fmt.Sprintf("ongoing surface received invalid terminal resize policy %d", p))
@@ -127,6 +127,8 @@ type Surface struct {
 	terminalResize     TerminalResizePolicy
 	markdownLinks      transcriptrender.MarkdownLinkPresentation
 	lastPaintedSize    *Size
+	lastObservedSize   *Size
+	viewportInvalid    bool
 }
 
 type activeAssistantState struct {
@@ -166,7 +168,7 @@ func NewSurfaceWithOptions(writer io.Writer, options SurfaceOptions) *Surface {
 		writer = io.Discard
 	}
 	switch options.TerminalResize {
-	case TerminalResizeSemanticPrompt, TerminalResizeWidthRehydration, TerminalResizeTmuxWidthRehydration:
+	case TerminalResizeSemanticPrompt, TerminalResizeRehydration:
 	default:
 		panic(fmt.Sprintf("ongoing surface received invalid terminal resize policy %d", options.TerminalResize))
 	}
@@ -372,11 +374,12 @@ func (s *Surface) SetNormalBufferOwned(_ bool, _ FrameInput) (Result, error) {
 }
 
 func (s *Surface) Resize(size Size, frame FrameInput) (Result, error) {
-	if result := s.observeResize(size); result.Action != ResultNoop {
-		return result, nil
-	}
+	result := s.observeResize(size)
 	frame.Size = size
-	return s.Render(frame)
+	if _, err := s.Render(frame); err != nil {
+		return Result{}, err
+	}
+	return result, nil
 }
 
 func (s *Surface) ObserveResize(size Size) Result {
@@ -384,14 +387,21 @@ func (s *Surface) ObserveResize(size Size) Result {
 }
 
 func (s *Surface) observeResize(size Size) Result {
-	if !s.terminalResize.usesWidthRehydration() {
+	previous := s.lastObservedSize
+	if size.Width <= 0 || size.Height <= 0 {
+		s.lastObservedSize = nil
+		if s.terminalResize.usesResizeRehydration() && s.lastPaintedSize != nil {
+			s.viewportInvalid = true
+		}
 		return Result{}
 	}
-	if s.lastPaintedSize != nil &&
-		size.Width > 0 &&
-		size.Width != s.lastPaintedSize.Width &&
-		s.immutableScrollbackProduced() {
-		return Result{Action: ResultScheduleWidthRehydration, Reason: RehydrateReasonWidthChange}
+	s.lastObservedSize = &size
+	if s.terminalResize.usesResizeRehydration() &&
+		((previous != nil && *previous != size) || (previous == nil && s.viewportInvalid)) {
+		if s.lastPaintedSize != nil {
+			s.viewportInvalid = true
+		}
+		return Result{Action: ResultScheduleResizeRehydration, Reason: RehydrateReasonResize}
 	}
 	return Result{}
 }
@@ -402,22 +412,21 @@ func (s *Surface) immutableScrollbackProduced() bool {
 
 func (s *Surface) ResetForScratchHydration(reason RehydrateReason, frame FrameInput) (Result, error) {
 	s.validateRenderFrame(frame, "reset_for_scratch_hydration")
-	previousMutableBand := s.visiblePreviousMutableBand(frame.Size)
-	linesToErase := s.previousMutableBandHeightAtBottom(frame.Size)
+	s.observeResize(frame.Size)
 	var transaction strings.Builder
-	transaction.WriteString(resetScrollRegionAndOriginMode())
-	transaction.WriteString(semanticOutputSequence())
-	if s.terminalResize.usesWidthRehydration() &&
-		s.terminalHeightExpanded(frame.Size) &&
-		previousMutableBand != nil {
-		writeMutableRowsErase(&transaction, previousMutableBand.start, previousMutableBand.end)
+	if s.viewportInvalid || reason == RehydrateReasonResize {
+		writeFreshViewport(&transaction, frame.Size.Height)
+	} else {
+		transaction.WriteString(resetScrollRegionAndOriginMode())
+		transaction.WriteString(semanticOutputSequence())
+		writeMutableBandErase(&transaction, frame.Size.Height, s.previousMutableBandHeight(frame.Size))
 	}
-	writeMutableBandErase(&transaction, frame.Size.Height, linesToErase)
 	writeCursor(&transaction, Cursor{})
 	if _, err := io.WriteString(s.writer, transaction.String()); err != nil {
 		return Result{}, err
 	}
 	s.retainedBandHeight = 0
+	s.viewportInvalid = false
 	s.activeAssistant = activeAssistantState{}
 	s.groupRegister = nil
 	paintedSize := frame.Size

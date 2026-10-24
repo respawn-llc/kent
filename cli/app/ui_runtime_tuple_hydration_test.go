@@ -457,6 +457,10 @@ func (s *blockingOngoingSurface) Resize(ongoing.Size, ongoing.FrameInput) (ongoi
 	return ongoing.Result{}, nil
 }
 
+func (s *blockingOngoingSurface) ResetForScratchHydration(ongoing.RehydrateReason, ongoing.FrameInput) (ongoing.Result, error) {
+	return ongoing.Result{}, nil
+}
+
 func (s *blockingOngoingSurface) completedApplyCount() int {
 	s.mu.Lock()
 	defer s.mu.Unlock()

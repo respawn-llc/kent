@@ -65,8 +65,11 @@ func (l uiViewLayout) renderChatContentLines(rawLines []string, width int, style
 }
 
 func (l uiViewLayout) renderActivePicker(width int) []string {
+	return l.renderPicker(l.model.activePickerPresentation(), width)
+}
+
+func (l uiViewLayout) renderPicker(state uiPickerPresentation, width int) []string {
 	m := l.model
-	state := m.activePickerPresentation()
 	if !state.visible || width < 1 || state.lineCount <= 0 {
 		return nil
 	}
@@ -154,13 +157,19 @@ func (l uiViewLayout) renderQueuedMessagesPane(width int) []string {
 }
 
 func (l uiViewLayout) renderQueuedMessageLines(width int) []transcriptrender.Line {
-	if width < 1 {
+	return projectQueuedMessageLines(l.queuedMessages(), width, max(2, l.effectiveHeight()-4))
+}
+
+func projectQueuedMessageLines(entries []queuedPaneEntry, width, height int) []transcriptrender.Line {
+	if width < 1 || height < 1 || len(entries) == 0 {
 		return nil
 	}
-	visible, hidden := l.queuedVisibleMessages()
-	if len(visible) == 0 {
-		return nil
+	visibleCount := min(len(entries), height)
+	if visibleCount < len(entries) {
+		visibleCount--
 	}
+	hidden := len(entries) - visibleCount
+	visible := entries[hidden:]
 	inputs := make([]ongoingLiveInput, 0, len(visible)+1)
 	if hidden > 0 {
 		inputs = append(inputs, ongoingLiveInput{Text: fmt.Sprintf("%d more messages", hidden), Disposition: ongoingLiveInputQueued})
@@ -172,28 +181,7 @@ func (l uiViewLayout) renderQueuedMessageLines(width int) []transcriptrender.Lin
 }
 
 func (l uiViewLayout) queuedPaneLineCount() int {
-	visible, hidden := l.queuedVisibleMessages()
-	if len(visible) == 0 {
-		return 0
-	}
-	if hidden > 0 {
-		return len(visible) + 1
-	}
-	return len(visible)
-}
-
-func (l uiViewLayout) queuedVisibleMessages() ([]queuedPaneEntry, int) {
-	entries := l.queuedMessages()
-	total := len(entries)
-	if total == 0 {
-		return nil, 0
-	}
-	start := 0
-	if total > queuedMessagesLimit {
-		start = total - queuedMessagesLimit
-	}
-	visible := entries[start:]
-	return visible, total - len(visible)
+	return min(len(l.queuedMessages()), max(2, l.effectiveHeight()-4))
 }
 
 func (l uiViewLayout) queuedMessages() []queuedPaneEntry {

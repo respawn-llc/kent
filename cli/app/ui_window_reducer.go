@@ -19,19 +19,22 @@ func (m *uiModel) reduceWindowMessage(msg tea.Msg) uiFeatureUpdateResult {
 		m.updateConnectionRemovalPickerSize()
 		m.syncRendererOutputGate()
 		m.layout().syncViewport()
+		var resizeCmd tea.Cmd
+		if m.ongoingSurface != nil {
+			observation := m.ongoingSurface.ObserveResize(ongoing.Size{Width: msg.Width, Height: msg.Height})
+			resizeCmd = m.handleOngoingResult(observation)
+			if m.terminalGeometry.IsKnown() && previousSize == nil && m.ongoingRehydration.pending != nil && observation.Action != ongoing.ResultScheduleResizeRehydration {
+				resizeCmd = m.scheduleOngoingResizeRehydration()
+			}
+		}
+		if !m.terminalGeometry.IsKnown() {
+			m.ongoingRehydration.token++
+		}
 		desiredOngoing := m.ongoingSurface != nil &&
 			desiredOngoingOwnership(m.terminalGeometry, terminalDestinationForSurface(m.surface()))
 		if !desiredOngoing || m.ongoingSurface == nil {
-			if m.ongoingSurface != nil {
-				result := m.ongoingSurface.ObserveResize(ongoing.Size{Width: msg.Width, Height: msg.Height})
-				if result.Action == ongoing.ResultScheduleWidthRehydration {
-					m.pendingOngoingWidthReset = true
-					m.pendingOngoingResizeRepaint = false
-				} else if previousSize == nil || previousSize.width != msg.Width || previousSize.height != msg.Height {
-					m.pendingOngoingResizeRepaint = true
-				}
-			}
 			return handledUIFeatureUpdate(m, tea.Batch(
+				resizeCmd,
 				m.reconcileOngoingOwnership(),
 				m.scheduleCurrentQuestionProjection(),
 			))
@@ -47,7 +50,7 @@ func (m *uiModel) reduceWindowMessage(msg tea.Msg) uiFeatureUpdateResult {
 		if err != nil {
 			return handledUIFeatureUpdate(m, m.handleOngoingSurfaceError(err))
 		}
-		cmd := m.handleOngoingResult(result)
+		cmd := tea.Batch(resizeCmd, m.handleOngoingResult(result))
 		if previousSize == nil || !wasNativeOngoing {
 			cmd = tea.Batch(cmd, m.reconcileOngoingOwnership())
 		}

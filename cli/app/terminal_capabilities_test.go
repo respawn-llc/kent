@@ -29,7 +29,7 @@ func TestTerminalCapabilitiesUseIndependentWhitelists(t *testing.T) {
 		{
 			name:        "kitty terminal identity",
 			environment: map[string]string{"TERM": "xterm-kitty"},
-			wantResize:  ongoing.TerminalResizeWidthRehydration,
+			wantResize:  ongoing.TerminalResizeRehydration,
 			wantLinks:   transcriptrender.MarkdownLinkLabelOnly,
 		},
 		{
@@ -38,49 +38,49 @@ func TestTerminalCapabilitiesUseIndependentWhitelists(t *testing.T) {
 				"TERM_PROGRAM":         "iTerm.app",
 				"TERM_PROGRAM_VERSION": "0.1",
 			},
-			wantResize: ongoing.TerminalResizeWidthRehydration,
+			wantResize: ongoing.TerminalResizeRehydration,
 			wantLinks:  transcriptrender.MarkdownLinkLabelOnly,
 		},
 		{
 			name:        "WezTerm",
 			environment: map[string]string{"TERM_PROGRAM": "WezTerm"},
-			wantResize:  ongoing.TerminalResizeWidthRehydration,
+			wantResize:  ongoing.TerminalResizeRehydration,
 			wantLinks:   transcriptrender.MarkdownLinkLabelOnly,
 		},
 		{
 			name:        "Alacritty",
 			environment: map[string]string{"TERM": "alacritty"},
-			wantResize:  ongoing.TerminalResizeWidthRehydration,
+			wantResize:  ongoing.TerminalResizeRehydration,
 			wantLinks:   transcriptrender.MarkdownLinkLabelOnly,
 		},
 		{
 			name:        "Windows Terminal",
 			environment: map[string]string{"WT_SESSION": "session"},
-			wantResize:  ongoing.TerminalResizeWidthRehydration,
+			wantResize:  ongoing.TerminalResizeRehydration,
 			wantLinks:   transcriptrender.MarkdownLinkLabelOnly,
 		},
 		{
 			name:        "VS Code",
 			environment: map[string]string{"TERM_PROGRAM": "vscode"},
-			wantResize:  ongoing.TerminalResizeWidthRehydration,
+			wantResize:  ongoing.TerminalResizeRehydration,
 			wantLinks:   transcriptrender.MarkdownLinkLabelOnly,
 		},
 		{
 			name:        "Zed",
 			environment: map[string]string{"TERM_PROGRAM": "zed"},
-			wantResize:  ongoing.TerminalResizeWidthRehydration,
+			wantResize:  ongoing.TerminalResizeRehydration,
 			wantLinks:   transcriptrender.MarkdownLinkLabelOnly,
 		},
 		{
 			name:        "Apple Terminal fallback",
 			environment: map[string]string{"TERM_PROGRAM": "Apple_Terminal"},
-			wantResize:  ongoing.TerminalResizeWidthRehydration,
+			wantResize:  ongoing.TerminalResizeRehydration,
 			wantLinks:   transcriptrender.MarkdownLinkLabelAndDestination,
 		},
 		{
 			name:        "unknown terminal fallback",
 			environment: map[string]string{"TERM_PROGRAM": "unknown-terminal"},
-			wantResize:  ongoing.TerminalResizeWidthRehydration,
+			wantResize:  ongoing.TerminalResizeRehydration,
 			wantLinks:   transcriptrender.MarkdownLinkLabelAndDestination,
 		},
 		{
@@ -89,7 +89,7 @@ func TestTerminalCapabilitiesUseIndependentWhitelists(t *testing.T) {
 				"TMUX":         "/private/tmp/tmux/default,1,0",
 				"TERM_PROGRAM": "ghostty",
 			},
-			wantResize: ongoing.TerminalResizeTmuxWidthRehydration,
+			wantResize: ongoing.TerminalResizeRehydration,
 			wantLinks:  transcriptrender.MarkdownLinkLabelAndDestination,
 		},
 		{
@@ -138,7 +138,7 @@ func TestTerminalHyperlinkWhitelistMatchingIsExact(t *testing.T) {
 	if capabilities.MarkdownLinks != transcriptrender.MarkdownLinkLabelAndDestination {
 		t.Fatalf("Markdown links = %v, want exact-match fallback", capabilities.MarkdownLinks)
 	}
-	if capabilities.ResizePolicy != ongoing.TerminalResizeWidthRehydration {
+	if capabilities.ResizePolicy != ongoing.TerminalResizeRehydration {
 		t.Fatalf("resize policy = %v, want exact-match fallback", capabilities.ResizePolicy)
 	}
 }

@@ -3,6 +3,7 @@ package app
 import (
 	"errors"
 	"fmt"
+	"strconv"
 
 	"core/cli/app/internal/runtimeattach"
 	"core/cli/tui/ongoing"
@@ -20,17 +21,22 @@ func (m *uiModel) reduceOngoingMessage(msg tea.Msg) uiFeatureUpdateResult {
 		return handledUIFeatureUpdate(m, m.reconcileOngoingOwnership())
 	case ongoingOwnershipReconcileMsg:
 		return handledUIFeatureUpdate(m, m.reconcileOngoingOwnership())
-	case ongoingWidthRehydrationDebounceMsg:
-		if msg.token != m.ongoingWidthToken {
+	case ongoingResizeDebounceMsg:
+		if msg.token != m.ongoingRehydration.token || m.ongoingRehydration.pending == nil || m.ongoingRehydration.closed {
 			return handledUIFeatureUpdate(m, nil)
 		}
-		result := ongoing.Result{Action: ongoing.ResultRequestScratchRehydration, Reason: ongoing.RehydrateReasonWidthChange}
-		return handledUIFeatureUpdate(m, m.handleOngoingResult(result))
+		m.ongoingRehydration.pending.due = true
+		m.admitDueOngoingResize()
+		return handledUIFeatureUpdate(m, nil)
 	}
 	return uiFeatureUpdateResult{}
 }
 
 func (m *uiModel) handleOngoingTranscriptEvent(event ongoingTranscriptEvent) tea.Cmd {
+	if m != nil && event.Kind == ongoingTranscriptEventClosed {
+		m.closeOngoingRehydration()
+		return nil
+	}
 	if m == nil || m.ongoingTranscript == nil {
 		return nil
 	}
@@ -40,6 +46,21 @@ func (m *uiModel) handleOngoingTranscriptEvent(event ongoingTranscriptEvent) tea
 		recovery tea.Cmd
 	)
 	switch event.Kind {
+	case ongoingTranscriptEventCutover:
+		if event.Reason == nil {
+			frame := m.ongoingFrameInput()
+			return m.handleOngoingDeveloperError(ongoing.NewDeveloperError(
+				"transcript_cutover", "transcript cutover requires reset reason", map[string]any{
+					"terminal_size":  frame.Size,
+					"quoted_payload": strconv.Quote(fmt.Sprintf("%+v", event)),
+					"quoted_frame":   strconv.Quote(fmt.Sprintf("%+v", frame)),
+				},
+			))
+		}
+		if m.ongoingRehydration.reopen != nil {
+			*m.ongoingRehydration.reopen = ongoingReopenHydrating
+		}
+		result, err = m.ongoingTranscript.AcceptCutover(*event.Reason)
 	case ongoingTranscriptEventMessage:
 		wasRuntimeDisconnected := m.runtimeDisconnectStatusVisible()
 		var stateCmd tea.Cmd
@@ -54,6 +75,7 @@ func (m *uiModel) handleOngoingTranscriptEvent(event ongoingTranscriptEvent) tea
 		acceptedHydration := m.ongoingTranscript.acceptedHydration(event.Message)
 		if acceptedHydration {
 			m.observeRuntimeRequestResult(nil)
+			m.finishOngoingRehydration()
 		}
 		stateCmd = sequenceCmds(stateCmd, m.inputController().resumeQueuedInputsAfterIdleRuntime())
 		m.inputController().notifyTurnQueueDrainedIfIdle()
@@ -64,6 +86,7 @@ func (m *uiModel) handleOngoingTranscriptEvent(event ongoingTranscriptEvent) tea
 		}
 		return tea.Batch(stateCmd, m.handleOngoingResult(result), m.reconcileSpinnerTicking(true), connectionStatusCmd)
 	case ongoingTranscriptEventLoss:
+		m.ongoingRehydration.reopen = nil
 		if runtimeattach.IsRuntimeConnectionError(event.Err) {
 			m.observeRuntimeRequestResult(event.Err)
 			recovery = m.startRuntimeMainViewRefresh(nil)
@@ -73,6 +96,9 @@ func (m *uiModel) handleOngoingTranscriptEvent(event ongoingTranscriptEvent) tea
 		}
 		result = m.ongoingTranscript.HandleSubscriptionLoss()
 	case ongoingTranscriptEventFailure:
+		if runtimeattach.IsRuntimeProtocolMismatch(event.Err) || !runtimeattach.IsRuntimeConnectionError(event.Err) {
+			m.closeOngoingRehydration()
+		}
 		err = fmt.Errorf("open transcript subscription: %w", event.Err)
 		m.logf("ongoing.transcript.open.error err=%q", err.Error())
 		if runtimeattach.IsRuntimeProtocolMismatch(event.Err) {

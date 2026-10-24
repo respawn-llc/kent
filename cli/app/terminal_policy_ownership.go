@@ -47,7 +47,7 @@ func desiredOngoingOwnership(geometry terminalGeometry, destination terminalDest
 	size := geometry.Size()
 	return size != nil &&
 		size.width >= 40 &&
-		size.height >= 10 &&
+		size.height >= 4 &&
 		destination == terminalDestinationOngoing
 }
 

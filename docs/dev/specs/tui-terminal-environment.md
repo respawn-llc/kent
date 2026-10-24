@@ -1,14 +1,15 @@
 ## Resize
 
-- In Ongoing Mode, a width change that cannot use terminal-native repaint starts Scratch Rehydration after a one-second debounce.
+- In Ongoing Mode, a width or height change that cannot use terminal-native repaint starts Scratch Rehydration after a one-second debounce. The separated view and accepted resize residue follow [Ongoing Scrollback Buffer](ongoing-scrollback-buffer.md#scratch-rehydration).
 - Bounded Alternate Screen surfaces relayout immediately for each resize. They do not use Scratch Rehydration.
 - Resize never loses state: selections, scroll positions (clamped to new bounds), input drafts, and in-flight operations all survive a resize on every surface.
 
 ## Size degradation
 
-- Below 40 columns by 10 rows, the TUI leaves its owned frame blank without changing Scrollback.
+- Below 40 columns or 4 rows, Ongoing Mode must emit no further UI or transcript output, must not erase or clear existing terminal content, and must hold transcript events until the terminal reaches both dimensions.
+- Below 40 columns or 10 rows, other TUI surfaces must leave their owned frame blank without changing Scrollback.
 - Rendering resumes when the terminal reaches the minimum size.
-- The same size rule applies to every TUI surface.
+- At or above its absolute minimum, Ongoing Mode must apply the current-content live-area minimum defined in [Ongoing Scrollback Buffer](ongoing-scrollback-buffer.md#mutable-band-height). Hiding the live area must not stop committed output.
 - At or above the minimum, every surface must be usable. Content that exceeds the height can scroll. Every unbounded list uses Infinite Scroll and never loads the complete list. Horizontal content wraps without overflowing or disappearing off-screen. The status line follows its priority ladder.
 
 ## Theme and color

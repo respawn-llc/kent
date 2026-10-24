@@ -29,6 +29,10 @@ type askInputViewport struct {
 }
 
 func (l uiViewLayout) inputPaneProjection(width, height int, style uiStyles) uiInputPaneProjection {
+	return l.inputPaneProjectionWithBudget(width, inputContentLineLimit(height), style)
+}
+
+func (l uiViewLayout) inputPaneProjectionWithBudget(width, maxContentLines int, style uiStyles) uiInputPaneProjection {
 	inputState := l.model.inputModeState()
 	if inputState.Mode == uiInputModeRollbackSelection {
 		return uiInputPaneProjection{}
@@ -40,7 +44,6 @@ func (l uiViewLayout) inputPaneProjection(width, height int, style uiStyles) uiI
 		return uiInputPaneProjection{Lines: []string{padRight("", width)}, PanelHeight: 1}
 	}
 
-	maxContentLines := inputContentLineLimit(height)
 	if inputState.ShowsAskInput {
 		return l.projectAskInputPane(width, maxContentLines, style)
 	}

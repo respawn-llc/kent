@@ -336,6 +336,7 @@ func (e *Engine) scheduleQueuedUserInjections() bool {
 		return false
 	}
 	e.ensureOrchestrationCollaborators()
+	e.ensureLifecycle()
 	// Schedule at acceptance even while compaction or another step is busy.
 	// The worker waits for that step; its completion keeps the execution owner
 	// (including Questions and Approvals) attached until queued work finishes.
@@ -355,16 +356,30 @@ func (e *Engine) scheduleQueuedUserInjections() bool {
 		return true
 	}
 	completion := newRuntimeDeferred[struct{}]()
+	workerCtx, cancel := context.WithCancel(e.lifecycleCtx)
 	e.queuedUserWorkScheduled = true
 	e.queuedUserWorkCompletion = completion
+	e.queuedUserWorkCancel = cancel
 	e.queuedUserWorkMu.Unlock()
-	if !e.launchLifecycleTask(func(ctx context.Context) *resultGroupFatal {
-		return e.processQueuedUserWork(ctx, completion)
+	if !e.launchLifecycleTask(func(context.Context) *resultGroupFatal {
+		defer cancel()
+		return e.processQueuedUserWork(workerCtx, completion)
 	}) {
+		cancel()
 		e.clearQueuedUserWorkScheduled(completion, ErrEngineClosed)
 		return false
 	}
 	return true
+}
+
+// CancelScheduledQueuedUserWork stops only the currently owned worker. Its
+// completion remains pending until startup/submission and model work exit.
+func (e *Engine) CancelScheduledQueuedUserWork() {
+	e.queuedUserWorkMu.Lock()
+	defer e.queuedUserWorkMu.Unlock()
+	if e.queuedUserWorkCancel != nil {
+		e.queuedUserWorkCancel()
+	}
 }
 
 func (e *Engine) processQueuedUserWork(
@@ -373,11 +388,12 @@ func (e *Engine) processQueuedUserWork(
 ) (runtimeAbort *resultGroupFatal) {
 	for {
 		if err := e.waitQueuedUserAutoDrainAllowed(ctx); err != nil {
-			e.clearQueuedUserWorkScheduled(completion, err)
 			if fatal, abort := resultGroupFatalFromError(err); abort {
+				e.clearQueuedUserWorkScheduled(completion, err)
 				return fatal
 			}
 			e.surfaceRunError(err)
+			e.clearQueuedUserWorkScheduled(completion, err)
 			return nil
 		}
 		_, receipt, _, err := e.submitQueuedUserMessages(ctx, queuedTurnUserInjectionSelection{}, nil)
@@ -440,6 +456,7 @@ func (e *Engine) clearQueuedUserWorkScheduled(
 	}
 	e.queuedUserWorkScheduled = false
 	e.queuedUserWorkCompletion = runtimeDeferred[struct{}]{}
+	e.queuedUserWorkCancel = nil
 	e.queuedUserWorkMu.Unlock()
 	completion.complete(struct{}{}, err)
 	return true

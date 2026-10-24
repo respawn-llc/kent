@@ -1,6 +1,7 @@
 package app
 
 import (
+	"core/cli/tui/ongoing"
 	"core/shared/apicontract"
 	"core/shared/clientui"
 )
@@ -10,7 +11,7 @@ type runtimeWiring struct {
 	turnQueueHook          turnQueueHook
 	terminalFocus          *terminalFocusState
 	eventDispatcher        *uiEventDispatcher
-	requestTranscriptOpen  func()
+	requestTranscriptOpen  func(ongoing.RehydrateReason)
 	promptAnswers          *transcriptPromptAnswerer
 	promptAttention        promptAttentionSink
 	runtimeClient          clientui.RuntimeClient

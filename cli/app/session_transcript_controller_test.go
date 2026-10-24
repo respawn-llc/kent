@@ -9,6 +9,7 @@ import (
 	"core/shared/runtimeids"
 	"core/shared/textutil"
 	"errors"
+	"fmt"
 	tea "github.com/charmbracelet/bubbletea"
 	"google.golang.org/protobuf/proto"
 	"google.golang.org/protobuf/types/known/timestamppb"
@@ -206,6 +207,66 @@ func TestOngoingTranscriptControllerQueueOverflowRequestsScratchRehydrationOnRes
 	if len(surface.calls) != 0 {
 		t.Fatalf("surface calls after overflow restore = %v, want no partial drain", surface.calls)
 	}
+	result, err = controller.Accept(transcriptTestMessage(ongoingTranscriptQueueLimit+2, &transcriptpb.AssistantDelta{
+		StepId: ongoingTestStepID().String(), StreamId: runtimeids.NewAssistantStreamID().String(), Delta: "buffered",
+		Phase: transcriptpb.AssistantPhase_ASSISTANT_PHASE_COMMENTARY,
+	}))
+	if err != nil {
+		t.Fatalf("accept buffered old delivery: %v", err)
+	}
+	if result.Action != ongoing.ResultRequestScratchRehydration || len(surface.calls) != 0 {
+		t.Fatalf("old delivery after overflow: result=%+v calls=%v, want recovery without terminal delivery", result, surface.calls)
+	}
+	if _, err := controller.AcceptCutover(ongoing.RehydrateReasonQueueOverflow); err != nil {
+		t.Fatalf("apply recovery cutover: %v", err)
+	}
+	if _, err := controller.Accept(ongoingHydrationMessage(1)); err != nil {
+		t.Fatalf("accept replacement hydration: %v", err)
+	}
+	if !controller.acceptedHydration(ongoingHydrationMessage(1)) {
+		t.Fatal("replacement hydration was not admitted")
+	}
+}
+
+func TestOngoingTranscriptControllerResizeCutoverAfterLossRestoresQueuedDelivery(t *testing.T) {
+	for _, owned := range []bool{true, false} {
+		t.Run(fmt.Sprintf("owned=%t", owned), func(t *testing.T) {
+			surface := &ongoingSurfaceSpy{}
+			controller := newTestOngoingTranscriptController(surface, ongoingTestFrameProvider)
+			if _, err := controller.Accept(ongoingHydrationMessage(1)); err != nil {
+				t.Fatal(err)
+			}
+			if _, err := controller.SetNormalBufferOwned(owned); err != nil {
+				t.Fatal(err)
+			}
+			controller.HandleSubscriptionLoss()
+			if _, err := controller.AcceptCutover(ongoing.RehydrateReasonResize); err != nil {
+				t.Fatal(err)
+			}
+			if _, err := controller.Accept(ongoingHydrationMessage(1)); err != nil {
+				t.Fatal(err)
+			}
+			if _, err := controller.SetNormalBufferOwned(false); err != nil {
+				t.Fatal(err)
+			}
+			message := ongoingTranscriptMessage(2, reflect.TypeFor[*transcriptpb.Event_CommittedRow]())
+			if _, err := controller.Accept(message); err != nil {
+				t.Fatal(err)
+			}
+			surface.calls = nil
+			result, err := controller.SetNormalBufferOwned(true)
+			if err != nil || result.Action != ongoing.ResultNoop {
+				t.Fatalf("restore after recovered subscription: result=%+v err=%v", result, err)
+			}
+			delivered := false
+			for _, call := range surface.calls {
+				delivered = delivered || call.message == message
+			}
+			if !delivered {
+				t.Fatal("committed message after recovery was not delivered on return")
+			}
+		})
+	}
 }
 
 func TestOngoingTranscriptControllerQueuesOnlyTerminalWorkWhileUnowned(t *testing.T) {
@@ -303,8 +364,7 @@ type ongoingSurfaceSpy struct {
 
 func ongoingTestFrameProvider() ongoing.FrameInput {
 	return ongoing.FrameInput{
-		Size:   ongoing.Size{Width: 80, Height: 24},
-		Cursor: ongoing.Cursor{Visible: true, Row: 24, Column: 1},
+		Size: ongoing.Size{Width: 80, Height: 24},
 	}
 }
 
@@ -361,6 +421,11 @@ func (s *ongoingSurfaceSpy) Resize(_ ongoing.Size, frame ongoing.FrameInput) (on
 	return ongoing.Result{}, s.err
 }
 
+func (s *ongoingSurfaceSpy) ResetForScratchHydration(_ ongoing.RehydrateReason, frame ongoing.FrameInput) (ongoing.Result, error) {
+	s.calls = append(s.calls, ongoingSurfaceCall{name: "reset", frame: frame})
+	return ongoing.Result{}, s.err
+}
+
 func (s *ongoingSurfaceSpy) appliedKinds() []reflect.Type {
 	kinds := make([]reflect.Type, 0, len(s.calls))
 	for _, call := range s.calls {
@@ -407,6 +472,10 @@ func (s *ongoingSurfaceSpy) lastFrameSectionLines(kind ongoing.FrameSectionKind)
 	}
 	for _, section := range s.calls[len(s.calls)-1].frame.Sections {
 		if section.Kind == kind {
+			if section.Demand != nil {
+				projected := section.Demand.Project(section.Demand.PreferredHeight)
+				section.Lines, section.StyledLines = projected.Lines, projected.StyledLines
+			}
 			lines := make([]string, 0, len(section.StyledLines)+len(section.Lines))
 			for _, line := range section.StyledLines {
 				lines = append(lines, line.Plain())
