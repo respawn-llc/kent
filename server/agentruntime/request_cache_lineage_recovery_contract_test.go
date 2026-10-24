@@ -28,7 +28,7 @@ func TestCommittedCacheResponseObserverFailureRetainsLineage(t *testing.T) {
 		CacheWarningMode: config.CacheWarningModeDefault,
 	})
 	baselineSequence := store.Meta().LastSequence
-	gate.FailWhen(func(snapshot session.PersistedStoreSnapshot) bool {
+	gate.FailAfterCommitWhen(func(snapshot session.PersistedStoreSnapshot) bool {
 		return snapshot.Meta.LastSequence > baselineSequence+1
 	}, observerErr)
 

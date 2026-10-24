@@ -131,7 +131,7 @@ func TestWorkspaceChatDraftCutoverFailureLeavesDatabaseUnchanged(t *testing.T) {
 CREATE VIEW workspace_chat_draft_migration_blocker AS
 SELECT chat_draft_json
 FROM workspaces`)
-	err = runMigrations(db)
+	err = runMigrations(db, t.TempDir())
 	if err == nil {
 		t.Fatal("workspace Chat draft cutover succeeded despite migration blocker")
 	}
@@ -365,7 +365,7 @@ func openDatabaseAtVersionForTest(t *testing.T, version int64) (*sql.DB, error) 
 
 func migrateMetadataTestStore(t *testing.T, root string, db *sql.DB) *Store {
 	t.Helper()
-	if err := runMigrations(db); err != nil {
+	if err := runMigrations(db, root); err != nil {
 		t.Fatalf("migrate metadata database: %v", err)
 	}
 	store, err := NewStore(root, db)

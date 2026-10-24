@@ -583,7 +583,7 @@ func TestAppendRecoveredWarningCommitsMarkerWithEventBeforeObserverFailure(t *te
 	}
 	warning := "generated warning"
 	observerErr := errors.New("warning metadata observer failed")
-	gate.FailWhen(func(snapshot session.PersistedStoreSnapshot) bool {
+	gate.FailAfterCommitWhen(func(snapshot session.PersistedStoreSnapshot) bool {
 		return snapshot.Meta.GeneratedRecoveredWarningIssued
 	}, observerErr)
 
@@ -1375,7 +1375,11 @@ func TestActivateSessionRuntimeUsesActiveShellPostprocessingWithSuppliedManager(
 		t.Fatalf("SubmitUserMessage through activated runtime: %v", err)
 	}
 
-	eventLog, err := fixture.store.MaterializeEventLog()
+	committedStore, err := session.Open(fixture.store.Dir(), fixture.metadata.AuthoritativeSessionStoreOptions()...)
+	if err != nil {
+		t.Fatal(err)
+	}
+	eventLog, err := committedStore.MaterializeEventLog()
 	if err != nil {
 		t.Fatalf("MaterializeEventLog: %v", err)
 	}

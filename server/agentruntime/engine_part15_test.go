@@ -653,12 +653,12 @@ type failOnHistoryReplacementAgentResetObservation struct {
 	failed bool
 }
 
-func (o *failOnHistoryReplacementAgentResetObservation) ObservePersistedStore(_ context.Context, snapshot session.PersistedStoreSnapshot) error {
+func (o *failOnHistoryReplacementAgentResetObservation) ObservePersistedStore(_ context.Context, snapshot session.PersistedStoreSnapshot) (session.CommitReceipt, error) {
 	if !o.failed && snapshot.Meta.LastSequence >= 2 {
 		o.failed = true
-		return errors.New("persist observer failed after history replacement append")
+		return session.CommitReceipt{}, errors.New("persist observer failed after history replacement append")
 	}
-	return nil
+	return session.CommitReceipt{}, nil
 }
 
 type committedCompactionFixture struct {

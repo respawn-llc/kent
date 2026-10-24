@@ -14,7 +14,6 @@ import (
 
 const (
 	eventLogMigrationWorkspaceMarkerContents = "kent.session.events.migration.workspace.v1\n"
-	eventLogMigrationReadyMarkerContents     = "kent.session.events.migration.ready.v1\n"
 )
 
 type eventLogMaterializationState uint8
@@ -157,15 +156,16 @@ func (s *Store) prepareEventLogMaterializationWithStableLockHeld() (
 	resultErr error,
 ) {
 	s.mu.Lock()
+	if s.terminalPersistenceError != nil {
+		err := s.terminalPersistenceError
+		s.mu.Unlock()
+		return eventLogPreparationResult{}, false, err
+	}
 	sessionDir := s.sessionDir
 	eventsPath := s.eventsFP
 	s.mu.Unlock()
 
 	workspace := eventLogMigrationWorkspacePath(sessionDir)
-	if err := recoverStagedCurrentEventLog(eventsPath, workspace); err != nil {
-		s.clearEventLogMaterialization()
-		return eventLogPreparationResult{}, false, err
-	}
 	if err := cleanupEventLogMigrationWorkspace(workspace); err != nil {
 		s.clearEventLogMaterialization()
 		return eventLogPreparationResult{}, false, err
@@ -229,6 +229,7 @@ func (s *Store) prepareEventLogMaterializationWithStableLockHeld() (
 		if err := installLegacyCurrentEventLog(
 			eventsPath,
 			workspace,
+			s.commitLegacyEventLogConversion,
 			func() {
 				s.setEventLogMaterializationState(
 					eventLogCurrentReconciliationPending,
@@ -431,7 +432,7 @@ func installHeaderOnlyCurrentEventLog(
 	if err != nil {
 		return err
 	}
-	return installCurrentEventLog(eventsPath, workspace, onCommitted, func(stage *os.File) error {
+	return installCurrentEventLog(eventsPath, workspace, onCommitted, nil, func(stage *os.File) error {
 		if _, err := writeAll(stage, append(header, '\n')); err != nil {
 			return fmt.Errorf("write staged event log header: %w", err)
 		}
@@ -439,47 +440,11 @@ func installHeaderOnlyCurrentEventLog(
 	})
 }
 
-func recoverStagedCurrentEventLog(eventsPath, workspace string) error {
-	entries, err := readOwnedEventLogMigrationWorkspace(workspace)
-	if errors.Is(err, os.ErrNotExist) {
-		return nil
-	}
-	if err != nil {
-		return err
-	}
-	staged := false
-	ready := false
-	for _, entry := range entries {
-		switch entry.Name() {
-		case eventLogMigrationStagedLogFile:
-			staged = true
-		case eventLogMigrationReadyMarkerFile:
-			ready = true
-		}
-	}
-	if !staged || !ready {
-		return nil
-	}
-	if err := validateStagedCurrentEventLogReady(workspace); err != nil {
-		return err
-	}
-	stagePath := filepath.Join(workspace, eventLogMigrationStagedLogFile)
-	if _, err := openCurrentEventLog(stagePath, currentEventLogReadOnly); err != nil {
-		return fmt.Errorf("validate staged event log: %w", err)
-	}
-	if err := atomicallyReplaceEventLog(stagePath, eventsPath); err != nil {
-		return err
-	}
-	if err := syncSessionDirectory(filepath.Dir(eventsPath)); err != nil {
-		return err
-	}
-	return removeOwnedEventLogMigrationWorkspace(workspace)
-}
-
 func installCurrentEventLog(
 	eventsPath string,
 	workspace string,
 	onCommitted func(),
+	beforePublish func(*currentEventLog) error,
 	writeStaged func(*os.File) error,
 ) (resultErr error) {
 	committed := false
@@ -524,11 +489,14 @@ func installCurrentEventLog(
 		return fmt.Errorf("close staged event log: %w", err)
 	}
 	stage = nil
-	if _, err := openCurrentEventLog(stagePath, currentEventLogReadOnly); err != nil {
+	stagedLog, err := openCurrentEventLog(stagePath, currentEventLogReadOnly)
+	if err != nil {
 		return fmt.Errorf("validate staged event log: %w", err)
 	}
-	if err := markStagedCurrentEventLogReady(workspace); err != nil {
-		return err
+	if beforePublish != nil {
+		if err := beforePublish(stagedLog); err != nil {
+			return err
+		}
 	}
 	if err := atomicallyReplaceEventLog(stagePath, eventsPath); err != nil {
 		return err
@@ -542,30 +510,6 @@ func installCurrentEventLog(
 		return err
 	}
 	return nil
-}
-
-func markStagedCurrentEventLogReady(workspace string) error {
-	path := filepath.Join(workspace, eventLogMigrationReadyMarkerFile)
-	if err := writeEventLogMigrationMarker(
-		path,
-		"staged event-log ready marker",
-		eventLogMigrationReadyMarkerContents,
-	); err != nil {
-		return err
-	}
-	if err := syncSessionDirectory(workspace); err != nil {
-		return fmt.Errorf("sync staged event-log ready marker directory: %w", err)
-	}
-	return nil
-}
-
-func validateStagedCurrentEventLogReady(workspace string) error {
-	path := filepath.Join(workspace, eventLogMigrationReadyMarkerFile)
-	return validateEventLogMigrationMarker(
-		path,
-		"staged event-log ready marker",
-		eventLogMigrationReadyMarkerContents,
-	)
 }
 
 func writeEventLogMigrationMarker(

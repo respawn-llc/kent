@@ -456,7 +456,7 @@ func runPersistedEffectRecoveryCase(
 	cause := errors.New("persisted effect barrier failure")
 	switch failure {
 	case persistedEffectObserverFailure:
-		gate.FailNext(cause)
+		gate.FailAfterCommit(cause)
 	case persistedEffectProjectionFailure:
 		callbackObserver.Arm(func() {
 			engine.transcriptRuntimeState().CompleteLiveTool("hosted")

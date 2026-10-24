@@ -53,5 +53,5 @@ func TestPersistedSessionViewCapturesMetadataAndEventLogIndependently(t *testing
 	if err != nil {
 		t.Fatalf("read bounded event-log projection: %v", err)
 	}
-	assertCurrentRecordSequences(t, window.Records, 1)
+	assertCurrentRecordSequences(t, window.Records)
 }
