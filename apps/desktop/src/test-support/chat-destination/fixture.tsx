@@ -134,7 +134,7 @@ function renderDestination(
     </RouterContextProvider>,
     { reactStrictMode: true },
   );
-  return { unmount: view.unmount, router };
+  return { unmount: view.unmount, container: view.container, router };
 }
 
 function sessionWithPrompts(

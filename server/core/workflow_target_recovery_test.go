@@ -16,7 +16,7 @@ import (
 	"core/internal/testharness/testsetup"
 	"core/internal/testharness/workflowfixture"
 	"core/internal/testharness/workflowreactivator"
-	"core/server/auth"
+	"core/server/authmanager"
 	serverbootstrap "core/server/bootstrap"
 	"core/server/llm"
 	"core/server/metadata"

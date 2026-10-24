@@ -12,9 +12,9 @@ import {
   showStatusToast,
   safeExternalUrl,
   Spinner,
-  SyntaxHighlightedCode,
   TranscriptDisclosure,
 } from "@/ui";
+import { SyntaxHighlightedCode } from "@/ui/markdown";
 import {
   resolveToolPresentation,
   type PatchChangedFile,

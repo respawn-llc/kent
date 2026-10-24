@@ -14,24 +14,25 @@ esac
 
 usage() {
 	cat <<'USAGE'
-Usage: just test [server|desktop|docs|tui|rust] [--timeout SECONDS] [--workers COUNT] [--inherit-env] [-- TOOL-ARGS...]
+Usage: just test [server|desktop|integration|docs|tui|rust] [--timeout SECONDS] [--workers COUNT] [--inherit-env] [-- TOOL-ARGS...]
 
-An explicit timeout sets Go's package timeout and Bun's per-test timeout. Without it, Bun uses its native default.
-The timeout does not limit total command runtime.
-Bare `just test` runs server and desktop tests.
+The timeout controls Go package and Bun per-test execution, not total command runtime.
+Without an explicit timeout, Bun uses its native per-test default.
+Bare `just test` runs server, desktop, and production-binary integration tests concurrently.
 USAGE
 }
 
 target="default"
 timeout_seconds=300
-timeout_explicit=0
 workers=""
+desktop_workers=8
+native_timeout_args=()
 inherit_env=0
 tool_args=()
 
 while [ "$#" -gt 0 ]; do
 	case "$1" in
-	server | desktop | docs | tui | rust)
+	server | desktop | integration | docs | tui | rust)
 		[ "$target" = "default" ] || { echo "Select one test target" >&2; exit 2; }
 		target="$1"
 		shift
@@ -39,12 +40,13 @@ while [ "$#" -gt 0 ]; do
 	--timeout)
 		[ "$#" -ge 2 ] || { echo "--timeout requires seconds" >&2; exit 2; }
 		timeout_seconds="$2"
-		timeout_explicit=1
+		native_timeout_args=("--timeout=${timeout_seconds}000")
 		shift 2
 		;;
 	--workers)
 		[ "$#" -ge 2 ] || { echo "--workers requires a count" >&2; exit 2; }
 		workers="$2"
+		desktop_workers="$2"
 		shift 2
 		;;
 	--inherit-env)
@@ -100,94 +102,145 @@ fi
 	exit 2
 }
 
-case "$target" in
-default | desktop | docs) just _node ;;
-esac
-
 started="$SECONDS"
 failure_labels=()
 failure_logs=()
 failure_statuses=()
 logs=()
-pty_fixture_root=""
+suite_labels=()
+suite_pids=()
+next_suite=0
 go_test_timeout_args=(-timeout "${timeout_seconds}s")
 
+finish_suites() {
+	local status label log
+	while [ "$next_suite" -lt "${#suite_pids[@]}" ]; do
+		label="${suite_labels[$next_suite]}"
+		log="${logs[$next_suite]}"
+		if wait "${suite_pids[$next_suite]}"; then
+			status=0
+		else
+			status=$?
+		fi
+		next_suite=$((next_suite + 1))
+		if [ "$status" -eq 0 ]; then
+			if [ -n "${JUST_VERBOSE:-}" ]; then
+				cat "$log"
+			fi
+			printf '✓ %s tests passed\n' "$label"
+		else
+			failure_labels+=("$label")
+			failure_logs+=("$log")
+			failure_statuses+=("$status")
+		fi
+	done
+}
+
 cleanup() {
-	local log
+	local status=$?
+	local log index label
+	trap - EXIT
+	finish_suites
+	for index in "${!failure_labels[@]}"; do
+		label="${failure_labels[$index]}"
+		printf '\n✗ %s tests failed (exit %s)\n' "$label" "${failure_statuses[$index]}" >&2
+		printf '──── %s test output ────\n' "$label" >&2
+		cat "${failure_logs[$index]}" >&2
+		printf '──── end %s test output ────\n' "$label" >&2
+	done
 	for log in "${logs[@]}"; do
 		unlink "$log" 2>/dev/null || true
 	done
-	if [ -n "$pty_fixture_root" ]; then
-		find "$pty_fixture_root" -depth -delete 2>/dev/null || true
-	fi
+	exit "$status"
 }
 trap cleanup EXIT
+trap 'exit 130' INT
+trap 'exit 143' TERM
+
+case "$target" in
+default | desktop | docs) just _node ;;
+esac
 
 run_suite() {
 	local label="$1"
 	shift
-	local suite_started="$SECONDS"
-	local log status
-	log="$(mktemp -t "kent-${label}-tests.XXXXXX.log")"
+	local log
+	log="$(mktemp "${TMPDIR:-/tmp}/kent-${label}-tests.XXXXXX")"
 	logs+=("$log")
-
-	set +e
-	"$@" >"$log" 2>&1
-	status=$?
-	set -e
-
-	if [ "$status" -eq 0 ]; then
-		printf '✓ %s tests passed in %ds\n' "$label" "$((SECONDS - suite_started))"
-		return
-	fi
-	failure_labels+=("$label")
-	failure_logs+=("$log")
-	failure_statuses+=("$status")
-}
-
-prepare_pty_fixtures() {
-	pty_fixture_root="$(mktemp -d -t kent-pty-fixtures.XXXXXX)"
-	go test -c -o "$pty_fixture_root/kent-pty-fixture.test" core/cli/app
-	just --quiet build _go --output "$pty_fixture_root/kent"
-	go build -o "$pty_fixture_root/ansi-writer" core/internal/testharness/pty/testdata/cmd/ansi-writer
-	go build -o "$pty_fixture_root/phase-input-writer" core/internal/testharness/pty/testdata/cmd/phase-input-writer
-	go build -o "$pty_fixture_root/phase-writer" core/internal/testharness/pty/testdata/cmd/phase-writer
-	export KENT_PTY_FIXTURE_BINARY="$pty_fixture_root/kent-pty-fixture.test"
-	export KENT_PTY_KENT_BINARY="$pty_fixture_root/kent"
-	export KENT_PTY_ANSI_WRITER_BINARY="$pty_fixture_root/ansi-writer"
-	export KENT_PTY_PHASE_INPUT_WRITER_BINARY="$pty_fixture_root/phase-input-writer"
-	export KENT_PTY_PHASE_WRITER_BINARY="$pty_fixture_root/phase-writer"
+	suite_labels+=("$label")
+	"$@" >"$log" 2>&1 &
+	suite_pids+=("$!")
 }
 
 run_server() {
 	local args=("${tool_args[@]}")
 	just --quiet _gen-go
 	if [ "${#args[@]}" -eq 0 ]; then
-		prepare_pty_fixtures
 		args=(./...)
 	fi
-	run_suite server go test -p "$workers" "${go_test_timeout_args[@]}" "${args[@]}"
+	mkdir -p "$repo_root/.generated/test-binaries"
+	run_suite server go test -count=1 -ldflags="-s -w" -o "$repo_root/.generated/test-binaries/" -p "$workers" "${go_test_timeout_args[@]}" "${args[@]}"
+}
+
+run_desktop_tests() {
+	local status=0
+	bun test "$@" '--path-ignore-patterns=**/*.test.tsx' "${native_timeout_args[@]}" "${tool_args[@]}" || status=$?
+	bun test "$@" --preload=./test/setup.ts '--path-ignore-patterns=**/*.test.ts' "${native_timeout_args[@]}" "${tool_args[@]}" || status=$?
+	return "$status"
 }
 
 run_desktop() {
-	local args=("--workers=$workers")
-	if [ "$timeout_explicit" -eq 1 ]; then
-		args+=("--timeout=${timeout_seconds}000")
-	fi
+	local argument
+	for argument in "${tool_args[@]}"; do
+		case "$argument" in
+		--reporter-outfile | --reporter-outfile=*)
+			echo "--reporter-outfile requires separate Bun environments; the combined desktop target cannot write both reports to one file." >&2
+			exit 2
+			;;
+		esac
+	done
 	just --quiet _gen-typescript
-	run_suite desktop bun run --cwd apps/desktop tooling/run-tests.ts "${args[@]}" "${tool_args[@]}"
+	local protocol_version
+	protocol_version="$(jq -ce '.version | strings | select(length > 0)' shared/protocol/version.json)"
+	local args=(
+		--cwd apps/desktop
+		"--parallel=$desktop_workers" --isolate
+		--tsconfig-override=tsconfig.json
+		--preload=./test/commonSetup.ts
+		"--define=__KENT_PROTOCOL_VERSION__=$protocol_version"
+		"--define=import.meta.env=globalThis.__KENT_TEST_ENV__"
+		'--path-ignore-patterns=test/**'
+		'--path-ignore-patterns=eslint-fixtures/**'
+		'--path-ignore-patterns=**/node_modules/**'
+		'--path-ignore-patterns=**/dist/**'
+		'--path-ignore-patterns=**/gen/**'
+		'--path-ignore-patterns=**/*.spec.*'
+		'--path-ignore-patterns=**/*_spec.*'
+		'--path-ignore-patterns=**/*_test.*'
+		'--path-ignore-patterns=**/*.test.js'
+		'--path-ignore-patterns=**/*.test.jsx'
+		'--path-ignore-patterns=**/*.test.mjs'
+		'--path-ignore-patterns=**/*.test.cjs'
+		'--path-ignore-patterns=**/*.test.mts'
+		'--path-ignore-patterns=**/*.test.cts'
+		--pass-with-no-tests
+	)
+	run_suite desktop run_desktop_tests "${args[@]}"
 }
 
 run_tui() {
-	run_suite tui go test -p "$workers" "${go_test_timeout_args[@]}" ./cli/tui/... "${tool_args[@]}"
+	mkdir -p "$repo_root/.generated/test-binaries"
+	run_suite tui go test -count=1 -ldflags="-s -w" -o "$repo_root/.generated/test-binaries/" -p "$workers" "${go_test_timeout_args[@]}" ./cli/tui/... "${tool_args[@]}"
+}
+
+run_integration() {
+	just --quiet build go
+	mkdir -p "$repo_root/.generated/test-binaries"
+	run_suite integration go test -count=1 -ldflags="-s -w" -o "$repo_root/.generated/test-binaries/" -p "$workers" "${go_test_timeout_args[@]}" -tags=integration ./internal/testharness/pty "${tool_args[@]}"
 }
 
 run_docs() {
-	local args=()
-	if [ "$timeout_explicit" -eq 1 ]; then
-		args+=("--timeout=${timeout_seconds}000")
-	fi
-	run_suite docs bun test "${args[@]}" docs/scripts docs/src "${tool_args[@]}"
+	run_suite docs bun test "${native_timeout_args[@]}" docs/scripts docs/src "${tool_args[@]}"
 }
 
 run_rust() {
@@ -198,30 +251,21 @@ case "$target" in
 default)
 	run_server
 	run_desktop
+	run_integration
 	;;
 server) run_server ;;
 desktop) run_desktop ;;
+integration) run_integration ;;
 docs) run_docs ;;
 tui) run_tui ;;
 rust) run_rust ;;
 esac
+finish_suites
 
 if [ "${#failure_labels[@]}" -eq 0 ]; then
-	[ "$target" != "default" ] || printf '✓ all tests passed in %ds\n' "$((SECONDS - started))"
+	printf '✓ test command passed in %ds\n' "$((SECONDS - started))"
 	exit 0
 fi
-
-for index in "${!failure_labels[@]}"; do
-	label="${failure_labels[$index]}"
-	status="${failure_statuses[$index]}"
-	printf '\n✗ %s tests %s in %ds\n' \
-		"$label" \
-		"failed" \
-		"$((SECONDS - started))" >&2
-	printf '──── %s test output ────\n' "$label" >&2
-	cat "${failure_logs[$index]}" >&2
-	printf '──── end %s test output ────\n' "$label" >&2
-done
 
 printf '\n✗ %d test runner(s) failed in %ds\n' "${#failure_labels[@]}" "$((SECONDS - started))" >&2
 if [ "$target" != "default" ] && [ "${#failure_statuses[@]}" -eq 1 ] && [ "${failure_statuses[0]}" -ne 124 ]; then

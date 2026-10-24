@@ -3,7 +3,6 @@ package metadata
 import (
 	"database/sql"
 	"encoding/json"
-	"path/filepath"
 	"testing"
 
 	"core/server/metadata/sqlitegen"
@@ -12,8 +11,7 @@ import (
 
 func TestWorkflowSnapshotCutoverPreservesSessionFacts(t *testing.T) {
 	root := t.TempDir()
-	path := filepath.Join(root, "db", "main.sqlite3")
-	db, err := openDatabaseAtVersionForTest(t, root, path, 97)
+	db, err := openDatabaseAtVersionForTest(t, 97)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -35,14 +33,7 @@ id, project_id, artifact_relpath, locked_json, metadata_json, created_at_unix_ms
 ) VALUES (?, 'snapshot-project', ?, ?, '{"conversation_established":true}', 1000, 2000)`,
 			mode, "sessions/"+mode, string(payload))
 	}
-	if err := db.Close(); err != nil {
-		t.Fatal(err)
-	}
-	store, err := OpenAtPath(root, path)
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer store.Close()
+	store := migrateMetadataTestStore(t, root, db)
 	for _, mode := range []string{"tool", "shell_command", "absent", "null"} {
 		var lockedJSON, metadataJSON string
 		var created, updated int64

@@ -4,7 +4,8 @@ import { useTranslation } from "react-i18next";
 
 import { sessionDisplayID, type ChatTranscriptCommittedRow } from "@/api";
 import { CopyableValue } from "@/shared/copyable-value";
-import { RadioGroup, RadioGroupItem, StaticMarkdown } from "@/ui";
+import { RadioGroup, RadioGroupItem } from "@/ui";
+import { StaticMarkdown } from "@/ui/markdown";
 
 import { TranscriptCopyAction } from "./TranscriptCopyAction";
 import {

@@ -23,13 +23,13 @@ import {
   ContextMenuItem,
   ContextMenuTrigger,
   InfiniteListBoundary,
-  TaskBodyMarkdown,
   OneLineOverflowRow,
   Spinner,
   VirtualizedInfiniteList,
   type VirtualizedInfiniteListBoundaryState,
 } from "@/ui";
 import { cx } from "@/ui";
+import { TaskBodyMarkdown } from "@/ui/markdown";
 import { type BoardColumnDropState } from "./BoardDragTypes";
 import type { ActiveBoardCardDrag } from "./BoardDragState";
 import { boardCardInstanceKey, type BoardCardInstance } from "./BoardCardInstance";

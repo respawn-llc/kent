@@ -12,7 +12,7 @@ import (
 	"core/server/metadata"
 	"core/server/metadata/sqlitegen"
 	"core/server/runtimeactivity"
-	"core/server/session"
+	"core/server/sessionstore"
 	"core/server/workflow"
 	runtimepb "core/shared/protoapi/gen/kent/api/runtime"
 	taskpb "core/shared/protoapi/gen/kent/api/workflow_task"

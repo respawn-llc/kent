@@ -9,8 +9,8 @@ import (
 
 	"core/internal/testharness/testsetup"
 	"core/server/metadata"
-	"core/server/session"
 	"core/server/sessionruntime"
+	"core/server/sessionstore"
 	"core/server/workflow"
 	"core/server/workflowruntime"
 	"core/server/workflowstore"

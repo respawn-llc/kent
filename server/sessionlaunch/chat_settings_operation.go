@@ -6,7 +6,7 @@ import (
 	"strings"
 
 	"core/server/launch"
-	"core/server/session"
+	"core/server/sessionstore"
 	"core/shared/config"
 	"core/shared/protoapi"
 	chatsettingspb "core/shared/protoapi/gen/kent/api/chat_settings"

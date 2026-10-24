@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, expect, it, vi } from "bun:test";
-import { act, screen, waitFor, waitForElementToBeRemoved, within } from "@testing-library/react";
+import { act, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { useCurrentWindowChromeTitle } from "@/app-facade";
 import { appI18n } from "@/i18n";
@@ -57,7 +57,7 @@ it.each(["unavailable", "registered_idle"] as const)(
     });
     for (const view of views) openSessionSettingsSubscription(view.services.transport);
     const editors = await screen.findAllByRole("textbox");
-    const user = userEvent.setup();
+    const user = userEvent.setup({ delay: null });
     for (const [index, editor] of editors.entries()) {
       await user.click(editor);
       await user.paste(`independent draft ${index.toString()}`);
@@ -84,7 +84,9 @@ it.each(["unavailable", "registered_idle"] as const)(
         }),
       ).not.toBeChecked();
       await user.keyboard("{Escape}");
-      await waitForElementToBeRemoved(dialog);
+      await waitFor(() => {
+        expect(dialog.isConnected).toBe(false);
+      });
       expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
     }
     name = null;

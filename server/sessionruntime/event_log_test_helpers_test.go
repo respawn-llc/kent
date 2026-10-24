@@ -3,7 +3,7 @@ package sessionruntime
 import (
 	"testing"
 
-	"core/server/session"
+	"core/server/sessionstore"
 )
 
 func recoveredWarningEntryCount(t *testing.T, store *session.Store, warning string) int {

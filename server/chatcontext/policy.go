@@ -2,7 +2,7 @@ package chatcontext
 
 import (
 	"core/server/llm"
-	"core/server/session"
+	"core/server/sessionstore"
 	"core/shared/config"
 	contextpb "core/shared/protoapi/gen/kent/api/chat_context"
 )

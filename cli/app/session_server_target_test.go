@@ -123,13 +123,28 @@ func startConfiguredDaemonFixture(
 	t *testing.T,
 	workspace string,
 	request serverstartup.Request,
+	store *metadata.Store,
 ) *configuredDaemonFixture {
 	t.Helper()
 	writeAppTestSettings(t)
-	daemon, err := serverstartup.StartServeServer(context.Background(), request)
-	if err != nil {
-		t.Fatalf("StartServeServer: %v", err)
+	loadOptions := request.LoadOptions
+	if loadOptions == (config.LoadOptions{}) {
+		loadOptions = config.LoadOptions{
+			Model:               request.Model,
+			ThinkingLevel:       request.ThinkingLevel,
+			Theme:               request.Theme,
+			ModelTimeoutSeconds: request.ModelTimeoutSeconds,
+			Tools:               request.Tools,
+		}
 	}
+	cfg := loadAppTestConfig(t, workspace, loadOptions)
+	if store == nil {
+		store = testsetup.OpenStore(t, cfg.PersistenceRoot)
+	}
+	if _, err := store.RegisterWorkspaceBinding(t.Context(), workspace); err != nil {
+		t.Fatal(err)
+	}
+	daemon, _ := newMemoryAppTestServer(t, cfg, store, loadOptions)
 	t.Cleanup(func() {
 		if err := daemon.Close(); err != nil {
 			t.Errorf("ServeServer.Close: %v", err)
@@ -199,7 +214,7 @@ func waitForConfiguredRemoteIdentity(t *testing.T, workspace string) protocol.Se
 
 func TestStartSessionServerConfiguredDaemonNoAuthSkipsLaterPrompt(t *testing.T) {
 	useStartupTestTerminal(t)
-	_, workspace := newRegisteredAppWorkspace(t)
+	_, workspace := newConfiguredAppWorkspace(t)
 	fakeResponses, hits := newFakeResponsesServer(t, []string{"first no-auth reply", "second no-auth reply"})
 	defer fakeResponses.Close()
 	cfg := loadAppTestConfig(t, workspace, config.LoadOptions{})
@@ -209,7 +224,7 @@ func TestStartSessionServerConfiguredDaemonNoAuthSkipsLaterPrompt(t *testing.T) 
 		WorkspaceRoot:         workspace,
 		WorkspaceRootExplicit: true,
 		Model:                 "gpt-6-sol",
-	})
+	}, nil)
 
 	pickerCalls := 0
 	firstInteractor := &interactiveAuthInteractor{
@@ -318,11 +333,7 @@ func TestConfiguredDaemonPlanSessionUsesSessionWorkspaceLocalConfig(t *testing.T
 		t.Fatalf("LoadGlobal: %v", err)
 	}
 	testsetup.WriteProviderSettings(t, glob.PersistenceRoot, testsetup.ProviderSettings(glob.Settings))
-	if _, err := metadata.RegisterBinding(context.Background(), glob.PersistenceRoot, workspace); err != nil {
-		t.Fatalf("RegisterBinding: %v", err)
-	}
-
-	fixture := startConfiguredDaemonFixture(t, workspace, serverstartup.Request{})
+	fixture := startConfiguredDaemonFixture(t, workspace, serverstartup.Request{}, nil)
 	server := fixture.attachRemoteSessionServer(t, Options{WorkspaceRoot: workspace, WorkspaceRootExplicit: true}, newHeadlessAuthInteractor())
 	bound, err := ensureInteractiveProjectBinding(context.Background(), server)
 	if err != nil {
@@ -346,7 +357,7 @@ func TestConfiguredDaemonPlanSessionUsesSessionWorkspaceLocalConfig(t *testing.T
 }
 
 func TestConfiguredDaemonEnvironmentContextUsesSessionWorkspaceRootForCWD(t *testing.T) {
-	_, workspace := newRegisteredAppWorkspace(t)
+	_, workspace := newConfiguredAppWorkspace(t)
 
 	fakeResponses, hits := newFakeResponsesServer(t, []string{"interactive daemon reply"})
 	defer fakeResponses.Close()
@@ -357,7 +368,7 @@ func TestConfiguredDaemonEnvironmentContextUsesSessionWorkspaceRootForCWD(t *tes
 		WorkspaceRoot:         workspace,
 		WorkspaceRootExplicit: true,
 		Model:                 "gpt-6-sol",
-	})
+	}, nil)
 
 	server := fixture.attachRemoteSessionServer(t, Options{WorkspaceRoot: workspace, WorkspaceRootExplicit: true}, newHeadlessAuthInteractor())
 
@@ -374,7 +385,7 @@ func TestConfiguredDaemonEnvironmentContextUsesSessionWorkspaceRootForCWD(t *tes
 	if hits.Load() != 1 {
 		t.Fatalf("expected daemon-backed llm call once, got %d", hits.Load())
 	}
-	store := openAuthoritativeWorkspaceSessionStore(t, workspace, plan.SessionID)
+	store := openAuthoritativeAppSession(t, fixture.daemon.MetadataStore(), plan.SessionID)
 	messages, err := readStoredMessages(store)
 	if err != nil {
 		t.Fatalf("readStoredMessages: %v", err)
@@ -493,8 +504,8 @@ func startRemoteMultiClientRuntimeFixture(t *testing.T, openAIBaseURL string) *r
 	workspaceA := t.TempDir()
 	workspaceB := t.TempDir()
 	t.Setenv("HOME", t.TempDir())
-	registerAppWorkspace(t, workspaceA)
-	registerAppWorkspace(t, workspaceB)
+	configureAppTestServerPort(t)
+	configureAppTestServerPort(t)
 	cfg := loadAppTestConfig(t, workspaceA, config.LoadOptions{})
 	testsetup.WriteProviderSettings(t, cfg.PersistenceRoot, testsetup.WithResponsesProvider(cfg.Settings, openAIBaseURL))
 
@@ -502,9 +513,10 @@ func startRemoteMultiClientRuntimeFixture(t *testing.T, openAIBaseURL string) *r
 		WorkspaceRoot:         workspaceA,
 		WorkspaceRootExplicit: true,
 		Model:                 "gpt-6-sol",
-	})
+	}, nil)
 
 	fixture.daemon = configured.daemon
+	mustRegisterAppBinding(t, fixture.daemon.MetadataStore(), workspaceB)
 	fixture.serverA = configured.attachRemoteSessionServer(t, Options{WorkspaceRoot: workspaceA, WorkspaceRootExplicit: true}, newHeadlessAuthInteractor())
 
 	resolvedB, err := startupconfig.ResolveSessionConfig(startupConfigRequest(Options{WorkspaceRoot: workspaceB, WorkspaceRootExplicit: true}))

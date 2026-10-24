@@ -13,7 +13,7 @@ import (
 	serverbootstrap "core/server/bootstrap"
 	"core/server/core"
 	"core/server/metadata"
-	"core/server/session"
+	"core/server/sessionstore"
 	shelltool "core/server/tools/shell"
 	"core/server/tools/shell/postprocess"
 	"core/shared/config"
@@ -680,23 +680,13 @@ func newRoutePolicyFixture(t *testing.T) routePolicyFixture {
 	if err != nil {
 		t.Fatalf("ResolveConfig A: %v", err)
 	}
-	bindingA, err := metadata.RegisterBinding(context.Background(), resolvedA.Config.PersistenceRoot, resolvedA.Config.WorkspaceRoot)
-	if err != nil {
-		t.Fatalf("RegisterBinding A: %v", err)
-	}
+	metadataStore := testsetup.OpenStore(t, resolvedA.Config.PersistenceRoot)
+	bindingA := registerGatewayTestBinding(t, metadataStore, resolvedA.Config)
 	resolvedB, err := serverbootstrap.ResolveConfig(serverbootstrap.Request{WorkspaceRoot: workspaceB})
 	if err != nil {
 		t.Fatalf("ResolveConfig B: %v", err)
 	}
-	bindingB, err := metadata.RegisterBinding(context.Background(), resolvedB.Config.PersistenceRoot, resolvedB.Config.WorkspaceRoot)
-	if err != nil {
-		t.Fatalf("RegisterBinding B: %v", err)
-	}
-	metadataStore, err := metadata.Open(resolvedA.Config.PersistenceRoot)
-	if err != nil {
-		t.Fatalf("metadata.Open: %v", err)
-	}
-	t.Cleanup(func() { _ = metadataStore.Close() })
+	bindingB := registerGatewayTestBinding(t, metadataStore, resolvedB.Config)
 	authSupport := newGatewayTestAuthSupport(t, resolvedA.Config.PersistenceRoot, true)
 	resolvedA.Config.Settings = testsetup.WriteProviderSettings(t, resolvedA.Config.PersistenceRoot, resolvedA.Config.Settings)
 	background, err := serverbootstrap.BuildShellManager(resolvedA.Config)
@@ -704,7 +694,9 @@ func newRoutePolicyFixture(t *testing.T) routePolicyFixture {
 		t.Fatalf("BuildShellManager: %v", err)
 	}
 	t.Cleanup(func() { _ = background.Close() })
-	appCore, err := core.New(resolvedA.Config, authSupport, background)
+	appCore, err := core.NewWithContextOptions(t.Context(), resolvedA.Config, authSupport, background, core.Options{
+		MetadataStore: metadataStore,
+	})
 	if err != nil {
 		t.Fatalf("core.New: %v", err)
 	}

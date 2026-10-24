@@ -1,7 +1,7 @@
 package launch
 
 import (
-	"core/server/session"
+	"core/server/sessionstore"
 	"core/shared/config"
 	"core/shared/runtimeids"
 )

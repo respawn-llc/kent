@@ -101,7 +101,7 @@ it("discards an interrupted drag without submitting its preview", async () => {
     .mockReturnValue(new DOMRect(0, 0, 200, 24));
   try {
     const onCommit = vi.fn();
-    const user = userEvent.setup();
+    const user = userEvent.setup({ delay: null });
     render(<Selector onCommit={onCommit} />);
     const slider = screen.getByRole("slider");
     capturePointer(slider);
@@ -121,7 +121,7 @@ it("does not recommit a selection that became authoritative during the drag", as
     .mockReturnValue(new DOMRect(0, 0, 200, 24));
   try {
     const onCommit = vi.fn();
-    const user = userEvent.setup();
+    const user = userEvent.setup({ delay: null });
     const selector = (value: (typeof values)[number]) => (
       <SteppedSelector
         activeTone={() => "primary"}

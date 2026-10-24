@@ -6,7 +6,7 @@ import (
 	"log/slog"
 	"net/http"
 
-	"core/server/session"
+	"core/server/sessionstore"
 	"core/server/sessionview"
 	"core/shared/imagefileio"
 	"core/shared/protocol"

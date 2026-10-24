@@ -1,17 +1,14 @@
 package metadata
 
 import (
-	"encoding/json"
-	"path/filepath"
 	"testing"
 
-	"core/server/session"
+	"core/server/sessionstore"
 )
 
 func TestUsagePresenceCutoverPreservesHistoricalFactsAndNewZero(t *testing.T) {
 	root := t.TempDir()
-	path := filepath.Join(root, "main.sqlite3")
-	db, err := openDatabaseAtVersionForTest(t, root, path, 94)
+	db, err := openDatabaseAtVersionForTest(t, 94)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -24,24 +21,17 @@ func TestUsagePresenceCutoverPreservesHistoricalFactsAndNewZero(t *testing.T) {
 id, project_id, artifact_relpath, name, input_draft, locked_json, continuation_json, usage_state_json, metadata_json, last_sequence, created_at_unix_ms, updated_at_unix_ms
 ) VALUES (?, 'usage-project', ?, '', '', '{}', '{}', ?, '{}', 0, 1, 1)`, fixture.id, "sessions/"+fixture.id, fixture.usage)
 	}
-	if err := db.Close(); err != nil {
-		t.Fatal(err)
-	}
-	store, err := OpenAtPath(root, path)
-	if err != nil {
-		t.Fatal(err)
-	}
+	store := migrateMetadataTestStore(t, root, db)
 	read := func(id string) session.UsageState {
 		t.Helper()
-		var encoded string
-		if err := store.DB().QueryRowContext(t.Context(), `SELECT usage_state_json FROM sessions WHERE id = ?`, id).Scan(&encoded); err != nil {
+		record, err := store.ResolvePersistedSession(t.Context(), id)
+		if err != nil {
 			t.Fatal(err)
 		}
-		var state session.UsageState
-		if err := json.Unmarshal([]byte(encoded), &state); err != nil {
-			t.Fatal(err)
+		if record.Meta.UsageState == nil {
+			t.Fatalf("Session %s lost persisted usage", id)
 		}
-		return state
+		return *record.Meta.UsageState
 	}
 	absent := read("absent")
 	if absent.InputTokens != nil || absent.OutputTokens != nil || absent.CachedInputTokens != nil || absent.ReportedContextTokens != nil {
@@ -54,17 +44,10 @@ id, project_id, artifact_relpath, name, input_draft, locked_json, continuation_j
 		t.Fatalf("historical facts changed: %+v", present)
 	}
 	execSeed(t, store.DB(), "new explicit zero", `UPDATE sessions SET usage_state_json = '{"input_tokens":0,"output_tokens":0,"cached_input_tokens":0,"reported_context_tokens":0,"estimated_provider_tokens":50}' WHERE id = 'absent'`)
-	if err := store.Close(); err != nil {
-		t.Fatal(err)
-	}
-	store, err = OpenAtPath(root, path)
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer func() { _ = store.Close() }()
+	store = migrateMetadataTestStore(t, root, db)
 	zero := read("absent")
 	if zero.InputTokens == nil || zero.OutputTokens == nil || zero.CachedInputTokens == nil || zero.ReportedContextTokens == nil ||
 		*zero.InputTokens != 0 || *zero.OutputTokens != 0 || *zero.CachedInputTokens != 0 || *zero.ReportedContextTokens != 0 {
-		t.Fatalf("new zero lost after reopen: %+v", zero)
+		t.Fatalf("new zero lost after repeated migrations: %+v", zero)
 	}
 }

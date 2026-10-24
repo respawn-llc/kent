@@ -5,7 +5,7 @@ import { StrictMode } from "react";
 import { ChatTranscriptHost, TranscriptWindow } from "@/app-facade";
 import { hydration, page, row, visit } from "@/test-support/transcript-window";
 import { installVirtualizedScrollGeometry } from "@/test-support/resize-observer";
-import { StaticMarkdown, StreamingMarkdown } from "@/ui";
+import { StaticMarkdown, StreamingMarkdown } from "@/ui/markdown";
 import { TranscriptWindowView } from "./TranscriptWindowView";
 
 it.each(["older", "newer"] as const)(

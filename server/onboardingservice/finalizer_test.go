@@ -1,0 +1,1159 @@
+package onboarding_test
+
+import (
+	"context"
+	"errors"
+	"fmt"
+	"io"
+	"net/http"
+	"os"
+	"path/filepath"
+	"reflect"
+	"strings"
+	"sync"
+	"testing"
+
+	"core/internal/testharness/httpclient"
+	"core/server/authmanager"
+	"core/server/authservice"
+	"core/server/capabilityfacts"
+	"core/server/llm"
+	"core/server/onboardingimports"
+	"core/server/onboardingservice"
+	"core/shared/config"
+	"core/shared/protoapi"
+	authpb "core/shared/protoapi/gen/kent/api/auth"
+	capabilitypb "core/shared/protoapi/gen/kent/api/capability"
+	onboardingpb "core/shared/protoapi/gen/kent/api/onboarding"
+	"core/shared/serverapi"
+	"core/shared/toolspec"
+
+	"google.golang.org/protobuf/types/known/emptypb"
+)
+
+func TestFinalizerEqualInteractiveChoicesRenderIdentically(t *testing.T) {
+	nullRoot := t.TempDir()
+	nullHome := t.TempDir()
+	defaultRoot := t.TempDir()
+	defaultHome := t.TempDir()
+	defaultModel := onboardingpb.ModelChoice{Kind: onboardingpb.ModelKind_MODEL_KIND_KNOWN, ModelId: ptr("gpt-6.1-sol")}
+	defaultTheme := onboardingpb.Theme_THEME_AUTO
+	defaultSupervisor := &onboardingpb.SupervisorChoice{Frequency: onboardingpb.SupervisorFrequency_SUPERVISOR_FREQUENCY_EDITS}
+
+	if _, err := newTestFinalizer(t, nullRoot, nullHome).Finalize(context.Background(), &onboardingpb.FinalizeRequest{Supervisor: defaultSupervisor}); err != nil {
+		t.Fatalf("null finalize: %v", err)
+	}
+	if _, err := newTestFinalizer(t, defaultRoot, defaultHome).Finalize(context.Background(), &onboardingpb.FinalizeRequest{
+		Model:      &defaultModel,
+		Theme:      &defaultTheme,
+		Supervisor: defaultSupervisor,
+	}); err != nil {
+		t.Fatalf("interactive default-equal finalize: %v", err)
+	}
+	nullConfig := loadFinalizedConfig(t, nullRoot).Settings
+	defaultConfig := loadFinalizedConfig(t, defaultRoot).Settings
+	if nullConfig.Model != defaultConfig.Model || nullConfig.Theme != defaultConfig.Theme ||
+		nullConfig.Reviewer.Frequency != defaultConfig.Reviewer.Frequency ||
+		nullConfig.Reviewer.Model != defaultConfig.Reviewer.Model {
+		t.Fatalf("equal interactive choices produced different settings: %+v / %+v", nullConfig, defaultConfig)
+	}
+}
+
+func TestFinalizerDefaultsSelectSupervisorModelOnlyForFirstPartyOpenAI(t *testing.T) {
+	theme := onboardingpb.Theme_THEME_AUTO
+	commandsImport := &onboardingpb.ImportSelection{Mode: onboardingpb.ImportMode_IMPORT_MODE_NONE}
+	for _, tc := range []struct {
+		name                string
+		endpoint            string
+		wantSupervisorModel string
+	}{
+		{name: "first-party OpenAI", endpoint: "https://api.openai.com/v1", wantSupervisorModel: "gpt-6-luna"},
+		{name: "OpenAI-compatible provider", endpoint: "http://localhost:1234/v1", wantSupervisorModel: "gpt-6.1-sol"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			root := t.TempDir()
+			if _, err := newTestFinalizerAtEndpoint(t, root, t.TempDir(), tc.endpoint).Finalize(t.Context(), &onboardingpb.FinalizeRequest{
+				Theme:          &theme,
+				CommandsImport: commandsImport,
+			}); err != nil {
+				t.Fatalf("Finalize: %v", err)
+			}
+
+			settings := loadFinalizedConfig(t, root).Settings
+			if settings.Model != "gpt-6.1-sol" || settings.Reviewer.Frequency == "off" || settings.Reviewer.Model != tc.wantSupervisorModel {
+				t.Fatalf("default settings = model %q, Supervisor %q/%q; want gpt-6.1-sol, enabled/%s",
+					settings.Model, settings.Reviewer.Frequency, settings.Reviewer.Model, tc.wantSupervisorModel)
+			}
+		})
+	}
+}
+
+func TestFinalizerGrokSelectionsSurviveConnectionDefaults(t *testing.T) {
+	cases := []struct {
+		name     string
+		request  onboardingpb.FinalizeRequest
+		model    string
+		thinking string
+		window   int
+	}{
+		{name: "defaults", model: "grok-4.7", thinking: "high", window: 500000},
+		{name: "medium level", request: onboardingpb.FinalizeRequest{Thinking: &onboardingpb.ThinkingChoice{Kind: onboardingpb.ThinkingKind_THINKING_KIND_LEVEL, Level: ptr("medium")}}, model: "grok-4.7", thinking: "medium", window: 500000},
+		{name: "custom medium", request: onboardingpb.FinalizeRequest{Thinking: &onboardingpb.ThinkingChoice{Kind: onboardingpb.ThinkingKind_THINKING_KIND_CUSTOM, Value: ptr("medium")}}, model: "grok-4.7", thinking: "medium", window: 500000},
+		{name: "explicit global model", request: onboardingpb.FinalizeRequest{Model: &onboardingpb.ModelChoice{Kind: onboardingpb.ModelKind_MODEL_KIND_KNOWN, ModelId: ptr("gpt-6.1-sol")}}, model: "gpt-6.1-sol", thinking: "high", window: 272000},
+		{name: "explicit global window", request: onboardingpb.FinalizeRequest{ContextWindow: &onboardingpb.ContextWindowChoice{Kind: onboardingpb.ContextWindowKind_CONTEXT_WINDOW_KIND_CUSTOM, Tokens: ptr(uint32(272000))}}, model: "grok-4.7", thinking: "high", window: 272000},
+	}
+	for i := range cases {
+		tc := &cases[i]
+		t.Run(tc.name, func(t *testing.T) {
+			root := t.TempDir()
+			baseline := loadFinalizedConfig(t, root)
+			owner := newPendingConnection(t, root, "http://localhost:1234/v1")
+			_, err := owner.ConfigureConnection(t.Context(), &authpb.ConfigureConnectionRequest{Change: &authpb.ConfigureConnectionRequest_PendingSetup{
+				PendingSetup: &authpb.ConnectionDefinition{Id: "grok-1", Protocol: authpb.ConnectionProtocol_CONNECTION_PROTOCOL_GROK_API_KEY, EnvironmentVariable: ptr("XAI_API_KEY_QA")},
+			}})
+			if err != nil {
+				t.Fatal(err)
+			}
+			finalizer, err := onboarding.NewFinalizer(onboarding.Options{
+				Baseline: baseline.Settings, BaselineSources: baseline.Source.Sources,
+				PersistenceRoot: root, HomeDir: t.TempDir(), Connections: owner,
+			})
+			if err != nil {
+				t.Fatal(err)
+			}
+			if _, err := finalizer.Finalize(t.Context(), &tc.request); err != nil {
+				t.Fatal(err)
+			}
+			actual := loadFinalizedConfig(t, root)
+			if err := llm.ApplyConnectionModelDefaults(&actual.Settings, actual.Source.Sources); err != nil {
+				t.Fatal(err)
+			}
+			if actual.Settings.Model != tc.model || actual.Settings.ThinkingLevel != tc.thinking || actual.Settings.Reviewer.ThinkingLevel != tc.thinking || actual.Settings.ModelContextWindow != tc.window {
+				t.Fatalf("reloaded selection = %s/%s/%d, Supervisor %s; want %s/%s/%d inherited", actual.Settings.Model, actual.Settings.ThinkingLevel, actual.Settings.ModelContextWindow, actual.Settings.Reviewer.ThinkingLevel, tc.model, tc.thinking, tc.window)
+			}
+		})
+	}
+}
+
+func TestFinishPersistsPendingConnectionAfterObserverCancellation(t *testing.T) {
+	root := t.TempDir()
+	owner := newPendingConnection(t, root, "http://localhost:1234/v1")
+	finalizer, err := onboarding.NewFinalizer(onboarding.Options{Baseline: config.DefaultOnboardingSettings(), PersistenceRoot: root, HomeDir: t.TempDir(), Connections: owner})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(filepath.Join(root, "config.toml")); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("setup wrote configuration before Finish: %v", err)
+	}
+	observer, cancel := context.WithCancel(t.Context())
+	cancel()
+	if _, err := finalizer.Finalize(observer, &onboardingpb.FinalizeRequest{}); err != nil {
+		t.Fatal(err)
+	}
+	app := loadFinalizedConfig(t, root)
+	connection, err := app.Settings.SelectedConnection()
+	if err != nil || !reflect.DeepEqual(app.Settings.Connection, config.SingleConnection("first")) || connection.Endpoint == nil || *connection.Endpoint != "http://localhost:1234/v1" {
+		t.Fatalf("Finish did not persist the pending selection: %+v %v", connection, err)
+	}
+	catalog, err := owner.GetConnections(t.Context(), &authpb.GetConnectionsRequest{})
+	if err != nil || catalog.PendingSetup != nil {
+		t.Fatalf("successful Finish retained a pending setup: %+v %v", catalog, err)
+	}
+}
+
+func TestFinalizerCustomModelUsesPendingProviderCapabilities(t *testing.T) {
+	root := t.TempDir()
+	finalizer := newTestFinalizer(t, root, t.TempDir())
+	if _, err := finalizer.Finalize(t.Context(), &onboardingpb.FinalizeRequest{
+		Model:      &onboardingpb.ModelChoice{Kind: onboardingpb.ModelKind_MODEL_KIND_CUSTOM, Alias: ptr("custom-openai-model")},
+		Verbosity:  ptr(onboardingpb.Verbosity_VERBOSITY_HIGH),
+		Compaction: ptr(onboardingpb.CompactionMode_COMPACTION_MODE_NATIVE),
+	}); err != nil {
+		t.Fatal(err)
+	}
+	app := loadFinalizedConfig(t, root)
+	if app.Settings.ModelVerbosity != config.ModelVerbosityHigh || app.Settings.CompactionMode != config.CompactionModeNative {
+		t.Fatal("custom model lost the selected provider's verbosity or native compaction")
+	}
+	if app.Settings.Reviewer.Model != "gpt-6-luna" {
+		t.Fatalf("omitted Supervisor choice = %q, want provider-specific GPT-6 Luna default", app.Settings.Reviewer.Model)
+	}
+}
+
+func TestFinalizerPersistsContextWindowForPendingConnection(t *testing.T) {
+	for _, protocol := range []authpb.ConnectionProtocol{
+		authpb.ConnectionProtocol_CONNECTION_PROTOCOL_RESPONSES,
+		authpb.ConnectionProtocol_CONNECTION_PROTOCOL_CHATGPT,
+	} {
+		for _, model := range []string{"gpt-6-sol", "gpt-6.1-sol", "gpt-6-luna", "gpt-6-astra"} {
+			for _, large := range []bool{false, true} {
+				t.Run(fmt.Sprintf("%s/%s/large=%t", protocol, model, large), func(t *testing.T) {
+					root := t.TempDir()
+					var owner *authservice.BootstrapService
+					wantWindow := 272_000
+					if large {
+						wantWindow = 1_050_000
+					}
+					if protocol == authpb.ConnectionProtocol_CONNECTION_PROTOCOL_CHATGPT {
+						manager := auth.NewManager(auth.NewFileStore(config.GlobalAuthConfigPath(config.App{PersistenceRoot: root})), nil)
+						owner = authservice.NewBootstrapService(t.Context(), authservice.NewConnectionResolver(root, manager, nil), auth.OpenAIOAuthOptions{
+							HTTPClient: &http.Client{Transport: httpclient.RoundTripFunc(func(_ *http.Request) (*http.Response, error) {
+								return &http.Response{
+									StatusCode: http.StatusOK,
+									Header:     http.Header{"Content-Type": {"application/json"}},
+									Body:       io.NopCloser(strings.NewReader(`{"access_token":"pending","refresh_token":"refresh","token_type":"Bearer","expires_in":3600}`)),
+								}, nil
+							})},
+						})
+						if _, err := owner.ConfigureConnection(t.Context(), &authpb.ConfigureConnectionRequest{Change: &authpb.ConfigureConnectionRequest_PendingSetup{
+							PendingSetup: &authpb.ConnectionDefinition{Id: "subscription", Protocol: protocol},
+						}}); err != nil {
+							t.Fatal(err)
+						}
+						target := &authpb.ConnectionTarget{Target: &authpb.ConnectionTarget_PendingSetup{PendingSetup: &emptypb.Empty{}}}
+						start, err := owner.StartBootstrap(t.Context(), &authpb.StartBootstrapRequest{
+							Target: target, Mode: authpb.BootstrapMode_BOOTSTRAP_MODE_BROWSER_CALLBACK_CODE, RedirectUri: ptr("http://localhost:1455/auth/callback"),
+						})
+						if err != nil {
+							t.Fatal(err)
+						}
+						if _, err := owner.CompleteBootstrap(t.Context(), &authpb.CompleteBootstrapRequest{
+							Target: target,
+							Mode:   authpb.BootstrapMode_BOOTSTRAP_MODE_BROWSER_CALLBACK_CODE, CallbackInput: ptr("grant"), Continuation: start.Continuation,
+						}); err != nil {
+							t.Fatal(err)
+						}
+						if large {
+							wantWindow = 872_000
+						}
+					} else {
+						owner = newPendingConnection(t, root, "https://api.openai.com/v1")
+					}
+					finalizer, err := onboarding.NewFinalizer(onboarding.Options{
+						PersistenceRoot: root, Baseline: config.DefaultOnboardingSettings(), Connections: owner,
+					})
+					if err != nil {
+						t.Fatal(err)
+					}
+					request := &onboardingpb.FinalizeRequest{
+						Model: &onboardingpb.ModelChoice{Kind: onboardingpb.ModelKind_MODEL_KIND_KNOWN, ModelId: &model},
+					}
+					if large {
+						request.ContextWindow = &onboardingpb.ContextWindowChoice{Kind: onboardingpb.ContextWindowKind_CONTEXT_WINDOW_KIND_LARGE}
+					}
+					facts, err := capabilityfacts.NewService(capabilityfacts.Options{
+						Config: config.App{PersistenceRoot: root, Settings: config.DefaultOnboardingSettings()}, Setup: owner,
+					}).GetFacts(t.Context(), &capabilitypb.GetFactsRequest{})
+					if err != nil {
+						t.Fatal(err)
+					}
+					matched := false
+					for _, fact := range facts.Models.KnownModels {
+						if fact.GetModelId() != model {
+							continue
+						}
+						matched = true
+						if large && fact.GetLargeWindow().GetTokens() != uint32(wantWindow) || !large && fact.GetContextWindowTokens() != uint32(wantWindow) {
+							t.Fatalf("pending setup context facts disagree with selected window: %+v", fact)
+						}
+					}
+					if !matched {
+						t.Fatalf("pending setup facts omit model %s", model)
+					}
+					if _, err := finalizer.Finalize(t.Context(), request); err != nil {
+						t.Fatal(err)
+					}
+					settings := loadFinalizedConfig(t, root).Settings
+					if settings.ModelContextWindow != wantWindow || settings.ContextCompactionThresholdTokens != wantWindow*95/100 {
+						t.Fatalf("persisted window/threshold = %d/%d, want %d/%d", settings.ModelContextWindow, settings.ContextCompactionThresholdTokens, wantWindow, wantWindow*95/100)
+					}
+				})
+			}
+		}
+	}
+}
+
+func TestFailedFinishLeavesPendingSetupAvailable(t *testing.T) {
+	root := t.TempDir()
+	owner := newPendingConnection(t, root, "http://localhost:1234/v1")
+	finalizer, err := onboarding.NewFinalizer(onboarding.Options{Baseline: config.DefaultOnboardingSettings(), PersistenceRoot: root, Connections: owner})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chmod(root, 0o555); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() {
+		if err := os.Chmod(root, 0o755); err != nil {
+			t.Error(err)
+		}
+	})
+	if _, err := finalizer.Finalize(t.Context(), &onboardingpb.FinalizeRequest{}); !errors.Is(err, serverapi.ErrOnboardingFinalizeConfigWriteFailed) {
+		t.Fatalf("failed write result: %v", err)
+	}
+	if err := os.Chmod(root, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	catalog, err := owner.GetConnections(t.Context(), &authpb.GetConnectionsRequest{})
+	if err != nil || catalog.PendingSetup == nil {
+		t.Fatalf("failed write discarded setup: %+v %v", catalog, err)
+	}
+	if _, err := finalizer.Finalize(t.Context(), &onboardingpb.FinalizeRequest{}); err != nil {
+		t.Fatalf("explicit retry could not finish setup: %v", err)
+	}
+}
+
+func TestExplicitDiscardPreventsFinishPersistence(t *testing.T) {
+	root := t.TempDir()
+	owner := newPendingConnection(t, root, "http://localhost:1234/v1")
+	finalizer, err := onboarding.NewFinalizer(onboarding.Options{Baseline: config.DefaultOnboardingSettings(), PersistenceRoot: root, Connections: owner})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := owner.ConfigureConnection(t.Context(), &authpb.ConfigureConnectionRequest{Change: &authpb.ConfigureConnectionRequest_DiscardSetup{DiscardSetup: &emptypb.Empty{}}}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := finalizer.Finalize(t.Context(), &onboardingpb.FinalizeRequest{}); err == nil {
+		t.Fatal("discarded setup finished")
+	}
+	for _, path := range []string{filepath.Join(root, "config.toml"), config.GlobalAuthConfigPath(config.App{PersistenceRoot: root})} {
+		if _, err := os.Stat(path); !errors.Is(err, os.ErrNotExist) {
+			t.Fatalf("discarded setup persisted %s: %v", path, err)
+		}
+	}
+}
+
+func TestFinalizerProjectsModelContextThinkingVerbosityAskQuestionSupervisorAndCompaction(t *testing.T) {
+	type want struct {
+		model            string
+		window           int
+		threshold        int
+		thinking         string
+		verbosity        config.ModelVerbosity
+		enabledTools     map[toolspec.ID]bool
+		supervisor       string
+		reviewerModel    *string
+		reviewerThinking *string
+		compaction       config.CompactionMode
+		disabledSkill    *string
+	}
+	trueValue := true
+	falseValue := false
+	reviewerModel := "gpt-6-sol"
+	reviewerThinking := "xhigh"
+	disabledSkill := "api result"
+	tests := []struct {
+		name string
+		req  *onboardingpb.FinalizeRequest
+		want want
+	}{
+		{
+			name: "known model large context level thinking true ask supervisor override native compaction",
+			req: &onboardingpb.FinalizeRequest{
+				Model:         &onboardingpb.ModelChoice{Kind: onboardingpb.ModelKind_MODEL_KIND_KNOWN, ModelId: ptr("gpt-6-luna")},
+				ContextWindow: &onboardingpb.ContextWindowChoice{Kind: onboardingpb.ContextWindowKind_CONTEXT_WINDOW_KIND_LARGE},
+				Thinking:      &onboardingpb.ThinkingChoice{Kind: onboardingpb.ThinkingKind_THINKING_KIND_LEVEL, Level: ptr("high")},
+				Verbosity:     ptr(onboardingpb.Verbosity_VERBOSITY_HIGH),
+				AskQuestion:   &trueValue,
+				Supervisor: &onboardingpb.SupervisorChoice{
+					Frequency: onboardingpb.SupervisorFrequency_SUPERVISOR_FREQUENCY_ALL,
+					Model:     &onboardingpb.ModelChoice{Kind: onboardingpb.ModelKind_MODEL_KIND_KNOWN, ModelId: ptr("gpt-6-sol")},
+					Thinking:  &onboardingpb.ThinkingChoice{Kind: onboardingpb.ThinkingKind_THINKING_KIND_CUSTOM, Value: ptr("xhigh")},
+				},
+				Compaction:         ptr(onboardingpb.CompactionMode_COMPACTION_MODE_NATIVE),
+				DisabledSkillNames: []string{" API   Result "},
+			},
+			want: want{
+				model:            "gpt-6-luna",
+				window:           1_050_000,
+				threshold:        997_500,
+				thinking:         "high",
+				verbosity:        config.ModelVerbosityHigh,
+				enabledTools:     map[toolspec.ID]bool{toolspec.ToolAskQuestion: true},
+				supervisor:       "all",
+				reviewerModel:    &reviewerModel,
+				reviewerThinking: &reviewerThinking,
+				compaction:       config.CompactionModeNative,
+				disabledSkill:    &disabledSkill,
+			},
+		},
+		{
+			name: "custom model custom context custom thinking false ask supervisor inheritance none compaction",
+			req: &onboardingpb.FinalizeRequest{
+				Model:         &onboardingpb.ModelChoice{Kind: onboardingpb.ModelKind_MODEL_KIND_CUSTOM, Alias: ptr("custom-openai-model")},
+				ContextWindow: &onboardingpb.ContextWindowChoice{Kind: onboardingpb.ContextWindowKind_CONTEXT_WINDOW_KIND_CUSTOM, Tokens: ptr(uint32(123_456))},
+				Thinking:      &onboardingpb.ThinkingChoice{Kind: onboardingpb.ThinkingKind_THINKING_KIND_CUSTOM, Value: ptr("future")},
+				AskQuestion:   &falseValue,
+				Supervisor:    &onboardingpb.SupervisorChoice{Frequency: onboardingpb.SupervisorFrequency_SUPERVISOR_FREQUENCY_OFF},
+				Compaction:    ptr(onboardingpb.CompactionMode_COMPACTION_MODE_NONE),
+			},
+			want: want{
+				model:     "custom-openai-model",
+				window:    123_456,
+				threshold: 117_283,
+				thinking:  "future",
+				verbosity: config.ModelVerbosityLow,
+				enabledTools: map[toolspec.ID]bool{
+					toolspec.ToolAskQuestion: false,
+				},
+				supervisor: "off",
+				compaction: config.CompactionModeNone,
+			},
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			root := t.TempDir()
+			home := t.TempDir()
+			if _, err := newTestFinalizer(t, root, home).Finalize(context.Background(), tc.req); err != nil {
+				t.Fatalf("Finalize: %v", err)
+			}
+			cfg := loadFinalizedConfig(t, root)
+			if cfg.Settings.Model != tc.want.model {
+				t.Fatalf("model = %q, want %q", cfg.Settings.Model, tc.want.model)
+			}
+			if cfg.Settings.ModelContextWindow != tc.want.window || cfg.Settings.ContextCompactionThresholdTokens != tc.want.threshold {
+				t.Fatalf("window/threshold = %d/%d, want %d/%d", cfg.Settings.ModelContextWindow, cfg.Settings.ContextCompactionThresholdTokens, tc.want.window, tc.want.threshold)
+			}
+			if cfg.Settings.ThinkingLevel != tc.want.thinking || cfg.Settings.ModelVerbosity != tc.want.verbosity {
+				t.Fatalf("thinking/verbosity = %q/%q, want %q/%q", cfg.Settings.ThinkingLevel, cfg.Settings.ModelVerbosity, tc.want.thinking, tc.want.verbosity)
+			}
+			for toolID, enabled := range tc.want.enabledTools {
+				if cfg.Settings.EnabledTools[toolID] != enabled {
+					t.Fatalf("tool %q enabled = %t, want %t", toolID, cfg.Settings.EnabledTools[toolID], enabled)
+				}
+			}
+			if cfg.Settings.Reviewer.Frequency != tc.want.supervisor || cfg.Settings.CompactionMode != tc.want.compaction {
+				t.Fatalf("supervisor/compaction = %q/%q, want %q/%q", cfg.Settings.Reviewer.Frequency, cfg.Settings.CompactionMode, tc.want.supervisor, tc.want.compaction)
+			}
+			if tc.want.reviewerModel != nil && (cfg.Settings.Reviewer.Model != *tc.want.reviewerModel || cfg.Settings.Reviewer.ThinkingLevel != *tc.want.reviewerThinking) {
+				t.Fatalf("reviewer model/thinking = %q/%q, want %q/%q", cfg.Settings.Reviewer.Model, cfg.Settings.Reviewer.ThinkingLevel, *tc.want.reviewerModel, *tc.want.reviewerThinking)
+			}
+			if tc.want.disabledSkill != nil {
+				enabled, ok := cfg.Settings.SkillToggles[*tc.want.disabledSkill]
+				if !ok || enabled {
+					t.Fatalf("skill %q should be disabled: %+v", *tc.want.disabledSkill, cfg.Settings.SkillToggles)
+				}
+			}
+		})
+	}
+}
+
+func TestFinalizerAcceptsMinimumCustomContextWindow(t *testing.T) {
+	root := t.TempDir()
+	home := t.TempDir()
+	if _, err := newTestFinalizer(t, root, home).Finalize(context.Background(), &onboardingpb.FinalizeRequest{
+		ContextWindow: &onboardingpb.ContextWindowChoice{Kind: onboardingpb.ContextWindowKind_CONTEXT_WINDOW_KIND_CUSTOM, Tokens: ptr(uint32(50_000))},
+	}); err != nil {
+		t.Fatalf("Finalize: %v", err)
+	}
+	cfg := loadFinalizedConfig(t, root)
+	if cfg.Settings.ModelContextWindow != 50_000 {
+		t.Fatalf("model context window = %d, want 50000", cfg.Settings.ModelContextWindow)
+	}
+	if effective := config.SpeculativeCompactionTriggerTokens(cfg.Settings.ModelContextWindow, cfg.Settings.PreSubmitCompactionLeadTokens); effective < config.MinimumThresholdTokens(cfg.Settings.ModelContextWindow) {
+		t.Fatalf("effective pre-submit threshold = %d below minimum", effective)
+	}
+}
+
+func TestFinalizerDerivesContextBudgetForKnownModel(t *testing.T) {
+	root := t.TempDir()
+	home := t.TempDir()
+	if _, err := newTestFinalizer(t, root, home).Finalize(context.Background(), &onboardingpb.FinalizeRequest{
+		Model: &onboardingpb.ModelChoice{Kind: onboardingpb.ModelKind_MODEL_KIND_KNOWN, ModelId: ptr("gpt-6-sol")},
+	}); err != nil {
+		t.Fatalf("Finalize: %v", err)
+	}
+	cfg := loadFinalizedConfig(t, root)
+	if cfg.Settings.Model != "gpt-6-sol" {
+		t.Fatalf("model = %q, want gpt-6-sol", cfg.Settings.Model)
+	}
+	if cfg.Settings.ModelContextWindow != 272_000 || cfg.Settings.ContextCompactionThresholdTokens != 258_400 {
+		t.Fatalf("context budget should derive from the selected model: %+v", cfg.Settings)
+	}
+}
+
+func TestFinalizerRejectsUnsupportedVerbosityForSelectedConnection(t *testing.T) {
+	root := t.TempDir()
+	home := t.TempDir()
+	_, err := newTestFinalizerAtEndpoint(t, root, home, "http://localhost:1234/v1").Finalize(context.Background(), &onboardingpb.FinalizeRequest{
+		Model:     &onboardingpb.ModelChoice{Kind: onboardingpb.ModelKind_MODEL_KIND_CUSTOM, Alias: ptr("claude-3-7-sonnet")},
+		Verbosity: ptr(onboardingpb.Verbosity_VERBOSITY_HIGH),
+	})
+	if !errors.Is(err, serverapi.ErrOnboardingFinalizeInvalidRequest) {
+		t.Fatalf("error = %v, want invalid_request", err)
+	}
+}
+
+func TestFinalizerImportsSkillsAndCommandsBeforeConfigWrite(t *testing.T) {
+	root := t.TempDir()
+	home := t.TempDir()
+	skills := createProviderSkillSource(t, home, ".claude")
+	commands := createProviderCommandSource(t, home, ".claude")
+
+	resp, err := newTestFinalizer(t, root, home).Finalize(context.Background(), &onboardingpb.FinalizeRequest{
+		SkillsImport:   skills,
+		CommandsImport: commands,
+	})
+	if err != nil {
+		t.Fatalf("Finalize: %v", err)
+	}
+	if !resp.Completed {
+		t.Fatal("expected finalize completion")
+	}
+	assertSymlink(t, filepath.Join(root, "skills"))
+	assertSymlink(t, filepath.Join(root, "prompts"))
+}
+
+func TestFinalizerImportsGrokPersonalSourcesAndSkillEnablement(t *testing.T) {
+	assertFinalizesPersonalProviderImports(t, ".grok")
+}
+
+func TestFinalizerImportsCursorPersonalSourcesAndSkillEnablement(t *testing.T) {
+	assertFinalizesPersonalProviderImports(t, ".cursor")
+}
+
+func assertFinalizesPersonalProviderImports(t *testing.T, homeEntry string) {
+	t.Helper()
+	root := t.TempDir()
+	home := t.TempDir()
+	skills := createProviderSkillSource(t, home, homeEntry)
+	commands := createProviderCommandSource(t, home, homeEntry)
+
+	resp, err := newTestFinalizer(t, root, home).Finalize(context.Background(), &onboardingpb.FinalizeRequest{
+		SkillsImport:       skills,
+		CommandsImport:     commands,
+		DisabledSkillNames: []string{"Example"},
+	})
+	if err != nil {
+		t.Fatalf("Finalize: %v", err)
+	}
+	if !resp.Completed {
+		t.Fatal("expected finalize completion")
+	}
+	skillsTarget, err := os.Readlink(filepath.Join(root, "skills"))
+	if err != nil {
+		t.Fatalf("read skills symlink: %v", err)
+	}
+	expectedSkillsRoot := filepath.Join(home, homeEntry, "skills")
+	if skillsTarget != expectedSkillsRoot {
+		t.Fatalf("skills symlink target = %q, want selected personal root %q", skillsTarget, expectedSkillsRoot)
+	}
+	commandsTarget, err := os.Readlink(filepath.Join(root, "prompts"))
+	if err != nil {
+		t.Fatalf("read commands symlink: %v", err)
+	}
+	expectedCommandsRoot := filepath.Join(home, homeEntry, "commands")
+	if commandsTarget != expectedCommandsRoot {
+		t.Fatalf("commands symlink target = %q, want selected personal root %q", commandsTarget, expectedCommandsRoot)
+	}
+	if enabled, ok := loadFinalizedConfig(t, root).Settings.SkillToggles["example"]; !ok || enabled {
+		t.Fatalf("imported skill enablement = %t, present=%t, want disabled", enabled, ok)
+	}
+}
+
+func TestFinalizerImportsSelectedCapabilityFactSkillRoot(t *testing.T) {
+	root := t.TempDir()
+	home := t.TempDir()
+	regularRoot := filepath.Join(home, ".codex", "skills")
+	createSkillDirectory(t, filepath.Join(regularRoot, "regular-example"))
+	providerID := "codex"
+
+	resp, err := newTestFinalizer(t, root, home).Finalize(context.Background(), &onboardingpb.FinalizeRequest{
+		SkillsImport: &onboardingpb.ImportSelection{
+			Mode:             onboardingpb.ImportMode_IMPORT_MODE_SYMLINK_SOURCE,
+			ImportProviderId: &providerID,
+			SourceRootPath:   &regularRoot,
+		},
+	})
+	if err != nil {
+		t.Fatalf("Finalize: %v", err)
+	}
+	if !resp.Completed {
+		t.Fatal("expected finalize completion")
+	}
+	target, err := os.Readlink(filepath.Join(root, "skills"))
+	if err != nil {
+		t.Fatalf("read skills symlink: %v", err)
+	}
+	if target != regularRoot {
+		t.Fatalf("skills symlink target = %q, want selected root %q", target, regularRoot)
+	}
+}
+
+func TestFinalizerDoesNotSubstituteAnotherProviderSourceRoot(t *testing.T) {
+	root := t.TempDir()
+	home := t.TempDir()
+	regularRoot := filepath.Join(home, ".codex", "skills")
+	createSkillDirectory(t, filepath.Join(regularRoot, "regular-example"))
+	createSkillDirectory(t, filepath.Join(regularRoot, "local", "local-example"))
+
+	_, err := newTestFinalizer(t, root, home).Finalize(t.Context(), &onboardingpb.FinalizeRequest{
+		SkillsImport: providerImportSelection(t, home, ".codex", "skills"),
+	})
+	if !errors.Is(err, serverapi.ErrOnboardingFinalizeImportUnavailable) {
+		t.Fatalf("Finalize error = %v, want import_unavailable for undiscovered exact root", err)
+	}
+	if _, err := os.Lstat(filepath.Join(root, "skills")); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("different source root must not be imported, stat err=%v", err)
+	}
+}
+
+func TestFinalizeBoundaryRequiresExactImportSelector(t *testing.T) {
+	for _, selection := range []*onboardingpb.ImportSelection{
+		{Mode: onboardingpb.ImportMode_IMPORT_MODE_SYMLINK_SOURCE},
+		{Mode: onboardingpb.ImportMode_IMPORT_MODE_SYMLINK_SOURCE, ImportProviderId: ptr("codex")},
+		{Mode: onboardingpb.ImportMode_IMPORT_MODE_SYMLINK_SOURCE, SourceRootPath: ptr("/source/skills")},
+		{Mode: onboardingpb.ImportMode_IMPORT_MODE_SYMLINK_SOURCE, ImportProviderId: ptr(""), SourceRootPath: ptr("/source/skills")},
+		{Mode: onboardingpb.ImportMode_IMPORT_MODE_SYMLINK_SOURCE, ImportProviderId: ptr("codex"), SourceRootPath: ptr("")},
+		{Mode: onboardingpb.ImportMode_IMPORT_MODE_NONE, ImportProviderId: ptr("codex"), SourceRootPath: ptr("/source/skills")},
+	} {
+		if err := protoapi.Validate(&onboardingpb.FinalizeRequest{SkillsImport: selection}); err == nil {
+			t.Fatalf("invalid import selector accepted: %v", selection)
+		}
+	}
+	if err := protoapi.Validate(&onboardingpb.FinalizeRequest{SkillsImport: &onboardingpb.ImportSelection{
+		Mode: onboardingpb.ImportMode_IMPORT_MODE_SYMLINK_SOURCE, ImportProviderId: ptr("codex"), SourceRootPath: ptr("/source/skills"),
+	}}); err != nil {
+		t.Fatalf("exact import selector rejected: %v", err)
+	}
+}
+
+func TestFinalizerReturnsSelectedProviderDiscoveryError(t *testing.T) {
+	root := t.TempDir()
+	home := t.TempDir()
+	selection := providerImportSelection(t, home, ".codex", "skills/local")
+	if err := os.MkdirAll(filepath.Join(home, ".codex", "skills"), 0o755); err != nil {
+		t.Fatalf("mkdir codex skills parent: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(home, ".codex", "skills", "local"), []byte("not a directory"), 0o644); err != nil {
+		t.Fatalf("write selected provider blocker: %v", err)
+	}
+
+	_, err := newTestFinalizer(t, root, home).Finalize(context.Background(), &onboardingpb.FinalizeRequest{
+		SkillsImport: selection,
+	})
+	var finalizeErr *serverapi.OnboardingFinalizeError
+	if !errors.As(err, &finalizeErr) {
+		t.Fatalf("error = %T %v, want OnboardingFinalizeError", err, err)
+	}
+	if finalizeErr.Code != serverapi.OnboardingFinalizeImportFailed {
+		t.Fatalf("code = %q, want import_failed", finalizeErr.Code)
+	}
+	details := finalizeErr.Details.(serverapi.OnboardingImportFailedDetails)
+	if details.Operation != serverapi.OnboardingImportOperationDiscover || details.ImportProviderID == nil || *details.ImportProviderID != *selection.ImportProviderId ||
+		details.SourceRootPath == nil || *details.SourceRootPath != *selection.SourceRootPath {
+		t.Fatalf("details = %+v, want selected provider discover failure", details)
+	}
+}
+
+func TestFinalizerRollsBackImportsWhenConfigWriteFails(t *testing.T) {
+	root := t.TempDir()
+	home := t.TempDir()
+	selection := createProviderSkillSource(t, home, ".claude")
+	blocker := filepath.Join(root, "not-a-dir")
+	if err := os.WriteFile(blocker, []byte("x"), 0o644); err != nil {
+		t.Fatalf("write blocker: %v", err)
+	}
+	finalizer, err := onboarding.NewFinalizer(onboarding.Options{Baseline: config.DefaultOnboardingSettings(),
+		PersistenceRoot: root,
+		HomeDir:         home,
+		SettingsPath:    filepath.Join(blocker, "config.toml"),
+		Connections:     newPendingConnection(t, root, "https://api.openai.com/v1"),
+	})
+	if err != nil {
+		t.Fatalf("NewFinalizer: %v", err)
+	}
+
+	_, err = finalizer.Finalize(context.Background(), &onboardingpb.FinalizeRequest{
+		SkillsImport: selection,
+	})
+	if !errors.Is(err, serverapi.ErrOnboardingFinalizeConfigWriteFailed) {
+		t.Fatalf("error = %v, want config_write_failed", err)
+	}
+	if _, statErr := os.Lstat(filepath.Join(root, "skills")); !errors.Is(statErr, os.ErrNotExist) {
+		t.Fatalf("skills import should be rolled back, stat err=%v", statErr)
+	}
+}
+
+func TestFinalizerExistingConfigWinsBeforeValidationAndSideEffects(t *testing.T) {
+	root := t.TempDir()
+	home := t.TempDir()
+	if _, _, err := config.WriteDefaultSettingsFileAt(filepath.Join(root, "config.toml")); err != nil {
+		t.Fatalf("write existing config: %v", err)
+	}
+	badTheme := onboardingpb.Theme(999)
+	selection := createProviderSkillSource(t, home, ".claude")
+
+	_, err := newTestFinalizer(t, root, home).Finalize(context.Background(), &onboardingpb.FinalizeRequest{
+		Theme:        &badTheme,
+		SkillsImport: selection,
+	})
+	if !errors.Is(err, serverapi.ErrOnboardingFinalizeConfigAlreadyExists) {
+		t.Fatalf("error = %v, want config_already_exists", err)
+	}
+	if _, statErr := os.Lstat(filepath.Join(root, "skills")); !errors.Is(statErr, os.ErrNotExist) {
+		t.Fatalf("imports should not run when config already exists, stat err=%v", statErr)
+	}
+}
+
+func TestFinalizerConcurrentFinalizeSerializesAndRechecksConfig(t *testing.T) {
+	root := t.TempDir()
+	home := t.TempDir()
+	finalizer := newTestFinalizer(t, root, home)
+	errs := make(chan error, 2)
+	var wg sync.WaitGroup
+	for i := 0; i < 2; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			_, err := finalizer.Finalize(context.Background(), &onboardingpb.FinalizeRequest{})
+			errs <- err
+		}()
+	}
+	wg.Wait()
+	close(errs)
+	var successes, conflicts int
+	for err := range errs {
+		if err == nil {
+			successes++
+			continue
+		}
+		if errors.Is(err, serverapi.ErrOnboardingFinalizeConfigAlreadyExists) {
+			conflicts++
+			continue
+		}
+		t.Fatalf("unexpected concurrent finalize error: %v", err)
+	}
+	if successes != 1 || conflicts != 1 {
+		t.Fatalf("success/conflict counts = %d/%d, want 1/1", successes, conflicts)
+	}
+}
+
+func TestFinalizerSkipsImportDiscoveryWhenNoImportsRequested(t *testing.T) {
+	root := t.TempDir()
+	home := t.TempDir()
+	if err := os.WriteFile(filepath.Join(home, ".claude"), []byte("not a directory"), 0o644); err != nil {
+		t.Fatalf("write provider blocker: %v", err)
+	}
+	finalizer := newTestFinalizer(t, root, home)
+
+	resp, err := finalizer.Finalize(context.Background(), &onboardingpb.FinalizeRequest{})
+	if err != nil {
+		t.Fatalf("Finalize: %v", err)
+	}
+	if !resp.Completed {
+		t.Fatal("expected finalize completion")
+	}
+	if _, err := os.Stat(filepath.Join(root, "config.toml")); err != nil {
+		t.Fatalf("expected config file: %v", err)
+	}
+}
+
+func TestFinalizerMissingHomeMakesRequestedImportUnavailable(t *testing.T) {
+	root := t.TempDir()
+	t.Setenv("HOME", "")
+	finalizer, err := onboarding.NewFinalizer(onboarding.Options{Baseline: config.DefaultOnboardingSettings(), PersistenceRoot: root, SettingsPath: filepath.Join(root, "config.toml"), Connections: newPendingConnection(t, root, "https://api.openai.com/v1")})
+	if err != nil {
+		t.Fatalf("NewFinalizer: %v", err)
+	}
+	selection := providerImportSelection(t, t.TempDir(), ".claude", "skills")
+	_, err = finalizer.Finalize(context.Background(), &onboardingpb.FinalizeRequest{
+		SkillsImport: selection,
+	})
+	if !errors.Is(err, serverapi.ErrOnboardingFinalizeImportUnavailable) {
+		t.Fatalf("Finalize error = %v, want import_unavailable", err)
+	}
+	if _, statErr := os.Stat(filepath.Join(root, "config.toml")); !errors.Is(statErr, os.ErrNotExist) {
+		t.Fatalf("config should remain absent, stat err=%v", statErr)
+	}
+}
+
+func ptr[T any](value T) *T {
+	return &value
+}
+
+func readSettingsFile(t *testing.T, root string) []byte {
+	t.Helper()
+	data, err := os.ReadFile(filepath.Join(root, "config.toml"))
+	if err != nil {
+		t.Fatalf("read settings: %v", err)
+	}
+	return data
+}
+
+func loadFinalizedConfig(t *testing.T, root string) config.App {
+	t.Helper()
+	cfg, err := config.LoadGlobal(config.LoadOptions{ConfigRoot: root})
+	if err != nil {
+		t.Fatalf("load config: %v", err)
+	}
+	return cfg
+}
+
+func assertSymlink(t *testing.T, path string) {
+	t.Helper()
+	info, err := os.Lstat(path)
+	if err != nil {
+		t.Fatalf("lstat %s: %v", path, err)
+	}
+	if info.Mode()&os.ModeSymlink == 0 {
+		t.Fatalf("%s is not a symlink", path)
+	}
+}
+
+func TestFinalizerReturnsTargetExistsForRequestedImportBlockedByTarget(t *testing.T) {
+	root := t.TempDir()
+	home := t.TempDir()
+	selection := createProviderSkillSource(t, home, ".claude")
+	if err := os.MkdirAll(filepath.Join(root, "skills"), 0o755); err != nil {
+		t.Fatalf("mkdir target: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(root, "skills", "existing"), []byte("x"), 0o644); err != nil {
+		t.Fatalf("write target marker: %v", err)
+	}
+	finalizer := newTestFinalizer(t, root, home)
+
+	_, err := finalizer.Finalize(context.Background(), &onboardingpb.FinalizeRequest{
+		SkillsImport: selection,
+	})
+	var finalizeErr *serverapi.OnboardingFinalizeError
+	if !errors.As(err, &finalizeErr) {
+		t.Fatalf("error = %T %v, want OnboardingFinalizeError", err, err)
+	}
+	if finalizeErr.Code != serverapi.OnboardingFinalizeImportUnavailable {
+		t.Fatalf("code = %q, want import_unavailable", finalizeErr.Code)
+	}
+	details := finalizeErr.Details.(serverapi.OnboardingImportUnavailableDetails)
+	if details.ReasonCode != serverapi.OnboardingImportReasonTargetExists {
+		t.Fatalf("reason = %q, want target_exists", details.ReasonCode)
+	}
+	if _, err := os.Stat(filepath.Join(root, "config.toml")); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("config should remain absent, stat err=%v", err)
+	}
+}
+
+func TestFinalizerRollsBackEarlierImportWhenLaterImportSelectionFails(t *testing.T) {
+	root := t.TempDir()
+	home := t.TempDir()
+	selection := createProviderSkillSource(t, home, ".claude")
+	finalizer := newTestFinalizer(t, root, home)
+
+	_, err := finalizer.Finalize(context.Background(), &onboardingpb.FinalizeRequest{
+		SkillsImport:   selection,
+		CommandsImport: providerImportSelection(t, home, ".claude", "commands"),
+	})
+	var finalizeErr *serverapi.OnboardingFinalizeError
+	if !errors.As(err, &finalizeErr) {
+		t.Fatalf("error = %T %v, want OnboardingFinalizeError", err, err)
+	}
+	if finalizeErr.Code != serverapi.OnboardingFinalizeImportUnavailable {
+		t.Fatalf("code = %q, want import_unavailable", finalizeErr.Code)
+	}
+	if _, err := os.Lstat(filepath.Join(root, "skills")); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("skills import should be rolled back, stat err=%v", err)
+	}
+	if _, err := os.Stat(filepath.Join(root, "config.toml")); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("config should remain absent, stat err=%v", err)
+	}
+}
+
+func TestFinalizerRestoresPreexistingEmptyTargetDirectoryOnRollback(t *testing.T) {
+	root := t.TempDir()
+	home := t.TempDir()
+	selection := createProviderSkillSource(t, home, ".claude")
+	if err := os.MkdirAll(filepath.Join(root, "skills"), 0o755); err != nil {
+		t.Fatalf("mkdir empty target: %v", err)
+	}
+
+	_, err := newTestFinalizer(t, root, home).Finalize(context.Background(), &onboardingpb.FinalizeRequest{
+		SkillsImport:   selection,
+		CommandsImport: providerImportSelection(t, home, ".claude", "commands"),
+	})
+	if !errors.Is(err, serverapi.ErrOnboardingFinalizeImportUnavailable) {
+		t.Fatalf("error = %v, want import_unavailable", err)
+	}
+	info, statErr := os.Lstat(filepath.Join(root, "skills"))
+	if statErr != nil {
+		t.Fatalf("skills target should be restored: %v", statErr)
+	}
+	if info.Mode()&os.ModeSymlink != 0 || !info.IsDir() {
+		t.Fatalf("skills target should be restored as directory, mode=%s", info.Mode())
+	}
+	entries, readErr := os.ReadDir(filepath.Join(root, "skills"))
+	if readErr != nil {
+		t.Fatalf("read restored skills dir: %v", readErr)
+	}
+	if len(entries) != 0 {
+		t.Fatalf("restored skills dir entries = %d, want empty", len(entries))
+	}
+}
+
+func TestFinalizerRejectsDuplicateNormalizedDisabledSkillNames(t *testing.T) {
+	root := t.TempDir()
+	home := t.TempDir()
+
+	_, err := newTestFinalizer(t, root, home).Finalize(context.Background(), &onboardingpb.FinalizeRequest{
+		DisabledSkillNames: []string{"API Result", " api   result "},
+	})
+	if !errors.Is(err, serverapi.ErrOnboardingFinalizeInvalidRequest) {
+		t.Fatalf("error = %v, want invalid_request", err)
+	}
+	var finalizeErr *serverapi.OnboardingFinalizeError
+	if !errors.As(err, &finalizeErr) {
+		t.Fatalf("error = %T %v, want OnboardingFinalizeError", err, err)
+	}
+	details := finalizeErr.Details.(serverapi.OnboardingInvalidRequestDetails)
+	if len(details.FieldErrors) != 1 || details.FieldErrors[0].Field != "disabled_skill_names.1" || details.FieldErrors[0].Code != "duplicate" {
+		t.Fatalf("field errors = %+v, want duplicate second disabled skill", details.FieldErrors)
+	}
+	if _, statErr := os.Stat(filepath.Join(root, "config.toml")); !errors.Is(statErr, os.ErrNotExist) {
+		t.Fatalf("config should remain absent, stat err=%v", statErr)
+	}
+}
+
+func TestFinalizerRejectsNativeCompactionForSelectedConnection(t *testing.T) {
+	root := t.TempDir()
+	home := t.TempDir()
+	finalizer := newTestFinalizerAtEndpoint(t, root, home, "http://localhost:1234/v1")
+	native := onboardingpb.CompactionMode_COMPACTION_MODE_NATIVE
+
+	_, err := finalizer.Finalize(context.Background(), &onboardingpb.FinalizeRequest{
+		Model:      &onboardingpb.ModelChoice{Kind: onboardingpb.ModelKind_MODEL_KIND_CUSTOM, Alias: ptr("claude-3-7-sonnet")},
+		Compaction: &native,
+	})
+	if !errors.Is(err, serverapi.ErrOnboardingFinalizeInvalidRequest) {
+		t.Fatalf("error = %v, want invalid_request", err)
+	}
+	var finalizeErr *serverapi.OnboardingFinalizeError
+	if !errors.As(err, &finalizeErr) {
+		t.Fatalf("error = %T %v, want OnboardingFinalizeError", err, err)
+	}
+	details := finalizeErr.Details.(serverapi.OnboardingInvalidRequestDetails)
+	if len(details.FieldErrors) != 1 || details.FieldErrors[0].Field != "compaction" || details.FieldErrors[0].Code != "unsupported_for_provider" {
+		t.Fatalf("field errors = %+v", details.FieldErrors)
+	}
+}
+
+func TestFinalizerCommandsImportBlocksLegacyCommandsDirectory(t *testing.T) {
+	root := t.TempDir()
+	home := t.TempDir()
+	selection := createProviderCommandSource(t, home, ".claude")
+	if err := os.MkdirAll(filepath.Join(root, "commands", "legacy"), 0o755); err != nil {
+		t.Fatalf("mkdir legacy commands: %v", err)
+	}
+
+	_, err := newTestFinalizer(t, root, home).Finalize(context.Background(), &onboardingpb.FinalizeRequest{
+		CommandsImport: selection,
+	})
+	if !errors.Is(err, serverapi.ErrOnboardingFinalizeImportUnavailable) {
+		t.Fatalf("Finalize error = %v, want import_unavailable", err)
+	}
+	if _, statErr := os.Lstat(filepath.Join(root, "prompts")); !errors.Is(statErr, os.ErrNotExist) {
+		t.Fatalf("prompts import should not run when legacy commands exist, stat err=%v", statErr)
+	}
+}
+
+func newTestFinalizer(t *testing.T, root string, home string) *onboarding.Finalizer {
+	t.Helper()
+	return newTestFinalizerAtEndpoint(t, root, home, "https://api.openai.com/v1")
+}
+
+func TestFinalizerResolvedSupervisorInheritanceFollowsPrimaryChoice(t *testing.T) {
+	root := t.TempDir()
+	baseline, err := config.LoadGlobal(config.LoadOptions{ConfigRoot: root})
+	if err != nil {
+		t.Fatal(err)
+	}
+	finalizer, err := onboarding.NewFinalizer(onboarding.Options{
+		PersistenceRoot: root, Baseline: baseline.Settings,
+		BaselineSources: baseline.Source.Sources,
+		Connections:     newPendingConnection(t, root, "https://api.openai.com/v1"),
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	model := "gpt-6-sol"
+	_, err = finalizer.Finalize(t.Context(), &onboardingpb.FinalizeRequest{
+		Model: &onboardingpb.ModelChoice{Kind: onboardingpb.ModelKind_MODEL_KIND_KNOWN, ModelId: &model},
+		Supervisor: &onboardingpb.SupervisorChoice{
+			Frequency: onboardingpb.SupervisorFrequency_SUPERVISOR_FREQUENCY_EDITS,
+			Thinking:  &onboardingpb.ThinkingChoice{Kind: onboardingpb.ThinkingKind_THINKING_KIND_DISABLED},
+		},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	actual := loadFinalizedConfig(t, root)
+	if actual.Settings.Reviewer.Model != model || actual.Settings.Reviewer.ThinkingLevel != "none" {
+		t.Fatalf("Supervisor did not follow visible choices: %+v", actual.Settings.Reviewer)
+	}
+	if !actual.Source.Sources["reviewer.model"].Inherited("reviewer.model") {
+		t.Fatal("inherited Supervisor model became an explicit override")
+	}
+}
+
+func TestFinalizerRetainsExplicitSupervisorBaselineOverride(t *testing.T) {
+	for _, replace := range []string{"omit", "explicit", "inherit"} {
+		t.Run(fmt.Sprint(replace), func(t *testing.T) {
+			root, workspace := t.TempDir(), t.TempDir()
+			if err := os.MkdirAll(filepath.Join(workspace, config.ConfigDirName), 0o755); err != nil {
+				t.Fatal(err)
+			}
+			if err := os.WriteFile(filepath.Join(workspace, config.ConfigDirName, "config.toml"), []byte("[reviewer]\nmodel = \"gpt-5.4\"\nthinking_level = \"\"\n"), 0o600); err != nil {
+				t.Fatal(err)
+			}
+			baseline, err := config.Load(workspace, workspace, config.LoadOptions{ConfigRoot: root})
+			if err != nil {
+				t.Fatal(err)
+			}
+			finalizer, err := onboarding.NewFinalizer(onboarding.Options{
+				PersistenceRoot: root, Baseline: baseline.Settings, BaselineSources: baseline.Source.Sources,
+				Connections: newPendingConnection(t, root, "https://api.openai.com/v1"),
+			})
+			if err != nil {
+				t.Fatal(err)
+			}
+			model := "gpt-6.1-sol"
+			request := &onboardingpb.FinalizeRequest{
+				Model: &onboardingpb.ModelChoice{Kind: onboardingpb.ModelKind_MODEL_KIND_KNOWN, ModelId: &model},
+			}
+			expectedModel, expectedThinking := "gpt-5.4", ""
+			if replace != "omit" {
+				thinking := &onboardingpb.ThinkingChoice{Kind: onboardingpb.ThinkingKind_THINKING_KIND_LEVEL, Level: ptr("high")}
+				request.Thinking = thinking
+				request.Supervisor = &onboardingpb.SupervisorChoice{
+					Frequency: onboardingpb.SupervisorFrequency_SUPERVISOR_FREQUENCY_EDITS,
+					Model:     request.Model, Thinking: thinking,
+				}
+				expectedModel, expectedThinking = model, "high"
+				if replace == "inherit" {
+					request.Supervisor.Model = nil
+					request.Supervisor.Thinking = nil
+				}
+			}
+			if _, err := finalizer.Finalize(t.Context(), request); err != nil {
+				t.Fatal(err)
+			}
+			actual := loadFinalizedConfig(t, root)
+			if actual.Settings.Reviewer.Model != expectedModel || actual.Settings.Reviewer.ThinkingLevel != expectedThinking ||
+				actual.Source.Sources["reviewer.model"].Declares("reviewer.model") != (replace != "inherit") ||
+				actual.Source.Sources["reviewer.thinking_level"].Declares("reviewer.thinking_level") != (replace != "inherit") {
+				t.Fatalf("explicit Supervisor baseline was lost: %+v", actual.Settings.Reviewer)
+			}
+		})
+	}
+}
+
+func TestFinalizerPreservesPublishedBaselineAndExplicitlyResetsWindow(t *testing.T) {
+	for _, reset := range []bool{false, true} {
+		t.Run(fmt.Sprint(reset), func(t *testing.T) {
+			root := t.TempDir()
+			baseline := config.DefaultOnboardingSettings()
+			baseline.Model = "gpt-6.1-sol"
+			baseline.ModelContextWindow = 1000000
+			baseline.ContextCompactionThresholdTokens = 950000
+			baseline.Timeouts.ModelRequestSeconds = 777
+			baseline.EnabledTools[toolspec.ToolPatch] = false
+			finalizer, err := onboarding.NewFinalizer(onboarding.Options{
+				PersistenceRoot: root, Baseline: baseline,
+				Connections: newPendingConnection(t, root, "https://api.openai.com/v1"),
+			})
+			if err != nil {
+				t.Fatal(err)
+			}
+			req := &onboardingpb.FinalizeRequest{}
+			if reset {
+				req.Model = &onboardingpb.ModelChoice{Kind: onboardingpb.ModelKind_MODEL_KIND_KNOWN, ModelId: ptr(baseline.Model)}
+				req.ContextWindow = &onboardingpb.ContextWindowChoice{Kind: onboardingpb.ContextWindowKind_CONTEXT_WINDOW_KIND_DEFAULT}
+			}
+			if _, err := finalizer.Finalize(t.Context(), req); err != nil {
+				t.Fatal(err)
+			}
+			settings := loadFinalizedConfig(t, root).Settings
+			if settings.Timeouts.ModelRequestSeconds != 777 || settings.EnabledTools[toolspec.ToolPatch] {
+				t.Fatalf("hidden server settings were reset: %+v", settings)
+			}
+			expectedWindow := baseline.ModelContextWindow
+			if reset {
+				model, _ := llm.LookupModelMetadata(baseline.Model)
+				expectedWindow = model.ContextWindowTokens
+			}
+			if settings.ModelContextWindow != expectedWindow || settings.ContextCompactionThresholdTokens != expectedWindow*95/100 {
+				t.Fatalf("context budgets: window=%d threshold=%d expected=%d", settings.ModelContextWindow, settings.ContextCompactionThresholdTokens, expectedWindow)
+			}
+			if config.SpeculativeCompactionTriggerTokens(expectedWindow, settings.PreSubmitCompactionLeadTokens) < config.MinimumThresholdTokens(expectedWindow) {
+				t.Fatal("pre-submit compaction budget exceeds the selected window")
+			}
+		})
+	}
+}
+
+func newTestFinalizerAtEndpoint(t *testing.T, root string, home string, endpoint string) *onboarding.Finalizer {
+	t.Helper()
+	finalizer, err := onboarding.NewFinalizer(onboarding.Options{Baseline: config.DefaultOnboardingSettings(), PersistenceRoot: root, HomeDir: home, Connections: newPendingConnection(t, root, endpoint)})
+	if err != nil {
+		t.Fatalf("NewFinalizer: %v", err)
+	}
+	return finalizer
+}
+
+func newPendingConnection(t *testing.T, root string, endpoint string) *authservice.BootstrapService {
+	t.Helper()
+	owner := authservice.NewBootstrapService(t.Context(), authservice.NewConnectionResolver(root, auth.NewManager(auth.NewFileStore(config.GlobalAuthConfigPath(config.App{PersistenceRoot: root})), nil), nil), auth.OpenAIOAuthOptions{})
+	if _, err := os.Stat(filepath.Join(root, "config.toml")); err == nil {
+		return owner
+	}
+	_, err := owner.ConfigureConnection(t.Context(), &authpb.ConfigureConnectionRequest{Change: &authpb.ConfigureConnectionRequest_PendingSetup{
+		PendingSetup: &authpb.ConnectionDefinition{Id: "first", Protocol: authpb.ConnectionProtocol_CONNECTION_PROTOCOL_RESPONSES, Endpoint: &endpoint},
+	}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	return owner
+}
+
+func createProviderSkillSource(t *testing.T, home string, entry string) *onboardingpb.ImportSelection {
+	t.Helper()
+	skillDir := filepath.Join(home, entry, "skills", "example")
+	createSkillDirectory(t, skillDir)
+	return providerImportSelection(t, home, entry, "skills")
+}
+
+func createSkillDirectory(t *testing.T, skillDir string) {
+	t.Helper()
+	if err := os.MkdirAll(skillDir, 0o755); err != nil {
+		t.Fatalf("mkdir skill source: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(skillDir, "SKILL.md"), []byte("---\nname: Example\ndescription: Example skill\n---\nBody\n"), 0o644); err != nil {
+		t.Fatalf("write skill metadata: %v", err)
+	}
+}
+
+func createProviderCommandSource(t *testing.T, home string, entry string) *onboardingpb.ImportSelection {
+	t.Helper()
+	commandDir := filepath.Join(home, entry, "commands")
+	if err := os.MkdirAll(commandDir, 0o755); err != nil {
+		t.Fatalf("mkdir command source: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(commandDir, "example.md"), []byte("command"), 0o644); err != nil {
+		t.Fatalf("write command: %v", err)
+	}
+	return providerImportSelection(t, home, entry, "commands")
+}
+
+func providerImportSelection(t *testing.T, home, entry, source string) *onboardingpb.ImportSelection {
+	t.Helper()
+	for _, provider := range onboardingimports.Providers() {
+		if provider.HomeEntry == entry {
+			return &onboardingpb.ImportSelection{
+				Mode:             onboardingpb.ImportMode_IMPORT_MODE_SYMLINK_SOURCE,
+				ImportProviderId: ptr(string(provider.ID)),
+				SourceRootPath:   ptr(filepath.Join(home, entry, source)),
+			}
+		}
+	}
+	t.Fatalf("provider %s not found", entry)
+	return nil
+}

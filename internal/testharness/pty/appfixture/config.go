@@ -8,28 +8,11 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
-
-	"core/server/metadata"
 )
 
 type ConfigOptions struct {
 	LifecycleHookCommand []string
 	OpenAIBaseURL        *string
-}
-
-func PrepareConfigAndBindingWithOptions(
-	ctx context.Context,
-	persistenceRoot string,
-	workspaceRoot string,
-	options ConfigOptions,
-) error {
-	if err := WriteConfigWithOptions(ctx, persistenceRoot, options); err != nil {
-		return err
-	}
-	if _, err := metadata.RegisterBinding(ctx, persistenceRoot, workspaceRoot); err != nil {
-		return fmt.Errorf("register fixture workspace binding: %w", err)
-	}
-	return nil
 }
 
 func WriteConfigWithOptions(ctx context.Context, persistenceRoot string, options ConfigOptions) error {

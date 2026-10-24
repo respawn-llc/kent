@@ -173,7 +173,7 @@ describe("Task Detail retained sidebar state", () => {
       onMutated,
       sidebarMode: "overlay",
     });
-    const user = userEvent.setup();
+    const user = userEvent.setup({ delay: null });
 
     await user.click(await screen.findByTestId("dependency-row-task-2"));
     expect(pageNavigator.push).toHaveBeenCalledWith({
@@ -214,7 +214,7 @@ describe("Task Detail retained sidebar state", () => {
       attention: emptyTaskAttentionResponse,
       openSidebar: root.open,
     });
-    const user = userEvent.setup();
+    const user = userEvent.setup({ delay: null });
 
     await user.click(await screen.findByTestId("dependency-add-blocked-by"));
     await user.click(await screen.findByRole("button", { name: appI18n.t("task.dependenciesCreateTask") }));

@@ -588,8 +588,9 @@ it.each([
   );
   const editor = screen.getByTestId("command");
   await waitFor(() => {
-    expect(editor).not.toBeDisabled();
+    expect(editor.hasAttribute("disabled")).toBe(false);
   });
+  expect(editor).not.toBeDisabled();
   fireEvent.change(editor, { target: { value: text } });
   fireEvent.keyDown(editor, { key: "Enter", ctrlKey });
   await waitFor(() => {
@@ -666,8 +667,9 @@ it.each(["idle", "stopped", "failed"] as const)(
     );
     const button = screen.getByRole("button", { name: "Stop probe" });
     await waitFor(() => {
-      expect(button).not.toBeDisabled();
+      expect(button.hasAttribute("disabled")).toBe(false);
     });
+    expect(button).not.toBeDisabled();
     fireEvent.click(button);
     await waitFor(() => {
       expect(stop).toHaveBeenCalledTimes(1);
@@ -684,8 +686,9 @@ it.each(["idle", "stopped", "failed"] as const)(
       expect(read).toHaveBeenCalledTimes(2);
     });
     await waitFor(() => {
-      expect(button).toBeDisabled();
+      expect(button.hasAttribute("disabled")).toBe(true);
     });
+    expect(button).toBeDisabled();
   },
 );
 
@@ -736,8 +739,9 @@ it("clears an armed Stop on transcript loss while allowing a subsequent independ
   );
   const keyboard = screen.getByTestId("keyboard");
   await waitFor(() => {
-    expect(keyboard).not.toBeDisabled();
+    expect(keyboard.hasAttribute("disabled")).toBe(false);
   });
+  expect(keyboard).not.toBeDisabled();
   fireEvent.keyDown(keyboard, { key: "Escape" });
   act(() => handlers[0]?.onTransportLoss?.());
   fireEvent.keyDown(keyboard, { key: "Escape" });

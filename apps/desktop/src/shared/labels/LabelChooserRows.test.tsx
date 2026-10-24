@@ -11,7 +11,7 @@ const label = { id: priorityID, name: "Priority" };
 
 describe("Label chooser rows", () => {
   it("cycles a newly available named filter row through typed conditions by pointer and keyboard", async () => {
-    const user = userEvent.setup();
+    const user = userEvent.setup({ delay: null });
     const states: LabelFilterState[] = [];
     render(
       <NamedFilterRowHarness

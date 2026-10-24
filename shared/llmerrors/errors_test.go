@@ -5,7 +5,7 @@ import (
 	"fmt"
 	"testing"
 
-	"core/shared/auth"
+	"core/shared/authmodel"
 	"core/shared/config"
 )
 

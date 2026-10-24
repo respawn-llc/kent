@@ -8,7 +8,7 @@ import (
 	"testing"
 	"time"
 
-	"core/server/auth"
+	"core/server/authmanager"
 	serverbootstrap "core/server/bootstrap"
 	"core/server/llm"
 	"core/server/runtimewire"

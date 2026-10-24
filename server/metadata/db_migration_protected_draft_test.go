@@ -1,12 +1,11 @@
 package metadata
 
 import (
-	"core/server/session"
-	"path/filepath"
+	"core/server/sessionstore"
 	"testing"
 )
 
-func TestProtectedDraftsPersistAcrossReopen(t *testing.T) {
+func TestProtectedDraftsPersistAcrossUpdates(t *testing.T) {
 	store, cfg, binding := newMetadataTestStore(t)
 	sess := createMetadataTestSession(t, store, cfg, binding)
 	protected := "original\nunsent draft"
@@ -44,22 +43,14 @@ func TestProtectedDraftsPersistAcrossReopen(t *testing.T) {
 
 func TestProtectedDraftMigrationPreservesActiveDraft(t *testing.T) {
 	root := t.TempDir()
-	path := filepath.Join(root, "db", "main.sqlite3")
-	db, err := openDatabaseAtVersionForTest(t, root, path, 91)
+	db, err := openDatabaseAtVersionForTest(t, 91)
 	if err != nil {
 		t.Fatal(err)
 	}
 	execSeed(t, db, "project", `INSERT INTO projects (id, display_name, created_at_unix_ms, updated_at_unix_ms) VALUES ('draft-project', 'Project', 1000, 1000)`)
 	want := "  unsent\nmultiline draft  "
 	execSeed(t, db, "session", `INSERT INTO sessions (id, project_id, artifact_relpath, input_draft, created_at_unix_ms, updated_at_unix_ms) VALUES ('draft-session', 'draft-project', 'sessions/draft-session', ?, 1000, 1000)`, want)
-	if err := db.Close(); err != nil {
-		t.Fatal(err)
-	}
-	store, err := OpenAtPath(root, path)
-	if err != nil {
-		t.Fatal(err)
-	}
-	t.Cleanup(func() { _ = store.Close() })
+	store := migrateMetadataTestStore(t, root, db)
 	var active string
 	var protected *string
 	if err := store.DB().QueryRowContext(t.Context(), `SELECT input_draft, protected_input_draft FROM sessions WHERE id = 'draft-session'`).Scan(&active, &protected); err != nil {

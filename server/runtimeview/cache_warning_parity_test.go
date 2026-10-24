@@ -3,13 +3,13 @@ package runtimeview
 import (
 	"testing"
 
-	"core/server/runtime"
-	"core/server/session"
+	"core/server/agentruntime"
+	"core/server/sessionstore"
 	"core/shared/config"
 	"core/shared/protoapi"
 	runtimepb "core/shared/protoapi/gen/kent/api/runtime"
 	"core/shared/textutil"
-	"core/shared/transcript"
+	"core/shared/transcriptmodel"
 	"google.golang.org/protobuf/proto"
 )
 

@@ -22,13 +22,13 @@ import (
 	"core/internal/testharness/runtimewirefixture"
 	"core/internal/testharness/scriptedllm"
 	"core/internal/testharness/testsetup"
-	"core/server/auth"
+	"core/server/agentruntime"
+	"core/server/authmanager"
 	"core/server/llm"
 	"core/server/metadata/sqlitegen"
-	"core/server/runtime"
 	"core/server/runtimewire/toolcontracts"
-	"core/server/session"
-	"core/server/session/sessiontest"
+	"core/server/sessionstore"
+	"core/server/sessionstore/sessiontest"
 	"core/server/tools"
 	askquestion "core/server/tools"
 	shelltool "core/server/tools/shell"
@@ -40,8 +40,8 @@ import (
 	"core/shared/runtimeids"
 	"core/shared/textutil"
 	"core/shared/toolspec"
-	"core/shared/transcript"
-	patchformat "core/shared/transcript/patchformat"
+	"core/shared/transcriptmodel"
+	patchformat "core/shared/transcriptmodel/patchformat"
 
 	"core/shared/sessioncontract"
 )
@@ -1172,9 +1172,10 @@ func TestLocalToolRegistryBindingBindsExecutionCorrelationPerSuccessiveScope(t *
 			t.Fatal("expected exec_command handler")
 		}
 		input, err := json.Marshal(map[string]any{
-			"cmd":           "sleep 1",
+			"cmd":           "read -r release",
 			"shell":         "/bin/sh",
 			"login":         false,
+			"tty":           true,
 			"yield_time_ms": 50,
 		})
 		if err != nil {
@@ -1251,6 +1252,13 @@ func TestLocalToolRegistryBindingBindsExecutionCorrelationPerSuccessiveScope(t *
 		snapshotA.ID:        &correlationA,
 		snapshotB.ID:        &correlationB,
 		snapshotUnscoped.ID: nil,
+	}
+	for processID := range expectedByProcessID {
+		if _, err := manager.WriteStdin(context.Background(), shelltool.WriteRequest{
+			SessionID: processID, Input: "\n", YieldTime: time.Millisecond, MaxOutputChars: 1_000,
+		}); err != nil {
+			t.Fatalf("release background process %s: %v", processID, err)
+		}
 	}
 	for remaining := len(expectedByProcessID); remaining > 0; remaining-- {
 		event := nextEvent()

@@ -8,7 +8,7 @@ import (
 	"strings"
 	"sync"
 
-	"core/server/auth"
+	"core/server/authmanager"
 	"core/server/chatcontext"
 	"core/server/launch"
 	"core/server/metadata"

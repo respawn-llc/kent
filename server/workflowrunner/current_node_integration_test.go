@@ -23,26 +23,26 @@ import (
 	"core/internal/testharness/testsetup"
 	"core/internal/testharness/workflowfixture"
 	"core/prompts"
+	agentruntime "core/server/agentruntime"
 	"core/server/attentionnotify"
 	"core/server/launch"
 	"core/server/llm"
 	"core/server/metadata"
 	"core/server/registry"
 	"core/server/runprompt"
-	agentruntime "core/server/runtime"
 	"core/server/runtimecontrol"
 	"core/server/runtimewire"
-	"core/server/session"
-	"core/server/session/sessiontest"
 	"core/server/sessionlaunch"
 	"core/server/sessionruntime"
+	"core/server/sessionstore"
+	"core/server/sessionstore/sessiontest"
 	askquestion "core/server/tools"
 	"core/server/workflow"
 	"core/server/workflowexecution"
 	"core/server/workflowruntime"
 	"core/server/workflowstore"
 	"core/server/workflowview"
-	"core/server/worktree"
+	"core/server/worktreeservice"
 	"core/shared/config"
 	runtimepb "core/shared/protoapi/gen/kent/api/runtime"
 	sharedpb "core/shared/protoapi/gen/kent/api/shared"
@@ -52,6 +52,7 @@ import (
 	"core/shared/serverapi"
 	"core/shared/textutil"
 	"core/shared/toolspec"
+	"core/shared/workflowcontract"
 	"core/shared/worktreecontract"
 	"github.com/BurntSushi/toml"
 
@@ -76,15 +77,47 @@ type currentNodeRunnerFixture struct {
 	client           currentNodeRunnerClient
 	persistenceGate  *sessiontest.PersistenceGate
 	controllerClose  error
+	events           currentNodeRunnerEvents
 
 	mu             sync.Mutex
 	clientRequests []runtimewire.RuntimeClientRequest
 	clientErr      error
 }
 
+// Subscribe before inspecting the owner so a commit between the inspection
+// and the wait cannot be missed. Only fixture-owned event feeds publish here.
+type currentNodeRunnerEvents struct {
+	mu      sync.Mutex
+	changed chan struct{}
+}
+
+func (e *currentNodeRunnerEvents) subscribe() <-chan struct{} {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	if e.changed == nil {
+		e.changed = make(chan struct{})
+	}
+	return e.changed
+}
+
+func (e *currentNodeRunnerEvents) publish() {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	if e.changed != nil {
+		close(e.changed)
+	}
+	e.changed = make(chan struct{})
+}
+
+func (e *currentNodeRunnerEvents) PublishWorkflowEvent(context.Context, workflowcontract.Event) error {
+	e.publish()
+	return nil
+}
+
 type currentNodeRunnerClient interface {
 	llm.Client
 	Requests() []llm.Request
+	RequestChanges() <-chan struct{}
 }
 
 type currentNodeRunnerConversationState struct {
@@ -214,6 +247,7 @@ func newCurrentNodeRunnerFixtureWithClientAndPersistence(
 		workspace:   binding.CanonicalRoot,
 		client:      client,
 	}
+	store.SetWorkflowEventPublisher(&fixture.events)
 	storeOptions := metadataStore.AuthoritativeSessionStoreOptions()
 	if withPersistenceGate {
 		persisted := gatedMetadataSessionPersistence{
@@ -238,6 +272,7 @@ func newCurrentNodeRunnerFixtureWithClientAndPersistence(
 		PromptFeed:                    fixture.runtimes,
 		EventFeed: func(resource runtimeids.SessionResourceRef, event agentruntime.Event) {
 			fixture.runtimes.PublishAuthorityRuntimeEvent(resource, event)
+			fixture.events.publish()
 		},
 		ResourceLifecycle: fixture.runtimes,
 		StepLifecycle:     currentNodeRunnerStepLifecycle{runtimes: fixture.runtimes},
@@ -498,6 +533,7 @@ func (f *currentNodeRunnerFixture) restartRuntime(t *testing.T) {
 		PromptFeed:                    f.runtimes,
 		EventFeed: func(resource runtimeids.SessionResourceRef, event agentruntime.Event) {
 			f.runtimes.PublishAuthorityRuntimeEvent(resource, event)
+			f.events.publish()
 		},
 		ResourceLifecycle: f.runtimes,
 		StepLifecycle:     currentNodeRunnerStepLifecycle{runtimes: f.runtimes},
@@ -541,8 +577,8 @@ func (f *currentNodeRunnerFixture) restartRuntime(t *testing.T) {
 
 func (f *currentNodeRunnerFixture) waitForCurrentNode(t *testing.T, taskID workflow.TaskID, predicate func([]workflow.CurrentNode) bool) []workflow.CurrentNode {
 	t.Helper()
-	deadline := time.Now().Add(currentNodeRunnerWait)
-	for time.Now().Before(deadline) {
+	for {
+		changed := f.events.subscribe()
 		nodes, err := f.store.ListCurrentNodes(context.Background(), taskID)
 		if err != nil {
 			t.Fatalf("list Current Nodes: %v", err)
@@ -550,18 +586,12 @@ func (f *currentNodeRunnerFixture) waitForCurrentNode(t *testing.T, taskID workf
 		if predicate(nodes) {
 			return nodes
 		}
-		time.Sleep(10 * time.Millisecond)
+		select {
+		case <-changed:
+		case <-t.Context().Done():
+			t.Fatalf("Current Nodes = %+v did not reach expected state: %v", nodes, context.Cause(t.Context()))
+		}
 	}
-	nodes, err := f.store.ListCurrentNodes(context.Background(), taskID)
-	if err != nil {
-		t.Fatalf("list Current Nodes after timeout: %v", err)
-	}
-	encoded, marshalErr := json.Marshal(nodes)
-	if marshalErr != nil {
-		t.Fatalf("Current Nodes = %+v did not reach expected state", nodes)
-	}
-	t.Fatalf("Current Nodes = %s did not reach expected state", encoded)
-	return nil
 }
 
 func (f *currentNodeRunnerFixture) waitForDormantRetainedSession(
@@ -634,22 +664,6 @@ func (f *currentNodeRunnerFixture) appendManualCompactionReplacement(
 	}
 }
 
-func (f *currentNodeRunnerFixture) waitForWorkflowExecution(t *testing.T, reference workflow.CurrentNodeReference) {
-	t.Helper()
-	deadline := time.Now().Add(currentNodeRunnerWait)
-	for time.Now().Before(deadline) {
-		owned, err := f.workflowExecutionOwned(reference)
-		if err != nil {
-			t.Fatalf("inspect Workflow execution: %v", err)
-		}
-		if owned {
-			return
-		}
-		time.Sleep(10 * time.Millisecond)
-	}
-	t.Fatalf("Current Node %v never reached Workflow execution authority", reference)
-}
-
 func (f *currentNodeRunnerFixture) waitForTaskQuiescence(t *testing.T, taskID workflow.TaskID) {
 	t.Helper()
 	deadline := time.Now().Add(currentNodeRunnerWait)
@@ -671,14 +685,15 @@ func (f *currentNodeRunnerFixture) waitForSessionExecutionQuiescence(
 	sessionID runtimeids.SessionID,
 ) {
 	t.Helper()
-	deadline := time.Now().Add(currentNodeRunnerWait)
-	for time.Now().Before(deadline) {
-		if _, active := f.authority.SessionExecution(sessionID); !active {
+	for {
+		execution, active := f.authority.SessionExecution(sessionID)
+		if !active {
 			return
 		}
-		time.Sleep(10 * time.Millisecond)
+		if err := execution.Close(t.Context()); err != nil {
+			t.Fatalf("wait for Session %s execution quiescence: %v", sessionID, err)
+		}
 	}
-	t.Fatalf("Session %s did not reach execution quiescence", sessionID)
 }
 
 func (f *currentNodeRunnerFixture) workflowExecutionOwned(reference workflow.CurrentNodeReference) (bool, error) {
@@ -692,20 +707,6 @@ func (f *currentNodeRunnerFixture) workflowExecutionOwned(reference workflow.Cur
 		}
 	}
 	return false, nil
-}
-
-func (f *currentNodeRunnerFixture) waitForPath(t *testing.T, path string) {
-	t.Helper()
-	deadline := time.Now().Add(currentNodeRunnerWait)
-	for time.Now().Before(deadline) {
-		if _, err := os.Stat(path); err == nil {
-			return
-		} else if !errors.Is(err, os.ErrNotExist) {
-			t.Fatalf("inspect path %q: %v", path, err)
-		}
-		time.Sleep(10 * time.Millisecond)
-	}
-	t.Fatalf("path %q was not created", path)
 }
 
 func (f *currentNodeRunnerFixture) runtimeRequests() []runtimewire.RuntimeClientRequest {
@@ -872,18 +873,17 @@ func (f *currentNodeRunnerFixture) workflowAssignmentRecordCount(
 }
 
 func (f *currentNodeRunnerFixture) waitForModelRequests(t *testing.T, count int) []llm.Request {
-	return f.waitForModelRequestsWithin(t, count, currentNodeRunnerWait)
-}
-
-func (f *currentNodeRunnerFixture) waitForModelRequestsWithin(
-	t *testing.T,
-	count int,
-	timeout time.Duration,
-) []llm.Request {
 	t.Helper()
-	deadline := time.Now().Add(timeout)
-	for len(f.client.Requests()) < count && time.Now().Before(deadline) {
-		time.Sleep(10 * time.Millisecond)
+	for {
+		changed := f.client.RequestChanges()
+		if len(f.client.Requests()) >= count {
+			break
+		}
+		select {
+		case <-changed:
+		case <-t.Context().Done():
+			t.Fatalf("model requests = %d, want %d: %v", len(f.client.Requests()), count, context.Cause(t.Context()))
+		}
 	}
 	requests := f.client.Requests()
 	if len(requests) != count {
@@ -892,14 +892,37 @@ func (f *currentNodeRunnerFixture) waitForModelRequestsWithin(
 	return requests
 }
 
+func (f *currentNodeRunnerFixture) waitForManualCompaction(
+	t *testing.T,
+	sessionID runtimeids.SessionID,
+	client *compactingScriptedClient,
+) {
+	t.Helper()
+	for {
+		changed := f.events.subscribe()
+		record, err := f.metadata.ResolvePersistedSession(t.Context(), sessionID.String())
+		if err != nil {
+			t.Fatalf("resolve manually compacted Session: %v", err)
+		}
+		if len(client.CompactionCalls()) == 1 && record.Meta != nil && record.Meta.ActiveWorkflowAssignment == nil {
+			return
+		}
+		select {
+		case <-changed:
+		case <-t.Context().Done():
+			t.Fatalf("manual compaction did not clear Workflow assignment: %v", context.Cause(t.Context()))
+		}
+	}
+}
+
 func (f *currentNodeRunnerFixture) waitForAssistantFinal(
 	t *testing.T,
 	sessionID runtimeids.SessionID,
 	text string,
 ) {
 	t.Helper()
-	deadline := time.Now().Add(currentNodeRunnerWait)
-	for time.Now().Before(deadline) {
+	for {
+		changed := f.events.subscribe()
 		found := false
 		err := f.authority.WithCurrentRuntime(
 			context.Background(),
@@ -925,9 +948,12 @@ func (f *currentNodeRunnerFixture) waitForAssistantFinal(
 		if found {
 			return
 		}
-		time.Sleep(10 * time.Millisecond)
+		select {
+		case <-changed:
+		case <-t.Context().Done():
+			t.Fatalf("assistant final %q was not persisted in Session %s: %v", text, sessionID, context.Cause(t.Context()))
+		}
 	}
-	t.Fatalf("assistant final %q was not persisted in Session %s", text, sessionID)
 }
 
 func (f *currentNodeRunnerFixture) conversationState(
@@ -1042,8 +1068,8 @@ func (f *currentNodeRunnerFixture) runHeadlessOrdinaryContinuation(
 
 func (f *currentNodeRunnerFixture) waitForPendingApproval(t *testing.T, taskID workflow.TaskID) workflow.PendingApproval {
 	t.Helper()
-	deadline := time.Now().Add(currentNodeRunnerWait)
-	for time.Now().Before(deadline) {
+	for {
+		changed := f.events.subscribe()
 		approvals, err := f.store.ListPendingApprovals(context.Background(), taskID)
 		if err != nil {
 			t.Fatalf("list pending Approvals: %v", err)
@@ -1051,14 +1077,12 @@ func (f *currentNodeRunnerFixture) waitForPendingApproval(t *testing.T, taskID w
 		if len(approvals) == 1 {
 			return approvals[0]
 		}
-		time.Sleep(10 * time.Millisecond)
+		select {
+		case <-changed:
+		case <-t.Context().Done():
+			t.Fatalf("pending Approvals = %+v, want exactly one: %v", approvals, context.Cause(t.Context()))
+		}
 	}
-	approvals, err := f.store.ListPendingApprovals(context.Background(), taskID)
-	if err != nil {
-		t.Fatalf("list pending Approvals after timeout: %v", err)
-	}
-	t.Fatalf("pending Approvals = %+v, want exactly one", approvals)
-	return workflow.PendingApproval{}
 }
 
 func requireToolCompletionRequests(t *testing.T, requests []llm.Request) {
@@ -1654,8 +1678,13 @@ func TestApprovalStartsScriptTargetWithoutAgentAssignment(t *testing.T) {
 	if _, err := f.controller.ApplyPendingApproval(context.Background(), approval.ID); err != nil {
 		t.Fatalf("apply Script target Approval: %v", err)
 	}
-	f.waitForPath(t, markerPath)
+	f.waitForCurrentNode(t, task.ID, func(nodes []workflow.CurrentNode) bool {
+		return len(nodes) == 1 && nodes[0].Scheduling == nil
+	})
 	f.waitForTaskQuiescence(t, task.ID)
+	if _, err := os.Stat(markerPath); err != nil {
+		t.Fatalf("approved Script did not create marker: %v", err)
+	}
 	if requests := f.client.Requests(); len(requests) != 1 {
 		t.Fatalf("model requests = %d, want only the source Agent request", len(requests))
 	}
@@ -2467,7 +2496,7 @@ func runDisabledCACResumeAfterConfigurationChange(t *testing.T, keepRuntimeOpen 
 	if _, err := f.controller.ResumeTask(context.Background(), task.ID, nil); err != nil {
 		t.Fatalf("resume disabled CAC target: %v", err)
 	}
-	requests := f.waitForModelRequestsWithin(t, 3, 60*time.Second)
+	requests := f.waitForModelRequests(t, 3)
 	if len(client.CompactionCalls()) != 1 {
 		t.Fatalf("resumed target-time compactions = %d, want one", len(client.CompactionCalls()))
 	}
@@ -3091,20 +3120,7 @@ func TestInteractivePreparedGenerationRestoresWorkflowAssignment(t *testing.T) {
 			}); err != nil {
 				t.Fatal(err)
 			}
-			deadline := time.Now().Add(currentNodeRunnerWait)
-			for {
-				record, err := f.metadata.ResolvePersistedSession(t.Context(), sessionID.String())
-				if err != nil {
-					t.Fatal(err)
-				}
-				if len(client.CompactionCalls()) == 1 && record.Meta.ActiveWorkflowAssignment == nil {
-					break
-				}
-				if time.Now().After(deadline) {
-					t.Fatal("interactive compaction did not commit")
-				}
-				time.Sleep(10 * time.Millisecond)
-			}
+			f.waitForManualCompaction(t, sessionID, client)
 			service := runtimecontrol.NewService(f.authority, f.metadata).
 				WithPromptHistoryStore(f.metadata).
 				WithWorkflowSessionReactivator(f.controller).
@@ -3433,32 +3449,7 @@ func newActualManualCompactionRecoveryWithOptions(
 	); err != nil {
 		t.Fatalf("schedule actual manual compaction: %v", err)
 	}
-	deadline := time.Now().Add(currentNodeRunnerWait)
-	for len(client.CompactionCalls()) < 1 && time.Now().Before(deadline) {
-		time.Sleep(10 * time.Millisecond)
-	}
-	if got := len(client.CompactionCalls()); got != 1 {
-		t.Fatalf("manual compaction calls = %d, want one", got)
-	}
-	var record session.PersistedSessionRecord
-	var err error
-	deadline = time.Now().Add(currentNodeRunnerWait)
-	for time.Now().Before(deadline) {
-		record, err = f.metadata.ResolvePersistedSession(context.Background(), sessionID.String())
-		if err != nil {
-			t.Fatalf("resolve manually compacted Session: %v", err)
-		}
-		if record.Meta != nil && record.Meta.ActiveWorkflowAssignment == nil {
-			break
-		}
-		time.Sleep(10 * time.Millisecond)
-	}
-	if record.Meta == nil {
-		t.Fatal("manually compacted Session metadata is absent")
-	}
-	if record.Meta.ActiveWorkflowAssignment != nil {
-		t.Fatalf("assignment after actual manual compaction = %+v, want absent", record.Meta.ActiveWorkflowAssignment)
-	}
+	f.waitForManualCompaction(t, sessionID, client)
 
 	return actualManualCompactionRecovery{
 		fixture:         f,
@@ -3600,13 +3591,13 @@ func TestCompactAndContinueResumeRestoresAssignmentAfterPreActivationCompaction(
 		t.Fatal("pre-activation Workflow target Agent Node is missing")
 	}
 	task := f.createTask(t, workflowID)
-	f.startTask(t, task)
 	targetReference, err := workflow.NewCurrentNodeReference(task.ID, *targetNodeID, nil)
 	if err != nil {
 		t.Fatalf("create target Current Node reference: %v", err)
 	}
 	identity := workflowruntime.CurrentNodePromptIdentity(targetReference)
 	failureMatched := f.failWhenWorkflowAssignmentPersists(t, identity, cause)
+	f.startTask(t, task)
 
 	target := f.waitForCurrentNode(t, task.ID, func(nodes []workflow.CurrentNode) bool {
 		return len(nodes) == 1 &&
@@ -4550,11 +4541,14 @@ func TestCurrentNodeContinuationWithActiveTranscriptSubscriberDoesNotBlockLaterA
 		return len(nodes) == 1 && !nodes[0].Reference.Equal(source)
 	})
 	successor := successorNodes[0].Reference
-	f.waitForWorkflowExecution(t, successor)
 	select {
 	case <-successorResponseStarted:
 	case <-time.After(currentNodeRunnerWait):
 		t.Fatal("continued Session successor did not reach its model turn")
+	}
+	owned, err := f.workflowExecutionOwned(successor)
+	if err != nil || !owned {
+		t.Fatalf("successor Current Node Workflow execution authority = %t, %v", owned, err)
 	}
 	successorExecution, live := f.authority.SessionExecution(sessionID)
 	if !live {
@@ -4589,13 +4583,15 @@ func TestCurrentNodeContinuationWithActiveTranscriptSubscriberDoesNotBlockLaterA
 	})
 
 	releaseSuccessor.Do(func() { close(successorResponseRelease) })
-	f.waitForPath(t, laterScriptMarker)
 	f.waitForCurrentNode(t, continuedTask.ID, func(nodes []workflow.CurrentNode) bool {
 		return len(nodes) == 1 && nodes[0].Scheduling == nil
 	})
 	f.waitForCurrentNode(t, scriptTask.ID, func(nodes []workflow.CurrentNode) bool {
 		return len(nodes) == 1 && nodes[0].Scheduling == nil
 	})
+	if _, err := os.Stat(laterScriptMarker); err != nil {
+		t.Fatalf("later automatic Script did not create marker: %v", err)
+	}
 }
 
 func TestCurrentNodeScriptReceivesStructuredInputAndCompletes(t *testing.T) {

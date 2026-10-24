@@ -4,7 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 
-	"core/shared/transcript"
+	"core/shared/transcriptmodel"
 )
 
 type hostedWebSearchResult struct {

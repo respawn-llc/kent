@@ -6,7 +6,7 @@ import (
 	"sync"
 	"testing"
 
-	"core/server/session"
+	"core/server/sessionstore"
 	"core/shared/runtimeids"
 	"core/shared/sessioncontract"
 	"core/shared/textutil"
@@ -71,8 +71,8 @@ func TestSessionShortIDsAreStableAcrossUpdatesAndProjects(t *testing.T) {
 	}
 }
 
-func TestSessionShortIDsSurviveRestartAndAreNotReusedAfterDeletion(t *testing.T) {
-	store, cfg, binding := newFileBackedMetadataTestStore(t)
+func TestSessionShortIDsSurviveStoreReopenAndAreNotReusedAfterDeletion(t *testing.T) {
+	store, cfg, binding, open := newReopenableMetadataTestStore(t)
 	first := createMetadataTestSession(t, store, cfg, binding)
 	record, err := store.ResolvePersistedSession(t.Context(), first.Meta().SessionID)
 	if err != nil || record.ShortID == nil {
@@ -81,11 +81,7 @@ func TestSessionShortIDsSurviveRestartAndAreNotReusedAfterDeletion(t *testing.T)
 	if err := store.Close(); err != nil {
 		t.Fatal(err)
 	}
-	reopened, err := Open(cfg.PersistenceRoot)
-	if err != nil {
-		t.Fatal(err)
-	}
-	t.Cleanup(func() { _ = reopened.Close() })
+	reopened := open()
 	id, err := reopened.ResolveSessionSelector(t.Context(), *record.ShortID)
 	if err != nil || id.String() != first.Meta().SessionID {
 		t.Fatalf("restarted lookup = %v, %v", id, err)
@@ -108,7 +104,7 @@ func TestSessionShortIDsSurviveRestartAndAreNotReusedAfterDeletion(t *testing.T)
 }
 
 func TestConcurrentSessionCreationAssignsUniqueNumbers(t *testing.T) {
-	store, cfg, binding := newFileBackedMetadataTestStore(t)
+	store, cfg, binding := newMetadataTestStore(t)
 	const count = 10
 	type result struct {
 		store *session.Store

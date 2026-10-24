@@ -1,7 +1,7 @@
 package transcriptrender
 
 import (
-	"core/shared/transcript"
+	"core/shared/transcriptmodel"
 
 	"github.com/alecthomas/chroma/v2"
 	"github.com/alecthomas/chroma/v2/lexers"

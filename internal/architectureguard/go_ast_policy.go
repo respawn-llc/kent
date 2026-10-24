@@ -16,6 +16,7 @@ import (
 type goASTPolicy struct {
 	errorHeading string
 	inspect      func(goSourceFile) []string
+	includeTests bool
 }
 
 type goSourceFile struct {
@@ -52,6 +53,10 @@ func checkProductionGo(root string, policy goASTPolicy) error {
 		}
 
 		names := append(append([]string{}, buildPackage.GoFiles...), buildPackage.CgoFiles...)
+		if policy.includeTests {
+			names = append(names, buildPackage.TestGoFiles...)
+			names = append(names, buildPackage.XTestGoFiles...)
+		}
 		sort.Strings(names)
 		for _, name := range names {
 			filename := filepath.Join(path, name)

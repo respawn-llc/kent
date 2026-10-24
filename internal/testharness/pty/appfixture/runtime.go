@@ -12,15 +12,15 @@ import (
 
 	"core/internal/testharness/pty/blackbox"
 	"core/internal/testharness/scriptedllm"
+	serverruntime "core/server/agentruntime"
 	"core/server/llm"
 	"core/server/metadata"
-	serverruntime "core/server/runtime"
-	"core/server/session"
+	"core/server/sessionstore"
 	"core/server/tools"
 	"core/shared/sessioncontract"
 	"core/shared/textutil"
-	"core/shared/transcript"
-	patchformat "core/shared/transcript/patchformat"
+	"core/shared/transcriptmodel"
+	patchformat "core/shared/transcriptmodel/patchformat"
 
 	"github.com/google/uuid"
 )
@@ -117,12 +117,8 @@ func (r *Runtime) Close() error {
 	return r.provider.Stop()
 }
 
-func (r *Runtime) SeedSession(ctx context.Context, persistenceRoot string, workspaceRoot string) (string, error) {
-	store, err := metadata.Open(persistenceRoot)
-	if err != nil {
-		return "", fmt.Errorf("open metadata store for seed session: %w", err)
-	}
-	defer func() { _ = store.Close() }()
+func (r *Runtime) SeedSession(ctx context.Context, store *metadata.Store, workspaceRoot string) (string, error) {
+	persistenceRoot := store.PersistenceRoot()
 	binding, err := store.EnsureWorkspaceBinding(ctx, workspaceRoot)
 	if err != nil {
 		return "", fmt.Errorf("resolve seed workspace binding: %w", err)

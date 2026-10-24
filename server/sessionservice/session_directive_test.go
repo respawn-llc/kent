@@ -5,8 +5,8 @@ import (
 	"testing"
 
 	"core/internal/testharness/testsetup"
-	"core/server/auth"
-	"core/server/session"
+	"core/server/authmanager"
+	"core/server/sessionstore"
 	"core/shared/protoapi"
 	sessionlaunchpb "core/shared/protoapi/gen/kent/api/session_launch"
 	"core/shared/rollbacktarget"

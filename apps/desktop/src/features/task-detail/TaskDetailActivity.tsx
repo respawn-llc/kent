@@ -3,7 +3,8 @@ import { useTranslation } from "react-i18next";
 
 import type { ActivityItem, TaskComment } from "@/api";
 import { formatRelativeTime, useTextFieldSubmitShortcut } from "@/app-facade";
-import { Button, IslandSurface, StaticMarkdown } from "@/ui";
+import { Button, IslandSurface } from "@/ui";
+import { StaticMarkdown } from "@/ui/markdown";
 import { cx, fieldIslandInputClassName } from "@/ui";
 import { taskDetailIslandRadius, taskDetailIslandRadiusClassName } from "./taskDetailIslandStyles";
 import { useTaskSpeech } from "./TaskDetailSpeech";

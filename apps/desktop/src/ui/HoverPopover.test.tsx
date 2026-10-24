@@ -1,5 +1,5 @@
 import { expect, it, vi } from "bun:test";
-import { act, fireEvent, render, screen, waitForElementToBeRemoved } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor, waitForElementToBeRemoved } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { useState } from "react";
 import { HoverPopover } from "./HoverPopover";
@@ -34,7 +34,9 @@ it.each(["click", "enter", "space", "touch"] as const)("opens without hover usin
   const action = await screen.findByRole("button", { name: "Popup action" });
   expect(action).toBeVisible();
   await user.keyboard("{Escape}");
-  await waitForElementToBeRemoved(action);
+  await waitFor(() => {
+    expect(action.isConnected).toBe(false);
+  });
   expect(screen.queryByRole("button", { name: "Popup action" })).not.toBeInTheDocument();
 });
 
