@@ -1,7 +1,7 @@
 ## Ownership And Selection
 
 - Kent must own Provider Connection definitions in global server configuration. Workspace configuration must not define connections.
-- A connection must own provider implementation, endpoint, authentication selection, and connection/protocol capabilities. Agents or roles must own model, thinking, model-specific capabilities, and context/compaction policy.
+- A connection must own provider implementation, endpoint, authentication selection, and connection/protocol capabilities. Agents or roles must own Agent model, thinking, model-specific capabilities, and context/compaction policy. Speech-model configuration follows [Speech Input](speech-input.md).
 - The resolved Provider Connection's provider must own local context-token estimation. Saved Session Contracts and capability overrides must not select the estimator.
 - Providers must use shared default content and image estimates unless their implementation overrides them. Default reasoning estimates must treat reasoning as plain text. First-party OpenAI API and ChatGPT connections must use provider-specific encrypted-reasoning and encrypted-compaction estimates.
 - Local context-token estimation must not make remote token-count calls or fetch remote image content.

@@ -1,3 +1,13 @@
+export {
+  assertSpeechSize,
+  SpeechFailure,
+  SpeechOperationError,
+  SpeechTransportError,
+  type SpeechAvailable,
+  type SpeechEncoding,
+  type SpeechResult,
+  type SpeechFailureKind,
+} from "./speech";
 export type { ApiService, ApiSubscription } from "./apiService";
 export { projectUpdateViolations } from "./projectValidation";
 export { taskCreateTitleViolations } from "./taskValidation";

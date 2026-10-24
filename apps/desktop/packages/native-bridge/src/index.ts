@@ -1,4 +1,12 @@
 import { invoke } from "@tauri-apps/api/core";
+import { createTauriSpeechBridge, type NativeSpeechBridge } from "./speech";
+export type {
+  NativeSpeechBridge,
+  NativeSpeechCapture,
+  NativeSpeechOriginal,
+  NativeSpeechOptions,
+  NativeSpeechReply,
+} from "./speech";
 import { emitTo, listen } from "@tauri-apps/api/event";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { getCurrentWebview } from "@tauri-apps/api/webview";
@@ -94,6 +102,7 @@ export {
 } from "./updates";
 
 export type NativeBridge = Readonly<{
+  speech: NativeSpeechBridge | null;
   capabilities: NativeCapabilityState;
   clipboard: Readonly<{
     paste: (() => Promise<string | null>) | null;
@@ -191,6 +200,7 @@ export function createBrowserNativeBridge(options: BrowserNativeBridgeOptions = 
   const capabilities = createBrowserCapabilities(options.platform ?? "browser");
   const browserWindowFocus = createBrowserWindowFocusControls();
   return {
+    speech: null,
     capabilities,
     clipboard: {
       paste: null,
@@ -273,6 +283,7 @@ export function createTauriNativeBridge(platform: NativePlatform = "unknown"): N
   const capabilities = createTauriCapabilities(platform);
   const tauriWindowFocus = createTauriWindowFocusControls();
   return {
+    speech: createTauriSpeechBridge(),
     capabilities,
     clipboard: {
       paste: async () => invoke<string | null>("paste_clipboard"),

@@ -4,10 +4,12 @@ import { chatSettingsEnglish } from "./chatSettingsEn";
 import { chatEnglish } from "./chatEn";
 import { chatGoalEnglish } from "./chatGoalEn";
 import { executionTargetEnglish } from "./executionTargetEn";
+import { speechEnglish } from "./speechEn";
 import { subscriptionUsageEnglish } from "./subscriptionUsageEn";
 
 export const englishResources = {
   translation: {
+    speech: speechEnglish,
     subscriptionUsage: subscriptionUsageEnglish,
     chatComposer: chatComposerEnglish,
     chatSettings: chatSettingsEnglish,

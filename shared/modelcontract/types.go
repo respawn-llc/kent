@@ -8,7 +8,9 @@ type ModelMetadata struct {
 type ProviderCapabilities struct {
 	ProviderID string
 	// ReasoningType is a live transport fact, not a configurable or locked capability.
-	ReasoningType                 *ReasoningType
+	ReasoningType *ReasoningType
+	// SupportsSpeechToText is a live connection fact, never a locked capability.
+	SupportsSpeechToText          bool
 	SupportsResponsesAPI          bool
 	SupportsFastMode              bool
 	SupportsNativeThinkingUpdates bool

@@ -35,6 +35,7 @@ import (
 type Bundles struct {
 	Auth        *AuthBundle
 	Capability  *capabilityfacts.Service
+	Speech      apicontract.SpeechService
 	Chat        *ChatBundle
 	cleanup     []lifecycleResource
 	Persistence *PersistenceBundle
@@ -167,6 +168,7 @@ type bundleCompositionInput struct {
 	workspaceConfigResolver chatcontext.FixedRootWorkspaceResolver
 	authSupport             serverbootstrap.AuthSupport
 	capabilityFactsService  *capabilityfacts.Service
+	speechService           apicontract.SpeechService
 	background              *shelltool.Manager
 	rootLease               *RootLockLease
 	metadataStore           *metadata.Store
@@ -199,6 +201,7 @@ func composeBundles(in bundleCompositionInput) *Bundles {
 	return &Bundles{
 		Auth:       newAuthBundle(in.authSupport, in.authBootstrapService, in.authStatusService, in.serverStatusService),
 		Capability: in.capabilityFactsService,
+		Speech:     in.speechService,
 		Chat:       &ChatBundle{},
 		cleanup: []lifecycleResource{
 			{name: "Session settings observation", close: in.settingsChanges.Close},

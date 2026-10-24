@@ -202,6 +202,7 @@ func providerFact(caps llm.ProviderCapabilities, role string) *capabilitypb.Prov
 		Role:                          role,
 		SupportsResponsesApi:          caps.SupportsResponsesAPI,
 		SupportsFastMode:              caps.SupportsFastMode,
+		SupportsSpeechToText:          caps.SupportsSpeechToText,
 		SupportsNativeCompaction:      caps.SupportsResponsesCompact,
 		SupportsPromptCacheKey:        caps.SupportsPromptCacheKey,
 		SupportsNativeWebSearch:       caps.SupportsNativeWebSearch,

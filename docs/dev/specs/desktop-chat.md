@@ -357,7 +357,7 @@
 ## Composer and pending work
 
 - The composer and its attached panels must overlay the transcript with a blurred backdrop. Scrolling history must pass beneath them and be visible around their rounded edges. The transcript's bottom padding must track the full overlay height during resize animation so the latest content stays clear of the composer.
-- The composer must use a rounded island with a bottom controls row. The existing Settings picker trigger must align left. Send/Steer must use a circled icon at the right. When Stop is relevant, its smaller, non-circled icon must appear immediately to the left of Send/Steer. The microphone control must be absent.
+- The composer must use a rounded island with a bottom controls row. The existing Settings picker trigger must align left. Send/Steer must use a circled icon at the right. When Stop is relevant, its smaller, non-circled icon must appear to the left of Send/Steer. The microphone placement and behavior must follow [Speech Input](speech-input.md).
 - The composer Stop icon must use the error color.
 - Slash-command suggestions must use the same peeking island as Pending Work, replacing its content while command selection is active. Selecting a command, entering arguments, or pressing Escape must restore the Pending Work presentation when items exist.
 - The peeking island's horizontal inset must match the composer's corner radius so it meets the straight top edge without a gap or stacked translucent backgrounds.

@@ -182,6 +182,12 @@ Sometimes you will use a model not yet added to Kent's model registry. In that c
 | `model_capabilities.supports_reasoning_effort` | bool | `false`                | `KENT_MODEL_CAPABILITIES_SUPPORTS_REASONING_EFFORT` | Override-marks the configured model as supporting reasoning effort / thinking levels. |
 | `model_capabilities.supports_vision_inputs`    | bool | model/provider default | `KENT_MODEL_CAPABILITIES_SUPPORTS_VISION_INPUTS`    | Overrides support for multimodal image and PDF inputs.                                |
 
+### Speech input
+
+Desktop speech uses speech-capable connections selected by the top-level `connection` setting in global `~/.kent/config.toml`. Select multiple connections there to use Kent's shared connection selection for transcription requests.
+
+Set `speech_to_text_model` inside `[connections.<id>]` in that global file to choose a transcription model for OpenAI API or Grok. Codex subscriptions ignore this setting and use their fixed transcription endpoint.
+
 ### Provider Capability Overrides
 
 Use these only for custom providers or models (such as local models).
