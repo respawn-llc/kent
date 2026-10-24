@@ -8,7 +8,6 @@ import (
 
 	"core/server/session"
 	chatpb "core/shared/protoapi/gen/kent/api/chat"
-	processpb "core/shared/protoapi/gen/kent/api/process"
 	sharedpb "core/shared/protoapi/gen/kent/api/shared"
 	worktreepb "core/shared/protoapi/gen/kent/api/worktree"
 	"core/shared/runtimeids"
@@ -147,9 +146,6 @@ func (e routePolicyExecutor) authorizeResolvedScope(
 		return e.gateway.requireRuntimeLiveSession(ctx, scopeParams.sessionID)
 	case sharedpb.ScopePolicy_SCOPE_POLICY_RUNTIME_LIVE_SESSION_OPTIONAL:
 		return nil
-	case sharedpb.ScopePolicy_SCOPE_POLICY_PROCESS_ACTIVE_PROJECT:
-		_, err := e.gateway.processInActiveProject(ctx, state, scopeParams.processID)
-		return err
 	case sharedpb.ScopePolicy_SCOPE_POLICY_CHAT_TARGET:
 		return e.gateway.requireChatTargetAccess(ctx, state, scopeParams.chatTarget)
 	case sharedpb.ScopePolicy_SCOPE_POLICY_WORKTREE_MANAGEMENT:
@@ -177,7 +173,6 @@ type routeScopeParams struct {
 	sessionID                 string
 	sessionSelector           *sharedpb.SessionSelector
 	sessionReattachCapability *string
-	processID                 string
 	projectID                 string
 	workspaceID               string
 	chatTarget                *chatpb.ChatTarget
@@ -310,22 +305,4 @@ func (g *Gateway) requireSessionInAttachedProject(ctx context.Context, state *co
 		return nil
 	}
 	return g.deps.SessionBelongsToProject(ctx, sessionID, projectID)
-}
-
-func (g *Gateway) processInActiveProject(ctx context.Context, state *connectionState, processID string) (*processpb.GetSuccess, error) {
-	resp, err := g.deps.ProcessViewClient().GetProcess(ctx, &processpb.GetRequest{ProcessId: processID})
-	if err != nil {
-		return nil, err
-	}
-	if resp.Process == nil {
-		return nil, fmt.Errorf("process %q not available", strings.TrimSpace(processID))
-	}
-	ownerSessionID := strings.TrimSpace(resp.Process.OwnerSessionId)
-	if ownerSessionID == "" {
-		return nil, fmt.Errorf("process %q not available", strings.TrimSpace(processID))
-	}
-	if err := g.requireSessionInActiveProject(ctx, state, ownerSessionID); err != nil {
-		return nil, err
-	}
-	return resp, nil
 }
