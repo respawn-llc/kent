@@ -1,4 +1,6 @@
 import { useState, type MouseEvent } from "react";
+import { useTaskSpeech } from "./TaskDetailSpeech";
+import { ControlTooltip } from "@/ui";
 import { Save } from "lucide-react";
 import { useTranslation } from "react-i18next";
 
@@ -173,6 +175,7 @@ export function TaskHeaderIsland({
   onSave: SaveTaskDraft;
 }>) {
   const { t } = useTranslation();
+  const { description: speech } = useTaskSpeech();
   const title = draft.title;
   const dirty = draft.title !== detail.title || draft.body !== detail.body;
   const formShortcut = useTextFieldSubmitShortcut({
@@ -216,22 +219,29 @@ export function TaskHeaderIsland({
       />
       {dirty || detail.actions.canDelete ? (
         <span className="relative block h-9 w-9 shrink-0" data-testid="task-detail-title-action-slot">
-          <Button
-            aria-label={t("task.save")}
-            aria-hidden={!dirty}
-            className={`absolute inset-0 transition-opacity motion-reduce:transition-none ${
-              dirty ? "pointer-events-auto opacity-100" : "pointer-events-none opacity-0 disabled:opacity-0!"
-            }`}
-            data-testid="task-detail-save"
-            disabled={!canSaveDraft || !dirty}
-            aria-busy={saving}
-            size="icon"
-            tabIndex={dirty ? undefined : -1}
-            type="submit"
-            variant="primary"
+          <ControlTooltip
+            label={speech.busy ? speech.busyReason : t("task.save")}
+            className="absolute inset-0"
           >
-            {saving ? <Spinner /> : <Save aria-hidden="true" size={16} strokeWidth={1.75} />}
-          </Button>
+            <Button
+              aria-label={t("task.save")}
+              aria-hidden={!dirty}
+              className={`absolute inset-0 transition-opacity motion-reduce:transition-none ${
+                dirty
+                  ? "pointer-events-auto opacity-100"
+                  : "pointer-events-none opacity-0 disabled:opacity-0!"
+              }`}
+              data-testid="task-detail-save"
+              disabled={!canSaveDraft || !dirty}
+              aria-busy={saving}
+              size="icon"
+              tabIndex={dirty ? undefined : -1}
+              type="submit"
+              variant="primary"
+            >
+              {saving ? <Spinner /> : <Save aria-hidden="true" size={16} strokeWidth={1.75} />}
+            </Button>
+          </ControlTooltip>
           {detail.actions.canDelete ? <TaskDeleteButton active={!dirty} disabled={false} /> : null}
         </span>
       ) : null}
@@ -259,10 +269,11 @@ export function DescriptionIsland({
   submitting: boolean;
 }>) {
   const { t } = useTranslation();
+  const { description: speech } = useTaskSpeech();
   const descriptionError = error == null ? undefined : errorMessage(error);
   const submitPolicy = useTextFieldSubmitShortcutPolicy();
   const submitIntent = {
-    available: !submitting && draft.title.trim().length > 0 && presentation.editing,
+    available: !submitting && !speech.busy && draft.title.trim().length > 0 && presentation.editing,
     onSubmitIntent: () => {
       if (!draftDirty) {
         onPresentationChange({ ...presentation, editing: false });
@@ -281,6 +292,8 @@ export function DescriptionIsland({
       data-testid="task-description-input-frame"
     >
       <CollapsibleMarkdownField
+        editorRef={speech.editorRef}
+        floatingAction={speech.control}
         collapsedHeightClamp={{ kind: "lines", maximumLines: 10, minimumLines: 5, viewportPercent: 50 }}
         editorMinHeight={220}
         error={descriptionError}

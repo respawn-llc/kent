@@ -15,6 +15,7 @@ import {
 } from "@/test-support/chat-runtime";
 import { SessionChatContext } from "./SessionChatContext";
 import { ChatComposerSurface } from "./ChatComposerSurface";
+import { SpeechDestinationProvider } from "@/shared/speech-input";
 import { ChatComposer } from "./ChatComposer";
 import { useChatComposer } from "./useChatComposer";
 import { useState } from "react";
@@ -181,7 +182,9 @@ it("does not mount Session Context before New Chat creation", async () => {
   }
   render(
     <TestAppProviders services={services}>
-      <Composer />
+      <SpeechDestinationProvider>
+        <Composer />
+      </SpeechDestinationProvider>
     </TestAppProviders>,
   );
   expect(await screen.findByRole("textbox")).toBeInTheDocument();

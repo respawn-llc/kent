@@ -35,6 +35,7 @@ import (
 	"core/server/sessionservice"
 	"core/server/sessionview"
 	"core/server/sleepguard"
+	"core/server/speech"
 	shelltool "core/server/tools/shell"
 	"core/server/workflow"
 	"core/server/workflowattention"
@@ -235,6 +236,7 @@ func NewWithContextOptions(ctx context.Context, cfg config.App, authSupport serv
 		},
 	})
 	projectViews := projectService
+	speechService := speech.NewService(cfg.PersistenceRoot, connectionRotation, connections)
 	authBootstrapService := authSupport.Connections
 	authStatusService := authservice.NewStatusService(connections, metadataStore)
 	updateStatusService := serverstatus.NewUpdateStatusService(config.Version, cfg.Settings.Debug)
@@ -402,6 +404,7 @@ func NewWithContextOptions(ctx context.Context, cfg config.App, authSupport serv
 		workspaceConfigResolver: workspaceConfigResolver,
 		authSupport:             authSupport,
 		capabilityFactsService:  capabilityFactsService,
+		speechService:           speechService,
 		background:              background,
 		rootLease:               rootLease,
 		metadataStore:           metadataStore,

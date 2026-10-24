@@ -60,6 +60,7 @@ func (variant ProviderVariantContract) capabilitiesWithOverride(override *Provid
 		caps = *override
 	}
 	caps.SupportsNativeThinkingUpdates = variant.Capabilities.SupportsNativeThinkingUpdates
+	caps.SupportsSpeechToText = variant.Speech != nil
 	caps.ReasoningType = textutil.Pointer(variant.ReasoningType)
 	return caps
 }

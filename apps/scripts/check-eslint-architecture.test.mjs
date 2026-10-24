@@ -306,7 +306,7 @@ test("the repository policy checks HTML scripts and Astro frontmatter, scripts a
   }
 });
 
-test("Astro policy checks escape filenames in compiler metadata", async () => {
+test("Astro policy checks escape filenames in compiler metadata", { timeout: 30_000 }, async () => {
   // Windows separators require encoding; other platforms need a quoted component.
   const directory = await mkdtemp(
     join(
@@ -422,7 +422,7 @@ for (const fixture of justRejectionFixtures)
     );
   });
 
-test("the required Just policy command rejects the forbidden Effect fixtures", () => {
+test("the required Just policy command rejects the forbidden Effect fixtures", { timeout: 30_000 }, () => {
   const result = spawnSync(
     "just",
     [

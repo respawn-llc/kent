@@ -7,6 +7,8 @@ import { Button, IslandSurface } from "@/ui";
 import { StaticMarkdown } from "@/ui/markdown";
 import { cx, fieldIslandInputClassName } from "@/ui";
 import { taskDetailIslandRadius, taskDetailIslandRadiusClassName } from "./taskDetailIslandStyles";
+import { useTaskSpeech } from "./TaskDetailSpeech";
+import { ControlTooltip } from "@/ui";
 
 export type CommentActions = Readonly<{
   pending: boolean;
@@ -29,9 +31,10 @@ export function CommentComposer({
   onEditingChange: (editing: Readonly<{ id: string; body: string }> | null) => void;
 }>) {
   const { t } = useTranslation();
+  const { editorRef: commentEditor, ...speech } = useTaskSpeech().comment;
   const commentBody = editing?.body ?? body;
   const interactionDisabled = actions.pending;
-  const canSubmit = !interactionDisabled && commentBody.trim().length > 0;
+  const canSubmit = !interactionDisabled && !speech.busy && commentBody.trim().length > 0;
 
   const submitShortcut = useTextFieldSubmitShortcut({
     action: actions.submit,
@@ -43,6 +46,7 @@ export function CommentComposer({
     <section className="grid gap-[var(--space-2)]">
       <div className="grid" data-testid="task-comment-input-frame">
         <textarea
+          ref={commentEditor}
           aria-label={editing === null ? t("task.addComment") : t("task.editComment")}
           className={cx(
             fieldIslandInputClassName(1, taskDetailIslandRadius),
@@ -61,18 +65,27 @@ export function CommentComposer({
           placeholder={editing === null ? `${t("task.addComment")}...` : `${t("task.editComment")}...`}
           value={commentBody}
         />
-        <Button
-          aria-label={editing === null ? t("task.submitComment") : t("task.saveComment")}
-          className="relative z-10 col-start-1 row-start-1 self-end justify-self-end"
-          data-testid="task-comment-save"
-          disabled={!canSubmit}
-          onClick={actions.submit}
-          size="icon"
-          style={{ marginBottom: "var(--space-2)", marginRight: "var(--space-2)" }}
-          variant="primary"
-        >
-          <Save aria-hidden="true" size={18} strokeWidth={1.8} />
-        </Button>
+        <div className="relative z-10 col-start-1 row-start-1 flex items-center gap-[var(--space-2)] self-end justify-self-end m-[var(--space-2)]">
+          {speech.control}
+          <ControlTooltip
+            label={
+              speech.busy
+                ? speech.busyReason
+                : t(editing === null ? "task.submitComment" : "task.saveComment")
+            }
+          >
+            <Button
+              aria-label={editing === null ? t("task.submitComment") : t("task.saveComment")}
+              data-testid="task-comment-save"
+              disabled={!canSubmit}
+              onClick={actions.submit}
+              size="icon"
+              variant="primary"
+            >
+              <Save aria-hidden="true" size={18} strokeWidth={1.8} />
+            </Button>
+          </ControlTooltip>
+        </div>
       </div>
     </section>
   );

@@ -13,7 +13,8 @@ import type {
 } from "@/api";
 import { ChatOperationError, ContractError, errorMessage } from "@/api";
 import { recoverOrThrowDebugFailure, useAppServices, useStatusController } from "@/app-facade";
-import { AnimatedReveal, ErrorState, LoadingState, Spinner } from "@/ui";
+import { AnimatedReveal, ErrorState, LoadingState, Spinner, fieldActions } from "@/ui";
+import { SpeechDestinationProvider, useSpeechField } from "@/shared/speech-input";
 import { type NewChatGoalBinding } from "./goalBinding";
 import {
   deriveGoalSidebarState,
@@ -23,7 +24,7 @@ import {
   type GoalMutationIntent,
   type GoalObservationState,
 } from "./goalSidebarState";
-import { GoalMarkdownField } from "./GoalMarkdownField";
+import { GoalMarkdownField, NewChatGoalField } from "./GoalMarkdownField";
 import { GoalActions, GoalMetadata, GoalSaveButton, goalLifecycleAction } from "./GoalSidebarParts";
 import {
   goalErrorMessage,
@@ -45,6 +46,14 @@ export type GoalSidebarInput =
     }>;
 
 export function GoalSidebarPage({ input }: Readonly<{ input: GoalSidebarInput }>) {
+  return (
+    <SpeechDestinationProvider>
+      <GoalSidebarContent input={input} />
+    </SpeechDestinationProvider>
+  );
+}
+
+function GoalSidebarContent({ input }: Readonly<{ input: GoalSidebarInput }>) {
   if (input.kind === "new_chat") {
     return <NewChatGoalSidebar api={input.api} binding={input.binding} setGoal={input.setGoal} />;
   }
@@ -124,40 +133,22 @@ function NewChatGoalSidebar({
   };
 
   return (
-    <div className="flex min-h-0 flex-col gap-[var(--space-3)]">
-      <div className="min-h-0 shrink-0">
-        <GoalMarkdownField
-          editing={editing}
-          floatingAction={
-            snapshot.pending ? (
-              <Spinner size="sm" testID="goal-mutation-pending" />
-            ) : draft.trim().length === 0 ? undefined : (
-              <GoalSaveButton
-                disabled={!canSave}
-                label={
-                  !snapshot.ready
-                    ? t("chatComposer.loadingSettings")
-                    : unavailable
-                      ? t("chat.goal.unavailableForAgent")
-                      : t("chat.goal.save")
-                }
-                onClick={save}
-                pending={snapshot.pending}
-              />
-            )
-          }
-          expanded
-          onChange={setDraft}
-          onEdit={() => {
-            setEditing(true);
-          }}
-          onEditingChange={setEditing}
-          onExpand={() => undefined}
-          submitIntent={{ available: canSave, onSubmitIntent: save }}
-          value={draft}
-        />
-      </div>
-    </div>
+    <NewChatGoalField
+      draft={draft}
+      editing={editing}
+      setDraft={setDraft}
+      setEditing={setEditing}
+      canSave={canSave}
+      save={save}
+      pending={snapshot.pending}
+      label={
+        !snapshot.ready
+          ? t("chatComposer.loadingSettings")
+          : unavailable
+            ? t("chat.goal.unavailableForAgent")
+            : t("chat.goal.save")
+      }
+    />
   );
 }
 
@@ -170,7 +161,15 @@ function ExactGoalSidebar({
   initialDraft?: string | undefined;
   target: ChatSessionTarget;
 }>) {
-  const model = useExactGoalSidebarModel({ api, initialDraft, target });
+  const original = useExactGoalSidebarModel({ api, initialDraft, target });
+  const speech = useSpeechField({ value: original.displayedObjective, onChange: original.setDraft });
+  const model = {
+    ...original,
+    saveAvailable: original.saveAvailable && !speech.busy,
+    save: () => {
+      if (!speech.busy) original.save();
+    },
+  };
 
   if (model.observation.kind === "loading" && model.fact === null) {
     return <LoadingState surface="plain" title={model.t("chat.goal.loading")} />;
@@ -187,7 +186,7 @@ function ExactGoalSidebar({
     );
   }
   if (model.fact === null) return null;
-  return <ExactGoalContent model={model} />;
+  return <ExactGoalContent model={model} speech={speech} />;
 }
 
 type ExactGoalSidebarModel = Readonly<{
@@ -573,7 +572,10 @@ function validGoalObservationSequence(
   return kind === "update" && sequence === previous + 1;
 }
 
-function ExactGoalContent({ model }: Readonly<{ model: ExactGoalSidebarModel }>) {
+function ExactGoalContent({
+  model,
+  speech,
+}: Readonly<{ model: ExactGoalSidebarModel; speech: ReturnType<typeof useSpeechField> }>) {
   const { fact } = model;
   if (fact === null) return null;
   const showActions = model.displayedStatus !== null;
@@ -581,8 +583,12 @@ function ExactGoalContent({ model }: Readonly<{ model: ExactGoalSidebarModel }>)
     <div className="flex min-h-0 flex-col">
       <div className="min-h-0 shrink-0">
         <GoalMarkdownField
+          editorRef={speech.editorRef}
           editing={model.editing}
-          floatingAction={renderSaveAction(model)}
+          floatingAction={fieldActions(
+            speech.control,
+            renderSaveAction(model, speech.busy ? speech.busyReason : undefined),
+          )}
           expanded={model.expanded}
           onChange={model.setDraft}
           onEdit={() => {
@@ -615,7 +621,7 @@ function ExactGoalContent({ model }: Readonly<{ model: ExactGoalSidebarModel }>)
   );
 }
 
-function renderSaveAction(model: ExactGoalSidebarModel): ReactElement | undefined {
+function renderSaveAction(model: ExactGoalSidebarModel, speechReason?: string): ReactElement | undefined {
   if (model.pendingIntent?.kind === "set" || model.pendingIntent?.kind === "clear") {
     return <Spinner size="sm" testID="goal-mutation-pending" />;
   }
@@ -623,7 +629,10 @@ function renderSaveAction(model: ExactGoalSidebarModel): ReactElement | undefine
   return (
     <GoalSaveButton
       disabled={!model.saveAvailable || model.unavailable}
-      label={model.unavailable ? model.t("chat.goal.unavailableForAgent") : model.t("chat.goal.save")}
+      label={
+        speechReason ??
+        (model.unavailable ? model.t("chat.goal.unavailableForAgent") : model.t("chat.goal.save"))
+      }
       onClick={model.save}
       pending={false}
     />
