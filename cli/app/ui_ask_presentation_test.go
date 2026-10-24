@@ -441,9 +441,9 @@ func TestAskDedicatedApprovalReadingKeepsChosenCommentary(t *testing.T) {
 	next, cmd := model.Update(tea.KeyMsg{Type: tea.KeyEnter})
 	model = runPromptDeliveryCommand(t, next.(*uiModel), cmd)
 	answer := requireApprovalAnswerEntry(t, requirePromptAnswerBatchRequest(t, control)).GetApprovalAnswer()
-	decision, err := protoapi.ApprovalDecisionFromProto(answer.Decision)
-	if err != nil || decision != clientui.ApprovalDecisionDeny || approvalCommentary(answer) != "deny draft" {
-		t.Fatalf("commentary answer lost chosen decision or draft: %+v, %v", answer, err)
+	decision := protoapi.ApprovalDecisionFromProto(answer.Decision)
+	if decision != clientui.ApprovalDecisionDeny || approvalCommentary(answer) != "deny draft" {
+		t.Fatalf("commentary answer lost chosen decision or draft: %+v", answer)
 	}
 }
 
