@@ -62,18 +62,6 @@ function required<Value>(value: Value | null): Value {
 }
 
 export function committedItem(row: CommittedRow, key = locatorKey(row)): TranscriptCommittedItem {
-  const payloads = [
-    row.User,
-    row.Assistant,
-    row.Tool,
-    row.ReasoningTrace,
-    row.Notice,
-    row.ReviewerFeedback,
-    row.ReviewerError,
-  ];
-  if (payloads.filter((payload) => payload !== null).length !== 1) {
-    throw new ContractError("Transcript row must contain exactly one payload.");
-  }
   const base = { state: "committed", key, row } as const;
   switch (row.Kind) {
     case "user":

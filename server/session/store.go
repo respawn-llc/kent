@@ -789,10 +789,6 @@ func (s *Store) SetInputDraft(inputDraft string, protectedUpdate *ProtectedInput
 	protected := s.meta.ProtectedInputDraft
 	if protectedUpdate != nil {
 		protected = protectedUpdate.Text
-		if protected != nil && *protected == "" {
-			s.mu.Unlock()
-			return errors.New("protected input draft must not be empty")
-		}
 	}
 	protectedUnchanged := protected == nil && s.meta.ProtectedInputDraft == nil ||
 		protected != nil && s.meta.ProtectedInputDraft != nil && *protected == *s.meta.ProtectedInputDraft

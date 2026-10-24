@@ -9,6 +9,21 @@ import (
 	"google.golang.org/protobuf/types/known/emptypb"
 )
 
+func TestBootstrapPollingIntervalFitsDuration(t *testing.T) {
+	for _, seconds := range []int64{9223372036, 9223372037} {
+		encoded, err := protoapi.Marshal(&pb.DeviceBootstrapContinuation{
+			Code: "device-code", UserCode: "user-code", PollIntervalSeconds: seconds,
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+		err = protoapi.Decode(encoded, &pb.DeviceBootstrapContinuation{})
+		if (err == nil) != (seconds == 9223372036) {
+			t.Errorf("polling interval %d acceptance = %v", seconds, err)
+		}
+	}
+}
+
 func TestConnectionSelectionIdentityAlphabet(t *testing.T) {
 	for _, id := range []string{"openai", "local-2_api", "Bad", " padded ", "bad/name", "é"} {
 		valid := id == "openai" || id == "local-2_api"

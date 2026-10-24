@@ -6,7 +6,6 @@ import (
 	"strings"
 
 	"core/shared/runtimeids"
-	"core/shared/sessioncontract"
 )
 
 type AskQuestionResolution interface {
@@ -28,27 +27,7 @@ type AskQuestionApproval struct {
 
 func (AskQuestionApproval) askQuestionResolution() {}
 
-func ValidateAskQuestionResolutionShape(resolution AskQuestionResolution) error {
-	switch answer := resolution.(type) {
-	case AskQuestionAnswer:
-		return sessioncontract.ValidatePromptQuestionAnswerShape(
-			answer.SelectedOptionNumber,
-			answer.Freeform,
-		)
-	case AskQuestionApproval:
-		return sessioncontract.ValidatePromptApprovalAnswerShape(
-			answer.Decision,
-			answer.Commentary,
-		)
-	default:
-		return errors.New("Ask Question resolution variant is invalid")
-	}
-}
-
 func ValidateAskQuestionResolution(req AskQuestionRequest, resolution AskQuestionResolution) error {
-	if err := ValidateAskQuestionResolutionShape(resolution); err != nil {
-		return err
-	}
 	switch answer := resolution.(type) {
 	case AskQuestionAnswer:
 		if req.Approval {

@@ -471,9 +471,6 @@ func validateSessionPickerPage(
 	expectedProjectID string,
 	expectedCategory sessioncontract.SessionCategory,
 ) error {
-	if len(response.Sessions) > sessionPickerPageSize {
-		return fmt.Errorf("session page exceeds maximum size %d", sessionPickerPageSize)
-	}
 	if response.ProjectID != expectedProjectID {
 		return fmt.Errorf(
 			"session picker page project %q does not match requested project %q",

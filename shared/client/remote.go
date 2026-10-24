@@ -723,12 +723,7 @@ func (c *Remote) ensureControl(ctx context.Context) (*remoteControlConn, error) 
 	c.identity = state.identity
 	c.attachment = state.attachment
 	if state.attachment != nil && state.attachment.session != nil {
-		c.attachIntent, err = newRemoteSessionReattachmentIntent(*state.attachment.session)
-		if err != nil {
-			_ = control.Close()
-			c.control = nil
-			return nil, err
-		}
+		c.attachIntent = newRemoteSessionReattachmentIntent(*state.attachment.session)
 	}
 	return control, nil
 }

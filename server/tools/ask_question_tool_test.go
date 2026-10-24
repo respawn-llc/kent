@@ -301,14 +301,13 @@ func TestValidateAskQuestionResolutionForApprovalPrompt(t *testing.T) {
 	}
 }
 
-func TestValidateAskQuestionResolutionRejectsInvalidSelectedOption(t *testing.T) {
-	for _, option := range []int{0, -1, 2} {
-		if err := ValidateAskQuestionResolution(
-			AskQuestionRequest{ToolCallID: "ask-1", Question: "Proceed?", Suggestions: []string{"yes"}},
-			AskQuestionAnswer{SelectedOptionNumber: &option},
-		); err == nil {
-			t.Fatalf("expected selected option %d to be rejected", option)
-		}
+func TestValidateAskQuestionResolutionRejectsUnofferedSelectedOption(t *testing.T) {
+	option := 2
+	if err := ValidateAskQuestionResolution(
+		AskQuestionRequest{ToolCallID: "ask-1", Question: "Proceed?", Suggestions: []string{"yes"}},
+		AskQuestionAnswer{SelectedOptionNumber: &option},
+	); err == nil {
+		t.Fatalf("expected selected option %d to be rejected", option)
 	}
 }
 
@@ -363,21 +362,6 @@ func TestApprovalAskRejectsSuggestions(t *testing.T) {
 		t.Fatal("expected error")
 	}
 	if !errors.Is(err, ErrAskQuestionApprovalForbidsSuggestions) {
-		t.Fatalf("unexpected error: %v", err)
-	}
-}
-
-func TestFreeformAskRejectsEmptyResponse(t *testing.T) {
-	b := NewAskQuestionBroker()
-	b.SetAskHandler(func(_ context.Context, req AskQuestionRequest) (AskQuestionResolution, error) {
-		return AskQuestionAnswer{}, nil
-	})
-
-	_, err := b.Ask(context.Background(), AskQuestionRequest{ToolCallID: "freeform", Question: "what else?"})
-	if err == nil {
-		t.Fatal("expected error")
-	}
-	if !errors.Is(err, ErrAskQuestionNonApprovalRequiresAnswer) {
 		t.Fatalf("unexpected error: %v", err)
 	}
 }

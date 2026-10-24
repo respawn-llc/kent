@@ -42,11 +42,6 @@ func (r SessionRuntimeActivateRequest) Validate() error {
 }
 
 func (r SessionRuntimePreparationOptions) Validate() error {
-	if r.ExplicitToolSelection != nil {
-		if err := r.ExplicitToolSelection.Validate(); err != nil {
-			return err
-		}
-	}
 	if r.AgentSelection != nil {
 		if r.AgentSelection.AgentRole != nil && config.NormalizeSubagentSelector(*r.AgentSelection.AgentRole) == "" {
 			return errors.New("agent_selection.agent_role must be a valid role when present")
