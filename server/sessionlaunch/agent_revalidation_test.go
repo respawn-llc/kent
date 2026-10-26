@@ -31,7 +31,7 @@ import (
 func TestChatSettingsRefreshOnlyWhenAppliedToLiveRuntime(t *testing.T) {
 	synctest.Test(t, func(t *testing.T) {
 		cfg, service, db, id := agentReplacementFixture(t)
-		lifecycle := sessionservice.NewGlobalSessionLifecycleService(cfg.PersistenceRoot, service.settingsOwner.Authority, nil, db)
+		lifecycle := sessionservice.NewGlobalSessionLifecycleService(cfg.PersistenceRoot, service.settingsOwner.Authority, db)
 		saveDraft := func() {
 			t.Helper()
 			if _, err := lifecycle.PersistInputDraft(t.Context(), &sessionlaunchpb.SessionPersistInputDraftRequest{

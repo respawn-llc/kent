@@ -32,7 +32,6 @@ const (
 	goalQuestionStop goalQuestionAction = iota
 	goalQuestionAnswer
 	goalQuestionDecline
-	goalQuestionInterrupt
 	goalQuestionRejectDirectParent
 )
 
@@ -49,7 +48,6 @@ func TestGoalQuestionResolution(t *testing.T) {
 				{name: "answer", action: goalQuestionAnswer},
 				{name: "decline", action: goalQuestionDecline},
 				{name: "reject direct-parent answer", action: goalQuestionRejectDirectParent},
-				{name: "interrupt", action: goalQuestionInterrupt},
 				{name: "stop", action: goalQuestionStop},
 			} {
 				t.Run(action.name, func(t *testing.T) {
@@ -184,10 +182,6 @@ func exerciseGoalQuestion(t *testing.T, resume bool, action goalQuestionAction) 
 		}
 		// The model must actually continue, not merely acknowledge delivery.
 		nextSteeringExchange(t, client)
-	case goalQuestionInterrupt:
-		if _, err := service.Interrupt(t.Context(), &runtimepb.InterruptRequest{SessionId: sessionID.String()}); err != nil {
-			t.Fatal(err)
-		}
 	case goalQuestionStop:
 		stopped, err := service.LiveStop(t.Context(), &runtimepb.LiveStopRequest{SessionId: requestfixture.Selector(t, sessionID.String())})
 		if err != nil {

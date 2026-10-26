@@ -141,7 +141,7 @@ func TestProjectLabelReorderRejectsNonPermutationWithoutChangingCatalog(t *testi
 	if err != nil {
 		t.Fatalf("CreateProjectLabel second: %v", err)
 	}
-	other, err := store.metadata.CreateProjectForWorkspace(ctx, t.TempDir(), "Other Project")
+	other, err := store.metadata.CreateProjectForWorkspaceWithKey(ctx, t.TempDir(), "Other Project", "")
 	if err != nil {
 		t.Fatalf("CreateProjectForWorkspace: %v", err)
 	}
@@ -272,7 +272,7 @@ func TestProjectLabelDeleteIsProjectScopedAndCascadesAssignments(t *testing.T) {
 	); err != nil {
 		t.Fatalf("seed task label assignment: %v", err)
 	}
-	other, err := store.metadata.CreateProjectForWorkspace(ctx, t.TempDir(), "Other Project")
+	other, err := store.metadata.CreateProjectForWorkspaceWithKey(ctx, t.TempDir(), "Other Project", "")
 	if err != nil {
 		t.Fatalf("CreateProjectForWorkspace: %v", err)
 	}
@@ -302,7 +302,7 @@ func TestProjectLabelDeleteIsProjectScopedAndCascadesAssignments(t *testing.T) {
 
 func TestProjectLabelCatalogIsolationAndTypedMissingEntities(t *testing.T) {
 	ctx, store, binding := newTestStoreContext(t)
-	other, err := store.metadata.CreateProjectForWorkspace(ctx, t.TempDir(), "Other Project")
+	other, err := store.metadata.CreateProjectForWorkspaceWithKey(ctx, t.TempDir(), "Other Project", "")
 	if err != nil {
 		t.Fatalf("CreateProjectForWorkspace: %v", err)
 	}
@@ -620,7 +620,7 @@ func TestTaskLabelUpdateRejectsMissingAndWrongProjectReferencesAtomically(t *tes
 	if err != nil {
 		t.Fatalf("CreateProjectLabel own: %v", err)
 	}
-	other, err := store.metadata.CreateProjectForWorkspace(ctx, t.TempDir(), "Other Project")
+	other, err := store.metadata.CreateProjectForWorkspaceWithKey(ctx, t.TempDir(), "Other Project", "")
 	if err != nil {
 		t.Fatalf("CreateProjectForWorkspace: %v", err)
 	}
@@ -797,7 +797,7 @@ func TestTaskCreateInvalidLabelsRollBackCurrentNodeAndAssignments(t *testing.T) 
 	if err != nil {
 		t.Fatalf("CreateProjectLabel own: %v", err)
 	}
-	other, err := store.metadata.CreateProjectForWorkspace(ctx, t.TempDir(), "Other Project")
+	other, err := store.metadata.CreateProjectForWorkspaceWithKey(ctx, t.TempDir(), "Other Project", "")
 	if err != nil {
 		t.Fatalf("CreateProjectForWorkspace: %v", err)
 	}

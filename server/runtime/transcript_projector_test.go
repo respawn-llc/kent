@@ -22,7 +22,7 @@ func appendPersistedTranscriptRecord(t *testing.T, store *session.Store, payload
 	return event
 }
 
-func applyPersistedTranscriptRecords(t *testing.T, scan *PersistedTranscriptScan, records []session.EventRecord) {
+func applyPersistedTranscriptRecords(t *testing.T, scan *streamingTranscriptScan, records []session.EventRecord) {
 	t.Helper()
 	for _, record := range records {
 		if err := scan.ApplyPersistedEvent(record); err != nil {
@@ -55,10 +55,10 @@ func TestPersistedTranscriptScanReconstructsPersistedTranscript(t *testing.T) {
 		appendPersistedTranscriptRecord(t, store, storedLocalEntry{Role: "system", Text: "persisted note"}),
 		appendPersistedTranscriptRecord(t, store, llm.Message{Role: llm.RoleAssistant, Content: textutil.Value("final answer"), Phase: textutil.Value(llm.MessagePhaseFinal)}),
 	}
-	scan := NewPersistedTranscriptScan(PersistedTranscriptScanRequest{})
+	scan := newStreamingTranscriptScan("")
 	applyPersistedTranscriptRecords(t, scan, records)
 
-	snapshot := scan.CollectedPageSnapshot()
+	snapshot := scan.PageSnapshot()
 	if len(snapshot.Entries) != 5 {
 		t.Fatalf("entry count = %d, want 5", len(snapshot.Entries))
 	}
@@ -92,7 +92,7 @@ func TestPersistedTranscriptScanBlankFinalClearsLastCommittedAnswer(t *testing.T
 			Content: textutil.Value(""),
 		}),
 	}
-	scan := NewPersistedTranscriptScan(PersistedTranscriptScanRequest{})
+	scan := newStreamingTranscriptScan("")
 	applyPersistedTranscriptRecords(t, scan, records)
 
 	if got := scan.LastCommittedAssistantFinalAnswer(); got != nil {
@@ -126,10 +126,10 @@ func TestPersistedTranscriptScanRestoresMaterializedToolResultFromCompletion(t *
 			Name: textutil.Value(string(toolspec.ToolExecCommand)),
 		}),
 	}
-	scan := NewPersistedTranscriptScan(PersistedTranscriptScanRequest{})
+	scan := newStreamingTranscriptScan("")
 	applyPersistedTranscriptRecords(t, scan, records)
 
-	snapshot := scan.CollectedPageSnapshot()
+	snapshot := scan.PageSnapshot()
 	if got := len(snapshot.Entries); got != 2 {
 		t.Fatalf("entry count = %d, want 2 (%+v)", got, snapshot.Entries)
 	}
@@ -145,10 +145,10 @@ func TestPersistedTranscriptScanSurfacesPersistedCompactionSummaries(t *testing.
 		appendPersistedTranscriptRecord(t, store, llm.Message{Role: llm.RoleUser, MessageType: textutil.Value(llm.MessageTypeCompactionSummary), Content: textutil.Value("user summary")}),
 		appendPersistedTranscriptRecord(t, store, llm.Message{Role: llm.RoleDeveloper, MessageType: textutil.Value(llm.MessageTypeCompactionSummary), Content: textutil.Value("developer handoff")}),
 	}
-	scan := NewPersistedTranscriptScan(PersistedTranscriptScanRequest{})
+	scan := newStreamingTranscriptScan("")
 	applyPersistedTranscriptRecords(t, scan, records)
 
-	snapshot := scan.CollectedPageSnapshot()
+	snapshot := scan.PageSnapshot()
 	if len(snapshot.Entries) != 2 {
 		t.Fatalf("entry count = %d, want 2", len(snapshot.Entries))
 	}
@@ -164,10 +164,10 @@ func TestPersistedTranscriptScanPreservesErrorLocalEntries(t *testing.T) {
 	t.Parallel()
 	store := mustCreateTestSession(t)
 	record := appendPersistedTranscriptRecord(t, store, storedLocalEntry{Role: "error", Text: "Persisted runtime error"})
-	scan := NewPersistedTranscriptScan(PersistedTranscriptScanRequest{})
+	scan := newStreamingTranscriptScan("")
 	applyPersistedTranscriptRecords(t, scan, []session.EventRecord{record})
 
-	snapshot := scan.CollectedPageSnapshot()
+	snapshot := scan.PageSnapshot()
 	if len(snapshot.Entries) != 1 {
 		t.Fatalf("entry count = %d, want 1", len(snapshot.Entries))
 	}
@@ -180,10 +180,10 @@ func TestPersistedTranscriptScanPreservesPersistedLocalEntryNoticeID(t *testing.
 	t.Parallel()
 	store := mustCreateTestSession(t)
 	record := appendPersistedTranscriptRecord(t, store, storedLocalEntry{Role: "system", Text: "Mirrored notice", NoticeID: textutil.Value("notice-1")})
-	scan := NewPersistedTranscriptScan(PersistedTranscriptScanRequest{})
+	scan := newStreamingTranscriptScan("")
 	applyPersistedTranscriptRecords(t, scan, []session.EventRecord{record})
 
-	snapshot := scan.CollectedPageSnapshot()
+	snapshot := scan.PageSnapshot()
 	if len(snapshot.Entries) != 1 {
 		t.Fatalf("entry count = %d, want 1", len(snapshot.Entries))
 	}
@@ -219,10 +219,10 @@ func TestPersistedTranscriptScanProjectsTypedDeveloperAndToolResultMetadata(t *t
 			}},
 		}),
 	}
-	scan := NewPersistedTranscriptScan(PersistedTranscriptScanRequest{})
+	scan := newStreamingTranscriptScan("")
 	applyPersistedTranscriptRecords(t, scan, records)
 
-	snapshot := scan.CollectedPageSnapshot()
+	snapshot := scan.PageSnapshot()
 	if got := len(snapshot.Entries); got != 3 {
 		t.Fatalf("entry count = %d, want 3 (%+v)", got, snapshot.Entries)
 	}
@@ -254,10 +254,10 @@ func TestPersistedTranscriptScanProjectsCacheWarningWithConfiguredVisibility(t *
 				Reason: transcript.CacheWarningReasonNonPostfix,
 			}
 			record := appendPersistedTranscriptRecord(t, store, warning)
-			scan := NewPersistedTranscriptScan(PersistedTranscriptScanRequest{CacheWarningMode: test.mode})
+			scan := newStreamingTranscriptScan(test.mode)
 			applyPersistedTranscriptRecords(t, scan, []session.EventRecord{record})
 
-			snapshot := scan.CollectedPageSnapshot()
+			snapshot := scan.PageSnapshot()
 			if got := len(snapshot.Entries); got != 1 {
 				t.Fatalf("entry count = %d, want 1", got)
 			}
@@ -357,9 +357,9 @@ func persistedDeletionPresentation(t *testing.T, presentation any) *transcript.T
 			}},
 		}),
 	}
-	scan := NewPersistedTranscriptScan(PersistedTranscriptScanRequest{})
+	scan := newStreamingTranscriptScan("")
 	applyPersistedTranscriptRecords(t, scan, records)
-	for _, entry := range scan.CollectedPageSnapshot().Entries {
+	for _, entry := range scan.PageSnapshot().Entries {
 		if entry.ToolCallID == callID && entry.Role == "tool_result_ok" && entry.ToolCall != nil {
 			return entry.ToolCall
 		}

@@ -2,7 +2,6 @@ package runtime
 
 import (
 	"encoding/json"
-	"strconv"
 	"testing"
 
 	"core/server/llm"
@@ -14,126 +13,9 @@ import (
 	patchformat "core/shared/transcript/patchformat"
 )
 
-func TestPersistedTranscriptScanCollectsRequestedPageOnly(t *testing.T) {
-	t.Parallel()
-	scan := NewPersistedTranscriptScan(PersistedTranscriptScanRequest{Offset: 1, Limit: 2})
-	events := []session.EventRecord{
-		mustPersistedScanEvent(t, "message", llm.Message{Role: llm.RoleUser, Content: textutil.Value("u1")}),
-		mustPersistedScanEvent(t, "message", llm.Message{Role: llm.RoleAssistant, Content: textutil.Value("a1"), Phase: textutil.Value(llm.MessagePhaseFinal)}),
-		mustPersistedScanEvent(t, "message", llm.Message{Role: llm.RoleUser, Content: textutil.Value("u2")}),
-		mustPersistedScanEvent(t, "message", llm.Message{Role: llm.RoleAssistant, Content: textutil.Value("a2"), Phase: textutil.Value(llm.MessagePhaseFinal)}),
-	}
-	for _, evt := range events {
-		if err := scan.ApplyPersistedEvent(evt); err != nil {
-			t.Fatalf("ApplyPersistedEvent(%q): %v", mustSessionEventKind(evt), err)
-		}
-	}
-
-	page := scan.CollectedPageSnapshot()
-	if scan.TotalEntries() != 4 {
-		t.Fatalf("TotalEntries() = %d, want 4", scan.TotalEntries())
-	}
-	if len(page.Entries) != 2 {
-		t.Fatalf("len(page.Entries) = %d, want 2", len(page.Entries))
-	}
-	if page.Entries[0].Text != "a1" || page.Entries[1].Text != "u2" {
-		t.Fatalf("unexpected page entries: %+v", page.Entries)
-	}
-}
-
-func TestPersistedTranscriptScanTracksDormantRecentTailWindow(t *testing.T) {
-	t.Parallel()
-	scan := NewPersistedTranscriptScan(PersistedTranscriptScanRequest{TrackRecentTail: true, TailLimit: 3})
-	for i := 0; i < 5; i++ {
-		if err := scan.ApplyPersistedEvent(mustPersistedScanEvent(t, "message", llm.Message{Role: llm.RoleUser, Content: textutil.Value("before-" + strconv.Itoa(i))})); err != nil {
-			t.Fatalf("ApplyPersistedEvent before %d: %v", i, err)
-		}
-	}
-	if err := scan.ApplyPersistedEvent(mustPersistedScanEvent(t, "history_replaced", historyReplacementPayload{Items: llm.ItemsFromMessages([]llm.Message{{
-		Role:        llm.RoleUser,
-		MessageType: textutil.Value(llm.MessageTypeCompactionSummary),
-		Content:     textutil.Value("summary"),
-	}})})); err != nil {
-		t.Fatalf("ApplyPersistedEvent(history_replaced): %v", err)
-	}
-	for i := 0; i < 2; i++ {
-		if err := scan.ApplyPersistedEvent(mustPersistedScanEvent(t, "message", llm.Message{Role: llm.RoleAssistant, Content: textutil.Value("after-" + strconv.Itoa(i)), Phase: textutil.Value(llm.MessagePhaseFinal)})); err != nil {
-			t.Fatalf("ApplyPersistedEvent after %d: %v", i, err)
-		}
-	}
-
-	window := scan.RecentTailSnapshot()
-	if window.TotalEntries != 8 {
-		t.Fatalf("window.TotalEntries = %d, want 8", window.TotalEntries)
-	}
-	if window.Offset != 5 {
-		t.Fatalf("window.Offset = %d, want 5", window.Offset)
-	}
-	if len(window.Snapshot.Entries) != 3 {
-		t.Fatalf("len(window.Snapshot.Entries) = %d, want 3", len(window.Snapshot.Entries))
-	}
-	if window.Snapshot.Entries[0].Text != "summary" || window.Snapshot.Entries[1].Text != "after-0" || window.Snapshot.Entries[2].Text != "after-1" {
-		t.Fatalf("unexpected tail entries: %+v", window.Snapshot.Entries)
-	}
-}
-
-func TestPersistedTranscriptScanKeepsLatestCompactionSegmentInDormantRecentTail(t *testing.T) {
-	t.Parallel()
-	scan := NewPersistedTranscriptScan(PersistedTranscriptScanRequest{TrackRecentTail: true, TailLimit: 2})
-	events := []session.EventRecord{
-		mustPersistedScanEvent(t, "message", llm.Message{Role: llm.RoleUser, Content: textutil.Value("before")}),
-		mustPersistedScanEvent(t, "history_replaced", historyReplacementPayload{Items: llm.ItemsFromMessages([]llm.Message{{Role: llm.RoleUser, MessageType: textutil.Value(llm.MessageTypeCompactionSummary), Content: textutil.Value("summary")}})}),
-		mustPersistedScanEvent(t, "message", llm.Message{Role: llm.RoleAssistant, Content: textutil.Value("after-0"), Phase: textutil.Value(llm.MessagePhaseFinal)}),
-		mustPersistedScanEvent(t, "message", llm.Message{Role: llm.RoleAssistant, Content: textutil.Value("after-1"), Phase: textutil.Value(llm.MessagePhaseFinal)}),
-		mustPersistedScanEvent(t, "message", llm.Message{Role: llm.RoleAssistant, Content: textutil.Value("after-2"), Phase: textutil.Value(llm.MessagePhaseFinal)}),
-	}
-	for _, evt := range events {
-		if err := scan.ApplyPersistedEvent(evt); err != nil {
-			t.Fatalf("ApplyPersistedEvent(%q): %v", mustSessionEventKind(evt), err)
-		}
-	}
-
-	window := scan.RecentTailSnapshot()
-	if got := window.Offset; got != 1 {
-		t.Fatalf("window.Offset = %d, want 1", got)
-	}
-	if got := len(window.Snapshot.Entries); got != 4 {
-		t.Fatalf("len(window.Snapshot.Entries) = %d, want 4 (%+v)", got, window.Snapshot.Entries)
-	}
-	if window.Snapshot.Entries[0].Text != "summary" || window.Snapshot.Entries[1].Text != "after-0" || window.Snapshot.Entries[2].Text != "after-1" || window.Snapshot.Entries[3].Text != "after-2" {
-		t.Fatalf("unexpected dormant tail entries: %+v", window.Snapshot.Entries)
-	}
-}
-
-func TestPersistedTranscriptScanWithoutLimitCollectsEntireDormantTranscript(t *testing.T) {
-	t.Parallel()
-	scan := NewPersistedTranscriptScan(PersistedTranscriptScanRequest{})
-	events := []session.EventRecord{
-		mustPersistedScanEvent(t, "message", llm.Message{Role: llm.RoleUser, Content: textutil.Value("u1")}),
-		mustPersistedScanEvent(t, "message", llm.Message{Role: llm.RoleAssistant, Content: textutil.Value("a1"), Phase: textutil.Value(llm.MessagePhaseFinal)}),
-		mustPersistedScanEvent(t, "message", llm.Message{Role: llm.RoleUser, Content: textutil.Value("u2")}),
-	}
-	for _, evt := range events {
-		if err := scan.ApplyPersistedEvent(evt); err != nil {
-			t.Fatalf("ApplyPersistedEvent(%q): %v", mustSessionEventKind(evt), err)
-		}
-	}
-
-	page := scan.CollectedPageSnapshot()
-	if scan.TotalEntries() != 3 {
-		t.Fatalf("TotalEntries() = %d, want 3", scan.TotalEntries())
-	}
-	if len(page.Entries) != 3 {
-		t.Fatalf("len(page.Entries) = %d, want 3", len(page.Entries))
-	}
-	if page.Entries[0].Text != "u1" || page.Entries[1].Text != "a1" || page.Entries[2].Text != "u2" {
-		t.Fatalf("unexpected unbounded page entries: %+v", page.Entries)
-	}
-}
-
 func TestPersistedTranscriptScanEnrichesToolResultFromCompletion(t *testing.T) {
 	t.Parallel()
-	scan := NewPersistedTranscriptScan(PersistedTranscriptScanRequest{Offset: 0, Limit: 10})
+	scan := newStreamingTranscriptScan("")
 	toolOutput, err := json.Marshal(map[string]any{"ok": true})
 	if err != nil {
 		t.Fatalf("marshal tool output: %v", err)
@@ -149,7 +31,7 @@ func TestPersistedTranscriptScanEnrichesToolResultFromCompletion(t *testing.T) {
 		}
 	}
 
-	page := scan.CollectedPageSnapshot()
+	page := scan.PageSnapshot()
 	if len(page.Entries) != 2 {
 		t.Fatalf("len(page.Entries) = %d, want 2", len(page.Entries))
 	}
@@ -163,7 +45,7 @@ func TestPersistedTranscriptScanEnrichesToolResultFromCompletion(t *testing.T) {
 
 func TestPersistedTranscriptScanProjectsDeveloperAndToolSummaryMetadata(t *testing.T) {
 	t.Parallel()
-	scan := NewPersistedTranscriptScan(PersistedTranscriptScanRequest{Offset: 0, Limit: 10})
+	scan := newStreamingTranscriptScan("")
 	events := []session.EventRecord{
 		mustPersistedScanEvent(t, "message", llm.Message{Role: llm.RoleDeveloper, MessageType: textutil.Value(llm.MessageTypeEnvironment), Content: textutil.Value("Internal developer note")}),
 		mustPersistedScanEvent(t, "tool_completed", storedToolCompletion{CallID: "call-1", Name: string(toolspec.ToolExecCommand), IsError: true, Summary: textutil.Value("permission denied"), CondensedText: textutil.Value("permission denied compact"), Output: json.RawMessage(`{"error":"permission denied"}`)}),
@@ -175,7 +57,7 @@ func TestPersistedTranscriptScanProjectsDeveloperAndToolSummaryMetadata(t *testi
 		}
 	}
 
-	page := scan.CollectedPageSnapshot()
+	page := scan.PageSnapshot()
 	if got := len(page.Entries); got != 3 {
 		t.Fatalf("len(page.Entries) = %d, want 3 (%+v)", got, page.Entries)
 	}
@@ -191,7 +73,7 @@ func TestPersistedTranscriptScanProjectsDeveloperAndToolSummaryMetadata(t *testi
 
 func TestPersistedTranscriptScanSynthesizesCompletedToolResultWithoutToolMessage(t *testing.T) {
 	t.Parallel()
-	scan := NewPersistedTranscriptScan(PersistedTranscriptScanRequest{Offset: 0, Limit: 10})
+	scan := newStreamingTranscriptScan("")
 	events := []session.EventRecord{
 		mustPersistedScanEvent(t, "message", llm.Message{Role: llm.RoleAssistant, Content: textutil.Value("working"), ToolCalls: []llm.ToolCall{{ID: "call-1", Name: string(toolspec.ToolExecCommand), Input: json.RawMessage(`{"command":"pwd"}`)}}}),
 		mustPersistedScanEvent(t, "tool_completed", storedToolCompletion{CallID: "call-1", Name: string(toolspec.ToolExecCommand), Output: json.RawMessage(`{"output":"/tmp","exit_code":0,"truncated":false}`)}),
@@ -202,7 +84,7 @@ func TestPersistedTranscriptScanSynthesizesCompletedToolResultWithoutToolMessage
 		}
 	}
 
-	page := scan.CollectedPageSnapshot()
+	page := scan.PageSnapshot()
 	if len(page.Entries) != 3 {
 		t.Fatalf("len(page.Entries) = %d, want 3", len(page.Entries))
 	}
@@ -240,7 +122,7 @@ func TestPersistedTranscriptScanProjectsCurrentPatchPresentation(t *testing.T) {
 	singlePatch := "*** Begin Patch\n*** Update File: cli/app/ui_status.go\n@@\n type uiStatusAuthInfo struct {\n-\tSummary string\n+\tSummary string\n+\tReady bool\n }\n*** End Patch\n"
 	multiPatch := "*** Begin Patch\n*** Update File: a.go\n+new\n*** Update File: b.go\n-old\n*** End Patch\n"
 	rawPatch := "not a structured patch payload"
-	scan := NewPersistedTranscriptScan(PersistedTranscriptScanRequest{Offset: 0, Limit: 10})
+	scan := newStreamingTranscriptScan("")
 	events := []session.EventRecord{
 		mustPersistedScanEvent(t, "message", llm.Message{Role: llm.RoleAssistant, ToolCalls: []llm.ToolCall{{
 			ID:          "call-patch-single",
@@ -268,7 +150,7 @@ func TestPersistedTranscriptScanProjectsCurrentPatchPresentation(t *testing.T) {
 		}
 	}
 
-	page := scan.CollectedPageSnapshot()
+	page := scan.PageSnapshot()
 	if len(page.Entries) != 6 {
 		t.Fatalf("len(page.Entries) = %d, want 6 (%+v)", len(page.Entries), page.Entries)
 	}
@@ -310,7 +192,7 @@ func TestPersistedTranscriptScanProjectsCurrentPatchPresentation(t *testing.T) {
 
 func TestPersistedTranscriptScanProjectsPreservedUserMessageFromPersistedMessage(t *testing.T) {
 	t.Parallel()
-	scan := NewPersistedTranscriptScan(PersistedTranscriptScanRequest{})
+	scan := newStreamingTranscriptScan("")
 	events := []session.EventRecord{
 		mustPersistedScanEvent(t, "message", llm.Message{Role: llm.RoleUser, Content: textutil.Value("before compaction")}),
 		mustPersistedScanEvent(t, "history_replaced", historyReplacementPayload{Items: llm.ItemsFromMessages([]llm.Message{{Role: llm.RoleUser, Content: textutil.Value("condensed provider summary"), MessageType: textutil.Value(llm.MessageTypeCompactionSummary)}})}),
@@ -323,7 +205,7 @@ func TestPersistedTranscriptScanProjectsPreservedUserMessageFromPersistedMessage
 		}
 	}
 
-	page := scan.CollectedPageSnapshot()
+	page := scan.PageSnapshot()
 	if len(page.Entries) != 4 {
 		t.Fatalf("len(page.Entries) = %d, want 4 (%+v)", len(page.Entries), page.Entries)
 	}
@@ -346,7 +228,7 @@ func TestPersistedTranscriptScanProjectsPreservedUserMessageFromPersistedMessage
 
 func TestPersistedTranscriptScanProjectsPreservedUserMessageFromHistoryReplacement(t *testing.T) {
 	t.Parallel()
-	scan := NewPersistedTranscriptScan(PersistedTranscriptScanRequest{})
+	scan := newStreamingTranscriptScan("")
 	events := []session.EventRecord{
 		mustPersistedScanEvent(t, "message", llm.Message{Role: llm.RoleUser, Content: textutil.Value("before compaction")}),
 		mustPersistedScanEvent(t, "history_replaced", historyReplacementPayload{Items: llm.ItemsFromMessages([]llm.Message{
@@ -360,7 +242,7 @@ func TestPersistedTranscriptScanProjectsPreservedUserMessageFromHistoryReplaceme
 		}
 	}
 
-	page := scan.CollectedPageSnapshot()
+	page := scan.PageSnapshot()
 	if len(page.Entries) != 3 {
 		t.Fatalf("len(page.Entries) = %d, want 3 (%+v)", len(page.Entries), page.Entries)
 	}
@@ -374,7 +256,7 @@ func TestPersistedTranscriptScanProjectsPreservedUserMessageFromHistoryReplaceme
 
 func TestPersistedTranscriptScanMaterializesCompactedDeveloperContextInDetailPage(t *testing.T) {
 	t.Parallel()
-	scan := NewPersistedTranscriptScan(PersistedTranscriptScanRequest{})
+	scan := newStreamingTranscriptScan("")
 	events := []session.EventRecord{
 		mustPersistedScanEvent(t, "message", llm.Message{Role: llm.RoleUser, Content: textutil.Value("before compaction")}),
 		mustPersistedScanEvent(t, "local_entry", storedLocalEntry{Role: "error", Text: "before replace"}),
@@ -390,7 +272,7 @@ func TestPersistedTranscriptScanMaterializesCompactedDeveloperContextInDetailPag
 		}
 	}
 
-	page := scan.CollectedPageSnapshot()
+	page := scan.PageSnapshot()
 	if got := len(page.Entries); got != 5 {
 		t.Fatalf("len(page.Entries) = %d, want 5 (%+v)", got, page.Entries)
 	}
@@ -416,12 +298,12 @@ func TestPersistedTranscriptScanMaterializesCompactedDeveloperContextInDetailPag
 
 func TestPersistedTranscriptScanReplaysCacheWarnings(t *testing.T) {
 	t.Parallel()
-	scan := NewPersistedTranscriptScan(PersistedTranscriptScanRequest{})
+	scan := newStreamingTranscriptScan("")
 	if err := scan.ApplyPersistedEvent(mustPersistedScanEvent(t, sessionEventCacheWarning, transcript.CacheWarning{Scope: transcript.CacheWarningScopeConversation, Reason: transcript.CacheWarningReasonNonPostfix})); err != nil {
 		t.Fatalf("ApplyPersistedEvent(cache_warning): %v", err)
 	}
 
-	page := scan.CollectedPageSnapshot()
+	page := scan.PageSnapshot()
 	if len(page.Entries) != 1 {
 		t.Fatalf("len(page.Entries) = %d, want 1", len(page.Entries))
 	}
@@ -445,12 +327,12 @@ func TestPersistedTranscriptScanUsesCacheWarningModeVisibility(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			scan := NewPersistedTranscriptScan(PersistedTranscriptScanRequest{CacheWarningMode: tt.mode})
+			scan := newStreamingTranscriptScan(tt.mode)
 			if err := scan.ApplyPersistedEvent(mustPersistedScanEvent(t, sessionEventCacheWarning, transcript.CacheWarning{Scope: transcript.CacheWarningScopeConversation, Reason: transcript.CacheWarningReasonNonPostfix})); err != nil {
 				t.Fatalf("ApplyPersistedEvent(cache_warning): %v", err)
 			}
 
-			page := scan.CollectedPageSnapshot()
+			page := scan.PageSnapshot()
 			if len(page.Entries) != 1 {
 				t.Fatalf("len(page.Entries) = %d, want 1", len(page.Entries))
 			}

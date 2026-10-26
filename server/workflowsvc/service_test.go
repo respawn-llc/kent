@@ -2171,7 +2171,7 @@ func TestServiceMapsWorkflowTaskLabelScopeFailures(t *testing.T) {
 	workflowID := createWorkflowServiceValidWorkflow(t, ctx, service)
 	linkDefaultWorkflowServiceProject(t, ctx, service, binding.ProjectID, workflowID)
 	task := createDefaultWorkflowServiceTask(t, ctx, service, binding.ProjectID)
-	other, err := metadataStore.CreateProjectForWorkspace(ctx, t.TempDir(), "Other")
+	other, err := metadataStore.CreateProjectForWorkspaceWithKey(ctx, t.TempDir(), "Other", "")
 	if err != nil {
 		t.Fatalf("CreateProjectForWorkspace other: %v", err)
 	}
