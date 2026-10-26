@@ -554,11 +554,11 @@ func transcriptCommittedRowMessages(evt runtime.Event, identities map[runtimeids
 		return nil, nil
 	}
 	out := make([]*transcriptpb.Event, 0, len(rowFacts))
-	rows, err := transcriptRowsFromFactsChecked(rowFacts, identities)
-	if err != nil {
-		return nil, err
-	}
-	for _, row := range rows {
+	for _, fact := range rowFacts {
+		row, err := transcriptRowFromFact(fact, identities)
+		if err != nil {
+			return nil, err
+		}
 		out = append(out, &transcriptpb.Event{Payload: &transcriptpb.Event_CommittedRow{CommittedRow: row}})
 	}
 	return out, nil
@@ -570,9 +570,6 @@ func transcriptRowsFromFactsChecked(facts []runtime.TranscriptCommittedRowFact, 
 	}
 	rows := make([]*transcriptpb.CommittedRow, 0, len(facts))
 	for _, fact := range facts {
-		if fact.Kind == runtime.TranscriptCommittedRowFactToolCall {
-			continue
-		}
 		row, err := transcriptRowFromFact(fact, identities)
 		if err != nil {
 			return nil, err
