@@ -275,10 +275,10 @@ func TestResponsesSocketErrorsRetainProviderFactsWithoutHandshakeStatus(t *testi
 
 func TestResponsesSocketRejectsInvalidFramesBeforeTerminal(t *testing.T) {
 	for name, event := range map[string]string{
-		"malformed": `{"type":`,
-		"numeric type": `{"type":1,"error":{"code":"insufficient_quota"}}`,
-		"null type": `{"type":null,"error":{"code":"insufficient_quota"}}`,
-		"empty type": `{"type":"","error":{"code":"insufficient_quota"}}`,
+		"malformed":        `{"type":`,
+		"numeric type":     `{"type":1,"error":{"code":"insufficient_quota"}}`,
+		"null type":        `{"type":null,"error":{"code":"insufficient_quota"}}`,
+		"empty type":       `{"type":"","error":{"code":"insufficient_quota"}}`,
 		"missing envelope": `{}`,
 	} {
 		t.Run(name, func(t *testing.T) {

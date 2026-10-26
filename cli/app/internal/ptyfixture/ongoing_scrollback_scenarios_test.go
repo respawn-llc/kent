@@ -37,9 +37,11 @@ func TestOngoingNativeScrollbackPTYScenarios(t *testing.T) {
 	}
 	backgroundPresentation := proto.Clone(shellPresentation).(*transcriptpb.ToolPresentation)
 	backgroundPresentation.MovedToBackground = true
-	backgroundResult := transcriptrender.RenderToolCompletion(
-		&transcriptpb.ToolStart{ToolName: string(toolspec.ToolExecCommand), Presentation: shellPresentation},
-		&transcriptpb.ToolRow{ToolName: proto.String(string(toolspec.ToolExecCommand)), Presentation: backgroundPresentation}, 80, "dark").Lines[0].Plain()
+	backgroundPresentation.Command = proto.String("sleep 1.5; echo $((51515150+1))")
+	backgroundResult := transcriptrender.RenderCommittedRow(
+		&transcriptpb.CommittedRow{Row: &transcriptpb.CommittedRow_Tool{Tool: &transcriptpb.ToolRow{
+			ToolName: proto.String(string(toolspec.ToolExecCommand)), Presentation: backgroundPresentation,
+		}}}, 80, "dark", transcriptrender.ModeOngoing).Lines[0].Plain()
 
 	for _, tc := range []struct {
 		name                      string
@@ -176,7 +178,7 @@ func TestOngoingNativeScrollbackPTYScenarios(t *testing.T) {
 				"ℹ Background shell 1000 completed (exit 0)",
 				backgroundResult,
 			},
-			expectedScreenRows: []string{"$ sleep 1.5; echo $((51515150+1))"},
+			expectedScreenRows: []string{backgroundResult},
 		},
 	} {
 		tc := tc
