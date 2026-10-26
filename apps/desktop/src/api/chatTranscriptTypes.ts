@@ -175,6 +175,7 @@ export type ChatCommittedRow = Readonly<{
     Text: string;
     CondensedText?: string | null;
     Phase: "commentary" | "final_answer";
+    SourceState?: "streaming" | "complete";
     committed_at_unix_ms?: number | null;
   }> | null;
   Tool: Readonly<{
@@ -226,7 +227,7 @@ export interface ChatTranscriptPayloadByKind {
       HasMoreAbove: boolean;
       Entries: readonly ChatCommittedRow[];
     }>;
-    ActiveAssistants: readonly (AssistantFacts & Readonly<{ Text: string }>)[];
+    ActiveAssistants: readonly (AssistantFacts & Readonly<{ Text: string; SourceState: "streaming" | "complete" }>)[];
     ActiveThinkingStatus: ChatTranscriptPayloadByKind["thinking_status_update"] | null;
     ActiveReasoningTraces: readonly ChatTranscriptPayloadByKind["reasoning_trace_update"][];
     ActiveStep: ChatTranscriptPayloadByKind["step_state"] | null;
@@ -239,6 +240,7 @@ export interface ChatTranscriptPayloadByKind {
   }>;
   committed_row: ChatCommittedRow;
   assistant_delta: AssistantFacts & Readonly<{ Delta: string }>;
+  assistant_source_complete: AssistantFacts & Readonly<{ Text: string; SourceState: "streaming" | "complete" }>;
   assistant_stream_abort: Readonly<{
     StepID: string;
     StreamID: string;

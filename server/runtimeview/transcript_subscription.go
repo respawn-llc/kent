@@ -187,6 +187,15 @@ func TranscriptMessagesFromRuntimeEventChecked(evt runtime.Event, identities map
 
 func transcriptMessagesFromRuntimeEvent(evt runtime.Event, identities map[runtimeids.SessionID]runtimeids.SessionIdentity) ([]*transcriptpb.Event, error) {
 	switch evt.Kind {
+	case runtime.EventAssistantSourceComplete:
+		if evt.AssistantSource == nil {
+			return nil, fmt.Errorf("assistant source completion omitted source")
+		}
+		source, err := transcriptAssistantStream(*evt.AssistantSource)
+		if err != nil {
+			return nil, err
+		}
+		return []*transcriptpb.Event{{Payload: &transcriptpb.Event_AssistantSourceComplete{AssistantSourceComplete: source}}}, nil
 	case runtime.EventAssistantDelta:
 		if evt.AssistantDelta == "" {
 			return nil, nil
@@ -216,7 +225,8 @@ func transcriptMessagesFromRuntimeEvent(evt runtime.Event, identities map[runtim
 		}
 		abortReason := transcriptAssistantAbortReason(reason)
 		abort := &transcriptpb.AssistantStreamAbort{
-			StepId: stepID, StreamId: evt.AssistantTranscriptStreamID.String(), Reason: abortReason,
+			SourceState: transcriptAssistantSourceState(evt.AssistantSourceState),
+			StepId:      stepID, StreamId: evt.AssistantTranscriptStreamID.String(), Reason: abortReason,
 		}
 		return []*transcriptpb.Event{{Payload: &transcriptpb.Event_AssistantStreamAbort{AssistantStreamAbort: abort}}}, nil
 	case runtime.EventReasoningDelta:
@@ -590,6 +600,7 @@ func transcriptAssistantStream(stream runtime.AssistantStreamSnapshot) (*transcr
 		return nil, err
 	}
 	projected := &transcriptpb.AssistantStream{
+		SourceState: transcriptAssistantSourceState(stream.SourceState),
 		StepId:      stepID,
 		StreamId:    streamID,
 		Text:        stream.Text,
@@ -597,6 +608,17 @@ func transcriptAssistantStream(stream runtime.AssistantStreamSnapshot) (*transcr
 		OutputIndex: textutil.Pointer(stream.Metadata.OutputIndex),
 	}
 	return projected, nil
+}
+
+func transcriptAssistantSourceState(state runtime.AssistantSourceState) transcriptpb.AssistantSourceState {
+	switch state {
+	case runtime.AssistantSourceStreaming:
+		return transcriptpb.AssistantSourceState_ASSISTANT_SOURCE_STATE_STREAMING
+	case runtime.AssistantSourceComplete:
+		return transcriptpb.AssistantSourceState_ASSISTANT_SOURCE_STATE_COMPLETE
+	default:
+		panic(fmt.Sprintf("unknown assistant source state %d", state))
+	}
 }
 
 func transcriptToolStartMessages(starts []runtime.TranscriptLiveToolStart) ([]*transcriptpb.Event, error) {
@@ -794,6 +816,8 @@ func transcriptRowFromFact(fact runtime.TranscriptCommittedRowFact, identities m
 		if fact.Assistant.StreamID != nil {
 			streamID := fact.Assistant.StreamID.String()
 			assistant.StreamId = &streamID
+			state := transcriptAssistantSourceState(fact.Assistant.SourceState)
+			assistant.SourceState = &state
 		}
 		row.Row = &transcriptpb.CommittedRow_Assistant{Assistant: assistant}
 	case runtime.TranscriptCommittedRowFactToolCall:

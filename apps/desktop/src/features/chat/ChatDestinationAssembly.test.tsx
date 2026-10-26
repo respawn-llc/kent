@@ -261,6 +261,7 @@ it("keeps streamed output and drafts usable when reviewer suggestions are follow
               StreamID: "stream",
               Phase: "commentary",
               Text: "Current response",
+              SourceState: "streaming",
             },
           ],
         },

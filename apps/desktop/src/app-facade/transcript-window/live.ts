@@ -81,6 +81,9 @@ export function reduceLive(
     case "assistant_delta":
       next = appendAssistantDelta(items, fact.payload);
       break;
+    case "assistant_source_complete":
+      next = assistant(fact.payload);
+      break;
     case "tool_start":
       next = tool(fact.payload);
       break;
@@ -112,7 +115,10 @@ function appendAssistantDelta(
   if (previous !== undefined && (previous.kind !== "assistant" || previous.value.StepID !== facts.StepID)) {
     throw new ContractError("Assistant delta does not match the live stream facts.");
   }
-  return assistant({ ...facts, Text: (previous?.value.Text ?? "") + Delta });
+  if (previous?.value.SourceState === "complete") {
+    throw new ContractError("Completed assistant source received more deltas.");
+  }
+  return assistant({ ...facts, Text: (previous?.value.Text ?? "") + Delta, SourceState: "streaming" });
 }
 
 function updateLiveItem(

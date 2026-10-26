@@ -49,6 +49,12 @@ enum AssistantPhase {
   ASSISTANT_PHASE_FINAL = 2;
 }
 
+enum AssistantSourceState {
+  ASSISTANT_SOURCE_STATE_UNSPECIFIED = 0;
+  ASSISTANT_SOURCE_STATE_STREAMING = 1;
+  ASSISTANT_SOURCE_STATE_COMPLETE = 2;
+}
+
 enum AssistantAbortReason {
   ASSISTANT_ABORT_REASON_UNSPECIFIED = 0;
   ASSISTANT_ABORT_REASON_INTERRUPTED = 1;
@@ -249,6 +255,7 @@ message UserRow {
 }
 
 message AssistantRow {
+  optional AssistantSourceState source_state = 7 [(buf.validate.field).enum = {defined_only: true, not_in: [0]}];
   string step_id = 1 [
     (buf.validate.field).string.uuid = true,
     (buf.validate.field).string.(kent.api.shared.canonical_uuid_v4) = true
@@ -660,6 +667,7 @@ message SessionStatus {
 }
 
 message AssistantStream {
+  AssistantSourceState source_state = 6 [(buf.validate.field).enum = {defined_only: true, not_in: [0]}];
   optional int64 output_index = 5 [(buf.validate.field).int64.gte = 0];
   string step_id = 1 [
     (buf.validate.field).string.uuid = true,
@@ -694,6 +702,7 @@ message AssistantDelta {
 }
 
 message AssistantStreamAbort {
+  AssistantSourceState source_state = 5 [(buf.validate.field).enum = {defined_only: true, not_in: [0]}];
   string step_id = 1 [
     (buf.validate.field).string.uuid = true,
     (buf.validate.field).string.(kent.api.shared.canonical_uuid_v4) = true
@@ -1279,6 +1288,7 @@ message Event {
     SessionSettingFeedback session_setting_feedback = 28;
     HumanInputInterrupted human_input_interrupted = 29;
     ConnectionReplacement connection_replaced = 30;
+    AssistantStream assistant_source_complete = 31;
   }
 }
 

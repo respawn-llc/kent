@@ -755,6 +755,12 @@ type AssistantDelta struct {
 	OutputIndex *int64
 }
 
+type AssistantSource struct {
+	Text        string
+	Phase       MessagePhase
+	OutputIndex int64
+}
+
 type ReasoningStatus struct {
 	Text string
 }
@@ -768,10 +774,11 @@ type ReasoningSummaryDelta struct {
 }
 
 type StreamCallbacks struct {
-	OnAssistantDelta        func(delta AssistantDelta)
-	OnOutputItem            func(item ResponseItem)
-	OnReasoningSummaryDelta func(delta ReasoningSummaryDelta)
-	OnStreamActivity        func()
+	OnAssistantDelta          func(delta AssistantDelta)
+	OnAssistantSourceComplete func(source AssistantSource)
+	OnOutputItem              func(item ResponseItem)
+	OnReasoningSummaryDelta   func(delta ReasoningSummaryDelta)
+	OnStreamActivity          func()
 }
 
 type ModelContextWindowClient interface {

@@ -1197,6 +1197,12 @@ func (e *Engine) generateRepairAttempt(ctx context.Context, stepID string, conne
 		}
 		var emitted atomic.Bool
 		wrapped := callbacks
+		if callbacks.OnAssistantSourceComplete != nil {
+			wrapped.OnAssistantSourceComplete = func(source llm.AssistantSource) {
+				emitted.Store(true)
+				callbacks.OnAssistantSourceComplete(source)
+			}
+		}
 		if callbacks.OnAssistantDelta != nil {
 			wrapped.OnAssistantDelta = func(delta llm.AssistantDelta) {
 				if delta.Text != "" {

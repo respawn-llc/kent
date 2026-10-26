@@ -141,6 +141,7 @@ type Surface struct {
 }
 
 type activeAssistantState struct {
+	sourceState            transcriptpb.AssistantSourceState
 	outputIndex            *int64
 	streamID               *string
 	source                 string
@@ -201,7 +202,13 @@ func (s *Surface) ApplyTerminalMessage(message *transcriptpb.Message, frame Fram
 		delta := payload.AssistantDelta
 		return s.applyAssistantDelta(delta.StreamId, delta.Delta, delta.Phase, delta.OutputIndex, frame)
 	case *transcriptpb.Event_AssistantStreamAbort:
+		if payload.AssistantStreamAbort.SourceState == transcriptpb.AssistantSourceState_ASSISTANT_SOURCE_STATE_COMPLETE {
+			return s.Render(frame)
+		}
 		return s.abortAssistantStream(payload.AssistantStreamAbort.StreamId, frame)
+	case *transcriptpb.Event_AssistantSourceComplete:
+		source := payload.AssistantSourceComplete
+		return s.completeAssistantSource(source, frame)
 	case *transcriptpb.Event_StepState:
 		return s.Render(frame)
 	case *transcriptpb.Event_CommittedRow:
@@ -213,6 +220,9 @@ func (s *Surface) ApplyTerminalMessage(message *transcriptpb.Message, frame Fram
 			return s.Render(frame)
 		}
 		if assistant := payload.CommittedRow.GetAssistant(); assistant != nil && assistant.StreamId != nil {
+			if assistant.GetSourceState() == transcriptpb.AssistantSourceState_ASSISTANT_SOURCE_STATE_COMPLETE {
+				return Result{}, nil
+			}
 			return s.finalizeAssistantStream(*assistant.StreamId, assistant.Text, frame)
 		}
 	}
@@ -233,11 +243,12 @@ func (s *Surface) applyHydration(hydration *transcriptpb.Hydration, frame FrameI
 			id := stream.StreamId
 			s.pendingAssistants = append(s.pendingAssistants, activeAssistantState{
 				streamID: &id, source: stream.Text, phase: stream.Phase, outputIndex: stream.OutputIndex,
+				sourceState: stream.SourceState,
 			})
 		}
 	}
 	activeStreamHydrated := s.hydrateActiveAssistantStream(first)
-	if activeStreamHydrated && !s.activeAssistantPromotionDeferred() {
+	if activeStreamHydrated && s.activeAssistant.sourceState != transcriptpb.AssistantSourceState_ASSISTANT_SOURCE_STATE_COMPLETE && !s.activeAssistantPromotionDeferred() {
 		projection := newMarkdownProjector(nil, frame.Theme, s.markdownLinks).Project(markdownProjectionInput{
 			Source:           s.activeAssistant.source,
 			Width:            frameWidthOrDefault(frame),
@@ -258,7 +269,14 @@ func (s *Surface) applyHydration(hydration *transcriptpb.Hydration, frame FrameI
 	if len(lines) == 0 && !activeStreamHydrated && len(s.pendingAssistants) == 0 {
 		return Result{}, nil
 	}
-	return s.writeFrameTransaction(frame, lines)
+	result, err := s.writeFrameTransaction(frame, lines)
+	if err != nil {
+		return result, err
+	}
+	if s.activeAssistant.sourceState == transcriptpb.AssistantSourceState_ASSISTANT_SOURCE_STATE_COMPLETE {
+		return s.promoteNextAssistant(frame)
+	}
+	return result, nil
 }
 
 func (s *Surface) hydrateActiveAssistantStream(stream *transcriptpb.AssistantStream) bool {
@@ -268,6 +286,7 @@ func (s *Surface) hydrateActiveAssistantStream(stream *transcriptpb.AssistantStr
 	}
 	streamIDCopy := stream.StreamId
 	s.activeAssistant = activeAssistantState{
+		sourceState:      stream.SourceState,
 		outputIndex:      stream.OutputIndex,
 		streamID:         &streamIDCopy,
 		source:           stream.Text,
@@ -275,6 +294,32 @@ func (s *Surface) hydrateActiveAssistantStream(stream *transcriptpb.AssistantStr
 		phaseSourceStart: 0,
 	}
 	return stream.Text != ""
+}
+
+func (s *Surface) completeAssistantSource(source *transcriptpb.AssistantStream, frame FrameInput) (Result, error) {
+	for index := range s.pendingAssistants {
+		pending := &s.pendingAssistants[index]
+		if *pending.streamID != source.StreamId {
+			continue
+		}
+		if !strings.HasPrefix(source.Text, pending.source) {
+			panicOngoingDeveloperError("assistant_source_complete", "complete source does not extend pending source", nil)
+		}
+		pending.source = source.Text
+		pending.sourceState = transcriptpb.AssistantSourceState_ASSISTANT_SOURCE_STATE_COMPLETE
+		return s.Render(frame)
+	}
+	return s.finalizeAssistantStream(source.StreamId, source.Text, frame)
+}
+
+func (s *Surface) promoteNextAssistant(frame FrameInput) (Result, error) {
+	if s.activeAssistant.streamID == nil {
+		return Result{}, nil
+	}
+	if s.activeAssistant.sourceState == transcriptpb.AssistantSourceState_ASSISTANT_SOURCE_STATE_COMPLETE {
+		return s.finalizeAssistantStream(*s.activeAssistant.streamID, s.activeAssistant.source, frame)
+	}
+	return s.applyAssistantDelta(*s.activeAssistant.streamID, "", s.activeAssistant.phase, s.activeAssistant.outputIndex, frame)
 }
 
 func (s *Surface) applyAssistantDelta(streamID string, delta string, phase transcriptpb.AssistantPhase, outputIndex *int64, frame FrameInput) (Result, error) {
@@ -342,6 +387,9 @@ func (s *Surface) activeAssistantPromotionDeferred() bool {
 }
 
 func (s *Surface) abortAssistantStream(streamID string, frame FrameInput) (Result, error) {
+	if s.activeAssistant.streamID == nil {
+		panicOngoingDeveloperError("assistant_abort", "stream id has no unfinished source", nil)
+	}
 	if s.activeAssistant.streamID != nil && *s.activeAssistant.streamID != streamID {
 		for index, stream := range s.pendingAssistants {
 			if *stream.streamID == streamID {
@@ -358,7 +406,10 @@ func (s *Surface) abortAssistantStream(streamID string, frame FrameInput) (Resul
 	}
 	rows := s.drainFinishedTools(frame)
 	s.advanceAssistantStream()
-	return s.writeFrameTransaction(frame, rows)
+	if _, err := s.writeFrameTransaction(frame, rows); err != nil {
+		return Result{}, err
+	}
+	return s.promoteNextAssistant(frame)
 }
 
 func (s *Surface) advanceAssistantStream() {
@@ -403,7 +454,10 @@ func (s *Surface) finalizeAssistantStream(streamID string, text string, frame Fr
 	promotedRows := s.renderAssistantPromotedRows(rows, frame.Theme)
 	promotedRows = append(promotedRows, s.drainFinishedTools(frame)...)
 	s.advanceAssistantStream()
-	return s.writeFrameTransaction(frame, promotedRows)
+	if _, err := s.writeFrameTransaction(frame, promotedRows); err != nil {
+		return Result{}, err
+	}
+	return s.promoteNextAssistant(frame)
 }
 
 func (s *Surface) drainFinishedTools(frame FrameInput) []string {

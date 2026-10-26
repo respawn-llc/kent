@@ -187,7 +187,7 @@ function liveAssistant(text: string): Extract<TranscriptRenderItem, { kind: "ass
     kind: "assistant",
     state: "live",
     key: "stream",
-    value: { StepID: "step", StreamID: "stream", Phase: "commentary", Text: text },
+    value: { StepID: "step", StreamID: "stream", Phase: "commentary", Text: text, SourceState: "streaming" },
   };
 }
 

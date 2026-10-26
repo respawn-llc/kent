@@ -13,12 +13,15 @@ import (
 	"path/filepath"
 	"reflect"
 	"slices"
+	"strings"
 	"sync/atomic"
 	"testing"
 	"time"
 
 	"core/cli/tui/ongoing"
 	"core/internal/testharness/httpclient"
+	"core/internal/testharness/pty"
+	"core/internal/testharness/pty/analyzer"
 	"core/internal/testharness/runtimewirefixture"
 	"core/server/llm"
 	"core/server/session"
@@ -32,6 +35,150 @@ import (
 	"core/shared/toolspec"
 	"github.com/coder/websocket"
 )
+
+func TestNativeMessageBoundaryPromotesNextSourceBeforeAcceptance(t *testing.T) {
+	first, second := "First source paragraph.\n\n", "Second source paragraph.\n\n"
+	output := []json.RawMessage{
+		json.RawMessage(fmt.Sprintf(`{"type":"message","id":"first","role":"assistant","phase":"commentary","content":[{"type":"output_text","text":%q,"annotations":[]}]}`, first)),
+		json.RawMessage(`{"type":"web_search_call","id":"pending-search","status":"completed","action":{"type":"search","query":"sample"}}`),
+		json.RawMessage(fmt.Sprintf(`{"type":"message","id":"second","role":"assistant","phase":"final_answer","content":[{"type":"output_text","text":%q,"annotations":[]}]}`, second)),
+	}
+	ready, release := make(chan struct{}, 1), make(chan struct{})
+	client := nativeResponseTestClient(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		socket, err := websocket.Accept(w, r, nil)
+		if err != nil {
+			return
+		}
+		defer socket.CloseNow()
+		if _, _, err := socket.Read(t.Context()); err != nil {
+			return
+		}
+		for index, raw := range output {
+			preview := raw
+			if index == 1 {
+				preview = json.RawMessage(`{"type":"web_search_call","id":"pending-search","status":"in_progress","action":{"type":"search","query":"sample"}}`)
+			}
+			events := []string{fmt.Sprintf(`{"type":"response.output_item.added","output_index":%d,"item":%s}`, index, preview)}
+			if index != 1 {
+				text := first
+				if index == 2 {
+					text = second
+				}
+				events = append(events, fmt.Sprintf(`{"type":"response.output_text.delta","output_index":%d,"delta":%q}`, index, text),
+					fmt.Sprintf(`{"type":"response.output_item.done","output_index":%d,"item":%s}`, index, raw))
+			}
+			for _, event := range events {
+				if err := socket.Write(t.Context(), websocket.MessageText, []byte(event)); err != nil {
+					return
+				}
+			}
+		}
+		select {
+		case <-release:
+		case <-t.Context().Done():
+			return
+		}
+		_ = socket.Write(t.Context(), websocket.MessageText, []byte(fmt.Sprintf(
+			`{"type":"response.completed","response":{"id":"response","status":"completed","output":[%s]}}`,
+			bytes.Join(nativeBytes(output), []byte(",")))))
+	}))
+	var terminalOutput bytes.Buffer
+	surface := ongoing.NewSurface(&terminalOutput)
+	frame := ongoing.FrameInput{Size: ongoing.Size{Width: 80, Height: 30}, Theme: "dark"}
+	engine := mustNewTestEngine(t, mustCreateTestSession(t), client, tools.NewRegistry(), Config{
+		Model: "gpt-6-sol", WebSearchMode: "native", EnabledTools: []toolspec.ID{toolspec.ToolWebSearch},
+		OnEvent: func(event Event) {
+			apply := func(payload *transcriptpb.Event) {
+				if _, err := surface.ApplyTerminalMessage(&transcriptpb.Message{Event: payload}, frame); err != nil {
+					t.Error(err)
+				}
+			}
+			switch event.Kind {
+			case EventToolCallStarted:
+				apply(&transcriptpb.Event{Payload: &transcriptpb.Event_ToolStart{ToolStart: &transcriptpb.ToolStart{
+					StepId: *event.StepID, ToolCallId: event.ToolCall.ID, ToolName: event.ToolCall.Name,
+				}}})
+			case EventAssistantDelta:
+				phase := transcriptpb.AssistantPhase_ASSISTANT_PHASE_COMMENTARY
+				if event.AssistantDeltaPhase == llm.MessagePhaseFinal {
+					phase = transcriptpb.AssistantPhase_ASSISTANT_PHASE_FINAL
+				}
+				apply(&transcriptpb.Event{Payload: &transcriptpb.Event_AssistantDelta{AssistantDelta: &transcriptpb.AssistantDelta{
+					StreamId: event.AssistantTranscriptStreamID.String(), Delta: event.AssistantDelta,
+					Phase: phase, OutputIndex: event.AssistantStreamMetadata.OutputIndex,
+				}}})
+			case EventAssistantSourceComplete:
+				source := event.AssistantSource
+				apply(&transcriptpb.Event{Payload: &transcriptpb.Event_AssistantSourceComplete{AssistantSourceComplete: &transcriptpb.AssistantStream{
+					StreamId: source.StreamID.String(), Text: source.Text,
+					Phase:       transcriptpb.AssistantPhase_ASSISTANT_PHASE_COMMENTARY,
+					SourceState: transcriptpb.AssistantSourceState_ASSISTANT_SOURCE_STATE_COMPLETE,
+				}}})
+				if *source.Metadata.OutputIndex == 2 {
+					ready <- struct{}{}
+				}
+			case EventAssistantMessage:
+				for _, row := range TranscriptCommittedRowFactsFromEvent(event) {
+					if row.Assistant == nil {
+						continue
+					}
+					id := row.Assistant.StreamID.String()
+					if row.Assistant.SourceState != AssistantSourceComplete {
+						t.Error("native commit lost the completed-source outcome")
+					}
+					state := transcriptpb.AssistantSourceState_ASSISTANT_SOURCE_STATE_COMPLETE
+					apply(&transcriptpb.Event{Payload: &transcriptpb.Event_CommittedRow{CommittedRow: &transcriptpb.CommittedRow{
+						Row: &transcriptpb.CommittedRow_Assistant{Assistant: &transcriptpb.AssistantRow{
+							Text: row.Assistant.Text, StreamId: &id, SourceState: &state,
+						}},
+					}}})
+				}
+			}
+		},
+	})
+	done := make(chan error, 1)
+	go func() { _, err := engine.SubmitUserMessage(t.Context(), "answer"); done <- err }()
+	select {
+	case <-ready:
+	case <-time.After(5 * time.Second):
+		close(release)
+		t.Fatal("message boundary did not release source before response acceptance")
+	}
+	hydration := hydrationSnapshot(t, engine)
+	if len(hydration.ActiveAssistants) == 0 {
+		t.Fatal("source-complete awaiting acceptance was missing from hydration")
+	}
+	for _, source := range hydration.ActiveAssistants {
+		if source.SourceState != AssistantSourceComplete {
+			t.Fatal("hydration did not retain completed source lifecycle")
+		}
+	}
+	assertOnce := func() {
+		t.Helper()
+		terminal, err := analyzer.NewStream(pty.MustDimensions(frame.Size.Height, frame.Size.Width))
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := terminal.Feed(terminalOutput.Bytes()); err != nil {
+			t.Fatal(err)
+		}
+		screen, err := terminal.ScreenSnapshot()
+		if err != nil {
+			t.Fatal(err)
+		}
+		for _, source := range []string{first, second} {
+			if strings.Count(screen.RenderText(), strings.TrimSpace(source)) != 1 {
+				t.Fatal("source did not emit exactly once")
+			}
+		}
+	}
+	assertOnce()
+	close(release)
+	if err := <-done; err != nil {
+		t.Fatal(err)
+	}
+	assertOnce()
+}
 
 func nativeResponsesSocketHandler(t *testing.T, respond func(json.RawMessage) []string) http.Handler {
 	t.Helper()

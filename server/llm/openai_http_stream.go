@@ -82,6 +82,20 @@ func (a *responseStreamAccumulator) Consume(evt responses.ResponseStreamEventUni
 		a.reasoning.UpsertReasoningItem(evt.Item, evt.OutputIndex)
 		a.recordReasoningAccumulatorError()
 		a.passthrough.Upsert(evt.Item, evt.OutputIndex, a.policy)
+		if evt.Type == "response.output_item.done" && evt.Item.Type == "message" && a.callbacks.OnAssistantSourceComplete != nil {
+			item := a.assistantMessages.byIndex[evt.OutputIndex].message
+			item.OutputIndex = evt.OutputIndex
+			text, _, err := a.assistantPresentation(item)
+			if err != nil {
+				a.responseError = &responseStreamError{ProviderContract: &responseStreamProviderContract{Message: err.Error()}}
+				return
+			}
+			if text != "" {
+				a.callbacks.OnAssistantSourceComplete(AssistantSource{
+					Text: text, Phase: a.assistantMessages.Phase(evt.OutputIndex), OutputIndex: evt.OutputIndex,
+				})
+			}
+		}
 		if a.callbacks.OnOutputItem != nil && evt.Item.Type != "message" && evt.Item.Type != "reasoning" {
 			items, _, _, _, _, _, _, err := parseOutputItems([]responses.ResponseOutputItemUnion{evt.Item}, a.policy)
 			if err != nil {
@@ -174,6 +188,36 @@ func (a *responseStreamAccumulator) Consume(evt responses.ResponseStreamEventUni
 	case "error":
 		a.responseError = &responseStreamError{Raw: evt.RawJSON()}
 	}
+}
+
+func (a *responseStreamAccumulator) assistantPresentation(item ResponseItem) (string, *session.NativeAssistantPresentation, error) {
+	text := optionalStringValue(item.Content)
+	streamed := ""
+	if observed, ok := a.assistantMessages.byIndex[item.OutputIndex]; ok && observed.deltaText != nil {
+		streamed = observed.deltaText.String()
+	} else if pending := a.assistantMessages.pendingDeltas[item.OutputIndex]; pending != nil {
+		streamed = pending.String()
+	}
+	if a.callbacks.OnAssistantDelta == nil && item.Content != nil && *item.Content != "" {
+		streamed = ""
+	}
+	if streamed == "" {
+		return text, nil, nil
+	}
+	if !completedAssistantTextReconcilesStream(streamed, text) {
+		return "", nil, fmt.Errorf("completed assistant item %d conflicts with streamed assistant content", item.OutputIndex)
+	}
+	display := reconciledCompletedAssistantText(streamed, text)
+	if display == text {
+		return text, nil, nil
+	}
+	fact := &session.NativeAssistantPresentation{OutputIndex: item.OutputIndex}
+	if display == strings.TrimLeftFunc(text, unicode.IsSpace) {
+		fact.LeadingBytes = len(text) - len(display)
+	} else {
+		fact.TrailingWhitespace = []byte(display[len(text):])
+	}
+	return display, fact, nil
 }
 
 func (a *responseStreamAccumulator) consumeAssistantDelta(outputIndex int64, text string) {
@@ -298,31 +342,12 @@ func (a *responseStreamAccumulator) Response() (ResponsesResponse, error) {
 			if item.Type != ResponseItemTypeMessage {
 				continue
 			}
-			text := optionalStringValue(item.Content)
-			streamed := ""
-			if observed, ok := a.assistantMessages.byIndex[item.OutputIndex]; ok && observed.deltaText != nil {
-				streamed = observed.deltaText.String()
-			} else if pending := a.assistantMessages.pendingDeltas[item.OutputIndex]; pending != nil {
-				streamed = pending.String()
+			text, presentation, err := a.assistantPresentation(item)
+			if err != nil {
+				return ResponsesResponse{}, err
 			}
-			if a.callbacks.OnAssistantDelta == nil && item.Content != nil && *item.Content != "" {
-				streamed = ""
-			}
-			if streamed != "" {
-				if !completedAssistantTextReconcilesStream(streamed, text) {
-					return ResponsesResponse{}, fmt.Errorf("completed assistant item %d conflicts with streamed assistant content", item.OutputIndex)
-				}
-				display := reconciledCompletedAssistantText(streamed, text)
-				if display != text {
-					fact := session.NativeAssistantPresentation{OutputIndex: item.OutputIndex}
-					if display == strings.TrimLeftFunc(text, unicode.IsSpace) {
-						fact.LeadingBytes = len(text) - len(display)
-					} else {
-						fact.TrailingWhitespace = []byte(display[len(text):])
-					}
-					assistantPresentation = append(assistantPresentation, fact)
-				}
-				text = display
+			if presentation != nil {
+				assistantPresentation = append(assistantPresentation, *presentation)
 			}
 			phase, _ := textutil.OptionalValue(item.Phase)
 			content := textutil.Pointer(item.Content)

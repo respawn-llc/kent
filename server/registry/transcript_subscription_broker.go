@@ -209,7 +209,7 @@ func transcriptProjectionContractError(err error) error {
 
 type transcriptSubscriptionContract struct {
 	hydrated                 bool
-	activeStreams            map[string]struct{}
+	activeStreams            map[string]transcriptpb.AssistantSourceState
 	inFlightTools            map[clientui.ToolCallID]struct{}
 	hydratedEventSequence    int64
 	hasHydratedEventSequence bool
@@ -237,6 +237,7 @@ func (c *transcriptSubscriptionContract) validateHydration(hydration *transcript
 		if err := c.matchOrStartStream(assistant.StreamId, 1, "hydrated assistant"); err != nil {
 			return err
 		}
+		c.activeStreams[assistant.StreamId] = assistant.SourceState
 	}
 	for _, tool := range hydration.InFlightTools {
 		if err := c.trackToolStart(tool, "hydration in-flight tool"); err != nil {
@@ -259,6 +260,16 @@ func (c *transcriptSubscriptionContract) validateHydration(hydration *transcript
 
 func (c *transcriptSubscriptionContract) validateLiveMessage(message *transcriptpb.Message) error {
 	switch payload := message.Event.Payload.(type) {
+	case *transcriptpb.Event_AssistantSourceComplete:
+		source := payload.AssistantSourceComplete
+		if source.SourceState != transcriptpb.AssistantSourceState_ASSISTANT_SOURCE_STATE_COMPLETE {
+			return errTranscriptContractViolation("source completion requires a completed source")
+		}
+		if err := c.matchOrStartStream(source.StreamId, message.Sequence, "assistant_source_complete"); err != nil {
+			return err
+		}
+		c.activeStreams[source.StreamId] = source.SourceState
+		return nil
 	case *transcriptpb.Event_AssistantDelta:
 		return c.matchOrStartStream(payload.AssistantDelta.StreamId, message.Sequence, "assistant_delta")
 	case *transcriptpb.Event_AssistantStreamAbort:
@@ -306,6 +317,10 @@ func (c *transcriptSubscriptionContract) validateLiveMessage(message *transcript
 			if assistant.StreamId != nil {
 				if err := c.matchActiveStream(*assistant.StreamId, message.Sequence, "committed assistant row"); err != nil {
 					return err
+				}
+				if assistant.GetSourceState() == transcriptpb.AssistantSourceState_ASSISTANT_SOURCE_STATE_COMPLETE &&
+					c.activeStreams[*assistant.StreamId] != transcriptpb.AssistantSourceState_ASSISTANT_SOURCE_STATE_COMPLETE {
+					return errTranscriptContractViolation("source acceptance has no completed source")
 				}
 				delete(c.activeStreams, *assistant.StreamId)
 			}
@@ -356,9 +371,12 @@ func (c *transcriptSubscriptionContract) validateLiveLocator(locator *transcript
 
 func (c *transcriptSubscriptionContract) matchOrStartStream(streamID string, seq uint64, op string) error {
 	if c.activeStreams == nil {
-		c.activeStreams = make(map[string]struct{})
+		c.activeStreams = make(map[string]transcriptpb.AssistantSourceState)
 	}
-	c.activeStreams[streamID] = struct{}{}
+	if c.activeStreams[streamID] == transcriptpb.AssistantSourceState_ASSISTANT_SOURCE_STATE_COMPLETE {
+		return errTranscriptContractViolation("completed assistant source received more streaming data")
+	}
+	c.activeStreams[streamID] = transcriptpb.AssistantSourceState_ASSISTANT_SOURCE_STATE_STREAMING
 	return nil
 }
 

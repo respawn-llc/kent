@@ -40,7 +40,11 @@ export function validateAdjacent(segment: Segment, request: TranscriptPageReques
 
 function authoritativePayload(row: CommittedRow): CommittedRow {
   // Live stream correlation is absent from persisted pages, like Reasoning correlation.
-  if (row.Assistant !== null) return { ...row, Assistant: { ...row.Assistant, StreamID: null } };
+  if (row.Assistant !== null) {
+    const assistant = { ...row.Assistant, StreamID: null };
+    delete assistant.SourceState;
+    return { ...row, Assistant: assistant };
+  }
   if (row.ReasoningTrace === null) return row;
   // Provisional correlation is not part of an authoritative committed Reasoning payload.
   return { ...row, ReasoningTrace: { ...row.ReasoningTrace, ProvisionalIdentity: null } };

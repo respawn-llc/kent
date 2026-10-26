@@ -816,6 +816,7 @@ func (e *Engine) emitStreamingAssistantTerminalRaw(
 	metadata *AssistantStreamMetadata,
 	streamID uuid.UUID,
 	abortReason *AssistantStreamAbortReason,
+	sourceState AssistantSourceState,
 ) error {
 	abortReasonValue := ""
 	if abortReason != nil {
@@ -827,6 +828,7 @@ func (e *Engine) emitStreamingAssistantTerminalRaw(
 		AssistantStreamMetadata:     cloneAssistantStreamMetadata(metadata),
 		AssistantTranscriptStreamID: cloneTranscriptStreamID(&streamID),
 		AssistantStreamAbortReason:  abortReasonValue,
+		AssistantSourceState:        sourceState,
 	})
 }
 
@@ -835,12 +837,13 @@ func (e *Engine) emitStreamingAssistantCleanupEventsRaw(
 	metadata *AssistantStreamMetadata,
 	streamID *uuid.UUID,
 	abortReason *AssistantStreamAbortReason,
+	sourceState AssistantSourceState,
 ) error {
 	emissionErrors := []error{
 		e.emitRaw(Event{Kind: EventConversationUpdated, StepID: exactStepIDPointer(stepID)}),
 	}
 	if streamID != nil {
-		emissionErrors = append(emissionErrors, e.emitStreamingAssistantTerminalRaw(stepID, metadata, *streamID, abortReason))
+		emissionErrors = append(emissionErrors, e.emitStreamingAssistantTerminalRaw(stepID, metadata, *streamID, abortReason, sourceState))
 	}
 	return errors.Join(emissionErrors...)
 }
@@ -893,7 +896,7 @@ func (e *Engine) resolveCompletedResponseStreamRaw(stepID string, instruction co
 		committed := instruction.committedAssistant
 		var correlations []AssistantStreamCorrelation
 		for _, stream := range cleared {
-			correlations = append(correlations, AssistantStreamCorrelation{OutputIndex: textutil.Pointer(stream.Metadata.OutputIndex), StreamID: stream.StreamID})
+			correlations = append(correlations, AssistantStreamCorrelation{OutputIndex: textutil.Pointer(stream.Metadata.OutputIndex), StreamID: stream.StreamID, SourceState: stream.SourceState})
 			offset := 0
 			if committed.message.NativeResponse != nil {
 				for _, projected := range nativeResponseMessages(committed.message) {
@@ -920,7 +923,7 @@ func (e *Engine) resolveCompletedResponseStreamRaw(stepID string, instruction co
 		}
 		var errs []error
 		for _, stream := range cleared {
-			errs = append(errs, e.emitStreamingAssistantCleanupEventsRaw(stepID, &stream.Metadata, &stream.StreamID, nil))
+			errs = append(errs, e.emitStreamingAssistantCleanupEventsRaw(stepID, &stream.Metadata, &stream.StreamID, nil, stream.SourceState))
 		}
 		if err := errors.Join(errs...); err != nil {
 			return completedResponseResolutionOutcome{}, err
@@ -933,7 +936,7 @@ func (e *Engine) resolveCompletedResponseStreamRaw(stepID string, instruction co
 
 	var errs []error
 	for _, stream := range cleared {
-		errs = append(errs, e.emitStreamingAssistantCleanupEventsRaw(stepID, &stream.Metadata, &stream.StreamID, instruction.abortReason))
+		errs = append(errs, e.emitStreamingAssistantCleanupEventsRaw(stepID, &stream.Metadata, &stream.StreamID, instruction.abortReason, stream.SourceState))
 	}
 	if err := errors.Join(errs...); err != nil {
 		return completedResponseResolutionOutcome{}, err

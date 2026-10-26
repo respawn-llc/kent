@@ -21,6 +21,56 @@ import (
 	sdkwebsocket "github.com/openai/openai-go/v3/packages/websocket"
 )
 
+func TestAssistantMessageSourceCompletesBeforeResponseAcceptance(t *testing.T) {
+	source := `{"type":"message","id":"source","role":"assistant","phase":"commentary","content":[{"type":"output_text","text":"message","annotations":[]},{"type":"output_text","text":" continuation","annotations":[]}]}`
+	completed := make(chan AssistantSource)
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		socket, err := websocket.Accept(w, r, nil)
+		if err != nil {
+			return
+		}
+		defer socket.CloseNow()
+		if _, _, err := socket.Read(t.Context()); err != nil {
+			return
+		}
+		events := []string{
+			fmt.Sprintf(`{"type":"response.output_item.added","output_index":2,"item":%s}`, source),
+			`{"type":"response.output_text.delta","output_index":2,"delta":"message"}`,
+			`{"type":"response.output_text.done","output_index":2,"text":"message"}`,
+			`{"type":"response.output_text.delta","output_index":2,"content_index":1,"delta":" continuation"}`,
+			`{"type":"response.output_text.done","output_index":2,"content_index":1,"text":" continuation"}`,
+			fmt.Sprintf(`{"type":"response.output_item.done","output_index":2,"item":%s}`, source),
+		}
+		for _, event := range events {
+			if err := socket.Write(t.Context(), websocket.MessageText, []byte(event)); err != nil {
+				return
+			}
+		}
+		select {
+		case result := <-completed:
+			if result.Text != "message continuation" || result.OutputIndex != 2 || result.Phase != MessagePhaseCommentary {
+				t.Errorf("source completion lost message identity or content: %+v", result)
+			}
+		case <-time.After(5 * time.Second):
+			return
+		}
+		_ = socket.Write(t.Context(), websocket.MessageText, []byte(fmt.Sprintf(
+			`{"type":"response.completed","response":{"id":"completed","output":[%s]}}`, source)))
+	}))
+	defer server.Close()
+	transport := newCanonicalOAuthTestTransport(t, server)
+	defer transport.Close()
+	ctx, cancel := context.WithTimeout(t.Context(), 3*time.Second)
+	defer cancel()
+	_, err := transport.Generate(ctx, ResponsesRequest{
+		Model: "gpt-6-sol", ReasoningEffort: "high", ToolChoiceMode: ToolChoiceModeAutomatic,
+		SessionID: textutil.Value("session-1"), CodexDispatch: newTestCodexDispatch(t),
+	}, StreamCallbacks{OnAssistantSourceComplete: func(source AssistantSource) { completed <- source }})
+	if err != nil {
+		t.Fatal(err)
+	}
+}
+
 func TestResponsesSocketContinuesExactNativePrefixWithOnlyNewInput(t *testing.T) {
 	for _, protocol := range []config.ConnectionProtocol{config.ConnectionResponses, config.ConnectionGrokAPIKey, config.ConnectionGrokOAuthAPI} {
 		t.Run(string(protocol), func(t *testing.T) {

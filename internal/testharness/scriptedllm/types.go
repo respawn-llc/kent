@@ -26,6 +26,7 @@ type Step struct {
 	Err                 error
 	Cancel              bool
 	StreamDeltas        []llm.AssistantDelta
+	SourceCompletions   []llm.AssistantSource
 	StreamDeltaDelay    *time.Duration
 	ReasoningDeltas     []llm.ReasoningSummaryDelta
 	ExpectedToolResults []ExpectedToolResult

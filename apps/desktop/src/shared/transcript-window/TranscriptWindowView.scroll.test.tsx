@@ -125,7 +125,7 @@ it("opens and remounts a compacted live transcript at the bottom despite underes
           3,
         ),
         ActiveAssistants: [
-          { StepID: "step", StreamID: "stream", Phase: "commentary", Text: "Live response" },
+          { StepID: "step", StreamID: "stream", Phase: "commentary", Text: "Live response", SourceState: "streaming" },
         ],
       });
       view.rerender(content());
@@ -250,7 +250,7 @@ function streamingView(history: readonly ReturnType<typeof row>[]) {
     kind: "initial-hydration",
     hydration: {
       ...hydration(history),
-      ActiveAssistants: [{ StepID: "step", StreamID: "stream", Phase: "commentary", Text: "Live response" }],
+      ActiveAssistants: [{ StepID: "step", StreamID: "stream", Phase: "commentary", Text: "Live response", SourceState: "streaming" }],
     },
   });
   const onInput = vi.fn();

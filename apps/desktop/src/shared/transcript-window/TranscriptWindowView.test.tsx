@@ -236,6 +236,7 @@ describe("TranscriptWindowView", () => {
             StreamID: "assistant-stream",
             Phase: "commentary",
             Text: "Live assistant",
+            SourceState: "streaming",
           },
         ],
         InFlightTools: [

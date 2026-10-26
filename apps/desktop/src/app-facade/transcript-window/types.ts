@@ -8,6 +8,7 @@ export type RuntimeActivity = ChatTranscriptPayloadByKind["runtime_read_model_up
 export type CompactionStatus = ChatTranscriptPayloadByKind["compaction_status"];
 type LiveFactKind =
   | "assistant_delta"
+  | "assistant_source_complete"
   | "assistant_stream_abort"
   | "tool_start"
   | "tool_abort"

@@ -55,6 +55,7 @@ type TranscriptUserRowFact struct {
 }
 
 type TranscriptAssistantRowFact struct {
+	SourceState       AssistantSourceState
 	Text              string
 	CondensedText     string
 	Phase             llm.MessagePhase
@@ -390,16 +391,16 @@ func transcriptCommittedRowFactsFromMessageUnlocated(msg llm.Message, correlatio
 	return transcriptGenericMessageRowFacts(msg, assistantStreamForOutput(correlations, nil), completions, materializedToolCalls)
 }
 
-func assistantStreamForOutput(correlations []AssistantStreamCorrelation, outputIndex *int64) *uuid.UUID {
+func assistantStreamForOutput(correlations []AssistantStreamCorrelation, outputIndex *int64) *AssistantStreamCorrelation {
 	for _, correlation := range correlations {
 		if textutil.EqualOptional(correlation.OutputIndex, outputIndex) {
-			return textutil.Value(correlation.StreamID)
+			return textutil.Value(correlation)
 		}
 	}
 	return nil
 }
 
-func transcriptGenericMessageRowFacts(msg llm.Message, streamID *uuid.UUID, completions map[string]tools.Result, materializedToolCalls map[string]struct{}) []TranscriptCommittedRowFact {
+func transcriptGenericMessageRowFacts(msg llm.Message, correlation *AssistantStreamCorrelation, completions map[string]tools.Result, materializedToolCalls map[string]struct{}) []TranscriptCommittedRowFact {
 	switch msg.Role {
 	case llm.RoleUser:
 		if msg.MessageType != nil &&
@@ -422,13 +423,20 @@ func transcriptGenericMessageRowFacts(msg llm.Message, streamID *uuid.UUID, comp
 		}
 		return []TranscriptCommittedRowFact{fact}
 	case llm.RoleAssistant:
+		var streamID *uuid.UUID
+		var sourceState AssistantSourceState
+		if correlation != nil {
+			streamID = &correlation.StreamID
+			sourceState = correlation.SourceState
+		}
 		out := make([]TranscriptCommittedRowFact, 0, 1+len(msg.ToolCalls))
 		if msg.Content != nil && strings.TrimSpace(*msg.Content) != "" && !isBlankFinalAnswer(msg) {
 			phase, _ := textutil.OptionalValue(msg.Phase)
 			out = append(out, TranscriptCommittedRowFact{Kind: TranscriptCommittedRowFactAssistant, Visibility: assistantTranscriptVisibility(phase), Assistant: &TranscriptAssistantRowFact{
-				Text:     *msg.Content,
-				Phase:    phase,
-				StreamID: cloneTranscriptStreamID(streamID),
+				Text:        *msg.Content,
+				Phase:       phase,
+				StreamID:    cloneTranscriptStreamID(streamID),
+				SourceState: sourceState,
 			}})
 		}
 		for _, call := range msg.ToolCalls {

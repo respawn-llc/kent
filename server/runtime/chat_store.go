@@ -82,10 +82,11 @@ type AssistantStreamMetadata struct {
 }
 
 type AssistantStreamSnapshot struct {
-	Text     string
-	Metadata AssistantStreamMetadata
-	StreamID uuid.UUID
-	Phase    llm.MessagePhase
+	SourceState AssistantSourceState
+	Text        string
+	Metadata    AssistantStreamMetadata
+	StreamID    uuid.UUID
+	Phase       llm.MessagePhase
 }
 
 type TranscriptWindowSnapshot struct {
@@ -495,6 +496,32 @@ func (s *chatStore) streamingSnapshot() ([]AssistantStreamSnapshot, string) {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 	return s.streamingSnapshotLocked(), s.streamingError
+}
+
+func (s *chatStore) completeStreamingSource(stepID string, revision int64, committedCount int, source llm.AssistantSource) (*AssistantStreamSnapshot, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	index := source.OutputIndex
+	var stream *AssistantStreamSnapshot
+	for i := range s.streaming {
+		if textutil.EqualOptional(s.streaming[i].Metadata.OutputIndex, &index) {
+			stream = &s.streaming[i]
+			break
+		}
+	}
+	if stream == nil {
+		metadata := newAssistantStreamMetadata(stepID, revision, committedCount)
+		metadata.OutputIndex = &index
+		s.streaming = append(s.streaming, AssistantStreamSnapshot{Metadata: *metadata, StreamID: uuid.New()})
+		stream = &s.streaming[len(s.streaming)-1]
+	}
+	if stream.SourceState != AssistantSourceStreaming || !strings.HasPrefix(source.Text, stream.Text) {
+		return nil, fmt.Errorf("assistant source completion conflicts with unfinished source at output %d", index)
+	}
+	stream.Text, stream.Phase, stream.SourceState = source.Text, source.Phase, AssistantSourceComplete
+	result := *stream
+	result.Metadata = *cloneAssistantStreamMetadata(&stream.Metadata)
+	return &result, nil
 }
 
 func (s *chatStore) nativeToolCallLocator(callID string) *transcript.CommittedRowLocator {

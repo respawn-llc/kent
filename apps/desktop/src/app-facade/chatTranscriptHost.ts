@@ -170,6 +170,9 @@ export class ChatTranscriptHost {
     if (event.kind === "assistant_delta") {
       return this.#admitLive(event);
     }
+    if (event.kind === "assistant_source_complete") {
+      return this.#admitLive(event);
+    }
     if (event.kind === "assistant_stream_abort") {
       return this.#admitLive(event);
     }

@@ -33,6 +33,7 @@ func durableParityRow(row *transcriptpb.CommittedRow) *transcriptpb.CommittedRow
 	durable := proto.Clone(row).(*transcriptpb.CommittedRow)
 	if assistant := durable.GetAssistant(); assistant != nil {
 		assistant.StreamId = nil
+		assistant.SourceState = nil
 	}
 	if reasoning := durable.GetReasoningTrace(); reasoning != nil {
 		reasoning.ProvisionalIdentity = nil

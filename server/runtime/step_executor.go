@@ -295,6 +295,11 @@ func (s *defaultStepExecutor) runStepLoopWithOptions(ctx context.Context, stepID
 				return request, err
 			},
 			llm.StreamCallbacks{
+				OnAssistantSourceComplete: func(source llm.AssistantSource) {
+					if streamSteerErr == nil {
+						streamSteerErr = e.steer(stepID, steerAssistantSourceCompleteIntent(source))
+					}
+				},
 				OnAssistantDelta: func(delta llm.AssistantDelta) {
 					if streamSteerErr == nil {
 						streamSteerErr = e.steer(stepID, steerAssistantDeltaIntent(delta))

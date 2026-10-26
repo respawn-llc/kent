@@ -13,6 +13,20 @@ import (
 	"github.com/google/uuid"
 )
 
+func TestUnknownAssistantAbortRequiresUnfinishedSource(t *testing.T) {
+	defer func() {
+		if recover() == nil {
+			t.Fatal("unknown unfinished-source abort was accepted")
+		}
+	}()
+	_, _ = NewSurface(&bytes.Buffer{}).ApplyTerminalMessage(&transcriptpb.Message{Event: &transcriptpb.Event{
+		Payload: &transcriptpb.Event_AssistantStreamAbort{AssistantStreamAbort: &transcriptpb.AssistantStreamAbort{
+			StreamId: uuid.NewString(), Reason: transcriptpb.AssistantAbortReason_ASSISTANT_ABORT_REASON_INTERRUPTED,
+			SourceState: transcriptpb.AssistantSourceState_ASSISTANT_SOURCE_STATE_STREAMING,
+		}},
+	}}, blankFinalFrame())
+}
+
 func TestStableAssistantAfterEarlierProviderItemsPromotesBeforeAcceptance(t *testing.T) {
 	var output bytes.Buffer
 	surface := NewSurface(&output)

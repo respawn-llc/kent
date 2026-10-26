@@ -162,13 +162,14 @@ type steeringResultGroupClose struct {
 }
 
 type steeringStreamingOutput struct {
-	assistantDelta *llm.AssistantDelta
-	reasoningDelta *llm.ReasoningSummaryDelta
-	clearState     bool
-	clearReasoning bool
-	reasoningReset *steeringReasoningReset
-	resetEvents    bool
-	abortReason    *AssistantStreamAbortReason
+	assistantSource *llm.AssistantSource
+	assistantDelta  *llm.AssistantDelta
+	reasoningDelta  *llm.ReasoningSummaryDelta
+	clearState      bool
+	clearReasoning  bool
+	reasoningReset  *steeringReasoningReset
+	resetEvents     bool
+	abortReason     *AssistantStreamAbortReason
 }
 
 type steeringReasoningReset struct{}
@@ -460,6 +461,13 @@ func steerAssistantDeltaIntent(delta llm.AssistantDelta) steeringIntent {
 	return steeringIntent{
 		priority: steeringPriorityRuntimeEvent,
 		items:    []steeringItem{{streaming: &steeringStreamingOutput{assistantDelta: &copyDelta}}},
+	}
+}
+
+func steerAssistantSourceCompleteIntent(source llm.AssistantSource) steeringIntent {
+	return steeringIntent{
+		priority: steeringPriorityRuntimeEvent,
+		items:    []steeringItem{{streaming: &steeringStreamingOutput{assistantSource: &source}}},
 	}
 }
 
@@ -1152,6 +1160,7 @@ func (e *Engine) applySteeringItem(provenance steeringProvenance, item steeringI
 					&superseded.Metadata,
 					&superseded.StreamID,
 					&reason,
+					superseded.SourceState,
 				); err != nil {
 					return err
 				}
@@ -1164,6 +1173,18 @@ func (e *Engine) applySteeringItem(provenance steeringProvenance, item steeringI
 				AssistantStreamMetadata:     &appended.stream.Metadata,
 				AssistantTranscriptStreamID: &appended.stream.StreamID,
 			})
+		}
+		if item.streaming.assistantSource != nil {
+			revision, err := e.TranscriptRevision()
+			if err != nil {
+				return err
+			}
+			source, err := e.transcriptRuntimeState().chatProjection().completeStreamingSource(
+				stepID, revision, e.CommittedTranscriptEntryCount(), *item.streaming.assistantSource)
+			if err != nil {
+				return err
+			}
+			return e.emitRaw(Event{Kind: EventAssistantSourceComplete, StepID: exactStepIDPointer(stepID), AssistantSource: source})
 		}
 		if item.streaming.reasoningDelta != nil {
 			delta := *item.streaming.reasoningDelta
@@ -1202,7 +1223,7 @@ func (e *Engine) applySteeringItem(provenance steeringProvenance, item steeringI
 		if item.streaming.resetEvents {
 			var errs []error
 			for _, stream := range cleared {
-				errs = append(errs, e.emitStreamingAssistantCleanupEventsRaw(stepID, &stream.Metadata, &stream.StreamID, item.streaming.abortReason))
+				errs = append(errs, e.emitStreamingAssistantCleanupEventsRaw(stepID, &stream.Metadata, &stream.StreamID, item.streaming.abortReason, stream.SourceState))
 			}
 			return errors.Join(errs...)
 		}

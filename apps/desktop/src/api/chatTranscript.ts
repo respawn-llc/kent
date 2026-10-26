@@ -17,7 +17,7 @@ import {
   readModelUpdate,
 } from "./chatReadModel";
 import { goalFacts } from "./chatGoal";
-import { committedRow, assistantPhase, diagnostic, reasoningIdentity } from "./chatTranscriptRows";
+import { committedRow, assistantPhase, assistantSourceState, diagnostic, reasoningIdentity } from "./chatTranscriptRows";
 import { toolPresentation } from "./chatToolPresentation";
 import { pendingWorkKind } from "./chatMutations";
 import { timestampMillis } from "./clientTime";
@@ -152,6 +152,17 @@ function connectionReplacement(value: T.ConnectionReplacement): Payloads["connec
   return { PreviousID: value.previousId, CurrentID: value.currentId };
 }
 
+function assistantSource(value: T.AssistantStream): Payloads["hydration"]["ActiveAssistants"][number] {
+  return {
+    StepID: value.stepId,
+    StreamID: value.streamId,
+    Phase: assistantPhase(value.phase),
+    Text: value.text,
+    SourceState: assistantSourceState(value.sourceState),
+    ...(value.outputIndex === undefined ? {} : { OutputIndex: safeNumber(value.outputIndex) }),
+  };
+}
+
 function hydration(value: T.HydrationValid): Payloads["hydration"] {
   const tail = value.tailSegment;
   return {
@@ -165,13 +176,7 @@ function hydration(value: T.HydrationValid): Payloads["hydration"] {
       HasMoreAbove: tail.hasMoreAbove,
       Entries: tail.entries.map(committedRow),
     },
-    ActiveAssistants: value.activeAssistants.map((stream) => ({
-      StepID: stream.stepId,
-      StreamID: stream.streamId,
-      Phase: assistantPhase(stream.phase),
-      Text: stream.text,
-      ...(stream.outputIndex === undefined ? {} : { OutputIndex: safeNumber(stream.outputIndex) }),
-    })),
+    ActiveAssistants: value.activeAssistants.map(assistantSource),
     ActiveThinkingStatus:
       value.activeThinkingStatus === undefined ? null : thinking(value.activeThinkingStatus),
     ActiveReasoningTraces: value.activeReasoningTraces.map(reasoning),
@@ -270,6 +275,11 @@ const eventProjections: {
     return { sequence, kind: "hydration", payload: hydration(value) };
   },
   committedRow: (value, sequence) => ({ sequence, kind: "committed_row", payload: committedRow(value) }),
+  assistantSourceComplete: (value, sequence) => ({
+    sequence,
+    kind: "assistant_source_complete",
+    payload: assistantSource(value),
+  }),
   assistantDelta: (value, sequence) => ({
     sequence,
     kind: "assistant_delta",
