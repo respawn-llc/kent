@@ -8,8 +8,8 @@ import (
 	"net/http"
 
 	"core/shared/textutil"
-	"github.com/openai/openai-go/v3/option"
 	"github.com/openai/openai-go/v3/packages/param"
+	sdkwebsocket "github.com/openai/openai-go/v3/packages/websocket"
 	"github.com/openai/openai-go/v3/responses"
 )
 
@@ -19,8 +19,41 @@ const (
 	responsesSocketBufferedEvents = 1600
 )
 
+type responsesSocketEvent struct {
+	kind   string
+	data   []byte
+	status *int
+}
+
+func decodeResponsesSocketEvent(data []byte) (responsesSocketEvent, error) {
+	var envelope struct {
+		Type   json.RawMessage `json:"type"`
+		Error  json.RawMessage `json:"error"`
+		Status *int            `json:"status"`
+	}
+	if err := json.Unmarshal(data, &envelope); err != nil {
+		return responsesSocketEvent{}, err
+	}
+	var kind string
+	if len(envelope.Type) != 0 {
+		if err := json.Unmarshal(envelope.Type, &kind); err != nil {
+			return responsesSocketEvent{}, err
+		}
+		if kind == "" {
+			return responsesSocketEvent{}, fmt.Errorf("Responses websocket event has an empty type")
+		}
+	} else {
+		var failure map[string]json.RawMessage
+		if err := json.Unmarshal(envelope.Error, &failure); err != nil || failure == nil {
+			return responsesSocketEvent{}, fmt.Errorf("Responses websocket event has no type or structured error")
+		}
+		kind = "error"
+	}
+	return responsesSocketEvent{kind: kind, data: data, status: envelope.Status}, nil
+}
+
 type responsesGenerationSocket struct {
-	*responses.ResponseConnection
+	*sdkwebsocket.Connection[responsesSocketEvent]
 	mode       OpenAIAuthMode
 	checkpoint *responsesContinuation
 }
@@ -126,19 +159,16 @@ func (t *HTTPTransport) generateWebsocket(ctx context.Context, request Responses
 	}
 	defer func() { attempt.finish(ctx, handshake, err) }()
 	if t.socket == nil {
-		service := responses.NewResponseService(option.WithBaseURL(t.serviceBaseURL()), option.WithHTTPClient(t.streamingHTTPClient()), option.WithMaxRetries(0))
-		options := append(t.buildRequestOptions(request, preparation), option.WithHeaderDel(codexTurnStateHeader), option.WithResponseInto(&handshake))
-		connection, err := service.Connect(ctx, responses.ResponseConnectionOptions{
-			MaxMessageBytes: responsesSocketMessageBytes, MaxBufferedBytes: responsesSocketBufferedBytes, MaxBufferedEvents: responsesSocketBufferedEvents,
-		}, options...)
+		connection, response, err := t.openResponsesSocket(ctx, request, preparation)
+		handshake = response
 		if err != nil {
-			return result, newResponsesRequestErrorMapper(preparation.variant.ProviderID).Map(err, handshake, "open responses websocket")
+			return result, err
 		}
-		t.socket = &responsesGenerationSocket{ResponseConnection: connection, mode: preparation.mode}
+		t.socket = &responsesGenerationSocket{Connection: connection, mode: preparation.mode}
 	}
 	abort := context.AfterFunc(ctx, t.socket.Abort)
 	defer abort()
-	if err := t.socket.Create(ctx, create); err != nil {
+	if err := t.socket.SendJSON(ctx, create); err != nil {
 		return result, err
 	}
 	accumulator := newResponseStreamAccumulator(callbacks, t.resolveContextWindowFallback(ctx, request.Model), preparation.variant.ResponsesPolicy)
@@ -152,15 +182,10 @@ func (t *HTTPTransport) generateWebsocket(ctx context.Context, request Responses
 		if callbacks.OnStreamActivity != nil {
 			callbacks.OnStreamActivity()
 		}
-		if event.Type == "response.metadata" && observer != nil {
-			observer.observeTurnStateMetadata([]byte(event.RawJSON()))
+		if event.kind == "response.metadata" && observer != nil {
+			observer.observeTurnStateMetadata(event.data)
 		}
-		if event.JSON.OfResponsesServerEventResponseWsError.Valid() {
-			failure := event.OfResponsesServerEventResponseWsError
-			var status *int
-			if failure.JSON.Status.Valid() {
-				status = textutil.Value(int(failure.Status))
-			}
+		if event.kind == "error" {
 			reducer, reducerErr := providerErrorReducerForID(preparation.variant.ProviderID)
 			if reducerErr != nil {
 				return result, reducerErr
@@ -169,14 +194,14 @@ func (t *HTTPTransport) generateWebsocket(ctx context.Context, request Responses
 			if !ok {
 				return result, fmt.Errorf("Responses provider has no structured error reducer")
 			}
-			reduced, ok := responsesReducer.reducePayload([]byte(failure.RawJSON()), nil, status)
+			reduced, ok := responsesReducer.reducePayload(event.data, nil, event.status)
 			if !ok {
 				return result, fmt.Errorf("Responses provider emitted an invalid structured error")
 			}
 			return result, reduced
 		}
 		var streamEvent responses.ResponseStreamEventUnion
-		if err := json.Unmarshal([]byte(event.RawJSON()), &streamEvent); err != nil {
+		if err := json.Unmarshal(event.data, &streamEvent); err != nil {
 			return result, err
 		}
 		accumulator.Consume(streamEvent)

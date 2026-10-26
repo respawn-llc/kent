@@ -1,7 +1,5 @@
 module core
 
-replace github.com/openai/openai-go/v3 => ./.generated/openai-sdk
-
 go 1.26.4
 
 require (
@@ -13,6 +11,7 @@ require (
 	github.com/charmbracelet/bubbletea v1.3.10
 	github.com/charmbracelet/lipgloss v1.1.1-0.20250404203927-76690c660834
 	github.com/charmbracelet/x/ansi v0.11.7
+	github.com/coder/websocket v1.8.15
 	github.com/creack/pty v1.1.24
 	github.com/deepteams/webp v1.2.7
 	github.com/gdamore/tcell/v3 v3.4.1
@@ -51,7 +50,6 @@ require (
 	github.com/charmbracelet/ultraviolet v0.0.0-20260803092147-8b693049ce2a // indirect
 	github.com/charmbracelet/x/termios v0.1.1 // indirect
 	github.com/charmbracelet/x/windows v0.2.2 // indirect
-	github.com/coder/websocket v1.8.15 // indirect
 	github.com/go-faster/errors v0.7.1 // indirect
 	github.com/google/cel-go v0.30.0 // indirect
 	github.com/pb33f/ordered-map/v2 v2.3.1 // indirect

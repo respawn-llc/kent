@@ -179,7 +179,6 @@ run_desktop() {
 }
 
 run_tui() {
-	just --quiet install _prepare-openai
 	run_suite tui go test -p "$workers" "${go_test_timeout_args[@]}" ./cli/tui/... "${tool_args[@]}"
 }
 

@@ -23,13 +23,27 @@ func (t *HTTPTransport) serviceBaseURL() string {
 }
 
 func (t *HTTPTransport) buildRequestOptions(request ResponsesRequest, preparation responsesDispatchPreparation) []option.RequestOption {
-	opts := []option.RequestOption{
-		option.WithHeader("User-Agent", t.providerUserAgent()),
+	headers := t.buildRequestHeaders(request, preparation)
+	options := make([]option.RequestOption, 0, len(headers))
+	for name, values := range headers {
+		for index, value := range values {
+			if index == 0 {
+				options = append(options, option.WithHeader(name, value))
+			} else {
+				options = append(options, option.WithHeaderAdd(name, value))
+			}
+		}
 	}
+	return options
+}
+
+func (t *HTTPTransport) buildRequestHeaders(request ResponsesRequest, preparation responsesDispatchPreparation) http.Header {
+	headers := preparation.variant.ResponsesPolicy.requestHeaders(t.ProviderIdentifier, request, preparation)
+	headers.Set("User-Agent", t.providerUserAgent())
 	if strings.TrimSpace(preparation.authHeader) != "" {
-		opts = append(opts, option.WithHeader("Authorization", preparation.authHeader))
+		headers.Set("Authorization", preparation.authHeader)
 	}
-	return append(opts, preparation.variant.ResponsesPolicy.requestOptions(t.ProviderIdentifier, request, preparation)...)
+	return headers
 }
 
 func servedModelMetadata(rawResp *http.Response, standardModel string) *string {

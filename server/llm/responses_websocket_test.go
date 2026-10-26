@@ -273,6 +273,127 @@ func TestResponsesSocketErrorsRetainProviderFactsWithoutHandshakeStatus(t *testi
 	}
 }
 
+func TestResponsesOpeningRetainsRejectedUpgradeFacts(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("x-request-id", "rejected-request")
+		w.WriteHeader(http.StatusTooManyRequests)
+		_, _ = io.WriteString(w, `{"error":{"code":"insufficient_quota","message":"unavailable"}}`)
+	}))
+	defer server.Close()
+	transport := newCanonicalOAuthTestTransport(t, server)
+	_, err := transport.Generate(t.Context(), testCodexResponsesRequest(newTestCodexDispatch(t)), StreamCallbacks{})
+	var failure *ProviderAPIError
+	if !errors.As(err, &failure) || !IsUsageExhaustionError(err) || failure.StatusCode == nil ||
+		*failure.StatusCode != http.StatusTooManyRequests || failure.ProviderRequestID == nil ||
+		*failure.ProviderRequestID != "rejected-request" || failure.ProviderCode != "insufficient_quota" {
+		t.Fatalf("rejected upgrade lost provider facts: %v", err)
+	}
+}
+
+func TestResponsesOpeningRejectsChangedOriginBeforeSendingCredentials(t *testing.T) {
+	for _, secure := range []bool{false, true} {
+		t.Run(fmt.Sprintf("secure=%t", secure), func(t *testing.T) {
+			var destinationRequests atomic.Int32
+			destination := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				destinationRequests.Add(1)
+				w.WriteHeader(http.StatusForbidden)
+			}))
+			defer destination.Close()
+			handler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				http.Redirect(w, r, destination.URL+"/v1/responses", http.StatusTemporaryRedirect)
+			})
+			origin := httptest.NewUnstartedServer(handler)
+			if secure {
+				origin.StartTLS()
+			} else {
+				origin.Start()
+			}
+			defer origin.Close()
+			registration := testConnectionRegistration(t, config.ProviderConnection{Protocol: config.ConnectionChatGPT})
+			registration.Variant.BaseURL = textutil.Value(origin.URL + "/v1")
+			transport := newTestHTTPTransport(t, oauthStaticAuth{}, registration)
+			transport.Client = origin.Client()
+			_, err := transport.Generate(t.Context(), testCodexResponsesRequest(newTestCodexDispatch(t)), StreamCallbacks{})
+			if err == nil || destinationRequests.Load() != 0 {
+				t.Fatalf("redirect sent selected credentials outside configured origin: requests=%d error=%v", destinationRequests.Load(), err)
+			}
+		})
+	}
+}
+
+func TestResponsesOpeningKeepsSameOriginRedirectAndCallerPolicy(t *testing.T) {
+	var redirects, openings atomic.Int32
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/v1/responses" {
+			http.Redirect(w, r, "/socket", http.StatusTemporaryRedirect)
+			return
+		}
+		openings.Add(1)
+		if r.Header.Get("Authorization") != "Bearer token" || r.Header.Get("ChatGPT-Account-Id") != "acc-1" ||
+			r.Header.Get("session-id") != "session-1" {
+			t.Error("redirect lost selected credential/account/Session headers")
+		}
+		serveResponsesTestWebsocket(t, w, r, func(json.RawMessage) []string { return []string{completedResponseSSEJSON} })
+	}))
+	defer server.Close()
+	registration := testConnectionRegistration(t, config.ProviderConnection{Protocol: config.ConnectionChatGPT})
+	registration.Variant.BaseURL = textutil.Value(server.URL + "/v1")
+	transport := newTestHTTPTransport(t, oauthStaticAuth{}, registration)
+	transport.Client = server.Client()
+	transport.Client.CheckRedirect = func(*http.Request, []*http.Request) error { redirects.Add(1); return nil }
+	if _, err := transport.Generate(t.Context(), testCodexResponsesRequest(newTestCodexDispatch(t)), StreamCallbacks{}); err != nil {
+		t.Fatal(err)
+	}
+	if redirects.Load() != 1 || openings.Load() != 1 {
+		t.Fatal("same-origin opening lost the existing redirect policy")
+	}
+}
+
+func TestResponsesOpeningRejectsDowngradeBeforeCallerRedirectPolicy(t *testing.T) {
+	server := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		http.Redirect(w, r, "http://"+r.Host+"/socket", http.StatusTemporaryRedirect)
+	}))
+	defer server.Close()
+	registration := testConnectionRegistration(t, config.ProviderConnection{Protocol: config.ConnectionChatGPT})
+	registration.Variant.BaseURL = textutil.Value(server.URL + "/v1")
+	transport := newTestHTTPTransport(t, oauthStaticAuth{}, registration)
+	transport.Client = server.Client()
+	var callerPolicy atomic.Int32
+	transport.Client.CheckRedirect = func(*http.Request, []*http.Request) error {
+		callerPolicy.Add(1)
+		return errors.New("caller received an insecure redirect")
+	}
+	_, err := transport.Generate(t.Context(), testCodexResponsesRequest(newTestCodexDispatch(t)), StreamCallbacks{})
+	if err == nil || callerPolicy.Load() != 0 {
+		t.Fatal("same-host/port downgrade passed the configured-origin boundary")
+	}
+}
+
+func TestResponsesOpeningRevalidatesAuthorityAfterCallerRedirectPolicy(t *testing.T) {
+	var redirectedRequests atomic.Int32
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/v1/responses" {
+			http.Redirect(w, r, "/socket", http.StatusTemporaryRedirect)
+			return
+		}
+		redirectedRequests.Add(1)
+		w.WriteHeader(http.StatusForbidden)
+	}))
+	defer server.Close()
+	registration := testConnectionRegistration(t, config.ProviderConnection{Protocol: config.ConnectionChatGPT})
+	registration.Variant.BaseURL = textutil.Value(server.URL + "/v1")
+	transport := newTestHTTPTransport(t, oauthStaticAuth{}, registration)
+	transport.Client = server.Client()
+	transport.Client.CheckRedirect = func(next *http.Request, _ []*http.Request) error {
+		next.Host = "foreign.invalid"
+		return nil
+	}
+	_, err := transport.Generate(t.Context(), testCodexResponsesRequest(newTestCodexDispatch(t)), StreamCallbacks{})
+	if err == nil || redirectedRequests.Load() != 0 {
+		t.Fatal("caller redirect policy changed HTTP authority before credential-bearing dispatch")
+	}
+}
+
 func TestFirstPartyResponsesStreamsThroughManagedWebsocket(t *testing.T) {
 	ctx, cancel := context.WithTimeout(t.Context(), 5*time.Second)
 	defer cancel()

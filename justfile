@@ -96,7 +96,6 @@ _lint-protobuf:
 
 [private]
 _gen-go:
-    just install _prepare-openai
     GOOS= GOARCH= go tool -modfile=tools.mod buf generate --template buf.gen.go.yaml
     GOOS= GOARCH= go tool -modfile=tools.mod buf build --as-file-descriptor-set --exclude-source-info --output shared/protoapi/gen/kent_api.binpb
 
@@ -106,7 +105,6 @@ _gen-typescript:
 
 [private]
 _gen-metadata:
-    just install _prepare-openai
     GOOS= GOARCH= go generate ./server/metadata/sqlitegen
 
 [parallel]
