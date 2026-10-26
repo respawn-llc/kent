@@ -128,6 +128,9 @@ func finalizeUIUpdate(model *uiModel, cmd tea.Cmd) (tea.Model, tea.Cmd) {
 	if model == nil {
 		return model, cmd
 	}
+	if presentationCmd := model.reconcileAskPresentation(); presentationCmd != nil {
+		cmd = tea.Batch(cmd, presentationCmd)
+	}
 	progressCmd := model.reconcileNativeProgress()
 	draftCmd := model.saveEditedDraft()
 	if draftCmd != nil {
