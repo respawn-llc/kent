@@ -202,7 +202,11 @@ it("surfaces a debug transcript integrity failure at the mounted boundary", asyn
   const transcriptError = vi.fn();
   const chat: ChatRuntimeApi = {
     getMainView: vi.fn().mockResolvedValue(mainViewRead()),
-    getTranscriptPage: vi.fn().mockResolvedValue({ ...transcriptPage(null), hasMoreAbove: true }),
+    getTranscriptPage: vi.fn().mockResolvedValue({
+      ...transcriptPage(null),
+      hasMoreBelow: true,
+      newerCursor: 1,
+    }),
     subscribeTranscript: vi.fn(() => transcriptSource(() => ({ close: vi.fn() }))),
   };
   class Boundary extends Component<{ content: ReactElement }, { failed: boolean }> {
