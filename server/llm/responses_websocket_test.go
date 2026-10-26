@@ -273,6 +273,33 @@ func TestResponsesSocketErrorsRetainProviderFactsWithoutHandshakeStatus(t *testi
 	}
 }
 
+func TestResponsesSocketRejectsInvalidFramesBeforeTerminal(t *testing.T) {
+	for name, event := range map[string]string{
+		"malformed": `{"type":`,
+		"numeric type": `{"type":1,"error":{"code":"insufficient_quota"}}`,
+		"null type": `{"type":null,"error":{"code":"insufficient_quota"}}`,
+		"empty type": `{"type":"","error":{"code":"insufficient_quota"}}`,
+		"missing envelope": `{}`,
+	} {
+		t.Run(name, func(t *testing.T) {
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				serveResponsesTestWebsocket(t, w, r, func(json.RawMessage) []string { return []string{event} })
+			}))
+			defer server.Close()
+			registration := testConnectionRegistration(t, config.ProviderConnection{Protocol: config.ConnectionResponses, Endpoint: textutil.Value(defaultOpenAIBaseURL)})
+			registration.Variant.BaseURL = textutil.Value(server.URL + "/v1")
+			transport := newTestHTTPTransport(t, staticAuthHeader{}, registration)
+			defer transport.Close()
+			ctx, cancel := context.WithTimeout(t.Context(), 3*time.Second)
+			defer cancel()
+			_, err := transport.Generate(ctx, ResponsesRequest{Model: "gpt-6-sol", ReasoningEffort: "high", SessionID: textutil.Value("session"), ToolChoiceMode: ToolChoiceModeAutomatic}, StreamCallbacks{})
+			if err == nil || errors.Is(err, context.DeadlineExceeded) || IsUsageExhaustionError(err) {
+				t.Fatalf("invalid frame did not fail promptly as a protocol failure: %v", err)
+			}
+		})
+	}
+}
+
 func TestResponsesOpeningRetainsRejectedUpgradeFacts(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("x-request-id", "rejected-request")
