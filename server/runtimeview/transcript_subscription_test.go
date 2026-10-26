@@ -1491,6 +1491,30 @@ func TestAssistantTranscriptMessagesDoNotReemitLiveToolStarts(t *testing.T) {
 	}
 }
 
+func TestNativeAcceptedCallRemainsMutableUntilResult(t *testing.T) {
+	message, err := llm.MessageFromNativeResponse(session.NativeResponseBody{
+		Format: session.NativeResponseOpenAI,
+		Items:  [][]byte{[]byte(`{"type":"function_call","id":"item","call_id":"call","name":"exec_command","arguments":"{}"}`)},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	events, err := TranscriptMessagesFromRuntimeEventChecked(runtime.Event{
+		Kind:                runtime.EventConversationUpdated,
+		StepID:              runtimeStepIDPointer(transcriptProjectionStepID),
+		CommittedProvenance: &runtime.TranscriptCommittedRowProvenance{EventSequence: 4},
+		Message:             message,
+	}, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, event := range events {
+		if event.GetCommittedRow() != nil {
+			t.Fatal("accepted unfinished call published a committed presentation")
+		}
+	}
+}
+
 func TestInFlightClearFailureIsOperationalDiagnosticOnly(t *testing.T) {
 	event := runtime.Event{
 		Kind:   runtime.EventInFlightClearFailed,

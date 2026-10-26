@@ -8,7 +8,6 @@ import (
 	"core/shared/config"
 	"core/shared/protoapi"
 	transcriptpb "core/shared/protoapi/gen/kent/api/transcript"
-	"core/shared/textutil"
 	"core/shared/toolspec"
 	"core/shared/transcript"
 	patchformat "core/shared/transcript/patchformat"
@@ -149,59 +148,6 @@ func pendingToolLines(tool *transcriptpb.ToolStart, width int, syntax *syntaxPro
 		lines = renderTextBlockWithInlineMeta(role, text, inlineMeta, width, ModeOngoing, meta)
 	}
 	return lines
-}
-
-// A native call's input is already immutable scrollback. Append only new
-// outcome facts; never redraw its command or unchanged planned patch counts.
-func RenderToolCompletion(call *transcriptpb.ToolStart, result *transcriptpb.ToolRow, width int, themeName string) Row {
-	before := projectedToolMeta(call.ToolName, call.Presentation)
-	meta := projectedToolMeta(result.GetToolName(), result.Presentation)
-	syntax := newSyntaxProjector(themeName)
-	meta.syntax = &syntax
-	meta.IsError = result.IsError || shellExitFailed(meta)
-	role := toolRole(meta)
-	var lines []Line
-	if meta.PatchPresentation != nil && meta.PatchPresentation.Changes != nil {
-		previous := make(map[string]patchformat.FileChange)
-		if before.PatchPresentation != nil && before.PatchPresentation.Changes != nil {
-			for _, file := range before.PatchPresentation.Changes.Files {
-				previous[file.Path.Absolute] = file
-			}
-		}
-		var changed []patchformat.FileChange
-		for _, file := range meta.PatchPresentation.Changes.Files {
-			prior, exists := previous[file.Path.Absolute]
-			if exists && prior.Added == file.Added && textutil.EqualOptional(prior.Removed, file.Removed) {
-				continue
-			}
-			changed = append(changed, file)
-		}
-		if len(changed) > 0 {
-			lines = renderPatchChangesCompact(role, &patchformat.Changes{Files: changed}, "", width, ModeOngoing, meta)
-		}
-	}
-	if meta.Presentation == transcript.ToolPresentationAskQuestion && !meta.IsError {
-		answer := strings.TrimSpace(safeTranscriptText(optionalString(result.CondensedText)))
-		if answer != "" {
-			return Row{Group: GroupTool, Lines: attachPrefixWithTree(role,
-				textLines(StyleRoleToolQuestionAnswer, wrapLines(answer, contentWidth(role, width)), meta, ModeOngoing),
-				width, ModeOngoing, meta)}
-		}
-	}
-	status := firstNonEmpty(shellExitStatus(meta), optionalString(result.ResultSummary))
-	if status == "" && meta.MovedToBackground && !meta.IsError {
-		status = backgroundedShellStatus
-	}
-	if status == "" && meta.InlineMeta != before.InlineMeta {
-		status = meta.InlineMeta
-	}
-	if status == "" && meta.IsError {
-		status = "failed"
-	}
-	if status != "" {
-		lines = append(lines, renderTextBlockWithInlineMeta(role, status, "", width, ModeOngoing, meta)...)
-	}
-	return Row{Group: GroupTool, Lines: lines}
 }
 
 type toolMeta struct {

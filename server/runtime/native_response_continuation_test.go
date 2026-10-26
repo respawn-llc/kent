@@ -177,11 +177,11 @@ func TestAcceptedNativeReasoningToolOutputSurvivesResultsAndReload(t *testing.T)
 	store := mustCreateTestSession(t)
 	registry := newTestToolRegistry(t, tools.HandlerRegistration{ID: toolspec.ToolExecCommand, Handler: fakeTool{name: toolspec.ToolExecCommand}})
 	var startedCalls []llm.ToolCall
-	var prematureCommentary bool
+	var streamedCommentary bool
 	cfg := Config{Model: "gpt-6-sol", EnabledTools: []toolspec.ID{toolspec.ToolExecCommand},
 		OnEvent: func(event Event) {
 			if event.Kind == EventAssistantDelta && event.AssistantStreamMetadata != nil && event.AssistantStreamMetadata.OutputIndex != nil && *event.AssistantStreamMetadata.OutputIndex == 3 {
-				prematureCommentary = true
+				streamedCommentary = true
 			}
 			if event.Kind == EventToolCallStarted && event.ToolCall != nil {
 				startedCalls = append(startedCalls, *event.ToolCall)
@@ -195,8 +195,8 @@ func TestAcceptedNativeReasoningToolOutputSurvivesResultsAndReload(t *testing.T)
 	if toolResults.Load() != 1 {
 		t.Fatalf("actual tool results sent = %d", toolResults.Load())
 	}
-	if prematureCommentary {
-		t.Fatal("commentary after an unaccepted local call appeared before acceptance")
+	if !streamedCommentary {
+		t.Fatal("eligible commentary waited for local call acceptance")
 	}
 	if len(startedCalls) != 1 || startedCalls[0].OutputIndex == nil || *startedCalls[0].OutputIndex != 2 {
 		t.Fatalf("local tool start lost its native position: %+v", startedCalls)
