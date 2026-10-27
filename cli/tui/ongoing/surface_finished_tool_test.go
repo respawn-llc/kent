@@ -2,6 +2,7 @@ package ongoing
 
 import (
 	"bytes"
+	"fmt"
 	"strings"
 	"testing"
 
@@ -149,5 +150,54 @@ func TestFinishedToolWaitsOnlyForUnfinishedAssistantMessage(t *testing.T) {
 	text := snapshot()
 	if strings.Count(text, result) != 1 || strings.Index(text, source) > strings.Index(text, result) {
 		t.Fatal("finished tool did not emit once at the next coherent opportunity")
+	}
+}
+
+func TestHydrationReplacesDeferredFinishedTools(t *testing.T) {
+	for _, reset := range []bool{false, true} {
+		t.Run(fmt.Sprint(reset), func(t *testing.T) {
+			var output bytes.Buffer
+			surface := NewSurface(&output)
+			frame := blankFinalFrame()
+			apply := func(event *transcriptpb.Event) {
+				t.Helper()
+				if _, err := surface.ApplyTerminalMessage(&transcriptpb.Message{Event: event}, frame); err != nil {
+					t.Fatal(err)
+				}
+			}
+			apply(&transcriptpb.Event{Payload: &transcriptpb.Event_AssistantDelta{AssistantDelta: &transcriptpb.AssistantDelta{
+				StreamId: uuid.NewString(), Delta: "Unfinished paragraph.\n\n",
+			}}})
+			marker := "hydrated-finished-result"
+			row := &transcriptpb.CommittedRow{
+				Visibility: transcriptpb.EntryVisibility_ENTRY_VISIBILITY_ONGOING_COLLAPSED,
+				Integrity:  transcriptpb.RowIntegrity_ROW_INTEGRITY_VALID,
+				Row: &transcriptpb.CommittedRow_Tool{Tool: &transcriptpb.ToolRow{
+					ToolName: textutil.Value("exec_command"), ResultSummary: &marker,
+				}},
+			}
+			apply(&transcriptpb.Event{Payload: &transcriptpb.Event_CommittedRow{CommittedRow: row}})
+			if reset {
+				if _, err := surface.ResetForScratchHydration(RehydrateReasonWidthChange, frame); err != nil {
+					t.Fatal(err)
+				}
+			}
+			output.Reset()
+			id := uuid.NewString()
+			apply(&transcriptpb.Event{Payload: &transcriptpb.Event_Hydration{Hydration: &transcriptpb.Hydration{
+				TailSegment:      &transcriptpb.TailSegment{Entries: []*transcriptpb.CommittedRow{row}},
+				ActiveAssistants: []*transcriptpb.AssistantStream{{StreamId: id, Text: "Next message"}},
+			}}})
+			if !strings.Contains(output.String(), marker) {
+				t.Fatal("hydration did not present authoritative completed tool")
+			}
+			output.Reset()
+			apply(&transcriptpb.Event{Payload: &transcriptpb.Event_CommittedRow{CommittedRow: &transcriptpb.CommittedRow{
+				Row: &transcriptpb.CommittedRow_Assistant{Assistant: &transcriptpb.AssistantRow{StreamId: &id, Text: "Next message"}},
+			}}})
+			if strings.Contains(output.String(), marker) {
+				t.Fatal("obsolete deferred tool emitted again after hydration")
+			}
+		})
 	}
 }

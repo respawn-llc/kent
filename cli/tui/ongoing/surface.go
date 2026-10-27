@@ -235,6 +235,7 @@ func (s *Surface) ApplyTerminalMessage(message *transcriptpb.Message, frame Fram
 
 func (s *Surface) applyHydration(hydration *transcriptpb.Hydration, frame FrameInput) (Result, error) {
 	lines := s.hydrationImmutableLines(hydration, frame.Size.Width, frame.Theme)
+	s.pendingTools = nil
 	s.pendingAssistants = nil
 	var first *transcriptpb.AssistantStream
 	if len(hydration.ActiveAssistants) > 0 {
@@ -543,6 +544,7 @@ func (s *Surface) ResetForScratchHydration(reason RehydrateReason, frame FrameIn
 	s.retainedBandHeight = 0
 	s.activeAssistant = activeAssistantState{}
 	s.pendingAssistants = nil
+	s.pendingTools = nil
 	s.groupRegister = nil
 	paintedSize := frame.Size
 	s.lastPaintedSize = &paintedSize
