@@ -48,7 +48,7 @@ gen:
 
 # Run active tests, or select server, desktop, integration, docs, tui, or explicit frozen rust.
 test *args:
-    @bash scripts/test.sh "$@"
+    @bash scripts/quiet-on-success.sh --success pass bash scripts/test.sh "$@"
 
 # Apply safe lint fixes, or pass --dry-run for read-only validation.
 lint *args:

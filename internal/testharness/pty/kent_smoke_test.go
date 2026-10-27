@@ -24,7 +24,7 @@ const (
 )
 
 func TestProductionKentBinaryPTYSmoke(t *testing.T) {
-	binary, err := filepath.Abs("../../../bin/kent")
+	binary, err := filepath.Abs("../../../.generated/test-binaries/kent")
 	if err != nil {
 		t.Fatalf("locate worktree Kent binary: %v", err)
 	}

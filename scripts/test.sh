@@ -234,8 +234,8 @@ run_tui() {
 }
 
 run_integration() {
-	just --quiet build go
 	mkdir -p "$repo_root/.generated/test-binaries"
+	just --quiet build go --output "$repo_root/.generated/test-binaries/kent"
 	run_suite integration go test -count=1 -ldflags="-s -w" -o "$repo_root/.generated/test-binaries/" -p "$workers" "${go_test_timeout_args[@]}" -tags=integration ./internal/testharness/pty "${tool_args[@]}"
 }
 
