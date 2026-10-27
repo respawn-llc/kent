@@ -36,38 +36,46 @@ var sqliteOwnerPackages = map[string]string{
 	"server/startup":  "startup",
 }
 
-func sameSQLiteOwner(source goSourceFile, identifier *ast.Ident) string {
-	directory := path.Dir(source.relativePath)
-	if sqliteOwnerPackages[directory] != source.file.Name.Name {
-		return ""
-	}
-	if identifier.Obj != nil && identifier.Obj.Kind != ast.Fun {
-		return ""
-	}
-	return "core/" + directory
+type sqliteSymbolReference struct {
+	owner string
+	name  string
 }
 
-func sqliteSymbol(expression ast.Expr, source goSourceFile, imports map[string]string, dotImports []string) (string, string) {
+func samePackageSQLiteSymbol(source goSourceFile, identifier *ast.Ident) *sqliteSymbolReference {
+	directory := path.Dir(source.relativePath)
+	owner, ok := sqliteOwnerPackages[directory]
+	if !ok || owner != source.file.Name.Name {
+		return nil
+	}
+	if identifier.Obj != nil && identifier.Obj.Kind != ast.Fun {
+		return nil
+	}
+	return &sqliteSymbolReference{owner: "core/" + directory, name: identifier.Name}
+}
+
+func sqliteSymbol(expression ast.Expr, source goSourceFile, imports map[string]string, dotImports []string) *sqliteSymbolReference {
 	switch reference := expression.(type) {
 	case *ast.SelectorExpr:
 		if owner, ok := reference.X.(*ast.Ident); ok && owner.Obj == nil {
-			return imports[owner.Name], reference.Sel.Name
+			if imported, ok := imports[owner.Name]; ok {
+				return &sqliteSymbolReference{owner: imported, name: reference.Sel.Name}
+			}
 		}
 	case *ast.Ident:
-		if owner := sameSQLiteOwner(source, reference); owner != "" {
-			return owner, reference.Name
+		if symbol := samePackageSQLiteSymbol(source, reference); symbol != nil {
+			return symbol
 		}
 		if reference.Obj == nil {
 			for _, imported := range dotImports {
 				if diskSQLiteEntrypoints[imported][reference.Name] ||
 					imported == "database/sql" && (reference.Name == "Open" || reference.Name == "OpenDB") ||
 					imported == "core/server/core" && reference.Name == "NewWithContextOptions" {
-					return imported, reference.Name
+					return &sqliteSymbolReference{owner: imported, name: reference.Name}
 				}
 			}
 		}
 	}
-	return "", ""
+	return nil
 }
 
 func inspectTestSQLite(source goSourceFile) []string {
@@ -115,8 +123,12 @@ func inspectTestSQLite(source goSourceFile) []string {
 			}
 			expression = reference
 		}
-		path, name := sqliteSymbol(expression, source, imports, dotImports)
-		if expression != nil && !directCalls[expression] &&
+		symbol := sqliteSymbol(expression, source, imports, dotImports)
+		if symbol == nil {
+			return true
+		}
+		path, name := symbol.owner, symbol.name
+		if !directCalls[expression] &&
 			(diskSQLiteEntrypoints[path][name] ||
 				path == "database/sql" && (name == "Open" || name == "OpenDB") ||
 				path == "core/server/core" && name == "NewWithContextOptions") {
@@ -129,7 +141,11 @@ func inspectTestSQLite(source goSourceFile) []string {
 		if !ok {
 			return true
 		}
-		path, name := sqliteSymbol(call.Fun, source, imports, dotImports)
+		symbol := sqliteSymbol(call.Fun, source, imports, dotImports)
+		if symbol == nil {
+			return true
+		}
+		path, name := symbol.owner, symbol.name
 		if diskSQLiteEntrypoints[path][name] {
 			violations = append(violations, source.detailedViolation(call, "use an injected in-memory metadata store instead of "+path+"."+name))
 		}

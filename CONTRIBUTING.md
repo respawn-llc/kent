@@ -1,3 +1,5 @@
+# Contributing
+
 Kent is intentionally narrow and opinionated. We value changes that improve reliability, output quality, reviewability, and long-term maintainability. The best contributions are focused, technically coherent, and aligned with the product direction.
 
 ## Start With an Issue
