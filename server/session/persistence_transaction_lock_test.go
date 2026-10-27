@@ -34,23 +34,24 @@ func (o *blockingAfterPersistenceObserver) Arm() {
 func (o *blockingAfterPersistenceObserver) ObservePersistedStore(
 	ctx context.Context,
 	snapshot PersistedStoreSnapshot,
-) error {
-	if err := o.downstream.ObservePersistedStore(ctx, snapshot); err != nil {
-		return err
+) (CommitReceipt, error) {
+	receipt, err := o.downstream.ObservePersistedStore(ctx, snapshot)
+	if err != nil {
+		return receipt, err
 	}
 	o.mu.Lock()
 	block := o.blockNext
 	o.blockNext = false
 	o.mu.Unlock()
 	if !block {
-		return nil
+		return receipt, nil
 	}
 	close(o.blocked)
 	select {
 	case <-o.release:
-		return nil
+		return receipt, nil
 	case <-ctx.Done():
-		return ctx.Err()
+		return receipt, ctx.Err()
 	}
 }
 
@@ -99,24 +100,6 @@ func TestConcurrentOpenCannotRecoverActiveAppendTransaction(t *testing.T) {
 	case <-observer.blocked:
 	case <-time.After(2 * time.Second):
 		t.Fatal("append did not reach metadata persistence")
-	}
-
-	recovery, err := store.readAppendRecoveryRecord()
-	if err != nil {
-		close(observer.release)
-		t.Fatalf("read active append recovery: %v", err)
-	}
-	if recovery == nil || recovery.Events == nil {
-		close(observer.release)
-		t.Fatalf("active append recovery = %+v, want event transaction", recovery)
-	}
-	// The observer gate gives the test a deterministic active transaction.
-	// Restoring its prepared phase models the state a concurrent opener could
-	// observe before the writer reaches the recovery commit point.
-	recovery.Phase = appendRecoveryPrepared
-	if err := store.writeAppendRecoveryRecord(*recovery); err != nil {
-		close(observer.release)
-		t.Fatalf("stage active append recovery: %v", err)
 	}
 
 	type openOutcome struct {

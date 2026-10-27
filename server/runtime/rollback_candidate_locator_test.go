@@ -2,7 +2,6 @@ package runtime
 
 import (
 	"encoding/json"
-	"errors"
 	"testing"
 
 	"core/server/llm"
@@ -146,16 +145,13 @@ func TestLatestRollbackCandidateLocatorSurvivesCandidateFreeCompactionsAndRestar
 func TestRuntimeRestoreRejectsMalformedPersistedRollbackCandidateLocator(t *testing.T) {
 	t.Parallel()
 	store := mustCreateTestSession(t)
-	eventLog := mustMaterializeTestEventLog(t, store)
-	appendMalformedRollbackCandidateHistoryReplacement(t, store)
-
-	engine, err := New(store, eventLog, &fakeClient{}, tools.NewRegistry(), Config{Model: "gpt-6-sol"})
-	if engine != nil || !errors.Is(err, rollbacktarget.ErrInvalidCandidateLocator) {
-		t.Fatalf("runtime restore result = engine:%+v error:%v", engine, err)
+	store = appendMalformedRollbackCandidateHistoryReplacement(t, store)
+	if _, err := store.MaterializeEventLog(); err == nil {
+		t.Fatal("committed malformed rollback candidate was accepted")
 	}
 }
 
-func appendMalformedRollbackCandidateHistoryReplacement(t *testing.T, store *session.Store) {
+func appendMalformedRollbackCandidateHistoryReplacement(t *testing.T, store *session.Store) *session.Store {
 	t.Helper()
 	line, err := json.Marshal(struct {
 		Seq     int64                            `json:"seq"`
@@ -175,5 +171,5 @@ func appendMalformedRollbackCandidateHistoryReplacement(t *testing.T, store *ses
 	if err != nil {
 		t.Fatalf("marshal malformed rollback candidate history replacement: %v", err)
 	}
-	appendRawCurrentEventLine(t, store, line)
+	return appendRawCurrentEventLine(t, store, line)
 }

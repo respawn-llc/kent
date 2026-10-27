@@ -533,7 +533,7 @@ func TestFlushPendingUserInjectionsRestoresOnlyLaterNoticeAfterCommittedObserver
 			Content: textutil.Value(sessionID + " notice"),
 		})
 	}
-	gate.FailNext(observerErr)
+	gate.FailAfterCommit(observerErr)
 
 	_, err := scheduler.flushPendingNotices(stepID)
 	if !errors.Is(err, observerErr) {

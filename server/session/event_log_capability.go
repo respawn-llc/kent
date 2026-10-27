@@ -2,7 +2,6 @@ package session
 
 import (
 	"errors"
-	"strings"
 
 	"core/shared/invariant"
 )
@@ -49,6 +48,11 @@ func (s *Store) materializeDurableEventLogWithMutationHeld() (MaterializedEventL
 		log := s.materializedEventLog
 		s.mu.Unlock()
 		return MaterializedEventLog{store: s, log: log}, nil
+	}
+	if s.terminalPersistenceError != nil {
+		err := s.terminalPersistenceError
+		s.mu.Unlock()
+		return MaterializedEventLog{}, err
 	}
 	if !s.persisted {
 		s.mu.Unlock()
@@ -97,51 +101,6 @@ func (c MaterializedEventLog) ReadNewestSegmentBackward(
 	return log.readNewestSegmentBackward(activeTailReverseChunkBytes, match)
 }
 
-func (c MaterializedEventLog) PendingRecoveryStepHasTerminalAssistant(
-	stepID string,
-) (bool, error) {
-	stepID = strings.TrimSpace(stepID)
-	if stepID == "" {
-		return false, errors.New("pending recovery step identity is required")
-	}
-	var matchErr error
-	window, err := c.ReadNewestSegmentBackward(func(record EventRecord) bool {
-		payload, err := record.Payload()
-		if err != nil {
-			matchErr = err
-			return true
-		}
-		return IsContextBoundary(payload.eventKind())
-	})
-	if err != nil {
-		return false, err
-	}
-	if matchErr != nil {
-		return false, matchErr
-	}
-	for _, record := range window.Records {
-		recordStepID := record.StepID()
-		if recordStepID == nil || strings.TrimSpace(*recordStepID) != stepID {
-			continue
-		}
-		payload, err := record.Payload()
-		if err != nil {
-			return false, err
-		}
-		message, ok := payload.(MessageRecord)
-		if !ok {
-			continue
-		}
-		if message.Role == MessageRoleAssistant &&
-			message.Phase != nil &&
-			*message.Phase == MessagePhaseFinal &&
-			len(message.ToolCalls) == 0 {
-			return true, nil
-		}
-	}
-	return false, nil
-}
-
 func (c MaterializedEventLog) ReadSegmentBackward(
 	endOffset int64,
 	match func(EventRecord) bool,
@@ -185,8 +144,9 @@ func (c MaterializedEventLog) WalkRecords(visit func(EventRecord) error) error {
 		return errors.New("event walk requires materialized event-log capability")
 	}
 	path := s.materializedEventLog.path
+	sequence := s.meta.LastSequence
 	s.mu.Unlock()
-	log, err := openCurrentEventLog(path, currentEventLogReadOnly)
+	log, err := openCommittedEventLog(path, currentEventLogReadOnly, sequence)
 	if err != nil {
 		return err
 	}
@@ -221,11 +181,9 @@ func (c MaterializedEventLog) currentLogForUse() (*currentEventLog, func(), erro
 		))
 		return nil, nil, err
 	}
-	c.store.mutationMu.Lock()
 	c.store.mu.Lock()
 	if c.log == nil || c.store.materializedEventLog != c.log {
 		c.store.mu.Unlock()
-		c.store.mutationMu.Unlock()
 		err := errors.New(
 			"materialized event log invariant violated: Store capability is missing",
 		)
@@ -236,9 +194,9 @@ func (c MaterializedEventLog) currentLogForUse() (*currentEventLog, func(), erro
 		))
 		return nil, nil, err
 	}
-	log := c.log
+	log := *c.log
 	c.store.mu.Unlock()
-	return log, c.store.mutationMu.Unlock, nil
+	return &log, func() {}, nil
 }
 
 // currentLogForQuery snapshots event-derived scalar state while holding only

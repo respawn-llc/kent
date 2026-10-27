@@ -109,7 +109,7 @@ func openDatabaseAtPath(persistenceRoot string, databasePath string) (*sql.DB, e
 	if err != nil {
 		return nil, fmt.Errorf("open metadata db: %w", err)
 	}
-	if err := runMigrations(db); err != nil {
+	if err := runMigrations(db, trimmedRoot); err != nil {
 		version, versionErr := readMetadataVersion(db)
 		_ = db.Close()
 		if versionErr == nil &&
@@ -209,7 +209,7 @@ func metadataSQLiteReadOnlyDSN(databasePath string) (string, error) {
 	return u.String(), nil
 }
 
-func runMigrations(db *sql.DB) error {
+func runMigrations(db *sql.DB, persistenceRoot string) error {
 	if err := registerMetadataSQLiteFunctions(); err != nil {
 		return err
 	}
@@ -220,6 +220,18 @@ func runMigrations(db *sql.DB) error {
 	ctx := context.Background()
 	if err := repairWorkflowIdentityMigrationCollision(ctx, db, provider); err != nil {
 		return err
+	}
+	version, err := provider.GetDBVersion(ctx)
+	if err != nil {
+		return fmt.Errorf("read append-journal cutover version: %w", err)
+	}
+	if version < 102 {
+		if _, err := provider.UpTo(ctx, 101); err != nil {
+			return fmt.Errorf("prepare append-journal cutover schema: %w", err)
+		}
+		if err := migrateAppendJournals(ctx, db, persistenceRoot); err != nil {
+			return fmt.Errorf("preserve committed append journals: %w", err)
+		}
 	}
 	if _, err := provider.Up(ctx); err != nil {
 		return fmt.Errorf("apply metadata migrations: %w", err)

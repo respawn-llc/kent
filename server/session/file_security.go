@@ -8,6 +8,13 @@ import (
 
 var errSessionFileSymlink = errors.New("session file symlink")
 
+func syncAndClose(fp *os.File, err error) error {
+	if fp == nil {
+		return errors.Join(err, os.ErrInvalid)
+	}
+	return errors.Join(err, fp.Sync(), fp.Close())
+}
+
 func openRegularSessionFile(path string, label string) (*os.File, error) {
 	fp, err := openSessionFileReadOnly(path)
 	if err != nil {

@@ -807,20 +807,6 @@ func (e *Engine) handoffRuntimeState() *handoffRuntimeState {
 }
 
 func (e *Engine) applyPendingHandoffIfNeeded(ctx context.Context, stepID string) (bool, error) {
-	if futureMessage := e.handoffRuntimeState().FutureMessageSnapshot(); futureMessage != "" {
-		message, ok := handoffFutureAgentMessage(futureMessage)
-		if !ok {
-			return false, nil
-		}
-		receipt, err := e.steerWithCommitReceipt(stepID, steerMessagesWithPersistenceIntent(steeringPriorityNormal, steeringMessageEventDefault, true, []llm.Message{message}))
-		if receipt.Committed {
-			e.handoffRuntimeState().ClearFutureMessage()
-		}
-		if err != nil {
-			return false, err
-		}
-		return false, nil
-	}
 	req := e.handoffRuntimeState().RequestSnapshot()
 	if req == nil {
 		return false, nil
@@ -831,9 +817,6 @@ func (e *Engine) applyPendingHandoffIfNeeded(ctx context.Context, stepID string)
 	}
 	if _, receipt, err := e.compactNow(ctx, stepID, compactionModeHandoff, instructions, false); err != nil {
 		if receipt.Committed {
-			e.handoffRuntimeState().ClearRequest()
-		}
-		if e.handoffRuntimeState().FutureMessageSnapshot() != "" {
 			e.handoffRuntimeState().ClearRequest()
 		}
 		return false, err

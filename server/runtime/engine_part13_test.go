@@ -840,11 +840,12 @@ var errProbeCommittedObserverFailure = errors.New("probe committed observer fail
 
 type armedCommittedAppendFailObserver struct{ armed bool }
 
-func (o *armedCommittedAppendFailObserver) ObservePersistedStore(_ context.Context, _ session.PersistedStoreSnapshot) error {
+func (o *armedCommittedAppendFailObserver) ObservePersistedStore(_ context.Context, _ session.PersistedStoreSnapshot) (session.CommitReceipt, error) {
 	if o.armed {
-		return errProbeCommittedObserverFailure
+		o.armed = false
+		return session.CommitReceipt{}, errProbeCommittedObserverFailure
 	}
-	return nil
+	return session.CommitReceipt{}, nil
 }
 
 func TestCacheWarningSteeringPropagatesCommittedAppendError(t *testing.T) {

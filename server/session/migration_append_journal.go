@@ -52,19 +52,6 @@ type appendRecoveryRecord struct {
 	Events  *appendRecoveryEvents `json:"events,omitempty"`
 }
 
-func (s *Store) newAppendRecoveryRecord(preMeta, postMeta Meta, phase appendRecoveryPhase, events *appendRecoveryEvents) (appendRecoveryRecord, error) {
-	pre, preErr := appendRecoveryMetaOf(preMeta)
-	post, postErr := appendRecoveryMetaOf(postMeta)
-	record := appendRecoveryRecord{
-		Version: appendRecoveryRecordVersion,
-		Phase:   phase,
-		Pre:     pre,
-		Post:    post,
-		Events:  events,
-	}
-	return record, errors.Join(preErr, postErr, record.validate(preMeta.SessionID))
-}
-
 func appendRecoveryMetaOf(meta Meta) (appendRecoveryMeta, error) {
 	meta.CreatedAt = meta.CreatedAt.UTC().Truncate(time.Millisecond)
 	meta.UpdatedAt = meta.UpdatedAt.UTC().Truncate(time.Millisecond)
@@ -96,42 +83,8 @@ func syncRecoveryDirectory(path string) error {
 	return syncSessionDirectory(filepath.Dir(path))
 }
 
-func (s *Store) writeAppendRecoveryRecord(record appendRecoveryRecord) error {
-	path := filepath.Join(s.sessionDir, appendRecoveryFile)
-	if err := validateRecoveryTarget(path); err != nil {
-		return err
-	}
-	encoded, err := json.Marshal(record)
-	if err != nil {
-		return err
-	}
-	if int64(len(encoded)) > maxAppendRecoveryRecordSize {
-		return errors.New("append recovery record exceeds size limit")
-	}
-	tmp, err := os.CreateTemp(s.sessionDir, "."+appendRecoveryFile+".tmp-*")
-	if err != nil {
-		return err
-	}
-	tmpPath := tmp.Name()
-	_, err = tmp.Write(encoded)
-	if err := syncAndClose(tmp, err); err != nil {
-		return errors.Join(err, os.Remove(tmpPath))
-	}
-	if err := os.Rename(tmpPath, path); err != nil {
-		return errors.Join(err, os.Remove(tmpPath))
-	}
-	return syncRecoveryDirectory(path)
-}
-
-func syncAndClose(fp *os.File, err error) error {
-	if fp == nil {
-		return errors.Join(err, os.ErrInvalid)
-	}
-	return errors.Join(err, fp.Sync(), fp.Close())
-}
-
-func (s *Store) clearAppendRecoveryRecord() error {
-	path := filepath.Join(s.sessionDir, appendRecoveryFile)
+func clearLegacyAppendJournal(sessionDir string) error {
+	path := filepath.Join(sessionDir, appendRecoveryFile)
 	if err := validateRecoveryTarget(path); err != nil {
 		return err
 	}
@@ -145,8 +98,8 @@ func (s *Store) clearAppendRecoveryRecord() error {
 	return syncRecoveryDirectory(path)
 }
 
-func (s *Store) readAppendRecoveryRecord() (*appendRecoveryRecord, error) {
-	fp, err := openRegularSessionFile(filepath.Join(s.sessionDir, appendRecoveryFile), "append recovery record")
+func readLegacyAppendJournal(sessionDir, sessionID string) (*appendRecoveryRecord, error) {
+	fp, err := openRegularSessionFile(filepath.Join(sessionDir, appendRecoveryFile), "append recovery record")
 	if errors.Is(err, os.ErrNotExist) {
 		return nil, nil
 	}
@@ -164,7 +117,7 @@ func (s *Store) readAppendRecoveryRecord() (*appendRecoveryRecord, error) {
 	if err := json.Unmarshal(encoded, record); err != nil {
 		return nil, err
 	}
-	if err := record.validate(s.meta.SessionID); err != nil {
+	if err := record.validate(sessionID); err != nil {
 		return nil, err
 	}
 	return record, nil
@@ -186,11 +139,17 @@ func (record appendRecoveryRecord) validate(sessionID string) error {
 		return errors.Join(preErr, postErr, errors.New("append recovery metadata digest is invalid"))
 	case events == nil && record.Phase != appendRecoveryCommitted:
 		return errors.New("metadata-only recovery record must be committed")
+	case events == nil && record.Pre.Meta.LastSequence != record.Post.Meta.LastSequence:
+		return errors.New("metadata-only append journal changes transcript sequence")
 	case events != nil && (events.StartOffset < 0 || events.EndOffset <= events.StartOffset ||
 		events.EndOffset-events.StartOffset > maxAppendRecoverySuffixSize ||
 		events.EventCount <= 0 || events.FirstSequence <= 0 ||
 		events.LastSequence < events.FirstSequence || strings.TrimSpace(events.SHA256) == ""):
 		return errors.New("append recovery event identity is invalid")
+	case events != nil && (events.FirstSequence != record.Pre.Meta.LastSequence+1 ||
+		events.LastSequence != record.Post.Meta.LastSequence ||
+		int64(events.EventCount) != events.LastSequence-events.FirstSequence+1):
+		return errors.New("append journal sequence range disagrees with metadata")
 	default:
 		return nil
 	}
@@ -261,6 +220,9 @@ func inspectAppendRecoverySuffix(path string, events appendRecoveryEvents, phase
 			return false, fmt.Errorf("parse committed typed event suffix: %w", err)
 		}
 		count++
+		if event.Seq() != events.FirstSequence+int64(count)-1 {
+			return false, errors.New("committed append-journal suffix has a sequence gap")
+		}
 		if count == 1 {
 			firstSequence = event.Seq()
 		}
@@ -286,90 +248,66 @@ func truncateAppendRecoverySuffix(path string, offset int64) error {
 	return syncAndClose(fp, fp.Truncate(offset))
 }
 
-func (s *Store) recoverAppendTransactionWithEventLogLockHeld() error {
-	record, err := s.readAppendRecoveryRecord()
+// MigrateAppendJournal preserves the former journal commit decision once,
+// before the database records completion of the format cutover. Ordinary
+// Session opening never calls it.
+func MigrateAppendJournal(persisted PersistedSessionRecord, commit func(PersistedStoreSnapshot) error) (resultErr error) {
+	if persisted.Meta == nil || commit == nil {
+		return errors.New("append-journal migration requires persisted metadata and commit authority")
+	}
+	if _, err := os.Lstat(filepath.Join(persisted.SessionDir, appendRecoveryFile)); errors.Is(err, os.ErrNotExist) {
+		return nil
+	} else if err != nil {
+		return err
+	}
+	lock, lockPath, err := acquireEventLogPersistenceLock(persisted.SessionDir)
 	if err != nil {
-		return s.recoveryError("read recovery record", err)
+		return err
+	}
+	defer joinEventLogPersistenceLockRelease(&resultErr, lock, lockPath)
+	record, err := readLegacyAppendJournal(persisted.SessionDir, persisted.Meta.SessionID)
+	if err != nil {
+		return err
 	}
 	if record == nil {
 		return nil
 	}
-	currentDigest, err := digestMeta(s.meta)
-	if err != nil {
-		return s.recoveryError(
-			"validate metadata state",
-			errors.Join(err, errors.New("persisted metadata matches neither recovery snapshot")),
-		)
+	if persisted.Meta.LastSequence != record.Pre.Meta.LastSequence && persisted.Meta.LastSequence != record.Post.Meta.LastSequence {
+		return errors.New("append-journal migration conflicts with committed database sequence")
 	}
-	if currentDigest != record.Pre.SHA256 && currentDigest != record.Post.SHA256 {
-		return s.irreconcilableRecoveryError(
-			"validate metadata state",
-			IrreconcilableRecoveryConflictMetadataState,
-			*record,
-			currentDigest,
-			nil,
-			errors.New("persisted metadata matches neither recovery snapshot"),
-		)
-	}
-	selected := record.Post.Meta
+	eventsPath := filepath.Join(persisted.SessionDir, eventsFile)
 	if record.Events != nil {
-		exact, err := inspectAppendRecoverySuffix(s.eventsFP, *record.Events, record.Phase)
+		exact, err := inspectAppendRecoverySuffix(eventsPath, *record.Events, record.Phase)
 		if err != nil {
-			var conflict *appendRecoverySuffixConflictError
-			if record.Phase == appendRecoveryCommitted && errors.As(err, &conflict) {
-				return s.irreconcilableRecoveryError(
-					"inspect event suffix",
-					IrreconcilableRecoveryConflictCommittedSuffix,
-					*record,
-					currentDigest,
-					record.Events,
-					err,
-				)
+			return err
+		}
+		if record.Phase == appendRecoveryCommitted && !exact {
+			return errors.New("committed append-journal suffix is incomplete")
+		}
+		if record.Phase == appendRecoveryPrepared {
+			if persisted.Meta.LastSequence != record.Pre.Meta.LastSequence {
+				return errors.New("prepared append-journal suffix overlaps committed history")
 			}
-			return s.recoveryError("inspect event suffix", err)
-		}
-		if record.Phase == appendRecoveryPrepared || !exact {
-			if err := truncateAppendRecoverySuffix(s.eventsFP, record.Events.StartOffset); err != nil {
-				return s.recoveryError("truncate event suffix", err)
+			prefix, err := openCommittedEventLog(eventsPath, currentEventLogReadOnly, persisted.Meta.LastSequence)
+			if err != nil {
+				return err
 			}
-			selected = record.Pre.Meta
+			if prefix.lastCompleteOffset != record.Events.StartOffset {
+				return errors.New("prepared append-journal suffix does not start at the committed boundary")
+			}
+			if err := truncateAppendRecoverySuffix(eventsPath, record.Events.StartOffset); err != nil {
+				return err
+			}
 		}
 	}
-	s.meta = cloneMeta(selected)
-	return s.observePersistenceAndClearAppendRecovery(
-		&persistenceObservation{snapshot: s.persistenceSnapshotLocked()},
-	)
-}
-
-func (s *Store) irreconcilableRecoveryError(
-	operation string,
-	conflict IrreconcilableRecoveryConflict,
-	record appendRecoveryRecord,
-	currentDigest string,
-	suffix *appendRecoveryEvents,
-	cause error,
-) error {
-	detail := &IrreconcilableRecoveryDetail{
-		SessionID:             s.meta.SessionID,
-		Operation:             operation,
-		RecoveryPath:          filepath.Join(s.sessionDir, appendRecoveryFile),
-		EventsPath:            s.eventsFP,
-		CurrentMetadataSHA256: currentDigest,
-		PreMetadataSHA256:     record.Pre.SHA256,
-		PostMetadataSHA256:    record.Post.SHA256,
-		Phase:                 string(record.Phase),
-		Conflict:              conflict,
-		cause:                 cause,
-	}
-	if suffix != nil {
-		detail.Suffix = &IrreconcilableRecoverySuffixIdentity{
-			StartOffset:   suffix.StartOffset,
-			EndOffset:     suffix.EndOffset,
-			EventCount:    suffix.EventCount,
-			FirstSequence: suffix.FirstSequence,
-			LastSequence:  suffix.LastSequence,
-			SHA256:        suffix.SHA256,
+	if record.Phase == appendRecoveryCommitted {
+		if err := commit(PersistedStoreSnapshot{
+			SessionDir:   persisted.SessionDir,
+			Meta:         record.Post.Meta,
+			ContextFacts: persisted.ContextFacts,
+		}); err != nil {
+			return err
 		}
 	}
-	return detail
+	return clearLegacyAppendJournal(persisted.SessionDir)
 }

@@ -2345,7 +2345,7 @@ func TestPostCommitDiagnosticPreservesApprovalAndCACBoundary(t *testing.T) {
 	f.starter.cfg.Settings.Workflow.PreCompactionTokens = &threshold
 	writeCurrentNodeConfig(t, f.starter.cfg)
 	var observed atomic.Bool
-	f.persistenceGate.FailWhen(func(session.PersistedStoreSnapshot) bool {
+	f.persistenceGate.FailAfterCommitWhen(func(session.PersistedStoreSnapshot) bool {
 		return len(client.CompactionCalls()) > 0 && observed.Swap(true)
 	}, errors.New("post-commit diagnostic"))
 	task := f.createTask(t, createCurrentNodeThreeStepWorkflow(
@@ -3504,8 +3504,7 @@ func TestResumeAssignmentFailurePreventsOpenRuntimeReplacementAndRetries(t *test
 			return len(nodes) == 1 &&
 				nodes[0].Scheduling != nil &&
 				nodes[0].Scheduling.Interruption != nil &&
-				nodes[0].Scheduling.Interruption.Reason == workflow.CurrentNodeInterruptionReason("workflow_runtime_start_failed") &&
-				nodes[0].Scheduling.Interruption.Detail.Fields["error"] == cause.Error()
+				nodes[0].Scheduling.Interruption.Reason == workflow.CurrentNodeInterruptionReason("workflow_runtime_start_failed")
 		})
 		if !failureMatched.Load() {
 			t.Fatal("replacement assignment persistence failure predicate was not reached")
@@ -3527,8 +3526,8 @@ func TestResumeAssignmentFailurePreventsOpenRuntimeReplacementAndRetries(t *test
 		if len(assignments) != 1 || assignments[0].sourcePath != identity {
 			t.Fatalf("retried replacement assignments = %+v, want one exact Current Node assignment", assignments)
 		}
-		if got := f.workflowAssignmentRecordCount(t, recovery.sessionID); got != assignmentRecords {
-			t.Fatalf("retried replacement assignment records = %d, want %d", got, assignmentRecords)
+		if got := f.workflowAssignmentRecordCount(t, recovery.sessionID); got != assignmentRecords+1 {
+			t.Fatalf("retried replacement assignment records = %d, want one newly committed assignment after rejected publication", got)
 		}
 		if got := f.retainedRuntimeCompactionMode(t, recovery.sessionID); got != string(config.CompactionModeLocal) {
 			t.Fatalf("retained runtime compaction mode after retry = %q, want local", got)

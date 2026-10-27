@@ -299,7 +299,7 @@ func TestCommittedCompactionHistoryReplacementInvalidatesUsageAcrossImmediateReo
 	if receipt, err := engine.recordLastUsage(previousUsage); err != nil || !receipt.Committed {
 		t.Fatalf("persist previous usage: receipt=%+v error=%v", receipt, err)
 	}
-	gate.FailWhen(func(snapshot session.PersistedStoreSnapshot) bool {
+	gate.FailAfterCommitWhen(func(snapshot session.PersistedStoreSnapshot) bool {
 		return snapshot.Meta.LastSequence >= 2 && snapshot.Meta.UsageState == nil
 	}, observerErr)
 
@@ -345,7 +345,7 @@ func TestHistoryReplacementAppendObserverFailureUpdatesLiveActiveListForNextTurn
 	if err := steerTestActiveStep(engine, "seed", steerMessagesWithPersistenceIntent(steeringPriorityNormal, steeringMessageEventNone, true, []llm.Message{{Role: llm.RoleUser, Content: textutil.Value("input")}})); err != nil {
 		t.Fatalf("persist seed message: %v", err)
 	}
-	gate.FailWhen(func(snapshot session.PersistedStoreSnapshot) bool {
+	gate.FailAfterCommitWhen(func(snapshot session.PersistedStoreSnapshot) bool {
 		return snapshot.Meta.LastSequence >= 2 && snapshot.Meta.UsageState == nil
 	}, observerErr)
 
@@ -464,7 +464,7 @@ func TestCompactNowCompletesCommittedHistoryReplacementObserverFailure(t *testin
 	observerErr := errors.New("history replacement observer failure")
 	gate := sessiontest.NewPersistenceGate(runtimeTestSessionPersistence)
 	fixture := newCommittedRemoteCompactionFixture(t, gate, nil)
-	gate.FailWhen(func(snapshot session.PersistedStoreSnapshot) bool {
+	gate.FailAfterCommitWhen(func(snapshot session.PersistedStoreSnapshot) bool {
 		return snapshot.Meta.LastSequence >= 2 && snapshot.Meta.UsageState == nil
 	}, observerErr)
 
@@ -526,7 +526,7 @@ func TestCompactNowReconcilesLiveUsageWhenFinalUsageObserverFails(t *testing.T) 
 	observerErr := errors.New("compaction usage observer failure")
 	gate := sessiontest.NewPersistenceGate(runtimeTestSessionPersistence)
 	fixture := newCommittedRemoteCompactionFixture(t, gate, nil)
-	gate.FailWhen(func(snapshot session.PersistedStoreSnapshot) bool {
+	gate.FailAfterCommitWhen(func(snapshot session.PersistedStoreSnapshot) bool {
 		usage := snapshot.Meta.UsageState
 		return usage != nil &&
 			usage.WindowTokens == fixture.previousUsage.WindowTokens &&
@@ -607,7 +607,7 @@ func TestCompactNowClearsContractWhenMetadataObserverFails(t *testing.T) {
 		ReviewerPrompt:    "persisted reviewer snapshot",
 		HasReviewerPrompt: true,
 	})
-	gate.FailWhen(func(snapshot session.PersistedStoreSnapshot) bool {
+	gate.FailAfterCommitWhen(func(snapshot session.PersistedStoreSnapshot) bool {
 		return snapshot.Meta.Locked == nil
 	}, observerErr)
 
@@ -897,7 +897,7 @@ func TestCommittedHistoryReplacementPreventsStaleUsageFromLaterMetadataPersisten
 	if receipt, err := engine.recordLastUsage(previousUsage); err != nil || !receipt.Committed {
 		t.Fatalf("persist previous usage: receipt=%+v error=%v", receipt, err)
 	}
-	gate.FailWhen(func(snapshot session.PersistedStoreSnapshot) bool {
+	gate.FailAfterCommitWhen(func(snapshot session.PersistedStoreSnapshot) bool {
 		return snapshot.Meta.LastSequence >= 2 && snapshot.Meta.UsageState == nil
 	}, replacementErr)
 
@@ -917,7 +917,7 @@ func TestCommittedHistoryReplacementPreventsStaleUsageFromLaterMetadataPersisten
 	}
 
 	compactedUsage := llm.Usage{InputTokens: textutil.Value(2_000), WindowTokens: previousUsage.WindowTokens, ContextUsage: &llm.ContextUsage{Tokens: 2_000, MeasurementPoint: llm.ContextMeasurementInput}}
-	gate.FailWhen(func(snapshot session.PersistedStoreSnapshot) bool {
+	gate.FailAfterCommitWhen(func(snapshot session.PersistedStoreSnapshot) bool {
 		usage := snapshot.Meta.UsageState
 		return usage != nil && textutil.EqualOptional(usage.InputTokens, compactedUsage.InputTokens)
 	}, usageErr)

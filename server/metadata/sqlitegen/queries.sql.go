@@ -3888,6 +3888,39 @@ func (q *Queries) ListActiveWorkflowTaskSessions(ctx context.Context, arg ListAc
 	return items, nil
 }
 
+const listAppendJournalCutoverSessionIDs = `-- name: ListAppendJournalCutoverSessionIDs :many
+SELECT id
+FROM sessions
+WHERE CAST(?1 AS TEXT) IS NULL
+   OR id > CAST(?1 AS TEXT)
+ORDER BY id
+LIMIT 100
+`
+
+func (q *Queries) ListAppendJournalCutoverSessionIDs(ctx context.Context, afterID sql.NullString) ([]string, error) {
+	rows, err := q.db.QueryContext(ctx, listAppendJournalCutoverSessionIDs, afterID)
+	err = recordQueryError(ctx, err, listAppendJournalCutoverSessionIDs, 1)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []string
+	for rows.Next() {
+		var id string
+		if err := recordQueryError(ctx, rows.Scan(&id), listAppendJournalCutoverSessionIDs, 1); err != nil {
+			return nil, err
+		}
+		items = append(items, id)
+	}
+	if err := recordQueryError(ctx, rows.Close(), listAppendJournalCutoverSessionIDs, 1); err != nil {
+		return nil, err
+	}
+	if err := recordQueryError(ctx, rows.Err(), listAppendJournalCutoverSessionIDs, 1); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const listBoardColumnTaskCounts = `-- name: ListBoardColumnTaskCounts :many
 WITH
 label_filter_args AS (

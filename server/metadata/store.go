@@ -2240,11 +2240,11 @@ func (s *Store) reconcileSessionEventLog(ctx context.Context, reconciliation ses
 
 func (s *Store) upsertSessionSnapshot(ctx context.Context, snapshot session.PersistedStoreSnapshot) error {
 	if s == nil || s.queries == nil {
-		return errors.New("metadata store is required")
+		return session.DefinitelyUncommittedMutation(errors.New("metadata store is required"))
 	}
 	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
-		return fmt.Errorf("begin session snapshot import tx: %w", err)
+		return session.DefinitelyUncommittedMutation(fmt.Errorf("begin session snapshot import tx: %w", err))
 	}
 	defer func() { _ = tx.Rollback() }()
 	if err := s.upsertSessionSnapshotWithQueries(
@@ -2252,7 +2252,7 @@ func (s *Store) upsertSessionSnapshot(ctx context.Context, snapshot session.Pers
 		s.queries.WithTx(tx),
 		snapshot,
 	); err != nil {
-		return err
+		return session.DefinitelyUncommittedMutation(err)
 	}
 	if err := tx.Commit(); err != nil {
 		return fmt.Errorf("commit session snapshot import tx: %w", err)
@@ -2900,20 +2900,20 @@ type sessionObserver struct {
 	store *Store
 }
 
-func (o sessionObserver) ObservePersistedStore(ctx context.Context, snapshot session.PersistedStoreSnapshot) error {
+func (o sessionObserver) ObservePersistedStore(ctx context.Context, snapshot session.PersistedStoreSnapshot) (session.CommitReceipt, error) {
 	if o.store == nil {
-		return nil
+		return session.CommitReceipt{}, session.DefinitelyUncommittedMutation(errors.New("metadata store is required"))
 	}
 	if err := o.store.upsertSessionSnapshot(ctx, snapshot); err != nil {
-		return err
+		return session.CommitReceipt{}, err
 	}
 	status, err := goalProjection(&snapshot.Meta)
 	if err != nil {
 		log.Printf("publish Goal observation for Session %q: %v", snapshot.Meta.SessionID, err)
-		return nil
+		return session.CommitReceipt{Committed: true}, nil
 	}
 	o.store.goalObservations.publish(snapshot.Meta.SessionID, status)
-	return nil
+	return session.CommitReceipt{Committed: true}, nil
 }
 
 func (o sessionObserver) ObserveEventLogReconciliation(ctx context.Context, reconciliation session.PersistedEventLogReconciliation) error {
