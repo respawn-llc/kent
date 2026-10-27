@@ -682,7 +682,9 @@ describe("Desktop Chat read client", () => {
       onTransportLoss: () => transportLosses.push({}),
     });
     transport.failDescriptor(T.StreamService.method.subscribe, new TransportError("isolated socket loss"));
-    await waitFor(() => { expect(transportLosses).toHaveLength(1); });
+    await waitFor(() => {
+      expect(transportLosses).toHaveLength(1);
+    });
     expect(errors).toEqual([]);
     expect(transportLosses).toHaveLength(1);
 
