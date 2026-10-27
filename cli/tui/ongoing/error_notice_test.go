@@ -77,7 +77,7 @@ func TestErrorNoticesRenderCompletelyThroughNormalOngoingModes(t *testing.T) {
 			if want := strings.Split(test.wantText, "\n"); !reflect.DeepEqual(gotText, want) {
 				t.Fatalf("structured ongoing error payload = %#v, want %#v", gotText, want)
 			}
-			if got, want := NewSurface().renderCommittedRow(row, 80, "dark"), encodeTranscriptLines(structured.Lines, "dark"); !reflect.DeepEqual(got, want) {
+			if got, want := NewSurface().source.renderCommittedRow(row, 80, "dark"), encodeTranscriptLines(structured.Lines, "dark"); !reflect.DeepEqual(got, want) {
 				t.Fatalf("ongoing surface changed structured renderer output: got=%q want=%q", got, want)
 			}
 		})

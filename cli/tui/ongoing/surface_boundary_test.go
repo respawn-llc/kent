@@ -13,6 +13,15 @@ import (
 )
 
 func TestSurfaceFullHeightBoundaryPreservesCommittedOutput(t *testing.T) {
+	for _, source := range []string{"subscription", "terminal"} {
+		t.Run(source, func(t *testing.T) {
+			testSurfaceFullHeightBoundary(t, source)
+		})
+	}
+}
+
+func testSurfaceFullHeightBoundary(t *testing.T, source string) {
+	t.Helper()
 	const height = 8
 	var output bytes.Buffer
 	surface := NewSurface(&output)
@@ -41,8 +50,18 @@ func TestSurfaceFullHeightBoundaryPreservesCommittedOutput(t *testing.T) {
 		output.Reset()
 	}
 	frame := FrameInput{Size: Size{Width: 40, Height: height}, Sections: []FrameSection{{Kind: FrameSectionStatus, Lines: []string{"live"}}}}
-	if _, err := surface.ApplyTerminalMessage(committedAssistantMessage("original"), frame); err != nil {
-		t.Fatal(err)
+	switch source {
+	case "subscription":
+		if _, err := surface.ApplyTerminalMessage(committedAssistantMessage("original"), frame); err != nil {
+			t.Fatal(err)
+		}
+	case "terminal":
+		if err := stream.Feed([]byte("\x1b[8;1Horiginal")); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := surface.Render(frame); err != nil {
+			t.Fatal(err)
+		}
 	}
 	feed()
 	for _, band := range []int{height - 1, height} {

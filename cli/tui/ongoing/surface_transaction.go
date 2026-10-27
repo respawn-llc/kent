@@ -30,9 +30,7 @@ func (s *Surface) validateRenderFrame(frame FrameInput, operation string) {
 	}
 }
 
-func (s *Surface) writeFrameTransaction(frame FrameInput, immutableRows []string) (Result, error) {
-	s.observeResize(frame.Size)
-	allocation := s.AllocateFrame(frame)
+func (s *Surface) writeFrameTransaction(frame FrameInput, allocation FrameAllocation, immutableRows []string) (Result, error) {
 	liveLayout, cursor := allocation.layout, allocation.cursor
 	liveLines := liveBandLineTexts(liveLayout)
 	for row, line := range liveLines {
@@ -58,7 +56,7 @@ func (s *Surface) writeFrameTransaction(frame FrameInput, immutableRows []string
 		transaction.WriteString(resetScrollRegionAndOriginMode())
 		transaction.WriteString(semanticOutputSequence())
 	}
-	if !s.viewportInvalid && nextHeight > previousHeight && s.immutableScrollbackProduced() {
+	if !s.viewportInvalid && nextHeight > previousHeight {
 		writeImmutableRegionScrollForLiveBandGrowth(&transaction, frame.Size.Height, previousHeight, nextHeight)
 	}
 	writeMutableBandErase(&transaction, frame.Size.Height, eraseHeight)
@@ -151,7 +149,7 @@ func (s *Surface) AllocateMessageFrames(messages []*transcriptpb.Message, frame 
 	return func(yield func(FrameAllocation) bool) {
 		next := *s
 		for _, message := range messages {
-			next.prepareTerminalMessage(message, frame)
+			next.source.prepareTerminalMessage(message, frame)
 			allocation := next.AllocateFrame(frame)
 			if !yield(allocation) {
 				return
@@ -203,10 +201,10 @@ func validateFrameTransactionGeometry(
 
 func (s *Surface) allocateLiveBand(frame FrameInput) ([]liveBandLine, Cursor) {
 	lines := activeAssistantLinesWithLinkPresentation(
-		s.activeAssistant,
+		s.source.activeAssistant,
 		frameWidthOrDefault(frame),
 		frame.Theme,
-		s.markdownLinks,
+		s.source.markdownLinks,
 	)
 	heights := make([]int, len(frame.Sections))
 	minimums := make([]int, len(frame.Sections))

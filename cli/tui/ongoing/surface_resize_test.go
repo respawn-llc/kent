@@ -37,7 +37,7 @@ func TestSurfaceVerticalShrinkMovesVisibleCommittedRowsIntoNativeScrollback(t *t
 		t.Fatalf("append committed transcript: %v", err)
 	}
 	feedFrame("append committed transcript")
-	if _, err := surface.writeFrameTransaction(initial, []string{
+	if _, err := surface.writeFrameTransaction(initial, surface.AllocateFrame(initial), []string{
 		"IMMUTABLE_02",
 		"IMMUTABLE_03",
 		"IMMUTABLE_04",

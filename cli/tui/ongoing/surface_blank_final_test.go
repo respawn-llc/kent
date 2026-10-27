@@ -11,12 +11,12 @@ import (
 func TestSurfaceBlankFinalDefersEmptyStreamPromotion(t *testing.T) {
 	surface := NewSurface(&bytes.Buffer{})
 	streamID := runtimeids.NewAssistantStreamID().String()
-	surface.activeAssistant = activeAssistantState{
+	surface.source.activeAssistant = activeAssistantState{
 		streamID: &streamID,
 		phase:    transcriptpb.AssistantPhase_ASSISTANT_PHASE_FINAL,
 	}
 
-	if !surface.activeAssistantPromotionDeferred() {
+	if !surface.source.activeAssistantPromotionDeferred() {
 		t.Fatal("empty final stream was not deferred")
 	}
 }
@@ -24,13 +24,13 @@ func TestSurfaceBlankFinalDefersEmptyStreamPromotion(t *testing.T) {
 func TestSurfaceBlankFinalDefersWhitespaceStreamPromotion(t *testing.T) {
 	surface := NewSurface(&bytes.Buffer{})
 	streamID := runtimeids.NewAssistantStreamID().String()
-	surface.activeAssistant = activeAssistantState{
+	surface.source.activeAssistant = activeAssistantState{
 		streamID: streamIDPointer(streamID),
 		source:   " \n\t ",
 		phase:    transcriptpb.AssistantPhase_ASSISTANT_PHASE_FINAL,
 	}
 
-	if !surface.activeAssistantPromotionDeferred() {
+	if !surface.source.activeAssistantPromotionDeferred() {
 		t.Fatal("whitespace-only final stream was not deferred")
 	}
 }
@@ -38,7 +38,7 @@ func TestSurfaceBlankFinalDefersWhitespaceStreamPromotion(t *testing.T) {
 func TestSurfaceBlankFinalAbortClearsDeferredStream(t *testing.T) {
 	surface := NewSurface(&bytes.Buffer{})
 	streamID := runtimeids.NewAssistantStreamID().String()
-	surface.activeAssistant = activeAssistantState{
+	surface.source.activeAssistant = activeAssistantState{
 		streamID: streamIDPointer(streamID),
 		source:   " \n\t ",
 		phase:    transcriptpb.AssistantPhase_ASSISTANT_PHASE_FINAL,
@@ -49,22 +49,22 @@ func TestSurfaceBlankFinalAbortClearsDeferredStream(t *testing.T) {
 	}}, blankFinalFrame()); err != nil {
 		t.Fatalf("abort assistant stream: %v", err)
 	}
-	if surface.activeAssistant.streamID != nil || surface.activeAssistantPromotionDeferred() {
-		t.Fatalf("aborted assistant stream state = %+v, want cleared", surface.activeAssistant)
+	if surface.source.activeAssistant.streamID != nil || surface.source.activeAssistantPromotionDeferred() {
+		t.Fatalf("aborted assistant stream state = %+v, want cleared", surface.source.activeAssistant)
 	}
 }
 
 func TestSurfaceBlankFinalHydrationDefersWhitespaceStream(t *testing.T) {
 	surface := NewSurface(&bytes.Buffer{})
 	streamID := runtimeids.NewAssistantStreamID().String()
-	if !surface.hydrateActiveAssistantStream(&transcriptpb.AssistantStream{
+	if !surface.source.hydrateActiveAssistantStream(&transcriptpb.AssistantStream{
 		StreamId: streamID,
 		Text:     " \n\t ",
 		Phase:    transcriptpb.AssistantPhase_ASSISTANT_PHASE_FINAL,
 	}) {
 		t.Fatal("whitespace active stream was not hydrated")
 	}
-	if !surface.activeAssistantPromotionDeferred() {
+	if !surface.source.activeAssistantPromotionDeferred() {
 		t.Fatal("hydrated whitespace-only final stream was not deferred")
 	}
 }
@@ -73,7 +73,7 @@ func TestSurfaceBlankFinalOrdinaryTextStillPromotes(t *testing.T) {
 	var output bytes.Buffer
 	surface := NewSurface(&output)
 	streamID := runtimeids.NewAssistantStreamID().String()
-	surface.activeAssistant = activeAssistantState{
+	surface.source.activeAssistant = activeAssistantState{
 		streamID: streamIDPointer(streamID),
 		phase:    transcriptpb.AssistantPhase_ASSISTANT_PHASE_FINAL,
 	}
@@ -85,7 +85,7 @@ func TestSurfaceBlankFinalOrdinaryTextStillPromotes(t *testing.T) {
 	}}, blankFinalFrame()); err != nil {
 		t.Fatalf("finalize ordinary assistant stream: %v", err)
 	}
-	if surface.activeAssistant.streamID != nil {
+	if surface.source.activeAssistant.streamID != nil {
 		t.Fatal("ordinary final stream remained active")
 	}
 	if output.Len() == 0 {
