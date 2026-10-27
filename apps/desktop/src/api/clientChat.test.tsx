@@ -172,6 +172,7 @@ function transcriptHydrationPayload() {
         streamId: sessionID,
         text: " ",
         phase: T.AssistantPhase.COMMENTARY,
+        sourceState: T.AssistantSourceState.STREAMING,
       },
     ],
     activeStep: {
