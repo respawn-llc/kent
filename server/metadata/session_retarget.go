@@ -11,7 +11,7 @@ import (
 	"time"
 
 	"core/server/metadata/sqlitegen"
-	"core/server/session"
+	"core/server/sessionstore"
 	"core/shared/runtimeids"
 	"core/shared/serverapi"
 

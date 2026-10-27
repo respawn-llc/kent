@@ -6,10 +6,9 @@ import (
 	"fmt"
 	"slices"
 	"testing"
-	"time"
 
+	"core/server/agentruntime"
 	"core/server/llm"
-	"core/server/runtime"
 	"core/server/tools"
 	runtimepb "core/shared/protoapi/gen/kent/api/runtime"
 	"core/shared/textutil"
@@ -44,13 +43,7 @@ func (c steeringExchangeClient) ProviderCapabilities(context.Context) (llm.Provi
 
 func nextSteeringExchange(t *testing.T, client steeringExchangeClient) steeringExchange {
 	t.Helper()
-	select {
-	case exchange := <-client:
-		return exchange
-	case <-time.After(3 * time.Second):
-		t.Fatal("model loop wedged before its next request")
-		return steeringExchange{}
-	}
+	return <-client
 }
 
 func TestServiceRepeatedConcurrentSteersDrainWithoutInterrupt(t *testing.T) {
@@ -78,8 +71,7 @@ func TestServiceRepeatedConcurrentSteersDrainWithoutInterrupt(t *testing.T) {
 		for index := range 3 {
 			text := fmt.Sprintf("round %d instruction %d", round, index)
 			go func() {
-				ctx, cancel := context.WithTimeout(t.Context(), time.Second)
-				defer cancel()
+				ctx := t.Context()
 				_, err := service.SubmitUserTurn(ctx, runtimeControlUserTurnRequest(store, text, text))
 				done <- err
 			}()

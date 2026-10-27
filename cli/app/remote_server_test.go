@@ -18,8 +18,12 @@ type remoteAuthTestFixture struct {
 	config config.App
 }
 
-func startRemoteAuthTestFixture(t *testing.T, workspace string) remoteAuthTestFixture {
+func startRemoteAuthTestFixture(t *testing.T) remoteAuthTestFixture {
 	t.Helper()
+	newAppTestHome(t)
+	workspace := t.TempDir()
+	configureAppTestServerPort(t)
+	writeAppTestSettings(t)
 	cfg := loadAppTestConfig(t, workspace, config.LoadOptions{})
 	cfg.Settings = testsetup.WithResponsesProvider(cfg.Settings, "http://127.0.0.1:1/v1")
 	keyName := "REMOTE_TEST_KEY"
@@ -31,15 +35,11 @@ func startRemoteAuthTestFixture(t *testing.T, workspace string) remoteAuthTestFi
 	definition.EnvironmentVariable = &keyName
 	cfg.Settings.Connections[*id] = definition
 	cfg.Settings = testsetup.WriteProviderSettings(t, cfg.PersistenceRoot, cfg.Settings)
-	daemon, err := serverstartup.StartServeServer(context.Background(), serverstartup.Request{
-		WorkspaceRoot:         workspace,
-		WorkspaceRootExplicit: true,
-	})
-
-	if err != nil {
-		t.Fatalf("StartServeServer: %v", err)
+	store := testsetup.OpenStore(t, cfg.PersistenceRoot)
+	if _, err := store.RegisterWorkspaceBinding(t.Context(), workspace); err != nil {
+		t.Fatal(err)
 	}
-	t.Cleanup(func() { _ = daemon.Close() })
+	daemon, _ := newMemoryAppTestServer(t, cfg, store, config.LoadOptions{})
 	t.Cleanup(serveAppServer(t, daemon))
 	waitForConfiguredRemoteIdentity(t, workspace)
 	remote, err := client.DialRemoteURL(context.Background(), config.ServerRPCURL(cfg))
@@ -51,9 +51,8 @@ func startRemoteAuthTestFixture(t *testing.T, workspace string) remoteAuthTestFi
 }
 
 func TestRemoteAppServerReauthenticateConfiguresServerOwnedAuth(t *testing.T) {
-	_, workspace := newRegisteredAppWorkspace(t)
 	t.Setenv("REMOTE_TEST_KEY", "reauthed-key")
-	fixture := startRemoteAuthTestFixture(t, workspace)
+	fixture := startRemoteAuthTestFixture(t)
 	if err := fixture.server.EnsureAuthReady(context.Background(), fixture.config.Settings, newHeadlessAuthInteractor()); err != nil {
 		t.Fatalf("Reauthenticate: %v", err)
 	}
@@ -71,9 +70,8 @@ func TestRemoteAppServerReauthenticateConfiguresServerOwnedAuth(t *testing.T) {
 }
 
 func TestRemoteAppServerEnsureAuthReadySkipsPickerWhenServerAuthAlreadyReady(t *testing.T) {
-	_, workspace := newRegisteredAppWorkspace(t)
 	t.Setenv("REMOTE_TEST_KEY", "ready-key")
-	fixture := startRemoteAuthTestFixture(t, workspace)
+	fixture := startRemoteAuthTestFixture(t)
 
 	interactor := &interactiveAuthInteractor{
 		pickMethod: func(authInteraction) (authMethodPickerResult, error) {
@@ -96,8 +94,7 @@ func TestRemoteAppServerEnsureAuthReadySkipsPickerWhenServerAuthAlreadyReady(t *
 }
 
 func TestRemoteAppServerEnsureAuthReadyAllowsNoActiveConnection(t *testing.T) {
-	_, workspace := newRegisteredAppWorkspace(t)
-	fixture := startRemoteAuthTestFixture(t, workspace)
+	fixture := startRemoteAuthTestFixture(t)
 	if err := fixture.server.EnsureAuthReady(t.Context(), config.Settings{}, newHeadlessAuthInteractor()); err != nil {
 		t.Fatalf("missing active connection: %v", err)
 	}

@@ -204,7 +204,7 @@ func TestLoadRemoteAttachConfigRetainsInvocationWorkspaceForResume(t *testing.T)
 	}
 	configureAppTestServerPort(t)
 	cfg := loadAppTestConfig(t, workspace, config.LoadOptions{})
-	store := createAuthoritativeAppSession(t, cfg.PersistenceRoot, cfg.WorkspaceRoot)
+	store, _ := createAuthoritativeAppSession(t, cfg.PersistenceRoot, cfg.WorkspaceRoot)
 
 	got, err := loadRemoteAttachConfig(Options{
 		WorkspaceRoot: worktree,
@@ -235,12 +235,12 @@ func TestRunPromptFromWorktreeUsesKentSessionWorkspaceContext(t *testing.T) {
 	}
 	configureAppTestServerPort(t)
 	cfg := loadAppTestConfig(t, workspace, config.LoadOptions{})
-	parent := createAuthoritativeAppSession(t, cfg.PersistenceRoot, cfg.WorkspaceRoot)
+	parent, metadataStore := createAuthoritativeAppSession(t, cfg.PersistenceRoot, cfg.WorkspaceRoot)
 
 	fakeResponses, hits := newFakeResponsesServer(t, []string{"worktree reply"})
 	defer fakeResponses.Close()
 
-	stopServer := startStandingRunPromptServer(t, workspace, fakeResponses.URL)
+	stopServer, _ := startStandingRunPromptServer(t, workspace, fakeResponses.URL, metadataStore)
 	defer stopServer()
 
 	result, err := RunPrompt(context.Background(), Options{
@@ -263,13 +263,13 @@ func TestRunPromptFromWorktreeUsesKentSessionWorkspaceContext(t *testing.T) {
 }
 
 func TestRunPromptRejectsStaleWorkspaceContextSession(t *testing.T) {
-	_, workspace := newRegisteredAppWorkspace(t)
+	_, workspace := newConfiguredAppWorkspace(t)
 	cfg := loadAppTestConfig(t, workspace, config.LoadOptions{})
-	selected := createAuthoritativeAppSession(t, cfg.PersistenceRoot, cfg.WorkspaceRoot)
+	selected, metadataStore := createAuthoritativeAppSession(t, cfg.PersistenceRoot, cfg.WorkspaceRoot)
 
 	fakeResponses, hits := newFakeResponsesServer(t, []string{"workspace reply"})
 	defer fakeResponses.Close()
-	stopServer := startStandingRunPromptServer(t, workspace, fakeResponses.URL)
+	stopServer, _ := startStandingRunPromptServer(t, workspace, fakeResponses.URL, metadataStore)
 	defer stopServer()
 
 	const missingID = "eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee"
@@ -324,9 +324,9 @@ func TestRunPromptRejectsStaleWorkspaceContextSession(t *testing.T) {
 }
 
 func TestRunPromptPreservesNotCallableDenialFromRemote(t *testing.T) {
-	_, workspace := newRegisteredAppWorkspace(t)
+	_, workspace := newConfiguredAppWorkspace(t)
 	cfg := loadAppTestConfig(t, workspace, config.LoadOptions{})
-	caller := createAuthoritativeAppSession(t, cfg.PersistenceRoot, cfg.WorkspaceRoot)
+	caller, metadataStore := createAuthoritativeAppSession(t, cfg.PersistenceRoot, cfg.WorkspaceRoot)
 	role := "blocked"
 	if err := os.MkdirAll(filepath.Join(workspace, config.ConfigDirName), 0o755); err != nil {
 		t.Fatal(err)
@@ -336,7 +336,7 @@ func TestRunPromptPreservesNotCallableDenialFromRemote(t *testing.T) {
 	}
 	responses, hits := newFakeResponsesServer(t, nil)
 	defer responses.Close()
-	stop := startStandingRunPromptServer(t, workspace, responses.URL)
+	stop, _ := startStandingRunPromptServer(t, workspace, responses.URL, metadataStore)
 	defer stop()
 
 	_, err := RunPrompt(t.Context(), Options{
@@ -370,28 +370,17 @@ func waitForConfiguredRunPromptDaemon(t *testing.T, workspace string) {
 }
 
 func TestRunPromptUsesConfiguredDaemonWithoutLocalAuth(t *testing.T) {
-	_, workspace := newRegisteredAppWorkspace(t)
+	_, workspace := newConfiguredAppWorkspace(t)
 
 	fakeResponses, hits := newFakeResponsesServer(t, []string{"daemon reply"})
 	defer fakeResponses.Close()
 	cfg := loadAppTestConfig(t, workspace, config.LoadOptions{})
 	testsetup.WriteProviderSettings(t, cfg.PersistenceRoot, testsetup.WithResponsesProvider(cfg.Settings, fakeResponses.URL))
-
-	srv, err := serverstartup.StartServeServer(context.Background(), serverstartup.Request{
+	startConfiguredDaemonFixture(t, workspace, serverstartup.Request{
 		WorkspaceRoot:         workspace,
 		WorkspaceRootExplicit: true,
 		LoadOptions:           config.LoadOptions{Model: "gpt-6-sol"},
-	})
-
-	if err != nil {
-		t.Fatalf("serve.Start: %v", err)
-	}
-	defer func() { _ = srv.Close() }()
-
-	stopServing := serveAppServer(t, srv)
-	defer stopServing()
-
-	waitForConfiguredRunPromptDaemon(t, workspace)
+	}, nil)
 
 	result, err := RunPrompt(context.Background(), Options{WorkspaceRoot: workspace, WorkspaceRootExplicit: true}, "hello through daemon", 0, nil)
 	if err != nil {

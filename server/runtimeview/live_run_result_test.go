@@ -5,8 +5,8 @@ import (
 	"testing"
 	"time"
 
+	"core/server/agentruntime"
 	"core/server/llm"
-	"core/server/runtime"
 	"core/shared/protoapi"
 	transcriptpb "core/shared/protoapi/gen/kent/api/transcript"
 	"core/shared/textutil"

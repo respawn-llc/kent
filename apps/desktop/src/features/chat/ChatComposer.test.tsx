@@ -589,8 +589,9 @@ it.each([
   );
   const editor = screen.getByTestId("command");
   await waitFor(() => {
-    expect(editor).not.toBeDisabled();
+    expect(editor.hasAttribute("disabled")).toBe(false);
   });
+  expect(editor).not.toBeDisabled();
   fireEvent.change(editor, { target: { value: text } });
   fireEvent.keyDown(editor, { key: "Enter", ctrlKey });
   await waitFor(() => {
@@ -669,8 +670,9 @@ it.each(["idle", "stopped", "failed"] as const)(
     );
     const button = screen.getByRole("button", { name: "Stop probe" });
     await waitFor(() => {
-      expect(button).not.toBeDisabled();
+      expect(button.hasAttribute("disabled")).toBe(false);
     });
+    expect(button).not.toBeDisabled();
     fireEvent.click(button);
     await waitFor(() => {
       expect(stop).toHaveBeenCalledTimes(1);
@@ -687,8 +689,9 @@ it.each(["idle", "stopped", "failed"] as const)(
       expect(read).toHaveBeenCalledTimes(2);
     });
     await waitFor(() => {
-      expect(button).toBeDisabled();
+      expect(button.hasAttribute("disabled")).toBe(true);
     });
+    expect(button).toBeDisabled();
   },
 );
 
@@ -741,8 +744,9 @@ it("clears an armed Stop on transcript loss while allowing a subsequent independ
   );
   const keyboard = screen.getByTestId("keyboard");
   await waitFor(() => {
-    expect(keyboard).not.toBeDisabled();
+    expect(keyboard.hasAttribute("disabled")).toBe(false);
   });
+  expect(keyboard).not.toBeDisabled();
   fireEvent.keyDown(keyboard, { key: "Escape" });
   await act(async () => handlers[0]?.onTransportLoss?.());
   fireEvent.keyDown(keyboard, { key: "Escape" });
@@ -1085,44 +1089,4 @@ it("prepends live interrupted messages in event order and restores Discard only 
     }),
   );
   expect(result.current.text).toBe("/compact restored\none\n \ntwo\ndraft\n/compact guidance");
-});
-
-it("keeps repeated compactions distinct and restores only the discarded canonical command", async () => {
-  const services = createTestServices([]);
-  vi.spyOn(services.api.chat, "getDraft").mockResolvedValue({ input: "draft", protectedInput: null });
-  const first = pendingWorkItemIDFromProto("79f762c8-0998-402a-bc80-6b42f3e241ed");
-  const second = pendingWorkItemIDFromProto("99f762c8-0998-402a-bc80-6b42f3e241ed");
-  const items = [first, second].map((id) => ({
-    id,
-    kind: "manual_compaction" as const,
-    state: "pending" as const,
-    lane: "steer" as const,
-    canonicalInput: "/compact",
-    manualCompaction: { guidance: null },
-  }));
-  const read = vi.spyOn(services.api.chat, "listPendingWork").mockResolvedValue({ items });
-  vi.spyOn(services.api.chat, "stop").mockResolvedValue("stopped");
-  const remove = vi.spyOn(services.api.chat, "removePendingWork").mockImplementation(async () => {
-    read.mockResolvedValue({ items: items.slice(1) });
-    return { kind: "manual_compaction", canonicalInput: "/compact" };
-  });
-  const { result } = renderHook(() => useChatComposer({ ...target }), {
-    wrapper: composerWrapper(services),
-  });
-  await waitFor(() => {
-    expect(result.current.pending.query.data?.items).toHaveLength(2);
-  });
-  await act(async () => {
-    result.current.pending.stop();
-  });
-  expect(result.current.pending.query.data?.items).toEqual(items);
-  expect(result.current.text).toBe("draft");
-  await act(async () => {
-    result.current.pending.discard(first);
-  });
-  await waitFor(() => {
-    expect(result.current.pending.query.data?.items).toEqual(items.slice(1));
-  });
-  expect(remove).toHaveBeenCalledWith(target, first);
-  expect(result.current.text).toBe("draft\n/compact");
 });

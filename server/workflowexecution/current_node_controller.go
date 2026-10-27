@@ -6,8 +6,8 @@ import (
 	"sync"
 	"sync/atomic"
 
-	"core/server/session"
 	"core/server/sessionruntime"
+	"core/server/sessionstore"
 	"core/server/workflow"
 	"core/server/workflowruntime"
 	"core/server/workflowstore"

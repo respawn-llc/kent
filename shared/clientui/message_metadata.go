@@ -1,6 +1,6 @@
 package clientui
 
-import "core/shared/transcript"
+import "core/shared/transcriptmodel"
 
 type MessagePhase string
 

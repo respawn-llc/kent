@@ -9,8 +9,7 @@ import (
 	"time"
 
 	"core/internal/testharness/testsetup"
-	"core/server/metadata"
-	"core/server/session"
+	"core/server/sessionstore"
 	"core/shared/config"
 	worktreepb "core/shared/protoapi/gen/kent/api/worktree"
 	"core/shared/runtimeids"
@@ -201,11 +200,7 @@ func TestPlanPreparedRetainedSessionLeavesMetadataUnchanged(t *testing.T) {
 
 func TestSubagentCreationLeavesNameAbsentAndAllowsAuthoredName(t *testing.T) {
 	root, workspace := t.TempDir(), t.TempDir()
-	persistence, err := metadata.Open(root)
-	if err != nil {
-		t.Fatal(err)
-	}
-	t.Cleanup(func() { _ = persistence.Close() })
+	persistence := testsetup.OpenStore(t, root)
 	binding, err := persistence.RegisterWorkspaceBinding(t.Context(), workspace)
 	if err != nil {
 		t.Fatal(err)

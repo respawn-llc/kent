@@ -10,9 +10,8 @@ import (
 	"time"
 
 	"core/internal/testharness/testsetup"
-	"core/server/metadata"
-	"core/server/session"
-	"core/server/session/sessiontest"
+	"core/server/sessionstore"
+	"core/server/sessionstore/sessiontest"
 	"core/shared/config"
 	"core/shared/runtimeids"
 	"core/shared/serverapi"
@@ -86,11 +85,7 @@ func TestConnectionUsageSelectionExcludesVisitedMembers(t *testing.T) {
 }
 
 func TestConnectionAllocationPrefersConsumptionBeforeLRU(t *testing.T) {
-	store, err := metadata.Open(t.TempDir())
-	if err != nil {
-		t.Fatal(err)
-	}
-	t.Cleanup(func() { _ = store.Close() })
+	store := testsetup.OpenStore(t, t.TempDir())
 	rotation := NewConnectionRotation(store, 0)
 	settings := config.Settings{
 		Connection:      config.SingleConnection("a"),

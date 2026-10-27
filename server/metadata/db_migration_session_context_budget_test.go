@@ -3,11 +3,10 @@ package metadata
 import (
 	"encoding/json"
 	"fmt"
-	"path/filepath"
 	"reflect"
 	"testing"
 
-	"core/server/session"
+	"core/server/sessionstore"
 )
 
 func TestSessionContextBudgetCutoverPreservesOtherSessionFacts(t *testing.T) {
@@ -21,8 +20,7 @@ func TestSessionContextBudgetCutoverPreservesOtherSessionFacts(t *testing.T) {
 func testSessionContextBudgetCutoverPreservesOtherSessionFacts(t *testing.T, version int64) {
 	t.Helper()
 	root := t.TempDir()
-	dbPath := filepath.Join(root, "db", "main.sqlite3")
-	db, err := openDatabaseAtVersionForTest(t, root, dbPath, version)
+	db, err := openDatabaseAtVersionForTest(t, version)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -61,14 +59,7 @@ INSERT INTO sessions (
     1234, 1000, 2000)`,
 			fixture.id, "sessions/"+fixture.id, fixture.locked)
 	}
-	if err := db.Close(); err != nil {
-		t.Fatal(err)
-	}
-	store, err := OpenAtPath(root, dbPath)
-	if err != nil {
-		t.Fatal(err)
-	}
-	t.Cleanup(func() { _ = store.Close() })
+	store := migrateMetadataTestStore(t, root, db)
 	delete(locked, "context_window")
 	delete(locked, "context_percent")
 	for _, id := range []string{"context-budget-session", "unlocked-session"} {

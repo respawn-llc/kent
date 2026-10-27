@@ -45,7 +45,7 @@ describe("Task Detail live refresh", () => {
         }),
       ],
     });
-    const user = userEvent.setup();
+    const user = userEvent.setup({ delay: null });
 
     await waitFor(() => {
       expect(screen.getAllByRole("radio")).toHaveLength(4);
@@ -84,7 +84,7 @@ describe("Task Detail live refresh", () => {
         promptAnswerBatchRoute(async () => new Promise<PromptAnswerBatchResponse>(() => undefined)),
       ],
     });
-    const user = userEvent.setup();
+    const user = userEvent.setup({ delay: null });
     await waitFor(() => {
       expect(screen.getAllByRole("radio")).toHaveLength(6);
     });
@@ -122,7 +122,7 @@ describe("Task Detail live refresh", () => {
         }),
       ],
     });
-    const user = userEvent.setup();
+    const user = userEvent.setup({ delay: null });
     await waitForQuestionOptionCount(1);
     await user.click(screen.getByRole("button", { name: appI18n.t("task.submitAnswer") }));
     delivery.resolve(undefined);
@@ -166,7 +166,7 @@ describe("Task Detail live refresh", () => {
         }),
       ],
     });
-    const user = userEvent.setup();
+    const user = userEvent.setup({ delay: null });
     await waitForQuestionOptionCount(1);
     await waitForProjectSubscription(services.transport);
     act(() => {
@@ -204,7 +204,7 @@ describe("Task Detail live refresh", () => {
         promptAnswerBatchRoute(async () => answer.promise),
       ],
     });
-    const user = userEvent.setup();
+    const user = userEvent.setup({ delay: null });
     await waitFor(() => {
       expect(screen.getAllByRole("radio")).toHaveLength(6);
     });

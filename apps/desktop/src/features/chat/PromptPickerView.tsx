@@ -6,12 +6,11 @@ import {
   GrowingTextArea,
   IconTooltipButton,
   PromptAccessTargets,
-  PromptOptionRow,
   RadioGroup,
   ScrollRegion,
   Spinner,
-  StaticMarkdown,
 } from "@/ui";
+import { StaticMarkdown, PromptOptionRow } from "@/ui/markdown";
 import { usePathFormatter } from "@/app-facade";
 import { pickerBatch, sameSelection, type PickerAction, type PickerState } from "./promptPickerState";
 import { pickerOptions } from "./promptPickerPresentation";

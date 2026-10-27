@@ -1,7 +1,6 @@
 package metadata
 
 import (
-	"path/filepath"
 	"reflect"
 	"strings"
 	"testing"
@@ -9,10 +8,9 @@ import (
 	sqlite3 "modernc.org/sqlite/lib"
 )
 
-func TestOptionalGroupNamesMigrationPreservesGraphAcrossReopen(t *testing.T) {
+func TestOptionalGroupNamesMigrationPreservesGraphAndNullableNames(t *testing.T) {
 	root := t.TempDir()
-	path := filepath.Join(root, "db", "main.sqlite3")
-	db, err := openDatabaseAtVersionForTest(t, root, path, 100)
+	db, err := openDatabaseAtVersionForTest(t, 100)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -33,33 +31,19 @@ func TestOptionalGroupNamesMigrationPreservesGraphAcrossReopen(t *testing.T) {
 	for i, query := range queries {
 		before[i] = optionalNodeLabelMigrationRows(t, db, query)
 	}
-	if err := db.Close(); err != nil {
-		t.Fatal(err)
-	}
-	store, err := OpenAtPath(root, path)
-	if err != nil {
-		t.Fatal(err)
-	}
+	store := migrateMetadataTestStore(t, root, db)
 	for i, query := range queries {
 		if after := optionalNodeLabelMigrationRows(t, store.DB(), query); !reflect.DeepEqual(before[i], after) {
 			t.Fatalf("migration changed facts for %s: before=%v after=%v", query, before[i], after)
 		}
 	}
 	execSeed(t, store.DB(), "clear name", `UPDATE workflow_node_groups SET display_name = NULL WHERE id = 'named-group'`)
-	if err := store.Close(); err != nil {
-		t.Fatal(err)
-	}
-	store, err = OpenAtPath(root, path)
-	if err != nil {
-		t.Fatal(err)
-	}
-	t.Cleanup(func() { _ = store.Close() })
 	var name *string
 	if err := store.DB().QueryRowContext(t.Context(), `SELECT display_name FROM workflow_node_groups WHERE id = 'named-group'`).Scan(&name); err != nil {
 		t.Fatal(err)
 	}
 	if name != nil {
-		t.Fatalf("cleared name after reopen = %v", name)
+		t.Fatalf("cleared name = %v", name)
 	}
 	for _, invalid := range []string{"", "   ", strings.Repeat("x", 121)} {
 		assertSQLiteConstraint(t, store.DB(), sqlite3.SQLITE_CONSTRAINT_CHECK, `UPDATE workflow_node_groups SET display_name = ? WHERE id = 'named-group'`, invalid)

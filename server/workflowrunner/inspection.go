@@ -8,7 +8,7 @@ import (
 	"core/server/launch"
 	"core/server/llm"
 	"core/server/metadata"
-	"core/server/session"
+	"core/server/sessionstore"
 	"core/server/workflowruntime"
 	"core/server/workflowstore"
 	"core/shared/config"

@@ -28,7 +28,7 @@ it("releases a busy submission after two seconds and keeps subsequent typing thr
     await act(async () => {
       view.handlers[0]?.onEvent({ sequence: 1, kind: "hydration", payload: hydration() });
     });
-    const user = userEvent.setup();
+    const user = userEvent.setup({ delay: null });
     await user.type(editor, "Busy submission");
     await user.click(screen.getByRole("button", { name: appI18n.t("chatComposer.send") }));
     expect(editor).toHaveValue("Busy submission");
@@ -98,7 +98,7 @@ it("shows an idle submission before its response and adopts commitment once with
         },
       });
     });
-    const user = userEvent.setup();
+    const user = userEvent.setup({ delay: null });
     await user.type(editor, "Optimistic message");
     await user.click(screen.getByRole("button", { name: appI18n.t("chatComposer.send") }));
     act(() => {

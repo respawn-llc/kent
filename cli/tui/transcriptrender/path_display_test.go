@@ -6,7 +6,7 @@ import (
 
 	transcriptpb "core/shared/protoapi/gen/kent/api/transcript"
 	"core/shared/textutil"
-	"core/shared/transcript"
+	"core/shared/transcriptmodel"
 )
 
 func TestStructuredNoticePathDisplay(t *testing.T) {

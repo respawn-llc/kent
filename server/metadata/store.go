@@ -15,7 +15,7 @@ import (
 	"unicode"
 
 	"core/server/metadata/sqlitegen"
-	"core/server/session"
+	"core/server/sessionstore"
 	"core/shared/clientui"
 	"core/shared/config"
 	"core/shared/protoapi"

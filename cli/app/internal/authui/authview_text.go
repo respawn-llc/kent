@@ -3,7 +3,7 @@ package authui
 import (
 	"errors"
 
-	"core/shared/auth"
+	"core/shared/authmodel"
 )
 
 type AuthNoticeKind string

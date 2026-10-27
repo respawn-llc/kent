@@ -7,7 +7,7 @@ import (
 
 	"core/internal/testharness/requestfixture"
 	"core/server/runtimecontrol"
-	"core/server/session"
+	"core/server/sessionstore"
 	chatpb "core/shared/protoapi/gen/kent/api/chat"
 	chatsettingspb "core/shared/protoapi/gen/kent/api/chat_settings"
 	runtimepb "core/shared/protoapi/gen/kent/api/runtime"

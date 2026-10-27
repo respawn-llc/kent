@@ -2,12 +2,12 @@ package llm
 
 import (
 	"context"
-	"core/server/session"
+	"core/server/sessionstore"
 	"core/shared/clientui"
 	"core/shared/jsoncontract"
 	"core/shared/modelcontract"
 	"core/shared/textutil"
-	"core/shared/transcript"
+	"core/shared/transcriptmodel"
 	"encoding/json"
 	"errors"
 	"fmt"
