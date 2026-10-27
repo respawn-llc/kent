@@ -293,7 +293,7 @@ func (s *Core) newSessionLaunchService(projectCtx projectContext) *sessionlaunch
 		Rotation:          s.connectionRotation,
 		Config:            projectCtx.config,
 		ContainerDir:      projectCtx.projectSession,
-		StoreOptions:      s.safeBundles().Persistence.metadataStore.AuthoritativeSessionStoreOptions(),
+		StoreOptions:      s.safeBundles().Persistence.metadataStore.ProjectSessionStoreOptions(projectCtx.projectID),
 		PersistedSessions: s.safeBundles().Persistence.metadataStore,
 		CallerSessions:    s.safeBundles().Persistence.metadataStore,
 		ExecutionTargets:  s.safeBundles().Persistence.metadataStore,

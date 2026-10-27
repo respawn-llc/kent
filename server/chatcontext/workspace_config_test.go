@@ -32,6 +32,23 @@ func TestResolveMainWorkspaceRootWithoutDatabaseDoesNotCreateStorage(t *testing.
 	}
 }
 
+func TestFixedRootWorkspaceResolverLoadsWorkspaceAttachedToSeveralProjects(t *testing.T) {
+	root, workspace := t.TempDir(), t.TempDir()
+	store := testsetup.OpenStore(t, root)
+	for _, name := range []string{"First", "Second"} {
+		if _, err := store.CreateProjectForWorkspaceWithKey(t.Context(), workspace, name, ""); err != nil {
+			t.Fatal(err)
+		}
+	}
+	app, err := NewFixedRootWorkspaceResolver(store, "", config.LoadOptions{}).Resolve(workspace)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if app.WorkspaceRoot != workspace {
+		t.Fatalf("workspace = %q, want %q", app.WorkspaceRoot, workspace)
+	}
+}
+
 func TestWorkspaceNanoUnknownContextRejectedBeforeUse(t *testing.T) {
 	root, workspace := t.TempDir(), t.TempDir()
 	store := testsetup.OpenStore(t, root)
