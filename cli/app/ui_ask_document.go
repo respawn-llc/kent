@@ -78,10 +78,10 @@ func (m *uiModel) askFitsInline(message *transcriptpb.Message) bool {
 		}
 	}
 	frame := m.ongoingFrameInput()
-	var messages []*transcriptpb.Message
+	var work []ongoing.TerminalWork
 	if m.ongoingTranscript != nil {
 		frame = m.ongoingTranscript.composeFrame(frame)
-		messages = append(messages, m.ongoingTranscript.queue...)
+		work = append(work, m.ongoingTranscript.queue...)
 	}
 	// Tests and non-native embeddings have no assistant tail, but still use
 	// exactly the same final allocation policy.
@@ -90,12 +90,12 @@ func (m *uiModel) askFitsInline(message *transcriptpb.Message) bool {
 		surface = ongoing.NewSurface()
 	}
 	if message != nil && !isAppOwnedOngoingMessage(message.Event) {
-		messages = append(messages, message)
+		work = append(work, ongoing.TerminalMessage{Message: message})
 	}
-	if len(messages) == 0 {
+	if len(work) == 0 {
 		return askAllocationCoversDocument(surface.AllocateFrame(frame), document)
 	}
-	for allocation := range surface.AllocateMessageFrames(messages, frame) {
+	for allocation := range surface.AllocateTerminalFrames(work, frame) {
 		if !askAllocationCoversDocument(allocation, document) {
 			return false
 		}

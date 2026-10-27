@@ -2,13 +2,12 @@ package ongoing
 
 import (
 	"fmt"
-	"strconv"
 	"iter"
+	"strconv"
 	"strings"
 
 	"core/cli/tui/transcriptrender"
 	xansi "github.com/charmbracelet/x/ansi"
-	transcriptpb "core/shared/protoapi/gen/kent/api/transcript"
 )
 
 func (s *Surface) previousMutableBandHeight(size Size) int {
@@ -41,7 +40,6 @@ func (s *Surface) writeFrameTransaction(frame FrameInput, allocation FrameAlloca
 			})
 		}
 	}
-	cursor = cursorForVisibleLiveBand(cursor, frame.Size.Height, liveLayout)
 	previousHeight := s.previousMutableBandHeight(frame.Size)
 	contentHeight := len(liveLines)
 	releasableHeight := max(0, previousHeight-contentHeight)
@@ -143,13 +141,23 @@ func (s *Surface) AllocateFrame(frame FrameInput) FrameAllocation {
 	return FrameAllocation{layout: layout, cursor: cursorForVisibleLiveBand(cursor, frame.Size.Height, layout)}
 }
 
-// AllocateMessageFrames measures each incoming frame in order without consuming
-// the messages or advancing the surface's grouping, stream, or terminal state.
-func (s *Surface) AllocateMessageFrames(messages []*transcriptpb.Message, frame FrameInput) iter.Seq[FrameAllocation] {
+// AllocateTerminalFrames measures queued deliveries without changing source or terminal state.
+func (s *Surface) AllocateTerminalFrames(work []TerminalWork, frame FrameInput) iter.Seq[FrameAllocation] {
 	return func(yield func(FrameAllocation) bool) {
 		next := *s
-		for _, message := range messages {
-			next.source.prepareTerminalMessage(message, frame)
+		for _, item := range work {
+			switch item := item.(type) {
+			case TerminalMessage:
+				next.source.prepareTerminalMessage(item.Message, frame)
+			case TerminalReset:
+				next.source.reset()
+			default:
+				panicOngoingDeveloperError("allocate_terminal_frames", "invalid terminal work", map[string]any{
+					"width": frame.Size.Width, "height": frame.Size.Height,
+					"quoted_payload": strconv.Quote(fmt.Sprintf("%#v", item)),
+					"quoted_frame":   strconv.Quote(fmt.Sprintf("%+v", frame)),
+				})
+			}
 			allocation := next.AllocateFrame(frame)
 			if !yield(allocation) {
 				return

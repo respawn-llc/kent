@@ -22,13 +22,6 @@ type ongoingTranscriptSurface interface {
 	ResetForScratchHydration(ongoing.RehydrateReason, ongoing.FrameInput) (ongoing.Result, error)
 }
 
-type ongoingTerminalWork interface{ ongoingTerminalWork() }
-type ongoingTerminalMessage struct{ message *transcriptpb.Message }
-type ongoingTerminalReset struct{ reason ongoing.RehydrateReason }
-
-func (ongoingTerminalMessage) ongoingTerminalWork() {}
-func (ongoingTerminalReset) ongoingTerminalWork()   {}
-
 type ongoingFrameProvider func() ongoing.FrameInput
 
 type ongoingTranscriptRuntimeAdmission func(*transcriptpb.Message) (runtimeTupleMergeResult, error)
@@ -43,7 +36,7 @@ type ongoingTranscriptController struct {
 	normalOwned      bool
 	hydrated         bool
 	lastSequence     uint64
-	queue            []ongoingTerminalWork
+	queue            []ongoing.TerminalWork
 	queueOverflowed  bool
 	renderPending    bool
 	liveReadModel    ongoingTranscriptReadModel
@@ -88,7 +81,7 @@ func (c *ongoingTranscriptController) Accept(message *transcriptpb.Message) (ong
 	stateCmd := c.stateObserver(message, admission)
 	if !c.normalOwned {
 		if !isAppOwnedOngoingMessage(message.Event) {
-			c.enqueue(ongoingTerminalMessage{message: message})
+			c.enqueue(ongoing.TerminalMessage{Message: message})
 		}
 		c.renderPending = c.renderPending || stateChanged
 		return ongoing.Result{}, stateCmd, nil
@@ -154,7 +147,7 @@ func (c *ongoingTranscriptController) AcceptCutover(reason ongoing.RehydrateReas
 	} else {
 		c.ResetForScratchHydration()
 	}
-	work := ongoingTerminalReset{reason: reason}
+	work := ongoing.TerminalReset{Reason: reason}
 	if !c.normalOwned {
 		c.enqueue(work)
 		return ongoing.Result{}, nil
@@ -162,12 +155,12 @@ func (c *ongoingTranscriptController) AcceptCutover(reason ongoing.RehydrateReas
 	return c.applyTerminalWork(work)
 }
 
-func (c *ongoingTranscriptController) applyTerminalWork(work ongoingTerminalWork) (ongoing.Result, error) {
+func (c *ongoingTranscriptController) applyTerminalWork(work ongoing.TerminalWork) (ongoing.Result, error) {
 	switch work := work.(type) {
-	case ongoingTerminalMessage:
-		return c.surface.ApplyTerminalMessage(work.message, c.frameInput())
-	case ongoingTerminalReset:
-		return c.surface.ResetForScratchHydration(work.reason, c.frameInput())
+	case ongoing.TerminalMessage:
+		return c.surface.ApplyTerminalMessage(work.Message, c.frameInput())
+	case ongoing.TerminalReset:
+		return c.surface.ResetForScratchHydration(work.Reason, c.frameInput())
 	default:
 		frame := c.frameInput()
 		ongoing.PanicDeveloperError(ongoing.NewDeveloperError(
@@ -235,7 +228,7 @@ func (c *ongoingTranscriptController) requestScratchRehydration() {
 	c.resetAdmission()
 }
 
-func (c *ongoingTranscriptController) enqueue(work ongoingTerminalWork) {
+func (c *ongoingTranscriptController) enqueue(work ongoing.TerminalWork) {
 	if c.queueOverflowed {
 		return
 	}
@@ -272,7 +265,7 @@ func (c *ongoingTranscriptController) applyNow(message *transcriptpb.Message, st
 	}
 	if message.Event.GetHydration() != nil {
 		hydration := message.Event.GetHydration()
-		result, err := c.applyTerminalWork(ongoingTerminalMessage{message: message})
+		result, err := c.applyTerminalWork(ongoing.TerminalMessage{Message: message})
 		if err != nil {
 			return ongoing.Result{}, err
 		}
@@ -281,7 +274,7 @@ func (c *ongoingTranscriptController) applyNow(message *transcriptpb.Message, st
 		}
 		return result, nil
 	}
-	return c.applyTerminalWork(ongoingTerminalMessage{message: message})
+	return c.applyTerminalWork(ongoing.TerminalMessage{Message: message})
 }
 
 func (c *ongoingTranscriptController) applyState(message *transcriptpb.Message) bool {

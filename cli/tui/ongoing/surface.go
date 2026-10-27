@@ -135,6 +135,10 @@ type sourceFormatter struct {
 	markdownLinks   transcriptrender.MarkdownLinkPresentation
 }
 
+func (s *sourceFormatter) reset() {
+	*s = sourceFormatter{markdownLinks: s.markdownLinks}
+}
+
 type activeAssistantState struct {
 	streamID               *string
 	source                 string
@@ -182,7 +186,7 @@ func NewSurfaceWithOptions(writer io.Writer, options SurfaceOptions) *Surface {
 	return &Surface{
 		writer:         writer,
 		terminalResize: options.TerminalResize,
-		source:        sourceFormatter{markdownLinks: options.MarkdownLinks},
+		source:         sourceFormatter{markdownLinks: options.MarkdownLinks},
 	}
 }
 
@@ -427,7 +431,7 @@ func (s *Surface) observeResize(size Size) Result {
 func (s *Surface) ResetForScratchHydration(reason RehydrateReason, frame FrameInput) (Result, error) {
 	s.validateRenderFrame(frame, "reset_for_scratch_hydration")
 	s.observeResize(frame.Size)
-	s.source = sourceFormatter{markdownLinks: s.source.markdownLinks}
+	s.source.reset()
 	var transaction strings.Builder
 	if s.viewportInvalid || reason == RehydrateReasonResize {
 		writeFreshViewport(&transaction, frame.Size.Height)
