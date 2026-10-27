@@ -458,7 +458,7 @@ func TestUsageFallbackSavesReplacementBeforeOrdinaryFailure(t *testing.T) {
 
 func TestUsageFallbackKeepsCompletedToolWork(t *testing.T) {
 	tool, err := blackbox.StartScriptedResponsesStub(scriptedllm.Script{Steps: []scriptedllm.Step{
-		scriptedllm.ToolBatch("", llm.ToolCall{ID: uuid.NewString(), Name: string(toolspec.ToolExecCommand), Input: json.RawMessage(`{"cmd":"printf x >> fallback-marker"}`)}),
+		scriptedllm.ToolBatch("", llm.ToolCall{ID: uuid.NewString(), Name: string(toolspec.ToolExecCommand), Input: json.RawMessage(`{"cmd":"printf x >> fallback-marker","shell":"/bin/sh","login":false}`)}),
 	}})
 	if err != nil {
 		t.Fatal(err)
@@ -476,6 +476,15 @@ func TestUsageFallbackKeepsCompletedToolWork(t *testing.T) {
 	wiring, store := newUsageFallbackRuntime(t, launch.NewConnectionRotation(testsetup.OpenStore(t, t.TempDir()), time.Minute), a, b.URL(), config.CompactionModeLocal, toolspec.ToolExecCommand)
 	if _, err := wiring.Engine.SubmitUserMessage(t.Context(), "hello"); err != nil {
 		t.Fatal(err)
+	}
+	page, err := runtime.TranscriptNewestSegmentPageFromEventLog(materializedRuntimeWireEventLog(t, store), config.CacheWarningModeDefault)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, row := range runtime.TranscriptCommittedRowFactsFromSnapshot(page.Snapshot) {
+		if row.Tool != nil && row.Tool.IsError {
+			t.Fatalf("completed tool failed: %+v", row.Tool)
+		}
 	}
 	marker, err := os.ReadFile(filepath.Join(store.Meta().WorkspaceRoot, "fallback-marker"))
 	if err != nil || len(marker) != 1 {
