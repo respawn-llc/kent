@@ -8,7 +8,7 @@ import (
 
 	"core/shared/modelcontract"
 	"core/shared/textutil"
-	"core/shared/transcript"
+	"core/shared/transcriptmodel"
 )
 
 type ResponsesRequest struct {

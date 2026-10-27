@@ -8,9 +8,9 @@ import (
 	"testing"
 	"time"
 
-	"core/server/runtime"
-	"core/server/session"
-	"core/server/session/sessiontest"
+	"core/server/agentruntime"
+	"core/server/sessionstore"
+	"core/server/sessionstore/sessiontest"
 	"core/shared/sessioncontract"
 )
 

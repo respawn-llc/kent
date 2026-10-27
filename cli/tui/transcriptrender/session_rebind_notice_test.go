@@ -5,7 +5,7 @@ import (
 
 	"core/shared/clientui"
 	transcriptpb "core/shared/protoapi/gen/kent/api/transcript"
-	"core/shared/transcript"
+	"core/shared/transcriptmodel"
 )
 
 func TestSessionRebindNoticeIsCompactAndExpandsToFullReminder(t *testing.T) {

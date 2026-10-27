@@ -7,7 +7,7 @@ import (
 	"testing"
 
 	"core/server/tools"
-	patchformat "core/shared/transcript/patchformat"
+	patchformat "core/shared/transcriptmodel/patchformat"
 )
 
 func TestDeleteFileReturnsAuthoritativeLogicalLineCountFacts(t *testing.T) {

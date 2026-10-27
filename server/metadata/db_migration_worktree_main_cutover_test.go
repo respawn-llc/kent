@@ -8,8 +8,7 @@ import (
 
 func TestWorktreeMainIdentityCutoverNormalizesSameRootSessionAndTask(t *testing.T) {
 	root := t.TempDir()
-	dbPath := filepath.Join(root, "db", "main.sqlite3")
-	db, err := openDatabaseAtVersionForTest(t, root, dbPath, 87)
+	db, err := openDatabaseAtVersionForTest(t, 87)
 	if err != nil {
 		t.Fatalf("open version 87 database: %v", err)
 	}
@@ -56,15 +55,7 @@ WHERE id = 'task-main-cutover'`)
 UPDATE sessions
 SET task_id = 'task-main-cutover'
 WHERE id = 'session-main-cutover'`)
-	if err := db.Close(); err != nil {
-		t.Fatalf("close version 87 database: %v", err)
-	}
-
-	store, err := OpenAtPath(root, dbPath)
-	if err != nil {
-		t.Fatalf("upgrade same-root data: %v", err)
-	}
-	t.Cleanup(func() { _ = store.Close() })
+	store := migrateMetadataTestStore(t, root, db)
 
 	var worktreeCount int
 	if err := store.DB().QueryRowContext(t.Context(), `

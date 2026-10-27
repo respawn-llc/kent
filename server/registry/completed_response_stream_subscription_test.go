@@ -13,10 +13,9 @@ import (
 	"core/internal/testharness/pty"
 	"core/internal/testharness/pty/analyzer"
 	"core/internal/testharness/scriptedllm"
-	"core/internal/testharness/testsetup"
+	"core/server/agentruntime"
 	"core/server/llm"
-	"core/server/runtime"
-	"core/server/session"
+	"core/server/sessionstore"
 	"core/server/tools"
 	transcriptpb "core/shared/protoapi/gen/kent/api/transcript"
 	"core/shared/runtimeids"
@@ -273,27 +272,22 @@ func (f *streamSubscriptionFixture) next() {
 
 func (f *streamSubscriptionFixture) awaitSubmission(done <-chan error) {
 	f.t.Helper()
-	select {
-	case err := <-done:
-		if err != nil {
-			f.t.Fatalf("SubmitUserMessage: %v", err)
-		}
-	case <-time.After(time.Second):
-		f.t.Fatal("timed out waiting for resumed turn completion")
+	if err := <-done; err != nil {
+		f.t.Fatalf("SubmitUserMessage: %v", err)
 	}
 }
 
 func (f *streamSubscriptionFixture) assertSubscriptionOpen() {
 	f.t.Helper()
+	if err := f.registry.PublishSessionIdentity(f.engine.SessionID()); err != nil {
+		f.t.Fatal(err)
+	}
 	for {
-		message, err := nextTranscriptMessageTimeout(f.sub, 20*time.Millisecond)
-		if err != nil {
-			if !errors.Is(err, context.DeadlineExceeded) {
-				f.t.Fatalf("original subscription closed after turn: %v", err)
-			}
+		message := nextTranscriptMessage(f.t, f.sub)
+		f.lifecycle.record(f.t, message)
+		if message.Event.GetSessionIdentity() != nil {
 			return
 		}
-		f.lifecycle.record(f.t, message)
 	}
 }
 
@@ -479,25 +473,9 @@ func (h *controlledToolHandler) releaseFallback() {
 
 func (c *blockingToolCall) waitEntered(t *testing.T) {
 	t.Helper()
-	select {
-	case <-c.entered:
-	case <-time.After(time.Second):
-		t.Fatal("timed out waiting for tool call to enter")
-	}
+	<-c.entered
 }
 
 func (c *blockingToolCall) releaseCall() {
 	close(c.release)
-}
-
-func waitForPendingPrompt(t *testing.T, registry *RuntimeRegistry, sessionID string, toolCallID string) {
-	t.Helper()
-	var prompts []PendingPromptSnapshot
-	if testsetup.Until(time.Now().Add(time.Second), 10*time.Millisecond, func() bool {
-		prompts = registry.ListPendingPrompts(sessionID)
-		return len(prompts) == 1 && prompts[0].Request.ToolCallID == toolCallID
-	}) {
-		return
-	}
-	t.Fatalf("pending prompt %q was not registered: %+v", toolCallID, prompts)
 }

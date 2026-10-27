@@ -13,8 +13,7 @@ import (
 
 	"core/internal/testharness/postprocessfixture"
 	"core/internal/testharness/testsetup"
-	"core/server/metadata"
-	"core/server/session"
+	"core/server/sessionstore"
 	"core/server/tools"
 	shelltool "core/server/tools/shell"
 	"core/server/tools/shell/postprocess"
@@ -359,15 +358,7 @@ func newProcessViewFixtureWithMembership(
 
 	workspace := t.TempDir()
 	root := t.TempDir()
-	owner, err := metadata.Open(root)
-	if err != nil {
-		t.Fatal(err)
-	}
-	t.Cleanup(func() {
-		if err := owner.Close(); err != nil {
-			t.Error(err)
-		}
-	})
+	owner := testsetup.OpenStore(t, root)
 	binding, err := owner.RegisterWorkspaceBinding(t.Context(), workspace)
 	if err != nil {
 		t.Fatal(err)

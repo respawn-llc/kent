@@ -7,7 +7,7 @@ import (
 	"log/slog"
 	"time"
 
-	"core/server/session"
+	"core/server/sessionstore"
 	sessionlaunchpb "core/shared/protoapi/gen/kent/api/session_launch"
 	sharedpb "core/shared/protoapi/gen/kent/api/shared"
 	"core/shared/runtimeids"

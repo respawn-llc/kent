@@ -6,7 +6,7 @@ import (
 	"strings"
 	"unicode"
 
-	"core/server/session"
+	"core/server/sessionstore"
 	"core/shared/modelcontract"
 	"core/shared/textutil"
 

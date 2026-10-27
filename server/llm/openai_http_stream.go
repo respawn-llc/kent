@@ -8,7 +8,7 @@ import (
 	"time"
 	"unicode"
 
-	"core/server/session"
+	"core/server/sessionstore"
 	"core/shared/llmerrors"
 	"core/shared/modelcontract"
 	"core/shared/textutil"

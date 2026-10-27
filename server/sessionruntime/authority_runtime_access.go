@@ -2,7 +2,7 @@ package sessionruntime
 
 import (
 	"context"
-	"core/server/runtime"
+	"core/server/agentruntime"
 	"core/shared/runtimeids"
 	"core/shared/serverapi"
 	"errors"

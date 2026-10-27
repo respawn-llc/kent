@@ -2,7 +2,6 @@ package metadata
 
 import (
 	"encoding/json"
-	"path/filepath"
 	"testing"
 	"time"
 )
@@ -20,7 +19,7 @@ func TestContextSelectionMigrationRestrictsAmbiguousBranches(t *testing.T) {
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			root := t.TempDir()
-			db, err := openDatabaseAtVersionForTest(t, root, filepath.Join(root, "db", "main.sqlite3"), 93)
+			db, err := openDatabaseAtVersionForTest(t, 93)
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -47,14 +46,7 @@ func TestContextSelectionMigrationRestrictsAmbiguousBranches(t *testing.T) {
 				workflowGraphSeedID(t, db, "node-agent"), branch, session, tc.state, reason, detail, interrupted)
 			execSeed(t, db, "completed task", workflowSeedTaskSQL, "task-completed", "link-1", 2, "Completed", now, now)
 			execSeed(t, db, "terminal", `INSERT INTO task_current_nodes (task_id,node_id) VALUES ('task-completed',?)`, workflowGraphSeedID(t, db, "node-done"))
-			if err := db.Close(); err != nil {
-				t.Fatal(err)
-			}
-			store, err := Open(root)
-			if err != nil {
-				t.Fatal(err)
-			}
-			t.Cleanup(func() { _ = store.Close() })
+			store := migrateMetadataTestStore(t, root, db)
 			var state string
 			var gotReason, gotDetail, gotSession *string
 			if err := store.DB().QueryRowContext(t.Context(), `SELECT scheduling_state,interruption_reason,interruption_detail_json,session_id FROM task_current_nodes WHERE task_id='task-context' AND transition_branch_key IS ?`, branch).Scan(&state, &gotReason, &gotDetail, &gotSession); err != nil {

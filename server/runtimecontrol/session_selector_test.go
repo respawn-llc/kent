@@ -5,9 +5,9 @@ import (
 	"path/filepath"
 	"testing"
 
-	"core/server/metadata"
-	"core/server/session"
+	"core/internal/testharness/testsetup"
 	"core/server/sessionruntime"
+	"core/server/sessionstore"
 	"core/shared/protoapi"
 	promptpb "core/shared/protoapi/gen/kent/api/prompt"
 	runtimepb "core/shared/protoapi/gen/kent/api/runtime"
@@ -19,11 +19,7 @@ import (
 func newNumberedRuntimeControlFixture(t *testing.T) (*session.Store, *Service) {
 	t.Helper()
 	root, workspace := t.TempDir(), t.TempDir()
-	store, err := metadata.Open(root)
-	if err != nil {
-		t.Fatal(err)
-	}
-	t.Cleanup(func() { _ = store.Close() })
+	store := testsetup.OpenStore(t, root)
 	binding, err := store.RegisterWorkspaceBinding(t.Context(), workspace)
 	if err != nil {
 		t.Fatal(err)
@@ -47,7 +43,7 @@ func TestLiveControlsRejectResolvedSelfTargets(t *testing.T) {
 		target := protoapi.SessionSelectorToProto(selector)
 		for _, operation := range []func() error{
 			func() error {
-				_, err := service.LiveSteer(t.Context(), &runtimepb.LiveSteerRequest{SessionId: target, CallerSessionId: &caller, QueueItemId: runtimeids.NewQueueItemID().String(), Text: "continue"})
+				_, err := service.LiveSteer(t.Context(), &runtimepb.LiveSteerRequest{QueueItemId: runtimeids.NewQueueItemID().String(), SessionId: target, CallerSessionId: &caller, Text: "continue"})
 				return err
 			},
 			func() error {
@@ -89,11 +85,7 @@ func TestGoalSelectorsReadSamePersistedGoal(t *testing.T) {
 }
 
 func TestLiveStopMissingNumericTargetIsIdle(t *testing.T) {
-	store, err := metadata.Open(t.TempDir())
-	if err != nil {
-		t.Fatal(err)
-	}
-	t.Cleanup(func() { _ = store.Close() })
+	store := testsetup.OpenStore(t, t.TempDir())
 	service := NewService(sessionruntime.NewAuthority(sessionruntime.AuthorityOptions{}), store)
 	shortID, err := runtimeids.NewSessionShortID(123)
 	if err != nil {

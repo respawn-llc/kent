@@ -4,7 +4,7 @@ import (
 	"context"
 	"errors"
 
-	"core/server/session"
+	"core/server/sessionstore"
 	"core/shared/runtimeids"
 	"core/shared/serverapi"
 )

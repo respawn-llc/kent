@@ -2,7 +2,7 @@ package llm
 
 import (
 	"context"
-	"core/server/auth"
+	"core/server/authmanager"
 	"core/shared/config"
 	"core/shared/textutil"
 	"core/shared/toolspec"

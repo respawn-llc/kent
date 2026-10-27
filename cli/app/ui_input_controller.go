@@ -5,7 +5,7 @@ import (
 	"strings"
 	"time"
 
-	"core/shared/transcript"
+	"core/shared/transcriptmodel"
 
 	bubblespinner "github.com/charmbracelet/bubbles/spinner"
 	tea "github.com/charmbracelet/bubbletea"

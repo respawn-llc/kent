@@ -11,7 +11,7 @@ import (
 	"testing"
 
 	"core/internal/testharness/httpclient"
-	"core/server/auth"
+	"core/server/authmanager"
 	"core/shared/config"
 	"core/shared/protoapi"
 	authpb "core/shared/protoapi/gen/kent/api/auth"

@@ -15,10 +15,10 @@ import (
 
 	"core/internal/testharness/runtimewirefixture"
 	"core/internal/testharness/testsetup"
+	"core/server/agentruntime"
 	"core/server/llm"
-	"core/server/runtime"
 	"core/server/runtimewire"
-	"core/server/session"
+	"core/server/sessionstore"
 	"core/server/tools"
 	shelltool "core/server/tools/shell"
 	"core/server/workflow"

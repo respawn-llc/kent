@@ -13,7 +13,7 @@ import (
 
 	"core/server/llm"
 	"core/server/metadata"
-	"core/server/session"
+	"core/server/sessionstore"
 	"core/shared/config"
 	"core/shared/llmerrors"
 )

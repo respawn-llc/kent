@@ -6,7 +6,7 @@ import { TranscriptWindow } from "@/app-facade";
 import { TranscriptHarness } from "@/test-support/chat-runtime";
 import { hydration, page, row, visit } from "@/test-support/transcript-window";
 import { installVirtualizedScrollGeometry } from "@/test-support/resize-observer";
-import { StaticMarkdown, StreamingMarkdown } from "@/ui";
+import { StaticMarkdown, StreamingMarkdown } from "@/ui/markdown";
 import { TranscriptWindowView } from "./TranscriptWindowView";
 
 it.each(["older", "newer"] as const)(

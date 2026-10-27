@@ -3,7 +3,7 @@ package registry
 import (
 	"testing"
 
-	"core/server/runtime"
+	"core/server/agentruntime"
 	"core/server/tools"
 	"core/shared/config"
 

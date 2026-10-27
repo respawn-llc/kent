@@ -4,11 +4,11 @@ import (
 	"fmt"
 	"strings"
 
+	"core/server/agentruntime"
 	"core/server/goalview"
 	"core/server/llm"
-	"core/server/runtime"
 	"core/server/runtimeactivity"
-	"core/server/session"
+	"core/server/sessionstore"
 	"core/server/tools"
 	shelltool "core/server/tools/shell"
 	"core/shared/config"
@@ -18,7 +18,7 @@ import (
 	transcriptpb "core/shared/protoapi/gen/kent/api/transcript"
 	"core/shared/runtimeids"
 	"core/shared/textutil"
-	"core/shared/transcript"
+	"core/shared/transcriptmodel"
 
 	"google.golang.org/protobuf/types/known/timestamppb"
 )

@@ -3,15 +3,8 @@ import { useTranslation } from "react-i18next";
 
 import { type ApprovalDecision, type FileAccessTarget, type QuestionAttentionItem } from "@/api";
 import { usePathFormatter, useTextFieldSubmitShortcut } from "@/app-facade";
-import {
-  Button,
-  RadioGroup,
-  PromptOptionRow as QuestionOption,
-  PromptAccessTargets,
-  StaticMarkdown,
-  TextArea,
-  ControlTooltip,
-} from "@/ui";
+import { Button, RadioGroup, PromptAccessTargets, TextArea, ControlTooltip } from "@/ui";
+import { StaticMarkdown, PromptOptionRow as QuestionOption } from "@/ui/markdown";
 import { useSpeechField } from "@/shared/speech-input";
 import { useTaskSpeech } from "./TaskDetailSpeech";
 import { promptAnswerKey } from "./PromptAnswerState";
