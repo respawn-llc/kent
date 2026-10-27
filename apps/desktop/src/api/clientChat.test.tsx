@@ -1,5 +1,6 @@
 import { observeTranscript, observeGoal } from "@/test-support/chat-runtime";
 import { describe, expect, it } from "bun:test";
+import { waitFor } from "@testing-library/react";
 import { StreamFailureCode } from "@app/server-api-contract/gen/kent/api/shared/foundation_pb";
 import { unexpectedProjectOverflow } from "@/test-support/api";
 import { ApiClient } from "./client";
@@ -681,7 +682,7 @@ describe("Desktop Chat read client", () => {
       onTransportLoss: () => transportLosses.push({}),
     });
     transport.failDescriptor(T.StreamService.method.subscribe, new TransportError("isolated socket loss"));
-    await subscription.flush();
+    await waitFor(() => { expect(transportLosses).toHaveLength(1); });
     expect(errors).toEqual([]);
     expect(transportLosses).toHaveLength(1);
 

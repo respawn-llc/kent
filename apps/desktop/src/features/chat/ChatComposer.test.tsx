@@ -3,7 +3,7 @@ import { afterEach, beforeEach, expect, it, vi } from "bun:test";
 import { act, fireEvent, render, renderHook, screen, waitFor } from "@testing-library/react";
 import type { ReactNode } from "react";
 import type { ChatInputMutationResult, InitialChatSettings } from "@/api";
-import { ChatRuntimeProvider, queryKeys } from "@/app-facade";
+import { ChatRuntimeProvider, queryKeys, useChatRuntimePresentation } from "@/app-facade";
 import { mainViewRead, runtimeHost, transcriptPage } from "@/test-support/chat-runtime";
 import { ChatComposerSurface, useComposerSurface } from "./ChatComposerSurface";
 import { pendingWorkItemIDFromProto } from "@/api";
@@ -721,8 +721,13 @@ it("clears an armed Stop on transcript loss while allowing a subsequent independ
   const stop = vi.spyOn(services.api.chat, "stop").mockResolvedValue("stopped");
   function Probe() {
     const { stoppable } = useComposerSurface();
+    const { observationError } = useChatRuntimePresentation();
     return (
-      <button data-testid="keyboard" disabled={!stoppable}>
+      <button
+        data-testid="keyboard"
+        data-observation-failed={observationError !== null}
+        disabled={!stoppable}
+      >
         Keyboard
       </button>
     );
@@ -749,6 +754,7 @@ it("clears an armed Stop on transcript loss while allowing a subsequent independ
   expect(keyboard).not.toBeDisabled();
   fireEvent.keyDown(keyboard, { key: "Escape" });
   await act(async () => handlers[0]?.onTransportLoss?.());
+  await waitFor(() => expect(keyboard).toHaveAttribute("data-observation-failed", "true"));
   fireEvent.keyDown(keyboard, { key: "Escape" });
   await act(async () => {
     await Promise.resolve();

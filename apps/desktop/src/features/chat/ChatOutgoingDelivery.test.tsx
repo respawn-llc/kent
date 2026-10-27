@@ -1,5 +1,5 @@
 import { expect, it, vi } from "bun:test";
-import { act, screen, waitFor, within } from "@testing-library/react";
+import { act, fireEvent, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import type { ChatInputMutationResult, PendingWorkItemID } from "@/api";
 import { appI18n } from "@/i18n";
@@ -30,7 +30,7 @@ it("releases a busy submission after two seconds and keeps subsequent typing thr
     });
     const user = userEvent.setup({ delay: null });
     await user.type(editor, "Busy submission");
-    await user.click(screen.getByRole("button", { name: appI18n.t("chatComposer.send") }));
+    fireEvent.click(screen.getByRole("button", { name: appI18n.t("chatComposer.send") }));
     expect(editor).toHaveValue("Busy submission");
     expect(editor).toHaveAttribute("readonly");
     await waitFor(
