@@ -80,7 +80,13 @@ func (m *uiModel) handleRuntimeMainViewRefreshed(msg runtimeMainViewRefreshedMsg
 				return runtimeMainViewRetryMsg{token: msg.token}
 			})
 		}
-		return m.drainPendingRuntimeMainViewRefresh()
+		return tea.Batch(
+			m.drainPendingRuntimeMainViewRefresh(),
+			m.sendTransientStatusWithNoticeID(
+				"Runtime state refresh failed: "+runtimeattach.FormatSubmissionError(msg.err),
+				uiStatusNoticeError, transientStatusDuration, uiStatusNoticeReplace, "",
+			),
+		)
 	}
 	m.observeRuntimeRequestResult(nil)
 	canonical := msg.view

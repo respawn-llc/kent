@@ -99,7 +99,7 @@ func TestQuestionBarrierCommitsReadyHostedSiblingBeforeInteraction(t *testing.T)
 	flushes := &resultGroupFlushRecorder{}
 	var engine *Engine
 	var interactionErr error
-	broker.SetAskHandler(func(_ context.Context, _ tools.AskQuestionRequest) (tools.AskQuestionResolution, error) {
+	broker.SetLifecycleAskHandler(func(_ context.Context, _ tools.AskQuestionRequest) (tools.AskQuestionResolution, error) {
 		if _, found := engine.transcriptRuntimeState().ToolCompletionSnapshot("hosted"); !found {
 			interactionErr = errors.New("Question became visible before the ready hosted sibling committed")
 			return nil, interactionErr
@@ -174,7 +174,7 @@ func TestApprovalBarrierUsesRuntimeFlushBeforeNestedApprovalVisibility(t *testin
 	flushes := &resultGroupFlushRecorder{}
 	var engine *Engine
 	var interactionErr error
-	broker.SetAskHandler(func(_ context.Context, _ tools.AskQuestionRequest) (tools.AskQuestionResolution, error) {
+	broker.SetLifecycleAskHandler(func(_ context.Context, _ tools.AskQuestionRequest) (tools.AskQuestionResolution, error) {
 		if _, found := engine.transcriptRuntimeState().ToolCompletionSnapshot("hosted"); !found {
 			interactionErr = errors.New("Approval became visible before the ready hosted sibling committed")
 			return nil, interactionErr

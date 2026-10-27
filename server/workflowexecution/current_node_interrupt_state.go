@@ -1,8 +1,6 @@
 package workflowexecution
 
 import (
-	"sort"
-
 	"core/server/workflow"
 	"core/shared/runtimeids"
 )
@@ -113,22 +111,4 @@ func (s *currentNodeInterruptState) fenceActive(fence *currentNodeInterruptFence
 		}
 	}
 	return false
-}
-
-func (s *currentNodeInterruptState) taskIDs() []workflow.TaskID {
-	seen := make(map[workflow.TaskID]struct{}, len(s.byScope)+len(s.byCurrentNode))
-	for _, fence := range s.byScope {
-		seen[fence.taskID] = struct{}{}
-	}
-	for _, fence := range s.byCurrentNode {
-		seen[fence.taskID] = struct{}{}
-	}
-	taskIDs := make([]workflow.TaskID, 0, len(seen))
-	for taskID := range seen {
-		taskIDs = append(taskIDs, taskID)
-	}
-	sort.Slice(taskIDs, func(i int, j int) bool {
-		return taskIDs[i] < taskIDs[j]
-	})
-	return taskIDs
 }

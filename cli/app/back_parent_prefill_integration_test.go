@@ -42,7 +42,7 @@ func TestBackParentPrefillOverServedRemote(t *testing.T) {
 	configured := startConfiguredDaemonFixture(t, workspace, serverstartup.Request{
 		WorkspaceRoot:         workspace,
 		WorkspaceRootExplicit: true,
-		Model:                 "gpt-6-sol",
+		LoadOptions:           config.LoadOptions{Model: "gpt-6-sol"},
 	}, nil)
 	srv := configured.daemon
 
@@ -90,7 +90,7 @@ func TestRemoteBackRebindsToParentProjectBeforeRuntimePreparation(t *testing.T) 
 	configured := startConfiguredDaemonFixture(t, workspaceA, serverstartup.Request{
 		WorkspaceRoot:         workspaceA,
 		WorkspaceRootExplicit: true,
-		Model:                 "source-project-model",
+		LoadOptions:           config.LoadOptions{Model: "source-project-model"},
 	}, metadataStore)
 	srv := configured.daemon
 

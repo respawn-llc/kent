@@ -660,7 +660,7 @@ func hasSubagentMetaMessage(messages []llm.Message) bool {
 func skillInspectionMatches(inspections []skillcatalog.Inspection, name string, disabled bool) bool {
 	for _, inspection := range inspections {
 		if inspection.Name == name {
-			return inspection.Loaded && inspection.Disabled == disabled
+			return inspection.Loaded() && inspection.Disabled == disabled
 		}
 	}
 	return false

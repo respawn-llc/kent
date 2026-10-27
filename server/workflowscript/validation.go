@@ -1,7 +1,6 @@
 package workflowscript
 
 import (
-	"encoding/json"
 	"errors"
 	"fmt"
 	"os"
@@ -18,8 +17,6 @@ const (
 	CodePathIsDirectory     = "workflow.validation.script_path_is_directory"
 	CodePathNotExecutable   = "workflow.validation.script_path_not_executable"
 )
-
-const ReasonValidationFailed = "workflow_script_validation_failed"
 
 type ValidationRequest struct {
 	RawPath     string
@@ -42,14 +39,6 @@ type ValidationError struct {
 
 func (e ValidationError) Error() string {
 	return e.Diagnostic.Message
-}
-
-func (e ValidationError) DetailJSON() string {
-	body, err := json.Marshal(e.Diagnostic)
-	if err != nil {
-		return fmt.Sprintf(`{"code":%q,"message":%q,"blocking":true}`, e.Diagnostic.Code, e.Diagnostic.Message)
-	}
-	return string(body)
 }
 
 func Validate(req ValidationRequest) []Diagnostic {

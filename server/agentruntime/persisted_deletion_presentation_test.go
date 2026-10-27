@@ -71,7 +71,7 @@ func restoredDeletionPresentation(t *testing.T, presentation any) *transcript.To
 	if err != nil {
 		t.Fatalf("marshal presentation: %v", err)
 	}
-	scan := NewPersistedTranscriptScan(PersistedTranscriptScanRequest{})
+	scan := newStreamingTranscriptScan("")
 	events := []session.EventRecord{
 		mustPersistedScanEvent(t, "message", llm.Message{
 			Role: llm.RoleAssistant,
@@ -98,7 +98,7 @@ func restoredDeletionPresentation(t *testing.T, presentation any) *transcript.To
 			t.Fatalf("restore %s: %v", mustSessionEventKind(event), err)
 		}
 	}
-	for _, entry := range scan.CollectedPageSnapshot().Entries {
+	for _, entry := range scan.PageSnapshot().Entries {
 		if entry.ToolCallID == callID && entry.Role == "tool_result_ok" &&
 			entry.ToolCall != nil && entry.ToolCall.PatchPresentation != nil {
 			return entry.ToolCall

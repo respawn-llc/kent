@@ -89,7 +89,7 @@ func StartServeServer(ctx context.Context, req Request) (*ServeServer, error) {
 	}
 	cfg := resolved.Config
 	store := auth.NewFileStore(config.GlobalAuthConfigPath(cfg))
-	authSupport, err := serverbootstrap.BuildAuthSupport(ctx, root, store, bootstrapReq.Environment, bootstrapReq.Now)
+	authSupport, err := serverbootstrap.BuildAuthSupport(ctx, root, store, bootstrapReq.Environment)
 	if err != nil {
 		return nil, err
 	}

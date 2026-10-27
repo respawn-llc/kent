@@ -605,10 +605,6 @@ func (e *Engine) applyResultGroupProjection(
 	}
 	for _, unit := range plan.units {
 		unitStart := e.CommittedTranscriptEntryCount()
-		outputProvenance, err := transcriptProvenanceFromRecord(records[unit.outputRecordIndex])
-		if err != nil {
-			return err
-		}
 		applied, err := e.applyPreparedFinalizedToolCompletion(textutil.OptionalExactString(stepID), unit.completion, records[unit.completionStart:unit.outputRecordIndex])
 		if err != nil {
 			return err
@@ -617,7 +613,6 @@ func (e *Engine) applyResultGroupProjection(
 		if err := e.applyPreparedMessageProjection(
 			textutil.OptionalExactString(stepID),
 			unit.output,
-			&outputProvenance,
 		); err != nil {
 			return fmt.Errorf(
 				"append result group output projection %q: %w",

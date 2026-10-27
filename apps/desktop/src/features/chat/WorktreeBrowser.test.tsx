@@ -544,14 +544,14 @@ it("refreshes after a completed typed transition without changing Chat target or
   });
   const handler = runtime.handlers[0];
   if (handler === undefined) throw new Error("Missing transcript observer");
-  act(() => {
+  await act(async () => {
     handler.onOpen?.();
     handler.onEvent({ sequence: 1, kind: "hydration", payload: hydration() });
   });
   const before = services.transport.descriptorCalls.length;
   const key = queryKeys.chatMainView(target.sessionID);
   const view = client.getQueryData<WorktreeList>(key);
-  act(() => {
+  await act(async () => {
     handler.onEvent({
       sequence: 2,
       kind: "worktree_transition_outcome",
@@ -569,7 +569,7 @@ it("refreshes after a completed typed transition without changing Chat target or
     expect(services.transport.descriptorCalls).toHaveLength(before + 1);
   });
   expect(client.getQueryData<WorktreeList>(key)).toBe(view);
-  act(() => {
+  await act(async () => {
     handler.onEvent({
       sequence: 3,
       kind: "worktree_transition_outcome",

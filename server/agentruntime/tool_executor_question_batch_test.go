@@ -83,7 +83,7 @@ func TestExecuteToolCallsMaterializesEveryQuestionBeforeAnyAnswer(t *testing.T) 
 	pending := make(chan tools.AskQuestionRequest, 5)
 	release := make(chan struct{})
 	prepared := make(chan struct{})
-	broker.SetAskHandler(func(ctx context.Context, request tools.AskQuestionRequest) (tools.AskQuestionResolution, error) {
+	broker.SetLifecycleAskHandler(func(ctx context.Context, request tools.AskQuestionRequest) (tools.AskQuestionResolution, error) {
 		select {
 		case <-prepared:
 		default:

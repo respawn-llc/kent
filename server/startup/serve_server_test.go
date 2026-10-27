@@ -56,8 +56,13 @@ func registerServeWorkspace(t *testing.T, workspace string) {
 	if err != nil {
 		t.Fatalf("config.Load: %v", err)
 	}
-	if _, _, err := config.WriteDefaultSettingsFileAt(cfg.Source.File(config.FileGlobal).Path); err != nil {
-		t.Fatalf("write test settings: %v", err)
+	settingsPath := cfg.Source.File(config.FileGlobal).Path
+	if _, statErr := os.Stat(settingsPath); errors.Is(statErr, os.ErrNotExist) {
+		if _, err := config.WriteSettingsFileForOnboardingWithOptionsAt(settingsPath, config.DefaultOnboardingSettings(), config.OnboardingWriteOptions{}); err != nil {
+			t.Fatalf("write test settings: %v", err)
+		}
+	} else if statErr != nil {
+		t.Fatalf("stat test settings: %v", statErr)
 	}
 }
 
@@ -112,7 +117,7 @@ func newMemoryServeTestServer(t *testing.T, request Request, store *metadata.Sto
 		appCore, _ := corefixture.Open(t, cfg, store, coreOptionsForBootstrap(req, lease))
 		server = &ServeServer{Core: appCore, cfg: cfg}
 	} else {
-		authSupport, err := serverbootstrap.BuildAuthSupport(t.Context(), root, auth.NewFileStore(config.GlobalAuthConfigPath(cfg)), req.Environment, req.Now)
+		authSupport, err := serverbootstrap.BuildAuthSupport(t.Context(), root, auth.NewFileStore(config.GlobalAuthConfigPath(cfg)), req.Environment)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -814,7 +819,7 @@ func TestStartupUsesConfigThatAppearsBeforeRootLock(t *testing.T) {
 	if err != nil {
 		t.Fatalf("config.Load: %v", err)
 	}
-	if _, _, err := config.WriteDefaultSettingsFileAt(loadCfg.Source.File(config.FileGlobal).Path); err != nil {
+	if _, err := config.WriteSettingsFileForOnboardingWithOptionsAt(loadCfg.Source.File(config.FileGlobal).Path, config.DefaultOnboardingSettings(), config.OnboardingWriteOptions{}); err != nil {
 		t.Fatalf("write settings: %v", err)
 	}
 

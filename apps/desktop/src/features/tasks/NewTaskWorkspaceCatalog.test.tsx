@@ -89,9 +89,6 @@ await mock.module("@/shared/labels", () => ({
   orderedAssignedLabels: () => [],
   useProjectLabelCatalog: () => ({ data: state.labels }),
 }));
-await mock.module("@/shared/native-dialog", () => ({
-  NativeDialogWindow: ({ children }: Readonly<{ children: ReactNode }>) => <>{children}</>,
-}));
 await mock.module("@/ui", () => ({
   ...actualUi,
   Badge: ({ children }: Readonly<{ children: ReactNode }>) => <>{children}</>,

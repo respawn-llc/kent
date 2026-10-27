@@ -241,7 +241,7 @@ func TestMetadataServicePaginatesProjectWorkspaceCatalog(t *testing.T) {
 
 func TestMetadataServiceSetsDefaultWorkspaceByProjectScopedPath(t *testing.T) {
 	store, _, binding := newProjectViewMetadataStore(t)
-	second, err := store.CreateProjectForWorkspace(context.Background(), t.TempDir(), "Second project")
+	second, err := store.CreateProjectForWorkspaceWithKey(context.Background(), t.TempDir(), "Second project", "")
 	if err != nil {
 		t.Fatalf("CreateProjectForWorkspace: %v", err)
 	}
@@ -536,7 +536,7 @@ func TestServiceListsSessionPageWithOffsetWindow(t *testing.T) {
 
 func TestMetadataServiceUnlinksOnlySelectedProjectBindingByPath(t *testing.T) {
 	store, _, binding := newProjectViewMetadataStore(t)
-	second, err := store.CreateProjectForWorkspace(context.Background(), t.TempDir(), "Second project")
+	second, err := store.CreateProjectForWorkspaceWithKey(context.Background(), t.TempDir(), "Second project", "")
 	if err != nil {
 		t.Fatalf("CreateProjectForWorkspace: %v", err)
 	}
@@ -618,7 +618,7 @@ func TestMetadataServiceConcurrentWorkspaceDetachSucceeds(t *testing.T) {
 
 func TestMetadataServiceUnlinkWrongProjectIDSelectorDoesNotMutate(t *testing.T) {
 	store, _, binding := newProjectViewMetadataStore(t)
-	other, err := store.CreateProjectForWorkspace(context.Background(), t.TempDir(), "Other project")
+	other, err := store.CreateProjectForWorkspaceWithKey(context.Background(), t.TempDir(), "Other project", "")
 	if err != nil {
 		t.Fatalf("CreateProjectForWorkspace: %v", err)
 	}
@@ -801,7 +801,7 @@ func TestMetadataServicePlansInteractiveLocalUnboundWorkspace(t *testing.T) {
 
 func TestMetadataServicePlansAmbiguousDuplicateWorkspaceBinding(t *testing.T) {
 	store, cfg, first := newProjectViewMetadataStore(t)
-	second, err := store.CreateProjectForWorkspace(context.Background(), cfg.WorkspaceRoot, "second")
+	second, err := store.CreateProjectForWorkspaceWithKey(context.Background(), cfg.WorkspaceRoot, "second", "")
 	if err != nil {
 		t.Fatalf("CreateProjectForWorkspace second: %v", err)
 	}

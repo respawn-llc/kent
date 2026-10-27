@@ -6,6 +6,7 @@ import (
 	"errors"
 	"testing"
 
+	"core/internal/testharness/requestfixture"
 	"core/server/agentruntime"
 	"core/server/llm"
 	"core/server/sessionstore"
@@ -92,7 +93,7 @@ func TestGoalQuestionRemainsInterruptibleAcrossCurrentTurnCompletion(t *testing.
 	if !ok {
 		t.Fatal("published Goal Question has no interruptible execution")
 	}
-	if _, err := service.Interrupt(t.Context(), &runtimepb.InterruptRequest{SessionId: sessionID.String()}); err != nil {
+	if _, err := service.LiveStop(t.Context(), &runtimepb.LiveStopRequest{SessionId: requestfixture.Selector(t, sessionID.String())}); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := goalExecution.Wait(t.Context()); err != nil && !errors.Is(err, context.Canceled) {

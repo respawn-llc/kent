@@ -5,7 +5,6 @@ import (
 	"core/internal/testharness/requestfixture"
 	"core/internal/testharness/scriptedllm"
 	"core/internal/testharness/testsetup"
-	"core/internal/testharness/workflowreactivator"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -102,20 +101,8 @@ var runtimeControlOpenAICapabilities = llm.ProviderCapabilities{
 	IsOpenAIFirstParty:       true,
 }
 
-type sequenceRuntimeActivityResolver struct {
-	snapshots []*runtimepb.ReadModelUpdate
-	calls     int
-}
-
 type runtimeControlSettingPublisher struct {
 	feedback []*transcriptpb.SessionSettingFeedback
-}
-
-func (p *runtimeControlSettingPublisher) RuntimeReadModelFeedSnapshot(
-	context.Context,
-	string,
-) (*runtimepb.ReadModelUpdate, error) {
-	return nil, nil
 }
 
 func (p *runtimeControlSettingPublisher) PublishSessionSettingFeedback(
@@ -166,15 +153,6 @@ func (f *runtimeControlPromptFeed) Counts() (pending int, resolved int) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	return f.pendingCount, f.resolvedCount
-}
-
-func (r *sequenceRuntimeActivityResolver) RuntimeReadModelFeedSnapshot(context.Context, string) (*runtimepb.ReadModelUpdate, error) {
-	if r.calls >= len(r.snapshots) {
-		return r.snapshots[len(r.snapshots)-1], nil
-	}
-	snapshot := r.snapshots[r.calls]
-	r.calls++
-	return snapshot, nil
 }
 
 type missingMetadataPersistedSessionResolver struct{}
@@ -346,19 +324,18 @@ func waitForRuntimeControlAssistantFinal(t *testing.T, engine *runtime.Engine, t
 	t.Helper()
 	waitForRuntimeControlIdle(t, engine)
 	found := false
-	if err := engine.WithTranscriptHydrationSnapshot(func(snapshot runtime.TranscriptHydrationSnapshot) error {
-		for _, row := range snapshot.CommittedRows {
-			if row.Kind == runtime.TranscriptCommittedRowFactAssistant &&
-				row.Assistant != nil &&
-				row.Assistant.Phase == llm.MessagePhaseFinal &&
-				row.Assistant.Text == text {
-				found = true
-				break
-			}
+	page, err := engine.TranscriptNewestSegmentPage()
+	if err != nil {
+		t.Fatalf("read newest transcript segment: %v", err)
+	}
+	for _, row := range runtime.TranscriptCommittedRowFactsFromSnapshot(page.Snapshot) {
+		if row.Kind == runtime.TranscriptCommittedRowFactAssistant &&
+			row.Assistant != nil &&
+			row.Assistant.Phase == llm.MessagePhaseFinal &&
+			row.Assistant.Text == text {
+			found = true
+			break
 		}
-		return nil
-	}); err != nil {
-		t.Fatalf("read transcript hydration snapshot: %v", err)
 	}
 	if !found {
 		t.Fatalf("missing committed assistant final %q", text)
@@ -918,186 +895,6 @@ func finalResponseRuntimeControlClient() *runtimeControlFakeClient {
 	}}}
 }
 
-func TestServiceSubmitUserTurnReactivatesRetainedWorkflowSessionBeforeSubmitting(t *testing.T) {
-	store, engine, service := newRuntimeControlTestService(
-		t,
-		finalResponseRuntimeControlClient(),
-		nil,
-		runtime.Config{Model: "gpt-6-sol"},
-	)
-	config := runtimeControlExactExecution(t)
-	workflowRef := sessionruntime.WorkflowExecutionRef{
-		ProjectID:   "runtime-control-test-project",
-		WorkflowID:  runtimeids.NewWorkflowID(),
-		CurrentNode: config.Instructions.CurrentNode,
-	}
-	config.Instructions.WorkflowID = workflowRef.WorkflowID
-	binding, err := engine.BindCurrentNodeExecution(config)
-	if err != nil {
-		t.Fatalf("bind retained Workflow activation: %v", err)
-	}
-	bindingClosed := false
-	var execution sessionruntime.ExecutionHandle
-	t.Cleanup(func() {
-		if execution != nil {
-			execution.RequestStop()
-			_ = execution.Close(context.Background())
-		}
-		if !bindingClosed {
-			_ = binding.Close()
-		}
-	})
-	sessionID, err := runtimeids.ParseSessionID(store.Meta().SessionID)
-	if err != nil {
-		t.Fatalf("parse session id: %v", err)
-	}
-	reactivations := 0
-	service.WithWorkflowSessionReactivator(workflowreactivator.Func(
-		func(_ context.Context, got runtimeids.SessionID) (sessionruntime.ExecutionHandle, error) {
-			reactivations++
-			if got != sessionID {
-				t.Fatalf("reactivated session = %s, want %s", got, sessionID)
-			}
-			bindingClosed = true
-			if err := binding.Close(); err != nil {
-				return nil, err
-			}
-			descriptor, err := session.NewOpenSessionDescriptor(sessionID)
-			if err != nil {
-				return nil, err
-			}
-			handle, err := service.authority.StartAgentExecution(
-				context.Background(),
-				sessionruntime.AgentExecutionRequest{
-					Descriptor: descriptor,
-					Workflow: &sessionruntime.WorkflowAgentExecution{
-						Reference: workflowRef,
-						Config:    config,
-					},
-					Resource: sessionruntime.CurrentAgentResource{},
-					Runner: func(ctx context.Context, _ sessionruntime.ExecutionScope, _ sessionruntime.AgentRuntimeBridge) error {
-						<-ctx.Done()
-						return context.Cause(ctx)
-					},
-				},
-			)
-			if err != nil {
-				return nil, err
-			}
-			execution = handle
-			return handle, nil
-		},
-	))
-
-	response, err := service.SubmitUserTurn(
-		context.Background(),
-		runtimeControlUserTurnRequest(store, "reactivate-retained", "continue"),
-	)
-	if err != nil {
-		t.Fatalf("SubmitUserTurn: %v", err)
-	}
-	if reactivations != 1 {
-		t.Fatalf("workflow reactivations = %d, want 1", reactivations)
-	}
-	if response.GetQueued() == nil || response.GetQueued().GetQueueItemId() == "" {
-		t.Fatalf("SubmitUserTurn response = %+v, want queued acceptance", response)
-	}
-	if !engine.HasQueuedUserWork() {
-		t.Fatal("original input was not accepted by the reactivated Workflow execution")
-	}
-}
-
-func TestServiceSubmitUserTurnRejectsMismatchedReactivatedWorkflowExecution(t *testing.T) {
-	store, engine, service := newRuntimeControlTestService(
-		t,
-		finalResponseRuntimeControlClient(),
-		nil,
-		runtime.Config{Model: "gpt-6-sol"},
-	)
-	selected := runtimeControlExactExecution(t)
-	binding, err := engine.BindCurrentNodeExecution(selected)
-	if err != nil {
-		t.Fatalf("bind retained Workflow activation: %v", err)
-	}
-	bindingClosed := false
-	var execution sessionruntime.ExecutionHandle
-	t.Cleanup(func() {
-		if execution != nil {
-			execution.RequestStop()
-			_ = execution.Close(context.Background())
-		}
-		if !bindingClosed {
-			_ = binding.Close()
-		}
-	})
-	sessionID, err := runtimeids.ParseSessionID(store.Meta().SessionID)
-	if err != nil {
-		t.Fatalf("parse session id: %v", err)
-	}
-	mismatchedNode, err := workflow.NewCurrentNodeReference(
-		selected.Instructions.CurrentNode.TaskID,
-		"mismatched-node",
-		nil,
-	)
-	if err != nil {
-		t.Fatalf("create mismatched Current Node: %v", err)
-	}
-	service.WithWorkflowSessionReactivator(workflowreactivator.Func(
-		func(_ context.Context, got runtimeids.SessionID) (sessionruntime.ExecutionHandle, error) {
-			if got != sessionID {
-				t.Fatalf("reactivated session = %s, want %s", got, sessionID)
-			}
-			bindingClosed = true
-			if err := binding.Close(); err != nil {
-				return nil, err
-			}
-			config := runtimeControlExactExecution(t)
-			config.Instructions.CurrentNode = mismatchedNode
-			workflowRef := sessionruntime.WorkflowExecutionRef{
-				ProjectID:   "runtime-control-test-project",
-				WorkflowID:  runtimeids.NewWorkflowID(),
-				CurrentNode: mismatchedNode,
-			}
-			config.Instructions.WorkflowID = workflowRef.WorkflowID
-			descriptor, err := session.NewOpenSessionDescriptor(sessionID)
-			if err != nil {
-				return nil, err
-			}
-			handle, err := service.authority.StartAgentExecution(
-				context.Background(),
-				sessionruntime.AgentExecutionRequest{
-					Descriptor: descriptor,
-					Workflow: &sessionruntime.WorkflowAgentExecution{
-						Reference: workflowRef,
-						Config:    config,
-					},
-					Resource: sessionruntime.CurrentAgentResource{},
-					Runner: func(ctx context.Context, _ sessionruntime.ExecutionScope, _ sessionruntime.AgentRuntimeBridge) error {
-						<-ctx.Done()
-						return context.Cause(ctx)
-					},
-				},
-			)
-			if err != nil {
-				return nil, err
-			}
-			execution = handle
-			return handle, nil
-		},
-	))
-
-	_, err = service.SubmitUserTurn(
-		context.Background(),
-		runtimeControlUserTurnRequest(store, "reject-mismatched-reactivation", "do not accept"),
-	)
-	if err == nil {
-		t.Fatal("SubmitUserTurn accepted mismatched reactivated Workflow execution")
-	}
-	if engine.HasQueuedUserWork() {
-		t.Fatal("original input was accepted by a mismatched Workflow execution")
-	}
-}
-
 func (c *runtimeControlFakeClient) Generate(context.Context, llm.Request, llm.StreamCallbacks) (llm.Response, error) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
@@ -1209,8 +1006,8 @@ func TestServicePendingQuestionInterruptsAndAllowsNextTurn(t *testing.T) {
 	select {
 	case <-promptFeed.pending:
 	}
-	if _, err := service.Interrupt(context.Background(), &runtimepb.InterruptRequest{
-		SessionId: store.Meta().SessionID,
+	if _, err := service.LiveStop(context.Background(), &runtimepb.LiveStopRequest{
+		SessionId: requestfixture.Selector(t, store.Meta().SessionID),
 	}); err != nil {
 		t.Fatalf("Interrupt pending Question: %v", err)
 	}
@@ -1236,21 +1033,20 @@ func TestServicePendingQuestionInterruptsAndAllowsNextTurn(t *testing.T) {
 	nextUserMessageCount := 0
 	finalResponseCount := 0
 	var finalResponseText string
-	if err := engine.WithTranscriptHydrationSnapshot(func(snapshot runtime.TranscriptHydrationSnapshot) error {
-		for _, row := range snapshot.CommittedRows {
-			if row.Kind == runtime.TranscriptCommittedRowFactUser && row.User != nil && row.User.Text == "next user message" {
-				nextUserMessageCount++
-			}
-			if row.Kind == runtime.TranscriptCommittedRowFactAssistant &&
-				row.Assistant != nil &&
-				row.Assistant.Phase == llm.MessagePhaseFinal {
-				finalResponseCount++
-				finalResponseText = row.Assistant.Text
-			}
+	page, err := engine.TranscriptNewestSegmentPage()
+	if err != nil {
+		t.Fatalf("read newest transcript segment: %v", err)
+	}
+	for _, row := range runtime.TranscriptCommittedRowFactsFromSnapshot(page.Snapshot) {
+		if row.Kind == runtime.TranscriptCommittedRowFactUser && row.User != nil && row.User.Text == "next user message" {
+			nextUserMessageCount++
 		}
-		return nil
-	}); err != nil {
-		t.Fatalf("read transcript hydration snapshot: %v", err)
+		if row.Kind == runtime.TranscriptCommittedRowFactAssistant &&
+			row.Assistant != nil &&
+			row.Assistant.Phase == llm.MessagePhaseFinal {
+			finalResponseCount++
+			finalResponseText = row.Assistant.Text
+		}
 	}
 	if nextUserMessageCount != 1 {
 		t.Fatalf("next user message rows = %d, want exactly 1", nextUserMessageCount)
@@ -1260,42 +1056,28 @@ func TestServicePendingQuestionInterruptsAndAllowsNextTurn(t *testing.T) {
 	}
 }
 
-func TestServiceInterruptWithoutEngineRequestsResynchronization(t *testing.T) {
-	service := NewService(sessionruntime.NewAuthority(sessionruntime.AuthorityOptions{}), nil)
-	response, err := service.Interrupt(context.Background(), &runtimepb.InterruptRequest{
-		SessionId: "018fdd67-89ab-4cde-8123-456789abcdef",
+func TestServiceLiveStopWithoutEngineReturnsIdle(t *testing.T) {
+	store, service := newNumberedRuntimeControlFixture(t)
+	response, err := service.LiveStop(context.Background(), &runtimepb.LiveStopRequest{
+		SessionId: requestfixture.Selector(t, store.Meta().SessionID),
 	})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !response.Activity.DiagnosticRecovery {
-		t.Fatal("missing activity must request resynchronization")
+	if response.Status != runtimepb.LiveStopStatus_RUNTIME_LIVE_STOP_STATUS_IDLE {
+		t.Fatalf("Stop without engine = %v, want idle", response.Status)
 	}
 }
 
-type failingRuntimeActivityResolver struct {
-	err             error
-	observedContext context.Context
-}
-
-func (r *failingRuntimeActivityResolver) RuntimeReadModelFeedSnapshot(ctx context.Context, _ string) (*runtimepb.ReadModelUpdate, error) {
-	r.observedContext = ctx
-	return nil, r.err
-}
-
-func TestServiceInterruptReturnsDiagnosticActivityWhenPostInterruptSnapshotFails(t *testing.T) {
+func TestServiceLiveStopReturnsBeforeActiveTurnFinishes(t *testing.T) {
 	client := newCancelObservingRuntimeControlClient()
 	var releaseOnce sync.Once
 	release := func() { releaseOnce.Do(func() { close(client.release) }) }
 	defer release()
 	store, engine, service := newRuntimeControlTestService(t, client, nil, runtime.Config{})
-	snapshotErr := errors.New("activity snapshot failed")
-	resolver := &failingRuntimeActivityResolver{err: snapshotErr}
-	service.WithRuntimeActivityResolver(resolver)
-
 	submission, err := service.SubmitUserTurn(
 		context.Background(),
-		runtimeControlUserTurnRequest(store, "interrupt-snapshot-failure", "keep running"),
+		runtimeControlUserTurnRequest(store, "stop-before-turn-finishes", "keep running"),
 	)
 	if err != nil {
 		t.Fatalf("SubmitUserTurn: %v", err)
@@ -1307,22 +1089,14 @@ func TestServiceInterruptReturnsDiagnosticActivityWhenPostInterruptSnapshotFails
 	case <-client.started:
 	}
 
-	type interruptContextKey struct{}
-	interruptCtx := context.WithValue(context.Background(), interruptContextKey{}, "interrupt-context")
-	resp, err := service.Interrupt(interruptCtx, &runtimepb.InterruptRequest{
-		SessionId: store.Meta().SessionID,
+	resp, err := service.LiveStop(t.Context(), &runtimepb.LiveStopRequest{
+		SessionId: requestfixture.Selector(t, store.Meta().SessionID),
 	})
 	if err != nil {
 		t.Fatalf("Interrupt: %v", err)
 	}
-	if err := protoapi.Validate(resp.Version); err != nil {
-		t.Fatalf("fallback version: %v", err)
-	}
-	if resp.Activity.State != runtimepb.ActivityState_RUNTIME_ACTIVITY_UNAVAILABLE || !resp.Activity.DiagnosticRecovery {
-		t.Fatalf("fallback activity = %+v, want diagnostic unavailable", resp.Activity)
-	}
-	if resolver.observedContext == nil || resolver.observedContext.Value(interruptContextKey{}) != "interrupt-context" {
-		t.Fatal("post-interrupt snapshot did not receive the caller context")
+	if resp.Status != runtimepb.LiveStopStatus_RUNTIME_LIVE_STOP_STATUS_STOPPED {
+		t.Fatalf("Stop active turn = %v, want stopped", resp.Status)
 	}
 	release()
 	waitForRuntimeControlIdle(t, engine)
@@ -1587,29 +1361,6 @@ func runtimeControlPromptHistoryStoresLoad(t *testing.T, sessionID string) *runt
 		t.Fatalf("prompt history store type = %T", registered)
 	}
 	return store
-}
-
-func TestServiceInterruptIdleReturnsAuthoritativeIdle(t *testing.T) {
-	store, _, service := newRuntimeControlTestService(t, nil, nil, runtime.Config{})
-	service.WithRuntimeActivityResolver(&sequenceRuntimeActivityResolver{
-		snapshots: []*runtimepb.ReadModelUpdate{{
-			Version: &runtimepb.ReadModelVersion{Epoch: "epoch-1", Generation: 1, Sequence: 1},
-			Activity: &runtimepb.Activity{
-				State:          runtimepb.ActivityState_RUNTIME_ACTIVITY_REGISTERED_IDLE,
-				Reviewer:       runtimepb.ReviewerActivity_REVIEWER_ACTIVITY_INACTIVE,
-				QueueAccepting: true,
-			},
-		}},
-	})
-	response, err := service.Interrupt(context.Background(), &runtimepb.InterruptRequest{
-		SessionId: store.Meta().SessionID,
-	})
-	if err != nil {
-		t.Fatal(err)
-	}
-	if response.Activity.State != runtimepb.ActivityState_RUNTIME_ACTIVITY_REGISTERED_IDLE {
-		t.Fatalf("Interrupt idle activity = %v", response.Activity)
-	}
 }
 
 func runtimeControlSetGoal(
@@ -3121,8 +2872,8 @@ func TestServiceSubmitUserTurnRecordsCommittedAtFlushBeforeAssistantCompletion(t
 	if got := countUserMessagesWithContent(t, store, "flush before model completes"); got != 1 {
 		t.Fatalf("committed user message count before assistant completion = %d, want 1", got)
 	}
-	if _, err := service.Interrupt(context.Background(), &runtimepb.InterruptRequest{
-		SessionId: req.SessionId,
+	if _, err := service.LiveStop(context.Background(), &runtimepb.LiveStopRequest{
+		SessionId: requestfixture.Selector(t, req.SessionId),
 	}); err != nil {
 		t.Fatalf("Interrupt: %v", err)
 	}
@@ -3161,7 +2912,7 @@ func TestServiceInterruptForegroundShellAllowsNextTurn(t *testing.T) {
 	select {
 	case <-started:
 	}
-	if _, err := service.Interrupt(t.Context(), &runtimepb.InterruptRequest{SessionId: store.Meta().SessionID}); err != nil {
+	if _, err := service.LiveStop(t.Context(), &runtimepb.LiveStopRequest{SessionId: requestfixture.Selector(t, store.Meta().SessionID)}); err != nil {
 		t.Fatal(err)
 	}
 	if err := <-shellDone; err != nil && !errors.Is(err, context.Canceled) {
@@ -3518,8 +3269,8 @@ func TestServiceInterruptCompactionAllowsNextTurnWithoutRestart(t *testing.T) {
 	case <-client.started:
 	}
 
-	if _, err := service.Interrupt(context.Background(), &runtimepb.InterruptRequest{
-		SessionId: store.Meta().SessionID,
+	if _, err := service.LiveStop(context.Background(), &runtimepb.LiveStopRequest{
+		SessionId: requestfixture.Selector(t, store.Meta().SessionID),
 	}); err != nil {
 		t.Fatalf("Interrupt while compacting: %v", err)
 	}
@@ -3591,8 +3342,8 @@ func TestServiceInterruptRestoresEveryPendingSteerWithoutRestart(t *testing.T) {
 		ids = append(ids, response.GetQueued().GetQueueItemId())
 	}
 
-	_, err = service.Interrupt(context.Background(), &runtimepb.InterruptRequest{
-		SessionId: store.Meta().SessionID,
+	_, err = service.LiveStop(context.Background(), &runtimepb.LiveStopRequest{
+		SessionId: requestfixture.Selector(t, store.Meta().SessionID),
 	})
 	if err != nil {
 		t.Fatalf("Interrupt: %v", err)
@@ -3648,7 +3399,7 @@ func TestSetSessionNamePublishesChangedAndUnchangedFeedback(t *testing.T) {
 	store, _, service := newRuntimeControlTestService(t, nil, nil, runtime.Config{})
 	beforeSequence := store.Meta().LastSequence
 	publisher := &runtimeControlSettingPublisher{}
-	service.WithRuntimeActivityResolver(publisher)
+	service.WithSessionSettingFeedbackPublisher(publisher)
 	request := &runtimepb.SetSessionNameRequest{
 		SessionId: store.Meta().SessionID,
 		Mutation:  &runtimepb.SessionNameMutation{Action: &runtimepb.SessionNameMutation_Set{Set: "renamed"}},

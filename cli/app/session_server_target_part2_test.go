@@ -24,7 +24,7 @@ func TestTUIOpeningDormantSessionReadsStateWithoutHydration(t *testing.T) {
 	cfg := loadAppTestConfig(t, workspace, config.LoadOptions{})
 	testsetup.WriteProviderSettings(t, cfg.PersistenceRoot, testsetup.WithResponsesProvider(cfg.Settings, provider.URL))
 	fixture := startConfiguredDaemonFixture(t, workspace, serverstartup.Request{
-		WorkspaceRoot: workspace, WorkspaceRootExplicit: true, Model: "gpt-6-sol",
+		WorkspaceRoot: workspace, WorkspaceRootExplicit: true, LoadOptions: config.LoadOptions{Model: "gpt-6-sol"},
 	}, nil)
 	server := fixture.attachRemoteSessionServer(t, Options{WorkspaceRoot: workspace}, newHeadlessAuthInteractor())
 	created, opening := prepareAppRuntimePlan(t, server, sessionLaunchRequest{
@@ -131,7 +131,7 @@ func TestStartSessionServerUsesInvocationOverridesWhenAttachingToDiscoveredDaemo
 	fixture := startConfiguredDaemonFixture(t, workspace, serverstartup.Request{
 		WorkspaceRoot:         workspace,
 		WorkspaceRootExplicit: true,
-		Model:                 "gpt-6-sol",
+		LoadOptions:           config.LoadOptions{Model: "gpt-6-sol"},
 	}, nil)
 
 	options := Options{
@@ -185,7 +185,7 @@ func TestStartSessionServerUsesConfiguredDaemonForPromptRoundTrip(t *testing.T) 
 	fixture := startConfiguredDaemonFixture(t, workspace, serverstartup.Request{
 		WorkspaceRoot:         workspace,
 		WorkspaceRootExplicit: true,
-		Model:                 "gpt-6-sol",
+		LoadOptions:           config.LoadOptions{Model: "gpt-6-sol"},
 	}, nil)
 
 	server := fixture.attachRemoteSessionServer(t, Options{WorkspaceRoot: workspace, WorkspaceRootExplicit: true}, newHeadlessAuthInteractor())

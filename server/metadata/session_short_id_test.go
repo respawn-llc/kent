@@ -86,7 +86,7 @@ func TestSessionShortIDsSurviveStoreReopenAndAreNotReusedAfterDeletion(t *testin
 	if err != nil || id.String() != first.Meta().SessionID {
 		t.Fatalf("restarted lookup = %v, %v", id, err)
 	}
-	if err := reopened.DeleteFailedSessionCreationRecordByID(t.Context(), id.String()); err != nil {
+	if err := reopened.DeleteSession(t.Context(), id.String()); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := reopened.ResolveSessionSelector(t.Context(), *record.ShortID); !errors.Is(err, session.ErrSessionNotFound) {

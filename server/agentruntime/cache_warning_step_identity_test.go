@@ -43,7 +43,7 @@ func TestCacheWarningStepIdentitySurvivesLiveSnapshotAndReopen(t *testing.T) {
 		t.Helper()
 		for _, facts := range [][]TranscriptCommittedRowFact{
 			TranscriptCommittedRowFactsFromSnapshot(engine.ChatSnapshot()),
-			hydrationSnapshot(t, engine).CommittedRows,
+			mustNewestTranscriptFacts(t, engine),
 		} {
 			if !reflect.DeepEqual(live, facts) {
 				t.Fatalf("warning changed across live/reopened snapshots:\nlive: %+v\nsnapshot: %+v", live, facts)

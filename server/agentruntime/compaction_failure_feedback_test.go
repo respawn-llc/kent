@@ -184,7 +184,7 @@ func assertSingleDurableCompactionFailure(t *testing.T, engine *Engine, events [
 		t.Fatalf("compaction failure status events = %d, want one", failures)
 	}
 	errors := 0
-	for _, row := range mustTranscriptHydrationSnapshot(t, engine).CommittedRows {
+	for _, row := range mustNewestTranscriptFacts(t, engine) {
 		if row.Notice == nil || row.Notice.Severity != transcript.NoticeSeverityError {
 			continue
 		}

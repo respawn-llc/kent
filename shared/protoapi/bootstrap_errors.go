@@ -9,8 +9,6 @@ import (
 	serverpb "core/shared/protoapi/gen/kent/api/server"
 	sharedpb "core/shared/protoapi/gen/kent/api/shared"
 	"core/shared/serverapi"
-
-	"github.com/google/uuid"
 )
 
 func ServerNotReadyToProto(err *serverapi.ServerNotReadyError) (*serverpb.ServerNotReadyDetails, error) {
@@ -440,25 +438,6 @@ var cancelPhaseValues = map[onboardingpb.CancelPhase]serverapi.OnboardingCancelP
 	onboardingpb.CancelPhase_CANCEL_PHASE_VALIDATING:          serverapi.OnboardingCancelValidating,
 	onboardingpb.CancelPhase_CANCEL_PHASE_DISCOVERING_IMPORTS: serverapi.OnboardingCancelDiscoveringImports,
 	onboardingpb.CancelPhase_CANCEL_PHASE_IMPORTING:           serverapi.OnboardingCancelImporting,
-}
-
-func uuidToString(value *uuid.UUID) *string {
-	if value == nil {
-		return nil
-	}
-	text := value.String()
-	return &text
-}
-
-func uuidFromString(value *string) (*uuid.UUID, error) {
-	if value == nil {
-		return nil, nil
-	}
-	parsed, err := uuid.Parse(*value)
-	if err != nil {
-		return nil, err
-	}
-	return &parsed, nil
 }
 
 func cloneBootstrapErrorPointer[T any](value *T) *T {

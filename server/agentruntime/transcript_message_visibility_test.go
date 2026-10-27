@@ -4,7 +4,6 @@ import (
 	"testing"
 
 	"core/server/llm"
-	"core/server/tools"
 	"core/shared/textutil"
 	"core/shared/toolspec"
 	"core/shared/transcriptmodel"
@@ -59,21 +58,31 @@ func TestAssistantMessagesRemainOngoingAcrossCommentaryAndFinalPhases(t *testing
 			if len(entries) != 1 || entries[0].Visibility != test.want {
 				t.Fatalf("assistant entries = %+v, want one %q row", entries, test.want)
 			}
-			facts := transcriptCommittedRowFactsFromMessage(llm.Message{
-				Role:    llm.RoleAssistant,
-				Phase:   textutil.Value(test.phase),
-				Content: textutil.Value("assistant content"),
-			}, nil, nil, nil)
+			facts := TranscriptCommittedRowFactsFromEvent(Event{
+				Kind: EventAssistantMessage,
+				Message: llm.Message{
+					Role:    llm.RoleAssistant,
+					Phase:   textutil.Value(test.phase),
+					Content: textutil.Value("assistant content"),
+				},
+			})
 			if len(facts) != 1 || facts[0].Visibility != test.want {
 				t.Fatalf("assistant facts = %+v, want one %q row", facts, test.want)
 			}
-			scan := newInMemoryTranscriptScan(inMemoryTranscriptScanRequest{Limit: 1}, nil, nil)
-			scan.ApplyMessage(llm.Message{
+			scan := newStreamingTranscriptScan("")
+			var phase *llm.MessagePhase
+			if test.phase != "" {
+				phase = textutil.Value(test.phase)
+			}
+			record := streamScanTestEvent(t, "message", llm.Message{
 				Role:    llm.RoleAssistant,
-				Phase:   textutil.Value(test.phase),
+				Phase:   phase,
 				Content: textutil.Value("assistant content"),
-			}, &TranscriptCommittedRowProvenance{EventSequence: 1}, exactStepIDPointer(runtimeTestStepID(chatStoreTestStepID)))
-			scannedEntries := scan.PageSnapshot().Snapshot.Entries
+			})
+			if err := scan.ApplyPersistedEvent(record); err != nil {
+				t.Fatalf("project assistant message: %v", err)
+			}
+			scannedEntries := scan.PageSnapshot().Entries
 			if len(scannedEntries) != 1 || scannedEntries[0].Visibility != test.want {
 				t.Fatalf("scanned assistant entries = %+v, want one %q row", scannedEntries, test.want)
 			}
@@ -104,7 +113,10 @@ func TestUnknownDeveloperMessageVisibilityDependsOnRecoverableContent(t *testing
 func TestEmptyUnknownDeveloperMessageProjectsDetailDiagnosticFact(t *testing.T) {
 	t.Parallel()
 	unknownType := llm.MessageType("unknown_future_context")
-	facts := transcriptCommittedRowFactsFromMessage(llm.Message{Role: llm.RoleDeveloper, MessageType: textutil.Value(unknownType), Content: textutil.Value(" ")}, nil, nil, nil)
+	facts := TranscriptCommittedRowFactsFromEvent(Event{
+		Kind:    EventConversationUpdated,
+		Message: llm.Message{Role: llm.RoleDeveloper, MessageType: textutil.Value(unknownType), Content: textutil.Value(" ")},
+	})
 
 	if len(facts) != 1 || facts[0].Kind != TranscriptCommittedRowFactNotice || facts[0].Visibility != transcript.EntryVisibilityDetail || facts[0].Notice == nil {
 		t.Fatalf("empty unknown developer facts = %+v, want one detail diagnostic notice", facts)
@@ -129,7 +141,7 @@ func TestBackgroundNoticePreservesExitCodeAcrossPersistedProjection(t *testing.T
 	if len(entries) != 1 || entries[0].BackgroundExitCode == nil || *entries[0].BackgroundExitCode != exitCode {
 		t.Fatalf("background entries = %+v, want exit code %d", entries, exitCode)
 	}
-	facts := transcriptCommittedRowFactsFromMessage(msg, nil, nil, nil)
+	facts := TranscriptCommittedRowFactsFromEvent(Event{Kind: EventConversationUpdated, Message: msg})
 	if len(facts) != 1 ||
 		facts[0].Notice == nil ||
 		facts[0].Notice.BackgroundExitCode == nil ||
@@ -170,15 +182,8 @@ func TestCustomToolCallOutputProjectsAsCommittedToolRowFact(t *testing.T) {
 		Name:        textutil.Value(string(toolspec.ToolPatch)),
 		Content:     textutil.Value(`"patched"`),
 	}
-	completions := map[string]tools.Result{
-		*msg.ToolCallID: {
-			CallID:        *msg.ToolCallID,
-			Name:          toolspec.ToolPatch,
-			CondensedText: textutil.Value("patch result"),
-		},
-	}
 
-	facts := transcriptCommittedRowFactsFromMessage(msg, nil, completions, nil)
+	facts := TranscriptCommittedRowFactsFromEvent(Event{Kind: EventConversationUpdated, Message: msg})
 	if len(facts) != 1 || facts[0].Kind != TranscriptCommittedRowFactTool || facts[0].Tool == nil {
 		t.Fatalf("custom tool output facts = %+v, want one tool row fact", facts)
 	}
@@ -188,8 +193,5 @@ func TestCustomToolCallOutputProjectsAsCommittedToolRowFact(t *testing.T) {
 	}
 	if fact.Tool.ToolCallID != *msg.ToolCallID || fact.Tool.ToolName != string(toolspec.ToolPatch) {
 		t.Fatalf("custom tool output fact identity = %+v", fact.Tool)
-	}
-	if fact.Tool.CondensedText != "patch result" {
-		t.Fatalf("custom tool output fact condensed text = %q, want completion metadata", fact.Tool.CondensedText)
 	}
 }

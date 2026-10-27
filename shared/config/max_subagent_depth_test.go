@@ -4,11 +4,10 @@ import (
 	"errors"
 	"path/filepath"
 	"strconv"
-	"strings"
 	"testing"
 )
 
-func TestMaxSubagentDepthDefaultsAndRenders(t *testing.T) {
+func TestMaxSubagentDepthDefaults(t *testing.T) {
 	_, workspace := newConfigTestEnv(t)
 	cfg := loadConfigTestApp(t, workspace, LoadOptions{})
 	if cfg.Settings.MaxSubagentDepth != 2 {
@@ -16,10 +15,6 @@ func TestMaxSubagentDepthDefaultsAndRenders(t *testing.T) {
 	}
 	if got := cfg.Source.Sources["max_subagent_depth"].Kind; got != "default" {
 		t.Fatalf("max_subagent_depth source = %q, want default", got)
-	}
-	rendered := settingsTOMLWithRenderingOptions(configRegistry.defaultState().Settings, true, nil, nil)
-	if !strings.Contains(rendered, "max_subagent_depth = 2") {
-		t.Fatalf("default settings TOML missing max_subagent_depth:\n%s", rendered)
 	}
 }
 

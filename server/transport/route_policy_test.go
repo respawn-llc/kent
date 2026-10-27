@@ -7,16 +7,11 @@ import (
 	"errors"
 	"path/filepath"
 	"testing"
-	"time"
 
-	"core/internal/testharness/postprocessfixture"
 	serverbootstrap "core/server/bootstrap"
 	"core/server/core"
 	"core/server/metadata"
 	"core/server/sessionstore"
-	shelltool "core/server/tools/shell"
-	"core/server/tools/shell/postprocess"
-	"core/shared/config"
 	"core/shared/protoapi"
 	chatpb "core/shared/protoapi/gen/kent/api/chat"
 	chatsettingspb "core/shared/protoapi/gen/kent/api/chat_settings"
@@ -492,59 +487,11 @@ func TestRoutePolicyAuthorizesRuntimeLiveControlsWithoutActiveProject(t *testing
 	}
 }
 
-func TestRoutePolicyAuthorizesProcessScopesWithoutWebSocket(t *testing.T) {
+func TestRoutePolicyAuthorizesProcessListWithoutWebSocket(t *testing.T) {
 	fixture := newRoutePolicyFixture(t)
-	fixture.appCore.Background().SetMinimumExecToBgTime(time.Millisecond)
 	ctx := context.Background()
-	own, err := fixture.appCore.Background().Start(ctx, shelltool.ExecRequest{
-		Postprocessor:  postprocessfixture.NewRunner(t, postprocess.Settings{Mode: config.ShellPostprocessingModeBuiltin}),
-		Command:        []string{"/bin/sh", "-lc", "printf own\\n; sleep 1"},
-		DisplayCommand: "printf own; sleep 1",
-		OwnerSessionID: fixture.ownSessionID,
-		Workdir:        fixture.appCore.Config().WorkspaceRoot,
-		YieldTime:      time.Millisecond,
-	})
-	if err != nil {
-		t.Fatalf("start own process: %v", err)
-	}
-	foreign, err := fixture.appCore.Background().Start(ctx, shelltool.ExecRequest{
-		Postprocessor:  postprocessfixture.NewRunner(t, postprocess.Settings{Mode: config.ShellPostprocessingModeBuiltin}),
-		Command:        []string{"/bin/sh", "-lc", "printf foreign\\n; sleep 1"},
-		DisplayCommand: "printf foreign; sleep 1",
-		OwnerSessionID: fixture.foreignSessionID,
-		Workdir:        fixture.workspaceB,
-		YieldTime:      time.Millisecond,
-	})
-	if err != nil {
-		t.Fatalf("start foreign process: %v", err)
-	}
-	ownerless, err := fixture.appCore.Background().Start(ctx, shelltool.ExecRequest{
-		Postprocessor:  postprocessfixture.NewRunner(t, postprocess.Settings{Mode: config.ShellPostprocessingModeBuiltin}),
-		Command:        []string{"/bin/sh", "-lc", "printf ownerless\\n; sleep 1"},
-		DisplayCommand: "printf ownerless; sleep 1",
-		Workdir:        fixture.appCore.Config().WorkspaceRoot,
-		YieldTime:      time.Millisecond,
-	})
-	if err != nil {
-		t.Fatalf("start ownerless process: %v", err)
-	}
-
 	executor := newRoutePolicyExecutor(fixture.gateway)
 	state := &connectionState{attachedProject: fixture.bindingA.ProjectID}
-	processOperation, err := protoapi.OperationFromDescriptor(processpb.File_kent_api_process_process_proto.Services().ByName("ViewService").Methods().ByName("Get"))
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err := executor.authorizeScopeFacts(ctx, state, processOperation.Options.ScopePolicy, processOperation.Name, routeScopeParams{processID: own.SessionID}); err != nil {
-		t.Fatalf("own process: %v", err)
-	}
-	if err := executor.authorizeScopeFacts(ctx, state, processOperation.Options.ScopePolicy, processOperation.Name, routeScopeParams{processID: foreign.SessionID}); err == nil {
-		t.Fatal("foreign process unexpectedly allowed")
-	}
-	if err := executor.authorizeScopeFacts(ctx, state, processOperation.Options.ScopePolicy, processOperation.Name, routeScopeParams{processID: ownerless.SessionID}); err == nil {
-		t.Fatal("ownerless process unexpectedly allowed")
-	}
-
 	listOperation, err := protoapi.OperationFromDescriptor(processpb.File_kent_api_process_process_proto.Services().ByName("ViewService").Methods().ByName("List"))
 	if err != nil {
 		t.Fatal(err)

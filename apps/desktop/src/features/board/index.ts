@@ -5,5 +5,3 @@ export {
   TaskSearchProjectTrigger,
   TaskSearchProvider,
 } from "./TaskSearchChrome";
-export { TaskDeleteWindowRoute } from "./TaskDeleteConfirmation";
-export { taskDeleteNativeDialogPath } from "./taskDeleteConfirmationModel";

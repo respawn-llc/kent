@@ -2,7 +2,6 @@ package runtime
 
 import (
 	"fmt"
-	"strings"
 
 	"core/server/sessionstore"
 	"core/shared/transcriptmodel"
@@ -12,7 +11,6 @@ type TranscriptCommittedRowProvenance struct {
 	QueueItemIDs      []string
 	EventSequence     int64
 	CommittedAtUnixMs *transcript.CommittedAtUnixMs
-	ToolCallID        string
 	ProjectedOrdinal  *int64
 }
 
@@ -44,18 +42,8 @@ func transcriptProvenanceFromRecord(record session.EventRecord) (TranscriptCommi
 		EventSequence:     record.Seq(),
 		CommittedAtUnixMs: record.CommittedAtUnixMs(),
 	}
-	switch typed := payload.(type) {
-	case session.MessageRecord:
-		provenance.QueueItemIDs = append([]string(nil), typed.QueueItemIDs...)
-		if typed.ToolCallID != nil {
-			provenance.ToolCallID = strings.TrimSpace(*typed.ToolCallID)
-		}
-	case session.ToolCompletionRecord:
-		provenance.ToolCallID = strings.TrimSpace(typed.CallID)
-	case session.LocalEntryRecord:
-		if typed.AfterToolCallID != nil {
-			provenance.ToolCallID = strings.TrimSpace(*typed.AfterToolCallID)
-		}
+	if message, ok := payload.(session.MessageRecord); ok {
+		provenance.QueueItemIDs = append([]string(nil), message.QueueItemIDs...)
 	}
 	return provenance, nil
 }

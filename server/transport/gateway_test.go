@@ -498,7 +498,7 @@ func TestNewGatewayRejectsTypedNilDependencies(t *testing.T) {
 func newGatewayTestAuthSupport(t *testing.T, root string, ready bool) serverbootstrap.AuthSupport {
 	t.Helper()
 	store := auth.NewMemoryStore(auth.EmptyState())
-	authSupport, err := serverbootstrap.BuildAuthSupport(t.Context(), root, store, nil, nil)
+	authSupport, err := serverbootstrap.BuildAuthSupport(t.Context(), root, store, nil)
 	if err != nil {
 		t.Fatalf("BuildAuthSupport: %v", err)
 	}

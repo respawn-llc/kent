@@ -4,9 +4,7 @@ This repository contains Kent - a coding agent focused on output quality, built 
 - `cli/app`
   - Startup orchestration, auth gating, session selection, and top-level UI composition.
 - `server/agentruntime`
-  - Agent step loop, retries, transcript assembly, tool orchestration, lock handling, interrupts.
-- `server/runtimecommand`
-  - Runtime Command ordering and dormant goal-command mutation authority.
+  - Agent step loop, retries, transcript assembly, tool orchestration, Pending Work admission and ordering, lock handling, interrupts.
 - `server/bootstrap`
   - Server-owned bootstrap composition for config/container resolution, auth-manager creation, and runtime-support setup.
 - `server/startup`

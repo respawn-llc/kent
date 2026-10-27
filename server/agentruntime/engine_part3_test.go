@@ -696,9 +696,9 @@ func TestHostedOnlyAcceptedCallsPersistInOutputOrder(t *testing.T) {
 		newTestToolRegistry(t),
 		Config{Model: "gpt-6-sol"},
 	)
-	snapshot := mustTranscriptHydrationSnapshot(t, restored)
+	facts := mustNewestTranscriptFacts(t, restored)
 	for _, callID := range want {
-		if rows := countHydratedToolRows(snapshot, callID); rows != 1 {
+		if rows := countHydratedToolRows(facts, callID); rows != 1 {
 			t.Fatalf("reopened hosted rows for %s = %d, want 1", callID, rows)
 		}
 	}
@@ -721,8 +721,7 @@ func TestGrokHostedCustomCallAppearsAfterReopenAndReplaysUnchanged(t *testing.T)
 	}
 	reopened := mustOpenTestSession(t, store.Dir())
 	restored := mustNewTestEngine(t, reopened, &fakeClient{}, newTestToolRegistry(t), Config{Model: "grok-4.7", ThinkingLevel: "high"})
-	snapshot := mustTranscriptHydrationSnapshot(t, restored)
-	if rows := countHydratedToolRows(snapshot, "as_pdf"); rows != 1 {
+	if rows := countHydratedToolRows(mustNewestTranscriptFacts(t, restored), "as_pdf"); rows != 1 {
 		t.Fatalf("hosted PDF rows after reopen = %d, want 1", rows)
 	}
 	if len(client.calls) < 2 {

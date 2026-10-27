@@ -14,11 +14,6 @@ type Request struct {
 	WorkspaceRoot         string
 	WorkspaceRootExplicit bool
 	SessionID             string
-	Model                 string
-	ThinkingLevel         string
-	Theme                 string
-	ModelTimeoutSeconds   int
-	Tools                 string
 	LoadOptions           config.LoadOptions
 }
 
@@ -61,20 +56,10 @@ func coreOptionsForBootstrap(req serverbootstrap.Request, rootLease *core.RootLo
 }
 
 func buildRequest(req Request) serverbootstrap.Request {
-	loadOptions := req.LoadOptions
-	if loadOptions == (config.LoadOptions{}) {
-		loadOptions = config.LoadOptions{
-			Model:               req.Model,
-			ThinkingLevel:       req.ThinkingLevel,
-			Theme:               req.Theme,
-			ModelTimeoutSeconds: req.ModelTimeoutSeconds,
-			Tools:               req.Tools,
-		}
-	}
 	return serverbootstrap.Request{
 		WorkspaceRoot:         req.WorkspaceRoot,
 		WorkspaceRootExplicit: req.WorkspaceRootExplicit,
 		SessionID:             req.SessionID,
-		LoadOptions:           loadOptions,
+		LoadOptions:           req.LoadOptions,
 	}
 }

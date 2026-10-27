@@ -7,7 +7,6 @@ import (
 
 	"core/server/agentruntime"
 	"core/server/promptcommands"
-	"core/server/sessionruntime"
 	"core/server/sessionstore"
 	"core/shared/protoapi"
 	runtimepb "core/shared/protoapi/gen/kent/api/runtime"
@@ -131,88 +130,9 @@ func (s *Service) submitUserTurn(
 	if err != nil {
 		return nil, admitted, err
 	}
-	runTurn := func(runCtx context.Context, engine *runtime.Engine, accept runtime.CommandAcceptance) error {
-		queued, err := engine.SteerInput(
-			runCtx,
-			projection.queuedInput(),
-			accept,
-		)
-		if err != nil {
-			return err
-		}
-		response = queuedUserTurnResponse(queued.ID)
-		admitted = queued
-		return nil
-	}
-	executeTurn := func() error {
-		return s.authority.RunCurrentTurn(
-			attempt.Context(),
-			descriptor,
-			attempt.Accept,
-			runTurn,
-		)
-	}
-	err = executeTurn()
-	if errors.Is(err, sessionruntime.ErrSessionWorkflowActivationActive) {
-		preparing := false
-		var preparingErr error
-		if s.preparations != nil {
-			preparing, preparingErr = s.preparations.WorkflowSessionPreparing(attempt.Context(), sessionID)
-		}
-		switch {
-		case preparingErr != nil:
-			err = preparingErr
-		case preparing:
-			submit := func() error {
-				return s.withRuntime(attempt.Context(), request.SessionID, func(runCtx context.Context, engine *runtime.Engine) error {
-					return runTurn(runCtx, engine, attempt.Accept)
-				})
-			}
-			err = submit()
-			for {
-				var unavailable *runtime.LiveRunAdmissionUnavailable
-				if !errors.As(err, &unavailable) {
-					break
-				}
-				if err = unavailable.Wait(attempt.Context(), nil); err != nil {
-					break
-				}
-				err = submit()
-			}
-		case s.reactivator != nil:
-			var workflowState *runtime.WorkflowSessionState
-			stateErr := s.withRuntime(attempt.Context(), request.SessionID, func(_ context.Context, engine *runtime.Engine) error {
-				var err error
-				workflowState, err = engine.WorkflowSessionState()
-				return err
-			})
-			if stateErr != nil {
-				err = stateErr
-				break
-			}
-			if workflowState == nil {
-				err = errors.New("retained Workflow Session has no Current Node binding")
-				break
-			}
-			handle, reactivateErr := s.reactivator.ReactivateWorkflowSession(attempt.Context(), sessionID)
-			if reactivateErr != nil {
-				err = reactivateErr
-			} else {
-				_, err = s.authority.ValidateLiveWorkflowAgentExecution(
-					handle,
-					sessionID,
-					workflowState.CurrentNode,
-				)
-				if err == nil {
-					err = s.authority.RunCurrentTurn(
-						attempt.Context(),
-						descriptor,
-						attempt.Accept,
-						runTurn,
-					)
-				}
-			}
-		}
+	admitted, err = s.authority.SubmitAgentInput(attempt.Context(), descriptor, projection.queuedInput(), attempt.Accept)
+	if err == nil {
+		response = queuedUserTurnResponse(admitted.ID)
 	}
 	return response, admitted, err
 }

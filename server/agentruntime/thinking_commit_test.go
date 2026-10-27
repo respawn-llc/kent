@@ -71,7 +71,7 @@ func TestThinkingInputCommitFailureBoundaries(t *testing.T) {
 				} else {
 					_, err = engine.SubmitUserMessage(t.Context(), "next")
 				}
-				_, streamingError, _ := engine.transcriptRuntimeState().StreamingSnapshot()
+				_, streamingError, _, _, _ := engine.transcriptRuntimeState().StreamingSnapshot()
 				if err == nil && streamingError == "" {
 					t.Fatal("failure was not surfaced")
 				}
