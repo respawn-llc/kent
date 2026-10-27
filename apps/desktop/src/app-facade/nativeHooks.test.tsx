@@ -4,6 +4,12 @@ import { expect, it, mock, vi } from "bun:test";
 import * as Stream from "effect/Stream";
 
 let currentWindow: unknown;
+const invokeNative = vi.fn(async () => undefined);
+const actualTauriCore = await import("@tauri-apps/api/core");
+await mock.module("@tauri-apps/api/core", () => ({
+  ...actualTauriCore,
+  invoke: invokeNative,
+}));
 const actualTauriWindow = await import("@tauri-apps/api/window");
 await mock.module("@tauri-apps/api/window", () => ({
   ...actualTauriWindow,
@@ -28,6 +34,22 @@ function Reader({ id }: Readonly<{ id: string }>) {
   const focused = useWindowFocus();
   return <output data-testid={id}>{JSON.stringify(focused)}</output>;
 }
+
+it("reopens the main window from a popup without focusing the popup", async () => {
+  const popup = {
+    show: vi.fn(async () => undefined),
+    setFocus: vi.fn(async () => undefined),
+    isFocused: vi.fn(async () => false),
+  };
+  currentWindow = popup;
+  const controls = createTauriWindowFocusControls();
+  await controls.focusMain();
+  expect(invokeNative).toHaveBeenCalledWith("open_main_window", { destination: null });
+  expect(popup.show).not.toHaveBeenCalled();
+  expect(popup.setFocus).not.toHaveBeenCalled();
+  expect(await controls.isFocused()).toBe(false);
+  expect(popup.isFocused).toHaveBeenCalledTimes(1);
+});
 
 it("shares focus observation across readers and releases it after the owner leaves", async () => {
   const bridge = createBrowserNativeBridge();

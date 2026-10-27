@@ -723,6 +723,7 @@
 - Clicking `Neither` must only select it and immediately focus the commentary field, even if commentary already exists or the option is clicked repeatedly. The operator must enter an answer and use Enter or the composer's Send action to confirm it.
 - While a prompt is visible, the composer's Send action must confirm that prompt through the same action as Enter, without sending or clearing the ordinary message draft.
 - Keyboard movement within the radio group changes selection without confirming. Enter confirms the selected suggested answer.
+- During recording, Question submission and Enter shortcuts follow the [Speech Input contract](speech-input.md#final-text-and-no-ops).
 - Tab and Shift+Tab switch only between the answer-picker area and the freeform field. They do not traverse the picker navigation or the composer's bottom controls.
 - Outside the freeform field, Left/Right changes the visible prompt circularly and Up/Down changes the vertical radio selection. Inside the freeform field, arrow keys edit text normally.
 - While the freeform field is active, Enter confirms only when the current selection and freeform content form a valid answer. Otherwise Enter has no effect. Shift+Enter inserts a newline.

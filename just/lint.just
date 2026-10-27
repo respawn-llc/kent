@@ -87,7 +87,25 @@ docs mode="":
 
 [private]
 _desktop-native command="check" *args:
-    cargo {{command}} --manifest-path apps/desktop/src-tauri/Cargo.toml --locked {{args}}
+    #!/usr/bin/env bash
+    set -euo pipefail
+    if [ "{{command}}" = "fmt" ]; then
+        cargo fmt --manifest-path apps/desktop/src-tauri/Cargo.toml {{args}}
+    else
+        cargo {{command}} --manifest-path apps/desktop/src-tauri/Cargo.toml --locked {{args}}
+    fi
+
+[private]
+_desktop-audio:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    directory="$(mktemp -d)"
+    trap 'trash "$directory"' EXIT
+    xcrun clang -fobjc-arc -fblocks \
+        -framework Foundation -framework AVFoundation -framework CoreMedia \
+        -framework AudioToolbox -framework UniformTypeIdentifiers \
+        apps/desktop/src-tauri/tests/speech_macos.m -o "$directory/speech-test"
+    "$directory/speech-test"
 
 [private]
 _effect-policy *paths:

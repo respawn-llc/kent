@@ -142,7 +142,14 @@ export function useSpeechField(binding: FieldBinding) {
   const control = fieldControlHidden(binding.readOnly, state) ? undefined : (
     <SpeechFieldControl state={state} own={own} phase={phase} actions={actions} />
   );
-  return { control, busy: own && state.busy, busyReason: t("speech.busy"), editorRef };
+  return {
+    control,
+    phase,
+    finish: actions.finish,
+    busy: own && state.busy,
+    busyReason: t("speech.busy"),
+    editorRef,
+  };
 }
 
 type DestinationState = ReturnType<ReturnType<typeof createSpeechDestination>["state"]["read"]>;

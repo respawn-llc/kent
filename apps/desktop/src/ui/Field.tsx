@@ -17,7 +17,7 @@ const fieldErrorListSchema = z.array(z.string());
 const fieldErrorMessageSchema = z.string();
 
 type FieldShellProps = Readonly<{
-  label: string;
+  label?: string | undefined;
   labelHelp?: string | undefined;
   error?: FieldError | undefined;
   hint?: ReactNode | undefined;
@@ -41,12 +41,14 @@ export function FieldShell({
 
   return (
     <div className="grid gap-[var(--space-3)]">
-      <span className="inline-flex items-center gap-[var(--space-1)]">
-        <label className={fieldLabelClassName} htmlFor={inputId}>
-          {label}
-        </label>
-        {labelHelp === undefined ? null : <HelpHint className="shrink-0" label={labelHelp} side="right" />}
-      </span>
+      {label === undefined ? null : (
+        <span className="inline-flex items-center gap-[var(--space-1)]">
+          <label className={fieldLabelClassName} htmlFor={inputId}>
+            {label}
+          </label>
+          {labelHelp === undefined ? null : <HelpHint className="shrink-0" label={labelHelp} side="right" />}
+        </span>
+      )}
       {children}
       {hint !== undefined ? (
         <span className="text-[var(--color-muted)]" id={hintId}>
@@ -127,7 +129,7 @@ export function TextInput({
 
 export type TextAreaProps = Readonly<{
   floatingAction?: ReactNode;
-  label: string;
+  label?: string | undefined;
   labelHelp?: string | undefined;
   error?: FieldError | undefined;
   hint?: ReactNode | undefined;

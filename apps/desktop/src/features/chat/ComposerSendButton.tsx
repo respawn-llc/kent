@@ -12,8 +12,8 @@ export function ComposerSendButton() {
     return (
       <PromptSendButton
         picker={promptPicker}
-        restricted={composer.interactionRestricted || speech.busy}
-        reason={speech.busy ? speech.busyReason : undefined}
+        restricted={composer.interactionRestricted || (speech.busy && speech.phase !== "recording")}
+        reason={speech.busy && speech.phase !== "recording" ? speech.busyReason : undefined}
       />
     );
   }
@@ -38,7 +38,13 @@ function OrdinarySendButton() {
     <SendButton
       enabled={composer.canSubmit}
       pending={composer.inputPending || composer.interactionRestricted}
-      tooltip={speech.busy ? speech.busyReason : composer.canSubmit ? t("chatComposer.send") : reason}
+      tooltip={
+        speech.busy && speech.phase !== "recording"
+          ? speech.busyReason
+          : composer.canSubmit
+            ? t("chatComposer.send")
+            : reason
+      }
       onClick={() => {
         composer.submit("send", "editor", activity ?? undefined);
       }}
@@ -57,12 +63,14 @@ function PromptSendButton({
 }>) {
   const { t } = useTranslation();
   const dispatch = useAtomSet(picker.dispatch);
+  const { speech } = useComposerSurface();
   return (
     <SendButton
       enabled={!restricted && !picker.request.isPending && canConfirmPicker(picker.state)}
       pending={restricted || picker.request.isPending}
       tooltip={restricted ? (reason ?? t("chat.navigationPending")) : t("chatComposer.send")}
-      onClick={() => {
+      onClick={async () => {
+        if (speech.busy && !(await speech.finish())) return;
         dispatch({ action: { kind: "confirm" } });
       }}
     />
