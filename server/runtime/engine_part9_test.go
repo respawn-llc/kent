@@ -5,6 +5,7 @@ import (
 	"core/server/llm"
 	"core/server/session"
 	"core/server/tools"
+	"core/shared/config"
 	"core/shared/textutil"
 	"core/shared/toolspec"
 	"encoding/json"
@@ -150,6 +151,59 @@ func TestRequestToolsExposePatchAsCustomToolOnlyForFirstPartyResponsesProvider(t
 			}
 			if !tt.wantCustom && !requestTools[0].Schema.Prepared() {
 				t.Fatalf("expected function-tool schema fallback for unsupported custom tools, got %+v", requestTools[0])
+			}
+		})
+	}
+}
+
+func TestGrokPatchRequestUsesFunctionToolWithLockedOpenAIContract(t *testing.T) {
+	for _, protocol := range []config.ConnectionProtocol{
+		config.ConnectionGrokOAuthAPI,
+		config.ConnectionGrokAPIKey,
+		config.ConnectionGrokCLIProxy,
+	} {
+		t.Run(string(protocol), func(t *testing.T) {
+			store := mustCreateTestSession(t)
+			if err := store.MarkModelDispatchLocked(session.LockedContract{
+				Model:        "grok-4.7",
+				EnabledTools: []string{string(toolspec.ToolPatch)},
+				ProviderContract: llm.LockedProviderCapabilitiesFromContract(llm.ProviderCapabilities{
+					ProviderID: "openai", SupportsResponsesAPI: true, IsOpenAIFirstParty: true,
+				}),
+			}); err != nil {
+				t.Fatalf("mark locked: %v", err)
+			}
+			connection := config.ProviderConnection{Protocol: protocol}
+			if protocol == config.ConnectionGrokAPIKey {
+				connection.EnvironmentVariable = textutil.Value("GROK_KEY")
+			}
+			caps, err := llm.ResolveConnectionCapabilities(connection)
+			if err != nil {
+				t.Fatalf("resolve Grok capabilities: %v", err)
+			}
+			client := &fakeClient{
+				caps: caps,
+				responses: []llm.Response{{
+					Assistant: llm.Message{Role: llm.RoleAssistant, Content: textutil.Value("done"), Phase: textutil.Value(llm.MessagePhaseFinal)},
+					Usage:     llm.Usage{WindowTokens: 200000},
+				}},
+			}
+			engine := mustNewTestEngine(t, store, client, newTestToolRegistry(t, tools.HandlerRegistration{
+				ID: toolspec.ToolPatch, Handler: fakeTool{name: toolspec.ToolPatch},
+			}), Config{Model: "grok-4.7", ThinkingLevel: "high", EnabledTools: []toolspec.ID{toolspec.ToolPatch}})
+			if _, err := engine.SubmitUserMessage(context.Background(), "apply patch"); err != nil {
+				t.Fatalf("submit: %v", err)
+			}
+			if len(client.calls) != 1 {
+				t.Fatalf("requests = %d, want one", len(client.calls))
+			}
+			request := client.calls[0]
+			if len(request.Tools) != 1 {
+				t.Fatalf("tools = %+v, want patch only", request.Tools)
+			}
+			patch := request.Tools[0]
+			if patch.Name != string(toolspec.ToolPatch) || patch.Custom != nil || !patch.Schema.Prepared() {
+				t.Fatalf("Grok must receive patch as a function tool: %+v", patch)
 			}
 		})
 	}
