@@ -2,7 +2,8 @@ import { act, fireEvent, render, screen, within } from "@testing-library/react";
 import { expect, it, vi } from "bun:test";
 import { StrictMode } from "react";
 
-import { ChatTranscriptHost, TranscriptWindow } from "@/app-facade";
+import { TranscriptWindow } from "@/app-facade";
+import { TranscriptHarness } from "@/test-support/chat-runtime";
 import { hydration, page, row, visit } from "@/test-support/transcript-window";
 import { installVirtualizedScrollGeometry } from "@/test-support/resize-observer";
 import { StaticMarkdown, StreamingMarkdown } from "@/ui";
@@ -80,7 +81,7 @@ it("opens and remounts a compacted live transcript at the bottom despite underes
       return this.getAttribute("role") === "list" ? 600 : 400;
     },
   });
-  const host = new ChatTranscriptHost(
+  const host = new TranscriptHarness(
     {
       getTranscriptPage: vi.fn().mockResolvedValue(
         page(
@@ -153,7 +154,7 @@ it.each(["following", "reading", "historical-end"])(
   "preserves %s through live compaction hydration",
   async (position) => {
     const geometry = installVirtualizedScrollGeometry(600);
-    const host = new ChatTranscriptHost(
+    const host = new TranscriptHarness(
       {
         getTranscriptPage: vi
           .fn()

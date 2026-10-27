@@ -14,7 +14,6 @@ import (
 	"fmt"
 	"os"
 	"slices"
-	"sort"
 	"strings"
 	"sync"
 
@@ -89,12 +88,6 @@ type AssistantStreamSnapshot struct {
 	Phase       llm.MessagePhase
 }
 
-type TranscriptWindowSnapshot struct {
-	Snapshot     ChatSnapshot
-	TotalEntries int
-	Offset       int
-}
-
 type storedToolCompletion struct {
 	CallID              string                   `json:"call_id"`
 	Name                string                   `json:"name"`
@@ -112,19 +105,15 @@ type storedToolCompletion struct {
 type chatStore struct {
 	mu sync.RWMutex
 
-	messageRecords []chatMessageRecord
-	compact        *compactionCheckpoint
-	local          []localChatEntry
+	providerItems []llm.ResponseItem
+	compact       *compactionCheckpoint
 
 	toolCompletions                   map[string]tools.Result
-	toolCompletionProvenance          map[string]*TranscriptCommittedRowProvenance
 	toolCompletionProviderItems       map[string][]llm.ResponseItem
 	assistantToolCalls                map[string]struct{}
 	assistantToolCallStepIDs          map[string]string
 	materializedToolResults           map[string]struct{}
 	synthesizedToolResults            map[string]struct{}
-	assistantStreamIDsByEntry         map[int]uuid.UUID
-	activeSegmentEntryStart           int
 	streaming                         []AssistantStreamSnapshot
 	streamingError                    string
 	cwd                               string
@@ -134,22 +123,6 @@ type chatStore struct {
 	providerTokenEstimate      int
 	providerTokenEstimateDirty bool
 	tokenEstimator             llm.TokenEstimator
-}
-
-type chatMessageRecord struct {
-	StepID        *string
-	Message       *llm.Message
-	ProviderItems []llm.ResponseItem
-	Provenance    *TranscriptCommittedRowProvenance
-}
-
-type localChatEntry struct {
-	Entry             ChatEntry
-	AfterMessageCount int
-	AfterToolCallID   *string
-	MarksBoundary     bool
-	Projected         bool
-	Provenance        *TranscriptCommittedRowProvenance
 }
 
 type assistantStreamingAppend struct {
@@ -169,7 +142,6 @@ func newChatStore() *chatStore {
 func newChatStoreWithCWD(cwd string) *chatStore {
 	return &chatStore{
 		toolCompletions:             make(map[string]tools.Result, 16),
-		toolCompletionProvenance:    make(map[string]*TranscriptCommittedRowProvenance, 16),
 		toolCompletionProviderItems: make(map[string][]llm.ResponseItem, 16),
 		assistantToolCalls:          make(map[string]struct{}, 16),
 		assistantToolCallStepIDs:    make(map[string]string, 16),
@@ -192,11 +164,7 @@ func (s *chatStore) validateMessage(stepID *string, msg llm.Message) error {
 	return s.validateMessageLocked(stepID, msg)
 }
 
-func (s *chatStore) appendMessage(stepID *string, msg llm.Message, provenances ...*TranscriptCommittedRowProvenance) error {
-	var provenance *TranscriptCommittedRowProvenance
-	if len(provenances) > 0 {
-		provenance = provenances[0]
-	}
+func (s *chatStore) appendMessage(stepID *string, msg llm.Message) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	var err error
@@ -213,14 +181,8 @@ func (s *chatStore) appendMessage(stepID *string, msg llm.Message, provenances .
 			providerItems = nil
 		}
 	}
-	s.messageRecords = append(s.messageRecords, chatMessageRecord{
-		StepID:        textutil.Pointer(stepID),
-		Message:       textutil.Value(cloneChatStoreMessage(msg)),
-		ProviderItems: providerItems,
-		Provenance:    cloneTranscriptCommittedRowProvenance(provenance),
-	})
+	s.providerItems = append(s.providerItems, providerItems...)
 	s.applyMessageStatsLocked(stepID, msg)
-	s.placeAttachedLocalEntriesAfterMaterializedToolLocked(msg)
 	s.providerTokenEstimateDirty = true
 	return nil
 }
@@ -243,65 +205,38 @@ func (s *chatStore) replaceHistoryAtCommittedEntryStart(
 	defer s.mu.Unlock()
 	preparedItems := llm.PrepareResponsesInputItems(items)
 	s.recordReplacementToolCallStepIDsLocked(stepID, preparedItems)
-	s.installWorkingSetLocked(stepID, &compactionCheckpoint{Items: llm.CloneResponseItems(preparedItems)}, committedEntryStart, projectedEntries)
+	s.installWorkingSetLocked(&compactionCheckpoint{Items: llm.CloneResponseItems(preparedItems)}, committedEntryStart, projectedEntries)
 }
 
-func (s *chatStore) beginGeneration(stepID *string, committedEntryStart int, entries []ChatEntry) {
+func (s *chatStore) beginGeneration(_ *string, committedEntryStart int, entries []ChatEntry) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	s.installWorkingSetLocked(stepID, nil, &committedEntryStart, entries)
+	s.installWorkingSetLocked(nil, &committedEntryStart, entries)
 }
 
-// Preparation adds a base checkpoint without replacing activity already
-// committed after compaction. Its transcript rows keep their original identity.
 func (s *chatStore) prepareGeneration(items []llm.ResponseItem, entries []ChatEntry) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.compact = &compactionCheckpoint{Items: llm.CloneResponseItems(llm.PrepareResponsesInputItems(items))}
-	for _, entry := range entries {
-		s.appendProjectedEntryLocked(entry, false)
-		s.local[len(s.local)-1].AfterMessageCount = len(s.messageRecords)
-	}
+	s.transcriptEntryCount += len(entries)
 	s.providerTokenEstimateDirty = true
 }
 
-func (s *chatStore) installWorkingSetLocked(stepID *string, checkpoint *compactionCheckpoint, committedEntryStart *int, projectedEntries []ChatEntry) {
-	activeSegmentEntryStart := s.transcriptEntryCount
+func (s *chatStore) installWorkingSetLocked(checkpoint *compactionCheckpoint, committedEntryStart *int, projectedEntries []ChatEntry) {
 	if committedEntryStart != nil && *committedEntryStart > s.transcriptEntryCount {
 		s.transcriptEntryCount = *committedEntryStart
-		activeSegmentEntryStart = *committedEntryStart
-	} else if committedEntryStart != nil {
-		activeSegmentEntryStart = *committedEntryStart
 	}
 	// Provider/model history switches to the compacted checkpoint while the
 	// transcript receives its typed projection at the same committed boundary.
-	projectedStart := len(s.local)
-	if stepID != nil {
-		for index := range projectedEntries {
-			projectedEntries[index].StepID = cloneOptionalStepID(stepID)
-		}
-	}
-	s.appendProjectedHistoryReplacementEntriesLocked(projectedEntries)
-	s.local = append([]localChatEntry(nil), s.local[projectedStart:]...)
+	s.transcriptEntryCount += len(projectedEntries)
 	s.compact = checkpoint
-	s.activeSegmentEntryStart = activeSegmentEntryStart
-	s.pruneAssistantStreamIDsBeforeLocked(activeSegmentEntryStart)
-	s.messageRecords = nil
+	s.providerItems = nil
 	s.pruneToolCompletionsToWorkingSetLocked()
 	s.providerTokenEstimateDirty = true
 }
 
-func (s *chatStore) pruneAssistantStreamIDsBeforeLocked(activeSegmentEntryStart int) {
-	for entryIndex := range s.assistantStreamIDsByEntry {
-		if entryIndex < activeSegmentEntryStart {
-			delete(s.assistantStreamIDsByEntry, entryIndex)
-		}
-	}
-}
-
 func (s *chatStore) pruneToolCompletionsToWorkingSetLocked() {
 	if len(s.toolCompletions) == 0 &&
-		len(s.toolCompletionProvenance) == 0 &&
 		len(s.toolCompletionProviderItems) == 0 &&
 		len(s.assistantToolCalls) == 0 &&
 		len(s.assistantToolCallStepIDs) == 0 &&
@@ -319,7 +254,6 @@ func (s *chatStore) pruneToolCompletionsToWorkingSetLocked() {
 		}
 	}
 	pruneCallIDMapToReferenced(s.toolCompletions, referenced)
-	pruneCallIDMapToReferenced(s.toolCompletionProvenance, referenced)
 	pruneCallIDMapToReferenced(s.toolCompletionProviderItems, referenced)
 	pruneCallIDMapToReferenced(s.assistantToolCalls, referenced)
 	pruneCallIDMapToReferenced(s.assistantToolCallStepIDs, referenced)
@@ -408,7 +342,7 @@ func toolCallSnapshotFromItems(items []llm.ResponseItem, callID string) (llm.Too
 	return llm.ToolCall{}, false
 }
 
-func (s *chatStore) restoreToolCompletionRecord(record session.ToolCompletionRecord, provenances ...*TranscriptCommittedRowProvenance) error {
+func (s *chatStore) restoreToolCompletionRecord(record session.ToolCompletionRecord) error {
 	completion, err := storedToolCompletionFromSessionRecord(record)
 	if err != nil {
 		return fmt.Errorf("restore session tool completion record: %w", err)
@@ -424,11 +358,11 @@ func (s *chatStore) restoreToolCompletionRecord(record session.ToolCompletionRec
 		Presentation:        completion.Presentation,
 		QuestionAnswer:      completion.QuestionAnswer,
 		AnsweredBySessionID: completion.AnsweredBySessionID,
-	}, completion.ProviderItems, provenances...)
+	}, completion.ProviderItems)
 	return nil
 }
 
-func (s *chatStore) recordToolCompletionWithProviderItems(res tools.Result, providerItems []llm.ResponseItem, provenances ...*TranscriptCommittedRowProvenance) {
+func (s *chatStore) recordToolCompletionWithProviderItems(res tools.Result, providerItems []llm.ResponseItem) {
 	callID := strings.TrimSpace(res.CallID)
 	if callID == "" {
 		return
@@ -436,9 +370,6 @@ func (s *chatStore) recordToolCompletionWithProviderItems(res tools.Result, prov
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.toolCompletions[callID] = res
-	if len(provenances) > 0 {
-		s.toolCompletionProvenance[callID] = cloneTranscriptCommittedRowProvenance(provenances[0])
-	}
 	if len(providerItems) > 0 {
 		s.toolCompletionProviderItems[callID] = llm.CloneResponseItems(providerItems)
 	} else {
@@ -524,44 +455,6 @@ func (s *chatStore) completeStreamingSource(stepID string, revision int64, commi
 	return &result, nil
 }
 
-func (s *chatStore) nativeToolCallLocator(callID string) *transcript.CommittedRowLocator {
-	s.mu.RLock()
-	defer s.mu.RUnlock()
-	var locator *transcript.CommittedRowLocator
-	s.walkProjectionLocked(func(record chatMessageRecord) {
-		if record.Message.NativeResponse == nil {
-			return
-		}
-		for _, call := range record.Message.ToolCalls {
-			if call.ID != callID {
-				continue
-			}
-			rows := locateTranscriptCommittedRowFacts(transcriptCommittedRowFactsFromMessage(
-				*record.Message, nil, nil, nil, transcriptMessageProjectionContext{Provenance: record.Provenance},
-			))
-			for _, row := range rows {
-				if row.ToolCall != nil && row.ToolCall.ToolCallID == callID {
-					locator = textutil.Value(row.Locator)
-					return
-				}
-			}
-		}
-	}, func(localChatEntry) {}, nil)
-	return locator
-}
-
-func (s *chatStore) recordAssistantStreamFinalization(committedEntryStart int, streamID *uuid.UUID) {
-	if s == nil || committedEntryStart < 0 || streamID == nil {
-		return
-	}
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	if s.assistantStreamIDsByEntry == nil {
-		s.assistantStreamIDsByEntry = make(map[int]uuid.UUID)
-	}
-	s.assistantStreamIDsByEntry[committedEntryStart] = *streamID
-}
-
 func (s *chatStore) discardStreaming() []AssistantStreamSnapshot {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -637,92 +530,12 @@ func cloneTranscriptStreamID(streamID *uuid.UUID) *uuid.UUID {
 	return &copied
 }
 
-func (s *chatStore) appendLocalEntryRecord(entry ChatEntry, afterToolCallID *string, provenances ...*TranscriptCommittedRowProvenance) {
+func (s *chatStore) countLocalEntry(entry ChatEntry) {
 	if strings.TrimSpace(entry.Text) == "" && entry.CacheWarning == nil && entry.ToolOutputRepair == nil && entry.ProviderModelMismatch == nil && entry.ReasoningOmission == nil && entry.ConnectionFallback == nil && entry.ConnectionsUnavailable == nil && entry.ReviewerFeedback == nil && entry.ReviewerError == nil {
 		return
 	}
-	entry.Visibility = normalizeRuntimeEntryVisibility(entry.Visibility)
-	entry.CondensedText = strings.TrimSpace(entry.CondensedText)
-	entry.NoticeID = strings.TrimSpace(entry.NoticeID)
-	entry.CacheWarning = copyCacheWarning(entry.CacheWarning)
-	entry.ToolOutputRepair = textutil.Pointer(entry.ToolOutputRepair)
-	entry.ProviderModelMismatch = textutil.Pointer(entry.ProviderModelMismatch)
-	entry.ReasoningOmission = textutil.Pointer(entry.ReasoningOmission)
-	entry.ConnectionFallback = textutil.Pointer(entry.ConnectionFallback)
-	entry.ConnectionsUnavailable = textutil.Pointer(entry.ConnectionsUnavailable)
-	if entry.ReviewerFeedback != nil {
-		feedback := *entry.ReviewerFeedback
-		feedback.Suggestions = append([]string(nil), entry.ReviewerFeedback.Suggestions...)
-		entry.ReviewerFeedback = &feedback
-	}
-	if entry.ReviewerError != nil {
-		reviewerError := *entry.ReviewerError
-		entry.ReviewerError = &reviewerError
-	}
-	if afterToolCallID != nil {
-		callID := strings.TrimSpace(*afterToolCallID)
-		if callID == "" {
-			panic("append local transcript entry: after-tool call identity is empty")
-		}
-		afterToolCallID = &callID
-	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	s.local = append(s.local, localChatEntry{
-		Entry:             entry,
-		AfterMessageCount: len(s.messageRecords),
-		AfterToolCallID:   afterToolCallID,
-		Provenance: func() *TranscriptCommittedRowProvenance {
-			if len(provenances) == 0 {
-				return cloneTranscriptCommittedRowProvenance(entry.CommittedProvenance)
-			}
-			return cloneTranscriptCommittedRowProvenance(provenances[0])
-		}(),
-		Projected: entry.ReviewerFeedback != nil || entry.ReviewerError != nil,
-	})
-	s.transcriptEntryCount++
-}
-
-func (s *chatStore) placeAttachedLocalEntriesAfterMaterializedToolLocked(msg llm.Message) {
-	if msg.Role != llm.RoleTool {
-		return
-	}
-	callID, present := textutil.OptionalTrimmed(msg.ToolCallID)
-	if !present {
-		return
-	}
-	changed := false
-	for index := range s.local {
-		attachedCallID := s.local[index].AfterToolCallID
-		if attachedCallID == nil || strings.TrimSpace(*attachedCallID) != callID {
-			continue
-		}
-		s.local[index].AfterMessageCount = len(s.messageRecords)
-		changed = true
-	}
-	if changed {
-		sort.SliceStable(s.local, func(left, right int) bool {
-			return s.local[left].AfterMessageCount < s.local[right].AfterMessageCount
-		})
-	}
-}
-
-func (s *chatStore) appendProjectedHistoryReplacementEntriesLocked(entries []ChatEntry) {
-	for idx, entry := range entries {
-		s.appendProjectedEntryLocked(entry, idx == 0)
-	}
-}
-
-func (s *chatStore) appendProjectedEntryLocked(entry ChatEntry, marksBoundary bool) {
-	entry.Visibility = normalizeRuntimeEntryVisibility(entry.Visibility)
-	entry.ToolCallID = strings.TrimSpace(entry.ToolCallID)
-	s.local = append(s.local, localChatEntry{
-		Entry:             entry,
-		AfterMessageCount: 0,
-		MarksBoundary:     marksBoundary,
-		Projected:         true,
-		Provenance:        cloneTranscriptCommittedRowProvenance(entry.CommittedProvenance),
-	})
 	s.transcriptEntryCount++
 }
 
@@ -873,7 +686,7 @@ func isToolOutputItem(itemType llm.ResponseItemType) bool {
 }
 
 func (s *chatStore) providerItemsSourceLocked() []llm.ResponseItem {
-	active := s.activeProviderItemsLocked()
+	active := llm.CloneResponseItems(s.providerItems)
 	if s.compact == nil {
 		return active
 	}
@@ -882,48 +695,6 @@ func (s *chatStore) providerItemsSourceLocked() []llm.ResponseItem {
 	out = append(out, base...)
 	out = append(out, active...)
 	return out
-}
-
-func (s *chatStore) activeProviderItemsLocked() []llm.ResponseItem {
-	itemCount := 0
-	for _, record := range s.messageRecords {
-		itemCount += len(record.ProviderItems)
-	}
-	items := make([]llm.ResponseItem, 0, itemCount)
-	for _, record := range s.messageRecords {
-		items = append(items, record.ProviderItems...)
-	}
-	return llm.CloneResponseItems(items)
-}
-
-func cloneChatStoreMessage(msg llm.Message) llm.Message {
-	cloned := msg
-	cloned.MessageType = textutil.Pointer(msg.MessageType)
-	cloned.SourcePath = textutil.Pointer(msg.SourcePath)
-	cloned.WorktreeContext = session.CloneWorktreeContext(msg.WorktreeContext)
-	cloned.Content = textutil.Pointer(msg.Content)
-	cloned.CompactContent = textutil.Pointer(msg.CompactContent)
-	cloned.Name = textutil.Pointer(msg.Name)
-	cloned.ToolCallID = textutil.Pointer(msg.ToolCallID)
-	cloned.Phase = textutil.Pointer(msg.Phase)
-	cloned.BackgroundActivityID = textutil.Pointer(msg.BackgroundActivityID)
-	cloned.BackgroundExitCode = textutil.Pointer(msg.BackgroundExitCode)
-	if len(msg.ToolCalls) > 0 {
-		cloned.ToolCalls = append([]llm.ToolCall(nil), msg.ToolCalls...)
-		for index := range cloned.ToolCalls {
-			cloned.ToolCalls[index].Presentation = append(json.RawMessage(nil), msg.ToolCalls[index].Presentation...)
-			cloned.ToolCalls[index].Input = append(json.RawMessage(nil), msg.ToolCalls[index].Input...)
-			cloned.ToolCalls[index].ProviderItem = append(json.RawMessage(nil), msg.ToolCalls[index].ProviderItem...)
-			cloned.ToolCalls[index].CustomInput = textutil.Pointer(msg.ToolCalls[index].CustomInput)
-		}
-	}
-	if len(msg.ReasoningItems) > 0 {
-		cloned.ReasoningItems = append([]llm.ReasoningItem(nil), msg.ReasoningItems...)
-		for index := range cloned.ReasoningItems {
-			cloned.ReasoningItems[index].Attribution = msg.ReasoningItems[index].Attribution.Clone()
-		}
-	}
-	return cloned
 }
 
 func firstNonEmpty(values ...string) string {
@@ -1036,176 +807,4 @@ func applyLastCommittedAssistantFinalAnswer(current *string, msg llm.Message) *s
 		return textutil.Pointer(msg.Content)
 	}
 	return nil
-}
-
-type transcriptDeliverySnapshot struct {
-	Rows      []TranscriptCommittedRowFact
-	Streaming []AssistantStreamSnapshot
-}
-
-type transcriptDeliveryFactScan struct {
-	rows                     []TranscriptCommittedRowFact
-	toolCompletions          map[string]tools.Result
-	toolCompletionProvenance map[string]*TranscriptCommittedRowProvenance
-	materializedToolCalls    map[string]struct{}
-	streamIDsByEntry         map[int]uuid.UUID
-	currentEntryIndex        int
-	nativeCalls              map[string]struct{}
-}
-
-func newTranscriptDeliveryFactScan(completions map[string]tools.Result, completionProvenance map[string]*TranscriptCommittedRowProvenance, materializedToolCalls map[string]struct{}, streamIDsByEntry map[int]uuid.UUID, currentEntryIndex int) *transcriptDeliveryFactScan {
-	return &transcriptDeliveryFactScan{toolCompletions: completions, toolCompletionProvenance: completionProvenance, materializedToolCalls: materializedToolCalls, streamIDsByEntry: streamIDsByEntry, currentEntryIndex: currentEntryIndex}
-}
-
-func (s *transcriptDeliveryFactScan) ApplyMessage(stepID *string, msg llm.Message, provenance *TranscriptCommittedRowProvenance) {
-	if s == nil {
-		return
-	}
-	if msg.Role == llm.RoleTool && msg.ToolCallID != nil {
-		if _, native := s.nativeCalls[*msg.ToolCallID]; native {
-			return
-		}
-	}
-	materialized := s.materializedToolCalls
-	if msg.NativeResponse != nil {
-		materialized = nil
-		if s.nativeCalls == nil {
-			s.nativeCalls = make(map[string]struct{})
-		}
-		for _, call := range msg.ToolCalls {
-			s.nativeCalls[call.ID] = struct{}{}
-		}
-	}
-	var correlations []AssistantStreamCorrelation
-	if msg.NativeResponse != nil {
-		offset := 0
-		for _, projected := range nativeResponseMessages(msg) {
-			if id, ok := s.streamIDsByEntry[s.currentEntryIndex+offset]; ok {
-				correlations = append(correlations, AssistantStreamCorrelation{OutputIndex: textutil.Value(projected.OutputIndex), StreamID: id})
-			}
-			offset += projected.entryCount()
-		}
-	} else if id, ok := s.streamIDsByEntry[s.currentEntryIndex]; ok {
-		correlations = append(correlations, AssistantStreamCorrelation{StreamID: id})
-	}
-	facts := transcriptCommittedRowFactsForStep(
-		stepID,
-		transcriptCommittedRowFactsFromMessage(
-			msg,
-			correlations,
-			s.toolCompletions,
-			materialized,
-			transcriptMessageProjectionContext{
-				Provenance:           provenance,
-				CompletionProvenance: s.toolCompletionProvenance,
-			},
-		),
-	)
-	s.rows = append(s.rows, facts...)
-	s.currentEntryIndex += transcriptCommittedEntryCountFromMessage(msg, s.toolCompletions, materialized)
-}
-
-func (s *transcriptDeliveryFactScan) ApplyLocalEntry(entry ChatEntry, projected bool) {
-	if s == nil {
-		return
-	}
-	if projected {
-		if fact, ok := transcriptCommittedRowFactFromChatEntry(entry); ok {
-			s.rows = append(s.rows, fact)
-		}
-	} else if strings.TrimSpace(entry.Role) == string(transcript.EntryRoleReasoning) {
-		if fact, ok := transcriptCommittedRowFactFromChatEntry(entry); ok {
-			s.rows = append(s.rows, fact)
-		}
-	} else {
-		if fact, ok := transcriptNoticeRowFactFromChatEntry(entry); ok {
-			s.rows = append(s.rows, fact)
-		}
-	}
-	s.currentEntryIndex++
-}
-
-func (s *transcriptDeliveryFactScan) MarkCompactionBoundary() {
-	if s == nil {
-		return
-	}
-	s.rows = nil
-}
-
-func (s *transcriptDeliveryFactScan) Snapshot() []TranscriptCommittedRowFact {
-	if s == nil || len(s.rows) == 0 {
-		return nil
-	}
-	out := make([]TranscriptCommittedRowFact, len(s.rows))
-	copy(out, s.rows)
-	return locateTranscriptCommittedRowFacts(out)
-}
-
-func (s *chatStore) walkProjectionLocked(
-	applyMessage func(chatMessageRecord),
-	applyLocalEntry func(localChatEntry),
-	markCompactionBoundary func(),
-) {
-	messageIndex := 0
-	localIndex := 0
-	appendLocalEntries := func(messageCount int) {
-		for localIndex < len(s.local) && s.local[localIndex].AfterMessageCount <= messageCount {
-			local := s.local[localIndex]
-			if local.MarksBoundary && markCompactionBoundary != nil {
-				markCompactionBoundary()
-			}
-			applyLocalEntry(local)
-			localIndex++
-		}
-	}
-	if s.compact != nil && markCompactionBoundary != nil {
-		markCompactionBoundary()
-	}
-	appendLocalEntries(0)
-	for _, record := range s.messageRecords {
-		if record.Message != nil {
-			applyMessage(record)
-		} else {
-			for _, item := range record.ProviderItems {
-				entry := configurationUpdateChatEntry(item)
-				entry.StepID = cloneOptionalStepID(record.StepID)
-				applyLocalEntry(localChatEntry{
-					Entry: entry, Projected: true, Provenance: record.Provenance,
-				})
-			}
-		}
-		messageIndex++
-		appendLocalEntries(messageIndex)
-	}
-	appendLocalEntries(messageIndex)
-}
-
-func (s *chatStore) deliverySnapshot() transcriptDeliverySnapshot {
-	s.mu.RLock()
-	defer s.mu.RUnlock()
-
-	materializedToolResults := collectMaterializedToolCalls(s.activeProviderItemsLocked())
-	for callID := range s.materializedToolResults {
-		materializedToolResults[callID] = struct{}{}
-	}
-	streamIDsByEntry := make(map[int]uuid.UUID, len(s.assistantStreamIDsByEntry))
-	for entryIndex, streamID := range s.assistantStreamIDsByEntry {
-		streamIDsByEntry[entryIndex] = streamID
-	}
-	scan := newTranscriptDeliveryFactScan(s.toolCompletions, s.toolCompletionProvenance, materializedToolResults, streamIDsByEntry, s.activeSegmentEntryStart)
-	s.walkProjectionLocked(
-		func(record chatMessageRecord) {
-			scan.ApplyMessage(record.StepID, *record.Message, record.Provenance)
-		},
-		func(local localChatEntry) {
-			entry := local.Entry
-			entry.CommittedProvenance = cloneTranscriptCommittedRowProvenance(local.Provenance)
-			scan.ApplyLocalEntry(entry, local.Projected)
-		},
-		scan.MarkCompactionBoundary,
-	)
-	return transcriptDeliverySnapshot{
-		Rows:      scan.Snapshot(),
-		Streaming: s.streamingSnapshotLocked(),
-	}
 }

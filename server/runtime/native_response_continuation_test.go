@@ -651,24 +651,6 @@ func TestNativeOutputPresentationKeepsInterleavedHostedCalls(t *testing.T) {
 		if !reflect.DeepEqual(committedOrder, actual) {
 			t.Fatalf("client-facing committed projection changed native order: %v", committedOrder)
 		}
-		if err := engine.WithTranscriptHydrationSnapshot(func(snapshot TranscriptHydrationSnapshot) error {
-			var hydrated []string
-			for _, row := range snapshot.CommittedRows {
-				if row.Assistant != nil {
-					hydrated = append(hydrated, row.Assistant.Text)
-				} else if row.Tool != nil {
-					hydrated = append(hydrated, row.Tool.ToolCallID)
-				} else if row.ReasoningTrace != nil {
-					hydrated = append(hydrated, "reasoning")
-				}
-			}
-			if !reflect.DeepEqual(hydrated, actual) {
-				return fmt.Errorf("hydrated committed projection changed native order: %v", hydrated)
-			}
-			return nil
-		}); err != nil {
-			t.Fatal(err)
-		}
 		items := buildActiveTurnRequestForTest(t, engine, nil, true).Items
 		next := 0
 		for _, item := range items {
@@ -722,7 +704,7 @@ func TestAcceptedInvisibleNativeOutputContinuesWithoutVisibleRows(t *testing.T) 
 			t.Fatal("invisible native output was not saved")
 		}
 		var assistantRows int
-		for _, row := range hydrationSnapshot(t, engine).CommittedRows {
+		for _, row := range TranscriptCommittedRowFactsFromSnapshot(mustEngineNewestSegmentPage(t, engine).Snapshot) {
 			if row.Assistant != nil {
 				assistantRows++
 			}
@@ -832,22 +814,5 @@ func TestNativeStreamingKeepsMessageIdentityAcrossHostedCalls(t *testing.T) {
 	}
 	if resultLocator == nil || resultLocator.Locator != acceptedRows[1].Locator {
 		t.Fatal("native result did not update its accepted call's locator")
-	}
-	if err := engine.WithTranscriptHydrationSnapshot(func(snapshot TranscriptHydrationSnapshot) error {
-		var hydratedStreams []string
-		for _, row := range snapshot.CommittedRows {
-			if row.Assistant != nil {
-				if row.Assistant.StreamID == nil {
-					return fmt.Errorf("native assistant lost its stream correlation")
-				}
-				hydratedStreams = append(hydratedStreams, row.Assistant.StreamID.String())
-			}
-		}
-		if !reflect.DeepEqual(hydratedStreams, []string{streams[0], streams[1], streams[3]}) {
-			return fmt.Errorf("native assistant correlations changed through hydration: %v", hydratedStreams)
-		}
-		return nil
-	}); err != nil {
-		t.Fatal(err)
 	}
 }

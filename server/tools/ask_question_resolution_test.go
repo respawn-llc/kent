@@ -8,7 +8,7 @@ import (
 func TestAskQuestionBrokerPreservesCanonicalQuestionResolution(t *testing.T) {
 	freeform := "  exact freeform  "
 	broker := NewAskQuestionBroker()
-	broker.SetAskHandler(func(context.Context, AskQuestionRequest) (AskQuestionResolution, error) {
+	broker.SetLifecycleAskHandler(func(context.Context, AskQuestionRequest) (AskQuestionResolution, error) {
 		return AskQuestionAnswer{Freeform: &freeform}, nil
 	})
 

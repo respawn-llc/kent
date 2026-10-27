@@ -129,10 +129,9 @@ func TestCrossProjectSelfRebindContinuesWithoutAnotherUserMessage(t *testing.T) 
 			if err != nil {
 				t.Fatal(err)
 			}
-			err = fixture.authority.RunCurrentAgentExecution(ctx, descriptor, func(ctx context.Context, current *runtime.Engine) error {
-				_, err := current.SubmitUserMessage(ctx, "move and keep working")
-				return err
-			})
+			_, err = fixture.authority.SubmitAgentInput(ctx, descriptor,
+				runtime.QueuedUserInput{ID: runtimeids.NewQueueItemID().String(), ExecutionText: "move and keep working", CanonicalPresentation: "move and keep working"},
+				func(commit func() (bool, error)) (bool, error) { return commit() })
 			if err != nil {
 				t.Fatalf("rebind interrupted the originating execution: %v", err)
 			}
@@ -153,7 +152,7 @@ func TestCrossProjectSelfRebindContinuesWithoutAnotherUserMessage(t *testing.T) 
 
 func TestHumanRebindPreservesExecutionAndQueuedInputAfterCallerDisconnects(t *testing.T) {
 	fixture := newRealSessionRetargetFixture(t, false)
-	service := NewGlobalSessionLifecycleService(fixture.metadata.PersistenceRoot(), fixture.authority, nil, fixture.metadata).
+	service := NewGlobalSessionLifecycleService(fixture.metadata.PersistenceRoot(), fixture.authority, fixture.metadata).
 		WithWorkspaceRetargeter(fixture.retargeter(fixture.metadata, retargetProcessSource{}))
 	ctx, cancel := context.WithTimeout(t.Context(), 10*time.Second)
 	defer cancel()
@@ -196,15 +195,19 @@ func TestHumanRebindPreservesExecutionAndQueuedInputAfterCallerDisconnects(t *te
 	}
 	done := make(chan error, 1)
 	go func() {
-		done <- fixture.authority.RunCurrentAgentExecution(ctx, descriptor, func(ctx context.Context, current *runtime.Engine) error {
-			_, err := current.SubmitUserMessage(ctx, "keep working")
-			return err
-		})
+		_, err := fixture.authority.SubmitAgentInput(ctx, descriptor,
+			runtime.QueuedUserInput{ID: runtimeids.NewQueueItemID().String(), ExecutionText: "keep working", CanonicalPresentation: "keep working"},
+			func(commit func() (bool, error)) (bool, error) { return commit() })
+		done <- err
 	}()
 	select {
 	case <-firstStarted:
 	case <-ctx.Done():
 		t.Fatal(context.Cause(ctx))
+	}
+	execution, active := fixture.authority.SessionExecution(fixture.childID)
+	if !active {
+		t.Fatal("originating execution is not active")
 	}
 	callerCtx, disconnect := context.WithCancel(ctx)
 	targetProject := fixture.targetProject.ProjectID
@@ -239,6 +242,9 @@ func TestHumanRebindPreservesExecutionAndQueuedInputAfterCallerDisconnects(t *te
 		}
 	case <-ctx.Done():
 		t.Fatal(context.Cause(ctx))
+	}
+	if _, err := execution.Wait(ctx); err != nil {
+		t.Fatalf("wait for rebind continuation: %v", err)
 	}
 	close(requests)
 	foundInput := false
@@ -296,10 +302,9 @@ func TestSelfRebindRejectsAStaleOriginWithoutInterruptingExecution(t *testing.T)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := fixture.authority.RunCurrentAgentExecution(ctx, descriptor, func(ctx context.Context, current *runtime.Engine) error {
-		_, err := current.SubmitUserMessage(ctx, "keep working")
-		return err
-	}); err != nil {
+	if _, err := fixture.authority.SubmitAgentInput(ctx, descriptor,
+		runtime.QueuedUserInput{ID: runtimeids.NewQueueItemID().String(), ExecutionText: "keep working", CanonicalPresentation: "keep working"},
+		func(commit func() (bool, error)) (bool, error) { return commit() }); err != nil {
 		t.Fatal(err)
 	}
 	if err := <-rejected; !errors.Is(err, runtime.ErrActiveStepInactive) {

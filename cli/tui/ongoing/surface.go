@@ -195,45 +195,57 @@ func NewSurfaceWithOptions(writer io.Writer, options SurfaceOptions) *Surface {
 
 func (s *Surface) ApplyTerminalMessage(message *transcriptpb.Message, frame FrameInput) (Result, error) {
 	s.validateRenderFrame(frame, "apply_terminal_message")
+	content := s.prepareTerminalMessage(message, frame)
+	if content == nil {
+		return Result{}, nil
+	}
+	return s.writeFrameTransaction(frame, content.immutableRows)
+}
+
+type preparedSurfaceContent struct {
+	immutableRows []string
+}
+
+func (s *Surface) prepareTerminalMessage(message *transcriptpb.Message, frame FrameInput) *preparedSurfaceContent {
 	switch payload := message.GetEvent().GetPayload().(type) {
 	case *transcriptpb.Event_Hydration:
-		return s.applyHydration(payload.Hydration, frame)
+		return s.prepareHydration(payload.Hydration, frame)
 	case *transcriptpb.Event_AssistantDelta:
 		delta := payload.AssistantDelta
-		return s.applyAssistantDelta(delta.StreamId, delta.Delta, delta.Phase, delta.OutputIndex, frame)
+		return s.prepareAssistantDelta(delta.StreamId, delta.Delta, delta.Phase, delta.OutputIndex, frame)
 	case *transcriptpb.Event_AssistantStreamAbort:
 		if payload.AssistantStreamAbort.SourceState == transcriptpb.AssistantSourceState_ASSISTANT_SOURCE_STATE_COMPLETE {
-			return s.Render(frame)
+			return &preparedSurfaceContent{}
 		}
-		return s.abortAssistantStream(payload.AssistantStreamAbort.StreamId, frame)
+		return s.prepareAssistantAbort(payload.AssistantStreamAbort.StreamId, frame)
 	case *transcriptpb.Event_AssistantSourceComplete:
 		source := payload.AssistantSourceComplete
-		return s.completeAssistantSource(source, frame)
+		return s.prepareAssistantSourceComplete(source, frame)
 	case *transcriptpb.Event_StepState:
-		return s.Render(frame)
+		return &preparedSurfaceContent{}
 	case *transcriptpb.Event_CommittedRow:
 		if call := payload.CommittedRow.GetToolCall(); call != nil {
-			return Result{}, nil
+			return nil
 		}
 		if payload.CommittedRow.GetTool() != nil && s.activeAssistant.streamID != nil {
 			s.pendingTools = append(s.pendingTools, payload.CommittedRow)
-			return s.Render(frame)
+			return &preparedSurfaceContent{}
 		}
 		if assistant := payload.CommittedRow.GetAssistant(); assistant != nil && assistant.StreamId != nil {
 			if assistant.GetSourceState() == transcriptpb.AssistantSourceState_ASSISTANT_SOURCE_STATE_COMPLETE {
-				return Result{}, nil
+				return nil
 			}
-			return s.finalizeAssistantStream(*assistant.StreamId, assistant.Text, frame)
+			return s.prepareAssistantFinal(*assistant.StreamId, assistant.Text, frame)
 		}
 	}
 	lines := s.immutableLines(message, frame.Size.Width, frame.Theme)
 	if len(lines) == 0 {
-		return Result{}, nil
+		return nil
 	}
-	return s.writeFrameTransaction(frame, lines)
+	return &preparedSurfaceContent{immutableRows: lines}
 }
 
-func (s *Surface) applyHydration(hydration *transcriptpb.Hydration, frame FrameInput) (Result, error) {
+func (s *Surface) prepareHydration(hydration *transcriptpb.Hydration, frame FrameInput) *preparedSurfaceContent {
 	lines := s.hydrationImmutableLines(hydration, frame.Size.Width, frame.Theme)
 	s.pendingTools = nil
 	s.pendingAssistants = nil
@@ -268,16 +280,12 @@ func (s *Surface) applyHydration(hydration *transcriptpb.Hydration, frame FrameI
 		lines = append(lines, promotedRows...)
 	}
 	if len(lines) == 0 && !activeStreamHydrated && len(s.pendingAssistants) == 0 {
-		return Result{}, nil
-	}
-	result, err := s.writeFrameTransaction(frame, lines)
-	if err != nil {
-		return result, err
+		return nil
 	}
 	if s.activeAssistant.sourceState == transcriptpb.AssistantSourceState_ASSISTANT_SOURCE_STATE_COMPLETE {
-		return s.promoteNextAssistant(frame)
+		lines = append(lines, s.prepareNextAssistant(frame).immutableRows...)
 	}
-	return result, nil
+	return &preparedSurfaceContent{immutableRows: lines}
 }
 
 func (s *Surface) hydrateActiveAssistantStream(stream *transcriptpb.AssistantStream) bool {
@@ -297,7 +305,7 @@ func (s *Surface) hydrateActiveAssistantStream(stream *transcriptpb.AssistantStr
 	return stream.Text != ""
 }
 
-func (s *Surface) completeAssistantSource(source *transcriptpb.AssistantStream, frame FrameInput) (Result, error) {
+func (s *Surface) prepareAssistantSourceComplete(source *transcriptpb.AssistantStream, frame FrameInput) *preparedSurfaceContent {
 	for index := range s.pendingAssistants {
 		pending := &s.pendingAssistants[index]
 		if *pending.streamID != source.StreamId {
@@ -308,22 +316,22 @@ func (s *Surface) completeAssistantSource(source *transcriptpb.AssistantStream, 
 		}
 		pending.source = source.Text
 		pending.sourceState = transcriptpb.AssistantSourceState_ASSISTANT_SOURCE_STATE_COMPLETE
-		return s.Render(frame)
+		return &preparedSurfaceContent{}
 	}
-	return s.finalizeAssistantStream(source.StreamId, source.Text, frame)
+	return s.prepareAssistantFinal(source.StreamId, source.Text, frame)
 }
 
-func (s *Surface) promoteNextAssistant(frame FrameInput) (Result, error) {
+func (s *Surface) prepareNextAssistant(frame FrameInput) *preparedSurfaceContent {
 	if s.activeAssistant.streamID == nil {
-		return Result{}, nil
+		return &preparedSurfaceContent{}
 	}
 	if s.activeAssistant.sourceState == transcriptpb.AssistantSourceState_ASSISTANT_SOURCE_STATE_COMPLETE {
-		return s.finalizeAssistantStream(*s.activeAssistant.streamID, s.activeAssistant.source, frame)
+		return s.prepareAssistantFinal(*s.activeAssistant.streamID, s.activeAssistant.source, frame)
 	}
-	return s.applyAssistantDelta(*s.activeAssistant.streamID, "", s.activeAssistant.phase, s.activeAssistant.outputIndex, frame)
+	return s.prepareAssistantDelta(*s.activeAssistant.streamID, "", s.activeAssistant.phase, s.activeAssistant.outputIndex, frame)
 }
 
-func (s *Surface) applyAssistantDelta(streamID string, delta string, phase transcriptpb.AssistantPhase, outputIndex *int64, frame FrameInput) (Result, error) {
+func (s *Surface) prepareAssistantDelta(streamID string, delta string, phase transcriptpb.AssistantPhase, outputIndex *int64, frame FrameInput) *preparedSurfaceContent {
 	if s.activeAssistant.streamID == nil {
 		streamIDCopy := streamID
 		s.activeAssistant.streamID = &streamIDCopy
@@ -337,14 +345,14 @@ func (s *Surface) applyAssistantDelta(streamID string, delta string, phase trans
 					stream.phaseSourceStart = len(stream.source)
 				}
 				stream.source += delta
-				return s.writeFrameTransaction(frame, nil)
+				return &preparedSurfaceContent{}
 			}
 		}
 		id := streamID
 		s.pendingAssistants = append(s.pendingAssistants, activeAssistantState{
 			streamID: &id, source: delta, phase: phase, outputIndex: outputIndex,
 		})
-		return s.writeFrameTransaction(frame, nil)
+		return &preparedSurfaceContent{}
 	}
 	if s.activeAssistant.phase != phase {
 		s.activeAssistant.phase = phase
@@ -352,7 +360,7 @@ func (s *Surface) applyAssistantDelta(streamID string, delta string, phase trans
 	}
 	s.activeAssistant.source += delta
 	if s.activeAssistantPromotionDeferred() {
-		return s.writeFrameTransaction(frame, nil)
+		return &preparedSurfaceContent{}
 	}
 	projection := newMarkdownProjector(nil, frame.Theme, s.markdownLinks).Project(markdownProjectionInput{
 		Source:           s.activeAssistant.source,
@@ -369,10 +377,10 @@ func (s *Surface) applyAssistantDelta(streamID string, delta string, phase trans
 	}
 	s.activeAssistant.promotedSourceBoundary = projection.PromotedBoundary
 	if len(projection.PromotedRows) == 0 {
-		return s.writeFrameTransaction(frame, nil)
+		return &preparedSurfaceContent{}
 	}
 	promotedRows := s.renderAssistantPromotedRows(projection.PromotedRows, frame.Theme)
-	return s.writeFrameTransaction(frame, promotedRows)
+	return &preparedSurfaceContent{immutableRows: promotedRows}
 }
 
 func (s *Surface) activeAssistantPromotionDeferred() bool {
@@ -387,7 +395,7 @@ func (s *Surface) activeAssistantPromotionDeferred() bool {
 	})
 }
 
-func (s *Surface) abortAssistantStream(streamID string, frame FrameInput) (Result, error) {
+func (s *Surface) prepareAssistantAbort(streamID string, frame FrameInput) *preparedSurfaceContent {
 	if s.activeAssistant.streamID == nil {
 		panicOngoingDeveloperError("assistant_abort", "stream id has no unfinished source", nil)
 	}
@@ -395,7 +403,7 @@ func (s *Surface) abortAssistantStream(streamID string, frame FrameInput) (Resul
 		for index, stream := range s.pendingAssistants {
 			if *stream.streamID == streamID {
 				s.pendingAssistants = append(s.pendingAssistants[:index], s.pendingAssistants[index+1:]...)
-				return s.Render(frame)
+				return &preparedSurfaceContent{}
 			}
 		}
 		panicOngoingDeveloperError("assistant_abort", "stream id does not match active streams", map[string]any{
@@ -407,10 +415,7 @@ func (s *Surface) abortAssistantStream(streamID string, frame FrameInput) (Resul
 	}
 	rows := s.drainFinishedTools(frame)
 	s.advanceAssistantStream()
-	if _, err := s.writeFrameTransaction(frame, rows); err != nil {
-		return Result{}, err
-	}
-	return s.promoteNextAssistant(frame)
+	return &preparedSurfaceContent{immutableRows: append(rows, s.prepareNextAssistant(frame).immutableRows...)}
 }
 
 func (s *Surface) advanceAssistantStream() {
@@ -421,9 +426,9 @@ func (s *Surface) advanceAssistantStream() {
 	}
 }
 
-func (s *Surface) finalizeAssistantStream(streamID string, text string, frame FrameInput) (Result, error) {
+func (s *Surface) prepareAssistantFinal(streamID string, text string, frame FrameInput) *preparedSurfaceContent {
 	if s.activeAssistant.streamID == nil {
-		return s.appendAssistantFinalWithoutActiveStream(text, frame)
+		return s.prepareAssistantFinalWithoutActiveStream(text, frame)
 	}
 	if *s.activeAssistant.streamID != streamID {
 		panicOngoingDeveloperError("assistant_final", "stream id does not match active stream", map[string]any{
@@ -455,10 +460,7 @@ func (s *Surface) finalizeAssistantStream(streamID string, text string, frame Fr
 	promotedRows := s.renderAssistantPromotedRows(rows, frame.Theme)
 	promotedRows = append(promotedRows, s.drainFinishedTools(frame)...)
 	s.advanceAssistantStream()
-	if _, err := s.writeFrameTransaction(frame, promotedRows); err != nil {
-		return Result{}, err
-	}
-	return s.promoteNextAssistant(frame)
+	return &preparedSurfaceContent{immutableRows: append(promotedRows, s.prepareNextAssistant(frame).immutableRows...)}
 }
 
 func (s *Surface) drainFinishedTools(frame FrameInput) []string {
@@ -470,20 +472,20 @@ func (s *Surface) drainFinishedTools(frame FrameInput) []string {
 	return rows
 }
 
-func (s *Surface) appendAssistantFinalWithoutActiveStream(text string, frame FrameInput) (Result, error) {
+func (s *Surface) prepareAssistantFinalWithoutActiveStream(text string, frame FrameInput) *preparedSurfaceContent {
 	if transcript.IsBlankAssistantFinal(transcript.AssistantFinalCandidate{
 		IsAssistant: true,
 		IsFinal:     true,
 		Content:     &text,
 	}) {
-		return s.writeFrameTransaction(frame, nil)
+		return &preparedSurfaceContent{}
 	}
 	row := &transcriptpb.CommittedRow{
 		Row: &transcriptpb.CommittedRow_Assistant{Assistant: &transcriptpb.AssistantRow{
 			Text: text, Phase: transcriptpb.AssistantPhase_ASSISTANT_PHASE_FINAL,
 		}},
 	}
-	return s.writeFrameTransaction(frame, s.renderCommittedRow(row, frameWidthOrDefault(frame), frame.Theme))
+	return &preparedSurfaceContent{immutableRows: s.renderCommittedRow(row, frameWidthOrDefault(frame), frame.Theme)}
 }
 
 func (s *Surface) Render(frame FrameInput) (Result, error) {

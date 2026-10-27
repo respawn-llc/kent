@@ -92,14 +92,14 @@ func TranscriptSegmentPageForwardFromEventLog(eventLog TranscriptEventLogReader,
 }
 
 func segmentPageFromWindow(window session.EventRecordWindow, cacheWarningMode config.CacheWarningMode) (TranscriptSegmentPage, error) {
-	scan := NewPersistedTranscriptScan(PersistedTranscriptScanRequest{CacheWarningMode: cacheWarningMode})
+	scan := newStreamingTranscriptScan(cacheWarningMode)
 	for _, record := range window.Records {
 		if err := scan.ApplyPersistedEvent(record); err != nil {
 			return TranscriptSegmentPage{}, err
 		}
 	}
 	return TranscriptSegmentPage{
-		Snapshot:     scan.CollectedPageSnapshot(),
+		Snapshot:     scan.PageSnapshot(),
 		OlderCursor:  window.StartOffset,
 		HasMoreAbove: !window.ReachedStart,
 		NewerCursor:  window.EndOffset,
@@ -1030,9 +1030,6 @@ func (e *Engine) emitRaw(evt Event) error {
 }
 
 func (e *Engine) emitRawAtRevision(evt Event, revision int64) error {
-	if evt.Kind == EventToolCallCompleted && evt.ToolResult != nil {
-		evt.NativeToolCallLocator = e.transcriptRuntimeState().chatProjection().nativeToolCallLocator(evt.ToolResult.CallID)
-	}
 	evt.TranscriptRevision = revision
 	carriesCommittedRange := eventShouldCarryCommittedEntryCount(evt)
 	if !carriesCommittedRange {
@@ -1058,6 +1055,7 @@ func (e *Engine) emitRawAtRevision(evt Event, revision int64) error {
 			evt.CommittedEntryStartSet = true
 		}
 	}
+	e.transcriptRuntimeState().correlateNativeToolEvent(&evt)
 	if e.cfg.OnEvent != nil {
 		e.cfg.OnEvent(evt)
 	}

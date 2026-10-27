@@ -3,13 +3,59 @@ package runtime
 import (
 	"context"
 	"encoding/json"
+	"reflect"
 	"testing"
 
 	"core/server/llm"
 	"core/server/tools"
 	"core/shared/textutil"
 	"core/shared/toolspec"
+	"core/shared/transcript"
 )
+
+func TestLocalEntriesCountWithoutChangingProviderHistory(t *testing.T) {
+	t.Parallel()
+	chat := newChatStoreWithCWD(t.TempDir())
+	if err := chat.appendMessage(nil, llm.Message{Role: llm.RoleUser, Content: textutil.Value("request")}); err != nil {
+		t.Fatal(err)
+	}
+	before := chat.snapshotItems()
+	for _, entry := range []ChatEntry{
+		{Text: " \n"},
+		{Text: "notice"},
+		{Visibility: transcript.EntryVisibilityHidden, Text: "hidden notice"},
+		{ReviewerFeedback: &ReviewerFeedbackChatEntry{}},
+		{ReviewerError: &ReviewerErrorChatEntry{}},
+		{CacheWarning: &transcript.CacheWarning{}},
+		{ToolOutputRepair: &transcript.ToolOutputRepairNotice{}},
+		{ProviderModelMismatch: &transcript.ProviderModelMismatchNotice{}},
+	} {
+		chat.countLocalEntry(entry)
+	}
+	if got := chat.committedEntryCount(); got != 8 {
+		t.Fatalf("committed entries = %d, want user plus seven nonblank or typed entries", got)
+	}
+	if got := chat.snapshotItems(); !reflect.DeepEqual(got, before) {
+		t.Fatalf("local entries changed provider history: got %+v, want %+v", got, before)
+	}
+}
+
+func TestHistoryReplacementCountsProjectedRowsAtCommittedBoundary(t *testing.T) {
+	t.Parallel()
+	chat := newChatStoreWithCWD(t.TempDir())
+	items := llm.ItemsFromMessages([]llm.Message{{Role: llm.RoleUser, Content: textutil.Value("summary")}})
+	chat.replaceHistoryAtCommittedEntryStart(nil, items, textutil.Value(12), []ChatEntry{{}, {Text: "summary"}})
+	if got := chat.committedEntryCount(); got != 14 {
+		t.Fatalf("committed entries = %d, want boundary plus both projected rows", got)
+	}
+	chat.replaceHistoryAtCommittedEntryStart(nil, items, textutil.Value(3), []ChatEntry{{}})
+	if got := chat.committedEntryCount(); got != 15 {
+		t.Fatalf("committed entries = %d, want existing count plus projected row", got)
+	}
+	if got := chat.snapshotItems(); !reflect.DeepEqual(got, llm.PrepareResponsesInputItems(items)) {
+		t.Fatalf("replacement provider history = %+v, want %+v", got, items)
+	}
+}
 
 func TestBuildRequestUsesLatestHistoryReplacementAndActiveTail(t *testing.T) {
 	t.Parallel()

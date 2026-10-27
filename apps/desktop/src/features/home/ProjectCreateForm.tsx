@@ -1,18 +1,10 @@
-import { useState, type ChangeEvent } from "react";
-import { useAtomValue } from "@effect/atom-react";
-import { useQueryClient } from "@tanstack/react-query";
+import type { ChangeEvent } from "react";
 import { useForm, type FieldErrors, type RegisterOptions, type UseFormRegisterReturn } from "react-hook-form";
 import { useTranslation } from "react-i18next";
 import { z } from "zod";
 
-import { errorMessage } from "@/api";
-import { useAppNavigation, useTextFieldSubmitShortcut } from "@/app-facade";
-import { useAppServices } from "@/app-facade";
-import { useStatusController } from "@/app-facade";
-import { NativeDialogWindow } from "@/shared/native-dialog";
+import { useTextFieldSubmitShortcut } from "@/app-facade";
 import { Button, Dialog, TextInput } from "@/ui";
-import { cx } from "@/ui";
-import { createProjectCreationModel, useProjectCreationActions } from "./ProjectCreationModel";
 
 const errorMessageSchema = z.string();
 
@@ -23,88 +15,13 @@ export type ProjectDraft = Readonly<{
 }>;
 
 export type ProjectCreateDialogProps = Readonly<{
-  creationError: Error | null;
   draft: ProjectDraft;
-  isCreating: boolean;
-  onClose: () => void;
-  onSubmitDraft: (values: ProjectDraft) => void;
+  onResult: (result: ProjectCreateResult) => void;
 }>;
 
-export function ProjectCreateDialog({
-  creationError,
-  draft,
-  isCreating,
-  onClose,
-  onSubmitDraft,
-}: ProjectCreateDialogProps) {
-  const { t } = useTranslation();
+type ProjectCreateResult = Readonly<{ kind: "cancel" }> | Readonly<{ kind: "confirm"; draft: ProjectDraft }>;
 
-  return (
-    <Dialog
-      className="w-[min(560px,calc(100vw-32px))]"
-      closeLabel={t("app.close")}
-      onClose={onClose}
-      open
-      title={t("home.createProject")}
-    >
-      <ProjectCreateForm
-        creationError={creationError}
-        draft={draft}
-        isCreating={isCreating}
-        onSubmitDraft={onSubmitDraft}
-      />
-    </Dialog>
-  );
-}
-
-export function ProjectCreateWindowRoute({ draft }: Readonly<{ draft: ProjectDraft }>) {
-  const { t } = useTranslation();
-  const services = useAppServices();
-  const { nativeBridge } = services;
-  const client = useQueryClient();
-  const navigation = useAppNavigation();
-  const { push } = useStatusController();
-
-  const [model] = useState(() => createProjectCreationModel({ services, client, t, push }));
-  const creation = useAtomValue(model.state);
-  const actions = useProjectCreationActions(model);
-
-  return (
-    <NativeDialogWindow title={t("home.createProject")}>
-      <ProjectCreateForm
-        className="w-[520px]"
-        creationError={creation.error}
-        draft={draft}
-        isCreating={creation.isPending}
-        onSubmitDraft={(draft) => {
-          actions.submit({
-            draft,
-            notifyCreated: async (projectID) => nativeBridge.projectCreation.notifyCreated({ projectID }),
-            complete: async (projectID, outcome) => {
-              if (outcome === "created") void navigation.openProject(projectID);
-              await nativeBridge.window.closeCurrent();
-            },
-            selectionRequired: () => undefined,
-          });
-        }}
-      />
-    </NativeDialogWindow>
-  );
-}
-
-function ProjectCreateForm({
-  className,
-  creationError,
-  draft,
-  isCreating,
-  onSubmitDraft,
-}: Readonly<{
-  className?: string;
-  creationError: Error | null;
-  draft: ProjectDraft;
-  isCreating: boolean;
-  onSubmitDraft: (values: ProjectDraft) => void;
-}>) {
+export function ProjectCreateDialog({ draft, onResult }: ProjectCreateDialogProps) {
   const { t } = useTranslation();
   const form = useForm<ProjectDraft>({
     criteriaMode: "all",
@@ -114,43 +31,49 @@ function ProjectCreateForm({
   const nameField = form.register("name", projectNameRules(t));
   const keyField = form.register("key", projectKeyRules(t));
   const formShortcut = useTextFieldSubmitShortcut({
-    available: !isCreating,
+    available: true,
     kind: "form",
   });
 
   return (
-    <form
-      className={cx("grid gap-[var(--space-3)]", className)}
-      onKeyDown={formShortcut}
-      onSubmit={(event) => void form.handleSubmit(onSubmitDraft)(event)}
+    <Dialog
+      className="w-[min(560px,calc(100vw-32px))]"
+      closeLabel={t("app.close")}
+      onClose={() => {
+        onResult({ kind: "cancel" });
+      }}
+      open
+      title={t("home.createProject")}
     >
-      <TextInput
-        error={fieldErrorMessages(form.formState.errors, "name")}
-        label={t("home.projectName")}
-        {...nameField}
-      />
-      <TextInput
-        error={fieldErrorMessages(form.formState.errors, "key")}
-        label={t("home.projectKey")}
-        {...keyField}
-        onChange={(event) => {
-          handleUppercaseProjectKeyChange(event, keyField);
-        }}
-      />
-      <TextInput label={t("home.workspaceRoot")} readOnly {...form.register("workspaceRoot")} />
-      {creationError !== null ? (
-        <p className="m-0 text-[var(--color-error)]">{projectCreateErrorMessage(creationError, draft)}</p>
-      ) : null}
-      <Button disabled={isCreating} type="submit" variant="primary">
-        {t("home.createProject")}
-      </Button>
-    </form>
+      <form
+        className="grid gap-[var(--space-3)]"
+        onKeyDown={formShortcut}
+        onSubmit={(event) =>
+          void form.handleSubmit((draft) => {
+            onResult({ kind: "confirm", draft });
+          })(event)
+        }
+      >
+        <TextInput
+          error={fieldErrorMessages(form.formState.errors, "name")}
+          label={t("home.projectName")}
+          {...nameField}
+        />
+        <TextInput
+          error={fieldErrorMessages(form.formState.errors, "key")}
+          label={t("home.projectKey")}
+          {...keyField}
+          onChange={(event) => {
+            handleUppercaseProjectKeyChange(event, keyField);
+          }}
+        />
+        <TextInput label={t("home.workspaceRoot")} readOnly {...form.register("workspaceRoot")} />
+        <Button type="submit" variant="primary">
+          {t("home.createProject")}
+        </Button>
+      </form>
+    </Dialog>
   );
-}
-
-function projectCreateErrorMessage(error: unknown, draft: ProjectDraft): string {
-  const message = errorMessage(error);
-  return `${message} (workspace: ${draft.workspaceRoot}; key: ${draft.key})`;
 }
 
 function projectNameRules(t: ReturnType<typeof useTranslation>["t"]): RegisterOptions<ProjectDraft, "name"> {

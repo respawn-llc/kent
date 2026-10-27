@@ -1,3 +1,4 @@
+import { observeTranscript, observeGoal } from "@/test-support/chat-runtime";
 import { describe, expect, it } from "bun:test";
 import { StreamFailureCode } from "@app/server-api-contract/gen/kent/api/shared/foundation_pb";
 import { unexpectedProjectOverflow } from "@/test-support/api";
@@ -527,11 +528,12 @@ describe("Desktop Chat read client", () => {
 
     const observations: unknown[] = [];
     const observationErrors: Error[] = [];
-    client.chat.subscribeGoal(target, {
+    const goalObservation = observeGoal(client.chat, target, {
       onEvent: (observation) => observations.push(observation),
       onComplete: () => undefined,
       onError: (error) => observationErrors.push(error),
     });
+    await goalObservation.flush();
     transport.emitDescriptor(
       R.GoalService.method.observe,
       R.GoalService.method.observation,
@@ -541,6 +543,7 @@ describe("Desktop Chat read client", () => {
         status: { availability: R.GoalAvailability.AVAILABLE },
       }),
     );
+    await goalObservation.flush();
     expect(observations).toEqual([
       {
         sequence: 1,
@@ -553,9 +556,11 @@ describe("Desktop Chat read client", () => {
       new RpcError({ code: "internal_failure", message: "Session unavailable", method: "goal.observe" }),
     );
     transport.failDescriptor(R.GoalService.method.observe, new TransportError("Subscription socket closed."));
+    await goalObservation.flush();
     expect(observationErrors).toHaveLength(2);
     expect(observationErrors[0]).toBeInstanceOf(RpcError);
     expect(observationErrors[1]).toBeInstanceOf(TransportError);
+    goalObservation.close();
   });
 
   it("reads bounded transcript pages in both cursor directions", async () => {
@@ -668,13 +673,14 @@ describe("Desktop Chat read client", () => {
       },
     ]);
     const client = new ApiClient(transport, unexpectedProjectOverflow);
-    client.chat.subscribeTranscript(target, {
+    const subscription = observeTranscript(client.chat, target, {
       onEvent: (event) => events.push(event),
       onComplete: (completion) => completions.push(completion),
       onError: (error) => errors.push(error),
       onTransportLoss: () => transportLosses.push({}),
     });
     transport.failDescriptor(T.StreamService.method.subscribe, new TransportError("isolated socket loss"));
+    await subscription.flush();
     expect(errors).toEqual([]);
     expect(transportLosses).toHaveLength(1);
 
@@ -686,6 +692,7 @@ describe("Desktop Chat read client", () => {
         event: { payload: { case: "hydration", value: transcriptHydrationPayload() } },
       }),
     );
+    await subscription.flush();
     for (const [sequence, identity] of [
       [2n, "223e4567-e89b-42d3-a456-426614174000"],
       [3n, sessionID],
@@ -717,6 +724,7 @@ describe("Desktop Chat read client", () => {
         transcriptCloseReason: TranscriptCloseReason.SUBSCRIBER_OVERFLOW,
       }),
     );
+    await subscription.flush();
 
     expect(events).toHaveLength(2);
     expect(events[0]).toMatchObject({ sequence: 1, kind: "hydration" });
@@ -726,6 +734,9 @@ describe("Desktop Chat read client", () => {
     expect(completions).toEqual([
       { code: StreamFailureCode.STREAM_GAP, message: "subscriber overflow", reason: "subscriber_overflow" },
     ]);
+
+    await subscription.flush();
+    subscription.close();
   });
 
   it("rejects hydration whose older-history boundary has no cursor", () => {

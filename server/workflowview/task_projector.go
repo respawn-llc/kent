@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"slices"
 	"strings"
 	"time"
 
@@ -233,11 +234,18 @@ func taskActions(
 	for _, execution := range live {
 		hasInterruptibleExecution = hasInterruptibleExecution || !execution.Queued
 	}
+	hasResumableInterruptedNode := slices.ContainsFunc(currentNodes, func(node workflow.CurrentNode) bool {
+		return node.Scheduling != nil &&
+			node.Scheduling.State == workflow.CurrentNodeSchedulingInterrupted &&
+			!slices.ContainsFunc(live, func(execution sessionruntime.TaskExecution) bool {
+				return execution.Ref.CurrentNode.Equal(node.Reference)
+			})
+	})
 	actions := &taskpb.TaskActions{
 		CanStart:     !done && !hasLiveExecution && status.Kind == taskpb.TaskStatusKind_TASK_STATUS_KIND_BACKLOG,
 		CanInterrupt: !done && hasInterruptibleExecution,
 		CanResume: !done &&
-			(len(concurrencyQueued) != 0 ||
+			(hasResumableInterruptedNode || len(concurrencyQueued) != 0 ||
 				(!hasLiveExecution &&
 					(status.Kind == taskpb.TaskStatusKind_TASK_STATUS_KIND_INTERRUPTED ||
 						status.Kind == taskpb.TaskStatusKind_TASK_STATUS_KIND_ACTIVE))),

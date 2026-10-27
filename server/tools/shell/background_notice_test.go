@@ -68,14 +68,8 @@ func TestBackgroundNoticeFinalizedOutputKeepsRetainedLogMetadata(t *testing.T) {
 	if err != nil {
 		t.Fatalf("SummarizeBackgroundEvent: %v", err)
 	}
-	if summary.output.source != completionOutputFinalized {
-		t.Fatalf("notice output source = %d, want finalized", summary.output.source)
-	}
 	if summary.output.inlinePreview == nil {
 		t.Fatal("expected finalized output inline preview")
-	}
-	if !summary.output.retainedLogHasOutput {
-		t.Fatal("expected retained-log output")
 	}
 	if summary.output.logLineCount == nil || *summary.output.logLineCount != 100 {
 		t.Fatalf("retained log line count = %v, want 100", summary.output.logLineCount)
@@ -121,7 +115,7 @@ func TestBackgroundNoticeWarningOnlyOutputDoesNotClaimLogContent(t *testing.T) {
 	if summary.output.visible.HasCommandContent() {
 		t.Fatal("warning-only completion must not acquire command output")
 	}
-	if summary.output.retainedLogHasOutput || summary.output.logLineCount != nil {
+	if summary.output.logLineCount != nil {
 		t.Fatalf("warning-only completion must not claim retained log content: %+v", summary.output)
 	}
 }
@@ -168,9 +162,6 @@ func TestBackgroundNoticeFallbackCarriesTruncationWithoutFinalizedState(t *testi
 	summary, err := SummarizeBackgroundEvent(event, BackgroundNoticeOptions{MaxChars: 80, SuccessOutputMode: BackgroundOutputDefault})
 	if err != nil {
 		t.Fatalf("SummarizeBackgroundEvent: %v", err)
-	}
-	if summary.output.source != completionOutputFallback {
-		t.Fatalf("notice output source = %d, want fallback", summary.output.source)
 	}
 	if summary.output.inlinePreview == nil {
 		t.Fatal("expected fallback inline preview")
@@ -226,7 +217,7 @@ func fallbackPreview(t *testing.T, event Event) string {
 	got, _ := summary.RuntimePreview()
 	return got
 }
-func TestInvariantFailureBackgroundNoticeUsesDistinctTypedProjection(t *testing.T) {
+func TestInvariantFailureBackgroundNoticeRetainsPublicNotice(t *testing.T) {
 	exitCode := 17
 	summary := InvariantFailureBackgroundNotice(Event{
 		Type: EventCompleted,
@@ -238,12 +229,6 @@ func TestInvariantFailureBackgroundNoticeUsesDistinctTypedProjection(t *testing.
 		},
 	}, errors.New("missing completion output"))
 
-	if summary.output.kind != backgroundNoticeOutputInvariantFailure {
-		t.Fatalf("notice output kind = %d, want invariant failure", summary.output.kind)
-	}
-	if summary.output.invariantFailure == nil || summary.output.invariantFailure.message == "" {
-		t.Fatalf("invariant failure projection = %+v", summary.output.invariantFailure)
-	}
 	if summary.DetailText == "" || summary.CondensedText == "" {
 		t.Fatal("invariant failure notice must remain visible through the ordinary notice envelope")
 	}

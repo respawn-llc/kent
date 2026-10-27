@@ -112,27 +112,12 @@ type backgroundInlinePreview struct {
 	text string
 }
 
-type backgroundNoticeOutputKind uint8
-
-const (
-	backgroundNoticeOutputNormal backgroundNoticeOutputKind = iota + 1
-	backgroundNoticeOutputInvariantFailure
-)
-
-type invariantFailureNotice struct {
-	message string
-}
-
 type backgroundNoticeOutput struct {
-	kind                 backgroundNoticeOutputKind
-	source               completionOutputSource
-	visible              visibleShellOutput
-	inlinePreview        *backgroundInlinePreview
-	retainedLogHasOutput bool
-	logLineCount         *int
-	truncated            bool
-	previewRemoved       int
-	invariantFailure     *invariantFailureNotice
+	visible        visibleShellOutput
+	inlinePreview  *backgroundInlinePreview
+	logLineCount   *int
+	truncated      bool
+	previewRemoved int
 }
 
 func (o backgroundNoticeOutput) shouldRenderNoOutputCompletion(exitCode *int) bool {
@@ -225,8 +210,6 @@ func projectBackgroundNoticeOutput(evt Event, maxChars int, mode BackgroundOutpu
 	}
 	completion := evt.completion
 	output := backgroundNoticeOutput{
-		kind:           backgroundNoticeOutputNormal,
-		source:         completion.source,
 		visible:        completion.output,
 		truncated:      completion.removed > 0,
 		previewRemoved: completion.removed,
@@ -246,7 +229,6 @@ func projectBackgroundNoticeOutput(evt Event, maxChars int, mode BackgroundOutpu
 			output.visible.warning = postprocess.MergeWarnings(output.visible.warning, warning)
 		} else {
 			if lineCount > 0 {
-				output.retainedLogHasOutput = true
 				output.logLineCount = &lineCount
 			}
 			if completion.source == completionOutputFallback && mode != BackgroundOutputConcise {
@@ -297,12 +279,7 @@ func InvariantFailureBackgroundNotice(evt Event, cause error) BackgroundNoticeSu
 		DetailText:    strings.Join(detail, "\n"),
 		CondensedText: summary,
 		LogPath:       evt.Snapshot.LogPath,
-		output: backgroundNoticeOutput{
-			kind: backgroundNoticeOutputInvariantFailure,
-			invariantFailure: &invariantFailureNotice{
-				message: message,
-			},
-		},
+		output:        backgroundNoticeOutput{},
 	}
 }
 

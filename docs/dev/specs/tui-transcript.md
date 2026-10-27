@@ -228,6 +228,7 @@
 - A mid-turn message becomes durable only when Kent delivers it.
 - The server-published Live Execution lifecycle and the current server-published pending Question or Approval are the TUI liveness authorities for `Ctrl+C`. While either identifies live work, the TUI sends Interrupt. Otherwise it exits. A second `Ctrl+C` while Interrupt is pending for that same execution exits locally. A later Running lifecycle with a different Live Execution's Step ID sends a new Interrupt. The server revalidates interruption through the Runtime Steering Stop contract. A submission already sent to the server may start or continue after the client detaches.
 - If Interrupt fails, the TUI must refresh authoritative Runtime state and replace its stale activity projection. The refresh must not report idle while the server reports active work.
+- If an independent Runtime state read after accepted Stop fails, the TUI must show the read error and retain its last authoritative activity projection. Existing controls remain unchanged. The failure must not replay Stop or add automatic retries.
 - When a live Runtime projection reports a prompt wait but the corresponding pending prompt is absent, Ongoing Mode requests Scratch Rehydration to recover the authoritative prompt. The execution is interruptible while that projection is being recovered.
 - Interrupt injects detail-only developer-role control message `User interrupted you`.
 - Post-interrupt state returns idle with input ready.

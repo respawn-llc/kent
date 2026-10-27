@@ -370,15 +370,14 @@ func TestUsageFallbackUnavailableIsBoundedAfterCooldownExpires(t *testing.T) {
 		t.Fatalf("attempts = a %d, b %d", aCalls.Load(), bCalls.Load())
 	}
 	var facts *transcript.ConnectionsUnavailableNotice
-	if err := wiring.Engine.WithTranscriptHydrationSnapshot(func(snapshot runtime.TranscriptHydrationSnapshot) error {
-		for _, row := range snapshot.CommittedRows {
-			if row.Notice != nil && row.Notice.ConnectionsUnavailable != nil {
-				facts = row.Notice.ConnectionsUnavailable
-			}
-		}
-		return nil
-	}); err != nil {
+	livePage, err := wiring.Engine.TranscriptNewestSegmentPage()
+	if err != nil {
 		t.Fatal(err)
+	}
+	for _, row := range runtime.TranscriptCommittedRowFactsFromSnapshot(livePage.Snapshot) {
+		if row.Notice != nil && row.Notice.ConnectionsUnavailable != nil {
+			facts = row.Notice.ConnectionsUnavailable
+		}
 	}
 	if facts == nil || len(facts.Members) != 2 || len(facts.Diagnostics) != 2 {
 		t.Fatalf("unavailable notice facts = %+v", facts)

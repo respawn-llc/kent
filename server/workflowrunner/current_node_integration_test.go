@@ -69,11 +69,11 @@ type currentNodeRunnerFixture struct {
 	controller       *workflowexecution.CurrentNodeController
 	starter          *Starter
 	executionTargets *worktree.Service
-	dependencies     *workflowview.TaskDependencies
 	projectID        string
 	workspaceID      string
 	workspace        string
 	client           currentNodeRunnerClient
+	roles            testsetup.RoleResolver
 	persistenceGate  *sessiontest.PersistenceGate
 	controllerClose  error
 
@@ -201,7 +201,8 @@ func newCurrentNodeRunnerFixtureWithClientAndPersistence(
 	if err := metadataStore.SetProjectKey(context.Background(), binding.ProjectID, "RUN"); err != nil {
 		t.Fatalf("set project key: %v", err)
 	}
-	store, err := workflowstore.New(metadataStore, workflowstore.WithRoleResolver(testsetup.QuestionsEnabled("coder", "reviewer")))
+	roles := testsetup.QuestionsEnabled("coder", "reviewer")
+	store, err := workflowstore.New(metadataStore, workflowstore.WithRoleResolver(roles))
 	if err != nil {
 		t.Fatalf("new workflow store: %v", err)
 	}
@@ -213,6 +214,7 @@ func newCurrentNodeRunnerFixtureWithClientAndPersistence(
 		workspaceID: binding.WorkspaceID,
 		workspace:   binding.CanonicalRoot,
 		client:      client,
+		roles:       roles,
 	}
 	storeOptions := metadataStore.AuthoritativeSessionStoreOptions()
 	if withPersistenceGate {
@@ -294,19 +296,7 @@ func newCurrentNodeRunnerFixtureWithClientAndPersistence(
 		t.Fatalf("new current node controller: %v", err)
 	}
 	fixture.controller = controller
-	projection, err := workflowview.NewTaskStatusProjection(
-		store,
-		workflowview.NewTaskProjector(),
-		controller,
-	)
-	if err != nil {
-		t.Fatalf("new Task status projection: %v", err)
-	}
-	dependencies, err := workflowview.NewTaskDependencies(metadataStore, projection, dependencyCounter)
-	if err != nil {
-		t.Fatalf("new Task dependency projection: %v", err)
-	}
-	fixture.dependencies = dependencies
+	fixture.authority.SetWorkflowSessionExecutionOwner(controller)
 	return fixture
 }
 
@@ -537,6 +527,7 @@ func (f *currentNodeRunnerFixture) restartRuntime(t *testing.T) {
 	if err != nil {
 		t.Fatalf("new restarted Current Node controller: %v", err)
 	}
+	f.authority.SetWorkflowSessionExecutionOwner(f.controller)
 }
 
 func (f *currentNodeRunnerFixture) waitForCurrentNode(t *testing.T, taskID workflow.TaskID, predicate func([]workflow.CurrentNode) bool) []workflow.CurrentNode {
@@ -905,18 +896,20 @@ func (f *currentNodeRunnerFixture) waitForAssistantFinal(
 			context.Background(),
 			sessionID,
 			func(_ context.Context, engine *agentruntime.Engine) error {
-				return engine.WithTranscriptHydrationSnapshot(func(snapshot agentruntime.TranscriptHydrationSnapshot) error {
-					for _, row := range snapshot.CommittedRows {
-						if row.Kind == agentruntime.TranscriptCommittedRowFactAssistant &&
-							row.Assistant != nil &&
-							row.Assistant.Phase == llm.MessagePhaseFinal &&
-							row.Assistant.Text == text {
-							found = true
-							return nil
-						}
+				page, err := engine.TranscriptNewestSegmentPage()
+				if err != nil {
+					return err
+				}
+				for _, row := range agentruntime.TranscriptCommittedRowFactsFromSnapshot(page.Snapshot) {
+					if row.Kind == agentruntime.TranscriptCommittedRowFactAssistant &&
+						row.Assistant != nil &&
+						row.Assistant.Phase == llm.MessagePhaseFinal &&
+						row.Assistant.Text == text {
+						found = true
+						return nil
 					}
-					return nil
-				})
+				}
+				return nil
 			},
 		)
 		if err != nil {
@@ -1324,9 +1317,7 @@ func TestCompletedWorkflowSessionAllowsOrdinaryInteractiveContinuation(t *testin
 	f.openRetainedRuntime(t, sessionID)
 
 	service := runtimecontrol.NewService(f.authority, nil).
-		WithPromptHistoryStore(f.metadata).
-		WithWorkflowSessionReactivator(f.controller).
-		WithWorkflowSessionPreparationReader(f.controller)
+		WithPromptHistoryStore(f.metadata)
 	response, err := service.SubmitUserTurn(
 		context.Background(),
 		&runtimepb.SubmitUserTurnRequest{QueueItemId: runtimeids.NewQueueItemID().String(), SessionId: sessionID.String(),
@@ -1451,9 +1442,7 @@ func TestWorkflowMovedPastSessionAllowsOrdinaryInteractiveContinuation(t *testin
 	f.openRetainedRuntime(t, sessionID)
 
 	service := runtimecontrol.NewService(f.authority, nil).
-		WithPromptHistoryStore(f.metadata).
-		WithWorkflowSessionReactivator(f.controller).
-		WithWorkflowSessionPreparationReader(f.controller)
+		WithPromptHistoryStore(f.metadata)
 	response, err := service.SubmitUserTurn(
 		context.Background(),
 		&runtimepb.SubmitUserTurnRequest{QueueItemId: runtimeids.NewQueueItemID().String(), SessionId: sessionID.String(),
@@ -3106,9 +3095,7 @@ func TestInteractivePreparedGenerationRestoresWorkflowAssignment(t *testing.T) {
 				time.Sleep(10 * time.Millisecond)
 			}
 			service := runtimecontrol.NewService(f.authority, f.metadata).
-				WithPromptHistoryStore(f.metadata).
-				WithWorkflowSessionReactivator(f.controller).
-				WithWorkflowSessionPreparationReader(f.controller)
+				WithPromptHistoryStore(f.metadata)
 			message := "ordinary conversation"
 			submission, err := service.SubmitUserTurn(t.Context(), &runtimepb.SubmitUserTurnRequest{QueueItemId: runtimeids.NewQueueItemID().String(), SessionId: sessionID.String(), Input: &runtimepb.UserTurnInput{
 				Input: &runtimepb.UserTurnInput_Text{Text: message}},
@@ -3759,7 +3746,7 @@ func TestCurrentNodeAgentUsesDurableCommentCountWithoutReadingCommentBodies(t *t
 	}
 }
 
-func TestCurrentNodeTaskAwarenessMatchesCanonicalDependencyProjectionAcrossTerminalChanges(t *testing.T) {
+func TestCurrentNodeTaskAwarenessFollowsTerminalChanges(t *testing.T) {
 	f := newCurrentNodeRunnerFixture(t)
 	workflowID := createCurrentNodeAgentWorkflow(t, f.store)
 	blocker := f.createTask(t, workflowID)
@@ -3776,13 +3763,8 @@ func TestCurrentNodeTaskAwarenessMatchesCanonicalDependencyProjectionAcrossTermi
 		if err != nil {
 			t.Fatalf("TaskAwareness: %v", err)
 		}
-		projected, err := f.dependencies.GetTaskDependencies(context.Background(), string(blocked.ID))
-		if err != nil {
-			t.Fatalf("GetTaskDependencies: %v", err)
-		}
-		if awareness.UnsatisfiedDependencyCount != want ||
-			awareness.UnsatisfiedDependencyCount != int64(projected.UnsatisfiedBlockerCount) {
-			t.Fatalf("awareness/projection unsatisfied count = %d/%d, want %d", awareness.UnsatisfiedDependencyCount, projected.UnsatisfiedBlockerCount, want)
+		if awareness.UnsatisfiedDependencyCount != int64(want) {
+			t.Fatalf("awareness unsatisfied count = %d, want %d", awareness.UnsatisfiedDependencyCount, want)
 		}
 	}
 	assertAwareness(1)

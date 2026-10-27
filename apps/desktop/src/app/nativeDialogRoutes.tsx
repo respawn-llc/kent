@@ -1,33 +1,13 @@
 import { createRoute, type Register, type RootRoute } from "@tanstack/react-router";
 import { z } from "zod";
 
-import { TaskDeleteWindowRoute, taskDeleteNativeDialogPath } from "@/features/board";
-import { ProjectCreateWindowRoute } from "@/features/home";
-import { ProjectDeleteWindowRoute } from "@/features/project-edit";
 import { TaskDetailWindowRoute } from "@/features/task-detail";
 import { InvalidNativeDialogRoute } from "./InvalidNativeDialogRoute";
 import { taskDetailNativeDialogPath } from "./sidebarPopOut";
-import { useWindowChromeTitle, nativeChatRoutePath } from "@/app-facade";
+import { nativeChatRoutePath } from "@/app-facade";
 import { NativeChatRoute } from "./NativeChatRoute";
 
-export const projectDeleteNativeDialogPath = "/native-dialog/project-delete";
-export { taskDeleteNativeDialogPath };
-
 const optionalSearchString = z.string().catch("");
-
-const projectCreateSearchSchema = z.object({
-  key: optionalSearchString,
-  name: optionalSearchString,
-  workspaceRoot: optionalSearchString,
-});
-
-const projectDeleteSearchSchema = z.object({
-  projectID: optionalSearchString,
-});
-
-const taskDeleteSearchSchema = z.object({
-  taskID: optionalSearchString,
-});
 
 const taskDetailSearchSchema = z.object({
   taskID: optionalSearchString,
@@ -55,52 +35,6 @@ export function createNativeDialogRoutes(rootRoute: RootRoute<Register>) {
     if (chat.kind === "invalid") return <InvalidNativeDialogRoute />;
     return <NativeChatRoute key={chat.sessionID} projectID={chat.projectID} sessionID={chat.sessionID} />;
   }
-  const projectCreateRoute = createRoute({
-    getParentRoute: () => rootRoute,
-    path: "/native-dialog/project-create",
-    validateSearch: (search: Record<string, unknown>) => projectCreateSearchSchema.parse(search),
-    component: ProjectCreateNativeRoute,
-  });
-
-  function ProjectCreateNativeRoute() {
-    const search = projectCreateSearchSchema.parse(projectCreateRoute.useSearch());
-    return <ProjectCreateWindowRoute draft={search} />;
-  }
-
-  const projectDeleteRoute = createRoute({
-    getParentRoute: () => rootRoute,
-    path: projectDeleteNativeDialogPath,
-    validateSearch: (search: Record<string, unknown>) => projectDeleteSearchSchema.parse(search),
-    component: ProjectDeleteNativeRoute,
-  });
-
-  function ProjectDeleteNativeRoute() {
-    const search = projectDeleteSearchSchema.parse(projectDeleteRoute.useSearch());
-    const projectID = search.projectID.trim();
-    useWindowChromeTitle(null);
-    if (projectID.length === 0) {
-      return <InvalidNativeDialogRoute />;
-    }
-    return <ProjectDeleteWindowRoute projectID={projectID} />;
-  }
-
-  const taskDeleteWindowRoute = createRoute({
-    getParentRoute: () => rootRoute,
-    path: taskDeleteNativeDialogPath,
-    validateSearch: (search: Record<string, unknown>) => taskDeleteSearchSchema.parse(search),
-    component: TaskDeleteNativeRoute,
-  });
-
-  function TaskDeleteNativeRoute() {
-    const search = taskDeleteSearchSchema.parse(taskDeleteWindowRoute.useSearch());
-    const taskID = search.taskID.trim();
-    useWindowChromeTitle(null);
-    if (taskID.length === 0) {
-      return <InvalidNativeDialogRoute />;
-    }
-    return <TaskDeleteWindowRoute taskID={taskID} />;
-  }
-
   const taskDetailWindowRoute = createRoute({
     getParentRoute: () => rootRoute,
     path: taskDetailNativeDialogPath,
@@ -117,11 +51,5 @@ export function createNativeDialogRoutes(rootRoute: RootRoute<Register>) {
     return <TaskDetailWindowRoute taskID={taskID} />;
   }
 
-  return [
-    projectCreateRoute,
-    projectDeleteRoute,
-    taskDeleteWindowRoute,
-    taskDetailWindowRoute,
-    chatRoute,
-  ] as const;
+  return [taskDetailWindowRoute, chatRoute] as const;
 }

@@ -7,7 +7,7 @@
 
 - All surface elevations use the shared global shadow styles in light and dark themes. Shadows must provide soft, low-contrast separation with diffuse edges. Individual screens use those shared styles rather than defining their own shadow treatments.
 
-- Desktop must buffer at most 1,000 pending events per discrete shell observation: notification activation, file drops, Project deletion, attention events, and navigation history. When an observation reaches this limit, production Desktop must drop each incoming overflow event, log it, and continue observing. Debug Desktop must surface a fatal UI error without a retryable status. The native process and browser may stay open after this error. Desktop must not replay dropped events. Overflow must not change server-owned work.
+- Desktop must buffer at most 1,000 pending events per discrete shell observation: notification activation, file drops, attention events, and navigation history. When an observation reaches this limit, production Desktop must drop each incoming overflow event, log it, and continue observing. Debug Desktop must surface a fatal UI error without a retryable status. The native process and browser may stay open after this error. Desktop must not replay dropped events. Overflow must not change server-owned work.
 
 - On macOS and Linux, dropping local files into a Desktop window must insert their absolute paths as plain text at the focused editable text input's selection. Multiple paths must be separated by spaces. If no editable text input is focused, Desktop must ignore the drop.
 - File drops must never replace the application with the dropped file or create attachments. Windows and browser presentation must ignore file drops and support internal board dragging.
@@ -49,6 +49,7 @@
 - The shortcut must not change the field's ordinary Enter behavior.
 - Desktop uses localized user-facing text, accessible controls, standard compact loading, error, and empty states, and motion that respects reduced-motion preference. On macOS, Linux, and browser presentation, top chrome uses a contrast fade for readability. Windows uses progressive blur without a darkening fade.
 - Dialogs, popups, confirmation flows, and dropdowns only collect an operator result, except for read-only subscription-usage inspection. Result-collecting surfaces close before returning that result to their parent destination. The parent destination owns navigation, server requests, pending state, failures, and retries through its action paths.
+- Project creation and Project and Task deletion use in-window dialogs. Confirmation results that are inapplicable do nothing.
 - Cards are reserved for board Task cards. Navigation, browsing, and selection collections use list rows.
 - Workflow browsing rows show the Workflow name, description, version, and an Edit action. Selecting the row opens the Workflow editor. Edit opens Workflow settings without loading the Workflow graph.
 
@@ -85,7 +86,6 @@
 
 ## Projects and workspaces
 
-- If native Project-created notifications exceed Home's bounded observation capacity, Home must stop that observation and show a temporary error. Home must not automatically restart the observation or replay notifications. This failure must not affect Project creation or accepted server work.
 
 - Shared Project-workspace relationships and detach safety follow the [Projects And Workspaces](project-workspaces.md) specification.
 - Choosing a directory already attached to a Project opens that Project. Choosing an unattached directory opens Project creation with an editable name and Project Key. The default name is the directory basename.

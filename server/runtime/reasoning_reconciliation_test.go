@@ -223,8 +223,8 @@ func TestReasoningTraceDurationRestoresThroughPersistedTranscript(t *testing.T) 
 	if err := reopened.restoreMessages(); err != nil {
 		t.Fatalf("restore persisted transcript: %v", err)
 	}
-	snapshot := hydrationSnapshot(t, reopened)
-	for _, row := range snapshot.CommittedRows {
+	rows := mustNewestTranscriptFacts(t, reopened)
+	for _, row := range rows {
 		if row.Kind == TranscriptCommittedRowFactReasoningTrace && row.ReasoningTrace != nil {
 			if row.ReasoningTrace.DurationMs == nil {
 				t.Fatal("restored reasoning trace omitted duration")
@@ -232,7 +232,7 @@ func TestReasoningTraceDurationRestoresThroughPersistedTranscript(t *testing.T) 
 			return
 		}
 	}
-	t.Fatalf("restored reasoning trace row missing: %+v", snapshot.CommittedRows)
+	t.Fatalf("restored reasoning trace row missing: %+v", rows)
 }
 
 func TestCompletedResponseAbortThenReasoningResetWithoutAssistantStream(t *testing.T) {
@@ -362,7 +362,7 @@ func TestThinkingStatusReplacesProvisionalHeaderWithoutLosingRealReasoning(t *te
 		t.Fatal(err)
 	}
 	var reasoningRows int
-	for _, row := range hydrationSnapshot(t, engine).CommittedRows {
+	for _, row := range mustNewestTranscriptFacts(t, engine) {
 		if row.Kind == TranscriptCommittedRowFactReasoningTrace {
 			reasoningRows++
 			if row.ReasoningTrace.Text != "actual reasoning" {
@@ -517,10 +517,10 @@ func TestReconcileReasoningPersistsValidUnprovisionedCoordinateAsCompletedOnly(t
 	}}); err != nil {
 		t.Fatalf("reconcile completed-only coordinate: %v", err)
 	}
-	hydration := hydrationSnapshot(t, engine)
-	if len(hydration.CommittedRows) == 0 || hydration.CommittedRows[len(hydration.CommittedRows)-1].Kind != TranscriptCommittedRowFactReasoningTrace ||
-		hydration.CommittedRows[len(hydration.CommittedRows)-1].ReasoningTrace.ProvisionalIdentity != nil {
-		t.Fatalf("completed-only hydration rows = %+v", hydration.CommittedRows)
+	rows := mustNewestTranscriptFacts(t, engine)
+	if len(rows) == 0 || rows[len(rows)-1].Kind != TranscriptCommittedRowFactReasoningTrace ||
+		rows[len(rows)-1].ReasoningTrace.ProvisionalIdentity != nil {
+		t.Fatalf("completed-only hydration rows = %+v", rows)
 	}
 }
 
@@ -597,9 +597,9 @@ func TestRunStepLoopResolvesCompletedOnlyReasoningAtBoundary(t *testing.T) {
 	if _, err := engine.SubmitUserMessage(context.Background(), "turn"); err != nil {
 		t.Fatalf("submit completed-only reasoning turn: %v", err)
 	}
-	hydration := hydrationSnapshot(t, engine)
+	rows := mustNewestTranscriptFacts(t, engine)
 	found := false
-	for _, row := range hydration.CommittedRows {
+	for _, row := range rows {
 		if row.Kind == TranscriptCommittedRowFactReasoningTrace && row.ReasoningTrace != nil &&
 			row.ReasoningTrace.Text == "completed" &&
 			row.ReasoningTrace.ProvisionalIdentity == nil {
@@ -607,7 +607,7 @@ func TestRunStepLoopResolvesCompletedOnlyReasoningAtBoundary(t *testing.T) {
 		}
 	}
 	if !found {
-		t.Fatalf("completed-only reasoning row missing from hydration: %+v", hydration.CommittedRows)
+		t.Fatalf("completed-only reasoning row missing from hydration: %+v", rows)
 	}
 }
 
@@ -629,14 +629,14 @@ func TestRunStepLoopNoopAcceptanceCommitsReasoning(t *testing.T) {
 	if _, err := engine.SubmitUserMessage(context.Background(), "turn"); err != nil {
 		t.Fatalf("submit noop reasoning turn: %v", err)
 	}
-	hydration := hydrationSnapshot(t, engine)
-	for _, row := range hydration.CommittedRows {
+	rows := mustNewestTranscriptFacts(t, engine)
+	for _, row := range rows {
 		if row.Kind == TranscriptCommittedRowFactReasoningTrace && row.ReasoningTrace != nil &&
 			row.ReasoningTrace.Text == "noop reasoning" {
 			return
 		}
 	}
-	t.Fatalf("noop reasoning row missing from hydration: %+v", hydration.CommittedRows)
+	t.Fatalf("noop reasoning row missing from hydration: %+v", rows)
 }
 
 func TestReasoningCumulativeUpdatesKeepIdentityAndPosition(t *testing.T) {
@@ -782,9 +782,9 @@ func TestCorrelatedReasoningCommitEmitsOneRowAndConsumesIdentity(t *testing.T) {
 	if persistedRows != 1 {
 		t.Fatalf("persisted correlated reasoning rows = %d, want one", persistedRows)
 	}
-	hydration := hydrationSnapshot(t, engine)
+	rows := mustNewestTranscriptFacts(t, engine)
 	hydratedRows := 0
-	for _, row := range hydration.CommittedRows {
+	for _, row := range rows {
 		if row.Kind == TranscriptCommittedRowFactReasoningTrace {
 			hydratedRows++
 			if row.ReasoningTrace == nil || row.ReasoningTrace.Text != "trace" {
@@ -835,8 +835,8 @@ func TestReasoningProjectionDoesNotRewritePersistedText(t *testing.T) {
 	if persistedRows != 1 {
 		t.Fatalf("persisted reasoning local entries = %d, want one", persistedRows)
 	}
-	hydration := hydrationSnapshot(t, engine)
-	for _, row := range hydration.CommittedRows {
+	rows := mustNewestTranscriptFacts(t, engine)
+	for _, row := range rows {
 		if row.Kind == TranscriptCommittedRowFactReasoningTrace && row.ReasoningTrace != nil {
 			if row.ReasoningTrace.Text != "raw reasoning" {
 				t.Fatalf("projected reasoning text = %q, want presentation cleanup", row.ReasoningTrace.Text)
@@ -844,7 +844,7 @@ func TestReasoningProjectionDoesNotRewritePersistedText(t *testing.T) {
 			return
 		}
 	}
-	t.Fatalf("projected reasoning row missing: %+v", hydration.CommittedRows)
+	t.Fatalf("projected reasoning row missing: %+v", rows)
 }
 
 func textPointer(value string) *string {

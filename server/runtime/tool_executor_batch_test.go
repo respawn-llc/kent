@@ -282,11 +282,11 @@ func TestExecuteToolCallsCommitsHandlerErrorAsHonestResult(t *testing.T) {
 	if len(results) != 1 || !results[0].IsError {
 		t.Fatalf("handler error results = %+v, want one honest error result", results)
 	}
-	snapshot := mustTranscriptHydrationSnapshot(t, engine)
-	if rows := countHydratedToolRows(snapshot, "handler-error"); rows != 1 {
+	facts := mustNewestTranscriptFacts(t, engine)
+	if rows := countHydratedToolRows(facts, "handler-error"); rows != 1 {
 		t.Fatalf("handler error projected tool rows = %d, want 1", rows)
 	}
-	for _, row := range snapshot.CommittedRows {
+	for _, row := range facts {
 		if row.Tool != nil && row.Tool.ToolCallID == "handler-error" && !row.Tool.IsError {
 			t.Fatalf("handler error row = %+v, want error", row)
 		}
@@ -429,9 +429,9 @@ func TestExecuteSiblingToolCallsIndependentlyAdmitOneApprovalAndCommitOneGroup(t
 			len(calls)*2,
 		)
 	}
-	snapshot := mustTranscriptHydrationSnapshot(t, engine)
+	facts := mustNewestTranscriptFacts(t, engine)
 	for _, call := range calls {
-		if rows := countHydratedToolRows(snapshot, call.ID); rows != 1 {
+		if rows := countHydratedToolRows(facts, call.ID); rows != 1 {
 			t.Fatalf("projected tool rows for %s = %d, want 1", call.ID, rows)
 		}
 	}
