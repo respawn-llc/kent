@@ -2,8 +2,23 @@ package ongoing
 
 import (
 	"fmt"
+	"io"
 	"strings"
+
+	"github.com/charmbracelet/x/ansi"
 )
+
+func (s *Surface) writeTerminalFrame(frame string) error {
+	payload := ansi.SetModeSynchronizedOutput + frame + ansi.ResetModeSynchronizedOutput
+	n, err := io.WriteString(s.writer, payload)
+	if err != nil {
+		return err
+	}
+	if n != len(payload) {
+		return io.ErrShortWrite
+	}
+	return nil
+}
 
 func resetScrollRegionAndOriginMode() string {
 	return "\x1b[r\x1b[?6l"
@@ -21,17 +36,11 @@ func writeMutableBandErase(builder *strings.Builder, terminalHeight, bandHeight 
 	if bandHeight <= 0 {
 		return
 	}
-	writeMutableRowsErase(builder, terminalHeight-bandHeight+1, terminalHeight)
-}
-
-func writeMutableRowsErase(builder *strings.Builder, startRow, endRow int) {
-	for row := startRow; row <= endRow; row++ {
-		fmt.Fprintf(builder, "\x1b[%d;1H", row)
-		// Retire semantic prompt metadata before this row can rejoin the
-		// immutable area; erasing cells alone does not clear that metadata.
-		builder.WriteString(semanticOutputSequence())
-		builder.WriteString("\x1b[2K")
-	}
+	fmt.Fprintf(builder, "\x1b[%d;1H", terminalHeight-bandHeight+1)
+	builder.WriteString(semanticOutputSequence())
+	// ED clears row metadata below the cursor as well as cells. Per-row EL
+	// leaves OUTPUT_START markers that block native prompt resize detection.
+	builder.WriteString("\x1b[J")
 }
 
 func writeImmutableRegionScrollForLiveBandGrowth(builder *strings.Builder, terminalHeight, previousBandHeight, nextBandHeight int) {

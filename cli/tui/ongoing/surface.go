@@ -434,7 +434,7 @@ func (s *Surface) ResetForScratchHydration(reason RehydrateReason, frame FrameIn
 		writeMutableBandErase(&transaction, frame.Size.Height, s.previousMutableBandHeight(frame.Size))
 	}
 	writeCursor(&transaction, Cursor{})
-	if _, err := io.WriteString(s.writer, transaction.String()); err != nil {
+	if err := s.writeTerminalFrame(transaction.String()); err != nil {
 		return Result{}, err
 	}
 	s.retainedBandHeight = 0
