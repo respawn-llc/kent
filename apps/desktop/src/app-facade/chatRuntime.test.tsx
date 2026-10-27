@@ -776,8 +776,10 @@ describe("mounted Chat Runtime owner", () => {
       initial.onComplete({ code: null, message: null, reason: null });
     });
 
-    expect(fixture.handlers).toHaveLength(2);
-    expect(owner.snapshot.observation.kind).toBe("observing");
+    await waitFor(() => {
+      expect(fixture.handlers).toHaveLength(2);
+      expect(owner.snapshot.observation.kind).toBe("observing");
+    });
     expect(fixture.getMainView).toHaveBeenCalledTimes(1);
     olderPage.resolve({
       ...transcriptPage(null),

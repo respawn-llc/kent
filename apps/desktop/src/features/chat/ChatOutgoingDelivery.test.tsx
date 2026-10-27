@@ -28,6 +28,7 @@ it("releases a busy submission after two seconds and keeps subsequent typing thr
     await act(async () => {
       view.handlers[0]?.onEvent({ sequence: 1, kind: "hydration", payload: hydration() });
     });
+    await screen.findByRole("button", { name: appI18n.t("chatComposer.stop") });
     const user = userEvent.setup({ delay: null });
     await user.type(editor, "Busy submission");
     fireEvent.click(screen.getByRole("button", { name: appI18n.t("chatComposer.send") }));
