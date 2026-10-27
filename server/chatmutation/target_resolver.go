@@ -7,12 +7,12 @@ import (
 	"core/server/launch"
 	"core/server/metadata"
 	"core/server/promptcommands"
-	"core/server/runtimecontrol"
 	"core/server/session"
 	"core/server/sessionlaunch"
 	"core/shared/clientui"
 	"core/shared/protoapi"
 	chatpb "core/shared/protoapi/gen/kent/api/chat"
+	runtimepb "core/shared/protoapi/gen/kent/api/runtime"
 	sessionlaunchpb "core/shared/protoapi/gen/kent/api/session_launch"
 	worktreepb "core/shared/protoapi/gen/kent/api/worktree"
 	"core/shared/runtimeids"
@@ -25,6 +25,10 @@ type SessionCreationService interface {
 
 type WorktreeEnteringService interface {
 	EnterWorktree(context.Context, *worktreepb.EnterRequest) (*worktreepb.ScheduledAcknowledgement, error)
+}
+
+type RuntimeActivityResolver interface {
+	RuntimeReadModelFeedSnapshot(context.Context, string) (*runtimepb.ReadModelUpdate, error)
 }
 
 type SessionLaunchServiceResolver func(
@@ -50,7 +54,7 @@ type TargetResolver struct {
 	persistedSessions session.PersistedSessionResolver
 	sessionLaunch     SessionLaunchServiceResolver
 	sourceLaunch      SessionRuntimePlannerResolver
-	activity          runtimecontrol.RuntimeActivityResolver
+	activity          RuntimeActivityResolver
 	worktrees         WorktreeEnteringService
 }
 
@@ -58,7 +62,7 @@ func NewTargetResolver(
 	persistedSessions session.PersistedSessionResolver,
 	sessionLaunch SessionLaunchServiceResolver,
 	sourceLaunch SessionRuntimePlannerResolver,
-	activity runtimecontrol.RuntimeActivityResolver,
+	activity RuntimeActivityResolver,
 	store *metadata.Store,
 	worktrees WorktreeEnteringService,
 ) *TargetResolver {

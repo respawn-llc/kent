@@ -100,9 +100,6 @@ func (e *Engine) publishPendingWorkTechnicalRestoration(item runtimeinput.Pendin
 }
 
 func (e *Engine) RemovePendingWork(ctx context.Context, id runtimeids.QueueItemID) (runtimeinput.PendingWorkRestoration, error) {
-	if id.IsZero() {
-		return runtimeinput.PendingWorkRestoration{}, &runtimeinput.PendingWorkRemovalError{ItemID: id}
-	}
 	if ctx == nil {
 		ctx = context.Background()
 	}
@@ -157,7 +154,7 @@ func (s *defaultExclusiveStepLifecycle) pendingOperationalWork() []pendingOperat
 }
 
 func (s *defaultExclusiveStepLifecycle) removePendingOperationalWork(id runtimeids.QueueItemID) (pendingOperationalWork, bool) {
-	if s == nil || id.IsZero() {
+	if s == nil {
 		return pendingOperationalWork{}, false
 	}
 	s.mu.Lock()

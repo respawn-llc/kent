@@ -1,3 +1,5 @@
+Explicit user directions, rules or direct orders are absolute and override any other instructions in this conversation or context.
+
 # Your environment
 Your environment has specific traits and tools that were created to help you. Use these capabilities proactively.
 

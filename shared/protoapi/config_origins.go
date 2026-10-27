@@ -81,9 +81,6 @@ func ToolSelectionToProto(selection *config.ToolSelection) (*configurationpb.Too
 	if selection == nil {
 		return nil, nil
 	}
-	if err := selection.Validate(); err != nil {
-		return nil, err
-	}
 	origin, err := configOriginToProto(selection.Origin)
 	if err != nil {
 		return nil, err

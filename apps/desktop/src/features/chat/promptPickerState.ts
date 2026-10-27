@@ -22,7 +22,7 @@ export type PickerState = Readonly<{
 export type PickerAction =
   | Readonly<{ kind: "sync" | "confirm" | "decline" }>
   | Readonly<{ kind: "select" | "activate"; selection: PickerSelection }>
-  | Readonly<{ kind: "commentary"; text: string }>
+  | Readonly<{ kind: "commentary"; text: string; toolCallID?: string }>
   | Readonly<{ kind: "navigate"; direction: -1 | 1 }>;
 export type PickerTransition = Readonly<{
   state: PickerState;
@@ -90,14 +90,14 @@ function editDraft(
   if (action.kind === "confirm" && [...drafts.values()].every(isPickerDraftComplete) && batchReady(batch)) {
     return { state, effect: "submit" };
   }
+  if (action.kind === "commentary") {
+    setCommentary(drafts, current, action);
+    return { state, effect: "none" };
+  }
   if (draft.status === "declined") return { state, effect: "none" };
   if (action.kind === "decline") {
     drafts.set(current, { ...draft, status: "declined" });
     return advance(state, batch, index);
-  }
-  if (action.kind === "commentary") {
-    drafts.set(current, { ...draft, commentary: action.text, status: "tentative" });
-    return { state, effect: "none" };
   }
   if (action.kind === "select" || action.kind === "activate") {
     const chosen = selectDraft(draft, action);
@@ -110,6 +110,18 @@ function editDraft(
   if (invalid !== null) return { state, effect: invalid };
   drafts.set(current, { ...selected, status: "answered" });
   return advance(state, batch, index);
+}
+
+function setCommentary(
+  drafts: Map<string, PickerDraft>,
+  current: string,
+  action: Extract<PickerAction, { kind: "commentary" }>,
+): void {
+  const target = action.toolCallID ?? current;
+  const draft = drafts.get(target);
+  if (draft !== undefined && draft.status !== "declined") {
+    drafts.set(target, { ...draft, commentary: action.text, status: "tentative" });
+  }
 }
 
 function invalidAnswer(selected: PickerDraft): "none" | "focus-field" | null {

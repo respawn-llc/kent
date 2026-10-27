@@ -85,12 +85,11 @@ const (
 )
 
 type runtimeControlDoneMsg struct {
-	token        uint64
-	sessionID    string
-	operation    runtimeControlOperation
-	name         *runtimepb.SessionNameMutation
-	runtimeTuple *runtimeTupleCandidate
-	err          error
+	token     uint64
+	sessionID string
+	operation runtimeControlOperation
+	name      *runtimepb.SessionNameMutation
+	err       error
 }
 
 type chatSettingsDoneMsg struct {

@@ -132,8 +132,10 @@ func (m *uiModel) statusLineSpinning() bool {
 	if m == nil {
 		return false
 	}
-	return m.pendingNewChatActions > 0 || m.sessionObservationLoading() || (m.runtimeActivityBusy() && m.activity != uiActivityQuestion) ||
-		m.isReviewerActive()
+	if m.sessionPreparationPending() || m.isReviewerActive() {
+		return true
+	}
+	return m.runtimeActivityBusy() && m.activity != uiActivityQuestion
 }
 
 func (m *uiModel) setRuntimeContextUsage(sessionID string, usage *runtimepb.ContextUsage) {

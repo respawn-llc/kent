@@ -10,6 +10,7 @@ type runtimeWiring struct {
 	chatMutations          apicontract.ChatMutationService
 	chatSettings           apicontract.ChatSettingsService
 	controls               apicontract.RuntimeControlService
+	liveControls           apicontract.RuntimeLiveControlService
 	pendingWork            apicontract.RuntimePendingWorkService
 	preparation            *sessionlaunchpb.SessionRuntimePreparationOptions
 	attentionNotifications apicontract.AttentionNotificationService

@@ -72,11 +72,13 @@ type PendingWorkItem struct {
 	WorktreeTransition *PendingWorkWorktreeTransition `json:"worktree_transition,omitempty"`
 }
 
+const ManualCompactionToken = "/compact"
+
 func (c ManualCompactionAdmission) CanonicalInput() string {
 	if c.Guidance == nil {
-		return "/compact"
+		return ManualCompactionToken
 	}
-	return "/compact " + *c.Guidance
+	return ManualCompactionToken + " " + *c.Guidance
 }
 
 func (t PendingWorkWorktreeTransition) CanonicalInput() (string, error) {

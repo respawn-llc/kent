@@ -44,13 +44,24 @@ type newSessionSettingsRetry struct {
 	command    *commands.Result
 }
 
+func (m *uiModel) sessionPreparationPending() bool {
+	if m.pendingNewChatActions > 0 || m.sessionObservationLoading() {
+		return true
+	}
+	target := m.newSessionTarget()
+	if target == nil {
+		return false
+	}
+	_, loading := target.settingsLoad.(uiNewSettingsLoading)
+	return loading
+}
+
 func (m *uiModel) loadNewSessionSettingsCmd(retry *newSessionSettingsRetry) tea.Cmd {
 	target := m.newSessionTarget()
 	if target == nil {
 		return nil
 	}
 	target.settingsLoad = uiNewSettingsLoading{}
-	m.showTransientStatusNotice(uiStatusNotice{Text: "Loading settings…", Kind: uiStatusNoticeInfo})
 	creation := target.creation
 	settings := m.chatSettings
 	request := &settingspb.ReadRequest{Target: &settingspb.ReadRequest_NewChat{NewChat: &settingspb.NewChatTarget{
@@ -66,7 +77,7 @@ func (m *uiModel) loadNewSessionSettingsCmd(retry *newSessionSettingsRetry) tea.
 		request.GetNewChat().Invocation.AgentRole = &initial.AgentRole
 		request.GetNewChat().Invocation.ThinkingLevel = initial.Thinking
 	}
-	return func() tea.Msg {
+	load := func() tea.Msg {
 		result := newSessionSettingsLoadedMsg{target: creation, retry: retry}
 		response, err := settings.ReadChatSettings(context.Background(), request)
 		if err != nil {
@@ -90,6 +101,7 @@ func (m *uiModel) loadNewSessionSettingsCmd(retry *newSessionSettingsRetry) tea.
 		}
 		return result
 	}
+	return tea.Batch(load, m.reconcileSpinnerTicking(false))
 }
 
 func (m *uiModel) applyNewSessionSettingsLoaded(msg newSessionSettingsLoadedMsg) tea.Cmd {

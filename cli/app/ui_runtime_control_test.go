@@ -34,6 +34,7 @@ import (
 type runtimeControlFakeClient struct {
 	apicontract.ChatMutationService
 	apicontract.RuntimeControlService
+	apicontract.RuntimeLiveControlService
 	apicontract.ChatSettingsService
 	apicontract.RuntimePendingWorkService
 	status                *runtimepb.Status
@@ -274,12 +275,12 @@ func (f *runtimeControlFakeClient) Compact(_ context.Context, request *chatpb.Co
 func (f *runtimeControlFakeClient) ListPendingWork(context.Context, *runtimepb.ListPendingWorkRequest) (*runtimepb.ListPendingWorkSuccess, error) {
 	return &runtimepb.ListPendingWorkSuccess{PendingWork: &runtimepb.PendingWork{}}, f.err
 }
-func (f *runtimeControlFakeClient) Interrupt(context.Context, *runtimepb.InterruptRequest) (*runtimepb.ReadModelUpdate, error) {
+func (f *runtimeControlFakeClient) LiveStop(context.Context, *runtimepb.LiveStopRequest) (*runtimepb.LiveStopSuccess, error) {
 	f.interruptCalls++
 	if f.interruptErr != nil {
 		return nil, f.interruptErr
 	}
-	return &runtimepb.ReadModelUpdate{Version: f.MainView().Version, Activity: f.MainView().Activity}, f.err
+	return &runtimepb.LiveStopSuccess{Status: runtimepb.LiveStopStatus_RUNTIME_LIVE_STOP_STATUS_STOPPED}, f.err
 }
 func (f *runtimeControlFakeClient) RemovePendingWork(_ context.Context, request *runtimepb.RemovePendingWorkRequest) (*runtimepb.RemovePendingWorkSuccess, error) {
 	f.discardQueuedCalls++

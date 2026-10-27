@@ -46,7 +46,20 @@ type taskRecoveryFixture struct {
 }
 
 func newTaskRecoveryFixture(t *testing.T) *taskRecoveryFixture {
+	return newTaskRecoveryFixtureWithResumeSteps(
+		t,
+		scriptedllm.FinalAnswer(`{"commentary":"completed"}`),
+	)
+}
+
+func newTaskRecoveryFixtureWithResumeSteps(
+	t *testing.T,
+	resumeSteps ...scriptedllm.Step,
+) *taskRecoveryFixture {
 	t.Helper()
+	if len(resumeSteps) == 0 {
+		t.Fatal("task recovery fixture requires at least one resumed response")
+	}
 	ctx := context.Background()
 	workspace := t.TempDir()
 	t.Setenv("HOME", t.TempDir())
@@ -77,9 +90,19 @@ func newTaskRecoveryFixture(t *testing.T) *taskRecoveryFixture {
 		f.stoppedTarget <- target.Task.ManagedWorktreeID
 		return waitErr
 	}
-	secondStep := scriptedllm.FinalAnswer(`{"commentary":"completed"}`)
-	secondStep.BeforeResponse = second.ArriveAndWait
-	client := scriptedllm.NewClient(scriptedllm.Script{Steps: []scriptedllm.Step{firstStep, secondStep}})
+	resumeSteps = append([]scriptedllm.Step(nil), resumeSteps...)
+	firstResumeBeforeResponse := resumeSteps[0].BeforeResponse
+	resumeSteps[0].BeforeResponse = func(ctx context.Context) error {
+		if err := second.ArriveAndWait(ctx); err != nil {
+			return err
+		}
+		if firstResumeBeforeResponse != nil {
+			return firstResumeBeforeResponse(ctx)
+		}
+		return nil
+	}
+	steps := append([]scriptedllm.Step{firstStep}, resumeSteps...)
+	client := scriptedllm.NewClient(scriptedllm.Script{Steps: steps})
 	app := newCoreTestAppWithOptions(t, resolved.Config, auth.EmptyState(),
 
 		Options{MetadataStore: metadataStore, RuntimeClientFactory: runtimewire.RuntimeClientFactoryFunc(func(context.Context, runtimewire.RuntimeClientRequest) (llm.Client, error) {
@@ -253,7 +276,20 @@ func TestWorkflowRestoredOriginalCanResumeAfterSetupFailure(t *testing.T) {
 }
 
 func TestWorkflowRestoredOriginalAcceptsSessionMessageAfterSetupFailure(t *testing.T) {
-	f := newTaskRecoveryFixture(t)
+	firstResumeStep := scriptedllm.Step{Response: llm.Response{Assistant: llm.Message{
+		Role: llm.RoleAssistant, Content: textutil.Value("Continuing the assigned work."),
+		Phase: textutil.Value(llm.MessagePhaseCommentary),
+	}}}
+	messageRequest := testsetup.NewStartBarrier()
+	completionStep := scriptedllm.FinalAnswer(`{"commentary":"completed"}`)
+	completionStep.BeforeResponse = messageRequest.ArriveAndWait
+	f := newTaskRecoveryFixtureWithResumeSteps(t, firstResumeStep, completionStep)
+	t.Cleanup(messageRequest.Unblock)
+	initialNodes, err := f.store.ListCurrentNodes(context.Background(), f.task.ID)
+	if err != nil || len(initialNodes) != 1 || initialNodes[0].SessionID == nil {
+		t.Fatalf("initial Current Node Session: %+v, %v", initialNodes, err)
+	}
+	originalSessionID := *initialNodes[0].SessionID
 	f.interruptAndDelete(t)
 	attempts := filepath.Join(t.TempDir(), "attempts")
 	f.setup(t, fmt.Sprintf("printf x >> %q\nexit 1\n", attempts))
@@ -262,8 +298,15 @@ func TestWorkflowRestoredOriginalAcceptsSessionMessageAfterSetupFailure(t *testi
 	if node.SessionID == nil {
 		t.Fatal("restoration failure lost the retained Session")
 	}
+	if node.Reference.TaskID != f.task.ID || *node.SessionID != originalSessionID {
+		t.Fatalf("setup failure changed Task or Session identity: %+v", node)
+	}
+	retained := f.assertEvidence(t)
+	if retained.Task.ManagedWorktreeID == nil || *retained.Task.ManagedWorktreeID != f.original.ID {
+		t.Fatalf("setup failure changed the original Worktree binding: %+v", retained.Task.ManagedWorktreeID)
+	}
 	cfg := f.app.Config()
-	err := f.app.SessionRuntimeClient().ActivateSessionRuntime(context.Background(), serverapi.SessionRuntimeActivateRequest{
+	err = f.app.SessionRuntimeClient().ActivateSessionRuntime(context.Background(), serverapi.SessionRuntimeActivateRequest{
 		SessionID: requestfixture.SessionID(t, node.SessionID.String()), SessionRuntimePreparationOptions: serverapi.SessionRuntimePreparationOptions{ActiveSettings: cfg.Settings, Source: cfg.Source,
 			QuestionsEnabled: textutil.Value(true), AutoCompactionEnabled: textutil.Value(false)},
 	})
@@ -276,27 +319,48 @@ func TestWorkflowRestoredOriginalAcceptsSessionMessageAfterSetupFailure(t *testi
 		return f.app.RuntimeControlClient().SubmitUserTurn(context.Background(), &runtimepb.SubmitUserTurnRequest{QueueItemId: runtimeids.NewQueueItemID().String(), SessionId: node.SessionID.String(), Input: &runtimepb.UserTurnInput{Input: &runtimepb.UserTurnInput_Text{Text: message}}})
 	})
 	waitRecoveryModel(t, f.second, f.store, f.task.ID)
-	delivered := false
-	for _, item := range f.client.Requests()[1].Items {
-		if item.Role != nil && *item.Role == llm.RoleUser && item.Content != nil && *item.Content == message {
-			delivered = true
-		}
-	}
-	if !delivered {
-		t.Fatal("retained Session message was not delivered")
-	}
-	if data, err := os.ReadFile(attempts); err != nil || len(data) != 1 {
-		t.Fatalf("message reran original restoration setup: %q, %v", data, err)
-	}
-	f.second.Unblock()
 	select {
 	case outcome := <-submitted:
 		if outcome.Err != nil {
 			t.Fatal(outcome.Err)
 		}
+		if outcome.Value.GetQueued() == nil || outcome.Value.GetQueued().GetQueueItemId() == "" {
+			t.Fatalf("Session submission = %+v, want accepted input", outcome.Value)
+		}
 	case <-time.After(10 * time.Second):
 		t.Fatal("Session submission did not finish")
 	}
+	f.second.Unblock()
+	waitRecoveryModel(t, messageRequest, f.store, f.task.ID)
+	requests := f.client.Requests()
+	if len(requests) < 3 {
+		t.Fatalf("model request count = %d, want resumed execution to continue", len(requests))
+	}
+	delivered := false
+	for _, request := range requests[1:] {
+		if request.SessionID == nil || *request.SessionID != originalSessionID.String() {
+			t.Fatalf("message was delivered in a different Session: %+v", request.SessionID)
+		}
+		for _, item := range request.Items {
+			if item.Role != nil && *item.Role == llm.RoleUser && item.Content != nil && *item.Content == message {
+				delivered = true
+			}
+		}
+	}
+	if !delivered {
+		t.Fatal("retained Session message was not delivered to resumed execution")
+	}
+	if data, err := os.ReadFile(attempts); err != nil || len(data) != 1 {
+		t.Fatalf("message reran original restoration setup: %q, %v", data, err)
+	}
+	after := f.assertEvidence(t)
+	if after.Task.ID != f.task.ID {
+		t.Fatalf("message changed Task identity: %s, want %s", after.Task.ID, f.task.ID)
+	}
+	if after.Task.ManagedWorktreeID == nil || *after.Task.ManagedWorktreeID != f.original.ID {
+		t.Fatalf("message changed the original Worktree binding: %+v", after.Task.ManagedWorktreeID)
+	}
+	messageRequest.Unblock()
 }
 
 func TestWorkflowUnavailableTargetReplacementUsesSourceWorkspace(t *testing.T) {

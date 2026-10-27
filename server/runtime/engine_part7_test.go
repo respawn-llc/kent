@@ -487,6 +487,7 @@ func TestFinalAssistantBeforeSameTurnBackgroundNoticeKeepsCommittedFrontierConti
 		eng          *Engine
 		backgroundID = "1000"
 		updateDone   = make(chan struct{})
+		noticeReady  = make(chan struct{}, 1)
 	)
 	var client *hookClient
 	client = &hookClient{
@@ -521,6 +522,15 @@ func TestFinalAssistantBeforeSameTurnBackgroundNoticeKeepsCommittedFrontierConti
 			mu.Lock()
 			events = append(events, evt)
 			mu.Unlock()
+			if evt.Kind == EventConversationUpdated &&
+				evt.CommittedTranscriptChanged &&
+				evt.Message.MessageType != nil &&
+				*evt.Message.MessageType == llm.MessageTypeBackgroundNotice {
+				select {
+				case noticeReady <- struct{}{}:
+				default:
+				}
+			}
 		},
 	})
 	if _, err := eng.SubmitUserMessage(context.Background(), "run task"); err != nil {
@@ -530,6 +540,11 @@ func TestFinalAssistantBeforeSameTurnBackgroundNoticeKeepsCommittedFrontierConti
 	case <-updateDone:
 	case <-time.After(runtimeTestSynchronizationTimeout):
 		t.Fatal("background terminal update did not complete after the Step boundary")
+	}
+	select {
+	case <-noticeReady:
+	case <-time.After(runtimeTestSynchronizationTimeout):
+		t.Fatal("background notice did not reach the committed event stream")
 	}
 	waitEngineLifecycleTasks(t, eng)
 

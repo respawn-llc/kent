@@ -89,7 +89,7 @@ func StartServeServer(ctx context.Context, req Request) (*ServeServer, error) {
 	}
 	cfg := resolved.Config
 	store := auth.NewFileStore(config.GlobalAuthConfigPath(cfg))
-	authSupport, err := serverbootstrap.BuildAuthSupport(ctx, root, store, bootstrapReq.Environment, bootstrapReq.Now)
+	authSupport, err := serverbootstrap.BuildAuthSupport(ctx, root, store, bootstrapReq.Environment)
 	if err != nil {
 		return nil, err
 	}
@@ -314,6 +314,7 @@ func buildServerMux(deps transport.GatewayDependencies, identity protocol.Server
 	})
 	mux.Handle(protocol.RPCPath, gateway.Handler())
 	mux.Handle(transport.ViewedImageBodyPath, gateway.ViewedImageHandler())
+	mux.Handle(transport.SpeechUploadPath, gateway.SpeechHandler())
 	return mux
 }
 
@@ -515,6 +516,12 @@ func (d *startupGatewayDependencies) CapabilityFactsClient() apicontract.Capabil
 		return snapshot.core.CapabilityFactsClient()
 	}
 	return capabilityfacts.NewService(capabilityfacts.Options{Config: snapshot.cfg, Setup: d.authSupport.Connections})
+}
+func (d *startupGatewayDependencies) SpeechClient() apicontract.SpeechService {
+	if c := d.activeCore(); c != nil {
+		return c.SpeechClient()
+	}
+	return nil
 }
 func (d *startupGatewayDependencies) ServerStatusClient() apicontract.ServerStatusService { return d }
 func (d *startupGatewayDependencies) OnboardingFinalizeClient() apicontract.OnboardingFinalizeService {

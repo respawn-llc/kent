@@ -67,6 +67,7 @@ func prepareNewSessionUIRun(ctx context.Context, server interactiveSessionServer
 			chatSettings:    server.ChatSettingsClient(),
 			chatMutations:   clients.ChatMutations,
 			controls:        clients.RuntimeControls,
+			liveControls:    clients.RuntimeLiveControls,
 			pendingWork:     clients.PendingWork,
 			processViews:    clients.ProcessViews,
 			processControls: clients.ProcessControls,

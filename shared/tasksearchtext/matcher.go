@@ -82,9 +82,6 @@ func (m LiteralMatcher) NthHit(source string, ordinal int, contextClusters int) 
 	if ordinal < 1 {
 		panic(fmt.Sprintf("literal matcher nth-hit ordinal must be positive: ordinal=%d", ordinal))
 	}
-	if contextClusters < 0 {
-		panic(fmt.Sprintf("literal matcher context must be non-negative: context_clusters=%d", contextClusters))
-	}
 	document := newLiteralDocument(source, m.caseMode)
 	seen := 0
 	var selected literalOccurrence

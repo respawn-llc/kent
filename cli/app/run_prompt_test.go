@@ -380,7 +380,7 @@ func TestRunPromptUsesConfiguredDaemonWithoutLocalAuth(t *testing.T) {
 	srv, err := serverstartup.StartServeServer(context.Background(), serverstartup.Request{
 		WorkspaceRoot:         workspace,
 		WorkspaceRootExplicit: true,
-		Model:                 "gpt-6-sol",
+		LoadOptions:           config.LoadOptions{Model: "gpt-6-sol"},
 	})
 
 	if err != nil {

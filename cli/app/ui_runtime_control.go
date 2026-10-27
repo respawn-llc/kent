@@ -8,12 +8,12 @@ import (
 	"strings"
 
 	"core/cli/app/internal/runtimeattach"
-	"core/shared/apicontract"
 	"core/shared/clientui"
 	"core/shared/config"
 	"core/shared/protoapi"
 	chatsettingspb "core/shared/protoapi/gen/kent/api/chat_settings"
 	transcriptpb "core/shared/protoapi/gen/kent/api/transcript"
+	"core/shared/runtimeids"
 	"core/shared/textutil"
 
 	tea "github.com/charmbracelet/bubbletea"
@@ -240,43 +240,6 @@ var chatSettingsSupervisorNotices = map[chatsettingspb.SupervisorValue]string{ch
 
 var chatSettingsRejectionNotices = map[chatsettingspb.MutationRejectionReason]string{chatsettingspb.MutationRejectionReason_MUTATION_REJECTION_REASON_AGENT_LOCKED: "Agent is locked", chatsettingspb.MutationRejectionReason_MUTATION_REJECTION_REASON_AGENT_UNAVAILABLE: "Agent is unavailable", chatsettingspb.MutationRejectionReason_MUTATION_REJECTION_REASON_THINKING_UNAVAILABLE: "Thinking is unavailable", chatsettingspb.MutationRejectionReason_MUTATION_REJECTION_REASON_FAST_UNAVAILABLE: "Fast mode is unavailable", chatsettingspb.MutationRejectionReason_MUTATION_REJECTION_REASON_AUTO_COMPACTION_POLICY_LOCKED: "Auto-compaction is unavailable"}
 
-func (m *uiModel) interruptRuntime() error {
-	m.checkTUIBlockingOperation("runtime control mutation", "interrupt")
-	candidate, err := executeRuntimeInterrupt(runtimeInterruptRequestFromModel(m))
-	if err == nil && candidate != nil {
-		if client, ok := m.runtimeClient().(*sessionRuntimeClient); ok {
-			client.mergeRuntimeTuple(*candidate, runtimeTupleIngressIncremental)
-		}
-	}
-	m.observeRuntimeRequestResult(err)
-	return err
-}
-
-type runtimeInterruptRequest struct {
-	controls  apicontract.RuntimeControlService
-	sessionID string
-}
-
-func runtimeInterruptRequestFromModel(m *uiModel) runtimeInterruptRequest {
-	if m == nil {
-		return runtimeInterruptRequest{}
-	}
-	return runtimeInterruptRequest{controls: m.sessionControls, sessionID: m.currentRuntimeSessionID()}
-}
-
-func executeRuntimeInterrupt(req runtimeInterruptRequest) (*runtimeTupleCandidate, error) {
-	if req.sessionID == "" {
-		return nil, nil
-	}
-	response, err := runtimeControlCall(func(ctx context.Context) (*runtimepb.ReadModelUpdate, error) {
-		return req.controls.Interrupt(ctx, &runtimepb.InterruptRequest{SessionId: req.sessionID})
-	})
-	if err != nil {
-		return nil, err
-	}
-	return &runtimeTupleCandidate{Version: response.Version, Activity: response.Activity}, nil
-}
-
 type runtimeControlPendingState struct {
 	sessionID    string
 	inFlight     bool
@@ -350,12 +313,9 @@ func (m *uiModel) runtimeControlCommand(operation runtimeControlOperation, mutat
 		return nil
 	}
 	controls := m.sessionControls
+	liveControls := m.sessionLiveControls
 	if m.newSessionTarget() != nil {
 		return nil
-	}
-	interruptReq := runtimeInterruptRequest{}
-	if operation == runtimeControlInterrupt {
-		interruptReq = runtimeInterruptRequestFromModel(m)
 	}
 	sessionID := strings.TrimSpace(m.currentRuntimeSessionID())
 	token, shouldStart := m.beginRuntimeControlMutation(operation, sessionID, mutation)
@@ -370,7 +330,10 @@ func (m *uiModel) runtimeControlCommand(operation runtimeControlOperation, mutat
 				return controls.SetSessionName(ctx, &runtimepb.SetSessionNameRequest{SessionId: sessionID, Mutation: mutation})
 			})
 		case runtimeControlInterrupt:
-			msg.runtimeTuple, msg.err = executeRuntimeInterrupt(interruptReq)
+			msg.err = runtimeControlCallNoResult(func(ctx context.Context) error {
+				_, err := liveControls.LiveStop(ctx, &runtimepb.LiveStopRequest{SessionId: protoapi.SessionSelectorToProto(runtimeids.SessionIDFromProto(sessionID))})
+				return err
+			})
 		}
 		return msg
 	}
@@ -423,23 +386,7 @@ func (m *uiModel) applyRuntimeControlDone(msg runtimeControlDoneMsg) tea.Cmd {
 		m.sessionName = name
 		return sequenceCmds(tea.SetWindowTitle(m.sessionTitle()), followUpCmd)
 	case runtimeControlInterrupt:
-		var merge runtimeTupleMergeResult
-		if msg.runtimeTuple != nil {
-			if client, ok := m.runtimeClient().(*sessionRuntimeClient); ok {
-				merge = client.mergeRuntimeTuple(*msg.runtimeTuple, runtimeTupleIngressIncremental)
-			}
-		}
-		if merge.decision == runtimeTupleRefresh {
-			return tea.Batch(followUpCmd, m.startRuntimeMainViewRefresh(nil))
-		}
-		if view := m.cachedRuntimeMainView(); view.Activity != nil && !protoapi.RuntimeActivityActiveForControl(view.Activity) && m.hasPendingInterrupt() {
-			if err := m.applyRuntimeActivityProjection(view.Activity); err != nil {
-				m.activity = uiActivityError
-				return tea.Batch(followUpCmd, m.sendTransientStatusWithNoticeID("invalid runtime activity: "+err.Error(), uiStatusNoticeError, transientStatusDuration, uiStatusNoticeReplace, ""))
-			}
-			return tea.Batch(followUpCmd, m.acknowledgePendingInterrupt())
-		}
-		return followUpCmd
+		return tea.Batch(followUpCmd, m.startRuntimeMainViewRefresh(nil))
 	default:
 		return followUpCmd
 	}

@@ -1,7 +1,7 @@
 ## Ownership And Selection
 
 - Kent must own Provider Connection definitions in global server configuration. Workspace configuration must not define connections.
-- A connection must own provider implementation, endpoint, authentication selection, and connection/protocol capabilities. Agents or roles must own model, thinking, model-specific capabilities, and context/compaction policy.
+- A connection must own provider implementation, endpoint, authentication selection, and connection/protocol capabilities. Agents or roles must own Agent model, thinking, model-specific capabilities, and context/compaction policy. Speech-model configuration follows [Speech Input](speech-input.md).
 - The resolved Provider Connection's provider must own local context-token estimation. Saved Session Contracts and capability overrides must not select the estimator.
 - Providers must use shared default content and image estimates unless their implementation overrides them. Default reasoning estimates must treat reasoning as plain text. First-party OpenAI API and ChatGPT connections must use provider-specific encrypted-reasoning and encrypted-compaction estimates.
 - Local context-token estimation must not make remote token-count calls or fetch remote image content.
@@ -11,6 +11,7 @@
 - Creation must suggest an editable unused numbered provider-based ID. Connections must not require a separate display name or hidden identity.
 - Top-level `connection` must select the default for new unroled interactive Sessions. Roles must inherit that selection unless overridden. Main Workspace private configuration may assign developer-specific connection IDs to shared roles.
 - When effective `connection` is absent and exactly one Provider Connection is defined, Kent must select that connection without rewriting configuration. With zero or multiple definitions, selection must fail. Explicit selections and saved Session bindings take precedence.
+- When the top-level `connection` selector contains one ID that points to a removed definition and other Provider Connections remain, Kent must select from the remaining definitions for new Sessions and replacement of a deleted saved connection, regardless of whether the selector was written as a scalar or one-element array. This fallback must not rewrite the selector or expand a role-owned selector or a multi-ID array selector.
 - Main agents, child roles, Supervisor, and Workflow must use the same connection-selection rules.
 - Workflow preparation must use completed connection and default edits without requiring a server restart. Saved Session bindings take precedence as defined by Session Binding.
 - The server must own credentials. Requests must use only the selected connection's credentials.
@@ -21,7 +22,7 @@
 
 - The `connection` setting must accept either one connection ID or an array of connection IDs. The default and role overrides must support both forms with the existing inheritance rules.
 - Array selections must reference the existing global connection definitions. Kent must not require separately named groups or duplicate connection definitions.
-- Kent must treat each array as a set. Kent must collapse duplicate IDs, reject empty arrays and invalid IDs, and ignore unknown IDs. If the set contains no defined member, selection must fail with an actionable error. It must not inherit or select another connection.
+- Kent must treat array selections as sets. Kent must collapse duplicate IDs, reject empty arrays and invalid IDs, and ignore unknown IDs. A role-owned array or a multi-ID top-level array with no defined members must fail with an actionable error. A one-ID top-level array follows the removed-default rule above.
 - Kent must accept valid member definitions without requiring equal protocols, endpoints, or capabilities. Inclusion in a set must express the user's assertion that its members can serve the configured Agent.
 - Selection must not change the Agent's configured model, prompts, or settings. A fresh Session must use the selected connection's declared provider capabilities for supported request features. Selecting a connection that cannot serve the configured model must be treated as a user configuration error.
 - Every fresh Session must select the connection with the lowest estimated consumption over roughly the preceding seven days from its effective member set. The selected role's connection setting must define that set when supplied. Otherwise, the Session must use the inherited connection selector. Array order must not affect selection.
@@ -102,14 +103,26 @@
 - Provider authentication failure must not automatically retry or replay the failed request or select another connection.
 - Re-authentication must be allowed during execution. Already-sent requests must continue. Subsequent requests must use the credentials saved by re-authentication without reopening the terminal Session. Re-authentication must not cancel, replay, or reroute work or change unrelated connections.
 
+## Desktop subscription usage
+
+- Desktop must present subscription usage as read-only Provider Connection information. It must omit API-key, no-auth, and other connections without subscription usage support.
+- Desktop may load the complete configured connection catalog for subscription-usage inspection. The popup must render its connection rows lazily.
+- Each connection's usage display must show its name and supplied plan, all supplied quota windows, and each supplied reset countdown. Ordinary subscription windows must show allowance remaining. Grok must show its supplied Build and Chat consumption breakdown.
+- Desktop must fetch quota when a subscription-usage popup opens and refresh it on reopening. Opening the navigation Chrome popup must fetch all supported subscription connections with a small fixed limit on simultaneous requests. Chat and navigation Chrome must share cached usage results for the same connection. Desktop must not poll quota periodically.
+- During refresh, Desktop must show cached values and only a small header activity indicator. Successful connection results must appear progressively.
+- Desktop must omit unavailable Session bindings and quotas that the provider identifies as unsupported for the sign-in method. Desktop must show intact configured connections with credential errors or temporary quota failures and readable connection-specific diagnostics.
+- A subscription-usage popup must offer one Retry icon in its header without a label or tooltip when lookups fail. Retry must request only failed lookups, and its icon must spin during retry. Loading must use an indicator without a label. A connection-catalog failure must use the popup's full Error state with Retry.
+- Subscription lookup failure must not block Chat context inspection or compaction.
+- Loading and retry must not close a subscription-usage popup.
+
 ## Server Environment
 
 - Kent must load `.env` from its server persistence root at startup, including when installed as a service. The default path must be `~/.kent/.env`. Kent must not load repository `.env` files for this purpose.
 - A present process environment value must take precedence over the file, including an empty value. Kent must require restart to observe file edits or changes to its launch environment.
-- The file must be operator-managed and owner-only. Onboarding and `/login` must not write its secrets.
+- The file must be operator-managed. On Unix, the file must be owner-only. On Windows, Kent must use inherited filesystem permissions. Onboarding and `/login` must not write its secrets.
 - The file must supply server environment values without injecting them into agent shell environments.
 - Agent subprocess environments must exclude explicitly referenced provider-key variables regardless of which server environment source supplied their values.
-- Missing or empty files must be allowed. Unreadable, malformed, or insecure-permission files must fail server startup with safe diagnostics. Kent must use standard dotenv syntax. Malformed-line reporting is optional.
+- If the file is missing, server startup must create an empty file with owner-only permissions on Unix and inherited filesystem permissions on Windows. Kent must leave existing files, contents, and permissions unchanged. Empty files must be allowed. Non-regular, unreadable, or malformed files must fail server startup with safe diagnostics. On Unix, insecure-permission files must also fail server startup with safe diagnostics. Kent must use standard dotenv syntax. Malformed-line reporting is optional.
 - Missing-variable guidance must identify the server-side file path and restart requirement without revealing secrets.
 
 ## Session Binding
@@ -159,7 +172,16 @@
 - The API-key field must show: "Don't paste your API key here. This is the name of the **environment variable** Kent will read **at the server's location** to get the api key from. Alternatively, place it in a ~/.kent/.env file."
 - Connection setup and management requests must show a full-screen animated spinner without loading labels while waiting for a response, except during device authorization. Device authorization must keep its verification instructions and code visible with a waiting indicator until authorization completes or the user navigates back.
 - The server must validate connection definitions and references. Terminal forms must not define separate validation rules.
-- `/logout` must open the same picker without deleting credentials.
+- `/login` and `/logout` must both appear in terminal slash-command suggestions for every authentication type.
+- `/logout` must list existing Provider Connections without an Add choice. Opening the list or selecting a connection must not delete anything.
+- After selection, `/logout` must ask for confirmation naming the connection and explain that Sessions using it lose access. When a Session reopens, Kent must switch it to another available connection when its configuration permits. Otherwise, its next request is interrupted.
+- The choices must be Yes and No, with No selected by default. Choosing No or canceling confirmation must return to the connection list. Canceling the list must return to chat.
+- While a removal-page read or removal write is pending, navigation must not close the page. Ctrl+C must keep its global interrupt-or-exit behavior without returning to chat during a pending request.
+- Confirmed removal must delete the selected connection's global definition and saved OAuth credentials, including saved account identity. Removal must leave other connections, configuration references, environment secrets, and Session history unchanged. Removal must not revoke access at the provider.
+- Removal must be allowed during execution. It must not cancel or replay already-sent requests. Subsequent requests must follow the existing deleted-connection rules under Session Binding.
+- Removal must clear saved credentials before removing the definition. If either write fails, Kent must report the failure and whether credentials were already cleared in a status notice, without reporting success or replacing the confirmation page. The user must be able to retry by repeating the confirmation action. Removal must not use cross-file rollback or automatic retry. If the connection is already removed and its credentials are absent, removal must succeed.
+- When a connection-list read fails, Kent must show a full-page error with an explicit retry that reloads all reads for the page. Retrying a read must not repeat a successful removal.
+- If the refreshed list is nonempty, successful removal must return to that list. After removing the last connection, Kent must immediately close the removal page and enter the existing login/setup flow without stopping server-owned in-flight work.
 
 ## Configuration Cutover
 

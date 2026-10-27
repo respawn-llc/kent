@@ -1,2 +1,1 @@
-export { TaskDeleteConfirmationContent, TaskDeleteConfirmationDialog } from "./TaskDeleteConfirmation";
-export { taskDeleteDialogWidth } from "./taskDeleteDialogLayout";
+export { TaskDeleteConfirmationDialog } from "./TaskDeleteConfirmation";

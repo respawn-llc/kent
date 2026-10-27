@@ -43,7 +43,9 @@ func TestNewSessionWorktreeBrowseSelectLeaveAndDeleteStayUncreated(t *testing.T)
 	client := &worktreeCommandTestClient{
 		workspaceResp: &worktreepb.WorkspaceListSuccess{WorkspaceId: "workspace", Worktrees: []*worktreepb.ListEntry{entry}},
 		previewResp:   &worktreepb.DeletePreviewSuccess{Worktree: entry.Topology, DeletionSelector: "wt-feature"},
-		deleteResp:    &worktreepb.DeleteSuccess{},
+		deleteResp: &worktreepb.DeleteSuccess{Cleanup: &worktreepb.BranchCleanupOutcome{
+			Kind: worktreepb.BranchCleanupOutcomeKind_WORKTREE_BRANCH_CLEANUP_OUTCOME_NOT_REQUESTED,
+		}},
 	}
 	model := newWorktreeTestModel(t, client)
 	model.engine = nil
@@ -215,10 +217,7 @@ func TestWorktreeListControllerDeleteKeysSetIntent(t *testing.T) {
 	if cmd == nil {
 		t.Fatal("expected refresh command for delete intent")
 	}
-	wantIdentity, err := worktreeui.SelectionIdentityForItem(fixture.model.worktrees.entries[0])
-	if err != nil {
-		t.Fatalf("SelectionIdentityForItem: %v", err)
-	}
+	wantIdentity := worktreeui.SelectionIdentityForItem(fixture.model.worktrees.entries[0])
 	target := fixture.model.worktrees.intent.DeleteTarget
 	if !fixture.model.worktrees.intent.OpenDelete ||
 		target.kind != uiWorktreeDeleteIntentTargetIdentity ||
@@ -434,10 +433,7 @@ func TestNewListDeleteIntentSupersedesPendingSelectorResolution(t *testing.T) {
 	if fixture.model.worktrees.phase != uiWorktreeOverlayPhaseList {
 		t.Fatalf("phase = %q, want newer list delete intent to retain ownership", fixture.model.worktrees.phase)
 	}
-	wantIdentity, err := worktreeui.SelectionIdentityForItem(fixture.model.worktrees.entries[1])
-	if err != nil {
-		t.Fatalf("SelectionIdentityForItem: %v", err)
-	}
+	wantIdentity := worktreeui.SelectionIdentityForItem(fixture.model.worktrees.entries[1])
 	if fixture.model.worktrees.intent.DeleteTarget.identity != wantIdentity {
 		t.Fatalf("delete intent = %+v, want selected current worktree", fixture.model.worktrees.intent)
 	}
@@ -552,10 +548,8 @@ func TestWorktreeListRefreshPreservesSelectionAndDeleteTargetByKentID(t *testing
 		uiWorktreeDeleteTargetAuthorityListed,
 	)
 
-	err := fixture.model.recordWorktreeSelection()
-	if err == nil {
-		err = fixture.model.applyWorktreeEntries(testRefreshedWorktreeListResponse().Worktrees)
-	}
+	fixture.model.recordWorktreeSelection()
+	err := fixture.model.applyWorktreeEntries(testRefreshedWorktreeListResponse().Worktrees)
 	if err != nil {
 		t.Fatalf("applyWorktreeListResponse: %v", err)
 	}

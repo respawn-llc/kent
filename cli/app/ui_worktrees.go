@@ -6,7 +6,6 @@ import (
 	"io"
 	"strings"
 
-	"core/cli/app/internal/runtimeattach"
 	"core/cli/app/internal/worktreeui"
 	tuiinput "core/cli/tui/input"
 	"core/shared/apicontract"
@@ -210,6 +209,10 @@ func (s uiWorktreeOverlayState) isLoading() bool {
 	return s.listPending || s.deleteTargetResolutionPending
 }
 
+func (s uiWorktreeOverlayState) hasPendingOperation() bool {
+	return s.isLoading() || s.create.submitting || s.deleteConfirm.submitting
+}
+
 func (m *uiModel) openWorktreeOverlay(intent uiWorktreeOpenIntent) {
 	if m == nil {
 		return
@@ -323,10 +326,7 @@ func (m *uiModel) applyWorktreeEntries(worktrees []*worktreepb.ListEntry) error 
 			item := &m.worktrees.entries[i]
 			item.IsCurrent = item.IsMainWorkspace && target.WorktreeSelector == nil
 			if target.WorktreeSelector != nil {
-				selector, err := worktreeui.StableMutationSelector(*item)
-				if err != nil {
-					return err
-				}
+				selector := worktreeui.StableMutationSelector(*item)
 				item.IsCurrent = selector == *target.WorktreeSelector
 			}
 		}
@@ -336,10 +336,7 @@ func (m *uiModel) applyWorktreeEntries(worktrees []*worktreepb.ListEntry) error 
 	}
 	m.clampWorktreeSelection()
 	if m.worktrees.phase == uiWorktreeOverlayPhaseDeleteConfirm {
-		targetIdentity, err := worktreeui.SelectionIdentityForItem(m.worktrees.deleteConfirm.target)
-		if err != nil {
-			return err
-		}
+		targetIdentity := worktreeui.SelectionIdentityForItem(m.worktrees.deleteConfirm.target)
 		item, idx, ok, err := worktreeui.FindByIdentity(m.worktrees.entries, targetIdentity)
 		if err != nil {
 			return err
@@ -400,11 +397,7 @@ func (m *uiModel) applyWorktreeIntent() tea.Cmd {
 		m.worktrees.errorText = worktreecontract.ErrWorktreeNotFound.Error()
 		return nil
 	}
-	selector, err := worktreeui.StableMutationSelector(target)
-	if err != nil {
-		m.worktrees.errorText = err.Error()
-		return nil
-	}
+	selector := worktreeui.StableMutationSelector(target)
 	return m.worktreeDeleteTargetResolveCmd(selector, intent.PreferDeleteBranch)
 }
 
@@ -561,11 +554,7 @@ func (m *uiModel) worktreeSwitchCmd(target worktreeui.Item) tea.Cmd {
 	if m.newSessionTarget() != nil && target.IsMainWorkspace {
 		return m.worktreeTransitionCommand(runtimeinput.PendingWorkWorktreeTransition{Transition: runtimeinput.PendingWorkWorktreeTransitionLeave})
 	}
-	selector, err := worktreeui.StableMutationSelector(target)
-	if err != nil {
-		m.worktrees.errorText = runtimeattach.FormatSubmissionError(err)
-		return nil
-	}
+	selector := worktreeui.StableMutationSelector(target)
 	if m.worktrees.switchPending {
 		queued := runtimeinput.PendingWorkWorktreeTransition{
 			Transition: runtimeinput.PendingWorkWorktreeTransitionEnter,
@@ -601,15 +590,12 @@ func (m *uiModel) worktreeDeleteCmd(target worktreeui.Item, deleteBranch bool) t
 	m.worktrees.deleteConfirm.errorText = ""
 	m.worktrees.deleteConfirm.submitting = true
 	service := m.worktreeMutationService()
-	selector, selectorErr := worktreeui.StableMutationSelector(target)
+	selector := worktreeui.StableMutationSelector(target)
 	cleanupPolicy := worktreepb.BranchCleanupMode_WORKTREE_BRANCH_CLEANUP_MODE_AUTO_IF_KENT_CREATED
 	if deleteBranch {
 		cleanupPolicy = worktreepb.BranchCleanupMode_WORKTREE_BRANCH_CLEANUP_MODE_DELETE_SAFE
 	}
 	return func() tea.Msg {
-		if selectorErr != nil {
-			return worktreeDeleteDoneMsg{token: token, target: worktreeui.DisplayName(target), err: selectorErr}
-		}
 		resp, err := service.Delete(selector, m.worktrees.deleteConfirm.forceFolderRemoval, cleanupPolicy)
 		return worktreeDeleteDoneMsg{token: token, target: worktreeui.DisplayName(target), resp: resp, err: err}
 	}

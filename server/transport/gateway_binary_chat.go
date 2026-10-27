@@ -121,9 +121,6 @@ func binaryChatDomainFailure(err error) proto.Message {
 		errors.Is(err, errActiveProjectRequired):
 		return &chatsettingspb.WorkspaceNotRegisteredDetails{}
 	case errors.As(err, &agentPreparationErr):
-		if validationErr := agentPreparationErr.Validate(); validationErr != nil {
-			return binaryInternalFailure(errors.Join(err, validationErr))
-		}
 		category, conversionErr := binaryChatAgentPreparationCategory(agentPreparationErr.Category)
 		if conversionErr != nil {
 			return binaryInternalFailure(errors.Join(err, conversionErr))

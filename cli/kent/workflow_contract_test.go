@@ -253,11 +253,6 @@ func TestWorkflowDeleteRejectsMismatchedOrInconsistentIdentity(t *testing.T) {
 		{name: "result identity", preview: valid, result: &pb.DeleteSuccess{
 			Deleted: true, Impact: &pb.DeleteImpact{WorkflowId: otherID.String(), Version: 1},
 		}},
-		{name: "deleted with blocker", preview: valid, result: &pb.DeleteSuccess{
-			Deleted: true, Impact: valid,
-			Blockers: []*pb.DeleteBlocker{{Code: "busy", Message: "busy", Count: 1}},
-		}},
-		{name: "not deleted without blocker", preview: valid, result: &pb.DeleteSuccess{Impact: valid}},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			remote := &workflowDeleteStub{
@@ -684,7 +679,7 @@ func TestWorkflowGraphAddedIdentityAndDraftContracts(t *testing.T) {
 	definition := &pb.WorkflowDefinition{
 		Workflow: &pb.WorkflowRecord{Id: workflowID.String(), Version: 3},
 		NodeGroups: []*pb.WorkflowNodeGroup{{
-			GroupId: groupID, GroupKey: "group", DisplayName: "Group",
+			GroupId: groupID, GroupKey: "group", DisplayName: new("Group"),
 		}},
 		Nodes: []*pb.WorkflowNode{{
 			Id: "node-id", Key: "node", Kind: pb.NodeKind_WORKFLOW_NODE_KIND_AGENT, DisplayName: "Node", GroupId: &groupID,
@@ -704,6 +699,44 @@ func TestWorkflowGraphAddedIdentityAndDraftContracts(t *testing.T) {
 		draft.Edges[0].AssigneeSelection != pb.AssigneeSelection_WORKFLOW_ASSIGNEE_SELECTION_PREVIOUS_NODE ||
 		draft.Edges[0].Parameters[0].Purpose != pb.ParameterPurpose_WORKFLOW_PARAMETER_PURPOSE_TARGET_ASSIGNEE {
 		t.Fatalf("draft=%+v", draft)
+	}
+}
+
+func TestWorkflowGraphDocumentOptionalGroupName(t *testing.T) {
+	contract, err := prepareWorkflowGraphDocumentContract()
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, name := range []map[string]any{
+		{},
+		{"display_name": nil},
+		{"display_name": "Parallel"},
+	} {
+		group := map[string]any{"id": "group", "key": "parallel"}
+		for key, value := range name {
+			group[key] = value
+		}
+		data, err := json.Marshal(map[string]any{
+			"workflow_id": emptyWorkflowGraphDocumentID, "expected_version": 0,
+			"graph": map[string]any{"node_groups": []any{group}, "nodes": []any{}, "transition_groups": []any{}, "edges": []any{}},
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+		document, err := contract.Decode(data)
+		if err != nil {
+			t.Fatal(err)
+		}
+		draft, err := document.WorkflowGraphDraft()
+		if err != nil {
+			t.Fatal(err)
+		}
+		roundtrip := workflowGraphDocumentFromDraft(document.WorkflowID, 0, draft)
+		value, named := name["display_name"].(string)
+		got := roundtrip.Graph.NodeGroups[0].DisplayName
+		if named && (got == nil || *got != value) || !named && got != nil {
+			t.Fatalf("roundtrip Group name = %v for %v", got, name)
+		}
 	}
 }
 

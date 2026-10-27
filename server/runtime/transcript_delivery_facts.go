@@ -136,8 +136,6 @@ func TranscriptCommittedRowFactsFromEvent(evt Event) []TranscriptCommittedRowFac
 		facts = transcriptCommittedRowFactsFromMessage(
 			evt.Message,
 			evt.AssistantTranscriptStreamID,
-			nil,
-			nil,
 			transcriptMessageProjectionContext{Provenance: evt.CommittedProvenance},
 		)
 	case EventUserMessageFlushed:
@@ -311,23 +309,18 @@ func TranscriptToolStartFactsFromEventChecked(evt Event) ([]TranscriptLiveToolSt
 }
 
 type transcriptMessageProjectionContext struct {
-	Provenance           *TranscriptCommittedRowProvenance
-	CompletionProvenance map[string]*TranscriptCommittedRowProvenance
+	Provenance *TranscriptCommittedRowProvenance
 }
 
 func transcriptCommittedRowFactsFromMessage(
 	msg llm.Message,
 	streamID *uuid.UUID,
-	completions map[string]tools.Result,
-	materializedToolCalls map[string]struct{},
 	contexts ...transcriptMessageProjectionContext,
 ) []TranscriptCommittedRowFact {
-	facts := transcriptCommittedRowFactsFromMessageUnlocated(msg, streamID, completions, materializedToolCalls)
+	facts := transcriptCommittedRowFactsFromMessageUnlocated(msg, streamID)
 	var provenance *TranscriptCommittedRowProvenance
-	var completionProvenance map[string]*TranscriptCommittedRowProvenance
 	if len(contexts) > 0 {
 		provenance = contexts[0].Provenance
-		completionProvenance = contexts[0].CompletionProvenance
 	}
 	for index := range facts {
 		facts[index].Provenance = cloneTranscriptCommittedRowProvenance(provenance)
@@ -337,16 +330,11 @@ func transcriptCommittedRowFactsFromMessage(
 		if facts[index].Assistant != nil && provenance != nil {
 			facts[index].Assistant.CommittedAtUnixMs = textutil.Pointer(provenance.CommittedAtUnixMs)
 		}
-		if facts[index].Tool != nil && completionProvenance != nil {
-			if owner := completionProvenance[facts[index].Tool.ToolCallID]; owner != nil {
-				facts[index].Provenance = cloneTranscriptCommittedRowProvenance(owner)
-			}
-		}
 	}
 	return facts
 }
 
-func transcriptCommittedRowFactsFromMessageUnlocated(msg llm.Message, streamID *uuid.UUID, completions map[string]tools.Result, materializedToolCalls map[string]struct{}) []TranscriptCommittedRowFact {
+func transcriptCommittedRowFactsFromMessageUnlocated(msg llm.Message, streamID *uuid.UUID) []TranscriptCommittedRowFact {
 	switch msg.Role {
 	case llm.RoleUser:
 		if msg.MessageType != nil &&
@@ -369,7 +357,7 @@ func transcriptCommittedRowFactsFromMessageUnlocated(msg llm.Message, streamID *
 		}
 		return []TranscriptCommittedRowFact{fact}
 	case llm.RoleAssistant:
-		out := make([]TranscriptCommittedRowFact, 0, 1+len(msg.ToolCalls))
+		out := make([]TranscriptCommittedRowFact, 0, 1)
 		if msg.Content != nil && strings.TrimSpace(*msg.Content) != "" && !isBlankFinalAnswer(msg) {
 			phase, _ := textutil.OptionalValue(msg.Phase)
 			out = append(out, TranscriptCommittedRowFact{Kind: TranscriptCommittedRowFactAssistant, Visibility: assistantTranscriptVisibility(phase), Assistant: &TranscriptAssistantRowFact{
@@ -378,14 +366,9 @@ func transcriptCommittedRowFactsFromMessageUnlocated(msg llm.Message, streamID *
 				StreamID: cloneTranscriptStreamID(streamID),
 			}})
 		}
-		for _, call := range msg.ToolCalls {
-			if result, ok := synthesizedToolResultForCall(call, completions, materializedToolCalls); ok {
-				out = append(out, transcriptToolRowFactFromResult(result))
-			}
-		}
 		return out
 	case llm.RoleTool:
-		return []TranscriptCommittedRowFact{transcriptToolRowFactFromResult(resolvedToolResultForMessage(msg, completions))}
+		return []TranscriptCommittedRowFact{transcriptToolRowFactFromResult(resolvedToolResultForMessage(msg, nil))}
 	case llm.RoleDeveloper:
 		if msg.MessageType != nil &&
 			*msg.MessageType == llm.MessageTypeCompactionSummary {
@@ -419,10 +402,6 @@ func transcriptCommittedRowFactsFromMessageUnlocated(msg llm.Message, streamID *
 	default:
 		return nil
 	}
-}
-
-func transcriptCommittedEntryCountFromMessage(msg llm.Message, completions map[string]tools.Result, materializedToolCalls map[string]struct{}) int {
-	return len(visibleChatEntriesFromMessage(msg, completions, materializedToolCalls))
 }
 
 func transcriptCommittedRowFactFromChatEntry(entry ChatEntry) (TranscriptCommittedRowFact, bool) {

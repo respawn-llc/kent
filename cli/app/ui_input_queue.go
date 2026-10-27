@@ -74,9 +74,6 @@ func (m *uiModel) nextPendingInputSubmissionOrder() inputSubmissionOrder {
 
 func (m *uiModel) registerSteeredQueuedUserMessage(queued clientui.QueuedUserMessage) bool {
 	serverID := strings.TrimSpace(queued.ID)
-	if serverID == "" {
-		return false
-	}
 	index := m.injectedQueueIndexByServerID(serverID)
 	if index < 0 {
 		return false
@@ -93,7 +90,7 @@ func (m *uiModel) registerSubmittedQueuedUserMessage(queued clientui.QueuedUserM
 		return cmd
 	}
 	serverID := strings.TrimSpace(queued.ID)
-	if serverID == "" || strings.TrimSpace(m.activeSubmit.text) == "" {
+	if strings.TrimSpace(m.activeSubmit.text) == "" {
 		return nil
 	}
 	m.injectedQueue = append(m.injectedQueue, &injectedRuntimeQueueItem{
@@ -127,9 +124,6 @@ func (m *uiModel) retainUnownedQueuedTerminalState(state *transcriptpb.QueuedMes
 		return
 	}
 	serverID := strings.TrimSpace(state.QueueItemId)
-	if serverID == "" {
-		return
-	}
 	if m.unownedQueuedTerminalStates == nil {
 		m.unownedQueuedTerminalStates = make(map[string]*transcriptpb.QueuedMessageState)
 	}
@@ -138,7 +132,7 @@ func (m *uiModel) retainUnownedQueuedTerminalState(state *transcriptpb.QueuedMes
 
 func (m *uiModel) applyUnownedQueuedTerminalState(serverID string) (tea.Cmd, bool) {
 	serverID = strings.TrimSpace(serverID)
-	if m == nil || serverID == "" || len(m.unownedQueuedTerminalStates) == 0 {
+	if m == nil || len(m.unownedQueuedTerminalStates) == 0 {
 		return nil, false
 	}
 	state, ok := m.unownedQueuedTerminalStates[serverID]
@@ -557,9 +551,6 @@ func (m *uiModel) discardInjectedRuntimeQueueCommand(item *injectedRuntimeQueueI
 
 func (m *uiModel) injectedQueueIndexByServerID(id string) int {
 	id = strings.TrimSpace(id)
-	if id == "" {
-		return -1
-	}
 	for index, item := range m.injectedQueue {
 		if item.ServerID != nil && *item.ServerID == id {
 			return index
@@ -628,10 +619,6 @@ func (c uiInputController) handleInjectedQueueCreateDone(msg injectedQueueCreate
 		return m, pendingWorkRefreshCmd
 	}
 	serverID := strings.TrimSpace(msg.item.ID)
-	if serverID == "" {
-		err := errors.New("accepted queued item requires server identity")
-		return m, m.handleFatalUIError(err.Error(), err)
-	}
 	item.ServerID = &serverID
 	if item.State == injectedRuntimeQueuePendingCreate {
 		m.rememberPromptHistoryLocally(item.Text)
@@ -703,9 +690,6 @@ func (m *uiModel) removeInjectedQueueItemsByIDs(ids []string) {
 
 func containsInjectedQueueID(values []string, target string) bool {
 	target = strings.TrimSpace(target)
-	if target == "" {
-		return false
-	}
 	for _, value := range values {
 		if strings.TrimSpace(value) == target {
 			return true

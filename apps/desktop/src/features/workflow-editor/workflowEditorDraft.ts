@@ -60,6 +60,7 @@ export type WorkflowEditorDraftAction =
   | Readonly<{ type: "reloadConflict" }>
   | Readonly<{ type: "editWorkflowMetadata"; name: string; description: string }>
   | Readonly<{ type: "editWorkflowExecutionTargetPolicy"; policy: WorkflowExecutionTargetPolicy }>
+  | Readonly<{ type: "editNodeGroupName"; groupID: string; name: string | null }>
   | Readonly<{
       type: "editNodeIdentity";
       nodeID: string;
@@ -224,6 +225,18 @@ export function workflowEditorDraftReducer(
   state: WorkflowEditorDraftState,
   action: WorkflowEditorDraftAction,
 ): WorkflowEditorDraftState {
+  if (action.type === "editNodeGroupName") {
+    return nextDraftState(
+      state,
+      {
+        ...state.draft,
+        nodeGroups: state.draft.nodeGroups.map((group) =>
+          group.id === action.groupID ? { ...group, name: action.name } : group,
+        ),
+      },
+      false,
+    );
+  }
   if (isLifecycleAction(action)) {
     return reduceLifecycleAction(state, action);
   }

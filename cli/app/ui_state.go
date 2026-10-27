@@ -35,25 +35,27 @@ type uiModel struct {
 	uiSessionTransitionFeatureState
 	uiStatusFeatureState
 	uiTranscriptFeatureState
+	uiConnectionRemovalFeatureState
 	uiKeyboardFeatureState
 	uiRollbackFeatureState
 	uiWorktreeFeatureState
 }
 
 type uiRuntimeFeatureState struct {
-	workspaceContext   uiWorkspaceContext
-	chatMutations      apicontract.ChatMutationService
-	chatSettings       apicontract.ChatSettingsService
-	sessionControls    apicontract.RuntimeControlService
-	pendingWorkClient  apicontract.RuntimePendingWorkService
-	createSession      func(context.Context, *chatpb.NewChatTarget, string) (*chatpb.ExistingSessionTarget, error)
-	observeSession     func(context.Context, runtimeids.SessionID) (sessionLaunchPlan, *runtimeLaunchPlan, error)
-	sessionObservation *runtimeLaunchPlan
-	observationContext context.Context
-	observationScope   context.Context
-	cancelObservation  context.CancelFunc
-	engine             clientui.RuntimeClient
-	view               tui.Model
+	workspaceContext    uiWorkspaceContext
+	chatMutations       apicontract.ChatMutationService
+	chatSettings        apicontract.ChatSettingsService
+	sessionControls     apicontract.RuntimeControlService
+	sessionLiveControls apicontract.RuntimeLiveControlService
+	pendingWorkClient   apicontract.RuntimePendingWorkService
+	createSession       func(context.Context, *chatpb.NewChatTarget, string) (*chatpb.ExistingSessionTarget, error)
+	observeSession      func(context.Context, runtimeids.SessionID) (sessionLaunchPlan, *runtimeLaunchPlan, error)
+	sessionObservation  *runtimeLaunchPlan
+	observationContext  context.Context
+	observationScope    context.Context
+	cancelObservation   context.CancelFunc
+	engine              clientui.RuntimeClient
+	view                tui.Model
 
 	processClient         clientui.ProcessClient
 	processClientExplicit bool

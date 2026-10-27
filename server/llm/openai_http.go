@@ -86,8 +86,10 @@ func NewHTTPTransport(auth DispatchAuthProvider, registration ProviderVariantReg
 }
 
 func (t *HTTPTransport) providerUserAgent() string {
-	return t.ProviderIdentifier + "/" + config.Version
+	return ProviderUserAgent(t.ProviderIdentifier)
 }
+
+func ProviderUserAgent(identifier string) string { return identifier + "/" + config.Version }
 
 func (t *HTTPTransport) Generate(ctx context.Context, request ResponsesRequest, callbacks StreamCallbacks) (result ResponsesResponse, err error) {
 	defer func() { t.identifyProviderError(err) }()
@@ -257,6 +259,7 @@ func responseFromStreamAccumulator(
 		)
 	}
 	response.ServedModel = servedModelMetadata(rawResp, optionalStringValue(response.ServedModel))
+	response.attemptDiagnostic = accumulator.attempt
 	response.ReasoningIncluded = reasoningIncludedMetadata(rawResp)
 	response.ProviderEvidence.ProviderID = requestEvidence.ProviderID
 	response.ProviderEvidence.RequestedModel = requestEvidence.RequestedModel

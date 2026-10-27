@@ -161,10 +161,3 @@ func (m *uiModel) startSessionObservationLoads() tea.Cmd {
 		m.startRuntimeMainViewRefresh(nil),
 	)
 }
-
-func withUISessionObservation(wiring *runtimeWiring, plan sessionLaunchPlan, parent context.Context) UIOption {
-	return func(m *uiModel) {
-		m.observationScope, m.cancelObservation = context.WithCancel(parent)
-		m.startupCmds = append(m.startupCmds, m.installSessionObservation(wiring, plan))
-	}
-}

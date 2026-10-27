@@ -196,6 +196,7 @@ describe("SidebarProvider stack", () => {
     const { result } = renderHook(useHarness, { wrapper: productionWrapper });
     const worktree = {
       kind: "worktree",
+      projectID: "project-1",
       sessionID: "session-1",
       page: "list",
       openSession: vi.fn(),

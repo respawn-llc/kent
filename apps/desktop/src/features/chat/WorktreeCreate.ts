@@ -26,6 +26,7 @@ import { worktreeErrorMessage } from "./worktreeErrorMessage";
 export function createWorktreeCreate({
   client,
   api,
+  projectID,
   sessionID,
   openSession,
   suggestion,
@@ -37,6 +38,7 @@ export function createWorktreeCreate({
 }: Readonly<{
   client: QueryClient;
   api: ApiService;
+  projectID: string;
   sessionID: string;
   openSession(sessionID: string): void | Promise<void>;
   suggestion: string | undefined;
@@ -98,7 +100,8 @@ export function createWorktreeCreate({
       if (
         error instanceof WorktreeError &&
         error.detail.kind === "setup_retained" &&
-        navigator.replace({ kind: "worktree", sessionID, page: "list", openSession }) !== "accepted"
+        navigator.replace({ kind: "worktree", projectID, sessionID, page: "list", openSession }) !==
+          "accepted"
       ) {
         refreshOpenWorktreeList(sessionID);
       }

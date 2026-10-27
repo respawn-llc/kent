@@ -61,6 +61,11 @@ func (m *uiModel) handleOngoingDeveloperError(err ongoing.DeveloperError) tea.Cm
 }
 
 func (m *uiModel) renderNativeOngoingSurface() tea.Cmd {
+	if m != nil {
+		if cmd := m.reconcileAskPresentation(); cmd != nil {
+			return cmd
+		}
+	}
 	if m == nil || m.ongoingSurface == nil || !m.nativeOngoingSurfaceActive() {
 		return nil
 	}

@@ -6,31 +6,73 @@ import (
 	"sync"
 	"sync/atomic"
 	"testing"
+	"testing/synctest"
 	"time"
+
+	"core/shared/protoapi"
+	serverpb "core/shared/protoapi/gen/kent/api/server"
+
+	"google.golang.org/protobuf/proto"
+	"google.golang.org/protobuf/types/known/emptypb"
 )
 
-func TestUpdateStatusServiceIsLazyAndCachesCompletedAttempt(t *testing.T) {
-	source := &countingReleaseSource{metadata: releaseMetadata{Version: updateVersion{components: [3]uint64{1, 2, 0}}}}
-	service := newUpdateStatusService("1.1.0", false, source, time.Now)
-	t.Cleanup(func() { requireUpdateStatusServiceClosed(t, service) })
+func TestGetUpdateStatusIsolatesConcurrentAndCachedResponses(t *testing.T) {
+	synctest.Test(t, func(t *testing.T) {
+		source := newControlledReleaseSource(releaseMetadata{Version: updateVersion{components: [3]uint64{1, 2, 0}}}, nil)
+		updates := newUpdateStatusService("1.1.0", false, source, time.Now)
+		defer requireUpdateStatusServiceClosed(t, updates)
+		service := &ServerStatusService{updates: updates}
+		synctest.Wait()
+		if calls := source.calls.Load(); calls != 0 {
+			t.Fatalf("release calls after construction = %d, want 0", calls)
+		}
+		responses := make(chan *serverpb.GetUpdateStatusSuccess, 2)
+		for range 2 {
+			go func() {
+				response, err := service.GetUpdateStatus(context.Background(), &emptypb.Empty{})
+				if err != nil {
+					t.Errorf("GetUpdateStatus: %v", err)
+				}
+				responses <- response
+			}()
+		}
+		synctest.Wait()
+		if calls := source.calls.Load(); calls != 1 {
+			t.Fatalf("pending release calls = %d, want 1", calls)
+		}
+		close(source.release)
+		first, second := <-responses, <-responses
+		want := &serverpb.UpdateStatus{Status: &serverpb.UpdateStatus_Available{
+			Available: &serverpb.UpdateVersions{CurrentVersion: "1.1.0", LatestVersion: "1.2.0"},
+		}}
+		assertStatus := func(response *serverpb.GetUpdateStatusSuccess) {
+			t.Helper()
+			if response == nil || !proto.Equal(response.Status, want) {
+				t.Fatalf("response = %v, want status %v", response, want)
+			}
+		}
+		assertStatus(first)
+		assertStatus(second)
+		first.Status.GetAvailable().CurrentVersion = "9.0.0"
+		first.Status.GetAvailable().LatestVersion = "10.0.0"
+		assertStatus(second)
+		first.Status.Status = &serverpb.UpdateStatus_CheckUnavailable{CheckUnavailable: &emptypb.Empty{}}
+		assertStatus(second)
 
-	if calls := source.calls.Load(); calls != 0 {
-		t.Fatalf("release calls after construction = %d, want 0", calls)
-	}
-	first, err := service.status(context.Background())
-	if err != nil {
-		t.Fatalf("first Status: %v", err)
-	}
-	second, err := service.status(context.Background())
-	if err != nil {
-		t.Fatalf("second Status: %v", err)
-	}
-	if first.kind != updateStatusAvailable || second.kind != updateStatusAvailable {
-		t.Fatalf("result kinds = %d/%d, want available", first.kind, second.kind)
-	}
-	if calls := source.calls.Load(); calls != 1 {
-		t.Fatalf("release calls = %d, want 1", calls)
-	}
+		for range 2 {
+			cached, err := service.GetUpdateStatus(context.Background(), &emptypb.Empty{})
+			if err != nil {
+				t.Fatalf("cached GetUpdateStatus: %v", err)
+			}
+			assertStatus(cached)
+			cached.Status.GetAvailable().LatestVersion = "11.0.0"
+			assertStatus(second)
+			cached.Status.Status = &serverpb.UpdateStatus_CheckUnavailable{CheckUnavailable: &emptypb.Empty{}}
+		}
+		if calls := source.calls.Load(); calls != 1 {
+			t.Fatalf("release calls = %d, want 1", calls)
+		}
+	})
 }
 
 func TestUpdateStatusServiceCachesFailedAttempt(t *testing.T) {
@@ -43,8 +85,8 @@ func TestUpdateStatusServiceCachesFailedAttempt(t *testing.T) {
 		if err != nil {
 			t.Fatalf("Status: %v", err)
 		}
-		if result.kind != updateStatusCheckFailed {
-			t.Fatalf("kind = %d, want check_failed", result.kind)
+		if result.GetCheckFailed() == nil {
+			t.Fatalf("result = %v, want check_failed", result)
 		}
 	}
 	if calls := source.calls.Load(); calls != 1 {
@@ -63,8 +105,8 @@ func TestUpdateStatusServiceBoundsReleaseAttempt(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Status: %v", err)
 	}
-	if result.kind != updateStatusCheckUnavailable {
-		t.Fatalf("kind = %d, want check_unavailable", result.kind)
+	if result.GetCheckUnavailable() == nil {
+		t.Fatalf("result = %v, want check_unavailable", result)
 	}
 }
 
@@ -81,59 +123,27 @@ func TestUpdateStatusServiceRefreshesCompletedAttemptAtOneHour(t *testing.T) {
 	if err != nil {
 		t.Fatalf("first Status: %v", err)
 	}
-	if first.kind != updateStatusCurrent {
-		t.Fatalf("first kind = %d, want current", first.kind)
+	if first.GetCurrent() == nil {
+		t.Fatalf("first result = %v, want current", first)
 	}
 	now = now.Add(updateStatusFreshness - time.Nanosecond)
 	beforeExpiry, err := service.status(context.Background())
 	if err != nil {
 		t.Fatalf("Status before expiry: %v", err)
 	}
-	if beforeExpiry.kind != updateStatusCurrent {
-		t.Fatalf("before-expiry kind = %d, want current", beforeExpiry.kind)
+	if beforeExpiry.GetCurrent() == nil {
+		t.Fatalf("before-expiry result = %v, want current", beforeExpiry)
 	}
 	now = now.Add(time.Nanosecond)
 	afterExpiry, err := service.status(context.Background())
 	if err != nil {
 		t.Fatalf("Status at expiry: %v", err)
 	}
-	if afterExpiry.kind != updateStatusAvailable {
-		t.Fatalf("at-expiry kind = %d, want available", afterExpiry.kind)
+	if afterExpiry.GetAvailable() == nil {
+		t.Fatalf("at-expiry result = %v, want available", afterExpiry)
 	}
 	if calls := source.calls.Load(); calls != 2 {
 		t.Fatalf("release calls = %d, want 2", calls)
-	}
-}
-
-func TestUpdateStatusServiceCoalescesConcurrentRequests(t *testing.T) {
-	source := newControlledReleaseSource(releaseMetadata{Version: updateVersion{components: [3]uint64{1, 2, 0}}}, nil)
-	service := newUpdateStatusService("1.1.0", false, source, time.Now)
-	t.Cleanup(func() { requireUpdateStatusServiceClosed(t, service) })
-
-	results := make(chan updateStatusResult, 2)
-	errs := make(chan error, 2)
-	for range 2 {
-		go func() {
-			result, err := service.status(context.Background())
-			results <- result
-			errs <- err
-		}()
-	}
-	<-source.started
-	if calls := source.calls.Load(); calls != 1 {
-		t.Fatalf("release calls while shared check is pending = %d, want 1", calls)
-	}
-	close(source.release)
-	for range 2 {
-		if err := <-errs; err != nil {
-			t.Fatalf("Status: %v", err)
-		}
-		if result := <-results; result.kind != updateStatusAvailable {
-			t.Fatalf("kind = %d, want available", result.kind)
-		}
-	}
-	if calls := source.calls.Load(); calls != 1 {
-		t.Fatalf("release calls = %d, want 1", calls)
 	}
 }
 
@@ -154,7 +164,7 @@ func TestUpdateStatusCallerCancellationIsLocal(t *testing.T) {
 		t.Fatalf("cancelled Status error = %v, want context canceled", err)
 	}
 
-	completed := make(chan updateStatusResult, 1)
+	completed := make(chan *serverpb.UpdateStatus, 1)
 	completionErrors := make(chan error, 1)
 	go func() {
 		result, err := service.status(context.Background())
@@ -168,8 +178,8 @@ func TestUpdateStatusCallerCancellationIsLocal(t *testing.T) {
 	if err := <-completionErrors; err != nil {
 		t.Fatalf("Status after cancellation: %v", err)
 	}
-	if result := <-completed; result.kind != updateStatusAvailable {
-		t.Fatalf("result kind = %d, want available", result.kind)
+	if result := <-completed; result.GetAvailable() == nil {
+		t.Fatalf("result = %v, want available", result)
 	}
 }
 
@@ -179,7 +189,10 @@ func TestUpdateStatusServiceCloseWakesPendingCallers(t *testing.T) {
 
 	statusErrors := make(chan error, 1)
 	go func() {
-		_, err := service.status(context.Background())
+		result, err := service.status(context.Background())
+		if result != nil {
+			t.Errorf("closed pending Status returned result: %v", result)
+		}
 		statusErrors <- err
 	}()
 	<-source.started
@@ -189,22 +202,44 @@ func TestUpdateStatusServiceCloseWakesPendingCallers(t *testing.T) {
 	if err := <-statusErrors; !errors.Is(err, ErrUpdateStatusServiceClosed) {
 		t.Fatalf("pending Status error = %v, want ErrUpdateStatusServiceClosed", err)
 	}
-	if _, err := service.status(context.Background()); !errors.Is(err, ErrUpdateStatusServiceClosed) {
-		t.Fatalf("post-close Status error = %v, want ErrUpdateStatusServiceClosed", err)
+	if result, err := service.status(context.Background()); result != nil || !errors.Is(err, ErrUpdateStatusServiceClosed) {
+		t.Fatalf("post-close Status = %v, %v, want nil, ErrUpdateStatusServiceClosed", result, err)
+	}
+}
+
+func TestUpdateStatusServiceReportsInvalidCalculatedStatus(t *testing.T) {
+	source := &countingReleaseSource{err: errors.New(" ")}
+	updates := newUpdateStatusService("1.1.0", false, source, time.Now)
+	t.Cleanup(func() { requireUpdateStatusServiceClosed(t, updates) })
+	service := &ServerStatusService{updates: updates}
+	for range 2 {
+		response, err := service.GetUpdateStatus(context.Background(), &emptypb.Empty{})
+		if err != nil {
+			t.Fatalf("GetUpdateStatus: %v", err)
+		}
+		if err := protoapi.Validate(response); err != nil {
+			t.Fatalf("invalid failure response: %v", err)
+		}
+		if response.Status.GetCheckFailed() == nil {
+			t.Fatalf("status = %v, want check_failed", response.Status)
+		}
+	}
+	if calls := source.calls.Load(); calls != 1 {
+		t.Fatalf("release calls = %d, want 1", calls)
 	}
 }
 
 func TestUpdateStatusServiceClassifiesReleaseSourceFailures(t *testing.T) {
 	tests := []struct {
-		name string
-		err  error
-		want updateStatusKind
+		name        string
+		err         error
+		unavailable bool
 	}{
-		{name: "transport", err: &releaseTransportError{Cause: errors.New("offline")}, want: updateStatusCheckUnavailable},
-		{name: "timeout", err: context.DeadlineExceeded, want: updateStatusCheckUnavailable},
-		{name: "http", err: &releaseHTTPStatusError{StatusCode: 503, Status: "503 Service Unavailable"}, want: updateStatusCheckFailed},
-		{name: "metadata", err: &releaseMetadataError{Cause: errors.New("invalid release metadata")}, want: updateStatusCheckFailed},
-		{name: "internal", err: errors.New("unexpected release source failure"), want: updateStatusCheckFailed},
+		{name: "transport", err: &releaseTransportError{Cause: errors.New("offline")}, unavailable: true},
+		{name: "timeout", err: context.DeadlineExceeded, unavailable: true},
+		{name: "http", err: &releaseHTTPStatusError{StatusCode: 503, Status: "503 Service Unavailable"}},
+		{name: "metadata", err: &releaseMetadataError{Cause: errors.New("invalid release metadata")}},
+		{name: "internal", err: errors.New("unexpected release source failure")},
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
@@ -214,12 +249,12 @@ func TestUpdateStatusServiceClassifiesReleaseSourceFailures(t *testing.T) {
 			if err != nil {
 				t.Fatalf("Status: %v", err)
 			}
-			if result.kind != test.want {
-				t.Fatalf("kind = %d, want %d", result.kind, test.want)
-			}
-			hasFailure := result.cause != ""
-			if hasFailure != (test.want == updateStatusCheckFailed) {
-				t.Fatalf("failure present = %v, want %v", hasFailure, test.want == updateStatusCheckFailed)
+			if test.unavailable {
+				if result.GetCheckUnavailable() == nil {
+					t.Fatalf("result = %v, want check_unavailable", result)
+				}
+			} else if failure := result.GetCheckFailed(); failure == nil || failure.Cause == "" {
+				t.Fatalf("result = %v, want check_failed with cause", result)
 			}
 		})
 	}
@@ -233,7 +268,7 @@ func TestUpdateStatusServiceReportsDevelopmentAndInvalidVersions(t *testing.T) {
 		if err != nil {
 			t.Fatalf("Status: %v", err)
 		}
-		if result.kind != updateStatusAvailable || result.current != "0.0.0" || result.latest != "1.2.0" {
+		if versions := result.GetAvailable(); versions == nil || versions.CurrentVersion != "0.0.0" || versions.LatestVersion != "1.2.0" {
 			t.Fatalf("development result = %#v", result)
 		}
 	})
@@ -246,8 +281,8 @@ func TestUpdateStatusServiceReportsDevelopmentAndInvalidVersions(t *testing.T) {
 		if err != nil {
 			t.Fatalf("Status: %v", err)
 		}
-		if result.kind != updateStatusCheckFailed {
-			t.Fatalf("kind = %d, want check_failed", result.kind)
+		if result.GetCheckFailed() == nil {
+			t.Fatalf("result = %v, want check_failed", result)
 		}
 		if calls := source.calls.Load(); calls != 0 {
 			t.Fatalf("release calls = %d, want 0", calls)

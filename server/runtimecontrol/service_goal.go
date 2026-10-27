@@ -150,9 +150,8 @@ func (s *Service) mutateGoal(
 	if s == nil || s.authority == nil {
 		return runtime.GoalCommandResult{}, errors.New("session runtime authority is required")
 	}
-	stepText := strings.TrimSpace(rawStepID)
 	if mutation.Actor == session.GoalActorAgent {
-		stepID, err := runtimeids.ParseStepID(stepText)
+		stepID, err := runtimeids.StepIDFromProto(rawStepID)
 		if err != nil {
 			return runtime.GoalCommandResult{}, err
 		}

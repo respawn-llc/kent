@@ -1,7 +1,9 @@
+import { transcriptSource, type ChatTranscriptHandler } from "@/test-support/chat-runtime";
 import { expect, it, vi } from "bun:test";
+import { useAtomSet } from "@effect/atom-react";
 import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import type { ChatTranscriptHandler } from "@/api";
+
 import { ChatRuntimeProvider, useChatRuntimeOwner } from "@/app-facade";
 import { appI18n } from "@/i18n";
 import { createTestServices, TestAppProviders } from "@/test-support/app-services";
@@ -15,6 +17,7 @@ import {
 } from "@/test-support/chat-runtime";
 import { SessionChatContext } from "./SessionChatContext";
 import { ChatComposerSurface } from "./ChatComposerSurface";
+import { SpeechDestinationProvider } from "@/shared/speech-input";
 import { ChatComposer } from "./ChatComposer";
 import { useChatComposer } from "./useChatComposer";
 import { useState } from "react";
@@ -29,10 +32,12 @@ it("presents admitted usage and policy updates from the ordinary observation", a
   vi.spyOn(services.api.chat, "getMainView").mockResolvedValue(mainViewRead());
   vi.spyOn(services.api.chat, "getTranscriptPage").mockResolvedValue(transcriptPage(null));
   const handlers: ChatTranscriptHandler[] = [];
-  vi.spyOn(services.api.chat, "subscribeTranscript").mockImplementation((_target, handler) => {
-    handlers.push(handler);
-    return { close: vi.fn() };
-  });
+  vi.spyOn(services.api.chat, "subscribeTranscript").mockImplementation(() =>
+    transcriptSource((handler) => {
+      handlers.push(handler);
+      return { close: vi.fn() };
+    }),
+  );
   render(
     <TestAppProviders services={services}>
       <ChatRuntimeProvider api={services.api} target={target} host={runtimeHost()}>
@@ -42,7 +47,7 @@ it("presents admitted usage and policy updates from the ordinary observation", a
   );
   expect(await screen.findByRole("button", { name: "10%" })).toBeInTheDocument();
   const initial = hydration();
-  act(() =>
+  await act(async () =>
     handlers[0]?.onEvent({
       sequence: 1,
       kind: "hydration",
@@ -53,7 +58,7 @@ it("presents admitted usage and policy updates from the ordinary observation", a
     }),
   );
   expect(await screen.findByRole("button", { name: "103%" })).toBeInTheDocument();
-  act(() =>
+  await act(async () =>
     handlers[0]?.onEvent({
       sequence: 2,
       kind: "context_usage",
@@ -69,7 +74,7 @@ it("presents admitted usage and policy updates from the ordinary observation", a
       }),
     ).toBeEnabled();
   });
-  act(() =>
+  await act(async () =>
     handlers[0]?.onEvent({
       sequence: 3,
       kind: "session_status",
@@ -86,7 +91,7 @@ it("presents admitted usage and policy updates from the ordinary observation", a
       }),
     ).toBeDisabled();
   });
-  act(() => {
+  await act(async () => {
     handlers[0]?.onEvent({ sequence: 4, kind: "session_status", payload: initial.SessionStatus });
     handlers[0]?.onEvent({
       sequence: 5,
@@ -113,14 +118,17 @@ it("retains admitted usage during a later Main View load", async () => {
     .mockResolvedValueOnce(mainViewRead())
     .mockReturnValue(later.promise);
   vi.spyOn(services.api.chat, "getTranscriptPage").mockResolvedValue(transcriptPage(null));
-  vi.spyOn(services.api.chat, "subscribeTranscript").mockReturnValue({ close: vi.fn() });
+  vi.spyOn(services.api.chat, "subscribeTranscript").mockReturnValue(
+    transcriptSource(() => ({ close: vi.fn() })),
+  );
   function Context() {
     const owner = useChatRuntimeOwner();
+    const refresh = useAtomSet(owner.forceMainViewRead);
     return (
       <>
         <button
           onClick={() => {
-            void owner.forceMainViewRead();
+            refresh(undefined);
           }}
         >
           Reload
@@ -181,7 +189,9 @@ it("does not mount Session Context before New Chat creation", async () => {
   }
   render(
     <TestAppProviders services={services}>
-      <Composer />
+      <SpeechDestinationProvider>
+        <Composer />
+      </SpeechDestinationProvider>
     </TestAppProviders>,
   );
   expect(await screen.findByRole("textbox")).toBeInTheDocument();

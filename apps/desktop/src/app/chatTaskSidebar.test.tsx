@@ -1,8 +1,8 @@
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { expect, it, mock, vi } from "bun:test";
 import { useState } from "react";
-import { RegistryProvider } from "@effect/atom-react";
 import type { ChatSettingsOptions } from "@/features/chat";
+import { createTestServices, TestAppProviders } from "@/test-support/app-services";
 import { SidebarProvider } from "./sidebarProvider";
 import { sidebarDestinationPolicy } from "./sidebarDestinationPolicy";
 
@@ -64,12 +64,12 @@ it.each([ChatRoute, NewChatRoute])(
   async (Route) => {
     openTask.mockClear();
     render(
-      <RegistryProvider>
+      <TestAppProviders services={createTestServices([])}>
         <SidebarProvider policy={sidebarDestinationPolicy}>
           <Route />
           <SidebarState />
         </SidebarProvider>
-      </RegistryProvider>,
+      </TestAppProviders>,
     );
     fireEvent.change(screen.getByRole("textbox", { name: "draft" }), { target: { value: "unsent draft" } });
     fireEvent.click(screen.getByRole("button", { name: "parent task" }));

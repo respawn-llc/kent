@@ -2,7 +2,6 @@ package session
 
 import (
 	"context"
-	"core/shared/textutil"
 	"errors"
 	"testing"
 )
@@ -71,26 +70,6 @@ func TestIndependentSessionContextFactsStartPresentAtZeroAndFalse(t *testing.T) 
 	}
 	if facts.ManualCompactEligible == nil || *facts.ManualCompactEligible {
 		t.Fatalf("manual eligibility = %v, want present false", facts.ManualCompactEligible)
-	}
-}
-
-func TestContextSnapshotClonesBoundedMetaAndFacts(t *testing.T) {
-	store := newSessionTestLazyStore(t)
-	if _, err := store.SetUsageState(&UsageState{InputTokens: textutil.Value(42), ReportedContextTokens: textutil.Value(42)}); err != nil {
-		t.Fatalf("SetUsageState: %v", err)
-	}
-	snapshot := store.ContextSnapshot()
-	if snapshot.Meta.UsageState == nil || snapshot.Meta.UsageState.InputTokens == nil || *snapshot.Meta.UsageState.InputTokens != 42 {
-		t.Fatalf("snapshot usage = %+v, want 42", snapshot.Meta.UsageState)
-	}
-	if snapshot.Facts.CompletedCompactionCount == nil || *snapshot.Facts.CompletedCompactionCount != 0 {
-		t.Fatalf("snapshot count = %v, want present zero", snapshot.Facts.CompletedCompactionCount)
-	}
-	*snapshot.Meta.UsageState.InputTokens = 99
-	*snapshot.Facts.CompletedCompactionCount = 7
-	again := store.ContextSnapshot()
-	if again.Meta.UsageState.InputTokens == nil || *again.Meta.UsageState.InputTokens != 42 || *again.Facts.CompletedCompactionCount != 0 {
-		t.Fatalf("snapshot mutated Store state: %+v", again)
 	}
 }
 

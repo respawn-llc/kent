@@ -351,13 +351,6 @@ message ManualCompactionAdmission {
   ];
 }
 
-message InterruptRequest {
-  string session_id = 1 [
-    (buf.validate.field).string.uuid = true,
-    (buf.validate.field).string.(kent.api.shared.canonical_uuid_v4) = true
-  ];
-}
-
 message ReadModelUpdate {
   ReadModelVersion version = 1 [(buf.validate.field).required = true];
   Activity activity = 2 [(buf.validate.field).required = true];
@@ -675,7 +668,10 @@ message GoalMutationRequest {
       expression: "this.trim() in ['user', 'agent', 'system']"
     }
   ];
-  optional string step_id = 4 [(buf.validate.field).string.min_len = 1];
+  optional string step_id = 4 [
+    (buf.validate.field).string.uuid = true,
+    (buf.validate.field).string.(kent.api.shared.canonical_uuid_v4) = true
+  ];
 
   option (buf.validate.message).cel = {
     id: "kent.runtime.goal_mutation_actor_step"
@@ -710,12 +706,8 @@ message GoalSetRequest {
   }];
   optional string initial_input_draft = 5;
   optional string step_id = 7 [
-    (buf.validate.field).string.min_len = 1,
-    (buf.validate.field).cel = {
-      id: "kent.runtime.goal_set_step_id_nonblank"
-      message: "step_id must not be blank when present"
-      expression: "this.trim() != ''"
-    }
+    (buf.validate.field).string.uuid = true,
+    (buf.validate.field).string.(kent.api.shared.canonical_uuid_v4) = true
   ];
 
   option (buf.validate.message).cel = {
@@ -934,36 +926,6 @@ message SubmitUserTurnError {
   }
 }
 
-message InterruptError {
-  string code = 1 [
-    (buf.validate.field).string.min_len = 1,
-    (kent.api.shared.kent_result_field).role = RESULT_FIELD_ROLE_ERROR_CODE
-  ];
-  oneof detail {
-    RuntimeCommandNotAcceptedDetails runtime_command_not_accepted = 2 [(kent.api.shared.kent_result_field) = {
-      role: RESULT_FIELD_ROLE_ERROR_DETAIL
-      error_code: "runtime_command_not_accepted"
-    }];
-    RuntimeUnavailableDetails runtime_unavailable = 3 [(kent.api.shared.kent_result_field) = {
-      role: RESULT_FIELD_ROLE_ERROR_DETAIL
-      error_code: "runtime_unavailable"
-    }];
-    kent.api.shared.InternalFailureDetails internal_failure = 4 [(kent.api.shared.kent_result_field) = {
-      role: RESULT_FIELD_ROLE_ERROR_DETAIL
-      error_code: "internal_failure"
-    }];
-    kent.api.auth.AuthRequiredDetails auth_required = 5 [(kent.api.shared.kent_result_field) = {
-      role: RESULT_FIELD_ROLE_ERROR_DETAIL
-      error_code: "auth_required"
-    }];
-
-    kent.api.server.ServerNotReadyDetails server_not_ready = 6 [(kent.api.shared.kent_result_field) = {
-      role: RESULT_FIELD_ROLE_ERROR_DETAIL
-      error_code: "server_not_ready"
-    }];
-  }
-}
-
 message CompactContextError {
   string code = 1 [
     (buf.validate.field).string.min_len = 1,
@@ -1161,14 +1123,6 @@ message GoalSetError {
     }];
   }
 
-  option (buf.validate.message).cel = {
-    id: "kent.runtime.goal_set_error_detail"
-    message: "Goal Set error code and detail must match"
-    expression:
-      "(this.code == 'runtime_unavailable' && has(this.runtime_unavailable)) || "
-      "(this.code == 'internal_failure' && has(this.internal_failure)) || "
-      "(this.code != 'runtime_unavailable' && this.code != 'internal_failure')"
-  };
 }
 
 message GoalSetSuccess {
@@ -1335,14 +1289,6 @@ message SubmitUserTurnResult {
   }
 }
 
-message InterruptResult {
-  oneof outcome {
-    option (buf.validate.oneof).required = true;
-    ReadModelUpdate success = 1 [(kent.api.shared.kent_result_field).role = RESULT_FIELD_ROLE_SUCCESS];
-    InterruptError error = 2 [(kent.api.shared.kent_result_field).role = RESULT_FIELD_ROLE_ERROR];
-  }
-}
-
 message LiveSteerResult {
   oneof outcome {
     option (buf.validate.oneof).required = true;
@@ -1458,15 +1404,6 @@ service TurnService {
     };
   }
   rpc CompactContext(CompactContextRequest) returns (CompactContextResult) {
-    option (kent.api.shared.kent_method) = {
-      kind: OPERATION_KIND_UNARY
-      authentication_stage: AUTHENTICATION_STAGE_SERVER
-      scope_policy: SCOPE_POLICY_SESSION_ACTIVE_PROJECT
-      direction: DIRECTION_CLIENT_TO_SERVER
-      unary_connection: UNARY_CONNECTION_DEDICATED
-    };
-  }
-  rpc Interrupt(InterruptRequest) returns (InterruptResult) {
     option (kent.api.shared.kent_method) = {
       kind: OPERATION_KIND_UNARY
       authentication_stage: AUTHENTICATION_STAGE_SERVER

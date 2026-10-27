@@ -69,11 +69,11 @@ type currentNodeRunnerFixture struct {
 	controller       *workflowexecution.CurrentNodeController
 	starter          *Starter
 	executionTargets *worktree.Service
-	dependencies     *workflowview.TaskDependencies
 	projectID        string
 	workspaceID      string
 	workspace        string
 	client           currentNodeRunnerClient
+	roles            testsetup.RoleResolver
 	persistenceGate  *sessiontest.PersistenceGate
 	controllerClose  error
 
@@ -201,7 +201,8 @@ func newCurrentNodeRunnerFixtureWithClientAndPersistence(
 	if err := metadataStore.SetProjectKey(context.Background(), binding.ProjectID, "RUN"); err != nil {
 		t.Fatalf("set project key: %v", err)
 	}
-	store, err := workflowstore.New(metadataStore, workflowstore.WithRoleResolver(testsetup.QuestionsEnabled("coder", "reviewer")))
+	roles := testsetup.QuestionsEnabled("coder", "reviewer")
+	store, err := workflowstore.New(metadataStore, workflowstore.WithRoleResolver(roles))
 	if err != nil {
 		t.Fatalf("new workflow store: %v", err)
 	}
@@ -213,6 +214,7 @@ func newCurrentNodeRunnerFixtureWithClientAndPersistence(
 		workspaceID: binding.WorkspaceID,
 		workspace:   binding.CanonicalRoot,
 		client:      client,
+		roles:       roles,
 	}
 	storeOptions := metadataStore.AuthoritativeSessionStoreOptions()
 	if withPersistenceGate {
@@ -294,19 +296,7 @@ func newCurrentNodeRunnerFixtureWithClientAndPersistence(
 		t.Fatalf("new current node controller: %v", err)
 	}
 	fixture.controller = controller
-	projection, err := workflowview.NewTaskStatusProjection(
-		store,
-		workflowview.NewTaskProjector(),
-		controller,
-	)
-	if err != nil {
-		t.Fatalf("new Task status projection: %v", err)
-	}
-	dependencies, err := workflowview.NewTaskDependencies(metadataStore, projection, dependencyCounter)
-	if err != nil {
-		t.Fatalf("new Task dependency projection: %v", err)
-	}
-	fixture.dependencies = dependencies
+	fixture.authority.SetWorkflowSessionExecutionOwner(controller)
 	return fixture
 }
 
@@ -537,6 +527,7 @@ func (f *currentNodeRunnerFixture) restartRuntime(t *testing.T) {
 	if err != nil {
 		t.Fatalf("new restarted Current Node controller: %v", err)
 	}
+	f.authority.SetWorkflowSessionExecutionOwner(f.controller)
 }
 
 func (f *currentNodeRunnerFixture) waitForCurrentNode(t *testing.T, taskID workflow.TaskID, predicate func([]workflow.CurrentNode) bool) []workflow.CurrentNode {
@@ -905,18 +896,20 @@ func (f *currentNodeRunnerFixture) waitForAssistantFinal(
 			context.Background(),
 			sessionID,
 			func(_ context.Context, engine *agentruntime.Engine) error {
-				return engine.WithTranscriptHydrationSnapshot(func(snapshot agentruntime.TranscriptHydrationSnapshot) error {
-					for _, row := range snapshot.CommittedRows {
-						if row.Kind == agentruntime.TranscriptCommittedRowFactAssistant &&
-							row.Assistant != nil &&
-							row.Assistant.Phase == llm.MessagePhaseFinal &&
-							row.Assistant.Text == text {
-							found = true
-							return nil
-						}
+				page, err := engine.TranscriptNewestSegmentPage()
+				if err != nil {
+					return err
+				}
+				for _, row := range agentruntime.TranscriptCommittedRowFactsFromSnapshot(page.Snapshot) {
+					if row.Kind == agentruntime.TranscriptCommittedRowFactAssistant &&
+						row.Assistant != nil &&
+						row.Assistant.Phase == llm.MessagePhaseFinal &&
+						row.Assistant.Text == text {
+						found = true
+						return nil
 					}
-					return nil
-				})
+				}
+				return nil
 			},
 		)
 		if err != nil {
@@ -1324,9 +1317,7 @@ func TestCompletedWorkflowSessionAllowsOrdinaryInteractiveContinuation(t *testin
 	f.openRetainedRuntime(t, sessionID)
 
 	service := runtimecontrol.NewService(f.authority, nil).
-		WithPromptHistoryStore(f.metadata).
-		WithWorkflowSessionReactivator(f.controller).
-		WithWorkflowSessionPreparationReader(f.controller)
+		WithPromptHistoryStore(f.metadata)
 	response, err := service.SubmitUserTurn(
 		context.Background(),
 		&runtimepb.SubmitUserTurnRequest{QueueItemId: runtimeids.NewQueueItemID().String(), SessionId: sessionID.String(),
@@ -1451,9 +1442,7 @@ func TestWorkflowMovedPastSessionAllowsOrdinaryInteractiveContinuation(t *testin
 	f.openRetainedRuntime(t, sessionID)
 
 	service := runtimecontrol.NewService(f.authority, nil).
-		WithPromptHistoryStore(f.metadata).
-		WithWorkflowSessionReactivator(f.controller).
-		WithWorkflowSessionPreparationReader(f.controller)
+		WithPromptHistoryStore(f.metadata)
 	response, err := service.SubmitUserTurn(
 		context.Background(),
 		&runtimepb.SubmitUserTurnRequest{QueueItemId: runtimeids.NewQueueItemID().String(), SessionId: sessionID.String(),
@@ -3026,11 +3015,33 @@ func TestInteractivePreparedGenerationRestoresWorkflowAssignment(t *testing.T) {
 				first.BeforeResponse = gate.beforeResponse
 			}
 			t.Cleanup(gate.releaseResponse)
+			firstReactivationResponse := testsetup.NewStartBarrier()
+			messageResponse := testsetup.NewStartBarrier()
+			resumedResponse := testsetup.NewStartBarrier()
+			t.Cleanup(firstReactivationResponse.Unblock)
+			t.Cleanup(messageResponse.Unblock)
+			t.Cleanup(resumedResponse.Unblock)
 			steps := []ScriptedRuntimeStep{first, ScriptedFinalAnswer("ordinary answer"), ScriptedFinalAnswer(`{"commentary":"finished"}`)}
 			if !approvalCase {
-				steps = append([]ScriptedRuntimeStep{{Response: llm.Response{Assistant: llm.Message{
+				firstReactivation := ScriptedRuntimeStep{Response: llm.Response{Assistant: llm.Message{
 					Role: llm.RoleAssistant, Phase: textutil.Value(llm.MessagePhaseCommentary), Content: textutil.Value("progress"),
-				}}}}, steps...)
+				}}}
+				firstReactivation.BeforeResponse = firstReactivationResponse.ArriveAndWait
+				secondReactivation := ScriptedRuntimeStep{Response: llm.Response{Assistant: llm.Message{
+					Role: llm.RoleAssistant, Phase: textutil.Value(llm.MessagePhaseCommentary), Content: textutil.Value("continuing"),
+				}}}
+				secondReactivation.BeforeResponse = messageResponse.ArriveAndWait
+				resumed := ScriptedFinalAnswer(`{"commentary":"resumed"}`)
+				resumed.BeforeResponse = resumedResponse.ArriveAndWait
+				steps = []ScriptedRuntimeStep{
+					{Response: llm.Response{Assistant: llm.Message{
+						Role: llm.RoleAssistant, Phase: textutil.Value(llm.MessagePhaseCommentary), Content: textutil.Value("progress"),
+					}}},
+					first,
+					firstReactivation,
+					secondReactivation,
+					resumed,
+				}
 			}
 			client := NewCompactingScriptedClient(llm.ProviderCapabilities{
 				ProviderID: "test", SupportsResponsesAPI: true, SupportsResponsesCompact: true,
@@ -3084,46 +3095,133 @@ func TestInteractivePreparedGenerationRestoresWorkflowAssignment(t *testing.T) {
 				time.Sleep(10 * time.Millisecond)
 			}
 			service := runtimecontrol.NewService(f.authority, f.metadata).
-				WithPromptHistoryStore(f.metadata).
-				WithWorkflowSessionReactivator(f.controller).
-				WithWorkflowSessionPreparationReader(f.controller)
-			if _, err := service.SubmitUserTurn(t.Context(), &runtimepb.SubmitUserTurnRequest{QueueItemId: runtimeids.NewQueueItemID().String(), SessionId: sessionID.String(), Input: &runtimepb.UserTurnInput{
-				Input: &runtimepb.UserTurnInput_Text{Text: "ordinary conversation"}},
-			}); err != nil {
+				WithPromptHistoryStore(f.metadata)
+			message := "ordinary conversation"
+			submission, err := service.SubmitUserTurn(t.Context(), &runtimepb.SubmitUserTurnRequest{QueueItemId: runtimeids.NewQueueItemID().String(), SessionId: sessionID.String(), Input: &runtimepb.UserTurnInput{
+				Input: &runtimepb.UserTurnInput_Text{Text: message}},
+			})
+			if err != nil {
 				t.Fatal(err)
 			}
-			f.waitForAssistantFinal(t, sessionID, "ordinary answer")
-			f.waitForSessionExecutionQuiescence(t, sessionID)
+			if submission.GetQueued() == nil || submission.GetQueued().GetQueueItemId() == "" {
+				t.Fatalf("message submission = %+v, want accepted input", submission)
+			}
+			waitForBarrier := func(barrier *testsetup.StartBarrier) {
+				t.Helper()
+				select {
+				case <-barrier.Entered():
+				case <-time.After(currentNodeRunnerWait):
+					t.Fatal("scripted model response did not reach its barrier")
+				}
+			}
 			if approvalCase {
+				f.waitForAssistantFinal(t, sessionID, "ordinary answer")
+				f.waitForSessionExecutionQuiescence(t, sessionID)
 				if _, err := f.controller.ApplyPendingApproval(t.Context(), approval.ID); err != nil {
 					t.Fatal(err)
 				}
 			} else {
-				if _, err := f.controller.ResumeTask(t.Context(), task.ID, nil); err != nil {
+				waitForBarrier(firstReactivationResponse)
+				requests := client.Requests()
+				if len(requests) < 3 {
+					t.Fatalf("message-triggered request count = %d, want at least three", len(requests))
+				}
+				containsUserMessage := func(request llm.Request) bool {
+					for _, item := range request.Items {
+						if item.Role != nil && *item.Role == llm.RoleUser && item.Content != nil && *item.Content == message {
+							return true
+						}
+					}
+					return false
+				}
+				messageRequestCount := 3
+				if !containsUserMessage(requests[2]) {
+					firstReactivationResponse.Unblock()
+					waitForBarrier(messageResponse)
+					requests = client.Requests()
+					if len(requests) < 4 || !containsUserMessage(requests[3]) {
+						t.Fatal("message-triggered Workflow did not deliver input to a later model request")
+					}
+					messageRequestCount = 4
+				}
+				messageRequest := requests[messageRequestCount-1]
+				if messageRequest.SessionID == nil || *messageRequest.SessionID != sessionID.String() {
+					t.Fatal("message was delivered in a different Session")
+				}
+				messageAssignments := workflowAssignments(messageRequest)
+				if len(messageAssignments) != 1 {
+					t.Fatalf("message-request assignments = %+v, want exactly one", messageAssignments)
+				}
+				messageAssignment := messageRequest.Items[messageAssignments[0].index].Content
+				if messageAssignment == nil || *messageAssignment != "Source assignment." {
+					t.Fatalf("message-request assignment = %v, want source assignment", messageAssignment)
+				}
+				reactivationRequest := requests[2]
+				if reactivationRequest.SessionID == nil || *reactivationRequest.SessionID != sessionID.String() {
+					t.Fatal("message-triggered Workflow changed Session")
+				}
+				assignments := workflowAssignments(reactivationRequest)
+				if len(assignments) != 1 {
+					t.Fatalf("message-triggered assignments = %+v, want exactly one", assignments)
+				}
+				assignmentContent := reactivationRequest.Items[assignments[0].index].Content
+				if assignmentContent == nil || *assignmentContent != "Source assignment." {
+					t.Fatalf("message-triggered assignment = %v, want source assignment", assignmentContent)
+				}
+				liveResume, err := f.controller.ResumeTask(t.Context(), task.ID, nil)
+				if err != nil || liveResume.Outcome != workflowexecution.TaskResumeNoOp {
+					t.Fatalf("Resume while message-triggered execution is live = %+v, %v; want no-op", liveResume, err)
+				}
+				if got := len(client.Requests()); got != messageRequestCount {
+					t.Fatalf("live Resume changed provider request count from %d to %d", messageRequestCount, got)
+				}
+				if err := f.controller.Interrupt(t.Context(), workflowexecution.InterruptSelector{TaskID: task.ID}); err != nil {
 					t.Fatal(err)
 				}
+				f.waitForTaskQuiescence(t, task.ID)
+				f.waitForSessionExecutionQuiescence(t, sessionID)
+				resumed, err := f.controller.ResumeTask(t.Context(), task.ID, nil)
+				if err != nil || resumed.Outcome != workflowexecution.TaskResumeApplied {
+					t.Fatalf("Resume interrupted message-triggered execution = %+v, %v; want applied", resumed, err)
+				}
+				resumeGate := resumedResponse
+				if messageRequestCount == 3 {
+					resumeGate = messageResponse
+				}
+				waitForBarrier(resumeGate)
+				requests = f.waitForModelRequests(t, messageRequestCount+1)
+				request := requests[len(requests)-1]
+				assignments = workflowAssignments(request)
+				if len(assignments) != 1 {
+					t.Fatalf("resumed assignments = %+v, want exactly one", assignments)
+				}
+				content := request.Items[assignments[0].index].Content
+				if content == nil || *content != "Source assignment." {
+					t.Fatalf("resumed assignment = %v, want source assignment", content)
+				}
+				if request.SessionID == nil || *request.SessionID != sessionID.String() {
+					t.Fatal("manual Resume changed Session")
+				}
+				if err := f.controller.Interrupt(t.Context(), workflowexecution.InterruptSelector{TaskID: task.ID}); err != nil {
+					t.Fatal(err)
+				}
+				f.waitForTaskQuiescence(t, task.ID)
 			}
-			count := 3
-			if !approvalCase {
-				count++
-			}
-			requests := f.waitForModelRequests(t, count)
-			f.waitForTaskQuiescence(t, task.ID)
-			request := requests[count-1]
-			assignments := workflowAssignments(request)
-			if len(assignments) != 1 {
-				t.Fatalf("restored assignments = %+v, want exactly one", assignments)
-			}
-			want := "Source assignment."
 			if approvalCase {
-				want = task.ShortID
-			}
-			content := request.Items[assignments[0].index].Content
-			if content == nil || *content != want {
-				t.Fatalf("assignment content = %v, want domain value %q", content, want)
-			}
-			if request.SessionID == nil || *request.SessionID != sessionID.String() {
-				t.Fatal("interactive takeover changed Session")
+				requests := f.waitForModelRequests(t, 3)
+				f.waitForTaskQuiescence(t, task.ID)
+				request := requests[2]
+				assignments := workflowAssignments(request)
+				if len(assignments) != 1 {
+					t.Fatalf("restored assignments = %+v, want exactly one", assignments)
+				}
+				content := request.Items[assignments[0].index].Content
+				if content == nil || *content != task.ShortID {
+					t.Fatalf("assignment content = %v, want domain value %q", content, task.ShortID)
+				}
+				if request.SessionID == nil || *request.SessionID != sessionID.String() {
+					t.Fatal("interactive takeover changed Session")
+				}
 			}
 			if len(client.CompactionCalls()) != 1 {
 				t.Fatal("workflow dispatch compacted prepared interactive generation")
@@ -3530,6 +3628,8 @@ func TestCompactAndContinueResumeRestoresAssignmentAfterPreActivationCompaction(
 	if requests[1].SessionID == nil || *requests[1].SessionID != target.SessionID.String() {
 		t.Fatalf("pre-activation resumed Session = %v, want %s", requests[1].SessionID, *target.SessionID)
 	}
+	f.waitForTaskQuiescence(t, task.ID)
+	f.waitForSessionExecutionQuiescence(t, *target.SessionID)
 	if got := f.workflowAssignmentRecordCount(t, *target.SessionID); got != 2 {
 		t.Fatalf("pre-activation Workflow assignment records = %d, want source and target assignments", got)
 	}
@@ -3646,7 +3746,7 @@ func TestCurrentNodeAgentUsesDurableCommentCountWithoutReadingCommentBodies(t *t
 	}
 }
 
-func TestCurrentNodeTaskAwarenessMatchesCanonicalDependencyProjectionAcrossTerminalChanges(t *testing.T) {
+func TestCurrentNodeTaskAwarenessFollowsTerminalChanges(t *testing.T) {
 	f := newCurrentNodeRunnerFixture(t)
 	workflowID := createCurrentNodeAgentWorkflow(t, f.store)
 	blocker := f.createTask(t, workflowID)
@@ -3663,13 +3763,8 @@ func TestCurrentNodeTaskAwarenessMatchesCanonicalDependencyProjectionAcrossTermi
 		if err != nil {
 			t.Fatalf("TaskAwareness: %v", err)
 		}
-		projected, err := f.dependencies.GetTaskDependencies(context.Background(), string(blocked.ID))
-		if err != nil {
-			t.Fatalf("GetTaskDependencies: %v", err)
-		}
-		if awareness.UnsatisfiedDependencyCount != want ||
-			awareness.UnsatisfiedDependencyCount != int64(projected.UnsatisfiedBlockerCount) {
-			t.Fatalf("awareness/projection unsatisfied count = %d/%d, want %d", awareness.UnsatisfiedDependencyCount, projected.UnsatisfiedBlockerCount, want)
+		if awareness.UnsatisfiedDependencyCount != int64(want) {
+			t.Fatalf("awareness unsatisfied count = %d, want %d", awareness.UnsatisfiedDependencyCount, want)
 		}
 	}
 	assertAwareness(1)

@@ -1811,6 +1811,7 @@ func TestInProcessRunPromptReturnsPendingQuestionAndExecutionContinues(t *testin
 	providerStarted := make(chan struct{})
 	releaseProvider := make(chan struct{})
 	continued := make(chan struct{})
+	releaseFinalResponse := make(chan struct{})
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch calls.Add(1) {
 		case 1:
@@ -1831,6 +1832,11 @@ func TestInProcessRunPromptReturnsPendingQuestionAndExecutionContinues(t *testin
 				t.Errorf("Question follow-up request has no function_call_output")
 			}
 			close(continued)
+			select {
+			case <-releaseFinalResponse:
+			case <-r.Context().Done():
+				return
+			}
 			modelstub.WriteCompletedResponseStream(w, "resumed", 1, 1)
 		default:
 			t.Errorf("unexpected provider request %d", calls.Load())
@@ -1909,6 +1915,7 @@ func TestInProcessRunPromptReturnsPendingQuestionAndExecutionContinues(t *testin
 	if !active || after != before {
 		t.Fatalf("execution after answer = %v active=%t, want the same active execution", after, active)
 	}
+	close(releaseFinalResponse)
 	if _, err := before.Wait(context.Background()); err != nil {
 		t.Fatalf("continued execution: %v", err)
 	}
@@ -1918,7 +1925,7 @@ func TestInProcessRunPromptReturnsPendingApprovalAndExecutionContinues(t *testin
 	var calls atomic.Int32
 	providerStarted := make(chan struct{})
 	releaseProvider := make(chan struct{})
-	continued := make(chan struct{})
+	continued := testsetup.NewStartBarrier()
 	outside := testsetup.NonTemporaryDirectory(t, "kent-runprompt-outside-", askquestion.IsPathInTemporaryDir)
 	target := filepath.Join(outside, "approved.txt")
 	patchArgs, err := json.Marshal(map[string]any{"patch": strings.Join([]string{
@@ -1951,7 +1958,9 @@ func TestInProcessRunPromptReturnsPendingApprovalAndExecutionContinues(t *testin
 			if !ok {
 				t.Errorf("Approval follow-up request has no function_call_output")
 			}
-			close(continued)
+			if err := continued.ArriveAndWait(r.Context()); err != nil {
+				return
+			}
 			modelstub.WriteCompletedResponseStream(w, "resumed", 1, 1)
 		default:
 			// The scenario verifies that the same execution resumes, not an exact model-turn count.
@@ -1960,6 +1969,7 @@ func TestInProcessRunPromptReturnsPendingApprovalAndExecutionContinues(t *testin
 	}))
 	defer server.Close()
 
+	defer continued.Unblock()
 	fixture := newSelectedRunPromptFixture(t, server.URL, nil, toolspec.ToolPatch)
 	responseCh := make(chan struct {
 		response *runpromptpb.Success
@@ -2039,7 +2049,7 @@ func TestInProcessRunPromptReturnsPendingApprovalAndExecutionContinues(t *testin
 		t.Fatalf("answer pending Approval through Session Runtime Authority: %v", err)
 	}
 	select {
-	case <-continued:
+	case <-continued.Entered():
 	case <-time.After(3 * time.Second):
 		t.Fatal("the same execution did not continue after answering the Approval")
 	}
@@ -2047,6 +2057,7 @@ func TestInProcessRunPromptReturnsPendingApprovalAndExecutionContinues(t *testin
 	if !active || after != before {
 		t.Fatalf("execution after answer = %v active=%t, want the same active execution", after, active)
 	}
+	continued.Unblock()
 	if _, err := before.Wait(context.Background()); err != nil {
 		t.Fatalf("continued execution: %v", err)
 	}

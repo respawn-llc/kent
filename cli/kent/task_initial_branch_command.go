@@ -35,8 +35,9 @@ func parseInitialBranchExecutionOptions(
 	return executionTarget, branchName, true
 }
 
-func writeWorkflowTaskTargetOrBranchError(stderr io.Writer, err error) bool {
-	return writeWorkflowExecutionTargetError(stderr, err) || writeWorkflowTaskInitialBranchError(stderr, err)
+func writeWorkflowTaskTargetOrBranchError(stderr io.Writer, taskSelector string, err error) bool {
+	return writeWorkflowExecutionTargetError(stderr, taskSelector, err) ||
+		writeWorkflowTaskInitialBranchError(stderr, err)
 }
 
 func rejectInitialBranchForMoveNoOp(stderr io.Writer, branchName *string) bool {

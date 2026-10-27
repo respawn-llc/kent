@@ -321,21 +321,18 @@ func TestRejectedDuplicateHydrationDoesNotStartUnaryRefresh(t *testing.T) {
 	}
 }
 
-func TestHydrationAdmissionSerializesUnaryAndInterruptTupleCommitsUntilWholeEventCompletes(t *testing.T) {
+func TestHydrationAdmissionSerializesUnaryAndStopRefreshUntilWholeEventCompletes(t *testing.T) {
 	v12 := runtimeTupleTestView(12, runtimeTupleTestIdleActivity())
 	v12.Session.SessionId = ongoingTestSessionID().String()
 	v12.Status.ThinkingLevel = "captured unary"
 	reads := &countingSessionViewClient{view: v12}
-	controls := &reconnectRetryRuntimeControlClient{interruptResp: &runtimepb.ReadModelUpdate{
-		Version:  &runtimepb.ReadModelVersion{Epoch: "runtime-tuple-test", Generation: 1, Sequence: 13},
-		Activity: runtimeTupleTestIdleActivity(),
-	}}
+	controls := &reconnectRetryRuntimeControlClient{stopStatus: runtimepb.LiveStopStatus_RUNTIME_LIVE_STOP_STATUS_STOPPED}
 	runtimeClient := newTestSessionRuntimeClient(reads)
 	v10 := runtimeTupleTestView(10, runtimeTupleTestIdleActivity())
 	v10.Session.SessionId = ongoingTestSessionID().String()
 	runtimeClient.storeMainView(v10)
 	m := newProjectedTestUIModel(runtimeClient)
-	m.sessionControls = controls
+	m.sessionLiveControls = controls
 	surface := newBlockingOngoingSurface()
 	controller := newOngoingTranscriptController(
 		surface,
@@ -383,8 +380,8 @@ func TestHydrationAdmissionSerializesUnaryAndInterruptTupleCommitsUntilWholeEven
 	if !ok {
 		t.Fatalf("interrupt command returned an unexpected message")
 	}
-	if interruptMessage.runtimeTuple == nil || interruptMessage.runtimeTuple.Version.Sequence != 13 {
-		t.Fatalf("interrupt candidate = %+v, want V13", interruptMessage.runtimeTuple)
+	if interruptMessage.err != nil {
+		t.Fatalf("Stop: %v", interruptMessage.err)
 	}
 	assertRuntimeTupleView(t, runtimeClient.MainView(), wantV11)
 	if surface.completedApplyCount() != 0 {
@@ -402,10 +399,12 @@ func TestHydrationAdmissionSerializesUnaryAndInterruptTupleCommitsUntilWholeEven
 	next, _ := m.Update(refreshMessage)
 	m = next.(*uiModel)
 	assertRuntimeTupleView(t, runtimeClient.MainView(), v12)
-	next, _ = m.Update(interruptMessage)
+	next, refreshAfterStop := m.Update(interruptMessage)
 	m = next.(*uiModel)
-	wantV13 := runtimeTupleTestView(13, controls.interruptResp.Activity)
-	assertRuntimeTupleView(t, runtimeClient.MainView(), wantV13)
+	assertRuntimeTupleView(t, runtimeClient.MainView(), v12)
+	if refreshAfterStop == nil {
+		t.Fatal("Stop did not schedule authoritative refresh")
+	}
 	if m.runtimeActivityBusy() || m.runtimeActivityBlocksInput() {
 		t.Fatalf("reduced monotonic candidates left runtime busy: %+v", m.runtimeActivityProjection)
 	}

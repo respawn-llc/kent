@@ -12,6 +12,7 @@ export function createWorktreeCommandActions({
   Readonly<{
     roots: Pick<SidebarRootController, "open">;
     focusComposer(): void;
+    projectID: string;
     openSession(sessionID: string): void | Promise<void>;
     deleteTarget(selector: string | null): Promise<void>;
   }>) {
@@ -22,6 +23,7 @@ export function createWorktreeCommandActions({
       case "create": {
         const handle = roots.open({
           kind: "worktree",
+          projectID: dependencies.projectID,
           sessionID: dependencies.sessionID,
           page: intent.kind,
           openSession,

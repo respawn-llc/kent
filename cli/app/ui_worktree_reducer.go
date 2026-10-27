@@ -75,10 +75,8 @@ func (m *uiModel) reduceWorktreeMessage(msg tea.Msg) uiFeatureUpdateResult {
 			return handledUIFeatureUpdate(m, m.reconcileSpinnerTicking(false))
 		}
 		m.worktrees.errorText = ""
-		listErr := m.recordWorktreeSelection()
-		if listErr == nil {
-			listErr = m.applyWorktreeEntries(msg.workspace.Worktrees)
-		}
+		m.recordWorktreeSelection()
+		listErr := m.applyWorktreeEntries(msg.workspace.Worktrees)
 		if listErr != nil {
 			m.worktrees.errorText = runtimeattach.FormatSubmissionError(listErr)
 			m.layout().syncViewport()
@@ -111,12 +109,7 @@ func (m *uiModel) reduceWorktreeMessage(msg tea.Msg) uiFeatureUpdateResult {
 			m.layout().syncViewport()
 			return handledUIFeatureUpdate(m, m.reconcileSpinnerTicking(false))
 		}
-		targetIdentity, err := worktreeui.SelectionIdentityForItem(target)
-		if err != nil {
-			m.worktrees.errorText = runtimeattach.FormatSubmissionError(err)
-			m.layout().syncViewport()
-			return handledUIFeatureUpdate(m, m.reconcileSpinnerTicking(false))
-		}
+		targetIdentity := worktreeui.SelectionIdentityForItem(target)
 		listedTarget, idx, ok, err := worktreeui.FindByIdentity(m.worktrees.entries, targetIdentity)
 		if err != nil {
 			m.worktrees.errorText = runtimeattach.FormatSubmissionError(err)
@@ -127,11 +120,7 @@ func (m *uiModel) reduceWorktreeMessage(msg tea.Msg) uiFeatureUpdateResult {
 			target.IsCurrent = listedTarget.IsCurrent
 			m.worktrees.entries[idx] = target
 			m.worktrees.selection = idx + 1
-			if err := m.recordWorktreeSelection(); err != nil {
-				m.worktrees.errorText = runtimeattach.FormatSubmissionError(err)
-				m.layout().syncViewport()
-				return handledUIFeatureUpdate(m, m.reconcileSpinnerTicking(false))
-			}
+			m.recordWorktreeSelection()
 		}
 		m.openDeleteWorktreeDialog(
 			target,
@@ -178,13 +167,7 @@ func (m *uiModel) reduceWorktreeMessage(msg tea.Msg) uiFeatureUpdateResult {
 		}
 		status := "Created worktree " + worktreeui.DisplayName(created)
 		feedbackCmd := m.sendTransientStatusWithNoticeID(status, uiStatusNoticeSuccess, transientStatusDuration, uiStatusNoticeReplace, "")
-		targetToken, err := worktreeui.StableMutationSelector(created)
-		if err != nil {
-			status = "Created worktree " + worktreeui.DisplayName(created) + " but could not select it: " + err.Error()
-			feedbackCmd = m.sendTransientStatusWithNoticeID(status, uiStatusNoticeError, transientStatusDuration, uiStatusNoticeReplace, "")
-			m.layout().syncViewport()
-			return handledUIFeatureUpdate(m, tea.Batch(adoption, overlayCmd, feedbackCmd, m.startRuntimeMainViewRefresh(nil), m.reconcileSpinnerTicking(false)))
-		}
+		targetToken := worktreeui.StableMutationSelector(created)
 		var enterCmd tea.Cmd
 		if msg.createdSession {
 			service := m.worktreeMutationService()

@@ -220,6 +220,12 @@ func WithUIProcessClient(client clientui.ProcessClient) UIOption {
 	}
 }
 
+func WithUIConnectionManagementClient(client apicontract.ConnectionManagementService) UIOption {
+	return func(m *uiModel) {
+		m.connectionManagement = client
+	}
+}
+
 func WithUIWorktreeClient(client apicontract.WorktreeService) UIOption {
 	return func(m *uiModel) {
 		m.worktreeClient = client

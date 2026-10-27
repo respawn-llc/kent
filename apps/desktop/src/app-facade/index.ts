@@ -1,3 +1,6 @@
+export { nativeObservation } from "@app/native-bridge";
+export type { SpeechCapture, SpeechRequest, SpeechSource, SpeechTransfer } from "./speech";
+export { speechSourceBytes } from "./speech";
 export { useLocalSubscription } from "./useLocalSubscription";
 export { createAppLogger, type AppLogger, type AppLogLevel, type AppObservationLogger } from "./logging";
 export * from "./boardQueries";
@@ -15,6 +18,7 @@ export { useProjectObservation, ProjectObservationFailure } from "./useProjectOb
 export * from "./formatters";
 export * from "./nativeHooks";
 export { nativeChatRoutePath, openNativeChat } from "./nativeChat";
+export { useNativeChatOpening } from "./nativeChatOpening";
 export * from "./navigation";
 export * from "./navigationTransitions";
 export * from "./projectDeletionEvents";
@@ -45,7 +49,6 @@ export * from "./transcript-window";
 export * from "./useAppServices";
 export * from "./usePathFormatter";
 export * from "./chatPromptPresence";
-export * from "./useNativeDialogFallback";
 export * from "./useRetainedQueryData";
 export * from "./useStatusController";
 export * from "./useTaskSearch";

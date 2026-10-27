@@ -36,8 +36,14 @@ func TestNewSessionSettingsFailureRepaintsNativeComposer(t *testing.T) {
 	failure := io.ErrUnexpectedEOF
 	model.chatSettings = failingHeaderSettingsReader{err: failure}
 	read := model.loadNewSessionSettingsCmd(nil)
+	if !model.statusLineSpinning() || !model.shouldAnimateSpinner() || model.spinnerTickToken == 0 {
+		t.Fatal("settings read did not activate the composer spinner")
+	}
 	model.renderNativeOngoingSurface()
-	model.Update(read())
+	model.Update(newSessionSettingsReadResult(t, read))
+	if model.statusLineSpinning() {
+		t.Fatal("failed settings read left the composer spinner active")
+	}
 	assertVisibleFailure := func() {
 		t.Helper()
 		capture, err := pty.NewCapture(pty.MustDimensions(24, 100), []pty.Chunk{pty.NewChunk(0, 0, output.Bytes())})
@@ -158,7 +164,7 @@ func TestNewSessionPresentationLeavesArtifactsAndCatalogUnchanged(t *testing.T) 
 		if err != nil {
 			t.Fatal(err)
 		}
-		composition.model.Update(composition.model.loadNewSessionSettingsCmd(nil)())
+		composition.model.Update(newSessionSettingsReadResult(t, composition.model.loadNewSessionSettingsCmd(nil)))
 		if composition.model.newChatTarget().InitialSettings == nil {
 			t.Fatal("initial settings did not resolve")
 		}
@@ -331,7 +337,7 @@ func TestNewSessionSettingsEditsStayLocal(t *testing.T) {
 	defer composition.close()
 	model := composition.model
 	read := model.loadNewSessionSettingsCmd(nil)
-	model.Update(read())
+	model.Update(newSessionSettingsReadResult(t, read))
 	initial := model.newChatTarget().InitialSettings
 	if initial == nil {
 		t.Fatal("New Session settings did not load")

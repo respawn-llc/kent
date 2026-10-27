@@ -117,12 +117,14 @@ func (c uiInputController) applyCommandResultWithPreSubmitQueuePositionAndOrigin
 	case commands.ActionBack:
 		next, cmd := c.handleBackCommand()
 		return next, sequenceCmds(prefixCmd, cmd)
-	case commands.ActionLogout:
+	case commands.ActionLogin:
 		if m.newSessionTarget() != nil {
 			return m, sequenceCmds(prefixCmd, m.loginNewSessionCmd())
 		}
 		m.exitAction = UIActionLogout
 		return m, sequenceCmds(prefixCmd, tea.Quit)
+	case commands.ActionLogout:
+		return m, sequenceCmds(prefixCmd, c.startConnectionRemovalFlowCmd())
 	case commands.ActionSetName:
 		next, cmd := c.handleSessionNameCommand(commandResult.Args)
 		return next, sequenceCmds(prefixCmd, cmd)

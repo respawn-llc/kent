@@ -104,6 +104,7 @@ func newProjectedTestUIModel(runtimeClient clientui.RuntimeClient, opts ...UIOpt
 	services := &runtimeControlFakeClient{}
 	model.chatMutations = services
 	model.sessionControls = services
+	model.sessionLiveControls = services
 	model.pendingWorkClient = services
 	model.chatSettings = services
 	if runtimeClient != nil && model.presentationTarget == nil {
@@ -114,6 +115,9 @@ func newProjectedTestUIModel(runtimeClient clientui.RuntimeClient, opts ...UIOpt
 	}
 	if service, ok := runtimeClient.(apicontract.RuntimeControlService); ok {
 		model.sessionControls = service
+	}
+	if service, ok := runtimeClient.(apicontract.RuntimeLiveControlService); ok {
+		model.sessionLiveControls = service
 	}
 	if service, ok := runtimeClient.(apicontract.RuntimePendingWorkService); ok {
 		model.pendingWorkClient = service
@@ -146,6 +150,17 @@ func newProjectedStaticUIModel(opts ...UIOption) *uiModel {
 	// Static fixtures have a selected Session but no observation attachment.
 	options := append([]UIOption{WithUISessionID(detailTestSessionID)}, opts...)
 	return newProjectedTestUIModel(nil, options...)
+}
+
+func newSessionSettingsReadResult(t *testing.T, cmd tea.Cmd) newSessionSettingsLoadedMsg {
+	t.Helper()
+	for _, msg := range collectCmdMessages(t, cmd) {
+		if result, ok := msg.(newSessionSettingsLoadedMsg); ok {
+			return result
+		}
+	}
+	t.Fatal("settings command did not complete a read")
+	return newSessionSettingsLoadedMsg{}
 }
 
 type recordingPromptControl struct {

@@ -12,6 +12,7 @@ import (
 	chatshellpb "core/shared/protoapi/gen/kent/api/chat_shell"
 	runtimepb "core/shared/protoapi/gen/kent/api/runtime"
 	"core/shared/runtimeids"
+	"core/shared/runtimeinput"
 	"google.golang.org/protobuf/proto"
 )
 
@@ -45,7 +46,7 @@ type chatActionResult struct {
 }
 
 func chatCompactionInvocation(guidance *string) *chatpb.CompactionInvocation {
-	invocation := &chatpb.CompactionInvocation{Token: "/compact"}
+	invocation := &chatpb.CompactionInvocation{Token: runtimeinput.ManualCompactionToken}
 	if guidance != nil {
 		invocation.SeparatorWhitespace = " "
 		invocation.RawGuidance = *guidance

@@ -10,9 +10,11 @@ type uiSurface string
 
 const (
 	uiSurfaceOngoingTranscript uiSurface = "ongoing"
+	uiSurfaceAsk               uiSurface = "ask"
 	uiSurfaceTranscriptDetail  uiSurface = "transcript_detail"
 	uiSurfaceStatus            uiSurface = "status"
 	uiSurfaceGoal              uiSurface = "goal"
+	uiSurfaceConnectionRemoval uiSurface = "connection_removal"
 	uiSurfaceWorktree          uiSurface = "worktree"
 	uiSurfaceProcessList       uiSurface = "process_list"
 	uiSurfaceRollbackSelection uiSurface = "rollback_selection"
@@ -23,6 +25,15 @@ func (m *uiModel) surface() uiSurface {
 		return surfaceForTranscriptMode(m.transcriptMode())
 	}
 	return m.activeSurface
+}
+
+func (m *uiModel) surfaceHasPendingOperation() bool {
+	switch m.surface() {
+	case uiSurfaceConnectionRemoval:
+		return m.connectionRemoval.isLoading() || m.connectionRemoval.isRemoving()
+	default:
+		return false
+	}
 }
 
 func (m *uiModel) transcriptMode() tui.Mode {
@@ -45,7 +56,7 @@ func (surface uiSurface) isTranscript() bool {
 
 func (surface uiSurface) wantsAltScreen() bool {
 	switch surface {
-	case uiSurfaceTranscriptDetail, uiSurfaceStatus, uiSurfaceGoal, uiSurfaceWorktree, uiSurfaceProcessList, uiSurfaceRollbackSelection:
+	case uiSurfaceAsk, uiSurfaceTranscriptDetail, uiSurfaceStatus, uiSurfaceGoal, uiSurfaceConnectionRemoval, uiSurfaceWorktree, uiSurfaceProcessList, uiSurfaceRollbackSelection:
 		return true
 	default:
 		return false
@@ -62,7 +73,7 @@ func isOngoingNormalBufferRestoreTransition(prev, next uiSurface) bool {
 // renders inside alt-screen but ignores mouse and keeps alt-scroll off).
 func (surface uiSurface) wantsAlternateScroll() bool {
 	switch surface {
-	case uiSurfaceTranscriptDetail, uiSurfaceStatus, uiSurfaceGoal, uiSurfaceWorktree, uiSurfaceProcessList:
+	case uiSurfaceAsk, uiSurfaceTranscriptDetail, uiSurfaceStatus, uiSurfaceGoal, uiSurfaceConnectionRemoval, uiSurfaceWorktree, uiSurfaceProcessList:
 		return true
 	default:
 		return false
@@ -82,6 +93,13 @@ func (m *uiModel) activateSurface(surface uiSurface) tea.Cmd {
 func (m *uiModel) activateSurfaceFrom(prev, surface uiSurface, suppressAltScreen bool) tea.Cmd {
 	if surface == "" {
 		surface = surfaceForTranscriptMode(m.view.Mode())
+	}
+	if surface == uiSurfaceOngoingTranscript && m.ask.hasCurrent() {
+		m.setInputMode(uiInputModeAsk)
+		m.prepareAskPresentation(nil)
+		if m.ask.dedicated != nil {
+			surface = uiSurfaceAsk
+		}
 	}
 	m.activeSurface = surface
 	m.syncRendererOutputGate()

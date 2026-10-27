@@ -2,7 +2,7 @@ Usage of kent workflow:
   kent workflow create [--description <text>] [--json] <name>
   kent workflow delete <uuid> [--confirm] [--json]
   kent workflow update <uuid> [--name <name>] [--description <text>] [--execution-target ask-on-first-execution|none|head|default-branch|ref:<revision>] [--json]
-  kent workflow list [--project <path-or-id>] [--page-size <n>] [--page-token <token>] [--json]
+  kent workflow list [--project <path-or-id>] [--offset <n>] [--limit <n>] [--json]
   kent workflow graph inspect <uuid> [--json]
   kent workflow graph apply <path|-> [--confirm] [--json]
   kent workflow node add <uuid> --key <node-key> --kind start|agent|script|join|terminal [--display-name <name>] [--prompt <text>] [--agent <role>] [--completion-mode auto|structured_output|tool|shell_command|unstructured_output] [--script-path <path>] [--json]

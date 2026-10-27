@@ -11,6 +11,7 @@ import (
 
 	"core/cli/tui"
 	tuiinput "core/cli/tui/input"
+	"core/shared/clientui"
 )
 
 type uiInputMode string
@@ -18,6 +19,7 @@ type uiInputMode string
 const (
 	uiInputModeMain              uiInputMode = "main"
 	uiInputModeAsk               uiInputMode = "ask"
+	uiInputModeConnectionRemoval uiInputMode = "connection_removal"
 	uiInputModeStatus            uiInputMode = "status"
 	uiInputModeGoal              uiInputMode = "goal"
 	uiInputModeWorktree          uiInputMode = "worktree"
@@ -30,12 +32,14 @@ type uiInteractionState struct {
 }
 
 type uiAskState struct {
+	dedicated               *askDedicatedPresentation
 	current                 *askEvent
 	currentToken            uint64
 	queue                   []askEvent
 	cursor                  int
 	freeform                bool
 	freeformMode            askFreeformMode
+	chosenApproval          *clientui.ApprovalDecision
 	activeDelivery          *activePromptAnswerDelivery
 	editor                  tuiinput.Editor
 	activeProjection        *activeQuestionProjection
@@ -160,6 +164,10 @@ func (m *uiModel) setInputMode(mode uiInputMode) {
 
 func (m *uiModel) restorePrimaryInputMode() {
 	if m == nil {
+		return
+	}
+	if m.connectionRemoval.isOpen() {
+		m.setInputMode(uiInputModeConnectionRemoval)
 		return
 	}
 	if m.ask.hasCurrent() && (m.view.Mode() == "" || m.view.Mode() == tui.ModeOngoing) {

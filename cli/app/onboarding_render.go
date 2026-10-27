@@ -328,7 +328,7 @@ func (m *onboardingModel) renderReviewSummary(width int) []string {
 	appendRow("Theme", themeSummary, m.styles.valueNeutral)
 	appendRow("Model", m.state.selections.model.value, m.styles.valueNeutral)
 	modelFact := modelFactFor(&m.state, m.state.selections.model.value)
-	if modelFact.ContextWindowTokens != nil && *modelFact.ContextWindowTokens > 0 {
+	if modelFact.ContextWindowTokens != nil {
 		contextValue := formatTokenWindow(m.state.selections.contextWindowTokens(modelFact))
 		if m.state.selections.contextWindow.kind == onboardingContextDefault {
 			contextValue = "default (" + formatTokenWindow(int(*modelFact.ContextWindowTokens)) + ")"

@@ -117,7 +117,7 @@ func TestProjectWorkspacesPlainOutputIsHomeShortenedPathBullets(t *testing.T) {
 	if err != nil {
 		t.Fatalf("attach Workspace fixture: %v", err)
 	}
-	if err := fixture.core.MetadataStore().SetProjectDefaultWorkspace(
+	if _, err := fixture.core.MetadataStore().SetProjectDefaultWorkspaceAndGetSummary(
 		t.Context(),
 		fixture.b.ProjectID,
 		binding.WorkspaceID,

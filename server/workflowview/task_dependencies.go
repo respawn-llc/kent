@@ -70,18 +70,6 @@ func NewTaskDependencies(
 	}, nil
 }
 
-func (d *TaskDependencies) GetTaskDependencies(ctx context.Context, taskID string) (*taskpb.TaskDependencies, error) {
-	if d == nil {
-		return nil, errors.New("task dependencies are required")
-	}
-	trimmedTaskID := strings.TrimSpace(taskID)
-	facts, err := d.loadFacts(ctx, trimmedTaskID, false)
-	if err != nil {
-		return nil, err
-	}
-	return d.projectFacts(facts)
-}
-
 func (d *TaskDependencies) CountUnsatisfiedBlockers(ctx context.Context, taskID string) (int, error) {
 	if d == nil {
 		return 0, errors.New("task dependencies are required")

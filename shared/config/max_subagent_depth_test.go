@@ -1,13 +1,13 @@
 package config
 
 import (
+	"errors"
 	"path/filepath"
 	"strconv"
-	"strings"
 	"testing"
 )
 
-func TestMaxSubagentDepthDefaultsAndRenders(t *testing.T) {
+func TestMaxSubagentDepthDefaults(t *testing.T) {
 	_, workspace := newConfigTestEnv(t)
 	cfg := loadConfigTestApp(t, workspace, LoadOptions{})
 	if cfg.Settings.MaxSubagentDepth != 2 {
@@ -15,10 +15,6 @@ func TestMaxSubagentDepthDefaultsAndRenders(t *testing.T) {
 	}
 	if got := cfg.Source.Sources["max_subagent_depth"].Kind; got != "default" {
 		t.Fatalf("max_subagent_depth source = %q, want default", got)
-	}
-	rendered := settingsTOMLWithRenderingOptions(configRegistry.defaultState().Settings, true, nil, nil)
-	if !strings.Contains(rendered, "max_subagent_depth = 2") {
-		t.Fatalf("default settings TOML missing max_subagent_depth:\n%s", rendered)
 	}
 }
 
@@ -66,12 +62,68 @@ func TestLoadMaxSubagentDepthIsTOMLOnly(t *testing.T) {
 	}
 }
 
-func TestLoadSubagentRoleRejectsMaxSubagentDepth(t *testing.T) {
-	err := loadConfigTestFileError(t, "[subagents.worker]\nmax_subagent_depth = 1\n", LoadOptions{})
-	if err == nil {
-		t.Fatal("subagent role max_subagent_depth succeeded")
+func TestLoadSubagentRoleMaxSubagentDepthOverridesGlobal(t *testing.T) {
+	_, _, app := loadConfigTestFileApp(t, "max_subagent_depth = 1\n[subagents.worker]\nmax_subagent_depth = 2\n", LoadOptions{})
+	role := app.Settings.Subagents["worker"]
+	effective, _, err := OverlaySubagentRoleSettings(app, role, true)
+	if err != nil {
+		t.Fatal(err)
 	}
-	if !unknownSettingsKeyReported(err, "subagents.worker.max_subagent_depth") {
-		t.Fatalf("Load error = %v, want unknown subagents.worker.max_subagent_depth", err)
+	if effective.MaxSubagentDepth != 2 {
+		t.Fatalf("effective max_subagent_depth = %d, want role override 2", effective.MaxSubagentDepth)
+	}
+}
+
+func TestLoadSubagentRoleMaxSubagentDepthInheritsGlobal(t *testing.T) {
+	_, _, app := loadConfigTestFileApp(t, "max_subagent_depth = 1\n[subagents.worker]\n", LoadOptions{})
+	role := app.Settings.Subagents["worker"]
+	effective, _, err := OverlaySubagentRoleSettings(app, role, true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if effective.MaxSubagentDepth != 1 {
+		t.Fatalf("effective max_subagent_depth = %d, want inherited global 1", effective.MaxSubagentDepth)
+	}
+}
+
+func TestLoadSubagentRoleMaxSubagentDepthAcceptsZero(t *testing.T) {
+	_, _, app := loadConfigTestFileApp(t, "max_subagent_depth = 1\n[subagents.worker]\nmax_subagent_depth = 0\n", LoadOptions{})
+	role := app.Settings.Subagents["worker"]
+	effective, _, err := OverlaySubagentRoleSettings(app, role, true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if effective.MaxSubagentDepth != 0 {
+		t.Fatalf("effective max_subagent_depth = %d, want explicit role value 0", effective.MaxSubagentDepth)
+	}
+}
+
+func TestLoadSubagentRoleMaxSubagentDepthAcceptsMaximum(t *testing.T) {
+	_, _, app := loadConfigTestFileApp(t, "max_subagent_depth = 1\n[subagents.worker]\nmax_subagent_depth = 30\n", LoadOptions{})
+	role := app.Settings.Subagents["worker"]
+	effective, _, err := OverlaySubagentRoleSettings(app, role, true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if effective.MaxSubagentDepth != 30 {
+		t.Fatalf("effective max_subagent_depth = %d, want maximum 30", effective.MaxSubagentDepth)
+	}
+}
+
+func TestLoadSubagentRoleMaxSubagentDepthRejectsOutsideClosedRange(t *testing.T) {
+	for _, value := range []int{-1, 31} {
+		t.Run(strconv.Itoa(value), func(t *testing.T) {
+			err := loadConfigTestFileError(t, "[subagents.worker]\nmax_subagent_depth = "+strconv.Itoa(value)+"\n", LoadOptions{})
+			if err == nil {
+				t.Fatalf("role max_subagent_depth=%d succeeded", value)
+			}
+			if !errors.Is(err, errSubagentRole) {
+				t.Fatalf("Load error = %v, want role validation failure", err)
+			}
+			var validationErr *ConfigurationValidationError
+			if !errors.As(err, &validationErr) {
+				t.Fatalf("Load error = %v, want configuration validation failure", err)
+			}
+		})
 	}
 }

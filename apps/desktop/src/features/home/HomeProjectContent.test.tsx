@@ -2,6 +2,7 @@ import { act, fireEvent, render as renderReact, renderHook, screen, waitFor } fr
 import { useCallback, type ReactElement } from "react";
 import { beforeAll, beforeEach, expect, it, mock, vi } from "bun:test";
 import { createTestServices, TestAppProviders } from "@/test-support/app-services";
+import { createBrowserNativeBridge } from "@/test-support/native-bridge";
 import { deferred } from "@/test-support/chat-runtime";
 
 import { appI18n, initializeI18n } from "@/i18n";
@@ -112,8 +113,7 @@ await mock.module("@/app-facade", () => ({
   useOwnedSidebarRoots: () => ({ open: vi.fn() }),
 }));
 
-function render(content: ReactElement) {
-  const services = createTestServices([]);
+function render(content: ReactElement, services = createTestServices([])) {
   vi.spyOn(services.api, "getProjectEdit").mockImplementation(async () => {
     if (fixture.projectQuery.isPending) {
       return deferred<Awaited<ReturnType<typeof services.api.getProjectEdit>>>().promise;
@@ -129,6 +129,17 @@ function render(content: ReactElement) {
     sessions: fixture.sessions,
   }));
   return renderReact(<TestAppProviders services={services}>{content}</TestAppProviders>);
+}
+
+function nativeWindowServices() {
+  const bridge = createBrowserNativeBridge();
+  const openWindow = vi.fn(async () => "created" as const);
+  const services = createTestServices([], {
+    ...bridge,
+    capabilities: { ...bridge.capabilities, dialogWindows: true },
+    dialogs: { ...bridge.dialogs, openWindow },
+  });
+  return { openWindow, services };
 }
 
 await mock.module("./ProjectTasksSurface", () => ({
@@ -239,6 +250,68 @@ it.each([
       sessionID: `${category}-session`,
     },
   ]);
+});
+
+it.each([
+  ["main", "sessions"],
+  ["subagent", "subagents"],
+] as const)("Shift-click opens a %s catalog row natively without navigating", async (category, tabLabel) => {
+  const { openWindow, services } = nativeWindowServices();
+  fixture.sessions = [
+    {
+      category,
+      firstPromptPreview: "Review the change",
+      id: `${category}-session`,
+      shortID: null,
+      name: "Review chat",
+      updatedAt: 1,
+    },
+  ];
+
+  render(<HomeProjectContent projectID="project-1" />, services);
+  fireEvent.click(screen.getByRole("tab", { name: appI18n.t(`home.prototype.${tabLabel}`) }));
+  fireEvent.click(await screen.findByRole("button", { name: "Review chat" }), { shiftKey: true });
+
+  await waitFor(() => {
+    expect(openWindow).toHaveBeenCalledTimes(1);
+  });
+  expect(openWindow).toHaveBeenCalledWith(
+    expect.objectContaining({
+      params: { projectID: "project-1", sessionID: `${category}-session` },
+    }),
+  );
+  expect(fixture.sessionTargets).toEqual([]);
+});
+
+it.each([
+  ["main", "sessions"],
+  ["subagent", "subagents"],
+] as const)("opens a %s catalog row from its independent pop-out icon", async (category, tabLabel) => {
+  const { openWindow, services } = nativeWindowServices();
+  fixture.sessions = [
+    {
+      category,
+      firstPromptPreview: "Review the change",
+      id: `${category}-session`,
+      shortID: null,
+      name: "Review chat",
+      updatedAt: 1,
+    },
+  ];
+
+  render(<HomeProjectContent projectID="project-1" />, services);
+  fireEvent.click(screen.getByRole("tab", { name: appI18n.t(`home.prototype.${tabLabel}`) }));
+  fireEvent.click(await screen.findByRole("button", { name: appI18n.t("app.popOut") }));
+
+  await waitFor(() => {
+    expect(openWindow).toHaveBeenCalledTimes(1);
+  });
+  expect(openWindow).toHaveBeenCalledWith(
+    expect.objectContaining({
+      params: { projectID: "project-1", sessionID: `${category}-session` },
+    }),
+  );
+  expect(fixture.sessionTargets).toEqual([]);
 });
 
 it("uses the Session ID as an unnamed row title and shows its supplied preview only once", async () => {

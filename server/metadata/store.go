@@ -271,15 +271,6 @@ func NewStore(persistenceRoot string, db *sql.DB) (*Store, error) {
 	return store, nil
 }
 
-func ResolveBinding(ctx context.Context, persistenceRoot string, workspaceRoot string) (Binding, error) {
-	store, err := Open(persistenceRoot)
-	if err != nil {
-		return Binding{}, err
-	}
-	defer func() { _ = store.Close() }()
-	return store.EnsureWorkspaceBinding(ctx, workspaceRoot)
-}
-
 func RegisterBinding(ctx context.Context, persistenceRoot string, workspaceRoot string) (Binding, error) {
 	store, err := Open(persistenceRoot)
 	if err != nil {
@@ -702,16 +693,6 @@ func updateSessionExecutionTarget(ctx context.Context, q *sqlitegen.Queries, upd
 	return nil
 }
 
-func (s *Store) DeleteFailedSessionCreationRecordByID(ctx context.Context, sessionID string) error {
-	if s == nil || s.db == nil {
-		return errors.New("metadata store is required")
-	}
-	if _, err := s.queries.DeleteSessionRecordByID(ctx, strings.TrimSpace(sessionID)); err != nil {
-		return fmt.Errorf("delete session record: %w", err)
-	}
-	return nil
-}
-
 type WorkspaceUnlinkRuntimeBlocker func(ctx context.Context, sessionIDs []string) ([]serverapi.ProjectWorkspaceUnlinkBlocker, func(), error)
 
 func (s *Store) ListProjectSessionIDs(ctx context.Context, projectID string) ([]string, error) {
@@ -719,6 +700,20 @@ func (s *Store) ListProjectSessionIDs(ctx context.Context, projectID string) ([]
 		return nil, errors.New("metadata store is required")
 	}
 	return s.queries.ListProjectSessionIDs(ctx, strings.TrimSpace(projectID))
+}
+
+func (s *Store) FilterProjectSessionIDs(ctx context.Context, projectID string, sessionIDs []string) ([]string, error) {
+	if s == nil || s.queries == nil {
+		return nil, errors.New("metadata store is required")
+	}
+	sessionIDsJSON, err := json.Marshal(sessionIDs)
+	if err != nil {
+		return nil, err
+	}
+	return s.queries.FilterProjectSessionIDs(ctx, sqlitegen.FilterProjectSessionIDsParams{
+		ProjectID:      strings.TrimSpace(projectID),
+		SessionIdsJson: string(sessionIDsJSON),
+	})
 }
 
 func (s *Store) ListSessionsTargetingWorktreePage(ctx context.Context, worktreeID string, before *WorktreeSessionCursor) (WorktreeSessionPage, error) {
@@ -790,10 +785,6 @@ func bindingFromCanonicalRootRows(canonicalRoot string, rows []sqlitegen.ListWor
 		}
 		return Binding{}, serverapi.WorkspaceBindingAmbiguousError{CanonicalRoot: canonicalRoot, ProjectIDs: projectIDs}
 	}
-}
-
-func (s *Store) CreateProjectForWorkspace(ctx context.Context, workspaceRoot string, projectName string) (Binding, error) {
-	return s.CreateProjectForWorkspaceWithKey(ctx, workspaceRoot, projectName, "")
 }
 
 func (s *Store) CreateProjectForWorkspaceWithKey(ctx context.Context, workspaceRoot string, projectName string, projectKey string) (Binding, error) {
@@ -905,11 +896,6 @@ func (s *Store) UpdateProjectMetadata(ctx context.Context, projectID string, dis
 	return nil
 }
 
-func (s *Store) SetProjectDefaultWorkspace(ctx context.Context, projectID string, workspaceID string) error {
-	_, err := s.SetProjectDefaultWorkspaceAndGetSummary(ctx, projectID, workspaceID)
-	return err
-}
-
 func (s *Store) SetProjectDefaultWorkspaceAndGetSummary(ctx context.Context, projectID string, workspaceID string) (serverapi.ProjectHomeSummary, error) {
 	if s == nil || s.queries == nil {
 		return serverapi.ProjectHomeSummary{}, errors.New("metadata store is required")
@@ -971,14 +957,6 @@ func (s *Store) SetProjectDefaultWorkspaceAndGetSummary(ctx context.Context, pro
 		return serverapi.ProjectHomeSummary{}, fmt.Errorf("commit default workspace tx: %w", err)
 	}
 	return projectHomeSummaryFromRow(rows[0]), nil
-}
-
-func (s *Store) UnlinkProjectWorkspace(ctx context.Context, projectID string, workspaceID string) ([]serverapi.ProjectWorkspaceUnlinkBlocker, error) {
-	return s.UnlinkProjectWorkspaceWithPreflightBlockers(ctx, projectID, workspaceID, nil)
-}
-
-func (s *Store) UnlinkProjectWorkspaceWithPreflightBlockers(ctx context.Context, projectID string, workspaceID string, preflightBlockers []serverapi.ProjectWorkspaceUnlinkBlocker) ([]serverapi.ProjectWorkspaceUnlinkBlocker, error) {
-	return s.UnlinkProjectWorkspaceWithRuntimeBlockers(ctx, projectID, workspaceID, preflightBlockers, nil)
 }
 
 func (s *Store) UnlinkProjectWorkspaceWithRuntimeBlockers(ctx context.Context, projectID string, workspaceID string, preflightBlockers []serverapi.ProjectWorkspaceUnlinkBlocker, runtimeBlocker WorkspaceUnlinkRuntimeBlocker) ([]serverapi.ProjectWorkspaceUnlinkBlocker, error) {
@@ -1233,23 +1211,27 @@ func (s *Store) RebindWorkspaceWithExpectedBinding(
 	defer func() { _ = tx.Rollback() }()
 	q := s.queries.WithTx(tx)
 
-	oldWorkspace, err := singleWorkspaceByCanonicalRoot(ctx, q, oldCanonicalRoot)
+	bindingRows, err := q.ListWorkspaceBindingsByCanonicalRoot(ctx, oldCanonicalRoot)
 	if err != nil {
-		if errors.Is(err, sql.ErrNoRows) {
-			return Binding{}, serverapi.ErrWorkspaceNotRegistered
-		}
 		return Binding{}, fmt.Errorf("get old workspace binding: %w", err)
 	}
-	if oldWorkspace.ProjectID != trimmedExpectedProjectID || oldWorkspace.ID != trimmedExpectedWorkspaceID {
+	oldWorkspace, err := bindingFromCanonicalRootRows(oldCanonicalRoot, bindingRows)
+	if errors.Is(err, sql.ErrNoRows) {
+		return Binding{}, serverapi.ErrWorkspaceNotRegistered
+	}
+	if err != nil {
+		return Binding{}, fmt.Errorf("get old workspace binding: %w", err)
+	}
+	if oldWorkspace.ProjectID != trimmedExpectedProjectID || oldWorkspace.WorkspaceID != trimmedExpectedWorkspaceID {
 		return Binding{}, fmt.Errorf(
 			"workspace rebind preparation was invalidated: expected_project_id=%q expected_workspace_id=%q current_project_id=%q current_workspace_id=%q",
 			trimmedExpectedProjectID,
 			trimmedExpectedWorkspaceID,
 			oldWorkspace.ProjectID,
-			oldWorkspace.ID,
+			oldWorkspace.WorkspaceID,
 		)
 	}
-	if newCanonicalRoot == oldWorkspace.CanonicalRootPath {
+	if newCanonicalRoot == oldWorkspace.CanonicalRoot {
 		if err := tx.Commit(); err != nil {
 			return Binding{}, fmt.Errorf("commit workspace rebind noop tx: %w", err)
 		}
@@ -1259,7 +1241,7 @@ func (s *Store) RebindWorkspaceWithExpectedBinding(
 		ProjectID:         oldWorkspace.ProjectID,
 		CanonicalRootPath: newCanonicalRoot,
 	}); err == nil {
-		if existing.WorkspaceID == oldWorkspace.ID {
+		if existing.WorkspaceID == oldWorkspace.WorkspaceID {
 			if err := tx.Commit(); err != nil {
 				return Binding{}, fmt.Errorf("commit workspace rebind noop tx: %w", err)
 			}
@@ -1269,7 +1251,7 @@ func (s *Store) RebindWorkspaceWithExpectedBinding(
 	} else if !errors.Is(err, sql.ErrNoRows) {
 		return Binding{}, fmt.Errorf("get new workspace binding: %w", err)
 	}
-	worktrees, err := q.ListWorktreesByWorkspaceID(ctx, oldWorkspace.ID)
+	worktrees, err := q.ListWorktreesByWorkspaceID(ctx, oldWorkspace.WorkspaceID)
 	if err != nil {
 		return Binding{}, fmt.Errorf("list workspace worktrees: %w", err)
 	}
@@ -1277,8 +1259,8 @@ func (s *Store) RebindWorkspaceWithExpectedBinding(
 		rebindWorkspaceBeforeUpdateHook()
 	}
 	now := time.Now().UTC().UnixMilli()
-	rows, err := q.UpdateWorkspaceBindingCanonicalRoot(ctx, sqlitegen.UpdateWorkspaceBindingCanonicalRootParams{
-		ID:                oldWorkspace.ID,
+	updatedRows, err := q.UpdateWorkspaceBindingCanonicalRoot(ctx, sqlitegen.UpdateWorkspaceBindingCanonicalRootParams{
+		ID:                oldWorkspace.WorkspaceID,
 		CanonicalRootPath: newCanonicalRoot,
 		UpdatedAtUnixMs:   now,
 	})
@@ -1286,7 +1268,7 @@ func (s *Store) RebindWorkspaceWithExpectedBinding(
 		if rollbackErr := tx.Rollback(); rollbackErr != nil && !errors.Is(rollbackErr, sql.ErrTxDone) {
 			return Binding{}, fmt.Errorf("rollback workspace rebind tx: %w", rollbackErr)
 		}
-		if binding, lookupErr := s.lookupProjectWorkspaceBinding(ctx, oldWorkspace.ProjectID, newCanonicalRoot); lookupErr == nil && binding.WorkspaceID != oldWorkspace.ID {
+		if binding, lookupErr := s.lookupProjectWorkspaceBinding(ctx, oldWorkspace.ProjectID, newCanonicalRoot); lookupErr == nil && binding.WorkspaceID != oldWorkspace.WorkspaceID {
 			return Binding{}, fmt.Errorf("workspace %q: %w", newCanonicalRoot, ErrWorkspaceAlreadyBound)
 		}
 		if IsSQLiteUniqueConstraint(err) {
@@ -1294,7 +1276,7 @@ func (s *Store) RebindWorkspaceWithExpectedBinding(
 		}
 		return Binding{}, fmt.Errorf("update workspace binding canonical root: %w", err)
 	}
-	if rows == 0 {
+	if updatedRows == 0 {
 		return Binding{}, fmt.Errorf("update workspace binding canonical root: workspace %q was not updated", oldCanonicalRoot)
 	}
 	for _, worktree := range worktrees {
@@ -1321,25 +1303,6 @@ func (s *Store) RebindWorkspaceWithExpectedBinding(
 		return Binding{}, fmt.Errorf("commit workspace rebind tx: %w", err)
 	}
 	return s.lookupProjectWorkspaceBinding(ctx, oldWorkspace.ProjectID, newCanonicalRoot)
-}
-
-func singleWorkspaceByCanonicalRoot(ctx context.Context, q *sqlitegen.Queries, canonicalRoot string) (sqlitegen.Workspace, error) {
-	rows, err := q.ListWorkspacesByCanonicalRoot(ctx, canonicalRoot)
-	if err != nil {
-		return sqlitegen.Workspace{}, err
-	}
-	switch len(rows) {
-	case 0:
-		return sqlitegen.Workspace{}, sql.ErrNoRows
-	case 1:
-		return rows[0], nil
-	default:
-		projectIDs := make([]string, 0, len(rows))
-		for _, row := range rows {
-			projectIDs = append(projectIDs, row.ProjectID)
-		}
-		return sqlitegen.Workspace{}, serverapi.WorkspaceBindingAmbiguousError{CanonicalRoot: canonicalRoot, ProjectIDs: projectIDs}
-	}
 }
 
 func (s *Store) lookupProjectWorkspaceBinding(ctx context.Context, projectID string, canonicalRoot string) (Binding, error) {
@@ -1948,18 +1911,6 @@ func (s *Store) ListSessionPage(
 		return SessionPage{}, errors.New("metadata store is required")
 	}
 	trimmedProjectID := strings.TrimSpace(projectID)
-	if trimmedProjectID == "" || trimmedProjectID != projectID {
-		return SessionPage{}, errors.New("project_id is invalid")
-	}
-	if _, err := sessioncontract.ParseSessionCategory(string(category)); err != nil {
-		return SessionPage{}, err
-	}
-	if offset < 0 {
-		return SessionPage{}, errors.New("offset must be non-negative")
-	}
-	if limit < 1 || limit > MaxSessionPageSize {
-		return SessionPage{}, fmt.Errorf("limit must be between 1 and %d", MaxSessionPageSize)
-	}
 	rows, err := s.queries.ListSessionPage(ctx, sqlitegen.ListSessionPageParams{
 		ProjectID:  trimmedProjectID,
 		Category:   sql.NullString{String: string(category), Valid: true},
@@ -2040,22 +1991,6 @@ func (s *Store) ResolveSessionNavigationBinding(ctx context.Context, sessionID s
 		return &sessionlaunchpb.SessionNavigationBinding{}, err
 	}
 	return binding, nil
-}
-
-func (s *Store) ProjectWorkspaceAttached(ctx context.Context, projectID string, root string) (bool, error) {
-	if s == nil || s.queries == nil {
-		return false, errors.New("metadata store is required")
-	}
-	projectID = strings.TrimSpace(projectID)
-	if projectID == "" {
-		return false, errors.New("project id is required")
-	}
-	selector := serverapi.NewProjectWorkspaceSelectorForRoot(root)
-	_, err := s.ResolveProjectWorkspaceSelector(ctx, projectID, selector)
-	if errors.Is(err, serverapi.ErrWorkspaceNotRegistered) {
-		return false, nil
-	}
-	return err == nil, err
 }
 
 func (s *Store) SessionBelongsToProject(ctx context.Context, sessionID string, projectID string) (bool, error) {

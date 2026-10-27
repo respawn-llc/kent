@@ -1,3 +1,6 @@
+export { RecordingControl, type RecordingControlProps } from "./RecordingControl";
+export { fieldActions } from "./fieldActions";
+export { ControlTooltip } from "./ControlTooltip";
 export { SharedTextMotion } from "./SharedTextMotion";
 export { Badge } from "./Badge";
 export { PromptOptionRow } from "./PromptOptionRow";
@@ -91,6 +94,7 @@ export {
   type TextFieldSubmitShortcutPolicy,
 } from "./textFieldSubmitShortcut";
 export { Spinner } from "./Spinner";
+export { LinearBar } from "./LinearBar";
 export type { SpinnerProps } from "./Spinner";
 export { Switch } from "./radix/switch";
 export { Checkbox } from "./radix/checkbox";

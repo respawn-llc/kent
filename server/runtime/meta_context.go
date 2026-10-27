@@ -227,13 +227,13 @@ func (b metaContextBuilder) Build(opts metaContextBuildOptions) (metaContextBuil
 			return metaContextBuildResult{}, err
 		}
 		if opts.IncludeSkillWarnings {
-			collector.addWarnings(skillDiscoveryWarningTexts(result.Issues, b.environmentCWD, home))
+			collector.addWarnings(skillDiscoveryWarningTexts(result.DiscoveryWarnings(), b.environmentCWD, home))
 		}
-		if len(result.Skills) > 0 {
+		if skills := result.PromptSkills(); len(skills) > 0 {
 			collector.addMessages([]llm.Message{{
 				Role:        llm.RoleDeveloper,
 				MessageType: textutil.Value(llm.MessageTypeSkills),
-				Content:     textutil.Value(renderSkillsContext(result.Skills, b.environmentCWD, home)),
+				Content:     textutil.Value(renderSkillsContext(skills, b.environmentCWD, home)),
 			}})
 		}
 	}

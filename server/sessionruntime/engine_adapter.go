@@ -246,9 +246,9 @@ func (a *Authority) buildAgentResource(
 		state:              AgentResourceBuilding,
 		store:              store,
 	}
-	logger, err := runlog.NewRunLogger(store.Dir(), func(diag runlog.RunLoggerDiagnostic) {
+	logger, err := runlog.NewRunLogger(store.Dir(), func(message string) {
 		if plan.options.OnLoggingFailure != nil {
-			plan.options.OnLoggingFailure(diag.Message)
+			plan.options.OnLoggingFailure(message)
 		}
 	})
 	if err != nil {
@@ -298,7 +298,7 @@ func (a *Authority) newRuntimeWiringFromPlan(ctx context.Context, resource *agen
 	}
 	options.Settings.Connections = catalog.Settings.Connections
 	options.Settings.ConnectionOrder = catalog.Settings.ConnectionOrder
-	replacement, err := a.options.connectionRotation.BindSessionConnection(ctx, store, &options.Settings, options.Sources)
+	replacement, err := a.options.connectionRotation.BindSessionConnection(ctx, store, &options.Settings, options.Sources, options.ConnectionScope)
 	if err != nil {
 		return nil, err
 	}

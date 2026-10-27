@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"strings"
 
 	"core/server/sessionruntime"
 	"core/server/workflow"
@@ -115,28 +114,54 @@ func (c *CurrentNodeController) ResumeTask(ctx context.Context, taskID workflow.
 	return result, err
 }
 
-func (c *CurrentNodeController) ReactivateWorkflowSession(
-	ctx context.Context,
-	sessionID runtimeids.SessionID,
-) (sessionruntime.ExecutionHandle, error) {
+func (c *CurrentNodeController) sessionExecutionNode(ctx context.Context, sessionID runtimeids.SessionID) (*workflow.CurrentNode, error) {
 	if c == nil {
 		return nil, errors.New("current node workflow controller is required")
 	}
 	if sessionID.IsZero() {
 		return nil, errors.New("session id is required")
 	}
-	input, err := c.store.ResolveCurrentSessionStartContext(ctx, sessionID)
+	node, err := c.store.ResolveCurrentSessionNode(ctx, sessionID)
+	if err != nil || node == nil {
+		return nil, err
+	}
+	if node.Scheduling == nil {
+		return nil, nil
+	}
+	awaitingApproval, err := c.store.CurrentNodeAwaitingApproval(ctx, node.Reference)
 	if err != nil {
 		return nil, err
 	}
+	if awaitingApproval {
+		return nil, nil
+	}
+	return node, nil
+}
+
+func (c *CurrentNodeController) ResolveSessionWorkflow(ctx context.Context, sessionID runtimeids.SessionID) (*workflow.CurrentNodeReference, error) {
+	node, err := c.sessionExecutionNode(ctx, sessionID)
+	if err != nil || node == nil {
+		return nil, err
+	}
+	return &node.Reference, nil
+}
+
+func (c *CurrentNodeController) EnsureSessionExecution(
+	ctx context.Context,
+	sessionID runtimeids.SessionID,
+) (sessionruntime.ExecutionHandle, error) {
+	node, err := c.sessionExecutionNode(ctx, sessionID)
+	if err != nil || node == nil {
+		return nil, err
+	}
 	if handle, live := c.authority.SessionExecution(sessionID); live {
-		return c.validateReactivatedWorkflowExecution(handle, sessionID, input.CurrentNode.Reference)
+		return c.authority.ValidateLiveWorkflowAgentExecution(handle, sessionID, node.Reference)
 	}
 	result, completion, err := c.resumeTask(
 		ctx,
-		input.Task.ID,
+		node.Reference.TaskID,
 		nil,
-		&input.CurrentNode.Reference,
+		&node.Reference,
 	)
 	if err != nil {
 		return nil, err
@@ -149,33 +174,25 @@ func (c *CurrentNodeController) ReactivateWorkflowSession(
 		if waitErr != nil {
 			return nil, fmt.Errorf("reactivate workflow Session %s: %w", sessionID, waitErr)
 		}
-		return c.validateReactivatedWorkflowExecution(handle, sessionID, input.CurrentNode.Reference)
+		return c.authority.ValidateLiveWorkflowAgentExecution(handle, sessionID, node.Reference)
 	}
 	handle, live := c.authority.SessionExecution(sessionID)
 	if !live {
-		return nil, &TaskResumeConflictError{TaskID: input.Task.ID}
+		return nil, sessionruntime.ErrExecutionNoLongerLive
 	}
-	return c.validateReactivatedWorkflowExecution(handle, sessionID, input.CurrentNode.Reference)
+	return c.authority.ValidateLiveWorkflowAgentExecution(handle, sessionID, node.Reference)
 }
 
-func (c *CurrentNodeController) validateReactivatedWorkflowExecution(
-	handle sessionruntime.ExecutionHandle,
-	sessionID runtimeids.SessionID,
-	currentNode workflow.CurrentNodeReference,
-) (sessionruntime.ExecutionHandle, error) {
-	return c.authority.ValidateLiveWorkflowAgentExecution(handle, sessionID, currentNode)
-}
-
-func (c *CurrentNodeController) currentNodePreparingLocked(
+func (c *CurrentNodeController) currentNodeAdmissionLocked(
 	key workflow.CurrentNodeReferenceKey,
-) bool {
+) *currentNodeAdmissionCompletion {
 	for _, start := range c.explicitQueue {
 		startKey, err := start.reference.Key()
 		if err != nil {
 			panic(fmt.Sprintf("inspect explicit admission queue: %v", err))
 		}
 		if startKey == key {
-			return true
+			return start.completion
 		}
 	}
 	for entry := c.automaticQueue.first; entry != nil; entry = entry.globalNext {
@@ -184,48 +201,25 @@ func (c *CurrentNodeController) currentNodePreparingLocked(
 			panic(fmt.Sprintf("inspect automatic admission queue: %v", err))
 		}
 		if startKey == key {
-			return true
+			start := c.automaticQueue.remove(entry)
+			delete(c.queued, key)
+			start.policy = currentNodeAdmissionExplicitOverride
+			c.explicitQueue = append(c.explicitQueue, start)
+			c.explicitQueued[key] = struct{}{}
+			c.wakeAdmissionWorker()
+			return start.completion
 		}
 	}
-	if _, exists := c.explicitReservations[key]; exists {
-		return true
+	if start, exists := c.explicitReservations[key]; exists {
+		return start.completion
 	}
-	if _, exists := c.automaticReservations[key]; exists {
-		return true
+	if start, exists := c.automaticReservations[key]; exists {
+		return start.completion
 	}
-	if _, exists := c.admissionWorkers[key]; exists {
-		return true
+	if start, exists := c.admissionWorkers[key]; exists {
+		return start.completion
 	}
-	return false
-}
-
-func (c *CurrentNodeController) WorkflowSessionPreparing(
-	ctx context.Context,
-	sessionID runtimeids.SessionID,
-) (bool, error) {
-	if c == nil {
-		return false, errors.New("current node workflow controller is required")
-	}
-	if sessionID.IsZero() {
-		return false, errors.New("session id is required")
-	}
-	input, err := c.store.ResolveCurrentSessionStartContext(ctx, sessionID)
-	if err != nil {
-		return false, err
-	}
-	if handle, live := c.authority.SessionExecution(sessionID); live {
-		if _, err := c.validateReactivatedWorkflowExecution(handle, sessionID, input.CurrentNode.Reference); err != nil {
-			return false, err
-		}
-		return false, nil
-	}
-	key, err := input.CurrentNode.Reference.Key()
-	if err != nil {
-		return false, err
-	}
-	c.mu.Lock()
-	defer c.mu.Unlock()
-	return c.currentNodePreparingLocked(key), nil
+	return nil
 }
 
 // PromoteConcurrencyQueuedTask moves automatic Current Nodes waiting for agent
@@ -237,9 +231,6 @@ func (c *CurrentNodeController) PromoteConcurrencyQueuedTask(
 ) ([]workflow.CurrentNode, bool, error) {
 	if c == nil {
 		return nil, false, errors.New("current node workflow controller is required")
-	}
-	if strings.TrimSpace(string(taskID)) == "" {
-		return nil, false, errors.New("workflow task id is required")
 	}
 	var promoted []workflow.CurrentNode
 	err := c.runTaskMutation(ctx, taskID, func(context.Context) error {
@@ -292,11 +283,11 @@ func (c *CurrentNodeController) PreflightTaskResume(
 		if err != nil {
 			return TaskResumePreflight{}, err
 		}
-		if len(classification.alreadyResumed) != 0 {
+		if len(classification.resumable) == 0 && len(classification.alreadyResumed) != 0 {
 			return TaskResumePreflight{
 				Outcome:      TaskResumePreflightNoOp,
 				CurrentNodes: classification.alreadyResumed,
-			}, nil
+			}, classification.validationErr
 		}
 		if err := classification.eligibilityError(); err != nil {
 			return TaskResumePreflight{}, err
@@ -343,6 +334,7 @@ func (c *CurrentNodeController) classifyTaskResume(
 		if err != nil {
 			return taskResumeClassification{}, err
 		}
+		result := taskResumeClassification{}
 		for _, currentNode := range currentNodes {
 			if selected != nil && !currentNode.Reference.Equal(*selected) {
 				continue
@@ -352,8 +344,19 @@ func (c *CurrentNodeController) classifyTaskResume(
 			}
 			switch currentNode.Scheduling.State {
 			case workflow.CurrentNodeSchedulingReady, workflow.CurrentNodeSchedulingAdmitted:
-				return taskResumeClassification{alreadyResumed: []workflow.CurrentNode{currentNode}}, nil
+				if currentNode.SessionID != nil {
+					if handle, live := c.authority.SessionExecution(*currentNode.SessionID); live {
+						if _, err := c.authority.ValidateLiveWorkflowAgentExecution(handle, *currentNode.SessionID, currentNode.Reference); err != nil {
+							result.validationErr = errors.Join(result.validationErr, err)
+							continue
+						}
+					}
+				}
+				result.alreadyResumed = append(result.alreadyResumed, currentNode)
 			}
+		}
+		if len(result.alreadyResumed) != 0 || result.validationErr != nil {
+			return result, nil
 		}
 		return taskResumeClassification{}, &TaskResumeConflictError{TaskID: taskID}
 	}
@@ -364,6 +367,16 @@ func (c *CurrentNodeController) classifyTaskResume(
 	for _, classification := range classifications {
 		if selected != nil && !classification.CurrentNode.Reference.Equal(*selected) {
 			continue
+		}
+		if sessionID := classification.CurrentNode.SessionID; sessionID != nil {
+			if handle, live := c.authority.SessionExecution(*sessionID); live {
+				if _, err := c.authority.ValidateLiveWorkflowAgentExecution(handle, *sessionID, classification.CurrentNode.Reference); err != nil {
+					validationErrs = append(validationErrs, err)
+				} else {
+					result.alreadyResumed = append(result.alreadyResumed, classification.CurrentNode)
+				}
+				continue
+			}
 		}
 		if validationErr := classification.ValidationError(); validationErr != nil {
 			validationErrs = append(validationErrs, validationErr)
@@ -397,11 +410,20 @@ func (c *CurrentNodeController) resumeTask(
 		if err != nil {
 			return TaskResumeResult{}, err
 		}
-		if len(classification.alreadyResumed) != 0 {
+		if len(classification.resumable) == 0 && len(classification.alreadyResumed) != 0 {
+			if watch != nil {
+				key, err := watch.Key()
+				if err != nil {
+					return TaskResumeResult{}, err
+				}
+				c.mu.Lock()
+				watchedCompletion = c.currentNodeAdmissionLocked(key)
+				c.mu.Unlock()
+			}
 			return TaskResumeResult{
 				Outcome:      TaskResumeNoOp,
 				CurrentNodes: classification.alreadyResumed,
-			}, nil
+			}, classification.validationErr
 		}
 		var resumeErrs []error
 		if classification.validationErr != nil {
@@ -417,16 +439,11 @@ func (c *CurrentNodeController) resumeTask(
 			}
 			if currentNode.SessionID != nil {
 				if active, exists := c.authority.SessionExecution(*currentNode.SessionID); exists {
-					resumeErrs = append(
-						resumeErrs,
-						fmt.Errorf(
-							"resume current node %v: retained Session %s already has active execution scope %s: %w",
-							currentNode.Reference,
-							*currentNode.SessionID,
-							active.Scope().ID(),
-							ErrTaskExecutionNotQuiescent,
-						),
-					)
+					if _, err := c.authority.ValidateLiveWorkflowAgentExecution(active, *currentNode.SessionID, currentNode.Reference); err != nil {
+						resumeErrs = append(resumeErrs, err)
+					} else {
+						classification.alreadyResumed = append(classification.alreadyResumed, currentNode)
+					}
 					continue
 				}
 			}
@@ -455,6 +472,9 @@ func (c *CurrentNodeController) resumeTask(
 		c.mu.Unlock()
 
 		if len(eligible) == 0 {
+			if len(classification.alreadyResumed) != 0 {
+				return TaskResumeResult{Outcome: TaskResumeNoOp, CurrentNodes: classification.alreadyResumed}, errors.Join(resumeErrs...)
+			}
 			return TaskResumeResult{}, errors.Join(resumeErrs...)
 		}
 		plan, err := c.store.PlanTaskResume(ctx, taskID, eligible, candidate)

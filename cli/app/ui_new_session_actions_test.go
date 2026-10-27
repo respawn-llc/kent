@@ -48,7 +48,7 @@ func TestNewSessionConfirmedWorktreeEntersBeforeObservation(t *testing.T) {
 	}
 	defer composition.close()
 	model := composition.model
-	model.Update(model.loadNewSessionSettingsCmd(nil)())
+	model.Update(newSessionSettingsReadResult(t, model.loadNewSessionSettingsCmd(nil)))
 	// The observation command is intentionally not executed.
 	model.observeSession = nil
 	model.worktrees.open = true
@@ -99,6 +99,10 @@ creation:
 			t.Fatal(err)
 		}
 		if view.MainView.Session.ExecutionTarget.GetWorktree().GetId() == created.resp.Worktree.Topology.GetRegistered().Kent.WorktreeId {
+			list := model.requestWorktreeListCmd()().(worktreeListDoneMsg)
+			if list.err != nil || len(list.workspace.Worktrees) < 2 {
+				t.Fatalf("workspace management after creation without observation: %v", list.err)
+			}
 			return
 		}
 		select {
@@ -126,9 +130,10 @@ func TestNewSessionAdoptionLoadsMetadataWithoutTranscriptHydration(t *testing.T)
 	}}
 	client := newUIRuntimeClientWithReads(id.String(), reads)
 	model.setKnownSessionTarget(id.String())
-	withUISessionObservation(&runtimeWiring{
+	model.observationScope, model.cancelObservation = context.WithCancel(t.Context())
+	model.startupCmds = append(model.startupCmds, model.installSessionObservation(&runtimeWiring{
 		runtimeClient: client, eventDispatcher: newUIEventDispatcher(nil), terminalFocus: newTerminalFocusState(),
-	}, sessionLaunchPlan{}, t.Context())(model)
+	}, sessionLaunchPlan{}))
 	results := make(chan tea.Msg, 16)
 	var dispatch func(tea.Cmd)
 	dispatch = func(cmd tea.Cmd) {
@@ -239,7 +244,7 @@ func TestNewSessionGoalUsesOrdinaryRemoteAdmission(t *testing.T) {
 	}
 	defer composition.close()
 	model := composition.model
-	model.Update(model.loadNewSessionSettingsCmd(nil)())
+	model.Update(newSessionSettingsReadResult(t, model.loadNewSessionSettingsCmd(nil)))
 	model.mainEditor.SetText("unsent draft")
 	cmd := model.newSessionActionCmd(chatGoalAction{objective: "Report current directory"}, nil)
 	result := cmd().(newSessionActionDoneMsg)
@@ -302,7 +307,7 @@ func TestNewSessionConfirmedWorktreeCreateKeepsSessionOnSetupFailure(t *testing.
 	}
 	defer composition.close()
 	model := composition.model
-	model.Update(model.loadNewSessionSettingsCmd(nil)())
+	model.Update(newSessionSettingsReadResult(t, model.loadNewSessionSettingsCmd(nil)))
 	model.mainEditor.SetText("draft across setup failure")
 	model.newChatTarget().Name = appStringPointer("future Worktree Session")
 	model.observeSession = nil
@@ -434,7 +439,7 @@ func TestNewSessionNavigationPromptWaitsForSettingsThenDispatchesOnce(t *testing
 	if model.startupSubmitCmd() != nil || len(client.requests) != 0 {
 		t.Fatal("navigation prompt dispatched before settings were ready")
 	}
-	_, cmd := model.Update(model.loadNewSessionSettingsCmd(nil)())
+	_, cmd := model.Update(newSessionSettingsReadResult(t, model.loadNewSessionSettingsCmd(nil)))
 	collectCmdMessages(t, cmd)
 	if len(client.requests) != 1 || client.requests[0].Activation.GetText() != request.initialPrompt {
 		t.Fatal("settings readiness did not dispatch the explicit navigation prompt once")
@@ -548,7 +553,7 @@ func TestNewSessionFirstRequestsCaptureIndependentInputs(t *testing.T) {
 	}
 	defer composition.close()
 	model := composition.model
-	model.Update(model.loadNewSessionSettingsCmd(nil)())
+	model.Update(newSessionSettingsReadResult(t, model.loadNewSessionSettingsCmd(nil)))
 	client := &concurrentNewChatClient{}
 	model.chatMutations = client
 	first := model.inputController().submitCmd("first", runtimeinput.Text("first"), "", activeSubmitOriginDirect, nil)
@@ -606,7 +611,7 @@ func TestNewSessionKeySubmissionsBeforeFirstResultCreateIndependentSessions(t *t
 			}
 			defer composition.close()
 			model := composition.model
-			model.Update(model.loadNewSessionSettingsCmd(nil)())
+			model.Update(newSessionSettingsReadResult(t, model.loadNewSessionSettingsCmd(nil)))
 			dispatch := func(text string, key tea.KeyMsg) newSessionActionDoneMsg {
 				t.Helper()
 				testSetMainInput(model, text)

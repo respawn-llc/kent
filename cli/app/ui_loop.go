@@ -50,6 +50,7 @@ type uiLoopRequest struct {
 	modelContractLocked          bool
 	configuredModelName          *string
 	statusConfig                 uiStatusConfig
+	connectionManagement         apicontract.ConnectionManagementService
 	initialTransientStatus       *string
 	promptCatalog                apicontract.PromptCommandCatalogService
 	promptCatalogEntries         []commands.PromptCommandCatalogEntry
@@ -188,6 +189,9 @@ func composeUIProgram(request uiLoopRequest, output io.Writer) (*uiProgramCompos
 		WithUIPromptCommandCatalog(request.promptCatalog),
 		WithUIPromptCommandCatalogEntries(request.promptCatalogEntries),
 		WithUIProcessClient(newUIProcessClientWithReads(request.projectID, request.wiring.processViews, request.wiring.processControls)),
+		WithUIWorktreeClient(request.wiring.worktrees),
+		WithUIConnectionManagementClient(request.connectionManagement),
+		WithUIStatusConfig(request.statusConfig),
 		WithUIStartupSubmit(request.initialPrompt),
 		WithUIStartupSubmitPromptHistoryRecorded(request.initialPromptHistoryRecorded),
 		WithUIInitialInput(request.initialInput),
@@ -196,9 +200,7 @@ func composeUIProgram(request uiLoopRequest, output io.Writer) (*uiProgramCompos
 		WithUIOngoingSurface(ongoingSurface),
 	}
 	if runtimeClient != nil {
-		uiOptions = append(uiOptions, WithUISessionID(sessionID), withUISessionObservation(request.wiring, sessionLaunchPlan{StatusConfig: request.statusConfig}, programContext))
-	} else {
-		uiOptions = append(uiOptions, WithUIWorktreeClient(request.wiring.worktrees), WithUIStatusConfig(request.statusConfig))
+		uiOptions = append(uiOptions, WithUISessionID(sessionID))
 	}
 	if request.sessionTitle != nil {
 		uiOptions = append(uiOptions, WithUISessionName(request.sessionTitle))
@@ -224,6 +226,7 @@ func composeUIProgram(request uiLoopRequest, output io.Writer) (*uiProgramCompos
 	model.chatMutations = request.wiring.chatMutations
 	model.chatSettings = request.wiring.chatSettings
 	model.sessionControls = request.wiring.controls
+	model.sessionLiveControls = request.wiring.liveControls
 	model.pendingWorkClient = request.wiring.pendingWork
 	if request.newChat == nil {
 		selected := model.presentationTarget.(uiKnownSessionTarget)
@@ -239,6 +242,10 @@ func composeUIProgram(request uiLoopRequest, output io.Writer) (*uiProgramCompos
 	model.drafts = newUIDraftPersistence(request.sessionLifecycle, initialDraft)
 	model.observeSession = request.observeSession
 	model.observationContext = programContext
+	if runtimeClient != nil {
+		model.observationScope, model.cancelObservation = context.WithCancel(programContext)
+		model.startupCmds = append(model.startupCmds, model.installSessionObservation(request.wiring, sessionLaunchPlan{StatusConfig: request.statusConfig}))
+	}
 	if request.loadCommandCatalog != nil {
 		load := request.loadCommandCatalog
 		model.startupCmds = append(model.startupCmds, func() tea.Msg {

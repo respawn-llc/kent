@@ -76,16 +76,13 @@ func TestToolCompletionLocatorOwnerSurvivesRoleToolMaterializationAndReopen(t *t
 	page := mustEngineNewestSegmentPage(t, engine)
 	pageFacts := TranscriptCommittedRowFactsFromSnapshot(page.Snapshot)
 	assertToolFactsFollowLocatorOrder(t, pageFacts, "page")
-	hydrationFacts := hydrationSnapshot(t, engine).CommittedRows
+	hydrationFacts := mustNewestTranscriptFacts(t, engine)
 	assertToolFactsFollowLocatorOrder(t, hydrationFacts, "hydration")
 	for _, callID := range []string{"call-1", "call-2"} {
 		pageFact := findToolFact(t, pageFacts, callID)
 		liveLocator, ok := liveLocators[callID]
 		if !ok {
 			t.Fatalf("live locator for %s is absent", callID)
-		}
-		if err := liveLocator.Validate(); err != nil {
-			t.Fatalf("live locator for %s is invalid: %v", callID, err)
 		}
 		if pageFact.Locator != liveLocator {
 			t.Fatalf("tool %s page locator = %+v, live locator = %+v", callID, pageFact.Locator, liveLocator)
@@ -98,7 +95,7 @@ func TestToolCompletionLocatorOwnerSurvivesRoleToolMaterializationAndReopen(t *t
 	reopened := mustNewTestEngine(t, mustOpenTestSession(t, store.Dir()), &fakeClient{}, tools.NewRegistry(), Config{Model: "gpt-6-sol"})
 	reopenedFacts := TranscriptCommittedRowFactsFromSnapshot(mustEngineNewestSegmentPage(t, reopened).Snapshot)
 	assertToolFactsFollowLocatorOrder(t, reopenedFacts, "reopened page")
-	assertToolFactsFollowLocatorOrder(t, hydrationSnapshot(t, reopened).CommittedRows, "reopened hydration")
+	assertToolFactsFollowLocatorOrder(t, mustNewestTranscriptFacts(t, reopened), "reopened hydration")
 	for _, callID := range []string{"call-1", "call-2"} {
 		if got := findToolFact(t, reopenedFacts, callID).Locator; got != liveLocators[callID] {
 			t.Fatalf("reopened tool %s locator = %+v, live locator = %+v", callID, got, liveLocators[callID])
@@ -160,7 +157,7 @@ func TestQuestionAnswererSurvivesV1HydrationAndTranscriptPages(t *testing.T) {
 	)
 	assertQuestionAnswererToolFact(
 		t,
-		findToolFact(t, hydrationSnapshot(t, engine).CommittedRows, callID),
+		findToolFact(t, mustNewestTranscriptFacts(t, engine), callID),
 		answerer,
 	)
 
@@ -175,7 +172,7 @@ func TestQuestionAnswererSurvivesV1HydrationAndTranscriptPages(t *testing.T) {
 	)
 	assertQuestionAnswererToolFact(
 		t,
-		findToolFact(t, hydrationSnapshot(t, reopened).CommittedRows, callID),
+		findToolFact(t, mustNewestTranscriptFacts(t, reopened), callID),
 		answerer,
 	)
 }

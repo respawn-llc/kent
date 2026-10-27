@@ -260,10 +260,7 @@ func reopenRetargetedSession(
 	rawSessionID string,
 ) (*sessionlaunchpb.SessionDirective, error) {
 	defer runtimePlan.Close()
-	sessionID, err := runtimeids.ParseSessionID(rawSessionID)
-	if err != nil {
-		return &sessionlaunchpb.SessionDirective{}, err
-	}
+	sessionID := runtimeids.SessionIDFromProto(rawSessionID)
 	runtimePlan.Close()
 	if err := server.ReattachSession(ctx, rawSessionID); err != nil {
 		return &sessionlaunchpb.SessionDirective{}, err

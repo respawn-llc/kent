@@ -1584,6 +1584,44 @@ func (q *Queries) ExpireConnectionConsumption(ctx context.Context, hourStartUnix
 	return err
 }
 
+const filterProjectSessionIDs = `-- name: FilterProjectSessionIDs :many
+SELECT DISTINCT session.id
+FROM json_each(CAST(?1 AS TEXT)) candidate
+CROSS JOIN sessions session
+    INDEXED BY sqlite_autoindex_sessions_1
+    ON session.id = CAST(candidate.value AS TEXT)
+WHERE session.project_id = ?2
+`
+
+type FilterProjectSessionIDsParams struct {
+	SessionIdsJson string
+	ProjectID      string
+}
+
+func (q *Queries) FilterProjectSessionIDs(ctx context.Context, arg FilterProjectSessionIDsParams) ([]string, error) {
+	rows, err := q.db.QueryContext(ctx, filterProjectSessionIDs, arg.SessionIdsJson, arg.ProjectID)
+	err = recordQueryError(ctx, err, filterProjectSessionIDs, 2)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []string
+	for rows.Next() {
+		var id string
+		if err := recordQueryError(ctx, rows.Scan(&id), filterProjectSessionIDs, 2); err != nil {
+			return nil, err
+		}
+		items = append(items, id)
+	}
+	if err := recordQueryError(ctx, rows.Close(), filterProjectSessionIDs, 2); err != nil {
+		return nil, err
+	}
+	if err := recordQueryError(ctx, rows.Err(), filterProjectSessionIDs, 2); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const findContainingProjectWorkspace = `-- name: FindContainingProjectWorkspace :one
 SELECT p.id AS project_id,
     w.id AS workspace_id,
@@ -4483,215 +4521,6 @@ func (q *Queries) ListMetadataSchemaDefinitions(ctx context.Context) ([]ListMeta
 	return items, nil
 }
 
-const listNewerSessionPage = `-- name: ListNewerSessionPage :many
-SELECT
-    id,
-    name,
-    first_prompt_preview,
-    COALESCE(category, 'main') AS category,
-    updated_at_unix_ms
-FROM sessions
-WHERE project_id = ?1
-  AND launch_visible <> 0
-  AND COALESCE(category, 'main') = ?2
-  AND (
-      updated_at_unix_ms > ?3
-      OR (
-          updated_at_unix_ms = ?3
-          AND id > ?4
-      )
-  )
-ORDER BY updated_at_unix_ms ASC, id ASC
-LIMIT ?5
-`
-
-type ListNewerSessionPageParams struct {
-	ProjectID               string
-	Category                sql.NullString
-	BoundaryUpdatedAtUnixMs int64
-	BoundarySessionID       string
-	PageLimit               int64
-}
-
-type ListNewerSessionPageRow struct {
-	ID                 string
-	Name               sql.NullString
-	FirstPromptPreview string
-	Category           string
-	UpdatedAtUnixMs    int64
-}
-
-func (q *Queries) ListNewerSessionPage(ctx context.Context, arg ListNewerSessionPageParams) ([]ListNewerSessionPageRow, error) {
-	rows, err := q.db.QueryContext(ctx, listNewerSessionPage,
-		arg.ProjectID,
-		arg.Category,
-		arg.BoundaryUpdatedAtUnixMs,
-		arg.BoundarySessionID,
-		arg.PageLimit,
-	)
-	err = recordQueryError(ctx, err, listNewerSessionPage, 5)
-
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-	var items []ListNewerSessionPageRow
-	for rows.Next() {
-		var i ListNewerSessionPageRow
-		if err := recordQueryError(ctx, rows.Scan(
-			&i.ID,
-			&i.Name,
-			&i.FirstPromptPreview,
-			&i.Category,
-			&i.UpdatedAtUnixMs,
-		), listNewerSessionPage, 5); err != nil {
-			return nil, err
-		}
-		items = append(items, i)
-	}
-	if err := recordQueryError(ctx, rows.Close(), listNewerSessionPage, 5); err != nil {
-		return nil, err
-	}
-	if err := recordQueryError(ctx, rows.Err(), listNewerSessionPage, 5); err != nil {
-		return nil, err
-	}
-	return items, nil
-}
-
-const listNewestSessionPage = `-- name: ListNewestSessionPage :many
-SELECT
-    id,
-    name,
-    first_prompt_preview,
-    COALESCE(category, 'main') AS category,
-    updated_at_unix_ms
-FROM sessions
-WHERE project_id = ?1
-  AND launch_visible <> 0
-  AND COALESCE(category, 'main') = ?2
-ORDER BY updated_at_unix_ms DESC, id DESC
-LIMIT ?3
-`
-
-type ListNewestSessionPageParams struct {
-	ProjectID string
-	Category  sql.NullString
-	PageLimit int64
-}
-
-type ListNewestSessionPageRow struct {
-	ID                 string
-	Name               sql.NullString
-	FirstPromptPreview string
-	Category           string
-	UpdatedAtUnixMs    int64
-}
-
-func (q *Queries) ListNewestSessionPage(ctx context.Context, arg ListNewestSessionPageParams) ([]ListNewestSessionPageRow, error) {
-	rows, err := q.db.QueryContext(ctx, listNewestSessionPage, arg.ProjectID, arg.Category, arg.PageLimit)
-	err = recordQueryError(ctx, err, listNewestSessionPage, 3)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-	var items []ListNewestSessionPageRow
-	for rows.Next() {
-		var i ListNewestSessionPageRow
-		if err := recordQueryError(ctx, rows.Scan(
-			&i.ID,
-			&i.Name,
-			&i.FirstPromptPreview,
-			&i.Category,
-			&i.UpdatedAtUnixMs,
-		), listNewestSessionPage, 3); err != nil {
-			return nil, err
-		}
-		items = append(items, i)
-	}
-	if err := recordQueryError(ctx, rows.Close(), listNewestSessionPage, 3); err != nil {
-		return nil, err
-	}
-	if err := recordQueryError(ctx, rows.Err(), listNewestSessionPage, 3); err != nil {
-		return nil, err
-	}
-	return items, nil
-}
-
-const listOlderSessionPage = `-- name: ListOlderSessionPage :many
-SELECT
-    id,
-    name,
-    first_prompt_preview,
-    COALESCE(category, 'main') AS category,
-    updated_at_unix_ms
-FROM sessions
-WHERE project_id = ?1
-  AND launch_visible <> 0
-  AND COALESCE(category, 'main') = ?2
-  AND (
-      updated_at_unix_ms < ?3
-      OR (
-          updated_at_unix_ms = ?3
-          AND id < ?4
-      )
-  )
-ORDER BY updated_at_unix_ms DESC, id DESC
-LIMIT ?5
-`
-
-type ListOlderSessionPageParams struct {
-	ProjectID               string
-	Category                sql.NullString
-	BoundaryUpdatedAtUnixMs int64
-	BoundarySessionID       string
-	PageLimit               int64
-}
-
-type ListOlderSessionPageRow struct {
-	ID                 string
-	Name               sql.NullString
-	FirstPromptPreview string
-	Category           string
-	UpdatedAtUnixMs    int64
-}
-
-func (q *Queries) ListOlderSessionPage(ctx context.Context, arg ListOlderSessionPageParams) ([]ListOlderSessionPageRow, error) {
-	rows, err := q.db.QueryContext(ctx, listOlderSessionPage,
-		arg.ProjectID,
-		arg.Category,
-		arg.BoundaryUpdatedAtUnixMs,
-		arg.BoundarySessionID,
-		arg.PageLimit,
-	)
-	err = recordQueryError(ctx, err, listOlderSessionPage, 5)
-
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-	var items []ListOlderSessionPageRow
-	for rows.Next() {
-		var i ListOlderSessionPageRow
-		if err := recordQueryError(ctx, rows.Scan(
-			&i.ID,
-			&i.Name,
-			&i.FirstPromptPreview,
-			&i.Category,
-			&i.UpdatedAtUnixMs,
-		), listOlderSessionPage, 5); err != nil {
-			return nil, err
-		}
-		items = append(items, i)
-	}
-	if err := recordQueryError(ctx, rows.Close(), listOlderSessionPage, 5); err != nil {
-		return nil, err
-	}
-	if err := recordQueryError(ctx, rows.Err(), listOlderSessionPage, 5); err != nil {
-		return nil, err
-	}
-	return items, nil
-}
-
 const listProjectHomeSummaries = `-- name: ListProjectHomeSummaries :many
 SELECT
     p.id AS project_id,
@@ -6313,6 +6142,78 @@ func (q *Queries) ListTaskPendingApprovalsByTasks(ctx context.Context, taskIdsJs
 	return items, nil
 }
 
+const listTaskStageNamesByTasks = `-- name: ListTaskStageNamesByTasks :many
+SELECT
+    task.id AS task_id,
+    CAST(CASE WHEN node.group_id IS NULL
+        THEN COALESCE(NULLIF(trim(node.display_name), ''), node.node_key)
+        ELSE COALESCE(node_group.display_name, (
+            SELECT COALESCE(NULLIF(trim(member.display_name), ''), member.node_key)
+            FROM workflow_nodes member
+            WHERE member.group_id = node.group_id
+            ORDER BY member.sort_order, member.rowid
+            LIMIT 1
+        ))
+    END AS TEXT) AS stage_name
+FROM tasks task
+JOIN task_current_nodes current_node ON current_node.rowid = COALESCE(
+    (
+        SELECT serial.rowid
+        FROM task_current_nodes serial
+        WHERE serial.task_id = task.id AND serial.transition_branch_key IS NULL
+    ),
+    (
+        SELECT parallel.rowid
+        FROM task_current_nodes parallel
+        WHERE parallel.task_id = task.id AND parallel.transition_branch_key IS NOT NULL
+        ORDER BY parallel.transition_branch_key
+        LIMIT 1
+    )
+)
+JOIN workflow_nodes node ON node.id = current_node.node_id
+LEFT JOIN workflow_node_groups node_group ON node_group.id = node.group_id
+WHERE task.id IN (/*SLICE:task_ids*/?)
+`
+
+type ListTaskStageNamesByTasksRow struct {
+	TaskID    string
+	StageName string
+}
+
+func (q *Queries) ListTaskStageNamesByTasks(ctx context.Context, taskIds []string) ([]ListTaskStageNamesByTasksRow, error) {
+	query := listTaskStageNamesByTasks
+	var queryParams []interface{}
+	if len(taskIds) > 0 {
+		for _, v := range taskIds {
+			queryParams = append(queryParams, v)
+		}
+		query = strings.Replace(query, "/*SLICE:task_ids*/?", strings.Repeat(",?", len(taskIds))[1:], 1)
+	} else {
+		query = strings.Replace(query, "/*SLICE:task_ids*/?", "NULL", 1)
+	}
+	rows, err := q.db.QueryContext(ctx, query, queryParams...)
+	err = recordQueryError(ctx, err, query, 1)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []ListTaskStageNamesByTasksRow
+	for rows.Next() {
+		var i ListTaskStageNamesByTasksRow
+		if err := recordQueryError(ctx, rows.Scan(&i.TaskID, &i.StageName), query, 1); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := recordQueryError(ctx, rows.Close(), query, 1); err != nil {
+		return nil, err
+	}
+	if err := recordQueryError(ctx, rows.Err(), query, 1); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const listTasksByIDs = `-- name: ListTasksByIDs :many
 SELECT
     id,
@@ -6385,88 +6286,6 @@ func (q *Queries) ListTasksByIDs(ctx context.Context, taskIdsJson interface{}) (
 		return nil, err
 	}
 	if err := recordQueryError(ctx, rows.Err(), listTasksByIDs, 1); err != nil {
-		return nil, err
-	}
-	return items, nil
-}
-
-const listTasksByProject = `-- name: ListTasksByProject :many
-SELECT
-    id,
-    project_id,
-    project_workflow_link_id,
-    workflow_id,
-    workflow_revision_seen,
-    task_seq,
-    short_id,
-    title,
-    body,
-    source_url,
-    source_workspace_id,
-    managed_worktree_id,
-    pending_initial_managed_branch_name,
-    execution_target_mode,
-    execution_target_requested_ref,
-    execution_target_resolved_ref,
-    execution_target_commit_oid,
-    execution_target_provenance,
-    created_at_unix_ms,
-    updated_at_unix_ms,
-    metadata_json
-FROM task_records
-WHERE project_workflow_link_id IN (
-    SELECT id
-    FROM project_workflow_links
-    WHERE project_workflow_links.project_id = ?1
-)
-ORDER BY updated_at_unix_ms DESC, (
-    SELECT storage.rowid
-    FROM tasks storage
-    WHERE storage.id = task_records.id
-) DESC
-`
-
-func (q *Queries) ListTasksByProject(ctx context.Context, projectID string) ([]TaskRecord, error) {
-	rows, err := q.db.QueryContext(ctx, listTasksByProject, projectID)
-	err = recordQueryError(ctx, err, listTasksByProject, 1)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-	var items []TaskRecord
-	for rows.Next() {
-		var i TaskRecord
-		if err := recordQueryError(ctx, rows.Scan(
-			&i.ID,
-			&i.ProjectID,
-			&i.ProjectWorkflowLinkID,
-			&i.WorkflowID,
-			&i.WorkflowRevisionSeen,
-			&i.TaskSeq,
-			&i.ShortID,
-			&i.Title,
-			&i.Body,
-			&i.SourceUrl,
-			&i.SourceWorkspaceID,
-			&i.ManagedWorktreeID,
-			&i.PendingInitialManagedBranchName,
-			&i.ExecutionTargetMode,
-			&i.ExecutionTargetRequestedRef,
-			&i.ExecutionTargetResolvedRef,
-			&i.ExecutionTargetCommitOid,
-			&i.ExecutionTargetProvenance,
-			&i.CreatedAtUnixMs,
-			&i.UpdatedAtUnixMs,
-			&i.MetadataJson,
-		), listTasksByProject, 1); err != nil {
-			return nil, err
-		}
-		items = append(items, i)
-	}
-	if err := recordQueryError(ctx, rows.Close(), listTasksByProject, 1); err != nil {
-		return nil, err
-	}
-	if err := recordQueryError(ctx, rows.Err(), listTasksByProject, 1); err != nil {
 		return nil, err
 	}
 	return items, nil
@@ -8281,50 +8100,6 @@ func (q *Queries) ListWorkspaceSessionIDs(ctx context.Context, workspaceID sql.N
 	return items, nil
 }
 
-const listWorkspacesByCanonicalRoot = `-- name: ListWorkspacesByCanonicalRoot :many
-SELECT
-    id,
-    project_id,
-    canonical_root_path,
-    git_metadata_json,
-    created_at_unix_ms,
-    updated_at_unix_ms
-FROM workspaces
-WHERE canonical_root_path = ?1
-ORDER BY created_at_unix_ms ASC, rowid ASC
-`
-
-func (q *Queries) ListWorkspacesByCanonicalRoot(ctx context.Context, canonicalRootPath string) ([]Workspace, error) {
-	rows, err := q.db.QueryContext(ctx, listWorkspacesByCanonicalRoot, canonicalRootPath)
-	err = recordQueryError(ctx, err, listWorkspacesByCanonicalRoot, 1)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-	var items []Workspace
-	for rows.Next() {
-		var i Workspace
-		if err := recordQueryError(ctx, rows.Scan(
-			&i.ID,
-			&i.ProjectID,
-			&i.CanonicalRootPath,
-			&i.GitMetadataJson,
-			&i.CreatedAtUnixMs,
-			&i.UpdatedAtUnixMs,
-		), listWorkspacesByCanonicalRoot, 1); err != nil {
-			return nil, err
-		}
-		items = append(items, i)
-	}
-	if err := recordQueryError(ctx, rows.Close(), listWorkspacesByCanonicalRoot, 1); err != nil {
-		return nil, err
-	}
-	if err := recordQueryError(ctx, rows.Err(), listWorkspacesByCanonicalRoot, 1); err != nil {
-		return nil, err
-	}
-	return items, nil
-}
-
 const listWorktreesByWorkspaceID = `-- name: ListWorktreesByWorkspaceID :many
 SELECT
     wt.id,
@@ -9918,7 +9693,7 @@ type UpsertWorkflowNodeGroupParams struct {
 	ID          string
 	WorkflowID  runtimeids.WorkflowID
 	GroupKey    string
-	DisplayName string
+	DisplayName sql.NullString
 	SortOrder   int64
 }
 

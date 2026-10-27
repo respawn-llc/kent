@@ -321,15 +321,14 @@ func TestUsageFallbackUnavailableIsBoundedAfterCooldownExpires(t *testing.T) {
 		t.Fatalf("attempts = a %d, b %d", aCalls.Load(), bCalls.Load())
 	}
 	var facts *transcript.ConnectionsUnavailableNotice
-	if err := wiring.Engine.WithTranscriptHydrationSnapshot(func(snapshot runtime.TranscriptHydrationSnapshot) error {
-		for _, row := range snapshot.CommittedRows {
-			if row.Notice != nil && row.Notice.ConnectionsUnavailable != nil {
-				facts = row.Notice.ConnectionsUnavailable
-			}
-		}
-		return nil
-	}); err != nil {
+	livePage, err := wiring.Engine.TranscriptNewestSegmentPage()
+	if err != nil {
 		t.Fatal(err)
+	}
+	for _, row := range runtime.TranscriptCommittedRowFactsFromSnapshot(livePage.Snapshot) {
+		if row.Notice != nil && row.Notice.ConnectionsUnavailable != nil {
+			facts = row.Notice.ConnectionsUnavailable
+		}
 	}
 	if facts == nil || len(facts.Members) != 2 || len(facts.Diagnostics) != 2 {
 		t.Fatalf("unavailable notice facts = %+v", facts)
@@ -524,7 +523,25 @@ func testUsageFallbackCompaction(t *testing.T, mode config.CompactionMode) {
 	if err := wiring.Engine.CompactContextForWorkflowContinuation(t.Context()); err != nil {
 		t.Fatal(err)
 	}
-	if *store.Meta().ConnectionID != "b" || attempts.Load() != 2 || !b.Snapshot().RequiredConsumed() {
-		t.Fatalf("compaction binding/requests = %v, %d, %+v", store.Meta().ConnectionID, attempts.Load(), b.Snapshot())
+	deadline := time.NewTimer(10 * time.Second)
+	defer deadline.Stop()
+	var snapshot blackbox.StubSnapshot
+	for {
+		snapshot = b.Snapshot()
+		if snapshot.Failure != nil {
+			t.Fatalf("compaction request failed: %v", snapshot.Failure)
+		}
+		if snapshot.RequiredConsumed() {
+			break
+		}
+		select {
+		case <-b.Events():
+		case <-deadline.C:
+			t.Fatalf("timed out waiting for compaction request completion: required %d/%d, active %d", snapshot.RequiredIndex, snapshot.RequiredTotal, snapshot.ActiveRequests)
+		}
+	}
+	connectionID := store.Meta().ConnectionID
+	if connectionID == nil || *connectionID != "b" || attempts.Load() != 2 || !snapshot.RequiredConsumed() {
+		t.Fatalf("compaction binding/requests = %v, %d, required %d/%d, active %d", connectionID, attempts.Load(), snapshot.RequiredIndex, snapshot.RequiredTotal, snapshot.ActiveRequests)
 	}
 }

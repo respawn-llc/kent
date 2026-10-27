@@ -4,9 +4,13 @@ import { chatSettingsEnglish } from "./chatSettingsEn";
 import { chatEnglish } from "./chatEn";
 import { chatGoalEnglish } from "./chatGoalEn";
 import { executionTargetEnglish } from "./executionTargetEn";
+import { speechEnglish } from "./speechEn";
+import { subscriptionUsageEnglish } from "./subscriptionUsageEn";
 
 export const englishResources = {
   translation: {
+    speech: speechEnglish,
+    subscriptionUsage: subscriptionUsageEnglish,
     chatComposer: chatComposerEnglish,
     chatSettings: chatSettingsEnglish,
     app: {
@@ -34,11 +38,13 @@ export const englishResources = {
       close: "Close",
       popOut: "Open in new window",
       popOutError: "Could not open the pop-out window",
+      shiftClickToOpenInNewWindow: "{{action}} · Shift-click to open in new window",
+      fileOpenFailed: "Could not open the file",
       inboxPrevious: "Previous inbox item",
       inboxNext: "Next inbox item",
-      invalidNativeDialogTitle: "Invalid native dialog",
+      invalidNativeDialogTitle: "Invalid window",
       invalidNativeDialogBody:
-        "This dialog link is missing required delete context. Close it and try again from the main window.",
+        "This window link is missing required context. Close it and try again from the main window.",
       resizeSidebar: "Resize sidebar",
       cancel: "Cancel",
       continue: "Continue",
@@ -203,9 +209,6 @@ export const englishResources = {
       chooseWorkspace: "Choose workspace",
       workspacePickerError: "Workspace picker failed",
       workspacePlanError: "Workspace check failed",
-      projectCreateWindowError: "Project creation window failed",
-      projectCreationObservationOverflow:
-        "Project creation notifications stopped because too many events arrived.",
       workspaceSelectionRequired: "Choose an existing project",
       workspaceSelectionRequiredBody:
         "This workspace is already linked to Kent projects. Open one from the project list instead of creating another.",
@@ -220,9 +223,9 @@ export const englishResources = {
         tasks: "Tasks",
         sessions: "Sessions",
         subagents: "Subagents",
-        newChatUnavailable: "New chat is not available in this prototype",
         projectTasksGrid: "Project tasks",
         dependenciesColumn: "Dependencies",
+        stageColumn: "Stage",
         idColumn: "ID",
         titleColumn: "Title",
         workflowColumn: "Workflow",
@@ -294,10 +297,6 @@ export const englishResources = {
       deleteConfirm: "Delete project",
       deleteBlocked: "Project cannot be deleted yet.",
       deleteDeleted: "Project deleted",
-      deleteWindowError: "Project delete window failed",
-      deleteCommittedNotifyError:
-        "Project was deleted, but the main window could not be updated: {{message}}",
-      deleteCommittedCloseError: "Project was deleted, but this dialog could not close: {{message}}",
     },
     board: {
       title: "Workflow board",
@@ -347,8 +346,6 @@ export const englishResources = {
       deleteTaskTitle: "Delete task?",
       deleteTaskBody: "This will permanently delete this task and all associated task data.",
       deleteTaskConfirm: "Delete",
-      deleteTaskWindowError: "Task delete failed",
-      deleteTaskWindowCloseError: "Task deleted, but closing the window failed",
       rollbackStartTitle: "Rollback and start the agent?",
       rollbackStartBody: "Code and task changes are not rolled back",
       rollbackStartConfirm: "Rollback and start agent",

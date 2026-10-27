@@ -340,15 +340,23 @@ func (e *execution) awaitModelWorkAndLockAdmission() (release func(), workErr er
 	// this execution may start more model work as the prior worker ends.
 	e.resource.turnMu.Lock()
 	engine := e.resource.engine
-	for context.Cause(e.ctx) == nil &&
-		(engine.HasScheduledQueuedUserWork() || engine.GoalLoopRunning()) {
-		e.resource.turnMu.Unlock()
-		workErr = engine.WaitForScheduledQueuedUserWork(e.ctx)
-		if workErr == nil {
-			workErr = engine.WaitForGoalLoop(e.ctx)
+	for engine.HasScheduledQueuedUserWork() || engine.GoalLoopRunning() {
+		waitCtx := e.ctx
+		if context.Cause(e.ctx) != nil {
+			// Queued work runs on the runtime lifecycle, so stopping this
+			// execution must stop and join it before releasing ownership.
+			_, interruptErr := engine.TryInterruptActiveRun()
+			workErr = errors.Join(workErr, interruptErr)
+			waitCtx = context.WithoutCancel(e.ctx)
 		}
+		e.resource.turnMu.Unlock()
+		waitErr := engine.WaitForScheduledQueuedUserWork(waitCtx)
+		if waitErr == nil {
+			waitErr = engine.WaitForGoalLoop(waitCtx)
+		}
+		workErr = errors.Join(workErr, waitErr)
 		e.resource.turnMu.Lock()
-		if workErr != nil {
+		if waitErr != nil && context.Cause(e.ctx) == nil {
 			break
 		}
 	}
@@ -382,7 +390,7 @@ func (e *execution) cleanup() error {
 	}
 	cleanupErr := errors.Join(promptErr, bindingErr, pendingErr)
 	if resource.askBroker != nil {
-		resource.askBroker.SetAskHandler(nil)
+		resource.askBroker.SetLifecycleAskHandler(nil)
 	}
 	if resource.localTools != nil {
 		cleanupErr = errors.Join(cleanupErr, resource.localTools.BindExecutionCorrelation(nil))
@@ -685,7 +693,7 @@ func (a *Authority) AwaitPromptResolution(
 }
 
 func (a *Authority) sessionExecution(sessionID runtimeids.SessionID) *execution {
-	if a == nil || sessionID.IsZero() {
+	if a == nil {
 		return nil
 	}
 	a.mu.Lock()

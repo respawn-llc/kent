@@ -263,7 +263,7 @@ export type WorkflowNodeGroup = Readonly<{
   id: string;
   workflowID: string;
   key: string;
-  name: string;
+  name: string | null;
   sortOrder: number;
   nodeIDs: readonly string[];
 }>;
@@ -606,7 +606,7 @@ export type BoardColumn = Readonly<{
 export type BoardGroup = Readonly<{
   id: string;
   key: string;
-  name: string;
+  name: string | null;
   sortOrder: number;
   nodeIDs: readonly string[];
 }>;

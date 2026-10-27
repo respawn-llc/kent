@@ -13,13 +13,17 @@
 - When an attention item identifies a Session, a separate Chat icon action must open that Session at its latest transcript position. Items without a Session identity must omit that action.
 - Attention descriptions must use secondary text capped at two lines. The date must use muted text beneath the description.
 - Chat can appear as a full-page destination, a separate window, or an adaptive detail presentation.
-- The separate-window action is available only in Chat chrome. Session rows do not offer it in their context menu.
-- Desktop must allow at most one native Chat window per Session. If none exists, Pop Out must open it and navigate Back in the main window using the ordinary navigation history described in [Desktop GUI](desktop-gui.md#home-and-navigation).
+- Sessions and Subagents list rows must offer the existing Pop Out icon at the right of the title row.
+- On every native Desktop platform, Shift-clicking a Sessions or Subagents row, an attention Chat icon, a Parent Chat link, or a worktree-origin Session link must open that Session directly in its native Chat window. Ordinary clicks must keep their existing destinations. Attention, Parent Chat, and worktree-origin controls must not add a separate Pop Out icon.
+- In Task Detail with one applicable Session, Shift-clicking Open Chat must open that Session in its native Chat window. With multiple Sessions, Shift-clicking Open Chat must open the Session picker in native-window mode, where selecting a Session must open it natively. Shift-clicking a Session in the ordinary picker must also open it natively.
+- Direct native Chat opening from these entry points must leave the originating presentation unchanged. Notifications and commands that create Sessions must keep their existing opening behavior.
+- Native Desktop must provide localized tooltips naming the ordinary action and the Shift-click native-window shortcut on attention Chat, Open Chat, Session picker items, Parent Chat, and worktree-origin Session links. Sessions and Subagents Pop Out icons must use the existing new-window tooltip. Browser tooltips must omit the native-window shortcut.
+- Desktop must allow at most one native Chat window per Session. If none exists, Pop Out in Chat chrome must open it and navigate Back in the main window using the ordinary navigation history described in [Desktop GUI](desktop-gui.md#home-and-navigation).
 - If that Session's native Chat window already exists, Pop Out must show it, restore it if minimized, and request focus subject to normal operating-system behavior. The main window must not change its Chat destination.
 - Selecting the same Session in the main window must open Chat there normally alongside the pop-out. Closing the native window must not automatically move Chat back.
-- When native windows are unavailable, Chat must omit Pop Out. New Chat must omit Pop Out until it has an authoritative Session identity.
+- When native windows are unavailable, Desktop must omit native Chat window buttons and keep Shift-clicks on their ordinary in-browser opening path. New Chat must omit Pop Out until it has an authoritative Session identity.
 - Native Task Detail must offer Open Chat for each applicable live Session. The action must open or reuse that Session's native Chat window, requesting focus as Pop Out does, and must leave Task Detail open.
-- A native Chat window must not change its Session identity. Its Parent Chat and linked Task Detail actions must open their destinations in the main window and request main-window focus without navigating or closing the native Chat window.
+- A native Chat window must not change its Session identity. An ordinary click on Parent Chat and its linked Task Detail action must open their destinations in the main window and request main-window focus without navigating or closing the native Chat window. Shift-clicking Parent Chat must open or focus the parent's native Chat window without changing the originating window.
 - When a fresh-conversation command such as `/review` or `/init` creates a child Session in native Chat, Desktop must open or focus the child's own native Chat window and leave the original window on its Session. Main-window Chat must transition to the delivered Session in the same window.
 - A native Chat window must initially open at the Chat content maximum width with a 16:9 aspect ratio, constrained to the available screen. It must support resizing, maximizing, and minimizing without always-on-top pinning.
 - When Desktop follows system appearance, every open native Chat window must update its page and native glass appearance when the system appearance changes.
@@ -35,7 +39,7 @@
 - A response includes the next offset only when older Sessions exist. Clients derive the preceding page offset from the offset and limit they requested.
 - Each request reads its category independently from the latest completed server-owned projection. Session recency changes between requests may cause later results to repeat or skip Sessions, and Kent must not reconcile them.
 - Desktop requests 50 Sessions per page and holds at most ten pages independently for each category.
-- Selecting a Session opens full-page Chat. Session rows have no secondary actions or context menu.
+- An ordinary click on a Session row opens full-page Chat. Session rows must not expose a context menu.
 - Session rows do not expose execution-target availability or warnings.
 - Opening must use the Session's recorded execution target and load Chat through read-only Session projections. Opening never activates or holds an Active Session Runtime. Desktop adds no automatic fallback, workspace retarget, or target-repair picker.
 - Reopening a Session after navigation or relaunch opens its latest transcript position.
@@ -353,7 +357,7 @@
 ## Composer and pending work
 
 - The composer and its attached panels must overlay the transcript with a blurred backdrop. Scrolling history must pass beneath them and be visible around their rounded edges. The transcript's bottom padding must track the full overlay height during resize animation so the latest content stays clear of the composer.
-- The composer must use a rounded island with a bottom controls row. The existing Settings picker trigger must align left. Send/Steer must use a circled icon at the right. When Stop is relevant, its smaller, non-circled icon must appear immediately to the left of Send/Steer. The microphone control must be absent.
+- The composer must use a rounded island with a bottom controls row. The existing Settings picker trigger must align left. Send/Steer must use a circled icon at the right. When Stop is relevant, its smaller, non-circled icon must appear to the left of Send/Steer. The microphone placement and behavior must follow [Speech Input](speech-input.md).
 - The composer Stop icon must use the error color.
 - Slash-command suggestions must use the same peeking island as Pending Work, replacing its content while command selection is active. Selecting a command, entering arguments, or pressing Escape must restore the Pending Work presentation when items exist.
 - The peeking island's horizontal inset must match the composer's corner radius so it meets the straight top edge without a gap or stacked translucent backgrounds.
@@ -439,6 +443,8 @@
 - Hovering, clicking, or tapping the Context meter must open a compact pop-up above the trigger with detailed context-window usage and a `Compact now` action. When normal browser focus is on the meter, its ordinary button Enter and Space behavior also opens the pop-up. These keys are not Context shortcuts elsewhere.
 - Escape or clicking away closes the Context pop-up.
 - The pop-up must show used-context percentage and used and total token counts against the complete context window. It must omit the Auto-compaction toggle, completed compaction count, and automatic-compaction threshold. Auto-compaction is available in Settings.
+- The Context pop-up must also show the Session's current Provider Connection subscription usage below its existing context and compaction controls when that connection supports subscription usage. This block must use the same compact usage presentation as navigation Chrome and follow [Desktop subscription usage](provider-connections.md#desktop-subscription-usage).
+- Subscription usage must load independently from context data. Its loading and icon Retry must not change the context display or `Compact now` behavior. The context-data loading and Retry restrictions below apply only to context data.
 - Context must present facts delivered through ordinary Chat snapshots and updates without an independent Context request. Before information is available, the trigger must show zero-like progress and must not open the pop-up. During later loads, Context must show the last known state. Context must not add a separate loading pop-up or Retry control.
 - Context must display whole-number percentages. Token counts below one thousand must be exact. Larger counts must use a `k` suffix with one decimal place, such as `28.5k`.
 - Authoritative used-context tokens may exceed the context window. In that state, the text must show used context above 100% and the complete used-token total without capping either value. The ring and bar must stop at their full extent without overlapping rendering.
@@ -608,7 +614,7 @@
 - When the branch or ref differs from the display name, the row must show that branch or ref on a second line. Otherwise, it must show the absolute worktree path on that line.
 - Hovering the subtitle must reveal the full absolute path. Activating the subtitle must copy that path.
 - The current worktree must show a `Current` chip.
-- When a Worktree has an origin Session, its row must show a chat-icon action that opens that Session through the containing Chat's Session navigation. When the origin is the current Session, the icon must use the primary color and activation must do nothing. Rows without an origin Session must omit this action.
+- When a Worktree has an origin Session, its row must show a chat-icon action. An ordinary click must open that Session through the containing Chat's Session navigation unless the origin is the current Session, in which case the click must do nothing and the icon must use the primary color. Shift-click behavior, including for the current Session, follows the native Chat opening rules above. Rows without an origin Session must omit this action.
 - Worktree rows must keep the title and status chip together on the first line, with action icons at the trailing edge. The optional branch/ref must occupy a second line spanning the row.
 - Worktree rows must visually group their title, status chip, and subtitle with tighter spacing within each item than between items. Each item must use a consistent inset and a rounded hover highlight.
 - Worktree rows use no horizontal scrolling, overflow-action menu, hidden action, or card conversion.
@@ -785,7 +791,7 @@
 - Every opening and reopening clears any loaded historical transcript window before presenting transcript rows and requests the newest transcript page. While that page loads, the transcript region shows Loading while Chat chrome, composer, and loaded Main View are visible.
 - Every opening and reopening reissues the Main View read even when loaded data is fresh. Desktop keeps loaded Main View data visible while that read is pending.
 - Navigation, detach, pop-out or window closure, subscription closure, request cancellation, transport loss, and application shutdown stop only Desktop observation or delivery. They never invoke Runtime Release or alter server-owned Runtime work.
-- If opening or bringing forward a native Chat window fails, Desktop must show the initiating Chat or Task Detail presentation and use the native-window failure notice. Desktop must not create a fallback duplicate window or partially navigate the main window.
+- Native Chat window opening must show progress. If opening or bringing forward a native Chat window fails, Desktop must keep the initiating presentation and use the native-window failure notice. Desktop must not create a fallback duplicate window or partially navigate the main window.
 - Prompt-answer races follow the Question/Approval contract: externally resolved prompts disappear, stale results cannot replace current prompt state, and a failed pending submission must not discard its local answer draft.
 - After a batch failure, Desktop must store local drafts according to its latest available prompt state and ordinary server broadcasts without issuing an additional pending-prompt read. Explicit resubmission must use the normal answer action. An already-resolved prompt may be visible until an authoritative update or subsequent operation supplies its outcome.
 - Desktop must report a failed batch submission through Sonner without adding a retry button or another picker control. Pending Questions must have their selections and commentary and become editable again. Declined prompts must be read-only.

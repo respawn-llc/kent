@@ -18,12 +18,7 @@ export function createBoardColumnQueryModel(api: ApiService, client: QueryClient
     queryFn: async ({ pageParam }: { pageParam: number }) =>
       api.listBoardNodeCards({ ...scope, filter, sort, offset: pageParam }),
     initialPageParam: 0,
-    enabled:
-      queriesEnabled &&
-      enabled &&
-      scope.projectID.length > 0 &&
-      scope.workflowID.length > 0 &&
-      scope.nodeID.length > 0,
+    enabled: queriesEnabled && enabled,
     getPreviousPageParam: (_first: BoardNodeCardsPage, _pages: BoardNodeCardsPage[], first: number) =>
       first === 0 ? undefined : Math.max(0, first - boardNodeCardsPageSize),
     getNextPageParam: (last: BoardNodeCardsPage) => last.nextOffset ?? undefined,

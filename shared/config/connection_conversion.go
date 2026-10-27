@@ -400,7 +400,8 @@ func convertMainConnection(raw settingsFile, selection *LegacyConnectionAuth, in
 
 func equalConnection(a, b ProviderConnection) bool {
 	return a.Protocol == b.Protocol && equalOptionalString(a.Endpoint, b.Endpoint) &&
-		equalOptionalString(a.EnvironmentVariable, b.EnvironmentVariable) && a.Capabilities == b.Capabilities
+		equalOptionalString(a.EnvironmentVariable, b.EnvironmentVariable) &&
+		equalOptionalString(a.SpeechToTextModel, b.SpeechToTextModel) && a.Capabilities == b.Capabilities
 }
 
 func equalOptionalString(a, b *string) bool {

@@ -3,6 +3,8 @@ import { describe, expect, it } from "bun:test";
 import {
   draftDefinitionFromSource,
   initializeWorkflowEditorDraft,
+  workflowDefinitionFromDraft,
+  workflowEditorDraftReducer,
   workflowEditorDraftGraph,
 } from "./workflowEditorDraft";
 import {
@@ -15,6 +17,42 @@ import { edgesForTransition, groupableWorkflowDefinition } from "./workflowEdito
 import { workflowEditorGraphMutationWarnings } from "./workflowEditorGraphMutationTypes";
 
 describe("workflow editor Node Group membership", () => {
+  it("creates an unnamed Group independently of its stable key", () => {
+    const grouped = createWorkflowNodeGroupFromNode(draftDefinitionFromSource(groupableWorkflowDefinition), {
+      groupID: "20000000-0000-4000-8000-000000000004",
+      joinNodeID: "10000000-0000-4000-8000-000000000011",
+      nodeID: "node-agent",
+    });
+    expect(grouped.draft.nodeGroups[0]?.name).toBeNull();
+    expect(grouped.draft.nodeGroups[0]?.key.length).toBeGreaterThan(0);
+  });
+  it("edits and clears a Group name through the draft and save projection", () => {
+    const source = {
+      ...groupableWorkflowDefinition,
+      nodeGroups: [
+        {
+          id: "group",
+          key: "parallel",
+          name: "Existing",
+          sortOrder: 0,
+          workflowID: groupableWorkflowDefinition.workflow.id,
+          nodeIDs: [],
+        },
+      ],
+    };
+    let state = initializeWorkflowEditorDraft(source);
+    expect(workflowEditorDraftGraph(state).nodeGroups[0]?.name).toBe("Existing");
+    state = workflowEditorDraftReducer(state, { type: "editNodeGroupName", groupID: "group", name: null });
+    expect(workflowEditorDraftGraph(state).nodeGroups[0]?.name).toBeNull();
+    state = initializeWorkflowEditorDraft(workflowDefinitionFromDraft(state.draft));
+    expect(state.draft.nodeGroups[0]?.name).toBeNull();
+    state = workflowEditorDraftReducer(state, {
+      type: "editNodeGroupName",
+      groupID: "group",
+      name: "Renamed",
+    });
+    expect(workflowEditorDraftGraph(state).nodeGroups[0]?.name).toBe("Renamed");
+  });
   it("represents absent membership as null through creation, removal, and Draft projection", () => {
     const source = draftDefinitionFromSource(groupableWorkflowDefinition);
     const addedNodeID = "10000000-0000-4000-8000-000000000005";

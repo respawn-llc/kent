@@ -35,7 +35,7 @@ func (h *bellHooks) OnTranscriptMessage(message *transcriptpb.Message) {
 }
 
 func transcriptBellStepID(raw string) runtimeids.StepID {
-	id, err := runtimeids.ParseStepID(raw)
+	id, err := runtimeids.StepIDFromProto(raw)
 	if err != nil {
 		panic(err)
 	}

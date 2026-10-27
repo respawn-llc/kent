@@ -129,14 +129,8 @@ func (b *Board) ListNodeCards(ctx context.Context, req *taskpb.BoardNodeCardsLis
 			Direction: taskpb.ListSortDirection_LIST_SORT_DIRECTION_DESC,
 		}
 	}
-	sortField, err := protoapi.TaskListSortField.Decode(sortSelection.Field)
-	if err != nil {
-		return nil, err
-	}
-	sortDirection, err := protoapi.TaskListSortDirection.Decode(sortSelection.Direction)
-	if err != nil {
-		return nil, err
-	}
+	sortField := protoapi.TaskListSortField.FromProto(sortSelection.Field)
+	sortDirection := protoapi.TaskListSortDirection.FromProto(sortSelection.Direction)
 	offset := int(req.GetOffset())
 	definition, err := b.projection.definition(ctx, b.queries, workflowID)
 	if err != nil {

@@ -568,9 +568,7 @@ func (l uiViewLayout) goalOverlayContentLines(width int) []string {
 	}
 	builder.appendGap()
 	builder.appendWrapped("Status: "+status, boldStyle)
-	if strings.TrimSpace(goal.Id) != "" {
-		builder.appendWrapped("ID: "+strings.TrimSpace(goal.Id), subtleStyle)
-	}
+	builder.appendWrapped("ID: "+strings.TrimSpace(goal.Id), subtleStyle)
 	builder.appendGap()
 	builder.appendWrapped("Objective", titleStyle)
 	builder.appendMarkdown(goal.Objective)

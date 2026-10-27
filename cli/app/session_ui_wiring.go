@@ -26,6 +26,7 @@ type sessionUIClients struct {
 	ProcessViews           apicontract.ProcessViewService
 	PromptControl          apicontract.PromptControlService
 	RuntimeControls        apicontract.RuntimeControlService
+	RuntimeLiveControls    apicontract.RuntimeLiveControlService
 	PendingWork            apicontract.RuntimePendingWorkService
 	ChatMutations          apicontract.ChatMutationService
 	ChatSettings           apicontract.ChatSettingsService
@@ -131,6 +132,7 @@ func prepareSharedRuntimeWiring(
 		chatMutations:          clients.ChatMutations,
 		chatSettings:           clients.ChatSettings,
 		controls:               clients.RuntimeControls,
+		liveControls:           clients.RuntimeLiveControls,
 		pendingWork:            clients.PendingWork,
 		preparation:            preparation,
 		attentionNotifications: clients.AttentionNotifications,

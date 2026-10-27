@@ -24,7 +24,7 @@ func (e *Engine) overlayLiveStreaming(snapshot *ChatSnapshot) {
 	if e == nil || snapshot == nil {
 		return
 	}
-	streaming, streamingErr, streamingMetadata := e.transcriptRuntimeState().StreamingSnapshot()
+	streaming, streamingErr, streamingMetadata, _, _ := e.transcriptRuntimeState().StreamingSnapshot()
 	snapshot.Streaming = streaming
 	snapshot.StreamingMetadata = streamingMetadata
 	snapshot.StreamingError = streamingErr
@@ -46,9 +46,6 @@ type TranscriptEventLogReader interface {
 }
 
 func TranscriptSegmentPageFromEventLog(eventLog TranscriptEventLogReader, cursor int64, cacheWarningMode config.CacheWarningMode) (TranscriptSegmentPage, error) {
-	if cursor <= 0 {
-		return TranscriptSegmentPage{}, fmt.Errorf("transcript segment cursor must be positive, got %d", cursor)
-	}
 	var matchErr error
 	window, err := eventLog.ReadSegmentBackward(cursor, compactionBoundaryMatcher(&matchErr))
 	if err != nil {
@@ -96,14 +93,14 @@ func TranscriptSegmentPageForwardFromEventLog(eventLog TranscriptEventLogReader,
 }
 
 func segmentPageFromWindow(window session.EventRecordWindow, cacheWarningMode config.CacheWarningMode) (TranscriptSegmentPage, error) {
-	scan := NewPersistedTranscriptScan(PersistedTranscriptScanRequest{CacheWarningMode: cacheWarningMode})
+	scan := newStreamingTranscriptScan(cacheWarningMode)
 	for _, record := range window.Records {
 		if err := scan.ApplyPersistedEvent(record); err != nil {
 			return TranscriptSegmentPage{}, err
 		}
 	}
 	return TranscriptSegmentPage{
-		Snapshot:     scan.CollectedPageSnapshot(),
+		Snapshot:     scan.PageSnapshot(),
 		OlderCursor:  window.StartOffset,
 		HasMoreAbove: !window.ReachedStart,
 		NewerCursor:  window.EndOffset,

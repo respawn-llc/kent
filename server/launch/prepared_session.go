@@ -7,6 +7,7 @@ import (
 
 	"core/server/session"
 	"core/shared/clientui"
+	"core/shared/config"
 	worktreepb "core/shared/protoapi/gen/kent/api/worktree"
 	"core/shared/runtimeids"
 	"core/shared/serverapi"
@@ -135,7 +136,19 @@ func (p Planner) prepareCreation(ctx context.Context, origin serverapi.SessionCr
 		case serverapi.SessionCreateOriginNavigationOnly:
 			request.SourceKind = session.SessionCreationSourceNavigationOnly
 		case serverapi.SessionCreateOriginParentAgent:
-			if err := (parentAgentDepthPolicy{sessions: p.PersistedSessions}).enforce(ctx, *record.Meta, p.Config.Settings.MaxSubagentDepth, p.Config.Settings.Debug); err != nil {
+			maxDepth := p.Config.Settings.MaxSubagentDepth
+			if roleName := session.ContinuationAgentRole(*record.Meta); roleName != nil {
+				_, role, err := lookupSubagentRole(p.Config.Settings, *roleName)
+				if err != nil {
+					return session.CreationPlan{}, err
+				}
+				effective, _, err := config.OverlaySubagentRoleSettings(p.Config, role, true)
+				if err != nil {
+					return session.CreationPlan{}, err
+				}
+				maxDepth = effective.MaxSubagentDepth
+			}
+			if err := (parentAgentDepthPolicy{sessions: p.PersistedSessions}).enforce(ctx, *record.Meta, maxDepth, p.Config.Settings.Debug); err != nil {
 				return session.CreationPlan{}, err
 			}
 			request.SourceKind = session.SessionCreationSourceParentAgent

@@ -312,8 +312,8 @@ message SessionSettings {
 }
 
 message ConnectionReplacement {
-  string previous = 1 [(buf.validate.field).string.min_len = 1];
-  string current = 2 [(buf.validate.field).string.min_len = 1];
+  string previous = 1 [(buf.validate.field).string.(kent.api.shared.connection_id) = true];
+  string current = 2 [(buf.validate.field).string.(kent.api.shared.connection_id) = true];
 }
 
 message NewChatCatalog {

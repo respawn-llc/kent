@@ -1,6 +1,23 @@
+export {
+  assertSpeechSize,
+  SpeechFailure,
+  SpeechOperationError,
+  SpeechTransportError,
+  type SpeechAvailable,
+  type SpeechEncoding,
+  type SpeechResult,
+  type SpeechFailureKind,
+} from "./speech";
 export type { ApiService, ApiSubscription } from "./apiService";
 export { projectUpdateViolations } from "./projectValidation";
 export { taskCreateTitleViolations } from "./taskValidation";
+export type {
+  SubscriptionConnection,
+  SubscriptionBinding,
+  SubscriptionUsage,
+  SubscriptionWindow,
+} from "./subscriptionUsage";
+export { SubscriptionReadError } from "./subscriptionUsage";
 export { sessionDisplayID, sessionDisplayTitle } from "./sessionIdentity";
 export type { DesktopProcess } from "./processes";
 export type {
@@ -49,8 +66,8 @@ export type {
   ChatSettingsTarget,
   ChatTranscriptCompletion,
   ChatTranscriptCommittedRow,
-  ChatTranscriptHandler,
-  ChatGoalObservationHandler,
+  ChatTranscriptObservation,
+  ChatGoalStreamObservation,
   ChatGoal,
   ChatGoalSetResult,
   ChatGoalSetTarget,

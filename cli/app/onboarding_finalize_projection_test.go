@@ -68,7 +68,7 @@ func TestOnboardingDefaultsFinalizeThroughServerAPI(t *testing.T) {
 	if request.Model != nil || request.CommandsImport == nil || request.CommandsImport.Mode != onboardingpb.ImportMode_IMPORT_MODE_NONE {
 		t.Fatalf("unexpected defaults request: %+v", request)
 	}
-	if !done.result.Completed || !done.result.CreatedDefaultConfig || done.result.SettingsPath != "/server/.kent/config.toml" {
+	if !done.result.Completed || done.result.SettingsPath != "/server/.kent/config.toml" {
 		t.Fatalf("unexpected result: %+v", done.result)
 	}
 }

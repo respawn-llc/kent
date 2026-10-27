@@ -60,7 +60,13 @@ func (m *uiModel) shouldAnimateSpinner() bool {
 	if m == nil {
 		return false
 	}
-	return m.sessionObservationLoading() || m.pendingNewChatActions > 0 || m.isBusy() || m.finalAnswerOperation != nil || m.isReviewerActive() || m.processListHasRunningEntries() || m.worktrees.isLoading() || m.worktrees.create.submitting || m.worktrees.deleteConfirm.submitting
+	if m.statusLineSpinning() || m.isBusy() {
+		return true
+	}
+	if m.finalAnswerOperation != nil || m.surfaceHasPendingOperation() {
+		return true
+	}
+	return m.processListHasRunningEntries() || m.worktrees.hasPendingOperation()
 }
 
 func (m *uiModel) reconcileSpinnerTicking(force bool) tea.Cmd {

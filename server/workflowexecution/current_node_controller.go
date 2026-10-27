@@ -97,11 +97,11 @@ type currentNodeStore interface {
 	InterruptAdmittedCurrentNode(context.Context, workflow.CurrentNodeReference, workflow.CurrentNodeInterruptionReason, workflow.CurrentNodeInterruptionDetail) error
 	InterruptCurrentNode(context.Context, workflow.CurrentNodeReference, workflow.CurrentNodeInterruptionReason, workflow.CurrentNodeInterruptionDetail) error
 	ReconcileTaskResume(context.Context, workflow.TaskID) error
-	ResolveIdleExecutableCurrentNode(context.Context, workflowstore.IdleCurrentNodeSelector) (workflow.CurrentNode, error)
 	PlanCurrentNodeCompletion(context.Context, workflowstore.CurrentNodeCompletionRequest) (workflowstore.CurrentNodeCompletionPlan, error)
 	CommitCurrentNodeCompletion(context.Context, workflowstore.CurrentNodeCompletionPlan, []workflowstore.PlannedCurrentNodeSession) (workflowstore.CurrentNodeCompletionOutcome, error)
 	ValidateCurrentNodeSessionBinding(context.Context, runtimeids.SessionID, workflow.CurrentNodeReference) error
-	ResolveCurrentSessionStartContext(context.Context, runtimeids.SessionID) (workflowstore.CurrentNodeStartContext, error)
+	ResolveCurrentSessionNode(context.Context, runtimeids.SessionID) (*workflow.CurrentNode, error)
+	CurrentNodeAwaitingApproval(context.Context, workflow.CurrentNodeReference) (bool, error)
 	TaskExecutionScope(context.Context, workflow.TaskID) (workflowstore.TaskExecutionScope, error)
 }
 
@@ -229,9 +229,6 @@ func (c *CurrentNodeController) CompleteSessionCurrentNode(
 ) (workflowruntime.CompletionResult, error) {
 	if c == nil {
 		return workflowruntime.CompletionResult{}, errors.New("current node workflow controller is required")
-	}
-	if sessionID.IsZero() {
-		return workflowruntime.CompletionResult{}, errors.New("session id is required")
 	}
 	handle, live := c.authority.SessionExecution(sessionID)
 	if !live || handle.Scope().Kind() != sessionruntime.ExecutionScopeAgent {
@@ -435,20 +432,6 @@ func (c *CurrentNodeController) RecordProtocolViolation(ctx context.Context, req
 	return result, nil
 }
 
-func (c *CurrentNodeController) resolveQuiescentIdleCurrentNode(
-	ctx context.Context,
-	selector workflowstore.IdleCurrentNodeSelector,
-) (workflow.CurrentNode, error) {
-	source, err := c.store.ResolveIdleExecutableCurrentNode(ctx, selector)
-	if err != nil {
-		return workflow.CurrentNode{}, err
-	}
-	if err := c.EnsureTaskQuiescent(source.Reference.TaskID); err != nil {
-		return workflow.CurrentNode{}, err
-	}
-	return source, nil
-}
-
 func workflowProtocolViolationCause(req workflowruntime.ViolationRequest) error {
 	if req.Detail != "" {
 		return errors.New(req.Detail)
@@ -614,20 +597,6 @@ func runCurrentNodeTaskMutation[T any](
 		return err
 	})
 	return result, err
-}
-
-func (c *CurrentNodeController) requireLiveScope(scopeID runtimeids.ExecutionScopeID) error {
-	if c == nil || scopeID.IsZero() {
-		return errors.New("workflow exact execution scope id is required")
-	}
-	handle, exists := c.authority.ExecutionByScope(scopeID)
-	if !exists {
-		return sessionruntime.ErrExecutionNoLongerLive
-	}
-	if _, workflowScoped := handle.Scope().Workflow(); !workflowScoped {
-		return sessionruntime.ErrExecutionNoLongerLive
-	}
-	return nil
 }
 
 var _ workflowruntime.Controller = (*CurrentNodeController)(nil)

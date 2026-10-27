@@ -51,8 +51,16 @@ func newRegisteredAppWorkspace(t *testing.T) (home string, workspace string) {
 
 func writeAppTestSettings(t *testing.T) {
 	t.Helper()
-	if _, _, err := config.WriteDefaultSettingsFile(); err != nil {
-		t.Fatalf("write test settings: %v", err)
+	settingsPath, err := config.ResolveSettingsFilePathInRoot("")
+	if err != nil {
+		t.Fatalf("resolve test settings path: %v", err)
+	}
+	if _, statErr := os.Stat(settingsPath); errors.Is(statErr, os.ErrNotExist) {
+		if _, err := config.WriteSettingsFileForOnboardingWithOptionsAt(settingsPath, config.DefaultOnboardingSettings(), config.OnboardingWriteOptions{}); err != nil {
+			t.Fatalf("write test settings: %v", err)
+		}
+	} else if statErr != nil {
+		t.Fatalf("stat test settings: %v", statErr)
 	}
 	cfg, err := config.LoadGlobal(config.LoadOptions{})
 	if err != nil {
@@ -102,7 +110,7 @@ func startStandingRunPromptServer(t *testing.T, workspace, openAIBaseURL string)
 	srv, err := serverstartup.StartServeServer(context.Background(), serverstartup.Request{
 		WorkspaceRoot:         workspace,
 		WorkspaceRootExplicit: true,
-		Model:                 "gpt-6-sol",
+		LoadOptions:           config.LoadOptions{Model: "gpt-6-sol"},
 	})
 
 	if err != nil {

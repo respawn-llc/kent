@@ -127,36 +127,17 @@ type AskQuestionApprovalOption struct {
 
 type AskQuestionBroker struct {
 	mu    sync.Mutex
-	onAsk *synchronousAskHandler
-}
-
-type synchronousAskHandler struct {
-	resolve func(context.Context, AskQuestionRequest) (AskQuestionResolution, error)
-	finish  func(AskQuestionRequest, AskQuestionResolution) error
+	onAsk func(context.Context, AskQuestionRequest) (AskQuestionResolution, error)
 }
 
 func NewAskQuestionBroker() *AskQuestionBroker {
 	return &AskQuestionBroker{}
 }
 
-func (b *AskQuestionBroker) SetAskHandler(handler func(context.Context, AskQuestionRequest) (AskQuestionResolution, error)) {
-	b.setAskHandler(handler, func(req AskQuestionRequest, resolution AskQuestionResolution) error {
-		return req.acceptResolution(resolution)
-	})
-}
-
 func (b *AskQuestionBroker) SetLifecycleAskHandler(handler func(context.Context, AskQuestionRequest) (AskQuestionResolution, error)) {
-	b.setAskHandler(handler, ValidateAskQuestionResolution)
-}
-
-func (b *AskQuestionBroker) setAskHandler(handler func(context.Context, AskQuestionRequest) (AskQuestionResolution, error), finish func(AskQuestionRequest, AskQuestionResolution) error) {
 	b.mu.Lock()
 	defer b.mu.Unlock()
-	if handler == nil {
-		b.onAsk = nil
-		return
-	}
-	b.onAsk = &synchronousAskHandler{resolve: handler, finish: finish}
+	b.onAsk = handler
 }
 
 func (b *AskQuestionBroker) Ask(ctx context.Context, req AskQuestionRequest) (AskQuestionResolution, error) {
@@ -210,30 +191,23 @@ func (b *AskQuestionBroker) Ask(ctx context.Context, req AskQuestionRequest) (As
 	if err := ctx.Err(); err != nil {
 		return nil, err
 	}
-	resolution, err := h.resolve(ctx, req)
+	resolution, err := h(ctx, req)
 	if err != nil {
 		return nil, err
 	}
 	if err := ctx.Err(); err != nil {
 		return nil, err
 	}
-	if err := h.finish(req, resolution); err != nil {
+	if err := ValidateAskQuestionResolution(req, resolution); err != nil {
 		return nil, err
 	}
 	return resolution, nil
 }
 
-func (b *AskQuestionBroker) askHandler() *synchronousAskHandler {
+func (b *AskQuestionBroker) askHandler() func(context.Context, AskQuestionRequest) (AskQuestionResolution, error) {
 	b.mu.Lock()
 	defer b.mu.Unlock()
 	return b.onAsk
-}
-
-func (r AskQuestionRequest) acceptResolution(resolution AskQuestionResolution) error {
-	if r.Approval {
-		return r.AcceptApproval(resolution)
-	}
-	return ValidateAskQuestionResolution(r, resolution)
 }
 
 func validateRequest(req AskQuestionRequest) error {

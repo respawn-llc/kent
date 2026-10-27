@@ -472,7 +472,7 @@ func prepareWorkflowGraphSave(workflowID runtimeids.WorkflowID, displayName stri
 	for i, group := range prepared.nodeGroups {
 		group.ID = strings.TrimSpace(group.ID)
 		group.Key = workflow.ModelKey(strings.TrimSpace(string(group.Key)))
-		group.DisplayName = strings.TrimSpace(group.DisplayName)
+		group.DisplayName = normalizeNodeGroupName(group.DisplayName)
 		group.SortOrder = int64(i * 100)
 		prepared.nodeGroups[i] = group
 	}
@@ -713,7 +713,10 @@ func workflowGraphEntityReferencesFromValidationErrors(errors []workflow.Validat
 func workflowGraphSavePreparedEqual(left preparedWorkflowGraphSave, right preparedWorkflowGraphSave) bool {
 	leftComparable := workflowGraphSaveComparable(left)
 	rightComparable := workflowGraphSaveComparable(right)
-	return slices.Equal(leftComparable.NodeGroups, rightComparable.NodeGroups) &&
+	return slices.EqualFunc(leftComparable.NodeGroups, rightComparable.NodeGroups, func(left, right comparableWorkflowGraphSaveNodeGroup) bool {
+		return left.ID == right.ID && left.WorkflowID == right.WorkflowID && left.Key == right.Key &&
+			textutil.EqualOptional(left.DisplayName, right.DisplayName) && left.SortOrder == right.SortOrder
+	}) &&
 		slices.EqualFunc(leftComparable.Nodes, rightComparable.Nodes, comparableWorkflowGraphSaveNodesEqual) &&
 		slices.Equal(leftComparable.TransitionGroups, rightComparable.TransitionGroups) &&
 		slices.EqualFunc(leftComparable.Edges, rightComparable.Edges, comparableWorkflowGraphSaveEdgesEqual)
@@ -730,7 +733,7 @@ type comparableWorkflowGraphSaveNodeGroup struct {
 	ID          string
 	WorkflowID  runtimeids.WorkflowID
 	Key         workflow.ModelKey
-	DisplayName string
+	DisplayName *string
 	SortOrder   int64
 }
 
@@ -790,7 +793,7 @@ func workflowGraphSaveComparable(prepared preparedWorkflowGraphSave) comparableW
 		Edges:            make([]comparableWorkflowGraphSaveEdge, 0, len(prepared.edges)),
 	}
 	for index, group := range prepared.nodeGroups {
-		out.NodeGroups = append(out.NodeGroups, comparableWorkflowGraphSaveNodeGroup{ID: group.ID, WorkflowID: group.WorkflowID, Key: group.Key, DisplayName: strings.TrimSpace(group.DisplayName), SortOrder: int64(index * 100)})
+		out.NodeGroups = append(out.NodeGroups, comparableWorkflowGraphSaveNodeGroup{ID: group.ID, WorkflowID: group.WorkflowID, Key: group.Key, DisplayName: normalizeNodeGroupName(group.DisplayName), SortOrder: int64(index * 100)})
 	}
 	for index, node := range prepared.nodes {
 		var groupID *string
@@ -893,12 +896,19 @@ func stageWorkflowGraphSaveKeyChanges(ctx context.Context, q *sqlitegen.Queries,
 	return nil
 }
 
+func normalizeNodeGroupName(name *string) *string {
+	if name == nil {
+		return nil
+	}
+	return new(strings.TrimSpace(*name))
+}
+
 func upsertWorkflowNodeGroup(ctx context.Context, q *sqlitegen.Queries, group NodeGroupRecord, op string) error {
 	updated, err := q.UpsertWorkflowNodeGroup(ctx, sqlitegen.UpsertWorkflowNodeGroupParams{
 		ID:          group.ID,
 		WorkflowID:  group.WorkflowID,
 		GroupKey:    string(group.Key),
-		DisplayName: strings.TrimSpace(group.DisplayName),
+		DisplayName: metadata.NullableString(group.DisplayName),
 		SortOrder:   group.SortOrder,
 	})
 	return expectAffectedRowCount(updated, err, op)

@@ -127,7 +127,7 @@ func (s *validationState) indexNodeGroups() {
 		} else {
 			seenKeys[key] = id
 		}
-		if !validDisplayName(group.DisplayName) {
+		if group.DisplayName != nil && !validDisplayName(*group.DisplayName) {
 			s.addHard(CodeInvalidDisplayName, "node group display name must be non-empty and at most 120 characters", ref)
 		}
 		s.nodeGroupsByID[id] = group
@@ -607,7 +607,7 @@ func (s *validationState) validateKindConstraints() {
 				s.addHard(CodeInvalidStartNode, "start node must be non-executable and have no inputs", ref)
 			}
 		case NodeKindAgent:
-			if issue, exists := validateAgentRoleRequirement(s.def.ID, node, toolspec.ToolAskQuestion, s.opts.RoleResolver); exists {
+			if issue, exists := validateAgentRoleRequirement(s.def.ID, node, toolspec.ToolAskQuestion, s.opts.RoleResolver); exists && (s.opts.ExecutionNodes == nil || s.opts.ExecutionNodes[nodeID]) {
 				s.addSemantic(issue.Code, issue.Message, issue)
 			}
 		case NodeKindJoin:
@@ -710,6 +710,7 @@ func (s *validationState) validateRuntimeSupport() {
 }
 
 func (s *validationState) validateSelectorApplicability(edge Edge, source Node, sourceExists bool, target Node, targetExists bool, contextSource ContextSource, ref ValidationError) {
+	validateAvailability := s.opts.ExecutionNodes == nil || s.opts.ExecutionNodes[edge.TargetNodeID]
 	assigneeSelection := CanonicalAssigneeSelection(edge.AssigneeSelection)
 	thinkingSelection := CanonicalThinkingSelection(edge.ThinkingSelection)
 	sourceKind := NodeKind("")
@@ -737,7 +738,7 @@ func (s *validationState) validateSelectorApplicability(edge Edge, source Node, 
 		if applicability.Assignee.Reason == SelectorApplicabilityTopology ||
 			applicability.Assignee.Reason == SelectorApplicabilityContextSource {
 			s.addSemantic(CodeAssigneeSelectionInapplicable, "edge Assignee selection is not applicable to this serial Agent transition", ref)
-		} else if !applicability.Assignee.Available {
+		} else if validateAvailability && !applicability.Assignee.Available {
 			s.addSemantic(CodeAssigneeSelectionUnavailable, "edge Assignee selection is unavailable for the current role configuration", ref)
 		}
 	}
@@ -748,10 +749,10 @@ func (s *validationState) validateSelectorApplicability(edge Edge, source Node, 
 		s.addSemantic(CodeThinkingSelectionInapplicable, "edge thinking selection is not applicable to this serial Agent transition", ref)
 		return
 	}
-	if !applicability.Thinking.Available {
+	if validateAvailability && !applicability.Thinking.Available {
 		s.addSemantic(CodeThinkingSelectionUnavailable, "edge thinking selection is unavailable for the applicable target models", ref)
 	}
-	if s.context == ValidationContextExecution &&
+	if validateAvailability && s.context == ValidationContextExecution &&
 		thinkingSelection == ThinkingSelectionPreviousNode &&
 		sourceExists &&
 		targetExists {

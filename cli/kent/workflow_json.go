@@ -44,7 +44,7 @@ type workflowNodeGroupJSON struct {
 	GroupID     string                `json:"group_id"`
 	WorkflowID  runtimeids.WorkflowID `json:"workflow_id"`
 	GroupKey    string                `json:"group_key"`
-	DisplayName string                `json:"display_name"`
+	DisplayName *string               `json:"display_name"`
 	SortOrder   int                   `json:"sort_order"`
 }
 
@@ -61,9 +61,9 @@ type workflowEdgeJSON struct {
 }
 
 type workflowGraphDocumentNodeGroup struct {
-	ID          string `json:"id"`
-	Key         string `json:"key"`
-	DisplayName string `json:"display_name"`
+	ID          string  `json:"id"`
+	Key         string  `json:"key"`
+	DisplayName *string `json:"display_name,omitempty" jsonschema:"nullable"`
 }
 
 type workflowGraphDocumentTransition struct {

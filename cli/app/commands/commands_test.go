@@ -12,7 +12,7 @@ func TestExecuteBuiltins(t *testing.T) {
 		"/new":                      {Handled: true, Action: ActionNew},
 		"/resume":                   {Handled: true, Action: ActionResume},
 		"/logout":                   {Handled: true, Action: ActionLogout},
-		"/login":                    {Handled: true, Action: ActionLogout},
+		"/login":                    {Handled: true, Action: ActionLogin},
 		"/exit":                     {Handled: true, Action: ActionExit},
 		"/compact":                  {Handled: true, Action: ActionCompact},
 		"/compact keep API details": {Handled: true, Action: ActionCompact, Args: "keep API details"},
