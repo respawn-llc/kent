@@ -17,7 +17,13 @@ it.each([false, true])(
             kind: "assistant",
             state: "live",
             key: "stream",
-            value: { StepID: "step", StreamID: "stream", Phase: "commentary", Text: text, SourceState: "streaming" },
+            value: {
+              StepID: "step",
+              StreamID: "stream",
+              Phase: "commentary",
+              Text: text,
+              SourceState: "streaming",
+            },
           }}
         />
       </TestAppProviders>

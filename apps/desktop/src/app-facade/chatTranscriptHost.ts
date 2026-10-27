@@ -14,6 +14,7 @@ import {
   TranscriptWindow,
   type TranscriptWindowInput,
   type TranscriptWindowResult,
+  type TranscriptLiveFact,
 } from "./transcript-window";
 
 export type ChatTranscriptPageInput =
@@ -28,6 +29,20 @@ type TranscriptPageApi = Pick<ChatApi, "getTranscriptPage">;
 type PageRequest =
   | Readonly<{ kind: "opening"; permit: symbol }>
   | (Extract<TranscriptWindowResult, { kind: "accepted" }>["effects"][number] & { kind: "page-request" });
+
+function isLiveFact(event: ChatTranscriptMessage): event is ChatTranscriptMessage & TranscriptLiveFact {
+  return (
+    event.kind === "assistant_delta" ||
+    event.kind === "assistant_stream_abort" ||
+    event.kind === "assistant_source_complete" ||
+    event.kind === "tool_start" ||
+    event.kind === "tool_abort" ||
+    event.kind === "reasoning_trace_update" ||
+    event.kind === "reasoning_trace_reset" ||
+    event.kind === "thinking_status_update" ||
+    event.kind === "step_state"
+  );
+}
 
 export async function executeChatTranscriptPage(
   api: TranscriptPageApi,
@@ -208,18 +223,7 @@ export function createChatTranscriptModel(
       );
     if (event.kind === "compaction_status")
       return yield* apply({ kind: "compaction-status", status: event.payload }, "content", admitted);
-    if (
-      event.kind === "assistant_delta" ||
-      event.kind === "assistant_stream_abort" ||
-      event.kind === "assistant_source_complete" ||
-      event.kind === "tool_start" ||
-      event.kind === "tool_abort" ||
-      event.kind === "reasoning_trace_update" ||
-      event.kind === "reasoning_trace_reset" ||
-      event.kind === "thinking_status_update" ||
-      event.kind === "step_state"
-    )
-      return yield* apply({ kind: "live-fact", fact: event }, "content", admitted);
+    if (isLiveFact(event)) return yield* apply({ kind: "live-fact", fact: event }, "content", admitted);
     admitted();
   });
   return {

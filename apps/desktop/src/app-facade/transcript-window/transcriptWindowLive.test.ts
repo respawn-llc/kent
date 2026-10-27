@@ -29,25 +29,43 @@ describe("transcript live membership and compaction", () => {
     const window = new TranscriptWindow();
     window.dispatch({ kind: "initial-hydration", hydration: hydration([]) });
     const source = {
-      StepID: "step", StreamID: "source", Phase: "commentary", Text: "Complete source",
+      StepID: "step",
+      StreamID: "source",
+      Phase: "commentary",
+      Text: "Complete source",
       SourceState: "complete",
     } as const;
-    window.dispatch({ kind: "live-fact", fact: {
-      kind: "assistant_delta", payload: { ...source, Delta: "Complete" },
-    }});
+    window.dispatch({
+      kind: "live-fact",
+      fact: {
+        kind: "assistant_delta",
+        payload: { ...source, Delta: "Complete" },
+      },
+    });
     const key = window.snapshot.items[0]?.key;
     window.dispatch({ kind: "live-fact", fact: { kind: "assistant_source_complete", payload: source } });
     expect(window.snapshot.items).toHaveLength(1);
-    expect(window.snapshot.items[0]).toMatchObject({ key, value: { Text: source.Text, SourceState: "complete" } });
+    expect(window.snapshot.items[0]).toMatchObject({
+      key,
+      value: { Text: source.Text, SourceState: "complete" },
+    });
     const accepted = {
-      ...row(1), User: null, Kind: "assistant", Assistant: source,
+      ...row(1),
+      User: null,
+      Kind: "assistant",
+      Assistant: source,
     } as const;
     expect(window.dispatch({ kind: "committed-row", row: accepted }).kind).toBe("accepted");
     expect(window.snapshot.items).toHaveLength(1);
     expect(window.snapshot.items[0]).toMatchObject({ key, state: "committed" });
     const overlap = window.dispatch({
-      kind: "page-success", request: visit(window, "older"),
-      page: page([{ ...accepted, Assistant: { StepID: source.StepID, Phase: source.Phase, Text: source.Text } }], null, 300),
+      kind: "page-success",
+      request: visit(window, "older"),
+      page: page(
+        [{ ...accepted, Assistant: { StepID: source.StepID, Phase: source.Phase, Text: source.Text } }],
+        null,
+        300,
+      ),
     });
     expect(overlap.kind).toBe("accepted");
     expect(window.snapshot.items[0]?.key).toBe(key);
@@ -337,7 +355,15 @@ describe("transcript live membership and compaction", () => {
       kind: "initial-hydration",
       hydration: {
         ...initial,
-        ActiveAssistants: [{ StepID: "step", StreamID: "stream", Phase: "commentary", Text: "Draft", SourceState: "streaming" }],
+        ActiveAssistants: [
+          {
+            StepID: "step",
+            StreamID: "stream",
+            Phase: "commentary",
+            Text: "Draft",
+            SourceState: "streaming",
+          },
+        ],
       },
     });
     window.dispatch({

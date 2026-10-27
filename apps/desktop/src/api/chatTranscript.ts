@@ -17,7 +17,13 @@ import {
   readModelUpdate,
 } from "./chatReadModel";
 import { goalFacts } from "./chatGoal";
-import { committedRow, assistantPhase, assistantSourceState, diagnostic, reasoningIdentity } from "./chatTranscriptRows";
+import {
+  committedRow,
+  assistantPhase,
+  assistantSourceState,
+  diagnostic,
+  reasoningIdentity,
+} from "./chatTranscriptRows";
 import { toolPresentation } from "./chatToolPresentation";
 import { pendingWorkKind } from "./chatMutations";
 import { timestampMillis } from "./clientTime";
