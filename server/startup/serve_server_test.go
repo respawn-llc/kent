@@ -55,8 +55,13 @@ func registerServeWorkspace(t *testing.T, workspace string) {
 	if err != nil {
 		t.Fatalf("config.Load: %v", err)
 	}
-	if _, _, err := config.WriteDefaultSettingsFileAt(cfg.Source.File(config.FileGlobal).Path); err != nil {
-		t.Fatalf("write test settings: %v", err)
+	settingsPath := cfg.Source.File(config.FileGlobal).Path
+	if _, statErr := os.Stat(settingsPath); errors.Is(statErr, os.ErrNotExist) {
+		if _, err := config.WriteSettingsFileForOnboardingWithOptionsAt(settingsPath, config.DefaultOnboardingSettings(), config.OnboardingWriteOptions{}); err != nil {
+			t.Fatalf("write test settings: %v", err)
+		}
+	} else if statErr != nil {
+		t.Fatalf("stat test settings: %v", statErr)
 	}
 	if _, err := metadata.RegisterBinding(context.Background(), cfg.PersistenceRoot, cfg.WorkspaceRoot); err != nil {
 		t.Fatalf("RegisterBinding: %v", err)
@@ -874,7 +879,7 @@ func TestStartupUsesConfigThatAppearsBeforeRootLock(t *testing.T) {
 	if err != nil {
 		t.Fatalf("config.Load: %v", err)
 	}
-	if _, _, err := config.WriteDefaultSettingsFileAt(loadCfg.Source.File(config.FileGlobal).Path); err != nil {
+	if _, err := config.WriteSettingsFileForOnboardingWithOptionsAt(loadCfg.Source.File(config.FileGlobal).Path, config.DefaultOnboardingSettings(), config.OnboardingWriteOptions{}); err != nil {
 		t.Fatalf("write settings: %v", err)
 	}
 

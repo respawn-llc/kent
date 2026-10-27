@@ -1,7 +1,6 @@
 package onboardingimports
 
 import (
-	"errors"
 	"os"
 	"path/filepath"
 	"testing"
@@ -316,26 +315,6 @@ func TestDiscoverReportsTargetProbeErrorsAndKeepsGeneratedSkills(t *testing.T) {
 	}
 }
 
-func TestValidateChoiceUsesStructuredRefs(t *testing.T) {
-	configRoot := t.TempDir()
-	home := t.TempDir()
-	writeProviderSkill(t, home, ProviderAgents, "skills", "review", "Review", "Review code")
-	result, err := Discover(Options{ConfigRoot: configRoot, HomeDir: home})
-	if err != nil {
-		t.Fatalf("Discover: %v", err)
-	}
-	if len(result.Skills.Choices) < 2 {
-		t.Fatalf("expected symlink choice, got %+v", result.Skills.Choices)
-	}
-	if err := ValidateChoice(result, result.Skills.Choices[1].Ref, ItemKindSkill); err != nil {
-		t.Fatalf("valid choice rejected: %v", err)
-	}
-	missing := ChoiceRef{Mode: ChoiceModeSymlinkSource}
-	if err := ValidateChoice(result, missing, ItemKindSkill); !errors.Is(err, ErrInvalidChoice) {
-		t.Fatalf("invalid choice err = %v, want ErrInvalidChoice", err)
-	}
-}
-
 func TestSkillEnablementProjectionsShadowGeneratedAndMarkDefaults(t *testing.T) {
 	configRoot := t.TempDir()
 	home := t.TempDir()
@@ -449,9 +428,6 @@ func requireProviderChoice(t *testing.T, result Result, kind ItemKind, provider 
 		}
 		if !hasProviderTargetItem(group.Items, provider, root, target) {
 			t.Fatalf("provider item %q from %q not discovered: %+v", target, root, group.Items)
-		}
-		if err := ValidateChoice(result, choice.Ref, kind); err != nil {
-			t.Fatalf("provider choice rejected: %v", err)
 		}
 		return choice
 	}

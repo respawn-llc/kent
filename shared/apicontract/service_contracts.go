@@ -147,7 +147,6 @@ type RuntimeControlService interface {
 	AppendCommittedEntry(ctx context.Context, req *transcriptpb.AppendCommittedEntryRequest) error
 	SubmitUserTurn(ctx context.Context, req *runtimepb.SubmitUserTurnRequest) (*runtimepb.SubmitUserTurnSuccess, error)
 	CompactContext(ctx context.Context, req *runtimepb.CompactContextRequest) error
-	Interrupt(ctx context.Context, req *runtimepb.InterruptRequest) (*runtimepb.ReadModelUpdate, error)
 	RecordPromptHistory(ctx context.Context, req *promptpb.RecordHistoryRequest) error
 	ShowGoal(ctx context.Context, req *runtimepb.GoalShowRequest) (*runtimepb.GoalShowSuccess, error)
 	PauseGoal(ctx context.Context, req *runtimepb.GoalMutationRequest) (*runtimepb.GoalMutationSuccess, error)

@@ -7,6 +7,7 @@ import (
 	"testing"
 	"time"
 
+	"core/shared/apicontract"
 	chatpb "core/shared/protoapi/gen/kent/api/chat"
 	promptpb "core/shared/protoapi/gen/kent/api/prompt"
 	runtimepb "core/shared/protoapi/gen/kent/api/runtime"
@@ -58,8 +59,10 @@ type reconnectRetryRuntimeControlClient struct {
 	resumeGoalResp   *runtimepb.GoalMutationSuccess
 	completeGoalResp *runtimepb.GoalMutationSuccess
 	clearGoalResp    *runtimepb.GoalMutationSuccess
-	interruptResp    *runtimepb.ReadModelUpdate
-	interruptReq     *runtimepb.InterruptRequest
+	apicontract.RuntimeLiveControlService
+	stopStatus runtimepb.LiveStopStatus
+	stopReq    *runtimepb.LiveStopRequest
+	stopCalls  int
 }
 
 func (c *reconnectRetryRuntimeControlClient) submitRequestIDs() []string {
@@ -105,11 +108,12 @@ func (c *reconnectRetryRuntimeControlClient) CompactContext(context.Context, *ru
 	return nil
 }
 
-func (c *reconnectRetryRuntimeControlClient) Interrupt(_ context.Context, req *runtimepb.InterruptRequest) (*runtimepb.ReadModelUpdate, error) {
+func (c *reconnectRetryRuntimeControlClient) LiveStop(_ context.Context, req *runtimepb.LiveStopRequest) (*runtimepb.LiveStopSuccess, error) {
 	c.mu.Lock()
-	c.interruptReq = req
+	c.stopReq = req
+	c.stopCalls++
 	c.mu.Unlock()
-	return c.interruptResp, nil
+	return &runtimepb.LiveStopSuccess{Status: c.stopStatus}, nil
 }
 
 func (c *reconnectRetryRuntimeControlClient) RecordPromptHistory(_ context.Context, req *promptpb.RecordHistoryRequest) error {
@@ -162,20 +166,20 @@ func runtimeClientTestShowResponse(goal *runtimepb.Goal) *runtimepb.GoalShowSucc
 	}
 }
 
-func TestRuntimeClientInterruptDoesNotCommitRuntimeTuple(t *testing.T) {
+func TestRuntimeClientStopTargetsSessionWithoutCommittingRuntimeTuple(t *testing.T) {
 	current := runtimeTupleTestView(
 		10,
 		runtimeTupleTestIdleActivity(),
 	)
-	controls := &reconnectRetryRuntimeControlClient{interruptResp: &runtimepb.ReadModelUpdate{
-		Version:  &runtimepb.ReadModelVersion{Epoch: current.Version.Epoch, Generation: current.Version.Generation, Sequence: 11},
-		Activity: runtimeTupleTestRunningActivity(),
-	}}
+	controls := &reconnectRetryRuntimeControlClient{stopStatus: runtimepb.LiveStopStatus_RUNTIME_LIVE_STOP_STATUS_IDLE}
 	runtimeClient := newTestSessionRuntimeClientWithControls(controls)
 	runtimeClient.storeMainView(current)
 
 	if err := runtimeClient.Interrupt(); err != nil {
 		t.Fatalf("interrupt: %v", err)
+	}
+	if controls.stopReq.GetSessionId().GetSessionId() != ongoingTestSessionID().String() {
+		t.Fatalf("Stop targeted %v, want current Session", controls.stopReq)
 	}
 	assertRuntimeTupleView(t, runtimeClient.MainView(), current)
 }

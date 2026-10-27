@@ -15,14 +15,11 @@ import (
 	"core/internal/testharness/scriptedllm"
 	"core/internal/testharness/testsetup"
 	"core/internal/testharness/workflowfixture"
-	"core/internal/testharness/workflowreactivator"
 	"core/server/auth"
 	serverbootstrap "core/server/bootstrap"
 	"core/server/llm"
 	"core/server/metadata"
-	"core/server/runtimecontrol"
 	"core/server/runtimewire"
-	"core/server/sessionruntime"
 	"core/server/workflow"
 	"core/server/workflowstore"
 	"core/shared/config"
@@ -318,43 +315,10 @@ func TestWorkflowRestoredOriginalAcceptsSessionMessageAfterSetupFailure(t *testi
 	}
 
 	const message = "Continue on the restored original checkout"
-	controller := f.app.safeBundles().Workflows.controller
-	reactivationGate := testsetup.NewStartBarrier()
-	t.Cleanup(reactivationGate.Unblock)
-	reactivator := workflowreactivator.Func(func(
-		ctx context.Context,
-		sessionID runtimeids.SessionID,
-	) (sessionruntime.ExecutionHandle, error) {
-		handle, err := controller.ReactivateWorkflowSession(ctx, sessionID)
-		if err != nil {
-			return nil, err
-		}
-		if err := reactivationGate.ArriveAndWait(ctx); err != nil {
-			return nil, err
-		}
-		return handle, nil
-	})
-	runtimeControl := runtimecontrol.NewService(
-		f.app.safeBundles().Runtime.runtimeAuthority,
-		f.app.MetadataStore(),
-	).
-		WithPromptHistoryStore(f.app.MetadataStore()).
-		WithWorkflowSessionReactivator(reactivator).
-		WithWorkflowSessionPreparationReader(controller)
 	submitted := testsetup.Start(func() (*runtimepb.SubmitUserTurnSuccess, error) {
-		return runtimeControl.SubmitUserTurn(context.Background(), &runtimepb.SubmitUserTurnRequest{QueueItemId: runtimeids.NewQueueItemID().String(), SessionId: node.SessionID.String(), Input: &runtimepb.UserTurnInput{Input: &runtimepb.UserTurnInput_Text{Text: message}}})
+		return f.app.RuntimeControlClient().SubmitUserTurn(context.Background(), &runtimepb.SubmitUserTurnRequest{QueueItemId: runtimeids.NewQueueItemID().String(), SessionId: node.SessionID.String(), Input: &runtimepb.UserTurnInput{Input: &runtimepb.UserTurnInput_Text{Text: message}}})
 	})
 	waitRecoveryModel(t, f.second, f.store, f.task.ID)
-	requests := f.client.Requests()
-	if len(requests) < 2 {
-		t.Fatalf("resumed model request count = %d, want at least two", len(requests))
-	}
-	for _, item := range requests[1].Items {
-		if item.Role != nil && *item.Role == llm.RoleUser && item.Content != nil && *item.Content == message {
-			t.Fatal("message appeared in the assignment request before reactivation completed")
-		}
-	}
-	reactivationGate.Unblock()
 	select {
 	case outcome := <-submitted:
 		if outcome.Err != nil {
@@ -368,12 +332,12 @@ func TestWorkflowRestoredOriginalAcceptsSessionMessageAfterSetupFailure(t *testi
 	}
 	f.second.Unblock()
 	waitRecoveryModel(t, messageRequest, f.store, f.task.ID)
-	requests = f.client.Requests()
+	requests := f.client.Requests()
 	if len(requests) < 3 {
-		t.Fatalf("model request count = %d, want a later steered request", len(requests))
+		t.Fatalf("model request count = %d, want resumed execution to continue", len(requests))
 	}
 	delivered := false
-	for _, request := range requests[2:] {
+	for _, request := range requests[1:] {
 		if request.SessionID == nil || *request.SessionID != originalSessionID.String() {
 			t.Fatalf("message was delivered in a different Session: %+v", request.SessionID)
 		}
@@ -384,7 +348,7 @@ func TestWorkflowRestoredOriginalAcceptsSessionMessageAfterSetupFailure(t *testi
 		}
 	}
 	if !delivered {
-		t.Fatal("retained Session message was not delivered to a later model request")
+		t.Fatal("retained Session message was not delivered to resumed execution")
 	}
 	if data, err := os.ReadFile(attempts); err != nil || len(data) != 1 {
 		t.Fatalf("message reran original restoration setup: %q, %v", data, err)

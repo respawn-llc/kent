@@ -52,7 +52,7 @@ it.each([question(), approval()])(
     await waitFor(() => {
       expect(view.handlers).toHaveLength(1);
     });
-    act(() =>
+    await act(async () =>
       view.handlers[0]?.onEvent({
         sequence: 1,
         kind: "hydration",
@@ -88,7 +88,7 @@ it("shows original batch navigation while the remaining questions are still arri
   await waitFor(() => {
     expect(view.handlers).toHaveLength(1);
   });
-  act(() =>
+  await act(async () =>
     view.handlers[0]?.onEvent({
       sequence: 1,
       kind: "hydration",
@@ -114,7 +114,7 @@ it("keeps navigation for a five-question batch when four questions are answered"
   await waitFor(() => {
     expect(view.handlers).toHaveLength(1);
   });
-  act(() =>
+  await act(async () =>
     view.handlers[0]?.onEvent({
       sequence: 1,
       kind: "hydration",
@@ -147,7 +147,7 @@ it("declines the current prompt from composer actions without stopping the run a
   await waitFor(() => {
     expect(view.handlers).toHaveLength(1);
   });
-  act(() =>
+  await act(async () =>
     view.handlers[0]?.onEvent({
       sequence: 1,
       kind: "hydration",
@@ -652,7 +652,7 @@ it("retains committed history and input during explicit observation Retry withou
   await waitFor(() => {
     expect(view.handlers).toHaveLength(1);
   });
-  act(() =>
+  await act(async () =>
     view.handlers[0]?.onEvent({
       sequence: 1,
       kind: "hydration",
@@ -664,7 +664,7 @@ it("retains committed history and input during explicit observation Retry withou
   );
   const priorRows = screen.getAllByText("Message 1");
   const failure = new Error("observation lost");
-  act(() => view.handlers[0]?.onError(failure));
+  await act(async () => view.handlers[0]?.onError(failure));
   const finalRow = within(screen.getByRole("list")).getAllByRole("listitem").at(-1);
   if (finalRow === undefined) throw new Error("Expected an inline transcript error.");
   expect(within(finalRow).getByText(failure.message)).toBeInTheDocument();
@@ -942,7 +942,7 @@ it("preserves failed answer diagnostics separately while retaining answers for e
   await waitFor(() => {
     expect(view.handlers).toHaveLength(1);
   });
-  act(() =>
+  await act(async () =>
     view.handlers[0]?.onEvent({
       sequence: 1,
       kind: "hydration",
@@ -989,7 +989,7 @@ it("retains pending prompt answers and commentary through a Settings read failur
   await waitFor(() => {
     expect(view.handlers).toHaveLength(1);
   });
-  act(() =>
+  await act(async () =>
     view.handlers[0]?.onEvent({
       sequence: 1,
       kind: "hydration",
@@ -1033,7 +1033,7 @@ it("keeps an admitted prompt submission pending through Pending Work read recove
   await waitFor(() => {
     expect(view.handlers).toHaveLength(1);
   });
-  act(() =>
+  await act(async () =>
     view.handlers[0]?.onEvent({
       sequence: 1,
       kind: "hydration",

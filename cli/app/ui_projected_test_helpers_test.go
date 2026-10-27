@@ -291,8 +291,9 @@ func newProjectedAuthorityRuntime(
 		}
 	})
 	reads := sessionview.NewService(persistence, activity, nil, nil)
-	controls := runtimecontrol.NewService(authority, nil).WithRuntimeActivityResolver(activity)
+	controls := runtimecontrol.NewService(authority, nil).WithSessionSettingFeedbackPublisher(activity)
 	runtimeClient := newUIRuntimeClientWithReads(sessionID.String(), reads, controls, nil, nil).(*sessionRuntimeClient)
+	runtimeClient.liveControls = controls
 	snapshot, err := activity.RuntimeReadModelFeedSnapshot(context.Background(), sessionID.String())
 	if err != nil {
 		t.Fatalf("projected runtime snapshot: %v", err)
@@ -322,11 +323,15 @@ func newProjectedAuthorityRuntime(
 func newUnavailableRuntimeControlService() *runtimecontrol.Service {
 	activity := registry.NewRuntimeRegistry(nil)
 	return runtimecontrol.NewService(sessionruntime.NewAuthority(sessionruntime.AuthorityOptions{}), nil).
-		WithRuntimeActivityResolver(activity)
+		WithSessionSettingFeedbackPublisher(activity)
 }
 
 func newTestSessionRuntimeClient(reads apicontract.SessionViewService, controls apicontract.RuntimeControlService) *sessionRuntimeClient {
-	return newUIRuntimeClientWithReads("session-1", reads, controls, nil, nil).(*sessionRuntimeClient)
+	client := newUIRuntimeClientWithReads(ongoingTestSessionID().String(), reads, controls, nil, nil).(*sessionRuntimeClient)
+	if liveControls, ok := controls.(apicontract.RuntimeLiveControlService); ok {
+		client.liveControls = liveControls
+	}
+	return client
 }
 
 func newTestSessionRuntimeClientWithControls(controls apicontract.RuntimeControlService) *sessionRuntimeClient {

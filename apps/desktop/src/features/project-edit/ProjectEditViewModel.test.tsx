@@ -230,10 +230,9 @@ it("admits only one inline Unlink while its request is pending", async () => {
   const view = setup();
   const response = deferred<Awaited<ReturnType<typeof view.services.api.unlinkWorkspace>>>();
   const unlink = vi.spyOn(view.services.api, "unlinkWorkspace").mockReturnValue(response.promise);
-  const close = vi.fn();
   await act(async () => {
-    view.result.current.unlink({ workspaceID: "workspace-1", close });
-    view.result.current.unlink({ workspaceID: "workspace-1", close });
+    view.result.current.unlink({ workspaceID: "workspace-1" });
+    view.result.current.unlink({ workspaceID: "workspace-1" });
   });
   expect(unlink).toHaveBeenCalledTimes(1);
   await act(async () => {
@@ -245,7 +244,6 @@ it("admits only one inline Unlink while its request is pending", async () => {
     });
     await response.promise;
   });
-  expect(close).toHaveBeenCalledTimes(1);
 });
 
 it("refreshes the visible workspace catalog after Unlink", async () => {
@@ -273,14 +271,14 @@ it("refreshes the visible workspace catalog after Unlink", async () => {
     expect(view.result.current.workspaces).toHaveLength(1);
   });
   act(() => {
-    view.result.current.unlink({ workspaceID: workspace.id, close: vi.fn() });
+    view.result.current.unlink({ workspaceID: workspace.id });
   });
   await waitFor(() => {
     expect(view.result.current.workspaces).toHaveLength(0);
   });
 });
 
-it("closes confirmation before reporting blockers and permits an explicit retry", async () => {
+it("reports Unlink blockers and permits an explicit retry", async () => {
   const view = setup();
   const unlink = vi.spyOn(view.services.api, "unlinkWorkspace").mockResolvedValue({
     projectID: project.projectID,
@@ -288,15 +286,13 @@ it("closes confirmation before reporting blockers and permits an explicit retry"
     project: null,
     blockers: [{ code: "in-use", message: "Workspace is in use" }],
   });
-  const close = vi.fn();
   const invalidate = vi.spyOn(view.client, "invalidateQueries");
   await act(async () => {
-    view.result.current.unlink({ workspaceID: "workspace-1", close });
+    view.result.current.unlink({ workspaceID: "workspace-1" });
   });
-  expect(close).toHaveBeenCalledTimes(1);
   expect(view.push).toHaveBeenCalledWith(expect.objectContaining({ tone: "danger" }));
   await act(async () => {
-    view.result.current.unlink({ workspaceID: "workspace-1", close });
+    view.result.current.unlink({ workspaceID: "workspace-1" });
   });
   expect(unlink).toHaveBeenCalledTimes(2);
   expect(invalidate).toHaveBeenCalledWith(
@@ -308,10 +304,10 @@ it("finishes Delete after navigation without taking over the replacement destina
   const view = setup();
   const response = deferred<Awaited<ReturnType<typeof view.services.api.deleteProject>>>();
   const remove = vi.spyOn(view.services.api, "deleteProject").mockReturnValue(response.promise);
-  const close = vi.fn();
   const invalidate = vi.spyOn(view.client, "invalidateQueries");
   await act(async () => {
-    view.result.current.deleteProject({ close, openHome: view.openHome });
+    view.result.current.deleteProject({ openHome: view.openHome });
+    view.result.current.deleteProject({ openHome: view.openHome });
   });
   expect(remove).toHaveBeenCalledTimes(1);
   const navigatorClose = vi.spyOn(view.navigator, "close");
@@ -324,6 +320,21 @@ it("finishes Delete after navigation without taking over the replacement destina
   expect(view.openHome).not.toHaveBeenCalled();
   expect(invalidate).toHaveBeenCalledWith(expect.objectContaining({ queryKey: queryKeys.projects }));
   expect(view.push).toHaveBeenCalledWith(expect.objectContaining({ tone: "success" }));
+});
+
+it("reports a failed Delete in Project Edit and allows explicit resubmission", async () => {
+  const view = setup();
+  const remove = vi.spyOn(view.services.api, "deleteProject").mockRejectedValue(new Error("Unavailable"));
+  await act(async () => {
+    view.result.current.deleteProject({ openHome: view.openHome });
+  });
+  expect(view.push).toHaveBeenCalledWith(expect.objectContaining({ tone: "danger" }));
+  expect(view.navigator.close).not.toHaveBeenCalled();
+  expect(view.result.current.state.deletePending).toBe(false);
+  await act(async () => {
+    view.result.current.deleteProject({ openHome: view.openHome });
+  });
+  expect(remove).toHaveBeenCalledTimes(2);
 });
 
 it("keeps admission attached when visual readers leave during a pending Save", async () => {

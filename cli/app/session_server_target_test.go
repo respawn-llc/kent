@@ -208,7 +208,7 @@ func TestStartSessionServerConfiguredDaemonNoAuthSkipsLaterPrompt(t *testing.T) 
 	startConfiguredDaemonFixture(t, workspace, serverstartup.Request{
 		WorkspaceRoot:         workspace,
 		WorkspaceRootExplicit: true,
-		Model:                 "gpt-6-sol",
+		LoadOptions:           config.LoadOptions{Model: "gpt-6-sol"},
 	})
 
 	pickerCalls := 0
@@ -356,7 +356,7 @@ func TestConfiguredDaemonEnvironmentContextUsesSessionWorkspaceRootForCWD(t *tes
 	fixture := startConfiguredDaemonFixture(t, workspace, serverstartup.Request{
 		WorkspaceRoot:         workspace,
 		WorkspaceRootExplicit: true,
-		Model:                 "gpt-6-sol",
+		LoadOptions:           config.LoadOptions{Model: "gpt-6-sol"},
 	})
 
 	server := fixture.attachRemoteSessionServer(t, Options{WorkspaceRoot: workspace, WorkspaceRootExplicit: true}, newHeadlessAuthInteractor())
@@ -501,7 +501,7 @@ func startRemoteMultiClientRuntimeFixture(t *testing.T, openAIBaseURL string) *r
 	configured := startConfiguredDaemonFixture(t, workspaceA, serverstartup.Request{
 		WorkspaceRoot:         workspaceA,
 		WorkspaceRootExplicit: true,
-		Model:                 "gpt-6-sol",
+		LoadOptions:           config.LoadOptions{Model: "gpt-6-sol"},
 	})
 
 	fixture.daemon = configured.daemon

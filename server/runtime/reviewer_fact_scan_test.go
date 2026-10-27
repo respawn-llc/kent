@@ -15,7 +15,7 @@ import (
 	"core/shared/transcript"
 )
 
-func TestPersistedTranscriptScanReconstructsTypedReviewerFactsInBoundedWindows(t *testing.T) {
+func TestPersistedTranscriptScanReconstructsTypedReviewerFacts(t *testing.T) {
 	feedback := session.ReviewerFeedbackRecord{
 		ID:          runtimeids.NewReviewerFeedbackID(),
 		Suggestions: []string{"  **first**  ", "second\nline"},
@@ -34,51 +34,38 @@ func TestPersistedTranscriptScanReconstructsTypedReviewerFactsInBoundedWindows(t
 		t.Fatalf("create error event: %v", err)
 	}
 
-	scan := NewPersistedTranscriptScan(PersistedTranscriptScanRequest{Offset: 1, Limit: 1, TrackRecentTail: true, TailLimit: 1})
+	scan := newStreamingTranscriptScan("")
 	for _, event := range []session.EventRecord{feedbackEvent, errorEvent} {
 		if err := scan.ApplyPersistedEvent(event); err != nil {
 			t.Fatalf("apply typed Reviewer event: %v", err)
 		}
 	}
 
-	if got := scan.TotalEntries(); got != 2 {
-		t.Fatalf("total entries = %d, want 2", got)
+	page := scan.PageSnapshot()
+	if len(page.Entries) != 2 || page.Entries[0].ReviewerFeedback == nil || page.Entries[1].ReviewerError == nil {
+		t.Fatalf("projected entries = %+v, want Reviewer feedback and error", page.Entries)
 	}
-	page := scan.CollectedPageSnapshot()
-	if len(page.Entries) != 1 || page.Entries[0].ReviewerError == nil {
-		t.Fatalf("bounded page = %+v, want only Reviewer error", page.Entries)
-	}
-	if page.Entries[0].ReviewerError.ID != reviewerError.ID ||
-		page.Entries[0].ReviewerError.Detail != reviewerError.Detail ||
+	if page.Entries[0].ReviewerFeedback.ID != feedback.ID ||
+		!reflect.DeepEqual(page.Entries[0].ReviewerFeedback.Suggestions, feedback.Suggestions) ||
 		page.Entries[0].StepID == nil ||
-		*page.Entries[0].StepID != "22222222-2222-4222-8222-222222222222" ||
-		page.Entries[0].Visibility != transcript.EntryVisibilityOngoing {
-		t.Fatalf("projected Reviewer error = %+v", page.Entries[0])
+		*page.Entries[0].StepID != "11111111-1111-4111-8111-111111111111" ||
+		page.Entries[0].Visibility != transcript.EntryVisibilityOngoingCollapsed {
+		t.Fatalf("projected Reviewer feedback = %+v", page.Entries[0])
 	}
-	tail := scan.RecentTailSnapshot()
-	if len(tail.Snapshot.Entries) != 1 || tail.Snapshot.Entries[0].ReviewerError == nil {
-		t.Fatalf("bounded tail = %+v, want only Reviewer error", tail.Snapshot.Entries)
+	if page.Entries[1].ReviewerError.ID != reviewerError.ID ||
+		page.Entries[1].ReviewerError.Detail != reviewerError.Detail ||
+		page.Entries[1].StepID == nil ||
+		*page.Entries[1].StepID != "22222222-2222-4222-8222-222222222222" ||
+		page.Entries[1].Visibility != transcript.EntryVisibilityOngoing {
+		t.Fatalf("projected Reviewer error = %+v", page.Entries[1])
 	}
 	facts := TranscriptCommittedRowFactsFromSnapshot(page)
-	if len(facts) != 1 || facts[0].Kind != TranscriptCommittedRowFactReviewerError ||
-		facts[0].ReviewerError == nil || facts[0].ReviewerError.ID != reviewerError.ID {
+	if len(facts) != 2 ||
+		facts[0].Kind != TranscriptCommittedRowFactReviewerFeedback ||
+		facts[0].ReviewerFeedback == nil || facts[0].ReviewerFeedback.ID != feedback.ID ||
+		facts[1].Kind != TranscriptCommittedRowFactReviewerError ||
+		facts[1].ReviewerError == nil || facts[1].ReviewerError.ID != reviewerError.ID {
 		t.Fatalf("snapshot Reviewer facts = %+v", facts)
-	}
-}
-
-func TestChatStoreDeliverySnapshotKeepsTypedReviewerFactsProjected(t *testing.T) {
-	chat := newChatStore()
-	chat.appendLocalEntryRecord(reviewerFeedbackChatEntryFromSessionRecord(session.ReviewerFeedbackRecord{
-		ID:          runtimeids.NewReviewerFeedbackID(),
-		Suggestions: []string{"first", "second"},
-		Visibility:  session.EntryVisibilityOngoingCollapsed,
-	}, "11111111-1111-4111-8111-111111111111", nil), nil)
-	chat.appendLocalEntryRecord(reviewerErrorChatEntryFromSessionRecord(session.ReviewerErrorRecord{
-		ID: runtimeids.NewReviewerErrorID(), Detail: "failure",
-	}, "22222222-2222-4222-8222-222222222222", nil), nil)
-	snapshot := chat.deliverySnapshot()
-	if len(snapshot.Rows) != 2 || snapshot.Rows[0].ReviewerFeedback == nil || snapshot.Rows[1].ReviewerError == nil {
-		t.Fatalf("typed Reviewer delivery rows = %+v", snapshot.Rows)
 	}
 }
 
@@ -98,8 +85,8 @@ func TestReopenedEngineHydratesTypedReviewerFacts(t *testing.T) {
 	if _, _, err := appendTestEvent(t, store, stepID, reviewerError); err != nil {
 		t.Fatalf("append error: %v", err)
 	}
-	engine := mustNewTestEngine(t, store, &fakeClient{}, tools.NewRegistry(), Config{Model: "gpt-6-sol"})
-	rows := mustTranscriptHydrationSnapshot(t, engine).CommittedRows
+	engine := mustNewTestEngine(t, store, &fakeClient{}, tools.NewRegistry(), Config{Model: "gpt-5"})
+	rows := mustNewestTranscriptFacts(t, engine)
 	assertReviewerRuntimeFacts(t, rows, stepID, feedback, reviewerError)
 }
 
@@ -172,8 +159,8 @@ func TestReviewerFactsSurviveNewestAdjacentAndReopenedPages(t *testing.T) {
 			}
 		}
 	}
-	reopened := mustNewTestEngine(t, store, &fakeClient{}, tools.NewRegistry(), Config{Model: "gpt-6-sol"})
-	assertReviewerRuntimeFacts(t, mustTranscriptHydrationSnapshot(t, reopened).CommittedRows, stepID, feedback, reviewerError)
+	reopened := mustNewTestEngine(t, store, &fakeClient{}, tools.NewRegistry(), Config{Model: "gpt-5"})
+	assertReviewerRuntimeFacts(t, mustNewestTranscriptFacts(t, reopened), stepID, feedback, reviewerError)
 }
 
 func TestReviewerFactsSurviveSessionCloneReplay(t *testing.T) {
@@ -198,8 +185,8 @@ func TestReviewerFactsSurviveSessionCloneReplay(t *testing.T) {
 		t.Fatalf("clone session: %v", err)
 	}
 	t.Cleanup(func() { _ = child.RemoveDurable() })
-	engine := mustNewTestEngine(t, child, &fakeClient{}, tools.NewRegistry(), Config{Model: "gpt-6-sol"})
-	assertReviewerRuntimeFacts(t, mustTranscriptHydrationSnapshot(t, engine).CommittedRows, stepID, feedback, reviewerError)
+	engine := mustNewTestEngine(t, child, &fakeClient{}, tools.NewRegistry(), Config{Model: "gpt-5"})
+	assertReviewerRuntimeFacts(t, mustNewestTranscriptFacts(t, engine), stepID, feedback, reviewerError)
 }
 
 func assertReviewerRuntimeFacts(
@@ -275,9 +262,6 @@ func TestReviewerFactSteeringCommitFenceMatrix(t *testing.T) {
 				if err == nil {
 					t.Fatal("uncommitted typed Reviewer append succeeded")
 				}
-				if rows := mustTranscriptHydrationSnapshot(t, engine).CommittedRows; len(rows) != 0 {
-					t.Fatalf("uncommitted typed Reviewer rows = %+v", rows)
-				}
 			})
 			t.Run("committed observer error", func(t *testing.T) {
 				observerErr := errors.New("typed Reviewer observer failed")
@@ -291,7 +275,7 @@ func TestReviewerFactSteeringCommitFenceMatrix(t *testing.T) {
 				if !errors.Is(err, observerErr) {
 					t.Fatalf("committed typed Reviewer error = %v, want %v", err, observerErr)
 				}
-				rows := mustTranscriptHydrationSnapshot(t, engine).CommittedRows
+				rows := mustNewestTranscriptFacts(t, engine)
 				testCase.assert(t, rows)
 			})
 		})
@@ -300,7 +284,7 @@ func TestReviewerFactSteeringCommitFenceMatrix(t *testing.T) {
 
 func TestPersistedTranscriptScanKeepsHistoricalReviewerLocalEntriesGeneric(t *testing.T) {
 	// TODO(KENT-405): delete this compatibility fixture with the legacy reader in 2.7.0.
-	scan := NewPersistedTranscriptScan(PersistedTranscriptScanRequest{})
+	scan := newStreamingTranscriptScan("")
 	events := []session.EventRecord{
 		mustPersistedScanEvent(t, "local_entry", storedLocalEntry{
 			Visibility: transcript.EntryVisibilityOngoing,
@@ -323,12 +307,12 @@ func TestPersistedTranscriptScanKeepsHistoricalReviewerLocalEntriesGeneric(t *te
 			t.Fatalf("apply historical Reviewer local entry: %v", err)
 		}
 	}
-	entries := scan.CollectedPageSnapshot().Entries
+	entries := scan.PageSnapshot().Entries
 	if len(entries) != 3 || entries[0].Role != "reviewer_suggestions" || entries[0].Text != "legacy Markdown\n\n- item" ||
 		entries[1].Role != "reviewer_error" || entries[1].Text != "legacy error detail" {
 		t.Fatalf("historical Reviewer local entry = %+v", entries)
 	}
-	facts := TranscriptCommittedRowFactsFromSnapshot(scan.CollectedPageSnapshot())
+	facts := TranscriptCommittedRowFactsFromSnapshot(scan.PageSnapshot())
 	if len(facts) != 2 {
 		t.Fatalf("hidden historical Reviewer entry reached committed-row facts: %+v", facts)
 	}

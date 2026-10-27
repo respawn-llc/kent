@@ -1,8 +1,11 @@
-import { type ReactNode, useEffect, useMemo } from "react";
+import { type ReactNode, useMemo } from "react";
 import { useQueryClient } from "@tanstack/react-query";
+import { useAtomMount, useAtomSuspense } from "@effect/atom-react";
+import * as Atom from "effect/reactivity/Atom";
+import * as Effect from "effect/Effect";
 
 import type { ChatSessionTarget } from "@/api";
-import { ChatRuntimeOwner, type ChatRuntimeApi, type ChatRuntimeHost } from "./chatRuntime";
+import { createChatRuntimeModel, type ChatRuntimeApi, type ChatRuntimeHost } from "./chatRuntime";
 import { ChatRuntimeContext } from "./chatRuntimeContext";
 
 export type ChatRuntimeProviderApi = Readonly<{
@@ -16,14 +19,21 @@ export type ChatRuntimeProviderProps = Readonly<{
   children: ReactNode;
 }>;
 
+const absentOwner = Atom.make(null);
+const absentDiagnostics = Atom.make(Effect.succeed(null), { initialValue: null });
+
 export function ChatRuntimeProvider({ api, target, host, children }: ChatRuntimeProviderProps) {
   const queryClient = useQueryClient();
+  const sessionID = target?.sessionID ?? null;
+  const projectID = target?.projectID ?? null;
   const owner = useMemo(
-    () => (target === null ? null : new ChatRuntimeOwner(api.chat, target, queryClient, host)),
-    [api.chat, host, queryClient, target],
+    () =>
+      sessionID === null || projectID === null
+        ? null
+        : createChatRuntimeModel(api.chat, { sessionID, projectID }, queryClient, host),
+    [api.chat, host, queryClient, sessionID, projectID],
   );
-  useEffect(() => {
-    return owner?.mount();
-  }, [owner]);
+  useAtomMount(owner?.mount ?? absentOwner);
+  useAtomSuspense(owner?.diagnostics ?? absentDiagnostics);
   return <ChatRuntimeContext.Provider value={owner}>{children}</ChatRuntimeContext.Provider>;
 }

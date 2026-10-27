@@ -55,7 +55,7 @@ func TestHistoryReplacementLocatorsSurviveReopenAsOneBoundedBatch(t *testing.T) 
 			t.Fatalf("active segment locator[%d] = %+v, live locator = %+v", index, pageFacts[index].Locator, live[index].Locator)
 		}
 	}
-	hydrationFacts := hydrationSnapshot(t, engine).CommittedRows
+	hydrationFacts := mustNewestTranscriptFacts(t, engine)
 	if !reflect.DeepEqual(hydrationFacts, pageFacts) {
 		for index := range hydrationFacts {
 			if index < len(pageFacts) && !reflect.DeepEqual(hydrationFacts[index], pageFacts[index]) {
@@ -85,7 +85,7 @@ func TestHistoryReplacementLocatorsSurviveReopenAsOneBoundedBatch(t *testing.T) 
 			t.Fatalf("reopened locator[%d] = %+v, live locator = %+v", index, reopenedFacts[index].Locator, live[index].Locator)
 		}
 	}
-	reopenedHydrationFacts := hydrationSnapshot(t, reopened).CommittedRows
+	reopenedHydrationFacts := mustNewestTranscriptFacts(t, reopened)
 	if len(reopenedHydrationFacts) != len(live) {
 		t.Fatalf("reopened hydration facts = %+v, live facts = %+v", reopenedHydrationFacts, live)
 	}
@@ -113,7 +113,7 @@ func TestHandoffContextPayloadAgreesAcrossPageAndHydration(t *testing.T) {
 		t.Fatal(err)
 	}
 	page := TranscriptCommittedRowFactsFromSnapshot(mustEngineNewestSegmentPage(t, engine).Snapshot)
-	hydrated := hydrationSnapshot(t, engine).CommittedRows
+	hydrated := mustNewestTranscriptFacts(t, engine)
 	if !reflect.DeepEqual(page, hydrated) {
 		for index := range hydrated {
 			if index < len(page) && !reflect.DeepEqual(page[index], hydrated[index]) {
@@ -163,7 +163,7 @@ func TestHistoryReplacementLocatorsSkipFilteredToolCallEntries(t *testing.T) {
 		}
 	}
 	pageFacts := TranscriptCommittedRowFactsFromSnapshot(mustEngineNewestSegmentPage(t, engine).Snapshot)
-	hydrationFacts := hydrationSnapshot(t, engine).CommittedRows
+	hydrationFacts := mustNewestTranscriptFacts(t, engine)
 	assertReplacementLocatorsMatch(t, pageFacts, live, "page")
 	assertReplacementLocatorsMatch(t, hydrationFacts, live, "hydration")
 }

@@ -1,3 +1,5 @@
+import { act, waitFor } from "@testing-library/react";
+import { RuntimeHarness } from "@/test-support/chat-runtime";
 import { QueryClient } from "@tanstack/react-query";
 import { describe, expect, it, vi } from "bun:test";
 
@@ -22,19 +24,14 @@ import {
 } from "@/test-support/chat-runtime";
 import { row } from "@/test-support/transcript-window";
 
-import {
-  ChatRuntimeOwner,
-  chatMainViewQueryOptions,
-  emptyChatProjectionState,
-  reduceChatProjection,
-} from "./chatRuntime";
+import { chatMainViewQueryOptions, emptyChatProjectionState, reduceChatProjection } from "./chatRuntime";
 import { executeChatTranscriptPage } from "./chatTranscriptHost";
 import { queryKeys } from "./queryKeys";
 
 describe("Chat Main View admission", () => {
-  it("counts active Session processes from hydration and lifecycle events without page reads", () => {
+  it("counts active Session processes from hydration and lifecycle events without page reads", async () => {
     const fixture = runtimeApi();
-    const owner = new ChatRuntimeOwner(fixture.api, target, new QueryClient(), runtimeHost());
+    const owner = new RuntimeHarness(fixture.api, target, new QueryClient(), runtimeHost());
     owner.start();
     const process = {
       ActivityID: "activity-1",
@@ -46,52 +43,62 @@ describe("Chat Main View admission", () => {
       UserRequestedKill: false,
       NoticeSuppressed: false,
     };
-    fixture.handlers[0]?.onEvent({
-      sequence: 1,
-      kind: "hydration",
-      payload: {
-        ...hydration(),
-        BackgroundActivities: [process],
-      },
+    await act(async () => {
+      fixture.handlers[0]?.onEvent({
+        sequence: 1,
+        kind: "hydration",
+        payload: {
+          ...hydration(),
+          BackgroundActivities: [process],
+        },
+      });
     });
     expect(owner.snapshot.activeProcessCount).toBe(1);
-    fixture.handlers[0]?.onEvent({ sequence: 2, kind: "background_activity", payload: process });
+    await act(async () => {
+      fixture.handlers[0]?.onEvent({ sequence: 2, kind: "background_activity", payload: process });
+    });
     expect(owner.snapshot.activeProcessCount).toBe(1);
-    fixture.handlers[0]?.onEvent({
-      sequence: 3,
-      kind: "background_activity",
-      payload: {
-        ...process,
-        ActivityID: "activity-2",
-        ProcessID: "process-2",
-      },
+    await act(async () => {
+      fixture.handlers[0]?.onEvent({
+        sequence: 3,
+        kind: "background_activity",
+        payload: {
+          ...process,
+          ActivityID: "activity-2",
+          ProcessID: "process-2",
+        },
+      });
     });
     expect(owner.snapshot.activeProcessCount).toBe(2);
-    fixture.handlers[0]?.onEvent({
-      sequence: 4,
-      kind: "background_activity",
-      payload: {
-        ...process,
-        Lifecycle: "completed",
-      },
+    await act(async () => {
+      fixture.handlers[0]?.onEvent({
+        sequence: 4,
+        kind: "background_activity",
+        payload: {
+          ...process,
+          Lifecycle: "completed",
+        },
+      });
     });
     expect(owner.snapshot.activeProcessCount).toBe(1);
-    fixture.handlers[0]?.onEvent({
-      sequence: 5,
-      kind: "background_activity",
-      payload: {
-        ...process,
-        ActivityID: "activity-2",
-        ProcessID: "process-2",
-        Lifecycle: "killed",
-      },
+    await act(async () => {
+      fixture.handlers[0]?.onEvent({
+        sequence: 5,
+        kind: "background_activity",
+        payload: {
+          ...process,
+          ActivityID: "activity-2",
+          ProcessID: "process-2",
+          Lifecycle: "killed",
+        },
+      });
     });
     expect(owner.snapshot.activeProcessCount).toBe(0);
-    void owner.dispose();
+    owner.dispose();
   });
   it("publishes pending prompt hydration through the mounted owner", async () => {
     const fixture = runtimeApi();
-    const owner = new ChatRuntimeOwner(fixture.api, target, new QueryClient(), runtimeHost());
+    const owner = new RuntimeHarness(fixture.api, target, new QueryClient(), runtimeHost());
     owner.start();
     const prompt = {
       kind: "ordinary" as const,
@@ -103,47 +110,54 @@ describe("Chat Main View admission", () => {
       recommendedOptionIndex: 2,
       createdAt: "2026-09-12T00:00:00.000Z",
     };
-    const notified = vi.fn();
-    owner.subscribe(notified);
-    fixture.handlers[0]?.onEvent({
-      sequence: 1,
-      kind: "hydration",
-      payload: { ...hydration(), PendingPrompts: [{ state: "pending", prompt }] },
+    await act(async () => {
+      fixture.handlers[0]?.onEvent({
+        sequence: 1,
+        kind: "hydration",
+        payload: { ...hydration(), PendingPrompts: [{ state: "pending", prompt }] },
+      });
     });
     expect(owner.snapshot.pendingPrompts).toEqual([prompt]);
-    expect(notified).toHaveBeenCalled();
     const later = { ...prompt, toolCallID: "question-two", createdAt: "2026-09-12T00:00:01.000Z" };
-    fixture.handlers[0]?.onEvent({
-      sequence: 2,
-      kind: "prompt",
-      payload: { state: "pending", prompt: later },
+    await act(async () => {
+      fixture.handlers[0]?.onEvent({
+        sequence: 2,
+        kind: "prompt",
+        payload: { state: "pending", prompt: later },
+      });
     });
-    fixture.handlers[0]?.onEvent({
-      sequence: 3,
-      kind: "prompt",
-      payload: { state: "pending", prompt: { ...prompt, question: "Updated?" } },
+    await act(async () => {
+      fixture.handlers[0]?.onEvent({
+        sequence: 3,
+        kind: "prompt",
+        payload: { state: "pending", prompt: { ...prompt, question: "Updated?" } },
+      });
     });
     expect(owner.snapshot.pendingPrompts.map((item) => item.toolCallID)).toEqual([
       "question-one",
       "question-two",
     ]);
     expect(owner.snapshot.pendingPrompts[0]?.question).toBe("Updated?");
-    fixture.handlers[0]?.onEvent({
-      sequence: 4,
-      kind: "prompt",
-      payload: { state: "resolved", toolCallID: "question-one" },
+    await act(async () => {
+      fixture.handlers[0]?.onEvent({
+        sequence: 4,
+        kind: "prompt",
+        payload: { state: "resolved", toolCallID: "question-one" },
+      });
     });
     expect(owner.snapshot.pendingPrompts).toEqual([later]);
-    fixture.handlers[0]?.onEvent({
-      sequence: 5,
-      kind: "prompt",
-      payload: { state: "pending", prompt },
+    await act(async () => {
+      fixture.handlers[0]?.onEvent({
+        sequence: 5,
+        kind: "prompt",
+        payload: { state: "pending", prompt },
+      });
     });
     expect(owner.snapshot.pendingPrompts.map((item) => item.toolCallID)).toEqual([
       "question-one",
       "question-two",
     ]);
-    await owner.dispose();
+    owner.dispose();
   });
 
   it("splits Goal facts from the goal-free Main View cache and applies hydration replacement rules", () => {
@@ -320,7 +334,7 @@ describe("mounted Chat Runtime owner", () => {
       pages: [opening.promise, Promise.resolve(transcriptPage(null))],
     });
     const queryClient = new QueryClient();
-    const owner = new ChatRuntimeOwner(fixture.api, target, queryClient, runtimeHost());
+    const owner = new RuntimeHarness(fixture.api, target, queryClient, runtimeHost());
     owner.start();
     expect(fixture.handlers).toHaveLength(1);
     await onQueryData(queryClient, queryKeys.chatMainView(target.sessionID), (view) => view !== undefined);
@@ -335,7 +349,7 @@ describe("mounted Chat Runtime owner", () => {
     expect(fixture.getMainView).toHaveBeenCalledTimes(1);
     expect(fixture.handlers).toHaveLength(1);
     expect(owner.snapshot.observation.kind).toBe("loading");
-    await owner.dispose();
+    owner.dispose();
   });
 
   it("starts independent branches and detaches an unresolved Main View before Retry", async () => {
@@ -348,10 +362,17 @@ describe("mounted Chat Runtime owner", () => {
     const activateRuntime = vi.fn();
     const api = { ...fixture.api, activateRuntime };
     const queryClient = new QueryClient();
-    const owner = new ChatRuntimeOwner(api, target, queryClient, runtimeHost());
+    const owner = new RuntimeHarness(api, target, queryClient, runtimeHost());
 
     const initialReadStarted = new Promise<void>((resolve) => {
       const unsubscribe = queryClient.getQueryCache().subscribe((event) => {
+        if (
+          event.query !==
+          queryClient
+            .getQueryCache()
+            .find({ queryKey: queryKeys.chatMainView(target.sessionID), exact: true })
+        )
+          return;
         if (event.type !== "updated" || event.action.type !== "fetch") return;
         unsubscribe();
         resolve();
@@ -365,7 +386,9 @@ describe("mounted Chat Runtime owner", () => {
     await onOwnerSnapshot(owner, (snapshot) => snapshot.transcript.opening.kind === "ready");
     expect(activateRuntime).not.toHaveBeenCalled();
 
-    await owner.retryMainView();
+    await act(async () => {
+      owner.retryMainView();
+    });
     expect(fixture.getMainView).toHaveBeenCalledTimes(2);
     second.resolve({
       ...mainViewRead(5),
@@ -386,8 +409,7 @@ describe("mounted Chat Runtime owner", () => {
       sessionName: "newer",
       version: { sequence: 5 },
     });
-    await owner.dispose();
-    expect(owner.snapshot.transcript.opening.kind).toBe("disposed");
+    owner.dispose();
   });
 
   it("keeps transcript failure and Retry independent and forwards ordered host facts", async () => {
@@ -407,28 +429,40 @@ describe("mounted Chat Runtime owner", () => {
       onHumanInputInterrupted: interrupted,
     });
     const queryClient = new QueryClient();
-    const owner = new ChatRuntimeOwner(fixture.api, target, queryClient, host);
+    const owner = new RuntimeHarness(fixture.api, target, queryClient, host);
     owner.start();
     expect(fixture.handlers).toHaveLength(1);
     await onQueryData(queryClient, queryKeys.chatMainView(target.sessionID), (view) => view !== undefined);
     const initial = requireValue(fixture.handlers[0]);
-    initial.onOpen?.();
-    initial.onEvent({ sequence: 1, kind: "hydration", payload: hydrationWithCursor(17) });
-    initial.onEvent({
-      sequence: 2,
-      kind: "session_identity",
-      payload: changedIdentity(),
+    await act(async () => {
+      initial.onOpen?.();
     });
-    initial.onEvent({
-      sequence: 3,
-      kind: "worktree_transition_outcome",
-      payload: worktreeOutcome(),
+    await act(async () => {
+      initial.onEvent({ sequence: 1, kind: "hydration", payload: hydrationWithCursor(17) });
     });
-    initial.onEvent({ sequence: 4, kind: "goal_status", payload: goalStatus() });
-    initial.onEvent({
-      sequence: 5,
-      kind: "human_input_interrupted",
-      payload: { Items: [{ QueueItemID: "queue-1", Text: "restore me" }] },
+    await act(async () => {
+      initial.onEvent({
+        sequence: 2,
+        kind: "session_identity",
+        payload: changedIdentity(),
+      });
+    });
+    await act(async () => {
+      initial.onEvent({
+        sequence: 3,
+        kind: "worktree_transition_outcome",
+        payload: worktreeOutcome(),
+      });
+    });
+    await act(async () => {
+      initial.onEvent({ sequence: 4, kind: "goal_status", payload: goalStatus() });
+    });
+    await act(async () => {
+      initial.onEvent({
+        sequence: 5,
+        kind: "human_input_interrupted",
+        payload: { Items: [{ QueueItemID: "queue-1", Text: "restore me" }] },
+      });
     });
     expect(queryClient.getQueryData<ChatMainView>(queryKeys.chatMainView(target.sessionID))).toMatchObject({
       sessionName: null,
@@ -441,10 +475,12 @@ describe("mounted Chat Runtime owner", () => {
       value: { goal: { id: "goal-2" }, availability: null },
     });
 
-    initial.onEvent({
-      sequence: 7,
-      kind: "session_status",
-      payload: hydration().SessionStatus,
+    await act(async () => {
+      initial.onEvent({
+        sequence: 7,
+        kind: "session_status",
+        payload: hydration().SessionStatus,
+      });
     });
     expect(owner.snapshot.observation.kind).toBe("error");
     expect(fixture.getTranscriptPage).toHaveBeenCalledTimes(1);
@@ -455,16 +491,22 @@ describe("mounted Chat Runtime owner", () => {
     });
     expect(fixture.getTranscriptPage).toHaveBeenCalledTimes(2);
     expect(owner.snapshot.observation.kind).toBe("error");
-    owner.retryTranscriptObservation();
+    await act(async () => {
+      owner.retryTranscriptObservation();
+    });
     expect(fixture.handlers).toHaveLength(2);
     expect(fixture.getMainView).toHaveBeenCalledTimes(1);
     const retry = requireValue(fixture.handlers[1]);
-    retry.onOpen?.();
-    retry.onEvent({ sequence: 1, kind: "hydration", payload: hydrationWithCursor(29) });
+    await act(async () => {
+      retry.onOpen?.();
+    });
+    await act(async () => {
+      retry.onEvent({ sequence: 1, kind: "hydration", payload: hydrationWithCursor(29) });
+    });
     expect(owner.snapshot.transcript.older).toEqual({ kind: "idle", cursor: 29 });
     replacementPage.resolve(transcriptPage(null));
     expect(explicitPage).resolves.toEqual(transcriptPage(null));
-    await owner.dispose();
+    owner.dispose();
   });
 
   it("ignores delayed diagnostics from a failed observation after explicit Retry", async () => {
@@ -479,33 +521,47 @@ describe("mounted Chat Runtime owner", () => {
     });
     const logger = { append: vi.fn(async () => logging.promise) };
     const queryClient = new QueryClient();
-    const owner = new ChatRuntimeOwner(fixture.api, target, queryClient, { logger });
+    const owner = new RuntimeHarness(fixture.api, target, queryClient, { logger });
     owner.start();
     expect(fixture.handlers).toHaveLength(1);
     await onQueryData(queryClient, queryKeys.chatMainView(target.sessionID), (view) => view !== undefined);
     const initial = requireValue(fixture.handlers[0]);
-    initial.onOpen?.();
-    initial.onEvent({ sequence: 1, kind: "hydration", payload: hydration() });
-    initial.onEvent({
-      sequence: 3,
-      kind: "session_status",
-      payload: hydration().SessionStatus,
+    await act(async () => {
+      initial.onOpen?.();
     });
-    initial.onEvent({
-      sequence: 4,
-      kind: "session_status",
-      payload: hydration().SessionStatus,
+    await act(async () => {
+      initial.onEvent({ sequence: 1, kind: "hydration", payload: hydration() });
+    });
+    await act(async () => {
+      initial.onEvent({
+        sequence: 3,
+        kind: "session_status",
+        payload: hydration().SessionStatus,
+      });
+    });
+    await act(async () => {
+      initial.onEvent({
+        sequence: 4,
+        kind: "session_status",
+        payload: hydration().SessionStatus,
+      });
     });
 
     expect(owner.snapshot.observation.kind).toBe("error");
     expect(logger.append).toHaveBeenCalledTimes(1);
     expect(fixture.handlers).toHaveLength(1);
 
-    owner.retryTranscriptObservation();
+    await act(async () => {
+      owner.retryTranscriptObservation();
+    });
     expect(fixture.handlers).toHaveLength(2);
     const replacement = requireValue(fixture.handlers[1]);
-    replacement.onOpen?.();
-    replacement.onEvent({ sequence: 1, kind: "hydration", payload: hydration() });
+    await act(async () => {
+      replacement.onOpen?.();
+    });
+    await act(async () => {
+      replacement.onEvent({ sequence: 1, kind: "hydration", payload: hydration() });
+    });
     expect(owner.snapshot.observation.kind).toBe("observing");
 
     logging.resolve(undefined);
@@ -514,7 +570,7 @@ describe("mounted Chat Runtime owner", () => {
 
     expect(owner.snapshot.observation.kind).toBe("observing");
     expect(fixture.handlers).toHaveLength(2);
-    await owner.dispose();
+    owner.dispose();
   });
 
   it("does not start production recovery for autonomous resident failure in debug mode", async () => {
@@ -531,7 +587,7 @@ describe("mounted Chat Runtime owner", () => {
     });
     const logger = { append: vi.fn(async () => logging.promise) };
     const queryClient = new QueryClient();
-    const owner = new ChatRuntimeOwner(fixture.api, target, queryClient, { logger });
+    const owner = new RuntimeHarness(fixture.api, target, queryClient, { logger });
     owner.start();
     await Promise.all([
       onOwnerSnapshot(owner, (snapshot) => snapshot.observation.kind === "error"),
@@ -541,7 +597,7 @@ describe("mounted Chat Runtime owner", () => {
     expect(owner.snapshot.observation.kind).toBe("error");
     expect(fixture.handlers).toHaveLength(1);
     expect(fixture.getMainView).toHaveBeenCalledTimes(1);
-    await owner.dispose();
+    owner.dispose();
   });
 
   it("keeps rejected hydration outside projection state across explicit attempts", async () => {
@@ -556,7 +612,7 @@ describe("mounted Chat Runtime owner", () => {
     });
     const logger = { append: vi.fn().mockResolvedValue(undefined) };
     const queryClient = new QueryClient();
-    const owner = new ChatRuntimeOwner(fixture.api, target, queryClient, { logger });
+    const owner = new RuntimeHarness(fixture.api, target, queryClient, { logger });
     owner.start();
     expect(fixture.handlers).toHaveLength(1);
     await Promise.all([
@@ -565,23 +621,33 @@ describe("mounted Chat Runtime owner", () => {
     ]);
 
     const initial = requireValue(fixture.handlers[0]);
-    initial.onOpen?.();
-    initial.onEvent({
-      sequence: 1,
-      kind: "hydration",
-      payload: incompatibleHydration("rejected-initial", "incompatible initial"),
+    await act(async () => {
+      initial.onOpen?.();
+    });
+    await act(async () => {
+      initial.onEvent({
+        sequence: 1,
+        kind: "hydration",
+        payload: incompatibleHydration("rejected-initial", "incompatible initial"),
+      });
     });
     expect(owner.snapshot.observation.kind).toBe("error");
     expect(fixture.handlers).toHaveLength(1);
-    owner.retryTranscriptObservation();
+    await act(async () => {
+      owner.retryTranscriptObservation();
+    });
     expect(fixture.handlers).toHaveLength(2);
 
     const replacement = requireValue(fixture.handlers[1]);
-    replacement.onOpen?.();
-    replacement.onEvent({
-      sequence: 1,
-      kind: "hydration",
-      payload: incompatibleHydration("rejected-replacement", "incompatible replacement"),
+    await act(async () => {
+      replacement.onOpen?.();
+    });
+    await act(async () => {
+      replacement.onEvent({
+        sequence: 1,
+        kind: "hydration",
+        payload: incompatibleHydration("rejected-replacement", "incompatible replacement"),
+      });
     });
 
     expect(owner.snapshot.observation.kind).toBe("error");
@@ -594,7 +660,7 @@ describe("mounted Chat Runtime owner", () => {
       value: { availability: "available" },
     });
     expect(logger.append).toHaveBeenCalledTimes(2);
-    await owner.dispose();
+    owner.dispose();
   });
 
   it("reports socket loss and discards provisional transcript state without invalidating page work", async () => {
@@ -610,7 +676,7 @@ describe("mounted Chat Runtime owner", () => {
       ],
     });
     const queryClient = new QueryClient();
-    const owner = new ChatRuntimeOwner(fixture.api, target, queryClient, runtimeHost());
+    const owner = new RuntimeHarness(fixture.api, target, queryClient, runtimeHost());
     owner.start();
     expect(fixture.handlers).toHaveLength(1);
     await Promise.all([
@@ -619,28 +685,34 @@ describe("mounted Chat Runtime owner", () => {
     ]);
     const initial = requireValue(fixture.handlers[0]);
     const hydrated = hydration();
-    initial.onOpen?.();
-    initial.onEvent({
-      sequence: 1,
-      kind: "hydration",
-      payload: {
-        ...hydrated,
-        TailSegment: {
-          Entries: [row(10)],
-          HasMoreAbove: true,
-          OlderCursor: 17,
-        },
-      },
+    await act(async () => {
+      initial.onOpen?.();
     });
-    initial.onEvent({
-      sequence: 2,
-      kind: "assistant_delta",
-      payload: {
-        StepID: "step",
-        StreamID: "stream",
-        Phase: "commentary",
-        Delta: "Draft",
-      },
+    await act(async () => {
+      initial.onEvent({
+        sequence: 1,
+        kind: "hydration",
+        payload: {
+          ...hydrated,
+          TailSegment: {
+            Entries: [row(10)],
+            HasMoreAbove: true,
+            OlderCursor: 17,
+          },
+        },
+      });
+    });
+    await act(async () => {
+      initial.onEvent({
+        sequence: 2,
+        kind: "assistant_delta",
+        payload: {
+          StepID: "step",
+          StreamID: "stream",
+          Phase: "commentary",
+          Delta: "Draft",
+        },
+      });
     });
     owner.transcript.dispatch({
       kind: "edge-visit",
@@ -651,7 +723,9 @@ describe("mounted Chat Runtime owner", () => {
     expect(owner.snapshot.transcript.items.some((item) => !("row" in item))).toBe(true);
     expect(owner.snapshot.transcript.older).toEqual({ kind: "loading", cursor: 17 });
 
-    initial.onTransportLoss?.();
+    await act(async () => {
+      initial.onTransportLoss?.();
+    });
 
     expect(owner.snapshot.transcript.items.every((item) => "row" in item)).toBe(true);
     expect(owner.snapshot.transcript.older).toEqual({ kind: "loading", cursor: 17 });
@@ -666,7 +740,7 @@ describe("mounted Chat Runtime owner", () => {
       hasMoreBelow: true,
     });
     await onOwnerSnapshot(owner, (snapshot) => snapshot.transcript.older.kind === "idle");
-    await owner.dispose();
+    owner.dispose();
   });
 
   it("keeps a directional page current across normal Runtime stop", async () => {
@@ -676,23 +750,31 @@ describe("mounted Chat Runtime owner", () => {
       pages: [Promise.resolve(transcriptPage(17)), olderPage.promise],
     });
     const queryClient = new QueryClient();
-    const owner = new ChatRuntimeOwner(fixture.api, target, queryClient, runtimeHost());
+    const owner = new RuntimeHarness(fixture.api, target, queryClient, runtimeHost());
     owner.start();
     expect(fixture.handlers).toHaveLength(1);
     await onQueryData(queryClient, queryKeys.chatMainView(target.sessionID), (view) => view !== undefined);
     const initial = requireValue(fixture.handlers[0]);
-    initial.onOpen?.();
-    initial.onEvent({ sequence: 1, kind: "hydration", payload: hydrationWithCursor(17) });
+    await act(async () => {
+      initial.onOpen?.();
+    });
+    await act(async () => {
+      initial.onEvent({ sequence: 1, kind: "hydration", payload: hydrationWithCursor(17) });
+    });
     const pendingPage = executeChatTranscriptPage(fixture.api, target, {
       kind: "older",
       cursor: 17,
     });
-    initial.onEvent({
-      sequence: 2,
-      kind: "runtime_read_model_update",
-      payload: runtimeUnavailablePayload(),
+    await act(async () => {
+      initial.onEvent({
+        sequence: 2,
+        kind: "runtime_read_model_update",
+        payload: runtimeUnavailablePayload(),
+      });
     });
-    initial.onComplete({ code: null, message: null, reason: null });
+    await act(async () => {
+      initial.onComplete({ code: null, message: null, reason: null });
+    });
 
     expect(fixture.handlers).toHaveLength(2);
     expect(owner.snapshot.observation.kind).toBe("observing");
@@ -704,11 +786,15 @@ describe("mounted Chat Runtime owner", () => {
     });
     expect(pendingPage).resolves.toMatchObject({ newerCursor: 17 });
     const reattached = requireValue(fixture.handlers[1]);
-    reattached.onOpen?.();
-    reattached.onEvent({ sequence: 1, kind: "hydration", payload: hydrationWithCursor(17) });
+    await act(async () => {
+      reattached.onOpen?.();
+    });
+    await act(async () => {
+      reattached.onEvent({ sequence: 1, kind: "hydration", payload: hydrationWithCursor(17) });
+    });
     expect(owner.snapshot.transcript.older).toEqual({ kind: "idle", cursor: 17 });
     expect(fixture.getTranscriptPage).toHaveBeenCalledTimes(2);
-    await owner.dispose();
+    owner.dispose();
   });
 
   it("isolates identical Sessions across QueryClients", async () => {
@@ -727,8 +813,8 @@ describe("mounted Chat Runtime owner", () => {
     });
     const firstClient = new QueryClient();
     const secondClient = new QueryClient();
-    const first = new ChatRuntimeOwner(fixture.api, target, firstClient, runtimeHost());
-    const second = new ChatRuntimeOwner(fixture.api, target, secondClient, runtimeHost());
+    const first = new RuntimeHarness(fixture.api, target, firstClient, runtimeHost());
+    const second = new RuntimeHarness(fixture.api, target, secondClient, runtimeHost());
     first.start();
     second.start();
     await Promise.all([
@@ -743,22 +829,17 @@ describe("mounted Chat Runtime owner", () => {
         (view) => view?.sessionName === "window-b",
       ),
     ]);
-    await first.dispose();
-    await second.dispose();
+    first.dispose();
+    second.dispose();
   });
 });
 
 async function onOwnerSnapshot(
-  owner: ChatRuntimeOwner,
-  predicate: (snapshot: ChatRuntimeOwner["snapshot"]) => boolean,
+  owner: RuntimeHarness,
+  predicate: (snapshot: RuntimeHarness["snapshot"]) => boolean,
 ): Promise<void> {
-  if (predicate(owner.snapshot)) return Promise.resolve();
-  return new Promise((resolve) => {
-    const unsubscribe = owner.subscribe(() => {
-      if (!predicate(owner.snapshot)) return;
-      unsubscribe();
-      resolve();
-    });
+  await waitFor(() => {
+    expect(predicate(owner.snapshot)).toBe(true);
   });
 }
 

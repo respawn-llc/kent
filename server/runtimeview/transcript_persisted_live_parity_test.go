@@ -555,9 +555,8 @@ func mustProjectNewestPersistedTranscript(
 	if err != nil {
 		t.Fatalf("project persisted page: %v", err)
 	}
-	hydration := mustTranscriptHydration(t, runtime.TranscriptHydrationSnapshot{
-		CommittedRows: runtime.TranscriptCommittedRowFactsFromSnapshot(segment.Snapshot),
-	}, nil)
+	hydration := mustTranscriptHydration(t, runtime.TranscriptHydrationSnapshot{},
+		runtime.TranscriptCommittedRowFactsFromSnapshot(segment.Snapshot), nil)
 
 	return page, hydration
 }

@@ -1,7 +1,6 @@
-import { Link, useLocation } from "@tanstack/react-router";
-import { useQueryClient } from "@tanstack/react-query";
+import { Link } from "@tanstack/react-router";
 import { ChevronLeft, ChevronRight, Home } from "lucide-react";
-import { useCallback, useRef, type MouseEvent, type ReactNode, type RefObject } from "react";
+import { useRef, type MouseEvent, type ReactNode, type RefObject } from "react";
 import { useTranslation } from "react-i18next";
 
 import { TaskSearchGlobalTrigger, TaskSearchHost, TaskSearchProvider } from "@/features/board";
@@ -13,11 +12,9 @@ import { useDesktopUpdate, type DesktopUpdateState } from "./useDesktopUpdate";
 import { WindowChromeFrame } from "./WindowChromeFrame";
 import { MainWindowNavigation } from "./MainWindowNavigation";
 import { SessionChatCatalogReturnProvider, useAppNavigation, useNavigationStackState } from "@/app-facade";
-import { completeProjectDeletion, useProjectDeletedEvents } from "@/app-facade";
 import { SidebarHost } from "./sidebar";
 import { SidebarProvider } from "./sidebarProvider";
 import { sidebarDestinationPolicy } from "./sidebarDestinationPolicy";
-import { useStatusController } from "@/app-facade";
 import { useAppServices } from "@/app-facade";
 import { useCurrentWindowChromeAction } from "@/app-facade";
 
@@ -96,7 +93,6 @@ function AppChromeContent({
       }
     >
       <TaskSearchHost />
-      <ProjectDeletionEventHandler />
       <MainWindowNavigation />
       <AttentionController />
       <div
@@ -134,53 +130,6 @@ function AppChromeFloatingUpdateChip({
       <AppUpdateChip state={state} />
     </div>
   ) : null;
-}
-
-function ProjectDeletionEventHandler() {
-  const { t } = useTranslation();
-  const location = useLocation();
-  const queryClient = useQueryClient();
-  const { nativeBridge } = useAppServices();
-  const navigation = useAppNavigation();
-  const { push } = useStatusController();
-  useProjectDeletedEvents(
-    nativeBridge,
-    useCallback(
-      async (event) => {
-        const routeMatches = routeReferencesProject(
-          location.pathname,
-          new URLSearchParams(location.searchStr).get("projectId"),
-          event.projectID,
-        );
-        return completeProjectDeletion({
-          navigateHome: routeMatches ? navigation.openHome : undefined,
-          projectID: event.projectID,
-          pushDeletedToast: () => {
-            push({
-              id: "project-delete-deleted",
-              tone: "success",
-              title: t("projectEdit.deleteDeleted"),
-            });
-          },
-          queryClient,
-        });
-      },
-      [location.pathname, location.searchStr, navigation.openHome, push, queryClient, t],
-    ),
-  );
-  return null;
-}
-
-function routeReferencesProject(
-  pathname: string,
-  selectedHomeProjectID: string | null,
-  projectID: string,
-): boolean {
-  if (pathname === "/" && selectedHomeProjectID === projectID) {
-    return true;
-  }
-  const segments = pathname.split("/").filter((segment) => segment.length > 0);
-  return segments[0] === "projects" && segments[1] === projectID;
 }
 
 function isPlainPrimaryClick(event: MouseEvent): boolean {

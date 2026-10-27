@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 
-	"core/server/runtime"
 	"core/server/session"
 	"core/shared/runtimeids"
 	"core/shared/serverapi"
@@ -25,16 +24,7 @@ func (s *Service) AdmitChatQueuedUserInput(
 	if err != nil {
 		return serverapi.ChatInputAdmissionResult{}, err
 	}
-	var queued runtime.QueuedUserMessage
-	err = s.authority.RunCurrentTurn(attempt.Context(), descriptor, attempt.Accept, func(runCtx context.Context, engine *runtime.Engine, accept runtime.CommandAcceptance) error {
-		var queueErr error
-		queued, queueErr = engine.QueueUserInputWithAcceptance(
-			runCtx,
-			projection.queuedInput(),
-			accept,
-		)
-		return queueErr
-	})
+	queued, err := s.authority.QueueAgentInput(attempt.Context(), descriptor, projection.queuedInput(), attempt.Accept)
 	if !attempt.Accepted() {
 		return serverapi.ChatInputAdmissionResult{}, err
 	}

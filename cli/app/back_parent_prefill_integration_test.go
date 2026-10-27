@@ -40,7 +40,7 @@ func TestBackParentPrefillOverServedRemote(t *testing.T) {
 	srv, err := serverstartup.StartServeServer(context.Background(), serverstartup.Request{
 		WorkspaceRoot:         workspace,
 		WorkspaceRootExplicit: true,
-		Model:                 "gpt-6-sol",
+		LoadOptions:           config.LoadOptions{Model: "gpt-6-sol"},
 	})
 
 	if err != nil {
@@ -95,7 +95,7 @@ func TestRemoteBackRebindsToParentProjectBeforeRuntimePreparation(t *testing.T) 
 	srv, err := serverstartup.StartServeServer(context.Background(), serverstartup.Request{
 		WorkspaceRoot:         workspaceA,
 		WorkspaceRootExplicit: true,
-		Model:                 "source-project-model",
+		LoadOptions:           config.LoadOptions{Model: "source-project-model"},
 	})
 
 	if err != nil {

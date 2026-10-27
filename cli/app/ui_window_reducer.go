@@ -16,6 +16,7 @@ func (m *uiModel) reduceWindowMessage(msg tea.Msg) uiFeatureUpdateResult {
 		} else {
 			m.terminalGeometry = terminalGeometryUnknown()
 		}
+		presentationCmd := m.reconcileAskPresentation()
 		m.updateConnectionRemovalPickerSize()
 		m.syncRendererOutputGate()
 		m.layout().syncViewport()
@@ -35,6 +36,7 @@ func (m *uiModel) reduceWindowMessage(msg tea.Msg) uiFeatureUpdateResult {
 		if !desiredOngoing || m.ongoingSurface == nil {
 			return handledUIFeatureUpdate(m, tea.Batch(
 				resizeCmd,
+				presentationCmd,
 				m.reconcileOngoingOwnership(),
 				m.scheduleCurrentQuestionProjection(),
 			))
@@ -54,7 +56,7 @@ func (m *uiModel) reduceWindowMessage(msg tea.Msg) uiFeatureUpdateResult {
 		if previousSize == nil || !wasNativeOngoing {
 			cmd = tea.Batch(cmd, m.reconcileOngoingOwnership())
 		}
-		return handledUIFeatureUpdate(m, tea.Batch(cmd, m.scheduleCurrentQuestionProjection()))
+		return handledUIFeatureUpdate(m, tea.Batch(presentationCmd, cmd, m.scheduleCurrentQuestionProjection()))
 	}
 	return uiFeatureUpdateResult{}
 }

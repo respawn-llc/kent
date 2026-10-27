@@ -77,15 +77,11 @@ func testConfigurationHistoryReopen(t *testing.T, replacement bool) {
 	if entry.ThinkingEffort == nil || *entry.ThinkingEffort != "low" {
 		t.Fatalf("configuration row lost its selected effort: %+v", entry)
 	}
-	if err := reopened.WithTranscriptHydrationSnapshot(func(hydration TranscriptHydrationSnapshot) error {
-		want := TranscriptCommittedRowFactsFromSnapshot(page.Snapshot)
-		index := len(want) - 2
-		if len(hydration.CommittedRows) != len(want) || !reflect.DeepEqual(hydration.CommittedRows[index], want[index]) {
-			t.Fatalf("reopened Thinking row differs from paginated history: got %+v, want %+v", hydration.CommittedRows, want[index])
-		}
-		return nil
-	}); err != nil {
-		t.Fatal(err)
+	want := TranscriptCommittedRowFactsFromSnapshot(page.Snapshot)
+	index := len(want) - 2
+	rows := mustNewestTranscriptFacts(t, reopened)
+	if len(rows) != len(want) || !reflect.DeepEqual(rows[index], want[index]) {
+		t.Fatalf("reopened Thinking row differs from paginated history: got %+v, want %+v", rows, want[index])
 	}
 }
 

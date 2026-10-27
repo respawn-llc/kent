@@ -200,7 +200,7 @@ func TestSessionQuestionCompletionAdapterCarriesTypedAnswer(t *testing.T) {
 	t.Parallel()
 	t.Run("runtime to Session", func(t *testing.T) {
 		broker := tools.NewAskQuestionBroker()
-		broker.SetAskHandler(func(
+		broker.SetLifecycleAskHandler(func(
 			_ context.Context,
 			_ tools.AskQuestionRequest,
 		) (tools.AskQuestionResolution, error) {

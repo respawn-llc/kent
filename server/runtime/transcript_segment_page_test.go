@@ -45,6 +45,11 @@ func mustEngineSegmentPageForward(t *testing.T, eng *Engine, startOffset int64) 
 	return page
 }
 
+func mustNewestTranscriptFacts(t *testing.T, eng *Engine) []TranscriptCommittedRowFact {
+	t.Helper()
+	return TranscriptCommittedRowFactsFromSnapshot(mustEngineNewestSegmentPage(t, eng).Snapshot)
+}
+
 func segmentEntryTexts(page TranscriptSegmentPage) []string {
 	texts := make([]string, 0, len(page.Snapshot.Entries))
 	for _, entry := range page.Snapshot.Entries {

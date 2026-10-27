@@ -140,7 +140,7 @@ func TestResumePreflightLeavesLiveTaskAdmissionUntouched(t *testing.T) {
 	}
 }
 
-func TestResumeTaskReturnsConflictBeforeMutationWhenRetainedSessionExecutionIsActive(t *testing.T) {
+func TestResumeTaskPreservesMatchingActiveSessionExecution(t *testing.T) {
 	fixture := newCurrentNodeQuestionFixture(t)
 	reference := currentNodeReferenceForControllerTest(t, "task-resume-active-session", "node-implementation")
 	release := make(chan struct{})
@@ -164,11 +164,14 @@ func TestResumeTaskReturnsConflictBeforeMutationWhenRetainedSessionExecutionIsAc
 	}}
 
 	resumed, err := fixture.controller.ResumeTask(context.Background(), reference.TaskID, nil)
-	if !errors.Is(err, ErrTaskExecutionNotQuiescent) {
-		t.Fatalf("resume error = %v, want %v", err, ErrTaskExecutionNotQuiescent)
+	if err != nil {
+		t.Fatalf("resume matching live execution: %v", err)
 	}
-	if len(resumed.CurrentNodes) != 0 {
-		t.Fatalf("resumed Current Nodes = %+v, want none", resumed)
+	if resumed.Outcome != TaskResumeNoOp {
+		t.Fatalf("resume outcome = %s, want no-op", resumed.Outcome)
+	}
+	if current, live := fixture.authority.SessionExecution(sessionID); !live || current.Scope().ID() != handle.Scope().ID() {
+		t.Fatal("Resume replaced the matching live execution")
 	}
 }
 
@@ -228,7 +231,7 @@ func (r retainedSessionReactivationPublicationRunner) StartAgentCurrentNode(
 	})
 }
 
-func TestReactivateWorkflowSessionRejectsConcurrentExplicitAdmission(t *testing.T) {
+func TestEnsureSessionExecutionJoinsConcurrentExplicitAdmission(t *testing.T) {
 	queue := newControllerQueueFixture(t, 1)
 	reference := queue.tasks[0].reference(t, 0)
 	store := queue.store()
@@ -264,15 +267,23 @@ func TestReactivateWorkflowSessionRejectsConcurrentExplicitAdmission(t *testing.
 	if err != nil || len(nodes) != 1 || nodes[0].SessionID == nil {
 		t.Fatalf("committed target Session: %+v, %v", nodes, err)
 	}
-	_, err = controller.ReactivateWorkflowSession(context.Background(), *nodes[0].SessionID)
-	var conflict *TaskResumeConflictError
-	if !errors.As(err, &conflict) {
-		t.Fatalf("ReactivateWorkflowSession error = %v, want Task Resume conflict", err)
-	}
+	finished := make(chan error, 1)
+	go func() {
+		_, err := controller.EnsureSessionExecution(context.Background(), *nodes[0].SessionID)
+		finished <- err
+	}()
 	release()
+	select {
+	case err := <-finished:
+		if !errors.Is(err, admissionFailure) {
+			t.Fatalf("EnsureSessionExecution error = %v, want admission failure", err)
+		}
+	case <-time.After(3 * time.Second):
+		t.Fatal("selected Session did not finish joining admission")
+	}
 }
 
-func TestReactivateWorkflowSessionReturnsAlreadyPublishedWorkflowExecution(t *testing.T) {
+func TestEnsureSessionExecutionReturnsAlreadyPublishedWorkflowExecution(t *testing.T) {
 	fixture := newCurrentNodeQuestionFixture(t)
 	reference := currentNodeReferenceForControllerTest(
 		t,
@@ -308,9 +319,9 @@ func TestReactivateWorkflowSessionReturnsAlreadyPublishedWorkflowExecution(t *te
 	}}
 	fixture.store.mu.Unlock()
 
-	reactivated, err := fixture.controller.ReactivateWorkflowSession(context.Background(), sessionID)
+	reactivated, err := fixture.controller.EnsureSessionExecution(context.Background(), sessionID)
 	if err != nil {
-		t.Fatalf("ReactivateWorkflowSession: %v", err)
+		t.Fatalf("EnsureSessionExecution: %v", err)
 	}
 	if reactivated != handle {
 		t.Fatalf("reactivated execution = %v, want already-published handle %v", reactivated, handle)
@@ -318,6 +329,47 @@ func TestReactivateWorkflowSessionReturnsAlreadyPublishedWorkflowExecution(t *te
 	workflowRef, workflowScoped := handle.Scope().Workflow()
 	if !workflowScoped || !workflowRef.CurrentNode.Equal(reference) {
 		t.Fatalf("published execution scope = %+v, want Workflow Current Node %v", handle.Scope(), reference)
+	}
+}
+
+func TestEnsureSessionExecutionRejectsLiveExecutionForAnotherCurrentNode(t *testing.T) {
+	fixture := newCurrentNodeQuestionFixture(t)
+	expected := currentNodeReferenceForControllerTest(t, "task-binding-mismatch", "expected")
+	other := currentNodeReferenceForControllerTest(t, string(expected.TaskID), "other")
+	handle, sessionID := fixture.startQuestionExecution(t, other,
+		func(ctx context.Context, _ sessionruntime.ExecutionScope, _ sessionruntime.AgentRuntimeBridge) error {
+			<-ctx.Done()
+			return context.Cause(ctx)
+		})
+	t.Cleanup(func() {
+		handle.RequestStop()
+		if err := handle.Close(context.Background()); err != nil {
+			t.Error(err)
+		}
+	})
+	fixture.store.mu.Lock()
+	fixture.store.sessionTaskID = &expected.TaskID
+	fixture.store.sessionAssociation = &workflowstore.TaskSessionAssociation{
+		SessionID: sessionID, CurrentNode: expected,
+	}
+	fixture.store.currentNodes = []workflow.CurrentNode{{
+		Reference: expected, SessionID: &sessionID,
+		Scheduling: &workflow.CurrentNodeScheduling{State: workflow.CurrentNodeSchedulingAdmitted},
+	}}
+	fixture.store.mu.Unlock()
+	if _, err := fixture.controller.EnsureSessionExecution(t.Context(), sessionID); err == nil {
+		t.Fatal("accepted a live execution owned by a different Current Node")
+	}
+	if _, err := fixture.controller.ResumeTask(t.Context(), expected.TaskID, nil); err == nil {
+		t.Fatal("Resume accepted a live execution owned by a different Current Node")
+	}
+	current, live := fixture.authority.SessionExecution(sessionID)
+	if !live || current.Scope().ID() != handle.Scope().ID() {
+		t.Fatal("ownership rejection stopped or replaced the live execution")
+	}
+	owner, _ := current.Scope().Workflow()
+	if !owner.CurrentNode.Equal(other) {
+		t.Fatal("ownership rejection relabeled the live execution")
 	}
 }
 

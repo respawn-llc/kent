@@ -132,9 +132,9 @@ func testResultGroupUnit(callID string) resultGroupUnit {
 	}
 }
 
-func countHydratedToolRows(snapshot TranscriptHydrationSnapshot, callID string) int {
+func countHydratedToolRows(rows []TranscriptCommittedRowFact, callID string) int {
 	count := 0
-	for _, row := range snapshot.CommittedRows {
+	for _, row := range rows {
 		if row.Kind == TranscriptCommittedRowFactTool &&
 			row.Tool != nil &&
 			row.Tool.ToolCallID == callID {

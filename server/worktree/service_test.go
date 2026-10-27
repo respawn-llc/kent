@@ -317,7 +317,7 @@ func TestCreateWorktreeRejectsExplicitRootNestedInManagedWorktreeFromOtherProjec
 	if err := os.MkdirAll(otherWorkspaceRoot, 0o755); err != nil {
 		t.Fatalf("MkdirAll other workspace: %v", err)
 	}
-	otherBinding, err := env.store.CreateProjectForWorkspace(env.ctx, otherWorkspaceRoot, "Other")
+	otherBinding, err := env.store.CreateProjectForWorkspaceWithKey(env.ctx, otherWorkspaceRoot, "Other", "")
 	if err != nil {
 		t.Fatalf("CreateProjectForWorkspace: %v", err)
 	}

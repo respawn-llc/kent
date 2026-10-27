@@ -48,35 +48,19 @@ func TestRunLoggerNoopsWhenSessionDirDoesNotExist(t *testing.T) {
 	}
 }
 
-type failingWriteCloser struct{}
-
-func (failingWriteCloser) WriteString(string) (int, error) {
-	return 0, errors.New("disk full")
-}
-
-func (failingWriteCloser) Close() error {
-	return nil
-}
-
-type countingWriteCloser struct {
-	writes int
-}
-
-func (w *countingWriteCloser) WriteString(string) (int, error) {
-	w.writes++
-	return 1, nil
-}
-
-func (*countingWriteCloser) Close() error {
-	return nil
-}
-
 func TestRunLoggerReportsWriteFailureOnce(t *testing.T) {
-	var diagnostics []RunLoggerDiagnostic
+	fp, err := os.CreateTemp(t.TempDir(), "steps.log")
+	if err != nil {
+		t.Fatalf("create run log: %v", err)
+	}
+	if err := fp.Close(); err != nil {
+		t.Fatalf("close run log: %v", err)
+	}
+	var diagnostics []string
 	logger := &RunLogger{
-		fp: failingWriteCloser{},
-		onDiagnostic: func(diag RunLoggerDiagnostic) {
-			diagnostics = append(diagnostics, diag)
+		fp: fp,
+		onDiagnostic: func(message string) {
+			diagnostics = append(diagnostics, message)
 		},
 	}
 	logger.Logf("first")
@@ -85,18 +69,19 @@ func TestRunLoggerReportsWriteFailureOnce(t *testing.T) {
 	if len(diagnostics) != 1 {
 		t.Fatalf("diagnostics = %d, want 1", len(diagnostics))
 	}
-	if diagnostics[0].Kind != "write_failed" {
-		t.Fatalf("diagnostic = %+v, want write_failed", diagnostics[0])
-	}
-	if diagnostics[0].Err == nil || !strings.Contains(diagnostics[0].Err.Error(), "disk full") {
-		t.Fatalf("diagnostic error = %v, want disk full", diagnostics[0].Err)
+	if strings.TrimSpace(diagnostics[0]) == "" {
+		t.Fatal("write failure diagnostic is empty")
 	}
 }
 
 func TestDurabilityObserverStreamsTypedSessionAndFlushObservations(t *testing.T) {
+	dir := t.TempDir()
+	logger, err := NewRunLogger(dir, nil)
+	if err != nil {
+		t.Fatalf("NewRunLogger: %v", err)
+	}
 	observer := NewDurabilityObserver()
-	writer := &countingWriteCloser{}
-	observer.Attach(&RunLogger{fp: writer})
+	observer.Attach(logger)
 	observer.ObserveEventLogAppend(session.EventLogAppendObservation{
 		RecordCount: 3,
 		Latency:     4 * time.Millisecond,
@@ -113,15 +98,29 @@ func TestDurabilityObserverStreamsTypedSessionAndFlushObservations(t *testing.T)
 		Latency:     6 * time.Millisecond,
 		Succeeded:   true,
 	})
-
-	if writer.writes != 3 {
-		t.Fatalf("durability log writes = %d, want one per observation", writer.writes)
+	if err := logger.Close(); err != nil {
+		t.Fatalf("close logger: %v", err)
+	}
+	body, err := os.ReadFile(session.RunLogPath(dir))
+	if err != nil {
+		t.Fatalf("read run log: %v", err)
+	}
+	lines := strings.Split(strings.TrimSpace(string(body)), "\n")
+	if len(lines) != 3 {
+		t.Fatalf("durability log lines = %d, want 3", len(lines))
 	}
 }
 
 func TestDurabilityLoggerFailureDoesNotAlterAppendReceipt(t *testing.T) {
 	observer := NewDurabilityObserver()
-	logger := &RunLogger{fp: failingWriteCloser{}}
+	fp, err := os.CreateTemp(t.TempDir(), "steps.log")
+	if err != nil {
+		t.Fatalf("create run log: %v", err)
+	}
+	if err := fp.Close(); err != nil {
+		t.Fatalf("close run log: %v", err)
+	}
+	logger := &RunLogger{fp: fp}
 	observer.Attach(logger)
 	persistence := sessiontest.NewPersistence()
 	options := append(

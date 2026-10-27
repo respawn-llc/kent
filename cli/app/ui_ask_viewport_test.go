@@ -10,10 +10,9 @@ import (
 
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
-	xansi "github.com/charmbracelet/x/ansi"
 )
 
-func TestAskViewportTallQuestionPreservesBeginningAndPriorityRows(t *testing.T) {
+func TestAskDocumentTallQuestionRetainsCompleteDocument(t *testing.T) {
 	const (
 		width  = 48
 		height = 12
@@ -27,20 +26,18 @@ func TestAskViewportTallQuestionPreservesBeginningAndPriorityRows(t *testing.T) 
 	}
 	model.ask.activeProjection.rows = rows
 
-	visible, cursor := testVisibleAskPaneContent(model, width)
-	if cursor != nil {
-		t.Fatalf("picker viewport unexpectedly exposed an editor cursor: %v", cursor)
+	model = updateUIModel(t, model, tea.WindowSizeMsg{Width: width, Height: height})
+	if model.surface() != uiSurfaceAsk {
+		t.Fatal("tall question was not promoted")
 	}
-	if len(visible) > inputContentLineLimit(height) {
-		t.Fatalf("visible rows = %d, content budget = %d", len(visible), inputContentLineLimit(height))
-	}
+	document := model.layout().askDocument(width)
 	optionRows := 0
 	hintRows := 0
-	questionRows := make([]string, 0)
-	for _, line := range visible {
+	questionRows := 0
+	for _, line := range document.lines {
 		switch line.prompt.Kind {
 		case askPromptLineKindQuestion:
-			questionRows = append(questionRows, xansi.Strip(line.text))
+			questionRows++
 		case askPromptLineKindOption:
 			optionRows++
 		case askPromptLineKindHint:
@@ -50,21 +47,12 @@ func TestAskViewportTallQuestionPreservesBeginningAndPriorityRows(t *testing.T) 
 	if optionRows != 3 || hintRows != 1 {
 		t.Fatalf("priority rows = options %d hints %d, want all picker controls", optionRows, hintRows)
 	}
-	if len(questionRows) == 0 || questionRows[0] != "question row 01" {
-		t.Fatalf("visible question prefix = %q, want the beginning", questionRows)
-	}
-	lastQuestion := []rune(questionRows[len(questionRows)-1])
-	if len(lastQuestion) == 0 || lastQuestion[len(lastQuestion)-1] != '…' {
-		t.Fatalf("final visible question row = %q, want forced ellipsis", questionRows[len(questionRows)-1])
-	}
-
-	pane := model.layout().inputPaneProjection(width, height, uiThemeStyles(model.theme))
-	if pane.PanelHeight != len(visible)+2 || len(pane.Lines) != pane.PanelHeight {
-		t.Fatalf("framed pane geometry = lines %d panel %d visible %d", len(pane.Lines), pane.PanelHeight, len(visible))
+	if questionRows != len(rows) {
+		t.Fatalf("document retained %d of %d question rows", questionRows, len(rows))
 	}
 }
 
-func TestAskViewportMarkdownHyperlinkEllipsisIsWidthSafe(t *testing.T) {
+func TestAskDocumentMarkdownHyperlinksAreWidthSafe(t *testing.T) {
 	const (
 		target = "https://example.com/long-destination"
 		width  = 12
@@ -82,7 +70,7 @@ func TestAskViewportMarkdownHyperlinkEllipsisIsWidthSafe(t *testing.T) {
 			event := testQuestionAskEvent("ask-1", question)
 			testSetActiveAsk(model, &event)
 
-			visible, _ := testVisibleAskPaneContent(model, width)
+			visible := model.layout().askDocument(width).lines
 			questionRows := make([]uiInputPaneContentLine, 0)
 			for _, line := range visible {
 				if line.prompt.Kind == askPromptLineKindQuestion {
@@ -90,7 +78,7 @@ func TestAskViewportMarkdownHyperlinkEllipsisIsWidthSafe(t *testing.T) {
 				}
 			}
 			if len(questionRows) == 0 {
-				t.Fatal("bounded viewport omitted all question rows despite available capacity")
+				t.Fatal("document omitted question rows")
 			}
 			for _, line := range questionRows {
 				if got := lipgloss.Width(line.text); got > width {
@@ -98,28 +86,13 @@ func TestAskViewportMarkdownHyperlinkEllipsisIsWidthSafe(t *testing.T) {
 				}
 				tuitest.TraceTerminalHyperlinks(t, line.text+" plain")
 			}
-			last := questionRows[len(questionRows)-1].text
-			if !strings.HasSuffix(xansi.Strip(last), "…") {
-				t.Fatalf("final visible question row = %q, want ellipsis", xansi.Strip(last))
-			}
-			trace := tuitest.TraceTerminalHyperlinks(t, last+" plain")
-			afterEllipsis := false
-			for _, fragment := range trace.Fragments {
-				if fragment.Text == "…" {
-					afterEllipsis = true
-					continue
-				}
-				if afterEllipsis && fragment.Link != nil {
-					t.Fatalf("fragment after ellipsis inherited hyperlink: %+v", fragment)
-				}
-			}
 		})
 	}
 }
 
-func TestAskViewportTallMixedMarkdownIsBoundedAcrossLinkPresentations(t *testing.T) {
+func TestAskDocumentTallMixedMarkdownRetainsAllRowsAcrossLinkPresentations(t *testing.T) {
 	const (
-		width  = 32
+		width  = 48
 		height = 12
 	)
 	source := strings.Repeat(
@@ -146,12 +119,9 @@ func TestAskViewportTallMixedMarkdownIsBoundedAcrossLinkPresentations(t *testing
 			next, _ = pending.Update(command())
 			ready := next.(*uiModel)
 
-			visible, cursor := testVisibleAskPaneContent(ready, width)
-			if cursor != nil {
-				t.Fatalf("picker viewport unexpectedly exposed a cursor: %v", cursor)
-			}
-			if len(visible) > inputContentLineLimit(height) {
-				t.Fatalf("visible rows = %d, content budget = %d", len(visible), inputContentLineLimit(height))
+			visible := ready.layout().askDocument(width).lines
+			if ready.surface() != uiSurfaceAsk {
+				t.Fatal("mixed Markdown prompt was not promoted")
 			}
 			questionRows := 0
 			optionRows := 0
@@ -167,48 +137,10 @@ func TestAskViewportTallMixedMarkdownIsBoundedAcrossLinkPresentations(t *testing
 					optionRows++
 				}
 			}
-			if questionRows == 0 || optionRows != 3 {
+			if questionRows != len(ready.ask.activeProjection.rows) || optionRows != 3 {
 				t.Fatalf("bounded mixed Markdown rows = question %d options %d", questionRows, optionRows)
 			}
 		})
-	}
-}
-
-func TestAskViewportZeroQuestionCapacityDoesNotEmitEllipsisRow(t *testing.T) {
-	const (
-		width  = 48
-		height = 8
-	)
-	model := sizedTestUIModel(newProjectedStaticUIModel(), width, height)
-	event := testQuestionAskEvent("ask-1", "Question source", "First", "Second")
-	testSetActiveAsk(model, &event)
-	model.ask.activeProjection.rows = []string{
-		"question row one",
-		"question row two",
-	}
-
-	visible, cursor := testVisibleAskPaneContent(model, width)
-	if cursor != nil {
-		t.Fatalf("picker viewport unexpectedly exposed an editor cursor: %v", cursor)
-	}
-	questionRows := 0
-	optionRows := 0
-	hintRows := 0
-	for _, line := range visible {
-		switch line.prompt.Kind {
-		case askPromptLineKindQuestion:
-			questionRows++
-		case askPromptLineKindOption:
-			optionRows++
-		case askPromptLineKindHint:
-			hintRows++
-		}
-	}
-	if questionRows != 0 {
-		t.Fatalf("question rows = %d, want zero when priority consumes capacity", questionRows)
-	}
-	if optionRows != 3 || hintRows != 1 || len(visible) != inputContentLineLimit(height) {
-		t.Fatalf("priority viewport = options %d hints %d rows %d", optionRows, hintRows, len(visible))
 	}
 }
 

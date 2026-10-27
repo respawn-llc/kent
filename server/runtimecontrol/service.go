@@ -3,7 +3,6 @@ package runtimecontrol
 import (
 	"context"
 	"errors"
-	"log/slog"
 	"strings"
 	"sync"
 
@@ -11,7 +10,6 @@ import (
 	"core/server/promptcommands"
 	"core/server/promptcontrol"
 	"core/server/runtime"
-	"core/server/runtimeactivity"
 	"core/server/session"
 	"core/server/sessionruntime"
 	servicecontract "core/shared/apicontract"
@@ -25,11 +23,7 @@ import (
 	"core/shared/transcript"
 )
 
-type RuntimeActivityResolver interface {
-	RuntimeReadModelFeedSnapshot(ctx context.Context, sessionID string) (*runtimepb.ReadModelUpdate, error)
-}
-
-type sessionSettingPublisher interface {
+type SessionSettingFeedbackPublisher interface {
 	PublishSessionSettingFeedback(sessionID string, feedback *transcriptpb.SessionSettingFeedback) error
 }
 
@@ -49,28 +43,15 @@ type WorkflowTaskSessionResolver interface {
 	SessionHasWorkflowTask(ctx context.Context, sessionID string) (bool, error)
 }
 
-type WorkflowSessionReactivator interface {
-	ReactivateWorkflowSession(
-		context.Context,
-		runtimeids.SessionID,
-	) (sessionruntime.ExecutionHandle, error)
-}
-
-type WorkflowSessionPreparationReader interface {
-	WorkflowSessionPreparing(context.Context, runtimeids.SessionID) (bool, error)
-}
-
 var errWorkflowTaskSessionAutoCompactionDisable = errors.New("auto-compaction cannot be disabled for workflow task sessions")
 
 type Service struct {
 	metadata       *metadata.Store
 	authority      *sessionruntime.Authority
-	activity       RuntimeActivityResolver
+	feedback       SessionSettingFeedbackPublisher
 	promptStore    PromptHistoryStore
 	promptCommands PromptCommandResolver
 	workflowTasks  WorkflowTaskSessionResolver
-	reactivator    WorkflowSessionReactivator
-	preparations   WorkflowSessionPreparationReader
 	persisted      session.PersistedSessionResolver
 	pendingPrompts promptcontrol.PendingPromptSource
 	attention      servicecontract.AttentionNotificationService
@@ -85,23 +66,6 @@ type sessionUserTurnRequest struct {
 	Arguments string
 }
 
-type goalSetRequest struct {
-	SessionID string
-	Objective string
-	Actor     string
-}
-
-type goalStatusRequest struct {
-	SessionID string
-	Status    string
-	Actor     string
-}
-
-type goalClearRequest struct {
-	SessionID string
-	Actor     string
-}
-
 func NewService(authority *sessionruntime.Authority, metadataStore *metadata.Store) *Service {
 	return &Service{authority: authority, metadata: metadataStore}
 }
@@ -111,23 +75,7 @@ func (s *Service) WithSessionSettingsPublisher(publisher SessionSettingsPublishe
 	return s
 }
 
-func (s *Service) runAgentExecution(
-	ctx context.Context,
-	sessionID string,
-	run func(context.Context, *runtime.Engine) error,
-) error {
-	if s == nil || s.authority == nil {
-		return errors.New("session runtime authority is required")
-	}
-	id := runtimeids.SessionIDFromProto(sessionID)
-	descriptor, err := session.NewOpenSessionDescriptor(id)
-	if err != nil {
-		return err
-	}
-	err = s.authority.RunCurrentAgentExecution(ctx, descriptor, run)
-	if err == nil {
-		return nil
-	}
+func agentCommandError(err error) error {
 	if errors.Is(err, sessionruntime.ErrSessionRunActive) ||
 		errors.Is(err, sessionruntime.ErrSessionWorkflowActivationActive) {
 		return errors.Join(serverapi.ErrSessionRunStarting, err)
@@ -135,11 +83,11 @@ func (s *Service) runAgentExecution(
 	return err
 }
 
-func (s *Service) WithRuntimeActivityResolver(resolver RuntimeActivityResolver) *Service {
+func (s *Service) WithSessionSettingFeedbackPublisher(publisher SessionSettingFeedbackPublisher) *Service {
 	if s == nil {
 		return nil
 	}
-	s.activity = resolver
+	s.feedback = publisher
 	return s
 }
 
@@ -164,22 +112,6 @@ func (s *Service) WithWorkflowTaskSessionResolver(resolver WorkflowTaskSessionRe
 		return nil
 	}
 	s.workflowTasks = resolver
-	return s
-}
-
-func (s *Service) WithWorkflowSessionReactivator(reactivator WorkflowSessionReactivator) *Service {
-	if s == nil {
-		return nil
-	}
-	s.reactivator = reactivator
-	return s
-}
-
-func (s *Service) WithWorkflowSessionPreparationReader(reader WorkflowSessionPreparationReader) *Service {
-	if s == nil {
-		return nil
-	}
-	s.preparations = reader
 	return s
 }
 
@@ -339,8 +271,8 @@ func (s *Service) SetSessionName(ctx context.Context, req *runtimepb.SetSessionN
 		responseCtx := context.WithoutCancel(ctx)
 		s.settings.PublishSessionSettings(responseCtx, req.SessionId)
 	}
-	if publisher, ok := s.activity.(sessionSettingPublisher); ok && live {
-		publishErr := publisher.PublishSessionSettingFeedback(req.SessionId, &transcriptpb.SessionSettingFeedback{
+	if s.feedback != nil && live {
+		publishErr := s.feedback.PublishSessionSettingFeedback(req.SessionId, &transcriptpb.SessionSettingFeedback{
 			Kind:    transcriptpb.SessionSettingKind_SESSION_SETTING_KIND_SESSION_NAME,
 			Changed: mutation.Changed,
 			Value:   &transcriptpb.SessionSettingFeedback_SessionName{SessionName: &transcriptpb.SessionNameValue{Name: resultingName}},
@@ -367,11 +299,12 @@ func (s *Service) AdmitUserShellCommand(ctx context.Context, sessionID runtimeid
 	_, err := runRuntimeCommand(ctx, func(ctx context.Context) (struct{}, bool, error) {
 		attempt := newRuntimeCommandAttempt(ctx)
 		defer attempt.Finish()
-		commandErr := s.runAgentExecution(attempt.Context(), sessionID.String(), func(runCtx context.Context, engine *runtime.Engine) error {
-			_, err := engine.SubmitUserShellCommandWithAcceptance(runCtx, command, attempt.Accept)
-			return err
-		})
-		return struct{}{}, attempt.Accepted(), commandErr
+		descriptor, err := session.NewOpenSessionDescriptor(sessionID)
+		if err != nil {
+			return struct{}{}, false, err
+		}
+		commandErr := s.authority.SubmitShellCommand(attempt.Context(), descriptor, command, attempt.Accept)
+		return struct{}{}, attempt.Accepted(), agentCommandError(commandErr)
 	})
 	return err
 }
@@ -380,10 +313,12 @@ func (s *Service) CompactContext(ctx context.Context, req *runtimepb.CompactCont
 	_, err := runRuntimeCommand(ctx, func(ctx context.Context) (struct{}, bool, error) {
 		attempt := newRuntimeCommandAttempt(ctx)
 		defer attempt.Finish()
-		commandErr := s.runAgentExecution(attempt.Context(), req.SessionId, func(runCtx context.Context, engine *runtime.Engine) error {
-			return admitManualCompaction(runCtx, engine, req, attempt.Accept)
-		})
-		return struct{}{}, attempt.Accepted(), commandErr
+		descriptor, err := session.NewOpenSessionDescriptor(runtimeids.SessionIDFromProto(req.SessionId))
+		if err != nil {
+			return struct{}{}, false, err
+		}
+		commandErr := s.authority.CompactSession(attempt.Context(), descriptor, protoapi.ManualCompactionAdmissionFromProto(req.Admission), attempt.Accept)
+		return struct{}{}, attempt.Accepted(), agentCommandError(commandErr)
 	})
 	return err
 }
@@ -421,50 +356,6 @@ func admitManualCompaction(
 		accept,
 	)
 	return err
-}
-
-func (s *Service) Interrupt(ctx context.Context, req *runtimepb.InterruptRequest) (*runtimepb.ReadModelUpdate, error) {
-	if s == nil || s.authority == nil {
-		return nil, errors.New("session runtime authority is required")
-	}
-	sessionID := strings.TrimSpace(req.SessionId)
-	return s.interrupt(ctx, sessionID)
-}
-
-func (s *Service) interrupt(ctx context.Context, sessionID string) (*runtimepb.ReadModelUpdate, error) {
-	sessionID = strings.TrimSpace(sessionID)
-	id := runtimeids.SessionIDFromProto(sessionID)
-	_, err := s.authority.InterruptSession(ctx, id)
-	if err != nil {
-		return nil, err
-	}
-	return s.runtimeInterruptResponse(ctx, sessionID)
-}
-
-func (s *Service) runtimeInterruptResponse(ctx context.Context, sessionID string) (*runtimepb.ReadModelUpdate, error) {
-	var snapshot *runtimepb.ReadModelUpdate
-	var err error
-	if s.activity != nil {
-		snapshot, err = s.activity.RuntimeReadModelFeedSnapshot(ctx, sessionID)
-	} else {
-		err = errors.New("runtime activity resolver is unavailable")
-	}
-	if err != nil {
-		slog.WarnContext(ctx, "runtime interrupt activity snapshot unavailable", "session_id", sessionID, "error", err)
-		version := runtimeactivity.NextReadModelVersion(sessionID)
-		return &runtimepb.ReadModelUpdate{
-			Version: version,
-			Activity: &runtimepb.Activity{
-				State:              runtimepb.ActivityState_RUNTIME_ACTIVITY_UNAVAILABLE,
-				Reviewer:           runtimepb.ReviewerActivity_REVIEWER_ACTIVITY_INACTIVE,
-				DiagnosticRecovery: true,
-			},
-		}, nil
-	}
-	return &runtimepb.ReadModelUpdate{
-		Version:  snapshot.Version,
-		Activity: snapshot.Activity,
-	}, nil
 }
 
 func (s *Service) ListPendingWork(ctx context.Context, req *runtimepb.ListPendingWorkRequest) (*runtimepb.ListPendingWorkSuccess, error) {

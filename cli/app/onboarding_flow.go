@@ -88,10 +88,9 @@ type onboardingFlowState struct {
 }
 
 type onboardingResult struct {
-	Completed            bool
-	CreatedDefaultConfig bool
-	SettingsPath         string
-	EffectiveTheme       string
+	Completed      bool
+	SettingsPath   string
+	EffectiveTheme string
 }
 
 func reviewerEnabled(state *onboardingFlowState) bool {

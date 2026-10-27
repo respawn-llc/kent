@@ -20,10 +20,6 @@ import (
 	"google.golang.org/protobuf/proto"
 )
 
-type runtimeInterruptCandidateClient interface {
-	interruptRuntimeCandidate() (runtimeTupleCandidate, error)
-}
-
 type chatSettingsRuntimeClient interface {
 	ReadChatSettings() (*chatsettingspb.Settings, error)
 	MutateChatSettings(*chatsettingspb.MutationOperation) (*chatsettingspb.MutationSuccess, error)
@@ -314,43 +310,6 @@ func (m *uiModel) compactRuntimeInput(ctx context.Context, req clientui.RuntimeC
 	return clientui.RuntimeCompactResult{}, nil
 }
 
-func (m *uiModel) interruptRuntime() error {
-	m.checkTUIBlockingOperation("runtime control mutation", "interrupt")
-	candidate, err := executeRuntimeInterrupt(runtimeInterruptRequestFromModel(m))
-	if err == nil && candidate != nil {
-		if client, ok := m.runtimeClient().(*sessionRuntimeClient); ok {
-			client.mergeRuntimeTuple(*candidate, runtimeTupleIngressIncremental)
-		}
-	}
-	m.observeRuntimeRequestResult(err)
-	return err
-}
-
-type runtimeInterruptRequest struct {
-	client clientui.RuntimeClient
-}
-
-func runtimeInterruptRequestFromModel(m *uiModel) runtimeInterruptRequest {
-	if m == nil {
-		return runtimeInterruptRequest{}
-	}
-	return runtimeInterruptRequest{client: m.runtimeClient()}
-}
-
-func executeRuntimeInterrupt(req runtimeInterruptRequest) (*runtimeTupleCandidate, error) {
-	if req.client == nil {
-		return nil, nil
-	}
-	if candidateClient, ok := req.client.(runtimeInterruptCandidateClient); ok {
-		candidate, err := candidateClient.interruptRuntimeCandidate()
-		if err != nil {
-			return nil, err
-		}
-		return &candidate, nil
-	}
-	return nil, req.client.Interrupt()
-}
-
 func (m *uiModel) discardQueuedRuntimeUserMessage(queueItemID string) bool {
 	m.checkTUIBlockingOperation("runtime queue mutation", "discard queued user message")
 	if client := m.runtimeClient(); client != nil {
@@ -445,10 +404,6 @@ func (m *uiModel) runtimeControlCommand(operation runtimeControlOperation, mutat
 	if client == nil {
 		return nil
 	}
-	interruptReq := runtimeInterruptRequest{}
-	if operation == runtimeControlInterrupt {
-		interruptReq = runtimeInterruptRequestFromModel(m)
-	}
 	sessionID := strings.TrimSpace(m.sessionID)
 	token, shouldStart := m.beginRuntimeControlMutation(operation, sessionID, mutation)
 	if !shouldStart {
@@ -460,7 +415,7 @@ func (m *uiModel) runtimeControlCommand(operation runtimeControlOperation, mutat
 		case runtimeControlSetSessionName:
 			msg.err = client.SetSessionName(mutation)
 		case runtimeControlInterrupt:
-			msg.runtimeTuple, msg.err = executeRuntimeInterrupt(interruptReq)
+			msg.err = client.Interrupt()
 		}
 		return msg
 	}
@@ -513,23 +468,7 @@ func (m *uiModel) applyRuntimeControlDone(msg runtimeControlDoneMsg) tea.Cmd {
 		m.sessionName = name
 		return sequenceCmds(tea.SetWindowTitle(m.sessionTitle()), followUpCmd)
 	case runtimeControlInterrupt:
-		var merge runtimeTupleMergeResult
-		if msg.runtimeTuple != nil {
-			if client, ok := m.runtimeClient().(*sessionRuntimeClient); ok {
-				merge = client.mergeRuntimeTuple(*msg.runtimeTuple, runtimeTupleIngressIncremental)
-			}
-		}
-		if merge.decision == runtimeTupleRefresh {
-			return tea.Batch(followUpCmd, m.startRuntimeMainViewRefresh(nil))
-		}
-		if view := m.cachedRuntimeMainView(); view.Activity != nil && !protoapi.RuntimeActivityActiveForControl(view.Activity) && m.hasPendingInterrupt() {
-			if err := m.applyRuntimeActivityProjection(view.Activity); err != nil {
-				m.activity = uiActivityError
-				return tea.Batch(followUpCmd, m.sendTransientStatusWithNoticeID("invalid runtime activity: "+err.Error(), uiStatusNoticeError, transientStatusDuration, uiStatusNoticeReplace, ""))
-			}
-			return tea.Batch(followUpCmd, m.acknowledgePendingInterrupt())
-		}
-		return followUpCmd
+		return tea.Batch(followUpCmd, m.startRuntimeMainViewRefresh(nil))
 	default:
 		return followUpCmd
 	}

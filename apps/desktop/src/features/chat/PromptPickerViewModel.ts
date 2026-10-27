@@ -26,18 +26,10 @@ export function createPromptPickerViewModel({
   onError(error: unknown): void;
   interactionRestricted?: Atom.Atom<boolean>;
 }>) {
-  const runtime = Atom.make((get) => {
-    get.addFinalizer(
-      owner.subscribe(() => {
-        get.setSelf(owner.snapshot);
-      }),
-    );
-    return owner.snapshot;
-  });
+  const runtime = owner.snapshot;
   const state = Atom.writable(
     (get): PickerState => {
       const snapshot = get(runtime);
-      if (snapshot.disposed) return emptyPickerState();
       return transitionPicker(
         Option.getOrElse(get.self<PickerState>(), emptyPickerState),
         snapshot.pendingPrompts,
@@ -48,38 +40,43 @@ export function createPromptPickerViewModel({
       get.setSelf(value);
     },
   );
-  const observer = new MutationObserver(client, {
-    retry: false,
-    networkMode: "always",
-    mutationFn: async (request: PromptAnswerBatchInput) => api.answerPromptBatch(request),
-    onSuccess: (response, request) => {
-      if (owner.snapshot.disposed) return;
-      const submitted = new Set(request.entries.map((entry) => entry.toolCallID));
-      const applicable = new Set(
-        owner.snapshot.pendingPrompts
-          .filter(
-            (prompt) =>
-              prompt.sessionID === request.sessionID &&
-              prompt.stepID === request.stepID &&
-              submitted.has(prompt.toolCallID),
-          )
-          .map((prompt) => prompt.toolCallID),
-      );
-      owner.resolvePendingPrompts(
-        new Set(
-          response.results
-            .filter((result) => applicable.has(result.toolCallID))
-            .map((result) => result.toolCallID),
-        ),
-      );
-    },
-    onError,
+  const requests = Atom.make((get) => {
+    const observer = new MutationObserver(client, {
+      retry: false,
+      networkMode: "always",
+      mutationFn: async (request: PromptAnswerBatchInput) => api.answerPromptBatch(request),
+      onSuccess: (response, variables) => {
+        if (Option.isNone(get.self())) return;
+        const submitted = new Set(variables.entries.map((entry) => entry.toolCallID));
+        const applicable = new Set(
+          get
+            .once(runtime)
+            .pendingPrompts.filter(
+              (prompt) =>
+                prompt.sessionID === variables.sessionID &&
+                prompt.stepID === variables.stepID &&
+                submitted.has(prompt.toolCallID),
+            )
+            .map((prompt) => prompt.toolCallID),
+        );
+        get.set(
+          owner.resolvePendingPrompts,
+          new Set(
+            response.results
+              .filter((result) => applicable.has(result.toolCallID))
+              .map((result) => result.toolCallID),
+          ),
+        );
+      },
+      onError,
+    });
+    return { observer, request: queryAtom(observer) };
   });
-  const request = queryAtom(observer);
+  const request = Atom.make((get) => get(get(requests).request));
   const dispatch = Atom.fn<{ action: PickerAction; focusField?: () => void }>()(
     (input, get) =>
       Effect.gen(function* () {
-        if (owner.snapshot.disposed) return;
+        const { observer } = get(requests);
         if (interactionRestricted !== undefined && get(interactionRestricted) && input.action.kind !== "sync")
           return;
         if (
@@ -88,11 +85,11 @@ export function createPromptPickerViewModel({
           input.action.kind !== "sync"
         )
           return;
-        const transition = transitionPicker(get(state), owner.snapshot.pendingPrompts, input.action);
+        const transition = transitionPicker(get(state), get(runtime).pendingPrompts, input.action);
         get.set(state, transition.state);
         if (transition.effect === "focus-field") input.focusField?.();
         if (transition.effect !== "submit") return;
-        const batch = pickerBatch(owner.snapshot.pendingPrompts);
+        const batch = pickerBatch(get(runtime).pendingPrompts);
         const first = batch[0];
         if (first === undefined) return;
         const variables: PromptAnswerBatchInput = {

@@ -22,8 +22,6 @@ func TestBuildAuthSupportUsesDefaultIssuerAndEnvClientID(t *testing.T) {
 		default:
 			return "", false
 		}
-	}, func() time.Time {
-		return time.Unix(123, 0)
 	})
 	if err != nil {
 		t.Fatalf("build auth support: %v", err)

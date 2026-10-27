@@ -6,7 +6,6 @@ import (
 	"errors"
 	"strings"
 
-	"core/server/auth"
 	"core/server/launch"
 	"core/server/metadata"
 	"core/server/projectview"
@@ -33,7 +32,6 @@ type SessionLifecycleService struct {
 	authority       *sessionruntime.Authority
 	retargeter      sessionWorkspaceRetargeter
 	navigation      sessionNavigationTargetResolver
-	authManager     *auth.Manager
 	metadata        SessionLifecycleMetadata
 	rotation        *launch.ConnectionRotation
 	debug           bool
@@ -56,11 +54,10 @@ type sessionNavigationTargetResolver interface {
 	ResolveSessionNavigationBinding(ctx context.Context, sessionID string) (*sessionlaunchpb.SessionNavigationBinding, error)
 }
 
-func NewGlobalSessionLifecycleService(persistenceRoot string, authority *sessionruntime.Authority, authManager *auth.Manager, owner SessionLifecycleMetadata) *SessionLifecycleService {
+func NewGlobalSessionLifecycleService(persistenceRoot string, authority *sessionruntime.Authority, owner SessionLifecycleMetadata) *SessionLifecycleService {
 	return &SessionLifecycleService{
 		persistenceRoot: strings.TrimSpace(persistenceRoot),
 		authority:       authority,
-		authManager:     authManager,
 		metadata:        owner,
 	}
 }
@@ -185,9 +182,6 @@ func (s *SessionLifecycleService) ResolveTransition(ctx context.Context, req *se
 
 func (s *SessionLifecycleService) resolveTransitionOnce(ctx context.Context, req *sessionlaunchpb.SessionResolveTransitionRequest) (*sessionlaunchpb.SessionDirective, error) {
 	if req.Transition.Action == sessionlaunchpb.SessionTransitionAction_SESSION_TRANSITION_ACTION_LOGOUT {
-		if s.authManager == nil {
-			return &sessionlaunchpb.SessionDirective{}, errors.New("auth manager is required for logout")
-		}
 		currentID := req.GetSessionId()
 		if currentID == "" {
 			return &sessionlaunchpb.SessionDirective{Directive: &sessionlaunchpb.SessionDirective_SelectSession{

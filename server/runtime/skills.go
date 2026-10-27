@@ -25,7 +25,7 @@ func formatSkillDiscoveryWarning(issue skillcatalog.Issue, cwd, home string) str
 	return fmt.Sprintf("Skipped skill %q at %s: %s", name, pathutil.Compact(issue.Path, &home, &cwd), issue.Reason)
 }
 
-func renderSkillsContext(skills []skillcatalog.Skill, cwd, home string) string {
+func renderSkillsContext(skills []skillcatalog.Inspection, cwd, home string) string {
 	lines := make([]string, 0, len(skills)+2)
 	lines = append(lines, skillsPrompt)
 	lines = append(lines, skillsAvailableHeader)

@@ -1,6 +1,7 @@
 ## Resize
 
 - In Ongoing Mode, a width or height change that cannot use terminal-native repaint starts Scratch Rehydration after a one-second debounce. The separated view and accepted resize residue follow [Ongoing Scrollback Buffer](ongoing-scrollback-buffer.md#scratch-rehydration).
+- With seamless terminal-native repaint, Ongoing Mode must repaint only the Mutable Band on resize and must not reopen or re-emit transcript history.
 - Bounded Alternate Screen surfaces relayout immediately for each resize. They do not use Scratch Rehydration.
 - Resize never loses state: selections, scroll positions (clamped to new bounds), input drafts, and in-flight operations all survive a resize on every surface.
 

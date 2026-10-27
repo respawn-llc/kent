@@ -1,7 +1,8 @@
+import { transcriptSource, type ChatTranscriptHandler } from "@/test-support/chat-runtime";
 import { afterEach, beforeEach, expect, it, vi } from "bun:test";
 import { act, fireEvent, render, renderHook, screen, waitFor } from "@testing-library/react";
 import type { ReactNode } from "react";
-import type { ChatInputMutationResult, ChatTranscriptHandler, InitialChatSettings } from "@/api";
+import type { ChatInputMutationResult, InitialChatSettings } from "@/api";
 import { ChatRuntimeProvider, queryKeys } from "@/app-facade";
 import { mainViewRead, runtimeHost, transcriptPage } from "@/test-support/chat-runtime";
 import { ChatComposerSurface, useComposerSurface } from "./ChatComposerSurface";
@@ -616,7 +617,9 @@ it.each(["idle", "stopped", "failed"] as const)(
   async (result) => {
     const report = vi.spyOn(ui, "showStatusToast").mockImplementation(() => undefined);
     const services = createTestServices([], undefined, { platform: "linux" });
-    vi.spyOn(services.api.chat, "subscribeTranscript").mockReturnValue({ close: () => undefined });
+    vi.spyOn(services.api.chat, "subscribeTranscript").mockReturnValue(
+      transcriptSource(() => ({ close: () => undefined })),
+    );
     const idle = mainViewRead();
     const read = vi.spyOn(services.api.chat, "getMainView").mockResolvedValue({
       ...idle,
@@ -706,10 +709,12 @@ it("clears an armed Stop on transcript loss while allowing a subsequent independ
   vi.spyOn(services.api.chat, "getTranscriptPage").mockResolvedValue(transcriptPage(null));
   vi.spyOn(services.api.chat, "getDraft").mockResolvedValue({ input: "", protectedInput: null });
   const handlers: ChatTranscriptHandler[] = [];
-  vi.spyOn(services.api.chat, "subscribeTranscript").mockImplementation((_target, handler) => {
-    handlers.push(handler);
-    return { close: () => undefined };
-  });
+  vi.spyOn(services.api.chat, "subscribeTranscript").mockImplementation(() =>
+    transcriptSource((handler) => {
+      handlers.push(handler);
+      return { close: () => undefined };
+    }),
+  );
   const stop = vi.spyOn(services.api.chat, "stop").mockResolvedValue("stopped");
   function Probe() {
     const { stoppable } = useComposerSurface();
@@ -739,7 +744,7 @@ it("clears an armed Stop on transcript loss while allowing a subsequent independ
     expect(keyboard).not.toBeDisabled();
   });
   fireEvent.keyDown(keyboard, { key: "Escape" });
-  act(() => handlers[0]?.onTransportLoss?.());
+  await act(async () => handlers[0]?.onTransportLoss?.());
   fireEvent.keyDown(keyboard, { key: "Escape" });
   await act(async () => {
     await Promise.resolve();

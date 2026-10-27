@@ -216,9 +216,9 @@
 - A pending Question or Approval belongs to its exact live Agent execution even when no model or tool step is active. It may be interrupted through the ordinary exact Interrupt behavior.
 - Manual Move denies a pending Workflow Approval before applying the requested move.
 - Every public Instant Stop route revalidates and admits Stop through Session Runtime Authority before it cancels an Agent execution.
-- A stale Stop cannot cancel a successor execution.
+- Stop selects live work at server admission and must not retarget a successor execution afterward.
 - Session Runtime Authority must stop the selected live Agent execution, including a Question or Approval wait, or selected stoppable Runtime-owned work, including compaction and foreground shell execution.
-- If no stoppable work exists, Interrupt must succeed with the authoritative Runtime state so clients can discard a stale busy projection.
+- If no stoppable work exists, Stop must succeed. Clients must discard a stale busy projection using authoritative Runtime updates or an independent Runtime state read.
 - Runtime must panic in development when settled execution ownership contradicts running activity. In production, Runtime must interrupt the inconsistent activity and publish a transcript error through ordinary Runtime output handling.
 - Valid startup, finalization, and compaction transitions must not trigger the ownership invariant.
 - Only matching live Agent or Script execution authorizes Task Interrupt.

@@ -10,6 +10,54 @@ import { createTestSidebarNavigator } from "@/test-support/sidebar";
 import { createProjectEditViewModel } from "./ProjectEditViewModel";
 import { ProjectDeleteButton } from "./ProjectDeleteButton";
 
+it("dismisses confirmation before submitting and leaves retry with Project Edit", async () => {
+  const services = createTestServices([]);
+  Object.defineProperty(services.nativeBridge.capabilities, "dialogWindows", { value: true });
+  const openWindow = vi.spyOn(services.nativeBridge.dialogs, "openWindow");
+  const remove = vi.spyOn(services.api, "deleteProject").mockImplementation(async () => {
+    expect(screen.queryByRole("dialog") === null).toBe(true);
+    return { projectID: "project-1", deleted: false, blockers: [] };
+  });
+  const model = createProjectEditViewModel({
+    services,
+    client: new QueryClient(),
+    projectID: "project-1",
+    t: appI18n.t,
+    push: vi.fn(),
+    navigator: createTestSidebarNavigator(),
+  });
+  const view = render(
+    <RegistryProvider>
+      <AppServicesProvider services={services}>
+        <StatusProvider>
+          <ProjectDeleteButton model={model} openHome={async () => undefined} />
+        </StatusProvider>
+      </AppServicesProvider>
+    </RegistryProvider>,
+  );
+  const user = userEvent.setup();
+  await user.click(screen.getByRole("button", { name: appI18n.t("projectEdit.deleteProject") }));
+  await user.click(screen.getByRole("button", { name: appI18n.t("app.cancel") }));
+  expect(remove).not.toHaveBeenCalled();
+  for (let attempt = 1; attempt <= 2; attempt += 1) {
+    await user.click(screen.getByRole("button", { name: appI18n.t("projectEdit.deleteProject") }));
+    await user.click(
+      within(await screen.findByRole("dialog")).getByRole("button", {
+        name: appI18n.t("projectEdit.deleteConfirm"),
+      }),
+    );
+    await waitFor(() => {
+      expect(remove).toHaveBeenCalledTimes(attempt);
+    });
+    expect(screen.queryByRole("dialog") === null).toBe(true);
+  }
+  await user.click(screen.getByRole("button", { name: appI18n.t("projectEdit.deleteProject") }));
+  view.unmount();
+  expect(screen.queryByRole("dialog") === null).toBe(true);
+  expect(remove).toHaveBeenCalledTimes(2);
+  expect(openWindow).not.toHaveBeenCalled();
+});
+
 it.each([
   ["accepted", 1],
   ["stale", 0],
@@ -35,7 +83,7 @@ it.each([
     <RegistryProvider>
       <AppServicesProvider services={services}>
         <StatusProvider>
-          <ProjectDeleteButton model={model} projectID="project-1" openHome={openHome} />
+          <ProjectDeleteButton model={model} openHome={openHome} />
         </StatusProvider>
       </AppServicesProvider>
     </RegistryProvider>,
@@ -45,7 +93,7 @@ it.each([
     <RegistryProvider>
       <AppServicesProvider services={services}>
         <StatusProvider>
-          <ProjectDeleteButton model={model} projectID="project-1" openHome={selectedProjectOpenHome} />
+          <ProjectDeleteButton model={model} openHome={selectedProjectOpenHome} />
         </StatusProvider>
       </AppServicesProvider>
     </RegistryProvider>,

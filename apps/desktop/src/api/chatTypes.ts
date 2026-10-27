@@ -1,6 +1,5 @@
 import type { StreamFailureCode } from "@app/server-api-contract/gen/kent/api/shared/foundation_pb";
 import type { SessionCategory } from "./models";
-import type { ApiSubscription } from "./apiService";
 import type * as Stream from "effect/Stream";
 import type { PendingPrompt } from "./promptModels";
 import type { PromptAnswerBatchInput, PromptAnswerBatchResponse } from "./clientInputs";
@@ -189,19 +188,16 @@ export type ChatTranscriptCompletion = Readonly<{
   message: string | null;
   reason: "subscriber_overflow" | "contract_violation" | null;
 }>;
-export type ChatTranscriptHandler = Readonly<{
-  onOpen?(): void;
-  onTransportLoss?(): void;
-  onEvent(event: ChatTranscriptMessage): void;
-  onComplete(completion: ChatTranscriptCompletion): void;
-  onError(error: Error): void;
-}>;
-export type ChatGoalObservationHandler = Readonly<{
-  onOpen?(): void;
-  onEvent(observation: ChatGoalObservation): void;
-  onComplete(code: StreamFailureCode | null, message: string | null): void;
-  onError(error: Error): void;
-}>;
+export type ChatTranscriptObservation =
+  | Readonly<{ kind: "open" }>
+  | Readonly<{ kind: "event"; event: ChatTranscriptMessage }>
+  | Readonly<{ kind: "complete"; completion: ChatTranscriptCompletion }>
+  | Readonly<{ kind: "error"; error: Error }>;
+export type ChatGoalStreamObservation =
+  | Readonly<{ kind: "open" }>
+  | Readonly<{ kind: "event"; event: ChatGoalObservation }>
+  | Readonly<{ kind: "complete"; code: StreamFailureCode | null; message: string | null }>
+  | Readonly<{ kind: "error"; error: Error }>;
 export type ChatSessionNameMutation = Readonly<{ kind: "set"; name: string }> | Readonly<{ kind: "clear" }>;
 export type ChatSettingsSnapshot = Readonly<{
   sessionName: string | null;
@@ -262,6 +258,12 @@ export type ChatApi = Readonly<{
     cursor?: Readonly<{ direction: "older" | "newer"; value: number }>,
   ): Promise<ChatTranscriptPage>;
   activateRuntime(target: ChatSessionTarget): Promise<void>;
-  subscribeTranscript(target: ChatSessionTarget, handler: ChatTranscriptHandler): ApiSubscription;
-  subscribeGoal(target: ChatSessionTarget, handler: ChatGoalObservationHandler): ApiSubscription;
+  subscribeTranscript(
+    target: ChatSessionTarget,
+    reportOverflow: () => Promise<void>,
+  ): Stream.Stream<ChatTranscriptObservation>;
+  subscribeGoal(
+    target: ChatSessionTarget,
+    reportOverflow: (value: ChatGoalStreamObservation) => Promise<void>,
+  ): Stream.Stream<ChatGoalStreamObservation>;
 }>;

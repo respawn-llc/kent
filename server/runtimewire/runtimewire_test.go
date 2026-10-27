@@ -417,9 +417,10 @@ func TestLocalToolRegistrySiblingWorkspaceBypassesNativeToolApprovals(t *testing
 		t.Fatalf("NewLocalToolRegistryBinding: %v", err)
 	}
 	var approvalRequests int
-	broker.SetAskHandler(func(_ context.Context, _ askquestion.AskQuestionRequest) (askquestion.AskQuestionResolution, error) {
+	broker.SetLifecycleAskHandler(func(_ context.Context, req askquestion.AskQuestionRequest) (askquestion.AskQuestionResolution, error) {
 		approvalRequests++
-		return askquestion.AskQuestionApproval{Decision: askquestion.AskQuestionApprovalDecisionDeny}, nil
+		resolution := askquestion.AskQuestionApproval{Decision: askquestion.AskQuestionApprovalDecisionDeny}
+		return resolution, req.AcceptApproval(resolution)
 	})
 
 	patchHandler, ok := binding.registry.Get(toolspec.ToolPatch)
@@ -479,9 +480,10 @@ func TestLocalToolRegistryTemporaryPathsBypassNativeToolApprovals(t *testing.T) 
 		t.Fatalf("NewLocalToolRegistryBinding: %v", err)
 	}
 	var approvalRequests int
-	broker.SetAskHandler(func(_ context.Context, _ askquestion.AskQuestionRequest) (askquestion.AskQuestionResolution, error) {
+	broker.SetLifecycleAskHandler(func(_ context.Context, req askquestion.AskQuestionRequest) (askquestion.AskQuestionResolution, error) {
 		approvalRequests++
-		return askquestion.AskQuestionApproval{Decision: askquestion.AskQuestionApprovalDecisionDeny}, nil
+		resolution := askquestion.AskQuestionApproval{Decision: askquestion.AskQuestionApprovalDecisionDeny}
+		return resolution, req.AcceptApproval(resolution)
 	})
 
 	patchHandler, ok := binding.registry.Get(toolspec.ToolPatch)
@@ -609,7 +611,7 @@ func TestOutsideWorkspaceToolsInheritTypedApprovalBarrierFromCallContext(t *test
 		toolspec.ToolViewImage,
 	)
 	handlerCalled := false
-	broker.SetAskHandler(func(_ context.Context, _ askquestion.AskQuestionRequest) (askquestion.AskQuestionResolution, error) {
+	broker.SetLifecycleAskHandler(func(_ context.Context, req askquestion.AskQuestionRequest) (askquestion.AskQuestionResolution, error) {
 		handlerCalled = true
 		return askquestion.AskQuestionApproval{
 			Decision: askquestion.AskQuestionApprovalDecisionAllowOnce,
@@ -823,11 +825,12 @@ func TestRuntimewireViewImageReadsGeneratedFileWithNormalApproval(t *testing.T) 
 		t.Fatalf("write generated pdf: %v", err)
 	}
 	registry, broker := newRuntimeWireToolRegistryWithConfig(t, workspace, configRoot, false, toolspec.ToolPatch, toolspec.ToolViewImage)
-	broker.SetAskHandler(func(_ context.Context, req askquestion.AskQuestionRequest) (askquestion.AskQuestionResolution, error) {
+	broker.SetLifecycleAskHandler(func(_ context.Context, req askquestion.AskQuestionRequest) (askquestion.AskQuestionResolution, error) {
 		if !req.Approval || len(req.ApprovalOptions) != 3 {
 			t.Fatalf("generated-file request = %+v, want structured approval", req)
 		}
-		return askquestion.AskQuestionApproval{Decision: askquestion.AskQuestionApprovalDecisionAllowOnce}, nil
+		resolution := askquestion.AskQuestionApproval{Decision: askquestion.AskQuestionApprovalDecisionAllowOnce}
+		return resolution, req.AcceptApproval(resolution)
 	})
 
 	viewImageHandler, ok := registry.Get(toolspec.ToolViewImage)
@@ -888,7 +891,7 @@ func TestReplaceFilesystemContextReplacesNativeToolTrustAndProjectWorkspaces(t *
 	if err != nil {
 		t.Fatal(err)
 	}
-	projectB, err := store.CreateProjectForWorkspace(t.Context(), rootB, "B")
+	projectB, err := store.CreateProjectForWorkspaceWithKey(t.Context(), rootB, "B", "")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -937,9 +940,10 @@ func TestReplaceFilesystemContextReplacesNativeToolTrustAndProjectWorkspaces(t *
 		t.Fatalf("new local tool registry binding: %v", err)
 	}
 	approvalRequests := 0
-	broker.SetAskHandler(func(_ context.Context, _ askquestion.AskQuestionRequest) (askquestion.AskQuestionResolution, error) {
+	broker.SetLifecycleAskHandler(func(_ context.Context, req askquestion.AskQuestionRequest) (askquestion.AskQuestionResolution, error) {
 		approvalRequests++
-		return askquestion.AskQuestionApproval{Decision: askquestion.AskQuestionApprovalDecisionDeny}, nil
+		resolution := askquestion.AskQuestionApproval{Decision: askquestion.AskQuestionApprovalDecisionDeny}
+		return resolution, req.AcceptApproval(resolution)
 	})
 
 	next, err := NewFilesystemContext(rootB, rootB, projectB.ProjectID)
@@ -1054,9 +1058,10 @@ func TestReplaceFilesystemContextPreservesSessionApprovalsAcrossRebuildAndReject
 		t.Fatalf("new local tool registry binding: %v", err)
 	}
 	approvalRequests := 0
-	broker.SetAskHandler(func(_ context.Context, _ askquestion.AskQuestionRequest) (askquestion.AskQuestionResolution, error) {
+	broker.SetLifecycleAskHandler(func(_ context.Context, req askquestion.AskQuestionRequest) (askquestion.AskQuestionResolution, error) {
 		approvalRequests++
-		return askquestion.AskQuestionApproval{Decision: askquestion.AskQuestionApprovalDecisionAllowSession}, nil
+		resolution := askquestion.AskQuestionApproval{Decision: askquestion.AskQuestionApprovalDecisionAllowSession}
+		return resolution, req.AcceptApproval(resolution)
 	})
 
 	assertRuntimeWireToolSuccess(t, binding.registry, toolspec.ToolPatch, map[string]any{

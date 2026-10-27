@@ -169,6 +169,7 @@ func (s *remoteAppServer) SessionUIClients() sessionUIClients {
 		ProcessViews:           s.remote,
 		PromptControl:          s.remote,
 		RuntimeControls:        s.remote,
+		RuntimeLiveControls:    s.remote,
 		GoalSet:                s.remote,
 		ChatSettings:           s.remote,
 		SessionTranscript:      s.remote,

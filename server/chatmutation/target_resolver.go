@@ -7,12 +7,12 @@ import (
 	"core/server/launch"
 	"core/server/metadata"
 	"core/server/promptcommands"
-	"core/server/runtimecontrol"
 	"core/server/session"
 	"core/server/sessionlaunch"
 	"core/shared/protoapi"
 	chatpb "core/shared/protoapi/gen/kent/api/chat"
 	chatsettingspb "core/shared/protoapi/gen/kent/api/chat_settings"
+	runtimepb "core/shared/protoapi/gen/kent/api/runtime"
 	sessionlaunchpb "core/shared/protoapi/gen/kent/api/session_launch"
 	"core/shared/runtimeids"
 	"core/shared/serverapi"
@@ -22,6 +22,10 @@ import (
 
 type SessionCreationService interface {
 	PlanSession(context.Context, *sessionlaunchpb.SessionPlanRequest) (*sessionlaunchpb.SessionPlanSuccess, error)
+}
+
+type RuntimeActivityResolver interface {
+	RuntimeReadModelFeedSnapshot(context.Context, string) (*runtimepb.ReadModelUpdate, error)
 }
 
 type SessionLaunchServiceResolver func(
@@ -47,14 +51,14 @@ type TargetResolver struct {
 	persistedSessions session.PersistedSessionResolver
 	sessionLaunch     SessionLaunchServiceResolver
 	sourceLaunch      SessionRuntimePlannerResolver
-	activity          runtimecontrol.RuntimeActivityResolver
+	activity          RuntimeActivityResolver
 }
 
 func NewTargetResolver(
 	persistedSessions session.PersistedSessionResolver,
 	sessionLaunch SessionLaunchServiceResolver,
 	sourceLaunch SessionRuntimePlannerResolver,
-	activity runtimecontrol.RuntimeActivityResolver,
+	activity RuntimeActivityResolver,
 	store *metadata.Store,
 ) *TargetResolver {
 	return &TargetResolver{

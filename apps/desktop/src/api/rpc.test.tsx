@@ -1,3 +1,4 @@
+import { observeTranscript } from "@/test-support/chat-runtime";
 import { afterEach, beforeEach, describe, expect, it, vi } from "bun:test";
 import { createRpcTransport as createTransport } from "./rpc";
 import { SessionCategory } from "@app/server-api-contract/gen/kent/api/project/session_catalog_pb";
@@ -747,7 +748,8 @@ describe("RpcWebSocketTransport", () => {
     const onEvent = vi.fn();
     const onError = vi.fn();
     const onOpen = vi.fn();
-    const subscription = createChatApi(transport).subscribeTranscript(
+    const subscription = observeTranscript(
+      createChatApi(transport),
       {
         projectID: "project-1",
         sessionID,
@@ -763,6 +765,7 @@ describe("RpcWebSocketTransport", () => {
         outcome: { case: "success", value: {} },
       }),
     });
+    await subscription.flush();
     expect(onOpen).toHaveBeenCalledTimes(1);
     // Sequence without the required Event is an invalid expected event, not a bad envelope.
     binaryNotification(socket, StreamService.method.event, Uint8Array.of(8, 2));
@@ -806,6 +809,7 @@ describe("RpcWebSocketTransport", () => {
         }),
       ),
     );
+    await subscription.flush();
     expect(onEvent).toHaveBeenCalledTimes(1);
     expect(onEvent).toHaveBeenCalledWith(expect.objectContaining({ sequence: 4, kind: "session_identity" }));
     expect(onError).toHaveBeenCalledTimes(2);
@@ -813,6 +817,7 @@ describe("RpcWebSocketTransport", () => {
     expect(socket.readyState).toBe(MockWebSocket.OPEN);
     // Present zero code is invalid; successful completion is the empty message.
     binaryNotification(socket, StreamService.method.complete, Uint8Array.of(8, 0));
+    await subscription.flush();
     expect(onError).toHaveBeenCalledTimes(3);
     vi.advanceTimersByTime(10_000);
     expect(socket.readyState).toBe(MockWebSocket.CLOSED);
@@ -825,7 +830,8 @@ describe("RpcWebSocketTransport", () => {
     const transport = createRpcTransport("ws://127.0.0.1:53082/rpc");
     const onEvent = vi.fn();
     const onError = vi.fn();
-    const subscription = createChatApi(transport).subscribeTranscript(
+    const subscription = observeTranscript(
+      createChatApi(transport),
       { projectID: "project-a", sessionID },
       { onEvent, onError, onComplete: vi.fn() },
     );
@@ -855,6 +861,7 @@ describe("RpcWebSocketTransport", () => {
         }),
       ),
     );
+    await subscription.flush();
 
     expect(onEvent).toHaveBeenCalledWith(expect.objectContaining({ sequence: 2, kind: "session_identity" }));
     expect(onError).not.toHaveBeenCalled();
@@ -881,7 +888,8 @@ describe("RpcWebSocketTransport", () => {
     const onError = vi.fn();
     const api = createChatApi(createRpcTransport("ws://127.0.0.1:53082/rpc"));
     const observe = () =>
-      api.subscribeTranscript(
+      observeTranscript(
+        api,
         {
           projectID: "project-1",
           sessionID,
@@ -896,6 +904,7 @@ describe("RpcWebSocketTransport", () => {
     });
     socket.close();
     vi.advanceTimersByTime(1_000);
+    await subscription.flush();
     await firstTransportLoss.promise;
     expect(onTransportLoss).toHaveBeenCalledTimes(1);
     expect(sockets).toHaveLength(1);
@@ -917,6 +926,7 @@ describe("RpcWebSocketTransport", () => {
       ),
     );
     vi.advanceTimersByTime(2_000);
+    await second.flush();
     await secondTransportLoss.promise;
     expect(onTransportLoss).toHaveBeenCalledTimes(2);
     expect(sockets).toHaveLength(2);
@@ -932,6 +942,7 @@ describe("RpcWebSocketTransport", () => {
       encode(StreamService.method.complete.input, create(StreamService.method.complete.input)),
     );
     vi.advanceTimersByTime(10_000);
+    await third.flush();
     await completionReported.promise;
     expect(onComplete.mock.calls.map(([completion]) => completion.code)).toEqual([
       StreamFailureCode.STREAM_GAP,

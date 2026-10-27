@@ -55,9 +55,23 @@ type Authority struct {
 	resources          map[runtimeids.SessionID]*agentResource
 	gates              map[runtimeids.SessionID]*sessionAdmissionGate
 	promptFeed         ExecutionPromptFeed
+	workflowSessions   WorkflowSessionExecutionOwner
 	options            authorityRuntimeOptions
 	invariantPolicy    invariant.Policy
 	workflowTaskReads  atomic.Pointer[workflowTaskExecutionReadSnapshot]
+}
+
+// WorkflowSessionExecutionOwner resolves durable Current Node ownership before
+// input admission. A nil handle means the Session is not a Current Node.
+type WorkflowSessionExecutionOwner interface {
+	ResolveSessionWorkflow(context.Context, runtimeids.SessionID) (*workflow.CurrentNodeReference, error)
+	EnsureSessionExecution(context.Context, runtimeids.SessionID) (ExecutionHandle, error)
+}
+
+func (a *Authority) SetWorkflowSessionExecutionOwner(owner WorkflowSessionExecutionOwner) {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	a.workflowSessions = owner
 }
 
 func NewAuthority(options AuthorityOptions) *Authority {
@@ -452,15 +466,18 @@ func (a *Authority) ValidateLiveWorkflowAgentExecution(
 	live, exists := a.SessionExecution(sessionID)
 	if !exists {
 		return nil, fmt.Errorf(
-			"workflow Session %s returned execution scope %s before publication",
+			"workflow Session %s no longer has execution scope %s: %w",
 			sessionID,
 			scope.ID(),
+			ErrExecutionNoLongerLive,
 		)
 	}
 	liveScope := live.Scope()
+	if liveScope.ID() != scope.ID() {
+		return nil, ErrExecutionNoLongerLive
+	}
 	liveWorkflowRef, liveWorkflowScoped := liveScope.Workflow()
-	if liveScope.ID() != scope.ID() ||
-		!liveWorkflowScoped ||
+	if !liveWorkflowScoped ||
 		!liveWorkflowRef.CurrentNode.Equal(currentNode) {
 		return nil, fmt.Errorf(
 			"workflow Session %s returned execution scope %s that does not match live scope %s",

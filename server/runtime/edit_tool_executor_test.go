@@ -38,9 +38,9 @@ func TestExecuteToolCallsCanonicalizesEditAliases(t *testing.T) {
 	if len(results) != 1 || results[0].Name != toolspec.ToolEdit {
 		t.Fatalf("results = %+v, want canonical edit", results)
 	}
-	snapshot := mustTranscriptHydrationSnapshot(t, eng)
+	facts := mustNewestTranscriptFacts(t, eng)
 	var persistedSummary string
-	for _, row := range snapshot.CommittedRows {
+	for _, row := range facts {
 		if row.Tool != nil && row.Tool.ToolCallID == "call-replace" {
 			persistedSummary = row.Tool.ResultSummary
 		}
@@ -117,9 +117,9 @@ func TestExecuteToolCallsCanonicalizesHiddenToolAndParameterAliases(t *testing.T
 	if started.Name != string(toolspec.ToolExecCommand) || string(started.Input) != `{"cmd":"echo hi","workdir":"."}` {
 		t.Fatalf("started call = %+v, want canonical name and input", *started)
 	}
-	snapshot := mustTranscriptHydrationSnapshot(t, eng)
+	facts := mustNewestTranscriptFacts(t, eng)
 	found := false
-	for _, row := range snapshot.CommittedRows {
+	for _, row := range facts {
 		if row.Tool != nil && row.Tool.ToolCallID == "call-run-command" {
 			found = true
 			if row.Tool.ToolName != string(toolspec.ToolExecCommand) {
@@ -128,7 +128,7 @@ func TestExecuteToolCallsCanonicalizesHiddenToolAndParameterAliases(t *testing.T
 		}
 	}
 	if !found {
-		t.Fatalf("snapshot = %+v, want persisted tool call", snapshot.CommittedRows)
+		t.Fatalf("snapshot = %+v, want persisted tool call", facts)
 	}
 }
 
@@ -161,8 +161,8 @@ func TestExecuteToolCallsRetainsCanonicalInvalidInputAndSkipsHandler(t *testing.
 	if handler.input != nil {
 		t.Fatalf("handler input = %s, want handler not invoked", handler.input)
 	}
-	snapshot := mustTranscriptHydrationSnapshot(t, eng)
-	for _, row := range snapshot.CommittedRows {
+	facts := mustNewestTranscriptFacts(t, eng)
+	for _, row := range facts {
 		if row.Tool != nil && row.Tool.ToolCallID == "call-ask-invalid" {
 			if row.Tool.ToolName != string(toolspec.ToolAskQuestion) {
 				t.Fatalf("persisted tool name = %q, want ask_question", row.Tool.ToolName)

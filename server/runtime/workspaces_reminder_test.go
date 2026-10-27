@@ -332,7 +332,7 @@ func newWorkspaceReminderSession(
 		}
 	})
 
-	project, err := metadataStore.CreateProjectForWorkspace(t.Context(), t.TempDir(), "Workspace Context Project")
+	project, err := metadataStore.CreateProjectForWorkspaceWithKey(t.Context(), t.TempDir(), "Workspace Context Project", "WCP")
 	if err != nil {
 		t.Fatalf("create Project: %v", err)
 	}

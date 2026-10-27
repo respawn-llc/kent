@@ -208,17 +208,6 @@ func (s dormantSessionSnapshot) TranscriptPage(ctx context.Context, req *transcr
 	return resultWithContext(ctx, page)
 }
 
-func (s dormantSessionSnapshot) TranscriptTailEntries(ctx context.Context) ([]runtime.ChatEntry, error) {
-	if s.view == nil {
-		return nil, errors.New("persisted Session view is required")
-	}
-	segment, err := s.newestSegment(ctx)
-	if err != nil {
-		return nil, err
-	}
-	return resultWithContext(ctx, append([]runtime.ChatEntry(nil), segment.Snapshot.Entries...))
-}
-
 func (s dormantSessionSnapshot) newestSegment(ctx context.Context) (runtime.TranscriptSegmentPage, error) {
 	return readWithContext(ctx, func() (runtime.TranscriptSegmentPage, error) {
 		return runtime.TranscriptNewestSegmentPageFromEventLog(s.view, s.cacheWarningModeOrDefault())

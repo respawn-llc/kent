@@ -847,6 +847,11 @@ func sameMaterializedContinuationSource(
 	return leftExact == rightExact && (!leftExact || leftSessionID == rightSessionID)
 }
 
+func (s *Store) CurrentNodeAwaitingApproval(ctx context.Context, reference workflow.CurrentNodeReference) (bool, error) {
+	_, pending, err := currentNodePendingApprovalID(ctx, s.queries, reference)
+	return pending, err
+}
+
 func currentNodePendingApprovalID(ctx context.Context, q *sqlitegen.Queries, reference workflow.CurrentNodeReference) (workflow.ApprovalID, bool, error) {
 	if err := reference.Validate(); err != nil {
 		return "", false, err

@@ -89,18 +89,6 @@ WHERE w.project_id = sqlc.arg(project_id)
   AND w.canonical_root_path = sqlc.arg(canonical_root_path)
 LIMIT 1;
 
--- name: ListWorkspacesByCanonicalRoot :many
-SELECT
-    id,
-    project_id,
-    canonical_root_path,
-    git_metadata_json,
-    created_at_unix_ms,
-    updated_at_unix_ms
-FROM workspaces
-WHERE canonical_root_path = sqlc.arg(canonical_root_path)
-ORDER BY created_at_unix_ms ASC, rowid ASC;
-
 -- name: GetWorkspaceByID :one
 SELECT
     id,
@@ -1259,41 +1247,6 @@ WHERE id = sqlc.arg(task_id)
   AND managed_worktree_id IS NULL
   AND pending_initial_managed_branch_name IS NOT NULL;
 
--- name: ListTasksByProject :many
-SELECT
-    id,
-    project_id,
-    project_workflow_link_id,
-    workflow_id,
-    workflow_revision_seen,
-    task_seq,
-    short_id,
-    title,
-    body,
-    source_url,
-    source_workspace_id,
-    managed_worktree_id,
-    pending_initial_managed_branch_name,
-    execution_target_mode,
-    execution_target_requested_ref,
-    execution_target_resolved_ref,
-    execution_target_commit_oid,
-    execution_target_provenance,
-    created_at_unix_ms,
-    updated_at_unix_ms,
-    metadata_json
-FROM task_records
-WHERE project_workflow_link_id IN (
-    SELECT id
-    FROM project_workflow_links
-    WHERE project_workflow_links.project_id = sqlc.arg(project_id)
-)
-ORDER BY updated_at_unix_ms DESC, (
-    SELECT storage.rowid
-    FROM tasks storage
-    WHERE storage.id = task_records.id
-) DESC;
-
 -- name: ListProjectWorkflowTaskActivity :many
 SELECT
     workflow_id,
@@ -2209,67 +2162,19 @@ ORDER BY updated_at_unix_ms DESC, id DESC
 LIMIT sqlc.arg(page_limit)
 OFFSET sqlc.arg(page_offset);
 
--- name: ListNewestSessionPage :many
-SELECT
-    id,
-    name,
-    first_prompt_preview,
-    COALESCE(category, 'main') AS category,
-    updated_at_unix_ms
-FROM sessions
-WHERE project_id = sqlc.arg(project_id)
-  AND launch_visible <> 0
-  AND COALESCE(category, 'main') = sqlc.arg(category)
-ORDER BY updated_at_unix_ms DESC, id DESC
-LIMIT sqlc.arg(page_limit);
-
--- name: ListOlderSessionPage :many
-SELECT
-    id,
-    name,
-    first_prompt_preview,
-    COALESCE(category, 'main') AS category,
-    updated_at_unix_ms
-FROM sessions
-WHERE project_id = sqlc.arg(project_id)
-  AND launch_visible <> 0
-  AND COALESCE(category, 'main') = sqlc.arg(category)
-  AND (
-      updated_at_unix_ms < sqlc.arg(boundary_updated_at_unix_ms)
-      OR (
-          updated_at_unix_ms = sqlc.arg(boundary_updated_at_unix_ms)
-          AND id < sqlc.arg(boundary_session_id)
-      )
-  )
-ORDER BY updated_at_unix_ms DESC, id DESC
-LIMIT sqlc.arg(page_limit);
-
--- name: ListNewerSessionPage :many
-SELECT
-    id,
-    name,
-    first_prompt_preview,
-    COALESCE(category, 'main') AS category,
-    updated_at_unix_ms
-FROM sessions
-WHERE project_id = sqlc.arg(project_id)
-  AND launch_visible <> 0
-  AND COALESCE(category, 'main') = sqlc.arg(category)
-  AND (
-      updated_at_unix_ms > sqlc.arg(boundary_updated_at_unix_ms)
-      OR (
-          updated_at_unix_ms = sqlc.arg(boundary_updated_at_unix_ms)
-          AND id > sqlc.arg(boundary_session_id)
-      )
-  )
-ORDER BY updated_at_unix_ms ASC, id ASC
-LIMIT sqlc.arg(page_limit);
-
 -- name: ListProjectSessionIDs :many
 SELECT id
 FROM sessions
 WHERE project_id = sqlc.arg(project_id)
 ORDER BY rowid ASC;
+
+-- name: FilterProjectSessionIDs :many
+SELECT DISTINCT session.id
+FROM json_each(CAST(sqlc.arg(session_ids_json) AS TEXT)) candidate
+CROSS JOIN sessions session
+    INDEXED BY sqlite_autoindex_sessions_1
+    ON session.id = CAST(candidate.value AS TEXT)
+WHERE session.project_id = sqlc.arg(project_id);
 
 -- name: GetProjectDeleteBlockerCounts :one
 SELECT

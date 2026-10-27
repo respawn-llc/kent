@@ -107,11 +107,6 @@ func (c *Remote) CompactContext(ctx context.Context, request *runtimepb.CompactC
 	return err
 }
 
-func (c *Remote) Interrupt(ctx context.Context, request *runtimepb.InterruptRequest) (*runtimepb.ReadModelUpdate, error) {
-	return callGeneratedBinary(c, ctx, bootstrapMethod(runtimepb.File_kent_api_runtime_runtime_proto, "TurnService", "Interrupt"), request, &runtimepb.InterruptResult{},
-		func(failure *runtimepb.InterruptError) error { return runtimeControlGeneratedError(failure) })
-}
-
 func (c *Remote) ListPendingWork(ctx context.Context, request *runtimepb.ListPendingWorkRequest) (*runtimepb.ListPendingWorkSuccess, error) {
 	return callGeneratedBinary(c, ctx, bootstrapMethod(runtimepb.File_kent_api_runtime_runtime_proto, "TurnService", "ListPendingWork"), request, &runtimepb.ListPendingWorkResult{},
 		func(failure *runtimepb.ListPendingWorkError) error { return runtimeControlGeneratedError(failure) })

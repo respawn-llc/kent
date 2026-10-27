@@ -53,7 +53,7 @@ func TestQuestionHistoryProjectsRetainedAnswererIdentities(t *testing.T) {
 			})
 			appendSessionViewRecord(t, store, stepID, completion)
 			if state == "deleted" {
-				if err := metadataStore.DeleteFailedSessionCreationRecordByID(t.Context(), identity.ID.String()); err != nil {
+				if err := metadataStore.DeleteSession(t.Context(), identity.ID.String()); err != nil {
 					t.Fatal(err)
 				}
 			}

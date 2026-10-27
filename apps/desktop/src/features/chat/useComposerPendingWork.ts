@@ -56,7 +56,7 @@ export function useComposerPendingWork(
     stop: () => {
       stopAction({
         onSuccess: () => {
-          if (mainView.kind === "session") void mainView.retry();
+          if (mainView.kind === "session") mainView.retry();
         },
       });
     },

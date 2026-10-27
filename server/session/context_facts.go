@@ -62,20 +62,6 @@ func (s *Store) ContextFacts() SessionContextFacts {
 	return s.contextFacts.Clone()
 }
 
-func (s *Store) ContextSnapshot() ContextSnapshot {
-	if s == nil {
-		return ContextSnapshot{}
-	}
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	s.contextFactsMu.Lock()
-	defer s.contextFactsMu.Unlock()
-	return ContextSnapshot{
-		Meta:  cloneMeta(s.meta),
-		Facts: s.contextFacts.Clone(),
-	}
-}
-
 func (s *Store) SetSessionContextFacts(completedCompactionCount int, manualCompactEligible bool) error {
 	if s == nil {
 		return errors.New("session store is required")

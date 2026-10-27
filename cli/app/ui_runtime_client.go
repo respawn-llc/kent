@@ -27,6 +27,7 @@ var uiRuntimeReadTimeout = 300 * time.Millisecond
 type sessionRuntimeClient struct {
 	reads                   apicontract.SessionViewService
 	controls                apicontract.RuntimeControlService
+	liveControls            apicontract.RuntimeLiveControlService
 	chatMutations           apicontract.ChatMutationService
 	goalSet                 goalSetClient
 	chatSettings            apicontract.ChatSettingsService

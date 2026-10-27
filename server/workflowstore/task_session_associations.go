@@ -162,19 +162,30 @@ func loadSessionReuseAssociations(
 // Session ownership, the matching Current Node, and the latest definition.
 // Discarded execution history is not an input.
 func (s *Store) ResolveCurrentSessionStartContext(ctx context.Context, sessionID runtimeids.SessionID) (CurrentNodeStartContext, error) {
+	currentNode, err := s.ResolveCurrentSessionNode(ctx, sessionID)
+	if err != nil {
+		return CurrentNodeStartContext{}, err
+	}
+	if currentNode == nil {
+		return CurrentNodeStartContext{}, ErrSessionNotCurrentWorkflowNode
+	}
+	return s.resolveCurrentNodeStartContext(ctx, *currentNode)
+}
+
+func (s *Store) ResolveCurrentSessionNode(ctx context.Context, sessionID runtimeids.SessionID) (*workflow.CurrentNode, error) {
 	if sessionID.IsZero() {
-		return CurrentNodeStartContext{}, errors.New("session id is required")
+		return nil, errors.New("session id is required")
 	}
 	taskID, err := s.taskIDForSessionOwnership(ctx, sessionID)
 	if err != nil {
-		return CurrentNodeStartContext{}, err
+		return nil, err
 	}
 	if taskID == nil {
-		return CurrentNodeStartContext{}, ErrSessionNotCurrentWorkflowNode
+		return nil, nil
 	}
 	currentNodes, err := s.ListCurrentNodes(ctx, *taskID)
 	if err != nil {
-		return CurrentNodeStartContext{}, err
+		return nil, err
 	}
 	var currentNode *workflow.CurrentNode
 	for i := range currentNodes {
@@ -182,21 +193,21 @@ func (s *Store) ResolveCurrentSessionStartContext(ctx context.Context, sessionID
 			continue
 		}
 		if currentNode != nil {
-			return CurrentNodeStartContext{}, fmt.Errorf("session %q is bound to multiple current nodes for task %q", sessionID, *taskID)
+			return nil, fmt.Errorf("session %q is bound to multiple current nodes for task %q", sessionID, *taskID)
 		}
 		currentNode = &currentNodes[i]
 	}
 	if currentNode == nil {
-		return CurrentNodeStartContext{}, ErrSessionNotCurrentWorkflowNode
+		return nil, nil
 	}
 	association, err := s.LatestTaskSessionForNode(ctx, currentNode.Reference)
 	if err != nil {
-		return CurrentNodeStartContext{}, fmt.Errorf("resolve current session node association: %w", err)
+		return nil, fmt.Errorf("resolve current session node association: %w", err)
 	}
 	if association.SessionID != sessionID {
-		return CurrentNodeStartContext{}, fmt.Errorf("current node %v is associated with session %q, want %q", currentNode.Reference, association.SessionID, sessionID)
+		return nil, fmt.Errorf("current node %v is associated with session %q, want %q", currentNode.Reference, association.SessionID, sessionID)
 	}
-	return s.resolveCurrentNodeStartContext(ctx, *currentNode)
+	return currentNode, nil
 }
 
 // ValidateCurrentNodeSessionBinding proves that a volatile exact workflow

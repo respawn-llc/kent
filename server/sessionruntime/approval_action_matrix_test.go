@@ -277,18 +277,19 @@ func approvalActionRows(t *testing.T, h *approvalActionHarness, commentary strin
 	t.Helper()
 	var users int
 	var toolRows []runtime.TranscriptToolRowFact
-	err := h.engine.WithTranscriptHydrationSnapshot(func(snapshot runtime.TranscriptHydrationSnapshot) error {
-		for _, row := range snapshot.CommittedRows {
-			if row.User != nil && row.User.Text == commentary {
-				users++
-			}
-			if row.Tool != nil && strings.HasPrefix(row.Tool.ToolCallID, "approval-action") {
-				toolRows = append(toolRows, *row.Tool)
-			}
-		}
-		return nil
-	})
+	page, err := h.engine.TranscriptNewestSegmentPage()
 	requireApproval(t, err == nil, "read Approval transcript: %v", err)
+	if err != nil {
+		return users, toolRows
+	}
+	for _, row := range runtime.TranscriptCommittedRowFactsFromSnapshot(page.Snapshot) {
+		if row.User != nil && row.User.Text == commentary {
+			users++
+		}
+		if row.Tool != nil && strings.HasPrefix(row.Tool.ToolCallID, "approval-action") {
+			toolRows = append(toolRows, *row.Tool)
+		}
+	}
 	return users, toolRows
 }
 func requireApprovalActionTerminal(t *testing.T, h *approvalActionHarness, payload PromptAnswerPayload) {

@@ -1,3 +1,6 @@
+import * as Atom from "effect/reactivity/Atom";
+import * as Effect from "effect/Effect";
+
 import type {
   ChatApi,
   ChatSessionTarget,
@@ -6,12 +9,11 @@ import type {
   ChatTranscriptPayloadByKind,
 } from "@/api";
 import { ContractError } from "@/api";
+import { ChatTranscriptFailure } from "./chatTranscriptFailure";
 import {
   TranscriptWindow,
-  type TranscriptLiveFact,
   type TranscriptWindowInput,
   type TranscriptWindowResult,
-  type TranscriptWindowSnapshot,
 } from "./transcript-window";
 
 export type ChatTranscriptPageInput =
@@ -20,18 +22,12 @@ export type ChatTranscriptHostInput = Extract<
   TranscriptWindowInput,
   { kind: "edge-visit" | "opening-retry" | "retry" }
 >;
-export type ChatTranscriptHostOptions = Readonly<{
-  onContractFailure(error: Error): void;
-  onOpeningFailure(error: Error): void;
-  onScratchRehydration(): void;
-}>;
-export type ChatTranscriptAdmission =
-  Readonly<{ kind: "accepted" }> | Readonly<{ kind: "rejected"; error: Error }>;
+export type ChatTranscriptPresentationUpdate = Readonly<{ kind: "content" | "membership" | "replacement" }>;
 
 type TranscriptPageApi = Pick<ChatApi, "getTranscriptPage">;
-export type ChatTailOutcome =
-  Readonly<{ kind: "tail-ready" | "destination-ended" }> | Readonly<{ kind: "failed"; error: Error }>;
-export type ChatTranscriptPresentationUpdate = Readonly<{ kind: "content" | "membership" | "replacement" }>;
+type PageRequest =
+  | Readonly<{ kind: "opening"; permit: symbol }>
+  | (Extract<TranscriptWindowResult, { kind: "accepted" }>["effects"][number] & { kind: "page-request" });
 
 export async function executeChatTranscriptPage(
   api: TranscriptPageApi,
@@ -43,235 +39,200 @@ export async function executeChatTranscriptPage(
       return api.getTranscriptPage(target);
     case "older":
     case "newer":
-      return api.getTranscriptPage(target, {
-        direction: input.kind,
-        value: input.cursor,
-      });
+      return api.getTranscriptPage(target, { direction: input.kind, value: input.cursor });
   }
 }
 
-export class ChatTranscriptHost {
-  readonly #api: TranscriptPageApi;
-  readonly #target: ChatSessionTarget;
-  readonly #options: ChatTranscriptHostOptions;
-  readonly #window = new TranscriptWindow();
-  readonly #listeners = new Set<() => void>();
-  #pendingJump: ((outcome: ChatTailOutcome) => void) | null = null;
-  #presentationUpdate: ChatTranscriptPresentationUpdate = { kind: "membership" };
+export function createChatTranscriptModel(
+  api: TranscriptPageApi,
+  target: ChatSessionTarget,
+  onOpeningFailure: (error: Error) => void,
+) {
+  const window = Atom.make(() => new TranscriptWindow());
+  const presentation = Atom.make<ChatTranscriptPresentationUpdate>({ kind: "membership" });
+  const snapshot = Atom.make((get) => get(window).snapshot);
+  const jumpRequest = Atom.make<Readonly<{ onReady(): void; onError(error: Error): void }> | null>(null);
+  const jumpPending = Atom.make((get) => get(jumpRequest) !== null);
 
-  get presentationUpdate(): ChatTranscriptPresentationUpdate {
-    return this.#presentationUpdate;
-  }
-
-  get jumpPending(): boolean {
-    return this.#pendingJump !== null;
-  }
-
-  async jumpToLatest(): Promise<ChatTailOutcome> {
-    if (this.snapshot.opening.kind === "disposed") {
-      return Promise.resolve({ kind: "destination-ended" });
-    }
-    if (this.snapshot.newer.cursor === null) return Promise.resolve({ kind: "tail-ready" });
-    return new Promise((resolve) => {
-      this.#pendingJump = resolve;
-      this.#notify();
-      void executeChatTranscriptPage(this.#api, this.#target, { kind: "newest" }).then(
-        (page) => {
-          if (this.#pendingJump !== resolve) return;
-          const admission = this.#apply(this.#window.dispatch({ kind: "replace-window", page }));
-          if (admission.kind === "rejected") {
-            this.#finishJump({ kind: "destination-ended" });
-            this.#options.onContractFailure(admission.error);
-            return;
-          }
-          this.#finishJump({ kind: "tail-ready" });
-        },
-        (cause: unknown) => {
-          if (this.#pendingJump !== resolve) return;
-          if (cause instanceof ContractError) {
-            this.#finishJump({ kind: "destination-ended" });
-            this.#options.onContractFailure(cause);
-            return;
-          }
-          this.#finishJump({
-            kind: "failed",
-            error: cause instanceof Error ? cause : new Error("Transcript page failed."),
-          });
-        },
-      );
+  const readPage = (input: ChatTranscriptPageInput) =>
+    Effect.tryPromise({
+      try: async () => executeChatTranscriptPage(api, target, input),
+      catch: (error) => new ChatTranscriptFailure(error),
     });
-  }
 
-  #finishJump(outcome: ChatTailOutcome): void {
-    const complete = this.#pendingJump;
-    this.#pendingJump = null;
-    complete?.(outcome);
-    this.#notify();
-  }
+  type Apply = (
+    input: TranscriptWindowInput,
+    presentationKind?: ChatTranscriptPresentationUpdate["kind"],
+    admitted?: () => void,
+  ) => Effect.Effect<void, ChatTranscriptFailure>;
 
-  constructor(api: TranscriptPageApi, target: ChatSessionTarget, options: ChatTranscriptHostOptions) {
-    this.#api = api;
-    this.#target = target;
-    this.#options = options;
-  }
-
-  get snapshot(): TranscriptWindowSnapshot {
-    return this.#window.snapshot;
-  }
-
-  subscribe(listener: () => void): () => void {
-    this.#listeners.add(listener);
-    return () => this.#listeners.delete(listener);
-  }
-
-  open(): void {
-    this.#requestOpeningPage(this.#window.openingPermit);
-  }
-
-  #requestOpeningPage(permit: symbol): void {
-    void executeChatTranscriptPage(this.#api, this.#target, { kind: "newest" }).then(
-      (page) => {
-        this.#applyAutonomous(this.#window.dispatch({ kind: "opening-success", permit, page }));
-      },
-      (cause: unknown) => {
-        const error = cause instanceof Error ? cause : new Error("Transcript page failed.");
-        this.#applyAutonomous(this.#window.dispatch({ kind: "opening-failure", permit, error }));
-      },
-    );
-  }
-
-  hydration(
+  const scope = Atom.make((get) => {
+    const transcript = get(window);
+    get.mount(jumpRequest);
+    get.mount(presentation);
+    get.mount(snapshot);
+    const finishJump = () => {
+      const pending = get.once(jumpRequest);
+      get.set(jumpRequest, null);
+      pending?.onReady();
+    };
+    const apply: Apply = Effect.fnUntraced(function* (input, presentationKind = "membership", admitted) {
+      const result = transcript.dispatch(input);
+      if (result.kind === "contract-failure")
+        return yield* Effect.fail(new ChatTranscriptFailure(result.error));
+      if (result.kind === "accepted") get.set(presentation, { kind: presentationKind });
+      get.refresh(snapshot);
+      admitted?.();
+      for (const effect of result.effects) {
+        switch (effect.kind) {
+          case "hydration-replaced":
+            get.set(presentation, { kind: "replacement" });
+            finishJump();
+            break;
+          case "opening-failed":
+            onOpeningFailure(effect.error);
+            break;
+          case "opening-page-request":
+            get.set(requestPage, { kind: "opening", permit: effect.permit });
+            break;
+          case "page-request":
+            get.set(requestPage, effect);
+            break;
+          case "scratch-rehydration":
+            get.set(rehydrate, undefined);
+            break;
+        }
+      }
+    });
+    get.addFinalizer(() => {
+      transcript.dispatch({ kind: "dispose" });
+    });
+    const ended = () => transcript.snapshot.opening.kind === "disposed";
+    const jump = Effect.fnUntraced(function* (input: NonNullable<Atom.Type<typeof jumpRequest>>) {
+      if (ended() || get.once(jumpPending)) return;
+      if (transcript.snapshot.newer.cursor === null) {
+        input.onReady();
+        return;
+      }
+      const request = { ...input };
+      get.set(jumpRequest, request);
+      const response = yield* readPage({ kind: "newest" }).pipe(Effect.result);
+      if (ended() || get.once(jumpRequest) !== request) return;
+      get.set(jumpRequest, null);
+      if (response._tag === "Failure") {
+        if (response.failure.error instanceof ContractError) return yield* Effect.fail(response.failure);
+        input.onError(response.failure.error);
+        return;
+      }
+      yield* apply({ kind: "replace-window", page: response.success });
+      input.onReady();
+    });
+    return { transcript, apply, jump };
+  });
+  // Runtime installs the destination's failure and replacement actions once.
+  const failure = Atom.make<((error: Error) => Effect.Effect<void>) | null>(null);
+  const replacement = Atom.make<(() => void) | null>(null);
+  const rehydrate = Atom.fn((_, get) => Effect.sync(() => get(replacement)?.()), { concurrent: true });
+  const handleFailure = (get: Atom.FnContext, failureCause: ChatTranscriptFailure) => {
+    const error = failureCause.error;
+    const handler = get(failure);
+    return handler === null ? Effect.die(error) : handler(error);
+  };
+  const requestPage = Atom.fn<PageRequest>()(
+    (request, get) =>
+      Effect.gen(function* () {
+        const { apply } = get(scope);
+        const opening = request.kind === "opening";
+        const response = yield* readPage(
+          opening ? { kind: "newest" } : { kind: request.request.direction, cursor: request.request.cursor },
+        ).pipe(Effect.result);
+        if (response._tag === "Success") {
+          yield* apply(
+            opening
+              ? { kind: "opening-success", permit: request.permit, page: response.success }
+              : { kind: "page-success", request: request.request, page: response.success },
+          );
+        } else {
+          yield* apply(
+            opening
+              ? { kind: "opening-failure", permit: request.permit, error: response.failure.error }
+              : { kind: "page-failure", request: request.request, error: response.failure.error },
+          );
+        }
+      }).pipe(Effect.catch((error) => handleFailure(get, error))),
+    { concurrent: true },
+  );
+  const dispatch = Atom.fn<ChatTranscriptHostInput>()(
+    (input, get) =>
+      get(scope)
+        .apply(input)
+        .pipe(Effect.catch((error) => handleFailure(get, error))),
+    { concurrent: true },
+  );
+  const jump = Atom.fn<NonNullable<Atom.Type<typeof jumpRequest>>>()(
+    (input, get) =>
+      get(scope)
+        .jump(input)
+        .pipe(Effect.catch((error) => handleFailure(get, error))),
+    { concurrent: true },
+  );
+  const mount = Atom.make((get) => {
+    get.mount(scope);
+    get.mount(requestPage);
+    get.mount(dispatch);
+    get.mount(jump);
+    get.set(requestPage, { kind: "opening", permit: get(scope).transcript.openingPermit });
+    return null;
+  });
+  const outcomes = Atom.make((get) => [get(requestPage), get(dispatch), get(jump)] as const);
+  const receive = Effect.fnUntraced(function* (
+    get: Atom.AtomContext,
     kind: "initial" | "scratch" | "reattachment",
     hydration: ChatTranscriptPayloadByKind["hydration"],
-  ): ChatTranscriptAdmission {
-    const result = this.#window.dispatch({ kind: `${kind}-hydration`, hydration });
-    return this.#apply(
-      result,
-      result.effects.some((effect) => effect.kind === "hydration-replaced") ? "replacement" : "content",
-    );
-  }
-
-  event(event: Exclude<ChatTranscriptMessage, { kind: "hydration" }>): ChatTranscriptAdmission {
-    if (event.kind === "committed_row") {
-      return this.#apply(this.#window.dispatch({ kind: "committed-row", row: event.payload }), "content");
-    }
-    if (event.kind === "runtime_read_model_update") {
-      return this.#apply(
-        this.#window.dispatch({ kind: "runtime-activity", activity: event.payload.Activity }),
+  ) {
+    yield* get.once(scope).apply({ kind: `${kind}-hydration`, hydration }, "content");
+  });
+  const event = Effect.fnUntraced(function* (
+    get: Atom.AtomContext,
+    event: Exclude<ChatTranscriptMessage, { kind: "hydration" }>,
+    admitted: () => void,
+  ) {
+    const { apply } = get.once(scope);
+    if (event.kind === "committed_row")
+      return yield* apply({ kind: "committed-row", row: event.payload }, "content", admitted);
+    if (event.kind === "runtime_read_model_update")
+      return yield* apply(
+        { kind: "runtime-activity", activity: event.payload.Activity },
         "content",
+        admitted,
       );
-    }
-    if (event.kind === "compaction_status") {
-      return this.#apply(
-        this.#window.dispatch({ kind: "compaction-status", status: event.payload }),
-        "content",
-      );
-    }
-    if (event.kind === "assistant_delta") {
-      return this.#admitLive(event);
-    }
-    if (event.kind === "assistant_stream_abort") {
-      return this.#admitLive(event);
-    }
-    if (event.kind === "tool_start") {
-      return this.#admitLive(event);
-    }
-    if (event.kind === "tool_abort") {
-      return this.#admitLive(event);
-    }
-    if (event.kind === "reasoning_trace_update") {
-      return this.#admitLive(event);
-    }
-    if (event.kind === "reasoning_trace_reset") {
-      return this.#admitLive(event);
-    }
-    if (event.kind === "thinking_status_update") {
-      return this.#admitLive(event);
-    }
-    if (event.kind === "step_state") {
-      return this.#admitLive(event);
-    }
-    return { kind: "accepted" };
-  }
-
-  observationLost(): void {
-    this.#applyAutonomous(this.#window.dispatch({ kind: "observation-loss" }));
-  }
-
-  dispatch(input: ChatTranscriptHostInput): void {
-    this.#applyAutonomous(this.#window.dispatch(input));
-  }
-
-  dispose(): void {
-    this.#finishJump({ kind: "destination-ended" });
-    this.#applyAutonomous(this.#window.dispatch({ kind: "dispose" }));
-    this.#listeners.clear();
-  }
-
-  #admitLive(fact: TranscriptLiveFact): ChatTranscriptAdmission {
-    return this.#apply(this.#window.dispatch({ kind: "live-fact", fact }), "content");
-  }
-
-  #applyAutonomous(result: TranscriptWindowResult): void {
-    const admission = this.#apply(result);
-    if (admission.kind === "rejected") this.#options.onContractFailure(admission.error);
-  }
-
-  #apply(
-    result: TranscriptWindowResult,
-    kind: ChatTranscriptPresentationUpdate["kind"] = "membership",
-  ): ChatTranscriptAdmission {
-    if (result.kind === "contract-failure") {
-      return { kind: "rejected", error: result.error };
-    }
-    if (result.kind === "accepted") this.#presentationUpdate = { kind };
-    this.#notify();
-    for (const effect of result.effects) {
-      switch (effect.kind) {
-        case "hydration-replaced":
-          this.#finishJump({ kind: "tail-ready" });
-          break;
-        case "opening-failed":
-          this.#options.onOpeningFailure(effect.error);
-          break;
-        case "opening-page-request":
-          this.#requestOpeningPage(effect.permit);
-          break;
-        case "scratch-rehydration":
-          this.#options.onScratchRehydration();
-          break;
-        case "page-request":
-          void executeChatTranscriptPage(this.#api, this.#target, {
-            kind: effect.request.direction,
-            cursor: effect.request.cursor,
-          }).then(
-            (page) => {
-              this.#applyAutonomous(
-                this.#window.dispatch({
-                  kind: "page-success",
-                  request: effect.request,
-                  page,
-                }),
-              );
-            },
-            (cause: unknown) => {
-              const error = cause instanceof Error ? cause : new Error("Transcript page failed.");
-              this.#applyAutonomous(
-                this.#window.dispatch({
-                  kind: "page-failure",
-                  request: effect.request,
-                  error,
-                }),
-              );
-            },
-          );
-          break;
-      }
-    }
-    return { kind: "accepted" };
-  }
-
-  #notify(): void {
-    for (const listener of this.#listeners) listener();
-  }
+    if (event.kind === "compaction_status")
+      return yield* apply({ kind: "compaction-status", status: event.payload }, "content", admitted);
+    if (
+      event.kind === "assistant_delta" ||
+      event.kind === "assistant_stream_abort" ||
+      event.kind === "tool_start" ||
+      event.kind === "tool_abort" ||
+      event.kind === "reasoning_trace_update" ||
+      event.kind === "reasoning_trace_reset" ||
+      event.kind === "thinking_status_update" ||
+      event.kind === "step_state"
+    )
+      return yield* apply({ kind: "live-fact", fact: event }, "content", admitted);
+    admitted();
+  });
+  return {
+    snapshot,
+    presentation,
+    jumpPending,
+    dispatch,
+    jump,
+    mount,
+    outcomes,
+    scope,
+    failure,
+    replacement,
+    receive,
+    event,
+  } as const;
 }

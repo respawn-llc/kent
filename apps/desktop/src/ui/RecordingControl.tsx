@@ -4,6 +4,8 @@ import { Mic, Square } from "lucide-react";
 import { AnimatePresence, motion, useReducedMotion } from "motion/react";
 import { IconTooltipButton } from "./IconTooltipButton";
 import { Spinner } from "./Spinner";
+import { cx } from "./classes";
+import { islandSurfaceClassName } from "./islandSurfaceStyles";
 import { motionDurationFromCSSVar } from "./motion";
 
 export type RecordingControlProps = Readonly<{
@@ -29,22 +31,30 @@ export function RecordingControl({
   const reducedMotion = useReducedMotion();
   const transition = { duration: reducedMotion ? 0 : motionDurationFromCSSVar("--motion-fast", 140) / 1000 };
   return (
-    <span className="relative inline-flex shrink-0 items-center gap-[var(--space-2)]">
-      <span className="inline-grid w-[5ch] place-items-end">
-        <AnimatePresence>
-          {recording !== null && (
-            <motion.span
-              key="elapsed"
-              initial={{ opacity: 0, x: reducedMotion ? 0 : 8 }}
-              animate={{ opacity: 1, x: 0 }}
-              exit={{ opacity: 0 }}
-              transition={transition}
-            >
-              <RecordingElapsed startedAt={recording.startedAt} />
-            </motion.span>
-          )}
-        </AnimatePresence>
-      </span>
+    <span className="relative inline-flex shrink-0 items-center">
+      <AnimatePresence>
+        {recording !== null && (
+          <motion.span
+            key="elapsed"
+            className="inline-flex min-w-0 overflow-hidden whitespace-nowrap"
+            initial={{ width: 0, opacity: 0, x: reducedMotion ? 0 : 8 }}
+            animate={{ width: "auto", opacity: 1, x: 0 }}
+            exit={{ width: 0, opacity: 0 }}
+            transition={transition}
+          >
+            <span className="inline-flex shrink-0 pr-[var(--space-2)]">
+              <span
+                className={cx(
+                  islandSurfaceClassName(4),
+                  "inline-flex rounded-full px-[var(--space-2)] py-[var(--space-1)]",
+                )}
+              >
+                <RecordingElapsed startedAt={recording.startedAt} />
+              </span>
+            </span>
+          </motion.span>
+        )}
+      </AnimatePresence>
       <span className="inline-flex">
         <span ref={anchor} className="relative inline-grid place-items-center text-[var(--color-primary)]">
           {recording !== null && <RadialRecordingMeter analyser={recording.analyser} anchor={anchor} />}

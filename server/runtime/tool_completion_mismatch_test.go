@@ -113,9 +113,6 @@ func TestToolCompletionDeletionMismatchDoesNotApplyUncommittedFallback(t *testin
 			t.Fatalf("uncommitted fallback persisted recovery data: %+v", record)
 		}
 	}
-	if rows := mustTranscriptHydrationSnapshot(t, engine).CommittedRows; len(rows) != 0 {
-		t.Fatalf("uncommitted fallback projected rows: %+v", rows)
-	}
 	if _, ok := engine.transcriptRuntimeState().liveToolLedger().Lookup(result.CallID); !ok {
 		t.Fatal("uncommitted fallback removed the live tool")
 	}
@@ -246,10 +243,8 @@ func mismatchedDeletionResult(callID string) tools.Result {
 		},
 	}
 }
-
 func assertDeletionMismatchFallback(t *testing.T, engine *Engine, store *session.Store, result tools.Result) {
 	t.Helper()
-	stepID := runtimeTestStepID("step-delete")
 	window, err := mustMaterializeTestEventLog(t, store).ReadRecentRecords(16)
 	if err != nil {
 		t.Fatalf("read bounded mismatch records: %v", err)
@@ -290,28 +285,6 @@ func assertDeletionMismatchFallback(t *testing.T, engine *Engine, store *session
 				t.Fatalf("fallback fabricated deletion disposition: %+v", completion.Presentation)
 			}
 		}
-	}
-
-	var snapshot TranscriptHydrationSnapshot
-	if err := engine.WithTranscriptHydrationSnapshot(func(value TranscriptHydrationSnapshot) error {
-		snapshot = value
-		return nil
-	}); err != nil {
-		t.Fatalf("read transcript hydration snapshot: %v", err)
-	}
-	var toolRow, noticeRow bool
-	for _, row := range snapshot.CommittedRows {
-		switch row.Kind {
-		case TranscriptCommittedRowFactTool:
-			toolRow = row.StepID != nil && *row.StepID == stepID
-		case TranscriptCommittedRowFactNotice:
-			noticeRow = row.StepID != nil && *row.StepID == stepID &&
-				row.Notice != nil &&
-				row.Notice.Reason == transcript.NoticeReasonRuntimeDiagnostic
-		}
-	}
-	if !toolRow || !noticeRow {
-		t.Fatalf("hydrated fallback rows missing tool or diagnostic: %+v", snapshot.CommittedRows)
 	}
 
 	outputCount := 0

@@ -383,7 +383,10 @@ func hydrationHasNoTerminalRows(hydration *transcriptpb.Hydration) bool {
 }
 
 func (c *ongoingTranscriptController) frameInput() ongoing.FrameInput {
-	frame := c.frameProvider()
+	return c.composeFrame(c.frameProvider())
+}
+
+func (c *ongoingTranscriptController) composeFrame(frame ongoing.FrameInput) ongoing.FrameInput {
 	c.liveReadModel.refreshPendingToolSection(frame.Size.Width, frame.SpinnerFrame, frame.Theme)
 	c.liveReadModel.refreshPendingPromptSection(frame.Size.Width)
 	sections := make([]ongoing.FrameSection, 0, len(c.liveReadModel.sectionOrder))

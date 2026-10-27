@@ -46,7 +46,7 @@ func (s *ServerStatusService) GetUpdateStatus(ctx context.Context, _ *emptypb.Em
 	if err != nil {
 		return nil, err
 	}
-	return &serverpb.GetUpdateStatusSuccess{Status: result.proto()}, nil
+	return &serverpb.GetUpdateStatusSuccess{Status: result}, nil
 }
 
 func subagentRoleSummaries(settings config.Settings) []*serverpb.SubagentRoleSummary {

@@ -27,13 +27,13 @@ func TestOrdinaryCommittedTimePersistsAcrossPageRestartAndLiveProjection(t *test
 		if err != nil {
 			t.Fatalf("read persisted records: %v", err)
 		}
-		scan := NewPersistedTranscriptScan(PersistedTranscriptScanRequest{})
+		scan := newStreamingTranscriptScan("")
 		for _, record := range window.Records {
 			if err := scan.ApplyPersistedEvent(record); err != nil {
 				t.Fatalf("scan persisted record: %v", err)
 			}
 		}
-		facts := TranscriptCommittedRowFactsFromSnapshot(scan.CollectedPageSnapshot())
+		facts := TranscriptCommittedRowFactsFromSnapshot(scan.PageSnapshot())
 		if len(facts) != 2 {
 			t.Fatalf("persisted page facts = %d, want 2", len(facts))
 		}

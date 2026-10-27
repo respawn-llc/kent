@@ -102,7 +102,7 @@ func TestClientInputIdentitySurvivesDeliveryAndReopen(t *testing.T) {
 	pendingWorkTestNoError(t, engine.Close())
 	reopened := mustNewTestEngine(t, mustOpenTestSession(t, store.Dir()), &fakeClient{}, tools.NewRegistry(), Config{Model: "gpt-6-sol"})
 	checkProjection(TranscriptCommittedRowFactsFromSnapshot(mustEngineNewestSegmentPage(t, reopened).Snapshot))
-	checkProjection(hydrationSnapshot(t, reopened).CommittedRows)
+	checkProjection(mustNewestTranscriptFacts(t, reopened))
 }
 
 func TestQueuedUserInputRejectsMissingOrMalformedIdentity(t *testing.T) {

@@ -162,18 +162,12 @@ func TestWorkflowPostCompletionCompactionDefersGenerationContextUntilNextRequest
 	if checkpoint == nil || !reflect.DeepEqual(checkpoint, hydratedCheckpoint) {
 		t.Fatal("target hydration changed the provider checkpoint")
 	}
-	window, err = mustMaterializeTestEventLog(t, target.store).ReadRecentRecords(32)
+	page, err := target.TranscriptNewestSegmentPage()
 	if err != nil {
 		t.Fatal(err)
 	}
-	scan := NewPersistedTranscriptScan(PersistedTranscriptScanRequest{})
-	for _, record := range window.Records {
-		if err := scan.ApplyPersistedEvent(record); err != nil {
-			t.Fatal(err)
-		}
-	}
 	summaries := 0
-	for _, entry := range scan.CollectedPageSnapshot().Entries {
+	for _, entry := range page.Snapshot.Entries {
 		if entry.MessageType == llm.MessageTypeCompactionSummary {
 			summaries++
 		}

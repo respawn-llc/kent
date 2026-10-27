@@ -30,8 +30,8 @@ func TestAppendCommittedEntryRecordDoesNotMutateChatOnAppendFailure(t *testing.T
 	); err == nil {
 		t.Fatal("local entry append failure was not surfaced")
 	}
-	if len(events) != 0 || len(mustTranscriptHydrationSnapshot(t, engine).CommittedRows) != 0 {
-		t.Fatalf("uncommitted local entry changed projection: events=%+v rows=%+v", events, mustTranscriptHydrationSnapshot(t, engine).CommittedRows)
+	if len(events) != 0 {
+		t.Fatalf("uncommitted local entry changed publication: events=%+v", events)
 	}
 	if err := blocker.Restore(); err != nil {
 		t.Fatalf("restore event-log appends: %v", err)

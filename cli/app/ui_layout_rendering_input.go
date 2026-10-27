@@ -18,9 +18,10 @@ type uiInputPaneProjection struct {
 }
 
 type uiInputPaneContentLine struct {
-	text      string
-	prompt    askPromptLine
-	cursorCol int
+	text        string
+	prompt      askPromptLine
+	cursorCol   int
+	documentRow int
 }
 
 type askInputViewport struct {
@@ -71,6 +72,10 @@ func (l uiViewLayout) inputPaneProjectionWithBudget(width, maxContentLines int, 
 
 func (l uiViewLayout) projectAskInputPane(width, maxContentLines int, style uiStyles) uiInputPaneProjection {
 	viewport := l.askInputViewport(width, maxContentLines)
+	return l.renderAskViewport(width, viewport, style)
+}
+
+func (l uiViewLayout) renderAskViewport(width int, viewport askInputViewport, style uiStyles) uiInputPaneProjection {
 	visible := viewport.lines
 
 	lines := make([]string, 0, len(visible))
@@ -101,12 +106,16 @@ func (l uiViewLayout) projectAskInputPane(width, maxContentLines int, style uiSt
 }
 
 func (l uiViewLayout) askInputViewport(width, maxContentLines int) askInputViewport {
-	priorityLines, priorityCursor := l.askPriorityPaneContent(width)
+	document := l.askDocument(width)
 	questionRows := []string(nil)
 	if l.model.ask.activeProjection != nil {
 		questionRows = l.model.ask.activeProjection.rows
 	}
-	return projectBoundedAskViewport(questionRows, priorityLines, priorityCursor, width, maxContentLines)
+	priorityCursor := document.cursor
+	if priorityCursor.Visible {
+		priorityCursor.Row -= len(questionRows)
+	}
+	return projectBoundedAskViewport(questionRows, document.lines[len(questionRows):], priorityCursor, width, maxContentLines)
 }
 
 func (l uiViewLayout) askPriorityPaneContent(width int) ([]uiInputPaneContentLine, uiInputFieldCursor) {
@@ -187,8 +196,9 @@ func projectBoundedAskViewport(
 			text = truncateANSIRightWithEllipsis(questionRows[index], width, true)
 		}
 		viewport.lines = append(viewport.lines, uiInputPaneContentLine{
-			text:   text,
-			prompt: askPromptLine{Kind: askPromptLineKindQuestion},
+			text:        text,
+			prompt:      askPromptLine{Kind: askPromptLineKindQuestion},
+			documentRow: index,
 		})
 	}
 	viewport.lines = append(viewport.lines, priorityLines...)

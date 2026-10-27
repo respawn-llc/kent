@@ -270,7 +270,7 @@ func assertFreshResourceRepairOnEngine(
 		}
 	}
 	warningFound := false
-	for _, row := range hydrationSnapshot(t, engine).CommittedRows {
+	for _, row := range mustNewestTranscriptFacts(t, engine) {
 		if row.Notice != nil && row.Notice.ToolOutputRepair != nil {
 			warningFound = true
 			break
@@ -309,7 +309,7 @@ func assertHydratedToolRowsExactlyOnce(
 ) {
 	t.Helper()
 	if rows := countHydratedToolRows(
-		mustTranscriptHydrationSnapshot(t, engine),
+		mustNewestTranscriptFacts(t, engine),
 		callID,
 	); rows != 1 {
 		t.Fatalf("hydrated tool rows for %q = %d, want one", callID, rows)

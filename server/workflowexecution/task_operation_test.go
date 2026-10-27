@@ -313,14 +313,14 @@ func TestCurrentNodeControllerResumePreparesAllBranchesBeforeCutoverAndPreserves
 	}
 }
 
-func TestReactivateWorkflowSessionReturnsAdmissionFailure(t *testing.T) {
+func TestEnsureSessionExecutionReturnsAdmissionFailure(t *testing.T) {
 	f := newControllerTaskFixture(t, 2)
 	nodes := f.interruptBranches(t, f.branchPlan(t))
 	cause := errors.New("retained Session startup failed")
 	controller := f.controller(t, controllerTaskRunner{fixture: f, start: func(context.Context, workflow.CurrentNodeReference, workflowruntime.TaskPromptDelivery) (sessionruntime.ExecutionHandle, error) {
 		return nil, cause
 	}})
-	if _, err := controller.ReactivateWorkflowSession(t.Context(), *nodes[0].SessionID); !errors.Is(err, cause) {
+	if _, err := controller.EnsureSessionExecution(t.Context(), *nodes[0].SessionID); !errors.Is(err, cause) {
 		t.Fatalf("reactivation failure = %v", err)
 	}
 	after, err := f.store.ListCurrentNodes(t.Context(), f.task.ID)
@@ -337,7 +337,7 @@ func TestReactivateWorkflowSessionReturnsAdmissionFailure(t *testing.T) {
 	}
 }
 
-func TestReactivateWorkflowSessionReturnsOwnQueuedStartHandle(t *testing.T) {
+func TestEnsureSessionExecutionReturnsOwnQueuedStartHandle(t *testing.T) {
 	runtime := newCurrentNodeQuestionFixture(t)
 	f := controllerTaskFixtureInStore(t, runtime.metadata, runtime.cfg.WorkspaceRoot, 2)
 	plan := f.branchPlan(t)
@@ -370,7 +370,7 @@ func TestReactivateWorkflowSessionReturnsOwnQueuedStartHandle(t *testing.T) {
 			t.Error(err)
 		}
 	})
-	handle, err := controller.ReactivateWorkflowSession(t.Context(), sessionID)
+	handle, err := controller.EnsureSessionExecution(t.Context(), sessionID)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -401,5 +401,49 @@ func TestReactivateWorkflowSessionReturnsOwnQueuedStartHandle(t *testing.T) {
 		if hasLiveCurrentNode(runtime.authority, node.Reference) {
 			t.Fatalf("sibling became live: %+v", node.Reference)
 		}
+	}
+}
+
+func TestEnsureSessionExecutionRejectsPublicationForAnotherSession(t *testing.T) {
+	live := newCurrentNodeQuestionFixture(t)
+	f := controllerTaskFixtureInStore(t, live.metadata, live.cfg.WorkspaceRoot, 2)
+	nodes := f.interruptBranches(t, f.branchPlan(t))
+	selected := nodes[0]
+	handle, otherSession := live.startQuestionExecution(t, selected.Reference,
+		func(ctx context.Context, _ sessionruntime.ExecutionScope, _ sessionruntime.AgentRuntimeBridge) error {
+			<-ctx.Done()
+			return context.Cause(ctx)
+		})
+	if otherSession == *selected.SessionID {
+		t.Fatal("fixture did not create a distinct Session")
+	}
+	runner := controllerTaskRunner{
+		fixture: f,
+		start: func(context.Context, workflow.CurrentNodeReference, workflowruntime.TaskPromptDelivery) (sessionruntime.ExecutionHandle, error) {
+			return handle, nil
+		},
+	}
+	controller, err := NewCurrentNodeController(f.store, runner, live.authority, f.mutations, CurrentNodeControllerConfig{AgentConcurrency: 2})
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() {
+		handle.RequestStop()
+		if err := handle.Close(context.Background()); err != nil {
+			t.Error(err)
+		}
+		if err := controller.Close(); err != nil {
+			t.Error(err)
+		}
+	})
+	if _, err := controller.EnsureSessionExecution(t.Context(), *selected.SessionID); err == nil {
+		t.Fatal("accepted a prepared execution for a different Session")
+	}
+	if _, active := live.authority.SessionExecution(*selected.SessionID); active {
+		t.Fatal("mismatched publication started the selected Session")
+	}
+	current, active := live.authority.SessionExecution(otherSession)
+	if !active || current.Scope().ID() != handle.Scope().ID() {
+		t.Fatal("mismatched publication stopped or replaced the other Session")
 	}
 }

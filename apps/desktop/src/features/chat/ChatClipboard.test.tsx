@@ -3,7 +3,7 @@ import { act, fireEvent, render, renderHook, screen, waitFor } from "@testing-li
 import { createTestServices } from "@/test-support/app-services";
 import { composerWrapper } from "@/test-support/composer";
 import { useChatClipboard } from "./ChatClipboard";
-import { deferred } from "@/test-support/chat-runtime";
+import { deferred, transcriptSource } from "@/test-support/chat-runtime";
 import * as ui from "@/ui";
 import { ChatPromptPresenceProvider, ChatRuntimeProvider } from "@/app-facade";
 import { mainViewRead, runtimeHost, transcriptPage } from "@/test-support/chat-runtime";
@@ -38,7 +38,9 @@ it.each(["macos", "windows", "linux", "menu"] as const)(
   async (platform) => {
     const paste = vi.fn(async () => "/tmp/kent-clipboard-image.png");
     const services = clipboardServices(paste);
-    vi.spyOn(services.api.chat, "subscribeTranscript").mockReturnValue({ close: () => undefined });
+    vi.spyOn(services.api.chat, "subscribeTranscript").mockReturnValue(
+      transcriptSource(() => ({ close: () => undefined })),
+    );
     vi.spyOn(services.api.chat, "getMainView").mockResolvedValue(mainViewRead());
     vi.spyOn(services.api.chat, "getTranscriptPage").mockResolvedValue(transcriptPage(null));
     vi.spyOn(services.api.chat, "getDraft").mockResolvedValue({

@@ -497,7 +497,7 @@ func TestGatewayAttachSessionClearsWorkspaceOverrideForLaterPlans(t *testing.T) 
 	}
 }
 
-func TestGatewayScopesProcessViewsAndAllowsGlobalKill(t *testing.T) {
+func TestGatewayScopesProcessListAndAllowsGlobalProcessAccess(t *testing.T) {
 	home := t.TempDir()
 	workspaceA := t.TempDir()
 	workspaceB := t.TempDir()
@@ -570,11 +570,30 @@ func TestGatewayScopesProcessViewsAndAllowsGlobalKill(t *testing.T) {
 	if len(listed.Processes) != 1 || listed.Processes[0].Id != ownResult.SessionID {
 		t.Fatalf("expected only own project process, got %+v", listed.Processes)
 	}
-	if _, err := remote.GetProcess(context.Background(), &processpb.GetRequest{ProcessId: foreignResult.SessionID}); err == nil {
-		t.Fatal("expected foreign process get to be rejected")
+	unbound, err := remoteclient.DialRemoteURL(context.Background(), "ws"+server.URL[len("http"):])
+	if err != nil {
+		t.Fatalf("DialRemoteURL: %v", err)
 	}
-	if _, err := remote.GetInlineOutput(context.Background(), &processpb.InlineOutputRequest{ProcessId: foreignResult.SessionID, MaxChars: 128}); err == nil {
-		t.Fatal("expected foreign process inline output to be rejected")
+	defer func() { _ = unbound.Close() }()
+	for name, client := range map[string]*remoteclient.Remote{"unbound": unbound, "unrelated Project": remote} {
+		t.Run(name, func(t *testing.T) {
+			got, err := client.GetProcess(context.Background(), &processpb.GetRequest{ProcessId: foreignResult.SessionID})
+			if err != nil {
+				t.Fatalf("GetProcess: %v", err)
+			}
+			if got.Process == nil || got.Process.Id != foreignResult.SessionID {
+				t.Fatalf("GetProcess = %+v, want process %s", got, foreignResult.SessionID)
+			}
+			if _, err := client.GetInlineOutput(context.Background(), &processpb.InlineOutputRequest{ProcessId: foreignResult.SessionID, MaxChars: 128}); err != nil {
+				t.Fatalf("GetInlineOutput: %v", err)
+			}
+			if _, err := client.GetProcess(context.Background(), &processpb.GetRequest{ProcessId: "unknown-process"}); err == nil {
+				t.Fatal("GetProcess accepted an unknown process ID")
+			}
+			if _, err := client.GetInlineOutput(context.Background(), &processpb.InlineOutputRequest{ProcessId: "unknown-process", MaxChars: 128}); err == nil {
+				t.Fatal("GetInlineOutput accepted an unknown process ID")
+			}
+		})
 	}
 	if _, err := remote.KillProcess(context.Background(), &processpb.KillRequest{ProcessId: foreignResult.SessionID}); err != nil {
 		t.Fatalf("expected globally identified foreign process kill to succeed, got %v", err)
@@ -584,6 +603,34 @@ func TestGatewayScopesProcessViewsAndAllowsGlobalKill(t *testing.T) {
 	}
 	if bindingA.ProjectID == bindingB.ProjectID {
 		t.Fatalf("expected distinct project ids, both=%q", bindingA.ProjectID)
+	}
+}
+
+func TestGatewayProcessAccessWithoutProviderCredentials(t *testing.T) {
+	appCore, server, _ := newGatewayTestServerWithAuth(t, false)
+	appCore.Background().SetMinimumExecToBgTime(time.Millisecond)
+	store := createGatewayAuthoritativeSession(t, appCore)
+	started, err := appCore.Background().Start(context.Background(), shelltool.ExecRequest{
+		Postprocessor:  postprocessfixture.NewRunner(t, postprocess.Settings{Mode: config.ShellPostprocessingModeBuiltin}),
+		Command:        []string{"/bin/sh", "-lc", "sleep 1"},
+		DisplayCommand: "sleep 1",
+		OwnerSessionID: store.Meta().SessionID,
+		Workdir:        appCore.Config().WorkspaceRoot,
+		YieldTime:      time.Millisecond,
+	})
+	if err != nil {
+		t.Fatalf("start process: %v", err)
+	}
+	remote, err := remoteclient.DialRemoteURL(context.Background(), "ws"+server.URL[len("http"):])
+	if err != nil {
+		t.Fatalf("DialRemoteURL: %v", err)
+	}
+	defer func() { _ = remote.Close() }()
+	if _, err := remote.GetProcess(context.Background(), &processpb.GetRequest{ProcessId: started.SessionID}); err != nil {
+		t.Fatalf("GetProcess before provider authentication: %v", err)
+	}
+	if _, err := remote.GetInlineOutput(context.Background(), &processpb.InlineOutputRequest{ProcessId: started.SessionID, MaxChars: 128}); err != nil {
+		t.Fatalf("GetInlineOutput before provider authentication: %v", err)
 	}
 }
 

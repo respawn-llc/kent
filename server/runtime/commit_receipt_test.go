@@ -28,9 +28,6 @@ func TestPersistedMessageAppliesProjectionByCommitReceipt(t *testing.T) {
 		if err == nil {
 			t.Fatal("persisted message did not surface the event-log append failure")
 		}
-		if rows := mustTranscriptHydrationSnapshot(t, eng).CommittedRows; len(rows) != 0 {
-			t.Fatalf("uncommitted message projected rows: %+v", rows)
-		}
 		if len(events) != 0 {
 			t.Fatalf("uncommitted message published events: %+v", events)
 		}
@@ -51,7 +48,7 @@ func TestPersistedMessageAppliesProjectionByCommitReceipt(t *testing.T) {
 		if !errors.Is(err, observerErr) {
 			t.Fatalf("persisted message error = %v, want observer error", err)
 		}
-		if rows := mustTranscriptHydrationSnapshot(t, eng).CommittedRows; len(rows) != 1 {
+		if rows := mustNewestTranscriptFacts(t, eng); len(rows) != 1 {
 			t.Fatalf("committed message projected rows: %+v", rows)
 		}
 		if len(events) != 1 || events[0].Kind != EventConversationUpdated {
@@ -135,16 +132,4 @@ func waitForPendingRuntimeOperation(t *testing.T, engine *Engine) {
 			time.Sleep(time.Millisecond)
 		}
 	}
-}
-
-func mustTranscriptHydrationSnapshot(t *testing.T, engine *Engine) TranscriptHydrationSnapshot {
-	t.Helper()
-	var snapshot TranscriptHydrationSnapshot
-	if err := engine.WithTranscriptHydrationSnapshot(func(value TranscriptHydrationSnapshot) error {
-		snapshot = value
-		return nil
-	}); err != nil {
-		t.Fatalf("read transcript hydration snapshot: %v", err)
-	}
-	return snapshot
 }

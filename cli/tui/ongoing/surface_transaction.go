@@ -4,11 +4,12 @@ import (
 	"fmt"
 	"io"
 	"strconv"
+	"iter"
 	"strings"
 
 	"core/cli/tui/transcriptrender"
-
 	xansi "github.com/charmbracelet/x/ansi"
+	transcriptpb "core/shared/protoapi/gen/kent/api/transcript"
 )
 
 func (s *Surface) previousMutableBandHeight(size Size) int {
@@ -32,8 +33,8 @@ func (s *Surface) validateRenderFrame(frame FrameInput, operation string) {
 
 func (s *Surface) writeFrameTransaction(frame FrameInput, immutableRows []string) (Result, error) {
 	s.observeResize(frame.Size)
-	liveLayout, cursor := s.allocateLiveBand(frame)
-	liveLayout = composeInputOverlay(frame, liveLayout)
+	allocation := s.AllocateFrame(frame)
+	liveLayout, cursor := allocation.layout, allocation.cursor
 	liveLines := liveBandLineTexts(liveLayout)
 	for row, line := range liveLines {
 		if width := xansi.StringWidth(line); width > frame.Size.Width {
@@ -119,6 +120,45 @@ func composeInputOverlay(frame FrameInput, layout []liveBandLine) []liveBandLine
 		return layout
 	}
 	return layout
+}
+
+// FrameAllocation is the final live-band geometry used by the terminal painter.
+type FrameAllocation struct {
+	layout []liveBandLine
+	cursor Cursor
+}
+
+// SectionRows returns the surviving one-based row identities of a frame section.
+func (a FrameAllocation) SectionRows(kind FrameSectionKind) []int {
+	var rows []int
+	for _, line := range a.layout {
+		if line.sectionKind == kind {
+			rows = append(rows, line.sectionRow)
+		}
+	}
+	return rows
+}
+
+// AllocateFrame measures a repaint without writing or changing transcript state.
+func (s *Surface) AllocateFrame(frame FrameInput) FrameAllocation {
+	layout, cursor := s.allocateLiveBand(frame)
+	layout = composeInputOverlay(frame, layout)
+	return FrameAllocation{layout: layout, cursor: cursorForVisibleLiveBand(cursor, frame.Size.Height, layout)}
+}
+
+// AllocateMessageFrames measures each incoming frame in order without consuming
+// the messages or advancing the surface's grouping, stream, or terminal state.
+func (s *Surface) AllocateMessageFrames(messages []*transcriptpb.Message, frame FrameInput) iter.Seq[FrameAllocation] {
+	return func(yield func(FrameAllocation) bool) {
+		next := *s
+		for _, message := range messages {
+			next.prepareTerminalMessage(message, frame)
+			allocation := next.AllocateFrame(frame)
+			if !yield(allocation) {
+				return
+			}
+		}
+	}
 }
 
 func validateFrameTransactionGeometry(
