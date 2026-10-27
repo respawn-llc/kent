@@ -116,6 +116,19 @@ func TestSurfaceVerticalExpansionMarksOnlyTheLiveBandAsRedrawable(t *testing.T) 
 			want,
 		)
 	}
+	for _, size := range []Size{{Width: 81, Height: 28}, initial.Size, {Width: 80, Height: 19}, initial.Size} {
+		output.Reset()
+		if result := surface.ObserveResize(size); result.Action != ResultNoop {
+			t.Fatalf("seamless resize observation requested recovery: %+v", result)
+		}
+		result, err := surface.Resize(size, initial)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if result.Action != ResultNoop || strings.Contains(output.String(), "IMMUTABLE") {
+			t.Fatalf("seamless resize replayed history or requested recovery: result=%+v output=%q", result, output.String())
+		}
+	}
 }
 
 func TestTmuxResizeDoesNotMarkMutableBandAsRedrawable(t *testing.T) {

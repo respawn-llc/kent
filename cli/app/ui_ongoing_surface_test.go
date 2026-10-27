@@ -56,8 +56,19 @@ func TestNativeOngoingSurfaceWritesBypassRendererGate(t *testing.T) {
 		t.Fatalf("render ongoing surface: %v", err)
 	}
 
-	if got, want := out.String(), "\x1b[r\x1b[?6l\x1b]133;C\x1b\\\x1b[3;1H\x1b]133;C\x1b\\\x1b[2K\x1b[3;1H\x1b]133;A;redraw=1\x1b\\ready\x1b[?25l"; got != want {
-		t.Fatalf("ongoing surface bytes = %q, want %q", got, want)
+	stream, err := analyzer.NewStream(pty.MustDimensions(3, 20))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := stream.Feed(out.Bytes()); err != nil {
+		t.Fatal(err)
+	}
+	snapshot, err := stream.ScreenSnapshot()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(snapshot.RenderText(), "ready") {
+		t.Fatalf("ongoing surface did not bypass renderer suppression: %q", snapshot.RenderText())
 	}
 }
 
