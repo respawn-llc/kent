@@ -7,10 +7,10 @@ import (
 	"strings"
 
 	"core/prompts"
+	"core/server/agentruntime"
 	"core/server/goalview"
-	"core/server/runtime"
-	"core/server/session"
 	"core/server/sessionruntime"
+	"core/server/sessionstore"
 	runtimepb "core/shared/protoapi/gen/kent/api/runtime"
 	"core/shared/runtimeids"
 	"core/shared/serverapi"

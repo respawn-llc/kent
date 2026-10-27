@@ -66,7 +66,7 @@ it("presents admitted usage and policy updates from the ordinary observation", a
     }),
   );
   expect(await screen.findByRole("button", { name: "50%" })).toBeInTheDocument();
-  await userEvent.setup().hover(screen.getByRole("button", { name: "50%" }));
+  await userEvent.setup({ delay: null }).hover(screen.getByRole("button", { name: "50%" }));
   await waitFor(() => {
     expect(
       screen.getByRole("button", {

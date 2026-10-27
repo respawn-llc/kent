@@ -2,7 +2,8 @@ import { Brain } from "lucide-react";
 import { useTranslation } from "react-i18next";
 
 import type { TranscriptRenderItem } from "@/app-facade";
-import { Shimmer, StreamingMarkdown, TranscriptDisclosure } from "@/ui";
+import { Shimmer, TranscriptDisclosure } from "@/ui";
+import { StreamingMarkdown } from "@/ui/markdown";
 
 import { TranscriptCopyAction } from "./TranscriptCopyAction";
 

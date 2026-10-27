@@ -1,0 +1,273 @@
+package runtime
+
+import (
+	"testing"
+
+	"core/prompts"
+	"core/server/llm"
+	"core/server/sessionstore"
+	"core/server/workflow"
+	"core/server/workflowruntime"
+	"core/shared/runtimeids"
+	"core/shared/sessioncontract"
+	"core/shared/textutil"
+)
+
+func TestSelectWorkflowTaskPromptForFirstNodeAssignmentInSession(t *testing.T) {
+	t.Parallel()
+	kind, ok := selectWorkflowTaskPromptForTest(
+		t,
+		nil,
+		"run-current",
+		workflowTaskPromptTriggerTaskDelivery,
+	)
+	if !ok || kind != prompts.WorkflowTaskPromptInitialAssignment {
+		t.Fatalf("selected workflow prompt = %d, present=%t, want initial assignment", kind, ok)
+	}
+}
+
+func TestSelectWorkflowTaskPromptForAnotherNodeAssignmentInSameSession(t *testing.T) {
+	t.Parallel()
+	kind, ok := selectWorkflowTaskPromptForTest(
+		t,
+		workflowPromptItems("run-previous"),
+		"run-current",
+		workflowTaskPromptTriggerTaskDelivery,
+	)
+	if !ok || kind != prompts.WorkflowTaskPromptReassignment {
+		t.Fatalf("selected workflow prompt = %d, present=%t, want reassignment", kind, ok)
+	}
+}
+
+func TestSelectWorkflowTaskPromptForSameNodeReentryForcesReassignment(t *testing.T) {
+	t.Parallel()
+	kind, ok := selectWorkflowTaskPromptForTest(
+		t,
+		workflowPromptItems("assignment-current"),
+		"assignment-current",
+		workflowTaskPromptTriggerAssignmentDelivery,
+	)
+	if !ok || kind != prompts.WorkflowTaskPromptReassignment {
+		t.Fatalf("selected workflow prompt = %d, present=%t, want reassignment", kind, ok)
+	}
+}
+
+func TestSelectWorkflowTaskPromptForResumedAssignmentOmitsDuplicate(t *testing.T) {
+	t.Parallel()
+	kind, ok := selectWorkflowTaskPromptForTest(
+		t,
+		workflowPromptItems("assignment-current"),
+		"assignment-current",
+		workflowTaskPromptTriggerResumeDelivery,
+	)
+	if ok {
+		t.Fatalf("selected workflow prompt = %d, want no duplicate prompt", kind)
+	}
+}
+
+func TestWorkflowPromptIdentityUsesNaturalCurrentNodeAcrossExecutionScopes(t *testing.T) {
+	t.Parallel()
+	currentScopeID := runtimeids.NewExecutionScopeID()
+	currentNode, err := workflow.NewCurrentNodeReference("task-1", "node-1", nil)
+	if err != nil {
+		t.Fatalf("NewCurrentNodeReference: %v", err)
+	}
+	engine := mustNewWorkflowTestEngine(
+		t,
+		mustCreateTestSession(t),
+		&fakeClient{},
+		&workflowruntime.CurrentNodeExecutionConfig{
+			ScopeID:        currentScopeID,
+			CompletionMode: workflowruntime.CompletionModeTool,
+			Controller:     &externallyCompletedWorkflowController{},
+			Instructions:   workflowruntime.TaskInstructions{CurrentNode: currentNode},
+		},
+		Config{},
+	)
+	prompt, configured := engine.workflowPrompt()
+	if !configured {
+		t.Fatal("workflow prompt is not configured")
+	}
+	expectedIdentity := workflowruntime.CurrentNodePromptIdentity(currentNode)
+	if prompt.Identity != expectedIdentity {
+		t.Fatalf("workflow prompt identity = %q, want natural Current Node identity %q", prompt.Identity, expectedIdentity)
+	}
+	kind, inject := selectWorkflowTaskPromptForTest(
+		t,
+		workflowPromptItems(expectedIdentity),
+		prompt.Identity,
+		workflowTaskPromptTriggerAssignmentDelivery,
+	)
+	if !inject || kind != prompts.WorkflowTaskPromptReassignment {
+		t.Fatalf("same-node reentry prompt = %d, inject=%t, want reassignment", kind, inject)
+	}
+}
+
+func TestSelectWorkflowTaskPromptOmitsDuplicateForCurrentTaskRequest(t *testing.T) {
+	t.Parallel()
+	kind, ok := selectWorkflowTaskPromptForTest(
+		t,
+		workflowPromptItems("run-current"),
+		"run-current",
+		workflowTaskPromptTriggerTaskDelivery,
+	)
+	if ok {
+		t.Fatalf("selected workflow prompt = %d, want no duplicate prompt", kind)
+	}
+}
+
+func TestSelectWorkflowTaskPromptAfterSameNodeAssignmentCompaction(t *testing.T) {
+	t.Parallel()
+	kind, ok := selectWorkflowTaskPromptForTest(
+		t,
+		workflowPromptItems("run-current"),
+		"run-current",
+		workflowTaskPromptTriggerCompaction,
+	)
+	if !ok || kind != prompts.WorkflowTaskPromptCompactionReminder {
+		t.Fatalf("selected workflow prompt = %d, present=%t, want compaction reminder", kind, ok)
+	}
+}
+
+func TestSelectWorkflowTaskPromptAfterDeferredSameAssignmentCompaction(t *testing.T) {
+	t.Parallel()
+	kind, present := selectWorkflowTaskPromptForTest(t, nil, "run-current", workflowTaskPromptTriggerCompaction)
+	if !present || kind != prompts.WorkflowTaskPromptCompactionReminder {
+		t.Fatalf("deferred current assignment prompt = %v, present=%v, want continuation", kind, present)
+	}
+}
+
+func TestSelectWorkflowTaskPromptAfterCompactionForAnotherNodeAssignment(t *testing.T) {
+	t.Parallel()
+	kind, ok := selectWorkflowTaskPromptForTest(
+		t,
+		workflowPromptItems("run-previous"),
+		"run-current",
+		workflowTaskPromptTriggerCompaction,
+	)
+	if !ok || kind != prompts.WorkflowTaskPromptReassignment {
+		t.Fatalf("selected workflow prompt = %d, present=%t, want reassignment", kind, ok)
+	}
+}
+
+func TestSelectWorkflowTaskPromptResumeRestoresMissingOrDifferentAssignment(t *testing.T) {
+	t.Parallel()
+	for _, test := range []struct {
+		name       string
+		items      []llm.ResponseItem
+		wantKind   prompts.WorkflowTaskPromptKind
+		wantInject bool
+	}{
+		{
+			name:       "missing assignment",
+			items:      nil,
+			wantKind:   prompts.WorkflowTaskPromptCompactionReminder,
+			wantInject: true,
+		},
+		{
+			name:       "different assignment",
+			items:      workflowPromptItems("run-previous"),
+			wantKind:   prompts.WorkflowTaskPromptReassignment,
+			wantInject: true,
+		},
+		{
+			name:       "exact assignment",
+			items:      workflowPromptItems("run-current"),
+			wantKind:   prompts.WorkflowTaskPromptInitialAssignment,
+			wantInject: false,
+		},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			kind, inject, err := selectWorkflowTaskPrompt(
+				workflowAssignmentIdentityFromItems(test.items),
+				"run-current",
+				workflowTaskPromptTriggerResumeDelivery,
+			)
+			if err != nil {
+				t.Fatalf("resume selection error = %v, want nil", err)
+			}
+			if kind != test.wantKind || inject != test.wantInject {
+				t.Fatalf(
+					"resume selection = kind %d, inject=%t for items %+v; want kind %d, inject=%t",
+					kind, inject, test.items, test.wantKind, test.wantInject,
+				)
+			}
+		})
+	}
+}
+
+func TestSelectWorkflowTaskPromptForFanoutCloneWithInheritedAssignment(t *testing.T) {
+	t.Parallel()
+	source := mustCreateTestSession(t)
+	mustAppendTestEvent(t, source, "previous-assignment", llm.Message{
+		Role:        llm.RoleDeveloper,
+		MessageType: textutil.Value(llm.MessageTypeWorkflowMode),
+		SourcePath:  textutil.Value("run-previous"),
+		Content:     textutil.Value("workflow instructions"),
+	})
+	sourceLog, err := source.MaterializeEventLog()
+	if err != nil {
+		t.Fatalf("materialize source event log: %v", err)
+	}
+	clone, err := session.CloneSession(
+		sourceLog,
+		new("fanout-clone"),
+		sessioncontract.SessionCategoryMain, session.ForkThinking{Desired: "medium", PreserveNativeUpdates: true})
+
+	if err != nil {
+		t.Fatalf("clone source Session: %v", err)
+	}
+	if clone.Meta().SessionID == source.Meta().SessionID {
+		t.Fatalf("fan-out clone reused source Session ID %q", source.Meta().SessionID)
+	}
+	scopeID := runtimeids.NewExecutionScopeID()
+	engine := mustNewWorkflowTestEngine(
+		t,
+		clone,
+		&fakeClient{},
+		&workflowruntime.CurrentNodeExecutionConfig{
+			ScopeID:        scopeID,
+			Contract:       workflowruntime.CompletionContract{},
+			CompletionMode: workflowruntime.CompletionModeTool,
+			Controller:     &externallyCompletedWorkflowController{},
+		},
+		Config{},
+	)
+
+	prompt, configured := engine.workflowPrompt()
+	if !configured {
+		t.Fatal("workflow prompt is not configured")
+	}
+	kind, ok := selectWorkflowTaskPromptForTest(
+		t,
+		engine.transcriptRuntimeState().SnapshotItems(),
+		prompt.Identity,
+		workflowTaskPromptTriggerAssignmentDelivery,
+	)
+	if !ok || kind != prompts.WorkflowTaskPromptReassignment {
+		t.Fatalf("selected workflow prompt = %d, present=%t, want reassignment", kind, ok)
+	}
+}
+
+func selectWorkflowTaskPromptForTest(
+	t *testing.T,
+	items []llm.ResponseItem,
+	currentNodeIdentity string,
+	trigger workflowTaskPromptTrigger,
+) (prompts.WorkflowTaskPromptKind, bool) {
+	t.Helper()
+	kind, inject, err := selectWorkflowTaskPrompt(workflowAssignmentIdentityFromItems(items), currentNodeIdentity, trigger)
+	if err != nil {
+		t.Fatalf("selectWorkflowTaskPrompt: %v", err)
+	}
+	return kind, inject
+}
+
+func workflowPromptItems(identity string) []llm.ResponseItem {
+	return llm.ItemsFromMessages([]llm.Message{{
+		Role:        llm.RoleDeveloper,
+		MessageType: textutil.Value(llm.MessageTypeWorkflowMode),
+		SourcePath:  textutil.Value(identity),
+		Content:     textutil.Value("workflow instructions"),
+	}})
+}

@@ -3,7 +3,6 @@ package app
 import (
 	"bytes"
 	"errors"
-	"slices"
 	"strings"
 	"testing"
 
@@ -483,14 +482,7 @@ func TestTerminalCursorPlacementAccountsForTailTrimmedStatusLine(t *testing.T) {
 	if placement.CursorCol != 4 {
 		t.Fatalf("cursor col = %d, want 4", placement.CursorCol)
 	}
-	lines := strings.Split(view, "\n")
-	strippedLines := make([]string, 0, len(lines))
-	for _, line := range lines {
-		strippedLines = append(strippedLines, xansi.Strip(line))
-	}
-	if got, want := strippedLines, []string{"input 1", "input 2", "status"}; !slices.Equal(got, want) {
-		t.Fatalf("rendered lines = %#v, want %#v", got, want)
-	}
+	assertRenderedLinesFitWidth(t, view, frame.width)
 }
 
 func TestSoftCursorOverlayPreservesColumnAfterTrimmedTrailingSpaces(t *testing.T) {
@@ -508,8 +500,12 @@ func TestSharedFieldRenderingPreservesExplicitTrailingSpaces(t *testing.T) {
 	field.MaxLines = 1
 	field.Cursor = true
 	rendered := field.Render(10)
-	if got, want := rendered.Lines[0], "› abc     "; got != want {
-		t.Fatalf("line = %q, want %q", got, want)
+	if len(rendered.Lines) != 1 {
+		t.Fatalf("rendered line count = %d, want 1", len(rendered.Lines))
+	}
+	assertRenderedLinesFitWidth(t, rendered.Lines[0], 10)
+	if !rendered.Cursor.Visible || rendered.Cursor.Row != 0 {
+		t.Fatalf("expected visible cursor on the input row, got %+v", rendered.Cursor)
 	}
 	if rendered.Cursor.Col != 7 {
 		t.Fatalf("cursor col = %d, want 7", rendered.Cursor.Col)

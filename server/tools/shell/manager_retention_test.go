@@ -4,13 +4,10 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"os"
-	"path/filepath"
 	"testing"
 	"time"
 
 	"core/internal/testharness/postprocessfixture"
-	"core/internal/testharness/testsetup"
 	"core/server/tools/shell/postprocess"
 	"core/shared/config"
 )
@@ -19,18 +16,21 @@ func TestManagerRetainsMostRecentlyAccessedCompletedShellsWithoutEvictingRunning
 	const completedRetentionLimit = 1_000
 
 	manager := newShellTestManager(t, time.Millisecond)
+	runner := postprocessfixture.NewRunner(t, postprocess.Settings{Mode: config.ShellPostprocessingModeBuiltin})
+	completed := make(chan Event, 1)
+	manager.SetEventHandler(func(event Event) bool {
+		if event.Type == EventCompleted || event.Type == EventKilled {
+			completed <- event
+		}
+		return true
+	})
 	workdir := t.TempDir()
 	completedIDs := make([]string, 0, completedRetentionLimit)
-	for nextIndex := 0; nextIndex < completedRetentionLimit; {
-		batchSize := 32
-		if remaining := completedRetentionLimit - nextIndex; remaining < batchSize {
-			batchSize = remaining
-		}
+	for index := range completedRetentionLimit {
 		completedIDs = append(
 			completedIDs,
-			startAndCompleteRetainedShellBatch(t, manager, workdir, nextIndex, batchSize)...,
+			startAndCompleteRetainedShell(t, manager, runner, completed, workdir, index),
 		)
-		nextIndex += batchSize
 	}
 
 	victimID := completedIDs[0]
@@ -59,17 +59,13 @@ func TestManagerRetainsMostRecentlyAccessedCompletedShellsWithoutEvictingRunning
 	running := startRetainedShell(
 		t,
 		manager,
+		runner,
 		workdir,
-		retainedShellReleaseName(completedRetentionLimit),
 		completedRetentionLimit,
 	)
 	_ = manager.List()
-	startAndCompleteRetainedShell(t, manager, workdir, completedRetentionLimit+1)
-	select {
-	case <-evicted:
-	case <-time.After(2 * time.Second):
-		t.Fatal("eviction did not notify the removed process's Session")
-	}
+	startAndCompleteRetainedShell(t, manager, runner, completed, workdir, completedRetentionLimit+1)
+	<-evicted
 
 	if _, err := manager.Snapshot(victimID); !errors.Is(err, ErrResultUnavailable) {
 		t.Fatalf("least-recently-accessed completed shell error = %v, want %v", err, ErrResultUnavailable)
@@ -89,65 +85,49 @@ func TestManagerRetainsMostRecentlyAccessedCompletedShellsWithoutEvictingRunning
 	}
 }
 
-func startAndCompleteRetainedShell(t *testing.T, manager *Manager, workdir string, index int) string {
-	t.Helper()
-	return startAndCompleteRetainedShellBatch(t, manager, workdir, index, 1)[0]
-}
-
-func startAndCompleteRetainedShellBatch(
+func startAndCompleteRetainedShell(
 	t *testing.T,
 	manager *Manager,
+	runner *postprocess.Runner,
+	completed <-chan Event,
 	workdir string,
-	firstIndex int,
-	count int,
-) []string {
+	index int,
+) string {
 	t.Helper()
-	releaseName := retainedShellReleaseName(firstIndex)
-	results := make([]ExecResult, 0, count)
-	for offset := range count {
-		results = append(results, startRetainedShell(t, manager, workdir, releaseName, firstIndex+offset))
+	result := startRetainedShell(t, manager, runner, workdir, index)
+	_, err := manager.WriteStdin(context.Background(), WriteRequest{
+		SessionID:      result.SessionID,
+		Input:          "\n",
+		YieldTime:      time.Millisecond,
+		MaxOutputChars: 1_000,
+	})
+	if err != nil {
+		t.Fatalf("release retained shell %s: %v", result.SessionID, err)
 	}
-	releasePath := filepath.Join(workdir, releaseName)
-	if err := os.WriteFile(releasePath, []byte("release"), 0o600); err != nil {
-		t.Fatalf("release shell batch at %d: %v", firstIndex, err)
+	event := <-completed
+	if event.Type != EventCompleted || event.Snapshot.ID != result.SessionID {
+		t.Fatalf("unexpected retained shell completion: %+v, want process %s", event, result.SessionID)
 	}
-	ids := make([]string, 0, len(results))
-	for _, result := range results {
-		testsetup.RequireUntil(t, time.Now().Add(2*time.Second), time.Millisecond, func() bool {
-			snapshot, err := manager.Snapshot(result.SessionID)
-			return err == nil && !snapshot.Running
-		}, "timed out waiting for retained shell %s to complete", result.SessionID)
-		ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
-		_, err := manager.WriteStdin(ctx, WriteRequest{
-			SessionID:      result.SessionID,
-			YieldTime:      time.Millisecond,
-			MaxOutputChars: 1_000,
-		})
-		cancel()
-		if err != nil {
-			t.Fatalf("wait for retained shell %s terminal delivery: %v", result.SessionID, err)
-		}
-		ids = append(ids, result.SessionID)
-	}
-	return ids
+	return result.SessionID
 }
 
 func startRetainedShell(
 	t *testing.T,
 	manager *Manager,
+	runner *postprocess.Runner,
 	workdir string,
-	releaseName string,
 	index int,
 ) ExecResult {
 	t.Helper()
 	result, err := manager.Start(context.Background(), ExecRequest{
 		OwnerSessionID: fmt.Sprintf("session-%d", index),
-		Postprocessor:  postprocessfixture.NewRunner(t, postprocess.Settings{Mode: config.ShellPostprocessingModeBuiltin}),
-		Command:        []string{"/bin/sh", "-c", fmt.Sprintf("while [ ! -f %s ]; do sleep 0.01; done", releaseName)},
+		Postprocessor:  runner,
+		Command:        []string{"/bin/sh", "-c", "read -r release"},
 		DisplayCommand: "wait for release",
 		Workdir:        workdir,
 		YieldTime:      time.Millisecond,
 		MaxOutputChars: 1_000,
+		KeepStdinOpen:  true,
 	})
 	if err != nil {
 		t.Fatalf("start retained shell %d: %v", index, err)
@@ -156,8 +136,4 @@ func startRetainedShell(
 		t.Fatalf("shell %d did not move to background: %+v", index, result)
 	}
 	return result
-}
-
-func retainedShellReleaseName(index int) string {
-	return fmt.Sprintf("release-%04d", index)
 }

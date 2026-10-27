@@ -8,9 +8,9 @@ import (
 	"reflect"
 	"testing"
 
-	"core/server/auth"
+	"core/server/authmanager"
 	"core/server/launch"
-	"core/server/session"
+	"core/server/sessionstore"
 	"core/shared/config"
 	chatsettingspb "core/shared/protoapi/gen/kent/api/chat_settings"
 	sharedpb "core/shared/protoapi/gen/kent/api/shared"

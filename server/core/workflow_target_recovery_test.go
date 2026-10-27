@@ -15,7 +15,7 @@ import (
 	"core/internal/testharness/scriptedllm"
 	"core/internal/testharness/testsetup"
 	"core/internal/testharness/workflowfixture"
-	"core/server/auth"
+	"core/server/authmanager"
 	serverbootstrap "core/server/bootstrap"
 	"core/server/llm"
 	"core/server/metadata"

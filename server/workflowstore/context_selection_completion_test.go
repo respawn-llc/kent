@@ -5,7 +5,7 @@ import (
 	"testing"
 
 	"core/server/metadata"
-	"core/server/session"
+	"core/server/sessionstore"
 	"core/server/workflow"
 	"core/shared/config"
 	"core/shared/runtimeids"

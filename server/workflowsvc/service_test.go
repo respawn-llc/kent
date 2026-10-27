@@ -27,7 +27,7 @@ import (
 	"core/server/workflowscript"
 	"core/server/workflowstore"
 	"core/server/workflowview"
-	"core/server/worktree"
+	"core/server/worktreeservice"
 	"core/shared/apicontract"
 	"core/shared/config"
 	"core/shared/labelcontract"

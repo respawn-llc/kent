@@ -6,8 +6,8 @@ import (
 	"testing"
 	"time"
 
-	"core/server/runtime"
-	"core/server/session"
+	"core/server/agentruntime"
+	"core/server/sessionstore"
 )
 
 func TestAgentChangeWaitsForStopAndSurvivesCallerCancellation(t *testing.T) {

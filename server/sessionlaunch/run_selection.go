@@ -7,7 +7,7 @@ import (
 
 	"core/server/launch"
 	"core/server/llm"
-	"core/server/session"
+	"core/server/sessionstore"
 	chatsettingspb "core/shared/protoapi/gen/kent/api/chat_settings"
 	runpromptpb "core/shared/protoapi/gen/kent/api/run_prompt"
 	"core/shared/serverapi"

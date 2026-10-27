@@ -17,7 +17,7 @@ server mode="":
         exit 2
     fi
     just _lint-protobuf
-    go run ./cmd/architectureguard .
+    go run ./cmd/checkarchitecture .
     go vet ./...
 
 desktop mode="":

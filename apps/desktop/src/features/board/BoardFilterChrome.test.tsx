@@ -95,7 +95,7 @@ describe("BoardFilterChrome", () => {
   });
 
   it("toggles the route-local Unblocked filter", async () => {
-    const user = userEvent.setup();
+    const user = userEvent.setup({ delay: null });
     boardQueryRuntime.filter = {
       labelFilter: { kind: "named", mode: "all", labelIDs: ["label-1"], excludedLabelIDs: [] },
       dependencyFilter: null,
@@ -116,7 +116,7 @@ describe("BoardFilterChrome", () => {
   });
 
   it("changes Labels without changing the route-local dependency filter", async () => {
-    const user = userEvent.setup();
+    const user = userEvent.setup({ delay: null });
     boardQueryRuntime.filter = {
       labelFilter: { kind: "named", mode: "all", labelIDs: ["label-1"], excludedLabelIDs: [] },
       dependencyFilter: true,

@@ -6,11 +6,11 @@ import (
 	"fmt"
 	"strings"
 
+	"core/server/agentruntime"
 	"core/server/metadata"
 	"core/server/runlog"
-	"core/server/runtime"
 	"core/server/runtimewire"
-	"core/server/session"
+	"core/server/sessionstore"
 	"core/server/tools"
 	servicecontract "core/shared/apicontract"
 	"core/shared/serverapi"

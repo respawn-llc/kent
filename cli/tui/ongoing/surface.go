@@ -7,7 +7,7 @@ import (
 
 	"core/cli/tui/transcriptrender"
 	transcriptpb "core/shared/protoapi/gen/kent/api/transcript"
-	"core/shared/transcript"
+	"core/shared/transcriptmodel"
 )
 
 type Size struct {

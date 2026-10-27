@@ -26,7 +26,7 @@ it("parses each static Markdown value once without a hydration reparse", () => {
 describe("StaticMarkdown task lists", () => {
   it("replaces an editable checklist without using stale source offsets", async () => {
     const onChange = vi.fn();
-    const user = userEvent.setup();
+    const user = userEvent.setup({ delay: null });
     const initialValue = "- [ ] Keep the Markdown source";
     const updatedValue = "New context\n\n- [ ] Keep the Markdown source";
     const view = render(
@@ -51,7 +51,7 @@ describe("StaticMarkdown task lists", () => {
 
   it("toggles the selected task marker without rewriting surrounding Markdown", async () => {
     const onChange = vi.fn();
-    const user = userEvent.setup();
+    const user = userEvent.setup({ delay: null });
     const value = "Before\n\n3. [X] **Keep this formatting**\n\nAfter";
 
     render(

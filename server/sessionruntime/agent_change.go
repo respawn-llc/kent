@@ -4,8 +4,8 @@ import (
 	"context"
 	"errors"
 
-	"core/server/runtime"
-	"core/server/session"
+	"core/server/agentruntime"
+	"core/server/sessionstore"
 	"core/shared/runtimeids"
 )
 

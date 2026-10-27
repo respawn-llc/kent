@@ -85,6 +85,20 @@ func signalManagedProcessGroup(process *os.Process, signal syscall.Signal, actio
 		if probeErr == nil && exited {
 			return nil
 		}
+		if errors.Is(err, syscall.EPERM) {
+			// Darwin rejects group signals once only zombies remain, although
+			// Signal(0) still succeeds until Wait reaps the managed root.
+			processes, stateErr := managedProcessSnapshot()
+			if stateErr != nil {
+				return errors.Join(fmt.Errorf("%s process group %d: %w", action, pid, err), stateErr)
+			}
+			for memberPID, member := range processes {
+				if member.processGroupID == pid && !member.exited {
+					return fmt.Errorf("%s process group %d: %w; live member %d: %+v", action, pid, err, memberPID, member)
+				}
+			}
+			return nil
+		}
 		return fmt.Errorf("%s process group %d: %w", action, pid, err)
 	}
 	return nil
