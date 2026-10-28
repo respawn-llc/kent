@@ -402,8 +402,20 @@ func (a *responseStreamAccumulator) Response() (ResponsesResponse, error) {
 		}
 		native = native.WithReasoningType(body.ReasoningType)
 	}
+	var endTurn *bool
+	if field, present := a.completed.JSON.ExtraFields["end_turn"]; present {
+		if err := json.Unmarshal([]byte(field.Raw()), &endTurn); err != nil {
+			return ResponsesResponse{}, fmt.Errorf("decode completed response end_turn: %w", err)
+		}
+	}
+	// Codex treats an omitted end_turn as complete unless tool execution or
+	// pending input requires another step. Text and phase are presentation.
+	if endTurn == nil {
+		endTurn = textutil.Value(true)
+	}
 	return ResponsesResponse{
 		NativeResponse:   native,
+		EndTurn:          endTurn,
 		AssistantText:    finalText,
 		ProviderPhase:    finalProviderPhase,
 		ServedModel:      textutil.Pointer(a.standardServedModel),

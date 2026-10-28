@@ -106,10 +106,11 @@
 
 - One product matrix must define transcript visibility. Kent must not use ad hoc filters.
 - Visibility changes presentation only. It must not change Session history.
-- Outside an active Goal and Workflow Mode, an explicitly present empty or whitespace-only assistant final answer ends work silently. It creates no visible assistant row, completion notification, or terminal bell.
-- A response with omitted assistant final content and actual tool calls executes those calls without a missing-content warning and proceeds.
-- A response with omitted assistant final content and reasoning or nonempty commentary content proceeds without a missing-content warning.
-- A response with omitted assistant final content and no tool calls, reasoning, nonempty commentary content, or final content fails as a provider-contract error.
+- Without a provider turn-completion fact, outside an active Goal and Workflow Mode, an explicitly present empty or whitespace-only assistant final answer ends work silently. It creates no visible assistant row, completion notification, or terminal bell.
+- Outside an active Goal and Workflow Mode, a completed Responses generation must end the turn unless local tool execution, pending input, or an explicit `end_turn: false` requires another Step. Empty output and absent assistant phase must not require another Step. Completion without assistant text must create no visible assistant row, completion notification, or terminal bell.
+- A response with omitted assistant final content and local tool calls must execute those calls without a missing-content warning and proceed.
+- Without a provider turn-completion fact, a response with omitted assistant final content and reasoning or nonempty commentary content proceeds without a missing-content warning.
+- Without a provider turn-completion fact, a response with omitted assistant final content and no tool calls, reasoning, nonempty commentary content, or final content fails as a provider-contract error.
 - During an active Goal or Workflow Mode, a blank final answer follows that mode's ordinary incomplete-output behavior and must not silently stop.
 - Visibility values are `O` full ongoing+detail, `OC` collapsed/short ongoing plus full detail, `D` detail-only, and `X` hidden.
 - Unknown/malformed entries with recoverable text are `O`. Empty unknown/malformed entries are `D` diagnostics.

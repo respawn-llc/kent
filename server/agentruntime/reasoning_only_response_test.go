@@ -19,6 +19,7 @@ func TestWorkflowReasoningOnlyResponseContinuesWithoutFeedback(t *testing.T) {
 	completionTool := &externalCompletionTool{}
 	client := &fakeClient{responses: []llm.Response{
 		{
+			EndTurn: textutil.Value(true),
 			Assistant: llm.Message{
 				Role: llm.RoleAssistant,
 				ReasoningItems: []llm.ReasoningItem{{
@@ -84,6 +85,7 @@ func TestWorkflowEmptyFinalResponseUsesGenericEmptyFinalFeedback(t *testing.T) {
 	completionTool := &externalCompletionTool{}
 	client := &fakeClient{responses: []llm.Response{
 		{
+			EndTurn: textutil.Value(true),
 			Assistant: llm.Message{
 				Role:    llm.RoleAssistant,
 				Phase:   textutil.Value(llm.MessagePhaseFinal),

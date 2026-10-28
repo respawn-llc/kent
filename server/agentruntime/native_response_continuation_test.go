@@ -677,7 +677,8 @@ func TestAcceptedInvisibleNativeOutputContinuesWithoutVisibleRows(t *testing.T) 
 	var calls atomic.Int32
 	client := nativeResponseTestClient(t, nativeResponsesSocketHandler(t, func(raw json.RawMessage) []string {
 		output := opaque
-		if calls.Add(1) > 1 {
+		turn := calls.Add(1)
+		if turn > 1 {
 			var request struct {
 				Input    []json.RawMessage `json:"input"`
 				Previous *string           `json:"previous_response_id"`
@@ -690,7 +691,7 @@ func TestAcceptedInvisibleNativeOutputContinuesWithoutVisibleRows(t *testing.T) 
 			}
 			output = final
 		}
-		return []string{fmt.Sprintf(`{"type":"response.completed","response":{"id":"resp_native","status":"completed","output":[%s],"usage":{"input_tokens":10,"output_tokens":2,"total_tokens":12}}}`, output)}
+		return []string{fmt.Sprintf(`{"type":"response.completed","response":{"id":"resp_native","status":"completed","output":[%s],"end_turn":%t,"usage":{"input_tokens":10,"output_tokens":2,"total_tokens":12}}}`, output, turn > 1)}
 	}))
 	store := mustCreateTestSession(t)
 	engine := mustNewTestEngine(t, store, client, tools.NewRegistry(), Config{Model: "gpt-6-sol"})

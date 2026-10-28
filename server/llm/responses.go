@@ -62,6 +62,7 @@ func RequestAsResponses(request Request) ResponsesRequest {
 
 type ResponsesResponse struct {
 	NativeResponse    *NativeResponse
+	EndTurn           *bool
 	attemptDiagnostic *providerAttemptDiagnostic
 	AssistantText     *string
 	ProviderPhase     *ProviderPhase
@@ -154,6 +155,7 @@ func responseFromResponses(providerResp ResponsesResponse) (Response, error) {
 		typedAssistantPhase = textutil.Value(assistantPhase)
 	}
 	result := Response{
+		EndTurn: textutil.Pointer(providerResp.EndTurn),
 		Assistant: Message{
 			Role:           RoleAssistant,
 			Content:        resolveAssistantContent(RoleAssistant, assistantPhase, providerResp.AssistantText),

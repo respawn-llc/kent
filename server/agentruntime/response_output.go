@@ -35,8 +35,7 @@ func responseOutputContainsNonemptyCommentary(items []llm.ResponseItem) bool {
 }
 
 func responseContainsProgress(response llm.Response) bool {
-	return (response.Assistant.NativeResponse != nil && len(response.OutputItems) > 0) ||
-		len(response.Reasoning) > 0 ||
+	return len(response.Reasoning) > 0 ||
 		len(response.ReasoningItems) > 0 ||
 		responseOutputIsReasoningOnly(response.OutputItems) ||
 		responseOutputContainsNonemptyCommentary(response.OutputItems)
