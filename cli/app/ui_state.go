@@ -7,6 +7,7 @@ import transcriptpb "core/shared/protoapi/gen/kent/api/transcript"
 import runtimepb "core/shared/protoapi/gen/kent/api/runtime"
 
 import (
+	"context"
 	"time"
 
 	"core/cli/app/commands"
@@ -16,6 +17,7 @@ import (
 	"core/cli/tui/transcriptrender"
 	"core/shared/apicontract"
 	"core/shared/clientui"
+	chatpb "core/shared/protoapi/gen/kent/api/chat"
 	"core/shared/runtimeids"
 	"core/shared/sessioncontract"
 
@@ -23,8 +25,9 @@ import (
 )
 
 type uiModel struct {
-	drafts          *uiDraftPersistence
-	eventDispatcher *uiEventDispatcher
+	drafts             *uiDraftPersistence
+	presentationTarget uiPresentationTarget
+	eventDispatcher    *uiEventDispatcher
 	uiRuntimeFeatureState
 	uiInputFeatureState
 	uiPresentationFeatureState
@@ -39,8 +42,20 @@ type uiModel struct {
 }
 
 type uiRuntimeFeatureState struct {
-	engine clientui.RuntimeClient
-	view   tui.Model
+	workspaceContext    uiWorkspaceContext
+	chatMutations       apicontract.ChatMutationService
+	chatSettings        apicontract.ChatSettingsService
+	sessionControls     apicontract.RuntimeControlService
+	sessionLiveControls apicontract.RuntimeLiveControlService
+	pendingWorkClient   apicontract.RuntimePendingWorkService
+	createSession       func(context.Context, *chatpb.NewChatTarget, string) (*chatpb.ExistingSessionTarget, error)
+	observeSession      func(context.Context, runtimeids.SessionID) (sessionLaunchPlan, *runtimeLaunchPlan, error)
+	sessionObservation  *runtimeLaunchPlan
+	observationContext  context.Context
+	observationScope    context.Context
+	cancelObservation   context.CancelFunc
+	engine              clientui.RuntimeClient
+	view                tui.Model
 
 	processClient         clientui.ProcessClient
 	processClientExplicit bool
@@ -61,6 +76,7 @@ type missingPromptRecoveryScope struct {
 }
 
 type uiInputFeatureState struct {
+	pendingNewChatActions  int
 	mainEditor             tuiinput.Editor
 	mainInputDraftToken    uint64
 	promptHistory          []string
@@ -165,7 +181,7 @@ type uiSessionTransitionFeatureState struct {
 	sessionName                             *string
 	sessionCategory                         *sessioncontract.SessionCategory
 	sessionShortID                          *runtimeids.SessionShortID
-	sessionID                               string
+	stopAttention                           func()
 	forcedLocalExit                         bool
 }
 

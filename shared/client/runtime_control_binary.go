@@ -90,15 +90,14 @@ func (c *Remote) SubmitUserTurn(ctx context.Context, request *runtimepb.SubmitUs
 		func(failure *runtimepb.SubmitUserTurnError) error { return runtimeControlGeneratedError(failure) })
 }
 
-func (c *Remote) SubmitUserShellCommand(ctx context.Context, request *chatshellpb.ShellCommandRequest) error {
-	_, err := callGeneratedBinary(c, ctx, bootstrapMethod(chatshellpb.File_kent_api_chat_shell_chat_shell_proto, "ShellService", "SubmitUserShellCommand"), request, &chatshellpb.SubmitUserShellCommandResult{},
+func (c *Remote) SubmitUserShellCommand(ctx context.Context, request *chatshellpb.ShellCommandRequest) (*chatshellpb.ShellCommandSuccess, error) {
+	return callGeneratedBinary(c, ctx, bootstrapMethod(chatshellpb.File_kent_api_chat_shell_chat_shell_proto, "ShellService", "SubmitUserShellCommand"), request, &chatshellpb.SubmitUserShellCommandResult{},
 		func(failure *chatshellpb.SubmitUserShellCommandError) error {
 			if failure.GetSessionNotFound() != nil || failure.GetWorkspaceNotRegistered() != nil || failure.GetChatSettingsAgentPreparation() != nil {
 				return protoapi.ChatSettingsErrorFromProto(failure)
 			}
 			return runtimeControlGeneratedError(failure)
 		})
-	return err
 }
 
 func (c *Remote) CompactContext(ctx context.Context, request *runtimepb.CompactContextRequest) error {

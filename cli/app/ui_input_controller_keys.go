@@ -88,6 +88,9 @@ func (c uiInputController) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		if trimmedText == "" {
 			return m, nil
 		}
+		if blocked, cmd := m.gateNewSessionInput(submittedText, newSessionInputQueue); blocked {
+			return m, cmd
+		}
 		if errText, blocked := m.slashCommandInputBlocked(trimmedText); blocked {
 			return m, c.model.sendTransientStatusWithNoticeID(errText, uiStatusNoticeError, transientStatusDuration, uiStatusNoticeReplace, "")
 		}
@@ -159,6 +162,9 @@ func (c uiInputController) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 				return c.flushQueuedInputs(queueDrainOne)
 			}
 			return m, nil
+		}
+		if blocked, cmd := m.gateNewSessionInput(submittedText, newSessionInputEnter); blocked {
+			return m, cmd
 		}
 		if errText, blocked := m.slashCommandInputBlocked(trimmedText); blocked {
 			return m, c.model.sendTransientStatusWithNoticeID(errText, uiStatusNoticeError, transientStatusDuration, uiStatusNoticeReplace, "")

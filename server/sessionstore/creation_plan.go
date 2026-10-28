@@ -147,13 +147,16 @@ func PrepareCreation(request CreationRequest, options ...StoreOption) (CreationP
 	if err != nil {
 		return CreationPlan{}, err
 	}
-	if err := InitializeCreationContext(store, request.Source, request.SourceKind, request.ContextOptions); err != nil {
-		return CreationPlan{}, err
-	}
 	if request.InitialChat != nil {
+		if request.SourceKind != SessionCreationSourceIndependent && request.SourceKind != SessionCreationSourceNavigationOnly {
+			return CreationPlan{}, errors.New("initial Chat settings require independent or navigation-only creation")
+		}
 		if err := InitializeChatDraft(store, *request.InitialChat); err != nil {
 			return CreationPlan{}, err
 		}
+	}
+	if err := InitializeCreationContext(store, request.Source, request.SourceKind, request.ContextOptions); err != nil {
+		return CreationPlan{}, err
 	}
 	return CreationPlan{
 		descriptor: request.Descriptor,

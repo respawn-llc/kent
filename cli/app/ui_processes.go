@@ -63,7 +63,7 @@ func (m *uiModel) applyTranscriptBackgroundActivity(activity *transcriptpb.Backg
 	}
 	update := &processpb.BackgroundProcess{
 		Id:             processID,
-		OwnerSessionId: m.sessionID,
+		OwnerSessionId: m.currentRuntimeSessionID(),
 		OwnerStepId:    proto.String(activity.OwnerStepId),
 		State:          transcriptBackgroundState(activity.Lifecycle),
 		Command:        activity.Command,

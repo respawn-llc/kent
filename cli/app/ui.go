@@ -26,12 +26,8 @@ func NewProjectedUIModel(runtimeClient clientui.RuntimeClient, opts ...UIOption)
 		m.pathReferenceEvents = m.pathReferenceSearch.Events()
 	}
 	m.refreshAutocompleteFromInput()
-	if configurable, ok := m.engine.(interface{ SetConnectionStateObserver(func(error)) }); ok {
-		runtimeConnectionEvents := make(chan runtimeConnectionStateChangedMsg, 1)
-		m.runtimeConnectionEvents = runtimeConnectionEvents
-		configurable.SetConnectionStateObserver(func(err error) {
-			enqueueRuntimeConnectionStateChange(runtimeConnectionEvents, err)
-		})
+	if m.observationScope == nil {
+		m.bindRuntimeConnectionObserver()
 	}
 	if gitStartupCmd := m.statusLineGitRefreshCmd(); gitStartupCmd != nil {
 		m.statusGitBackgroundInFlight = true
@@ -49,18 +45,15 @@ func NewProjectedUIModel(runtimeClient clientui.RuntimeClient, opts ...UIOption)
 
 func (m *uiModel) Init() tea.Cmd {
 	cmds := []tea.Cmd{
-		m.eventDispatcher.wait(),
 		waitPathReferenceSearchEvent(m.pathReferenceEvents),
 		tea.SetWindowTitle(m.sessionTitle()),
 		tea.WindowSize(),
-		m.loadPromptHistoryCmd(),
-		m.startRuntimeMainViewRefresh(nil),
+	}
+	if m.observationScope == nil {
+		cmds = append(cmds, m.startSessionObservationLoads())
 	}
 	if cmd := m.reconcileOngoingOwnership(); cmd != nil {
 		cmds = append(cmds, cmd)
-	}
-	if m.runtimeConnectionEvents != nil {
-		cmds = append(cmds, waitRuntimeConnectionStateChange(m.runtimeConnectionEvents))
 	}
 	cmds = append([]tea.Cmd{tea.ClearScreen}, cmds...)
 	if startupSubmitCmd := m.startupSubmitCmd(); startupSubmitCmd != nil {
@@ -85,6 +78,10 @@ func (m *uiModel) startupSubmitCmd() tea.Cmd {
 	if startupText == "" {
 		return nil
 	}
+	if m.newSessionTarget() != nil && !m.newSessionConnectionReady() {
+		return nil
+	}
+	m.startupSubmit = ""
 	if m.startupSubmitPromptHistoryRecorded {
 		if input, ok := promptCommandInput(startupText); ok {
 			return m.inputController().startTypedSubmissionWithPreSubmitQueuePosition(startupText, input, preSubmitQueueBack, "", activeSubmitOriginDirect)
@@ -96,6 +93,9 @@ func (m *uiModel) startupSubmitCmd() tea.Cmd {
 
 func (m *uiModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	defer m.enterUIMainThread("Update")()
+	if done, ok := msg.(initialCommandCatalogDoneMsg); ok {
+		return finalizeUIUpdate(m, m.installInitialCommandCatalog(done))
+	}
 	if done, ok := msg.(draftSaveDoneMsg); ok {
 		return finalizeUIUpdate(m, m.finishDraftSave(done))
 	}
@@ -183,6 +183,7 @@ func (m *uiModel) Close() {
 	if m == nil {
 		return
 	}
+	m.stopSessionObservation()
 	m.dropNativeSurface()
 	m.syncRendererOutputGate()
 	if m.pathReferenceSearch != nil {

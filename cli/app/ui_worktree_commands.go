@@ -3,6 +3,7 @@ package app
 import runtimepb "core/shared/protoapi/gen/kent/api/runtime"
 
 import (
+	"core/cli/app/internal/worktreeui"
 	"fmt"
 	"strings"
 
@@ -98,7 +99,20 @@ func (m *uiModel) worktreeTransitionCommand(transition runtimeinput.PendingWorkW
 	if m == nil {
 		return nil
 	}
+	if target := m.newChatTarget(); target != nil {
+		switch transition.Transition {
+		case runtimeinput.PendingWorkWorktreeTransitionEnter:
+			target.WorktreeSelector = transition.Selector
+		case runtimeinput.PendingWorkWorktreeTransitionLeave:
+			target.WorktreeSelector = nil
+		}
+		return m.inputController().stopWorktreeOverlayCmd()
+	}
 	service := m.worktreeMutationService()
+	return m.worktreeTransitionCommandWithService(transition, service)
+}
+
+func (m *uiModel) worktreeTransitionCommandWithService(transition runtimeinput.PendingWorkWorktreeTransition, service worktreeui.Service) tea.Cmd {
 	m.worktrees.switchToken++
 	switchToken := m.worktrees.switchToken
 	m.worktrees.switchPending = true

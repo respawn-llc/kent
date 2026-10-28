@@ -71,7 +71,7 @@ type ChatContextService interface {
 }
 
 type ChatMutationService interface {
-	SubmitUserShellCommand(ctx context.Context, req *chatshellpb.ShellCommandRequest) error
+	SubmitUserShellCommand(ctx context.Context, req *chatshellpb.ShellCommandRequest) (*chatshellpb.ShellCommandSuccess, error)
 	Steer(ctx context.Context, req *chatpb.SteerRequest) (*chatpb.InputMutationSuccess, error)
 	Queue(ctx context.Context, req *chatpb.QueueRequest) (*chatpb.InputMutationSuccess, error)
 	Compact(ctx context.Context, req *chatpb.CompactRequest) (*chatpb.CompactionMutationSuccess, error)

@@ -33,16 +33,16 @@ func TestTabQueuesAndStartsSubmission(t *testing.T) {
 
 func TestEmptyEnterFlushesOnlyNextQueuedItem(t *testing.T) {
 	m := newProjectedStaticUIModel()
-	m.queued = queuedInputsForTest("/name queued title", "follow up")
+	m.queued = queuedInputsForTest("/status", "follow up")
 
 	next, cmd := m.Update(tea.KeyMsg{Type: tea.KeyEnter})
 	updated := next.(*uiModel)
 
 	if cmd == nil {
-		t.Fatal("expected command from queued /name flush")
+		t.Fatal("expected command from queued status")
 	}
-	if updated.sessionName == nil || *updated.sessionName != "queued title" {
-		t.Fatalf("expected only first queued item to execute, got session name %v", updated.sessionName)
+	if updated.activeSurface != uiSurfaceStatus {
+		t.Fatal("expected queued status to open")
 	}
 	if updated.isBusy() {
 		t.Fatal("did not expect follow-up prompt submission from empty-enter flush")
@@ -54,17 +54,17 @@ func TestEmptyEnterFlushesOnlyNextQueuedItem(t *testing.T) {
 
 func TestIdleTabWithExistingQueueFlushesOnlyNextQueuedItem(t *testing.T) {
 	m := newProjectedStaticUIModel()
-	m.queued = queuedInputsForTest("/name queued title")
+	m.queued = queuedInputsForTest("/status")
 	testSetMainInput(m, "follow up")
 
 	next, cmd := m.Update(tea.KeyMsg{Type: tea.KeyTab})
 	updated := next.(*uiModel)
 
 	if cmd == nil {
-		t.Fatal("expected command from queued /name flush")
+		t.Fatal("expected command from queued status")
 	}
-	if updated.sessionName == nil || *updated.sessionName != "queued title" {
-		t.Fatalf("expected queued /name to execute first, got %v", updated.sessionName)
+	if updated.activeSurface != uiSurfaceStatus {
+		t.Fatal("expected queued status to open first")
 	}
 	if updated.isBusy() {
 		t.Fatal("did not expect appended prompt to auto-submit while idle tab is flushing one queued item")

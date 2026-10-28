@@ -48,7 +48,7 @@ func applyFirstInjectedQueueCreateDoneForTest(t *testing.T, m *uiModel, cmd tea.
 
 func TestBusyEnterUsesAuthoritativeSubmitPath(t *testing.T) {
 	disableTransientStatusClearForTest(t)
-	client := &runtimeControlFakeClient{submitQueuedID: "busy-submit-queue", submitDiagnostic: errors.New("history persistence failed")}
+	client := &runtimeControlFakeClient{submitQueuedID: runtimeids.NewQueueItemID().String(), submitDiagnostic: errors.New("history persistence failed")}
 	model := newProjectedTestUIModel(client)
 	model.setRuntimeActivityBusyForTest(true)
 	submittedText := "  steer while\nthinking  "

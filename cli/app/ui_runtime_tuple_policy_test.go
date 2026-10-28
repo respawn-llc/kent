@@ -10,7 +10,7 @@ import (
 )
 
 func TestRuntimeMainViewCacheOwnsIndependentSnapshots(t *testing.T) {
-	runtimeClient := newTestSessionRuntimeClientWithControls(&reconnectRetryRuntimeControlClient{})
+	runtimeClient := newTestSessionRuntimeClient(&countingSessionViewClient{})
 	incoming := runtimeTupleTestView(10, runtimeTupleTestRunningActivity())
 	incoming.Status.Goal = runtimeClientTestRuntimeGoal(runtimeClientTestGoal("goal-1", "ship", runtimepb.GoalStatus_RUNTIME_GOAL_STATUS_ACTIVE), false)
 	incoming.Session.SessionName = proto.String("session")

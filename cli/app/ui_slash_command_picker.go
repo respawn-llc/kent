@@ -114,6 +114,9 @@ func (m *uiModel) filterSlashCommandMatches(matches []commands.Command) []comman
 }
 
 func (m *uiModel) hasNavigationTargetSession() bool {
+	if target := m.newChatTarget(); target != nil {
+		return target.GetOrigin().GetNavigationOnlySessionId() != nil
+	}
 	return m.cachedRuntimeStatus().NavigationTargetSessionId != nil
 }
 
