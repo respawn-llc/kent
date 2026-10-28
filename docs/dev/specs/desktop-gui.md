@@ -61,6 +61,11 @@
 
 ## Home and navigation
 
+- Closing a Desktop window must close only that window. Desktop must exit when its last window closes.
+- While a Chat popup is open, the operator must be able to open the main Project list on macOS, Windows, and Linux.
+- On macOS, reopening Desktop from the Dock must show the main window.
+- Activating a native notification must open its destination even when the main window has been closed and another Desktop window is open.
+
 - Navigation Chrome must show a small gauge icon beside the theme control with a `Subscription usage` tooltip when at least one configured connection supports subscription usage. It must hide this control when no configured connection supports subscription usage. Determining visibility must not fetch provider quota.
 - When the loaded catalog has no supported subscriptions and the control is hidden, Desktop must discover connections added while it is hidden only after restart or reload. Desktop must not add focus refresh, periodic catalog polling, or background quota requests for this discovery. Opening an available usage popup must refresh its catalog.
 - Clicking this control must open a read-only popup listing all supported subscription connections. Clicking the control again, clicking outside, or pressing Escape must close it.

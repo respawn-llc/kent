@@ -71,6 +71,7 @@ export function createSpeechDestination({
     };
   });
   const discardable = (clip: CompletedClip) =>
+    (clip.error === null || speechSourceBytes(clip.source) === 0) &&
     isDiscardableClip({
       bytes: speechSourceBytes(clip.source),
       durationMs: clip.source.durationMs,
@@ -79,11 +80,11 @@ export function createSpeechDestination({
   const start = Atom.fn<Readonly<{ target: SpeechTarget; field: string | symbol }>>()(
     ({ target, field }, get) =>
       Effect.gen(function* () {
-        if ((yield* Atom.get(phase)).kind !== "idle") return;
+        if ((yield* Atom.get(phase)).kind !== "idle") return false;
         const available = (yield* Atom.get(availability)).data;
-        if (available == null) return;
+        if (available == null) return false;
         yield* Atom.set(phase, { kind: "preparing", field });
-        yield* Effect.scoped(
+        return yield* Effect.scoped(
           Effect.gen(function* () {
             const session = yield* captureMicrophone(services, available, {
               onStop: () => {
@@ -120,9 +121,10 @@ export function createSpeechDestination({
             if (discardable(clip)) {
               yield* speechAttempt(session.transfer.cancel);
               yield* speechAttempt(async () => services.speech.discard(clip.source));
-              return;
+              if (clip.error !== null) report(clip.error);
+              return clip.error === null;
             }
-            yield* Effect.gen(function* () {
+            return yield* Effect.gen(function* () {
               if (clip.error !== null) return yield* Effect.fail(new SpeechActionError(clip.error));
               yield* speechSync(() => {
                 assertSpeechSize(speechSourceBytes(clip.source), available);
@@ -152,11 +154,13 @@ export function createSpeechDestination({
                   }),
                 ),
               );
-              yield* deliver(clip.source, result, target);
+              const delivery = yield* deliver(clip.source, result, target);
+              return delivery.kind === "inserted" || delivery.kind === "noop";
             }).pipe(
               Effect.catch((error) =>
                 Effect.sync(() => {
                   recover(clip.source, error, target);
+                  return false;
                 }),
               ),
             );
@@ -165,6 +169,7 @@ export function createSpeechDestination({
           Effect.catch((error) =>
             Effect.sync(() => {
               report(error);
+              return false;
             }),
           ),
           Effect.ensuring(Atom.set(phase, { kind: "idle" })),
@@ -183,7 +188,17 @@ export function createSpeechDestination({
   const refresh = Atom.fn(() =>
     speechAttempt(async () => client.refetchQueries({ queryKey: queryKeys.speechAvailability })),
   );
-  return { state, start, stop, refresh } as const;
+  const finish = Atom.fn<string | symbol>()(
+    (field) =>
+      Effect.gen(function* () {
+        const current = yield* Atom.get(phase);
+        if (current.kind !== "recording" || current.field !== field) return false;
+        yield* Atom.set(stop, undefined);
+        return yield* Atom.getResult(start, { suspendOnWaiting: true });
+      }),
+    { concurrent: true },
+  );
+  return { state, start, stop, finish, refresh } as const;
 }
 
 export type SpeechDestination = ReturnType<typeof createSpeechDestination>;
@@ -194,10 +209,12 @@ export function useSpeechActions(
   target: () => SpeechTarget,
 ) {
   const start = useAtomSet(model.start);
+  const finish = useAtomSet(model.finish, { mode: "promise" });
   return {
     start: () => {
       start({ target: target(), field });
     },
     stop: useAtomSet(model.stop),
+    finish: async () => finish(field),
   };
 }

@@ -74,7 +74,7 @@ export function createSpeechRecovery({
     );
     if (delivery.kind === "inserted" || delivery.kind === "noop") {
       if ((yield* Atom.get(entry))?.source === input.source) yield* Atom.set(entry, null);
-      return;
+      return delivery;
     }
     const retained = {
       source: input.source,
@@ -100,6 +100,7 @@ export function createSpeechRecovery({
         }),
       );
     }
+    return delivery;
   });
   const retry = Atom.fn(
     () =>

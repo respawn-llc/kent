@@ -288,11 +288,19 @@ func (s *Store) Close() error {
 }
 
 func (s *Store) AuthoritativeSessionStoreOptions() []session.StoreOption {
+	return s.sessionStoreOptions(sessionObserver{store: s})
+}
+
+func (s *Store) ProjectSessionStoreOptions(projectID string) []session.StoreOption {
+	return s.sessionStoreOptions(sessionObserver{store: s, projectID: &projectID})
+}
+
+func (s *Store) sessionStoreOptions(observer sessionObserver) []session.StoreOption {
 	if s == nil {
 		return nil
 	}
 	return []session.StoreOption{
-		session.WithPersistenceObserver(sessionObserver{store: s}),
+		session.WithPersistenceObserver(observer),
 		session.WithPersistedSessionResolver(s),
 		session.WithSessionContextFactWriter(s),
 	}
@@ -2181,7 +2189,7 @@ func boolToInt64(value bool) int64 {
 }
 
 func (s *Store) ImportSessionSnapshot(ctx context.Context, snapshot session.PersistedStoreSnapshot) error {
-	return s.upsertSessionSnapshot(ctx, snapshot)
+	return s.upsertSessionSnapshot(ctx, snapshot, nil)
 }
 
 func (s *Store) reconcileSessionEventLog(ctx context.Context, reconciliation session.PersistedEventLogReconciliation) error {
@@ -2238,7 +2246,7 @@ func (s *Store) reconcileSessionEventLog(ctx context.Context, reconciliation ses
 	return nil
 }
 
-func (s *Store) upsertSessionSnapshot(ctx context.Context, snapshot session.PersistedStoreSnapshot) error {
+func (s *Store) upsertSessionSnapshot(ctx context.Context, snapshot session.PersistedStoreSnapshot, projectID *string) error {
 	if s == nil || s.queries == nil {
 		return errors.New("metadata store is required")
 	}
@@ -2251,6 +2259,7 @@ func (s *Store) upsertSessionSnapshot(ctx context.Context, snapshot session.Pers
 		ctx,
 		s.queries.WithTx(tx),
 		snapshot,
+		projectID,
 	); err != nil {
 		return err
 	}
@@ -2264,6 +2273,7 @@ func (s *Store) upsertSessionSnapshotWithQueries(
 	ctx context.Context,
 	q *sqlitegen.Queries,
 	snapshot session.PersistedStoreSnapshot,
+	projectID *string,
 ) error {
 	if _, err := q.AcquireWorkspaceRegistrationLock(ctx); err != nil {
 		return fmt.Errorf("lock session snapshot import: %w", err)
@@ -2276,6 +2286,9 @@ func (s *Store) upsertSessionSnapshotWithQueries(
 	worktreeID := sql.NullString{}
 	cwdRelpath := "."
 	if targetErr == nil {
+		if projectID != nil && existingTarget.ProjectID != *projectID {
+			return fmt.Errorf("Session %q does not belong to Project %q", snapshot.Meta.SessionID, *projectID)
+		}
 		binding.ProjectID = existingTarget.ProjectID
 		binding.WorkspaceID = existingTarget.WorkspaceID
 		authoritativeRoot := strings.TrimSpace(existingTarget.WorkspaceRoot)
@@ -2298,7 +2311,15 @@ func (s *Store) upsertSessionSnapshotWithQueries(
 		cwdRelpath = normalizeSessionCwdRelpath(existingTarget.CwdRelpath)
 	} else {
 		var err error
-		binding, err = lookupWorkspaceBindingWithQueries(ctx, q, snapshot.Meta.WorkspaceRoot)
+		if projectID == nil {
+			binding, err = lookupWorkspaceBindingWithQueries(ctx, q, snapshot.Meta.WorkspaceRoot)
+		} else {
+			canonicalRoot, canonicalErr := config.CanonicalWorkspaceRoot(snapshot.Meta.WorkspaceRoot)
+			if canonicalErr != nil {
+				return canonicalErr
+			}
+			binding, err = lookupProjectWorkspaceBindingWithQueries(ctx, q, *projectID, canonicalRoot)
+		}
 		if errors.Is(err, sql.ErrNoRows) {
 			return serverapi.ErrWorkspaceNotRegistered
 		}
@@ -2897,14 +2918,15 @@ func timeFromStoredTimestamp(value int64) time.Time {
 }
 
 type sessionObserver struct {
-	store *Store
+	store     *Store
+	projectID *string
 }
 
 func (o sessionObserver) ObservePersistedStore(ctx context.Context, snapshot session.PersistedStoreSnapshot) error {
 	if o.store == nil {
 		return nil
 	}
-	if err := o.store.upsertSessionSnapshot(ctx, snapshot); err != nil {
+	if err := o.store.upsertSessionSnapshot(ctx, snapshot, o.projectID); err != nil {
 		return err
 	}
 	status, err := goalProjection(&snapshot.Meta)
