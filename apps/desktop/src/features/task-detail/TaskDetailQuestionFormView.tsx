@@ -337,7 +337,6 @@ function QuestionFormFrame({
         </fieldset>
       )}
       <TextArea
-        label={t("task.commentary")}
         floatingAction={speech.control}
         aria-label={t("task.commentary")}
         className="min-h-24"

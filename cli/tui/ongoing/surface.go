@@ -532,7 +532,6 @@ func (s *Surface) ResetForScratchHydration(reason RehydrateReason, frame FrameIn
 	linesToErase := s.previousMutableBandHeightAtBottom(frame.Size)
 	var transaction strings.Builder
 	transaction.WriteString(resetScrollRegionAndOriginMode())
-	transaction.WriteString(semanticOutputSequence())
 	if s.terminalResize.usesWidthRehydration() &&
 		s.terminalHeightExpanded(frame.Size) &&
 		previousMutableBand != nil {
@@ -540,7 +539,7 @@ func (s *Surface) ResetForScratchHydration(reason RehydrateReason, frame FrameIn
 	}
 	writeMutableBandErase(&transaction, frame.Size.Height, linesToErase)
 	writeCursor(&transaction, Cursor{})
-	if _, err := io.WriteString(s.writer, transaction.String()); err != nil {
+	if err := s.writeTerminalFrame(transaction.String()); err != nil {
 		return Result{}, err
 	}
 	s.retainedBandHeight = 0

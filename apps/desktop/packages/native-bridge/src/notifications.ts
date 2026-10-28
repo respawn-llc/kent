@@ -238,9 +238,16 @@ function defaultTauriNotificationBackend(): TauriNotificationBackend {
   return {
     isPermissionGranted: tauriIsPermissionGranted,
     async onActivated(handler: (activation: NativeNotificationActivation) => void): Promise<() => void> {
-      return listen<unknown>(tauriActivationEvent, (event) => {
+      const unlisten = await listen<unknown>(tauriActivationEvent, (event) => {
         handler(nativeNotificationActivation(event.payload));
       });
+      try {
+        await invoke("main_window_ready", { channel: "notification" });
+        return unlisten;
+      } catch (error) {
+        unlisten();
+        throw error;
+      }
     },
     async removeActive(backendID: number): Promise<void> {
       await invoke("remove_attention_notification", { backendId: backendID });

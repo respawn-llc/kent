@@ -598,7 +598,8 @@ func (e *Engine) requestTools(ctx context.Context, workflowMode workflowruntime.
 		return nil, nil
 	}
 	out := make([]llm.Tool, 0, len(defs))
-	customPatchSupported := e.supportsCustomPatchTool(ctx)
+	caps := e.connectionSnapshot().transportCapabilities
+	customPatchSupported := caps.SupportsResponsesAPI && caps.IsOpenAIFirstParty
 	for _, d := range defs {
 		tool := llm.Tool{Name: string(d.ID), Description: d.Description, Schema: d.Schema}
 		if d.ID == toolspec.ToolCompleteNode {
@@ -635,12 +636,4 @@ func definitionListContains(defs []tools.Definition, id toolspec.ID) bool {
 		}
 	}
 	return false
-}
-
-func (e *Engine) supportsCustomPatchTool(ctx context.Context) bool {
-	caps, err := e.providerCapabilities(ctx)
-	if err != nil {
-		return false
-	}
-	return caps.SupportsResponsesAPI && caps.IsOpenAIFirstParty
 }

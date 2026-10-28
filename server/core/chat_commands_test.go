@@ -87,6 +87,47 @@ func awaitChatCommandModel(t *testing.T, models <-chan chatCommandModel) chatCom
 	return chatCommandModel{}
 }
 
+func TestNewChatUsesSelectedProjectWhenWorkspacePathIsShared(t *testing.T) {
+	app, _, first, _ := newChatCommandCore(t, nil)
+	workspace := t.TempDir()
+	attached, err := app.MetadataStore().AttachWorkspaceToProject(t.Context(), first.ProjectID, workspace)
+	if err != nil {
+		t.Fatal(err)
+	}
+	second, err := app.MetadataStore().CreateProjectForWorkspaceWithKey(t.Context(), workspace, "Second", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, binding := range []metadata.Binding{attached, second} {
+		t.Run(binding.ProjectID, func(t *testing.T) {
+			enabled := true
+			result, err := app.ChatMutationClient().Steer(t.Context(), &chatpb.SteerRequest{
+				QueueItemId: runtimeids.NewQueueItemID().String(),
+				Target: &chatpb.ChatTarget{Target: &chatpb.ChatTarget_NewChat{NewChat: &chatpb.NewChatTarget{
+					ProjectId: binding.ProjectID, WorkspaceId: binding.WorkspaceID,
+					InitialSettings: &chatsettingspb.InitialChatSettings{
+						AgentRole: "default", Supervisor: chatsettingspb.SupervisorValue_SUPERVISOR_VALUE_OFF,
+						QuestionsEnabled: &enabled, AutoCompactionEnabled: &enabled,
+					},
+				}}},
+				Activation: chatCommandActivation("prompt:missing", "/prompt:missing"),
+			})
+			if err != nil {
+				t.Fatal(err)
+			}
+			id := result.GetSession().GetSessionId()
+			projectID, err := app.MetadataStore().ResolveSessionProjectID(t.Context(), id)
+			if err != nil || projectID != binding.ProjectID {
+				t.Fatalf("Session Project = %q, error = %v, want %q", projectID, err, binding.ProjectID)
+			}
+			execution, err := app.MetadataStore().ResolveSessionExecutionTarget(t.Context(), id)
+			if err != nil || execution.GetWorkspaceId() != binding.WorkspaceID {
+				t.Fatalf("Session Workspace = %v, error = %v, want %q", execution, err, binding.WorkspaceID)
+			}
+		})
+	}
+}
+
 func chatCommandTarget(id string) *chatpb.ChatTarget {
 	return &chatpb.ChatTarget{Target: &chatpb.ChatTarget_Session{Session: &chatpb.ExistingSessionRequestTarget{SessionId: &sharedpb.SessionSelector{Value: &sharedpb.SessionSelector_SessionId{SessionId: id}}}}}
 }

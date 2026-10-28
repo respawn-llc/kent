@@ -1,7 +1,6 @@
 package ongoing
 
 import (
-	"io"
 	"iter"
 	"slices"
 	"sort"
@@ -87,7 +86,6 @@ func (s *Surface) writeFrameTransaction(frame FrameInput, immutableRows []string
 	eraseHeight := max(previousHeight, nextHeight)
 	var transaction strings.Builder
 	transaction.WriteString(resetScrollRegionAndOriginMode())
-	transaction.WriteString(semanticOutputSequence())
 	if s.terminalHeightExpanded(frame.Size) {
 		previous := s.visiblePreviousMutableBand(frame.Size)
 		if s.terminalResize.usesWidthRehydration() && previous != nil {
@@ -121,7 +119,7 @@ func (s *Surface) writeFrameTransaction(frame FrameInput, immutableRows []string
 		s.terminalResize == TerminalResizeSemanticPrompt,
 	)
 	writeCursor(&transaction, frame.Cursor)
-	if _, err := io.WriteString(s.writer, transaction.String()); err != nil {
+	if err := s.writeTerminalFrame(transaction.String()); err != nil {
 		return Result{}, err
 	}
 	s.retainedBandHeight = nextHeight

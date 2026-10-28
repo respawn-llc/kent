@@ -16,6 +16,8 @@ type SurfaceState = Readonly<{
   activity: ChatRuntimeActivity | null;
   stoppable: boolean;
   onEditorKeyDown: ReturnType<typeof useComposerKeyboard>["onEditorKeyDown"];
+  onSendClick: ReturnType<typeof useComposerKeyboard>["onSendClick"];
+  queueHeld: boolean;
   promptPicker: ReturnType<typeof useChatPromptPicker>;
   speech: ReturnType<typeof useSpeechField>;
   promptEditor: RefObject<HTMLTextAreaElement | null>;
@@ -30,7 +32,7 @@ export function ChatComposerSurface({ composer: original, children, enabled = tr
   useLayoutEffect(() => {
     owner.current = { original, promptPicker };
   });
-  const speech = useSpeechField({
+  const speechField = useSpeechField({
     value: original.text,
     onChange: original.edit,
     editorRef: editor,
@@ -39,32 +41,57 @@ export function ChatComposerSurface({ composer: original, children, enabled = tr
       original.draft.kind === "loading" ||
       promptCommentaryReadOnly(promptPicker),
     captureDraft: () => {
-      const promptID = owner.current.promptPicker?.state.current;
-      if (promptID == null)
+      const visibleDraft = () => {
+        const current = owner.current;
+        const promptID = current.promptPicker?.state.current;
+        if (promptID == null)
+          return {
+            read: () => current.original.text,
+            write: (text: string) => {
+              current.original.edit(text);
+            },
+            editor: () => editor.current,
+          };
         return {
-          read: () => owner.current.original.text,
-          write: (text) => {
-            owner.current.original.edit(text);
+          read: () => {
+            const draft = current.promptPicker?.state.drafts.get(promptID);
+            return draft === undefined || draft.status === "declined" ? null : draft.commentary;
           },
-          editor: () => editor.current,
+          write: (text: string) => {
+            current.promptPicker?.editCommentary({ toolCallID: promptID, text });
+          },
+          editor: () => promptEditor.current,
         };
+      };
       return {
-        read: () => {
-          const draft = owner.current.promptPicker?.state.drafts.get(promptID);
-          return draft === undefined || draft.status === "declined" ? null : draft.commentary;
-        },
+        read: () => visibleDraft().read(),
         write: (text) => {
-          owner.current.promptPicker?.editCommentary({ toolCallID: promptID, text });
+          visibleDraft().write(text);
         },
-        editor: () => (owner.current.promptPicker?.state.current === promptID ? promptEditor.current : null),
+        editor: () => visibleDraft().editor(),
       };
     },
   });
+  const speech = {
+    ...speechField,
+    finish: async () => {
+      const promptID = owner.current.promptPicker?.state.current ?? null;
+      const completed = await speechField.finish();
+      return completed && promptID === (owner.current.promptPicker?.state.current ?? null);
+    },
+  };
   const composer = {
     ...original,
-    canSubmit: original.canSubmit && !speech.busy,
+    canSubmit:
+      speechField.phase === "recording" ? original.submissionReady : original.canSubmit && !speechField.busy,
     submit: (...args: Parameters<Composer["submit"]>) => {
-      if (!speech.busy) original.submit(...args);
+      if (!speech.busy) {
+        original.submit(...args);
+      } else if (speech.phase === "recording" && original.submissionReady) {
+        void speech.finish().then((completed) => {
+          if (completed && owner.current.original.canSubmit) owner.current.original.submit(...args);
+        });
+      }
     },
   };
   const { activity, observationError } = useChatRuntimePresentation();
@@ -97,6 +124,8 @@ export function ChatComposerSurface({ composer: original, children, enabled = tr
           speech,
           promptEditor,
           onEditorKeyDown: keyboard.onEditorKeyDown,
+          onSendClick: keyboard.onSendClick,
+          queueHeld: keyboard.queueHeld,
         }}
       >
         <div className="h-full min-h-0 min-w-0 p-[var(--space-2)]" {...keyboard.surface}>

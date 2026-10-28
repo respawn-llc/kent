@@ -364,6 +364,7 @@
 - Slash-command suggestions must use the same peeking island as Pending Work, replacing its content while command selection is active. Selecting a command, entering arguments, or pressing Escape must restore the Pending Work presentation when items exist.
 - The peeking island's horizontal inset must match the composer's corner radius so it meets the straight top edge without a gap or stacked translucent backgrounds.
 - Queued message rows in Pending Work must use the clock-arrow-right icon.
+- While the platform Queue modifier is held, the ordinary composer Send control must show an add-to-queue icon and action label, and clicking it must Queue the input. The icon change must use a fast crossfade or shrink-and-expand transition.
 - Steer message rows in Pending Work must use the corner-down-right icon.
 - Pending Work rows must have equal top and bottom padding, without an extra bottom spacer before the composer.
 - The command picker must show command tokens and available descriptions or previews. Up and Down must select a suggestion, and Enter must activate it. Whitespace must hide the picker for argument entry. Escape must dismiss the picker before Stop handling. Tab must use ordinary focus navigation.
@@ -725,6 +726,7 @@
 - Clicking `Neither` must only select it and immediately focus the commentary field, even if commentary already exists or the option is clicked repeatedly. The operator must enter an answer and use Enter or the composer's Send action to confirm it.
 - While a prompt is visible, the composer's Send action must confirm that prompt through the same action as Enter, without sending or clearing the ordinary message draft.
 - Keyboard movement within the radio group changes selection without confirming. Enter confirms the selected suggested answer.
+- During recording, Question submission and Enter shortcuts follow the [Speech Input contract](speech-input.md#final-text-and-no-ops).
 - Tab and Shift+Tab switch only between the answer-picker area and the freeform field. They do not traverse the picker navigation or the composer's bottom controls.
 - Outside the freeform field, Left/Right changes the visible prompt circularly and Up/Down changes the vertical radio selection. Inside the freeform field, arrow keys edit text normally.
 - While the freeform field is active, Enter confirms only when the current selection and freeform content form a valid answer. Otherwise Enter has no effect. Shift+Enter inserts a newline.

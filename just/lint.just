@@ -87,7 +87,13 @@ docs mode="":
 
 [private]
 _desktop-native command="check" *args:
-    cargo {{command}} --manifest-path apps/desktop/src-tauri/Cargo.toml --locked {{args}}
+    #!/usr/bin/env bash
+    set -euo pipefail
+    if [ "{{command}}" = "fmt" ]; then
+        cargo fmt --manifest-path apps/desktop/src-tauri/Cargo.toml {{args}}
+    else
+        cargo {{command}} --manifest-path apps/desktop/src-tauri/Cargo.toml --locked {{args}}
+    fi
 
 [private]
 _effect-policy *paths:

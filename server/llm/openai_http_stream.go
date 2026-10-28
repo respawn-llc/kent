@@ -12,6 +12,7 @@ import (
 	"core/shared/llmerrors"
 	"core/shared/modelcontract"
 	"core/shared/textutil"
+	"github.com/openai/openai-go/v3/packages/respjson"
 	"github.com/openai/openai-go/v3/packages/ssestream"
 	"github.com/openai/openai-go/v3/responses"
 )
@@ -460,11 +461,15 @@ func providerUsageEvidenceFromResponse(
 			return nil
 		}
 		webSearch := output.AsWebSearchCall()
-		actionType := strings.TrimSpace(webSearch.Action.Type)
-		switch actionType {
-		case "search", "open_page", "find_in_page":
-		default:
-			return fmt.Errorf("hosted web search output has unsupported action type %q", actionType)
+		var actionKind *string
+		if raw := webSearch.JSON.Action.Raw(); raw != respjson.Omitted && raw != respjson.Null {
+			actionType := strings.TrimSpace(webSearch.Action.Type)
+			switch actionType {
+			case "search", "open_page", "find_in_page":
+				actionKind = textutil.Value(actionType)
+			default:
+				return fmt.Errorf("hosted web search output has unsupported action type %q", actionType)
+			}
 		}
 		if strings.TrimSpace(webSearch.ID) == "" || strings.TrimSpace(string(webSearch.Status)) == "" {
 			return fmt.Errorf("hosted web search output is missing required identity fields")
@@ -474,11 +479,11 @@ func providerUsageEvidenceFromResponse(
 		}
 		seenHostedIDs[webSearch.ID] = struct{}{}
 		tool := modelcontract.HostedToolUsageEvidence{
-			ID:     textutil.Value(webSearch.ID),
-			Type:   textutil.Value(string(webSearch.Type)),
-			Status: textutil.Value(string(webSearch.Status)),
+			ID:         textutil.Value(webSearch.ID),
+			Type:       textutil.Value(string(webSearch.Type)),
+			Status:     textutil.Value(string(webSearch.Status)),
+			ActionKind: actionKind,
 		}
-		tool.ActionKind = textutil.Value(actionType)
 		if field, ok := webSearch.JSON.ExtraFields["usage"]; ok && field.Raw() != "" {
 			raw := json.RawMessage(field.Raw())
 			tool.Usage = &raw
