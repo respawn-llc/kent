@@ -29,6 +29,13 @@ import type { ChatSettingsMutation } from "./chatSettingsTypes";
 import { CompactionMode } from "@app/server-api-contract/gen/kent/api/chat_context/chat_context_pb";
 import { ServerNotReadyReason } from "@app/server-api-contract/gen/kent/api/server/server_pb";
 import { ChatService } from "@app/server-api-contract/gen/kent/api/chat/chat_pb";
+import {
+  BackgroundShellOutputMode,
+  CacheWarningMode,
+  CompactionMode as ConfigurationCompactionMode,
+  ShellPostprocessingMode,
+  SleepPreventionMode,
+} from "@app/server-api-contract/gen/kent/api/configuration/configuration_pb";
 
 const sessionID = "123e4567-e89b-42d3-a456-426614174000";
 const projectTarget = { projectID: "project-1", workspace: { workspaceRoot: "/workspace" } } as const;
@@ -37,6 +44,26 @@ const sessionTarget = { projectID: projectTarget.projectID, kind: "session", ses
 
 function choice(role = "default") {
   return {
+    defaults: {
+      model: "gpt-6-sol",
+      modelCapabilities: {},
+      theme: "auto",
+      serverPort: 53082,
+      modelContextWindow: 100000,
+      contextCompactionThresholdTokens: 80000,
+      minimumExecToBgSeconds: 1,
+      compactionMode: ConfigurationCompactionMode.LOCAL,
+      timeouts: { modelRequestSeconds: 30 },
+      shellOutputMaxChars: 10000,
+      bgShellsOutput: BackgroundShellOutputMode.DEFAULT,
+      shell: { postprocessingMode: ShellPostprocessingMode.BUILTIN },
+      cacheWarningMode: CacheWarningMode.DEFAULT,
+      worktrees: {},
+      workflow: {},
+      reviewer: { modelCapabilities: {}, modelContextWindow: 100000, timeoutSeconds: 30 },
+      preventSleep: SleepPreventionMode.ACTIVE,
+    },
+    source: {},
     agent: { role, model: "gpt-6-sol", thinking: "medium", tools: ["ask_question"], agentCallable: true },
     baseline: {
       agentRole: role,

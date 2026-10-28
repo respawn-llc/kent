@@ -416,6 +416,7 @@ func runBackParentPrefillScenario(t *testing.T, store *metadata.Store, server ba
 				if done, ok := msg.(draftSaveDoneMsg); ok && done.err != nil {
 					t.Fatalf("save edited parent draft: %v", done.err)
 				}
+				edited.Update(msg)
 			}
 			if testMainInput(edited) != wantInput+"x" {
 				t.Fatalf("edited parent input = %q, want %q", testMainInput(edited), wantInput+"x")

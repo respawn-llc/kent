@@ -46,15 +46,17 @@ import {
   CacheWarningMode,
   CompactionMode,
   ModelVerbosity,
-  SessionLaunchService,
-  SessionPlanResultSchema,
-  SessionRuntimeAgentSelectionSchema,
   SettingsSchema,
   SourceReportSchema,
   ShellPostprocessingMode,
   SleepPreventionMode,
   ToolID,
   WorkflowCompletionMode,
+} from "@app/server-api-contract/gen/kent/api/configuration/configuration_pb";
+import {
+  SessionLaunchService,
+  SessionPlanResultSchema,
+  SessionRuntimeAgentSelectionSchema,
 } from "@app/server-api-contract/gen/kent/api/session_launch/session_launch_pb";
 
 import { requireProjectAttachment } from "./chatAttachment";

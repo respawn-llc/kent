@@ -6,6 +6,7 @@ import (
 	"core/cli/app/commands"
 	"core/shared/runtimeinput"
 	"core/shared/serverapi"
+	"io"
 
 	tea "github.com/charmbracelet/bubbletea"
 	"testing"
@@ -45,7 +46,7 @@ func TestBusyEnterOpensReadOverlays(t *testing.T) {
 	} {
 		t.Run(input, func(t *testing.T) {
 			model := busyCommandTestModel()
-			model.sessionID = "busy-navigation-session"
+			model.setKnownSessionTarget(detailTestSessionID)
 			testSetMainInput(model, input)
 			next, _ := model.Update(tea.KeyMsg{Type: tea.KeyEnter})
 			updated := next.(*uiModel)
@@ -69,7 +70,7 @@ func TestBusyEnterDispatchesWorktreeTransitions(t *testing.T) {
 			if cmd == nil || testMainInput(updated) != "" || !updated.worktrees.switchPending {
 				t.Fatalf("transition result = cmd %v input %q pending %t", cmd, testMainInput(updated), updated.worktrees.switchPending)
 			}
-			_ = cmd()
+			runBusyWorktreeCommand(t, cmd)
 			if got := len(client.enterRequests) + len(client.leaveRequests); got != 1 {
 				t.Fatalf("transition requests = enter %d leave %d, want one", len(client.enterRequests), len(client.leaveRequests))
 			}
@@ -80,7 +81,7 @@ func TestBusyEnterDispatchesWorktreeTransitions(t *testing.T) {
 func TestBusyEnterOpensBareWorktreePickerAliases(t *testing.T) {
 	for _, input := range []string{"/worktree", "/wt"} {
 		t.Run(input, func(t *testing.T) {
-			client := &worktreeCommandTestClient{listResp: testMainWorktreeListResponse()}
+			client := &worktreeCommandTestClient{workspaceResp: workspaceListFixture(testMainWorktreeListResponse())}
 			model := busyCommandTestModel()
 			model.worktreeClient = client
 			testSetMainInput(model, input)
@@ -105,15 +106,14 @@ func TestBusyEnterOpensBareWorktreePickerAliases(t *testing.T) {
 func TestBusyEnterRoutesDirectWorktreeCommands(t *testing.T) {
 	for _, input := range []string{"/wt status", "/wt create", "/wt delete feature"} {
 		t.Run(input, func(t *testing.T) {
-			client := &worktreeCommandTestClient{listResp: testMainWorktreeListResponse()}
+			client := &worktreeCommandTestClient{workspaceResp: workspaceListFixture(testMainWorktreeListResponse())}
 			model := busyCommandTestModel()
 			model.worktreeClient = client
 			testSetMainInput(model, input)
 			_, cmd := model.Update(tea.KeyMsg{Type: tea.KeyEnter})
-			for range collectCmdMessages(t, cmd) {
-			}
-			if len(client.listRequests) != 1 {
-				t.Fatalf("worktree list requests = %d, want direct owner call", len(client.listRequests))
+			runBusyWorktreeCommand(t, cmd)
+			if len(client.workspaceRequests) != 1 {
+				t.Fatalf("worktree list requests = %d, want direct owner call", len(client.workspaceRequests))
 			}
 		})
 	}
@@ -249,14 +249,14 @@ func TestCompactionDispatchKeepsInputEditableWithoutLocalRuntimeBlocking(t *test
 		"  /compact   tighten  summary  ",
 		optionalCompactionGuidance("tighten  summary"),
 	)()
-	if client.compactRequest.Admission.Guidance == nil ||
-		*client.compactRequest.Admission.Guidance != "tighten summary" {
-		t.Fatalf("compaction admission = %+v", client.compactRequest.Admission)
+	if client.compactGuidance == nil ||
+		*client.compactGuidance != "tighten summary" {
+		t.Fatalf("compaction admission = %+v", client.compactGuidance)
 	}
 	buttonClient := &runtimeControlFakeClient{}
 	_ = newProjectedTestUIModel(buttonClient).inputController().compactCmd("", nil)()
-	if buttonClient.compactRequest.Admission.Guidance != nil {
-		t.Fatalf("button compaction guidance = %v, want absent", buttonClient.compactRequest.Admission.Guidance)
+	if buttonClient.compactGuidance != nil {
+		t.Fatalf("button compaction guidance = %v, want absent", buttonClient.compactGuidance)
 	}
 	if model.isCompacting() || model.blocksRuntimeInput() || model.layout().mainInputPrefix() != "› " {
 		t.Fatalf("compaction state = compacting %t, blocked %t, prefix %q", model.isCompacting(), model.blocksRuntimeInput(), model.layout().mainInputPrefix())
@@ -298,10 +298,36 @@ func TestRejectedCompactionAtPendingWorkCapacityRestoresVerbatimInput(t *testing
 
 func busyCommandTestModel() *uiModel {
 	model := newProjectedStaticUIModel(WithUIConversationFreshness(runtimepb.ConversationFreshness_CONVERSATION_FRESHNESS_ESTABLISHED))
-	model.sessionID = "11111111-1111-4111-8111-111111111111"
+	model.setKnownSessionTarget(detailTestSessionID)
+	model.workspaceContext = uiWorkspaceContext{projectID: "project-1", workspaceID: "workspace-1", root: "/repo"}
+	model.sessionControls = &runtimeControlFakeClient{}
+	model.statusConfig.ExecutionTarget = testMainWorktreeListResponse().Target
 	model.setRuntimeActivityBusyForTest(true)
 	model.activity = uiActivityRunning
 	return model
+}
+
+type busyWorktreeCommandHarness struct {
+	command tea.Cmd
+}
+
+func (h busyWorktreeCommandHarness) Init() tea.Cmd { return h.command }
+func (h busyWorktreeCommandHarness) View() string  { return "" }
+func (h busyWorktreeCommandHarness) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
+	switch msg.(type) {
+	case worktreeListDoneMsg, worktreeSwitchDoneMsg:
+		return h, tea.Quit
+	default:
+		return h, nil
+	}
+}
+
+func runBusyWorktreeCommand(t *testing.T, cmd tea.Cmd) {
+	t.Helper()
+	program := tea.NewProgram(busyWorktreeCommandHarness{command: cmd}, tea.WithInput(nil), tea.WithOutput(io.Discard), tea.WithoutRenderer())
+	if _, err := program.Run(); err != nil {
+		t.Fatal(err)
+	}
 }
 
 func requireBusyCommandQueuesEmpty(t *testing.T, model *uiModel) {

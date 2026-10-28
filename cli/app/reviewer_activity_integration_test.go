@@ -89,10 +89,7 @@ func TestReviewerActivityPublishesInvocationAndTerminalStateToTUI(t *testing.T) 
 			}
 			defer func() { _ = subscription.Close() }()
 
-			runtimeClient := newTestSessionRuntimeClient(
-				&countingSessionViewClient{},
-				newUnavailableRuntimeControlService(),
-			)
+			runtimeClient := newTestSessionRuntimeClient(&countingSessionViewClient{})
 			model := newProjectedTestUIModel(runtimeClient)
 			controller := newOngoingTranscriptController(
 				&ongoingSurfaceSpy{},

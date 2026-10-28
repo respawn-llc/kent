@@ -8,7 +8,6 @@ import (
 
 	"core/shared/apicontract"
 	"core/shared/client"
-	"core/shared/clientui"
 	chatpb "core/shared/protoapi/gen/kent/api/chat"
 	chatshellpb "core/shared/protoapi/gen/kent/api/chat_shell"
 	runtimepb "core/shared/protoapi/gen/kent/api/runtime"
@@ -17,6 +16,7 @@ import (
 	"core/shared/runtimeids"
 	"core/shared/runtimeinput"
 	"core/shared/serverapi"
+	"google.golang.org/protobuf/types/known/emptypb"
 )
 
 type shellPreparationClient struct {
@@ -52,26 +52,28 @@ func (c *shellPreparationClient) Steer(_ context.Context, request *chatpb.SteerR
 	}, nil
 }
 
-func (c *shellPreparationClient) SubmitUserShellCommand(_ context.Context, request *chatshellpb.ShellCommandRequest) error {
+func (c *shellPreparationClient) SubmitUserShellCommand(_ context.Context, request *chatshellpb.ShellCommandRequest) (*chatshellpb.ShellCommandSuccess, error) {
 	c.requests = append(c.requests, request)
 	if len(c.requests) == 1 {
-		return serverapi.ErrRuntimeUnavailable
+		return nil, serverapi.ErrRuntimeUnavailable
 	}
-	return nil
+	return &chatshellpb.ShellCommandSuccess{
+		Session: &chatpb.ExistingSessionTarget{SessionId: request.Target.GetSession().SessionId.GetSessionId()},
+		Outcome: &chatshellpb.ShellCommandSuccess_Completed{Completed: &emptypb.Empty{}},
+	}, nil
 }
 
 func TestRuntimeClientConsumesLaunchIntentOnFailedFirstDispatch(t *testing.T) {
-	client := newTestSessionRuntimeClientWithControls(&reconnectRetryRuntimeControlClient{})
-	client.sessionID = ongoingTestSessionID().String()
+	model := newProjectedStaticUIModel()
+	model.presentationTarget = uiKnownSessionTarget{id: ongoingTestSessionID(),
+		preparation: &sessionlaunchpb.SessionRuntimePreparationOptions{ThinkingOverrideExplicit: true}}
 	chat := &shellPreparationClient{}
-	client.chatMutations = chat
-	client.preparation = &sessionlaunchpb.SessionRuntimePreparationOptions{ThinkingOverrideExplicit: true}
-	request := clientui.RuntimeShellRequest{Command: "pwd"}
-	if err := client.RunUserShell(t.Context(), request); !errors.Is(err, serverapi.ErrRuntimeUnavailable) {
-		t.Fatalf("first shell error = %v", err)
+	model.chatMutations = chat
+	if result := model.captureChatAction(chatShellAction{command: "pwd"}, nil)(); !errors.Is(result.err, serverapi.ErrRuntimeUnavailable) {
+		t.Fatalf("first shell error = %v", result.err)
 	}
-	if _, err := client.CompactRuntime(t.Context(), clientui.RuntimeCompactRequest{}); err != nil {
-		t.Fatal(err)
+	if result := model.captureChatAction(chatCompactionAction{invocation: chatCompactionInvocation(nil)}, nil)(); result.err != nil {
+		t.Fatal(result.err)
 	}
 	if len(chat.requests) != 1 || len(chat.compactions) != 1 ||
 		chat.requests[0].Target.GetSession().Preparation == nil ||
@@ -82,6 +84,7 @@ func TestRuntimeClientConsumesLaunchIntentOnFailedFirstDispatch(t *testing.T) {
 
 type goalRuntimeControlClient struct {
 	apicontract.RuntimeControlService
+	apicontract.ChatMutationService
 	t     *testing.T
 	cause error
 }
@@ -123,25 +126,15 @@ func (c *goalRuntimeControlClient) ClearGoal(ctx context.Context, _ *runtimepb.G
 }
 
 func TestRuntimeGoalCallsHaveGoalBudgetAndPresentTimeout(t *testing.T) {
-	for _, action := range []string{"show", "set", "pause", "resume", "complete", "clear"} {
-		t.Run(action, func(t *testing.T) {
+	for _, action := range []goalRuntimeOperation{goalRuntimeShow, goalRuntimeSet, goalRuntimePause, goalRuntimeResume, goalRuntimeComplete, goalRuntimeClear} {
+		t.Run(string(action), func(t *testing.T) {
 			controls := &goalRuntimeControlClient{t: t, cause: context.DeadlineExceeded}
-			runtimeClient := newUIRuntimeClientWithReads("11111111-1111-4111-8111-111111111111", &countingSessionViewClient{}, controls, controls, nil)
-			var err error
-			switch action {
-			case "show":
-				_, err = runtimeClient.ShowGoal()
-			case "set":
-				_, err = runtimeClient.SetGoal("finish the task")
-			case "pause":
-				_, err = runtimeClient.PauseGoal()
-			case "resume":
-				_, err = runtimeClient.ResumeGoal()
-			case "complete":
-				_, err = runtimeClient.CompleteGoal()
-			case "clear":
-				_, err = runtimeClient.ClearGoal()
-			}
+			model := newProjectedStaticUIModel()
+			model.setKnownSessionTarget(ongoingTestSessionID().String())
+			model.sessionControls = controls
+			model.chatMutations = controls
+			result := model.goalRuntimeCommand(action, "finish the task")().(goalRuntimeDoneMsg)
+			err := result.err
 			var presented client.GoalRequestTimeoutError
 			if !errors.Is(err, controls.cause) || !errors.As(err, &presented) {
 				t.Fatalf("goal timeout needs presentation with its diagnostic cause preserved: %T", err)
@@ -156,8 +149,10 @@ func TestRuntimeGoalReadDoesNotActivateUnavailableRuntime(t *testing.T) {
 		showGoalErr:  serverapi.ErrRuntimeUnavailable,
 		showGoalResp: runtimeClientTestShowResponse(goal),
 	}
-	runtimeClient := newTestSessionRuntimeClientWithControls(controls)
-	_, err := runtimeClient.ShowGoal()
+	model := newProjectedStaticUIModel()
+	model.setKnownSessionTarget(ongoingTestSessionID().String())
+	model.sessionControls = controls
+	err := model.goalRuntimeCommand(goalRuntimeShow, "")().(goalRuntimeDoneMsg).err
 	if !errors.Is(err, serverapi.ErrRuntimeUnavailable) {
 		t.Fatalf("ShowGoal error = %v, want unavailable", err)
 	}
@@ -167,17 +162,18 @@ func TestRuntimeGoalReadDoesNotActivateUnavailableRuntime(t *testing.T) {
 }
 
 func TestRuntimeClientInputMakesOneExplicitCall(t *testing.T) {
-	controls := &reconnectRetryRuntimeControlClient{}
-	runtimeClient := newUIRuntimeClientWithReads(ongoingTestSessionID().String(), &countingSessionViewClient{}, controls, controls, nil).(*sessionRuntimeClient)
+	model := newProjectedStaticUIModel()
+	model.setKnownSessionTarget(ongoingTestSessionID().String())
 	selected := runtimeids.NewSessionID().String()
 	chat := &shellPreparationClient{selectedSessionID: &selected, diagnostic: &chatpb.AcceptedDiagnostic{
 		Detail: &chatpb.AcceptedDiagnostic_PromptHistoryFailure{PromptHistoryFailure: &sharedpb.InternalFailureDetails{}},
 	}}
-	runtimeClient.chatMutations = chat
-
-	submission, err := runtimeClient.SubmitRuntimeInput(context.Background(), clientui.RuntimeSubmitRequest{
-		Input: runtimeinput.Text("hello"),
-	})
+	model.chatMutations = chat
+	activation, err := chatActivationFromInput(runtimeinput.Text("hello"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	submission, err := model.captureChatAction(chatInputAction{input: activation, queueItemID: runtimeids.NewQueueItemID()}, nil)().submission("hello")
 	if err != nil {
 		t.Fatalf("SubmitRuntimeInput: %v", err)
 	}
@@ -190,8 +186,8 @@ func TestRuntimeClientInputMakesOneExplicitCall(t *testing.T) {
 	if len(chat.inputs) != 1 {
 		t.Fatalf("submit calls = %d, want 1", len(chat.inputs))
 	}
-	compaction, err := runtimeClient.CompactRuntime(t.Context(), clientui.RuntimeCompactRequest{})
-	if err != nil || compaction.Diagnostic == nil {
-		t.Fatalf("accepted compaction diagnostic = %+v, error = %v", compaction, err)
+	compaction := model.captureChatAction(chatCompactionAction{invocation: chatCompactionInvocation(nil)}, nil)()
+	if compaction.err != nil || compaction.diagnostic == nil {
+		t.Fatalf("accepted compaction diagnostic = %+v, error = %v", compaction, compaction.err)
 	}
 }

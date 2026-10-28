@@ -15,7 +15,7 @@ import (
 func newWorktreeControllerTestModel(t *testing.T, client *worktreeCommandTestClient, phase uiWorktreeOverlayPhase) *uiModel {
 	t.Helper()
 	if client == nil {
-		client = &worktreeCommandTestClient{listResp: testMainWorktreeListResponse()}
+		client = &worktreeCommandTestClient{workspaceResp: workspaceListFixture(testMainWorktreeListResponse())}
 	}
 	model := newWorktreeTestModel(t, client)
 	model.worktrees.open = true
@@ -92,8 +92,8 @@ func TestWorktreeCreateControllerCyclesActions(t *testing.T) {
 
 func TestWorktreeCreateControllerSubmitStartsResolution(t *testing.T) {
 	client := &worktreeCommandTestClient{
-		listResp:    testMainWorktreeListResponse(),
-		resolveResp: &worktreepb.CreateTargetResolveSuccess{Resolution: &worktreepb.CreateTargetResolution{Input: "feature/new", Kind: worktreepb.CreateTargetResolutionKind_WORKTREE_CREATE_TARGET_RESOLUTION_KIND_NEW_BRANCH}},
+		workspaceResp: workspaceListFixture(testMainWorktreeListResponse()),
+		resolveResp:   &worktreepb.CreateTargetResolveSuccess{Resolution: &worktreepb.CreateTargetResolution{Input: "feature/new", Kind: worktreepb.CreateTargetResolutionKind_WORKTREE_CREATE_TARGET_RESOLUTION_KIND_NEW_BRANCH}},
 	}
 	model := newWorktreeCreateControllerTestModel(t, client)
 	model.worktrees.create.branchTarget.Replace(strings.NewReplacer("\r", "", "\n", "").Replace("feature/new"))
@@ -121,7 +121,7 @@ func TestWorktreeCreateControllerSubmitStartsResolution(t *testing.T) {
 }
 
 func TestWorktreeCreateSetupEventUpdatesPendingOperationState(t *testing.T) {
-	model := newWorktreeCreateControllerTestModel(t, &worktreeCommandTestClient{listResp: testMainWorktreeListResponse()})
+	model := newWorktreeCreateControllerTestModel(t, &worktreeCommandTestClient{workspaceResp: workspaceListFixture(testMainWorktreeListResponse())})
 	model.worktrees.mutationToken = 7
 	model.worktrees.create.submitting = true
 	event := &worktreepb.SetupEvent{
@@ -151,7 +151,7 @@ func TestWorktreeCreateSetupEventUpdatesPendingOperationState(t *testing.T) {
 }
 
 func TestWorktreeCreateCompletionSwitchesByStableWorktreeID(t *testing.T) {
-	client := &worktreeCommandTestClient{listResp: testMainWorktreeListResponse()}
+	client := &worktreeCommandTestClient{workspaceResp: workspaceListFixture(testMainWorktreeListResponse())}
 	model := newWorktreeCreateControllerTestModel(t, client)
 	model.worktrees.mutationToken = 7
 	created := testRegisteredWorktreeListEntry(

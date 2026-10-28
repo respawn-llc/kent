@@ -8,6 +8,7 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"testing"
@@ -87,17 +88,85 @@ func TestChatShellPreparesDormantSessionWithoutModel(t *testing.T) {
 		t.Fatal(err)
 	}
 	output := filepath.Join(store.Meta().WorkspaceRoot, "shell-first-action")
-	if err := app.ChatMutationClient().SubmitUserShellCommand(t.Context(), &chatshellpb.ShellCommandRequest{
+	result, err := app.ChatMutationClient().SubmitUserShellCommand(t.Context(), &chatshellpb.ShellCommandRequest{
 		Target: &chatpb.ChatTarget{Target: &chatpb.ChatTarget_Session{
 			Session: &chatpb.ExistingSessionRequestTarget{SessionId: protoapi.SessionSelectorToProto(id)},
 		}},
 		Command: "touch " + output,
-	}); err != nil {
+	})
+	if err != nil {
 		t.Fatal(err)
+	}
+	if result.GetFailed() != nil {
+		t.Fatal(protoapi.ChatNotAcceptedFromProto(result.GetFailed()))
 	}
 	if _, err := os.Stat(output); err != nil {
 		t.Fatalf("shell returned before command completed: %v", err)
 	}
+}
+
+func TestNewChatShellCreatesSessionAndExecutesOnceWithoutModel(t *testing.T) {
+	app, source, _ := newRunThinkingSession(t, nil)
+	binding, err := app.MetadataStore().ResolveSessionNavigationBinding(t.Context(), source.Meta().SessionID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	output := filepath.Join(source.Meta().WorkspaceRoot, "new-shell-count")
+	result, err := app.ChatMutationClient().SubmitUserShellCommand(t.Context(), &chatshellpb.ShellCommandRequest{
+		Target:  newChatCommandTarget(t, app, binding.ProjectId, binding.WorkspaceId),
+		Command: "echo invoked >> " + output,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.GetCompleted() == nil || result.Session.SessionId == source.Meta().SessionID {
+		t.Fatalf("shell did not settle on its created Session: %+v", result)
+	}
+	record, err := app.MetadataStore().ResolvePersistedSession(t.Context(), result.Session.SessionId)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if record.Meta.ModelRequestCount != 0 {
+		t.Fatalf("shell made %d model requests", record.Meta.ModelRequestCount)
+	}
+	content, err := os.ReadFile(output)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(strings.Fields(string(content))) != 1 {
+		t.Fatalf("shell executed more than once: %q", content)
+	}
+	requireChatSessionCount(t, app, binding.ProjectId, 1)
+}
+
+func TestNewChatShellFailureRetainsCreatedSessionAndDraft(t *testing.T) {
+	app, source, _ := newRunThinkingSession(t, nil)
+	binding, err := app.MetadataStore().ResolveSessionNavigationBinding(t.Context(), source.Meta().SessionID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	invocation, err := protoapi.RunPromptOverridesToProto(serverapi.RunPromptOverrides{Tools: "patch"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	target := newChatCommandTarget(t, app, binding.ProjectId, binding.WorkspaceId)
+	target.GetNewChat().Invocation = invocation
+	result, err := app.ChatMutationClient().SubmitUserShellCommand(t.Context(), &chatshellpb.ShellCommandRequest{
+		Target:            target,
+		Command:           "pwd",
+		InitialInputDraft: textutil.Value("unsent shell draft"),
+	})
+	if err != nil || result.GetFailed() == nil {
+		t.Fatalf("failed shell result = %v, %v", result, err)
+	}
+	record, err := app.MetadataStore().ResolvePersistedSession(t.Context(), result.Session.SessionId)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if record.Meta.InputDraft != "unsent shell draft" || record.Meta.ModelRequestCount != 0 {
+		t.Fatalf("failed shell lost draft or called model: %+v", record.Meta)
+	}
+	requireChatSessionCount(t, app, binding.ProjectId, 1)
 }
 
 func TestRunThinkingExplicitDefaultSurvivesFailedContinuation(t *testing.T) {

@@ -21,6 +21,8 @@ import (
 	runtimepb "core/shared/protoapi/gen/kent/api/runtime"
 	sharedpb "core/shared/protoapi/gen/kent/api/shared"
 	"core/shared/runtimeids"
+	"core/shared/sessioncontract"
+	"core/shared/textutil"
 )
 
 type chatCommandModel struct {
@@ -136,6 +138,130 @@ func chatCommandActivation(identity, token string) *chatpb.Activation {
 	return &chatpb.Activation{Input: &chatpb.Activation_Command{Command: &chatpb.CommandInvocation{
 		CatalogIdentity: identity, Token: token, SeparatorWhitespace: " ", Arguments: "src",
 	}}}
+}
+
+func newChatCommandTarget(t *testing.T, app *Core, projectID, workspaceID string) *chatpb.ChatTarget {
+	t.Helper()
+	settings, err := app.ChatSettingsClient().ReadChatSettings(t.Context(), &chatsettingspb.ReadRequest{
+		Target: &chatsettingspb.ReadRequest_NewChat{NewChat: &chatsettingspb.NewChatTarget{
+			ProjectId: projectID, WorkspaceId: workspaceID,
+		}},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	return &chatpb.ChatTarget{Target: &chatpb.ChatTarget_NewChat{NewChat: &chatpb.NewChatTarget{
+		ProjectId: projectID, WorkspaceId: workspaceID,
+		InitialSettings: settings.GetNewChat().InitialSettings,
+	}}}
+}
+
+func requireChatSessionCount(t *testing.T, app *Core, projectID string, want int) {
+	t.Helper()
+	page, err := app.MetadataStore().ListSessionPage(t.Context(), projectID, sessioncontract.SessionCategoryMain, 0, 10)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(page.Sessions) != want {
+		t.Fatalf("Session count = %d, want %d", len(page.Sessions), want)
+	}
+}
+
+func TestNewChatTextInputCreatesOneSessionAndAcceptsAction(t *testing.T) {
+	for _, queued := range []bool{false, true} {
+		name := "Send"
+		if queued {
+			name = "Queue"
+		}
+		t.Run(name, func(t *testing.T) {
+			app, _, binding, models := newChatCommandCore(t, nil)
+			target := newChatCommandTarget(t, app, binding.ProjectID, binding.WorkspaceID)
+			activation := &chatpb.Activation{Input: &chatpb.Activation_Text{Text: "first text"}}
+			var result *chatpb.InputMutationSuccess
+			var err error
+			if queued {
+				result, err = app.ChatMutationClient().Queue(t.Context(), &chatpb.QueueRequest{Target: target, Activation: activation, QueueItemId: runtimeids.NewQueueItemID().String()})
+			} else {
+				result, err = app.ChatMutationClient().Steer(t.Context(), &chatpb.SteerRequest{Target: target, Activation: activation, QueueItemId: runtimeids.NewQueueItemID().String()})
+			}
+			if err != nil || result.GetAccepted() == nil {
+				t.Fatalf("first Send = %v, %v", result, err)
+			}
+			model := awaitChatCommandModel(t, models)
+			if model.sessionID != result.Session.SessionId {
+				t.Fatalf("action ran in %s, created %s", model.sessionID, result.Session.SessionId)
+			}
+			requireChatSessionCount(t, app, binding.ProjectID, 1)
+		})
+	}
+}
+
+func TestNewChatGoalSetCreatesOneSessionAndAcceptsAction(t *testing.T) {
+	app, _, binding, models := newChatCommandCore(t, nil)
+	result, err := app.ChatMutationClient().SetGoal(t.Context(), &runtimepb.GoalSetRequest{
+		Target:    newChatCommandTarget(t, app, binding.ProjectID, binding.WorkspaceID),
+		Objective: "finish the task", Actor: "user",
+		ExecutionPolicy:   runtimepb.GoalExecutionPolicy_GOAL_EXECUTION_POLICY_START_OR_CONTINUE,
+		InitialInputDraft: textutil.Value("unsent text"),
+	})
+	if err != nil || result.GetMutation() == nil {
+		t.Fatalf("first Goal Set = %v, %v", result, err)
+	}
+	model := awaitChatCommandModel(t, models)
+	if model.sessionID != result.Session.SessionId {
+		t.Fatalf("Goal ran in %s, created %s", model.sessionID, result.Session.SessionId)
+	}
+	requireChatSessionCount(t, app, binding.ProjectID, 1)
+	record, err := app.MetadataStore().ResolvePersistedSession(t.Context(), result.Session.SessionId)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if record.Meta.InputDraft != "unsent text" {
+		t.Fatalf("Goal Set lost unsent draft: %q", record.Meta.InputDraft)
+	}
+}
+
+func TestNewChatCompactionRetainsCreatedSessionOnOrdinaryRejection(t *testing.T) {
+	app, _, binding, _ := newChatCommandCore(t, nil)
+	result, err := app.ChatMutationClient().Compact(t.Context(), &chatpb.CompactRequest{
+		Target:     newChatCommandTarget(t, app, binding.ProjectID, binding.WorkspaceID),
+		Invocation: &chatpb.CompactionInvocation{Token: "/compact"},
+	})
+	if err != nil || result.GetSession() == nil || result.GetNotAccepted().GetTooSoon() == nil {
+		t.Fatalf("first compaction = %v, %v", result, err)
+	}
+	record, err := app.MetadataStore().ResolvePersistedSession(t.Context(), result.Session.SessionId)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if record.Meta.ModelRequestCount != 0 {
+		t.Fatalf("ineligible compaction made %d model requests", record.Meta.ModelRequestCount)
+	}
+	requireChatSessionCount(t, app, binding.ProjectID, 1)
+}
+
+func TestNewChatTargetFailureReturnsCreatedSessionWithoutReplay(t *testing.T) {
+	app, _, binding, _ := newChatCommandCore(t, nil)
+	target := newChatCommandTarget(t, app, binding.ProjectID, binding.WorkspaceID)
+	target.GetNewChat().Name = textutil.Value("future name")
+	target.GetNewChat().WorktreeSelector = textutil.Value("unavailable-worktree")
+	result, err := app.ChatMutationClient().Steer(t.Context(), &chatpb.SteerRequest{
+		QueueItemId: runtimeids.NewQueueItemID().String(),
+		Target:      target,
+		Activation:  &chatpb.Activation{Input: &chatpb.Activation_Text{Text: "retained draft"}},
+	})
+	if err != nil || result.GetNotAccepted() == nil {
+		t.Fatalf("target failure = %v, %v", result, err)
+	}
+	record, err := app.MetadataStore().ResolvePersistedSession(t.Context(), result.Session.SessionId)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if record.Meta.Name == nil || *record.Meta.Name != "future name" || record.Meta.InputDraft != "retained draft" ||
+		record.Meta.ModelRequestCount != 0 {
+		t.Fatalf("known failure lost creation inputs or started inference: %+v", record.Meta)
+	}
+	requireChatSessionCount(t, app, binding.ProjectID, 1)
 }
 
 func TestChatReviewQueueCreatesChildAndLeavesParentRunning(t *testing.T) {

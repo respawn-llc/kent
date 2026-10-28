@@ -10,6 +10,7 @@ import (
 
 	"core/cli/app/internal/runtimeattach"
 	"core/shared/clientui"
+	"core/shared/runtimeids"
 	"core/shared/runtimeinput"
 	"core/shared/serverapi"
 
@@ -64,6 +65,10 @@ func (c uiInputController) startTypedSubmissionWithPreSubmitQueuePositionAndOrde
 	submissionOrder *inputSubmissionOrder,
 ) tea.Cmd {
 	m := c.model
+	if m.newSessionTarget() != nil {
+		cmd := c.submitCmd(text, input, queuedID, origin, submissionOrder)
+		return tea.Batch(cmd, m.reconcileSpinnerTicking(false))
+	}
 	if blocked, disconnectCmd := c.blockDisconnectedSubmission(true, text); blocked {
 		return disconnectCmd
 	}
@@ -76,9 +81,6 @@ func (c uiInputController) startTypedSubmissionWithPreSubmitQueuePositionAndOrde
 		m.logf("step.user_shell.start command_chars=%d", len(command))
 	} else {
 		m.logf("step.start user_chars=%d", len(text))
-	}
-	if !m.hasRuntimeClient() && !isUserShell {
-		m.conversationFreshness = runtimepb.ConversationFreshness_CONVERSATION_FRESHNESS_ESTABLISHED
 	}
 	m.layout().syncViewport()
 	if isUserShell {
@@ -104,19 +106,26 @@ func (c uiInputController) startSubmissionWithPromptHistoryAndQueuePositionAndID
 
 func (c uiInputController) submitCmd(text string, input runtimeinput.Input, queuedID string, origin activeSubmitOrigin, submissionOrder *inputSubmissionOrder) tea.Cmd {
 	m := c.model
+	if m.newSessionTarget() != nil {
+		intent := newSessionInputEnter
+		if origin == activeSubmitOriginQueued {
+			intent = newSessionInputQueue
+		}
+		return m.newSessionInputCmd(text, input, intent)
+	}
 	token := m.beginSubmitAttempt(text, queuedID, origin, submissionOrder)
-	client := m.runtimeClient()
 	sessionID := m.pendingWorkRefresh.sessionID
+	activation, activationErr := chatActivationFromInput(input)
+	action := chatInputAction{input: activation, queueItemID: runtimeids.NewQueueItemID()}
+	execute := m.captureChatAction(action, &text)
 	return func() tea.Msg {
 		doneMessage := func(message string, err error) submitDoneMsg {
 			return newSubmitDoneMsg(token, message, text, err)
 		}
-		if client == nil {
-			return doneMessage("", errors.New("runtime engine is not configured"))
+		if activationErr != nil {
+			return doneMessage("", activationErr)
 		}
-		submission, err := m.submitRuntimeInput(context.Background(), clientui.RuntimeSubmitRequest{
-			Input: input,
-		})
+		submission, err := execute().submission(text)
 		if submission.SessionID != nil && *submission.SessionID != sessionID.String() {
 			done := doneMessage("", err)
 			done.diagnostic = submission.Diagnostic
@@ -145,13 +154,13 @@ func (c uiInputController) submitCmd(text string, input runtimeinput.Input, queu
 
 func (c uiInputController) submitUserShellCmd(originalText, command string, origin activeSubmitOrigin, submissionOrder *inputSubmissionOrder) tea.Cmd {
 	m := c.model
+	if m.newSessionTarget() != nil {
+		return m.newSessionActionCmd(chatShellAction{command: command}, &originalText)
+	}
 	token := m.beginSubmitAttempt(originalText, "", origin, submissionOrder)
-	client := m.runtimeClient()
+	execute := m.captureChatAction(chatShellAction{command: command}, &originalText)
 	return func() tea.Msg {
-		if client == nil {
-			return newSubmitDoneMsg(token, "", originalText, errors.New("runtime engine is not configured"))
-		}
-		err := m.submitRuntimeShell(context.Background(), clientui.RuntimeShellRequest{Command: command})
+		err := execute().err
 		if err != nil {
 			if !errors.Is(err, serverapi.ErrRuntimeCommandNotAccepted) && isRuntimeOperationInterrupted(err) {
 				return newSubmitDoneMsg(token, "", originalText, runtimeattach.ErrSubmissionInterrupted)
@@ -193,6 +202,10 @@ func (m *uiModel) beginSubmitAttempt(
 
 func (c uiInputController) startCompaction(submittedText, args string) tea.Cmd {
 	m := c.model
+	if m.newSessionTarget() != nil {
+		invocation := chatCompactionInvocation(optionalCompactionGuidance(args))
+		return m.newSessionActionCmd(chatCompactionAction{invocation: invocation}, &submittedText)
+	}
 	if m.isCompacting() {
 		return nil
 	}
@@ -210,25 +223,12 @@ func (c uiInputController) compactCmd(
 	guidance *string,
 ) tea.Cmd {
 	m := c.model
-	client := m.runtimeClient()
 	sessionID := m.pendingWorkRefresh.sessionID
+	action := chatCompactionAction{invocation: chatCompactionInvocation(guidance)}
+	execute := m.captureChatAction(action, &submittedText)
 	return func() tea.Msg {
-		if client == nil {
-			return compactDoneMsg{
-				sessionID:     sessionID,
-				submittedText: submittedText,
-				err:           errors.New("runtime engine is not configured"),
-			}
-		}
-		result, err := m.compactRuntimeInput(context.Background(), clientui.RuntimeCompactRequest{
-			Admission: runtimeinput.ManualCompactionAdmission{
-				Guidance: guidance,
-			},
-		})
-		return compactDoneMsg{
-			sessionID: sessionID, submittedText: submittedText,
-			diagnostic: result.Diagnostic, err: err,
-		}
+		result := execute()
+		return compactDoneMsg{sessionID: sessionID, submittedText: submittedText, diagnostic: result.diagnostic, err: result.err}
 	}
 }
 
@@ -281,7 +281,7 @@ func (c uiInputController) handleSubmitDone(msg submitDoneMsg) (tea.Model, tea.C
 	}
 	pendingWorkRefreshCmd := m.requestPendingWorkRefreshIfSuccessful(m.pendingWorkRefresh.sessionID, msg.err == nil)
 	submitOrigin := m.activeSubmit.origin
-	if msg.selectedSessionID != nil && *msg.selectedSessionID != m.sessionID {
+	if msg.selectedSessionID != nil && *msg.selectedSessionID != m.currentRuntimeSessionID() {
 		m.nextSessionID = *msg.selectedSessionID
 		m.exitAction = UIActionOpenSession
 		if msg.diagnostic != nil {
@@ -300,7 +300,7 @@ func (c uiInputController) handleSubmitDone(msg submitDoneMsg) (tea.Model, tea.C
 	m.activeSubmit = activeSubmitState{}
 	m.clearUnownedQueuedTerminalStatesWithoutPendingOwnership()
 	c.finishRuntimeOperationAffordance()
-	if msg.token == 0 || !m.hasRuntimeClient() {
+	if msg.token == 0 {
 		_ = m.applyRuntimeActivityProjection(&runtimepb.Activity{
 			State:    runtimepb.ActivityState_RUNTIME_ACTIVITY_REGISTERED_IDLE,
 			Reviewer: runtimepb.ReviewerActivity_REVIEWER_ACTIVITY_INACTIVE,
@@ -452,9 +452,6 @@ func (m *uiModel) shouldRestoreSubmittedTextOnSubmitError(err error) bool {
 		return false
 	}
 	if errors.Is(err, serverapi.ErrRuntimeCommandNotAccepted) {
-		return true
-	}
-	if !m.hasRuntimeClient() {
 		return true
 	}
 	return false

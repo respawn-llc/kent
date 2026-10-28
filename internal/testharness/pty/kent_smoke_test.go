@@ -3,10 +3,13 @@
 package pty_test
 
 import (
+	"context"
 	"errors"
 	"fmt"
+	"net"
 	"os"
 	"path/filepath"
+	"strconv"
 	"testing"
 	"time"
 
@@ -14,6 +17,11 @@ import (
 	"core/internal/testharness/pty/analyzer"
 	"core/internal/testharness/pty/blackbox"
 	"core/internal/testharness/pty/driver"
+	"core/shared/client"
+	"core/shared/protoapi"
+	projectpb "core/shared/protoapi/gen/kent/api/project"
+	sessionlaunchpb "core/shared/protoapi/gen/kent/api/session_launch"
+	"core/shared/serverapi"
 
 	"github.com/google/uuid"
 )
@@ -49,13 +57,16 @@ func TestProductionKentBinaryPTYSmoke(t *testing.T) {
 	if err := environment.BindProject(); err != nil {
 		t.Fatalf("bind isolated server workspace: %v; %s", err, smokeDiagnostics(session, environment))
 	}
+	// The editable New composer is visible before creation actions are ready.
+	// This smoke exercises model submission from an ordinary dormant Session.
+	sessionID := prepareSmokeSession(t, environment)
 	clientEnvironment, err := environment.ClientEnvironment()
 	if err != nil {
 		t.Fatalf("build isolated client environment: %v; %s", err, smokeDiagnostics(session, environment))
 	}
 	session, err = driver.StartSession(driver.SessionSpec{
 		Path:       binary,
-		Args:       []string{"--force-interactive", "--persistence-root", environment.Root},
+		Args:       []string{"--force-interactive", "--persistence-root", environment.Root, "--session", sessionID},
 		Dir:        environment.Workspace,
 		Env:        clientEnvironment,
 		Dimensions: pty.MustDimensions(40, 120),
@@ -93,6 +104,40 @@ func TestProductionKentBinaryPTYSmoke(t *testing.T) {
 	if err := environment.Stub.Verify(); err != nil {
 		t.Fatalf("verify model-boundary operation after client exit: %v; %s", err, smokeDiagnostics(session, environment))
 	}
+}
+
+func prepareSmokeSession(t *testing.T, environment *memorySmokeEnvironment) string {
+	t.Helper()
+	ctx, cancel := context.WithTimeout(t.Context(), smokeEventWait)
+	defer cancel()
+	rpcURL := "ws://" + net.JoinHostPort(environment.Host, strconv.Itoa(environment.Port)) + "/rpc"
+	remote, err := client.DialRemoteURL(ctx, rpcURL)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = remote.Close() }()
+	binding, err := remote.PlanWorkspaceBinding(ctx, &projectpb.PlanWorkspaceBindingRequest{
+		Path: environment.Workspace, Mode: projectpb.WorkspaceBindingPlanMode_WORKSPACE_BINDING_PLAN_MODE_INTERACTIVE,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	scoped, err := client.DialRemoteURLForProjectWorkspace(ctx, rpcURL, binding.Binding.ProjectId, environment.Workspace)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = scoped.Close() }()
+	intent, err := protoapi.SessionLaunchRequestIntentToProto(serverapi.CreateNewSessionLaunchIntent(serverapi.IndependentSessionCreateOrigin()))
+	if err != nil {
+		t.Fatal(err)
+	}
+	response, err := scoped.PlanSession(ctx, &sessionlaunchpb.SessionPlanRequest{
+		Mode: sessionlaunchpb.SessionLaunchMode_SESSION_LAUNCH_MODE_INTERACTIVE, Intent: intent,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	return response.Plan.SessionId
 }
 
 func promptReady(analysis analyzer.Analysis) bool {

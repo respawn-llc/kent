@@ -105,7 +105,7 @@ func appTestOutsidePatchPath(t *testing.T) string {
 	)
 }
 
-func startAppTestRuntimeSubmission(t *testing.T, client clientui.RuntimeClient, text string) (<-chan appTestRuntimeSubmissionResult, <-chan error) {
+func startAppTestRuntimeSubmission(t *testing.T, client *runtimeWiring, text string) (<-chan appTestRuntimeSubmissionResult, <-chan error) {
 	t.Helper()
 	done := make(chan appTestRuntimeSubmissionResult, 1)
 	failed := make(chan error, 1)
@@ -237,7 +237,7 @@ func TestStartSessionServerConfiguredDaemonNoAuthSkipsLaterPrompt(t *testing.T) 
 		t.Fatalf("first startSessionServer: %v", err)
 	}
 	_, firstRuntimePlan := prepareAppRuntimePlan(t, firstServer, sessionLaunchRequest{Mode: launchModeInteractive, Intent: requestfixture.LaunchIntent(t, serverapi.CreateNewSessionLaunchIntent(serverapi.IndependentSessionCreateOrigin()))}, io.Discard, "test remote no-auth runtime")
-	firstSubmission, err := submitRuntimeClientForTest(t, firstRuntimePlan.Wiring.runtimeClient, "hello after no auth")
+	firstSubmission, err := submitRuntimeClientForTest(t, firstRuntimePlan.Wiring, "hello after no auth")
 	requireQueuedAppTestUserTurn(t, firstSubmission, err)
 	waitForRemoteTranscriptAssistantFinal(
 		t,
@@ -265,7 +265,7 @@ func TestStartSessionServerConfiguredDaemonNoAuthSkipsLaterPrompt(t *testing.T) 
 	}
 	t.Cleanup(func() { closeInteractiveSessionServer(t, secondServer) })
 	_, secondRuntimePlan := prepareAppRuntimePlan(t, secondServer, sessionLaunchRequest{Mode: launchModeInteractive, Intent: requestfixture.LaunchIntent(t, serverapi.CreateNewSessionLaunchIntent(serverapi.IndependentSessionCreateOrigin()))}, io.Discard, "test remote persisted no-auth runtime")
-	secondSubmission, err := submitRuntimeClientForTest(t, secondRuntimePlan.Wiring.runtimeClient, "hello after persisted no auth")
+	secondSubmission, err := submitRuntimeClientForTest(t, secondRuntimePlan.Wiring, "hello after persisted no auth")
 	requireQueuedAppTestUserTurn(t, secondSubmission, err)
 	waitForRemoteTranscriptAssistantFinal(
 		t,
@@ -366,7 +366,7 @@ func TestConfiguredDaemonEnvironmentContextUsesSessionWorkspaceRootForCWD(t *tes
 	plan, runtimePlan := prepareAppRuntimePlan(t, server, sessionLaunchRequest{Mode: launchModeInteractive, Intent: requestfixture.LaunchIntent(t, serverapi.CreateNewSessionLaunchIntent(serverapi.IndependentSessionCreateOrigin()))}, io.Discard, "test daemon environment cwd")
 	defer closeRuntimeLaunchPlan(t, runtimePlan)
 
-	submission, err := submitRuntimeClientForTest(t, runtimePlan.Wiring.runtimeClient, "hello through interactive daemon")
+	submission, err := submitRuntimeClientForTest(t, runtimePlan.Wiring, "hello through interactive daemon")
 	requireQueuedAppTestUserTurn(t, submission, err)
 	waitForRemoteTranscriptAssistantFinal(
 		t,
@@ -432,7 +432,7 @@ func TestRemoteInteractiveRuntimeAnswersPromptsFromAnyAttachedClientAcrossWorksp
 	if fixture.planB.SessionID != fixture.planA.SessionID {
 		t.Fatalf("expected second client to attach same session, a=%q b=%q", fixture.planA.SessionID, fixture.planB.SessionID)
 	}
-	submissionDone, submissionFailed := startAppTestRuntimeSubmission(t, fixture.runtimePlanA.Wiring.runtimeClient, "start prompt flow")
+	submissionDone, submissionFailed := startAppTestRuntimeSubmission(t, fixture.runtimePlanA.Wiring, "start prompt flow")
 	requireQueuedAppTestRuntimeSubmission(t, submissionDone)
 	askPrompt := waitForRemoteTranscriptPrompt(t, fixture.runtimePlanA.Wiring.eventDispatcher.transcriptEvents, "ask-race-1", submissionFailed)
 	if askPrompt.GetQuestion() == nil || transcriptPromptQuestion(askPrompt) != "Who answers first?" {

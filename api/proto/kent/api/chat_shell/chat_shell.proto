@@ -20,11 +20,16 @@ message ShellCommandRequest {
     (buf.validate.field).string.min_len = 1,
     (buf.validate.field).string.(kent.api.shared.nonblank) = true
   ];
-  option (buf.validate.message).cel = {
-    id: "kent.chat.shell_existing_session"
-    message: "foreground shell requires an existing Session"
-    expression: "has(this.target.session)"
-  };
+  optional string initial_input_draft = 3;
+}
+
+message ShellCommandSuccess {
+  kent.api.chat.ExistingSessionTarget session = 1 [(buf.validate.field).required = true];
+  oneof outcome {
+    option (buf.validate.oneof).required = true;
+    google.protobuf.Empty completed = 2;
+    kent.api.chat.InputNotAccepted failed = 3;
+  }
 }
 
 message SubmitUserShellCommandError {
@@ -71,7 +76,7 @@ message SubmitUserShellCommandError {
 message SubmitUserShellCommandResult {
   oneof outcome {
     option (buf.validate.oneof).required = true;
-    google.protobuf.Empty success = 1 [(kent.api.shared.kent_result_field).role = RESULT_FIELD_ROLE_SUCCESS];
+    ShellCommandSuccess success = 1 [(kent.api.shared.kent_result_field).role = RESULT_FIELD_ROLE_SUCCESS];
     SubmitUserShellCommandError error = 2 [(kent.api.shared.kent_result_field).role = RESULT_FIELD_ROLE_ERROR];
   }
 }

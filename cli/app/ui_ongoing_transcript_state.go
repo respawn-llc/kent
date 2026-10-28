@@ -134,7 +134,7 @@ func (m *uiModel) applyTranscriptHydration(
 
 	cmds = append(cmds, m.reconcileTranscriptPrompts(hydration.PendingPrompts))
 	cmds = append(cmds, m.missingPromptRehydrationCmd(hydration.SessionIdentity.SessionId))
-	currentSessionID := strings.TrimSpace(m.sessionID)
+	currentSessionID := strings.TrimSpace(m.currentRuntimeSessionID())
 	preserved := m.processList.entries[:0]
 	for _, entry := range m.processList.entries {
 		if strings.TrimSpace(entry.OwnerSessionId) != currentSessionID {
@@ -260,7 +260,7 @@ func (m *uiModel) applyTranscriptSessionStatus(status *transcriptpb.SessionStatu
 }
 
 func (m *uiModel) applyTranscriptSessionIdentity(identity *transcriptpb.SessionIdentity) tea.Cmd {
-	previousSessionID := strings.TrimSpace(m.sessionID)
+	previousSessionID := strings.TrimSpace(m.currentRuntimeSessionID())
 	nextSessionID := identity.SessionId
 	previousTarget := m.sessionExecutionTarget
 	m.sessionExecutionTarget = nil
@@ -268,7 +268,7 @@ func (m *uiModel) applyTranscriptSessionIdentity(identity *transcriptpb.SessionI
 		normalized := clientui.NormalizeSessionExecutionTarget(identity.ExecutionTarget)
 		m.sessionExecutionTarget = normalized
 	}
-	m.sessionID = nextSessionID
+	m.setKnownSessionTarget(nextSessionID)
 	m.reconcileMissingPromptRecoveryScope()
 	m.sessionName = identity.SessionName
 	category := protoapi.SessionCategoryFromProto(identity.Category)
@@ -287,6 +287,10 @@ func (m *uiModel) applyTranscriptSessionIdentity(identity *transcriptpb.SessionI
 	if previousSessionID == "" || previousSessionID == nextSessionID {
 		return titleCmd
 	}
+	return tea.Batch(titleCmd, m.resetSessionTranscriptPresentation())
+}
+
+func (m *uiModel) resetSessionTranscriptPresentation() tea.Cmd {
 	m.askController().cancelActiveDelivery()
 	promptCmd := m.reconcileTranscriptPrompts(nil)
 	rollbackCmd := m.discardRollbackStateForSessionReplacement()
@@ -296,7 +300,7 @@ func (m *uiModel) applyTranscriptSessionIdentity(identity *transcriptpb.SessionI
 	loadCmd := m.loadDetailTranscriptPageCmd(m.detailTranscript.requestedPageForDetailEntry())
 	return tea.Batch(
 		promptCmd,
-		sequenceCmds(titleCmd, rollbackCmd, cancelCmd, resetCmd, loadCmd),
+		sequenceCmds(rollbackCmd, cancelCmd, resetCmd, loadCmd),
 	)
 }
 

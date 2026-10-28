@@ -284,28 +284,19 @@ func TestOngoingFrameInputRendersPendingInjectedMessagesBeforeServerAcceptance(t
 	}
 }
 
-func TestOngoingFrameInputRendersNoRuntimeInjectedMessages(t *testing.T) {
+func TestOngoingFrameInputRendersServerPendingMessagesWithoutObservation(t *testing.T) {
 	m := sizedTestUIModel(newProjectedStaticUIModel(), 48, 10)
-	m.injectedQueue = []*injectedRuntimeQueueItem{{
-
-		ServerID: textutil.Value("11111111-1111-4111-8111-111111111111"),
-		Text:     "local injected without runtime client",
-		State:    injectedRuntimeQueueEnqueued}}
+	m.pendingWorkRefresh.collection = runtimeinput.PendingWork{Items: []runtimeinput.PendingWorkItem{
+		pendingWorkMessageForTest(runtimeinput.PendingWorkLaneSteer, "pending without observation"),
+	}}
 	frame := m.ongoingFrameInput()
 
 	section, ok := frameSection(frame, ongoing.FrameSectionQueuedOrSteered)
 	if !ok {
-		t.Fatal("no-runtime injected section missing")
+		t.Fatal("server pending messages missing without observation")
 	}
 	if len(section.StyledLines) != 1 || len(section.StyledLines[0].Spans) == 0 {
-		t.Fatalf("no-runtime injected styled lines = %+v, want one typed line", section.StyledLines)
-	}
-	span := section.StyledLines[0].Spans[0]
-	role, semantic := span.Style.Role()
-	if !semantic ||
-		role != transcriptrender.StyleRoleNoticePrimary ||
-		span.Style.Has(transcriptrender.SpanAttributeFaint) {
-		t.Fatalf("no-runtime injected span = %+v, want primary/full-strength", span)
+		t.Fatalf("pending message lines = %+v, want one message", section.StyledLines)
 	}
 }
 

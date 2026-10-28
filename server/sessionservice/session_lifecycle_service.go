@@ -204,13 +204,16 @@ func (s *SessionLifecycleService) resolveTransitionOnce(ctx context.Context, req
 		return resolved, err
 	}
 	if req.Transition.Action == sessionlaunchpb.SessionTransitionAction_SESSION_TRANSITION_ACTION_OPEN_SESSION {
-		meta, err := s.resolvePersistedSessionMeta(ctx, req.GetSessionId())
-		if err != nil {
-			return &sessionlaunchpb.SessionDirective{}, err
-		}
 		resolved, err := resolveSessionTransition(ctx, sessionTransitionResolveRequest{Transition: sessionTransition{
 			Action: req.Transition.Action, InitialInput: textutil.Pointer(req.Transition.InitialInput), TargetSessionID: req.Transition.GetTargetSessionId(),
 		}})
+		if err != nil {
+			return &sessionlaunchpb.SessionDirective{}, err
+		}
+		if req.SessionId == nil {
+			return s.bindNavigationTransition(ctx, resolved)
+		}
+		meta, err := s.resolvePersistedSessionMeta(ctx, req.GetSessionId())
 		if err != nil {
 			return &sessionlaunchpb.SessionDirective{}, err
 		}
@@ -262,6 +265,14 @@ func (s *SessionLifecycleService) authorizeNavigationTransition(ctx context.Cont
 	authorizedTarget := session.NavigationTargetSessionID(current)
 	if authorizedTarget == nil || *authorizedTarget != requestedTarget {
 		return &sessionlaunchpb.SessionDirective{}, errors.New("session navigation target does not match current session provenance")
+	}
+	return s.bindNavigationTransition(ctx, resolved)
+}
+
+func (s *SessionLifecycleService) bindNavigationTransition(ctx context.Context, resolved *sessionlaunchpb.SessionDirective) (*sessionlaunchpb.SessionDirective, error) {
+	requestedTarget, err := runtimeids.ParseSessionID(resolved.GetLaunch().GetIntent().GetOpenExistingSessionId())
+	if err != nil {
+		return nil, err
 	}
 	if s == nil || s.navigation == nil {
 		return &sessionlaunchpb.SessionDirective{}, errors.New("session navigation target resolver is required")

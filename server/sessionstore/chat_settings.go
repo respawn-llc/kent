@@ -91,6 +91,7 @@ type ChatSettings struct {
 }
 
 type ChatDraftState struct {
+	Name     *string
 	Message  string
 	Agent    string
 	Settings *ChatSettingsOverrides
@@ -294,6 +295,10 @@ func InitializeChatDraft(store *Store, state ChatDraftState) error {
 	if store == nil {
 		return errors.New("Session store is required")
 	}
+	name, err := sessioncontract.NormalizeSessionName(state.Name)
+	if err != nil {
+		return err
+	}
 	agent, err := normalizeChatAgent(state.Agent)
 	if err != nil {
 		return err
@@ -331,6 +336,7 @@ func InitializeChatDraft(store *Store, state ChatDraftState) error {
 		return errors.New("Chat draft initialization requires a fresh Session")
 	}
 
+	store.meta.Name = name
 	store.meta.InputDraft = state.Message
 	store.meta.ChatSettings = settings
 	if agent == config.DefaultSubagentRole {

@@ -24,6 +24,11 @@ func startRemoteAuthTestFixture(t *testing.T) remoteAuthTestFixture {
 	workspace := t.TempDir()
 	configureAppTestServerPort(t)
 	writeAppTestSettings(t)
+	return startRemoteAuthTestFixtureInWorkspace(t, workspace)
+}
+
+func startRemoteAuthTestFixtureInWorkspace(t *testing.T, workspace string) remoteAuthTestFixture {
+	t.Helper()
 	cfg := loadAppTestConfig(t, workspace, config.LoadOptions{})
 	cfg.Settings = testsetup.WithResponsesProvider(cfg.Settings, "http://127.0.0.1:1/v1")
 	keyName := "REMOTE_TEST_KEY"

@@ -74,7 +74,7 @@ func TestInteractiveConnectionFallbackAndSharedCooldown(t *testing.T) {
 		if id := store.Meta().ConnectionID; id == nil || *id != "a" {
 			t.Fatalf("initial binding = %v, want A", id)
 		}
-		submission, err := submitRuntimeClientForTest(t, runtimes[index].Wiring.runtimeClient, "hello")
+		submission, err := submitRuntimeClientForTest(t, runtimes[index].Wiring, "hello")
 		requireQueuedAppTestUserTurn(t, submission, err)
 		waitForRemoteTranscriptAssistantFinal(t, runtimes[index].Wiring.eventDispatcher.transcriptEvents, "continued")
 		store = openAuthoritativeAppSession(t, fixture.daemon.MetadataStore(), plans[index].SessionID)

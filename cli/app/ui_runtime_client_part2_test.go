@@ -20,10 +20,9 @@ import (
 )
 
 func TestRuntimeClientMainViewDoesNotRefreshCachedSnapshotBehindUIBack(t *testing.T) {
-	reads := &countingSessionViewClient{view: &runtimepb.MainView{Session: &runtimepb.SessionView{SessionId: "session-1"}, Status: &runtimepb.Status{}}}
-	controls := newUnavailableRuntimeControlService()
-	runtimeClient := newTestSessionRuntimeClient(reads, controls)
-	runtimeClient.storeMainView(&runtimepb.MainView{Session: &runtimepb.SessionView{SessionId: "session-1"}, Status: &runtimepb.Status{}})
+	reads := &countingSessionViewClient{view: &runtimepb.MainView{Session: &runtimepb.SessionView{SessionId: detailTestSessionID}, Status: &runtimepb.Status{}}}
+	runtimeClient := newTestSessionRuntimeClient(reads)
+	runtimeClient.storeMainView(&runtimepb.MainView{Session: &runtimepb.SessionView{SessionId: detailTestSessionID}, Status: &runtimepb.Status{}})
 	notified := make(chan error, 1)
 	runtimeClient.SetConnectionStateObserver(func(err error) {
 		notified <- err
@@ -171,12 +170,14 @@ func TestRuntimeClientStopTargetsSessionWithoutCommittingRuntimeTuple(t *testing
 		10,
 		runtimeTupleTestIdleActivity(),
 	)
-	controls := &reconnectRetryRuntimeControlClient{stopStatus: runtimepb.LiveStopStatus_RUNTIME_LIVE_STOP_STATUS_IDLE}
-	runtimeClient := newTestSessionRuntimeClientWithControls(controls)
+	controls := &reconnectRetryRuntimeControlClient{stopStatus: runtimepb.LiveStopStatus_RUNTIME_LIVE_STOP_STATUS_STOPPED}
+	runtimeClient := newTestSessionRuntimeClient(&countingSessionViewClient{})
 	runtimeClient.storeMainView(current)
 
-	if err := runtimeClient.Interrupt(); err != nil {
-		t.Fatalf("interrupt: %v", err)
+	model := newProjectedTestUIModel(runtimeClient, WithUISessionID(ongoingTestSessionID().String()))
+	model.sessionLiveControls = controls
+	if result := model.runtimeControlCommand(runtimeControlInterrupt, nil)().(runtimeControlDoneMsg); result.err != nil {
+		t.Fatalf("interrupt: %v", result.err)
 	}
 	if controls.stopReq.GetSessionId().GetSessionId() != ongoingTestSessionID().String() {
 		t.Fatalf("Stop targeted %v, want current Session", controls.stopReq)
@@ -210,8 +211,8 @@ func TestCloneRuntimeGoalReturnsIndependentCopy(t *testing.T) {
 }
 
 func TestRuntimeClientGoalStatusEventPatchesCachedMainView(t *testing.T) {
-	runtimeClient := newTestSessionRuntimeClientWithControls(&reconnectRetryRuntimeControlClient{})
-	runtimeClient.storeMainView(&runtimepb.MainView{Session: &runtimepb.SessionView{SessionId: "session-1"}, Status: &runtimepb.Status{}})
+	runtimeClient := newTestSessionRuntimeClient(&countingSessionViewClient{})
+	runtimeClient.storeMainView(&runtimepb.MainView{Session: &runtimepb.SessionView{SessionId: detailTestSessionID}, Status: &runtimepb.Status{}})
 
 	if _, err := runtimeClient.admitTranscriptMessageState(runtimeClientTestGoalMessage(runtimeClientTestGoal("goal-1", "ship feature", runtimepb.GoalStatus_RUNTIME_GOAL_STATUS_ACTIVE))); err != nil {
 		t.Fatalf("admit goal status: %v", err)
@@ -240,9 +241,9 @@ func TestRuntimeClientGoalStatusEventPatchesCachedMainView(t *testing.T) {
 }
 
 func TestRuntimeClientCanonicalGoalStatusReplacesCachedGoal(t *testing.T) {
-	runtimeClient := newTestSessionRuntimeClientWithControls(&reconnectRetryRuntimeControlClient{})
+	runtimeClient := newTestSessionRuntimeClient(&countingSessionViewClient{})
 	runtimeClient.storeMainView(&runtimepb.MainView{
-		Session: &runtimepb.SessionView{SessionId: "session-1"},
+		Session: &runtimepb.SessionView{SessionId: detailTestSessionID},
 		Status: &runtimepb.Status{Goal: runtimeClientTestRuntimeGoal(
 			runtimeClientTestGoal("goal-old", "old", runtimepb.GoalStatus_RUNTIME_GOAL_STATUS_ACTIVE),
 			true,
@@ -293,14 +294,14 @@ func assertRuntimeClientGoalCached(t *testing.T, runtimeClient *sessionRuntimeCl
 func TestRuntimeClientMainViewRefreshDoesNotActivateUnavailableRuntime(t *testing.T) {
 	controls := &reconnectRetryRuntimeControlClient{}
 	authoritativeView := &runtimepb.MainView{
-		Session: &runtimepb.SessionView{SessionId: "session-1", SessionName: proto.String("restored")},
+		Session: &runtimepb.SessionView{SessionId: detailTestSessionID, SessionName: proto.String("restored")},
 		Status:  &runtimepb.Status{ThinkingLevel: "high"},
 	}
 	reads := &flakySessionViewClient{
 		errs:      []error{serverapi.ErrRuntimeUnavailable, nil},
 		responses: []*sessionpb.MainViewSuccess{{}, {MainView: authoritativeView}},
 	}
-	runtimeClient := newTestSessionRuntimeClient(reads, controls)
+	runtimeClient := newTestSessionRuntimeClient(reads)
 	if _, err := runtimeClient.RefreshMainView(); !errors.Is(err, serverapi.ErrRuntimeUnavailable) {
 		t.Fatalf("RefreshMainView error = %v, want unavailable", err)
 	}

@@ -2,12 +2,11 @@ package app
 
 import (
 	"context"
-	"errors"
+	"io"
 	"os"
 	"path/filepath"
 	"testing"
 
-	"core/internal/testharness/requestfixture"
 	"core/internal/testharness/testsetup"
 	"core/shared/config"
 	"core/shared/serverapi"
@@ -40,7 +39,7 @@ func TestStartupAttachDoesNotRequireProviderSelection(t *testing.T) {
 	}
 }
 
-func TestSelectedSessionMissingConnectionCredentialsOpensLogin(t *testing.T) {
+func TestNewSessionMissingConnectionCredentialsDoesNotOpenLogin(t *testing.T) {
 	useStartupTestTerminal(t)
 	_, workspace := newConfiguredAppWorkspace(t)
 	cfg := loadAppTestConfig(t, workspace, config.LoadOptions{})
@@ -68,9 +67,22 @@ func TestSelectedSessionMissingConnectionCredentialsOpensLogin(t *testing.T) {
 	if opened {
 		t.Fatal("startup checked provider credentials before selecting a Session")
 	}
-	intent := serverapi.CreateNewSessionLaunchIntent(serverapi.IndependentSessionCreateOrigin())
-	err = runSessionLifecycleWithOptions(t.Context(), server, interactor, sessionLifecycleOptions{Intent: requestfixture.LaunchIntent(t, intent)})
-	if !opened || !errors.Is(err, ErrAuthCanceledByUser) {
-		t.Fatalf("login opened = %t, startup error = %v", opened, err)
+	bound, err := ensureInteractiveProjectBinding(t.Context(), server)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = bound.Close() }()
+	request, err := prepareNewSessionUIRun(t.Context(), bound, nil, serverapi.RunPromptOverrides{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	composition, err := composeUIProgram(request, io.Discard)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer composition.close()
+	composition.model.mainEditor.SetText("editable before login")
+	if opened {
+		t.Fatal("New Session opened automatic login")
 	}
 }

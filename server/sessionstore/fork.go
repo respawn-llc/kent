@@ -450,6 +450,7 @@ const (
 	SessionCreationSourceIndependent SessionCreationSourceKind = iota
 	SessionCreationSourcePreviousSession
 	SessionCreationSourceParentAgent
+	SessionCreationSourceNavigationOnly
 )
 
 type CreationContextSource interface {
@@ -483,7 +484,7 @@ func InitializeCreationContext(child *Store, source CreationContextSource, kind 
 		if sourcePresent {
 			return fmt.Errorf("independent session creation cannot have a source")
 		}
-	case SessionCreationSourcePreviousSession, SessionCreationSourceParentAgent:
+	case SessionCreationSourcePreviousSession, SessionCreationSourceParentAgent, SessionCreationSourceNavigationOnly:
 		if !sourcePresent {
 			return fmt.Errorf("session creation source is required")
 		}
@@ -494,6 +495,14 @@ func InitializeCreationContext(child *Store, source CreationContextSource, kind 
 	if sourcePresent {
 		sourceMeta = source.Meta()
 	}
+	var sourceID runtimeids.SessionID
+	if sourcePresent {
+		var err error
+		sourceID, err = runtimeids.ParseSessionID(sourceMeta.SessionID)
+		if err != nil {
+			return fmt.Errorf("invalid creation source session id: %w", err)
+		}
+	}
 	child.mutationMu.Lock()
 	child.mu.Lock()
 	if child.persisted {
@@ -503,7 +512,10 @@ func InitializeCreationContext(child *Store, source CreationContextSource, kind 
 	}
 	child.meta.PreviousSessionID = nil
 	child.meta.ParentAgentSessionID = nil
-	if kind == SessionCreationSourceIndependent {
+	if kind == SessionCreationSourceIndependent || kind == SessionCreationSourceNavigationOnly {
+		if kind == SessionCreationSourceNavigationOnly {
+			child.meta.PreviousSessionID = &sourceID
+		}
 		child.meta.UpdatedAt = time.Now().UTC()
 		child.mu.Unlock()
 		child.mutationMu.Unlock()
@@ -532,12 +544,6 @@ func InitializeCreationContext(child *Store, source CreationContextSource, kind 
 		child.meta.Goal = cloneGoalState(sourceMeta.Goal)
 	} else {
 		child.meta.Goal = nil
-	}
-	sourceID, err := runtimeids.ParseSessionID(sourceMeta.SessionID)
-	if err != nil {
-		child.mu.Unlock()
-		child.mutationMu.Unlock()
-		return fmt.Errorf("invalid creation source session id: %w", err)
 	}
 	switch kind {
 	case SessionCreationSourcePreviousSession:
