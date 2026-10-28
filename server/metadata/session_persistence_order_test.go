@@ -9,7 +9,7 @@ import (
 	"testing"
 	"time"
 
-	"core/server/session"
+	"core/server/sessionstore"
 	"core/shared/sessioncontract"
 	"core/shared/textutil"
 )

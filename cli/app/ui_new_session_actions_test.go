@@ -29,10 +29,10 @@ func TestNewSessionConfirmedWorktreeEntersBeforeObservation(t *testing.T) {
 	if output, err := commit.CombinedOutput(); err != nil {
 		t.Fatalf("initial commit: %v: %s", err, output)
 	}
-	registerAppWorkspace(t, workspace)
+	configureAppTestServerPort(t)
 	writeAppTestSettings(t)
 	t.Setenv("REMOTE_TEST_KEY", "ready-key")
-	fixture := startRemoteAuthTestFixture(t, workspace)
+	fixture := startRemoteAuthTestFixtureInWorkspace(t, workspace)
 	server, err := ensureInteractiveProjectBinding(t.Context(), fixture.server)
 	if err != nil {
 		t.Fatal(err)
@@ -226,9 +226,8 @@ func TestNewSessionOldConnectionFailureDoesNotAffectCurrentObservation(t *testin
 }
 
 func TestNewSessionGoalUsesOrdinaryRemoteAdmission(t *testing.T) {
-	_, workspace := newRegisteredAppWorkspace(t)
 	t.Setenv("REMOTE_TEST_KEY", "ready-key")
-	fixture := startRemoteAuthTestFixture(t, workspace)
+	fixture := startRemoteAuthTestFixture(t)
 	server, err := ensureInteractiveProjectBinding(t.Context(), fixture.server)
 	if err != nil {
 		t.Fatal(err)
@@ -289,9 +288,8 @@ func TestNewSessionGoalUsesOrdinaryRemoteAdmission(t *testing.T) {
 }
 
 func TestNewSessionConfirmedWorktreeCreateKeepsSessionOnSetupFailure(t *testing.T) {
-	_, workspace := newRegisteredAppWorkspace(t)
 	t.Setenv("REMOTE_TEST_KEY", "ready-key")
-	fixture := startRemoteAuthTestFixture(t, workspace)
+	fixture := startRemoteAuthTestFixture(t)
 	server, err := ensureInteractiveProjectBinding(t.Context(), fixture.server)
 	if err != nil {
 		t.Fatal(err)
@@ -342,9 +340,8 @@ func TestNewSessionConfirmedWorktreeCreateKeepsSessionOnSetupFailure(t *testing.
 }
 
 func TestNewSessionAdoptionPersistsVisibleDraftWithoutMergingStoredInput(t *testing.T) {
-	_, workspace := newRegisteredAppWorkspace(t)
 	t.Setenv("REMOTE_TEST_KEY", "ready-key")
-	fixture := startRemoteAuthTestFixture(t, workspace)
+	fixture := startRemoteAuthTestFixture(t)
 	server, err := ensureInteractiveProjectBinding(t.Context(), fixture.server)
 	if err != nil {
 		t.Fatal(err)
@@ -414,9 +411,8 @@ type concurrentNewChatClient struct {
 }
 
 func TestNewSessionNavigationPromptWaitsForSettingsThenDispatchesOnce(t *testing.T) {
-	_, workspace := newRegisteredAppWorkspace(t)
 	t.Setenv("REMOTE_TEST_KEY", "ready-key")
-	fixture := startRemoteAuthTestFixture(t, workspace)
+	fixture := startRemoteAuthTestFixture(t)
 	server, err := ensureInteractiveProjectBinding(t.Context(), fixture.server)
 	if err != nil {
 		t.Fatal(err)
@@ -535,9 +531,8 @@ func (client *concurrentNewChatClient) Steer(_ context.Context, request *chatpb.
 }
 
 func TestNewSessionFirstRequestsCaptureIndependentInputs(t *testing.T) {
-	_, workspace := newRegisteredAppWorkspace(t)
 	t.Setenv("REMOTE_TEST_KEY", "ready-key")
-	fixture := startRemoteAuthTestFixture(t, workspace)
+	fixture := startRemoteAuthTestFixture(t)
 	server, err := ensureInteractiveProjectBinding(t.Context(), fixture.server)
 	if err != nil {
 		t.Fatal(err)
@@ -590,8 +585,7 @@ func TestNewSessionFirstRequestsCaptureIndependentInputs(t *testing.T) {
 func TestNewSessionKeySubmissionsBeforeFirstResultCreateIndependentSessions(t *testing.T) {
 	for _, secondKey := range []tea.KeyMsg{{Type: tea.KeyEnter}, {Type: keyTypeCtrlEnterCSI}} {
 		t.Run(secondKey.String(), func(t *testing.T) {
-			_, workspace := newRegisteredAppWorkspace(t)
-			fixture := startRemoteAuthTestFixture(t, workspace)
+			fixture := startRemoteAuthTestFixture(t)
 			provider, _ := newFakeResponsesServer(t, []string{"completed first", "completed second"})
 			defer provider.Close()
 			fixture.config.Settings = testsetup.WithResponsesProvider(fixture.config.Settings, provider.URL)

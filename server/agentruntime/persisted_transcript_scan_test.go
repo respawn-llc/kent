@@ -1,0 +1,349 @@
+package runtime
+
+import (
+	"encoding/json"
+	"testing"
+
+	"core/server/llm"
+	"core/server/sessionstore"
+	"core/shared/config"
+	"core/shared/textutil"
+	"core/shared/toolspec"
+	"core/shared/transcriptmodel"
+	patchformat "core/shared/transcriptmodel/patchformat"
+)
+
+func TestPersistedTranscriptScanEnrichesToolResultFromCompletion(t *testing.T) {
+	t.Parallel()
+	scan := newStreamingTranscriptScan("")
+	toolOutput, err := json.Marshal(map[string]any{"ok": true})
+	if err != nil {
+		t.Fatalf("marshal tool output: %v", err)
+	}
+	events := []session.EventRecord{
+		mustPersistedScanEvent(t, "tool_completed", storedToolCompletion{CallID: "call-1", Name: string(toolspec.ToolExecCommand), Output: json.RawMessage(toolOutput)}),
+		mustPersistedScanEvent(t, "message", llm.Message{Role: llm.RoleAssistant, ToolCalls: []llm.ToolCall{{ID: "call-1", Name: string(toolspec.ToolExecCommand), Input: json.RawMessage(`{"command":"pwd"}`)}}}),
+		mustPersistedScanEvent(t, "message", llm.Message{Role: llm.RoleTool, ToolCallID: textutil.Value("call-1"), Name: textutil.Value(string(toolspec.ToolExecCommand))}),
+	}
+	for _, evt := range events {
+		if err := scan.ApplyPersistedEvent(evt); err != nil {
+			t.Fatalf("ApplyPersistedEvent(%q): %v", mustSessionEventKind(evt), err)
+		}
+	}
+
+	page := scan.PageSnapshot()
+	if len(page.Entries) != 2 {
+		t.Fatalf("len(page.Entries) = %d, want 2", len(page.Entries))
+	}
+	if page.Entries[1].Role != "tool_result_ok" {
+		t.Fatalf("page.Entries[1].Role = %q, want tool_result_ok", page.Entries[1].Role)
+	}
+	if page.Entries[1].Text == "" {
+		t.Fatalf("expected enriched tool result text, got empty entry: %+v", page.Entries[1])
+	}
+}
+
+func TestPersistedTranscriptScanProjectsDeveloperAndToolSummaryMetadata(t *testing.T) {
+	t.Parallel()
+	scan := newStreamingTranscriptScan("")
+	events := []session.EventRecord{
+		mustPersistedScanEvent(t, "message", llm.Message{Role: llm.RoleDeveloper, MessageType: textutil.Value(llm.MessageTypeEnvironment), Content: textutil.Value("Internal developer note")}),
+		mustPersistedScanEvent(t, "tool_completed", storedToolCompletion{CallID: "call-1", Name: string(toolspec.ToolExecCommand), IsError: true, Summary: textutil.Value("permission denied"), CondensedText: textutil.Value("permission denied compact"), Output: json.RawMessage(`{"error":"permission denied"}`)}),
+		mustPersistedScanEvent(t, "message", llm.Message{Role: llm.RoleAssistant, ToolCalls: []llm.ToolCall{{ID: "call-1", Name: string(toolspec.ToolExecCommand), Input: json.RawMessage(`{"command":"cat secret"}`)}}}),
+	}
+	for _, evt := range events {
+		if err := scan.ApplyPersistedEvent(evt); err != nil {
+			t.Fatalf("ApplyPersistedEvent(%q): %v", mustSessionEventKind(evt), err)
+		}
+	}
+
+	page := scan.PageSnapshot()
+	if got := len(page.Entries); got != 3 {
+		t.Fatalf("len(page.Entries) = %d, want 3 (%+v)", got, page.Entries)
+	}
+	developer := page.Entries[0]
+	if developer.Role != string(transcript.EntryRoleDeveloperContext) || developer.Visibility != transcript.EntryVisibilityDetail || developer.MessageType != llm.MessageTypeEnvironment || developer.CompactLabel != "Environment info" {
+		t.Fatalf("unexpected developer projection: %+v", developer)
+	}
+	result := page.Entries[2]
+	if result.Role != "tool_result_error" || result.ToolResultSummary != "permission denied" || result.CondensedText != "permission denied compact" {
+		t.Fatalf("unexpected tool result summary projection: %+v", result)
+	}
+}
+
+func TestPersistedTranscriptScanSynthesizesCompletedToolResultWithoutToolMessage(t *testing.T) {
+	t.Parallel()
+	scan := newStreamingTranscriptScan("")
+	events := []session.EventRecord{
+		mustPersistedScanEvent(t, "message", llm.Message{Role: llm.RoleAssistant, Content: textutil.Value("working"), ToolCalls: []llm.ToolCall{{ID: "call-1", Name: string(toolspec.ToolExecCommand), Input: json.RawMessage(`{"command":"pwd"}`)}}}),
+		mustPersistedScanEvent(t, "tool_completed", storedToolCompletion{CallID: "call-1", Name: string(toolspec.ToolExecCommand), Output: json.RawMessage(`{"output":"/tmp","exit_code":0,"truncated":false}`)}),
+	}
+	for _, evt := range events {
+		if err := scan.ApplyPersistedEvent(evt); err != nil {
+			t.Fatalf("ApplyPersistedEvent(%q): %v", mustSessionEventKind(evt), err)
+		}
+	}
+
+	page := scan.PageSnapshot()
+	if len(page.Entries) != 3 {
+		t.Fatalf("len(page.Entries) = %d, want 3", len(page.Entries))
+	}
+	if page.Entries[2].Role != "tool_result_ok" || page.Entries[2].ToolCallID != "call-1" {
+		t.Fatalf("expected synthesized tool result, got %+v", page.Entries[2])
+	}
+	if page.Entries[2].Text == "" {
+		t.Fatalf("expected synthesized tool result text, got empty entry: %+v", page.Entries[2])
+	}
+}
+
+func TestFormatPersistedToolCallBuildsFallbackMetadata(t *testing.T) {
+	t.Parallel()
+	entry := formatPersistedToolCall(llm.ToolCall{
+		ID:    "call-1",
+		Name:  string(toolspec.ToolExecCommand),
+		Input: json.RawMessage(`{"command":"pwd"}`),
+	})
+	if entry.Role != "tool_call" {
+		t.Fatalf("entry role = %q, want tool_call", entry.Role)
+	}
+	if entry.Text != "pwd" {
+		t.Fatalf("entry text = %q, want pwd", entry.Text)
+	}
+	if entry.ToolCall == nil || !entry.ToolCall.IsShell {
+		t.Fatalf("expected shell tool metadata, got %+v", entry.ToolCall)
+	}
+	if entry.ToolCall.Command != "pwd" {
+		t.Fatalf("tool command = %q, want pwd", entry.ToolCall.Command)
+	}
+}
+
+func TestPersistedTranscriptScanProjectsCurrentPatchPresentation(t *testing.T) {
+	t.Parallel()
+	singlePatch := "*** Begin Patch\n*** Update File: cli/app/ui_status.go\n@@\n type uiStatusAuthInfo struct {\n-\tSummary string\n+\tSummary string\n+\tReady bool\n }\n*** End Patch\n"
+	multiPatch := "*** Begin Patch\n*** Update File: a.go\n+new\n*** Update File: b.go\n-old\n*** End Patch\n"
+	rawPatch := "not a structured patch payload"
+	scan := newStreamingTranscriptScan("")
+	events := []session.EventRecord{
+		mustPersistedScanEvent(t, "message", llm.Message{Role: llm.RoleAssistant, ToolCalls: []llm.ToolCall{{
+			ID:          "call-patch-single",
+			Name:        string(toolspec.ToolPatch),
+			Custom:      true,
+			CustomInput: textutil.Value(singlePatch),
+		}, {
+			ID:          "call-patch-multi",
+			Name:        string(toolspec.ToolPatch),
+			Custom:      true,
+			CustomInput: textutil.Value(multiPatch),
+		}, {
+			ID:          "call-patch-raw",
+			Name:        string(toolspec.ToolPatch),
+			Custom:      true,
+			CustomInput: textutil.Value(rawPatch),
+		}}}),
+		mustPersistedScanEvent(t, "message", llm.Message{Role: llm.RoleTool, ToolCallID: textutil.Value("call-patch-single"), Name: textutil.Value(string(toolspec.ToolPatch)), MessageType: textutil.Value(llm.MessageTypeCustomToolCallOutput), Content: textutil.Value(`{}`)}),
+		mustPersistedScanEvent(t, "message", llm.Message{Role: llm.RoleTool, ToolCallID: textutil.Value("call-patch-multi"), Name: textutil.Value(string(toolspec.ToolPatch)), MessageType: textutil.Value(llm.MessageTypeCustomToolCallOutput), Content: textutil.Value(`{}`)}),
+		mustPersistedScanEvent(t, "message", llm.Message{Role: llm.RoleTool, ToolCallID: textutil.Value("call-patch-raw"), Name: textutil.Value(string(toolspec.ToolPatch)), MessageType: textutil.Value(llm.MessageTypeCustomToolCallOutput), Content: textutil.Value(`{}`)}),
+	}
+	for _, evt := range events {
+		if err := scan.ApplyPersistedEvent(evt); err != nil {
+			t.Fatalf("ApplyPersistedEvent(%q): %v", mustSessionEventKind(evt), err)
+		}
+	}
+
+	page := scan.PageSnapshot()
+	if len(page.Entries) != 6 {
+		t.Fatalf("len(page.Entries) = %d, want 6 (%+v)", len(page.Entries), page.Entries)
+	}
+	wantFiles := map[string]int{
+		"call-patch-single": 1,
+		"call-patch-multi":  2,
+	}
+	for _, entry := range page.Entries {
+		if entry.Role != "tool_call" {
+			continue
+		}
+		if entry.ToolCall == nil || entry.ToolCall.PatchPresentation == nil {
+			t.Fatalf("expected persisted patch metadata for %s", entry.ToolCallID)
+		}
+		presentation := entry.ToolCall.PatchPresentation
+		if entry.ToolCallID == "call-patch-raw" {
+			if presentation.Variant != patchformat.PresentationVariantInvalidInput ||
+				presentation.InvalidInput == nil ||
+				presentation.InvalidInput.InputDetail != rawPatch {
+				t.Fatalf("unexpected invalid Patch presentation: %+v", presentation)
+			}
+			continue
+		}
+		want, ok := wantFiles[entry.ToolCallID]
+		if !ok {
+			t.Fatalf("unexpected patch call id %q", entry.ToolCallID)
+		}
+		if presentation.Variant != patchformat.PresentationVariantChanges ||
+			presentation.Changes == nil ||
+			len(presentation.Changes.Files) != want {
+			t.Fatalf("unexpected Patch changes for %s: %+v", entry.ToolCallID, presentation)
+		}
+		delete(wantFiles, entry.ToolCallID)
+	}
+	if len(wantFiles) != 0 {
+		t.Fatalf("missing persisted patch calls: %+v", wantFiles)
+	}
+}
+
+func TestPersistedTranscriptScanProjectsPreservedUserMessageFromPersistedMessage(t *testing.T) {
+	t.Parallel()
+	scan := newStreamingTranscriptScan("")
+	events := []session.EventRecord{
+		mustPersistedScanEvent(t, "message", llm.Message{Role: llm.RoleUser, Content: textutil.Value("before compaction")}),
+		mustPersistedScanEvent(t, "history_replaced", historyReplacementPayload{Items: llm.ItemsFromMessages([]llm.Message{{Role: llm.RoleUser, Content: textutil.Value("condensed provider summary"), MessageType: textutil.Value(llm.MessageTypeCompactionSummary)}})}),
+		mustPersistedScanEvent(t, "local_entry", storedLocalEntry{Role: "compaction_summary", Text: "condensed summary"}),
+		mustPersistedScanEvent(t, "message", llm.Message{Role: llm.RoleDeveloper, MessageType: textutil.Value(llm.MessageTypeCompactionPreservedUserMessage), Content: textutil.Value("Last user message before handoff\n\ncarry this forward")}),
+	}
+	for _, evt := range events {
+		if err := scan.ApplyPersistedEvent(evt); err != nil {
+			t.Fatalf("ApplyPersistedEvent(%q): %v", mustSessionEventKind(evt), err)
+		}
+	}
+
+	page := scan.PageSnapshot()
+	if len(page.Entries) != 4 {
+		t.Fatalf("len(page.Entries) = %d, want 4 (%+v)", len(page.Entries), page.Entries)
+	}
+	if page.Entries[0].Role != "user" || page.Entries[0].Text != "before compaction" {
+		t.Fatalf("expected preserved pre-compaction user entry, got %+v", page.Entries[0])
+	}
+	if page.Entries[1].Role != "compaction_summary" || page.Entries[1].Text != "condensed provider summary" {
+		t.Fatalf("expected projected provider compaction summary entry, got %+v", page.Entries[1])
+	}
+	if page.Entries[2].Role != "compaction_summary" || page.Entries[2].Text != "condensed summary" {
+		t.Fatalf("expected persisted compaction summary entry, got %+v", page.Entries[2])
+	}
+	if page.Entries[3].Role != "manual_compaction_carryover" || page.Entries[3].Text != "Last user message before handoff\n\ncarry this forward" {
+		t.Fatalf("expected compaction-preserved user entry, got %+v", page.Entries[3])
+	}
+	if page.Entries[3].Visibility != transcript.EntryVisibilityDetail {
+		t.Fatalf("expected carryover entry to stay detail-only, got %+v", page.Entries[3])
+	}
+}
+
+func TestPersistedTranscriptScanProjectsPreservedUserMessageFromHistoryReplacement(t *testing.T) {
+	t.Parallel()
+	scan := newStreamingTranscriptScan("")
+	events := []session.EventRecord{
+		mustPersistedScanEvent(t, "message", llm.Message{Role: llm.RoleUser, Content: textutil.Value("before compaction")}),
+		mustPersistedScanEvent(t, "history_replaced", historyReplacementPayload{Items: llm.ItemsFromMessages([]llm.Message{
+			{Role: llm.RoleUser, Content: textutil.Value("condensed provider summary"), MessageType: textutil.Value(llm.MessageTypeCompactionSummary)},
+			{Role: llm.RoleDeveloper, MessageType: textutil.Value(llm.MessageTypeCompactionPreservedUserMessage), Content: textutil.Value("Last user message before handoff\n\ncarry this forward")},
+		})}),
+	}
+	for _, evt := range events {
+		if err := scan.ApplyPersistedEvent(evt); err != nil {
+			t.Fatalf("ApplyPersistedEvent(%q): %v", mustSessionEventKind(evt), err)
+		}
+	}
+
+	page := scan.PageSnapshot()
+	if len(page.Entries) != 3 {
+		t.Fatalf("len(page.Entries) = %d, want 3 (%+v)", len(page.Entries), page.Entries)
+	}
+	if page.Entries[1].Role != "compaction_summary" || page.Entries[1].Text != "condensed provider summary" {
+		t.Fatalf("expected projected provider compaction summary entry, got %+v", page.Entries[1])
+	}
+	if page.Entries[2].Role != "manual_compaction_carryover" || page.Entries[2].Visibility != transcript.EntryVisibilityDetail {
+		t.Fatalf("expected detail-only compaction-preserved user entry, got %+v", page.Entries[2])
+	}
+}
+
+func TestPersistedTranscriptScanMaterializesCompactedDeveloperContextInDetailPage(t *testing.T) {
+	t.Parallel()
+	scan := newStreamingTranscriptScan("")
+	events := []session.EventRecord{
+		mustPersistedScanEvent(t, "message", llm.Message{Role: llm.RoleUser, Content: textutil.Value("before compaction")}),
+		mustPersistedScanEvent(t, "local_entry", storedLocalEntry{Role: "error", Text: "before replace"}),
+		mustPersistedScanEvent(t, "history_replaced", historyReplacementPayload{Items: llm.ItemsFromMessages([]llm.Message{
+			{Role: llm.RoleDeveloper, MessageType: textutil.Value(llm.MessageTypeEnvironment), Content: textutil.Value("environment info")},
+			{Role: llm.RoleUser, MessageType: textutil.Value(llm.MessageTypeCompactionSummary), Content: textutil.Value("condensed summary")},
+		})}),
+		mustPersistedScanEvent(t, "local_entry", storedLocalEntry{Role: "compaction_notice", Text: "after replace notice"}),
+	}
+	for _, evt := range events {
+		if err := scan.ApplyPersistedEvent(evt); err != nil {
+			t.Fatalf("ApplyPersistedEvent(%q): %v", mustSessionEventKind(evt), err)
+		}
+	}
+
+	page := scan.PageSnapshot()
+	if got := len(page.Entries); got != 5 {
+		t.Fatalf("len(page.Entries) = %d, want 5 (%+v)", got, page.Entries)
+	}
+	if got := page.Entries[0]; got.Role != "user" || got.Text != "before compaction" {
+		t.Fatalf("entry[0] = %+v, want preserved pre-compaction user entry", got)
+	}
+	if got := page.Entries[1]; got.Role != "error" || got.Text != "before replace" {
+		t.Fatalf("entry[1] = %+v, want preserved pre-compaction local entry", got)
+	}
+	if got := page.Entries[2]; got.Role != "developer_context" || got.Text != "environment info" {
+		t.Fatalf("entry[2] = %+v, want compacted developer context", got)
+	}
+	if got := page.Entries[3]; got.Role != "compaction_summary" ||
+		got.Text != "condensed summary" ||
+		got.CompactLabel != "" ||
+		got.CondensedText != "" {
+		t.Fatalf("entry[3] = %+v, want compacted summary", got)
+	}
+	if got := page.Entries[4]; got.Role != "compaction_notice" || got.Text != "after replace notice" {
+		t.Fatalf("entry[4] = %+v, want legacy local entry preserved without special handling", got)
+	}
+}
+
+func TestPersistedTranscriptScanReplaysCacheWarnings(t *testing.T) {
+	t.Parallel()
+	scan := newStreamingTranscriptScan("")
+	if err := scan.ApplyPersistedEvent(mustPersistedScanEvent(t, sessionEventCacheWarning, transcript.CacheWarning{Scope: transcript.CacheWarningScopeConversation, Reason: transcript.CacheWarningReasonNonPostfix})); err != nil {
+		t.Fatalf("ApplyPersistedEvent(cache_warning): %v", err)
+	}
+
+	page := scan.PageSnapshot()
+	if len(page.Entries) != 1 {
+		t.Fatalf("len(page.Entries) = %d, want 1", len(page.Entries))
+	}
+	if page.Entries[0].Role != cacheWarningTranscriptRole {
+		t.Fatalf("entry role = %q, want %q", page.Entries[0].Role, cacheWarningTranscriptRole)
+	}
+	if page.Entries[0].Text != transcript.CacheWarningText(transcript.CacheWarning{Scope: transcript.CacheWarningScopeConversation, Reason: transcript.CacheWarningReasonNonPostfix}) {
+		t.Fatalf("unexpected cache warning text: %+v", page.Entries[0])
+	}
+}
+
+func TestPersistedTranscriptScanUsesCacheWarningModeVisibility(t *testing.T) {
+	t.Parallel()
+	tests := []struct {
+		name string
+		mode config.CacheWarningMode
+		want transcript.EntryVisibility
+	}{
+		{name: "default", mode: config.CacheWarningModeDefault, want: transcript.EntryVisibilityDetail},
+		{name: "verbose", mode: config.CacheWarningModeVerbose, want: transcript.EntryVisibilityOngoing},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			scan := newStreamingTranscriptScan(tt.mode)
+			if err := scan.ApplyPersistedEvent(mustPersistedScanEvent(t, sessionEventCacheWarning, transcript.CacheWarning{Scope: transcript.CacheWarningScopeConversation, Reason: transcript.CacheWarningReasonNonPostfix})); err != nil {
+				t.Fatalf("ApplyPersistedEvent(cache_warning): %v", err)
+			}
+
+			page := scan.PageSnapshot()
+			if len(page.Entries) != 1 {
+				t.Fatalf("len(page.Entries) = %d, want 1", len(page.Entries))
+			}
+			if got := page.Entries[0].Visibility; got != tt.want {
+				t.Fatalf("cache warning visibility = %q, want %q", got, tt.want)
+			}
+		})
+	}
+}
+
+func mustPersistedScanEvent(t *testing.T, kind string, payload any) session.EventRecord {
+	t.Helper()
+	return streamScanTestEvent(t, kind, payload)
+}

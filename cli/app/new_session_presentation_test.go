@@ -104,9 +104,8 @@ func TestNewSessionSelectedCompactionRespectsServerPolicy(t *testing.T) {
 }
 
 func TestNewSessionPresentationLeavesArtifactsAndCatalogUnchanged(t *testing.T) {
-	_, workspace := newRegisteredAppWorkspace(t)
 	t.Setenv("REMOTE_TEST_KEY", "ready-key")
-	fixture := startRemoteAuthTestFixture(t, workspace)
+	fixture := startRemoteAuthTestFixture(t)
 	var providerCalls atomic.Int32
 	provider := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		providerCalls.Add(1)
@@ -246,8 +245,7 @@ func TestNewSessionPresentationLeavesArtifactsAndCatalogUnchanged(t *testing.T) 
 }
 
 func TestNewSessionBackUsesNavigationOnlyOrigin(t *testing.T) {
-	_, workspace := newRegisteredAppWorkspace(t)
-	fixture := startRemoteAuthTestFixture(t, workspace)
+	fixture := startRemoteAuthTestFixture(t)
 	server, err := ensureInteractiveProjectBinding(t.Context(), fixture.server)
 	if err != nil {
 		t.Fatal(err)
@@ -319,8 +317,7 @@ func TestNewSessionBackUsesNavigationOnlyOrigin(t *testing.T) {
 }
 
 func TestNewSessionSettingsEditsStayLocal(t *testing.T) {
-	_, workspace := newRegisteredAppWorkspace(t)
-	fixture := startRemoteAuthTestFixture(t, workspace)
+	fixture := startRemoteAuthTestFixture(t)
 	server, err := ensureInteractiveProjectBinding(t.Context(), fixture.server)
 	if err != nil {
 		t.Fatal(err)

@@ -1,5 +1,6 @@
 import { observeTranscript, observeGoal } from "@/test-support/chat-runtime";
 import { describe, expect, it } from "bun:test";
+import { waitFor } from "@testing-library/react";
 import { StreamFailureCode } from "@app/server-api-contract/gen/kent/api/shared/foundation_pb";
 import { unexpectedProjectOverflow } from "@/test-support/api";
 import { ApiClient } from "./client";
@@ -168,12 +169,15 @@ function transcriptHydrationPayload() {
       },
     },
     tailSegment: {},
-    activeAssistant: {
-      stepId: sessionID,
-      streamId: sessionID,
-      text: " ",
-      phase: T.AssistantPhase.COMMENTARY,
-    },
+    activeAssistants: [
+      {
+        stepId: sessionID,
+        streamId: sessionID,
+        text: " ",
+        phase: T.AssistantPhase.COMMENTARY,
+        sourceState: T.AssistantSourceState.STREAMING,
+      },
+    ],
     activeStep: {
       stepId: sessionID,
       activeKind: R.ActivityActiveKind.RUNTIME_ACTIVITY_ACTIVE_KIND_USER_TURN,
@@ -680,7 +684,9 @@ describe("Desktop Chat read client", () => {
       onTransportLoss: () => transportLosses.push({}),
     });
     transport.failDescriptor(T.StreamService.method.subscribe, new TransportError("isolated socket loss"));
-    await subscription.flush();
+    await waitFor(() => {
+      expect(transportLosses).toHaveLength(1);
+    });
     expect(errors).toEqual([]);
     expect(transportLosses).toHaveLength(1);
 

@@ -42,6 +42,7 @@ export const architectureEntrypoints = Object.freeze({
   API_COMPOSITION: "composition/index.ts",
   INDEX: "index.ts",
   NATIVE_PACKAGE: "src/index.ts",
+  UI: ["index.ts", "markdown.ts", "markdownLinks.tsx"],
   UI_KIT: "src/index.ts",
   VENDOR_ELK_API: "elkjs-types.ts",
   VENDOR_ELK_BUNDLED: "elkjs-bundled-types.ts",
@@ -97,7 +98,11 @@ const dependencyTargets = {
   SHELL: dependencyTarget(architectureOwners.SHELL, "@/app"),
   SHARED: dependencyTarget(architectureOwners.SHARED, "@/shared/*"),
   TOOLING_TYPES: dependencyTarget(architectureOwners.TOOLING, "@/types"),
-  UI: dependencyTarget(architectureOwners.UI, "@/ui"),
+  UI: dependencyTarget(
+    architectureOwners.UI,
+    ["@/ui", "@/ui/markdown", "@/ui/markdownLinks"],
+    architectureEntrypoints.UI,
+  ),
   UI_KIT: dependencyTarget(architectureOwners.UI_KIT, "@app/ui-kit", architectureEntrypoints.UI_KIT),
   VENDOR_ELK_API: dependencyTarget(
     architectureOwners.VENDOR,

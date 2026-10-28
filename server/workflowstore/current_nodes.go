@@ -10,7 +10,7 @@ import (
 	"time"
 
 	"core/server/metadata/sqlitegen"
-	"core/server/session"
+	"core/server/sessionstore"
 	"core/server/workflow"
 	"core/shared/jsoncontract"
 	"core/shared/runtimeids"

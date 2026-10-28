@@ -529,7 +529,7 @@ export const englishResources = {
       interruptionDetailCopyFailed: "Could not copy interruption details",
       answer: "Answer",
       answerPlaceholder: "Type answer or commentary",
-      submitAnswer: "Submit answer",
+      submitAnswer: "Submit",
       submittingAnswer: "Submitting…",
       optionNumber: "Option number",
       recommended: "Recommended",

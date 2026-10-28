@@ -2,7 +2,6 @@ package metadata
 
 import (
 	"database/sql"
-	"path/filepath"
 	"reflect"
 	"strings"
 	"testing"
@@ -12,8 +11,7 @@ import (
 
 func TestOptionalNodeLabelsMigrationAllowsEmptyLabels(t *testing.T) {
 	root := t.TempDir()
-	path := filepath.Join(root, "db", "main.sqlite3")
-	db, err := openDatabaseAtVersionForTest(t, root, path, 94)
+	db, err := openDatabaseAtVersionForTest(t, 94)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -45,14 +43,7 @@ func TestOptionalNodeLabelsMigrationAllowsEmptyLabels(t *testing.T) {
 	for i, query := range queries {
 		before[i] = optionalNodeLabelMigrationRows(t, db, query)
 	}
-	if err := db.Close(); err != nil {
-		t.Fatal(err)
-	}
-	store, err := OpenAtPath(root, path)
-	if err != nil {
-		t.Fatal(err)
-	}
-	t.Cleanup(func() { _ = store.Close() })
+	store := migrateMetadataTestStore(t, root, db)
 	for i, query := range queries {
 		if after := optionalNodeLabelMigrationRows(t, store.DB(), query); !reflect.DeepEqual(before[i], after) {
 			t.Fatalf("migration changed persisted facts for %s: before=%v after=%v", query, before[i], after)

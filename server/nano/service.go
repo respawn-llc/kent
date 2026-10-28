@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io"
 	"sync/atomic"
 	"time"
 
@@ -97,7 +98,7 @@ func (s *Service) Admit() (Invocation, error) {
 	}, nil
 }
 
-func (s *Service) generate(ctx, lifetimeContext context.Context, target llm.NanoTarget, prepare PrepareRequest) (llm.Response, error) {
+func (s *Service) generate(ctx, lifetimeContext context.Context, target llm.NanoTarget, prepare PrepareRequest) (_ llm.Response, resultErr error) {
 	connection, err := s.connections.Resolve(target.Settings)
 	if err != nil {
 		return llm.Response{}, err
@@ -111,6 +112,11 @@ func (s *Service) generate(ctx, lifetimeContext context.Context, target llm.Nano
 	if err != nil {
 		return llm.Response{}, err
 	}
+	defer func() {
+		if closer, ok := client.(io.Closer); ok {
+			resultErr = errors.Join(resultErr, closer.Close())
+		}
+	}()
 	request, err := prepare(target)
 	if err != nil {
 		return llm.Response{}, err

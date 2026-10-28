@@ -4,7 +4,7 @@ import (
 	"fmt"
 	"strings"
 
-	"core/server/session"
+	"core/server/sessionstore"
 	runtimepb "core/shared/protoapi/gen/kent/api/runtime"
 	timestamppb "google.golang.org/protobuf/types/known/timestamppb"
 )

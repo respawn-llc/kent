@@ -11,7 +11,7 @@ import (
 	"time"
 
 	"core/server/llm"
-	"core/server/session"
+	"core/server/sessionstore"
 	"core/shared/config"
 	"core/shared/protoapi"
 	projectpb "core/shared/protoapi/gen/kent/api/project"

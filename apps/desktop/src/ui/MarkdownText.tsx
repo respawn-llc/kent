@@ -1,11 +1,4 @@
-import {
-  createContext,
-  useContext,
-  useMemo,
-  type ComponentProps,
-  type MouseEvent,
-  type ReactNode,
-} from "react";
+import { createContext, useContext, useMemo, type ComponentProps, type MouseEvent } from "react";
 import remarkBreaks from "remark-breaks";
 import remarkGfm from "remark-gfm";
 import rehypeSanitize, { type Options as SanitizeOptions } from "rehype-sanitize";
@@ -21,10 +14,11 @@ import {
 } from "streamdown";
 
 import { Checkbox } from "./radix/checkbox";
-import { markdownLinkTarget } from "./markdownLinks";
+import { markdownLinkTarget } from "./markdownLinkTarget";
 import { syntaxHighlightingLanguageHints } from "./syntaxHighlighting";
 import { SyntaxHighlightedCode } from "./SyntaxHighlightedCode";
 import { projectMarkdownText } from "./taskBodyMarkdownText";
+import { MarkdownLinkContext } from "./MarkdownLinkContext";
 import "streamdown/styles.css";
 import "./MarkdownText.css";
 import "./StreamdownMarkdown.css";
@@ -49,11 +43,6 @@ type MarkdownTaskListItemContextValue = Readonly<{
 }>;
 
 const MarkdownTaskListItemContext = createContext<MarkdownTaskListItemContextValue | null>(null);
-type MarkdownLinkActions = Readonly<{
-  openExternal(url: string): void;
-  openFile?: ((path: string) => void) | undefined;
-}>;
-const MarkdownLinkContext = createContext<MarkdownLinkActions | null>(null);
 const languageHints = syntaxHighlightingLanguageHints();
 const linkSafety = { enabled: false };
 const markdownPlugins = {
@@ -97,15 +86,6 @@ const richComponents = {
   li: MarkdownTaskListItem,
   p: "div",
 } satisfies Pick<Components, "a" | "input" | "li" | "p">;
-
-export function MarkdownLinkProvider({
-  children,
-  openExternal,
-  openFile,
-}: MarkdownLinkActions & Readonly<{ children: ReactNode }>) {
-  const actions = useMemo(() => ({ openExternal, openFile }), [openExternal, openFile]);
-  return <MarkdownLinkContext.Provider value={actions}>{children}</MarkdownLinkContext.Provider>;
-}
 
 export function StaticMarkdown({
   disabled = false,

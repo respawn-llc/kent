@@ -6,7 +6,7 @@ import { TranscriptWindow } from "@/app-facade";
 import { TranscriptHarness } from "@/test-support/chat-runtime";
 import { hydration, page, row, visit } from "@/test-support/transcript-window";
 import { installVirtualizedScrollGeometry } from "@/test-support/resize-observer";
-import { StaticMarkdown, StreamingMarkdown } from "@/ui";
+import { StaticMarkdown, StreamingMarkdown } from "@/ui/markdown";
 import { TranscriptWindowView } from "./TranscriptWindowView";
 
 it.each(["older", "newer"] as const)(
@@ -125,7 +125,15 @@ it("opens and remounts a compacted live transcript at the bottom despite underes
           Array.from({ length: 300 }, (_, index) => row(index + 101)),
           3,
         ),
-        ActiveAssistant: { StepID: "step", StreamID: "stream", Phase: "commentary", Text: "Live response" },
+        ActiveAssistants: [
+          {
+            StepID: "step",
+            StreamID: "stream",
+            Phase: "commentary",
+            Text: "Live response",
+            SourceState: "streaming",
+          },
+        ],
       });
       view.rerender(content());
       for (let frame = 0; frame < 5; frame++) {
@@ -249,7 +257,15 @@ function streamingView(history: readonly ReturnType<typeof row>[]) {
     kind: "initial-hydration",
     hydration: {
       ...hydration(history),
-      ActiveAssistant: { StepID: "step", StreamID: "stream", Phase: "commentary", Text: "Live response" },
+      ActiveAssistants: [
+        {
+          StepID: "step",
+          StreamID: "stream",
+          Phase: "commentary",
+          Text: "Live response",
+          SourceState: "streaming",
+        },
+      ],
     },
   });
   const onInput = vi.fn();

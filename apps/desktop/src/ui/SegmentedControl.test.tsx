@@ -8,7 +8,7 @@ import { SegmentedControl } from "./index";
 describe("SegmentedControl", () => {
   it("exposes one selected option and supports pointer and arrow-key selection", async () => {
     const onValueChange = vi.fn();
-    const user = userEvent.setup();
+    const user = userEvent.setup({ delay: null });
 
     function Harness() {
       const [value, setValue] = useState("any");

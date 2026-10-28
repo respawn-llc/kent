@@ -4,7 +4,7 @@ import (
 	"context"
 	"errors"
 
-	"core/server/session"
+	"core/server/sessionstore"
 	"core/shared/apicontract"
 	"core/shared/protoapi"
 	authpb "core/shared/protoapi/gen/kent/api/auth"

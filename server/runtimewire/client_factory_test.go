@@ -7,9 +7,9 @@ import (
 	"testing"
 
 	"core/internal/testharness/pty/blackbox"
+	"core/server/agentruntime"
 	"core/server/llm"
-	"core/server/runtime"
-	"core/server/session"
+	"core/server/sessionstore"
 	"core/shared/config"
 	"core/shared/textutil"
 	"core/shared/toolspec"

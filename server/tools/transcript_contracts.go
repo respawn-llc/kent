@@ -11,8 +11,8 @@ import (
 
 	"core/shared/jsoncontract"
 	"core/shared/toolspec"
-	"core/shared/transcript"
-	patchformat "core/shared/transcript/patchformat"
+	"core/shared/transcriptmodel"
+	patchformat "core/shared/transcriptmodel/patchformat"
 )
 
 const noOutputText = "No output"

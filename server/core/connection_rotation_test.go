@@ -6,7 +6,7 @@ import (
 	"sync"
 	"testing"
 
-	"core/server/auth"
+	"core/server/authmanager"
 	"core/shared/apicontract"
 	"core/shared/config"
 	"core/shared/protoapi"

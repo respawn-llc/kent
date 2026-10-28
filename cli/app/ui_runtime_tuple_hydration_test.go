@@ -466,12 +466,12 @@ func runtimeTupleTestRichHydration(runtimeSequence uint64) *transcriptpb.Message
 		Row:        &transcriptpb.CommittedRow_User{User: &transcriptpb.UserRow{StepId: proto.String(stepID.String()), Text: "committed hydration row"}},
 	}
 	hydration.TailSegment.Entries = []*transcriptpb.CommittedRow{row}
-	hydration.ActiveAssistant = &transcriptpb.AssistantStream{
+	hydration.ActiveAssistants = []*transcriptpb.AssistantStream{{
 		StepId:   stepID.String(),
 		StreamId: runtimeids.NewAssistantStreamID().String(),
 		Text:     "assistant hydration",
 		Phase:    transcriptpb.AssistantPhase_ASSISTANT_PHASE_COMMENTARY,
-	}
+	}}
 	hydration.ActiveThinkingStatus = &transcriptpb.ThinkingStatusUpdate{
 		StepId: stepID.String(),
 		Text:   "reasoning",

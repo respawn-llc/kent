@@ -8,7 +8,7 @@ import (
 	"core/internal/testharness/requestfixture"
 	"core/internal/testharness/testsetup"
 	"core/server/runtimecontrol"
-	"core/server/session"
+	"core/server/sessionstore"
 	"core/shared/config"
 	"core/shared/protoapi"
 	chatpb "core/shared/protoapi/gen/kent/api/chat"

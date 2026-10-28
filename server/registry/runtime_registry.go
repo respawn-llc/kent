@@ -12,9 +12,9 @@ import (
 	"sync/atomic"
 	"time"
 
+	"core/server/agentruntime"
 	"core/server/attentionnotify"
 	"core/server/metadata"
-	"core/server/runtime"
 	"core/server/runtimeactivity"
 	"core/server/runtimeview"
 	"core/server/sessionruntime"

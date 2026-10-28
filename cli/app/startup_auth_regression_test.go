@@ -7,22 +7,23 @@ import (
 	"path/filepath"
 	"testing"
 
-	serverstartup "core/server/startup"
+	"core/internal/testharness/testsetup"
 	"core/shared/config"
 	"core/shared/serverapi"
 )
 
 func TestStartupAttachDoesNotRequireProviderSelection(t *testing.T) {
-	_, workspace := newRegisteredAppWorkspace(t)
+	_, workspace := newConfiguredAppWorkspace(t)
 	cfg := loadAppTestConfig(t, workspace, config.LoadOptions{})
 	if err := os.WriteFile(filepath.Join(cfg.PersistenceRoot, "config.toml"), []byte("model = \"gpt-6-astra\"\n"), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	daemon, err := serverstartup.StartServeServer(t.Context(), serverstartup.Request{})
-	if err != nil {
+	cfg = loadAppTestConfig(t, workspace, config.LoadOptions{})
+	store := testsetup.OpenStore(t, cfg.PersistenceRoot)
+	if _, err := store.RegisterWorkspaceBinding(t.Context(), workspace); err != nil {
 		t.Fatal(err)
 	}
-	t.Cleanup(func() { _ = daemon.Close() })
+	daemon, _ := newMemoryAppTestServer(t, cfg, store, config.LoadOptions{})
 	t.Cleanup(serveAppServer(t, daemon))
 	waitForConfiguredRunPromptDaemon(t, workspace)
 	connection, err := config.LoadConnectionDiscovery(workspace, config.LoadOptions{})
@@ -40,16 +41,17 @@ func TestStartupAttachDoesNotRequireProviderSelection(t *testing.T) {
 
 func TestNewSessionMissingConnectionCredentialsDoesNotOpenLogin(t *testing.T) {
 	useStartupTestTerminal(t)
-	_, workspace := newRegisteredAppWorkspace(t)
+	_, workspace := newConfiguredAppWorkspace(t)
 	cfg := loadAppTestConfig(t, workspace, config.LoadOptions{})
 	if err := os.WriteFile(filepath.Join(cfg.PersistenceRoot, "config.toml"), []byte("connection = \"subscription\"\n[connections.subscription]\nprotocol = \"chatgpt-codex\"\n"), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	daemon, err := serverstartup.StartServeServer(t.Context(), serverstartup.Request{})
-	if err != nil {
+	cfg = loadAppTestConfig(t, workspace, config.LoadOptions{})
+	store := testsetup.OpenStore(t, cfg.PersistenceRoot)
+	if _, err := store.RegisterWorkspaceBinding(t.Context(), workspace); err != nil {
 		t.Fatal(err)
 	}
-	t.Cleanup(func() { _ = daemon.Close() })
+	daemon, _ := newMemoryAppTestServer(t, cfg, store, config.LoadOptions{})
 	t.Cleanup(serveAppServer(t, daemon))
 	waitForConfiguredRunPromptDaemon(t, workspace)
 	opened := false

@@ -8,7 +8,7 @@ import (
 	"strings"
 
 	"core/server/metadata/sqlitegen"
-	"core/server/session"
+	"core/server/sessionstore"
 	"core/server/workflow"
 	"core/shared/invariant"
 	"core/shared/runtimeids"

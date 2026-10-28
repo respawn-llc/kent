@@ -6,7 +6,7 @@ import (
 	"fmt"
 	"strings"
 
-	"core/server/session"
+	"core/server/sessionstore"
 	chatpb "core/shared/protoapi/gen/kent/api/chat"
 	sharedpb "core/shared/protoapi/gen/kent/api/shared"
 	worktreepb "core/shared/protoapi/gen/kent/api/worktree"

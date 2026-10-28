@@ -1,5 +1,5 @@
 import { expect, it, vi } from "bun:test";
-import { act, screen, waitFor, within } from "@testing-library/react";
+import { act, fireEvent, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import type { ChatInputMutationResult, PendingWorkItemID } from "@/api";
 import { appI18n } from "@/i18n";
@@ -28,9 +28,10 @@ it("releases a busy submission after two seconds and keeps subsequent typing thr
     await act(async () => {
       view.handlers[0]?.onEvent({ sequence: 1, kind: "hydration", payload: hydration() });
     });
-    const user = userEvent.setup();
+    await screen.findByRole("button", { name: appI18n.t("chatComposer.stop") });
+    const user = userEvent.setup({ delay: null });
     await user.type(editor, "Busy submission");
-    await user.click(screen.getByRole("button", { name: appI18n.t("chatComposer.send") }));
+    fireEvent.click(screen.getByRole("button", { name: appI18n.t("chatComposer.send") }));
     expect(editor).toHaveValue("Busy submission");
     expect(editor).toHaveAttribute("readonly");
     await waitFor(
@@ -98,7 +99,7 @@ it("shows an idle submission before its response and adopts commitment once with
         },
       });
     });
-    const user = userEvent.setup();
+    const user = userEvent.setup({ delay: null });
     await user.type(editor, "Optimistic message");
     await user.click(screen.getByRole("button", { name: appI18n.t("chatComposer.send") }));
     act(() => {

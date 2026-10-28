@@ -11,7 +11,7 @@ import (
 	"core/server/launch"
 	"core/server/llm"
 	"core/server/metadata"
-	"core/server/session"
+	"core/server/sessionstore"
 	"core/server/subagentpolicy"
 	servicecontract "core/shared/apicontract"
 	"core/shared/authstatus"

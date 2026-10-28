@@ -18,13 +18,14 @@ import (
 
 	"core/internal/testharness/httpclient"
 	"core/internal/testharness/testsetup"
-	"core/server/auth"
+	"core/server/authmanager"
 	"core/server/launch"
 	"core/server/llm"
 	"core/shared/config"
 	"core/shared/protoapi"
 	authpb "core/shared/protoapi/gen/kent/api/auth"
 	"core/shared/textutil"
+	"github.com/coder/websocket"
 )
 
 func TestGrokConnectionCredentialIsolation(t *testing.T) {
@@ -202,11 +203,27 @@ endpoint = "https://compatible.example/v1"
 	started, release := make(chan struct{}), make(chan struct{})
 	var releaseOnce sync.Once
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		headers <- r.Header.Clone()
 		if r.Header.Get("Authorization") == "Bearer work" {
 			close(started)
 			<-release
 		}
+		if r.Header.Get("Upgrade") == "websocket" {
+			socket, err := websocket.Accept(w, r, nil)
+			if err != nil {
+				return
+			}
+			defer socket.CloseNow()
+			for {
+				if _, _, err := socket.Read(t.Context()); err != nil {
+					return
+				}
+				headers <- r.Header.Clone()
+				if err := socket.Write(t.Context(), websocket.MessageText, []byte(`{"type":"response.completed","response":{"id":"r","status":"completed","output":[]}}`)); err != nil {
+					return
+				}
+			}
+		}
+		headers <- r.Header.Clone()
 		_, _ = io.Copy(io.Discard, r.Body)
 		w.Header().Set("Content-Type", "text/event-stream")
 		_, _ = io.WriteString(w, "data: {\"type\":\"response.completed\",\"response\":{\"id\":\"r\",\"status\":\"completed\",\"output\":[]}}\n\ndata: [DONE]\n\n")
@@ -240,6 +257,11 @@ endpoint = "https://compatible.example/v1"
 		}
 		transport.Client = client
 		transports[id] = transport
+		t.Cleanup(func() {
+			if err := transport.Close(); err != nil {
+				t.Error(err)
+			}
+		})
 	}
 	send := func(id config.ConnectionID) error {
 		request := llm.ResponsesRequest{Model: "gpt-6-sol", SessionID: textutil.Value(string(id)), ToolChoiceMode: llm.ToolChoiceModeAutomatic, ReasoningEffort: "high"}
@@ -294,6 +316,16 @@ endpoint = "https://compatible.example/v1"
 		t.Fatal(err)
 	}
 	header := <-headers
+	if header.Get("Authorization") != "Bearer work" || header.Get("ChatGPT-Account-Id") != "account-work" {
+		t.Fatal("open socket changed its opening credential")
+	}
+	if err := transports["work"].Close(); err != nil {
+		t.Fatal(err)
+	}
+	if err := send("work"); err != nil {
+		t.Fatal(err)
+	}
+	header = <-headers
 	if header.Get("Authorization") != "Bearer new-work" || header.Get("ChatGPT-Account-Id") != "new-account" {
 		t.Fatal("future dispatch did not use re-authenticated credentials")
 	}
@@ -425,7 +457,7 @@ endpoint = %q
 		Model: "operator-model", SessionID: textutil.Value("session"), ToolChoiceMode: llm.ToolChoiceModeAutomatic,
 	}, llm.StreamCallbacks{})
 	var providerErr *llm.ProviderAPIError
-	if !errors.As(err, &providerErr) || providerErr.StatusCode != http.StatusBadRequest || requests.Load() != 1 {
+	if !errors.As(err, &providerErr) || !llm.HasHTTPStatus(providerErr, http.StatusBadRequest) || requests.Load() != 1 {
 		t.Fatalf("selected-provider failure = %v, requests=%d", err, requests.Load())
 	}
 	next, err := rotation.Prepare(t.Context(), settings, true)

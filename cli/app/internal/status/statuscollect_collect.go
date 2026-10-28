@@ -8,7 +8,7 @@ import (
 	"time"
 
 	"core/prompts"
-	"core/server/runtime"
+	"core/server/agentruntime"
 	"core/shared/apicontract"
 	"core/shared/config"
 	"core/shared/protoapi"

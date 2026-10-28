@@ -529,7 +529,7 @@ describe("New Task Workspace catalog integration", () => {
   it("stages searched dependencies through the 49→50 limit and cannot select a 51st", async () => {
     loadAttachedCatalog();
     state.searchResults = [candidate("task-49"), candidate("task-50"), candidate("task-51")];
-    const user = userEvent.setup();
+    const user = userEvent.setup({ delay: null });
     render(
       <NewTaskForm
         {...props}
@@ -631,7 +631,7 @@ describe("New Task Workspace catalog integration", () => {
         },
       ),
     );
-    const user = userEvent.setup();
+    const user = userEvent.setup({ delay: null });
     render(
       <NewTaskForm
         {...props}

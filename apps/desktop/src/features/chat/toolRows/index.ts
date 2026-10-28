@@ -1,7 +1,7 @@
 export { TranscriptToolSlot } from "./TranscriptToolSlot";
 export type {
   TranscriptCommittedToolRow,
-  TranscriptLiveToolRow,
+  TranscriptToolCall,
   TranscriptNonQuestionToolPresentation,
   TranscriptToolSlotItem,
 } from "./toolSlotTypes";

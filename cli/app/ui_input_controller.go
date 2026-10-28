@@ -8,7 +8,7 @@ import (
 
 	transcriptpb "core/shared/protoapi/gen/kent/api/transcript"
 	"core/shared/textutil"
-	"core/shared/transcript"
+	transcript "core/shared/transcriptmodel"
 
 	bubblespinner "github.com/charmbracelet/bubbles/spinner"
 	tea "github.com/charmbracelet/bubbletea"

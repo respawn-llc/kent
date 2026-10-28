@@ -1,8 +1,9 @@
 package ongoing
 
 import (
-	"io"
 	"iter"
+	"slices"
+	"sort"
 	"strings"
 
 	"core/cli/tui/transcriptrender"
@@ -49,6 +50,11 @@ func (s *Surface) terminalHeightExpanded(target Size) bool {
 }
 
 func (s *Surface) validateRenderFrame(frame FrameInput, operation string) {
+	for _, section := range frame.Sections {
+		if section.OutputIndexes != nil && len(section.OutputIndexes) != len(section.Lines)+len(section.StyledLines) {
+			panicOngoingDeveloperError(operation, "provider output positions must match section rows", nil)
+		}
+	}
 	if frame.Size.Width <= 0 || frame.Size.Height <= 0 {
 		panicOngoingDeveloperError(operation, "invalid terminal geometry", map[string]any{
 			"width":  frame.Size.Width,
@@ -80,7 +86,6 @@ func (s *Surface) writeFrameTransaction(frame FrameInput, immutableRows []string
 	eraseHeight := max(previousHeight, nextHeight)
 	var transaction strings.Builder
 	transaction.WriteString(resetScrollRegionAndOriginMode())
-	transaction.WriteString(semanticOutputSequence())
 	if s.terminalHeightExpanded(frame.Size) {
 		previous := s.visiblePreviousMutableBand(frame.Size)
 		if s.terminalResize.usesWidthRehydration() && previous != nil {
@@ -114,7 +119,7 @@ func (s *Surface) writeFrameTransaction(frame FrameInput, immutableRows []string
 		s.terminalResize == TerminalResizeSemanticPrompt,
 	)
 	writeCursor(&transaction, frame.Cursor)
-	if _, err := io.WriteString(s.writer, transaction.String()); err != nil {
+	if err := s.writeTerminalFrame(transaction.String()); err != nil {
 		return Result{}, err
 	}
 	s.retainedBandHeight = nextHeight
@@ -150,6 +155,8 @@ func (s *Surface) AllocateFrame(frame FrameInput) FrameAllocation {
 func (s *Surface) AllocateMessageFrames(messages []*transcriptpb.Message, frame FrameInput) iter.Seq[FrameAllocation] {
 	return func(yield func(FrameAllocation) bool) {
 		next := *s
+		next.pendingAssistants = slices.Clone(s.pendingAssistants)
+		next.pendingTools = slices.Clone(s.pendingTools)
 		for _, message := range messages {
 			content := next.prepareTerminalMessage(message, frame)
 			var allocation FrameAllocation
@@ -224,29 +231,43 @@ func validateFrameTransactionGeometry(
 }
 
 func (s *Surface) minimumLiveBandFits(frame FrameInput, liveLines []string) bool {
-	return enforcedMinimumLiveBandHeight(frame, s.activeAssistant, liveLines) <= frame.Size.Height
+	return enforcedMinimumLiveBandHeight(frame, s.lastAssistantStream(), liveLines) <= frame.Size.Height
+}
+
+func (s *Surface) lastAssistantStream() activeAssistantState {
+	if len(s.pendingAssistants) > 0 {
+		return s.pendingAssistants[len(s.pendingAssistants)-1]
+	}
+	return s.activeAssistant
 }
 
 func (s *Surface) liveBandLayout(frame FrameInput) []liveBandLine {
-	lines := activeAssistantLinesWithLinkPresentation(
-		s.activeAssistant,
-		frameWidthOrDefault(frame),
-		frame.Theme,
-		s.markdownLinks,
-	)
-	layout := make([]liveBandLine, 0, len(lines)+len(frame.Sections))
-	for _, line := range lines {
-		layout = append(layout, liveBandLine{text: line})
+	var layout []liveBandLine
+	for _, stream := range append([]activeAssistantState{s.activeAssistant}, s.pendingAssistants...) {
+		for _, line := range activeAssistantLinesWithLinkPresentation(stream, frameWidthOrDefault(frame), frame.Theme, s.markdownLinks) {
+			layout = append(layout, liveBandLine{text: line, outputIndex: stream.outputIndex})
+		}
 	}
 	layout = append(layout, frameLines(frame)...)
+	orderProviderLines(layout)
 	return layout
+}
+
+func orderProviderLines(layout []liveBandLine) {
+	sort.SliceStable(layout, func(i, j int) bool {
+		left, right := layout[i].outputIndex, layout[j].outputIndex
+		if left == nil {
+			return false
+		}
+		return right == nil || *left < *right
+	})
 }
 
 func (s *Surface) shrinkLiveBandLayoutToFrame(frame FrameInput, liveLayout []liveBandLine) []liveBandLine {
 	if len(liveLayout) <= frame.Size.Height {
 		return liveLayout
 	}
-	lines := minimumLiveBandLayoutWithLinkPresentation(frame, s.activeAssistant, s.markdownLinks)
+	lines := minimumLiveBandLayoutWithLinkPresentation(frame, s.lastAssistantStream(), s.markdownLinks)
 	if len(lines) > frame.Size.Height {
 		return lines[len(lines)-frame.Size.Height:]
 	}
@@ -272,7 +293,7 @@ func minimumLiveBandLayoutWithLinkPresentation(
 	}
 	layout := make([]liveBandLine, 0, len(lines)+len(frame.Sections))
 	for _, line := range lines {
-		layout = append(layout, liveBandLine{text: line})
+		layout = append(layout, liveBandLine{text: line, outputIndex: assistant.outputIndex})
 	}
 	for _, section := range frame.Sections {
 		totalLines := len(section.StyledLines) + len(section.Lines)
@@ -301,9 +322,11 @@ func minimumLiveBandLayoutWithLinkPresentation(
 				text:        text,
 				sectionKind: section.Kind,
 				sectionRow:  index + 1,
+				outputIndex: section.outputIndex(index),
 			})
 		}
 	}
+	orderProviderLines(layout)
 	return layout
 }
 
@@ -379,6 +402,7 @@ func frameLines(frame FrameInput) []liveBandLine {
 				text:        encodeTranscriptLine(line, frame.Theme),
 				sectionKind: section.Kind,
 				sectionRow:  index + 1,
+				outputIndex: section.outputIndex(index),
 			})
 		}
 		for index, line := range section.Lines {
@@ -386,6 +410,7 @@ func frameLines(frame FrameInput) []liveBandLine {
 				text:        line,
 				sectionKind: section.Kind,
 				sectionRow:  len(section.StyledLines) + index + 1,
+				outputIndex: section.outputIndex(len(section.StyledLines) + index),
 			})
 		}
 	}

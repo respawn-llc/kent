@@ -8,12 +8,11 @@ use std::sync::{
     atomic::{AtomicU64, Ordering},
     Arc, Mutex,
 };
-use tauri::Emitter;
-#[cfg(any(target_os = "macos", windows))]
 use tauri::Manager;
 use tauri_plugin_dialog::DialogExt;
 
 mod clipboard;
+mod main_window;
 mod native_glass;
 mod speech;
 #[cfg(target_os = "linux")]
@@ -376,7 +375,7 @@ fn show_attention_notification(
             let was_active =
                 remove_attention_notification_record_without_closing(&active, backend_id, token);
             if action != "__closed" && was_active {
-                let _ = app.emit_to("main", "app://attention-notification-activated", activation);
+                main_window::activate(&app, activation);
             }
         });
     });
@@ -419,8 +418,7 @@ fn show_attention_notification(
                         | notify_rust::NotificationResponse::Reply(_)
                 );
                 if activated && was_active {
-                    let _ =
-                        app.emit_to("main", "app://attention-notification-activated", activation);
+                    main_window::activate(&app, activation);
                 }
             })
             .await;
@@ -454,7 +452,7 @@ fn show_attention_notification(
             let was_active =
                 remove_attention_notification_record_without_closing(&active, backend_id, token);
             if action != "__closed" && was_active {
-                let _ = app.emit_to("main", "app://attention-notification-activated", activation);
+                main_window::activate(&app, activation);
             }
         });
     });
@@ -647,9 +645,13 @@ pub fn run() {
         .plugin(tauri_plugin_updater::Builder::new().build())
         .manage(AttentionNotificationState::default())
         .manage(speech::SpeechState::default())
+        .manage(main_window::State::default())
         .on_window_event(|window, event| {
             if matches!(event, tauri::WindowEvent::Destroyed) {
                 speech::close_window(window);
+                if window.label() == "main" {
+                    main_window::closed(window.app_handle());
+                }
             }
         })
         .on_page_load(|webview, payload| {
@@ -667,7 +669,13 @@ pub fn run() {
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
+            main_window::open_main_window,
+            main_window::main_window_ready,
             clipboard::paste_clipboard,
+            #[cfg(target_os = "macos")]
+            speech::macos::speech_start_microphone,
+            #[cfg(target_os = "macos")]
+            speech::macos::speech_stop_microphone,
             speech::speech_create,
             speech::speech_append,
             speech::speech_finalize,
@@ -694,8 +702,20 @@ pub fn run() {
             apply_native_window_glass,
             set_native_window_glass_tint,
         ])
-        .run(context)
-        .expect("error while running the desktop application");
+        .build(context)
+        .expect("error while building the desktop application")
+        .run(|app, event| {
+            #[cfg(target_os = "macos")]
+            if matches!(event, tauri::RunEvent::Reopen { .. }) {
+                let app = app.clone();
+                tauri::async_runtime::spawn(async move {
+                    if let Err(error) = main_window::open_main_window(app, None).await {
+                        eprintln!("Reopen main window failed: {error}");
+                    }
+                });
+            }
+            let _ = (app, event);
+        });
 }
 
 fn native_context() -> Result<NativeContext, String> {
