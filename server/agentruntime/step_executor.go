@@ -403,6 +403,7 @@ func (s *defaultStepExecutor) runStepLoopWithOptions(ctx context.Context, stepID
 				}
 			}
 		}
+		ordinaryTurnEnded := resp.EndTurn != nil && *resp.EndTurn && !e.goalActive() && !e.currentNodeExecutionActive()
 		if acceptedCalls.hasCalls() {
 			applied, terminal, err := s.executeAcceptedToolCallsAndAppendResults(
 				ctx,
@@ -421,7 +422,11 @@ func (s *defaultStepExecutor) runStepLoopWithOptions(ctx context.Context, stepID
 				e.cascadeCompleteActiveGoalOnWorkflowCompletion(stepID)
 				return stepLoopResult{ExecutedToolCall: true}, nil
 			}
-			if assistantMsg.NativeResponse == nil || !responseCompletesAfterTools(assistantMsg, phaseTurn, acceptedCalls) {
+			if ordinaryTurnEnded {
+				if len(acceptedCalls.local) > 0 {
+					continue
+				}
+			} else if assistantMsg.NativeResponse == nil || !responseCompletesAfterTools(assistantMsg, phaseTurn, acceptedCalls) {
 				continue
 			}
 			localToolCalls = nil
@@ -429,13 +434,19 @@ func (s *defaultStepExecutor) runStepLoopWithOptions(ctx context.Context, stepID
 		}
 
 		e.submitSessionNaming(resp)
-		if assistantMsg.Content == nil && responseContainsProgress(resp) {
+		if resp.EndTurn != nil && !*resp.EndTurn && !e.goalActive() && !e.currentNodeExecutionActive() {
 			if err := e.stepLifecycle.CompleteAgentStepBoundary(ctx); err != nil {
 				return stepLoopResult{}, err
 			}
 			continue
 		}
-		if assistantMsg.Content == nil {
+		if !ordinaryTurnEnded && assistantMsg.Content == nil && responseContainsProgress(resp) {
+			if err := e.stepLifecycle.CompleteAgentStepBoundary(ctx); err != nil {
+				return stepLoopResult{}, err
+			}
+			continue
+		}
+		if !ordinaryTurnEnded && assistantMsg.Content == nil {
 			return stepLoopResult{}, errors.New(
 				"provider contract violation: response contained no final content, tool calls, reasoning, or commentary",
 			)
@@ -474,7 +485,7 @@ func (s *defaultStepExecutor) runStepLoopWithOptions(ctx context.Context, stepID
 				}
 				continue
 			}
-			if len(hostedToolExecutions) > 0 {
+			if len(hostedToolExecutions) > 0 && !ordinaryTurnEnded {
 				_ = e.steer(stepID, steerEventIntent(Event{Kind: EventConversationUpdated, StepID: exactStepIDPointer(stepID), CommittedTranscriptChanged: true}))
 				continue
 			}
@@ -637,7 +648,11 @@ func (s *defaultStepExecutor) prepareCompletedResponse(ctx context.Context, step
 	silentFinalAnswer := isBlankFinalAnswer(assistantMsg) &&
 		!e.goalActive() &&
 		!e.currentNodeExecutionActive()
-	if silentFinalAnswer && acceptedCalls.hasCalls() {
+	if resp.EndTurn != nil && !e.goalActive() && !e.currentNodeExecutionActive() {
+		silentFinalAnswer = *resp.EndTurn && len(acceptedCalls.local) == 0 &&
+			(assistantMsg.Content == nil || strings.TrimSpace(*assistantMsg.Content) == "")
+	}
+	if silentFinalAnswer && acceptedCalls.hasCalls() && resp.EndTurn == nil {
 		return preparedCompletedResponse{}, fmt.Errorf(
 			"provider returned a blank final answer with %d accepted tool calls",
 			len(acceptedCalls.order),

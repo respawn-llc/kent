@@ -71,6 +71,60 @@ func TestAssistantMessageSourceCompletesBeforeResponseAcceptance(t *testing.T) {
 	}
 }
 
+func TestResponsesSocketTurnCompletion(t *testing.T) {
+	for _, test := range []struct {
+		name      string
+		endTurn   json.RawMessage
+		want      bool
+		wantError bool
+	}{
+		{name: "omitted", want: true},
+		{name: "true", endTurn: json.RawMessage(`true`), want: true},
+		{name: "false", endTurn: json.RawMessage(`false`), want: false},
+		{name: "null", endTurn: json.RawMessage(`null`), want: true},
+		{name: "invalid", endTurn: json.RawMessage(`"false"`), wantError: true},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			response := map[string]any{"id": "empty", "status": "completed", "output": []any{}}
+			if test.endTurn != nil {
+				response["end_turn"] = test.endTurn
+			}
+			event, err := json.Marshal(map[string]any{"type": "response.completed", "response": response})
+			if err != nil {
+				t.Fatal(err)
+			}
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				serveResponsesTestWebsocket(t, w, r, func(json.RawMessage) []string {
+					return []string{string(event)}
+				})
+			}))
+			defer server.Close()
+			registration := testConnectionRegistration(t, config.ProviderConnection{
+				Protocol: config.ConnectionResponses, Endpoint: textutil.Value(defaultOpenAIBaseURL),
+			})
+			registration.Variant.BaseURL = textutil.Value(server.URL + "/v1")
+			transport := newTestHTTPTransport(t, staticAuthHeader{}, registration)
+			defer transport.Close()
+			result, err := transport.Generate(t.Context(), ResponsesRequest{
+				Model: "gpt-6-sol", SessionID: textutil.Value("session"),
+				ReasoningEffort: "high", ToolChoiceMode: ToolChoiceModeAutomatic,
+			}, StreamCallbacks{})
+			if test.wantError {
+				if err == nil {
+					t.Fatal("invalid completion metadata was accepted")
+				}
+				return
+			}
+			if err != nil {
+				t.Fatal(err)
+			}
+			if result.EndTurn == nil || *result.EndTurn != test.want {
+				t.Fatalf("turn completion = %v, want %v", result.EndTurn, test.want)
+			}
+		})
+	}
+}
+
 func TestResponsesSocketContinuesExactNativePrefixWithOnlyNewInput(t *testing.T) {
 	for _, protocol := range []config.ConnectionProtocol{config.ConnectionResponses, config.ConnectionGrokAPIKey, config.ConnectionGrokOAuthAPI} {
 		t.Run(string(protocol), func(t *testing.T) {

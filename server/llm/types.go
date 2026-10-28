@@ -714,7 +714,9 @@ func (u Usage) CacheHitPercent() (int, bool) {
 }
 
 type Response struct {
-	Assistant         Message                             `json:"assistant"`
+	Assistant Message `json:"assistant"`
+	// EndTurn is absent when the provider supplies no turn-completion fact.
+	EndTurn           *bool                               `json:"-"`
 	ProviderPhase     *ProviderPhase                      `json:"-"`
 	ServedModel       *string                             `json:"served_model,omitempty"`
 	ProviderEvidence  modelcontract.ProviderUsageEvidence `json:"-"`
