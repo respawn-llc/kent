@@ -36,18 +36,16 @@ func TestTranscriptHydrationSnapshotProjectsLiveAssistantStream(t *testing.T) {
 		stepID,
 		4,
 		2,
-		"hello",
-		llm.MessagePhaseFinal,
+		llm.AssistantDelta{Text: "hello", Phase: llm.MessagePhaseFinal},
 	)
 
 	snapshot := hydrationSnapshot(t, engine)
-	if snapshot.ActiveAssistantText != "hello" ||
-		snapshot.ActiveAssistantMetadata == nil ||
-		snapshot.ActiveAssistantMetadata.StepID != stepID ||
-		snapshot.ActiveAssistantMetadata.BaseRevision != 4 ||
-		snapshot.ActiveAssistantMetadata.BaseCommittedEntryCount != 2 ||
-		snapshot.ActiveAssistantStreamID == nil ||
-		snapshot.ActiveAssistantPhase != llm.MessagePhaseFinal {
+	if len(snapshot.ActiveAssistants) != 1 ||
+		snapshot.ActiveAssistants[0].Text != "hello" ||
+		snapshot.ActiveAssistants[0].Metadata.StepID != stepID ||
+		snapshot.ActiveAssistants[0].Metadata.BaseRevision != 4 ||
+		snapshot.ActiveAssistants[0].Metadata.BaseCommittedEntryCount != 2 ||
+		snapshot.ActiveAssistants[0].Phase != llm.MessagePhaseFinal {
 		t.Fatalf("live assistant stream = %+v", snapshot)
 	}
 }
@@ -65,7 +63,7 @@ func TestTranscriptHydrationSnapshotProjectsAndResetsOwnerLiveFacts(t *testing.T
 		t.Fatalf("reasoning: %v", err)
 	}
 	for _, call := range []llm.ToolCall{{ID: "call-1", Name: "shell"}, {ID: "call-2", Name: "patch"}} {
-		if err := engine.transcriptRuntimeState().RecordLiveToolStart(stepID, call); err != nil {
+		if _, err := engine.transcriptRuntimeState().RecordLiveToolStart(stepID, call); err != nil {
 			t.Fatalf("tool %s: %v", call.ID, err)
 		}
 	}
@@ -145,7 +143,7 @@ func TestEngineCloseAbortsLiveToolsWithTheirRecordedExactStep(t *testing.T) {
 	})
 	stepID := runtimeTestStepID("close-live-tool")
 	call := llm.ToolCall{ID: "call-close", Name: "shell"}
-	if err := engine.transcriptRuntimeState().RecordLiveToolStart(stepID, call); err != nil {
+	if _, err := engine.transcriptRuntimeState().RecordLiveToolStart(stepID, call); err != nil {
 		t.Fatalf("record live tool: %v", err)
 	}
 

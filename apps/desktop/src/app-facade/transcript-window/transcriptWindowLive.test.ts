@@ -25,6 +25,106 @@ const completed: ChatTranscriptPayloadByKind["compaction_status"] = {
 };
 
 describe("transcript live membership and compaction", () => {
+  it("keeps one assistant identity through source completion and native acceptance", () => {
+    const window = new TranscriptWindow();
+    window.dispatch({ kind: "initial-hydration", hydration: hydration([]) });
+    const source = {
+      StepID: "step",
+      StreamID: "source",
+      Phase: "commentary",
+      Text: "Complete source",
+      SourceState: "complete",
+    } as const;
+    window.dispatch({
+      kind: "live-fact",
+      fact: {
+        kind: "assistant_delta",
+        payload: { ...source, Delta: "Complete" },
+      },
+    });
+    const key = window.snapshot.items[0]?.key;
+    window.dispatch({ kind: "live-fact", fact: { kind: "assistant_source_complete", payload: source } });
+    expect(window.snapshot.items).toHaveLength(1);
+    expect(window.snapshot.items[0]).toMatchObject({
+      key,
+      value: { Text: source.Text, SourceState: "complete" },
+    });
+    const accepted = {
+      ...row(1),
+      User: null,
+      Kind: "assistant",
+      Assistant: source,
+    } as const;
+    expect(window.dispatch({ kind: "committed-row", row: accepted }).kind).toBe("accepted");
+    expect(window.snapshot.items).toHaveLength(1);
+    expect(window.snapshot.items[0]).toMatchObject({ key, state: "committed" });
+    const overlap = window.dispatch({
+      kind: "page-success",
+      request: visit(window, "older"),
+      page: page(
+        [{ ...accepted, Assistant: { StepID: source.StepID, Phase: source.Phase, Text: source.Text } }],
+        null,
+        300,
+      ),
+    });
+    expect(overlap.kind).toBe("accepted");
+    expect(window.snapshot.items[0]?.key).toBe(key);
+  });
+
+  it("completes a native call at its original position without replacing neighboring identities", () => {
+    const window = new TranscriptWindow();
+    window.dispatch({ kind: "initial-hydration", hydration: hydration([row(1)]) });
+    const pending = {
+      ...row(2),
+      Kind: "tool_call",
+      User: null,
+      ToolCall: { StepID: "step", ToolCallID: "native-call", ToolName: "exec_command" },
+    } as const;
+    const after = {
+      ...row(2),
+      Locator: { event_sequence: 2, row_ordinal: 2 },
+      Kind: "assistant",
+      User: null,
+      Assistant: { StepID: "step", Phase: "final_answer", Text: "answer" },
+    } as const;
+    window.dispatch({ kind: "committed-row", row: pending });
+    expect(window.snapshot.items.find((item) => item.kind === "tool_call")?.value.Activity).toBeNull();
+    window.dispatch({ kind: "live-fact", fact: { kind: "tool_start", payload: pending.ToolCall } });
+    expect(window.snapshot.items.find((item) => item.kind === "tool_call")?.value.Activity).toEqual(
+      pending.ToolCall,
+    );
+    window.dispatch({ kind: "committed-row", row: after });
+    const keys = window.snapshot.items.map((item) => item.key);
+    const result = {
+      ...pending,
+      Kind: "tool",
+      ToolCall: null,
+      Tool: {
+        StepID: "step",
+        ToolCallID: "native-call",
+        ToolName: "exec_command",
+        Text: "result",
+        IsError: false,
+        ViewedImageKind: null,
+        AnsweredBySessionID: null,
+        AnsweredBySessionShortID: null,
+      },
+    } as const;
+    expect(window.dispatch({ kind: "committed-row", row: result }).kind).toBe("accepted");
+    expect(window.snapshot.items.map((item) => item.key)).toEqual(keys);
+    expect(window.snapshot.items.map((item) => item.kind)).toEqual(["user", "tool", "assistant"]);
+    const completedItem = window.snapshot.items[1];
+    const overlap = window.dispatch({
+      kind: "page-success",
+      request: visit(window, "older"),
+      page: page([row(1), pending, after], null, 300),
+    });
+    expect(overlap.kind).toBe("accepted");
+    expect(window.snapshot.items.map((item) => item.kind)).toEqual(["user", "tool", "assistant"]);
+    expect(window.snapshot.items[1]?.key).toBe(completedItem?.key);
+    expect(window.snapshot.items[1]).toMatchObject({ row: result });
+  });
+
   it("keeps Thinking Status out of transcript items while preserving real reasoning", () => {
     const window = new TranscriptWindow();
     window.dispatch({
@@ -255,7 +355,15 @@ describe("transcript live membership and compaction", () => {
       kind: "initial-hydration",
       hydration: {
         ...initial,
-        ActiveAssistant: { StepID: "step", StreamID: "stream", Phase: "commentary", Text: "Draft" },
+        ActiveAssistants: [
+          {
+            StepID: "step",
+            StreamID: "stream",
+            Phase: "commentary",
+            Text: "Draft",
+            SourceState: "streaming",
+          },
+        ],
       },
     });
     window.dispatch({

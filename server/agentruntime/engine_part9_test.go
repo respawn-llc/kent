@@ -10,7 +10,6 @@ import (
 	"core/shared/toolspec"
 	"encoding/json"
 	"strconv"
-	"strings"
 	"sync"
 	"testing"
 	"testing/synctest"
@@ -592,8 +591,8 @@ func TestStreamingBlankFinalClearsLiveAssistantDelta(t *testing.T) {
 	if msg.Content != nil {
 		t.Fatalf("assistant content = %q, want absent", *msg.Content)
 	}
-	if ongoing := strings.TrimSpace(eng.ChatSnapshot().Streaming); ongoing != "" {
-		t.Fatalf("expected ongoing cleared after noop final, got %q", ongoing)
+	if ongoing := eng.ChatSnapshot().Streaming; len(ongoing) != 0 {
+		t.Fatalf("expected ongoing cleared after noop final, got %+v", ongoing)
 	}
 
 	mu.Lock()

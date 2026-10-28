@@ -4,6 +4,9 @@ import "strings"
 
 type EntryRole string
 
+// EntryRoleAcceptedToolCall projects a native accepted call without a result.
+const EntryRoleAcceptedToolCall EntryRole = "accepted_tool_call"
+
 // EntryRoleSystem marks general runtime notices with typed message metadata.
 const EntryRoleSystem EntryRole = "system"
 

@@ -3,10 +3,10 @@ package llm
 import (
 	"context"
 	"fmt"
+	"net/http"
 	"slices"
 
 	openai "github.com/openai/openai-go/v3"
-	"github.com/openai/openai-go/v3/option"
 	"github.com/openai/openai-go/v3/responses"
 )
 
@@ -16,7 +16,7 @@ type responsesPolicy interface {
 	compact(context.Context, *HTTPTransport, ResponsesRequest, responsesDispatchPreparation, int) (ResponsesCompactionResponse, error)
 	usage(responses.ResponseUsage, int) (Usage, error)
 	configurePayload(responsesRequestPayloadBuilder, ResponsesRequest, OpenAIAuthMode, *responses.ResponseNewParams) error
-	requestOptions(string, ResponsesRequest, responsesDispatchPreparation) []option.RequestOption
+	requestHeaders(string, ResponsesRequest, responsesDispatchPreparation) http.Header
 	prepareDispatch(string, string, *CodexDispatchContext, *responses.ResponseNewParamsServiceTier, ProviderVariantContract) (*codexDispatchProjection, error)
 	reasoningDelta(ReasoningEntry) ReasoningSummaryDelta
 	reasoningEntries([]ReasoningEntry) []ReasoningEntry
@@ -51,21 +51,22 @@ func (openAIResponsesPolicy) prepareDispatch(sessionID, model string, dispatch *
 	return validateOpenAIDispatch(sessionID, model, dispatch, variant.ProviderID == "chatgpt-codex", tier)
 }
 
-func (openAIResponsesPolicy) requestOptions(identifier string, request ResponsesRequest, preparation responsesDispatchPreparation) []option.RequestOption {
-	opts := []option.RequestOption{option.WithHeader("originator", identifier)}
+func (openAIResponsesPolicy) requestHeaders(identifier string, request ResponsesRequest, preparation responsesDispatchPreparation) http.Header {
+	headers := http.Header{}
+	headers.Set("originator", identifier)
 	if request.SessionID != nil {
-		opts = append(opts, option.WithHeader("session-id", *request.SessionID))
+		headers.Set("session-id", *request.SessionID)
 	}
 	if preparation.mode.IsOAuth && preparation.mode.AccountID != "" {
-		opts = append(opts, option.WithHeader("ChatGPT-Account-Id", preparation.mode.AccountID))
+		headers.Set("ChatGPT-Account-Id", preparation.mode.AccountID)
 	}
 	if projection := preparation.projection; projection != nil {
-		opts = append(opts, option.WithHeader("x-codex-routing-hint", projection.RoutingHint))
+		headers.Set("x-codex-routing-hint", projection.RoutingHint)
 		if turnState, present := request.CodexDispatch.turnStateForRequest(); present {
-			opts = append(opts, option.WithHeader(codexTurnStateHeader, turnState))
+			headers.Set(codexTurnStateHeader, turnState)
 		}
 	}
-	return opts
+	return headers
 }
 
 func (openAIResponsesPolicy) configurePayload(b responsesRequestPayloadBuilder, request ResponsesRequest, mode OpenAIAuthMode, out *responses.ResponseNewParams) error {

@@ -33,6 +33,7 @@ func durableParityRow(row *transcriptpb.CommittedRow) *transcriptpb.CommittedRow
 	durable := proto.Clone(row).(*transcriptpb.CommittedRow)
 	if assistant := durable.GetAssistant(); assistant != nil {
 		assistant.StreamId = nil
+		assistant.SourceState = nil
 	}
 	if reasoning := durable.GetReasoningTrace(); reasoning != nil {
 		reasoning.ProvisionalIdentity = nil
@@ -203,7 +204,7 @@ func TestPersistedTranscriptMatchesActualEngineLiveDelivery(t *testing.T) {
 			hasAssistantStream := false
 			hasReasoningIdentity := false
 			for _, event := range events {
-				hasAssistantStream = hasAssistantStream || event.AssistantTranscriptStreamID != nil
+				hasAssistantStream = hasAssistantStream || event.AssistantTranscriptStreamID != nil || len(event.AssistantStreamCorrelations) > 0
 				hasReasoningIdentity = hasReasoningIdentity || event.ReasoningTraceIdentity != nil
 			}
 			if hasAssistantStream != fixture.wantAssistantStream || hasReasoningIdentity != fixture.wantReasoningIdentity {

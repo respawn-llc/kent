@@ -7,6 +7,7 @@ import (
 	"reflect"
 	"sync"
 	"testing"
+	"testing/synctest"
 	"time"
 
 	"core/internal/testharness/testsetup"
@@ -41,26 +42,28 @@ func TestConnectionUsageCooldownSkipsExhaustedMember(t *testing.T) {
 }
 
 func TestConnectionUsageFallbackDisabledAndExpiry(t *testing.T) {
-	settings := config.Settings{
-		Connection:  config.SingleConnection("a"),
-		Connections: map[config.ConnectionID]config.ProviderConnection{"a": {Protocol: config.ConnectionChatGPT}},
-	}
-	disabled := NewConnectionRotation(testsetup.OpenStore(t, t.TempDir()), 0)
-	disabled.RecordExhaustion("a")
-	if _, err := disabled.Prepare(t.Context(), settings, true); err != nil {
-		t.Fatal(err)
-	}
-	rotation := NewConnectionRotation(testsetup.OpenStore(t, t.TempDir()), 10*time.Millisecond)
-	rotation.RecordExhaustion("a")
-	_, err := rotation.Prepare(t.Context(), settings, true)
-	var unavailable *ConnectionsUnavailableError
-	if !errors.As(err, &unavailable) || len(unavailable.Members) != 1 || unavailable.Members[0].AvailableAt == nil {
-		t.Fatalf("unavailable = %v", err)
-	}
-	time.Sleep(time.Until(*unavailable.Members[0].AvailableAt))
-	if selected, err := rotation.Prepare(t.Context(), settings, true); err != nil || selected != "a" {
-		t.Fatalf("after expiry = %s, %v", selected, err)
-	}
+	synctest.Test(t, func(t *testing.T) {
+		settings := config.Settings{
+			Connection:  config.SingleConnection("a"),
+			Connections: map[config.ConnectionID]config.ProviderConnection{"a": {Protocol: config.ConnectionChatGPT}},
+		}
+		disabled := NewConnectionRotation(testsetup.OpenStore(t, t.TempDir()), 0)
+		disabled.RecordExhaustion("a")
+		if _, err := disabled.Prepare(t.Context(), settings, true); err != nil {
+			t.Fatal(err)
+		}
+		rotation := NewConnectionRotation(testsetup.OpenStore(t, t.TempDir()), 10*time.Millisecond)
+		rotation.RecordExhaustion("a")
+		_, err := rotation.Prepare(t.Context(), settings, true)
+		var unavailable *ConnectionsUnavailableError
+		if !errors.As(err, &unavailable) || len(unavailable.Members) != 1 || unavailable.Members[0].AvailableAt == nil {
+			t.Fatalf("unavailable = %v", err)
+		}
+		time.Sleep(time.Until(*unavailable.Members[0].AvailableAt))
+		if selected, err := rotation.Prepare(t.Context(), settings, true); err != nil || selected != "a" {
+			t.Fatalf("after expiry = %s, %v", selected, err)
+		}
+	})
 }
 
 func TestConnectionUsageSelectionExcludesVisitedMembers(t *testing.T) {

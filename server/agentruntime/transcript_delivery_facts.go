@@ -22,6 +22,7 @@ const (
 	TranscriptCommittedRowFactUser             TranscriptCommittedRowFactKind = "user"
 	TranscriptCommittedRowFactAssistant        TranscriptCommittedRowFactKind = "assistant"
 	TranscriptCommittedRowFactTool             TranscriptCommittedRowFactKind = "tool"
+	TranscriptCommittedRowFactToolCall         TranscriptCommittedRowFactKind = "tool_call"
 	TranscriptCommittedRowFactReasoningTrace   TranscriptCommittedRowFactKind = "reasoning_trace"
 	TranscriptCommittedRowFactNotice           TranscriptCommittedRowFactKind = "notice"
 	TranscriptCommittedRowFactReviewerFeedback TranscriptCommittedRowFactKind = "reviewer_feedback"
@@ -38,6 +39,7 @@ type TranscriptCommittedRowFact struct {
 	User             *TranscriptUserRowFact
 	Assistant        *TranscriptAssistantRowFact
 	Tool             *TranscriptToolRowFact
+	ToolCall         *TranscriptToolCallRowFact
 	ReasoningTrace   *TranscriptReasoningTraceRowFact
 	Notice           *TranscriptNoticeRowFact
 	ReviewerFeedback *TranscriptReviewerFeedbackRowFact
@@ -53,6 +55,7 @@ type TranscriptUserRowFact struct {
 }
 
 type TranscriptAssistantRowFact struct {
+	SourceState       AssistantSourceState
 	Text              string
 	CondensedText     string
 	Phase             llm.MessagePhase
@@ -72,6 +75,12 @@ type TranscriptToolRowFact struct {
 	QuestionAnswer      *tools.AskQuestionAnswer
 	WebSearch           *transcript.WebSearchDetail
 	AnsweredBySessionID *runtimeids.SessionID
+}
+
+type TranscriptToolCallRowFact struct {
+	ToolCallID   string
+	ToolName     string
+	Presentation *transcript.ToolCallMeta
 }
 
 type TranscriptReasoningTraceRowFact struct {
@@ -135,7 +144,7 @@ func TranscriptCommittedRowFactsFromEvent(evt Event) []TranscriptCommittedRowFac
 	case EventConversationUpdated, EventAssistantMessage:
 		facts = transcriptCommittedRowFactsFromMessage(
 			evt.Message,
-			evt.AssistantTranscriptStreamID,
+			evt.AssistantStreamCorrelations,
 			transcriptMessageProjectionContext{Provenance: evt.CommittedProvenance},
 		)
 	case EventUserMessageFlushed:
@@ -209,7 +218,15 @@ func TranscriptCommittedRowFactsFromEvent(evt Event) []TranscriptCommittedRowFac
 		}
 	}
 	facts = transcriptCommittedRowFactsForStep(evt.StepID, facts)
-	return locateTranscriptCommittedRowFacts(facts)
+	facts = locateTranscriptCommittedRowFacts(facts)
+	if evt.NativeToolCallLocator != nil {
+		for index := range facts {
+			if facts[index].Tool != nil {
+				facts[index].Locator = *evt.NativeToolCallLocator
+			}
+		}
+	}
+	return facts
 }
 
 func transcriptCommittedRowFactsForStep(stepID *string, facts []TranscriptCommittedRowFact) []TranscriptCommittedRowFact {
@@ -314,10 +331,10 @@ type transcriptMessageProjectionContext struct {
 
 func transcriptCommittedRowFactsFromMessage(
 	msg llm.Message,
-	streamID *uuid.UUID,
+	correlations []AssistantStreamCorrelation,
 	contexts ...transcriptMessageProjectionContext,
 ) []TranscriptCommittedRowFact {
-	facts := transcriptCommittedRowFactsFromMessageUnlocated(msg, streamID)
+	facts := transcriptCommittedRowFactsFromMessageUnlocated(msg, correlations)
 	var provenance *TranscriptCommittedRowProvenance
 	if len(contexts) > 0 {
 		provenance = contexts[0].Provenance
@@ -334,7 +351,40 @@ func transcriptCommittedRowFactsFromMessage(
 	return facts
 }
 
-func transcriptCommittedRowFactsFromMessageUnlocated(msg llm.Message, streamID *uuid.UUID) []TranscriptCommittedRowFact {
+func transcriptCommittedRowFactsFromMessageUnlocated(msg llm.Message, correlations []AssistantStreamCorrelation) []TranscriptCommittedRowFact {
+	if msg.NativeResponse != nil {
+		var facts []TranscriptCommittedRowFact
+		for _, projected := range nativeResponseMessages(msg) {
+			if projected.Reasoning != nil {
+				if fact, ok := transcriptCommittedRowFactFromChatEntry(*projected.Reasoning); ok {
+					fact.ReasoningTrace.ProvisionalIdentity = projected.ReasoningIdentity
+					facts = append(facts, fact)
+				}
+				continue
+			}
+			if len(projected.Message.ToolCalls) > 0 {
+				for _, call := range projected.Message.ToolCalls {
+					facts = append(facts, transcriptAcceptedToolCallFact(acceptedNativeToolCallEntry(call)))
+				}
+				continue
+			}
+			facts = append(facts, transcriptGenericMessageRowFacts(projected.Message, assistantStreamForOutput(correlations, &projected.OutputIndex))...)
+		}
+		return facts
+	}
+	return transcriptGenericMessageRowFacts(msg, assistantStreamForOutput(correlations, nil))
+}
+
+func assistantStreamForOutput(correlations []AssistantStreamCorrelation, outputIndex *int64) *AssistantStreamCorrelation {
+	for _, correlation := range correlations {
+		if textutil.EqualOptional(correlation.OutputIndex, outputIndex) {
+			return textutil.Value(correlation)
+		}
+	}
+	return nil
+}
+
+func transcriptGenericMessageRowFacts(msg llm.Message, correlation *AssistantStreamCorrelation) []TranscriptCommittedRowFact {
 	switch msg.Role {
 	case llm.RoleUser:
 		if msg.MessageType != nil &&
@@ -357,13 +407,20 @@ func transcriptCommittedRowFactsFromMessageUnlocated(msg llm.Message, streamID *
 		}
 		return []TranscriptCommittedRowFact{fact}
 	case llm.RoleAssistant:
-		out := make([]TranscriptCommittedRowFact, 0, 1)
+		var streamID *uuid.UUID
+		var sourceState AssistantSourceState
+		if correlation != nil {
+			streamID = &correlation.StreamID
+			sourceState = correlation.SourceState
+		}
+		out := make([]TranscriptCommittedRowFact, 0, 1+len(msg.ToolCalls))
 		if msg.Content != nil && strings.TrimSpace(*msg.Content) != "" && !isBlankFinalAnswer(msg) {
 			phase, _ := textutil.OptionalValue(msg.Phase)
 			out = append(out, TranscriptCommittedRowFact{Kind: TranscriptCommittedRowFactAssistant, Visibility: assistantTranscriptVisibility(phase), Assistant: &TranscriptAssistantRowFact{
-				Text:     *msg.Content,
-				Phase:    phase,
-				StreamID: cloneTranscriptStreamID(streamID),
+				Text:        *msg.Content,
+				Phase:       phase,
+				StreamID:    cloneTranscriptStreamID(streamID),
+				SourceState: sourceState,
 			}})
 		}
 		return out
@@ -499,6 +556,8 @@ func transcriptCommittedRowFactFromChatEntryUnlocated(entry ChatEntry) (Transcri
 				DurationMs:  textutil.Pointer(entry.DurationMs),
 			},
 		}, true
+	case string(transcript.EntryRoleAcceptedToolCall):
+		return transcriptAcceptedToolCallFact(entry), true
 	case "tool_call":
 		return TranscriptCommittedRowFact{}, false
 	case "tool_result_ok", "tool_result_error":
@@ -862,6 +921,16 @@ func localEntryNoticeFact(entry ChatEntry) TranscriptCommittedRowFact {
 		return legacyUntypedNoticeFactFromLocalEntry(entry)
 	}
 	return runtimeNoticeFactFromLocalEntry(entry)
+}
+
+func transcriptAcceptedToolCallFact(entry ChatEntry) TranscriptCommittedRowFact {
+	if entry.ToolCall == nil {
+		panic("accepted native tool call has no presentation")
+	}
+	return TranscriptCommittedRowFact{
+		StepID: entry.StepID, Kind: TranscriptCommittedRowFactToolCall, Visibility: transcript.EntryVisibilityOngoingCollapsed,
+		ToolCall: &TranscriptToolCallRowFact{ToolCallID: entry.ToolCallID, ToolName: entry.ToolCall.ToolName, Presentation: cloneTranscriptToolCallMeta(entry.ToolCall)},
+	}
 }
 
 func transcriptToolRowFactFromResult(result tools.Result) TranscriptCommittedRowFact {

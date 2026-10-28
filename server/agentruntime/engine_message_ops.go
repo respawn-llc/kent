@@ -126,7 +126,8 @@ func (e *Engine) publishCommittedFinalizedToolCompletion(
 ) error {
 	result := cloneToolResult(completion.Result)
 	e.transcriptRuntimeState().CompleteLiveTool(result.CallID)
-	err := e.emitRaw(Event{Kind: EventToolCallCompleted, ToolResult: &result, CommittedTranscriptChanged: true, CommittedProvenance: cloneTranscriptCommittedRowProvenance(completionProvenance)}.withStepID(completionStepID))
+	err := e.emitRaw(Event{Kind: EventToolCallCompleted, ToolResult: &result,
+		CommittedTranscriptChanged: true, CommittedProvenance: cloneTranscriptCommittedRowProvenance(completionProvenance)}.withStepID(completionStepID))
 	if completion.OperatorFeedback == nil {
 		return err
 	}
@@ -802,7 +803,7 @@ func (e *Engine) FailQueuedUserMessages(reason QueuedUserMessageFailureReason) [
 	return messages
 }
 
-func (e *Engine) clearStreamingAssistantStateRaw() (*AssistantStreamMetadata, *uuid.UUID) {
+func (e *Engine) clearStreamingAssistantStateRaw() []AssistantStreamSnapshot {
 	return e.transcriptRuntimeState().ClearStreamingAssistantState()
 }
 
@@ -811,6 +812,7 @@ func (e *Engine) emitStreamingAssistantTerminalRaw(
 	metadata *AssistantStreamMetadata,
 	streamID uuid.UUID,
 	abortReason *AssistantStreamAbortReason,
+	sourceState AssistantSourceState,
 ) error {
 	abortReasonValue := ""
 	if abortReason != nil {
@@ -822,6 +824,7 @@ func (e *Engine) emitStreamingAssistantTerminalRaw(
 		AssistantStreamMetadata:     cloneAssistantStreamMetadata(metadata),
 		AssistantTranscriptStreamID: cloneTranscriptStreamID(&streamID),
 		AssistantStreamAbortReason:  abortReasonValue,
+		AssistantSourceState:        sourceState,
 	})
 }
 
@@ -830,28 +833,28 @@ func (e *Engine) emitStreamingAssistantCleanupEventsRaw(
 	metadata *AssistantStreamMetadata,
 	streamID *uuid.UUID,
 	abortReason *AssistantStreamAbortReason,
+	sourceState AssistantSourceState,
 ) error {
 	emissionErrors := []error{
 		e.emitRaw(Event{Kind: EventConversationUpdated, StepID: exactStepIDPointer(stepID)}),
 	}
 	if streamID != nil {
-		emissionErrors = append(emissionErrors, e.emitStreamingAssistantTerminalRaw(stepID, metadata, *streamID, abortReason))
+		emissionErrors = append(emissionErrors, e.emitStreamingAssistantTerminalRaw(stepID, metadata, *streamID, abortReason, sourceState))
 	}
 	return errors.Join(emissionErrors...)
 }
 
 func (e *Engine) emitCommittedAssistantMessageRaw(stepID string, committed steeringCommittedAssistantMessage) error {
-	return e.emitCommittedAssistantMessageEventRaw(stepID, committed, nil, nil)
+	return e.emitCommittedAssistantMessageEventRaw(stepID, committed, nil)
 }
 
-func (e *Engine) emitCommittedAssistantMessageEventRaw(stepID string, committed steeringCommittedAssistantMessage, streamMetadata *AssistantStreamMetadata, streamID *uuid.UUID) error {
+func (e *Engine) emitCommittedAssistantMessageEventRaw(stepID string, committed steeringCommittedAssistantMessage, correlations []AssistantStreamCorrelation) error {
 	event := Event{
 		Kind:                        EventAssistantMessage,
 		StepID:                      exactStepIDPointer(stepID),
 		Message:                     committed.message,
 		CommittedProvenance:         cloneTranscriptCommittedRowProvenance(committed.provenance),
-		AssistantStreamMetadata:     cloneAssistantStreamMetadata(streamMetadata),
-		AssistantTranscriptStreamID: cloneTranscriptStreamID(streamID),
+		AssistantStreamCorrelations: correlations,
 		CommittedTranscriptChanged:  true,
 	}
 	if committed.coordinate != nil {
@@ -884,38 +887,48 @@ func (e *Engine) resolveCompletedResponseStreamRaw(stepID string, instruction co
 		return completedResponseResolutionOutcome{}, errors.New("completed response stream resolution instruction is invalid")
 	}
 
-	clearedMetadata, clearedStreamID := e.clearStreamingAssistantStateRaw()
+	cleared := e.clearStreamingAssistantStateRaw()
 	if instruction.kind == completedResponseResolutionInstructionFinalize {
 		committed := instruction.committedAssistant
+		var correlations []AssistantStreamCorrelation
+		for _, stream := range cleared {
+			correlations = append(correlations, AssistantStreamCorrelation{OutputIndex: textutil.Pointer(stream.Metadata.OutputIndex), StreamID: stream.StreamID, SourceState: stream.SourceState})
+		}
 		if err := e.emitCommittedAssistantMessageEventRaw(stepID, steeringCommittedAssistantMessage{
 			message:    committed.message,
 			coordinate: cloneCommittedAssistantCoordinate(committed.coordinate),
 			provenance: cloneTranscriptCommittedRowProvenance(committed.provenance),
-		}, clearedMetadata, clearedStreamID); err != nil {
+		}, correlations); err != nil {
 			return completedResponseResolutionOutcome{}, err
 		}
-		if clearedStreamID == nil {
+		if len(cleared) == 0 {
 			return completedResponseResolutionOutcome{
 				kind:                             completedResponseResolutionAbsent,
 				committedAssistantEventPublished: true,
 			}, nil
 		}
-		if err := e.emitStreamingAssistantCleanupEventsRaw(stepID, clearedMetadata, clearedStreamID, nil); err != nil {
+		var errs []error
+		for _, stream := range cleared {
+			errs = append(errs, e.emitStreamingAssistantCleanupEventsRaw(stepID, &stream.Metadata, &stream.StreamID, nil, stream.SourceState))
+		}
+		if err := errors.Join(errs...); err != nil {
 			return completedResponseResolutionOutcome{}, err
 		}
 		return completedResponseResolutionOutcome{
 			kind:                             completedResponseResolutionFinalized,
-			streamID:                         cloneTranscriptStreamID(clearedStreamID),
 			committedAssistantEventPublished: true,
 		}, nil
 	}
 
-	if err := e.emitStreamingAssistantCleanupEventsRaw(stepID, clearedMetadata, clearedStreamID, instruction.abortReason); err != nil {
+	var errs []error
+	for _, stream := range cleared {
+		errs = append(errs, e.emitStreamingAssistantCleanupEventsRaw(stepID, &stream.Metadata, &stream.StreamID, instruction.abortReason, stream.SourceState))
+	}
+	if err := errors.Join(errs...); err != nil {
 		return completedResponseResolutionOutcome{}, err
 	}
 	return completedResponseResolutionOutcome{
-		kind:     completedResponseResolutionDiscarded,
-		streamID: cloneTranscriptStreamID(clearedStreamID),
+		kind: completedResponseResolutionDiscarded,
 	}, nil
 }
 

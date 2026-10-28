@@ -15,8 +15,6 @@ import (
 	"core/shared/runtimeids"
 	"core/shared/textutil"
 	"core/shared/transcriptmodel"
-
-	"github.com/google/uuid"
 )
 
 type steeringPriority int
@@ -133,7 +131,6 @@ const (
 
 type completedResponseResolutionOutcome struct {
 	kind                             completedResponseResolutionKind
-	streamID                         *uuid.UUID
 	committedAssistantEventPublished bool
 }
 
@@ -165,13 +162,14 @@ type steeringResultGroupClose struct {
 }
 
 type steeringStreamingOutput struct {
-	assistantDelta *llm.AssistantDelta
-	reasoningDelta *llm.ReasoningSummaryDelta
-	clearState     bool
-	clearReasoning bool
-	reasoningReset *steeringReasoningReset
-	resetEvents    bool
-	abortReason    *AssistantStreamAbortReason
+	assistantSource *llm.AssistantSource
+	assistantDelta  *llm.AssistantDelta
+	reasoningDelta  *llm.ReasoningSummaryDelta
+	clearState      bool
+	clearReasoning  bool
+	reasoningReset  *steeringReasoningReset
+	resetEvents     bool
+	abortReason     *AssistantStreamAbortReason
 }
 
 type steeringReasoningReset struct{}
@@ -463,6 +461,13 @@ func steerAssistantDeltaIntent(delta llm.AssistantDelta) steeringIntent {
 	return steeringIntent{
 		priority: steeringPriorityRuntimeEvent,
 		items:    []steeringItem{{streaming: &steeringStreamingOutput{assistantDelta: &copyDelta}}},
+	}
+}
+
+func steerAssistantSourceCompleteIntent(source llm.AssistantSource) steeringIntent {
+	return steeringIntent{
+		priority: steeringPriorityRuntimeEvent,
+		items:    []steeringItem{{streaming: &steeringStreamingOutput{assistantSource: &source}}},
 	}
 }
 
@@ -839,12 +844,12 @@ func (e *Engine) applySteeringItem(provenance steeringProvenance, item steeringI
 			return errors.New("assistant commit steering item requires a result destination")
 		}
 		if committedAssistantMessageFinalizesStreaming(commit.message) {
-			streamed, _, _, _, _ := e.transcriptRuntimeState().StreamingSnapshot()
+			streams, _ := e.transcriptRuntimeState().StreamingSnapshot()
 			finalText := ""
 			if commit.message.Content != nil {
 				finalText = *commit.message.Content
 			}
-			if streamed != "" && !llm.AssistantResponseTextExtendsStream(streamed, finalText) {
+			if commit.message.NativeResponse == nil && len(streams) > 0 && !llm.AssistantResponseTextExtendsStream(streams[0].Text, finalText) {
 				outcome, resolveErr := e.resolveCompletedResponseStreamRaw(stepID, completedResponseAbortInstruction())
 				commit.result.resolution = outcome
 				if resolveErr != nil {
@@ -881,7 +886,7 @@ func (e *Engine) applySteeringItem(provenance steeringProvenance, item steeringI
 			message:    commit.message,
 			coordinate: cloneCommittedAssistantCoordinate(coordinate),
 			provenance: cloneTranscriptCommittedRowProvenance(commit.result.provenance),
-		}, nil, nil); err != nil {
+		}, nil); err != nil {
 			return err
 		}
 		outcome, resolveErr := e.resolveCompletedResponseStreamRaw(stepID, completedResponseAbortInstruction())
@@ -1053,8 +1058,12 @@ func (e *Engine) applySteeringItem(provenance steeringProvenance, item steeringI
 			if err != nil {
 				return err
 			}
-			if err := e.transcriptRuntimeState().RecordLiveToolStart(eventStepID, *evt.ToolCall); err != nil {
+			created, err := e.transcriptRuntimeState().RecordLiveToolStart(eventStepID, *evt.ToolCall)
+			if err != nil {
 				return err
+			}
+			if !created {
+				return nil
 			}
 		}
 		return e.emitRaw(evt)
@@ -1143,14 +1152,15 @@ func (e *Engine) applySteeringItem(provenance steeringProvenance, item steeringI
 			if err != nil {
 				return err
 			}
-			appended := e.transcriptRuntimeState().AppendStreamingDelta(stepID, revision, e.CommittedTranscriptEntryCount(), delta.Text, delta.Phase)
-			if appended.supersededStreamID != nil {
+			appended := e.transcriptRuntimeState().AppendStreamingDelta(stepID, revision, e.CommittedTranscriptEntryCount(), delta)
+			for _, superseded := range appended.superseded {
 				reason := AssistantStreamAbortSuperseded
 				if err := e.emitStreamingAssistantCleanupEventsRaw(
 					stepID,
-					appended.supersededMetadata,
-					appended.supersededStreamID,
+					&superseded.Metadata,
+					&superseded.StreamID,
 					&reason,
+					superseded.SourceState,
 				); err != nil {
 					return err
 				}
@@ -1160,9 +1170,21 @@ func (e *Engine) applySteeringItem(provenance steeringProvenance, item steeringI
 				StepID:                      exactStepIDPointer(stepID),
 				AssistantDelta:              delta.Text,
 				AssistantDeltaPhase:         delta.Phase,
-				AssistantStreamMetadata:     appended.metadata,
-				AssistantTranscriptStreamID: appended.transcriptStreamID,
+				AssistantStreamMetadata:     &appended.stream.Metadata,
+				AssistantTranscriptStreamID: &appended.stream.StreamID,
 			})
+		}
+		if item.streaming.assistantSource != nil {
+			revision, err := e.TranscriptRevision()
+			if err != nil {
+				return err
+			}
+			source, err := e.transcriptRuntimeState().chatProjection().completeStreamingSource(
+				stepID, revision, e.CommittedTranscriptEntryCount(), *item.streaming.assistantSource)
+			if err != nil {
+				return err
+			}
+			return e.emitRaw(Event{Kind: EventAssistantSourceComplete, StepID: exactStepIDPointer(stepID), AssistantSource: source})
 		}
 		if item.streaming.reasoningDelta != nil {
 			delta := *item.streaming.reasoningDelta
@@ -1194,13 +1216,16 @@ func (e *Engine) applySteeringItem(provenance steeringProvenance, item steeringI
 				ReasoningTraceIdentity: cloneTranscriptReasoningTraceIdentity(identity),
 			})
 		}
-		var clearedMetadata *AssistantStreamMetadata
-		var clearedStreamID *uuid.UUID
+		var cleared []AssistantStreamSnapshot
 		if item.streaming.clearState {
-			clearedMetadata, clearedStreamID = e.clearStreamingAssistantStateRaw()
+			cleared = e.clearStreamingAssistantStateRaw()
 		}
 		if item.streaming.resetEvents {
-			return e.emitStreamingAssistantCleanupEventsRaw(stepID, clearedMetadata, clearedStreamID, item.streaming.abortReason)
+			var errs []error
+			for _, stream := range cleared {
+				errs = append(errs, e.emitStreamingAssistantCleanupEventsRaw(stepID, &stream.Metadata, &stream.StreamID, item.streaming.abortReason, stream.SourceState))
+			}
+			return errors.Join(errs...)
 		}
 		return nil
 	}

@@ -8,6 +8,7 @@ import (
 
 	"core/server/llm"
 	"core/server/tools"
+	"core/shared/textutil"
 	"core/shared/toolspec"
 )
 
@@ -49,7 +50,7 @@ func TestShellRepairOutputsArePlaintext(t *testing.T) {
 					mustAppendTestEvent(t, store, "step", llm.Message{Role: llm.RoleAssistant, ToolCalls: []llm.ToolCall{call}})
 					store = mustOpenTestSession(t, store.Dir())
 				} else {
-					client.errors = []error{&llm.ProviderAPIError{ProviderID: "openai", StatusCode: 400, Code: llm.UnifiedErrorCodeUnknown}}
+					client.errors = []error{&llm.ProviderAPIError{ProviderID: "openai", StatusCode: textutil.Value(400), Code: llm.UnifiedErrorCodeUnknown}}
 				}
 				engine := mustNewTestEngine(t, store, client, tools.NewRegistry(), Config{Model: "gpt-6-sol"})
 				if !fresh {

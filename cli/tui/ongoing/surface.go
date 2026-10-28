@@ -36,15 +36,24 @@ type CursorTarget struct {
 }
 
 type FrameSection struct {
-	Kind        FrameSectionKind
-	Lines       []string
-	StyledLines []transcriptrender.Line
+	Kind          FrameSectionKind
+	Lines         []string
+	StyledLines   []transcriptrender.Line
+	OutputIndexes []*int64
+}
+
+func (s FrameSection) outputIndex(row int) *int64 {
+	if s.OutputIndexes == nil {
+		return nil
+	}
+	return s.OutputIndexes[row]
 }
 
 type liveBandLine struct {
 	text        string
 	sectionKind FrameSectionKind
 	sectionRow  int
+	outputIndex *int64
 }
 
 type FrameSectionKind string
@@ -124,12 +133,16 @@ type Surface struct {
 	retainedBandHeight int
 	groupRegister      *transcriptrender.Group
 	activeAssistant    activeAssistantState
+	pendingAssistants  []activeAssistantState
+	pendingTools       []*transcriptpb.CommittedRow
 	terminalResize     TerminalResizePolicy
 	markdownLinks      transcriptrender.MarkdownLinkPresentation
 	lastPaintedSize    *Size
 }
 
 type activeAssistantState struct {
+	sourceState            transcriptpb.AssistantSourceState
+	outputIndex            *int64
 	streamID               *string
 	source                 string
 	phase                  transcriptpb.AssistantPhase
@@ -199,11 +212,29 @@ func (s *Surface) prepareTerminalMessage(message *transcriptpb.Message, frame Fr
 		return s.prepareHydration(payload.Hydration, frame)
 	case *transcriptpb.Event_AssistantDelta:
 		delta := payload.AssistantDelta
-		return s.prepareAssistantDelta(delta.StreamId, delta.Delta, delta.Phase, frame)
+		return s.prepareAssistantDelta(delta.StreamId, delta.Delta, delta.Phase, delta.OutputIndex, frame)
 	case *transcriptpb.Event_AssistantStreamAbort:
+		if payload.AssistantStreamAbort.SourceState == transcriptpb.AssistantSourceState_ASSISTANT_SOURCE_STATE_COMPLETE {
+			return &preparedSurfaceContent{}
+		}
 		return s.prepareAssistantAbort(payload.AssistantStreamAbort.StreamId, frame)
+	case *transcriptpb.Event_AssistantSourceComplete:
+		source := payload.AssistantSourceComplete
+		return s.prepareAssistantSourceComplete(source, frame)
+	case *transcriptpb.Event_StepState:
+		return &preparedSurfaceContent{}
 	case *transcriptpb.Event_CommittedRow:
+		if call := payload.CommittedRow.GetToolCall(); call != nil {
+			return nil
+		}
+		if payload.CommittedRow.GetTool() != nil && s.activeAssistant.streamID != nil {
+			s.pendingTools = append(s.pendingTools, payload.CommittedRow)
+			return &preparedSurfaceContent{}
+		}
 		if assistant := payload.CommittedRow.GetAssistant(); assistant != nil && assistant.StreamId != nil {
+			if assistant.GetSourceState() == transcriptpb.AssistantSourceState_ASSISTANT_SOURCE_STATE_COMPLETE {
+				return nil
+			}
 			return s.prepareAssistantFinal(*assistant.StreamId, assistant.Text, frame)
 		}
 	}
@@ -216,8 +247,21 @@ func (s *Surface) prepareTerminalMessage(message *transcriptpb.Message, frame Fr
 
 func (s *Surface) prepareHydration(hydration *transcriptpb.Hydration, frame FrameInput) *preparedSurfaceContent {
 	lines := s.hydrationImmutableLines(hydration, frame.Size.Width, frame.Theme)
-	activeStreamHydrated := s.hydrateActiveAssistantStream(hydration.ActiveAssistant)
-	if activeStreamHydrated && !s.activeAssistantPromotionDeferred() {
+	s.pendingTools = nil
+	s.pendingAssistants = nil
+	var first *transcriptpb.AssistantStream
+	if len(hydration.ActiveAssistants) > 0 {
+		first = hydration.ActiveAssistants[0]
+		for _, stream := range hydration.ActiveAssistants[1:] {
+			id := stream.StreamId
+			s.pendingAssistants = append(s.pendingAssistants, activeAssistantState{
+				streamID: &id, source: stream.Text, phase: stream.Phase, outputIndex: stream.OutputIndex,
+				sourceState: stream.SourceState,
+			})
+		}
+	}
+	activeStreamHydrated := s.hydrateActiveAssistantStream(first)
+	if activeStreamHydrated && s.activeAssistant.sourceState != transcriptpb.AssistantSourceState_ASSISTANT_SOURCE_STATE_COMPLETE && !s.activeAssistantPromotionDeferred() {
 		projection := newMarkdownProjector(nil, frame.Theme, s.markdownLinks).Project(markdownProjectionInput{
 			Source:           s.activeAssistant.source,
 			Width:            frameWidthOrDefault(frame),
@@ -235,8 +279,11 @@ func (s *Surface) prepareHydration(hydration *transcriptpb.Hydration, frame Fram
 		s.activeAssistant.promotedSourceBoundary = projection.PromotedBoundary
 		lines = append(lines, promotedRows...)
 	}
-	if len(lines) == 0 && !activeStreamHydrated {
+	if len(lines) == 0 && !activeStreamHydrated && len(s.pendingAssistants) == 0 {
 		return nil
+	}
+	if s.activeAssistant.sourceState == transcriptpb.AssistantSourceState_ASSISTANT_SOURCE_STATE_COMPLETE {
+		lines = append(lines, s.prepareNextAssistant(frame).immutableRows...)
 	}
 	return &preparedSurfaceContent{immutableRows: lines}
 }
@@ -248,6 +295,8 @@ func (s *Surface) hydrateActiveAssistantStream(stream *transcriptpb.AssistantStr
 	}
 	streamIDCopy := stream.StreamId
 	s.activeAssistant = activeAssistantState{
+		sourceState:      stream.SourceState,
+		outputIndex:      stream.OutputIndex,
 		streamID:         &streamIDCopy,
 		source:           stream.Text,
 		phase:            stream.Phase,
@@ -256,17 +305,54 @@ func (s *Surface) hydrateActiveAssistantStream(stream *transcriptpb.AssistantStr
 	return stream.Text != ""
 }
 
-func (s *Surface) prepareAssistantDelta(streamID string, delta string, phase transcriptpb.AssistantPhase, frame FrameInput) *preparedSurfaceContent {
+func (s *Surface) prepareAssistantSourceComplete(source *transcriptpb.AssistantStream, frame FrameInput) *preparedSurfaceContent {
+	for index := range s.pendingAssistants {
+		pending := &s.pendingAssistants[index]
+		if *pending.streamID != source.StreamId {
+			continue
+		}
+		if !strings.HasPrefix(source.Text, pending.source) {
+			panicOngoingDeveloperError("assistant_source_complete", "complete source does not extend pending source", nil)
+		}
+		pending.source = source.Text
+		pending.sourceState = transcriptpb.AssistantSourceState_ASSISTANT_SOURCE_STATE_COMPLETE
+		return &preparedSurfaceContent{}
+	}
+	return s.prepareAssistantFinal(source.StreamId, source.Text, frame)
+}
+
+func (s *Surface) prepareNextAssistant(frame FrameInput) *preparedSurfaceContent {
+	if s.activeAssistant.streamID == nil {
+		return &preparedSurfaceContent{}
+	}
+	if s.activeAssistant.sourceState == transcriptpb.AssistantSourceState_ASSISTANT_SOURCE_STATE_COMPLETE {
+		return s.prepareAssistantFinal(*s.activeAssistant.streamID, s.activeAssistant.source, frame)
+	}
+	return s.prepareAssistantDelta(*s.activeAssistant.streamID, "", s.activeAssistant.phase, s.activeAssistant.outputIndex, frame)
+}
+
+func (s *Surface) prepareAssistantDelta(streamID string, delta string, phase transcriptpb.AssistantPhase, outputIndex *int64, frame FrameInput) *preparedSurfaceContent {
 	if s.activeAssistant.streamID == nil {
 		streamIDCopy := streamID
 		s.activeAssistant.streamID = &streamIDCopy
+		s.activeAssistant.outputIndex = outputIndex
 	} else if *s.activeAssistant.streamID != streamID {
-		panicOngoingDeveloperError("assistant_delta", "stream id does not match active stream", map[string]any{
-			"active_stream_id":  *s.activeAssistant.streamID,
-			"message_stream_id": streamID,
-			"width":             frame.Size.Width,
-			"height":            frame.Size.Height,
+		for index := range s.pendingAssistants {
+			stream := &s.pendingAssistants[index]
+			if *stream.streamID == streamID {
+				if stream.phase != phase {
+					stream.phase = phase
+					stream.phaseSourceStart = len(stream.source)
+				}
+				stream.source += delta
+				return &preparedSurfaceContent{}
+			}
+		}
+		id := streamID
+		s.pendingAssistants = append(s.pendingAssistants, activeAssistantState{
+			streamID: &id, source: delta, phase: phase, outputIndex: outputIndex,
 		})
+		return &preparedSurfaceContent{}
 	}
 	if s.activeAssistant.phase != phase {
 		s.activeAssistant.phase = phase
@@ -310,16 +396,34 @@ func (s *Surface) activeAssistantPromotionDeferred() bool {
 }
 
 func (s *Surface) prepareAssistantAbort(streamID string, frame FrameInput) *preparedSurfaceContent {
+	if s.activeAssistant.streamID == nil {
+		panicOngoingDeveloperError("assistant_abort", "stream id has no unfinished source", nil)
+	}
 	if s.activeAssistant.streamID != nil && *s.activeAssistant.streamID != streamID {
-		panicOngoingDeveloperError("assistant_abort", "stream id does not match active stream", map[string]any{
+		for index, stream := range s.pendingAssistants {
+			if *stream.streamID == streamID {
+				s.pendingAssistants = append(s.pendingAssistants[:index], s.pendingAssistants[index+1:]...)
+				return &preparedSurfaceContent{}
+			}
+		}
+		panicOngoingDeveloperError("assistant_abort", "stream id does not match active streams", map[string]any{
 			"active_stream_id":  *s.activeAssistant.streamID,
 			"message_stream_id": streamID,
 			"width":             frame.Size.Width,
 			"height":            frame.Size.Height,
 		})
 	}
+	rows := s.drainFinishedTools(frame)
+	s.advanceAssistantStream()
+	return &preparedSurfaceContent{immutableRows: append(rows, s.prepareNextAssistant(frame).immutableRows...)}
+}
+
+func (s *Surface) advanceAssistantStream() {
 	s.activeAssistant = activeAssistantState{}
-	return &preparedSurfaceContent{}
+	if len(s.pendingAssistants) > 0 {
+		s.activeAssistant = s.pendingAssistants[0]
+		s.pendingAssistants = s.pendingAssistants[1:]
+	}
 }
 
 func (s *Surface) prepareAssistantFinal(streamID string, text string, frame FrameInput) *preparedSurfaceContent {
@@ -354,8 +458,18 @@ func (s *Surface) prepareAssistantFinal(streamID string, text string, frame Fram
 		rows = newMarkdownProjector(nil, frame.Theme, s.markdownLinks).renderer.RenderStable(unpromoted, frameWidthOrDefault(frame))
 	}
 	promotedRows := s.renderAssistantPromotedRows(rows, frame.Theme)
-	s.activeAssistant = activeAssistantState{}
-	return &preparedSurfaceContent{immutableRows: promotedRows}
+	promotedRows = append(promotedRows, s.drainFinishedTools(frame)...)
+	s.advanceAssistantStream()
+	return &preparedSurfaceContent{immutableRows: append(promotedRows, s.prepareNextAssistant(frame).immutableRows...)}
+}
+
+func (s *Surface) drainFinishedTools(frame FrameInput) []string {
+	var rows []string
+	for _, row := range s.pendingTools {
+		rows = append(rows, s.renderCommittedRow(row, frame.Size.Width, frame.Theme)...)
+	}
+	s.pendingTools = nil
+	return rows
 }
 
 func (s *Surface) prepareAssistantFinalWithoutActiveStream(text string, frame FrameInput) *preparedSurfaceContent {
@@ -430,6 +544,8 @@ func (s *Surface) ResetForScratchHydration(reason RehydrateReason, frame FrameIn
 	}
 	s.retainedBandHeight = 0
 	s.activeAssistant = activeAssistantState{}
+	s.pendingAssistants = nil
+	s.pendingTools = nil
 	s.groupRegister = nil
 	paintedSize := frame.Size
 	s.lastPaintedSize = &paintedSize
@@ -590,6 +706,8 @@ func committedRowLines(
 			linkPresentation,
 		)
 		return rendered.Group, encodeTranscriptLines(rendered.Lines, themeName)
+	case *transcriptpb.CommittedRow_ToolCall:
+		return transcriptrender.GroupTool, nil
 	default:
 		panic(fmt.Sprintf("ongoing render unknown committed row payload %T", row.GetRow()))
 	}

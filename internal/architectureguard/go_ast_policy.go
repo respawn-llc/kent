@@ -42,7 +42,6 @@ func checkProductionGo(root string, policy goASTPolicy) error {
 		case ".git", "node_modules", "vendor":
 			return filepath.SkipDir
 		}
-
 		buildPackage, importErr := buildContext.ImportDir(path, 0)
 		var noGoError *build.NoGoError
 		if errors.As(importErr, &noGoError) {

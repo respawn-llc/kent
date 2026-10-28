@@ -17,6 +17,19 @@ import (
 
 type EventKind string
 
+type AssistantStreamCorrelation struct {
+	OutputIndex *int64
+	StreamID    uuid.UUID
+	SourceState AssistantSourceState
+}
+
+type AssistantSourceState uint8
+
+const (
+	AssistantSourceStreaming AssistantSourceState = iota
+	AssistantSourceComplete
+)
+
 type AssistantStreamAbortReason string
 
 type BackgroundShellEventType string
@@ -24,6 +37,7 @@ type BackgroundShellEventType string
 const (
 	EventConversationUpdated        EventKind = "conversation_updated"
 	EventAssistantDelta             EventKind = "assistant_delta"
+	EventAssistantSourceComplete    EventKind = "assistant_source_complete"
 	EventAssistantDeltaReset        EventKind = "assistant_delta_reset"
 	EventStreamingErrorUpdated      EventKind = "streaming_error_updated"
 	EventReasoningDelta             EventKind = "reasoning_delta"
@@ -124,10 +138,14 @@ type Event struct {
 	CommittedProvenance          *TranscriptCommittedRowProvenance
 	Error                        string
 	AssistantDelta               string
+	AssistantSource              *AssistantStreamSnapshot
+	AssistantSourceState         AssistantSourceState
 	AssistantDeltaPhase          llm.MessagePhase
 	AssistantStreamMetadata      *AssistantStreamMetadata
 	AssistantTranscriptStreamID  *uuid.UUID
+	AssistantStreamCorrelations  []AssistantStreamCorrelation
 	AssistantStreamAbortReason   string
+	NativeToolCallLocator        *transcript.CommittedRowLocator
 	ReasoningDelta               *llm.ReasoningSummaryDelta
 	ReasoningTraceIdentity       *TranscriptReasoningTraceIdentity
 	UserMessage                  string

@@ -16,8 +16,6 @@ import (
 	"core/shared/textutil"
 	"core/shared/toolspec"
 	"core/shared/transcriptmodel"
-
-	"github.com/google/uuid"
 )
 
 type transcriptRuntimeState struct {
@@ -28,7 +26,32 @@ type transcriptRuntimeState struct {
 	reasoning               *transcriptReasoningAggregate
 	latestRollbackCandidate *rollbacktarget.CandidateLocator
 	connectionReplacement   *config.ConnectionReplacement
+	nativeCallLocators      map[string]transcript.CommittedRowLocator
 	now                     func() time.Time
+}
+
+func (s *transcriptRuntimeState) correlateNativeToolEvent(evt *Event) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if evt.Kind == EventToolCallCompleted && evt.ToolResult != nil {
+		if locator, ok := s.nativeCallLocators[evt.ToolResult.CallID]; ok {
+			evt.NativeToolCallLocator = &locator
+			delete(s.nativeCallLocators, evt.ToolResult.CallID)
+		}
+		return
+	}
+	if (evt.Kind != EventAssistantMessage && evt.Kind != EventConversationUpdated) || evt.Message.NativeResponse == nil {
+		return
+	}
+	for _, row := range TranscriptCommittedRowFactsFromEvent(*evt) {
+		if row.ToolCall == nil {
+			continue
+		}
+		if s.nativeCallLocators == nil {
+			s.nativeCallLocators = make(map[string]transcript.CommittedRowLocator)
+		}
+		s.nativeCallLocators[row.ToolCall.ToolCallID] = row.Locator
+	}
 }
 
 func newTranscriptRuntimeState(cwd string) *transcriptRuntimeState {
@@ -120,15 +143,15 @@ func (s *transcriptRuntimeState) liveToolLedger() *transcriptLiveToolLedger {
 	return s.liveTools
 }
 
-func (s *transcriptRuntimeState) RecordLiveToolStart(stepID string, call llm.ToolCall) error {
+func (s *transcriptRuntimeState) RecordLiveToolStart(stepID string, call llm.ToolCall) (bool, error) {
 	if ledger := s.liveToolLedger(); ledger != nil {
 		start, err := transcriptLiveToolStartFromCallChecked(stepID, call)
 		if err != nil {
-			return err
+			return false, err
 		}
 		return ledger.RecordStart(start)
 	}
-	return nil
+	return false, nil
 }
 
 func (s *transcriptRuntimeState) CompleteLiveTool(callID string) {
@@ -461,11 +484,11 @@ func (s *transcriptRuntimeState) CommittedEntryCount() int {
 	return 0
 }
 
-func (s *transcriptRuntimeState) StreamingSnapshot() (string, string, *AssistantStreamMetadata, *uuid.UUID, llm.MessagePhase) {
+func (s *transcriptRuntimeState) StreamingSnapshot() ([]AssistantStreamSnapshot, string) {
 	if chat := s.chatProjection(); chat != nil {
 		return chat.streamingSnapshot()
 	}
-	return "", "", nil, nil, ""
+	return nil, ""
 }
 
 func (s *transcriptRuntimeState) LastCommittedAssistantFinalAnswer() *string {
@@ -535,8 +558,8 @@ func (s *transcriptRuntimeState) CountCacheWarning(warning transcript.CacheWarni
 	s.CountLocalEntry(ChatEntry{CacheWarning: &warning})
 }
 
-func (s *transcriptRuntimeState) AppendStreamingDelta(stepID string, baseRevision int64, baseCommittedEntryCount int, delta string, phase llm.MessagePhase) assistantStreamingAppend {
-	return s.chatProjection().appendStreamingDelta(stepID, baseRevision, baseCommittedEntryCount, delta, phase)
+func (s *transcriptRuntimeState) AppendStreamingDelta(stepID string, baseRevision int64, baseCommittedEntryCount int, delta llm.AssistantDelta) assistantStreamingAppend {
+	return s.chatProjection().appendStreamingDelta(stepID, baseRevision, baseCommittedEntryCount, delta)
 }
 
 func (s *transcriptRuntimeState) RecordStoredToolCompletion(completion storedToolCompletion) {
@@ -576,11 +599,11 @@ func (s *transcriptRuntimeState) BeginGeneration(stepID *string, committedEntryS
 	s.chatProjection().beginGeneration(stepID, committedEntryStart, entries)
 }
 
-func (s *transcriptRuntimeState) ClearStreamingAssistantState() (*AssistantStreamMetadata, *uuid.UUID) {
+func (s *transcriptRuntimeState) ClearStreamingAssistantState() []AssistantStreamSnapshot {
 	chat := s.chatProjection()
-	metadata, streamID := chat.discardStreaming()
+	streams := chat.discardStreaming()
 	chat.clearStreamingError()
-	return metadata, streamID
+	return streams
 }
 
 func (s *transcriptRuntimeState) SetStreamingError(text string) {

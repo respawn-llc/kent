@@ -7,23 +7,18 @@ import (
 	"core/server/sessionstore"
 	"core/shared/config"
 	"core/shared/runtimeids"
-
-	"github.com/google/uuid"
 )
 
 type TranscriptHydrationSnapshot struct {
-	ConnectionReplacement   *config.ConnectionReplacement
-	ActiveAssistantText     string
-	ActiveAssistantMetadata *AssistantStreamMetadata
-	ActiveAssistantStreamID *uuid.UUID
-	ActiveAssistantPhase    llm.MessagePhase
-	ActiveThinkingStatus    *TranscriptThinkingStatusState
-	ActiveReasoningTraces   []TranscriptReasoningTraceState
-	InFlightTools           []TranscriptLiveToolStart
-	ActiveCompaction        *TranscriptCompactionState
-	ContextUsage            *ContextUsage
-	Goal                    *session.GoalState
-	GoalSuspended           bool
+	ConnectionReplacement *config.ConnectionReplacement
+	ActiveAssistants      []AssistantStreamSnapshot
+	ActiveThinkingStatus  *TranscriptThinkingStatusState
+	ActiveReasoningTraces []TranscriptReasoningTraceState
+	InFlightTools         []TranscriptLiveToolStart
+	ActiveCompaction      *TranscriptCompactionState
+	ContextUsage          *ContextUsage
+	Goal                  *session.GoalState
+	GoalSuspended         bool
 }
 
 type TranscriptThinkingStatusState struct {
@@ -71,21 +66,18 @@ func (e *Engine) transcriptHydrationSegmentLocked() TranscriptHydrationSnapshot 
 	if e == nil {
 		return TranscriptHydrationSnapshot{}
 	}
-	streaming, _, streamingMetadata, streamingStreamID, streamingPhase := e.transcriptRuntimeState().StreamingSnapshot()
+	streaming, _ := e.transcriptRuntimeState().StreamingSnapshot()
 	thinkingStatus, reasoningTraces := e.transcriptRuntimeState().ReasoningSnapshot()
 	usage := e.ContextUsage()
 	return TranscriptHydrationSnapshot{
-		ConnectionReplacement:   e.transcriptRuntimeState().ConnectionReplacement(),
-		ActiveAssistantText:     streaming,
-		ActiveAssistantMetadata: streamingMetadata,
-		ActiveAssistantStreamID: streamingStreamID,
-		ActiveAssistantPhase:    streamingPhase,
-		ActiveThinkingStatus:    thinkingStatus,
-		ActiveReasoningTraces:   reasoningTraces,
-		InFlightTools:           e.transcriptRuntimeState().LiveToolSnapshot(),
-		ActiveCompaction:        e.compactionRuntimeState().ActiveSnapshot(),
-		ContextUsage:            &usage,
-		Goal:                    e.Goal(),
-		GoalSuspended:           e.GoalLoopSuspended(),
+		ConnectionReplacement: e.transcriptRuntimeState().ConnectionReplacement(),
+		ActiveAssistants:      streaming,
+		ActiveThinkingStatus:  thinkingStatus,
+		ActiveReasoningTraces: reasoningTraces,
+		InFlightTools:         e.transcriptRuntimeState().LiveToolSnapshot(),
+		ActiveCompaction:      e.compactionRuntimeState().ActiveSnapshot(),
+		ContextUsage:          &usage,
+		Goal:                  e.Goal(),
+		GoalSuspended:         e.GoalLoopSuspended(),
 	}
 }

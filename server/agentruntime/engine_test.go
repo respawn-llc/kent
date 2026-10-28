@@ -507,7 +507,7 @@ func (c *authFailClient) Generate(_ context.Context, _ llm.Request, _ llm.Stream
 	c.mu.Lock()
 	c.calls++
 	c.mu.Unlock()
-	return llm.Response{}, &llm.ProviderAPIError{ProviderID: "openai", StatusCode: 401, Code: llm.UnifiedErrorCodeAuthentication, ProviderCode: "invalid_api_key"}
+	return llm.Response{}, &llm.ProviderAPIError{ProviderID: "openai", StatusCode: textutil.Value(401), Code: llm.UnifiedErrorCodeAuthentication, ProviderCode: "invalid_api_key"}
 }
 
 func (c *authFailClient) Calls() int {
@@ -569,7 +569,7 @@ func (c *statusFailClient) Generate(_ context.Context, _ llm.Request, _ llm.Stre
 	c.calls++
 	status := c.status
 	c.mu.Unlock()
-	return llm.Response{}, &llm.ProviderAPIError{ProviderID: "openai", StatusCode: status, Code: llm.UnifiedErrorCodeUnknown, ProviderCode: "request_failed"}
+	return llm.Response{}, &llm.ProviderAPIError{ProviderID: "openai", StatusCode: textutil.Value(status), Code: llm.UnifiedErrorCodeUnknown, ProviderCode: "request_failed"}
 }
 
 func (c *statusFailClient) Calls() int {

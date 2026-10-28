@@ -7,6 +7,7 @@ import (
 
 	"core/shared/authmodel"
 	"core/shared/config"
+	"core/shared/textutil"
 )
 
 func TestConnectionDiagnosticsPreserveNonRefreshFailures(t *testing.T) {
@@ -34,10 +35,10 @@ func TestHasHTTPStatus(t *testing.T) {
 		want   bool
 	}{
 		{name: "nil", err: nil, status: 400, want: false},
-		{name: "provider match", err: &ProviderAPIError{StatusCode: 400}, status: 400, want: true},
-		{name: "provider mismatch", err: &ProviderAPIError{StatusCode: 429}, status: 400, want: false},
-		{name: "wrapped provider", err: fmt.Errorf("send: %w", &ProviderAPIError{StatusCode: 400}), status: 400, want: true},
-		{name: "joined provider", err: errors.Join(errors.New("x"), &ProviderAPIError{StatusCode: 400}), status: 400, want: true},
+		{name: "provider match", err: &ProviderAPIError{StatusCode: textutil.Value(400)}, status: 400, want: true},
+		{name: "provider mismatch", err: &ProviderAPIError{StatusCode: textutil.Value(429)}, status: 400, want: false},
+		{name: "wrapped provider", err: fmt.Errorf("send: %w", &ProviderAPIError{StatusCode: textutil.Value(400)}), status: 400, want: true},
+		{name: "joined provider", err: errors.Join(errors.New("x"), &ProviderAPIError{StatusCode: textutil.Value(400)}), status: 400, want: true},
 		{name: "unrelated", err: errors.New("boom"), status: 400, want: false},
 	}
 	for _, tc := range cases {
@@ -65,7 +66,7 @@ func TestUserFacingAuthenticationErrorIncludesProviderDiagnosticsWhenPresent(t *
 		t.Run(test.name, func(t *testing.T) {
 			providerErr := &ProviderAPIError{
 				ProviderID:              "chatgpt-codex",
-				StatusCode:              401,
+				StatusCode:              textutil.Value(401),
 				Code:                    UnifiedErrorCodeAuthentication,
 				ProviderRequestID:       test.requestID,
 				AuthorizationDiagnostic: test.diagnostic,
@@ -74,7 +75,7 @@ func TestUserFacingAuthenticationErrorIncludesProviderDiagnosticsWhenPresent(t *
 				t.Fatal("provider diagnostics changed authentication or retry classification")
 			}
 			got := UserFacingError(providerErr)
-			want := authenticationFailedWarning("chatgpt-codex", 401) + test.suffix
+			want := authenticationFailedWarning("chatgpt-codex", textutil.Value(401)) + test.suffix
 			if got != want {
 				t.Fatalf("user-facing error = %q, want %q", got, want)
 			}

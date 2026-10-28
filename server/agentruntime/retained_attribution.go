@@ -66,6 +66,9 @@ func producedReasoningAttribution(providerID *string, encrypted bool) *modelcont
 }
 
 func stampProducedReasoning(response *llm.Response, providerID *string) error {
+	if response.Assistant.NativeResponse != nil {
+		response.Assistant.NativeResponse = response.Assistant.NativeResponse.WithReasoningType(producedReasoningAttribution(providerID, true).Type)
+	}
 	if err := stampProducedItems(response.OutputItems, providerID); err != nil {
 		return err
 	}

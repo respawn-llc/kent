@@ -22,6 +22,7 @@ import (
 	authpb "core/shared/protoapi/gen/kent/api/auth"
 	"core/shared/textutil"
 	"core/shared/transcriptmodel"
+	"github.com/coder/websocket"
 )
 
 type expiredConnectionRuntime struct {
@@ -204,8 +205,16 @@ func TestRuntimeAcceptsNextTurnAfterConnectionReauthentication(t *testing.T) {
 		if got := r.Header.Get("Authorization"); got != "Bearer renewed-access" {
 			t.Errorf("next request authorization = %q", got)
 		}
-		w.Header().Set("Content-Type", "text/event-stream")
-		_, _ = io.WriteString(w, "data: {\"type\":\"response.completed\",\"response\":{\"id\":\"response-recovered\",\"status\":\"completed\",\"output\":[{\"type\":\"message\",\"id\":\"message-recovered\",\"role\":\"assistant\",\"phase\":\"final_answer\",\"content\":[{\"type\":\"output_text\",\"text\":\""+answer+"\",\"annotations\":[]}]}],\"usage\":{\"input_tokens\":1,\"output_tokens\":1,\"total_tokens\":2}}}\n\ndata: [DONE]\n\n")
+		socket, err := websocket.Accept(w, r, nil)
+		if err != nil {
+			return
+		}
+		defer socket.CloseNow()
+		if _, _, err := socket.Read(t.Context()); err != nil {
+			return
+		}
+		_ = socket.Write(t.Context(), websocket.MessageText, []byte(`{"type":"response.completed","response":{"id":"response-recovered","status":"completed","output":[{"type":"message","id":"message-recovered","role":"assistant","phase":"final_answer","content":[{"type":"output_text","text":"`+answer+`","annotations":[]}]}],"usage":{"input_tokens":1,"output_tokens":1,"total_tokens":2}}}`))
+		_, _, _ = socket.Read(t.Context())
 	}))
 	t.Cleanup(server.Close)
 	target, err := url.Parse(server.URL)
