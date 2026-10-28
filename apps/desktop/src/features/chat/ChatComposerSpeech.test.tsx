@@ -70,10 +70,40 @@ function Composer() {
   );
 }
 
-async function setupSpeech(text: string, prompt?: PendingPrompt) {
+it.each([
+  { platform: "macos", key: "Meta", modifier: "metaKey" },
+  { platform: "windows", key: "Control", modifier: "ctrlKey" },
+  { platform: "linux", key: "Control", modifier: "ctrlKey" },
+] as const)(
+  "queues from Send with the platform modifier and resets on release or blur: %j",
+  async ({ platform, key, modifier }) => {
+    const { queue, steer } = await setupSpeech("queued text", undefined, platform);
+    const sendLabel = appI18n.t("chatComposer.send");
+    const queueLabel = appI18n.t("chatComposer.queue");
+    fireEvent.keyDown(window, { key, [modifier]: true });
+    const button = screen.getByRole("button", { name: queueLabel });
+    fireEvent.keyUp(window, { key });
+    expect(screen.getByRole("button", { name: sendLabel })).toBeEnabled();
+    fireEvent.keyDown(window, { key, [modifier]: true });
+    fireEvent.blur(window);
+    expect(screen.getByRole("button", { name: sendLabel })).toBeEnabled();
+    fireEvent.keyDown(window, { key, [modifier]: true });
+    fireEvent.click(button, { [modifier]: true });
+    await waitFor(() => {
+      expect(queue).toHaveBeenCalledTimes(1);
+    });
+    expect(steer).not.toHaveBeenCalled();
+  },
+);
+
+async function setupSpeech(
+  text: string,
+  prompt?: PendingPrompt,
+  platform: "macos" | "windows" | "linux" = "macos",
+) {
   restoreStorage = installChatStorageFixture();
   microphone = installTestMicrophone();
-  const services = createTestServices([], undefined, { platform: "macos" });
+  const services = createTestServices([], undefined, { platform });
   vi.spyOn(services.api.chat, "getMainView").mockResolvedValue(mainViewRead());
   vi.spyOn(services.api.chat, "getTranscriptPage").mockResolvedValue(transcriptPage(null));
   const handlers: ChatTranscriptHandler[] = [];

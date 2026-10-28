@@ -16,6 +16,8 @@ type SurfaceState = Readonly<{
   activity: ChatRuntimeActivity | null;
   stoppable: boolean;
   onEditorKeyDown: ReturnType<typeof useComposerKeyboard>["onEditorKeyDown"];
+  onSendClick: ReturnType<typeof useComposerKeyboard>["onSendClick"];
+  queueHeld: boolean;
   promptPicker: ReturnType<typeof useChatPromptPicker>;
   speech: ReturnType<typeof useSpeechField>;
   promptEditor: RefObject<HTMLTextAreaElement | null>;
@@ -122,6 +124,8 @@ export function ChatComposerSurface({ composer: original, children, enabled = tr
           speech,
           promptEditor,
           onEditorKeyDown: keyboard.onEditorKeyDown,
+          onSendClick: keyboard.onSendClick,
+          queueHeld: keyboard.queueHeld,
         }}
       >
         <div className="h-full min-h-0 min-w-0 p-[var(--space-2)]" {...keyboard.surface}>

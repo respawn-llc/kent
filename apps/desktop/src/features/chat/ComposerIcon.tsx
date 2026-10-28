@@ -1,5 +1,6 @@
 import {
   Send,
+  ClockArrowRight,
   AlertTriangle,
   Folder,
   GitBranch,
@@ -16,6 +17,7 @@ import "./composerIcon.css";
 
 const icons = {
   send: Send,
+  queue: ClockArrowRight,
   warning: AlertTriangle,
   workspace: Folder,
   worktree: GitBranch,

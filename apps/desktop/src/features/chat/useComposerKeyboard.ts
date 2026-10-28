@@ -1,4 +1,4 @@
-import { useEffect, useLayoutEffect, useRef, useState, type KeyboardEvent } from "react";
+import { useEffect, useLayoutEffect, useRef, useState, type KeyboardEvent, type MouseEvent } from "react";
 import { useTranslation } from "react-i18next";
 
 import { useAppServices, useWindowFocus } from "@/app-facade";
@@ -26,6 +26,23 @@ export function useComposerKeyboard(
     placement.editor.setSelectionRange(offset, offset);
   }, [placement]);
   const platform = nativeBridge.capabilities.platform;
+  const [queueHeld, setQueueHeld] = useState(false);
+  useEffect(() => {
+    const update = (event: globalThis.KeyboardEvent) => {
+      setQueueHeld(submitIntent(platform, event) === "queue");
+    };
+    const reset = () => {
+      setQueueHeld(false);
+    };
+    window.addEventListener("keydown", update);
+    window.addEventListener("keyup", update);
+    window.addEventListener("blur", reset);
+    return () => {
+      window.removeEventListener("keydown", update);
+      window.removeEventListener("keyup", update);
+      window.removeEventListener("blur", reset);
+    };
+  }, [platform]);
   const stopAvailable = stoppable;
   const focused = useWindowFocus();
   const deadline = useRef<number | null>(null);
@@ -50,6 +67,10 @@ export function useComposerKeyboard(
     [],
   );
   return {
+    queueHeld,
+    onSendClick: (event: MouseEvent<HTMLButtonElement>) => {
+      composer.submit(submitIntent(platform, event), "editor", activity);
+    },
     surface: {
       ref: surface,
       onKeyDownCapture: (event: KeyboardEvent) => {
@@ -120,14 +141,18 @@ export function useComposerKeyboard(
       const unsupportedModifier = platform === "macos" ? event.ctrlKey : event.metaKey;
       if (event.key === "Enter" && !event.shiftKey && !event.altKey && !unsupportedModifier) {
         event.preventDefault();
-        composer.submit(
-          (platform === "macos" ? event.metaKey : event.ctrlKey) ? "queue" : "send",
-          "editor",
-          activity,
-        );
+        composer.submit(submitIntent(platform, event), "editor", activity);
       }
     },
   };
+}
+
+function submitIntent(
+  platform: string,
+  keys: Readonly<{ metaKey: boolean; ctrlKey: boolean; altKey: boolean; shiftKey: boolean }>,
+): "send" | "queue" {
+  const queue = platform === "macos" ? keys.metaKey && !keys.ctrlKey : keys.ctrlKey && !keys.metaKey;
+  return queue && !keys.altKey && !keys.shiftKey ? "queue" : "send";
 }
 
 function historyDirection(event: KeyboardEvent<HTMLTextAreaElement>): -1 | 1 | null {

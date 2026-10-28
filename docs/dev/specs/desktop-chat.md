@@ -362,6 +362,7 @@
 - Slash-command suggestions must use the same peeking island as Pending Work, replacing its content while command selection is active. Selecting a command, entering arguments, or pressing Escape must restore the Pending Work presentation when items exist.
 - The peeking island's horizontal inset must match the composer's corner radius so it meets the straight top edge without a gap or stacked translucent backgrounds.
 - Queued message rows in Pending Work must use the clock-arrow-right icon.
+- While the platform Queue modifier is held, the ordinary composer Send control must show an add-to-queue icon and action label, and clicking it must Queue the input. The icon change must use a fast crossfade or shrink-and-expand transition.
 - Steer message rows in Pending Work must use the corner-down-right icon.
 - Pending Work rows must have equal top and bottom padding, without an extra bottom spacer before the composer.
 - The command picker must show command tokens and available descriptions or previews. Up and Down must select a suggestion, and Enter must activate it. Whitespace must hide the picker for argument entry. Escape must dismiss the picker before Stop handling. Tab must use ordinary focus navigation.

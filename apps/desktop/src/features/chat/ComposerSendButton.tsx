@@ -1,4 +1,5 @@
 import { useAtomSet } from "@effect/atom-react";
+import type { MouseEventHandler } from "react";
 import { useTranslation } from "react-i18next";
 import { IconTooltipButton } from "@/ui";
 import { ComposerIcon } from "./ComposerIcon";
@@ -22,7 +23,7 @@ export function ComposerSendButton() {
 
 function OrdinarySendButton() {
   const { t } = useTranslation();
-  const { composer, activity, speech } = useComposerSurface();
+  const { composer, speech, queueHeld, onSendClick } = useComposerSurface();
   const reason = composer.heldReadonly
     ? t("chatComposer.awaitingConfirmation")
     : !composer.canPrepare
@@ -38,16 +39,15 @@ function OrdinarySendButton() {
     <SendButton
       enabled={composer.canSubmit}
       pending={composer.inputPending || composer.interactionRestricted}
+      intent={queueHeld ? "queue" : "send"}
       tooltip={
         speech.busy && speech.phase !== "recording"
           ? speech.busyReason
           : composer.canSubmit
-            ? t("chatComposer.send")
+            ? t(queueHeld ? "chatComposer.queue" : "chatComposer.send")
             : reason
       }
-      onClick={() => {
-        composer.submit("send", "editor", activity ?? undefined);
-      }}
+      onClick={onSendClick}
     />
   );
 }
@@ -82,23 +82,39 @@ function SendButton({
   pending,
   tooltip,
   onClick,
+  intent = "send",
 }: Readonly<{
   enabled: boolean;
   pending: boolean;
   tooltip: string;
-  onClick(): void;
+  onClick: MouseEventHandler<HTMLButtonElement>;
+  intent?: "send" | "queue";
 }>) {
   const { t } = useTranslation();
   return (
     <IconTooltipButton
       size="icon"
-      label={t("chatComposer.send")}
+      label={t(intent === "queue" ? "chatComposer.queue" : "chatComposer.send")}
       tooltip={tooltip}
       disabled={!enabled}
       variant="primary"
       onClick={onClick}
     >
-      <ComposerIcon kind={pending ? "loading" : "send"} className="text-[var(--color-on-primary)]" />
+      {pending ? (
+        <ComposerIcon kind="loading" className="text-[var(--color-on-primary)]" />
+      ) : (
+        <span className="relative grid size-5 place-items-center">
+          {(["send", "queue"] as const).map((kind) => (
+            <span
+              key={kind}
+              className="absolute grid place-items-center transition-opacity duration-[var(--motion-fast)]"
+              style={{ opacity: intent === kind ? 1 : 0 }}
+            >
+              <ComposerIcon kind={kind} className="text-[var(--color-on-primary)]" />
+            </span>
+          ))}
+        </span>
+      )}
     </IconTooltipButton>
   );
 }
