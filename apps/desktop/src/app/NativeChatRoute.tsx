@@ -1,8 +1,6 @@
 import { useMemo, type ReactNode } from "react";
-import { House } from "lucide-react";
-import { useMutation } from "@tanstack/react-query";
 import type { NativeMainNavigation } from "@app/native-bridge";
-import { IconTooltipButton, useStableCallback } from "@/ui";
+import { useStableCallback } from "@/ui";
 import { ChatDestination } from "@/features/chat";
 import { SidebarRootOwner, useAppServices, openNativeChat, useStatusController } from "@/app-facade";
 import { errorMessage } from "@/api";
@@ -73,38 +71,8 @@ export function NativeChatRoute({
 }
 
 function NativeChatFrame({ children, sessionID }: Readonly<{ children: ReactNode; sessionID: string }>) {
-  const { nativeBridge } = useAppServices();
-  const { push } = useStatusController();
-  const { t } = useTranslation();
-  const openHome = useMutation({
-    mutationFn: async () => nativeBridge.window.requestMainNavigation({ kind: "home" }),
-    onError: (error) => {
-      push({
-        id: "native-chat-home-error",
-        tone: "danger",
-        title: t("states.error"),
-        body: errorMessage(error),
-      });
-    },
-  });
   return (
-    <WindowChromeFrame
-      controls={
-        <>
-          <IconTooltipButton
-            label={t("app.home")}
-            loading={openHome.isPending}
-            onClick={() => {
-              openHome.mutate();
-            }}
-          >
-            <House size={16} />
-          </IconTooltipButton>
-          <WindowChromeThemeToggle />
-        </>
-      }
-      defaultTitle={sessionID}
-    >
+    <WindowChromeFrame controls={<WindowChromeThemeToggle />} defaultTitle={sessionID}>
       <div className="min-h-0 min-w-0 flex-1 overflow-visible">{children}</div>
       <SidebarHost />
     </WindowChromeFrame>
