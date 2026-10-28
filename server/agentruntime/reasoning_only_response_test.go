@@ -1,16 +1,61 @@
 package runtime
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"testing"
 
 	"core/server/llm"
+	"core/server/sessionstore"
 	"core/server/tools"
 	"core/shared/config"
 	"core/shared/textutil"
 	"core/shared/toolspec"
 )
+
+func TestWorkflowOpaqueNativeResponseContinuesWithoutFeedback(t *testing.T) {
+	t.Parallel()
+	raw := []byte(`{"type":"future_provider_item","id":"opaque_workflow","data":"opaque"}`)
+	message, err := llm.MessageFromNativeResponse(session.NativeResponseBody{
+		Format: session.NativeResponseOpenAI, Items: [][]byte{raw},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	controller := &fakeWorkflowController{}
+	completionTool := &externalCompletionTool{}
+	client := &fakeClient{responses: []llm.Response{
+		{
+			EndTurn: textutil.Value(true), Assistant: message,
+			OutputItems: message.NativeResponse.PresentationItems(),
+			Usage:       llm.Usage{WindowTokens: 200000},
+		},
+		commentaryResponse("complete the workflow", llm.ToolCall{
+			ID: "call_complete", Name: string(toolspec.ToolExecCommand),
+			Input: json.RawMessage(`{"cmd":"kent task complete"}`),
+		}),
+	}}
+	engine := mustNewTestEngine(t, mustCreateTestSession(t), client, newTestToolRegistry(t, tools.HandlerRegistration{
+		ID: toolspec.ToolExecCommand, Handler: completionTool,
+	}), Config{})
+	workflow := testWorkflowConfig(controller, config.WorkflowCompletionModeShellCommand)
+	publishTestWorkflowExecution(t, engine, workflow)
+	completionTool.complete = bindExternalAgentCompletion(t, engine, controller, workflow.ScopeID)
+	if _, err := engine.SubmitWorkflowTurn(t.Context()); err != nil {
+		t.Fatal(err)
+	}
+	assertModelCallCount(t, client, 2)
+	if requestHasDeveloperErrorFeedback(client.calls[1]) || controller.violations.Load() != 0 {
+		t.Fatal("opaque native output caused Workflow feedback")
+	}
+	for _, item := range client.calls[1].Items {
+		if bytes.Equal(item.Raw, raw) {
+			return
+		}
+	}
+	t.Fatal("Workflow continuation lost native output")
+}
 
 func TestWorkflowReasoningOnlyResponseContinuesWithoutFeedback(t *testing.T) {
 	t.Parallel()
