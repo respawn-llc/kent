@@ -96,17 +96,5 @@ _desktop-native command="check" *args:
     fi
 
 [private]
-_desktop-audio:
-    #!/usr/bin/env bash
-    set -euo pipefail
-    directory="$(mktemp -d)"
-    trap 'trash "$directory"' EXIT
-    xcrun clang -fobjc-arc -fblocks \
-        -framework Foundation -framework AVFoundation -framework CoreMedia \
-        -framework AudioToolbox -framework UniformTypeIdentifiers \
-        apps/desktop/src-tauri/tests/speech_macos.m -o "$directory/speech-test"
-    "$directory/speech-test"
-
-[private]
 _effect-policy *paths:
     bun apps/scripts/check-effect-policy.mjs {{paths}}
