@@ -13,6 +13,7 @@
 .chat-composer-icon--send {
   width: var(--space-5);
   height: var(--space-5);
+  translate: -2.5% 2.5%;
 }
 
 .chat-composer-icon--fast {
