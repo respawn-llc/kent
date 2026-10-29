@@ -43,7 +43,7 @@ async function observe() {
   };
 }
 
-const initial = (sequence = 1): ChatTranscriptMessage => ({
+const initial = (sequence = 1): Extract<ChatTranscriptMessage, { kind: "hydration" }> => ({
   kind: "hydration",
   sequence,
   payload: { ...hydration(), TailSegment: { Entries: [row(10)], OlderCursor: null, HasMoreAbove: false } },
@@ -136,6 +136,67 @@ it.each([
   expect(view.handlers).toHaveLength(1);
   view.close();
 });
+
+it.each([
+  { hydrated: false, nextEvent: 13, accepted: true },
+  { hydrated: false, nextEvent: 12, accepted: false },
+  { hydrated: true, nextEvent: 12, accepted: true },
+])(
+  "keeps the append frontier across native tool completion ($hydrated, $nextEvent)",
+  async ({ hydrated, nextEvent, accepted }) => {
+    const pending = {
+      ...row(11),
+      Kind: "tool_call",
+      User: null,
+      ToolCall: { StepID: "step", ToolCallID: "native-call", ToolName: "exec_command" },
+    } as const;
+    const completed = {
+      ...pending,
+      Kind: "tool",
+      ToolCall: null,
+      Tool: {
+        StepID: "step",
+        ToolCallID: "native-call",
+        ToolName: "exec_command",
+        Text: "result",
+        IsError: false,
+        ViewedImageKind: null,
+        AnsweredBySessionID: null,
+        AnsweredBySessionShortID: null,
+      },
+    } as const;
+    const view = await observe();
+    await act(async () => {
+      let sequence = 1;
+      view.handlers[0]?.onEvent(
+        hydrated
+          ? {
+              ...initial(),
+              payload: {
+                ...hydration(),
+                TailSegment: { Entries: [pending], OlderCursor: null, HasMoreAbove: false },
+              },
+            }
+          : initial(),
+      );
+      if (!hydrated) {
+        view.handlers[0]?.onEvent({ kind: "committed_row", sequence: ++sequence, payload: pending });
+        view.handlers[0]?.onEvent({ kind: "committed_row", sequence: ++sequence, payload: row(12) });
+      }
+      view.handlers[0]?.onEvent({ kind: "committed_row", sequence: ++sequence, payload: completed });
+      view.handlers[0]?.onEvent({ kind: "committed_row", sequence: sequence + 1, payload: row(nextEvent) });
+    });
+    if (accepted) {
+      await waitFor(() => { expect(view.deliveries).toHaveLength(hydrated ? 3 : 5); });
+      expect(view.errors).toEqual([]);
+    } else {
+      await waitFor(() => { expect(view.errors).toHaveLength(1); });
+      expect(view.deliveries).toHaveLength(4);
+      expect(view.errors[0]).toBeInstanceOf(ContractError);
+    }
+    view.close();
+  },
+);
 
 it.each(["gap", "repeated-hydration", "completion", "transport", "malformed"] as const)(
   "stops %s locally and ignores later deliveries",
