@@ -2,10 +2,8 @@ package llm
 
 import (
 	"bytes"
-	"cmp"
 	"encoding/json"
 	"fmt"
-	"slices"
 	"strings"
 
 	"core/shared/textutil"
@@ -42,7 +40,21 @@ func newResponseOutputItemParsers(registrations ...responseOutputItemParserRegis
 	return responseOutputItemParsers{byType: byType}
 }
 
+// OutputIndex identifies a live provider source; slice position is finalization arrival order.
+type indexedResponseOutputItem struct {
+	Item        responses.ResponseOutputItemUnion
+	OutputIndex int64
+}
+
 func parseOutputItems(items []responses.ResponseOutputItemUnion, policy responsesPolicy) ([]ResponseItem, *string, MessagePhase, *ProviderPhase, []ToolCall, []ReasoningEntry, []ReasoningItem, error) {
+	indexed := make([]indexedResponseOutputItem, 0, len(items))
+	for index, item := range items {
+		indexed = append(indexed, indexedResponseOutputItem{Item: item, OutputIndex: int64(index)})
+	}
+	return parseIndexedOutputItems(indexed, policy)
+}
+
+func parseIndexedOutputItems(items []indexedResponseOutputItem, policy responsesPolicy) ([]ResponseItem, *string, MessagePhase, *ProviderPhase, []ToolCall, []ReasoningEntry, []ReasoningItem, error) {
 	parsers := newResponseOutputItemParsers(
 		responseOutputItemParserRegistration{itemType: "message", parser: messageOutputItemParser{}},
 		responseOutputItemParserRegistration{itemType: "function_call", parser: functionCallOutputItemParser{}},
@@ -56,7 +68,8 @@ func parseOutputItems(items []responses.ResponseOutputItemUnion, policy response
 	reasoning := make([]ReasoningEntry, 0, len(items))
 	reasoningItems := make([]ReasoningItem, 0, len(items))
 
-	for outputIndex, item := range items {
+	for _, output := range items {
+		item, outputIndex := output.Item, output.OutputIndex
 		parsed, ok := parsers.byType[item.Type]
 		if !ok || (item.Type == "custom_tool_call" && policy.isHostedCustomToolCall(item.CallID)) {
 			raw := json.RawMessage(item.RawJSON())
@@ -374,18 +387,14 @@ func resolveAssistantOutput(segments []assistantOutputSegment) (*string, Message
 	if len(segments) == 0 {
 		return nil, "", AbsentProviderPhase(), 0, "", false
 	}
-	sorted := append([]assistantOutputSegment(nil), segments...)
-	slices.SortFunc(sorted, func(a, b assistantOutputSegment) int {
-		return cmp.Compare(a.OutputIndex, b.OutputIndex)
-	})
-	last := len(sorted) - 1
-	if sorted[last].Phase == "" {
-		return textutil.Pointer(sorted[last].Content), "", sorted[last].ProviderPhase, sorted[last].OutputIndex, sorted[last].DeltaText, true
+	last := len(segments) - 1
+	if segments[last].Phase == "" {
+		return textutil.Pointer(segments[last].Content), "", segments[last].ProviderPhase, segments[last].OutputIndex, segments[last].DeltaText, true
 	}
-	phase := sorted[last].Phase
+	phase := segments[last].Phase
 	start := last
 	for start > 0 {
-		if sorted[start-1].Phase != phase {
+		if segments[start-1].Phase != phase {
 			break
 		}
 		start--
@@ -394,12 +403,12 @@ func resolveAssistantOutput(segments []assistantOutputSegment) (*string, Message
 	deltaParts := make([]string, 0, last-start+1)
 	contentPresent := false
 	for i := start; i <= last; i++ {
-		textParts = append(textParts, sorted[i].Text)
-		deltaParts = append(deltaParts, sorted[i].DeltaText)
-		contentPresent = contentPresent || sorted[i].Content != nil
+		textParts = append(textParts, segments[i].Text)
+		deltaParts = append(deltaParts, segments[i].DeltaText)
+		contentPresent = contentPresent || segments[i].Content != nil
 	}
 	if !contentPresent {
-		return nil, phase, sorted[last].ProviderPhase, sorted[start].OutputIndex, strings.Join(deltaParts, ""), true
+		return nil, phase, segments[last].ProviderPhase, segments[start].OutputIndex, strings.Join(deltaParts, ""), true
 	}
-	return textutil.Value(strings.Join(textParts, "")), phase, sorted[last].ProviderPhase, sorted[start].OutputIndex, strings.Join(deltaParts, ""), true
+	return textutil.Value(strings.Join(textParts, "")), phase, segments[last].ProviderPhase, segments[start].OutputIndex, strings.Join(deltaParts, ""), true
 }

@@ -4,7 +4,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"slices"
 	"strings"
 	"time"
 	"unicode"
@@ -29,7 +28,7 @@ type responseStreamAccumulator struct {
 	reasoning                *reasoningAccumulator
 	standardServedModel      *string
 	completed                *responses.Response
-	finalizedOutput          map[int64]responses.ResponseOutputItemUnion
+	finalizedOutput          []indexedResponseOutputItem
 	responseError            *responseStreamError
 }
 
@@ -75,10 +74,7 @@ func (a *responseStreamAccumulator) Consume(evt responses.ResponseStreamEventUni
 		a.assistantMessages.SetFinalizedText(evt.OutputIndex, evt.Text)
 	case "response.output_item.added", "response.output_item.done":
 		if evt.Type == "response.output_item.done" {
-			if a.finalizedOutput == nil {
-				a.finalizedOutput = make(map[int64]responses.ResponseOutputItemUnion)
-			}
-			a.finalizedOutput[evt.OutputIndex] = evt.Item
+			a.finalizedOutput = append(a.finalizedOutput, indexedResponseOutputItem{Item: evt.Item, OutputIndex: evt.OutputIndex})
 		}
 		if err := a.assistantMessages.Upsert(evt.Item, evt.OutputIndex); err != nil {
 			a.responseError = &responseStreamError{
@@ -314,6 +310,9 @@ func (a *responseStreamAccumulator) Response() (ResponsesResponse, error) {
 	if a.completed == nil {
 		return ResponsesResponse{}, fmt.Errorf("Responses output requested before completion")
 	}
+	if len(a.assistantMessages.pendingDeltas) > 0 {
+		return ResponsesResponse{}, fmt.Errorf("completed response has assistant deltas without a matching output item")
+	}
 	usage := Usage{WindowTokens: a.windowTokens}
 	streamText, streamPhase, streamProviderPhase, streamOutputIndex, streamDeltaText, hasResolvedStream := a.assistantMessages.Resolve()
 	rawDeltaText := a.assistantText.String()
@@ -337,23 +336,15 @@ func (a *responseStreamAccumulator) Response() (ResponsesResponse, error) {
 	if err != nil {
 		return ResponsesResponse{}, err
 	}
-	indexes := make([]int64, 0, len(a.finalizedOutput))
-	for index := range a.finalizedOutput {
-		indexes = append(indexes, index)
-	}
-	slices.Sort(indexes)
-	output := make([]responses.ResponseOutputItemUnion, 0, len(indexes))
-	for _, index := range indexes {
-		output = append(output, a.finalizedOutput[index])
-	}
-	parsedItems, parsedText, parsedPhase, parsedProviderPhase, parsedCalls, parsedReasoning, parsedReasoningItems, err := parseOutputItems(output, a.policy)
+	output := a.finalizedOutput
+	parsedItems, parsedText, parsedPhase, parsedProviderPhase, parsedCalls, parsedReasoning, parsedReasoningItems, err := parseIndexedOutputItems(output, a.policy)
 	if err != nil {
 		return ResponsesResponse{}, err
 	}
 	var assistantPresentation []session.NativeAssistantPresentation
 	if responseItemsContainAssistantMessage(parsedItems) {
 		var segments []assistantOutputSegment
-		for _, item := range parsedItems {
+		for itemIndex, item := range parsedItems {
 			if item.Type != ResponseItemTypeMessage {
 				continue
 			}
@@ -362,6 +353,7 @@ func (a *responseStreamAccumulator) Response() (ResponsesResponse, error) {
 				return ResponsesResponse{}, err
 			}
 			if presentation != nil {
+				presentation.OutputIndex = int64(itemIndex)
 				assistantPresentation = append(assistantPresentation, *presentation)
 			}
 			phase, _ := textutil.OptionalValue(item.Phase)
@@ -407,7 +399,7 @@ func (a *responseStreamAccumulator) Response() (ResponsesResponse, error) {
 		body.Format = session.NativeResponseGrok
 	}
 	for i, item := range output {
-		body.Items[i] = []byte(item.RawJSON())
+		body.Items[i] = []byte(item.Item.RawJSON())
 	}
 	var native *NativeResponse
 	if len(body.Items) > 0 {

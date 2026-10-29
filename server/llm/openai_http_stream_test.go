@@ -1018,7 +1018,7 @@ func TestGenerate_IgnoresLeadingWhitespaceAssistantShimBeforeContent(t *testing.
 	}
 }
 
-func TestGenerate_PreservesResumedOutputWhitespaceAfterInterleavedOutput(t *testing.T) {
+func TestGenerate_PreservesInterleavedDeltasButRejectsUnmatchedSources(t *testing.T) {
 	transport := newOpenAIStreamTestTransport(t,
 		`{"type":"response.output_text.delta","output_index":0,"delta":"\nfirst"}`,
 		`{"type":"response.output_text.delta","output_index":1,"delta":"\nsecond"}`,
@@ -1028,23 +1028,21 @@ func TestGenerate_PreservesResumedOutputWhitespaceAfterInterleavedOutput(t *test
 	)
 
 	var deltas []AssistantDelta
-	resp, err := transport.Generate(context.Background(), ResponsesRequest{SessionID: textutil.Value("test-session"), ToolChoiceMode: ToolChoiceModeAutomatic, Model: "gpt-6-sol", ReasoningEffort: "high"}, StreamCallbacks{
+	_, err := transport.Generate(context.Background(), ResponsesRequest{SessionID: textutil.Value("test-session"), ToolChoiceMode: ToolChoiceModeAutomatic, Model: "gpt-6-sol", ReasoningEffort: "high"}, StreamCallbacks{
 		OnAssistantDelta: func(delta AssistantDelta) {
 			deltas = append(deltas, delta)
 		},
 	})
-	if err != nil {
-		t.Fatalf("Generate failed: %v", err)
+	var providerErr *ProviderAPIError
+	if !errors.As(err, &providerErr) || providerErr.Code != UnifiedErrorCodeProviderContract {
+		t.Fatalf("unmatched sources were accepted: %v", err)
 	}
 	if got := joinedAssistantDeltas(deltas); got != "firstsecond continuation" {
 		t.Fatalf("assistant deltas = %q, want resumed output whitespace preserved", got)
 	}
-	if optionalStringValue(resp.AssistantText) != "firstsecond continuation" {
-		t.Fatalf("assistant text = %q, want all interleaved unphased output", optionalStringValue(resp.AssistantText))
-	}
 }
 
-func TestGenerate_PreservesPendingOutputIndexAfterFinalizedOutput(t *testing.T) {
+func TestGenerate_RejectsPendingSourceAfterAnotherSourceFinalizes(t *testing.T) {
 	transport := newOpenAIStreamTestTransport(t,
 		`{"type":"response.output_text.delta","output_index":0,"delta":"first"}`,
 		`{"type":"response.output_text.delta","output_index":1,"delta":"second"}`,
@@ -1053,15 +1051,10 @@ func TestGenerate_PreservesPendingOutputIndexAfterFinalizedOutput(t *testing.T) 
 		`[DONE]`,
 	)
 
-	resp, err := transport.Generate(context.Background(), ResponsesRequest{SessionID: textutil.Value("test-session"), ToolChoiceMode: ToolChoiceModeAutomatic, Model: "gpt-6-sol", ReasoningEffort: "high"}, StreamCallbacks{})
-	if err != nil {
-		t.Fatalf("Generate failed: %v", err)
-	}
-	if optionalStringValue(resp.AssistantText) != "firstsecond" {
-		t.Fatalf("assistant text = %q, want finalized and pending output", optionalStringValue(resp.AssistantText))
-	}
-	if !resp.ProviderPhase.IsAbsent() {
-		t.Fatalf("provider phase = %v, want structurally absent for unphased fallback", resp.ProviderPhase.Value())
+	_, err := transport.Generate(context.Background(), ResponsesRequest{SessionID: textutil.Value("test-session"), ToolChoiceMode: ToolChoiceModeAutomatic, Model: "gpt-6-sol", ReasoningEffort: "high"}, StreamCallbacks{})
+	var providerErr *ProviderAPIError
+	if !errors.As(err, &providerErr) || providerErr.Code != UnifiedErrorCodeProviderContract {
+		t.Fatalf("pending source was accepted: %v", err)
 	}
 }
 
