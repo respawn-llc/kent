@@ -73,16 +73,11 @@ export function observeChatTranscript(
                       if (event.kind === "hydration" || event.sequence !== sequence + 1)
                         throw new ContractError("Transcript observation sequence is not continuous.");
                       if (event.kind === "committed_row") {
-                        const next = {
-                          eventSequence: event.payload.Locator.event_sequence,
-                          rowOrdinal: event.payload.Locator.row_ordinal,
-                        };
-                        validateCommittedLocator(
-                          next,
+                        lastLiveCommittedLocator = advanceCommittedLocator(
+                          event.payload,
                           lastLiveCommittedLocator,
                           hydratedCommittedEventSequence,
                         );
-                        lastLiveCommittedLocator = next;
                       }
                       sequence = event.sequence;
                       terminalUnavailable ||=
@@ -108,6 +103,27 @@ export function observeChatTranscript(
       );
     }),
   );
+}
+
+function advanceCommittedLocator(
+  row: ChatTranscriptPayloadByKind["committed_row"],
+  previous: CommittedRowLocator | null,
+  hydratedEventSequence: number | null,
+): CommittedRowLocator | null {
+  const next = {
+    eventSequence: row.Locator.event_sequence,
+    rowOrdinal: row.Locator.row_ordinal,
+  };
+  const atOrBeforeFrontier =
+    previous === null
+      ? hydratedEventSequence !== null && next.eventSequence <= hydratedEventSequence
+      : next.eventSequence < previous.eventSequence ||
+        (next.eventSequence === previous.eventSequence && next.rowOrdinal <= previous.rowOrdinal);
+  // Native tool completion replaces its call row; the window validates that
+  // replacement without moving this observation's append frontier backwards.
+  if (atOrBeforeFrontier && row.Kind === "tool" && row.Tool?.ToolCallID != null) return previous;
+  validateCommittedLocator(next, previous, hydratedEventSequence);
+  return next;
 }
 
 function validateCommittedLocator(
