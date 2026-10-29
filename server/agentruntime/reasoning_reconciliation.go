@@ -156,7 +156,10 @@ func (s *defaultStepExecutor) prepareNativeReasoning(stepID string, native *llm.
 		}
 		presentation = append(presentation, fact)
 	}
-	prepared := native.WithReasoningPresentation(presentation)
+	prepared, err := native.WithReasoningPresentation(presentation)
+	if err != nil {
+		return nil, err
+	}
 	if _, err := llm.MessageFromNativeResponse(*prepared.Record()); err != nil {
 		return nil, err
 	}

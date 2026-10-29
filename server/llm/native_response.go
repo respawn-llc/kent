@@ -26,7 +26,7 @@ func (n *NativeResponse) Record() *session.NativeResponseBody {
 		return nil
 	}
 	body := session.NativeResponseBody{Format: n.body.Format, Items: make([][]byte, len(n.body.Items)), ReasoningType: textutil.Pointer(n.body.ReasoningType)}
-	body.ReasoningPresentation = n.ReasoningPresentation()
+	body.ReasoningPresentation = cloneNativeReasoningPresentation(n.body.ReasoningPresentation)
 	body.AssistantPresentation = append([]session.NativeAssistantPresentation(nil), n.body.AssistantPresentation...)
 	for i := range body.AssistantPresentation {
 		body.AssistantPresentation[i].TrailingWhitespace = append([]byte(nil), body.AssistantPresentation[i].TrailingWhitespace...)
@@ -48,7 +48,7 @@ func newNativeResponse(body session.NativeResponseBody, items []ResponseItem) (*
 	byIndex := make(map[int64]*ResponseItem, len(display))
 	for i := range display {
 		if display[i].Type == ResponseItemTypeMessage {
-			byIndex[display[i].OutputIndex] = &display[i]
+			byIndex[int64(i)] = &display[i]
 		}
 	}
 	seen := make(map[int64]struct{}, len(n.body.AssistantPresentation))
@@ -72,15 +72,38 @@ func newNativeResponse(body session.NativeResponseBody, items []ResponseItem) (*
 	return n, nil
 }
 
-func (n *NativeResponse) WithReasoningPresentation(presentation []session.NativeReasoningPresentation) *NativeResponse {
+// Presentation facts are stored at item positions; callers identify live stream sources.
+func (n *NativeResponse) WithReasoningPresentation(presentation []session.NativeReasoningPresentation) (*NativeResponse, error) {
 	cloned := *n
-	cloned.body.ReasoningPresentation = presentation
-	cloned.body.ReasoningPresentation = cloned.ReasoningPresentation()
-	return &cloned
+	cloned.body.ReasoningPresentation = cloneNativeReasoningPresentation(presentation)
+	if len(presentation) == 0 {
+		return &cloned, nil
+	}
+	positions := make(map[int64]int64, len(n.items))
+	for index, item := range n.items {
+		positions[item.OutputIndex] = int64(index)
+	}
+	for index := range cloned.body.ReasoningPresentation {
+		fact := &cloned.body.ReasoningPresentation[index]
+		position, exists := positions[fact.OutputIndex]
+		if !exists {
+			return nil, fmt.Errorf("native reasoning presentation has no output source %d", fact.OutputIndex)
+		}
+		fact.OutputIndex = position
+	}
+	return &cloned, nil
 }
 
 func (n *NativeResponse) ReasoningPresentation() []session.NativeReasoningPresentation {
-	presentation := append([]session.NativeReasoningPresentation(nil), n.body.ReasoningPresentation...)
+	presentation := cloneNativeReasoningPresentation(n.body.ReasoningPresentation)
+	for index := range presentation {
+		presentation[index].OutputIndex = n.items[presentation[index].OutputIndex].OutputIndex
+	}
+	return presentation
+}
+
+func cloneNativeReasoningPresentation(source []session.NativeReasoningPresentation) []session.NativeReasoningPresentation {
+	presentation := append([]session.NativeReasoningPresentation(nil), source...)
 	for i := range presentation {
 		presentation[i].DurationMs = textutil.Pointer(presentation[i].DurationMs)
 		presentation[i].KentTraceID = textutil.Pointer(presentation[i].KentTraceID)

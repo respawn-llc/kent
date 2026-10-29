@@ -14,6 +14,7 @@ import (
 	"testing"
 	"time"
 
+	session "core/server/sessionstore"
 	"core/shared/config"
 	"core/shared/textutil"
 	"github.com/coder/websocket"
@@ -738,5 +739,80 @@ func TestResponsesSocketContinuesWithCommittedToolOutput(t *testing.T) {
 	restored, err = MessageFromNativeResponse(*final.NativeResponse.Record())
 	if err != nil || restored.Content == nil || restored.Phase == nil || *restored.Phase != MessagePhaseFinal {
 		t.Fatalf("restored answer lost: %+v, %v", restored, err)
+	}
+}
+
+func TestResponsesSocketKeepsFinalizedArrivalOrderAcrossReload(t *testing.T) {
+	reasoning := json.RawMessage(`{"type":"reasoning","id":"reasoning-arrival","summary":[{"type":"summary_text","text":"trace"}],"encrypted_content":"opaque"}`)
+	commentary := json.RawMessage(`{"type":"message","id":"commentary-arrival","role":"assistant","phase":"commentary","content":[{"type":"output_text","text":"\n\ncommentary","annotations":[]}]}`)
+	final := json.RawMessage(`{"type":"message","id":"final-arrival","role":"assistant","phase":"final_answer","content":[{"type":"output_text","text":"answer","annotations":[]}]}`)
+	next := json.RawMessage(`{"type":"message","role":"user","content":[{"type":"input_text","text":"continue"}]}`)
+	var turns int
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		serveResponsesTestWebsocket(t, w, r, func(raw json.RawMessage) []string {
+			turns++
+			if turns == 2 {
+				var create struct {
+					Input    []json.RawMessage `json:"input"`
+					Previous *string           `json:"previous_response_id"`
+				}
+				if err := json.Unmarshal(raw, &create); err != nil {
+					t.Fatal(err)
+				}
+				if create.Previous == nil || *create.Previous != "arrival-response" || len(create.Input) != 1 || !bytes.Equal(create.Input[0], next) {
+					t.Errorf("reloaded arrival-order prefix was retransmitted: %s", raw)
+				}
+				return []string{completedResponseSSEJSON}
+			}
+			return []string{
+				`{"type":"response.output_item.added","output_index":0,"item":{"type":"reasoning","id":"reasoning-arrival","summary":[]}}`,
+				`{"type":"response.reasoning_summary_text.delta","output_index":0,"summary_index":0,"item_id":"reasoning-arrival","delta":"trace"}`,
+				fmt.Sprintf(`{"type":"response.output_item.added","output_index":1,"item":%s}`, commentary),
+				`{"type":"response.output_text.delta","output_index":1,"delta":"commentary"}`,
+				fmt.Sprintf(`{"type":"response.output_item.done","output_index":1,"item":%s}`, commentary),
+				fmt.Sprintf(`{"type":"response.output_item.done","output_index":0,"item":%s}`, reasoning),
+				fmt.Sprintf(`{"type":"response.output_item.done","output_index":2,"item":%s}`, final),
+				`{"type":"response.completed","response":{"id":"arrival-response","output":[]}}`,
+			}
+		})
+	}))
+	defer server.Close()
+	transport := newCanonicalOAuthTestTransport(t, server)
+	request := testCodexResponsesRequest(newTestCodexDispatch(t))
+	response, err := transport.Generate(t.Context(), request, StreamCallbacks{OnAssistantDelta: func(AssistantDelta) {}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(response.OutputItems) != 3 || response.OutputItems[0].OutputIndex != 1 || response.OutputItems[1].OutputIndex != 0 {
+		t.Fatalf("finalized arrival order or stream coordinates changed: %+v", response.OutputItems)
+	}
+	native, err := response.NativeResponse.WithReasoningPresentation([]session.NativeReasoningPresentation{{OutputIndex: 0, PartIndex: 0, DurationMs: textutil.Value(int64(123))}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	record := native.Record()
+	for index, want := range []json.RawMessage{commentary, reasoning, final} {
+		if !bytes.Equal(record.Items[index], want) {
+			t.Fatalf("native item %d was reordered or rewritten", index)
+		}
+	}
+	if len(record.AssistantPresentation) != 1 || record.AssistantPresentation[0].OutputIndex != 0 || len(record.ReasoningPresentation) != 1 || record.ReasoningPresentation[0].OutputIndex != 1 {
+		t.Fatalf("saved presentation does not address arrival positions: %+v", record)
+	}
+	restored, err := MessageFromNativeResponse(*record)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if restored.NativeResponse.PresentationItems()[0].Content == nil || *restored.NativeResponse.PresentationItems()[0].Content != *native.PresentationItems()[0].Content {
+		t.Fatal("assistant presentation changed after reload")
+	}
+	facts := restored.NativeResponse.ReasoningPresentation()
+	if len(facts) != 1 || facts[0].OutputIndex != 1 || facts[0].DurationMs == nil || *facts[0].DurationMs != 123 {
+		t.Fatalf("reasoning presentation moved after reload: %+v", facts)
+	}
+	request.Items = PrepareResponsesInputItems(ItemsFromMessages([]Message{restored}))
+	request.Items = append(request.Items, ResponseItem{Raw: next})
+	if _, err := transport.Generate(t.Context(), request, StreamCallbacks{}); err != nil {
+		t.Fatal(err)
 	}
 }

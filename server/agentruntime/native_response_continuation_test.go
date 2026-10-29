@@ -816,8 +816,25 @@ func TestNativeStreamingKeepsMessageIdentityAcrossHostedCalls(t *testing.T) {
 	if len(acceptedRows) != len(output) {
 		t.Fatalf("accepted native response delivered %d of %d visible items before result delivery", len(acceptedRows), len(output))
 	}
-	if acceptedRows[1].ToolCall == nil || acceptedRows[1].ToolCall.ToolCallID != "search_native" {
-		t.Fatal("accepted native call lost its original source slot")
+	if acceptedRows[0].ToolCall == nil || acceptedRows[0].ToolCall.ToolCallID != "search_native" {
+		t.Fatal("accepted native call lost its finalized arrival slot")
+	}
+	for rowIndex, streamIndex := range []int{0, 1, 3} {
+		row := acceptedRows[rowIndex+1]
+		if row.Assistant == nil || row.Assistant.StreamID == nil || row.Assistant.StreamID.String() != streams[streamIndex] {
+			t.Fatalf("arrival-position row %d lost its live message identity", rowIndex+1)
+		}
+	}
+	for _, event := range events {
+		if event.Kind != EventAssistantMessage || event.Message.NativeResponse == nil {
+			continue
+		}
+		record := event.Message.NativeResponse.Record()
+		for index, want := range []json.RawMessage{output[1], output[0], output[2], output[3]} {
+			if !bytes.Equal(record.Items[index], want) {
+				t.Fatalf("native item %d was not saved in finalization arrival order", index)
+			}
+		}
 	}
 	var resultLocator *TranscriptCommittedRowFact
 	for _, event := range events {
@@ -830,7 +847,7 @@ func TestNativeStreamingKeepsMessageIdentityAcrossHostedCalls(t *testing.T) {
 			}
 		}
 	}
-	if resultLocator == nil || resultLocator.Locator != acceptedRows[1].Locator {
+	if resultLocator == nil || resultLocator.Locator != acceptedRows[0].Locator {
 		t.Fatal("native result did not update its accepted call's locator")
 	}
 }
