@@ -353,18 +353,17 @@ func TestSubmitUserMessageContinuesAfterHostedToolOnlyTurn(t *testing.T) {
 	}
 
 	secondReq := client.calls[1]
-	foundHostedOutput := false
+	hostedItems := 0
 	for _, item := range secondReq.Items {
-		if item.Type != llm.ResponseItemTypeFunctionCallOutput {
-			continue
+		if item.Type == llm.ResponseItemTypeFunctionCallOutput && item.CallID != nil && *item.CallID == "ws_1" {
+			t.Fatal("hosted search must not produce a local function output")
 		}
-		if item.CallID != nil && *item.CallID == "ws_1" {
-			foundHostedOutput = true
-			break
+		if item.Type == llm.ResponseItemTypeOther && item.CallID != nil && *item.CallID == "ws_1" {
+			hostedItems++
 		}
 	}
-	if !foundHostedOutput {
-		t.Fatalf("expected hosted tool output item in follow-up request, got %+v", secondReq.Items)
+	if hostedItems != 1 {
+		t.Fatalf("hosted search items = %d, want 1", hostedItems)
 	}
 }
 
@@ -796,22 +795,17 @@ func TestSubmitUserMessageContinuesAfterInvalidHostedWebSearch(t *testing.T) {
 		t.Fatalf("expected first request to enable native web search")
 	}
 
-	foundHostedOutput := false
+	hostedItems := 0
 	for _, item := range client.calls[1].Items {
-		if item.Type != llm.ResponseItemTypeFunctionCallOutput || item.CallID == nil || *item.CallID != "ws_invalid" {
-			continue
+		if item.Type == llm.ResponseItemTypeFunctionCallOutput && item.CallID != nil && *item.CallID == "ws_invalid" {
+			t.Fatal("hosted search errors must not produce a local function output")
 		}
-		foundHostedOutput = true
-		var output map[string]string
-		if err := json.Unmarshal(item.Output, &output); err != nil {
-			t.Fatalf("decode hosted tool output: %v", err)
-		}
-		if output["error"] != tools.InvalidWebSearchQueryMessage {
-			t.Fatalf("expected invalid query error in follow-up output, got %+v", output)
+		if item.Type == llm.ResponseItemTypeOther && item.CallID != nil && *item.CallID == "ws_invalid" {
+			hostedItems++
 		}
 	}
-	if !foundHostedOutput {
-		t.Fatalf("expected invalid hosted tool output item in follow-up request, got %+v", client.calls[1].Items)
+	if hostedItems != 1 {
+		t.Fatalf("hosted search items = %d, want 1", hostedItems)
 	}
 	if hostedStart == nil {
 		t.Fatal("expected explicit hosted tool start event")
