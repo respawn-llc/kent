@@ -1,7 +1,6 @@
 package clientui
 
 import (
-	"context"
 	"errors"
 	"strings"
 
@@ -96,19 +95,4 @@ type RuntimeClient interface {
 	RefreshMainView() (*runtimepb.MainView, error)
 	Status() *runtimepb.Status
 	SessionView() *runtimepb.SessionView
-	SetSessionName(mutation *runtimepb.SessionNameMutation) error
-	ShowGoal() (*runtimepb.GoalView, error)
-	SetGoal(objective string) (*runtimepb.GoalSetSuccess, error)
-	PauseGoal() (*runtimepb.GoalMutationSuccess, error)
-	ResumeGoal() (*runtimepb.GoalMutationSuccess, error)
-	CompleteGoal() (*runtimepb.GoalMutationSuccess, error)
-	ClearGoal() (*runtimepb.GoalMutationSuccess, error)
-	AppendCommittedEntry(role, text string) error
-	AppendCommittedEntryWithNoticeID(role, text, noticeID string) error
-	SubmitRuntimeInput(ctx context.Context, req RuntimeSubmitRequest) (UserTurnSubmission, error)
-	RunUserShell(ctx context.Context, req RuntimeShellRequest) error
-	CompactRuntime(ctx context.Context, req RuntimeCompactRequest) (RuntimeCompactResult, error)
-	Interrupt() error
-	DiscardQueuedUserMessage(queueItemID string) bool
-	RecordPromptHistory(text string) error
 }

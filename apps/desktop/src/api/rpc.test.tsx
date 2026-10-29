@@ -1,4 +1,5 @@
 import { observeTranscript } from "@/test-support/chat-runtime";
+import { waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "bun:test";
 import { createRpcTransport as createTransport } from "./rpc";
 import { SessionCategory } from "@app/server-api-contract/gen/kent/api/project/session_catalog_pb";
@@ -861,8 +862,9 @@ describe("RpcWebSocketTransport", () => {
         }),
       ),
     );
-    await subscription.flush();
-
+    await waitFor(() => {
+      expect(onEvent).toHaveBeenCalledTimes(1);
+    });
     expect(onEvent).toHaveBeenCalledWith(expect.objectContaining({ sequence: 2, kind: "session_identity" }));
     expect(onError).not.toHaveBeenCalled();
     subscription.close();

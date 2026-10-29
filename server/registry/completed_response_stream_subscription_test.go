@@ -1,20 +1,164 @@
 package registry
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
+	"strings"
 	"testing"
+	"time"
 
+	"core/cli/tui/ongoing"
+	"core/internal/testharness/pty"
+	"core/internal/testharness/pty/analyzer"
 	"core/internal/testharness/scriptedllm"
 	"core/server/agentruntime"
 	"core/server/llm"
+	"core/server/sessionstore"
 	"core/server/tools"
 	transcriptpb "core/shared/protoapi/gen/kent/api/transcript"
 	"core/shared/runtimeids"
 	"core/shared/serverapi"
+	"core/shared/textutil"
 	"core/shared/toolspec"
 )
+
+func TestSourceCompleteHydrationAcceptsNativeCommitWithoutReemission(t *testing.T) {
+	text := "Completed source awaiting native acceptance."
+	body, err := json.Marshal(map[string]any{
+		"type": "message", "id": "source", "role": "assistant", "phase": "final_answer",
+		"content": []map[string]string{{"type": "output_text", "text": text}},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	message, err := llm.MessageFromNativeResponse(session.NativeResponseBody{
+		Format: session.NativeResponseOpenAI, Items: [][]byte{body},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	ready, release := make(chan struct{}), make(chan struct{})
+	fixture := newStreamSubscriptionFixture(t, scriptedllm.NewClient(scriptedllm.Script{Steps: []scriptedllm.Step{{
+		Response:          llm.Response{Assistant: message, OutputItems: llm.ItemsFromMessages([]llm.Message{message})},
+		StreamDeltas:      []llm.AssistantDelta{{Text: text, Phase: llm.MessagePhaseFinal, OutputIndex: textutil.Value(int64(0))}},
+		SourceCompletions: []llm.AssistantSource{{Text: text, Phase: llm.MessagePhaseFinal, OutputIndex: 0}},
+		AfterResponse: func(ctx context.Context) error {
+			close(ready)
+			select {
+			case <-release:
+				return nil
+			case <-ctx.Done():
+				return ctx.Err()
+			}
+		},
+	}}}), tools.NewRegistry(), nil)
+	done := fixture.submitUserMessage("run")
+	select {
+	case <-ready:
+	case <-time.After(5 * time.Second):
+		t.Fatal("source did not complete before native acceptance")
+	}
+	late := subscribeTranscriptForTest(t, fixture.registry, fixture.engine.SessionID())
+	defer late.Close()
+	hydration := nextTranscriptMessage(t, late)
+	sources := hydration.Event.GetHydration().ActiveAssistants
+	if len(sources) != 1 || sources[0].SourceState != transcriptpb.AssistantSourceState_ASSISTANT_SOURCE_STATE_COMPLETE {
+		t.Fatalf("hydration lost source-complete lifecycle: %+v", sources)
+	}
+	var output bytes.Buffer
+	surface := ongoing.NewSurface(&output)
+	frame := ongoing.FrameInput{Size: ongoing.Size{Width: 80, Height: 30}, Theme: "dark"}
+	if _, err := surface.ApplyTerminalMessage(hydration, frame); err != nil {
+		t.Fatal(err)
+	}
+	close(release)
+	for {
+		event := nextTranscriptMessage(t, late)
+		if _, err := surface.ApplyTerminalMessage(event, frame); err != nil {
+			t.Fatal(err)
+		}
+		if row := event.Event.GetCommittedRow(); row != nil && row.GetAssistant() != nil {
+			if row.GetAssistant().GetSourceState() != transcriptpb.AssistantSourceState_ASSISTANT_SOURCE_STATE_COMPLETE {
+				t.Fatal("native commit lost completed-source correlation")
+			}
+			break
+		}
+	}
+	fixture.awaitSubmission(done)
+	terminal, err := analyzer.NewStream(pty.MustDimensions(frame.Size.Height, frame.Size.Width))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := terminal.Feed(output.Bytes()); err != nil {
+		t.Fatal(err)
+	}
+	screen, err := terminal.ScreenSnapshot()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Count(screen.RenderText(), text) != 1 {
+		t.Fatal("late hydration and native acceptance did not emit source exactly once")
+	}
+}
+
+func TestNativeToolResultUpdatesItsAcceptedSourceRow(t *testing.T) {
+	message, err := llm.MessageFromNativeResponse(session.NativeResponseBody{
+		Format: session.NativeResponseOpenAI,
+		Items: [][]byte{
+			[]byte(`{"type":"function_call","id":"item_native","call_id":"call-native","name":"exec_command","arguments":"{\"cmd\":\"pwd\"}"}`),
+			[]byte(`{"type":"message","id":"message_native","role":"assistant","phase":"final_answer","content":[{"type":"output_text","text":"answer","annotations":[]}]}`),
+		},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	handler := newControlledToolHandler("call-native")
+	fixture := newStreamSubscriptionFixture(t,
+		scriptedllm.NewClient(scriptedllm.Script{Steps: []scriptedllm.Step{{
+			Response:     llm.Response{Assistant: message, ToolCalls: message.ToolCalls, OutputItems: llm.ItemsFromMessages([]llm.Message{message})},
+			StreamDeltas: []llm.AssistantDelta{{Text: "answer", Phase: llm.MessagePhaseFinal, OutputIndex: textutil.Value(int64(1))}},
+		}}}),
+		newTestToolRegistry(t, tools.HandlerRegistration{ID: toolspec.ToolExecCommand, Handler: handler}),
+		[]toolspec.ID{toolspec.ToolExecCommand},
+	)
+	done := fixture.submitUserMessage("run")
+	var accepted *transcriptpb.CommittedRowLocator
+	for accepted == nil {
+		row := nextTranscriptMessage(t, fixture.sub).Event.GetCommittedRow()
+		if row != nil && row.GetToolCall() != nil {
+			accepted = row.Locator
+		}
+	}
+	handler.waitEntered(t, "call-native")
+	page, err := fixture.engine.TranscriptNewestSegmentPage()
+	if err != nil {
+		t.Fatal(err)
+	}
+	pendingFromPage := false
+	for _, row := range runtime.TranscriptCommittedRowFactsFromSnapshot(page.Snapshot) {
+		if row.ToolCall != nil && row.ToolCall.ToolCallID == "call-native" {
+			pendingFromPage = row.Locator.EventSequence == accepted.EventSequence && row.Locator.RowOrdinal == int64(accepted.RowOrdinal)
+		}
+	}
+	if !pendingFromPage {
+		t.Fatal("pending native call lost its source locator in bounded history")
+	}
+	handler.release("call-native")
+	for {
+		row := nextTranscriptMessage(t, fixture.sub).Event.GetCommittedRow()
+		if row == nil || row.GetTool() == nil {
+			continue
+		}
+		if row.Locator.EventSequence != accepted.EventSequence || row.Locator.RowOrdinal != accepted.RowOrdinal {
+			t.Fatal("completed tool moved away from its accepted source locator")
+		}
+		break
+	}
+	fixture.awaitSubmission(done)
+	_ = fixture.freshCleanHydration()
+}
 
 func TestSessionTranscriptSubscriptionContinuesAfterConcurrentLocalToolsWithoutStreamCollision(t *testing.T) {
 	handler := newControlledToolHandler("call-a", "call-b")
@@ -153,7 +297,7 @@ func (f *streamSubscriptionFixture) freshCleanHydration() *transcriptpb.Hydratio
 	defer func() { _ = fresh.Close() }()
 	message := nextTranscriptMessage(f.t, fresh)
 	hydration := message.Event.GetHydration()
-	if hydration.ActiveAssistant != nil {
+	if len(hydration.ActiveAssistants) != 0 {
 		f.t.Fatalf("fresh hydration active stream = %+v, want none", hydration)
 	}
 	return hydration

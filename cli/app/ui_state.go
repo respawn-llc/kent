@@ -2,11 +2,10 @@ package app
 
 import worktreepb "core/shared/protoapi/gen/kent/api/worktree"
 
-import transcriptpb "core/shared/protoapi/gen/kent/api/transcript"
-
 import runtimepb "core/shared/protoapi/gen/kent/api/runtime"
 
 import (
+	"context"
 	"time"
 
 	"core/cli/app/commands"
@@ -16,6 +15,7 @@ import (
 	"core/cli/tui/transcriptrender"
 	"core/shared/apicontract"
 	"core/shared/clientui"
+	chatpb "core/shared/protoapi/gen/kent/api/chat"
 	"core/shared/runtimeids"
 	"core/shared/sessioncontract"
 
@@ -23,8 +23,9 @@ import (
 )
 
 type uiModel struct {
-	drafts          *uiDraftPersistence
-	eventDispatcher *uiEventDispatcher
+	drafts             *uiDraftPersistence
+	presentationTarget uiPresentationTarget
+	eventDispatcher    *uiEventDispatcher
 	uiRuntimeFeatureState
 	uiInputFeatureState
 	uiPresentationFeatureState
@@ -39,8 +40,20 @@ type uiModel struct {
 }
 
 type uiRuntimeFeatureState struct {
-	engine clientui.RuntimeClient
-	view   tui.Model
+	workspaceContext    uiWorkspaceContext
+	chatMutations       apicontract.ChatMutationService
+	chatSettings        apicontract.ChatSettingsService
+	sessionControls     apicontract.RuntimeControlService
+	sessionLiveControls apicontract.RuntimeLiveControlService
+	pendingWorkClient   apicontract.RuntimePendingWorkService
+	createSession       func(context.Context, *chatpb.NewChatTarget, string) (*chatpb.ExistingSessionTarget, error)
+	observeSession      func(context.Context, runtimeids.SessionID) (sessionLaunchPlan, *runtimeLaunchPlan, error)
+	sessionObservation  *runtimeLaunchPlan
+	observationContext  context.Context
+	observationScope    context.Context
+	cancelObservation   context.CancelFunc
+	engine              clientui.RuntimeClient
+	view                tui.Model
 
 	processClient         clientui.ProcessClient
 	processClientExplicit bool
@@ -61,6 +74,7 @@ type missingPromptRecoveryScope struct {
 }
 
 type uiInputFeatureState struct {
+	pendingNewChatActions  int
 	mainEditor             tuiinput.Editor
 	mainInputDraftToken    uint64
 	promptHistory          []string
@@ -79,19 +93,10 @@ type uiInputFeatureState struct {
 	runtimeControlTokens   map[runtimeControlOperation]uint64
 	runtimeControlPending  map[runtimeControlOperation]runtimeControlPendingState
 
-	// UI-side post-turn input queue. It may contain slash commands, shell
-	// commands, and other client-only actions; server queues only runtime
-	// injected user work.
-	queued       []queuedInputItem
-	submitToken  uint64
-	activeSubmit activeSubmitState
-
-	injectedQueue               []*injectedRuntimeQueueItem
-	unownedQueuedTerminalStates map[string]*transcriptpb.QueuedMessageState
-	pendingInputSubmissionOrder uint64
-	interruptLifecycle          uiInterruptLifecycle
-	currentStepID               string
-	interruptStepID             string
+	injectedQueue      []*injectedRuntimeQueueItem
+	interruptLifecycle uiInterruptLifecycle
+	currentStepID      string
+	interruptStepID    string
 
 	modelName                 string
 	configuredModelName       *string
@@ -165,7 +170,7 @@ type uiSessionTransitionFeatureState struct {
 	sessionName                             *string
 	sessionCategory                         *sessioncontract.SessionCategory
 	sessionShortID                          *runtimeids.SessionShortID
-	sessionID                               string
+	stopAttention                           func()
 	forcedLocalExit                         bool
 }
 
@@ -197,14 +202,13 @@ type uiStatusFeatureState struct {
 }
 
 type uiTranscriptFeatureState struct {
-	runtimeConnection                            clientui.RuntimeConnectionLifecycle
-	pendingWorkRefresh                           pendingWorkRefreshOwner
-	runtimeMainViewToken                         uint64
-	runtimeMainViewBusy                          bool
-	runtimeMainViewPendingSet                    bool
-	runtimeMainViewPendingInterruptedSubmitToken *uint64
-	detailTranscript                             uiDetailTranscriptWindow
-	pendingDetailTranscript                      *uiPendingDetailTranscriptRequest
+	runtimeConnection         clientui.RuntimeConnectionLifecycle
+	pendingWorkRefresh        pendingWorkRefreshOwner
+	runtimeMainViewToken      uint64
+	runtimeMainViewBusy       bool
+	runtimeMainViewPendingSet bool
+	detailTranscript          uiDetailTranscriptWindow
+	pendingDetailTranscript   *uiPendingDetailTranscriptRequest
 }
 
 type uiKeyboardFeatureState struct {

@@ -399,11 +399,11 @@ func runBackParentPrefillScenario(t *testing.T, store *metadata.Store, server ba
 			if testMainInput(parentModel) != wantInput {
 				t.Fatalf("parent composer input = %q, want %q", testMainInput(parentModel), wantInput)
 			}
-			if parentModel.startupSubmit != "" || parentModel.activeSubmit.text != "" || parentModel.isBusy() {
-				t.Fatalf("parent prefill submitted on startup: startup=%q active=%+v busy=%t", parentModel.startupSubmit, parentModel.activeSubmit, parentModel.isBusy())
+			if parentModel.startupSubmit != "" || parentModel.hasPendingInputAdmission() || parentModel.isBusy() {
+				t.Fatalf("parent prefill submitted on startup: startup=%q busy=%t", parentModel.startupSubmit, parentModel.isBusy())
 			}
-			if len(parentModel.injectedQueue) != 0 || len(parentModel.queued) != 0 {
-				t.Fatalf("parent input queues leaked: injected=%+v queued=%+v", parentModel.injectedQueue, parentModel.queued)
+			if len(parentModel.injectedQueue) != 0 {
+				t.Fatalf("parent input admissions leaked: %+v", parentModel.injectedQueue)
 			}
 
 			beforeEdit, err := parentRuntimePlan.Wiring.runtimeClient.RefreshMainView()
@@ -416,6 +416,7 @@ func runBackParentPrefillScenario(t *testing.T, store *metadata.Store, server ba
 				if done, ok := msg.(draftSaveDoneMsg); ok && done.err != nil {
 					t.Fatalf("save edited parent draft: %v", done.err)
 				}
+				edited.Update(msg)
 			}
 			if testMainInput(edited) != wantInput+"x" {
 				t.Fatalf("edited parent input = %q, want %q", testMainInput(edited), wantInput+"x")

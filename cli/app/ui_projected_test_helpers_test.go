@@ -6,7 +6,6 @@ import (
 	"core/server/agentruntime"
 	"core/server/llm"
 	"core/server/registry"
-	"core/server/runtimecontrol"
 	"core/server/runtimeview"
 	"core/server/runtimewire"
 	"core/server/sessionruntime"
@@ -101,7 +100,32 @@ func waitForTestCondition(t *testing.T, timeout time.Duration, label string, con
 }
 
 func newProjectedTestUIModel(runtimeClient clientui.RuntimeClient, opts ...UIOption) *uiModel {
-	return NewProjectedUIModel(runtimeClient, opts...).(*uiModel)
+	model := NewProjectedUIModel(runtimeClient, opts...).(*uiModel)
+	services := &runtimeControlFakeClient{}
+	model.chatMutations = services
+	model.sessionControls = services
+	model.sessionLiveControls = services
+	model.pendingWorkClient = services
+	model.chatSettings = services
+	if runtimeClient != nil && model.presentationTarget == nil {
+		model.setKnownSessionTarget(detailTestSessionID)
+	}
+	if service, ok := runtimeClient.(apicontract.ChatMutationService); ok {
+		model.chatMutations = service
+	}
+	if service, ok := runtimeClient.(apicontract.RuntimeControlService); ok {
+		model.sessionControls = service
+	}
+	if service, ok := runtimeClient.(apicontract.RuntimeLiveControlService); ok {
+		model.sessionLiveControls = service
+	}
+	if service, ok := runtimeClient.(apicontract.RuntimePendingWorkService); ok {
+		model.pendingWorkClient = service
+	}
+	if service, ok := runtimeClient.(apicontract.ChatSettingsService); ok {
+		model.chatSettings = service
+	}
+	return model
 }
 
 func newProjectedClosedUIModel(runtimeClient clientui.RuntimeClient, opts ...UIOption) *uiModel {
@@ -123,7 +147,20 @@ func sizedTestUIModel(m *uiModel, width, height int) *uiModel {
 }
 
 func newProjectedStaticUIModel(opts ...UIOption) *uiModel {
-	return newProjectedTestUIModel(nil, opts...)
+	// Static fixtures have a selected Session but no observation attachment.
+	options := append([]UIOption{WithUISessionID(detailTestSessionID)}, opts...)
+	return newProjectedTestUIModel(nil, options...)
+}
+
+func newSessionSettingsReadResult(t *testing.T, cmd tea.Cmd) newSessionSettingsLoadedMsg {
+	t.Helper()
+	for _, msg := range collectCmdMessages(t, cmd) {
+		if result, ok := msg.(newSessionSettingsLoadedMsg); ok {
+			return result
+		}
+	}
+	t.Fatal("settings command did not complete a read")
+	return newSessionSettingsLoadedMsg{}
 }
 
 type recordingPromptControl struct {
@@ -291,9 +328,7 @@ func newProjectedAuthorityRuntime(
 		}
 	})
 	reads := sessionview.NewService(persistence, activity, nil, nil)
-	controls := runtimecontrol.NewService(authority, nil).WithSessionSettingFeedbackPublisher(activity)
-	runtimeClient := newUIRuntimeClientWithReads(sessionID.String(), reads, controls, nil, nil).(*sessionRuntimeClient)
-	runtimeClient.liveControls = controls
+	runtimeClient := newUIRuntimeClientWithReads(sessionID.String(), reads).(*sessionRuntimeClient)
 	snapshot, err := activity.RuntimeReadModelFeedSnapshot(context.Background(), sessionID.String())
 	if err != nil {
 		t.Fatalf("projected runtime snapshot: %v", err)
@@ -320,22 +355,8 @@ func newProjectedAuthorityRuntime(
 	}
 }
 
-func newUnavailableRuntimeControlService() *runtimecontrol.Service {
-	activity := registry.NewRuntimeRegistry(nil)
-	return runtimecontrol.NewService(sessionruntime.NewAuthority(sessionruntime.AuthorityOptions{}), nil).
-		WithSessionSettingFeedbackPublisher(activity)
-}
-
-func newTestSessionRuntimeClient(reads apicontract.SessionViewService, controls apicontract.RuntimeControlService) *sessionRuntimeClient {
-	client := newUIRuntimeClientWithReads(ongoingTestSessionID().String(), reads, controls, nil, nil).(*sessionRuntimeClient)
-	if liveControls, ok := controls.(apicontract.RuntimeLiveControlService); ok {
-		client.liveControls = liveControls
-	}
-	return client
-}
-
-func newTestSessionRuntimeClientWithControls(controls apicontract.RuntimeControlService) *sessionRuntimeClient {
-	return newTestSessionRuntimeClient(&countingSessionViewClient{}, controls)
+func newTestSessionRuntimeClient(reads apicontract.SessionViewService) *sessionRuntimeClient {
+	return newUIRuntimeClientWithReads(detailTestSessionID, reads).(*sessionRuntimeClient)
 }
 
 func testQuestionPrompt(id, question string, suggestions ...string) *transcriptpb.Prompt {

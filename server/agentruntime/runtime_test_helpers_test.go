@@ -504,7 +504,7 @@ func generateTestActiveStep(
 	stepID = runtimeTestStepID(stepID)
 	restore := setTestActiveStep(engine, stepID)
 	defer restore()
-	candidate, err := engine.generateWithRetryClient(ctx, stepID, newObservedModelClient(client), request, nil, nil, nil)
+	candidate, err := engine.generateWithRetryClient(ctx, stepID, newObservedModelClient(client), request, llm.StreamCallbacks{}, nil)
 	return candidate.response, err
 }
 

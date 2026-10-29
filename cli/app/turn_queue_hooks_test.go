@@ -2,9 +2,8 @@ package app
 
 import (
 	transcriptpb "core/shared/protoapi/gen/kent/api/transcript"
-	"errors"
+	"core/shared/runtimeinput"
 	"google.golang.org/protobuf/types/known/timestamppb"
-	"reflect"
 	"testing"
 	"time"
 )
@@ -13,153 +12,39 @@ type recordingTaskCompletionSink struct {
 	results []*transcriptpb.LiveRunFinished
 }
 
+func TestCompletionHooksRunPerTurnWhileSuccessorIsPending(t *testing.T) {
+	completions := &recordingTaskCompletionSink{}
+	ringer := &countRinger{}
+	model := newTurnQueueHookTestModel(newTurnQueueHooks(newUnfocusedBellHooks(ringer), completions))
+	model.setRuntimeActivityBusyForTest(true)
+	model.enqueueInput("later turn", runtimeinput.Text("later turn"), runtimeinput.PendingWorkLaneQueue)
+	model.handleOngoingTranscriptEvent(ongoingTranscriptEvent{Kind: ongoingTranscriptEventMessage, Message: ongoingHydrationMessage(1)})
+	for index, work := range []bool{false, true} {
+		message := testAssistantFinalLiveRunMessage(uint64(index+2), "answer", work)
+		model.handleOngoingTranscriptEvent(ongoingTranscriptEvent{Kind: ongoingTranscriptEventMessage, Message: message})
+		if len(completions.results) != index+1 {
+			t.Fatal("completion hook waited for successor work")
+		}
+	}
+	if ringer.total() != 0 {
+		t.Fatal("transcript completion decided notification eligibility")
+	}
+}
+
 func (s *recordingTaskCompletionSink) enqueueTaskCompletion(result *transcriptpb.LiveRunFinished) {
 	s.results = append(s.results, result)
 }
 
-func TestTurnQueueHooksEmitEachAdmittedAssistantFinalOnceAfterIdleDrain(t *testing.T) {
-	completions := &recordingTaskCompletionSink{}
+func TestTurnEndAttentionNotifiesWhileSuccessorIsPending(t *testing.T) {
 	ringer := &countRinger{}
-	hooks := newTurnQueueHooks(
-		newBellHooks(ringer, nil, func() bool { return true }),
-		completions,
-	)
+	hooks := newTurnQueueHooks(newUnfocusedBellHooks(ringer), nil)
 	model := newTurnQueueHookTestModel(hooks)
-	model.activeSubmit = activeSubmitState{token: 1, text: "last queued turn"}
-
-	first := testAssistantFinalLiveRunMessage(2, "first queued answer", true)
-	second := testAssistantFinalLiveRunMessage(3, "second queued answer", false)
-	for _, message := range []*transcriptpb.Message{
-		ongoingHydrationMessage(1),
-		first,
-		second,
-		second,
-		ongoingHydrationMessage(1)} {
-		model.handleOngoingTranscriptEvent(ongoingTranscriptEvent{
-			Kind:    ongoingTranscriptEventMessage,
-			Message: message,
-		})
-	}
-
-	if got := len(completions.results); got != 0 {
-		t.Fatalf("completion hooks before queue drain = %d, want 0", got)
-	}
-
-	_, _ = model.Update(submitDoneMsg{
-		token:         1,
-		submittedText: "last queued turn",
-		message:       "second queued answer",
-	})
-	hooks.OnTurnQueueDrained()
-
-	if got := len(completions.results); got != 2 {
-		t.Fatalf("completion hooks after queue drain = %d, want 2", got)
-	}
-	if got := *completions.results[0].FinalAnswer; got != "first queued answer" {
-		t.Fatalf("first completion answer = %q", got)
-	}
-	if !completions.results[0].WorkPerformed {
-		t.Fatal("first completion omitted work-performed state")
-	}
-	if got := *completions.results[1].FinalAnswer; got != "second queued answer" {
-		t.Fatalf("second completion answer = %q", got)
-	}
-	if completions.results[1].WorkPerformed {
-		t.Fatal("second completion changed work-performed state")
-	}
-	if ringer.total() != 0 {
-		t.Fatalf("focused zero-tool turns emitted %d terminal notifications", ringer.total())
-	}
-}
-
-func TestAdmittedAssistantFinalRechecksAlreadyIdleTurnQueue(t *testing.T) {
-	completions := &recordingTaskCompletionSink{}
-	hooks := newTurnQueueHooks(newUnfocusedBellHooks(&countRinger{}), completions)
-	model := newTurnQueueHookTestModel(hooks)
-
-	model.handleOngoingTranscriptEvent(ongoingTranscriptEvent{
-		Kind:    ongoingTranscriptEventMessage,
-		Message: ongoingHydrationMessage(1),
-	})
-	model.activeSubmit = activeSubmitState{token: 1, text: "turn"}
-	_, _ = model.Update(submitDoneMsg{
-		token:         1,
-		submittedText: "turn",
-		message:       "answer",
-	})
-	model.handleOngoingTranscriptEvent(ongoingTranscriptEvent{
-		Kind:    ongoingTranscriptEventMessage,
-		Message: testAssistantFinalLiveRunMessage(2, "answer", true),
-	})
-
-	if got := len(completions.results); got != 1 {
-		t.Fatalf("late admitted completion hooks = %d, want 1", got)
-	}
-}
-
-func TestAdmittedAssistantFinalFlushesWhenQueueAbortsIdle(t *testing.T) {
-	completions := &recordingTaskCompletionSink{}
-	hooks := newTurnQueueHooks(newUnfocusedBellHooks(&countRinger{}), completions)
-	model := newTurnQueueHookTestModel(hooks)
-	model.activeSubmit = activeSubmitState{token: 1, text: "turn"}
-
-	for _, message := range []*transcriptpb.Message{
-		ongoingHydrationMessage(1),
-		testAssistantFinalLiveRunMessage(2, "answer before submission error", true)} {
-		model.handleOngoingTranscriptEvent(ongoingTranscriptEvent{
-			Kind:    ongoingTranscriptEventMessage,
-			Message: message,
-		})
-	}
-	_, _ = model.Update(submitDoneMsg{
-		token:         1,
-		submittedText: "turn",
-		err:           errors.New("submission failed after final observation"),
-	})
-
-	if got := len(completions.results); got != 1 {
-		t.Fatalf("completion hooks after idle queue abort = %d, want 1", got)
-	}
-}
-
-func deletedTestAdmittedAssistantFinalWaitsForLocallyOwnedQueuedPromptDrain(t *testing.T) {
-	completions := &recordingTaskCompletionSink{}
-	hooks := newTurnQueueHooks(newUnfocusedBellHooks(&countRinger{}), completions)
-	model := newTurnQueueHookTestModel(hooks)
-	model.activeSubmit = activeSubmitState{token: 1, text: "current turn"}
-	model.injectedQueue = []*injectedRuntimeQueueItem{{
-
-		Text:            "queued prompt",
-		State:           injectedRuntimeQueuePendingCreate,
-		submissionOrder: inputSubmissionOrder{sequence: 1},
-	}}
-
-	for _, message := range []*transcriptpb.Message{
-		ongoingHydrationMessage(1),
-		ongoingTranscriptMessage(2, reflect.TypeFor[*transcriptpb.Event_QueuedMessageState]()),
-		testAssistantFinalLiveRunMessage(3, "current answer", true)} {
-		model.handleOngoingTranscriptEvent(ongoingTranscriptEvent{
-			Kind:    ongoingTranscriptEventMessage,
-			Message: message,
-		})
-	}
-	_, _ = model.Update(submitDoneMsg{
-		token:         1,
-		submittedText: "current turn",
-		message:       "current answer",
-	})
-
-	if got := len(completions.results); got != 0 {
-		t.Fatalf("completion hooks before injected queue drain = %d, want 0", got)
-	}
-
-	model.handleOngoingTranscriptEvent(ongoingTranscriptEvent{
-		Kind:    ongoingTranscriptEventMessage,
-		Message: ongoingTranscriptMessage(4, reflect.TypeFor[*transcriptpb.Event_QueuedMessageState]()),
-	})
-
-	if got := len(completions.results); got != 1 {
-		t.Fatalf("completion hooks after injected queue drain = %d, want 1", got)
+	model.setRuntimeActivityBusyForTest(true)
+	model.enqueueInput("later", runtimeinput.Text("later"), runtimeinput.PendingWorkLaneQueue)
+	hooks.OnSessionTurnEnd("answer")
+	hooks.OnSessionTurnEnd("another answer")
+	if ringer.notifications != 2 {
+		t.Fatalf("turn-end notifications = %d, want two immediate deliveries", ringer.notifications)
 	}
 }
 
@@ -189,7 +74,6 @@ func TestTurnQueueHooksDoNotCompleteNonCompletedAssistantFinalResult(t *testing.
 			message = transcriptTestMessage(2, result)
 
 			hooks.OnTranscriptMessage(message)
-			hooks.OnTurnQueueDrained()
 
 			if got := len(completions.results); got != 0 {
 				t.Fatalf("%s assistant-final completion hooks = %d, want 0", status, got)

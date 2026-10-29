@@ -10,17 +10,18 @@ import (
 	"testing"
 	"time"
 
-	"core/shared/clientui"
+	"core/shared/apicontract"
+	"core/shared/protoapi"
 	chatpb "core/shared/protoapi/gen/kent/api/chat"
 	chatcontextpb "core/shared/protoapi/gen/kent/api/chat_context"
 	chatsettingspb "core/shared/protoapi/gen/kent/api/chat_settings"
+	promptpb "core/shared/protoapi/gen/kent/api/prompt"
 	runtimepb "core/shared/protoapi/gen/kent/api/runtime"
 	sharedpb "core/shared/protoapi/gen/kent/api/shared"
 	transcriptpb "core/shared/protoapi/gen/kent/api/transcript"
 	"core/shared/runtimeids"
 	"core/shared/runtimeinput"
 	"core/shared/serverapi"
-	"core/shared/textutil"
 
 	tea "github.com/charmbracelet/bubbletea"
 	"google.golang.org/protobuf/proto"
@@ -28,6 +29,11 @@ import (
 )
 
 type runtimeControlFakeClient struct {
+	apicontract.ChatMutationService
+	apicontract.RuntimeControlService
+	apicontract.RuntimeLiveControlService
+	apicontract.ChatSettingsService
+	apicontract.RuntimePendingWorkService
 	status                *runtimepb.Status
 	sessionView           *runtimepb.SessionView
 	mainView              *runtimepb.MainView
@@ -46,16 +52,16 @@ type runtimeControlFakeClient struct {
 	appendedText          string
 	submitText            string
 	submitInput           runtimeinput.Input
+	submitRequest         inputAdmissionRequest
 	submitCalls           int
 	submitResult          string
 	interruptCalls        int
-	submitQueuedID        string
 	discardQueuedID       string
 	discardQueuedCalls    int
 	discardQueuedResult   bool
 	recordedPromptHistory string
 	refreshMainViewCalls  int
-	compactRequest        clientui.RuntimeCompactRequest
+	compactGuidance       *string
 	err                   error
 	appendErr             error
 	submitErr             error
@@ -106,14 +112,15 @@ func (f *runtimeControlFakeClient) SessionView() *runtimepb.SessionView {
 	}
 	return proto.Clone(f.sessionView).(*runtimepb.SessionView)
 }
-func (f *runtimeControlFakeClient) SetSessionName(mutation *runtimepb.SessionNameMutation) error {
-	f.setSessionNameArg = mutation
+func (f *runtimeControlFakeClient) SetSessionName(_ context.Context, request *runtimepb.SetSessionNameRequest) error {
+	f.setSessionNameArg = request.Mutation
 	return f.err
 }
-func (f *runtimeControlFakeClient) ReadChatSettings() (*chatsettingspb.Settings, error) {
-	return runtimeControlFakeChatSettings(), f.err
+func (f *runtimeControlFakeClient) ReadChatSettings(context.Context, *chatsettingspb.ReadRequest) (*chatsettingspb.ReadSuccess, error) {
+	return &chatsettingspb.ReadSuccess{Target: &chatsettingspb.ReadSuccess_Session{Session: &chatsettingspb.SessionSettings{Settings: runtimeControlFakeChatSettings()}}}, f.err
 }
-func (f *runtimeControlFakeClient) MutateChatSettings(operation *chatsettingspb.MutationOperation) (*chatsettingspb.MutationSuccess, error) {
+func (f *runtimeControlFakeClient) MutateChatSettings(_ context.Context, request *chatsettingspb.MutationRequest) (*chatsettingspb.MutationSuccess, error) {
+	operation := request.Operation
 	settings := runtimeControlFakeChatSettings()
 	switch operation := operation.Operation.(type) {
 	case *chatsettingspb.MutationOperation_Thinking:
@@ -152,15 +159,20 @@ func runtimeControlFakeChatSettings() *chatsettingspb.Settings {
 			Stored:    true,
 			Effective: true}}
 }
-func (f *runtimeControlFakeClient) ShowGoal() (*runtimepb.GoalView, error) {
+func (f *runtimeControlFakeClient) ShowGoal(context.Context, *runtimepb.GoalShowRequest) (*runtimepb.GoalShowSuccess, error) {
 	f.showGoalCalls++
-	return cloneRuntimeGoal(f.goal), f.err
+	goal := cloneRuntimeGoal(f.goal)
+	if goal == nil {
+		return &runtimepb.GoalShowSuccess{}, f.err
+	}
+	return &runtimepb.GoalShowSuccess{Goal: goal.Goal}, f.err
 }
-func (f *runtimeControlFakeClient) SetGoal(objective string) (*runtimepb.GoalSetSuccess, error) {
+func (f *runtimeControlFakeClient) SetGoal(_ context.Context, request *runtimepb.GoalSetRequest) (*runtimepb.GoalSetSuccess, error) {
+	objective := request.Objective
 	f.setGoalArg = objective
 	f.goal = runtimeControlTestGoal(objective, runtimepb.GoalStatus_RUNTIME_GOAL_STATUS_ACTIVE)
 	return &runtimepb.GoalSetSuccess{
-		Session: &chatpb.ExistingSessionTarget{SessionId: "session-1"},
+		Session: &chatpb.ExistingSessionTarget{SessionId: request.Target.GetSession().SessionId.GetSessionId()},
 		Outcome: &runtimepb.GoalSetSuccess_Mutation{
 			Mutation: &runtimepb.GoalMutationSuccess{
 				Kind: runtimepb.GoalMutationResultKind_GOAL_MUTATION_RESULT_KIND_AUTHORITATIVE_GOAL,
@@ -169,7 +181,7 @@ func (f *runtimeControlFakeClient) SetGoal(objective string) (*runtimepb.GoalSet
 		},
 	}, f.err
 }
-func (f *runtimeControlFakeClient) PauseGoal() (*runtimepb.GoalMutationSuccess, error) {
+func (f *runtimeControlFakeClient) PauseGoal(context.Context, *runtimepb.GoalMutationRequest) (*runtimepb.GoalMutationSuccess, error) {
 	f.pauseGoalCalls++
 	if f.goalCallEvents != nil {
 		*f.goalCallEvents = append(*f.goalCallEvents, "pause-started")
@@ -182,7 +194,7 @@ func (f *runtimeControlFakeClient) PauseGoal() (*runtimepb.GoalMutationSuccess, 
 		Kind: runtimepb.GoalMutationResultKind_GOAL_MUTATION_RESULT_KIND_AUTHORITATIVE_GOAL,
 		Goal: f.goal.Goal}, f.err
 }
-func (f *runtimeControlFakeClient) ResumeGoal() (*runtimepb.GoalMutationSuccess, error) {
+func (f *runtimeControlFakeClient) ResumeGoal(context.Context, *runtimepb.GoalMutationRequest) (*runtimepb.GoalMutationSuccess, error) {
 	f.resumeGoalCalls++
 	if f.goal == nil {
 		f.goal = runtimeControlTestGoal("objective", runtimepb.GoalStatus_RUNTIME_GOAL_STATUS_ACTIVE)
@@ -192,7 +204,7 @@ func (f *runtimeControlFakeClient) ResumeGoal() (*runtimepb.GoalMutationSuccess,
 		Kind: runtimepb.GoalMutationResultKind_GOAL_MUTATION_RESULT_KIND_AUTHORITATIVE_GOAL,
 		Goal: f.goal.Goal}, f.err
 }
-func (f *runtimeControlFakeClient) CompleteGoal() (*runtimepb.GoalMutationSuccess, error) {
+func (f *runtimeControlFakeClient) CompleteGoal(context.Context, *runtimepb.GoalMutationRequest) (*runtimepb.GoalMutationSuccess, error) {
 	if f.goal == nil {
 		f.goal = runtimeControlTestGoal("objective", runtimepb.GoalStatus_RUNTIME_GOAL_STATUS_ACTIVE)
 	}
@@ -201,7 +213,7 @@ func (f *runtimeControlFakeClient) CompleteGoal() (*runtimepb.GoalMutationSucces
 		Kind: runtimepb.GoalMutationResultKind_GOAL_MUTATION_RESULT_KIND_AUTHORITATIVE_GOAL,
 		Goal: f.goal.Goal}, f.err
 }
-func (f *runtimeControlFakeClient) ClearGoal() (*runtimepb.GoalMutationSuccess, error) {
+func (f *runtimeControlFakeClient) ClearGoal(context.Context, *runtimepb.GoalClearRequest) (*runtimepb.GoalMutationSuccess, error) {
 	f.clearGoalCalls++
 	f.goal = nil
 	return &runtimepb.GoalMutationSuccess{Kind: runtimepb.GoalMutationResultKind_GOAL_MUTATION_RESULT_KIND_AUTHORITATIVE_CLEAR}, f.err
@@ -215,76 +227,79 @@ func runtimeControlTestGoal(objective string, status runtimepb.GoalStatus) *runt
 		CreatedAt: timestamppb.New(now),
 		UpdatedAt: timestamppb.New(now)}}
 }
-func (f *runtimeControlFakeClient) AppendCommittedEntry(role, text string) error {
-	return f.AppendCommittedEntryWithNoticeID(role, text, "")
-}
-func (f *runtimeControlFakeClient) AppendCommittedEntryWithNoticeID(role, text, noticeID string) error {
+func (f *runtimeControlFakeClient) AppendCommittedEntry(_ context.Context, request *transcriptpb.AppendCommittedEntryRequest) error {
 	f.appendCalls++
-	f.appendedRole = role
-	f.appendedText = text
+	f.appendedRole = request.Role
+	f.appendedText = request.Text
 	if f.appendErr != nil {
 		return f.appendErr
 	}
 	return f.err
 }
-func (f *runtimeControlFakeClient) submitUserMessage(_ context.Context, text string) (clientui.UserTurnSubmission, error) {
-	f.submitText = text
-	result := clientui.UserTurnSubmission{Message: textutil.Value(f.submitResult), Diagnostic: f.submitDiagnostic}
-	if f.submitErr != nil {
-		return result, f.submitErr
-	}
-	return result, f.err
-}
-func (f *runtimeControlFakeClient) SubmitRuntimeInput(ctx context.Context, req clientui.RuntimeSubmitRequest) (clientui.UserTurnSubmission, error) {
+func (f *runtimeControlFakeClient) Steer(_ context.Context, req *chatpb.SteerRequest) (*chatpb.InputMutationSuccess, error) {
 	f.submitCalls++
-	f.submitInput = req.Input
-	text := runtimeSubmitInputText(req)
-	submission, err := f.submitUserMessage(ctx, text)
-	if err == nil && strings.TrimSpace(f.submitQueuedID) != "" {
-		submission.Queued = clientui.QueuedUserMessage{
-			ID:   strings.TrimSpace(f.submitQueuedID),
-			Text: text}
+	f.submitInput = runtimeinput.Text(req.Activation.GetText())
+	if command := req.Activation.GetCommand(); command != nil {
+		f.submitInput = runtimeinput.Command(command.CatalogIdentity, command.Arguments)
 	}
-	return submission, err
+	if shell := req.Activation.GetShell(); shell != nil {
+		f.submitInput = runtimeinput.Shell(shell.Command)
+	}
+	f.submitRequest = inputAdmissionRequest{
+		Input: f.submitInput, Intent: runtimeinput.PendingWorkLaneSteer,
+	}
+	id, err := runtimeids.QueueItemIDFromProto(req.QueueItemId)
+	if err != nil {
+		return nil, err
+	}
+	f.submitRequest.QueueItemID = id
+	f.submitText = f.submitInput.CanonicalHistoryText()
+	if f.submitErr != nil {
+		return nil, f.submitErr
+	}
+	var diagnostic *chatpb.AcceptedDiagnostic
+	if f.submitDiagnostic != nil {
+		diagnostic = &chatpb.AcceptedDiagnostic{Detail: &chatpb.AcceptedDiagnostic_PromptHistoryFailure{PromptHistoryFailure: protoapi.InternalFailureToProto(f.submitDiagnostic)}}
+	}
+	return &chatpb.InputMutationSuccess{Session: &chatpb.ExistingSessionTarget{SessionId: req.Target.GetSession().SessionId.GetSessionId()},
+		Outcome: &chatpb.InputMutationSuccess_Accepted{Accepted: &chatpb.InputAccepted{Diagnostic: diagnostic, QueueItem: &chatpb.QueueItemIdentity{Id: id.String()}, Disposition: chatpb.InputAdmissionDisposition_INPUT_ADMISSION_DISPOSITION_STARTED_TURN}}}, f.err
 }
-func (f *runtimeControlFakeClient) submitUserShellCommand(_ context.Context, command string) error {
-	return f.err
+func (f *runtimeControlFakeClient) Queue(ctx context.Context, request *chatpb.QueueRequest) (*chatpb.InputMutationSuccess, error) {
+	response, err := f.Steer(ctx, &chatpb.SteerRequest{Target: request.Target, Activation: request.Activation, QueueItemId: request.QueueItemId})
+	f.submitRequest.Intent = runtimeinput.PendingWorkLaneQueue
+	return response, err
 }
-func (f *runtimeControlFakeClient) RunUserShell(ctx context.Context, req clientui.RuntimeShellRequest) error {
-	return f.submitUserShellCommand(ctx, req.Command)
+func (f *runtimeControlFakeClient) Compact(_ context.Context, request *chatpb.CompactRequest) (*chatpb.CompactionMutationSuccess, error) {
+	f.compactGuidance = optionalCompactionGuidance(request.Invocation.RawGuidance)
+	return &chatpb.CompactionMutationSuccess{Session: &chatpb.ExistingSessionTarget{SessionId: request.Target.GetSession().SessionId.GetSessionId()},
+		Outcome: &chatpb.CompactionMutationSuccess_Accepted{Accepted: &chatpb.CompactionAccepted{}}}, f.err
 }
-func (f *runtimeControlFakeClient) compactContext(_ context.Context, args string) error {
-	_ = args
-	return f.err
+func (f *runtimeControlFakeClient) ListPendingWork(context.Context, *runtimepb.ListPendingWorkRequest) (*runtimepb.ListPendingWorkSuccess, error) {
+	return &runtimepb.ListPendingWorkSuccess{PendingWork: &runtimepb.PendingWork{}}, f.err
 }
-func (f *runtimeControlFakeClient) CompactRuntime(ctx context.Context, req clientui.RuntimeCompactRequest) (clientui.RuntimeCompactResult, error) {
-	f.compactRequest = req
-	input := req.Admission.CanonicalInput()
-	return clientui.RuntimeCompactResult{}, f.compactContext(ctx, input)
-}
-func (f *runtimeControlFakeClient) Interrupt() error {
+func (f *runtimeControlFakeClient) LiveStop(context.Context, *runtimepb.LiveStopRequest) (*runtimepb.LiveStopSuccess, error) {
 	f.interruptCalls++
 	if f.interruptErr != nil {
-		return f.interruptErr
+		return nil, f.interruptErr
 	}
-	return f.err
+	return &runtimepb.LiveStopSuccess{Status: runtimepb.LiveStopStatus_RUNTIME_LIVE_STOP_STATUS_STOPPED}, f.err
 }
-func (f *runtimeControlFakeClient) DiscardQueuedUserMessage(queueItemID string) bool {
+func (f *runtimeControlFakeClient) RemovePendingWork(_ context.Context, request *runtimepb.RemovePendingWorkRequest) (*runtimepb.RemovePendingWorkSuccess, error) {
 	f.discardQueuedCalls++
-	f.discardQueuedID = queueItemID
+	f.discardQueuedID = request.ItemId
 	if f.discardQueuedResult {
-		return true
+		return &runtimepb.RemovePendingWorkSuccess{}, nil
 	}
-	return false
+	return nil, errors.New("queued item unavailable")
 }
-func (f *runtimeControlFakeClient) RecordPromptHistory(text string) error {
-	f.recordedPromptHistory = text
+func (f *runtimeControlFakeClient) RecordPromptHistory(_ context.Context, request *promptpb.RecordHistoryRequest) error {
+	f.recordedPromptHistory = request.Text
 	return f.err
 }
 
 func TestGoalShowSupersededByMutationDoesNotOverwriteMutationResult(t *testing.T) {
 	m := newProjectedClosedUIModel(&runtimeControlFakeClient{})
-	m.sessionID = "session-1"
+	m.setKnownSessionTarget(detailTestSessionID)
 
 	if cmd := m.goalRuntimeCommand(goalRuntimePause, ""); cmd == nil {
 		t.Fatal("initial Goal mutation did not start")
@@ -303,7 +318,7 @@ func TestGoalShowSupersededByMutationDoesNotOverwriteMutationResult(t *testing.T
 		Goal: &runtimepb.Goal{Id: "goal-1", Objective: "latest", Status: runtimepb.GoalStatus_RUNTIME_GOAL_STATUS_PAUSED}}
 	m.applyGoalRuntimeDone(goalRuntimeDoneMsg{
 		token:          mutationToken,
-		sessionID:      m.sessionID,
+		sessionID:      m.currentRuntimeSessionID(),
 		mutationSerial: m.goalRuntimePending.inFlightMutationSerial,
 		operation:      goalRuntimePause,
 		mutation: &runtimepb.GoalMutationSuccess{
@@ -313,7 +328,7 @@ func TestGoalShowSupersededByMutationDoesNotOverwriteMutationResult(t *testing.T
 		Goal: &runtimepb.Goal{Id: "goal-1", Objective: "stale", Status: runtimepb.GoalStatus_RUNTIME_GOAL_STATUS_ACTIVE}}
 	m.applyGoalRuntimeDone(goalRuntimeDoneMsg{
 		token:          showToken,
-		sessionID:      m.sessionID,
+		sessionID:      m.currentRuntimeSessionID(),
 		mutationSerial: showMutationSerial,
 		operation:      goalRuntimeShow,
 		goal:           stale})
@@ -335,7 +350,7 @@ func TestGoalSetSettlesWarningBeforePendingFollowUp(t *testing.T) {
 
 	client := &runtimeControlFakeClient{goalCallEvents: &events}
 	m := newProjectedClosedUIModel(client)
-	m.sessionID = "session-1"
+	m.setKnownSessionTarget(detailTestSessionID)
 	if cmd := m.goalRuntimeCommand(goalRuntimeSet, "first"); cmd == nil {
 		t.Fatal("initial Goal Set did not start")
 	}
@@ -367,7 +382,7 @@ func TestGoalSetSettlesWarningBeforePendingFollowUp(t *testing.T) {
 	}
 	cmd := m.applyGoalRuntimeDone(goalRuntimeDoneMsg{
 		token:          pending.token,
-		sessionID:      m.sessionID,
+		sessionID:      m.currentRuntimeSessionID(),
 		mutationSerial: mutationSerial,
 		operation:      goalRuntimeSet,
 		objective:      "first",
@@ -397,7 +412,7 @@ func TestGoalFollowUpRetainsCapturedSessionAndClient(t *testing.T) {
 	clientA := &runtimeControlFakeClient{goalCallEvents: &eventsA}
 	clientB := &runtimeControlFakeClient{goalCallEvents: &eventsB}
 	m := newProjectedClosedUIModel(clientA)
-	m.sessionID = "session-a"
+	m.setKnownSessionTarget(detailTestSessionID)
 
 	setCmd := m.goalRuntimeCommand(goalRuntimeSet, "first")
 	if setCmd == nil {
@@ -425,18 +440,18 @@ func TestGoalFollowUpRetainsCapturedSessionAndClient(t *testing.T) {
 	if followUp == nil {
 		t.Fatal("Goal Set did not return its pending follow-up")
 	}
-	if !m.goalRuntimePending.inFlight || m.goalRuntimePending.sessionID != "session-a" {
+	if !m.goalRuntimePending.inFlight || m.goalRuntimePending.sessionID != detailTestSessionID {
 		t.Fatalf("follow-up admission = %+v, want captured session-a request", m.goalRuntimePending)
 	}
 
-	m.sessionID = "session-b"
+	m.setKnownSessionTarget(runtimeids.NewSessionID().String())
 	m.engine = clientB
 	rawMessage := followUp()
 	msg, ok := rawMessage.(goalRuntimeDoneMsg)
 	if !ok {
 		t.Fatalf("follow-up message = %T, want goalRuntimeDoneMsg", rawMessage)
 	}
-	if msg.sessionID != "session-a" {
+	if msg.sessionID != detailTestSessionID {
 		t.Fatalf("follow-up session = %q, want session-a", msg.sessionID)
 	}
 	if len(eventsA) != 1 || eventsA[0] != "pause-started" {
@@ -451,11 +466,10 @@ func TestRuntimeInterruptNotAcceptedClearsPendingAttempt(t *testing.T) {
 	client := &runtimeControlFakeClient{
 		interruptErr: serverapi.NewRuntimeCommandNotAcceptedError(errors.New("no active Agent Turn"))}
 	m := newProjectedClosedUIModel(client)
-	m.sessionID = "session-1"
+	m.setKnownSessionTarget(detailTestSessionID)
 	m.setRuntimeActivityBusyForTest(true)
-	m.activeSubmit = activeSubmitState{
-		token: 1,
-		text:  "keep me"}
+	m.enqueueInput("keep me", runtimeinput.Text("keep me"), runtimeinput.PendingWorkLaneSteer)
+	pending := m.injectedQueue[0]
 
 	cmd := m.inputController().interruptBusyRuntime()
 	if !m.hasPendingInterrupt() {
@@ -471,15 +485,14 @@ func TestRuntimeInterruptNotAcceptedClearsPendingAttempt(t *testing.T) {
 	if !updated.runtimeMainViewBusy {
 		t.Fatal("failed interrupt did not request authoritative state")
 	}
-	if updated.activeSubmit.token != 1 || updated.activeSubmit.text != "keep me" {
-		t.Fatalf("not-accepted interrupt changed active submit: %+v", updated.activeSubmit)
+	if len(updated.injectedQueue) != 1 || updated.injectedQueue[0] != pending {
+		t.Fatal("not-accepted interrupt changed outstanding admission")
 	}
 	updated.handleRuntimeMainViewRefreshed(runtimeMainViewRefreshedMsg{
-		token:                  updated.runtimeMainViewToken,
-		interruptedSubmitToken: textutil.Value(uint64(1)),
+		token: updated.runtimeMainViewToken,
 		view: &runtimepb.MainView{
 			Status:  &runtimepb.Status{},
-			Session: &runtimepb.SessionView{SessionId: "session-1"},
+			Session: &runtimepb.SessionView{SessionId: detailTestSessionID},
 			Activity: &runtimepb.Activity{
 				State:          runtimepb.ActivityState_RUNTIME_ACTIVITY_REGISTERED_IDLE,
 				Reviewer:       runtimepb.ReviewerActivity_REVIEWER_ACTIVITY_INACTIVE,
@@ -492,44 +505,13 @@ func TestRuntimeInterruptNotAcceptedClearsPendingAttempt(t *testing.T) {
 	}
 }
 
-func TestInterruptRecoveryPreservesNewerSubmission(t *testing.T) {
-	m := newProjectedClosedUIModel(&runtimeControlFakeClient{})
-	m.sessionID = "session-1"
-	m.setRuntimeActivityBusyForTest(true)
-	m.activeSubmit = activeSubmitState{token: 1, text: "old"}
-	m.setPendingInterrupt(true)
-	m.applyRuntimeControlDone(runtimeControlDoneMsg{
-		operation: runtimeControlInterrupt,
-		token:     m.runtimeControlTokenFor(runtimeControlInterrupt),
-		sessionID: m.sessionID,
-		err:       errors.New("interruption response lost"),
-	})
-	m.activeSubmit = activeSubmitState{token: 2, text: "new"}
-	m.handleRuntimeMainViewRefreshed(runtimeMainViewRefreshedMsg{
-		token:                  m.runtimeMainViewToken,
-		interruptedSubmitToken: textutil.Value(uint64(1)),
-		view: &runtimepb.MainView{
-			Status:  &runtimepb.Status{},
-			Session: &runtimepb.SessionView{SessionId: m.sessionID},
-			Activity: &runtimepb.Activity{
-				State:          runtimepb.ActivityState_RUNTIME_ACTIVITY_REGISTERED_IDLE,
-				Reviewer:       runtimepb.ReviewerActivity_REVIEWER_ACTIVITY_INACTIVE,
-				QueueAccepting: true,
-			},
-		},
-	})
-	if m.activeSubmit.token != 2 {
-		t.Fatal("old interrupt recovery cleared a newer submission")
-	}
-}
-
 func TestInterruptedHumanInputRestoresServerOrderBeforeComposer(t *testing.T) {
 	m := newProjectedClosedUIModel(&runtimeControlFakeClient{})
 	firstID := runtimeids.NewQueueItemID()
 	secondID := runtimeids.NewQueueItemID()
 	m.injectedQueue = []*injectedRuntimeQueueItem{
-		{ServerID: textutil.Value(firstID.String()), Text: "local stale first", State: injectedRuntimeQueueEnqueued},
-		{ServerID: textutil.Value(secondID.String()), Text: "local stale second", State: injectedRuntimeQueueEnqueued}}
+		{Request: inputAdmissionRequest{QueueItemID: firstID}, Text: "local stale first", State: injectedRuntimeQueueEnqueued},
+		{Request: inputAdmissionRequest{QueueItemID: secondID}, Text: "local stale second", State: injectedRuntimeQueueEnqueued}}
 	testSetMainInput(m, "composer")
 
 	cmd := m.applyTranscriptHumanInputInterrupted(&transcriptpb.HumanInputInterrupted{
@@ -700,13 +682,13 @@ func TestSubmitErrorShowsTransientStatusWithoutPersisting(t *testing.T) {
 	m := newProjectedStaticUIModel()
 	m.engine = client
 	m.setRuntimeActivityBusyForTest(true)
-	m.activeSubmit = activeSubmitState{token: 1, text: "prompt"}
+	m.enqueueInput("prompt", runtimeinput.Text("prompt"), runtimeinput.PendingWorkLaneSteer)
 
-	next, cmd := m.Update(submitDoneMsg{token: 1, submittedText: "prompt", err: errors.New("submit failed")})
+	next, cmd := m.Update(injectedQueueCreateDoneMsg{pending: m.injectedQueue[0], err: errors.New("submit failed")})
 	updated := next.(*uiModel)
 
-	if updated.activity != uiActivityError {
-		t.Fatalf("expected error activity, got %v", updated.activity)
+	if updated.activity != uiActivityRunning {
+		t.Fatalf("expected authoritative running activity, got %v", updated.activity)
 	}
 	for _, msg := range collectCmdMessages(t, cmd) {
 		next, _ = updated.Update(msg)
@@ -720,11 +702,16 @@ func TestSubmitErrorShowsTransientStatusWithoutPersisting(t *testing.T) {
 	}
 }
 
+func observeRuntimeOutcomeForTest(model *uiModel, err error) (struct{}, error) {
+	model.observeRuntimeRequestResult(err)
+	return struct{}{}, err
+}
+
 func TestRuntimeControlMarksDisconnectOnTransportError(t *testing.T) {
 	client := &runtimeControlFakeClient{submitErr: io.EOF}
 	m := newProjectedTestUIModel(client)
 
-	if _, err := m.submitRuntimeUserMessage(context.Background(), "prompt"); !errors.Is(err, io.EOF) {
+	if _, err := observeRuntimeOutcomeForTest(m, client.submitErr); !errors.Is(err, io.EOF) {
 		t.Fatalf("submit runtime user message err = %v, want EOF", err)
 	}
 	if !m.runtimeDisconnectStatusVisible() {
@@ -737,7 +724,7 @@ func TestRuntimeControlClearsDisconnectOnReachableServerError(t *testing.T) {
 	m := newProjectedTestUIModel(client)
 	m.setRuntimeDisconnected(true)
 
-	if _, err := m.submitRuntimeUserMessage(context.Background(), "prompt"); err == nil {
+	if _, err := observeRuntimeOutcomeForTest(m, client.submitErr); err == nil {
 		t.Fatal("expected submit runtime user message error")
 	}
 	if m.runtimeDisconnectStatusVisible() {
@@ -749,7 +736,7 @@ func TestRuntimeControlTimeoutDoesNotMarkDisconnect(t *testing.T) {
 	client := &runtimeControlFakeClient{submitErr: context.DeadlineExceeded}
 	m := newProjectedTestUIModel(client)
 
-	if _, err := m.submitRuntimeUserMessage(context.Background(), "prompt"); !errors.Is(err, context.DeadlineExceeded) {
+	if _, err := observeRuntimeOutcomeForTest(m, client.submitErr); !errors.Is(err, context.DeadlineExceeded) {
 		t.Fatalf("submit runtime user message err = %v, want deadline exceeded", err)
 	}
 	if m.runtimeDisconnectStatusVisible() {
@@ -762,7 +749,7 @@ func TestRuntimeControlTimeoutDoesNotClearExistingDisconnect(t *testing.T) {
 	m := newProjectedTestUIModel(client)
 	m.setRuntimeDisconnected(true)
 
-	if _, err := m.submitRuntimeUserMessage(context.Background(), "prompt"); !errors.Is(err, context.DeadlineExceeded) {
+	if _, err := observeRuntimeOutcomeForTest(m, client.submitErr); !errors.Is(err, context.DeadlineExceeded) {
 		t.Fatalf("submit runtime user message err = %v, want deadline exceeded", err)
 	}
 	if !m.runtimeDisconnectStatusVisible() {
@@ -774,7 +761,7 @@ func TestRuntimeControlURLTimeoutDoesNotMarkDisconnect(t *testing.T) {
 	client := &runtimeControlFakeClient{submitErr: &url.Error{Op: "Get", URL: "http://example.test", Err: timeoutNetError{}}}
 	m := newProjectedTestUIModel(client)
 
-	if _, err := m.submitRuntimeUserMessage(context.Background(), "prompt"); err == nil {
+	if _, err := observeRuntimeOutcomeForTest(m, client.submitErr); err == nil {
 		t.Fatal("expected submit runtime user message error")
 	}
 	if m.runtimeDisconnectStatusVisible() {
@@ -786,7 +773,7 @@ func TestRuntimeControlOpTimeoutDoesNotMarkDisconnect(t *testing.T) {
 	client := &runtimeControlFakeClient{submitErr: &net.OpError{Op: "read", Net: "tcp", Err: timeoutNetError{}}}
 	m := newProjectedTestUIModel(client)
 
-	if _, err := m.submitRuntimeUserMessage(context.Background(), "prompt"); err == nil {
+	if _, err := observeRuntimeOutcomeForTest(m, client.submitErr); err == nil {
 		t.Fatal("expected submit runtime user message error")
 	}
 	if m.runtimeDisconnectStatusVisible() {

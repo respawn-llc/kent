@@ -11,9 +11,9 @@ import (
 func newGrokErrorReducer(providerID string) ProviderErrorReducer {
 	return responsesErrorReducer{
 		providerID: providerID, decode: decodeGrokErrorPayload,
-		classify: func(status int, code, typ string) UnifiedErrorCode {
+		classify: func(status *int, code, typ string) UnifiedErrorCode {
 			category := classifyGrokError(status, code, typ)
-			if category == UnifiedErrorCodeUnknown && status == 402 {
+			if category == UnifiedErrorCodeUnknown && status != nil && *status == 402 {
 				if providerID == string(config.ConnectionGrokCLIProxy) {
 					return UnifiedErrorCodeUsageExhausted
 				}
@@ -84,11 +84,11 @@ func grokWKEPayload(payload responsesErrorPayload) responsesErrorPayload {
 	return payload
 }
 
-func classifyGrokError(status int, code, providerType string) UnifiedErrorCode {
+func classifyGrokError(status *int, code, providerType string) UnifiedErrorCode {
 	switch {
-	case status == 426:
+	case status != nil && *status == 426:
 		return llmerrors.UnifiedErrorCodeProtocolVersion
-	case status == 401 || code == "invalid_token" || code == "token_expired":
+	case (status != nil && *status == 401) || code == "invalid_token" || code == "token_expired":
 		return UnifiedErrorCodeAuthentication
 	case code == "personal-team-blocked:spending-limit":
 		return UnifiedErrorCodeUsageExhausted

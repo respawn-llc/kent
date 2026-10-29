@@ -321,23 +321,23 @@ func mustTranscriptHydration(t *testing.T, snapshot runtime.TranscriptHydrationS
 func TestTranscriptHydrationCarriesRuntimeNativeAssistantStreamIdentity(t *testing.T) {
 	streamID := uuid.MustParse("f84c7d21-4c94-4a54-87fd-b41f5bd01d38")
 	hydration := mustTranscriptHydration(t, runtime.TranscriptHydrationSnapshot{
-		ActiveAssistantText:     "hello",
-		ActiveAssistantMetadata: &runtime.AssistantStreamMetadata{StepID: transcriptProjectionStepID},
-		ActiveAssistantStreamID: &streamID,
-		ActiveAssistantPhase:    llm.MessagePhaseFinal,
+		ActiveAssistants: []runtime.AssistantStreamSnapshot{{
+			Text: "hello", Metadata: runtime.AssistantStreamMetadata{StepID: transcriptProjectionStepID},
+			StreamID: streamID, Phase: llm.MessagePhaseFinal,
+		}},
 	}, nil)
 
-	if hydration.ActiveAssistant == nil {
+	if len(hydration.ActiveAssistants) != 1 {
 		t.Fatal("expected active assistant stream in hydration")
 	}
-	if got := hydration.ActiveAssistant.StreamId; got != streamID.String() {
+	if got := hydration.ActiveAssistants[0].StreamId; got != streamID.String() {
 		t.Fatalf("active assistant stream id = %q, want %q", got, streamID.String())
 	}
-	if hydration.ActiveAssistant.Text != "hello" {
-		t.Fatalf("active assistant stream text = %q, want hello", hydration.ActiveAssistant.Text)
+	if hydration.ActiveAssistants[0].Text != "hello" {
+		t.Fatalf("active assistant stream text = %q, want hello", hydration.ActiveAssistants[0].Text)
 	}
-	if hydration.ActiveAssistant.Phase != transcriptpb.AssistantPhase_ASSISTANT_PHASE_FINAL {
-		t.Fatalf("active assistant stream phase = %q, want final", hydration.ActiveAssistant.Phase)
+	if hydration.ActiveAssistants[0].Phase != transcriptpb.AssistantPhase_ASSISTANT_PHASE_FINAL {
+		t.Fatalf("active assistant stream phase = %q, want final", hydration.ActiveAssistants[0].Phase)
 	}
 }
 
@@ -1163,8 +1163,9 @@ func TestTranscriptPageProjectsReviewerAndBackgroundMetadata(t *testing.T) {
 
 func TestTranscriptHydrationRejectsAssistantStreamWithoutRuntimeIdentity(t *testing.T) {
 	_, err := TranscriptHydrationFromSnapshotChecked(runtime.TranscriptHydrationSnapshot{
-		ActiveAssistantText:     "hello",
-		ActiveAssistantMetadata: &runtime.AssistantStreamMetadata{StepID: transcriptProjectionStepID},
+		ActiveAssistants: []runtime.AssistantStreamSnapshot{{
+			Text: "hello", Metadata: runtime.AssistantStreamMetadata{StepID: transcriptProjectionStepID},
+		}},
 	}, &transcriptpb.TailSegment{})
 	if err == nil {
 		t.Fatal("expected missing assistant stream identity to be rejected")

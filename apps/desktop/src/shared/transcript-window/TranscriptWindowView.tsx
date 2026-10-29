@@ -100,10 +100,9 @@ export function TranscriptWindowView({
     { loadingLabel, retryLabel, errorMessage: boundaryErrorMessage, suppressed: tailFailure !== undefined },
     emitInput,
   );
-  const activeAssistantKey = snapshot?.activeAssistant?.key;
   const pinnedItemKeys = useMemo(
-    () => new Set(activeAssistantKey === undefined ? [] : [activeAssistantKey]),
-    [activeAssistantKey],
+    () => new Set(snapshot?.activeAssistants.map((item) => item.key)),
+    [snapshot?.activeAssistants],
   );
 
   return (
@@ -196,7 +195,7 @@ function itemWrapperProps(item: ViewItem, snapshot: TranscriptWindowSnapshot | n
         ? { height: 0, overflow: "hidden", padding: 0, visibility: "hidden" as const }
         : undefined,
     className:
-      item.kind === "tool" || item.kind === "notice"
+      item.kind === "tool" || item.kind === "tool_call" || item.kind === "notice"
         ? "transcript-window-disclosure-row"
         : item.kind === "user" || item.kind === "assistant" || item.kind === "local-message"
           ? "transcript-window-message-row"
@@ -227,6 +226,7 @@ function ViewItemContent({
     case "assistant":
       return slots.assistant(item);
     case "tool":
+    case "tool_call":
       return slots.tool(item);
     case "reasoning_trace":
       return slots.reasoning(item);
@@ -283,10 +283,7 @@ function transcriptViewItems(
             content: message.content,
           }));
   if (snapshot === null) return failed ? [...previews, failureItem] : previews;
-  const items =
-    !snapshot.showsLive && snapshot.activeAssistant !== null
-      ? [...snapshot.items, snapshot.activeAssistant]
-      : snapshot.items;
+  const items = !snapshot.showsLive ? [...snapshot.items, ...snapshot.activeAssistants] : snapshot.items;
   if (failed) return [...items, ...previews, failureItem];
   return snapshot.showsLive ? [...items, ...previews, statusItem] : [...items, ...previews];
 }

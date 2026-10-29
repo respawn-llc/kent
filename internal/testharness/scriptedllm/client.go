@@ -197,6 +197,11 @@ func (c *Client) completeStep(ctx context.Context, req llm.Request, step Step, c
 			}
 		}
 	}
+	if callbacks != nil && callbacks.OnAssistantSourceComplete != nil {
+		for _, source := range step.SourceCompletions {
+			callbacks.OnAssistantSourceComplete(source)
+		}
+	}
 	if step.AfterResponse != nil {
 		if err := step.AfterResponse(ctx); err != nil {
 			return llm.Response{}, err

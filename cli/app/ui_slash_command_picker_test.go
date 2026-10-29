@@ -3,6 +3,7 @@ package app
 import (
 	"core/cli/app/commands"
 	authpb "core/shared/protoapi/gen/kent/api/auth"
+	chatpb "core/shared/protoapi/gen/kent/api/chat"
 	"core/shared/textutil"
 	"errors"
 	tea "github.com/charmbracelet/bubbletea"
@@ -20,6 +21,7 @@ func refreshSlashCommandFilterForTest(t *testing.T, m *uiModel) {
 
 func TestSlashCommandEnterIgnoresWhitespaceImmediatelyAfterSlash(t *testing.T) {
 	m := newProjectedStaticUIModel()
+	m.presentationTarget = &uiNewSessionTarget{creation: &chatpb.NewChatTarget{}}
 	m.sessionName = textutil.Value("existing")
 	testSetMainInput(m, "/ name")
 

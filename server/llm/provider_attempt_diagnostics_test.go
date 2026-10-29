@@ -34,14 +34,15 @@ type providerAttemptLog struct {
 
 func TestProviderAttemptDiagnosticsPreserveIdentityAndReportedUsage(t *testing.T) {
 	tests := []struct {
-		name     string
-		status   int
-		event    string
-		failed   bool
-		hasUsage bool
-		canceled bool
-		compact  bool
-		debugOff bool
+		name        string
+		status      int
+		event       string
+		failed      bool
+		hasUsage    bool
+		canceled    bool
+		compact     bool
+		debugOff    bool
+		errorStatus *int
 	}{
 		{
 			name: "generation without debug", status: http.StatusOK, debugOff: true,
@@ -64,6 +65,14 @@ func TestProviderAttemptDiagnosticsPreserveIdentityAndReportedUsage(t *testing.T
 			event: `{"type":"response.incomplete","response":{"id":"response-1","model":"gpt-6-sol","incomplete_details":{"reason":"max_output_tokens"},"usage":{"input_tokens":10,"input_tokens_details":{"cached_tokens":0},"output_tokens":4,"total_tokens":14},"output":[]}}`,
 		},
 		{
+			name: "protocol rejection without status", status: http.StatusOK, failed: true,
+			event: `{"type":"error","error":{"code":"insufficient_quota","type":"allowance","message":"unavailable"}}`,
+		},
+		{
+			name: "protocol rate limit", status: http.StatusOK, failed: true, errorStatus: textutil.Value(429),
+			event: `{"type":"error","status":429,"error":{"code":"rate_limit_exceeded","type":"rate_limit","message":"retry later"}}`,
+		},
+		{
 			name: "caller cancellation", status: http.StatusOK, failed: true, canceled: true,
 			event: `{"type":"response.created","response":{"id":"response-1","model":"gpt-6-sol","output":[]}}`,
 		},
@@ -82,11 +91,17 @@ func TestProviderAttemptDiagnosticsPreserveIdentityAndReportedUsage(t *testing.T
 			previous := slog.Default()
 			slog.SetDefault(slog.New(slog.NewJSONHandler(&logs, nil)))
 			t.Cleanup(func() { slog.SetDefault(previous) })
-			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 				if test.status != http.StatusOK {
 					w.Header().Set("Content-Type", "application/json")
 					w.WriteHeader(test.status)
 					_, _ = fmt.Fprint(w, test.event)
+					return
+				}
+				if !test.compact {
+					serveResponsesTestWebsocket(t, w, r, func(json.RawMessage) []string {
+						return []string{test.event}
+					})
 					return
 				}
 				w.Header().Set("Content-Type", "text/event-stream")
@@ -135,6 +150,7 @@ func TestProviderAttemptDiagnosticsPreserveIdentityAndReportedUsage(t *testing.T
 			if len(attempts) != 2 {
 				t.Fatalf("observed physical attempts = %d, want 2", len(attempts))
 			}
+			upgrades := 0
 			for _, records := range attempts {
 				if len(records) != 2 || records[0].Kind != "started" || records[1].Kind != "finished" {
 					t.Fatalf("attempt lifecycle = %+v, want started and finished", records)
@@ -152,8 +168,22 @@ func TestProviderAttemptDiagnosticsPreserveIdentityAndReportedUsage(t *testing.T
 				if test.canceled {
 					outcome = "canceled"
 				}
-				if finished.Outcome != outcome || finished.HTTPStatus == nil || *finished.HTTPStatus != test.status {
+				if finished.Outcome != outcome {
 					t.Fatalf("attempt outcome = %+v", finished)
+				}
+				if test.compact || test.status != http.StatusOK {
+					if finished.HTTPStatus == nil || *finished.HTTPStatus != test.status {
+						t.Fatalf("HTTP attempt status = %+v", finished.HTTPStatus)
+					}
+				} else if test.failed {
+					if (finished.HTTPStatus == nil) != (test.errorStatus == nil) || (finished.HTTPStatus != nil && *finished.HTTPStatus != *test.errorStatus) {
+						t.Fatalf("failure diagnostic status=%v expected=%v", finished.HTTPStatus, test.errorStatus)
+					}
+				} else if finished.HTTPStatus != nil {
+					if *finished.HTTPStatus != http.StatusSwitchingProtocols {
+						t.Fatalf("WebSocket handshake status = %d", *finished.HTTPStatus)
+					}
+					upgrades++
 				}
 				operation := "generation"
 				if test.compact {
@@ -176,6 +206,15 @@ func TestProviderAttemptDiagnosticsPreserveIdentityAndReportedUsage(t *testing.T
 					finished.OutputTokens == nil || *finished.OutputTokens != 4 ||
 					finished.ResponseID == nil || *finished.ResponseID != "response-1" {
 					t.Fatalf("reported usage = %+v", finished)
+				}
+			}
+			if !test.compact && test.status == http.StatusOK {
+				expectedUpgrades := 1
+				if test.failed {
+					expectedUpgrades = 0
+				}
+				if upgrades != expectedUpgrades {
+					t.Fatalf("handshake attempts = %d, want %d", upgrades, expectedUpgrades)
 				}
 			}
 		})

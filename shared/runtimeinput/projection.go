@@ -27,6 +27,9 @@ func (c PromptCommand) CanonicalHistoryText() string {
 }
 
 func (i Input) CanonicalHistoryText() string {
+	if i.Kind == KindShell {
+		return i.Shell.CanonicalInput()
+	}
 	if i.Kind == KindText {
 		return *i.Text
 	}
@@ -34,6 +37,9 @@ func (i Input) CanonicalHistoryText() string {
 }
 
 func (i Input) ExecutionText(resolve func(PromptCommand) (string, error)) (string, error) {
+	if i.Kind == KindShell {
+		return "", errors.New("Shell input requires executable action admission")
+	}
 	if i.Kind == KindText {
 		return *i.Text, nil
 	}

@@ -9,6 +9,7 @@ import (
 	"testing/synctest"
 
 	"core/server/llm"
+	"core/shared/textutil"
 )
 
 type countingFailingStreamClient struct {
@@ -41,7 +42,7 @@ func TestGenerateWithRetryRetryPolicyByToolChoice(t *testing.T) {
 		{
 			name:         "automatic retriable uses full budget",
 			request:      llm.Request{ToolChoiceMode: llm.ToolChoiceModeAutomatic, Model: "gpt-6-sol", ReasoningEffort: "high"},
-			err:          &llm.ProviderAPIError{ProviderID: "openai", StatusCode: 503, Code: llm.UnifiedErrorCodeUnknown, Message: "overloaded"},
+			err:          &llm.ProviderAPIError{ProviderID: "openai", StatusCode: textutil.Value(503), Code: llm.UnifiedErrorCodeUnknown, Message: "overloaded"},
 			wantAttempts: int32(len(generateRetryDelays) + 1),
 		},
 		{
@@ -54,7 +55,7 @@ func TestGenerateWithRetryRetryPolicyByToolChoice(t *testing.T) {
 					Schema: mustTestFunctionSchema(t),
 				}}, ReasoningEffort: "high",
 			},
-			err:          &llm.ProviderAPIError{StatusCode: 503, Code: llm.UnifiedErrorCodeUnknown},
+			err:          &llm.ProviderAPIError{StatusCode: textutil.Value(503), Code: llm.UnifiedErrorCodeUnknown},
 			wantAttempts: int32(len(generateRetryDelays) + 1),
 		},
 		{
@@ -78,7 +79,7 @@ func TestGenerateWithRetryRetryPolicyByToolChoice(t *testing.T) {
 				eng := mustNewTestEngine(t, store, &fakeClient{}, newTestToolRegistry(t), Config{Model: "gpt-6-sol"})
 				retriable := &countingFailingStreamClient{err: tt.err}
 
-				if _, err := eng.generateWithRetryClient(context.Background(), "step-1", newObservedModelClient(retriable), tt.request, nil, nil, nil); err == nil {
+				if _, err := eng.generateWithRetryClient(context.Background(), "step-1", newObservedModelClient(retriable), tt.request, llm.StreamCallbacks{}, nil); err == nil {
 					t.Fatal("expected retry-policy failure to surface")
 				}
 				if got := retriable.calls.Load(); got != tt.wantAttempts {
@@ -112,8 +113,10 @@ func testRequiredRetryClearsIncompleteAssistantReasoningAndTools(t *testing.T) {
 	var sequence []EventKind
 	resp, err := engine.generateWithRetryClient(context.Background(), runtimeTestStepID("step"), newObservedModelClient(&retryingEventsClient{}),
 		llm.Request{Model: "gpt-6-sol", ToolChoiceMode: llm.ToolChoiceModeRequired, ReasoningEffort: "high"},
-		func(_ llm.AssistantDelta) { sequence = append(sequence, EventAssistantDelta) },
-		func(_ llm.ReasoningSummaryDelta) { sequence = append(sequence, EventReasoningDelta) },
+		llm.StreamCallbacks{
+			OnAssistantDelta:        func(_ llm.AssistantDelta) { sequence = append(sequence, EventAssistantDelta) },
+			OnReasoningSummaryDelta: func(_ llm.ReasoningSummaryDelta) { sequence = append(sequence, EventReasoningDelta) },
+		},
 		func() { sequence = append(sequence, EventAssistantDeltaReset, EventReasoningDeltaReset) },
 	)
 	if err != nil || len(resp.response.ToolCalls) != 0 || len(sequence) != 6 || sequence[0] != EventAssistantDelta || sequence[1] != EventReasoningDelta || sequence[2] != EventAssistantDeltaReset || sequence[3] != EventReasoningDeltaReset || sequence[4] != EventAssistantDelta || sequence[5] != EventReasoningDelta {
@@ -125,13 +128,13 @@ func TestRetryBudgetResetsAfterSuccessAndRetainsOverloadCause(t *testing.T) {
 }
 
 func testRetryBudgetResetsAfterSuccessAndRetainsOverloadCause(t *testing.T) {
-	cause := &llm.ProviderAPIError{StatusCode: 200, Code: llm.UnifiedErrorCodeProviderOverload}
-	client := &fakeClient{errors: []error{&llm.ProviderAPIError{ProviderID: "openai", StatusCode: 503, Code: llm.UnifiedErrorCodeUnknown}, nil, cause, cause, cause, cause, cause, cause}}
+	cause := &llm.ProviderAPIError{StatusCode: textutil.Value(200), Code: llm.UnifiedErrorCodeProviderOverload}
+	client := &fakeClient{errors: []error{&llm.ProviderAPIError{ProviderID: "openai", StatusCode: textutil.Value(503), Code: llm.UnifiedErrorCodeUnknown}, nil, cause, cause, cause, cause, cause, cause}}
 	engine := mustNewTestEngine(t, mustCreateTestSession(t), client, newTestToolRegistry(t), Config{Model: "gpt-6-sol"})
-	if _, err := engine.generateWithRetryClient(context.Background(), runtimeTestStepID("first"), newObservedModelClient(client), llm.Request{Model: "gpt-6-sol", ToolChoiceMode: llm.ToolChoiceModeAutomatic, ReasoningEffort: "high"}, nil, nil, nil); err != nil {
+	if _, err := engine.generateWithRetryClient(context.Background(), runtimeTestStepID("first"), newObservedModelClient(client), llm.Request{Model: "gpt-6-sol", ToolChoiceMode: llm.ToolChoiceModeAutomatic, ReasoningEffort: "high"}, llm.StreamCallbacks{}, nil); err != nil {
 		t.Fatalf("first generation: %v", err)
 	}
-	_, err := engine.generateWithRetryClient(context.Background(), runtimeTestStepID("second"), newObservedModelClient(client), llm.Request{Model: "gpt-6-sol", ToolChoiceMode: llm.ToolChoiceModeAutomatic, ReasoningEffort: "high"}, nil, nil, nil)
+	_, err := engine.generateWithRetryClient(context.Background(), runtimeTestStepID("second"), newObservedModelClient(client), llm.Request{Model: "gpt-6-sol", ToolChoiceMode: llm.ToolChoiceModeAutomatic, ReasoningEffort: "high"}, llm.StreamCallbacks{}, nil)
 	if !errors.Is(err, cause) || fakeClientCallCount(client) != 2+len(generateRetryDelays)+1 {
 		t.Fatalf("exhausted overload = %v, calls = %d", err, fakeClientCallCount(client))
 	}

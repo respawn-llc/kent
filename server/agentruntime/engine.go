@@ -440,7 +440,11 @@ func (e *Engine) Close() error {
 	e.lifecycleWG.Wait()
 	e.runtimeFIFO.Close()
 	abortErr := e.steerLifecycleClose(steerLiveToolAbortIntent("canceled"))
-	return errors.Join(interruptErr, abortErr)
+	var main *observedModelClient
+	if connection := e.connectionSnapshot(); connection != nil {
+		main = connection.client
+	}
+	return errors.Join(interruptErr, abortErr, main.Close(), e.reviewerState.Client().Close())
 }
 
 func (e *Engine) BeginRetirement() bool {
@@ -579,7 +583,8 @@ func (e *Engine) launchLifecycleTaskWithCompletion(
 
 type QueuedUserMessage struct {
 	ID                    string
-	Message               llm.Message
+	Message               *llm.Message
+	Shell                 *runtimeinput.ShellCommand
 	CanonicalPresentation string
 	Disposition           runtimeinput.InputAdmissionDisposition
 }
@@ -654,14 +659,35 @@ func (e *Engine) queueMessage(ctx context.Context, id string, message llm.Messag
 }
 
 func (e *Engine) queueMessageRaw(id string, message llm.Message, presentation string, namingTask *string, forceAutoDrain, autoStart bool, accept CommandAcceptance) (QueuedUserMessage, error) {
+	return e.queueActionRaw(QueuedUserMessage{
+		ID: id, Message: &message, CanonicalPresentation: presentation,
+	}, namingTask, forceAutoDrain, autoStart, accept)
+}
+
+// QueueShellInput accepts executable work in the ordinary Steer/Queue owner.
+// Completion is delivered by the Runtime, independently of the admission caller.
+func (e *Engine) QueueShellInput(ctx context.Context, id runtimeids.QueueItemID, command runtimeinput.ShellCommand, lane runtimeinput.PendingWorkLane, accept CommandAcceptance) (QueuedUserMessage, error) {
+	if id.IsZero() || strings.TrimSpace(command.Command) == "" {
+		return QueuedUserMessage{}, errors.New("Shell requires a Queue Item identity and command")
+	}
+	if lane != runtimeinput.PendingWorkLaneQueue && lane != runtimeinput.PendingWorkLaneSteer {
+		return QueuedUserMessage{}, fmt.Errorf("invalid Shell lane %q", lane)
+	}
+	if e == nil || e.closed.Load() {
+		return QueuedUserMessage{}, ErrEngineClosed
+	}
+	if err := context.Cause(ctx); err != nil {
+		return QueuedUserMessage{}, err
+	}
+	return e.queueActionRaw(QueuedUserMessage{
+		ID: id.String(), Shell: &command, CanonicalPresentation: command.CanonicalInput(),
+	}, nil, lane == runtimeinput.PendingWorkLaneSteer, true, accept)
+}
+
+func (e *Engine) queueActionRaw(liveItem QueuedUserMessage, namingTask *string, forceAutoDrain, autoStart bool, accept CommandAcceptance) (QueuedUserMessage, error) {
 	e.ensureOrchestrationCollaborators()
 	if err := e.requirePendingWorkCapacity(); err != nil {
 		return QueuedUserMessage{}, err
-	}
-	liveItem := QueuedUserMessage{
-		ID:                    id,
-		Message:               message,
-		CanonicalPresentation: presentation,
 	}
 	lane := runtimeinput.PendingWorkLaneQueue
 	if forceAutoDrain {
@@ -761,7 +787,7 @@ func (e *Engine) acceptPendingMessage(item QueuedUserMessage, lane runtimeinput.
 		e.lifecycleMu.Unlock()
 		return QueuedUserMessage{}, fmt.Errorf("invalid pending message lane %q", lane)
 	}
-	if item.Message.Role == llm.RoleUser && item.Message.Content != nil {
+	if item.Message != nil && item.Message.Role == llm.RoleUser && item.Message.Content != nil {
 		if err := e.store.CaptureInitialPromptPreview(*item.Message.Content); err != nil {
 			e.outputMutationMu.Unlock()
 			e.lifecycleMu.Unlock()
@@ -770,6 +796,9 @@ func (e *Engine) acceptPendingMessage(item QueuedUserMessage, lane runtimeinput.
 	}
 	if autoStart && !e.stepLifecycle.IsBusy() && !e.HasScheduledQueuedUserWork() {
 		disposition = runtimeinput.InputAdmissionStartedTurn
+		if item.Shell != nil {
+			disposition = runtimeinput.InputAdmissionStartedShell
+		}
 	}
 	queued, err := e.messageFlow.QueueUserMessageWithID(item, association)
 	queued.Disposition = disposition
@@ -778,8 +807,8 @@ func (e *Engine) acceptPendingMessage(item QueuedUserMessage, lane runtimeinput.
 		if namingTask != nil {
 			e.captureSessionNamingRaw(*namingTask)
 		}
-		if association.steerAdmission != nil {
-			e.markSupervisorSteerRaw(queued.Message)
+		if association.steerAdmission != nil && queued.Message != nil {
+			e.markSupervisorSteerRaw(*queued.Message)
 		}
 		e.emitQueuedUserMessageStatus(queued, QueuedUserMessageAccepted, "", false)
 	}
@@ -965,102 +994,48 @@ func (e *Engine) SubmitWorkflowTurn(ctx context.Context) (result WorkflowTurnRes
 	return result, err
 }
 
-func (e *Engine) SubmitUserShellCommand(ctx context.Context, command string) (result tools.Result, err error) {
-	return e.submitUserShellCommand(ctx, command, nil, nil)
+type userShellOutcome struct {
+	message *llm.Message
 }
 
-func (e *Engine) SubmitUserShellCommandWithActiveHook(ctx context.Context, command string, onActive func()) (result tools.Result, err error) {
-	return e.submitUserShellCommand(ctx, command, onActive, nil)
-}
-
-func (e *Engine) SubmitUserShellCommandWithAcceptance(ctx context.Context, command string, accept CommandAcceptance) (result tools.Result, err error) {
-	return e.submitUserShellCommand(ctx, command, nil, accept)
-}
-
-func (e *Engine) submitUserShellCommand(ctx context.Context, command string, onActive func(), accept CommandAcceptance) (result tools.Result, err error) {
-	command = strings.TrimSpace(command)
-	if command == "" {
-		return tools.Result{}, errors.New("empty command")
+// The caller owns execution. This core neither acquires another execution nor
+// waits on the Runtime FIFO, which is paused at an Agent Step Boundary.
+func (e *Engine) executeUserShell(ctx context.Context, stepID string, command runtimeinput.ShellCommand) (userShellOutcome, error) {
+	call := llm.ToolCall{
+		ID: uuid.NewString(), Name: string(toolspec.ToolExecCommand),
+		Input: mustJSON(map[string]string{"cmd": command.Command}),
 	}
-	terminal, err := awaitEngineRuntimeOperation(ctx, e, func(context.Context) (runtimeDeferred[tools.Result], error) {
-		deferred := newRuntimeDeferred[tools.Result]()
-		launched := e.launchLifecycleTask(func(lifecycleCtx context.Context) *resultGroupFatal {
-			result, runErr := e.runUserShellCommand(lifecycleCtx, command, onActive, accept)
-			deferred.complete(result, runErr)
-			fatal, abort := resultGroupFatalFromError(runErr)
-			if abort {
-				return fatal
-			}
-			return nil
-		})
-		if !launched {
-			deferred.complete(tools.Result{}, ErrEngineClosed)
+	_, registered := e.registry.Get(toolspec.ToolExecCommand)
+	result, completed, execErr := e.executePreparedToolCall(ctx, stepID, call, toolspec.ToolExecCommand, true, nil, nil)
+	if !completed {
+		if execErr == nil {
+			execErr = errors.New("shell tool execution returned no result")
 		}
-		return deferred, nil
-	})
-	if err != nil {
-		return tools.Result{}, err
+		result = shelltool.ErrorResult(tools.Call{ID: call.ID, Name: toolspec.ToolExecCommand}, execErr.Error())
 	}
-	return terminal.Await(ctx)
+	outcome := userShellOutcome{}
+	var output string
+	if err := json.Unmarshal(result.Output, &output); err != nil {
+		return outcome, errors.Join(execErr, fmt.Errorf("shell tool returned non-text output: %w", err))
+	}
+	outcome.message = &llm.Message{
+		Role: llm.RoleUser, MessageType: textutil.Value(llm.MessageTypeUserShellCommand),
+		Content:        textutil.Value(fmt.Sprintf("User ran a shell command:\n<command>%s</command>\n%s", command.Command, output)),
+		CompactContent: textutil.Value(command.Command),
+	}
+	if !registered {
+		execErr = errors.Join(execErr, errUnknownTool)
+	}
+	return outcome, execErr
 }
 
-func (e *Engine) runUserShellCommand(ctx context.Context, command string, onActive func(), accept CommandAcceptance) (result tools.Result, err error) {
-	e.ensureOrchestrationCollaborators()
-	err = e.stepLifecycle.RunNext(ctx, exclusiveStepOptions{EmitRunState: true, ActiveKind: ActiveKindUserShell}, func(stepCtx context.Context, stepID string) error {
-		if onActive != nil {
-			onActive()
-		}
-		if err := e.ensureMetaContextForRequest(stepCtx, stepID); err != nil {
-			return err
-		}
-
-		call := llm.ToolCall{
-			ID:    uuid.NewString(),
-			Name:  string(toolspec.ToolExecCommand),
-			Input: mustJSON(map[string]string{"cmd": command}),
-		}
-		accepted, acceptErr := runCommandAcceptance(accept, func() (bool, error) {
-			// Acceptance commits live server-owned work. Its user message is
-			// recorded once the command tool has returned its formatted output.
-			return true, nil
-		})
-		if err := commandAcceptanceResult(accepted, acceptErr); err != nil {
-			return err
-		}
-		_, registered := e.registry.Get(toolspec.ToolExecCommand)
-		var completed bool
-		var execErr error
-		result, completed, execErr = e.executePreparedToolCall(
-			stepCtx, stepID, call,
-			toolspec.ToolExecCommand, true, nil, nil,
-		)
-		if !completed {
-			if execErr == nil {
-				execErr = errors.New("shell tool execution returned no result")
-			}
-			result = shelltool.ErrorResult(tools.Call{ID: call.ID, Name: toolspec.ToolExecCommand}, execErr.Error())
-		}
-		var output string
-		if decodeErr := json.Unmarshal(result.Output, &output); decodeErr != nil {
-			return errors.Join(execErr, fmt.Errorf("shell tool returned non-text output: %w", decodeErr))
-		}
-		message := llm.Message{
-			Role:           llm.RoleUser,
-			MessageType:    textutil.Value(llm.MessageTypeUserShellCommand),
-			Content:        textutil.Value(fmt.Sprintf("User ran a shell command:\n<command>%s</command>\n%s", command, output)),
-			CompactContent: textutil.Value(command),
-		}
-		_, persistErr := awaitEngineRuntimeOperation(context.Background(), e, func(context.Context) (struct{}, error) {
-			return struct{}{}, e.steer(stepID, steerMessagesWithPersistenceIntent(
-				steeringPriorityNormal, steeringMessageEventDefault, true, []llm.Message{message},
-			))
-		})
-		if !registered {
-			execErr = errors.Join(execErr, errUnknownTool)
-		}
-		return errors.Join(execErr, persistErr)
+func (e *Engine) publishUserShellResult(stepID string, message llm.Message, source *runtimeids.QueueItemID) (session.CommitReceipt, error) {
+	return e.steerWithCommitReceipt(stepID, steeringIntent{
+		priority: steeringPriorityUser,
+		items: []steeringItem{{message: &steeringMessage{
+			message: message, eventPolicy: steeringMessageEventDefault, persist: true, queueItemID: source,
+		}}},
 	})
-	return result, err
 }
 
 func (e *Engine) runStepLoop(ctx context.Context, stepID string) (llm.Message, error) {
@@ -1175,42 +1150,53 @@ func (e *Engine) ensureLocked() (session.LockedContract, error) {
 // each iteration so the retry observes the appended synthetic outputs. When the
 // 400 is unrelated to missing outputs (nothing to repair), the original error is
 // returned unchanged.
-func (e *Engine) generateWithMissingToolOutputRepair(ctx context.Context, stepID string, rebuild func() (llm.Request, error), onDelta func(llm.AssistantDelta), onReasoningDelta func(llm.ReasoningSummaryDelta), onAttemptReset func()) (successfulRequestCandidate, error) {
+func (e *Engine) generateWithMissingToolOutputRepair(ctx context.Context, stepID string, rebuild func() (llm.Request, error), callbacks llm.StreamCallbacks, onAttemptReset func()) (successfulRequestCandidate, error) {
 	return withConnectionFallback(ctx,
 		func(ctx context.Context, selection ConnectionSelectionRequest) (*connectionBundle, error) {
 			return e.selectConnection(ctx, stepID, selection)
 		},
 		func(connection *connectionBundle) (successfulRequestCandidate, error) {
-			return e.generateRepairAttempt(ctx, stepID, connection, rebuild, onDelta, onReasoningDelta, onAttemptReset)
+			return e.generateRepairAttempt(ctx, stepID, connection, rebuild, callbacks, onAttemptReset)
 		})
 }
 
-func (e *Engine) generateRepairAttempt(ctx context.Context, stepID string, connection *connectionBundle, rebuild func() (llm.Request, error), onDelta func(llm.AssistantDelta), onReasoningDelta func(llm.ReasoningSummaryDelta), onAttemptReset func()) (successfulRequestCandidate, error) {
+func (e *Engine) generateRepairAttempt(ctx context.Context, stepID string, connection *connectionBundle, rebuild func() (llm.Request, error), callbacks llm.StreamCallbacks, onAttemptReset func()) (successfulRequestCandidate, error) {
 	for {
 		req, err := rebuild()
 		if err != nil {
 			return successfulRequestCandidate{}, err
 		}
 		var emitted atomic.Bool
-		wrappedDelta := onDelta
-		if onDelta != nil {
-			wrappedDelta = func(delta llm.AssistantDelta) {
+		wrapped := callbacks
+		if callbacks.OnAssistantSourceComplete != nil {
+			wrapped.OnAssistantSourceComplete = func(source llm.AssistantSource) {
+				emitted.Store(true)
+				callbacks.OnAssistantSourceComplete(source)
+			}
+		}
+		if callbacks.OnAssistantDelta != nil {
+			wrapped.OnAssistantDelta = func(delta llm.AssistantDelta) {
 				if delta.Text != "" {
 					emitted.Store(true)
 				}
-				onDelta(delta)
+				callbacks.OnAssistantDelta(delta)
 			}
 		}
-		wrappedReasoningDelta := onReasoningDelta
-		if onReasoningDelta != nil {
-			wrappedReasoningDelta = func(delta llm.ReasoningSummaryDelta) {
+		if callbacks.OnReasoningSummaryDelta != nil {
+			wrapped.OnReasoningSummaryDelta = func(delta llm.ReasoningSummaryDelta) {
 				if strings.TrimSpace(delta.Text) != "" {
 					emitted.Store(true)
 				}
-				onReasoningDelta(delta)
+				callbacks.OnReasoningSummaryDelta(delta)
 			}
 		}
-		candidate, err := e.generateWithRetryClient(ctx, stepID, connection.client, req, wrappedDelta, wrappedReasoningDelta, onAttemptReset)
+		if callbacks.OnOutputItem != nil {
+			wrapped.OnOutputItem = func(item llm.ResponseItem) {
+				emitted.Store(true)
+				callbacks.OnOutputItem(item)
+			}
+		}
+		candidate, err := e.generateWithRetryClient(ctx, stepID, connection.client, req, wrapped, onAttemptReset)
 		if err == nil {
 			return candidate, nil
 		}
@@ -1233,11 +1219,11 @@ func (e *Engine) generateRepairAttempt(ctx context.Context, stepID string, conne
 	}
 }
 
-func (e *Engine) generateWithRetryClient(ctx context.Context, stepID string, client *observedModelClient, req llm.Request, onDelta func(llm.AssistantDelta), onReasoningDelta func(llm.ReasoningSummaryDelta), onAttemptReset func()) (successfulRequestCandidate, error) {
-	return e.generateWithRetryPolicy(ctx, stepID, client, req, modelRequestRetriesAllowed, onDelta, onReasoningDelta, onAttemptReset)
+func (e *Engine) generateWithRetryClient(ctx context.Context, stepID string, client *observedModelClient, req llm.Request, callbacks llm.StreamCallbacks, onAttemptReset func()) (successfulRequestCandidate, error) {
+	return e.generateWithRetryPolicy(ctx, stepID, client, req, modelRequestRetriesAllowed, callbacks, onAttemptReset)
 }
 
-func (e *Engine) generateWithRetryPolicy(ctx context.Context, stepID string, client *observedModelClient, req llm.Request, retryPolicy modelRequestRetryPolicy, onDelta func(llm.AssistantDelta), onReasoningDelta func(llm.ReasoningSummaryDelta), onAttemptReset func()) (successfulRequestCandidate, error) {
+func (e *Engine) generateWithRetryPolicy(ctx context.Context, stepID string, client *observedModelClient, req llm.Request, retryPolicy modelRequestRetryPolicy, callbacks llm.StreamCallbacks, onAttemptReset func()) (successfulRequestCandidate, error) {
 	estimator := e.connectionSnapshot().estimator
 	observed, err := e.prepareCacheObservedRequest(
 		ctx,
@@ -1250,22 +1236,21 @@ func (e *Engine) generateWithRetryPolicy(ctx context.Context, stepID string, cli
 	if err != nil {
 		return successfulRequestCandidate{}, err
 	}
-	resp, err := e.generateObservedWithRetry(ctx, stepID, client, observed, retryPolicy, onDelta, onReasoningDelta, onAttemptReset)
+	resp, err := e.generateObservedWithRetry(ctx, stepID, client, observed, retryPolicy, callbacks, onAttemptReset)
 	if err != nil {
 		return successfulRequestCandidate{}, err
 	}
 	return newSuccessfulRequestCandidate(estimator, observed.request, resp), nil
 }
 
-func (e *Engine) generateObservedWithRetry(ctx context.Context, stepID string, client *observedModelClient, observed cacheObservedRequest, retryPolicy modelRequestRetryPolicy, onDelta func(llm.AssistantDelta), onReasoningDelta func(llm.ReasoningSummaryDelta), onAttemptReset func()) (llm.Response, error) {
+func (e *Engine) generateObservedWithRetry(ctx context.Context, stepID string, client *observedModelClient, observed cacheObservedRequest, retryPolicy modelRequestRetryPolicy, callbacks llm.StreamCallbacks, onAttemptReset func()) (llm.Response, error) {
 	publishedProviderDiagnostics := make(map[llm.CodexTurnStateDiagnosticCategory]struct{}, 2)
 	return generateWithRetryClient(
 		ctx,
 		client,
 		observed,
 		retryPolicy,
-		onDelta,
-		onReasoningDelta,
+		callbacks,
 		onAttemptReset,
 		func() {
 			e.publishProviderTurnStateDiagnostics(stepID, observed.request.CodexDispatch, publishedProviderDiagnostics)
@@ -1278,8 +1263,7 @@ func generateWithRetryClient(
 	client *observedModelClient,
 	observed cacheObservedRequest,
 	retryPolicy modelRequestRetryPolicy,
-	onDelta func(llm.AssistantDelta),
-	onReasoningDelta func(llm.ReasoningSummaryDelta),
+	callbacks llm.StreamCallbacks,
 	onAttemptReset func(),
 	onAttemptFinished func(),
 ) (llm.Response, error) {
@@ -1296,7 +1280,7 @@ func generateWithRetryClient(
 				var observationErr *cacheObservationDispatchError
 				return errors.As(err, &observationErr)
 			},
-			OnDelta: onDelta, OnReasoningDelta: onReasoningDelta,
+			Callbacks:      callbacks,
 			OnAttemptReset: onAttemptReset, OnAttemptFinished: onAttemptFinished,
 		})
 }

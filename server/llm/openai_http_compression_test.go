@@ -31,7 +31,7 @@ func compressionDispatch(t *testing.T, kind CodexRequestKind) (*string, *CodexDi
 	return textutil.Value("session-1"), dispatch
 }
 
-func TestGenerateChatGPTCodexCompressesLargeResponsesBodyWithZstd(t *testing.T) {
+func TestCompactChatGPTCodexCompressesLargeResponsesBodyWithZstd(t *testing.T) {
 	var requestEncoding string
 	var requestBody []byte
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -40,7 +40,7 @@ func TestGenerateChatGPTCodexCompressesLargeResponsesBodyWithZstd(t *testing.T) 
 		w.Header().Set("Content-Type", "text/event-stream")
 		var compressed bytes.Buffer
 		writer := gzip.NewWriter(&compressed)
-		_, _ = writer.Write([]byte("data: " + completedResponseSSEJSON + "\n\ndata: [DONE]\n\n"))
+		_, _ = writer.Write([]byte("data: " + completedCompactionSSEJSON + "\n\ndata: [DONE]\n\n"))
 		_ = writer.Close()
 		w.Header().Set("Content-Encoding", "gzip")
 		_, _ = w.Write(compressed.Bytes())
@@ -50,15 +50,15 @@ func TestGenerateChatGPTCodexCompressesLargeResponsesBodyWithZstd(t *testing.T) 
 	transport := newTestHTTPTransport(t, oauthStaticAuth{}, testConnectionRegistration(t, config.ProviderConnection{Protocol: config.ConnectionChatGPT}))
 
 	transport.Client = httpcompression.NewClient(newRewritingHTTPClient(t, server))
-	sessionID, dispatch := compressionDispatch(t, CodexRequestKindTurn)
+	sessionID, dispatch := compressionDispatch(t, CodexRequestKindCompaction)
 
-	response, err := transport.Generate(context.Background(), ResponsesRequest{
+	response, err := transport.Compact(context.Background(), ResponsesRequest{
 		Model:          "gpt-5.6-sol",
 		SessionID:      sessionID,
 		CodexDispatch:  dispatch,
 		ToolChoiceMode: ToolChoiceModeAutomatic,
 		SystemPrompt:   strings.Repeat("large request content ", 100), ReasoningEffort: "high",
-	}, StreamCallbacks{})
+	})
 	if err != nil {
 		t.Fatalf("Generate: %v", err)
 	}
@@ -92,7 +92,7 @@ func TestGenerateOpenAIAPIKeyLeavesLargeResponsesBodyUncompressed(t *testing.T) 
 	var requestEncoding string
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		requestEncoding = r.Header.Get("Content-Encoding")
-		writeCompletedResponseSSE(w)
+		serveResponsesTestWebsocket(t, w, r, func(json.RawMessage) []string { return []string{completedResponseSSEJSON} })
 	}))
 	defer server.Close()
 
@@ -141,14 +141,15 @@ func TestGenerateExplicitLocalOAuthCompatibleEndpointLeavesResponsesBodyUncompre
 	}
 }
 
-func TestGenerateChatGPTCodexCompressesResponsesBody(t *testing.T) {
+func TestGenerateChatGPTCodexUsesUncompressedWebsocketCreate(t *testing.T) {
 	var requestEncoding string
 	var requestBody []byte
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		requestEncoding = r.Header.Get("Content-Encoding")
-		requestBody, _ = io.ReadAll(r.Body)
-		w.Header().Set("Content-Type", "text/event-stream")
-		_, _ = w.Write([]byte("data: {\"type\":\"response.completed\",\"response\":{\"output\":[],\"usage\":{\"input_tokens\":1,\"output_tokens\":1,\"total_tokens\":2}}}\n\n"))
+		serveResponsesTestWebsocket(t, w, r, func(raw json.RawMessage) []string {
+			requestBody = raw
+			return []string{completedResponseSSEJSON}
+		})
 	}))
 	defer server.Close()
 
@@ -166,8 +167,8 @@ func TestGenerateChatGPTCodexCompressesResponsesBody(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Generate: %v", err)
 	}
-	if requestEncoding != "zstd" {
-		t.Fatalf("Content-Encoding = %q, want zstd", requestEncoding)
+	if requestEncoding != "" {
+		t.Fatalf("WebSocket handshake unexpectedly advertises Content-Encoding %q", requestEncoding)
 	}
 	if len(requestBody) == 0 {
 		t.Fatal("stream request body was empty")
@@ -207,7 +208,7 @@ func TestCompactChatGPTCodexCompressesResponsesBody(t *testing.T) {
 	}
 }
 
-func TestGenerateLogicalRetrySendsCompressedSemanticEquivalents(t *testing.T) {
+func TestCompactLogicalRetrySendsCompressedSemanticEquivalents(t *testing.T) {
 	var mu sync.Mutex
 	var requestBodies [][]byte
 	var requestEncodings []string
@@ -222,14 +223,15 @@ func TestGenerateLogicalRetrySendsCompressedSemanticEquivalents(t *testing.T) {
 			http.Error(w, `{"error":{"message":"retry"}}`, http.StatusServiceUnavailable)
 			return
 		}
-		writeCompletedResponseSSE(w)
+		w.Header().Set("Content-Type", "text/event-stream")
+		_, _ = io.WriteString(w, "data: "+completedCompactionSSEJSON+"\n\n")
 	}))
 	defer server.Close()
 
 	transport := newTestHTTPTransport(t, oauthStaticAuth{}, testConnectionRegistration(t, config.ProviderConnection{Protocol: config.ConnectionChatGPT}))
 
 	transport.Client = newRewritingHTTPClient(t, server)
-	sessionID, dispatch := compressionDispatch(t, CodexRequestKindTurn)
+	sessionID, dispatch := compressionDispatch(t, CodexRequestKindCompaction)
 	request := ResponsesRequest{
 		Model:          "gpt-5.6-sol",
 		SessionID:      sessionID,
@@ -237,10 +239,10 @@ func TestGenerateLogicalRetrySendsCompressedSemanticEquivalents(t *testing.T) {
 		ToolChoiceMode: ToolChoiceModeAutomatic,
 		SystemPrompt:   strings.Repeat("large request content ", 100), ReasoningEffort: "high",
 	}
-	if _, err := transport.Generate(context.Background(), request, StreamCallbacks{}); err == nil {
+	if _, err := transport.Compact(context.Background(), request); err == nil {
 		t.Fatal("first Generate unexpectedly succeeded")
 	}
-	if _, err := transport.Generate(context.Background(), request, StreamCallbacks{}); err != nil {
+	if _, err := transport.Compact(context.Background(), request); err != nil {
 		t.Fatalf("retry Generate: %v", err)
 	}
 	mu.Lock()

@@ -353,7 +353,7 @@ func (e *Engine) localCompactionSummaryFromWindow(ctx context.Context, stepID st
 				if err != nil {
 					return llm.Response{}, err
 				}
-				return e.generateObservedWithRetry(ctx, stepID, connection.client, observed, retryPolicy, nil, nil, nil)
+				return e.generateObservedWithRetry(ctx, stepID, connection.client, observed, retryPolicy, llm.StreamCallbacks{}, nil)
 			})
 		if err != nil {
 			return "", toolCallRejectionCount, err

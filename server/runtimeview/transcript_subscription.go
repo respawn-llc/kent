@@ -39,11 +39,16 @@ func TranscriptHydrationFromSnapshotChecked(
 	if tailSegment == nil {
 		return nil, fmt.Errorf("transcript hydration tail segment is required")
 	}
-	assistant, err := transcriptAssistantStream(runtimeSnapshot)
-	if err != nil {
-		return nil, err
+	var assistants []*transcriptpb.AssistantStream
+	for _, stream := range runtimeSnapshot.ActiveAssistants {
+		assistant, err := transcriptAssistantStream(stream)
+		if err != nil {
+			return nil, err
+		}
+		assistants = append(assistants, assistant)
 	}
-	hydration := &transcriptpb.Hydration{TailSegment: tailSegment, ActiveAssistant: assistant}
+	hydration := &transcriptpb.Hydration{TailSegment: tailSegment, ActiveAssistants: assistants}
+	var err error
 	hydration.ConnectionReplacement = transcriptConnectionReplacement(runtimeSnapshot.ConnectionReplacement)
 	hydration.ActiveThinkingStatus = transcriptThinkingStatusFromRuntime(runtimeSnapshot.ActiveThinkingStatus)
 	hydration.ActiveReasoningTraces, err = transcriptReasoningTracesFromRuntime(runtimeSnapshot.ActiveReasoningTraces)
@@ -91,6 +96,7 @@ func transcriptReasoningTracesFromRuntime(states []runtime.TranscriptReasoningTr
 			return nil, fmt.Errorf("hydrated reasoning trace %d: %w", index, err)
 		}
 		trace := &transcriptpb.ReasoningTraceUpdate{
+			OutputIndex: textutil.Pointer(state.Source.OutputIndex),
 			StepId:      strings.TrimSpace(state.StepID),
 			Identity:    identity,
 			CompactText: presentation.CompactText,
@@ -157,6 +163,7 @@ func transcriptToolStartsFromRuntime(starts []runtime.TranscriptLiveToolStart) (
 			return nil, fmt.Errorf("in-flight tool %d: %w", index, err)
 		}
 		projected := &transcriptpb.ToolStart{
+			OutputIndex:  textutil.Pointer(start.OutputIndex),
 			StepId:       strings.TrimSpace(start.StepID),
 			ToolCallId:   strings.TrimSpace(start.ToolCallID),
 			ToolName:     strings.TrimSpace(start.ToolName),
@@ -180,6 +187,15 @@ func TranscriptMessagesFromRuntimeEventChecked(evt runtime.Event, identities map
 
 func transcriptMessagesFromRuntimeEvent(evt runtime.Event, identities map[runtimeids.SessionID]runtimeids.SessionIdentity) ([]*transcriptpb.Event, error) {
 	switch evt.Kind {
+	case runtime.EventAssistantSourceComplete:
+		if evt.AssistantSource == nil {
+			return nil, fmt.Errorf("assistant source completion omitted source")
+		}
+		source, err := transcriptAssistantStream(*evt.AssistantSource)
+		if err != nil {
+			return nil, err
+		}
+		return []*transcriptpb.Event{{Payload: &transcriptpb.Event_AssistantSourceComplete{AssistantSourceComplete: source}}}, nil
 	case runtime.EventAssistantDelta:
 		if evt.AssistantDelta == "" {
 			return nil, nil
@@ -194,6 +210,9 @@ func transcriptMessagesFromRuntimeEvent(evt runtime.Event, identities map[runtim
 			Delta:    evt.AssistantDelta,
 			Phase:    phase,
 		}
+		if evt.AssistantStreamMetadata != nil {
+			delta.OutputIndex = textutil.Pointer(evt.AssistantStreamMetadata.OutputIndex)
+		}
 		return []*transcriptpb.Event{{Payload: &transcriptpb.Event_AssistantDelta{AssistantDelta: delta}}}, nil
 	case runtime.EventAssistantDeltaReset:
 		reason := strings.TrimSpace(evt.AssistantStreamAbortReason)
@@ -206,7 +225,8 @@ func transcriptMessagesFromRuntimeEvent(evt runtime.Event, identities map[runtim
 		}
 		abortReason := transcriptAssistantAbortReason(reason)
 		abort := &transcriptpb.AssistantStreamAbort{
-			StepId: stepID, StreamId: evt.AssistantTranscriptStreamID.String(), Reason: abortReason,
+			SourceState: transcriptAssistantSourceState(evt.AssistantSourceState),
+			StepId:      stepID, StreamId: evt.AssistantTranscriptStreamID.String(), Reason: abortReason,
 		}
 		return []*transcriptpb.Event{{Payload: &transcriptpb.Event_AssistantStreamAbort{AssistantStreamAbort: abort}}}, nil
 	case runtime.EventReasoningDelta:
@@ -238,6 +258,9 @@ func transcriptMessagesFromRuntimeEvent(evt runtime.Event, identities map[runtim
 			Identity:    traceIdentity,
 			CompactText: presentation.CompactText,
 			Text:        presentation.Text,
+		}
+		if evt.ReasoningDelta.SourceCoordinate != nil {
+			update.OutputIndex = textutil.Pointer(evt.ReasoningDelta.SourceCoordinate.OutputIndex)
 		}
 		return append(messages, &transcriptpb.Event{Payload: &transcriptpb.Event_ReasoningTraceUpdate{ReasoningTraceUpdate: update}}), nil
 	case runtime.EventReasoningDeltaReset:
@@ -566,30 +589,36 @@ func transcriptRowsFromFactsChecked(facts []runtime.TranscriptCommittedRowFact, 
 	return rows, nil
 }
 
-func transcriptAssistantStream(snapshot runtime.TranscriptHydrationSnapshot) (*transcriptpb.AssistantStream, error) {
-	text := snapshot.ActiveAssistantText
-	if text == "" && snapshot.ActiveAssistantMetadata == nil && snapshot.ActiveAssistantStreamID == nil {
-		return nil, nil
-	}
-	if text == "" || snapshot.ActiveAssistantMetadata == nil || snapshot.ActiveAssistantStreamID == nil {
+func transcriptAssistantStream(stream runtime.AssistantStreamSnapshot) (*transcriptpb.AssistantStream, error) {
+	if stream.Text == "" {
 		return nil, fmt.Errorf(
-			"runtime transcript hydration has partial assistant stream identity: text_present=%t metadata_present=%t stream_id_present=%t",
-			text != "",
-			snapshot.ActiveAssistantMetadata != nil,
-			snapshot.ActiveAssistantStreamID != nil,
+			"runtime transcript hydration has an empty assistant stream",
 		)
 	}
-	stepID, streamID, phase, err := transcriptAssistantIdentity(&snapshot.ActiveAssistantMetadata.StepID, snapshot.ActiveAssistantStreamID, snapshot.ActiveAssistantPhase)
+	stepID, streamID, phase, err := transcriptAssistantIdentity(&stream.Metadata.StepID, &stream.StreamID, stream.Phase)
 	if err != nil {
 		return nil, err
 	}
 	projected := &transcriptpb.AssistantStream{
-		StepId:   stepID,
-		StreamId: streamID,
-		Text:     text,
-		Phase:    phase,
+		SourceState: transcriptAssistantSourceState(stream.SourceState),
+		StepId:      stepID,
+		StreamId:    streamID,
+		Text:        stream.Text,
+		Phase:       phase,
+		OutputIndex: textutil.Pointer(stream.Metadata.OutputIndex),
 	}
 	return projected, nil
+}
+
+func transcriptAssistantSourceState(state runtime.AssistantSourceState) transcriptpb.AssistantSourceState {
+	switch state {
+	case runtime.AssistantSourceStreaming:
+		return transcriptpb.AssistantSourceState_ASSISTANT_SOURCE_STATE_STREAMING
+	case runtime.AssistantSourceComplete:
+		return transcriptpb.AssistantSourceState_ASSISTANT_SOURCE_STATE_COMPLETE
+	default:
+		panic(fmt.Sprintf("unknown assistant source state %d", state))
+	}
 }
 
 func transcriptToolStartMessages(starts []runtime.TranscriptLiveToolStart) ([]*transcriptpb.Event, error) {
@@ -787,8 +816,22 @@ func transcriptRowFromFact(fact runtime.TranscriptCommittedRowFact, identities m
 		if fact.Assistant.StreamID != nil {
 			streamID := fact.Assistant.StreamID.String()
 			assistant.StreamId = &streamID
+			state := transcriptAssistantSourceState(fact.Assistant.SourceState)
+			assistant.SourceState = &state
 		}
 		row.Row = &transcriptpb.CommittedRow_Assistant{Assistant: assistant}
+	case runtime.TranscriptCommittedRowFactToolCall:
+		stepID, err := transcriptRequiredStepID(fact.StepID)
+		if err != nil {
+			return nil, err
+		}
+		presentation, err := transcriptToolPresentation(fact.ToolCall.ToolName, fact.ToolCall.Presentation)
+		if err != nil {
+			return nil, err
+		}
+		row.Row = &transcriptpb.CommittedRow_ToolCall{ToolCall: &transcriptpb.ToolStart{
+			StepId: stepID, ToolCallId: fact.ToolCall.ToolCallID, ToolName: fact.ToolCall.ToolName, Presentation: presentation,
+		}}
 	case runtime.TranscriptCommittedRowFactTool:
 		presentation, err := transcriptToolPresentation(fact.Tool.ToolName, fact.Tool.Presentation)
 		if err != nil {

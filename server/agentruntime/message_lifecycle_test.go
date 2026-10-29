@@ -10,6 +10,7 @@ import (
 	"core/server/sessionstore/sessiontest"
 	"core/server/tools"
 	"core/shared/runtimeids"
+	"core/shared/textutil"
 )
 
 func TestSteeringDrainIncludesMessagesAcceptedDuringDrain(t *testing.T) {
@@ -94,7 +95,7 @@ func TestQueuedInputBatchRemainsCommittedOnObserverFailure(t *testing.T) {
 		}
 	}
 	for _, item := range queued {
-		if !found[messageContent(item.Message)] {
+		if !found[messageContent(*item.Message)] {
 			t.Fatalf("committed batch omitted an accepted Agent Steer: %+v", item)
 		}
 	}
@@ -108,7 +109,7 @@ func queueMessageLifecycleTestSteers(t *testing.T, engine *Engine, texts ...stri
 		item, err := engine.messageFlow.QueueUserMessageWithID(
 			QueuedUserMessage{
 				ID:                    runtimeids.NewQueueItemID().String(),
-				Message:               steer.Message(),
+				Message:               textutil.Value(steer.Message()),
 				CanonicalPresentation: text,
 			},
 			queuedUserMessageAssociation{steerAdmission: engine.nextPendingWorkSteerAdmission()},

@@ -53,3 +53,30 @@ func TestCloseRejectsUserTurnsAndSteeringWithoutNewWork(t *testing.T) {
 		t.Fatalf("records persisted after close = %+v, want none", window.Records)
 	}
 }
+
+type resourceModelClient struct {
+	*fakeClient
+	closed int
+	err    error
+}
+
+func (c *resourceModelClient) Close() error {
+	c.closed++
+	return c.err
+}
+
+func TestEngineCloseReleasesMainAndReviewerResourcesAndReportsFailures(t *testing.T) {
+	mainError, reviewerError := errors.New("main resource failure"), errors.New("reviewer resource failure")
+	main := &resourceModelClient{fakeClient: &fakeClient{}, err: mainError}
+	reviewer := &resourceModelClient{fakeClient: &fakeClient{}, err: reviewerError}
+	engine := mustNewTestEngine(t, mustCreateTestSession(t), main, tools.NewRegistry(), Config{
+		Model: "gpt-6-sol", Reviewer: ReviewerConfig{Client: reviewer},
+	})
+	err := engine.Close()
+	if !errors.Is(err, mainError) || !errors.Is(err, reviewerError) || main.closed != 1 || reviewer.closed != 1 {
+		t.Fatalf("resource cleanup: main=%d reviewer=%d error=%v", main.closed, reviewer.closed, err)
+	}
+	if err := engine.Close(); err != nil || main.closed != 1 || reviewer.closed != 1 {
+		t.Fatalf("repeat cleanup: main=%d reviewer=%d error=%v", main.closed, reviewer.closed, err)
+	}
+}

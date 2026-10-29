@@ -54,6 +54,7 @@ export const englishResources = {
       expand: "Expand",
       loadingMore: "Loading more",
       attention: {
+        sessionEnded: "Session ended: {{name}}",
         sessionNamingFailed: "Session naming failed",
         sessionNamingFailureHelp: "You can name this session manually. Check the server logs for details.",
         listenerFailed: "Live attention updates stopped",

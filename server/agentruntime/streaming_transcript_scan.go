@@ -269,7 +269,7 @@ func (s *streamingTranscriptScan) applyMessage(msg llm.Message, provenance *Tran
 		}
 		entry.StepID = cloneOptionalStepID(stepID)
 		entry.CommittedProvenance = cloneTranscriptCommittedRowProvenance(provenance)
-		if entry.ToolCallID != "" {
+		if entry.ToolCallID != "" && msg.NativeResponse == nil {
 			if owner := s.completionProvenance[entry.ToolCallID]; owner != nil {
 				entry.CommittedProvenance = cloneTranscriptCommittedRowProvenance(owner)
 			}
@@ -349,7 +349,11 @@ func (s *streamingTranscriptScan) closeTurn() {
 	})
 	for _, rm := range materialized {
 		if callID, present := textutil.OptionalTrimmed(rm.ToolCallID); present {
-			s.materialized[callID] = struct{}{}
+			if assistant.NativeResponse != nil {
+				s.completions[callID] = resolvedToolResultForMessage(rm, s.completions)
+			} else {
+				s.materialized[callID] = struct{}{}
+			}
 		}
 	}
 	s.applyMessage(assistant, assistantProvenance, assistantStepID)
@@ -361,7 +365,9 @@ func (s *streamingTranscriptScan) closeTurn() {
 		s.appendLocalEntry(entry, localEntrySteps[index], localEntryProvenance[index])
 	}
 	for _, materializedEntry := range orderedMaterialized {
-		s.applyMessage(materializedEntry.message, materializedEntry.provenance, materializedEntry.stepID)
+		if assistant.NativeResponse == nil {
+			s.applyMessage(materializedEntry.message, materializedEntry.provenance, materializedEntry.stepID)
+		}
 		callID, _ := textutil.OptionalTrimmed(materializedEntry.message.ToolCallID)
 		for localIndex, entry := range localEntries {
 			if entry.AfterToolCallID == nil || strings.TrimSpace(*entry.AfterToolCallID) != callID {
@@ -413,6 +419,9 @@ func (s *streamingTranscriptScan) LastCommittedAssistantFinalAnswer() *string {
 // item encode/decode the chat projection uses, so streamed transcript entries
 // are byte-identical to the historical chatStore-driven projection.
 func reconstructPersistedMessages(msg llm.Message) []llm.Message {
+	if msg.NativeResponse != nil {
+		return []llm.Message{msg}
+	}
 	out := make([]llm.Message, 0, 1)
 	walker := newResponseItemMessageWalker(func(m llm.Message) {
 		out = append(out, m)

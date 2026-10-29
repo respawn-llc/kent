@@ -33,7 +33,11 @@ func (c Collector) CollectBase(req Request) Snapshot {
 	}
 	target := ExecutionTarget(req)
 	workdir := Workdir(req.WorkspaceRoot, target)
-	contextInfo := ContextInfo{ThresholdTokens: req.Settings.ContextCompactionThresholdTokens}
+	contextInfo := ContextInfo{
+		ThresholdTokens: req.Settings.ContextCompactionThresholdTokens,
+		WindowTokens:    req.Settings.ModelContextWindow,
+		AvailableTokens: req.Settings.ModelContextWindow,
+	}
 	var previousSessionID *runtimeids.SessionID
 	var parentAgentSessionID *runtimeids.SessionID
 	compactionCount := 0

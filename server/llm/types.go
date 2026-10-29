@@ -68,6 +68,7 @@ const (
 )
 
 type Message struct {
+	NativeResponse       *NativeResponse          `json:"-"`
 	Role                 Role                     `json:"role"`
 	MessageType          *MessageType             `json:"message_type,omitempty"`
 	SourcePath           *string                  `json:"source_path,omitempty"`
@@ -196,6 +197,10 @@ func CloneResponseItems(items []ResponseItem) []ResponseItem {
 func ItemsFromMessages(messages []Message) []ResponseItem {
 	out := make([]ResponseItem, 0, len(messages))
 	for _, msg := range messages {
+		if msg.NativeResponse != nil {
+			out = append(out, CloneResponseItems(msg.NativeResponse.items)...)
+			continue
+		}
 		switch msg.Role {
 		case RoleAssistant:
 			if msg.Content != nil {
@@ -457,6 +462,7 @@ eof_line: "*** End of File" LF
 `
 
 type ToolCall struct {
+	OutputIndex  *int64          `json:"-"`
 	ID           string          `json:"id"`
 	Name         string          `json:"name"`
 	Presentation json.RawMessage `json:"presentation,omitempty"`
@@ -708,7 +714,9 @@ func (u Usage) CacheHitPercent() (int, bool) {
 }
 
 type Response struct {
-	Assistant         Message                             `json:"assistant"`
+	Assistant Message `json:"assistant"`
+	// EndTurn is absent when the provider supplies no turn-completion fact.
+	EndTurn           *bool                               `json:"-"`
 	ProviderPhase     *ProviderPhase                      `json:"-"`
 	ServedModel       *string                             `json:"served_model,omitempty"`
 	ProviderEvidence  modelcontract.ProviderUsageEvidence `json:"-"`
@@ -744,8 +752,15 @@ type Client interface {
 }
 
 type AssistantDelta struct {
-	Text  string
-	Phase MessagePhase
+	Text        string
+	Phase       MessagePhase
+	OutputIndex *int64
+}
+
+type AssistantSource struct {
+	Text        string
+	Phase       MessagePhase
+	OutputIndex int64
 }
 
 type ReasoningStatus struct {
@@ -761,9 +776,11 @@ type ReasoningSummaryDelta struct {
 }
 
 type StreamCallbacks struct {
-	OnAssistantDelta        func(delta AssistantDelta)
-	OnReasoningSummaryDelta func(delta ReasoningSummaryDelta)
-	OnStreamActivity        func()
+	OnAssistantDelta          func(delta AssistantDelta)
+	OnAssistantSourceComplete func(source AssistantSource)
+	OnOutputItem              func(item ResponseItem)
+	OnReasoningSummaryDelta   func(delta ReasoningSummaryDelta)
+	OnStreamActivity          func()
 }
 
 type ModelContextWindowClient interface {

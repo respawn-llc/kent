@@ -20,6 +20,12 @@ func (s *Store) ResolveSessionLaunchIntent(ctx context.Context, request *session
 		switch origin := intent.CreateNew.Origin.(type) {
 		case *sessionlaunchpb.SessionCreateRequestOrigin_Independent:
 			return serverapi.CreateNewSessionLaunchIntent(serverapi.IndependentSessionCreateOrigin()), nil
+		case *sessionlaunchpb.SessionCreateRequestOrigin_NavigationOnlySessionId:
+			id, err := s.ResolveSessionTarget(ctx, origin.NavigationOnlySessionId)
+			if err != nil {
+				return serverapi.SessionLaunchIntent{}, err
+			}
+			return serverapi.CreateNewSessionLaunchIntent(serverapi.NavigationOnlySessionCreateOrigin(id)), nil
 		case *sessionlaunchpb.SessionCreateRequestOrigin_PreviousSessionId:
 			id, err := s.ResolveSessionTarget(ctx, origin.PreviousSessionId)
 			if err != nil {

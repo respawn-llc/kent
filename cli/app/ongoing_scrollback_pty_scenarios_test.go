@@ -7,8 +7,10 @@ import (
 	"core/internal/testharness/pty/appfixture"
 	transcriptpb "core/shared/protoapi/gen/kent/api/transcript"
 	"core/shared/theme"
+	"core/shared/toolspec"
 	"encoding/json"
 	"fmt"
+	"google.golang.org/protobuf/proto"
 	"os"
 	"path/filepath"
 	"strings"
@@ -25,6 +27,18 @@ const (
 func TestOngoingNativeScrollbackPTYScenarios(t *testing.T) {
 	bin := ptyFixtureExecutable(t)
 	modelMismatchCompletionDrain := time.Second
+	shellPresentation := &transcriptpb.ToolPresentation{
+		Presentation:   transcriptpb.ToolPresentationKind_TOOL_PRESENTATION_KIND_SHELL,
+		RenderBehavior: transcriptpb.ToolPresentationKind_TOOL_PRESENTATION_KIND_SHELL,
+		IsShell:        true,
+	}
+	backgroundPresentation := proto.Clone(shellPresentation).(*transcriptpb.ToolPresentation)
+	backgroundPresentation.MovedToBackground = true
+	backgroundPresentation.Command = proto.String("sleep 1.5; echo $((51515150+1))")
+	backgroundResult := transcriptrender.RenderCommittedRow(
+		&transcriptpb.CommittedRow{Row: &transcriptpb.CommittedRow_Tool{Tool: &transcriptpb.ToolRow{
+			ToolName: proto.String(string(toolspec.ToolExecCommand)), Presentation: backgroundPresentation,
+		}}}, 80, "dark", transcriptrender.ModeOngoing).Lines[0].Plain()
 
 	for _, tc := range []struct {
 		name                      string
@@ -123,8 +137,8 @@ func TestOngoingNativeScrollbackPTYScenarios(t *testing.T) {
 					Bytes:     []byte("\r"),
 				}},
 			}},
-			expectedAppends:     []string{"❮ question lifecycle complete"},
-			forbiddenAnyAppends: []string{"? PTY_LIVE_QUESTION", "? tool call"},
+			expectedAppends:     []string{"? PTY_LIVE_QUESTION", "❮ question lifecycle complete"},
+			forbiddenAnyAppends: []string{"? tool call"},
 			completionDrain:     &modelMismatchCompletionDrain,
 		},
 		{
@@ -159,8 +173,9 @@ func TestOngoingNativeScrollbackPTYScenarios(t *testing.T) {
 			expectedAppends: []string{"❯ live_background_shell_completion_style"},
 			expectedAnyAppends: []string{
 				"ℹ Background shell 1000 completed (exit 0)",
+				backgroundResult,
 			},
-			expectedScreenRows: []string{"$ sleep 1.5; echo $((51515150+1))  " + transcriptrender.BackgroundedShellSuffix},
+			expectedScreenRows: []string{backgroundResult},
 		},
 	} {
 		tc := tc

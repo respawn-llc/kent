@@ -47,6 +47,7 @@ func normalizedSessionPayload[T session.EventRecordPayload](
 
 func sessionMessageRecordFromLLM(message llm.Message) (session.MessageRecord, error) {
 	record := session.MessageRecord{
+		NativeResponse:       message.NativeResponse.Record(),
 		Role:                 session.MessageRole(message.Role),
 		MessageType:          convertOptionalString[llm.MessageType, session.MessageType](message.MessageType),
 		SourcePath:           textutil.Pointer(message.SourcePath),
@@ -59,7 +60,18 @@ func sessionMessageRecordFromLLM(message llm.Message) (session.MessageRecord, er
 		BackgroundActivityID: textutil.Pointer(message.BackgroundActivityID),
 		BackgroundExitCode:   textutil.Pointer(message.BackgroundExitCode),
 	}
-	if len(message.ToolCalls) > 0 {
+	if message.NativeResponse != nil {
+		record.Content = nil
+		for _, call := range message.ToolCalls {
+			if len(call.Presentation) > 0 {
+				if record.NativeToolPresentation == nil {
+					record.NativeToolPresentation = make(map[string]json.RawMessage)
+				}
+				record.NativeToolPresentation[call.ID] = call.Presentation
+			}
+		}
+	}
+	if message.NativeResponse == nil && len(message.ToolCalls) > 0 {
 		record.ToolCalls = make([]session.MessageToolCallRecord, 0, len(message.ToolCalls))
 		for _, call := range message.ToolCalls {
 			input := append(json.RawMessage(nil), call.Input...)
@@ -86,7 +98,7 @@ func sessionMessageRecordFromLLM(message llm.Message) (session.MessageRecord, er
 			})
 		}
 	}
-	if len(message.ReasoningItems) > 0 {
+	if message.NativeResponse == nil && len(message.ReasoningItems) > 0 {
 		record.ReasoningItems = make([]session.MessageReasoningRecord, 0, len(message.ReasoningItems))
 		for _, reasoning := range message.ReasoningItems {
 			record.ReasoningItems = append(record.ReasoningItems, session.MessageReasoningRecord{
@@ -124,6 +136,32 @@ func llmMessageFromSessionRecord(record session.MessageRecord) (llm.Message, err
 		Phase:                convertOptionalString[session.MessagePhase, llm.MessagePhase](record.Phase),
 		BackgroundActivityID: textutil.Pointer(record.BackgroundActivityID),
 		BackgroundExitCode:   textutil.Pointer(record.BackgroundExitCode),
+	}
+	if record.NativeResponse != nil {
+		derived, deriveErr := llm.MessageFromNativeResponse(*record.NativeResponse)
+		if deriveErr != nil {
+			return llm.Message{}, deriveErr
+		}
+		message.NativeResponse = derived.NativeResponse
+		message.Content = derived.Content
+		message.ToolCalls = derived.ToolCalls
+		message.ReasoningItems = derived.ReasoningItems
+		for _, hosted := range hostedToolExecutionsFromOutputItems(llm.ItemsFromMessages([]llm.Message{derived}), tools.DefinitionsFor(toolspec.CatalogIDs())) {
+			message.ToolCalls = append(message.ToolCalls, hosted.Call)
+		}
+		for callID, presentation := range record.NativeToolPresentation {
+			found := false
+			for i := range message.ToolCalls {
+				if message.ToolCalls[i].ID == callID {
+					message.ToolCalls[i].Presentation = append(json.RawMessage(nil), presentation...)
+					found = true
+					break
+				}
+			}
+			if !found {
+				return llm.Message{}, fmt.Errorf("native presentation references unknown call %q", callID)
+			}
+		}
 	}
 	if len(record.ToolCalls) > 0 {
 		message.ToolCalls = make([]llm.ToolCall, 0, len(record.ToolCalls))

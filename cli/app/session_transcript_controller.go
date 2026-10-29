@@ -262,8 +262,7 @@ func (c *ongoingTranscriptController) applyState(message *transcriptpb.Message) 
 
 func (c *ongoingTranscriptController) applyAppOwnedMessage(message *transcriptpb.Message) bool {
 	switch message.Event.Payload.(type) {
-	case *transcriptpb.Event_StepState,
-		*transcriptpb.Event_RuntimeReadModelUpdate:
+	case *transcriptpb.Event_RuntimeReadModelUpdate:
 		// Canonical runtime state is represented by the app status line.
 	case *transcriptpb.Event_UserMessageFlushed:
 		// The state observer owns input reconciliation. Re-render the client-local
@@ -328,7 +327,7 @@ func (c *ongoingTranscriptController) applyHydrationAppOwnedFacts(hydration *tra
 }
 
 func hydrationHasNoTerminalRows(hydration *transcriptpb.Hydration) bool {
-	if hydration.ActiveAssistant != nil {
+	if len(hydration.ActiveAssistants) > 0 {
 		return false
 	}
 	for _, row := range hydration.TailSegment.Entries {
@@ -423,8 +422,7 @@ func humanizeTranscriptFact(value string) string {
 
 func isAppOwnedOngoingMessage(event *transcriptpb.Event) bool {
 	switch event.Payload.(type) {
-	case *transcriptpb.Event_StepState,
-		*transcriptpb.Event_RuntimeReadModelUpdate,
+	case *transcriptpb.Event_RuntimeReadModelUpdate,
 		*transcriptpb.Event_QueuedMessageState,
 		*transcriptpb.Event_PendingWorkChanged,
 		*transcriptpb.Event_PendingWorkRestored,

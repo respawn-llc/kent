@@ -10,6 +10,7 @@ import (
 )
 
 type sessionAttentionEvent struct {
+	turnEnd *attentionpb.SessionTurnEnd
 	failure *attentionpb.SessionNamingFailure
 	err     error
 }
@@ -45,6 +46,9 @@ func startSessionAttentionEvents(parent context.Context, id string, client apico
 			}
 			if failure := event.GetSessionNamingFailure(); failure != nil {
 				publish(sessionAttentionEvent{failure: failure})
+			}
+			if turnEnd := event.GetSessionTurnEnd(); turnEnd != nil {
+				publish(sessionAttentionEvent{turnEnd: turnEnd})
 			}
 		}
 	}()

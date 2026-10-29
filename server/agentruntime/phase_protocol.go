@@ -74,6 +74,9 @@ func (p *defaultPhaseProtocol) Apply(ctx context.Context, resp llm.Response, ass
 	}
 	effectivePhasePresent := effectivePhase.Value() != nil
 	enforcePhaseProtocol := phaseProtocolEnabled && (structuredPhaseProtocol || effectivePhasePresent)
+	if resp.EndTurn != nil && !p.engine.goalActive() && !p.engine.currentNodeExecutionActive() {
+		enforcePhaseProtocol = false
+	}
 	missingAssistantPhase := enforcePhaseProtocol && effectivePhase.IsAbsent()
 	if missingAssistantPhase {
 		effectivePhase = llm.CommentaryProviderPhase()

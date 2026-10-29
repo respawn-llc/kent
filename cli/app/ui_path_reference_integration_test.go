@@ -67,7 +67,7 @@ func TestPathReferenceCompletionKeys(t *testing.T) {
 func TestPathReferenceTabFallsThroughWhenNoMatches(t *testing.T) {
 	m, _ := newPathReferenceTestModel("echo @ab")
 	updated := updateUIModel(t, m, tea.KeyMsg{Type: tea.KeyTab})
-	if !updated.isBusy() {
+	if !updated.hasPendingInputAdmission() {
 		t.Fatal("expected normal tab submission when no matches exist")
 	}
 }
@@ -102,8 +102,8 @@ func TestPathReferenceAcceptanceSkipsUnsafeCandidate(t *testing.T) {
 			if updated.isBusy() {
 				t.Fatal("did not expect completion to start submission")
 			}
-			if len(updated.queued) != 0 || len(updated.injectedQueue) != 0 {
-				t.Fatalf("did not expect completion to queue input: queued=%+v injected=%+v", updated.queued, updated.injectedQueue)
+			if len(updated.injectedQueue) != 0 {
+				t.Fatalf("did not expect completion to submit input: %+v", updated.injectedQueue)
 			}
 			if updated.transientStatus != "" {
 				t.Fatalf("unexpected status UI %q", updated.transientStatus)

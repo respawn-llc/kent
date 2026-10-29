@@ -6,6 +6,7 @@ import "buf/validate/validate.proto";
 import "google/protobuf/empty.proto";
 import "kent/api/auth/auth.proto";
 import "kent/api/chat_settings/chat_settings.proto";
+import "kent/api/invocation/invocation.proto";
 import "kent/api/prompt_command/prompt_command.proto";
 import "kent/api/prompt_command/validation.proto";
 import "kent/api/server/server.proto";
@@ -40,6 +41,24 @@ message NewChatTarget {
     (buf.validate.field).string.(kent.api.shared.trimmed) = true
   ];
   kent.api.chat_settings.InitialChatSettings initial_settings = 3 [(buf.validate.field).required = true];
+  optional kent.api.session_launch.SessionCreateRequestOrigin origin = 4;
+  optional string name = 5 [
+    (buf.validate.field).string.(kent.api.shared.nonblank) = true,
+    (buf.validate.field).string.(kent.api.shared.trimmed) = true
+  ];
+  optional string worktree_selector = 6 [(buf.validate.field).string.(kent.api.shared.nonblank) = true];
+  optional kent.api.invocation.RunPromptOverrides invocation = 7;
+
+  option (buf.validate.message).cel = {
+    id: "kent.chat.new_chat_navigation_origin"
+    message: "New Chat origin must be independent or navigation-only"
+    expression: "!has(this.origin) || has(this.origin.independent) || has(this.origin.navigation_only_session_id)"
+  };
+  option (buf.validate.message).cel = {
+    id: "kent.chat.new_chat_initial_settings_authority"
+    message: "Agent and Thinking selections belong only in initial_settings"
+    expression: "!has(this.invocation) || (!has(this.invocation.agent_role) && !has(this.invocation.thinking_level))"
+  };
 }
 
 message ChatTarget {
@@ -81,6 +100,19 @@ message CommandInvocation {
   };
 }
 
+// Shell is Session work, including New Sessions and dormant Sessions with preparation.
+// Steer runs at the next eligible Step Boundary; Queue runs after the current
+// Agent Turn. Idle Shell execution does not start a model turn. Acceptance returns
+// before execution completes. The Runtime owns accepted work even on disconnect.
+// Results and execution failures arrive through ordinary Runtime/transcript events;
+// rejected commands and accepted commands stopped before starting are restorable.
+message ShellCommand {
+  string command = 1 [
+    (buf.validate.field).string.min_len = 1,
+    (buf.validate.field).string.(kent.api.shared.nonblank) = true
+  ];
+}
+
 message Activation {
   oneof input {
     option (buf.validate.oneof).required = true;
@@ -90,6 +122,7 @@ message Activation {
       (buf.validate.field).string.(kent.api.shared.pending_work_nonblank) = true
     ];
     CommandInvocation command = 2;
+    ShellCommand shell = 3;
   }
 }
 
@@ -136,6 +169,7 @@ enum InputAdmissionDisposition {
   INPUT_ADMISSION_DISPOSITION_STARTED_TURN = 1;
   INPUT_ADMISSION_DISPOSITION_PENDING_STEER = 2;
   INPUT_ADMISSION_DISPOSITION_PENDING_QUEUE = 3;
+  INPUT_ADMISSION_DISPOSITION_STARTED_SHELL = 4;
 }
 
 message InputAccepted {
@@ -248,6 +282,7 @@ message SteerRequest {
     (buf.validate.field).string.uuid = true,
     (buf.validate.field).string.(kent.api.shared.canonical_uuid_v4) = true
   ];
+  optional string initial_input_draft = 4;
 }
 
 message QueueRequest {
@@ -257,6 +292,7 @@ message QueueRequest {
     (buf.validate.field).string.uuid = true,
     (buf.validate.field).string.(kent.api.shared.canonical_uuid_v4) = true
   ];
+  optional string initial_input_draft = 4;
 }
 
 message ManualCompactionTooSoonDetails {}

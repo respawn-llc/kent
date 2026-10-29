@@ -249,7 +249,7 @@ func formatReviewerChatEntry(entry ChatEntry) string {
 }
 
 func reviewerChatEntryText(entry ChatEntry) string {
-	if entry.Role == "tool_call" {
+	if isToolCallEntryRole(entry.Role) {
 		if text := reviewerToolPresentationText(entry.ToolCall); text != "" {
 			return text
 		}
@@ -263,7 +263,7 @@ func reviewerChatEntryLabel(entry ChatEntry) string {
 		return "Agent:"
 	case "user":
 		return "User:"
-	case "tool_call":
+	case "tool_call", string(transcript.EntryRoleAcceptedToolCall):
 		return "Tool call:"
 	case "tool_result_ok":
 		return "Tool result:"

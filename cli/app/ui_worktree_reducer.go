@@ -41,7 +41,7 @@ func (m *uiModel) reconcileTranscriptWorktreeTransitionOutcome(outcome *transcri
 			"",
 		)
 	}
-	refresh := m.startRuntimeMainViewRefresh(nil)
+	refresh := m.startRuntimeMainViewRefresh()
 	if m.worktrees.open {
 		return tea.Batch(statusCmd, refresh, m.requestWorktreeListCmd())
 	}
@@ -75,8 +75,10 @@ func (m *uiModel) reduceWorktreeMessage(msg tea.Msg) uiFeatureUpdateResult {
 			return handledUIFeatureUpdate(m, m.reconcileSpinnerTicking(false))
 		}
 		m.worktrees.errorText = ""
-		if err := m.applyWorktreeListResponse(msg.resp); err != nil {
-			m.worktrees.errorText = runtimeattach.FormatSubmissionError(err)
+		m.recordWorktreeSelection()
+		listErr := m.applyWorktreeEntries(msg.workspace.Worktrees)
+		if listErr != nil {
+			m.worktrees.errorText = runtimeattach.FormatSubmissionError(listErr)
 			m.layout().syncViewport()
 			return handledUIFeatureUpdate(m, m.reconcileSpinnerTicking(false))
 		}
@@ -96,7 +98,7 @@ func (m *uiModel) reduceWorktreeMessage(msg tea.Msg) uiFeatureUpdateResult {
 			m.layout().syncViewport()
 			return handledUIFeatureUpdate(m, m.reconcileSpinnerTicking(false))
 		}
-		target, err := worktreeui.ProjectSelectorPreview(msg.resp)
+		target, err := worktreeui.ProjectDeletePreview(msg.preview)
 		if err != nil {
 			m.worktrees.errorText = runtimeattach.FormatSubmissionError(err)
 			m.layout().syncViewport()
@@ -116,7 +118,6 @@ func (m *uiModel) reduceWorktreeMessage(msg tea.Msg) uiFeatureUpdateResult {
 		}
 		if ok {
 			target.IsCurrent = listedTarget.IsCurrent
-			target.Entry.Projection.IsCurrent = listedTarget.Entry.Projection.IsCurrent
 			m.worktrees.entries[idx] = target
 			m.worktrees.selection = idx + 1
 			m.recordWorktreeSelection()
@@ -129,9 +130,13 @@ func (m *uiModel) reduceWorktreeMessage(msg tea.Msg) uiFeatureUpdateResult {
 		m.layout().syncViewport()
 		return handledUIFeatureUpdate(m, m.reconcileSpinnerTicking(false))
 	case worktreeCreateDoneMsg:
+		var adoption tea.Cmd
+		if msg.createdSession {
+			adoption = m.applyNewSessionActionDone(newSessionActionDoneMsg{origin: m, chatActionResult: chatActionResult{session: msg.session}})
+		}
 		if msg.token != m.worktrees.mutationToken {
 			m.layout().syncViewport()
-			return handledUIFeatureUpdate(m, nil)
+			return handledUIFeatureUpdate(m, adoption)
 		}
 		if m.worktrees.create.setupProgress != nil && m.worktrees.create.setupProgress.cancel != nil {
 			m.worktrees.create.setupProgress.cancel()
@@ -142,11 +147,11 @@ func (m *uiModel) reduceWorktreeMessage(msg tea.Msg) uiFeatureUpdateResult {
 			if !m.worktrees.open {
 				status := runtimeattach.FormatSubmissionError(msg.err)
 				m.layout().syncViewport()
-				return handledUIFeatureUpdate(m, m.sendTransientStatusWithNoticeID(status, uiStatusNoticeError, transientStatusDuration, uiStatusNoticeReplace, ""))
+				return handledUIFeatureUpdate(m, tea.Batch(adoption, m.sendTransientStatusWithNoticeID(status, uiStatusNoticeError, transientStatusDuration, uiStatusNoticeReplace, "")))
 			}
 			m.applyWorktreeCreateError(msg.err)
 			m.layout().syncViewport()
-			return handledUIFeatureUpdate(m, m.reconcileSpinnerTicking(false))
+			return handledUIFeatureUpdate(m, tea.Batch(adoption, m.reconcileSpinnerTicking(false)))
 		}
 		var overlayCmd tea.Cmd
 		if m.worktrees.open {
@@ -158,14 +163,24 @@ func (m *uiModel) reduceWorktreeMessage(msg tea.Msg) uiFeatureUpdateResult {
 			status := "invalid created worktree response: " + err.Error()
 			feedbackCmd := m.sendTransientStatusWithNoticeID(status, uiStatusNoticeError, transientStatusDuration, uiStatusNoticeReplace, "")
 			m.layout().syncViewport()
-			return handledUIFeatureUpdate(m, tea.Batch(overlayCmd, feedbackCmd, m.reconcileSpinnerTicking(false)))
+			return handledUIFeatureUpdate(m, tea.Batch(adoption, overlayCmd, feedbackCmd, m.reconcileSpinnerTicking(false)))
 		}
 		status := "Created worktree " + worktreeui.DisplayName(created)
 		feedbackCmd := m.sendTransientStatusWithNoticeID(status, uiStatusNoticeSuccess, transientStatusDuration, uiStatusNoticeReplace, "")
 		targetToken := worktreeui.StableMutationSelector(created)
-		enterCmd := m.worktreeSwitchCommandForTarget(targetToken)
+		var enterCmd tea.Cmd
+		if msg.createdSession {
+			service := m.worktreeMutationService()
+			service.WorkspaceID = msg.workspace.WorkspaceId
+			service.WorkspaceRoot = msg.workspace.WorkspaceRoot
+			enterCmd = m.worktreeTransitionCommandWithService(runtimeinput.PendingWorkWorktreeTransition{
+				Transition: runtimeinput.PendingWorkWorktreeTransitionEnter, Selector: &targetToken,
+			}, service)
+		} else {
+			enterCmd = m.worktreeSwitchCommandForTarget(targetToken)
+		}
 		m.layout().syncViewport()
-		return handledUIFeatureUpdate(m, tea.Batch(overlayCmd, feedbackCmd, enterCmd, m.startRuntimeMainViewRefresh(nil), m.reconcileSpinnerTicking(false)))
+		return handledUIFeatureUpdate(m, tea.Batch(adoption, overlayCmd, feedbackCmd, enterCmd, m.startRuntimeMainViewRefresh(), m.reconcileSpinnerTicking(false)))
 	case worktreeSetupEventMsg:
 		if msg.token != m.worktrees.mutationToken {
 			m.layout().syncViewport()
@@ -214,7 +229,7 @@ func (m *uiModel) reduceWorktreeMessage(msg tea.Msg) uiFeatureUpdateResult {
 		feedbackCmd := m.sendTransientStatusWithNoticeID(status, uiStatusNoticeSuccess, transientStatusDuration, uiStatusNoticeReplace, "")
 		followUp = m.takeQueuedWorktreeTransitionCmd()
 		m.layout().syncViewport()
-		return handledUIFeatureUpdate(m, tea.Batch(overlayCmd, feedbackCmd, pendingWorkRefreshCmd, m.startRuntimeMainViewRefresh(nil), followUp, m.reconcileSpinnerTicking(false)))
+		return handledUIFeatureUpdate(m, tea.Batch(overlayCmd, feedbackCmd, pendingWorkRefreshCmd, m.startRuntimeMainViewRefresh(), followUp, m.reconcileSpinnerTicking(false)))
 	case worktreeDeleteDoneMsg:
 		if msg.token != m.worktrees.mutationToken {
 			m.layout().syncViewport()
@@ -248,7 +263,7 @@ func (m *uiModel) reduceWorktreeMessage(msg tea.Msg) uiFeatureUpdateResult {
 		}
 		feedbackCmd := m.sendTransientStatusWithNoticeID(worktreeDeleteSuccessStatus(msg.target, msg.resp), uiStatusNoticeSuccess, transientStatusDuration, uiStatusNoticeReplace, "")
 		m.layout().syncViewport()
-		return handledUIFeatureUpdate(m, tea.Batch(feedbackCmd, listCmd, m.startRuntimeMainViewRefresh(nil), m.reconcileSpinnerTicking(false)))
+		return handledUIFeatureUpdate(m, tea.Batch(feedbackCmd, listCmd, m.startRuntimeMainViewRefresh(), m.reconcileSpinnerTicking(false)))
 	case worktreeCreateTargetResolveDebounceMsg:
 		if !m.worktrees.open || m.worktrees.phase != uiWorktreeOverlayPhaseCreate {
 			m.layout().syncViewport()

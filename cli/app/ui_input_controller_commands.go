@@ -17,52 +17,17 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 )
 
-func (c uiInputController) applyCommandResultWithPreSubmitQueuePosition(commandResult commands.Result, queuePosition preSubmitQueuePosition) (tea.Model, tea.Cmd) {
-	return c.applyCommandResultWithPreSubmitQueuePositionAndSubmittedText(commandResult, queuePosition, activeSubmitOriginDirect, "")
-}
-
-func (c uiInputController) applyCommandResultWithPreSubmitQueuePositionAndOrigin(commandResult commands.Result, queuePosition preSubmitQueuePosition, origin activeSubmitOrigin) (tea.Model, tea.Cmd) {
-	return c.applyCommandResultWithPreSubmitQueuePositionAndSubmittedText(commandResult, queuePosition, origin, "")
-}
-
-func (c uiInputController) applyCommandResultWithPreSubmitQueuePositionAndSubmittedText(commandResult commands.Result, queuePosition preSubmitQueuePosition, origin activeSubmitOrigin, submittedText string) (tea.Model, tea.Cmd) {
-	return c.applyCommandResultWithPreSubmitQueuePositionAndOriginAndOrder(commandResult, queuePosition, origin, nil, submittedText)
-}
-
-func (c uiInputController) applyCommandResultWithPreSubmitQueuePositionAndOriginAndOrder(
+func (c uiInputController) applyCommandResult(
 	commandResult commands.Result,
-	queuePosition preSubmitQueuePosition,
-	origin activeSubmitOrigin,
-	submissionOrder *inputSubmissionOrder,
 	submittedText string,
 ) (tea.Model, tea.Cmd) {
 	m := c.model
 	if commandResult.PromptCommand != nil {
 		invocation := commandResult.PromptCommand
 		canonical := runtimeinput.CanonicalCommandText(invocation.Name, invocation.Arguments)
-		history := invocation.CanonicalHistoryText()
-		if commandResult.FreshConversation && (m.isBusy() || m.currentConversationFreshness() != runtimepb.ConversationFreshness_CONVERSATION_FRESHNESS_FRESH) {
-			previousSessionID, err := runtimeids.ParseSessionID(m.sessionID)
-			if err != nil {
-				return m, c.model.appendLocalEntryWithNoticeID("error", "Current session identity is invalid: "+err.Error(), "")
-			}
-			if blocked, disconnectCmd := c.blockDisconnectedSubmission(true, canonical); blocked {
-				return m, disconnectCmd
-			}
-			m.nextSessionInitialPrompt = history
-			m.nextSessionInitialPromptHistoryRecorded = true
-			m.nextPreviousSessionID = &previousSessionID
-			m.exitAction = UIActionNewSession
-			return m, tea.Quit
-		}
-		m.rememberPromptCommandHistoryLocally(history)
-		return m, c.startTypedSubmissionWithPreSubmitQueuePositionAndOrder(
+		return m, c.startTypedSubmission(
 			canonical,
 			runtimeinput.Input{Kind: runtimeinput.KindPromptCommand, PromptCommand: invocation},
-			queuePosition,
-			"",
-			origin,
-			submissionOrder,
 		)
 	}
 	if commandResult.SubmitUser {
@@ -71,7 +36,7 @@ func (c uiInputController) applyCommandResultWithPreSubmitQueuePositionAndOrigin
 		}
 	}
 	if commandResult.SubmitUser && commandResult.FreshConversation && (m.isBusy() || m.currentConversationFreshness() != runtimepb.ConversationFreshness_CONVERSATION_FRESHNESS_FRESH) {
-		previousSessionID, err := runtimeids.ParseSessionID(m.sessionID)
+		previousSessionID, err := runtimeids.ParseSessionID(m.currentRuntimeSessionID())
 		if err != nil {
 			return m, c.model.appendLocalEntryWithNoticeID("error", "Current session identity is invalid: "+err.Error(), "")
 		}
@@ -82,13 +47,7 @@ func (c uiInputController) applyCommandResultWithPreSubmitQueuePositionAndOrigin
 		return m, tea.Quit
 	}
 	if commandResult.SubmitUser {
-		return m, c.startSubmissionWithPreSubmitQueuePositionAndOriginAndOrder(
-			commandResult.User,
-			queuePosition,
-			"",
-			origin,
-			submissionOrder,
-		)
+		return m, c.startSubmission(commandResult.User)
 	}
 	prefixCmd := tea.Cmd(nil)
 	if commandResult.Text != "" {
@@ -100,7 +59,11 @@ func (c uiInputController) applyCommandResultWithPreSubmitQueuePositionAndOrigin
 		m.exitAction = UIActionExit
 		return m, sequenceCmds(prefixCmd, tea.Quit)
 	case commands.ActionNew:
-		previousSessionID, err := runtimeids.ParseSessionID(m.sessionID)
+		if m.newChatTarget() != nil {
+			m.exitAction = UIActionNewSession
+			return m, sequenceCmds(prefixCmd, tea.Quit)
+		}
+		previousSessionID, err := runtimeids.ParseSessionID(m.currentRuntimeSessionID())
 		if err != nil {
 			return m, sequenceCmds(prefixCmd, c.model.appendLocalEntryWithNoticeID("error", "Current session identity is invalid: "+err.Error(), ""))
 		}
@@ -114,6 +77,9 @@ func (c uiInputController) applyCommandResultWithPreSubmitQueuePositionAndOrigin
 		next, cmd := c.handleBackCommand()
 		return next, sequenceCmds(prefixCmd, cmd)
 	case commands.ActionLogin:
+		if m.newSessionTarget() != nil {
+			return m, sequenceCmds(prefixCmd, m.loginNewSessionCmd())
+		}
 		m.exitAction = UIActionLogout
 		return m, sequenceCmds(prefixCmd, tea.Quit)
 	case commands.ActionLogout:
@@ -173,6 +139,14 @@ func (c uiInputController) handleResumeCommand() (tea.Model, tea.Cmd) {
 
 func (c uiInputController) handleBackCommand() (tea.Model, tea.Cmd) {
 	m := c.model
+	if target := m.newChatTarget(); target != nil {
+		if previous := target.GetOrigin().GetNavigationOnlySessionId(); previous != nil {
+			m.nextSessionID = previous.GetSessionId()
+			m.exitAction = UIActionOpenSession
+			m.nextSessionInitialInput = nil
+			return m, tea.Quit
+		}
+	}
 	status := m.cachedRuntimeStatus()
 	if status.NavigationTargetSessionId == nil {
 		return m, c.model.appendLocalEntryWithNoticeID("system", "No parent session available", "")
@@ -185,6 +159,9 @@ func (c uiInputController) handleBackCommand() (tea.Model, tea.Cmd) {
 
 func (c uiInputController) handleCopyCommand() (tea.Model, tea.Cmd) {
 	m := c.model
+	if m.newSessionTarget() != nil {
+		return m, m.noFinalAnswerToCopyCmd()
+	}
 	if m.finalAnswerOperation != nil {
 		return m, nil
 	}
@@ -195,7 +172,7 @@ func (c uiInputController) handleSessionNameCommand(sessionName string) (tea.Mod
 	m := c.model
 	sessionName = strings.TrimSpace(sessionName)
 	mutation := sessionNameCommandMutation(sessionName)
-	if m.hasRuntimeClient() {
+	if m.newSessionTarget() == nil {
 		return m, m.runtimeControlCommand(runtimeControlSetSessionName, mutation)
 	}
 	if err := protoapi.Validate(mutation); err != nil {
@@ -206,6 +183,9 @@ func (c uiInputController) handleSessionNameCommand(sessionName string) (tea.Mod
 		return m, m.sendTransientStatusWithNoticeID(err.Error(), uiStatusNoticeError, transientStatusDuration, uiStatusNoticeReplace, "")
 	}
 	m.sessionName = name
+	if target := m.newChatTarget(); target != nil {
+		target.Name = name
+	}
 	return m, tea.SetWindowTitle(m.sessionTitle())
 }
 

@@ -2,6 +2,7 @@ export { RecordingControl, type RecordingControlProps } from "./RecordingControl
 export { fieldActions } from "./fieldActions";
 export { ControlTooltip } from "./ControlTooltip";
 export { SharedTextMotion } from "./SharedTextMotion";
+export { projectMarkdownText } from "./taskBodyMarkdownText";
 export { Badge } from "./Badge";
 export { PromptAccessTargets } from "./PromptAccessTargets";
 export { ScrollRegion } from "./ScrollRegion";

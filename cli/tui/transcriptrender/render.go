@@ -45,7 +45,7 @@ func RenderCommittedRowWithLinkPresentation(
 		panic(fmt.Sprintf("render committed row with invalid Markdown link presentation %d", linkPresentation))
 	}
 	var syntax *syntaxProjector
-	if row.GetTool() != nil {
+	if row.GetTool() != nil || row.GetToolCall() != nil {
 		configured := newSyntaxProjector(themeName)
 		syntax = &configured
 	}
@@ -93,6 +93,8 @@ func renderCommittedRow(
 				linkPresentation,
 			),
 		}
+	case *transcriptpb.CommittedRow_ToolCall:
+		return Row{Group: GroupTool, Lines: pendingToolLines(row.GetToolCall(), width, syntax)}
 	case *transcriptpb.CommittedRow_ReasoningTrace:
 		if mode != ModeDetailCollapsed && mode != ModeDetailExpanded {
 			return Row{Group: GroupReasoningTrace}

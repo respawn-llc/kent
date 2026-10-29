@@ -831,7 +831,7 @@ func TestOAuthCompactRequestPreservesProviderHTTPErrorDiagnostics(t *testing.T) 
 	if !errors.As(err, &providerErr) {
 		t.Fatalf("error = %v, want ProviderAPIError", err)
 	}
-	if providerErr.ProviderID != "chatgpt-codex" || providerErr.StatusCode != http.StatusBadRequest || !strings.Contains(err.Error(), "compaction trigger rejected") {
+	if providerErr.ProviderID != "chatgpt-codex" || !HasHTTPStatus(providerErr, http.StatusBadRequest) || !strings.Contains(err.Error(), "compaction trigger rejected") {
 		t.Fatalf("provider error = %+v, want provider, status, and useful body diagnostics", providerErr)
 	}
 }

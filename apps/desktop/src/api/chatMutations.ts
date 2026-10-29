@@ -254,6 +254,8 @@ function inputAdmissionDisposition(value: InputAdmissionDisposition) {
   switch (value) {
     case InputAdmissionDisposition.STARTED_TURN:
       return "started_turn" as const;
+    case InputAdmissionDisposition.STARTED_SHELL:
+      return "started_shell" as const;
     case InputAdmissionDisposition.PENDING_STEER:
       return "pending_steer" as const;
     case InputAdmissionDisposition.PENDING_QUEUE:
@@ -394,6 +396,14 @@ function pendingWorkFromWire(input: WirePendingWork): PendingWork {
         canonicalInput: item.canonicalInput,
       };
       switch (item.payload.case) {
+        case "shell":
+          return {
+            ...shared,
+            id: pendingWorkItemIDFromProto(item.id),
+            lane: pendingWorkLane(item.lane),
+            kind: "shell",
+            shell: { command: item.payload.value.command },
+          };
         case "message":
           return {
             ...shared,
@@ -441,6 +451,8 @@ function pendingWorkLane(value: PendingWorkLane): "steer" | "queue" {
 
 export function pendingWorkKind(value: PendingWorkItemKind) {
   switch (value) {
+    case PendingWorkItemKind.SHELL:
+      return "shell" as const;
     case PendingWorkItemKind.MESSAGE:
       return "message" as const;
     case PendingWorkItemKind.MANUAL_COMPACTION:

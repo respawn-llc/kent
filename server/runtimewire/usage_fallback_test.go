@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"net/http/httputil"
@@ -29,8 +30,56 @@ import (
 	"core/shared/toolspec"
 	"core/shared/transcriptmodel"
 
+	"github.com/coder/websocket"
 	"github.com/google/uuid"
 )
+
+func TestUsageFallbackContinuesAfterBareGrokSocketExhaustion(t *testing.T) {
+	var exhaustedCalls, healthyCalls atomic.Int32
+	endpoint := func(exhausted bool) *httptest.Server {
+		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			socket, err := websocket.Accept(w, r, nil)
+			if err != nil {
+				return
+			}
+			defer socket.CloseNow()
+			if _, _, err := socket.Read(t.Context()); err != nil {
+				return
+			}
+			event := `{"type":"response.completed","response":{"id":"healthy","output":[{"type":"message","id":"answer","role":"assistant","phase":"final_answer","content":[{"type":"output_text","text":"done","annotations":[]}]}]}}`
+			if exhausted {
+				exhaustedCalls.Add(1)
+				event = `{"error":{"code":"429","type":"allowance","message":"[WKE=personal-team-blocked:spending-limit] unavailable"}}`
+			} else {
+				healthyCalls.Add(1)
+			}
+			_ = socket.Write(t.Context(), websocket.MessageText, []byte(event))
+			_, _, _ = socket.Read(t.Context())
+		}))
+		t.Cleanup(server.Close)
+		return server
+	}
+	a, b := endpoint(true), endpoint(false)
+	targets := map[config.ConnectionID]string{"a": a.URL, "b": b.URL}
+	factory := RuntimeClientFactoryFunc(func(_ context.Context, request RuntimeClientRequest) (llm.Client, error) {
+		registration, err := llm.ResolveConnectionVariant(config.ProviderConnection{Protocol: config.ConnectionGrokAPIKey, EnvironmentVariable: textutil.Value("KENT_TEST_GROK_KEY")})
+		if err != nil {
+			return nil, err
+		}
+		registration.Variant.BaseURL = textutil.Value(targets[request.Connection.ID] + "/v1")
+		return llm.NewProviderClient(llm.ProviderClientOptions{
+			Registration: registration, Auth: request.Connection.Auth, ConnectionID: &request.Connection.ID,
+			ContextWindowTokens: request.ActiveSettings.ModelContextWindow, RequestCapabilities: &request.RequestCapabilities,
+		})
+	})
+	wiring, store := newUsageFallbackRuntimeWithReviewer(t, launch.NewConnectionRotation(testsetup.OpenStore(t, t.TempDir()), time.Minute), a.URL, b.URL, config.CompactionModeLocal, config.ReviewerSettings{Frequency: "off"}, factory)
+	if _, err := wiring.Engine.SubmitUserMessage(t.Context(), "hello"); err != nil {
+		t.Fatal(err)
+	}
+	if store.Meta().ConnectionID == nil || *store.Meta().ConnectionID != "b" || exhaustedCalls.Load() != 1 || healthyCalls.Load() != 1 {
+		t.Fatalf("fallback selection=%v exhausted=%d healthy=%d", store.Meta().ConnectionID, exhaustedCalls.Load(), healthyCalls.Load())
+	}
+}
 
 func TestUsageFallbackContinuesAndSavesReplacement(t *testing.T) {
 	exhausted, exhaustedCalls := usageFailureEndpoint(t, 429, usageExhaustionFixture(t))
@@ -174,8 +223,23 @@ func testUsageFallbackReviewer(t *testing.T, explicit, unavailable, preparationF
 		})
 		t.Fatalf("Reviewer replacement = %v, calls %d", got, calls.Load())
 	}
-	if !rotation.CoolingDown("a") || calls.Load() != 2 || len(healthy.Snapshot().Observed) != wantRequests {
-		t.Fatalf("requests = a %d, healthy %+v", calls.Load(), healthy.Snapshot().Observed)
+	snapshot := healthy.Snapshot()
+	if !rotation.CoolingDown("a") || calls.Load() != 2 || len(snapshot.Observed) != wantRequests {
+		for index, observed := range snapshot.Observed {
+			var request struct {
+				Text struct {
+					Format json.RawMessage `json:"format"`
+				} `json:"text"`
+			}
+			if err := json.Unmarshal(observed.Body, &request); err != nil {
+				t.Logf("healthy request %d: decode failed: %v", index, err)
+				continue
+			}
+			t.Logf("healthy request %d: route=%s structured output=%s", index, observed.Route, request.Text.Format)
+		}
+		t.Fatalf("requests: a=%d healthy=%d want=%d; cooling down=%t; fixture progress=%d/%d active=%d failure=%v",
+			calls.Load(), len(snapshot.Observed), wantRequests, rotation.CoolingDown("a"),
+			snapshot.RequiredIndex, snapshot.RequiredTotal, snapshot.ActiveRequests, snapshot.Failure)
 	}
 	if explicit || unavailable || preparationFailure {
 		reopened, err := session.Open(store.Dir(), runtimeWireTestSessionPersistence.Options()...)
@@ -277,7 +341,7 @@ func newUsageFallbackRuntimeWithReviewer(t *testing.T, rotation *launch.Connecti
 			})
 		})
 	}
-	wiring, err := newTestRuntimeWiringWithBackground(t, store, materializedRuntimeWireEventLog(t, store), settings, enabled, nil, nil, nil, options)
+	wiring, err := newTestRuntimeWiringWithBackground(t, store, materializedRuntimeWireEventLog(t, store), settings, enabled, nil, t, nil, options)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -409,7 +473,7 @@ func TestUsageFallbackSavesReplacementBeforeOrdinaryFailure(t *testing.T) {
 
 func TestUsageFallbackKeepsCompletedToolWork(t *testing.T) {
 	tool, err := blackbox.StartScriptedResponsesStub(scriptedllm.Script{Steps: []scriptedllm.Step{
-		scriptedllm.ToolBatch("", llm.ToolCall{ID: uuid.NewString(), Name: string(toolspec.ToolExecCommand), Input: json.RawMessage(`{"cmd":"printf x >> fallback-marker"}`)}),
+		scriptedllm.ToolBatch("", llm.ToolCall{ID: uuid.NewString(), Name: string(toolspec.ToolExecCommand), Input: json.RawMessage(`{"cmd":"printf x >> fallback-marker","shell":"/bin/sh","login":false}`)}),
 	}})
 	if err != nil {
 		t.Fatal(err)
@@ -427,6 +491,15 @@ func TestUsageFallbackKeepsCompletedToolWork(t *testing.T) {
 	wiring, store := newUsageFallbackRuntime(t, launch.NewConnectionRotation(testsetup.OpenStore(t, t.TempDir()), time.Minute), a, b.URL(), config.CompactionModeLocal, toolspec.ToolExecCommand)
 	if _, err := wiring.Engine.SubmitUserMessage(t.Context(), "hello"); err != nil {
 		t.Fatal(err)
+	}
+	page, err := runtime.TranscriptNewestSegmentPageFromEventLog(materializedRuntimeWireEventLog(t, store), config.CacheWarningModeDefault)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, row := range runtime.TranscriptCommittedRowFactsFromSnapshot(page.Snapshot) {
+		if row.Tool != nil && row.Tool.IsError {
+			t.Fatalf("completed tool failed: %+v", row.Tool)
+		}
 	}
 	marker, err := os.ReadFile(filepath.Join(store.Meta().WorkspaceRoot, "fallback-marker"))
 	if err != nil || len(marker) != 1 {
@@ -491,7 +564,46 @@ func TestUsageFallbackContinuesLocalCompaction(t *testing.T) {
 }
 
 func TestUsageFallbackContinuesNativeCompaction(t *testing.T) {
-	testUsageFallbackCompaction(t, config.CompactionModeNative)
+	var attempts, compactions atomic.Int32
+	a := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		attempts.Add(1)
+		if r.Header.Get("Upgrade") != "websocket" {
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusTooManyRequests)
+			_, _ = w.Write(usageExhaustionFixture(t))
+			return
+		}
+		socket, err := websocket.Accept(w, r, nil)
+		if err != nil {
+			return
+		}
+		defer socket.CloseNow()
+		if _, _, err := socket.Read(t.Context()); err != nil {
+			return
+		}
+		_ = socket.Write(t.Context(), websocket.MessageText, []byte(`{"type":"response.completed","response":{"id":"seed","output":[{"type":"message","id":"seed-message","role":"assistant","phase":"final_answer","content":[{"type":"output_text","text":"done","annotations":[]}]}]}}`))
+		_, _, _ = socket.Read(t.Context())
+	}))
+	t.Cleanup(a.Close)
+	b := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		compactions.Add(1)
+		if r.Method != http.MethodPost || r.Header.Get("Upgrade") == "websocket" {
+			t.Error("compaction must remain HTTP")
+		}
+		w.Header().Set("Content-Type", "text/event-stream")
+		_, _ = io.WriteString(w, `data: {"type":"response.completed","response":{"id":"compact","output":[{"type":"compaction","id":"checkpoint","encrypted_content":"opaque"}]}}`+"\n\n")
+	}))
+	t.Cleanup(b.Close)
+	wiring, store := newUsageFallbackRuntime(t, launch.NewConnectionRotation(testsetup.OpenStore(t, t.TempDir()), time.Minute), a.URL, b.URL, config.CompactionModeNative)
+	if _, err := wiring.Engine.SubmitUserMessage(t.Context(), "hello"); err != nil {
+		t.Fatal(err)
+	}
+	if err := wiring.Engine.CompactContextForWorkflowContinuation(t.Context()); err != nil {
+		t.Fatal(err)
+	}
+	if *store.Meta().ConnectionID != "b" || attempts.Load() != 2 || compactions.Load() != 1 {
+		t.Fatalf("native compaction binding=%v attempts=%d compactions=%d", store.Meta().ConnectionID, attempts.Load(), compactions.Load())
+	}
 }
 
 func testUsageFallbackCompaction(t *testing.T, mode config.CompactionMode) {

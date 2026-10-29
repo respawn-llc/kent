@@ -134,6 +134,11 @@ func (b *Broker) PublishSessionNamingFailure(failure *attentionpb.SessionNamingF
 	return b.publish(RoutingScope{Kind: RoutingSessionPrompt, ProjectID: failure.ProjectId, SessionID: failure.SessionId}, event)
 }
 
+func (b *Broker) PublishSessionTurnEnd(completion *attentionpb.SessionTurnEnd) error {
+	event := clientui.AttentionNotificationEvent{Type: clientui.AttentionNotificationEventSessionTurnEnd, SessionTurnEnd: completion}
+	return b.publish(RoutingScope{Kind: RoutingSessionPrompt, ProjectID: completion.ProjectId, SessionID: completion.SessionId}, event)
+}
+
 func (b *Broker) publish(scope RoutingScope, event clientui.AttentionNotificationEvent) error {
 	if b == nil {
 		return fmt.Errorf("attention notification stream is unavailable: %w", serverapi.ErrStreamUnavailable)

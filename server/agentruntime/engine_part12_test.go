@@ -361,24 +361,27 @@ func TestRunStepLoopSkipsCompactionSoonReminderWhenImmediateAutoCompactionRuns(t
 func TestRunStepLoopInjectsCompactionSoonReminderBeforeFinalAnswerRequest(t *testing.T) {
 	t.Parallel()
 	store := mustCreateTestSession(t)
+	// Request preparation and the reminder add context. Keep enough room below
+	// the forced limit so they cannot consume the final-answer fixture as a local summary.
+	const window, forcedLimit, used = 200_000, 100_000, 89_000
 
 	client := &fakeCompactionClient{
 		responses: []llm.Response{{
 			Assistant: llm.Message{Role: llm.RoleAssistant, Content: textutil.Value("done"), Phase: textutil.Value(llm.MessagePhaseFinal)},
-			Usage:     llm.Usage{InputTokens: textutil.Value(890), WindowTokens: 2_000, ContextUsage: &llm.ContextUsage{Tokens: 890, MeasurementPoint: llm.ContextMeasurementInput}},
+			Usage:     llm.Usage{InputTokens: textutil.Value(used), WindowTokens: window, ContextUsage: &llm.ContextUsage{Tokens: used, MeasurementPoint: llm.ContextMeasurementInput}},
 		}},
 	}
 
 	eng := mustNewTestEngine(t, store, client, newTestToolRegistry(t, tools.HandlerRegistration{ID: toolspec.ToolExecCommand, Handler: fakeTool{name: toolspec.ToolExecCommand}}), Config{
 		Model:                 "gpt-6-sol",
-		ContextWindowTokens:   2_000,
-		AutoCompactTokenLimit: 1_000,
+		ContextWindowTokens:   window,
+		AutoCompactTokenLimit: forcedLimit,
 		CompactionMode:        "local",
 	})
 	if err := eng.steerRuntime(steerMessagesWithPersistenceIntent(steeringPriorityNormal, steeringMessageEventDefault, true, []llm.Message{{Role: llm.RoleUser, Content: textutil.Value("seed")}})); err != nil {
 		t.Fatalf("append seed message: %v", err)
 	}
-	eng.setLastUsage(llm.Usage{InputTokens: textutil.Value(890), WindowTokens: 2_000, ContextUsage: &llm.ContextUsage{Tokens: 890, MeasurementPoint: llm.ContextMeasurementInput}})
+	eng.setLastUsage(llm.Usage{InputTokens: textutil.Value(used), WindowTokens: window, ContextUsage: &llm.ContextUsage{Tokens: used, MeasurementPoint: llm.ContextMeasurementInput}})
 
 	restoreStep := setTestActiveStep(eng, "step-1")
 	msg, err := eng.runStepLoop(context.Background(), runtimeTestStepID("step-1"))

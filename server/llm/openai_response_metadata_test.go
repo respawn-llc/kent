@@ -48,9 +48,9 @@ func TestResponsesClientSelectsServedModelMetadata(t *testing.T) {
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
 			var capturedModel string
-			transport := newResponseMetadataTransport(t, test.headers, func(w http.ResponseWriter, request *http.Request) {
-				capturedModel = decodeRequestedModel(t, request)
-				writeSuccessfulMetadataResponse(t, w, test.createdModel, test.completedModel)
+			transport := newResponseMetadataTransport(t, test.headers, func(raw json.RawMessage) []string {
+				capturedModel = decodeRequestedModel(t, raw)
+				return successfulMetadataEvents(test.createdModel, test.completedModel)
 			})
 			request := Request{SessionID: stringPointer("metadata-session"), Model: "requested-model", ToolChoiceMode: ToolChoiceModeAutomatic}
 			client := NewResponsesClient(transport, nil)
@@ -84,8 +84,8 @@ func TestResponsesClientParsesStrictReasoningIncludedHeader(t *testing.T) {
 			if header.value != nil {
 				responseHeaders.Set("x-reasoning-included", *header.value)
 			}
-			transport := newResponseMetadataTransport(t, responseHeaders, func(w http.ResponseWriter, _ *http.Request) {
-				writeSuccessfulMetadataResponse(t, w, "", "")
+			transport := newResponseMetadataTransport(t, responseHeaders, func(json.RawMessage) []string {
+				return successfulMetadataEvents("", "")
 			})
 
 			request := Request{SessionID: stringPointer("metadata-session"), Model: "requested-model", ToolChoiceMode: ToolChoiceModeAutomatic}
@@ -131,7 +131,7 @@ func TestResponsesResponseErrorsPreserveHeaderDiagnostics(t *testing.T) {
 	}
 }
 
-func newResponseMetadataTransport(t *testing.T, headers http.Header, writeResponse func(http.ResponseWriter, *http.Request)) *HTTPTransport {
+func newResponseMetadataTransport(t *testing.T, headers http.Header, respond func(json.RawMessage) []string) *HTTPTransport {
 	t.Helper()
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, request *http.Request) {
 		for name, values := range headers {
@@ -139,7 +139,7 @@ func newResponseMetadataTransport(t *testing.T, headers http.Header, writeRespon
 				w.Header().Add(name, value)
 			}
 		}
-		writeResponse(w, request)
+		serveResponsesTestWebsocket(t, w, request, respond)
 	}))
 	t.Cleanup(server.Close)
 	transport := newTestHTTPTransport(t, staticAuth{}, testConnectionRegistration(t, config.ProviderConnection{Protocol: config.ConnectionResponses, Endpoint: textutil.Value(defaultOpenAIBaseURL)}))
@@ -148,28 +148,27 @@ func newResponseMetadataTransport(t *testing.T, headers http.Header, writeRespon
 	return transport
 }
 
-func decodeRequestedModel(t *testing.T, request *http.Request) string {
+func decodeRequestedModel(t *testing.T, raw json.RawMessage) string {
 	t.Helper()
 	var payload struct {
 		Model string `json:"model"`
 	}
-	if err := json.NewDecoder(request.Body).Decode(&payload); err != nil {
+	if err := json.Unmarshal(raw, &payload); err != nil {
 		t.Fatalf("decode request: %v", err)
 	}
 	return payload.Model
 }
 
-func writeSuccessfulMetadataResponse(t *testing.T, w http.ResponseWriter, createdModel string, completedModel string) {
-	t.Helper()
+func successfulMetadataEvents(createdModel string, completedModel string) []string {
 	response := fmt.Sprintf(
 		`{"id":"resp_1","object":"response","model":%q,"output":[{"type":"message","id":"msg_1","role":"assistant","phase":"final_answer","content":[{"type":"output_text","text":"done"}]}],"usage":{"input_tokens":1,"output_tokens":1,"total_tokens":2}}`,
 		completedModel,
 	)
-	w.Header().Set("Content-Type", "text/event-stream")
+	var events []string
 	if createdModel != "" {
-		_, _ = fmt.Fprintf(w, "data: {\"type\":\"response.created\",\"response\":{\"model\":%q}}\n\n", createdModel)
+		events = append(events, fmt.Sprintf(`{"type":"response.created","response":{"model":%q}}`, createdModel))
 	}
-	_, _ = fmt.Fprintf(w, "data: {\"type\":\"response.completed\",\"response\":%s}\n\ndata: [DONE]\n\n", response)
+	return append(events, fmt.Sprintf(`{"type":"response.completed","response":%s}`, response))
 }
 func stringPointer(value string) *string {
 	return &value

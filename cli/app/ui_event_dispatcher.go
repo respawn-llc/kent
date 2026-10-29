@@ -9,9 +9,10 @@ import (
 )
 
 type uiDispatchedEventMsg struct {
-	attention *sessionAttentionEvent
+	source    *uiEventDispatcher
 	event     ongoingTranscriptEvent
 	issue     *lifecycleHookIssue
+	attention *sessionAttentionEvent
 }
 
 type uiEventDispatcher struct {
@@ -40,7 +41,7 @@ func (d *uiEventDispatcher) wait() tea.Cmd {
 					attentionEvents = nil
 					continue
 				}
-				return uiDispatchedEventMsg{attention: &attention}
+				return uiDispatchedEventMsg{source: d, attention: &attention}
 			case <-d.lifecycleHookDone:
 				return nil
 			case event, ok := <-transcriptEvents:
@@ -48,9 +49,9 @@ func (d *uiEventDispatcher) wait() tea.Cmd {
 					transcriptEvents = nil
 					continue
 				}
-				return uiDispatchedEventMsg{event: event}
+				return uiDispatchedEventMsg{source: d, event: event}
 			case issue := <-issues:
-				return uiDispatchedEventMsg{issue: &issue}
+				return uiDispatchedEventMsg{source: d, issue: &issue}
 			}
 		}
 		return nil
@@ -62,8 +63,17 @@ func (m *uiModel) reduceDispatchedEvent(message tea.Msg) uiFeatureUpdateResult {
 	if !ok {
 		return uiFeatureUpdateResult{}
 	}
+	if dispatched.source != m.eventDispatcher {
+		return handledUIFeatureUpdate(m, nil)
+	}
 	if dispatched.attention != nil {
 		event := dispatched.attention
+		if event.turnEnd != nil {
+			if m.turnQueueHook != nil {
+				m.turnQueueHook.OnSessionTurnEnd(event.turnEnd.AssistantContent)
+			}
+			return handledUIFeatureUpdate(m, m.eventDispatcher.wait())
+		}
 		message := "Session naming failed"
 		if event.err != nil {
 			m.logf("attention.subscription.failed err=%q", event.err.Error())

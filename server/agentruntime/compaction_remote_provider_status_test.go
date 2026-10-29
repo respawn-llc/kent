@@ -52,7 +52,7 @@ func malformedCompactionProviderError() *llm.ProviderAPIError {
 	checkpointErr := malformedCompactionCheckpointError()
 	providerErr := &llm.ProviderAPIError{
 		ProviderID: "openai",
-		StatusCode: 502,
+		StatusCode: textutil.Value(502),
 		Code:       llm.UnifiedErrorCodeProviderContract,
 		Message:    checkpointErr.Error(),
 		Raw:        checkpointErr.Error(),
@@ -68,7 +68,7 @@ func TestSpeculativeRemoteCompactionRetries413OverflowByCollapsingToolOutput(t *
 		compactionErrors: []error{
 			&llm.ProviderAPIError{
 				ProviderID: "openai",
-				StatusCode: 413,
+				StatusCode: textutil.Value(413),
 				Code:       llm.UnifiedErrorCodeContextLengthOverflow,
 			},
 			nil,
@@ -132,7 +132,7 @@ func TestMalformedRemoteCompactionFallbackUsesOverflowRepairedInput(t *testing.T
 		compactionErrors: []error{
 			&llm.ProviderAPIError{
 				ProviderID: "openai",
-				StatusCode: 413,
+				StatusCode: textutil.Value(413),
 				Code:       llm.UnifiedErrorCodeContextLengthOverflow,
 			},
 			malformedCompactionProviderError(),
@@ -206,7 +206,7 @@ func TestMalformedRemoteCompactionCombinesRemoteAndLocalOverflowRepairFacts(t *t
 		errors: []error{
 			&llm.ProviderAPIError{
 				ProviderID: "openai",
-				StatusCode: 413,
+				StatusCode: textutil.Value(413),
 				Code:       llm.UnifiedErrorCodeContextLengthOverflow,
 			},
 			nil,
@@ -217,7 +217,7 @@ func TestMalformedRemoteCompactionCombinesRemoteAndLocalOverflowRepairFacts(t *t
 		compactionErrors: []error{
 			&llm.ProviderAPIError{
 				ProviderID: "openai",
-				StatusCode: 413,
+				StatusCode: textutil.Value(413),
 				Code:       llm.UnifiedErrorCodeContextLengthOverflow,
 			},
 			malformedCompactionProviderError(),
@@ -534,7 +534,7 @@ func TestRemoteCompactionFailureAndCheckpointFallback(t *testing.T) {
 	t.Run("non-overflow provider 400 fails without replacement or fallback", func(t *testing.T) {
 		store, client, engine := newRemoteCompactionFixture(t, &llm.ProviderAPIError{
 			ProviderID: "openai",
-			StatusCode: 400,
+			StatusCode: textutil.Value(400),
 			Code:       llm.UnifiedErrorCodeUnknown,
 		})
 		var events []Event
@@ -557,7 +557,7 @@ func TestRemoteCompactionFailureAndCheckpointFallback(t *testing.T) {
 	t.Run("404 fails without replacement or fallback", func(t *testing.T) {
 		store, client, engine := newRemoteCompactionFixture(t, &llm.ProviderAPIError{
 			ProviderID: "openai",
-			StatusCode: 404,
+			StatusCode: textutil.Value(404),
 			Code:       llm.UnifiedErrorCodeUnknown,
 		})
 		var events []Event
@@ -612,7 +612,7 @@ func TestRemoteCompactionOrdinaryProviderFailuresDoNotFallbackToLocal(t *testing
 			name: "authentication",
 			err: &llm.ProviderAPIError{
 				ProviderID: "openai",
-				StatusCode: 401,
+				StatusCode: textutil.Value(401),
 				Code:       llm.UnifiedErrorCodeAuthentication,
 			},
 			ctx: context.Background,
@@ -640,7 +640,7 @@ func TestRemoteCompactionOrdinaryProviderFailuresDoNotFallbackToLocal(t *testing
 			name: "unrelated provider contract",
 			err: &llm.ProviderAPIError{
 				ProviderID: "openai",
-				StatusCode: 502,
+				StatusCode: textutil.Value(502),
 				Code:       llm.UnifiedErrorCodeProviderContract,
 				Err:        errors.New("non-checkpoint contract failure"),
 			},

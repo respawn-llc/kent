@@ -444,7 +444,7 @@ The interval after one Agent Step ends and before another provider request begin
 
 ### Queue
 
-A user-facing action that accepts one input into the server-owned post-turn Queue. During an Agent Turn, queued input waits until that turn ends. Queue Items start subsequent Agent Turns one at a time in Queue order, as specified in Runtime Steering Loop. When the Active Session Runtime is idle and ordinary work is eligible, queued input starts the next turn immediately.
+A user-facing action that accepts one input into the server-owned post-turn Queue. During an Agent Turn, queued input waits until that turn ends. Queued model messages start subsequent Agent Turns one at a time in Queue order, as specified in Runtime Steering Loop. Shell Queue Items execute without starting a model turn. When the Active Session Runtime is idle and ordinary work is eligible, queued input starts immediately.
 
 ### Steer
 

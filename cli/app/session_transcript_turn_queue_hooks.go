@@ -1,16 +1,19 @@
 package app
 
 import (
-	"sync"
-
 	transcriptpb "core/shared/protoapi/gen/kent/api/transcript"
 )
 
 type turnQueueHook interface {
+	OnSessionTurnEnd(string)
 	OnTranscriptMessage(*transcriptpb.Message)
-	OnTurnQueueDrained()
-	OnTurnQueueAborted()
-	OnUserCompactionCompleted(bool)
+	OnUserCompactionCompleted()
+}
+
+func (h *turnQueueHooks) OnSessionTurnEnd(content string) {
+	if h != nil && h.notifications != nil {
+		h.notifications.OnSessionTurnEnd(content)
+	}
 }
 
 type taskCompletionSink interface {
@@ -18,10 +21,8 @@ type taskCompletionSink interface {
 }
 
 type turnQueueHooks struct {
-	mu                     sync.Mutex
-	notifications          *bellHooks
-	taskCompletions        taskCompletionSink
-	pendingTaskCompletions []*transcriptpb.LiveRunFinished
+	notifications   *bellHooks
+	taskCompletions taskCompletionSink
 }
 
 func newTurnQueueHooks(
@@ -38,9 +39,6 @@ func (h *turnQueueHooks) OnTranscriptMessage(message *transcriptpb.Message) {
 	if h == nil {
 		return
 	}
-	if h.notifications != nil {
-		h.notifications.OnTranscriptMessage(message)
-	}
 	if h.taskCompletions == nil || message.Event.GetLiveRunFinished() == nil {
 		return
 	}
@@ -50,37 +48,12 @@ func (h *turnQueueHooks) OnTranscriptMessage(message *transcriptpb.Message) {
 		result.FinalAnswer == nil {
 		return
 	}
-	h.mu.Lock()
-	h.pendingTaskCompletions = append(h.pendingTaskCompletions, result)
-	h.mu.Unlock()
+	h.taskCompletions.enqueueTaskCompletion(result)
 }
 
-func (h *turnQueueHooks) OnTurnQueueDrained() {
-	if h == nil {
-		return
-	}
-	h.mu.Lock()
-	pending := h.pendingTaskCompletions
-	h.pendingTaskCompletions = nil
-	h.mu.Unlock()
-	for _, result := range pending {
-		h.taskCompletions.enqueueTaskCompletion(result)
-	}
-	if h.notifications != nil {
-		h.notifications.OnTurnQueueDrained()
-	}
-}
-
-func (h *turnQueueHooks) OnTurnQueueAborted() {
+func (h *turnQueueHooks) OnUserCompactionCompleted() {
 	if h == nil || h.notifications == nil {
 		return
 	}
-	h.notifications.OnTurnQueueAborted()
-}
-
-func (h *turnQueueHooks) OnUserCompactionCompleted(queueDrained bool) {
-	if h == nil || h.notifications == nil {
-		return
-	}
-	h.notifications.OnUserCompactionCompleted(queueDrained)
+	h.notifications.OnUserCompactionCompleted()
 }
