@@ -158,6 +158,6 @@ func (m *uiModel) startSessionObservationLoads() tea.Cmd {
 		m.eventDispatcher.wait(),
 		waitRuntimeConnectionStateChange(m.runtimeConnectionEvents, m.observationScope),
 		m.loadPromptHistoryCmd(),
-		m.startRuntimeMainViewRefresh(nil),
+		m.startRuntimeMainViewRefresh(),
 	)
 }

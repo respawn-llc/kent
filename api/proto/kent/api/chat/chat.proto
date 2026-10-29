@@ -100,6 +100,19 @@ message CommandInvocation {
   };
 }
 
+// Shell is Session work, including New Sessions and dormant Sessions with preparation.
+// Steer runs at the next eligible Step Boundary; Queue runs after the current
+// Agent Turn. Idle Shell execution does not start a model turn. Acceptance returns
+// before execution completes. The Runtime owns accepted work even on disconnect.
+// Results and execution failures arrive through ordinary Runtime/transcript events;
+// rejected commands and accepted commands stopped before starting are restorable.
+message ShellCommand {
+  string command = 1 [
+    (buf.validate.field).string.min_len = 1,
+    (buf.validate.field).string.(kent.api.shared.nonblank) = true
+  ];
+}
+
 message Activation {
   oneof input {
     option (buf.validate.oneof).required = true;
@@ -109,6 +122,7 @@ message Activation {
       (buf.validate.field).string.(kent.api.shared.pending_work_nonblank) = true
     ];
     CommandInvocation command = 2;
+    ShellCommand shell = 3;
   }
 }
 
@@ -155,6 +169,7 @@ enum InputAdmissionDisposition {
   INPUT_ADMISSION_DISPOSITION_STARTED_TURN = 1;
   INPUT_ADMISSION_DISPOSITION_PENDING_STEER = 2;
   INPUT_ADMISSION_DISPOSITION_PENDING_QUEUE = 3;
+  INPUT_ADMISSION_DISPOSITION_STARTED_SHELL = 4;
 }
 
 message InputAccepted {
@@ -267,6 +282,7 @@ message SteerRequest {
     (buf.validate.field).string.uuid = true,
     (buf.validate.field).string.(kent.api.shared.canonical_uuid_v4) = true
   ];
+  optional string initial_input_draft = 4;
 }
 
 message QueueRequest {
@@ -276,6 +292,7 @@ message QueueRequest {
     (buf.validate.field).string.uuid = true,
     (buf.validate.field).string.(kent.api.shared.canonical_uuid_v4) = true
   ];
+  optional string initial_input_draft = 4;
 }
 
 message ManualCompactionTooSoonDetails {}

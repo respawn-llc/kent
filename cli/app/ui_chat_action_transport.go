@@ -9,7 +9,6 @@ import (
 	"core/shared/clientui"
 	"core/shared/protoapi"
 	chatpb "core/shared/protoapi/gen/kent/api/chat"
-	chatshellpb "core/shared/protoapi/gen/kent/api/chat_shell"
 	runtimepb "core/shared/protoapi/gen/kent/api/runtime"
 	"core/shared/runtimeids"
 	"core/shared/runtimeinput"
@@ -22,14 +21,12 @@ type chatInputAction struct {
 	intent      newSessionInputIntent
 	queueItemID runtimeids.QueueItemID
 }
-type chatShellAction struct{ command string }
 type chatGoalAction struct{ objective string }
 type chatCompactionAction struct {
 	invocation *chatpb.CompactionInvocation
 }
 
 func (chatInputAction) isChatAction()      {}
-func (chatShellAction) isChatAction()      {}
 func (chatGoalAction) isChatAction()       {}
 func (chatCompactionAction) isChatAction() {}
 
@@ -72,7 +69,7 @@ func (m *uiModel) captureChatAction(action chatAction, submittedText *string) fu
 	case *uiNewSessionTarget:
 		target = &chatpb.ChatTarget{Target: &chatpb.ChatTarget_NewChat{NewChat: proto.Clone(selected.creation).(*chatpb.NewChatTarget)}}
 		text := m.mainEditor.Text()
-		if _, shell := action.(chatShellAction); shell && submittedText != nil {
+		if input, ok := action.(chatInputAction); ok && input.input.GetShell() != nil && submittedText != nil {
 			text = *submittedText
 		}
 		draft = &text
@@ -97,11 +94,14 @@ func (t chatActionTransport) execute(ctx context.Context, target *chatpb.ChatTar
 	}
 	switch action := action.(type) {
 	case chatInputAction:
+		if action.input.GetShell() == nil {
+			draft = nil
+		}
 		var response *chatpb.InputMutationSuccess
 		if action.intent == newSessionInputQueue {
-			response, result.err = service.Queue(ctx, &chatpb.QueueRequest{Target: target, Activation: action.input, QueueItemId: action.queueItemID.String()})
+			response, result.err = service.Queue(ctx, &chatpb.QueueRequest{Target: target, Activation: action.input, QueueItemId: action.queueItemID.String(), InitialInputDraft: draft})
 		} else {
-			response, result.err = service.Steer(ctx, &chatpb.SteerRequest{Target: target, Activation: action.input, QueueItemId: action.queueItemID.String()})
+			response, result.err = service.Steer(ctx, &chatpb.SteerRequest{Target: target, Activation: action.input, QueueItemId: action.queueItemID.String(), InitialInputDraft: draft})
 		}
 		if result.err == nil {
 			result.err = protoapi.Validate(response)
@@ -113,20 +113,6 @@ func (t chatActionTransport) execute(ctx context.Context, target *chatpb.ChatTar
 			} else {
 				result.input = response.GetAccepted()
 				result.diagnostic = protoapi.ChatAcceptedDiagnosticFromProto(response.GetAccepted().Diagnostic)
-			}
-		}
-	case chatShellAction:
-		response, err := service.SubmitUserShellCommand(ctx, &chatshellpb.ShellCommandRequest{
-			Target: target, Command: action.command, InitialInputDraft: draft,
-		})
-		result.err = err
-		if err == nil {
-			result.err = protoapi.Validate(response)
-		}
-		if result.err == nil {
-			result.session = response.Session
-			if failure := response.GetFailed(); failure != nil {
-				result.err = protoapi.ChatNotAcceptedFromProto(failure)
 			}
 		}
 	case chatGoalAction:

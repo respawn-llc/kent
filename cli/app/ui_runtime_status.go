@@ -110,6 +110,9 @@ func (m *uiModel) statusLineLabel() string {
 	if m == nil {
 		return ""
 	}
+	if m.hasPendingInputAdmission() && !m.runtimeActivityBusy() {
+		return "sending"
+	}
 	if m.isCompacting() {
 		return "compacting"
 	}
@@ -132,7 +135,7 @@ func (m *uiModel) statusLineSpinning() bool {
 	if m == nil {
 		return false
 	}
-	if m.sessionPreparationPending() || m.isReviewerActive() {
+	if m.sessionPreparationPending() || m.isReviewerActive() || m.hasPendingInputAdmission() {
 		return true
 	}
 	return m.runtimeActivityBusy() && m.activity != uiActivityQuestion

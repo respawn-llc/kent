@@ -154,10 +154,10 @@ func (m *uiModel) applyNewSessionSettingsLoaded(msg newSessionSettingsLoadedMsg)
 		m.clearInput()
 	}
 	if msg.retry.command != nil {
-		_, action := m.inputController().applyCommandResultWithPreSubmitQueuePositionAndSubmittedText(*msg.retry.command, preSubmitQueueBack, activeSubmitOriginDirect, msg.retry.text)
+		_, action := m.inputController().applyCommandResult(*msg.retry.command, msg.retry.text)
 		return tea.Batch(clear, action)
 	}
-	return tea.Batch(clear, m.inputController().startSubmissionWithPromptHistoryAndQueuePositionAndID(msg.retry.text, preSubmitQueueBack, ""))
+	return tea.Batch(clear, m.inputController().startSubmission(msg.retry.text))
 }
 
 func (m *uiModel) restoreNavigationPrompt() {

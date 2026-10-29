@@ -1161,7 +1161,10 @@ func TestDeleteWorktreeRetiresIdleRuntimeAndRetargetsSessionBeforePhysicalRemova
 		t.Fatalf("ParseSessionID other Session: %v", err)
 	}
 	if err := env.authority.WithCurrentRuntime(context.Background(), sessionID, func(ctx context.Context, engine *runtime.Engine) error {
-		if _, err := engine.SubmitUserShellCommand(ctx, "pwd > .kent-delete-shell-cwd"); err != nil {
+		if _, err := engine.QueueShellInput(ctx, runtimeids.NewQueueItemID(), runtimeinput.ShellCommand{Command: "pwd > .kent-delete-shell-cwd"}, runtimeinput.PendingWorkLaneSteer, nil); err != nil {
+			return err
+		}
+		if err := engine.WaitForScheduledQueuedUserWork(ctx); err != nil {
 			return err
 		}
 		_, err := engine.SubmitUserMessage(ctx, "edit relative-edit.txt from Main Workspace")

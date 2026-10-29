@@ -295,20 +295,6 @@ func (s *Service) AppendCommittedEntry(ctx context.Context, req *transcriptpb.Ap
 	})
 }
 
-func (s *Service) AdmitUserShellCommand(ctx context.Context, sessionID runtimeids.SessionID, command string) error {
-	_, err := runRuntimeCommand(ctx, func(ctx context.Context) (struct{}, bool, error) {
-		attempt := newRuntimeCommandAttempt(ctx)
-		defer attempt.Finish()
-		descriptor, err := session.NewOpenSessionDescriptor(sessionID)
-		if err != nil {
-			return struct{}{}, false, err
-		}
-		commandErr := s.authority.SubmitShellCommand(attempt.Context(), descriptor, command, attempt.Accept)
-		return struct{}{}, attempt.Accepted(), agentCommandError(commandErr)
-	})
-	return err
-}
-
 func (s *Service) CompactContext(ctx context.Context, req *runtimepb.CompactContextRequest) error {
 	_, err := runRuntimeCommand(ctx, func(ctx context.Context) (struct{}, bool, error) {
 		attempt := newRuntimeCommandAttempt(ctx)

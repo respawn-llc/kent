@@ -15,7 +15,6 @@ import (
 	chatpb "core/shared/protoapi/gen/kent/api/chat"
 	chatcontextpb "core/shared/protoapi/gen/kent/api/chat_context"
 	chatsettingspb "core/shared/protoapi/gen/kent/api/chat_settings"
-	chatshellpb "core/shared/protoapi/gen/kent/api/chat_shell"
 	promptpb "core/shared/protoapi/gen/kent/api/prompt"
 	runtimepb "core/shared/protoapi/gen/kent/api/runtime"
 	sharedpb "core/shared/protoapi/gen/kent/api/shared"
@@ -23,11 +22,9 @@ import (
 	"core/shared/runtimeids"
 	"core/shared/runtimeinput"
 	"core/shared/serverapi"
-	"core/shared/textutil"
 
 	tea "github.com/charmbracelet/bubbletea"
 	"google.golang.org/protobuf/proto"
-	"google.golang.org/protobuf/types/known/emptypb"
 	"google.golang.org/protobuf/types/known/timestamppb"
 )
 
@@ -55,10 +52,10 @@ type runtimeControlFakeClient struct {
 	appendedText          string
 	submitText            string
 	submitInput           runtimeinput.Input
+	submitRequest         inputAdmissionRequest
 	submitCalls           int
 	submitResult          string
 	interruptCalls        int
-	submitQueuedID        string
 	discardQueuedID       string
 	discardQueuedCalls    int
 	discardQueuedResult   bool
@@ -245,27 +242,32 @@ func (f *runtimeControlFakeClient) Steer(_ context.Context, req *chatpb.SteerReq
 	if command := req.Activation.GetCommand(); command != nil {
 		f.submitInput = runtimeinput.Command(command.CatalogIdentity, command.Arguments)
 	}
+	if shell := req.Activation.GetShell(); shell != nil {
+		f.submitInput = runtimeinput.Shell(shell.Command)
+	}
+	f.submitRequest = inputAdmissionRequest{
+		Input: f.submitInput, Intent: runtimeinput.PendingWorkLaneSteer,
+	}
+	id, err := runtimeids.QueueItemIDFromProto(req.QueueItemId)
+	if err != nil {
+		return nil, err
+	}
+	f.submitRequest.QueueItemID = id
 	f.submitText = f.submitInput.CanonicalHistoryText()
 	if f.submitErr != nil {
 		return nil, f.submitErr
-	}
-	id := req.QueueItemId
-	if f.submitQueuedID != "" {
-		id = f.submitQueuedID
 	}
 	var diagnostic *chatpb.AcceptedDiagnostic
 	if f.submitDiagnostic != nil {
 		diagnostic = &chatpb.AcceptedDiagnostic{Detail: &chatpb.AcceptedDiagnostic_PromptHistoryFailure{PromptHistoryFailure: protoapi.InternalFailureToProto(f.submitDiagnostic)}}
 	}
 	return &chatpb.InputMutationSuccess{Session: &chatpb.ExistingSessionTarget{SessionId: req.Target.GetSession().SessionId.GetSessionId()},
-		Outcome: &chatpb.InputMutationSuccess_Accepted{Accepted: &chatpb.InputAccepted{Diagnostic: diagnostic, QueueItem: &chatpb.QueueItemIdentity{Id: id}, Disposition: chatpb.InputAdmissionDisposition_INPUT_ADMISSION_DISPOSITION_STARTED_TURN}}}, f.err
+		Outcome: &chatpb.InputMutationSuccess_Accepted{Accepted: &chatpb.InputAccepted{Diagnostic: diagnostic, QueueItem: &chatpb.QueueItemIdentity{Id: id.String()}, Disposition: chatpb.InputAdmissionDisposition_INPUT_ADMISSION_DISPOSITION_STARTED_TURN}}}, f.err
 }
 func (f *runtimeControlFakeClient) Queue(ctx context.Context, request *chatpb.QueueRequest) (*chatpb.InputMutationSuccess, error) {
-	return f.Steer(ctx, &chatpb.SteerRequest{Target: request.Target, Activation: request.Activation, QueueItemId: request.QueueItemId})
-}
-func (f *runtimeControlFakeClient) SubmitUserShellCommand(_ context.Context, request *chatshellpb.ShellCommandRequest) (*chatshellpb.ShellCommandSuccess, error) {
-	return &chatshellpb.ShellCommandSuccess{Session: &chatpb.ExistingSessionTarget{SessionId: request.Target.GetSession().SessionId.GetSessionId()},
-		Outcome: &chatshellpb.ShellCommandSuccess_Completed{Completed: &emptypb.Empty{}}}, f.err
+	response, err := f.Steer(ctx, &chatpb.SteerRequest{Target: request.Target, Activation: request.Activation, QueueItemId: request.QueueItemId})
+	f.submitRequest.Intent = runtimeinput.PendingWorkLaneQueue
+	return response, err
 }
 func (f *runtimeControlFakeClient) Compact(_ context.Context, request *chatpb.CompactRequest) (*chatpb.CompactionMutationSuccess, error) {
 	f.compactGuidance = optionalCompactionGuidance(request.Invocation.RawGuidance)
@@ -466,9 +468,8 @@ func TestRuntimeInterruptNotAcceptedClearsPendingAttempt(t *testing.T) {
 	m := newProjectedClosedUIModel(client)
 	m.setKnownSessionTarget(detailTestSessionID)
 	m.setRuntimeActivityBusyForTest(true)
-	m.activeSubmit = activeSubmitState{
-		token: 1,
-		text:  "keep me"}
+	m.enqueueInput("keep me", runtimeinput.Text("keep me"), runtimeinput.PendingWorkLaneSteer)
+	pending := m.injectedQueue[0]
 
 	cmd := m.inputController().interruptBusyRuntime()
 	if !m.hasPendingInterrupt() {
@@ -484,12 +485,11 @@ func TestRuntimeInterruptNotAcceptedClearsPendingAttempt(t *testing.T) {
 	if !updated.runtimeMainViewBusy {
 		t.Fatal("failed interrupt did not request authoritative state")
 	}
-	if updated.activeSubmit.token != 1 || updated.activeSubmit.text != "keep me" {
-		t.Fatalf("not-accepted interrupt changed active submit: %+v", updated.activeSubmit)
+	if len(updated.injectedQueue) != 1 || updated.injectedQueue[0] != pending {
+		t.Fatal("not-accepted interrupt changed outstanding admission")
 	}
 	updated.handleRuntimeMainViewRefreshed(runtimeMainViewRefreshedMsg{
-		token:                  updated.runtimeMainViewToken,
-		interruptedSubmitToken: textutil.Value(uint64(1)),
+		token: updated.runtimeMainViewToken,
 		view: &runtimepb.MainView{
 			Status:  &runtimepb.Status{},
 			Session: &runtimepb.SessionView{SessionId: detailTestSessionID},
@@ -505,44 +505,13 @@ func TestRuntimeInterruptNotAcceptedClearsPendingAttempt(t *testing.T) {
 	}
 }
 
-func TestInterruptRecoveryPreservesNewerSubmission(t *testing.T) {
-	m := newProjectedClosedUIModel(&runtimeControlFakeClient{})
-	m.setKnownSessionTarget(detailTestSessionID)
-	m.setRuntimeActivityBusyForTest(true)
-	m.activeSubmit = activeSubmitState{token: 1, text: "old"}
-	m.setPendingInterrupt(true)
-	m.applyRuntimeControlDone(runtimeControlDoneMsg{
-		operation: runtimeControlInterrupt,
-		token:     m.runtimeControlTokenFor(runtimeControlInterrupt),
-		sessionID: m.currentRuntimeSessionID(),
-		err:       errors.New("interruption response lost"),
-	})
-	m.activeSubmit = activeSubmitState{token: 2, text: "new"}
-	m.handleRuntimeMainViewRefreshed(runtimeMainViewRefreshedMsg{
-		token:                  m.runtimeMainViewToken,
-		interruptedSubmitToken: textutil.Value(uint64(1)),
-		view: &runtimepb.MainView{
-			Status:  &runtimepb.Status{},
-			Session: &runtimepb.SessionView{SessionId: m.currentRuntimeSessionID()},
-			Activity: &runtimepb.Activity{
-				State:          runtimepb.ActivityState_RUNTIME_ACTIVITY_REGISTERED_IDLE,
-				Reviewer:       runtimepb.ReviewerActivity_REVIEWER_ACTIVITY_INACTIVE,
-				QueueAccepting: true,
-			},
-		},
-	})
-	if m.activeSubmit.token != 2 {
-		t.Fatal("old interrupt recovery cleared a newer submission")
-	}
-}
-
 func TestInterruptedHumanInputRestoresServerOrderBeforeComposer(t *testing.T) {
 	m := newProjectedClosedUIModel(&runtimeControlFakeClient{})
 	firstID := runtimeids.NewQueueItemID()
 	secondID := runtimeids.NewQueueItemID()
 	m.injectedQueue = []*injectedRuntimeQueueItem{
-		{ServerID: textutil.Value(firstID.String()), Text: "local stale first", State: injectedRuntimeQueueEnqueued},
-		{ServerID: textutil.Value(secondID.String()), Text: "local stale second", State: injectedRuntimeQueueEnqueued}}
+		{Request: inputAdmissionRequest{QueueItemID: firstID}, Text: "local stale first", State: injectedRuntimeQueueEnqueued},
+		{Request: inputAdmissionRequest{QueueItemID: secondID}, Text: "local stale second", State: injectedRuntimeQueueEnqueued}}
 	testSetMainInput(m, "composer")
 
 	cmd := m.applyTranscriptHumanInputInterrupted(&transcriptpb.HumanInputInterrupted{
@@ -713,13 +682,13 @@ func TestSubmitErrorShowsTransientStatusWithoutPersisting(t *testing.T) {
 	m := newProjectedStaticUIModel()
 	m.engine = client
 	m.setRuntimeActivityBusyForTest(true)
-	m.activeSubmit = activeSubmitState{token: 1, text: "prompt"}
+	m.enqueueInput("prompt", runtimeinput.Text("prompt"), runtimeinput.PendingWorkLaneSteer)
 
-	next, cmd := m.Update(submitDoneMsg{token: 1, submittedText: "prompt", err: errors.New("submit failed")})
+	next, cmd := m.Update(injectedQueueCreateDoneMsg{pending: m.injectedQueue[0], err: errors.New("submit failed")})
 	updated := next.(*uiModel)
 
-	if updated.activity != uiActivityError {
-		t.Fatalf("expected error activity, got %v", updated.activity)
+	if updated.activity != uiActivityRunning {
+		t.Fatalf("expected authoritative running activity, got %v", updated.activity)
 	}
 	for _, msg := range collectCmdMessages(t, cmd) {
 		next, _ = updated.Update(msg)

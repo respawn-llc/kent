@@ -353,11 +353,7 @@ func (m *uiModel) applyRuntimeControlDone(msg runtimeControlDoneMsg) tea.Cmd {
 		var recovery tea.Cmd
 		if msg.operation == runtimeControlInterrupt {
 			m.setPendingInterrupt(false)
-			var interruptedSubmitToken *uint64
-			if m.hasLocalDispatchPending() {
-				interruptedSubmitToken = textutil.Value(m.activeSubmit.token)
-			}
-			recovery = m.startRuntimeMainViewRefresh(interruptedSubmitToken)
+			recovery = m.startRuntimeMainViewRefresh()
 		}
 		errText := runtimeattach.FormatSubmissionError(msg.err)
 		return sequenceCmds(
@@ -386,7 +382,7 @@ func (m *uiModel) applyRuntimeControlDone(msg runtimeControlDoneMsg) tea.Cmd {
 		m.sessionName = name
 		return sequenceCmds(tea.SetWindowTitle(m.sessionTitle()), followUpCmd)
 	case runtimeControlInterrupt:
-		return tea.Batch(followUpCmd, m.startRuntimeMainViewRefresh(nil))
+		return tea.Batch(followUpCmd, m.startRuntimeMainViewRefresh())
 	default:
 		return followUpCmd
 	}

@@ -368,10 +368,6 @@ func handoffRequestFromToolCall(call llm.ToolCall) (*handoffRequest, bool) {
 	}, true
 }
 
-func queuedUserMessageText(message QueuedUserMessage) string {
-	return strings.TrimSpace(message.ExecutionText())
-}
-
 type queuedUserMessageFlushGroup struct {
 	message    llm.Message
 	batch      []string
@@ -385,16 +381,101 @@ type preparedUserInjections struct {
 	groups []queuedUserMessageFlushGroup
 }
 
-func (m *defaultMessageLifecycle) PreparePendingUserInjections(selection userInjectionSelection) (*preparedUserInjections, error) {
-	var claim *queuedUserMessageClaim
+func (m *defaultMessageLifecycle) ConsumeShellPrefix(ctx context.Context, stepID string) (bool, error) {
+	claim := m.queue.ClaimShellPrefix()
+	if claim == nil {
+		return false, nil
+	}
+	defer func() {
+		m.engine.removeStoppedLiveRunQueueItems(func() []QueuedUserMessage { return m.queue.ReleaseClaim(claim) })
+	}()
+	execErr := m.executeClaimShells(ctx, stepID, claim)
+	return true, errors.Join(execErr, m.settleCompletedShells(stepID, claim))
+}
+
+func (m *defaultMessageLifecycle) executeClaimShells(ctx context.Context, stepID string, claim *queuedUserMessageClaim) error {
+	for index, pending := range claim.items {
+		if pending.message.Shell == nil || pending.shellOutcome != nil {
+			continue
+		}
+		if err := ctx.Err(); err != nil {
+			return err
+		}
+		if m.queue.ClaimStopped(claim) {
+			return context.Canceled
+		}
+		m.queue.SetShellOutcome(claim, index, userShellOutcome{})
+		m.engine.publishPendingWorkChanged()
+		outcome, err := m.engine.executeUserShell(ctx, stepID, *pending.message.Shell)
+		m.queue.SetShellOutcome(claim, index, outcome)
+		if err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// An executed command is finalized here when there will be no request commit.
+// Remove it even if persistence fails: that failure is diagnostic, not permission
+// to execute the command again or return it as unstarted human input.
+func (m *defaultMessageLifecycle) settleCompletedShells(stepID string, claim *queuedUserMessageClaim) error {
+	if claim == nil {
+		return nil
+	}
+	var result error
+	ids := make(map[string]struct{})
+	for _, pending := range claim.items {
+		if pending.shellOutcome == nil {
+			continue
+		}
+		id := mustQueueItemID(pending.message.ID)
+		ids[pending.message.ID] = struct{}{}
+		if pending.shellOutcome.message != nil {
+			receipt, err := m.engine.publishUserShellResult(stepID, *pending.shellOutcome.message, &id)
+			result = errors.Join(result, err)
+			if receipt.Committed {
+				m.engine.emitQueuedUserMessageStatus(pending.message, QueuedUserMessageSubmitted, "", false)
+			}
+		}
+	}
+	m.queue.FinalizeClaimItems(claim, ids)
+	m.engine.completeQueuedUserMessages(ids)
+	m.engine.publishPendingWorkChanged()
+	return result
+}
+
+func (m *defaultMessageLifecycle) claimPendingInputs(selection userInjectionSelection) (*queuedUserMessageClaim, error) {
+	if selection == nil {
+		selection = steerUserInjections()
+	}
 	switch selected := selection.(type) {
 	case queuedTurnUserInjectionSelection:
-		claim = m.queue.ClaimQueuedTurn()
+		return m.queue.ClaimQueuedTurn(), nil
 	case steerUserInjectionSelection:
-		claim = m.queue.ClaimSteersAndIDs(selected.queueItemIDs)
+		return m.queue.ClaimSteersAndIDs(selected.queueItemIDs), nil
 	default:
 		return nil, fmt.Errorf("unsupported user injection selection %T", selection)
 	}
+}
+
+func (m *defaultMessageLifecycle) ProcessPendingShellActions(ctx context.Context, stepID string, selection userInjectionSelection) (*queuedUserMessageClaim, error) {
+	claim, err := m.claimPendingInputs(selection)
+	if err != nil || claim == nil {
+		return claim, err
+	}
+	if err := m.executeClaimShells(ctx, stepID, claim); err != nil {
+		m.engine.removeStoppedLiveRunQueueItems(func() []QueuedUserMessage { return m.queue.ReleaseClaim(claim) })
+		return nil, err
+	}
+	return claim, nil
+}
+
+func (m *defaultMessageLifecycle) FinalizeShellOutcomes(stepID string) error {
+	claim := m.queue.claim(func(pending queuedUserMessage) bool { return pending.shellOutcome != nil })
+	return m.settleCompletedShells(stepID, claim)
+}
+
+func (m *defaultMessageLifecycle) PreparePendingUserInjections(claim *queuedUserMessageClaim) (*preparedUserInjections, error) {
 	prepared := &preparedUserInjections{queue: m.queue, claim: claim}
 	if claim == nil {
 		return prepared, nil
@@ -421,9 +502,9 @@ func (m *defaultMessageLifecycle) PreparePendingUserInjections(selection userInj
 	return prepared, nil
 }
 
-func (m *defaultMessageLifecycle) ReleasePreparedUserInjections(prepared *preparedUserInjections) {
+func (m *defaultMessageLifecycle) ReleasePendingInputClaim(claim *queuedUserMessageClaim) {
 	m.engine.removeStoppedLiveRunQueueItems(func() []QueuedUserMessage {
-		return m.queue.ReleaseClaim(prepared.claim)
+		return m.queue.ReleaseClaim(claim)
 	})
 }
 
@@ -452,10 +533,13 @@ func (m *defaultMessageLifecycle) CommitPreparedUserInjections(ctx context.Conte
 }
 
 func (m *defaultMessageLifecycle) restoreFailedPreparedInput(prepared *preparedUserInjections) error {
+	if prepared.claim == nil {
+		return nil
+	}
 	ids := make(map[string]struct{})
-	for _, group := range prepared.groups {
-		for id := range queuedUserMessageIDSet(group.queueItems) {
-			ids[id] = struct{}{}
+	for _, pending := range prepared.claim.items {
+		if pending.shellOutcome == nil {
+			ids[pending.message.ID] = struct{}{}
 		}
 	}
 	e := m.engine
@@ -479,12 +563,18 @@ func (m *defaultMessageLifecycle) restoreFailedPreparedInput(prepared *preparedU
 func queuedUserMessageFlushGroups(messages []queuedUserMessage) []queuedUserMessageFlushGroup {
 	groups := make([]queuedUserMessageFlushGroup, 0, len(messages))
 	for _, pending := range messages {
-		text := queuedUserMessageText(pending.message)
 		queueItems := []QueuedUserMessage{pending.message}
-		message := pending.message.Message
+		source := pending.message.Message
+		if pending.shellOutcome != nil {
+			source = pending.shellOutcome.message
+		}
+		if source == nil {
+			panic("request preparation reached an unexecuted Shell action")
+		}
+		message := *source
 		groups = append(groups, queuedUserMessageFlushGroup{
 			message:    message,
-			batch:      []string{text},
+			batch:      []string{strings.TrimSpace(*message.Content)},
 			queueItems: queueItems,
 		})
 	}

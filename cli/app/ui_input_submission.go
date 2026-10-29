@@ -1,7 +1,5 @@
 package app
 
-import runtimepb "core/shared/protoapi/gen/kent/api/runtime"
-
 import (
 	"context"
 	"errors"
@@ -9,195 +7,28 @@ import (
 	"time"
 
 	"core/cli/app/internal/runtimeattach"
-	"core/shared/clientui"
-	"core/shared/runtimeids"
 	"core/shared/runtimeinput"
 	"core/shared/serverapi"
 
 	tea "github.com/charmbracelet/bubbletea"
 )
 
-type preSubmitQueuePosition uint8
-
-const (
-	preSubmitQueueBack preSubmitQueuePosition = iota
-	preSubmitQueueFront
-)
-
-func (c uiInputController) startSubmissionWithPreSubmitQueuePosition(text string, queuePosition preSubmitQueuePosition, queuedID string) tea.Cmd {
+func (c uiInputController) startSubmission(text string) tea.Cmd {
 	if cmd, rejected := c.rejectUnavailablePromptCommand(text); rejected {
 		return cmd
 	}
-	return c.startTypedSubmissionWithPreSubmitQueuePosition(text, runtimeinput.Text(text), queuePosition, queuedID, activeSubmitOriginDirect)
+	return c.startTypedSubmission(text, runtimeinput.Text(text))
 }
 
-func (c uiInputController) startSubmissionWithPreSubmitQueuePositionAndOrigin(text string, queuePosition preSubmitQueuePosition, queuedID string, origin activeSubmitOrigin) tea.Cmd {
-	return c.startSubmissionWithPreSubmitQueuePositionAndOriginAndOrder(text, queuePosition, queuedID, origin, nil)
-}
-
-func (c uiInputController) startSubmissionWithPreSubmitQueuePositionAndOriginAndOrder(
-	text string,
-	queuePosition preSubmitQueuePosition,
-	queuedID string,
-	origin activeSubmitOrigin,
-	submissionOrder *inputSubmissionOrder,
-) tea.Cmd {
-	return c.startTypedSubmissionWithPreSubmitQueuePositionAndOrder(
-		text,
-		runtimeinput.Text(text),
-		queuePosition,
-		queuedID,
-		origin,
-		submissionOrder,
-	)
-}
-
-func (c uiInputController) startTypedSubmissionWithPreSubmitQueuePosition(text string, input runtimeinput.Input, queuePosition preSubmitQueuePosition, queuedID string, origin activeSubmitOrigin) tea.Cmd {
-	return c.startTypedSubmissionWithPreSubmitQueuePositionAndOrder(text, input, queuePosition, queuedID, origin, nil)
-}
-
-func (c uiInputController) startTypedSubmissionWithPreSubmitQueuePositionAndOrder(
-	text string,
-	input runtimeinput.Input,
-	queuePosition preSubmitQueuePosition,
-	queuedID string,
-	origin activeSubmitOrigin,
-	submissionOrder *inputSubmissionOrder,
-) tea.Cmd {
+func (c uiInputController) startTypedSubmission(text string, input runtimeinput.Input) tea.Cmd {
 	m := c.model
-	if m.newSessionTarget() != nil {
-		cmd := c.submitCmd(text, input, queuedID, origin, submissionOrder)
-		return tea.Batch(cmd, m.reconcileSpinnerTicking(false))
-	}
-	if blocked, disconnectCmd := c.blockDisconnectedSubmission(true, text); blocked {
-		return disconnectCmd
-	}
-	if blocked, blockCmd := c.blockInjectedQueueSubmission(); blocked {
-		return blockCmd
-	}
-	c.startRuntimeOperationAffordance()
-	command, isUserShell := parseUserShellCommand(text)
-	if isUserShell {
-		m.logf("step.user_shell.start command_chars=%d", len(command))
-	} else {
-		m.logf("step.start user_chars=%d", len(text))
+	if m.newSessionTarget() == nil {
+		if blocked, disconnectCmd := c.blockDisconnectedSubmission(true, text); blocked {
+			return disconnectCmd
+		}
 	}
 	m.layout().syncViewport()
-	if isUserShell {
-		return tea.Batch(c.submitUserShellCmd(text, command, origin, submissionOrder), m.reconcileSpinnerTicking(false))
-	}
-	return tea.Batch(c.submitCmd(text, input, queuedID, origin, submissionOrder), m.reconcileSpinnerTicking(false))
-}
-
-func (c uiInputController) startSubmissionWithPromptHistoryAndQueuePositionAndID(text string, queuePosition preSubmitQueuePosition, queuedID string) tea.Cmd {
-	m := c.model
-	if cmd, rejected := c.rejectUnavailablePromptCommand(text); rejected {
-		return cmd
-	}
-	if blocked, disconnectCmd := c.blockDisconnectedSubmission(true, text); blocked {
-		return disconnectCmd
-	}
-	if blocked, blockCmd := c.blockInjectedQueueSubmission(); blocked {
-		return blockCmd
-	}
-	m.rememberPromptHistoryLocally(text)
-	return c.startSubmissionWithPreSubmitQueuePositionAndOrigin(text, queuePosition, queuedID, activeSubmitOriginDirect)
-}
-
-func (c uiInputController) submitCmd(text string, input runtimeinput.Input, queuedID string, origin activeSubmitOrigin, submissionOrder *inputSubmissionOrder) tea.Cmd {
-	m := c.model
-	if m.newSessionTarget() != nil {
-		intent := newSessionInputEnter
-		if origin == activeSubmitOriginQueued {
-			intent = newSessionInputQueue
-		}
-		return m.newSessionInputCmd(text, input, intent)
-	}
-	token := m.beginSubmitAttempt(text, queuedID, origin, submissionOrder)
-	sessionID := m.pendingWorkRefresh.sessionID
-	activation, activationErr := chatActivationFromInput(input)
-	action := chatInputAction{input: activation, queueItemID: runtimeids.NewQueueItemID()}
-	execute := m.captureChatAction(action, &text)
-	return func() tea.Msg {
-		doneMessage := func(message string, err error) submitDoneMsg {
-			return newSubmitDoneMsg(token, message, text, err)
-		}
-		if activationErr != nil {
-			return doneMessage("", activationErr)
-		}
-		submission, err := execute().submission(text)
-		if submission.SessionID != nil && *submission.SessionID != sessionID.String() {
-			done := doneMessage("", err)
-			done.diagnostic = submission.Diagnostic
-			done.selectedSessionID = submission.SessionID
-			return done
-		}
-		if err != nil {
-			if !errors.Is(err, serverapi.ErrRuntimeCommandNotAccepted) && errors.Is(err, context.Canceled) {
-				return doneMessage("", runtimeattach.ErrSubmissionInterrupted)
-			}
-			return doneMessage("", err)
-		}
-		message := ""
-		if submission.Message != nil {
-			message = *submission.Message
-		}
-		done := doneMessage(message, nil)
-		done.diagnostic = submission.Diagnostic
-		done.selectedSessionID = submission.SessionID
-		done.queued = submission.Queued
-		resultKind := submission.ResultKind
-		done.resultKind = &resultKind
-		return done
-	}
-}
-
-func (c uiInputController) submitUserShellCmd(originalText, command string, origin activeSubmitOrigin, submissionOrder *inputSubmissionOrder) tea.Cmd {
-	m := c.model
-	if m.newSessionTarget() != nil {
-		return m.newSessionActionCmd(chatShellAction{command: command}, &originalText)
-	}
-	token := m.beginSubmitAttempt(originalText, "", origin, submissionOrder)
-	execute := m.captureChatAction(chatShellAction{command: command}, &originalText)
-	return func() tea.Msg {
-		err := execute().err
-		if err != nil {
-			if !errors.Is(err, serverapi.ErrRuntimeCommandNotAccepted) && isRuntimeOperationInterrupted(err) {
-				return newSubmitDoneMsg(token, "", originalText, runtimeattach.ErrSubmissionInterrupted)
-			}
-			return newSubmitDoneMsg(token, "", originalText, err)
-		}
-		return newSubmitDoneMsg(token, "", originalText, nil)
-	}
-}
-
-func (m *uiModel) beginSubmitAttempt(
-	text string,
-	queuedID string,
-	origin activeSubmitOrigin,
-	submissionOrder *inputSubmissionOrder,
-) uint64 {
-	if m == nil {
-		return 0
-	}
-	m.submitToken++
-	if m.submitToken == 0 {
-		m.submitToken++
-	}
-	var order inputSubmissionOrder
-	if submissionOrder == nil {
-		order = m.nextPendingInputSubmissionOrder()
-	} else {
-		order = *submissionOrder
-	}
-	m.activeSubmit = activeSubmitState{
-		token:           m.submitToken,
-		text:            text,
-		queuedID:        queuedID,
-		origin:          origin,
-		submissionOrder: order,
-	}
-	return m.submitToken
+	return tea.Batch(m.enqueueInput(text, input, runtimeinput.PendingWorkLaneSteer), m.reconcileSpinnerTicking(false))
 }
 
 func (c uiInputController) startCompaction(submittedText, args string) tea.Cmd {
@@ -253,123 +84,6 @@ func (c uiInputController) finishRuntimeOperationAffordance() {
 	}
 }
 
-func (c uiInputController) notifyTurnQueueDrainedIfIdle() {
-	m := c.model
-	if m.turnQueueHook == nil || !c.turnQueueDrained() {
-		return
-	}
-	m.turnQueueHook.OnTurnQueueDrained()
-}
-
-func (c uiInputController) turnQueueDrained() bool {
-	m := c.model
-	return m != nil &&
-		!m.blocksRuntimeInput() &&
-		len(m.queued) == 0 &&
-		!m.injectedQueueBlocksDrain() &&
-		!m.hasEnqueuedInjectedRuntimeWork() &&
-		!m.ask.hasCurrent()
-}
-
-func (c uiInputController) handleSubmitDone(msg submitDoneMsg) (tea.Model, tea.Cmd) {
-	m := c.model
-	if msg.token == 0 && m.activeSubmit.token != 0 && strings.TrimSpace(msg.submittedText) != "" {
-		return m, nil
-	}
-	if msg.token != 0 && msg.token != m.activeSubmit.token {
-		return m, nil
-	}
-	pendingWorkRefreshCmd := m.requestPendingWorkRefreshIfSuccessful(m.pendingWorkRefresh.sessionID, msg.err == nil)
-	submitOrigin := m.activeSubmit.origin
-	if msg.selectedSessionID != nil && *msg.selectedSessionID != m.currentRuntimeSessionID() {
-		m.nextSessionID = *msg.selectedSessionID
-		m.exitAction = UIActionOpenSession
-		if msg.diagnostic != nil {
-			return m, tea.Sequence(m.appendLocalEntryWithNoticeID("error", msg.diagnostic.Error(), ""), tea.Quit)
-		}
-		return m, tea.Quit
-	}
-	pendingWorkRefreshCmd = tea.Batch(pendingWorkRefreshCmd, m.acceptedSubmissionDiagnosticCmd(msg.diagnostic))
-	m.observeRuntimeRequestResult(msg.err)
-	restoreSubmittedText := msg.err != nil && (msg.token == 0 || m.shouldRestoreSubmittedTextOnSubmitError(msg.err))
-	activeQueuedID := m.activeSubmit.queuedID
-	var queuedStateCmd tea.Cmd
-	if msg.err == nil && msg.queued.ID != "" {
-		queuedStateCmd = m.registerSubmittedQueuedUserMessage(msg.queued)
-	}
-	m.activeSubmit = activeSubmitState{}
-	m.clearUnownedQueuedTerminalStatesWithoutPendingOwnership()
-	c.finishRuntimeOperationAffordance()
-	if msg.token == 0 {
-		_ = m.applyRuntimeActivityProjection(&runtimepb.Activity{
-			State:    runtimepb.ActivityState_RUNTIME_ACTIVITY_REGISTERED_IDLE,
-			Reviewer: runtimepb.ReviewerActivity_REVIEWER_ACTIVITY_INACTIVE,
-		})
-	}
-	m.discardQueuedInput(activeQueuedID)
-	if msg.err != nil {
-		if m.turnQueueHook != nil {
-			m.turnQueueHook.OnTurnQueueAborted()
-		}
-		if isRuntimeOperationInterrupted(msg.err) &&
-			!errors.Is(msg.err, serverapi.ErrRuntimeCommandNotAccepted) &&
-			m.hasPendingInterrupt() {
-			m.activity = uiActivityInterrupted
-			m.logf("step.interrupted")
-			m.layout().syncViewport()
-			return m, m.interruptedStatusNoticeCmd()
-		}
-		restoreInjectedCmd := tea.Cmd(nil)
-		if submitOrigin != activeSubmitOriginQueued {
-			restoreInjectedCmd = c.restoreInjectedInputsIntoComposer()
-		}
-		if restoreSubmittedText {
-			c.restoreSubmittedTextIntoInput(msg.submittedText)
-		}
-		c.restoreQueuedMessagesIntoInput()
-		c.notifyTurnQueueDrainedIfIdle()
-		if isRuntimeOperationInterrupted(msg.err) {
-			m.activity = uiActivityInterrupted
-			m.logf("step.interrupted")
-			m.layout().syncViewport()
-			return m, tea.Batch(restoreInjectedCmd, m.interruptedStatusNoticeCmd())
-		}
-		detailErr := runtimeattach.FormatSubmissionError(msg.err)
-		if submitOrigin != activeSubmitOriginQueued {
-			m.activity = uiActivityError
-		}
-		m.logf("step.error err=%q", detailErr)
-		m.layout().syncViewport()
-		statusCmd := m.sendTransientStatusWithNoticeID(detailErr, uiStatusNoticeError, transientStatusDuration, uiStatusNoticeReplace, "")
-		if notFound, ok := promptCommandNotFound(msg.err); ok && notFound.Command != nil {
-			if refreshCmd := m.startPromptCatalogRefresh(*notFound.Command); refreshCmd != nil {
-				return m, tea.Batch(restoreInjectedCmd, statusCmd, refreshCmd)
-			}
-		}
-		return m, tea.Batch(restoreInjectedCmd, statusCmd)
-	}
-	if !m.runtimeActivityBusy() {
-		m.activity = uiActivityIdle
-	}
-	if msg.resultKind != nil &&
-		*msg.resultKind == clientui.UserTurnResultKindSilentFinal &&
-		m.turnQueueHook != nil {
-		m.turnQueueHook.OnTurnQueueAborted()
-	}
-	m.conversationFreshness = runtimepb.ConversationFreshness_CONVERSATION_FRESHNESS_ESTABLISHED
-	m.localConversationTurn = true
-	m.logf("step.done assistant_chars=%d", len(msg.message))
-	m.clearActiveAssistantStreamSource()
-	if len(m.queued) > 0 {
-		next, drainCmd := c.flushQueuedInputs(queueDrainAuto)
-		c.notifyTurnQueueDrainedIfIdle()
-		return next, tea.Batch(queuedStateCmd, drainCmd, pendingWorkRefreshCmd)
-	}
-	c.notifyTurnQueueDrainedIfIdle()
-	m.layout().syncViewport()
-	return m, tea.Batch(queuedStateCmd, pendingWorkRefreshCmd)
-}
-
 func (m *uiModel) acceptedSubmissionDiagnosticCmd(diagnostic error) tea.Cmd {
 	if diagnostic == nil {
 		return nil
@@ -410,23 +124,21 @@ func (c uiInputController) handleCompactDone(msg compactDoneMsg) (tea.Model, tea
 	m.observeRuntimeRequestResult(msg.err)
 	c.finishRuntimeOperationAffordance()
 	if msg.err != nil {
-		restoreInjectedCmd := c.restoreInjectedInputsIntoComposer()
 		if errors.Is(msg.err, serverapi.ErrPendingWorkCapacity) {
 			c.restoreSubmittedTextIntoInput(msg.submittedText)
 		}
-		c.restoreQueuedMessagesIntoInput()
 		if isRuntimeOperationInterrupted(msg.err) {
 			m.activity = uiActivityInterrupted
 			m.logf("step.interrupted")
 			m.layout().syncViewport()
-			return m, tea.Batch(restoreInjectedCmd, m.interruptedStatusNoticeCmd())
+			return m, m.interruptedStatusNoticeCmd()
 		}
 		detailErr := runtimeattach.FormatSubmissionError(msg.err)
 		m.activity = uiActivityError
 		appendCmd := m.appendLocalEntryWithNoticeID(operatorErrorFeedbackRole, detailErr, "")
 		m.logf("compaction.error err=%q", detailErr)
 		m.layout().syncViewport()
-		return m, tea.Batch(restoreInjectedCmd, appendCmd)
+		return m, appendCmd
 	}
 	pendingWorkRefreshCmd := tea.Batch(m.requestPendingWorkRefresh(msg.sessionID), m.acceptedSubmissionDiagnosticCmd(msg.diagnostic))
 
@@ -434,27 +146,8 @@ func (c uiInputController) handleCompactDone(msg compactDoneMsg) (tea.Model, tea
 		m.activity = uiActivityIdle
 	}
 	m.logf("compaction.scheduled")
-	if len(m.queued) > 0 {
-		next, cmd := c.flushQueuedInputs(queueDrainAuto)
-		c.notifyTurnQueueDrainedIfIdle()
-		return next, tea.Batch(cmd, pendingWorkRefreshCmd)
-	}
-	if m.injectedQueueBlocksDrain() || m.hasEnqueuedInjectedRuntimeWork() {
-		m.layout().syncViewport()
-		return m, pendingWorkRefreshCmd
-	}
 	m.layout().syncViewport()
 	return m, pendingWorkRefreshCmd
-}
-
-func (m *uiModel) shouldRestoreSubmittedTextOnSubmitError(err error) bool {
-	if m == nil || err == nil {
-		return false
-	}
-	if errors.Is(err, serverapi.ErrRuntimeCommandNotAccepted) {
-		return true
-	}
-	return false
 }
 
 func isRuntimeOperationInterrupted(err error) bool {

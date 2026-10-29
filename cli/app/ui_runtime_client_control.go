@@ -64,6 +64,9 @@ func cloneRuntimeGoal(goal *runtimepb.GoalView) *runtimepb.GoalView {
 }
 
 func chatActivationFromInput(input runtimeinput.Input) (*chatpb.Activation, error) {
+	if input.Kind == runtimeinput.KindShell {
+		return &chatpb.Activation{Input: &chatpb.Activation_Shell{Shell: &chatpb.ShellCommand{Command: input.Shell.Command}}}, nil
+	}
 	if input.Kind == runtimeinput.KindText {
 		return &chatpb.Activation{Input: &chatpb.Activation_Text{Text: *input.Text}}, nil
 	}

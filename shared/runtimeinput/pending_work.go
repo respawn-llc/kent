@@ -37,6 +37,7 @@ const (
 	PendingWorkLaneQueue PendingWorkLane = "queue"
 
 	PendingWorkItemKindMessage            PendingWorkItemKind = "message"
+	PendingWorkItemKindShell              PendingWorkItemKind = "shell"
 	PendingWorkItemKindManualCompaction   PendingWorkItemKind = "manual_compaction"
 	PendingWorkItemKindWorktreeTransition PendingWorkItemKind = "worktree_transition"
 
@@ -47,29 +48,38 @@ const (
 )
 
 type PendingWorkMessage struct {
-	Text string `json:"text"`
+	Text string
 }
 
+// ShellCommand is executable human input, never a model prompt. Its admission
+// lane determines execution timing; acceptance does not report process completion.
+type ShellCommand struct {
+	Command string
+}
+
+func (s ShellCommand) CanonicalInput() string { return "$" + s.Command }
+
 type ManualCompactionAdmission struct {
-	Guidance *string `json:"guidance,omitempty"`
+	Guidance *string
 }
 
 type PendingWorkManualCompaction = ManualCompactionAdmission
 
 type PendingWorkWorktreeTransition struct {
-	Transition PendingWorkWorktreeTransitionKind `json:"transition"`
-	Selector   *string                           `json:"selector,omitempty"`
+	Transition PendingWorkWorktreeTransitionKind
+	Selector   *string
 }
 
 type PendingWorkItem struct {
-	ID                 runtimeids.QueueItemID         `json:"id"`
-	Lane               PendingWorkLane                `json:"lane"`
-	Kind               PendingWorkItemKind            `json:"kind"`
-	State              PendingWorkItemState           `json:"state"`
-	CanonicalInput     string                         `json:"canonical_input"`
-	Message            *PendingWorkMessage            `json:"message,omitempty"`
-	ManualCompaction   *PendingWorkManualCompaction   `json:"manual_compaction,omitempty"`
-	WorktreeTransition *PendingWorkWorktreeTransition `json:"worktree_transition,omitempty"`
+	ID                 runtimeids.QueueItemID
+	Lane               PendingWorkLane
+	Kind               PendingWorkItemKind
+	State              PendingWorkItemState
+	CanonicalInput     string
+	Message            *PendingWorkMessage
+	Shell              *ShellCommand
+	ManualCompaction   *PendingWorkManualCompaction
+	WorktreeTransition *PendingWorkWorktreeTransition
 }
 
 const ManualCompactionToken = "/compact"
@@ -93,18 +103,18 @@ func (t PendingWorkWorktreeTransition) CanonicalInput() (string, error) {
 }
 
 type PendingWork struct {
-	Items []PendingWorkItem `json:"items"`
+	Items []PendingWorkItem
 }
 
 type PendingWorkRestoration struct {
-	Kind           PendingWorkItemKind `json:"kind"`
-	CanonicalInput string              `json:"canonical_input"`
+	Kind           PendingWorkItemKind
+	CanonicalInput string
 }
 
 type PendingWorkTechnicalRestoration struct {
-	ItemID         runtimeids.QueueItemID `json:"item_id"`
-	Kind           PendingWorkItemKind    `json:"kind"`
-	CanonicalInput string                 `json:"canonical_input"`
+	ItemID         runtimeids.QueueItemID
+	Kind           PendingWorkItemKind
+	CanonicalInput string
 }
 
 func (i PendingWorkItem) Restoration() PendingWorkRestoration {

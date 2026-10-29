@@ -173,11 +173,9 @@ func TestPersistSessionDraftIncludesOnlyComposerInput(t *testing.T) {
 	testSetMainInput(model, "visible draft")
 	model.injectedQueue = []*injectedRuntimeQueueItem{{
 
-		Text:            "  pending injected\n",
-		State:           injectedRuntimeQueuePendingCreate,
-		submissionOrder: inputSubmissionOrder{sequence: 1},
+		Text:  "  pending injected\n",
+		State: injectedRuntimeQueuePendingCreate,
 	}}
-	model.queued = queuedInputsForTest("\tqueued later  ")
 
 	cmd := model.saveEditedDraft()
 	if cmd == nil || captured != nil {

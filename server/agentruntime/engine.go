@@ -583,7 +583,8 @@ func (e *Engine) launchLifecycleTaskWithCompletion(
 
 type QueuedUserMessage struct {
 	ID                    string
-	Message               llm.Message
+	Message               *llm.Message
+	Shell                 *runtimeinput.ShellCommand
 	CanonicalPresentation string
 	Disposition           runtimeinput.InputAdmissionDisposition
 }
@@ -658,14 +659,35 @@ func (e *Engine) queueMessage(ctx context.Context, id string, message llm.Messag
 }
 
 func (e *Engine) queueMessageRaw(id string, message llm.Message, presentation string, namingTask *string, forceAutoDrain, autoStart bool, accept CommandAcceptance) (QueuedUserMessage, error) {
+	return e.queueActionRaw(QueuedUserMessage{
+		ID: id, Message: &message, CanonicalPresentation: presentation,
+	}, namingTask, forceAutoDrain, autoStart, accept)
+}
+
+// QueueShellInput accepts executable work in the ordinary Steer/Queue owner.
+// Completion is delivered by the Runtime, independently of the admission caller.
+func (e *Engine) QueueShellInput(ctx context.Context, id runtimeids.QueueItemID, command runtimeinput.ShellCommand, lane runtimeinput.PendingWorkLane, accept CommandAcceptance) (QueuedUserMessage, error) {
+	if id.IsZero() || strings.TrimSpace(command.Command) == "" {
+		return QueuedUserMessage{}, errors.New("Shell requires a Queue Item identity and command")
+	}
+	if lane != runtimeinput.PendingWorkLaneQueue && lane != runtimeinput.PendingWorkLaneSteer {
+		return QueuedUserMessage{}, fmt.Errorf("invalid Shell lane %q", lane)
+	}
+	if e == nil || e.closed.Load() {
+		return QueuedUserMessage{}, ErrEngineClosed
+	}
+	if err := context.Cause(ctx); err != nil {
+		return QueuedUserMessage{}, err
+	}
+	return e.queueActionRaw(QueuedUserMessage{
+		ID: id.String(), Shell: &command, CanonicalPresentation: command.CanonicalInput(),
+	}, nil, lane == runtimeinput.PendingWorkLaneSteer, true, accept)
+}
+
+func (e *Engine) queueActionRaw(liveItem QueuedUserMessage, namingTask *string, forceAutoDrain, autoStart bool, accept CommandAcceptance) (QueuedUserMessage, error) {
 	e.ensureOrchestrationCollaborators()
 	if err := e.requirePendingWorkCapacity(); err != nil {
 		return QueuedUserMessage{}, err
-	}
-	liveItem := QueuedUserMessage{
-		ID:                    id,
-		Message:               message,
-		CanonicalPresentation: presentation,
 	}
 	lane := runtimeinput.PendingWorkLaneQueue
 	if forceAutoDrain {
@@ -765,7 +787,7 @@ func (e *Engine) acceptPendingMessage(item QueuedUserMessage, lane runtimeinput.
 		e.lifecycleMu.Unlock()
 		return QueuedUserMessage{}, fmt.Errorf("invalid pending message lane %q", lane)
 	}
-	if item.Message.Role == llm.RoleUser && item.Message.Content != nil {
+	if item.Message != nil && item.Message.Role == llm.RoleUser && item.Message.Content != nil {
 		if err := e.store.CaptureInitialPromptPreview(*item.Message.Content); err != nil {
 			e.outputMutationMu.Unlock()
 			e.lifecycleMu.Unlock()
@@ -774,6 +796,9 @@ func (e *Engine) acceptPendingMessage(item QueuedUserMessage, lane runtimeinput.
 	}
 	if autoStart && !e.stepLifecycle.IsBusy() && !e.HasScheduledQueuedUserWork() {
 		disposition = runtimeinput.InputAdmissionStartedTurn
+		if item.Shell != nil {
+			disposition = runtimeinput.InputAdmissionStartedShell
+		}
 	}
 	queued, err := e.messageFlow.QueueUserMessageWithID(item, association)
 	queued.Disposition = disposition
@@ -782,8 +807,8 @@ func (e *Engine) acceptPendingMessage(item QueuedUserMessage, lane runtimeinput.
 		if namingTask != nil {
 			e.captureSessionNamingRaw(*namingTask)
 		}
-		if association.steerAdmission != nil {
-			e.markSupervisorSteerRaw(queued.Message)
+		if association.steerAdmission != nil && queued.Message != nil {
+			e.markSupervisorSteerRaw(*queued.Message)
 		}
 		e.emitQueuedUserMessageStatus(queued, QueuedUserMessageAccepted, "", false)
 	}
@@ -969,102 +994,48 @@ func (e *Engine) SubmitWorkflowTurn(ctx context.Context) (result WorkflowTurnRes
 	return result, err
 }
 
-func (e *Engine) SubmitUserShellCommand(ctx context.Context, command string) (result tools.Result, err error) {
-	return e.submitUserShellCommand(ctx, command, nil, nil)
+type userShellOutcome struct {
+	message *llm.Message
 }
 
-func (e *Engine) SubmitUserShellCommandWithActiveHook(ctx context.Context, command string, onActive func()) (result tools.Result, err error) {
-	return e.submitUserShellCommand(ctx, command, onActive, nil)
-}
-
-func (e *Engine) SubmitUserShellCommandWithAcceptance(ctx context.Context, command string, accept CommandAcceptance) (result tools.Result, err error) {
-	return e.submitUserShellCommand(ctx, command, nil, accept)
-}
-
-func (e *Engine) submitUserShellCommand(ctx context.Context, command string, onActive func(), accept CommandAcceptance) (result tools.Result, err error) {
-	command = strings.TrimSpace(command)
-	if command == "" {
-		return tools.Result{}, errors.New("empty command")
+// The caller owns execution. This core neither acquires another execution nor
+// waits on the Runtime FIFO, which is paused at an Agent Step Boundary.
+func (e *Engine) executeUserShell(ctx context.Context, stepID string, command runtimeinput.ShellCommand) (userShellOutcome, error) {
+	call := llm.ToolCall{
+		ID: uuid.NewString(), Name: string(toolspec.ToolExecCommand),
+		Input: mustJSON(map[string]string{"cmd": command.Command}),
 	}
-	terminal, err := awaitEngineRuntimeOperation(ctx, e, func(context.Context) (runtimeDeferred[tools.Result], error) {
-		deferred := newRuntimeDeferred[tools.Result]()
-		launched := e.launchLifecycleTask(func(lifecycleCtx context.Context) *resultGroupFatal {
-			result, runErr := e.runUserShellCommand(lifecycleCtx, command, onActive, accept)
-			deferred.complete(result, runErr)
-			fatal, abort := resultGroupFatalFromError(runErr)
-			if abort {
-				return fatal
-			}
-			return nil
-		})
-		if !launched {
-			deferred.complete(tools.Result{}, ErrEngineClosed)
+	_, registered := e.registry.Get(toolspec.ToolExecCommand)
+	result, completed, execErr := e.executePreparedToolCall(ctx, stepID, call, toolspec.ToolExecCommand, true, nil, nil)
+	if !completed {
+		if execErr == nil {
+			execErr = errors.New("shell tool execution returned no result")
 		}
-		return deferred, nil
-	})
-	if err != nil {
-		return tools.Result{}, err
+		result = shelltool.ErrorResult(tools.Call{ID: call.ID, Name: toolspec.ToolExecCommand}, execErr.Error())
 	}
-	return terminal.Await(ctx)
+	outcome := userShellOutcome{}
+	var output string
+	if err := json.Unmarshal(result.Output, &output); err != nil {
+		return outcome, errors.Join(execErr, fmt.Errorf("shell tool returned non-text output: %w", err))
+	}
+	outcome.message = &llm.Message{
+		Role: llm.RoleUser, MessageType: textutil.Value(llm.MessageTypeUserShellCommand),
+		Content:        textutil.Value(fmt.Sprintf("User ran a shell command:\n<command>%s</command>\n%s", command.Command, output)),
+		CompactContent: textutil.Value(command.Command),
+	}
+	if !registered {
+		execErr = errors.Join(execErr, errUnknownTool)
+	}
+	return outcome, execErr
 }
 
-func (e *Engine) runUserShellCommand(ctx context.Context, command string, onActive func(), accept CommandAcceptance) (result tools.Result, err error) {
-	e.ensureOrchestrationCollaborators()
-	err = e.stepLifecycle.RunNext(ctx, exclusiveStepOptions{EmitRunState: true, ActiveKind: ActiveKindUserShell}, func(stepCtx context.Context, stepID string) error {
-		if onActive != nil {
-			onActive()
-		}
-		if err := e.ensureMetaContextForRequest(stepCtx, stepID); err != nil {
-			return err
-		}
-
-		call := llm.ToolCall{
-			ID:    uuid.NewString(),
-			Name:  string(toolspec.ToolExecCommand),
-			Input: mustJSON(map[string]string{"cmd": command}),
-		}
-		accepted, acceptErr := runCommandAcceptance(accept, func() (bool, error) {
-			// Acceptance commits live server-owned work. Its user message is
-			// recorded once the command tool has returned its formatted output.
-			return true, nil
-		})
-		if err := commandAcceptanceResult(accepted, acceptErr); err != nil {
-			return err
-		}
-		_, registered := e.registry.Get(toolspec.ToolExecCommand)
-		var completed bool
-		var execErr error
-		result, completed, execErr = e.executePreparedToolCall(
-			stepCtx, stepID, call,
-			toolspec.ToolExecCommand, true, nil, nil,
-		)
-		if !completed {
-			if execErr == nil {
-				execErr = errors.New("shell tool execution returned no result")
-			}
-			result = shelltool.ErrorResult(tools.Call{ID: call.ID, Name: toolspec.ToolExecCommand}, execErr.Error())
-		}
-		var output string
-		if decodeErr := json.Unmarshal(result.Output, &output); decodeErr != nil {
-			return errors.Join(execErr, fmt.Errorf("shell tool returned non-text output: %w", decodeErr))
-		}
-		message := llm.Message{
-			Role:           llm.RoleUser,
-			MessageType:    textutil.Value(llm.MessageTypeUserShellCommand),
-			Content:        textutil.Value(fmt.Sprintf("User ran a shell command:\n<command>%s</command>\n%s", command, output)),
-			CompactContent: textutil.Value(command),
-		}
-		_, persistErr := awaitEngineRuntimeOperation(context.Background(), e, func(context.Context) (struct{}, error) {
-			return struct{}{}, e.steer(stepID, steerMessagesWithPersistenceIntent(
-				steeringPriorityNormal, steeringMessageEventDefault, true, []llm.Message{message},
-			))
-		})
-		if !registered {
-			execErr = errors.Join(execErr, errUnknownTool)
-		}
-		return errors.Join(execErr, persistErr)
+func (e *Engine) publishUserShellResult(stepID string, message llm.Message, source *runtimeids.QueueItemID) (session.CommitReceipt, error) {
+	return e.steerWithCommitReceipt(stepID, steeringIntent{
+		priority: steeringPriorityUser,
+		items: []steeringItem{{message: &steeringMessage{
+			message: message, eventPolicy: steeringMessageEventDefault, persist: true, queueItemID: source,
+		}}},
 	})
-	return result, err
 }
 
 func (e *Engine) runStepLoop(ctx context.Context, stepID string) (llm.Message, error) {

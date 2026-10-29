@@ -33,7 +33,6 @@ import (
 	authpb "core/shared/protoapi/gen/kent/api/auth"
 	chatpb "core/shared/protoapi/gen/kent/api/chat"
 	chatsettingspb "core/shared/protoapi/gen/kent/api/chat_settings"
-	chatshellpb "core/shared/protoapi/gen/kent/api/chat_shell"
 	connectionpb "core/shared/protoapi/gen/kent/api/connection"
 	projectpb "core/shared/protoapi/gen/kent/api/project"
 	runtimepb "core/shared/protoapi/gen/kent/api/runtime"
@@ -148,12 +147,8 @@ type gatewayChatAuthorizationService struct {
 	sessionID string
 }
 
-func (gatewayChatAuthorizationService) SubmitUserShellCommand(context.Context, *chatshellpb.ShellCommandRequest) (*chatshellpb.ShellCommandSuccess, error) {
-	panic("unexpected shell command")
-}
-
-func (gatewayChatLifecycleAdmission) AdmitUserShellCommand(context.Context, runtimeids.SessionID, string) error {
-	panic("unexpected shell command")
+func (gatewayChatLifecycleAdmission) AdmitChatShellInput(context.Context, runtimeids.SessionID, runtimeids.QueueItemID, runtimeinput.ShellCommand, runtimeinput.PendingWorkLane) (serverapi.ChatInputAdmissionResult, error) {
+	panic("unexpected Shell admission")
 }
 
 func (s gatewayChatAuthorizationService) Steer(

@@ -16,96 +16,6 @@ import (
 	"testing"
 )
 
-func TestTabQueuesAndStartsSubmission(t *testing.T) {
-	m := newProjectedStaticUIModel()
-	testSetMainInput(m, "echo hi")
-
-	next, _ := m.Update(tea.KeyMsg{Type: tea.KeyTab})
-	updated := next.(*uiModel)
-
-	if !updated.isBusy() {
-		t.Fatal("expected busy after tab queued submission")
-	}
-	if testMainInput(updated) != "" {
-		t.Fatalf("expected input cleared, got %q", testMainInput(updated))
-	}
-}
-
-func TestEmptyEnterFlushesOnlyNextQueuedItem(t *testing.T) {
-	m := newProjectedStaticUIModel()
-	m.queued = queuedInputsForTest("/status", "follow up")
-
-	next, cmd := m.Update(tea.KeyMsg{Type: tea.KeyEnter})
-	updated := next.(*uiModel)
-
-	if cmd == nil {
-		t.Fatal("expected command from queued status")
-	}
-	if updated.activeSurface != uiSurfaceStatus {
-		t.Fatal("expected queued status to open")
-	}
-	if updated.isBusy() {
-		t.Fatal("did not expect follow-up prompt submission from empty-enter flush")
-	}
-	if len(updated.queued) != 1 || updated.queued[0].Text != "follow up" {
-		t.Fatalf("expected follow-up prompt to remain queued, got %+v", updated.queued)
-	}
-}
-
-func TestIdleTabWithExistingQueueFlushesOnlyNextQueuedItem(t *testing.T) {
-	m := newProjectedStaticUIModel()
-	m.queued = queuedInputsForTest("/status")
-	testSetMainInput(m, "follow up")
-
-	next, cmd := m.Update(tea.KeyMsg{Type: tea.KeyTab})
-	updated := next.(*uiModel)
-
-	if cmd == nil {
-		t.Fatal("expected command from queued status")
-	}
-	if updated.activeSurface != uiSurfaceStatus {
-		t.Fatal("expected queued status to open first")
-	}
-	if updated.isBusy() {
-		t.Fatal("did not expect appended prompt to auto-submit while idle tab is flushing one queued item")
-	}
-	if len(updated.queued) != 1 || updated.queued[0].Text != "follow up" {
-		t.Fatalf("expected appended prompt to remain queued, got %+v", updated.queued)
-	}
-}
-
-func TestCustomKeyCtrlEnterQueuesAndStartsSubmission(t *testing.T) {
-	m := newProjectedStaticUIModel()
-	testSetMainInput(m, "echo hi")
-
-	next, _ := m.Update(customKeyMsg{Kind: customKeyCtrlEnter})
-	updated := next.(*uiModel)
-
-	if !updated.isBusy() {
-		t.Fatal("expected busy after ctrl+enter custom key")
-	}
-	if testMainInput(updated) != "" {
-		t.Fatalf("expected input cleared after ctrl+enter custom key, got %q", testMainInput(updated))
-	}
-}
-
-func TestCustomKeyCtrlEnterQueuesPostTurnWhenBusy(t *testing.T) {
-	m := newProjectedStaticUIModel()
-	m.setRuntimeActivityBusyForTest(true)
-	submittedText := "  echo\n\thi  "
-	testSetMainInput(m, submittedText)
-
-	next, _ := m.Update(customKeyMsg{Kind: customKeyCtrlEnter})
-	updated := next.(*uiModel)
-
-	if len(updated.queued) != 1 || updated.queued[0].Text != submittedText {
-		t.Fatalf("queued post-turn messages = %+v, want verbatim %q", updated.queued, submittedText)
-	}
-	if len(updated.injectedQueue) != 0 {
-		t.Fatalf("did not expect injected steering messages, got %d", len(updated.injectedQueue))
-	}
-}
-
 func TestCustomKeyShiftEnterInsertsNewline(t *testing.T) {
 	m := newProjectedStaticUIModel()
 	testSetMainInput(m, "hello")
@@ -130,8 +40,8 @@ func TestCustomKeyShiftEnterThenEnterDoesNotSubmitTrailingNewline(t *testing.T) 
 	next, _ = updated.Update(tea.KeyMsg{Type: tea.KeyEnter})
 	updated = next.(*uiModel)
 
-	if !updated.isBusy() {
-		t.Fatal("expected submission started")
+	if !updated.hasPendingInputAdmission() || updated.injectedQueue[0].Text != "hello" {
+		t.Fatal("expected admission without the synthetic trailing newline")
 	}
 }
 

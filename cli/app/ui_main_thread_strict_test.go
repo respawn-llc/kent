@@ -71,8 +71,7 @@ type strictRuntimeClient struct {
 	clientui.RuntimeClient
 	apicontract.ChatMutationService
 
-	submitQueuedID string
-	submitCalls    int
+	submitCalls int
 }
 
 func (*strictRuntimeClient) MainView() *runtimepb.MainView {
@@ -83,13 +82,13 @@ func (c *strictRuntimeClient) Steer(_ context.Context, request *chatpb.SteerRequ
 	c.submitCalls++
 	return &chatpb.InputMutationSuccess{Session: &chatpb.ExistingSessionTarget{SessionId: request.Target.GetSession().SessionId.GetSessionId()},
 		Outcome: &chatpb.InputMutationSuccess_Accepted{Accepted: &chatpb.InputAccepted{
-			QueueItem:   &chatpb.QueueItemIdentity{Id: c.submitQueuedID},
+			QueueItem:   &chatpb.QueueItemIdentity{Id: request.QueueItemId},
 			Disposition: chatpb.InputAdmissionDisposition_INPUT_ADMISSION_DISPOSITION_PENDING_STEER,
 		}}}, nil
 }
 
 func TestTUIStrictIOBusyEnterQueuesInjectedInputAsCommand(t *testing.T) {
-	client := &strictRuntimeClient{submitQueuedID: runtimeids.NewQueueItemID().String()}
+	client := &strictRuntimeClient{}
 	m := newStrictUIModel(client)
 	m.startupCmds = nil
 	setStrictTestRuntimeBusy(t, m)
@@ -113,7 +112,7 @@ func TestTUIStrictIOBusyEnterQueuesInjectedInputAsCommand(t *testing.T) {
 	if client.submitCalls != 1 {
 		t.Fatalf("SubmitRuntimeInput calls after command = %d, want 1", client.submitCalls)
 	}
-	if len(updated.injectedQueue) != 1 || updated.injectedQueue[0].ServerID == nil || *updated.injectedQueue[0].ServerID != client.submitQueuedID {
+	if len(updated.injectedQueue) != 1 || updated.injectedQueue[0].Request.QueueItemID.IsZero() || updated.injectedQueue[0].State != injectedRuntimeQueueEnqueued {
 		t.Fatalf("expected server queue item after command, got %+v", updated.injectedQueue)
 	}
 }

@@ -178,9 +178,9 @@ func TestNewSessionPresentationLeavesArtifactsAndCatalogUnchanged(t *testing.T) 
 		_, _ = composition.model.inputController().handleSessionNameCommand("temporary name")
 		_, _ = composition.model.inputController().handleCopyCommand()
 		_, _ = composition.model.inputController().handleBackCommand()
-		_, _ = composition.model.inputController().applyCommandResultWithPreSubmitQueuePosition(commands.Result{
+		_, _ = composition.model.inputController().applyCommandResult(commands.Result{
 			Action: commands.ActionNew,
-		}, preSubmitQueueBack)
+		}, "")
 		if got := composition.model.Transition().Action; got != UIActionNewSession {
 			t.Fatalf("New navigation = %q", got)
 		}
@@ -200,7 +200,7 @@ func TestNewSessionPresentationLeavesArtifactsAndCatalogUnchanged(t *testing.T) 
 	}
 	failed := newComposer()
 	failed.model.newChatTarget().WorkspaceId = runtimeids.NewSessionID().String()
-	rejected := failed.model.newSessionActionCmd(chatShellAction{command: "true"}, nil)().(newSessionActionDoneMsg)
+	rejected := failed.model.newSessionInputCmd("$ true", runtimeinput.Shell("true"), newSessionInputEnter)().(newSessionActionDoneMsg)
 	if rejected.err == nil || rejected.session != nil {
 		t.Fatalf("missing workspace creation: %v, %v", rejected.session, rejected.err)
 	}

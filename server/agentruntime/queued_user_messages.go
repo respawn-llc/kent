@@ -20,10 +20,36 @@ type queuedUserMessageStore struct {
 
 type queuedUserMessage struct {
 	message         QueuedUserMessage
+	shellOutcome    *userShellOutcome
 	steerAdmission  *pendingWorkSteerAdmission
 	autoStart       bool
 	claimID         *queuedUserMessageClaimID
 	removeOnRelease bool
+}
+
+func (s *queuedUserMessageStore) ClaimShellPrefix() *queuedUserMessageClaim {
+	selected := false
+	return s.claim(func(pending queuedUserMessage) bool {
+		if selected || pending.steerAdmission == nil && !pending.autoStart {
+			return false
+		}
+		selected = true
+		return pending.message.Shell != nil
+	})
+}
+
+func (s *queuedUserMessageStore) SetShellOutcome(claim *queuedUserMessageClaim, index int, outcome userShellOutcome) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	for i := range s.items {
+		pending := &s.items[i]
+		if pending.message.ID == claim.items[index].message.ID && pending.claimID != nil && *pending.claimID == claim.id {
+			pending.shellOutcome = &outcome
+			claim.items[index].shellOutcome = &outcome
+			return
+		}
+	}
+	panic("Shell execution lost its claimed action")
 }
 
 type queuedUserMessageClaimID uint64
@@ -43,7 +69,7 @@ func (s *queuedUserMessageStore) Queue(input QueuedUserInput, association ...que
 	}
 	return s.QueueItem(QueuedUserMessage{
 		ID:                    input.ID,
-		Message:               llm.Message{Role: llm.RoleUser, Content: textutil.Value(input.ExecutionText)},
+		Message:               &llm.Message{Role: llm.RoleUser, Content: textutil.Value(input.ExecutionText)},
 		CanonicalPresentation: input.CanonicalPresentation,
 	}, association...)
 }
@@ -54,6 +80,9 @@ type queuedUserMessageAssociation struct {
 }
 
 func (s *queuedUserMessageStore) QueueItem(item QueuedUserMessage, associations ...queuedUserMessageAssociation) (QueuedUserMessage, error) {
+	if (item.Message == nil) == (item.Shell == nil) {
+		return QueuedUserMessage{}, errors.New("pending input requires exactly one message or Shell action")
+	}
 	var association queuedUserMessageAssociation
 	if len(associations) != 0 {
 		association = associations[0]
@@ -78,10 +107,6 @@ func (m QueuedUserMessage) DisplayText() string {
 	return m.CanonicalPresentation
 }
 
-func (m QueuedUserMessage) ExecutionText() string {
-	return *m.Message.Content
-}
-
 func (s *queuedUserMessageStore) Discard(queueItemID string) bool {
 	_, removed := s.DiscardItem(queueItemID)
 	return removed
@@ -98,7 +123,7 @@ func (s *queuedUserMessageStore) DiscardItem(queueItemID string) (queuedUserMess
 	removed := false
 	var item queuedUserMessage
 	for _, pending := range s.items {
-		if pending.message.ID == id && pending.claimID == nil {
+		if pending.message.ID == id && pending.claimID == nil && pending.shellOutcome == nil {
 			removed = true
 			item = pending
 			continue
@@ -243,7 +268,7 @@ func (s *queuedUserMessageStore) ReleaseClaim(claim *queuedUserMessageClaim) []Q
 			remaining = append(remaining, pending)
 			continue
 		}
-		if pending.removeOnRelease {
+		if pending.removeOnRelease && pending.shellOutcome == nil {
 			removed = append(removed, pending.message)
 			continue
 		}
@@ -262,7 +287,7 @@ func (s *queuedUserMessageStore) Drain() []queuedUserMessage {
 	pending := make([]queuedUserMessage, 0, len(s.items))
 	remaining := s.items[:0]
 	for _, item := range s.items {
-		if item.claimID != nil {
+		if item.claimID != nil || item.shellOutcome != nil {
 			remaining = append(remaining, item)
 			continue
 		}
@@ -286,7 +311,7 @@ func (s *queuedUserMessageStore) DrainByID(ids map[string]struct{}) []queuedUser
 			remaining = append(remaining, pending)
 			continue
 		}
-		if pending.claimID != nil {
+		if pending.claimID != nil || pending.shellOutcome != nil {
 			pending.removeOnRelease = true
 			remaining = append(remaining, pending)
 			continue
@@ -343,6 +368,7 @@ func (s *queuedUserMessageStore) EntrySnapshot() []queuedUserMessage {
 	for _, pending := range s.items {
 		out = append(out, queuedUserMessage{
 			message:        pending.message,
+			shellOutcome:   pending.shellOutcome,
 			steerAdmission: clonePendingWorkSteerAdmission(pending.steerAdmission),
 			autoStart:      pending.autoStart,
 		})

@@ -461,6 +461,9 @@ func (r *RuntimeRegistry) publishRuntimeEvent(entry *authorityRuntimeEntry, evt 
 		}
 		entry.sessionFeed.Publish(messages)
 	}
+	if evt.Kind == runtime.EventLiveRunFinished {
+		return r.publishTurnEndAttention(entry, evt.LiveRunResult)
+	}
 	if runtimeEventShouldPublishSessionStatus(evt) {
 		return r.publishTranscriptAndMainView(entry, func() ([]*transcriptpb.Event, error) {
 			status, err := runtimeview.TranscriptSessionStatusFromRuntime(entry.engine)

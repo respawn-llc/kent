@@ -22,13 +22,6 @@ func (a *Authority) prepareSessionExecution(ctx context.Context, sessionID runti
 	return owner.EnsureSessionExecution(ctx, sessionID)
 }
 
-func (a *Authority) SubmitShellCommand(ctx context.Context, descriptor session.SessionDescriptor, command string, accept runtime.CommandAcceptance) error {
-	return a.runIdleAgentTurn(ctx, descriptor, accept, func(ctx context.Context, engine *runtime.Engine, accept runtime.CommandAcceptance) error {
-		_, err := engine.SubmitUserShellCommandWithAcceptance(ctx, command, accept)
-		return err
-	})
-}
-
 func (a *Authority) CompactSession(ctx context.Context, descriptor session.SessionDescriptor, admission runtimeinput.ManualCompactionAdmission, accept runtime.CommandAcceptance) error {
 	return a.runIdleAgentTurn(ctx, descriptor, accept, func(ctx context.Context, engine *runtime.Engine, accept runtime.CommandAcceptance) error {
 		_, err := engine.CompactContextAdmissionWithAcceptance(ctx, admission, accept)
@@ -75,6 +68,28 @@ func (a *Authority) QueueAgentInput(
 	return a.submitAgentInput(ctx, descriptor, accept, a.queuedSessionExecution,
 		func(ctx context.Context, engine *runtime.Engine, accept runtime.CommandAcceptance) (runtime.QueuedUserMessage, error) {
 			return engine.QueueUserInputWithAcceptance(ctx, input, accept)
+		})
+}
+
+func (a *Authority) AdmitShellInput(
+	ctx context.Context,
+	descriptor session.SessionDescriptor,
+	id runtimeids.QueueItemID,
+	command runtimeinput.ShellCommand,
+	lane runtimeinput.PendingWorkLane,
+	accept runtime.CommandAcceptance,
+) (runtime.QueuedUserMessage, error) {
+	prepare := a.prepareSessionExecution
+	switch lane {
+	case runtimeinput.PendingWorkLaneSteer:
+	case runtimeinput.PendingWorkLaneQueue:
+		prepare = a.queuedSessionExecution
+	default:
+		return runtime.QueuedUserMessage{}, errors.New("invalid Shell pending work lane")
+	}
+	return a.submitAgentInput(ctx, descriptor, accept, prepare,
+		func(ctx context.Context, engine *runtime.Engine, accept runtime.CommandAcceptance) (runtime.QueuedUserMessage, error) {
+			return engine.QueueShellInput(ctx, id, command, lane, accept)
 		})
 }
 

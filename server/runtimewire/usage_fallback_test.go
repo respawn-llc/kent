@@ -223,8 +223,23 @@ func testUsageFallbackReviewer(t *testing.T, explicit, unavailable, preparationF
 		})
 		t.Fatalf("Reviewer replacement = %v, calls %d", got, calls.Load())
 	}
-	if !rotation.CoolingDown("a") || calls.Load() != 2 || len(healthy.Snapshot().Observed) != wantRequests {
-		t.Fatalf("requests = a %d, healthy %+v", calls.Load(), healthy.Snapshot().Observed)
+	snapshot := healthy.Snapshot()
+	if !rotation.CoolingDown("a") || calls.Load() != 2 || len(snapshot.Observed) != wantRequests {
+		for index, observed := range snapshot.Observed {
+			var request struct {
+				Text struct {
+					Format json.RawMessage `json:"format"`
+				} `json:"text"`
+			}
+			if err := json.Unmarshal(observed.Body, &request); err != nil {
+				t.Logf("healthy request %d: decode failed: %v", index, err)
+				continue
+			}
+			t.Logf("healthy request %d: route=%s structured output=%s", index, observed.Route, request.Text.Format)
+		}
+		t.Fatalf("requests: a=%d healthy=%d want=%d; cooling down=%t; fixture progress=%d/%d active=%d failure=%v",
+			calls.Load(), len(snapshot.Observed), wantRequests, rotation.CoolingDown("a"),
+			snapshot.RequiredIndex, snapshot.RequiredTotal, snapshot.ActiveRequests, snapshot.Failure)
 	}
 	if explicit || unavailable || preparationFailure {
 		reopened, err := session.Open(store.Dir(), runtimeWireTestSessionPersistence.Options()...)
@@ -326,7 +341,7 @@ func newUsageFallbackRuntimeWithReviewer(t *testing.T, rotation *launch.Connecti
 			})
 		})
 	}
-	wiring, err := newTestRuntimeWiringWithBackground(t, store, materializedRuntimeWireEventLog(t, store), settings, enabled, nil, nil, nil, options)
+	wiring, err := newTestRuntimeWiringWithBackground(t, store, materializedRuntimeWireEventLog(t, store), settings, enabled, nil, t, nil, options)
 	if err != nil {
 		t.Fatal(err)
 	}

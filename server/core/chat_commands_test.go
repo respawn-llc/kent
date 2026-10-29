@@ -405,6 +405,44 @@ func TestChatFileCommandRetainsSessionAndRequestedAdmission(t *testing.T) {
 	}
 }
 
+func TestChatShellAdmissionUsesRequestedLane(t *testing.T) {
+	app, cfg, binding, models := newChatCommandCore(t, nil)
+	source := createCoreSettingsSession(t, app, cfg, binding.ProjectID)
+	id := source.Meta().SessionID
+	_, err := app.ChatMutationClient().Steer(t.Context(), &chatpb.SteerRequest{
+		QueueItemId: runtimeids.NewQueueItemID().String(), Target: chatCommandTarget(id),
+		Activation: &chatpb.Activation{Input: &chatpb.Activation_Text{Text: "start"}},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	awaitChatCommandModel(t, models)
+	for _, queue := range []bool{false, true} {
+		itemID := runtimeids.NewQueueItemID().String()
+		activation := &chatpb.Activation{Input: &chatpb.Activation_Shell{Shell: &chatpb.ShellCommand{Command: "echo accepted"}}}
+		var result *chatpb.InputMutationSuccess
+		if queue {
+			result, err = app.ChatMutationClient().Queue(t.Context(), &chatpb.QueueRequest{
+				QueueItemId: itemID, Target: chatCommandTarget(id), Activation: activation,
+			})
+		} else {
+			result, err = app.ChatMutationClient().Steer(t.Context(), &chatpb.SteerRequest{
+				QueueItemId: itemID, Target: chatCommandTarget(id), Activation: activation,
+			})
+		}
+		if err != nil {
+			t.Fatal(err)
+		}
+		expected := chatpb.InputAdmissionDisposition_INPUT_ADMISSION_DISPOSITION_PENDING_STEER
+		if queue {
+			expected = chatpb.InputAdmissionDisposition_INPUT_ADMISSION_DISPOSITION_PENDING_QUEUE
+		}
+		if accepted := result.GetAccepted(); accepted == nil || accepted.Disposition != expected || accepted.QueueItem.Id != itemID {
+			t.Fatalf("Shell admission = %+v", result)
+		}
+	}
+}
+
 func TestChatCommandFailuresRetainCreatedSessionIdentity(t *testing.T) {
 	t.Run("New Chat resolution failure", func(t *testing.T) {
 		app, _, binding, _ := newChatCommandCore(t, nil)

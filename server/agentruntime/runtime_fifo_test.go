@@ -1056,30 +1056,15 @@ func testForegroundShellReleasesRuntimeFIFOAfterScheduling(t *testing.T) {
 		Config{Model: "gpt-6-sol", SupportedThinkingValues: []string{"low"}},
 	)
 
-	firstStarted := make(chan struct{})
-	releaseFirst := make(chan struct{})
-	first := submitEngineRuntimeOperation(engine, func(context.Context) (struct{}, error) {
-		close(firstStarted)
-		<-releaseFirst
-		return struct{}{}, nil
-	})
-	<-firstStarted
+	release := sync.OnceFunc(func() { close(handler.release) })
+	t.Cleanup(release)
 
 	shellDone := make(chan error, 1)
 	go func() {
-		_, err := engine.SubmitUserShellCommand(t.Context(), "pwd")
+		err := executeTestShell(t.Context(), engine, "pwd")
 		shellDone <- err
 	}()
 	synctest.Wait()
-	select {
-	case <-handler.started:
-		t.Fatal("foreground shell started before the preceding Runtime mutation")
-	default:
-	}
-	close(releaseFirst)
-	if _, err := first.Await(t.Context()); err != nil {
-		t.Fatalf("complete preceding Runtime mutation: %v", err)
-	}
 	<-handler.started
 
 	settingDone := make(chan error, 1)
@@ -1090,60 +1075,7 @@ func testForegroundShellReleasesRuntimeFIFOAfterScheduling(t *testing.T) {
 		t.Fatalf("apply setting while shell is held: %v", err)
 	}
 
-	close(handler.release)
-	if err := <-shellDone; err != nil {
-		t.Fatalf("foreground shell: %v", err)
-	}
-}
-
-func TestForegroundShellTerminalEffectReentersAtTheCurrentRuntimeTail(t *testing.T) {
-	synctest.Test(t, testForegroundShellTerminalEffectReentersAtTheCurrentRuntimeTail)
-}
-
-func testForegroundShellTerminalEffectReentersAtTheCurrentRuntimeTail(t *testing.T) {
-	handler := &heldRuntimeShell{
-		started:  make(chan struct{}),
-		release:  make(chan struct{}),
-		returned: make(chan struct{}),
-	}
-	engine := mustNewTestEngine(
-		t,
-		mustCreateTestSession(t),
-		&fakeClient{},
-		newTestToolRegistry(t, tools.HandlerRegistration{
-			ID:      toolspec.ToolExecCommand,
-			Handler: handler,
-		}),
-		Config{Model: "gpt-6-sol"},
-	)
-	shellDone := make(chan error, 1)
-	go func() {
-		_, err := engine.SubmitUserShellCommand(t.Context(), "pwd")
-		shellDone <- err
-	}()
-	<-handler.started
-
-	laterStarted := make(chan struct{})
-	releaseLater := make(chan struct{})
-	later := submitEngineRuntimeOperation(engine, func(context.Context) (struct{}, error) {
-		close(laterStarted)
-		<-releaseLater
-		return struct{}{}, nil
-	})
-	<-laterStarted
-	close(handler.release)
-	<-handler.returned
-	synctest.Wait()
-	select {
-	case err := <-shellDone:
-		t.Fatalf("foreground shell completed before its terminal FIFO effect: %v", err)
-	default:
-	}
-
-	close(releaseLater)
-	if _, err := later.Await(t.Context()); err != nil {
-		t.Fatalf("later Runtime mutation: %v", err)
-	}
+	release()
 	if err := <-shellDone; err != nil {
 		t.Fatalf("foreground shell: %v", err)
 	}

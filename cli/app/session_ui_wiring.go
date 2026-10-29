@@ -124,10 +124,11 @@ func prepareSharedRuntimeWiring(
 		}
 		return strings.TrimSpace(*plan.SessionTitle)
 	}, terminalFocus.FocusedForAttention)
-	var queueHook turnQueueHook = notificationHooks
+	var completionSink taskCompletionSink
 	if lifecycleProxy != nil {
-		queueHook = newTurnQueueHooks(notificationHooks, lifecycleProxy)
+		completionSink = lifecycleProxy
 	}
+	queueHook := newTurnQueueHooks(notificationHooks, completionSink)
 	wiring := &runtimeWiring{
 		chatMutations:          clients.ChatMutations,
 		chatSettings:           clients.ChatSettings,

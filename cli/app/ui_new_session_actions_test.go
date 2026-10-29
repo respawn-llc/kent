@@ -519,7 +519,7 @@ func TestKnownSessionAfterObservationFailureDoesNotCreateOrReplay(t *testing.T) 
 	if model.currentRuntimeSessionID() != id.String() || len(client.requests) != 0 {
 		t.Fatal("observation failure lost identity or replayed a mutation")
 	}
-	model.inputController().submitCmd("explicit next input", runtimeinput.Text("explicit next input"), "", activeSubmitOriginDirect, nil)()
+	collectCmdMessages(t, model.inputController().startSubmission("explicit next input"))
 	if len(client.requests) != 1 || client.requests[0].Target.GetSession().GetSessionId().GetSessionId() != id.String() {
 		t.Fatal("explicit next action did not target the known Session")
 	}
@@ -551,9 +551,9 @@ func TestNewSessionFirstRequestsCaptureIndependentInputs(t *testing.T) {
 	model.Update(newSessionSettingsReadResult(t, model.loadNewSessionSettingsCmd(nil)))
 	client := &concurrentNewChatClient{}
 	model.chatMutations = client
-	first := model.inputController().submitCmd("first", runtimeinput.Text("first"), "", activeSubmitOriginDirect, nil)
+	first := model.newSessionInputCmd("first", runtimeinput.Text("first"), newSessionInputEnter)
 	model.newChatTarget().Name = appStringPointer("second name")
-	second := model.inputController().submitCmd("second", runtimeinput.Text("second"), "", activeSubmitOriginDirect, nil)
+	second := model.newSessionInputCmd("second", runtimeinput.Text("second"), newSessionInputEnter)
 	second()
 	firstResult := first()
 	if len(client.requests) != 2 {
@@ -565,9 +565,9 @@ func TestNewSessionFirstRequestsCaptureIndependentInputs(t *testing.T) {
 	if client.requests[0].Target.GetNewChat().GetName() != "second name" || client.requests[1].Target.GetNewChat().Name != nil {
 		t.Fatal("pending requests shared mutable creation inputs")
 	}
-	_, fresh := model.inputController().applyCommandResultWithPreSubmitQueuePosition(commands.Result{
+	_, fresh := model.inputController().applyCommandResult(commands.Result{
 		SubmitUser: true, FreshConversation: true, User: "fresh prompt",
-	}, preSubmitQueueBack)
+	}, "fresh prompt")
 	for _, msg := range collectCmdMessages(t, fresh) {
 		if _, done := msg.(newSessionActionDoneMsg); done {
 			break

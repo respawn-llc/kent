@@ -255,8 +255,11 @@ func (s *defaultStepExecutor) RunStepLoopWithOptions(ctx context.Context, stepID
 	return s.runStepLoopWithOptions(ctx, stepID, options)
 }
 
-func (s *defaultStepExecutor) runStepLoopWithOptions(ctx context.Context, stepID string, options stepLoopOptions) (stepLoopResult, error) {
+func (s *defaultStepExecutor) runStepLoopWithOptions(ctx context.Context, stepID string, options stepLoopOptions) (result stepLoopResult, runErr error) {
 	e := s.engine
+	defer func() {
+		runErr = errors.Join(runErr, s.messages.FinalizeShellOutcomes(stepID))
+	}()
 	executedToolCall := false
 	patchEditsApplied, mismatchWarningCommitted := false, false
 	stepNo := 0
@@ -562,7 +565,11 @@ func (s *defaultStepExecutor) buildActiveTurnRequestAtBoundary(
 		if err := ctx.Err(); err != nil {
 			return llm.Request{}, err
 		}
-		request, rebuild, err := s.prepareActiveTurnRequest(ctx, stepID, options, mismatchWarningCommitted)
+		claim, err := s.messages.ProcessPendingShellActions(ctx, stepID, options.UserInputSelection)
+		if err != nil {
+			return llm.Request{}, err
+		}
+		request, rebuild, err := s.prepareActiveTurnRequest(ctx, stepID, options, mismatchWarningCommitted, claim)
 		if err != nil || !rebuild {
 			return request, err
 		}
@@ -572,16 +579,12 @@ func (s *defaultStepExecutor) buildActiveTurnRequestAtBoundary(
 	}
 }
 
-func (s *defaultStepExecutor) prepareActiveTurnRequest(ctx context.Context, stepID string, options stepLoopOptions, mismatchWarningCommitted *bool) (llm.Request, bool, error) {
-	selection := options.UserInputSelection
-	if selection == nil {
-		selection = steerUserInjections()
-	}
-	prepared, err := s.messages.PreparePendingUserInjections(selection)
+func (s *defaultStepExecutor) prepareActiveTurnRequest(ctx context.Context, stepID string, options stepLoopOptions, mismatchWarningCommitted *bool, claim *queuedUserMessageClaim) (llm.Request, bool, error) {
+	defer s.messages.ReleasePendingInputClaim(claim)
+	prepared, err := s.messages.PreparePendingUserInjections(claim)
 	if err != nil {
 		return llm.Request{}, false, err
 	}
-	defer s.messages.ReleasePreparedUserInjections(prepared)
 	if err := s.prepareModelTurn(ctx, stepID, prepared.items...); err != nil {
 		return llm.Request{}, false, err
 	}

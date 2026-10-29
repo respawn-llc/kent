@@ -16,7 +16,7 @@ type newSessionActionDoneMsg struct {
 
 func (m *uiModel) newSessionInputCmd(text string, input runtimeinput.Input, intent newSessionInputIntent) tea.Cmd {
 	if command, shell := parseUserShellCommand(text); shell {
-		return m.newSessionActionCmd(chatShellAction{command: command}, &text)
+		input = runtimeinput.Shell(command)
 	}
 	activation, err := chatActivationFromInput(input)
 	if err != nil {

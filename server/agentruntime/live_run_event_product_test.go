@@ -148,7 +148,7 @@ func TestEnginePublishesLiveRunTerminalFactsThroughSubmitSeam(t *testing.T) {
 			Model:   "gpt-6-sol",
 			OnEvent: events.accept,
 		})
-		if _, err := eng.SubmitUserShellCommand(t.Context(), "pwd"); err != nil {
+		if err := executeTestShell(t.Context(), eng, "pwd"); err != nil {
 			t.Fatalf("SubmitUserShellCommand: %v", err)
 		}
 		if got := events.count(); got != 0 {

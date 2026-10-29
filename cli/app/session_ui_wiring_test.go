@@ -51,11 +51,6 @@ func TestSessionUIUsesTranscriptBellHook(t *testing.T) {
 	if plan.Wiring.eventDispatcher == nil || plan.Wiring.eventDispatcher.transcriptEvents == nil {
 		t.Fatal("runtime wiring omitted the transcript event dispatcher")
 	}
-	promptHook, promptOK := plan.Wiring.promptAttention.(*bellHooks)
-	turnHook, turnOK := plan.Wiring.turnQueueHook.(*bellHooks)
-	if !promptOK || !turnOK || promptHook != turnHook {
-		t.Fatal("runtime wiring did not make the bell hook authoritative for prompt activation")
-	}
 	plan.Close()
 	if got := sessionViews.mainViewCount.Load(); got != 0 {
 		t.Fatalf("startup main-view reads = %d, want 0 before feed hydration", got)
