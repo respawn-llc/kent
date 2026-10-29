@@ -168,6 +168,7 @@ func successfulMetadataEvents(createdModel string, completedModel string) []stri
 	if createdModel != "" {
 		events = append(events, fmt.Sprintf(`{"type":"response.created","response":{"model":%q}}`, createdModel))
 	}
+	events = append(events, `{"type":"response.output_item.done","output_index":0,"item":{"type":"message","id":"msg_1","role":"assistant","phase":"final_answer","content":[{"type":"output_text","text":"done"}]}}`)
 	return append(events, fmt.Sprintf(`{"type":"response.completed","response":%s}`, response))
 }
 func stringPointer(value string) *string {

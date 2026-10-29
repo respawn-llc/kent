@@ -67,6 +67,9 @@ func TestNativeMessageBoundaryPromotesNextSourceBeforeAcceptance(t *testing.T) {
 				events = append(events, fmt.Sprintf(`{"type":"response.output_text.delta","output_index":%d,"delta":%q}`, index, text),
 					fmt.Sprintf(`{"type":"response.output_item.done","output_index":%d,"item":%s}`, index, raw))
 			}
+			if index == 1 {
+				events = append(events, fmt.Sprintf(`{"type":"response.output_item.done","output_index":%d,"item":%s}`, index, raw))
+			}
 			for _, event := range events {
 				if err := socket.Write(t.Context(), websocket.MessageText, []byte(event)); err != nil {
 					return
@@ -242,7 +245,7 @@ func TestAcceptedNativeAnswerContinuesWithoutReconstruction(t *testing.T) {
 				t.Errorf("accepted answer was retransmitted rather than continued: %s", raw)
 			}
 		}
-		return []string{fmt.Sprintf(`{"type":"response.completed","response":{"id":"resp_native","status":"completed","output":[%s],"usage":{"input_tokens":10,"output_tokens":2,"total_tokens":12}}}`, native)}
+		return []string{fmt.Sprintf(`{"type":"response.output_item.done","output_index":0,"item":%s}`, native), fmt.Sprintf(`{"type":"response.completed","response":{"id":"resp_native","status":"completed","output":[%s],"usage":{"input_tokens":10,"output_tokens":2,"total_tokens":12}}}`, native)}
 	}))
 	store := mustCreateTestSession(t)
 	engine := mustNewTestEngine(t, store, client, tools.NewRegistry(), Config{Model: "gpt-6-sol"})
@@ -318,6 +321,13 @@ func TestAcceptedNativeReasoningToolOutputSurvivesResultsAndReload(t *testing.T)
 				fmt.Sprintf(`{"type":"response.output_item.added","output_index":2,"item":%s}`, native[2]),
 				fmt.Sprintf(`{"type":"response.output_item.added","output_index":3,"item":%s}`, native[3]),
 				`{"type":"response.output_text.delta","output_index":3,"delta":"after the call"}`)
+		}
+		var finalized []json.RawMessage
+		if err := json.Unmarshal(append(append([]byte("["), output...), ']'), &finalized); err != nil {
+			t.Fatal(err)
+		}
+		for index, item := range finalized {
+			events = append(events, fmt.Sprintf(`{"type":"response.output_item.done","output_index":%d,"item":%s}`, index, item))
 		}
 		return append(events, fmt.Sprintf(`{"type":"response.completed","response":{"id":"resp_native","status":"completed","output":[%s],"usage":{"input_tokens":10,"output_tokens":2,"total_tokens":12}}}`, output))
 	}))
@@ -411,7 +421,7 @@ func TestNativeCustomPatchExecutesOnceAndContinuesWithOneResult(t *testing.T) {
 	var started atomic.Int32
 	client := nativeResponseTestClient(t, nativeResponsesSocketHandler(t, func(create json.RawMessage) []string {
 		if calls.Add(1) == 1 {
-			return []string{runtimeCompletedResponseEvent([]byte("[" + string(raw) + "]"))}
+			return runtimeCompletedResponseEvents([]byte("[" + string(raw) + "]"))
 		}
 		var request struct {
 			Input []struct {
@@ -425,7 +435,7 @@ func TestNativeCustomPatchExecutesOnceAndContinuesWithOneResult(t *testing.T) {
 		if len(request.Input) != 1 || request.Input[0].Type != "custom_tool_call_output" || request.Input[0].CallID != "patch_call" {
 			t.Errorf("custom patch continuation lost its single result: %s", create)
 		}
-		return []string{runtimeFinalAnswerEvent("done")}
+		return runtimeFinalAnswerEvents("done")
 	}))
 	engine := mustNewTestEngine(t, mustCreateTestSession(t), client,
 		newTestToolRegistry(t, tools.HandlerRegistration{ID: toolspec.ToolPatch, Handler: patch}),
@@ -499,6 +509,8 @@ func TestNativeStreamOnlyReasoningRemainsReadableAfterReload(t *testing.T) {
 		return []string{
 			`{"type":"response.output_item.added","output_index":0,"item":{"type":"reasoning","id":"rs_empty","summary":[]}}`,
 			`{"type":"response.reasoning_summary_text.delta","output_index":0,"summary_index":0,"item_id":"rs_empty","delta":"visual only"}`,
+			fmt.Sprintf(`{"type":"response.output_item.done","output_index":0,"item":%s}`, native),
+			fmt.Sprintf(`{"type":"response.output_item.done","output_index":1,"item":%s}`, answer),
 			fmt.Sprintf(`{"type":"response.completed","response":{"id":"resp_empty","status":"completed","output":[%s,%s]}}`, native, answer),
 		}
 	}))
@@ -539,6 +551,7 @@ func TestNativeLeadingWhitespacePresentationSurvivesReload(t *testing.T) {
 			`{"type":"response.output_text.delta","output_index":0,"delta":"\n\nHello"}`,
 			`{"type":"response.output_text.delta","output_index":0,"delta":" world"}`,
 			fmt.Sprintf(`{"type":"response.output_item.done","output_index":0,"item":%s}`, output[0]),
+			fmt.Sprintf(`{"type":"response.output_item.done","output_index":1,"item":%s}`, output[1]),
 			fmt.Sprintf(`{"type":"response.completed","response":{"id":"resp_whitespace","status":"completed","output":[%s]}}`, bytes.Join(nativeBytes(output), []byte(","))),
 		}
 	}))
@@ -614,7 +627,11 @@ func TestNativeOutputPresentationKeepsInterleavedHostedCalls(t *testing.T) {
 		json.RawMessage(`{"type":"message","id":"final","role":"assistant","phase":"final_answer","content":[{"type":"output_text","text":"final","annotations":[]}]}`),
 	}
 	client := nativeResponseTestClient(t, nativeResponsesSocketHandler(t, func(json.RawMessage) []string {
-		return []string{fmt.Sprintf(`{"type":"response.completed","response":{"id":"resp_ordered","status":"completed","output":[%s],"usage":{"input_tokens":10,"output_tokens":2,"total_tokens":12}}}`, bytes.Join(nativeBytes(output), []byte(",")))}
+		var events []string
+		for index, item := range output {
+			events = append(events, fmt.Sprintf(`{"type":"response.output_item.done","output_index":%d,"item":%s}`, index, item))
+		}
+		return append(events, fmt.Sprintf(`{"type":"response.completed","response":{"id":"resp_ordered","status":"completed","output":[%s],"usage":{"input_tokens":10,"output_tokens":2,"total_tokens":12}}}`, bytes.Join(nativeBytes(output), []byte(","))))
 	}))
 	store := mustCreateTestSession(t)
 	cfg := Config{Model: "gpt-6-sol", WebSearchMode: "native", EnabledTools: []toolspec.ID{toolspec.ToolWebSearch}}
@@ -691,7 +708,7 @@ func TestAcceptedInvisibleNativeOutputContinuesWithoutVisibleRows(t *testing.T) 
 			}
 			output = final
 		}
-		return []string{fmt.Sprintf(`{"type":"response.completed","response":{"id":"resp_native","status":"completed","output":[%s],"end_turn":%t,"usage":{"input_tokens":10,"output_tokens":2,"total_tokens":12}}}`, output, turn > 1)}
+		return []string{fmt.Sprintf(`{"type":"response.output_item.done","output_index":0,"item":%s}`, output), fmt.Sprintf(`{"type":"response.completed","response":{"id":"resp_native","status":"completed","output":[%s],"end_turn":%t,"usage":{"input_tokens":10,"output_tokens":2,"total_tokens":12}}}`, output, turn > 1)}
 	}))
 	store := mustCreateTestSession(t)
 	engine := mustNewTestEngine(t, store, client, tools.NewRegistry(), Config{Model: "gpt-6-sol"})

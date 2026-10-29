@@ -163,7 +163,11 @@ func runLocalCompactionDiagnostic(t *testing.T, output []json.RawMessage, debug 
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		serveResponsesTestWebsocket(t, w, r, func(json.RawMessage) []string {
 			requests.Add(1)
-			return []string{string(event)}
+			events := make([]string, 0, len(output)+1)
+			for index, item := range output {
+				events = append(events, fmt.Sprintf(`{"type":"response.output_item.done","output_index":%d,"item":%s}`, index, item))
+			}
+			return append(events, string(event))
 		})
 	}))
 	t.Cleanup(server.Close)

@@ -81,9 +81,9 @@ func TestToolLoopContinuationReplaysProviderTurnState(t *testing.T) {
 			attempt := len(states)
 			mu.Unlock()
 			if attempt <= 2 {
-				return []string{runtimeCompletedResponseEvent([]byte(fmt.Sprintf(`[{"type":"function_call","id":"item_%[1]d","call_id":"call_%[1]d","name":"exec_command","arguments":"{\"cmd\":\"pwd\"}"}]`, attempt)))}
+				return runtimeCompletedResponseEvents([]byte(fmt.Sprintf(`[{"type":"function_call","id":"item_%[1]d","call_id":"call_%[1]d","name":"exec_command","arguments":"{\"cmd\":\"pwd\"}"}]`, attempt)))
 			}
-			return []string{runtimeCompletedResponseEvent([]byte(`[{"type":"message","id":"final","role":"assistant","phase":"final_answer","content":[{"type":"output_text","text":"done"}]}]`))}
+			return runtimeCompletedResponseEvents([]byte(`[{"type":"message","id":"final","role":"assistant","phase":"final_answer","content":[{"type":"output_text","text":"done"}]}]`))
 		}).ServeHTTP(w, request)
 	}))
 	t.Cleanup(server.Close)
@@ -130,9 +130,9 @@ func TestNewAgentTurnStartsWithoutProviderTurnState(t *testing.T) {
 			attempt := len(states)
 			mu.Unlock()
 			if attempt == 1 {
-				return []string{runtimeToolCallEvent("call_1")}
+				return runtimeToolCallEvents("call_1")
 			}
-			return []string{runtimeFinalAnswerEvent("done")}
+			return runtimeFinalAnswerEvents("done")
 		}).ServeHTTP(w, request)
 	}))
 	t.Cleanup(server.Close)
@@ -177,9 +177,9 @@ func TestSocketKeepsOpeningAccountDespiteLaterCredentialChanges(t *testing.T) {
 			attempt := len(states)
 			mu.Unlock()
 			if attempt < 3 {
-				return []string{runtimeToolCallEvent(fmt.Sprintf("call_%d", attempt))}
+				return runtimeToolCallEvents(fmt.Sprintf("call_%d", attempt))
 			}
-			return []string{runtimeFinalAnswerEvent("done")}
+			return runtimeFinalAnswerEvents("done")
 		}).ServeHTTP(w, request)
 	}))
 	t.Cleanup(server.Close)
@@ -227,9 +227,9 @@ func TestUnidentifiedAccountOmitsAndDoesNotAcceptProviderTurnState(t *testing.T)
 			attempt := len(states)
 			mu.Unlock()
 			if attempt < 3 {
-				return []string{runtimeToolCallEvent(fmt.Sprintf("call_%d", attempt))}
+				return runtimeToolCallEvents(fmt.Sprintf("call_%d", attempt))
 			}
-			return []string{runtimeFinalAnswerEvent("done")}
+			return runtimeFinalAnswerEvents("done")
 		}).ServeHTTP(w, request)
 	}))
 	t.Cleanup(server.Close)
@@ -277,9 +277,9 @@ func TestConcurrentSessionsKeepProviderTurnStateIsolatedByAccount(t *testing.T) 
 			attempt := len(states[accountID])
 			mu.Unlock()
 			if attempt == 1 {
-				return []string{runtimeToolCallEvent("call_1")}
+				return runtimeToolCallEvents("call_1")
 			}
-			return []string{runtimeFinalAnswerEvent("done")}
+			return runtimeFinalAnswerEvents("done")
 		}).ServeHTTP(w, request)
 	}))
 	t.Cleanup(server.Close)
@@ -347,9 +347,9 @@ func TestReviewerSharesMainAgentTurnProviderTurnState(t *testing.T) {
 			sessionIDs = append(sessionIDs, request.Header.Get("session-id"))
 			mu.Unlock()
 			if request.Header.Get("session-id") == reviewerSession {
-				return []string{runtimeFinalAnswerEvent(`{"suggestions":[]}`)}
+				return runtimeFinalAnswerEvents(`{"suggestions":[]}`)
 			}
-			return []string{runtimeFinalAnswerEvent("main response")}
+			return runtimeFinalAnswerEvents("main response")
 		}).ServeHTTP(w, request)
 	}))
 	t.Cleanup(server.Close)
@@ -479,9 +479,9 @@ func TestReviewerMismatchedRouteKeepsInvocationStateIsolated(t *testing.T) {
 				providerTurnStateSocketHandler(t, state, func(raw json.RawMessage) []string {
 					record(providerCreateTurnState(t, raw))
 					if isReviewer {
-						return []string{runtimeFinalAnswerEvent(`{"suggestions":[]}`)}
+						return runtimeFinalAnswerEvents(`{"suggestions":[]}`)
 					}
-					return []string{runtimeFinalAnswerEvent("main response")}
+					return runtimeFinalAnswerEvents("main response")
 				}).ServeHTTP(w, request)
 			}))
 			t.Cleanup(server.Close)
@@ -567,9 +567,9 @@ func TestLocalCompactionKeepsRoutingStateSeparateFromMainTurn(t *testing.T) {
 				return []string{providerTurnStateEvent(t, localCompactState), `{"type":"error","status":503,"error":{"code":"server_error","type":"server_error","message":"retry local compaction"}}`}
 			}
 			if attempt == 3 {
-				return []string{runtimeFinalAnswerEvent("local summary")}
+				return runtimeFinalAnswerEvents("local summary")
 			}
-			return []string{providerTurnStateEvent(t, mainTurnState), runtimeFinalAnswerEvent("main response")}
+			return append([]string{providerTurnStateEvent(t, mainTurnState)}, runtimeFinalAnswerEvents("main response")...)
 		}).ServeHTTP(w, request)
 	}))
 	t.Cleanup(server.Close)
@@ -642,9 +642,9 @@ func TestRemoteCompactionRetryAndLocalFallbackKeepTurnStateScopes(t *testing.T) 
 					return []string{`{"type":"error","status":503,"error":{"type":"server_error","code":"server_error","message":"retry local compaction"}}`}
 				}
 				if attempt == 5 {
-					return []string{runtimeFinalAnswerEvent("local summary")}
+					return runtimeFinalAnswerEvents("local summary")
 				}
-				return []string{runtimeFinalAnswerEvent("generation response")}
+				return runtimeFinalAnswerEvents("generation response")
 			}).ServeHTTP(w, request)
 			return
 		}
@@ -727,7 +727,7 @@ func TestStandaloneCompactionStartsWithoutPriorAgentTurnState(t *testing.T) {
 				mu.Lock()
 				states = append(states, providerCreateTurnState(t, raw))
 				mu.Unlock()
-				return []string{runtimeFinalAnswerEvent("ordinary work")}
+				return runtimeFinalAnswerEvents("ordinary work")
 			}).ServeHTTP(w, request)
 			return
 		}
@@ -777,7 +777,7 @@ func TestInvalidProviderTurnStateDoesNotChangeSuccessfulModelOutcome(t *testing.
 		w.Header().Set("x-codex-turn-state", "")
 		nativeResponsesSocketHandler(t, func(json.RawMessage) []string {
 			requestedStates = append(requestedStates, request.Header.Get("x-codex-turn-state"))
-			return []string{runtimeFinalAnswerEvent("completed")}
+			return runtimeFinalAnswerEvents("completed")
 		}).ServeHTTP(w, request)
 	}))
 	t.Cleanup(server.Close)
@@ -819,7 +819,7 @@ func TestGenerateWithRetryIgnoresRejectedHandshakeTurnState(t *testing.T) {
 			mu.Lock()
 			states = append(states, request.Header.Get("x-codex-turn-state"))
 			mu.Unlock()
-			return []string{runtimeCompletedResponseEvent(nil)}
+			return runtimeCompletedResponseEvents(nil)
 		}).ServeHTTP(w, request)
 	}))
 	t.Cleanup(server.Close)
@@ -862,7 +862,7 @@ func TestGenerationMissingOutputRebuildIgnoresRejectedHandshakeTurnState(t *test
 		}
 		nativeResponsesSocketHandler(t, func(json.RawMessage) []string {
 			states = append(states, request.Header.Get("x-codex-turn-state"))
-			return []string{runtimeCompletedResponseEvent([]byte(`[{"type":"message","id":"repaired","role":"assistant","status":"completed","content":[{"type":"output_text","text":"repaired","annotations":[]}]}]`))}
+			return runtimeCompletedResponseEvents([]byte(`[{"type":"message","id":"repaired","role":"assistant","status":"completed","content":[{"type":"output_text","text":"repaired","annotations":[]}]}]`))
 		}).ServeHTTP(w, request)
 	}))
 	t.Cleanup(server.Close)
@@ -886,30 +886,41 @@ func TestGenerationMissingOutputRebuildIgnoresRejectedHandshakeTurnState(t *test
 
 func writeRuntimeCompletedResponseSSE(w http.ResponseWriter, output []byte) {
 	w.Header().Set("Content-Type", "text/event-stream")
-	_, _ = fmt.Fprintf(w, "data: %s\n\ndata: [DONE]\n\n", runtimeCompletedResponseEvent(output))
+	for _, event := range runtimeCompletedResponseEvents(output) {
+		_, _ = fmt.Fprintf(w, "data: %s\n\n", event)
+	}
+	_, _ = fmt.Fprint(w, "data: [DONE]\n\n")
 }
 
-func runtimeCompletedResponseEvent(output []byte) string {
+func runtimeCompletedResponseEvents(output []byte) []string {
 	if output == nil {
 		output = []byte(`[]`)
 	}
-	return fmt.Sprintf(`{"type":"response.completed","response":{"id":"runtime-response","usage":{"input_tokens":1,"output_tokens":1,"total_tokens":2},"output":%s}}`, output)
+	var items []json.RawMessage
+	if err := json.Unmarshal(output, &items); err != nil {
+		panic(err)
+	}
+	events := make([]string, 0, len(items)+1)
+	for index, item := range items {
+		events = append(events, fmt.Sprintf(`{"type":"response.output_item.done","output_index":%d,"item":%s}`, index, item))
+	}
+	return append(events, `{"type":"response.completed","response":{"id":"runtime-response","usage":{"input_tokens":1,"output_tokens":1,"total_tokens":2},"output":[]}}`)
 }
 
-func runtimeToolCallEvent(callID string) string {
+func runtimeToolCallEvents(callID string) []string {
 	output := []byte(fmt.Sprintf(
 		`[{"id":"fc_%[1]s","type":"function_call","call_id":"%[1]s","name":"exec_command","arguments":"{\"command\":\"pwd\"}"}]`,
 		callID,
 	))
-	return runtimeCompletedResponseEvent(output)
+	return runtimeCompletedResponseEvents(output)
 }
 
-func runtimeFinalAnswerEvent(content string) string {
+func runtimeFinalAnswerEvents(content string) []string {
 	output := []byte(fmt.Sprintf(
 		`[{"id":"msg_1","type":"message","role":"assistant","phase":"final_answer","content":[{"type":"output_text","text":%q}]}]`,
 		content,
 	))
-	return runtimeCompletedResponseEvent(output)
+	return runtimeCompletedResponseEvents(output)
 }
 
 func newProviderTurnStateTransport(t *testing.T, server *httptest.Server, accountIDs ...string) *llm.HTTPTransport {

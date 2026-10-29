@@ -213,6 +213,7 @@ func TestRuntimeAcceptsNextTurnAfterConnectionReauthentication(t *testing.T) {
 		if _, _, err := socket.Read(t.Context()); err != nil {
 			return
 		}
+		_ = socket.Write(t.Context(), websocket.MessageText, []byte(`{"type":"response.output_item.done","output_index":0,"item":{"type":"message","id":"message-recovered","role":"assistant","phase":"final_answer","content":[{"type":"output_text","text":"`+answer+`","annotations":[]}]}}`))
 		_ = socket.Write(t.Context(), websocket.MessageText, []byte(`{"type":"response.completed","response":{"id":"response-recovered","status":"completed","output":[{"type":"message","id":"message-recovered","role":"assistant","phase":"final_answer","content":[{"type":"output_text","text":"`+answer+`","annotations":[]}]}],"usage":{"input_tokens":1,"output_tokens":1,"total_tokens":2}}}`))
 		_, _, _ = socket.Read(t.Context())
 	}))

@@ -125,6 +125,7 @@ func newPrematureSocketClient(t *testing.T, recover bool) (*ResponsesClient, *at
 			return
 		}
 		if requests.Add(1) > 1 && recover {
+			_ = socket.Write(t.Context(), websocket.MessageText, []byte(`{"type":"response.output_item.done","output_index":0,"item":{"type":"message","role":"assistant","content":[{"type":"output_text","text":"recovered"}]}}`))
 			_ = socket.Write(t.Context(), websocket.MessageText, []byte(`{"type":"response.completed","response":{"id":"recovered","output":[{"type":"message","role":"assistant","content":[{"type":"output_text","text":"recovered"}]}]}}`))
 			_, _, _ = socket.Read(t.Context())
 			return
@@ -147,7 +148,7 @@ func responsesBodyEndingWithError(err error) io.ReadCloser {
 func completedResponsesBody() io.ReadCloser {
 	return io.NopCloser(strings.NewReader(strings.Join([]string{
 		`event: response.completed`,
-		`data: {"type":"response.completed","sequence_number":1,"response":{"output":[{"type":"message","role":"assistant","phase":"final_answer","content":[{"type":"output_text","text":"recovered"}]}]}}`,
+		"data: {\"type\":\"response.output_item.done\",\"output_index\":0,\"item\":{\"type\":\"message\",\"role\":\"assistant\",\"phase\":\"final_answer\",\"content\":[{\"type\":\"output_text\",\"text\":\"recovered\"}]}}\n\ndata: {\"type\":\"response.completed\",\"sequence_number\":1,\"response\":{\"output\":[{\"type\":\"message\",\"role\":\"assistant\",\"phase\":\"final_answer\",\"content\":[{\"type\":\"output_text\",\"text\":\"recovered\"}]}]}}",
 		``,
 		``,
 	}, "\n")))
@@ -278,6 +279,7 @@ func TestGenerate_RejectsConflictingReasoningIdentities(t *testing.T) {
 			name: "completed identity conflicts with streamed identity",
 			events: []string{
 				`{"type":"response.reasoning_summary_text.delta","output_index":0,"summary_index":0,"item_id":"reason_1","delta":"streamed"}`,
+				`{"type":"response.output_item.done","output_index":0,"item":{"type":"reasoning","id":"reason_2","summary":[{"type":"summary_text","text":"completed"}]}}`,
 				`{"type":"response.completed","response":{"output":[{"type":"reasoning","id":"reason_2","summary":[{"type":"summary_text","text":"completed"}]}]}}`,
 			},
 		},
@@ -331,6 +333,7 @@ func TestGeneratePreservesDistinctReasoningTracesWithSameText(t *testing.T) {
 func TestGenerateCompletedReasoningTextOverridesStreamedPartial(t *testing.T) {
 	transport := newOpenAIStreamTestTransport(t,
 		`{"type":"response.reasoning_summary_text.delta","output_index":0,"summary_index":0,"item_id":"reason_1","delta":"streamed partial"}`,
+		`{"type":"response.output_item.done","output_index":0,"item":{"type":"reasoning","id":"reason_1","summary":[{"type":"summary_text","text":"completed final"}]}}`,
 		`{"type":"response.completed","response":{"output":[{"type":"reasoning","id":"reason_1","summary":[{"type":"summary_text","text":"completed final"}]}]}}`,
 		`[DONE]`,
 	)
@@ -349,7 +352,7 @@ func TestGenerateCompletedReasoningTextOverridesStreamedPartial(t *testing.T) {
 func TestGenerate_AcceptsCompletedResponseEOFWithoutDoneSentinel(t *testing.T) {
 	transport := newOpenAIRawStreamTestTransport(t, strings.Join([]string{
 		`event: response.completed`,
-		`data: {"type":"response.completed","sequence_number":1,"response":{"usage":{"input_tokens":11,"output_tokens":7,"total_tokens":18},"output":[{"type":"message","role":"assistant","phase":"final_answer","content":[{"type":"output_text","text":"Hello"}]}]}}`,
+		"data: {\"type\":\"response.output_item.done\",\"output_index\":0,\"item\":{\"type\":\"message\",\"role\":\"assistant\",\"phase\":\"final_answer\",\"content\":[{\"type\":\"output_text\",\"text\":\"Hello\"}]}}\n\ndata: {\"type\":\"response.completed\",\"sequence_number\":1,\"response\":{\"usage\":{\"input_tokens\":11,\"output_tokens\":7,\"total_tokens\":18},\"output\":[{\"type\":\"message\",\"role\":\"assistant\",\"phase\":\"final_answer\",\"content\":[{\"type\":\"output_text\",\"text\":\"Hello\"}]}]}}",
 		``,
 		``,
 	}, "\n"))
@@ -381,7 +384,7 @@ func TestGenerate_SalvagesCompletedResponseBeforeTrailingMalformedEvent(t *testi
 		t.Run(test.name, func(t *testing.T) {
 			transport := newOpenAIRawStreamTestTransport(t, strings.Join([]string{
 				`event: response.completed`,
-				`data: {"type":"response.completed","sequence_number":1,"response":{"usage":{"input_tokens":3,"output_tokens":5,"total_tokens":8},"output":[{"type":"message","role":"assistant","phase":"final_answer","content":[{"type":"output_text","text":"Done"}]}]}}`,
+				"data: {\"type\":\"response.output_item.done\",\"output_index\":0,\"item\":{\"type\":\"message\",\"role\":\"assistant\",\"phase\":\"final_answer\",\"content\":[{\"type\":\"output_text\",\"text\":\"Done\"}]}}\n\ndata: {\"type\":\"response.completed\",\"sequence_number\":1,\"response\":{\"usage\":{\"input_tokens\":3,\"output_tokens\":5,\"total_tokens\":8},\"output\":[{\"type\":\"message\",\"role\":\"assistant\",\"phase\":\"final_answer\",\"content\":[{\"type\":\"output_text\",\"text\":\"Done\"}]}]}}",
 				``,
 				`data: ` + test.trailingData,
 				``,
@@ -684,6 +687,9 @@ func TestGenerate_EmitsAssistantDeltasAndToolCalls(t *testing.T) {
 		`{"type":"response.output_text.delta","output_index":1,"delta":"Hel"}`,
 		`{"type":"response.output_text.delta","output_index":1,"delta":"lo"}`,
 		`{"type":"response.reasoning_summary_text.delta","item_id":"rs_1","output_index":1,"summary_index":0,"delta":"Plan"}`,
+		`{"type":"response.output_item.done","output_index":0,"item":{"type":"message","role":"assistant","phase":"commentary","content":[{"type":"output_text","text":"Hello"}]}}`,
+		`{"type":"response.output_item.done","output_index":1,"item":{"type":"reasoning","id":"rs_1","summary":[{"type":"summary_text","text":"Plan"}],"content":[{"type":"reasoning_text","text":"internal trace"}],"encrypted_content":"enc_1"}}`,
+		`{"type":"response.output_item.done","output_index":2,"item":{"type":"function_call","id":"fc_1","name":"shell","call_id":"call_1","arguments":"{\"command\":\"pwd\"}"}}`,
 		`{"type":"response.completed","response":{"usage":{"input_tokens":11,"input_tokens_details":{"cached_tokens":4},"output_tokens":7,"output_tokens_details":{"reasoning_tokens":2},"total_tokens":18},"output":[{"type":"message","role":"assistant","phase":"commentary","content":[{"type":"output_text","text":"Hello"}]},{"type":"reasoning","id":"rs_1","summary":[{"type":"summary_text","text":"Plan"}],"content":[{"type":"reasoning_text","text":"internal trace"}],"encrypted_content":"enc_1"},{"type":"function_call","id":"fc_1","name":"shell","call_id":"call_1","arguments":"{\"command\":\"pwd\"}"}]}}`,
 		`[DONE]`,
 	)
@@ -751,6 +757,7 @@ func TestGenerate_PreservesWhitespaceOnlyFunctionArgumentDelta(t *testing.T) {
 		fmt.Sprintf(`{"type":"response.function_call_arguments.delta","item_id":"fc_1","delta":%q}`, inputPrefix),
 		fmt.Sprintf(`{"type":"response.function_call_arguments.delta","item_id":"fc_1","delta":%q}`, " "),
 		fmt.Sprintf(`{"type":"response.function_call_arguments.delta","item_id":"fc_1","delta":%q}`, inputSuffix),
+		fmt.Sprintf(`{"type":"response.output_item.done","output_index":0,"item":{"type":"function_call","id":"fc_1","call_id":"call_1","name":"write_stdin","arguments":%q}}`, inputPrefix+" "+inputSuffix),
 		fmt.Sprintf(`{"type":"response.completed","response":{"output":[{"type":"function_call","id":"fc_1","call_id":"call_1","name":"write_stdin","arguments":%q}]}}`, inputPrefix+" "+inputSuffix),
 		`[DONE]`,
 	)
@@ -779,6 +786,7 @@ func TestGenerate_EmitsUnknownPhaseWhenDeltaPrecedesAssistantItem(t *testing.T) 
 		`{"type":"response.output_text.delta","output_index":0,"delta":"Hel"}`,
 		`{"type":"response.output_item.added","output_index":0,"item":{"type":"message","role":"assistant","phase":"final_answer","content":[]}}`,
 		`{"type":"response.output_text.delta","output_index":0,"delta":"lo"}`,
+		`{"type":"response.output_item.done","output_index":0,"item":{"type":"message","role":"assistant","phase":"final_answer","content":[{"type":"output_text","text":"Hello"}]}}`,
 		`{"type":"response.completed","response":{"output":[{"type":"message","role":"assistant","phase":"final_answer","content":[{"type":"output_text","text":"Hello"}]}]}}`,
 		`[DONE]`,
 	)
@@ -815,6 +823,7 @@ func TestGenerateRejectsUnmatchedAssistantDelta(t *testing.T) {
 		`{"type":"response.output_text.delta","delta":"stray"}`,
 		`{"type":"response.output_item.added","output_index":1,"item":{"id":"msg_1","type":"message","role":"assistant","phase":"final_answer","content":[]}}`,
 		`{"type":"response.output_text.delta","output_index":1,"delta":"done"}`,
+		`{"type":"response.output_item.done","output_index":0,"item":{"id":"msg_1","type":"message","role":"assistant","phase":"final_answer","content":[{"type":"output_text","text":"done"}]}}`,
 		`{"type":"response.completed","response":{"output":[{"id":"msg_1","type":"message","role":"assistant","phase":"final_answer","content":[{"type":"output_text","text":"done"}]}]}}`,
 		`[DONE]`,
 	)
@@ -913,6 +922,7 @@ func TestGenerate_OmitsNonFinalEmptyAssistantContentBeforeToolCall(t *testing.T)
 func TestGenerate_UsesFinalizedOutputTextWhenProviderOmitsDeltas(t *testing.T) {
 	transport := newOpenAIStreamTestTransport(t,
 		`{"type":"response.output_text.done","item_id":"msg_1","output_index":0,"content_index":0,"text":"Compaction summary"}`,
+		`{"type":"response.output_item.done","output_index":0,"item":{"type":"message","id":"msg_1","role":"assistant","content":[{"type":"output_text","text":"Compaction summary"}]}}`,
 		`{"type":"response.completed","response":{"output":[{"type":"message","id":"msg_1","role":"assistant","content":[{"type":"output_text","text":"Compaction summary"}]}]}}`,
 		`[DONE]`,
 	)
@@ -966,7 +976,7 @@ func TestGenerate_IgnoresStructuredTrailingWhitespaceShimWithoutDeltaConsumer(t 
 	transport := newOpenAIStreamTestTransport(t,
 		`{"type":"response.output_item.added","output_index":0,"item":{"id":"msg_1","type":"message","role":"assistant","phase":"final_answer","content":[]}}`,
 		`{"type":"response.output_text.delta","item_id":"msg_1","output_index":0,"content_index":0,"delta":"Hello\n\n"}`,
-		`{"type":"response.output_item.done","output_index":0,"item":{"id":"msg_1","type":"message","role":"assistant","phase":"final_answer","content":[{"type":"output_text","text":"Hello\n\n"}]}}`,
+		`{"type":"response.output_item.done","output_index":0,"item":{"id":"msg_1","type":"message","role":"assistant","phase":"final_answer","content":[{"type":"output_text","text":"Hello"}]}}`,
 		`{"type":"response.completed","response":{"output":[{"id":"msg_1","type":"message","role":"assistant","phase":"final_answer","content":[{"type":"output_text","text":"Hello"}]}]}}`,
 		`[DONE]`,
 	)
@@ -1058,6 +1068,7 @@ func TestGenerate_PreservesPendingOutputIndexAfterFinalizedOutput(t *testing.T) 
 func TestGenerateAcceptsCompletedEmptyFinalAfterDoneOnlyStream(t *testing.T) {
 	transport := newOpenAIStreamTestTransport(t,
 		`{"type":"response.output_text.done","output_index":0,"text":""}`,
+		`{"type":"response.output_item.done","output_index":0,"item":{"type":"message","role":"assistant","phase":"final_answer","content":[{"type":"output_text","text":""}]}}`,
 		`{"type":"response.completed","response":{"output":[{"type":"message","role":"assistant","phase":"final_answer","content":[{"type":"output_text","text":""}]}]}}`,
 		`[DONE]`,
 	)
@@ -1106,6 +1117,8 @@ func TestGenerate_PreservesWhitespaceBetweenAssistantContent(t *testing.T) {
 
 func TestGenerate_DoesNotRepairMultiMessageAssistantOutputWithAggregateText(t *testing.T) {
 	transport := newOpenAIStreamTestTransport(t,
+		`{"type":"response.output_item.done","output_index":0,"item":{"type":"message","role":"assistant","phase":"final_answer","content":[{"type":"output_text","text":"A"}]}}`,
+		`{"type":"response.output_item.done","output_index":1,"item":{"type":"message","role":"assistant","phase":"final_answer","content":[{"type":"output_text","text":"B"}]}}`,
 		`{"type":"response.completed","response":{"output":[{"type":"message","role":"assistant","phase":"final_answer","content":[{"type":"output_text","text":"A"}]},{"type":"message","role":"assistant","phase":"final_answer","content":[{"type":"output_text","text":"B"}]}]}}`,
 		`[DONE]`,
 	)
@@ -1215,6 +1228,7 @@ func TestGenerate_ParsesCustomPatchToolCall(t *testing.T) {
 	transport := newOpenAIStreamTestTransport(t,
 		`{"type":"response.output_item.added","item":{"id":"ct_1","type":"custom_tool_call","name":"patch","call_id":"call_1","input":""}}`,
 		fmt.Sprintf(`{"type":"response.custom_tool_call_input.delta","item_id":"ct_1","delta":%q}`, patchInput),
+		fmt.Sprintf(`{"type":"response.output_item.done","output_index":0,"item":{"type":"custom_tool_call","id":"ct_1","name":"patch","call_id":"call_1","input":%q}}`, patchInput),
 		fmt.Sprintf(`{"type":"response.completed","response":{"usage":{"input_tokens":1,"output_tokens":1,"total_tokens":2},"output":[{"type":"custom_tool_call","id":"ct_1","name":"patch","call_id":"call_1","input":%q}]}}`, patchInput),
 		`[DONE]`,
 	)
@@ -1243,6 +1257,7 @@ func TestGenerate_ParsesCustomPatchToolCall(t *testing.T) {
 func TestGenerate_PartitionsReasoningStatusFromTrace(t *testing.T) {
 	transport := newOpenAIStreamTestTransport(t,
 		`{"type":"response.reasoning_summary_text.delta","item_id":"rs_1","output_index":0,"summary_index":0,"delta":"**Preparing patch**\n\nPlain summary text"}`,
+		`{"type":"response.output_item.done","output_index":0,"item":{"type":"reasoning","id":"rs_1","summary":[{"type":"summary_text","text":"**Preparing patch**\n\nPlain summary text"}],"encrypted_content":"enc_1"}}`,
 		`{"type":"response.completed","response":{"usage":{"input_tokens":1,"output_tokens":1,"total_tokens":2},"output":[{"type":"reasoning","id":"rs_1","summary":[{"type":"summary_text","text":"**Preparing patch**\n\nPlain summary text"}],"encrypted_content":"enc_1"}]}}`,
 		`[DONE]`,
 	)
@@ -1286,6 +1301,7 @@ func TestGenerate_PartitionsReasoningStatusFromTrace(t *testing.T) {
 func TestGenerate_StatusOnlyReasoningRemainsProviderHistoryButNotTrace(t *testing.T) {
 	transport := newOpenAIStreamTestTransport(t,
 		`{"type":"response.reasoning_summary_text.delta","item_id":"rs_1","output_index":0,"summary_index":0,"delta":"**Preparing patch**"}`,
+		`{"type":"response.output_item.done","output_index":0,"item":{"type":"reasoning","id":"rs_1","summary":[{"type":"summary_text","text":"**Preparing patch**"}],"encrypted_content":"enc_1"}}`,
 		`{"type":"response.completed","response":{"output":[{"type":"reasoning","id":"rs_1","summary":[{"type":"summary_text","text":"**Preparing patch**"}],"encrypted_content":"enc_1"}]}}`,
 		`[DONE]`,
 	)
@@ -1328,6 +1344,7 @@ func TestGenerate_ReasoningCallbacksCarryCurrentAccumulatedStatus(t *testing.T) 
 		`{"type":"response.reasoning_summary_text.delta","item_id":"rs_1","output_index":0,"summary_index":0,"delta":"**Checking"}`,
 		`{"type":"response.reasoning_summary_text.delta","item_id":"rs_1","output_index":0,"summary_index":0,"delta":" tests**"}`,
 		`{"type":"response.reasoning_summary_text.delta","item_id":"rs_1","output_index":0,"summary_index":0,"delta":"\nDetails"}`,
+		`{"type":"response.output_item.done","output_index":0,"item":{"type":"reasoning","id":"rs_1","summary":[{"type":"summary_text","text":"**Checking tests**\nDetails"}],"encrypted_content":"enc_1"}}`,
 		`{"type":"response.completed","response":{"output":[{"type":"reasoning","id":"rs_1","summary":[{"type":"summary_text","text":"**Checking tests**\nDetails"}],"encrypted_content":"enc_1"}]}}`,
 		`[DONE]`,
 	)
@@ -1365,6 +1382,7 @@ func TestGenerate_ReasoningCallbackNilStatusMeansCurrentAbsence(t *testing.T) {
 	transport := newOpenAIStreamTestTransport(t,
 		`{"type":"response.reasoning_summary_text.delta","item_id":"rs_1","output_index":0,"summary_index":0,"delta":"**Checking tests**"}`,
 		`{"type":"response.reasoning_summary_text.done","item_id":"rs_1","output_index":0,"summary_index":0,"text":"Plain summary"}`,
+		`{"type":"response.output_item.done","output_index":0,"item":{"type":"reasoning","id":"rs_1","summary":[{"type":"summary_text","text":"Plain summary"}],"encrypted_content":"enc_1"}}`,
 		`{"type":"response.completed","response":{"output":[{"type":"reasoning","id":"rs_1","summary":[{"type":"summary_text","text":"Plain summary"}],"encrypted_content":"enc_1"}]}}`,
 		`[DONE]`,
 	)
@@ -1425,6 +1443,8 @@ func TestGenerate_RejectsEmptyCompletedMessageAfterAssistantDeltas(t *testing.T)
 		`{"type":"response.output_text.delta","delta":"Hel"}`,
 		`{"type":"response.output_text.delta","delta":"lo"}`,
 		`{"type":"response.output_item.added","output_index":1,"item":{"id":"fc_1","type":"function_call","name":"shell","call_id":"call_1","arguments":"{\"command\":\"pwd\"}"}}`,
+		`{"type":"response.output_item.done","output_index":0,"item":{"id":"msg_1","type":"message","role":"assistant","content":[]}}`,
+		`{"type":"response.output_item.done","output_index":1,"item":{"type":"function_call","id":"fc_1","name":"shell","call_id":"call_1","arguments":"{\"command\":\"pwd\"}"}}`,
 		`{"type":"response.completed","response":{"usage":{"input_tokens":3,"output_tokens":4,"total_tokens":7},"output":[{"id":"msg_1","type":"message","role":"assistant","content":[]},{"type":"function_call","id":"fc_1","name":"shell","call_id":"call_1","arguments":"{\"command\":\"pwd\"}"}]}}`,
 		`[DONE]`,
 	)
@@ -1474,6 +1494,7 @@ func TestGenerate_PrefersPhaseResolvedAssistantTextOverRawDeltaConcatenation(t *
 		`{"type":"response.output_text.delta","delta":"Draft: "}`,
 		`{"type":"response.output_item.done","output_index":2,"item":{"id":"msg_2","type":"message","role":"assistant","phase":"final_answer","content":[{"type":"output_text","text":"Done"}]}}`,
 		`{"type":"response.output_text.delta","delta":"Done"}`,
+		`{"type":"response.output_item.done","output_index":0,"item":{"type":"function_call","id":"fc_1","name":"shell","call_id":"call_1","arguments":"{\"command\":\"pwd\"}"}}`,
 		`{"type":"response.completed","response":{"usage":{"input_tokens":2,"output_tokens":3,"total_tokens":5},"output":[{"type":"function_call","id":"fc_1","name":"shell","call_id":"call_1","arguments":"{\"command\":\"pwd\"}"}]}}`,
 		`[DONE]`,
 	)
@@ -1529,8 +1550,10 @@ func TestGenerate_EmitsCommentaryThenFinalDeltasWithTheirOutputItemPhases(t *tes
 	}
 }
 
-func TestGenerate_RepairsMissingAssistantOutputItemAtNonZeroOutputIndex(t *testing.T) {
+func TestGenerate_KeepsFinalizedAssistantAtNonZeroOutputIndex(t *testing.T) {
 	transport := newOpenAIStreamTestTransport(t,
+		`{"type":"response.output_item.done","output_index":0,"item":{"type":"reasoning","id":"rs_1","summary":[{"type":"summary_text","text":"Plan"}],"encrypted_content":"enc_1"}}`,
+		`{"type":"response.output_item.done","output_index":1,"item":{"type":"function_call","id":"fc_1","name":"shell","call_id":"call_1","arguments":"{\"command\":\"pwd\"}"}}`,
 		`{"type":"response.output_item.done","output_index":2,"item":{"id":"msg_2","type":"message","role":"assistant","phase":"final_answer","content":[{"type":"output_text","text":"Done"}]}}`,
 		`{"type":"response.completed","response":{"usage":{"input_tokens":2,"output_tokens":3,"total_tokens":5},"output":[{"type":"reasoning","id":"rs_1","summary":[{"type":"summary_text","text":"Plan"}],"encrypted_content":"enc_1"},{"type":"function_call","id":"fc_1","name":"shell","call_id":"call_1","arguments":"{\"command\":\"pwd\"}"}]}}`,
 		`[DONE]`,
@@ -1560,6 +1583,7 @@ func TestGenerate_PreservesHostedWebSearchOutputItemFromStream(t *testing.T) {
 		`{"type":"response.output_item.added","output_index":0,"item":{"type":"web_search_call","id":"ws_1","status":"in_progress","results":null,"action":{"type":"search","query":"kent cli"}}}`,
 		`{"type":"response.output_item.done","output_index":0,"item":{"type":"web_search_call","id":"ws_1","status":"completed","action":{"type":"search","query":"kent cli","queries":["kent cli","kent docs"],"sources":[{"type":"url","url":"https://kent.sh"}]},"results":[{"type":"text_result","title":"Kent","url":"https://kent.sh","snippet":"excluded snippet"}],"usage":{"searches":1}}}`,
 		`{"type":"response.output_item.added","output_index":1,"item":{"id":"msg_1","type":"message","role":"assistant","phase":"final_answer","content":[{"type":"output_text","text":"Done"}]}}`,
+		`{"type":"response.output_item.done","output_index":1,"item":{"id":"msg_1","type":"message","role":"assistant","phase":"final_answer","content":[{"type":"output_text","text":"Done"}]}}`,
 		`{"type":"response.completed","response":{"usage":{"input_tokens":2,"output_tokens":3,"total_tokens":5},"output":[{"type":"web_search_call","id":"ws_1","status":"completed","action":{"type":"search","query":"kent cli","queries":["kent cli","kent docs"],"sources":[{"type":"url","url":"https://kent.sh"}]},"results":[{"type":"text_result","title":"Kent","url":"https://kent.sh","snippet":"excluded snippet"}],"usage":{"searches":1}},{"id":"msg_1","type":"message","role":"assistant","phase":"final_answer","content":[{"type":"output_text","text":"Done"}]}]}}`,
 		`[DONE]`,
 	)

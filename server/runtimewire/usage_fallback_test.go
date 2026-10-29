@@ -52,6 +52,7 @@ func TestUsageFallbackContinuesAfterBareGrokSocketExhaustion(t *testing.T) {
 				event = `{"error":{"code":"429","type":"allowance","message":"[WKE=personal-team-blocked:spending-limit] unavailable"}}`
 			} else {
 				healthyCalls.Add(1)
+				_ = socket.Write(t.Context(), websocket.MessageText, []byte(`{"type":"response.output_item.done","output_index":0,"item":{"type":"message","id":"answer","role":"assistant","phase":"final_answer","content":[{"type":"output_text","text":"done","annotations":[]}]}}`))
 			}
 			_ = socket.Write(t.Context(), websocket.MessageText, []byte(event))
 			_, _, _ = socket.Read(t.Context())
@@ -581,6 +582,7 @@ func TestUsageFallbackContinuesNativeCompaction(t *testing.T) {
 		if _, _, err := socket.Read(t.Context()); err != nil {
 			return
 		}
+		_ = socket.Write(t.Context(), websocket.MessageText, []byte(`{"type":"response.output_item.done","output_index":0,"item":{"type":"message","id":"seed-message","role":"assistant","phase":"final_answer","content":[{"type":"output_text","text":"done","annotations":[]}]}}`))
 		_ = socket.Write(t.Context(), websocket.MessageText, []byte(`{"type":"response.completed","response":{"id":"seed","output":[{"type":"message","id":"seed-message","role":"assistant","phase":"final_answer","content":[{"type":"output_text","text":"done","annotations":[]}]}]}}`))
 		_, _, _ = socket.Read(t.Context())
 	}))
@@ -591,6 +593,7 @@ func TestUsageFallbackContinuesNativeCompaction(t *testing.T) {
 			t.Error("compaction must remain HTTP")
 		}
 		w.Header().Set("Content-Type", "text/event-stream")
+		_, _ = io.WriteString(w, `data: {"type":"response.output_item.done","output_index":0,"item":{"type":"compaction","id":"checkpoint","encrypted_content":"opaque"}}`+"\n\n")
 		_, _ = io.WriteString(w, `data: {"type":"response.completed","response":{"id":"compact","output":[{"type":"compaction","id":"checkpoint","encrypted_content":"opaque"}]}}`+"\n\n")
 	}))
 	t.Cleanup(b.Close)

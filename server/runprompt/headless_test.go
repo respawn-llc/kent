@@ -2213,6 +2213,7 @@ func writeRunPromptFunctionCallResponse(w http.ResponseWriter, itemID string, ca
 		"item_id": itemID,
 		"delta":   string(args),
 	})
+	writeSSEJSON(w, map[string]any{"type": "response.output_item.done", "output_index": 0, "item": map[string]any{"type": "function_call", "id": itemID, "name": string(toolID), "call_id": callID, "arguments": string(args)}})
 	writeSSEJSON(w, map[string]any{
 		"type": "response.completed",
 		"response": map[string]any{
@@ -2252,6 +2253,8 @@ func writeRunPromptAskQuestionResponse(w http.ResponseWriter, commentary string)
 		"item":         map[string]any{"id": "fc-ask", "type": "function_call", "name": string(toolspec.ToolAskQuestion), "call_id": "call-ask", "arguments": ""},
 	})
 	writeSSEJSON(w, map[string]any{"type": "response.function_call_arguments.delta", "item_id": "fc-ask", "delta": string(args)})
+	writeSSEJSON(w, map[string]any{"type": "response.output_item.done", "output_index": 0, "item": map[string]any{"type": "message", "role": "assistant", "phase": "commentary", "content": []any{map[string]any{"type": "output_text", "text": commentary}}}})
+	writeSSEJSON(w, map[string]any{"type": "response.output_item.done", "output_index": 1, "item": map[string]any{"type": "function_call", "id": "fc-ask", "name": string(toolspec.ToolAskQuestion), "call_id": "call-ask", "arguments": string(args)}})
 	writeSSEJSON(w, map[string]any{
 		"type": "response.completed",
 		"response": map[string]any{

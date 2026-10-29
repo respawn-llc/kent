@@ -31,7 +31,8 @@ import (
 	"github.com/google/uuid"
 )
 
-const completedResponse = `{"id":"resp_nano","object":"response","status":"completed","model":"local-model","output":[{"id":"msg_nano","type":"message","role":"assistant","status":"completed","content":[{"type":"output_text","text":"Fix invoice totals","annotations":[]}]}],"usage":{"input_tokens":10,"output_tokens":4,"total_tokens":14,"input_tokens_details":{"cached_tokens":0},"output_tokens_details":{"reasoning_tokens":0}}}`
+const completedResponse = `{"id":"resp_nano","object":"response","status":"completed","model":"local-model","output":[],"usage":{"input_tokens":10,"output_tokens":4,"total_tokens":14,"input_tokens_details":{"cached_tokens":0},"output_tokens_details":{"reasoning_tokens":0}}}`
+const finalizedResponseItem = `{"type":"response.output_item.done","output_index":0,"item":{"id":"msg_nano","type":"message","role":"assistant","status":"completed","content":[{"type":"output_text","text":"Fix invoice totals","annotations":[]}]}}`
 
 func nanoTestConfig(t *testing.T, endpoint string) (config.Settings, *authservice.ConnectionResolver) {
 	t.Helper()
@@ -97,6 +98,9 @@ func TestNanoChatGPTDispatchIdentityAndRetry(t *testing.T) {
 				t.Error(err)
 			}
 			return
+		}
+		if err := socket.Write(t.Context(), websocket.MessageText, []byte(finalizedResponseItem)); err != nil {
+			t.Error(err)
 		}
 		if err := socket.Write(t.Context(), websocket.MessageText, []byte(fmt.Sprintf(`{"type":"response.completed","response":%s}`, completedResponse))); err != nil {
 			t.Error(err)
@@ -195,6 +199,7 @@ func TestNanoToolsAndStructuredResultForwarding(t *testing.T) {
 			t.Errorf("request features = %+v", body)
 		}
 		w.Header().Set("Content-Type", "text/event-stream")
+		fmt.Fprint(w, `data: {"type":"response.output_item.done","output_index":0,"item":{"id":"fc1","type":"function_call","call_id":"call1","name":"choose","arguments":"{}","status":"completed"}}`+"\n\n")
 		fmt.Fprint(w, "event: response.completed\ndata: {\"type\":\"response.completed\",\"response\":{\"id\":\"resp_tool\",\"object\":\"response\",\"status\":\"completed\",\"model\":\"local-model\",\"output\":[{\"id\":\"fc1\",\"type\":\"function_call\",\"call_id\":\"call1\",\"name\":\"choose\",\"arguments\":\"{}\",\"status\":\"completed\"}]}}\n\n")
 	}))
 	defer server.Close()
@@ -302,6 +307,7 @@ func TestNanoUnsupportedVisionRejected(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		calls.Add(1)
 		w.Header().Set("Content-Type", "text/event-stream")
+		fmt.Fprintf(w, "data: %s\n\n", finalizedResponseItem)
 		fmt.Fprintf(w, "data: {\"type\":\"response.completed\",\"response\":%s}\n\n", completedResponse)
 	}))
 	defer server.Close()
@@ -334,6 +340,7 @@ func TestNanoAdmissionCapacityAndWaitingDeadline(t *testing.T) {
 		select {
 		case <-release:
 			w.Header().Set("Content-Type", "text/event-stream")
+			fmt.Fprintf(w, "data: %s\n\n", finalizedResponseItem)
 			fmt.Fprintf(w, "event: response.completed\ndata: {\"type\":\"response.completed\",\"response\":%s}\n\n", completedResponse)
 		case <-r.Context().Done():
 		}
@@ -417,6 +424,7 @@ func TestNanoAnonymousOneStep(t *testing.T) {
 			t.Error("anonymous connection sent credentials")
 		}
 		w.Header().Set("Content-Type", "text/event-stream")
+		fmt.Fprintf(w, "data: %s\n\n", finalizedResponseItem)
 		fmt.Fprintf(w, "event: response.completed\ndata: {\"type\":\"response.completed\",\"response\":%s}\n\n", completedResponse)
 	}))
 	defer server.Close()

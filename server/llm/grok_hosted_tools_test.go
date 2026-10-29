@@ -15,6 +15,7 @@ func TestOpenAICustomCallsDoNotUseGrokOwnershipNamespaces(t *testing.T) {
 	for _, callID := range []string{"as_pdf", "xs_search"} {
 		t.Run(callID, func(t *testing.T) {
 			transport := newOpenAIStreamTestTransport(t,
+				fmt.Sprintf(`{"type":"response.output_item.done","output_index":0,"item":{"type":"custom_tool_call","id":"custom_item","call_id":%q,"name":"patch","input":"patch input"}}`, callID),
 				fmt.Sprintf(`{"type":"response.completed","response":{"output":[{"type":"custom_tool_call","id":"custom_item","call_id":%q,"name":"patch","input":"patch input"}]}}`, callID),
 			)
 			response, err := transport.Generate(t.Context(), ResponsesRequest{

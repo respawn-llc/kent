@@ -68,7 +68,11 @@ func TestEmptyNativeResponsePreservesContinuation(t *testing.T) {
 					t.Error(err)
 					return nil
 				}
-				return []string{string(event)}
+				events := make([]string, 0, len(output)+1)
+				for index, item := range output {
+					events = append(events, fmt.Sprintf(`{"type":"response.output_item.done","output_index":%d,"item":%s}`, index, item))
+				}
+				return append(events, string(event))
 			})
 			client := nativeResponseTestClient(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 				openings.Add(1)
